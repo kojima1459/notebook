@@ -33,7 +33,7 @@ Public Sub Boot()
         Exit Sub
     End If
     gReady = True
-    ShowChatForm
+    modChatUI.EnsureLayout
     Exit Sub
 
 Failed:
@@ -56,8 +56,3 @@ Private Sub SyncIndexFromRemote()
     End If
 End Sub
 
-Private Sub ShowChatForm()
-    On Error Resume Next
-    frmChat.Show vbModeless
-    On Error GoTo 0
-End Sub
