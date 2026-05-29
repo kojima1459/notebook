@@ -56,9 +56,13 @@ $chatbotModules = @(
 $adminModules = @(
     "modChunker.bas",
     "modExtractor.bas",
+    "modExtractorWord.bas",
+    "modExtractorAcrobat.bas",
+    "modExtractorExcel.bas",
     "modIndexWriter.bas",
     "modKnowledgeBuilder.bas",
-    "modKeyEnroller.bas"
+    "modKeyEnroller.bas",
+    "modUsageAggregator.bas"
 )
 
 function Build-Xlsm {

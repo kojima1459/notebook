@@ -4,10 +4,12 @@ Option Explicit
 ' ============================================================================
 ' modExtractor - text extraction dispatcher
 ' ----------------------------------------------------------------------------
-' Routes by file extension. Week 1 supports .txt only. Week 2 adds:
-'   .pdf  -> modExtractorWord (Word's PDF Reflow)
-'   .docx -> modExtractorWord
-'   .xlsx -> modExtractorExcel
+' Routes by file extension to the right specialist module:
+'   .txt / .md / .csv   -> plain ADODB.Stream UTF-8 read
+'   .pdf                -> modExtractorWord (Word PDF Reflow), with
+'                          modExtractorAcrobat as fallback
+'   .docx / .doc        -> modExtractorWord
+'   .xlsx / .xls / .xlsm-> modExtractorExcel
 ' ============================================================================
 
 Public Type ExtractedPage
@@ -23,16 +25,31 @@ Public Function ExtractFile(ByVal path As String, ByRef outSource As String) As 
     Select Case ext
         Case "txt", "md", "csv"
             ExtractFile = ExtractPlainText(path)
-        Case "pdf", "docx", "doc"
-            Err.Raise vbObjectError + &H7001, "modExtractor", _
-                "PDF/Word extraction lands in Week 2 (Word.Application Reflow)."
-        Case "xlsx", "xlsm", "xls"
-            Err.Raise vbObjectError + &H7002, "modExtractor", _
-                "Excel extraction lands in Week 2."
+        Case "pdf"
+            ExtractFile = ExtractPdfWithFallback(path)
+        Case "docx", "doc"
+            ExtractFile = modExtractorWord.Extract(path)
+        Case "xlsx", "xls", "xlsm"
+            ExtractFile = modExtractorExcel.Extract(path)
         Case Else
             Err.Raise vbObjectError + &H7003, "modExtractor", _
                 "Unsupported file type: " & ext
     End Select
+End Function
+
+Private Function ExtractPdfWithFallback(ByVal path As String) As ExtractedPage()
+    On Error GoTo TryAcrobat
+    ExtractPdfWithFallback = modExtractorWord.Extract(path)
+    Exit Function
+TryAcrobat:
+    Dim wordErr As String: wordErr = Err.Description
+    On Error GoTo NoFallback
+    ExtractPdfWithFallback = modExtractorAcrobat.Extract(path)
+    Exit Function
+NoFallback:
+    Err.Raise vbObjectError + &H7004, "modExtractor", _
+        "Both Word and Acrobat extraction failed for " & path & _
+        " (Word: " & wordErr & ", Acrobat: " & Err.Description & ")"
 End Function
 
 Private Function ExtractPlainText(ByVal path As String) As ExtractedPage()

@@ -37,9 +37,15 @@
 
 ## 利用集計
 
-1. `Admin_KnowledgeBuilder.xlsm` の「利用集計」シートを開く。
-2. Power Query クエリ `usage_all` をリフレッシュ (データ→クエリのリフレッシュ)。
-3. SharePoint 上の全 `*.csv` が結合されてピボットテーブルに反映される。
+1. `Admin_KnowledgeBuilder.xlsm` で `modUsageAggregator.RefreshUsageSheet` を実行 (開発タブ → マクロ)。
+2. `[logging] remote_url` フォルダ配下の `*.csv` がすべて読み込まれ、`Usage` シートに統合される。
+3. `Usage` シート上で挿入 → ピボットテーブルを作って、部署別・ユーザー別・日次の集計を作成 (一度作れば次回からは「すべて更新」で済む)。
+
+### 推奨ピボット例
+
+- 行: `department`, 値: `prompt_tokens` 合計、`completion_tokens` 合計
+- 行: `username`, 値: 件数 (= question_tokens の `カウント`)
+- ページフィルタ: `pii_warn = 1` で個人情報警告のみ抽出
 
 ## 月次タスク
 
