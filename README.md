@@ -37,6 +37,8 @@ dist/          ビルド成果物 (.gitignore)
 
 ## ドキュメント
 
+- [docs/it-checklist.md](docs/it-checklist.md) - **着手前に情シスへ持っていく1枚**
+- [docs/build-walkthrough.md](docs/build-walkthrough.md) - **初回 Windows ビルド手順 (所要30〜60分)**
 - [docs/architecture.md](docs/architecture.md) - 全体構成
 - [docs/security.md](docs/security.md) - 秘匿の限界と移行計画
 - [docs/admin-guide.md](docs/admin-guide.md) - 管理者手順
