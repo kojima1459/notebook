@@ -2,6 +2,8 @@
 
 社内アンダーライターの問い合わせ対応を減らすため、支社営業担当者向けに配布する社内ナレッジQAチャットbot。Excel マクロ (.xlsm) で動作し、社内ナレッジ (PDF/Word/Excel) を出典付きで検索回答する。
 
+> **このブランチ (`claude/prototype-gemini-demo`) は情シス向けデモ用のプロトタイプ**です。本番は Azure OpenAI 想定ですが、デモは Gemini API + 個人キー + サンプルPDF16件で動かします。詳細は [docs/demo-quickstart.md](docs/demo-quickstart.md) と [docs/demo-build.md](docs/demo-build.md)。本番版コードは `claude/internal-notebook-lm-chatbot-B6BE7` ブランチ。
+
 ## このリポジトリの構成
 
 ```
@@ -37,8 +39,15 @@ dist/          ビルド成果物 (.gitignore)
 
 ## ドキュメント
 
-- [docs/it-checklist.md](docs/it-checklist.md) - **着手前に情シスへ持っていく1枚**
-- [docs/build-walkthrough.md](docs/build-walkthrough.md) - **初回 Windows ビルド手順 (所要30〜60分)**
+**デモ (このブランチ)**
+
+- [docs/demo-quickstart.md](docs/demo-quickstart.md) - **情シスに渡す5分起動ガイド**
+- [docs/demo-build.md](docs/demo-build.md) - **あなたが情シス向けxlsmを組む手順**
+
+**本番** (`claude/internal-notebook-lm-chatbot-B6BE7` ブランチ)
+
+- [docs/it-checklist.md](docs/it-checklist.md) - 着手前に情シスへ持っていく1枚
+- [docs/build-walkthrough.md](docs/build-walkthrough.md) - 初回 Windows ビルド手順 (所要30〜60分)
 - [docs/architecture.md](docs/architecture.md) - 全体構成
 - [docs/security.md](docs/security.md) - 秘匿の限界と移行計画
 - [docs/admin-guide.md](docs/admin-guide.md) - 管理者手順

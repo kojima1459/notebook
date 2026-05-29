@@ -4,8 +4,12 @@ Option Explicit
 ' ============================================================================
 ' modApiGateway - Provider-agnostic Embed() / Chat() facade
 ' ----------------------------------------------------------------------------
-' Hides the API mode (A/B/C) and provider (Azure OpenAI now, OpenAI/relay
-' later) behind two functions. Callers only know about texts and messages.
+' Hides the provider (Azure OpenAI / Gemini / relay) and key mode (A/B/C/P)
+' behind two functions. Callers only know about texts and messages.
+'
+' Selected via config.ini [api] provider = azure_openai | gemini
+' Default is azure_openai for production builds; the demo build flips it to
+' gemini in config.sample.ini.
 ' ============================================================================
 
 Public Type ChatResult
@@ -27,25 +31,50 @@ Public Type EmbedResult
     ErrorMessage As String
 End Type
 
-' ----------------------------------------------------------------------------
-' Public: Embed a batch of texts
-' ----------------------------------------------------------------------------
 Public Function Embed(ByRef texts() As String) As EmbedResult
+    Select Case LCase$(modConfig.GetString("api", "provider", "azure_openai"))
+        Case "gemini": Embed = EmbedGemini(texts)
+        Case Else:     Embed = EmbedAzureOpenAI(texts)
+    End Select
+End Function
+
+Public Function Chat(ByVal systemPrompt As String, ByVal userPrompt As String) As ChatResult
+    Select Case LCase$(modConfig.GetString("api", "provider", "azure_openai"))
+        Case "gemini": Chat = ChatGemini(systemPrompt, userPrompt)
+        Case Else:     Chat = ChatAzureOpenAI(systemPrompt, userPrompt)
+    End Select
+End Function
+
+' ============================================================================
+' Gemini (Google Generative Language API)
+' ----------------------------------------------------------------------------
+' Auth: header `x-goog-api-key: <key>` (URL query also works but stays out of
+' proxy logs this way).
+' Chat: POST .../v1beta/models/{model}:generateContent
+' Embed: POST .../v1beta/models/{model}:batchEmbedContents
+' ============================================================================
+
+Private Function GeminiBaseUrl() As String
+    GeminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models/"
+End Function
+
+Private Function EmbedGemini(ByRef texts() As String) As EmbedResult
     Dim r As EmbedResult
-    Dim mode As String: mode = UCase$(modConfig.GetString("api", "mode", "B"))
+    Dim model As String
+    model = modConfig.GetString("api", "embed_deployment", "text-embedding-004")
+    Dim url As String: url = GeminiBaseUrl() & model & ":batchEmbedContents"
 
-    Dim url As String
     Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
-    BuildEmbedRequest mode, url, headers
-    If LenB(url) = 0 Then
-        r.OK = False
-        r.ErrorMessage = "Embed URL not configured"
-        Embed = r
-        Exit Function
-    End If
+    headers("x-goog-api-key") = modKeyVault.GetKey()
 
-    Dim body As String
-    body = BuildEmbedBody(texts)
+    Dim body As String, i As Long
+    body = "{""requests"":["
+    For i = LBound(texts) To UBound(texts)
+        If i > LBound(texts) Then body = body & ","
+        body = body & "{""model"":""models/" & model & """,""content"":{""parts"":[{""text"":" & _
+               JsonString(texts(i)) & "}]}}"
+    Next i
+    body = body & "]}"
 
     Dim resp As HttpResponse
     resp = modHttpClient.PostJson(url, body, headers, 90000)
@@ -53,21 +82,137 @@ Public Function Embed(ByRef texts() As String) As EmbedResult
     If resp.Status < 200 Or resp.Status >= 300 Then
         r.OK = False
         r.ErrorMessage = "HTTP " & resp.Status & " " & Left$(resp.Body, 500)
-        If LenB(resp.ErrorMessage) > 0 Then
-            r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
-        End If
-        Embed = r
+        If LenB(resp.ErrorMessage) > 0 Then r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
+        EmbedGemini = r
         Exit Function
     End If
 
     On Error GoTo ParseFail
-    Dim parsed As Object
-    Set parsed = JsonConverter.ParseJson(resp.Body)
+    Dim parsed As Object: Set parsed = JsonConverter.ParseJson(resp.Body)
+    Dim arr As Object: Set arr = parsed("embeddings")
+    Dim n As Long: n = arr.Count
+    If n = 0 Then
+        r.OK = False
+        r.ErrorMessage = "Empty embeddings array"
+        EmbedGemini = r
+        Exit Function
+    End If
+    Dim firstVec As Object: Set firstVec = arr(1)("values")
+    Dim d As Long: d = firstVec.Count
+
+    ReDim r.Vectors(0 To n * d - 1)
+    Dim j As Long, base As Long
+    For i = 1 To n
+        Dim vec As Object: Set vec = arr(i)("values")
+        base = (i - 1) * d
+        For j = 1 To d
+            r.Vectors(base + j - 1) = CDbl(vec(j))
+        Next j
+    Next i
+    r.Dim_ = d
+    r.Count_ = n
+    r.OK = True
+    EmbedGemini = r
+    Exit Function
+ParseFail:
+    r.OK = False
+    r.ErrorMessage = "Gemini embed parse failed: " & Err.Description
+    EmbedGemini = r
+End Function
+
+Private Function ChatGemini(ByVal systemPrompt As String, ByVal userPrompt As String) As ChatResult
+    Dim r As ChatResult
+    Dim model As String
+    model = modConfig.GetString("api", "chat_deployment", "gemini-2.5-flash")
+    Dim url As String: url = GeminiBaseUrl() & model & ":generateContent"
+
+    Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
+    headers("x-goog-api-key") = modKeyVault.GetKey()
+
+    Dim body As String
+    body = "{""system_instruction"":{""parts"":[{""text"":" & JsonString(systemPrompt) & "}]},"
+    body = body & """contents"":[{""role"":""user"",""parts"":[{""text"":" & JsonString(userPrompt) & "}]}],"
+    body = body & """generationConfig"":{""temperature"":0.2,""maxOutputTokens"":2048}}"
+
+    Dim resp As HttpResponse
+    resp = modHttpClient.PostJson(url, body, headers, 120000)
+    r.LatencyMs = resp.LatencyMs
+    If resp.Status < 200 Or resp.Status >= 300 Then
+        r.OK = False
+        r.ErrorMessage = "HTTP " & resp.Status & " " & Left$(resp.Body, 500)
+        If LenB(resp.ErrorMessage) > 0 Then r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
+        ChatGemini = r
+        Exit Function
+    End If
+
+    On Error GoTo ParseFail
+    Dim parsed As Object: Set parsed = JsonConverter.ParseJson(resp.Body)
+    Dim cand As Object: Set cand = parsed("candidates")
+    If cand.Count = 0 Then
+        r.OK = False
+        r.ErrorMessage = "Gemini returned no candidates"
+        ChatGemini = r
+        Exit Function
+    End If
+    Dim content As Object: Set content = cand(1)("content")
+    Dim parts As Object: Set parts = content("parts")
+    Dim sb As String, i As Long
+    For i = 1 To parts.Count
+        If parts(i).Exists("text") Then sb = sb & CStr(parts(i)("text"))
+    Next i
+    r.Content = sb
+
+    If parsed.Exists("usageMetadata") Then
+        Dim u As Object: Set u = parsed("usageMetadata")
+        If u.Exists("promptTokenCount") Then r.PromptTokens = CLng(u("promptTokenCount"))
+        If u.Exists("candidatesTokenCount") Then r.CompletionTokens = CLng(u("candidatesTokenCount"))
+    End If
+    r.OK = True
+    ChatGemini = r
+    Exit Function
+ParseFail:
+    r.OK = False
+    r.ErrorMessage = "Gemini chat parse failed: " & Err.Description
+    ChatGemini = r
+End Function
+
+' ============================================================================
+' Azure OpenAI (unchanged from production design)
+' ============================================================================
+
+Private Function EmbedAzureOpenAI(ByRef texts() As String) As EmbedResult
+    Dim r As EmbedResult
+    Dim mode As String: mode = UCase$(modConfig.GetString("api", "mode", "B"))
+
+    Dim url As String
+    Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
+    BuildAzureEmbedRequest mode, url, headers
+    If LenB(url) = 0 Then
+        r.OK = False
+        r.ErrorMessage = "Embed URL not configured"
+        EmbedAzureOpenAI = r
+        Exit Function
+    End If
+
+    Dim body As String: body = BuildAzureEmbedBody(texts)
+
+    Dim resp As HttpResponse
+    resp = modHttpClient.PostJson(url, body, headers, 90000)
+    r.LatencyMs = resp.LatencyMs
+    If resp.Status < 200 Or resp.Status >= 300 Then
+        r.OK = False
+        r.ErrorMessage = "HTTP " & resp.Status & " " & Left$(resp.Body, 500)
+        If LenB(resp.ErrorMessage) > 0 Then r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
+        EmbedAzureOpenAI = r
+        Exit Function
+    End If
+
+    On Error GoTo ParseFail
+    Dim parsed As Object: Set parsed = JsonConverter.ParseJson(resp.Body)
     Dim items As Object: Set items = parsed("data")
     Dim n As Long: n = items.Count
-    Dim d As Long
     Dim firstVec As Object: Set firstVec = items(1)("embedding")
-    d = firstVec.Count
+    Dim d As Long: d = firstVec.Count
 
     ReDim r.Vectors(0 To n * d - 1)
     Dim i As Long, j As Long, base As Long
@@ -80,39 +225,32 @@ Public Function Embed(ByRef texts() As String) As EmbedResult
     Next i
     r.Dim_ = d
     r.Count_ = n
-
-    If parsed.Exists("usage") Then
-        r.PromptTokens = CLng(parsed("usage")("prompt_tokens"))
-    End If
+    If parsed.Exists("usage") Then r.PromptTokens = CLng(parsed("usage")("prompt_tokens"))
     r.OK = True
-    Embed = r
+    EmbedAzureOpenAI = r
     Exit Function
 
 ParseFail:
     r.OK = False
     r.ErrorMessage = "JSON parse failed: " & Err.Description
-    Embed = r
+    EmbedAzureOpenAI = r
 End Function
 
-' ----------------------------------------------------------------------------
-' Public: Chat completion (single turn). Messages built from system + user.
-' ----------------------------------------------------------------------------
-Public Function Chat(ByVal systemPrompt As String, ByVal userPrompt As String) As ChatResult
+Private Function ChatAzureOpenAI(ByVal systemPrompt As String, ByVal userPrompt As String) As ChatResult
     Dim r As ChatResult
     Dim mode As String: mode = UCase$(modConfig.GetString("api", "mode", "B"))
 
     Dim url As String
     Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
-    BuildChatRequest mode, url, headers
+    BuildAzureChatRequest mode, url, headers
     If LenB(url) = 0 Then
         r.OK = False
         r.ErrorMessage = "Chat URL not configured"
-        Chat = r
+        ChatAzureOpenAI = r
         Exit Function
     End If
 
-    Dim body As String
-    body = BuildChatBody(systemPrompt, userPrompt)
+    Dim body As String: body = BuildAzureChatBody(systemPrompt, userPrompt)
 
     Dim resp As HttpResponse
     resp = modHttpClient.PostJson(url, body, headers, 120000)
@@ -120,10 +258,8 @@ Public Function Chat(ByVal systemPrompt As String, ByVal userPrompt As String) A
     If resp.Status < 200 Or resp.Status >= 300 Then
         r.OK = False
         r.ErrorMessage = "HTTP " & resp.Status & " " & Left$(resp.Body, 500)
-        If LenB(resp.ErrorMessage) > 0 Then
-            r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
-        End If
-        Chat = r
+        If LenB(resp.ErrorMessage) > 0 Then r.ErrorMessage = r.ErrorMessage & " | " & resp.ErrorMessage
+        ChatAzureOpenAI = r
         Exit Function
     End If
 
@@ -133,7 +269,7 @@ Public Function Chat(ByVal systemPrompt As String, ByVal userPrompt As String) A
     If choices.Count = 0 Then
         r.OK = False
         r.ErrorMessage = "No choices in response"
-        Chat = r
+        ChatAzureOpenAI = r
         Exit Function
     End If
     r.Content = CStr(choices(1)("message")("content"))
@@ -142,36 +278,32 @@ Public Function Chat(ByVal systemPrompt As String, ByVal userPrompt As String) A
         r.CompletionTokens = CLng(parsed("usage")("completion_tokens"))
     End If
     r.OK = True
-    Chat = r
+    ChatAzureOpenAI = r
     Exit Function
 
 ParseFail:
     r.OK = False
     r.ErrorMessage = "JSON parse failed: " & Err.Description
-    Chat = r
+    ChatAzureOpenAI = r
 End Function
 
-' ----------------------------------------------------------------------------
-' Request builders (per mode)
-' ----------------------------------------------------------------------------
-
-Private Sub BuildEmbedRequest(ByVal mode As String, ByRef url As String, ByVal headers As Object)
+Private Sub BuildAzureEmbedRequest(ByVal mode As String, ByRef url As String, ByVal headers As Object)
     Select Case mode
         Case "A"
             url = modConfig.GetString("api", "relay_url", "") & "/embeddings"
             ApplyRelayAuth headers
-        Case "B", "C"
+        Case Else
             url = BuildAzureUrl(modConfig.GetString("api", "embed_deployment", ""), "embeddings")
             ApplyAzureAuth mode, headers
     End Select
 End Sub
 
-Private Sub BuildChatRequest(ByVal mode As String, ByRef url As String, ByVal headers As Object)
+Private Sub BuildAzureChatRequest(ByVal mode As String, ByRef url As String, ByVal headers As Object)
     Select Case mode
         Case "A"
             url = modConfig.GetString("api", "relay_url", "") & "/chat/completions"
             ApplyRelayAuth headers
-        Case "B", "C"
+        Case Else
             url = BuildAzureUrl(modConfig.GetString("api", "chat_deployment", ""), "chat/completions")
             ApplyAzureAuth mode, headers
     End Select
@@ -181,34 +313,24 @@ Private Function BuildAzureUrl(ByVal deployment As String, ByVal route As String
     Dim endpoint As String, ver As String
     endpoint = modConfig.GetString("api", "endpoint", "")
     ver = modConfig.GetString("api", "api_version", "2024-10-21")
-    If LenB(endpoint) = 0 Or LenB(deployment) = 0 Then
-        BuildAzureUrl = ""
-        Exit Function
-    End If
+    If LenB(endpoint) = 0 Or LenB(deployment) = 0 Then Exit Function
     If Right$(endpoint, 1) = "/" Then endpoint = Left$(endpoint, Len(endpoint) - 1)
     BuildAzureUrl = endpoint & "/openai/deployments/" & deployment & "/" & route & "?api-version=" & ver
 End Function
 
 Private Sub ApplyAzureAuth(ByVal mode As String, ByVal headers As Object)
     Select Case mode
-        Case "B"
-            headers("api-key") = modKeyVault.GetKey()
-        Case "C"
-            headers("Authorization") = "Bearer " & modKeyVault.GetKey()
+        Case "C": headers("Authorization") = "Bearer " & modKeyVault.GetKey()
+        Case Else: headers("api-key") = modKeyVault.GetKey()
     End Select
 End Sub
 
 Private Sub ApplyRelayAuth(ByVal headers As Object)
-    ' Per-user token if the relay requires one. Empty for IP-allowlist relays.
     Dim tok As String: tok = modKeyVault.GetKey()
     If LenB(tok) > 0 Then headers("Authorization") = "Bearer " & tok
 End Sub
 
-' ----------------------------------------------------------------------------
-' Body builders (Azure OpenAI / OpenAI use the same chat & embeddings schema)
-' ----------------------------------------------------------------------------
-
-Private Function BuildEmbedBody(ByRef texts() As String) As String
+Private Function BuildAzureEmbedBody(ByRef texts() As String) As String
     Dim sb As String, i As Long
     sb = "{""input"":["
     For i = LBound(texts) To UBound(texts)
@@ -216,18 +338,19 @@ Private Function BuildEmbedBody(ByRef texts() As String) As String
         sb = sb & JsonString(texts(i))
     Next i
     sb = sb & "]}"
-    BuildEmbedBody = sb
+    BuildAzureEmbedBody = sb
 End Function
 
-Private Function BuildChatBody(ByVal systemPrompt As String, ByVal userPrompt As String) As String
+Private Function BuildAzureChatBody(ByVal systemPrompt As String, ByVal userPrompt As String) As String
     Dim sb As String
     sb = "{""messages"":["
     sb = sb & "{""role"":""system"",""content"":" & JsonString(systemPrompt) & "},"
     sb = sb & "{""role"":""user"",""content"":" & JsonString(userPrompt) & "}"
     sb = sb & "],""temperature"":0.2}"
-    BuildChatBody = sb
+    BuildAzureChatBody = sb
 End Function
 
+' Shared JSON string escaper
 Private Function JsonString(ByVal s As String) As String
     Dim out As String, i As Long, ch As String, code As Long
     out = """"

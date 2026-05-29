@@ -2,20 +2,23 @@ Attribute VB_Name = "modKeyVault"
 Option Explicit
 
 ' ============================================================================
-' modKeyVault - API key resolver (3-mode abstraction)
+' modKeyVault - API key resolver (4-mode abstraction)
 ' ----------------------------------------------------------------------------
 '   Mode A (relay):  no client-side key; auth is at the relay server.
 '   Mode B (direct + obfuscated): key is XOR+Base64 encoded into a hidden
 '                                 named range. Decoded only inside this module.
 '   Mode C (Entra ID): an OAuth2 access token is obtained per-session and
 '                      cached until expiry. Implementation TBD - placeholder.
+'   Mode P (plain):  config.ini [api] api_key=... in cleartext. **Demo only.**
+'                    Used for the Gemini prototype so a non-developer can
+'                    paste their personal key and run the bot without VBA.
 '
 ' SECURITY NOTE
 ' -------------
 ' Mode B obfuscation prevents casual viewing only. A determined user can
 ' extract the key from the xlsm by unzipping the package and dumping the
-' VBA project. Treat this as "out of sight, not out of reach" and document
-' the limitation in docs/security.md. The right answer is Mode A.
+' VBA project. Mode P stores the key in cleartext - never ship a config.ini
+' with a real production key. The right long-term answer is Mode A.
 ' ============================================================================
 
 Private Const KEY_STORAGE_NAME As String = "__nblm_obf_key__"
@@ -37,6 +40,9 @@ Public Function GetKey() As String
         Case "C"
             ' Entra ID token cache - to be implemented.
             mCachedKey = ResolveEntraToken()
+        Case "P"
+            ' Plain mode: config.ini cleartext. Demo only.
+            mCachedKey = modConfig.GetString("api", "api_key", "")
         Case Else
             mCachedKey = DecodeObfuscated(LoadObfuscatedBlob())
     End Select
