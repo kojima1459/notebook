@@ -54,15 +54,19 @@ Public Function LoadIndex(ByVal dir As String) As LoadedIndex
     Dim chunksJson As String: chunksJson = ReadAllText(chunksPath)
     Dim arr As Object: Set arr = JsonConverter.ParseJson(chunksJson)
     Dim n As Long: n = arr.Count
-    ReDim r.Chunks(0 To n - 1)
-    Dim i As Long
-    For i = 1 To n
-        r.Chunks(i - 1).Id = CStr(arr(i)("id"))
-        r.Chunks(i - 1).Source = CStr(arr(i)("source"))
-        r.Chunks(i - 1).page = CLng(arr(i)("page"))
-        r.Chunks(i - 1).StartCharOffset = CLng(arr(i)("start"))
-        r.Chunks(i - 1).Text = CStr(arr(i)("text"))
-    Next i
+    If n > 0 Then
+        ReDim r.Chunks(0 To n - 1)
+        Dim i As Long
+        For i = 1 To n
+            r.Chunks(i - 1).Id = CStr(arr(i)("id"))
+            r.Chunks(i - 1).Source = CStr(arr(i)("source"))
+            r.Chunks(i - 1).page = CLng(arr(i)("page"))
+            r.Chunks(i - 1).StartCharOffset = CLng(arr(i)("start"))
+            r.Chunks(i - 1).Text = CStr(arr(i)("text"))
+        Next i
+    Else
+        ReDim r.Chunks(-1 To -1)
+    End If
 
     r.OK = True
     LoadIndex = r

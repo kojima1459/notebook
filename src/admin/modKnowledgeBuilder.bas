@@ -92,6 +92,7 @@ NextFile:
             dim_ = emb.Dim_
             ReDim flat(0 To chunkCount * dim_ - 1)
         ElseIf emb.Dim_ <> dim_ Then
+            Application.StatusBar = False
             MsgBox "embedding 次元の不一致 (" & emb.Dim_ & " vs " & dim_ & ")", vbCritical
             Exit Sub
         End If

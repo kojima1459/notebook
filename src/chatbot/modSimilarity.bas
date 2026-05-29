@@ -14,6 +14,13 @@ Public Sub TopK(ByRef flat() As Double, _
                 ByVal k As Long, _
                 ByRef outIdx() As Long, _
                 ByRef outScore() As Double)
+    ' Empty index guard - VBA ReDim(0 To -1) errors, so produce an empty
+    ' (-1 To -1) array which the chatbot's downstream code treats as "no hits".
+    If count <= 0 Or k <= 0 Then
+        ReDim outIdx(-1 To -1)
+        ReDim outScore(-1 To -1)
+        Exit Sub
+    End If
     If k > count Then k = count
     ReDim outIdx(0 To k - 1)
     ReDim outScore(0 To k - 1)

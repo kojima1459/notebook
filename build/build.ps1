@@ -96,15 +96,32 @@ function Build-Xlsm {
         # Always import the JsonConverter (may be vendor or stub)
         $vbProj.VBComponents.Import((Resolve-Path $vendorJson).Path) | Out-Null
 
-        # Import role-specific
+        # Import role-specific. .frm files cannot carry control layout in
+        # text form (the layout is in the binary .frx). The build expects
+        # the form (e.g. frmChat) to already exist in the template with the
+        # required controls; we replace only its code module.
         foreach ($dir in $ExtraSrcDirs) {
             foreach ($mod in $ExtraModules) {
                 $path = Join-Path $dir $mod
                 if (Test-Path $path) {
                     if ($mod -eq "ThisWorkbook.cls") {
-                        # Replace the existing ThisWorkbook code rather than import
                         $code = Get-Content $path -Raw
                         $vbProj.VBComponents("ThisWorkbook").CodeModule.AddFromString $code
+                    } elseif ($mod -like "*.frm") {
+                        $formName = [System.IO.Path]::GetFileNameWithoutExtension($mod)
+                        $formComp = $vbProj.VBComponents.Item($formName)
+                        if ($null -eq $formComp) {
+                            throw "Template is missing UserForm '$formName'. Add it with the required controls before building."
+                        }
+                        # Strip the header/attributes block so we feed only
+                        # executable code into AddFromString.
+                        $raw = Get-Content $path -Raw
+                        $code = ($raw -split "Option Explicit", 2)[1]
+                        if ($code) {
+                            $module = $formComp.CodeModule
+                            if ($module.CountOfLines -gt 0) { $module.DeleteLines(1, $module.CountOfLines) }
+                            $module.AddFromString "Option Explicit" + $code
+                        }
                     } else {
                         $vbProj.VBComponents.Import((Resolve-Path $path).Path) | Out-Null
                     }
