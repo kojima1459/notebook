@@ -2,22 +2,16 @@
 
 This directory contains the build pipeline for the two distribution xlsm files.
 
-## Required artifacts (not in Git)
+## Required artifacts
 
-The chat UI is now rendered onto a worksheet at runtime by `modChatUI`,
-so no UserForm and no template workbooks are required. `build.ps1`
-creates blank macro-enabled workbooks from scratch via Excel COM, then
-injects the modules.
+The chat UI is rendered onto a worksheet at runtime by `modChatUI`, so no
+UserForm and no template workbooks are required. `build.ps1` creates
+blank macro-enabled workbooks from scratch via Excel COM, then injects
+the modules.
 
-- `vendor/JsonConverter.bas` - VBA-JSON v2.3.1 from
-  <https://github.com/VBA-tools/VBA-JSON/releases/tag/v2.3.1>
-  - File: `JsonConverter.bas`
-  - SHA-256: pin in your own copy (the upstream release page lists it).
-
-Track template xlsm files via Git LFS once they exist:
-```
-git lfs track "build/*.xlsm"
-```
+VBA-JSON v2.3.1 (`vendor/JsonConverter.bas`, MIT licensed) is bundled in
+the repo, so no manual download is needed. Source:
+<https://github.com/VBA-tools/VBA-JSON/releases/tag/v2.3.1>
 
 ## Build
 

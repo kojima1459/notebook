@@ -1,5 +1,4 @@
 dist/
-build/vendor/
 build/template_*.xlsm
 *.log
 *.swp

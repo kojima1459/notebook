@@ -19,14 +19,9 @@ zip を解凍して、たとえば `C:\notebook\` に置きます。
 
 > Git をインストールしてある場合は `git clone -b claude/prototype-gemini-demo <URL>` でもOKですが、上記の ZIP の方が手間なし。
 
-## ステップ 2: VBA-JSON ライブラリを1ファイルだけダウンロード
+## ステップ 2: (不要・スキップ)
 
-xlsm の中で JSON を読むのに必要なライブラリです。1ファイルだけ。
-
-1. ブラウザで `https://github.com/VBA-tools/VBA-JSON/releases/tag/v2.3.1` を開く
-2. **`Source code (zip)`** をダウンロード
-3. 解凍して、中の **`JsonConverter.bas`** を取り出す
-4. それを `C:\notebook\build\vendor\JsonConverter.bas` に置く (`vendor` フォルダがなければ作る)
+以前は VBA-JSON ライブラリを別途ダウンロードしてもらう必要がありましたが、リポジトリに同梱したのでこの手順は**不要になりました**。ZIPを解凍した時点で `build\vendor\JsonConverter.bas` に既に入っています。
 
 ## ステップ 3: Excel の設定を1つだけ変える
 
