@@ -34,16 +34,39 @@ Excel を起動 → **ファイル > オプション > トラスト センター
 
 ## ステップ 4: ビルドを走らせる
 
-PowerShell を開いて (スタート → `powershell` と入力):
+PowerShellが使えるなら、これ一発で済みます:
 
 ```powershell
-cd C:\notebook\build
+cd <解凍した notebook フォルダ>\build
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-これだけ。Excel が裏で動き、`C:\notebook\dist\` の中に **`Chatbot.xlsm`** と **`Admin_KnowledgeBuilder.xlsm`** が出来ます。
+Excel が裏で動き、`..\dist\` の中に **`Chatbot.xlsm`** と **`Admin_KnowledgeBuilder.xlsm`** が出来ます。
 
-> エラーが出たら、メッセージごと僕に貼り付けてください。よくあるのはステップ 3 を忘れているか、ステップ 2 で別の場所にダウンロードしたパターン。
+### PowerShellが使えない場合（社内PCで制限されているケース）
+
+Excelだけで完結する手順を用意してあります。`build\BuildBootstrap.bas` を使います。
+
+**Chatbot.xlsm を作る:**
+
+1. Excel を起動 → **空のブック** → **名前を付けて保存** で、ファイルの種類を **「Excel マクロ有効ブック (*.xlsm)」** にして `Chatbot.xlsm` という名前で保存（場所はどこでもいい）
+2. **Alt + F11** キーを押して VBA エディタを開く
+3. メニューの **ファイル → ファイルのインポート**
+4. 解凍したnotebookフォルダの中の **`build\BuildBootstrap.bas`** を選んで開く
+5. 左側のツリーに **「BuildBootstrap」** が出るのでダブルクリック → コードが表示される
+6. コードの中で **`Sub BuildChatbot()`** の行のどこかにカーソルを置き、**F5** キーを押す
+7. フォルダ選択ダイアログが出るので、**解凍した notebook フォルダ** (中に `build/` や `src/` がある階層) を選ぶ
+8. 「完了しました！」が出たら **Ctrl+S** で保存
+9. 左ツリーから **BuildBootstrap** を右クリック → 「BuildBootstrapの解放」→ エクスポートするか聞かれたら **「いいえ」**
+10. もう一度 **Ctrl+S** → Excel を閉じる
+
+**Admin_KnowledgeBuilder.xlsm を作る:**
+
+同じ手順をもう一度繰り返します。違うのは:
+- 手順1のファイル名: `Admin_KnowledgeBuilder.xlsm`
+- 手順6で F5 を押す前に、**`Sub BuildAdmin()`** の行にカーソルを移してから F5
+
+> エラーが出たら、メッセージごと僕に貼り付けてください。よくあるのは Trust Center の「VBAプロジェクトオブジェクトモデルへのアクセス」設定漏れです（ステップ3）。
 
 ## ステップ 5: APIキーを設定する
 
