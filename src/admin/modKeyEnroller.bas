@@ -1,4 +1,4 @@
-Attribute VB_Name = "modKeyEnroller"
+﻿Attribute VB_Name = "modKeyEnroller"
 Option Explicit
 
 ' ============================================================================

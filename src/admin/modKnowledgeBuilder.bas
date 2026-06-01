@@ -1,4 +1,4 @@
-Attribute VB_Name = "modKnowledgeBuilder"
+﻿Attribute VB_Name = "modKnowledgeBuilder"
 Option Explicit
 
 ' ============================================================================

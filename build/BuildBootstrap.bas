@@ -2,25 +2,25 @@ Attribute VB_Name = "BuildBootstrap"
 Option Explicit
 
 ' ============================================================================
-' BuildBootstrap - in-Excel builder (no PowerShell needed)
+' BuildBootstrap - in-Excel builder, ASCII-only for cross-platform safety
 ' ----------------------------------------------------------------------------
-' For locked-down corporate PCs where PowerShell is unavailable. Run this
-' inside a freshly saved blank xlsm to populate it with all the modules
-' needed for Chatbot.xlsm or Admin_KnowledgeBuilder.xlsm.
+' Works on both Excel for Mac and Excel for Windows. All messages kept in
+' English to avoid encoding issues when this .bas file is imported into
+' Mac Excel's VBA editor (which assumes system codepage for .bas content).
 '
 ' Usage:
-'   1. Open Excel, create a new workbook, Save As Chatbot.xlsm (macro-enabled)
-'   2. Press Alt+F11 (VBA editor)
-'   3. File > Import File... > select this file (BuildBootstrap.bas)
-'   4. Press F5 with cursor inside BuildChatbot, or run from menu
+'   1. Open Excel, new blank workbook, Save As Chatbot.xlsm (macro-enabled)
+'   2. Tools > Macro > Visual Basic Editor (or option+F11 on Mac, Alt+F11 on Win)
+'   3. File > Import File > pick this BuildBootstrap.bas
+'   4. Click inside Sub BuildChatbot, press F5
 '   5. Pick the unzipped notebook folder when prompted
-'   6. Ctrl+S to save
-'   7. Right-click BuildBootstrap in the tree > Remove BuildBootstrap > No (don't export)
+'   6. Cmd+S (Mac) / Ctrl+S (Win) to save
+'   7. Right-click BuildBootstrap in the tree > Remove > No (don't export)
+'   8. Save again
 '
 ' Repeat with BuildAdmin for Admin_KnowledgeBuilder.xlsm.
 '
-' Requires: Trust Center > Macro Settings > "Trust access to the VBA project
-' object model" enabled.
+' Requires: Trust Center > "Trust access to the VBA project object model" ON.
 ' ============================================================================
 
 Public Sub BuildChatbot()
@@ -38,14 +38,18 @@ Private Sub BuildOne(ByVal target As String)
     folder = PickFolder()
     If LenB(folder) = 0 Then Exit Sub
 
-    Dim sharedDir As String, roleDir As String, vendorDir As String
-    sharedDir = folder & "\src\shared\"
-    vendorDir = folder & "\build\vendor\"
+    Dim sep As String
+    sep = Application.PathSeparator
 
-    If Len(Dir$(sharedDir & "modConfig.bas")) = 0 Then
-        MsgBox "選んだフォルダの中に src\shared\ が見つかりません。" & vbCrLf & _
-               "解凍した notebook フォルダ自体 (中に build/, src/, docs/ がある階層) を選んでください。", _
-               vbExclamation
+    Dim sharedDir As String, roleDir As String, vendorDir As String
+    sharedDir = folder & sep & "src" & sep & "shared" & sep
+    vendorDir = folder & sep & "build" & sep & "vendor" & sep
+
+    If Len(Dir(sharedDir & "modConfig.bas")) = 0 Then
+        MsgBox "src/shared not found inside: " & vbCrLf & folder & vbCrLf & vbCrLf & _
+               "Please pick the root notebook folder (the one that directly contains " & _
+               "the build/, src/, docs/ subfolders).", _
+               vbExclamation, "BuildBootstrap"
         Exit Sub
     End If
 
@@ -54,12 +58,12 @@ Private Sub BuildOne(ByVal target As String)
                         "modHttpClient.bas", "modKeyVault.bas", "modApiGateway.bas")
 
     If target = "chatbot" Then
-        roleDir = folder & "\src\chatbot\"
+        roleDir = folder & sep & "src" & sep & "chatbot" & sep
         roleFiles = Array("modIndexReader.bas", "modSimilarity.bas", "modRagEngine.bas", _
                           "modUserProfile.bas", "modPiiGuard.bas", "modRateLimiter.bas", _
                           "modUsageLogger.bas", "modChatUI.bas", "modBoot.bas")
     Else
-        roleDir = folder & "\src\admin\"
+        roleDir = folder & sep & "src" & sep & "admin" & sep
         roleFiles = Array("modChunker.bas", "modExtractor.bas", "modExtractorWord.bas", _
                           "modExtractorAcrobat.bas", "modExtractorExcel.bas", _
                           "modIndexWriter.bas", "modKnowledgeBuilder.bas", _
@@ -69,8 +73,8 @@ Private Sub BuildOne(ByVal target As String)
     Dim vbp As Object
     Set vbp = ThisWorkbook.VBProject
 
-    Application.StatusBar = "Importing shared modules..."
     Dim i As Long
+    Application.StatusBar = "Importing shared modules..."
     For i = LBound(sharedFiles) To UBound(sharedFiles)
         ImportIfMissing vbp, sharedDir & sharedFiles(i)
     Next i
@@ -84,36 +88,41 @@ Private Sub BuildOne(ByVal target As String)
     Next i
 
     If target = "chatbot" Then
-        Application.StatusBar = "Injecting ThisWorkbook..."
+        Application.StatusBar = "Injecting ThisWorkbook code..."
         InjectThisWorkbook vbp, roleDir & "ThisWorkbook.cls"
     End If
 
     Application.StatusBar = False
 
-    MsgBox "完了しました！" & vbCrLf & vbCrLf & _
-           "次にやること:" & vbCrLf & _
-           "1. Ctrl+S で保存" & vbCrLf & _
-           "2. 左側のツリーから BuildBootstrap を右クリック → 解放 → 「いいえ」(エクスポートしない)" & vbCrLf & _
-           "3. もう一度 Ctrl+S で保存して閉じる", _
-           vbInformation, "Build " & target
+    MsgBox "Done! Next steps:" & vbCrLf & vbCrLf & _
+           "1. Press Cmd+S (Mac) or Ctrl+S (Windows) to save." & vbCrLf & _
+           "2. Right-click 'BuildBootstrap' in the left tree, choose 'Remove BuildBootstrap', " & _
+           "click No when asked to export." & vbCrLf & _
+           "3. Save the workbook again, then close it.", _
+           vbInformation, "Build " & target & " - complete"
     Exit Sub
 
 Failed:
     Application.StatusBar = False
-    MsgBox "エラー: " & Err.Description & vbCrLf & vbCrLf & _
-           "「Trust access to the VBA project object model」がONになっているか確認してください。", _
-           vbCritical
+    MsgBox "Error: " & Err.Description & vbCrLf & vbCrLf & _
+           "Most common cause: 'Trust access to the VBA project object model' is not enabled. " & _
+           "On Mac: Excel > Preferences > Security & Privacy. " & _
+           "On Win: File > Options > Trust Center > Trust Center Settings > Macro Settings.", _
+           vbCritical, "BuildBootstrap error"
 End Sub
 
 Private Sub ImportIfMissing(ByVal vbp As Object, ByVal path As String)
-    If Len(Dir$(path)) = 0 Then
-        Debug.Print "Skip (missing): " & path
+    If Len(Dir(path)) = 0 Then
+        Debug.Print "Skip (file missing): " & path
         Exit Sub
     End If
 
+    Dim sep As String
+    sep = Application.PathSeparator
+
     Dim fileName As String, modName As String
-    fileName = Mid$(path, InStrRev(path, "\") + 1)
-    modName = Left$(fileName, InStr(fileName, ".") - 1)
+    fileName = Mid(path, InStrRev(path, sep) + 1)
+    modName = Left(fileName, InStr(fileName, ".") - 1)
 
     On Error Resume Next
     Dim existing As Object
@@ -129,10 +138,11 @@ Private Sub ImportIfMissing(ByVal vbp As Object, ByVal path As String)
 End Sub
 
 Private Sub InjectThisWorkbook(ByVal vbp As Object, ByVal path As String)
-    If Len(Dir$(path)) = 0 Then Exit Sub
+    If Len(Dir(path)) = 0 Then Exit Sub
 
     Dim text As String
-    Dim fn As Integer: fn = FreeFile
+    Dim fn As Integer
+    fn = FreeFile
     Open path For Input As #fn
     Dim line As String
     Do While Not EOF(fn)
@@ -141,12 +151,14 @@ Private Sub InjectThisWorkbook(ByVal vbp As Object, ByVal path As String)
     Loop
     Close #fn
 
-    Dim marker As String: marker = "Attribute VB_Exposed = True"
-    Dim idx As Long: idx = InStr(text, marker)
+    Dim marker As String
+    marker = "Attribute VB_Exposed = True"
+    Dim idx As Long
+    idx = InStr(text, marker)
     If idx > 0 Then
         Dim eol As Long
         eol = InStr(idx, text, vbLf)
-        If eol > 0 Then text = Mid$(text, eol + 1)
+        If eol > 0 Then text = Mid(text, eol + 1)
     End If
 
     Dim cm As Object
@@ -156,10 +168,17 @@ Private Sub InjectThisWorkbook(ByVal vbp As Object, ByVal path As String)
 End Sub
 
 Private Function PickFolder() As String
+#If Mac Then
+    Dim s As String
+    On Error Resume Next
+    s = MacScript("return POSIX path of (choose folder with prompt ""Pick the notebook folder (containing build/ and src/)"")")
+    On Error GoTo 0
+    If Right(s, 1) = "/" Then s = Left(s, Len(s) - 1)
+    PickFolder = s
+#Else
     Dim fd As Object
-    Set fd = Application.FileDialog(4) ' msoFileDialogFolderPicker
-    fd.Title = "解凍した notebook フォルダ (中に build/ や src/ がある階層) を選んでください"
-    If fd.Show = -1 Then
-        PickFolder = fd.SelectedItems(1)
-    End If
+    Set fd = Application.FileDialog(4)
+    fd.Title = "Pick the notebook folder (containing build/ and src/)"
+    If fd.Show = -1 Then PickFolder = fd.SelectedItems(1)
+#End If
 End Function

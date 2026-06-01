@@ -1,4 +1,4 @@
-Attribute VB_Name = "modChatUI"
+﻿Attribute VB_Name = "modChatUI"
 Option Explicit
 
 ' ============================================================================

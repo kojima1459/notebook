@@ -1,4 +1,4 @@
-Attribute VB_Name = "modExtractorExcel"
+﻿Attribute VB_Name = "modExtractorExcel"
 Option Explicit
 
 ' ============================================================================

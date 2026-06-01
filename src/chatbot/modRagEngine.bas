@@ -1,4 +1,4 @@
-Attribute VB_Name = "modRagEngine"
+﻿Attribute VB_Name = "modRagEngine"
 Option Explicit
 
 ' ============================================================================

@@ -1,4 +1,4 @@
-Attribute VB_Name = "modPiiGuard"
+﻿Attribute VB_Name = "modPiiGuard"
 Option Explicit
 
 ' ============================================================================

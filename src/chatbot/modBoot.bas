@@ -1,4 +1,4 @@
-Attribute VB_Name = "modBoot"
+﻿Attribute VB_Name = "modBoot"
 Option Explicit
 
 ' ============================================================================

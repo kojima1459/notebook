@@ -1,4 +1,4 @@
-Attribute VB_Name = "modUserProfile"
+﻿Attribute VB_Name = "modUserProfile"
 Option Explicit
 
 ' ============================================================================
