@@ -6,12 +6,16 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
 
 const QUERIES = {
-  sanga: "京都サンガ",
-  jleague: "Jリーグ",
-  official: "Jリーグ OR 京都サンガ site:jleague.jp",
-  overseas: "海外サッカー OR プレミアリーグ OR チャンピオンズリーグ OR ラリーガ",
-  japan: "サッカー 日本人選手 海外 OR 日本代表",
-  flash: "サッカー 速報",
+  sanga:     "京都サンガ",
+  jleague:   "Jリーグ",
+  official:  "Jリーグ OR 京都サンガ site:jleague.jp",
+  overseas:  "海外サッカー OR プレミアリーグ OR チャンピオンズリーグ OR ラリーガ",
+  japan:     "サッカー 日本人選手 海外 OR 日本代表",
+  flash:     "サッカー 速報",
+  koukou:    "高校サッカー OR インターハイ サッカー OR 選手権 高校",
+  transfer:  "サッカー 移籍 加入 OR 契約 OR 獲得",
+  champions: "チャンピオンズリーグ OR ヨーロッパサッカー OR プレミアリーグ OR ラリーガ 試合結果",
+  junior:    "少年サッカー OR ジュニアサッカー OR U-12 OR U-15 サッカー",
 };
 
 function decode(s) {

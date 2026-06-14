@@ -8,6 +8,7 @@
   // ---- ウィジェットのDOMを生成 ----
   const root = document.createElement("div");
   root.className = "chatbot";
+  const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   root.innerHTML = `
     <button class="chat-fab" type="button" aria-label="サッカー博士に質問">💬<span>はかせに質問</span></button>
     <div class="chat-panel" hidden>
@@ -18,6 +19,7 @@
       <div class="chat-msgs" data-msgs></div>
       <form class="chat-form">
         <input class="chat-input" type="text" placeholder="サッカーのこと、聞いてね！" autocomplete="off" maxlength="300" />
+        ${hasSpeech ? '<button class="chat-mic" type="button" aria-label="音声入力">🎙</button>' : ""}
         <button class="chat-send" type="submit" aria-label="送信">➤</button>
       </form>
     </div>`;
@@ -124,4 +126,32 @@
     input.value = "";
     send(q);
   });
+
+  // ---- 音声入力 ----
+  const micBtn = root.querySelector(".chat-mic");
+  if (micBtn && hasSpeech) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null;
+    micBtn.addEventListener("click", () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SR();
+      rec.lang = "ja-JP";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      micBtn.textContent = "🔴";
+      micBtn.setAttribute("aria-label", "録音中…");
+      rec.onresult = (ev) => {
+        const text = ev.results[0][0].transcript;
+        input.value = text;
+        input.focus();
+      };
+      rec.onerror = () => {};
+      rec.onend = () => {
+        rec = null;
+        micBtn.textContent = "🎙";
+        micBtn.setAttribute("aria-label", "音声入力");
+      };
+      rec.start();
+    });
+  }
 })();

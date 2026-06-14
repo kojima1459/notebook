@@ -7,13 +7,18 @@
    ========================================================= */
 
 const CHANNELS_FALLBACK = [
-  { key: "sanga", label: "💜 京都サンガ", type: "playlist", id: "UUThC5l5XIVUEljKnCTMgI8A", desc: "京都サンガ公式チャンネルの最新動画" },
-  { key: "skills", label: "⚽ 技・れんしゅう", type: "playlist", id: "UUGJRstFI6eWJTW-DtmgpfGA", desc: "ドリブル・リフティングなど 上たつの動画" },
-  { key: "highlights", label: "🏆 Jリーグ ハイライト", type: "playlist", id: "UUyzs0YrgWiL2wdROpajnO1Q", desc: "Jリーグの しあいハイライト" },
-  { key: "jfa", label: "🇯🇵 日本代表", type: "playlist", id: "UUgIeUSV91-FfmCayG4lSBcw", desc: "日本代表・JFA の動画" },
-  { key: "jleague", label: "📺 Jリーグ公式", type: "playlist", id: "UUWc-XpFHPK1SwGcvpFPZ8NA", desc: "Jリーグ公式チャンネル" },
-  { key: "world", label: "🌍 Jリーグ国際", type: "playlist", id: "UUmQp6ZaAejJKKkXc_Y_lh1A", desc: "海外むけ ハイライト・とくしゅう" },
-  { key: "collection", label: "🤹 キッズ技あつめ", type: "videos", ids: ["SzZ7Ecql-sg", "CtgXlExS8qc", "I2I8Hq_w7lQ", "ftfP45kKfPw"], desc: "はじめてさん向けの れんしゅう動画" }
+  { key: "sanga",      label: "💜 京都サンガ",       type: "playlist", id: "UUThC5l5XIVUEljKnCTMgI8A", desc: "京都サンガ公式チャンネルの最新動画" },
+  { key: "skills",     label: "⚽ 技・れんしゅう",   type: "playlist", id: "UUGJRstFI6eWJTW-DtmgpfGA", desc: "ドリブル・リフティングなど 上たつの動画" },
+  { key: "highlights", label: "🏆 Jリーグ ハイライト",type: "playlist", id: "UUyzs0YrgWiL2wdROpajnO1Q", desc: "Jリーグの しあいハイライト" },
+  { key: "jfa",        label: "🇯🇵 日本代表",        type: "playlist", id: "UUgIeUSV91-FfmCayG4lSBcw", desc: "日本代表・JFA の動画" },
+  { key: "jleague",    label: "📺 Jリーグ公式",      type: "playlist", id: "UUWc-XpFHPK1SwGcvpFPZ8NA", desc: "Jリーグ公式チャンネル" },
+  { key: "world",      label: "🌍 Jリーグ国際",      type: "playlist", id: "UUmQp6ZaAejJKKkXc_Y_lh1A", desc: "海外むけ ハイライト・とくしゅう" },
+  { key: "premier",    label: "🏴 プレミアリーグ",   type: "playlist", id: "UUqZQlzSHbVJrwrn5XvzrzcA", desc: "イングランドのトップリーグ。ハイライトと得点集" },
+  { key: "champions",  label: "🌟 チャンピオンズL",  type: "playlist", id: "UCJ2PKPB0Lnz19sCioNSGJ9Q", desc: "ヨーロッパ最高峰・UEFAチャンピオンズリーグの動画" },
+  { key: "laliga",     label: "🇪🇸 ラ・リーガ",     type: "playlist", id: "UUcwdO2MRiKEFRIWCELh4b3A", desc: "スペインの一部リーグ。メッシやクリロナのリーグ" },
+  { key: "bundesliga", label: "🇩🇪 ブンデスリーガ", type: "playlist", id: "UUGNon7f4RLTkHLVQqXUMI_Q", desc: "ドイツの一部リーグ。スピードと激しさが魅力！" },
+  { key: "super",      label: "⚡ スーパープレー",   type: "videos",   ids: ["MmBj0gFsUaE","bJSpOIRuSn4","tYEW7nhXvVs","UHQCe-iMcSc","LNK4hPKqPmo"], desc: "世界の選手のすごいプレー集。一時停止してまねしてみよう！" },
+  { key: "collection", label: "🤹 キッズ技あつめ",  type: "videos",   ids: ["SzZ7Ecql-sg","CtgXlExS8qc","I2I8Hq_w7lQ","ftfP45kKfPw"], desc: "はじめてさん向けの れんしゅう動画" }
 ];
 
 const VZ_KEY = "sangakids_videozone_tab";
@@ -28,6 +33,11 @@ const PRACTICE_SUGGESTIONS = {
   jfa:        { icon: "🏃", name: "ドリブル",                 text: "代表選手みたいに速いドリブルを身につけよう" },
   jleague:    { icon: "🎯", name: "シュート",                 text: "Jリーグ選手みたいな強いシュートにちょうせん" },
   world:      { icon: "🌀", name: "ルーレット",               text: "海外の選手みたいなかっこいい技を覚えよう" },
+  premier:    { icon: "💨", name: "ドリブルダッシュ",         text: "プレミアの選手みたいにスピードで抜こう！" },
+  champions:  { icon: "🌟", name: "シュート精度",             text: "チャンピオンズリーグの決定力！コースを狙おう" },
+  laliga:     { icon: "🌀", name: "ルーレット",               text: "ラ・リーガのテクニカルな技、まねしてみよう" },
+  bundesliga: { icon: "🏃", name: "スプリント＆ターン",       text: "ブンデスのスピードプレー、切り返しを練習しよう" },
+  super:      { icon: "⚡", name: "スーパープレーのコピー",   text: "見た技を一時停止して、体で覚えてみよう！" },
   collection: { icon: "🤹", name: "リフティング",             text: "キッズ技動画を見たら、自分でも挑戦してみよう" },
   saved:      { icon: "⭐", name: "気になった技",             text: "保存した動画の技、体で覚えよう" },
 };
@@ -49,17 +59,38 @@ const PRACTICE_SUGGESTIONS = {
   let saved = read(VZ_SAVED, []); // [{id, title}]
   let player = null, apiReady = false, pending = null, currentVideo = null;
 
-  // 視聴時間トラッキング
+  // 視聴時間トラッキング（セッション用）
   let playTimer = null, totalPlaySec = 0, lastNudgeSec = -999, timeNudgeDone = false;
+
+  // ---- 1日の視聴上限（1時間 = 3600秒）----
+  const WATCH_KEY = "sangakids_watch_v1";
+  const WATCH_LIMIT = 3600;  // 1時間
+  const BREAK_SEC   = 600;   // 休憩タイマー 10分
+  let lockInterval  = null;
+
+  function loadWatchData() {
+    try {
+      const d = JSON.parse(localStorage.getItem(WATCH_KEY)) || {};
+      if (d.date !== new Date().toDateString()) return { date: new Date().toDateString(), total: 0, unlockedUntil: 0 };
+      return d;
+    } catch (e) { return { date: new Date().toDateString(), total: 0, unlockedUntil: 0 }; }
+  }
+  function saveWatchData(d) { try { localStorage.setItem(WATCH_KEY, JSON.stringify(d)); } catch (e) {} }
+
+  let watchData = loadWatchData();
 
   function read(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
   function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-  // ---- 練習への誘導（視聴後ナッジ）----
+  // ---- 練習への誘導（視聴後ナッジ）& 1時間制限 ----
   function startPlayTimer() {
     if (playTimer) return;
     playTimer = setInterval(() => {
       totalPlaySec++;
+      watchData.total++;
+      // 30秒ごとに保存（localStorage 負荷軽減）
+      if (watchData.total % 30 === 0) saveWatchData(watchData);
+
       const el = root.querySelector("[data-vz-playtime]");
       if (el) {
         const m = Math.floor(totalPlaySec / 60);
@@ -70,7 +101,57 @@ const PRACTICE_SUGGESTIONS = {
         timeNudgeDone = true;
         showNudge("time");
       }
+      // 1時間チェック
+      if (watchData.total >= WATCH_LIMIT && !document.querySelector(".vz-lock-overlay:not([hidden])")) {
+        triggerLock();
+      }
     }, 1000);
+  }
+
+  function triggerLock() {
+    stopPlayTimer();
+    saveWatchData(watchData);
+    if (player && player.pauseVideo) try { player.pauseVideo(); } catch (e) {}
+    const overlay = document.querySelector(".vz-lock-overlay");
+    if (!overlay) return;
+    overlay.hidden = false;
+
+    const drills = [
+      "🤹 リフティング：下からやさしく ポンポン 20回",
+      "🏃 その場ドリブル：インサイドで 左右こうたい 30秒",
+      "🦩 片足バランス：左右それぞれ 30秒ずつ",
+      "🔄 ボールまわし：体のまわりでぐるぐる 右→左",
+      "🧱 かべパス：インサイドでパス→トラップ 20回",
+      "💨 ダッシュ＆ストップ：5歩ダッシュ→ぴたっと止まる 5回"
+    ];
+    const drill = drills[Math.floor(Math.random() * drills.length)];
+    overlay.querySelector("[data-lock-drill]").textContent = drill;
+
+    let remaining = BREAK_SEC;
+    const timerEl = overlay.querySelector("[data-lock-timer]");
+    function tick() {
+      remaining--;
+      if (timerEl) {
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
+        timerEl.textContent = `${m}:${s < 10 ? "0" : ""}${s}`;
+      }
+      if (remaining <= 0) { clearInterval(lockInterval); doUnlock(overlay); }
+    }
+    lockInterval = setInterval(tick, 1000);
+
+    const doneBtn = overlay.querySelector("[data-lock-done]");
+    if (doneBtn) {
+      const fresh = doneBtn.cloneNode(true);
+      doneBtn.replaceWith(fresh);
+      fresh.addEventListener("click", () => { clearInterval(lockInterval); doUnlock(overlay); });
+    }
+  }
+
+  function doUnlock(overlay) {
+    overlay.hidden = true;
+    watchData.total = 0; // カウンターリセット（30分後また制限）
+    saveWatchData(watchData);
   }
 
   function stopPlayTimer() {

@@ -39,6 +39,20 @@
         気に入った動画は「💾 この動画を保存」で保存して、あとから「💾 保存した動画」タブで見返せるよ（YouTubeには飛びません）。
       </p>
 
+      <!-- 1時間視聴ロック画面（全画面） -->
+      <div class="vz-lock-overlay" hidden>
+        <div class="lock-box">
+          <div class="lock-emoji">⏰</div>
+          <h2>1時間みたよ！<br>休けいタイム⚽</h2>
+          <p>サッカー選手はたくさん練習するよ。<br>10分れんしゅうしてから、また見よう！</p>
+          <div class="lock-timer" data-lock-timer>10:00</div>
+          <div class="lock-drill-label">💪 今日のれんしゅう：</div>
+          <div class="lock-drill" data-lock-drill></div>
+          <button type="button" class="lock-done" data-lock-done>✓ 練習した！動画を再開する</button>
+          <p class="lock-note">タイマーがゼロになると 自動で解除されるよ</p>
+        </div>
+      </div>
+
       <div class="video-zone" data-videozone>
         <div class="vz-fav" data-vz-fav hidden></div>
         <div class="vz-tabs" data-vz-tabs></div>

@@ -5,12 +5,16 @@
    ========================================================= */
 
 const FEEDS = [
-  { key: "sanga", label: "💜 京都サンガ" },
-  { key: "jleague", label: "🏆 Jリーグ" },
-  { key: "official", label: "📢 Jリーグ公式" },
-  { key: "overseas", label: "🌍 海外サッカー" },
-  { key: "japan", label: "🇯🇵 海外組" },
-  { key: "flash", label: "⚡ 速報" },
+  { key: "sanga",     label: "💜 京都サンガ" },
+  { key: "jleague",   label: "🏆 Jリーグ" },
+  { key: "official",  label: "📢 Jリーグ公式" },
+  { key: "overseas",  label: "🌍 海外サッカー" },
+  { key: "japan",     label: "🇯🇵 海外組" },
+  { key: "flash",     label: "⚡ 速報" },
+  { key: "koukou",    label: "🏫 高校サッカー" },
+  { key: "transfer",  label: "⭐ 移籍情報" },
+  { key: "champions", label: "🌟 欧州サッカー" },
+  { key: "junior",    label: "👦 ジュニア" },
 ];
 
 const NEWS_SOURCE_LINKS = [
