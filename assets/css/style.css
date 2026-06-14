@@ -549,6 +549,105 @@ main {
   color: var(--sanga-purple-dark);
   margin-bottom: 12px;
 }
+.skill-why {
+  background: #fff8e6;
+  border: 2px solid var(--accent-yellow);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+.skill-why b { display: block; color: #b8860b; margin-bottom: 4px; }
+.skill-steplabel { font-weight: 800; color: var(--sanga-purple-dark); margin-bottom: 6px; font-size: 0.95rem; }
+.skill-tips {
+  background: #ffeef3;
+  border-left: 5px solid var(--accent-pink);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.skill-tips b { color: #d6336c; }
+.skill-next {
+  background: #e6fbf0;
+  border-left: 5px solid var(--accent-green);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: 10px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.skill-next b { color: #1f9d6b; }
+
+/* ---------- 動線ヒーロー（見る→やる） ---------- */
+.flow-hero {
+  background: linear-gradient(135deg, var(--sanga-purple), var(--accent-pink));
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 22px 20px;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.flow-hero h2 { font-size: 1.3rem; margin-bottom: 8px; }
+.flow-hero p { font-size: 0.95rem; line-height: 1.7; opacity: 0.97; }
+.flow-hero b { color: var(--accent-yellow); }
+.flow-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.flow-step {
+  background: rgba(255,255,255,0.18);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.flow-arrow { font-weight: 900; font-size: 1.1rem; }
+.flow-cta {
+  display: inline-block;
+  background: var(--accent-yellow);
+  color: var(--sanga-purple-dark);
+  font-weight: 800;
+  padding: 13px 26px;
+  border-radius: 999px;
+  font-size: 1.02rem;
+  box-shadow: 0 5px 0 #d9a800;
+}
+.flow-cta:active { transform: translateY(3px); box-shadow: 0 2px 0 #d9a800; }
+
+/* 動画・ニュース → 練習への さそいバナー */
+.do-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+  color: #06303a;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin: 22px 0 6px;
+  box-shadow: var(--shadow);
+}
+.do-banner .db-emoji { font-size: 2rem; flex-shrink: 0; }
+.do-banner .db-text { flex: 1; }
+.do-banner .db-text b { display: block; font-size: 1.02rem; }
+.do-banner .db-text span { font-size: 0.85rem; }
+.do-banner .db-go {
+  flex-shrink: 0;
+  background: #06303a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
 
 .skill-steps {
   padding-left: 1.4em;
