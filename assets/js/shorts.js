@@ -14,7 +14,7 @@ const CHANNELS_FALLBACK = [
   { key: "jleague",    label: "📺 Jリーグ公式",      type: "playlist", id: "UUWc-XpFHPK1SwGcvpFPZ8NA", desc: "Jリーグ公式チャンネル" },
   { key: "world",      label: "🌍 Jリーグ国際",      type: "playlist", id: "UUmQp6ZaAejJKKkXc_Y_lh1A", desc: "海外むけ ハイライト・とくしゅう" },
   { key: "premier",    label: "🏴 プレミアリーグ",   type: "playlist", id: "UUqZQlzSHbVJrwrn5XvzrzcA", desc: "イングランドのトップリーグ。ハイライトと得点集" },
-  { key: "champions",  label: "🌟 チャンピオンズL",  type: "playlist", id: "UCJ2PKPB0Lnz19sCioNSGJ9Q", desc: "ヨーロッパ最高峰・UEFAチャンピオンズリーグの動画" },
+  { key: "champions",  label: "🌟 チャンピオンズL",  type: "playlist", id: "UUJ2PKPB0Lnz19sCioNSGJ9Q", desc: "ヨーロッパ最高峰・UEFAチャンピオンズリーグの動画" },
   { key: "laliga",     label: "🇪🇸 ラ・リーガ",     type: "playlist", id: "UUcwdO2MRiKEFRIWCELh4b3A", desc: "スペインの一部リーグ。メッシやクリロナのリーグ" },
   { key: "bundesliga", label: "🇩🇪 ブンデスリーガ", type: "playlist", id: "UUGNon7f4RLTkHLVQqXUMI_Q", desc: "ドイツの一部リーグ。スピードと激しさが魅力！" },
   { key: "super",      label: "⚡ スーパープレー",   type: "videos",   ids: ["MmBj0gFsUaE","bJSpOIRuSn4","tYEW7nhXvVs","UHQCe-iMcSc","LNK4hPKqPmo"], desc: "世界の選手のすごいプレー集。一時停止してまねしてみよう！" },
@@ -58,6 +58,7 @@ const PRACTICE_SUGGESTIONS = {
   let favs = read(VZ_FAV, []);
   let saved = read(VZ_SAVED, []); // [{id, title}]
   let player = null, apiReady = false, pending = null, currentVideo = null;
+  let errorSkips = 0; // 再生エラー（埋め込み不可など）の連続スキップ数
 
   // 視聴時間トラッキング（セッション用）
   let playTimer = null, totalPlaySec = 0, lastNudgeSec = -999, timeNudgeDone = false;
@@ -214,10 +215,18 @@ const PRACTICE_SUGGESTIONS = {
       width: "100%", height: "100%",
       playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
       events: {
-        onReady: () => { if (pending) { applyCat(pending); pending = null; } },
+        onReady: () => { if (pending) { applyCat(pending.cat, pending.play); pending = null; } },
+        onError: () => {
+          // 埋め込み不可・削除ずみ・地域せいげんの動画は飛ばして次へ
+          errorSkips++;
+          if (errorSkips <= 6 && player && player.nextVideo) {
+            try { player.nextVideo(); } catch (e2) {}
+          }
+        },
         onStateChange: (e) => {
           const state = (e && typeof e.data !== "undefined") ? e.data : -1;
           if (state === 1) { // PLAYING
+            errorSkips = 0; // 再生できたのでリセット
             startPlayTimer();
           } else {
             stopPlayTimer();
@@ -237,7 +246,8 @@ const PRACTICE_SUGGESTIONS = {
     });
   }
 
-  function applyCat(cat) {
+  // play=true なら すぐ再生（タブ切り替え時）／false なら読み込みだけ（初回）
+  function applyCat(cat, play) {
     const frame = root.querySelector(".video-frame");
     const empty = root.querySelector(".vz-empty");
     if (cat.type === "videos" && (!cat.ids || !cat.ids.length)) {
@@ -250,14 +260,21 @@ const PRACTICE_SUGGESTIONS = {
       return;
     }
     frame.classList.remove("is-empty");
-    if (cat.type === "playlist") player.cuePlaylist({ listType: "playlist", list: cat.id, index: 0 });
-    else player.cuePlaylist(cat.ids);
+    errorSkips = 0;
+    if (cat.type === "playlist") {
+      // UC...（チャンネルID）が来たら UU...（アップロード再生リスト）に変換
+      const list = String(cat.id).replace(/^UC/, "UU");
+      const opts = { listType: "playlist", list: list, index: 0 };
+      if (play) player.loadPlaylist(opts); else player.cuePlaylist(opts);
+    } else {
+      if (play) player.loadPlaylist(cat.ids, 0); else player.cuePlaylist(cat.ids, 0);
+    }
     currentVideo = null;
     updateSaveBtn();
   }
 
-  // ---- 表示 ----
-  function show(cat) {
+  // ---- 表示 ----（play=true でタブ切り替え時はすぐ再生）
+  function show(cat, play) {
     active = cat.key;
     if (cat.key !== "saved") localStorage.setItem(VZ_KEY, active);
     descEl.textContent = cat.desc || "";
@@ -265,15 +282,15 @@ const PRACTICE_SUGGESTIONS = {
     savedMgr.hidden = cat.key !== "saved";
     if (cat.key === "saved") renderSavedManager();
     updateStar();
-    if (apiReady && player && player.cuePlaylist) applyCat(cat);
-    else pending = cat;
+    if (apiReady && player && player.cuePlaylist) applyCat(cat, play);
+    else pending = { cat: cat, play: play };
   }
 
   function renderTabs() {
     const list = allCats();
     tabsEl.innerHTML = list.map((c) => `<button type="button" class="vz-tab${c.key === "saved" ? " saved" : ""}" data-key="${c.key}">${c.label}</button>`).join("");
     tabsEl.querySelectorAll("button").forEach((b) => {
-      b.addEventListener("click", () => { const c = list.find((x) => x.key === b.dataset.key); if (c) show(c); });
+      b.addEventListener("click", () => { const c = list.find((x) => x.key === b.dataset.key); if (c) show(c, true); });
     });
   }
 
@@ -285,7 +302,7 @@ const PRACTICE_SUGGESTIONS = {
     favBar.innerHTML = '<span class="vz-fav-label">⭐ お気に入りジャンル</span>' +
       items.map((c) => `<button type="button" class="vz-fav-chip" data-key="${c.key}">${c.label}</button>`).join("");
     favBar.querySelectorAll(".vz-fav-chip").forEach((b) => {
-      b.addEventListener("click", () => { const c = cats.find((x) => x.key === b.dataset.key); if (c) show(c); });
+      b.addEventListener("click", () => { const c = cats.find((x) => x.key === b.dataset.key); if (c) show(c, true); });
     });
   }
   function updateStar() {
@@ -333,14 +350,14 @@ const PRACTICE_SUGGESTIONS = {
         </div>`).join("");
     savedMgr.querySelectorAll(".saved-play").forEach((b) => b.addEventListener("click", () => {
       const i = +b.dataset.i;
-      if (apiReady && player) { player.cuePlaylist(saved.map((s) => s.id), i); }
+      if (apiReady && player) { errorSkips = 0; player.loadPlaylist(saved.map((s) => s.id), i); }
     }));
     savedMgr.querySelectorAll(".saved-del").forEach((b) => b.addEventListener("click", () => {
       saved.splice(+b.dataset.del, 1); write(VZ_SAVED, saved);
       renderTabs(); renderSavedManager(); updateSaveBtn();
       const savedCat = allCats()[0];
       tabsEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.key === "saved"));
-      if (apiReady && player) applyCat(savedCat);
+      if (apiReady && player) applyCat(savedCat, false);
     }));
   }
 

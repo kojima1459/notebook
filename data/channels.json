@@ -8,9 +8,9 @@
     { "key": "jleague",    "label": "📺 Jリーグ公式",     "type": "playlist", "id": "UUWc-XpFHPK1SwGcvpFPZ8NA", "desc": "Jリーグ公式チャンネル" },
     { "key": "world",      "label": "🌍 Jリーグ国際",     "type": "playlist", "id": "UUmQp6ZaAejJKKkXc_Y_lh1A", "desc": "海外むけ ハイライト・とくしゅう" },
     { "key": "premier",    "label": "🏴 プレミアリーグ",  "type": "playlist", "id": "UUqZQlzSHbVJrwrn5XvzrzcA", "desc": "イングランドのトップリーグ。ハイライトと得点集" },
-    { "key": "champions",  "label": "🌟 チャンピオンズL", "type": "playlist", "id": "UCJ2PKPB0Lnz19sCioNSGJ9Q", "desc": "ヨーロッパ最高峰・UEFAチャンピオンズリーグの動画" },
+    { "key": "champions",  "label": "🌟 チャンピオンズL", "type": "playlist", "id": "UUJ2PKPB0Lnz19sCioNSGJ9Q", "desc": "ヨーロッパ最高峰・UEFAチャンピオンズリーグの動画" },
     { "key": "laliga",     "label": "🇪🇸 ラ・リーガ",    "type": "playlist", "id": "UUcwdO2MRiKEFRIWCELh4b3A", "desc": "スペインの一部リーグ。メッシやクリロナのリーグ" },
-    { "key": "bundesliga", "label": "🇩🇪 ブンデスリーガ","type": "playlist", "id": "UCGNon7f4RLTkHLVQqXUMI_Q", "desc": "ドイツの一部リーグ。スピードと激しさが魅力！" },
+    { "key": "bundesliga", "label": "🇩🇪 ブンデスリーガ","type": "playlist", "id": "UUGNon7f4RLTkHLVQqXUMI_Q", "desc": "ドイツの一部リーグ。スピードと激しさが魅力！" },
     { "key": "super",      "label": "⚡ スーパープレー",  "type": "videos",   "ids": ["MmBj0gFsUaE","bJSpOIRuSn4","tYEW7nhXvVs","UHQCe-iMcSc","LNK4hPKqPmo"], "desc": "世界の選手のすごいプレー集。一時停止してまねしてみよう！" },
     { "key": "collection", "label": "🤹 キッズ技あつめ", "type": "videos",   "ids": ["SzZ7Ecql-sg","CtgXlExS8qc","I2I8Hq_w7lQ","ftfP45kKfPw"], "desc": "はじめてさん向けの れんしゅう動画" }
   ]
