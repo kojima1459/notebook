@@ -20,9 +20,9 @@
       <nav class="main-nav" id="nav" aria-label="メインメニュー">
         <ul>
           <li><a href="index.html">ホーム</a></li>
+          <li><a href="shorts.html">どうが</a></li>
           <li><a href="news.html">ニュース</a></li>
           <li><a href="training.html" class="active">れんしゅう</a></li>
-          <li><a href="shorts.html">ショート</a></li>
           <li><a href="quiz.html">クイズ</a></li>
         </ul>
       </nav>
@@ -30,8 +30,18 @@
   </header>
 
   <main>
+    <!-- セクションへジャンプ（チップス） -->
+    <nav class="chips" aria-label="ページ内メニュー">
+      <a href="#challenge">🔥 チャレンジ</a>
+      <a href="#badges">🏅 バッジ</a>
+      <a href="#program">📈 プログラム</a>
+      <a href="#skills">⭐ 技</a>
+      <a href="#sukima">⏱️ すきま時間</a>
+      <a href="#food">🍙 ごはん</a>
+    </nav>
+
     <!-- 毎日チャレンジ -->
-    <section class="section">
+    <section class="section" id="challenge">
       <h2 class="section-title"><span class="emoji">🔥</span>毎日チャレンジ</h2>
       <p style="margin-bottom:16px;color:var(--text-soft);">
         毎日れんしゅうして、チェックをつけよう！　ぜんぶできたら「連続記録（れんぞくきろく）」がのびるよ。
@@ -59,7 +69,7 @@
     </section>
 
     <!-- ごほうびバッジ -->
-    <section class="section">
+    <section class="section" id="badges">
       <h2 class="section-title"><span class="emoji">🏅</span>ごほうびバッジ</h2>
       <p style="margin-bottom:16px;color:var(--text-soft);">
         毎日チャレンジをつづけると、バッジがもらえるよ！　ぜんぶ集めて「サンガマスター」をめざそう👑
@@ -68,7 +78,7 @@
     </section>
 
     <!-- レベル別 練習プログラム -->
-    <section class="section">
+    <section class="section" id="program">
       <h2 class="section-title"><span class="emoji">📈</span>レベル別 練習プログラム</h2>
       <p style="margin-bottom:16px;color:var(--text-soft);">
         じぶんのレベルをえらぶと、曜日（ようび）ごとの「今日やること」が出るよ。
@@ -82,13 +92,100 @@
     </section>
 
     <!-- スター選手の技 & 練習メニュー -->
-    <section class="section">
+    <section class="section" id="skills">
       <h2 class="section-title"><span class="emoji">⭐</span>スター選手の技にちょうせん</h2>
       <p style="margin-bottom:16px;color:var(--text-soft);">
         プロ選手もつかう技を、ステップでしょうかい！　カードをタップすると、やり方が出てくるよ👇
         まずは★1つから、ゆっくり練習しよう。
       </p>
       <div data-skills></div>
+    </section>
+
+    <!-- すきま時間トレーニング -->
+    <section class="section" id="sukima">
+      <h2 class="section-title"><span class="emoji">⏱️</span>すきま時間トレーニング</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        ちょっとした時間でできる、かんたんメニュー！　1日5分でも、つづけると かならず上手になるよ⚽
+      </p>
+      <div class="grid cols-2">
+        <div class="mini-card">
+          <div class="mini-time">1分</div>
+          <h3>🦶 足うらコロコロ</h3>
+          <p>足のうらでボールを前後にコロコロ。テレビを見ながらでもOK！</p>
+        </div>
+        <div class="mini-card">
+          <div class="mini-time">1分</div>
+          <h3>🤹 その場リフティング</h3>
+          <p>おふろの前に10回チャレンジ。きのうより1回多くをめざそう。</p>
+        </div>
+        <div class="mini-card">
+          <div class="mini-time">30秒</div>
+          <h3>🦩 かたあしバランス</h3>
+          <p>歯みがきしながら片足立ち。左右30秒ずつでバランス力アップ。</p>
+        </div>
+        <div class="mini-card">
+          <div class="mini-time">1分</div>
+          <h3>🔄 ボールまわし</h3>
+          <p>体のまわりでボールをぐるぐる。右まわり・左まわりで器用になる。</p>
+        </div>
+        <div class="mini-card">
+          <div class="mini-time">1分</div>
+          <h3>🏃 もも上げダッシュ</h3>
+          <p>その場でもも上げ20回→5歩ダッシュ。足が速くなるよ。</p>
+        </div>
+        <div class="mini-card">
+          <div class="mini-time">2分</div>
+          <h3>🧱 かべパス</h3>
+          <p>かべにインサイドでパス。トラップ→パスをリズムよく。</p>
+        </div>
+      </div>
+      <div class="tip-box">
+        💡 ポイント：すきま時間トレーニングは「毎日チャレンジ」のチェックにもつかえるよ！
+      </div>
+    </section>
+
+    <!-- つよくなるごはん（栄養） -->
+    <section class="section" id="food">
+      <h2 class="section-title"><span class="emoji">🍙</span>つよくなる ごはん（えいよう）</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        サッカー選手になるには、れんしゅうと おなじくらい「食べること・ねること」が大事⚽
+        じょうぶな体を つくろう！
+      </p>
+      <div class="grid cols-2">
+        <div class="food-card" style="--fc:var(--accent-pink)">
+          <div class="food-emoji">🍚</div>
+          <h3>エネルギーのもと</h3>
+          <p>ごはん・パン・めん・いも。うごく力になる！　しあいの前は おにぎりやバナナがおすすめ。</p>
+        </div>
+        <div class="food-card" style="--fc:var(--accent-blue)">
+          <div class="food-emoji">🍗</div>
+          <h3>筋肉（きんにく）をつくる</h3>
+          <p>肉・魚・たまご・大豆（とうふ・なっとう）。けがしにくい体になるよ。</p>
+        </div>
+        <div class="food-card" style="--fc:var(--accent-green)">
+          <div class="food-emoji">🥦</div>
+          <h3>体のちょうし バッチリ</h3>
+          <p>やさい・くだもの。びょうきに まけない力をつける。いろんな色を食べよう！</p>
+        </div>
+        <div class="food-card" style="--fc:var(--accent-yellow)">
+          <div class="food-emoji">🥛</div>
+          <h3>ほね・はを じょうぶに</h3>
+          <p>牛にゅう・チーズ・小魚（こざかな）。せがのびて、強い体に。</p>
+        </div>
+        <div class="food-card" style="--fc:var(--accent-blue)">
+          <div class="food-emoji">💧</div>
+          <h3>水をのもう</h3>
+          <p>れんしゅうの前・とちゅう・あとに 水やお茶をこまめに。あせをかいたら しっかり ほきゅう。</p>
+        </div>
+        <div class="food-card" style="--fc:var(--sanga-purple-light)">
+          <div class="food-emoji">😴</div>
+          <h3>早ね 早おき</h3>
+          <p>ねている間に体が大きくなる。たくさんねると 上手になるのも早いよ！</p>
+        </div>
+      </div>
+      <div class="tip-box">
+        🍽️ いちばんのコツ：いろんな色の食べものを のこさず食べること。好ききらいを へらすと、もっと強くなれる！
+      </div>
     </section>
 
     <!-- おうちの人へ -->

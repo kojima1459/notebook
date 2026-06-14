@@ -1,77 +1,83 @@
 /* =========================================================
-   サンガキッズ - サッカーショート（サイト内 動画プレーヤー）
-   - おうちの人がえらんだサッカー動画だけを表示
-   - 無限スクロールではなく「○本中○本目」の有げんリスト
+   サンガキッズ - サッカー動画ゾーン
+   - サッカー専門チャンネルの動画を自動でながす（手動キュレーション不要）
+   - 各カテゴリ＝チャンネルのアップロード再生リスト or 動画あつめ
+   - サッカーだけ。YouTubeの関連動画でジャンクに流れないように rel=0
    ========================================================= */
 
-// オフラインでも動く埋め込みリスト（data/shorts.json と同じ内容）
-const SHORTS_FALLBACK = [
-  { id: "SzZ7Ecql-sg", title: "リフティングのきほん（しょしんしゃ・キッズむけ）", category: "技れんしゅう" },
-  { id: "CtgXlExS8qc", title: "リフティング やり方（はじめてさん）", category: "技れんしゅう" },
-  { id: "I2I8Hq_w7lQ", title: "ボールのあつかい方・ジャグリング入もん", category: "技れんしゅう" },
-  { id: "ftfP45kKfPw", title: "かんたんトリック 8つにちょうせん", category: "技れんしゅう" }
+const CHANNELS_FALLBACK = [
+  { key: "skills", label: "⚽ 技・れんしゅう", type: "playlist", id: "UUGJRstFI6eWJTW-DtmgpfGA", desc: "ドリブル・リフティングなど 上たつの動画" },
+  { key: "highlights", label: "🏆 Jリーグ ハイライト", type: "playlist", id: "UUyzs0YrgWiL2wdROpajnO1Q", desc: "Jリーグの しあいハイライト" },
+  { key: "jfa", label: "🇯🇵 日本代表", type: "playlist", id: "UUgIeUSV91-FfmCayG4lSBcw", desc: "日本代表・JFA の動画" },
+  { key: "jleague", label: "📺 Jリーグ公式", type: "playlist", id: "UUWc-XpFHPK1SwGcvpFPZ8NA", desc: "Jリーグ公式チャンネル" },
+  { key: "world", label: "🌍 Jリーグ国際", type: "playlist", id: "UUmQp6ZaAejJKKkXc_Y_lh1A", desc: "海外むけ ハイライト・とくしゅう" },
+  { key: "collection", label: "🤹 キッズ技あつめ", type: "videos", ids: ["SzZ7Ecql-sg", "CtgXlExS8qc", "I2I8Hq_w7lQ", "ftfP45kKfPw"], desc: "はじめてさん向けの れんしゅう動画" }
 ];
 
-(function setupShorts() {
-  const root = document.querySelector("[data-shorts]");
+const VZ_KEY = "sangakids_videozone_tab";
+
+(function setupVideoZone() {
+  const root = document.querySelector("[data-videozone]");
   if (!root) return;
 
-  const frame = root.querySelector(".shorts-frame");
-  const titleEl = root.querySelector(".shorts-title");
-  const countEl = root.querySelector(".shorts-count");
-  const catEl = root.querySelector(".shorts-cat");
-  const prevBtn = root.querySelector("[data-shorts-prev]");
-  const nextBtn = root.querySelector("[data-shorts-next]");
-  const emptyEl = root.querySelector(".shorts-empty");
-  const stageEl = root.querySelector(".shorts-stage");
+  const tabsEl = root.querySelector("[data-vz-tabs]");
+  const frame = root.querySelector(".video-frame");
+  const descEl = root.querySelector("[data-vz-desc]");
 
-  let list = [];
-  let i = 0;
+  let cats = [];
+  let active = localStorage.getItem(VZ_KEY) || null;
 
-  function isValidId(id) {
-    return typeof id === "string" && /^[A-Za-z0-9_-]{6,20}$/.test(id);
+  const base = "https://www.youtube-nocookie.com/embed/";
+  const opts = "rel=0&modestbranding=1&playsinline=1";
+
+  function embedUrl(cat) {
+    if (cat.type === "playlist") {
+      return `${base}videoseries?list=${cat.id}&${opts}`;
+    }
+    // type: videos（動画ID あつめ）
+    const ids = cat.ids || [];
+    const first = ids[0];
+    const rest = ids.slice(1).join(",");
+    return `${base}${first}?${opts}${rest ? "&playlist=" + rest : ""}`;
+  }
+
+  function show(cat) {
+    active = cat.key;
+    localStorage.setItem(VZ_KEY, active);
+    frame.innerHTML =
+      `<iframe src="${embedUrl(cat)}"
+        title="${cat.label}"
+        allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowfullscreen loading="lazy"></iframe>`;
+    descEl.textContent = cat.desc || "";
+    tabsEl.querySelectorAll("button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.key === cat.key)
+    );
   }
 
   function render() {
-    const item = list[i];
-    // youtube-nocookie（プライバシー強化）＋ rel=0 で関連動画をへらす
-    frame.innerHTML =
-      `<iframe src="https://www.youtube-nocookie.com/embed/${item.id}?rel=0&modestbranding=1"
-        title="${item.title}"
-        allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen
-        loading="lazy"></iframe>`;
-    titleEl.textContent = item.title;
-    catEl.textContent = item.category || "サッカー";
-    countEl.textContent = `${list.length}本中 ${i + 1}本目`;
-    prevBtn.disabled = i === 0;
-    nextBtn.disabled = i === list.length - 1;
+    tabsEl.innerHTML = cats
+      .map((c) => `<button type="button" class="vz-tab" data-key="${c.key}">${c.label}</button>`)
+      .join("");
+    tabsEl.querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => {
+        const cat = cats.find((c) => c.key === b.dataset.key);
+        if (cat) show(cat);
+      });
+    });
+    const start = cats.find((c) => c.key === active) || cats[0];
+    if (start) show(start);
   }
-
-  function showEmpty() {
-    stageEl.hidden = true;
-    emptyEl.hidden = false;
-  }
-
-  function start(data) {
-    list = (data || []).filter((s) => s && isValidId(s.id));
-    if (!list.length) return showEmpty();
-    emptyEl.hidden = true;
-    stageEl.hidden = false;
-    render();
-  }
-
-  prevBtn.addEventListener("click", () => { if (i > 0) { i--; render(); } });
-  nextBtn.addEventListener("click", () => { if (i < list.length - 1) { i++; render(); } });
 
   (async function load() {
     try {
-      const res = await fetch("data/shorts.json", { cache: "no-store" });
+      const res = await fetch("data/channels.json", { cache: "no-store" });
       if (!res.ok) throw new Error("not ok");
       const json = await res.json();
-      start(json.shorts || SHORTS_FALLBACK);
+      cats = json.categories || CHANNELS_FALLBACK;
     } catch (e) {
-      start(SHORTS_FALLBACK);
+      cats = CHANNELS_FALLBACK;
     }
+    render();
   })();
 })();

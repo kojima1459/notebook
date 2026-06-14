@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#5b2a86" />
-  <meta name="description" content="京都サンガとサッカーのニュースを、子どもにもわかるやさしいことばでお届け！" />
-  <title>ニュース ⚽ サンガキッズ</title>
+  <meta name="description" content="京都サンガ・Jリーグ・海外サッカー・海外組（日本人選手）の最新ニュースを自動でお届け。サッカーの速報もチェック！" />
+  <title>サッカーニュース ⚽ サンガキッズ</title>
   <link rel="stylesheet" href="assets/css/style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
 </head>
@@ -20,9 +20,9 @@
       <nav class="main-nav" id="nav" aria-label="メインメニュー">
         <ul>
           <li><a href="index.html">ホーム</a></li>
+          <li><a href="shorts.html">どうが</a></li>
           <li><a href="news.html" class="active">ニュース</a></li>
           <li><a href="training.html">れんしゅう</a></li>
-          <li><a href="shorts.html">ショート</a></li>
           <li><a href="quiz.html">クイズ</a></li>
         </ul>
       </nav>
@@ -30,10 +30,25 @@
   </header>
 
   <main>
+    <!-- 自動取得の本物ニュース -->
     <section class="section">
-      <h2 class="section-title"><span class="emoji">📰</span>サッカー＆サンガ ニュース</h2>
-      <p style="margin-bottom:18px;color:var(--text-soft);">
-        サンガやサッカーの楽しいできごとを、やさしいことばでしょうかいするよ📣
+      <h2 class="section-title"><span class="emoji">📰</span>サッカーニュース（さいしん）</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        京都サンガ・Jリーグ・海外サッカー・海外で がんばる日本人選手のニュースを じどうで取ってくるよ⚽
+        見出しをタップすると、くわしい記事が読めるよ（あたらしいタブでひらきます）。
+      </p>
+      <div class="newsfeed" data-newsfeed>
+        <div class="feed-tabs" data-feed-tabs></div>
+        <div class="feed-status" data-feed-status></div>
+        <div class="feed-list" data-feed-list></div>
+      </div>
+    </section>
+
+    <!-- こども向けやさしいニュース -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">🌟</span>こども向け やさしいニュース</h2>
+      <p style="margin-bottom:14px;color:var(--text-soft);">
+        サッカーの楽しいできごとを、やさしいことばでしょうかい（サンプル）。
       </p>
       <div class="news-list" data-news="all"></div>
     </section>
@@ -43,12 +58,13 @@
     <p>⚽ サンガキッズ — サッカーが大すきな子どもの応援サイト</p>
     <p>&copy; <span data-year>2026</span> サンガキッズ（ファンメイド）</p>
     <p class="note">
-      このサイトはサッカーファンが作った非公式の応援サイトです。
-      掲載しているニュースはデモ用のサンプルです。
-      公式の最新情報は <strong>京都サンガF.C. 公式サイト</strong> をご確認ください。
+      「さいしんニュース」は Google ニュースの検索結果を自動取得して表示しています（外部サイトへリンクします）。
+      通信状況により読み込めない場合があります。「こども向けニュース」はサンプルです。
+      公式情報は 京都サンガF.C. / Jリーグ 公式サイトをご確認ください。
     </p>
   </footer>
 
   <script src="assets/js/main.js"></script>
+  <script src="assets/js/news-feed.js"></script>
 </body>
 </html>

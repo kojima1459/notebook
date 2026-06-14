@@ -858,6 +858,188 @@ main {
   100% { transform: scale(1.4) translateY(-30px); opacity: 0; }
 }
 
+/* ---------- セクションチップス ---------- */
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 22px;
+  -webkit-overflow-scrolling: touch;
+}
+.chips a {
+  flex-shrink: 0;
+  background: #fff;
+  border: 2px solid var(--sanga-purple-light);
+  color: var(--sanga-purple);
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 8px 14px;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.chips a:active { transform: scale(0.96); }
+
+/* ---------- サッカー動画ゾーン ---------- */
+.vz-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+  -webkit-overflow-scrolling: touch;
+}
+.vz-tab {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 3px solid var(--sanga-purple-light);
+  background: #fff;
+  color: var(--sanga-purple);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vz-tab.active { background: var(--sanga-purple); color: #fff; }
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.vz-desc {
+  text-align: center;
+  color: var(--text-soft);
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+/* ---------- サッカーニュース（フィード） ---------- */
+.feed-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.feed-tab {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 9px 15px;
+  border-radius: 999px;
+  border: 3px solid var(--accent-blue);
+  background: #fff;
+  color: #1577c4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.feed-tab.active { background: var(--accent-blue); color: #fff; }
+.feed-status {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  margin-bottom: 12px;
+  min-height: 1.2em;
+}
+.feed-list { display: grid; gap: 10px; }
+.feed-item {
+  display: block;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  border-left: 8px solid var(--accent-blue);
+  transition: transform 0.12s;
+}
+.feed-item:active { transform: scale(0.99); }
+.feed-title { font-weight: 800; color: var(--sanga-purple-dark); line-height: 1.5; }
+.feed-meta { font-size: 0.78rem; color: var(--text-soft); margin-top: 6px; }
+.feed-loading {
+  text-align: center;
+  padding: 30px;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+.feed-fallback {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  text-align: center;
+}
+.feed-links {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.feed-links a {
+  background: #eaf4ff;
+  color: #1577c4;
+  font-weight: 800;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+/* ---------- すきま時間トレーニング ---------- */
+.mini-card {
+  position: relative;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  border: 3px solid transparent;
+  transition: transform 0.12s, border-color 0.2s;
+}
+.mini-card:hover { transform: translateY(-3px); border-color: var(--accent-green); }
+.mini-card h3 { color: var(--sanga-purple); margin-bottom: 6px; font-size: 1.05rem; }
+.mini-card p { color: var(--text-soft); font-size: 0.92rem; }
+.mini-time {
+  position: absolute;
+  top: 14px; right: 14px;
+  background: var(--accent-yellow);
+  color: var(--sanga-purple-dark);
+  font-weight: 900;
+  font-size: 0.8rem;
+  padding: 3px 12px;
+  border-radius: 999px;
+}
+.tip-box {
+  margin-top: 16px;
+  background: #fff5d6;
+  border: 2px dashed var(--accent-yellow);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-weight: 700;
+  color: var(--sanga-purple-dark);
+}
+
+/* ---------- つよくなるごはん ---------- */
+.food-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  border-top: 8px solid var(--fc, var(--sanga-purple));
+  text-align: center;
+}
+.food-emoji { font-size: 2.6rem; line-height: 1; }
+.food-card h3 { color: var(--sanga-purple-dark); margin: 8px 0 6px; font-size: 1.05rem; }
+.food-card p { color: var(--text-soft); font-size: 0.9rem; }
+
 /* ---------- フッター ---------- */
 .site-footer {
   background: var(--sanga-purple-dark);

@@ -1,0 +1,10 @@
+{
+  "_comment": "Googleニュースの検索RSSを使って、サッカーのニュースを自動取得します。手動でニュースをえらぶ必要はありません。query を変えれば取得するニュースを調整できます。",
+  "feeds": [
+    { "key": "sanga", "label": "💜 京都サンガ", "query": "京都サンガ" },
+    { "key": "jleague", "label": "🏆 Jリーグ", "query": "Jリーグ" },
+    { "key": "overseas", "label": "🌍 海外サッカー", "query": "海外サッカー OR プレミアリーグ OR チャンピオンズリーグ" },
+    { "key": "japan", "label": "🇯🇵 海外組(日本人)", "query": "サッカー 日本人選手 海外 OR 日本代表" },
+    { "key": "flash", "label": "⚡ 速報", "query": "サッカー 速報" }
+  ]
+}
