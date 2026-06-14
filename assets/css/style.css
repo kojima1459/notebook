@@ -1477,7 +1477,9 @@ main {
     transition: max-height 0.3s ease;
   }
   .main-nav.open {
-    max-height: 480px;
+    max-height: calc(100vh - 60px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .main-nav ul {
     flex-direction: column;
