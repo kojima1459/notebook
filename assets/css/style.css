@@ -622,6 +622,149 @@ main {
 }
 .flow-cta:active { transform: translateY(3px); box-shadow: 0 2px 0 #d9a800; }
 
+/* ---------- 今日の1つ おすすめドリル ---------- */
+.today-drill {
+  background: linear-gradient(135deg, #fff8e6, #fff3d4);
+  border: 3px solid var(--accent-yellow);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 18px;
+}
+.today-drill.is-done {
+  background: linear-gradient(135deg, #e6fbf0, #d4f7e8);
+  border-color: var(--accent-green);
+}
+.td-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #b8860b;
+  margin-bottom: 10px;
+}
+.today-drill.is-done .td-label { color: #1f9d6b; }
+.td-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.td-icon { font-size: 2.6rem; flex-shrink: 0; }
+.td-info { flex: 1; }
+.td-name { display: block; font-size: 1.3rem; font-weight: 900; color: var(--sanga-purple-dark); }
+.td-where { font-size: 0.82rem; color: var(--text-soft); }
+.td-done-btn {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 3px solid var(--accent-green);
+  background: #fff;
+  color: #1f9d6b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.td-done-btn:active { transform: scale(0.97); }
+.td-why {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.65;
+  margin-bottom: 14px;
+}
+.td-go {
+  display: block;
+  text-align: center;
+  background: var(--sanga-purple);
+  color: #fff;
+  font-weight: 800;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 1rem;
+}
+.td-go:active { transform: scale(0.98); }
+
+/* ---------- できた！バッジ（技カード） ---------- */
+.skill-done-badge {
+  background: var(--accent-green);
+  color: #08361f;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 5px 14px;
+  border-radius: 14px 14px 0 0;
+  text-align: center;
+}
+.skill-done-btn {
+  width: 100%;
+  margin-top: 14px;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.92rem;
+  padding: 12px;
+  border-radius: 12px;
+  border: 3px solid var(--accent-green);
+  background: #fff;
+  color: #1f9d6b;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.skill-done-btn.done {
+  background: var(--accent-green);
+  color: #08361f;
+  border-color: #1f9d6b;
+}
+.skill-done-btn:active { transform: scale(0.98); }
+
+/* ---------- 視聴タイマー & 練習ナッジ ---------- */
+.vz-playtime-row { text-align: right; min-height: 1.4em; }
+.vz-playtime {
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+.vz-practice-nudge {
+  margin-top: 10px;
+  animation: slide-up 0.35s ease;
+}
+@keyframes slide-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.nudge-inner {
+  background: linear-gradient(135deg, var(--accent-green), #34c9a0);
+  color: #06303a;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nudge-icon { font-size: 1.8rem; flex-shrink: 0; }
+.nudge-body { flex: 1; line-height: 1.4; }
+.nudge-body b { display: block; font-size: 0.95rem; font-weight: 800; }
+.nudge-body span { font-size: 0.82rem; opacity: 0.9; }
+.nudge-go {
+  flex-shrink: 0;
+  background: #06303a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.82rem;
+  padding: 10px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.nudge-close {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.1);
+  color: #06303a;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-weight: 800;
+}
+
 /* 動画・ニュース → 練習への さそいバナー */
 .do-banner {
   display: flex;

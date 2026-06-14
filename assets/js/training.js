@@ -167,6 +167,7 @@ const BADGES = [
 ];
 
 const STORE_KEY = "sangakids_training_v1";
+const SKILL_DONE_KEY = "sangakids_skill_done";
 
 function loadState() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
@@ -174,6 +175,13 @@ function loadState() {
 }
 function saveState(s) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {}
+}
+function loadSkillDone() {
+  try { return JSON.parse(localStorage.getItem(SKILL_DONE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function saveSkillDone(d) {
+  try { localStorage.setItem(SKILL_DONE_KEY, JSON.stringify(d)); } catch (e) {}
 }
 function dateKey(offset) {
   const d = new Date();
@@ -183,7 +191,28 @@ function dateKey(offset) {
 const todayStr = () => dateKey(0);
 const yesterdayStr = () => dateKey(-1);
 
-/* ---------- 技カードの描画（見本さがしリンク付き） ---------- */
+/* ---------- できた！記録の状態を更新 ---------- */
+function renderSkillDoneStates() {
+  const done = loadSkillDone();
+  document.querySelectorAll(".skill-card").forEach((card, i) => {
+    const skill = SKILLS[i];
+    if (!skill) return;
+    const doneDate = done[skill.name];
+    const doneToday = doneDate === todayStr();
+    const badge = card.querySelector(".skill-done-badge");
+    if (badge) {
+      badge.textContent = doneToday ? "✅ 今日できた！" : doneDate ? `📅 ${doneDate} にできた` : "";
+      badge.hidden = !doneDate;
+    }
+    const btn = card.querySelector("[data-skill-done]");
+    if (btn) {
+      btn.textContent = doneToday ? "✅ 今日できた！（取り消す）" : "✓ できた！記録する";
+      btn.classList.toggle("done", doneToday);
+    }
+  });
+}
+
+/* ---------- 技カードの描画（見本さがしリンク＋できた！ボタン） ---------- */
 (function renderSkills() {
   const wrap = document.querySelector("[data-skills]");
   if (!wrap) return;
@@ -192,6 +221,7 @@ const yesterdayStr = () => dateKey(-1);
     const url = `https://www.youtube.com/results?search_query=${query}`;
     return `
     <div class="skill-card">
+      <div class="skill-done-badge" hidden></div>
       <button class="skill-head" type="button" aria-expanded="false" data-skill="${i}">
         <span class="skill-icon" aria-hidden="true">${s.icon}</span>
         <span class="skill-title">
@@ -210,20 +240,90 @@ const yesterdayStr = () => dateKey(-1);
         <a class="video-link" href="${url}" target="_blank" rel="noopener noreferrer">
           🎥 見本どうがを さがす（おうちの人と いっしょに）
         </a>
+        <button type="button" class="skill-done-btn" data-skill-done="${i}">✓ できた！記録する</button>
       </div>
     </div>`;
   }).join("");
 
   wrap.querySelectorAll(".skill-head").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const body = btn.nextElementSibling;
+      const body = btn.closest(".skill-card").querySelector(".skill-body");
       const open = btn.getAttribute("aria-expanded") === "true";
       btn.setAttribute("aria-expanded", String(!open));
       body.hidden = open;
       btn.querySelector(".skill-arrow").textContent = open ? "▼" : "▲";
     });
   });
+
+  wrap.querySelectorAll("[data-skill-done]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const i = +btn.dataset.skillDone;
+      const skill = SKILLS[i];
+      const d = loadSkillDone();
+      if (d[skill.name] === todayStr()) {
+        delete d[skill.name];
+      } else {
+        d[skill.name] = todayStr();
+        celebrate();
+      }
+      saveSkillDone(d);
+      renderSkillDoneStates();
+      renderTodayDrill();
+    });
+  });
+
+  renderSkillDoneStates();
 })();
+
+/* ---------- 今日の1つ おすすめドリル ---------- */
+function renderTodayDrill() {
+  const wrap = document.querySelector("[data-today-drill]");
+  if (!wrap) return;
+
+  const state = loadState();
+  const level = state.level || "beginner";
+  const dow = new Date().getDay();
+
+  // レベル別・曜日別のおすすめ（SKILLSの添字）
+  const rotation = {
+    beginner:     [0, 1, 2, 0, 1, 3, 0],
+    intermediate: [0, 1, 4, 2, 3, 3, 1],
+    advanced:     [0, 5, 4, 6, 3, 2, 5],
+  };
+  const idx = (rotation[level] || rotation.beginner)[dow];
+  const drill = SKILLS[idx];
+  if (!drill) return;
+
+  const done = loadSkillDone();
+  const doneToday = done[drill.name] === todayStr();
+
+  wrap.innerHTML = `
+    <div class="today-drill ${doneToday ? "is-done" : ""}">
+      <div class="td-label">📅 今日やる1つ ${doneToday ? "✅ できた！" : "← まずこれだけ！"}</div>
+      <div class="td-main">
+        <span class="td-icon">${drill.icon}</span>
+        <div class="td-info">
+          <b class="td-name">${drill.name}</b>
+          <span class="td-where">${drill.place || ""}</span>
+        </div>
+        ${doneToday ? "" : `<button type="button" class="td-done-btn" data-td-done="${idx}">✓ できた！</button>`}
+      </div>
+      <p class="td-why">${drill.why ? drill.why.slice(0, 100) + "…" : drill.goal}</p>
+      <a href="#skills" class="td-go">📋 正しいやり方を見る ↓</a>
+    </div>`;
+
+  const btn = wrap.querySelector("[data-td-done]");
+  if (btn) btn.addEventListener("click", () => {
+    const i = +btn.dataset.tdDone;
+    const d = loadSkillDone();
+    d[SKILLS[i].name] = todayStr();
+    saveSkillDone(d);
+    celebrate();
+    renderTodayDrill();
+    renderSkillDoneStates();
+  });
+}
+renderTodayDrill();
 
 /* ---------- レベル別 週間プログラム ---------- */
 (function renderProgram() {

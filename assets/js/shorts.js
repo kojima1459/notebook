@@ -20,6 +20,18 @@ const VZ_KEY = "sangakids_videozone_tab";
 const VZ_FAV = "sangakids_videozone_favs";
 const VZ_SAVED = "sangakids_saved_videos";
 
+// カテゴリ別 練習おすすめ（動画→練習の動線）
+const PRACTICE_SUGGESTIONS = {
+  sanga:      { icon: "🎯", name: "シュート",                 text: "サンガ選手みたいに正確なシュートを練習しよう" },
+  skills:     { icon: "🤹", name: "リフティング",             text: "テクニックの土台！まずはリフティングから" },
+  highlights: { icon: "👟", name: "シザース（フェイント）",   text: "ハイライトみたいな1対1、フェイントで抜こう" },
+  jfa:        { icon: "🏃", name: "ドリブル",                 text: "代表選手みたいに速いドリブルを身につけよう" },
+  jleague:    { icon: "🎯", name: "シュート",                 text: "Jリーグ選手みたいな強いシュートにちょうせん" },
+  world:      { icon: "🌀", name: "ルーレット",               text: "海外の選手みたいなかっこいい技を覚えよう" },
+  collection: { icon: "🤹", name: "リフティング",             text: "キッズ技動画を見たら、自分でも挑戦してみよう" },
+  saved:      { icon: "⭐", name: "気になった技",             text: "保存した動画の技、体で覚えよう" },
+};
+
 (function setupVideoZone() {
   const root = document.querySelector("[data-videozone]");
   if (!root) return;
@@ -37,8 +49,58 @@ const VZ_SAVED = "sangakids_saved_videos";
   let saved = read(VZ_SAVED, []); // [{id, title}]
   let player = null, apiReady = false, pending = null, currentVideo = null;
 
+  // 視聴時間トラッキング
+  let playTimer = null, totalPlaySec = 0, lastNudgeSec = -999, timeNudgeDone = false;
+
   function read(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
   function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  // ---- 練習への誘導（視聴後ナッジ）----
+  function startPlayTimer() {
+    if (playTimer) return;
+    playTimer = setInterval(() => {
+      totalPlaySec++;
+      const el = root.querySelector("[data-vz-playtime]");
+      if (el) {
+        const m = Math.floor(totalPlaySec / 60);
+        const s = totalPlaySec % 60;
+        el.textContent = `⏱ 視聴 ${m}分${s < 10 ? "0" : ""}${s}秒`;
+      }
+      if (!timeNudgeDone && totalPlaySec >= 300) {
+        timeNudgeDone = true;
+        showNudge("time");
+      }
+    }, 1000);
+  }
+
+  function stopPlayTimer() {
+    if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  }
+
+  function showNudge(trigger) {
+    const nudge = root.querySelector(".vz-practice-nudge");
+    if (!nudge) return;
+    lastNudgeSec = totalPlaySec;
+    const sugg = PRACTICE_SUGGESTIONS[active] || PRACTICE_SUGGESTIONS.saved;
+    const msg = trigger === "time"
+      ? "⏰ 5分見たね！練習もしてみよう 💪"
+      : trigger === "ended"
+      ? "🎬 動画を見終わった！次は体で覚えよう"
+      : "⏸ ちょっと休憩のすきに練習してみよう";
+    nudge.hidden = false;
+    nudge.innerHTML = `
+      <div class="nudge-inner">
+        <span class="nudge-icon" aria-hidden="true">${sugg.icon}</span>
+        <span class="nudge-body">
+          <b>${msg}</b>
+          <span>${sugg.name}のやり方 → 練習ページへ</span>
+        </span>
+        <a href="training.html#skills" class="nudge-go">練習へ →</a>
+        <button class="nudge-close" type="button" aria-label="閉じる">✕</button>
+      </div>`;
+    nudge.querySelector(".nudge-close").addEventListener("click", () => { nudge.hidden = true; });
+    if (trigger !== "ended") setTimeout(() => { nudge.hidden = true; }, 20000);
+  }
 
   // ---- 保存ずみ動画を「カテゴリ」として先頭に足す ----
   function allCats() {
@@ -72,11 +134,22 @@ const VZ_SAVED = "sangakids_saved_videos";
       playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
       events: {
         onReady: () => { if (pending) { applyCat(pending); pending = null; } },
-        onStateChange: () => {
+        onStateChange: (e) => {
+          const state = (e && typeof e.data !== "undefined") ? e.data : -1;
+          if (state === 1) { // PLAYING
+            startPlayTimer();
+          } else {
+            stopPlayTimer();
+            if (state === 0) { // ENDED
+              showNudge("ended");
+            } else if (state === 2 && totalPlaySec - lastNudgeSec > 90) { // PAUSED
+              showNudge("paused");
+            }
+          }
           try {
             const d = player.getVideoData();
             if (d && d.video_id) currentVideo = { id: d.video_id, title: d.title || "" };
-          } catch (e) {}
+          } catch (e2) {}
           updateSaveBtn();
         },
       },
