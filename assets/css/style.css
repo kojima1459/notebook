@@ -1,0 +1,548 @@
+/* =========================================================
+   サンガキッズ - スタイルシート
+   京都サンガを応援する子供向けサイト
+   モバイルファースト・レスポンシブ対応
+   ========================================================= */
+
+:root {
+  /* 京都サンガのチームカラー＝紫 をベースに、子供向けの明るい色を追加 */
+  --sanga-purple: #5b2a86;
+  --sanga-purple-dark: #3d1a5e;
+  --sanga-purple-light: #8a5cb8;
+  --accent-pink: #ff5fa2;
+  --accent-yellow: #ffd23f;
+  --accent-green: #3ddc97;
+  --accent-blue: #46b1ff;
+  --bg: #faf7ff;
+  --card: #ffffff;
+  --text: #2b2240;
+  --text-soft: #6a6285;
+  --shadow: 0 8px 24px rgba(91, 42, 134, 0.14);
+  --radius: 18px;
+  --font: "Hiragino Maru Gothic ProN", "Hiragino Maru Gothic Pro",
+    "Rounded Mplus 1c", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------- ヘッダー ---------- */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(120deg, var(--sanga-purple), var(--sanga-purple-light));
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+}
+
+.logo .ball {
+  font-size: 1.5rem;
+  animation: spin 6s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ハンバーガーボタン（モバイル用） */
+.nav-toggle {
+  display: none;
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  color: #fff;
+  font-size: 1.4rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.main-nav ul {
+  list-style: none;
+  display: flex;
+  gap: 6px;
+}
+
+.main-nav a {
+  display: block;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.main-nav a:hover,
+.main-nav a.active {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.main-nav a:active {
+  transform: scale(0.96);
+}
+
+/* ---------- ヒーロー ---------- */
+.hero {
+  background: radial-gradient(circle at 20% 20%, var(--accent-pink) 0%, transparent 40%),
+    radial-gradient(circle at 90% 10%, var(--accent-yellow) 0%, transparent 35%),
+    linear-gradient(160deg, var(--sanga-purple), var(--sanga-purple-dark));
+  color: #fff;
+  text-align: center;
+  padding: 48px 20px 64px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero h1 {
+  font-size: clamp(1.8rem, 6vw, 3rem);
+  margin-bottom: 12px;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.15);
+}
+
+.hero p {
+  font-size: clamp(1rem, 3.4vw, 1.25rem);
+  max-width: 600px;
+  margin: 0 auto 24px;
+  opacity: 0.95;
+}
+
+.hero .cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent-yellow);
+  color: var(--sanga-purple-dark);
+  font-weight: 800;
+  padding: 14px 28px;
+  border-radius: 999px;
+  font-size: 1.05rem;
+  box-shadow: 0 6px 0 #d9a800;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.hero .cta:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #d9a800;
+}
+
+/* 飛んでいくボール装飾 */
+.floating-balls span {
+  position: absolute;
+  font-size: 2rem;
+  opacity: 0.35;
+  animation: float 7s ease-in-out infinite;
+}
+.floating-balls span:nth-child(1) { left: 8%; top: 20%; animation-delay: 0s; }
+.floating-balls span:nth-child(2) { left: 80%; top: 30%; animation-delay: 1.5s; }
+.floating-balls span:nth-child(3) { left: 60%; top: 65%; animation-delay: 3s; }
+.floating-balls span:nth-child(4) { left: 25%; top: 70%; animation-delay: 4.5s; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-22px) rotate(20deg); }
+}
+
+/* ---------- 共通レイアウト ---------- */
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 16px 60px;
+}
+
+.section {
+  margin-bottom: 44px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.45rem;
+  margin-bottom: 18px;
+  color: var(--sanga-purple-dark);
+}
+
+.section-title .emoji {
+  font-size: 1.6rem;
+}
+
+.section-title::after {
+  content: "";
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent-pink) 0 14px,
+    var(--accent-yellow) 14px 28px
+  );
+}
+
+/* ---------- カードグリッド ---------- */
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 600px) {
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  transition: transform 0.15s;
+  border: 3px solid transparent;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-yellow);
+}
+
+.card h3 {
+  color: var(--sanga-purple);
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+}
+
+.card p {
+  color: var(--text-soft);
+  font-size: 0.95rem;
+}
+
+/* ---------- ニュース ---------- */
+.news-list {
+  display: grid;
+  gap: 14px;
+}
+
+.news-item {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border-left: 8px solid var(--accent-blue);
+}
+
+.news-item .cat {
+  flex-shrink: 0;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.news-item .body h3 {
+  font-size: 1.05rem;
+  color: var(--sanga-purple-dark);
+  margin-bottom: 4px;
+}
+
+.news-item .meta {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+
+.news-item .tag {
+  display: inline-block;
+  background: var(--accent-green);
+  color: #0c4a32;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+/* ---------- 試合日程 ---------- */
+.match-card {
+  background: linear-gradient(135deg, var(--sanga-purple), var(--sanga-purple-light));
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.match-card .date {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.match-card .teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  margin: 10px 0;
+}
+
+.match-card .vs {
+  background: var(--accent-yellow);
+  color: var(--sanga-purple-dark);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.85rem;
+}
+
+.match-card .place {
+  font-size: 0.82rem;
+  opacity: 0.9;
+}
+
+/* ---------- クイズ ---------- */
+.quiz-box {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.quiz-progress {
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+
+.quiz-bar {
+  height: 10px;
+  background: #eee;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.quiz-bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+  transition: width 0.4s;
+}
+
+.quiz-question {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--sanga-purple-dark);
+  margin-bottom: 16px;
+}
+
+.quiz-options {
+  display: grid;
+  gap: 12px;
+}
+
+.quiz-options button {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 3px solid var(--sanga-purple-light);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.1s, background 0.2s;
+}
+
+.quiz-options button:hover {
+  background: #f3ecfb;
+}
+
+.quiz-options button:active {
+  transform: scale(0.98);
+}
+
+.quiz-options button.correct {
+  background: var(--accent-green);
+  border-color: #1f9d6b;
+  color: #08361f;
+}
+
+.quiz-options button.wrong {
+  background: #ffd0dd;
+  border-color: var(--accent-pink);
+}
+
+.quiz-options button:disabled {
+  cursor: default;
+}
+
+.quiz-feedback {
+  margin-top: 16px;
+  font-weight: 800;
+  min-height: 1.6em;
+  text-align: center;
+}
+
+.quiz-next {
+  margin-top: 16px;
+  width: 100%;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1rem;
+  padding: 13px;
+  border: none;
+  border-radius: 14px;
+  background: var(--sanga-purple);
+  color: #fff;
+  cursor: pointer;
+}
+
+.quiz-next:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.quiz-result {
+  text-align: center;
+}
+
+.quiz-result .score {
+  font-size: 2.6rem;
+  font-weight: 900;
+  color: var(--sanga-purple);
+}
+
+.quiz-result .medal {
+  font-size: 3.5rem;
+}
+
+/* ---------- 応援メッセージ ---------- */
+.cheer {
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-yellow));
+  color: var(--sanga-purple-dark);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.cheer h2 {
+  font-size: 1.4rem;
+  margin-bottom: 8px;
+}
+
+.cheer .chant {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+/* ---------- フッター ---------- */
+.site-footer {
+  background: var(--sanga-purple-dark);
+  color: #fff;
+  text-align: center;
+  padding: 28px 16px;
+  font-size: 0.85rem;
+}
+
+.site-footer .note {
+  opacity: 0.7;
+  font-size: 0.78rem;
+  margin-top: 10px;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.site-footer a {
+  color: var(--accent-yellow);
+  font-weight: 700;
+}
+
+/* ---------- モバイルナビ ---------- */
+@media (max-width: 720px) {
+  .nav-toggle {
+    display: block;
+  }
+  .main-nav {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--sanga-purple-dark);
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .main-nav.open {
+    max-height: 320px;
+  }
+  .main-nav ul {
+    flex-direction: column;
+    padding: 8px;
+    gap: 4px;
+  }
+  .main-nav a {
+    padding: 12px 14px;
+    font-size: 1rem;
+  }
+}
+
+/* アクセシビリティ：動きを減らす設定 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    scroll-behavior: auto;
+  }
+}

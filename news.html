@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#5b2a86" />
+  <meta name="description" content="京都サンガとサッカーのニュースを、子どもにもわかるやさしいことばでお届け！" />
+  <title>ニュース ⚽ サンガキッズ</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="logo">
+        <span class="ball" aria-hidden="true">⚽</span>
+        <span>サンガキッズ</span>
+      </a>
+      <button class="nav-toggle" aria-label="メニュー" aria-expanded="false" aria-controls="nav">☰</button>
+      <nav class="main-nav" id="nav" aria-label="メインメニュー">
+        <ul>
+          <li><a href="index.html">ホーム</a></li>
+          <li><a href="news.html" class="active">ニュース</a></li>
+          <li><a href="quiz.html">クイズ</a></li>
+          <li><a href="index.html#players">せんしゅ</a></li>
+          <li><a href="index.html#schedule">しあい</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">📰</span>サッカー＆サンガ ニュース</h2>
+      <p style="margin-bottom:18px;color:var(--text-soft);">
+        サンガやサッカーの楽しいできごとを、やさしいことばでしょうかいするよ📣
+      </p>
+      <div class="news-list" data-news="all"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>⚽ サンガキッズ — サッカーが大すきな子どもの応援サイト</p>
+    <p>&copy; <span data-year>2026</span> サンガキッズ（ファンメイド）</p>
+    <p class="note">
+      このサイトはサッカーファンが作った非公式の応援サイトです。
+      掲載しているニュースはデモ用のサンプルです。
+      公式の最新情報は <strong>京都サンガF.C. 公式サイト</strong> をご確認ください。
+    </p>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>

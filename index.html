@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#5b2a86" />
+  <meta name="description" content="京都サンガとサッカーが大すきな子どものための、楽しい応援サイト。ニュース・クイズ・試合日程をチェックしよう！" />
+  <title>サンガキッズ ⚽ 京都サンガ＆サッカー こども応援サイト</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="logo">
+        <span class="ball" aria-hidden="true">⚽</span>
+        <span>サンガキッズ</span>
+      </a>
+      <button class="nav-toggle" aria-label="メニュー" aria-expanded="false" aria-controls="nav">☰</button>
+      <nav class="main-nav" id="nav" aria-label="メインメニュー">
+        <ul>
+          <li><a href="index.html" class="active">ホーム</a></li>
+          <li><a href="news.html">ニュース</a></li>
+          <li><a href="quiz.html">クイズ</a></li>
+          <li><a href="#players">せんしゅ</a></li>
+          <li><a href="#schedule">しあい</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="floating-balls" aria-hidden="true">
+      <span>⚽</span><span>💜</span><span>🥅</span><span>⭐</span>
+    </div>
+    <h1>サンガキッズへ ようこそ！</h1>
+    <p>京都サンガとサッカーが大すきなキミのための、わくわく応援サイト⚽<br />ニュースを読んだり、クイズであそんだりしよう！</p>
+    <a href="quiz.html" class="cta">🎮 サッカークイズで あそぶ</a>
+  </section>
+
+  <main>
+    <!-- お知らせ・できること -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">✨</span>このサイトでできること</h2>
+      <div class="grid cols-3">
+        <a class="card" href="news.html">
+          <h3>📰 ニュース</h3>
+          <p>サンガやサッカーの楽しいできごとを、やさしいことばで読めるよ。</p>
+        </a>
+        <a class="card" href="quiz.html">
+          <h3>🎮 サッカークイズ</h3>
+          <p>ぜんぶで7問！何問せいかいできるかチャレンジしてね。</p>
+        </a>
+        <a class="card" href="#schedule">
+          <h3>📅 しあい日程</h3>
+          <p>つぎのしあいをチェックして、みんなで応援しよう！</p>
+        </a>
+      </div>
+    </section>
+
+    <!-- 新着ニュース（3件） -->
+    <section class="section" id="news">
+      <h2 class="section-title"><span class="emoji">📰</span>あたらしいニュース</h2>
+      <div class="news-list" data-news="home"></div>
+      <p style="margin-top:14px;text-align:right;">
+        <a href="news.html" style="color:var(--sanga-purple);font-weight:800;">もっと見る →</a>
+      </p>
+    </section>
+
+    <!-- せんしゅ紹介（ポジション） -->
+    <section class="section" id="players">
+      <h2 class="section-title"><span class="emoji">⭐</span>サッカーのポジションをおぼえよう</h2>
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>🥅 ゴールキーパー（GK）</h3>
+          <p>ゴールをまもる、さいごのとりで。手でボールをとめられる、ゆいいつの選手だよ。</p>
+        </div>
+        <div class="card">
+          <h3>🛡️ ディフェンダー（DF）</h3>
+          <p>あいてのこうげきをふせぐ、たよれるまもりのせんしゅ。</p>
+        </div>
+        <div class="card">
+          <h3>🎯 ミッドフィルダー（MF）</h3>
+          <p>こうげきもまもりもする、ピッチのまんなかで大かつやく！</p>
+        </div>
+        <div class="card">
+          <h3>⚽ フォワード（FW）</h3>
+          <p>ゴールをきめるてんさい。たくさん点をとってチームをかつ！</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 試合日程（サンプル） -->
+    <section class="section" id="schedule">
+      <h2 class="section-title"><span class="emoji">📅</span>つぎのしあい（れい）</h2>
+      <div class="grid cols-3">
+        <div class="match-card">
+          <div class="date">6月21日（日）14:00</div>
+          <div class="teams"><span>京都サンガ</span><span class="vs">VS</span><span>ライバル</span></div>
+          <div class="place">🏟️ サンガスタジアム by KYOCERA</div>
+        </div>
+        <div class="match-card">
+          <div class="date">6月28日（日）18:00</div>
+          <div class="teams"><span>アウェイ</span><span class="vs">VS</span><span>京都サンガ</span></div>
+          <div class="place">🚌 アウェイのスタジアム</div>
+        </div>
+        <div class="match-card">
+          <div class="date">7月5日（土）16:00</div>
+          <div class="teams"><span>京都サンガ</span><span class="vs">VS</span><span>チャレンジャー</span></div>
+          <div class="place">🏟️ サンガスタジアム by KYOCERA</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;color:var(--text-soft);font-size:0.82rem;">
+        ※ 日程はサンプルです。本当のしあい日程は公式サイトでたしかめてね。
+      </p>
+    </section>
+
+    <!-- 応援メッセージ -->
+    <section class="section">
+      <div class="cheer">
+        <h2>💜 みんなで応援しよう！</h2>
+        <p class="chant">「サ・ン・ガ！ いけいけ サンガ！」</p>
+        <p>大きなこえと紫のちからで、選手をおうえんしよう！</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>⚽ サンガキッズ — サッカーが大すきな子どもの応援サイト</p>
+    <p>&copy; <span data-year>2026</span> サンガキッズ（ファンメイド）</p>
+    <p class="note">
+      このサイトはサッカーファンが作った非公式の応援サイトです。
+      掲載しているニュースや日程はデモ用のサンプルです。
+      公式の最新情報は <strong>京都サンガF.C. 公式サイト</strong> をご確認ください。
+    </p>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
