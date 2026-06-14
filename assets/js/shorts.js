@@ -6,6 +6,7 @@
    ========================================================= */
 
 const CHANNELS_FALLBACK = [
+  { key: "sanga", label: "💜 京都サンガ", type: "playlist", id: "UUThC5l5XIVUEljKnCTMgI8A", desc: "京都サンガ公式チャンネルの最新動画" },
   { key: "skills", label: "⚽ 技・れんしゅう", type: "playlist", id: "UUGJRstFI6eWJTW-DtmgpfGA", desc: "ドリブル・リフティングなど 上たつの動画" },
   { key: "highlights", label: "🏆 Jリーグ ハイライト", type: "playlist", id: "UUyzs0YrgWiL2wdROpajnO1Q", desc: "Jリーグの しあいハイライト" },
   { key: "jfa", label: "🇯🇵 日本代表", type: "playlist", id: "UUgIeUSV91-FfmCayG4lSBcw", desc: "日本代表・JFA の動画" },

@@ -109,5 +109,65 @@ async function loadSangaNews() {
   }
 }
 
+// サンガの次の試合・直近の結果・クラブプロフィール
+async function loadSangaInfo() {
+  const matchEl = document.querySelector("[data-sanga-match]");
+  const profEl = document.querySelector("[data-sanga-profile]");
+  try {
+    const res = await fetch("/api/sanga", { cache: "no-store" });
+    const data = await res.json();
+
+    if (matchEl) {
+      const cards = [];
+      if (data.nextMatch) {
+        const n = data.nextMatch;
+        cards.push(`
+          <a class="match-info next" ${n.link ? `href="${n.link}" target="_blank" rel="noopener noreferrer"` : ""}>
+            <div class="mi-label">📅 次の試合</div>
+            <div class="mi-teams">京都サンガ <span class="mi-vs">VS</span> ${n.opponent}</div>
+            <div class="mi-date">${n.year}年${n.dateLabel}${n.round ? "・第" + n.round + "節" : ""}</div>
+          </a>`);
+      }
+      if (data.lastResult) {
+        const r = data.lastResult;
+        cards.push(`
+          <a class="match-info last" ${r.link ? `href="${r.link}" target="_blank" rel="noopener noreferrer"` : ""}>
+            <div class="mi-label">📝 直近の試合</div>
+            <div class="mi-teams">京都サンガ <span class="mi-vs">VS</span> ${r.opponent}</div>
+            <div class="mi-date">${r.dateLabel}${r.round ? "・第" + r.round + "節" : ""}・結果は記事でチェック →</div>
+          </a>`);
+      }
+      if (!cards.length) {
+        cards.push(`
+          <div class="match-info none">
+            <div class="mi-label">📅 次の試合</div>
+            <div class="mi-date">日程が決まると、ここに表示されるよ。<br>
+            <a href="https://www.jleague.jp/club/kyoto/day/" target="_blank" rel="noopener noreferrer">公式の日程・結果を見る →</a></div>
+          </div>`);
+      }
+      matchEl.innerHTML = cards.join("");
+    }
+
+    if (profEl && data.profile) {
+      const p = data.profile;
+      profEl.innerHTML = `
+        <div class="profile-card">
+          <h3>💜 ${p.name}</h3>
+          <ul class="profile-list">
+            <li><b>ホームタウン</b>${p.hometown}</li>
+            <li><b>スタジアム</b>${p.stadium}</li>
+            <li><b>クラブカラー</b>${p.color}</li>
+            <li><b>Jリーグ</b>${p.joinedJ}</li>
+            <li><b>マスコット</b>${p.mascot}</li>
+          </ul>
+          <p class="profile-note">${p.note}</p>
+        </div>`;
+    }
+  } catch (e) {
+    if (matchEl) matchEl.innerHTML = `<div class="feed-links"><a href="https://www.jleague.jp/club/kyoto/day/" target="_blank" rel="noopener noreferrer">公式の日程・結果を見る →</a></div>`;
+  }
+}
+
 loadStandings();
+loadSangaInfo();
 loadSangaNews();

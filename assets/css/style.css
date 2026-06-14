@@ -1096,6 +1096,65 @@ main {
 .fb.l { background: var(--accent-pink); }
 .fb.d { background: #b8b2c8; }
 
+/* ---------- サンガ：次の試合・直近の結果 ---------- */
+.match-info-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+  margin-bottom: 18px;
+}
+@media (min-width: 560px) {
+  .match-info-row:has(.match-info + .match-info) { grid-template-columns: 1fr 1fr; }
+}
+.match-info {
+  display: block;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  color: #fff;
+  text-align: center;
+}
+.match-info.next { background: linear-gradient(135deg, var(--sanga-purple), var(--sanga-purple-light)); }
+.match-info.last { background: linear-gradient(135deg, var(--accent-blue), #1577c4); }
+.match-info.none { background: var(--card); color: var(--text-soft); }
+.match-info.none a { color: var(--sanga-purple); font-weight: 800; }
+.mi-label { font-size: 0.8rem; font-weight: 800; opacity: 0.92; }
+.mi-teams { font-size: 1.15rem; font-weight: 900; margin: 8px 0; }
+.mi-vs { background: var(--accent-yellow); color: var(--sanga-purple-dark); border-radius: 999px; padding: 1px 10px; font-size: 0.82rem; margin: 0 6px; }
+.mi-date { font-size: 0.85rem; opacity: 0.95; }
+
+/* ---------- クラブプロフィール ---------- */
+.profile-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  border-top: 8px solid var(--sanga-purple);
+}
+.profile-card h3 { color: var(--sanga-purple-dark); margin-bottom: 12px; }
+.profile-list { list-style: none; display: grid; gap: 8px; }
+.profile-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  border-bottom: 1px dashed #eee;
+  padding-bottom: 6px;
+}
+.profile-list b {
+  flex-shrink: 0;
+  width: 7.5em;
+  color: var(--sanga-purple);
+  font-size: 0.85rem;
+}
+.profile-note {
+  margin-top: 12px;
+  background: #f3ecfb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--sanga-purple-dark);
+  font-weight: 600;
+}
+
 /* ---------- 動画：お気に入り ---------- */
 .vz-fav {
   display: flex;

@@ -30,7 +30,7 @@ function parseRss(xml) {
   const items = [];
   const itemRe = /<item>([\s\S]*?)<\/item>/g;
   let m;
-  while ((m = itemRe.exec(xml)) && items.length < 18) {
+  while ((m = itemRe.exec(xml))) {
     const block = m[1];
     const pick = (tag) => {
       const r = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`).exec(block);
@@ -50,7 +50,13 @@ function parseRss(xml) {
     }
     if (title && link) items.push({ title, link, source, pub });
   }
-  return items;
+  // 新しい順（pubDate降順）に並べ替え
+  items.sort((a, b) => {
+    const ta = new Date(a.pub).getTime() || 0;
+    const tb = new Date(b.pub).getTime() || 0;
+    return tb - ta;
+  });
+  return items.slice(0, 20);
 }
 
 module.exports = async (req, res) => {
