@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#5b2a86" />
+  <meta name="description" content="スター選手の技のやり方と、サッカーが上手くなる練習メニュー。毎日チャレンジで連続記録をのばそう！" />
+  <title>れんしゅう ⚽ サンガキッズ</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="logo">
+        <span class="ball" aria-hidden="true">⚽</span>
+        <span>サンガキッズ</span>
+      </a>
+      <button class="nav-toggle" aria-label="メニュー" aria-expanded="false" aria-controls="nav">☰</button>
+      <nav class="main-nav" id="nav" aria-label="メインメニュー">
+        <ul>
+          <li><a href="index.html">ホーム</a></li>
+          <li><a href="news.html">ニュース</a></li>
+          <li><a href="training.html" class="active">れんしゅう</a></li>
+          <li><a href="quiz.html">クイズ</a></li>
+          <li><a href="index.html#schedule">しあい</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- 毎日チャレンジ -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">🔥</span>毎日チャレンジ</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        毎日れんしゅうして、チェックをつけよう！　ぜんぶできたら「連続記録（れんぞくきろく）」がのびるよ。
+        まい日つづけて、自分のさいこう記録をめざそう💪
+      </p>
+      <div class="challenge-box" data-challenge>
+        <div class="streak-row">
+          <div class="streak-pill">
+            <div class="num" data-streak>0</div>
+            <div class="lbl">🔥 連続記録（日）</div>
+          </div>
+          <div class="streak-pill">
+            <div class="num" data-best>0</div>
+            <div class="lbl">🏆 さいこう記録（日）</div>
+          </div>
+        </div>
+        <div class="challenge-msg" data-challenge-msg></div>
+        <ul class="mission-list" data-challenge-list></ul>
+        <button class="challenge-reset" type="button" data-challenge-reset>今日のチェックをけす</button>
+      </div>
+    </section>
+
+    <!-- スター選手の技 & 練習メニュー -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">⭐</span>スター選手の技にちょうせん</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        プロ選手もつかう技を、ステップでしょうかい！　カードをタップすると、やり方が出てくるよ👇
+        まずは★1つから、ゆっくり練習しよう。
+      </p>
+      <div data-skills></div>
+    </section>
+
+    <!-- おうちの人へ -->
+    <section class="section">
+      <div class="cheer" style="background:linear-gradient(135deg,var(--accent-blue),var(--accent-green));color:#08361f;">
+        <h2>📺 動画を見るより、やってみよう！</h2>
+        <p>気になる技を見つけたら、外やこうえんでじっさいにチャレンジ！<br />
+        体をうごかしてできると、もっと楽しいよ⚽✨</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>⚽ サンガキッズ — サッカーが大すきな子どもの応援サイト</p>
+    <p>&copy; <span data-year>2026</span> サンガキッズ（ファンメイド）</p>
+    <p class="note">
+      れんしゅうは、けがをしないように、じゅんび体そうをしてから。
+      まわりにあぶないものがないか、たしかめてからやろう。
+      連続記録はこのブラウザの中だけにほぞんされます。
+    </p>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+  <script src="assets/js/training.js"></script>
+</body>
+</html>

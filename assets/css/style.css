@@ -487,6 +487,216 @@ main {
   font-weight: 800;
 }
 
+/* ---------- 技れんしゅう（スキルカード） ---------- */
+.skill-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.skill-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+
+.skill-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.skill-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-title strong {
+  font-size: 1.1rem;
+  color: var(--sanga-purple-dark);
+}
+
+.skill-title small {
+  color: var(--accent-pink);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.skill-arrow {
+  color: var(--sanga-purple-light);
+  font-size: 0.9rem;
+}
+
+.skill-body {
+  padding: 0 18px 18px;
+}
+
+.skill-goal {
+  background: #f3ecfb;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+  color: var(--sanga-purple-dark);
+  margin-bottom: 12px;
+}
+
+.skill-steps {
+  padding-left: 1.4em;
+  display: grid;
+  gap: 8px;
+}
+
+.skill-steps li {
+  color: var(--text);
+}
+
+/* ---------- 毎日チャレンジ ---------- */
+.challenge-box {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.streak-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.streak-pill {
+  flex: 1;
+  text-align: center;
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-yellow));
+  color: var(--sanga-purple-dark);
+  border-radius: 14px;
+  padding: 12px 8px;
+}
+
+.streak-pill .num {
+  font-size: 1.8rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.streak-pill .lbl {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.challenge-msg {
+  text-align: center;
+  font-weight: 800;
+  color: var(--sanga-purple);
+  margin-bottom: 14px;
+  min-height: 1.5em;
+}
+
+.mission-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.mission {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f7f3fd;
+  border: 3px solid transparent;
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.mission input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mission-icon {
+  font-size: 1.5rem;
+}
+
+.mission-text {
+  flex: 1;
+  font-weight: 700;
+}
+
+.mission-check {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--sanga-purple-light);
+  color: transparent;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.mission.done {
+  background: #e6fbf0;
+  border-color: var(--accent-green);
+}
+
+.mission.done .mission-text {
+  text-decoration: line-through;
+  color: var(--text-soft);
+}
+
+.mission.done .mission-check {
+  background: var(--accent-green);
+  border-color: #1f9d6b;
+  color: #fff;
+}
+
+.challenge-reset {
+  margin-top: 16px;
+  display: block;
+  margin-left: auto;
+  background: none;
+  border: 2px solid var(--sanga-purple-light);
+  color: var(--sanga-purple);
+  font-family: inherit;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+/* おいわいの紙ふぶき風えんしゅつ */
+.confetti {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 3rem;
+  letter-spacing: 0.3em;
+  pointer-events: none;
+  z-index: 1000;
+  animation: pop 1.5s ease forwards;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  20% { transform: scale(1.1); opacity: 1; }
+  80% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.4) translateY(-30px); opacity: 0; }
+}
+
 /* ---------- フッター ---------- */
 .site-footer {
   background: var(--sanga-purple-dark);
