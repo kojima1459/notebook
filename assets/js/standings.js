@@ -168,6 +168,36 @@ async function loadSangaInfo() {
   }
 }
 
+// 選手名鑑（主な選手）
+async function loadRoster() {
+  const el = document.querySelector("[data-roster]");
+  if (!el) return;
+  el.innerHTML = `<div class="feed-loading">選手をよみこみ中… ⚽</div>`;
+  try {
+    const res = await fetch("/api/roster", { cache: "no-store" });
+    const data = await res.json();
+    if (!data.ok || !data.groups.length) throw new Error("none");
+    const POS_JP = { GK: "GK ゴールキーパー", DF: "DF ディフェンダー", MF: "MF ミッドフィルダー", FW: "FW フォワード" };
+    el.innerHTML = data.groups.map((g) => `
+      <div class="roster-group">
+        <div class="roster-pos">${POS_JP[g.pos] || g.pos}</div>
+        <div class="roster-grid">
+          ${g.players.map((p) => `
+            <div class="player-card">
+              <div class="player-num">${p.number || "–"}</div>
+              <div class="player-info">
+                <div class="player-name">${p.flag} ${p.name}</div>
+                <div class="player-nat">${p.nationality || ""}</div>
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>`).join("");
+  } catch (e) {
+    el.innerHTML = `<div class="feed-links"><a href="https://www.jleague.jp/club/kyoto/player/" target="_blank" rel="noopener noreferrer">公式の選手一覧を見る →</a></div>`;
+  }
+}
+
 loadStandings();
 loadSangaInfo();
 loadSangaNews();
+loadRoster();

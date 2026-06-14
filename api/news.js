@@ -8,6 +8,7 @@ const UA =
 const QUERIES = {
   sanga: "京都サンガ",
   jleague: "Jリーグ",
+  official: "Jリーグ OR 京都サンガ site:jleague.jp",
   overseas: "海外サッカー OR プレミアリーグ OR チャンピオンズリーグ OR ラリーガ",
   japan: "サッカー 日本人選手 海外 OR 日本代表",
   flash: "サッカー 速報",

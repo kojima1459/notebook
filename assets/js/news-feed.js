@@ -7,6 +7,7 @@
 const FEEDS = [
   { key: "sanga", label: "💜 京都サンガ" },
   { key: "jleague", label: "🏆 Jリーグ" },
+  { key: "official", label: "📢 Jリーグ公式" },
   { key: "overseas", label: "🌍 海外サッカー" },
   { key: "japan", label: "🇯🇵 海外組" },
   { key: "flash", label: "⚡ 速報" },
