@@ -974,6 +974,22 @@ main {
   color: var(--text-soft);
   font-weight: 700;
 }
+.feed-more {
+  width: 100%;
+  margin-top: 6px;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 13px;
+  border-radius: 14px;
+  border: 3px solid var(--accent-blue);
+  background: #eaf4ff;
+  color: #1577c4;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.2s;
+}
+.feed-more:hover { background: #d8ecff; }
+.feed-more:active { transform: scale(0.99); }
 .feed-fallback {
   background: var(--card);
   border-radius: var(--radius);

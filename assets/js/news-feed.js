@@ -27,6 +27,10 @@ const NEWS_SOURCE_LINKS = [
   const statusEl = root.querySelector("[data-feed-status]");
   let active = null;
 
+  const PAGE = 8;            // さいしょに出す件数／「もっと見る」で足す件数
+  let currentItems = [];     // いま開いているタブの全ニュース
+  let shown = 0;             // いま表示している件数
+
   function relTime(pub) {
     if (!pub) return "";
     const t = new Date(pub).getTime();
@@ -37,13 +41,36 @@ const NEWS_SOURCE_LINKS = [
     return `${Math.floor(h / 24)}日前`;
   }
 
-  function renderItems(items) {
-    listEl.innerHTML = items.map((n) => `
+  function itemHtml(n) {
+    return `
       <a class="feed-item" href="${n.link}" target="_blank" rel="noopener noreferrer">
         <div class="feed-title">${n.title}</div>
         <div class="feed-meta">${n.source || "ニュース"} ・ ${relTime(n.pub)}</div>
-      </a>`).join("");
-    statusEl.textContent = "🟢 最新ニュースを自動取得しました";
+      </a>`;
+  }
+
+  // いま表示している件数ぶんを描画し、続きがあれば「もっと見る」ボタンを付ける
+  function renderList() {
+    const slice = currentItems.slice(0, shown);
+    let html = slice.map(itemHtml).join("");
+    const rest = currentItems.length - shown;
+    if (rest > 0) {
+      html += `<button type="button" class="feed-more" data-feed-more>
+        ＋ もっと見る（あと${rest}件）</button>`;
+    }
+    listEl.innerHTML = html;
+    const moreBtn = listEl.querySelector("[data-feed-more]");
+    if (moreBtn) moreBtn.addEventListener("click", () => {
+      shown = Math.min(shown + PAGE, currentItems.length);
+      renderList();
+    });
+    statusEl.textContent = `🟢 最新ニュース ${slice.length}／${currentItems.length}件`;
+  }
+
+  function renderItems(items) {
+    currentItems = items;
+    shown = Math.min(PAGE, items.length);
+    renderList();
   }
 
   function renderFallback() {

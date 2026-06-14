@@ -57,7 +57,7 @@ function parseRss(xml) {
     const tb = new Date(b.pub).getTime() || 0;
     return tb - ta;
   });
-  return items.slice(0, 20);
+  return items.slice(0, 60);
 }
 
 module.exports = async (req, res) => {
