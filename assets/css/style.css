@@ -1040,6 +1040,109 @@ main {
 .food-card h3 { color: var(--sanga-purple-dark); margin: 8px 0 6px; font-size: 1.05rem; }
 .food-card p { color: var(--text-soft); font-size: 0.9rem; }
 
+/* ---------- 共通：リード文・注釈 ---------- */
+.section-lead { margin-bottom: 16px; color: var(--text-soft); }
+.upd { display: inline-block; font-size: 0.78rem; color: var(--accent-green); font-weight: 800; margin-left: 6px; }
+.note-inline { margin-top: 12px; color: var(--text-soft); font-size: 0.8rem; }
+.note-inline a { color: var(--sanga-purple); font-weight: 700; }
+
+/* ---------- 順位表 ---------- */
+.sanga-summary {
+  background: linear-gradient(135deg, var(--sanga-purple), var(--sanga-purple-light));
+  color: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ss-rank { text-align: center; line-height: 1.1; }
+.ss-rank span { display: block; font-size: 0.72rem; opacity: 0.85; font-weight: 700; }
+.ss-rank b { font-size: 2.4rem; }
+.ss-stats { display: flex; gap: 16px; flex-wrap: wrap; flex: 1; }
+.ss-stats > div { text-align: center; }
+.ss-stats b { display: block; font-size: 1.3rem; }
+.ss-stats span { font-size: 0.72rem; opacity: 0.85; }
+
+.stand-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  overflow: hidden;
+}
+.stand-group { color: var(--sanga-purple-dark); margin-bottom: 10px; font-size: 1.05rem; }
+.stand-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.stand-table th {
+  background: #f3ecfb;
+  color: var(--sanga-purple-dark);
+  font-size: 0.76rem;
+  padding: 6px 4px;
+  text-align: center;
+}
+.stand-table th:nth-child(2) { text-align: left; }
+.stand-row td { padding: 9px 4px; text-align: center; border-bottom: 1px solid #f0ecf7; }
+.stand-row .c-rank { font-weight: 800; color: var(--text-soft); width: 2.2em; }
+.stand-row .c-team { text-align: left; font-weight: 700; }
+.stand-row .c-pts { font-weight: 900; color: var(--sanga-purple); }
+.stand-row.sanga { background: #fff5d6; }
+.stand-row.sanga .c-team { color: var(--sanga-purple-dark); }
+.form { display: inline-flex; gap: 2px; }
+.fb { font-style: normal; font-size: 0.62rem; font-weight: 800; color: #fff; border-radius: 3px; padding: 0 3px; }
+.fb.w { background: var(--accent-green); }
+.fb.l { background: var(--accent-pink); }
+.fb.d { background: #b8b2c8; }
+
+/* ---------- 動画：お気に入り ---------- */
+.vz-fav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  background: #fff8e6;
+  border: 2px solid var(--accent-yellow);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.vz-fav-label { font-weight: 800; color: var(--sanga-purple-dark); font-size: 0.85rem; }
+.vz-fav-chip {
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 2px solid var(--accent-yellow);
+  background: #fff;
+  color: var(--sanga-purple);
+  cursor: pointer;
+}
+.vz-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.vz-bar .vz-desc { margin: 0; text-align: left; }
+.vz-star {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--accent-yellow);
+  background: #fff;
+  color: #b8860b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vz-star.on { background: var(--accent-yellow); color: var(--sanga-purple-dark); }
+
 /* ---------- フッター ---------- */
 .site-footer {
   background: var(--sanga-purple-dark);

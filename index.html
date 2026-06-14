@@ -20,9 +20,10 @@
       <nav class="main-nav" id="nav" aria-label="メインメニュー">
         <ul>
           <li><a href="index.html" class="active">ホーム</a></li>
-          <li><a href="shorts.html">どうが</a></li>
+          <li><a href="shorts.html">動画</a></li>
           <li><a href="news.html">ニュース</a></li>
-          <li><a href="training.html">れんしゅう</a></li>
+          <li><a href="standings.html">順位表</a></li>
+          <li><a href="training.html">練習</a></li>
           <li><a href="quiz.html">クイズ</a></li>
         </ul>
       </nav>
@@ -33,94 +34,69 @@
     <div class="floating-balls" aria-hidden="true">
       <span>⚽</span><span>💜</span><span>🥅</span><span>⭐</span>
     </div>
-    <h1>サンガキッズへ ようこそ！</h1>
-    <p>京都サンガとサッカーが大すきなキミのための、わくわく応援サイト⚽<br />技をおぼえて、毎日れんしゅう。クイズやニュースも楽しもう！</p>
-    <a href="training.html" class="cta">🔥 きょうの れんしゅうを する</a>
+    <h1>サンガキッズ</h1>
+    <p>京都サンガと世界のサッカーが好きな君へ⚽<br />最新ニュース・順位表・試合結果から、技の練習メニューまで。サッカー漬けになろう！</p>
+    <a href="standings.html" class="cta">📊 サンガの順位をチェック</a>
   </section>
 
   <main>
-    <!-- お知らせ・できること -->
+    <!-- できること -->
     <section class="section">
-      <h2 class="section-title"><span class="emoji">✨</span>このサイトでできること</h2>
+      <h2 class="section-title"><span class="emoji">✨</span>メニュー</h2>
       <div class="grid cols-2">
+        <a class="card" href="news.html">
+          <h3>📰 最新ニュース</h3>
+          <p>サンガ・Jリーグ・海外サッカー・海外組・速報を自動でお届け。試合結果もここで。</p>
+        </a>
+        <a class="card" href="standings.html">
+          <h3>📊 順位表</h3>
+          <p>J1全チームの最新順位を自動取得。サンガの順位・勝点・得失点をチェック。</p>
+        </a>
         <a class="card" href="shorts.html">
           <h3>🎬 サッカー動画</h3>
-          <p>サッカー専門チャンネルの動画が自動でながれる。へんな動画にとばないよ！</p>
+          <p>サッカー専門チャンネルの動画が自動再生。お気に入り登録もできる。</p>
         </a>
         <a class="card" href="training.html">
-          <h3>🔥 れんしゅう＆技</h3>
-          <p>スター選手の技、毎日チャレンジ、すきま時間トレ、つよくなるごはんまで！</p>
-        </a>
-        <a class="card" href="news.html">
-          <h3>📰 さいしんニュース</h3>
-          <p>サンガ・Jリーグ・海外・海外組のニュースを自動でお届け。速報もチェック！</p>
+          <h3>🔥 練習＆技</h3>
+          <p>スター選手の技、毎日チャレンジ、すきま時間トレ、強くなる栄養まで。</p>
         </a>
         <a class="card" href="quiz.html">
           <h3>🎮 サッカークイズ</h3>
-          <p>ぜんぶで7問！何問せいかいできるかチャレンジしてね。</p>
-        </a>
-        <a class="card" href="#schedule">
-          <h3>📅 しあい日程</h3>
-          <p>つぎのしあいをチェックして、みんなで応援しよう！</p>
+          <p>サンガ＆世界サッカーの全12問。何問正解できるか挑戦！</p>
         </a>
       </div>
     </section>
 
-    <!-- 新着ニュース（3件） -->
+    <!-- ライブ：京都サンガ最新ニュース -->
     <section class="section" id="news">
-      <h2 class="section-title"><span class="emoji">📰</span>あたらしいニュース</h2>
-      <div class="news-list" data-news="home"></div>
+      <h2 class="section-title"><span class="emoji">💜</span>京都サンガ 最新ニュース</h2>
+      <div class="feed-list" data-livenews="sanga"></div>
       <p style="margin-top:14px;text-align:right;">
         <a href="news.html" style="color:var(--sanga-purple);font-weight:800;">もっと見る →</a>
       </p>
     </section>
 
-    <!-- せんしゅ紹介（ポジション） -->
+    <!-- ポジション紹介 -->
     <section class="section" id="players">
-      <h2 class="section-title"><span class="emoji">⭐</span>サッカーのポジションをおぼえよう</h2>
+      <h2 class="section-title"><span class="emoji">⭐</span>ポジションを知ろう</h2>
       <div class="grid cols-2">
         <div class="card">
           <h3>🥅 ゴールキーパー（GK）</h3>
-          <p>ゴールをまもる、さいごのとりで。手でボールをとめられる、ゆいいつの選手だよ。</p>
+          <p>ゴールを守る最後の砦。手でボールを止められる唯一の選手。</p>
         </div>
         <div class="card">
           <h3>🛡️ ディフェンダー（DF）</h3>
-          <p>あいてのこうげきをふせぐ、たよれるまもりのせんしゅ。</p>
+          <p>相手の攻撃を防ぐ、守りの要。</p>
         </div>
         <div class="card">
           <h3>🎯 ミッドフィルダー（MF）</h3>
-          <p>こうげきもまもりもする、ピッチのまんなかで大かつやく！</p>
+          <p>攻めも守りもこなす、ピッチの中心で大活躍。</p>
         </div>
         <div class="card">
           <h3>⚽ フォワード（FW）</h3>
-          <p>ゴールをきめるてんさい。たくさん点をとってチームをかつ！</p>
+          <p>ゴールを決める点取り屋。チームを勝利へ導く。</p>
         </div>
       </div>
-    </section>
-
-    <!-- 試合日程（サンプル） -->
-    <section class="section" id="schedule">
-      <h2 class="section-title"><span class="emoji">📅</span>つぎのしあい（れい）</h2>
-      <div class="grid cols-3">
-        <div class="match-card">
-          <div class="date">6月21日（日）14:00</div>
-          <div class="teams"><span>京都サンガ</span><span class="vs">VS</span><span>ライバル</span></div>
-          <div class="place">🏟️ サンガスタジアム by KYOCERA</div>
-        </div>
-        <div class="match-card">
-          <div class="date">6月28日（日）18:00</div>
-          <div class="teams"><span>アウェイ</span><span class="vs">VS</span><span>京都サンガ</span></div>
-          <div class="place">🚌 アウェイのスタジアム</div>
-        </div>
-        <div class="match-card">
-          <div class="date">7月5日（土）16:00</div>
-          <div class="teams"><span>京都サンガ</span><span class="vs">VS</span><span>チャレンジャー</span></div>
-          <div class="place">🏟️ サンガスタジアム by KYOCERA</div>
-        </div>
-      </div>
-      <p style="margin-top:12px;color:var(--text-soft);font-size:0.82rem;">
-        ※ 日程はサンプルです。本当のしあい日程は公式サイトでたしかめてね。
-      </p>
     </section>
 
     <!-- 応援メッセージ -->

@@ -15,6 +15,7 @@ const CHANNELS_FALLBACK = [
 ];
 
 const VZ_KEY = "sangakids_videozone_tab";
+const VZ_FAV = "sangakids_videozone_favs";
 
 (function setupVideoZone() {
   const root = document.querySelector("[data-videozone]");
@@ -23,9 +24,51 @@ const VZ_KEY = "sangakids_videozone_tab";
   const tabsEl = root.querySelector("[data-vz-tabs]");
   const frame = root.querySelector(".video-frame");
   const descEl = root.querySelector("[data-vz-desc]");
+  const favBar = root.querySelector("[data-vz-fav]");
+  const starBtn = root.querySelector("[data-vz-star]");
 
   let cats = [];
   let active = localStorage.getItem(VZ_KEY) || null;
+  let favs = [];
+  try { favs = JSON.parse(localStorage.getItem(VZ_FAV)) || []; } catch (e) { favs = []; }
+
+  function saveFavs() { try { localStorage.setItem(VZ_FAV, JSON.stringify(favs)); } catch (e) {} }
+
+  function renderFavBar() {
+    if (!favBar) return;
+    const items = favs.map((k) => cats.find((c) => c.key === k)).filter(Boolean);
+    if (!items.length) { favBar.hidden = true; favBar.innerHTML = ""; return; }
+    favBar.hidden = false;
+    favBar.innerHTML =
+      '<span class="vz-fav-label">⭐ お気に入り</span>' +
+      items.map((c) => `<button type="button" class="vz-fav-chip" data-key="${c.key}">${c.label}</button>`).join("");
+    favBar.querySelectorAll(".vz-fav-chip").forEach((b) => {
+      b.addEventListener("click", () => {
+        const cat = cats.find((c) => c.key === b.dataset.key);
+        if (cat) show(cat);
+      });
+    });
+  }
+
+  function updateStar() {
+    if (!starBtn) return;
+    const on = favs.includes(active);
+    starBtn.classList.toggle("on", on);
+    starBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    starBtn.textContent = on ? "★ お気に入り登録ずみ" : "☆ お気に入り";
+  }
+
+  if (starBtn) {
+    starBtn.addEventListener("click", () => {
+      if (!active) return;
+      const i = favs.indexOf(active);
+      if (i >= 0) favs.splice(i, 1);
+      else favs.push(active);
+      saveFavs();
+      updateStar();
+      renderFavBar();
+    });
+  }
 
   const base = "https://www.youtube-nocookie.com/embed/";
   const opts = "rel=0&modestbranding=1&playsinline=1";
@@ -53,6 +96,7 @@ const VZ_KEY = "sangakids_videozone_tab";
     tabsEl.querySelectorAll("button").forEach((b) =>
       b.classList.toggle("active", b.dataset.key === cat.key)
     );
+    updateStar();
   }
 
   function render() {
@@ -65,6 +109,7 @@ const VZ_KEY = "sangakids_videozone_tab";
         if (cat) show(cat);
       });
     });
+    renderFavBar();
     const start = cats.find((c) => c.key === active) || cats[0];
     if (start) show(start);
   }

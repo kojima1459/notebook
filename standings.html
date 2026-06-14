@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#5b2a86" />
+  <meta name="description" content="J1リーグの最新順位表を自動でお届け。京都サンガの順位・勝点・試合結果をチェック！" />
+  <title>順位表 ⚽ サンガキッズ</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="logo">
+        <span class="ball" aria-hidden="true">⚽</span>
+        <span>サンガキッズ</span>
+      </a>
+      <button class="nav-toggle" aria-label="メニュー" aria-expanded="false" aria-controls="nav">☰</button>
+      <nav class="main-nav" id="nav" aria-label="メインメニュー">
+        <ul>
+          <li><a href="index.html">ホーム</a></li>
+          <li><a href="shorts.html">動画</a></li>
+          <li><a href="news.html">ニュース</a></li>
+          <li><a href="standings.html" class="active">順位表</a></li>
+          <li><a href="training.html">練習</a></li>
+          <li><a href="quiz.html">クイズ</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">📊</span>J1リーグ 順位表</h2>
+      <p class="section-lead">
+        J1全チームの最新順位を自動で取得。京都サンガの位置をチェックしよう！
+        <span data-standings-updated class="upd"></span>
+      </p>
+
+      <div data-sanga-summary></div>
+      <div class="grid cols-2" data-standings></div>
+
+      <p class="note-inline">
+        ※ 2026シーズンは「百年構想リーグ」EAST/WESTグループ制。データ提供：
+        <a href="https://www.jleague.jp/standings/j1/" target="_blank" rel="noopener noreferrer">Jリーグ公式</a>
+      </p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">💜</span>京都サンガ 最新ニュース・試合結果</h2>
+      <p class="section-lead">試合結果・次の試合・移籍などの最新情報（自動取得）。タップで記事へ。</p>
+      <div class="feed-list" data-sanga-news></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>⚽ サンガキッズ — サッカーが好きな子どもの応援サイト</p>
+    <p>&copy; <span data-year>2026</span> サンガキッズ（ファンメイド）</p>
+    <p class="note">
+      順位表・ニュースは Jリーグ公式 / Google ニュースから自動取得しています（外部サイトへリンク）。
+      公式の最新情報は 京都サンガF.C. / Jリーグ 公式サイトをご確認ください。
+    </p>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+  <script src="assets/js/standings.js"></script>
+</body>
+</html>

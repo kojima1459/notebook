@@ -1,6 +1,6 @@
 /* =========================================================
    サンガキッズ - メインスクリプト
-   モバイルナビ・ニュース表示・年号の自動更新など
+   モバイルナビ・年号・ホームのライブニュース見出し
    ========================================================= */
 
 // ---------- モバイルナビの開閉 ----------
@@ -15,7 +15,6 @@
     toggle.textContent = open ? "✕" : "☰";
   });
 
-  // リンクをタップしたら閉じる（モバイル）
   nav.querySelectorAll("a").forEach((a) => {
     a.addEventListener("click", () => {
       nav.classList.remove("open");
@@ -31,69 +30,21 @@
   if (el) el.textContent = new Date().getFullYear();
 })();
 
-// ---------- ニュースデータ（オフラインでも動く埋め込みデータ） ----------
-const NEWS_FALLBACK = [
-  { category: "⚽", tag: "しあい", date: "2026-06-13",
-    title: "ホームで大かんせい！サンガが元気にプレー",
-    summary: "サンガスタジアム by KYOCERA にたくさんのファンがあつまったよ。みんなで紫のタオルマフラーをふって応援しよう！" },
-  { category: "🌟", tag: "せんしゅ", date: "2026-06-10",
-    title: "ゴールをきめた選手にインタビュー",
-    summary: "「みんなの応援がいちばんの力です！」とニッコリ。次のしあいも楽しみだね。" },
-  { category: "🎉", tag: "イベント", date: "2026-06-07",
-    title: "キッズサッカー教室がひらかれたよ",
-    summary: "ボールのけり方やドリブルを楽しく練習。マスコットもいっしょにあそんでくれたよ！" },
-  { category: "🏟️", tag: "スタジアム", date: "2026-06-03",
-    title: "サンガスタジアムってどんなところ？",
-    summary: "選手とピッチがとっても近いスタジアム。サッカーのめいろやひろばもあって一日たのしめるよ。" },
-  { category: "💜", tag: "おうえん", date: "2026-05-30",
-    title: "みんなで作った応援メッセージ",
-    summary: "子どもたちのかいた応援ボードがスタジアムにとうじょう。選手たちもパワーをもらったみたい！" },
-  { category: "🎽", tag: "グッズ", date: "2026-05-25",
-    title: "あたらしいキッズユニフォームが登場",
-    summary: "サイズもいろいろ。お気に入りの番号で、きみもサンガの一員になろう！" }
-];
-
-function renderNews(list, limit) {
-  const container = document.querySelector("[data-news]");
-  if (!container) return;
-  const items = limit ? list.slice(0, limit) : list;
-  container.innerHTML = items
-    .map(
-      (n) => `
-      <article class="news-item">
-        <div class="cat" aria-hidden="true">${n.category}</div>
-        <div class="body">
-          <div class="meta">${formatDate(n.date)}<span class="tag">${n.tag}</span></div>
-          <h3>${escapeHtml(n.title)}</h3>
-          <p>${escapeHtml(n.summary)}</p>
-        </div>
-      </article>`
-    )
-    .join("");
-}
-
-function formatDate(iso) {
-  const [y, m, d] = iso.split("-");
-  return `${y}年${Number(m)}月${Number(d)}日`;
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-  );
-}
-
-// JSONを読みにいき、失敗したら埋め込みデータを使う
-(async function loadNews() {
-  const container = document.querySelector("[data-news]");
-  if (!container) return;
-  const limit = container.dataset.news === "home" ? 3 : null;
+// ---------- ホームのライブニュース見出し（京都サンガ） ----------
+(async function liveNews() {
+  const el = document.querySelector("[data-livenews]");
+  if (!el) return;
+  const cat = el.dataset.livenews || "sanga";
   try {
-    const res = await fetch("data/news.json", { cache: "no-store" });
-    if (!res.ok) throw new Error("not ok");
-    const json = await res.json();
-    renderNews(json.news || NEWS_FALLBACK, limit);
+    const res = await fetch(`/api/news?cat=${cat}`, { cache: "no-store" });
+    const data = await res.json();
+    if (!data.items || !data.items.length) throw new Error("none");
+    el.innerHTML = data.items.slice(0, 4).map((n) => `
+      <a class="feed-item" href="${n.link}" target="_blank" rel="noopener noreferrer">
+        <div class="feed-title">${n.title}</div>
+        <div class="feed-meta">${n.source || "ニュース"}</div>
+      </a>`).join("");
   } catch (e) {
-    renderNews(NEWS_FALLBACK, limit);
+    el.innerHTML = `<div class="feed-links"><a href="news.html">ニュースページを見る →</a></div>`;
   }
 })();
