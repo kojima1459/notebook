@@ -1281,6 +1281,7 @@ main {
   flex-direction: column;
   overflow: hidden;
 }
+.chat-panel[hidden] { display: none; }
 .chat-head {
   background: linear-gradient(120deg, var(--sanga-purple), var(--sanga-purple-light));
   color: #fff;
