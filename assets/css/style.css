@@ -1327,6 +1327,117 @@ main {
   flex-shrink: 0;
 }
 
+/* ---------- クイズ解説 ---------- */
+.quiz-explain {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+  background: #f3ecfb;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+/* ---------- 公式リンク（名鑑など） ---------- */
+.official-links { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.official-links a {
+  background: #f3ecfb;
+  color: var(--sanga-purple);
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--sanga-purple-light);
+}
+
+/* ---------- リンク集ページ ---------- */
+.links-cat { color: var(--sanga-purple-dark); margin: 22px 0 10px; font-size: 1.1rem; }
+.link-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 600px) { .link-grid { grid-template-columns: 1fr 1fr; } }
+.link-card {
+  display: block;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  border-left: 8px solid var(--accent-blue);
+  transition: transform 0.12s;
+}
+.link-card:active { transform: scale(0.99); }
+.link-card b { display: block; color: var(--sanga-purple-dark); font-size: 1rem; }
+.link-card span { color: var(--text-soft); font-size: 0.84rem; }
+
+/* ---------- 動画：保存ボタン・保存リスト ---------- */
+.vz-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.vz-save {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.86rem;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--accent-green);
+  background: #fff;
+  color: #1f9d6b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vz-save.on { background: var(--accent-green); color: #08361f; }
+.vz-save:disabled { opacity: 0.55; cursor: default; }
+.vz-empty {
+  display: none;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 24px;
+  color: #fff;
+  background: rgba(0,0,0,0.75);
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.video-frame.is-empty .vz-empty { display: flex; }
+.video-frame.is-empty #vz-player { visibility: hidden; }
+.vz-saved {
+  margin-top: 14px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.vz-saved-title { font-weight: 800; color: var(--sanga-purple-dark); margin-bottom: 10px; font-size: 0.9rem; }
+.saved-item { display: flex; gap: 8px; margin-bottom: 8px; }
+.saved-play {
+  flex: 1;
+  text-align: left;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--sanga-purple-light);
+  background: #faf7ff;
+  color: var(--sanga-purple-dark);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-del {
+  flex-shrink: 0;
+  width: 40px;
+  border: 2px solid var(--accent-pink);
+  background: #fff;
+  color: var(--accent-pink);
+  border-radius: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.vz-tab.saved { border-color: var(--accent-green); color: #1f9d6b; }
+.vz-tab.saved.active { background: var(--accent-green); color: #08361f; }
+
 /* ---------- フッター ---------- */
 .site-footer {
   background: var(--sanga-purple-dark);

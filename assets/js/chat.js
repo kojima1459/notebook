@@ -33,6 +33,19 @@
   const history = [];
   let greeted = false;
 
+  // ---- 1日の利用回数を制限（既定30回） ----
+  const DAILY_LIMIT = 30;
+  function todayKey() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
+  function getUsage() {
+    try { const u = JSON.parse(localStorage.getItem("sangakids_chat_usage")) || {}; return u.date === todayKey() ? u.count : 0; }
+    catch (e) { return 0; }
+  }
+  function bumpUsage() {
+    const c = getUsage() + 1;
+    try { localStorage.setItem("sangakids_chat_usage", JSON.stringify({ date: todayKey(), count: c })); } catch (e) {}
+    return c;
+  }
+
   function open() {
     panel.hidden = false;
     fab.classList.add("hidden");
@@ -76,6 +89,12 @@
   }
 
   async function send(question) {
+    if (getUsage() >= DAILY_LIMIT) {
+      addMsg("user", question);
+      addMsg("bot", "今日はたくさんお話できたね！⚽ また明日きいてね（1日30回まで）。");
+      return;
+    }
+    bumpUsage();
     addMsg("user", question);
     history.push({ role: "user", text: question });
     const typing = addMsg("bot", "考え中… ⚽");

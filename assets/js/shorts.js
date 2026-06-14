@@ -1,8 +1,9 @@
 /* =========================================================
    サンガキッズ - サッカー動画ゾーン
-   - サッカー専門チャンネルの動画を自動でながす（手動キュレーション不要）
-   - 各カテゴリ＝チャンネルのアップロード再生リスト or 動画あつめ
-   - サッカーだけ。YouTubeの関連動画でジャンクに流れないように rel=0
+   - サッカー専門チャンネルの動画を自動再生（手動キュレーション不要）
+   - YouTube IFrame APIで「いま流れている動画そのもの」を保存し、
+     あとからサイト内で見返せる（YouTubeサイトには飛ばさない）
+   - サッカー以外へ流れないよう rel=0
    ========================================================= */
 
 const CHANNELS_FALLBACK = [
@@ -17,113 +18,191 @@ const CHANNELS_FALLBACK = [
 
 const VZ_KEY = "sangakids_videozone_tab";
 const VZ_FAV = "sangakids_videozone_favs";
+const VZ_SAVED = "sangakids_saved_videos";
 
 (function setupVideoZone() {
   const root = document.querySelector("[data-videozone]");
   if (!root) return;
 
   const tabsEl = root.querySelector("[data-vz-tabs]");
-  const frame = root.querySelector(".video-frame");
   const descEl = root.querySelector("[data-vz-desc]");
   const favBar = root.querySelector("[data-vz-fav]");
   const starBtn = root.querySelector("[data-vz-star]");
+  const saveBtn = root.querySelector("[data-vz-save]");
+  const savedMgr = root.querySelector("[data-vz-saved]");
 
   let cats = [];
   let active = localStorage.getItem(VZ_KEY) || null;
-  let favs = [];
-  try { favs = JSON.parse(localStorage.getItem(VZ_FAV)) || []; } catch (e) { favs = []; }
+  let favs = read(VZ_FAV, []);
+  let saved = read(VZ_SAVED, []); // [{id, title}]
+  let player = null, apiReady = false, pending = null, currentVideo = null;
 
-  function saveFavs() { try { localStorage.setItem(VZ_FAV, JSON.stringify(favs)); } catch (e) {} }
+  function read(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
+  function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-  function renderFavBar() {
-    if (!favBar) return;
-    const items = favs.map((k) => cats.find((c) => c.key === k)).filter(Boolean);
-    if (!items.length) { favBar.hidden = true; favBar.innerHTML = ""; return; }
-    favBar.hidden = false;
-    favBar.innerHTML =
-      '<span class="vz-fav-label">⭐ お気に入り</span>' +
-      items.map((c) => `<button type="button" class="vz-fav-chip" data-key="${c.key}">${c.label}</button>`).join("");
-    favBar.querySelectorAll(".vz-fav-chip").forEach((b) => {
-      b.addEventListener("click", () => {
-        const cat = cats.find((c) => c.key === b.dataset.key);
-        if (cat) show(cat);
-      });
+  // ---- 保存ずみ動画を「カテゴリ」として先頭に足す ----
+  function allCats() {
+    const list = cats.slice();
+    list.unshift({
+      key: "saved",
+      label: `💾 保存した動画 (${saved.length})`,
+      type: "videos",
+      ids: saved.map((v) => v.id),
+      desc: "あなたが保存した動画。サイトの中で見返せるよ。",
+    });
+    return list;
+  }
+
+  // ---- YouTube IFrame API ----
+  function loadAPI() {
+    if (window.YT && window.YT.Player) { apiReady = true; createPlayer(); return; }
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = () => {
+      apiReady = true;
+      createPlayer();
+    };
+  }
+
+  function createPlayer() {
+    player = new YT.Player("vz-player", {
+      host: "https://www.youtube-nocookie.com",
+      width: "100%", height: "100%",
+      playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+      events: {
+        onReady: () => { if (pending) { applyCat(pending); pending = null; } },
+        onStateChange: () => {
+          try {
+            const d = player.getVideoData();
+            if (d && d.video_id) currentVideo = { id: d.video_id, title: d.title || "" };
+          } catch (e) {}
+          updateSaveBtn();
+        },
+      },
     });
   }
 
+  function applyCat(cat) {
+    const frame = root.querySelector(".video-frame");
+    const empty = root.querySelector(".vz-empty");
+    if (cat.type === "videos" && (!cat.ids || !cat.ids.length)) {
+      // 空（保存ゼロなど）
+      if (player && player.stopVideo) player.stopVideo();
+      frame.classList.add("is-empty");
+      if (empty) empty.textContent = cat.key === "saved"
+        ? "まだ保存した動画はないよ。動画の下の「💾 この動画を保存」でためていこう！"
+        : "動画がありません。";
+      return;
+    }
+    frame.classList.remove("is-empty");
+    if (cat.type === "playlist") player.cuePlaylist({ listType: "playlist", list: cat.id, index: 0 });
+    else player.cuePlaylist(cat.ids);
+    currentVideo = null;
+    updateSaveBtn();
+  }
+
+  // ---- 表示 ----
+  function show(cat) {
+    active = cat.key;
+    if (cat.key !== "saved") localStorage.setItem(VZ_KEY, active);
+    descEl.textContent = cat.desc || "";
+    tabsEl.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.key === cat.key));
+    savedMgr.hidden = cat.key !== "saved";
+    if (cat.key === "saved") renderSavedManager();
+    updateStar();
+    if (apiReady && player && player.cuePlaylist) applyCat(cat);
+    else pending = cat;
+  }
+
+  function renderTabs() {
+    const list = allCats();
+    tabsEl.innerHTML = list.map((c) => `<button type="button" class="vz-tab${c.key === "saved" ? " saved" : ""}" data-key="${c.key}">${c.label}</button>`).join("");
+    tabsEl.querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => { const c = list.find((x) => x.key === b.dataset.key); if (c) show(c); });
+    });
+  }
+
+  // ---- チャンネルお気に入り（タグ） ----
+  function renderFavBar() {
+    const items = favs.map((k) => cats.find((c) => c.key === k)).filter(Boolean);
+    if (!items.length) { favBar.hidden = true; favBar.innerHTML = ""; return; }
+    favBar.hidden = false;
+    favBar.innerHTML = '<span class="vz-fav-label">⭐ お気に入りジャンル</span>' +
+      items.map((c) => `<button type="button" class="vz-fav-chip" data-key="${c.key}">${c.label}</button>`).join("");
+    favBar.querySelectorAll(".vz-fav-chip").forEach((b) => {
+      b.addEventListener("click", () => { const c = cats.find((x) => x.key === b.dataset.key); if (c) show(c); });
+    });
+  }
   function updateStar() {
     if (!starBtn) return;
     const on = favs.includes(active);
     starBtn.classList.toggle("on", on);
-    starBtn.setAttribute("aria-pressed", on ? "true" : "false");
-    starBtn.textContent = on ? "★ お気に入り登録ずみ" : "☆ お気に入り";
+    starBtn.style.display = active === "saved" ? "none" : "";
+    starBtn.textContent = on ? "★ ジャンル登録ずみ" : "☆ ジャンルお気に入り";
+  }
+  if (starBtn) starBtn.addEventListener("click", () => {
+    if (!active || active === "saved") return;
+    const i = favs.indexOf(active);
+    if (i >= 0) favs.splice(i, 1); else favs.push(active);
+    write(VZ_FAV, favs); updateStar(); renderFavBar();
+  });
+
+  // ---- 動画そのものを保存 ----
+  function updateSaveBtn() {
+    if (!saveBtn) return;
+    const v = currentVideo;
+    const has = v && saved.some((s) => s.id === v.id);
+    saveBtn.disabled = !v;
+    saveBtn.classList.toggle("on", !!has);
+    saveBtn.textContent = !v ? "💾 再生すると保存できるよ" : has ? "✓ 保存ずみ" : "💾 この動画を保存";
+  }
+  if (saveBtn) saveBtn.addEventListener("click", () => {
+    if (!currentVideo) return;
+    const idx = saved.findIndex((s) => s.id === currentVideo.id);
+    if (idx >= 0) saved.splice(idx, 1);
+    else saved.unshift({ id: currentVideo.id, title: currentVideo.title || "サッカー動画" });
+    write(VZ_SAVED, saved);
+    updateSaveBtn();
+    renderTabs();
+    tabsEl.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.key === active));
+    if (active === "saved") { renderSavedManager(); }
+  });
+
+  function renderSavedManager() {
+    if (!saved.length) { savedMgr.innerHTML = ""; return; }
+    savedMgr.innerHTML = '<div class="vz-saved-title">💾 保存リスト（タップで再生／✕で削除）</div>' +
+      saved.map((v, i) => `
+        <div class="saved-item">
+          <button type="button" class="saved-play" data-i="${i}">▶ ${escapeHtml(v.title || "動画")}</button>
+          <button type="button" class="saved-del" data-del="${i}" aria-label="削除">✕</button>
+        </div>`).join("");
+    savedMgr.querySelectorAll(".saved-play").forEach((b) => b.addEventListener("click", () => {
+      const i = +b.dataset.i;
+      if (apiReady && player) { player.cuePlaylist(saved.map((s) => s.id), i); }
+    }));
+    savedMgr.querySelectorAll(".saved-del").forEach((b) => b.addEventListener("click", () => {
+      saved.splice(+b.dataset.del, 1); write(VZ_SAVED, saved);
+      renderTabs(); renderSavedManager(); updateSaveBtn();
+      const savedCat = allCats()[0];
+      tabsEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.key === "saved"));
+      if (apiReady && player) applyCat(savedCat);
+    }));
   }
 
-  if (starBtn) {
-    starBtn.addEventListener("click", () => {
-      if (!active) return;
-      const i = favs.indexOf(active);
-      if (i >= 0) favs.splice(i, 1);
-      else favs.push(active);
-      saveFavs();
-      updateStar();
-      renderFavBar();
-    });
-  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
-  const base = "https://www.youtube-nocookie.com/embed/";
-  const opts = "rel=0&modestbranding=1&playsinline=1";
-
-  function embedUrl(cat) {
-    if (cat.type === "playlist") {
-      return `${base}videoseries?list=${cat.id}&${opts}`;
-    }
-    // type: videos（動画ID あつめ）
-    const ids = cat.ids || [];
-    const first = ids[0];
-    const rest = ids.slice(1).join(",");
-    return `${base}${first}?${opts}${rest ? "&playlist=" + rest : ""}`;
-  }
-
-  function show(cat) {
-    active = cat.key;
-    localStorage.setItem(VZ_KEY, active);
-    frame.innerHTML =
-      `<iframe src="${embedUrl(cat)}"
-        title="${cat.label}"
-        allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-        allowfullscreen loading="lazy"></iframe>`;
-    descEl.textContent = cat.desc || "";
-    tabsEl.querySelectorAll("button").forEach((b) =>
-      b.classList.toggle("active", b.dataset.key === cat.key)
-    );
-    updateStar();
-  }
-
-  function render() {
-    tabsEl.innerHTML = cats
-      .map((c) => `<button type="button" class="vz-tab" data-key="${c.key}">${c.label}</button>`)
-      .join("");
-    tabsEl.querySelectorAll("button").forEach((b) => {
-      b.addEventListener("click", () => {
-        const cat = cats.find((c) => c.key === b.dataset.key);
-        if (cat) show(cat);
-      });
-    });
-    renderFavBar();
-    const start = cats.find((c) => c.key === active) || cats[0];
-    if (start) show(start);
-  }
-
-  (async function load() {
+  // ---- 初期化 ----
+  (async function init() {
     try {
       const res = await fetch("data/channels.json", { cache: "no-store" });
-      if (!res.ok) throw new Error("not ok");
-      const json = await res.json();
-      cats = json.categories || CHANNELS_FALLBACK;
-    } catch (e) {
-      cats = CHANNELS_FALLBACK;
-    }
-    render();
+      if (!res.ok) throw new Error();
+      cats = (await res.json()).categories || CHANNELS_FALLBACK;
+    } catch (e) { cats = CHANNELS_FALLBACK; }
+    renderTabs();
+    renderFavBar();
+    loadAPI();
+    const start = cats.find((c) => c.key === active) || cats[0];
+    show(start);
   })();
 })();

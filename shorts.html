@@ -25,6 +25,7 @@
           <li><a href="standings.html">順位表</a></li>
           <li><a href="training.html">練習</a></li>
           <li><a href="quiz.html">クイズ</a></li>
+          <li><a href="links.html">リンク集</a></li>
         </ul>
       </nav>
     </div>
@@ -34,18 +35,25 @@
     <section class="section">
       <h2 class="section-title"><span class="emoji">🎬</span>サッカー動画</h2>
       <p class="section-lead">
-        サッカーの動画だけが流れる⚽　好きなジャンルを選ぼう。サッカー以外の動画に飛ばないから安心。
-        よく見るチャンネルは ⭐ で「お気に入り」に登録できるよ。
+        サッカーの動画だけが流れる⚽　好きなジャンルを選ぼう。サッカー以外の動画には飛ばないから安心。
+        気に入った動画は「💾 この動画を保存」で保存して、あとから「💾 保存した動画」タブで見返せるよ（YouTubeには飛びません）。
       </p>
 
       <div class="video-zone" data-videozone>
         <div class="vz-fav" data-vz-fav hidden></div>
         <div class="vz-tabs" data-vz-tabs></div>
-        <div class="video-frame"></div>
+        <div class="video-frame">
+          <div id="vz-player"></div>
+          <p class="vz-empty"></p>
+        </div>
         <div class="vz-bar">
           <p class="vz-desc" data-vz-desc></p>
-          <button type="button" class="vz-star" data-vz-star aria-pressed="false">☆ お気に入り</button>
+          <div class="vz-actions">
+            <button type="button" class="vz-save" data-vz-save disabled>💾 この動画を保存</button>
+            <button type="button" class="vz-star" data-vz-star aria-pressed="false">☆ ジャンルお気に入り</button>
+          </div>
         </div>
+        <div class="vz-saved" data-vz-saved hidden></div>
       </div>
 
       <div class="cheer" style="margin-top:26px;background:linear-gradient(135deg,var(--accent-blue),var(--accent-green));color:#06303a;">
