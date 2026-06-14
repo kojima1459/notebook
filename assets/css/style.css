@@ -1477,7 +1477,7 @@ main {
     transition: max-height 0.3s ease;
   }
   .main-nav.open {
-    max-height: 320px;
+    max-height: 480px;
   }
   .main-nav ul {
     flex-direction: column;
