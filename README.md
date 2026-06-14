@@ -26,8 +26,20 @@
 |---|---|---|
 | `/api/standings` | J1順位表（EAST/WESTグループ） | jleague.jp 公式をサーバー側で取得・解析 |
 | `/api/news?cat=...` | カテゴリ別ニュース | Google ニュース RSS をサーバー側で取得 |
+| `/api/sanga` | サンガの次の試合・直近の結果・プロフィール | サンガ公式ニュースのタイトル解析 |
+| `/api/roster` | 選手名鑑（主な選手） | TheSportsDB |
+| `/api/chat` | サッカー博士チャットボット | Gemini（`GEMINI_API_KEY`）＋ Google検索グラウンディング |
 
-`cat` = `sanga` / `jleague` / `overseas` / `japan` / `flash`。
+`cat` = `sanga` / `jleague` / `official` / `overseas` / `japan` / `flash`。
+
+### 💬 チャットボット（サッカー博士）
+
+全ページ右下のウィジェット。質問すると、いま画面に出ている内容（ニュース見出し・順位表・試合情報）を
+**テキストで自動収集**して `/api/chat` に送り、Gemini が回答します（画面共有は不要）。
+最新の試合結果や得点者などは Google 検索グラウンディングで調べて答えます。
+
+**セットアップ**：Vercel のプロジェクト環境変数に `GEMINI_API_KEY`（[Google AI Studio](https://aistudio.google.com/apikey) のキー）を設定してください。
+キーはサーバー側だけで使われ、ブラウザには出ません。モデルは `gemini-flash-latest`。
 レスポンスは `Cache-Control: s-maxage` でCDNキャッシュし、上流アクセスを最小化しています。
 
 ## ファイル構成
