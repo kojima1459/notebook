@@ -8,7 +8,7 @@
 //  - history : [{role:'user'|'model', text}] 直近の会話
 // Google検索グラウンディングを有効にして、最新ニュース・試合結果にも答えられるようにする。
 
-const MODEL = "gemini-2.0-flash";
+const MODEL = "gemini-flash-latest";
 
 const SYSTEM = `あなたは「サッカー博士」。京都サンガと世界のサッカーが大好きな小学生（10〜11歳が中心）の子ども向けサイトのアシスタントです。
 ルール:
