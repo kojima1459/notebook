@@ -22,8 +22,8 @@
           <li><a href="index.html">ホーム</a></li>
           <li><a href="news.html">ニュース</a></li>
           <li><a href="training.html" class="active">れんしゅう</a></li>
+          <li><a href="shorts.html">ショート</a></li>
           <li><a href="quiz.html">クイズ</a></li>
-          <li><a href="index.html#schedule">しあい</a></li>
         </ul>
       </nav>
     </div>
@@ -47,10 +47,37 @@
             <div class="num" data-best>0</div>
             <div class="lbl">🏆 さいこう記録（日）</div>
           </div>
+          <div class="streak-pill">
+            <div class="num" data-total>0</div>
+            <div class="lbl">⭐ がんばった日</div>
+          </div>
         </div>
         <div class="challenge-msg" data-challenge-msg></div>
         <ul class="mission-list" data-challenge-list></ul>
         <button class="challenge-reset" type="button" data-challenge-reset>今日のチェックをけす</button>
+      </div>
+    </section>
+
+    <!-- ごほうびバッジ -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">🏅</span>ごほうびバッジ</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        毎日チャレンジをつづけると、バッジがもらえるよ！　ぜんぶ集めて「サンガマスター」をめざそう👑
+      </p>
+      <div class="badge-grid" data-badges></div>
+    </section>
+
+    <!-- レベル別 練習プログラム -->
+    <section class="section">
+      <h2 class="section-title"><span class="emoji">📈</span>レベル別 練習プログラム</h2>
+      <p style="margin-bottom:16px;color:var(--text-soft);">
+        じぶんのレベルをえらぶと、曜日（ようび）ごとの「今日やること」が出るよ。
+        むりせず、初級からはじめよう！
+      </p>
+      <div class="program-box" data-program>
+        <div class="lv-tabs" data-program-tabs></div>
+        <div class="today-card" data-program-today></div>
+        <ul class="week-list" data-program-week></ul>
       </div>
     </section>
 

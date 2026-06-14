@@ -677,6 +677,167 @@ main {
   cursor: pointer;
 }
 
+/* 見本どうがリンク */
+.video-link {
+  display: inline-block;
+  margin-top: 14px;
+  background: #ffe6ef;
+  color: var(--accent-pink);
+  font-weight: 800;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  border: 2px solid var(--accent-pink);
+}
+.video-link:active { transform: scale(0.97); }
+
+/* ---------- ごほうびバッジ ---------- */
+.badge-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+.badge {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 10px;
+  text-align: center;
+  border: 3px solid transparent;
+}
+.badge.got {
+  border-color: var(--accent-yellow);
+  background: linear-gradient(180deg, #fffdf2, #fff);
+}
+.badge.locked { opacity: 0.55; filter: grayscale(0.6); }
+.badge-icon { font-size: 2.4rem; line-height: 1.1; }
+.badge.got .badge-icon { animation: pop-in 0.5s ease; }
+@keyframes pop-in {
+  0% { transform: scale(0.3) rotate(-15deg); }
+  70% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.badge-name { font-weight: 800; color: var(--sanga-purple-dark); margin-top: 4px; }
+.badge-desc { font-size: 0.74rem; color: var(--text-soft); margin-top: 2px; }
+
+/* ---------- レベル別プログラム ---------- */
+.program-box {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+.lv-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.lv-tab {
+  flex: 1;
+  min-width: 120px;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 10px;
+  border-radius: 12px;
+  border: 3px solid var(--sanga-purple-light);
+  background: #fff;
+  color: var(--sanga-purple);
+  cursor: pointer;
+}
+.lv-tab.active { background: var(--sanga-purple); color: #fff; }
+.today-card {
+  background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+  color: #06303a;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.today-label { font-size: 0.82rem; font-weight: 700; opacity: 0.9; }
+.today-task { font-size: 1.15rem; font-weight: 900; margin-top: 4px; }
+.week-list { list-style: none; display: grid; gap: 8px; }
+.week-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f7f3fd;
+  border-radius: 12px;
+}
+.week-day.is-today { background: #fff5d6; border: 2px solid var(--accent-yellow); }
+.wd-name {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  background: var(--sanga-purple);
+  color: #fff;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.85rem;
+}
+.week-day.is-today .wd-name { background: var(--accent-pink); }
+.wd-task { font-size: 0.92rem; font-weight: 600; }
+
+/* ---------- サッカーショート（動画プレーヤー） ---------- */
+.shorts-stage {
+  max-width: 420px;
+  margin: 0 auto;
+}
+.shorts-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: #000;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.shorts-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.shorts-meta {
+  text-align: center;
+  margin-top: 14px;
+}
+.shorts-title { font-weight: 800; color: var(--sanga-purple-dark); font-size: 1.05rem; }
+.shorts-count { color: var(--text-soft); font-size: 0.85rem; margin-top: 4px; }
+.shorts-cat {
+  display: inline-block;
+  background: var(--accent-green);
+  color: #08361f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 12px;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+.shorts-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+.shorts-controls button {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1rem;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: var(--sanga-purple);
+  color: #fff;
+}
+.shorts-controls button:disabled { opacity: 0.4; cursor: default; }
+.shorts-empty {
+  text-align: center;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 28px 20px;
+}
+.shorts-empty .big { font-size: 3rem; }
+
 /* おいわいの紙ふぶき風えんしゅつ */
 .confetti {
   position: fixed;
