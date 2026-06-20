@@ -6,3 +6,5 @@ build/template_admin.xlsm
 *.swp
 .DS_Store
 .claude/
+__pycache__/
+*.pyc

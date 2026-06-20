@@ -13,7 +13,7 @@ Option Explicit
 '   A1:F1   Title banner (merged)
 '   A3      "質問:"
 '   B3:E4   Question input cell (merged, multi-line)
-'   F3:F4   "▶ 送信" button (Form Control, runs SendButton_Click)
+'   F3:F4   "> 送信" button (Form Control, runs SendButton_Click)
 '   A6      "会話履歴"
 '   A7 ...  Rolling conversation log
 '   I1      "同意" checkbox label
@@ -79,7 +79,7 @@ Public Sub EnsureLayout()
     Set btnRange = ws.Range("F3:F4")
     Set btn = ws.Buttons.Add(btnRange.Left, btnRange.Top, btnRange.Width, btnRange.Height)
     btn.OnAction = "modChatUI.SendButton_Click"
-    btn.Caption = "▶ 送信"
+    btn.Caption = "> 送信"
     btn.Name = BTN_SEND
     btn.Font.Size = 11
     btn.Font.Bold = True
@@ -240,7 +240,7 @@ Private Sub DisableSend(ByVal ws As Worksheet, ByVal disable As Boolean)
     Dim btn As Object
     Set btn = ws.Buttons(BTN_SEND)
     btn.Enabled = Not disable
-    btn.Caption = IIf(disable, "・・・", "▶ 送信")
+    btn.Caption = IIf(disable, "・・・", "> 送信")
     On Error GoTo 0
 End Sub
 

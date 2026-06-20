@@ -4,7 +4,7 @@ Option Explicit
 ' ============================================================================
 ' modExtractorAcrobat - PDF extraction via Adobe Acrobat COM (fallback)
 ' ----------------------------------------------------------------------------
-' Some约款 PDFs are scans or use complex page structures that defeat Word's
+' Some約款 PDFs are scans or use complex page structures that defeat Word's
 ' reflow. When Adobe Acrobat Pro is installed we can drive its COM API,
 ' which gives per-page text via the AcroPDPage object.
 '

@@ -5,7 +5,7 @@ Option Explicit
 ' modExtractorWord - PDF / Word extraction via the Word.Application COM
 ' ----------------------------------------------------------------------------
 ' Word 2013+ opens PDFs by "reflowing" them into editable text. Reflow is
-' lossy on heavily formatted PDFs (tables, multi-column约款) but recovers
+' lossy on heavily formatted PDFs (tables, multi-column約款) but recovers
 ' enough plain text for embedding.
 '
 ' For .docx / .doc files Word just opens them natively.

@@ -134,22 +134,24 @@ def ovba_compress(data: bytes) -> bytes:
         chunk_data = data[offset:offset + 4096]
         chunk_size = len(chunk_data)
 
+        # CompressedChunkSize field = (2-byte header + data) - 3 = len(data) - 1
         if chunk_size == 4096:
             # Try compressing
             compressed = _ovba_compress_chunk(chunk_data)
             if len(compressed) < 4096:
-                # Use compressed
-                header = 0xB000 | (len(compressed) - 3)
+                # Use compressed (flag=1, signature=0b011 => 0xB000)
+                header = 0xB000 | (len(compressed) - 1)
                 result += struct.pack('<H', header)
                 result += compressed
             else:
-                # Use raw (2-byte header 0x3B11 + 4096 bytes data)
-                result += struct.pack('<H', 0x3B11)
+                # Use raw: header signature=0b011, flag=0, size field=4095 (=0x0FFF)
+                # => 0x3000 | 0x0FFF = 0x3FFF, then exactly 4096 bytes data
+                result += struct.pack('<H', 0x3FFF)
                 result += chunk_data
         else:
             # Partial chunk: MUST use compressed format
             compressed = _ovba_compress_chunk(chunk_data)
-            header = 0xB000 | (len(compressed) - 3)
+            header = 0xB000 | (len(compressed) - 1)
             result += struct.pack('<H', header)
             result += compressed
 
@@ -171,7 +173,8 @@ def _u16(s: str) -> bytes:
 
 
 def _ansi(s: str) -> bytes:
-    return s.encode('cp1252')
+    # MBCS using the declared project code page (932 / Shift-JIS)
+    return s.encode('cp932')
 
 
 def build_dir_stream(modules: list) -> bytes:
@@ -184,8 +187,8 @@ def build_dir_stream(modules: list) -> bytes:
     buf += _record(0x0002, struct.pack('<I', 0x00000409))
     # PROJECTLCIDINVOKE
     buf += _record(0x0014, struct.pack('<I', 0x00000409))
-    # PROJECTCODEPAGE
-    buf += _record(0x0003, struct.pack('<H', 0x04E4))
+    # PROJECTCODEPAGE — 932 (Shift-JIS) so Japanese source survives
+    buf += _record(0x0003, struct.pack('<H', 932))
     # PROJECTNAME
     buf += _record(0x0004, _ansi("VBAProject"))
     # PROJECTDOCSTRING
@@ -212,8 +215,8 @@ def build_dir_stream(modules: list) -> bytes:
 
     # No REFERENCES section (late binding via CreateObject)
 
-    # PROJECTMODULES
-    buf += _record(0x000F, struct.pack('<I', len(modules)))
+    # PROJECTMODULES — Count is a 2-byte uint (record size MUST be 0x0002)
+    buf += _record(0x000F, struct.pack('<H', len(modules)))
     # PROJECTCOOKIE
     buf += _record(0x0013, struct.pack('<H', 0xFFFF))
 
@@ -224,8 +227,8 @@ def build_dir_stream(modules: list) -> bytes:
 
         # MODULENAME
         buf += _record(0x0019, _ansi(name))
-        # MODULENAMEUNICODE (0x0031 per MS-OVBA 2.3.4.2.3.2.2)
-        buf += _record(0x0031, _u16(name))
+        # MODULENAMEUNICODE (0x0047)
+        buf += _record(0x0047, _u16(name))
         # MODULESTREAMNAME
         buf += _record(0x001A, _ansi(name))
         # MODULESTREAMNAMERECORDUNICODE
@@ -236,10 +239,10 @@ def build_dir_stream(modules: list) -> bytes:
         buf += _record(0x0048, b'')
         # MODULEOFFSET (TextOffset=0)
         buf += _record(0x0031, struct.pack('<I', 0x00000000))
-        # MODULEHELPCONTEXT
-        buf += _record(0x000E, struct.pack('<I', 0x00000000))
-        # MODULECOOKIE
-        buf += _record(0x0013, struct.pack('<H', 0xFFFF))
+        # MODULEHELPCONTEXT (0x001E)
+        buf += _record(0x001E, struct.pack('<I', 0x00000000))
+        # MODULECOOKIE (0x002C)
+        buf += _record(0x002C, struct.pack('<H', 0xFFFF))
         # MODULETYPE: 0x0021 for standard, 0x0022 for class
         buf += _record(0x0022 if is_class else 0x0021, b'')
         # MODULETERM
@@ -413,35 +416,62 @@ class CFBWriter:
         vba_sorted = sorted(vba_stream_slots, key=cfb_sort_key)
         entries[1]['child'] = build_bst(vba_sorted)
 
-        # ---- Allocate sectors for stream data ----
-        sector_data = bytearray()  # raw sector bytes
-        fat = []                    # one FAT entry per sector
+        # ---- Separate streams: mini (<cutoff) vs regular (>=cutoff) ----
+        MINI_CUTOFF = 4096
+        MINI_SECTOR = 64
+        ENTRIES_PER_FAT = SECTOR_SIZE // 4  # 128
 
-        def alloc_stream(data: bytes):
-            if not data:
-                return ENDOFCHAIN, 0
-            start_sector = len(sector_data) // SECTOR_SIZE
-            padded = data + b'\x00' * ((-len(data)) % SECTOR_SIZE)
-            n_sectors = len(padded) // SECTOR_SIZE
-            for i in range(n_sectors):
-                sector_data.extend(padded[i * SECTOR_SIZE:(i + 1) * SECTOR_SIZE])
-                if i < n_sectors - 1:
-                    fat.append(start_sector + i + 1)
-                else:
-                    fat.append(ENDOFCHAIN)
-            return start_sector, len(data)
-
+        mini_entries, regular_entries = [], []
         for e in entries:
-            if e['type'] == 2 and e['data'] is not None and len(e['data']) > 0:
-                s, sz = alloc_stream(e['data'])
-                e['start'] = s
-                e['size']  = sz
+            if e['type'] == 2 and e['data']:
+                (mini_entries if len(e['data']) < MINI_CUTOFF else regular_entries).append(e)
 
-        # ---- Directory sectors ----
-        num_data_sectors = len(sector_data) // SECTOR_SIZE
-        dir_sector_start = num_data_sectors
-        num_dir_sectors  = len(entries) // DIR_ENTRIES_PER_SECTOR
+        # ---- Build the mini stream container + Mini FAT ----
+        ministream = bytearray()
+        minifat = []  # one entry per 64-byte mini sector
+        for e in mini_entries:
+            data = e['data']
+            start_mini = len(ministream) // MINI_SECTOR
+            padded = data + b'\x00' * ((-len(data)) % MINI_SECTOR)
+            n = len(padded) // MINI_SECTOR
+            for i in range(n):
+                ministream += padded[i * MINI_SECTOR:(i + 1) * MINI_SECTOR]
+                minifat.append(start_mini + i + 1 if i < n - 1 else ENDOFCHAIN)
+            e['start'] = start_mini
+            e['size']  = len(data)
+        ministream_padded = bytes(ministream) + b'\x00' * ((-len(ministream)) % SECTOR_SIZE)
 
+        # ---- Allocate regular sectors ----
+        sector_data = bytearray()
+        fat = []
+
+        def add_chain(blob: bytes):
+            """Append a sector-aligned blob; fill FAT chain; return start sector."""
+            start = len(sector_data) // SECTOR_SIZE
+            n = len(blob) // SECTOR_SIZE
+            for i in range(n):
+                sector_data.extend(blob[i * SECTOR_SIZE:(i + 1) * SECTOR_SIZE])
+                fat.append(start + i + 1 if i < n - 1 else ENDOFCHAIN)
+            return start, n
+
+        # Regular streams first
+        for e in regular_entries:
+            data = e['data']
+            padded = data + b'\x00' * ((-len(data)) % SECTOR_SIZE)
+            start, _ = add_chain(padded)
+            e['start'] = start
+            e['size']  = len(data)
+
+        # Mini stream container -> Root Entry (slot 0)
+        if ministream_padded:
+            start, _ = add_chain(ministream_padded)
+            entries[0]['start'] = start
+            entries[0]['size']  = len(ministream)
+        else:
+            entries[0]['start'] = ENDOFCHAIN
+            entries[0]['size']  = 0
+
+        # ---- Build directory bytes ----
         dir_bytes = bytearray()
         for e in entries:
             name_utf16 = e['name'].encode('utf-16-le') if e['name'] else b''
@@ -451,69 +481,71 @@ class CFBWriter:
             entry_buf = bytearray(128)
             entry_buf[0:64] = name_field
             struct.pack_into('<H', entry_buf, 64, name_len)
-            entry_buf[66]   = e['type']
-            entry_buf[67]   = 0x01  # ColorFlag: black
+            entry_buf[66] = e['type']
+            entry_buf[67] = 0x01  # ColorFlag: black
             struct.pack_into('<I', entry_buf, 68, e['left'])
             struct.pack_into('<I', entry_buf, 72, e['right'])
             struct.pack_into('<I', entry_buf, 76, e['child'])
             entry_buf[80:96] = e['clsid']
-            struct.pack_into('<I', entry_buf,  96, 0)   # StateBits
-            struct.pack_into('<Q', entry_buf, 100, 0)   # CreatedTime
-            struct.pack_into('<Q', entry_buf, 108, 0)   # ModifiedTime
+            struct.pack_into('<I', entry_buf,  96, 0)
+            struct.pack_into('<Q', entry_buf, 100, 0)
+            struct.pack_into('<Q', entry_buf, 108, 0)
             struct.pack_into('<I', entry_buf, 116, e['start'])
             struct.pack_into('<I', entry_buf, 120, e['size'])
-            struct.pack_into('<I', entry_buf, 124, 0)   # SizeHigh
-
+            struct.pack_into('<I', entry_buf, 124, 0)
             dir_bytes += entry_buf
+        dir_start, _ = add_chain(bytes(dir_bytes))
 
-        # Add FAT entries for directory sectors
-        for i in range(num_dir_sectors):
-            if i < num_dir_sectors - 1:
-                fat.append(dir_sector_start + i + 1)
-            else:
-                fat.append(ENDOFCHAIN)
+        # ---- Mini FAT sectors ----
+        if minifat:
+            mf = list(minifat)
+            while len(mf) % ENTRIES_PER_FAT != 0:
+                mf.append(FREESECT)
+            minifat_start, num_minifat_sectors = add_chain(
+                b''.join(struct.pack('<I', x) for x in mf))
+        else:
+            minifat_start, num_minifat_sectors = ENDOFCHAIN, 0
 
-        # ---- FAT sector ----
-        fat_sector_start = dir_sector_start + num_dir_sectors
-        num_fat_sectors  = 1  # should be enough for small files
-        entries_per_fat  = SECTOR_SIZE // 4  # 128
+        # ---- FAT sectors (must describe themselves; iterate for stability) ----
+        data_sectors = len(sector_data) // SECTOR_SIZE
+        num_fat_sectors = 1
+        while True:
+            total = data_sectors + num_fat_sectors
+            need = (total + ENTRIES_PER_FAT - 1) // ENTRIES_PER_FAT
+            if need <= num_fat_sectors:
+                break
+            num_fat_sectors = need
 
-        fat_entries = list(fat)
-        for _ in range(num_fat_sectors):
-            fat_entries.append(FATSECT)
-
-        # Pad to full sector
-        while len(fat_entries) % entries_per_fat != 0:
-            fat_entries.append(FREESECT)
-
-        fat_sector_bytes = b''.join(struct.pack('<I', x) for x in fat_entries)
+        fat_start = data_sectors
+        fat_full = list(fat) + [FATSECT] * num_fat_sectors
+        while len(fat_full) % ENTRIES_PER_FAT != 0:
+            fat_full.append(FREESECT)
+        fat_blob = b''.join(struct.pack('<I', x) for x in fat_full)
 
         # ---- CFB Header ----
         header = bytearray(512)
         header[0:8] = b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
-        # CLSID: 16 zeros (already zeroed)
         struct.pack_into('<H', header, 24, 0x003E)  # MinorVersion
         struct.pack_into('<H', header, 26, 0x0003)  # MajorVersion
         struct.pack_into('<H', header, 28, 0xFFFE)  # ByteOrder
-        struct.pack_into('<H', header, 30, 0x0009)  # SectorSizePower (2^9=512)
-        struct.pack_into('<H', header, 32, 0x0006)  # MiniSectorSizePower (2^6=64)
-        # Reserved 6 bytes at 34: already zero
-        struct.pack_into('<I', header, 40, 0)                  # NumberOfDirectorySectors (v3: 0)
-        struct.pack_into('<I', header, 44, num_fat_sectors)    # NumberOfFATSectors
-        struct.pack_into('<I', header, 48, dir_sector_start)   # FirstDirectorySectorLocation
-        struct.pack_into('<I', header, 52, 0)                  # TransactionSignatureNumber
-        struct.pack_into('<I', header, 56, 0x1000)             # MiniStreamCutoffSize
-        struct.pack_into('<I', header, 60, ENDOFCHAIN)         # FirstMiniFATSectorLocation
-        struct.pack_into('<I', header, 64, 0)                  # NumberOfMiniFATSectors
-        struct.pack_into('<I', header, 68, ENDOFCHAIN)         # FirstDIFATSectorLocation
-        struct.pack_into('<I', header, 72, 0)                  # NumberOfDIFATSectors
-        # DIFAT[109] at offset 76: first = FAT sector, rest = FREESECT
-        struct.pack_into('<I', header, 76, fat_sector_start)
-        for i in range(1, 109):
-            struct.pack_into('<I', header, 76 + i * 4, FREESECT)
+        struct.pack_into('<H', header, 30, 0x0009)  # SectorSizePower (512)
+        struct.pack_into('<H', header, 32, 0x0006)  # MiniSectorSizePower (64)
+        struct.pack_into('<I', header, 40, 0)                   # NumDirSectors (v3:0)
+        struct.pack_into('<I', header, 44, num_fat_sectors)     # NumFATSectors
+        struct.pack_into('<I', header, 48, dir_start)           # FirstDirSector
+        struct.pack_into('<I', header, 52, 0)                   # TxnSignature
+        struct.pack_into('<I', header, 56, MINI_CUTOFF)         # MiniStreamCutoff
+        struct.pack_into('<I', header, 60, minifat_start)       # FirstMiniFATSector
+        struct.pack_into('<I', header, 64, num_minifat_sectors) # NumMiniFATSectors
+        struct.pack_into('<I', header, 68, ENDOFCHAIN)          # FirstDIFATSector
+        struct.pack_into('<I', header, 72, 0)                   # NumDIFATSectors
+        # DIFAT[109]: list FAT sector locations, rest FREESECT
+        for i in range(109):
+            val = fat_start + i if i < num_fat_sectors else FREESECT
+            struct.pack_into('<I', header, 76 + i * 4, val)
 
-        # ---- Assemble ----
-        return bytes(header) + bytes(sector_data) + bytes(dir_bytes) + fat_sector_bytes
+        # ---- Assemble: header + data sectors + FAT sectors ----
+        return bytes(header) + bytes(sector_data) + fat_blob
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +598,8 @@ def load_module_source(path: str, is_cls: bool = False) -> bytes:
 
     # Normalize line endings to CRLF
     source = source.replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\r\n')
-    return source.encode('cp1252', errors='replace')
+    # Encode using the project code page (932 / Shift-JIS) so Japanese survives
+    return source.encode('cp932')
 
 
 # ---------------------------------------------------------------------------
