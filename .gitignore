@@ -3,3 +3,4 @@ build/template_*.xlsm
 *.log
 *.swp
 .DS_Store
+.claude/
