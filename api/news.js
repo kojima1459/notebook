@@ -67,13 +67,22 @@ function parseRss(xml) {
 module.exports = async (req, res) => {
   const cat = String((req.query && req.query.cat) || "sanga");
   const query = QUERIES[cat] || QUERIES.sanga;
-  res.setHeader("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
+  // CDN(エッジ)に15分キャッシュ＋1日 stale配信。2回目以降はCDNから即返る。
+  res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=86400");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const q = encodeURIComponent(`${query} when:21d`);
     const url = `https://news.google.com/rss/search?q=${q}&hl=ja&gl=JP&ceid=JP:ja`;
-    const resp = await fetch(url, { headers: { "User-Agent": UA } });
-    const xml = await resp.text();
+    // 上流(Googleニュース)が遅いとき 関数が固まらないよう 7秒でタイムアウト
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 7000);
+    let xml;
+    try {
+      const resp = await fetch(url, { headers: { "User-Agent": UA }, signal: ctrl.signal });
+      xml = await resp.text();
+    } finally {
+      clearTimeout(timer);
+    }
     const items = parseRss(xml);
     res.status(200).end(JSON.stringify({ ok: true, cat, updated: new Date().toISOString(), items }));
   } catch (e) {

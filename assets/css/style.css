@@ -715,6 +715,42 @@ main {
 }
 .skill-done-btn:active { transform: scale(0.98); }
 
+/* ---------- 動画のすぐ下：練習への動線ボタン ---------- */
+.vz-practice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.vz-practice-btn {
+  flex: 1 1 auto;
+  text-align: center;
+  background: linear-gradient(135deg, var(--accent-green), #34c9a0);
+  color: #06303a;
+  font-weight: 900;
+  font-size: 1.02rem;
+  padding: 15px 18px;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(46, 204, 113, 0.35);
+}
+.vz-practice-btn:active { transform: scale(0.98); }
+.vz-practice-sub {
+  flex: 0 0 auto;
+  text-align: center;
+  background: #f3eeff;
+  color: var(--sanga-purple-dark);
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 13px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--sanga-purple-light);
+}
+@media (max-width: 520px) {
+  .vz-practice-row { flex-direction: column; align-items: stretch; }
+  .vz-practice-sub { flex: 1 1 auto; }
+}
+
 /* ---------- 視聴タイマー & 練習ナッジ ---------- */
 .vz-playtime-row { text-align: right; min-height: 1.4em; }
 .vz-playtime {

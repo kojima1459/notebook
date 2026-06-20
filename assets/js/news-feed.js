@@ -35,6 +35,16 @@ const NEWS_SOURCE_LINKS = [
   let currentItems = [];     // いま開いているタブの全ニュース
   let shown = 0;             // いま表示している件数
 
+  // ---- ニュースをブラウザに保存して、次回は一瞬で表示（裏で最新に更新）----
+  const CACHE_PREFIX = "sangakids_news_";
+  function readCache(key) {
+    try { const o = JSON.parse(localStorage.getItem(CACHE_PREFIX + key)); return o && o.items && o.items.length ? o : null; }
+    catch (e) { return null; }
+  }
+  function writeCache(key, items) {
+    try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), items: items.slice(0, 60) })); } catch (e) {}
+  }
+
   function relTime(pub) {
     if (!pub) return "";
     const t = new Date(pub).getTime();
@@ -91,16 +101,37 @@ const NEWS_SOURCE_LINKS = [
   async function loadFeed(feed) {
     active = feed.key;
     tabsEl.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.key === feed.key));
-    statusEl.textContent = "⏳ 取得中…";
-    listEl.innerHTML = `<div class="feed-loading">よみこみ中… ⚽</div>`;
+
+    // 1) まず 保存ぶんを すぐ表示（待たせない）
+    const cached = readCache(feed.key);
+    if (cached) {
+      renderItems(cached.items);
+      statusEl.textContent = "🟢 最新ニュース（さいしんに更新中…）";
+    } else {
+      statusEl.textContent = "⏳ 取得中…";
+      listEl.innerHTML = `<div class="feed-loading">よみこみ中… ⚽</div>`;
+    }
+
+    // 2) 裏で 最新を取得（8秒でタイムアウト → 固まらない）
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const res = await fetch(`/api/news?cat=${feed.key}`, { cache: "no-store" });
+      const res = await fetch(`/api/news?cat=${feed.key}`, { signal: ctrl.signal });
       const data = await res.json();
+      clearTimeout(timer);
       if (active !== feed.key) return;
-      if (data.items && data.items.length) renderItems(data.items);
-      else renderFallback();
+      if (data.items && data.items.length) {
+        renderItems(data.items);
+        writeCache(feed.key, data.items);
+      } else if (!cached) {
+        renderFallback();
+      }
     } catch (e) {
-      if (active === feed.key) renderFallback();
+      clearTimeout(timer);
+      if (active !== feed.key) return;
+      // 取得できなくても、保存ぶんがあれば それを出したまま（イライラさせない）
+      if (!cached) renderFallback();
+      else statusEl.textContent = "🟢 ほぞんしたニュースを表示中（さいしんは あとでね）";
     }
   }
 
