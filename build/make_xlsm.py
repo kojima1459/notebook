@@ -213,7 +213,40 @@ def build_dir_stream(modules: list) -> bytes:
     # PROJECTCONSTANTSUNICODE
     buf += _record(0x003C, b'')
 
-    # No REFERENCES section (late binding via CreateObject)
+    # ------------------------------------------------------------------
+    # PROJECTREFERENCES: standard libraries Excel/VBA needs.
+    # Without these, Excel treats the project as uncompilable and
+    # discards it (only document modules survive — see MS-OVBA 2.3.4.2.2).
+    # Excel resolves references by GUID, so the path strings are cosmetic.
+    # ------------------------------------------------------------------
+    references = [
+        ("stdole",
+         "*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#"
+         "C:\\Windows\\SysWOW64\\stdole2.tlb#OLE Automation"),
+        ("VBA",
+         "*\\G{000204EF-0000-0000-C000-000000000046}#4.2#9#"
+         "C:\\Program Files\\Common Files\\Microsoft Shared\\VBA\\VBA7.1\\VBE7.DLL#"
+         "Visual Basic For Applications"),
+        ("Excel",
+         "*\\G{00020813-0000-0000-C000-000000000046}#1.9#0#"
+         "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE#"
+         "Microsoft Excel 16.0 Object Library"),
+        ("Office",
+         "*\\G{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}#2.8#0#"
+         "C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL#"
+         "Microsoft Office 16.0 Object Library"),
+    ]
+    for name, libid in references:
+        libid_b = libid.encode('ascii')
+        # REFERENCENAME (0x0016) + REFERENCENAMEUNICODE (0x003E)
+        buf += _record(0x0016, _ansi(name))
+        buf += _record(0x003E, _u16(name))
+        # REFERENCEREGISTERED (0x000D):
+        # Id(2) + Size(4=4+SizeOfLibid) + SizeOfLibid(4) + Libid(N) + Reserved1(4) + Reserved2(2)
+        sized = struct.pack('<I', len(libid_b)) + libid_b
+        buf += struct.pack('<HI', 0x000D, len(sized)) + sized
+        buf += b'\x00' * 4   # Reserved1
+        buf += b'\x00' * 2   # Reserved2
 
     # PROJECTMODULES — Count is a 2-byte uint (record size MUST be 0x0002)
     buf += _record(0x000F, struct.pack('<H', len(modules)))
@@ -639,8 +672,15 @@ def build_vba_project(modules: list) -> bytes:
     # PROJECTwm stream (root): module name map
     cfb.add_root_stream('PROJECTwm', build_projectwm(modules))
 
-    # _VBA_PROJECT stream (performance cache placeholder)
-    cfb.add_vba_stream('_VBA_PROJECT', b'\xCC\x61' + b'\x00' * 6)
+    # _VBA_PROJECT stream (MS-OVBA 2.3.4.1 — performance cache header).
+    # Reserved1=0x61CC, Version=0xFFFF (= "no cached compiled image"; if 0,
+    # Excel tries to load a cache that does not exist and discards every
+    # standard module), Reserved2=0x00, Reserved3=0x0000.
+    cfb.add_vba_stream('_VBA_PROJECT',
+                       b'\xCC\x61'        # Reserved1 = 0x61CC
+                       b'\xFF\xFF'        # Version   = 0xFFFF
+                       b'\x00'            # Reserved2
+                       b'\x00\x00')       # Reserved3
 
     # dir stream (OVBA-compressed)
     dir_uncompressed = build_dir_stream(modules)
