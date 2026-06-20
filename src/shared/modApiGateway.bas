@@ -61,7 +61,8 @@ End Function
 Private Function EmbedGemini(ByRef texts() As String) As EmbedResult
     Dim r As EmbedResult
     Dim model As String
-    model = modConfig.GetString("api", "embed_deployment", "text-embedding-004")
+    model = modConfig.GetString("api", "embed_deployment", "gemini-embedding-001")
+    Dim outDim As Long: outDim = modConfig.GetLong("api", "embed_dim", 768)
     Dim url As String: url = GeminiBaseUrl() & model & ":batchEmbedContents"
 
     Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
@@ -72,7 +73,7 @@ Private Function EmbedGemini(ByRef texts() As String) As EmbedResult
     For i = LBound(texts) To UBound(texts)
         If i > LBound(texts) Then body = body & ","
         body = body & "{""model"":""models/" & model & """,""content"":{""parts"":[{""text"":" & _
-               JsonString(texts(i)) & "}]}}"
+               JsonString(texts(i)) & "}]},""taskType"":""RETRIEVAL_QUERY"",""outputDimensionality"":" & outDim & "}"
     Next i
     body = body & "]}"
 
@@ -132,7 +133,7 @@ Private Function ChatGemini(ByVal systemPrompt As String, ByVal userPrompt As St
     Dim body As String
     body = "{""system_instruction"":{""parts"":[{""text"":" & JsonString(systemPrompt) & "}]},"
     body = body & """contents"":[{""role"":""user"",""parts"":[{""text"":" & JsonString(userPrompt) & "}]}],"
-    body = body & """generationConfig"":{""temperature"":0.2,""maxOutputTokens"":2048}}"
+    body = body & """generationConfig"":{""temperature"":0.15,""maxOutputTokens"":4096,""topP"":0.95}}"
 
     Dim resp As HttpResponse
     resp = modHttpClient.PostJson(url, body, headers, 120000)
