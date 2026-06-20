@@ -269,14 +269,29 @@ def build_project_stream(modules: list) -> bytes:
         else:
             lines.append(f'Module={mod["name"]}')
 
+    lines.append('Name="VBAProject"')
     lines.append('HelpContextID="0"')
     lines.append('VersionCompatible32="393222000"')
     lines.append('CMG="AAAAAAAAAA=="')
     lines.append('DPB="AAAAAAAAAAAAAAAAAAAAAAAAAA=="')
     lines.append('GC="AAAAAAAAAAAAAAAAAAAA"')
     lines.append('')
+    lines.append('[Host Extender Info]')
+    lines.append('&H00000001={3832D640-CF90-11CF-8E43-00A0C911005A};VBE;&H00000000')
+    lines.append('')
 
-    return '\r\n'.join(lines).encode('cp1252')
+    return '\r\n'.join(lines).encode('cp932')
+
+
+def build_projectwm(modules: list) -> bytes:
+    """Build the PROJECTwm stream: a name map (MBCS + UTF-16) per module."""
+    buf = bytearray()
+    for mod in modules:
+        name = mod['name']
+        buf += name.encode('cp932') + b'\x00'
+        buf += name.encode('utf-16-le') + b'\x00\x00'
+    buf += b'\x00\x00'  # terminator
+    return bytes(buf)
 
 
 # ---------------------------------------------------------------------------
@@ -621,8 +636,8 @@ def build_vba_project(modules: list) -> bytes:
     project_text = build_project_stream(modules)
     cfb.add_root_stream('PROJECT', project_text)
 
-    # PROJECTwm stream (root, empty)
-    cfb.add_root_stream('PROJECTwm', b'')
+    # PROJECTwm stream (root): module name map
+    cfb.add_root_stream('PROJECTwm', build_projectwm(modules))
 
     # _VBA_PROJECT stream (performance cache placeholder)
     cfb.add_vba_stream('_VBA_PROJECT', b'\xCC\x61' + b'\x00' * 6)
@@ -669,6 +684,39 @@ def patch_workbook_rels(xml_bytes: bytes) -> bytes:
     return xml.encode('utf-8')
 
 
+def patch_workbook_codename(xml_bytes: bytes, code_name: str) -> bytes:
+    """Bind the workbook to its ThisWorkbook document module via codeName."""
+    xml = xml_bytes.decode('utf-8')
+    if 'codeName' in xml:
+        return xml.encode('utf-8')
+    if '<workbookPr' in xml:
+        # Inject codeName attribute into the existing workbookPr element.
+        xml = xml.replace('<workbookPr', f'<workbookPr codeName="{code_name}"', 1)
+    else:
+        # No workbookPr: add one right after the <workbook ...> opening tag.
+        end = xml.index('>', xml.index('<workbook')) + 1
+        xml = xml[:end] + f'<workbookPr codeName="{code_name}"/>' + xml[end:]
+    return xml.encode('utf-8')
+
+
+def patch_sheet_codename(xml_bytes: bytes, code_name: str) -> bytes:
+    """Bind a worksheet to its document module via sheetPr codeName.
+
+    sheetPr must be the first child of <worksheet> per the schema, so it is
+    inserted immediately after the worksheet opening tag.
+    """
+    xml = xml_bytes.decode('utf-8')
+    if 'codeName' in xml:
+        return xml.encode('utf-8')
+    open_end = xml.index('>', xml.index('<worksheet')) + 1
+    if '<sheetPr' in xml:
+        # Add codeName to the existing sheetPr element.
+        xml = xml.replace('<sheetPr', f'<sheetPr codeName="{code_name}"', 1)
+    else:
+        xml = xml[:open_end] + f'<sheetPr codeName="{code_name}"/>' + xml[open_end:]
+    return xml.encode('utf-8')
+
+
 def create_xlsm(template_path: str, output_path: str, modules: list):
     """Create an .xlsm file by injecting VBA into the template."""
     print(f"  Building VBA project ({len(modules)} modules)...")
@@ -687,6 +735,10 @@ def create_xlsm(template_path: str, output_path: str, modules: list):
                 data = patch_content_types(data)
             elif item.filename == 'xl/_rels/workbook.xml.rels':
                 data = patch_workbook_rels(data)
+            elif item.filename == 'xl/workbook.xml':
+                data = patch_workbook_codename(data, DOC_THISWORKBOOK)
+            elif item.filename == 'xl/worksheets/sheet1.xml':
+                data = patch_sheet_codename(data, DOC_SHEET1)
 
             zout.writestr(item, data)
 
@@ -700,6 +752,22 @@ def create_xlsm(template_path: str, output_path: str, modules: list):
 # Module definitions
 # ---------------------------------------------------------------------------
 
+# The template workbook contains exactly these document objects. The VBA
+# project MUST contain a matching document module for each, otherwise Excel
+# treats the project as inconsistent and silently discards it (showing an
+# empty project). Their codeNames are bound in the OOXML via patch_* below.
+DOC_THISWORKBOOK = 'ThisWorkbook'
+DOC_SHEET1       = 'Sheet1'
+
+# Default (empty) document-module bodies. Excel requires a code module to
+# start with the standard attribute/option preamble; an empty body is fine.
+EMPTY_DOC_SOURCE = 'Option Explicit\r\n'.encode('cp932')
+
+
+def _doc_module(name: str, source: bytes) -> dict:
+    return {'name': name, 'source': source, 'class': True}
+
+
 def load_modules_chatbot() -> list:
     shared_names  = ['modTypes', 'modConfig', 'modPaths', 'modHttpClient',
                      'modKeyVault', 'modApiGateway']
@@ -707,23 +775,23 @@ def load_modules_chatbot() -> list:
                      'modUserProfile', 'modPiiGuard', 'modRateLimiter',
                      'modUsageLogger', 'modChatUI', 'modBoot']
 
-    modules = []
+    # Document modules first (Excel-like ordering), then standard modules.
+    tw_path = os.path.join(SRC_DIR, 'chatbot', 'ThisWorkbook.cls')
+    modules = [
+        _doc_module(DOC_THISWORKBOOK, load_module_source(tw_path, is_cls=True)),
+        _doc_module(DOC_SHEET1, EMPTY_DOC_SOURCE),
+    ]
 
     for name in shared_names:
         path = os.path.join(SRC_DIR, 'shared', name + '.bas')
         modules.append({'name': name, 'source': load_module_source(path), 'class': False})
 
-    # JsonConverter from build/vendor
     jc_path = os.path.join(VENDOR_DIR, 'JsonConverter.bas')
     modules.append({'name': 'JsonConverter', 'source': load_module_source(jc_path), 'class': False})
 
     for name in chatbot_names:
         path = os.path.join(SRC_DIR, 'chatbot', name + '.bas')
         modules.append({'name': name, 'source': load_module_source(path), 'class': False})
-
-    # ThisWorkbook class module
-    tw_path = os.path.join(SRC_DIR, 'chatbot', 'ThisWorkbook.cls')
-    modules.append({'name': 'ThisWorkbook', 'source': load_module_source(tw_path, is_cls=True), 'class': True})
 
     return modules
 
@@ -736,13 +804,16 @@ def load_modules_admin() -> list:
                     'modIndexWriter', 'modKnowledgeBuilder',
                     'modKeyEnroller', 'modUsageAggregator']
 
-    modules = []
+    # Admin has no Workbook_Open; both document modules are empty.
+    modules = [
+        _doc_module(DOC_THISWORKBOOK, EMPTY_DOC_SOURCE),
+        _doc_module(DOC_SHEET1, EMPTY_DOC_SOURCE),
+    ]
 
     for name in shared_names:
         path = os.path.join(SRC_DIR, 'shared', name + '.bas')
         modules.append({'name': name, 'source': load_module_source(path), 'class': False})
 
-    # JsonConverter from build/vendor
     jc_path = os.path.join(VENDOR_DIR, 'JsonConverter.bas')
     modules.append({'name': 'JsonConverter', 'source': load_module_source(jc_path), 'class': False})
 
