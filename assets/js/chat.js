@@ -4,33 +4,33 @@
    Gemini が回答する。画面共有は不要：DOMから文脈を自動で集める。
    ========================================================= */
 
-(function setupChat() {
+(function setupHakase() {
   // ---- ウィジェットのDOMを生成 ----
   const root = document.createElement("div");
-  root.className = "chatbot";
+  root.id = "sangahakase";
   const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   root.innerHTML = `
-    <button class="chat-fab" type="button" aria-label="サッカー博士に質問">💬<span>はかせに質問</span></button>
-    <div class="chat-panel" hidden>
-      <div class="chat-head">
+    <button class="hakase-fab" type="button" aria-label="サッカー博士に質問">💬<span>はかせに質問</span></button>
+    <div class="hakase-panel" hidden>
+      <div class="hakase-head">
         <span>⚽ サッカー博士</span>
-        <button class="chat-close" type="button" aria-label="閉じる">✕</button>
+        <button class="hakase-close" type="button" aria-label="閉じる">✕</button>
       </div>
-      <div class="chat-msgs" data-msgs></div>
-      <form class="chat-form">
-        <input class="chat-input" type="text" placeholder="サッカーのこと、聞いてね！" autocomplete="off" maxlength="300" />
-        ${hasSpeech ? '<button class="chat-mic" type="button" aria-label="音声入力">🎙</button>' : ""}
-        <button class="chat-send" type="submit" aria-label="送信">➤</button>
+      <div class="hakase-msgs" data-msgs></div>
+      <form class="hakase-form">
+        <input class="hakase-input" type="text" placeholder="サッカーのこと、聞いてね！" autocomplete="off" maxlength="300" />
+        ${hasSpeech ? '<button class="hakase-mic" type="button" aria-label="音声入力">🎙</button>' : ""}
+        <button class="hakase-send" type="submit" aria-label="送信">➤</button>
       </form>
     </div>`;
   document.body.appendChild(root);
 
-  const fab = root.querySelector(".chat-fab");
-  const panel = root.querySelector(".chat-panel");
-  const closeBtn = root.querySelector(".chat-close");
+  const fab = root.querySelector(".hakase-fab");
+  const panel = root.querySelector(".hakase-panel");
+  const closeBtn = root.querySelector(".hakase-close");
   const msgsEl = root.querySelector("[data-msgs]");
-  const form = root.querySelector(".chat-form");
-  const input = root.querySelector(".chat-input");
+  const form = root.querySelector(".hakase-form");
+  const input = root.querySelector(".hakase-input");
 
   const history = [];
   let greeted = false;
@@ -64,7 +64,7 @@
 
   function addMsg(role, text) {
     const el = document.createElement("div");
-    el.className = "chat-msg " + (role === "user" ? "me" : "bot");
+    el.className = "hakase-msg " + (role === "user" ? "me" : "bot");
     el.textContent = text;
     msgsEl.appendChild(el);
     msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -128,7 +128,7 @@
   });
 
   // ---- 音声入力 ----
-  const micBtn = root.querySelector(".chat-mic");
+  const micBtn = root.querySelector(".hakase-mic");
   if (micBtn && hasSpeech) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     let rec = null;
