@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
 """
-make_xlsm.py — Pure-Python script to inject VBA modules into a blank .xlsm template.
+make_xlsm.py — Inject VBA modules into a real Excel-made skeleton .xlsm.
+
+Strategy:
+  We start from build/template_skeleton.xlsm — a file the user created in
+  Excel for Mac by hand. It already contains a fully valid vbaProject.bin
+  with the exact REFERENCES, _VBA_PROJECT performance-cache header,
+  PROJECT/PROJECTwm structure and dir-stream record layout that Excel
+  itself produces. We do NOT touch any of that.
+
+  All we change is:
+    - PROJECT stream:  rewrite the Document=/Module= lines and [Workspace]
+                       to list our modules. Keep ID / CMG / DPB / GC /
+                       [Host Extender Info] from the skeleton verbatim.
+    - PROJECTwm stream: rebuild the name map for our module list.
+    - VBA/dir stream:  keep bytes 0..PROJMODULES verbatim (= SYSKIND,
+                       LCID, codepage 932, MSForms+Office references,
+                       PROJECTVERSION blob), then write our own
+                       PROJMODULES section.
+    - VBA/_VBA_PROJECT: keep the skeleton's bytes verbatim. The cache it
+                       contains is stale relative to our modules; Excel
+                       discards stale cache entries by MCOOKIE mismatch
+                       and recompiles from source.
+    - VBA/Module1: dropped.
+    - VBA/ThisWorkbook, VBA/Sheet1: replaced with our compressed source.
+    - VBA/<NewModule>: added per module.
 
 Creates:
   dist/Chatbot.xlsm
   dist/Admin_KnowledgeBuilder.xlsm
 
-No external dependencies beyond stdlib.
+No external dependencies (stdlib only).
 """
 
 import io
@@ -16,319 +40,100 @@ import struct
 import zipfile
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths — script lives at <repo>/build/, source at <repo>/src/.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# The worktree build/ dir mirrors the main repo's build/; source files live
-# in the main notebook repo which is the parent of .claude/worktrees/<id>
-# Resolve: worktree root -> .claude/worktrees/<id>  <- SCRIPT_DIR/../
-WORKTREE_ROOT = os.path.dirname(SCRIPT_DIR)   # e.g. .../agent-a55b728f520139c02
+WORKTREE_ROOT = os.path.dirname(SCRIPT_DIR)
 
-# Main repo is three levels up from the worktree root:
-#   notebook/.claude/worktrees/agent-xxx  -> notebook
+# Main repo is three levels up from worktree root (.claude/worktrees/<id>).
 MAIN_REPO = os.path.normpath(os.path.join(WORKTREE_ROOT, '..', '..', '..'))
-# Fallback: if running from the real build/ directory
 if not os.path.isdir(os.path.join(MAIN_REPO, 'src')):
     MAIN_REPO = WORKTREE_ROOT
 
 SRC_DIR    = os.path.join(MAIN_REPO, "src")
 BUILD_DIR  = os.path.join(MAIN_REPO, "build")
 VENDOR_DIR = os.path.join(BUILD_DIR, "vendor")
-TEMPLATE   = os.path.join(BUILD_DIR, "template_blank.xlsm")
+TEMPLATE   = os.path.join(BUILD_DIR, "template_skeleton.xlsm")
 DIST_DIR   = os.path.join(WORKTREE_ROOT, "dist")
 
 # ---------------------------------------------------------------------------
-# MS-OVBA Compression (Section 2.4)
+# MS-OVBA compression (section 2.4) — symmetric with MS-OVBA decompress used
+# inside Excel. Round-trips with oletools.olevba.decompress_stream.
 # ---------------------------------------------------------------------------
 
 def _ovba_compress_chunk(data: bytes) -> bytes:
-    """Compress up to 4096 bytes using OVBA LZ77."""
     assert 1 <= len(data) <= 4096
-
-    decompressed_size = len(data)
-    pos = 0  # current position in decompressed data
-    output = bytearray()
-
-    while pos < decompressed_size:
-        flag_byte_pos = len(output)
-        output.append(0)  # placeholder for flag byte
-        flag_byte = 0
-
-        for bit_index in range(8):
-            if pos >= decompressed_size:
+    pos = 0
+    out = bytearray()
+    while pos < len(data):
+        flag_pos = len(out)
+        out.append(0)
+        flag = 0
+        for bit in range(8):
+            if pos >= len(data):
                 break
+            # Bit widths depend on current decompressed position.
+            if pos <= 16:    lbits, obits = 12, 4
+            elif pos <= 32:  lbits, obits = 11, 5
+            elif pos <= 64:  lbits, obits = 10, 6
+            elif pos <= 128: lbits, obits = 9,  7
+            elif pos <= 256: lbits, obits = 8,  8
+            elif pos <= 512: lbits, obits = 7,  9
+            elif pos <= 1024:lbits, obits = 6, 10
+            elif pos <= 2048:lbits, obits = 5, 11
+            else:            lbits, obits = 4, 12
 
-            # Determine bit widths based on current decompressed position
-            copy_token_pos = pos
-            if copy_token_pos <= 16:
-                length_mask_bits = 12
-                offset_mask_bits = 4
-            elif copy_token_pos <= 32:
-                length_mask_bits = 11
-                offset_mask_bits = 5
-            elif copy_token_pos <= 64:
-                length_mask_bits = 10
-                offset_mask_bits = 6
-            elif copy_token_pos <= 128:
-                length_mask_bits = 9
-                offset_mask_bits = 7
-            elif copy_token_pos <= 256:
-                length_mask_bits = 8
-                offset_mask_bits = 8
-            elif copy_token_pos <= 512:
-                length_mask_bits = 7
-                offset_mask_bits = 9
-            elif copy_token_pos <= 1024:
-                length_mask_bits = 6
-                offset_mask_bits = 10
-            elif copy_token_pos <= 2048:
-                length_mask_bits = 5
-                offset_mask_bits = 11
-            else:
-                length_mask_bits = 4
-                offset_mask_bits = 12
-
-            max_length = (1 << length_mask_bits) - 1 + 3  # +3 because length stored as len-3
-
-            # Search for best match in window (up to pos bytes back)
+            max_len = (1 << lbits) - 1 + 3
             best_len = 0
-            best_offset = 0
-            window_start = max(0, pos - (1 << offset_mask_bits))
-
-            if pos > 0 and (decompressed_size - pos) >= 3:
+            best_off = 0
+            window_start = max(0, pos - (1 << obits))
+            if pos > 0 and (len(data) - pos) >= 3:
                 for j in range(window_start, pos):
-                    match_len = 0
-                    while (match_len < max_length and
-                           pos + match_len < decompressed_size and
-                           data[j + match_len] == data[pos + match_len]):
-                        match_len += 1
-                    if match_len > best_len:
-                        best_len = match_len
-                        best_offset = j
+                    m = 0
+                    while (m < max_len and pos + m < len(data)
+                           and data[j + m] == data[pos + m]):
+                        m += 1
+                    if m > best_len:
+                        best_len = m
+                        best_off = j
 
             if best_len >= 3:
-                # Emit copy token
-                flag_byte |= (1 << bit_index)
-                offset_val = pos - best_offset - 1
-                length_val = best_len - 3
-                token = (offset_val << length_mask_bits) | length_val
-                output += struct.pack('<H', token)
+                flag |= (1 << bit)
+                off_val = pos - best_off - 1
+                len_val = best_len - 3
+                out += struct.pack('<H', (off_val << lbits) | len_val)
                 pos += best_len
             else:
-                # Emit literal byte
-                output.append(data[pos])
+                out.append(data[pos])
                 pos += 1
-
-        output[flag_byte_pos] = flag_byte
-
-    return bytes(output)
+        out[flag_pos] = flag
+    return bytes(out)
 
 
 def ovba_compress(data: bytes) -> bytes:
-    """Compress data using OVBA compression (MS-OVBA 2.4.1)."""
+    """Compress a byte string into an OVBA CompressedContainer."""
     result = bytearray()
     result.append(0x01)  # SignatureByte
-
     offset = 0
     while offset < len(data):
-        chunk_data = data[offset:offset + 4096]
-        chunk_size = len(chunk_data)
-
-        # CompressedChunkSize field = (2-byte header + data) - 3 = len(data) - 1
-        if chunk_size == 4096:
-            # Try compressing
-            compressed = _ovba_compress_chunk(chunk_data)
-            if len(compressed) < 4096:
-                # Use compressed (flag=1, signature=0b011 => 0xB000)
-                header = 0xB000 | (len(compressed) - 1)
-                result += struct.pack('<H', header)
-                result += compressed
-            else:
-                # Use raw: header signature=0b011, flag=0, size field=4095 (=0x0FFF)
-                # => 0x3000 | 0x0FFF = 0x3FFF, then exactly 4096 bytes data
-                result += struct.pack('<H', 0x3FFF)
-                result += chunk_data
+        chunk = data[offset:offset + 4096]
+        compressed = _ovba_compress_chunk(chunk)
+        if len(chunk) == 4096 and len(compressed) >= 4096:
+            # Use raw chunk: signature=0b011, flag=0, size field = 4095.
+            result += struct.pack('<H', 0x3FFF)
+            result += chunk
         else:
-            # Partial chunk: MUST use compressed format
-            compressed = _ovba_compress_chunk(chunk_data)
             header = 0xB000 | (len(compressed) - 1)
             result += struct.pack('<H', header)
             result += compressed
-
         offset += 4096
-
     return bytes(result)
 
 
 # ---------------------------------------------------------------------------
-# dir stream builder (MS-OVBA 2.3.4)
-# ---------------------------------------------------------------------------
-
-def _record(rid: int, data: bytes) -> bytes:
-    return struct.pack('<HI', rid, len(data)) + data
-
-
-def _u16(s: str) -> bytes:
-    return s.encode('utf-16-le')
-
-
-def _ansi(s: str) -> bytes:
-    # MBCS using the declared project code page (932 / Shift-JIS)
-    return s.encode('cp932')
-
-
-def build_dir_stream(modules: list) -> bytes:
-    """Build the uncompressed dir stream."""
-    buf = bytearray()
-
-    # PROJECTSYSKIND
-    buf += _record(0x0001, struct.pack('<I', 0x00000001))
-    # PROJECTLCID
-    buf += _record(0x0002, struct.pack('<I', 0x00000409))
-    # PROJECTLCIDINVOKE
-    buf += _record(0x0014, struct.pack('<I', 0x00000409))
-    # PROJECTCODEPAGE — 932 (Shift-JIS) so Japanese source survives
-    buf += _record(0x0003, struct.pack('<H', 932))
-    # PROJECTNAME
-    buf += _record(0x0004, _ansi("VBAProject"))
-    # PROJECTDOCSTRING
-    buf += _record(0x0005, b'')
-    # PROJECTDOCSTRINGUNICODE
-    buf += _record(0x0040, b'')
-    # PROJECTHELPFILEPATH (first part)
-    buf += _record(0x0006, b'')
-    # PROJECTHELPFILEPATH (second part)
-    buf += _record(0x003D, b'')
-    # PROJECTHELPCONTEXT
-    buf += _record(0x0007, struct.pack('<I', 0x00000000))
-    # PROJECTLIBFLAGS
-    buf += _record(0x0008, struct.pack('<I', 0x00000000))
-
-    # PROJECTVERSION: special - RecordID(2) + Size(4)=4 + MajorVersion(4) + MinorVersion(2)
-    buf += struct.pack('<HI', 0x0009, 0x00000004)
-    buf += struct.pack('<IH', 0x00000061, 0x000D)
-
-    # PROJECTCONSTANTS
-    buf += _record(0x000C, b'')
-    # PROJECTCONSTANTSUNICODE
-    buf += _record(0x003C, b'')
-
-    # ------------------------------------------------------------------
-    # PROJECTREFERENCES: standard libraries Excel/VBA needs.
-    # Without these, Excel treats the project as uncompilable and
-    # discards it (only document modules survive — see MS-OVBA 2.3.4.2.2).
-    # Excel resolves references by GUID, so the path strings are cosmetic.
-    # ------------------------------------------------------------------
-    references = [
-        ("stdole",
-         "*\\G{00020430-0000-0000-C000-000000000046}#2.0#0#"
-         "C:\\Windows\\SysWOW64\\stdole2.tlb#OLE Automation"),
-        ("VBA",
-         "*\\G{000204EF-0000-0000-C000-000000000046}#4.2#9#"
-         "C:\\Program Files\\Common Files\\Microsoft Shared\\VBA\\VBA7.1\\VBE7.DLL#"
-         "Visual Basic For Applications"),
-        ("Excel",
-         "*\\G{00020813-0000-0000-C000-000000000046}#1.9#0#"
-         "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE#"
-         "Microsoft Excel 16.0 Object Library"),
-        ("Office",
-         "*\\G{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}#2.8#0#"
-         "C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\MSO.DLL#"
-         "Microsoft Office 16.0 Object Library"),
-    ]
-    for name, libid in references:
-        libid_b = libid.encode('ascii')
-        # REFERENCENAME (0x0016) + REFERENCENAMEUNICODE (0x003E)
-        buf += _record(0x0016, _ansi(name))
-        buf += _record(0x003E, _u16(name))
-        # REFERENCEREGISTERED (0x000D):
-        # Id(2) + Size(4=4+SizeOfLibid) + SizeOfLibid(4) + Libid(N) + Reserved1(4) + Reserved2(2)
-        sized = struct.pack('<I', len(libid_b)) + libid_b
-        buf += struct.pack('<HI', 0x000D, len(sized)) + sized
-        buf += b'\x00' * 4   # Reserved1
-        buf += b'\x00' * 2   # Reserved2
-
-    # PROJECTMODULES — Count is a 2-byte uint (record size MUST be 0x0002)
-    buf += _record(0x000F, struct.pack('<H', len(modules)))
-    # PROJECTCOOKIE
-    buf += _record(0x0013, struct.pack('<H', 0xFFFF))
-
-    # Module records
-    for mod in modules:
-        name     = mod['name']
-        is_class = mod.get('class', False)
-
-        # MODULENAME
-        buf += _record(0x0019, _ansi(name))
-        # MODULENAMEUNICODE (0x0047)
-        buf += _record(0x0047, _u16(name))
-        # MODULESTREAMNAME
-        buf += _record(0x001A, _ansi(name))
-        # MODULESTREAMNAMERECORDUNICODE
-        buf += _record(0x0032, _u16(name))
-        # MODULEDOCSTRING
-        buf += _record(0x001C, b'')
-        # MODULEDOCSTRINGUNICODE
-        buf += _record(0x0048, b'')
-        # MODULEOFFSET (TextOffset=0)
-        buf += _record(0x0031, struct.pack('<I', 0x00000000))
-        # MODULEHELPCONTEXT (0x001E)
-        buf += _record(0x001E, struct.pack('<I', 0x00000000))
-        # MODULECOOKIE (0x002C)
-        buf += _record(0x002C, struct.pack('<H', 0xFFFF))
-        # MODULETYPE: 0x0021 for standard, 0x0022 for class
-        buf += _record(0x0022 if is_class else 0x0021, b'')
-        # MODULETERM
-        buf += _record(0x002B, b'')
-
-    # PROJECTMODULES terminator
-    buf += _record(0x0010, b'')
-
-    return bytes(buf)
-
-
-# ---------------------------------------------------------------------------
-# PROJECT stream builder
-# ---------------------------------------------------------------------------
-
-def build_project_stream(modules: list) -> bytes:
-    """Build the PROJECT stream (ASCII text)."""
-    lines = []
-    lines.append('ID="{00000000-0000-0000-0000-000000000000}"')
-
-    for mod in modules:
-        if mod.get('class'):
-            lines.append(f'Document={mod["name"]}/&H00000000')
-        else:
-            lines.append(f'Module={mod["name"]}')
-
-    lines.append('Name="VBAProject"')
-    lines.append('HelpContextID="0"')
-    lines.append('VersionCompatible32="393222000"')
-    lines.append('CMG="AAAAAAAAAA=="')
-    lines.append('DPB="AAAAAAAAAAAAAAAAAAAAAAAAAA=="')
-    lines.append('GC="AAAAAAAAAAAAAAAAAAAA"')
-    lines.append('')
-    lines.append('[Host Extender Info]')
-    lines.append('&H00000001={3832D640-CF90-11CF-8E43-00A0C911005A};VBE;&H00000000')
-    lines.append('')
-
-    return '\r\n'.join(lines).encode('cp932')
-
-
-def build_projectwm(modules: list) -> bytes:
-    """Build the PROJECTwm stream: a name map (MBCS + UTF-16) per module."""
-    buf = bytearray()
-    for mod in modules:
-        name = mod['name']
-        buf += name.encode('cp932') + b'\x00'
-        buf += name.encode('utf-16-le') + b'\x00\x00'
-    buf += b'\x00\x00'  # terminator
-    return bytes(buf)
-
-
-# ---------------------------------------------------------------------------
-# CFB (OLE Compound File Binary) Builder — MS-CFB
+# CFB (OLE Compound File Binary) writer — MS-CFB.
+# Only what we need: one root, one sub-storage (VBA), small mini streams
+# go through the Mini FAT.
 # ---------------------------------------------------------------------------
 
 FREESECT   = 0xFFFFFFFF
@@ -336,536 +141,671 @@ ENDOFCHAIN = 0xFFFFFFFE
 FATSECT    = 0xFFFFFFFD
 NOSTREAM   = 0xFFFFFFFF
 
-SECTOR_SIZE           = 512
-DIR_ENTRIES_PER_SECTOR = SECTOR_SIZE // 128  # = 4
+SECTOR_SIZE = 512
+MINI_CUTOFF = 4096
+MINI_SECTOR = 64
+
+# Storage CLSIDs Excel writes (little-endian on-disk form).
+ROOT_CLSID = bytes([0x10, 0x42, 0x3B, 0x1C, 0x41, 0xF4, 0xCE, 0x11,
+                    0xB9, 0xEA, 0x00, 0xAA, 0x00, 0x6B, 0x1A, 0x69])
+VBA_CLSID  = bytes([0x70, 0xAE, 0x7B, 0xEA, 0x3B, 0xFB, 0xCD, 0x11,
+                    0xA9, 0x03, 0x00, 0xAA, 0x00, 0x51, 0x0E, 0xA3])
 
 
-class CFBWriter:
-    """Minimal CFB writer for creating vbaProject.bin."""
+def build_cfb(root_streams: dict, vba_streams: dict) -> bytes:
+    """Build a CFB binary holding the given streams.
 
-    def __init__(self):
-        self._root_streams = {}  # name -> bytes  (direct children of Root)
-        self._vba_streams  = {}  # name -> bytes  (children of VBA storage)
+    root_streams: name -> bytes (children of Root Entry)
+    vba_streams:  name -> bytes (children of VBA storage)
+    """
+    entries = []
 
-    def add_root_stream(self, name: str, data: bytes):
-        self._root_streams[name] = data
+    entries.append({'name': 'Root Entry', 'type': 5, 'clsid': ROOT_CLSID, 'data': None})
+    entries.append({'name': 'VBA',        'type': 1, 'clsid': VBA_CLSID,  'data': None})
 
-    def add_vba_stream(self, name: str, data: bytes):
-        self._vba_streams[name] = data
+    root_slots = []
+    for sn, sd in root_streams.items():
+        root_slots.append(len(entries))
+        entries.append({'name': sn, 'type': 2, 'clsid': b'\x00' * 16, 'data': sd})
 
-    def build(self) -> bytes:
-        """Build the complete CFB binary."""
-        # ---- Build ordered entry list ----
-        # Slot 0: Root Entry  (always first)
-        # Slot 1: VBA storage
-        # Slot 2: PROJECT stream
-        # Slot 3: PROJECTwm stream
-        # Slots 4+: VBA sub-streams (_VBA_PROJECT, dir, module streams...)
+    # Order VBA children: _VBA_PROJECT first, then dir, then modules. This
+    # matches what tools like olevba expect, although the BST below sorts
+    # them per spec regardless.
+    vba_order = []
+    if '_VBA_PROJECT' in vba_streams: vba_order.append('_VBA_PROJECT')
+    if 'dir' in vba_streams:          vba_order.append('dir')
+    for n in vba_streams:
+        if n not in ('_VBA_PROJECT', 'dir'):
+            vba_order.append(n)
+    vba_slots = []
+    for sn in vba_order:
+        vba_slots.append(len(entries))
+        entries.append({'name': sn, 'type': 2, 'clsid': b'\x00' * 16, 'data': vba_streams[sn]})
 
-        entries = []
+    # Pad entries to a multiple of 4 (one directory sector).
+    while len(entries) % 4 != 0:
+        entries.append({'name': '', 'type': 0, 'clsid': b'\x00' * 16, 'data': None})
 
-        # Root Entry (slot 0)
-        entries.append({
-            'name':  'Root Entry',
-            'type':  5,   # root
-            # CLSID {1C3B4210-F441-11CE-B9EA-00AA006B1A69} in little-endian binary
-            'clsid': bytes([0x10, 0x42, 0x3B, 0x1C,
-                            0x41, 0xF4,
-                            0xCE, 0x11,
-                            0xB9, 0xEA,
-                            0x00, 0xAA, 0x00, 0x6B, 0x1A, 0x69]),
-            'data':  None,
-        })
+    for e in entries:
+        e.update(left=NOSTREAM, right=NOSTREAM, child=NOSTREAM,
+                 start=ENDOFCHAIN, size=0)
 
-        # VBA storage (slot 1)
-        entries.append({
-            'name':  'VBA',
-            'type':  1,   # storage
-            # CLSID {EA7BAE70-FB3B-11CD-A903-00AA00510EA3} in little-endian binary
-            'clsid': bytes([0x70, 0xAE, 0x7B, 0xEA,
-                            0x3B, 0xFB,
-                            0xCD, 0x11,
-                            0xA9, 0x03,
-                            0x00, 0xAA, 0x00, 0x51, 0x0E, 0xA3]),
-            'data':  None,
-        })
+    # Build a balanced BST for each parent's children, sorted by
+    # (len(name), name.upper()) as MS-CFB requires.
+    def key(idx):
+        n = entries[idx]['name']
+        return (len(n), n.upper())
 
-        # Root-level streams (PROJECT, PROJECTwm)
-        root_stream_slots = []
-        for sname in ('PROJECT', 'PROJECTwm'):
-            idx = len(entries)
-            entries.append({
-                'name':  sname,
-                'type':  2,
-                'clsid': b'\x00' * 16,
-                'data':  self._root_streams.get(sname, b''),
-            })
-            root_stream_slots.append(idx)
+    def bst(slots):
+        if not slots:
+            return NOSTREAM
+        mid = len(slots) // 2
+        r = slots[mid]
+        entries[r]['left']  = bst(slots[:mid])
+        entries[r]['right'] = bst(slots[mid + 1:])
+        return r
 
-        # VBA sub-streams
-        vba_order = []
-        if '_VBA_PROJECT' in self._vba_streams:
-            vba_order.append('_VBA_PROJECT')
-        if 'dir' in self._vba_streams:
-            vba_order.append('dir')
-        for n in self._vba_streams:
-            if n not in ('_VBA_PROJECT', 'dir'):
-                vba_order.append(n)
+    entries[0]['child'] = bst(sorted([1] + root_slots, key=key))
+    entries[1]['child'] = bst(sorted(vba_slots, key=key))
 
-        vba_stream_slots = []
-        for sname in vba_order:
-            idx = len(entries)
-            entries.append({
-                'name':  sname,
-                'type':  2,
-                'clsid': b'\x00' * 16,
-                'data':  self._vba_streams[sname],
-            })
-            vba_stream_slots.append(idx)
+    # Allocate stream data: small streams go in the Mini FAT.
+    mini_streams = [e for e in entries
+                    if e['type'] == 2 and e['data'] and len(e['data']) < MINI_CUTOFF]
+    big_streams  = [e for e in entries
+                    if e['type'] == 2 and e['data'] and len(e['data']) >= MINI_CUTOFF]
 
-        # Pad entries to a multiple of 4 (fills complete directory sectors)
-        while len(entries) % DIR_ENTRIES_PER_SECTOR != 0:
-            entries.append({
-                'name':  '',
-                'type':  0,   # unused/empty
-                'clsid': b'\x00' * 16,
-                'data':  None,
-            })
+    # Mini stream container (the root entry's stream itself).
+    mini_data = bytearray()
+    minifat = []
+    for e in mini_streams:
+        d = e['data']
+        start_mini = len(mini_data) // MINI_SECTOR
+        padded = d + b'\x00' * ((-len(d)) % MINI_SECTOR)
+        n = len(padded) // MINI_SECTOR
+        for i in range(n):
+            mini_data += padded[i * MINI_SECTOR:(i + 1) * MINI_SECTOR]
+            minifat.append(start_mini + i + 1 if i < n - 1 else ENDOFCHAIN)
+        e['start'] = start_mini
+        e['size']  = len(d)
+    mini_padded = bytes(mini_data) + b'\x00' * ((-len(mini_data)) % SECTOR_SIZE)
 
-        # ---- Initialize tree pointers ----
-        for e in entries:
-            e['left']  = NOSTREAM
-            e['right'] = NOSTREAM
-            e['child'] = NOSTREAM
-            e['start'] = ENDOFCHAIN
-            e['size']  = 0
+    # Regular sectors: big streams, then mini-container, then directory,
+    # then mini-FAT, then FAT.
+    sectors = bytearray()
+    fat = []
 
-        # CFB directory entries must form a valid BST sorted by
-        # (len(name), name.upper()). Build a balanced BST recursively.
-        def cfb_sort_key(idx):
-            n = entries[idx]['name']
-            return (len(n), n.upper())
+    def append_chain(blob: bytes):
+        start = len(sectors) // SECTOR_SIZE
+        n = len(blob) // SECTOR_SIZE
+        for i in range(n):
+            sectors.extend(blob[i * SECTOR_SIZE:(i + 1) * SECTOR_SIZE])
+            fat.append(start + i + 1 if i < n - 1 else ENDOFCHAIN)
+        return start, n
 
-        def build_bst(slots):
-            """Return root DirID of a balanced BST from a sorted list of DirIDs."""
-            if not slots:
-                return NOSTREAM
-            mid = len(slots) // 2
-            root_idx = slots[mid]
-            entries[root_idx]['left']  = build_bst(slots[:mid])
-            entries[root_idx]['right'] = build_bst(slots[mid + 1:])
-            return root_idx
+    for e in big_streams:
+        padded = e['data'] + b'\x00' * ((-len(e['data'])) % SECTOR_SIZE)
+        start, _ = append_chain(padded)
+        e['start'] = start
+        e['size']  = len(e['data'])
 
-        # Root Entry's children: VBA(3) < PROJECT(7) < PROJECTwm(9) — already sorted
-        root_children = sorted([1] + root_stream_slots, key=cfb_sort_key)
-        entries[0]['child'] = build_bst(root_children)
+    if mini_padded:
+        start, _ = append_chain(mini_padded)
+        entries[0]['start'] = start
+        entries[0]['size']  = len(mini_data)
+    else:
+        entries[0]['start'] = ENDOFCHAIN
+        entries[0]['size']  = 0
 
-        # VBA storage's children: sort by (len, upper) before building BST
-        vba_sorted = sorted(vba_stream_slots, key=cfb_sort_key)
-        entries[1]['child'] = build_bst(vba_sorted)
+    # Directory sectors.
+    dir_bytes = bytearray()
+    for e in entries:
+        name_utf16 = e['name'].encode('utf-16-le') if e['name'] else b''
+        name_len = len(name_utf16) + 2 if name_utf16 else 0
+        name_field = (name_utf16 + b'\x00' * (64 - len(name_utf16)))[:64]
+        buf = bytearray(128)
+        buf[0:64] = name_field
+        struct.pack_into('<H', buf, 64, name_len)
+        buf[66] = e['type']
+        buf[67] = 0x01  # ColorFlag: black
+        struct.pack_into('<I', buf, 68, e['left'])
+        struct.pack_into('<I', buf, 72, e['right'])
+        struct.pack_into('<I', buf, 76, e['child'])
+        buf[80:96] = e['clsid']
+        struct.pack_into('<I', buf,  96, 0)
+        struct.pack_into('<Q', buf, 100, 0)
+        struct.pack_into('<Q', buf, 108, 0)
+        struct.pack_into('<I', buf, 116, e['start'])
+        struct.pack_into('<I', buf, 120, e['size'])
+        struct.pack_into('<I', buf, 124, 0)
+        dir_bytes += buf
+    dir_start, _ = append_chain(bytes(dir_bytes))
 
-        # ---- Separate streams: mini (<cutoff) vs regular (>=cutoff) ----
-        MINI_CUTOFF = 4096
-        MINI_SECTOR = 64
-        ENTRIES_PER_FAT = SECTOR_SIZE // 4  # 128
+    # Mini-FAT sectors.
+    ENTRIES_PER_FAT = SECTOR_SIZE // 4
+    if minifat:
+        mf = list(minifat)
+        while len(mf) % ENTRIES_PER_FAT != 0:
+            mf.append(FREESECT)
+        minifat_start, num_minifat = append_chain(
+            b''.join(struct.pack('<I', x) for x in mf))
+    else:
+        minifat_start, num_minifat = ENDOFCHAIN, 0
 
-        mini_entries, regular_entries = [], []
-        for e in entries:
-            if e['type'] == 2 and e['data']:
-                (mini_entries if len(e['data']) < MINI_CUTOFF else regular_entries).append(e)
+    # FAT sectors (self-describing — iterate until the count stabilizes).
+    data_sectors = len(sectors) // SECTOR_SIZE
+    num_fat = 1
+    while True:
+        total = data_sectors + num_fat
+        need = (total + ENTRIES_PER_FAT - 1) // ENTRIES_PER_FAT
+        if need <= num_fat:
+            break
+        num_fat = need
+    fat_start = data_sectors
+    fat_full = list(fat) + [FATSECT] * num_fat
+    while len(fat_full) % ENTRIES_PER_FAT != 0:
+        fat_full.append(FREESECT)
+    fat_blob = b''.join(struct.pack('<I', x) for x in fat_full)
 
-        # ---- Build the mini stream container + Mini FAT ----
-        ministream = bytearray()
-        minifat = []  # one entry per 64-byte mini sector
-        for e in mini_entries:
-            data = e['data']
-            start_mini = len(ministream) // MINI_SECTOR
-            padded = data + b'\x00' * ((-len(data)) % MINI_SECTOR)
-            n = len(padded) // MINI_SECTOR
-            for i in range(n):
-                ministream += padded[i * MINI_SECTOR:(i + 1) * MINI_SECTOR]
-                minifat.append(start_mini + i + 1 if i < n - 1 else ENDOFCHAIN)
-            e['start'] = start_mini
-            e['size']  = len(data)
-        ministream_padded = bytes(ministream) + b'\x00' * ((-len(ministream)) % SECTOR_SIZE)
+    # CFB Header.
+    header = bytearray(512)
+    header[0:8] = b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
+    struct.pack_into('<H', header, 24, 0x003E)   # MinorVersion
+    struct.pack_into('<H', header, 26, 0x0003)   # MajorVersion
+    struct.pack_into('<H', header, 28, 0xFFFE)   # ByteOrder
+    struct.pack_into('<H', header, 30, 0x0009)   # SectorSizePower (=512)
+    struct.pack_into('<H', header, 32, 0x0006)   # MiniSectorSizePower (=64)
+    struct.pack_into('<I', header, 40, 0)
+    struct.pack_into('<I', header, 44, num_fat)
+    struct.pack_into('<I', header, 48, dir_start)
+    struct.pack_into('<I', header, 52, 0)
+    struct.pack_into('<I', header, 56, MINI_CUTOFF)
+    struct.pack_into('<I', header, 60, minifat_start)
+    struct.pack_into('<I', header, 64, num_minifat)
+    struct.pack_into('<I', header, 68, ENDOFCHAIN)
+    struct.pack_into('<I', header, 72, 0)
+    for i in range(109):
+        val = fat_start + i if i < num_fat else FREESECT
+        struct.pack_into('<I', header, 76 + i * 4, val)
 
-        # ---- Allocate regular sectors ----
-        sector_data = bytearray()
-        fat = []
-
-        def add_chain(blob: bytes):
-            """Append a sector-aligned blob; fill FAT chain; return start sector."""
-            start = len(sector_data) // SECTOR_SIZE
-            n = len(blob) // SECTOR_SIZE
-            for i in range(n):
-                sector_data.extend(blob[i * SECTOR_SIZE:(i + 1) * SECTOR_SIZE])
-                fat.append(start + i + 1 if i < n - 1 else ENDOFCHAIN)
-            return start, n
-
-        # Regular streams first
-        for e in regular_entries:
-            data = e['data']
-            padded = data + b'\x00' * ((-len(data)) % SECTOR_SIZE)
-            start, _ = add_chain(padded)
-            e['start'] = start
-            e['size']  = len(data)
-
-        # Mini stream container -> Root Entry (slot 0)
-        if ministream_padded:
-            start, _ = add_chain(ministream_padded)
-            entries[0]['start'] = start
-            entries[0]['size']  = len(ministream)
-        else:
-            entries[0]['start'] = ENDOFCHAIN
-            entries[0]['size']  = 0
-
-        # ---- Build directory bytes ----
-        dir_bytes = bytearray()
-        for e in entries:
-            name_utf16 = e['name'].encode('utf-16-le') if e['name'] else b''
-            name_len   = len(name_utf16) + 2 if name_utf16 else 0
-            name_field = (name_utf16 + b'\x00' * (64 - len(name_utf16)))[:64]
-
-            entry_buf = bytearray(128)
-            entry_buf[0:64] = name_field
-            struct.pack_into('<H', entry_buf, 64, name_len)
-            entry_buf[66] = e['type']
-            entry_buf[67] = 0x01  # ColorFlag: black
-            struct.pack_into('<I', entry_buf, 68, e['left'])
-            struct.pack_into('<I', entry_buf, 72, e['right'])
-            struct.pack_into('<I', entry_buf, 76, e['child'])
-            entry_buf[80:96] = e['clsid']
-            struct.pack_into('<I', entry_buf,  96, 0)
-            struct.pack_into('<Q', entry_buf, 100, 0)
-            struct.pack_into('<Q', entry_buf, 108, 0)
-            struct.pack_into('<I', entry_buf, 116, e['start'])
-            struct.pack_into('<I', entry_buf, 120, e['size'])
-            struct.pack_into('<I', entry_buf, 124, 0)
-            dir_bytes += entry_buf
-        dir_start, _ = add_chain(bytes(dir_bytes))
-
-        # ---- Mini FAT sectors ----
-        if minifat:
-            mf = list(minifat)
-            while len(mf) % ENTRIES_PER_FAT != 0:
-                mf.append(FREESECT)
-            minifat_start, num_minifat_sectors = add_chain(
-                b''.join(struct.pack('<I', x) for x in mf))
-        else:
-            minifat_start, num_minifat_sectors = ENDOFCHAIN, 0
-
-        # ---- FAT sectors (must describe themselves; iterate for stability) ----
-        data_sectors = len(sector_data) // SECTOR_SIZE
-        num_fat_sectors = 1
-        while True:
-            total = data_sectors + num_fat_sectors
-            need = (total + ENTRIES_PER_FAT - 1) // ENTRIES_PER_FAT
-            if need <= num_fat_sectors:
-                break
-            num_fat_sectors = need
-
-        fat_start = data_sectors
-        fat_full = list(fat) + [FATSECT] * num_fat_sectors
-        while len(fat_full) % ENTRIES_PER_FAT != 0:
-            fat_full.append(FREESECT)
-        fat_blob = b''.join(struct.pack('<I', x) for x in fat_full)
-
-        # ---- CFB Header ----
-        header = bytearray(512)
-        header[0:8] = b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
-        struct.pack_into('<H', header, 24, 0x003E)  # MinorVersion
-        struct.pack_into('<H', header, 26, 0x0003)  # MajorVersion
-        struct.pack_into('<H', header, 28, 0xFFFE)  # ByteOrder
-        struct.pack_into('<H', header, 30, 0x0009)  # SectorSizePower (512)
-        struct.pack_into('<H', header, 32, 0x0006)  # MiniSectorSizePower (64)
-        struct.pack_into('<I', header, 40, 0)                   # NumDirSectors (v3:0)
-        struct.pack_into('<I', header, 44, num_fat_sectors)     # NumFATSectors
-        struct.pack_into('<I', header, 48, dir_start)           # FirstDirSector
-        struct.pack_into('<I', header, 52, 0)                   # TxnSignature
-        struct.pack_into('<I', header, 56, MINI_CUTOFF)         # MiniStreamCutoff
-        struct.pack_into('<I', header, 60, minifat_start)       # FirstMiniFATSector
-        struct.pack_into('<I', header, 64, num_minifat_sectors) # NumMiniFATSectors
-        struct.pack_into('<I', header, 68, ENDOFCHAIN)          # FirstDIFATSector
-        struct.pack_into('<I', header, 72, 0)                   # NumDIFATSectors
-        # DIFAT[109]: list FAT sector locations, rest FREESECT
-        for i in range(109):
-            val = fat_start + i if i < num_fat_sectors else FREESECT
-            struct.pack_into('<I', header, 76 + i * 4, val)
-
-        # ---- Assemble: header + data sectors + FAT sectors ----
-        return bytes(header) + bytes(sector_data) + fat_blob
+    return bytes(header) + bytes(sectors) + fat_blob
 
 
 # ---------------------------------------------------------------------------
-# Source file loading
+# OVBA decompression (for parsing the skeleton's dir stream — we only need
+# read access).
+# ---------------------------------------------------------------------------
+
+def ovba_decompress(data: bytes) -> bytes:
+    """Decompress an OVBA CompressedContainer (MS-OVBA 2.4)."""
+    if not data or data[0] != 0x01:
+        raise ValueError("Bad OVBA signature byte")
+    out = bytearray()
+    i = 1
+    while i < len(data):
+        header = struct.unpack('<H', data[i:i + 2])[0]
+        i += 2
+        chunk_size = (header & 0x0FFF) + 3
+        chunk_signature = (header >> 12) & 0x07
+        chunk_flag = (header >> 15) & 0x01
+        body = data[i:i + chunk_size - 2]
+        i += chunk_size - 2
+        if chunk_flag == 0:
+            # Raw, exactly 4096 bytes
+            out += body
+            continue
+        # Compressed
+        chunk_start = len(out)
+        j = 0
+        while j < len(body):
+            flag = body[j]; j += 1
+            for bit in range(8):
+                if j >= len(body):
+                    break
+                if not (flag & (1 << bit)):
+                    out.append(body[j]); j += 1
+                else:
+                    pos = len(out) - chunk_start
+                    if pos <= 16:    lbits = 12
+                    elif pos <= 32:  lbits = 11
+                    elif pos <= 64:  lbits = 10
+                    elif pos <= 128: lbits = 9
+                    elif pos <= 256: lbits = 8
+                    elif pos <= 512: lbits = 7
+                    elif pos <= 1024:lbits = 6
+                    elif pos <= 2048:lbits = 5
+                    else:            lbits = 4
+                    token = struct.unpack('<H', body[j:j + 2])[0]; j += 2
+                    length = (token & ((1 << lbits) - 1)) + 3
+                    offset = (token >> lbits) + 1
+                    src = len(out) - offset
+                    for k in range(length):
+                        out.append(out[src + k])
+    return bytes(out)
+
+
+# ---------------------------------------------------------------------------
+# Skeleton CFB reader — minimal, just enough to pull the streams we need.
+# ---------------------------------------------------------------------------
+
+class CFBReader:
+    def __init__(self, data: bytes):
+        self.data = data
+        assert data[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
+        self.minifat_start = struct.unpack('<I', data[60:64])[0]
+        self.minifat_count = struct.unpack('<I', data[64:68])[0]
+        self.fat_first     = struct.unpack('<I', data[76:80])[0]
+        self.dir_start     = struct.unpack('<I', data[48:52])[0]
+
+        # FAT (assume single sector for skeleton-sized files).
+        fat_off = (self.fat_first + 1) * SECTOR_SIZE
+        self.fat = list(struct.unpack('<128I', data[fat_off:fat_off + SECTOR_SIZE]))
+
+        # Mini FAT.
+        self.minifat = []
+        sec = self.minifat_start
+        while sec != ENDOFCHAIN and sec < len(self.fat):
+            off = (sec + 1) * SECTOR_SIZE
+            self.minifat += list(struct.unpack('<128I', data[off:off + SECTOR_SIZE]))
+            sec = self.fat[sec]
+
+        # Directory entries.
+        self.entries = {}  # name -> dict
+        sec = self.dir_start
+        chain = []
+        while sec != ENDOFCHAIN and sec < len(self.fat):
+            chain.append(sec)
+            sec = self.fat[sec]
+        dir_bytes = b''.join(data[(s + 1) * SECTOR_SIZE:(s + 2) * SECTOR_SIZE]
+                             for s in chain)
+        for i in range(0, len(dir_bytes), 128):
+            e = dir_bytes[i:i + 128]
+            name_len = struct.unpack('<H', e[64:66])[0]
+            if name_len == 0: continue
+            name = e[:name_len - 2].decode('utf-16-le')
+            etype = e[66]
+            start = struct.unpack('<I', e[116:120])[0]
+            size  = struct.unpack('<I', e[120:124])[0]
+            self.entries[name] = {'type': etype, 'start': start, 'size': size}
+
+        # Root entry stores the mini-stream container.
+        root = self.entries.get('Root Entry')
+        if root and root['size']:
+            sec = root['start']
+            blob = bytearray()
+            while sec != ENDOFCHAIN and sec < len(self.fat):
+                off = (sec + 1) * SECTOR_SIZE
+                blob += data[off:off + SECTOR_SIZE]
+                sec = self.fat[sec]
+            self.mini_data = bytes(blob[:root['size']])
+        else:
+            self.mini_data = b''
+
+    def read(self, name: str) -> bytes:
+        e = self.entries[name]
+        if e['size'] < MINI_CUTOFF:
+            sec = e['start']
+            blob = bytearray()
+            while sec != ENDOFCHAIN and sec < len(self.minifat):
+                off = sec * MINI_SECTOR
+                blob += self.mini_data[off:off + MINI_SECTOR]
+                sec = self.minifat[sec]
+            return bytes(blob[:e['size']])
+        else:
+            sec = e['start']
+            blob = bytearray()
+            while sec != ENDOFCHAIN and sec < len(self.fat):
+                off = (sec + 1) * SECTOR_SIZE
+                blob += self.data[off:off + SECTOR_SIZE]
+                sec = self.fat[sec]
+            return bytes(blob[:e['size']])
+
+
+# ---------------------------------------------------------------------------
+# dir-stream MODULES section builder.
+# Layout (matches what real Excel writes — see skeleton verification):
+#   PROJMODULES (0x000F, sz=2): module count
+#   PROJCOOKIE  (0x0013, sz=2): 0xFFFF
+#   For each module:
+#     MNAME      (0x0019) ANSI module name
+#     MNAME_U    (0x0047) UTF-16LE module name
+#     MSTREAM    (0x001A) ANSI stream name (same as module name)
+#     MSTREAM_U  (0x0032) UTF-16LE stream name
+#     MDOCSTR    (0x001C) empty
+#     MDOCSTR_U  (0x0048) empty
+#     MOFFSET    (0x0031) uint32 = 0 (source starts at byte 0 of the stream)
+#     MHELPCTX   (0x001E) uint32 = 0
+#     MCOOKIE    (0x002C) uint16 = 0xFFFF
+#     MTYPE      (0x0021 standard | 0x0022 document) empty
+#     MTERM      (0x002B) empty
+#   PROJTERM (0x0010): record terminator
+# ---------------------------------------------------------------------------
+
+def _rec(rid: int, data: bytes) -> bytes:
+    return struct.pack('<HI', rid, len(data)) + data
+
+
+def _ansi(s: str) -> bytes:
+    # Project codepage is 932 (Shift-JIS) — set in the dir prefix we copy
+    # from the skeleton, so encode names the same way.
+    return s.encode('cp932')
+
+
+def _u16(s: str) -> bytes:
+    return s.encode('utf-16-le')
+
+
+def build_modules_section(modules: list) -> bytes:
+    """Modules + per-module records + project terminator."""
+    buf = bytearray()
+    buf += _rec(0x000F, struct.pack('<H', len(modules)))   # PROJMODULES
+    buf += _rec(0x0013, struct.pack('<H', 0xFFFF))         # PROJCOOKIE
+
+    for mod in modules:
+        name = mod['name']
+        is_class = mod.get('class', False)
+        buf += _rec(0x0019, _ansi(name))                   # MNAME
+        buf += _rec(0x0047, _u16(name))                    # MNAME_U
+        buf += _rec(0x001A, _ansi(name))                   # MSTREAM
+        buf += _rec(0x0032, _u16(name))                    # MSTREAM_U
+        buf += _rec(0x001C, b'')                           # MDOCSTR
+        buf += _rec(0x0048, b'')                           # MDOCSTR_U
+        buf += _rec(0x0031, struct.pack('<I', 0))          # MOFFSET=0
+        buf += _rec(0x001E, struct.pack('<I', 0))          # MHELPCTX
+        buf += _rec(0x002C, struct.pack('<H', 0xFFFF))     # MCOOKIE
+        buf += _rec(0x0022 if is_class else 0x0021, b'')   # MTYPE
+        buf += _rec(0x002B, b'')                           # MTERM
+
+    buf += _rec(0x0010, b'')                                # PROJTERM
+    return bytes(buf)
+
+
+def find_modules_section_offset(dir_uncompressed: bytes) -> int:
+    """Byte offset of PROJMODULES record header in the dir stream."""
+    marker = b'\x0f\x00\x02\x00\x00\x00'
+    idx = dir_uncompressed.find(marker)
+    if idx < 0:
+        raise RuntimeError("PROJMODULES marker not found in skeleton dir stream")
+    return idx
+
+
+# ---------------------------------------------------------------------------
+# PROJECT stream builder — preserve as much as possible of the skeleton's
+# PROJECT, only swapping out the document/module list and [Workspace].
+# ---------------------------------------------------------------------------
+
+def parse_skeleton_project(text: str) -> dict:
+    """Parse skeleton PROJECT stream into a dict of preserved fields."""
+    info = {}
+    for line in text.splitlines():
+        if line.startswith('ID='):                  info['ID'] = line
+        elif line.startswith('Name='):              info['Name'] = line
+        elif line.startswith('HelpContextID='):     info['HelpContextID'] = line
+        elif line.startswith('VersionCompatible'):  info['VersionCompatible'] = line
+        elif line.startswith('CMG='):               info['CMG'] = line
+        elif line.startswith('DPB='):               info['DPB'] = line
+        elif line.startswith('GC='):                info['GC'] = line
+        elif line.startswith('&H00000001=') and 'CF90' in line:
+            info['HostExtenderVBE'] = line
+    return info
+
+
+def build_project_stream(skel_info: dict, modules: list) -> bytes:
+    """Assemble a PROJECT stream for our module set."""
+    lines = [skel_info['ID']]
+
+    for mod in modules:
+        if mod.get('class'):
+            lines.append(f'Document={mod["name"]}/&H00000000')
+        else:
+            lines.append(f'Module={mod["name"]}')
+
+    lines.append(skel_info.get('Name', 'Name="VBAProject"'))
+    lines.append(skel_info.get('HelpContextID', 'HelpContextID="0"'))
+    lines.append(skel_info.get('VersionCompatible', 'VersionCompatible32="393222000"'))
+    lines.append(skel_info.get('CMG', 'CMG=""'))
+    lines.append(skel_info.get('DPB', 'DPB=""'))
+    lines.append(skel_info.get('GC',  'GC=""'))
+    lines.append('')
+    lines.append('[Host Extender Info]')
+    lines.append(skel_info.get('HostExtenderVBE',
+                 '&H00000001={3832D640-CF90-11CF-8E43-00A0C911005A};VBE;&H00000000'))
+    lines.append('')
+    lines.append('[Workspace]')
+    for mod in modules:
+        # 0, 0, 0, 0, C marks "code window closed".
+        lines.append(f'{mod["name"]}=0, 0, 0, 0, C')
+    lines.append('')
+
+    return '\r\n'.join(lines).encode('cp932')
+
+
+def build_projectwm(modules: list) -> bytes:
+    """Module name map: ANSI name + 0 + UTF-16 name + 00 00 (repeat), 00 00 end."""
+    buf = bytearray()
+    for mod in modules:
+        n = mod['name']
+        buf += n.encode('cp932') + b'\x00'
+        buf += n.encode('utf-16-le') + b'\x00\x00'
+    buf += b'\x00\x00'
+    return bytes(buf)
+
+
+# ---------------------------------------------------------------------------
+# Source file loading.
 # ---------------------------------------------------------------------------
 
 def strip_bas_header(content: str) -> str:
-    """Remove the 'Attribute VB_Name = ...' line from .bas files."""
-    lines = content.splitlines(keepends=True)
     out = []
-    found_name = False
-    for line in lines:
-        # Strip BOM from any line for comparison
+    found = False
+    for line in content.splitlines(keepends=True):
         stripped = line.lstrip('﻿')
-        if not found_name and stripped.lstrip().startswith('Attribute VB_Name'):
-            found_name = True
+        if not found and stripped.lstrip().startswith('Attribute VB_Name'):
+            found = True
             continue
-        # Preserve remaining lines exactly (except strip BOM from first line)
-        if not out:
-            out.append(stripped)
-        else:
-            out.append(line)
+        out.append(stripped if not out else line)
     return ''.join(out)
 
 
 def strip_cls_header(content: str) -> str:
-    """Remove everything up to and including 'Attribute VB_Exposed = True'."""
-    lines = content.splitlines(keepends=True)
     out = []
-    past_header = False
-    for line in lines:
-        stripped = line.lstrip('﻿').strip()
-        if not past_header:
-            if stripped.startswith('Attribute VB_Exposed'):
-                past_header = True
+    past = False
+    for line in content.splitlines(keepends=True):
+        if not past:
+            if line.lstrip('﻿').strip().startswith('Attribute VB_Exposed'):
+                past = True
             continue
         out.append(line)
     return ''.join(out)
 
 
 def load_module_source(path: str, is_cls: bool = False) -> bytes:
-    """Load VBA source, strip header, return as cp1252 bytes."""
     with open(path, 'r', encoding='utf-8-sig', errors='replace') as f:
         content = f.read()
+    src = strip_cls_header(content) if is_cls else strip_bas_header(content)
+    src = src.replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\r\n')
+    return src.encode('cp932')
 
-    if is_cls:
-        source = strip_cls_header(content)
-    else:
-        source = strip_bas_header(content)
 
-    # Normalize line endings to CRLF
-    source = source.replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\r\n')
-    # Encode using the project code page (932 / Shift-JIS) so Japanese survives
-    return source.encode('cp932')
+EMPTY_DOC_SOURCE = b''  # Excel is happy with truly empty document streams.
 
 
 # ---------------------------------------------------------------------------
-# vbaProject.bin builder
+# Module set definitions.
 # ---------------------------------------------------------------------------
 
-def build_vba_project(modules: list) -> bytes:
-    """
-    Build a complete vbaProject.bin CFB file.
+def _doc(name: str, source: bytes) -> dict:
+    return {'name': name, 'source': source, 'class': True}
 
-    modules: list of dicts with keys:
-        name   : str   — module name
-        source : bytes — VBA source (cp1252 encoded)
-        class  : bool  — True for class modules (e.g. ThisWorkbook)
-    """
-    cfb = CFBWriter()
 
-    # PROJECT stream (root)
-    project_text = build_project_stream(modules)
-    cfb.add_root_stream('PROJECT', project_text)
+def _std(name: str, source: bytes) -> dict:
+    return {'name': name, 'source': source, 'class': False}
 
-    # PROJECTwm stream (root): module name map
-    cfb.add_root_stream('PROJECTwm', build_projectwm(modules))
 
-    # _VBA_PROJECT stream (MS-OVBA 2.3.4.1 — performance cache header).
-    # Reserved1=0x61CC, Version=0xFFFF (= "no cached compiled image"; if 0,
-    # Excel tries to load a cache that does not exist and discards every
-    # standard module), Reserved2=0x00, Reserved3=0x0000.
-    cfb.add_vba_stream('_VBA_PROJECT',
-                       b'\xCC\x61'        # Reserved1 = 0x61CC
-                       b'\xFF\xFF'        # Version   = 0xFFFF
-                       b'\x00'            # Reserved2
-                       b'\x00\x00')       # Reserved3
+def load_modules_chatbot() -> list:
+    tw_src = load_module_source(
+        os.path.join(SRC_DIR, 'chatbot', 'ThisWorkbook.cls'), is_cls=True)
 
-    # dir stream (OVBA-compressed)
-    dir_uncompressed = build_dir_stream(modules)
-    dir_compressed   = ovba_compress(dir_uncompressed)
-    cfb.add_vba_stream('dir', dir_compressed)
+    modules = [
+        _doc('ThisWorkbook', tw_src),
+        _doc('Sheet1', EMPTY_DOC_SOURCE),
+    ]
 
-    # Module streams (each: OVBA-compressed source)
-    for mod in modules:
-        compressed_src = ovba_compress(mod['source'])
-        cfb.add_vba_stream(mod['name'], compressed_src)
+    for n in ['modTypes', 'modConfig', 'modPaths', 'modHttpClient',
+              'modKeyVault', 'modApiGateway']:
+        modules.append(_std(n, load_module_source(
+            os.path.join(SRC_DIR, 'shared', n + '.bas'))))
 
-    return cfb.build()
+    modules.append(_std('JsonConverter', load_module_source(
+        os.path.join(VENDOR_DIR, 'JsonConverter.bas'))))
+
+    for n in ['modIndexReader', 'modSimilarity', 'modRagEngine',
+              'modUserProfile', 'modPiiGuard', 'modRateLimiter',
+              'modUsageLogger', 'modChatUI', 'modBoot']:
+        modules.append(_std(n, load_module_source(
+            os.path.join(SRC_DIR, 'chatbot', n + '.bas'))))
+
+    return modules
+
+
+def load_modules_admin() -> list:
+    modules = [
+        _doc('ThisWorkbook', EMPTY_DOC_SOURCE),
+        _doc('Sheet1', EMPTY_DOC_SOURCE),
+    ]
+
+    for n in ['modTypes', 'modConfig', 'modPaths', 'modHttpClient',
+              'modKeyVault', 'modApiGateway']:
+        modules.append(_std(n, load_module_source(
+            os.path.join(SRC_DIR, 'shared', n + '.bas'))))
+
+    modules.append(_std('JsonConverter', load_module_source(
+        os.path.join(VENDOR_DIR, 'JsonConverter.bas'))))
+
+    for n in ['modChunker', 'modExtractor', 'modExtractorWord',
+              'modExtractorAcrobat', 'modExtractorExcel',
+              'modIndexWriter', 'modKnowledgeBuilder',
+              'modKeyEnroller', 'modUsageAggregator']:
+        modules.append(_std(n, load_module_source(
+            os.path.join(SRC_DIR, 'admin', n + '.bas'))))
+
+    return modules
 
 
 # ---------------------------------------------------------------------------
-# XLSM packaging
+# OOXML patching: bind workbook/sheet to their VBA code modules via codeName.
 # ---------------------------------------------------------------------------
-
-def patch_content_types(xml_bytes: bytes) -> bytes:
-    """Add vbaProject.bin Override to [Content_Types].xml."""
-    vba_override = (
-        '<Override PartName="/xl/vbaProject.bin" '
-        'ContentType="application/vnd.ms-office.vbaProject"/>'
-    )
-    xml = xml_bytes.decode('utf-8')
-    if 'vbaProject' not in xml:
-        xml = xml.replace('</Types>', vba_override + '</Types>')
-    return xml.encode('utf-8')
-
-
-def patch_workbook_rels(xml_bytes: bytes) -> bytes:
-    """Add vbaProject relationship to xl/_rels/workbook.xml.rels."""
-    vba_rel = (
-        '<Relationship Id="rId99" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vbaProject" '
-        'Target="vbaProject.bin"/>'
-    )
-    xml = xml_bytes.decode('utf-8')
-    if 'vbaProject' not in xml:
-        xml = xml.replace('</Relationships>', vba_rel + '</Relationships>')
-    return xml.encode('utf-8')
-
 
 def patch_workbook_codename(xml_bytes: bytes, code_name: str) -> bytes:
-    """Bind the workbook to its ThisWorkbook document module via codeName."""
     xml = xml_bytes.decode('utf-8')
     if 'codeName' in xml:
         return xml.encode('utf-8')
     if '<workbookPr' in xml:
-        # Inject codeName attribute into the existing workbookPr element.
         xml = xml.replace('<workbookPr', f'<workbookPr codeName="{code_name}"', 1)
     else:
-        # No workbookPr: add one right after the <workbook ...> opening tag.
         end = xml.index('>', xml.index('<workbook')) + 1
         xml = xml[:end] + f'<workbookPr codeName="{code_name}"/>' + xml[end:]
     return xml.encode('utf-8')
 
 
 def patch_sheet_codename(xml_bytes: bytes, code_name: str) -> bytes:
-    """Bind a worksheet to its document module via sheetPr codeName.
-
-    sheetPr must be the first child of <worksheet> per the schema, so it is
-    inserted immediately after the worksheet opening tag.
-    """
     xml = xml_bytes.decode('utf-8')
     if 'codeName' in xml:
         return xml.encode('utf-8')
-    open_end = xml.index('>', xml.index('<worksheet')) + 1
     if '<sheetPr' in xml:
-        # Add codeName to the existing sheetPr element.
         xml = xml.replace('<sheetPr', f'<sheetPr codeName="{code_name}"', 1)
     else:
-        xml = xml[:open_end] + f'<sheetPr codeName="{code_name}"/>' + xml[open_end:]
+        end = xml.index('>', xml.index('<worksheet')) + 1
+        xml = xml[:end] + f'<sheetPr codeName="{code_name}"/>' + xml[end:]
+    return xml.encode('utf-8')
+
+
+# ---------------------------------------------------------------------------
+# Top-level builder: take skeleton, swap in our modules, produce .xlsm.
+# ---------------------------------------------------------------------------
+
+def build_vba_project(modules: list, skeleton_vba_bin: bytes) -> bytes:
+    """Build a new vbaProject.bin by surgically modifying the skeleton."""
+    skel = CFBReader(skeleton_vba_bin)
+
+    # Skeleton streams we keep verbatim.
+    skel_dir_compressed = skel.read('dir')
+    skel_dir = ovba_decompress(skel_dir_compressed)
+    vba_project_blob   = skel.read('_VBA_PROJECT')
+    skel_project_text  = skel.read('PROJECT').decode('cp932', errors='replace')
+    skel_info          = parse_skeleton_project(skel_project_text)
+
+    # Build new dir: prefix (verbatim) + our MODULES section.
+    modules_off = find_modules_section_offset(skel_dir)
+    new_dir_uncompressed = skel_dir[:modules_off] + build_modules_section(modules)
+    new_dir_compressed = ovba_compress(new_dir_uncompressed)
+
+    # New PROJECT and PROJECTwm.
+    new_project   = build_project_stream(skel_info, modules)
+    new_projectwm = build_projectwm(modules)
+
+    # Module streams: every module's content is just its OVBA-compressed
+    # source — MOFFSET=0 means "no cached p-code, source starts at byte 0".
+    root_streams = {'PROJECT': new_project, 'PROJECTwm': new_projectwm}
+    vba_streams  = {'_VBA_PROJECT': vba_project_blob, 'dir': new_dir_compressed}
+    for mod in modules:
+        body = mod['source'] if mod['source'] else b'\r\n'
+        vba_streams[mod['name']] = ovba_compress(body)
+
+    return build_cfb(root_streams, vba_streams)
+
+
+def patch_content_types(xml_bytes: bytes) -> bytes:
+    xml = xml_bytes.decode('utf-8')
+    if 'vbaProject' not in xml:
+        xml = xml.replace('</Types>',
+            '<Override PartName="/xl/vbaProject.bin" '
+            'ContentType="application/vnd.ms-office.vbaProject"/></Types>')
+    return xml.encode('utf-8')
+
+
+def patch_workbook_rels(xml_bytes: bytes) -> bytes:
+    xml = xml_bytes.decode('utf-8')
+    if 'vbaProject' not in xml:
+        xml = xml.replace('</Relationships>',
+            '<Relationship Id="rId99" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vbaProject" '
+            'Target="vbaProject.bin"/></Relationships>')
     return xml.encode('utf-8')
 
 
 def create_xlsm(template_path: str, output_path: str, modules: list):
-    """Create an .xlsm file by injecting VBA into the template."""
-    print(f"  Building VBA project ({len(modules)} modules)...")
-    vba_bin = build_vba_project(modules)
+    print(f"  Building vbaProject.bin from skeleton ({len(modules)} modules)...")
+    with open(template_path, 'rb') as f:
+        template_bytes = f.read()
+    with zipfile.ZipFile(io.BytesIO(template_bytes)) as z:
+        skel_vba = z.read('xl/vbaProject.bin')
+
+    vba_bin = build_vba_project(modules, skel_vba)
     print(f"  vbaProject.bin size: {len(vba_bin):,} bytes")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    with zipfile.ZipFile(template_path, 'r') as zin, \
+    with zipfile.ZipFile(io.BytesIO(template_bytes)) as zin, \
          zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-
         for item in zin.infolist():
             data = zin.read(item.filename)
-
-            if item.filename == '[Content_Types].xml':
+            if item.filename == 'xl/vbaProject.bin':
+                data = vba_bin
+            elif item.filename == '[Content_Types].xml':
                 data = patch_content_types(data)
             elif item.filename == 'xl/_rels/workbook.xml.rels':
                 data = patch_workbook_rels(data)
             elif item.filename == 'xl/workbook.xml':
-                data = patch_workbook_codename(data, DOC_THISWORKBOOK)
+                data = patch_workbook_codename(data, 'ThisWorkbook')
             elif item.filename == 'xl/worksheets/sheet1.xml':
-                data = patch_sheet_codename(data, DOC_SHEET1)
-
+                data = patch_sheet_codename(data, 'Sheet1')
             zout.writestr(item, data)
-
-        # Add vbaProject.bin
-        zout.writestr('xl/vbaProject.bin', vba_bin)
 
     print(f"  Created: {output_path} ({os.path.getsize(output_path):,} bytes)")
 
 
 # ---------------------------------------------------------------------------
-# Module definitions
-# ---------------------------------------------------------------------------
-
-# The template workbook contains exactly these document objects. The VBA
-# project MUST contain a matching document module for each, otherwise Excel
-# treats the project as inconsistent and silently discards it (showing an
-# empty project). Their codeNames are bound in the OOXML via patch_* below.
-DOC_THISWORKBOOK = 'ThisWorkbook'
-DOC_SHEET1       = 'Sheet1'
-
-# Default (empty) document-module bodies. Excel requires a code module to
-# start with the standard attribute/option preamble; an empty body is fine.
-EMPTY_DOC_SOURCE = 'Option Explicit\r\n'.encode('cp932')
-
-
-def _doc_module(name: str, source: bytes) -> dict:
-    return {'name': name, 'source': source, 'class': True}
-
-
-def load_modules_chatbot() -> list:
-    shared_names  = ['modTypes', 'modConfig', 'modPaths', 'modHttpClient',
-                     'modKeyVault', 'modApiGateway']
-    chatbot_names = ['modIndexReader', 'modSimilarity', 'modRagEngine',
-                     'modUserProfile', 'modPiiGuard', 'modRateLimiter',
-                     'modUsageLogger', 'modChatUI', 'modBoot']
-
-    # Document modules first (Excel-like ordering), then standard modules.
-    tw_path = os.path.join(SRC_DIR, 'chatbot', 'ThisWorkbook.cls')
-    modules = [
-        _doc_module(DOC_THISWORKBOOK, load_module_source(tw_path, is_cls=True)),
-        _doc_module(DOC_SHEET1, EMPTY_DOC_SOURCE),
-    ]
-
-    for name in shared_names:
-        path = os.path.join(SRC_DIR, 'shared', name + '.bas')
-        modules.append({'name': name, 'source': load_module_source(path), 'class': False})
-
-    jc_path = os.path.join(VENDOR_DIR, 'JsonConverter.bas')
-    modules.append({'name': 'JsonConverter', 'source': load_module_source(jc_path), 'class': False})
-
-    for name in chatbot_names:
-        path = os.path.join(SRC_DIR, 'chatbot', name + '.bas')
-        modules.append({'name': name, 'source': load_module_source(path), 'class': False})
-
-    return modules
-
-
-def load_modules_admin() -> list:
-    shared_names = ['modTypes', 'modConfig', 'modPaths', 'modHttpClient',
-                    'modKeyVault', 'modApiGateway']
-    admin_names  = ['modChunker', 'modExtractor', 'modExtractorWord',
-                    'modExtractorAcrobat', 'modExtractorExcel',
-                    'modIndexWriter', 'modKnowledgeBuilder',
-                    'modKeyEnroller', 'modUsageAggregator']
-
-    # Admin has no Workbook_Open; both document modules are empty.
-    modules = [
-        _doc_module(DOC_THISWORKBOOK, EMPTY_DOC_SOURCE),
-        _doc_module(DOC_SHEET1, EMPTY_DOC_SOURCE),
-    ]
-
-    for name in shared_names:
-        path = os.path.join(SRC_DIR, 'shared', name + '.bas')
-        modules.append({'name': name, 'source': load_module_source(path), 'class': False})
-
-    jc_path = os.path.join(VENDOR_DIR, 'JsonConverter.bas')
-    modules.append({'name': 'JsonConverter', 'source': load_module_source(jc_path), 'class': False})
-
-    for name in admin_names:
-        path = os.path.join(SRC_DIR, 'admin', name + '.bas')
-        modules.append({'name': name, 'source': load_module_source(path), 'class': False})
-
-    return modules
-
-
-# ---------------------------------------------------------------------------
-# Main
+# Main.
 # ---------------------------------------------------------------------------
 
 def main():
@@ -883,27 +823,16 @@ def main():
 
     os.makedirs(DIST_DIR, exist_ok=True)
 
-    # --- Chatbot ---
     print("Building Chatbot.xlsm...")
-    chatbot_modules = load_modules_chatbot()
-    print(f"  Modules ({len(chatbot_modules)}): {[m['name'] for m in chatbot_modules]}")
-    create_xlsm(
-        TEMPLATE,
-        os.path.join(DIST_DIR, 'Chatbot.xlsm'),
-        chatbot_modules,
-    )
+    chatbot = load_modules_chatbot()
+    print(f"  Modules ({len(chatbot)}): {[m['name'] for m in chatbot]}")
+    create_xlsm(TEMPLATE, os.path.join(DIST_DIR, 'Chatbot.xlsm'), chatbot)
 
     print()
-
-    # --- Admin ---
     print("Building Admin_KnowledgeBuilder.xlsm...")
-    admin_modules = load_modules_admin()
-    print(f"  Modules ({len(admin_modules)}): {[m['name'] for m in admin_modules]}")
-    create_xlsm(
-        TEMPLATE,
-        os.path.join(DIST_DIR, 'Admin_KnowledgeBuilder.xlsm'),
-        admin_modules,
-    )
+    admin = load_modules_admin()
+    print(f"  Modules ({len(admin)}): {[m['name'] for m in admin]}")
+    create_xlsm(TEMPLATE, os.path.join(DIST_DIR, 'Admin_KnowledgeBuilder.xlsm'), admin)
 
     print()
     print("Done.")
