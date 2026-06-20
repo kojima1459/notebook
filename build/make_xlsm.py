@@ -224,8 +224,8 @@ def build_dir_stream(modules: list) -> bytes:
 
         # MODULENAME
         buf += _record(0x0019, _ansi(name))
-        # MODULENAMEUNICODE (0x0047)
-        buf += _record(0x0047, _u16(name))
+        # MODULENAMEUNICODE (0x0031 per MS-OVBA 2.3.4.2.3.2.2)
+        buf += _record(0x0031, _u16(name))
         # MODULESTREAMNAME
         buf += _record(0x001A, _ansi(name))
         # MODULESTREAMNAMERECORDUNICODE
@@ -389,18 +389,29 @@ class CFBWriter:
             e['start'] = ENDOFCHAIN
             e['size']  = 0
 
-        # Root Entry's child = first item in sibling chain (VBA, PROJECT, PROJECTwm)
-        # Put VBA storage as first child, then root streams as right siblings
-        root_child_chain = [1] + root_stream_slots  # [VBA, PROJECT, PROJECTwm]
-        entries[0]['child'] = root_child_chain[0]
-        for i in range(len(root_child_chain) - 1):
-            entries[root_child_chain[i]]['right'] = root_child_chain[i + 1]
+        # CFB directory entries must form a valid BST sorted by
+        # (len(name), name.upper()). Build a balanced BST recursively.
+        def cfb_sort_key(idx):
+            n = entries[idx]['name']
+            return (len(n), n.upper())
 
-        # VBA storage's child = first VBA sub-stream
-        if vba_stream_slots:
-            entries[1]['child'] = vba_stream_slots[0]
-            for i in range(len(vba_stream_slots) - 1):
-                entries[vba_stream_slots[i]]['right'] = vba_stream_slots[i + 1]
+        def build_bst(slots):
+            """Return root DirID of a balanced BST from a sorted list of DirIDs."""
+            if not slots:
+                return NOSTREAM
+            mid = len(slots) // 2
+            root_idx = slots[mid]
+            entries[root_idx]['left']  = build_bst(slots[:mid])
+            entries[root_idx]['right'] = build_bst(slots[mid + 1:])
+            return root_idx
+
+        # Root Entry's children: VBA(3) < PROJECT(7) < PROJECTwm(9) — already sorted
+        root_children = sorted([1] + root_stream_slots, key=cfb_sort_key)
+        entries[0]['child'] = build_bst(root_children)
+
+        # VBA storage's children: sort by (len, upper) before building BST
+        vba_sorted = sorted(vba_stream_slots, key=cfb_sort_key)
+        entries[1]['child'] = build_bst(vba_sorted)
 
         # ---- Allocate sectors for stream data ----
         sector_data = bytearray()  # raw sector bytes
