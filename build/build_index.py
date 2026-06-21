@@ -31,7 +31,7 @@ EMBED_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/"
     f"models/{EMBED_MODEL}:embedContent?key={API_KEY}"
 )
-EMBED_DIM = 768  # gemini-embedding-001 supports 768/1536/3072 via outputDimensionality
+EMBED_DIM = 3072  # max precision tier (gemini-embedding-001 returns L2-normalized at 3072)
 
 # Chunking
 CHUNK_CHARS = 1200

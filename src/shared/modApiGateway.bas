@@ -130,13 +130,16 @@ Private Function ChatGemini(ByVal systemPrompt As String, ByVal userPrompt As St
     Dim headers As Object: Set headers = CreateObject("Scripting.Dictionary")
     headers("x-goog-api-key") = modKeyVault.GetKey()
 
+    Dim maxOut As Long: maxOut = modConfig.GetLong("api", "max_output_tokens", 16384)
+    Dim thinkBudget As Long: thinkBudget = modConfig.GetLong("api", "thinking_budget", 4096)
     Dim body As String
     body = "{""system_instruction"":{""parts"":[{""text"":" & JsonString(systemPrompt) & "}]},"
     body = body & """contents"":[{""role"":""user"",""parts"":[{""text"":" & JsonString(userPrompt) & "}]}],"
-    body = body & """generationConfig"":{""temperature"":0.15,""maxOutputTokens"":4096,""topP"":0.95}}"
+    body = body & """generationConfig"":{""temperature"":0.15,""maxOutputTokens"":" & maxOut & _
+           ",""topP"":0.95,""thinkingConfig"":{""thinkingBudget"":" & thinkBudget & "}}}"
 
     Dim resp As HttpResponse
-    resp = modHttpClient.PostJson(url, body, headers, 120000)
+    resp = modHttpClient.PostJson(url, body, headers, 240000)
     r.LatencyMs = resp.LatencyMs
     If resp.Status < 200 Or resp.Status >= 300 Then
         r.OK = False

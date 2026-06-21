@@ -107,7 +107,7 @@ Public Function Answer(ByRef idx As LoadedIndex, ByVal question As String) As An
         ReDim r.Citations(-1 To -1)
     End If
 
-    ' 5. chat
+    ' 5. chat (draft answer)
     Dim sys As String, usr As String
     sys = SystemPrompt()
     usr = "## ナレッジ" & vbCrLf & contextStr & vbCrLf & _
@@ -123,11 +123,53 @@ Public Function Answer(ByRef idx As LoadedIndex, ByVal question As String) As An
         Exit Function
     End If
 
-    r.Answer = chatRes.Content
+    Dim draft As String: draft = chatRes.Content
     r.PromptTokens = chatRes.PromptTokens
     r.CompletionTokens = chatRes.CompletionTokens
+
+    ' 6. self-verification pass (optional, on by default)
+    Dim verifyEnabled As Boolean
+    verifyEnabled = (modConfig.GetLong("retrieval", "self_verify", 1) <> 0)
+    If verifyEnabled Then
+        Dim verifySys As String, verifyUsr As String
+        verifySys = VerifierSystemPrompt()
+        verifyUsr = "## 引用元ナレッジ" & vbCrLf & contextStr & vbCrLf & _
+                    "## 元の質問" & vbCrLf & question & vbCrLf & vbCrLf & _
+                    "## ドラフト回答" & vbCrLf & draft
+        Dim verifyRes As ChatResult
+        verifyRes = modApiGateway.Chat(verifySys, verifyUsr)
+        r.ChatLatencyMs = r.ChatLatencyMs + verifyRes.LatencyMs
+        If verifyRes.OK And LenB(verifyRes.Content) > 0 Then
+            r.Answer = verifyRes.Content
+            r.PromptTokens = r.PromptTokens + verifyRes.PromptTokens
+            r.CompletionTokens = r.CompletionTokens + verifyRes.CompletionTokens
+        Else
+            r.Answer = draft
+        End If
+    Else
+        r.Answer = draft
+    End If
+
     r.OK = True
     Answer = r
+End Function
+
+Private Function VerifierSystemPrompt() As String
+    VerifierSystemPrompt = _
+        "あなたは損害保険会社引受部門の品質管理者です。AIが書いたドラフト回答が、引用元ナレッジに本当に書かれている内容のみで構成されているか厳格に検証します。" & vbCrLf & _
+        vbCrLf & _
+        "■ 検証ルール" & vbCrLf & _
+        "1. ドラフト回答の各主張(箇条書きの各項目、本文の各文)を1つずつ、引用元ナレッジの該当チャンクと照合する。" & vbCrLf & _
+        "2. 引用元ナレッジに明示的に書かれていない主張(言外の推測、要約しすぎ、ナレッジ外の数値・条文番号・金額・割合)を発見したら、その箇所を全文削除する。" & vbCrLf & _
+        "3. 条件分岐(『ただし』『〜の場合を除く』『〜に限り』)の取り違いを検出したら修正する。否定/限定(『支払わない』『対象外』)を反対の意味に取り違えていたら必ず修正する。" & vbCrLf & _
+        "4. 引用元ナレッジに無い条文番号・金額・期間・割合は『記載なし』に置き換える。" & vbCrLf & _
+        "5. 各主張の末尾に出典マーカー([#1]形式)を維持する。マーカーが本当にその主張を支える出典を指しているかも確認し、誤っていれば修正する。" & vbCrLf & _
+        vbCrLf & _
+        "■ 出力形式" & vbCrLf & _
+        "・ 検証後の最終回答のみを出力する(検証プロセスの説明や前置きは書かない)。" & vbCrLf & _
+        "・ ドラフトの構造(要点要約→結論→詳細→次のアクション)は維持する。" & vbCrLf & _
+        "・ 削除や修正があった場合、回答末尾に『■ 検証で除外/修正した内容』節を設けて簡潔に列挙する。除外/修正が無ければこの節は省略。" & vbCrLf & _
+        "・ ドラフトが全面的にナレッジに無い内容だった場合は『社内ナレッジに該当する記載がありません。アンダーライターへ確認してください』のみ返す。"
 End Function
 
 Private Function SystemPrompt() As String

@@ -1,6 +1,6 @@
 {
-  "dim": 768,
+  "dim": 3072,
   "count": 626,
   "embed_model": "gemini-embedding-001",
-  "version": "2026-06-20T12:50:21Z"
+  "version": "2026-06-21T00:53:40Z"
 }
