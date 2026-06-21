@@ -85,7 +85,10 @@ function parseStandings(html) {
   return groups;
 }
 
+const { setSecurityHeaders } = require("./_guard");
+
 module.exports = async (req, res) => {
+  setSecurityHeaders(res);
   res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=86400");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {

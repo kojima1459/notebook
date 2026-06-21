@@ -42,6 +42,33 @@
 キーはサーバー側だけで使われ、ブラウザには出ません。モデルは `gemini-flash-latest`。
 レスポンスは `Cache-Control: s-maxage` でCDNキャッシュし、上流アクセスを最小化しています。
 
+## 🔒 セキュリティ（一般公開むけ）
+
+このサイトはインターネットに公開しても安全なように、次の対策をしています。
+
+**APIキーの守り方（多層防御）**
+- キーは **Vercelの環境変数 `GEMINI_API_KEY`** にだけ保存。コードにも、ブラウザにも、GitHubにも出ません（暗号化保存）。
+- フロント（ブラウザ）からはキーを一切さわらず、`/api/chat`・`/api/quiz` の **サーバー関数の中だけ** で使用。
+- リポジトリ・全コミット履歴を検査済み（キーのハードコードなし）。
+
+**APIの濫用（課金あらし）対策** — `api/_guard.js`
+- **レート制限**：同一IPから 1分あたり 15回まで（超えたら `429`）。
+- **Originチェック**：このサイト（`*.vercel.app`）以外からの `/api/chat`・`/api/quiz` 呼び出しは `403` で拒否。
+- **エラーの中身を隠す**：Geminiのエラー詳細はブラウザに返さず、サーバーログにだけ記録。
+- 全APIに `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` を付与。
+- 外部取得系API（news/sanga/standings/roster）は **固定URLのみ取得**（ユーザー入力でURLを変えられない＝オープンプロキシにならない）。
+
+**🛡️ おうちの人にやってほしい最重要設定（5分）**
+
+万一キーが漏れても被害ゼロにするため、Google側でキーを「制限」してください：
+
+1. [Google AI Studio / Google Cloud Console](https://console.cloud.google.com/apis/credentials) を開く
+2. `GEMINI_API_KEY` を選ぶ → **「APIの制限」** で **Generative Language API だけ** に限定
+3. [Google AI Studio](https://aistudio.google.com/) の **Billing/使用量上限** で、月の予算アラートや上限を設定
+4. もしキーが漏れたかもと思ったら、すぐ **キーを削除して再発行** → Vercelの環境変数を入れ替えて再デプロイ
+
+> これで「サーバー側だけで使う＋濫用制限＋Google側で用途と上限を固定」の三段構えになります。
+
 ## ファイル構成
 
 ```

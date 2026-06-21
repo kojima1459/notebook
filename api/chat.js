@@ -8,6 +8,8 @@
 //  - history : [{role:'user'|'model', text}] 直近の会話
 // Google検索グラウンディングを有効にして、最新ニュース・試合結果にも答えられるようにする。
 
+const { guard } = require("./_guard");
+
 const MODEL = "gemini-flash-latest";
 
 const SYSTEM = `あなたは「サッカー博士」。京都サンガと世界のサッカーが大好きな、小学生（10〜11歳が中心）の子ども向けサイトのアシスタントです。
@@ -33,6 +35,12 @@ module.exports = async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") {
     res.status(405).end(JSON.stringify({ ok: false, error: "POST only" }));
+    return;
+  }
+  // 濫用（課金あらし）対策：Originチェック＋レート制限
+  const blocked = guard(req, res);
+  if (blocked) {
+    res.status(blocked.status).end(JSON.stringify(blocked.body));
     return;
   }
   const key = process.env.GEMINI_API_KEY;
@@ -84,7 +92,8 @@ module.exports = async (req, res) => {
     const data = await r.json();
     if (!r.ok) {
       const msg = (data && data.error && data.error.message) || `HTTP ${r.status}`;
-      res.status(200).end(JSON.stringify({ ok: false, answer: "ごめんね、いまうまく答えられなかったよ。もう一度きいてみて！", detail: msg }));
+      console.error("[chat] Gemini error:", msg); // サーバーログにだけ残す（browserには出さない）
+      res.status(200).end(JSON.stringify({ ok: false, answer: "ごめんね、いまうまく答えられなかったよ。もう一度きいてみて！" }));
       return;
     }
     const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
@@ -92,6 +101,7 @@ module.exports = async (req, res) => {
       "うーん、うまく答えが見つからなかったよ。べつの聞き方でためしてね！";
     res.status(200).end(JSON.stringify({ ok: true, answer }));
   } catch (e) {
-    res.status(200).end(JSON.stringify({ ok: false, answer: "ごめんね、通信がうまくいかなかったみたい。もう一度ためしてね。", detail: String((e && e.message) || e) }));
+    console.error("[chat] exception:", String((e && e.message) || e)); // サーバーログにだけ残す
+    res.status(200).end(JSON.stringify({ ok: false, answer: "ごめんね、通信がうまくいかなかったみたい。もう一度ためしてね。" }));
   }
 };

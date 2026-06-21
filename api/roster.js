@@ -13,7 +13,10 @@ const POS_MAP = {
 const FLAG = { Japan: "🇯🇵", Brazil: "🇧🇷", Korea: "🇰🇷", "South Korea": "🇰🇷", Spain: "🇪🇸", Germany: "🇩🇪", Brazilian: "🇧🇷" };
 const ORDER = ["GK", "DF", "MF", "FW"];
 
+const { setSecurityHeaders } = require("./_guard");
+
 module.exports = async (req, res) => {
+  setSecurityHeaders(res);
   res.setHeader("Cache-Control", "public, s-maxage=21600, stale-while-revalidate=86400");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {

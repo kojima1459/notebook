@@ -2,6 +2,8 @@
 // 京都サンガ・世界サッカー・ルール・戦術/戦略 のフレッシュな4択クイズをJSONで返す。
 // 環境変数 GEMINI_API_KEY を使用。CDNキャッシュで生成コストを抑える。
 
+const { guard } = require("./_guard");
+
 const MODEL = "gemini-flash-latest";
 
 const PROMPT = `小学校高学年（10〜11歳）向けの、サッカー4択クイズを {N} 問つくってください。
@@ -40,6 +42,13 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "public, s-maxage=120, stale-while-revalidate=600");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
+  // 濫用（課金あらし）対策：Originチェック＋レート制限
+  const blocked = guard(req, res);
+  if (blocked) {
+    res.status(blocked.status).end(JSON.stringify({ ...blocked.body, questions: [] }));
+    return;
+  }
+
   const key = process.env.GEMINI_API_KEY;
   const n = Math.min(Math.max(parseInt((req.query && req.query.n) || "8", 10) || 8, 3), 12);
   if (!key) {
@@ -72,6 +81,7 @@ module.exports = async (req, res) => {
       .map((q) => ({ q: q.q, options: q.options, answer: q.answer, explain: q.explain || "", category: q.category || "サッカー" }));
     res.status(200).end(JSON.stringify({ ok: questions.length > 0, questions }));
   } catch (e) {
-    res.status(200).end(JSON.stringify({ ok: false, questions: [], error: String((e && e.message) || e) }));
+    console.error("[quiz] exception:", String((e && e.message) || e)); // サーバーログにだけ残す
+    res.status(200).end(JSON.stringify({ ok: false, questions: [] }));
   }
 };

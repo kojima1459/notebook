@@ -64,7 +64,10 @@ function parseRss(xml) {
   return items.slice(0, 60);
 }
 
+const { setSecurityHeaders } = require("./_guard");
+
 module.exports = async (req, res) => {
+  setSecurityHeaders(res);
   const cat = String((req.query && req.query.cat) || "sanga");
   const query = QUERIES[cat] || QUERIES.sanga;
   // CDN(エッジ)に15分キャッシュ＋1日 stale配信。2回目以降はCDNから即返る。

@@ -62,7 +62,10 @@ function parseMatch(title) {
   };
 }
 
+const { setSecurityHeaders } = require("./_guard");
+
 module.exports = async (req, res) => {
+  setSecurityHeaders(res);
   res.setHeader("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
