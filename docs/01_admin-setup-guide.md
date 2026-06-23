@@ -20,17 +20,19 @@
 
 ## ステップ 1：GitHubからファイル一式を落とす
 
-1. ブラウザ（Edgeでも何でも）で以下のURLにアクセス：
+> ⚠️ **注意**：GitHub のトップページから `Code → Download ZIP` を押すと **README.md だけ** しか入っていません（作業用ブランチがmainではないため）。**必ず下記の専用URLから落としてください。**
+
+1. ブラウザ（Edge でOK）のアドレスバーに、以下を **コピペして Enter**：
 
    ```
-   https://github.com/kojima1459/notebook
+   https://github.com/kojima1459/notebook/archive/refs/heads/claude/prototype-gemini-demo.zip
    ```
 
-2. 緑色の **`<> Code`** ボタンをクリック → **`Download ZIP`** を選択。
+   すぐに ZIP のダウンロードが始まります。
 
-3. ダウンロードフォルダに `notebook-claude-prototype-gemini-demo.zip` ができます。これをデスクトップにコピー → **右クリック → すべて展開** → 展開先は **デスクトップ** のままでOK。
+2. ダウンロードフォルダに `notebook-claude-prototype-gemini-demo.zip` ができます。これをデスクトップにコピー → **右クリック → すべて展開** → 展開先は **デスクトップ** のままでOK。
 
-4. 展開後、デスクトップに `notebook-claude-prototype-gemini-demo` フォルダが出来上がります。
+3. 展開後、デスクトップに `notebook-claude-prototype-gemini-demo` フォルダが出来上がります。
 
    この中には：
    - `dist\Chatbot.xlsm` ← 営業担当者に配るやつ
@@ -39,6 +41,8 @@
    - `config\config.sample.ini` ← 設定ファイルのひな型
    - `config\disclaimer.txt` ← 免責事項
    - `demo_data\sample_01.pdf` 〜 `sample_16.pdf` ← デモ用のサンプルPDF
+
+   もし README.md しか無い場合は、上記URLではなくGitHubトップから落としている可能性が高いので、URLを再確認してください。
 
 ---
 
