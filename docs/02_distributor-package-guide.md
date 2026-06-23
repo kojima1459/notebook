@@ -12,7 +12,7 @@ USBメモリ・社内共有フォルダ・SharePointのどれで渡してもOK�
 
 | ファイル/フォルダ | コピー元 | サイズ目安 |
 |---|---|---|
-| `Chatbot.xlsm` | `notebook-claude-prototype-gemini-demo\dist\` | 53KB |
+| `Chatbot.xlsm` | `notebook-main\dist\` | 53KB |
 | `config.ini` | `C:\Users\あなた\AppData\Local\InternalNotebookLM\` | 1KB（APIキー入り） |
 | `disclaimer.txt` | 同上 | 1KB |
 | `index\` フォルダ丸ごと | 同上 | 約21MB |
@@ -36,7 +36,7 @@ USBメモリ・社内共有フォルダ・SharePointのどれで渡してもOK�
 
    | コピー元 | 配布フォルダ内のどこに置くか |
    |---|---|
-   | `notebook-claude-prototype-gemini-demo\dist\Chatbot.xlsm` | 直下 |
+   | `notebook-main\dist\Chatbot.xlsm` | 直下 |
    | `C:\Users\あなた\AppData\Local\InternalNotebookLM\config.ini` | 直下 |
    | `C:\Users\あなた\AppData\Local\InternalNotebookLM\disclaimer.txt` | 直下 |
    | `C:\Users\あなた\AppData\Local\InternalNotebookLM\index\` フォルダ丸ごと | 直下に `index\` |

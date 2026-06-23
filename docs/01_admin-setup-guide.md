@@ -20,19 +20,19 @@
 
 ## ステップ 1：GitHubからファイル一式を落とす
 
-> ⚠️ **注意**：GitHub のトップページから `Code → Download ZIP` を押すと **README.md だけ** しか入っていません（作業用ブランチがmainではないため）。**必ず下記の専用URLから落としてください。**
-
-1. ブラウザ（Edge でOK）のアドレスバーに、以下を **コピペして Enter**：
+1. ブラウザ（Edge でOK）で以下のページを開く：
 
    ```
-   https://github.com/kojima1459/notebook/archive/refs/heads/claude/prototype-gemini-demo.zip
+   https://github.com/kojima1459/notebook
    ```
+
+2. 緑色の **「< > Code」** ボタンをクリック → **「Download ZIP」** をクリック。
 
    すぐに ZIP のダウンロードが始まります。
 
-2. ダウンロードフォルダに `notebook-claude-prototype-gemini-demo.zip` ができます。これをデスクトップにコピー → **右クリック → すべて展開** → 展開先は **デスクトップ** のままでOK。
+3. ダウンロードフォルダに `notebook-main.zip` ができます。これをデスクトップにコピー → **右クリック → すべて展開** → 展開先は **デスクトップ** のままでOK。
 
-3. 展開後、デスクトップに `notebook-claude-prototype-gemini-demo` フォルダが出来上がります。
+4. 展開後、デスクトップに `notebook-main` フォルダが出来上がります。
 
    この中には：
    - `dist\Chatbot.xlsm` ← 営業担当者に配るやつ
@@ -41,8 +41,6 @@
    - `config\config.sample.ini` ← 設定ファイルのひな型
    - `config\disclaimer.txt` ← 免責事項
    - `demo_data\sample_01.pdf` 〜 `sample_16.pdf` ← デモ用のサンプルPDF
-
-   もし README.md しか無い場合は、上記URLではなくGitHubトップから落としている可能性が高いので、URLを再確認してください。
 
 ---
 
@@ -66,7 +64,7 @@
 
 ## ステップ 3：設定ファイルをコピー＆編集
 
-1. デスクトップの `notebook-claude-prototype-gemini-demo` フォルダを開く。
+1. デスクトップの `notebook-main` フォルダを開く。
 
 2. `config\config.sample.ini` を **右クリック → コピー**。
 
@@ -98,9 +96,9 @@
 
 同じ要領で、以下も `InternalNotebookLM` フォルダに入れます：
 
-1. `notebook-claude-prototype-gemini-demo\config\disclaimer.txt` を `InternalNotebookLM` にコピー。
+1. `notebook-main\config\disclaimer.txt` を `InternalNotebookLM` にコピー。
 
-2. `notebook-claude-prototype-gemini-demo\dist\index\` **フォルダ丸ごと** を `InternalNotebookLM` にコピー。
+2. `notebook-main\dist\index\` **フォルダ丸ごと** を `InternalNotebookLM` にコピー。
 
 完了後、`InternalNotebookLM` フォルダの中身は以下になります：
 
@@ -134,7 +132,7 @@ InternalNotebookLM\
 
 ## ステップ 6：Chatbot.xlsm を開いて動作確認
 
-1. `notebook-claude-prototype-gemini-demo\dist\Chatbot.xlsm` を **ダブルクリック**。
+1. `notebook-main\dist\Chatbot.xlsm` を **ダブルクリック**。
 
 2. 上に黄色いバーで **「セキュリティの警告 マクロが無効にされました [コンテンツの有効化]」** が出る → **コンテンツの有効化** をクリック。
 
