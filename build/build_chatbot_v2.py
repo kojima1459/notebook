@@ -17,10 +17,17 @@ through the 社内 AI ribbon.
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
 import zipfile
+
+_ILLEGAL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def _clean(s: str) -> str:
+    return _ILLEGAL_CHARS.sub("", s) if isinstance(s, str) else s
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
@@ -277,7 +284,7 @@ def _make_knowledge_base_sheet(wb):
         ws.cell(row=i, column=7, value=c.get("summary", ""))
         ws.cell(row=i, column=8, value=c.get("keywords", ""))
         # Excel cell limit is 32767 chars; chunks are well under
-        ws.cell(row=i, column=9, value=c.get("text", "")[:32000])
+        ws.cell(row=i, column=9, value=_clean(c.get("text", ""))[:32000])
         ws.cell(row=i, column=10, value="common")
 
     # Column widths

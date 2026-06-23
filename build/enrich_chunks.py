@@ -11,8 +11,10 @@ Skips corrupted/duplicate PDFs (sample_02, sample_05, sample_09).
 Input:  dist/index/chunks.json   (785 chunks)
 Output: dist/index/chunks_enriched.json (filtered + enriched)
 """
-import os, sys, json, time, math, pathlib, requests
+import os, sys, json, re, time, math, pathlib, requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+_ILLEGAL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 if not API_KEY:
@@ -24,8 +26,10 @@ URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generate
 # Per-PDF metadata (manual, after sampling each PDF)
 # domain: 業務領域  /  doc_type: 書類種別 (普通保険約款 / 引受ガイドライン / FAQ / 解説 / 研修資料 / ハンドブック)
 PDF_MANIFEST = {
-    # 約款
+    # 約款 (sample_02 / sample_05 extracted via pdfplumber — custom font encoding)
+    "sample_02.pdf":  {"display": "費用・利益保険 普通保険約款 (令3.10.1)",        "domain": "費用利益保険全般",       "doc_type": "普通保険約款"},
     "sample_03.pdf":  {"display": "瑕疵保証責任保険 普通保険約款 (令3.10.1)",   "domain": "瑕疵保証責任保険",       "doc_type": "普通保険約款"},
+    "sample_05.pdf":  {"display": "約定履行費用保険 普通保険約款 (令3.10.1)",    "domain": "費用利益保険全般",       "doc_type": "普通保険約款"},
     "sample_11.pdf":  {"display": "瑕疵保証責任保険 普通保険約款 (関連版)",     "domain": "瑕疵保証責任保険",       "doc_type": "普通保険約款"},
     "sample_14.pdf":  {"display": "生産物回収費用保険 普通保険約款 (令3.10.1)", "domain": "生産物回収費用保険",     "doc_type": "普通保険約款"},
     "sample_15.pdf":  {"display": "家主費用・利益保険 (保種コード104)",        "domain": "家主費用・利益保険",     "doc_type": "普通保険約款"},
@@ -46,8 +50,8 @@ PDF_MANIFEST = {
     "sample_08.pdf":  {"display": "損害保険の基礎知識② (商品カレッジ)",      "domain": "費用利益保険全般",       "doc_type": "研修資料"},
     "sample_13.pdf":  {"display": "損害保険の基礎知識① (商品カレッジ)",      "domain": "費用利益保険全般",       "doc_type": "研修資料"},
 }
-# Skip list
-SKIP = {"sample_02.pdf", "sample_05.pdf", "sample_09.pdf"}
+# Skip list: sample_09 is an exact duplicate of sample_01
+SKIP = {"sample_09.pdf"}
 
 PROMPT_TMPL = """以下は損害保険会社の社内マニュアル抜粋です。LLMルーター用のメタデータを作成してください。
 
@@ -112,6 +116,12 @@ def main():
             c["display"] = c["source"]
             c["domain"] = "未分類"
             c["doc_type"] = "未分類"
+
+    # Strip illegal characters (e.g. \x08 from pdfplumber on some PDFs)
+    for c in keep:
+        for field in ("text", "summary", "keywords", "header"):
+            if field in c and isinstance(c[field], str):
+                c[field] = _ILLEGAL_CHARS.sub("", c[field])
 
     # Enrich with summary + keywords (parallel)
     print(f"\nEnriching {len(keep)} chunks with summary + keywords...")

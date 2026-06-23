@@ -18,9 +18,19 @@ import re
 import pathlib
 import requests
 from concurrent.futures import ThreadPoolExecutor
+import re as _re
 from pypdf import PdfReader
+try:
+    import pdfplumber as _pdfplumber
+    _HAS_PDFPLUMBER = True
+except ImportError:
+    _HAS_PDFPLUMBER = False
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import structure_chunker as sc
+
+# PDFs with custom font encoding that pypdf cannot decode; use pdfplumber instead
+_PDFPLUMBER_SET = {"sample_02.pdf", "sample_05.pdf"}
+_ILLEGAL_CHARS = _re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
 
 # ---- Settings -------------------------------------------------------------
 
@@ -46,12 +56,17 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # ---- PDF extraction -------------------------------------------------------
 
 def clean_text(s: str) -> str:
-    s = s.replace("\x00", "")
+    s = _ILLEGAL_CHARS.sub("", s)
     s = re.sub(r"[ \t]+", " ", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     return s.strip()
 
 def extract_pdf_pages(path: pathlib.Path):
+    if path.name in _PDFPLUMBER_SET and _HAS_PDFPLUMBER:
+        return _extract_pdf_pages_pdfplumber(path)
+    return _extract_pdf_pages_pypdf(path)
+
+def _extract_pdf_pages_pypdf(path: pathlib.Path):
     reader = PdfReader(str(path))
     out = []
     for i, page in enumerate(reader.pages, start=1):
@@ -63,6 +78,20 @@ def extract_pdf_pages(path: pathlib.Path):
         t = clean_text(t)
         if t:
             out.append((i, t))
+    return out
+
+def _extract_pdf_pages_pdfplumber(path: pathlib.Path):
+    out = []
+    with _pdfplumber.open(str(path)) as pdf:
+        for i, page in enumerate(pdf.pages, start=1):
+            try:
+                t = page.extract_text() or ""
+            except Exception as e:
+                print(f"  page {i} extract failed: {e}", file=sys.stderr)
+                t = ""
+            t = clean_text(t)
+            if t:
+                out.append((i, t))
     return out
 
 def chunk_text(text: str, source: str, page: int, start_id: int):
