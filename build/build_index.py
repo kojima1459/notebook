@@ -19,6 +19,8 @@ import pathlib
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from pypdf import PdfReader
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import structure_chunker as sc
 
 # ---- Settings -------------------------------------------------------------
 
@@ -64,43 +66,9 @@ def extract_pdf_pages(path: pathlib.Path):
     return out
 
 def chunk_text(text: str, source: str, page: int, start_id: int):
-    """Sliding-window chunks of CHUNK_CHARS with CHUNK_OVERLAP overlap."""
-    chunks = []
-    n = len(text)
-    if n <= CHUNK_CHARS:
-        chunks.append({
-            "id": f"{source}::p{page}::c{start_id}",
-            "source": source,
-            "page": page,
-            "start": 0,
-            "text": text,
-        })
-        return chunks
-    pos = 0
-    cid = start_id
-    while pos < n:
-        end = min(pos + CHUNK_CHARS, n)
-        # try to break at a sentence boundary
-        if end < n:
-            for sep in ["\n\n", "。\n", "。", "\n", " "]:
-                idx = text.rfind(sep, pos + CHUNK_CHARS // 2, end)
-                if idx > 0:
-                    end = idx + len(sep)
-                    break
-        chunk = text[pos:end].strip()
-        if chunk:
-            chunks.append({
-                "id": f"{source}::p{page}::c{cid}",
-                "source": source,
-                "page": page,
-                "start": pos,
-                "text": chunk,
-            })
-            cid += 1
-        if end >= n:
-            break
-        pos = max(end - CHUNK_OVERLAP, pos + 1)
-    return chunks
+    """Structure-aware chunker (article-based for 約款, sliding for FAQ).
+    Returns list of {id, source, page, start, text, header}."""
+    return sc.chunk_page(text, source, page, doc_title=source)
 
 # ---- Embedding ------------------------------------------------------------
 
