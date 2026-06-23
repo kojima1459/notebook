@@ -756,6 +756,12 @@ def build_vba_project(modules: list, skeleton_vba_bin: bytes) -> bytes:
 
 def patch_content_types(xml_bytes: bytes) -> bytes:
     xml = xml_bytes.decode('utf-8')
+    # Swap the workbook.xml content type from xlsx (no macros) to xlsm (macro-enabled).
+    # Without this, Excel rejects the file with "ファイル形式またはファイル拡張子が正しくありません".
+    xml = xml.replace(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml',
+        'application/vnd.ms-excel.sheet.macroEnabled.main+xml',
+    )
     if 'vbaProject' not in xml:
         xml = xml.replace('</Types>',
             '<Override PartName="/xl/vbaProject.bin" '
