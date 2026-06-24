@@ -171,6 +171,7 @@ def write_data_workbook(out_path: str):
     _make_knowledge_base_sheet(wb)
     _make_feedback_sheet(wb)
     _make_usage_log_sheet(wb)
+    _make_vba_src_sheet(wb)
 
     wb.save(out_path)
 
@@ -182,12 +183,99 @@ def _bold(ws, cell, value):
 
 def _make_main_sheet(wb):
     ws = wb.create_sheet("main")
-    # The VBA EnsureLayout will rebuild this on Workbook_Open. Just put a
-    # placeholder so the workbook is readable if macros are disabled.
+    # Macros normally rebuild this sheet on open. If they don't fire, this
+    # static content tells the user exactly what to do.
     ws["A1"] = "社内ナレッジ QA ボット (v2)"
-    ws["A1"].font = Font(bold=True, size=14)
-    ws["A3"] = "起動時にマクロでUI生成。マクロが無効な場合は『コンテンツの有効化』を押してください。"
+    ws["A1"].font = Font(bold=True, size=16)
+    ws["A1"].fill = PatternFill("solid", fgColor="3C5AA0")
+    ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+    ws["A3"] = "▼ もしこの画面のままで操作ボタンが出ない場合 ▼"
+    ws["A3"].font = Font(bold=True, size=12, color="CC0000")
+
+    instructions = [
+        "",
+        "① 上の黄色帯「セキュリティの警告」が出ていたら『コンテンツの有効化』を押す",
+        "",
+        "② それでもボタンが出ない場合は次の手順:",
+        "   1. キーボードで Alt + F11 を押す (VBAエディタが開く)",
+        "   2. 左の『プロジェクト』ツリーから『ThisWorkbook』をダブルクリック",
+        "   3. 開いたコードの中の『Public Sub Setup()』の行をクリック",
+        "   4. F5 キーを押す",
+        "   5. 『セットアップ完了』のメッセージが出れば成功",
+        "",
+        "③ それでも動かない場合は管理者に画面写真を送ってください",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "■ このシステムの仕組み",
+        "  ・PDFマニュアル15冊(813チャンク)から関連箇所を検索",
+        "  ・社内AIリボン(リボンちゃん/MSAD-Addin)で回答生成",
+        "  ・○良かった / ×修正 で学習(同じ質問が来たら蓄積を参照)",
+        "",
+        "■ 重要",
+        "  ・回答は必ずアンダーライターの最終確認を取ること",
+        "  ・契約番号・氏名・電話番号は質問に含めないこと",
+    ]
+    for i, line in enumerate(instructions, start=4):
+        cell = ws.cell(row=i, column=1, value=line)
+        if line.startswith("■"):
+            cell.font = Font(bold=True, size=11)
+        elif line.startswith("━"):
+            cell.font = Font(color="888888")
+        else:
+            cell.font = Font(size=11)
+
     ws.column_dimensions["A"].width = 80
+
+
+def _make_vba_src_sheet(wb):
+    """Hidden sheet carrying every standard module's source code as fallback.
+
+    If Excel drops the binary's standard modules (some versions do this with
+    programmatically built vbaProject.bin), ThisWorkbook.Setup reads this
+    sheet and recreates the modules via the VBProject API.
+    """
+    import re
+    ws = wb.create_sheet("vba_src")
+    headers = ["module_name", "type", "source"]
+    for c, h in enumerate(headers, 1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+
+    mods = ["modBoot", "modConfig", "modUserProfile",
+            "modRibbonGateway", "modKnowledgeBase",
+            "modPrompts", "modFeedbackLookup", "modPipeline",
+            "modFeedback", "modChatUI", "modPii", "modUsageLogger",
+            "modDiag"]
+
+    EXCEL_CELL_LIMIT = 32000  # actual limit 32767; leave a margin
+
+    for i, name in enumerate(mods, start=2):
+        bas_path = os.path.join(SRC_V2, name + ".bas")
+        with open(bas_path, encoding="utf-8") as fp:
+            txt = fp.read()
+        # Strip Attribute lines and the BOM; AddFromString does not need them.
+        out_lines = []
+        for line in txt.split("\n"):
+            stripped = line.lstrip("﻿")
+            if stripped.lstrip().startswith("Attribute "):
+                continue
+            out_lines.append(stripped)
+        cleaned = "\n".join(out_lines)
+        if len(cleaned) >= EXCEL_CELL_LIMIT:
+            raise RuntimeError(
+                f"{name}.bas ({len(cleaned)} chars) exceeds the {EXCEL_CELL_LIMIT}-char "
+                f"cell limit; needs split across multiple cells.")
+        ws.cell(row=i, column=1, value=name)
+        ws.cell(row=i, column=2, value="std")
+        ws.cell(row=i, column=3, value=cleaned)
+
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 8
+    ws.column_dimensions["C"].width = 80
+    ws.sheet_state = "hidden"
+    print(f"  vba_src: embedded {len(mods)} module sources")
 
 
 def _make_config_sheet(wb):
@@ -334,8 +422,10 @@ def load_v2_modules() -> list:
     # One Document object per worksheet — match the sheet order in xlsm
     # (openpyxl wrote 8 sheets). VBA does not need full code in these,
     # just placeholder so the project compiles.
+    # 9 sheets now: main, config, system_prompt, department, manifest,
+    # knowledge_base, feedback, usage_log, vba_src
     for sheet_codename in ["Sheet1", "Sheet2", "Sheet3", "Sheet4",
-                            "Sheet5", "Sheet6", "Sheet7", "Sheet8"]:
+                            "Sheet5", "Sheet6", "Sheet7", "Sheet8", "Sheet9"]:
         modules.append(make_xlsm._doc(sheet_codename, make_xlsm.EMPTY_DOC_SOURCE))
 
     for n in ["modBoot", "modConfig", "modUserProfile",
