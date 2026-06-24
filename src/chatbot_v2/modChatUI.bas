@@ -115,6 +115,12 @@ Public Sub EnsureLayout()
     AddButton ws, ws.Range("H41:H41"), BTN_HTML, "HTML出力", "modChatUI.OnSaveHtmlClick"
     ws.Rows("41").RowHeight = 26
 
+    ' Diagnostics row (always available - helps locate problems fast)
+    AddButton ws, ws.Range("B53:C53"), "btnDiag", "自己診断", "modDiag.RunDiagnostics"
+    AddButton ws, ws.Range("D53:E53"), "btnRibbon", "リボン接続テスト", "modDiag.TestRibbon"
+    AddButton ws, ws.Range("F53:G53"), "btnReboot", "再起動", "modBoot.Boot"
+    ws.Rows("53").RowHeight = 24
+
     ' Citations
     ws.Range("A42").value = "出典:"
     ws.Range("A42").Font.Bold = True
@@ -155,8 +161,12 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 Public Sub OnSendClick()
+    On Error GoTo Trap
     If Not modBoot.gReady Then
-        MsgBox "ボットが起動していません。", vbExclamation: Exit Sub
+        If MsgBox("ボットが起動していません。今すぐ起動しますか？", vbYesNo + vbExclamation) = vbYes Then
+            modBoot.Boot
+        End If
+        If Not modBoot.gReady Then Exit Sub
     End If
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
     Dim q As String: q = Trim$(CStr(ws.Range(CELL_QUESTION).value))
@@ -194,13 +204,24 @@ Public Sub OnSendClick()
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
-        ws.Range(CELL_ANSWER).value = "エラー: " & res.ErrorMsg
-        UpdateStatus ws, "Error", RGB(250, 200, 200)
+        ws.Range(CELL_ANSWER).value = "■ 処理を完了できませんでした" & vbLf & vbLf & _
+            "失敗ステップ・原因:" & vbLf & res.ErrorMsg & vbLf & vbLf & _
+            "対処: 下の『自己診断』『リボン接続テスト』ボタンで原因を特定できます。"
+        ws.Range(CELL_DIAG).value = "Error: " & Left$(Replace(res.ErrorMsg, vbLf, " "), 200)
+        UpdateStatus ws, "Error (診断ボタンで詳細確認)", RGB(250, 200, 200)
     End If
 
     SetButtonsEnabled ws, True
     AutoSizeAnswer ws
     ws.Range(CELL_QUESTION).Select
+    Exit Sub
+
+Trap:
+    On Error Resume Next
+    SetButtonsEnabled ThisWorkbook.Worksheets(SHEET_NAME), True
+    On Error GoTo 0
+    modDiag.ReportError "modChatUI.OnSendClick", Err.Number, Err.Description, _
+        "質問送信処理で予期せぬエラー。『自己診断』で各サブシステムを確認してください。"
 End Sub
 
 Public Sub OnClearClick()
@@ -287,13 +308,17 @@ Private Sub AutoSizeAnswer(ByVal ws As Worksheet)
     Next r
 End Sub
 
+' Save text as UTF-8. Primary path uses ADODB.Stream (Windows). If that object
+' is unavailable (Mac Excel, or a hardened PC where msado is blocked), fall back
+' to a native VBA byte write that encodes UTF-8 by hand. Never raises to caller.
 Private Sub SaveUtf8(ByVal path As String, ByVal content As String)
+    On Error GoTo Fallback
     Dim stm As Object: Set stm = CreateObject("ADODB.Stream")
     stm.Type = 2: stm.Charset = "utf-8": stm.Open
     stm.WriteText content
     stm.Position = 0
     stm.Type = 1
-    stm.Position = 3
+    stm.Position = 3                      ' skip UTF-8 BOM ADODB prepends
     Dim bin() As Byte: bin = stm.Read
     stm.Close
     Dim stm2 As Object: Set stm2 = CreateObject("ADODB.Stream")
@@ -301,6 +326,32 @@ Private Sub SaveUtf8(ByVal path As String, ByVal content As String)
     stm2.Write bin
     stm2.SaveToFile path, 2
     stm2.Close
+    Exit Sub
+Fallback:
+    SaveUtf8Native path, content
+End Sub
+
+' Pure-VBA UTF-8 writer (no external objects). Encodes the BMP correctly,
+' which covers Japanese, kanji, kana and ASCII.
+Private Sub SaveUtf8Native(ByVal path As String, ByVal content As String)
+    On Error Resume Next
+    Dim fnum As Integer: fnum = FreeFile
+    Open path For Binary Access Write As #fnum
+    Dim i As Long, cp As Long
+    For i = 1 To Len(content)
+        cp = AscW(Mid$(content, i, 1)) And &HFFFF&
+        If cp < &H80 Then
+            Put #fnum, , CByte(cp)
+        ElseIf cp < &H800 Then
+            Put #fnum, , CByte(&HC0 Or (cp \ &H40))
+            Put #fnum, , CByte(&H80 Or (cp And &H3F))
+        Else
+            Put #fnum, , CByte(&HE0 Or (cp \ &H1000))
+            Put #fnum, , CByte(&H80 Or ((cp \ &H40) And &H3F))
+            Put #fnum, , CByte(&H80 Or (cp And &H3F))
+        End If
+    Next i
+    Close #fnum
 End Sub
 
 Private Function HtmlEscape(ByVal s As String) As String

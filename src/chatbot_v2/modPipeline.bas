@@ -33,6 +33,7 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     Dim res As PipelineResult
     res.Question = question
     Dim tAll As Double: tAll = Timer
+    On Error GoTo Trap
 
     Dim deptId As String: deptId = modUserProfile.CurrentDept()
     Dim user As String: user = modUserProfile.CurrentUser()
@@ -42,8 +43,9 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     routerTable = modKnowledgeBase.BuildRouterTable(deptId)
     If LenB(routerTable) = 0 Then
         res.OK = False
-        res.ErrorMsg = "あなたの部署で参照できるナレッジが見つかりません。"
-        Exit Function
+        res.ErrorMsg = "[Step1 ルーター] あなたの部署(" & deptId & ")で参照できるナレッジが0件です。" & vbLf & _
+                       "knowledge_base の dept_scope と、選択中の部署IDを確認してください。"
+        GoTo Finish
     End If
 
     Dim routerN As Long: routerN = modConfig.GetLong("router_max_chunks", 8)
@@ -58,13 +60,17 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     modRibbonGateway.LogDebugCall "router", routerPrompt, routerOut, res.RouterMs
 
     If Left$(routerOut, 12) = "#LLM_ERROR: " Then
-        res.OK = False: res.ErrorMsg = "ルーター失敗: " & routerOut: Exit Function
+        res.OK = False
+        res.ErrorMsg = "[Step1 ルーター] 社内AIリボン呼び出しに失敗。" & vbLf & routerOut
+        GoTo Finish
     End If
 
     res.SelectedIds = ParseSelectedIds(routerOut)
     If LenB(res.SelectedIds) = 0 Then
-        res.OK = False: res.ErrorMsg = "ルーターが関連チャンクを返しませんでした:" & vbLf & Left$(routerOut, 400)
-        Exit Function
+        res.OK = False
+        res.ErrorMsg = "[Step1 ルーター] 応答からチャンクIDを抽出できませんでした。" & vbLf & _
+                       "リボン生応答(先頭400字):" & vbLf & Left$(routerOut, 400)
+        GoTo Finish
     End If
 
     ' ---- Step 2: Feedback lookup -----------------------------------------
@@ -90,7 +96,9 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     modRibbonGateway.LogDebugCall "drafter", drafterPrompt, res.Draft, res.DraftMs
 
     If Left$(res.Draft, 12) = "#LLM_ERROR: " Then
-        res.OK = False: res.ErrorMsg = "ドラフト失敗: " & res.Draft: Exit Function
+        res.OK = False
+        res.ErrorMsg = "[Step3 ドラフト生成] 社内AIリボン呼び出しに失敗。" & vbLf & res.Draft
+        GoTo Finish
     End If
 
     ' ---- Step 4: Verifier (if enabled) -----------------------------------
@@ -106,7 +114,7 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
         modRibbonGateway.LogDebugCall "verifier", verifierPrompt, res.Answer, res.VerifyMs
         If Left$(res.Answer, 12) = "#LLM_ERROR: " Then
             ' Verifier failed: fall back to draft, but note it
-            res.Answer = res.Draft & vbLf & vbLf & "(注: 検証パスでエラー発生)"
+            res.Answer = res.Draft & vbLf & vbLf & "(注: 検証パスでエラー発生。ドラフトを表示しています)"
         End If
     Else
         res.Answer = res.Draft
@@ -114,6 +122,18 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
 
     res.TotalMs = CLng((Timer - tAll) * 1000)
     res.OK = True
+
+Finish:
+    ' CRITICAL: a UDT return value must be assigned explicitly, at every exit.
+    RunQuery = res
+    Exit Function
+
+Trap:
+    res.OK = False
+    res.ErrorMsg = "[パイプライン内部エラー] Err " & Err.Number & ": " & Err.Description & vbLf & _
+                   "選択ID: " & res.SelectedIds
+    res.TotalMs = CLng((Timer - tAll) * 1000)
+    RunQuery = res
 End Function
 
 ' ----------------------------------------------------------------------------

@@ -56,6 +56,7 @@ CONFIG_ROWS = [
     # key, value, description
     ("router_max_chunks",   8,    "ルーターが選ぶ関連チャンク数の上限"),
     ("verifier_enabled",    True, "自己検証パスを実行するか (True=精度優先 / False=コスト優先)"),
+    ("mock_llm",            False, "True=社内AIリボンを呼ばずダミー応答（動作確認用 / Mac可）。本番はFalse"),
     ("max_context_chars",   60000, "ドラフトに渡すコンテキストの最大文字数"),
     ("debug_mode",          False, "True にすると全LLMプロンプトをdebug_logシートに残す"),
     ("feedback_top_n",      3,    "ドラフトに参照させる過去Q&Aの最大件数"),
@@ -340,7 +341,8 @@ def load_v2_modules() -> list:
     for n in ["modBoot", "modConfig", "modUserProfile",
               "modRibbonGateway", "modKnowledgeBase",
               "modPrompts", "modFeedbackLookup", "modPipeline",
-              "modFeedback", "modChatUI", "modPii", "modUsageLogger"]:
+              "modFeedback", "modChatUI", "modPii", "modUsageLogger",
+              "modDiag"]:
         modules.append(make_xlsm._std(n, make_xlsm.load_module_source(
             os.path.join(SRC_V2, n + ".bas"))))
 

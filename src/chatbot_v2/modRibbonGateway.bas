@@ -18,6 +18,16 @@ Public Function CallLLM(ByVal prompt As String, _
     Dim t0 As Double: t0 = Timer
     On Error GoTo ErrHandler
 
+    ' Mock mode: exercise the whole pipeline/UI without the corporate AI ribbon.
+    ' Turn on by setting config key `mock_llm` = TRUE. Use this to verify the
+    ' app on a Mac, or to smoke-test on a corporate PC before the ribbon's
+    ' argument convention has been confirmed.
+    If modConfig.GetBool("mock_llm", False) Then
+        CallLLM = MockResponse(prompt, step_name)
+        latency_ms = CLng((Timer - t0) * 1000)
+        Exit Function
+    End If
+
     Dim result As Variant
     result = Application.Run("ChatGPT", prompt)
     CallLLM = CStr(result)
@@ -28,6 +38,56 @@ Public Function CallLLM(ByVal prompt As String, _
 ErrHandler:
     CallLLM = "#LLM_ERROR: step=" & step_name & " err=" & Err.Description
     latency_ms = CLng((Timer - t0) * 1000)
+End Function
+
+' ----------------------------------------------------------------------------
+' MockResponse - canned, format-correct replies so the pipeline runs offline.
+'   router   -> JSON {"selected_ids":[ first N ids found in the prompt ]}
+'   drafter  -> a structured Japanese answer that cites [#1]
+'   verifier -> returns the draft unchanged (passthrough)
+' ----------------------------------------------------------------------------
+Private Function MockResponse(ByVal prompt As String, ByVal step_name As String) As String
+    Select Case LCase$(step_name)
+        Case "router"
+            MockResponse = "{""selected_ids"": [" & MockPickIds(prompt, 4) & "], " & _
+                           """reasoning"": ""(mock) picked leading chunks""}"
+        Case "verifier"
+            ' Passthrough: the draft is the text after the last "## ドラフト回答"
+            Dim p As Long: p = InStrRev(prompt, "## ドラフト回答")
+            If p > 0 Then
+                MockResponse = Trim$(Mid$(prompt, p + Len("## ドラフト回答")))
+            Else
+                MockResponse = prompt
+            End If
+        Case Else   ' drafter
+            MockResponse = "【モック回答】これはリボン未接続の動作確認用ダミー回答です。" & vbLf & vbLf & _
+                           "■ 結論" & vbLf & _
+                           "・ 実際のAI回答はここに表示されます [#1]" & vbLf & _
+                           "・ 送信→ルーター→ドラフト→検証 のパイプラインは正常に動作しています [#1]" & vbLf & vbLf & _
+                           "■ 次のアクション" & vbLf & _
+                           "・ config シートの mock_llm を FALSE に戻すと、社内AIリボンを実呼び出しします。"
+    End Select
+End Function
+
+' Extract up to n chunk-id tokens (pattern "..::pN::cN") from the router prompt.
+Private Function MockPickIds(ByVal prompt As String, ByVal n As Long) As String
+    Dim lines() As String: lines = Split(prompt, vbLf)
+    Dim out As String, taken As Long
+    Dim i As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim ln As String: ln = lines(i)
+        Dim bar As Long: bar = InStr(ln, " | ")
+        If bar > 0 Then
+            Dim idTok As String: idTok = Trim$(Left$(ln, bar - 1))
+            If InStr(idTok, "::p") > 0 And InStr(idTok, "::c") > 0 Then
+                If taken > 0 Then out = out & ", "
+                out = out & """" & idTok & """"
+                taken = taken + 1
+                If taken >= n Then Exit For
+            End If
+        End If
+    Next i
+    MockPickIds = out
 End Function
 
 ' ----------------------------------------------------------------------------

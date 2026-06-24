@@ -19,8 +19,23 @@ Public gReady As Boolean
 Public gLastQuestion As String        ' for feedback handlers
 Public gLastAnswer As String          ' for feedback handlers
 Public gLastSelectedIds As String     ' chunk IDs used in last answer (comma sep)
+Private gBootDone As Boolean          ' guard: Workbook_Open AND Auto_Open both call Boot
+
+' Auto_Open is called by Excel when the workbook is opened interactively.
+' We keep BOTH Workbook_Open (in ThisWorkbook) and Auto_Open so the UI still
+' builds if one path is suppressed by policy. The guard prevents double work.
+Public Sub Auto_Open()
+    Boot
+End Sub
 
 Public Sub Boot()
+    If gBootDone And gReady Then
+        On Error Resume Next
+        modChatUI.EnsureLayout      ' already initialized; just re-show the UI
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     On Error GoTo Failed
     modConfig.EnsureLoaded
     modUserProfile.EnsureFirstRun
@@ -33,6 +48,7 @@ Public Sub Boot()
     End If
 
     gReady = True
+    gBootDone = True
     modChatUI.EnsureLayout
     Exit Sub
 

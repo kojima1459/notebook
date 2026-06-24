@@ -149,28 +149,54 @@ End Function
 ' ----------------------------------------------------------------------------
 ' Score similarity by character-pair overlap, normalized.
 ' Range 0.0 (none) .. 1.0 (identical).
+'
+' Pure VBA implementation (no Scripting.Dictionary) so it runs identically on
+' Windows (including hardened corporate PCs where scrrun.dll may be blocked)
+' and on Mac Excel. Bigrams are stored as a vbLf-delimited string of unique
+' pairs; membership is tested with InStr.
 ' ----------------------------------------------------------------------------
 Private Function SimpleScore(ByVal a As String, ByVal b As String) As Double
     If LenB(a) = 0 Or LenB(b) = 0 Then Exit Function
-    Dim setA As Object: Set setA = CreateObject("Scripting.Dictionary")
-    Dim setB As Object: Set setB = CreateObject("Scripting.Dictionary")
-    AddBigrams setA, a
-    AddBigrams setB, b
-    If setA.count = 0 Or setB.count = 0 Then Exit Function
-    Dim shared As Long, k As Variant
-    For Each k In setA.Keys
-        If setB.Exists(k) Then shared = shared + 1
-    Next k
-    Dim denom As Double: denom = (setA.count + setB.count) / 2
+    Dim setA As String: setA = UniqueBigrams(a)
+    Dim setB As String: setB = UniqueBigrams(b)
+    Dim cntA As Long: cntA = BigramCount(setA)
+    Dim cntB As Long: cntB = BigramCount(setB)
+    If cntA = 0 Or cntB = 0 Then Exit Function
+
+    ' Count bigrams of A that also appear in B
+    Dim shared As Long
+    Dim parts() As String: parts = Split(setA, vbLf)
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(parts(i)) > 0 Then
+            If InStr(1, setB, vbLf & parts(i) & vbLf, vbBinaryCompare) > 0 Then
+                shared = shared + 1
+            End If
+        End If
+    Next i
+
+    Dim denom As Double: denom = (cntA + cntB) / 2
     SimpleScore = shared / denom
 End Function
 
-Private Sub AddBigrams(ByVal dict As Object, ByVal s As String)
+' Returns a string of unique bigrams, each wrapped so it reads as
+' vbLf & bigram & vbLf ... vbLf (sentinels at both ends for exact InStr match).
+Private Function UniqueBigrams(ByVal s As String) As String
+    Dim out As String: out = vbLf
     Dim i As Long
     For i = 1 To Len(s) - 1
         Dim bg As String: bg = Mid$(s, i, 2)
         If LenB(Trim$(bg)) >= 2 Then
-            If Not dict.Exists(bg) Then dict.Add bg, 1
+            If InStr(1, out, vbLf & bg & vbLf, vbBinaryCompare) = 0 Then
+                out = out & bg & vbLf
+            End If
         End If
     Next i
-End Sub
+    UniqueBigrams = out
+End Function
+
+Private Function BigramCount(ByVal setStr As String) As Long
+    ' setStr is "\n bg1 \n bg2 \n ... \n" -> count of separators minus 1
+    Dim n As Long: n = Len(setStr) - Len(Replace(setStr, vbLf, ""))
+    If n > 0 Then BigramCount = n - 1
+End Function
