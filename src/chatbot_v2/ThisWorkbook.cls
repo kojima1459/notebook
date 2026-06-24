@@ -27,7 +27,8 @@ Option Explicit
 ' ============================================================================
 
 Private Sub Workbook_Open()
-    ' Try the normal boot path first.
+    ' Try the normal boot path first (works on the second and later opens
+    ' after Setup has installed the standard modules).
     On Error Resume Next
     Application.Run "modBoot.Boot"
     Dim bootErr As Long: bootErr = Err.Number
@@ -35,7 +36,9 @@ Private Sub Workbook_Open()
 
     If bootErr = 0 Then Exit Sub
 
-    ' modBoot.Boot is unreachable. Run the self-installer.
+    ' modBoot is missing -> install all standard modules from vba_src.
+    ' This is the first-run path. After Setup saves the workbook, every
+    ' subsequent open hits the bootErr=0 branch above.
     Setup
 End Sub
 

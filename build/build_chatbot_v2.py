@@ -428,13 +428,10 @@ def load_v2_modules() -> list:
                             "Sheet5", "Sheet6", "Sheet7", "Sheet8", "Sheet9"]:
         modules.append(make_xlsm._doc(sheet_codename, make_xlsm.EMPTY_DOC_SOURCE))
 
-    for n in ["modBoot", "modConfig", "modUserProfile",
-              "modRibbonGateway", "modKnowledgeBase",
-              "modPrompts", "modFeedbackLookup", "modPipeline",
-              "modFeedback", "modChatUI", "modPii", "modUsageLogger",
-              "modDiag"]:
-        modules.append(make_xlsm._std(n, make_xlsm.load_module_source(
-            os.path.join(SRC_V2, n + ".bas"))))
+    # Minimal binary strategy: do NOT include standard modules in
+    # vbaProject.bin. Some Excel versions silently drop programmatically
+    # built standard modules. ThisWorkbook.Setup will build them at runtime
+    # from the vba_src sheet.
 
     return modules
 
