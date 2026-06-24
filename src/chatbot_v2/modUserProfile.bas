@@ -44,7 +44,15 @@ Public Sub PromptDepartment()
         Exit Sub
     End If
 
-    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("department")
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("department")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        MsgBox "department シートが見つかりません。配布ファイルが壊れている可能性があります。", _
+               vbCritical, "InternalNotebookLM v2"
+        Exit Sub
+    End If
     Dim deptRow As Long: deptRow = n + 1   ' +1 for header
     modConfig.SetValue "department_id", CStr(ws.Cells(deptRow, 1).value)
     modConfig.SetValue "department_name", CStr(ws.Cells(deptRow, 2).value)
