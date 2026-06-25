@@ -1,59 +1,178 @@
 #!/usr/bin/env python3
 """
-build_chatbot_v2.py - Assemble Chatbot_v2.xlsm:
-  1. Use openpyxl to construct base xlsm with all data sheets pre-populated:
-       main, config, system_prompt, manifest, knowledge_base,
-       feedback, department, usage_log
-  2. Then inject the v2 VBA modules using the existing make_xlsm.py
-     CFB/OVBA machinery (template_skeleton.xlsm provides the verified
-     vbaProject.bin scaffold).
+build_chatbot_v2.py - Build dist/Chatbot_v2.xlsm using in-place VBA patching.
 
-This produces dist/Chatbot_v2.xlsm — single file, no external dependencies.
-The corporate user just opens it via Excel and the macros call:
-    Application.Run("ChatGPT", prompt)
-through the 社内 AI ribbon.
+Architecture (after several failed attempts at hand-built vbaProject.bin):
+
+  1. Start from build/template_skeleton.xlsm — a REAL Excel-made .xlsm.
+     Its vbaProject.bin is genuine and is accepted by every Excel build.
+  2. openpyxl loads it with keep_vba=True (binary preserved byte-for-byte).
+  3. We add all data sheets (main, config, system_prompt, department,
+     manifest, knowledge_base, feedback, usage_log, vba_src).
+  4. We save with openpyxl — vbaProject.bin is still 100% the skeleton's.
+  5. We then SURGICALLY patch only TWO streams inside vbaProject.bin:
+       - VBA/ThisWorkbook: replace empty class with a self-installer that
+         reads vba_src on Workbook_Open and installs all standard modules
+         via the VBProject API.
+       - VBA/dir: change ThisWorkbook's MOFFSET to 0 so the new source is
+         decompressed from byte 0 of the stream (the perf-cache prefix is
+         no longer valid).
+     CFB header, FAT, directory entries, _VBA_PROJECT, all other streams,
+     PROJECT, PROJECTwm — ALL untouched.
+  6. We pad both rewritten streams with empty OVBA chunks (3-byte chunks
+     that decompress to zero bytes) so the stream sizes match exactly —
+     olefile.write_stream requires byte-exact replacement.
+
+Result: ~99.9% of the binary is byte-identical to Excel's own output. Excel
+accepts it. On Workbook_Open, the installer reads vba_src and instantiates
+all 13 standard modules.
+
+This works around the corporate-Excel rejection of fully hand-built
+vbaProject.bin binaries (CFB writer / OVBA compressor / cache mismatch).
 """
 
 import io
 import json
 import os
 import re
-import shutil
+import struct
 import sys
 import tempfile
 import zipfile
 
-_ILLEGAL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
-
-
-def _clean(s: str) -> str:
-    return _ILLEGAL_CHARS.sub("", s) if isinstance(s, str) else s
-
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+import olefile
 
-# Reuse helpers from make_xlsm.py
+# Reuse OVBA compress/decompress from make_xlsm
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import make_xlsm
 
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
+_ILLEGAL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+def _clean(s):
+    return _ILLEGAL.sub("", s) if isinstance(s, str) else s
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(SCRIPT_DIR)
-SRC_V2 = os.path.join(ROOT, "src", "chatbot_v2")
-TEMPLATE = os.path.join(SCRIPT_DIR, "template_skeleton.xlsm")
-ENRICHED_JSON = os.path.join(ROOT, "dist", "index", "chunks_enriched.json")
-OUT_XLSM = os.path.join(ROOT, "dist", "Chatbot_v2.xlsm")
+ROOT       = os.path.dirname(SCRIPT_DIR)
+SRC_V2     = os.path.join(ROOT, "src", "chatbot_v2")
+TEMPLATE   = os.path.join(SCRIPT_DIR, "template_skeleton.xlsm")
+ENRICHED   = os.path.join(ROOT, "dist", "index", "chunks_enriched.json")
+OUT_XLSM   = os.path.join(ROOT, "dist", "Chatbot_v2.xlsm")
 
 # ---------------------------------------------------------------------------
-# Data we'll bake into the workbook
+# Installer source — lives in ThisWorkbook stream of the patched vbaProject.bin
 # ---------------------------------------------------------------------------
+INSTALLER_SRC = '''Attribute VB_Name = "ThisWorkbook"
+Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = True
+Option Explicit
+Private Sub Workbook_Open()
+  Install
+End Sub
+Public Sub Install()
+  Dim p As Object, w As Worksheet, c As Object, e As Object
+  Dim r As Long, n As String, s As String, l As Long
+  On Error GoTo Trust
+  Set p = ThisWorkbook.VBProject
+  On Error GoTo Done
+  Set w = ThisWorkbook.Worksheets("vba_src")
+  l = w.Cells(w.Rows.Count, 1).End(-4162).Row
+  For r = 2 To l
+    n = CStr(w.Cells(r, 1).Value)
+    s = CStr(w.Cells(r, 3).Value)
+    If LenB(n) > 0 Then
+      On Error Resume Next
+      Set e = Nothing: Set e = p.VBComponents(n)
+      If Not e Is Nothing Then p.VBComponents.Remove e
+      On Error GoTo Done
+      Set c = p.VBComponents.Add(1)
+      c.Name = n
+      If LenB(s) > 0 Then c.CodeModule.AddFromString s
+    End If
+  Next r
+  ThisWorkbook.Save
+  On Error Resume Next
+  Application.Run "modBoot.Boot"
+  Exit Sub
+Trust:
+  MsgBox "VBA Project trust required", vbCritical
+  Exit Sub
+Done:
+End Sub
+'''.replace('\n', '\r\n').encode('cp932')
 
-# Config defaults — admins edit these in-Excel
+
+# ---------------------------------------------------------------------------
+# OVBA empty-chunk padding helpers (needed for in-place stream replacement)
+# ---------------------------------------------------------------------------
+# A 3-byte compressed chunk with header 0xB000 + flag byte 0 decompresses to
+# zero bytes. We use these (and 5-byte variants) to pad compressed streams
+# to the exact byte size required by olefile.write_stream.
+_EMPTY3 = struct.pack('<H', 0xB000) + b'\x00'
+_PAD5   = struct.pack('<H', 0xB002) + b'\x00\x00\x00'
+
+def _pad_to_exact(compressed: bytes, target: int) -> bytes:
+    diff = target - len(compressed)
+    if diff < 0:
+        raise ValueError(f"compressed ({len(compressed)}) > target ({target})")
+    if diff == 0:
+        return compressed
+    for n5 in range(diff // 5 + 1):
+        rem = diff - n5 * 5
+        if rem >= 0 and rem % 3 == 0:
+            return compressed + (_PAD5 * n5) + (_EMPTY3 * (rem // 3))
+    raise ValueError(f"Cannot reach exact target byte size {target} from {len(compressed)}")
+
+
+def patch_vba_in_place(vba_bin: bytes) -> bytes:
+    """Return a patched vbaProject.bin where ThisWorkbook = installer source
+       and dir's ThisWorkbook MOFFSET = 0. All other bytes preserved."""
+    skel = make_xlsm.CFBReader(vba_bin)
+
+    # 1. Patch dir: set ThisWorkbook MOFFSET to 0
+    dir_dec = make_xlsm.ovba_decompress(skel.read('dir'))
+    needle = struct.pack('<HI', 0x0019, len('ThisWorkbook')) + b'ThisWorkbook'
+    idx = dir_dec.find(needle)
+    if idx < 0:
+        raise RuntimeError("ThisWorkbook MNAME not found in dir stream")
+    i = idx
+    found = False
+    while i < len(dir_dec):
+        rid = struct.unpack('<H', dir_dec[i:i+2])[0]
+        sz  = struct.unpack('<I', dir_dec[i+2:i+6])[0]
+        if rid == 0x0031:  # MOFFSET
+            patched = bytearray(dir_dec)
+            struct.pack_into('<I', patched, i+6, 0)
+            dir_dec = bytes(patched)
+            found = True
+            break
+        i += 6 + sz
+    if not found:
+        raise RuntimeError("ThisWorkbook MOFFSET record not found")
+
+    orig_dir_size = skel.entries['dir']['size']
+    orig_tw_size  = skel.entries['ThisWorkbook']['size']
+    new_dir = _pad_to_exact(make_xlsm.ovba_compress(dir_dec), orig_dir_size)
+    new_tw  = _pad_to_exact(make_xlsm.ovba_compress(INSTALLER_SRC), orig_tw_size)
+
+    # 2. Write streams in place via olefile
+    buf = io.BytesIO(vba_bin)
+    ole = olefile.OleFileIO(buf, write_mode=True)
+    ole.write_stream('VBA/dir', new_dir)
+    ole.write_stream('VBA/ThisWorkbook', new_tw)
+    ole.close()
+    buf.seek(0)
+    return buf.read()
+
+
+# ---------------------------------------------------------------------------
+# Data: config defaults / departments / system prompts
+# ---------------------------------------------------------------------------
 CONFIG_ROWS = [
-    # key, value, description
     ("router_max_chunks",   8,    "ルーターが選ぶ関連チャンク数の上限"),
     ("verifier_enabled",    True, "自己検証パスを実行するか (True=精度優先 / False=コスト優先)"),
     ("mock_llm",            False, "True=社内AIリボンを呼ばずダミー応答（動作確認用 / Mac可）。本番はFalse"),
@@ -61,23 +180,17 @@ CONFIG_ROWS = [
     ("debug_mode",          False, "True にすると全LLMプロンプトをdebug_logシートに残す"),
     ("feedback_top_n",      3,    "ドラフトに参照させる過去Q&Aの最大件数"),
     ("feedback_min_score",  0.18, "類似Q&A採用の閾値 (0..1)"),
-    ("router_model",        "gpt-5.5", "(備考) ルーター用モデル — リボン設定と整合させる"),
+    ("router_model",        "gpt-5.5", "(備考) ルーター用モデル"),
     ("drafter_model",       "gpt-5.5", "(備考) ドラフト用モデル"),
     ("verifier_model",      "gpt-5.5", "(備考) 検証用モデル"),
-    ("draft_temperature",   0.15, "(備考) ドラフト温度 — リボン設定があれば併記"),
+    ("draft_temperature",   0.15, "(備考) ドラフト温度"),
     ("department_id",       "",   "初回起動時に設定される"),
     ("department_name",     "",   ""),
     ("role",                "",   ""),
 ]
+DEPARTMENTS = [("expense_profit", "費用利益保険チーム", "common,expense_profit")]
 
-# Department master — start with one dept for MVP. Easy to add rows later.
-DEPARTMENTS = [
-    ("expense_profit", "費用利益保険チーム", "common,expense_profit"),
-]
-
-# ---------- System prompts ----------------------------------------------------
-
-ROUTER_SYSTEM_PROMPT = """あなたは社内ナレッジ検索のルーターです。
+ROUTER_PROMPT = '''あなたは社内ナレッジ検索のルーターです。
 ユーザーの質問に対し、提供されたナレッジ一覧から最も関連性の高いチャンクのIDを最大{max_n}件、JSON形式で返してください。
 
 【選び方】
@@ -99,9 +212,9 @@ ROUTER_SYSTEM_PROMPT = """あなたは社内ナレッジ検索のルーターで
 {
   "selected_ids": ["sample_03.pdf::p5::c2", "..."],
   "reasoning": "なぜこれらを選んだか1〜2文"
-}"""
+}'''
 
-DRAFTER_SYSTEM_PROMPT = """あなたは社内アンダーライターの業務支援AIです。提示された社内ナレッジ抜粋および認定済みQ&Aのみを根拠に回答してください。
+DRAFTER_PROMPT = '''あなたは社内アンダーライターの業務支援AIです。提示された社内ナレッジ抜粋および認定済みQ&Aのみを根拠に回答してください。
 
 ■ 回答の組み立てかた
 1. まず質問の要点を1行で言い換える(『ご質問は◯◯ですね』形式)。
@@ -116,9 +229,9 @@ DRAFTER_SYSTEM_PROMPT = """あなたは社内アンダーライターの業務�
 ・ 個人情報(契約番号・氏名・電話番号・マイナンバー等)が質問に含まれる場合は『個人情報を含めないでください』とだけ返答し、回答しない。
 ・ ナレッジに無い数値や条文番号を創作しない。数値はナレッジから抜粋し、無ければ『金額/期間の記載なし』と書く。
 ・ 営業担当者の視点で平易に説明する。専門用語には括弧で短い説明を添える。
-・ 過去の認定済みQ&Aがある場合は、それを最優先で参照しつつ、新しい質問に合わせて再構成する。"""
+・ 過去の認定済みQ&Aがある場合は、それを最優先で参照しつつ、新しい質問に合わせて再構成する。'''
 
-VERIFIER_SYSTEM_PROMPT = """あなたは損害保険会社引受部門の品質管理者です。AIが書いたドラフト回答が、引用元ナレッジに本当に書かれている内容のみで構成されているか厳格に検証します。
+VERIFIER_PROMPT = '''あなたは損害保険会社引受部門の品質管理者です。AIが書いたドラフト回答が、引用元ナレッジに本当に書かれている内容のみで構成されているか厳格に検証します。
 
 ■ 検証ルール
 1. ドラフト回答の各主張(箇条書きの各項目、本文の各文)を1つずつ、引用元ナレッジの該当チャンクと照合する。
@@ -131,229 +244,109 @@ VERIFIER_SYSTEM_PROMPT = """あなたは損害保険会社引受部門の品質�
 ・ 検証後の最終回答のみを出力する(検証プロセスの説明や前置きは書かない)。
 ・ ドラフトの構造(要点要約→結論→詳細→次のアクション)は維持する。
 ・ 削除や修正があった場合、回答末尾に『■ 検証で除外/修正した内容』節を設けて簡潔に列挙する。除外/修正が無ければこの節は省略。
-・ ドラフトが全面的にナレッジに無い内容だった場合は『社内ナレッジに該当する記載がありません。アンダーライターへ確認してください』のみ返す。"""
+・ ドラフトが全面的にナレッジに無い内容だった場合は『社内ナレッジに該当する記載がありません。アンダーライターへ確認してください』のみ返す。'''
 
 SYSTEM_PROMPTS = [
-    ("router",   ROUTER_SYSTEM_PROMPT,   "Step1: 関連チャンクを選ぶ"),
-    ("drafter",  DRAFTER_SYSTEM_PROMPT,  "Step3: 構造化された回答を生成"),
-    ("verifier", VERIFIER_SYSTEM_PROMPT, "Step4: 各主張をナレッジと照合し誤りを削除/修正"),
+    ("router",   ROUTER_PROMPT,   "Step1: 関連チャンクを選ぶ"),
+    ("drafter",  DRAFTER_PROMPT,  "Step3: 構造化された回答を生成"),
+    ("verifier", VERIFIER_PROMPT, "Step4: 各主張をナレッジと照合し誤りを削除/修正"),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Build the openpyxl workbook with all data sheets
+# Sheet builders
 # ---------------------------------------------------------------------------
+def _make_main_sheet(ws):
+    """Repurpose skeleton's existing Sheet1 as the main sheet."""
+    ws.title = "main"
+    # Clear any existing content
+    for row in ws['A1:Z100']:
+        for c in row:
+            c.value = None
 
-THIN_BORDER = Border(
-    left=Side(style="thin", color="CCCCCC"),
-    right=Side(style="thin", color="CCCCCC"),
-    top=Side(style="thin", color="CCCCCC"),
-    bottom=Side(style="thin", color="CCCCCC"),
-)
-
-
-def write_data_workbook(out_path: str):
-    """Create the base xlsm with all data sheets pre-populated.
-
-    We start with openpyxl's empty workbook (keep_vba unsupported on a fresh
-    workbook). The output xlsm is technically an xlsx until vbaProject.bin
-    is injected later — that's fine.
-    """
-    wb = openpyxl.Workbook()
-    # Remove default sheet
-    wb.remove(wb.active)
-
-    _make_main_sheet(wb)
-    _make_config_sheet(wb)
-    _make_system_prompt_sheet(wb)
-    _make_department_sheet(wb)
-    _make_manifest_sheet(wb)
-    _make_knowledge_base_sheet(wb)
-    _make_feedback_sheet(wb)
-    _make_usage_log_sheet(wb)
-    _make_vba_src_sheet(wb)
-
-    wb.save(out_path)
-
-
-def _bold(ws, cell, value):
-    ws[cell] = value
-    ws[cell].font = Font(bold=True)
-
-
-def _make_main_sheet(wb):
-    ws = wb.create_sheet("main")
-    # Macros rebuild this sheet when they run. If they don't fire yet, this
-    # static content guides the user through the one-time setup.
-
-    # Row 1: title banner
-    ws["A1"] = "社内ナレッジ QA ボット (v2)"
-    ws["A1"].fill = PatternFill("solid", fgColor="3C5AA0")
-    ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
-    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws['A1'] = "社内ナレッジ QA ボット (v2)"
+    ws['A1'].fill = PatternFill("solid", fgColor="3C5AA0")
+    ws['A1'].font = Font(bold=True, size=16, color="FFFFFF")
+    ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 32
 
-    # Row 2: header for setup area
-    ws["A2"] = "▼ 初回セットアップ ▼"
-    ws["A2"].font = Font(bold=True, size=11, color="CC0000")
-    ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[2].height = 20
+    ws['A3'] = "▼ 起動状況"
+    ws['A3'].font = Font(bold=True, size=11, color="CC0000")
 
-    # Row 3: CLICK TRIGGER — Sheet1.SelectionChange fires on B3
-    ws["A3"] = "セットアップ"
-    ws["A3"].font = Font(bold=True, size=11)
-    ws["A3"].alignment = Alignment(horizontal="right", vertical="center")
-
-    ws["B3"] = "【 ここをクリック → セットアップ実行 】"
-    ws["B3"].font = Font(bold=True, size=13, color="FFFFFF")
-    ws["B3"].fill = PatternFill("solid", fgColor="E05000")
-    ws["B3"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[3].height = 28
-
-    # Row 5: step-by-step fallback instructions
-    ws["A5"] = "上のボタンをクリックしてもセットアップが起動しない場合:"
-    ws["A5"].font = Font(bold=True, size=11, color="CC0000")
-    ws.row_dimensions[5].height = 20
-
-    instructions = [
-        "① 画面上部の黄色帯「セキュリティの警告」→『コンテンツの有効化』をクリック",
+    notes = [
         "",
-        "② 次の設定を確認・有効化してください:",
-        "   Excel → [ファイル] → [オプション] → [トラストセンター] → [トラストセンターの設定]",
-        "   → [マクロの設定] → 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック",
-        "   → OK → Excel を閉じて再度ファイルを開く",
-        "",
-        "③ それでも動かない場合 (Alt+F11 で手動実行):",
-        "   1. Alt + F11 キーを押す (VBAエディタが開く)",
-        "   2. 画面左のツリーから『ThisWorkbook』をダブルクリック",
-        "   3. 右側のコードで『Public Sub Setup()』の行にカーソルを置く",
-        "   4. F5 キーを押す → セットアップ完了メッセージが出れば成功",
+        "・このファイルを開くと、自動でモジュールがインストールされ、チャットUIが表示されます。",
+        "・「セットアップ完了」のメッセージが出ない場合は、トラストセンターで以下を有効にしてください:",
+        "  [ファイル]→[オプション]→[トラストセンター]→[トラストセンターの設定]→[マクロの設定]",
+        "  → 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック → OK → Excel再起動",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "■ このシステムの仕組み",
         "  ・費用利益保険チームのPDFマニュアル15冊(813チャンク)を搭載",
-        "  ・社内AIリボン(MSAD-Addin / ChatGPT関数)で回答を4段階生成",
+        "  ・社内AIリボン(ChatGPT関数)で回答を4段階生成 (ルート→検索→ドラフト→検証)",
         "  ・○良かった/×修正ボタンでQ&Aを蓄積し精度向上",
         "",
         "■ 重要",
         "  ・回答は必ずアンダーライターの最終確認を取ること",
         "  ・契約番号・氏名・電話番号など個人情報を質問に含めないこと",
     ]
-    for i, line in enumerate(instructions, start=6):
-        cell = ws.cell(row=i, column=1, value=line)
+    for i, line in enumerate(notes, start=4):
+        c = ws.cell(row=i, column=1, value=line)
         if line.startswith("■"):
-            cell.font = Font(bold=True, size=11)
+            c.font = Font(bold=True, size=11)
         elif line.startswith("━"):
-            cell.font = Font(color="888888")
-        elif line.startswith("①") or line.startswith("②") or line.startswith("③"):
-            cell.font = Font(bold=True, size=11)
+            c.font = Font(color="888888")
         else:
-            cell.font = Font(size=10)
-
-    ws.column_dimensions["A"].width = 16
-    ws.column_dimensions["B"].width = 72
+            c.font = Font(size=11)
+    ws.column_dimensions['A'].width = 90
 
 
-def _make_vba_src_sheet(wb):
-    """Hidden sheet carrying every standard module's source code as fallback.
-
-    If Excel drops the binary's standard modules (some versions do this with
-    programmatically built vbaProject.bin), ThisWorkbook.Setup reads this
-    sheet and recreates the modules via the VBProject API.
-    """
-    import re
-    ws = wb.create_sheet("vba_src")
-    headers = ["module_name", "type", "source"]
-    for c, h in enumerate(headers, 1):
-        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-
-    mods = ["modBoot", "modConfig", "modUserProfile",
-            "modRibbonGateway", "modKnowledgeBase",
-            "modPrompts", "modFeedbackLookup", "modPipeline",
-            "modFeedback", "modChatUI", "modPii", "modUsageLogger",
-            "modDiag"]
-
-    EXCEL_CELL_LIMIT = 32000  # actual limit 32767; leave a margin
-
-    for i, name in enumerate(mods, start=2):
-        bas_path = os.path.join(SRC_V2, name + ".bas")
-        with open(bas_path, encoding="utf-8") as fp:
-            txt = fp.read()
-        # Strip Attribute lines and the BOM; AddFromString does not need them.
-        out_lines = []
-        for line in txt.split("\n"):
-            stripped = line.lstrip("﻿")
-            if stripped.lstrip().startswith("Attribute "):
-                continue
-            out_lines.append(stripped)
-        cleaned = "\n".join(out_lines)
-        if len(cleaned) >= EXCEL_CELL_LIMIT:
-            raise RuntimeError(
-                f"{name}.bas ({len(cleaned)} chars) exceeds the {EXCEL_CELL_LIMIT}-char "
-                f"cell limit; needs split across multiple cells.")
-        ws.cell(row=i, column=1, value=name)
-        ws.cell(row=i, column=2, value="std")
-        ws.cell(row=i, column=3, value=cleaned)
-
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 8
-    ws.column_dimensions["C"].width = 80
-    ws.sheet_state = "hidden"
-    print(f"  vba_src: embedded {len(mods)} module sources")
-
-
-def _make_config_sheet(wb):
+def _make_config(wb):
     ws = wb.create_sheet("config")
-    headers = ["key", "value", "description"]
-    for c, h in enumerate(headers, 1):
+    for c, h in enumerate(["key", "value", "description"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, (k, v, d) in enumerate(CONFIG_ROWS, start=2):
+    for i, (k, v, d) in enumerate(CONFIG_ROWS, 2):
         ws.cell(row=i, column=1, value=k)
         ws.cell(row=i, column=2, value=v)
         ws.cell(row=i, column=3, value=d)
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 14
-    ws.column_dimensions["C"].width = 70
+    ws.column_dimensions['A'].width = 24
+    ws.column_dimensions['B'].width = 14
+    ws.column_dimensions['C'].width = 70
 
 
-def _make_system_prompt_sheet(wb):
+def _make_system_prompt(wb):
     ws = wb.create_sheet("system_prompt")
-    headers = ["key", "prompt", "description"]
-    for c, h in enumerate(headers, 1):
+    for c, h in enumerate(["key", "prompt", "description"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, (k, p, d) in enumerate(SYSTEM_PROMPTS, start=2):
+    for i, (k, p, d) in enumerate(SYSTEM_PROMPTS, 2):
         ws.cell(row=i, column=1, value=k)
         ws.cell(row=i, column=2, value=p).alignment = Alignment(wrap_text=True, vertical="top")
         ws.cell(row=i, column=3, value=d)
-    ws.column_dimensions["A"].width = 12
-    ws.column_dimensions["B"].width = 80
-    ws.column_dimensions["C"].width = 40
-    for i in range(2, 2 + len(SYSTEM_PROMPTS)):
         ws.row_dimensions[i].height = 240
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 80
+    ws.column_dimensions['C'].width = 40
 
 
-def _make_department_sheet(wb):
+def _make_department(wb):
     ws = wb.create_sheet("department")
-    headers = ["dept_id", "dept_name", "knowledge_scope_csv"]
-    for c, h in enumerate(headers, 1):
+    for c, h in enumerate(["dept_id", "dept_name", "knowledge_scope_csv"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, row in enumerate(DEPARTMENTS, start=2):
-        for c, v in enumerate(row, start=1):
+    for i, row in enumerate(DEPARTMENTS, 2):
+        for c, v in enumerate(row, 1):
             ws.cell(row=i, column=c, value=v)
-    ws.column_dimensions["A"].width = 20
-    ws.column_dimensions["B"].width = 28
-    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions['A'].width = 20
+    ws.column_dimensions['B'].width = 28
+    ws.column_dimensions['C'].width = 40
 
 
-def _make_manifest_sheet(wb):
+def _make_manifest(wb, chunks):
     ws = wb.create_sheet("manifest")
     headers = ["source", "display", "domain", "doc_type",
                "dept_scope", "chunk_count", "notes"]
     for c, h in enumerate(headers, 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
 
-    # Build manifest from enriched chunks
-    chunks = json.load(open(ENRICHED_JSON, encoding="utf-8"))
     by_src = {}
     for c in chunks:
         by_src.setdefault(c["source"], []).append(c)
@@ -368,26 +361,19 @@ def _make_manifest_sheet(wb):
         ws.cell(row=row, column=4, value=first.get("doc_type", "未分類"))
         ws.cell(row=row, column=5, value="common,expense_profit")
         ws.cell(row=row, column=6, value=len(cks))
-        ws.cell(row=row, column=7, value="")
         row += 1
-    ws.column_dimensions["A"].width = 18
-    ws.column_dimensions["B"].width = 48
-    ws.column_dimensions["C"].width = 24
-    ws.column_dimensions["D"].width = 18
-    ws.column_dimensions["E"].width = 28
-    ws.column_dimensions["F"].width = 14
-    ws.column_dimensions["G"].width = 30
+    widths = [18, 48, 24, 18, 28, 14, 30]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
 
 
-def _make_knowledge_base_sheet(wb):
+def _make_knowledge_base(wb, chunks):
     ws = wb.create_sheet("knowledge_base")
     headers = ["chunk_id", "source", "display", "domain", "doc_type",
                "section_header", "summary", "keywords", "full_text", "dept_scope"]
     for c, h in enumerate(headers, 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-
-    chunks = json.load(open(ENRICHED_JSON, encoding="utf-8"))
-    for i, c in enumerate(chunks, start=2):
+    for i, c in enumerate(chunks, 2):
         ws.cell(row=i, column=1, value=c["id"])
         ws.cell(row=i, column=2, value=c["source"])
         ws.cell(row=i, column=3, value=c.get("display", c["source"]))
@@ -396,18 +382,15 @@ def _make_knowledge_base_sheet(wb):
         ws.cell(row=i, column=6, value=c.get("header", ""))
         ws.cell(row=i, column=7, value=c.get("summary", ""))
         ws.cell(row=i, column=8, value=c.get("keywords", ""))
-        # Excel cell limit is 32767 chars; chunks are well under
         ws.cell(row=i, column=9, value=_clean(c.get("text", ""))[:32000])
         ws.cell(row=i, column=10, value="common")
-
-    # Column widths
     widths = [28, 18, 40, 22, 18, 50, 60, 40, 80, 16]
-    for i, w in enumerate(widths, start=1):
+    for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    print(f"  Wrote {len(chunks)} knowledge_base rows")
+    print(f"  knowledge_base: {len(chunks)} rows")
 
 
-def _make_feedback_sheet(wb):
+def _make_feedback(wb):
     ws = wb.create_sheet("feedback")
     headers = ["fb_id", "timestamp", "dept_id", "submitter",
                "question", "answer", "status", "approver",
@@ -415,11 +398,11 @@ def _make_feedback_sheet(wb):
     for c, h in enumerate(headers, 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
     widths = [22, 20, 18, 14, 50, 80, 12, 14, 20, 80, 24, 60]
-    for i, w in enumerate(widths, start=1):
+    for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
-def _make_usage_log_sheet(wb):
+def _make_usage_log(wb):
     ws = wb.create_sheet("usage_log")
     headers = ["timestamp", "dept_id", "user",
                "q_chars", "a_chars", "router_ms", "draft_ms",
@@ -427,123 +410,109 @@ def _make_usage_log_sheet(wb):
     for c, h in enumerate(headers, 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
     widths = [20, 18, 14, 10, 10, 10, 10, 10, 10, 60, 14]
-    for i, w in enumerate(widths, start=1):
+    for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
-# ---------------------------------------------------------------------------
-# Load v2 VBA modules
-# ---------------------------------------------------------------------------
+def _make_vba_src(wb):
+    """Hidden sheet carrying every standard module's source code."""
+    ws = wb.create_sheet("vba_src")
+    for c, h in enumerate(["module_name", "type", "source"], 1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
 
-def load_v2_modules() -> list:
-    """Build module list for v2 chatbot."""
-    tw_src = make_xlsm.load_module_source(
-        os.path.join(SRC_V2, "ThisWorkbook.cls"), is_cls=True)
+    mods = ["modBoot", "modConfig", "modUserProfile",
+            "modRibbonGateway", "modKnowledgeBase",
+            "modPrompts", "modFeedbackLookup", "modPipeline",
+            "modFeedback", "modChatUI", "modPii", "modUsageLogger",
+            "modDiag"]
 
-    # Sheet1 (main) carries a SelectionChange handler so users can click
-    # cell B3 to trigger Setup even if Workbook_Open was suppressed.
-    # This code lives in the binary (not vba_src) so it works before
-    # standard modules are installed.
-    sheet1_cls = os.path.join(SRC_V2, "Sheet1.cls")
-    sheet1_src = make_xlsm.load_module_source(sheet1_cls, is_cls=True)
+    EXCEL_CELL_LIMIT = 32000
+    for i, name in enumerate(mods, 2):
+        bas_path = os.path.join(SRC_V2, name + ".bas")
+        with open(bas_path, encoding="utf-8") as fp:
+            txt = fp.read()
+        out_lines = []
+        for line in txt.split("\n"):
+            stripped = line.lstrip("﻿")
+            if stripped.lstrip().startswith("Attribute "):
+                continue
+            out_lines.append(stripped)
+        cleaned = "\n".join(out_lines)
+        if len(cleaned) >= EXCEL_CELL_LIMIT:
+            raise RuntimeError(
+                f"{name}.bas ({len(cleaned)} chars) exceeds {EXCEL_CELL_LIMIT}-char cell limit")
+        ws.cell(row=i, column=1, value=name)
+        ws.cell(row=i, column=2, value="std")
+        ws.cell(row=i, column=3, value=cleaned)
 
-    modules = [
-        make_xlsm._doc("ThisWorkbook", tw_src),
-        make_xlsm._doc("Sheet1", sheet1_src),
-    ]
-    # Remaining 8 sheets need empty Document stubs so VBA compiles cleanly.
-    # 9 sheets total: main, config, system_prompt, department, manifest,
-    # knowledge_base, feedback, usage_log, vba_src
-    for sheet_codename in ["Sheet2", "Sheet3", "Sheet4", "Sheet5",
-                            "Sheet6", "Sheet7", "Sheet8", "Sheet9"]:
-        modules.append(make_xlsm._doc(sheet_codename, make_xlsm.EMPTY_DOC_SOURCE))
-
-    # Standard modules are NOT in the binary. Some Excel versions silently
-    # drop programmatically built standard modules from vbaProject.bin.
-    # ThisWorkbook.Setup installs them at runtime from the vba_src sheet.
-
-    return modules
-
-
-# ---------------------------------------------------------------------------
-# Re-zip xlsm with vbaProject.bin + patched [Content_Types].xml + rels
-# ---------------------------------------------------------------------------
-
-def inject_vba_and_patch_xml(in_xlsx: str, out_xlsm: str, modules: list):
-    """Take an openpyxl-built xlsx, inject vbaProject.bin, patch XML for macros
-       and assign codeName attributes per sheet so the modules bind."""
-    with open(TEMPLATE, "rb") as f:
-        skel_bytes = f.read()
-    with zipfile.ZipFile(io.BytesIO(skel_bytes)) as z:
-        skel_vba = z.read("xl/vbaProject.bin")
-
-    vba_bin = make_xlsm.build_vba_project(modules, skel_vba)
-    print(f"  vbaProject.bin: {len(vba_bin):,} bytes")
-
-    # Identify our sheets to know how many codeNames to assign
-    with zipfile.ZipFile(in_xlsx, "r") as z:
-        sheet_files = sorted([
-            n for n in z.namelist()
-            if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")
-        ], key=lambda s: int(s.replace("xl/worksheets/sheet", "").replace(".xml", "")))
-        print(f"  Found {len(sheet_files)} sheets: {[s.split('/')[-1] for s in sheet_files]}")
-
-    with zipfile.ZipFile(in_xlsx, "r") as zin, \
-         zipfile.ZipFile(out_xlsm, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        names = zin.namelist()
-        for name in names:
-            data = zin.read(name)
-            if name == "[Content_Types].xml":
-                data = make_xlsm.patch_content_types(data)
-            elif name == "xl/_rels/workbook.xml.rels":
-                data = make_xlsm.patch_workbook_rels(data)
-            elif name == "xl/workbook.xml":
-                data = make_xlsm.patch_workbook_codename(data, "ThisWorkbook")
-            elif name.startswith("xl/worksheets/sheet") and name.endswith(".xml"):
-                # Assign Sheet1, Sheet2... codeNames in order
-                idx = int(name.replace("xl/worksheets/sheet", "").replace(".xml", ""))
-                data = make_xlsm.patch_sheet_codename(data, f"Sheet{idx}")
-            zout.writestr(name, data)
-        # Inject vbaProject.bin
-        zout.writestr("xl/vbaProject.bin", vba_bin)
+    ws.column_dimensions['A'].width = 24
+    ws.column_dimensions['B'].width = 8
+    ws.column_dimensions['C'].width = 80
+    ws.sheet_state = "hidden"
+    print(f"  vba_src: embedded {len(mods)} module sources")
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main pipeline
 # ---------------------------------------------------------------------------
-
 def main():
-    if not os.path.exists(ENRICHED_JSON):
-        sys.exit(f"Missing {ENRICHED_JSON} — run build/enrich_chunks.py first")
+    if not os.path.exists(ENRICHED):
+        sys.exit(f"Missing {ENRICHED} — run build/enrich_chunks.py first")
 
-    print("=== build_chatbot_v2.py ===")
-    print(f"Source v2 dir : {SRC_V2}")
-    print(f"Enriched data : {ENRICHED_JSON}")
-    print(f"Output xlsm   : {OUT_XLSM}")
+    print("=== build_chatbot_v2.py (in-place VBA patching) ===")
+    print(f"Template:    {TEMPLATE}")
+    print(f"Source v2:   {SRC_V2}")
+    print(f"Output:      {OUT_XLSM}")
     print()
 
     os.makedirs(os.path.dirname(OUT_XLSM), exist_ok=True)
+    chunks = json.load(open(ENRICHED, encoding="utf-8"))
 
-    # Stage 1: write data workbook (xlsx)
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+    # Stage 1: load skeleton, preserve vbaProject.bin byte-for-byte
+    print("Stage 1: load skeleton with keep_vba=True...")
+    wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
+    print(f"  Initial sheets: {wb.sheetnames}")
+
+    # Stage 2: build all data sheets
+    print("Stage 2: build data sheets...")
+    _make_main_sheet(wb[wb.sheetnames[0]])  # repurpose Sheet1 → main
+    _make_config(wb)
+    _make_system_prompt(wb)
+    _make_department(wb)
+    _make_manifest(wb, chunks)
+    _make_knowledge_base(wb, chunks)
+    _make_feedback(wb)
+    _make_usage_log(wb)
+    _make_vba_src(wb)
+    print(f"  Sheets after build: {wb.sheetnames}")
+
+    # Stage 3: save with openpyxl (preserves binary)
+    print("Stage 3: openpyxl save (keep_vba)...")
+    with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
         tmp_path = tmp.name
-    print("Stage 1: Building data workbook with openpyxl...")
-    write_data_workbook(tmp_path)
-    print(f"  Wrote {tmp_path} ({os.path.getsize(tmp_path):,} bytes)")
+    wb.save(tmp_path)
+    print(f"  Saved {tmp_path} ({os.path.getsize(tmp_path):,} bytes)")
 
-    # Stage 2: load VBA modules
-    print("\nStage 2: Loading v2 VBA modules...")
-    modules = load_v2_modules()
-    print(f"  Modules ({len(modules)}): {[m['name'] for m in modules]}")
+    # Stage 4: in-place patch vbaProject.bin (installer in ThisWorkbook)
+    print("Stage 4: in-place patch vbaProject.bin...")
+    with zipfile.ZipFile(tmp_path, 'r') as zin:
+        parts = {n: zin.read(n) for n in zin.namelist()}
+    skel_bin = parts['xl/vbaProject.bin']
+    patched_bin = patch_vba_in_place(skel_bin)
+    parts['xl/vbaProject.bin'] = patched_bin
+    print(f"  Original vbaProject.bin: {len(skel_bin):,} bytes")
+    print(f"  Patched  vbaProject.bin: {len(patched_bin):,} bytes")
+    assert len(skel_bin) == len(patched_bin), "size mismatch — binary integrity broken"
 
-    # Stage 3: inject VBA + patch XML
-    print("\nStage 3: Injecting vbaProject.bin + patching XML...")
-    inject_vba_and_patch_xml(tmp_path, OUT_XLSM, modules)
-    print(f"  Final: {OUT_XLSM} ({os.path.getsize(OUT_XLSM):,} bytes)")
-
+    # Stage 5: write final .xlsm
+    print("Stage 5: write final xlsm...")
+    with zipfile.ZipFile(OUT_XLSM, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+        for n, data in parts.items():
+            zout.writestr(n, data)
     os.unlink(tmp_path)
+    print(f"  Final: {OUT_XLSM} ({os.path.getsize(OUT_XLSM):,} bytes)")
     print("\nDone.")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
