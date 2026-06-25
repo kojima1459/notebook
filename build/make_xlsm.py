@@ -723,6 +723,25 @@ def patch_sheet_codename(xml_bytes: bytes, code_name: str) -> bytes:
 # Top-level builder: take skeleton, swap in our modules, produce .xlsm.
 # ---------------------------------------------------------------------------
 
+def _patch_projsyskind(dir_bytes: bytes, syskind: int) -> bytes:
+    """Patch PROJSYSKIND in a decompressed VBA dir stream.
+
+    The skeleton was created on a 64-bit machine (SYSKIND=3). On 32-bit
+    corporate Excel (common even on 64-bit Windows) a Win64 SYSKIND causes
+    the entire VBA project to be silently rejected.  We force Win32 (1)
+    which is accepted by both 32-bit and 64-bit Excel. Since all module
+    streams have MOFFSET=0, Excel always recompiles from source regardless
+    of SYSKIND.
+    """
+    marker = struct.pack('<HI', 0x0001, 4)   # RecordID=PROJSYSKIND, Size=4
+    idx = dir_bytes.find(marker)
+    if idx < 0:
+        return dir_bytes
+    ba = bytearray(dir_bytes)
+    struct.pack_into('<I', ba, idx + 6, syskind)
+    return bytes(ba)
+
+
 def build_vba_project(modules: list, skeleton_vba_bin: bytes) -> bytes:
     """Build a new vbaProject.bin by surgically modifying the skeleton."""
     skel = CFBReader(skeleton_vba_bin)
@@ -730,6 +749,11 @@ def build_vba_project(modules: list, skeleton_vba_bin: bytes) -> bytes:
     # Skeleton streams we keep verbatim.
     skel_dir_compressed = skel.read('dir')
     skel_dir = ovba_decompress(skel_dir_compressed)
+
+    # Force PROJSYSKIND = Win32 (1) so both 32-bit and 64-bit Excel accept
+    # the project.  The skeleton was compiled on a 64-bit machine (SYSKIND=3)
+    # and 32-bit Excel silently drops the entire VBA project when it sees 3.
+    skel_dir = _patch_projsyskind(skel_dir, 0x00000001)
     vba_project_blob   = skel.read('_VBA_PROJECT')
     skel_project_text  = skel.read('PROJECT').decode('cp932', errors='replace')
     skel_info          = parse_skeleton_project(skel_project_text)
@@ -772,9 +796,11 @@ def patch_content_types(xml_bytes: bytes) -> bytes:
 def patch_workbook_rels(xml_bytes: bytes) -> bytes:
     xml = xml_bytes.decode('utf-8')
     if 'vbaProject' not in xml:
+        # IMPORTANT: correct namespace is microsoft.com, NOT openxmlformats.org.
+        # Using the wrong URL makes Excel silently ignore vbaProject.bin entirely.
         xml = xml.replace('</Relationships>',
             '<Relationship Id="rId99" '
-            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vbaProject" '
+            'Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject" '
             'Target="vbaProject.bin"/></Relationships>')
     return xml.encode('utf-8')
 

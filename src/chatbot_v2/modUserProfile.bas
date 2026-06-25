@@ -14,6 +14,23 @@ Option Explicit
 Public Sub EnsureFirstRun()
     Dim deptId As String: deptId = modConfig.GetString("department_id", "")
     If LenB(deptId) > 0 Then Exit Sub
+
+    ' If there is exactly one department, assign it silently -- no point making
+    ' the user pick from a list of one (or type a role). Only prompt when 2+
+    ' departments exist (future multi-team expansion).
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("department")
+    On Error GoTo 0
+    If Not ws Is Nothing Then
+        Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+        If (lastRow - 1) = 1 Then        ' exactly one data row
+            modConfig.SetValue "department_id", CStr(ws.Cells(2, 1).value)
+            modConfig.SetValue "department_name", CStr(ws.Cells(2, 2).value)
+            Exit Sub
+        End If
+    End If
+
     PromptDepartment
 End Sub
 

@@ -51,7 +51,18 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     Dim routerN As Long: routerN = modConfig.GetLong("router_max_chunks", 8)
     Dim routerPrompt As String
     routerPrompt = modPrompts.GetRouter()
-    routerPrompt = Replace(routerPrompt, "{question}", question)
+    ' For follow-up questions, prepend the conversation history to the router
+    ' question so elliptical phrases ("その手数料は？") still retrieve the
+    ' chunks that match the implicit topic. The drafter sees the history too,
+    ' but if the router only sees the short follow-up text it can pick wrong
+    ' or empty chunks and starve the drafter.
+    Dim routerQuestion As String: routerQuestion = question
+    Dim rHist As String: rHist = modBoot.HistoryBlock()
+    If modBoot.gFollowupMode And LenB(rHist) > 0 Then
+        routerQuestion = "【これまでの会話（参考）】" & vbLf & rHist & vbLf & _
+                         "【続きの質問】" & vbLf & question
+    End If
+    routerPrompt = Replace(routerPrompt, "{question}", routerQuestion)
     routerPrompt = Replace(routerPrompt, "{max_n}", CStr(routerN))
     routerPrompt = Replace(routerPrompt, "{knowledge_table}", routerTable)
 
@@ -90,7 +101,16 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     If LenB(feedbackBlock) > 0 Then
         drafterPrompt = drafterPrompt & vbLf & vbLf & feedbackBlock
     End If
-    drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
+    ' If follow-up: include the running conversation so the drafter continues
+    ' the thread instead of starting over. History is capped to the last N turns.
+    Dim hist As String: hist = modBoot.HistoryBlock()
+    If modBoot.gFollowupMode And LenB(hist) > 0 Then
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## これまでの会話（流れを踏まえて続けて回答）" & vbLf & hist
+        drafterPrompt = drafterPrompt & vbLf & "## 続きの質問・深掘り" & vbLf & question & vbLf & vbLf & _
+            "（指示）上の会話の流れを踏まえ、この続きの質問に答えてください。すでに説明済みの内容は繰り返さず、新しい論点に集中してください。"
+    Else
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
+    End If
 
     res.Draft = modRibbonGateway.CallLLM(drafterPrompt, "drafter", res.DraftMs)
     modRibbonGateway.LogDebugCall "drafter", drafterPrompt, res.Draft, res.DraftMs
@@ -122,6 +142,9 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
 
     res.TotalMs = CLng((Timer - tAll) * 1000)
     res.OK = True
+    ' Trim citations to only the [#N] markers actually used in the final answer.
+    ' Prevents leaking unused chunks (e.g., off-topic ones the router included).
+    res.Citations = FilterUsedCitations(res.Citations, res.Answer)
 
 Finish:
     ' CRITICAL: a UDT return value must be assigned explicitly, at every exit.
@@ -134,6 +157,82 @@ Trap:
                    "選択ID: " & res.SelectedIds
     res.TotalMs = CLng((Timer - tAll) * 1000)
     RunQuery = res
+End Function
+
+' ----------------------------------------------------------------------------
+' Scan the answer for [#N] markers actually used, then keep only matching
+' lines from the citations block. Each citations line starts with "[#N] ".
+' ----------------------------------------------------------------------------
+Public Function FilterUsedCitations(ByVal cit As String, ByVal answer As String) As String
+    If LenB(cit) = 0 Or LenB(answer) = 0 Then
+        FilterUsedCitations = cit
+        Exit Function
+    End If
+
+    ' Build a set of used N values by scanning the answer text.
+    ' Markers may appear as [#1], [#1, #3], [#1,#3,#7], or [#1 #3]. An
+    ' earlier "[#N" prefix scan missed every number after the first inside
+    ' a combined marker (e.g. [#1, #3] dropped #3), which silently filtered
+    ' legitimate citations out of the display. Scan all "#N" tokens INSIDE
+    ' [...] brackets instead.
+    Dim usedFlag As String      ' delimited "/1/3/5/" form
+    Dim aLen As Long: aLen = Len(answer)
+    Dim scanI As Long: scanI = 1
+    Dim scanJ As Long
+    Dim scanCh As String
+    Dim scanDc As String
+    Dim scanInBr As Boolean
+    Dim scanNum As String
+    Do While scanI <= aLen
+        scanCh = Mid$(answer, scanI, 1)
+        If scanCh = "[" Then
+            scanInBr = True
+        ElseIf scanCh = "]" Then
+            scanInBr = False
+        ElseIf scanInBr And scanCh = "#" Then
+            scanNum = ""
+            scanJ = scanI + 1
+            Do While scanJ <= aLen
+                scanDc = Mid$(answer, scanJ, 1)
+                If scanDc >= "0" And scanDc <= "9" Then
+                    scanNum = scanNum & scanDc
+                    scanJ = scanJ + 1
+                Else
+                    Exit Do
+                End If
+            Loop
+            If LenB(scanNum) > 0 Then
+                usedFlag = usedFlag & "/" & scanNum & "/"
+            End If
+            scanI = scanJ - 1
+        End If
+        scanI = scanI + 1
+    Loop
+
+    If LenB(usedFlag) = 0 Then
+        ' No markers found in answer -- show original citations as fallback
+        FilterUsedCitations = cit
+        Exit Function
+    End If
+
+    Dim lines() As String: lines = Split(cit, vbLf)
+    Dim out As String, i As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim line As String: line = lines(i)
+        If LenB(line) = 0 Then GoTo NextLine
+        ' Extract leading [#N]
+        Dim p As Long: p = InStr(line, "[#")
+        If p = 0 Then GoTo NextLine
+        Dim q As Long: q = InStr(p, line, "]")
+        If q = 0 Then GoTo NextLine
+        Dim numStr As String: numStr = Mid$(line, p + 2, q - p - 2)
+        If Not IsNumeric(numStr) Then GoTo NextLine
+        If InStr(usedFlag, "/" & numStr & "/") > 0 Then
+            out = out & line & vbLf
+        End If
+NextLine:
+    Next i
+    FilterUsedCitations = out
 End Function
 
 ' ----------------------------------------------------------------------------

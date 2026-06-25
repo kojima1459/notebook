@@ -32,6 +32,7 @@ Private Const BTN_GOOD As String = "btnGood"
 Private Const BTN_BAD As String = "btnBad"
 Private Const BTN_TXT As String = "btnSaveTxt"
 Private Const BTN_HTML As String = "btnSaveHtml"
+Private Const BTN_FOLLOWUP As String = "btnFollowup"
 
 Public Sub EnsureLayout()
     Dim ws As Worksheet
@@ -84,14 +85,14 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("4:7").RowHeight = 22
 
-    ' Send + Clear buttons row
+    ' Send + Follow-up + Clear buttons row
     AddButton ws, ws.Range("B8:C8"), BTN_SEND, "> 送信", "modChatUI.OnSendClick"
-    AddButton ws, ws.Range("D8:E8"), BTN_CLEAR, "クリア", "modChatUI.OnClearClick"
-    ws.Range("F8:H8").Merge
-    ws.Range("F8").value = "(回答に60〜90秒かかります)"
-    ws.Range("F8").HorizontalAlignment = xlRight
-    ws.Range("F8").Font.Size = 9
-    ws.Range("F8").Font.color = RGB(120, 120, 120)
+    AddButton ws, ws.Range("D8:E8"), BTN_FOLLOWUP, "続けて質問", "modChatUI.OnFollowupClick"
+    AddButton ws, ws.Range("F8:G8"), BTN_CLEAR, "クリア", "modChatUI.OnClearClick"
+    ws.Range("H8").value = "(回答に60〜90秒)"
+    ws.Range("H8").HorizontalAlignment = xlRight
+    ws.Range("H8").Font.Size = 9
+    ws.Range("H8").Font.color = RGB(120, 120, 120)
     ws.Rows("8").RowHeight = 26
 
     ' Answer header
@@ -154,8 +155,12 @@ Public Sub EnsureLayout()
     ' Refresh status bar with dept/user info
     UpdateStatus ws, "Ready", RGB(220, 240, 220)
 
+    ' Activate/Select can fail during Workbook_Open before the window is
+    ' fully ready. Never let cosmetics propagate an error.
+    On Error Resume Next
     ws.Activate
     ws.Range(CELL_QUESTION).Select
+    On Error GoTo 0
     Application.ScreenUpdating = True
 End Sub
 
@@ -181,47 +186,95 @@ Public Sub OnSendClick()
                   vbYesNo + vbExclamation, "確認") <> vbYes Then Exit Sub
     End If
 
+    ' A direct "送信" (not via 続けて質問) starts a fresh thread -> clear history.
+    If Not modBoot.gFollowupMode Then modBoot.ResetHistory
+
     UpdateStatus ws, "問い合わせ中...しばらくお待ちください (60〜90秒)", RGB(255, 235, 180)
     SetButtonsEnabled ws, False
-    ws.Range(CELL_ANSWER).value = "(生成中...)"
-    ws.Range(CELL_CITATIONS).value = ""
-    ws.Range(CELL_DIAG).value = "ルーター起動中..."
+    SetCellSafe ws.Range(CELL_ANSWER), "(生成中...)"
+    SetCellSafe ws.Range(CELL_CITATIONS), ""
+    SetCellSafe ws.Range(CELL_DIAG), "ルーター起動中..."
     DoEvents
 
     Dim res As modPipeline.PipelineResult
     res = modPipeline.RunQuery(q)
 
     If res.OK Then
-        ws.Range(CELL_ANSWER).value = res.Answer
-        ws.Range(CELL_CITATIONS).value = res.Citations
-        ws.Range(CELL_DIAG).value = "Ready (合計 " & res.TotalMs & " ms : router " & res.RouterMs & _
+        SetCellSafe ws.Range(CELL_ANSWER), res.Answer
+        SetCellSafe ws.Range(CELL_CITATIONS), res.Citations
+        SetCellSafe ws.Range(CELL_DIAG), "Ready (合計 " & res.TotalMs & " ms : router " & res.RouterMs & _
                                     " + draft " & res.DraftMs & " + verify " & res.VerifyMs & ")"
         ' Save for feedback buttons
         modBoot.gLastQuestion = q
         modBoot.gLastAnswer = res.Answer
         modBoot.gLastSelectedIds = res.SelectedIds
-        UpdateStatus ws, "Ready (○/× で評価できます)", RGB(220, 240, 220)
+        ' Record this exchange so a later 続けて質問 has the running context
+        modBoot.AppendHistory q, res.Answer
+        UpdateStatus ws, "Ready (○/× で評価できます。『続けて質問』で深掘りできます)", RGB(220, 240, 220)
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
-        ws.Range(CELL_ANSWER).value = "■ 処理を完了できませんでした" & vbLf & vbLf & _
+        SetCellSafe ws.Range(CELL_ANSWER), "■ 処理を完了できませんでした" & vbLf & vbLf & _
             "失敗ステップ・原因:" & vbLf & res.ErrorMsg & vbLf & vbLf & _
             "対処: 下の『自己診断』『リボン接続テスト』ボタンで原因を特定できます。"
-        ws.Range(CELL_DIAG).value = "Error: " & Left$(Replace(res.ErrorMsg, vbLf, " "), 200)
+        SetCellSafe ws.Range(CELL_DIAG), "Error: " & Left$(Replace(res.ErrorMsg, vbLf, " "), 200)
         UpdateStatus ws, "Error (診断ボタンで詳細確認)", RGB(250, 200, 200)
     End If
 
     SetButtonsEnabled ws, True
     AutoSizeAnswer ws
+    On Error Resume Next
     ws.Range(CELL_QUESTION).Select
+    On Error GoTo 0
     Exit Sub
 
 Trap:
+    ' Capture original err details BEFORE any cleanup can clobber them.
+    Dim origErrN As Long: origErrN = Err.Number
+    Dim origErrD As String: origErrD = Err.Description
     On Error Resume Next
     SetButtonsEnabled ThisWorkbook.Worksheets(SHEET_NAME), True
     On Error GoTo 0
-    modDiag.ReportError "modChatUI.OnSendClick", Err.Number, Err.Description, _
+    modDiag.ReportError "modChatUI.OnSendClick", origErrN, origErrD, _
         "質問送信処理で予期せぬエラー。『自己診断』で各サブシステムを確認してください。"
+End Sub
+
+Public Sub OnFollowupClick()
+    On Error GoTo Trap
+    If LenB(modBoot.gLastQuestion) = 0 Or LenB(modBoot.gLastAnswer) = 0 Then
+        MsgBox "まず最初の質問を送信して、回答を受け取ってから『続けて質問』を使ってください。", _
+               vbInformation, "続けて質問"
+        Exit Sub
+    End If
+
+    Dim hint As String
+    hint = "前回までの会話を踏まえて、追加の質問・深掘りを入力してください。" & vbCrLf & _
+           "（直近 " & modBoot.HISTORY_MAX_TURNS & " 往復ぶんの会話を記憶しています。何度でも続けられます）" & vbCrLf & vbCrLf & _
+           "例:" & vbCrLf & _
+           "  ・前売券の払い戻し手数料は対象になる？" & vbCrLf & _
+           "  ・グッズ代以外で対象外になりやすい収益は？" & vbCrLf & _
+           "  ・中止と部分中止で扱いは変わる？"
+    Dim followup As String
+    followup = InputBox(hint, "続けて質問（深掘り）", "")
+    If LenB(followup) = 0 Then Exit Sub
+
+    ' Follow-up mode: OnSendClick will keep (not reset) the running history.
+    modBoot.gFollowupMode = True
+
+    ' Reuse the main send flow: set the question into the cell and call OnSendClick
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
+    ws.Range(CELL_QUESTION).value = followup
+    OnSendClick
+
+    ' OnSendClick sets gLastQuestion/gLastAnswer; reset the flag so the next
+    ' top-level "送信" doesn't accidentally carry follow-up context.
+    modBoot.gFollowupMode = False
+    Exit Sub
+
+Trap:
+    modBoot.gFollowupMode = False
+    modDiag.ReportError "modChatUI.OnFollowupClick", Err.Number, Err.Description, _
+        "続けて質問の処理でエラーが発生しました。"
 End Sub
 
 Public Sub OnClearClick()
@@ -230,6 +283,9 @@ Public Sub OnClearClick()
     ws.Range(CELL_ANSWER).value = "（質問を入力して『> 送信』を押してください）"
     ws.Range(CELL_CITATIONS).value = ""
     ws.Range(CELL_DIAG).value = ""
+    ' Reset follow-up state so a new top-level question starts clean
+    modBoot.gFollowupMode = False
+    modBoot.ResetHistory
     modBoot.gLastQuestion = "": modBoot.gLastAnswer = "": modBoot.gLastSelectedIds = ""
     ws.Range(CELL_QUESTION).Select
 End Sub
@@ -294,17 +350,69 @@ Private Sub SetButtonsEnabled(ByVal ws As Worksheet, ByVal isEnabled As Boolean)
     On Error GoTo 0
 End Sub
 
+' Defensive cell setter. Excel raises Err 1004 when:
+'   - the string starts with '=' '+' '-' '@' (parsed as a formula)
+'   - the string contains an embedded NULL byte (Chr(0))
+'   - the string exceeds 32767 characters (cell limit)
+' Each cause is handled before the assignment, with the final write
+' wrapped in On Error Resume Next so a bad payload never crashes the UI.
+Public Sub SetCellSafe(ByVal cell As Range, ByVal text As String)
+    Dim t As String: t = CStr(text)
+    ' Strip NUL bytes that some LLM responses carry
+    If InStr(t, Chr(0)) > 0 Then t = Replace(t, Chr(0), "")
+    ' Truncate to Excel's per-cell limit (32767), leaving headroom
+    If Len(t) > 32000 Then
+        t = Left$(t, 31900) & vbLf & "(...以降省略 / 全文はテキスト保存ボタンから取得してください)"
+    End If
+    ' Prevent Excel from parsing as a formula
+    If LenB(t) > 0 Then
+        Dim ch As String: ch = Left$(t, 1)
+        If ch = "=" Or ch = "+" Or ch = "-" Or ch = "@" Then
+            t = " " & t
+        End If
+    End If
+    On Error Resume Next
+    cell.value = t
+    If Err.Number <> 0 Then
+        ' Last-resort fallback: tell the user but never crash
+        Err.Clear
+        cell.value = "(セル書き込みに失敗。回答全文はテキスト保存ボタンから取得してください)"
+    End If
+    On Error GoTo 0
+End Sub
+
 Private Sub AutoSizeAnswer(ByVal ws As Worksheet)
-    ' Approximate row height based on answer length
+    ' Size the merged answer block (B10:H40) so the WHOLE answer is visible
+    ' without the user manually dragging row 40. We estimate how many display
+    ' lines the wrapped text needs, then set the 31 rows tall enough in total.
     Dim ans As String: ans = CStr(ws.Range(CELL_ANSWER).value)
-    Dim lines As Long
-    lines = 1 + (Len(ans) \ 70) + (Len(ans) - Len(Replace(ans, vbLf, "")))
-    If lines > 200 Then lines = 200
-    ' Distribute across rows 10-40
-    Dim each_h As Double: each_h = Application.Max(14, (lines * 14) / 31)
+
+    ' Merged width B:H is roughly 98 column-units; Japanese chars are full-width
+    ' (~2 units each), so a line holds ~36 full-width chars. Use 34 to be safe
+    ' (overestimate lines slightly so nothing is clipped).
+    Const CHARS_PER_LINE As Long = 34
+
+    Dim segs() As String: segs = Split(ans, vbLf)
+    Dim totalLines As Long, i As Long
+    For i = LBound(segs) To UBound(segs)
+        Dim segLen As Long: segLen = Len(segs(i))
+        If segLen = 0 Then
+            totalLines = totalLines + 1
+        Else
+            totalLines = totalLines + ((segLen + CHARS_PER_LINE - 1) \ CHARS_PER_LINE)
+        End If
+    Next i
+    totalLines = totalLines + 2          ' small safety buffer
+
+    ' ~15 pt per display line, distributed over the 31 merged rows.
+    Dim perRow As Double
+    perRow = (totalLines * 15#) / 31#
+    If perRow < 15 Then perRow = 15
+    If perRow > 130 Then perRow = 130    ' guard against pathological lengths
+                                         ' (rows below the answer just shift down)
     Dim r As Long
     For r = 10 To 40
-        ws.Rows(r).RowHeight = each_h
+        ws.Rows(r).RowHeight = perRow
     Next r
 End Sub
 
