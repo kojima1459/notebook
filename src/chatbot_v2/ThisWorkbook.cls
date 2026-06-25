@@ -100,7 +100,12 @@ Cleanup:
     Application.ScreenUpdating = True
     Application.DisplayAlerts = True
 
+    ' Save so modules persist across closes. If the file is read-only or on a
+    ' locked share, Save will fail -- don't abort; modules still work this session.
+    On Error Resume Next
     ThisWorkbook.Save
+    On Error GoTo Failed
+
     MsgBox "セットアップ完了" & vbCrLf & _
            "  ・新規追加: " & installed & " モジュール" & vbCrLf & _
            "  ・置き換え: " & replaced & " モジュール" & vbCrLf & vbCrLf & _
@@ -119,8 +124,9 @@ NoTrust:
            "2. [トラストセンター] → [トラストセンターの設定]" & vbCrLf & _
            "3. [マクロの設定]" & vbCrLf & _
            "4. 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック" & vbCrLf & _
-           "5. OKを押してExcelを終了し、ファイルを再度開く" & vbCrLf & vbCrLf & _
-           "それから main シートのセル A10 のセットアップ手順を実行してください。", _
+           "5. OKを押してExcelを再起動し、ファイルを再度開く" & vbCrLf & vbCrLf & _
+           "再度開いたら自動でセットアップが実行されます。" & vbCrLf & _
+           "（または main シートの B3 のオレンジのセルをクリックしてください）", _
            vbCritical, "セットアップ"
     Exit Sub
 
