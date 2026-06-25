@@ -94,8 +94,11 @@ Public Sub Install()
       If LenB(s) > 0 Then c.CodeModule.AddFromString s
     End If
   Next r
-  ThisWorkbook.Save
+  ' Save failures (read-only file, locked share, etc.) must not skip Boot.
+  ' Swallow any save error so Application.Run still fires.
   On Error Resume Next
+  ThisWorkbook.Save
+  Err.Clear
   Application.Run "modBoot.Boot"
   Exit Sub
 Trust:

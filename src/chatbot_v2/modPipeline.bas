@@ -51,7 +51,18 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     Dim routerN As Long: routerN = modConfig.GetLong("router_max_chunks", 8)
     Dim routerPrompt As String
     routerPrompt = modPrompts.GetRouter()
-    routerPrompt = Replace(routerPrompt, "{question}", question)
+    ' For follow-up questions, prepend the conversation history to the router
+    ' question so elliptical phrases ("その手数料は？") still retrieve the
+    ' chunks that match the implicit topic. The drafter sees the history too,
+    ' but if the router only sees the short follow-up text it can pick wrong
+    ' or empty chunks and starve the drafter.
+    Dim routerQuestion As String: routerQuestion = question
+    Dim rHist As String: rHist = modBoot.HistoryBlock()
+    If modBoot.gFollowupMode And LenB(rHist) > 0 Then
+        routerQuestion = "【これまでの会話（参考）】" & vbLf & rHist & vbLf & _
+                         "【続きの質問】" & vbLf & question
+    End If
+    routerPrompt = Replace(routerPrompt, "{question}", routerQuestion)
     routerPrompt = Replace(routerPrompt, "{max_n}", CStr(routerN))
     routerPrompt = Replace(routerPrompt, "{knowledge_table}", routerTable)
 
@@ -159,17 +170,44 @@ Public Function FilterUsedCitations(ByVal cit As String, ByVal answer As String)
     End If
 
     ' Build a set of used N values by scanning the answer text.
-    Dim usedFlag As String   ' delimited "/1/3/5/" form
-    Dim n As Long
-    For n = 1 To 50
-        Dim mk As String: mk = "[#" & n
-        ' Match [#N] as a standalone marker: followed by ']', ',' or ' '
-        If InStr(answer, mk & "]") > 0 _
-            Or InStr(answer, mk & ",") > 0 _
-            Or InStr(answer, mk & " ") > 0 Then
-            usedFlag = usedFlag & "/" & n & "/"
+    ' Markers may appear as [#1], [#1, #3], [#1,#3,#7], or [#1 #3]. An
+    ' earlier "[#N" prefix scan missed every number after the first inside
+    ' a combined marker (e.g. [#1, #3] dropped #3), which silently filtered
+    ' legitimate citations out of the display. Scan all "#N" tokens INSIDE
+    ' [...] brackets instead.
+    Dim usedFlag As String      ' delimited "/1/3/5/" form
+    Dim aLen As Long: aLen = Len(answer)
+    Dim scanI As Long: scanI = 1
+    Dim scanJ As Long
+    Dim scanCh As String
+    Dim scanDc As String
+    Dim scanInBr As Boolean
+    Dim scanNum As String
+    Do While scanI <= aLen
+        scanCh = Mid$(answer, scanI, 1)
+        If scanCh = "[" Then
+            scanInBr = True
+        ElseIf scanCh = "]" Then
+            scanInBr = False
+        ElseIf scanInBr And scanCh = "#" Then
+            scanNum = ""
+            scanJ = scanI + 1
+            Do While scanJ <= aLen
+                scanDc = Mid$(answer, scanJ, 1)
+                If scanDc >= "0" And scanDc <= "9" Then
+                    scanNum = scanNum & scanDc
+                    scanJ = scanJ + 1
+                Else
+                    Exit Do
+                End If
+            Loop
+            If LenB(scanNum) > 0 Then
+                usedFlag = usedFlag & "/" & scanNum & "/"
+            End If
+            scanI = scanJ - 1
         End If
-    Next n
+        scanI = scanI + 1
+    Loop
 
     If LenB(usedFlag) = 0 Then
         ' No markers found in answer -- show original citations as fallback
