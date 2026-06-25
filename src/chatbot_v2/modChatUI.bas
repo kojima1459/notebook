@@ -222,12 +222,12 @@ Public Sub OnSendClick()
 
 Trap:
     ' Capture original err details BEFORE any cleanup can clobber them.
-    Dim _errN As Long: _errN = Err.Number
-    Dim _errD As String: _errD = Err.Description
+    Dim origErrN As Long: origErrN = Err.Number
+    Dim origErrD As String: origErrD = Err.Description
     On Error Resume Next
     SetButtonsEnabled ThisWorkbook.Worksheets(SHEET_NAME), True
     On Error GoTo 0
-    modDiag.ReportError "modChatUI.OnSendClick", _errN, _errD, _
+    modDiag.ReportError "modChatUI.OnSendClick", origErrN, origErrD, _
         "質問送信処理で予期せぬエラー。『自己診断』で各サブシステムを確認してください。"
 End Sub
 
