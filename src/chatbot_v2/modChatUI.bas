@@ -187,18 +187,18 @@ Public Sub OnSendClick()
 
     UpdateStatus ws, "問い合わせ中...しばらくお待ちください (60〜90秒)", RGB(255, 235, 180)
     SetButtonsEnabled ws, False
-    ws.Range(CELL_ANSWER).value = "(生成中...)"
-    ws.Range(CELL_CITATIONS).value = ""
-    ws.Range(CELL_DIAG).value = "ルーター起動中..."
+    SetCellSafe ws.Range(CELL_ANSWER), "(生成中...)"
+    SetCellSafe ws.Range(CELL_CITATIONS), ""
+    SetCellSafe ws.Range(CELL_DIAG), "ルーター起動中..."
     DoEvents
 
     Dim res As modPipeline.PipelineResult
     res = modPipeline.RunQuery(q)
 
     If res.OK Then
-        ws.Range(CELL_ANSWER).value = res.Answer
-        ws.Range(CELL_CITATIONS).value = res.Citations
-        ws.Range(CELL_DIAG).value = "Ready (合計 " & res.TotalMs & " ms : router " & res.RouterMs & _
+        SetCellSafe ws.Range(CELL_ANSWER), res.Answer
+        SetCellSafe ws.Range(CELL_CITATIONS), res.Citations
+        SetCellSafe ws.Range(CELL_DIAG), "Ready (合計 " & res.TotalMs & " ms : router " & res.RouterMs & _
                                     " + draft " & res.DraftMs & " + verify " & res.VerifyMs & ")"
         ' Save for feedback buttons
         modBoot.gLastQuestion = q
@@ -208,16 +208,18 @@ Public Sub OnSendClick()
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
-        ws.Range(CELL_ANSWER).value = "■ 処理を完了できませんでした" & vbLf & vbLf & _
+        SetCellSafe ws.Range(CELL_ANSWER), "■ 処理を完了できませんでした" & vbLf & vbLf & _
             "失敗ステップ・原因:" & vbLf & res.ErrorMsg & vbLf & vbLf & _
             "対処: 下の『自己診断』『リボン接続テスト』ボタンで原因を特定できます。"
-        ws.Range(CELL_DIAG).value = "Error: " & Left$(Replace(res.ErrorMsg, vbLf, " "), 200)
+        SetCellSafe ws.Range(CELL_DIAG), "Error: " & Left$(Replace(res.ErrorMsg, vbLf, " "), 200)
         UpdateStatus ws, "Error (診断ボタンで詳細確認)", RGB(250, 200, 200)
     End If
 
     SetButtonsEnabled ws, True
     AutoSizeAnswer ws
+    On Error Resume Next
     ws.Range(CELL_QUESTION).Select
+    On Error GoTo 0
     Exit Sub
 
 Trap:
@@ -298,6 +300,37 @@ Private Sub SetButtonsEnabled(ByVal ws As Worksheet, ByVal isEnabled As Boolean)
     ws.Buttons(BTN_GOOD).Enabled = isEnabled
     ws.Buttons(BTN_BAD).Enabled = isEnabled
     ws.Buttons(BTN_SEND).caption = IIf(isEnabled, "> 送信", "...生成中...")
+    On Error GoTo 0
+End Sub
+
+' Defensive cell setter. Excel raises Err 1004 when:
+'   - the string starts with '=' '+' '-' '@' (parsed as a formula)
+'   - the string contains an embedded NULL byte (Chr(0))
+'   - the string exceeds 32767 characters (cell limit)
+' Each cause is handled before the assignment, with the final write
+' wrapped in On Error Resume Next so a bad payload never crashes the UI.
+Public Sub SetCellSafe(ByVal cell As Range, ByVal text As String)
+    Dim t As String: t = CStr(text)
+    ' Strip NUL bytes that some LLM responses carry
+    If InStr(t, Chr(0)) > 0 Then t = Replace(t, Chr(0), "")
+    ' Truncate to Excel's per-cell limit (32767), leaving headroom
+    If Len(t) > 32000 Then
+        t = Left$(t, 31900) & vbLf & "(...以降省略 / 全文はテキスト保存ボタンから取得してください)"
+    End If
+    ' Prevent Excel from parsing as a formula
+    If LenB(t) > 0 Then
+        Dim ch As String: ch = Left$(t, 1)
+        If ch = "=" Or ch = "+" Or ch = "-" Or ch = "@" Then
+            t = " " & t
+        End If
+    End If
+    On Error Resume Next
+    cell.value = t
+    If Err.Number <> 0 Then
+        ' Last-resort fallback: tell the user but never crash
+        Err.Clear
+        cell.value = "(セル書き込みに失敗。回答全文はテキスト保存ボタンから取得してください)"
+    End If
     On Error GoTo 0
 End Sub
 
