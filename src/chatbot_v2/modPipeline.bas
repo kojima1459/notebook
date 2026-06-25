@@ -90,7 +90,16 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     If LenB(feedbackBlock) > 0 Then
         drafterPrompt = drafterPrompt & vbLf & vbLf & feedbackBlock
     End If
-    drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
+    ' If follow-up: include prior Q&A so the drafter continues the conversation
+    ' instead of starting from scratch. Trim prior answer to keep prompt size sane.
+    If modBoot.gFollowupMode And LenB(modBoot.gPrevQ) > 0 Then
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 前の質問" & vbLf & modBoot.gPrevQ
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 前の回答（参考）" & vbLf & Left$(modBoot.gPrevA, 4000)
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 続きの質問・深掘り" & vbLf & question & vbLf & vbLf & _
+            "（指示）前の質問・回答の流れを踏まえて、この続きの質問に答えてください。前と重複する説明は最小限に、新しい論点を中心に書いてください。"
+    Else
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
+    End If
 
     res.Draft = modRibbonGateway.CallLLM(drafterPrompt, "drafter", res.DraftMs)
     modRibbonGateway.LogDebugCall "drafter", drafterPrompt, res.Draft, res.DraftMs
@@ -122,6 +131,9 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
 
     res.TotalMs = CLng((Timer - tAll) * 1000)
     res.OK = True
+    ' Trim citations to only the [#N] markers actually used in the final answer.
+    ' Prevents leaking unused chunks (e.g., off-topic ones the router included).
+    res.Citations = FilterUsedCitations(res.Citations, res.Answer)
 
 Finish:
     ' CRITICAL: a UDT return value must be assigned explicitly, at every exit.
@@ -134,6 +146,55 @@ Trap:
                    "選択ID: " & res.SelectedIds
     res.TotalMs = CLng((Timer - tAll) * 1000)
     RunQuery = res
+End Function
+
+' ----------------------------------------------------------------------------
+' Scan the answer for [#N] markers actually used, then keep only matching
+' lines from the citations block. Each citations line starts with "[#N] ".
+' ----------------------------------------------------------------------------
+Public Function FilterUsedCitations(ByVal cit As String, ByVal answer As String) As String
+    If LenB(cit) = 0 Or LenB(answer) = 0 Then
+        FilterUsedCitations = cit
+        Exit Function
+    End If
+
+    ' Build a set of used N values by scanning the answer text.
+    Dim usedFlag As String   ' delimited "/1/3/5/" form
+    Dim n As Long
+    For n = 1 To 50
+        Dim mk As String: mk = "[#" & n
+        ' Match [#N] as a standalone marker: followed by ']', ',' or ' '
+        If InStr(answer, mk & "]") > 0 _
+            Or InStr(answer, mk & ",") > 0 _
+            Or InStr(answer, mk & " ") > 0 Then
+            usedFlag = usedFlag & "/" & n & "/"
+        End If
+    Next n
+
+    If LenB(usedFlag) = 0 Then
+        ' No markers found in answer -- show original citations as fallback
+        FilterUsedCitations = cit
+        Exit Function
+    End If
+
+    Dim lines() As String: lines = Split(cit, vbLf)
+    Dim out As String, i As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim line As String: line = lines(i)
+        If LenB(line) = 0 Then GoTo NextLine
+        ' Extract leading [#N]
+        Dim p As Long: p = InStr(line, "[#")
+        If p = 0 Then GoTo NextLine
+        Dim q As Long: q = InStr(p, line, "]")
+        If q = 0 Then GoTo NextLine
+        Dim numStr As String: numStr = Mid$(line, p + 2, q - p - 2)
+        If Not IsNumeric(numStr) Then GoTo NextLine
+        If InStr(usedFlag, "/" & numStr & "/") > 0 Then
+            out = out & line & vbLf
+        End If
+NextLine:
+    Next i
+    FilterUsedCitations = out
 End Function
 
 ' ----------------------------------------------------------------------------

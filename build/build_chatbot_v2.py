@@ -193,32 +193,38 @@ DEPARTMENTS = [("expense_profit", "費用利益保険チーム", "common,expense
 ROUTER_PROMPT = '''あなたは社内ナレッジ検索のルーターです。
 ユーザーの質問に対し、最も関連するチャンクIDを最大{max_n}件、JSON形式で返してください。
 
-【選定の基本方針】
-回答に必要な「定義」「除外」「算定方法」「具体例」を**横断的に**選びます。1つの条文だけでは答えにならない質問が多いため、関連条文を**セット**で選ぶことを優先します。
+【最優先：トピック整合性】
+質問のトピックと無関係なチャンクを「多様性のため」だけで入れない。
+- 「興行中止保険」の質問にリコールプロテクション（生産物回収費用保険）のチャンクは入れない。
+- 「瑕疵保証責任保険」の質問に家主費用保険のチャンクは入れない。
+- 質問のキーワードと、チャンクの domain（業務領域）や summary・keywords が全くかみ合わなければ、その doc_type を入れたくても **除外** する。
+- 関連 domain は「費用利益保険全般」など、質問対象を包含する一般カテゴリも含む。
 
-例：「グッズ代は補償対象か？」という質問なら、
+【選定の基本方針】
+回答に必要な「定義」「除外」「算定方法」「具体例」を **横断的に** 選びます。1つの条文だけでは答えにならない質問が多いため、関連条文を **セット** で選ぶことを優先します。
+
+例：「興行中止保険でグッズ代は補償対象か？」という質問なら、
   - 損害の定義条文（何が対象か）
   - 除外条文（対象外は何か）
-  - 売上不足などの不払い条文
+  - 売上不足など不払い条文
   - 損害額の算定条文
-  を一緒に選ぶ。
+  を費用利益保険ドメインから一緒に選ぶ。
+  （他の保険種類のハンドブックなどはトピック違いで入れない）
 
 【書類種別ごとの使い分け】
 ナレッジには「普通保険約款 / 引受ガイドライン / 研修資料 / 解説 / FAQ / ハンドブック」があります：
 
 - 「○○とは」「教えて」「どんな〜」など説明系の質問
-    → 研修資料 / 解説 / FAQ / ハンドブック を最優先で組み入れる
-    → 普通保険約款"だけ"で埋めない（約款は法律的な定義のみで、事例や解説は含まれない）
+    → 研修資料 / 解説 / FAQ / ハンドブック を最優先で組み入れる（**ただしトピックが合うものに限る**）
+    → 普通保険約款"だけ"で埋めない
 - 「引受基準」「リスク」「引受可否」「対象外」「引受要件」
     → 引受ガイドライン / 研修資料 を優先
 - 「○条」「条文」「規定」「定義」「算定方法」「支払額」
-    → 普通保険約款 を優先（ただし、補足的に研修資料・解説・ハンドブックも1〜2件含める）
-- 上記いずれでもなければ、複数の書類種別を組み合わせる
+    → 普通保険約款 を優先（補足的に研修資料・解説・ハンドブックも1〜2件含めるが、**トピックが合うものに限る**）
 
-【多様性ルール（必須）】
-- 同じ source（PDFファイル）ばかりで埋めない。最低2つの source から選ぶ。
-- 普通保険約款だけで全件を埋めない。可能なら研修資料・解説・ガイドライン・FAQ・ハンドブックから少なくとも1〜2件は含める。
-- 同じ業務領域(domain)内なら複数のページから選ぶ。
+【多様性ルール】
+- トピック整合性を満たした上で、可能なら2つ以上の source PDF から選ぶ。
+- ただしトピック合致が1つの PDF にしかない場合は、無理に別の PDF を入れない。
 
 【ユーザー質問】
 {question}
@@ -231,7 +237,7 @@ ROUTER_PROMPT = '''あなたは社内ナレッジ検索のルーターです。
 【出力 (JSON、他のテキストは絶対に書かない)】
 {
   "selected_ids": ["sample_03.pdf::p5::c2", "..."],
-  "reasoning": "選定した書類種別の組み合わせと、なぜそれらを組み合わせたか1〜2文"
+  "reasoning": "選定したチャンクのトピック関連性と、書類種別の組み合わせ理由を1〜2文"
 }'''
 
 DRAFTER_PROMPT = '''あなたは費用利益保険のベテランアンダーライターです。NotebookLM が出すような、「質問の本質を捉え、論理を通し、読みやすく実務で使える」回答を書きます。
@@ -357,6 +363,118 @@ def _make_main_sheet(ws):
         else:
             c.font = Font(size=11)
     ws.column_dimensions['A'].width = 90
+
+
+def _make_howto(wb):
+    """Quick-start guide. Lives at sheet index 1 (after main) so users see
+    it first when they tab over from the chat sheet."""
+    ws = wb.create_sheet("使い方")
+    ws.column_dimensions['A'].width = 16
+    ws.column_dimensions['B'].width = 90
+
+    # Banner
+    ws['A1'] = "使い方ガイド"
+    ws.merge_cells('A1:B1')
+    ws['A1'].fill = PatternFill("solid", fgColor="3C5AA0")
+    ws['A1'].font = Font(bold=True, size=16, color="FFFFFF")
+    ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+    # (label, body) pairs rendered as 2 columns
+    sections = [
+        ("基本の流れ",
+         "1. main タブの質問欄に知りたいことを入力\n"
+         "2. 「送信」ボタンを押す → 60〜90秒待つ\n"
+         "3. 答えが表示される（出典・引用箇所も同時に表示）\n"
+         "4. 答えに対して「○良かった」または「×修正」で評価する\n"
+         "5. 「続けて質問」で深掘りができる（NotebookLM 風の追加対話）"),
+
+        ("○×評価が重要な理由",
+         "ボタンを押すたびに、ボットは「どんな質問にどう答えるべきか」を学習します。\n"
+         "  ⭕「良かった」: その質問と回答が『模範回答』として feedback シートに保存される\n"
+         "  ❌「修正」  : その質問と回答が『要修正例』として保存され、次回類似質問時に避ける\n"
+         "評価を積み重ねるほど、似た質問に対して過去の正解を参照し精度が上がります。\n"
+         "使い始めの数十回が肝心。気になった答えはすかさず ○ か × を押してください。"),
+
+        ("続けて質問（深掘り）",
+         "答えを読んで「もっと知りたい」「ここはどう？」と思ったら『続けて質問』ボタン。\n"
+         "前回の質問と回答を踏まえて、より深い答えが返ります。\n"
+         "例:\n"
+         "  最初の質問: 興行中止保険でグッズ代は補償対象？\n"
+         "  → 続けて: じゃあ前売券の払い戻し手数料は？\n"
+         "  → 続けて: その手数料は誰が負担する慣行？"),
+
+        ("良い質問の例",
+         "⭕ 「興行中止保険でグッズ代は補償対象？」          ← 具体的・はい/いいえ系\n"
+         "⭕ 「瑕疵保証責任保険の引受基準を教えて」         ← 特定の保険・特定の論点\n"
+         "⭕ 「費用利益保険と利益保険の違いを表で比較して」  ← 比較系\n"
+         "❌ 「保険のこと教えて」                          ← 漠然すぎる\n"
+         "❌ 「お客様 山田太郎さんの保険」                  ← 個人情報を含む"),
+
+        ("⚠️ 触ってはいけないタブ",
+         "下のタブはシステムが自動で管理しています。**直接編集すると壊れます**：\n"
+         "  ・config        : 設定値 (管理者のみ変更可)\n"
+         "  ・system_prompt : AI への指示文 (管理者のみ)\n"
+         "  ・manifest      : 知識ベースの一覧 (自動生成)\n"
+         "  ・knowledge_base: 813件の知識データ本体 (自動生成)\n"
+         "  ・feedback      : ○×評価ログ (ボタンが自動で書く)\n"
+         "  ・usage_log     : 利用ログ (自動で書く)\n"
+         "  ・vba_src       : 非表示。プログラムソース（再起動時に使う）"),
+
+        ("✅ 触ってよいタブ",
+         "  ・使い方     : このシート（参照のみ）\n"
+         "  ・main      : 質問と回答（普段の作業場所）\n"
+         "  ・department: 部署設定（初回入力済み。変更したい時のみ）"),
+
+        ("⚠️ 個人情報・機密情報を入れないでください",
+         "契約番号、氏名、電話番号、マイナンバー、E メールアドレスを質問に書かないでください。\n"
+         "個人情報を検知すると警告が出ます。警告が出たら必ず書き換えてから送信してください。\n"
+         "ボットは社内 AI リボン経由でクラウドの LLM を呼びます。送信した本文は社外には残りませんが、\n"
+         "**社内ログには記録される** 前提で書いてください。"),
+
+        ("⚠️ AI の答えは最終決定ではありません",
+         "回答は社内ナレッジ（15PDF / 813チャンク）を根拠に AI が生成しています。\n"
+         "条文の解釈や引受可否の最終判断は、必ずアンダーライターの確認を取ってください。\n"
+         "特に金額・期間・割合・条文番号は、必ず原本（保険証券・約款）と突き合わせて確認してください。"),
+
+        ("困ったときは",
+         "  ・回答が出ない/エラー    → main の『自己診断』ボタンを押す\n"
+         "  ・AI リボンが繋がらない  → main の『リボン接続テスト』ボタン\n"
+         "  ・ボットが反応しない    → main の『再起動』ボタン\n"
+         "  ・全部ダメ              → Excel 終了 → ファイル開き直す"),
+    ]
+
+    row = 3
+    label_font = Font(bold=True, size=11, color="3C5AA0")
+    body_font = Font(size=10)
+    warning_fill = PatternFill("solid", fgColor="FFF4D6")
+    section_fill = PatternFill("solid", fgColor="F4F6FB")
+
+    for label, body in sections:
+        is_warning = "⚠️" in label or "触ってはいけない" in label
+
+        ws.cell(row=row, column=1, value=label).font = label_font
+        ws.cell(row=row, column=1).alignment = Alignment(vertical="top", wrap_text=True)
+        ws.cell(row=row, column=2, value=body).font = body_font
+        ws.cell(row=row, column=2).alignment = Alignment(vertical="top", wrap_text=True)
+        if is_warning:
+            ws.cell(row=row, column=1).fill = warning_fill
+            ws.cell(row=row, column=2).fill = warning_fill
+        else:
+            ws.cell(row=row, column=1).fill = section_fill
+            ws.cell(row=row, column=2).fill = section_fill
+
+        # Approximate height
+        n_lines = body.count("\n") + 1
+        ws.row_dimensions[row].height = max(28, 16 * n_lines + 6)
+        row += 1
+
+    # Move 使い方 to position 1 (right after main)
+    sheet_order = wb.sheetnames
+    if "使い方" in sheet_order and sheet_order[1] != "使い方":
+        idx = sheet_order.index("使い方")
+        sheets = wb._sheets
+        sheets.insert(1, sheets.pop(idx))
 
 
 def _make_config(wb):
@@ -534,6 +652,7 @@ def main():
     # Stage 2: build all data sheets
     print("Stage 2: build data sheets...")
     _make_main_sheet(wb[wb.sheetnames[0]])  # repurpose Sheet1 → main
+    _make_howto(wb)
     _make_config(wb)
     _make_system_prompt(wb)
     _make_department(wb)

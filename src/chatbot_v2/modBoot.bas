@@ -19,6 +19,9 @@ Public gReady As Boolean
 Public gLastQuestion As String        ' for feedback handlers
 Public gLastAnswer As String          ' for feedback handlers
 Public gLastSelectedIds As String     ' chunk IDs used in last answer (comma sep)
+Public gFollowupMode As Boolean       ' true when next RunQuery should treat as a follow-up
+Public gPrevQ As String               ' previous turn's question (used when gFollowupMode)
+Public gPrevA As String               ' previous turn's answer
 Private gBootDone As Boolean          ' guard: Workbook_Open AND Auto_Open both call Boot
 
 ' Auto_Open is called by Excel when the workbook is opened interactively.

@@ -32,6 +32,7 @@ Private Const BTN_GOOD As String = "btnGood"
 Private Const BTN_BAD As String = "btnBad"
 Private Const BTN_TXT As String = "btnSaveTxt"
 Private Const BTN_HTML As String = "btnSaveHtml"
+Private Const BTN_FOLLOWUP As String = "btnFollowup"
 
 Public Sub EnsureLayout()
     Dim ws As Worksheet
@@ -84,14 +85,14 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("4:7").RowHeight = 22
 
-    ' Send + Clear buttons row
+    ' Send + Follow-up + Clear buttons row
     AddButton ws, ws.Range("B8:C8"), BTN_SEND, "> 送信", "modChatUI.OnSendClick"
-    AddButton ws, ws.Range("D8:E8"), BTN_CLEAR, "クリア", "modChatUI.OnClearClick"
-    ws.Range("F8:H8").Merge
-    ws.Range("F8").value = "(回答に60〜90秒かかります)"
-    ws.Range("F8").HorizontalAlignment = xlRight
-    ws.Range("F8").Font.Size = 9
-    ws.Range("F8").Font.color = RGB(120, 120, 120)
+    AddButton ws, ws.Range("D8:E8"), BTN_FOLLOWUP, "続けて質問", "modChatUI.OnFollowupClick"
+    AddButton ws, ws.Range("F8:G8"), BTN_CLEAR, "クリア", "modChatUI.OnClearClick"
+    ws.Range("H8").value = "(回答に60〜90秒)"
+    ws.Range("H8").HorizontalAlignment = xlRight
+    ws.Range("H8").Font.Size = 9
+    ws.Range("H8").Font.color = RGB(120, 120, 120)
     ws.Rows("8").RowHeight = 26
 
     ' Answer header
@@ -233,12 +234,55 @@ Trap:
         "質問送信処理で予期せぬエラー。『自己診断』で各サブシステムを確認してください。"
 End Sub
 
+Public Sub OnFollowupClick()
+    On Error GoTo Trap
+    If LenB(modBoot.gLastQuestion) = 0 Or LenB(modBoot.gLastAnswer) = 0 Then
+        MsgBox "まず最初の質問を送信して、回答を受け取ってから『続けて質問』を使ってください。", _
+               vbInformation, "続けて質問"
+        Exit Sub
+    End If
+
+    Dim hint As String
+    hint = "前回の回答に対する追加の質問・深掘りを入力してください。" & vbCrLf & vbCrLf & _
+           "例:" & vbCrLf & _
+           "  ・前売券の払い戻し手数料は対象になる？" & vbCrLf & _
+           "  ・グッズ代以外で対象外になりやすい収益は？" & vbCrLf & _
+           "  ・中止と部分中止で扱いは変わる？"
+    Dim followup As String
+    followup = InputBox(hint, "続けて質問（深掘り）", "")
+    If LenB(followup) = 0 Then Exit Sub
+
+    ' Save prior turn as the "context" for the follow-up
+    modBoot.gPrevQ = modBoot.gLastQuestion
+    modBoot.gPrevA = modBoot.gLastAnswer
+    modBoot.gFollowupMode = True
+
+    ' Reuse the main send flow: set the question into the cell and call OnSendClick
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
+    ws.Range(CELL_QUESTION).value = followup
+    OnSendClick
+
+    ' OnSendClick sets gLastQuestion/gLastAnswer; reset the flag so the next
+    ' top-level "送信" doesn't accidentally carry follow-up context.
+    modBoot.gFollowupMode = False
+    Exit Sub
+
+Trap:
+    modBoot.gFollowupMode = False
+    modDiag.ReportError "modChatUI.OnFollowupClick", Err.Number, Err.Description, _
+        "続けて質問の処理でエラーが発生しました。"
+End Sub
+
 Public Sub OnClearClick()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
     ws.Range(CELL_QUESTION).value = "ここに質問を書いてください"
     ws.Range(CELL_ANSWER).value = "（質問を入力して『> 送信』を押してください）"
     ws.Range(CELL_CITATIONS).value = ""
     ws.Range(CELL_DIAG).value = ""
+    ' Reset follow-up state so a new top-level question starts clean
+    modBoot.gFollowupMode = False
+    modBoot.gPrevQ = ""
+    modBoot.gPrevA = ""
     modBoot.gLastQuestion = "": modBoot.gLastAnswer = "": modBoot.gLastSelectedIds = ""
     ws.Range(CELL_QUESTION).Select
 End Sub
