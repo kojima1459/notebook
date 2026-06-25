@@ -47,9 +47,14 @@ Public Sub Boot()
         Exit Sub
     End If
 
+    ' Mark ready BEFORE building the UI. If EnsureLayout's cosmetic
+    ' Activate/Select fails on first open (Workbook_Open timing), we
+    ' don't want it to flip gReady back to False.
     gReady = True
     gBootDone = True
+    On Error Resume Next
     modChatUI.EnsureLayout
+    On Error GoTo 0
     Exit Sub
 
 Failed:

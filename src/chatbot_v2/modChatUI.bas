@@ -154,8 +154,12 @@ Public Sub EnsureLayout()
     ' Refresh status bar with dept/user info
     UpdateStatus ws, "Ready", RGB(220, 240, 220)
 
+    ' Activate/Select can fail during Workbook_Open before the window is
+    ' fully ready. Never let cosmetics propagate an error.
+    On Error Resume Next
     ws.Activate
     ws.Range(CELL_QUESTION).Select
+    On Error GoTo 0
     Application.ScreenUpdating = True
 End Sub
 
@@ -217,10 +221,13 @@ Public Sub OnSendClick()
     Exit Sub
 
 Trap:
+    ' Capture original err details BEFORE any cleanup can clobber them.
+    Dim _errN As Long: _errN = Err.Number
+    Dim _errD As String: _errD = Err.Description
     On Error Resume Next
     SetButtonsEnabled ThisWorkbook.Worksheets(SHEET_NAME), True
     On Error GoTo 0
-    modDiag.ReportError "modChatUI.OnSendClick", Err.Number, Err.Description, _
+    modDiag.ReportError "modChatUI.OnSendClick", _errN, _errD, _
         "質問送信処理で予期せぬエラー。『自己診断』で各サブシステムを確認してください。"
 End Sub
 
