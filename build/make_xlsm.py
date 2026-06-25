@@ -796,9 +796,11 @@ def patch_content_types(xml_bytes: bytes) -> bytes:
 def patch_workbook_rels(xml_bytes: bytes) -> bytes:
     xml = xml_bytes.decode('utf-8')
     if 'vbaProject' not in xml:
+        # IMPORTANT: correct namespace is microsoft.com, NOT openxmlformats.org.
+        # Using the wrong URL makes Excel silently ignore vbaProject.bin entirely.
         xml = xml.replace('</Relationships>',
             '<Relationship Id="rId99" '
-            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/vbaProject" '
+            'Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject" '
             'Target="vbaProject.bin"/></Relationships>')
     return xml.encode('utf-8')
 
