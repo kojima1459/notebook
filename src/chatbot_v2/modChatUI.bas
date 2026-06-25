@@ -186,6 +186,9 @@ Public Sub OnSendClick()
                   vbYesNo + vbExclamation, "確認") <> vbYes Then Exit Sub
     End If
 
+    ' A direct "送信" (not via 続けて質問) starts a fresh thread -> clear history.
+    If Not modBoot.gFollowupMode Then modBoot.ResetHistory
+
     UpdateStatus ws, "問い合わせ中...しばらくお待ちください (60〜90秒)", RGB(255, 235, 180)
     SetButtonsEnabled ws, False
     SetCellSafe ws.Range(CELL_ANSWER), "(生成中...)"
@@ -205,7 +208,9 @@ Public Sub OnSendClick()
         modBoot.gLastQuestion = q
         modBoot.gLastAnswer = res.Answer
         modBoot.gLastSelectedIds = res.SelectedIds
-        UpdateStatus ws, "Ready (○/× で評価できます)", RGB(220, 240, 220)
+        ' Record this exchange so a later 続けて質問 has the running context
+        modBoot.AppendHistory q, res.Answer
+        UpdateStatus ws, "Ready (○/× で評価できます。『続けて質問』で深掘りできます)", RGB(220, 240, 220)
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
@@ -243,7 +248,8 @@ Public Sub OnFollowupClick()
     End If
 
     Dim hint As String
-    hint = "前回の回答に対する追加の質問・深掘りを入力してください。" & vbCrLf & vbCrLf & _
+    hint = "前回までの会話を踏まえて、追加の質問・深掘りを入力してください。" & vbCrLf & _
+           "（直近 " & modBoot.HISTORY_MAX_TURNS & " 往復ぶんの会話を記憶しています。何度でも続けられます）" & vbCrLf & vbCrLf & _
            "例:" & vbCrLf & _
            "  ・前売券の払い戻し手数料は対象になる？" & vbCrLf & _
            "  ・グッズ代以外で対象外になりやすい収益は？" & vbCrLf & _
@@ -252,9 +258,7 @@ Public Sub OnFollowupClick()
     followup = InputBox(hint, "続けて質問（深掘り）", "")
     If LenB(followup) = 0 Then Exit Sub
 
-    ' Save prior turn as the "context" for the follow-up
-    modBoot.gPrevQ = modBoot.gLastQuestion
-    modBoot.gPrevA = modBoot.gLastAnswer
+    ' Follow-up mode: OnSendClick will keep (not reset) the running history.
     modBoot.gFollowupMode = True
 
     ' Reuse the main send flow: set the question into the cell and call OnSendClick
@@ -281,8 +285,7 @@ Public Sub OnClearClick()
     ws.Range(CELL_DIAG).value = ""
     ' Reset follow-up state so a new top-level question starts clean
     modBoot.gFollowupMode = False
-    modBoot.gPrevQ = ""
-    modBoot.gPrevA = ""
+    modBoot.ResetHistory
     modBoot.gLastQuestion = "": modBoot.gLastAnswer = "": modBoot.gLastSelectedIds = ""
     ws.Range(CELL_QUESTION).Select
 End Sub
@@ -379,16 +382,37 @@ Public Sub SetCellSafe(ByVal cell As Range, ByVal text As String)
 End Sub
 
 Private Sub AutoSizeAnswer(ByVal ws As Worksheet)
-    ' Approximate row height based on answer length
+    ' Size the merged answer block (B10:H40) so the WHOLE answer is visible
+    ' without the user manually dragging row 40. We estimate how many display
+    ' lines the wrapped text needs, then set the 31 rows tall enough in total.
     Dim ans As String: ans = CStr(ws.Range(CELL_ANSWER).value)
-    Dim lines As Long
-    lines = 1 + (Len(ans) \ 70) + (Len(ans) - Len(Replace(ans, vbLf, "")))
-    If lines > 200 Then lines = 200
-    ' Distribute across rows 10-40
-    Dim each_h As Double: each_h = Application.Max(14, (lines * 14) / 31)
+
+    ' Merged width B:H is roughly 98 column-units; Japanese chars are full-width
+    ' (~2 units each), so a line holds ~36 full-width chars. Use 34 to be safe
+    ' (overestimate lines slightly so nothing is clipped).
+    Const CHARS_PER_LINE As Long = 34
+
+    Dim segs() As String: segs = Split(ans, vbLf)
+    Dim totalLines As Long, i As Long
+    For i = LBound(segs) To UBound(segs)
+        Dim segLen As Long: segLen = Len(segs(i))
+        If segLen = 0 Then
+            totalLines = totalLines + 1
+        Else
+            totalLines = totalLines + ((segLen + CHARS_PER_LINE - 1) \ CHARS_PER_LINE)
+        End If
+    Next i
+    totalLines = totalLines + 2          ' small safety buffer
+
+    ' ~15 pt per display line, distributed over the 31 merged rows.
+    Dim perRow As Double
+    perRow = (totalLines * 15#) / 31#
+    If perRow < 15 Then perRow = 15
+    If perRow > 130 Then perRow = 130    ' guard against pathological lengths
+                                         ' (rows below the answer just shift down)
     Dim r As Long
     For r = 10 To 40
-        ws.Rows(r).RowHeight = each_h
+        ws.Rows(r).RowHeight = perRow
     Next r
 End Sub
 

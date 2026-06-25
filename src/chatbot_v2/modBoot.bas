@@ -20,8 +20,11 @@ Public gLastQuestion As String        ' for feedback handlers
 Public gLastAnswer As String          ' for feedback handlers
 Public gLastSelectedIds As String     ' chunk IDs used in last answer (comma sep)
 Public gFollowupMode As Boolean       ' true when next RunQuery should treat as a follow-up
-Public gPrevQ As String               ' previous turn's question (used when gFollowupMode)
-Public gPrevA As String               ' previous turn's answer
+Public gPrevQ As String               ' previous turn's question (legacy / unused)
+Public gPrevA As String               ' previous turn's answer (legacy / unused)
+Public gHistory As String             ' rolling Q&A history for multi-turn follow-ups
+Public Const HISTORY_MAX_TURNS As Long = 6   ' keep last N exchanges as context
+Public Const HISTORY_SEP As String = "<<<__TURN__>>>"
 Private gBootDone As Boolean          ' guard: Workbook_Open AND Auto_Open both call Boot
 
 ' Auto_Open is called by Excel when the workbook is opened interactively.
@@ -63,4 +66,48 @@ Public Sub Boot()
 Failed:
     MsgBox "起動エラー: " & Err.Description, vbCritical, "InternalNotebookLM v2"
     gReady = False
+End Sub
+
+' ----------------------------------------------------------------------------
+' Multi-turn follow-up history helpers
+' ----------------------------------------------------------------------------
+' Append one exchange (question + answer) to gHistory, keeping only the last
+' HISTORY_MAX_TURNS turns. Answers are trimmed so the running prompt stays
+' bounded even after many follow-ups.
+Public Sub AppendHistory(ByVal q As String, ByVal a As String)
+    Dim turn As String
+    turn = "Q: " & q & vbLf & "A: " & Left$(a, 2500)
+
+    If LenB(gHistory) = 0 Then
+        gHistory = turn
+    Else
+        gHistory = gHistory & HISTORY_SEP & turn
+    End If
+
+    ' Trim to last HISTORY_MAX_TURNS
+    Dim parts() As String: parts = Split(gHistory, HISTORY_SEP)
+    If UBound(parts) + 1 > HISTORY_MAX_TURNS Then
+        Dim keep As String, i As Long
+        For i = UBound(parts) - HISTORY_MAX_TURNS + 1 To UBound(parts)
+            If LenB(keep) > 0 Then keep = keep & HISTORY_SEP
+            keep = keep & parts(i)
+        Next i
+        gHistory = keep
+    End If
+End Sub
+
+' Build the conversation block to inject into the drafter prompt for follow-ups.
+Public Function HistoryBlock() As String
+    If LenB(gHistory) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(gHistory, HISTORY_SEP)
+    Dim out As String, i As Long, n As Long
+    For i = LBound(parts) To UBound(parts)
+        n = n + 1
+        out = out & "【会話" & n & "】" & vbLf & parts(i) & vbLf & vbLf
+    Next i
+    HistoryBlock = out
+End Function
+
+Public Sub ResetHistory()
+    gHistory = ""
 End Sub

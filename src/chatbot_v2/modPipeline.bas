@@ -90,13 +90,13 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     If LenB(feedbackBlock) > 0 Then
         drafterPrompt = drafterPrompt & vbLf & vbLf & feedbackBlock
     End If
-    ' If follow-up: include prior Q&A so the drafter continues the conversation
-    ' instead of starting from scratch. Trim prior answer to keep prompt size sane.
-    If modBoot.gFollowupMode And LenB(modBoot.gPrevQ) > 0 Then
-        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 前の質問" & vbLf & modBoot.gPrevQ
-        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 前の回答（参考）" & vbLf & Left$(modBoot.gPrevA, 4000)
-        drafterPrompt = drafterPrompt & vbLf & vbLf & "## 続きの質問・深掘り" & vbLf & question & vbLf & vbLf & _
-            "（指示）前の質問・回答の流れを踏まえて、この続きの質問に答えてください。前と重複する説明は最小限に、新しい論点を中心に書いてください。"
+    ' If follow-up: include the running conversation so the drafter continues
+    ' the thread instead of starting over. History is capped to the last N turns.
+    Dim hist As String: hist = modBoot.HistoryBlock()
+    If modBoot.gFollowupMode And LenB(hist) > 0 Then
+        drafterPrompt = drafterPrompt & vbLf & vbLf & "## これまでの会話（流れを踏まえて続けて回答）" & vbLf & hist
+        drafterPrompt = drafterPrompt & vbLf & "## 続きの質問・深掘り" & vbLf & question & vbLf & vbLf & _
+            "（指示）上の会話の流れを踏まえ、この続きの質問に答えてください。すでに説明済みの内容は繰り返さず、新しい論点に集中してください。"
     Else
         drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
     End If
