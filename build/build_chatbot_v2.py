@@ -183,51 +183,75 @@ def _bold(ws, cell, value):
 
 def _make_main_sheet(wb):
     ws = wb.create_sheet("main")
-    # Macros normally rebuild this sheet on open. If they don't fire, this
-    # static content tells the user exactly what to do.
+    # Macros rebuild this sheet when they run. If they don't fire yet, this
+    # static content guides the user through the one-time setup.
+
+    # Row 1: title banner
     ws["A1"] = "社内ナレッジ QA ボット (v2)"
-    ws["A1"].font = Font(bold=True, size=16)
     ws["A1"].fill = PatternFill("solid", fgColor="3C5AA0")
     ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 32
 
-    ws["A3"] = "▼ もしこの画面のままで操作ボタンが出ない場合 ▼"
-    ws["A3"].font = Font(bold=True, size=12, color="CC0000")
+    # Row 2: header for setup area
+    ws["A2"] = "▼ 初回セットアップ ▼"
+    ws["A2"].font = Font(bold=True, size=11, color="CC0000")
+    ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 20
+
+    # Row 3: CLICK TRIGGER — Sheet1.SelectionChange fires on B3
+    ws["A3"] = "セットアップ"
+    ws["A3"].font = Font(bold=True, size=11)
+    ws["A3"].alignment = Alignment(horizontal="right", vertical="center")
+
+    ws["B3"] = "【 ここをクリック → セットアップ実行 】"
+    ws["B3"].font = Font(bold=True, size=13, color="FFFFFF")
+    ws["B3"].fill = PatternFill("solid", fgColor="E05000")
+    ws["B3"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[3].height = 28
+
+    # Row 5: step-by-step fallback instructions
+    ws["A5"] = "上のボタンをクリックしてもセットアップが起動しない場合:"
+    ws["A5"].font = Font(bold=True, size=11, color="CC0000")
+    ws.row_dimensions[5].height = 20
 
     instructions = [
+        "① 画面上部の黄色帯「セキュリティの警告」→『コンテンツの有効化』をクリック",
         "",
-        "① 上の黄色帯「セキュリティの警告」が出ていたら『コンテンツの有効化』を押す",
+        "② 次の設定を確認・有効化してください:",
+        "   Excel → [ファイル] → [オプション] → [トラストセンター] → [トラストセンターの設定]",
+        "   → [マクロの設定] → 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック",
+        "   → OK → Excel を閉じて再度ファイルを開く",
         "",
-        "② それでもボタンが出ない場合は次の手順:",
-        "   1. キーボードで Alt + F11 を押す (VBAエディタが開く)",
-        "   2. 左の『プロジェクト』ツリーから『ThisWorkbook』をダブルクリック",
-        "   3. 開いたコードの中の『Public Sub Setup()』の行をクリック",
-        "   4. F5 キーを押す",
-        "   5. 『セットアップ完了』のメッセージが出れば成功",
+        "③ それでも動かない場合 (Alt+F11 で手動実行):",
+        "   1. Alt + F11 キーを押す (VBAエディタが開く)",
+        "   2. 画面左のツリーから『ThisWorkbook』をダブルクリック",
+        "   3. 右側のコードで『Public Sub Setup()』の行にカーソルを置く",
+        "   4. F5 キーを押す → セットアップ完了メッセージが出れば成功",
         "",
-        "③ それでも動かない場合は管理者に画面写真を送ってください",
-        "",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "■ このシステムの仕組み",
-        "  ・PDFマニュアル15冊(813チャンク)から関連箇所を検索",
-        "  ・社内AIリボン(リボンちゃん/MSAD-Addin)で回答生成",
-        "  ・○良かった / ×修正 で学習(同じ質問が来たら蓄積を参照)",
+        "  ・費用利益保険チームのPDFマニュアル15冊(813チャンク)を搭載",
+        "  ・社内AIリボン(MSAD-Addin / ChatGPT関数)で回答を4段階生成",
+        "  ・○良かった/×修正ボタンでQ&Aを蓄積し精度向上",
         "",
         "■ 重要",
         "  ・回答は必ずアンダーライターの最終確認を取ること",
-        "  ・契約番号・氏名・電話番号は質問に含めないこと",
+        "  ・契約番号・氏名・電話番号など個人情報を質問に含めないこと",
     ]
-    for i, line in enumerate(instructions, start=4):
+    for i, line in enumerate(instructions, start=6):
         cell = ws.cell(row=i, column=1, value=line)
         if line.startswith("■"):
             cell.font = Font(bold=True, size=11)
         elif line.startswith("━"):
             cell.font = Font(color="888888")
+        elif line.startswith("①") or line.startswith("②") or line.startswith("③"):
+            cell.font = Font(bold=True, size=11)
         else:
-            cell.font = Font(size=11)
+            cell.font = Font(size=10)
 
-    ws.column_dimensions["A"].width = 80
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 72
 
 
 def _make_vba_src_sheet(wb):
@@ -416,22 +440,27 @@ def load_v2_modules() -> list:
     tw_src = make_xlsm.load_module_source(
         os.path.join(SRC_V2, "ThisWorkbook.cls"), is_cls=True)
 
+    # Sheet1 (main) carries a SelectionChange handler so users can click
+    # cell B3 to trigger Setup even if Workbook_Open was suppressed.
+    # This code lives in the binary (not vba_src) so it works before
+    # standard modules are installed.
+    sheet1_cls = os.path.join(SRC_V2, "Sheet1.cls")
+    sheet1_src = make_xlsm.load_module_source(sheet1_cls, is_cls=True)
+
     modules = [
         make_xlsm._doc("ThisWorkbook", tw_src),
+        make_xlsm._doc("Sheet1", sheet1_src),
     ]
-    # One Document object per worksheet — match the sheet order in xlsm
-    # (openpyxl wrote 8 sheets). VBA does not need full code in these,
-    # just placeholder so the project compiles.
-    # 9 sheets now: main, config, system_prompt, department, manifest,
+    # Remaining 8 sheets need empty Document stubs so VBA compiles cleanly.
+    # 9 sheets total: main, config, system_prompt, department, manifest,
     # knowledge_base, feedback, usage_log, vba_src
-    for sheet_codename in ["Sheet1", "Sheet2", "Sheet3", "Sheet4",
-                            "Sheet5", "Sheet6", "Sheet7", "Sheet8", "Sheet9"]:
+    for sheet_codename in ["Sheet2", "Sheet3", "Sheet4", "Sheet5",
+                            "Sheet6", "Sheet7", "Sheet8", "Sheet9"]:
         modules.append(make_xlsm._doc(sheet_codename, make_xlsm.EMPTY_DOC_SOURCE))
 
-    # Minimal binary strategy: do NOT include standard modules in
-    # vbaProject.bin. Some Excel versions silently drop programmatically
-    # built standard modules. ThisWorkbook.Setup will build them at runtime
-    # from the vba_src sheet.
+    # Standard modules are NOT in the binary. Some Excel versions silently
+    # drop programmatically built standard modules from vbaProject.bin.
+    # ThisWorkbook.Setup installs them at runtime from the vba_src sheet.
 
     return modules
 
