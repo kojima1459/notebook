@@ -18,7 +18,7 @@ Option Explicit
 '   K: feedback_status   (set later by feedback handlers if good/bad clicked)
 ' ============================================================================
 
-Public Sub LogQuery(ByVal q As String, ByRef res As modPipeline.PipelineResult)
+Public Sub LogQuery(ByVal q As String, ByRef res As PipelineResult)
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("usage_log")

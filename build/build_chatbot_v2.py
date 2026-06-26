@@ -91,6 +91,11 @@ Public Sub Install()
       On Error GoTo Done
       Set c = p.VBComponents.Add(1)
       c.Name = n
+      ' Strip any auto-inserted lines (e.g. Option Explicit when VBE's
+      ' "Require Variable Declaration" is ON). Without this, the source's
+      ' own Option Explicit becomes a duplicate -> compile error on every
+      ' colleague PC where that VBE option is enabled.
+      If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
       If LenB(s) > 0 Then c.CodeModule.AddFromString s
     End If
   Next r

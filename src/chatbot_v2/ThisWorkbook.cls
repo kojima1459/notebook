@@ -89,6 +89,13 @@ Public Sub Setup()
         Dim vbComp As Object
         Set vbComp = vbProj.VBComponents.Add(1)
         vbComp.Name = modName
+        ' Strip any auto-inserted lines (e.g. Option Explicit when VBE's
+        ' "Require Variable Declaration" is ON). Without this, the source's
+        ' own Option Explicit becomes a duplicate -> compile error on every
+        ' colleague PC where that VBE option is enabled.
+        If vbComp.CodeModule.CountOfLines > 0 Then
+            vbComp.CodeModule.DeleteLines 1, vbComp.CodeModule.CountOfLines
+        End If
         If LenB(modSrc) > 0 Then
             vbComp.CodeModule.AddFromString modSrc
         End If
