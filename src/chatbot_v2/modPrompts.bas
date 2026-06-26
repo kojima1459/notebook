@@ -4,14 +4,16 @@ Option Explicit
 ' ============================================================================
 ' modPrompts - Read system prompts from the `system_prompt` sheet
 ' ----------------------------------------------------------------------------
-' Sheet structure (column A = key, column B = prompt text):
-'   row 2: router
-'   row 3: drafter
-'   row 4: verifier
+' Sheet structure (column A = key, column B = prompt text). Looked up by key
+' string, so row order does not matter. Keys: intent / router / drafter / verifier.
 ' Prompts can be edited by admins without touching VBA.
 ' ============================================================================
 
 Private Const SHEET_NAME As String = "system_prompt"
+
+Public Function GetIntent() As String
+    GetIntent = ReadKey("intent")
+End Function
 
 Public Function GetRouter() As String
     GetRouter = ReadKey("router")

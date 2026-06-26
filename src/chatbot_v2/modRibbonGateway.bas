@@ -48,17 +48,25 @@ End Function
 ' ----------------------------------------------------------------------------
 Private Function MockResponse(ByVal prompt As String, ByVal step_name As String) As String
     Select Case LCase$(step_name)
+        Case "intent"
+            MockResponse = "{""intent"": ""(mock) 照会の意図"", ""assumptions"": [""(mock)前提""], " & _
+                           """needs_clarification"": false, ""clarifying_questions"": [], " & _
+                           """search_queries"": [""(mock)サブクエリ1"", ""(mock)サブクエリ2""]}"
         Case "router"
             MockResponse = "{""selected_ids"": [" & MockPickIds(prompt, 4) & "], " & _
                            """reasoning"": ""(mock) picked leading chunks""}"
         Case "verifier"
-            ' Passthrough: the draft is the text after the last "## ドラフト回答"
+            ' Passthrough: the draft is the text after the last "## ドラフト回答",
+            ' plus the machine-readable trailers the real verifier emits.
             Dim p As Long: p = InStrRev(prompt, "## ドラフト回答")
+            Dim drafted As String
             If p > 0 Then
-                MockResponse = Trim$(Mid$(prompt, p + Len("## ドラフト回答")))
+                drafted = Trim$(Mid$(prompt, p + Len("## ドラフト回答")))
             Else
-                MockResponse = prompt
+                drafted = prompt
             End If
+            MockResponse = drafted & vbLf & "[[CONFIDENCE:中]]" & vbLf & _
+                           "[[FOLLOWUP: (mock)深掘り例1 | (mock)深掘り例2]]"
         Case Else   ' drafter
             MockResponse = "【モック回答】これはリボン未接続の動作確認用ダミー回答です。" & vbLf & vbLf & _
                            "■ 結論" & vbLf & _

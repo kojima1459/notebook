@@ -22,6 +22,10 @@ Public Type PipelineResult
     Draft As String
     Answer As String            ' final answer (after verifier if enabled)
     Citations As String
+    Intent As String            ' from intent layer
+    Assumptions As String       ' from intent layer
+    Confidence As String        ' 高 / 中 / 低 (parsed from verifier)
+    Followups As String         ' 深掘り候補 (vbLf sep, parsed from verifier)
     RouterMs As Long
     DraftMs As Long
     VerifyMs As Long
@@ -29,11 +33,27 @@ Public Type PipelineResult
     ErrorMsg As String
 End Type
 
-Public Function RunQuery(ByVal question As String) As PipelineResult
+' ir carries the intent-layer analysis (may be a blank IntentResult if the layer
+' is disabled); extraContext is the user's answer to any clarifying questions.
+Public Function RunQuery(ByVal question As String, _
+                         ByRef ir As modIntent.IntentResult, _
+                         ByVal extraContext As String) As PipelineResult
     Dim res As PipelineResult
     res.Question = question
+    res.Intent = ir.Intent
+    res.Assumptions = ir.Assumptions
     Dim tAll As Double: tAll = Timer
     On Error GoTo Trap
+
+    ' ---- Easter egg: "誰が作った？" は約款と無関係なので最初に横取り ----
+    If IsCreatorQuestion(question) Then
+        res.Answer = CreatorAnswer()
+        res.Confidence = "高"
+        res.OK = True
+        res.TotalMs = CLng((Timer - tAll) * 1000)
+        RunQuery = res
+        Exit Function
+    End If
 
     Dim deptId As String: deptId = modUserProfile.CurrentDept()
     Dim user As String: user = modUserProfile.CurrentUser()
@@ -62,10 +82,17 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
         routerQuestion = "【これまでの会話（参考）】" & vbLf & rHist & vbLf & _
                          "【続きの質問】" & vbLf & question
     End If
+    ' Intent layer: append decomposed sub-queries so the router retrieves chunks
+    ' for every facet of the question, not just its surface wording.
+    If LenB(ir.SearchQueries) > 0 Then
+        routerQuestion = routerQuestion & vbLf & _
+            "【関連する論点（検索補助）】" & vbLf & ir.SearchQueries
+    End If
     routerPrompt = Replace(routerPrompt, "{question}", routerQuestion)
     routerPrompt = Replace(routerPrompt, "{max_n}", CStr(routerN))
     routerPrompt = Replace(routerPrompt, "{knowledge_table}", routerTable)
 
+    SetBar "🔎 関連する社内ナレッジを検索中... (2/4)"
     Dim routerOut As String
     routerOut = modRibbonGateway.CallLLM(routerPrompt, "router", res.RouterMs)
     modRibbonGateway.LogDebugCall "router", routerPrompt, routerOut, res.RouterMs
@@ -101,6 +128,21 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     If LenB(feedbackBlock) > 0 Then
         drafterPrompt = drafterPrompt & vbLf & vbLf & feedbackBlock
     End If
+    ' Intent layer output: tell the drafter the analysed intent/assumptions so it
+    ' answers the REAL question and leads with the premises it assumed.
+    If LenB(ir.Intent) > 0 Or LenB(ir.Assumptions) > 0 Then
+        drafterPrompt = drafterPrompt & vbLf & vbLf & _
+            "## 照会の意図・前提（意図解釈レイヤーの解析。これを踏まえて回答する）"
+        If LenB(ir.Intent) > 0 Then drafterPrompt = drafterPrompt & vbLf & "意図: " & ir.Intent
+        If LenB(ir.Assumptions) > 0 Then drafterPrompt = drafterPrompt & vbLf & "前提: " & ir.Assumptions
+        drafterPrompt = drafterPrompt & vbLf & _
+            "（指示）回答の冒頭に「【前提】…」を1行で明示し、不確実な前提は留意点に書く。"
+    End If
+    ' Clarification answers the user typed back (if any).
+    If LenB(extraContext) > 0 Then
+        drafterPrompt = drafterPrompt & vbLf & vbLf & _
+            "## 照会者からの補足（前提確認への回答。これを最優先で反映）" & vbLf & extraContext
+    End If
     ' If follow-up: include the running conversation so the drafter continues
     ' the thread instead of starting over. History is capped to the last N turns.
     Dim hist As String: hist = modBoot.HistoryBlock()
@@ -112,6 +154,7 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
         drafterPrompt = drafterPrompt & vbLf & vbLf & "## ユーザーの質問" & vbLf & question
     End If
 
+    SetBar "✍ 約款・ガイドラインを踏まえて回答を作成中... (3/4)"
     res.Draft = modRibbonGateway.CallLLM(drafterPrompt, "drafter", res.DraftMs)
     modRibbonGateway.LogDebugCall "drafter", drafterPrompt, res.Draft, res.DraftMs
 
@@ -130,6 +173,7 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
         verifierPrompt = verifierPrompt & vbLf & vbLf & "## 元の質問" & vbLf & question
         verifierPrompt = verifierPrompt & vbLf & vbLf & "## ドラフト回答" & vbLf & res.Draft
 
+        SetBar "🔍 事実と出典を照合・検証中... (4/4)"
         res.Answer = modRibbonGateway.CallLLM(verifierPrompt, "verifier", res.VerifyMs)
         modRibbonGateway.LogDebugCall "verifier", verifierPrompt, res.Answer, res.VerifyMs
         If Left$(res.Answer, 12) = "#LLM_ERROR: " Then
@@ -140,6 +184,11 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
         res.Answer = res.Draft
     End If
 
+    ' Extract the verifier's machine-readable trailing lines (confidence + follow-ups)
+    ' and strip them from the displayed answer.
+    ParseTrailers res
+    If LenB(res.Confidence) = 0 Then res.Confidence = "中"   ' default when verifier off
+
     res.TotalMs = CLng((Timer - tAll) * 1000)
     res.OK = True
     ' Trim citations to only the [#N] markers actually used in the final answer.
@@ -147,17 +196,27 @@ Public Function RunQuery(ByVal question As String) As PipelineResult
     res.Citations = FilterUsedCitations(res.Citations, res.Answer)
 
 Finish:
+    SetBar False
     ' CRITICAL: a UDT return value must be assigned explicitly, at every exit.
     RunQuery = res
     Exit Function
 
 Trap:
+    SetBar False
     res.OK = False
     res.ErrorMsg = "[パイプライン内部エラー] Err " & Err.Number & ": " & Err.Description & vbLf & _
                    "選択ID: " & res.SelectedIds
     res.TotalMs = CLng((Timer - tAll) * 1000)
     RunQuery = res
 End Function
+
+' Update Excel's status bar so the user sees live progress during the
+' (otherwise UI-blocking) LLM calls. Never raises.
+Private Sub SetBar(ByVal msg As Variant)
+    On Error Resume Next
+    Application.StatusBar = msg
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' Scan the answer for [#N] markers actually used, then keep only matching
@@ -233,6 +292,104 @@ Public Function FilterUsedCitations(ByVal cit As String, ByVal answer As String)
 NextLine:
     Next i
     FilterUsedCitations = out
+End Function
+
+' ----------------------------------------------------------------------------
+' Pull [[CONFIDENCE:..]] and [[FOLLOWUP: a | b | c]] off the end of the answer,
+' set res.Confidence / res.Followups, and remove those lines from res.Answer.
+' Tolerant of the verifier omitting them (older prompt / verifier off).
+' ----------------------------------------------------------------------------
+Public Sub ParseTrailers(ByRef res As PipelineResult)
+    Dim a As String: a = res.Answer
+    If LenB(a) = 0 Then Exit Sub
+
+    ' CONFIDENCE
+    Dim p As Long: p = InStr(1, a, "[[CONFIDENCE:", vbTextCompare)
+    If p > 0 Then
+        Dim q As Long: q = InStr(p, a, "]]")
+        If q > 0 Then
+            Dim cv As String: cv = Mid$(a, p + Len("[[CONFIDENCE:"), q - p - Len("[[CONFIDENCE:"))
+            cv = Trim$(cv)
+            If InStr(cv, "高") > 0 Then
+                res.Confidence = "高"
+            ElseIf InStr(cv, "低") > 0 Then
+                res.Confidence = "低"
+            ElseIf InStr(cv, "中") > 0 Then
+                res.Confidence = "中"
+            End If
+        End If
+    End If
+
+    ' FOLLOWUP
+    Dim fp As Long: fp = InStr(1, a, "[[FOLLOWUP:", vbTextCompare)
+    If fp > 0 Then
+        Dim fq As Long: fq = InStr(fp, a, "]]")
+        If fq > 0 Then
+            Dim fv As String: fv = Mid$(a, fp + Len("[[FOLLOWUP:"), fq - fp - Len("[[FOLLOWUP:"))
+            fv = Trim$(fv)
+            If StrComp(fv, "なし", vbTextCompare) <> 0 And LenB(fv) > 0 Then
+                Dim parts() As String: parts = Split(fv, "|")
+                Dim out As String, i As Long
+                For i = LBound(parts) To UBound(parts)
+                    Dim t As String: t = Trim$(parts(i))
+                    If LenB(t) > 0 Then
+                        If LenB(out) > 0 Then out = out & vbLf
+                        out = out & t
+                    End If
+                Next i
+                res.Followups = out
+            End If
+        End If
+    End If
+
+    ' Strip every line that contains a [[...]] machine marker from the display text.
+    Dim lines() As String: lines = Split(a, vbLf)
+    Dim keep As String, j As Long
+    For j = LBound(lines) To UBound(lines)
+        If InStr(lines(j), "[[CONFIDENCE:") = 0 And InStr(lines(j), "[[FOLLOWUP:") = 0 Then
+            If LenB(keep) > 0 Then keep = keep & vbLf
+            keep = keep & lines(j)
+        End If
+    Next j
+    ' Trim trailing blank lines
+    Do While Len(keep) > 0 And (Right$(keep, 1) = vbLf Or Right$(keep, 1) = vbCr Or Right$(keep, 1) = " ")
+        keep = Left$(keep, Len(keep) - 1)
+    Loop
+    res.Answer = keep
+End Sub
+
+' ----------------------------------------------------------------------------
+' Hidden credit: questions about who built this bot are answered directly,
+' independent of the knowledge base. Kept tight (short question + co-occurring
+' "this bot/tool/AI" + "made/developed/who") to avoid false positives on
+' genuine insurance questions.
+' ----------------------------------------------------------------------------
+Public Function IsCreatorQuestion(ByVal q As String) As Boolean
+    Dim s As String: s = LCase$(q)
+    If Len(s) > 60 Then Exit Function                 ' creator questions are short
+    Dim subjectHit As Boolean, verbHit As Boolean
+    If InStr(s, "このチャット") > 0 Or InStr(s, "このbot") > 0 Or InStr(s, "このボット") > 0 _
+       Or InStr(s, "このツール") > 0 Or InStr(s, "このアプリ") > 0 Or InStr(s, "このシステム") > 0 _
+       Or InStr(s, "君") > 0 Or InStr(s, "あなた") > 0 Or InStr(s, "notebook") > 0 _
+       Or InStr(s, "このai") > 0 Or InStr(s, "このチャットボット") > 0 Then subjectHit = True
+    If InStr(s, "作っ") > 0 Or InStr(s, "作成") > 0 Or InStr(s, "開発") > 0 Or InStr(s, "制作") > 0 _
+       Or InStr(s, "誰が") > 0 Or InStr(s, "who made") > 0 Or InStr(s, "who built") > 0 Then verbHit = True
+    If InStr(s, "開発者") > 0 Or InStr(s, "作者") > 0 Then
+        IsCreatorQuestion = True
+        Exit Function
+    End If
+    IsCreatorQuestion = (subjectHit And verbHit)
+End Function
+
+Public Function CreatorAnswer() As String
+    Dim nm As String: nm = modConfig.GetString("creator_name", "小島正豪")
+    Dim grp As String: grp = modConfig.GetString("creator_group", "ニューリスクG")
+    CreatorAnswer = "## このチャットボットについて 🤖" & vbLf & vbLf & _
+        "このチャットボットは、" & grp & " のAIプロフェッショナル **" & nm & "** さんが開発しました。" & vbLf & vbLf & _
+        "営業の照会対応を効率化し、本社引受部門の負荷を下げ、ナレッジを全社で資産化することを" & _
+        "目的に、約款・引受ガイドライン・商品部公式Q&Aを根拠とした回答と、本社への照会支援" & _
+        "（教えてBOX）を一体で設計しています。" & vbLf & vbLf & _
+        "© " & grp & " " & nm
 End Function
 
 ' ----------------------------------------------------------------------------

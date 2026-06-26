@@ -20,6 +20,12 @@ Public gLastQuestion As String        ' for feedback handlers
 Public gLastAnswer As String          ' for feedback handlers
 Public gLastSelectedIds As String     ' chunk IDs used in last answer (comma sep)
 Public gFollowupMode As Boolean       ' true when next RunQuery should treat as a follow-up
+' --- intent layer / escalation / confidence (set per answer; used by 教えてBOX) ---
+Public gLastIntent As String          ' AIが解釈した照会の意図
+Public gLastAssumptions As String     ' AIが置いた前提
+Public gLastCitations As String       ' 表示中の出典ブロック
+Public gLastConfidence As String      ' 高 / 中 / 低
+Public gLastFollowups As String       ' 深掘り候補 (vbLf 区切り)
 Public gPrevQ As String               ' previous turn's question (legacy / unused)
 Public gPrevA As String               ' previous turn's answer (legacy / unused)
 Public gHistory As String             ' rolling Q&A history for multi-turn follow-ups

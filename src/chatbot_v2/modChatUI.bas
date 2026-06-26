@@ -33,6 +33,9 @@ Private Const BTN_BAD As String = "btnBad"
 Private Const BTN_TXT As String = "btnSaveTxt"
 Private Const BTN_HTML As String = "btnSaveHtml"
 Private Const BTN_FOLLOWUP As String = "btnFollowup"
+Private Const BTN_INQUIRY As String = "btnInquiry"
+Private Const BTN_MODE As String = "btnMode"
+Public Const CELL_MEMO As String = "B58"
 
 Public Sub EnsureLayout()
     Dim ws As Worksheet
@@ -95,6 +98,18 @@ Public Sub EnsureLayout()
     ws.Range("H8").Font.color = RGB(120, 120, 120)
     ws.Rows("8").RowHeight = 26
 
+    ' Intent-mode toggle (smart <-> always). Lets each user choose how strongly
+    ' the AI confirms premises before answering.
+    AddButton ws, ws.Range("B9:D9"), BTN_MODE, ModeButtonCaption(), "modChatUI.OnToggleMode"
+    With ws.Range("E9:H9")
+        .Merge
+        .value = "← 質問の前提をAIに確認させる強さ（迷う/新人なら『毎回前提確認』推奨）"
+        .Font.Size = 9
+        .Font.color = RGB(120, 120, 120)
+        .VerticalAlignment = xlCenter
+    End With
+    ws.Rows("9").RowHeight = 22
+
     ' Answer header
     ws.Range("A10").value = "回答:"
     ws.Range("A10").Font.Bold = True
@@ -109,11 +124,10 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("10:40").RowHeight = 14
 
-    ' Feedback buttons + save buttons
+    ' Post-answer action row: evaluate (○/×) then escalate (教えてBOX) if still unsure.
     AddButton ws, ws.Range("B41:C41"), BTN_GOOD, "○ 良かった", "modFeedback.Submit_Feedback_Good"
     AddButton ws, ws.Range("D41:E41"), BTN_BAD, "× 修正", "modFeedback.Submit_Feedback_Bad"
-    AddButton ws, ws.Range("F41:G41"), BTN_TXT, "テキスト出力", "modChatUI.OnSaveTxtClick"
-    AddButton ws, ws.Range("H41:H41"), BTN_HTML, "HTML出力", "modChatUI.OnSaveHtmlClick"
+    AddButton ws, ws.Range("F41:H41"), BTN_INQUIRY, "📮 教えてBOX（本社へ照会）", "modChatUI.OnInquiryClick"
     ws.Rows("41").RowHeight = 26
 
     ' Diagnostics row (always available - helps locate problems fast)
@@ -135,6 +149,14 @@ Public Sub EnsureLayout()
         .Font.Size = 9
     End With
 
+    ' Save buttons (less prominent, below citations)
+    AddButton ws, ws.Range("B51:C51"), BTN_TXT, "テキスト出力", "modChatUI.OnSaveTxtClick"
+    AddButton ws, ws.Range("D51:E51"), BTN_HTML, "HTML出力", "modChatUI.OnSaveHtmlClick"
+    ws.Range("F51:H51").value = "← 回答を保存"
+    ws.Range("F51").Font.Size = 9
+    ws.Range("F51").Font.color = RGB(120, 120, 120)
+    ws.Rows("51").RowHeight = 24
+
     ' Diagnostics
     ws.Range("A52").value = "状態:"
     ws.Range("A52").Font.Bold = True
@@ -142,14 +164,50 @@ Public Sub EnsureLayout()
     ws.Range("B52").Font.Size = 9
     ws.Range("B52").Font.color = RGB(120, 120, 120)
 
-    ' Disclaimer
-    With ws.Range("A54:H56")
+    ' Self-understanding flow + guard text (always visible under the answer)
+    With ws.Range("A54:H57")
         .Merge
-        .value = "■ 重要：この回答はAI生成です。最終判断はアンダーライターへ確認してください。" & vbLf & _
-                 "■ 質問に契約番号・氏名・電話番号などの個人情報を含めないでください。"
+        .value = _
+            "【回答を受け取ったら（この順で自己解決 → 学習が深まります）】" & vbLf & _
+            "  ① まず出典元（約款・引受ガイドライン）を自分の目で確認する" & vbLf & _
+            "  ② 理解できたか確認する。曖昧なら『続けて質問』で深掘り（何度でもOK）" & vbLf & _
+            "  ③ 「○良かった／×修正」で評価する（ここまでで1セット。次の人の役に立ちます）" & vbLf & _
+            "  ④ それでも判断に迷う時だけ『📮 教えてBOX』で本社へ照会" & vbLf & _
+            "■ 本回答はAIが生成しており、必ずしも正しいとは限りません。最終判断はアンダーライター／原本確認を。" & vbLf & _
+            "■ 質問に契約番号・氏名・電話番号などの個人情報を含めないでください。"
         .WrapText = True
+        .VerticalAlignment = xlTop
         .Font.Size = 9
-        .Font.color = RGB(150, 60, 60)
+        .Font.color = RGB(120, 70, 70)
+        .Interior.color = RGB(255, 250, 240)
+        .Borders.LineStyle = xlContinuous
+    End With
+
+    ' Next-question memo (jot the next question while you read / wait)
+    ws.Range("A58").value = "💭メモ:"
+    ws.Range("A58").Font.Size = 9
+    ws.Range("A58").Font.Bold = True
+    With ws.Range("B58:H59")
+        .Merge
+        .value = "（思いついた次の質問をここに書きためておけます。送信欄にコピーして使ってください）"
+        .WrapText = True
+        .VerticalAlignment = xlTop
+        .Interior.color = RGB(252, 252, 245)
+        .Borders.LineStyle = xlContinuous
+        .Font.Size = 9
+        .Font.color = RGB(150, 150, 150)
+    End With
+
+    ' Footer: model recommendation + copyright
+    With ws.Range("A60:H60")
+        .Merge
+        .value = "⚡ 必ず最新モデル「" & modConfig.GetString("recommended_model", "GPT-5.5") & _
+                 "」(2026年6月時点)に切り替えてご利用ください。" & _
+                 "　　© " & modConfig.GetString("creator_group", "ニューリスクG") & " " & _
+                 modConfig.GetString("creator_name", "小島正豪")
+        .Font.Size = 9
+        .Font.color = RGB(110, 110, 130)
+        .HorizontalAlignment = xlLeft
     End With
 
     ' Refresh status bar with dept/user info
@@ -189,28 +247,71 @@ Public Sub OnSendClick()
     ' A direct "送信" (not via 続けて質問) starts a fresh thread -> clear history.
     If Not modBoot.gFollowupMode Then modBoot.ResetHistory
 
-    UpdateStatus ws, "問い合わせ中...しばらくお待ちください (60〜90秒)", RGB(255, 235, 180)
     SetButtonsEnabled ws, False
-    SetCellSafe ws.Range(CELL_ANSWER), "(生成中...)"
+
+    ' ---- Step 0: Intent layer (意図解釈 + 前提確認) -----------------------
+    Dim ir As modIntent.IntentResult
+    Dim extra As String
+    If modConfig.GetBool("intent_layer_enabled", True) Then
+        UpdateStatus ws, "照会の意図を解釈中... (1/4)", RGB(255, 235, 180)
+        SetCellSafe ws.Range(CELL_ANSWER), "(照会の意図を解釈しています...)"
+        DoEvents
+        Dim mode As String: mode = modConfig.GetString("intent_mode", "smart")
+        ir = modIntent.AnalyzeIntent(q, mode, modBoot.HistoryBlock())
+        If ir.OK And ir.NeedsClarification And LenB(ir.ClarifyingText) > 0 Then
+            SetCellSafe ws.Range(CELL_ANSWER), _
+                "【確認させてください】より正確にお答えするため、以下を教えてください:" & vbLf & vbLf & _
+                ir.ClarifyingText & vbLf & vbLf & _
+                "→ ポップアップに分かる範囲で補足してください（空欄のままでも、一般的な前提で回答します）"
+            AutoSizeAnswer ws
+            DoEvents
+            extra = InputBox( _
+                ir.ClarifyingText & vbCrLf & vbCrLf & _
+                "↑ について分かる範囲で補足してください。" & vbCrLf & _
+                "（空欄でOK。その場合は一般的な前提で回答します）", _
+                "前提の確認 - より正確な回答のために")
+        End If
+    End If
+
+    UpdateStatus ws, "問い合わせ中...しばらくお待ちください (60〜90秒)", RGB(255, 235, 180)
+    SetCellSafe ws.Range(CELL_ANSWER), "(回答を生成中... 検索→ドラフト→検証。Excelが応答なしに見えても正常です)"
     SetCellSafe ws.Range(CELL_CITATIONS), ""
-    SetCellSafe ws.Range(CELL_DIAG), "ルーター起動中..."
+    SetCellSafe ws.Range(CELL_DIAG), "パイプライン実行中..."
     DoEvents
 
     Dim res As modPipeline.PipelineResult
-    res = modPipeline.RunQuery(q)
+    res = modPipeline.RunQuery(q, ir, extra)
 
     If res.OK Then
-        SetCellSafe ws.Range(CELL_ANSWER), res.Answer
+        ' Compose the display: confidence banner + answer + follow-up suggestions.
+        Dim disp As String
+        disp = ConfidenceBanner(res.Confidence) & vbLf & vbLf & res.Answer
+        If LenB(res.Followups) > 0 Then
+            disp = disp & vbLf & vbLf & "🔎 深掘り候補（『続けて質問』でそのまま聞けます）:"
+            Dim fl() As String: fl = Split(res.Followups, vbLf)
+            Dim fi As Long
+            For fi = LBound(fl) To UBound(fl)
+                If LenB(Trim$(fl(fi))) > 0 Then disp = disp & vbLf & "  ・" & fl(fi)
+            Next fi
+        End If
+        SetCellSafe ws.Range(CELL_ANSWER), disp
         SetCellSafe ws.Range(CELL_CITATIONS), res.Citations
         SetCellSafe ws.Range(CELL_DIAG), "Ready (合計 " & res.TotalMs & " ms : router " & res.RouterMs & _
-                                    " + draft " & res.DraftMs & " + verify " & res.VerifyMs & ")"
-        ' Save for feedback buttons
+                                    " + draft " & res.DraftMs & " + verify " & res.VerifyMs & " / 自信度 " & res.Confidence & ")"
+        ' Save state for feedback / 教えてBOX / follow-up
         modBoot.gLastQuestion = q
         modBoot.gLastAnswer = res.Answer
         modBoot.gLastSelectedIds = res.SelectedIds
+        modBoot.gLastIntent = res.Intent
+        modBoot.gLastAssumptions = res.Assumptions
+        modBoot.gLastCitations = res.Citations
+        modBoot.gLastConfidence = res.Confidence
+        modBoot.gLastFollowups = res.Followups
+        ' Nudge 教えてBOX based on confidence (caption changes; Form buttons can't recolor)
+        SetInquiryProminence ws, res.Confidence
         ' Record this exchange so a later 続けて質問 has the running context
         modBoot.AppendHistory q, res.Answer
-        UpdateStatus ws, "Ready (○/× で評価できます。『続けて質問』で深掘りできます)", RGB(220, 240, 220)
+        UpdateStatus ws, "完了 (自信度 " & res.Confidence & ")。出典を確認→理解できたか確認→○/×評価を。迷えば教えてBOX", RGB(220, 240, 220)
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
@@ -288,7 +389,68 @@ Public Sub OnClearClick()
     modBoot.gFollowupMode = False
     modBoot.ResetHistory
     modBoot.gLastQuestion = "": modBoot.gLastAnswer = "": modBoot.gLastSelectedIds = ""
+    modBoot.gLastIntent = "": modBoot.gLastAssumptions = "": modBoot.gLastCitations = ""
+    modBoot.gLastConfidence = "": modBoot.gLastFollowups = ""
+    SetInquiryProminence ws, ""
     ws.Range(CELL_QUESTION).Select
+End Sub
+
+' ----------------------------------------------------------------------------
+' Intent-mode toggle: smart <-> always. Persisted in config so each distributed
+' file remembers the user's choice.
+' ----------------------------------------------------------------------------
+Public Function ModeButtonCaption() As String
+    If LCase$(modConfig.GetString("intent_mode", "smart")) = "always" Then
+        ModeButtonCaption = "確認モード: 毎回前提確認"
+    Else
+        ModeButtonCaption = "確認モード: 賢く出し分け"
+    End If
+End Function
+
+Public Sub OnToggleMode()
+    Dim m As String: m = LCase$(modConfig.GetString("intent_mode", "smart"))
+    If m = "always" Then m = "smart" Else m = "always"
+    modConfig.SetValue "intent_mode", m
+    On Error Resume Next
+    ThisWorkbook.Worksheets(SHEET_NAME).Buttons(BTN_MODE).caption = ModeButtonCaption()
+    On Error GoTo 0
+    Dim desc As String
+    If m = "always" Then
+        desc = "どんな質問でも、まず前提を確認してから回答します（誤解を最小化）。"
+    Else
+        desc = "質問が明確なら即回答、曖昧な時だけ前提を聞き返します。"
+    End If
+    MsgBox "確認モードを切り替えました。" & vbCrLf & vbCrLf & ModeButtonCaption() & vbCrLf & desc, _
+           vbInformation, "確認モード"
+End Sub
+
+Public Sub OnInquiryClick()
+    modInquiryBox.OpenInquiryBox
+End Sub
+
+' Confidence banner prepended to the answer.
+Private Function ConfidenceBanner(ByVal c As String) As String
+    Select Case c
+        Case "高"
+            ConfidenceBanner = "🟢 AIの自信度: 高 — 約款・ガイドラインに明確な根拠があります（出典は必ずご確認ください）"
+        Case "低"
+            ConfidenceBanner = "🔴 AIの自信度: 低 — 該当規定が乏しく不確実です。『📮 教えてBOX』で本社への照会を推奨します"
+        Case Else
+            ConfidenceBanner = "🟡 AIの自信度: 中 — 事例・推論を含みます。出典を確認し、迷えば『📮 教えてBOX』へ"
+    End Select
+End Function
+
+' Form-control buttons can't be recolored, so we nudge via the caption.
+Private Sub SetInquiryProminence(ByVal ws As Worksheet, ByVal c As String)
+    On Error Resume Next
+    Dim cap As String
+    Select Case c
+        Case "中", "低": cap = "📮 教えてBOX ← 本社へ照会を推奨"
+        Case "高": cap = "📮 教えてBOX（迷う時のみ）"
+        Case Else: cap = "📮 教えてBOX（本社へ照会）"
+    End Select
+    ws.Buttons(BTN_INQUIRY).caption = cap
+    On Error GoTo 0
 End Sub
 
 Public Sub OnSaveTxtClick()
