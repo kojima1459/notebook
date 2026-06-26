@@ -737,6 +737,27 @@ def main():
             zout.writestr(n, data)
     os.unlink(tmp_path)
     print(f"  Final: {OUT_XLSM} ({os.path.getsize(OUT_XLSM):,} bytes)")
+
+    # Stage 6: VBA project password protection (Windows + Excel COM only)
+    print("Stage 6: VBA project password protection...")
+    try:
+        import win32com.client
+        excel = win32com.client.Dispatch('Excel.Application')
+        excel.Visible = False
+        try:
+            wb = excel.Workbooks.Open(os.path.abspath(OUT_XLSM))
+            wb.VBProject.Protection = 1
+            wb.VBProject.ProtectionsPassword = "AD1459"
+            wb.Save()
+            wb.Close()
+            print("  VBA project password protection applied (AD1459)")
+        finally:
+            excel.Quit()
+    except ImportError:
+        print("  (Skipped: requires Windows + pywin32. Install via: pip install pywin32)")
+    except Exception as e:
+        print(f"  Warning: could not protect VBA project: {e}")
+
     print("\nDone.")
 
 

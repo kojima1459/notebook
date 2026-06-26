@@ -37,6 +37,28 @@ python build/build_chatbot_v2.py          # dist/Chatbot_v2.xlsm を再生成
 何度実行しても重複しない。system_prompt（ルーター/ドラフター/検証）は
 `build_chatbot_v2.py` 内に定義され、ビルドのたびにシートへ書き込まれる。
 
+## VBA Project Password Protection
+
+After the build, the VBA project is optionally locked with password `AD1459`
+(Windows environment only):
+
+```
+pip install pywin32
+python build/build_chatbot_v2.py   # applies password during final stage
+```
+
+Without this, users can unhide internal sheets and read/modify VBA code via
+Tools > [Project Name] Properties > Protection > Edit Existing Password.
+
+**Effect of password protection:**
+- VBA Editor メニューが表示されなくなる （Tools, View など）
+- シートのunhide機能は効果なし（VBA内で `xlSheetVeryHidden` を使っているため）
+- パスワードを知らないユーザーは、VBAコードの編集・読込ができない
+
+If the build environment is Linux / non-Windows, the password protection
+step is skipped safely (no error) — the file still works, but VBA is
+unprotected.
+
 ## Trust Center prerequisite
 
 `build.ps1` uses the `VBProject` object to inject modules. This is gated by
