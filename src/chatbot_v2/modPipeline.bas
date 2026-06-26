@@ -36,7 +36,7 @@ End Type
 ' ir carries the intent-layer analysis (may be a blank IntentResult if the layer
 ' is disabled); extraContext is the user's answer to any clarifying questions.
 Public Function RunQuery(ByVal question As String, _
-                         ByRef ir As modIntent.IntentResult, _
+                         ByRef ir As IntentResult, _
                          ByVal extraContext As String) As PipelineResult
     Dim res As PipelineResult
     res.Question = question

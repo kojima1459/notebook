@@ -164,19 +164,19 @@ Private Function SimpleScore(ByVal a As String, ByVal b As String) As Double
     If cntA = 0 Or cntB = 0 Then Exit Function
 
     ' Count bigrams of A that also appear in B
-    Dim shared As Long
+    Dim sharedCnt As Long
     Dim parts() As String: parts = Split(setA, vbLf)
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
         If LenB(parts(i)) > 0 Then
             If InStr(1, setB, vbLf & parts(i) & vbLf, vbBinaryCompare) > 0 Then
-                shared = shared + 1
+                sharedCnt = sharedCnt + 1
             End If
         End If
     Next i
 
     Dim denom As Double: denom = (cntA + cntB) / 2
-    SimpleScore = shared / denom
+    SimpleScore = sharedCnt / denom
 End Function
 
 ' Returns a string of unique bigrams, each wrapped so it reads as

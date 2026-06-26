@@ -250,7 +250,7 @@ Public Sub OnSendClick()
     SetButtonsEnabled ws, False
 
     ' ---- Step 0: Intent layer (意図解釈 + 前提確認) -----------------------
-    Dim ir As modIntent.IntentResult
+    Dim ir As IntentResult
     Dim extra As String
     If modConfig.GetBool("intent_layer_enabled", True) Then
         UpdateStatus ws, "照会の意図を解釈中... (1/4)", RGB(255, 235, 180)
@@ -279,7 +279,7 @@ Public Sub OnSendClick()
     SetCellSafe ws.Range(CELL_DIAG), "パイプライン実行中..."
     DoEvents
 
-    Dim res As modPipeline.PipelineResult
+    Dim res As PipelineResult
     res = modPipeline.RunQuery(q, ir, extra)
 
     If res.OK Then
