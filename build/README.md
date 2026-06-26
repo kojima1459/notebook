@@ -23,6 +23,20 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 Output appears in `../dist/`.
 
+## Chatbot v2 知識ベースの再ビルド (Python)
+
+v2 (`dist/Chatbot_v2.xlsm`) は Python で組み立てる。知識データは
+`dist/index/chunks_enriched.json` に集約され、各取り込みスクリプトが追記する。
+
+商品部公式Q&A (`source_data/shohinbu_qa.xlsx`) を更新したら:
+```
+python build/add_shohinbu_qa_chunks.py   # Q&A を chunks_enriched.json に取り込み (冪等)
+python build/build_chatbot_v2.py          # dist/Chatbot_v2.xlsm を再生成
+```
+`add_shohinbu_qa_chunks.py` は同一 source の旧チャンクを除去してから入れ直すので、
+何度実行しても重複しない。system_prompt（ルーター/ドラフター/検証）は
+`build_chatbot_v2.py` 内に定義され、ビルドのたびにシートへ書き込まれる。
+
 ## Trust Center prerequisite
 
 `build.ps1` uses the `VBProject` object to inject modules. This is gated by
