@@ -223,6 +223,7 @@ Public Sub OnSendClick()
 
     SetButtonsEnabled ws, True
     AutoSizeAnswer ws
+    AutoSizeCitations ws
     On Error Resume Next
     ws.Range(CELL_QUESTION).Select
     On Error GoTo 0
@@ -382,16 +383,12 @@ Public Sub SetCellSafe(ByVal cell As Range, ByVal text As String)
 End Sub
 
 Private Sub AutoSizeAnswer(ByVal ws As Worksheet)
-    ' Size the merged answer block (B10:H40) so the WHOLE answer is visible
-    ' without the user manually dragging row 40. We estimate how many display
-    ' lines the wrapped text needs, then set the 31 rows tall enough in total.
+    ' Size the merged answer block (B10:H40) so the WHOLE answer is visible.
+    ' B:H = 7 cols × 14 width ≈ 98 units. Japanese full-width chars take 2 units each,
+    ' so Len() of ~44 full-width chars fills one visual line at 10pt.
     Dim ans As String: ans = CStr(ws.Range(CELL_ANSWER).value)
-
-    ' Merged width B:H is roughly 98 column-units; Japanese chars are full-width
-    ' (~2 units each), so a line holds ~36 full-width chars. Use 34 to be safe
-    ' (overestimate lines slightly so nothing is clipped).
-    Const CHARS_PER_LINE As Long = 34
-
+    Const CHARS_PER_LINE As Long = 44
+    Const ROWS As Long = 31             ' rows 10..40
     Dim segs() As String: segs = Split(ans, vbLf)
     Dim totalLines As Long, i As Long
     For i = LBound(segs) To UBound(segs)
@@ -402,18 +399,41 @@ Private Sub AutoSizeAnswer(ByVal ws As Worksheet)
             totalLines = totalLines + ((segLen + CHARS_PER_LINE - 1) \ CHARS_PER_LINE)
         End If
     Next i
-    totalLines = totalLines + 2          ' small safety buffer
-
-    ' ~15 pt per display line, distributed over the 31 merged rows.
+    totalLines = totalLines + 3          ' safety buffer
     Dim perRow As Double
-    perRow = (totalLines * 15#) / 31#
+    perRow = (totalLines * 15#) / ROWS
     If perRow < 15 Then perRow = 15
-    If perRow > 130 Then perRow = 130    ' guard against pathological lengths
-                                         ' (rows below the answer just shift down)
-    Dim r As Long
-    For r = 10 To 40
-        ws.Rows(r).RowHeight = perRow
-    Next r
+    If perRow > 409 Then perRow = 409   ' Excel's per-row maximum
+    For i = 10 To 40
+        ws.Rows(i).RowHeight = perRow
+    Next i
+End Sub
+
+Private Sub AutoSizeCitations(ByVal ws As Worksheet)
+    ' Size the merged citations block (B42:H50) so all citation lines are visible.
+    ' Citation font is 9pt; ~13 pt per display line. Same column width as answer.
+    Dim cit As String: cit = CStr(ws.Range(CELL_CITATIONS).value)
+    If LenB(cit) = 0 Then Exit Sub
+    Const CHARS_PER_LINE As Long = 48
+    Const ROWS As Long = 9              ' rows 42..50
+    Dim segs() As String: segs = Split(cit, vbLf)
+    Dim totalLines As Long, i As Long
+    For i = LBound(segs) To UBound(segs)
+        Dim segLen As Long: segLen = Len(segs(i))
+        If segLen = 0 Then
+            totalLines = totalLines + 1
+        Else
+            totalLines = totalLines + ((segLen + CHARS_PER_LINE - 1) \ CHARS_PER_LINE)
+        End If
+    Next i
+    totalLines = totalLines + 2
+    Dim perRow As Double
+    perRow = (totalLines * 13#) / ROWS
+    If perRow < 13 Then perRow = 13
+    If perRow > 409 Then perRow = 409
+    For i = 42 To 50
+        ws.Rows(i).RowHeight = perRow
+    Next i
 End Sub
 
 ' Save text as UTF-8. Primary path uses ADODB.Stream (Windows). If that object

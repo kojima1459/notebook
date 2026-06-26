@@ -60,6 +60,7 @@ Public Sub Boot()
     gBootDone = True
     On Error Resume Next
     modChatUI.EnsureLayout
+    HideInternalSheets
     On Error GoTo 0
     Exit Sub
 
@@ -110,4 +111,38 @@ End Function
 
 Public Sub ResetHistory()
     gHistory = ""
+End Sub
+
+' ============================================================================
+' Keep internal sheets hidden at runtime. xlSheetVeryHidden (=2) prevents users
+' from unhiding via Format > Sheet > Unhide — VBA access only.
+' This is called every Boot() so manual unhiding during a session is re-hidden
+' on next open. Complements the build-time sheet_state settings.
+' ============================================================================
+Private Sub HideInternalSheets()
+    Const VERY_HIDDEN As Long = 2   ' xlSheetVeryHidden
+    Const HIDDEN      As Long = 0   ' xlSheetHidden
+    Dim protect() As Variant
+    ' veryHidden: users must never see or edit these
+    protect = Array("system_prompt", "knowledge_base", "manifest", _
+                    "feedback", "vba_src")
+    Dim sheetName As Variant
+    For Each sheetName In protect
+        On Error Resume Next
+        ThisWorkbook.Worksheets(CStr(sheetName)).Visible = VERY_HIDDEN
+        On Error GoTo 0
+    Next sheetName
+    ' hidden (admin can unhide via Format > Sheet > Unhide if needed)
+    Dim adminOnly() As Variant
+    adminOnly = Array("config", "usage_log")
+    For Each sheetName In adminOnly
+        On Error Resume Next
+        Dim ws As Worksheet
+        Set ws = ThisWorkbook.Worksheets(CStr(sheetName))
+        If Not ws Is Nothing Then
+            If ws.Visible = -1 Then ws.Visible = HIDDEN   ' only hide if currently visible
+        End If
+        Set ws = Nothing
+        On Error GoTo 0
+    Next sheetName
 End Sub

@@ -390,17 +390,12 @@ def _make_main_sheet(ws, chunks=None):
 
     notes = [
         "",
-        "・このファイルを開くと、自動でモジュールがインストールされ、チャットUIが表示されます。",
-        "・「セットアップ完了」のメッセージが出ない場合は、トラストセンターで以下を有効にしてください:",
-        "  [ファイル]→[オプション]→[トラストセンター]→[トラストセンターの設定]→[マクロの設定]",
-        "  → 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック → OK → Excel再起動",
+        "・このファイルを開くと、自動でチャットUIが表示されます。",
+        "・チャット画面が表示されない場合は、マクロが有効になっていません。",
+        "  下記の手順でVBAを有効化してから、Excelを再起動してください。",
         "",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "■ このシステムの仕組み",
-        f"  ・新種・費用利益保険のマニュアル/約款/ガイドライン {src_n}出典 ＋ 商品部公式Q&A {qa_n}件(計{total}チャンク)を搭載",
-        "  ・社内AIリボン(ChatGPT関数)で回答を4段階生成 (ルート→検索→ドラフト→検証)",
-        "  ・商品部公式Q&Aの回答事例を軸に、約款・ガイドラインで裏付けて回答 (事実と推論を分離・出典明示)",
-        "  ・○良かった/×修正ボタンでQ&Aを蓄積し精度向上",
+        "  [ファイル]→[オプション]→[トラストセンター]→[トラストセンターの設定]→[マクロの設定]",
+        "  → 「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック → OK",
         "",
         "■ 重要",
         "  ・回答は必ずアンダーライターの最終確認を取ること",
@@ -467,20 +462,11 @@ def _make_howto(wb, chunks=None):
          "❌ 「保険のこと教えて」                          ← 漠然すぎる\n"
          "❌ 「お客様 山田太郎さんの保険」                  ← 個人情報を含む"),
 
-        ("⚠️ 触ってはいけないタブ",
-         "下のタブはシステムが自動で管理しています。**直接編集すると壊れます**：\n"
-         "  ・config        : 設定値 (管理者のみ変更可)\n"
-         "  ・system_prompt : AI への指示文 (管理者のみ)\n"
-         "  ・manifest      : 知識ベースの一覧 (自動生成)\n"
-         f"  ・knowledge_base: {total}件の知識データ本体 (約款/ガイドライン＋商品部公式Q&A {qa_n}件 / 自動生成)\n"
-         "  ・feedback      : ○×評価ログ (ボタンが自動で書く)\n"
-         "  ・usage_log     : 利用ログ (自動で書く)\n"
-         "  ・vba_src       : 非表示。プログラムソース（再起動時に使う）"),
-
-        ("✅ 触ってよいタブ",
+        ("✅ 使えるタブはこの2つだけ",
          "  ・使い方     : このシート（参照のみ）\n"
-         "  ・main      : 質問と回答（普段の作業場所）\n"
-         "  ・department: 部署設定（初回入力済み。変更したい時のみ）"),
+         "  ・main      : 質問と回答（普段の作業場所）\n\n"
+         "それ以外のタブは、システムが自動管理しており、通常は表示されません。\n"
+         "部署の変更が必要な場合は、管理者に連絡してください。"),
 
         ("⚠️ 個人情報・機密情報を入れないでください",
          "契約番号、氏名、電話番号、マイナンバー、E メールアドレスを質問に書かないでください。\n"
@@ -489,7 +475,7 @@ def _make_howto(wb, chunks=None):
          "**社内ログには記録される** 前提で書いてください。"),
 
         ("⚠️ AI の答えは最終決定ではありません",
-         f"回答は社内ナレッジ（約款/ガイドライン＋商品部公式Q&A 計{total}チャンク）を根拠に AI が生成しています。\n"
+         "回答は社内ナレッジ（約款・引受ガイドライン・商品部公式Q&A）を根拠に AI が生成しています。\n"
          "商品部公式Q&Aは過去の回答事例です。今回の照会と前提条件が同じか必ず確認してください。\n"
          "条文の解釈や引受可否の最終判断は、必ずアンダーライターの確認を取ってください。\n"
          "特に金額・期間・割合・条文番号は、必ず原本（保険証券・約款）と突き合わせて確認してください。"),
@@ -545,6 +531,7 @@ def _make_config(wb):
     ws.column_dimensions['A'].width = 24
     ws.column_dimensions['B'].width = 14
     ws.column_dimensions['C'].width = 70
+    ws.sheet_state = "hidden"
 
 
 def _make_system_prompt(wb):
@@ -559,6 +546,7 @@ def _make_system_prompt(wb):
     ws.column_dimensions['A'].width = 12
     ws.column_dimensions['B'].width = 80
     ws.column_dimensions['C'].width = 40
+    ws.sheet_state = "veryHidden"
 
 
 def _make_department(wb):
@@ -598,6 +586,7 @@ def _make_manifest(wb, chunks):
     widths = [18, 48, 24, 18, 28, 14, 30]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
+    ws.sheet_state = "veryHidden"
 
 
 def _make_knowledge_base(wb, chunks):
@@ -620,6 +609,7 @@ def _make_knowledge_base(wb, chunks):
     widths = [28, 18, 40, 22, 18, 50, 60, 40, 80, 16]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
+    ws.sheet_state = "veryHidden"
     print(f"  knowledge_base: {len(chunks)} rows")
 
 
@@ -633,6 +623,7 @@ def _make_feedback(wb):
     widths = [22, 20, 18, 14, 50, 80, 12, 14, 20, 80, 24, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
+    ws.sheet_state = "veryHidden"
 
 
 def _make_usage_log(wb):
@@ -645,6 +636,7 @@ def _make_usage_log(wb):
     widths = [20, 18, 14, 10, 10, 10, 10, 10, 10, 60, 14]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
+    ws.sheet_state = "hidden"
 
 
 def _make_vba_src(wb):
@@ -681,7 +673,7 @@ def _make_vba_src(wb):
     ws.column_dimensions['A'].width = 24
     ws.column_dimensions['B'].width = 8
     ws.column_dimensions['C'].width = 80
-    ws.sheet_state = "hidden"
+    ws.sheet_state = "veryHidden"
     print(f"  vba_src: embedded {len(mods)} module sources")
 
 
