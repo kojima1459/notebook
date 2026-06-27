@@ -201,8 +201,8 @@ Public Sub EnsureLayout()
     ' Footer: model recommendation + copyright
     With ws.Range("A60:H60")
         .Merge
-        .value = "⚡ 必ず最新モデル「" & modConfig.GetString("recommended_model", "GPT-5.5") & _
-                 "」(2026年6月時点)に切り替えてご利用ください。" & _
+        .value = "⚡ 本ボットは社内AIリボンを通じて最新モデル「" & modConfig.GetString("recommended_model", "GPT-5.5") & _
+                 "」(2026年6月時点)を自動で利用しています。" & _
                  "　　© " & modConfig.GetString("creator_group", "ニューリスクG") & " " & _
                  modConfig.GetString("creator_name", "小島正豪")
         .Font.Size = 9

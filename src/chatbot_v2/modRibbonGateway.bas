@@ -5,10 +5,16 @@ Option Explicit
 ' modRibbonGateway - Single entry point for calling the corporate AI ribbon
 ' ----------------------------------------------------------------------------
 ' The AI ribbon (リボンちゃん.xlam / MSAD-Addin.xlam) exposes:
-'   Application.Run("ChatGPT", prompt) -> response string
+'   Application.Run("ChatGPT", prompt, , , , , "gpt-5.5") -> response string
+' Confirmed calling convention (from ribbon documentation):
+'   arg1 = prompt text
+'   arg2-5 = unused positional args (pass "" or omit)
+'   arg6 = model name string (e.g. "gpt-5.5")
+' Model is read from config key `recommended_model` so future upgrades need
+' only a config sheet change, not a VBA edit.
 ' All LLM calls in this workbook go through this gateway so:
 '   - Failure handling is centralized
-'   - Future model-switching can be added in one place
+'   - Model-switching is done in one place
 '   - Mock/debug mode can intercept without touching pipeline logic
 ' ============================================================================
 
@@ -28,8 +34,14 @@ Public Function CallLLM(ByVal prompt As String, _
         Exit Function
     End If
 
+    ' Resolve model: config stores "GPT-5.5" (display), ribbon expects "gpt-5.5" (lowercase).
+    Dim mdl As String: mdl = LCase$(modConfig.GetString("recommended_model", "gpt-5.5"))
+    If LenB(mdl) = 0 Then mdl = "gpt-5.5"
+
+    ' Call with 6 args: prompt + 4 empty positional slots + model name.
+    ' Confirmed ribbon signature: Application.Run("ChatGPT", prompt, , , , , "gpt-5.5")
     Dim result As Variant
-    result = Application.Run("ChatGPT", prompt)
+    result = Application.Run("ChatGPT", prompt, "", "", "", "", mdl)
     CallLLM = CStr(result)
 
     latency_ms = CLng((Timer - t0) * 1000)
