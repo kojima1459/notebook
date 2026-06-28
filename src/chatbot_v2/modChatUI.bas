@@ -28,8 +28,10 @@ Public Const CELL_DIAG As String = "B52"
 
 Private Const BTN_SEND As String = "btnSend"
 Private Const BTN_CLEAR As String = "btnClear"
-Private Const BTN_GOOD As String = "btnGood"
-Private Const BTN_BAD As String = "btnBad"
+Private Const BTN_CLEARED As String = "btnCleared"   ' 🟢 スッキリ解決
+Private Const BTN_MORE As String = "btnMore"         ' 🟡 もう少し知りたい
+Private Const BTN_UNSURE As String = "btnUnsure"     ' 🔴 まだ不安・要確認
+Private Const BTN_CORRECT As String = "btnCorrect"   ' ✏ 正しい答えを知っている
 Private Const BTN_TXT As String = "btnSaveTxt"
 Private Const BTN_HTML As String = "btnSaveHtml"
 Private Const BTN_FOLLOWUP As String = "btnFollowup"
@@ -124,10 +126,15 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("10:40").RowHeight = 14
 
-    ' Post-answer action row: evaluate (○/×) then escalate (教えてBOX) if still unsure.
-    AddButton ws, ws.Range("B41:C41"), BTN_GOOD, "○ 良かった", "modFeedback.Submit_Feedback_Good"
-    AddButton ws, ws.Range("D41:E41"), BTN_BAD, "× 修正", "modFeedback.Submit_Feedback_Bad"
-    AddButton ws, ws.Range("F41:H41"), BTN_INQUIRY, "📮 教えてBOX（本社へ照会）", "modChatUI.OnInquiryClick"
+    ' Post-answer reaction row. Reframed from 正誤判定(○/×) to "この回答どうでした？"
+    ' so it feels like telling us how it landed, not grading the AI. Each reaction
+    ' routes to the natural next step (深掘り / 本社照会) instead of dead-ending.
+    ws.Range("A41").value = "どう？"
+    ws.Range("A41").Font.Bold = True
+    ws.Range("A41").Font.Size = 9
+    AddButton ws, ws.Range("B41:C41"), BTN_CLEARED, "🟢 スッキリ解決", "modFeedback.React_Cleared"
+    AddButton ws, ws.Range("D41:E41"), BTN_MORE, "🟡 もう少し知りたい", "modFeedback.React_More"
+    AddButton ws, ws.Range("F41:H41"), BTN_UNSURE, "🔴 まだ不安・要確認", "modFeedback.React_Unsure"
     ws.Rows("41").RowHeight = 26
 
     ' Diagnostics row (always available - helps locate problems fast)
@@ -149,12 +156,11 @@ Public Sub EnsureLayout()
         .Font.Size = 9
     End With
 
-    ' Save buttons (less prominent, below citations)
-    AddButton ws, ws.Range("B51:C51"), BTN_TXT, "テキスト出力", "modChatUI.OnSaveTxtClick"
-    AddButton ws, ws.Range("D51:E51"), BTN_HTML, "HTML出力", "modChatUI.OnSaveHtmlClick"
-    ws.Range("F51:H51").value = "← 回答を保存"
-    ws.Range("F51").Font.Size = 9
-    ws.Range("F51").Font.color = RGB(120, 120, 120)
+    ' Secondary actions: direct 本社照会, the gentle correction path, and save.
+    AddButton ws, ws.Range("B51:C51"), BTN_INQUIRY, "📮 教えてBOX（本社へ照会）", "modChatUI.OnInquiryClick"
+    AddButton ws, ws.Range("D51:E51"), BTN_CORRECT, "✏ 正しい答えを知っている", "modFeedback.Submit_Correction"
+    AddButton ws, ws.Range("F51:G51"), BTN_TXT, "テキスト出力", "modChatUI.OnSaveTxtClick"
+    AddButton ws, ws.Range("H51"), BTN_HTML, "HTML出力", "modChatUI.OnSaveHtmlClick"
     ws.Rows("51").RowHeight = 24
 
     ' Diagnostics
@@ -171,7 +177,8 @@ Public Sub EnsureLayout()
             "【回答を受け取ったら（この順で自己解決 → 学習が深まります）】" & vbLf & _
             "  ① まず出典元（約款・引受ガイドライン）を自分の目で確認する" & vbLf & _
             "  ② 理解できたか確認する。曖昧なら『続けて質問』で深掘り（何度でもOK）" & vbLf & _
-            "  ③ 「○良かった／×修正」で評価する（ここまでで1セット。次の人の役に立ちます）" & vbLf & _
+            "  ③ 『🟢スッキリ解決／🟡もう少し知りたい／🔴まだ不安』で素直に反応" & vbLf & _
+            "     （正誤の判定ではありません。🟡→そのまま深掘り、🔴→本社照会、と次の一歩に繋がります）" & vbLf & _
             "  ④ それでも判断に迷う時だけ『📮 教えてBOX』で本社へ照会" & vbLf & _
             "■ 本回答はAIが生成しており、必ずしも正しいとは限りません。最終判断はアンダーライター／原本確認を。" & vbLf & _
             "■ 質問に契約番号・氏名・電話番号などの個人情報を含めないでください。"
@@ -307,11 +314,11 @@ Public Sub OnSendClick()
         modBoot.gLastCitations = res.Citations
         modBoot.gLastConfidence = res.Confidence
         modBoot.gLastFollowups = res.Followups
-        ' Nudge 教えてBOX based on confidence (caption changes; Form buttons can't recolor)
-        SetInquiryProminence ws, res.Confidence
+        ' Nudge the 🔴 reaction based on confidence (caption changes; Form buttons can't recolor)
+        SetUnsureProminence ws, res.Confidence
         ' Record this exchange so a later 続けて質問 has the running context
         modBoot.AppendHistory q, res.Answer
-        UpdateStatus ws, "完了 (自信度 " & res.Confidence & ")。出典を確認→理解できたか確認→○/×評価を。迷えば教えてBOX", RGB(220, 240, 220)
+        UpdateStatus ws, "完了 (自信度 " & res.Confidence & ")。出典を確認→理解を確認→🟢🟡🔴で反応を。迷えば教えてBOX", RGB(220, 240, 220)
         ' Usage log
         modUsageLogger.LogQuery q, res
     Else
@@ -359,6 +366,21 @@ Public Sub OnFollowupClick()
     Dim followup As String
     followup = InputBox(hint, "続けて質問（深掘り）", "")
     If LenB(followup) = 0 Then Exit Sub
+    RunFollowup followup
+    Exit Sub
+
+Trap:
+    modBoot.gFollowupMode = False
+    modDiag.ReportError "modChatUI.OnFollowupClick", Err.Number, Err.Description, _
+        "続けて質問の処理でエラーが発生しました。"
+End Sub
+
+' Execute one follow-up turn with the given text. Shared by OnFollowupClick and
+' modFeedback.React_More (🟡 もう少し知りたい) so the deepening flow lives in one
+' place. Keeps (not resets) the running history via gFollowupMode.
+Public Sub RunFollowup(ByVal followup As String)
+    On Error GoTo Trap
+    If LenB(Trim$(followup)) = 0 Then Exit Sub
 
     ' Follow-up mode: OnSendClick will keep (not reset) the running history.
     modBoot.gFollowupMode = True
@@ -375,7 +397,7 @@ Public Sub OnFollowupClick()
 
 Trap:
     modBoot.gFollowupMode = False
-    modDiag.ReportError "modChatUI.OnFollowupClick", Err.Number, Err.Description, _
+    modDiag.ReportError "modChatUI.RunFollowup", Err.Number, Err.Description, _
         "続けて質問の処理でエラーが発生しました。"
 End Sub
 
@@ -391,7 +413,7 @@ Public Sub OnClearClick()
     modBoot.gLastQuestion = "": modBoot.gLastAnswer = "": modBoot.gLastSelectedIds = ""
     modBoot.gLastIntent = "": modBoot.gLastAssumptions = "": modBoot.gLastCitations = ""
     modBoot.gLastConfidence = "": modBoot.gLastFollowups = ""
-    SetInquiryProminence ws, ""
+    SetUnsureProminence ws, ""
     ws.Range(CELL_QUESTION).Select
 End Sub
 
@@ -440,16 +462,17 @@ Private Function ConfidenceBanner(ByVal c As String) As String
     End Select
 End Function
 
-' Form-control buttons can't be recolored, so we nudge via the caption.
-Private Sub SetInquiryProminence(ByVal ws As Worksheet, ByVal c As String)
+' Form-control buttons can't be recolored, so we nudge via the caption. When the
+' AI's own confidence is 中/低, make the 🔴 reaction visibly invite escalation to
+' 本社 (教えてBOX); on 高 it stays a neutral "still unsure?" reaction.
+Private Sub SetUnsureProminence(ByVal ws As Worksheet, ByVal c As String)
     On Error Resume Next
     Dim cap As String
     Select Case c
-        Case "中", "低": cap = "📮 教えてBOX ← 本社へ照会を推奨"
-        Case "高": cap = "📮 教えてBOX（迷う時のみ）"
-        Case Else: cap = "📮 教えてBOX（本社へ照会）"
+        Case "中", "低": cap = "🔴 まだ不安 → 本社へ照会"
+        Case Else:       cap = "🔴 まだ不安・要確認"
     End Select
-    ws.Buttons(BTN_INQUIRY).caption = cap
+    ws.Buttons(BTN_UNSURE).caption = cap
     On Error GoTo 0
 End Sub
 
@@ -507,8 +530,9 @@ Private Sub SetButtonsEnabled(ByVal ws As Worksheet, ByVal isEnabled As Boolean)
     On Error Resume Next
     ws.Buttons(BTN_SEND).Enabled = isEnabled
     ws.Buttons(BTN_CLEAR).Enabled = isEnabled
-    ws.Buttons(BTN_GOOD).Enabled = isEnabled
-    ws.Buttons(BTN_BAD).Enabled = isEnabled
+    ws.Buttons(BTN_CLEARED).Enabled = isEnabled
+    ws.Buttons(BTN_MORE).Enabled = isEnabled
+    ws.Buttons(BTN_UNSURE).Enabled = isEnabled
     ws.Buttons(BTN_SEND).caption = IIf(isEnabled, "> 送信", "...生成中...")
     On Error GoTo 0
 End Sub
