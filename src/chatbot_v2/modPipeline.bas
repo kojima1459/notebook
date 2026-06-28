@@ -59,15 +59,6 @@ Public Function RunQuery(ByVal question As String, _
     Dim user As String: user = modUserProfile.CurrentUser()
 
     ' ---- Step 1: Router ---------------------------------------------------
-    Dim routerTable As String
-    routerTable = modKnowledgeBase.BuildRouterTable(deptId)
-    If LenB(routerTable) = 0 Then
-        res.OK = False
-        res.ErrorMsg = "[Step1 ルーター] あなたの部署(" & deptId & ")で参照できるナレッジが0件です。" & vbLf & _
-                       "knowledge_base の dept_scope と、選択中の部署IDを確認してください。"
-        GoTo Finish
-    End If
-
     Dim routerN As Long: routerN = modConfig.GetLong("router_max_chunks", 8)
     Dim routerPrompt As String
     routerPrompt = modPrompts.GetRouter()
@@ -88,6 +79,21 @@ Public Function RunQuery(ByVal question As String, _
         routerQuestion = routerQuestion & vbLf & _
             "【関連する論点（検索補助）】" & vbLf & ir.SearchQueries
     End If
+
+    ' Build the knowledge table the router LLM sees. Phase 2 (rag_enabled=TRUE)
+    ' narrows it to the embedding top-K candidates; otherwise / on any embedding
+    ' failure this returns the full visible table — identical to before Phase 2.
+    ' It is built AFTER routerQuestion so the embedding sees the enriched query
+    ' (follow-up history + intent sub-queries), maximising retrieval recall.
+    Dim routerTable As String
+    routerTable = modRetrieve.BuildRouterTableHybrid(routerQuestion, deptId)
+    If LenB(routerTable) = 0 Then
+        res.OK = False
+        res.ErrorMsg = "[Step1 ルーター] あなたの部署(" & deptId & ")で参照できるナレッジが0件です。" & vbLf & _
+                       "knowledge_base の dept_scope と、選択中の部署IDを確認してください。"
+        GoTo Finish
+    End If
+
     routerPrompt = Replace(routerPrompt, "{question}", routerQuestion)
     routerPrompt = Replace(routerPrompt, "{max_n}", CStr(routerN))
     routerPrompt = Replace(routerPrompt, "{knowledge_table}", routerTable)

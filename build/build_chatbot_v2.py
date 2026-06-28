@@ -197,7 +197,8 @@ CONFIG_ROWS = [
     ("hq_inquiry_email",    "", "教えてBOX(本社引受部門への照会)の送信先メール。空ならコピー用テキストのみ生成"),
     ("recommended_model",   "GPT-5.5", "実際にリボンへ渡すモデル名(2026年6月時点の最新)。ChatGPT関数の第6引数に自動指定"),
     ("reasoning_tuning",    True, "True=GPT-5系のreasoning_effort/verbosityを段階別に最適化(検証=high等)。非GPT-5モデル指定時はFalse推奨"),
-    ("rag_enabled",         False, "(Phase2で使用) True=embeddingsハイブリッド検索を有効化。kb_vectorsをベクトル化済みであることが前提。未ベクトル化/失敗時は自動でLLMルーターにフォールバック"),
+    ("rag_enabled",         False, "(Phase2) True=embeddingsハイブリッド検索を有効化。kb_vectorsをベクトル化済みであることが前提。未ベクトル化/失敗時は自動で全件LLMルーターにフォールバック(=Falseと同じ挙動)"),
+    ("rag_candidates",      40,   "(Phase2) embeddingsで絞り込む候補チャンク数。この件数だけをルーターLLMに渡す(全件→40件)。多いほど取りこぼし減・コスト増"),
     ("creator_name",        "小島正豪", "本ツール開発者"),
     ("creator_group",       "ニューリスクG", "開発グループ"),
     ("department_id",       "",   "初回起動時に設定される"),
@@ -734,7 +735,7 @@ def _make_vba_src(wb):
             "modPrompts", "modIntent", "modFeedbackLookup", "modPipeline",
             "modFeedback", "modInquiryBox", "modChatUI", "modPii",
             "modUsageLogger", "modDiag",
-            "modEmbeddings", "modVectorize"]
+            "modEmbeddings", "modVectorize", "modRetrieve"]
 
     EXCEL_CELL_LIMIT = 32000
     for i, name in enumerate(mods, 2):

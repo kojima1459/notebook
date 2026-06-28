@@ -72,6 +72,46 @@ Public Function BuildRouterTable(ByVal deptId As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' BuildRouterTableFromIds: same compact router-table format as BuildRouterTable,
+' but ONLY for the chunk_ids in idsCsv (Phase-2 embedding-narrowed candidates).
+' Still enforces dept visibility (defence-in-depth: never leak an out-of-scope
+' chunk even if it slipped into the candidate set).
+' Rows are emitted in sheet order (the router reranks anyway); returns "" if no
+' listed id is both present and visible.
+' ----------------------------------------------------------------------------
+Public Function BuildRouterTableFromIds(ByVal idsCsv As String, ByVal deptId As String) As String
+    On Error GoTo Done
+    If LenB(idsCsv) = 0 Then Exit Function
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.count, COL_ID).End(xlUp).row
+    If lastRow < 2 Then Exit Function
+
+    ' Membership test set: ",id1,id2,..,idN," so InStr(",id,") is exact.
+    Dim want As String: want = "," & idsCsv & ","
+
+    Dim sb As String, r As Long
+    For r = 2 To lastRow
+        Dim id As String: id = CStr(ws.Cells(r, COL_ID).value)
+        If LenB(id) = 0 Then GoTo NextRow
+        If InStr(1, want, "," & id & ",", vbBinaryCompare) = 0 Then GoTo NextRow
+        Dim scope As String: scope = CStr(ws.Cells(r, COL_DEPT_SCOPE).value)
+        If LenB(scope) = 0 Then scope = "common"
+        If scope <> "common" And scope <> deptId Then GoTo NextRow
+
+        sb = sb & id _
+               & " | " & CStr(ws.Cells(r, COL_DOMAIN).value) _
+               & " | " & CStr(ws.Cells(r, COL_DOC_TYPE).value) _
+               & " | " & CStr(ws.Cells(r, COL_DISPLAY).value) _
+               & " | " & CStr(ws.Cells(r, COL_SUMMARY).value) _
+               & " | " & CStr(ws.Cells(r, COL_KEYWORDS).value) _
+               & vbLf
+NextRow:
+    Next r
+    BuildRouterTableFromIds = sb
+Done:
+End Function
+
+' ----------------------------------------------------------------------------
 ' GetChunkById: returns (display, header, full_text) for one chunk.
 ' Returns "" entries if not found.
 ' ----------------------------------------------------------------------------
