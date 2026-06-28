@@ -4,18 +4,21 @@ Option Explicit
 ' ============================================================================
 ' modRibbonGateway - Single entry point for calling the corporate AI ribbon
 ' ----------------------------------------------------------------------------
-' The AI ribbon (リボンちゃん.xlam / MSAD-Addin.xlam) exposes:
-'   Application.Run("ChatGPT", prompt, , , , , "gpt-5.5") -> response string
-' Confirmed calling convention (from ribbon documentation):
-'   arg1 = prompt text
-'   arg2-5 = unused positional args (pass "" or omit)
-'   arg6 = model name string (e.g. "gpt-5.5")
-' Model is read from config key `recommended_model` so future upgrades need
-' only a config sheet change, not a VBA edit.
-' All LLM calls in this workbook go through this gateway so:
-'   - Failure handling is centralized
-'   - Model-switching is done in one place
-'   - Mock/debug mode can intercept without touching pipeline logic
+' Confirmed ribbon ChatGPT signature (excel-addin リボンちゃん ver202606, GPT.bas):
+'   Function ChatGPT(text, [roleSystem], [Temperature As Double=0.4],
+'                    [MaxTokens As Long], [Wait As Long=120], [optModel],
+'                    [prevU], [prevA], [toolN], [reasoning_effort], [verbosity])
+' Key facts that shape how we call it:
+'   - arg6 optModel selects the model (we read it from config recommended_model).
+'   - For GPT-5 models (gpt-5.x) the ribbon IGNORES Temperature/top_p and instead
+'     honours reasoning_effort (low/medium/high) and verbosity (low/medium/high).
+'     Those two are our real quality levers, so we set them PER STEP.
+'   - args 3-5 are typed Double/Long; passing "" raises a type-mismatch. We pass
+'     explicit safe values (0.4, 0, 1200) instead. Wait=1200 because gpt-5.5 is a
+'     slow reasoning model (the ribbon itself bumps its default to 1200s).
+'   - toolN (arg9) is a free log label; we pass the step name for the ribbon log.
+' All LLM calls in this workbook go through this gateway so model/effort tuning,
+' failure handling and mock/debug interception live in one place.
 ' ============================================================================
 
 Public Function CallLLM(ByVal prompt As String, _
@@ -34,14 +37,24 @@ Public Function CallLLM(ByVal prompt As String, _
         Exit Function
     End If
 
-    ' Resolve model: config stores "GPT-5.5" (display), ribbon expects "gpt-5.5" (lowercase).
-    Dim mdl As String: mdl = LCase$(modConfig.GetString("recommended_model", "gpt-5.5"))
+    ' Resolve model: config stores "GPT-5.5" (display), ribbon expects "gpt-5.5".
+    Dim mdl As String: mdl = LCase$(Trim$(modConfig.GetString("recommended_model", "gpt-5.5")))
     If LenB(mdl) = 0 Then mdl = "gpt-5.5"
 
-    ' Call with 6 args: prompt + 4 empty positional slots + model name.
-    ' Confirmed ribbon signature: Application.Run("ChatGPT", prompt, , , , , "gpt-5.5")
+    ' Per-step reasoning depth / verbosity (only honoured by the ribbon for GPT-5).
+    ' Cheap selection steps run shallow & terse; the fact-check verifier runs deep.
+    Dim eff As String, vrb As String
+    StepParams step_name, eff, vrb
+    ' Escape hatch: if a non-GPT-5 model is configured, or to force ribbon defaults.
+    If Not modConfig.GetBool("reasoning_tuning", True) Then
+        eff = "": vrb = ""
+    End If
+
+    ' Full positional call. Explicit numeric args avoid type-mismatch on the
+    ' Double/Long parameters; "" is only used for the genuine String slots.
+    '            text  roleSys Temp MaxTok Wait  model prevU prevA toolN       effort verbosity
     Dim result As Variant
-    result = Application.Run("ChatGPT", prompt, "", "", "", "", mdl)
+    result = Application.Run("ChatGPT", prompt, "", 0.4, 0, 1200, mdl, "", "", step_name, eff, vrb)
     CallLLM = CStr(result)
 
     latency_ms = CLng((Timer - t0) * 1000)
@@ -51,6 +64,20 @@ ErrHandler:
     CallLLM = "#LLM_ERROR: step=" & step_name & " err=" & Err.Description
     latency_ms = CLng((Timer - t0) * 1000)
 End Function
+
+' Map a pipeline step to GPT-5 reasoning_effort + verbosity.
+'   intent / router : shallow & terse  -> fast, this is classification/selection
+'   drafter         : medium reasoning, high verbosity -> a thorough written answer
+'   verifier        : deep reasoning, medium verbosity -> precision-critical fact check
+Private Sub StepParams(ByVal step_name As String, ByRef effort As String, ByRef verbosity As String)
+    Select Case LCase$(step_name)
+        Case "intent":   effort = "low":    verbosity = "low"
+        Case "router":   effort = "low":    verbosity = "low"
+        Case "drafter":  effort = "medium": verbosity = "high"
+        Case "verifier": effort = "high":   verbosity = "medium"
+        Case Else:       effort = "":       verbosity = ""
+    End Select
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' MockResponse - canned, format-correct replies so the pipeline runs offline.
