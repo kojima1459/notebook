@@ -66,6 +66,7 @@ Public Sub Boot()
     gBootDone = True
     On Error Resume Next
     modChatUI.EnsureLayout
+    modVectorize.EnsureAdminPanel    ' build the hidden admin (RAG) panel; never fatal
     HideInternalSheets
     On Error GoTo 0
     Exit Sub
@@ -131,16 +132,16 @@ Private Sub HideInternalSheets()
     Dim protect() As Variant
     ' veryHidden: users must never see or edit these
     protect = Array("system_prompt", "knowledge_base", "manifest", _
-                    "feedback", "vba_src")
+                    "feedback", "vba_src", "kb_vectors")
     Dim sheetName As Variant
     For Each sheetName In protect
         On Error Resume Next
         ThisWorkbook.Worksheets(CStr(sheetName)).Visible = VERY_HIDDEN
         On Error GoTo 0
     Next sheetName
-    ' hidden (admin can unhide via Format > Sheet > Unhide if needed)
+    ' hidden (admin can unhide via タブ右クリック→再表示 / Format > Sheet > Unhide)
     Dim adminOnly() As Variant
-    adminOnly = Array("config", "usage_log")
+    adminOnly = Array("config", "usage_log", "admin")
     For Each sheetName In adminOnly
         On Error Resume Next
         Dim ws As Worksheet
