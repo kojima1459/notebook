@@ -1,55 +1,76 @@
-# Internal NotebookLM (Excel + VBA / Azure OpenAI)
+# 社内ナレッジQAチャットボット（Excel + VBA / 社内AIリボン経由）
 
-社内アンダーライターの問い合わせ対応を減らすため、支社営業担当者向けに配布する社内ナレッジQAチャットbot。Excel マクロ (.xlsm) で動作し、社内ナレッジ (PDF/Word/Excel) を出典付きで検索回答する。
+新種保険部・営業担当者向けの社内ナレッジQAチャットボット。保険商品の照会（引受可否・補償範囲・手続き等）に、約款・引受ガイドラインを**出典つき**で自動回答する。営業が本社へ照会する往復を減らし、かつ営業自身の理解が深まるよう導くのが目的。
 
-> **このブランチ (`claude/prototype-gemini-demo`) は情シス向けデモ用のプロトタイプ**です。本番は Azure OpenAI 想定ですが、デモは Gemini API + 個人キー + サンプルPDF16件で動かします。詳細は [docs/demo-quickstart.md](docs/demo-quickstart.md) と [docs/demo-build.md](docs/demo-build.md)。本番版コードは `claude/internal-notebook-lm-chatbot-B6BE7` ブランチ。
+**Excel単体（.xlsm）**で動作し、社内に全社配布済みのAIリボン「リボンちゃん」に**相乗り**してAzure OpenAI（GPT-5.5 / text-embedding-3-small）を利用する。**新規APIキー不要・外部依存なし。**
 
-## このリポジトリの構成
+> 開発ブランチ：`claude/internal-notebook-lm-chatbot-B6BE7`
+
+---
+
+## いまどこ（2026-06-29）
+
+- ✅ 本番（社内PC）で端から端まで動作確認済み：リボン接続OK／990件ベクトル化 成功（失敗0）／ハイブリッド検索 有効化／🟢🟡🔴 評価UI 表示。
+- 🔜 次：パイロット運用（数名・1〜2週間）→ 現場の声 → 改善。団体障害グループへの横展開（資料提供待ち）。
+
+詳細は **[docs/v2/00_概要と現在地.md](docs/v2/00_概要と現在地.md)**。
+
+---
+
+## ドキュメント（正は docs/v2/）
+
+| 文書 | 中身 |
+|---|---|
+| [00_概要と現在地](docs/v2/00_概要と現在地.md) | まずここ |
+| [10_アーキテクチャと肝](docs/v2/10_アーキテクチャと肝.md) | 設計の核心・全体構成・ハイブリッド検索・自己インストーラ |
+| [20_開発の記録](docs/v2/20_開発の記録_失敗と学びとブレイクスルー.md) | 失敗・ボトルネック・ブレイクスルー |
+| [30_リボンちゃん仕様](docs/v2/30_リボンちゃん仕様.md) | 相乗り先アドインの仕様＋セキュリティ申し送り |
+| [40_他チャットボットとの比較](docs/v2/40_他チャットボットとの比較.md) | 同僚の単発ボットとの違い・優劣 |
+| [50_ロードマップ](docs/v2/50_ロードマップ.md) | 今後・フェーズ・コスト調整 |
+| [60_横展開_再現手順書](docs/v2/60_横展開_再現手順書.md) | **別グループ版を作る作業指示書（次スレッド用）** |
+| [70_リボンちゃん活用アイデア](docs/v2/70_リボンちゃん活用アイデア.md) | Excel/Word/PPT 業務改善ネタ帳 |
+
+> `docs/` 直下の旧文書は V1（Gemini中継・2バイナリ構成）時代のもので、現行設計と食い違う。**現行の正は `docs/v2/`**。
+
+---
+
+## リポジトリ構成
 
 ```
-src/
-  shared/      両xlsmで共有するモジュール (HTTP, ApiGateway, KeyVault, Config, ...)
-  admin/       Admin_KnowledgeBuilder.xlsm 専用 (取り込み・index生成・キー埋め込み)
-  chatbot/     Chatbot.xlsm 専用 (起動・チャットUI・利用ログ)
-build/         build.ps1 と Excel テンプレート (Windowsで実行)
-config/        config.sample.ini, disclaimer.txt
-docs/          architecture.md, security.md, admin-guide.md, user-guide.md
-dist/          ビルド成果物 (.gitignore)
+src/chatbot_v2/   現行ボットのVBAソース（18モジュール + ThisWorkbook + Sheet1）
+build/            ビルド・前処理スクリプト（Python）
+  build_chatbot_v2.py     ナレッジ埋め込み + 自己インストーラ方式で .xlsm 生成
+  structure_chunker.py    条文単位チャンク化
+  enrich_chunks.py        Geminiで要約・キーワード・領域タグ付与
+  add_*_chunks.py         貼り付けテキスト/商品部Q&Aの取り込み
+  template_skeleton.xlsm  本物のExcel製スケルトン（vbaProject.bin の土台）
+dist/             ビルド成果物（Chatbot_v2.xlsm 等）
+docs/v2/          現行ドキュメント
+config/ demo_data/   旧V1関連
 ```
 
-## 設計の柱
+---
 
-- **2バイナリ構成**: 管理者用と配布用を分離。配布用は読み取り+利用のみ。
-- **APIキー秘匿の3モード抽象化** (`modApiGateway`): Mode A 中継サーバー / **Mode B 難読化埋め込み (MVPデフォルト)** / Mode C Entra ID。
-- **Azure OpenAI Service 前提**。エンドポイントとデプロイメント名は config.ini で外出し。
-- **L2正規化済み embeddings をバイナリ保存** + 純VBA内積でtop-k。
-- **PII検知 + レート制限 + 利用ログ** をクライアント側で持つ。
-- **VBA保護の限界**を `docs/security.md` に明記。
+## 作り方（開発者・Mac/Python）
 
-## 実装ロードマップ
+```bash
+# 1. ナレッジを富化（要 GEMINI_API_KEY：前処理専用の個人キー。社内のものではない）
+python3 build/enrich_chunks.py
+# 2. ビルド
+python3 build/build_chatbot_v2.py        # → dist/Chatbot_v2.xlsm
+```
+その後、社内PCで開いて admin パネル → 全件ベクトル化 → `rag_enabled=TRUE` → 保存 → 配布。
+別グループへの横展開手順は [docs/v2/60](docs/v2/60_横展開_再現手順書.md)。
 
-- Week 1 (この時点): 縦串通し。txt取り込み→Azure OpenAI→チャット応答。
-- Week 2: PDF/Word/Excel抽出, プロキシ対応, SharePoint連携, ログ, レート制限, PII。
-- Week 3: パイロット配布 (5〜10名), 集計シート, 個人ナレッジ。
-- Phase 2: ModeA中継サーバー, ModeC Entra ID, 検索精度チューニング。
+---
 
-## 開発フロー
+## 設計の柱（30秒）
 
-ソースは `src/` に .bas/.cls/.frm のテキストで管理する (xlsm はバイナリで diff 不能なため)。Windows + Excel 環境で `build/build.ps1` を走らせると `dist/*.xlsm` が生成される。
+1. **自分でAPIキーを持たない**（リボン相乗り）→ 情シス承認・秘匿問題を回避
+2. **多段パイプライン＋根拠3階層**（約款/GL ＞ 商品部Q&A ＞ 一般知識）→ 間違えられない照会に耐える
+3. **自己学習**（feedback：pending/approved/rejected）→ 使うほど馴染む
+4. **ナレッジ入れ替え式**→ 別グループへコード不変で横展開
+5. **単一ファイル・自己インストール**→ 配布が軽い
+6. **全部フェイルセーフ**（埋め込み失敗→全件フォールバック等）→「動かない」を構造的に潰す
 
-## ドキュメント
-
-**デモ (このブランチ)**
-
-- [docs/demo-quickstart.md](docs/demo-quickstart.md) - **情シスに渡す5分起動ガイド**
-- [docs/demo-build.md](docs/demo-build.md) - **あなたが情シス向けxlsmを組む手順**
-
-**本番** (`claude/internal-notebook-lm-chatbot-B6BE7` ブランチ)
-
-- [docs/it-checklist.md](docs/it-checklist.md) - 着手前に情シスへ持っていく1枚
-- [docs/build-walkthrough.md](docs/build-walkthrough.md) - 初回 Windows ビルド手順 (所要30〜60分)
-- [docs/architecture.md](docs/architecture.md) - 全体構成
-- [docs/security.md](docs/security.md) - 秘匿の限界と移行計画
-- [docs/admin-guide.md](docs/admin-guide.md) - 管理者手順
-- [docs/user-guide.md](docs/user-guide.md) - 営業担当者向け
-- [docs/deployment.md](docs/deployment.md) - 配布と信頼できる場所
+開発：小島正豪（ニューリスクG）
