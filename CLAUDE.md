@@ -61,6 +61,12 @@
   「この保険アイデアを企画にして」等と頼めば自動で使われます。
   中身は `.claude/skills/shinshu-hoken-kikaku/SKILL.md`。
 
+- **work-patterns**（作業スタイル切り替え：Executor-Advisor / Orchestrator-Worker）
+  … 「Executor-Advisorで」「Orchestrator-Workerで」「役割分担して」等と言うと、
+  Claude Code標準のAgentツールだけで、①実行者+相談役、②司令塔+作業者、の
+  進め方に切り替わるスキル。追加のAPI契約・別サービスは不要。
+  中身は `.claude/skills/work-patterns/SKILL.md`。
+
 ---
 
 ## 📌 メモ：このリポジトリでやりたくなったらやること
