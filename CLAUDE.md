@@ -67,6 +67,13 @@
   進め方に切り替わるスキル。追加のAPI契約・別サービスは不要。
   中身は `.claude/skills/work-patterns/SKILL.md`。
 
+- **competitor-analysis / market-sizing / user-personas**（企画の深掘り3点セット）
+  … `shinshu-hoken-kikaku`ブリーフの「市場・競合」「Go/No-Go」「背景・ニーズ」を
+  もっと深く掘りたいときに使う3つのスキル。「競合分析して」「市場規模を試算して」
+  「ペルソナを作って」等と言えば発火します。海外PM向けの`phuryn/pm-skills`を
+  保険企画向けに翻案（MITライセンス）。
+  中身は `.claude/skills/{competitor-analysis,market-sizing,user-personas}/SKILL.md`。
+
 ---
 
 ## 📌 メモ：このリポジトリでやりたくなったらやること
