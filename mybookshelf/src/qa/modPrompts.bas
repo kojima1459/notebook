@@ -40,9 +40,9 @@ Option Explicit
 
 Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
     Dim lang As String
-    lang = modConfig.GetString("answer_language", "日本語")
+    lang = SafeAnswerLanguage()
     Dim maxChars As Long
-    maxChars = modConfig.GetLong("max_context_chars", 40000)
+    maxChars = SafeMaxContextChars()
     Dim ctx As String
     ctx = BuildSourceBlock(hits, nHits, maxChars)
 
@@ -58,9 +58,9 @@ End Function
 
 Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByVal history As String) As String
     Dim lang As String
-    lang = modConfig.GetString("answer_language", "日本語")
+    lang = SafeAnswerLanguage()
     Dim maxChars As Long
-    maxChars = modConfig.GetLong("max_context_chars", 40000)
+    maxChars = SafeMaxContextChars()
     Dim ctx As String
     ctx = BuildSourceBlock(hits, nHits, maxChars)
 
@@ -81,9 +81,9 @@ End Function
 
 Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, hits() As Hit, ByVal nHits As Long) As String
     Dim lang As String
-    lang = modConfig.GetString("answer_language", "日本語")
+    lang = SafeAnswerLanguage()
     Dim maxChars As Long
-    maxChars = modConfig.GetLong("max_context_chars", 40000)
+    maxChars = SafeMaxContextChars()
     Dim ctx As String
     ctx = BuildSourceBlock(hits, nHits, maxChars)
 
@@ -103,7 +103,7 @@ End Function
 
 Public Function BuildEnrichPrompt(ByVal batchText As String) As String
     Dim lang As String
-    lang = modConfig.GetString("answer_language", "日本語")
+    lang = SafeAnswerLanguage()
 
     Dim sb As String
     sb = "以下は社内資料から抽出した複数のチャンクです。それぞれに要約(30字程度)と" & _
@@ -119,6 +119,36 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー(すべてPrivate: modPromptsの公開契約はBuild*4関数のみ)
 ' ----------------------------------------------------------------------------
+
+' SafeAnswerLanguage/SafeMaxContextChars:
+'   modConfig.GetString/GetLong への呼び出しを1行スコープのOn Errorで守る
+'   (R5: 直後にOn Error GoTo 0)。modConfig自体はconfigシートが無くても
+'   既定値にフォールバックする実装だが、modPromptsはR4のPure Logicモジュール
+'   群(vba_lint.py PURE_LOGIC_MODULES / run_lo_tests.py PURE_ALLOWLIST)
+'   の一員として、modConfigモジュールそのものが読み込まれていない実行環境
+'   (LibreOffice純ロジックテストの一時ライブラリ等)でも動く必要がある。
+'   その環境では "modConfig.GetString" の呼び出し自体が実行時エラー
+'   (Err=420 Invalid object reference)になることを実測で確認したため、
+'   この関数呼び出しをOn Errorで包み、失敗時は契約既定値にフォールバックする。
+'   Excel実機(modConfigが常に存在する環境)では通常どおりconfigシートの値を
+'   返す(挙動は変えない。エラー発生時のみフォールバックが働く)。
+Private Function SafeAnswerLanguage() As String
+    Dim v As String: v = "日本語"
+    On Error Resume Next
+    v = modConfig.GetString("answer_language", "日本語")
+    On Error GoTo 0
+    If LenB(v) = 0 Then v = "日本語"
+    SafeAnswerLanguage = v
+End Function
+
+Private Function SafeMaxContextChars() As Long
+    Dim v As Long: v = 40000
+    On Error Resume Next
+    v = modConfig.GetLong("max_context_chars", 40000)
+    On Error GoTo 0
+    If v <= 0 Then v = 40000
+    SafeMaxContextChars = v
+End Function
 
 Private Function CitationInstruction() As String
     CitationInstruction = "回答の根拠として使った箇所には、必ず出典を付けてください。" & vbLf & _

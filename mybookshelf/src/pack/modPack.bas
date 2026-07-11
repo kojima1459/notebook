@@ -12,26 +12,23 @@ Option Explicit
 '
 ' 設計判断(要点のみ。詳細は各関数直前のコメント参照):
 '   ・検証は2つに分離(§7.4指示どおり): ValidatePack(wb,reason)がWorkbook
-'     実物(シート存在+embed_dim一致)を検査し、内部でValidatePackMeta
-'     (Long/Long/Stringのみの純関数=テスト可能な「バージョン/次元」判定部)
-'     を呼ぶ。自分のconfig embed_dimとの一致はValidatePack側で行う
-'     (ValidatePackMetaの契約引数に「自分の次元」が無いため)。
+'     実物(シート存在+embed_dim一致)を検査し、内部で純関数ValidatePackMeta
+'     (Long/Long/Stringのみ=テスト可能な「バージョン/次元」判定部)を呼ぶ。
+'     自分のconfig embed_dimとの一致はValidatePack側で行う(ValidatePackMeta
+'     の契約引数に「自分の次元」が無いため)。
 '   ・「アクティブ行の資料1件」特定は、UI層(modUIShelf)のカード行レイア
 '     ウトに依存せず、Application.ActiveCellの行にmy_manifestのfile_name
-'     と一致する文字列が無いか探す疎結合な方式にした(R1・担当外ファイル
-'     不可侵の両方を満たすため)。
-'   ・ImportPackDialog完了後の一覧再描画は、あえてmodPack側から
-'     modUIShelf.RenderShelfを呼ばない(R1違反回避)。ボタンラッパー
-'     (modUIShelf.OnImportPack、担当外)の責務とする。
+'     と一致する文字列が無いか探す疎結合な方式にした(R1・担当外不可侵)。
+'   ・ImportPackDialog完了後の一覧再描画は、あえてmodPack側から呼ばない
+'     (R1違反回避)。ボタンラッパー(modUIShelf.OnImportPack、担当外)の責務。
 '   ・PIIスキャン(E0703)は書き出し前に全チャンクへmodPii.ScanTextを適用し、
 '     検知時は件数+例示を出してYes/Noで続行確認する(警告であり停止ではない)。
 '   ・重複排除はchunk_idの"bs::HASH::pN::cN"からHASH部を比較する
-'     (modShelf.bas BuildExistingHashSetと同じ設計。Public化されておらず
-'     呼べないため本モジュール内に複製)。
-'   ・保存失敗(読み取り専用フォルダ等・§13)はOn Error捕捉。§6の番号付き
-'     エラーコード表にこのケース専用の項目が無いため新規コードは追加せず
-'     (§6は契約として変更禁止)、err_logには識別用タグ"PACK_SAVE_FAILED"
-'     で記録しつつ、ユーザーには2文構成の案内を直接表示する。
+'     (modShelf.bas BuildExistingHashSetと同じ設計。非Publicのため複製)。
+'   ・保存失敗(読み取り専用フォルダ等・§13)はOn Error捕捉。§6にこのケース
+'     専用コードが無いため新規コードは追加せず(§6は契約として変更禁止)、
+'     err_logには識別用タグ"PACK_SAVE_FAILED"で記録し、ユーザーには2文
+'     構成の案内を直接表示する。
 '   ・my_knowledge/my_vectorsへの読み書きは配列一括(§12)。
 ' ============================================================================
 
@@ -45,10 +42,8 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
-' ----------------------------------------------------------------------------
 ' ExportPackDialog - 本棚全体 or アクティブ行の資料1件を選び、新規.xlsxへ
 '   pack_meta/pack_chunks/pack_vectors を書き出す。
-' ----------------------------------------------------------------------------
 Public Sub ExportPackDialog()
     Dim scopeAns As Long
     scopeAns = MsgBox( _
@@ -157,10 +152,8 @@ SaveFail:
         vbExclamation, modAppDef.APP_NAME
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ImportPackDialog - ファイル選択→ValidatePack→重複(fnvハッシュ)スキップ
 '   しつつmy_knowledge/my_vectorsへ取込。origin="pack:"&作成者。
-' ----------------------------------------------------------------------------
 Public Sub ImportPackDialog()
     Dim fd As Object
     Set fd = Application.FileDialog(3)   ' msoFileDialogFilePicker(名前付き定数は使わない)
@@ -235,10 +228,8 @@ OpenFail:
         vbExclamation, modAppDef.APP_NAME
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ValidatePack - Workbook実物を検査(3シート存在・pack_format_version一致・
 '   embed_dim一致)。E0701/E0702の判定材料をreasonに返す。
-' ----------------------------------------------------------------------------
 Public Function ValidatePack(ByVal wb As Workbook, ByRef reason As String) As Boolean
     reason = ""
     If wb Is Nothing Then
@@ -271,14 +262,10 @@ Public Function ValidatePack(ByVal wb As Workbook, ByRef reason As String) As Bo
     ValidatePack = True
 End Function
 
-' ----------------------------------------------------------------------------
-' ValidatePackMeta - バージョン/次元の判定ロジックを切り出した純関数
-'   (§7.8「ValidatePackの列検査部を純関数に切り出してテスト可能にする」)。
-'   Excelオブジェクトには一切触れない(Long/Long/Stringのみ)。
-'   ここでは「形式バージョンが対応版か」「次元数がそもそも妥当か(1以上)」
-'   だけを見る。「自分のconfig embed_dimとの一致」はExcel設定を読む必要が
-'   あるため、呼び出し元のValidatePackが別途判定する(上記コメント参照)。
-' ----------------------------------------------------------------------------
+' ValidatePackMeta - バージョン/次元の判定ロジックを切り出した純関数(§7.8)。
+'   Excelオブジェクトに触れない(Long/Long/Stringのみ)。形式バージョンが
+'   対応版か・次元数が妥当か(1以上)だけを見る。「自分のconfig embed_dimと
+'   の一致」はValidatePackが別途判定する(上記コメント参照)。
 Public Function ValidatePackMeta(ByVal formatVersion As Long, ByVal embedDim As Long, ByRef reason As String) As Boolean
     reason = ""
     If formatVersion <> modAppDef.PACK_FORMAT_VERSION Then
@@ -293,10 +280,7 @@ Public Function ValidatePackMeta(ByVal formatVersion As Long, ByVal embedDim As 
     ValidatePackMeta = True
 End Function
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー: 共通
-' ----------------------------------------------------------------------------
-
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(sheetName)
@@ -307,8 +291,8 @@ Private Function CLngSafe(ByVal s As String) As Long
     If IsNumeric(s) Then CLngSafe = CLng(Val(s))
 End Function
 
-' アクティブセルの行の中から、my_manifestのfile_nameと一致する文字列を探す
-' (カード行の列レイアウトに依存しない疎結合な特定方法。上部コメント参照)。
+' アクティブセルの行の中からmy_manifestのfile_nameと一致する文字列を探す
+' (カード行の列レイアウトに依存しない特定方法。上部コメント参照)。
 Private Function FindActiveRowSourceName() As String
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     If wsM Is Nothing Then Exit Function
@@ -387,10 +371,7 @@ Private Function ReadMetaValue(ByVal wsMeta As Worksheet, ByVal key As String) A
     Next i
 End Function
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー: 書き出し(ExportPackDialog)
-' ----------------------------------------------------------------------------
-
 Private Function LoadChunksForExport(ByVal sourceFilter As String, ByRef ids() As String, ByRef sources() As String, _
         ByRef pages() As Long, ByRef summaries() As String, ByRef keywords() As String, _
         ByRef fullTexts() As String) As Long
@@ -554,10 +535,7 @@ Private Function BuildVectorMap() As Object
     Set BuildVectorMap = dict
 End Function
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー: 取込(ImportPackDialog)
-' ----------------------------------------------------------------------------
-
 Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As String, ByRef sources() As String, _
         ByRef pages() As Long, ByRef summaries() As String, ByRef keywords() As String, _
         ByRef fullTexts() As String, ByRef vectors() As String) As Long
@@ -676,7 +654,7 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
         Dim firstKRow As Long: firstKRow = lastK + 1
         If firstKRow < 2 Then firstKRow = 2
 
-        Dim wArrK As Variant: wArrK = CompactRowsK(outK, importedCount)
+        Dim wArrK As Variant: wArrK = CompactRows(outK, importedCount, 9)
         wsK.Range(wsK.Cells(firstKRow, 1), wsK.Cells(firstKRow + importedCount - 1, 9)).Value = wArrK
 
         Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row
@@ -684,19 +662,19 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
         Dim firstVRow As Long: firstVRow = lastV + 1
         If firstVRow < 2 Then firstVRow = 2
 
-        Dim wArrV As Variant: wArrV = CompactRowsV(outV, importedCount)
+        Dim wArrV As Variant: wArrV = CompactRows(outV, importedCount, 2)
         wsV.Range(wsV.Cells(firstVRow, 1), wsV.Cells(firstVRow + importedCount - 1, 2)).Value = wArrV
     End If
 End Sub
 
-Private Function EnsureKnowledgeSheet() As Worksheet
-    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_KNOWLEDGE)
+' my_knowledge/my_vectors共通: 無ければveryHiddenで新規作成しヘッダを書く
+' (modShelf.bas/modEmbed.bas の同名Ensure*Sheetと同じ設計。複製理由は上部コメント参照)。
+Private Function EnsureVeryHiddenSheet(ByVal sheetName As String, ByVal hdr As Variant) As Worksheet
+    Dim ws As Worksheet: Set ws = GetSheet(sheetName)
     If ws Is Nothing Then
         On Error GoTo Fail
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
-        ws.Name = modAppDef.SH_KNOWLEDGE
-        Dim hdr As Variant
-        hdr = Array("chunk_id", "source", "origin", "page", "summary", "keywords", "full_text", "added_at", "embedded")
+        ws.Name = sheetName
         Dim i As Long
         For i = LBound(hdr) To UBound(hdr)
             ws.Cells(1, i + 1).Value = hdr(i)
@@ -705,33 +683,23 @@ Private Function EnsureKnowledgeSheet() As Worksheet
         ws.Visible = 2   ' xlSheetVeryHidden
         On Error GoTo 0
     End If
-    Set EnsureKnowledgeSheet = ws
+    Set EnsureVeryHiddenSheet = ws
     Exit Function
 Fail:
-    Set EnsureKnowledgeSheet = Nothing
+    Set EnsureVeryHiddenSheet = Nothing
+End Function
+
+Private Function EnsureKnowledgeSheet() As Worksheet
+    Set EnsureKnowledgeSheet = EnsureVeryHiddenSheet(modAppDef.SH_KNOWLEDGE, _
+        Array("chunk_id", "source", "origin", "page", "summary", "keywords", "full_text", "added_at", "embedded"))
 End Function
 
 Private Function EnsureVectorSheet() As Worksheet
-    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_VECTORS)
-    If ws Is Nothing Then
-        On Error GoTo Fail
-        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
-        ws.Name = modAppDef.SH_VECTORS
-        ws.Cells(1, 1).Value = "chunk_id"
-        ws.Cells(1, 2).Value = "vector_csv"
-        On Error Resume Next
-        ws.Visible = 2   ' xlSheetVeryHidden
-        On Error GoTo 0
-    End If
-    Set EnsureVectorSheet = ws
-    Exit Function
-Fail:
-    Set EnsureVectorSheet = Nothing
+    Set EnsureVectorSheet = EnsureVeryHiddenSheet(modAppDef.SH_VECTORS, Array("chunk_id", "vector_csv"))
 End Function
 
-' my_knowledge の chunk_id 列全体から「bs::HASH::pN::cN」のHASH部分を集めた
-' Scripting.Dictionaryを返す(modShelf.bas の BuildExistingHashSet と同じ設計。
-' Publicではないため呼び出せず、ここに複製している)。
+' chunk_id「bs::HASH::pN::cN」のHASH部分を集めたDictionaryを返す
+' (modShelf.bas BuildExistingHashSetと同じ設計。複製理由は上部コメント参照)。
 Private Function BuildExistingHashSet(ByVal wsK As Worksheet) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     If wsK Is Nothing Then
@@ -769,24 +737,15 @@ Private Function ExtractHashFromChunkId(ByVal chunkId As String) As String
     ExtractHashFromChunkId = parts(LBound(parts) + 1)
 End Function
 
-Private Function CompactRowsK(ByRef src As Variant, ByVal n As Long) As Variant
-    Dim outArr() As Variant: ReDim outArr(1 To n, 1 To 9)
+' src(1 To n以上, 1 To cols)の先頭n行だけを(1 To n, 1 To cols)へ詰め直す
+' (Range書込みは配列サイズが対象範囲と一致していないといけないため)。
+Private Function CompactRows(ByRef src As Variant, ByVal n As Long, ByVal cols As Long) As Variant
+    Dim outArr() As Variant: ReDim outArr(1 To n, 1 To cols)
     Dim r As Long, c As Long
     For r = 1 To n
-        For c = 1 To 9
+        For c = 1 To cols
             outArr(r, c) = src(r, c)
         Next c
     Next r
-    CompactRowsK = outArr
-End Function
-
-Private Function CompactRowsV(ByRef src As Variant, ByVal n As Long) As Variant
-    Dim outArr() As Variant: ReDim outArr(1 To n, 1 To 2)
-    Dim r As Long, c As Long
-    For r = 1 To n
-        For c = 1 To 2
-            outArr(r, c) = src(r, c)
-        Next c
-    Next r
-    CompactRowsV = outArr
+    CompactRows = outArr
 End Function
