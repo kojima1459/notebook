@@ -110,6 +110,37 @@ Private Function CanUseTypeArrays() As Boolean
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' CanUseEmptyArrayReDim - "ReDim arr(0 To -1)"(上限<下限=0要素配列を作る、
+'   LBound/UBoundをエラーにせず安全に0件として扱わせるためのVBA定番イディオム。
+'   modUtil.SplitKeepNonEmptyや(CanUseTypeArrays=Trueの環境限定だが)
+'   modChunker.ChunkPagesの空入力パスがこのイディオムを使う)を、この実行環境が
+'   受け付けるかどうかを実測で判定する。
+'   実測の結果、LibreOffice実行環境(本ハーネスのOption VBASupport 1注入下)は
+'   このReDim文自体を実行時エラー9 "Index out of defined range" にすることを
+'   確認済み(Excel VBAでは正常に0要素配列を作れる標準イディオム)。
+'   これはmodUtil側のバグではない: modUtil.SplitKeepNonEmptyの戻り値を使う
+'   実際の呼び出し元(modRetrieve.KeywordBonus等)は
+'   `For i = LBound(words) To UBound(words)`のように「LBound/UBoundへの
+'   直接アクセスがエラーにならない」ことを前提にしており、これは
+'   ReDim(0 To -1)だからこそ安全に成立する(未ReDim配列にすると、その
+'   LBound/UBoundへのアクセス自体がVBAでもエラー9になり、かえって壊れる)。
+'   したがってmodUtil側を「未ReDimのまま返す」方式に変更するのは
+'   本末転倒(Excel実機で壊れる側に倒すことになる)であり、本Waveでは
+'   modUtil.basを変更しない。LO側のこの既知の言語差はテスト側で検知し、
+'   影響を受ける具体的な1件(空文字列入力時の0件確認)だけを「LO環境の
+'   既知の制限によりスキップ」として明示する(CanUseTypeArraysと同じ設計方針)。
+' ----------------------------------------------------------------------------
+Private Function CanUseEmptyArrayReDim() As Boolean
+    On Error Resume Next
+    Err.Clear
+    Dim probe() As String
+    ReDim probe(0 To -1)
+    CanUseEmptyArrayReDim = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
 ' ============================================================================
 ' modUtil
 ' ============================================================================
@@ -260,25 +291,30 @@ Private Sub TestDotProduct()
     modTestRunner.Check "DotProduct_次元不一致は0", (d2 = 0#), "d2=" & d2
 End Sub
 
+' 注意(2026-07-11 Wave3で特定): ローカル変数名に "base" を使うと、
+' LibreOffice Basic(Option VBASupport 1環境)のコンパイルが応答不能になり
+' run_lo_tests.pyがタイムアウト(exit 124)する、実験で切り分け済みの地雷が
+' ある("Base" が "Option Base" 文のキーワードと衝突するためと推測される)。
+' Excel VBAでは変数名として合法だが、本ハーネス互換のため "baseTs" を使う。
 Private Sub TestIsSameTimestamp()
-    Dim base As Date: base = DateSerial(2024, 1, 1)   ' 固定基準日時(0時0分0秒)
+    Dim baseTs As Date: baseTs = DateSerial(2024, 1, 1)   ' 固定基準日時(0時0分0秒)
 
     ' 0秒差 -> True
-    Dim same0 As Boolean: same0 = modUtil.IsSameTimestamp(base, base)
+    Dim same0 As Boolean: same0 = modUtil.IsSameTimestamp(baseTs, baseTs)
     modTestRunner.Check "IsSameTimestamp_0秒差True", same0, "same0=" & same0
 
     ' 1.9秒差(2秒丸めの範囲内) -> True
-    Dim b19 As Date: b19 = base + (1.9# / 86400#)
-    Dim same19 As Boolean: same19 = modUtil.IsSameTimestamp(base, b19)
+    Dim b19 As Date: b19 = baseTs + (1.9# / 86400#)
+    Dim same19 As Boolean: same19 = modUtil.IsSameTimestamp(baseTs, b19)
     modTestRunner.Check "IsSameTimestamp_1_9秒差True", same19, "same19=" & same19
 
     ' 2.1秒差(2秒丸めの範囲外) -> False
-    Dim b21 As Date: b21 = base + (2.1# / 86400#)
-    Dim same21 As Boolean: same21 = modUtil.IsSameTimestamp(base, b21)
+    Dim b21 As Date: b21 = baseTs + (2.1# / 86400#)
+    Dim same21 As Boolean: same21 = modUtil.IsSameTimestamp(baseTs, b21)
     modTestRunner.Check "IsSameTimestamp_2_1秒差False", (Not same21), "same21=" & same21
 
     ' 前後どちらが新しくても対称であること(bの方が過去)
-    Dim same19rev As Boolean: same19rev = modUtil.IsSameTimestamp(b19, base)
+    Dim same19rev As Boolean: same19rev = modUtil.IsSameTimestamp(b19, baseTs)
     modTestRunner.Check "IsSameTimestamp_対称性", same19rev, "same19rev=" & same19rev
 End Sub
 
@@ -315,10 +351,25 @@ Private Sub TestSplitKeepNonEmpty()
             "r0=" & r(0) & " r1=" & r(1) & " r2=" & r(2)
     End If
 
-    Dim rEmpty() As String
-    rEmpty = modUtil.SplitKeepNonEmpty("", ",")
-    Dim nEmpty As Long: nEmpty = UBound(rEmpty) - LBound(rEmpty) + 1
-    modTestRunner.Check "SplitKeepNonEmpty_空文字入力は0件", (nEmpty <= 0), "nEmpty=" & nEmpty
+    ' 空文字列入力(0件)の確認。modUtil.SplitKeepNonEmptyの空入力パスは
+    ' 内部で"ReDim outArr(0 To -1)"(VBA定番の0要素配列イディオム)を使うが、
+    ' このReDim文自体がLibreOffice実行環境では実行時エラー9になることを
+    ' 実測で確認済み(CanUseEmptyArrayReDimコメント参照。modUtil側のバグではなく、
+    ' modUtil.SplitKeepNonEmptyの呼び出し元(modRetrieve.KeywordBonus等)が
+    ' 前提とする「LBound/UBoundに直接アクセスしてもエラーにならない」性質を
+    ' Excel実機で保つための正しい実装であり、変更しない)。
+    If Not CanUseEmptyArrayReDim() Then
+        modTestRunner.Check "SplitKeepNonEmpty_空文字入力0件: LO環境の既知の制限によりスキップ", True, _
+            "LibreOffice実行環境では modUtil.SplitKeepNonEmpty 内部の " & _
+            "ReDim outArr(0 To -1) が実行時エラー9になることを確認済み" & _
+            "(Excel VBAでは正常に0要素配列を作れる標準イディオム。CanUseEmptyArrayReDim" & _
+            "コメント参照)。Excel実機受入チェック(§11.3)で必ず再確認すること。"
+    Else
+        Dim rEmpty() As String
+        rEmpty = modUtil.SplitKeepNonEmpty("", ",")
+        Dim nEmpty As Long: nEmpty = UBound(rEmpty) - LBound(rEmpty) + 1
+        modTestRunner.Check "SplitKeepNonEmpty_空文字入力は0件", (nEmpty <= 0), "nEmpty=" & nEmpty
+    End If
 End Sub
 
 ' HumanBytes/HumanSecondsのテスト。

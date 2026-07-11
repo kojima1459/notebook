@@ -24,18 +24,17 @@ Option Explicit
 '     実際にLLMが本棚抜粋から回答するBuildQuickPrompt/BuildDeepDraftPrompt/
 '     BuildDeepVerifyPromptの全モードに挿入する。BuildEnrichPromptは既知の
 '     チャンク本文を要約するだけの用途で「資料に無い」概念が無いため対象外。
-'   ・本文組み込みの打ち切り: hits()の各preview(120字)を連結し、
-'     config max_context_chars(既定40000)を超える手前で打ち切り、
-'     打ち切った場合のみ末尾に「(一部省略)」を挿入する(§7.3)。
-'   ・引用元コンテンツについての既知の制約: modTypes.Hit は preview
-'     (先頭120字)のみを保持し、チャンクのfull_textそのものは持たない
-'     (§7.1で確定済みの型なので本モジュールから変更できない)。そのため
-'     ここで組み立てる「本棚抜粋」は各ヒットにつき120字の抜粋になる。
-'     チャンク本体(最大700字程度)の全量をLLMに渡したい場合はHit型に
-'     フィールド追加が必要になるが、それは本モジュールの担当外(型は
-'     modTypes.bas所有・§14でファイル分担外)なので、現状の契約どおり
-'     previewを使う実装とし、この制約はWave3/4のレビューに委ねる
-'     (最終レポートの懸念事項として報告する)。
+'   ・本文組み込みの打ち切り: hits()の各full_text(チャンク本文全体。最大
+'     32000字)を連結し、config max_context_chars(既定40000)を超える手前で
+'     打ち切り、打ち切った場合のみ末尾に「(一部省略)」を挿入する(§7.3)。
+'   ・Wave3 PM裁定1: modTypes.Hit に full_text フィールドが追加され、
+'     modRetrieve.Searchがmy_knowledge読取時にfull_textを格納するように
+'     なったため、本モジュールは「本棚抜粋」の本文として full_text を使う
+'     (旧実装はpreview=先頭120字しか渡せず、回答生成の根拠が不十分だった)。
+'     preview は出典先出し表示(modUIMain.RenderSourcesPreview)専用として
+'     Hit型に残っており、本モジュールのプロンプト本文には使わない。ただし
+'     full_textが空(旧データ・テストダブル等で未設定)の場合はpreviewへ
+'     フォールバックする防御的実装にし、空の抜粋が本文に混じらないようにする。
 ' ============================================================================
 
 Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
@@ -180,7 +179,7 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long, ByVal maxC
     Dim i As Long
     For i = 1 To nHits
         Dim entry As String
-        entry = SourceTag(hits(i)) & vbLf & hits(i).preview & vbLf & vbLf
+        entry = SourceTag(hits(i)) & vbLf & SourceBody(hits(i)) & vbLf & vbLf
 
         If used + Len(entry) > lim Then
             Dim remain As Long
@@ -202,6 +201,17 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long, ByVal maxC
     End If
 
     BuildSourceBlock = sb
+End Function
+
+' 本棚抜粋ブロックの本文: full_text(チャンク本文全体)を根拠として使う
+' (Wave3 PM裁定1)。full_textが空(旧データ・テストダブル等)の場合のみ
+' previewへフォールバックする(空の抜粋を本文に混ぜないための防御)。
+Private Function SourceBody(ByRef h As Hit) As String
+    If LenB(h.full_text) > 0 Then
+        SourceBody = h.full_text
+    Else
+        SourceBody = h.preview
+    End If
 End Function
 
 ' origin="pack:<作成者>"なら [パック(作成者):ファイル名]、それ以外(self)は

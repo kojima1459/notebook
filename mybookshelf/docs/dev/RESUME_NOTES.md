@@ -1,7 +1,7 @@
 # 再開メモ(セッション上限対策・随時更新)
 
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
-> 最終更新: 2026-07-11 Wave2完了・Wave3開始時点
+> 最終更新: 2026-07-11 Wave3実行中(3-R完了/3-T実行中)スナップショット
 
 ## 現在地
 
@@ -15,7 +15,18 @@
     modTypes/modRetrieve/modPrompts改修で対応する(PM裁定済み)。(b) modAskが仮定した質問セルNamed Range
     "mb_question" をmodUIMain.EnsureLayoutが実際に定義しているか照合。(c) ask_*_totalのBump元がmodAsk.Answer
     唯一であることの確認。(d) Wave1申し送りのHex$/非BMP文字挙動はpureテスト実行で確認
-- **Wave3〜5 未着手**
+- **Wave3 実行中**: 3-R(整合修正: Hit.full_text追加/modRetrieve・modPrompts改修/mb_question照合/カウンタ確認)= **完了ok**。
+  3-T(modTestsPure完成+modTestsExcel新規+LO純テスト全緑)= 実行中に中断の可能性(このスナップショット時点で
+  modTestsPure/modUtil/run_lo_tests.pyに作業中変更あり。PURE_ALLOWLISTにmodAppDef/modShelfSync/modPack追加済み)。
+- **Wave4〜5 未着手**(段取りは下記「Wave2後の段取り」4〜5参照)
+
+## Wave3 ワークフロー再開情報
+- スクリプト: /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-wave3-wf_efd8c3ba-e36.js
+- Run ID: wf_efd8c3ba-e36(3-R完了=キャッシュ済み。resumeFromRunIdで3-Tのみ再実行)
+- 再開: Workflow({scriptPath:<上記>, resumeFromRunId:"wf_efd8c3ba-e36"})(必要なら先にTaskStop wfhmaetrn)
+- 3-T再実行時の注意: 中断時点の作業中ファイル(modTestsPure等)が中途半端な可能性 → プロンプトに従い下書き扱いで検証・完成
+- 検品ゲート(3-T完了後に必ず): python3 tools/vba_lint.py ERROR0 / run_lo_tests.py --mode compile 全PASS /
+  --mode pure 全緑 → コミット→Wave4(Opus敵対的レビュー6レンズ)へ
 
 ## ワークフロー再開情報(このセッション内でのみ有効)
 

@@ -97,9 +97,24 @@ DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
 SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
+# 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
+# MASTER_SPEC §7.8はmodShelfSync.DiffDecisionとmodPack.ValidatePackMetaを
+# 「純関数として切り出してmodTestsPureから直接検証する」ことを明示指示している
+# (これらのモジュール全体がR4準拠というわけではなく、Excelに触れる他のSub/
+# Functionと同居しているが、この2関数自体はExcelオブジェクトに触れない)。
+# 追加前はこの2モジュールが未注入のため、modTestsPure.RunAll内の
+# modShelfSync.DiffDecision呼び出しが実行時エラー12(Variable not defined)に
+# なり、テストが「実際のロジックを検証しないまま失敗扱い」になっていた。
+# modPack.ValidatePackMetaはmodAppDef.PACK_FORMAT_VERSIONも参照するため
+# modAppDefも合わせて追加する。3モジュールとも「対象モジュールを1本だけ
+# 隔離してコンパイル」するモード2(run_compile_mode)で既にコンパイル成功が
+# 確認済み(Excel専用トークンはtechメモ4のとおり未実行なら未解決のままで
+# 良い)。追加後、実際にモード1を実行してPASS/FAIL件数の悪化がないことを
+# 確認済み(tools/README.mdまたはWave3完了報告のverification参照)。
 PURE_ALLOWLIST = [
     "modTypes", "modUtil", "modChunker", "modPii", "modPrompts",
     "modTestRunner", "modTestsPure",
+    "modAppDef", "modShelfSync", "modPack",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

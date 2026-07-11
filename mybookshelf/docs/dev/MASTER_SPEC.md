@@ -181,8 +181,9 @@ Public Type ShelfChunk
 End Type
 Public Type Hit
     chunk_id As String: score As Double: source As String
-    page As Long: preview As String        ' 先頭120字
+    page As Long: preview As String        ' 先頭120字(出典先出し表示用)
     origin As String
+    full_text As String                    ' チャンク本文全体(回答生成の根拠。Wave3 PM裁定1)
 End Type
 ```
 
@@ -341,6 +342,9 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     ' GetEmbedding(query) → my_vectors全件Dot積(全てL2済みなのでコサイン同値)
     ' + キーワードボーナス: queryの語がsummary/keywords/sourceに含まれれば +0.05/語(上限0.15)
     ' 戻り値=件数(0可)。埋め込み失敗時は-1(呼び出し側がE0203表示)
+    ' hits().full_text にはmy_knowledgeのfull_text列(チャンク本文全体)をそのまま格納する
+    ' (Wave3 PM裁定1: previewだけでは回答生成の根拠として不十分なため)。
+    ' hits().preview は引き続き先頭120字(出典先出し表示用)。
 ```
 
 **modPrompts.bas** — プロンプト組み立て(純文字列。answer_language挿入)
@@ -352,6 +356,8 @@ Public Function BuildEnrichPrompt(ByVal batchText As String) As String
 ```
 出典指示: 回答内の引用は `[本棚:ファイル名 p.页]` 形式で、と明示。パック由来は `[パック(作成者):ファイル名]`。
 「資料に無いことは『資料には見当たらない』と述べ、推測は推測と明示」を全モードで指示。
+本棚抜粋ブロックの本文には `hits().full_text`(チャンク本文全体)を使う(Wave3 PM裁定1。
+previewは出典先出し表示専用でプロンプト本文には使わない)。
 本文組み込みは `max_context_chars` で打ち切り(切ったら「(一部省略)」を挿入)。
 
 **modAsk.bas**

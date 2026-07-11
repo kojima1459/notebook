@@ -33,6 +33,19 @@ Option Explicit
 '   愚直なFNV実装と一致することを確認済み。
 ' ============================================================================
 
+' 注意(2026-07-11 Wave3で特定・LO互換のための最小修正): LibreOffice Basicは
+' モジュールレベルの Private Const を「宣言より前の行での参照」を解決できず
+' 実行時エラー12 "Variable not defined" になることを実験で確認した
+' (VBAでは宣言順序に関係なくモジュール内どこからでも参照できるため、
+' Excel実機ではこの問題は起きない)。Fnv1a64HexはFNV_OFFSET_HI等をモジュール
+' 末尾の定数より先に使っていたため、LO実行時テストで検出された。
+' 定数の値そのものは変えず、単に「最初の使用箇所より前」に宣言位置を
+' 移動しただけである(ロジックへの影響なし)。
+Private Const FNV_OFFSET_HI As Long = &HCBF29CE4
+Private Const FNV_OFFSET_LO As Long = &H84222325
+Private Const FNV_PRIME_HI As Long = &H100    ' = 256
+Private Const FNV_PRIME_LO As Long = &H1B3    ' = 435
+
 ' ============================================================================
 ' Fnv1a64Hex - FNV-1a 64bit ハッシュを16進16桁(小文字)の文字列で返す。
 '   決定的: 同一の入力文字列 s に対して常に同一の出力を返す。
@@ -291,14 +304,10 @@ End Function
 ' ============================================================================
 ' 内部ヘルパー(Fnv1a64Hex専用): 64bit整数演算のDouble安全実装
 ' ============================================================================
-
-' offset_basis = 0xCBF29CE484222325 を上位/下位32bitワードに分解した定数。
-' 16進リテラルはビットパターンとしてそのままLongへ格納される(符号は無視)。
-Private Const FNV_OFFSET_HI As Long = &HCBF29CE4
-Private Const FNV_OFFSET_LO As Long = &H84222325
-' prime = 0x100000001B3 = 2^40 + 435 なので上位ワードは非常に小さい値になる。
-Private Const FNV_PRIME_HI As Long = &H100    ' = 256
-Private Const FNV_PRIME_LO As Long = &H1B3    ' = 435
+' (FNV_OFFSET_HI/LO・FNV_PRIME_HI/LOの定義はLO互換のためファイル冒頭に移動済み。
+'  値の由来: offset_basis = 0xCBF29CE484222325 を上位/下位32bitワードに分解。
+'  prime = 0x100000001B3 = 2^40 + 435 なので上位ワードは非常に小さい値になる。
+'  16進リテラルはビットパターンとしてそのままLongへ格納される(符号は無視)。)
 
 ' 未割り当て配列でも例外にせず0を返す(LBound/UBoundは未割り当て配列に
 ' 対して実行時エラー9を出すため、1行スコープのOn Errorで吸収する)。

@@ -35,6 +35,8 @@ Public Type Hit
     score As Double
     source As String
     page As Long
-    preview As String        ' 先頭120字
+    preview As String        ' 先頭120字(出典先出し表示用。UI表示にのみ使う)
     origin As String
+    full_text As String      ' チャンク本文全体(最大32000字。回答生成の根拠として
+                              ' modPromptsが使う。PM裁定1: previewだけでは根拠不足)
 End Type

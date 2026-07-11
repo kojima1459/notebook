@@ -33,6 +33,11 @@ Option Explicit
 '     組み立てて表示する)。
 '   ・my_vectors/my_knowledgeが無い/空の場合は例外にせず0件を返す
 '     (検索0件の扱いは呼び出し側=modAskの責務: MASTER_SPEC §7.3)。
+'   ・Hit.full_text: my_knowledge.full_text列(チャンク本文全体)をそのまま
+'     格納する(Wave3 PM裁定1)。preview(先頭120字)は出典先出し表示専用として
+'     引き続き別に保持し、full_textは回答生成の根拠としてmodPromptsが使う。
+'     既にfull_textを1回のRange一括読込み(kData)で読んでいるため、追加の
+'     シートアクセスは発生しない。
 ' ============================================================================
 
 Private Const COL_V_ID As Long = 1
@@ -120,6 +125,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim bestPage() As Long: ReDim bestPage(1 To k)
     Dim bestPreview() As String: ReDim bestPreview(1 To k)
     Dim bestOrigin() As String: ReDim bestOrigin(1 To k)
+    Dim bestFullText() As String: ReDim bestFullText(1 To k)
     Dim filled As Long: filled = 0
     Dim minIdx As Long: minIdx = 0
     Dim minScore As Double: minScore = 0
@@ -159,6 +165,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
             bestPage(filled) = pageNum
             bestPreview(filled) = modUtil.SafeLeft(fullText, PREVIEW_LEN)
             bestOrigin(filled) = origin
+            bestFullText(filled) = fullText
             If filled = k Then RecomputeMin bestScore, k, minIdx, minScore
         ElseIf sc > minScore Then
             bestId(minIdx) = vid
@@ -167,6 +174,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
             bestPage(minIdx) = pageNum
             bestPreview(minIdx) = modUtil.SafeLeft(fullText, PREVIEW_LEN)
             bestOrigin(minIdx) = origin
+            bestFullText(minIdx) = fullText
             RecomputeMin bestScore, k, minIdx, minScore
         End If
 NextR:
@@ -185,7 +193,7 @@ NextR:
             If bestScore(b) > bestScore(mx) Then mx = b
         Next b
         If mx <> a Then
-            SwapResult bestId, bestScore, bestSource, bestPage, bestPreview, bestOrigin, a, mx
+            SwapResult bestId, bestScore, bestSource, bestPage, bestPreview, bestOrigin, bestFullText, a, mx
         End If
     Next a
 
@@ -198,6 +206,7 @@ NextR:
         outHits(a).page = bestPage(a)
         outHits(a).preview = bestPreview(a)
         outHits(a).origin = bestOrigin(a)
+        outHits(a).full_text = bestFullText(a)
     Next a
 
     hits = outHits
@@ -257,10 +266,10 @@ Private Sub RecomputeMin(ByRef scores() As Double, ByVal k As Long, _
     Next i
 End Sub
 
-' 選択ソート内で使う、並行配列6本分のインデックスa/bの要素を入れ替える。
+' 選択ソート内で使う、並行配列7本分のインデックスa/bの要素を入れ替える。
 Private Sub SwapResult(ByRef ids() As String, ByRef scores() As Double, ByRef sources() As String, _
                        ByRef pages() As Long, ByRef previews() As String, ByRef origins() As String, _
-                       ByVal a As Long, ByVal b As Long)
+                       ByRef fullTexts() As String, ByVal a As Long, ByVal b As Long)
     Dim tS As String, tD As Double, tL As Long
     tS = ids(a): ids(a) = ids(b): ids(b) = tS
     tD = scores(a): scores(a) = scores(b): scores(b) = tD
@@ -268,4 +277,5 @@ Private Sub SwapResult(ByRef ids() As String, ByRef scores() As Double, ByRef so
     tL = pages(a): pages(a) = pages(b): pages(b) = tL
     tS = previews(a): previews(a) = previews(b): previews(b) = tS
     tS = origins(a): origins(a) = origins(b): origins(b) = tS
+    tS = fullTexts(a): fullTexts(a) = fullTexts(b): fullTexts(b) = tS
 End Sub
