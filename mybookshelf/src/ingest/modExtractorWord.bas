@@ -1,0 +1,120 @@
+Attribute VB_Name = "modExtractorWord"
+Option Explicit
+
+' ============================================================================
+' modExtractorWord - PDF/Word抽出(Word.Application COM経由)
+' ----------------------------------------------------------------------------
+' 役割:
+'   Word 2013以降はPDFを「リフロー」して編集可能なテキストへ変換して開ける。
+'   複雑な表組み・多段組みの約款PDFではリフローが崩れることがあるが、
+'   埋め込みに使える程度の平文は十分に回収できる。
+'   docx/docは素直にWordがネイティブに開く。
+'   ページ単位のテキストは Document.Range をページ区切りまでスキャンして
+'   取り出す(チャンクに正しいページ番号を付けるため)。
+'
+' 流用元: /home/user/notebook/src/admin/modExtractorWord.bas(V2資産・コピー元。
+'   変更禁止)。
+'
+' 適応要件(MASTER_SPEC §7.2):
+'   ・V1は Err.Raise で失敗を通知していたが、本モジュールは
+'     Boolean 戻り値 + errDetail(ByRef)へ変換する。呼び出し元 modExtractor
+'     がE0302等の契約エラーコードへ変換する(本モジュールはエラーコードを
+'     持たない・生の詳細文字列のみ返す)。
+'   ・maxPages(呼び出し側が modConfig.max_pages_per_file から解決した値)を
+'     超えるページを持つ文書は、超過分を抽出せず先頭 maxPages ページのみ
+'     処理し、truncated(ByRef)を True にする(§7.2 PARTIAL_PAGES)。
+'   ・Word.Application は必ず On Error で包み、成功・失敗いずれの経路でも
+'     doc.Close / word.Quit を試みる(V1のFailedハンドラの作法をそのまま
+'     踏襲。プロセスが残留するとユーザーPCにWordプロセスが積み上がる事故に
+'     なるため必須)。
+'   ・Mac等COM非対応環境(CreateObject失敗)は実行時エラー429を検知して
+'     丁寧な案内文を errDetail に含める(§13)。
+' ============================================================================
+
+Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
+                        ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
+                        ByRef errDetail As String) As Boolean
+    truncated = False
+
+    Dim word As Object
+    Dim doc As Object
+
+    On Error GoTo Failed
+    Set word = CreateObject("Word.Application")
+    word.Visible = False
+    word.DisplayAlerts = 0   ' wdAlertsNone
+
+    ' ConfirmConversions:=False でPDFリフロー確認ダイアログを抑止する。
+    Set doc = word.Documents.Open( _
+        FileName:=path, _
+        ConfirmConversions:=False, _
+        ReadOnly:=True, _
+        AddToRecentFiles:=False, _
+        Visible:=False)
+
+    Dim pageCount As Long
+    pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages
+    If pageCount < 1 Then pageCount = 1
+
+    Dim loopCount As Long: loopCount = pageCount
+    If loopCount > maxPages Then
+        loopCount = maxPages
+        truncated = True
+    End If
+
+    Dim tmp() As ExtractedPage: ReDim tmp(0 To loopCount - 1)
+    Dim i As Long
+    For i = 1 To loopCount
+        tmp(i - 1).page = i
+        tmp(i - 1).Text = ExtractPageText(doc, i, pageCount)
+    Next i
+
+    doc.Close 0    ' wdDoNotSaveChanges
+    word.Quit 0
+    Set doc = Nothing
+    Set word = Nothing
+
+    pages = tmp
+    Extract = True
+    Exit Function
+
+Failed:
+    errDetail = DescribeComError(Err.Number, Err.Description)
+    If Not doc Is Nothing Then
+        On Error Resume Next
+        doc.Close 0
+        On Error GoTo 0
+    End If
+    If Not word Is Nothing Then
+        On Error Resume Next
+        word.Quit 0
+        On Error GoTo 0
+    End If
+    Extract = False
+End Function
+
+' 指定ページの本文を、次ページ開始直前までの範囲として取り出す
+' (最終ページは文書末尾まで)。
+Private Function ExtractPageText(ByVal doc As Object, ByVal pageNum As Long, ByVal totalPages As Long) As String
+    ' wdGoToPage = 1, wdGoToAbsolute = 1
+    Dim startRange As Object, endRange As Object
+    Set startRange = doc.GoTo(What:=1, Which:=1, count:=pageNum)
+    If pageNum < totalPages Then
+        Set endRange = doc.GoTo(What:=1, Which:=1, count:=pageNum + 1)
+        startRange.End = endRange.Start - 1
+    Else
+        startRange.End = doc.Content.End
+    End If
+    ExtractPageText = startRange.Text
+End Function
+
+' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
+Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As String
+    If errNum = 429 Then
+        DescribeComError = "この環境ではWord連携(COM)が利用できません。" & _
+            "Mac版ExcelやCOM未対応環境の可能性があります。Windows版Excel+Wordでお試しください。" & _
+            "(詳細: " & desc & ")"
+    Else
+        DescribeComError = desc
+    End If
+End Function
