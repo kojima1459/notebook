@@ -155,9 +155,26 @@ def find_soffice() -> str:
     sys.exit(2)
 
 
+CLS_HEADER_PATTERN = re.compile(
+    r"^\s*(VERSION\s+[\d.]+\s+CLASS|BEGIN|MultiUse\s*=.*|END)\s*$", re.IGNORECASE)
+
+
 def strip_attributes(text: str) -> str:
+    """Attribute行に加え、.clsファイル先頭のクラスヘッダブロック
+    (VERSION 1.0 CLASS / BEGIN / MultiUse=... / END)も除去する。
+    これらはVBEのエクスポート形式であってBasicソースではないため、
+    残すとLO Basicが構文エラー(ハング)になる。"""
     lines = text.splitlines()
-    return "\n".join(l for l in lines if not ATTR_LINE_PATTERN.match(l))
+    out = []
+    in_header = True
+    for l in lines:
+        if in_header:
+            if CLS_HEADER_PATTERN.match(l) or ATTR_LINE_PATTERN.match(l) or l.strip() == "":
+                continue
+            in_header = False
+        if not ATTR_LINE_PATTERN.match(l):
+            out.append(l)
+    return "\n".join(out)
 
 
 def fix_array_return_types(text: str) -> str:

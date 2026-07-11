@@ -42,7 +42,9 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 ```
 
 **依存ルール(lintで機械検査する)**:
-- R1: 下層は上層を呼ばない(基盤→機能はNG)。例外: 機能層→`modUIMain.SetStage`(進捗実況)のみ許可。
+- R1: 下層は上層を呼ばない(基盤→機能はNG)。例外(UI通知コールバック): 機能層→`modUIMain.SetStage`(進捗実況)、
+  `modUIMain.RenderSourcesPreview`(出典先出し)、`modUIMain.RenderAnswer`(回答描画)、`modUIShelf.RenderShelf`(カード再描画)のみ許可。
+  (Wave2 PM裁定: §7.2/§7.3が命じる呼び出しと整合させるため例外を4件に拡張。これ以外のUI参照は引き続き禁止)
 - R2: `opt*` モジュール名の直接参照(`optTts.` 等のトークン)はコアのどのモジュールにも書かない。
   呼び出しは必ず `modFeatures.InvokeFeature` / `Application.Run` の文字列経由。
 - R3: リボン関数(`ChatGPT`/`GetEmbeddings`/その他)の `Application.Run` は modGateway 内のみ。opt層も自前でRunせず `modGateway.TryRibbonRun` を使う。

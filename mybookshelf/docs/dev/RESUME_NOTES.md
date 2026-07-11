@@ -1,15 +1,20 @@
 # 再開メモ(セッション上限対策・随時更新)
 
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
-> 最終更新: 2026-07-11 06:5x UTC(Wave2終盤)
+> 最終更新: 2026-07-11 Wave2完了・Wave3開始時点
 
 ## 現在地
 
 - **Wave0 完了**: MASTER_SPEC.md(実装契約書)= `mybookshelf/docs/dev/MASTER_SPEC.md`
 - **Wave1 完了**(commit 89f59f4): 基盤8モジュール(src/core)+独立ビルド機構(build/)+テストハーネス(tools/)
   - 検証済み: vba_lint.py ERROR 0 / run_lo_tests.py --mode compile 全PASS
-- **Wave2 ほぼ完了**: 6並列エージェント(extract/shelf/qa/pack/ui/opt)は **全員 ok=true で完了**。
-  - 残: 2-X(テスト執筆エージェント)が実行中だった(modTestsPure.bas 書きかけ、modTestsExcel.bas 未着手)
+- **Wave2 完了**: 6並列エージェント全員 ok。検品でR1矛盾4件→PM裁定でR1例外を4件に拡張(lint+MASTER_SPEC修正済み)。
+  ハーネスの.clsヘッダ除去バグも修正済み。lint ERROR0 / LOコンパイルは modTestsPure(2-X書きかけ)以外全PASS。
+  - 残: modTestsPure.bas完成+modTestsExcel.bas新規(Wave3のテスト担当が実施)
+  - Wave3持ち越し判断事項: (a) Hit型にfull_text追加(現状プロンプトに120字プレビューしか渡らない品質問題) →
+    modTypes/modRetrieve/modPrompts改修で対応する(PM裁定済み)。(b) modAskが仮定した質問セルNamed Range
+    "mb_question" をmodUIMain.EnsureLayoutが実際に定義しているか照合。(c) ask_*_totalのBump元がmodAsk.Answer
+    唯一であることの確認。(d) Wave1申し送りのHex$/非BMP文字挙動はpureテスト実行で確認
 - **Wave3〜5 未着手**
 
 ## ワークフロー再開情報(このセッション内でのみ有効)

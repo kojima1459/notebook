@@ -635,8 +635,15 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
 
             if isinstance(cur_layer, int) and isinstance(target.layer, int):
                 if target.layer > cur_layer:
-                    if cur_layer == LAYER_MID and prefix == "modUIMain" and member == "SetStage":
-                        continue  # R1例外: 機能層→modUIMain.SetStage
+                    # R1例外(UI通知コールバック。MASTER_SPEC §3 R1 / Wave2 PM裁定):
+                    # 機能層は処理の進捗・結果をUIへ通知するために以下のみ呼んでよい。
+                    if cur_layer == LAYER_MID and (prefix, member) in (
+                        ("modUIMain", "SetStage"),
+                        ("modUIMain", "RenderSourcesPreview"),
+                        ("modUIMain", "RenderAnswer"),
+                        ("modUIShelf", "RenderShelf"),
+                    ):
+                        continue
                     info.add(
                         "ERROR", lineno,
                         f"R1違反: {LAYER_LABEL[cur_layer]}から上位の"
