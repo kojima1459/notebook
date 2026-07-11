@@ -1,0 +1,774 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+vba_lint.py — マイ本棚AI VBAソースの静的Lint(MASTER_SPEC.md §11.1)
+================================================================================
+役割:
+    mybookshelf/src/ 配下の全 .bas / .cls を対象に、実行せずに読める範囲の
+    契約違反・危険なコードパターンを機械的に検出する。「1-I テストハーネス」
+    3層(静的Lint/LO実行/実機受入)のうち最初の層で、CIの門番として一番
+    軽く・一番よく回すことを想定している。
+
+設計判断(なぜこう作ったか):
+    ・§7の公開契約(モジュール→Public名一覧)は、このファイル内に
+      CONTRACT という辞書として「書き起こして埋め込む」よう指示されている
+      (MASTER_SPEC本文をパースするのではなく、人間がMASTER_SPECを読んで
+      転記する方式)。§7に無い/曖昧なモジュール(modExtractorWord等の
+      アダプタ系、opt機能のUIラッパー等)はCONTRACTに載せない=チェック対象外
+      とし、「まだ書かれていないモジュール」はSKIP(エラーにしない)。
+    ・コメント剥がし: Lintの各種トークン検査(Worksheets禁止・opt直接参照
+      禁止・Application.Runホワイトリスト等)は、ソース中の「日本語コメント
+      で仕様を説明している行」を誤検知しないよう、必ず一度コメントを
+      取り除いた「コード部分」に対して行う。実際、modTypes.bas 冒頭の
+      設計判断コメントには「Worksheets/Range/Application/ThisWorkbook/
+      MsgBox」という語がそのまま書かれており、コメント除去をサボると
+      自分自身のドキュメントを違反として誤検知する。
+    ・行連結(" _" 継続行)は1つの論理行にまとめてから解析する。契約シグ
+      ネチャの多くは複数行にまたがる関数宣言なので、これをやらないと
+      Public宣言の抽出やDim型落ち検出が正しく動かない。
+    ・モジュール間参照(modX.Y)の実在検証は「modX/optX/ThisWorkbookの形を
+      した識別子」だけを対象にする。ws.Cells や rs.Fields のような通常の
+      オブジェクト変数はモジュール名の集合に含まれないため誤検知しない。
+    ・依存層(R1)の判定はMASTER_SPEC §14のディレクトリ配置で行う指示なので、
+      src/core=基盤層、src/{ingest,qa,pack,stats}=部品層+機能層をまとめた
+      「中間層」、src/ui=UI層、src/opt=opt層、src/test=テスト層、とした。
+      §3の論理図はmodDiagを機能層に置くが、実ファイルはsrc/core(基盤層)に
+      置かれる指示(§14)なので、本Lintではディレクトリ基準を優先する
+      (ディレクトリと論理層の食い違いはmodDiagの1件のみで、意味的にも
+      「診断は他機能に依存しない自己完結処理」であるべきなので実害は無い)。
+    ・SafeLeft未経由のfull_text系セル書込みチェックは§11.1に記載がある
+      「警告」項目として実装したが、静的解析だけでは変数の由来を正確に
+      追えないため誤検知が出やすい。exit codeには影響させない「弱い警告」
+      として出すに留める(§12のSafeLeft原則をコードレビューで補完する
+      前提)。
+
+使い方:
+    python3 tools/vba_lint.py                 # mybookshelf/src 配下を検査
+    python3 tools/vba_lint.py --path <dir>     # 検査対象ディレクトリを変更(主にテスト用)
+    exit code: 0 = 違反なし / 1 = 違反あり(ERRORが1件以上)
+================================================================================
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MYBOOKSHELF_ROOT = TOOLS_DIR.parent
+DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
+
+MAX_MODULE_CHARS = 30000
+
+# ------------------------------------------------------------------------------
+# §7 契約シグネチャ表: モジュール名 -> {"closed": bool, "required": [Public名...]}
+#   closed=True  : requiredと実際のPublic集合が完全一致でなければERROR
+#   closed=False : requiredは全部無いとERRORだが、追加のPublicがあっても
+#                  ERRORにしない(MASTER_SPEC本文が「純関数に切り出す」等
+#                  名前未確定の追加を許容する書き方をしている箇所)
+#   ここに載っていないモジュール名は契約チェックの対象外(自由)。
+# ------------------------------------------------------------------------------
+CONTRACT: dict[str, dict] = {
+    # ---- 7.1 基盤層 ----
+    "modAppDef": {
+        "closed": True,
+        "required": [
+            "APP_NAME", "APP_VERSION", "PACK_FORMAT_VERSION",
+            "SH_HOWTO", "SH_HOME", "SH_SHELF", "SH_DASH", "SH_CONFIG",
+            "SH_KNOWLEDGE", "SH_VECTORS", "SH_MANIFEST", "SH_STATS",
+            "SH_USAGE", "SH_ERRLOG", "SH_UISTATE",
+        ],
+    },
+    "modTypes": {
+        "closed": True,
+        "required": ["ExtractedPage", "ShelfChunk", "Hit"],
+    },
+    "modConfig": {
+        "closed": True,
+        "required": ["EnsureLoaded", "GetString", "GetLong", "GetDouble", "GetBool", "SetValue"],
+    },
+    "modLog": {
+        "closed": True,
+        "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError"],
+    },
+    "modUtil": {
+        "closed": True,
+        "required": [
+            "Fnv1a64Hex", "NormalizeForHash", "VectorToCsv", "CsvToVector",
+            "DotProduct", "L2Normalize", "HasVector", "SplitKeepNonEmpty",
+            "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
+            "FileNameOf", "ExtOf", "IsSameTimestamp",
+        ],
+    },
+    "modGateway": {
+        "closed": True,
+        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError"],
+    },
+    "modFeatures": {
+        "closed": True,
+        "required": ["FeatureEnabled", "ModulePresent", "InvokeFeature"],
+    },
+    "modDiag": {
+        "closed": True,
+        "required": ["RunDiagnostics", "QuickHealthCheck"],
+    },
+    # ---- 7.2 取込層 ----
+    # modExtractorWord / modExtractorExcel / modExtractorAcrobat は
+    # MASTER_SPECが個別のPublic契約を明示していないため対象外(自由)。
+    "modExtractor": {
+        "closed": True,
+        "required": ["ExtractFile", "SupportedExts"],
+    },
+    "modChunker": {
+        "closed": True,
+        "required": ["ChunkPages"],
+    },
+    "modEmbed": {
+        "closed": True,
+        "required": ["EmbedPending", "PendingCount"],
+    },
+    "modShelf": {
+        "closed": True,
+        "required": ["AddFilesViaDialog", "IngestFile", "DeleteSource", "SourceList", "TotalChunks"],
+    },
+    "modShelfSync": {
+        "closed": True,
+        # DiffDecision は §7.8 の記述により modShelfSync の差分判定を
+        # テスト可能にするため追加で Public 化することが名指しされている。
+        "required": ["PickShelfFolder", "SyncNow", "ScheduleAutoSync", "CancelAutoSync", "DiffDecision"],
+    },
+    "modEnrich": {
+        "closed": True,
+        "required": ["EnrichPending"],
+    },
+    # ---- 7.3 QA層 ----
+    "modRetrieve": {
+        "closed": True,
+        "required": ["Search"],
+    },
+    "modPrompts": {
+        "closed": True,
+        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt"],
+    },
+    "modAsk": {
+        "closed": True,
+        "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed"],
+    },
+    # ---- 7.4 パック層 ----
+    "modPii": {
+        "closed": True,
+        "required": ["ScanText"],
+    },
+    "modPack": {
+        # §7.8 が「ValidatePackの列検査部を純関数に切り出してテスト可能に
+        # する」ことを求めているが名前が未確定のため open にして、名前不明の
+        # 追加Publicまでは許容する(3つの契約関数の欠落だけは検出する)。
+        "closed": False,
+        "required": ["ExportPackDialog", "ImportPackDialog", "ValidatePack"],
+    },
+    # ---- 7.5 統計層 ----
+    "modStats": {
+        "closed": True,
+        "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate"],
+    },
+    # ---- 7.6 UI層 ----
+    "modUIMain": {
+        # opt機能ボタンのラッパー(OnTtsButton等、§7.7末尾)は名前未確定で
+        # モジュール分担も未確定のため open。契約に載っている10個の欠落だけ
+        # 検出する。
+        "closed": False,
+        "required": [
+            "EnsureLayout", "SetStage", "RenderAnswer", "RenderSourcesPreview",
+            "OnAskButton", "OnModeQuick", "OnModeDeep", "OnOpenHowto",
+            "OnRunDiag", "ShowTip",
+        ],
+    },
+    "modUIShelf": {
+        "closed": False,  # 同上(opt機能ボタンラッパーを許容)
+        "required": [
+            "EnsureLayout", "RenderShelf", "OnAddFiles", "OnSyncNow",
+            "OnPickFolder", "OnExportPack", "OnImportPack", "OnDeleteSource",
+        ],
+    },
+    "modUIDashboard": {
+        "closed": True,
+        "required": ["EnsureLayout", "RenderDashboard"],
+    },
+    "modBoot": {
+        "closed": True,
+        "required": ["Boot", "Auto_Open", "Auto_Close"],
+    },
+    "ThisWorkbook": {
+        # Workbook_Open/Workbook_BeforeClose は薄い転送のPrivateイベント
+        # ハンドラのみで、Publicは想定されていない(§7.6末尾)。
+        "closed": True,
+        "required": [],
+    },
+    # ---- 7.7 opt層(全モジュール共通でPing必須) ----
+    "optTts": {"closed": True, "required": ["Ping", "SpeakAnswer"]},
+    "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText"]},
+    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt"]},
+    "optDiffDoc": {"closed": True, "required": ["Ping", "CompareTwoDocsDialog"]},
+    # ---- 7.8 テストモジュール ----
+    "modTestRunner": {
+        "closed": True,
+        "required": ["ResetTests", "Check", "Failures", "ReportText", "RunAllPureTests"],
+    },
+    "modTestsPure": {
+        # 個別のRunXxxはmodTestsPure内部でいくつ増えてもよい。modTestRunner
+        # から呼ばれる入口 RunAll だけが契約(本Lintツール実装者=1-Iが
+        # 2-Xチームに要求する最小契約)。
+        "closed": False,
+        "required": ["RunAll"],
+    },
+    # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
+}
+
+# 純ロジックモジュール(R4): Excelオブジェクトトークン禁止
+# modPrompts はMASTER_SPEC R4本文には明記されていないが、§7.3で
+# 「純文字列」モジュールと明記されており、テストハーネス発注元の指示
+# (1-Iタスク定義)により本Lintでは禁止トークン検査の対象に加える。
+PURE_LOGIC_MODULES = {
+    "modUtil", "modChunker", "modPii", "modTypes",
+    "modTestRunner", "modTestsPure", "modPrompts",
+}
+
+FORBIDDEN_TOKEN_PATTERNS = [
+    (re.compile(r"\bWorksheets\b"), "Worksheets"),
+    (re.compile(r"\bRange\s*\("), "Range("),
+    (re.compile(r"\bApplication\."), "Application."),
+    (re.compile(r"\bThisWorkbook\b"), "ThisWorkbook"),
+    (re.compile(r"\bMsgBox\b"), "MsgBox"),
+    (re.compile(r"\bActiveSheet\b"), "ActiveSheet"),
+]
+
+# R3: Application.Run 第1引数リテラルのホワイトリスト
+RUN_LITERAL_WHITELIST_EXACT = {"ChatGPT", "GetEmbeddings", "modBoot.Boot"}
+RUN_LITERAL_WHITELIST_PREFIX = re.compile(r"^opt[A-Za-z]\w*\.")
+# ChatGPT/GetEmbeddings の直接Application.Runは modGateway 内のみ許可(R3本文)
+RUN_LITERAL_GATEWAY_ONLY = {"ChatGPT", "GetEmbeddings"}
+# 変数経由(非リテラル)のApplication.Runはこの2ファイルのみ許可
+RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
+
+# R2: opt直接トークン参照禁止(src/opt以外)
+OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
+
+# 型落ち検出: Dim/Static文
+DIM_STMT_PATTERN = re.compile(r"^(Dim|Static)\s+(.*)$", re.IGNORECASE)
+AS_KEYWORD_PATTERN = re.compile(r"\bAs\b", re.IGNORECASE)
+AS_INTEGER_PATTERN = re.compile(r"\bAs\s+Integer\b", re.IGNORECASE)
+
+ATTRIBUTE_VBNAME_PATTERN = re.compile(r'^\s*Attribute\s+VB_Name\s*=\s*"([^"]*)"', re.IGNORECASE)
+OPTION_EXPLICIT_PATTERN = re.compile(r"^\s*Option\s+Explicit\s*$", re.IGNORECASE)
+
+PUB_SUB_PATTERN = re.compile(r"^Public\s+Sub\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_FUNC_PATTERN = re.compile(r"^Public\s+Function\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_CONST_PATTERN = re.compile(r"^Public\s+Const\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_TYPE_PATTERN = re.compile(r"^Public\s+Type\s+([A-Za-z_]\w*)", re.IGNORECASE)
+
+DOTTED_REF_PATTERN = re.compile(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)")
+# 注意: ThisWorkbook はここに含めない。ThisWorkbook.cls の契約上Publicは
+# 0件(Private イベント転送のみ)だが、実コードの "ThisWorkbook.Worksheets"
+# 等はExcel組み込みオブジェクトモデルのプロパティであって、我々の
+# ThisWorkbook.cls が自前定義したPublicメンバーではない。これをmodX.Y
+# 実在検証の対象に含めると「ThisWorkbook.Worksheets は未定義」という
+# 誤検知になるため、モジュール形状の判定対象は mod*/opt* のみに絞る。
+MODULE_SHAPED_NAME = re.compile(r"^(mod[A-Z]\w*|opt[A-Z]\w*)$")
+
+FULLTEXT_ASSIGN_PATTERN = re.compile(r"\.Value\s*=", re.IGNORECASE)
+FULLTEXT_HINT_PATTERN = re.compile(r"full_?text|answer_?text", re.IGNORECASE)
+SAFELEFT_CALL_PATTERN = re.compile(r"SafeLeft\s*\(", re.IGNORECASE)
+
+
+# ==============================================================================
+# レイヤー判定(MASTER_SPEC §14のディレクトリ配置基準)
+# ==============================================================================
+LAYER_FOUNDATION = 0
+LAYER_MID = 1
+LAYER_UI = 2
+LAYER_OPT = "opt"
+LAYER_TEST = "test"
+
+LAYER_LABEL = {
+    LAYER_FOUNDATION: "基盤層(src/core)",
+    LAYER_MID: "部品層/機能層(src/ingest,qa,pack,stats)",
+    LAYER_UI: "UI層(src/ui)",
+    LAYER_OPT: "opt層(src/opt)",
+    LAYER_TEST: "テスト層(src/test)",
+}
+
+
+def classify_layer(relpath: Path):
+    parts = relpath.parts
+    if not parts:
+        return None
+    top = parts[0]
+    if top == "core":
+        return LAYER_FOUNDATION
+    if top in ("ingest", "qa", "pack", "stats"):
+        return LAYER_MID
+    if top == "ui":
+        return LAYER_UI
+    if top == "opt":
+        return LAYER_OPT
+    if top == "test":
+        return LAYER_TEST
+    return None
+
+
+# ==============================================================================
+# ソース前処理: 行連結・コメント除去・文分割
+# ==============================================================================
+def merge_continuations(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """" _" で終わる行を次行と結合し、(開始行番号, 論理行) のリストにする。"""
+    out: list[tuple[int, str]] = []
+    acc = ""
+    acc_start = None
+    for i, raw in enumerate(raw_lines, start=1):
+        line = raw.rstrip("\n\r")
+        if acc_start is None:
+            acc_start = i
+        rstripped = line.rstrip()
+        cont = rstripped.endswith(" _") or rstripped == "_"
+        line_wo_cont = rstripped[:-1].rstrip() if cont else line
+        acc = f"{acc} {line_wo_cont}" if acc else line_wo_cont
+        if not cont:
+            out.append((acc_start, acc))
+            acc = ""
+            acc_start = None
+    if acc:
+        out.append((acc_start, acc))
+    return out
+
+
+def strip_comment(line: str) -> str:
+    """文字列リテラル内の ' は無視して、行コメント(')以降を切り落とす。"""
+    in_str = False
+    for i, c in enumerate(line):
+        if c == '"':
+            in_str = not in_str
+        elif c == "'" and not in_str:
+            return line[:i]
+    return line
+
+
+def split_top_level(s: str, sep: str) -> list[str]:
+    """文字列リテラル・カッコの中は無視してトップレベルの sep で分割する。"""
+    parts: list[str] = []
+    depth = 0
+    in_str = False
+    cur: list[str] = []
+    for c in s:
+        if c == '"':
+            in_str = not in_str
+            cur.append(c)
+        elif not in_str and c == "(":
+            depth += 1
+            cur.append(c)
+        elif not in_str and c == ")":
+            depth = max(0, depth - 1)
+            cur.append(c)
+        elif not in_str and depth == 0 and c == sep:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+    parts.append("".join(cur))
+    return parts
+
+
+def iter_statements(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """行連結→コメント除去→コロン分割まで済ませた (行番号, 文) の列。"""
+    stmts: list[tuple[int, str]] = []
+    for lineno, ltext in merge_continuations(raw_lines):
+        code = strip_comment(ltext)
+        for piece in split_top_level(code, ":"):
+            piece = piece.strip()
+            if piece:
+                stmts.append((lineno, piece))
+    return stmts
+
+
+# ==============================================================================
+# モジュール情報
+# ==============================================================================
+@dataclass
+class Finding:
+    level: str   # "ERROR" | "WARN" | "SKIP"
+    line: int
+    message: str
+
+
+@dataclass
+class ModuleInfo:
+    path: Path
+    relpath: Path
+    raw_text: str
+    vb_name: str
+    filename_stem: str
+    statements: list = field(default_factory=list)
+    public_names: dict = field(default_factory=dict)  # name -> kind
+    layer: object = None
+    findings: list = field(default_factory=list)
+
+    def add(self, level: str, line: int, message: str) -> None:
+        self.findings.append(Finding(level, line, message))
+
+
+def load_module(path: Path, src_root: Path) -> ModuleInfo:
+    raw_text = path.read_text(encoding="utf-8", errors="replace")
+    raw_lines = raw_text.splitlines()
+    stmts = iter_statements(raw_lines)
+
+    vb_name = ""
+    for line in raw_lines[:10]:
+        m = ATTRIBUTE_VBNAME_PATTERN.match(line)
+        if m:
+            vb_name = m.group(1)
+            break
+
+    filename_stem = path.stem
+    relpath = path.relative_to(src_root)
+
+    info = ModuleInfo(
+        path=path,
+        relpath=relpath,
+        raw_text=raw_text,
+        vb_name=vb_name,
+        filename_stem=filename_stem,
+        statements=stmts,
+    )
+    info.layer = classify_layer(relpath)
+
+    for lineno, stmt in stmts:
+        m = PUB_SUB_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Sub"
+            continue
+        m = PUB_FUNC_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Function"
+            continue
+        m = PUB_CONST_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Const"
+            continue
+        m = PUB_TYPE_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Type"
+            continue
+
+    return info
+
+
+# ==============================================================================
+# 個別チェック
+# ==============================================================================
+def check_basics(info: ModuleInfo) -> None:
+    # Option Explicit
+    if not any(OPTION_EXPLICIT_PATTERN.match(line) for line in info.raw_text.splitlines()):
+        info.add("ERROR", 1, "Option Explicit がありません")
+
+    # VB_Name = ファイル名一致
+    if not info.vb_name:
+        info.add("ERROR", 1, 'Attribute VB_Name が見つかりません')
+    elif info.vb_name != info.filename_stem:
+        info.add(
+            "ERROR", 1,
+            f'Attribute VB_Name="{info.vb_name}" がファイル名"{info.filename_stem}"と不一致',
+        )
+
+    # モジュール30,000字以内
+    n = len(info.raw_text)
+    if n > MAX_MODULE_CHARS:
+        info.add("ERROR", 1, f"モジュールが{n}字で上限{MAX_MODULE_CHARS}字を超過")
+
+
+def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
+    for lineno, stmt in info.statements:
+        if AS_INTEGER_PATTERN.search(stmt):
+            info.add("ERROR", lineno, f"Integer型は禁止(Longを使う): 「{stmt.strip()[:80]}」")
+
+        m = DIM_STMT_PATTERN.match(stmt)
+        if not m:
+            continue
+        rest = m.group(2)
+        segments = split_top_level(rest, ",")
+        if len(segments) < 2:
+            continue
+        for seg in segments[:-1]:
+            if not AS_KEYWORD_PATTERN.search(seg):
+                info.add(
+                    "ERROR", lineno,
+                    f"型落ち疑い(Dim a, b As T は先頭がVariantになる): 「{stmt.strip()[:80]}」",
+                )
+                break
+
+
+def module_name_for_display(info: ModuleInfo) -> str:
+    return info.vb_name or info.filename_stem
+
+
+def check_pure_logic_tokens(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    if name not in PURE_LOGIC_MODULES:
+        return
+    for lineno, stmt in info.statements:
+        for pattern, label in FORBIDDEN_TOKEN_PATTERNS:
+            if pattern.search(stmt):
+                info.add(
+                    "ERROR", lineno,
+                    f"R4違反: 純ロジックモジュールで禁止トークン「{label}」使用: 「{stmt.strip()[:80]}」",
+                )
+
+
+def check_opt_token_reference(info: ModuleInfo) -> None:
+    if info.layer == LAYER_OPT:
+        return  # src/opt自身はoptトークンを書いてよい
+    for lineno, stmt in info.statements:
+        m = OPT_TOKEN_PATTERN.search(stmt)
+        if m:
+            info.add(
+                "ERROR", lineno,
+                f"R2違反: opt直接参照「{m.group(0).strip()}」。"
+                f"modFeatures.InvokeFeature経由にすること: 「{stmt.strip()[:80]}」",
+            )
+
+
+APPLICATION_RUN_PATTERN = re.compile(
+    r"Application\s*\.\s*Run\s*\(?\s*(?:\"(?P<lit>[^\"]*)\"|(?P<var>[A-Za-z_]\w*))"
+)
+
+
+def check_application_run_whitelist(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    for lineno, stmt in info.statements:
+        for m in APPLICATION_RUN_PATTERN.finditer(stmt):
+            lit = m.group("lit")
+            var = m.group("var")
+            if lit is not None:
+                allowed = (
+                    lit in RUN_LITERAL_WHITELIST_EXACT
+                    or RUN_LITERAL_WHITELIST_PREFIX.match(lit) is not None
+                )
+                if not allowed:
+                    info.add(
+                        "ERROR", lineno,
+                        f'R3違反: Application.Run("{lit}", ...) はホワイトリスト外: 「{stmt.strip()[:80]}」',
+                    )
+                    continue
+                if lit in RUN_LITERAL_GATEWAY_ONLY and name != "modGateway":
+                    info.add(
+                        "ERROR", lineno,
+                        f'R3違反: Application.Run("{lit}", ...) はmodGateway内のみ許可'
+                        f'(このモジュールは{name}): 「{stmt.strip()[:80]}」',
+                    )
+            else:
+                # 変数/式経由のApplication.Run
+                if name not in RUN_VARIABLE_ALLOWED_MODULES:
+                    info.add(
+                        "ERROR", lineno,
+                        f"R3違反: 変数経由のApplication.Run({var}, ...)は"
+                        f"modGateway/modFeatures以外で禁止(このモジュールは{name}): "
+                        f"「{stmt.strip()[:80]}」",
+                    )
+
+
+def check_cross_module_references(info: ModuleInfo, known_modules: dict[str, ModuleInfo]) -> None:
+    self_name = module_name_for_display(info)
+    seen_skip: set[str] = set()
+    for lineno, stmt in info.statements:
+        for m in DOTTED_REF_PATTERN.finditer(stmt):
+            prefix, member = m.group(1), m.group(2)
+            if not MODULE_SHAPED_NAME.match(prefix):
+                continue
+            target = known_modules.get(prefix)
+            if target is None:
+                if prefix != self_name and prefix not in seen_skip:
+                    seen_skip.add(prefix)
+                    info.add(
+                        "SKIP", lineno,
+                        f"未実装モジュール参照のためスキップ: {prefix}.{member}",
+                    )
+                continue
+            if member not in target.public_names:
+                info.add(
+                    "ERROR", lineno,
+                    f"モジュール間参照エラー: {prefix}.{member} はPublicとして実在しない"
+                    f"(現在の{prefix}のPublic一覧: {sorted(target.public_names) or 'なし'})",
+                )
+
+
+def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo]) -> None:
+    cur_layer = info.layer
+    if cur_layer is None or cur_layer == LAYER_TEST:
+        return  # 分類不能・テスト層は依存順序の対象外
+
+    for lineno, stmt in info.statements:
+        for m in DOTTED_REF_PATTERN.finditer(stmt):
+            prefix, member = m.group(1), m.group(2)
+            if not MODULE_SHAPED_NAME.match(prefix):
+                continue
+            target = known_modules.get(prefix)
+            if target is None or target.layer is None:
+                continue
+            if prefix == module_name_for_display(info):
+                continue
+
+            if cur_layer == LAYER_OPT:
+                if target.layer == LAYER_FOUNDATION:
+                    continue
+                if prefix == "modUIMain" and member == "SetStage":
+                    continue
+                if target.layer == LAYER_OPT:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"opt層契約違反(§7.7): opt層からのコア参照は基盤層+"
+                    f"modUIMain.SetStageのみ許可。{prefix}.{member} は"
+                    f"{LAYER_LABEL.get(target.layer, target.layer)}: 「{stmt.strip()[:80]}」",
+                )
+                continue
+
+            if isinstance(cur_layer, int) and isinstance(target.layer, int):
+                if target.layer > cur_layer:
+                    if cur_layer == LAYER_MID and prefix == "modUIMain" and member == "SetStage":
+                        continue  # R1例外: 機能層→modUIMain.SetStage
+                    info.add(
+                        "ERROR", lineno,
+                        f"R1違反: {LAYER_LABEL[cur_layer]}から上位の"
+                        f"{LAYER_LABEL[target.layer]}を参照: {prefix}.{member}"
+                        f"「{stmt.strip()[:80]}」",
+                    )
+
+
+def check_contract(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    contract = CONTRACT.get(name)
+    if contract is None:
+        return
+    required = set(contract["required"])
+    actual = set(info.public_names.keys())
+
+    missing = required - actual
+    for nm in sorted(missing):
+        info.add("ERROR", 1, f"契約違反: Public {nm} が契約にあるが実装されていない")
+
+    if contract["closed"]:
+        extra = actual - required
+        for nm in sorted(extra):
+            info.add(
+                "ERROR", 1,
+                f"契約違反: Public {nm} は契約に無い(§7に無いPublicは作らない規約)",
+            )
+
+
+def check_safeleft_warning(info: ModuleInfo) -> None:
+    for lineno, stmt in info.statements:
+        if not FULLTEXT_ASSIGN_PATTERN.search(stmt):
+            continue
+        if not FULLTEXT_HINT_PATTERN.search(stmt):
+            continue
+        if SAFELEFT_CALL_PATTERN.search(stmt):
+            continue
+        info.add(
+            "WARN", lineno,
+            f"full_text系のセル書込みでSafeLeft経由が確認できません"
+            f"(32,767字超で書込み失敗の恐れ・§12): 「{stmt.strip()[:80]}」",
+        )
+
+
+# ==============================================================================
+# メイン
+# ==============================================================================
+def discover_module_files(src_root: Path) -> list[Path]:
+    files = sorted(src_root.rglob("*.bas")) + sorted(src_root.rglob("*.cls"))
+    return sorted(set(files))
+
+
+def run_lint(src_root: Path) -> int:
+    if not src_root.exists():
+        print(f"[vba_lint] 対象ディレクトリが存在しません: {src_root}")
+        return 1
+
+    files = discover_module_files(src_root)
+    modules: list[ModuleInfo] = []
+    for f in files:
+        modules.append(load_module(f, src_root))
+
+    known_modules: dict[str, ModuleInfo] = {}
+    for info in modules:
+        known_modules[module_name_for_display(info)] = info
+
+    for info in modules:
+        check_basics(info)
+        check_dim_type_drop_and_integer(info)
+        check_pure_logic_tokens(info)
+        check_opt_token_reference(info)
+        check_application_run_whitelist(info)
+        check_cross_module_references(info, known_modules)
+        check_layer_dependency(info, known_modules)
+        check_contract(info)
+        check_safeleft_warning(info)
+
+    # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
+    implemented_names = set(known_modules.keys())
+    not_yet: list[str] = sorted(set(CONTRACT.keys()) - implemented_names)
+
+    total_error = 0
+    total_warn = 0
+    total_skip = 0
+
+    print("=" * 78)
+    print("vba_lint レポート — マイ本棚AI")
+    print("=" * 78)
+
+    for info in modules:
+        if not info.findings:
+            continue
+        rel = info.relpath.as_posix()
+        errors = [x for x in info.findings if x.level == "ERROR"]
+        warns = [x for x in info.findings if x.level == "WARN"]
+        skips = [x for x in info.findings if x.level == "SKIP"]
+        total_error += len(errors)
+        total_warn += len(warns)
+        total_skip += len(skips)
+
+        print(f"\n[{rel}]")
+        for f in sorted(info.findings, key=lambda x: (x.level != "ERROR", x.level != "WARN", x.line)):
+            print(f"  {f.level:<5} L{f.line}: {f.message}")
+
+    if not_yet:
+        print("\n[未実装モジュール(契約はあるがファイル無し) — SKIP]")
+        for nm in not_yet:
+            print(f"  SKIP  {nm}")
+        total_skip += len(not_yet)
+
+    print("\n" + "-" * 78)
+    print(f"検査対象ファイル数: {len(modules)}")
+    print(f"ERROR: {total_error} 件 / WARN: {total_warn} 件 / SKIP: {total_skip} 件")
+    if total_error > 0:
+        print("結果: NG(exit code 1) — ERRORを解消してください")
+    else:
+        print("結果: OK(exit code 0)")
+    print("-" * 78)
+
+    return 1 if total_error > 0 else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="マイ本棚AI VBA静的Lint")
+    parser.add_argument(
+        "--path", type=str, default=str(DEFAULT_SRC_ROOT),
+        help="検査対象ディレクトリ(既定: mybookshelf/src)",
+    )
+    args = parser.parse_args()
+    src_root = Path(args.path).resolve()
+    return run_lint(src_root)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,47 @@
+{
+  "_comment": "マイ本棚AI VBAモジュール台帳。MASTER_SPEC.md §14「実装ウェーブとファイル分担」に準拠。パスは mybookshelf/ からの相対パス。ビルド時にここへ列挙された全ファイルの存在を検査する(--allow-missing で欠落を警告に緩和)。opt機能の撤去はこのファイルから該当行を削除するだけでよい(コアは無傷)。type=std の .bas だけが vba_src シートに格納され自己インストーラで注入される。type=class (ThisWorkbook.cls) は VBComponents.Add(1) では追加できない(標準モジュール専用API)ため vba_src には載せず、スケルトンの ThisWorkbook ストリームをビルドスクリプトが直接パッチする(そちらが実行系の本体)。",
+  "modules": [
+    { "name": "modAppDef",           "path": "src/core/modAppDef.bas",                 "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modTypes",            "path": "src/core/modTypes.bas",                  "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modConfig",           "path": "src/core/modConfig.bas",                 "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modLog",              "path": "src/core/modLog.bas",                    "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modUtil",             "path": "src/core/modUtil.bas",                   "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modGateway",          "path": "src/core/modGateway.bas",                "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modFeatures",         "path": "src/core/modFeatures.bas",               "role": "core", "type": "std",   "wave": "1-A" },
+    { "name": "modDiag",             "path": "src/core/modDiag.bas",                   "role": "core", "type": "std",   "wave": "1-A" },
+
+    { "name": "modExtractor",        "path": "src/ingest/modExtractor.bas",            "role": "core", "type": "std",   "wave": "2-B" },
+    { "name": "modExtractorWord",    "path": "src/ingest/modExtractorWord.bas",        "role": "core", "type": "std",   "wave": "2-B" },
+    { "name": "modExtractorExcel",   "path": "src/ingest/modExtractorExcel.bas",       "role": "core", "type": "std",   "wave": "2-B" },
+    { "name": "modExtractorAcrobat", "path": "src/ingest/modExtractorAcrobat.bas",     "role": "core", "type": "std",   "wave": "2-B" },
+    { "name": "modChunker",          "path": "src/ingest/modChunker.bas",              "role": "core", "type": "std",   "wave": "2-B" },
+
+    { "name": "modEmbed",            "path": "src/ingest/modEmbed.bas",                "role": "core", "type": "std",   "wave": "2-C" },
+    { "name": "modShelf",            "path": "src/ingest/modShelf.bas",                "role": "core", "type": "std",   "wave": "2-C" },
+    { "name": "modShelfSync",        "path": "src/ingest/modShelfSync.bas",            "role": "core", "type": "std",   "wave": "2-C" },
+    { "name": "modEnrich",           "path": "src/ingest/modEnrich.bas",               "role": "core", "type": "std",   "wave": "2-C" },
+
+    { "name": "modRetrieve",         "path": "src/qa/modRetrieve.bas",                 "role": "core", "type": "std",   "wave": "2-D" },
+    { "name": "modPrompts",          "path": "src/qa/modPrompts.bas",                  "role": "core", "type": "std",   "wave": "2-D" },
+    { "name": "modAsk",              "path": "src/qa/modAsk.bas",                      "role": "core", "type": "std",   "wave": "2-D" },
+
+    { "name": "modPii",              "path": "src/pack/modPii.bas",                    "role": "core", "type": "std",   "wave": "2-E" },
+    { "name": "modPack",             "path": "src/pack/modPack.bas",                   "role": "core", "type": "std",   "wave": "2-E" },
+    { "name": "modStats",            "path": "src/stats/modStats.bas",                 "role": "core", "type": "std",   "wave": "2-E" },
+
+    { "name": "modUIMain",           "path": "src/ui/modUIMain.bas",                   "role": "core", "type": "std",   "wave": "2-F" },
+    { "name": "modUIShelf",          "path": "src/ui/modUIShelf.bas",                  "role": "core", "type": "std",   "wave": "2-F" },
+    { "name": "modUIDashboard",      "path": "src/ui/modUIDashboard.bas",              "role": "core", "type": "std",   "wave": "2-F" },
+    { "name": "modBoot",             "path": "src/ui/modBoot.bas",                     "role": "core", "type": "std",   "wave": "2-F" },
+    { "name": "ThisWorkbook",        "path": "src/ui/ThisWorkbook.cls",                "role": "core", "type": "class", "wave": "2-F", "vba_src": false, "note": "vba_src非対象。ビルドスクリプトがvbaProject.binのThisWorkbookストリームを直接パッチ(自己インストーラが占有)。src/ui/ThisWorkbook.clsはリポジトリ内の参照用ソース(Workbook_Open→Boot/Workbook_BeforeClose→Auto_Closeの薄い転送)であり、実行時はmodBootのAuto_Open/Auto_Closeが本命。" },
+
+    { "name": "optTts",              "path": "src/opt/optTts.bas",                     "role": "opt",  "type": "std",   "wave": "2-G" },
+    { "name": "optVision",           "path": "src/opt/optVision.bas",                  "role": "opt",  "type": "std",   "wave": "2-G" },
+    { "name": "optMarkdown",         "path": "src/opt/optMarkdown.bas",                "role": "opt",  "type": "std",   "wave": "2-G" },
+    { "name": "optDiffDoc",          "path": "src/opt/optDiffDoc.bas",                 "role": "opt",  "type": "std",   "wave": "2-G" },
+
+    { "name": "modTestRunner",       "path": "src/test/modTestRunner.bas",             "role": "test", "type": "std",   "wave": "1-I" },
+    { "name": "modTestsPure",        "path": "src/test/modTestsPure.bas",              "role": "test", "type": "std",   "wave": "2-X" },
+    { "name": "modTestsExcel",       "path": "src/test/modTestsExcel.bas",             "role": "test", "type": "std",   "wave": "2-X" }
+  ]
+}

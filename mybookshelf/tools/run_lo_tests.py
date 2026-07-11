@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+run_lo_tests.py — LibreOffice headlessによるVBA実行テスト(MASTER_SPEC.md §11.2)
+================================================================================
+役割:
+    vba_lint.py が「読むだけ」で見つけられる違反を検出するのに対し、本スクリプトは
+    実際に LibreOffice(soffice --headless)にVBAソースを読み込ませ、
+      モード1: 純ロジックモジュール一式を実行して modTestRunner.RunAllPureTests
+               →ReportText の結果(PASS/FAIL)を回収する
+      モード2: 全モジュール(Excel依存を含む)を1本ずつ隔離したライブラリに
+               読み込み、実行はせず「コンパイルが通るか」だけを確認する
+    の2段構えでテストする。
+
+技術メモ(実験して確定させた挙動。ここが今回の技術リスクだった):
+    1. soffice --headless で「vnd.sun.star.script:Lib.Mod.Sub?language=Basic&
+       location=application」形式のURIを叩いてマクロを実行させるには、
+       -env:UserInstallation=file://<profile> で指すプロファイルが
+       「一度でも正常に起動を終えたことがある」状態でなければならない。
+       手組みしただけの真っさらなプロファイル(script.xlc等だけ用意した状態)
+       ではスクリプトが黙って実行されない(exit codeは0のまま何も起きない)。
+       このため本スクリプトはまず --terminate_after_init で「一次起動」して
+       プロファイルを初期化してから、そこへ Basic モジュールを注入する。
+       (このテンプレートプロファイルは使い回して初期化コストを毎回払わない
+       ようにしている。詳細は _ensure_template_profile を参照)
+    2. モジュール間で Public Type(modTypes.ExtractedPage 等)を跨いで
+       参照すると、既定(VBA非互換)のStarBasicコンパイラでは
+       コンパイルがスタックし、呼び出しがハングする(タイムアウトでしか
+       検知できない)。各モジュール先頭に "Option VBASupport 1" を追加すると
+       この問題が解消することを実験で確認した。逆に、この1行が無いと
+       modTypes を使う全モジュールのテストが原因不明のタイムアウトになる。
+       そのため本スクリプトが注入する全モジュールの先頭に機械的に
+       "Option VBASupport 1" を付与する(元の.bas/.clsファイルは変更しない。
+       あくまでLO実行用に生成する一時コピーだけに付与する)。
+    3. 1つのライブラリ内に構文エラーを含むモジュールが1つでもあると、
+       そのライブラリ内の「どのマクロを呼んでも」呼び出しがハングする
+       (ライブラリ単位でまとめてコンパイルされるため、壊れていない
+       モジュールの実行も巻き添えを食う)。したがってモード2では
+       モジュール1本ずつを専用ライブラリに隔離し、他モジュールの構文エラーに
+       巻き込まれないようにしている。
+    4. Excel固有オブジェクト(Worksheets/Range/Application/ThisWorkbook/
+       MsgBox)は、それらに実際に「実行が到達」しない限りコンパイルは通る
+       (未定義のグローバル識別子の解決は実行時に遅延される)。これを
+       実験で確認済みなので、モード2は「対象モジュールのコンパイルが
+       通るか」を、対象モジュール中の何かのPublicプロシージャを実際に
+       呼ぶことはせず、同じライブラリに同居させたダミーの
+       Chk_Driver.Probe() だけを呼ぶことで検査する(=ライブラリ全体の
+       コンパイルを強制するが、対象モジュールの中身は実行しない)。
+    5. タイムアウトの検知とプロセス後始末は、Pythonで自前のkill処理を
+       書くより信頼できたため、coreutilsの `timeout --kill-after=N` に
+       委譲している(実験でsoffice.binの完全終了を確認済み)。
+    6. 【重要・既知のVBA/LO差異】 `Public Function Foo(...) As String()` の
+       ように「配列を返す関数」の宣言は、Option VBASupport 1を付けても
+       LibreOffice Basicではコンパイルが通らない(=ハングする)ことを実験で
+       確認した(配列を「引数」として受け取るのは問題なく、配列を
+       Variantに包んで返すのも問題ない。関数の戻り値型として配列型
+       "T()" をそのまま書いた場合だけが壊れる)。これは実際に
+       MASTER_SPEC §7.1 の modUtil.SplitKeepNonEmpty の契約シグネチャ
+       ( `As String()` )がそのまま該当し、対処しないとLOテストが
+       全滅する。§11.2の指示(「VBA固有でLOが解釈できない構文が出た場合は
+       lint側で当該構文の代替を規約化する(勝手にテスト対象から外さない)」)
+       に従い、本スクリプトは .xba へ変換する際にだけ
+       `Function Foo(...) As T()` を `Function Foo(...) As Variant` へ
+       機械的に書き換える(_fix_array_return_types)。元の.bas/.clsファイルは
+       一切変更しない。関数本体が配列をそのままReturnValueに代入する分には
+       Variant宣言でも実行時の挙動(呼び出し側で `Dim r() As String: r = ...`
+       と受けてUBound/LBound/添字アクセスする)は同一であることを実証済み。
+       実Excel(VBA)側は元の `As String()` のままビルドされるため、
+       この書き換えはLO実行テストの内部実装だけの話であり、§7の公開契約
+       (シグネチャ)そのものを変更するものではない。
+
+使い方:
+    python3 tools/run_lo_tests.py                  # モード1+モード2 両方
+    python3 tools/run_lo_tests.py --mode pure       # モード1のみ
+    python3 tools/run_lo_tests.py --mode compile    # モード2のみ
+    python3 tools/run_lo_tests.py --keep-profile    # 一時プロファイルを残す(デバッグ用)
+    exit code: 0 = 全テストPASS+全モジュールコンパイル成功 / 1 = いずれか失敗
+================================================================================
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MYBOOKSHELF_ROOT = TOOLS_DIR.parent
+DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
+
+SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
+
+# モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
+PURE_ALLOWLIST = [
+    "modTypes", "modUtil", "modChunker", "modPii", "modPrompts",
+    "modTestRunner", "modTestsPure",
+]
+
+TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
+
+ATTR_LINE_PATTERN = re.compile(r"^\s*Attribute\s+")
+# "Function Foo(...) As T()" のみ(引数側の "name() As T" は対象外)を検出する。
+# 理由・実証結果は本ファイル冒頭コメントの技術メモ6を参照。
+ARRAY_RETURN_TYPE_PATTERN = re.compile(
+    r"(Function\s+\w+\s*\((?:[^()]|\([^()]*\))*\)\s*)As\s+([A-Za-z_]\w*)\s*\(\s*\)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+XBA_TEMPLATE = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<!DOCTYPE script:module PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "module.dtd">\n'
+    '<script:module xmlns:script="http://openoffice.org/2000/script" '
+    'script:name="{name}" script:language="StarBasic">{body}\n'
+    "</script:module>\n"
+)
+
+XLB_TEMPLATE = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<!DOCTYPE library:library PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "library.dtd">\n'
+    '<library:library xmlns:library="http://openoffice.org/2000/library" '
+    'library:name="{libname}" library:readonly="false" library:passwordprotected="false">\n'
+    "{elements}\n"
+    "</library:library>\n"
+)
+
+XLC_TEMPLATE = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<!DOCTYPE library:libraries PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "libraries.dtd">\n'
+    '<library:libraries xmlns:library="http://openoffice.org/2000/library" '
+    'xmlns:xlink="http://www.w3.org/1999/xlink">\n'
+    "{libs}\n"
+    "</library:libraries>\n"
+)
+
+CHK_DRIVER_SRC = (
+    "Option Explicit\n\n"
+    "Public Function Probe() As Boolean\n"
+    "    Probe = True\n"
+    "End Function\n"
+)
+
+
+def find_soffice() -> str:
+    for cand in SOFFICE_CANDIDATES:
+        p = shutil.which(cand) or (cand if Path(cand).exists() else None)
+        if p:
+            return p
+    print("[run_lo_tests] soffice が見つかりません。LibreOfficeをインストールしてください。")
+    sys.exit(2)
+
+
+def strip_attributes(text: str) -> str:
+    lines = text.splitlines()
+    return "\n".join(l for l in lines if not ATTR_LINE_PATTERN.match(l))
+
+
+def fix_array_return_types(text: str) -> str:
+    """"Function Foo(...) As T()" を "Function Foo(...) As Variant" に書き換える
+    (LO実行専用の一時変換。理由は本ファイル冒頭コメントの技術メモ6を参照)。"""
+    return ARRAY_RETURN_TYPE_PATTERN.sub(lambda m: m.group(1) + "As Variant", text)
+
+
+def to_module_body(source_text: str) -> str:
+    """Attribute行を除去し、配列返り値の宣言をVariantへ書き換え、先頭に
+    Option VBASupport 1 を付与する(理由は本ファイル冒頭コメント参照)。"""
+    body = strip_attributes(source_text)
+    body = fix_array_return_types(body)
+    return "Option VBASupport 1\n" + body
+
+
+def write_module_xba(lib_dir: Path, name: str, source_text: str) -> None:
+    body = xml_escape(to_module_body(source_text))
+    xba = XBA_TEMPLATE.format(name=name, body=body)
+    (lib_dir / f"{name}.xba").write_text(xba, encoding="utf-8")
+
+
+def write_library(profile_dir: Path, lib_name: str, modules: dict[str, str]) -> None:
+    """modules: {モジュール名: 元の.bas/.clsソーステキスト}"""
+    lib_dir = profile_dir / "user" / "basic" / lib_name
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    elements = []
+    for name, src in modules.items():
+        write_module_xba(lib_dir, name, src)
+        elements.append(f' <library:element library:name="{name}"/>')
+    xlb = XLB_TEMPLATE.format(libname=lib_name, elements="\n".join(elements))
+    (lib_dir / "script.xlb").write_text(xlb, encoding="utf-8")
+
+
+def register_libraries(profile_dir: Path, lib_names: list[str]) -> None:
+    libs = [' <library:library library:name="Standard" library:link="false"/>']
+    for n in lib_names:
+        libs.append(f' <library:library library:name="{n}" library:link="false"/>')
+    xlc = XLC_TEMPLATE.format(libs="\n".join(libs))
+    (profile_dir / "user" / "basic" / "script.xlc").write_text(xlc, encoding="utf-8")
+
+
+def ensure_template_profile(soffice: str, verbose: bool) -> Path:
+    """一度だけ soffice を「一次起動」させて雛形プロファイルを作る(§技術メモ1)。
+    既にあれば使い回す(--fresh-template で強制作り直し可能)。"""
+    marker = TEMPLATE_PROFILE_DIR / "user" / "basic" / "Standard" / "script.xlb"
+    if marker.exists():
+        return TEMPLATE_PROFILE_DIR
+    if verbose:
+        print(f"[run_lo_tests] 雛形プロファイルを初期化中: {TEMPLATE_PROFILE_DIR}")
+    if TEMPLATE_PROFILE_DIR.exists():
+        shutil.rmtree(TEMPLATE_PROFILE_DIR)
+    cmd = [
+        "timeout", "--kill-after=5", "60",
+        soffice, "--headless", "--invisible", "--nologo", "--norestore",
+        f"-env:UserInstallation=file://{TEMPLATE_PROFILE_DIR}",
+        "--terminate_after_init",
+    ]
+    subprocess.run(cmd, capture_output=True, text=True)
+    if not marker.exists():
+        print("[run_lo_tests] 雛形プロファイルの初期化に失敗しました(soffice起動不可の可能性)。")
+        sys.exit(2)
+    return TEMPLATE_PROFILE_DIR
+
+
+def fresh_profile_copy(template: Path, dest: Path) -> None:
+    shutil.copytree(template, dest)
+
+
+def run_uri(soffice: str, profile_dir: Path, uri: str, timeout_sec: int) -> tuple[int, str, str]:
+    cmd = [
+        "timeout", "--kill-after=5", str(timeout_sec),
+        soffice, "--headless", "--invisible", "--nologo", "--norestore",
+        f"-env:UserInstallation=file://{profile_dir}",
+        uri,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def discover_modules(src_root: Path) -> list[tuple[str, Path]]:
+    """(モジュール名, パス) のリスト。モジュール名はAttribute VB_Nameがあればそれ、
+    無ければファイル名(拡張子抜き)。"""
+    out = []
+    for path in sorted(list(src_root.rglob("*.bas")) + list(src_root.rglob("*.cls"))):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        name = path.stem
+        m = re.search(r'^\s*Attribute\s+VB_Name\s*=\s*"([^"]*)"', text, re.MULTILINE)
+        if m:
+            name = m.group(1)
+        out.append((name, path))
+    return out
+
+
+# ==============================================================================
+# モード1: 純ロジック実行(RunAllPureTests → ReportText)
+# ==============================================================================
+def run_pure_mode(soffice: str, template: Path, all_modules: dict[str, Path],
+                   work_dir: Path, timeout_sec: int, verbose: bool) -> tuple[bool, str]:
+    print("=" * 78)
+    print("モード1: LibreOffice上で純ロジックテスト(modTestRunner.RunAllPureTests)を実行")
+    print("=" * 78)
+
+    pure_srcs: dict[str, str] = {}
+    missing = []
+    for name in PURE_ALLOWLIST:
+        path = all_modules.get(name)
+        if path is None:
+            missing.append(name)
+            continue
+        pure_srcs[name] = path.read_text(encoding="utf-8", errors="replace")
+
+    if missing:
+        print(f"  (未実装のため注入をスキップ: {', '.join(missing)})")
+
+    if "modTestRunner" not in pure_srcs:
+        print("  modTestRunner.bas が見つからないためモード1を実行できません。")
+        return False, "modTestRunner.bas not found"
+
+    out_path = work_dir / "pure_result.txt"
+    if out_path.exists():
+        out_path.unlink()
+
+    test_main_src = (
+        "Option Explicit\n\n"
+        "Sub Main\n"
+        "    On Error Resume Next\n"
+        "    Err.Clear\n"
+        "    modTestRunner.RunAllPureTests\n"
+        "    Dim runErr As String\n"
+        "    If Err.Number <> 0 Then\n"
+        '        runErr = "RUNNER_ERROR " & Err.Number & ": " & Err.Description\n'
+        "        Err.Clear\n"
+        "    End If\n"
+        "    On Error GoTo 0\n\n"
+        "    Dim iFile As Integer\n"
+        "    iFile = FreeFile\n"
+        f'    Open "{out_path.as_posix()}" For Output As #iFile\n'
+        "    Print #iFile, modTestRunner.ReportText()\n"
+        "    If Len(runErr) > 0 Then Print #iFile, runErr\n"
+        "    Close #iFile\n"
+        "End Sub\n"
+    )
+
+    profile_dir = work_dir / "profile_pure"
+    fresh_profile_copy(template, profile_dir)
+    modules = dict(pure_srcs)
+    modules["TestMain"] = test_main_src
+    write_library(profile_dir, "MbPureRun", modules)
+    register_libraries(profile_dir, ["MbPureRun"])
+
+    uri = "vnd.sun.star.script:MbPureRun.TestMain.Main?language=Basic&location=application"
+    rc, out, err = run_uri(soffice, profile_dir, uri, timeout_sec)
+
+    if not out_path.exists():
+        msg = f"実行結果ファイルが生成されませんでした(soffice exit={rc}, timeout={timeout_sec}s)"
+        print(f"  FAIL: {msg}")
+        if verbose:
+            print(f"    stdout: {out.strip()}")
+            print(f"    stderr: {err.strip()}")
+        return False, msg
+
+    report = out_path.read_text(encoding="utf-8", errors="replace").strip()
+    print(report if report else "(空の結果)")
+
+    m = re.search(r"FAIL\s+(\d+)", report)
+    fail_count = int(m.group(1)) if m else None
+    has_runner_error = "RUNNER_ERROR" in report
+
+    ok = (fail_count == 0) and not has_runner_error
+    return ok, report
+
+
+# ==============================================================================
+# モード2: 全モジュールのコンパイルチェック(実行はしない)
+# ==============================================================================
+def safe_lib_name(module_name: str) -> str:
+    return "Chk_" + re.sub(r"[^A-Za-z0-9_]", "_", module_name)
+
+
+def run_compile_mode(soffice: str, template: Path, all_modules: dict[str, Path],
+                      work_dir: Path, timeout_sec: int, verbose: bool) -> tuple[bool, list[tuple[str, bool, str]]]:
+    print("\n" + "=" * 78)
+    print("モード2: 全モジュールの構文コンパイルチェック(実行はしない)")
+    print("=" * 78)
+
+    modtypes_path = all_modules.get("modTypes")
+    modtypes_src = modtypes_path.read_text(encoding="utf-8", errors="replace") if modtypes_path else None
+
+    results: list[tuple[str, bool, str]] = []
+    all_ok = True
+
+    for name, path in sorted(all_modules.items()):
+        target_src = path.read_text(encoding="utf-8", errors="replace")
+        lib_name = safe_lib_name(name)
+
+        modules_for_lib: dict[str, str] = {}
+        if name != "modTypes" and modtypes_src is not None:
+            modules_for_lib["modTypes"] = modtypes_src
+        modules_for_lib[name] = target_src
+        modules_for_lib["Chk_Driver"] = CHK_DRIVER_SRC
+
+        profile_dir = work_dir / f"profile_{lib_name}"
+        fresh_profile_copy(template, profile_dir)
+        write_library(profile_dir, lib_name, modules_for_lib)
+        register_libraries(profile_dir, [lib_name])
+
+        uri = f"vnd.sun.star.script:{lib_name}.Chk_Driver.Probe?language=Basic&location=application"
+        t0 = time.time()
+        rc, out, err = run_uri(soffice, profile_dir, uri, timeout_sec)
+        elapsed = time.time() - t0
+
+        ok = (rc == 0)
+        detail = f"exit={rc} ({elapsed:.1f}s)"
+        if rc == 124:
+            detail = f"タイムアウト({timeout_sec}s) — 構文エラーの疑い"
+        results.append((name, ok, detail))
+        all_ok = all_ok and ok
+
+        status = "PASS" if ok else "FAIL"
+        print(f"  {status:<4} {name:<24} {detail}")
+
+        # 使い終わったプロファイルは都度削除してディスクを節約
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+    return all_ok, results
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="マイ本棚AI LibreOffice実行テスト")
+    parser.add_argument("--path", type=str, default=str(DEFAULT_SRC_ROOT), help="対象src(既定: mybookshelf/src)")
+    parser.add_argument("--mode", choices=["pure", "compile", "all"], default="all")
+    parser.add_argument("--pure-timeout", type=int, default=120, help="モード1のタイムアウト秒(既定120)")
+    parser.add_argument("--compile-timeout", type=int, default=15, help="モード2の1モジュールあたりタイムアウト秒(既定15)")
+    parser.add_argument("--keep-profile", action="store_true", help="一時プロファイルを削除せず残す(デバッグ用)")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
+
+    src_root = Path(args.path).resolve()
+    if not src_root.exists():
+        print(f"[run_lo_tests] 対象ディレクトリが存在しません: {src_root}")
+        return 2
+
+    soffice = find_soffice()
+    template = ensure_template_profile(soffice, args.verbose)
+
+    modules_list = discover_modules(src_root)
+    all_modules: dict[str, Path] = {name: path for name, path in modules_list}
+    print(f"[run_lo_tests] soffice={soffice}")
+    print(f"[run_lo_tests] 対象モジュール数: {len(all_modules)} (in {src_root})")
+
+    work_dir = Path(tempfile.mkdtemp(prefix="mybookshelf_lo_run_"))
+    overall_ok = True
+    try:
+        if args.mode in ("pure", "all"):
+            ok, _report = run_pure_mode(soffice, template, all_modules, work_dir, args.pure_timeout, args.verbose)
+            overall_ok = overall_ok and ok
+
+        if args.mode in ("compile", "all"):
+            ok, _results = run_compile_mode(soffice, template, all_modules, work_dir, args.compile_timeout, args.verbose)
+            overall_ok = overall_ok and ok
+    finally:
+        if args.keep_profile:
+            print(f"\n[run_lo_tests] --keep-profile 指定のため一時ディレクトリを残します: {work_dir}")
+        else:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    print("\n" + "-" * 78)
+    print("結果: OK(exit code 0)" if overall_ok else "結果: NG(exit code 1)")
+    print("-" * 78)
+    return 0 if overall_ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

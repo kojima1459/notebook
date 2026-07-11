@@ -1,0 +1,713 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+build_mybookshelf.py — 「マイ本棚AI」ビルドスクリプト。
+mybookshelf/dist/MyBookshelf.xlsm (または MyBookshelf_dev.xlsm) を生成する。
+
+--------------------------------------------------------------------------
+アーキテクチャ(V2 = /home/user/notebook/build/build_chatbot_v2.py で実証済みの機構を
+mybookshelf/ 配下へ自己完結コピーしたもの。V2側のファイルは一切 import/変更しない):
+
+  1. build/template_skeleton.xlsm — 本物のExcelで作られた.xlsmのコピー。
+     中の vbaProject.bin は「本物」であり、どのExcelでも文句なく開ける。
+  2. openpyxl(keep_vba=True)でこのスケルトンを読み込み、MASTER_SPEC §4の
+     全13シート(使い方/ホーム/マイ本棚/ダッシュボード/config/my_knowledge/
+     my_vectors/my_manifest/my_stats/usage_log/err_log/ui_state/vba_src)を
+     生成する。この時点では vbaProject.bin はスケルトンのバイト列のまま
+     一切触れていない。
+  3. vba_src シートに、modules.json に列挙された標準モジュール(*.bas)の
+     ソースを1行1モジュールで格納する(role=core/opt/testを問わず、
+     modules.json に載っていて実在するものは全部載せる。撤去したいときは
+     modules.json から行を消せばよい)。
+  4. openpyxlで保存(vbaProject.binはスケルトン由来のまま)。
+  5. 保存後の .xlsm から vbaProject.bin だけを取り出し、外科的パッチを当てる:
+       - VBA/ThisWorkbook ストリームを「自己インストーラ」のソースに差し替え。
+         このインストーラは Workbook_Open で vba_src シートを読み、
+         VBProject.VBComponents.Add で標準モジュールを全部インストールし、
+         最後に Application.Run "modBoot.Boot" を呼ぶ。
+       - VBA/dir ストリームの ThisWorkbook.MOFFSET を 0 に書き換える
+         (パフォーマンスキャッシュのオフセットが無効になるため、
+         Excelに「バイト0からソースを解凍しろ」と教える)。
+     このパッチは stream 単位のバイト長を変えられない(olefile.write_streamの
+     制約)ため、OVBA空チャンクでpaddingしてぴったりの長さに揃える。
+     CFBヘッダ・FAT・_VBA_PROJECT・PROJECT/PROJECTwm・他の全ストリームは
+     一切触れない。
+  6. ビルド後、生成物を再オープンして自己検証する(§10)。失敗したら exit 1。
+
+このスクリプトが書き込むのは mybookshelf/build/ 配下と mybookshelf/dist/ 配下
+のみ。/home/user/notebook/build/, /home/user/notebook/src/, /home/user/notebook/docs/
+(V2チャットボットの資産)には一切触れない。
+--------------------------------------------------------------------------
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import re
+import struct
+import sys
+import tempfile
+import zipfile
+
+import openpyxl
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+import olefile
+
+# ovba.py は同ディレクトリの自己完結モジュール(OVBA圧縮/解凍・CFBリーダー)。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ovba
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_ROOT = os.path.dirname(SCRIPT_DIR)                      # mybookshelf/
+DEFAULT_TEMPLATE = os.path.join(SCRIPT_DIR, "template_skeleton.xlsm")
+DEFAULT_MODULES_JSON = os.path.join(SCRIPT_DIR, "modules.json")
+
+APP_TITLE = "マイ本棚AI"
+EXCEL_CELL_LIMIT = 32000        # Excelの技術上限(セル1個あたりの文字数)
+MODULE_CONTRACT_LIMIT = 30000   # MASTER_SPEC §7 の契約上限(1モジュールあたり)
+
+# MASTER_SPEC §4 のシート定義(名前 -> 可視性)。ビルド完了判定・自己検証の両方で使う。
+EXPECTED_SHEETS = {
+    "使い方": "visible",
+    "ホーム": "visible",
+    "マイ本棚": "visible",
+    "ダッシュボード": "visible",
+    "config": "hidden",
+    "my_knowledge": "veryHidden",
+    "my_vectors": "veryHidden",
+    "my_manifest": "hidden",
+    "my_stats": "hidden",
+    "usage_log": "hidden",
+    "err_log": "hidden",
+    "ui_state": "veryHidden",
+    "vba_src": "veryHidden",
+}
+
+# 可視4シートのタブ色 (MASTER_SPEC §14 手順6): 使い方=緑, ホーム=青, マイ本棚=オレンジ, ダッシュボード=紫
+TAB_COLORS = {
+    "使い方": "00B050",
+    "ホーム": "0070C0",
+    "マイ本棚": "ED7D31",
+    "ダッシュボード": "7030A0",
+}
+
+_ILLEGAL_XML = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def _clean(s):
+    """XMLに書けない制御文字を除去する(V2実証済みの防御処理を踏襲)。"""
+    return _ILLEGAL_XML.sub("", s) if isinstance(s, str) else s
+
+
+class BuildError(Exception):
+    """ビルド契約違反(モジュール欠落・文字数超過など)。呼び出し側でexit 1にする。"""
+
+
+# ---------------------------------------------------------------------------
+# config 既定値 (MASTER_SPEC §5 config キー台帳を完全反映。値・説明とも準拠)
+# ---------------------------------------------------------------------------
+def build_config_rows(mock_llm: bool):
+    return [
+        ("mock_llm", mock_llm,
+         "TRUE=社内AIリボンを呼ばずダミー応答で動作確認(リボン無しでも取込→検索→回答が一通り動く)。本番はFALSE"),
+        ("recommended_model", "gpt-5.5", "精査モード(🔍しっかり調べる)で使うモデル名"),
+        ("quick_model", "gpt-5.5", "即答モード(⚡すぐ聞く)で使うモデル名(将来 gpt-5.4-nano 等に差し替え可)"),
+        ("quick_effort", "low", "即答モードの reasoning_effort"),
+        ("quick_verbosity", "low", "即答モードの verbosity"),
+        ("deep_draft_effort", "medium", "精査モード・ドラフト生成の reasoning_effort"),
+        ("deep_draft_verbosity", "high", "精査モード・ドラフト生成の verbosity"),
+        ("deep_verify_effort", "high", "精査モード・検証の reasoning_effort"),
+        ("deep_verify_verbosity", "medium", "精査モード・検証の verbosity"),
+        ("reasoning_tuning", True, "TRUEでeffort/verbosityを指定。FALSEにすると空送信(古いモデル互換用)"),
+        ("llm_wait_sec", 1200, "ChatGPT() 呼び出しのWait秒数"),
+        ("topk_quick", 6, "即答モードでLLMに渡す上位ヒット件数"),
+        ("topk_deep", 12, "精査モードでLLMに渡す上位ヒット件数"),
+        ("max_context_chars", 40000, "プロンプトに載せる本文合計の文字数上限"),
+        ("answer_language", "日本語", "回答言語(プロンプトに指定を挿入)"),
+        ("embed_dim", 1536, "埋め込みベクトルの次元数(パックの互換性検査に使用)"),
+        ("embed_sleep_ms", 150, "埋め込みAPI呼び出し間のスロットリング(ミリ秒)"),
+        ("shelf_max_chunks", 5000, "本棚のチャンク数上限(超過時は取込を拒否し整理を案内)"),
+        ("shelf_folder", "", "自動同期する本棚フォルダのパス(空なら未設定)"),
+        ("sync_interval_min", 0, "自動同期の間隔(分)。0でOFF"),
+        ("sync_on_open", True, "TRUE=起動時に本棚フォルダと差分同期する"),
+        ("enrich_mode", "off", "off/light/full: バッチ富化(要約・キーワード付与)の強さ"),
+        ("max_pages_per_file", 300, "1ファイルあたりの抽出ページ数上限(超過分は打ち切りpartial扱い)"),
+        ("feature_tts", False, "opt機能フラグ: 読み上げ(仕様確認後にTRUEへ)"),
+        ("feature_vision", False, "opt機能フラグ: 画像PDF読み取り(仕様確認後にTRUEへ)"),
+        ("feature_markdown", False, "opt機能フラグ: Markdown表示(仕様確認後にTRUEへ)"),
+        ("feature_diffdoc", True, "opt機能フラグ: 約款差分比較(確認済み関数のみ使用のため既定TRUE)"),
+        ("pack_author", "", "パック作成者名(空の場合は初回起動時に入力を促す)"),
+        ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# シート生成
+# ---------------------------------------------------------------------------
+def _clear_sheet(ws, max_row=60, max_col=8):
+    for row in ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
+        for c in row:
+            c.value = None
+
+
+def _banner(ws, text):
+    ws["A1"] = text
+    ws.merge_cells("A1:B1")
+    ws["A1"].fill = PatternFill("solid", fgColor="3C5AA0")
+    ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+
+def _make_howto(wb):
+    """使い方シート: マクロ無効でも読める救済ページ。マクロ有効化手順4ステップ+クイックスタート。
+    ここは後続Waveで清書される前提の簡潔な下書き(MASTER_SPEC §14手順5の指示通り)。"""
+    ws = wb["Sheet1"]
+    ws.title = "使い方"
+    _clear_sheet(ws)
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 90
+
+    _banner(ws, f"{APP_TITLE} — 使い方")
+
+    sections = [
+        ("📚 マイ本棚AIとは",
+         "自分で入れた資料に、承認なしですぐAIに質問できる社内版NotebookLMです。\n"
+         "「マイ本棚」タブに資料を追加すると、AIが読める形に自動で変換され、\n"
+         "「ホーム」タブから質問できるようになります。"),
+        ("🔓 マクロの有効化(初回のみ・4ステップ)",
+         "1. このファイルをExcelで開く\n"
+         "2. 黄色い「セキュリティの警告」バーが出たら「コンテンツの有効化」をクリック\n"
+         "3. バーが出ない場合: [ファイル]→[オプション]→[トラストセンター]→\n"
+         "   [トラストセンターの設定]→[マクロの設定] で\n"
+         "   「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」にチェック→OK→Excel再起動\n"
+         "4. ファイルを開き直すと、数秒で画面が自動的に構築されます"),
+        ("🚀 クイックスタート",
+         "1. 「マイ本棚」タブ → [＋資料を追加] で資料(PDF/Word/Excel/テキスト等)を選ぶ\n"
+         "2. 「ホーム」タブ → 質問を入力して [💬質問する]\n"
+         "3. 回答の下に出典(元になった資料名とページ)が表示されます\n"
+         "困ったときは「🩺診断」ボタンを押してください。"),
+        ("✅ 使えるタブ",
+         "「使い方」「ホーム」「マイ本棚」「ダッシュボード」の4つだけです。\n"
+         "それ以外のタブはシステムが自動管理しており、通常は表示されません。"),
+        ("⚠️ 個人情報について",
+         "契約者名・電話番号などの個人情報を含む資料の取込・質問は避けてください。\n"
+         "本ツールは社内AIリボン経由でクラウドLLMを呼び出します。"),
+        ("このシートについて",
+         "このシートはマクロが無効でも読めるようにしてあります(マクロ有効化の案内はここでしか出せないため)。\n"
+         "マクロを有効にして開き直すと、実際の操作画面(ホーム/マイ本棚/ダッシュボード)が使えるようになります。"),
+    ]
+
+    row = 3
+    label_font = Font(bold=True, size=11, color="3C5AA0")
+    body_font = Font(size=10)
+    warning_fill = PatternFill("solid", fgColor="FFF4D6")
+    section_fill = PatternFill("solid", fgColor="F4F6FB")
+    for label, body in sections:
+        is_warning = "⚠️" in label
+        ws.cell(row=row, column=1, value=label).font = label_font
+        ws.cell(row=row, column=1).alignment = Alignment(vertical="top", wrap_text=True)
+        ws.cell(row=row, column=2, value=body).font = body_font
+        ws.cell(row=row, column=2).alignment = Alignment(vertical="top", wrap_text=True)
+        fill = warning_fill if is_warning else section_fill
+        ws.cell(row=row, column=1).fill = fill
+        ws.cell(row=row, column=2).fill = fill
+        n_lines = body.count("\n") + 1
+        ws.row_dimensions[row].height = max(28, 16 * n_lines + 6)
+        row += 1
+
+    ws.sheet_properties.tabColor = TAB_COLORS["使い方"]
+    return ws
+
+
+def _make_placeholder(wb, name, note):
+    """ホーム/マイ本棚/ダッシュボードの初期プレースホルダー。
+    実際の画面は modUIMain/modUIShelf/modUIDashboard の EnsureLayout が
+    起動時(Boot)に Shapes で冪等再構築する。ビルド時点ではこの案内文のみ。"""
+    ws = wb.create_sheet(name)
+    ws.column_dimensions["A"].width = 90
+    ws["A1"] = f"{APP_TITLE} — {name}"
+    ws["A1"].fill = PatternFill("solid", fgColor="3C5AA0")
+    ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+    ws["A3"] = note
+    ws["A3"].font = Font(size=11)
+    ws["A3"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws.sheet_properties.tabColor = TAB_COLORS[name]
+    return ws
+
+
+def _make_config(wb, mock_llm: bool):
+    ws = wb.create_sheet("config")
+    for c, h in enumerate(["key", "value", "description"], 1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+    for i, (k, v, d) in enumerate(build_config_rows(mock_llm), 2):
+        ws.cell(row=i, column=1, value=k)
+        ws.cell(row=i, column=2, value=v)
+        ws.cell(row=i, column=3, value=d)
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 70
+    ws.sheet_state = "hidden"
+    return ws
+
+
+def _make_headers_only(wb, name, headers, state, widths=None):
+    ws = wb.create_sheet(name)
+    for c, h in enumerate(headers, 1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+    if widths:
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+    ws.sheet_state = state
+    return ws
+
+
+def _make_vba_src(wb, present_modules, root):
+    """vba_src シート: 標準モジュール(*.bas)のソースを1行1モジュールで格納する。
+    自己インストーラ(ThisWorkbookストリーム)がこのシートを読んで
+    VBComponents.Add(1)でモジュールを注入する。
+    注意: クラスモジュール(type=class, 例 ThisWorkbook.cls)は
+    VBComponents.Add(1) では追加できない(標準モジュール専用API)ため対象外。"""
+    ws = wb.create_sheet("vba_src")
+    for c, h in enumerate(["module_name", "type", "source"], 1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+
+    injected = []
+    row = 2
+    for m in present_modules:
+        if m.get("type") == "class" or m.get("vba_src") is False:
+            continue
+        path = os.path.join(root, m["path"])
+        with open(path, encoding="utf-8-sig") as fp:
+            txt = fp.read()
+        out_lines = []
+        for line in txt.split("\n"):
+            stripped = line.lstrip("﻿")
+            if stripped.lstrip().startswith("Attribute "):
+                continue
+            out_lines.append(stripped)
+        cleaned = _clean("\n".join(out_lines))
+
+        if len(cleaned) > MODULE_CONTRACT_LIMIT:
+            raise BuildError(
+                f"{m['name']}.bas は{len(cleaned)}字でMASTER_SPEC §7の"
+                f"モジュール契約上限({MODULE_CONTRACT_LIMIT}字)を超過しています")
+        if len(cleaned) >= EXCEL_CELL_LIMIT:
+            raise BuildError(
+                f"{m['name']}.bas は{len(cleaned)}字でExcelセルの技術上限"
+                f"({EXCEL_CELL_LIMIT}字)を超過しています")
+
+        ws.cell(row=row, column=1, value=m["name"])
+        ws.cell(row=row, column=2, value="std")
+        ws.cell(row=row, column=3, value=cleaned)
+        injected.append(m["name"])
+        row += 1
+
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 8
+    ws.column_dimensions["C"].width = 80
+    ws.sheet_state = "veryHidden"
+    return injected
+
+
+# ---------------------------------------------------------------------------
+# 自己インストーラ (VBA/ThisWorkbook ストリームの中身)
+# cp932でエンコードするが、文字は必ずASCIIのみに限定する(MASTER_SPEC §14手順6)。
+# ロジックはV2 build_chatbot_v2.py の INSTALLER_SRC を踏襲し、起動先だけ
+# modBoot.Boot に変更(V2実証済み機構をそのまま流用。値自体は元から
+# modBoot.Boot だったので、mybookshelfでも変更なしで成立する)。
+# ---------------------------------------------------------------------------
+_INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
+Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = True
+Option Explicit
+Private Sub Workbook_Open()
+  Install
+End Sub
+Public Sub Install()
+  Dim p As Object, w As Worksheet, c As Object, e As Object
+  Dim r As Long, n As String, s As String, l As Long
+  On Error GoTo Trust
+  Set p = ThisWorkbook.VBProject
+  On Error GoTo Done
+  Set w = ThisWorkbook.Worksheets("vba_src")
+  l = w.Cells(w.Rows.Count, 1).End(-4162).Row
+  For r = 2 To l
+    n = CStr(w.Cells(r, 1).Value)
+    s = CStr(w.Cells(r, 3).Value)
+    If LenB(n) > 0 Then
+      On Error Resume Next
+      Set e = Nothing: Set e = p.VBComponents(n)
+      If Not e Is Nothing Then p.VBComponents.Remove e
+      On Error GoTo Done
+      Set c = p.VBComponents.Add(1)
+      c.Name = n
+      ' Strip any auto-inserted lines (e.g. Option Explicit when VBE's
+      ' "Require Variable Declaration" is ON). Without this, the source's
+      ' own Option Explicit becomes a duplicate -> compile error.
+      If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
+      If LenB(s) > 0 Then c.CodeModule.AddFromString s
+    End If
+  Next r
+  ' Save failures (read-only file, locked share, etc.) must not skip Boot.
+  On Error Resume Next
+  ThisWorkbook.Save
+  Err.Clear
+  Application.Run "modBoot.Boot"
+  Exit Sub
+Trust:
+  MsgBox "VBA Project trust required. See howto sheet.", vbCritical
+  Exit Sub
+Done:
+End Sub
+'''
+
+
+def build_installer_src() -> bytes:
+    try:
+        _INSTALLER_SRC_TEXT.encode("ascii")
+    except UnicodeEncodeError as e:
+        raise BuildError(f"INSTALLER_SRC must be ASCII-only (MASTER_SPEC §14): {e}")
+    return _INSTALLER_SRC_TEXT.replace("\n", "\r\n").encode("cp932")
+
+
+# ---------------------------------------------------------------------------
+# vbaProject.bin 外科パッチ (ThisWorkbookストリーム差し替え + dir MOFFSET=0)
+# ovba.py の低レベル関数(圧縮/解凍/CFBReader/pad)だけを使い、
+# インストーラ文字列などプロダクト固有の中身はここに閉じ込める。
+# ---------------------------------------------------------------------------
+def patch_installer(vba_bin: bytes, installer_src: bytes) -> bytes:
+    skel = ovba.CFBReader(vba_bin)
+
+    dir_dec = ovba.ovba_decompress(skel.read("dir"))
+    needle = struct.pack("<HI", 0x0019, len("ThisWorkbook")) + b"ThisWorkbook"
+    idx = dir_dec.find(needle)
+    if idx < 0:
+        raise BuildError("dir stream: ThisWorkbook MNAME record not found "
+                          "(template_skeleton.xlsm may be incompatible)")
+    i = idx
+    found = False
+    while i < len(dir_dec):
+        rid = struct.unpack("<H", dir_dec[i:i + 2])[0]
+        sz = struct.unpack("<I", dir_dec[i + 2:i + 6])[0]
+        if rid == 0x0031:  # MOFFSET
+            patched = bytearray(dir_dec)
+            struct.pack_into("<I", patched, i + 6, 0)
+            dir_dec = bytes(patched)
+            found = True
+            break
+        i += 6 + sz
+    if not found:
+        raise BuildError("dir stream: ThisWorkbook MOFFSET record not found")
+
+    orig_dir_size = skel.entries["dir"]["size"]
+    orig_tw_size = skel.entries["ThisWorkbook"]["size"]
+    new_dir = ovba.pad_to_exact(ovba.ovba_compress(dir_dec), orig_dir_size)
+    new_tw = ovba.pad_to_exact(ovba.ovba_compress(installer_src), orig_tw_size)
+
+    buf = io.BytesIO(vba_bin)
+    ole = olefile.OleFileIO(buf, write_mode=True)
+    ole.write_stream("VBA/dir", new_dir)
+    ole.write_stream("VBA/ThisWorkbook", new_tw)
+    ole.close()
+    buf.seek(0)
+    return buf.read()
+
+
+# ---------------------------------------------------------------------------
+# モジュール台帳 (modules.json) の検証
+# ---------------------------------------------------------------------------
+def load_manifest(path):
+    with open(path, encoding="utf-8") as fp:
+        data = json.load(fp)
+    modules = data["modules"]
+    for m in modules:
+        for key in ("name", "path", "role"):
+            if key not in m:
+                raise BuildError(f"modules.json: エントリに必須キー'{key}'がありません: {m}")
+        if m["role"] not in ("core", "opt", "test"):
+            raise BuildError(f"modules.json: {m['name']} の role が不正です: {m['role']}")
+    return modules
+
+
+def validate_modules(modules, root, allow_missing):
+    present, missing = [], []
+    for m in modules:
+        p = os.path.join(root, m["path"])
+        (present if os.path.exists(p) else missing).append(m)
+
+    if missing:
+        lines = [f"  [{m['role']:<4}] {m['name']:<20} -> {m['path']}" for m in missing]
+        header = f"モジュールファイルが見つかりません({len(missing)}件):"
+        print(header, file=sys.stderr)
+        print("\n".join(lines), file=sys.stderr)
+        if not allow_missing:
+            print("  (--allow-missing を付けると警告に緩和して続行できます)", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print("  --allow-missing 指定のため警告として続行します。", file=sys.stderr)
+    return present, missing
+
+
+def detect_app_version(root):
+    path = os.path.join(root, "src", "core", "modAppDef.bas")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8-sig") as fp:
+            txt = fp.read()
+    except OSError:
+        return None
+    m = re.search(r'APP_VERSION\s+As\s+String\s*=\s*"([^"]+)"', txt)
+    return m.group(1) if m else None
+
+
+# ---------------------------------------------------------------------------
+# ビルド後自己検証 (MASTER_SPEC §10)
+# 再オープンして: 全シート存在 / vba_srcモジュール数一致 /
+# 各ソースセル<=32,000字 / olefileでThisWorkbookストリーム復元確認
+# ---------------------------------------------------------------------------
+def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expected):
+    errors = []
+
+    try:
+        wb2 = openpyxl.load_workbook(out_path, keep_vba=True)
+    except Exception as e:
+        return [f"再オープン失敗: {e}"]
+
+    got_sheets = set(wb2.sheetnames)
+    want_sheets = set(EXPECTED_SHEETS.keys())
+    if got_sheets != want_sheets:
+        errors.append(f"シート集合が不一致: 期待={sorted(want_sheets)} 実際={sorted(got_sheets)}")
+
+    for name, state in EXPECTED_SHEETS.items():
+        if name in wb2.sheetnames:
+            actual = wb2[name].sheet_state
+            if actual != state:
+                errors.append(f"シート'{name}'の可視性不一致: 期待={state} 実際={actual}")
+
+    if "vba_src" in wb2.sheetnames:
+        ws = wb2["vba_src"]
+        got_names = []
+        r = 2
+        while ws.cell(row=r, column=1).value:
+            nm = ws.cell(row=r, column=1).value
+            src = ws.cell(row=r, column=3).value or ""
+            got_names.append(nm)
+            if len(src) > EXCEL_CELL_LIMIT:
+                errors.append(
+                    f"vba_src '{nm}' のソースが{len(src)}字でExcelセル上限"
+                    f"({EXCEL_CELL_LIMIT})を超過")
+            r += 1
+        if sorted(got_names) != sorted(expected_vba_src_names):
+            errors.append(
+                f"vba_srcモジュール集合が不一致: 期待={sorted(expected_vba_src_names)} "
+                f"実際={sorted(got_names)}")
+    else:
+        errors.append("vba_src シートが存在しない")
+
+    if "config" in wb2.sheetnames:
+        ws = wb2["config"]
+        r, got_mock, n_keys = 2, None, 0
+        while ws.cell(row=r, column=1).value:
+            if ws.cell(row=r, column=1).value == "mock_llm":
+                got_mock = ws.cell(row=r, column=2).value
+            n_keys += 1
+            r += 1
+        if bool(got_mock) != mock_llm_expected:
+            errors.append(f"config!mock_llm が期待値と不一致: 期待={mock_llm_expected} 実際={got_mock}")
+        if n_keys != len(build_config_rows(mock_llm_expected)):
+            errors.append(f"config のキー数が期待({len(build_config_rows(mock_llm_expected))})と不一致: {n_keys}")
+
+    try:
+        with zipfile.ZipFile(out_path) as z:
+            vba_bin = z.read("xl/vbaProject.bin")
+        cfb = ovba.CFBReader(vba_bin)
+        tw_dec = ovba.ovba_decompress(cfb.read("ThisWorkbook"))
+        # 空チャンクpaddingは圧縮後バイト長をぴったり揃えるためのものだが、
+        # 解凍すると末尾にNULバイトが数バイト付加される(OVBA圧縮チャンクの
+        # 性質上、5バイト変形チャンクは実際には2バイトのゼロ値に解凍される。
+        # 3バイト変形は0バイト)。VBAコンパイラは末尾のNULを無視するため実害は
+        # ないが、ここでは「先頭が完全一致し、余剰があるならNULバイトのみ」を
+        # もって復元確認とする(V2実証済み挙動)。
+        tail = tw_dec[len(installer_src):]
+        if not tw_dec.startswith(installer_src) or any(b != 0 for b in tail):
+            errors.append("ThisWorkbookストリームの復元結果が自己インストーラソースと不一致"
+                           "(先頭一致+末尾NULパディングという想定パターンから外れている)")
+
+        dir_dec = ovba.ovba_decompress(cfb.read("dir"))
+        needle = struct.pack("<HI", 0x0019, len("ThisWorkbook")) + b"ThisWorkbook"
+        idx = dir_dec.find(needle)
+        moffset_ok = False
+        if idx >= 0:
+            i = idx
+            while i < len(dir_dec):
+                rid = struct.unpack("<H", dir_dec[i:i + 2])[0]
+                sz = struct.unpack("<I", dir_dec[i + 2:i + 6])[0]
+                if rid == 0x0031:
+                    val = struct.unpack("<I", dir_dec[i + 6:i + 10])[0]
+                    moffset_ok = (val == 0)
+                    break
+                i += 6 + sz
+        if not moffset_ok:
+            errors.append("dirストリームのThisWorkbook.MOFFSETが0になっていない")
+
+        # olefile側でも同一バイナリを開けることを確認(異なる実装での復元確認)。
+        ole = olefile.OleFileIO(io.BytesIO(vba_bin))
+        if not ole.exists("VBA/ThisWorkbook") or not ole.exists("VBA/dir"):
+            errors.append("olefileでVBA/ThisWorkbookまたはVBA/dirストリームが検出できない")
+        ole.close()
+    except Exception as e:
+        errors.append(f"vbaProject.bin検証中に例外: {e}")
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# メイン
+# ---------------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description=f"{APP_TITLE} ビルドスクリプト")
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dev", action="store_true",
+                       help="開発ビルド(config mock_llm=TRUE)。既定出力: MyBookshelf_dev.xlsm")
+    mode.add_argument("--prod", action="store_true",
+                       help="本番ビルド(config mock_llm=FALSE)。既定出力: MyBookshelf.xlsm")
+    ap.add_argument("--root", default=DEFAULT_ROOT,
+                     help="modules.json内パスの解決基準ディレクトリ(既定: mybookshelf/)")
+    ap.add_argument("--modules", default=DEFAULT_MODULES_JSON, help="modules.json のパス")
+    ap.add_argument("--template", default=DEFAULT_TEMPLATE, help="template_skeleton.xlsm のパス")
+    ap.add_argument("--out", default=None,
+                     help="出力先.xlsmパス(既定: <root>/dist/MyBookshelf[_dev].xlsm)")
+    ap.add_argument("--allow-missing", action="store_true",
+                     help="modules.jsonに列挙されたファイルの欠落をエラーでなく警告にして続行する")
+    args = ap.parse_args()
+
+    root = os.path.abspath(args.root)
+    is_dev = bool(args.dev)
+    mock_llm = is_dev
+
+    if args.out:
+        out_path = os.path.abspath(args.out)
+    else:
+        fname = "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
+        out_path = os.path.join(root, "dist", fname)
+
+    print(f"=== build_mybookshelf.py ({'dev' if is_dev else 'prod'}) ===")
+    print(f"root:     {root}")
+    print(f"modules:  {args.modules}")
+    print(f"template: {args.template}")
+    print(f"out:      {out_path}")
+    ver = detect_app_version(root)
+    print(f"APP_VERSION (modAppDef.bas 検出): {ver or '未検出(1-A未実装、またはroot不一致)'}")
+    print()
+
+    if not os.path.exists(args.template):
+        sys.exit(f"ERROR: テンプレートが見つかりません: {args.template}")
+    if not os.path.exists(args.modules):
+        sys.exit(f"ERROR: modules.json が見つかりません: {args.modules}")
+
+    try:
+        modules = load_manifest(args.modules)
+    except BuildError as e:
+        sys.exit(f"ERROR: {e}")
+
+    present, missing = validate_modules(modules, root, args.allow_missing)
+    print(f"モジュール台帳: 全{len(modules)}件 / 実在{len(present)}件 / 欠落{len(missing)}件")
+    for role in ("core", "opt", "test"):
+        n = sum(1 for m in present if m["role"] == role)
+        print(f"  role={role}: {n}件")
+
+    print("\nStage 1: テンプレート読込 (keep_vba=True)...")
+    wb = openpyxl.load_workbook(args.template, keep_vba=True)
+    print(f"  初期シート: {wb.sheetnames}")
+
+    print("Stage 2: シート生成 (MASTER_SPEC §4 全13シート)...")
+    _make_howto(wb)
+    _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
+    _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
+    _make_placeholder(wb, "ダッシュボード", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
+    _make_config(wb, mock_llm)
+    _make_headers_only(wb, "my_knowledge",
+                        ["chunk_id", "source", "origin", "page", "summary",
+                         "keywords", "full_text", "added_at", "embedded"],
+                        "veryHidden", widths=[32, 24, 14, 6, 50, 40, 80, 20, 10])
+    _make_headers_only(wb, "my_vectors", ["chunk_id", "vector_csv"], "veryHidden",
+                        widths=[32, 100])
+    _make_headers_only(wb, "my_manifest",
+                        ["file_path", "file_name", "modified_at", "size", "chunk_count",
+                         "status", "error_note", "ingested_at", "origin"],
+                        "hidden", widths=[60, 30, 20, 12, 12, 12, 40, 20, 16])
+    _make_headers_only(wb, "my_stats", ["key", "value", "updated_at"], "hidden",
+                        widths=[24, 14, 20])
+    _make_headers_only(wb, "usage_log",
+                        ["timestamp", "event", "mode", "detail", "latency_ms", "hit_count"],
+                        "hidden", widths=[20, 16, 10, 50, 12, 10])
+    _make_headers_only(wb, "err_log", ["timestamp", "code", "context", "detail", "version"],
+                        "hidden", widths=[20, 10, 24, 60, 12])
+    _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
+
+    try:
+        injected = _make_vba_src(wb, present, root)
+    except BuildError as e:
+        sys.exit(f"ERROR: {e}")
+    print(f"  vba_src: {len(injected)}モジュールを格納 ({injected})")
+    print(f"  シート最終構成({len(wb.sheetnames)}件): {wb.sheetnames}")
+
+    if set(wb.sheetnames) != set(EXPECTED_SHEETS):
+        sys.exit(f"ERROR: シート構成がMASTER_SPEC §4と不一致: {wb.sheetnames}")
+
+    print("Stage 3: openpyxl保存 (vbaProject.binはスケルトンのまま保持)...")
+    with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
+        tmp_path = tmp.name
+    wb.save(tmp_path)
+    print(f"  一時保存: {tmp_path} ({os.path.getsize(tmp_path):,} bytes)")
+
+    print("Stage 4: vbaProject.bin 外科パッチ (自己インストーラ注入)...")
+    try:
+        installer_src = build_installer_src()
+    except BuildError as e:
+        sys.exit(f"ERROR: {e}")
+    with zipfile.ZipFile(tmp_path) as zin:
+        parts = {n: zin.read(n) for n in zin.namelist()}
+    skel_bin = parts["xl/vbaProject.bin"]
+    try:
+        patched_bin = patch_installer(skel_bin, installer_src)
+    except BuildError as e:
+        sys.exit(f"ERROR: {e}")
+    assert len(skel_bin) == len(patched_bin), "vbaProject.binのバイト長が変化した(バイナリ整合性エラー)"
+    parts["xl/vbaProject.bin"] = patched_bin
+    print(f"  vbaProject.bin: {len(skel_bin):,} bytes (不変)")
+
+    print("Stage 5: 最終.xlsm書き出し...")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for n, data in parts.items():
+            zout.writestr(n, data)
+    os.unlink(tmp_path)
+    print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
+
+    print("\nStage 6: ビルド後自己検証...")
+    errors = verify_build(out_path, injected, installer_src, mock_llm)
+    if errors:
+        print("自己検証 失敗:")
+        for e in errors:
+            print(f"  - {e}")
+        sys.exit(1)
+    print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
+          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()

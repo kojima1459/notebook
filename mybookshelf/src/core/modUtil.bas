@@ -1,0 +1,405 @@
+Attribute VB_Name = "modUtil"
+Option Explicit
+
+' ============================================================================
+' modUtil - 純ロジックのユーティリティ集(R4準拠)
+' ----------------------------------------------------------------------------
+' 役割:
+'   文字列/数値/ベクトルまわりの小さな純関数を集約する。ハッシュ・CSV変換・
+'   ベクトル演算・時刻表示・パス解析など、Excelを一切必要としない処理のみ。
+'
+' 設計判断(R4: Excelオブジェクト禁止):
+'   ・Worksheets/Range/Application/ThisWorkbook/MsgBox には一切触れない。
+'     このモジュールは LibreOffice headless でもそのまま実行できる
+'     (tools/run_lo_tests.py の RunAllPureTests 対象)。
+'   ・Now()/Format$()/Timer など「Excelオブジェクトではないが実行環境に
+'     依存するVBAランタイム関数」はR4の対象外として許可する
+'     (MASTER_SPEC §7.1 modUtil注記のとおり)。
+'   ・数値⇔文字列の相互変換はロケール非依存にするため、CStr/Format$では
+'     なく Str$/Val を使う(Str$は常に "." を小数点として出力し先頭に
+'     符号用の空白を付ける仕様のため Trim$ と組み合わせる。Valは "." を
+'     小数点として解釈しロケール設定の影響を受けない。V2 modEmbeddings.bas
+'     のコメントと同じ理由)。
+'
+' ■ Fnv1a64Hex の実装方針(VBAにUInt64が無いことへの対処)
+'   64bit値を「上位32bit・下位32bitの2つのLong(ビットパターンとして解釈。
+'   符号は無視)」で保持する。32bit同士の掛け算は16bit単位に分割して
+'   Double(53bitまで整数を誤差なく表現できる)で計算し、桁上げ(キャリー)
+'   を手動で伝播させることで、VBAの `*` 演算子によるオーバーフロー例外
+'   (実行時エラー6)を一切発生させずに計算する。アルゴリズムの詳細は
+'   Fnv1a64Hex関数の直前のコメント、および内部関数 MulU32 / MulU64ByPrime
+'   のコメントを参照。Python(整数演算)で同一アルゴリズムを再現し、複数の
+'   テスト文字列(空文字/ASCII/日本語/絵文字サロゲートペア/5000字)で
+'   愚直なFNV実装と一致することを確認済み。
+' ============================================================================
+
+' ============================================================================
+' Fnv1a64Hex - FNV-1a 64bit ハッシュを16進16桁(小文字)の文字列で返す。
+'   決定的: 同一の入力文字列 s に対して常に同一の出力を返す。
+' ----------------------------------------------------------------------------
+' ■ アルゴリズム(FNV-1a 64bit、標準定義に準拠)
+'   offset_basis = 0xCBF29CE484222325
+'   prime        = 0x100000001B3            (= 2^40 + 435)
+'   文字列 s を先頭から1文字ずつ、UTF-16コードユニット(VBAのAscW値。
+'   負値は+65536して0〜65535の符号なし相当に補正)として取り出し、
+'   各コードユニットを「下位バイト→上位バイト」の順に2バイトとして
+'   FNVへ投入する:
+'     hash = offset_basis
+'     for each byte b (下位バイトが先):
+'       hash = hash Xor b            ' 下位32bitワードの最下位バイトのみ影響
+'       hash = (hash * prime) Mod 2^64
+'   最終的な hash(上位32bit:下位32bit)を8桁+8桁=16桁の16進文字列にする。
+' ============================================================================
+Public Function Fnv1a64Hex(ByVal s As String) As String
+    Dim hHi As Long: hHi = FNV_OFFSET_HI
+    Dim hLo As Long: hLo = FNV_OFFSET_LO
+
+    Dim n As Long: n = Len(s)
+    Dim i As Long
+    For i = 1 To n
+        Dim code As Long: code = AscW(Mid$(s, i, 1))
+        If code < 0 Then code = code + 65536   ' 符号なし0〜65535に補正
+
+        Dim byteLo As Long: byteLo = code And &HFF
+        Dim byteHi As Long: byteHi = (code \ 256) And &HFF
+
+        ' UTF-16コードユニット1個=2バイトとして、下位バイト→上位バイトの順に投入
+        hLo = hLo Xor byteLo
+        MulU64ByPrime hHi, hLo
+        hLo = hLo Xor byteHi
+        MulU64ByPrime hHi, hLo
+    Next i
+
+    Fnv1a64Hex = U32ToHex8(hHi) & U32ToHex8(hLo)
+End Function
+
+' 空白圧縮(半角空白・タブの連続を1個に)+改行統一(CRLF/CRをLFへ)+Trim。
+' 改行(LF)自体は圧縮せず保持する(段落境界の情報を壊さないため)。
+Public Function NormalizeForHash(ByVal s As String) As String
+    Dim t As String: t = Replace(Replace(s, vbCrLf, vbLf), vbCr, vbLf)
+    Dim n As Long: n = Len(t)
+    If n = 0 Then
+        NormalizeForHash = ""
+        Exit Function
+    End If
+
+    Dim outArr() As String: ReDim outArr(1 To n)
+    Dim outCount As Long: outCount = 0
+    Dim prevWasSpace As Boolean: prevWasSpace = False
+    Dim i As Long
+    For i = 1 To n
+        Dim c As String: c = Mid$(t, i, 1)
+        If c = " " Or c = vbTab Then
+            If Not prevWasSpace Then
+                outCount = outCount + 1
+                outArr(outCount) = " "
+            End If
+            prevWasSpace = True
+        Else
+            outCount = outCount + 1
+            outArr(outCount) = c
+            prevWasSpace = False
+        End If
+    Next i
+
+    Dim joined As String
+    If outCount > 0 Then
+        ReDim Preserve outArr(1 To outCount)
+        joined = Join(outArr, "")
+    End If
+    NormalizeForHash = Trim$(joined)
+End Function
+
+Public Function VectorToCsv(vec() As Double) As String
+    Dim n As Long: n = ArrLenD(vec)
+    If n <= 0 Then Exit Function
+    Dim parts() As String: ReDim parts(0 To n - 1)
+    Dim lo As Long: lo = LBound(vec)
+    Dim i As Long
+    For i = 0 To n - 1
+        parts(i) = Trim$(Str$(vec(lo + i)))   ' Str$は常に"."区切り(ロケール非依存)
+    Next i
+    VectorToCsv = Join(parts, ",")
+End Function
+
+Public Function CsvToVector(ByVal s As String, ByRef vec() As Double) As Boolean
+    Dim t As String: t = Trim$(s)
+    If LenB(t) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(t, ",")
+    Dim n As Long: n = UBound(parts) - LBound(parts) + 1
+    If n < 1 Then Exit Function
+
+    Dim tmp() As Double: ReDim tmp(0 To n - 1)
+    Dim i As Long, j As Long: j = 0
+    For i = LBound(parts) To UBound(parts)
+        Dim p As String: p = Trim$(parts(i))
+        If LenB(p) = 0 Then Exit Function   ' 空要素(連続カンマ等)=不正なCSV
+        tmp(j) = Val(p)                      ' Valは"."小数点固定でロケール非依存
+        j = j + 1
+    Next i
+    vec = tmp
+    CsvToVector = True
+End Function
+
+' 次元不一致・空配列の場合は0を返す(呼び出し側が別途次元検査を行う規約。
+' MASTER_SPEC §7.1 modUtil注記のとおり単純化)。
+Public Function DotProduct(a() As Double, b() As Double) As Double
+    Dim na As Long: na = ArrLenD(a)
+    Dim nb As Long: nb = ArrLenD(b)
+    If na <> nb Or na = 0 Then Exit Function
+
+    Dim oa As Long: oa = LBound(a)
+    Dim ob As Long: ob = LBound(b)
+    Dim s As Double
+    Dim i As Long
+    For i = 0 To na - 1
+        s = s + a(oa + i) * b(ob + i)
+    Next i
+    DotProduct = s
+End Function
+
+' ゼロベクトル(全要素0または空配列)はFalseを返し、vecは変更しない。
+Public Function L2Normalize(ByRef vec() As Double) As Boolean
+    Dim n As Long: n = ArrLenD(vec)
+    If n = 0 Then Exit Function
+
+    Dim lo As Long: lo = LBound(vec)
+    Dim sumSq As Double
+    Dim i As Long
+    For i = lo To UBound(vec)
+        sumSq = sumSq + vec(i) * vec(i)
+    Next i
+    If sumSq <= 0 Then Exit Function
+
+    Dim norm As Double: norm = Sqr(sumSq)
+    For i = lo To UBound(vec)
+        vec(i) = vec(i) / norm
+    Next i
+    L2Normalize = True
+End Function
+
+' 未初期化/空配列判定。ArrLenD内部でOn Errorを使い、未割り当て配列の
+' LBound/UBound例外(実行時エラー9)を安全に0件として扱う。
+Public Function HasVector(vec() As Double) As Boolean
+    HasVector = (ArrLenD(vec) > 0)
+End Function
+
+Public Function SplitKeepNonEmpty(ByVal s As String, ByVal sep As String) As String()
+    Dim raw() As String: raw = Split(s, sep)
+    Dim maxN As Long: maxN = UBound(raw) - LBound(raw) + 1
+
+    Dim outArr() As String
+    If maxN <= 0 Then
+        ReDim outArr(0 To -1)
+        SplitKeepNonEmpty = outArr
+        Exit Function
+    End If
+
+    ReDim outArr(0 To maxN - 1)
+    Dim cnt As Long: cnt = 0
+    Dim i As Long
+    For i = LBound(raw) To UBound(raw)
+        If LenB(Trim$(raw(i))) > 0 Then
+            outArr(cnt) = raw(i)
+            cnt = cnt + 1
+        End If
+    Next i
+
+    If cnt = 0 Then
+        ReDim outArr(0 To -1)
+    Else
+        ReDim Preserve outArr(0 To cnt - 1)
+    End If
+    SplitKeepNonEmpty = outArr
+End Function
+
+Public Function HumanBytes(ByVal n As Double) As String
+    Dim v As Double: v = n
+    If v < 0 Then v = 0
+    Dim units() As String: units = Split("B,KB,MB,GB,TB", ",")
+    Dim idx As Long: idx = 0
+    Do While v >= 1024# And idx < UBound(units)
+        v = v / 1024#
+        idx = idx + 1
+    Loop
+    If idx = 0 Then
+        HumanBytes = CStr(CLng(v)) & " " & units(idx)
+    Else
+        HumanBytes = Format$(v, "0.0") & " " & units(idx)
+    End If
+End Function
+
+Public Function HumanSeconds(ByVal sec As Double) As String
+    Dim s As Long: s = CLng(sec)
+    If s < 0 Then s = 0
+    If s < 60 Then
+        HumanSeconds = "約" & s & "秒"
+    Else
+        Dim m As Long: m = s \ 60
+        Dim r As Long: r = s Mod 60
+        If r = 0 Then
+            HumanSeconds = "約" & m & "分"
+        Else
+            HumanSeconds = "約" & m & "分" & r & "秒"
+        End If
+    End If
+End Function
+
+Public Function SafeLeft(ByVal s As String, ByVal n As Long) As String
+    Dim lim As Long: lim = n
+    If lim < 0 Then lim = 0
+    If Len(s) <= lim Then
+        SafeLeft = s
+    Else
+        SafeLeft = Left$(s, lim)
+    End If
+End Function
+
+' "yyyy-mm-dd hh:nn:ss"。Now()はExcel/LO両対応のVBAランタイム関数。
+Public Function NowStamp() As String
+    NowStamp = Format$(Now, "yyyy-mm-dd hh:nn:ss")
+End Function
+
+Public Function FileNameOf(ByVal path As String) As String
+    Dim i1 As Long: i1 = InStrRev(path, "\")
+    Dim i2 As Long: i2 = InStrRev(path, "/")
+    Dim i As Long: i = i1
+    If i2 > i Then i = i2
+    If i = 0 Then
+        FileNameOf = path
+    Else
+        FileNameOf = Mid$(path, i + 1)
+    End If
+End Function
+
+Public Function ExtOf(ByVal path As String) As String
+    Dim fn As String: fn = FileNameOf(path)
+    Dim i As Long: i = InStrRev(fn, ".")
+    If i = 0 Or i = Len(fn) Then
+        ExtOf = ""
+    Else
+        ExtOf = LCase$(Mid$(fn, i + 1))
+    End If
+End Function
+
+' OneDrive/FATファイルシステムの秒精度誤差を吸収するため2秒丸めで比較する。
+Public Function IsSameTimestamp(ByVal a As Date, ByVal b As Date) As Boolean
+    Dim diffSec As Double: diffSec = Abs(CDbl(a - b)) * 86400#
+    IsSameTimestamp = (diffSec <= 2#)
+End Function
+
+' ============================================================================
+' 内部ヘルパー(Fnv1a64Hex専用): 64bit整数演算のDouble安全実装
+' ============================================================================
+
+' offset_basis = 0xCBF29CE484222325 を上位/下位32bitワードに分解した定数。
+' 16進リテラルはビットパターンとしてそのままLongへ格納される(符号は無視)。
+Private Const FNV_OFFSET_HI As Long = &HCBF29CE4
+Private Const FNV_OFFSET_LO As Long = &H84222325
+' prime = 0x100000001B3 = 2^40 + 435 なので上位ワードは非常に小さい値になる。
+Private Const FNV_PRIME_HI As Long = &H100    ' = 256
+Private Const FNV_PRIME_LO As Long = &H1B3    ' = 435
+
+' 未割り当て配列でも例外にせず0を返す(LBound/UBoundは未割り当て配列に
+' 対して実行時エラー9を出すため、1行スコープのOn Errorで吸収する)。
+Private Function ArrLenD(arr() As Double) As Long
+    On Error GoTo Empty0
+    ArrLenD = UBound(arr) - LBound(arr) + 1
+    Exit Function
+Empty0:
+    ArrLenD = 0
+End Function
+
+' Longのビットパターン(0〜2^32-1相当、符号は無視)をDoubleの数値に変換する。
+Private Function U32ToDouble(ByVal L As Long) As Double
+    If L < 0 Then
+        U32ToDouble = CDbl(L) + 4294967296#     ' 2^32
+    Else
+        U32ToDouble = CDbl(L)
+    End If
+End Function
+
+' [0, 2^32) のDouble値を、その値を表すLongのビットパターンに変換する。
+Private Function DoubleToU32Bits(ByVal d As Double) As Long
+    Dim v As Double: v = d - Int(d / 4294967296#) * 4294967296#   ' Mod 2^32相当
+    If v >= 2147483648# Then                     ' 2^31
+        DoubleToU32Bits = CLng(v - 4294967296#)
+    Else
+        DoubleToU32Bits = CLng(v)
+    End If
+End Function
+
+' 32bit×32bit → 64bit(hiOut:loOut)の符号なし乗算。オーバーフローなし。
+' ---------------------------------------------------------------------------
+' a, b をそれぞれ上位16bit/下位16bit(aHi,aLo / bHi,bLo)に分割し、
+'   t0=aLo*bLo, t1=aHi*bLo, t2=aLo*bHi, t3=aHi*bHi
+' を計算する(各項は最大 65535*65535 ≒ 4.29e9 なのでDoubleで厳密に表現できる。
+' Doubleが誤差なく表せる整数の上限は 2^53 ≒ 9.007e15 であり、この計算に
+' 現れる最大の中間値でもそれを大きく下回る)。
+' これらを16bit単位の桁(digit0〜digit3)としてキャリー(繰り上がり)を
+' 手動で伝播しながら合算し、
+'   lo32 = digit1*65536 + digit0
+'   hi32 = digit3*65536 + digit2
+' とする(digit3から溢れた分は64bitを超えるため切り捨てる=Mod 2^64相当)。
+Private Sub MulU32(ByVal aBits As Long, ByVal bBits As Long, ByRef hiOut As Long, ByRef loOut As Long)
+    Dim a As Double: a = U32ToDouble(aBits)
+    Dim b As Double: b = U32ToDouble(bBits)
+
+    Dim aHi As Double: aHi = Int(a / 65536#)
+    Dim aLo As Double: aLo = a - aHi * 65536#
+    Dim bHi As Double: bHi = Int(b / 65536#)
+    Dim bLo As Double: bLo = b - bHi * 65536#
+
+    Dim t0 As Double: t0 = aLo * bLo
+    Dim t1 As Double: t1 = aHi * bLo
+    Dim t2 As Double: t2 = aLo * bHi
+    Dim t3 As Double: t3 = aHi * bHi
+
+    Dim digit0 As Double: digit0 = t0 - Int(t0 / 65536#) * 65536#
+    Dim carry As Double: carry = Int(t0 / 65536#)
+
+    Dim sum1 As Double
+    sum1 = carry + (t1 - Int(t1 / 65536#) * 65536#) + (t2 - Int(t2 / 65536#) * 65536#)
+    Dim digit1 As Double: digit1 = sum1 - Int(sum1 / 65536#) * 65536#
+    carry = Int(sum1 / 65536#) + Int(t1 / 65536#) + Int(t2 / 65536#)
+
+    Dim sum2 As Double
+    sum2 = carry + (t3 - Int(t3 / 65536#) * 65536#)
+    Dim digit2 As Double: digit2 = sum2 - Int(sum2 / 65536#) * 65536#
+    carry = Int(sum2 / 65536#) + Int(t3 / 65536#)
+
+    Dim digit3 As Double: digit3 = carry - Int(carry / 65536#) * 65536#   ' 64bit超過分は破棄
+
+    loOut = DoubleToU32Bits(digit1 * 65536# + digit0)
+    hiOut = DoubleToU32Bits(digit3 * 65536# + digit2)
+End Sub
+
+' hash(hHi:hLo) = hash * FNV_PRIME Mod 2^64 を破壊的に計算する。
+' ---------------------------------------------------------------------------
+' prime = PHi*2^32 + PLo (PHi=256, PLo=435という小さい定数)であることを
+' 利用すると、64bit×64bitの積 mod 2^64 は次式で求まる
+' (HHi*PHi*2^64 の項は mod 2^64 で必ず0になるため計算不要):
+'   newLo = 下位32bit( HLo * PLo )
+'   newHi = ( 上位32bit(HLo*PLo) + 下位32bit(HHi*PLo) + 下位32bit(HLo*PHi) ) Mod 2^32
+Private Sub MulU64ByPrime(ByRef hHi As Long, ByRef hLo As Long)
+    Dim hiA As Long, loA As Long
+    MulU32 hLo, FNV_PRIME_LO, hiA, loA          ' HLo * PLo -> 64bit(hiA:loA)
+
+    Dim hiB As Long, loB As Long
+    MulU32 hHi, FNV_PRIME_LO, hiB, loB          ' HHi * PLo -> 下位32bitのみ使用
+
+    Dim hiC As Long, loC As Long
+    MulU32 hLo, FNV_PRIME_HI, hiC, loC          ' HLo * PHi -> 下位32bitのみ使用
+
+    Dim sumHi As Double
+    sumHi = U32ToDouble(hiA) + U32ToDouble(loB) + U32ToDouble(loC)
+
+    hLo = loA
+    hHi = DoubleToU32Bits(sumHi)
+End Sub
+
+' Longのビットパターンを8桁小文字16進文字列(ゼロ埋め)にする。
+' VBAのHex$()はビットパターンをそのまま16進化するため符号を気にせず使える。
+Private Function U32ToHex8(ByVal L As Long) As String
+    U32ToHex8 = LCase$(Right$("00000000" & Hex$(L), 8))
+End Function
