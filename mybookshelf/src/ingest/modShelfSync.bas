@@ -32,24 +32,36 @@ Option Explicit
 '     実削除はしない(§13「フォルダ削除・リネーム(E0502+missing)」)。
 '     フォルダが復活すれば次回同期時に通常のkeep/replace判定に戻る。
 '   ・再入防止: mSyncRunning は「手動🔄同期ボタン連打」や「自動同期タイマー
-'     発火中に手動ボタンが押される」ケースの多重実行を防ぐ。なお
-'     「自動同期中にユーザーが質問実行」(§13)については、Excel/VBAの
-'     実行モデルがそもそもシングルスレッドであり、1つのマクロ実行中は
-'     OnTime予約や他のボタンクリックはExcelが自動的に現在のマクロの終了
-'     まで遅延させるため、modShelfSync側で追加の相互排他は不要と判断した
-'     (modAsk側との明示的なフラグ共有はMASTER_SPEC契約に無く、勝手な
-'     Public APIの追加はcontract closedのため許されない)。
+'     発火中に手動ボタンが押される」ケースの多重実行を防ぐ。
+'     【Wave4訂正】以前はここで「Excel/VBAはシングルスレッドなので、1つの
+'     マクロ実行中は他のボタンクリックはExcelが自動的に遅延させる」と
+'     説明していたが、これは不正確だった: modEmbed.EmbedPendingは
+'     ベクトル化ループの中でDoEvents/SleepMs(DoEvents呼び出し)を使って
+'     ESC中断とUI応答性を確保しており、DoEvents実行中はメッセージキュー上の
+'     Shapeクリック(OnAction)がその場で再入的に発火しうる(「現在のマクロが
+'     終わるまで待つ」わけではない)。したがって「取込/埋め込み中にユーザーが
+'     🔄同期ボタンを押す」という再入は実際に起こり得る。この場合に
+'     my_knowledge/my_vectorsの行削除・圧縮(DeleteSource等)と、
+'     EmbedPendingが保持する行インデックスが食い違って誤った行へ書き込む
+'     事故を防ぐため、modEmbed側でchunk_id起点に書込み先を都度再解決する
+'     自己防衛(re-resolve)を入れている(modEmbed.bas冒頭コメント参照)。
+'     modShelfSync自体に新しいPublicの相互排他フラグを追加する設計変更は
+'     影響範囲が大きいため見送り、実害(誤った行への書込み)を確実に断つ
+'     modEmbed側の対策で十分と判断した。
 '   ・OnTime予約: 予約時刻(mNextRunTime)をモジュール変数に保持し、
 '     CancelAutoSyncは同時刻を指定して解除する(Excel仕様・§12)。
 '     コールバック先(AutoSyncTick)はSyncNow実行後に自分自身を再度
 '     ScheduleAutoSyncする「自己再帰」で次回分を予約する。
-'     AutoSyncTickはMASTER_SPEC §7.2の公開契約(closed)に無い名前のため
-'     Publicにはしない(Private)。Application.OnTimeのProcedure引数は
-'     モジュール修飾なしの裸の手続き名("AutoSyncTick")を渡す
-'     (同一VBAプロジェクト内でPrivate Subも名前解決して呼び出せるVBAの
-'     挙動を利用。"modShelfSync.AutoSyncTick"のように修飾すると静的Lintの
-'     モジュール間参照チェックが「外部から呼べるPublic APIの呼び出し」と
-'     誤認してERRORになるため、あえて非修飾名にしている)。
+'     【Wave4修正】AutoSyncTickは当初「§7.2の公開契約に無い名前だから」
+'     という理由でPrivateにしていたが、これはVBAの実際の挙動と矛盾する
+'     誤った判断だった: Application.OnTimeのProcedure引数はApplication.Run
+'     と同じ遅延バインド(文字列からの実行時解決)であり、Private Subは
+'     解決できない(予約自体はOn Errorに掛からず成立してしまうが、発火時に
+'     「マクロ'AutoSyncTick'を実行できません」という素のランタイムエラーが
+'     出て自動同期が永久に機能しなくなる)。そのためAutoSyncTickはPublicに
+'     変更し、CONTRACT(tools/vba_lint.py)・MASTER_SPEC §7.2の両方を
+'     「OnTimeコールバックとして公開が必須」という契約に合わせて更新した
+'     (契約側の欠陥が原因のケースとしてMASTER_SPEC本文も修正)。
 '   ・進捗実況は他のingest層モジュール(modEmbed/modEnrich)と同じ作法で
 '     modUIMain.SetStage を1行スコープの On Error Resume Next で呼ぶ
 '     (modUIMain未実装/実行時エラーでも同期処理自体は止めない)。
@@ -81,8 +93,18 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' SyncNow - Dir()走査(第1階層のみ) vs my_manifest の差分同期
+'   silent(既定False): Trueのとき、未設定/フォルダ不存在のE0502と完了サマリを
+'   MsgBoxで出さず、SetStage(状態表示行+StatusBar)だけに留める。
+'   【Wave4追加】modBoot.Boot(sync_on_open)とAutoSyncTick(定期自動同期)は
+'   ユーザー操作なしで走るバックグラウンド処理のため、対話ダイアログで
+'   フォーカスを奪うべきではない(§8 UXレビュー指摘)。特に配布直後は
+'   shelf_folderが未設定("")のままsync_on_open=TRUEで起動するため、名前を
+'   入力した直後に「フォルダが見つかりません」という警告が必ず出てしまう
+'   問題があった。手動🔄ボタン(modUIShelf.OnSyncNow)・PickShelfFolder直後は
+'   従来どおりsilent=Falseでダイアログ表示する(ユーザー操作への応答なので
+'   フィードバックがあった方がよい)。
 ' ----------------------------------------------------------------------------
-Public Sub SyncNow()
+Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     If mSyncRunning Then Exit Sub   ' 再入防止(手動連打・自動同期との重複)
     mSyncRunning = True
 
@@ -92,13 +114,27 @@ Public Sub SyncNow()
 
     Dim folder As String: folder = Trim$(modConfig.GetString("shelf_folder", ""))
     If LenB(folder) = 0 Then
-        modLog.ShowError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です"
+        If silent Then
+            modLog.LogError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です(silent)"
+            On Error Resume Next
+            modUIMain.SetStage ""
+            On Error GoTo 0
+        Else
+            modLog.ShowError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です"
+        End If
         GoTo Finish
     End If
 
     If Not FolderExists(folder) Then
-        modLog.ShowError "E0502", "modShelfSync.SyncNow", folder
+        If silent Then
+            modLog.LogError "E0502", "modShelfSync.SyncNow", folder & "(silent)"
+        Else
+            modLog.ShowError "E0502", "modShelfSync.SyncNow", folder
+        End If
         MarkFolderScopeMissing folder
+        On Error Resume Next
+        modUIMain.SetStage ""
+        On Error GoTo 0
         GoTo Finish
     End If
 
@@ -138,12 +174,14 @@ Public Sub SyncNow()
         End If
 
         Dim decision As String: decision = DiffDecision(existsInManifest, sizeChanged, timeChanged)
-        ' status="failed"(例: OneDriveプレースホルダでOpen失敗)は次回同期で
-        ' 自動再試行する(§13「OneDriveオフライン…次回再試行」)。DiffDecision
-        ' 自体のシグネチャ(§7.8契約)は変えず、呼び出し側でのみ上書きする。
-        If decision = "keep" And existsInManifest Then
-            If mStatus(mi) = "failed" Then decision = "replace"
-        End If
+        ' status="failed"/"missing"は次回同期で自動的にリカバリさせる
+        ' (§13「OneDriveオフライン…次回再試行」「フォルダ削除・リネーム…
+        ' フォルダが復活すれば次回同期時に通常のkeep/replace判定に戻る」)。
+        ' DiffDecision自体のシグネチャ(§7.8契約)は変えず、ResolveDecision
+        ' (同じく純関数・§7.8)で呼び出し側からのみ上書きする。
+        Dim curStatus As String: curStatus = ""
+        If existsInManifest Then curStatus = mStatus(mi)
+        decision = ResolveDecision(decision, existsInManifest, curStatus)
 
         Select Case decision
             Case "ingest"
@@ -177,18 +215,31 @@ Public Sub SyncNow()
         resumedCount = modEmbed.EmbedPending()
     End If
 
-    Dim summary As String
-    summary = "同期が完了しました。" & vbLf & _
-        "新規: " & ingestedN & "件 / 更新: " & replacedN & "件 / 削除: " & deletedN & "件"
-    If resumeNeeded Then
-        summary = summary & vbLf & "未完了だった埋め込みを" & resumedCount & "件再開しました。"
+    Dim summaryLine As String
+    summaryLine = "新規" & ingestedN & "件・更新" & replacedN & "件・削除" & deletedN & "件"
+    If resumeNeeded Then summaryLine = summaryLine & "・再開" & resumedCount & "件"
+
+    If silent Then
+        ' バックグラウンド同期(sync_on_open/自動同期)は対話ダイアログで
+        ' フォーカスを奪わない。状態表示行+StatusBarのみで完了を知らせる
+        ' (§8 UXレビュー: 定期的なMsgBoxが作業を中断する問題への対応)。
+        On Error Resume Next
+        modUIMain.SetStage "🔄 同期が完了しました(" & summaryLine & ")"
+        On Error GoTo 0
+    Else
+        Dim summary As String
+        summary = "同期が完了しました。" & vbLf & _
+            "新規: " & ingestedN & "件 / 更新: " & replacedN & "件 / 削除: " & deletedN & "件"
+        If resumeNeeded Then
+            summary = summary & vbLf & "未完了だった埋め込みを" & resumedCount & "件再開しました。"
+        End If
+
+        On Error Resume Next
+        modUIMain.SetStage ""
+        On Error GoTo 0
+
+        MsgBox summary, vbInformation, modAppDef.APP_NAME
     End If
-
-    On Error Resume Next
-    modUIMain.SetStage ""
-    On Error GoTo 0
-
-    MsgBox summary, vbInformation, modAppDef.APP_NAME
 
     modLog.LogUsage "sync", "", "ingest=" & ingestedN & " replace=" & replacedN & _
         " delete=" & deletedN & " resumed=" & resumedCount
@@ -250,13 +301,36 @@ Public Function DiffDecision(ByVal existsInManifest As Boolean, ByVal sizeChange
 End Function
 
 ' ----------------------------------------------------------------------------
-' AutoSyncTick - OnTimeコールバック本体。SyncNow実行後に次回分を再予約する。
-'   MASTER_SPEC §7.2の公開契約(closed)に無いためPrivateとする。
+' ResolveDecision - 純関数(§7.8): DiffDecisionの結果に、manifestの現在status
+'   による上書きルールを適用する(SyncNowから切り出し・テスト可能にする)。
+'   decision="keep" かつ status="failed"  -> "replace"(前回失敗を次回で再試行)
+'   decision="keep" かつ status="missing" -> "replace"(フォルダ復活時に復帰。
+'     Wave4修正: 従来はmissing行がkeepのまま固定され、フォルダが戻っても
+'     カードが「削除待ち」表示のまま・埋め込み再開も走らない不具合があった)
+'   それ以外はdecisionをそのまま返す。
 ' ----------------------------------------------------------------------------
-Private Sub AutoSyncTick()
+Public Function ResolveDecision(ByVal decision As String, ByVal existsInManifest As Boolean, _
+                                ByVal currentStatus As String) As String
+    ResolveDecision = decision
+    If decision = "keep" And existsInManifest Then
+        If currentStatus = "failed" Or currentStatus = "missing" Then
+            ResolveDecision = "replace"
+        End If
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' AutoSyncTick - OnTimeコールバック本体。SyncNow実行後に次回分を再予約する。
+'   Public必須(Wave4修正): Application.OnTimeのProcedure引数はApplication.Run
+'   と同じ遅延バインドであり、Private Subは解決できない(発火時に「マクロを
+'   実行できません」という未処理エラーになり、自動同期が機能しなくなる)。
+'   バックグラウンド呼び出しのためSyncNowはsilent:=Trueで呼ぶ(完了ダイアログ
+'   でユーザー操作を中断しない)。
+' ----------------------------------------------------------------------------
+Public Sub AutoSyncTick()
     mScheduled = False
     On Error Resume Next
-    SyncNow
+    SyncNow silent:=True
     On Error GoTo 0
     ScheduleAutoSync
 End Sub

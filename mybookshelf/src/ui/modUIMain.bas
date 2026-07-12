@@ -243,6 +243,25 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
 
     mLastAnswerText = answerText
 
+    ' Wave4修正: modAsk.Answerは空質問(未入力のまま「質問する」)のとき
+    ' 検索を一切行わずmode=""で早期returnする契約にした(modAsk.bas参照)。
+    ' mode=""は「実際の検索・回答生成が行われなかった」ことを示す唯一の
+    ' 目印なので、このときは所要秒・出典欄(直前の質問の情報が残ったままに
+    ' 見えてしまう)を付けず、案内文だけを表示する。
+    If LenB(mode) = 0 Then
+        WriteSafe ws.Range(RNG_ANSWER), answerText
+        WriteSafe ws.Range(RNG_SOURCES), ""
+
+        On Error Resume Next
+        ws.Range(RNG_STATUS).Value = "状態: 準備できています"
+        On Error GoTo 0
+
+        On Error Resume Next
+        Application.StatusBar = False
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     Dim modeLabel As String
     If LCase$(mode) = "deep" Then
         modeLabel = "🔍 しっかり調べる"
@@ -528,10 +547,13 @@ Private Function JoinSourceLabels(hits() As Hit, ByVal nHits As Long) As String
     showCount = nHits
     If showCount > MAX_SHOW Then showCount = MAX_SHOW
 
+    ' hits()はmodRetrieve.Search/modPromptsと同じ1-based配列(1 To nHits)。
+    ' Wave4修正: ここが0-based(hits(0))になっていたため、ヒットが1件でも
+    ' あると添字範囲エラー(実行時エラー9)でE0602に落ちていた。
     Dim parts() As String
-    ReDim parts(0 To showCount - 1)
+    ReDim parts(1 To showCount)
     Dim i As Long
-    For i = 0 To showCount - 1
+    For i = 1 To showCount
         parts(i) = OneSourceLabel(hits(i))
     Next i
 

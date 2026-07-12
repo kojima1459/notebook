@@ -84,6 +84,15 @@ Public Sub Boot()
     modUIShelf.EnsureLayout
     modUIDashboard.EnsureLayout
 
+    ' Wave4修正: modStats.TouchToday(streak_days/last_used_date更新)を
+    ' どこからも呼んでいなかったため、streak7バッジもダッシュボードの
+    ' 連続利用日数も永久に更新されない不具合があった。1セッション1回
+    ' (gBootDoneで守られたこの初回Boot経路)呼べばTouchTodayの契約
+    ' (§7.5: 昨日なら+1/今日なら不変/それ以外リセット)は成立する。
+    On Error Resume Next
+    modStats.TouchToday
+    On Error GoTo 0
+
     On Error Resume Next
     modStats.EvaluateBadges
     On Error GoTo 0
@@ -111,10 +120,13 @@ Public Sub Boot()
                "詳しくは診断ボタンで確認できます。", vbExclamation, modAppDef.APP_NAME
     End If
 
-    ' 5) sync_on_openならSyncNow(On Error保護)
+    ' 5) sync_on_openならSyncNow(On Error保護)。起動時の自動同期はユーザー
+    '    操作への応答ではないため silent:=True で呼び、完了/未設定時の警告
+    '    ダイアログでブックを開いた直後にポップアップを出さない
+    '    (Wave4修正: 名前入力直後にE0502警告が必ず出る不具合への対応)。
     If modConfig.GetBool("sync_on_open", True) Then
         On Error Resume Next
-        modShelfSync.SyncNow
+        modShelfSync.SyncNow silent:=True
         On Error GoTo 0
     End If
 

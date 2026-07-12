@@ -138,6 +138,19 @@ Public Function Answer(ByVal question As String, ByVal mode As String) As String
     mdMode = NormalizeMode(mode)
 
     If LenB(q) = 0 Then
+        ' Wave4修正: 以前はここでmLast*を更新せずExit Functionしていたため、
+        ' 直前の(本物の)質問のヒット/所要秒がmodUIMain.RenderAnswerの
+        ' footer・出典欄に残り、まるで空クリックがその資料で回答したかの
+        ' ように見える不具合があった。mLastMode=""は「検索・回答生成を
+        ' 一切行わなかった」ことを示す目印としてmodUIMain.RenderAnswer側
+        ' でも使う(footer/出典欄を出さない判定)。
+        Dim emptyHits() As Hit
+        mLastQuestion = q
+        mLastAnswer = EMPTY_QUESTION_MESSAGE
+        mLastMode = ""
+        mLastHits = emptyHits
+        mLastNHits = 0
+        mLastSeconds = 0
         Answer = EMPTY_QUESTION_MESSAGE
         Exit Function
     End If

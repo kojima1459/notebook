@@ -100,6 +100,26 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
 
     Dim sourceName As String: sourceName = modUtil.FileNameOf(path)
 
+    ' 1.5) 同名衝突検査(E0504・Wave4追加): 「既存同名sourceは置換」(§7.2)は
+    '   同じ資料を上書き更新する運用を前提にしている。source識別が
+    '   ファイル名のみのため、別フォルダにある同名だが別内容のファイルを
+    '   取込むと、名前が一致するだけで既存資料のチャンク/ベクトルが無言で
+    '   全削除されてしまう(Wave4レビュー指摘: 顧客別フォルダ運用で実際に
+    '   起こりうる silent data loss)。manifest(self由来のみ・パスで一意)に
+    '   「同じファイル名だが別のfile_path」の行が既にあれば、削除せず明示
+    '   エラーで止める(誠実な失敗の方が黙った破壊より安全・R5)。
+    '   同一パスの再取込(置換)はこの検査を通過する(既存契約どおり)。
+    If isSelf Then
+        Dim conflictPath As String
+        conflictPath = FindConflictingManifestPath(sourceName, path)
+        If LenB(conflictPath) > 0 Then
+            modLog.ShowError "E0504", "modShelf.IngestFile", _
+                "source=" & sourceName & " newPath=" & path & " existingPath=" & conflictPath
+            resultStatus = "failed"
+            GoTo Finish
+        End If
+    End If
+
     ' 2) 上限検査(E0501)
     Dim maxChunks As Long: maxChunks = modConfig.GetLong("shelf_max_chunks", 5000)
     If maxChunks < 1 Then maxChunks = 5000
@@ -121,18 +141,41 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Dim pagesTruncated As Boolean: pagesTruncated = (extractOk And errCode = "PARTIAL_PAGES")
 
     If Not extractOk Then
-        Dim failStatus As String
-        If errCode = "E0303" Then
-            failStatus = "image_pdf"
-        Else
-            failStatus = "failed"
+        ' Wave4修正(§7.7): E0303(画像PDF)のとき、feature_visionが有効なら
+        ' modFeatures.InvokeFeature("vision","ExtractImagePdfText",path)経由の
+        ' 委譲を試みる。以前はこの分岐が無く、optVisionが常にコアから未結線の
+        ' 死コードになっていた(フラグをONにしても画像PDFは常にimage_pdf
+        ' 確定していた)。成功時はOCR結果を1ページの通常抽出結果として
+        ' 後続(チャンク分割以降)へ合流させる。
+        If errCode = "E0303" And modFeatures.FeatureEnabled("vision") Then
+            Dim visionResult As Variant
+            visionResult = modFeatures.InvokeFeature("vision", "ExtractImagePdfText", path)
+            Dim visionText As String: visionText = ""
+            If VarType(visionResult) = vbString Then
+                If Left$(CStr(visionResult), 5) <> "#ERR:" Then visionText = CStr(visionResult)
+            End If
+            If LenB(Trim$(visionText)) > 0 Then
+                ReDim pages(0 To 0)
+                pages(0).page = 1
+                pages(0).Text = visionText
+                extractOk = True
+            End If
         End If
-        If isSelf Then
-            UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
-                failStatus, modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")", origin
+
+        If Not extractOk Then
+            Dim failStatus As String
+            If errCode = "E0303" Then
+                failStatus = "image_pdf"
+            Else
+                failStatus = "failed"
+            End If
+            If isSelf Then
+                UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
+                    failStatus, modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")", origin
+            End If
+            resultStatus = failStatus
+            GoTo Finish
         End If
-        resultStatus = failStatus
-        GoTo Finish
     End If
 
     ' 5) チャンク分割
