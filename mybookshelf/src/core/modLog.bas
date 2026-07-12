@@ -105,6 +105,9 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0503"
             FriendlyMessage = "今、別の取込処理が実行中です。" & _
                 "処理が完了するまで、少々お待ちください。"
+        Case "E0504"
+            FriendlyMessage = "同じ名前の資料が、別の場所からすでに登録されています。" & _
+                "ファイル名を変えて追加するか、先に元の資料を削除してから追加し直してください。"
         Case "E0601"
             FriendlyMessage = "本棚の中に手がかりが見つかりませんでした。" & _
                 "資料が本棚に入っているか確認するか、資料を追加してから試してください。"

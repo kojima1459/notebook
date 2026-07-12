@@ -242,6 +242,24 @@ Private Sub TestModShelfSync()
         (modShelfSync.DiffDecision(True, True, True) = "replace")
     modTestRunner.Check "DiffDecision_不変", _
         (modShelfSync.DiffDecision(True, False, False) = "keep")
+
+    ' modShelfSync.ResolveDecision(純関数・Wave4追加): keepにfailed/missingの
+    ' 復帰ルールを適用する。フォルダ復活時にmissing行が永久に「削除待ち」表示の
+    ' ままになる不具合(Wave4レビュー指摘)の修正対象。
+    modTestRunner.Check "ResolveDecision_keepかつfailedはreplaceへ昇格", _
+        (modShelfSync.ResolveDecision("keep", True, "failed") = "replace")
+    modTestRunner.Check "ResolveDecision_keepかつmissingはreplaceへ昇格", _
+        (modShelfSync.ResolveDecision("keep", True, "missing") = "replace")
+    modTestRunner.Check "ResolveDecision_keepかつdoneはそのまま", _
+        (modShelfSync.ResolveDecision("keep", True, "done") = "keep")
+    modTestRunner.Check "ResolveDecision_keepかつpartialはそのまま", _
+        (modShelfSync.ResolveDecision("keep", True, "partial") = "keep")
+    modTestRunner.Check "ResolveDecision_ingestは素通り", _
+        (modShelfSync.ResolveDecision("ingest", False, "") = "ingest")
+    modTestRunner.Check "ResolveDecision_replaceは素通り", _
+        (modShelfSync.ResolveDecision("replace", True, "done") = "replace")
+    modTestRunner.Check "ResolveDecision_existsInManifest偽なら昇格しない", _
+        (modShelfSync.ResolveDecision("keep", False, "missing") = "keep")
 End Sub
 
 ' ============================================================================

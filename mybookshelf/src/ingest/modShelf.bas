@@ -281,6 +281,21 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             resultStatus, "", origin
     End If
 
+    ' Wave4修正: first_ingestバッジ(§9)の判定に使う my_stats.ingest_files_total と、
+    ' 運用ログ usage_log の "ingest" イベント(§4)を、どこからも記録していなかった
+    ' (=バッジが永久に取れず、取込活動がログから追跡不能だった)。取込が成功した
+    ' (done/partial)ときだけ1回記録する。失敗(failed/image_pdf)や再入guard/
+    ' 上限超過/同名衝突は「実際に資料が増えていない」ので数えない。
+    If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then
+        On Error Resume Next
+        modStats.Bump "ingest_files_total"
+        On Error GoTo 0
+        On Error Resume Next
+        modLog.LogUsage "ingest", origin, "source=" & sourceName & " chunks=" & acceptedCount & _
+            " status=" & resultStatus
+        On Error GoTo 0
+    End If
+
 Finish:
     ' 11) カード再描画(modUIShelf未実装/実行時エラーでも取込処理自体は止めない)
     On Error Resume Next
@@ -575,6 +590,30 @@ Private Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String
     wsM.Cells(r, 8).Value = modUtil.NowStamp()
     wsM.Cells(r, 9).Value = origin
 End Sub
+
+' 同名(sourceName)だが別パスのmanifest行(origin=self)が既に存在するかを探す。
+' 見つかった場合はそのfile_pathを返す(見つからなければ空文字列)。
+' newPathと同一パスの行(=置換取込)は衝突として扱わない(§7.2「既存同名sourceは
+' 置換」を素直に通すため)。IngestFile 1.5) の設計判断コメント参照(Wave4追加)。
+Private Function FindConflictingManifestPath(ByVal sourceName As String, ByVal newPath As String) As String
+    Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
+    If wsM Is Nothing Then Exit Function
+    Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
+    If lastM < 2 Then Exit Function
+
+    Dim arr As Variant: arr = wsM.Range(wsM.Cells(2, 1), wsM.Cells(lastM, 9)).Value
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If StrComp(CStr(arr(i, 9)), "self", vbTextCompare) = 0 Then
+            If StrComp(CStr(arr(i, 2)), sourceName, vbTextCompare) = 0 Then
+                If StrComp(CStr(arr(i, 1)), newPath, vbTextCompare) <> 0 Then
+                    FindConflictingManifestPath = CStr(arr(i, 1))
+                    Exit Function
+                End If
+            End If
+        End If
+    Next i
+End Function
 
 Private Function FindManifestRowByPath(ByVal wsM As Worksheet, ByVal filePath As String) As Long
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row

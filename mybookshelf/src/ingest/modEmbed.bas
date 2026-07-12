@@ -101,8 +101,6 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     If maxCount >= 0 And maxCount < limit Then limit = maxCount
 
     Dim sleepMs As Long: sleepMs = modConfig.GetLong("embed_sleep_ms", 150)
-    Dim writeRow As Long: writeRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
-    If writeRow < 2 Then writeRow = 2
 
     Dim consecutiveFail As Long: consecutiveFail = 0
     Dim abortReason As String: abortReason = ""
@@ -110,33 +108,57 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Application.EnableCancelKey = 2   ' xlErrorHandler: ESCをErr 18として捕捉する
 
     Dim n As Long
-    Dim ai As Long, sheetRow As Long
+    Dim ai As Long
     Dim chunkId As String, fullText As String
     Dim latency As Long
     Dim vec() As Double
 
     For n = 0 To limit - 1
         ai = pendingRows(n)
-        sheetRow = ai + 1   ' arr(1,..)はシート2行目
 
         On Error Resume Next
         modUIMain.SetStage "📥 ベクトル化中 " & (n + 1) & "/" & limit & " …"
         On Error GoTo 0
 
+        ' Wave4修正(実コード検証で判明): 以前は書込み区間(Find〜2セル書込み)の
+        ' 直前で On Error GoTo 0 していたため、この極短区間でESC(Err18)や
+        ' 書込み例外が起きると EscOrErr に飛ばず未捕捉のまま EmbedPending から
+        ' 抜けてしまい、AfterLoopのmRunning=False・呼び出し元IngestFileの
+        ' mIngesting=False(Finishラベル)のどちらにも到達しない事故があった
+        ' (以後IngestFileが常にE0503を返す=Excel再起動まで取込不能)。
+        ' 書込み区間・SleepMsまで含めて1回のOn Error GoTo EscOrErrで覆う。
         On Error GoTo EscOrErr
         DoEvents   ' ESC割込みとUI応答性の確保
         chunkId = CStr(arr(ai, COL_ID))
         fullText = CStr(arr(ai, COL_FULLTEXT))
         vec = modGateway.GetEmbedding(fullText, latency)
-        On Error GoTo 0
 
         If modUtil.HasVector(vec) Then
-            wsV.Cells(writeRow, 1).Value = chunkId
-            wsV.Cells(writeRow, 2).Value = modUtil.SafeLeft(modUtil.VectorToCsv(vec), 32000)
-            writeRow = writeRow + 1
-            wsK.Cells(sheetRow, COL_EMBEDDED).Value = 1
-            doneCount = doneCount + 1
-            consecutiveFail = 0
+            ' Wave4修正(実コード検証で判明): モジュール冒頭コメント・
+            ' modShelfSync.bas冒頭の設計判断コメントは「chunk_id起点に書込み先を
+            ' 都度再解決する自己防衛を入れている」と述べていたが、実装が伴って
+            ' いなかった(sheetRow/writeRowをDoEvents前の位置のままキャッシュして
+            ' 書き込んでいた)。DoEvents/GetEmbedding呼び出し中に別のマクロ
+            ' (SyncNowの削除ループ→DeleteSource等)が再入してmy_knowledge/
+            ' my_vectorsの行を削除・圧縮すると、キャッシュした行番号がずれて
+            ' 無関係な行にembedded=1を立てたりベクトルを誤った行へ書いたりする
+            ' 事故になる。書込み直前にchunk_id起点で現在の行を都度再解決する
+            ' ことで、この危険な窓を閉じる。
+            Dim targetCell As Range
+            Set targetCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+            If targetCell Is Nothing Then
+                ' 書込み直前にこのチャンクが削除された(再入によるDeleteSource等)。
+                ' 孤児ベクトルを残さないよう、このチャンク分の書込みはスキップする。
+            Else
+                Dim vRow As Long
+                vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
+                If vRow < 2 Then vRow = 2
+                wsV.Cells(vRow, 1).Value = chunkId
+                wsV.Cells(vRow, 2).Value = modUtil.SafeLeft(modUtil.VectorToCsv(vec), 32000)
+                wsK.Cells(targetCell.row, COL_EMBEDDED).Value = 1
+                doneCount = doneCount + 1
+                consecutiveFail = 0
+            End If
         Else
             consecutiveFail = consecutiveFail + 1
             If consecutiveFail >= 3 Then
@@ -147,6 +169,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         End If
 
         If sleepMs > 0 Then SleepMs sleepMs
+        On Error GoTo 0
         If LenB(abortReason) > 0 Then Exit For
     Next n
     GoTo AfterLoop

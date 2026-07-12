@@ -138,7 +138,17 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # DiffDecision は §7.8 の記述により modShelfSync の差分判定を
         # テスト可能にするため追加で Public 化することが名指しされている。
-        "required": ["PickShelfFolder", "SyncNow", "ScheduleAutoSync", "CancelAutoSync", "DiffDecision"],
+        # AutoSyncTick(Wave4修正・MASTER_SPEC §7.2契約更新): Application.OnTime の
+        # Procedure引数はApplication.Runと同じ遅延バインドでありPrivate Subを
+        # 解決できないため、OnTimeコールバック本体はPublicが必須(VBAの実際の
+        # 挙動に合わせた契約修正。当初「契約に無い名前だから」とPrivateにしたのは
+        # 誤りだった)。ResolveDecision(同じくWave4修正・§7.8): DiffDecisionに
+        # manifestの現在statusによる上書きルール(failed/missing→replace)を適用する
+        # 純関数で、DiffDecisionと同じ理由でテスト可能にするため公開契約に追加した。
+        "required": [
+            "PickShelfFolder", "SyncNow", "ScheduleAutoSync", "CancelAutoSync",
+            "DiffDecision", "AutoSyncTick", "ResolveDecision",
+        ],
     },
     "modEnrich": {
         "closed": True,

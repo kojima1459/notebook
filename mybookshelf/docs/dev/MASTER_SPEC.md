@@ -139,6 +139,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | E0501 | 本棚上限超過 | 使っていない資料を削除してから追加 |
 | E0502 | 同期フォルダが見つからない | フォルダ選び直しを案内 |
 | E0503 | 取込中の再実行(再入禁止) | 処理完了を待つ |
+| E0504 | 同名別ファイルの衝突(別フォルダの同名資料が既に登録済み) | ファイル名を変えるか元の資料を削除してから追加(Wave4追加。§7.2 modShelf.IngestFile参照) |
 | E0601 | 検索0件 | 資料が本棚にあるか確認を案内 |
 | E0602 | 回答生成失敗 | 再実行案内 |
 | E0701 | パック形式不正/バージョン不一致 | 相手に再書き出しを依頼 |
@@ -304,10 +305,16 @@ Public Function PendingCount() As Long
 Public Sub AddFilesViaDialog()      ' 複数選択FileDialog(フィルタ=SupportedExts)→ 各IngestFile
 Public Function IngestFile(ByVal path As String, ByVal origin As String) As String
     ' 戻り値=manifest status("done"/"partial"/"failed"/"image_pdf")
-    ' 手順: 再入guard(E0503) → 上限検査(E0501) → 既存同名sourceは置換(古いchunk/vector削除)
+    ' 手順: 再入guard(E0503) → 同名衝突検査(E0504。Wave4追加: source識別がファイル名の
+    '       みであるため、manifestに「同じfile_nameだが別のfile_path」の行が既にあれば、
+    '       削除せず明示エラーで止める。誠実な失敗の方が黙ったデータ消失より安全という
+    '       R5の判断。同一パスの再取込=置換はこの検査を通過する)
+    '       → 上限検査(E0501) → 既存同名sourceは置換(古いchunk/vector削除)
     '       → ExtractFile → ChunkPages → chunk_id付番(bs::hash::pN::cN, ハッシュ重複はスキップ)
     '       → my_knowledge追記(embedded=0) → manifest upsert(status=pending)
-    '       → EmbedPending → manifest status確定 → カード再描画(modUIShelf.RenderShelf)
+    '       → EmbedPending → manifest status確定 → 成功時(done/partial)のみ
+    '       my_stats.ingest_files_totalをBump+usage_logに"ingest"イベントを記録
+    '       → カード再描画(modUIShelf.RenderShelf)
 Public Sub DeleteSource(ByVal sourceName As String)  ' knowledge/vectors/manifest から一括削除+再描画
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long ' カード描画用
 Public Function TotalChunks() As Long
@@ -316,14 +323,31 @@ Public Function TotalChunks() As Long
 **modShelfSync.bas**
 ```vba
 Public Sub PickShelfFolder()      ' フォルダ選択→config shelf_folder 保存→即SyncNow
-Public Sub SyncNow()
+Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' Dir()走査(サブフォルダ不要・第1階層のみ) vs my_manifest:
     '   新規→IngestFile / modified_at or size 変化(IsSameTimestamp)→置換取込 /
     '   消失→DeleteSource / pending・partial→EmbedPending再開
     ' フォルダ不存在→E0502。実行結果サマリをステータス表示+LogUsage("sync")
+    ' silent(既定False。Wave4追加): TrueのときはE0502警告・完了サマリをMsgBoxで出さず
+    ' SetStage(状態表示行+StatusBar)のみに留める。modBoot.Boot(sync_on_open)と
+    ' AutoSyncTick(定期自動同期)はユーザー操作なしで走るバックグラウンド処理のため
+    ' silent:=Trueで呼ぶ(対話ダイアログでフォーカスを奪わない。§8 UXレビュー対応:
+    ' 配布直後にshelf_folder未設定のままE0502警告が必ず出る問題/定期MsgBoxが
+    ' 作業を中断する問題への対応)。手動🔄ボタン・PickShelfFolder直後はsilent=False。
 Public Sub ScheduleAutoSync()     ' sync_interval_min>0ならApplication.OnTimeで次回予約(自己再帰)
 Public Sub CancelAutoSync()       ' 予約解除(必ずOn Error握り: 予約なしでも安全)
+Public Sub AutoSyncTick()         ' OnTimeコールバック本体(Wave4修正: 契約上Public必須。下記注参照)
+Public Function ResolveDecision(ByVal decision As String, ByVal existsInManifest As Boolean, _
+                                ByVal currentStatus As String) As String
+    ' 純関数(§7.8): DiffDecisionの結果にmanifestの現在statusによる上書きルールを適用する。
+    ' decision="keep"かつstatus="failed"/"missing" → "replace"(前回失敗の再試行/
+    ' フォルダ復活時の復帰。Wave4修正: missing行が復活後もkeep固定のまま戻らない不具合の修正)
 ' 注意: 予約解除は modBoot.Auto_Close から必ず呼ぶ(OnTime残存→勝手にExcelが再起動する事故防止)
+' 注意(Wave4修正・契約自体の欠陥だったための修正): Application.OnTimeのProcedure引数は
+'   Application.Runと同じ遅延バインド(文字列からの実行時解決)であり、Private Subは
+'   解決できない。予約自体は成立してしまうが、発火時に「マクロを実行できません」という
+'   未処理エラーになり自動同期が機能しなくなる。そのためAutoSyncTickは
+'   「OnTimeコールバックとして公開が必須」の契約とし、Public Subとして実装すること。
 ```
 
 **modEnrich.bas** — バッチ富化(summary/keywords付与)
@@ -411,6 +435,8 @@ Public Function SavedMinutesEstimate() As Long ' 自己解決1件=15分換算(co
 Public Sub EnsureLayout()          ' ホームを冪等再構築(既存Shapes全削除→再生成)
 Public Sub SetStage(ByVal msg As String)  ' ステータス行+Application.StatusBar 両方
 Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits As Long, ByVal mode As String, ByVal seconds As Long)
+    ' mode=""(Wave4追加の目印): 空質問等で検索・回答生成を一切行わなかったことを示す。
+    ' このときは所要秒・出典欄(前回質問の情報に見えてしまう)を付けず案内文だけを表示する。
 Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)  ' 出典先出し(ドラフト生成前に呼ぶ)
 Public Sub OnAskButton() / OnModeQuick() / OnModeDeep() / OnOpenHowto() / OnRunDiag()
 Public Sub ShowTip()               ' 待ち時間豆知識(定型10本からRnd選択)
@@ -573,7 +599,8 @@ modPrompts(出典形式・打ち切り)、manifest差分ロジック(modShelfSyn
 ## 13. エッジケースカタログ(実装とレビューの検査表)
 
 取込: 空ファイル/0字抽出/1文字/巨大(300p打切→partial表示)/画像PDF/開けない(ロック)/対応外拡張子/
-日本語・スペース・長いパス/同名ファイル再取込(置換)/同一内容別名(ハッシュでスキップ)/上限5000超/
+日本語・スペース・長いパス/同名ファイル再取込(置換)/別フォルダの同名別ファイル(E0504で明示エラー・削除しない。Wave4追加)/
+同一内容別名(ハッシュでスキップ)/上限5000超/
 取込中にESC/取込中にもう一度ボタン(再入guard)/embedded=0が残った状態でExcel強制終了→次回同期で再開。
 同期: フォルダ未設定で同期ボタン/フォルダ削除・リネーム(E0502+missing)/ファイル差替え(更新日時2秒差)/
 OneDriveオフライン(プレースホルダ: Dir()で見えるがOpenで失敗→E0302でfailed記録・次回再試行)/

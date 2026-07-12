@@ -73,6 +73,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Search = -1
         Exit Function
     End If
+    Dim qDim As Long: qDim = UBound(qv) - LBound(qv) + 1
 
     Dim wsV As Worksheet
     Dim wsK As Worksheet
@@ -129,6 +130,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim filled As Long: filled = 0
     Dim minIdx As Long: minIdx = 0
     Dim minScore As Double: minScore = 0
+    Dim e0702Logged As Boolean: e0702Logged = False
 
     Dim r As Long
     For r = LBound(vData, 1) To UBound(vData, 1)
@@ -143,6 +145,21 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
 
         Dim vv() As Double
         If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextR
+
+        ' Wave4修正: modUtil.DotProductは次元不一致を「呼び出し側が別途次元検査を
+        ' 行う規約」(modUtil.bas冒頭コメント)としているが、以前はここで一切
+        ' 検査せず0点のままランキングに混ぜていた。mock_llm切替等でembed_dimが
+        ' 変わった保存済みベクトルが残っていると、全チャンクが無言で0点になり
+        ' err_log/診断のどちらにも痕跡が残らない不具合があった(E0702は元々
+        ' パック検証専用だったが、検索時の次元不一致もE0702として記録する)。
+        If UBound(vv) - LBound(vv) + 1 <> qDim Then
+            If Not e0702Logged Then
+                modLog.LogError "E0702", "modRetrieve.Search", _
+                    "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
+                e0702Logged = True
+            End If
+            GoTo NextR
+        End If
 
         Dim kRow As Long
         kRow = idx.Item(vid)
