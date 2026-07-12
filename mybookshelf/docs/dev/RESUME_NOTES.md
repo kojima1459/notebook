@@ -1,7 +1,7 @@
 # 再開メモ(セッション上限対策・随時更新)
 
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
-> 最終更新: 2026-07-12 Wave3完了・Wave4開始
+> 最終更新: 2026-07-12 Wave4実行中(レビュー6体完了/fixer実行中)
 
 ## 現在地
 
@@ -22,8 +22,13 @@
   3-T成果: modTestsPure分割(Pure2)+modTestsExcel(実機E2E)+テスト側Hit配列添字バグ修正。
   既知の残確認事項(実機のみ): LOはUDT配列テストをスキップ(CanUseTypeArrays=False)→ChunkPages/プロンプト系は
   実機の🩺診断(RunAllPureTests)で確認する(受入チェックリストに載せること)。
-- **Wave4 実行中/次**: Opus敵対的レビュー6レンズ(①VBA落とし穴②統合の継ぎ目③非エンジニアUX④保守運用⑤撤去可能性⑥§13網羅)
-  →fixer(検証してから修正)→ゲート再実行→コミット
+- **Wave4 実行中**: Opusレビュー6レンズ = **全員完了(指摘15件: 3+2+3+3+1+3)、キャッシュ済み**。
+  fixer(sonnet: 指摘を検証→修正→ゲート全緑)が実行中に中断の可能性。
+  - Wave4再開: スクリプト /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-wave4-wf_04c6c4fb-942.js
+    を Workflow({scriptPath:<上記>, resumeFromRunId:"wf_04c6c4fb-942"}) で再開(レビュー6体はキャッシュから即返り、fixerのみ再実行。
+    必要なら先に TaskStop wtyicql4v)。指摘一覧はjournal.jsonl(同ディレクトリのsubagents/workflows/wf_04c6c4fb-942/)からも読める。
+  - fixer完了後の検品ゲート: python3 tools/vba_lint.py ERROR0 / python3 tools/run_lo_tests.py 全緑
+    → fixerのrejected(棄却根拠)とdeferred(実機送り)をPMが妥当性確認 → コミット&プッシュ → Wave5
 - **Wave5 未着手**: build --dev/--prod(--allow-missing禁止)→バイナリ検証→ドキュメント(使い方/運用保守+Eコード表/
   撤去手順50/受入チェックリスト40/開発者ガイド)→Opus可読性レビュー→最終コミット→最終報告
 
