@@ -111,9 +111,16 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 # 確認済み(Excel専用トークンはtechメモ4のとおり未実行なら未解決のままで
 # 良い)。追加後、実際にモード1を実行してPASS/FAIL件数の悪化がないことを
 # 確認済み(tools/README.mdまたはWave3完了報告のverification参照)。
+# 2026-07-12 Wave3-Tで追加: modTestsPure2。modTestsPureが§7.1の
+# 「1モジュール30,000字以内」を超過したため、modPrompts/modShelfSync/
+# modPack関連のテスト(TestModPrompts/TestModShelfSync/TestModPack)を
+# modTestsPure2.RunAll2へ分割した(src/test/modTestsPure2.bas冒頭コメント
+# 参照)。modTestsPure.RunAllの末尾がmodTestsPure2.RunAll2を呼ぶため、
+# この一時ライブラリに注入しないと実行時エラー(Variable not defined)に
+# なり分割先のテストが「実行されないまま」になる。
 PURE_ALLOWLIST = [
     "modTypes", "modUtil", "modChunker", "modPii", "modPrompts",
-    "modTestRunner", "modTestsPure",
+    "modTestRunner", "modTestsPure", "modTestsPure2",
     "modAppDef", "modShelfSync", "modPack",
 ]
 

@@ -8,21 +8,31 @@ Option Explicit
 ' 役割:
 '   modPrompts / modShelfSync.DiffDecision / modPack.ValidatePackMeta の
 '   純ロジック部のテストをここに置く(modUtil/modChunker/modPiiは
-'   modTestsPure.bas側)。入口は modTestsPure.RunAll の末尾から呼ばれる
+'   modTestsPure側)。入口は modTestsPure.RunAll の末尾から呼ばれる
 '   Public Sub RunAll2()。modTestRunner.RunAllPureTests は modTestsPure.RunAll
 '   だけを呼ぶ契約(modTestRunner.bas §7.8。担当外につき変更しない)なので、
 '   本モジュールへの導線は modTestsPure.RunAll 内に置く。
 '
-' 設計判断(R4準拠・グループ単位の失敗隔離): modTestsPure.bas冒頭コメントと
+' 設計判断(R4準拠・グループ単位の失敗隔離): modTestsPure側の冒頭コメントと
 '   同じ方針(1グループの想定外エラーが他グループを道連れにしない)。
 '
 ' ■ CanUseTypeArraysの複製について:
-'   modTestsPure.bas の Private Function CanUseTypeArrays() は別モジュールの
+'   modTestsPure の Private Function CanUseTypeArrays() は別モジュールの
 '   Privateであるため、ここから呼べない。判定ロジック自体は3行程度の軽量な
 '   実測プローブなので、モジュールをまたいだ複製を許容する(共有したいだけの
 '   ために新たにPublicの公開契約を増やすより、テストモジュール限定の軽微な
-'   重複の方が実害が小さいと判断)。挙動・コメントはmodTestsPure.bas側の
+'   重複の方が実害が小さいと判断)。挙動・コメントはmodTestsPure側の
 '   オリジナルと同一にしてある。
+'
+' ■ lint注意(2026-07-12 Wave3-Tで特定): tools/vba_lint.py の
+'   モジュール間参照検査は文字列リテラルの中身までスキャンする(行コメント
+'   `'` だけを除去し、ダブルクォート文字列は除去しない実装のため)。
+'   このため Check の detail 文字列の中で「modTestsPure.bas」のように
+'   モジュール名にドット+英字が続く書き方をすると、「modTestsPure.bas」を
+'   modTestsPure.bas という架空のPublicメンバ参照として誤検知する
+'   (vba_lint.py自体はCONTRACT/PURE_ALLOWLIST追随目的以外は変更不可のため、
+'   テスト側の文字列表現でこれを避ける: 「modTestsPureのbasファイル」のように
+'   ドット直後に英字が来ない書き方に統一する)。
 ' ============================================================================
 
 Public Sub RunAll2()
@@ -49,7 +59,7 @@ PackFail:
     Resume NextDone
 End Sub
 
-' modTestsPure.bas の CanUseTypeArrays と同一実装(モジュール冒頭コメント参照)。
+' modTestsPureの CanUseTypeArrays と同一実装(モジュール冒頭コメント参照)。
 Private Function CanUseTypeArrays() As Boolean
     On Error Resume Next
     Err.Clear
@@ -62,16 +72,30 @@ End Function
 
 ' ============================================================================
 ' modPrompts
+' ----------------------------------------------------------------------------
+' 重要(2026-07-12 Wave3-Tで特定・修正): modRetrieve.Search が返すHit配列は
+' 1始まり(ReDim outHits(1 To filled))であり、modPrompts.BuildSourceBlockも
+' `For i = 1 To nHits: ... hits(i) ...` と1始まり前提でhits()を読む
+' (src/qa/modRetrieve.bas / src/qa/modPrompts.bas 参照)。
+' 以前の下書きはテスト側のHit配列を「Dim h(0 To 1) As Hit」のように0始まりで
+' 宣言しつつ nHits=2 を渡していたため、BuildQuickPromptがhits(2)へアクセスし
+' 添字範囲外(実行時エラー9)になる、テストコード自身のバグだった(modPrompts
+' 側の契約が誤っていたわけではない。1始まりが正・テストの宣言が誤りと判断)。
+' 本ファイルでは全てのHit配列を「Dim h(1 To n) As Hit」の1始まりに統一する。
+' 実行環境がCanUseTypeArrays=Falseの場合はこれらのテスト自体が丸ごとスキップ
+' されるため(下記TestModPrompts参照)、この修正はLibreOffice純ロジック
+' テストの合否には影響しないが、Excel実機受入チェック(§11.3)でこの
+' テストコードが実際に実行されたときに正しく動くために必須の修正である。
 ' ============================================================================
 Private Sub TestModPrompts()
     ' BuildEnrichPromptはHit()配列を取らないため、LO実行環境のPublic Type配列の
-    ' 制限(modTestsPure.bas冒頭コメント参照)の影響を受けない。常にフル検証する。
+    ' 制限(モジュール冒頭コメント参照)の影響を受けない。常にフル検証する。
     TestBuildEnrichPrompt
 
     If Not CanUseTypeArrays() Then
         modTestRunner.Check "modPrompts(Hit配列を使う3関数): LO環境の既知の制限によりスキップ", True, _
             "BuildQuickPrompt/BuildDeepDraftPrompt/BuildDeepVerifyPromptはHit()配列を" & _
-            "引数に取るため、LibreOffice実行環境のPublic Type配列制限(modTestsPure.bas" & _
+            "引数に取るため、LibreOffice実行環境のPublic Type配列制限(モジュールのbasファイル" & _
             "冒頭コメント参照)の影響を受ける。出典形式([本棚:.. p.N] / [パック(作成者):..])・" & _
             "full_text根拠の使用・max_context_chars打切り時の「(一部省略)」挿入・" & _
             "answer_language既定値挿入はコードレビューで確認済みだが、" & _
@@ -95,14 +119,16 @@ Private Sub TestBuildEnrichPrompt()
 End Sub
 
 Private Sub TestBuildQuickPrompt_CitationAndLanguage()
-    Dim h(0 To 1) As Hit
-    h(0).chunk_id = "bs::aaa::p3::c1": h(0).score = 0.9
-    h(0).source = "ファイルA.pdf": h(0).page = 3
-    h(0).preview = "ここに本文の抜粋が入ります。": h(0).origin = "self"
+    ' modRetrieve.Searchが返すHit配列は1始まり(§7.3参照)。テストのローカル
+    ' 配列もそれに合わせて1始まりで宣言する(モジュール冒頭コメント参照)。
+    Dim h(1 To 2) As Hit
+    h(1).chunk_id = "bs::aaa::p3::c1": h(1).score = 0.9
+    h(1).source = "ファイルA.pdf": h(1).page = 3
+    h(1).preview = "ここに本文の抜粋が入ります。": h(1).origin = "self"
 
-    h(1).chunk_id = "bs::bbb::p1::c1": h(1).score = 0.8
-    h(1).source = "ファイルB.docx": h(1).page = 1
-    h(1).preview = "別の抜粋です。": h(1).origin = "pack:山田太郎"
+    h(2).chunk_id = "bs::bbb::p1::c1": h(2).score = 0.8
+    h(2).source = "ファイルB.docx": h(2).page = 1
+    h(2).preview = "別の抜粋です。": h(2).origin = "pack:山田太郎"
 
     Dim r As String
     r = modPrompts.BuildQuickPrompt("何か質問", h, 2)
@@ -123,13 +149,13 @@ End Sub
 ' 確認する(modPrompts.SourceBodyがfull_text優先・空時のみpreviewへ
 ' フォールバックする設計であることのテスト。§7.3/modTypes.Hit参照)。
 Private Sub TestBuildQuickPrompt_FullTextIsUsedAsBody()
-    Dim h(0 To 0) As Hit
-    h(0).chunk_id = "bs::ft::p9::c1": h(0).score = 0.9
-    h(0).source = "全文根拠資料.pdf": h(0).page = 9
-    h(0).preview = "PREVIEW_ONLY_MARKER_短い先頭抜粋"
-    h(0).full_text = "FULLTEXT_MARKER_これがチャンク本文全体の根拠テキストです。" & _
+    Dim h(1 To 1) As Hit
+    h(1).chunk_id = "bs::ft::p9::c1": h(1).score = 0.9
+    h(1).source = "全文根拠資料.pdf": h(1).page = 9
+    h(1).preview = "PREVIEW_ONLY_MARKER_短い先頭抜粋"
+    h(1).full_text = "FULLTEXT_MARKER_これがチャンク本文全体の根拠テキストです。" & _
         "本来はここに数百字の実際の抜粋が入る想定。"
-    h(0).origin = "self"
+    h(1).origin = "self"
 
     Dim r As String
     r = modPrompts.BuildQuickPrompt("何か質問", h, 1)
@@ -143,12 +169,12 @@ Private Sub TestBuildQuickPrompt_FullTextIsUsedAsBody()
 
     ' 防御的フォールバック確認: full_textが空(旧データ・テストダブル等)なら
     ' previewへフォールバックすること。
-    Dim h2(0 To 0) As Hit
-    h2(0).chunk_id = "bs::fb::p1::c1": h2(0).score = 0.5
-    h2(0).source = "フォールバック資料.pdf": h2(0).page = 1
-    h2(0).preview = "PREVIEW_FALLBACK_MARKER"
-    h2(0).full_text = ""   ' 空
-    h2(0).origin = "self"
+    Dim h2(1 To 1) As Hit
+    h2(1).chunk_id = "bs::fb::p1::c1": h2(1).score = 0.5
+    h2(1).source = "フォールバック資料.pdf": h2(1).page = 1
+    h2(1).preview = "PREVIEW_FALLBACK_MARKER"
+    h2(1).full_text = ""   ' 空
+    h2(1).origin = "self"
 
     Dim r2 As String
     r2 = modPrompts.BuildQuickPrompt("別の質問", h2, 1)
@@ -159,16 +185,17 @@ End Sub
 Private Sub TestBuildQuickPrompt_Truncation()
     ' previewを非常に長くして確実にmax_context_chars(既定40000。modConfig未接続時も
     ' SafeMaxContextCharsの既定値40000が使われる)を超えさせ、打ち切りと
-    ' 「(一部省略)」挿入を検証する。
+    ' 「(一部省略)」挿入を検証する。full_textは空のままにして、SourceBodyの
+    ' フォールバック(full_text空→preview使用)経由で長文を本文に載せる。
     Dim bigPreview As String: bigPreview = String(30000, "x")
-    Dim h(0 To 1) As Hit
-    h(0).chunk_id = "bs::a::p1::c1": h(0).score = 0.9
-    h(0).source = "大きい資料.pdf": h(0).page = 1
-    h(0).preview = bigPreview: h(0).origin = "self"
-
-    h(1).chunk_id = "bs::b::p1::c1": h(1).score = 0.8
-    h(1).source = "大きい資料2.pdf": h(1).page = 1
+    Dim h(1 To 2) As Hit
+    h(1).chunk_id = "bs::a::p1::c1": h(1).score = 0.9
+    h(1).source = "大きい資料.pdf": h(1).page = 1
     h(1).preview = bigPreview: h(1).origin = "self"
+
+    h(2).chunk_id = "bs::b::p1::c1": h(2).score = 0.8
+    h(2).source = "大きい資料2.pdf": h(2).page = 1
+    h(2).preview = bigPreview: h(2).origin = "self"
 
     Dim r As String
     r = modPrompts.BuildQuickPrompt("質問", h, 2)
@@ -183,10 +210,10 @@ Private Sub TestBuildQuickPrompt_Truncation()
 End Sub
 
 Private Sub TestBuildDeepDraftAndVerify_Citation()
-    Dim h(0 To 0) As Hit
-    h(0).chunk_id = "bs::c::p2::c1": h(0).score = 0.7
-    h(0).source = "資料C.xlsx": h(0).page = 2
-    h(0).preview = "抜粋C": h(0).origin = "self"
+    Dim h(1 To 1) As Hit
+    h(1).chunk_id = "bs::c::p2::c1": h(1).score = 0.7
+    h(1).source = "資料C.xlsx": h(1).page = 2
+    h(1).preview = "抜粋C": h(1).origin = "self"
 
     Dim rDraft As String
     rDraft = modPrompts.BuildDeepDraftPrompt("質問2", h, 1, "")

@@ -82,7 +82,7 @@ Public Sub RunExcelE2ESmokeTest()
     Else
         modTestRunner.Check "E2E_ui_state初期化: シート未検出のためスキップ", True, _
             "ui_stateシートが見つからないため、mode設定はスキップした" & _
-            "(modAsk.Answerは直接question/modeを渡すので、この検証には影響しない)"
+            "(modAsk の Answer は質問文とモードを直接引数で受け取るので、この検証には影響しない)"
     End If
 
     ' 2) Tempにダミーtxtを書き出す
@@ -220,7 +220,7 @@ Private Function TempFilePath(ByVal fileName As String) As String
 End Function
 
 Private Sub WriteTextFile(ByVal path As String, ByVal content As String)
-    Dim f As Integer: f = FreeFile
+    Dim f As Long: f = FreeFile
     Open path For Output As #f
     Print #f, content
     Close #f

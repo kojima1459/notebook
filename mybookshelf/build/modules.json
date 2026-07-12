@@ -42,6 +42,7 @@
 
     { "name": "modTestRunner",       "path": "src/test/modTestRunner.bas",             "role": "test", "type": "std",   "wave": "1-I" },
     { "name": "modTestsPure",        "path": "src/test/modTestsPure.bas",              "role": "test", "type": "std",   "wave": "2-X" },
+    { "name": "modTestsPure2",       "path": "src/test/modTestsPure2.bas",             "role": "test", "type": "std",   "wave": "3-T", "note": "modTestsPureが§7.1の30,000字上限を超えたための分割先(modPrompts/modShelfSync/modPackテスト)。modTestsPure.RunAll末尾から呼ばれる。" },
     { "name": "modTestsExcel",       "path": "src/test/modTestsExcel.bas",             "role": "test", "type": "std",   "wave": "2-X" }
   ]
 }

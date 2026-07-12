@@ -1,7 +1,7 @@
 # 再開メモ(セッション上限対策・随時更新)
 
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
-> 最終更新: 2026-07-11 Wave3実行中(3-R完了/3-T実行中)スナップショット
+> 最終更新: 2026-07-12 Wave3完了・Wave4開始
 
 ## 現在地
 
@@ -18,7 +18,14 @@
 - **Wave3 実行中**: 3-R(整合修正: Hit.full_text追加/modRetrieve・modPrompts改修/mb_question照合/カウンタ確認)= **完了ok**。
   3-T(modTestsPure完成+modTestsExcel新規+LO純テスト全緑)= セッション上限で死亡・未完了(リセット3am UTC後にresumeFromRunIdで3-Tのみ再実行せよ。このスナップショット時点で
   modTestsPure/modUtil/run_lo_tests.pyに作業中変更あり。PURE_ALLOWLISTにmodAppDef/modShelfSync/modPack追加済み)。
-- **Wave4〜5 未着手**(段取りは下記「Wave2後の段取り」4〜5参照)
+- **Wave3 完了**: 検品ゲート全緑(lint ERROR0 / LO compile 36本PASS / pureテスト PASS77 FAIL0)。
+  3-T成果: modTestsPure分割(Pure2)+modTestsExcel(実機E2E)+テスト側Hit配列添字バグ修正。
+  既知の残確認事項(実機のみ): LOはUDT配列テストをスキップ(CanUseTypeArrays=False)→ChunkPages/プロンプト系は
+  実機の🩺診断(RunAllPureTests)で確認する(受入チェックリストに載せること)。
+- **Wave4 実行中/次**: Opus敵対的レビュー6レンズ(①VBA落とし穴②統合の継ぎ目③非エンジニアUX④保守運用⑤撤去可能性⑥§13網羅)
+  →fixer(検証してから修正)→ゲート再実行→コミット
+- **Wave5 未着手**: build --dev/--prod(--allow-missing禁止)→バイナリ検証→ドキュメント(使い方/運用保守+Eコード表/
+  撤去手順50/受入チェックリスト40/開発者ガイド)→Opus可読性レビュー→最終コミット→最終報告
 
 ## Wave3 ワークフロー再開情報
 - スクリプト: /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-wave3-wf_efd8c3ba-e36.js

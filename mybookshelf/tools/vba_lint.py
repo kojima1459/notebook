@@ -224,6 +224,14 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll"],
     },
+    # modTestsPure2: 2026-07-12 Wave3-Tで追加。modTestsPureが§7.1の
+    # 「1モジュール30,000字以内」を超えたため、modPrompts/modShelfSync/
+    # modPack関連のテストを分割した先(src/test/modTestsPure2.bas冒頭コメント
+    # 参照)。modTestsPure.RunAllの末尾から呼ばれる入口 RunAll2 だけが契約。
+    "modTestsPure2": {
+        "closed": False,
+        "required": ["RunAll2"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -233,7 +241,7 @@ CONTRACT: dict[str, dict] = {
 # (1-Iタスク定義)により本Lintでは禁止トークン検査の対象に加える。
 PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
-    "modTestRunner", "modTestsPure", "modPrompts",
+    "modTestRunner", "modTestsPure", "modTestsPure2", "modPrompts",
 }
 
 FORBIDDEN_TOKEN_PATTERNS = [
