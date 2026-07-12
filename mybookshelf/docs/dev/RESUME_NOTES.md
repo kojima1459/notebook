@@ -1,7 +1,7 @@
 # 再開メモ(セッション上限対策・随時更新)
 
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
-> 最終更新: 2026-07-12 Wave4実行中(レビュー6体完了/fixer実行中)
+> 最終更新: 2026-07-12 【全Wave完了】プロジェクト完成
 
 ## 現在地
 
@@ -29,8 +29,11 @@
     必要なら先に TaskStop wtyicql4v)。指摘一覧はjournal.jsonl(同ディレクトリのsubagents/workflows/wf_04c6c4fb-942/)からも読める。
   - fixer完了後の検品ゲート: python3 tools/vba_lint.py ERROR0 / python3 tools/run_lo_tests.py 全緑
     → fixerのrejected(棄却根拠)とdeferred(実機送り)をPMが妥当性確認 → コミット&プッシュ → Wave5
-- **Wave5 未着手**: build --dev/--prod(--allow-missing禁止)→バイナリ検証→ドキュメント(使い方/運用保守+Eコード表/
-  撤去手順50/受入チェックリスト40/開発者ガイド)→Opus可読性レビュー→最終コミット→最終報告
+- **Wave4 完了**: fixer全処置(修正7/棄却13=前回分修正済みを実コード確認/実機送り3)。E0504新設。ゲート全緑。
+- **Wave5 完了**: ドキュメント8本(README/00/10/20/30/40/50/60)+使い方シート清書。Opusレビュー5件全反映+
+  残件(使い方シートのTrust文言)もPMが直接修正・再ビルド済み。最終状態:
+  lint ERROR0 / LO pure PASS84 FAIL0 / compile36本PASS / dev+prodビルド自己検証OK。
+- **残タスク(ユーザー側・実機のみ)**: docs/40_受入チェックリスト15分.md を配布先Windows Excel(リボンあり)で実施。
 
 ## Wave3 ワークフロー再開情報
 - スクリプト: /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-wave3-wf_efd8c3ba-e36.js
