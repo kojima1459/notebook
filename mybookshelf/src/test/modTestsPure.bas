@@ -205,6 +205,40 @@ Private Sub TestFnv1a64Hex()
     allDifferent = (h1 <> hEmpty1) And (h1 <> hJp1) And (h1 <> hEmoji1) And (hEmpty1 <> hJp1) And (hEmpty1 <> hEmoji1) And (hJp1 <> hEmoji1)
     modTestRunner.Check "Fnv1a64Hex_異なる入力は異なる値", allDifferent, _
         "h1=" & h1 & " hEmpty1=" & hEmpty1 & " hJp1=" & hJp1 & " hEmoji1=" & hEmoji1
+
+    ' 5000字の長文: MulU64ByPrime(桁上げ処理)が長い入力でも決定的であることの確認。
+    ' Wave1申し送り事項(Hex$の負数Long挙動・非BMP文字のLen/Mid挙動)は、この長文が
+    ' 絵文字混在チェック同様に大量のFNV反復(=多様なビットパターンのhHi/hLoが
+    ' Hex$()に渡る)を実際に走らせることで、LO実行環境でも間接的に検証される
+    ' (個々のビットパターンを狙って作り込むのではなく、大量反復による健全性確認)。
+    Dim h5000_1 As String, h5000_2 As String
+    Dim long5000 As String
+    ' 日本語・数字・非BMP絵文字(サロゲートペア)・改行を含む7字単位を繰り返し連結し、
+    ' Left$で厳密に5000字へ切り詰める(§12: &連鎖の長大化を避け、ループ+Left$で構成)。
+    Dim repeatUnit As String: repeatUnit = "あい5" & ChrW(&HD83D) & ChrW(&HDE00) & vbLf & "x"
+    Dim sb5000 As String
+    Do While Len(sb5000) < 5000
+        sb5000 = sb5000 & repeatUnit
+    Loop
+    long5000 = Left$(sb5000, 5000)
+    modTestRunner.Check "Fnv1a64Hex_前提_5000字ちょうど", (Len(long5000) = 5000), "len=" & Len(long5000)
+
+    h5000_1 = modUtil.Fnv1a64Hex(long5000)
+    h5000_2 = modUtil.Fnv1a64Hex(long5000)
+    modTestRunner.Check "Fnv1a64Hex_決定性_5000字", (h5000_1 = h5000_2) And (Len(h5000_1) = 16), "h5000_1=" & h5000_1
+
+    Dim isHex16_5000 As Boolean: isHex16_5000 = (Len(h5000_1) = 16)
+    If isHex16_5000 Then
+        Dim j As Long
+        For j = 1 To 16
+            Dim cj As String: cj = Mid$(h5000_1, j, 1)
+            If Not ((cj >= "0" And cj <= "9") Or (cj >= "a" And cj <= "f")) Then
+                isHex16_5000 = False
+                Exit For
+            End If
+        Next j
+    End If
+    modTestRunner.Check "Fnv1a64Hex_5000字_形式_16桁小文字16進", isHex16_5000, "h5000_1=" & h5000_1
 End Sub
 
 Private Sub TestVectorCsvRoundtrip()
@@ -629,6 +663,7 @@ Private Sub TestModPrompts()
     End If
 
     TestBuildQuickPrompt_CitationAndLanguage
+    TestBuildQuickPrompt_FullTextIsUsedAsBody
     TestBuildQuickPrompt_Truncation
     TestBuildDeepDraftAndVerify_Citation
 End Sub
@@ -662,6 +697,46 @@ Private Sub TestBuildQuickPrompt_CitationAndLanguage()
     modTestRunner.Check "BuildQuickPrompt_質問文を含む", (InStr(r, "何か質問") > 0), "r=" & r
     ' 打ち切っていない通常ケースでは「(一部省略)」は出ないこと
     modTestRunner.Check "BuildQuickPrompt_非打切り時は省略表記なし", (InStr(r, "(一部省略)") = 0), "r=" & r
+End Sub
+
+' Wave3 PM裁定1(Hit.full_text追加)の検証: 本棚抜粋ブロックの本文には
+' preview(先頭120字・出典先出し表示専用)ではなく full_text(チャンク本文
+' 全体)が使われること。preview と full_text に別々の目印文字列を仕込み、
+' 出力に full_text 側の目印だけが含まれ、preview 側の目印は含まれないことを
+' 確認する(modPrompts.SourceBodyがfull_text優先・空時のみpreviewへ
+' フォールバックする設計であることのテスト。§7.3/modTypes.Hit参照)。
+Private Sub TestBuildQuickPrompt_FullTextIsUsedAsBody()
+    Dim h(0 To 0) As Hit
+    h(0).chunk_id = "bs::ft::p9::c1": h(0).score = 0.9
+    h(0).source = "全文根拠資料.pdf": h(0).page = 9
+    h(0).preview = "PREVIEW_ONLY_MARKER_短い先頭抜粋"
+    h(0).full_text = "FULLTEXT_MARKER_これがチャンク本文全体の根拠テキストです。" & _
+        "本来はここに数百字の実際の抜粋が入る想定。"
+    h(0).origin = "self"
+
+    Dim r As String
+    r = modPrompts.BuildQuickPrompt("何か質問", h, 1)
+
+    modTestRunner.Check "BuildQuickPrompt_full_text根拠が含まれる", _
+        (InStr(r, "FULLTEXT_MARKER_これがチャンク本文全体の根拠テキストです。") > 0), "r=" & r
+    modTestRunner.Check "BuildQuickPrompt_full_text優先時はpreviewを使わない", _
+        (InStr(r, "PREVIEW_ONLY_MARKER") = 0), "r=" & r
+    modTestRunner.Check "BuildQuickPrompt_full_text使用時も本棚出典形式", _
+        (InStr(r, "[本棚:全文根拠資料.pdf p.9]") > 0), "r=" & r
+
+    ' 防御的フォールバック確認: full_textが空(旧データ・テストダブル等)なら
+    ' previewへフォールバックすること。
+    Dim h2(0 To 0) As Hit
+    h2(0).chunk_id = "bs::fb::p1::c1": h2(0).score = 0.5
+    h2(0).source = "フォールバック資料.pdf": h2(0).page = 1
+    h2(0).preview = "PREVIEW_FALLBACK_MARKER"
+    h2(0).full_text = ""   ' 空
+    h2(0).origin = "self"
+
+    Dim r2 As String
+    r2 = modPrompts.BuildQuickPrompt("別の質問", h2, 1)
+    modTestRunner.Check "BuildQuickPrompt_full_text空時はpreviewへフォールバック", _
+        (InStr(r2, "PREVIEW_FALLBACK_MARKER") > 0), "r2=" & r2
 End Sub
 
 Private Sub TestBuildQuickPrompt_Truncation()

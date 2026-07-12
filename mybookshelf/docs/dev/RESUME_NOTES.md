@@ -16,7 +16,7 @@
     "mb_question" をmodUIMain.EnsureLayoutが実際に定義しているか照合。(c) ask_*_totalのBump元がmodAsk.Answer
     唯一であることの確認。(d) Wave1申し送りのHex$/非BMP文字挙動はpureテスト実行で確認
 - **Wave3 実行中**: 3-R(整合修正: Hit.full_text追加/modRetrieve・modPrompts改修/mb_question照合/カウンタ確認)= **完了ok**。
-  3-T(modTestsPure完成+modTestsExcel新規+LO純テスト全緑)= 実行中に中断の可能性(このスナップショット時点で
+  3-T(modTestsPure完成+modTestsExcel新規+LO純テスト全緑)= セッション上限で死亡・未完了(リセット3am UTC後にresumeFromRunIdで3-Tのみ再実行せよ。このスナップショット時点で
   modTestsPure/modUtil/run_lo_tests.pyに作業中変更あり。PURE_ALLOWLISTにmodAppDef/modShelfSync/modPack追加済み)。
 - **Wave4〜5 未着手**(段取りは下記「Wave2後の段取り」4〜5参照)
 
