@@ -26,7 +26,9 @@ DoD:
 **入る**: ファイル取込(ダイアログ+本棚フォルダ差分同期)、抽出(txt/md/csv/pdf/docx/doc/xlsx)、チャンク分割、
 埋め込み(再開可能バッチ)、任意のバッチ富化、2速QA(⚡すぐ聞く/🔍しっかり調べる)+出典表示、
 ナレッジパック書き出し/取込(PIIスキャン+重複排除)、個人ダッシュボード+バッジ、環境診断、
-opt: 読み上げ/画像PDF(Vision)/Markdown表示/約款差分。
+opt: 画像読み取り(Vision・スクショ取込含む)/Markdown表示・Wordで開く/約款差分。
+(読み上げ(TTS)は公式回答で「音声合成は非公開」と確定したためスコープ外。optTts.basはソース保管のみで
+ビルド対象外=modules.jsonから撤去。確定台帳 RIBBON_API_CONFIRMED.md 裁定D4/D10)
 
 **入らない**: V2公式ナレッジベースとの結合(公式ナレッジは将来「公式パック」として取り込む設計で代替)、
 Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイムファイル監視(ポーリング差分で代替)、UFフォーム(シートUIのみ)。
@@ -114,7 +116,12 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | sync_on_open | TRUE | 起動時に差分同期 |
 | enrich_mode | off | off/light/full: バッチ富化(§7.7) |
 | max_pages_per_file | 300 | 抽出ページ上限(超過は打ち切り+partial) |
-| feature_tts / feature_vision / feature_markdown | FALSE | opt機能フラグ(仕様確認後にTRUE) |
+| ribbon_addin_name | リボンちゃん | AIリボンのアドイン検出名(RibbonAvailable用。裁定D2) |
+| limit_check | TRUE | 起動時LimitCheck(期限・利用同意)。FALSEで無効化(裁定D3) |
+| followup_max_pairs | 3 | 『続けて質問』で引き継ぐ履歴の最大ペア数。0以下で無効(裁定D11) |
+| word_export_effort / word_export_verbosity | medium / medium | 『Wordで開く』の文書整形パラメータ(裁定D12) |
+| feature_tts | FALSE | 読み上げ: 非公開確定のため提供不可・FALSE固定(裁定D4) |
+| feature_vision / feature_markdown | TRUE | opt機能フラグ(公式仕様確定によりTRUE昇格。裁定D14) |
 | feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
 | debug_mode | FALSE | ゲートウェイのプロンプト/応答ログ |
@@ -227,21 +234,26 @@ Public Function IsSameTimestamp(ByVal a As Date, ByVal b As Date) As Boolean ' 2
 Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
                         ByVal effort As String, ByVal verbosity As String, _
                         Optional ByVal model_override As String = "", _
-                        Optional ByRef latency_ms As Long = 0) As String
+                        Optional ByRef latency_ms As Long = 0, _
+                        Optional ByVal prevU As String = "", _
+                        Optional ByVal prevA As String = "") As String
+    ' prevU/prevA: 会話継続用の履歴(確定台帳§1 #1 第7・8引数。新しい順;;;区切り。裁定D11)
     ' 成功: 応答文字列 / 失敗: "#ERR:E0202:..." で始まる文字列(例外は出さない)
     ' mock_llm=TRUE時: step_nameに応じた整形済みダミー(quick_draft/deep_draft/deep_verify/enrich/diff)
 Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As Long = 0) As Double()
     ' 成功: L2正規化済み配列 / 失敗: 空配列(modUtil.HasVector=False)。E0203をLogError
     ' mock時: テキストのFnvハッシュをシードにした決定的擬似ベクトル(L2正規化済み, embed_dim次元)
     '         → リボン無しでも取込→検索→回答の全画面フローが動く
-Public Function RibbonAvailable() As Boolean   ' ChatGPT関数の存在確認(結果をセッションキャッシュ)
+Public Function RibbonAvailable() As Boolean   ' AddInsループでアドイン検出(裁定D2。結果をセッションキャッシュ)
+Public Function RunLimitCheck() As Boolean     ' リボンLimitCheck()の唯一の呼び出し口(裁定D3。True=続行不可、エラー時False)
 Public Function TryRibbonRun(ByVal funcName As String, ByVal args As Variant) As Variant
     ' Variant配列argsを展開してApplication.Run(要素数0〜6対応のSelect Case)。
     ' 失敗時: 文字列 "#ERR:E0202:<説明>" を返す。opt層はこれだけを使う
 Public Function LooksLikeLimitError(ByVal response As String) As Boolean ' 上限/limit/回数の語を検知→E0204系判定
 ```
-V2実証済みのChatGPT位置引数規約を踏襲:
-`Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, "", "", step_name, effort, verbosity)`。
+ChatGPT位置引数規約は確定済み(V2実証+確定台帳§0「互換後方追加」。裁定D1):
+`Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, prevU, prevA, "マイ本棚AI:" & step_name, effort, verbosity)`。
+第9引数toolNは「マイ本棚AI:」ブランドを付けて管理側ログでツールを識別できるようにする。
 GetEmbeddings の実引数規約は V2 `src/chatbot_v2/modEmbeddings.bas` の実装をそのまま踏襲すること。
 
 **modFeatures.bas** — opt機能の分離実行
@@ -394,8 +406,14 @@ Public Function Answer(ByVal question As String, ByVal mode As String) As String
     ' 検索0件: LLMを呼ばず「本棚に手がかりが見つからない」定型文+資料追加の案内(E0601はログのみ)
     ' ESC対応・所要秒を回答末尾に小さく表示。LogUsage("ask")
 Public Sub FeedbackGreen() / FeedbackYellow() / FeedbackRed()  ' modStatsへ+お礼表示
+Public Function CanFollowup() As Boolean       ' 続けて質問できる直近回答があるか(裁定D11)
+Public Sub AskFollowup(ByVal followupText As String) ' 履歴付き追質問(検索も再実行→出典付き回答)
 ```
-会話履歴: 直近3往復を module 変数に保持(V2 modBoot の HistoryBlock 簡易版を modAsk 内に内蔵)。
+会話履歴(裁定D11): 直近 followup_max_pairs(既定3)往復を module 変数に保持し、CallLLM の
+prevU/prevA(新しい順;;;区切り)へ渡す。履歴に積むのは深掘り候補ブロック除去後の本文のみ。
+深掘り候補: modPrompts が最終応答系プロンプト(quick/deep_verify)に [[FOLLOWUP: 候補1 | 候補2]] の
+出力指示を加え、modAsk がパース・除去して「🔎 深掘り候補(『続けて質問』でそのまま聞けます)」
+ブロックを本文末尾に整形追記する(RenderAnswer契約は不変。マーカー無し応答でも壊れない)。
 
 ### 7.4 パック層
 
@@ -459,7 +477,9 @@ Public Sub RenderDashboard()       ' 統計タイル+バッジ棚+REPT("■")棒
 **modBoot.bas + ThisWorkbook.cls**
 ```vba
 Public Sub Boot()      ' V2パターン踏襲: config確認→first-run(pack_author入力)→3画面EnsureLayout
-                       ' →QuickHealthCheck表示→sync_on_openならSyncNow→ScheduleAutoSync→内部シート隠蔽
+                       ' →QuickHealthCheck表示→AIリボン利用期限確認(modGateway.RunLimitCheck。
+                       '   True=制限中でもvbInformation案内のみで起動は止めない。裁定D3)
+                       ' →sync_on_openならSyncNow→ScheduleAutoSync→内部シート隠蔽
 Public Sub Auto_Open() ' Boot呼び(ガード付き)
 Public Sub Auto_Close()' CancelAutoSync(必須!)+Application.StatusBar=False
 ```
@@ -469,22 +489,36 @@ ThisWorkbook.cls は Workbook_Open→Boot / Workbook_BeforeClose→Auto_Close �
 ### 7.7 opt層(全モジュール共通契約)
 
 - 必ず `Public Function Ping() As Boolean`(True返すだけ)を持つ
-- リボン呼び出しは `modGateway.TryRibbonRun` のみ・**引数の仮定は各モジュール先頭の `' === SIGNATURE ASSUMPTION ===` コメントブロックに集約**(仕様回答が来たらそこだけ直す)
+- リボン呼び出しは `modGateway.TryRibbonRun` のみ。**リボン関数のシグネチャは確定台帳
+  RIBBON_API_CONFIRMED.md §1 が唯一の根拠**(公開仕様の入手により、当初のSIGNATURE ASSUMPTION
+  ブロックは「確定済み」の出典記載に置き換え済み)
 - コアモジュールへの参照は基盤層+modUIMain.SetStageのみ可
 - 失敗しても例外を外に出さない(文字列 "#ERR:..." 返し)
 
 ```vba
-' optTts.bas    : Public Function SpeakAnswer(ByVal Text As String) As String  ' ttsSpeak仮定: (text)
+' optTts.bas    : ビルド対象外(音声合成は非公開と確定。裁定D4/D10。ソースのみ保管)
 ' optVision.bas : Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As ExtractedPage) As Boolean
-'                 ' ChatGPTV仮定: (prompt, imagePath)。modShelfはE0303時にfeature_vision有効なら経由を試す
-'                 ' →ただしコアからは modFeatures.InvokeFeature("vision","ExtractImagePdfText", path) の文字列返し版を呼ぶ:
+'                 ' 確定経路: Base64FromFile(path)→ChatGPTV(prompt, b64, "", "high", "マイ本棚AI:vision")(裁定D5)
+'                 ' 対応形式はpng/jpg/jpegのみ(PDF直渡しは公式仕様上不可能と確定し撤去)
 '                 Public Function ExtractImagePdfText(ByVal path As String) As String ' "#ERR:.." or 全文
+'                 ' modShelfは E0303(画像PDF) または E0301+画像拡張子 のとき
+'                 ' feature_vision有効なら InvokeFeature("vision","ExtractImagePdfText",path) を試す(裁定D13)
+'                 Public Function HasClipboardImage() As Boolean   ' IsImageInCB確定関数(裁定D13)
+'                 Public Function SaveClipboardImage() As String   ' Base64FromCB(Ptn=1)→Temp jpgパス/"#ERR:..."
 ' optMarkdown.bas: Public Function RenderMarkdownAt(ByVal sheetName As String, ByVal cellAddr As String, ByVal md As String) As String
+'                 ' 確定方式: セルにSafeLeft(md,32000)を書き込んでから CellMarkDown(rng, False)(裁定D6)
+'                 Public Function OpenAnswerInWord(ByVal md As String) As String  ' OpenWordMark確定関数(裁定D6)
+'                 Public Function ExportAnswerAsDoc(ByVal answerText As String, ByVal instruction As String) As String
+'                 ' 対話型文書生成(裁定D12): 指示文ありならCallLLM(step="word_export")で整形→OpenWordMark。
+'                 ' 指示文空ならOpenAnswerInWordへ直行(そのまま転記)
 ' optDiffDoc.bas : Public Sub CompareTwoDocsDialog()  ' 新旧2ファイル→抽出→ChatGPT差分分析→diff_reportシート
 '                  (確認済み関数のみ使用だがサブ機能なのでopt隔離)
 ```
 UI側: opt機能のボタンは `FeatureEnabled` がTrueのときだけ生成(EnsureLayout内で分岐)。
-ボタンOnActionは modUIMain/modUIShelf 内の `OnTtsButton` 等のラッパー(そこから InvokeFeature)。
+ボタンOnActionは modUIMain/modUIShelf 内の `OnOpenWordButton`/`OnIngestScreenshot` 等の
+ラッパー(そこから InvokeFeature)。ホーム31:32行は btn_followup「💬 続けて質問」(A31:D32・常時)+
+btn_word「📝 Wordで開く」(E31:H32・feature_markdown時のみ)。本棚K1:L2は btn_screenshot
+「📸 スクショ取込」(feature_vision時のみ)。読み上げボタンは存在しない(裁定D10)。
 
 ### 7.8 テストモジュール
 

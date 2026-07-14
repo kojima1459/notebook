@@ -114,6 +114,14 @@
     ドラッグ追加も自然に取込可能になる)。feature_vision無効時の案内文も画像拡張子に
     対応させる。
 
+- **D14 (opt機能フラグの既定TRUE昇格)**: feature_vision / feature_markdown の既定値を
+  FALSE→TRUEへ変更(公式公開仕様でシグネチャが確定したため。「仕様確認後にTRUEへ」の
+  条件が成就)。これによりスクショ取込ボタン・Wordで開くボタンが初期状態で表示される。
+  実機で問題が出た場合はconfigシートでFALSEに戻すだけで撤去できる(従来どおり)。
+  feature_tts は非公開確定のためFALSE固定。
+- **D15 (config新キー)**: followup_max_pairs(既定3)/ word_export_effort(medium)/
+  word_export_verbosity(medium) をシードに追加(D11/D12の実装が参照)。
+
 ## 3. 未確定のまま残るもの
 
 - effort/verbosity(第10・11引数)の正式仕様(V2本番実績はあるが公開ページ未掲載)。

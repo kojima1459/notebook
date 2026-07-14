@@ -3,6 +3,21 @@
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
 > 最終更新: 2026-07-12 【全Wave完了】プロジェクト完成
 
+## 現在地(2026-07-14 第2ウェーブ完了: 機能改修D10-D15)
+
+- **第2ウェーブ完了**。組織の月間利用上限でエージェントが次々死亡したため、途中からPM(メインループ)が
+  直接実装・検品を代行した。経緯: N1(UI)完走 / N2(followup+word)は死亡扱いだが実はほぼ完全な
+  成果物がディスクに残っており検証の上採用 / N3(スクショ取込)・N4(仕様同期)・N5(docs)はPMが直接実装。
+- 完了内容: D10 TTSボタン完全削除 / D11 続けて質問(prevU/prevA+[[FOLLOWUP]]候補) /
+  D12 対話型Word文書生成(ExportAnswerAsDoc) / D13 スクショ・画像取込(HasClipboardImage/
+  SaveClipboardImage+modShelf画像フォールバック+modUIShelfボタン) / D14 feature_vision・
+  feature_markdown既定TRUE昇格 / D15 config新キー(followup_max_pairs/word_export_*)。
+- MASTER_SPEC同期済み(§2/§5/§7.1/§7.3/§7.6/§7.7)。docs 10/30/50同期済み。lint契約表同期済み。
+- 最終状態: lint ERROR0 / LO compile 36本PASS / pure PASS84 FAIL0 / dev+prodビルド自己検証OK。
+- **残タスク(ユーザー側)**: 実機Excel(リボンあり)で docs/40_受入チェックリスト15分.md を実施
+  +新機能(続けて質問/Wordで開く/スクショ取込)の実機確認。高橋くんのモジュール採取結果が来たら
+  台帳§3(effort/verbosity・LimitCheck真偽)を裏取り。
+
 ## 現在地(2026-07-14 第2ウェーブ: 機能改修D10-D13)
 
 - 第1ウェーブ(公開API確定対応)は検品ゲート全緑でコミット済み(a72e353)。Opusレビュー+fixerは
