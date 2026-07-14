@@ -105,7 +105,9 @@ CONTRACT: dict[str, dict] = {
     },
     "modGateway": {
         "closed": True,
-        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError"],
+        # RunLimitCheck: リボン公開API確定対応(裁定D3・RIBBON_API_CONFIRMED.md)。
+        # 起動時のAIリボン利用期限チェック。True=続行不可(公式サンプルの解釈)。
+        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError", "RunLimitCheck"],
     },
     "modFeatures": {
         "closed": True,
@@ -220,7 +222,8 @@ CONTRACT: dict[str, dict] = {
     # ---- 7.7 opt層(全モジュール共通でPing必須) ----
     "optTts": {"closed": True, "required": ["Ping", "SpeakAnswer"]},
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText"]},
-    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt"]},
+    # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6・RIBBON_API_CONFIRMED.md)
+    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord"]},
     "optDiffDoc": {"closed": True, "required": ["Ping", "CompareTwoDocsDialog"]},
     # ---- 7.8 テストモジュール ----
     "modTestRunner": {
@@ -264,10 +267,12 @@ FORBIDDEN_TOKEN_PATTERNS = [
 ]
 
 # R3: Application.Run 第1引数リテラルのホワイトリスト
-RUN_LITERAL_WHITELIST_EXACT = {"ChatGPT", "GetEmbeddings", "modBoot.Boot"}
+RUN_LITERAL_WHITELIST_EXACT = {"ChatGPT", "GetEmbeddings", "LimitCheck", "modBoot.Boot"}
 RUN_LITERAL_WHITELIST_PREFIX = re.compile(r"^opt[A-Za-z]\w*\.")
 # ChatGPT/GetEmbeddings の直接Application.Runは modGateway 内のみ許可(R3本文)
-RUN_LITERAL_GATEWAY_ONLY = {"ChatGPT", "GetEmbeddings"}
+# LimitCheck: 起動時利用期限チェック(裁定D3・RIBBON_API_CONFIRMED.md §1 #13)。
+# modGateway.RunLimitCheck 内でのみ呼ぶ。
+RUN_LITERAL_GATEWAY_ONLY = {"ChatGPT", "GetEmbeddings", "LimitCheck"}
 # 変数経由(非リテラル)のApplication.Runはこの2ファイルのみ許可
 RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
 

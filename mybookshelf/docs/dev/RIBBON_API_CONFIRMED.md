@@ -71,6 +71,49 @@
 - **D9 (モデル名)**: 公開ページ例(GPT-3.5_Turbo/GPT-4o)は旧版。V2本番実績の
   config駆動(既定 gpt-5.5)を維持。リボン四半期更新に追随できるようconfigのみで変更可。
 
+## 2b. 追加PM裁定(D10〜D13、2026-07-14 ユーザー指示に基づく)
+
+- **D10 (TTSボタン完全削除)**: D4の「ボタンを残して案内」を改め、ボタン自体を削除する
+  (ユーザー裁定: 引き算の美学・UI簡素化)。modUIMainのOnTtsButtonと btn_tts 生成を撤去。
+  optTts.basソースの保管とmodules.json撤去(D4)は維持。docsの読み上げ記述は
+  「AIリボン本体でのみ利用可」の1行注記に縮約。
+- **D11 (続けて質問=深掘り機能の移植)**: V2実証済みのUX(回答末尾に深掘り候補を提示+
+  「続けて質問」ボタン)をマイ本棚AIへ移植する。V2との違い: 会話履歴の受け渡しに
+  確定引数 prevU/prevA(;;;区切り・新しい順)を使う。
+  インターフェース契約(実装者はこれに従う):
+  - modGateway.CallLLM に Optional prevU As String = "" / Optional prevA As String = "" を
+    後方互換で追加し、Application.Run("ChatGPT",...)の第7・8引数に渡す。
+  - modAsk 新公開API: CanFollowup() As Boolean(直近回答が存在するか)/
+    AskFollowup(ByVal followupText As String)(直近の会話履歴を添えて再質問。
+    履歴はmodAskモジュール内変数でセッション保持、最大 config followup_max_pairs
+    既定3 ペア)。深掘り候補はV2同様、検証応答の [[FOLLOWUP: a | b]] 形式を
+    パースし、回答本文末尾に「深掘り候補(『続けて質問』でそのまま聞けます)」
+    ブロックとして追記してから RenderAnswer に渡す(RenderAnswer契約は不変)。
+  - modPrompts: 深掘り候補を要求する指示行を deep_verify/quick 系プロンプトに追加。
+  - modUIMain 新ボタン OnFollowupButton()(InputBoxで追質問を取り、
+    modAsk.AskFollowup を呼ぶ。CanFollowup=Falseなら丁寧な案内)。
+- **D12 (Wordで開く=対話型文書生成へ強化)**: 単純転記(弱)ではなく「指示文→LLM整形→
+  Word起動」(強)にする(ユーザー裁定)。UIボタン押下→InputBox
+  「どんな文書に仕上げますか?(例: お客様向けの回答文書風に/社内回覧用の要約に)」→
+  optMarkdown 新公開API ExportAnswerAsDoc(回答本文+指示文を受け、modGateway.CallLLM
+  (step_name="word_export")で整形→TryRibbonRun("OpenWordMark", ...)でWordを開く)。
+  指示文が空なら整形をスキップして直接OpenWordMark(=旧OpenAnswerInWord相当)。
+  OpenAnswerInWordは残す(ExportAnswerAsDocの空指示経路が内部で使う)。
+  引数の渡し方は modFeatures.InvokeFeature の既存規約に従うこと。
+- **D13 (スクリーンショット/画像ファイル取込)**: 確定関数 IsImageInCB/Base64FromCB(Ptn=1)を
+  使い「クリップボードの画像を本棚に取り込む」導線を追加する(ユーザー裁定: 社内は
+  スクショ文化。マニュアル抜粋・Web検索結果等の取込ニーズ大)。
+  - optVision 新公開API: HasClipboardImage() As Boolean / SaveClipboardImage() As String
+    (Base64FromCB(Ptn=1)でTempへjpg保存しパスを返す。失敗は"#ERR:...")。
+  - modUIShelf 新ボタン OnIngestScreenshot(): HasClipboardImage確認→タイトルをInputBoxで
+    取得→SaveClipboardImageのjpgを「<タイトル>_yyyymmdd_hhmmss.jpg」として
+    本棚フォルダ(未設定ならTempのまま)へFileCopy→modShelf.IngestFileへ渡す。
+  - modShelf.IngestFile のvisionフォールバック条件を拡張: 現行「E0303のみ」→
+    「E0303、または E0301 かつ 拡張子がpng/jpg/jpeg」でも
+    InvokeFeature("vision","ExtractImagePdfText",path) を試す(これにより画像ファイルの
+    ドラッグ追加も自然に取込可能になる)。feature_vision無効時の案内文も画像拡張子に
+    対応させる。
+
 ## 3. 未確定のまま残るもの
 
 - effort/verbosity(第10・11引数)の正式仕様(V2本番実績はあるが公開ページ未掲載)。
