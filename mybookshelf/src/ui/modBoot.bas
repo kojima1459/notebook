@@ -6,8 +6,9 @@ Option Explicit
 ' ----------------------------------------------------------------------------
 ' 役割:
 '   config確認→初回起動時のpack_author入力→3画面(ホーム/マイ本棚/
-'   ダッシュボード)のEnsureLayout→QuickHealthCheck→sync_on_openなら
-'   SyncNow→ScheduleAutoSync→内部シート隠蔽、という起動の一本道を
+'   ダッシュボード)のEnsureLayout→QuickHealthCheck→AIリボン利用期限確認
+'   (modGateway.RunLimitCheck)→sync_on_openならSyncNow→ScheduleAutoSync
+'   →内部シート隠蔽、という起動の一本道を
 '   このモジュールだけが所有する。ThisWorkbook.clsのWorkbook_Open/
 '   Workbook_BeforeCloseはBoot/Auto_Closeへの薄い転送のみで、実際の
 '   ロジックはここに置く(ビルド版ではインストーラがThisWorkbookを
@@ -118,6 +119,24 @@ Public Sub Boot()
     If LenB(warn) > 0 Then
         MsgBox "起動時の確認で気になる点がありました。" & vbLf & warn & vbLf & _
                "詳しくは診断ボタンで確認できます。", vbExclamation, modAppDef.APP_NAME
+    End If
+
+    ' 4.5) AIリボンの利用期限確認(裁定D3の穏当運用)。True=続行不可でも
+    '      アプリの起動自体は止めず、丁寧な案内メッセージだけを出す(AIへの
+    '      質問など回答系を実行した際に改めて案内される)。mock_llm=TRUE・
+    '      config limit_check=FALSE・リボン未検出のときはRunLimitCheck側で
+    '      即False(続行可)になるため、ここでの分岐は不要。
+    Dim limited As Boolean
+    limited = False
+    On Error Resume Next
+    limited = modGateway.RunLimitCheck()
+    On Error GoTo 0
+    If limited Then
+        MsgBox "AIリボンの利用期限確認により、現在AI機能の利用が制限されています。" & vbLf & _
+               "本棚の閲覧や資料の管理は、これまでどおりお使いいただけます。" & vbLf & _
+               "AIへの質問などを実行された際には、あらためてご案内します。" & vbLf & _
+               "(お手数ですが、AIリボンの利用期限については担当部署へお問い合わせください)", _
+               vbInformation, modAppDef.APP_NAME
     End If
 
     ' 5) sync_on_openならSyncNow(On Error保護)。起動時の自動同期はユーザー

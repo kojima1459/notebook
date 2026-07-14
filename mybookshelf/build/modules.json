@@ -35,7 +35,6 @@
     { "name": "modBoot",             "path": "src/ui/modBoot.bas",                     "role": "core", "type": "std",   "wave": "2-F" },
     { "name": "ThisWorkbook",        "path": "src/ui/ThisWorkbook.cls",                "role": "core", "type": "class", "wave": "2-F", "vba_src": false, "note": "vba_src非対象。ビルドスクリプトがvbaProject.binのThisWorkbookストリームを直接パッチ(自己インストーラが占有)。src/ui/ThisWorkbook.clsはリポジトリ内の参照用ソース(Workbook_Open→Boot/Workbook_BeforeClose→Auto_Closeの薄い転送)であり、実行時はmodBootのAuto_Open/Auto_Closeが本命。" },
 
-    { "name": "optTts",              "path": "src/opt/optTts.bas",                     "role": "opt",  "type": "std",   "wave": "2-G" },
     { "name": "optVision",           "path": "src/opt/optVision.bas",                  "role": "opt",  "type": "std",   "wave": "2-G" },
     { "name": "optMarkdown",         "path": "src/opt/optMarkdown.bas",                "role": "opt",  "type": "std",   "wave": "2-G" },
     { "name": "optDiffDoc",          "path": "src/opt/optDiffDoc.bas",                 "role": "opt",  "type": "std",   "wave": "2-G" },

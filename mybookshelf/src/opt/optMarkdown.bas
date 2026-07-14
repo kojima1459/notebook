@@ -5,9 +5,10 @@ Option Explicit
 ' optMarkdown - 回答等をMarkdown整形してセルに表示する(opt機能・MASTER_SPEC §7.7)
 ' ----------------------------------------------------------------------------
 ' 役割:
-'   AIリボンのMarkdown整形表示関数(CellMarkDown仮定)へ、Markdown文字列と
-'   表示先セルを渡す。この層が無くても製品は成立し、modules.jsonから1行
-'   削除するだけで撤去できる(§7.7)。
+'   AIリボンのMarkdown整形表示関数(CellMarkDown・確定済み)へ表示先セルを
+'   渡してセル内Markdownを装飾する。加えて、Markdown文字列をWordで開く
+'   (OpenWordMark・確定済み)ラッパーを提供する。この層が無くても製品は
+'   成立し、modules.jsonから1行削除するだけで撤去できる(§7.7)。
 '
 ' 設計判断:
 '   ・リボン呼び出しは modGateway.TryRibbonRun のみを使う(R3)。
@@ -16,34 +17,33 @@ Option Explicit
 '     セル番地から解決する(呼び出し元がRangeオブジェクトを直接渡さずに
 '     済むようにするための設計。UI層は文字列だけ渡せばよい)。
 '   ・失敗しても例外を外に出さない。戻り値は "" (成功) または "#ERR:..." の
-'     文字列(optTts.SpeakAnswerと同じ「空文字=成功」規約に揃えた。
-'     §7.7はこの関数の戻り値の成功/失敗フォーマットまでは明記していないため、
-'     opt層内で一貫させることを優先した実装判断)。
-'   ・modUIMain.SetStage 以外のコア参照は行わない(基盤層のみ参照可・§7.7)。
-'     シート/セルの解決自体はモジュール自身がExcelオブジェクトへ直接触れて
-'     行う(他モジュール経由ではないため§7.7の「コアモジュールへの参照」
-'     制限には抵触しない)。
+'     文字列(opt層共通の「空文字=成功」規約。§7.7)。
+'   ・mock_llm=TRUE のときはリボンを呼ばない:
+'       RenderMarkdownAt … セルへの書き込みだけ行い装飾はスキップして成功扱い
+'         (mock時も回答テキスト自体は表示される、という穏当なフォールバック)。
+'       OpenAnswerInWord … Word連携は代替表示が無いため、親切メッセージの
+'         "#ERR:..." を返す(modGatewayのmock時「ダミー応答」方針と同様、
+'         実リボンには一切触れない)。
+'   ・modUIMain.SetStage 以外のコア参照は基盤層(modConfig/modLog/modUtil/
+'     modGateway)のみ(§7.7)。シート/セルの解決自体はモジュール自身が
+'     Excelオブジェクトへ直接触れて行う(他モジュール経由ではないため
+'     §7.7の「コアモジュールへの参照」制限には抵触しない)。
 ' ============================================================================
 
-' === SIGNATURE ASSUMPTION ===
-'   仮定シグネチャ: CellMarkDown(md As String, targetRange As Range) -> Variant
-'     成功時: 空文字列 または 何らかの確認用文字列を返す。
-'     失敗時: "error" を含む文字列、または空でない失敗メッセージを返す。
-'   根拠: MASTER_SPEC §7.7 optMarkdown.bas の記載「CellMarkDown仮定:
-'     (md, targetRange)」のみが根拠。引数の順序(Markdown文字列が先か、
-'     Rangeが先か)、Rangeを直接渡せるのか文字列アドレスで渡すべきかは未確認。
-'     ここではRangeオブジェクトを直接渡す仮定を採用した
-'     (modGateway.TryRibbonRunはVariant配列の要素をそのままApplication.Run
-'     に渡すため、Rangeオブジェクトを含めても技術的には問題ない)。
-'   仕様回答が来たら直す行:
-'     ・引数の数/順序が違う場合(例: セル番地を文字列で渡す等)
-'       -> BuildMarkdownArgs() の Array(...) 部分のみ修正。
-'     ・戻り値の成功/失敗判定基準が違う場合 -> IsMarkdownError() の判定式のみ修正。
-'     ・関数名自体が違う場合(CellMarkDown以外) -> Private Const RIBBON_FUNC_NAME
-'       の値のみ修正。
-' ================================================================================
+' === 確定済みシグネチャ(出典: RIBBON_API_CONFIRMED.md §1 #10, #12 / 裁定D6) ===
+'   CellMarkDown(rng As Range, [isComment As Boolean = False]) -> (戻り値未使用)
+'     「セルに既に入っているMarkdown」を書式付き表示に変換する。Markdown文字列を
+'     引数で渡す方式ではないため、本モジュールは先に対象セルへmdを書き込んで
+'     から CellMarkDown(rng, False) を呼ぶ(#12・裁定D6)。
+'   OpenWordMark(Text As String) -> (戻り値未使用)
+'     Markdown文字列をWordで開く(#10)。
+'   戻り値の扱い: どちらも台帳上「(未使用)」のため、リボン側戻り値での
+'     成否判定は行わない。失敗判定は TryRibbonRun 側の "#ERR:" 始まり
+'     (Application.Run自体の失敗)のみとする。
+' ============================================================================
 
 Private Const RIBBON_FUNC_NAME As String = "CellMarkDown"
+Private Const WORD_FUNC_NAME As String = "OpenWordMark"
 
 Public Function Ping() As Boolean
     Ping = True
@@ -51,7 +51,9 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' RenderMarkdownAt - sheetName!cellAddr にMarkdown文字列mdを整形表示する
-'   (MASTER_SPEC §7.7)。戻り値: ""=成功 / "#ERR:..."=失敗(例外は出さない)。
+'   (MASTER_SPEC §7.7)。確定規約(裁定D6): 対象セルへmdを書き込んでから
+'   CellMarkDown(rng, False) でセル内Markdownを装飾する。
+'   戻り値: ""=成功 / "#ERR:..."=失敗(例外は出さない)。
 ' ----------------------------------------------------------------------------
 Public Function RenderMarkdownAt(ByVal sheetName As String, ByVal cellAddr As String, ByVal md As String) As String
     On Error GoTo Fail
@@ -77,20 +79,31 @@ Public Function RenderMarkdownAt(ByVal sheetName As String, ByVal cellAddr As St
 
     modUIMain.SetStage "📝 表示を整えています…"
 
+    ' (1) 対象セルへMarkdown文字列を書き込む(セル上限32,767字対策で
+    '     SafeLeft(…, 32000) を経由。規約§12)。
+    targetRange.Value = modUtil.SafeLeft(md, 32000)
+
+    ' mock_llm=TRUE のときはリボンを呼ばず、テキスト書き込みのみで成功扱い
+    ' (装飾はスキップ。実リボン不在環境でもE2Eが回るようにするため)。
+    If modConfig.GetBool("mock_llm", True) Then
+        modUIMain.SetStage ""
+        RenderMarkdownAt = ""
+        Exit Function
+    End If
+
+    ' (2) セル内Markdownを装飾(確定: CellMarkDown(rng, False) / 台帳§1 #12・裁定D6)
     Dim result As Variant
-    result = modGateway.TryRibbonRun(RIBBON_FUNC_NAME, BuildMarkdownArgs(md, targetRange))
+    result = modGateway.TryRibbonRun(RIBBON_FUNC_NAME, Array(targetRange, False))
 
     modUIMain.SetStage ""
 
     Dim s As String
     s = SafeResultToString(result)
 
+    ' 戻り値は台帳上「未使用」のため、TryRibbonRun側の失敗("#ERR:"始まり)のみ
+    ' 失敗と判定する(確定仕様。上部コメントブロック参照)。
     If Left$(s, 5) = "#ERR:" Then
         RenderMarkdownAt = s
-        Exit Function
-    End If
-    If IsMarkdownError(s) Then
-        RenderMarkdownAt = "#ERR:Markdown表示に失敗しました: " & modUtil.SafeLeft(s, 200)
         Exit Function
     End If
 
@@ -108,7 +121,59 @@ Fail:
 End Function
 
 ' ----------------------------------------------------------------------------
-' 内部ヘルパー(すべてPrivate: optMarkdownの公開契約はPing/RenderMarkdownAtのみ)
+' OpenAnswerInWord - Markdown文字列mdをWordで開く(確定: OpenWordMark /
+'   台帳§1 #10・裁定D6)。UI配線は別途(本モジュールはラッパーのみ提供)。
+'   戻り値: ""=成功 / "#ERR:..."=失敗(例外は出さない)。
+' ----------------------------------------------------------------------------
+Public Function OpenAnswerInWord(ByVal md As String) As String
+    On Error GoTo Fail
+
+    If LenB(Trim$(md)) = 0 Then
+        OpenAnswerInWord = "#ERR:Wordで開くMarkdown文字列が空です"
+        Exit Function
+    End If
+
+    ' mock_llm=TRUE のときはリボンを呼ばず、親切メッセージで案内する
+    ' (Word連携には代替表示が無いため。他のmock時挙動と同じくリボン非接触)。
+    If modConfig.GetBool("mock_llm", True) Then
+        OpenAnswerInWord = "#ERR:mockモード(mock_llm=TRUE)ではWord連携を利用できません。" & _
+            "config の mock_llm を FALSE にすると実際にWordで開けるようになります。"
+        Exit Function
+    End If
+
+    modUIMain.SetStage "📝 Wordで開いています…"
+
+    Dim result As Variant
+    result = modGateway.TryRibbonRun(WORD_FUNC_NAME, Array(md))
+
+    modUIMain.SetStage ""
+
+    Dim s As String
+    s = SafeResultToString(result)
+
+    ' 戻り値は台帳上「未使用」のため、TryRibbonRun側の失敗("#ERR:"始まり)のみ
+    ' 失敗と判定する(確定仕様。上部コメントブロック参照)。
+    If Left$(s, 5) = "#ERR:" Then
+        OpenAnswerInWord = s
+        Exit Function
+    End If
+
+    OpenAnswerInWord = ""
+    Exit Function
+
+Fail:
+    Dim errDesc As String
+    errDesc = Err.Description
+    Err.Clear
+    On Error GoTo 0
+    modUIMain.SetStage ""
+    modLog.LogError "E0202", "optMarkdown.OpenAnswerInWord", errDesc
+    OpenAnswerInWord = "#ERR:Wordで開く処理でエラーが発生しました: " & errDesc
+End Function
+
+' ----------------------------------------------------------------------------
+' 内部ヘルパー(すべてPrivate: optMarkdownの公開契約はPing/RenderMarkdownAt/
+' OpenAnswerInWordのみ)
 ' ----------------------------------------------------------------------------
 
 Private Function FindSheet(ByVal sheetName As String) As Worksheet
@@ -121,22 +186,6 @@ Private Function ResolveRange(ByVal ws As Worksheet, ByVal cellAddr As String) A
     On Error Resume Next
     Set ResolveRange = ws.Range(cellAddr)
     On Error GoTo 0
-End Function
-
-' === SIGNATURE ASSUMPTION: 引数配列の組み立て。仕様が判明したらここだけ直す ===
-Private Function BuildMarkdownArgs(ByVal md As String, ByVal targetRange As Range) As Variant
-    BuildMarkdownArgs = Array(md, targetRange)
-End Function
-
-' === SIGNATURE ASSUMPTION: 失敗判定。仕様が判明したらここだけ直す ===
-Private Function IsMarkdownError(ByVal s As String) As Boolean
-    If LenB(Trim$(s)) = 0 Then
-        IsMarkdownError = False   ' 空文字は成功扱い(上部コメントの規約)
-    ElseIf StrComp(Trim$(s), "error", vbTextCompare) = 0 Then
-        IsMarkdownError = True
-    Else
-        IsMarkdownError = modGateway.LooksLikeLimitError(s)
-    End If
 End Function
 
 Private Function SafeResultToString(ByVal result As Variant) As String

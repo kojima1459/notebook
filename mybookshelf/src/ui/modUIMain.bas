@@ -28,10 +28,14 @@ Option Explicit
 '   ・SetStageは「セルへの書込み」「Application.StatusBarへの反映」を
 '     必ず両方行う(§7.6契約)。処理中(msgが空でない)ときは待ち時間豆知識
 '     ShowTipも合わせて更新し、ユーザーが手持ち無沙汰にならないようにする。
-'   ・opt機能ボタン(読み上げ)はmodFeatures.FeatureEnabledがTrueのときだけ
+'   ・読み上げボタンは常時生成するが、機能呼び出しは行わない(確定済み:
+'     音声合成(TTS)はAIリボン側の非公開機能で、拡張ツールへは提供されない。
+'     出典: RIBBON_API_CONFIRMED.md §0/D4)。押すと理由の案内メッセージを
+'     表示する(ボタンごと消すより「なぜ無いか」が分かる方が親切)。
+'   ・opt機能ボタン(Wordで開く)はmodFeatures.FeatureEnabledがTrueのときだけ
 '     EnsureLayout内で生成する(§7.7)。ボタンのOnActionはこのモジュール内の
-'     OnTtsButtonラッパー経由でmodFeatures.InvokeFeatureを呼ぶ(opt直接
-'     参照はR2違反になるため、このモジュールにoptTts等のトークンは一切
+'     OnOpenWordButtonラッパー経由でmodFeatures.InvokeFeatureを呼ぶ(opt直接
+'     参照はR2違反になるため、このモジュールにoptMarkdown等のトークンは一切
 '     書かない)。
 '   ・本棚が空のときの案内(§8.1「まず『マイ本棚』タブで資料を1つ追加して
 '     みましょう →」)はShowEmptyShelfHintとして公開し、呼び出し判断(本棚が
@@ -181,10 +185,14 @@ Public Sub EnsureLayout()
     AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "🟡 ヒントになった", "modAsk.FeedbackYellow"
     AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "🔴 だめだった", "modAsk.FeedbackRed"
 
-    ' ---- opt機能: 読み上げ(有効な時だけ生成。§7.7) ----------------------------
-    If modFeatures.FeatureEnabled("tts") Then
-        ws.Rows("31:32").RowHeight = 18
-        AddButton ws, ws.Range("A31:D32"), "btn_tts", "🔊 読み上げる", "modUIMain.OnTtsButton"
+    ' ---- 読み上げ+Wordで開く --------------------------------------------------
+    ' 読み上げは提供不可の確定機能(D4)だがボタンは常時生成し、押されたら
+    ' OnTtsButtonが理由を案内する。「Wordで開く」はopt機能(markdown)なので
+    ' FeatureEnabledがTrueのときだけ生成する(§7.7)。
+    ws.Rows("31:32").RowHeight = 18
+    AddButton ws, ws.Range("A31:D32"), "btn_tts", "🔊 読み上げる", "modUIMain.OnTtsButton"
+    If modFeatures.FeatureEnabled("markdown") Then
+        AddButton ws, ws.Range("E31:H32"), "btn_word", "📝 Wordで開く", "modUIMain.OnOpenWordButton"
     End If
 
     ' ---- 待ち時間豆知識 ----------------------------------------------------
@@ -241,13 +249,13 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
-    mLastAnswerText = answerText
-
     ' Wave4修正: modAsk.Answerは空質問(未入力のまま「質問する」)のとき
     ' 検索を一切行わずmode=""で早期returnする契約にした(modAsk.bas参照)。
     ' mode=""は「実際の検索・回答生成が行われなかった」ことを示す唯一の
     ' 目印なので、このときは所要秒・出典欄(直前の質問の情報が残ったままに
-    ' 見えてしまう)を付けず、案内文だけを表示する。
+    ' 見えてしまう)を付けず、案内文だけを表示する。mLastAnswerText(「Wordで
+    ' 開く」の入力)も更新しない(案内文をWordで開いても意味がないため。
+    ' 実際の回答のときだけこの下で更新する)。
     If LenB(mode) = 0 Then
         WriteSafe ws.Range(RNG_ANSWER), answerText
         WriteSafe ws.Range(RNG_SOURCES), ""
@@ -261,6 +269,8 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
         On Error GoTo 0
         Exit Sub
     End If
+
+    mLastAnswerText = answerText
 
     Dim modeLabel As String
     If LCase$(mode) = "deep" Then
@@ -359,18 +369,33 @@ Public Sub ShowTip()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' OnTtsButton - opt機能(読み上げ)のUIラッパー(§7.7)。opt直接参照はしない。
+' OnTtsButton - 読み上げボタン。機能呼び出しは行わず、提供不可の理由を案内する。
+'   確定済み: 音声合成(TTS)はAIリボン側の非公開機能であり、拡張ツールへは
+'   提供されない(出典: RIBBON_API_CONFIRMED.md §0/D4)。
 ' ----------------------------------------------------------------------------
 Public Sub OnTtsButton()
+    MsgBox "音声読み上げは、社内AIリボンの方針により拡張ツールへは提供されていません。" & vbLf & _
+           "AIリボン本体の画面からのみ利用できます。", _
+           vbInformation, modAppDef.APP_NAME
+End Sub
+
+' ----------------------------------------------------------------------------
+' OnOpenWordButton - opt機能(Wordで開く)のUIラッパー(§7.7)。opt直接参照はしない。
+'   直近回答テキストをmodFeatures.InvokeFeature経由でoptモジュールに渡し、
+'   Markdown書式付きでWordに開いてもらう(確定関数OpenWordMark使用。D6)。
+' ----------------------------------------------------------------------------
+Public Sub OnOpenWordButton()
     If LenB(mLastAnswerText) = 0 Then
-        MsgBox "読み上げる回答がありません。まず質問して、回答を受け取ってください。", _
+        MsgBox "Wordで開く回答がありません。まず質問して、回答を受け取ってください。", _
                vbInformation, modAppDef.APP_NAME
         Exit Sub
     End If
 
     Dim result As Variant
-    result = modFeatures.InvokeFeature("tts", "SpeakAnswer", mLastAnswerText)
+    result = modFeatures.InvokeFeature("markdown", "OpenAnswerInWord", mLastAnswerText)
 
+    ' OpenAnswerInWordの契約: ""=成功 / "#ERR:..."=失敗(InvokeFeature側で
+    ' "#ERR:FEATURE_UNAVAILABLE" に正規化される)。
     Dim isErr As Boolean
     isErr = False
     If VarType(result) = vbString Then

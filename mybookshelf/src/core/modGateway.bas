@@ -12,18 +12,24 @@ Option Explicit
 '   修正で済むようにする。
 '
 ' 設計判断:
-'   ・V2 src/chatbot_v2/modRibbonGateway.bas / modEmbeddings.bas の
-'     実証済み呼び出し規約をそのまま踏襲する(下記コメント参照)。
+'   ・呼び出し規約は確定済み: V2 src/chatbot_v2/modRibbonGateway.bas /
+'     modEmbeddings.bas の実証実績に加え、担当部署の確定台帳
+'     RIBBON_API_CONFIRMED.md §0(互換後方追加)で裏付けられた(下記
+'     コメント参照)。
 '   ・mock_llm=TRUE(configシート)のときはリボンを一切呼ばず、決定的な
 '     ダミー応答/ダミーベクトルを返す。これにより取込→検索→回答の
 '     画面フロー全体を、社内ネットワーク外(自宅PC/Mac等)でも
 '     動作確認できる。
-'   ・RibbonAvailableはセッション中1回だけ実際に軽量なChatGPT呼び出しを
-'     行って存在確認し、結果をモジュール変数にキャッシュする
-'     (V2 modDiag.RibbonStatus と同じ「実際に小さく呼んで確かめる」方式。
-'     Application.Runには「関数の存在だけを安全に確認する」手段が無いため、
-'     引数不足で無理やり呼ぶトリックよりも、本物の軽量呼び出しの方が
-'     誤検知が無く安全と判断した)。
+'   ・RibbonAvailableは公式のアドイン検出作法(RIBBON_API_CONFIRMED.md §1
+'     末尾・裁定D2)に従い、Application.AddIns をループして
+'     アドイン名の部分一致+Installed で判定する(API呼び出し不要・即時)。
+'     旧実装の「実際に軽量なChatGPT呼び出しで確かめる」プローブ方式は
+'     公式作法の確定に伴い廃止した。アドイン名は config
+'     ribbon_addin_name(既定 "リボンちゃん")で可変。判定結果の
+'     セッションキャッシュ(mRibbonChecked/mRibbonAvailable)は維持する。
+'   ・RunLimitCheckはリボン公式のLimitCheck()(True=続行不可・裁定D3)の
+'     唯一の呼び出し口。古いリボンにLimitCheckが無い場合でも利用者を
+'     誤ブロックしないよう、エラー時はFalse(=続行可)へ倒す穏当運用。
 '   ・mock埋め込みベクトルは modUtil.Fnv1a64Hex をシードにした線形合同法
 '     (LCG)で生成する。同じテキスト(正規化後)からは常に同じベクトルが
 '     生成される(決定的)。アルゴリズムの詳細は MockEmbedVector 直前の
@@ -37,9 +43,13 @@ Private mRibbonAvailable As Boolean
 ' CallLLM - ChatGPT()の唯一の呼び出し口。
 '   成功: 応答文字列 / 失敗: "#ERR:E02xx:<説明>" で始まる文字列(例外は出さない)
 ' ----------------------------------------------------------------------------
-' V2実証済みのChatGPT位置引数規約をそのまま踏襲する:
+' ChatGPT位置引数規約は確定済み(V2実証+RIBBON_API_CONFIRMED.md §0:
+' 「関数は互換性を保つよう維持される(引数は後方追加)」。公開ページの
+' 9引数版に対し、第10・11引数effort/verbosityは互換後方追加):
 '   Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, "", "",
-'                    step_name, effort, verbosity)
+'                    toolN, effort, verbosity)
+' 第9引数toolNには "マイ本棚AI:" & step_name を渡す(裁定D1。管理側ログで
+' ツールを識別できるようにするため)。
 ' arg3(Temperature)/arg4(MaxTokens)はDouble/Long型のため ""  を渡すと型不一致
 ' エラーになる。GPT-5系モデルではこの2つは無視され、代わりにeffort/verbosity
 ' (第10・11引数)が効く設計になっている(V2の実運用で確認済み)。
@@ -79,9 +89,9 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
 
     Dim waitSec As Long: waitSec = modConfig.GetLong("llm_wait_sec", 1200)
 
-    '            text   roleSys Temp MaxTok Wait   model prevU prevA toolN     effort verbosity
+    '            text   roleSys Temp MaxTok Wait   model prevU prevA toolN                        effort verbosity
     Dim result As Variant
-    result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, "", "", step_name, eff, vrb)
+    result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, "", "", "マイ本棚AI:" & step_name, eff, vrb)
     Dim s As String: s = CStr(result)
     latency_ms = CLng((Timer - t0) * 1000)
 
@@ -173,7 +183,17 @@ ErrHandler:
 End Function
 
 ' ----------------------------------------------------------------------------
-' RibbonAvailable - ChatGPT関数の存在確認(結果をセッションキャッシュ)
+' RibbonAvailable - AIリボンのアドイン存在確認(結果をセッションキャッシュ)
+' ----------------------------------------------------------------------------
+' 公式のアドイン検出作法(RIBBON_API_CONFIRMED.md §1末尾・裁定D2):
+'   Application.AddIns をループし、アドイン名に config ribbon_addin_name
+'   (既定 "リボンちゃん")を含み、かつ Installed=True のものがあれば True。
+'   API呼び出し不要・即時で判定できる。
+' AddInsコレクションへのアクセス自体が失敗した環境(LO等)では「検出失敗」
+' としてFalseを返すが、エラー扱い(E0201)にはしない(利用者を誤ブロック
+' しないよう、usage_logへの情報記録に留める)。E0201のLogErrorは実際に
+' 呼び出しが必要になった各呼び出し口(CallLLM等)の責務。
+' LO互換のためアドインは遅延バインド(Object型)で扱う。
 ' ----------------------------------------------------------------------------
 Public Function RibbonAvailable() As Boolean
     If mRibbonChecked Then
@@ -181,17 +201,62 @@ Public Function RibbonAvailable() As Boolean
         Exit Function
     End If
     mRibbonChecked = True
+    mRibbonAvailable = False
 
-    On Error GoTo NotFound
-    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
-    Dim res As Variant
-    res = Application.Run("ChatGPT", "OK", "", 0.4, 0, 20, mdl, "", "", "ping", "", "")
-    mRibbonAvailable = True
-    RibbonAvailable = True
+    Dim addinName As String
+    addinName = modConfig.GetString("ribbon_addin_name", "リボンちゃん")
+
+    On Error GoTo DetectFail
+    Dim ai As Object
+    For Each ai In Application.AddIns
+        If InStr(ai.Name, addinName) > 0 Then
+            If ai.Installed Then
+                mRibbonAvailable = True
+                Exit For
+            End If
+        End If
+    Next ai
+    RibbonAvailable = mRibbonAvailable
     Exit Function
-NotFound:
+
+DetectFail:
+    ' AddInsにアクセスできない環境(LO等)。エラーではなく検出失敗として
+    ' 情報記録のみ残す(E0201は各呼び出し口が実呼び出し時に記録する)。
+    modLog.LogUsage "ribbon_detect_fail", "gateway", "AddIns走査失敗: " & Err.Description
     mRibbonAvailable = False
     RibbonAvailable = False
+End Function
+
+' ----------------------------------------------------------------------------
+' RunLimitCheck - リボン公式のLimitCheck()呼び出し口(裁定D3)
+'   戻り値: True=続行不可(利用期限切れ等) / False=続行可
+' ----------------------------------------------------------------------------
+' RIBBON_API_CONFIRMED.md §1 #13: LimitCheck() は Boolean を返し、
+' True=続行不可(内部で日初の利用同意表示も行う)。
+'   ・mock_llm=TRUE、または config limit_check=FALSE(エスケープハッチ)の
+'     ときは呼ばずに即False(続行可)。
+'   ・リボン未検出時もFalse(呼びようがない。E0201は実呼び出し時に記録)。
+'   ・Application.Run("LimitCheck")がエラーになった場合(LimitCheckを持たない
+'     古いリボン等)もFalseに倒す。誤ブロック防止のためエラー扱いにはせず
+'     usage_logへの情報記録に留める(裁定D3の穏当運用)。
+' ----------------------------------------------------------------------------
+Public Function RunLimitCheck() As Boolean
+    RunLimitCheck = False
+
+    If modConfig.GetBool("mock_llm", True) Then Exit Function
+    If Not modConfig.GetBool("limit_check", True) Then Exit Function
+    If Not RibbonAvailable() Then Exit Function
+
+    On Error GoTo CheckFail
+    Dim res As Variant
+    res = Application.Run("LimitCheck")
+    RunLimitCheck = CBool(res)
+    Exit Function
+
+CheckFail:
+    ' LimitCheck未実装の古いリボン等。誤ブロックしないようFalse(続行可)。
+    modLog.LogUsage "limit_check_skip", "gateway", "LimitCheck呼び出し失敗: " & Err.Description
+    RunLimitCheck = False
 End Function
 
 ' ----------------------------------------------------------------------------

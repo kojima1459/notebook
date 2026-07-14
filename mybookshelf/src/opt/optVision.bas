@@ -2,25 +2,24 @@ Attribute VB_Name = "optVision"
 Option Explicit
 
 ' ============================================================================
-' optVision - 画像PDF/画像ファイルの文字抽出(opt機能・MASTER_SPEC §7.7)
+' optVision - 画像ファイルの文字抽出(opt機能・MASTER_SPEC §7.7)
 ' ----------------------------------------------------------------------------
 ' 役割:
 '   通常抽出(modExtractor)がE0303(画像PDF・文字が取れない)を返した資料や、
-'   画像ファイル(png/jpg)そのものについて、AIリボンのVision機能
-'   (ChatGPTV仮定)へ渡して文字起こしする。この層が無くても製品は成立し、
-'   modules.jsonから1行削除するだけで撤去できる(§7.7)。
+'   画像ファイル(png/jpg/jpeg)そのものについて、AIリボンのVision機能
+'   (ChatGPTV・確定済み)へ渡して文字起こしする。この層が無くても製品は
+'   成立し、modules.jsonから1行削除するだけで撤去できる(§7.7)。
 '
 ' 設計判断:
-'   ・PDFをページ画像へ変換する手段がVBA単体に無いため、v1実装は
-'     2つの経路を両方実装し、config vision_pdf_direct(既定FALSE)で切替える:
-'       (a) 楽観路線(vision_pdf_direct=TRUE): PDFパスをそのままChatGPTVに
-'           渡せると仮定して直接呼ぶ。
-'       (b) 現実路線(既定・vision_pdf_direct=FALSE): PDFの直接処理は行わず、
-'           画像ファイル(png/jpg/jpeg)のみ対応する。PDFが渡された場合は
-'           丁寧な案内文を含む失敗として扱う。
-'     どちらの仮定が崩れても、呼び出し面(ExtractImagePdf/ExtractImagePdfText
-'     の引数・戻り値の型)は一切変わらない設計にしてある。
-'   ・リボン呼び出しは modGateway.TryRibbonRun のみを使う(R3)。
+'   ・対応形式は画像ファイル(png/jpg/jpeg)のみ。PDFの直渡し
+'     (旧config vision_pdf_direct 路線)は、ChatGPTVのimageInputsが
+'     「Base64エンコードした画像」に限定されると確定した
+'     (出典: RIBBON_API_CONFIRMED.md §1 #5)ため完全撤去した。
+'     PDFが渡された場合は丁寧な案内文を含む失敗として扱う。
+'   ・抽出経路は2段階の確定規約:
+'       (1) Base64FromFile(filePath) で画像ファイルをBase64文字列化
+'       (2) ChatGPTV(Text, imageInputs, roleSystem, resolution, toolN) で文字起こし
+'     どちらも modGateway.TryRibbonRun のみ経由で呼ぶ(R3)。
 '   ・失敗しても例外を外に出さない。ExtractImagePdfはBoolean(§7.7契約の
 '     とおり)、ExtractImagePdfTextは "#ERR:..." 文字列 または 全文。
 '   ・ExtractImagePdfの失敗理由をExtractImagePdfTextへ伝えるため、
@@ -29,31 +28,27 @@ Option Explicit
 '   ・modUIMain.SetStage 以外のコア参照は行わない(基盤層のみ参照可・§7.7)。
 ' ============================================================================
 
-' === SIGNATURE ASSUMPTION ===
-'   仮定シグネチャ: ChatGPTV(prompt As String, imagePath As String) -> String
-'     成功時: 画像/PDFから読み取った全文を1つの文字列で返す。
-'     失敗時: 空文字列 または "error" を含む文字列を返す
-'     (ChatGPT/GetEmbeddingsと同じ「エラーも例外を投げず文字列で返す」設計を
-'     踏襲していると仮定)。
-'   根拠: MASTER_SPEC §7.7 optVision.bas の記載「ChatGPTV仮定: (prompt, imagePath)」
-'     のみが根拠。引数の順序(prompt先/画像パス先)、画像パスが絶対パス文字列で
-'     良いか(Base64エンコード等が要るか)、複数ページ画像の一括指定が
-'     可能かは未確認。
-'   仕様回答が来たら直す行:
-'     ・引数の数/順序が違う場合 -> BuildVisionArgs() の Array(...) 部分のみ修正。
-'     ・戻り値の成功/失敗判定基準が違う場合 -> IsVisionError() の判定式のみ修正。
-'     ・関数名自体が違う場合(ChatGPTV以外) -> Private Const RIBBON_FUNC_NAME
-'       の値のみ修正。
-'     ・PDFをページ画像化する手段が別途判明した場合(例: 別のリボン関数で
-'       PDF→PNG変換ができる) -> ConvertPdfToImages() 相当の関数を新設し、
-'       ExtractImagePdf内のPDF分岐を丸ごと差し替える(現状はプレースホルダの
-'       まま、vision_pdf_direct設定による2路線の切替のみ)。
-' ================================================================================
+' === 確定済みシグネチャ(出典: RIBBON_API_CONFIRMED.md §1 #5, #8 / 裁定D5) ===
+'   Base64FromFile(filePath As String) -> String
+'     PNG/JPEG等の画像ファイルをそのままBase64文字列にして返す(#8)。
+'   ChatGPTV(Text, imageInputs, [roleSystem], [resolution], [toolN]) -> String
+'     imageInputs = Base64FromFileで得たBase64文字列(複数はカンマ区切り、
+'     最大10枚)。resolution="high" で高精細解析(#5)。
+'     本モジュールは (VISION_PROMPT, b64, "", "high", "マイ本棚AI:vision") で呼ぶ。
+'   戻り値の扱い(§0: ラッパーはAPIレスポンスをそのまま文字列で返す):
+'     失敗時は "#ERR:" 始まり(TryRibbonRun側)/空文字列/上限系メッセージが
+'     返り得るため、IsVisionError() で失敗と判定する。
+'   PDF直渡しは公式仕様上不可能と確定(imageInputsは画像のBase64限定)。
+'   PDF→画像変換の手段はVBA単体に無いため、PDFは案内文つきの失敗とする。
+' ============================================================================
 
 Private Const RIBBON_FUNC_NAME As String = "ChatGPTV"
+Private Const BASE64_FUNC_NAME As String = "Base64FromFile"
+Private Const VISION_RESOLUTION As String = "high"
+Private Const VISION_TOOL_NAME As String = "マイ本棚AI:vision"
 Private Const IMAGE_EXTS As String = "png,jpg,jpeg"
 Private Const VISION_PROMPT As String = _
-    "この画像(またはPDF)に写っている文字を、レイアウトの意味を保ったまま、" & _
+    "この画像に写っている文字を、レイアウトの意味を保ったまま、" & _
     "省略せずにすべて書き出してください。図表の説明文やキャプションも含めてください。"
 
 Private mLastErrorMsg As String
@@ -63,9 +58,11 @@ Public Function Ping() As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
-' ExtractImagePdf - path(画像 or PDF)からVisionで文字を読み取り、
+' ExtractImagePdf - path(画像ファイル)からVisionで文字を読み取り、
 '   ExtractedPage 1件(page=1、全文)としてpagesへ格納する(MASTER_SPEC §7.7)。
 '   成功: True(pagesに1件) / 失敗: False(pagesは空配列のまま)。
+'   ※関数名の「Pdf」は§7.7契約の歴史的経緯によるもの。実際の対応形式は
+'     png/jpg/jpeg のみで、PDFは案内文つきの失敗になる(裁定D5)。
 ' ----------------------------------------------------------------------------
 Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As ExtractedPage) As Boolean
     mLastErrorMsg = ""
@@ -76,17 +73,14 @@ Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As Extracted
     Dim ext As String
     ext = modUtil.ExtOf(path)
 
-    Dim allowDirectPdf As Boolean
-    allowDirectPdf = modConfig.GetBool("vision_pdf_direct", False)
-
-    If Not IsImageExt(ext) And Not (ext = "pdf" And allowDirectPdf) Then
+    If Not IsImageExt(ext) Then
         If ext = "pdf" Then
             mLastErrorMsg = "#ERR:E0303:" & modLog.FriendlyMessage("E0303") & _
-                "(画像PDFの直接処理は現在この設定では無効です。管理者がconfigの" & _
-                "vision_pdf_directをTRUEにすると有効になります。)"
+                "(社内AIリボンの画像解析はPDFを直接読み取れない仕様です。お手数ですが、" & _
+                "該当ページをスクリーンショット等で画像(png/jpg)にしてからお試しください。)"
         Else
             mLastErrorMsg = "#ERR:E0301:このファイル形式(" & ext & ")はVisionで直接読み取れません。" & _
-                "対応形式は画像(png/jpg/jpeg)" & IIf(allowDirectPdf, "とpdf", "") & "です。"
+                "対応形式は画像(png/jpg/jpeg)のみです。"
         End If
         modLog.LogError "E0303", "optVision.ExtractImagePdf", "未対応ext=" & ext & " path=" & modUtil.SafeLeft(path, 300)
         ExtractImagePdf = False
@@ -95,8 +89,25 @@ Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As Extracted
 
     modUIMain.SetStage "🖼 画像から文字を読み取っています…"
 
+    ' (1) 画像ファイル → Base64文字列(確定: Base64FromFile / 台帳§1 #8)
+    Dim b64 As String
+    b64 = SafeResultToString(modGateway.TryRibbonRun(BASE64_FUNC_NAME, Array(path)))
+
+    If LenB(Trim$(b64)) = 0 Or Left$(b64, 5) = "#ERR:" Then
+        modUIMain.SetStage ""
+        mLastErrorMsg = "#ERR:E0303:画像ファイルの読み込み(Base64変換)に失敗しました。" & _
+            "ファイルが開けるか、壊れていないかをご確認ください。" & _
+            IIf(LenB(b64) > 0, "(詳細: " & modUtil.SafeLeft(b64, 200) & ")", "")
+        modLog.LogError "E0303", "optVision.ExtractImagePdf", "Base64FromFile失敗 path=" & _
+            modUtil.SafeLeft(path, 300) & " : " & modUtil.SafeLeft(b64, 200)
+        ExtractImagePdf = False
+        Exit Function
+    End If
+
+    ' (2) Base64 → 文字起こし(確定: ChatGPTV / 台帳§1 #5・裁定D5)
     Dim result As Variant
-    result = modGateway.TryRibbonRun(RIBBON_FUNC_NAME, BuildVisionArgs(path))
+    result = modGateway.TryRibbonRun(RIBBON_FUNC_NAME, _
+        Array(VISION_PROMPT, b64, "", VISION_RESOLUTION, VISION_TOOL_NAME))
 
     modUIMain.SetStage ""
 
@@ -143,7 +154,7 @@ Public Function ExtractImagePdfText(ByVal path As String) As String
     ElseIf LenB(mLastErrorMsg) > 0 Then
         ExtractImagePdfText = mLastErrorMsg
     Else
-        ExtractImagePdfText = "#ERR:E0303:画像/PDFからの文字抽出に失敗しました"
+        ExtractImagePdfText = "#ERR:E0303:画像からの文字抽出に失敗しました"
     End If
 End Function
 
@@ -156,14 +167,13 @@ Private Function IsImageExt(ByVal ext As String) As Boolean
     IsImageExt = (InStr(1, "," & IMAGE_EXTS & ",", "," & ext & ",", vbTextCompare) > 0)
 End Function
 
-' === SIGNATURE ASSUMPTION: 引数配列の組み立て。仕様が判明したらここだけ直す ===
-Private Function BuildVisionArgs(ByVal path As String) As Variant
-    BuildVisionArgs = Array(VISION_PROMPT, path)
-End Function
-
-' === SIGNATURE ASSUMPTION: 失敗判定。仕様が判明したらここだけ直す ===
+' 失敗判定(確定仕様準拠: ラッパーはエラーも文字列で返す。台帳§0)。
+'   "#ERR:" 始まり = TryRibbonRun側の失敗 / 空・"error" = リボン側の失敗 /
+'   上限系メッセージ = E0204の可能性(LooksLikeLimitError)。
 Private Function IsVisionError(ByVal s As String) As Boolean
     If LenB(Trim$(s)) = 0 Then
+        IsVisionError = True
+    ElseIf Left$(s, 5) = "#ERR:" Then
         IsVisionError = True
     ElseIf StrComp(Trim$(s), "error", vbTextCompare) = 0 Then
         IsVisionError = True

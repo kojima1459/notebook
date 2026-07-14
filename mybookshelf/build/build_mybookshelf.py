@@ -114,6 +114,8 @@ def build_config_rows(mock_llm: bool):
     return [
         ("mock_llm", mock_llm,
          "TRUE=社内AIリボンを呼ばずダミー応答で動作確認(リボン無しでも取込→検索→回答が一通り動く)。本番はFALSE"),
+        ("ribbon_addin_name", "リボンちゃん", "社内AIリボンのアドイン名(Application.AddInsからの検出に使用。名称が変わったときだけ書き換える)"),
+        ("limit_check", True, "TRUE=起動時にリボンのLimitCheck(期限・利用同意チェック)を行う。FALSEで無効化(エスケープハッチ)"),
         ("recommended_model", "gpt-5.5", "精査モード(🔍しっかり調べる)で使うモデル名"),
         ("quick_model", "gpt-5.5", "即答モード(⚡すぐ聞く)で使うモデル名(将来 gpt-5.4-nano 等に差し替え可)"),
         ("quick_effort", "low", "即答モードの reasoning_effort"),
@@ -136,7 +138,7 @@ def build_config_rows(mock_llm: bool):
         ("sync_on_open", True, "TRUE=起動時に本棚フォルダと差分同期する"),
         ("enrich_mode", "off", "off/light/full: バッチ富化(要約・キーワード付与)の強さ"),
         ("max_pages_per_file", 300, "1ファイルあたりの抽出ページ数上限(超過分は打ち切りpartial扱い)"),
-        ("feature_tts", False, "opt機能フラグ: 読み上げ(仕様確認後にTRUEへ)"),
+        ("feature_tts", False, "opt機能フラグ: 読み上げ(AIリボン非公開機能のため提供不可。既定FALSEのまま変更しない)"),
         ("feature_vision", False, "opt機能フラグ: 画像PDF読み取り(仕様確認後にTRUEへ)"),
         ("feature_markdown", False, "opt機能フラグ: Markdown表示(仕様確認後にTRUEへ)"),
         ("feature_diffdoc", True, "opt機能フラグ: 約款差分比較(確認済み関数のみ使用のため既定TRUE)"),
