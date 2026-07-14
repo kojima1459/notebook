@@ -3,6 +3,21 @@
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
 > 最終更新: 2026-07-12 【全Wave完了】プロジェクト完成
 
+## 現在地(2026-07-14 第2ウェーブ: 機能改修D10-D13)
+
+- 第1ウェーブ(公開API確定対応)は検品ゲート全緑でコミット済み(a72e353)。Opusレビュー+fixerは
+  組織の月間利用上限で死亡→PM(メインループ)が代行検品(lint契約更新/AddInsフォールスルー確認/
+  modBoot配線確認)。以後の中流レビューはSonnet代行。
+- **実行中ワークフロー**: mybookshelf-features-d10-d13 / Run ID `wf_b468f419-881` / Task `weah0bku9`
+  - スクリプト: /root/.claude/projects/-home-user-notebook-mybookshelf/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-features-d10-d13-wf_b468f419-881.js
+  - 再開: Workflow({scriptPath:<上記>, resumeFromRunId:"wf_b468f419-881"})(必要なら先にTaskStop weah0bku9)
+  - N1 modUIMain(TTSボタン削除/対話型Word/続けて質問ボタン) N2 modGateway+modAsk+modPrompts+optMarkdown
+    (prevU/prevA・深掘り移植・ExportAnswerAsDoc) N3 optVision+modShelf+modUIShelf(スクショ取込)
+    N5 docs(Haiku) → N4 MASTER_SPEC+lint契約同期 → Sonnetレビュー
+- **完了後のPM作業(未実施)**: ①レビュー指摘の処置 ②build --dev/--prod再ビルド ③最終検証
+  ④コミット&プッシュ ⑤タスク#16完了化 ⑥ユーザーへ最終報告
+- 保留: 高橋くんのモジュール採取待ち(effort/verbosity・LimitCheck真偽の裏取り→台帳§3)
+
 ## 現在地(2026-07-14 追加ラウンド: リボン公開API確定対応)
 
 - 担当部署メール+公開ページ入手 → 確定台帳 `docs/dev/RIBBON_API_CONFIRMED.md` 作成済み(PM裁定D1-D9)。
