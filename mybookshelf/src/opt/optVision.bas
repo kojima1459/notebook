@@ -22,6 +22,13 @@ Option Explicit
 '     どちらも modGateway.TryRibbonRun のみ経由で呼ぶ(R3)。
 '   ・失敗しても例外を外に出さない。ExtractImagePdfはBoolean(§7.7契約の
 '     とおり)、ExtractImagePdfTextは "#ERR:..." 文字列 または 全文。
+'   ・スクリーンショット取込(裁定D13): クリップボードの画像を本棚へ取り込む
+'     導線のために HasClipboardImage / SaveClipboardImage を公開する。
+'     確定関数 IsImageInCB / Base64FromCB(Ptn=1) の唯一の利用箇所
+'     (呼び出しはTryRibbonRun経由・R3)。UI導線はmodUIShelf.OnIngestScreenshot。
+'   ・mock_llm=TRUE のときはリボンを呼ばない: HasClipboardImageはFalse、
+'     SaveClipboardImageは親切な "#ERR:mockモード…" 案内を返す(optMarkdownの
+'     mock時の流儀に合わせる)。
 '   ・ExtractImagePdfの失敗理由をExtractImagePdfTextへ伝えるため、
 '     モジュール内Private変数(mLastErrorMsg)に直近の失敗メッセージを
 '     保持する(VBAは単一スレッドで実行されるため競合の心配がない)。
@@ -40,6 +47,11 @@ Option Explicit
 '     返り得るため、IsVisionError() で失敗と判定する。
 '   PDF直渡しは公式仕様上不可能と確定(imageInputsは画像のBase64限定)。
 '   PDF→画像変換の手段はVBA単体に無いため、PDFは案内文つきの失敗とする。
+'   IsImageInCB() -> Boolean(台帳§1 #6)
+'     クリップボードに画像があるかどうかを即時判定する。
+'   Base64FromCB([Ptn=0]) -> String(台帳§1 #7)
+'     Ptn=0でBase64文字列、Ptn=1で「Tempに保存したjpgのパス」を返す。
+'     本モジュール(SaveClipboardImage)は Ptn=1 のjpgパス取得のみ使う。
 ' ============================================================================
 
 Private Const RIBBON_FUNC_NAME As String = "ChatGPTV"
@@ -55,6 +67,45 @@ Private mLastErrorMsg As String
 
 Public Function Ping() As Boolean
     Ping = True
+End Function
+
+' ----------------------------------------------------------------------------
+' HasClipboardImage - クリップボードに画像があるか(裁定D13)。
+'   確定関数 IsImageInCB()(台帳§1 #6)のラッパー。mock_llm=TRUE・リボン
+'   不在・失敗時はFalse(失敗の記録はTryRibbonRun側がE0202で行うため、
+'   ここでの追加ログは不要=握りつぶしではない)。
+' ----------------------------------------------------------------------------
+Public Function HasClipboardImage() As Boolean
+    HasClipboardImage = False
+    If modConfig.GetBool("mock_llm", True) Then Exit Function
+    Dim res As Variant
+    res = modGateway.TryRibbonRun("IsImageInCB", Array())
+    If VarType(res) = vbBoolean Then HasClipboardImage = CBool(res)
+End Function
+
+' ----------------------------------------------------------------------------
+' SaveClipboardImage - クリップボードの画像をTempへjpg保存しパスを返す
+'   (裁定D13)。確定関数 Base64FromCB(Ptn=1)(台帳§1 #7: Ptn=1で
+'   「Tempに保存したjpgのパス」が返る)のラッパー。
+'   成功: jpgのフルパス / 失敗: "#ERR:..."(例外は出さない)。
+' ----------------------------------------------------------------------------
+Public Function SaveClipboardImage() As String
+    If modConfig.GetBool("mock_llm", True) Then
+        SaveClipboardImage = "#ERR:mockモード(mock_llm=TRUE)ではクリップボード取込を利用できません。" & _
+            "config の mock_llm を FALSE にすると実際に取り込めるようになります。"
+        Exit Function
+    End If
+
+    Dim res As Variant
+    res = modGateway.TryRibbonRun("Base64FromCB", Array(1&))
+    Dim s As String: s = CStr(res)
+
+    If LenB(s) = 0 Then
+        SaveClipboardImage = "#ERR:クリップボード画像の保存に失敗しました(応答が空)"
+    Else
+        ' TryRibbonRun失敗時の "#ERR:E0202:..." はそのまま呼び出し元へ渡す
+        SaveClipboardImage = s
+    End If
 End Function
 
 ' ----------------------------------------------------------------------------

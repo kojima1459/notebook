@@ -167,7 +167,9 @@ CONTRACT: dict[str, dict] = {
     },
     "modAsk": {
         "closed": True,
-        "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed"],
+        # CanFollowup/AskFollowup: 続けて質問=深掘り機能(裁定D11・RIBBON_API_CONFIRMED.md §2b)
+        "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
+                     "CanFollowup", "AskFollowup"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -221,9 +223,13 @@ CONTRACT: dict[str, dict] = {
     },
     # ---- 7.7 opt層(全モジュール共通でPing必須) ----
     "optTts": {"closed": True, "required": ["Ping", "SpeakAnswer"]},
-    "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText"]},
-    # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6・RIBBON_API_CONFIRMED.md)
-    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord"]},
+    # HasClipboardImage/SaveClipboardImage: スクショ取込(裁定D13・RIBBON_API_CONFIRMED.md §2b)
+    "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
+                                               "HasClipboardImage", "SaveClipboardImage"]},
+    # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
+    # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
+    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
+                                                 "ExportAnswerAsDoc"]},
     "optDiffDoc": {"closed": True, "required": ["Ping", "CompareTwoDocsDialog"]},
     # ---- 7.8 テストモジュール ----
     "modTestRunner": {

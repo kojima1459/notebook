@@ -147,7 +147,16 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         ' 死コードになっていた(フラグをONにしても画像PDFは常にimage_pdf
         ' 確定していた)。成功時はOCR結果を1ページの通常抽出結果として
         ' 後続(チャンク分割以降)へ合流させる。
-        If errCode = "E0303" And modFeatures.FeatureEnabled("vision") Then
+        ' 裁定D13拡張: E0303(画像PDF)に加え、E0301のうち画像ファイル
+        ' (png/jpg/jpeg)もvision委譲の対象にする。これによりスクショ取込
+        ' (modUIShelf.OnIngestScreenshot)や画像ファイルの直接追加が、既存の
+        ' 取込パイプラインにそのまま合流する。他の拡張子のE0301挙動は不変。
+        Dim visionEligible As Boolean
+        visionEligible = (errCode = "E0303")
+        If (Not visionEligible) And errCode = "E0301" Then
+            visionEligible = IsImageExtension(path)
+        End If
+        If visionEligible And modFeatures.FeatureEnabled("vision") Then
             Dim visionResult As Variant
             visionResult = modFeatures.InvokeFeature("vision", "ExtractImagePdfText", path)
             Dim visionText As String: visionText = ""
@@ -169,9 +178,17 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             Else
                 failStatus = "failed"
             End If
+            ' 画像ファイルがvision無効のまま失敗した場合は、原因ではなく
+            ' 「次にどうすればよいか」が分かる案内文にする(裁定D13)。
+            Dim failMsg As String
+            failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+            If errCode = "E0301" And IsImageExtension(path) Then
+                failMsg = "画像の取込には画像解析機能の有効化が必要です。" & _
+                    "configシートの feature_vision を TRUE にしてから、もう一度お試しください。(コード: E0301)"
+            End If
             If isSelf Then
                 UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
-                    failStatus, modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")", origin
+                    failStatus, failMsg, origin
             End If
             resultStatus = failStatus
             GoTo Finish
@@ -370,6 +387,14 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+' 画像ファイル拡張子か(vision委譲の対象判定・裁定D13)。optVisionの
+' IMAGE_EXTS(png,jpg,jpeg)と揃えること。
+Private Function IsImageExtension(ByVal path As String) As Boolean
+    Dim e As String
+    e = LCase$(modUtil.ExtOf(path))
+    IsImageExtension = (e = "png" Or e = "jpg" Or e = "jpeg")
+End Function
 
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next

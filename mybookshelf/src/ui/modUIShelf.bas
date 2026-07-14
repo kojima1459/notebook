@@ -84,6 +84,11 @@ Public Sub EnsureLayout()
     AddButton ws, ws.Range("E1:F2"), "btn_pack_out", "📦 パックにして渡す", "modUIShelf.OnExportPack"
     AddButton ws, ws.Range("G1:H2"), "btn_pack_in", "📥 パックを取り込む", "modUIShelf.OnImportPack"
     AddButton ws, ws.Range("I1:J2"), "btn_delete", "🗑 選んだ資料を削除", "modUIShelf.OnDeleteSource"
+    ' スクショ取込(裁定D13)は画像解析機能が有効なときだけボタンを出す
+    ' (無効環境で「押したら断られるボタン」を見せないため)。
+    If modFeatures.FeatureEnabled("vision") Then
+        AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "📸 スクショ取込", "modUIShelf.OnIngestScreenshot"
+    End If
 
     ' ---- 本棚フォルダ情報 ----------------------------------------------------
     With ws.Range(RNG_FOLDER)
@@ -207,6 +212,83 @@ Fail:
     Err.Clear
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' OnIngestScreenshot - クリップボードの画像(スクリーンショット)を本棚へ
+'   取り込む(裁定D13)。流れ: 画像有無確認→タイトル入力→jpg保存(Temp)→
+'   「<タイトル>_日時.jpg」で本棚フォルダ(未設定ならTempのまま)へコピー→
+'   既存のmodShelf.IngestFileへ合流(画像はvision委譲フォールバックが処理)。
+'   optVisionへの参照はR2に従いmodFeatures.InvokeFeature経由のみ。
+' ----------------------------------------------------------------------------
+Public Sub OnIngestScreenshot()
+    On Error GoTo Fail
+
+    ' 1) クリップボードに画像があるか(機能無効/mock時は#ERR文字列が返る)
+    Dim hasRes As Variant
+    hasRes = modFeatures.InvokeFeature("vision", "HasClipboardImage", Array())
+    If VarType(hasRes) = vbString Then
+        MsgBox "この機能は現在利用できません(管理者が有効化すると使えます)。", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+    If Not CBool(hasRes) Then
+        MsgBox "クリップボードに画像がありません。" & vbCrLf & _
+               "取り込みたい画面をコピー(PrintScreen や Win+Shift+S)してから、もう一度押してください。", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    ' 2) 資料タイトルを尋ねる(空欄・キャンセルは中止)
+    Dim docTitle As String
+    docTitle = Trim$(InputBox("この画像の資料名を入力してください。" & vbCrLf & _
+                              "(例: 経費精算マニュアル 12ページ)", "スクショ取込"))
+    If LenB(docTitle) = 0 Then Exit Sub
+
+    ' 3) クリップボード画像をjpg保存(Tempのパスが返る)
+    Dim savedRes As Variant
+    savedRes = modFeatures.InvokeFeature("vision", "SaveClipboardImage", Array())
+    Dim savedPath As String
+    savedPath = CStr(savedRes)
+    If LenB(savedPath) = 0 Or Left$(savedPath, 5) = "#ERR:" Then
+        MsgBox "画像の保存に失敗しました。もう一度画面をコピーしてからお試しください。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    ' 4) 「<タイトル>_yyyymmddhhnnss.jpg」へ改名コピー。保存先は本棚フォルダ
+    '    (shelf_folder。未設定ならTempと同じ場所)。同名衝突は日時秒で実質回避。
+    Dim destDir As String
+    destDir = modConfig.GetString("shelf_folder", "")
+    If LenB(destDir) = 0 Then destDir = Left$(savedPath, InStrRev(savedPath, "\") - 1)
+    If Right$(destDir, 1) = "\" Then destDir = Left$(destDir, Len(destDir) - 1)
+    Dim destPath As String
+    destPath = destDir & "\" & SanitizeFileName(docTitle) & "_" & Format$(Now, "yyyymmddhhnnss") & ".jpg"
+    FileCopy savedPath, destPath
+
+    ' 5) 既存の取込パイプラインへ(進捗実況・本棚一覧更新はIngestFile側の責務)
+    Dim ingestStatus As String
+    ingestStatus = modShelf.IngestFile(destPath, "self")
+
+    RefreshBadgesAndDashboard
+    Exit Sub
+Fail:
+    modLog.LogError "E0801", "modUIShelf.OnIngestScreenshot", Err.Description
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ファイル名に使えない文字を "_" に置換し、長すぎるタイトルは80字で切る。
+Private Function SanitizeFileName(ByVal s As String) As String
+    Dim bad As Variant
+    bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|", vbTab, vbCr, vbLf)
+    Dim t As String
+    t = s
+    Dim i As Long
+    For i = LBound(bad) To UBound(bad)
+        t = Replace(t, CStr(bad(i)), "_")
+    Next i
+    SanitizeFileName = modUtil.SafeLeft(Trim$(t), 80)
+End Function
 
 Public Sub OnPickFolder()
     On Error GoTo Fail

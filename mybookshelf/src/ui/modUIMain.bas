@@ -28,15 +28,18 @@ Option Explicit
 '   ・SetStageは「セルへの書込み」「Application.StatusBarへの反映」を
 '     必ず両方行う(§7.6契約)。処理中(msgが空でない)ときは待ち時間豆知識
 '     ShowTipも合わせて更新し、ユーザーが手持ち無沙汰にならないようにする。
-'   ・読み上げボタンは常時生成するが、機能呼び出しは行わない(確定済み:
-'     音声合成(TTS)はAIリボン側の非公開機能で、拡張ツールへは提供されない。
-'     出典: RIBBON_API_CONFIRMED.md §0/D4)。押すと理由の案内メッセージを
-'     表示する(ボタンごと消すより「なぜ無いか」が分かる方が親切)。
+'   ・読み上げ(TTS)ボタンは置かない(裁定D10でボタンごと撤去。音声読み上げは
+'     AIリボン本体でのみ利用可。出典: RIBBON_API_CONFIRMED.md §0/§2b D10)。
+'   ・「続けて質問」ボタン(OnFollowupButton。裁定D11)は旧読み上げボタンの
+'     位置(A31:D32)に置く。深掘りの実体(会話履歴の保持・再質問)はすべて
+'     modAsk.CanFollowup/AskFollowupの責務で、ここはInputBoxで追質問を
+'     受け取って渡すだけの薄いラッパーに徹する。
 '   ・opt機能ボタン(Wordで開く)はmodFeatures.FeatureEnabledがTrueのときだけ
-'     EnsureLayout内で生成する(§7.7)。ボタンのOnActionはこのモジュール内の
-'     OnOpenWordButtonラッパー経由でmodFeatures.InvokeFeatureを呼ぶ(opt直接
-'     参照はR2違反になるため、このモジュールにoptMarkdown等のトークンは一切
-'     書かない)。
+'     EnsureLayout内で生成する(§7.7)。押下時は「どんな文書に仕上げるか」の
+'     指示文を尋ねてから(裁定D12: 対話型文書生成)、OnOpenWordButtonラッパー
+'     経由でmodFeatures.InvokeFeature("markdown","ExportAnswerAsDoc",…)を
+'     呼ぶ(opt直接参照はR2違反になるため、このモジュールにoptMarkdown等の
+'     トークンは一切書かない)。
 '   ・本棚が空のときの案内(§8.1「まず『マイ本棚』タブで資料を1つ追加して
 '     みましょう →」)はShowEmptyShelfHintとして公開し、呼び出し判断(本棚が
 '     空かどうか)はmodBoot側が行う(modUIMainはmodShelfの状態を勝手に
@@ -185,12 +188,13 @@ Public Sub EnsureLayout()
     AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "🟡 ヒントになった", "modAsk.FeedbackYellow"
     AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "🔴 だめだった", "modAsk.FeedbackRed"
 
-    ' ---- 読み上げ+Wordで開く --------------------------------------------------
-    ' 読み上げは提供不可の確定機能(D4)だがボタンは常時生成し、押されたら
-    ' OnTtsButtonが理由を案内する。「Wordで開く」はopt機能(markdown)なので
-    ' FeatureEnabledがTrueのときだけ生成する(§7.7)。
+    ' ---- 続けて質問+Wordで開く ------------------------------------------------
+    ' 「続けて質問」(裁定D11)はコア機能(modAsk)への入口なので常時生成する。
+    ' 「Wordで開く」はopt機能(markdown)なのでFeatureEnabledがTrueのときだけ
+    ' 生成する(§7.7)。※読み上げボタンは裁定D10で撤去した(音声読み上げは
+    ' AIリボン本体でのみ利用可)。
     ws.Rows("31:32").RowHeight = 18
-    AddButton ws, ws.Range("A31:D32"), "btn_tts", "🔊 読み上げる", "modUIMain.OnTtsButton"
+    AddButton ws, ws.Range("A31:D32"), "btn_followup", "💬 続けて質問", "modUIMain.OnFollowupButton"
     If modFeatures.FeatureEnabled("markdown") Then
         AddButton ws, ws.Range("E31:H32"), "btn_word", "📝 Wordで開く", "modUIMain.OnOpenWordButton"
     End If
@@ -369,20 +373,48 @@ Public Sub ShowTip()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' OnTtsButton - 読み上げボタン。機能呼び出しは行わず、提供不可の理由を案内する。
-'   確定済み: 音声合成(TTS)はAIリボン側の非公開機能であり、拡張ツールへは
-'   提供されない(出典: RIBBON_API_CONFIRMED.md §0/D4)。
+' OnFollowupButton - 「続けて質問」ボタン(裁定D11)。直近の回答を踏まえた
+'   追加質問(深掘り)をInputBoxで受け取り、modAsk.AskFollowupへ渡す。
+'   会話がまだ始まっていない(modAsk.CanFollowup=False)ときは丁寧な案内のみ。
+'   文言はV2実証済みのmodChatUI.OnFollowupClickを踏襲(絵文字は使わない。§12)。
 ' ----------------------------------------------------------------------------
-Public Sub OnTtsButton()
-    MsgBox "音声読み上げは、社内AIリボンの方針により拡張ツールへは提供されていません。" & vbLf & _
-           "AIリボン本体の画面からのみ利用できます。", _
-           vbInformation, modAppDef.APP_NAME
+Public Sub OnFollowupButton()
+    On Error GoTo Fail
+
+    If Not modAsk.CanFollowup() Then
+        MsgBox "まず質問して回答を受け取ってから使ってください。", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    Dim hint As String
+    hint = "前回までの会話を踏まえて、追加の質問・深掘りを入力してください。" & vbCrLf & _
+           "(何度でも続けられます。空欄のまま閉じると何もしません)"
+
+    Dim followup As String
+    followup = InputBox(hint, modAppDef.APP_NAME & " - 続けて質問", "")
+    If LenB(Trim$(followup)) = 0 Then Exit Sub   ' キャンセル/空欄は何もしない
+
+    modAsk.AskFollowup followup
+    RefreshBadgesAndDashboard
+    Exit Sub
+
+Fail:
+    modLog.LogError "E0602", "modUIMain.OnFollowupButton", Err.Description
+    Err.Clear
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
 ' OnOpenWordButton - opt機能(Wordで開く)のUIラッパー(§7.7)。opt直接参照はしない。
-'   直近回答テキストをmodFeatures.InvokeFeature経由でoptモジュールに渡し、
-'   Markdown書式付きでWordに開いてもらう(確定関数OpenWordMark使用。D6)。
+'   裁定D12(対話型文書生成): 押下時に「どんな文書に仕上げるか」の指示文を
+'   尋ね、直近回答テキストと合わせてmodFeatures.InvokeFeature経由で
+'   optモジュール(ExportAnswerAsDoc)に渡す(引数は回答本文+指示文の2値を
+'   Variant配列で。InvokeFeature→TryRibbonRunが展開する既存規約)。指示文が
+'   空欄のときは整形せずそのままWordに転記される(opt側の契約)。
+'   キャンセルと空欄OKは区別が必要(キャンセル=中止/空欄=そのまま転記)な
+'   ため、VBAのInputBox(両者とも""が返り区別不能)ではなくApplication.InputBox
+'   (Type:=2。キャンセル時はBooleanのFalseが返る)を使う。
 ' ----------------------------------------------------------------------------
 Public Sub OnOpenWordButton()
     If LenB(mLastAnswerText) = 0 Then
@@ -391,10 +423,29 @@ Public Sub OnOpenWordButton()
         Exit Sub
     End If
 
-    Dim result As Variant
-    result = modFeatures.InvokeFeature("markdown", "OpenAnswerInWord", mLastAnswerText)
+    Dim resp As Variant
+    resp = Application.InputBox( _
+        Prompt:="どんな文書に仕上げますか?" & vbCrLf & _
+                "(例: お客様向けの回答文書風に / 社内回覧用の要約に)" & vbCrLf & _
+                "※空欄ならそのまま転記", _
+        Title:=modAppDef.APP_NAME & " - Wordで開く", Default:="", Type:=2)
+    If VarType(resp) = vbBoolean Then Exit Sub   ' キャンセル→何もしない
 
-    ' OpenAnswerInWordの契約: ""=成功 / "#ERR:..."=失敗(InvokeFeature側で
+    Dim instruction As String
+    instruction = Trim$(CStr(resp))
+
+    If LenB(instruction) > 0 Then
+        SetStage "📝 ご指定の形に整えて、Word文書を作成中…"
+    Else
+        SetStage "📝 Word文書を作成中…"
+    End If
+
+    Dim result As Variant
+    result = modFeatures.InvokeFeature("markdown", "ExportAnswerAsDoc", _
+                                       Array(mLastAnswerText, instruction))
+    SetStage ""
+
+    ' ExportAnswerAsDocの契約: ""=成功 / "#ERR:..."=失敗(InvokeFeature側で
     ' "#ERR:FEATURE_UNAVAILABLE" に正規化される)。
     Dim isErr As Boolean
     isErr = False

@@ -46,10 +46,16 @@ Private mRibbonAvailable As Boolean
 ' ChatGPT位置引数規約は確定済み(V2実証+RIBBON_API_CONFIRMED.md §0:
 ' 「関数は互換性を保つよう維持される(引数は後方追加)」。公開ページの
 ' 9引数版に対し、第10・11引数effort/verbosityは互換後方追加):
-'   Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, "", "",
+'   Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, prevU, prevA,
 '                    toolN, effort, verbosity)
 ' 第9引数toolNには "マイ本棚AI:" & step_name を渡す(裁定D1。管理側ログで
 ' ツールを識別できるようにするため)。
+' 第7・8引数prevU/prevAは会話継続用の履歴(確定根拠: 台帳§1 #1のChatGPT
+' シグネチャ第7・8引数+裁定D11)。複数往復ぶんは「新しい順」に ";;;" 区切り
+' で連結した文字列を渡す(prevU=過去の質問、prevA=過去の回答。履歴の保持と
+' 連結はmodAsk側の責務)。本関数のprevU/prevAはOptional末尾追加のため、
+' 既定""=履歴なしで従来と完全に同じ呼び出しになり、既存呼び出し元
+' (modAsk/modEnrich/optDiffDoc等)は無改修で動く(後方互換)。
 ' arg3(Temperature)/arg4(MaxTokens)はDouble/Long型のため ""  を渡すと型不一致
 ' エラーになる。GPT-5系モデルではこの2つは無視され、代わりにeffort/verbosity
 ' (第10・11引数)が効く設計になっている(V2の実運用で確認済み)。
@@ -57,7 +63,9 @@ Private mRibbonAvailable As Boolean
 Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
                         ByVal effort As String, ByVal verbosity As String, _
                         Optional ByVal model_override As String = "", _
-                        Optional ByRef latency_ms As Long = 0) As String
+                        Optional ByRef latency_ms As Long = 0, _
+                        Optional ByVal prevU As String = "", _
+                        Optional ByVal prevA As String = "") As String
     Dim t0 As Double: t0 = Timer
     On Error GoTo ErrHandler
 
@@ -89,9 +97,9 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
 
     Dim waitSec As Long: waitSec = modConfig.GetLong("llm_wait_sec", 1200)
 
-    '            text   roleSys Temp MaxTok Wait   model prevU prevA toolN                        effort verbosity
+    '            text   roleSys Temp MaxTok Wait   model prevU  prevA  toolN                        effort verbosity
     Dim result As Variant
-    result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, "", "", "マイ本棚AI:" & step_name, eff, vrb)
+    result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, prevU, prevA, "マイ本棚AI:" & step_name, eff, vrb)
     Dim s As String: s = CStr(result)
     latency_ms = CLng((Timer - t0) * 1000)
 
@@ -323,6 +331,10 @@ End Function
 ' step_name別に出典形式[本棚:...]を含む整形済み日本語ダミーを返す。
 ' UIの全経路(⚡すぐ聞く/🔍しっかり調べる/富化/約款差分)がリボン無しでも
 ' 本物同様に動くことを保証するための固定応答。
+' quick_draft/deep_verify には末尾に [[FOLLOWUP: 候補1 | 候補2]] マーカーを
+' 含める(裁定D11。modAskのパース→除去→「深掘り候補」ブロック整形→
+' 『続けて質問』のUXが、mock環境でも本物同様に一巡できるようにするため。
+' V2 modRibbonGateway のmock検証応答と同じ流儀)。
 Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As String) As String
     Select Case LCase$(step_name)
         Case "quick_draft"
@@ -331,7 +343,8 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
                 "・ここに実際の回答本文が入ります [本棚:サンプル資料.pdf p.1]" & vbLf & _
                 "・資料に無い内容は「資料には見当たらない」と述べます。" & vbLf & vbLf & _
                 "(mock_llm=TRUE のためこれはダミー応答です。config の mock_llm を FALSE にすると" & _
-                "AIリボンへ実際に問い合わせます。)"
+                "AIリボンへ実際に問い合わせます。)" & vbLf & _
+                "[[FOLLOWUP: (モック)この手続きの必要書類は? | (モック)例外になるケースは?]]"
         Case "deep_draft"
             MockLLMResponse = "【モック回答/しっかり調べる・下書き】" & vbLf & _
                 "■結論" & vbLf & _
@@ -343,7 +356,8 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
             MockLLMResponse = "【モック回答/しっかり調べる・検証済み】" & vbLf & _
                 "・下書きの内容を確認し、出典 [本棚:サンプル資料.pdf p.3] と食い違いが無いことを確認しました。" & vbLf & _
                 "・最終的な回答本文がここに入ります。" & vbLf & vbLf & _
-                "(mock_llm=TRUE によるダミー検証結果です。)"
+                "(mock_llm=TRUE によるダミー検証結果です。)" & vbLf & _
+                "[[FOLLOWUP: (モック)関連する規程はどれ? | (モック)適用開始日はいつから?]]"
         Case "enrich"
             MockLLMResponse = "[{""i"":1,""summary"":""(モック要約)この章の要点"",""keywords"":""キーワードA,キーワードB""}]"
         Case "diff"

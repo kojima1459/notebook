@@ -35,6 +35,15 @@ Option Explicit
 '     Hit型に残っており、本モジュールのプロンプト本文には使わない。ただし
 '     full_textが空(旧データ・テストダブル等で未設定)の場合はpreviewへ
 '     フォールバックする防御的実装にし、空の抜粋が本文に混じらないようにする。
+'   ・深掘り候補(裁定D11): 利用者に実際に表示される回答を生成する
+'     BuildQuickPrompt(すぐ聞くの最終応答)とBuildDeepVerifyPrompt(しっかり
+'     調べるの最終応答)の末尾に、[[FOLLOWUP: 候補1 | 候補2]] 形式で深掘り
+'     質問候補を2つ付けさせる指示行(FollowupInstruction)を追加する。
+'     マーカーはmodAsk側でパース・除去され「深掘り候補(『続けて質問』で
+'     そのまま聞けます)」ブロックに整形されるため、利用者の目に生マーカーが
+'     触れることはない(LLMが指示を無視してマーカーを出さなくても、候補
+'     ブロックが付かないだけで壊れない)。BuildDeepDraftPromptは表示されない
+'     中間生成物(検証段の入力)のため対象外。
 ' ============================================================================
 
 Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
@@ -52,6 +61,7 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     sb = sb & NotFoundInstruction() & vbLf & vbLf
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
+    sb = sb & vbLf & FollowupInstruction() & vbLf
     BuildQuickPrompt = sb
 End Function
 
@@ -97,6 +107,7 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
     sb = sb & vbLf & "## 下書き回答" & vbLf & draft & vbLf
     sb = sb & vbLf & "(指示: 検証済みの最終回答のみを出力してください。下書きとの差分説明や、" & _
         "検証過程の説明は不要です。)"
+    sb = sb & vbLf & FollowupInstruction() & vbLf
     BuildDeepVerifyPrompt = sb
 End Function
 
@@ -159,6 +170,15 @@ Private Function NotFoundInstruction() As String
     NotFoundInstruction = "本棚抜粋に書かれていないことは、推測で埋めずに" & _
         "「資料には見当たらない」とはっきり述べてください。" & _
         "やむを得ず推測で補う場合は、それが推測であることを明示してください。"
+End Function
+
+' 深掘り候補の要求指示(裁定D11)。[[FOLLOWUP:...]]マーカーはmodAsk側で
+' パース・除去して「深掘り候補」ブロックに整形される(利用者には見せない)。
+Private Function FollowupInstruction() As String
+    FollowupInstruction = "最後に、この回答をさらに深掘りするための質問候補を2つ考え、" & _
+        "回答本文の一番最後に次の1行だけを追加してください" & _
+        "(この行は利用者向け表示からは自動的に取り除かれます。良い候補が無ければ [[FOLLOWUP: なし]] と書く):" & vbLf & _
+        "[[FOLLOWUP: 候補1 | 候補2]]"
 End Function
 
 ' hits()由来の情報から「## 本棚抜粋」ブロックを組み立てる。

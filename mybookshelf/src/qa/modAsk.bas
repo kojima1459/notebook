@@ -67,6 +67,22 @@ Option Explicit
 '     簡易版をmodAsk内に内蔵したもの(V2から流用可: MASTER_SPEC発注時の
 '     指示どおり)。quick/deep問わず、実際にLLMから回答が得られた
 '     (エラーでない)ターンのみ履歴に積む。
+'   ・続けて質問(裁定D11): 成功した各ターンのQ&Aを、上記mHistory
+'     (プロンプト内履歴)とは別に、リボンChatGPT()の確定引数prevU/prevA
+'     (台帳§1 #1 第7・8引数)へそのまま渡せる形式=「新しい順;;;区切り」の
+'     mPrevU/mPrevAとしてもセッション保持する(最大 config
+'     followup_max_pairs 既定3ペア)。AskFollowupは既存のAnswer系フローを
+'     そのまま再利用し、追質問文でmodRetrieve.Searchも再実行したうえで、
+'     この履歴をmodGateway.CallLLMのprevU/prevAに添えて出典付き回答を
+'     返す(2速モードは既存どおりui_stateの設定に従う)。
+'   ・深掘り候補(裁定D11): LLM応答末尾の [[FOLLOWUP: 候補1 | 候補2]] を
+'     パースして本文から除去し、「深掘り候補(『続けて質問』でそのまま
+'     聞けます)」ブロックとして本文末尾に整形追記してからRenderAnswerへ
+'     渡す(RenderAnswerの契約は不変)。パースはV2実証済みの
+'     modPipeline.ParseTrailersと同じ流儀の寛容実装で、マーカーが無い応答
+'     (mockLLM応答等)・候補なし・形式崩れでも壊れない(その場合は候補
+'     ブロックなしで正常動作)。履歴(mHistory/mPrevU/mPrevA)には候補
+'     ブロックを含まない除去後の本文だけを積む。
 ' ============================================================================
 
 Private Const MODE_QUICK As String = "quick"
@@ -80,8 +96,19 @@ Private Const EMPTY_QUESTION_MESSAGE As String = _
 Private Const HISTORY_MAX_TURNS As Long = 3
 Private Const HISTORY_SEP As String = "<<<__QA_TURN__>>>"
 
+' 続けて質問(裁定D11): リボンChatGPT()のprevU/prevA引数の履歴区切り文字
+' (確定: 新しい順;;;区切り。台帳§1 #1+裁定D11)。
+Private Const FOLLOWUP_PAIR_SEP As String = ";;;"
+
 Private mAsking As Boolean
 Private mHistory As String
+
+' 続けて質問(裁定D11)用のセッション履歴: prevU=過去の質問/prevA=過去の
+' 回答(どちらも新しい順;;;区切り・最大 config followup_max_pairs ペア)。
+' mLastCleanAnswerは深掘り候補ブロック除去後の直近回答本文(履歴保存用)。
+Private mPrevU As String
+Private mPrevA As String
+Private mLastCleanAnswer As String
 
 Private mLastQuestion As String
 Private mLastAnswer As String
@@ -127,8 +154,72 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' Answer - 質問文とモードから回答テキストを組み立てて返す(MASTER_SPEC §7.3)。
+'   契約どおりの公開API。会話履歴なしの単発質問として実行する(実体は
+'   AnswerWithContext。裁定D11のAskFollowupと本体を共有する)。
 ' ----------------------------------------------------------------------------
 Public Function Answer(ByVal question As String, ByVal mode As String) As String
+    Answer = AnswerWithContext(question, mode, "", "", False)
+End Function
+
+' ----------------------------------------------------------------------------
+' CanFollowup - 「続けて質問」できる直近回答が存在するか(裁定D11)。
+'   このセッションで成功した回答が1件でもあればTrue。UI側(modUIMainの
+'   OnFollowupButton)がFalse時に「まず質問してから」の丁寧な案内を出す。
+'   config followup_max_pairs を0以下にすると履歴を持たなくなるため、
+'   常にFalse(=機能無効)になるエスケープハッチを兼ねる。
+' ----------------------------------------------------------------------------
+Public Function CanFollowup() As Boolean
+    CanFollowup = (LenB(mPrevU) > 0)
+End Function
+
+' ----------------------------------------------------------------------------
+' AskFollowup - 直近の会話履歴を添えて追質問を実行する(裁定D11)。
+'   既存のAnswer系フローを再利用: 追質問文でmodRetrieve.Searchも再実行し、
+'   出典付き回答をRenderAnswerで表示する(2速モードは既存どおりui_stateの
+'   設定に従う)。履歴はmPrevU/mPrevA(新しい順;;;区切り)をCallLLMの
+'   prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡す。履歴が空
+'   (CanFollowup=False)のまま呼ばれた場合は通常の単発質問と同じ動作に
+'   自然に退化する(UI側が事前案内する契約だが、直接呼ばれても壊れない防御)。
+' ----------------------------------------------------------------------------
+Public Sub AskFollowup(ByVal followupText As String)
+    If mAsking Then
+        On Error Resume Next
+        modUIMain.SetStage "処理中です。少しお待ちください…"
+        On Error GoTo 0
+        Exit Sub
+    End If
+
+    mAsking = True
+    On Error GoTo Fail
+
+    Dim mode As String
+    mode = ReadModeFromUiState()
+
+    ' mPrevU/mPrevAはByValスナップショットで渡す(AnswerWithContextの成功時に
+    ' 今回のターンが履歴へ追記されても、今回の呼び出し自体には影響しない)。
+    Dim ans As String
+    ans = AnswerWithContext(followupText, mode, mPrevU, mPrevA, True)
+
+    modUIMain.RenderAnswer ans, mLastHits, mLastNHits, mLastMode, mLastSeconds
+
+    mAsking = False
+    Exit Sub
+
+Fail:
+    modLog.LogError "E0602", "modAsk.AskFollowup", Err.Description
+    Err.Clear
+    On Error GoTo 0
+    mAsking = False
+End Sub
+
+' ----------------------------------------------------------------------------
+' AnswerWithContext - Answer/AskFollowup共通の回答生成本体(Private)。
+'   prevU/prevAはリボンChatGPT()へ渡す会話履歴(空文字=履歴なし)。
+'   isFollowupはusage_logの識別用(event="ask"のdetail先頭に"followup "を付す)。
+' ----------------------------------------------------------------------------
+Private Function AnswerWithContext(ByVal question As String, ByVal mode As String, _
+                                   ByVal prevU As String, ByVal prevA As String, _
+                                   ByVal isFollowup As Boolean) As String
     Dim tStart As Double
     tStart = Timer
 
@@ -151,7 +242,7 @@ Public Function Answer(ByVal question As String, ByVal mode As String) As String
         mLastHits = emptyHits
         mLastNHits = 0
         mLastSeconds = 0
-        Answer = EMPTY_QUESTION_MESSAGE
+        AnswerWithContext = EMPTY_QUESTION_MESSAGE
         Exit Function
     End If
 
@@ -183,9 +274,9 @@ Public Function Answer(ByVal question As String, ByVal mode As String) As String
         modUIMain.RenderSourcesPreview hits, nHits
 
         If mdMode = MODE_DEEP Then
-            result = RunDeepFlow(q, hits, nHits, ok)
+            result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
         Else
-            result = RunQuickFlow(q, hits, nHits, ok)
+            result = RunQuickFlow(q, hits, nHits, ok, prevU, prevA)
         End If
     End If
 
@@ -203,7 +294,10 @@ Fail:
     If errNum = 18 Then
         result = "操作を中断しました。もう一度質問するときは、質問するボタンを押してください。"
     Else
-        modLog.LogError "E0602", "modAsk.Answer", "mode=" & mdMode & " err=" & errDesc
+        ' 出所ラベルは公開APIのAnswerで記録する(内部関数名を "modAsk.Xxx" 形式の
+        ' 文字列で書くとlintのモジュール間参照検査が実在Publicと照合して誤検知する
+        ' ため。詳細detailに共通本体である旨を残す)。
+        modLog.LogError "E0602", "modAsk.Answer", "共通本体(AnswerWithContext) mode=" & mdMode & " err=" & errDesc
         result = modLog.FriendlyMessage("E0602") & vbLf & "(コード: E0602)"
     End If
 
@@ -217,7 +311,12 @@ Done:
     Dim elapsedSec As Long
     elapsedSec = CLng(Timer - tStart)
 
-    If ok Then AppendHistory q, result
+    ' 成功ターンのみ履歴に積む。積むのは深掘り候補ブロックを含まない
+    ' 除去後の本文(mLastCleanAnswer。DecorateWithFollowupsが設定)。
+    If ok Then
+        AppendHistory q, mLastCleanAnswer
+        AppendFollowupPair q, mLastCleanAnswer
+    End If
 
     mLastQuestion = q
     mLastAnswer = result
@@ -226,10 +325,13 @@ Done:
     mLastNHits = nHits
     mLastSeconds = elapsedSec
 
-    modLog.LogUsage "ask", mdMode, "q=" & modUtil.SafeLeft(q, 200), elapsedMs, nHits
+    Dim logDetail As String
+    logDetail = "q=" & modUtil.SafeLeft(q, 200)
+    If isFollowup Then logDetail = "followup " & logDetail
+    modLog.LogUsage "ask", mdMode, logDetail, elapsedMs, nHits
     modStats.Bump "ask_" & mdMode & "_total"
 
-    Answer = result
+    AnswerWithContext = result
 End Function
 
 Public Sub FeedbackGreen()
@@ -251,10 +353,11 @@ Public Sub FeedbackRed()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記5本のみ)
+' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)
 ' ----------------------------------------------------------------------------
 
-Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByRef ok As Boolean) As String
+Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
+                              ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
     modUIMain.SetStage "✍️ 回答作成中…"
 
     Dim prompt As String
@@ -266,18 +369,19 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
     Dim latency As Long
 
     Dim resp As String
-    resp = modGateway.CallLLM(prompt, "quick_draft", eff, vrb, mdl, latency)
+    resp = modGateway.CallLLM(prompt, "quick_draft", eff, vrb, mdl, latency, prevU, prevA)
 
     If IsErrorResponse(resp) Then
         ok = False
         RunQuickFlow = BuildErrorAnswer(resp)
     Else
         ok = True
-        RunQuickFlow = resp
+        RunQuickFlow = DecorateWithFollowups(resp)
     End If
 End Function
 
-Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByRef ok As Boolean) As String
+Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
+                             ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
     modUIMain.SetStage "✍️ 回答を下書き中…"
 
     Dim draftPrompt As String
@@ -288,8 +392,11 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
     Dim latency As Long
 
+    ' 会話履歴(prevU/prevA)は、追質問の意図解釈を担う下書き段のみに渡す。
+    ' 検証段は「下書きと本棚抜粋の照合」に専念する役割のため渡さない(裁定D11
+    ' の適用判断。過去の会話が検証の判断材料に混ざるのを避ける)。
     Dim draft As String
-    draft = modGateway.CallLLM(draftPrompt, "deep_draft", dEff, dVrb, mdl, latency)
+    draft = modGateway.CallLLM(draftPrompt, "deep_draft", dEff, dVrb, mdl, latency, prevU, prevA)
 
     If IsErrorResponse(draft) Then
         ok = False
@@ -310,10 +417,10 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
 
     ok = True
     If IsErrorResponse(verified) Then
-        RunDeepFlow = draft & vbLf & vbLf & _
+        RunDeepFlow = DecorateWithFollowups(draft) & vbLf & vbLf & _
             "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
     Else
-        RunDeepFlow = verified
+        RunDeepFlow = DecorateWithFollowups(verified)
     End If
 End Function
 
@@ -434,4 +541,162 @@ Private Function HistoryBlock() As String
         out = out & "【会話" & n & "】" & vbLf & parts(i) & vbLf & vbLf
     Next i
     HistoryBlock = out
+End Function
+
+' ----------------------------------------------------------------------------
+' 深掘り候補(裁定D11): [[FOLLOWUP: 候補1 | 候補2]] のパースと表示整形。
+' V2実証済みの src/chatbot_v2/modPipeline.bas ParseTrailers(FOLLOWUP部)と
+' modChatUI.bas の候補表示を、本モジュール用に移植したもの。
+' ----------------------------------------------------------------------------
+
+' LLM応答からマーカーを分離し、候補があれば「深掘り候補」ブロックを本文
+' 末尾に整形追記した表示用文字列を返す(RenderAnswerへはこの戻り値が渡る)。
+' マーカー除去後の本文(履歴保存用)はmLastCleanAnswerに保持する。
+' マーカーなし・候補なし・形式崩れでも壊れない(候補ブロックなしで本文を
+' そのまま返すだけ。mockLLM応答にマーカーが無い場合もこの経路で正常動作)。
+Private Function DecorateWithFollowups(ByVal resp As String) As String
+    Dim body As String
+    Dim cands As String
+    SplitFollowupTrailer resp, body, cands
+    mLastCleanAnswer = body
+
+    If LenB(cands) = 0 Then
+        DecorateWithFollowups = body
+        Exit Function
+    End If
+
+    Dim disp As String
+    disp = body & vbLf & vbLf & "🔎 深掘り候補(『続けて質問』でそのまま聞けます):"
+    Dim fl() As String
+    fl = Split(cands, vbLf)
+    Dim i As Long
+    For i = LBound(fl) To UBound(fl)
+        If LenB(Trim$(fl(i))) > 0 Then disp = disp & vbLf & "  ・" & fl(i)
+    Next i
+    DecorateWithFollowups = disp
+End Function
+
+' 応答aから [[FOLLOWUP: ...]] をパースし、body=マーカー行除去後の本文 /
+' candidates=候補(vbLf区切り。無ければ空)に分離する。V2と同じ寛容実装:
+' "]]"が見つからない・中身が空・「なし」の場合は候補なし扱いとし、
+' マーカーを含む行だけを本文から取り除く(パース失敗でも例外は出さない)。
+Private Sub SplitFollowupTrailer(ByVal a As String, ByRef body As String, ByRef candidates As String)
+    body = a
+    candidates = ""
+    If LenB(a) = 0 Then Exit Sub
+
+    Dim fp As Long
+    fp = InStr(1, a, "[[FOLLOWUP:", vbTextCompare)
+    If fp = 0 Then Exit Sub
+
+    Dim fq As Long
+    fq = InStr(fp, a, "]]")
+    If fq > 0 Then
+        Dim fv As String
+        fv = Trim$(Mid$(a, fp + Len("[[FOLLOWUP:"), fq - fp - Len("[[FOLLOWUP:")))
+        If StrComp(fv, "なし", vbTextCompare) <> 0 And LenB(fv) > 0 Then
+            Dim parts() As String
+            parts = Split(fv, "|")
+            Dim out As String
+            Dim i As Long
+            For i = LBound(parts) To UBound(parts)
+                Dim t As String
+                t = Trim$(parts(i))
+                If LenB(t) > 0 Then
+                    If LenB(out) > 0 Then out = out & vbLf
+                    out = out & t
+                End If
+            Next i
+            candidates = out
+        End If
+    End If
+
+    ' マーカーを含む行を本文から除去し、末尾の空行・空白を刈り込む
+    ' (V2 modPipeline.ParseTrailersと同じ流儀)。
+    Dim lines() As String
+    lines = Split(a, vbLf)
+    Dim keep As String
+    Dim j As Long
+    For j = LBound(lines) To UBound(lines)
+        If InStr(lines(j), "[[FOLLOWUP:") = 0 Then
+            If LenB(keep) > 0 Then keep = keep & vbLf
+            keep = keep & lines(j)
+        End If
+    Next j
+    Do While Len(keep) > 0 And (Right$(keep, 1) = vbLf Or Right$(keep, 1) = vbCr Or Right$(keep, 1) = " ")
+        keep = Left$(keep, Len(keep) - 1)
+    Loop
+    body = keep
+End Sub
+
+' ----------------------------------------------------------------------------
+' prevU/prevA用履歴(裁定D11): 成功した各ターンのQ&Aを「新しい順;;;区切り」で
+' セッション保持する(最大 config followup_max_pairs 既定3ペア)。
+' mHistory(プロンプト内履歴)とは別物: こちらはリボンChatGPT()の確定引数
+' prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡すための形式。
+' ----------------------------------------------------------------------------
+Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
+    Dim maxPairs As Long
+    maxPairs = modConfig.GetLong("followup_max_pairs", 3)
+    If maxPairs <= 0 Then
+        ' 0以下=履歴を持たない(CanFollowup=Falseになる)エスケープハッチ。
+        mPrevU = ""
+        mPrevA = ""
+        Exit Sub
+    End If
+
+    ' 回答は1500字で打ち切る(AppendHistoryと同じ判断: 履歴でトークンを
+    ' 食い過ぎない)。";;;"はリボン側の履歴区切り文字のため、本文中に現れた
+    ' 場合は";;"へ縮めて区切りの誤認を防ぐ(SanitizeForFollowupHistory)。
+    Dim qs As String
+    qs = SanitizeForFollowupHistory(q)
+    Dim ans As String
+    ans = SanitizeForFollowupHistory(modUtil.SafeLeft(a, 1500))
+
+    ' 新しい順: 先頭に積む。
+    If LenB(mPrevU) = 0 Then
+        mPrevU = qs
+    Else
+        mPrevU = qs & FOLLOWUP_PAIR_SEP & mPrevU
+    End If
+    If LenB(mPrevA) = 0 Then
+        mPrevA = ans
+    Else
+        mPrevA = ans & FOLLOWUP_PAIR_SEP & mPrevA
+    End If
+
+    mPrevU = KeepNewestPairs(mPrevU, maxPairs)
+    mPrevA = KeepNewestPairs(mPrevA, maxPairs)
+End Sub
+
+' 「新しい順;;;区切り」文字列の先頭からmaxPairs件だけを残す。
+Private Function KeepNewestPairs(ByVal joined As String, ByVal maxPairs As Long) As String
+    Dim parts() As String
+    parts = Split(joined, FOLLOWUP_PAIR_SEP)
+    Dim n As Long
+    n = UBound(parts) - LBound(parts) + 1
+    If n <= maxPairs Then
+        KeepNewestPairs = joined
+        Exit Function
+    End If
+
+    Dim out As String
+    Dim i As Long
+    For i = LBound(parts) To LBound(parts) + maxPairs - 1
+        If LenB(out) > 0 Then out = out & FOLLOWUP_PAIR_SEP
+        out = out & parts(i)
+    Next i
+    KeepNewestPairs = out
+End Function
+
+' 履歴に積む文字列から区切り文字";;;"を除去する。単純な1回のReplaceでは
+' ";;;;;;"→";;;;"のように置換結果へ再び";;;"が現れ得るため、無くなるまで
+' 繰り返す(各回で必ず短くなるので有限回で終わる)。
+Private Function SanitizeForFollowupHistory(ByVal s As String) As String
+    Dim t As String
+    t = s
+    Do While InStr(t, FOLLOWUP_PAIR_SEP) > 0
+        t = Replace(t, FOLLOWUP_PAIR_SEP, ";;")
+    Loop
+    SanitizeForFollowupHistory = t
 End Function
