@@ -3,6 +3,20 @@
 > 目的: セッション5時間上限で中断しても、リセット後に即座に現在地から再開するための状態記録。
 > 最終更新: 2026-07-12 【全Wave完了】プロジェクト完成
 
+## 現在地(2026-07-14 追加ラウンド: リボン公開API確定対応)
+
+- 担当部署メール+公開ページ入手 → 確定台帳 `docs/dev/RIBBON_API_CONFIRMED.md` 作成済み(PM裁定D1-D9)。
+- **実行中ワークフロー**: mybookshelf-ribbon-confirmed / Run ID `wf_bd8a9cc5-a21` / Task `wg0gjswbh`
+  - スクリプト: /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-ribbon-confirmed-wf_bd8a9cc5-a21.js
+  - 再開: Workflow({scriptPath:<上記>, resumeFromRunId:"wf_bd8a9cc5-a21"})(必要なら先に TaskStop wg0gjswbh)
+  - 内容: W1 modGateway(toolNブランド/AddIns検出/LimitCheck) W2 optVision(ChatGPTV確定規約)
+    W3 optMarkdown(CellMarkDown確定規約+OpenAnswerInWord) W4 optTts撤去+UI+configシード
+    W5 docs一斉更新(Haiku) → Opusレビュー2レンズ → fixer(lint CONTRACT更新込み)検品ゲート
+- **ワークフロー完了後のPM作業(未実施)**: ①fixer結果検分 ②MASTER_SPEC §5/§6/§7同期改訂
+  (spec_deltasをjournalから回収) ③build --dev/--prod再ビルド ④最終検証 ⑤コミット&プッシュ
+- 保留(ユーザー判断待ち): D8 会話継続機能(prevU/prevA) / 高橋くんのモジュール抽出待ち
+  (effort・verbosity正式仕様とLimitCheck真偽の裏取り)
+
 ## 現在地
 
 - **Wave0 完了**: MASTER_SPEC.md(実装契約書)= `mybookshelf/docs/dev/MASTER_SPEC.md`
