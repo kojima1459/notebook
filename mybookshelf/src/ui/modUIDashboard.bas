@@ -148,27 +148,39 @@ Public Sub RenderDashboard()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
+    ' uiStep: modUIMain.EnsureLayout/modUIShelf.RenderShelfと同じ考え方
+    ' (2026-07-16 実機E0801報告の連発への予防的対策)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
     Application.ScreenUpdating = False
 
+    uiStep = "今月の質問数の集計"
     Dim askThisMonth As Long
     askThisMonth = MonthlyAskCount()
 
+    uiStep = "自己解決件数の取得"
     Dim solveTotal As Long
     solveTotal = SafeGetStat("selfsolve_total")
 
+    uiStep = "取り戻した時間の取得"
     Dim savedMinutes As Long
     savedMinutes = SafeSavedMinutes()
 
+    uiStep = "本棚の資料数の取得"
     Dim shelfCount As Long
     shelfCount = SafeShelfCount()
 
+    uiStep = "統計タイルの描画"
     RenderTile ws, "A4:B6", CStr(askThisMonth), "今月の質問数"
     RenderTile ws, "C4:D6", CStr(solveTotal), "🟢 自己解決した回数"
     RenderTile ws, "E4:F6", FormatMinutes(savedMinutes), "取り戻した時間"
     RenderTile ws, "G4:H6", CStr(shelfCount), "本棚の資料数"
 
+    uiStep = "バッジ棚の描画"
     RenderBadges ws
 
+    uiStep = "育ちぐあいバーの描画"
     Dim barLen As Long
     barLen = shelfCount
     If barLen > MAX_BAR_LEN Then barLen = MAX_BAR_LEN
@@ -176,6 +188,16 @@ Public Sub RenderDashboard()
     ws.Range("A17:H18").Value = "本棚の資料数: " & String$(barLen, REPT_CHAR) & "  (" & shelfCount & "件)"
 
     Application.ScreenUpdating = True
+    Exit Sub
+
+Fail:
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    Err.Raise origNum, "modUIDashboard.RenderDashboard", "[" & uiStep & "] " & origDesc
 End Sub
 
 ' ----------------------------------------------------------------------------

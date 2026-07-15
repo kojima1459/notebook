@@ -180,17 +180,27 @@ Public Sub RenderShelf()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
+    ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-16 実機E0801
+    ' 「資料一覧の再描画(RenderShelf)」報告への対策。EnsureLayout側の
+    ' 粒度では原因ブロックまで特定できなかったため、ここでも追う)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
     Application.ScreenUpdating = False
 
+    uiStep = "本棚フォルダ情報の更新"
     RefreshFolderInfo ws
+    uiStep = "カード領域のクリア"
     ClearCardArea ws
 
+    uiStep = "資料一覧の取得(SourceList)"
     Dim names() As String
     Dim stats() As String
     Dim n As Long
     n = modShelf.SourceList(names, stats)
 
     If n = 0 Then
+        uiStep = "空の本棚の案内表示"
         With ws.Range(ws.Cells(FIRST_CARD_ROW, COL_NAME), ws.Cells(FIRST_CARD_ROW, 10))
             .Merge
             .Value = "まだ資料がありません。上の「＋資料を追加」から始めましょう。"
@@ -206,12 +216,24 @@ Public Sub RenderShelf()
     shown = n
     If shown > MAX_CARD_ROWS Then shown = MAX_CARD_ROWS
 
+    uiStep = "資料カードの描画(1件目)"
     Dim i As Long
     For i = 0 To shown - 1
+        uiStep = "資料カードの描画(" & (i + 1) & "件目/" & shown & "件)"
         RenderOneCard ws, FIRST_CARD_ROW + i, names(i), stats(i)
     Next i
 
     Application.ScreenUpdating = True
+    Exit Sub
+
+Fail:
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    Err.Raise origNum, "modUIShelf.RenderShelf", "[" & uiStep & "] " & origDesc
 End Sub
 
 ' ----------------------------------------------------------------------------
