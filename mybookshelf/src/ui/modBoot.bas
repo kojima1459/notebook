@@ -72,18 +72,30 @@ Public Sub Boot()
         Exit Sub
     End If
 
+    ' bootStage: 失敗時に「どの段階で落ちたか」をユーザー向けダイアログと
+    ' err_logの両方に出すための段階名。実機で初発のエラーが出たとき、
+    ' スクリーンショット1枚で原因箇所まで特定できるようにする
+    ' (2026-07-15 実機E0801報告への恒久対策。R5「原因の分からないエラーを
+    ' ユーザーに見せない」の徹底)。
+    Dim bootStage As String
     On Error GoTo Failed
 
     ' 1) config確認
+    bootStage = "設定の読み込み(config)"
     modConfig.EnsureLoaded
 
     ' 2) first-run: pack_author入力
+    bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun
 
     ' 3) 3画面EnsureLayout(それぞれが内部でRenderShelf/RenderDashboardまで実行する)
+    bootStage = "ホーム画面の組み立て"
     modUIMain.EnsureLayout
+    bootStage = "マイ本棚画面の組み立て"
     modUIShelf.EnsureLayout
+    bootStage = "ダッシュボード画面の組み立て"
     modUIDashboard.EnsureLayout
+    bootStage = ""
 
     ' Wave4修正: modStats.TouchToday(streak_days/last_used_date更新)を
     ' どこからも呼んでいなかったため、streak7バッジもダッシュボードの
@@ -114,6 +126,7 @@ Public Sub Boot()
     End If
 
     ' 4) QuickHealthCheck
+    bootStage = "起動時の健全性チェック"
     Dim warn As String
     warn = modDiag.QuickHealthCheck()
     If LenB(warn) > 0 Then
@@ -155,14 +168,32 @@ Public Sub Boot()
     On Error GoTo 0
 
     ' 7) 内部シート隠蔽
+    bootStage = "内部シートの整理"
     HideInternalSheets
 
     gBootDone = True
     Exit Sub
 
 Failed:
-    modLog.LogError "E0801", "modBoot.Boot", Err.Description
-    MsgBox modLog.FriendlyMessage("E0801") & vbLf & "(コード: E0801)", vbCritical, modAppDef.APP_NAME
+    ' EnsureLayout途中で落ちるとScreenUpdating=Falseのまま画面が固まって
+    ' 見えるため、必ず戻す(ダイアログより先に)。
+    Dim failDesc As String
+    failDesc = Err.Description
+    Dim failNum As Long
+    failNum = Err.Number
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    modLog.LogError "E0801", "modBoot.Boot", _
+        "stage=" & bootStage & " err#" & failNum & ": " & failDesc
+    ' 「原因の分からないエラー」を出さない: どの段階で何のエラーが起きたかを
+    ' ダイアログに含める。利用者はこの画面の写真を送るだけで報告が完結する。
+    MsgBox modLog.FriendlyMessage("E0801") & vbLf & vbLf & _
+           "失敗した処理: " & bootStage & vbLf & _
+           "エラー内容: " & modUtil.SafeLeft(failDesc, 200) & " (#" & failNum & ")" & vbLf & _
+           "(コード: E0801)" & vbLf & vbLf & _
+           "この画面を撮影して管理者へ送っていただければ、原因を特定できます。", _
+           vbCritical, modAppDef.APP_NAME
 End Sub
 
 ' ----------------------------------------------------------------------------
