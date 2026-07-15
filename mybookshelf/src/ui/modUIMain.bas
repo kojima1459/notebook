@@ -74,17 +74,27 @@ Public Sub EnsureLayout()
     Set ws = GetOrCreateHomeSheet()
     If ws Is Nothing Then Exit Sub
 
+    ' uiStep: 実機でだけ起きるエラー(型不一致など)を1回の報告で特定できるよう、
+    ' modBoot.bootStageと同じ考え方でブロック単位の進捗を追う
+    ' (2026-07-15 実機E0801「ホーム画面の組み立て」報告への対策)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
     Application.ScreenUpdating = False
 
+    uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
+    uiStep = "セルのクリア"
     ws.Cells.Clear
 
+    uiStep = "既定フォント設定"
     ws.Cells.Font.Name = "游ゴシック"
     ws.Cells.Font.Size = 11
 
     ws.Columns("A:H").ColumnWidth = 12
 
     ' ---- タイトル行 ----------------------------------------------------
+    uiStep = "タイトル行"
     With ws.Range("A1:E1")
         .Merge
         .Value = "📚 " & modAppDef.APP_NAME & "  v" & modAppDef.APP_VERSION
@@ -97,6 +107,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("1:2").RowHeight = 22
 
+    uiStep = "サブタイトル行"
     With ws.Range("A2:E2")
         .Merge
         .Value = "「自分で入れた資料に、すぐ聞ける」"
@@ -105,15 +116,18 @@ Public Sub EnsureLayout()
         .Font.Italic = True
     End With
 
+    uiStep = "ボタン(使い方/診断)"
     AddButton ws, ws.Range("F1:G2"), "btn_howto", "❓ 使い方", "modUIMain.OnOpenHowto"
     AddButton ws, ws.Range("H1:H2"), "btn_diag", "🩺 診断", "modUIMain.OnRunDiag"
 
     ' ---- モードトグル ----------------------------------------------------
+    uiStep = "モードトグルボタン"
     ws.Rows("3:4").RowHeight = 20
     AddButton ws, ws.Range("A3:D4"), "btn_mode_quick", ModeCaption("quick"), "modUIMain.OnModeQuick"
     AddButton ws, ws.Range("E3:H4"), "btn_mode_deep", ModeCaption("deep"), "modUIMain.OnModeDeep"
 
     ' ---- 質問入力 ----------------------------------------------------
+    uiStep = "質問入力欄の見出し"
     With ws.Range("A5:H5")
         .Merge
         .Value = "質問をここに入力してください(例: 〇〇の手続きに必要な書類は?)"
@@ -122,6 +136,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("5").RowHeight = 18
 
+    uiStep = "質問入力欄"
     With ws.Range("A6:H9")
         .Merge
         .WrapText = True
@@ -130,13 +145,16 @@ Public Sub EnsureLayout()
         .Borders.LineStyle = 1
     End With
     ws.Rows("6:9").RowHeight = 20
+    uiStep = "質問入力欄への名前付け"
     EnsureQuestionName ws
 
     ' ---- 質問するボタン ----------------------------------------------------
+    uiStep = "質問するボタン"
     ws.Rows("10:11").RowHeight = 20
     AddButton ws, ws.Range("C10:F11"), "btn_ask", "💬  質 問 す る", "modUIMain.OnAskButton"
 
     ' ---- 状態表示 ----------------------------------------------------
+    uiStep = "状態表示行"
     With ws.Range(RNG_STATUS)
         .Merge
         .Value = "状態: 準備できています"
@@ -145,6 +163,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("12").RowHeight = 16
 
+    uiStep = "回答見出し"
     With ws.Range("A13:H13")
         .Merge
         .Value = "─ 回答 ───────────────────────────"
@@ -154,6 +173,7 @@ Public Sub EnsureLayout()
     ws.Rows("13").RowHeight = 16
 
     ' ---- 回答本文 ----------------------------------------------------
+    uiStep = "回答本文欄"
     With ws.Range(RNG_ANSWER)
         .Merge
         .Value = "（質問を入力して「💬 質問する」を押してください）"
@@ -165,6 +185,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("14:25").RowHeight = 15
 
+    uiStep = "出典欄"
     With ws.Range(RNG_SOURCES)
         .Merge
         .Value = ""
@@ -176,6 +197,7 @@ Public Sub EnsureLayout()
     ws.Rows("26:27").RowHeight = 15
 
     ' ---- フィードバック ----------------------------------------------------
+    uiStep = "フィードバック見出し"
     With ws.Range("A28:H28")
         .Merge
         .Value = "この回答は役に立ちましたか?"
@@ -183,6 +205,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("28").RowHeight = 16
 
+    uiStep = "フィードバックボタン"
     ws.Rows("29:30").RowHeight = 18
     AddButton ws, ws.Range("A29:C30"), "btn_fb_green", "🟢 解決した!", "modAsk.FeedbackGreen"
     AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "🟡 ヒントになった", "modAsk.FeedbackYellow"
@@ -193,13 +216,17 @@ Public Sub EnsureLayout()
     ' 「Wordで開く」はopt機能(markdown)なのでFeatureEnabledがTrueのときだけ
     ' 生成する(§7.7)。※読み上げボタンは裁定D10で撤去した(音声読み上げは
     ' AIリボン本体でのみ利用可)。
+    uiStep = "続けて質問ボタン"
     ws.Rows("31:32").RowHeight = 18
     AddButton ws, ws.Range("A31:D32"), "btn_followup", "💬 続けて質問", "modUIMain.OnFollowupButton"
+    uiStep = "Wordで開くボタン(有効判定)"
     If modFeatures.FeatureEnabled("markdown") Then
+        uiStep = "Wordで開くボタン(生成)"
         AddButton ws, ws.Range("E31:H32"), "btn_word", "📝 Wordで開く", "modUIMain.OnOpenWordButton"
     End If
 
     ' ---- 待ち時間豆知識 ----------------------------------------------------
+    uiStep = "豆知識欄"
     With ws.Range(RNG_TIP)
         .Merge
         .Value = "💡 豆知識: "
@@ -210,10 +237,25 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("33:34").RowHeight = 15
 
+    uiStep = "モード配色の反映"
     ApplyModeColors CurrentMode()
+    uiStep = "豆知識の表示"
     ShowTip
 
     Application.ScreenUpdating = True
+    Exit Sub
+
+Fail:
+    ' どのブロックで型不一致等が起きたかをEnsureLayout自身が特定し、
+    ' Descriptionに埋め込んでからmodBoot.Bootへ伝播させる(bootStageは
+    ' 「ホーム画面の組み立て」としか分からないため、その内訳をここで補う)。
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc
 End Sub
 
 ' ----------------------------------------------------------------------------

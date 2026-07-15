@@ -63,11 +63,18 @@ Public Sub EnsureLayout()
     Set ws = GetOrCreateShelfSheet()
     If ws Is Nothing Then Exit Sub
 
+    ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-15 実機E0801対策)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
     Application.ScreenUpdating = False
 
+    uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
+    uiStep = "セルのクリア"
     ws.Cells.Clear
 
+    uiStep = "既定フォント設定"
     ws.Cells.Font.Name = "游ゴシック"
     ws.Cells.Font.Size = 11
 
@@ -78,6 +85,7 @@ Public Sub EnsureLayout()
     ws.Columns("H:J").ColumnWidth = 15
 
     ' ---- 操作ボタン行 ----------------------------------------------------
+    uiStep = "操作ボタン行"
     ws.Rows("1:2").RowHeight = 22
     AddButton ws, ws.Range("A1:B2"), "btn_add", "＋ 資料を追加", "modUIShelf.OnAddFiles"
     AddButton ws, ws.Range("C1:D2"), "btn_sync", "🔄 フォルダと同期", "modUIShelf.OnSyncNow"
@@ -86,11 +94,14 @@ Public Sub EnsureLayout()
     AddButton ws, ws.Range("I1:J2"), "btn_delete", "🗑 選んだ資料を削除", "modUIShelf.OnDeleteSource"
     ' スクショ取込(裁定D13)は画像解析機能が有効なときだけボタンを出す
     ' (無効環境で「押したら断られるボタン」を見せないため)。
+    uiStep = "スクショ取込ボタン(有効判定)"
     If modFeatures.FeatureEnabled("vision") Then
+        uiStep = "スクショ取込ボタン(生成)"
         AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "📸 スクショ取込", "modUIShelf.OnIngestScreenshot"
     End If
 
     ' ---- 本棚フォルダ情報 ----------------------------------------------------
+    uiStep = "本棚フォルダ情報見出し"
     With ws.Range(RNG_FOLDER)
         .Merge
         .Value = "本棚フォルダ: "
@@ -98,6 +109,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("3").RowHeight = 16
 
+    uiStep = "フォルダを選ぶボタン"
     ws.Rows("4:5").RowHeight = 18
     AddButton ws, ws.Range("A4:C5"), "btn_pick_folder", "📁 フォルダを選ぶ", "modUIShelf.OnPickFolder"
     With ws.Range(RNG_SYNCINFO)
@@ -107,6 +119,7 @@ Public Sub EnsureLayout()
         .VerticalAlignment = -4160   ' xlTop
     End With
 
+    uiStep = "案内文(自動追加)"
     With ws.Range("A6:J6")
         .Merge
         .Value = "ここにファイルを入れておくと、自動で本棚に追加されます(消せば本棚からも消えます)"
@@ -115,6 +128,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("6").RowHeight = 16
 
+    uiStep = "資料カード見出し帯"
     With ws.Range("A7:J7")
         .Merge
         .Value = "── 資料カード(1行=1資料) ───────────────────"
@@ -124,6 +138,7 @@ Public Sub EnsureLayout()
     ws.Rows("7").RowHeight = 16
 
     ' ---- カード見出し行 ----------------------------------------------------
+    uiStep = "カード見出し行"
     ws.Cells(HEADER_ROW, COL_ICON).Value = "状態"
     ws.Range(ws.Cells(HEADER_ROW, COL_NAME), ws.Cells(HEADER_ROW, COL_NAME + 2)).Merge
     ws.Cells(HEADER_ROW, COL_NAME).Value = "資料名"
@@ -141,7 +156,18 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = True
 
+    uiStep = "資料一覧の再描画(RenderShelf)"
     RenderShelf
+    Exit Sub
+
+Fail:
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc
 End Sub
 
 ' ----------------------------------------------------------------------------

@@ -48,16 +48,24 @@ Public Sub EnsureLayout()
     Set ws = GetOrCreateDashSheet()
     If ws Is Nothing Then Exit Sub
 
+    ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-15 実機E0801対策)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
     Application.ScreenUpdating = False
 
+    uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
+    uiStep = "セルのクリア"
     ws.Cells.Clear
 
+    uiStep = "既定フォント設定"
     ws.Cells.Font.Name = "游ゴシック"
     ws.Cells.Font.Size = 11
 
     ws.Columns("A:H").ColumnWidth = 12
 
+    uiStep = "タイトル行"
     With ws.Range("A1:H1")
         .Merge
         .Value = "📊 ダッシュボード"
@@ -69,6 +77,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("1").RowHeight = 24
 
+    uiStep = "サブタイトル行"
     With ws.Range("A2:H2")
         .Merge
         .Value = "あなたの本棚とAI活用の記録"
@@ -78,12 +87,14 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("2").RowHeight = 18
 
+    uiStep = "統計タイル枠"
     ws.Rows("4:6").RowHeight = 20
     FormatTile ws, "A4:B6"
     FormatTile ws, "C4:D6"
     FormatTile ws, "E4:F6"
     FormatTile ws, "G4:H6"
 
+    uiStep = "バッジ見出し"
     With ws.Range("A7:H7")
         .Merge
         .Value = "🏅 バッジ"
@@ -93,6 +104,7 @@ Public Sub EnsureLayout()
     ws.Rows("7").RowHeight = 20
     ws.Rows("8:15").RowHeight = 18
 
+    uiStep = "育ちぐあい見出し"
     With ws.Range("A16:H16")
         .Merge
         .Value = "📈 本棚の育ちぐあい"
@@ -101,6 +113,7 @@ Public Sub EnsureLayout()
     End With
     ws.Rows("16").RowHeight = 20
 
+    uiStep = "育ちぐあいバー枠"
     With ws.Range("A17:H18")
         .Merge
         .Font.Size = 10
@@ -111,7 +124,18 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = True
 
+    uiStep = "ダッシュボードの再描画(RenderDashboard)"
     RenderDashboard
+    Exit Sub
+
+Fail:
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+    Err.Raise origNum, "modUIDashboard.EnsureLayout", "[" & uiStep & "] " & origDesc
 End Sub
 
 ' ----------------------------------------------------------------------------
