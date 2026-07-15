@@ -404,7 +404,11 @@ Public Sub ShowTip()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
-    Dim tips() As String
+    ' Wave6修正: Dim tips() As String に Variant配列(Array()の戻り値)を
+    ' 直接代入すると、LibreOfficeでは黙って通るが実機Windows Excelでは
+    ' 型不一致(実行時エラー13)になる(2026-07-16 実機E0801報告で確認)。
+    ' 受け側をVariantにして暗黙変換を回避する。
+    Dim tips As Variant
     tips = TipList()
 
     Randomize
