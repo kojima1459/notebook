@@ -189,6 +189,16 @@ Public Sub Boot()
     bootStage = "内部シートの整理"
     HideInternalSheets
 
+    ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても
+    '    旧3画面は生きているため、起動自体は続行する)
+    If modConfig.GetBool("nexus_ui", False) Then
+        bootStage = "Nexus画面の起動"
+        On Error Resume Next
+        modApp.LaunchNexus
+        On Error GoTo Failed
+        bootStage = ""
+    End If
+
     gBootDone = True
     Exit Sub
 
@@ -235,6 +245,11 @@ End Sub
 Public Sub Auto_Close()
     On Error Resume Next
     modShelfSync.CancelAutoSync
+    On Error GoTo 0
+
+    ' Nexusが隠したネイティブUI(リボン等)を必ず復元する
+    On Error Resume Next
+    modUI.RestoreExcelUI
     On Error GoTo 0
 
     On Error Resume Next

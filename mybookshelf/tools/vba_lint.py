@@ -181,8 +181,9 @@ CONTRACT: dict[str, dict] = {
     "modAsk": {
         "closed": True,
         # CanFollowup/AskFollowup: 続けて質問=深掘り機能(裁定D11・RIBBON_API_CONFIRMED.md §2b)
+        # LastAnswerText: Nexus UI(modApp)が直近回答をバブル表示するためのゲッター。
         "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
-                     "CanFollowup", "AskFollowup"],
+                     "CanFollowup", "AskFollowup", "LastAnswerText"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {

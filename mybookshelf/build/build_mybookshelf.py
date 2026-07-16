@@ -156,6 +156,8 @@ def build_config_rows(mock_llm: bool):
         ("answer_tags", True, "TRUE=回答を<thinking>/<answer>構造で生成し<answer>のみ表示"),
         ("strict_grounding", True, "TRUE=資料のみ・出典必須・『資料からは判断できません』を強制"),
         ("quick_expand_light", True, "TRUE=すぐ聞くモードでは拡張を軽量化(速度優先)"),
+        ("nexus_ui", True, "TRUE=起動時にNexus Agent(SPA風チャットUI)を表示する"),
+        ("nexus_share_path", "\\\\pgiofs01\\Nexus_Share\\", "P2Pナレッジ共有フォルダ(Phase 4。ダミーパス・要書き換え)"),
         ("shelf_max_chunks", 20000, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),
         ("shelf_folder", "", "自動同期する本棚フォルダのパス(空なら未設定)"),
         ("sync_interval_min", 0, "自動同期の間隔(分)。0でOFF"),

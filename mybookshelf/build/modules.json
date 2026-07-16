@@ -177,6 +177,20 @@
       "wave": "NEXUS-P1"
     },
     {
+      "name": "modApp",
+      "path": "src/ui/modApp.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modVault",
+      "path": "src/ui/modVault.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

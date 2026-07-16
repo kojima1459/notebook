@@ -323,6 +323,11 @@ Done:
     AnswerWithContext = result
 End Function
 
+' 直近回答の本文(整形済み)を返す(Nexus UI等の外部表示用ゲッター)。
+Public Function LastAnswerText() As String
+    LastAnswerText = mLastAnswer
+End Function
+
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "selfsolve_total"

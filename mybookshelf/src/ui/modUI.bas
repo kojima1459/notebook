@@ -28,7 +28,8 @@ Private Const TOPBAR_H As Double = 45
 Private Const CHAT_LEFT_PAD As Double = 15
 Private Const BUBBLE_RATIO As Double = 0.62  ' チャット幅に対するバブル最大幅
 Private Const BUBBLE_GAP As Double = 14
-Private Const ACT_H As Double = 22
+Private Const ACT_H As Double = 24
+Private Const CHAT_TOP As Double = 130   ' 固定領域(トップバー+入力+アクションバー)の直下
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
@@ -76,16 +77,17 @@ Public Sub InitUI()
     DrawSidebar ws
     DrawTopbar ws
     DrawInputArea ws
+    DrawFloatingActionBar ws
 
-    ' スクロール制御: 上部(トップバー行)とサイドバー列を固定
+    ' スクロール制御: 上部(トップバー+入力+アクションバー)とサイドバー列を固定
     On Error Resume Next
-    ws.Range("D4").Select
+    ws.Range("D8").Select
     ActiveWindow.FreezePanes = False
     ActiveWindow.FreezePanes = True
     On Error GoTo 0
 
     ApplyTheme ws
-    mChatBottom = TOPBAR_H + 20
+    mChatBottom = CHAT_TOP
 
     Application.ScreenUpdating = True
 End Sub
@@ -93,8 +95,10 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' AddChatBubble - チャットバブル1件を追加する。
 '   role: "user" / "ai"。thinkingはAIの思考プロセス(空なら省略)。
-'   withActions=Trueで👍👎🔍✅🆘📄のアクションボタン列を付ける。
-'   戻り値: 生成したバブルShapeの名前。
+'   アクションはバブル毎には生成しない(オーナー裁定: Shape増殖による32bit
+'   メモリクラッシュ防止)。画面上部固定のフローティング・アクションバーが、
+'   選択中のAIバブル(クリックでmodApp.OnSelectBubbleが記録)に対して発火する。
+'   withActionsは後方互換のため残置(無視)。戻り値: バブルShape名。
 ' ----------------------------------------------------------------------------
 Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
                               Optional ByVal withActions As Boolean = False, _
@@ -103,7 +107,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     Set ws = GetNexusSheet()
     If ws Is Nothing Then Exit Function
 
-    If mChatBottom < TOPBAR_H Then RecalcChatBottom ws
+    If mChatBottom < CHAT_TOP Then RecalcChatBottom ws
 
     Dim isUser As Boolean
     isUser = (LCase$(role) = "user")
@@ -156,14 +160,11 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     If shp.Height < 28 Then shp.Height = 28
     shp.Shadow.Visible = 0
 
+    ' AIバブルはクリックで「選択」できる(コンテキスト・アクションの対象指定)
+    If Not isUser Then shp.OnAction = "modApp.OnSelectBubble"
+
     PaintBubble shp, isUser
     mChatBottom = shp.Top + shp.Height
-
-    ' --- アクションボタン列(AI回答のみ) ---
-    If (Not isUser) And withActions Then
-        AddActionBar ws, chatL, mChatBottom + 6, seq
-        mChatBottom = mChatBottom + 6 + ACT_H
-    End If
 
     ScrollToBottom ws
     AddChatBubble = shp.Name
@@ -260,7 +261,7 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
             .MarginLeft = 16
             .VerticalAnchor = 3
         End With
-        nav.OnAction = "modUI.NexusActionStub"
+        nav.OnAction = Array("modApp.OnNavChat", "modApp.OnNavVault", "modApp.OnNavDash")(i)
     Next i
 End Sub
 
@@ -280,7 +281,19 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
-    lang.OnAction = "modUI.NexusActionStub"
+    lang.OnAction = "modApp.OnLangCycle"
+
+    Dim modeBtn As Shape
+    Set modeBtn = ws.Shapes.AddShape(5, SIDEBAR_W + 320, 8, 150, 28)
+    modeBtn.Name = "nx_top_mode"
+    With modeBtn.TextFrame2
+        .TextRange.Text = ChrW(&H1F3E2) & " 社内ナレッジ検索"
+        .TextRange.Font.Size = 9.5
+        .TextRange.Font.Bold = -1
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+    End With
+    modeBtn.OnAction = "modApp.OnToggleMode"
 
     Dim theme As Shape
     Set theme = ws.Shapes.AddShape(9, SIDEBAR_W + 625, 8, 28, 28)   ' 9=楕円
@@ -317,7 +330,7 @@ Private Sub DrawInputArea(ByVal ws As Worksheet)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
-    send.OnAction = "modUI.NexusActionStub"
+    send.OnAction = "modApp.OnSend"
 
     Dim clip As Shape
     Set clip = ws.Shapes.AddShape(9, SIDEBAR_W + 15, TOPBAR_H + 6, 30, 30)
@@ -329,23 +342,29 @@ Private Sub DrawInputArea(ByVal ws As Worksheet)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
-    clip.OnAction = "modUI.NexusActionStub"
+    clip.OnAction = "modApp.OnAttachImage"
 End Sub
 
-Private Sub AddActionBar(ByVal ws As Worksheet, ByVal leftX As Double, ByVal topY As Double, ByVal seq As String)
+' フローティング・アクションバー(オーナー裁定②): 画面上部固定領域に
+' 6ボタンを1セットだけ常設し、選択中のAIバブルに対して発火させる。
+' バブル毎のボタン生成を全廃してShape増殖(32bitメモリクラッシュ)を防ぐ。
+Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     Dim labels As Variant, widths As Variant, kinds As Variant
     labels = Array(ChrW(&H1F44D) & " グッド", ChrW(&H1F44E) & " バッド", _
                    ChrW(&H1F50D) & " 深掘り", ChrW(&H2705) & " 解決した", _
                    ChrW(&H1F198) & " 本社へ照会", ChrW(&H1F4C4) & " Word出力")
-    widths = Array(64, 64, 64, 74, 84, 80)
-    kinds = Array("std", "std", "std", "resolve", "hq", "word")
+    widths = Array(70, 70, 70, 80, 92, 88)
+    kinds = Array("good", "bad", "drill", "resolve", "hq", "word")
+    Dim handlers As Variant
+    handlers = Array("OnActGood", "OnActBad", "OnActDrill", "OnActResolve", "OnActHq", "OnActWord")
 
-    Dim x As Double: x = leftX
+    Dim x As Double: x = SIDEBAR_W + CHAT_LEFT_PAD
+    Dim topY As Double: topY = TOPBAR_H + 44
     Dim i As Long
     For i = 0 To 5
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, x, topY, CDbl(widths(i)), ACT_H)
-        btn.Name = "nx_act_" & CStr(kinds(i)) & "_" & seq & "_" & i
+        btn.Name = "nx_fab_" & CStr(kinds(i))
         btn.Adjustments(1) = 0.5
         With btn.TextFrame2
             .TextRange.Text = CStr(labels(i))
@@ -354,7 +373,7 @@ Private Sub AddActionBar(ByVal ws As Worksheet, ByVal leftX As Double, ByVal top
             .VerticalAnchor = 3
             .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
         End With
-        btn.OnAction = "modUI.NexusActionStub"
+        btn.OnAction = "modApp." & CStr(handlers(i))
         PaintActionButton btn, CStr(kinds(i))
         x = x + CDbl(widths(i)) + 6
     Next i
@@ -472,8 +491,8 @@ Private Sub ApplyTheme(ByVal ws As Worksheet)
             PaintBubble shp, True
         ElseIf Left$(nm, 9) = "nx_msg_a_" Then
             PaintBubble shp, False
-        ElseIf Left$(nm, 7) = "nx_act_" Then
-            PaintActionButton shp, ActKindOf(nm)
+        ElseIf Left$(nm, 7) = "nx_fab_" Then
+            PaintActionButton shp, Mid$(nm, 8)
         ElseIf Left$(nm, 7) = "nx_thk_" Then
             SetShapeTextColor shp, ThemeColor("muted")
         End If
@@ -589,14 +608,65 @@ End Function
 
 ' モジュール状態リセット後の再計算: 既存バブルの最下端を探す。
 Private Sub RecalcChatBottom(ByVal ws As Worksheet)
-    mChatBottom = TOPBAR_H + 20
+    mChatBottom = CHAT_TOP
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 3) = "nx_" And Left$(shp.Name, 6) <> "nx_sb_" And Left$(shp.Name, 7) <> "nx_top_" Then
+        If Left$(shp.Name, 3) = "nx_" And Left$(shp.Name, 6) <> "nx_sb_" _
+           And Left$(shp.Name, 7) <> "nx_top_" And Left$(shp.Name, 7) <> "nx_fab_" Then
             If shp.Top + shp.Height > mChatBottom Then mChatBottom = shp.Top + shp.Height
         End If
     Next shp
 End Sub
+
+' 選択中バブルの強調表示(primary色の太枠)。他のAIバブルは通常枠へ戻す。
+Public Sub MarkActiveBubble(ByVal shapeName As String)
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Sub
+
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 9) = "nx_msg_a_" Then
+            If shp.Name = shapeName Then
+                shp.Line.Visible = -1
+                shp.Line.ForeColor.RGB = ThemeColor("primary")
+                shp.Line.Weight = 1.75
+            Else
+                PaintBubble shp, False
+            End If
+        End If
+    Next shp
+End Sub
+
+' 指定バブルの本文テキストを返す(無ければ"")。
+Public Function BubbleTextOf(ByVal shapeName As String) As String
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    BubbleTextOf = ws.Shapes(shapeName).TextFrame2.TextRange.Text
+    On Error GoTo 0
+End Function
+
+' 最新(最下端)のAIバブル名を返す(無ければ"")。
+Public Function LatestAiBubbleName() As String
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Function
+
+    Dim bestName As String: bestName = ""
+    Dim bestBottom As Double: bestBottom = -1
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 9) = "nx_msg_a_" Then
+            If shp.Top + shp.Height > bestBottom Then
+                bestBottom = shp.Top + shp.Height
+                bestName = shp.Name
+            End If
+        End If
+    Next shp
+    LatestAiBubbleName = bestName
+End Function
 
 Private Sub ScrollToBottom(ByVal ws As Worksheet)
     On Error Resume Next
