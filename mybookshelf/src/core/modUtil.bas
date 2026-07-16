@@ -197,14 +197,20 @@ Public Function HasVector(vec() As Double) As Boolean
     HasVector = (ArrLenD(vec) > 0)
 End Function
 
+' 空配列(0件)は Split(vbNullString) で作る。
+' 【2026-07-16 実機バグの恒久修正】以前は「ReDim outArr(0 To -1)」で0要素
+' 配列を作っていたが、これはLibreOffice Basic特有に通る書き方で、実機の
+' Excel VBAでは ReDim の上限<下限は実行時エラー9「インデックスが有効範囲に
+' ありません」になる(VB.NETの空配列宣言との混同に由来する誤解だった)。
+' Split(vbNullString) は言語仕様上どちらの環境でも LBound=0/UBound=-1 の
+' 正当な空配列を返すため、For i = LBound To UBound が0回ループで安全に成立する。
 Public Function SplitKeepNonEmpty(ByVal s As String, ByVal sep As String) As String()
     Dim raw() As String: raw = Split(s, sep)
     Dim maxN As Long: maxN = UBound(raw) - LBound(raw) + 1
 
     Dim outArr() As String
     If maxN <= 0 Then
-        ReDim outArr(0 To -1)
-        SplitKeepNonEmpty = outArr
+        SplitKeepNonEmpty = Split(vbNullString)
         Exit Function
     End If
 
@@ -219,11 +225,11 @@ Public Function SplitKeepNonEmpty(ByVal s As String, ByVal sep As String) As Str
     Next i
 
     If cnt = 0 Then
-        ReDim outArr(0 To -1)
+        SplitKeepNonEmpty = Split(vbNullString)
     Else
         ReDim Preserve outArr(0 To cnt - 1)
+        SplitKeepNonEmpty = outArr
     End If
-    SplitKeepNonEmpty = outArr
 End Function
 
 Public Function HumanBytes(ByVal n As Double) As String

@@ -375,8 +375,8 @@ End Function
 Private Function LoadChunksForExport(ByVal sourceFilter As String, ByRef ids() As String, ByRef sources() As String, _
         ByRef pages() As Long, ByRef summaries() As String, ByRef keywords() As String, _
         ByRef fullTexts() As String) As Long
-    ReDim ids(0 To -1): ReDim sources(0 To -1): ReDim pages(0 To -1)
-    ReDim summaries(0 To -1): ReDim keywords(0 To -1): ReDim fullTexts(0 To -1)
+    ReDim ids(0 To 0): ReDim sources(0 To 0): ReDim pages(0 To 0)
+    ReDim summaries(0 To 0): ReDim keywords(0 To 0): ReDim fullTexts(0 To 0)
 
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If wsK Is Nothing Then Exit Function
@@ -539,8 +539,8 @@ End Function
 Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As String, ByRef sources() As String, _
         ByRef pages() As Long, ByRef summaries() As String, ByRef keywords() As String, _
         ByRef fullTexts() As String, ByRef vectors() As String) As Long
-    ReDim ids(0 To -1): ReDim sources(0 To -1): ReDim pages(0 To -1)
-    ReDim summaries(0 To -1): ReDim keywords(0 To -1): ReDim fullTexts(0 To -1): ReDim vectors(0 To -1)
+    ReDim ids(0 To 0): ReDim sources(0 To 0): ReDim pages(0 To 0)
+    ReDim summaries(0 To 0): ReDim keywords(0 To 0): ReDim fullTexts(0 To 0): ReDim vectors(0 To 0)
 
     Dim wsC As Worksheet: Set wsC = wb.Worksheets("pack_chunks")
     Dim lastC As Long: lastC = wsC.Cells(wsC.Rows.count, 1).End(xlUp).row

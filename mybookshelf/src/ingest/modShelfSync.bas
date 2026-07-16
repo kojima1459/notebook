@@ -138,6 +138,26 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         GoTo Finish
     End If
 
+    ' SharePoint/WebのURLはDir()で走査できない(実機ログ2026-07-16: httpsの
+    ' URLがshelf_folderに設定されE0502になっていた)。原因が分かる案内を出す。
+    ' OneDrive同期済みのローカルフォルダパスを使ってもらう。
+    uiStep = "フォルダ形式の確認"
+    If LCase$(Left$(folder, 4)) = "http" Then
+        modLog.LogError "E0502", "modShelfSync.SyncNow", "URLは同期不可: " & modUtil.SafeLeft(folder, 200)
+        If Not silent Then
+            MsgBox "インターネット上のアドレス(SharePoint等のURL)は、本棚フォルダに設定できません。" & vbLf & vbLf & _
+                   "SharePointのフォルダを使いたい場合は、まずOneDriveの「同期」ボタンで" & _
+                   "パソコンのフォルダとして同期し、そのフォルダ(例: C:\Users\…\OneDrive - 会社名\…)を" & _
+                   "「📁 フォルダを選ぶ」から選んでください。" & vbLf & _
+                   "(コード: E0502)", vbExclamation, modAppDef.APP_NAME
+        End If
+        On Error Resume Next
+        modUIMain.SetStage ""
+        On Error GoTo Failed
+        GoTo Finish
+    End If
+
+    uiStep = "フォルダ存在の確認"
     If Not FolderExists(folder) Then
         If silent Then
             modLog.LogError "E0502", "modShelfSync.SyncNow", folder & "(silent)"
@@ -147,7 +167,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         MarkFolderScopeMissing folder
         On Error Resume Next
         modUIMain.SetStage ""
-        On Error GoTo 0
+        On Error GoTo Failed
         GoTo Finish
     End If
 
@@ -429,7 +449,7 @@ Private Sub EnumFolderFiles(ByVal folderNorm As String, ByRef fileNames() As Str
     Loop
 
     If cnt = 0 Then
-        ReDim fileNames(0 To -1)
+        ReDim fileNames(0 To 0)
     Else
         ReDim Preserve names(0 To cnt - 1)
         fileNames = names
@@ -451,11 +471,11 @@ Private Sub LoadManifestScope(ByVal wsM As Worksheet, ByVal folderNorm As String
         ByRef outPaths() As String, ByRef outNames() As String, ByRef outModified() As Date, _
         ByRef outSize() As Double, ByRef outStatus() As String, ByRef outCount As Long)
     outCount = 0
-    ReDim outPaths(0 To -1)
-    ReDim outNames(0 To -1)
-    ReDim outModified(0 To -1)
-    ReDim outSize(0 To -1)
-    ReDim outStatus(0 To -1)
+    ReDim outPaths(0 To 0)
+    ReDim outNames(0 To 0)
+    ReDim outModified(0 To 0)
+    ReDim outSize(0 To 0)
+    ReDim outStatus(0 To 0)
     If wsM Is Nothing Then Exit Sub
 
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row

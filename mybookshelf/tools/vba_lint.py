@@ -290,6 +290,13 @@ DIM_STMT_PATTERN = re.compile(r"^(Dim|Static)\s+(.*)$", re.IGNORECASE)
 AS_KEYWORD_PATTERN = re.compile(r"\bAs\b", re.IGNORECASE)
 AS_INTEGER_PATTERN = re.compile(r"\bAs\s+Integer\b", re.IGNORECASE)
 
+# ReDim x(0 To -1) / (5 To 2) 等の「上限が負」の負範囲(実機VBAで実行時エラー9)。
+# 定数指定の負リテラル上限のみを対象にする(変数上限 n-1 は実行時にしか
+# 分からないため対象外。それらはcount>0ガード付きの正当なパターン)。
+NEGATIVE_REDIM_PATTERN = re.compile(
+    r"\bReDim\b[^(]*\([^)]*\bTo\s+-\d+\s*\)", re.IGNORECASE
+)
+
 ATTRIBUTE_VBNAME_PATTERN = re.compile(r'^\s*Attribute\s+VB_Name\s*=\s*"([^"]*)"', re.IGNORECASE)
 OPTION_EXPLICIT_PATTERN = re.compile(r"^\s*Option\s+Explicit\s*$", re.IGNORECASE)
 
@@ -520,6 +527,18 @@ def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
             info.add("ERROR", lineno, f"Integer型は禁止(Longを使う): 「{stmt.strip()[:80]}」")
+
+        # 2026-07-16 実機事故の恒久再発防止: ReDim x(0 To -1) 等の「上限<下限」は
+        # LibreOffice Basicでは0要素配列として通るが、実機Excel VBAでは実行時
+        # エラー9「インデックスが有効範囲にありません」になる(VB.NETとの混同)。
+        # LO実行テストはこの文を「環境差」と誤認しスキップしていたため、本番
+        # コード20箇所以上に混入し、資料取込・同期・画面描画が実機で全滅した。
+        # 0件は「count変数+ReDim(0 To 0)」か「Split(vbNullString)」で表現する。
+        if NEGATIVE_REDIM_PATTERN.search(stmt):
+            info.add(
+                "ERROR", lineno,
+                f"実機Excel VBAで実行時エラー9になる負範囲ReDim(To -1): 「{stmt.strip()[:80]}」",
+            )
 
         m = DIM_STMT_PATTERN.match(stmt)
         if not m:

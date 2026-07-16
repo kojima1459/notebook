@@ -53,7 +53,7 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
                             ByRef errCode As String, ByRef errDetail As String) As Boolean
     errCode = ""
     errDetail = ""
-    ReDim pages(0 To -1)   ' 呼び出し前に必ず空配列へリセットしておく
+    ReDim pages(0 To 0)   ' 呼び出し前に必ず空配列へリセットしておく
 
     Dim ext As String: ext = modUtil.ExtOf(path)
     If Not IsSupportedExt(ext) Then

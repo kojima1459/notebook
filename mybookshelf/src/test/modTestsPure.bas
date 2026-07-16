@@ -105,35 +105,19 @@ Private Function CanUseTypeArrays() As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
-' CanUseEmptyArrayReDim - "ReDim arr(0 To -1)"(上限<下限=0要素配列を作る、
-'   LBound/UBoundをエラーにせず安全に0件として扱わせるためのVBA定番イディオム。
-'   modUtil.SplitKeepNonEmptyや(CanUseTypeArrays=Trueの環境限定だが)
-'   modChunker.ChunkPagesの空入力パスがこのイディオムを使う)を、この実行環境が
-'   受け付けるかどうかを実測で判定する。
-'   実測の結果、LibreOffice実行環境(本ハーネスのOption VBASupport 1注入下)は
-'   このReDim文自体を実行時エラー9 "Index out of defined range" にすることを
-'   確認済み(Excel VBAでは正常に0要素配列を作れる標準イディオム)。
-'   これはmodUtil側のバグではない: modUtil.SplitKeepNonEmptyの戻り値を使う
-'   実際の呼び出し元(modRetrieve.KeywordBonus等)は
-'   `For i = LBound(words) To UBound(words)`のように「LBound/UBoundへの
-'   直接アクセスがエラーにならない」ことを前提にしており、これは
-'   ReDim(0 To -1)だからこそ安全に成立する(未ReDim配列にすると、その
-'   LBound/UBoundへのアクセス自体がVBAでもエラー9になり、かえって壊れる)。
-'   したがってmodUtil側を「未ReDimのまま返す」方式に変更するのは
-'   本末転倒(Excel実機で壊れる側に倒すことになる)であり、本Waveでは
-'   modUtil.basを変更しない。LO側のこの既知の言語差はテスト側で検知し、
-'   影響を受ける具体的な1件(空文字列入力時の0件確認)だけを「LO環境の
-'   既知の制限によりスキップ」として明示する(CanUseTypeArraysと同じ設計方針)。
+' 【2026-07-16 訂正の記録】かつてここに CanUseEmptyArrayReDim という判定関数と
+'   「"ReDim arr(0 To -1)" はExcel VBAの標準イディオムで、これをエラー9にする
+'   のはLibreOffice側の制限」という長いコメントがあったが、実機Windows Excel
+'   のerr_logで全面的に誤りだと証明された: ReDimの上限<下限は**実機Excel VBA
+'   でも**実行時エラー9「インデックスが有効範囲にありません」になる
+'   (0要素配列を宣言できるのはVB.NETであり、VBA/VB6ではできない)。
+'   LOテストがこの文を「環境差」としてスキップしていたため、本番コード20箇所
+'   以上に埋まった同イディオムが検出されず、実機で資料取込・同期・画面描画が
+'   次々に失敗する事故になった。正しい0件表現は
+'   ①count変数+ダミー1要素のReDim(0 To 0)、または
+'   ②Split(vbNullString)(言語機能が返す正当な空配列。LBound=0/UBound=-1)。
+'   本番コードは全箇所を①②へ移行済み。この教訓を消さないためコメントを残す。
 ' ----------------------------------------------------------------------------
-Private Function CanUseEmptyArrayReDim() As Boolean
-    On Error Resume Next
-    Err.Clear
-    Dim probe() As String
-    ReDim probe(0 To -1)
-    CanUseEmptyArrayReDim = (Err.Number = 0)
-    Err.Clear
-    On Error GoTo 0
-End Function
 
 ' ============================================================================
 ' modUtil
@@ -379,25 +363,19 @@ Private Sub TestSplitKeepNonEmpty()
             "r0=" & r(0) & " r1=" & r(1) & " r2=" & r(2)
     End If
 
-    ' 空文字列入力(0件)の確認。modUtil.SplitKeepNonEmptyの空入力パスは
-    ' 内部で"ReDim outArr(0 To -1)"(VBA定番の0要素配列イディオム)を使うが、
-    ' このReDim文自体がLibreOffice実行環境では実行時エラー9になることを
-    ' 実測で確認済み(CanUseEmptyArrayReDimコメント参照。modUtil側のバグではなく、
-    ' modUtil.SplitKeepNonEmptyの呼び出し元(modRetrieve.KeywordBonus等)が
-    ' 前提とする「LBound/UBoundに直接アクセスしてもエラーにならない」性質を
-    ' Excel実機で保つための正しい実装であり、変更しない)。
-    If Not CanUseEmptyArrayReDim() Then
-        modTestRunner.Check "SplitKeepNonEmpty_空文字入力0件: LO環境の既知の制限によりスキップ", True, _
-            "LibreOffice実行環境では modUtil.SplitKeepNonEmpty 内部の " & _
-            "ReDim outArr(0 To -1) が実行時エラー9になることを確認済み" & _
-            "(Excel VBAでは正常に0要素配列を作れる標準イディオム。CanUseEmptyArrayReDim" & _
-            "コメント参照)。Excel実機受入チェック(§11.3)で必ず再確認すること。"
-    Else
-        Dim rEmpty() As String
-        rEmpty = modUtil.SplitKeepNonEmpty("", ",")
-        Dim nEmpty As Long: nEmpty = UBound(rEmpty) - LBound(rEmpty) + 1
-        modTestRunner.Check "SplitKeepNonEmpty_空文字入力は0件", (nEmpty <= 0), "nEmpty=" & nEmpty
-    End If
+    ' 空文字列入力(0件)の確認。SplitKeepNonEmptyはSplit(vbNullString)方式の
+    ' 空配列(LBound=0/UBound=-1)を返すので、この確認はLO・実機Excelの両環境で
+    ' 無条件に実行できる(2026-07-16: 誤った「LO制限スキップ」を撤廃)。
+    Dim rEmpty() As String
+    rEmpty = modUtil.SplitKeepNonEmpty("", ",")
+    Dim nEmpty As Long: nEmpty = UBound(rEmpty) - LBound(rEmpty) + 1
+    modTestRunner.Check "SplitKeepNonEmpty_空文字入力は0件", (nEmpty <= 0), "nEmpty=" & nEmpty
+
+    ' 空白のみの入力(全要素が除去されて0件になるパス)も同様に確認。
+    Dim rBlank() As String
+    rBlank = modUtil.SplitKeepNonEmpty(" , , ", ",")
+    Dim nBlank As Long: nBlank = UBound(rBlank) - LBound(rBlank) + 1
+    modTestRunner.Check "SplitKeepNonEmpty_空白のみ入力は0件", (nBlank <= 0), "nBlank=" & nBlank
 End Sub
 
 ' HumanBytes/HumanSecondsのテスト。

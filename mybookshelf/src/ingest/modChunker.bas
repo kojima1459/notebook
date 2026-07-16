@@ -63,7 +63,7 @@ Public Function ChunkPages(pages() As ExtractedPage, ByVal targetChars As Long, 
     End If
 
     If outCount = 0 Then
-        ReDim chunks(0 To -1)
+        ReDim chunks(0 To 0)
     Else
         ReDim Preserve outArr(0 To outCount - 1)
         chunks = outArr

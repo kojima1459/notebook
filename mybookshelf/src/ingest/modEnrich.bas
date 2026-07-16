@@ -269,9 +269,9 @@ Private Function ParseEnrichJson(ByVal json As String, ByRef outIdx() As Long, _
         ReDim Preserve outSummary(0 To outCount - 1)
         ReDim Preserve outKeywords(0 To outCount - 1)
     Else
-        ReDim outIdx(0 To -1)
-        ReDim outSummary(0 To -1)
-        ReDim outKeywords(0 To -1)
+        ReDim outIdx(0 To 0)
+        ReDim outSummary(0 To 0)
+        ReDim outKeywords(0 To 0)
     End If
 
     ParseEnrichJson = foundAny

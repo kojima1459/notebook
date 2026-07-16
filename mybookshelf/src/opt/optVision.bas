@@ -117,7 +117,7 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As ExtractedPage) As Boolean
     mLastErrorMsg = ""
-    ReDim pages(0 To -1)
+    ReDim pages(0 To 0)
 
     On Error GoTo Fail
 
