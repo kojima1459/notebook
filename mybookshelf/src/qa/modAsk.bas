@@ -113,6 +113,10 @@ Private mLastCleanAnswer As String
 Private mLastQuestion As String
 Private mLastAnswer As String
 Private mLastMode As String
+' フィードバックの多重カウント防止(2026-07-16): 🟢🟡🔴ボタンは何度でも
+' 押せてしまい、押すたびにselfsolve_total等が加算されて「取り戻した時間」も
+' 実態とズレていた。1回の回答につき感想は1回だけ記録する。
+Private mFeedbackDone As Boolean
 Private mLastHits() As Hit
 Private mLastNHits As Long
 Private mLastSeconds As Long
@@ -324,6 +328,7 @@ Done:
     mLastHits = hits
     mLastNHits = nHits
     mLastSeconds = elapsedSec
+    mFeedbackDone = False   ' 新しい回答に対する感想を受付可能にする
 
     Dim logDetail As String
     logDetail = "q=" & modUtil.SafeLeft(q, 200)
@@ -335,22 +340,42 @@ Done:
 End Function
 
 Public Sub FeedbackGreen()
+    If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "selfsolve_total"
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     MsgBox "ありがとうございます。解決に役立てて何よりです。", vbInformation, modAppDef.APP_NAME
 End Sub
 
 Public Sub FeedbackYellow()
+    If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "hint_total"
     modLog.LogUsage "feedback_yellow", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     MsgBox "ありがとうございます。次はもっと的確に答えられるよう活かします。", vbInformation, modAppDef.APP_NAME
 End Sub
 
 Public Sub FeedbackRed()
+    If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "fail_total"
     modLog.LogUsage "feedback_red", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     MsgBox "ご意見ありがとうございます。改善の参考にします。", vbInformation, modAppDef.APP_NAME
 End Sub
+
+' 感想を記録してよい状態かの共通判定(多重カウント防止・回答前クリック防止)。
+' Trueを返した時点で「記録済み」に倒す(呼び出し側は必ず記録する前提)。
+Private Function FeedbackAccepted() As Boolean
+    If LenB(mLastQuestion) = 0 Then
+        MsgBox "まず質問して回答を受け取ってから、感想ボタンを押してください。", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Function
+    End If
+    If mFeedbackDone Then
+        MsgBox "この回答への感想はすでに記録されています。" & vbLf & _
+               "(次の質問の回答から、また感想を送れます)", vbInformation, modAppDef.APP_NAME
+        Exit Function
+    End If
+    mFeedbackDone = True
+    FeedbackAccepted = True
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)

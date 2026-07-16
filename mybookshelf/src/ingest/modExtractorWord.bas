@@ -31,9 +31,29 @@ Option Explicit
 '     丁寧な案内文を errDetail に含める(§13)。
 ' ============================================================================
 
+' 【2026-07-16 実機err#462対応】Word COMは「リモート サーバーがないか、
+' 使用できる状態ではありません」(実行時エラー462)で散発的に失敗する
+' (直前のWord.Quitの残骸プロセスや、起動直後のRPC未確立が原因の
+' 実機Windows特有の揺らぎ。LibreOfficeでは再現しない)。1回の失敗で
+' 資料を「取込失敗」にせず、少し待ってからまっさらなWordで1回だけ
+' やり直す(2回目も失敗したら本当の失敗として報告する)。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 2
+        If TryExtractOnce(path, maxPages, pages, truncated, errDetail) Then
+            Extract = True
+            Exit Function
+        End If
+        If attempt = 1 Then WaitBriefly 800
+    Next attempt
+    Extract = False
+End Function
+
+Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
+                                ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
+                                ByRef errDetail As String) As Boolean
     truncated = False
 
     Dim word As Object
@@ -75,7 +95,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Set word = Nothing
 
     pages = tmp
-    Extract = True
+    TryExtractOnce = True
     Exit Function
 
 Failed:
@@ -90,8 +110,16 @@ Failed:
         word.Quit 0
         On Error GoTo 0
     End If
-    Extract = False
+    TryExtractOnce = False
 End Function
+
+' Declareを使わない短い待機(リトライ前にWordプロセスの後始末を待つ)。
+Private Sub WaitBriefly(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+    Loop
+End Sub
 
 ' 指定ページの本文を、次ページ開始直前までの範囲として取り出す
 ' (最終ページは文書末尾まで)。

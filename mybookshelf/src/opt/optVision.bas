@@ -59,9 +59,17 @@ Private Const BASE64_FUNC_NAME As String = "Base64FromFile"
 Private Const VISION_RESOLUTION As String = "high"
 Private Const VISION_TOOL_NAME As String = "マイ本棚AI:vision"
 Private Const IMAGE_EXTS As String = "png,jpg,jpeg"
+' 2026-07-16 実機フィードバック(「どんなスクショでも1チャンクにしかならず
+' 精度が悪い」)を受けて逐語書き起こしの指示を強化: 表の構造・数値・単位の
+' 厳密な転記と、見出しによる構造化を明示的に要求する(書き起こしが厚くなる
+' ほどチャンク分割・検索の材料が増える)。
 Private Const VISION_PROMPT As String = _
-    "この画像に写っている文字を、レイアウトの意味を保ったまま、" & _
-    "省略せずにすべて書き出してください。図表の説明文やキャプションも含めてください。"
+    "この画像に写っている文字情報を、一字一句省略せずにすべて書き起こしてください。" & vbLf & _
+    "・見出しやセクション名は行頭に「# 」を付けて構造を保つこと" & vbLf & _
+    "・表は1行=1レコードの形で、列名と値の対応が分かるように書き出すこと" & vbLf & _
+    "・数値・金額・日付・単位・記号は画像のとおり正確に転記すること(要約や丸めは禁止)" & vbLf & _
+    "・図やグラフは、読み取れる軸・凡例・数値を含めて内容を文章で説明すること" & vbLf & _
+    "・画像に無い情報を補って書かないこと"
 
 Private mLastErrorMsg As String
 

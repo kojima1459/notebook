@@ -143,7 +143,34 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' 状態」であって障害ではない。バックグラウンド同期(silent)のときは
         ' err_logを汚さない(実機で毎起動E0502が3件ずつ記録され、本当の
         ' 障害が埋もれる問題への対応)。手動🔄時のみ丁寧に案内する。
-        If Not silent Then
+        '
+        ' 【2026-07-16 袋小路の解消】「＋資料を追加」で入れた資料がpartial
+        ' (ベクトル化未完了)のとき、カードのメモは「🔄フォルダと同期を押すと
+        ' 続きから再開します」と案内するのに、フォルダ未設定だとE0502で
+        ' 弾かれて再開手段が無かった。フォルダが未設定でも、未完了の
+        ' ベクトル化(EmbedPending)だけは実行して「続きから再開」を成立させる。
+        uiStep = "未完了ベクトル化の再開(フォルダ未設定)"
+        Dim orphanPending As Long
+        orphanPending = 0
+        On Error Resume Next
+        orphanPending = modEmbed.PendingCount()
+        On Error GoTo Failed
+        If orphanPending > 0 Then
+            On Error Resume Next
+            modUIMain.SetStage "📥 未完了の埋め込みを再開しています…"
+            On Error GoTo Failed
+            Dim orphanDone As Long
+            orphanDone = modEmbed.EmbedPending()
+            On Error Resume Next
+            modUIMain.SetStage ""
+            On Error GoTo Failed
+            If Not silent Then
+                MsgBox "同期フォルダはまだ設定されていませんが、未完了だった資料の変換(ベクトル化)を" & _
+                       orphanDone & "件再開しました。" & vbLf & vbLf & _
+                       "フォルダごと自動同期したい場合は「📁 フォルダを選ぶ」から設定できます。", _
+                       vbInformation, modAppDef.APP_NAME
+            End If
+        ElseIf Not silent Then
             modLog.ShowError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です"
         Else
             On Error Resume Next
@@ -202,6 +229,15 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim ingestedN As Long, replacedN As Long, deletedN As Long
     Dim resumeNeeded As Boolean: resumeNeeded = False
 
+    ' 本棚上限(2026-07-16 実機対応): 大容量フォルダを同期すると、上限到達後の
+    ' 残り全ファイルがIngestFile内のE0501ダイアログを1件ずつ出し続ける
+    ' 「ダイアログ地獄」になっていた(実機で35連発)。上限はこのループ側で
+    ' 先に判定し、到達後は取込を静かに見送って件数だけ数え、最後に1回だけ
+    ' まとめて案内する。
+    Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
+    If capMax < 1 Then capMax = 10000
+    Dim cappedN As Long: cappedN = 0
+
     uiStep = "新規・更新の差分判定"
     Dim i As Long
     For i = 0 To diskCount - 1
@@ -236,11 +272,19 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
         Select Case decision
             Case "ingest"
-                modShelf.IngestFile path, "self"
-                ingestedN = ingestedN + 1
+                If modShelf.TotalChunks() >= capMax Then
+                    cappedN = cappedN + 1
+                Else
+                    modShelf.IngestFile path, "self"
+                    ingestedN = ingestedN + 1
+                End If
             Case "replace"
-                modShelf.IngestFile path, "self"
-                replacedN = replacedN + 1
+                If modShelf.TotalChunks() >= capMax Then
+                    cappedN = cappedN + 1
+                Else
+                    modShelf.IngestFile path, "self"
+                    replacedN = replacedN + 1
+                End If
             Case "keep"
                 If mi >= 0 Then
                     If mStatus(mi) = "pending" Or mStatus(mi) = "partial" Then
@@ -271,6 +315,14 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim summaryLine As String
     summaryLine = "新規" & ingestedN & "件・更新" & replacedN & "件・削除" & deletedN & "件"
     If resumeNeeded Then summaryLine = summaryLine & "・再開" & resumedCount & "件"
+    If cappedN > 0 Then summaryLine = summaryLine & "・上限見送り" & cappedN & "件"
+
+    If cappedN > 0 Then
+        On Error Resume Next
+        modLog.LogError "E0501", "modShelfSync.SyncNow", _
+            "上限(" & capMax & "チャンク)到達により" & cappedN & "件を見送り"
+        On Error GoTo 0
+    End If
 
     If silent Then
         ' バックグラウンド同期(sync_on_open/自動同期)は対話ダイアログで
@@ -285,6 +337,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
             "新規: " & ingestedN & "件 / 更新: " & replacedN & "件 / 削除: " & deletedN & "件"
         If resumeNeeded Then
             summary = summary & vbLf & "未完了だった埋め込みを" & resumedCount & "件再開しました。"
+        End If
+        If cappedN > 0 Then
+            summary = summary & vbLf & vbLf & _
+                "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
+                "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
+                "もう一度「🔄 フォルダと同期」を押してください。"
         End If
 
         On Error Resume Next

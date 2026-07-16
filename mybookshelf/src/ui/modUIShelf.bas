@@ -601,6 +601,17 @@ Private Sub ParseStats(ByVal s As String, ByRef status As String, ByRef ingested
 End Sub
 
 Private Function ShortDate(ByVal stamp As String) As String
+    ' 【2026-07-16 恒久修正】セルの日付型自動変換により、stampは
+    ' "2026-07-16 15:02:33"(書込み時の文字列)と"2026/07/16 15:02:33"
+    ' (日付型セルをCStrしたロケール表記)の両方があり得る。IsDateなら
+    ' 型に依存せずCDateで月/日に整形する(従来は"-"区切り前提で、
+    ' 実機では整形されない生の日時が資料カードに出ていた)。
+    If IsDate(stamp) Then
+        Dim d As Date: d = CDate(stamp)
+        ShortDate = Month(d) & "/" & Day(d)
+        Exit Function
+    End If
+
     Dim datePart As String
     datePart = Left$(stamp, 10)
 

@@ -317,23 +317,44 @@ Private Function MonthlyAskCount() As Long
     lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRow < 2 Then Exit Function
 
-    Dim monthPrefix As String
-    monthPrefix = Format$(Now, "yyyy-mm")
-
     Dim arr As Variant
-    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 2)).Value
+    If lastRow = 2 Then
+        ' 単一行は.Valueがスカラーになるため個別に読む
+        Dim tmp(1 To 1, 1 To 2) As Variant
+        tmp(1, 1) = ws.Cells(2, 1).Value
+        tmp(1, 2) = ws.Cells(2, 2).Value
+        arr = tmp
+    Else
+        arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 2)).Value
+    End If
 
     Dim n As Long
     n = 0
     Dim i As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
-        If Left$(CStr(arr(i, 1)), 7) = monthPrefix Then
+        If IsThisMonthStamp(arr(i, 1)) Then
             If StrComp(CStr(arr(i, 2)), "ask", vbTextCompare) = 0 Then
                 n = n + 1
             End If
         End If
     Next i
     MonthlyAskCount = n
+End Function
+
+' timestampセルが「今月」かどうかを、値の型に依存せず判定する。
+' 【2026-07-16 実機バグの恒久修正】LogUsageは"yyyy-mm-dd hh:nn:ss"の文字列を
+' 書き込むが、Excelのセルがこれを日付型へ自動変換し、日本語ロケールの
+' CStr()では"2026/07/16…"(スラッシュ区切り)になる。従来の
+' Left$(...,7)="yyyy-mm" という文字列前置き比較は永久に不一致となり、
+' 「今月の質問数」が常に0のままだった。日付型ならYear/Monthで直接比較し、
+' 文字列のままなら従来の前置き比較にフォールバックする(新旧データ両対応)。
+Private Function IsThisMonthStamp(ByVal v As Variant) As Boolean
+    If IsDate(v) Then
+        Dim d As Date: d = CDate(v)
+        IsThisMonthStamp = (Year(d) = Year(Now) And Month(d) = Month(Now))
+    Else
+        IsThisMonthStamp = (Left$(CStr(v), 7) = Format$(Now, "yyyy-mm"))
+    End If
 End Function
 
 Private Function SafeGetStat(ByVal key As String) As Long
