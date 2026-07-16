@@ -170,6 +170,13 @@
       "wave": "2-E"
     },
     {
+      "name": "modUI",
+      "path": "src/ui/modUI.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",
