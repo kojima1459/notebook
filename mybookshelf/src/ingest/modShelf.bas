@@ -47,6 +47,13 @@ Private Const CHUNK_TARGET_CHARS As Long = 700
 Private Const CHUNK_OVERLAP_CHARS As Long = 150
 
 Private mIngesting As Boolean   ' 再入防止(E0503)
+' ガードの自己回復(2026-07-16): コンパイルエラーやVBEの[終了]等の強制停止は
+' エラーハンドラすら走らず、mIngesting=Trueが焼き付いて「Excel再起動まで
+' 全取込がE0503」という二次被害になる(実機で発生)。ガードを立てた時刻を
+' 記録し、一定時間を過ぎたガードは「前回の処理が異常終了した」と判断して
+' 自動解除する。正常な長時間処理の再入防止(DoEvents窓)には十分長い値にする。
+Private mIngestingSince As Date
+Private Const GUARD_EXPIRY_MIN As Long = 30
 
 ' ----------------------------------------------------------------------------
 ' AddFilesViaDialog - 複数選択FileDialog(フィルタ=SupportedExts)→各IngestFile
@@ -95,13 +102,23 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
-    ' 1) 再入guard(E0503)
+    ' 1) 再入guard(E0503)。焼き付いたガード(前回の異常終了)は自動解除する。
+    If mIngesting Then
+        If DateDiff("n", mIngestingSince, Now) >= GUARD_EXPIRY_MIN Then
+            On Error Resume Next
+            modLog.LogUsage "guard_recover", "ingest", _
+                "前回の取込ガードが" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
+            On Error GoTo 0
+            mIngesting = False
+        End If
+    End If
     If mIngesting Then
         modLog.ShowError "E0503", "modShelf.IngestFile", "path=" & modUtil.SafeLeft(path, 300)
         IngestFile = "failed"
         Exit Function
     End If
     mIngesting = True
+    mIngestingSince = Now
 
     ' 2026-07-16 恒久対策: IngestFile内のどこで実行時エラー(型不一致・
     ' 添字範囲外・Word COM例外等)が起きても、必ずFinish(mIngestingの解除・

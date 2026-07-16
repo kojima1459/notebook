@@ -71,6 +71,10 @@ Option Explicit
 ' ============================================================================
 
 Private mSyncRunning As Boolean     ' 再入防止
+' ガードの自己回復(2026-07-16): modShelf.mIngestingと同じ理由(強制停止で
+' フラグが焼き付くと以降の同期が全て無言スキップになる)のタイムスタンプ。
+Private mSyncRunningSince As Date
+Private Const GUARD_EXPIRY_MIN As Long = 30
 Private mScheduled As Boolean       ' OnTime予約中かどうか
 Private mNextRunTime As Date        ' 予約時刻(Cancelは同時刻指定のため保持)
 
@@ -105,8 +109,19 @@ End Sub
 '   フィードバックがあった方がよい)。
 ' ----------------------------------------------------------------------------
 Public Sub SyncNow(Optional ByVal silent As Boolean = False)
-    If mSyncRunning Then Exit Sub   ' 再入防止(手動連打・自動同期との重複)
+    ' 再入防止(手動連打・自動同期との重複)。焼き付いたガードは自動解除。
+    If mSyncRunning Then
+        If DateDiff("n", mSyncRunningSince, Now) >= GUARD_EXPIRY_MIN Then
+            On Error Resume Next
+            modLog.LogUsage "guard_recover", "sync", _
+                "前回の同期ガードが" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
+            On Error GoTo 0
+            mSyncRunning = False
+        End If
+    End If
+    If mSyncRunning Then Exit Sub
     mSyncRunning = True
+    mSyncRunningSince = Now
 
     ' 2026-07-16 恒久対策: 同期処理のどこで実行時エラーが起きても、必ず
     ' Finish(mSyncRunningの解除)へ合流させる。従来は本体を覆うエラー

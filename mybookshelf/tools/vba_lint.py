@@ -556,6 +556,56 @@ def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
                 break
 
 
+PROC_DEF_PATTERN = re.compile(
+    r"^\s*(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?"
+    r"(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+(\w+)",
+    re.IGNORECASE,
+)
+LOCAL_DECL_PATTERN = re.compile(r"\b(?:Dim|Static|Const)\s+(\w+)", re.IGNORECASE)
+PROC_PARAM_PATTERN = re.compile(
+    r"(?:ByVal\s+|ByRef\s+|Optional\s+(?:ByVal\s+|ByRef\s+)?)(\w+)", re.IGNORECASE
+)
+
+
+def check_name_shadowing(info: ModuleInfo) -> None:
+    """変数/引数名が同一モジュール内の手続き名と衝突していないか。
+
+    2026-07-16 実機事故の恒久再発防止: modEmbedのローカル変数sleepMsが
+    同モジュールのSub SleepMsを隠し、「SleepMs sleepMs」の呼び出し行が
+    実機Excel VBAでコンパイルエラー「Sub、Functionまたは Propertyが
+    必要です」になった(LibreOffice Basicは同名解決を許すため、LOの
+    コンパイル検査もLO実行テストも通過してしまう)。さらにVBAは遅延
+    コンパイルのため、当該モジュールに実行が到達した瞬間に初めて爆発し、
+    エラーハンドラも走らず再入ガードが焼き付く二次被害まで起きた。
+    呼び出しの有無にかかわらず、同名宣言そのものを全面禁止にする。
+    """
+    procs: dict[str, int] = {}
+    for lineno, stmt in info.statements:
+        m = PROC_DEF_PATTERN.match(stmt)
+        if m:
+            procs[m.group(1).lower()] = lineno
+    if not procs:
+        return
+    for lineno, stmt in info.statements:
+        for m in LOCAL_DECL_PATTERN.finditer(stmt):
+            name = m.group(1)
+            if name.lower() in procs:
+                info.add(
+                    "ERROR", lineno,
+                    f"変数名「{name}」が同一モジュール内の手続き名と衝突"
+                    f"(実機VBAでコンパイルエラーの元): 「{stmt.strip()[:80]}」",
+                )
+        if PROC_DEF_PATTERN.match(stmt):
+            for m in PROC_PARAM_PATTERN.finditer(stmt):
+                name = m.group(1)
+                if name.lower() in procs and procs[name.lower()] != lineno:
+                    info.add(
+                        "ERROR", lineno,
+                        f"引数名「{name}」が同一モジュール内の手続き名と衝突"
+                        f"(実機VBAでコンパイルエラーの元): 「{stmt.strip()[:80]}」",
+                    )
+
+
 def module_name_for_display(info: ModuleInfo) -> str:
     return info.vb_name or info.filename_stem
 
@@ -761,6 +811,7 @@ def run_lint(src_root: Path) -> int:
     for info in modules:
         check_basics(info)
         check_dim_type_drop_and_integer(info)
+        check_name_shadowing(info)
         check_pure_logic_tokens(info)
         check_opt_token_reference(info)
         check_application_run_whitelist(info)

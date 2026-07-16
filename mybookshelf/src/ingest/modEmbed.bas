@@ -48,6 +48,9 @@ Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
 Private mRunning As Boolean   ' 再入防止(ESC中のDoEventsによる多重起動対策)
+' ガードの自己回復(2026-07-16): modShelf.mIngestingと同じ理由のタイムスタンプ。
+Private mRunningSince As Date
+Private Const GUARD_EXPIRY_MIN As Long = 30
 
 ' ----------------------------------------------------------------------------
 ' EmbedPending - embedded=0 の行を順に埋め込む。戻り値=今回埋め込んだ件数。
@@ -56,10 +59,20 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim doneCount As Long: doneCount = 0
 
     If mRunning Then
+        If DateDiff("n", mRunningSince, Now) >= GUARD_EXPIRY_MIN Then
+            On Error Resume Next
+            modLog.LogUsage "guard_recover", "embed", _
+                "前回の埋め込みガードが" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
+            On Error GoTo 0
+            mRunning = False
+        End If
+    End If
+    If mRunning Then
         EmbedPending = 0
         Exit Function
     End If
     mRunning = True
+    mRunningSince = Now
 
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     Dim wsV As Worksheet: Set wsV = EnsureVectorSheet()
@@ -82,22 +95,22 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
 
     Dim pendingRows() As Long
     ReDim pendingRows(0 To UBound(arr, 1) - 1)
-    Dim pendingCount As Long: pendingCount = 0
+    Dim pendingN As Long: pendingN = 0
     Dim i As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
         If CStr(arr(i, COL_EMBEDDED)) <> "1" Then
-            pendingRows(pendingCount) = i    ' arr内の行インデックス(1始まり)
-            pendingCount = pendingCount + 1
+            pendingRows(pendingN) = i    ' arr内の行インデックス(1始まり)
+            pendingN = pendingN + 1
         End If
     Next i
 
-    If pendingCount = 0 Then
+    If pendingN = 0 Then
         mRunning = False
         EmbedPending = 0
         Exit Function
     End If
 
-    Dim limit As Long: limit = pendingCount
+    Dim limit As Long: limit = pendingN
     If maxCount >= 0 And maxCount < limit Then limit = maxCount
 
     ' スロットリング待ち(ミリ秒)。2026-07-16: 実機で「取込が遅すぎる」との
@@ -106,11 +119,11 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     ' ①mock_llm=TRUE(ローカル生成でレート制限が無い)ときはスリープ0、
     ' ②実機(リボン)でも既定を0へ引き下げる(必要ならconfigの
     ' embed_sleep_msで各自調整。レート制限は3連続失敗検知・LimitCheckで別途保護)。
-    Dim sleepMs As Long
+    Dim throttleMs As Long
     If modConfig.GetBool("mock_llm", True) Then
-        sleepMs = 0
+        throttleMs = 0
     Else
-        sleepMs = modConfig.GetLong("embed_sleep_ms", 0)
+        throttleMs = modConfig.GetLong("embed_sleep_ms", 0)
     End If
 
     Dim consecutiveFail As Long: consecutiveFail = 0
@@ -179,7 +192,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
             End If
         End If
 
-        If sleepMs > 0 Then SleepMs sleepMs
+        If throttleMs > 0 Then SleepMs throttleMs
         On Error GoTo 0
         If LenB(abortReason) > 0 Then Exit For
     Next n
