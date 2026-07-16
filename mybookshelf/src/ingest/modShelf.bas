@@ -343,6 +343,13 @@ End Sub
 '   戻り値=件数(0可)
 ' ----------------------------------------------------------------------------
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long
+    ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-16 実機E0801
+    ' 「資料一覧の取得(SourceList)」報告への対策。RenderShelf側の粒度では
+    ' SourceList呼び出し全体としか分からなかったため、内部をさらに追う)。
+    Dim uiStep As String
+    On Error GoTo Fail
+
+    uiStep = "manifestシートの取得"
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     If wsM Is Nothing Then
         ReDim names(0 To -1)
@@ -351,6 +358,7 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         Exit Function
     End If
 
+    uiStep = "manifest最終行の特定"
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
     If lastM < 2 Then
         ReDim names(0 To -1)
@@ -359,18 +367,29 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         Exit Function
     End If
 
+    uiStep = "manifest範囲の一括読込(" & (lastM - 1) & "行)"
     Dim arr As Variant: arr = wsM.Range(wsM.Cells(2, 1), wsM.Cells(lastM, 9)).Value
+
+    uiStep = "件数の算出とReDim"
     Dim n As Long: n = UBound(arr, 1) - LBound(arr, 1) + 1
     ReDim names(0 To n - 1)
     ReDim stats(0 To n - 1)
 
     Dim i As Long, lo As Long: lo = LBound(arr, 1)
     For i = lo To UBound(arr, 1)
+        uiStep = "行の変換(" & (i - lo + 1) & "/" & n & "件目)"
         names(i - lo) = CStr(arr(i, 2))
         stats(i - lo) = CStr(arr(i, 6)) & "|" & CStr(arr(i, 8)) & "|" & _
                         CStr(arr(i, 5)) & "|" & CStr(arr(i, 7)) & "|" & CStr(arr(i, 9))
     Next i
     SourceList = n
+    Exit Function
+
+Fail:
+    Dim origNum As Long, origDesc As String
+    origNum = Err.Number
+    origDesc = Err.Description
+    Err.Raise origNum, "modShelf.SourceList", "[" & uiStep & "] " & origDesc
 End Function
 
 ' ----------------------------------------------------------------------------
