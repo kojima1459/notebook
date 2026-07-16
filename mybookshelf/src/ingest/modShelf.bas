@@ -65,8 +65,13 @@ Public Sub AddFilesViaDialog()
     Dim ngCount As Long: ngCount = 0
     Dim i As Long
     For i = 1 To fd.SelectedItems.count
-        Dim st As String
+        ' 1ファイルの取込で想定外エラーが出ても、残りのファイルの取込は
+        ' 続ける(IngestFile自体も堅牢化済みだが、選択項目の取り出し等
+        ' ループ側の失敗もここで吸収して「失敗1件」として数える)。
+        Dim st As String: st = "failed"
+        On Error Resume Next
         st = IngestFile(CStr(fd.SelectedItems(i)), "self")
+        On Error GoTo 0
         If st = "done" Or st = "partial" Then
             okCount = okCount + 1
         Else
@@ -97,6 +102,14 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         Exit Function
     End If
     mIngesting = True
+
+    ' 2026-07-16 恒久対策: IngestFile内のどこで実行時エラー(型不一致・
+    ' 添字範囲外・Word COM例外等)が起きても、必ずFinish(mIngestingの解除・
+    ' カード再描画)へ合流させる。従来はここに全体を覆うエラーハンドラが無く、
+    ' 途中でエラーが出るとmIngesting=Trueのまま関数を抜けてしまい、以降の
+    ' 全取込がE0503(処理中)で永久に弾かれる焼き付き事故が実機で発生した。
+    ' 1ファイルの取込失敗が「本棚機能そのものの停止」に波及しないようにする。
+    On Error GoTo Failed
 
     Dim sourceName As String: sourceName = modUtil.FileNameOf(path)
 
@@ -312,6 +325,25 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             " status=" & resultStatus
         On Error GoTo 0
     End If
+
+    GoTo Finish
+
+Failed:
+    ' 取込中の想定外エラー。詳細をerr_logに残し、この1件を"failed"として
+    ' 記録した上でFinishへ合流する(mIngestingの解除を保証)。可能なら
+    ' manifestにも失敗行を残して、利用者が「何が入らなかったか」を一覧で
+    ' 確認できるようにする(記録処理自体の失敗は握りつぶす)。
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    On Error Resume Next
+    modLog.LogError "E0801", "modShelf.IngestFile", _
+        "path=" & modUtil.SafeLeft(path, 200) & " err#" & failNum & ": " & failDesc
+    If isSelf Then
+        UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
+            "failed", "取込中に問題が発生しました(#" & failNum & ")", origin
+    End If
+    On Error GoTo 0
+    resultStatus = "failed"
 
 Finish:
     ' 11) カード再描画(modUIShelf未実装/実行時エラーでも取込処理自体は止めない)

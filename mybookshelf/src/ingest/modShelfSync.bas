@@ -108,19 +108,29 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     If mSyncRunning Then Exit Sub   ' 再入防止(手動連打・自動同期との重複)
     mSyncRunning = True
 
+    ' 2026-07-16 恒久対策: 同期処理のどこで実行時エラーが起きても、必ず
+    ' Finish(mSyncRunningの解除)へ合流させる。従来は本体を覆うエラー
+    ' ハンドラが無く、フォルダ走査やmanifest突合で例外が出るとmSyncRunning=True
+    ' のまま抜けて以降の同期が永久に走らなくなる危険があった(IngestFileの
+    ' 焼き付きと同種の予防)。
+    On Error GoTo Failed
+
     On Error Resume Next
     modUIMain.SetStage "🔄 同期を確認しています…"
-    On Error GoTo 0
+    On Error GoTo Failed
 
     Dim folder As String: folder = Trim$(modConfig.GetString("shelf_folder", ""))
     If LenB(folder) = 0 Then
-        If silent Then
-            modLog.LogError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です(silent)"
+        ' 初回起動直後(shelf_folder未設定)は「まだ何も設定していない正常な
+        ' 状態」であって障害ではない。バックグラウンド同期(silent)のときは
+        ' err_logを汚さない(実機で毎起動E0502が3件ずつ記録され、本当の
+        ' 障害が埋もれる問題への対応)。手動🔄時のみ丁寧に案内する。
+        If Not silent Then
+            modLog.ShowError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です"
+        Else
             On Error Resume Next
             modUIMain.SetStage ""
-            On Error GoTo 0
-        Else
-            modLog.ShowError "E0502", "modShelfSync.SyncNow", "shelf_folderが未設定です"
+            On Error GoTo Failed
         End If
         GoTo Finish
     End If
@@ -243,6 +253,19 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     modLog.LogUsage "sync", "", "ingest=" & ingestedN & " replace=" & replacedN & _
         " delete=" & deletedN & " resumed=" & resumedCount
+
+    GoTo Finish
+
+Failed:
+    ' 同期中の想定外エラー。詳細をerr_logへ残し、mSyncRunningを確実に解除する
+    ' (焼き付き防止)。同期はバックグラウンド処理なのでダイアログは出さず、
+    ' 状態表示だけ元に戻す。
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    On Error Resume Next
+    modLog.LogError "E0801", "modShelfSync.SyncNow", "err#" & failNum & ": " & failDesc
+    modUIMain.SetStage ""
+    On Error GoTo 0
 
 Finish:
     mSyncRunning = False

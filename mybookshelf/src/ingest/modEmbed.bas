@@ -100,7 +100,18 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim limit As Long: limit = pendingCount
     If maxCount >= 0 And maxCount < limit Then limit = maxCount
 
-    Dim sleepMs As Long: sleepMs = modConfig.GetLong("embed_sleep_ms", 150)
+    ' スロットリング待ち(ミリ秒)。2026-07-16: 実機で「取込が遅すぎる」との
+    ' 報告。埋め込みは1チャンクごとに実行され、既定150msのスリープが
+    ' 数百チャンクの資料では数十秒の純粋な待ち時間になっていた。
+    ' ①mock_llm=TRUE(ローカル生成でレート制限が無い)ときはスリープ0、
+    ' ②実機(リボン)でも既定を0へ引き下げる(必要ならconfigの
+    ' embed_sleep_msで各自調整。レート制限は3連続失敗検知・LimitCheckで別途保護)。
+    Dim sleepMs As Long
+    If modConfig.GetBool("mock_llm", True) Then
+        sleepMs = 0
+    Else
+        sleepMs = modConfig.GetLong("embed_sleep_ms", 0)
+    End If
 
     Dim consecutiveFail As Long: consecutiveFail = 0
     Dim abortReason As String: abortReason = ""
