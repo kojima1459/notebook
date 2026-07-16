@@ -135,6 +135,54 @@ Public Function VectorToCsv(vec() As Double) As String
     VectorToCsv = Join(parts, ",")
 End Function
 
+' ----------------------------------------------------------------------------
+' VectorToCsvPrec - 各成分を小数点以下decimals桁へ丸めてカンマ結合(設計書§F-1)。
+'   ロケール非依存(Str$/Val方針)。丸めは四捨五入(負値対応)。空配列は""。
+'   6桁丸めでcosine類似度への影響は1e-5未満(サイズ約-42%)。
+' ----------------------------------------------------------------------------
+Public Function VectorToCsvPrec(vec() As Double, ByVal decimals As Long) As String
+    Dim n As Long: n = ArrLenD(vec)
+    If n <= 0 Then Exit Function
+
+    Dim d As Long: d = decimals
+    If d < 0 Then d = 0
+    If d > 12 Then d = 12
+    Dim f As Double: f = 10 ^ d
+
+    Dim parts() As String: ReDim parts(0 To n - 1)
+    Dim lo As Long: lo = LBound(vec)
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim v As Double: v = vec(lo + i)
+        Dim r As Double
+        r = Fix(v * f + 0.5 * Sgn(v)) / f
+        parts(i) = Trim$(Str$(r))
+    Next i
+    VectorToCsvPrec = Join(parts, ",")
+End Function
+
+' ----------------------------------------------------------------------------
+' TruncateAndRenorm - ベクトルを先頭dims成分へ切詰め+L2再正規化(設計書§F-1、
+'   Matryoshka特性を利用した次元圧縮)。dims以下ならL2正規化のみ。
+'   未初期化/空/ゼロベクトルはFalseで無変更。
+' ----------------------------------------------------------------------------
+Public Function TruncateAndRenorm(ByRef vec() As Double, ByVal dims As Long) As Boolean
+    Dim n As Long: n = ArrLenD(vec)
+    If n <= 0 Or dims < 1 Then Exit Function
+
+    Dim lo As Long: lo = LBound(vec)
+    If n > dims Then
+        Dim cut() As Double: ReDim cut(0 To dims - 1)
+        Dim i As Long
+        For i = 0 To dims - 1
+            cut(i) = vec(lo + i)
+        Next i
+        vec = cut
+    End If
+
+    TruncateAndRenorm = L2Normalize(vec)
+End Function
+
 Public Function CsvToVector(ByVal s As String, ByRef vec() As Double) As Boolean
     Dim t As String: t = Trim$(s)
     If LenB(t) = 0 Then Exit Function

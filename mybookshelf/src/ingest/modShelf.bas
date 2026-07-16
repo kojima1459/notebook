@@ -3,7 +3,7 @@ Option Explicit
 
 ' ========================================
 ' modShelf - 本棚中核(ファイル取込・チャンク付番・重複排除・削除・一覧)
-' ----
+'
 ' 抽出→チャンク化→chunk_id付番(ハッシュ重複排除)→my_knowledge追記→
 ' manifest upsert→埋め込み(MASTER_SPEC §7.2の手順)。
 ' ・再入guard(E0503)=mIngesting。出口はFinishラベルに一本化
@@ -27,14 +27,13 @@ Private Const CHUNK_TARGET_CHARS As Long = 700
 Private Const CHUNK_OVERLAP_CHARS As Long = 150
 
 Private mIngesting As Boolean   ' 再入防止(E0503)
-' 強制停止(コンパイルエラー・VBEの[終了]等)はハンドラが走らずガードが
-' 焼き付く(実機2026-07-16)。時刻を記録し、期限超過分は自動解除する。
+' 強制停止でガードが焼き付くため、時刻を記録し期限超過分は自動解除。
 Private mIngestingSince As Date
 Private Const GUARD_EXPIRY_MIN As Long = 30
 
-' ----
+'
 ' AddFilesViaDialog - 複数選択FileDialog(フィルタ=SupportedExts)→各IngestFile
-' ----
+'
 Public Sub AddFilesViaDialog()
     Dim fd As Object
     Set fd = Application.FileDialog(3)   ' msoFileDialogFilePicker(名前付き定数は使わない)
@@ -45,7 +44,6 @@ Public Sub AddFilesViaDialog()
 
     If fd.Show <> -1 Then Exit Sub   ' キャンセル
 
-    ' 上限到達後は静かに見送り、最後に1回だけ案内(E0501連発防止)。
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
     If capMax < 1 Then capMax = 10000
 
@@ -57,7 +55,6 @@ Public Sub AddFilesViaDialog()
         If TotalChunks() >= capMax Then
             cappedN = cappedN + 1
         Else
-            ' 1件の失敗が残りのバッチを止めないよう個別に保護する。
             Dim st As String: st = "failed"
             On Error Resume Next
             st = IngestFile(CStr(fd.SelectedItems(i)), "self")
@@ -87,15 +84,15 @@ Public Sub AddFilesViaDialog()
     MsgBox msg, vbInformation, modAppDef.APP_NAME
 End Sub
 
-' ----
+'
 ' IngestFile - MASTER_SPEC §7.2 の手順どおりに1ファイルを取込む。
 '   戻り値=manifest status("done"/"partial"/"failed"/"image_pdf")
-' ----
+'
 Public Function IngestFile(ByVal path As String, ByVal origin As String) As String
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
-    ' 1) 再入guard(E0503)。焼き付いたガード(前回の異常終了)は自動解除する。
+    ' 1) 再入guard(E0503)。焼き付きガードは自動解除。
     If mIngesting Then
         If DateDiff("n", mIngestingSince, Now) >= GUARD_EXPIRY_MIN Then
             On Error Resume Next
@@ -113,15 +110,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     mIngesting = True
     mIngestingSince = Now
 
-    ' どこで実行時エラーが起きても必ずFinish(ガード解除)へ合流させる
-    ' (2026-07-16実機: 焼き付き→全取込E0503の恒久対策)。uiStep=失敗位置記録。
     Dim uiStep As String
     On Error GoTo Failed
 
     uiStep = "ファイル名の解決"
     Dim sourceName As String: sourceName = modUtil.FileNameOf(path)
 
-    ' 1.5) 同名衝突検査(E0504): 別パス同名は無言データ破壊防止のため明示停止。
+    ' 1.5) 同名衝突検査(E0504): 別パス同名は明示停止(無言破壊防止)。
     uiStep = "同名衝突の検査"
     If isSelf Then
         Dim conflictPath As String
@@ -158,7 +153,6 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Dim pagesTruncated As Boolean: pagesTruncated = (extractOk And errCode = "PARTIAL_PAGES")
 
     If Not extractOk Then
-        ' 画像PDF/画像ファイルはvision有効時にOCR委譲を試みる(§7.7・D13)。
         Dim visionEligible As Boolean
         visionEligible = (errCode = "E0303")
         If (Not visionEligible) And errCode = "E0301" Then
@@ -186,7 +180,6 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             Else
                 failStatus = "failed"
             End If
-            ' 画像×vision無効の失敗は「次にどうするか」が分かる案内にする(D13)。
             Dim failMsg As String
             failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
             If errCode = "E0301" And IsImageExtension(path) Then
@@ -202,11 +195,15 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         End If
     End If
 
-    ' 5) チャンク分割
+    ' 5) チャンク分割(§B)
     uiStep = "本文のチャンク分割"
     Dim chunks() As ShelfChunk
     Dim chunkN As Long
-    chunkN = modChunker.ChunkPages(pages, CHUNK_TARGET_CHARS, CHUNK_OVERLAP_CHARS, chunks)
+    chunkN = modChunker.ChunkPagesEx(pages, _
+        modConfig.GetLong("chunk_target_chars", CHUNK_TARGET_CHARS), _
+        modConfig.GetLong("chunk_overlap_chars", CHUNK_OVERLAP_CHARS), _
+        modConfig.GetLong("chunk_max_chars", 1800), _
+        modConfig.GetString("chunk_mode", "legacy"), chunks)
 
     If chunkN = 0 Then
         modLog.LogError "E0401", "modShelf.IngestFile", "source=" & sourceName
@@ -229,6 +226,9 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Dim seq As Long: seq = 0
     Dim addedStamp As String: addedStamp = modUtil.NowStamp()
 
+    Dim crumbOn As Boolean
+    crumbOn = modConfig.GetBool("embed_prefix_breadcrumb", False)
+
     Dim ci As Long
     For ci = 0 To chunkN - 1
         If chunks(ci).page <> lastPage Then
@@ -237,8 +237,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         End If
         seq = seq + 1
 
+        Dim bodyText As String
+        bodyText = ApplyCrumb(chunks(ci).full_text, sourceName, crumbOn)
+
         Dim hashHex As String
-        hashHex = modUtil.Fnv1a64Hex(modUtil.NormalizeForHash(chunks(ci).full_text))
+        hashHex = modUtil.Fnv1a64Hex(modUtil.NormalizeForHash(bodyText))
 
         If Not existingHashes.Exists(hashHex) Then
             existingHashes.Add hashHex, True
@@ -249,14 +252,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             outRows(acceptedCount, COL_PAGE) = chunks(ci).page
             outRows(acceptedCount, COL_SUMMARY) = ""     ' modEnrichが後で埋める
             outRows(acceptedCount, COL_KEYWORDS) = ""
-            outRows(acceptedCount, COL_FULLTEXT) = modUtil.SafeLeft(chunks(ci).full_text, 32000)
+            outRows(acceptedCount, COL_FULLTEXT) = modUtil.SafeLeft(bodyText, 32000)
             outRows(acceptedCount, COL_ADDED) = addedStamp
             outRows(acceptedCount, COL_EMBEDDED) = 0
         End If
     Next ci
 
-    ' 7) my_knowledge追記(embedded=0)。巨大ファイルの一括書込みは実機で
-    '    メモリ不足(err#7)になるため200行ずつのバッチ書込み(2026-07-16)。
+    ' 7) my_knowledge追記(err#7対策で200行バッチ書込み)
     uiStep = "本棚への保存(my_knowledge書込み)"
     Dim firstNewRow As Long: firstNewRow = 0
     Dim lastNewRow As Long: lastNewRow = 0
@@ -274,7 +276,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             batchN = acceptedCount - batchStart + 1
             If batchN > WRITE_BATCH_ROWS Then batchN = WRITE_BATCH_ROWS
 
-            uiStep = "本棚への保存(" & batchStart & "/" & acceptedCount & "件〜)"
+            uiStep = "本棚への保存(" & batchStart & "/" & acceptedCount & ")"
             Dim batchArr As Variant
             batchArr = SliceRows(outRows, batchStart, batchN)
 
@@ -324,7 +326,6 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             resultStatus, "", origin
     End If
 
-    ' 取込成功(done/partial)時だけ統計と運用ログを1回記録する(§4/§9・Wave4)。
     If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then
         On Error Resume Next
         modStats.Bump "ingest_files_total"
@@ -338,7 +339,6 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     GoTo Finish
 
 Failed:
-    ' 想定外エラー: err_logとmanifestに記録し、Finishへ合流(ガード解除保証)。
     Dim failNum As Long: failNum = Err.Number
     Dim failDesc As String: failDesc = Err.Description
     On Error Resume Next
@@ -352,7 +352,6 @@ Failed:
     resultStatus = "failed"
 
 Finish:
-    ' 11) カード再描画(失敗しても取込自体は止めない)
     On Error Resume Next
     modUIShelf.RenderShelf
     On Error GoTo 0
@@ -361,9 +360,9 @@ Finish:
     IngestFile = resultStatus
 End Function
 
-' ----
+'
 ' DeleteSource - knowledge/vectors/manifest から一括削除+再描画
-' ----
+'
 Public Sub DeleteSource(ByVal sourceName As String)
     RemoveKnowledgeAndVectorsForSource sourceName
     RemoveManifestRowForSource sourceName
@@ -373,12 +372,10 @@ Public Sub DeleteSource(ByVal sourceName As String)
     On Error GoTo 0
 End Sub
 
-' ----
-' SourceList - カード描画用。names(i)=資料名、
-'   stats(i)="status|ingested_at|chunk_count|error_note|origin"。戻り値=件数
-' ----
+'
+' SourceList - stats(i)="status|ingested_at|chunk_count|error_note|origin"
+'
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long
-    ' 失敗はerr_log記録+「0件」縮退(R5)。manifest行+pack:*由来を合成表示。
     Dim uiStep As String
     On Error GoTo Fail
 
@@ -387,7 +384,6 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
     Dim tmpNames() As String: ReDim tmpNames(0 To cap - 1)
     Dim tmpStats() As String: ReDim tmpStats(0 To cap - 1)
 
-    ' ---- 1) manifest(自分で追加した資料) --------------------------------
     uiStep = "manifestシートの取得"
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     If Not wsM Is Nothing Then
@@ -407,13 +403,11 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         End If
     End If
 
-    ' ---- 2) my_knowledgeのパック由来資料(origin="pack:*")を資料名単位で集計 --
     uiStep = "パック由来資料の集計"
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If Not wsK Is Nothing Then
         Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
         If lastK >= 2 Then
-            ' source(2)/origin(3)/added_at(8)だけ読めばよい
             Dim kArr As Variant: kArr = wsK.Range(wsK.Cells(2, 2), wsK.Cells(lastK, 8)).Value
             ' kArrの列: 1=source, 2=origin, 7=added_at(2列目起点のため)
             Dim packCount As Object: Set packCount = CreateObject("Scripting.Dictionary")
@@ -446,7 +440,6 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         End If
     End If
 
-    ' ---- 3) 出力へ詰め替え ------------------------------------------------
     uiStep = "一覧の出力"
     If outN = 0 Then
         ReDim names(0 To 0)
@@ -475,9 +468,9 @@ Fail:
     SourceList = 0
 End Function
 
-' ----
+'
 ' TotalChunks - my_knowledgeの総行数(ヘッダ除く)
-' ----
+'
 Public Function TotalChunks() As Long
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If wsK Is Nothing Then Exit Function
@@ -487,6 +480,24 @@ Public Function TotalChunks() As Long
 End Function
 
 ' ---- 内部ヘルパー ----
+
+' breadcrumbの〔資料〕を実名置換(OFF=行除去/無し=そのまま)。
+Private Function ApplyCrumb(ByVal s As String, ByVal sourceName As String, ByVal enabled As Boolean) As String
+    If Left$(s, Len("【〔資料〕")) <> "【〔資料〕" Then
+        ApplyCrumb = s
+        Exit Function
+    End If
+    If enabled Then
+        ApplyCrumb = "【" & sourceName & Mid$(s, Len("【〔資料〕") + 1)
+    Else
+        Dim lfPos As Long: lfPos = InStr(s, vbLf)
+        If lfPos > 0 Then
+            ApplyCrumb = Mid$(s, lfPos + 1)
+        Else
+            ApplyCrumb = s
+        End If
+    End If
+End Function
 
 ' 画像拡張子か(vision委譲判定・D13)。optVisionのIMAGE_EXTSと揃える。
 Private Function IsImageExtension(ByVal path As String) As Boolean
@@ -545,7 +556,6 @@ Fail:
     Set EnsureManifestSheet = Nothing
 End Function
 
-' chunk_id列の「bs::HASH::…」のHASH集合をDictionaryで返す(§4)。
 Private Function BuildExistingHashSet(ByVal wsK As Worksheet) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     If wsK Is Nothing Then
@@ -581,8 +591,7 @@ Private Sub AddHashFromId(ByVal dict As Object, ByVal chunkId As String)
     End If
 End Sub
 
-' 指定sourceのknowledge行・対応するvector行を全て取り除く
-' (配列で読み→フィルタ→書き戻し。§12)。
+' 指定sourceのknowledge/vector行を除去(配列読み→フィルタ→書戻し)。
 Private Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If wsK Is Nothing Then Exit Sub
@@ -713,8 +722,7 @@ Private Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String
     wsM.Cells(r, 9).Value = origin
 End Sub
 
-' 同名だが別パスのmanifest行(origin=self)を探す(あればfile_pathを返す)。
-' 同一パスの行(=置換取込)は衝突扱いしない(§7.2)。
+' 同名別パスのmanifest行(self)を探す。同一パス(置換)は衝突扱いしない。
 Private Function FindConflictingManifestPath(ByVal sourceName As String, ByVal newPath As String) As String
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     If wsM Is Nothing Then Exit Function
@@ -759,7 +767,7 @@ Private Function CompactRows(ByRef src As Variant, ByVal n As Long) As Variant
     CompactRows = SliceRows(src, 1, n)
 End Function
 
-' SourceList用: 可変長のnames/statsへ1件追記する(容量不足時は倍々に拡張)。
+' names/statsへ1件追記(容量不足時は倍々拡張)。
 Private Sub AppendSourceEntry(ByRef tmpNames() As String, ByRef tmpStats() As String, _
                               ByRef outN As Long, ByRef cap As Long, _
                               ByVal nameVal As String, ByVal statVal As String)

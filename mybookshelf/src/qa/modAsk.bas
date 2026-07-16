@@ -15,36 +15,14 @@ Option Explicit
 '     SetStage(回答作成中)→CallLLM(quick_draft)の2段。
 '     deep : Search(topk_deep)→出典先出し→draft(deep_draft_*)→
 '     SetStage(検証中)→verify(deep_verify_*)の3段。
-'   ・【既知のR1緊張関係・懸念事項】MASTER_SPEC §3 R1は「機能層→
-'     modUIMain.SetStageのみ許可」と明記する一方、§7.3/§7.6は
-'     modAsk.Answerが検索中の「出典先出し表示」でmodUIMain.
-'     RenderSourcesPreviewを、modAsk.AskFromUIが最後にmodUIMain.
-'     RenderAnswerを呼ぶことを文章で明示している。両者は字面上矛盾する。
-'     本実装は後者(§7.3/§7.6の具体的シーケンス記述)を優先し、
-'     SetStage/RenderSourcesPreview/RenderAnswerの3つをmodUIMain経由で
-'     呼ぶ。現時点(modUIMain.bas未実装)ではvba_lint.pyのR1チェックは
-'     「未実装モジュール参照」としてSKIP扱いになり自担当分のERRORは
-'     出ないが、2-F(UI)がmodUIMainを実装した時点でR1チェックが
-'     ERRORへ転じる可能性が高い。Wave3統合時にMASTER_SPEC側のR1例外の
-'     文言を「SetStage/RenderSourcesPreview/RenderAnswer」へ広げるか、
-'     lint側の例外リストを広げるかの判断を仰ぐこと(本モジュールを
-'     勝手に作り変えて対処しない)。
-'   ・出典先出しプレビュー(RenderSourcesPreview)は「回答本文が出来上がる
-'     前に、ヒットした資料が見えると安心できる」という§8.1のUI意図を
-'     素直に実現するために検索直後に呼ぶ。
+'   ・UI連携はSetStage/RenderSourcesPreview/RenderAnswerの3本のみ
+'     (§7.3/§7.6準拠。R1例外はWave3で整合済み)。
 '   ・Answer(question, mode)は最終回答テキストのみを返す契約(§7.3)なので、
 '     直近の検索結果(hits/nHits)・所要秒・実際に使ったモードは
 '     モジュール変数(mLast*)に保持し、同一モジュール内のAskFromUIが
 '     それを読んでmodUIMain.RenderAnswerに渡す(RenderAnswerの二重呼び
 '     出しを避けるため、Answer自身はRenderAnswerを呼ばない)。
-'   ・ホームの質問セルは、まだ実装されていないmodUIMain.EnsureLayoutが
-'     所有するレイアウトの一部であり、本モジュールはそのセル番地を
-'     決め打ちしない。代わりに定義済み名前(Excel Name)
-'     "mb_question"(modUIMain.EnsureLayoutが指す先を管理する想定)を
-'     経由して読む。名前が未定義の場合は空文字列として扱い、
-'     「質問が入力されていません」の案内を返すだけで例外にはしない。
-'     これはopt層の「SIGNATURE ASSUMPTION」コメントと同じ考え方の、
-'     UI層との連携アサンプションである。Wave3で2-Fと突き合わせること。
+'   ・質問セルは定義済み名前"mb_question"経由で読む(未定義=空扱い)。
 '   ・モードは ui_state シート(A=key, B=value)の key="mode" を読む
 '     ("quick"/"deep"、既定quick。指示どおり)。
 '   ・検索0件はLLMを呼ばず定型文+資料追加の案内を返す(E0601はログのみ、
@@ -265,7 +243,13 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     modUIMain.SetStage "🔍 検索中…"
     Dim topK As Long
     topK = TopKFor(mdMode)
-    nHits = modRetrieve.Search(q, topK, hits)
+
+    ' 多段RAG(§C)。retrieve_mode=singleで従来の単段Searchへ完全退化。
+    If LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi" Then
+        nHits = RunMultiRetrieve(q, mdMode, topK, hits)
+    Else
+        nHits = modRetrieve.Search(q, topK, hits)
+    End If
 
     If nHits = -1 Then
         result = modLog.FriendlyMessage("E0203") & vbLf & "(コード: E0203)"
@@ -381,12 +365,151 @@ End Function
 ' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)
 ' ----------------------------------------------------------------------------
 
+' 多段RAG検索段(§C): 拡張→マルチクエリ→再ランク。全段とも失敗時は
+' 単段Search(q)へ安全退化(mock/タグ欠落でも壊れない)。
+Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
+                                  ByVal topK As Long, ByRef hits() As Hit) As Long
+    On Error GoTo FallbackSingle
+
+    ' 1) クエリ拡張
+    Dim queries() As String
+    Dim queryN As Long: queryN = 0
+    ReDim queries(0 To 8)
+
+    Dim standalone As String, hyde As String
+    Dim subs() As String
+    standalone = "": hyde = ""
+
+    If modConfig.GetBool("expand_enabled", False) Then
+        modUIMain.SetStage "🧭 質問を分析中…"
+        Dim lightMode As Boolean
+        lightMode = (mdMode <> MODE_DEEP) And modConfig.GetBool("quick_expand_light", True)
+
+        Dim exPrompt As String
+        exPrompt = modPrompts.BuildExpandPrompt(q, HistoryBlock(), _
+            modConfig.GetLong("expand_subqueries", 3), lightMode)
+
+        Dim exModel As String: exModel = modConfig.GetString("expand_model", "")
+        If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.5")
+        Dim exLat As Long
+        Dim exResp As String
+        exResp = modGateway.CallLLM(exPrompt, "expand", _
+            modConfig.GetString("expand_effort", "low"), _
+            modConfig.GetString("expand_verbosity", "low"), exModel, exLat)
+
+        If Not IsErrorResponse(exResp) Then
+            modRagParse.ParseExpand exResp, standalone, subs, hyde
+        End If
+    End If
+
+    If LenB(Trim$(standalone)) = 0 Then standalone = q
+    queries(queryN) = standalone: queryN = queryN + 1
+
+    Dim si As Long
+    On Error Resume Next
+    For si = LBound(subs) To UBound(subs)
+        If queryN <= 7 And LenB(Trim$(subs(si))) > 0 Then
+            queries(queryN) = subs(si): queryN = queryN + 1
+        End If
+    Next si
+    On Error GoTo FallbackSingle
+    If LenB(Trim$(hyde)) > 0 And queryN <= 8 Then
+        queries(queryN) = hyde: queryN = queryN + 1
+    End If
+    ReDim Preserve queries(0 To queryN - 1)
+
+    ' 2) マルチクエリ検索(候補プール)
+    Dim poolK As Long: poolK = modConfig.GetLong("multi_candidates", 40)
+    If poolK < topK Then poolK = topK
+    Dim poolHits() As Hit
+    Dim poolN As Long
+    poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits)
+    If poolN <= 0 Then GoTo FallbackSingle
+
+    ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
+    Dim orderN As Long: orderN = 0
+    Dim rankOrder() As Long
+    If modConfig.GetBool("rerank_enabled", False) And poolN > topK Then
+        modUIMain.SetStage "🧮 関連度を精査中…"
+        Dim rkPrompt As String
+        rkPrompt = modPrompts.BuildRerankPrompt(q, poolHits, poolN, _
+            modConfig.GetLong("max_context_chars", 40000))
+        Dim rkModel As String: rkModel = modConfig.GetString("rerank_model", "")
+        If LenB(rkModel) = 0 Then rkModel = modConfig.GetString("quick_model", "gpt-5.5")
+        Dim rkLat As Long
+        Dim rkResp As String
+        rkResp = modGateway.CallLLM(rkPrompt, "rerank", _
+            modConfig.GetString("rerank_effort", "low"), _
+            modConfig.GetString("rerank_verbosity", "low"), rkModel, rkLat)
+        If Not IsErrorResponse(rkResp) Then
+            orderN = modRagParse.ParseRankOrder(rkResp, poolN, rankOrder)
+        End If
+    End If
+
+    ' 4) 最終topKへ絞り込み(再ランク順 or スコア順)
+    Dim outN As Long
+    If orderN > 0 Then
+        outN = orderN
+    Else
+        outN = poolN
+    End If
+    If outN > topK Then outN = topK
+
+    ReDim hits(1 To outN)
+    Dim oi As Long
+    For oi = 1 To outN
+        If orderN > 0 Then
+            hits(oi) = poolHits(rankOrder(oi - 1))
+        Else
+            hits(oi) = poolHits(oi)
+        End If
+    Next oi
+    RunMultiRetrieve = outN
+    Exit Function
+
+FallbackSingle:
+    Err.Clear
+    On Error GoTo 0
+    RunMultiRetrieve = modRetrieve.Search(q, topK, hits)
+End Function
+
+' answer_tags時: <answer>抽出+タグ外FOLLOWUP救出+thinkingデバッグ記録。
+Private Function ApplyAnswerTags(ByVal resp As String) As String
+    If Not modConfig.GetBool("answer_tags", False) Then
+        ApplyAnswerTags = resp
+        Exit Function
+    End If
+
+    Dim thinkingTxt As String, answerTxt As String
+    modRagParse.ExtractAnswer resp, thinkingTxt, answerTxt
+
+    ' FOLLOWUPは</answer>の外契約(§D-1)。answer側に無ければ元応答から救出。
+    If InStr(answerTxt, "[[FOLLOWUP") = 0 Then
+        Dim fp As Long
+        fp = InStr(resp, "[[FOLLOWUP")
+        If fp > 0 Then
+            Dim fe As Long
+            fe = InStr(fp, resp, "]]")
+            If fe > 0 Then answerTxt = answerTxt & vbLf & Mid$(resp, fp, fe - fp + 2)
+        End If
+    End If
+
+    If LenB(thinkingTxt) > 0 And modConfig.GetBool("debug_mode", False) Then
+        On Error Resume Next
+        modLog.LogUsage "thinking", "", modUtil.SafeLeft(thinkingTxt, 500)
+        On Error GoTo 0
+    End If
+
+    ApplyAnswerTags = answerTxt
+End Function
+
 Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                               ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
     modUIMain.SetStage "✍️ 回答作成中…"
 
     Dim prompt As String
-    prompt = modPrompts.BuildQuickPrompt(q, hits, nHits)
+    prompt = modPrompts.BuildQuickPrompt(q, hits, nHits, _
+        modConfig.GetBool("strict_grounding", False), modConfig.GetBool("answer_tags", False))
 
     Dim eff As String: eff = modConfig.GetString("quick_effort", "low")
     Dim vrb As String: vrb = modConfig.GetString("quick_verbosity", "low")
@@ -401,7 +524,7 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
         RunQuickFlow = BuildErrorAnswer(resp)
     Else
         ok = True
-        RunQuickFlow = DecorateWithFollowups(resp)
+        RunQuickFlow = DecorateWithFollowups(ApplyAnswerTags(resp))
     End If
 End Function
 
@@ -409,8 +532,11 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
                              ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
     modUIMain.SetStage "✍️ 回答を下書き中…"
 
+    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
+    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
+
     Dim draftPrompt As String
-    draftPrompt = modPrompts.BuildDeepDraftPrompt(q, hits, nHits, HistoryBlock())
+    draftPrompt = modPrompts.BuildDeepDraftPrompt(q, hits, nHits, HistoryBlock(), strictG, ansTags)
 
     Dim dEff As String: dEff = modConfig.GetString("deep_draft_effort", "medium")
     Dim dVrb As String: dVrb = modConfig.GetString("deep_draft_verbosity", "high")
@@ -431,8 +557,11 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
 
     modUIMain.SetStage "✅ 検証中…"
 
+    Dim draftBody As String
+    draftBody = ApplyAnswerTags(draft)
+
     Dim verifyPrompt As String
-    verifyPrompt = modPrompts.BuildDeepVerifyPrompt(q, draft, hits, nHits)
+    verifyPrompt = modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nHits, strictG, ansTags)
 
     Dim vEff As String: vEff = modConfig.GetString("deep_verify_effort", "high")
     Dim vVrb As String: vVrb = modConfig.GetString("deep_verify_verbosity", "medium")
@@ -442,10 +571,10 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
 
     ok = True
     If IsErrorResponse(verified) Then
-        RunDeepFlow = DecorateWithFollowups(draft) & vbLf & vbLf & _
+        RunDeepFlow = DecorateWithFollowups(draftBody) & vbLf & vbLf & _
             "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
     Else
-        RunDeepFlow = DecorateWithFollowups(verified)
+        RunDeepFlow = DecorateWithFollowups(ApplyAnswerTags(verified))
     End If
 End Function
 

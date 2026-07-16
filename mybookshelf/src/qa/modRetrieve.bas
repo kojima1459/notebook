@@ -231,12 +231,216 @@ NextR:
 End Function
 
 ' ----------------------------------------------------------------------------
+' SearchExpanded - マルチクエリ検索(設計書§C-2)。複数クエリを同一ストアで
+'   スコアリングし、chunk_id単位のunion(最大スコア採用)から上位poolK件を返す。
+'   シート読込はクエリ数に関わらず1回。有効クエリ0本・空ストアは0を返す。
+'   既存Search(単段)の挙動には一切影響しない。
+' ----------------------------------------------------------------------------
+Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef hits() As Hit) As Long
+    Dim emptyHits() As Hit
+    hits = emptyHits
+    SearchExpanded = 0
+
+    Dim pk As Long: pk = poolK
+    If pk < 1 Then pk = 1
+
+    Dim qLo As Long, qHi As Long
+    Dim badArr As Boolean: badArr = False
+    On Error Resume Next
+    qLo = LBound(queries)
+    qHi = UBound(queries)
+    badArr = (Err.Number <> 0)
+    Err.Clear
+    On Error GoTo 0
+    If badArr Or qHi < qLo Then Exit Function
+
+    Dim wsV As Worksheet, wsK As Worksheet
+    Set wsV = GetSheet(modAppDef.SH_VECTORS)
+    Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsV Is Nothing Or wsK Is Nothing Then Exit Function
+
+    Dim lastV As Long
+    lastV = wsV.Cells(wsV.Rows.count, COL_V_ID).End(xlUp).row
+    If lastV < 2 Then Exit Function
+    Dim lastK As Long
+    lastK = wsK.Cells(wsK.Rows.count, COL_K_ID).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim vData As Variant
+    vData = wsV.Range(wsV.Cells(2, COL_V_ID), wsV.Cells(lastV, COL_V_VEC)).Value
+    Dim kData As Variant
+    kData = wsK.Range(wsK.Cells(2, COL_K_ID), wsK.Cells(lastK, COL_K_FULLTEXT)).Value
+
+    Dim idx As Object
+    Set idx = CreateObject("Scripting.Dictionary")
+    Dim i As Long
+    For i = LBound(kData, 1) To UBound(kData, 1)
+        Dim kid As String
+        kid = CStr(kData(i, COL_K_ID))
+        If LenB(kid) > 0 Then
+            If Not idx.Exists(kid) Then idx.Add kid, i
+        End If
+    Next i
+
+    Dim unionScore As Object
+    Set unionScore = CreateObject("Scripting.Dictionary")
+    Dim e0702Logged As Boolean: e0702Logged = False
+    Dim validQ As Long: validQ = 0
+
+    Dim qi As Long
+    For qi = qLo To qHi
+        Dim qText As String: qText = Trim$(queries(qi))
+        If LenB(qText) = 0 Then GoTo NextQ
+
+        Dim qv() As Double
+        qv = modGateway.GetEmbedding(qText)
+        If Not modUtil.HasVector(qv) Then GoTo NextQ
+        validQ = validQ + 1
+        Dim qDim As Long: qDim = UBound(qv) - LBound(qv) + 1
+
+        Dim words() As String
+        words = TokenizeQuery(qText)
+        Dim grams() As String
+        grams = BigramsIfSingleToken(qText, words)
+
+        Dim r As Long
+        For r = LBound(vData, 1) To UBound(vData, 1)
+            Dim vid As String
+            vid = CStr(vData(r, COL_V_ID))
+            If LenB(vid) = 0 Then GoTo NextRow
+            If Not idx.Exists(vid) Then GoTo NextRow
+            Dim vcsv As String
+            vcsv = CStr(vData(r, COL_V_VEC))
+            If LenB(vcsv) = 0 Then GoTo NextRow
+            Dim vv() As Double
+            If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextRow
+            If UBound(vv) - LBound(vv) + 1 <> qDim Then
+                If Not e0702Logged Then
+                    modLog.LogError "E0702", "modRetrieve.SearchExpanded", _
+                        "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
+                    e0702Logged = True
+                End If
+                GoTo NextRow
+            End If
+
+            Dim kRow As Long: kRow = idx.Item(vid)
+            Dim sc As Double
+            sc = modUtil.DotProduct(qv, vv)
+            sc = sc + KeywordBonus(words, CStr(kData(kRow, COL_K_SUMMARY)), _
+                                   CStr(kData(kRow, COL_K_KEYWORDS)), CStr(kData(kRow, COL_K_SOURCE)))
+            sc = sc + GramBonus(grams, CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
+                                CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
+                                CStr(kData(kRow, COL_K_SOURCE)) & " " & _
+                                modUtil.SafeLeft(CStr(kData(kRow, COL_K_FULLTEXT)), 200))
+
+            If unionScore.Exists(vid) Then
+                If sc > unionScore.Item(vid) Then unionScore.Item(vid) = sc
+            Else
+                unionScore.Add vid, sc
+            End If
+NextRow:
+        Next r
+NextQ:
+    Next qi
+
+    If validQ = 0 Then Exit Function
+    Dim total As Long: total = unionScore.count
+    If total = 0 Then Exit Function
+    If pk > total Then pk = total
+
+    ' union全体から上位pk件を選択(pk<=40・total<=数万の選択法で十分)
+    Dim allKeys As Variant: allKeys = unionScore.Keys
+    Dim used() As Boolean: ReDim used(0 To total - 1)
+    Dim outHits() As Hit
+    ReDim outHits(1 To pk)
+
+    Dim a As Long
+    For a = 1 To pk
+        Dim bestVal As Double: bestVal = -1E+30
+        Dim bestJ As Long: bestJ = -1
+        Dim j As Long
+        For j = 0 To total - 1
+            If Not used(j) Then
+                If unionScore.Item(allKeys(j)) > bestVal Then
+                    bestVal = unionScore.Item(allKeys(j))
+                    bestJ = j
+                End If
+            End If
+        Next j
+        If bestJ < 0 Then Exit For
+        used(bestJ) = True
+
+        Dim selId As String: selId = CStr(allKeys(bestJ))
+        Dim selRow As Long: selRow = idx.Item(selId)
+        outHits(a).chunk_id = selId
+        outHits(a).score = bestVal
+        outHits(a).source = CStr(kData(selRow, COL_K_SOURCE))
+        outHits(a).page = CLng(Val(kData(selRow, COL_K_PAGE)))
+        outHits(a).preview = modUtil.SafeLeft(CStr(kData(selRow, COL_K_FULLTEXT)), PREVIEW_LEN)
+        outHits(a).origin = CStr(kData(selRow, COL_K_ORIGIN))
+        outHits(a).full_text = CStr(kData(selRow, COL_K_FULLTEXT))
+    Next a
+
+    hits = outHits
+    SearchExpanded = pk
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(sheetName)
     On Error GoTo 0
+End Function
+
+' 日本語向け補助トークン: 分割語が1語だけ(=スペース無しの日本語質問)で
+' 6文字以上のとき、文字2-gram(最大20個)を作る(設計書§C-2の改良)。
+' 対象外のときは0要素配列(Split(vbNullString))。
+Private Function BigramsIfSingleToken(ByVal qText As String, ByRef words() As String) As String()
+    Dim wc As Long: wc = 0
+    On Error Resume Next
+    wc = UBound(words) - LBound(words) + 1
+    Err.Clear
+    On Error GoTo 0
+
+    Dim src As String: src = Replace(Replace(Trim$(qText), " ", ""), "　", "")
+    If wc > 1 Or Len(src) < 6 Then
+        BigramsIfSingleToken = Split(vbNullString)
+        Exit Function
+    End If
+
+    Dim maxG As Long: maxG = Len(src) - 1
+    If maxG > 20 Then maxG = 20
+    Dim outArr() As String: ReDim outArr(0 To maxG - 1)
+    Dim i As Long
+    For i = 1 To maxG
+        outArr(i - 1) = Mid$(src, i, 2)
+    Next i
+    BigramsIfSingleToken = outArr
+End Function
+
+' 2-gram補助ボーナス: 1個一致につき+0.02、上限+0.10(SearchExpanded専用)。
+Private Function GramBonus(ByRef grams() As String, ByVal haystack As String) As Double
+    Dim n As Long: n = 0
+    On Error Resume Next
+    n = UBound(grams) - LBound(grams) + 1
+    Err.Clear
+    On Error GoTo 0
+    If n <= 0 Then Exit Function
+
+    Dim matched As Long: matched = 0
+    Dim i As Long
+    For i = LBound(grams) To UBound(grams)
+        If LenB(grams(i)) > 0 Then
+            If InStr(1, haystack, grams(i), vbTextCompare) > 0 Then matched = matched + 1
+        End If
+    Next i
+
+    Dim bonus As Double
+    bonus = CDbl(matched) * 0.02
+    If bonus > 0.1 Then bonus = 0.1
+    GramBonus = bonus
 End Function
 
 ' 質問文を半角/全角スペースで分割し、空要素を除いた語配列を返す。

@@ -46,7 +46,9 @@ Option Explicit
 '     中間生成物(検証段の入力)のため対象外。
 ' ============================================================================
 
-Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
+Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
+                                 Optional ByVal strictGrounding As Boolean = False, _
+                                 Optional ByVal answerTags As Boolean = False) As String
     Dim lang As String
     lang = SafeAnswerLanguage()
     Dim maxChars As Long
@@ -58,14 +60,19 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     sb = "あなたは社内の資料検索AIアシスタントです。「すぐ聞く」モードとして、" & _
          "以下の本棚抜粋だけを根拠に、質問へ" & lang & "で簡潔に回答してください。" & vbLf
     sb = sb & CitationInstruction() & vbLf
-    sb = sb & NotFoundInstruction() & vbLf & vbLf
+    sb = sb & NotFoundInstruction() & vbLf
+    If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
+    If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
+    sb = sb & vbLf
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & FollowupInstruction() & vbLf
     BuildQuickPrompt = sb
 End Function
 
-Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByVal history As String) As String
+Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByVal history As String, _
+                                     Optional ByVal strictGrounding As Boolean = False, _
+                                     Optional ByVal answerTags As Boolean = False) As String
     Dim lang As String
     lang = SafeAnswerLanguage()
     Dim maxChars As Long
@@ -78,6 +85,8 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
          "以下の本棚抜粋を根拠に、質問へ" & lang & "で丁寧に、根拠を示しながら回答してください。" & vbLf
     sb = sb & CitationInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
+    If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
+    If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
     If LenB(history) > 0 Then
         sb = sb & vbLf & "## これまでの会話(参考。続きの質問なら踏まえて回答する)" & vbLf & history
     End If
@@ -88,7 +97,9 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
     BuildDeepDraftPrompt = sb
 End Function
 
-Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, hits() As Hit, ByVal nHits As Long) As String
+Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, hits() As Hit, ByVal nHits As Long, _
+                                      Optional ByVal strictGrounding As Boolean = False, _
+                                      Optional ByVal answerTags As Boolean = False) As String
     Dim lang As String
     lang = SafeAnswerLanguage()
     Dim maxChars As Long
@@ -101,7 +112,10 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
          lang & "で最終回答を作成してください。本棚抜粋で裏付けられない断定や事実と異なる記載は、" & _
          "修正するか削除してください。" & vbLf
     sb = sb & CitationInstruction() & vbLf
-    sb = sb & NotFoundInstruction() & vbLf & vbLf
+    sb = sb & NotFoundInstruction() & vbLf
+    If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
+    If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
+    sb = sb & vbLf
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "## 下書き回答" & vbLf & draft & vbLf
@@ -109,6 +123,72 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
         "検証過程の説明は不要です。)"
     sb = sb & vbLf & FollowupInstruction() & vbLf
     BuildDeepVerifyPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildExpandPrompt - クエリ拡張段(多段RAG・設計書§C-1)のプロンプト。
+'   出力契約: <standalone>/<subqueries>/<hyde>。lightMode=Trueはstandaloneのみ
+'   (すぐ聞くモードの速度優先)。パースはmodRagParse.ParseExpand(寛容退化)。
+' ----------------------------------------------------------------------------
+Public Function BuildExpandPrompt(ByVal q As String, ByVal history As String, _
+                                  ByVal subqueryCount As Long, ByVal lightMode As Boolean) As String
+    Dim nSub As Long: nSub = subqueryCount
+    If nSub < 0 Then nSub = 0
+    If nSub > 8 Then nSub = 8
+
+    Dim sb As String
+    sb = "あなたは社内資料検索システムの検索プランナーです。利用者の質問を、" & _
+         "ベクトル検索でヒットしやすい形に変換してください。" & vbLf
+    If LenB(history) > 0 Then
+        sb = sb & vbLf & "## これまでの会話(代名詞や『それ』の解決に使う)" & vbLf & history & vbLf
+    End If
+    sb = sb & vbLf & "## 利用者の質問" & vbLf & q & vbLf & vbLf
+    sb = sb & "## 出力形式(この形式のみで出力。説明文・前置きは一切禁止)" & vbLf
+    sb = sb & "<standalone>会話の文脈を織り込み、単体で意味が通る独立した質問文</standalone>" & vbLf
+    If Not lightMode Then
+        If nSub > 0 Then
+            sb = sb & "<subqueries>言い換えや下位概念・関連語での検索文を" & nSub & _
+                 "本、「 | 」区切りで</subqueries>" & vbLf
+        End If
+        sb = sb & "<hyde>この質問に理想的に答える文章を1段落(実在資料の文体を想像した検索用の仮回答)</hyde>" & vbLf
+    End If
+    BuildExpandPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildRerankPrompt - 再ランク段(多段RAG・設計書§C-3)のプロンプト。
+'   候補に1..nの連番を振り、<rank>3,1,7</rank>形式のみで返させる。
+'   パースはmodRagParse.ParseRankOrder(寛容退化: 崩れたら元順維持)。
+' ----------------------------------------------------------------------------
+Public Function BuildRerankPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
+                                  ByVal maxContextChars As Long) As String
+    Dim lim As Long: lim = maxContextChars
+    If lim <= 0 Then lim = 40000
+
+    Dim sb As String
+    sb = "あなたは社内資料検索システムの関連度審査員です。以下の候補チャンクを、" & _
+         "質問への関連度が高い順に並べ替えてください。" & vbLf
+    sb = sb & "## 質問" & vbLf & q & vbLf & vbLf
+    sb = sb & "## 候補チャンク" & vbLf
+
+    Dim used As Long: used = Len(sb)
+    Dim i As Long
+    For i = 1 To nHits
+        Dim entry As String
+        entry = "[" & i & "] " & SourceTag(hits(i)) & " " & _
+                Replace(modUtil.SafeLeft(SourceBody(hits(i)), 300), vbLf, " ") & vbLf
+        If used + Len(entry) > lim Then
+            sb = sb & "(以下省略)" & vbLf
+            Exit For
+        End If
+        sb = sb & entry
+        used = used + Len(entry)
+    Next i
+
+    sb = sb & vbLf & "## 出力形式(この形式のみ。説明禁止)" & vbLf
+    sb = sb & "関連度が高い順に候補番号をカンマ区切りで並べ、次の形式で出力: <rank>3,1,7</rank>" & vbLf
+    sb = sb & "質問と無関係な候補は含めなくてよい。最低1件は含めること。"
+    BuildRerankPrompt = sb
 End Function
 
 Public Function BuildEnrichPrompt(ByVal batchText As String) As String
@@ -170,6 +250,21 @@ Private Function NotFoundInstruction() As String
     NotFoundInstruction = "本棚抜粋に書かれていないことは、推測で埋めずに" & _
         "「資料には見当たらない」とはっきり述べてください。" & _
         "やむを得ず推測で補う場合は、それが推測であることを明示してください。"
+End Function
+
+' グラウンディング強制文(strict_grounding=TRUE時。設計書§D-1)。
+Private Function GroundingInstruction() As String
+    GroundingInstruction = "【厳守】本棚抜粋に書かれた情報のみで回答し、外部知識や推測での補完は禁止。" & _
+        "各主張の直後に出典を必ず付け、出典を付けられない主張は書かない。" & _
+        "抜粋から判断できない場合は、無理に答えず「資料からは判断できません」とだけ述べ、" & _
+        "どんな資料を追加すれば答えられるかを1行添えること。"
+End Function
+
+' 構造化出力指示(answer_tags=TRUE時。設計書§D-1)。<thinking>は利用者非表示。
+Private Function AnswerTagsInstruction() As String
+    AnswerTagsInstruction = "出力は次の構造にすること: まず<thinking>タグ内に、どの抜粋が根拠か・" & _
+        "矛盾が無いかの検討を書く(利用者には表示されない)。次に<answer>タグ内に、利用者へ見せる" & _
+        "最終回答のみを書く。[[FOLLOWUP:...]]の行は</answer>を閉じた後(タグの外)に置くこと。"
 End Function
 
 ' 深掘り候補の要求指示(裁定D11)。[[FOLLOWUP:...]]マーカーはmodAsk側で

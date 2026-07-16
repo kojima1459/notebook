@@ -99,6 +99,7 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "Fnv1a64Hex", "NormalizeForHash", "VectorToCsv", "CsvToVector",
             "DotProduct", "L2Normalize", "HasVector", "SplitKeepNonEmpty",
+            "TruncateAndRenorm", "VectorToCsvPrec",
             "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
             "FileNameOf", "ExtOf", "IsSameTimestamp",
         ],
@@ -107,7 +108,9 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # RunLimitCheck: リボン公開API確定対応(裁定D3・RIBBON_API_CONFIRMED.md)。
         # 起動時のAIリボン利用期限チェック。True=続行不可(公式サンプルの解釈)。
-        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError", "RunLimitCheck"],
+        # GetEmbeddingsBatch: RAG再設計(RAG_OVERHAUL_DESIGN.md §E-1)。
+        # ribbon(単発ループ)/direct(Azure配列POST)/mock を透過切替する唯一のバッチ窓口。
+        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch"],
     },
     "modFeatures": {
         "closed": True,
@@ -126,11 +129,14 @@ CONTRACT: dict[str, dict] = {
     },
     "modChunker": {
         "closed": True,
-        "required": ["ChunkPages"],
+        # ChunkPagesEx/ClassifyLine/BuildBreadcrumb: 構造認識チャンク化(設計書§B)。
+        # ChunkPagesは後方互換(legacy)のまま不変。
+        "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb"],
     },
     "modEmbed": {
         "closed": True,
-        "required": ["EmbedPending", "PendingCount"],
+        # MarkAllForReembed: 圧縮/次元変更後の全再embed導線(設計書§G-T10)。
+        "required": ["EmbedPending", "PendingCount", "MarkAllForReembed"],
     },
     "modShelf": {
         "closed": True,
@@ -159,11 +165,18 @@ CONTRACT: dict[str, dict] = {
     # ---- 7.3 QA層 ----
     "modRetrieve": {
         "closed": True,
-        "required": ["Search"],
+        # SearchExpanded: マルチクエリ検索(設計書§C-2)。Searchは不変。
+        "required": ["Search", "SearchExpanded"],
     },
     "modPrompts": {
         "closed": True,
-        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt"],
+        # BuildExpandPrompt/BuildRerankPrompt: 多段RAGの拡張・再ランク段(設計書§C)。
+        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt"],
+    },
+    "modRagParse": {
+        "closed": True,
+        # 多段RAGのLLM応答パーサ(設計書§C/§D/§G-T7)。全て寛容退化の純関数。
+        "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries"],
     },
     "modAsk": {
         "closed": True,
@@ -261,6 +274,7 @@ CONTRACT: dict[str, dict] = {
 PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
     "modTestRunner", "modTestsPure", "modTestsPure2", "modPrompts",
+    "modRagParse",
 }
 
 FORBIDDEN_TOKEN_PATTERNS = [

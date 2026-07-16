@@ -152,6 +152,26 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
         Exit Function
     End If
 
+    ' direct(Azure直接)モード: 単発もバッチ経路(1件)へ集約し、通信実装を
+    ' 1本化する(設計書§E-1。検索クエリと保存ベクトルの次元・精度も一致)。
+    If LCase$(modConfig.GetString("embed_transport", "ribbon")) = "direct" Then
+        Dim one(0 To 0) As String
+        one(0) = t
+        Dim outCsv() As String
+        If GetEmbeddingsBatch(one, outCsv) >= 1 Then
+            If LenB(outCsv(0)) > 0 Then
+                Dim dvec() As Double
+                If modUtil.CsvToVector(outCsv(0), dvec) Then
+                    GetEmbedding = dvec
+                    latency_ms = CLng((Timer - t0) * 1000)
+                    Exit Function
+                End If
+            End If
+        End If
+        latency_ms = CLng((Timer - t0) * 1000)
+        Exit Function   ' 失敗は空配列(バッチ側でE0203記録済み)
+    End If
+
     If Not RibbonAvailable() Then
         modLog.LogError "E0203", "modGateway.GetEmbedding", "リボン未検出"
         latency_ms = CLng((Timer - t0) * 1000)
@@ -181,13 +201,83 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
         modLog.LogError "E0203", "modGateway.GetEmbedding", "CSV解析失敗"
         Exit Function
     End If
-    modUtil.L2Normalize vec
+    ' Plan B: 保存次元(embed_dim)へ切詰め+再正規化(リボンは1536固定のため)
+    modUtil.TruncateAndRenorm vec, dim_
     GetEmbedding = vec
     Exit Function
 
 ErrHandler:
     latency_ms = CLng((Timer - t0) * 1000)
     modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description
+End Function
+
+' ----------------------------------------------------------------------------
+' GetEmbeddingsBatch - 埋め込みのバッチ窓口(設計書§E-1・裁定②)。
+'   outCsv(i)=texts(i)のvector_csv(embed_dim切詰め+L2正規化+vector_precision
+'   適用済み)。失敗要素は空文字。戻り値=成功件数。
+'   mock→決定的擬似ベクトル / direct→Azure配列POST(embed_batch_sizeごと) /
+'   ribbon→GetEmbedding単発ループ。directの通信失敗はribbonへフォールバック。
+' ----------------------------------------------------------------------------
+Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) As Long
+    GetEmbeddingsBatch = 0
+
+    Dim lo As Long, hi As Long
+    Dim badArr As Boolean: badArr = False
+    On Error Resume Next
+    lo = LBound(texts)
+    hi = UBound(texts)
+    badArr = (Err.Number <> 0)
+    Err.Clear
+    On Error GoTo 0
+    If badArr Or hi < lo Then
+        ReDim outCsv(0 To 0)
+        Exit Function
+    End If
+
+    Dim n As Long: n = hi - lo + 1
+    ReDim outCsv(0 To n - 1)
+
+    Dim dim_ As Long: dim_ = modConfig.GetLong("embed_dim", 1536)
+    If dim_ < 1 Then dim_ = 1536
+    Dim prec As String: prec = LCase$(modConfig.GetString("vector_precision", "full"))
+
+    Dim okCount As Long: okCount = 0
+    Dim i As Long
+
+    ' ---- mock: 決定的擬似ベクトル(LO/開発ビルド) ----
+    If modConfig.GetBool("mock_llm", True) Then
+        For i = 0 To n - 1
+            Dim mt As String: mt = modUtil.NormalizeForHash(texts(lo + i))
+            If LenB(mt) > 0 Then
+                Dim mv() As Double
+                mv = MockEmbedVector(mt, dim_)
+                outCsv(i) = SerializeVector(mv, prec)
+                okCount = okCount + 1
+            End If
+        Next i
+        GetEmbeddingsBatch = okCount
+        Exit Function
+    End If
+
+    ' ---- direct: Azure埋め込みエンドポイントへ配列POST ----
+    If LCase$(modConfig.GetString("embed_transport", "ribbon")) = "direct" Then
+        Dim batchSize As Long: batchSize = modConfig.GetLong("embed_batch_size", 128)
+        If batchSize < 1 Then batchSize = 1
+        If batchSize > 512 Then batchSize = 512
+
+        Dim bStart As Long
+        For bStart = 0 To n - 1 Step batchSize
+            Dim bEnd As Long: bEnd = bStart + batchSize - 1
+            If bEnd > n - 1 Then bEnd = n - 1
+            okCount = okCount + DirectEmbedSlice(texts, lo, bStart, bEnd, dim_, prec, outCsv)
+        Next bStart
+        GetEmbeddingsBatch = okCount
+        Exit Function
+    End If
+
+    ' ---- ribbon: 既存の単発GetEmbeddingをループ(現行と同挙動・安全) ----
+    okCount = RibbonEmbedRange(texts, lo, 0, n - 1, prec, outCsv)
+    GetEmbeddingsBatch = okCount
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -322,6 +412,161 @@ Public Function LooksLikeLimitError(ByVal response As String) As Boolean
     LooksLikeLimitError = (InStr(s, "上限") > 0) Or (InStr(s, "limit") > 0) Or _
                            (InStr(s, "回数") > 0) Or (InStr(s, "rate") > 0) Or _
                            (InStr(s, "quota") > 0)
+End Function
+
+' ----------------------------------------------------------------------------
+' 内部ヘルパー: バッチ埋め込み(direct/ribbon)・シリアライズ
+' ----------------------------------------------------------------------------
+
+' ベクトルを保存精度でCSV化(d6=6桁丸め / full=フル精度)。
+Private Function SerializeVector(ByRef vec() As Double, ByVal prec As String) As String
+    If prec = "d6" Then
+        SerializeVector = modUtil.VectorToCsvPrec(vec, 6)
+    Else
+        SerializeVector = modUtil.VectorToCsv(vec)
+    End If
+End Function
+
+' texts(arrLo+i)(i=iFrom..iTo)をリボン単発でベクトル化しoutCsvへ。戻り値=成功数。
+Private Function RibbonEmbedRange(texts() As String, ByVal arrLo As Long, _
+                                  ByVal iFrom As Long, ByVal iTo As Long, _
+                                  ByVal prec As String, ByRef outCsv() As String) As Long
+    Dim okCount As Long: okCount = 0
+    Dim i As Long
+    For i = iFrom To iTo
+        Dim v() As Double
+        v = GetEmbedding(texts(arrLo + i))
+        If modUtil.HasVector(v) Then
+            outCsv(i) = SerializeVector(v, prec)
+            okCount = okCount + 1
+        End If
+    Next i
+    RibbonEmbedRange = okCount
+End Function
+
+' 1バッチ分をAzureへ配列POSTする。失敗時はリボンへフォールバック。戻り値=成功数。
+Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
+                                  ByVal iFrom As Long, ByVal iTo As Long, _
+                                  ByVal dims As Long, ByVal prec As String, _
+                                  ByRef outCsv() As String) As Long
+    Dim apiUrl As String: apiUrl = Trim$(modConfig.GetString("azure_embed_url", ""))
+    Dim apiKey As String: apiKey = Trim$(modConfig.GetString("azure_embed_key", ""))
+    If LenB(apiUrl) = 0 Or LenB(apiKey) = 0 Then
+        modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", "azure_embed_url/keyが未設定(ribbonへフォールバック)"
+        DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
+        Exit Function
+    End If
+
+    On Error GoTo HttpFail
+
+    ' リクエストボディ {"input":["...",...]}(正規化+4000字打ち切りはribbon経路と同一)
+    Dim bodyParts() As String
+    ReDim bodyParts(0 To iTo - iFrom)
+    Dim i As Long
+    For i = iFrom To iTo
+        Dim t As String: t = modUtil.NormalizeForHash(texts(arrLo + i))
+        If LenB(t) = 0 Then t = " "   ' Azureは空文字を拒否するためダミー1字
+        bodyParts(i - iFrom) = """" & EscapeJsonStr(modUtil.SafeLeft(t, 4000)) & """"
+    Next i
+    Dim body As String
+    body = "{""input"":[" & Join(bodyParts, ",") & "]}"
+
+    Dim http As Object
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "POST", apiUrl, False
+    http.SetRequestHeader "Content-Type", "application/json"
+    http.SetRequestHeader "api-key", apiKey
+    http.Send body
+
+    If CLng(http.Status) <> 200 Then
+        modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
+            "HTTP " & http.Status & ": " & modUtil.SafeLeft(CStr(http.responseText), 200) & "(ribbonへフォールバック)"
+        DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
+        Exit Function
+    End If
+
+    ' レスポンスから "embedding":[...] を出現順に抽出(dataは入力順)
+    Dim resp As String: resp = CStr(http.responseText)
+    Dim okCount As Long: okCount = 0
+    Dim searchPos As Long: searchPos = 1
+    For i = iFrom To iTo
+        Dim vecCsv As String
+        vecCsv = NextEmbeddingArray(resp, searchPos)
+        If LenB(vecCsv) > 0 Then
+            Dim v() As Double
+            If modUtil.CsvToVector(vecCsv, v) Then
+                If modUtil.TruncateAndRenorm(v, dims) Then
+                    outCsv(i) = SerializeVector(v, prec)
+                    okCount = okCount + 1
+                End If
+            End If
+        End If
+    Next i
+
+    If okCount = 0 Then
+        modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
+            "応答のembedding抽出0件(ribbonへフォールバック): " & modUtil.SafeLeft(resp, 200)
+        DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
+        Exit Function
+    End If
+
+    DirectEmbedSlice = okCount
+    Exit Function
+
+HttpFail:
+    modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
+        "通信エラー: " & Err.Description & "(ribbonへフォールバック)"
+    Err.Clear
+    On Error GoTo 0
+    DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
+End Function
+
+' レスポンス文字列のsearchPos以降から次の "embedding":[数値,...] を探し、
+' 中身(カンマ区切り数値)を返す。searchPosは次の検索開始位置へ進める。
+' 見つからなければ""(呼び出し側が失敗扱い)。
+Private Function NextEmbeddingArray(ByVal resp As String, ByRef searchPos As Long) As String
+    Dim keyPos As Long
+    keyPos = InStr(searchPos, resp, """embedding""", vbTextCompare)
+    If keyPos = 0 Then Exit Function
+
+    Dim openPos As Long
+    openPos = InStr(keyPos, resp, "[")
+    If openPos = 0 Then Exit Function
+
+    Dim closePos As Long
+    closePos = InStr(openPos, resp, "]")
+    If closePos = 0 Then Exit Function
+
+    searchPos = closePos + 1
+    NextEmbeddingArray = Mid$(resp, openPos + 1, closePos - openPos - 1)
+End Function
+
+' JSON文字列エスケープ(direct用)。制御文字は\uXXXXへ。
+Private Function EscapeJsonStr(ByVal s As String) As String
+    Dim n As Long: n = Len(s)
+    If n = 0 Then Exit Function
+
+    Dim parts() As String: ReDim parts(1 To n)
+    Dim i As Long
+    For i = 1 To n
+        Dim ch As String: ch = Mid$(s, i, 1)
+        Select Case ch
+            Case "\": parts(i) = "\\"
+            Case """": parts(i) = "\"""
+            Case vbLf: parts(i) = "\n"
+            Case vbCr: parts(i) = "\r"
+            Case vbTab: parts(i) = "\t"
+            Case Else
+                Dim code As Long: code = AscW(ch)
+                If code < 0 Then code = code + 65536
+                If code < 32 Then
+                    parts(i) = "\u" & Right$("000" & Hex$(code), 4)
+                Else
+                    parts(i) = ch
+                End If
+        End Select
+    Next i
+    EscapeJsonStr = Join(parts, "")
 End Function
 
 ' ----------------------------------------------------------------------------

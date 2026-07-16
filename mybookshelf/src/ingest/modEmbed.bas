@@ -131,71 +131,73 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
 
     Application.EnableCancelKey = 2   ' xlErrorHandler: ESCをErr 18として捕捉する
 
-    Dim n As Long
-    Dim ai As Long
-    Dim chunkId As String, fullText As String
-    Dim latency As Long
-    Dim vec() As Double
+    ' バッチ収集→GetEmbeddingsBatch(設計書§E-1)。direct時は1リクエストで
+    ' まとめて取得し取込を桁違いに高速化。ribbon時は内部で単発ループ=従来同等。
+    ' 各成功要素はその場でembedded=1確定(再開可能性は従来どおり)。書込み先は
+    ' chunk_id起点で都度再解決(Wave4の再入対策を維持)。例外(ESC=Err18含む)は
+    ' バッチ全体を1つのOn Error GoTo EscOrErrで覆う(未捕捉でガードが残る事故防止)。
+    Dim batchSize As Long: batchSize = modConfig.GetLong("embed_batch_size", 128)
+    If batchSize < 1 Then batchSize = 1
 
-    For n = 0 To limit - 1
-        ai = pendingRows(n)
+    Dim n As Long
+    Dim chunkId As String
+
+    Dim bStart As Long
+    For bStart = 0 To limit - 1 Step batchSize
+        Dim bEnd As Long: bEnd = bStart + batchSize - 1
+        If bEnd > limit - 1 Then bEnd = limit - 1
+        Dim bN As Long: bN = bEnd - bStart + 1
 
         On Error Resume Next
-        modUIMain.SetStage "📥 ベクトル化中 " & (n + 1) & "/" & limit & " …"
+        modUIMain.SetStage "📥 ベクトル化中 " & (bStart + 1) & "〜" & (bEnd + 1) & "/" & limit & " …"
         On Error GoTo 0
 
-        ' Wave4修正(実コード検証で判明): 以前は書込み区間(Find〜2セル書込み)の
-        ' 直前で On Error GoTo 0 していたため、この極短区間でESC(Err18)や
-        ' 書込み例外が起きると EscOrErr に飛ばず未捕捉のまま EmbedPending から
-        ' 抜けてしまい、AfterLoopのmRunning=False・呼び出し元IngestFileの
-        ' mIngesting=False(Finishラベル)のどちらにも到達しない事故があった
-        ' (以後IngestFileが常にE0503を返す=Excel再起動まで取込不能)。
-        ' 書込み区間・SleepMsまで含めて1回のOn Error GoTo EscOrErrで覆う。
         On Error GoTo EscOrErr
-        DoEvents   ' ESC割込みとUI応答性の確保
-        chunkId = CStr(arr(ai, COL_ID))
-        fullText = CStr(arr(ai, COL_FULLTEXT))
-        vec = modGateway.GetEmbedding(fullText, latency)
+        DoEvents
 
-        If modUtil.HasVector(vec) Then
-            ' Wave4修正(実コード検証で判明): モジュール冒頭コメント・
-            ' modShelfSync.bas冒頭の設計判断コメントは「chunk_id起点に書込み先を
-            ' 都度再解決する自己防衛を入れている」と述べていたが、実装が伴って
-            ' いなかった(sheetRow/writeRowをDoEvents前の位置のままキャッシュして
-            ' 書き込んでいた)。DoEvents/GetEmbedding呼び出し中に別のマクロ
-            ' (SyncNowの削除ループ→DeleteSource等)が再入してmy_knowledge/
-            ' my_vectorsの行を削除・圧縮すると、キャッシュした行番号がずれて
-            ' 無関係な行にembedded=1を立てたりベクトルを誤った行へ書いたりする
-            ' 事故になる。書込み直前にchunk_id起点で現在の行を都度再解決する
-            ' ことで、この危険な窓を閉じる。
-            Dim targetCell As Range
-            Set targetCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
-            If targetCell Is Nothing Then
-                ' 書込み直前にこのチャンクが削除された(再入によるDeleteSource等)。
-                ' 孤児ベクトルを残さないよう、このチャンク分の書込みはスキップする。
+        Dim texts() As String
+        ReDim texts(0 To bN - 1)
+        For n = 0 To bN - 1
+            texts(n) = CStr(arr(pendingRows(bStart + n), COL_FULLTEXT))
+        Next n
+
+        Dim outCsv() As String
+        modGateway.GetEmbeddingsBatch texts, outCsv
+
+        For n = 0 To bN - 1
+            DoEvents
+            chunkId = CStr(arr(pendingRows(bStart + n), COL_ID))
+
+            If LenB(outCsv(n)) > 0 Then
+                Dim targetCell As Range
+                Set targetCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+                If targetCell Is Nothing Then
+                    ' 直前に削除されたチャンク(再入DeleteSource等)はスキップ。
+                Else
+                    Dim vRow As Long
+                    vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
+                    If vRow < 2 Then vRow = 2
+                    wsV.Cells(vRow, 1).Value = chunkId
+                    wsV.Cells(vRow, 2).Value = modUtil.SafeLeft(outCsv(n), 32000)
+                    wsK.Cells(targetCell.row, COL_EMBEDDED).Value = 1
+                    doneCount = doneCount + 1
+                    consecutiveFail = 0
+                End If
             Else
-                Dim vRow As Long
-                vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
-                If vRow < 2 Then vRow = 2
-                wsV.Cells(vRow, 1).Value = chunkId
-                wsV.Cells(vRow, 2).Value = modUtil.SafeLeft(modUtil.VectorToCsv(vec), 32000)
-                wsK.Cells(targetCell.row, COL_EMBEDDED).Value = 1
-                doneCount = doneCount + 1
-                consecutiveFail = 0
+                consecutiveFail = consecutiveFail + 1
+                If consecutiveFail >= 3 Then
+                    abortReason = "3連続失敗"
+                ElseIf LastFailureLooksLikeLimit() Then
+                    abortReason = "利用上限の疑い"
+                End If
             End If
-        Else
-            consecutiveFail = consecutiveFail + 1
-            If consecutiveFail >= 3 Then
-                abortReason = "3連続失敗"
-            ElseIf LastFailureLooksLikeLimit() Then
-                abortReason = "利用上限の疑い"
-            End If
-        End If
+            If LenB(abortReason) > 0 Then Exit For
+        Next n
 
         If throttleMs > 0 Then SleepMs throttleMs
         On Error GoTo 0
         If LenB(abortReason) > 0 Then Exit For
-    Next n
+    Next bStart
     GoTo AfterLoop
 
 EscOrErr:
@@ -243,6 +245,46 @@ Public Function PendingCount() As Long
     Next i
     PendingCount = cnt
 End Function
+
+' ----------------------------------------------------------------------------
+' MarkAllForReembed - 全チャンクを再ベクトル化対象へ戻す(設計書§G-T10)。
+'   embed_dim/vector_precision変更後の移行導線: my_knowledgeのembedded列を
+'   全行0へ(200行ずつバッチ書込み)、my_vectorsのデータ行を全消去。
+'   この後EmbedPending(または🔄同期)で新しい設定のベクトルが再構築される。
+' ----------------------------------------------------------------------------
+Public Sub MarkAllForReembed()
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Sub
+
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, COL_ID).End(xlUp).row
+    If lastK >= 2 Then
+        Const RESET_BATCH As Long = 200
+        Dim r As Long
+        For r = 2 To lastK Step RESET_BATCH
+            Dim rEnd As Long: rEnd = r + RESET_BATCH - 1
+            If rEnd > lastK Then rEnd = lastK
+            Dim zeros() As Variant
+            ReDim zeros(1 To rEnd - r + 1, 1 To 1)
+            Dim z As Long
+            For z = 1 To rEnd - r + 1
+                zeros(z, 1) = 0
+            Next z
+            wsK.Range(wsK.Cells(r, COL_EMBEDDED), wsK.Cells(rEnd, COL_EMBEDDED)).Value = zeros
+        Next r
+    End If
+
+    Dim wsV As Worksheet: Set wsV = GetSheet(modAppDef.SH_VECTORS)
+    If Not wsV Is Nothing Then
+        Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row
+        If lastV >= 2 Then
+            wsV.Range(wsV.Cells(2, 1), wsV.Cells(lastV, 2)).ClearContents
+        End If
+    End If
+
+    On Error Resume Next
+    modLog.LogUsage "reembed_reset", "embed", "全チャンクを再ベクトル化対象に設定"
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー

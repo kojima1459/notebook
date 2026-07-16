@@ -37,11 +37,25 @@ Private Const MAX_CHUNK_CHARS As Long = 32000
 Private Const DEFAULT_TARGET_CHARS As Long = 700
 
 ' ----------------------------------------------------------------------------
-' ChunkPages - 複数ページをまとめてチャンク化する。
+' ChunkPages - 複数ページをまとめてチャンク化する(後方互換=legacy固定)。
 '   戻り値=チャンク数(0可)。chunksにはページごとの結果を連結して返す。
 ' ----------------------------------------------------------------------------
 Public Function ChunkPages(pages() As ExtractedPage, ByVal targetChars As Long, _
                            ByVal overlapChars As Long, ByRef chunks() As ShelfChunk) As Long
+    ChunkPages = ChunkPagesEx(pages, targetChars, overlapChars, 0, "legacy", chunks)
+End Function
+
+' ----------------------------------------------------------------------------
+' ChunkPagesEx - モード切替つきチャンク化(設計書§B-1)。
+'   mode="structure": 見出し・条文・表の構造を認識し、意味単位で分割。
+'     各チャンク先頭に breadcrumb「【〔資料〕 > 章 > 条】」を前置する
+'     (〔資料〕は取込側=modShelfが実ファイル名へ置換するプレースホルダ)。
+'   mode=それ以外: 従来の700字スライディング分割(legacy)と完全同一。
+'   maxCharsは構造モードで「条文を分割せず1チャンクに収める上限」。
+' ----------------------------------------------------------------------------
+Public Function ChunkPagesEx(pages() As ExtractedPage, ByVal targetChars As Long, _
+                             ByVal overlapChars As Long, ByVal maxChars As Long, _
+                             ByVal mode As String, ByRef chunks() As ShelfChunk) As Long
     Dim tgt As Long: tgt = targetChars
     If tgt < 1 Then tgt = DEFAULT_TARGET_CHARS
     If tgt > MAX_CHUNK_CHARS Then tgt = MAX_CHUNK_CHARS
@@ -49,6 +63,13 @@ Public Function ChunkPages(pages() As ExtractedPage, ByVal targetChars As Long, 
     Dim ov As Long: ov = overlapChars
     If ov < 0 Then ov = 0
     If ov >= tgt Then ov = tgt \ 2
+
+    Dim mx As Long: mx = maxChars
+    If mx < tgt Then mx = tgt
+    If mx > MAX_CHUNK_CHARS Then mx = MAX_CHUNK_CHARS
+
+    Dim useStructure As Boolean
+    useStructure = (LCase$(Trim$(mode)) = "structure")
 
     Dim outArr() As ShelfChunk: ReDim outArr(0 To 15)
     Dim outCount As Long: outCount = 0
@@ -58,7 +79,11 @@ Public Function ChunkPages(pages() As ExtractedPage, ByVal targetChars As Long, 
         Dim pLo As Long: pLo = LBound(pages)
         Dim p As Long
         For p = 0 To pageCount - 1
-            ChunkOnePage pages(pLo + p).page, pages(pLo + p).Text, tgt, ov, outArr, outCount
+            If useStructure Then
+                ChunkOnePageStructured pages(pLo + p).page, pages(pLo + p).Text, tgt, ov, mx, outArr, outCount
+            Else
+                ChunkOnePage pages(pLo + p).page, pages(pLo + p).Text, tgt, ov, outArr, outCount
+            End If
         Next p
     End If
 
@@ -68,7 +93,55 @@ Public Function ChunkPages(pages() As ExtractedPage, ByVal targetChars As Long, 
         ReDim Preserve outArr(0 To outCount - 1)
         chunks = outArr
     End If
-    ChunkPages = outCount
+    ChunkPagesEx = outCount
+End Function
+
+' ----------------------------------------------------------------------------
+' ClassifyLine - 行の構造ラベル分類(設計書§B-1。純関数・テスト用にPublic)。
+'   0=本文 / 1=文書見出し(#・第N編/章・【…】のみの行) /
+'   2=節見出し(第N条/節・番号見出し・■●◆短行) / 3=箇条書き / 4=表行
+' ----------------------------------------------------------------------------
+Public Function ClassifyLine(ByVal lineText As String) As Long
+    ClassifyLine = 0
+    Dim t As String: t = Trim$(lineText)
+    If LenB(t) = 0 Then Exit Function
+
+    ' 表行(タブ・3連続以上スペース・パイプ)
+    If InStr(lineText, vbTab) > 0 Or InStr(lineText, "   ") > 0 Or InStr(lineText, "|") > 0 Then
+        ClassifyLine = 4
+        Exit Function
+    End If
+
+    ' 文書見出し
+    If Left$(t, 2) = "# " Then ClassifyLine = 1: Exit Function
+    If Left$(t, 1) = "【" And Right$(t, 1) = "】" And Len(t) <= 60 Then ClassifyLine = 1: Exit Function
+    If MatchesDaiN(t, "編") Or MatchesDaiN(t, "章") Then ClassifyLine = 1: Exit Function
+
+    ' 節見出し
+    If MatchesDaiN(t, "条") Or MatchesDaiN(t, "節") Then ClassifyLine = 2: Exit Function
+    If IsNumberHeading(t) Then ClassifyLine = 2: Exit Function
+    Dim mark As String: mark = Left$(t, 1)
+    If (mark = "■" Or mark = "●" Or mark = "◆") And Len(t) < 40 And InStr(t, "。") = 0 Then
+        ClassifyLine = 2
+        Exit Function
+    End If
+
+    ' 箇条書き
+    If MatchesDaiN(t, "項") Then ClassifyLine = 3: Exit Function
+    If IsItemMarker(t) Then ClassifyLine = 3: Exit Function
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildBreadcrumb - 「【資料 > 章 > 条】」のbreadcrumb文字列(設計書§B-2)。
+'   空の階層は省略。各要素は80字で切る。
+' ----------------------------------------------------------------------------
+Public Function BuildBreadcrumb(ByVal sourceName As String, ByVal chapter As String, _
+                                ByVal section As String) As String
+    Dim joined As String
+    joined = modUtil.SafeLeft(Trim$(sourceName), 80)
+    If LenB(Trim$(chapter)) > 0 Then joined = joined & " > " & modUtil.SafeLeft(Trim$(chapter), 80)
+    If LenB(Trim$(section)) > 0 Then joined = joined & " > " & modUtil.SafeLeft(Trim$(section), 80)
+    BuildBreadcrumb = "【" & joined & "】"
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -112,6 +185,197 @@ Private Sub ChunkOnePage(ByVal pageNum As Long, ByVal rawText As String, ByVal t
         startPos = nextStart
     Loop
 End Sub
+
+' ----------------------------------------------------------------------------
+' 構造認識チャンク化の内部実装(設計書§B-1)
+' ----------------------------------------------------------------------------
+
+Private Const CRUMB_PLACEHOLDER As String = "〔資料〕"
+
+' 1ページを行分類→見出し境界のブロック単位で分割する。ブロックが
+' maxChars以下なら1チャンクに原子保持、超過時のみ文境界スライディング
+' (オーバーラップは同一ブロック内のみ)。表行はスペース構造を保持する。
+Private Sub ChunkOnePageStructured(ByVal pageNum As Long, ByVal rawText As String, _
+                                   ByVal tgt As Long, ByVal ov As Long, ByVal mx As Long, _
+                                   ByRef outArr() As ShelfChunk, ByRef outCount As Long)
+    Dim t As String: t = Replace(Replace(rawText, vbCrLf, vbLf), vbCr, vbLf)
+    If LenB(Trim$(t)) = 0 Then Exit Sub
+
+    Dim rows() As String: rows = Split(t, vbLf)
+
+    Dim chapter As String: chapter = ""
+    Dim section As String: section = ""
+    Dim blockText As String: blockText = ""
+
+    Dim i As Long
+    For i = LBound(rows) To UBound(rows)
+        Dim lbl As Long: lbl = ClassifyLine(rows(i))
+
+        If lbl = 1 Or lbl = 2 Then
+            ' 見出し=ブロック境界。ここまでのブロックを確定し、階層を更新。
+            FlushBlock pageNum, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+            If lbl = 1 Then
+                chapter = Trim$(StripHeadingMark(rows(i)))
+                section = ""
+            Else
+                section = Trim$(rows(i))
+            End If
+            ' 見出し行自体は直後ブロックの先頭に含める(見出しだけの空チャンクは作らない)
+            blockText = Trim$(rows(i))
+        Else
+            Dim rowText As String
+            If lbl = 4 Then
+                rowText = RTrimOnly(rows(i))     ' 表行: スペース構造を保持
+            Else
+                rowText = CollapseSpaces(rows(i))
+            End If
+            If LenB(Trim$(rowText)) > 0 Then
+                If LenB(blockText) > 0 Then blockText = blockText & vbLf
+                blockText = blockText & rowText
+            End If
+        End If
+    Next i
+    FlushBlock pageNum, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+End Sub
+
+' ブロック1つをチャンク列へ確定する。breadcrumb(プレースホルダ資料名)を
+' 各チャンク先頭に前置。32000字上限は絶対保証。
+Private Sub FlushBlock(ByVal pageNum As Long, ByVal blockText As String, _
+                       ByVal chapter As String, ByVal section As String, _
+                       ByVal tgt As Long, ByVal ov As Long, ByVal mx As Long, _
+                       ByRef outArr() As ShelfChunk, ByRef outCount As Long)
+    Dim body As String: body = Trim$(blockText)
+    If LenB(body) = 0 Then Exit Sub
+
+    Dim crumb As String
+    crumb = BuildBreadcrumb(CRUMB_PLACEHOLDER, chapter, section) & vbLf
+
+    Dim room As Long: room = MAX_CHUNK_CHARS - Len(crumb)
+    If room < 1 Then room = 1
+    Dim atomicLimit As Long: atomicLimit = mx - Len(crumb)
+    If atomicLimit < 1 Then atomicLimit = 1
+
+    If Len(body) <= atomicLimit Then
+        AppendStructChunk pageNum, crumb, body, room, outArr, outCount
+        Exit Sub
+    End If
+
+    ' 超過ブロックのみ文境界スライディング(改行も境界候補=表行を跨ぎにくい)
+    Dim total As Long: total = Len(body)
+    Dim startPos As Long: startPos = 1
+    Do While startPos <= total
+        Dim windowEnd As Long: windowEnd = startPos + tgt - 1
+        If windowEnd > total Then windowEnd = total
+        If windowEnd < total Then
+            Dim boundary As Long
+            boundary = FindSentenceBoundary(body, windowEnd, tgt \ 4)
+            If boundary > 0 Then windowEnd = boundary
+        End If
+        If windowEnd - startPos + 1 > room Then windowEnd = startPos + room - 1
+
+        AppendStructChunk pageNum, crumb, Mid$(body, startPos, windowEnd - startPos + 1), room, outArr, outCount
+
+        If windowEnd >= total Then Exit Do
+        Dim nextStart As Long: nextStart = windowEnd - ov + 1
+        If nextStart <= startPos Then nextStart = startPos + 1
+        startPos = nextStart
+    Loop
+End Sub
+
+Private Sub AppendStructChunk(ByVal pageNum As Long, ByVal crumb As String, ByVal body As String, _
+                              ByVal room As Long, ByRef outArr() As ShelfChunk, ByRef outCount As Long)
+    Dim b As String: b = body
+    If Len(b) > room Then b = Left$(b, room)
+    Dim ck As ShelfChunk
+    ck.page = pageNum
+    ck.full_text = crumb & b
+    AppendChunk outArr, outCount, ck
+End Sub
+
+' 「第N条」「第１２章」等: 先頭が「第」+数字(半角/全角)+指定漢字か。
+Private Function MatchesDaiN(ByVal t As String, ByVal kanji As String) As Boolean
+    If Left$(t, 1) <> "第" Then Exit Function
+    Dim i As Long: i = 2
+    Dim digitN As Long: digitN = 0
+    Do While i <= Len(t)
+        If IsDigitChar(Mid$(t, i, 1)) Then
+            digitN = digitN + 1
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If digitN = 0 Then Exit Function
+    MatchesDaiN = (Mid$(t, i, Len(kanji)) = kanji)
+End Function
+
+' 「1.」「2.3」「３．」等の番号見出し(短い行のみ=通常の文中番号と区別)。
+Private Function IsNumberHeading(ByVal t As String) As Boolean
+    If Len(t) >= 50 Then Exit Function
+    If Not IsDigitChar(Left$(t, 1)) Then Exit Function
+    Dim i As Long: i = 1
+    Do While i <= Len(t) And IsDigitChar(Mid$(t, i, 1))
+        i = i + 1
+    Loop
+    If i > Len(t) Then Exit Function
+    Dim sep As String: sep = Mid$(t, i, 1)
+    IsNumberHeading = (sep = "." Or sep = "．")
+End Function
+
+' 箇条書きマーカー: ・ / - / (N) / （N） / ①〜⑳ 始まり。
+Private Function IsItemMarker(ByVal t As String) As Boolean
+    Dim h As String: h = Left$(t, 1)
+    If h = "・" Then IsItemMarker = True: Exit Function
+    If Left$(t, 2) = "- " Then IsItemMarker = True: Exit Function
+    If h = "(" Or h = "（" Then
+        IsItemMarker = IsDigitChar(Mid$(t, 2, 1))
+        Exit Function
+    End If
+    Dim code As Long: code = AscW(h)
+    If code < 0 Then code = code + 65536
+    IsItemMarker = (code >= &H2460 And code <= &H2473)   ' ①〜⑳
+End Function
+
+' 半角/全角数字か。
+Private Function IsDigitChar(ByVal ch As String) As Boolean
+    If LenB(ch) = 0 Then Exit Function
+    If ch >= "0" And ch <= "9" Then IsDigitChar = True: Exit Function
+    Dim code As Long: code = AscW(ch)
+    If code < 0 Then code = code + 65536
+    IsDigitChar = (code >= &HFF10 And code <= &HFF19)    ' ０〜９
+End Function
+
+' Markdown見出しマーク「# 」を剥がす(それ以外はそのまま)。
+Private Function StripHeadingMark(ByVal t As String) As String
+    Dim s As String: s = Trim$(t)
+    Do While Left$(s, 1) = "#"
+        s = Mid$(s, 2)
+    Loop
+    StripHeadingMark = Trim$(s)
+End Function
+
+' 行内の半角空白・タブ連続を1個へ(表行以外の本文行整形)。
+Private Function CollapseSpaces(ByVal s As String) As String
+    Dim t As String: t = Replace(s, vbTab, " ")
+    Do While InStr(t, "  ") > 0
+        t = Replace(t, "  ", " ")
+    Loop
+    CollapseSpaces = Trim$(t)
+End Function
+
+' 右端の空白だけ落とす(表行用。左のインデント・桁揃えは保持)。
+Private Function RTrimOnly(ByVal s As String) As String
+    Dim i As Long: i = Len(s)
+    Do While i > 0
+        Dim ch As String: ch = Mid$(s, i, 1)
+        If ch = " " Or ch = vbTab Then
+            i = i - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    RTrimOnly = Left$(s, i)
+End Function
 
 ' 空白圧縮(半角空白・タブの連続を1個に)+改行統一+3連続以上の改行を2個へ
 ' 圧縮(段落区切りは残す)+Trim。modUtil.NormalizeForHashと同じ配列+Join方式
