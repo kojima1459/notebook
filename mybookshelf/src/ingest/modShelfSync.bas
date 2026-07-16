@@ -113,12 +113,15 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' ハンドラが無く、フォルダ走査やmanifest突合で例外が出るとmSyncRunning=True
     ' のまま抜けて以降の同期が永久に走らなくなる危険があった(IngestFileの
     ' 焼き付きと同種の予防)。
+    Dim uiStep As String
     On Error GoTo Failed
 
+    uiStep = "状態表示の更新"
     On Error Resume Next
     modUIMain.SetStage "🔄 同期を確認しています…"
     On Error GoTo Failed
 
+    uiStep = "本棚フォルダ設定の確認"
     Dim folder As String: folder = Trim$(modConfig.GetString("shelf_folder", ""))
     If LenB(folder) = 0 Then
         ' 初回起動直後(shelf_folder未設定)は「まだ何も設定していない正常な
@@ -150,9 +153,11 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     Dim folderNorm As String: folderNorm = EnsureTrailingSlash(folder)
 
+    uiStep = "フォルダ内ファイルの一覧取得"
     Dim diskNames() As String, diskCount As Long
     EnumFolderFiles folderNorm, diskNames, diskCount
 
+    uiStep = "資料台帳スコープの読込"
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     Dim mPaths() As String, mNames() As String, mModified() As Date
     Dim mSize() As Double, mStatus() As String, mCount As Long
@@ -162,13 +167,14 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim ingestedN As Long, replacedN As Long, deletedN As Long
     Dim resumeNeeded As Boolean: resumeNeeded = False
 
+    uiStep = "新規・更新の差分判定"
     Dim i As Long
     For i = 0 To diskCount - 1
         If Not diskDict.Exists(LCase$(diskNames(i))) Then diskDict.Add LCase$(diskNames(i)), True
 
         On Error Resume Next
         modUIMain.SetStage "🔄 同期中 " & (i + 1) & "/" & diskCount & " …"
-        On Error GoTo 0
+        On Error GoTo Failed
 
         Dim path As String: path = folderNorm & diskNames(i)
         Dim mi As Long: mi = FindManifestIndexByName(mNames, mCount, diskNames(i))
@@ -210,6 +216,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Next i
 
     ' 消失検知→削除(このフォルダ配下由来の行のみが対象スコープ)
+    uiStep = "消失資料の削除判定"
     For i = 0 To mCount - 1
         If Not diskDict.Exists(LCase$(mNames(i))) Then
             modShelf.DeleteSource mNames(i)
@@ -217,11 +224,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         End If
     Next i
 
+    uiStep = "未完了の埋め込み再開"
     Dim resumedCount As Long: resumedCount = 0
     If resumeNeeded Then
         On Error Resume Next
         modUIMain.SetStage "📥 未完了の埋め込みを再開しています…"
-        On Error GoTo 0
+        On Error GoTo Failed
         resumedCount = modEmbed.EmbedPending()
     End If
 
@@ -263,7 +271,7 @@ Failed:
     Dim failNum As Long: failNum = Err.Number
     Dim failDesc As String: failDesc = Err.Description
     On Error Resume Next
-    modLog.LogError "E0801", "modShelfSync.SyncNow", "err#" & failNum & ": " & failDesc
+    modLog.LogError "E0801", "modShelfSync.SyncNow", "[" & uiStep & "] err#" & failNum & ": " & failDesc
     modUIMain.SetStage ""
     On Error GoTo 0
 

@@ -109,8 +109,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     ' 途中でエラーが出るとmIngesting=Trueのまま関数を抜けてしまい、以降の
     ' 全取込がE0503(処理中)で永久に弾かれる焼き付き事故が実機で発生した。
     ' 1ファイルの取込失敗が「本棚機能そのものの停止」に波及しないようにする。
+    ' uiStep: 失敗ブロックをerr_logで特定するための段階名(実機E0801対策)。
+    Dim uiStep As String
     On Error GoTo Failed
 
+    uiStep = "ファイル名の解決"
     Dim sourceName As String: sourceName = modUtil.FileNameOf(path)
 
     ' 1.5) 同名衝突検査(E0504・Wave4追加): 「既存同名sourceは置換」(§7.2)は
@@ -122,6 +125,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     '   「同じファイル名だが別のfile_path」の行が既にあれば、削除せず明示
     '   エラーで止める(誠実な失敗の方が黙った破壊より安全・R5)。
     '   同一パスの再取込(置換)はこの検査を通過する(既存契約どおり)。
+    uiStep = "同名衝突の検査"
     If isSelf Then
         Dim conflictPath As String
         conflictPath = FindConflictingManifestPath(sourceName, path)
@@ -134,6 +138,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     End If
 
     ' 2) 上限検査(E0501)
+    uiStep = "本棚上限の確認"
     Dim maxChunks As Long: maxChunks = modConfig.GetLong("shelf_max_chunks", 5000)
     If maxChunks < 1 Then maxChunks = 5000
     If TotalChunks() >= maxChunks Then
@@ -143,9 +148,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     End If
 
     ' 3) 既存同名sourceは置換(古いchunk/vector削除。manifestはこの後で上書きするので触らない)
+    uiStep = "既存同名資料の置換準備"
     RemoveKnowledgeAndVectorsForSource sourceName
 
     ' 4) 抽出
+    uiStep = "ファイルからの本文抽出"
     Dim pages() As ExtractedPage
     Dim errCode As String, errDetail As String
     Dim extractOk As Boolean
@@ -209,6 +216,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     End If
 
     ' 5) チャンク分割
+    uiStep = "本文のチャンク分割"
     Dim chunks() As ShelfChunk
     Dim chunkN As Long
     chunkN = modChunker.ChunkPages(pages, CHUNK_TARGET_CHARS, CHUNK_OVERLAP_CHARS, chunks)
@@ -224,6 +232,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     End If
 
     ' 6) chunk_id付番(bs::hash::pN::cN)+ハッシュ重複スキップ
+    uiStep = "チャンクの採番と重複排除"
     Dim wsK As Worksheet: Set wsK = EnsureKnowledgeSheet()
     Dim existingHashes As Object: Set existingHashes = BuildExistingHashSet(wsK)
 
@@ -260,6 +269,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Next ci
 
     ' 7) my_knowledge追記(embedded=0)。配列一括書込み(§12)
+    uiStep = "本棚への保存(my_knowledge書込み)"
     Dim firstNewRow As Long: firstNewRow = 0
     Dim lastNewRow As Long: lastNewRow = 0
     If acceptedCount > 0 Then
@@ -274,15 +284,18 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     End If
 
     ' 8) manifest upsert(status=pending)
+    uiStep = "資料台帳の更新(pending)"
     If isSelf Then
         UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), acceptedCount, _
             "pending", "", origin
     End If
 
     ' 9) EmbedPending(この資料分だけでなく、本棚全体の未埋め込み分をまとめて処理)
+    uiStep = "ベクトル化(埋め込み)"
     modEmbed.EmbedPending
 
     ' 10) manifest status確定(この資料の行にまだembedded=0が残っていればpartial)
+    uiStep = "取込状態の確定"
     Dim stillPending As Boolean: stillPending = False
     If acceptedCount > 0 Then
         If acceptedCount = 1 Then
@@ -337,10 +350,10 @@ Failed:
     Dim failDesc As String: failDesc = Err.Description
     On Error Resume Next
     modLog.LogError "E0801", "modShelf.IngestFile", _
-        "path=" & modUtil.SafeLeft(path, 200) & " err#" & failNum & ": " & failDesc
+        "[" & uiStep & "] path=" & modUtil.SafeLeft(path, 200) & " err#" & failNum & ": " & failDesc
     If isSelf Then
         UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
-            "failed", "取込中に問題が発生しました(#" & failNum & ")", origin
+            "failed", "取込中に問題が発生しました[" & uiStep & "](#" & failNum & ")", origin
     End If
     On Error GoTo 0
     resultStatus = "failed"

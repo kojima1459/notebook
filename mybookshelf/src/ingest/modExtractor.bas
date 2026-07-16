@@ -67,20 +67,41 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     Dim maxPages As Long: maxPages = modConfig.GetLong("max_pages_per_file", 300)
     If maxPages < 1 Then maxPages = 300
 
+    ' 2026-07-16 実機対策: ネットワーク共有(\\server\share\...)やクラウド同期
+    ' フォルダ上のOfficeファイルは、実機WindowsのWord/Excelが「保護ビュー」で
+    ' 開くため、COM自動化での本文抽出が失敗したり実行時エラー(添字範囲外等)に
+    ' なることがある(LibreOfficeでは再現しない実機固有の挙動)。安全のため、
+    ' Office系(pdf/docx/doc/xlsx/xls/xlsm)はローカル一時フォルダへコピーした
+    ' コピーを開く。コピー失敗時は元パスのままフォールバックする(悪化させない)。
+    Dim workPath As String: workPath = path
+    Dim tmpCopy As String: tmpCopy = ""
+    Select Case ext
+        Case "pdf", "docx", "doc", "xlsx", "xls", "xlsm"
+            tmpCopy = CopyToLocalTemp(path)
+            If LenB(tmpCopy) > 0 Then workPath = tmpCopy
+    End Select
+
     Dim ok As Boolean
     Dim truncated As Boolean
     Dim adapterErr As String
 
     Select Case ext
         Case "txt", "md", "csv"
-            ok = ExtractPlainText(path, pages, adapterErr)
+            ok = ExtractPlainText(workPath, pages, adapterErr)
         Case "pdf"
-            ok = ExtractPdfWithFallback(path, maxPages, pages, truncated, adapterErr)
+            ok = ExtractPdfWithFallback(workPath, maxPages, pages, truncated, adapterErr)
         Case "docx", "doc"
-            ok = modExtractorWord.Extract(path, maxPages, pages, truncated, adapterErr)
+            ok = modExtractorWord.Extract(workPath, maxPages, pages, truncated, adapterErr)
         Case "xlsx", "xls", "xlsm"
-            ok = modExtractorExcel.Extract(path, maxPages, pages, truncated, adapterErr)
+            ok = modExtractorExcel.Extract(workPath, maxPages, pages, truncated, adapterErr)
     End Select
+
+    ' 一時コピーは用が済んだら消す(失敗しても無視)。
+    If LenB(tmpCopy) > 0 Then
+        On Error Resume Next
+        Kill tmpCopy
+        On Error GoTo 0
+    End If
 
     If Not ok Then
         errCode = "E0302"
@@ -130,6 +151,44 @@ End Function
 
 Private Function IsSupportedExt(ByVal ext As String) As Boolean
     IsSupportedExt = (InStr(1, "," & SUPPORTED_EXTS & ",", "," & ext & ",", vbTextCompare) > 0)
+End Function
+
+' path を %TEMP% 配下へコピーし、そのコピー先パスを返す(成功時)。
+' コピーできなければ空文字列を返す(呼び出し側は元パスのまま処理を続ける)。
+' 拡張子は必ず元と同じにする(抽出は拡張子で振り分けるため)。
+' Word/Excelの保護ビュー(ネットワーク/クラウド上のファイルで発動)を避け、
+' かつ抽出中の元ファイルロック・ネットワーク瞬断の影響を受けないようにする。
+Private Function CopyToLocalTemp(ByVal path As String) As String
+    On Error GoTo Fail
+
+    Dim tempDir As String: tempDir = Environ$("TEMP")
+    If LenB(tempDir) = 0 Then tempDir = Environ$("TMP")
+    If LenB(tempDir) = 0 Then Exit Function
+    If Right$(tempDir, 1) <> "\" Then tempDir = tempDir & "\"
+
+    Dim baseName As String: baseName = modUtil.FileNameOf(path)
+    If LenB(baseName) = 0 Then Exit Function
+
+    ' 衝突回避のため連番を付ける(同時取込や前回の消し残りに備える)。
+    Dim dest As String
+    Dim n As Long: n = 0
+    Do
+        If n = 0 Then
+            dest = tempDir & "mbtmp_" & baseName
+        Else
+            dest = tempDir & "mbtmp" & n & "_" & baseName
+        End If
+        If LenB(Dir$(dest)) = 0 Then Exit Do
+        n = n + 1
+        If n > 500 Then Exit Function   ' 異常時の暴走防止
+    Loop
+
+    FileCopy path, dest
+    CopyToLocalTemp = dest
+    Exit Function
+
+Fail:
+    CopyToLocalTemp = ""
 End Function
 
 ' pdfはWordのPDF Reflowを優先し、失敗時のみAcrobat COMへフォールバックする
