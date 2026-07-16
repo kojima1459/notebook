@@ -343,17 +343,20 @@ End Sub
 '   戻り値=件数(0可)
 ' ----------------------------------------------------------------------------
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long
-    ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-16 実機E0801
-    ' 「資料一覧の取得(SourceList)」報告への対策。RenderShelf側の粒度では
-    ' SourceList呼び出し全体としか分からなかったため、内部をさらに追う)。
+    ' uiStep: 実機で原因ブロックを特定するための追跡(2026-07-16)。
+    ' さらに、資料一覧の読み取り自体が3回続けて実機でアプリ起動全体を
+    ' 止める事故につながったため、ここで起きるどんな失敗も「資料0件」に
+    ' 静かに縮退させ、資料一覧の表示だけを諦めて処理を続行する
+    ' (原因追及は詳細をerr_logに記録して行う。R5「原因の分からないエラーを
+    ' ユーザーに見せない」を、ここでは「そもそも止めない」まで踏み込んで守る)。
     Dim uiStep As String
     On Error GoTo Fail
 
     uiStep = "manifestシートの取得"
     Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
     If wsM Is Nothing Then
-        ReDim names(0 To -1)
-        ReDim stats(0 To -1)
+        ReDim names(0 To 0)
+        ReDim stats(0 To 0)
         SourceList = 0
         Exit Function
     End If
@@ -361,8 +364,8 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
     uiStep = "manifest最終行の特定"
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
     If lastM < 2 Then
-        ReDim names(0 To -1)
-        ReDim stats(0 To -1)
+        ReDim names(0 To 0)
+        ReDim stats(0 To 0)
         SourceList = 0
         Exit Function
     End If
@@ -389,7 +392,12 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
-    Err.Raise origNum, "modShelf.SourceList", "[" & uiStep & "] " & origDesc
+    On Error Resume Next
+    modLog.LogError "E0801", "modShelf.SourceList", "[" & uiStep & "] err#" & origNum & ": " & origDesc
+    On Error GoTo 0
+    ReDim names(0 To 0)
+    ReDim stats(0 To 0)
+    SourceList = 0
 End Function
 
 ' ----------------------------------------------------------------------------

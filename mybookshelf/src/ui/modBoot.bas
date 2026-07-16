@@ -88,13 +88,31 @@ Public Sub Boot()
     bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun
 
-    ' 3) 3画面EnsureLayout(それぞれが内部でRenderShelf/RenderDashboardまで実行する)
+    ' 3) 3画面EnsureLayout(それぞれが内部でRenderShelf/RenderDashboardまで実行する)。
+    ' 2026-07-16: 実機で「1画面の描画中の不具合がアプリ全体の起動を止める」
+    ' 事例が立て続けに見つかった(ホーム→マイ本棚→…と直しても次の画面で
+    ' 同種の失敗が起きる)。非エンジニアが使う配布物として、1画面の描画に
+    ' 問題があってもアプリ自体は必ず開けるべきなので、3画面それぞれを
+    ' 独立してOn Error Resume Nextで保護し、失敗はerr_logに詳細(uiStepまで
+    ' 埋め込み済みのErr.Description)を記録した上で次の画面へ進む
+    ' (該当画面だけ表示が崩れる可能性はあるが、アプリが開けないよりずっと良い)。
     bootStage = "ホーム画面の組み立て"
+    On Error Resume Next
     modUIMain.EnsureLayout
+    LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
+
     bootStage = "マイ本棚画面の組み立て"
+    On Error Resume Next
     modUIShelf.EnsureLayout
+    LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
+
     bootStage = "ダッシュボード画面の組み立て"
+    On Error Resume Next
     modUIDashboard.EnsureLayout
+    LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
     bootStage = ""
 
     ' Wave4修正: modStats.TouchToday(streak_days/last_used_date更新)を
@@ -194,6 +212,21 @@ Failed:
            "(コード: E0801)" & vbLf & vbLf & _
            "この画面を撮影して管理者へ送っていただければ、原因を特定できます。", _
            vbCritical, modAppDef.APP_NAME
+End Sub
+
+' 3画面EnsureLayoutを個別にOn Error Resume Nextで保護したときの記録役。
+' Err.Number<>0のときだけE0801としてerr_logへ書き、Errをクリアする
+' (呼び出し側は直後にOn Error GoTo Failedへ戻すので、ここではErrを
+' 汚さないよう自分の中だけで完結させる)。
+Private Sub LogBootStageErrorIfAny(ByVal stage As String)
+    If Err.Number = 0 Then Exit Sub
+    Dim n As Long, d As String
+    n = Err.Number
+    d = Err.Description
+    Err.Clear
+    On Error Resume Next
+    modLog.LogError "E0801", "modBoot.Boot", "stage=" & stage & " err#" & n & ": " & d
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
