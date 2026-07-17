@@ -621,6 +621,37 @@ def check_name_shadowing(info: ModuleInfo) -> None:
                     )
 
 
+MODULE_DECL_PATTERN = re.compile(
+    r"^\s*(?:(?:Public|Private|Global)\s+)?(?:Const\s+\w|Declare\s)"
+    r"|^\s*(?:Public|Private|Global|Dim)\s+\w+\s*(?:\(\s*\))?\s+As\s+",
+    re.IGNORECASE,
+)
+
+
+def check_declaration_position(info: ModuleInfo) -> None:
+    """モジュールレベル宣言(Const/変数/Declare)が最初のプロシージャ定義より
+    後に無いか。VBAは宣言部→プロシージャ部の順序を強制し、違反すると
+    「End Sub、End Function、または End Property の後には、コメントのみが
+    記述できます」というコンパイルエラーになる(2026-07-16実機で発生。
+    LibreOffice Basicは途中宣言を許容するためLOゲートでは検出不能)。"""
+    depth = 0
+    seen_proc = False
+    for lineno, stmt in info.statements:
+        if PROC_DEF_PATTERN.match(stmt):
+            depth += 1
+            seen_proc = True
+            continue
+        if re.match(r"^\s*End\s+(Sub|Function|Property)\b", stmt, re.IGNORECASE):
+            depth -= 1
+            continue
+        if depth <= 0 and seen_proc and MODULE_DECL_PATTERN.match(stmt):
+            info.add(
+                "ERROR", lineno,
+                f"モジュールレベル宣言がプロシージャ定義より後にある"
+                f"(実機VBAでコンパイルエラー。宣言部はモジュール先頭へ): 「{stmt.strip()[:80]}」",
+            )
+
+
 def module_name_for_display(info: ModuleInfo) -> str:
     return info.vb_name or info.filename_stem
 
@@ -827,6 +858,7 @@ def run_lint(src_root: Path) -> int:
         check_basics(info)
         check_dim_type_drop_and_integer(info)
         check_name_shadowing(info)
+        check_declaration_position(info)
         check_pure_logic_tokens(info)
         check_opt_token_reference(info)
         check_application_run_whitelist(info)

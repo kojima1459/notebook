@@ -35,6 +35,8 @@ Option Explicit
 
 Private Const MAX_CHUNK_CHARS As Long = 32000
 Private Const DEFAULT_TARGET_CHARS As Long = 700
+' 構造チャンクの資料名プレースホルダ(modShelfが実ファイル名へ置換する)
+Private Const CRUMB_PLACEHOLDER As String = "〔資料〕"
 
 ' ----------------------------------------------------------------------------
 ' ChunkPages - 複数ページをまとめてチャンク化する(後方互換=legacy固定)。
@@ -189,8 +191,6 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' 構造認識チャンク化の内部実装(設計書§B-1)
 ' ----------------------------------------------------------------------------
-
-Private Const CRUMB_PLACEHOLDER As String = "〔資料〕"
 
 ' 1ページを行分類→見出し境界のブロック単位で分割する。ブロックが
 ' maxChars以下なら1チャンクに原子保持、超過時のみ文境界スライディング
