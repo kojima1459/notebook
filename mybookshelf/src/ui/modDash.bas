@@ -440,13 +440,21 @@ End Function
 ' ---- 育ちぐあいの将来枠(クラスタチャートのプレースホルダ) ----
 
 Private Sub DrawChartPlaceholder(ByVal ws As Worksheet)
+    ' ナレッジ地図(K-Meansクラスタ可視化)を描く。データ不足時は0が返るので
+    ' 案内テキストを出す(いずれも nxd_ 接頭辞=次回描画で一括削除される)。
+    Dim drawn As Long
+    On Error Resume Next
+    drawn = modCluster.DrawClusterMap(ws, KPI_X0, CHART_NOTE_Y, ROW_WIDTH, 250)
+    On Error GoTo 0
+    If drawn > 0 Then Exit Sub
+
     Dim note As Shape
     Set note = ws.Shapes.AddShape(1, KPI_X0, CHART_NOTE_Y, ROW_WIDTH, 24)
     note.Name = "nxd_chart_note"
     note.Line.Visible = 0
     note.Fill.Visible = 0
     With note.TextFrame2
-        .TextRange.Text = "ナレッジ地図(クラスタリング)は近日公開"
+        .TextRange.Text = "ナレッジ地図: 資料をもう少し登録すると、似た資料のかたまりが表示されます。"
         .TextRange.Font.Size = 9
         .TextRange.Font.Italic = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
