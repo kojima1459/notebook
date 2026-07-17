@@ -129,6 +129,7 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     DrawExpBar ws
     DrawBadgeShelf ws
     DrawChartPlaceholder ws
+    modUI.FreezeShapePlacement ws   ' 全Shape(クラスタ円含む)を絶対配置に固定
 End Sub
 
 ' ---- ヘッダー ----

@@ -157,6 +157,7 @@ Private Sub RunKMeans(ByRef vecs() As Double, ByVal nPts As Long, ByVal nDim As 
 
     Dim it As Long, i As Long, c As Long, d As Long
     For it = 1 To KMEANS_ITERS
+        DoEvents   ' 反復ごとに息継ぎ(重い計算中もExcelを「応答なし」にしない)
         Dim changed As Boolean: changed = False
 
         ' 割当(内積最大の重心へ)

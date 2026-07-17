@@ -34,6 +34,7 @@ Public Sub ShowVaultInput()
     Set ws = GetOrCreateVaultSheet()
     If ws Is Nothing Then Exit Sub
 
+    On Error GoTo Finish
     Application.ScreenUpdating = False
 
     ' 冪等再構築
@@ -149,16 +150,21 @@ Public Sub ShowVaultInput()
     End With
     cancelBtn.OnAction = "modVault.OnVaultCancel"
 
+    modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
+
     ' SPA遷移(表示してアクティブ化・枠線等は非表示)
     ws.Visible = -1   ' xlSheetVisible
     ws.Activate
     On Error Resume Next
     ActiveWindow.DisplayGridlines = False
     ActiveWindow.DisplayHeadings = False
-    On Error GoTo 0
     ws.Range(CELL_TITLE).Select
+    On Error GoTo 0
 
-    Application.ScreenUpdating = True
+Finish:
+    On Error Resume Next
+    Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -257,9 +263,11 @@ Public Sub ShowVaultGallery()
     Set ws = GetOrCreateGallerySheet()
     If ws Is Nothing Then Exit Sub
 
+    On Error GoTo Finish
     Application.ScreenUpdating = False
     DrawGalleryFrame ws
     RenderGalleryCards ws
+    modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
 
     ws.Visible = -1
     ws.Activate
@@ -268,7 +276,11 @@ Public Sub ShowVaultGallery()
     ActiveWindow.DisplayHeadings = False
     ActiveWindow.DisplayWorkbookTabs = False
     On Error GoTo 0
-    Application.ScreenUpdating = True
+
+Finish:
+    On Error Resume Next
+    Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
+    On Error GoTo 0
 End Sub
 
 Public Sub OnVaultSearch()

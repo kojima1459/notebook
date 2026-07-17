@@ -331,8 +331,10 @@ End Function
 
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
-    modStats.Bump "selfsolve_total"
-    modStats.AddExp "thumbup"
+    modStats.Bump "selfsolve_total"   ' 個人統計(取り戻した時間)のみ。自己申告なのでEXPは付けない
+    ' 注意: 自分で自分の回答に✅を押してEXPを稼ぐ不正を防ぐため、ここでは
+    '       「感謝(thumbup)EXP」を加算しない。感謝EXPはPhase 4のP2Pで、他者の
+    '       Excelから感謝状(✅由来)を共有フォルダ経由で受け取った時にのみ加算する。
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     MsgBox "ありがとうございます。解決に役立てて何よりです。", vbInformation, modAppDef.APP_NAME
 End Sub

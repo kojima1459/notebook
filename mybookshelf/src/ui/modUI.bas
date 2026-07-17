@@ -87,6 +87,7 @@ Public Sub InitUI()
     On Error GoTo 0
 
     ApplyTheme ws
+    FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     mChatBottom = CHAT_TOP
 
     Application.ScreenUpdating = True
@@ -226,6 +227,23 @@ End Function
 Public Function UiTheme() As String
     UiTheme = CurrentTheme()
 End Function
+
+' ----------------------------------------------------------------------------
+' FreezeShapePlacement - シート上の全Shapeを「セル非依存の絶対配置」に固定する。
+'   既定のShapeはセル(行高・列幅)に追従して移動/伸縮する(xlMoveAndSize)ため、
+'   実機の列幅差・スクロール・裏の処理負荷でパーツがズレて見える。描画完了後に
+'   本Subを1回呼び、全Shapeを xlFreeFloating(=3)にすることで、Top/Leftの絶対
+'   ピクセル座標のまま1ミリもズレない鉄壁配置にする。各画面(Nexus/Vault/
+'   Dashboard)の描画終端から共通して呼ぶ(実装の単一情報源)。
+' ----------------------------------------------------------------------------
+Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        shp.Placement = 3   ' xlFreeFloating
+    Next shp
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' 内部: 骨格描画
