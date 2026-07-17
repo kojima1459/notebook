@@ -16,6 +16,16 @@ Private Const CELL_TITLE As String = "C6"
 Private Const CELL_BODY As String = "C8"
 Private Const CELL_TAGS As String = "C18"
 
+' ナレッジ倉庫ギャラリー用の宣言(実機VBAは宣言部をモジュール先頭に集約する必要あり)
+Private Const GALLERY_SHEET As String = "Vault"
+Private Const CARDS_PER_PAGE As Long = 9
+Private Const CARD_W As Double = 215
+Private Const CARD_H As Double = 120
+
+Private mGalleryPage As Long
+Private mGalleryNames() As String   ' 現在ページのカード順の資料名(クリック解決用)
+Private mGalleryCount As Long
+
 ' ----------------------------------------------------------------------------
 ' ShowVaultInput - 登録フォームを描画して表示(SPA遷移)
 ' ----------------------------------------------------------------------------
@@ -236,6 +246,424 @@ Fail:
 End Function
 
 ' ----------------------------------------------------------------------------
+' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・3列グリッド・ページング。
+' Shape増殖なし=毎回同数のカードを描き直す)
+' 宣言部(GALLERY_SHEET/CARDS_PER_PAGE/CARD_W/CARD_H/mGallery*)はモジュール先頭に集約済み。
+' ----------------------------------------------------------------------------
+
+' ギャラリーを表示(SPA遷移)。検索語はシートのD3セル(検索バー)から読む。
+Public Sub ShowVaultGallery()
+    Dim ws As Worksheet
+    Set ws = GetOrCreateGallerySheet()
+    If ws Is Nothing Then Exit Sub
+
+    Application.ScreenUpdating = False
+    DrawGalleryFrame ws
+    RenderGalleryCards ws
+
+    ws.Visible = -1
+    ws.Activate
+    On Error Resume Next
+    ActiveWindow.DisplayGridlines = False
+    ActiveWindow.DisplayHeadings = False
+    ActiveWindow.DisplayWorkbookTabs = False
+    On Error GoTo 0
+    Application.ScreenUpdating = True
+End Sub
+
+Public Sub OnVaultSearch()
+    mGalleryPage = 0
+    Dim ws As Worksheet
+    Set ws = GetGallerySheet()
+    If ws Is Nothing Then Exit Sub
+    Application.ScreenUpdating = False
+    RenderGalleryCards ws
+    Application.ScreenUpdating = True
+End Sub
+
+Public Sub OnVaultPrev()
+    If mGalleryPage > 0 Then mGalleryPage = mGalleryPage - 1
+    OnVaultSearchKeepPage
+End Sub
+
+Public Sub OnVaultNext()
+    mGalleryPage = mGalleryPage + 1
+    OnVaultSearchKeepPage
+End Sub
+
+Private Sub OnVaultSearchKeepPage()
+    Dim ws As Worksheet
+    Set ws = GetGallerySheet()
+    If ws Is Nothing Then Exit Sub
+    Application.ScreenUpdating = False
+    RenderGalleryCards ws
+    Application.ScreenUpdating = True
+End Sub
+
+' ツールバー: 既存エンジンへの配線(実装済み機能の入口)
+Public Sub OnVaultExportPack()
+    modPack.ExportPackDialog
+End Sub
+
+Public Sub OnVaultImportPack()
+    modPack.ImportPackDialog
+    OnVaultSearchKeepPage
+End Sub
+
+Public Sub OnVaultPickFolder()
+    modShelfSync.PickShelfFolder
+    OnVaultSearchKeepPage
+End Sub
+
+Public Sub OnVaultSyncNow()
+    modShelfSync.SyncNow
+    OnVaultSearchKeepPage
+End Sub
+
+Public Sub OnVaultAddFiles()
+    modShelf.AddFilesViaDialog
+    OnVaultSearchKeepPage
+End Sub
+
+Public Sub OnVaultBackToChat()
+    On Error Resume Next
+    ThisWorkbook.Worksheets("Nexus").Activate
+    On Error GoTo 0
+End Sub
+
+' カードクリック: 内容の先頭を表示し、削除も選べる
+Public Sub OnVaultCardClick()
+    Dim callerName As String
+    On Error Resume Next
+    callerName = CStr(Application.Caller)
+    On Error GoTo 0
+    If Left$(callerName, 9) <> "nxg_card_" Then Exit Sub
+
+    Dim idx As Long
+    idx = CLng(Val(Mid$(callerName, 10)))
+    If idx < 0 Or idx >= mGalleryCount Then Exit Sub
+
+    Dim srcName As String
+    srcName = mGalleryNames(idx)
+
+    Dim answer As Long
+    answer = MsgBox("『" & srcName & "』" & vbLf & vbLf & _
+                    modUtil.SafeLeft(PreviewOf(srcName), 300) & vbLf & vbLf & _
+                    "このナレッジを削除しますか?(いいえ=閉じる)", _
+                    vbYesNo + vbQuestion + vbDefaultButton2, "Nexus Agent - ナレッジ詳細")
+    If answer = vbYes Then
+        modShelf.DeleteSource srcName
+        OnVaultSearchKeepPage
+    End If
+End Sub
+
+' ---- ギャラリー内部描画 ----
+
+Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
+    RemoveShapesByPrefix ws, "nxg_bar_"
+    ws.Cells.Interior.Color = RGB(249, 250, 251)
+    ws.Cells.Font.Name = "Yu Gothic UI"
+    ws.Columns("A").ColumnWidth = 2
+    ws.Columns("B:H").ColumnWidth = 14
+
+    With ws.Range("B2:F2")
+        .Merge
+        .Value = ChrW(&H1F4DA) & " ナレッジ倉庫 (Vault)"
+        .Font.Size = 15
+        .Font.Bold = True
+    End With
+
+    ' 検索バー(セル)+ボタン群
+    With ws.Range("B4:E4")
+        .Merge
+        .Interior.Color = RGB(255, 255, 255)
+        .Borders.LineStyle = 1
+        .Borders.Color = RGB(229, 231, 235)
+    End With
+    ws.Rows(4).RowHeight = 22
+    With ws.Range("B3")
+        .Value = "キーワード検索(入力して🔍):"
+        .Font.Size = 9
+        .Font.Color = RGB(107, 114, 128)
+    End With
+
+    Dim defs As Variant, handlers As Variant, xs As Variant, wsz As Variant
+    defs = Array(ChrW(&H1F50D) & " 検索", ChrW(&H2795) & " 登録", ChrW(&H1F4C1) & " 追加", _
+                 ChrW(&H1F4E6) & " パック出力", ChrW(&H1F4E5) & " パック取込", _
+                 ChrW(&H1F504) & " 同期", ChrW(&H1F4AC) & " チャットへ")
+    handlers = Array("OnVaultSearch", "ShowVaultInput", "OnVaultAddFiles", _
+                     "OnVaultExportPack", "OnVaultImportPack", "OnVaultSyncNow", "OnVaultBackToChat")
+    xs = Array(390, 460, 528, 596, 692, 788, 850)
+    wsz = Array(64, 62, 62, 90, 90, 56, 84)
+
+    Dim i As Long
+    For i = 0 To 6
+        Dim btn As Shape
+        Set btn = ws.Shapes.AddShape(5, CDbl(xs(i)), 44, CDbl(wsz(i)), 24)
+        btn.Name = "nxg_bar_btn" & i
+        btn.Adjustments(1) = 0.35
+        btn.Line.ForeColor.RGB = RGB(229, 231, 235)
+        If i = 1 Then
+            btn.Fill.ForeColor.RGB = RGB(37, 99, 235)
+        ElseIf i = 6 Then
+            btn.Fill.ForeColor.RGB = RGB(17, 24, 39)
+        Else
+            btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        End If
+        With btn.TextFrame2
+            .TextRange.Text = CStr(defs(i))
+            .TextRange.Font.Size = 8.5
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+            .MarginLeft = 2: .MarginRight = 2
+            If i = 1 Or i = 6 Then
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            Else
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(17, 24, 39)
+            End If
+        End With
+        btn.OnAction = "modVault." & CStr(handlers(i))
+    Next i
+End Sub
+
+' 検索→フィルタ→現在ページのカードだけを描く(カードShapeは毎回作り直すが
+' 最大CARDS_PER_PAGE枚で一定=増殖しない)
+Private Sub RenderGalleryCards(ByVal ws As Worksheet)
+    RemoveShapesByPrefix ws, "nxg_card"
+    RemoveShapesByPrefix ws, "nxg_pg_"
+
+    Dim keyword As String
+    keyword = LCase$(Trim$(CStr(ws.Range("B4").Value)))
+
+    Dim names() As String, stats() As String
+    Dim total As Long
+    total = modShelf.SourceList(names, stats)
+
+    ' フィルタ(名前 or プレビューに部分一致)
+    Dim fNames() As String, fStats() As String
+    Dim fCount As Long: fCount = 0
+    If total > 0 Then
+        ReDim fNames(0 To total - 1)
+        ReDim fStats(0 To total - 1)
+        Dim i As Long
+        For i = 0 To total - 1
+            Dim hay As String
+            hay = LCase$(names(i) & " " & PreviewOf(names(i)))
+            If LenB(keyword) = 0 Or InStr(hay, keyword) > 0 Then
+                fNames(fCount) = names(i)
+                fStats(fCount) = stats(i)
+                fCount = fCount + 1
+            End If
+        Next i
+    End If
+
+    ' ページ境界
+    Dim maxPage As Long
+    If fCount = 0 Then
+        maxPage = 0
+    Else
+        maxPage = (fCount - 1) \ CARDS_PER_PAGE
+    End If
+    If mGalleryPage > maxPage Then mGalleryPage = maxPage
+    If mGalleryPage < 0 Then mGalleryPage = 0
+
+    Dim startIdx As Long: startIdx = mGalleryPage * CARDS_PER_PAGE
+    Dim endIdx As Long: endIdx = startIdx + CARDS_PER_PAGE - 1
+    If endIdx > fCount - 1 Then endIdx = fCount - 1
+
+    mGalleryCount = 0
+    ReDim mGalleryNames(0 To CARDS_PER_PAGE - 1)
+
+    If fCount = 0 Then
+        With ws.Range("B7:G8")
+            .Merge
+            .Value = "ナレッジがありません(または検索に一致しません)。「➕ 登録」または「📁 追加」から始めましょう。"
+            .Font.Size = 10
+            .Font.Color = RGB(107, 114, 128)
+        End With
+    Else
+        On Error Resume Next
+        ws.Range("B7:G8").UnMerge
+        ws.Range("B7:G8").ClearContents
+        On Error GoTo 0
+
+        Dim k As Long
+        For k = startIdx To endIdx
+            Dim slot As Long: slot = k - startIdx
+            Dim col As Long: col = slot Mod 3
+            Dim rowN As Long: rowN = slot \ 3
+            DrawOneCard ws, slot, 30 + col * (CARD_W + 14), 84 + rowN * (CARD_H + 14), _
+                        fNames(k), fStats(k)
+            mGalleryNames(slot) = fNames(k)
+            mGalleryCount = mGalleryCount + 1
+        Next k
+    End If
+
+    ' ページャ
+    Dim pgY As Double: pgY = 84 + 3 * (CARD_H + 14) + 6
+    Dim prevBtn As Shape
+    Set prevBtn = ws.Shapes.AddShape(5, 30, pgY, 70, 22)
+    prevBtn.Name = "nxg_pg_prev"
+    prevBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    prevBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    prevBtn.TextFrame2.TextRange.Text = ChrW(&H25C0) & " 前へ"
+    prevBtn.TextFrame2.TextRange.Font.Size = 8.5
+    prevBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
+    prevBtn.TextFrame2.VerticalAnchor = 3
+    prevBtn.OnAction = "modVault.OnVaultPrev"
+
+    Dim pgInfo As Shape
+    Set pgInfo = ws.Shapes.AddShape(1, 108, pgY, 140, 22)
+    pgInfo.Name = "nxg_pg_info"
+    pgInfo.Fill.Visible = 0
+    pgInfo.Line.Visible = 0
+    pgInfo.TextFrame2.TextRange.Text = (mGalleryPage + 1) & " / " & (maxPage + 1) & " ページ(全" & fCount & "件)"
+    pgInfo.TextFrame2.TextRange.Font.Size = 9
+    pgInfo.TextFrame2.VerticalAnchor = 3
+
+    Dim nextBtn As Shape
+    Set nextBtn = ws.Shapes.AddShape(5, 256, pgY, 70, 22)
+    nextBtn.Name = "nxg_pg_next"
+    nextBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    nextBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    nextBtn.TextFrame2.TextRange.Text = "次へ " & ChrW(&H25B6)
+    nextBtn.TextFrame2.TextRange.Font.Size = 8.5
+    nextBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
+    nextBtn.TextFrame2.VerticalAnchor = 3
+    nextBtn.OnAction = "modVault.OnVaultNext"
+End Sub
+
+' 単一Shape=1カード(タイトル太字+プレビュー+日付を1テキストに結合し、
+' 部分書式で表現。グループ化しない=軽量・増殖なし)
+Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Double, _
+                        ByVal y As Double, ByVal srcName As String, ByVal statLine As String)
+    Dim parts() As String: parts = Split(statLine, "|")
+    Dim addedAt As String
+    If UBound(parts) >= 1 Then addedAt = parts(1)
+    Dim chunkN As String
+    If UBound(parts) >= 2 Then chunkN = parts(2)
+
+    Dim titleText As String: titleText = modUtil.SafeLeft(srcName, 40)
+    Dim previewText As String: previewText = modUtil.SafeLeft(PreviewOf(srcName), 90)
+    Dim footText As String
+    footText = ChrW(&H1F4C5) & " " & ShortStamp(addedAt) & "  ・ " & chunkN & " chunks"
+
+    Dim card As Shape
+    Set card = ws.Shapes.AddShape(5, x, y, CARD_W, CARD_H)
+    card.Name = "nxg_card_" & slot
+    card.Adjustments(1) = 0.08
+    card.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    card.Line.ForeColor.RGB = RGB(229, 231, 235)
+    card.Line.Weight = 0.75
+    card.Shadow.Visible = 0
+
+    Dim body As String
+    body = titleText & vbLf & previewText & vbLf & footText
+
+    With card.TextFrame2
+        .WordWrap = -1
+        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 8: .MarginBottom = 8
+        .TextRange.Text = body
+        .TextRange.Font.Size = 8.5
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
+        .VerticalAnchor = 1
+        ' タイトル行のみ太字・大きめ・本文色(部分書式)
+        With .TextRange.Paragraphs(1).Font
+            .Size = 10
+            .Bold = -1
+            .Fill.ForeColor.RGB = RGB(17, 24, 39)
+        End With
+    End With
+    card.OnAction = "modVault.OnVaultCardClick"
+End Sub
+
+' 資料の先頭チャンク本文(breadcrumb行を除去した150字)をプレビューとして返す。
+Private Function PreviewOf(ByVal srcName As String) As String
+    Static cacheName As String
+    Static cacheText As String
+    If cacheName = srcName And LenB(cacheText) > 0 Then
+        PreviewOf = cacheText
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    Dim lastK As Long
+    lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim r As Long
+    For r = 2 To lastK
+        If StrComp(CStr(ws.Cells(r, 2).Value), srcName, vbTextCompare) = 0 Then
+            Dim txt As String
+            txt = CStr(ws.Cells(r, 7).Value)
+            ' breadcrumb行(【…】)を剥がす
+            If Left$(txt, 1) = "【" Then
+                Dim lfPos As Long: lfPos = InStr(txt, vbLf)
+                If lfPos > 0 Then txt = Mid$(txt, lfPos + 1)
+            End If
+            cacheName = srcName
+            cacheText = modUtil.SafeLeft(Replace(txt, vbLf, " "), 150)
+            PreviewOf = cacheText
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function ShortStamp(ByVal stamp As String) As String
+    If IsDate(stamp) Then
+        Dim d As Date: d = CDate(stamp)
+        ShortStamp = Year(d) & "/" & Month(d) & "/" & Day(d)
+    Else
+        ShortStamp = modUtil.SafeLeft(stamp, 10)
+    End If
+End Function
+
+Private Function GetGallerySheet() As Worksheet
+    On Error Resume Next
+    Set GetGallerySheet = ThisWorkbook.Worksheets(GALLERY_SHEET)
+    On Error GoTo 0
+End Function
+
+Private Function GetOrCreateGallerySheet() As Worksheet
+    Dim ws As Worksheet
+    Set ws = GetGallerySheet()
+    If ws Is Nothing Then
+        On Error GoTo Fail
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
+        ws.Name = GALLERY_SHEET
+        On Error GoTo 0
+    End If
+    Set GetOrCreateGallerySheet = ws
+    Exit Function
+Fail:
+    Set GetOrCreateGallerySheet = Nothing
+End Function
+
+Private Sub RemoveShapesByPrefix(ByVal ws As Worksheet, ByVal prefix As String)
+    Dim names() As String
+    ReDim names(0 To ws.Shapes.count)
+    Dim n As Long: n = 0
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, Len(prefix)) = prefix Then
+            names(n) = shp.Name
+            n = n + 1
+        End If
+    Next shp
+    Dim i As Long
+    For i = 0 To n - 1
+        On Error Resume Next
+        ws.Shapes(names(i)).Delete
+        On Error GoTo 0
+    Next i
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
@@ -254,11 +682,9 @@ End Sub
 
 Private Sub CloseVault(ByVal ws As Worksheet)
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Activate
-    On Error GoTo 0
-    On Error Resume Next
     ws.Visible = 2   ' xlSheetVeryHidden
     On Error GoTo 0
+    ShowVaultGallery
 End Sub
 
 Private Function SanitizeName(ByVal s As String) As String

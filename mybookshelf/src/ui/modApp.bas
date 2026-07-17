@@ -250,7 +250,7 @@ Public Sub OnNavChat()
 End Sub
 
 Public Sub OnNavVault()
-    modVault.ShowVaultInput
+    modVault.ShowVaultGallery
 End Sub
 
 Public Sub OnNavDash()
