@@ -282,9 +282,7 @@ Fail:
     If errNum = 18 Then
         result = "操作を中断しました。もう一度質問するときは、質問するボタンを押してください。"
     Else
-        ' 出所ラベルは公開APIのAnswerで記録する(内部関数名を "modAsk.Xxx" 形式の
-        ' 文字列で書くとlintのモジュール間参照検査が実在Publicと照合して誤検知する
-        ' ため。詳細detailに共通本体である旨を残す)。
+        ' 出所ラベルは公開APIのAnswerで記録(内部関数名を文字列で書くとlintの参照検査が誤検知するため)。
         modLog.LogError "E0602", "modAsk.Answer", "共通本体(AnswerWithContext) mode=" & mdMode & " err=" & errDesc
         result = modLog.FriendlyMessage("E0602") & vbLf & "(コード: E0602)"
     End If
@@ -329,13 +327,29 @@ Public Function LastAnswerText() As String
     LastAnswerText = mLastAnswer
 End Function
 
+' 直近回答で最上位スコアのソース名(P2P感謝状の宛先解決用)。
+Public Function LastTopSource() As String
+    Dim bestI As Long: bestI = -1
+    Dim bestScore As Double: bestScore = -1E+30
+    Dim i As Long
+    For i = 0 To mLastNHits - 1
+        If mLastHits(i).score > bestScore Then
+            bestScore = mLastHits(i).score
+            bestI = i
+        End If
+    Next i
+    If bestI >= 0 Then LastTopSource = mLastHits(bestI).source
+End Function
+
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
-    modStats.Bump "selfsolve_total"   ' 個人統計(取り戻した時間)のみ。自己申告なのでEXPは付けない
-    ' 注意: 自分で自分の回答に✅を押してEXPを稼ぐ不正を防ぐため、ここでは
-    '       「感謝(thumbup)EXP」を加算しない。感謝EXPはPhase 4のP2Pで、他者の
-    '       Excelから感謝状(✅由来)を共有フォルダ経由で受け取った時にのみ加算する。
+    ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
+    modStats.Bump "selfsolve_total"
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
+    On Error Resume Next
+    modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
+    On Error GoTo 0
+
     MsgBox "ありがとうございます。解決に役立てて何よりです。", vbInformation, modAppDef.APP_NAME
 End Sub
 
@@ -552,9 +566,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
     Dim latency As Long
 
-    ' 会話履歴(prevU/prevA)は、追質問の意図解釈を担う下書き段のみに渡す。
-    ' 検証段は「下書きと本棚抜粋の照合」に専念する役割のため渡さない(裁定D11
-    ' の適用判断。過去の会話が検証の判断材料に混ざるのを避ける)。
+    ' 会話履歴(prevU/prevA)は下書き段のみに渡す。検証段は本棚抜粋との照合に専念のため渡さない(裁定D11)。
     Dim draft As String
     draft = modGateway.CallLLM(draftPrompt, "deep_draft", dEff, dVrb, mdl, latency, prevU, prevA)
 

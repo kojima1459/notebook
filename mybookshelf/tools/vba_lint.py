@@ -184,7 +184,7 @@ CONTRACT: dict[str, dict] = {
         # CanFollowup/AskFollowup: 続けて質問=深掘り機能(裁定D11・RIBBON_API_CONFIRMED.md §2b)
         # LastAnswerText: Nexus UI(modApp)が直近回答をバブル表示するためのゲッター。
         "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
-                     "CanFollowup", "AskFollowup", "LastAnswerText"],
+                     "CanFollowup", "AskFollowup", "LastAnswerText", "LastTopSource"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -656,6 +656,31 @@ def check_declaration_position(info: ModuleInfo) -> None:
             )
 
 
+RESERVED_IDENT_PATTERN = re.compile(
+    r"\b(?:Dim|Const|Static|ByVal|ByRef)\s+base\b"
+    r"|[(,]\s*base\s+As\b",
+    re.IGNORECASE,
+)
+
+
+def check_reserved_identifiers(info: ModuleInfo) -> None:
+    """StarBasic予約語(Option Base の 'Base')をVBAの識別子として使うと、
+    LibreOffice構文チェック(LOゲート)がコンパイルダイアログでサイレントに
+    ハングし、「タイムアウト=構文エラーの疑い」としてしか現れず原因特定に
+    多大な時間を要する(2026-07-17 modP2P.ThanksDirで発生・二分探索で特定)。
+    実機Excelでは 'base' は有効な変数名だが、ツールチェーンの沈黙ハングを
+    防ぐため恒久ガードとして識別子 'base' の宣言/仮引数を禁止する
+    (別名 basePath 等にする)。line/name は既存コードで実証上ハングしないため
+    対象外(誤検知回避)。新たにハングする予約語が見つかったらここへ追記する。"""
+    for lineno, stmt in info.statements:
+        if RESERVED_IDENT_PATTERN.search(stmt):
+            info.add(
+                "ERROR", lineno,
+                "StarBasic予約語 'base' を識別子に使用(LO構文チェックが沈黙ハング)。"
+                f"別名(basePath等)にしてください: 「{stmt.strip()[:80]}」",
+            )
+
+
 def module_name_for_display(info: ModuleInfo) -> str:
     return info.vb_name or info.filename_stem
 
@@ -863,6 +888,7 @@ def run_lint(src_root: Path) -> int:
         check_dim_type_drop_and_integer(info)
         check_name_shadowing(info)
         check_declaration_position(info)
+        check_reserved_identifiers(info)
         check_pure_logic_tokens(info)
         check_opt_token_reference(info)
         check_application_run_whitelist(info)

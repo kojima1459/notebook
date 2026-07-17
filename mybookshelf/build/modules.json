@@ -163,6 +163,13 @@
       "wave": "2-E"
     },
     {
+      "name": "modP2P",
+      "path": "src/pack/modP2P.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
       "name": "modStats",
       "path": "src/stats/modStats.bas",
       "role": "core",

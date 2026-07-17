@@ -107,6 +107,12 @@ Public Sub ExportPackDialog()
     If LCase$(modUtil.ExtOf(savePath)) <> "xlsx" Then savePath = savePath & ".xlsx"
 
     Dim authorName As String: authorName = Trim$(modConfig.GetString("pack_author", ""))
+    ' 作者名が未設定なら、P2P感謝状の宛先解決に使えるようログインID(AD/USERNAME)を使う。
+    If LenB(authorName) = 0 Then
+        On Error Resume Next
+        authorName = modP2P.CurrentUserId()
+        On Error GoTo 0
+    End If
     If LenB(authorName) = 0 Then authorName = "不明"
 
     Dim newWb As Workbook

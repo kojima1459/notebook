@@ -370,6 +370,11 @@ Failed:
 
 Finish:
     mSyncRunning = False
+    ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収して感謝EXPを加算する。
+    ' shelf_folder未設定でもここは通る(P2P共有はnexus_share_pathで独立)。
+    On Error Resume Next
+    modP2P.CollectThanks silent
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
