@@ -214,6 +214,20 @@ Public Sub NexusActionStub()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' 公開ゲッター: 他のNexus画面(modDash等)がテーマ一貫の配色/現在テーマを
+' 得るための唯一の窓口。配色定義(ThemeColor)を各画面へ複製せず一元管理する。
+'   key: bg/surface/text/muted/border/primary/accent/userBubble/aiBubble/
+'        sidebar/sidebarText/sidebarActive
+' ----------------------------------------------------------------------------
+Public Function UiColor(ByVal key As String) As Long
+    UiColor = ThemeColor(key)
+End Function
+
+Public Function UiTheme() As String
+    UiTheme = CurrentTheme()
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部: 骨格描画
 ' ----------------------------------------------------------------------------
 
@@ -549,7 +563,13 @@ End Function
 
 Private Function ProfileCaption() As String
     ' Phase 4でimportAD(ADSystemInfo)連携に置換。失敗時はGuest扱い。
-    ProfileCaption = "ゲスト ユーザー" & vbLf & "Lv.1 ・ EXP 0"
+    Dim lv As Long, ex As Long
+    On Error Resume Next
+    lv = modStats.Level()
+    ex = modStats.ExpTotal()
+    On Error GoTo 0
+    If lv < 1 Then lv = 1
+    ProfileCaption = "ゲスト ユーザー" & vbLf & "Lv." & lv & " ・ EXP " & ex
 End Function
 
 ' ----------------------------------------------------------------------------

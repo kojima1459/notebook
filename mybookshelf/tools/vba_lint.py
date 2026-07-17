@@ -80,6 +80,7 @@ CONTRACT: dict[str, dict] = {
             "SH_HOWTO", "SH_HOME", "SH_SHELF", "SH_DASH", "SH_CONFIG",
             "SH_KNOWLEDGE", "SH_VECTORS", "SH_MANIFEST", "SH_STATS",
             "SH_USAGE", "SH_ERRLOG", "SH_UISTATE",
+            "SH_NEXUS_DASH",   # Nexus専用ダッシュボード(Phase 3)のシート名
         ],
     },
     "modTypes": {

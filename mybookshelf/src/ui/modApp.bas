@@ -254,11 +254,7 @@ Public Sub OnNavVault()
 End Sub
 
 Public Sub OnNavDash()
-    ' Phase 3でNexus専用ダッシュボードへ差替え。当面は既存ダッシュボードを表示。
-    On Error Resume Next
-    ThisWorkbook.Worksheets(modAppDef.SH_DASH).Visible = -1   ' xlSheetVisible
-    ThisWorkbook.Worksheets(modAppDef.SH_DASH).Activate
-    On Error GoTo 0
+    modDash.ShowDashboard
 End Sub
 
 Public Sub OnToggleMode()

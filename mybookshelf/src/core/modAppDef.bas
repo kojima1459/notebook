@@ -38,3 +38,4 @@ Public Const SH_STATS As String = "my_stats"
 Public Const SH_USAGE As String = "usage_log"
 Public Const SH_ERRLOG As String = "err_log"
 Public Const SH_UISTATE As String = "ui_state"
+Public Const SH_NEXUS_DASH As String = "Dashboard"   ' Nexus専用ダッシュボード(旧SH_DASHとは別シート)
