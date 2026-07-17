@@ -133,6 +133,7 @@ Public Sub ExportPackDialog()
     On Error GoTo 0
 
     modStats.Bump "pack_export_total"
+    modStats.AddExp "pack_share"
     modLog.LogUsage "pack_export", "", "n=" & n & " scope=" & IIf(LenB(sourceFilter) = 0, "all", sourceFilter)
 
     MsgBox "パックを書き出しました。" & vbLf & _

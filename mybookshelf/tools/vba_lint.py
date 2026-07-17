@@ -200,7 +200,10 @@ CONTRACT: dict[str, dict] = {
     # ---- 7.5 統計層 ----
     "modStats": {
         "closed": True,
-        "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate"],
+        # EXP/レベル(ゲーミフィケーション): AddExp=加点イベント口、ExpTotal/Level/
+        # LevelProgress/ExpFloorForLevel はダッシュボードが読む集計ゲッター。
+        "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
+                     "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

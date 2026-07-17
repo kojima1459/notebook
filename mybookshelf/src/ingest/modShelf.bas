@@ -329,6 +329,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then
         On Error Resume Next
         modStats.Bump "ingest_files_total"
+        modStats.AddExp "register"   ' 登録EXP(自己取込のみ=フォルダ自動同期の大量取込では加算されない)
         On Error GoTo 0
         On Error Resume Next
         modLog.LogUsage "ingest", origin, "source=" & sourceName & " chunks=" & acceptedCount & _

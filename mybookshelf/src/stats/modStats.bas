@@ -113,6 +113,70 @@ Public Function SavedMinutesEstimate() As Long
 End Function
 
 ' ----------------------------------------------------------------------------
+' EXP/レベル(ゲーミフィケーション)
+' ----------------------------------------------------------------------------
+' 設計:
+'   ・EXPは exp_total(単調増加カウンタ)に集約。加点イベントは4種類のみで、
+'     各イベントの発火点(質問成功/取込成功/🟢自己解決/パック出力)で AddExp を
+'     1回だけ呼ぶ。二重加算はそれぞれの発火点の既存ガード(FeedbackAccepted・
+'     IngestFileの戻り値判定等)が防ぐため、ここでは素直に Bump するだけ。
+'   ・加点量とレベル除数は config 可変(既定 5/20/10/30、除数100)。configが
+'     読めない環境でも既定値で動くよう GetLong の第2引数に同じ既定を置く。
+'   ・レベルは Lv = Int(√(EXP / 除数)) + 1(平方根カーブ=最初は上がりやすく
+'     だんだん重くなる、体感の良い成長曲線)。EXP=0→Lv1, 100→Lv2, 400→Lv3…。
+' ----------------------------------------------------------------------------
+Public Sub AddExp(ByVal eventType As String)
+    Dim amt As Long
+    Select Case LCase$(eventType)
+        Case "question":   amt = modConfig.GetLong("exp_question", 5)
+        Case "register":   amt = modConfig.GetLong("exp_register", 20)
+        Case "thumbup":    amt = modConfig.GetLong("exp_thumbup", 10)
+        Case "pack_share": amt = modConfig.GetLong("exp_pack_share", 30)
+        Case Else:         amt = 0
+    End Select
+    If amt <> 0 Then Bump "exp_total", amt
+End Sub
+
+' 累計EXP
+Public Function ExpTotal() As Long
+    ExpTotal = GetStat("exp_total")
+End Function
+
+' 現在のレベル Lv = Int(√(EXP / 除数)) + 1(除数<1はガードして100扱い)
+Public Function Level() As Long
+    Dim divisor As Long: divisor = LevelDivisor()
+    Dim e As Long: e = GetStat("exp_total")
+    If e < 0 Then e = 0
+    Level = Int(Sqr(CDbl(e) / divisor)) + 1
+End Function
+
+' 指定レベルに到達するのに必要な累計EXPの下限 = 除数 * (Lv-1)^2
+'   (Lv計算の逆関数。ダッシュボードの進捗バー算出に使う)
+Public Function ExpFloorForLevel(ByVal lv As Long) As Long
+    If lv < 1 Then lv = 1
+    ExpFloorForLevel = LevelDivisor() * (lv - 1) * (lv - 1)
+End Function
+
+' 現レベル内の進捗(0.0〜1.0)。次レベルまであとどれくらいか、をバーで見せる用。
+Public Function LevelProgress() As Double
+    Dim lv As Long: lv = Level()
+    Dim curFloor As Long: curFloor = ExpFloorForLevel(lv)
+    Dim nextFloor As Long: nextFloor = ExpFloorForLevel(lv + 1)
+    Dim span As Long: span = nextFloor - curFloor
+    If span <= 0 Then Exit Function
+    Dim into As Long: into = GetStat("exp_total") - curFloor
+    If into < 0 Then into = 0
+    LevelProgress = into / span
+    If LevelProgress > 1 Then LevelProgress = 1
+End Function
+
+Private Function LevelDivisor() As Long
+    Dim divisor As Long: divisor = modConfig.GetLong("exp_level_divisor", 100)
+    If divisor < 1 Then divisor = 100
+    LevelDivisor = divisor
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 

@@ -319,6 +319,7 @@ Done:
     If isFollowup Then logDetail = "followup " & logDetail
     modLog.LogUsage "ask", mdMode, logDetail, elapsedMs, nHits
     modStats.Bump "ask_" & mdMode & "_total"
+    modStats.AddExp "question"
 
     AnswerWithContext = result
 End Function
@@ -331,6 +332,7 @@ End Function
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "selfsolve_total"
+    modStats.AddExp "thumbup"
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     MsgBox "ありがとうございます。解決に役立てて何よりです。", vbInformation, modAppDef.APP_NAME
 End Sub
