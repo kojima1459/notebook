@@ -242,6 +242,7 @@ Failed:
         st.Close
         On Error GoTo 0
     End If
+    Set st = Nothing
     ExtractPlainText = False
 End Function
 

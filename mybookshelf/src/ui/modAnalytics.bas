@@ -229,7 +229,21 @@ End Function
 
 ' CsvField - CSVの1フィールドをエスケープする。カンマ/ダブルクォート/CR/LFを
 '   含む場合のみ引用符で囲み、内部のダブルクォートは2個に複製する。
+'   CSVインジェクション対策: Excelで開いた際に先頭文字が「=」「+」「-」「@」/
+'   タブ/CRだと数式や制御文字として解釈され、意図しない計算実行や表示崩れの
+'   リスクになる(いわゆるCSV Injection / Formula Injection)。既存の引用符
+'   エスケープを適用する前に、先頭アポストロフィ「'」を付与して文字列強制する
+'   ことでExcel側に「これは数式ではない」と伝える(数値列の先頭「-」符号にも
+'   付くが、分析ログの用途では実害がないため特別扱いしない)。
 Private Function CsvField(ByVal s As String) As String
+    If Len(s) > 0 Then
+        Dim leadCh As String: leadCh = Left$(s, 1)
+        If leadCh = "=" Or leadCh = "+" Or leadCh = "-" Or leadCh = "@" Or _
+           leadCh = Chr$(9) Or leadCh = Chr$(13) Then
+            s = "'" & s
+        End If
+    End If
+
     If InStr(s, ",") > 0 Or InStr(s, """") > 0 Or InStr(s, vbCr) > 0 Or InStr(s, vbLf) > 0 Then
         CsvField = """" & Replace(s, """", """""") & """"
     Else
@@ -249,11 +263,13 @@ Private Function WriteCsvWithBom(ByVal filePath As String, ByVal content As Stri
     st.WriteText content
     st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
     st.Close
+    Set st = Nothing
     WriteCsvWithBom = True
     Exit Function
 Fail:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
+    Set st = Nothing
     On Error GoTo 0
 End Function
 

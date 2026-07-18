@@ -40,6 +40,7 @@ Public Function CurrentUserId() As String
     Dim adsi As Object
     Set adsi = CreateObject("ADSystemInfo")
     uid = CnFromDn(CStr(adsi.UserName))   ' 例 "CN=山田 太郎,OU=..,DC=.."
+    Set adsi = Nothing                    ' COM解放(正常・異常ともOn Error Resume Next配下)
     On Error GoTo 0
 
     If LenB(uid) = 0 Then uid = Environ$("USERNAME")
@@ -213,34 +214,35 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     On Error GoTo Done
     If LenB(probe) = 0 Then Exit Function   ' 共有到達不能 → 除外状態を保持して撤退
 
-    ' 1) 管理者による解除(clear_*.txt)を先に全部集める
-    Dim clearNames() As String: ReDim clearNames(0 To 63)
-    Dim nClear As Long: nClear = 0
-    Dim fn As String: fn = Dir(folderPath & "clear_*.txt")
+    ' 1) 確定除外フラグ(gexcl_*.txt)を集める。これは閾値到達で確定し、個別投票を
+    '    GC(削除)して1ファイルへ圧縮した「軽量な確定除外フラグ」。中身は
+    '    source\t確定日時\t報告者一覧(監査用)。フラグ有り=確定除外(票の再集計不要)。
+    Dim flagNames() As String: ReDim flagNames(0 To 63)
+    Dim nFlags As Long: nFlags = 0
+    Dim fn As String: fn = Dir(folderPath & "gexcl_*.txt")
     Do While LenB(fn) > 0
-        If nClear > UBound(clearNames) Then ReDim Preserve clearNames(0 To UBound(clearNames) + 64)
-        clearNames(nClear) = fn
-        nClear = nClear + 1
+        If nFlags > UBound(flagNames) Then ReDim Preserve flagNames(0 To UBound(flagNames) + 64)
+        flagNames(nFlags) = fn
+        nFlags = nFlags + 1
         fn = Dir()   ' このループ内で他のDir()を呼ばないこと
     Loop
 
-    Dim cleared As Object: Set cleared = CreateObject("Scripting.Dictionary")
-    cleared.CompareMode = 0   ' vbBinaryCompare(大文字小文字を区別)
-
+    Dim confirmed As Object: Set confirmed = CreateObject("Scripting.Dictionary")
+    confirmed.CompareMode = 0   ' vbBinaryCompare
     Dim i As Long
-    For i = 0 To nClear - 1
-        Dim clearRec As String
-        If ReadUtf8Retry(folderPath & clearNames(i), clearRec) Then
-            Dim cf() As String: cf = Split(clearRec, vbTab)
-            If UBound(cf) >= 1 Then
-                If IsAdminId(cf(0)) Then
-                    If Not cleared.Exists(cf(1)) Then cleared.Add cf(1), True
+    For i = 0 To nFlags - 1
+        Dim frec As String
+        If ReadUtf8Retry(folderPath & flagNames(i), frec) Then
+            Dim ff() As String: ff = Split(frec, vbTab)
+            If UBound(ff) >= 0 Then
+                If LenB(ff(0)) > 0 Then
+                    If Not confirmed.Exists(ff(0)) Then confirmed.Add ff(0), True
                 End If
             End If
         End If
     Next i
 
-    ' 2) ノイズ投票(noise_*.txt)を先に全部集める→ソース毎の異なる報告者数を集計
+    ' 2) 未確定のノイズ投票(noise_*.txt)を集める→ソース毎の異なる報告者数+一覧
     '    (ファイル名がreporter×source単位で一意なため、ファイル数=異なる報告者数)
     Dim voteNames() As String: ReDim voteNames(0 To 63)
     Dim nVotes As Long: nVotes = 0
@@ -252,37 +254,56 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
         fn = Dir()   ' このループ内で他のDir()を呼ばないこと
     Loop
 
-    Dim counts As Object: Set counts = CreateObject("Scripting.Dictionary")
-    counts.CompareMode = 0   ' vbBinaryCompare
-
+    Dim counts As Object: Set counts = CreateObject("Scripting.Dictionary"): counts.CompareMode = 0
+    Dim reporters As Object: Set reporters = CreateObject("Scripting.Dictionary"): reporters.CompareMode = 0
     For i = 0 To nVotes - 1
-        Dim voteRec As String
-        If ReadUtf8Retry(folderPath & voteNames(i), voteRec) Then
-            Dim vf() As String: vf = Split(voteRec, vbTab)
+        Dim vrec As String
+        If ReadUtf8Retry(folderPath & voteNames(i), vrec) Then
+            Dim vf() As String: vf = Split(vrec, vbTab)
             If UBound(vf) >= 1 Then
+                Dim who As String: who = vf(0)
                 Dim src As String: src = vf(1)
                 If counts.Exists(src) Then
                     counts(src) = counts(src) + 1
+                    reporters(src) = CStr(reporters(src)) & "," & who
                 Else
                     counts.Add src, 1
+                    reporters.Add src, who
                 End If
             End If
         End If
     Next i
 
-    ' 3) 適用: いったん全解除してから、閾値以上(かつ未解除)のソースだけ再度フラグを立てる
+    ' 3) 適用: 全解除→(確定フラグ有 または 票数>=閾値)のソースを組織的除外。
+    '    新規確定(フラグ無し&票数>=閾値)はフラグを書いて個別投票をGC(圧縮)。
     modStats.ResetGlobalExcluded
     Dim threshold As Long: threshold = modStats.NoiseThreshold()
-    Dim awarded As Long: awarded = 0
 
+    Dim excluded As Object: Set excluded = CreateObject("Scripting.Dictionary"): excluded.CompareMode = 0
     Dim k As Variant
+    For Each k In confirmed.Keys
+        If Not excluded.Exists(CStr(k)) Then excluded.Add CStr(k), True
+    Next k
     For Each k In counts.Keys
         If CLng(counts(k)) >= threshold Then
-            If Not cleared.Exists(CStr(k)) Then
-                modStats.MarkGlobalExcluded CStr(k)
-                awarded = awarded + 1
-            End If
+            If Not excluded.Exists(CStr(k)) Then excluded.Add CStr(k), True
         End If
+    Next k
+
+    Dim awarded As Long: awarded = 0
+    For Each k In excluded.Keys
+        Dim s As String: s = CStr(k)
+        modStats.MarkGlobalExcluded s
+        awarded = awarded + 1
+        If Not confirmed.Exists(s) Then
+            ' 新規確定: フラグを書いて投票を圧縮(報告者一覧を監査用に保持)
+            Dim repList As String
+            repList = ""
+            If reporters.Exists(s) Then repList = CStr(reporters(s))
+            WriteUtf8Retry folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
+                s & vbTab & modUtil.NowStamp() & vbTab & SanitizeField(repList)
+        End If
+        GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
     Next k
 
     If awarded > 0 And Not silent Then
@@ -293,22 +314,48 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
 Done:
 End Function
 
+' 指定ソースの個別投票(noise_<hash>_*.txt)を共有フォルダから削除(GC)。
+' 列挙中の削除でスキップが起きないよう「集めてから削除」。
+Private Sub GcNoiseVotesForSource(ByVal folderPath As String, ByVal source As String)
+    On Error GoTo Done
+    Dim hash As String: hash = modUtil.Fnv1a64Hex(source)
+    Dim names() As String: ReDim names(0 To 63)
+    Dim n As Long: n = 0
+    Dim fn As String: fn = Dir(folderPath & "noise_" & hash & "_*.txt")
+    Do While LenB(fn) > 0
+        If n > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+        names(n) = fn
+        n = n + 1
+        fn = Dir()
+    Loop
+    Dim i As Long
+    For i = 0 To n - 1
+        KillRetry folderPath & names(i)
+    Next i
+Done:
+End Sub
+
 ' ----------------------------------------------------------------------------
-' ClearNoise - 管理者専用。指定ソースの組織的除外を解除する解除票を書く。
+' ClearNoise - 管理者専用。指定ソースの組織的除外を「復帰」する。確定フラグと
+'   個別投票を共有フォルダから削除するため、全ユーザーの次回同期で除外が解ける。
+'   (個人ミュートは本人の意思として各自ローカルに残る。)
 ' ----------------------------------------------------------------------------
 Public Function ClearNoise(ByVal source As String) As Boolean
     On Error GoTo Done
     If Not IsAdmin() Then Exit Function
+    If LenB(source) = 0 Then Exit Function
 
     Dim folderPath As String: folderPath = NoiseDir()
     If LenB(folderPath) = 0 Then Exit Function
-    EnsureDir folderPath
 
     Dim srcHash As String: srcHash = modUtil.Fnv1a64Hex(source)
-    Dim content As String
-    content = CurrentUserId() & vbTab & SanitizeField(source) & vbTab & modUtil.NowStamp()
+    KillRetry folderPath & "gexcl_" & srcHash & ".txt"   ' 確定フラグを削除
+    GcNoiseVotesForSource folderPath, source              ' 残存する個別投票も削除
 
-    ClearNoise = WriteUtf8Retry(folderPath & "clear_" & srcHash & ".txt", content)
+    On Error Resume Next
+    modLog.LogUsage "noise_cleared", "", "by=" & CurrentUserId() & " src=" & modUtil.SafeLeft(source, 120)
+    On Error GoTo Done
+    ClearNoise = True
 Done:
 End Function
 
@@ -424,11 +471,13 @@ Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String)
     st.WriteText content
     st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
     st.Close
+    Set st = Nothing            ' COM解放(正常パス)
     TryWriteUtf8 = True
     Exit Function
 Fail:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
+    Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
     On Error GoTo 0
 End Function
 
@@ -453,11 +502,13 @@ Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String) 
     st.LoadFromFile filePath
     outText = st.ReadText
     st.Close
+    Set st = Nothing            ' COM解放(正常パス)
     TryReadUtf8 = True
     Exit Function
 Fail:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
+    Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
     On Error GoTo 0
 End Function
 

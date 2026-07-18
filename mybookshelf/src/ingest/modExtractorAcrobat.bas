@@ -32,7 +32,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef errDetail As String) As Boolean
     truncated = False
 
-    Dim app As Object, doc As Object
+    Dim app As Object, doc As Object, pg As Object
 
     On Error GoTo Failed
     Set app = CreateObject("AcroExch.App")
@@ -57,7 +57,6 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Dim tmp() As ExtractedPage: ReDim tmp(0 To loopCount - 1)
     Dim i As Long
     For i = 0 To loopCount - 1
-        Dim pg As Object
         Set pg = doc.AcquirePage(i)
         tmp(i).page = i + 1
         tmp(i).Text = ExtractPageWords(pg)
@@ -86,6 +85,9 @@ CleanupFail:
         app.Exit
         On Error GoTo 0
     End If
+    Set pg = Nothing
+    Set doc = Nothing
+    Set app = Nothing
     Extract = False
     Exit Function
 
@@ -101,6 +103,9 @@ Failed:
         app.Exit
         On Error GoTo 0
     End If
+    Set pg = Nothing
+    Set doc = Nothing
+    Set app = Nothing
     Extract = False
 End Function
 

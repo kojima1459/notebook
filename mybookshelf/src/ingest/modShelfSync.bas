@@ -123,6 +123,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     mSyncRunning = True
     mSyncRunningSince = Now
 
+    ' 自動同期(OnTime)/手動同期中の大量シート書換え中にイベント連鎖が起きない
+    ' よう抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
+    On Error Resume Next
+    Application.EnableEvents = False
+    On Error GoTo 0
+
     ' 2026-07-16 恒久対策: 同期処理のどこで実行時エラーが起きても、必ず
     ' Finish(mSyncRunningの解除)へ合流させる。従来は本体を覆うエラー
     ' ハンドラが無く、フォルダ走査やmanifest突合で例外が出るとmSyncRunning=True
@@ -370,6 +376,9 @@ Failed:
 
 Finish:
     mSyncRunning = False
+    On Error Resume Next
+    Application.EnableEvents = True   ' 抑止したイベントを必ず復帰
+    On Error GoTo 0
     ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収して感謝EXPを加算する。
     ' shelf_folder未設定でもここは通る(P2P共有はnexus_share_pathで独立)。
     On Error Resume Next

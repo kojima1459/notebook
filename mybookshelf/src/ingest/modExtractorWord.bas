@@ -110,6 +110,8 @@ Failed:
         word.Quit 0
         On Error GoTo 0
     End If
+    Set doc = Nothing
+    Set word = Nothing
     TryExtractOnce = False
 End Function
 

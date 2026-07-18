@@ -247,6 +247,8 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
 Fail:
     On Error Resume Next
     modLog.LogError "E0801", "modVault.RegisterKnowledgeText", Err.Description
+    If Not st Is Nothing Then st.Close
+    Set st = Nothing
     On Error GoTo 0
     RegisterKnowledgeText = False
 End Function

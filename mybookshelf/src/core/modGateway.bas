@@ -471,8 +471,15 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
     Dim body As String
     body = "{""input"":[" & Join(bodyParts, ",") & "]}"
 
+    ' タイムアウト(ms)。NW瞬断でもExcelが無限フリーズしないよう明示設定する。
+    Dim toMs As Long: toMs = modConfig.GetLong("azure_http_timeout_ms", 60000)
+    If toMs < 1000 Then toMs = 1000
+
     Dim http As Object
-    Set http = CreateObject("MSXML2.XMLHTTP")
+    ' MSXML2.XMLHTTPはタイムアウトAPIを持たず瞬断で無限待ちになるため、
+    ' setTimeoutsを持つ ServerXMLHTTP.6.0 を使う(resolve/connect/send/receive)。
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    http.setTimeouts 5000, 10000, toMs, toMs
     http.Open "POST", apiUrl, False
     http.SetRequestHeader "Content-Type", "application/json"
     http.SetRequestHeader "api-key", apiKey
@@ -482,7 +489,7 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
         modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
             "HTTP " & http.Status & ": " & modUtil.SafeLeft(CStr(http.responseText), 200) & "(ribbonへフォールバック)"
         DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
-        Exit Function
+        GoTo Cleanup
     End If
 
     ' レスポンスから "embedding":[...] を出現順に抽出(dataは入力順)
@@ -507,10 +514,16 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
         modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
             "応答のembedding抽出0件(ribbonへフォールバック): " & modUtil.SafeLeft(resp, 200)
         DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
-        Exit Function
+        GoTo Cleanup
     End If
 
     DirectEmbedSlice = okCount
+
+Cleanup:
+    ' COM解放(正常・異常問わず必ず通る)。メモリリーク防止。
+    On Error Resume Next
+    Set http = Nothing
+    On Error GoTo 0
     Exit Function
 
 HttpFail:
@@ -519,6 +532,9 @@ HttpFail:
     Err.Clear
     On Error GoTo 0
     DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
+    On Error Resume Next
+    Set http = Nothing
+    On Error GoTo 0
 End Function
 
 ' レスポンス文字列のsearchPos以降から次の "embedding":[数値,...] を探し、

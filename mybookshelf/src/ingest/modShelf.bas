@@ -5,12 +5,8 @@ Option Explicit
 ' modShelf - 本棚中核(ファイル取込・チャンク付番・重複排除・削除・一覧)
 '
 ' 抽出→チャンク化→chunk_id付番(ハッシュ重複排除)→my_knowledge追記→
-' manifest upsert→埋め込み(MASTER_SPEC §7.2の手順)。
-' ・再入guard(E0503)=mIngesting。出口はFinishラベルに一本化
-' ・同名sourceは置換(ファイル名の大文字小文字無視一致)
-' ・ハッシュ重複排除はmy_knowledge全体をDictionaryでO(1)判定
-' ・シート書込みは配列一括(§12)。manifest記録はorigin="self"のみ(§4)
-' ・Office名前付き定数は使わずリテラル+注記(LO互換・V2以来の慣習)
+' manifest upsert→埋め込み(MASTER_SPEC §7.2)。再入guard(E0503)=mIngesting、
+' 出口はFinish一本化。同名source置換・シート書込は配列一括(§12)・manifestはself(§4)。
 ' ========================================
 
 Private Const COL_ID As Long = 1
@@ -529,6 +525,14 @@ Private Function EnsureKnowledgeSheet() As Worksheet
         ws.Visible = 2   ' xlSheetVeryHidden
         On Error GoTo 0
     End If
+    ' 数式インジェクション防御(毎回・冪等): 配布テンプレートの既存my_knowledgeでも
+    ' 効くよう If の外で適用。非信頼テキスト列を"@"書式へ固定し先頭=等の格納型数式化を防ぐ。
+    On Error Resume Next
+    ws.Columns(COL_SOURCE).NumberFormat = "@"
+    ws.Columns(COL_SUMMARY).NumberFormat = "@"
+    ws.Columns(COL_KEYWORDS).NumberFormat = "@"
+    ws.Columns(COL_FULLTEXT).NumberFormat = "@"
+    On Error GoTo 0
     Set EnsureKnowledgeSheet = ws
     Exit Function
 Fail:
@@ -762,8 +766,7 @@ Private Function FindManifestRowByPath(ByVal wsM As Worksheet, ByVal filePath As
     Next i
 End Function
 
-' src(1 To n以上, 1 To 9)の先頭n行だけを(1 To n, 1 To 9)へ詰め直す
-' (Range書込みは配列の次元とサイズが対象範囲と一致していないといけないため)。
+' src(1 To n以上, 1 To 9)の先頭n行だけを(1 To n, 1 To 9)へ詰め直す(Range書込みは配列サイズ一致が必須)。
 Private Function CompactRows(ByRef src As Variant, ByVal n As Long) As Variant
     CompactRows = SliceRows(src, 1, n)
 End Function

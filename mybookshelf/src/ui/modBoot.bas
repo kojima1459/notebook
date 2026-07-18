@@ -80,6 +80,13 @@ Public Sub Boot()
     Dim bootStage As String
     On Error GoTo Failed
 
+    ' 起動中の大量のシート書換え・Activate/Select中に(将来追加・注入され得る)
+    ' イベントの連鎖発火で無限ループに陥らないよう、イベントを抑止する。
+    ' 正常終了・異常終了いずれのパスでも必ずTrueへ戻す(死の連鎖防止)。
+    On Error Resume Next
+    Application.EnableEvents = False
+    On Error GoTo Failed
+
     ' 1) config確認
     bootStage = "設定の読み込み(config)"
     modConfig.EnsureLoaded
@@ -207,6 +214,9 @@ Public Sub Boot()
     End If
 
     gBootDone = True
+    On Error Resume Next
+    Application.EnableEvents = True   ' 起動中に抑止したイベントを復帰
+    On Error GoTo 0
     Exit Sub
 
 Failed:
@@ -218,6 +228,7 @@ Failed:
     failNum = Err.Number
     On Error Resume Next
     Application.ScreenUpdating = True
+    Application.EnableEvents = True   ' イベント抑止も必ず復帰(死の連鎖防止)
     On Error GoTo 0
     modLog.LogError "E0801", "modBoot.Boot", _
         "stage=" & bootStage & " err#" & failNum & ": " & failDesc

@@ -135,6 +135,7 @@ def build_config_rows(mock_llm: bool):
         ("vector_precision", "d6", "ベクトル保存精度: full=フル精度 / d6=小数6桁丸め(Plan B推奨。サイズ約-42%)"),
         ("embed_transport", "direct", "埋め込みの通信経路: ribbon=AIリボン単発 / direct=Azure APIへバッチ直接送信(裁定②)"),
         ("embed_batch_size", 128, "direct時に1リクエストへまとめるチャンク数"),
+        ("azure_http_timeout_ms", 60000, "direct埋め込みのHTTPタイムアウト(ms)。NW瞬断時の無限フリーズ防止。resolve/connectは内部で短めに固定"),
         ("azure_embed_url", "https://hd-us-e2-openai.openai.azure.com/openai/deployments/text-embedding-3-small-g/embeddings?api-version=2024-10-21", "direct時の埋め込みエンドポイント(URL全体)"),
         ("azure_embed_key", "1d545a26153a4f2c990a543031d77b96", "direct時のAPIキー(注意: ブック配布=キー配布になる)"),
         ("chunk_mode", "structure", "チャンク化方式: legacy=700字機械分割 / structure=見出し・条文の構造認識(推奨)"),
