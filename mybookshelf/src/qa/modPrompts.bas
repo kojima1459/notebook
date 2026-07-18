@@ -57,8 +57,8 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     ctx = BuildSourceBlock(hits, nHits, maxChars)
 
     Dim sb As String
-    sb = "あなたは社内の資料検索AIアシスタントです。「すぐ聞く」モードとして、" & _
-         "以下の本棚抜粋だけを根拠に、質問へ" & lang & "で簡潔に回答してください。" & vbLf
+    sb = "以下の本棚抜粋だけを根拠に、質問へ" & lang & "で回答してください(「すぐ聞く」モード=速さと簡潔さ優先)。" & vbLf
+    sb = sb & StyleInstruction() & vbLf
     sb = sb & CitationInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
@@ -108,9 +108,9 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
     ctx = BuildSourceBlock(hits, nHits, maxChars)
 
     Dim sb As String
-    sb = "あなたは社内の資料検索AIアシスタントの検証担当です。下書き回答を本棚抜粋と照合し、" & _
-         lang & "で最終回答を作成してください。本棚抜粋で裏付けられない断定や事実と異なる記載は、" & _
-         "修正するか削除してください。" & vbLf
+    sb = "下書き回答を本棚抜粋と照合し、" & lang & "で最終回答を作成してください。" & _
+         "本棚抜粋で裏付けられない断定や事実と異なる記載は、修正するか削除してください。" & vbLf
+    sb = sb & StyleInstruction() & vbLf
     sb = sb & CitationInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
@@ -240,10 +240,30 @@ Private Function SafeMaxContextChars() As Long
     SafeMaxContextChars = v
 End Function
 
+' NotebookLM級の出力品質指示(利用者に表示されるQuick/DeepVerifyのみに注入)。
+' 重要: この画面(Excel Shape)はMarkdownを描画しないため、## や ** は禁止し、
+' プレーンテキストで視覚構造を作る記法(■/・/【】)を強制する。
+Private Function StyleInstruction() As String
+    StyleInstruction = _
+        "【あなたの人格】あなたはMS&ADの最上位ナレッジコンシェルジュです。" & _
+        "プロフェッショナルで、簡潔で、温かい。機械的な言い回しはしない。" & vbLf & _
+        "【意図の深読み】質問の言葉面だけでなく「質問者が実務で何に困っているか」を一歩深く" & _
+        "解釈し、その課題に効く回答をする(解釈がぶれる場合は最有力の解釈で答え、末尾に別解釈を1行)。" & vbLf & _
+        "【結論先行】必ず最初の1〜2行で結論を言い切る。前置き・挨拶・言い訳から始めない。" & vbLf & _
+        "【構成】結論 → 根拠や詳細(箇条書き) → 注意点・例外(あれば) の順。" & vbLf & _
+        "【記法・厳守】Markdown記号(#、**、`、表)は一切使わない(この画面では装飾されず崩れて見える)。" & _
+        "代わりに: 見出しは「■ 」で始める / 箇条書きは「・」 / 最重要語だけ【 】で囲む / " & _
+        "ブロックの間は空行1つ。1ブロックは3行以内。" & vbLf & _
+        "【長さ】全体をおおむね200〜400字(複雑な質問でも600字まで)。同じ内容の言い換え、" & _
+        "冗長な前置き、締めの挨拶は書かない。短くても情報が濃いことが最高の親切。" & vbLf & _
+        "【平易さ】保険・社内用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。"
+End Function
+
 Private Function CitationInstruction() As String
-    CitationInstruction = "回答の根拠として使った箇所には、必ず出典を付けてください。" & vbLf & _
+    CitationInstruction = "回答の根拠として使った情報には、その文の直後に必ず出典を付けてください。" & vbLf & _
         "本棚に自分で入れた資料は [本棚:ファイル名 p.ページ番号] の形式、" & vbLf & _
-        "他の人から受け取ったパック由来の資料は [パック(作成者名):ファイル名] の形式で示してください。"
+        "他の人から受け取ったパック由来の資料は [パック(作成者名):ファイル名] の形式で示してください。" & vbLf & _
+        "出典は情報と1対1で紐づけ、まとめて末尾に並べるだけの書き方はしないでください。"
 End Function
 
 Private Function NotFoundInstruction() As String
