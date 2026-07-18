@@ -321,13 +321,19 @@ def _make_config(wb, mock_llm: bool):
     return ws
 
 
-def _make_headers_only(wb, name, headers, state, widths=None):
+def _make_headers_only(wb, name, headers, state, widths=None, text_cols=None):
     ws = wb.create_sheet(name)
     for c, h in enumerate(headers, 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
     if widths:
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
+    # 数式インジェクション防御: 非信頼テキスト列(取込文書/ファイル名/入力由来)を
+    # Excelのテキスト書式("@")へ固定し、先頭 =/+/-/@ が格納型数式として評価される
+    # のを配布テンプレート段階で封じる(実行時のEnsureKnowledgeSheetガードと二重化)。
+    if text_cols:
+        for i in text_cols:
+            ws.column_dimensions[get_column_letter(i)].number_format = "@"
     ws.sheet_state = state
     return ws
 
@@ -704,20 +710,24 @@ def main():
     _make_headers_only(wb, "my_knowledge",
                         ["chunk_id", "source", "origin", "page", "summary",
                          "keywords", "full_text", "added_at", "embedded"],
-                        "veryHidden", widths=[32, 24, 14, 6, 50, 40, 80, 20, 10])
+                        "veryHidden", widths=[32, 24, 14, 6, 50, 40, 80, 20, 10],
+                        text_cols=[2, 5, 6, 7])   # source/summary/keywords/full_text
     _make_headers_only(wb, "my_vectors", ["chunk_id", "vector_csv"], "veryHidden",
                         widths=[32, 100])
     _make_headers_only(wb, "my_manifest",
                         ["file_path", "file_name", "modified_at", "size", "chunk_count",
                          "status", "error_note", "ingested_at", "origin"],
-                        "hidden", widths=[60, 30, 20, 12, 12, 12, 40, 20, 16])
+                        "hidden", widths=[60, 30, 20, 12, 12, 12, 40, 20, 16],
+                        text_cols=[1, 2, 7])   # file_path/file_name/error_note
     _make_headers_only(wb, "my_stats", ["key", "value", "updated_at"], "hidden",
                         widths=[24, 14, 20])
     _make_headers_only(wb, "usage_log",
                         ["timestamp", "event", "mode", "detail", "latency_ms", "hit_count"],
-                        "hidden", widths=[20, 16, 10, 50, 12, 10])
+                        "hidden", widths=[20, 16, 10, 50, 12, 10],
+                        text_cols=[4])   # detail(質問文等の非信頼テキスト)
     _make_headers_only(wb, "err_log", ["timestamp", "code", "context", "detail", "version"],
-                        "hidden", widths=[20, 10, 24, 60, 12])
+                        "hidden", widths=[20, 10, 24, 60, 12],
+                        text_cols=[3, 4])   # context/detail
     _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
 
     try:
