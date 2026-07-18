@@ -580,30 +580,51 @@ Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Do
     Dim footText As String
     footText = ChrW(&H1F4C5) & " " & ShortStamp(addedAt) & "  ・ " & chunkN & " chunks"
 
+    Dim isExcluded As Boolean
+    On Error Resume Next
+    isExcluded = modStats.IsGloballyExcluded(srcName)
+    On Error GoTo 0
+
     Dim card As Shape
     Set card = ws.Shapes.AddShape(5, x, y, CARD_W, CARD_H)
     card.Name = "nxg_card_" & slot
     card.Adjustments(1) = 0.08
-    card.Fill.ForeColor.RGB = RGB(255, 255, 255)
-    card.Line.ForeColor.RGB = RGB(229, 231, 235)
     card.Line.Weight = 0.75
     card.Shadow.Visible = 0
 
     Dim body As String
-    body = titleText & vbLf & previewText & vbLf & footText
+    If isExcluded Then
+        ' 組織的除外中: グレーアウト+警告行を追加(カードのサイズ/位置は変えない)
+        card.Fill.ForeColor.RGB = modUI.UiColor("bg")
+        card.Line.ForeColor.RGB = modUI.UiColor("border")
+        body = titleText & vbLf & previewText & vbLf & footText & vbLf & _
+               ChrW(&H26A0) & " 組織的除外(調査中)"
+    Else
+        card.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        card.Line.ForeColor.RGB = RGB(229, 231, 235)
+        body = titleText & vbLf & previewText & vbLf & footText
+    End If
 
     With card.TextFrame2
         .WordWrap = -1
         .MarginLeft = 10: .MarginRight = 10: .MarginTop = 8: .MarginBottom = 8
         .TextRange.Text = body
         .TextRange.Font.Size = 8.5
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
+        If isExcluded Then
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        Else
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
+        End If
         .VerticalAnchor = 1
-        ' タイトル行のみ太字・大きめ・本文色(部分書式)
+        ' タイトル行のみ太字・大きめ(除外時は色もmutedに統一してグレーアウト表現)
         With .TextRange.Paragraphs(1).Font
             .Size = 10
             .Bold = -1
-            .Fill.ForeColor.RGB = RGB(17, 24, 39)
+            If isExcluded Then
+                .Fill.ForeColor.RGB = modUI.UiColor("muted")
+            Else
+                .Fill.ForeColor.RGB = RGB(17, 24, 39)
+            End If
         End With
     End With
     card.OnAction = "modVault.OnVaultCardClick"

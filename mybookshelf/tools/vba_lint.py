@@ -206,7 +206,8 @@ CONTRACT: dict[str, dict] = {
         "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
                      "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
                      "ReportNoise", "NoiseThreshold", "ExcludedSources",
-                     "MarkGlobalExcluded", "ResetGlobalExcluded"],
+                     "MarkGlobalExcluded", "ResetGlobalExcluded",
+                     "IsGloballyExcluded", "GlobalExcludedSources"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

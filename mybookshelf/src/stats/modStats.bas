@@ -251,6 +251,33 @@ Public Sub ResetGlobalExcluded()
     Next i
 End Sub
 
+' IsGloballyExcluded - 資料が組織的除外(gexcl)状態か(個人ミュートは含まない)。
+'   Vaultギャラリーの「⚠️組織的除外(調査中)」バッジ表示に使う。
+Public Function IsGloballyExcluded(ByVal source As String) As Boolean
+    If LenB(source) = 0 Then Exit Function
+    IsGloballyExcluded = (GetStat("gexcl:" & source) >= 1)
+End Function
+
+' GlobalExcludedSources - 組織的除外(gexcl>=1)の資料集合(source→True)。管理UI用。
+Public Function GlobalExcludedSources() As Object
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    On Error GoTo Done
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_STATS)
+    If ws Is Nothing Then GoTo Done
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then GoTo Done
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        Dim rawKey As String: rawKey = CStr(arr(i, 1))
+        If LCase$(Left$(rawKey, 6)) = "gexcl:" Then
+            If SafeCLng(arr(i, 2)) >= 1 Then d(Mid$(rawKey, 7)) = True
+        End If
+    Next i
+Done:
+    Set GlobalExcludedSources = d
+End Function
+
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------

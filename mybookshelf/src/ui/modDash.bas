@@ -57,6 +57,12 @@ Private Const BTN_EXPORT_X As Double = BTN_CHAT_X - BTN_GAP - BTN_EXPORT_W
 
 Private Const MINUTES_PER_SELFSOLVE As Long = 15   ' modStatsの換算値と同じ(先方はPrivateのため複製)
 
+Private Const ADMIN_ROW_H As Double = 26
+Private Const ADMIN_MAX_ROWS As Long = 12
+
+Private mAdminExclNames() As String
+Private mAdminExclCount As Long
+
 ' ----------------------------------------------------------------------------
 ' ShowDashboard - シートを取得/生成し、描画してSPA遷移する(公開エントリ)
 ' ----------------------------------------------------------------------------
@@ -117,6 +123,41 @@ Fail:
 End Sub
 
 ' ----------------------------------------------------------------------------
+' OnDashRestore - 管理者用「復帰」ボタンのハンドラ(組織的除外を解除する)
+' ----------------------------------------------------------------------------
+Public Sub OnDashRestore()
+    Dim callerName As String
+    On Error Resume Next
+    callerName = CStr(Application.Caller)
+    On Error GoTo 0
+    If Left$(callerName, Len("nxd_adm_btn_")) <> "nxd_adm_btn_" Then Exit Sub
+
+    Dim idx As Long
+    idx = CLng(Val(Mid$(callerName, Len("nxd_adm_btn_") + 1)))
+    If idx < 0 Or idx >= mAdminExclCount Then Exit Sub
+
+    Dim src As String
+    src = mAdminExclNames(idx)
+
+    Dim answer As Long
+    answer = MsgBox("『" & src & "』の組織的除外を解除しますか?(全ユーザーの検索に復帰します)", _
+                     vbYesNo + vbQuestion, modAppDef.APP_NAME)
+    If answer <> vbYes Then Exit Sub
+
+    If modP2P.ClearNoise(src) Then
+        On Error Resume Next
+        modP2P.CollectNoiseVotes True   ' ローカルの除外状態を今すぐ再計算(一覧から消す)
+        On Error GoTo 0
+        MsgBox "『" & src & "』を復帰しました。次回以降の同期で全ユーザーに反映されます。", _
+               vbInformation, modAppDef.APP_NAME
+        OnDashRefresh
+    Else
+        MsgBox "解除に失敗しました(管理者権限または共有フォルダをご確認ください)。", _
+               vbExclamation, modAppDef.APP_NAME
+    End If
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 内部: 画面全体の描画(冪等・毎回全再構築)
 ' ----------------------------------------------------------------------------
 Private Sub DrawDashboard(ByVal ws As Worksheet)
@@ -131,6 +172,7 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     DrawExpBar ws
     DrawBadgeShelf ws
     DrawChartPlaceholder ws
+    DrawAdminSection ws
     modUI.FreezeShapePlacement ws   ' 全Shape(クラスタ円含む)を絶対配置に固定
 End Sub
 
@@ -468,6 +510,102 @@ Private Sub DrawChartPlaceholder(ByVal ws As Worksheet)
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         .VerticalAnchor = 3
     End With
+End Sub
+
+' ---- 管理者専用: 組織的除外の管理セクション(非管理者には何も描かない) ----
+
+Private Sub DrawAdminSection(ByVal ws As Worksheet)
+    If Not modP2P.IsAdmin() Then Exit Sub
+
+    Dim topY As Double: topY = CHART_NOTE_Y + 270   ' クラスタ地図(~250pt)の下に確保
+
+    Dim headShp As Shape
+    Set headShp = ws.Shapes.AddShape(1, KPI_X0, topY, ROW_WIDTH, 20)
+    headShp.Name = "nxd_adm_head"
+    headShp.Line.Visible = 0
+    headShp.Fill.Visible = 0
+    With headShp.TextFrame2
+        .TextRange.Text = ChrW(&H26A0) & " 組織的除外の管理(管理者)"
+        .TextRange.Font.Size = 12
+        .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+        .VerticalAnchor = 3
+    End With
+
+    Dim ex As Object
+    On Error Resume Next
+    Set ex = modStats.GlobalExcludedSources()
+    On Error GoTo 0
+    If ex Is Nothing Then Exit Sub
+
+    Dim exCount As Long: exCount = ex.Count
+    If exCount > 0 Then
+        ReDim mAdminExclNames(0 To exCount - 1)
+    Else
+        ReDim mAdminExclNames(0 To 0)
+    End If
+    mAdminExclCount = 0
+
+    Dim k As Variant
+    For Each k In ex.Keys
+        mAdminExclNames(mAdminExclCount) = CStr(k)
+        mAdminExclCount = mAdminExclCount + 1
+    Next k
+
+    If mAdminExclCount = 0 Then
+        Dim emptyShp As Shape
+        Set emptyShp = ws.Shapes.AddShape(1, KPI_X0, topY + 28, ROW_WIDTH, 20)
+        emptyShp.Name = "nxd_adm_empty"
+        emptyShp.Line.Visible = 0
+        emptyShp.Fill.Visible = 0
+        With emptyShp.TextFrame2
+            .TextRange.Text = "現在、組織的に除外されているナレッジはありません。"
+            .TextRange.Font.Size = 9
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+            .VerticalAnchor = 3
+        End With
+        Exit Sub
+    End If
+
+    Dim shownRows As Long: shownRows = mAdminExclCount
+    If shownRows > ADMIN_MAX_ROWS Then shownRows = ADMIN_MAX_ROWS
+
+    Dim i As Long
+    For i = 0 To shownRows - 1
+        Dim rowY As Double: rowY = topY + 28 + i * ADMIN_ROW_H
+
+        Dim lbl As Shape
+        Set lbl = ws.Shapes.AddShape(1, KPI_X0, rowY, ROW_WIDTH - 100, ADMIN_ROW_H - 4)
+        lbl.Name = "nxd_adm_lbl_" & i
+        lbl.Line.Visible = 0
+        lbl.Fill.Visible = 0
+        With lbl.TextFrame2
+            .WordWrap = -1
+            .MarginLeft = 8: .MarginRight = 8
+            .TextRange.Text = modUtil.SafeLeft(mAdminExclNames(i), 60)
+            .TextRange.Font.Size = 9
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+            .VerticalAnchor = 3
+        End With
+
+        Dim btn As Shape
+        Set btn = ws.Shapes.AddShape(5, KPI_X0 + ROW_WIDTH - 80, rowY, 72, 22)
+        btn.Name = "nxd_adm_btn_" & i
+        btn.Adjustments(1) = 0.3
+        btn.Line.Visible = 0
+        btn.Shadow.Visible = 0
+        btn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+        With btn.TextFrame2
+            .WordWrap = -1
+            .MarginLeft = 8: .MarginRight = 8
+            .TextRange.Text = ChrW(&H21A9) & " 復帰"
+            .TextRange.Font.Size = 8.5
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+        End With
+        btn.OnAction = "modDash.OnDashRestore"
+    Next i
 End Sub
 
 ' ----------------------------------------------------------------------------
