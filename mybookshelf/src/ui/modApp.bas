@@ -40,6 +40,7 @@ Public Sub OnSend()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
     modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
+    modMentor.ClearMentor   ' Mentorボタンも同時に掃除(内部On Error Resume Next=安全弁)
 
     Dim q As String
     q = ReadInputCell()
@@ -75,7 +76,10 @@ Public Sub OnSend()
 
     ' Peek View: RAG(社内ナレッジ検索)回答のときだけ、出典チップを回答直下に描画する
     ' (一般アシスタントは出典が無いので出さない=古いチップの誤表示も防ぐ)。
-    If CurrentMode() <> "normal" Then modPeek.RenderCitations bubbleName
+    If CurrentMode() <> "normal" Then
+        modPeek.RenderCitations bubbleName
+        modMentor.OfferMentor bubbleName   ' Mentor: 専門家ボタン(失敗しても出ないだけ=安全弁内蔵)
+    End If
 
     ' 爆速証明(狂気案Lv.1): binary_rag_debug=TRUEのとき、直近ハイブリッド検索の所要msを
     ' Toastで見せる(qa層のperfログをUI層で取り出す=R1レイヤリングを守る)。
@@ -185,6 +189,7 @@ Public Sub OnActDrill()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
     modPeek.HideCitations   ' 前回の出典チップ/ポップアップを消す
+    modMentor.ClearMentor   ' Mentorボタンも掃除(安全弁内蔵)
 
     Dim q As String
     q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
@@ -210,6 +215,7 @@ Public Sub OnActDrill()
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
     modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
+    modMentor.OfferMentor bubbleName     ' Mentor: 専門家ボタン(安全弁内蔵)
     modUiLock.Leave
     Exit Sub
 
