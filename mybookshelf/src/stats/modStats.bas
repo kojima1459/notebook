@@ -179,27 +179,32 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ナレッジの自浄作用(ノイズ報告→論理除外)
 ' ----------------------------------------------------------------------------
-' 質の低いナレッジ(バッジ目当ての虚偽報告・P2Pスパム)を、利用者の「⚠️ノイズ
-' 報告」で希釈する。報告数は my_stats の "noise:<資料名>" に集約(専用シートを
-' 増やさず既存カウンタ機構を再利用)。閾値(config: noise_report_threshold、既定2)
-' 以上になった資料は modRetrieve が検索対象から論理除外する(物理削除はしない=
-' 誤報告からの復帰余地を残す)。
+' 質の低いナレッジ(バッジ目当ての虚偽報告・P2Pスパム)を利用者の「⚠️ノイズ
+' 報告」で希釈する。除外は2層:
+'   ・個人ミュート: 本人の報告を my_stats "noise:<資料名>" に記録。1票で即座に
+'     「自分の検索からのみ」除外(体感UX。他人には影響しない)。
+'   ・組織的除外(P2P): 共有フォルダの投票を modP2P が集計し、異なる報告者が
+'     NoiseThreshold(config noise_global_threshold)以上の資料を
+'     my_stats "gexcl:<資料名>" に立てて全ユーザーの検索から除外。管理者は解除可。
+' いずれも物理削除しない(誤報告・悪意報告からの復帰余地を残す=管理者統制の対象)。
+' modRetrieve は ExcludedSources(両者の和)を検索ループ前に1回取得して高速判定する。
 
-' ReportNoise - 資料に1票のノイズ報告を投じ、報告後の累計票数を返す。
+' ReportNoise - 本人のノイズ報告を1票記録し(個人ミュート)、累計票数を返す。
+'   組織的除外の投票(共有フォルダ書込み)はUI側が modP2P.EmitNoiseVote で別途行う。
 Public Function ReportNoise(ByVal source As String) As Long
     If LenB(source) = 0 Then Exit Function
     Bump "noise:" & source
     ReportNoise = GetStat("noise:" & source)
 End Function
 
-' NoiseThreshold - 論理除外に必要な報告票数(config可変・下限1)。
+' NoiseThreshold - 組織的除外に必要な「異なる報告者数」の閾値(config可変・下限1)。
 Public Function NoiseThreshold() As Long
-    Dim t As Long: t = modConfig.GetLong("noise_report_threshold", 2)
+    Dim t As Long: t = modConfig.GetLong("noise_global_threshold", 2)
     If t < 1 Then t = 1
     NoiseThreshold = t
 End Function
 
-' ExcludedSources - ノイズ票が閾値以上の資料集合(source→True の辞書)。
+' ExcludedSources - 検索から除外する資料集合(個人ミュート ∪ 組織的除外)。
 '   modRetrieve が検索ループ前に1回だけ取得して各チャンクを高速に除外判定する。
 Public Function ExcludedSources() As Object
     Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
@@ -207,21 +212,44 @@ Public Function ExcludedSources() As Object
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_STATS)
     If ws Is Nothing Then GoTo Done
 
-    Dim threshold As Long: threshold = NoiseThreshold()
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastR < 2 Then GoTo Done
 
     Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
     Dim i As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
-        Dim statKey As String: statKey = CStr(arr(i, 1))
-        If LCase$(Left$(statKey, 6)) = "noise:" Then
-            If SafeCLng(arr(i, 2)) >= threshold Then d(Mid$(statKey, 7)) = True
+        Dim rawKey As String: rawKey = CStr(arr(i, 1))
+        Dim lk As String: lk = LCase$(rawKey)
+        ' noise:=本人が報告(個人ミュート・即時) / gexcl:=組織的除外(P2P集計結果)。
+        ' どちらも1票以上で検索対象から除外(除外集合は両者の和)。
+        If Left$(lk, 6) = "noise:" Or Left$(lk, 6) = "gexcl:" Then
+            If SafeCLng(arr(i, 2)) >= 1 Then d(Mid$(rawKey, 7)) = True
         End If
     Next i
 Done:
     Set ExcludedSources = d
 End Function
+
+' MarkGlobalExcluded - 資料を組織的除外(gexcl)に設定(P2P集計から呼ばれる)。
+Public Sub MarkGlobalExcluded(ByVal source As String)
+    If LenB(source) = 0 Then Exit Sub
+    SetStatValue "gexcl:" & source, 1
+End Sub
+
+' ResetGlobalExcluded - 全ての gexcl フラグを0へ(P2P集計の再計算前に呼ぶ)。
+'   物理削除せず0詰めにする(次の集計で再度1が立つ資料はMarkGlobalExcludedで復活)。
+Public Sub ResetGlobalExcluded()
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then Exit Sub
+    Dim i As Long
+    For i = 2 To lastR
+        If LCase$(Left$(CStr(ws.Cells(i, 1).Value), 6)) = "gexcl:" Then
+            ws.Cells(i, 2).Value = 0
+        End If
+    Next i
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー

@@ -179,10 +179,11 @@ Public Sub Boot()
         modShelfSync.SyncNow silent:=True
         On Error GoTo 0
     Else
-        ' sync_on_open=Falseでも、起動時にP2P感謝状だけは一度回収する
+        ' sync_on_open=Falseでも、起動時にP2P感謝状・品質報告集計は一度回収する
         ' (sync_on_open=TrueのときはSyncNow内で回収済み=二重回収しない)。
         On Error Resume Next
         modP2P.CollectThanks silent:=True
+        modP2P.CollectNoiseVotes silent:=True
         On Error GoTo 0
     End If
 

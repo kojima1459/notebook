@@ -374,6 +374,7 @@ Finish:
     ' shelf_folder未設定でもここは通る(P2P共有はnexus_share_pathで独立)。
     On Error Resume Next
     modP2P.CollectThanks silent
+    modP2P.CollectNoiseVotes silent   ' 品質報告を集計し組織的除外(gexcl)を再計算
     On Error GoTo 0
 End Sub
 

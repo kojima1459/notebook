@@ -23,6 +23,7 @@ Option Explicit
 ' ============================================================================
 
 Private Const THANKS_SUBDIR As String = "thanks"   ' サブフォルダ名(区切り"\"は連結時に付与)
+Private Const NOISE_SUBDIR As String = "noise"      ' サブフォルダ名(区切り"\"は連結時に付与)
 Private mUserIdCache As String
 
 ' ----------------------------------------------------------------------------
@@ -171,6 +172,171 @@ Done:
 End Function
 
 ' ----------------------------------------------------------------------------
+' EmitNoiseVote - 「品質報告(ノイズ投票)」を共有フォルダへ書き出す。
+'   投票者×ソースにつき1ファイル(再投票は上書き=重複排除)。
+' ----------------------------------------------------------------------------
+Public Sub EmitNoiseVote(ByVal source As String)
+    On Error GoTo Done
+    If LenB(source) = 0 Then Exit Sub
+
+    Dim folderPath As String: folderPath = NoiseDir()
+    If LenB(folderPath) = 0 Then Exit Sub
+    EnsureDir folderPath
+
+    Dim myId As String: myId = CurrentUserId()
+    Dim srcHash As String: srcHash = modUtil.Fnv1a64Hex(source)
+
+    Dim content As String
+    content = myId & vbTab & SanitizeField(source) & vbTab & modUtil.NowStamp()
+
+    WriteUtf8Retry folderPath & "noise_" & srcHash & "_" & myId & ".txt", content
+Done:
+End Sub
+
+' ----------------------------------------------------------------------------
+' CollectNoiseVotes - 共有フォルダの投票を集計し、組織的除外(gexcl)を
+'   ローカルで再計算する。戻り値=今回の組織的除外件数。
+'   注意: 投票/解除ファイルは削除しない(毎回の同期で再計算するため)。
+' ----------------------------------------------------------------------------
+Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As Long
+    On Error GoTo Done
+    Dim folderPath As String: folderPath = NoiseDir()
+    If LenB(folderPath) = 0 Then Exit Function
+
+    ' fail-safe: 共有ルートが到達不能なとき(一時的なNW断)は「投票ゼロ」と区別
+    ' できないため、ResetGlobalExcludedで既存の組織的除外を消さない=前回状態を保持。
+    ' 共有は到達できるが noise\ が未作成(まだ誰も報告していない)なら通常どおり
+    ' 集計する(=正当に空へ再計算)。
+    Dim shareRoot As String: shareRoot = modConfig.GetString("nexus_share_path", "")
+    On Error Resume Next
+    Dim probe As String: probe = Dir(shareRoot, vbDirectory)
+    On Error GoTo Done
+    If LenB(probe) = 0 Then Exit Function   ' 共有到達不能 → 除外状態を保持して撤退
+
+    ' 1) 管理者による解除(clear_*.txt)を先に全部集める
+    Dim clearNames() As String: ReDim clearNames(0 To 63)
+    Dim nClear As Long: nClear = 0
+    Dim fn As String: fn = Dir(folderPath & "clear_*.txt")
+    Do While LenB(fn) > 0
+        If nClear > UBound(clearNames) Then ReDim Preserve clearNames(0 To UBound(clearNames) + 64)
+        clearNames(nClear) = fn
+        nClear = nClear + 1
+        fn = Dir()   ' このループ内で他のDir()を呼ばないこと
+    Loop
+
+    Dim cleared As Object: Set cleared = CreateObject("Scripting.Dictionary")
+    cleared.CompareMode = 0   ' vbBinaryCompare(大文字小文字を区別)
+
+    Dim i As Long
+    For i = 0 To nClear - 1
+        Dim clearRec As String
+        If ReadUtf8Retry(folderPath & clearNames(i), clearRec) Then
+            Dim cf() As String: cf = Split(clearRec, vbTab)
+            If UBound(cf) >= 1 Then
+                If IsAdminId(cf(0)) Then
+                    If Not cleared.Exists(cf(1)) Then cleared.Add cf(1), True
+                End If
+            End If
+        End If
+    Next i
+
+    ' 2) ノイズ投票(noise_*.txt)を先に全部集める→ソース毎の異なる報告者数を集計
+    '    (ファイル名がreporter×source単位で一意なため、ファイル数=異なる報告者数)
+    Dim voteNames() As String: ReDim voteNames(0 To 63)
+    Dim nVotes As Long: nVotes = 0
+    fn = Dir(folderPath & "noise_*.txt")
+    Do While LenB(fn) > 0
+        If nVotes > UBound(voteNames) Then ReDim Preserve voteNames(0 To UBound(voteNames) + 64)
+        voteNames(nVotes) = fn
+        nVotes = nVotes + 1
+        fn = Dir()   ' このループ内で他のDir()を呼ばないこと
+    Loop
+
+    Dim counts As Object: Set counts = CreateObject("Scripting.Dictionary")
+    counts.CompareMode = 0   ' vbBinaryCompare
+
+    For i = 0 To nVotes - 1
+        Dim voteRec As String
+        If ReadUtf8Retry(folderPath & voteNames(i), voteRec) Then
+            Dim vf() As String: vf = Split(voteRec, vbTab)
+            If UBound(vf) >= 1 Then
+                Dim src As String: src = vf(1)
+                If counts.Exists(src) Then
+                    counts(src) = counts(src) + 1
+                Else
+                    counts.Add src, 1
+                End If
+            End If
+        End If
+    Next i
+
+    ' 3) 適用: いったん全解除してから、閾値以上(かつ未解除)のソースだけ再度フラグを立てる
+    modStats.ResetGlobalExcluded
+    Dim threshold As Long: threshold = modStats.NoiseThreshold()
+    Dim awarded As Long: awarded = 0
+
+    Dim k As Variant
+    For Each k In counts.Keys
+        If CLng(counts(k)) >= threshold Then
+            If Not cleared.Exists(CStr(k)) Then
+                modStats.MarkGlobalExcluded CStr(k)
+                awarded = awarded + 1
+            End If
+        End If
+    Next k
+
+    If awarded > 0 And Not silent Then
+        MsgBox "組織で" & awarded & "件のナレッジが検索対象から除外されています" & _
+               "(品質報告の集計結果)。", vbInformation, modAppDef.APP_NAME
+    End If
+    CollectNoiseVotes = awarded
+Done:
+End Function
+
+' ----------------------------------------------------------------------------
+' ClearNoise - 管理者専用。指定ソースの組織的除外を解除する解除票を書く。
+' ----------------------------------------------------------------------------
+Public Function ClearNoise(ByVal source As String) As Boolean
+    On Error GoTo Done
+    If Not IsAdmin() Then Exit Function
+
+    Dim folderPath As String: folderPath = NoiseDir()
+    If LenB(folderPath) = 0 Then Exit Function
+    EnsureDir folderPath
+
+    Dim srcHash As String: srcHash = modUtil.Fnv1a64Hex(source)
+    Dim content As String
+    content = CurrentUserId() & vbTab & SanitizeField(source) & vbTab & modUtil.NowStamp()
+
+    ClearNoise = WriteUtf8Retry(folderPath & "clear_" & srcHash & ".txt", content)
+Done:
+End Function
+
+' ----------------------------------------------------------------------------
+' IsAdmin - config "admin_users"(カンマ区切りADID)に自分が含まれるか。
+' ----------------------------------------------------------------------------
+Public Function IsAdmin() As Boolean
+    IsAdmin = IsAdminId(CurrentUserId())
+End Function
+
+Private Function IsAdminId(ByVal candidate As String) As Boolean
+    On Error GoTo Done
+    Dim list As String: list = modConfig.GetString("admin_users", "")
+    If LenB(list) = 0 Then Exit Function
+    If LenB(candidate) = 0 Then Exit Function
+
+    Dim parts() As String: parts = Split(list, ",")
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If StrComp(Trim$(parts(i)), Trim$(candidate), vbTextCompare) = 0 Then
+            IsAdminId = True
+            Exit Function
+        End If
+    Next i
+Done:
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
@@ -198,6 +364,13 @@ Private Function ThanksDir() As String
     If LenB(basePath) = 0 Then Exit Function
     If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
     ThanksDir = basePath & THANKS_SUBDIR & "\"
+End Function
+
+Private Function NoiseDir() As String
+    Dim basePath As String: basePath = modConfig.GetString("nexus_share_path", "")
+    If LenB(basePath) = 0 Then Exit Function
+    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
+    NoiseDir = basePath & NOISE_SUBDIR & "\"
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

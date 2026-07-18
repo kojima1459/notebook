@@ -205,7 +205,8 @@ CONTRACT: dict[str, dict] = {
         # LevelProgress/ExpFloorForLevel はダッシュボードが読む集計ゲッター。
         "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
                      "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
-                     "ReportNoise", "NoiseThreshold", "ExcludedSources"],
+                     "ReportNoise", "NoiseThreshold", "ExcludedSources",
+                     "MarkGlobalExcluded", "ResetGlobalExcluded"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

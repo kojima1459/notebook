@@ -367,16 +367,14 @@ Public Sub OnVaultCardClick()
         modShelf.DeleteSource srcName
         OnVaultSearchKeepPage
     ElseIf answer = vbNo Then
-        Dim votes As Long: votes = modStats.ReportNoise(srcName)
-        Dim need As Long: need = modStats.NoiseThreshold()
-        If votes >= need Then
-            MsgBox "『" & srcName & "』をノイズとして報告しました。" & vbLf & _
-                   "報告が" & need & "件に達したため、この資料は検索対象から除外されました。", _
-                   vbInformation, "Nexus Agent"
-        Else
-            MsgBox "『" & srcName & "』をノイズとして報告しました。(あと" & (need - votes) & _
-                   "件の報告で検索対象から除外されます)", vbInformation, "Nexus Agent"
-        End If
+        modStats.ReportNoise srcName          ' 個人ミュート(即時・自分の検索からのみ除外)
+        On Error Resume Next
+        modP2P.EmitNoiseVote srcName          ' 組織的除外への1票(共有フォルダ・同期時に集計)
+        On Error GoTo 0
+        MsgBox "『" & srcName & "』を品質報告しました。" & vbLf & vbLf & _
+               "・あなたの検索からは今すぐ除外されます。" & vbLf & _
+               "・異なる" & modStats.NoiseThreshold() & "人以上が報告すると、組織全体の検索から除外されます。", _
+               vbInformation, "Nexus Agent"
         OnVaultSearchKeepPage   ' 画面を再描画(既存のプライベートSubを呼ぶ)
     End If
 End Sub
