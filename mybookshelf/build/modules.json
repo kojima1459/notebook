@@ -275,6 +275,27 @@
       "wave": "NEXUS-P10"
     },
     {
+      "name": "modBoard",
+      "path": "src/ui/modBoard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modTour",
+      "path": "src/ui/modTour.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modHelp",
+      "path": "src/ui/modHelp.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

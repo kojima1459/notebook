@@ -337,6 +337,14 @@ Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
     modStats.Bump "selfsolve_total"
+    ' 節約時間の日付キー蓄積(1解決=15分)。日/月/年キーなので跨げば自動リセット、
+    ' 過去キーがそのまま履歴になる(modBoardのウィジェット/ビーコンが読む)。
+    ' 発火点はFeedbackAcceptedガードの内側=多重カウント不可。
+    On Error Resume Next
+    modStats.Bump "sv:d:" & Format$(Date, "yyyymmdd"), 15
+    modStats.Bump "sv:m:" & Format$(Date, "yyyymm"), 15
+    modStats.Bump "sv:y:" & Format$(Date, "yyyy"), 15
+    On Error GoTo 0
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next
     modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)

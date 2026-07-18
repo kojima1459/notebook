@@ -38,6 +38,7 @@ Private Const MAX_Q_CHARS As Long = 1000       ' 質問文の上限(Shape/ファ
 ' 本モジュール内で完結する状態(防衛条項3: 既存グローバルには一切触れない)
 Private mExpert As String      ' 直近OfferMentorで特定した専門家(生sanitize済ID)
 Private mTopSource As String   ' その専門家の代表ソース名(質問の文脈として同送)
+Private mLastAsker As String   ' 直近に受信した質問の差出人(返信ボタンの宛先)
 
 ' ----------------------------------------------------------------------------
 ' OfferMentor - エントリポイント(modApp.OnSend/OnActDrill末尾から1行フック)。
@@ -75,9 +76,13 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     btn.Line.Weight = 1#
     btn.Line.ForeColor.RGB = modUI.UiColor("accent")           ' MS&ADグリーン
     btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    ' 称号(偽装不可): 感謝受領数ベースの絶対評価(💡5+/🌟20+)を名前の頭に自動付与。
+    ' (本Subは冒頭のOn Error Resume Nextが活性のためTitleFor失敗時はhonor=""のまま)
+    Dim honor As String
+    honor = modBoard.TitleFor(expert)
     With btn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F4A1) & " この分野は " & expert & " さんが詳しいです [質問を送る]"
+        .TextRange.Text = ChrW(&H1F4A1) & " この分野は " & honor & expert & " さんが詳しいです [質問を送る]"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
@@ -98,6 +103,7 @@ End Sub
 Public Sub ClearMentor()
     On Error Resume Next   ' 安全弁
     ThisWorkbook.Worksheets("Nexus").Shapes(BTN_NAME).Delete
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_mentor_reply").Delete
     On Error GoTo 0
 End Sub
 
@@ -176,6 +182,7 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
                     If modStats.GetStat("mq:" & f(0)) = 0 Then
                         modStats.Bump "mq:" & f(0)
                         newCount = newCount + 1
+                        mLastAsker = f(1)   ' 返信ボタンの宛先(最後に受けた質問の差出人)
                         If shown < 3 Then
                             shown = shown + 1
                             On Error Resume Next
@@ -195,8 +202,77 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
 
     If newCount > 0 And Not silent Then
         modSkin.ShowToast "あなた宛の質問が " & newCount & " 件届いています。チャット欄をご確認ください。", "success"
+        DrawReplyButton   ' 往復→対話へ: 最後の質問の差出人へ返信するボタン
     End If
 Done:
+End Sub
+
+' 返信ボタン(nx_mentor_reply)を最下端バブルの下に描く。質問と同機構で逆向きに送る。
+Private Sub DrawReplyButton()
+    If LenB(mLastAsker) = 0 Then Exit Sub
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    ws.Shapes("nx_mentor_reply").Delete
+    On Error GoTo 0
+
+    Dim anchorName As String: anchorName = modUI.LatestAiBubbleName()
+    If LenB(anchorName) = 0 Then Exit Sub
+    Dim anchor As Shape
+    On Error Resume Next
+    Set anchor = ws.Shapes(anchorName)
+    On Error GoTo 0
+    If anchor Is Nothing Then Exit Sub
+
+    Dim btn As Shape
+    Set btn = ws.Shapes.AddShape(5, anchor.Left, anchor.Top + anchor.Height + 6, 300, 26)
+    btn.Name = "nx_mentor_reply"
+    btn.Adjustments(1) = 0.4
+    btn.Line.Visible = -1
+    btn.Line.Weight = 1#
+    btn.Line.ForeColor.RGB = modUI.UiColor("accent")
+    btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    With btn.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H2709) & " " & mLastAsker & " さんへ返信する"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 9
+        .TextRange.Font.Bold = -1
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+    End With
+    btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    btn.OnAction = "modMentor.OnReplyQuestion"
+    btn.Placement = 3
+    modSkin.ApplySoftShadow btn
+End Sub
+
+' 返信ボタンのクリック。質問送信と同じカプセル化I/Oで逆向きに送る。
+Public Sub OnReplyQuestion()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If LenB(mLastAsker) = 0 Then GoTo Done
+
+    Dim q As String
+    q = InputBox("「" & mLastAsker & "」さんへの返信を入力してください。", _
+                 "Nexus Agent - 返信")
+    q = Trim$(q)
+    If LenB(q) = 0 Then GoTo Done
+    If Len(q) > MAX_Q_CHARS Then q = Left$(q, MAX_Q_CHARS)
+
+    If SendQuestion(mLastAsker, q, "(返信)") Then
+        modSkin.ShowToast mLastAsker & " さんへ返信を送りました。", "success"
+        On Error Resume Next
+        ThisWorkbook.Worksheets("Nexus").Shapes("nx_mentor_reply").Delete
+        modLog.LogUsage "mentor_reply", "", "to=" & mLastAsker
+        On Error GoTo Done
+    Else
+        modSkin.ShowToast "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。", "error"
+    End If
+Done:
+    modUiLock.Leave
 End Sub
 
 ' 読取りリトライ(AVロック耐性。COMは両経路Set=Nothing)。

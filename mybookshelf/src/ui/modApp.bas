@@ -27,11 +27,53 @@ Private mGenPrevA As String
 ' ----------------------------------------------------------------------------
 Public Sub LaunchNexus()
     modUI.InitUI
+    RestoreLastConversation      ' ④前回の続きを薄く復元(失敗しても挨拶へ進む)
     modUI.AddChatBubble "ai", _
         "こんにちは。Nexus Agentです。" & vbLf & _
         "上のモードボタンで「社内ナレッジ検索」(本棚の資料から出典付きで回答)と" & _
         "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。"
-    modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収(失敗は内部で握る=安全弁)
+    On Error Resume Next         ' 以降は追加機能のフック(各自が内部で握るが二重に防護)
+    modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計+サイドバーウィジェット
+    modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
+    modHelp.EnsureHelpButton     ' ヘルプ(?)ボタン
+    modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
+    On Error GoTo 0
+End Sub
+
+' ④会話の記憶: 直近2往復をui_stateへ保存し、次回起動時に薄く復元する。
+' 区切りはAskGeneral履歴と同じ";;;"(質問/回答に含まれる場合は改行1個に置換して保護)。
+Private Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
+    On Error Resume Next
+    Dim u As String, a As String
+    u = Replace(modUtil.SafeLeft(q, 300), ";;;", " ")
+    a = Replace(modUtil.SafeLeft(ans, 700), ";;;", " ")
+    Dim prevU As String: prevU = modState.LoadState("nexus_hist_u", "")
+    Dim prevA As String: prevA = modState.LoadState("nexus_hist_a", "")
+    modState.SaveState "nexus_hist_u", TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
+    modState.SaveState "nexus_hist_a", TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
+    On Error GoTo 0
+End Sub
+
+Private Sub RestoreLastConversation()
+    On Error Resume Next
+    Dim histU As String: histU = modState.LoadState("nexus_hist_u", "")
+    Dim histA As String: histA = modState.LoadState("nexus_hist_a", "")
+    If LenB(histU) = 0 Or LenB(histA) = 0 Then Exit Sub
+
+    Dim us() As String: us = Split(histU, ";;;")
+    Dim aas() As String: aas = Split(histA, ";;;")
+    Dim n As Long: n = UBound(us)
+    If UBound(aas) < n Then n = UBound(aas)
+
+    ' 保存は新しい順なので、古い方から描く(チャットは下が最新)
+    Dim i As Long
+    For i = n To 0 Step -1
+        If LenB(Trim$(us(i))) > 0 Then
+            modUI.AddChatBubble "user", us(i)
+            modUI.AddChatBubble "ai", ChrW(&H1F4DC) & "(前回の回答) " & aas(i)
+        End If
+    Next i
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -74,6 +116,7 @@ Public Sub OnSend()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
+    SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
 
     ' Peek View: RAG(社内ナレッジ検索)回答のときだけ、出典チップを回答直下に描画する
     ' (一般アシスタントは出典が無いので出さない=古いチップの誤表示も防ぐ)。
