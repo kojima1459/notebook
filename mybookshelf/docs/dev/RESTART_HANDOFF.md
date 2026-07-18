@@ -66,3 +66,17 @@ python3 build/build_mybookshelf.py --prod # prod(.xlsm)ビルド+自己検証
 - 悪意ある大量⚠️報告への耐性は閾値(config)頼み → 監査ログ(誰が報告したか)は各noiseファイルに残るので調査可能。
 - modAsk は上限近め → 次に触るなら feedback系 or history系を別モジュールへ更に分離。
 - Vaultギャラリーで personal-mute(noise:)と gexcl の見分け表示は未実装(現状gexclのみバッジ)。
+
+## 2026-07-18 セッション末尾スナップショット(usage上限前の保全)
+- ブランチ: claude/internal-notebook-lm-chatbot-B6BE7 / HEAD=bc1658b(push済・作業ツリーclean)
+- 検証: lint 0 ERROR(55モジュール) / LO 85 PASS 0 FAIL / dev+prod自己検証OK
+- 完了済み: SPA UI+ポリッシュ(MS&ADグリーン/Toast/EmptyState) / グローバルロック /
+  暗転・誤爆・GC競合封鎖 / 狂気Lv.1(modBitwiseOpt, binary_rag=FALSE既定) /
+  Peek View(modPeek) / Mentor送受信+返信(modMentor) / チーム連帯ボード(modBoard:
+  ビーコン=board\stats_*.txt、称号💡5+/🌟20+、sv:d|m|y:日付キー節約時間) /
+  ツアー(modTour)+ヘルプ(modHelp) / 会話復元(modApp nexus_hist_u/a)
+- フック集約点: modApp.LaunchNexus(Board/Questions/Help/Tour)+OnSend/OnActDrill
+  (Peek/Mentor/SaveTurn)。新機能は全て「新規モジュール+1行フック+内部安全弁」方式。
+- 残タスク: 実機Excel受入テスト(月曜PoC)のみ。コード側の未完・配線漏れなし。
+- 実機で見る点: ツアー表示→スキップ/完了、?ヘルプ、サイドバー「みんなの節約」
+  (共有フォルダ必要)、✅解決→節約時間加算→ビーコン反映(翌起動)、Mentor往復。
