@@ -72,6 +72,13 @@ Public Sub OnSend()
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
 
+    ' 爆速証明(狂気案Lv.1): binary_rag_debug=TRUEのとき、直近ハイブリッド検索の所要msを
+    ' Toastで見せる(qa層のperfログをUI層で取り出す=R1レイヤリングを守る)。
+    If modConfig.GetBool("binary_rag_debug", False) Then
+        Dim perf As String: perf = modBitwiseOpt.ConsumePerfLog()
+        If LenB(perf) > 0 Then modSkin.ShowToast perf, "info"
+    End If
+
     modUiLock.Leave
     Exit Sub
 

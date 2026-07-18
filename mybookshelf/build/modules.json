@@ -254,6 +254,13 @@
       "wave": "NEXUS-P7"
     },
     {
+      "name": "modBitwiseOpt",
+      "path": "src/qa/modBitwiseOpt.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P8"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

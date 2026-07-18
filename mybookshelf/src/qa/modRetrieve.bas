@@ -123,6 +123,19 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     ' ナレッジ自浄: ノイズ報告が閾値以上の資料を検索対象から論理除外する
     Dim excl As Object: Set excl = modStats.ExcludedSources()
 
+    ' [狂気案Lv.1] バイナリ量子化ハイブリッド: 大規模KB(binary_rag_min以上)かつ
+    ' binary_rag=TRUEのときだけ、ハミング距離で候補行を粗選別する。以降のFloat
+    ' コサイン/キーワードボーナス/ストリーミングtop-kは一切不変(候補以外をスキップ
+    ' する1行のガードを足すだけ)。Prefilterが辞退(次元不一致等)したら全件Floatへ。
+    Dim useCand As Boolean: useCand = False
+    Dim candRows As Object
+    Dim binMs As Double: binMs = 0
+    If modBitwiseOpt.Enabled(UBound(vData, 1) - LBound(vData, 1) + 1) Then
+        Dim tB0 As Double: tB0 = modBitwiseOpt.MicroTimerMs()
+        useCand = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRows)
+        binMs = modBitwiseOpt.MicroTimerMs() - tB0   ' 爆速証明: バイナリ粗選別のms
+    End If
+
     Dim bestId() As String: ReDim bestId(1 To k)
     Dim bestScore() As Double: ReDim bestScore(1 To k)
     Dim bestSource() As String: ReDim bestSource(1 To k)
@@ -135,8 +148,10 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim minScore As Double: minScore = 0
     Dim e0702Logged As Boolean: e0702Logged = False
 
+    Dim tF0 As Double: tF0 = modBitwiseOpt.MicroTimerMs()   ' 爆速証明: Float再ランク計測開始
     Dim r As Long
     For r = LBound(vData, 1) To UBound(vData, 1)
+        If useCand Then If Not candRows.Exists(r) Then GoTo NextR   ' [Lv.1] 粗選別候補以外は除外
         Dim vid As String
         vid = CStr(vData(r, COL_V_ID))
         If LenB(vid) = 0 Then GoTo NextR
@@ -200,6 +215,12 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         End If
 NextR:
     Next r
+
+    ' 爆速証明ログ(バイナリ選別が作動したときだけ。Debug.Print + debug時Toast)
+    If useCand Then
+        modBitwiseOpt.LogPerf binMs, modBitwiseOpt.MicroTimerMs() - tF0, _
+            candRows.count, UBound(vData, 1) - LBound(vData, 1) + 1
+    End If
 
     If filled = 0 Then
         Search = 0
