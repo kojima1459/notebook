@@ -183,8 +183,11 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # CanFollowup/AskFollowup: 続けて質問=深掘り機能(裁定D11・RIBBON_API_CONFIRMED.md §2b)
         # LastAnswerText: Nexus UI(modApp)が直近回答をバブル表示するためのゲッター。
+        # LastHit*: Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が
+        #   根拠にした出典(source/page/origin/本文)をUI層(modPeek)へ公開する。0始まり。
         "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
-                     "CanFollowup", "AskFollowup", "LastAnswerText", "LastTopSource"],
+                     "CanFollowup", "AskFollowup", "LastAnswerText", "LastTopSource",
+                     "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {

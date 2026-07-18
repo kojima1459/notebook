@@ -39,6 +39,7 @@ End Sub
 Public Sub OnSend()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
+    modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
 
     Dim q As String
     q = ReadInputCell()
@@ -72,6 +73,10 @@ Public Sub OnSend()
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
 
+    ' Peek View: RAG(社内ナレッジ検索)回答のときだけ、出典チップを回答直下に描画する
+    ' (一般アシスタントは出典が無いので出さない=古いチップの誤表示も防ぐ)。
+    If CurrentMode() <> "normal" Then modPeek.RenderCitations bubbleName
+
     ' 爆速証明(狂気案Lv.1): binary_rag_debug=TRUEのとき、直近ハイブリッド検索の所要msを
     ' Toastで見せる(qa層のperfログをUI層で取り出す=R1レイヤリングを守る)。
     If modConfig.GetBool("binary_rag_debug", False) Then
@@ -104,6 +109,31 @@ Public Sub OnSelectBubble()
 
     mActiveBubble = callerName
     modUI.MarkActiveBubble callerName
+End Sub
+
+' ----------------------------------------------------------------------------
+' Peek View(出典ポップアップ): 出典チップ/ポップアップのクリック受け。
+' ----------------------------------------------------------------------------
+' 出典チップ(nx_cite_<i>)のクリック → そのチャンク本文をポップアップ表示。
+Public Sub OnPeek()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    Dim caller As String
+    caller = CStr(Application.Caller)
+    If Left$(caller, 8) = "nx_cite_" Then
+        modPeek.ShowPeek CLng(Val(Mid$(caller, 9)))
+    End If
+Done:
+    modUiLock.Leave
+End Sub
+
+' 出典ポップアップ(nx_peek)のクリック → 閉じる。
+Public Sub OnPeekClose()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modPeek.HidePeek
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -154,6 +184,7 @@ End Sub
 Public Sub OnActDrill()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
+    modPeek.HideCitations   ' 前回の出典チップ/ポップアップを消す
 
     Dim q As String
     q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
@@ -178,6 +209,7 @@ Public Sub OnActDrill()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
+    modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
     modUiLock.Leave
     Exit Sub
 

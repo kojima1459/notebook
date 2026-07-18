@@ -261,6 +261,13 @@
       "wave": "NEXUS-P8"
     },
     {
+      "name": "modPeek",
+      "path": "src/ui/modPeek.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P9"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

@@ -1,0 +1,225 @@
+Attribute VB_Name = "modPeek"
+Option Explicit
+
+' ============================================================================
+' modPeek - ワンクリック出典ポップアップ(Peek View)。UI層。
+' ----------------------------------------------------------------------------
+' 役割:
+'   AI回答の直下に「出典チップ」(📄 資料名 p.N)を並べ、クリックすると元の
+'   チャンク本文が小さな吹き出し(ツールチップ)としてフワッと浮かぶ。PDFを開かず
+'   審査員が「AIの回答が本当に約款に書いてあるか」を秒で照合でき、ハルシネーションを
+'   人間が即検知・是正できる、というデモ最大のアピール機能。
+'
+' 設計判断:
+'   ・出典データは modAsk の読み取り専用アクセサ(LastHit*)から取得する(検索/回答
+'     ロジックには一切触れない)。UI層→qa層の下向き参照でR1レイヤリング準拠。
+'   ・modUI.basは字数上限間際のため一切変更しない。描画は本モジュールに集約。
+'   ・チップは「最新の回答」の下にだけ出す(次の送信でHideCitationsして描き直す)。
+'     modUIのmChatBottom(private)を触らずに済ませるための割り切り。過去回答の
+'     チップは残さない(Peekは今の回答の照合が目的)。
+'   ・チップ/ポップアップはShape。クリック時はOnActionでmodApp.OnPeek/OnPeekCloseへ。
+'     Shape名 nx_cite_<hitIndex> に0始まりのヒット添字を埋め、Peek本文を引く。
+'   ・ポップアップは nx_peek。次のPeek表示・送信・閉じるクリックで消える(孤児防止に
+'     都度Deleteしてから描く)。柔らかい影は modSkin.ApplySoftShadow を共用。
+'   ・LibreOfficeは静的コンパイルのみ(実行しない)。Shapeプロパティは標準VBA。
+' ============================================================================
+
+Private Const NEXUS_SHEET As String = "Nexus"
+Private Const MAX_CHIPS As Long = 4          ' 出典チップの最大数(横並び)
+Private Const CHIP_W As Double = 188
+Private Const CHIP_H As Double = 22
+Private Const PEEK_W As Double = 470
+Private Const PEEK_BODY_MAX As Long = 600    ' ポップアップ本文の最大文字数
+
+' ----------------------------------------------------------------------------
+' RenderCitations - 直近RAG回答の出典チップを、指定バブルの直下に描画する。
+'   bubbleName: 直前に追加したAIバブルのShape名(位置決めの基準)。
+' ----------------------------------------------------------------------------
+Public Sub RenderCitations(ByVal bubbleName As String)
+    On Error GoTo Done
+    Dim ws As Worksheet
+    Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+
+    HideCitations   ' 前回のチップ/ポップアップを消す(最新回答の下だけに出す)
+
+    Dim n As Long: n = modAsk.LastHitCount()
+    If n <= 0 Then Exit Sub
+
+    Dim anchor As Shape
+    On Error Resume Next
+    Set anchor = ws.Shapes(bubbleName)
+    On Error GoTo Done
+    If anchor Is Nothing Then Exit Sub
+
+    Dim baseL As Double: baseL = anchor.Left
+    Dim baseY As Double: baseY = anchor.Top + anchor.Height + 6
+
+    ' 見出しラベル
+    Dim lbl As Shape
+    Set lbl = ws.Shapes.AddShape(1, baseL, baseY, 260, 16)
+    lbl.Name = "nx_cite_lbl"
+    lbl.Fill.Visible = 0: lbl.Line.Visible = 0
+    With lbl.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H1F50E) & " 出典(クリックで原文を確認):"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .MarginLeft = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    lbl.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+    lbl.Placement = 3
+
+    ' 出典をソース名でユニーク化(先頭出現のヒット添字を保持)しつつチップ描画
+    Dim seen As String: seen = "|"
+    Dim x As Double: x = baseL
+    Dim y As Double: y = baseY + 18
+    Dim drawn As Long: drawn = 0
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim src As String: src = modAsk.LastHitSource(i)
+        If LenB(src) = 0 Then GoTo NextHit
+        Dim key As String: key = "|" & LCase$(src) & "|"
+        If InStr(seen, key) > 0 Then GoTo NextHit   ' 同じ資料は1チップに集約
+        seen = seen & LCase$(src) & "|"
+
+        If x + CHIP_W > baseL + 640 Then   ' チャット幅で折り返し
+            x = baseL
+            y = y + CHIP_H + 6
+        End If
+        DrawChip ws, i, x, y, src, modAsk.LastHitPage(i)
+        x = x + CHIP_W + 8
+        drawn = drawn + 1
+        If drawn >= MAX_CHIPS Then Exit For
+NextHit:
+    Next i
+
+    FreezeAndFront ws
+Done:
+End Sub
+
+Private Sub DrawChip(ByVal ws As Worksheet, ByVal hitIdx As Long, ByVal x As Double, _
+                     ByVal y As Double, ByVal src As String, ByVal page As Long)
+    Dim chip As Shape
+    Set chip = ws.Shapes.AddShape(5, x, y, CHIP_W, CHIP_H)   ' 5=角丸四角
+    chip.Name = "nx_cite_" & CStr(hitIdx)
+    chip.Adjustments(1) = 0.5
+    chip.Line.Visible = -1
+    chip.Line.Weight = 0.75
+    chip.Line.ForeColor.RGB = modUI.UiColor("primary")
+    chip.Fill.ForeColor.RGB = modUI.UiColor("surface")
+
+    Dim cap As String
+    cap = ChrW(&H1F4C4) & " " & modUtil.SafeLeft(src, 16)
+    If page > 0 Then cap = cap & " p." & page
+    With chip.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = cap
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .TextRange.ParagraphFormat.Alignment = 1   ' 左
+        .VerticalAnchor = 3
+        .MarginLeft = 8: .MarginRight = 6: .MarginTop = 0: .MarginBottom = 0
+    End With
+    chip.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
+    chip.OnAction = "modApp.OnPeek"
+    chip.Placement = 3
+End Sub
+
+' ----------------------------------------------------------------------------
+' ShowPeek - 出典チップのクリックで、そのチャンク本文をポップアップ表示する。
+'   idx: modAskの0始まりヒット添字(チップ名 nx_cite_<idx> 由来)。
+' ----------------------------------------------------------------------------
+Public Sub ShowPeek(ByVal idx As Long)
+    On Error GoTo Done
+    Dim ws As Worksheet
+    Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+
+    HidePeek
+
+    Dim body As String: body = modAsk.LastHitPeek(idx)
+    If LenB(body) = 0 Then body = "(この出典の本文プレビューは取得できませんでした)"
+    Dim src As String: src = modAsk.LastHitSource(idx)
+    Dim page As Long: page = modAsk.LastHitPage(idx)
+
+    Dim leftPos As Double: leftPos = 280
+    Dim topPos As Double: topPos = 110
+    On Error Resume Next
+    leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - PEEK_W) / 2
+    topPos = ActiveWindow.VisibleRange.Top + 96
+    On Error GoTo Done
+
+    Dim head As String
+    head = ChrW(&H1F4C4) & " " & src
+    If page > 0 Then head = head & "  (p." & page & ")"
+
+    Dim shp As Shape
+    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, PEEK_W, 60)   ' 高さはAutoSizeで伸ばす
+    shp.Name = "nx_peek"
+    shp.Adjustments(1) = 0.06
+    shp.Line.Visible = -1
+    shp.Line.Weight = 1#
+    shp.Line.ForeColor.RGB = modUI.UiColor("primary")
+    shp.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    With shp.TextFrame2
+        .WordWrap = -1
+        .AutoSize = 1   ' msoAutoSizeShapeToFitText
+        .MarginLeft = 14: .MarginRight = 14: .MarginTop = 10: .MarginBottom = 10
+        .TextRange.Text = head & vbLf & vbLf & _
+                          modUtil.SafeLeft(body, PEEK_BODY_MAX) & vbLf & vbLf & _
+                          ChrW(&H2715) & " クリックで閉じる"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 10
+        .TextRange.ParagraphFormat.Alignment = 1
+    End With
+    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+    shp.OnAction = "modApp.OnPeekClose"
+    shp.Placement = 3
+    modSkin.ApplySoftShadow shp
+    shp.ZOrder 0   ' msoBringToFront
+Done:
+End Sub
+
+Public Sub HidePeek()
+    On Error Resume Next
+    GetSheet().Shapes("nx_peek").Delete
+    On Error GoTo 0
+End Sub
+
+' 出典チップとポップアップを一括削除(次の送信の先頭・画面リセット時に呼ぶ)。
+Public Sub HideCitations()
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+    Dim names() As String
+    ReDim names(0 To ws.Shapes.count)
+    Dim n As Long: n = 0
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 8) = "nx_cite_" Or shp.Name = "nx_peek" Then
+            names(n) = shp.Name
+            n = n + 1
+        End If
+    Next shp
+    Dim i As Long
+    For i = 0 To n - 1
+        ws.Shapes(names(i)).Delete
+    Next i
+    On Error GoTo 0
+End Sub
+
+Private Function GetSheet() As Worksheet
+    On Error Resume Next
+    Set GetSheet = ThisWorkbook.Worksheets(NEXUS_SHEET)
+    On Error GoTo 0
+End Function
+
+Private Sub FreezeAndFront(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 8) = "nx_cite_" Then shp.Placement = 3
+    Next shp
+    On Error GoTo 0
+End Sub

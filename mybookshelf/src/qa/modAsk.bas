@@ -312,6 +312,27 @@ Public Function LastTopSource() As String
     If bestI >= 0 Then LastTopSource = mLastHits(bestI).source
 End Function
 
+' ----------------------------------------------------------------------------
+' Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が根拠にした
+' 出典(source/page/origin/本文)をUI層へ公開する。添字は0始まり(0..LastHitCount-1)で
+' LastTopSourceと同一規約。内部状態は一切変更しない(検索/回答ロジックに影響なし)。
+' ----------------------------------------------------------------------------
+Public Function LastHitCount() As Long
+    LastHitCount = mLastNHits
+End Function
+Public Function LastHitSource(ByVal i As Long) As String
+    If i >= 0 And i < mLastNHits Then LastHitSource = mLastHits(i).source
+End Function
+Public Function LastHitPage(ByVal i As Long) As Long
+    If i >= 0 And i < mLastNHits Then LastHitPage = mLastHits(i).page
+End Function
+Public Function LastHitOrigin(ByVal i As Long) As String
+    If i >= 0 And i < mLastNHits Then LastHitOrigin = mLastHits(i).origin
+End Function
+Public Function LastHitPeek(ByVal i As Long) As String
+    If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i).full_text
+End Function
+
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
