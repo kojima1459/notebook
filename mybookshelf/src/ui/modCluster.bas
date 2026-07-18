@@ -67,6 +67,56 @@ Fail:
 End Function
 
 ' ----------------------------------------------------------------------------
+' SourceClusterMap - 資料名→クラスタID(Long)の辞書を返す(分析CSV用)。
+'   同じK-Means結果を使い、各資料は所属チャンクの多数決クラスタに割り当てる。
+'   データ不足時は空の辞書を返す(呼び出し側は Exists で存在確認する)。
+' ----------------------------------------------------------------------------
+Public Function SourceClusterMap() As Object
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    On Error GoTo Done
+
+    Dim vecs() As Double, kw() As String, src() As String
+    Dim nPts As Long: nPts = LoadVectors(vecs, kw, src)
+    If nPts < MIN_POINTS Then GoTo Done
+
+    Dim kk As Long: kk = ChooseK(nPts)
+    Dim assign() As Long, centroids() As Double
+    RunKMeans vecs, nPts, CLUSTER_DIM, kk, assign, centroids
+
+    ' 資料×クラスタの出現回数を数える(キー: "資料名|クラスタ")
+    Dim cnt As Object: Set cnt = CreateObject("Scripting.Dictionary")
+    Dim i As Long
+    For i = 0 To nPts - 1
+        If LenB(src(i)) > 0 Then
+            Dim ck As String: ck = src(i) & "|" & assign(i)
+            If cnt.Exists(ck) Then cnt(ck) = cnt(ck) + 1 Else cnt(ck) = 1
+            If Not d.Exists(src(i)) Then d(src(i)) = assign(i)
+        End If
+    Next i
+
+    ' 多数決で各資料のクラスタを確定
+    Dim sName As Variant
+    For Each sName In d.Keys
+        Dim bestC As Long: bestC = CLng(d(sName))
+        Dim bestN As Long: bestN = -1
+        Dim c As Long
+        For c = 0 To kk - 1
+            Dim ck2 As String: ck2 = sName & "|" & c
+            If cnt.Exists(ck2) Then
+                If cnt(ck2) > bestN Then
+                    bestN = cnt(ck2)
+                    bestC = c
+                End If
+            End If
+        Next c
+        d(sName) = bestC
+    Next sName
+
+Done:
+    Set SourceClusterMap = d
+End Function
+
+' ----------------------------------------------------------------------------
 ' 1) ベクトル読込(サンプリング+切詰め+再正規化)
 ' ----------------------------------------------------------------------------
 Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef src() As String) As Long

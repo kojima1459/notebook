@@ -205,6 +205,13 @@
       "wave": "NEXUS-P3"
     },
     {
+      "name": "modAnalytics",
+      "path": "src/ui/modAnalytics.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
       "name": "modCluster",
       "path": "src/ui/modCluster.bas",
       "role": "core",

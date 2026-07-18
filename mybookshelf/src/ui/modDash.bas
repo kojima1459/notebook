@@ -52,6 +52,8 @@ Private Const BTN_GAP As Double = 10
 Private Const CONTENT_RIGHT As Double = KPI_X0 + ROW_WIDTH
 Private Const BTN_REFRESH_X As Double = CONTENT_RIGHT - BTN_REFRESH_W
 Private Const BTN_CHAT_X As Double = BTN_REFRESH_X - BTN_GAP - BTN_CHAT_W
+Private Const BTN_EXPORT_W As Double = 128
+Private Const BTN_EXPORT_X As Double = BTN_CHAT_X - BTN_GAP - BTN_EXPORT_W
 
 Private Const MINUTES_PER_SELFSOLVE As Long = 15   ' modStatsの換算値と同じ(先方はPrivateのため複製)
 
@@ -160,6 +162,8 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
+    DrawHeaderButton ws, "nxd_btn_export", BTN_EXPORT_X, HEADER_BTN_Y, BTN_EXPORT_W, HEADER_BTN_H, _
+        ChrW(&H1F4E5) & " 分析用ログ出力", "modAnalytics.ExportAnalyticsCsv"
     DrawHeaderButton ws, "nxd_btn_chat", BTN_CHAT_X, HEADER_BTN_Y, BTN_CHAT_W, HEADER_BTN_H, _
         ChrW(&H1F4AC) & " チャットへ", "modDash.OnDashBackToChat"
     DrawHeaderButton ws, "nxd_btn_refresh", BTN_REFRESH_X, HEADER_BTN_Y, BTN_REFRESH_W, HEADER_BTN_H, _
