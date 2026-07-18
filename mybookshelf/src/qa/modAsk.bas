@@ -703,7 +703,7 @@ End Function
 Private Function DecorateWithFollowups(ByVal resp As String) As String
     Dim body As String
     Dim cands As String
-    SplitFollowupTrailer resp, body, cands
+    modFollowup.SplitFollowupTrailer resp, body, cands
     mLastCleanAnswer = body
 
     If LenB(cands) = 0 Then
@@ -722,64 +722,13 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     DecorateWithFollowups = disp
 End Function
 
-' 応答aから [[FOLLOWUP: ...]] をパースし、body=マーカー行除去後の本文 /
-' candidates=候補(vbLf区切り。無ければ空)に分離する。V2と同じ寛容実装:
-' "]]"が見つからない・中身が空・「なし」の場合は候補なし扱いとし、
-' マーカーを含む行だけを本文から取り除く(パース失敗でも例外は出さない)。
-Private Sub SplitFollowupTrailer(ByVal a As String, ByRef body As String, ByRef candidates As String)
-    body = a
-    candidates = ""
-    If LenB(a) = 0 Then Exit Sub
-
-    Dim fp As Long
-    fp = InStr(1, a, "[[FOLLOWUP:", vbTextCompare)
-    If fp = 0 Then Exit Sub
-
-    Dim fq As Long
-    fq = InStr(fp, a, "]]")
-    If fq > 0 Then
-        Dim fv As String
-        fv = Trim$(Mid$(a, fp + Len("[[FOLLOWUP:"), fq - fp - Len("[[FOLLOWUP:")))
-        If StrComp(fv, "なし", vbTextCompare) <> 0 And LenB(fv) > 0 Then
-            Dim parts() As String
-            parts = Split(fv, "|")
-            Dim out As String
-            Dim i As Long
-            For i = LBound(parts) To UBound(parts)
-                Dim t As String
-                t = Trim$(parts(i))
-                If LenB(t) > 0 Then
-                    If LenB(out) > 0 Then out = out & vbLf
-                    out = out & t
-                End If
-            Next i
-            candidates = out
-        End If
-    End If
-
-    ' マーカーを含む行を本文から除去し、末尾の空行・空白を刈り込む
-    ' (V2 modPipeline.ParseTrailersと同じ流儀)。
-    Dim lines() As String
-    lines = Split(a, vbLf)
-    Dim keep As String
-    Dim j As Long
-    For j = LBound(lines) To UBound(lines)
-        If InStr(lines(j), "[[FOLLOWUP:") = 0 Then
-            If LenB(keep) > 0 Then keep = keep & vbLf
-            keep = keep & lines(j)
-        End If
-    Next j
-    Do While Len(keep) > 0 And (Right$(keep, 1) = vbLf Or Right$(keep, 1) = vbCr Or Right$(keep, 1) = " ")
-        keep = Left$(keep, Len(keep) - 1)
-    Loop
-    body = keep
-End Sub
-
 ' ----------------------------------------------------------------------------
 ' prevU/prevA用履歴(裁定D11): 成功した各ターンのQ&Aを「新しい順;;;区切り」で
 ' セッション保持する(最大 config followup_max_pairs 既定3ペア)。
 ' mHistory(プロンプト内履歴)とは別物: こちらはリボンChatGPT()の確定引数
 ' prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡すための形式。
+' パース/整形の純関数(SplitFollowupTrailer/KeepNewestPairs/
+' SanitizeForFollowupHistory)は modFollowup へ分離済み(文字数上限対策)。
 ' ----------------------------------------------------------------------------
 Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     Dim maxPairs As Long
@@ -795,9 +744,9 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     ' 食い過ぎない)。";;;"はリボン側の履歴区切り文字のため、本文中に現れた
     ' 場合は";;"へ縮めて区切りの誤認を防ぐ(SanitizeForFollowupHistory)。
     Dim qs As String
-    qs = SanitizeForFollowupHistory(q)
+    qs = modFollowup.SanitizeForFollowupHistory(q, FOLLOWUP_PAIR_SEP)
     Dim ans As String
-    ans = SanitizeForFollowupHistory(modUtil.SafeLeft(a, 1500))
+    ans = modFollowup.SanitizeForFollowupHistory(modUtil.SafeLeft(a, 1500), FOLLOWUP_PAIR_SEP)
 
     ' 新しい順: 先頭に積む。
     If LenB(mPrevU) = 0 Then
@@ -811,40 +760,9 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
         mPrevA = ans & FOLLOWUP_PAIR_SEP & mPrevA
     End If
 
-    mPrevU = KeepNewestPairs(mPrevU, maxPairs)
-    mPrevA = KeepNewestPairs(mPrevA, maxPairs)
+    mPrevU = modFollowup.KeepNewestPairs(mPrevU, maxPairs, FOLLOWUP_PAIR_SEP)
+    mPrevA = modFollowup.KeepNewestPairs(mPrevA, maxPairs, FOLLOWUP_PAIR_SEP)
     modState.SaveState "nexus_ask_prevu", mPrevU
     modState.SaveState "nexus_ask_preva", mPrevA
 End Sub
 
-' 「新しい順;;;区切り」文字列の先頭からmaxPairs件だけを残す。
-Private Function KeepNewestPairs(ByVal joined As String, ByVal maxPairs As Long) As String
-    Dim parts() As String
-    parts = Split(joined, FOLLOWUP_PAIR_SEP)
-    Dim n As Long
-    n = UBound(parts) - LBound(parts) + 1
-    If n <= maxPairs Then
-        KeepNewestPairs = joined
-        Exit Function
-    End If
-
-    Dim out As String
-    Dim i As Long
-    For i = LBound(parts) To LBound(parts) + maxPairs - 1
-        If LenB(out) > 0 Then out = out & FOLLOWUP_PAIR_SEP
-        out = out & parts(i)
-    Next i
-    KeepNewestPairs = out
-End Function
-
-' 履歴に積む文字列から区切り文字";;;"を除去する。単純な1回のReplaceでは
-' ";;;;;;"→";;;;"のように置換結果へ再び";;;"が現れ得るため、無くなるまで
-' 繰り返す(各回で必ず短くなるので有限回で終わる)。
-Private Function SanitizeForFollowupHistory(ByVal s As String) As String
-    Dim t As String
-    t = s
-    Do While InStr(t, FOLLOWUP_PAIR_SEP) > 0
-        t = Replace(t, FOLLOWUP_PAIR_SEP, ";;")
-    Loop
-    SanitizeForFollowupHistory = t
-End Function

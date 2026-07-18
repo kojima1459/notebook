@@ -226,6 +226,13 @@
       "wave": "NEXUS-P5"
     },
     {
+      "name": "modFollowup",
+      "path": "src/qa/modFollowup.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P5"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",
