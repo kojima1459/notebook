@@ -177,6 +177,53 @@ Private Function LevelDivisor() As Long
 End Function
 
 ' ----------------------------------------------------------------------------
+' ナレッジの自浄作用(ノイズ報告→論理除外)
+' ----------------------------------------------------------------------------
+' 質の低いナレッジ(バッジ目当ての虚偽報告・P2Pスパム)を、利用者の「⚠️ノイズ
+' 報告」で希釈する。報告数は my_stats の "noise:<資料名>" に集約(専用シートを
+' 増やさず既存カウンタ機構を再利用)。閾値(config: noise_report_threshold、既定2)
+' 以上になった資料は modRetrieve が検索対象から論理除外する(物理削除はしない=
+' 誤報告からの復帰余地を残す)。
+
+' ReportNoise - 資料に1票のノイズ報告を投じ、報告後の累計票数を返す。
+Public Function ReportNoise(ByVal source As String) As Long
+    If LenB(source) = 0 Then Exit Function
+    Bump "noise:" & source
+    ReportNoise = GetStat("noise:" & source)
+End Function
+
+' NoiseThreshold - 論理除外に必要な報告票数(config可変・下限1)。
+Public Function NoiseThreshold() As Long
+    Dim t As Long: t = modConfig.GetLong("noise_report_threshold", 2)
+    If t < 1 Then t = 1
+    NoiseThreshold = t
+End Function
+
+' ExcludedSources - ノイズ票が閾値以上の資料集合(source→True の辞書)。
+'   modRetrieve が検索ループ前に1回だけ取得して各チャンクを高速に除外判定する。
+Public Function ExcludedSources() As Object
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    On Error GoTo Done
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_STATS)
+    If ws Is Nothing Then GoTo Done
+
+    Dim threshold As Long: threshold = NoiseThreshold()
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then GoTo Done
+
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        Dim statKey As String: statKey = CStr(arr(i, 1))
+        If LCase$(Left$(statKey, 6)) = "noise:" Then
+            If SafeCLng(arr(i, 2)) >= threshold Then d(Mid$(statKey, 7)) = True
+        End If
+    Next i
+Done:
+    Set ExcludedSources = d
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 

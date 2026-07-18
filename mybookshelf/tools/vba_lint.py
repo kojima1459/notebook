@@ -204,7 +204,8 @@ CONTRACT: dict[str, dict] = {
         # EXP/レベル(ゲーミフィケーション): AddExp=加点イベント口、ExpTotal/Level/
         # LevelProgress/ExpFloorForLevel はダッシュボードが読む集計ゲッター。
         "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
-                     "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress"],
+                     "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
+                     "ReportNoise", "NoiseThreshold", "ExcludedSources"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

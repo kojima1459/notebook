@@ -21,6 +21,8 @@ Option Explicit
 
 Private Const NEXUS_SHEET As String = "Nexus"
 Private Const THEME_KEY As String = "nexus_theme"
+Private Const MSO_BRING_TO_FRONT As Long = 0   ' msoBringToFront(数値でLO互換)
+Private Const MAX_BUBBLES As Long = 40         ' 32bitメモリ保護: 吹き出し保持上限
 
 ' レイアウト(ポイント単位)
 Private Const SIDEBAR_W As Double = 195      ' 260px相当
@@ -88,6 +90,7 @@ Public Sub InitUI()
 
     ApplyTheme ws
     FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
+    BringFixedToFront ws      ' 固定UIを最前面へ(Z-Order維持)
     mChatBottom = CHAT_TOP
 
     Application.ScreenUpdating = True
@@ -167,9 +170,70 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     PaintBubble shp, isUser
     mChatBottom = shp.Top + shp.Height
 
+    CapBubbles ws            ' 古い吹き出しを間引いてShape増殖(32bitクラッシュ)を防ぐ
     ScrollToBottom ws
+    BringFixedToFront ws     ' 固定UI(サイドバー/トップバー/アクションバー)を最前面へ
     AddChatBubble = shp.Name
 End Function
+
+' 固定UI(サイドバー/トップバー/フローティングアクションバー)を最前面に維持する。
+' 新規バブルは常に最前面へ追加されるため、描画サイクル末に必ず呼び、操作用の
+' 固定要素がバブルの背面に隠れないようにする(裁定: Z-Order維持)。
+Public Sub BringFixedToFront(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        Dim nm As String: nm = shp.Name
+        If Left$(nm, 6) = "nx_sb_" Or Left$(nm, 7) = "nx_top_" Or Left$(nm, 7) = "nx_fab_" Then
+            shp.ZOrder MSO_BRING_TO_FRONT
+        End If
+    Next shp
+    On Error GoTo 0
+End Sub
+
+' nx_msg_ の数が上限を超えたら、連番が小さい(古い)順に超過分を削除する。
+' 対応する思考プロセス(nx_thk_)も一緒に消す。※ローカル変数に予約語 Rem を
+' 使わないこと(コメント扱いされる)。
+Private Sub CapBubbles(ByVal ws As Worksheet)
+    Dim names() As String, seqs() As Long
+    ReDim names(0 To 255)
+    ReDim seqs(0 To 255)
+    Dim n As Long: n = 0
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 7) = "nx_msg_" Then
+            If n > UBound(names) Then
+                ReDim Preserve names(0 To UBound(names) + 256)
+                ReDim Preserve seqs(0 To UBound(seqs) + 256)
+            End If
+            names(n) = shp.Name
+            seqs(n) = CLng(Val(Right$(shp.Name, 4)))
+            n = n + 1
+        End If
+    Next shp
+    If n <= MAX_BUBBLES Then Exit Sub
+
+    Dim toRemove As Long: toRemove = n - MAX_BUBBLES
+
+    ' seq昇順にバブルソート(nは高々数百)
+    Dim a As Long, b As Long
+    For a = 0 To n - 2
+        For b = 0 To n - 2 - a
+            If seqs(b) > seqs(b + 1) Then
+                Dim ts As Long: ts = seqs(b): seqs(b) = seqs(b + 1): seqs(b + 1) = ts
+                Dim tn As String: tn = names(b): names(b) = names(b + 1): names(b + 1) = tn
+            End If
+        Next b
+    Next a
+
+    Dim ri As Long
+    For ri = 0 To toRemove - 1
+        On Error Resume Next
+        ws.Shapes(names(ri)).Delete
+        ws.Shapes("nx_thk_" & Format$(seqs(ri), "0000")).Delete
+        On Error GoTo 0
+    Next ri
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' ToggleTheme - ライト/ダーク反転(状態を永続化して全体を再彩色)

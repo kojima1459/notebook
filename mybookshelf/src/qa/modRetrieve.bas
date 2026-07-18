@@ -120,6 +120,9 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim words() As String
     words = TokenizeQuery(query)
 
+    ' ナレッジ自浄: ノイズ報告が閾値以上の資料を検索対象から論理除外する
+    Dim excl As Object: Set excl = modStats.ExcludedSources()
+
     Dim bestId() As String: ReDim bestId(1 To k)
     Dim bestScore() As Double: ReDim bestScore(1 To k)
     Dim bestSource() As String: ReDim bestSource(1 To k)
@@ -164,6 +167,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Dim kRow As Long
         kRow = idx.Item(vid)
         Dim srcName As String: srcName = CStr(kData(kRow, COL_K_SOURCE))
+        If excl.Exists(srcName) Then GoTo NextR   ' ノイズ報告で論理除外された資料
         Dim origin As String: origin = CStr(kData(kRow, COL_K_ORIGIN))
         Dim pageNum As Long: pageNum = CLng(Val(kData(kRow, COL_K_PAGE)))
         Dim summary As String: summary = CStr(kData(kRow, COL_K_SUMMARY))
@@ -282,6 +286,9 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         End If
     Next i
 
+    ' ナレッジ自浄: ノイズ報告が閾値以上の資料を検索対象から論理除外する
+    Dim excl As Object: Set excl = modStats.ExcludedSources()
+
     Dim unionScore As Object
     Set unionScore = CreateObject("Scripting.Dictionary")
     Dim e0702Logged As Boolean: e0702Logged = False
@@ -324,6 +331,7 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
             End If
 
             Dim kRow As Long: kRow = idx.Item(vid)
+            If excl.Exists(CStr(kData(kRow, COL_K_SOURCE))) Then GoTo NextRow   ' ノイズ論理除外
             Dim sc As Double
             sc = modUtil.DotProduct(qv, vv)
             sc = sc + KeywordBonus(words, CStr(kData(kRow, COL_K_SUMMARY)), _

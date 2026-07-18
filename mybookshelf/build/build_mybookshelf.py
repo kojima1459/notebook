@@ -164,6 +164,7 @@ def build_config_rows(mock_llm: bool):
         ("exp_pack_share", 30, "ゲーミフィケーション: パック共有(出力)1回で得るEXP"),
         ("exp_level_divisor", 100, "ゲーミフィケーション: レベル計算の除数。Lv=Int(√(EXP/除数))+1"),
         ("user_department", "", "分析用: あなたの部署名(分析CSVの部署比較フラグ列に入る。空なら未設定)"),
+        ("noise_report_threshold", 2, "ナレッジ自浄: ⚠️ノイズ報告がこの票数に達した資料をRAG検索から論理除外する"),
         ("shelf_max_chunks", 20000, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),
         ("shelf_folder", "", "自動同期する本棚フォルダのパス(空なら未設定)"),
         ("sync_interval_min", 0, "自動同期の間隔(分)。0でOFF"),
