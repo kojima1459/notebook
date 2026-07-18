@@ -105,13 +105,18 @@ Public Sub EmitThanks(ByVal topSource As String)
     If LenB(folderPath) = 0 Then Exit Sub
     EnsureDir folderPath
 
-    Dim nonce As String: nonce = NewNonce(myId)
+    ' MAX_PATH対策(SRE監査Phase2.2): ファイル名に載せるID成分は Fnv1a64Hex(16桁)へ
+    ' 圧縮する。SanitizeIdは最大64字で、深い共有UNCパス(例 \\host\部\課\...)配下では
+    ' thx_<author64>_<myId64...> が260字を超えて Dir/Kill/SaveToFile がクラッシュし得る。
+    ' payload(TSV)側は生の sanitize済ID のまま保持し、受信側 CollectThanks の
+    ' StrComp(f(2), myId) 照合を壊さない(ファイル名だけを短縮する)。
+    Dim nonce As String: nonce = NewNonce(modUtil.Fnv1a64Hex(myId))
     Dim rowText As String
     rowText = nonce & vbTab & myId & vbTab & authorKey & vbTab & _
               SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
     ' ネットワークドライブのロック(実行時エラー70等)に耐えるリトライ書込み
-    If WriteUtf8Retry(folderPath & "thx_" & authorKey & "_" & nonce & ".txt", rowText) Then
+    If WriteUtf8Retry(folderPath & "thx_" & modUtil.Fnv1a64Hex(authorKey) & "_" & nonce & ".txt", rowText) Then
         On Error Resume Next
         modLog.LogUsage "thanks_emit", "", "to=" & author & " src=" & modUtil.SafeLeft(topSource, 120)
         On Error GoTo 0
@@ -135,7 +140,9 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     '    列挙がスキップ・破綻するため、必ず「集めてから処理」にする。
     Dim names() As String: ReDim names(0 To 63)
     Dim nFiles As Long: nFiles = 0
-    Dim fn As String: fn = Dir(folderPath & "thx_" & myId & "_*.txt")
+    ' MAX_PATH対策(Phase2.2)で送信側はファイル名の宛先IDをFnv1a64Hexで綴るため、
+    ' 受信側の前方一致も同じハッシュで揃える(payload f(2)は生IDのままStrComp照合)。
+    Dim fn As String: fn = Dir(folderPath & "thx_" & modUtil.Fnv1a64Hex(myId) & "_*.txt")
     Do While LenB(fn) > 0
         If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
         names(nFiles) = fn
@@ -198,7 +205,19 @@ Public Sub EmitNoiseVote(ByVal source As String)
     Dim content As String
     content = myId & vbTab & SanitizeField(source) & vbTab & modUtil.NowStamp()
 
-    WriteUtf8Retry folderPath & "noise_" & srcHash & "_" & myId & ".txt", content
+    ' MAX_PATH対策(Phase2.2): reporter IDもFnv1a64Hex(16桁)で綴る。(reporter,source)毎に
+    ' 決定的なので再投票は同一ファイルを上書き=重複排除は不変。集計/GCはsrcHash前方一致で
+    ' 行うためreporter部の綴りには非依存(payloadに生myIdを保持し報告者一覧は復元可能)。
+    Dim votePath As String
+    votePath = folderPath & "noise_" & srcHash & "_" & modUtil.Fnv1a64Hex(myId) & ".txt"
+    If Not WriteUtf8Retry(votePath, content) Then
+        ' 3回リトライしても書けなかった。従来は握り潰していたが、SRE監査Phase2.1に従い
+        ' 沈黙のデータ欠損を可観測にする(重複排除により二重投票にはならない)。
+        On Error Resume Next
+        modLog.LogError "E0705", "modP2P.EmitNoiseVote", _
+            "noise vote write failed src=" & modUtil.SafeLeft(source, 80)
+        On Error GoTo Done
+    End If
 Done:
 End Sub
 

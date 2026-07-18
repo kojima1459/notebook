@@ -251,9 +251,22 @@ Private Function CsvField(ByVal s As String) As String
     End If
 End Function
 
-' WriteCsvWithBom - ADODB.Streamで UTF-8(BOM付) としてファイルへ書き出す。
-'   Charset="utf-8" は既定でBOMを付与する(modP2P.TryWriteUtf8と同じ方式)。
+' WriteCsvWithBom - UTF-8(BOM付)でファイル書き出し。保存先が共有/ネットワーク
+'   フォルダのとき、アンチウイルスがミリ秒単位でファイルを掴む(実行時エラー70等)
+'   ことに耐えるため、modP2P.WriteUtf8Retryと同じく最大3回・WaitMs(DoEvents待機)で
+'   リトライする(SRE監査Phase2.1: ガバナンスCSVの保存先も共有パスになり得るため)。
 Private Function WriteCsvWithBom(ByVal filePath As String, ByVal content As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If TryWriteCsvOnce(filePath, content) Then
+            WriteCsvWithBom = True
+            Exit Function
+        End If
+        CsvRetryWait 250 * attempt   ' 250/500/750ms バックオフ(DoEventsで応答性維持)
+    Next attempt
+End Function
+
+Private Function TryWriteCsvOnce(ByVal filePath As String, ByVal content As String) As Boolean
     Dim st As Object
     On Error GoTo Fail
     Set st = CreateObject("ADODB.Stream")
@@ -264,7 +277,7 @@ Private Function WriteCsvWithBom(ByVal filePath As String, ByVal content As Stri
     st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
     st.Close
     Set st = Nothing
-    WriteCsvWithBom = True
+    TryWriteCsvOnce = True
     Exit Function
 Fail:
     On Error Resume Next
@@ -272,6 +285,15 @@ Fail:
     Set st = Nothing
     On Error GoTo 0
 End Function
+
+' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。
+Private Sub CsvRetryWait(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
+    Loop
+End Sub
 
 ' SafeUserId - modP2P.CurrentUserId()のラッパー(ADSystemInfo失敗時も
 '   クラッシュさせない防御)。
