@@ -182,12 +182,13 @@ Private Sub DrawHeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, B
     btn.Line.Weight = 0.75
     btn.Shadow.Visible = 0
     With btn.TextFrame2
+        .WordWrap = -1
         .TextRange.Text = caption
         .TextRange.Font.Size = 9
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
-        .MarginLeft = 2: .MarginRight = 2
+        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
     End With
     btn.OnAction = handlerName
 End Sub
@@ -318,10 +319,12 @@ Private Sub DrawExpBar(ByVal ws As Worksheet)
     lbl.Line.Visible = 0
     lbl.Fill.Visible = 0
     With lbl.TextFrame2
+        .WordWrap = -1
         .TextRange.Text = "Lv." & (lv + 1) & " まであと " & remain & " EXP"
         .TextRange.Font.Size = 8.5
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         .VerticalAnchor = 3
+        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
     End With
 End Sub
 
@@ -386,7 +389,7 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
     Dim body As String: body = line1 & vbLf & line2
     With card.TextFrame2
         .WordWrap = -1
-        .MarginLeft = 8: .MarginRight = 8: .MarginTop = 6: .MarginBottom = 6
+        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
         .TextRange.Text = body
         .TextRange.Font.Size = 7.5
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")

@@ -324,6 +324,11 @@ End Function
 
 ' 一般アシスタントモード: 本棚を介さずCallLLM直(会話履歴つき)。
 Private Function AskGeneral(ByVal q As String) As String
+    If LenB(mGenPrevU) = 0 Then
+        mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
+        mGenPrevA = modState.LoadState("nexus_gen_preva", "")
+    End If
+
     Dim sys As String
     sys = "あなたは親切で有能な社内アシスタントです。" & _
           modConfig.GetString("answer_language", "日本語") & "で、簡潔かつ正確に回答してください。"
@@ -347,6 +352,8 @@ Private Function AskGeneral(ByVal q As String) As String
         mGenPrevU = TrimPairs(q & IIf(LenB(mGenPrevU) > 0, ";;;" & mGenPrevU, ""), maxPairs)
         mGenPrevA = TrimPairs(modUtil.SafeLeft(resp, 2000) & IIf(LenB(mGenPrevA) > 0, ";;;" & mGenPrevA, ""), maxPairs)
     End If
+    modState.SaveState "nexus_gen_prevu", mGenPrevU
+    modState.SaveState "nexus_gen_preva", mGenPrevA
     AskGeneral = resp
 End Function
 

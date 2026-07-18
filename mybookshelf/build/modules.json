@@ -219,6 +219,13 @@
       "wave": "NEXUS-P3"
     },
     {
+      "name": "modState",
+      "path": "src/core/modState.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P5"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

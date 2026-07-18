@@ -4,63 +4,30 @@ Option Explicit
 ' ============================================================================
 ' modAsk - 2速QA(⚡すぐ聞く/🔍しっかり調べる)のオーケストレーション
 ' ----------------------------------------------------------------------------
-' 役割:
-'   ホームの質問+モードを読み(またはAnswer(question, mode)として直接
-'   呼ばれ)、modRetrieve.Searchで検索→modPrompts.Build*Promptで組み立て→
-'   modGateway.CallLLMで回答生成、という一連の流れを実行し、進捗を
-'   modUIMain経由で実況する(MASTER_SPEC §7.3)。
+' 役割: ホームの質問+モード(またはAnswer(question, mode)の直接呼び出し)を
+'   modRetrieve.Search→modPrompts.Build*Prompt→modGateway.CallLLMの順に処理し、
+'   進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
 '
 ' 設計判断:
-'   ・quick: SetStage(検索中)→Search(topk_quick)→出典先出し表示→
-'     SetStage(回答作成中)→CallLLM(quick_draft)の2段。
-'     deep : Search(topk_deep)→出典先出し→draft(deep_draft_*)→
-'     SetStage(検証中)→verify(deep_verify_*)の3段。
-'   ・UI連携はSetStage/RenderSourcesPreview/RenderAnswerの3本のみ
-'     (§7.3/§7.6準拠。R1例外はWave3で整合済み)。
-'   ・Answer(question, mode)は最終回答テキストのみを返す契約(§7.3)なので、
-'     直近の検索結果(hits/nHits)・所要秒・実際に使ったモードは
-'     モジュール変数(mLast*)に保持し、同一モジュール内のAskFromUIが
-'     それを読んでmodUIMain.RenderAnswerに渡す(RenderAnswerの二重呼び
-'     出しを避けるため、Answer自身はRenderAnswerを呼ばない)。
-'   ・質問セルは定義済み名前"mb_question"経由で読む(未定義=空扱い)。
-'   ・モードは ui_state シート(A=key, B=value)の key="mode" を読む
-'     ("quick"/"deep"、既定quick。指示どおり)。
-'   ・検索0件はLLMを呼ばず定型文+資料追加の案内を返す(E0601はログのみ、
-'     ShowErrorのようなMsgBoxポップアップは出さない)。埋め込み失敗
-'     (Search=-1)はE0203の案内文を返す(実際のLogErrorはmodGateway.
-'     GetEmbedding内で完了済みなのでここでは二重に記録しない)。
-'   ・CallLLMが返す"#ERR:E02xx:..."は、コード部分を取り出してmodLog.
-'     FriendlyMessageの文面へ変換して表示する(生の#ERR文字列をそのまま
-'     ユーザーに見せない)。
-'   ・質問は3000字で打ち切り(modUtil.SafeLeft)、空質問はLLMを呼ばずに
-'     案内文を返す。連打防止は module変数のBooleanフラグ(mAsking)で
-'     AskFromUI側にガードする(Answer自体は直接テスト呼び出しされる
-'     ことも想定し、ガードしない)。
-'   ・ESC対応: Application.EnableCancelKey = xlErrorHandler を設定し、
-'     Err.Number=18(Ctrl+Break/中断)を検知したら通常のE0602ではなく
-'     「操作を中断しました」という案内にする(modEmbed.EmbedPendingと
-'     同じ考え方: MASTER_SPEC §7.2)。
-'   ・会話履歴: 直近3往復をmodule変数(mHistory)に保持する、V2
-'     src/chatbot_v2/modBoot.bas の HistoryBlock/AppendHistory の
-'     簡易版をmodAsk内に内蔵したもの(V2から流用可: MASTER_SPEC発注時の
-'     指示どおり)。quick/deep問わず、実際にLLMから回答が得られた
-'     (エラーでない)ターンのみ履歴に積む。
-'   ・続けて質問(裁定D11): 成功した各ターンのQ&Aを、上記mHistory
-'     (プロンプト内履歴)とは別に、リボンChatGPT()の確定引数prevU/prevA
-'     (台帳§1 #1 第7・8引数)へそのまま渡せる形式=「新しい順;;;区切り」の
-'     mPrevU/mPrevAとしてもセッション保持する(最大 config
-'     followup_max_pairs 既定3ペア)。AskFollowupは既存のAnswer系フローを
-'     そのまま再利用し、追質問文でmodRetrieve.Searchも再実行したうえで、
-'     この履歴をmodGateway.CallLLMのprevU/prevAに添えて出典付き回答を
-'     返す(2速モードは既存どおりui_stateの設定に従う)。
-'   ・深掘り候補(裁定D11): LLM応答末尾の [[FOLLOWUP: 候補1 | 候補2]] を
-'     パースして本文から除去し、「深掘り候補(『続けて質問』でそのまま
-'     聞けます)」ブロックとして本文末尾に整形追記してからRenderAnswerへ
-'     渡す(RenderAnswerの契約は不変)。パースはV2実証済みの
-'     modPipeline.ParseTrailersと同じ流儀の寛容実装で、マーカーが無い応答
-'     (mockLLM応答等)・候補なし・形式崩れでも壊れない(その場合は候補
-'     ブロックなしで正常動作)。履歴(mHistory/mPrevU/mPrevA)には候補
-'     ブロックを含まない除去後の本文だけを積む。
+'   ・quick: Search(topk_quick)→出典先出し→CallLLM(quick_draft)の2段。
+'     deep : Search(topk_deep)→出典先出し→draft→検証(verify)の3段。
+'   ・UI連携はSetStage/RenderSourcesPreview/RenderAnswerの3本のみ。
+'   ・Answer(question, mode)は最終回答テキストのみを返す契約(§7.3)。
+'     hits/nHits・所要秒・実モードはmLast*に保持し、AskFromUIがRenderAnswerへ渡す。
+'   ・質問セルは定義済み名前"mb_question"、モードはui_state(key="mode")から読む。
+'   ・検索0件はLLM未呼び出しで定型文+資料追加案内(E0601はログのみ)。
+'     埋め込み失敗(Search=-1)はE0203案内(LogErrorはGetEmbedding内で完了済み)。
+'   ・CallLLMの"#ERR:E02xx:..."はコードを抽出しmodLog.FriendlyMessageへ変換。
+'   ・質問は3000字打ち切り、空質問は案内のみ。連打防止はmAskingでAskFromUI側がガード。
+'   ・ESC: EnableCancelKey=xlErrorHandler、Err.Number=18は「操作を中断しました」。
+'   ・会話履歴: 直近3往復をmHistoryに保持(V2 modBoot流用)。成功ターンのみ積む。
+'   ・続けて質問(裁定D11): 成功ターンのQ&Aをリボン確定引数prevU/prevA形式
+'     (新しい順;;;区切り)でmPrevU/mPrevAにも保持(最大followup_max_pairsペア)。
+'     AskFollowupはAnswer系フローを再利用しSearchも再実行、prevU/prevAを添えて返す。
+'     mPrevU/mPrevAはVBAリセットに備えmodStateでui_state退避・復元する。
+'   ・深掘り候補(裁定D11): 応答末尾[[FOLLOWUP: 候補1 | 候補2]]をパースして本文から
+'     除去し、「深掘り候補」ブロックとして末尾に整形追記(V2 ParseTrailers流儀の
+'     寛容実装、マーカーなしでも壊れない)。履歴には除去後の本文のみ積む。
 ' ============================================================================
 
 Private Const MODE_QUICK As String = "quick"
@@ -151,6 +118,10 @@ End Function
 '   常にFalse(=機能無効)になるエスケープハッチを兼ねる。
 ' ----------------------------------------------------------------------------
 Public Function CanFollowup() As Boolean
+    If LenB(mPrevU) = 0 Then
+        mPrevU = modState.LoadState("nexus_ask_prevu", "")
+        mPrevA = modState.LoadState("nexus_ask_preva", "")
+    End If
     CanFollowup = (LenB(mPrevU) > 0)
 End Function
 
@@ -842,6 +813,8 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
 
     mPrevU = KeepNewestPairs(mPrevU, maxPairs)
     mPrevA = KeepNewestPairs(mPrevA, maxPairs)
+    modState.SaveState "nexus_ask_prevu", mPrevU
+    modState.SaveState "nexus_ask_preva", mPrevA
 End Sub
 
 ' 「新しい順;;;区切り」文字列の先頭からmaxPairs件だけを残す。

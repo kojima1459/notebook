@@ -361,11 +361,23 @@ Public Sub OnVaultCardClick()
     Dim answer As Long
     answer = MsgBox("『" & srcName & "』" & vbLf & vbLf & _
                     modUtil.SafeLeft(PreviewOf(srcName), 300) & vbLf & vbLf & _
-                    "このナレッジを削除しますか?(いいえ=閉じる)", _
-                    vbYesNo + vbQuestion + vbDefaultButton2, "Nexus Agent - ナレッジ詳細")
+                    "[はい]=削除  /  [いいえ]=" & ChrW(&H26A0) & "ノイズ報告(品質が低いと報告)  /  [キャンセル]=閉じる", _
+                    vbYesNoCancel + vbQuestion + vbDefaultButton2, "Nexus Agent - ナレッジ詳細")
     If answer = vbYes Then
         modShelf.DeleteSource srcName
         OnVaultSearchKeepPage
+    ElseIf answer = vbNo Then
+        Dim votes As Long: votes = modStats.ReportNoise(srcName)
+        Dim need As Long: need = modStats.NoiseThreshold()
+        If votes >= need Then
+            MsgBox "『" & srcName & "』をノイズとして報告しました。" & vbLf & _
+                   "報告が" & need & "件に達したため、この資料は検索対象から除外されました。", _
+                   vbInformation, "Nexus Agent"
+        Else
+            MsgBox "『" & srcName & "』をノイズとして報告しました。(あと" & (need - votes) & _
+                   "件の報告で検索対象から除外されます)", vbInformation, "Nexus Agent"
+        End If
+        OnVaultSearchKeepPage   ' 画面を再描画(既存のプライベートSubを呼ぶ)
     End If
 End Sub
 
@@ -423,11 +435,12 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
             btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
         End If
         With btn.TextFrame2
+            .WordWrap = -1
             .TextRange.Text = CStr(defs(i))
             .TextRange.Font.Size = 8.5
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3
-            .MarginLeft = 2: .MarginRight = 2
+            .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
             If i = 1 Or i = 6 Then
                 .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
             Else
@@ -518,10 +531,13 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     prevBtn.Name = "nxg_pg_prev"
     prevBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     prevBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    prevBtn.TextFrame2.WordWrap = -1
     prevBtn.TextFrame2.TextRange.Text = ChrW(&H25C0) & " 前へ"
     prevBtn.TextFrame2.TextRange.Font.Size = 8.5
     prevBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
     prevBtn.TextFrame2.VerticalAnchor = 3
+    prevBtn.TextFrame2.MarginLeft = 10: prevBtn.TextFrame2.MarginRight = 10
+    prevBtn.TextFrame2.MarginTop = 6: prevBtn.TextFrame2.MarginBottom = 6
     prevBtn.OnAction = "modVault.OnVaultPrev"
 
     Dim pgInfo As Shape
@@ -529,19 +545,25 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     pgInfo.Name = "nxg_pg_info"
     pgInfo.Fill.Visible = 0
     pgInfo.Line.Visible = 0
+    pgInfo.TextFrame2.WordWrap = -1
     pgInfo.TextFrame2.TextRange.Text = (mGalleryPage + 1) & " / " & (maxPage + 1) & " ページ(全" & fCount & "件)"
     pgInfo.TextFrame2.TextRange.Font.Size = 9
     pgInfo.TextFrame2.VerticalAnchor = 3
+    pgInfo.TextFrame2.MarginLeft = 10: pgInfo.TextFrame2.MarginRight = 10
+    pgInfo.TextFrame2.MarginTop = 6: pgInfo.TextFrame2.MarginBottom = 6
 
     Dim nextBtn As Shape
     Set nextBtn = ws.Shapes.AddShape(5, 256, pgY, 70, 22)
     nextBtn.Name = "nxg_pg_next"
     nextBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     nextBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    nextBtn.TextFrame2.WordWrap = -1
     nextBtn.TextFrame2.TextRange.Text = "次へ " & ChrW(&H25B6)
     nextBtn.TextFrame2.TextRange.Font.Size = 8.5
     nextBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
     nextBtn.TextFrame2.VerticalAnchor = 3
+    nextBtn.TextFrame2.MarginLeft = 10: nextBtn.TextFrame2.MarginRight = 10
+    nextBtn.TextFrame2.MarginTop = 6: nextBtn.TextFrame2.MarginBottom = 6
     nextBtn.OnAction = "modVault.OnVaultNext"
 End Sub
 

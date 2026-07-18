@@ -526,11 +526,13 @@ Private Sub DrawBubbles(ByVal ws As Worksheet, ByVal areaX As Double, ByVal area
     titleShp.Line.Visible = 0
     titleShp.Fill.Visible = 0
     With titleShp.TextFrame2
+        .WordWrap = -1
         .TextRange.Text = ChrW(&H1F5FA) & " ナレッジ地図(似た資料のかたまり)"
         .TextRange.Font.Size = 11.5
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         .VerticalAnchor = 3
+        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
     End With
 
     Dim plotX As Double: plotX = areaX
@@ -586,7 +588,7 @@ Private Sub DrawBubbles(ByVal ws As Worksheet, ByVal areaX As Double, ByVal area
             .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3
-            .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
         End With
     Next c
 End Sub
