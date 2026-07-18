@@ -76,6 +76,9 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info")
     On Error Resume Next
+    ' 別ブック誤爆ガード: ユーザーが他の業務Excelを見ている間にToastを描くと、
+    ' 他人のブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
 

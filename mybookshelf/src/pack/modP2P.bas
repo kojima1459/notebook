@@ -546,6 +546,14 @@ Private Function KillRetry(ByVal filePath As String) As Boolean
     For attempt = 1 To 3
         On Error Resume Next
         Err.Clear
+        ' 並行GC耐性: 複数ユーザーが同時に同じ投票/感謝状をGCすると、後着のKillは
+        ' error 53(ファイルなし)になる。「既に無い=削除目的は達成」なので成功扱いにし、
+        ' 無駄な3回×最大1.5秒のリトライ(その間ロック保持)を避ける。
+        If LenB(Dir(filePath)) = 0 Then
+            On Error GoTo 0
+            KillRetry = True
+            Exit Function
+        End If
         Kill filePath
         If Err.Number = 0 Then
             On Error GoTo 0

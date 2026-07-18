@@ -228,6 +228,9 @@ Public Sub Boot()
     gBootDone = True
     On Error Resume Next
     Application.EnableEvents = True   ' 起動中に抑止したイベントを復帰
+    ' 3画面EnsureLayout/LaunchNexusはResume Next保護下で中断し得るため、暗転
+    ' (ScreenUpdating=False)のまま起動完了する経路をここで確実に塞ぐ。
+    Application.ScreenUpdating = True
     On Error GoTo 0
     Exit Sub
 

@@ -57,6 +57,9 @@ Public Sub Leave()
     On Error Resume Next
     Application.Cursor = -4143                  ' xlDefault
     Application.StatusBar = False
+    ' 暗転固定の全クラス対策: 描画ルーチンがScreenUpdating=Falseのままエラー中断しても、
+    ' 全アクションの出口である本Leaveで必ず復帰させる(UIロックアウト=脱出不能の防止)。
+    Application.ScreenUpdating = True
     On Error GoTo 0
     On Error Resume Next
     modUI.ParkFocus                             ' Shape選択解除+アクティブセルpark(C4/A2)

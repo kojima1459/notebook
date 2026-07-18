@@ -265,7 +265,9 @@ Public Sub ToggleTheme()
     If ws Is Nothing Then Exit Sub
 
     Application.ScreenUpdating = False
+    On Error Resume Next   ' 再彩色が中断しても必ず暗転解除へ到達させる
     ApplyTheme ws
+    On Error GoTo 0
     Application.ScreenUpdating = True
 End Sub
 
@@ -304,11 +306,10 @@ Private Sub DisableUndoRedo()
     On Error GoTo 0
 End Sub
 
-' A2/C4: 操作後にShape選択を解除(白い選択ハンドルを消す)し、アクティブセルを
-' 安全な位置へpark(矢印キーでのスクロール崩壊防止)。全アクション完了時に
-' modUiLock.Leaveから必ず呼ばれる。アクティブなNexus系シートに応じてpark先を選ぶ。
+' A2/C4: Shape選択解除+アクティブセルpark(スクロール崩壊防止)。Leaveから必ず呼ばれる。
 Public Sub ParkFocus()
     On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub   ' 別ブックの選択状態を汚さない
     Dim ws As Worksheet
     Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
