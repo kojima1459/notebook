@@ -100,7 +100,12 @@ Public Sub EmitThanks(ByVal topSource As String)
     rowText = nonce & vbTab & myId & vbTab & author & vbTab & _
               SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
-    WriteUtf8Line folderPath & "thx_" & author & "_" & nonce & ".txt", rowText
+    ' ネットワークドライブのロック(実行時エラー70等)に耐えるリトライ書込み
+    If WriteUtf8Retry(folderPath & "thx_" & author & "_" & nonce & ".txt", rowText) Then
+        On Error Resume Next
+        modLog.LogUsage "thanks_emit", "", "to=" & author & " src=" & modUtil.SafeLeft(topSource, 120)
+        On Error GoTo 0
+    End If
 Done:
 End Sub
 
@@ -116,25 +121,44 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     Dim myId As String: myId = CurrentUserId()
     Dim awarded As Long: awarded = 0
 
-    ' 宛先=自分のファイルだけを列挙(ファイル名に宛先を埋め込んでいる)
+    ' 1) 宛先=自分のファイル名を先に全部集める。Dir()列挙中にKill(GC)すると
+    '    列挙がスキップ・破綻するため、必ず「集めてから処理」にする。
+    Dim names() As String: ReDim names(0 To 63)
+    Dim nFiles As Long: nFiles = 0
     Dim fn As String: fn = Dir(folderPath & "thx_" & myId & "_*.txt")
     Do While LenB(fn) > 0
-        Dim rec As String: rec = ReadUtf8All(folderPath & fn)
-        Dim f() As String: f = Split(rec, vbTab)
-        If UBound(f) >= 4 Then
-            Dim nonce As String: nonce = f(0)
-            Dim toU As String: toU = f(2)
-            If StrComp(toU, myId, vbTextCompare) = 0 Then
-                If Not SeenNonce(nonce) Then
-                    MarkNonce nonce
-                    modStats.AddExp "thumbup"
-                    modStats.Bump "thanks_received_total"
-                    awarded = awarded + 1
+        If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+        names(nFiles) = fn
+        nFiles = nFiles + 1
+        fn = Dir()   ' このループ内で他のDir()を呼ばないこと
+    Loop
+
+    ' 2) 処理: リトライ読取り→加点(nonce dedup)→GC(処理済みは削除してDir肥大化防止)
+    Dim i As Long
+    For i = 0 To nFiles - 1
+        Dim full As String: full = folderPath & names(i)
+        Dim rec As String
+        If ReadUtf8Retry(full, rec) Then
+            Dim f() As String: f = Split(rec, vbTab)
+            If UBound(f) >= 4 Then
+                Dim nonce As String: nonce = f(0)
+                If StrComp(f(2), myId, vbTextCompare) = 0 Then
+                    If Not SeenNonce(nonce) Then
+                        MarkNonce nonce
+                        modStats.AddExp "thumbup"
+                        modStats.Bump "thanks_received_total"
+                        On Error Resume Next
+                        modLog.LogUsage "thanks_recv", "", "from=" & f(1) & " src=" & modUtil.SafeLeft(f(3), 120)
+                        On Error GoTo Done
+                        awarded = awarded + 1
+                    End If
+                    ' 自分宛の処理済み(または既知)ファイルはGC。失敗しても
+                    ' nonce重複排除があるので二重加算にはならない(次回再スキップ)。
+                    KillRetry full
                 End If
             End If
         End If
-        fn = Dir()   ' 次のファイル(このループ内で他のDir()を呼ばないこと)
-    Loop
+    Next i
 
     If awarded > 0 And Not silent Then
         MsgBox awarded & "件の「ありがとう」が届きました。" & vbLf & _
@@ -203,26 +227,90 @@ Private Function SanitizeField(ByVal s As String) As String
     SanitizeField = t
 End Function
 
-Private Sub WriteUtf8Line(ByVal filePath As String, ByVal content As String)
-    On Error Resume Next
-    Dim st As Object: Set st = CreateObject("ADODB.Stream")
+' ネットワークドライブのロック(実行時エラー70/55/75等)に耐えるリトライI/O。
+' 失敗時は短時間バックオフ待機して最大3回試行。全滅でも例外は出さず False。
+
+Private Function WriteUtf8Retry(ByVal filePath As String, ByVal content As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If TryWriteUtf8(filePath, content) Then
+            WriteUtf8Retry = True
+            Exit Function
+        End If
+        WaitMs 250 * attempt   ' 250 / 500 / 750ms バックオフ
+    Next attempt
+End Function
+
+Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String) As Boolean
+    Dim st As Object
+    On Error GoTo Fail
+    Set st = CreateObject("ADODB.Stream")
     st.Type = 2          ' adTypeText
     st.Charset = "utf-8"
     st.Open
     st.WriteText content
     st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
     st.Close
-    On Error GoTo 0
-End Sub
-
-Private Function ReadUtf8All(ByVal filePath As String) As String
+    TryWriteUtf8 = True
+    Exit Function
+Fail:
     On Error Resume Next
-    Dim st As Object: Set st = CreateObject("ADODB.Stream")
+    If Not st Is Nothing Then st.Close
+    On Error GoTo 0
+End Function
+
+Private Function ReadUtf8Retry(ByVal filePath As String, ByRef outText As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If TryReadUtf8(filePath, outText) Then
+            ReadUtf8Retry = True
+            Exit Function
+        End If
+        WaitMs 250 * attempt
+    Next attempt
+End Function
+
+Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String) As Boolean
+    Dim st As Object
+    On Error GoTo Fail
+    Set st = CreateObject("ADODB.Stream")
     st.Type = 2
     st.Charset = "utf-8"
     st.Open
     st.LoadFromFile filePath
-    ReadUtf8All = st.ReadText
+    outText = st.ReadText
     st.Close
+    TryReadUtf8 = True
+    Exit Function
+Fail:
+    On Error Resume Next
+    If Not st Is Nothing Then st.Close
     On Error GoTo 0
 End Function
+
+' 処理済み感謝状の削除(GC)。ロック時はバックオフして最大3回。失敗しても無害
+' (nonce重複排除で二重加算は起きない)。
+Private Function KillRetry(ByVal filePath As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        On Error Resume Next
+        Err.Clear
+        Kill filePath
+        If Err.Number = 0 Then
+            On Error GoTo 0
+            KillRetry = True
+            Exit Function
+        End If
+        On Error GoTo 0
+        WaitMs 250 * attempt
+    Next attempt
+End Function
+
+' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。
+Private Sub WaitMs(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do   ' 日跨ぎ(深夜0時)ガード
+    Loop
+End Sub
