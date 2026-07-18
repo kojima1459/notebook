@@ -66,6 +66,18 @@ Public Sub InitUI()
     End With
     On Error GoTo 0
 
+    ' --- 実機耐性(盲点D2/D4/C1): OneDrive自動保存の割り込み停止・ズーム基準固定・
+    '     選択制限。いずれも環境差で例外になり得るのでOn Error Resume Next配下。 ---
+    On Error Resume Next
+    ActiveWorkbook.AutoSaveOn = False   ' D2: 自動保存がVBAへ割り込みクラッシュ/遅延するのを止める
+    ActiveWindow.Zoom = 100             ' D4: Ctrl+ホイール等のズームでShape配置が崩れる基準を100%へ固定
+    ws.EnableSelection = 1              ' C1: xlUnlockedCells(完全抑止はProtect併用時のみ。park運用と併せ誤選択を抑える)
+    On Error GoTo 0
+
+    ' C3: Ctrl+Z/Ctrl+Yを無効化。Shapeと隠しDBの整合が崩れるUndoを封じる
+    '     (RestoreExcelUIで既定へ復元。Auto_Close経由で必ず復元される)。
+    DisableUndoRedo
+
     ' --- キャンバス骨格 ---
     RemoveNexusShapes ws
     ws.Cells.Clear
@@ -94,6 +106,7 @@ Public Sub InitUI()
     mChatBottom = CHAT_TOP
 
     Application.ScreenUpdating = True
+    ParkFocus                 ' A2/C4: Shape選択解除+アクティブセルpark(白ハンドルを出さない)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -270,7 +283,74 @@ Public Sub RestoreExcelUI()
         .DisplayWorkbookTabs = True
         .DisplayHorizontalScrollBar = True
     End With
+    ' C3: Ctrl+Z/Ctrl+Yの無効化を解除(引数省略=Excel既定の動作へ戻す)。
+    Application.OnKey "^z"
+    Application.OnKey "^y"
+    ' D2/D4: 砂時計/ステータスバーも念のため既定へ(緊急脱出時の後始末)。
+    Application.Cursor = -4143   ' xlDefault
+    Application.StatusBar = False
     On Error GoTo 0
+End Sub
+
+' C3: Ctrl+Z(Undo)/Ctrl+Y(Redo)を無効化する。空文字""を渡すと「そのキーを無視」。
+' Nexus表示中はShapeと隠しシート(DB)の整合をUndoが壊すため封じる。復元は
+' RestoreExcelUI(Auto_Close時に必ず呼ばれる)が担う。
+Private Sub DisableUndoRedo()
+    On Error Resume Next
+    Application.OnKey "^z", ""
+    Application.OnKey "^y", ""
+    On Error GoTo 0
+End Sub
+
+' A2/C4: 操作後にShape選択を解除(白い選択ハンドルを消す)し、アクティブセルを
+' 安全な位置へpark(矢印キーでのスクロール崩壊防止)。全アクション完了時に
+' modUiLock.Leaveから必ず呼ばれる。アクティブなNexus系シートに応じてpark先を選ぶ。
+Public Sub ParkFocus()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    If ws Is Nothing Then Exit Sub
+    Application.ScreenUpdating = False
+    If ws.Name = NEXUS_SHEET Then
+        ws.Range("D2").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
+    Else
+        ws.Range("A1").Select   ' Vault/Dashboard等は左上(固定領域)へpark
+    End If
+    Application.ScreenUpdating = True
+    On Error GoTo 0
+End Sub
+
+' 盲点B2/C5: Nexusチャット画面を「壊さずに」再描画する。Shape(会話履歴)は削除せず、
+' ネイティブUI隠蔽・ズーム100%・絶対配置固定・Z-Order・テーマ・フォーカスparkだけを
+' 再適用し、リサイズ/Alt+Tab復帰/マルチモニタ移動で生じたゴーストやズレを解消する。
+' 手動リフレッシュボタン(modApp.OnRefreshUI)から呼ばれる。
+Public Sub Repaint()
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Sub
+
+    Application.ScreenUpdating = False
+    On Error Resume Next
+    Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",False)"
+    Application.DisplayFormulaBar = False
+    Application.DisplayStatusBar = False
+    ActiveWorkbook.AutoSaveOn = False
+    If ActiveSheet Is ws Then
+        With ActiveWindow
+            .DisplayGridlines = False
+            .DisplayHeadings = False
+            .DisplayWorkbookTabs = False
+            .DisplayHorizontalScrollBar = False
+            .Zoom = 100
+        End With
+    End If
+    On Error GoTo 0
+
+    ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
+    FreezeShapePlacement ws  ' 絶対配置に再固定
+    BringFixedToFront ws     ' 固定UIを最前面へ
+    Application.ScreenUpdating = True
+    ParkFocus
 End Sub
 
 ' Phase 1の暫定アクション受け(Phase 2でmodApp=Controllerへ移管)。
@@ -344,9 +424,12 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
     End With
 
     Dim items As Variant
-    items = Array(ChrW(&H1F4AC) & " チャット", ChrW(&H1F4DA) & " ナレッジ倉庫", ChrW(&H1F4CA) & " ダッシュボード")
+    items = Array(ChrW(&H1F4AC) & " チャット", ChrW(&H1F4DA) & " ナレッジ倉庫", _
+                  ChrW(&H1F4CA) & " ダッシュボード", ChrW(&H1F504) & " 画面を再描画")
+    Dim navActions As Variant
+    navActions = Array("modApp.OnNavChat", "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
     Dim i As Long
-    For i = 0 To 2
+    For i = 0 To 3
         Dim nav As Shape
         Set nav = ws.Shapes.AddShape(1, 0, 120 + i * 40, SIDEBAR_W, 38)
         nav.Name = "nx_sb_nav" & (i + 1)
@@ -357,7 +440,7 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
             .MarginLeft = 16
             .VerticalAnchor = 3
         End With
-        nav.OnAction = Array("modApp.OnNavChat", "modApp.OnNavVault", "modApp.OnNavDash")(i)
+        nav.OnAction = CStr(navActions(i))
     Next i
 End Sub
 
@@ -448,16 +531,17 @@ Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     Dim labels As Variant, widths As Variant, kinds As Variant
     labels = Array(ChrW(&H1F44D) & " グッド", ChrW(&H1F44E) & " バッド", _
                    ChrW(&H1F50D) & " 深掘り", ChrW(&H2705) & " 解決した", _
-                   ChrW(&H1F198) & " 本社へ照会", ChrW(&H1F4C4) & " Word出力")
-    widths = Array(70, 70, 70, 80, 92, 88)
-    kinds = Array("good", "bad", "drill", "resolve", "hq", "word")
+                   ChrW(&H1F198) & " 本社へ照会", ChrW(&H1F4C4) & " Word出力", _
+                   ChrW(&H1F4CB) & " コピー")
+    widths = Array(70, 70, 70, 80, 92, 88, 76)
+    kinds = Array("good", "bad", "drill", "resolve", "hq", "word", "copy")
     Dim handlers As Variant
-    handlers = Array("OnActGood", "OnActBad", "OnActDrill", "OnActResolve", "OnActHq", "OnActWord")
+    handlers = Array("OnActGood", "OnActBad", "OnActDrill", "OnActResolve", "OnActHq", "OnActWord", "OnActCopy")
 
     Dim x As Double: x = SIDEBAR_W + CHAT_LEFT_PAD
     Dim topY As Double: topY = TOPBAR_H + 44
     Dim i As Long
-    For i = 0 To 5
+    For i = 0 To 6
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, x, topY, CDbl(widths(i)), ACT_H)
         btn.Name = "nx_fab_" & CStr(kinds(i))

@@ -48,6 +48,12 @@ Option Explicit
 
 Private gBootDone As Boolean
 
+' 軽量マクロ無効ガード(盲点D1)の案内シート名。ビルド時に先頭・可視で作られ、
+' マクロ無効で開かれた場合はこのシートがそのまま見える(壊れたUIを見せない)。
+' 起動が成功したこの経路(HideInternalSheets)でだけ隠す。ビルド側の
+' build_mybookshelf.py の GUARD_SHEET_NAME と文字列を一致させること。
+Private Const GUARD_SHEET As String = "はじめにお読みください"
+
 ' ----------------------------------------------------------------------------
 ' Auto_Open - Boot呼び(ガード付き)
 ' ----------------------------------------------------------------------------
@@ -213,6 +219,12 @@ Public Sub Boot()
         bootStage = ""
     End If
 
+    ' 8.5) 軽量マクロ無効ガード(D1): 起動が成功したので案内シートを隠す
+    '      (Nexus起動後=別シートがアクティブな状態で隠すため確実に隠れる)。
+    On Error Resume Next
+    HideGuardSheet
+    On Error GoTo 0
+
     gBootDone = True
     On Error Resume Next
     Application.EnableEvents = True   ' 起動中に抑止したイベントを復帰
@@ -311,6 +323,30 @@ Private Sub HideInternalSheets()
     HideSheetSafely modAppDef.SH_STATS, HIDDEN
     HideSheetSafely modAppDef.SH_USAGE, HIDDEN
     HideSheetSafely modAppDef.SH_ERRLOG, HIDDEN
+End Sub
+
+' 盲点D1(軽量マクロ無効ガード)の実行時側。起動が成功したのでマクロ有効化の
+' 案内シートを隠す(役目を終えた)。アクティブシートは隠せない仕様のため、隠す前に
+' 別の可視シートへフォーカスを移してから隠す。マクロ無効で開かれた場合はBoot自体が
+' 動かずこの経路に到達しないので、案内は表示されたまま=壊れたUIの代わりに案内が見える。
+Private Sub HideGuardSheet()
+    On Error Resume Next
+    Dim gs As Worksheet
+    Set gs = ThisWorkbook.Worksheets(GUARD_SHEET)
+    If gs Is Nothing Then Exit Sub
+    If ActiveSheet Is gs Then
+        Dim other As Worksheet
+        For Each other In ThisWorkbook.Worksheets
+            If Not (other Is gs) Then
+                If other.Visible = -1 Then   ' xlSheetVisible
+                    other.Activate
+                    Exit For
+                End If
+            End If
+        Next other
+    End If
+    gs.Visible = 0   ' xlSheetHidden
+    On Error GoTo 0
 End Sub
 
 Private Sub HideSheetSafely(ByVal sheetName As String, ByVal visibility As Long)

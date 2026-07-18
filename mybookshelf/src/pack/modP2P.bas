@@ -93,17 +93,25 @@ Public Sub EmitThanks(ByVal topSource As String)
     Dim myId As String: myId = CurrentUserId()
     If StrComp(author, myId, vbTextCompare) = 0 Then Exit Sub  ' 自分自身には送らない
 
+    ' 盲点D5: ファイル名・照合キーは必ずSanitizeIdを通す。作者名にWindowsの
+    ' ファイル名禁止文字(\ / : * ? " < > | , タブ/改行)が混じると、生のままでは
+    ' (a) 共有フォルダでのファイル作成が実行時エラーになる、(b) 受信側は sanitize済の
+    '     自分IDで thx_<myId>_*.txt を集めるため前方一致が崩れ感謝EXPが永久に届かない。
+    ' そこで送信側も宛先キーをsanitizeし、ファイル名・payloadの綴りを両側で一致させる。
+    Dim authorKey As String: authorKey = SanitizeId(author)
+    If LenB(authorKey) = 0 Then Exit Sub
+
     Dim folderPath As String: folderPath = ThanksDir()
     If LenB(folderPath) = 0 Then Exit Sub
     EnsureDir folderPath
 
     Dim nonce As String: nonce = NewNonce(myId)
     Dim rowText As String
-    rowText = nonce & vbTab & myId & vbTab & author & vbTab & _
+    rowText = nonce & vbTab & myId & vbTab & authorKey & vbTab & _
               SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
     ' ネットワークドライブのロック(実行時エラー70等)に耐えるリトライ書込み
-    If WriteUtf8Retry(folderPath & "thx_" & author & "_" & nonce & ".txt", rowText) Then
+    If WriteUtf8Retry(folderPath & "thx_" & authorKey & "_" & nonce & ".txt", rowText) Then
         On Error Resume Next
         modLog.LogUsage "thanks_emit", "", "to=" & author & " src=" & modUtil.SafeLeft(topSource, 120)
         On Error GoTo 0

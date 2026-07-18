@@ -233,6 +233,20 @@
       "wave": "NEXUS-P5"
     },
     {
+      "name": "modUiLock",
+      "path": "src/ui/modUiLock.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P6"
+    },
+    {
+      "name": "modClip",
+      "path": "src/ui/modClip.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P6"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

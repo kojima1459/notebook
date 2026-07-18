@@ -13,9 +13,12 @@ Option Explicit
 
 Private Const SHARE_PATH_DEFAULT As String = "\\pgiofs01\Nexus_Share\"
 Private Const MODE_KEY As String = "nexus_mode"      ' rag / normal
+Private Const MAX_INPUT_CHARS As Long = 2000         ' A3: 入力の最大文字数(超過はカット+警告)
 
+' 連打/多重発火(盲点A1/D7)は modUiLock のグローバルロックへ一本化した。
+' 旧: 本モジュールprivateのmBusy(送信系のみ保護)。全ハンドラが modUiLock.Enter/Leave を
+' 対で使い、正常・異常どちらの経路でも必ず Leave へ到達させる(ロック取りっぱなし防止)。
 Private mActiveBubble As String
-Private mBusy As Boolean
 Private mGenPrevU As String   ' 一般モードの会話履歴(新しい順;;;区切り)
 Private mGenPrevA As String
 
@@ -34,16 +37,24 @@ End Sub
 ' OnSend - 送信ボタン。入力セル(nx_input)を読み、モードに応じて回答生成。
 ' ----------------------------------------------------------------------------
 Public Sub OnSend()
-    If mBusy Then Exit Sub
-    mBusy = True
+    If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
 
     Dim q As String
     q = ReadInputCell()
     If LenB(Trim$(q)) = 0 Then
-        mBusy = False
+        modUiLock.Leave
         MsgBox "メッセージを入力してから送信してください。", vbInformation, "Nexus Agent"
         Exit Sub
+    End If
+
+    ' A3: 異常な文字数の入力を防ぐ。数千文字の貼り付けはShapeの高さ計算限界や
+    '     APIのトークン上限溢れでクラッシュ/エラーを招くため、上限で切って警告する。
+    If Len(q) > MAX_INPUT_CHARS Then
+        q = Left$(q, MAX_INPUT_CHARS)
+        MsgBox "入力が長いため、先頭 " & MAX_INPUT_CHARS & " 文字だけを送信します。" & vbLf & _
+               "長い資料は「ナレッジ倉庫」に取り込んでから質問すると、全文を対象に回答できます。", _
+               vbInformation, "Nexus Agent"
     End If
 
     modUI.AddChatBubble "user", q
@@ -61,7 +72,7 @@ Public Sub OnSend()
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
 
-    mBusy = False
+    modUiLock.Leave
     Exit Sub
 
 Fail:
@@ -71,7 +82,7 @@ Fail:
     modLog.LogError "E0602", "modApp.OnSend", failDesc
     modUI.AddChatBubble "ai", "エラーが発生しました。もう一度お試しください。(" & failDesc & ")"
     On Error GoTo 0
-    mBusy = False
+    modUiLock.Leave
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -92,27 +103,33 @@ End Sub
 ' フローティング・アクションバー(裁定②): 選択中バブルに対して発火
 ' ----------------------------------------------------------------------------
 Public Sub OnActGood()
-    If Not HasTarget() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
     On Error Resume Next
     modStats.Bump "hint_total"
     modLog.LogUsage "feedback_good", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
-    On Error GoTo 0
+    On Error GoTo Done
     MsgBox "ありがとうございます。評価を記録しました。", vbInformation, "Nexus Agent"
+Done:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnActBad()
-    If Not HasTarget() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
     On Error Resume Next
     modStats.Bump "fail_total"
     modLog.LogUsage "feedback_bad", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
-    On Error GoTo 0
+    On Error GoTo Done
 
     ' RLHF簡易版(Phase 2): 正しい内容を教えてもらい、ナレッジとして学習する
     Dim fix As String
     fix = InputBox("この回答の正しい内容・修正点を教えてください。" & vbCrLf & _
                    "入力いただいた内容はナレッジとして学習し、次回から回答に反映されます。" & vbCrLf & _
                    "(空欄のまま閉じると記録のみ行います)", "Nexus Agent - 自己学習")
-    If LenB(Trim$(fix)) = 0 Then Exit Sub
+    If LenB(Trim$(fix)) = 0 Then GoTo Done
 
     Dim body As String
     body = "【修正ナレッジ】" & vbLf & _
@@ -123,17 +140,22 @@ Public Sub OnActBad()
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
     End If
+Done:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnActDrill()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Fail
+
     Dim q As String
     q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
                  "(直前までの会話を踏まえて回答します)", "Nexus Agent - 深掘り")
-    If LenB(Trim$(q)) = 0 Then Exit Sub
-
-    If mBusy Then Exit Sub
-    mBusy = True
-    On Error GoTo Fail
+    If LenB(Trim$(q)) = 0 Then
+        modUiLock.Leave
+        Exit Sub
+    End If
+    If Len(q) > MAX_INPUT_CHARS Then q = Left$(q, MAX_INPUT_CHARS)   ' A3: 上限で切る
 
     modUI.AddChatBubble "user", ChrW(&H1F50D) & " " & q
 
@@ -149,28 +171,38 @@ Public Sub OnActDrill()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
-    mBusy = False
+    modUiLock.Leave
     Exit Sub
 
 Fail:
     Err.Clear
     On Error GoTo 0
-    mBusy = False
+    modUiLock.Leave
 End Sub
 
 Public Sub OnActResolve()
-    If Not HasTarget() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
     modAsk.FeedbackGreen   ' selfsolve_total加算+多重防止は既存ガードに従う
+Done:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnActHq()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next   ' 何が起きてもLeaveへ到達させる(ロック取りっぱなし=永久フリーズ防止)
     MsgBox "本社システムへの照会は準備中です。" & vbLf & _
            "(Phase 4で共有フォルダ " & SharePath() & " 連携として実装予定)", _
            vbInformation, "Nexus Agent"
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnActWord()
-    If Not HasTarget() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
     Dim answerBody As String
     answerBody = TargetText()
 
@@ -182,13 +214,39 @@ Public Sub OnActWord()
                    vbInformation, "Nexus Agent"
         End If
     End If
+Done:
+    modUiLock.Leave
+End Sub
+
+' 📋 コピー(盲点C2/D6): 選択中(無ければ最新)のAIバブル本文をクリップボードへ。
+' Shape(図形)の文字は手で綺麗にコピーできないため明示ボタンを用意し、文字化けしない
+' Unicode方式(modClip)で格納する。
+Public Sub OnActCopy()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
+    Dim t As String: t = TargetText()
+    If LenB(t) = 0 Then GoTo Done
+    If modClip.SetClipboardText(t) Then
+        MsgBox "回答をクリップボードにコピーしました。" & vbLf & _
+               "貼り付けたい場所で Ctrl+V を押してください。", vbInformation, "Nexus Agent"
+    Else
+        MsgBox "コピーに失敗しました。お使いの環境では手動での選択をお試しください。", _
+               vbExclamation, "Nexus Agent"
+    End If
+Done:
+    modUiLock.Leave
 End Sub
 
 ' ----------------------------------------------------------------------------
 ' OnAttachImage - 📎 クリップボード画像でVisionチャット(GPTV連携)
 ' ----------------------------------------------------------------------------
 Public Sub OnAttachImage()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Fail
+
     If modConfig.GetBool("mock_llm", True) Then
+        modUiLock.Leave
         MsgBox "画像チャットは本番環境(AIリボンあり)でのみ動作します。", vbInformation, "Nexus Agent"
         Exit Sub
     End If
@@ -196,6 +254,7 @@ Public Sub OnAttachImage()
     Dim hasImg As Variant
     hasImg = modFeatures.InvokeFeature("vision", "HasClipboardImage", Array())
     If VarType(hasImg) = vbString Or Not CBool(hasImg) Then
+        modUiLock.Leave
         MsgBox "クリップボードに画像がありません。" & vbCrLf & _
                "画面をコピー(Win+Shift+S等)してから、もう一度押してください。", _
                vbInformation, "Nexus Agent"
@@ -205,10 +264,7 @@ Public Sub OnAttachImage()
     Dim prompt As String
     prompt = ReadInputCell()
     If LenB(Trim$(prompt)) = 0 Then prompt = "この画像の内容を読み取り、要点を説明してください。"
-
-    If mBusy Then Exit Sub
-    mBusy = True
-    On Error GoTo Fail
+    If Len(prompt) > MAX_INPUT_CHARS Then prompt = Left$(prompt, MAX_INPUT_CHARS)   ' A3: 上限で切る
 
     modUI.AddChatBubble "user", ChrW(&H1F4CE) & "(画像) " & prompt
     ClearInputCell
@@ -231,30 +287,59 @@ Public Sub OnAttachImage()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
-    mBusy = False
+    modUiLock.Leave
     Exit Sub
 
 Fail:
     Err.Clear
     On Error GoTo 0
-    mBusy = False
+    modUiLock.Leave
 End Sub
 
 ' ----------------------------------------------------------------------------
 ' ナビゲーション(SPA遷移)・モード/言語トグル
 ' ----------------------------------------------------------------------------
 Public Sub OnNavChat()
+    If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     ThisWorkbook.Worksheets("Nexus").Activate
     On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnNavVault()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modVault.ShowVaultGallery
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnNavDash()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modDash.ShowDashboard
+    On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
+' 🔄 画面を再描画(盲点B2/C5): ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の
+' 移動でShapeがゴースト化/ズレたとき、ユーザーが1クリックで現在の画面を作り直す。
+' 自己インストーラ配布版ではWorkbook_WindowActivate等が発火しない制約があるため、
+' 自動ではなく明示的なリフレッシュ手段を提供する。アクティブな画面に応じて振り分け:
+'   Nexus     → 会話履歴を壊さず視覚不変条件だけ再適用(modUI.Repaint)
+'   Dashboard → データから再構築(modDash)
+'   その他    → ナレッジ倉庫をデータから再構築(modVault)
+Public Sub OnRefreshUI()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    Select Case ActiveSheet.Name
+        Case "Nexus":     modUI.Repaint
+        Case "Dashboard": modDash.ShowDashboard
+        Case Else:        modVault.ShowVaultGallery
+    End Select
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnToggleMode()

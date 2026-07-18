@@ -70,8 +70,15 @@ APP_TITLE = "マイ本棚AI"
 EXCEL_CELL_LIMIT = 32000        # Excelの技術上限(セル1個あたりの文字数)
 MODULE_CONTRACT_LIMIT = 30000   # MASTER_SPEC §7 の契約上限(1モジュールあたり)
 
+# 軽量マクロ無効ガード: マクロが無効なまま開かれた場合(Boot未実行)に最初に
+# 見える案内シート。ビルド側の責務は「先頭シート・アクティブ・visible」で
+# 保存するところまで。Boot成功後にこれを隠すのはランタイム側(modBoot等)の
+# 責務であり、このビルドスクリプトは一切hideしない。
+GUARD_SHEET_NAME = "はじめにお読みください"
+
 # MASTER_SPEC §4 のシート定義(名前 -> 可視性)。ビルド完了判定・自己検証の両方で使う。
 EXPECTED_SHEETS = {
+    GUARD_SHEET_NAME: "visible",
     "使い方": "visible",
     "ホーム": "visible",
     "マイ本棚": "visible",
@@ -201,6 +208,51 @@ def _banner(ws, text):
     ws["A1"].font = Font(bold=True, size=16, color="FFFFFF")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 32
+
+
+def _make_macro_guard(wb):
+    """はじめにお読みください シート: マクロ無効ガード(軽量版)。
+    マクロが無効なまま開かれると自己インストーラ(Workbook_Open)が走らず
+    Bootも実行されないため、他の画面は素のプレースホルダーのまま(=中途半端な
+    画面)になる。それを避けるため、このシートを常に先頭・アクティブ・visible
+    にしてビルドする。マクロが有効化されればBoot側がこのシートを隠す
+    (そちらの実装はこのビルドスクリプトの管轄外・ここでは一切hideしない)。
+    index=0 で作成することで、後続の create_sheet(ホーム/マイ本棚/…)が
+    末尾に追加されても本シートは常に最左タブのまま残る。"""
+    ws = wb.create_sheet(GUARD_SHEET_NAME, 0)
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 100
+    for col in ("B", "C", "D", "E", "F"):
+        ws.column_dimensions[col].width = 14
+
+    bg = PatternFill("solid", fgColor="FFF9E6")   # 明るい中立背景
+    ink = "1F2933"                                 # 濃色文字(テーマ非依存)
+
+    entries = [
+        (2, "⚡ Nexus Agent", Font(bold=True, size=22, color=ink), 40),
+        (4,
+         "このファイルを使うには、上の黄色いバーの［コンテンツの有効化］ボタンを押して、"
+         "マクロ(コンテンツ)を有効にしてください。",
+         Font(size=13, color=ink), 60),
+        (6, "有効化すると、この案内は自動的に消え、AIチャット画面が表示されます。",
+         Font(size=12, color="3E4C59"), 34),
+        (8, "※ 有効化しても画面が変わらない場合は、ファイルを一度閉じて開き直してください。",
+         Font(size=11, italic=True, color="52606D"), 34),
+    ]
+    for row, text, font, height in entries:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.font = font
+        cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+        ws.row_dimensions[row].height = height
+
+    # 背景を軽く塗って独立した案内ページに見えるようにする(装飾のみ)
+    for r in range(1, 10):
+        for c in range(1, 7):
+            ws.cell(row=r, column=c).fill = bg
+
+    ws.sheet_state = "visible"
+    return ws
 
 
 def _make_howto(wb):
@@ -559,6 +611,16 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
     if got_sheets != want_sheets:
         errors.append(f"シート集合が不一致: 期待={sorted(want_sheets)} 実際={sorted(got_sheets)}")
 
+    # 軽量マクロ無効ガード: 先頭シート・アクティブシートであることを検証
+    # (マクロ無効時に開いた瞬間、他の何より先にこの案内が見える必要がある)。
+    if wb2.sheetnames and wb2.sheetnames[0] != GUARD_SHEET_NAME:
+        errors.append(
+            f"'{GUARD_SHEET_NAME}' が先頭シートになっていません: 実際の先頭={wb2.sheetnames[0]!r}")
+    active_title = wb2.active.title if wb2.active is not None else None
+    if active_title != GUARD_SHEET_NAME:
+        errors.append(
+            f"アクティブシートが'{GUARD_SHEET_NAME}'ではありません: 実際={active_title!r}")
+
     for name, state in EXPECTED_SHEETS.items():
         if name in wb2.sheetnames:
             actual = wb2[name].sheet_state
@@ -701,7 +763,8 @@ def main():
     wb = openpyxl.load_workbook(args.template, keep_vba=True)
     print(f"  初期シート: {wb.sheetnames}")
 
-    print("Stage 2: シート生成 (MASTER_SPEC §4 全13シート)...")
+    print("Stage 2: シート生成 (MASTER_SPEC §4 全13シート + 軽量マクロ無効ガード)...")
+    _make_macro_guard(wb)
     _make_howto(wb)
     _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
@@ -741,6 +804,14 @@ def main():
         sys.exit(f"ERROR: シート構成がMASTER_SPEC §4と不一致: {wb.sheetnames}")
 
     print("Stage 3: openpyxl保存 (vbaProject.binはスケルトンのまま保持)...")
+    # マクロ無効ガードを常に先頭・アクティブにする(マクロ無効時に最初に見える
+    # ようにするため)。_make_macro_guard がindex=0で作成しているので通常は
+    # 既に先頭だが、保存直前にここで再度保証する。
+    guard_idx = wb.sheetnames.index(GUARD_SHEET_NAME)
+    if guard_idx != 0:
+        sheets = wb._sheets
+        sheets.insert(0, sheets.pop(guard_idx))
+    wb.active = 0
     with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
         tmp_path = tmp.name
     wb.save(tmp_path)
