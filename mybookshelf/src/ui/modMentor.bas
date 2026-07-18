@@ -132,6 +132,128 @@ Done:
 End Sub
 
 ' ----------------------------------------------------------------------------
+' CollectQuestions - 受信側(往復ループの完結)。自分宛の質問(q_<自分hash>_*.txt)を
+'   回収し、チャットバブル+Toastで受け取る。感謝状と同型のcollect-then-process
+'   +nonce重複排除(modStats "mq:"キー)。エントリポイントはmodApp.LaunchNexus末尾
+'   の1行フック(UI初期化後=バブル/Toastが確実に描ける唯一のタイミング)。
+'   本Sub自身がOn Error GoTo Doneで全障害を握るため、呼び出し元へは波及しない。
+' ----------------------------------------------------------------------------
+Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
+    On Error GoTo Done   ' 安全弁: 受信の失敗でメイン(起動)を絶対に止めない
+
+    Dim folderPath As String: folderPath = QuestionsDir()
+    If LenB(folderPath) = 0 Then Exit Sub
+    If LenB(Dir(folderPath, vbDirectory)) = 0 Then Exit Sub   ' 共有未達→静かに撤退
+
+    Dim myId As String
+    On Error Resume Next
+    myId = modP2P.CurrentUserId()
+    On Error GoTo Done
+    If LenB(myId) = 0 Then Exit Sub
+
+    ' 1) 宛先=自分のファイル名を全部集める(Dir列挙中にKillしない=列挙破壊防止)
+    Dim names() As String: ReDim names(0 To 31)
+    Dim nFiles As Long: nFiles = 0
+    Dim fn As String: fn = Dir(folderPath & "q_" & modUtil.Fnv1a64Hex(myId) & "_*.txt")
+    Do While LenB(fn) > 0
+        If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 32)
+        names(nFiles) = fn
+        nFiles = nFiles + 1
+        fn = Dir()
+    Loop
+
+    ' 2) 読取り→nonce重複排除→バブル表示(最大3件。以降は件数のみ)→GC
+    Dim newCount As Long: newCount = 0
+    Dim shown As Long: shown = 0
+    Dim i As Long
+    For i = 0 To nFiles - 1
+        Dim full As String: full = folderPath & names(i)
+        Dim rec As String
+        If ReadUtf8WithRetry(full, rec) Then
+            Dim f() As String: f = Split(rec, vbTab)
+            If UBound(f) >= 5 Then
+                If StrComp(f(2), myId, vbTextCompare) = 0 Then
+                    If modStats.GetStat("mq:" & f(0)) = 0 Then
+                        modStats.Bump "mq:" & f(0)
+                        newCount = newCount + 1
+                        If shown < 3 Then
+                            shown = shown + 1
+                            On Error Resume Next
+                            modUI.AddChatBubble "ai", _
+                                ChrW(&H1F4EE) & " " & f(1) & " さんからあなた宛の質問が届いています。" & vbLf & _
+                                "「" & modUtil.SafeLeft(f(3), 400) & "」" & vbLf & _
+                                "(関連資料: " & modUtil.SafeLeft(f(4), 60) & " / " & f(5) & ")"
+                            modLog.LogUsage "mentor_recv", "", "from=" & f(1) & " q=" & modUtil.SafeLeft(f(3), 120)
+                            On Error GoTo Done
+                        End If
+                    End If
+                    KillWithRetry full   ' 処理済み(既知含む)はGC。nonceで二重表示は防止済み
+                End If
+            End If
+        End If
+    Next i
+
+    If newCount > 0 And Not silent Then
+        modSkin.ShowToast "あなた宛の質問が " & newCount & " 件届いています。チャット欄をご確認ください。", "success"
+    End If
+Done:
+End Sub
+
+' 読取りリトライ(AVロック耐性。COMは両経路Set=Nothing)。
+Private Function ReadUtf8WithRetry(ByVal filePath As String, ByRef outText As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If TryReadOnce(filePath, outText) Then
+            ReadUtf8WithRetry = True
+            Exit Function
+        End If
+        MentorWait 250 * attempt
+    Next attempt
+End Function
+
+Private Function TryReadOnce(ByVal filePath As String, ByRef outText As String) As Boolean
+    Dim st As Object
+    On Error GoTo Fail
+    Set st = CreateObject("ADODB.Stream")
+    st.Type = 2
+    st.Charset = "utf-8"
+    st.Open
+    st.LoadFromFile filePath
+    outText = CStr(st.ReadText(-1))
+    st.Close
+    Set st = Nothing
+    TryReadOnce = True
+    Exit Function
+Fail:
+    On Error Resume Next
+    If Not st Is Nothing Then st.Close
+    Set st = Nothing
+    On Error GoTo 0
+End Function
+
+' 削除リトライ(並行GC耐性: 既に無い=達成として即成功)。
+Private Function KillWithRetry(ByVal filePath As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        On Error Resume Next
+        Err.Clear
+        If LenB(Dir(filePath)) = 0 Then
+            On Error GoTo 0
+            KillWithRetry = True
+            Exit Function
+        End If
+        Kill filePath
+        If Err.Number = 0 Then
+            On Error GoTo 0
+            KillWithRetry = True
+            Exit Function
+        End If
+        On Error GoTo 0
+        MentorWait 250 * attempt
+    Next attempt
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部: 専門家の特定(スコア上位の出典から順に、pack作者を探す)
 ' ----------------------------------------------------------------------------
 ' 直近回答のヒットはスコア降順(modRetrieveがソート済み)なので、先頭から走査し

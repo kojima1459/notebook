@@ -169,7 +169,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     shp.Adjustments(1) = 0.08   ' 角丸を小さめに(HTMLの12px相当)
     With shp.TextFrame2
         .WordWrap = -1
-        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 8: .MarginBottom = 8
+        .MarginLeft = 12: .MarginRight = 12: .MarginTop = 9: .MarginBottom = 9
         .TextRange.Text = bodyText
         .TextRange.Font.Size = 10.5
         .TextRange.ParagraphFormat.Alignment = 0   ' 左揃え

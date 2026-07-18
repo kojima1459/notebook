@@ -31,6 +31,7 @@ Public Sub LaunchNexus()
         "こんにちは。Nexus Agentです。" & vbLf & _
         "上のモードボタンで「社内ナレッジ検索」(本棚の資料から出典付きで回答)と" & _
         "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。"
+    modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収(失敗は内部で握る=安全弁)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -46,7 +47,7 @@ Public Sub OnSend()
     q = ReadInputCell()
     If LenB(Trim$(q)) = 0 Then
         modUiLock.Leave
-        modSkin.ShowToast "メッセージを入力してから送信してください。", "info"
+        modSkin.ShowToast "はじめにメッセージをご入力ください。ご質問をお待ちしています。", "info"
         Exit Sub
     End If
 
@@ -151,7 +152,7 @@ Public Sub OnActGood()
     modStats.Bump "hint_total"
     modLog.LogUsage "feedback_good", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
     On Error GoTo Done
-    modSkin.ShowToast "評価を記録しました。ありがとうございます。", "success"
+    modSkin.ShowToast "フィードバックありがとうございます。今後の回答の質に活かします。", "success"
 Done:
     modUiLock.Leave
 End Sub
@@ -177,7 +178,7 @@ Public Sub OnActBad()
            "対象の回答(抜粋): " & modUtil.SafeLeft(TargetText(), 400) & vbLf & vbLf & _
            "正しい内容: " & fix
     If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
-        modSkin.ShowToast "学習しました。次回の回答から反映されます。", "success"
+        modSkin.ShowToast "教えていただきありがとうございます。次回の回答から反映します。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
     End If
@@ -237,7 +238,7 @@ End Sub
 Public Sub OnActHq()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next   ' 何が起きてもLeaveへ到達させる(ロック取りっぱなし=永久フリーズ防止)
-    modSkin.ShowToast "本社への照会は準備中です(Phase 4で実装予定)。", "info"
+    modSkin.ShowToast "本社への照会機能は準備中です。公開までいましばらくお待ちください。", "info"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -271,7 +272,7 @@ Public Sub OnActCopy()
     Dim t As String: t = TargetText()
     If LenB(t) = 0 Then GoTo Done
     If modClip.SetClipboardText(t) Then
-        modSkin.ShowToast "コピーしました。貼り付けは Ctrl+V。", "success"
+        modSkin.ShowToast "回答をコピーしました。Ctrl+V でどこへでも貼り付けできます。", "success"
     Else
         MsgBox "コピーに失敗しました。お使いの環境では手動での選択をお試しください。", _
                vbExclamation, "Nexus Agent"

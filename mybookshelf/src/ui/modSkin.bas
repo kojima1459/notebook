@@ -44,6 +44,21 @@ Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     If nm = "nx_top_bg" Or Left$(nm, 7) = "nx_fab_" Or nm = "nx_sb_bg" Then
         ApplySoftShadow shp
     End If
+    ' 深み(Depth)の演出: 送信ボタンだけ同系グリーンの極微グラデーション
+    ' (明るい緑→深い緑)。多用は描画負荷になるため主役の1ボタンに限定する。
+    If nm = "nx_top_send" Then ApplyGreenDepth shp
+    On Error GoTo 0
+End Sub
+
+' MS&ADグリーンの微細な縦グラデーション(フラットの中の上質なマテリアル感)。
+' テーマ再適用(ApplyTheme)でベタ塗りに戻ることがあるが、BeautifyAll経由で再適用される。
+Public Sub ApplyGreenDepth(ByVal shp As Shape)
+    On Error Resume Next
+    With shp.Fill
+        .TwoColorGradient 1, 1        ' msoGradientHorizontal, variant1(上→下)
+        .ForeColor.RGB = RGB(22, 163, 88)    ' わずかに明るい緑
+        .BackColor.RGB = RGB(0, 122, 55)     ' 深い緑
+    End With
     On Error GoTo 0
 End Sub
 
@@ -97,18 +112,19 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     shp.Line.Visible = 0
     shp.Placement = 3   ' xlFreeFloating
 
-    Dim bg As Long, fg As Long
+    ' 種別アイコン(視覚的認知スピード): 成功✅ / 注意⚠️ / 情報💡
+    Dim bg As Long, fg As Long, icon As String
     Select Case LCase$(kind)
-        Case "success": bg = RGB(0, 168, 89):  fg = RGB(255, 255, 255)
-        Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255)
-        Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252)
+        Case "success": bg = RGB(0, 168, 89):  fg = RGB(255, 255, 255): icon = ChrW(&H2705)
+        Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255): icon = ChrW(&H26A0)
+        Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252): icon = ChrW(&H1F4A1)
     End Select
     shp.Fill.ForeColor.RGB = bg
 
     With shp.TextFrame2
         .WordWrap = -1
-        .MarginLeft = 14: .MarginRight = 14: .MarginTop = 4: .MarginBottom = 4
-        .TextRange.Text = message
+        .MarginLeft = 16: .MarginRight = 16: .MarginTop = 5: .MarginBottom = 5
+        .TextRange.Text = icon & " " & message
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 10.5
         .TextRange.ParagraphFormat.Alignment = 2   ' 中央
