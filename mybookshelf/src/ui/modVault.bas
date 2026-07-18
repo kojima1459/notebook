@@ -270,6 +270,7 @@ Public Sub ShowVaultGallery()
     DrawGalleryFrame ws
     RenderGalleryCards ws
     modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
+    modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 
     ws.Visible = -1
     ws.Activate
@@ -456,6 +457,7 @@ End Sub
 Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     RemoveShapesByPrefix ws, "nxg_card"
     RemoveShapesByPrefix ws, "nxg_pg_"
+    RemoveShapesByPrefix ws, "nxg_empty"
 
     Dim keyword As String
     keyword = LCase$(Trim$(CStr(ws.Range("B4").Value)))
@@ -500,12 +502,58 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     ReDim mGalleryNames(0 To CARDS_PER_PAGE - 1)
 
     If fCount = 0 Then
-        With ws.Range("B7:G8")
-            .Merge
-            .Value = "ナレッジがありません(または検索に一致しません)。「➕ 登録」または「📁 追加」から始めましょう。"
-            .Font.Size = 10
-            .Font.Color = RGB(107, 114, 128)
+        ' Empty State(空の状態): 空白で放置せず、透かしアイコン+誘導CTAを配置する。
+        On Error Resume Next
+        ws.Range("B7:G8").UnMerge
+        ws.Range("B7:G8").ClearContents
+        On Error GoTo 0
+
+        Dim icon As Shape
+        Set icon = ws.Shapes.AddShape(1, 30, 150, 640, 60)
+        icon.Name = "nxg_empty_icon"
+        icon.Fill.Visible = 0: icon.Line.Visible = 0
+        With icon.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = ChrW(&H1F50D)   ' 虫めがね
+            .TextRange.Font.Size = 40
+            .TextRange.ParagraphFormat.Alignment = 2
         End With
+        icon.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(148, 163, 184)
+
+        Dim emsg As Shape
+        Set emsg = ws.Shapes.AddShape(1, 30, 214, 640, 46)
+        emsg.Name = "nxg_empty_msg"
+        emsg.Fill.Visible = 0: emsg.Line.Visible = 0
+        With emsg.TextFrame2
+            .WordWrap = -1
+            If LenB(keyword) > 0 Then
+                .TextRange.Text = "「" & ws.Range("B4").Value & "」に一致するナレッジが見つかりません。" & vbLf & _
+                                  "AIにこの質問を投げて、新しいナレッジを作りませんか?"
+            Else
+                .TextRange.Text = "まだナレッジがありません。" & vbLf & _
+                                  "「➕ 登録」「📁 追加」で資料を取り込むか、AIに質問してみましょう。"
+            End If
+            .TextRange.Font.Size = 11
+            .TextRange.ParagraphFormat.Alignment = 2
+        End With
+        emsg.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
+
+        Dim cta As Shape
+        Set cta = ws.Shapes.AddShape(5, 280, 268, 140, 34)
+        cta.Name = "nxg_empty_cta"
+        cta.Adjustments(1) = 0.3
+        cta.Line.Visible = 0
+        cta.Fill.ForeColor.RGB = modUI.UiColor("primary")
+        With cta.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = ChrW(&H1F4AC) & " AIに質問する"
+            .TextRange.Font.Size = 10.5
+            .TextRange.Font.Bold = -1
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+        End With
+        cta.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        cta.OnAction = "modVault.OnVaultBackToChat"
     Else
         On Error Resume Next
         ws.Range("B7:G8").UnMerge

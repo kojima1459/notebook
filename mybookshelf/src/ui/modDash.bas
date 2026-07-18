@@ -174,6 +174,7 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     DrawChartPlaceholder ws
     DrawAdminSection ws
     modUI.FreezeShapePlacement ws   ' 全Shape(クラスタ円含む)を絶対配置に固定
+    modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 End Sub
 
 ' ---- ヘッダー ----

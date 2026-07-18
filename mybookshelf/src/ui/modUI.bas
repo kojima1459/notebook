@@ -103,6 +103,7 @@ Public Sub InitUI()
     ApplyTheme ws
     FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     BringFixedToFront ws      ' 固定UIを最前面へ(Z-Order維持)
+    modSkin.BeautifyAll ws    ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
     mChatBottom = CHAT_TOP
 
     Application.ScreenUpdating = True
@@ -181,6 +182,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     If Not isUser Then shp.OnAction = "modApp.OnSelectBubble"
 
     PaintBubble shp, isUser
+    modSkin.StyleBubble shp  ' Yu Gothic UI(バブルはフラット=影は選択時のみ)
     mChatBottom = shp.Top + shp.Height
 
     CapBubbles ws            ' 古い吹き出しを間引いてShape増殖(32bitクラッシュ)を防ぐ
@@ -349,6 +351,7 @@ Public Sub Repaint()
     ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
     FreezeShapePlacement ws  ' 絶対配置に再固定
     BringFixedToFront ws     ' 固定UIを最前面へ
+    modSkin.BeautifyAll ws   ' フォント統一+固定クロムに柔らかい影
     Application.ScreenUpdating = True
     ParkFocus
 End Sub
@@ -372,14 +375,8 @@ Public Function UiTheme() As String
     UiTheme = CurrentTheme()
 End Function
 
-' ----------------------------------------------------------------------------
-' FreezeShapePlacement - シート上の全Shapeを「セル非依存の絶対配置」に固定する。
-'   既定のShapeはセル(行高・列幅)に追従して移動/伸縮する(xlMoveAndSize)ため、
-'   実機の列幅差・スクロール・裏の処理負荷でパーツがズレて見える。描画完了後に
-'   本Subを1回呼び、全Shapeを xlFreeFloating(=3)にすることで、Top/Leftの絶対
-'   ピクセル座標のまま1ミリもズレない鉄壁配置にする。各画面(Nexus/Vault/
-'   Dashboard)の描画終端から共通して呼ぶ(実装の単一情報源)。
-' ----------------------------------------------------------------------------
+' FreezeShapePlacement - 全Shapeをセル非依存の絶対配置(xlFreeFloating=3)へ固定し、
+'   列幅差・スクロール・処理負荷でのズレを防ぐ。各画面の描画終端から呼ぶ。
 Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
     On Error Resume Next
     Dim shp As Shape
@@ -545,7 +542,7 @@ Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, x, topY, CDbl(widths(i)), ACT_H)
         btn.Name = "nx_fab_" & CStr(kinds(i))
-        btn.Adjustments(1) = 0.5
+        btn.Adjustments(1) = 0.28   ' 浅めの角丸(Webアプリ風のシャープでモダンな角)
         With btn.TextFrame2
             .TextRange.Text = CStr(labels(i))
             .TextRange.Font.Size = 8.5
@@ -617,8 +614,8 @@ Private Function ThemeColor(ByVal key As String) As Long
         Case "text":          ThemeColor = IIf(dark, RGB(248, 250, 252), RGB(17, 24, 39))
         Case "muted":         ThemeColor = IIf(dark, RGB(148, 163, 184), RGB(107, 114, 128))
         Case "border":        ThemeColor = IIf(dark, RGB(51, 65, 85), RGB(229, 231, 235))
-        Case "primary":       ThemeColor = IIf(dark, RGB(59, 130, 246), RGB(37, 99, 235))
-        Case "accent":        ThemeColor = RGB(16, 185, 129)
+        Case "primary":       ThemeColor = IIf(dark, RGB(52, 168, 96), RGB(0, 137, 62))
+        Case "accent":        ThemeColor = RGB(0, 168, 89)
         Case "userBubble":    ThemeColor = IIf(dark, RGB(51, 65, 85), RGB(239, 246, 255))
         Case "aiBubble":      ThemeColor = IIf(dark, RGB(30, 41, 59), RGB(255, 255, 255))
         Case "sidebar":       ThemeColor = IIf(dark, RGB(11, 15, 25), RGB(17, 24, 39))
@@ -817,8 +814,12 @@ Public Sub MarkActiveBubble(ByVal shapeName As String)
                 shp.Line.Visible = -1
                 shp.Line.ForeColor.RGB = ThemeColor("primary")
                 shp.Line.Weight = 1.75
+                modSkin.ApplySoftShadow shp   ' Active State: 選択中バブルだけ浮遊させる
             Else
                 PaintBubble shp, False
+                On Error Resume Next
+                shp.Shadow.Visible = 0        ' 非選択はフラットへ戻す
+                On Error GoTo 0
             End If
         End If
     Next shp

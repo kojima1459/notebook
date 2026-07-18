@@ -44,7 +44,7 @@ Public Sub OnSend()
     q = ReadInputCell()
     If LenB(Trim$(q)) = 0 Then
         modUiLock.Leave
-        MsgBox "メッセージを入力してから送信してください。", vbInformation, "Nexus Agent"
+        modSkin.ShowToast "メッセージを入力してから送信してください。", "info"
         Exit Sub
     End If
 
@@ -110,7 +110,7 @@ Public Sub OnActGood()
     modStats.Bump "hint_total"
     modLog.LogUsage "feedback_good", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
     On Error GoTo Done
-    MsgBox "ありがとうございます。評価を記録しました。", vbInformation, "Nexus Agent"
+    modSkin.ShowToast "評価を記録しました。ありがとうございます。", "success"
 Done:
     modUiLock.Leave
 End Sub
@@ -136,7 +136,7 @@ Public Sub OnActBad()
            "対象の回答(抜粋): " & modUtil.SafeLeft(TargetText(), 400) & vbLf & vbLf & _
            "正しい内容: " & fix
     If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
-        MsgBox "学習しました。次回の回答から反映されます。", vbInformation, "Nexus Agent"
+        modSkin.ShowToast "学習しました。次回の回答から反映されます。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
     End If
@@ -192,9 +192,7 @@ End Sub
 Public Sub OnActHq()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next   ' 何が起きてもLeaveへ到達させる(ロック取りっぱなし=永久フリーズ防止)
-    MsgBox "本社システムへの照会は準備中です。" & vbLf & _
-           "(Phase 4で共有フォルダ " & SharePath() & " 連携として実装予定)", _
-           vbInformation, "Nexus Agent"
+    modSkin.ShowToast "本社への照会は準備中です(Phase 4で実装予定)。", "info"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -228,8 +226,7 @@ Public Sub OnActCopy()
     Dim t As String: t = TargetText()
     If LenB(t) = 0 Then GoTo Done
     If modClip.SetClipboardText(t) Then
-        MsgBox "回答をクリップボードにコピーしました。" & vbLf & _
-               "貼り付けたい場所で Ctrl+V を押してください。", vbInformation, "Nexus Agent"
+        modSkin.ShowToast "コピーしました。貼り付けは Ctrl+V。", "success"
     Else
         MsgBox "コピーに失敗しました。お使いの環境では手動での選択をお試しください。", _
                vbExclamation, "Nexus Agent"
