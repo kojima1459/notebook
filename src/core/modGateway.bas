@@ -119,7 +119,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
 
 ErrHandler:
     latency_ms = CLng((Timer - t0) * 1000)
-    modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & Err.Description
+    modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & Err.Description, Err.Number
     CallLLM = "#ERR:E0202:" & Err.Description
 End Function
 
@@ -178,7 +178,7 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
 
 ErrHandler:
     latency_ms = CLng((Timer - t0) * 1000)
-    modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description
+    modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description, Err.Number
 End Function
 
 ' ribbon経由の単発埋め込みの実体。GetEmbedding(公開API)と、direct失敗時の
@@ -408,7 +408,7 @@ Public Function TryRibbonRun(ByVal funcName As String, ByVal args As Variant) As
     Exit Function
 
 ErrHandler:
-    modLog.LogError "E0202", "modGateway.TryRibbonRun", funcName & " : " & Err.Description
+    modLog.LogError "E0202", "modGateway.TryRibbonRun", funcName & " : " & Err.Description, Err.Number
     TryRibbonRun = "#ERR:E0202:" & Err.Description
 End Function
 
@@ -500,8 +500,11 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
     http.Send body
 
     If CLng(http.Status) <> 200 Then
+        ' http_statusを構造化フィールドへ渡す(社内プロキシに阻まれた場合の407等、
+        ' err_logを見た瞬間に原因が分かるようにするため)。
         modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
-            "HTTP " & http.Status & ": " & modUtil.SafeLeft(CStr(http.responseText), 200) & "(ribbonへフォールバック)"
+            "HTTP " & http.Status & ": " & modUtil.SafeLeft(CStr(http.responseText), 200) & "(ribbonへフォールバック)", _
+            0, CLng(http.Status)
         DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
         GoTo Cleanup
     End If
@@ -541,8 +544,11 @@ Cleanup:
     Exit Function
 
 HttpFail:
+    ' Err.Clearの前に必ず番号を退避する(社内プロキシ接続拒否等のCOM/WinHTTPエラー
+    ' 番号を握りつぶさないため)。
+    Dim httpFailNum As Long: httpFailNum = Err.Number
     modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
-        "通信エラー: " & Err.Description & "(ribbonへフォールバック)"
+        "通信エラー: " & Err.Description & "(ribbonへフォールバック)", httpFailNum
     Err.Clear
     On Error GoTo 0
     DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)

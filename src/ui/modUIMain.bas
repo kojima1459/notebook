@@ -388,6 +388,43 @@ End Sub
 Public Sub OnRunDiag()
     On Error GoTo Fail
     modDiag.RunDiagnostics
+    AddDiagCopyErrorsButton
+    Exit Sub
+Fail:
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' diag_reportシートに「📋直近のエラーをコピー」ボタンを追加する。
+' modDiag.RunDiagnostics自体はdiag_reportを毎回削除→再生成する基盤層(src/core)
+' の処理なので、Shape追加(UI操作)はここUI層で完結させる(R1: 基盤層は
+' 上位層を呼ばない)。シートは毎回作り直されるため、このSubもRunDiagnostics
+' の直後に毎回呼ぶ必要がある。
+Private Sub AddDiagCopyErrorsButton()
+    On Error GoTo Fail
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("diag_report")
+    AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "📋 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
+    Exit Sub
+Fail:
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' 「📋直近のエラーをコピー」ボタン: err_logの直近5件(コード・モジュール/関数名・
+' 生エラー番号・HTTPステータス・詳細)を整形テキストにしてクリップボードへ
+' コピーする。実機環境の壁(社内プロキシのエラー407、共有フォルダのエラー52/70等)
+' に遭遇したとき、利用者がコードを読まずそのまま開発者へ貼り付けて渡せるように
+' するための導線。
+Public Sub OnCopyRecentErrors()
+    On Error GoTo Fail
+    Dim text As String: text = modDiag.RecentErrorsForClipboard()
+    If modClip.SetClipboardText(text) Then
+        MsgBox "直近のエラーをコピーしました。そのまま貼り付けて共有してください。", _
+               vbInformation, modAppDef.APP_NAME
+    Else
+        MsgBox "コピーに失敗しました。お手数ですが、diag_reportシートの内容を" & vbLf & _
+               "スクリーンショットして共有してください。", vbExclamation, modAppDef.APP_NAME
+    End If
     Exit Sub
 Fail:
     Err.Clear

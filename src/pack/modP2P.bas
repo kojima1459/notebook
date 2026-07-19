@@ -116,7 +116,7 @@ Public Sub EmitThanks(ByVal topSource As String)
               SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
     ' ネットワークドライブのロック(実行時エラー70等)に耐えるリトライ書込み
-    If WriteUtf8Retry(folderPath & "thx_" & modUtil.Fnv1a64Hex(authorKey) & "_" & nonce & ".txt", rowText) Then
+    If WriteUtf8Retry(folderPath & "thx_" & modUtil.Fnv1a64Hex(authorKey) & "_" & nonce & ".txt", rowText, "modP2P.EmitThanks") Then
         On Error Resume Next
         modLog.LogUsage "thanks_emit", "", "to=" & author & " src=" & modUtil.SafeLeft(topSource, 120)
         On Error GoTo 0
@@ -155,7 +155,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     For i = 0 To nFiles - 1
         Dim full As String: full = folderPath & names(i)
         Dim rec As String
-        If ReadUtf8Retry(full, rec) Then
+        If ReadUtf8Retry(full, rec, "modP2P.CollectThanks") Then
             Dim f() As String: f = Split(rec, vbTab)
             If UBound(f) >= 4 Then
                 Dim nonce As String: nonce = f(0)
@@ -210,14 +210,9 @@ Public Sub EmitNoiseVote(ByVal source As String)
     ' 行うためreporter部の綴りには非依存(payloadに生myIdを保持し報告者一覧は復元可能)。
     Dim votePath As String
     votePath = folderPath & "noise_" & srcHash & "_" & modUtil.Fnv1a64Hex(myId) & ".txt"
-    If Not WriteUtf8Retry(votePath, content) Then
-        ' 3回リトライしても書けなかった。従来は握り潰していたが、SRE監査Phase2.1に従い
-        ' 沈黙のデータ欠損を可観測にする(重複排除により二重投票にはならない)。
-        On Error Resume Next
-        modLog.LogError "E0705", "modP2P.EmitNoiseVote", _
-            "noise vote write failed src=" & modUtil.SafeLeft(source, 80)
-        On Error GoTo Done
-    End If
+    ' 3回リトライしても書けなかった場合のE0705記録はWriteUtf8Retry内で一元化済み
+    ' (重複排除により二重投票にはならないので、ここでは追加の対応は不要)。
+    WriteUtf8Retry votePath, content, "modP2P.EmitNoiseVote"
 Done:
 End Sub
 
@@ -259,7 +254,7 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     Dim i As Long
     For i = 0 To nFlags - 1
         Dim frec As String
-        If ReadUtf8Retry(folderPath & flagNames(i), frec) Then
+        If ReadUtf8Retry(folderPath & flagNames(i), frec, "modP2P.CollectNoiseVotes") Then
             Dim ff() As String: ff = Split(frec, vbTab)
             If UBound(ff) >= 0 Then
                 If LenB(ff(0)) > 0 Then
@@ -285,7 +280,7 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     Dim reporters As Object: Set reporters = CreateObject("Scripting.Dictionary"): reporters.CompareMode = 0
     For i = 0 To nVotes - 1
         Dim vrec As String
-        If ReadUtf8Retry(folderPath & voteNames(i), vrec) Then
+        If ReadUtf8Retry(folderPath & voteNames(i), vrec, "modP2P.CollectNoiseVotes") Then
             Dim vf() As String: vf = Split(vrec, vbTab)
             If UBound(vf) >= 1 Then
                 Dim who As String: who = vf(0)
@@ -328,7 +323,7 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
             repList = ""
             If reporters.Exists(s) Then repList = CStr(reporters(s))
             WriteUtf8Retry folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
-                s & vbTab & modUtil.NowStamp() & vbTab & SanitizeField(repList)
+                s & vbTab & modUtil.NowStamp() & vbTab & SanitizeField(repList), "modP2P.CollectNoiseVotes"
         End If
         GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
     Next k
@@ -477,18 +472,34 @@ End Function
 ' ネットワークドライブのロック(実行時エラー70/55/75等)に耐えるリトライI/O。
 ' 失敗時は短時間バックオフ待機して最大3回試行。全滅でも例外は出さず False。
 
-Private Function WriteUtf8Retry(ByVal filePath As String, ByVal content As String) As Boolean
+' 3回リトライしても書けなかった場合、握りつぶさずE0705として記録する
+' (SRE監査Phase2.1の方針をEmitNoiseVote以外の全書込み経路にも拡張。
+' 実機環境の壁(共有フォルダのアクセス権限・セキュリティソフトのブロック等=
+' エラー52/70想定)を、利用者が🩺診断の「コピー」ボタンでそのまま
+' 開発者へ伝えられるようにするため、err_number構造化フィールドに残す)。
+' context: 実際に呼んでいるPublic関数名を "modP2P.XxxYyy" 形式で呼び出し元が渡す
+' (LogErrorのcontext引数は「modX.Y」形式だとYがPublicか契約チェックされるため
+' 「§7」、Private助手関数自身の名前は使えない。呼び出し元ごとに正しい実体を
+' 渡すことで、どの機能から起きた失敗かerr_log上で見分けられるようにする)。
+Private Function WriteUtf8Retry(ByVal filePath As String, ByVal content As String, _
+                                ByVal context As String) As Boolean
     Dim attempt As Long
+    Dim lastNum As Long, lastDesc As String
     For attempt = 1 To 3
-        If TryWriteUtf8(filePath, content) Then
+        If TryWriteUtf8(filePath, content, lastNum, lastDesc) Then
             WriteUtf8Retry = True
             Exit Function
         End If
         WaitMs 250 * attempt   ' 250 / 500 / 750ms バックオフ
     Next attempt
+    On Error Resume Next
+    modLog.LogError "E0705", context, _
+        "3回リトライしても書込み失敗: " & modUtil.SafeLeft(filePath, 300) & " : " & lastDesc, lastNum
+    On Error GoTo 0
 End Function
 
-Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String) As Boolean
+Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String, _
+                              Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
     Dim st As Object
     On Error GoTo Fail
     Set st = CreateObject("ADODB.Stream")
@@ -502,24 +513,41 @@ Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String)
     TryWriteUtf8 = True
     Exit Function
 Fail:
+    ' Err.Clear相当が起きる前に必ず先頭で退避する(以降のOn Error Resume Next/
+    ' st.Closeで上書きされないようにするため)。
+    outErrNum = Err.Number
+    outErrDesc = Err.Description
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
     On Error GoTo 0
 End Function
 
-Private Function ReadUtf8Retry(ByVal filePath As String, ByRef outText As String) As Boolean
+Private Function ReadUtf8Retry(ByVal filePath As String, ByRef outText As String, _
+                               ByVal context As String) As Boolean
     Dim attempt As Long
+    Dim lastNum As Long, lastDesc As String
     For attempt = 1 To 3
-        If TryReadUtf8(filePath, outText) Then
+        If TryReadUtf8(filePath, outText, lastNum, lastDesc) Then
             ReadUtf8Retry = True
             Exit Function
         End If
         WaitMs 250 * attempt
     Next attempt
+    ' エラー53(ファイルが見つかりません)は、列挙後に他ユーザーの並行GCで
+    ' ファイルが消えた正常な競合(このモジュール冒頭のKillRetryコメント参照)。
+    ' 想定内の自己解決ケースなのでログを汚さない。それ以外(52/70等の
+    ' アクセス権限・ネットワーク瞬断)のみE0705として記録する。
+    If lastNum <> 53 Then
+        On Error Resume Next
+        modLog.LogError "E0705", context, _
+            "3回リトライしても読込み失敗: " & modUtil.SafeLeft(filePath, 300) & " : " & lastDesc, lastNum
+        On Error GoTo 0
+    End If
 End Function
 
-Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String) As Boolean
+Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String, _
+                             Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
     Dim st As Object
     On Error GoTo Fail
     Set st = CreateObject("ADODB.Stream")
@@ -533,6 +561,8 @@ Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String) 
     TryReadUtf8 = True
     Exit Function
 Fail:
+    outErrNum = Err.Number
+    outErrDesc = Err.Description
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
@@ -540,9 +570,11 @@ Fail:
 End Function
 
 ' 処理済み感謝状の削除(GC)。ロック時はバックオフして最大3回。失敗しても無害
-' (nonce重複排除で二重加算は起きない)。
+' (nonce重複排除で二重加算は起きない)。err_logは汚さず、診断用にusage_logへ
+' だけ記録する(GC失敗は非致命なので🩺診断の「直近のエラー」には出さない)。
 Private Function KillRetry(ByVal filePath As String) As Boolean
     Dim attempt As Long
+    Dim lastNum As Long
     For attempt = 1 To 3
         On Error Resume Next
         Err.Clear
@@ -555,7 +587,8 @@ Private Function KillRetry(ByVal filePath As String) As Boolean
             Exit Function
         End If
         Kill filePath
-        If Err.Number = 0 Then
+        lastNum = Err.Number
+        If lastNum = 0 Then
             On Error GoTo 0
             KillRetry = True
             Exit Function
@@ -563,6 +596,9 @@ Private Function KillRetry(ByVal filePath As String) As Boolean
         On Error GoTo 0
         WaitMs 250 * attempt
     Next attempt
+    On Error Resume Next
+    modLog.LogUsage "p2p_gc_failed", "", "3回リトライしても削除失敗 err#" & lastNum & ": " & modUtil.SafeLeft(filePath, 300)
+    On Error GoTo 0
 End Function
 
 ' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。

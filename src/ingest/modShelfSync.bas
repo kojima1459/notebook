@@ -370,7 +370,7 @@ Failed:
     Dim failNum As Long: failNum = Err.Number
     Dim failDesc As String: failDesc = Err.Description
     On Error Resume Next
-    modLog.LogError "E0801", "modShelfSync.SyncNow", "[" & uiStep & "] err#" & failNum & ": " & failDesc
+    modLog.LogError "E0801", "modShelfSync.SyncNow", "[" & uiStep & "] err#" & failNum & ": " & failDesc, failNum
     modUIMain.SetStage ""
     On Error GoTo 0
 
@@ -659,12 +659,25 @@ Private Sub MarkFolderScopeMissing(ByVal folder As String)
     End If
 End Sub
 
+' 失敗時は0を返し呼び出し元(SyncNowの差分判定)を止めないが、共有フォルダの
+' アクセス権限・セキュリティソフトのブロック等(エラー52/70想定)を握りつぶさず
+' E0801として記録する(🩺診断「直近のエラーをコピー」導線・実機環境の壁対策)。
+' エラー53(ファイル未検出。Dir走査直後にファイルが消えた等の一過性競合)は
+' 次回同期で自然に解消するためログを汚さない。
 Private Function SafeFileLen(ByVal path As String) As Double
     On Error GoTo Fail
     SafeFileLen = CDbl(FileLen(path))
     Exit Function
 Fail:
     SafeFileLen = 0
+    ' 契約チェック対策: LogErrorのcontext引数は「modX.Y」形式だとYがPublicか
+    ' 検証されるため(§7)、Private助手関数の名前ではなく実際のPublic呼び出し
+    ' 元(SyncNow)を書き、助手関数名はdetail側に含める。
+    If Err.Number <> 53 Then
+        On Error Resume Next
+        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileLen: " & modUtil.SafeLeft(path, 300) & " : " & Err.Description, Err.Number
+        On Error GoTo 0
+    End If
 End Function
 
 Private Function SafeFileDateTime(ByVal path As String) As Date
@@ -673,4 +686,9 @@ Private Function SafeFileDateTime(ByVal path As String) As Date
     Exit Function
 Fail:
     SafeFileDateTime = Now
+    If Err.Number <> 53 Then
+        On Error Resume Next
+        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileDateTime: " & modUtil.SafeLeft(path, 300) & " : " & Err.Description, Err.Number
+        On Error GoTo 0
+    End If
 End Function

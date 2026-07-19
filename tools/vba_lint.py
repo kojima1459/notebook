@@ -124,7 +124,7 @@ CONTRACT: dict[str, dict] = {
     },
     "modDiag": {
         "closed": True,
-        "required": ["RunDiagnostics", "QuickHealthCheck"],
+        "required": ["RunDiagnostics", "QuickHealthCheck", "RecentErrorsForClipboard"],
     },
     # ---- 7.2 取込層 ----
     # modExtractorWord / modExtractorExcel / modExtractorAcrobat は

@@ -23,7 +23,15 @@ Option Explicit
 '     modConfigからmodLogを呼び返すことはしない(modConfig側のコメント参照)。
 ' ============================================================================
 
-Public Sub LogError(ByVal code As String, ByVal context As String, ByVal detail As String)
+' err_number/http_status(共にOptional・既定0=情報なし): 実機環境の壁
+' (社内プロキシのエラー407、共有フォルダ/P2Pのエラー52・70等)を、利用者が
+' コードを読まずにそのまま開発者へ伝えられるようにするための生の診断情報。
+' 追加は末尾Optionalのため、この2つを渡さない既存の全呼び出し元は無改修で
+' 動く(後方互換)。err_number=Err.Number(VBA実行時エラー番号)、
+' http_status=HTTPレスポンスコード(direct埋め込み等、生のHTTP応答がある
+' 場合のみ)。
+Public Sub LogError(ByVal code As String, ByVal context As String, ByVal detail As String, _
+                    Optional ByVal err_number As Long = 0, Optional ByVal http_status As Long = 0)
     On Error GoTo Fail
     Dim ws As Worksheet: Set ws = EnsureLogSheet(modAppDef.SH_ERRLOG, ErrLogHeader())
     If ws Is Nothing Then GoTo Fail
@@ -34,9 +42,12 @@ Public Sub LogError(ByVal code As String, ByVal context As String, ByVal detail 
     ws.Cells(r, 3).Value = modUtil.SafeLeft(context, 255)
     ws.Cells(r, 4).Value = modUtil.SafeLeft(detail, 2000)
     ws.Cells(r, 5).Value = modAppDef.APP_VERSION
+    ws.Cells(r, 6).Value = err_number
+    ws.Cells(r, 7).Value = http_status
 
     If modConfig.GetBool("debug_mode", False) Then
-        Debug.Print "[modLog.LogError] " & code & " " & context & " : " & detail
+        Debug.Print "[modLog.LogError] " & code & " " & context & " : " & detail & _
+            " (err#" & err_number & " http=" & http_status & ")"
     End If
     Exit Sub
 Fail:
@@ -124,6 +135,10 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0703"
             FriendlyMessage = "書き出す内容に個人情報らしきものが見つかりました。" & _
                 "内容を確認してから、書き出しを続けるかどうか判断してください。"
+        Case "E0705"
+            FriendlyMessage = "共有フォルダへの書き込み/読み込みに失敗しました" & _
+                "(ネットワークの瞬断・アクセス権限・セキュリティソフトのブロック等の可能性があります)。" & _
+                "この処理は自動でスキップされましたが、通常は次回の🔄同期で再試行されます。"
         Case "E0801"
             FriendlyMessage = "画面の組み立てに失敗しました(データは失われていませんのでご安心ください)。" & _
                 "ブックを一度閉じて開き直せば、元どおり使えます。"
@@ -145,7 +160,7 @@ End Sub
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 Private Function ErrLogHeader() As Variant
-    ErrLogHeader = Array("timestamp", "code", "context", "detail", "version")
+    ErrLogHeader = Array("timestamp", "code", "context", "detail", "version", "err_number", "http_status")
 End Function
 
 Private Function UsageLogHeader() As Variant

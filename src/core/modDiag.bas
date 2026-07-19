@@ -268,3 +268,81 @@ Private Function RecentErrors(ByRef lines() As String) As Long
 Fail:
     RecentErrors = 0
 End Function
+
+' ----------------------------------------------------------------------------
+' RecentErrorsForClipboard - 🩺診断シートの「📋直近のエラーをコピー」ボタン
+' (modUIMain.OnCopyRecentErrors)専用。err_logの直近5件を、コード・モジュール/
+' 関数名(context)・生エラー番号・HTTPステータス・詳細まで含めて、そのまま
+' 開発者へ貼り付けられる整形テキストにして返す。クリップボードへの実書込み
+' 自体はUI層(modClip)の責務のため、ここでは文字列を返すだけに留める
+' (R1: 基盤層は上位層を呼ばない)。
+' ----------------------------------------------------------------------------
+Public Function RecentErrorsForClipboard() As String
+    Dim blocks() As String
+    Dim n As Long: n = RecentErrorsDetailed(blocks)
+    If n = 0 Then
+        RecentErrorsForClipboard = "直近のエラーはありません。"
+        Exit Function
+    End If
+
+    Dim out As String
+    out = modAppDef.APP_NAME & " v" & modAppDef.APP_VERSION & "  直近のエラー(" & n & "件・新しい順)" & vbCrLf & _
+          "========================================" & vbCrLf
+    Dim i As Long
+    For i = 0 To n - 1
+        out = out & blocks(i) & vbCrLf & "----------------------------------------" & vbCrLf
+    Next i
+    RecentErrorsForClipboard = out
+End Function
+
+' err_logシート末尾から最大5件を新しい順に取り出す(コピー用・詳細版)。
+' 1件=複数行のブロック文字列(timestamp/code/context/err_number/http_status/detail)。
+Private Function RecentErrorsDetailed(ByRef blocks() As String) As Long
+    ReDim blocks(0 To 4)
+    If Not SheetExists(modAppDef.SH_ERRLOG) Then
+        RecentErrorsDetailed = 0
+        Exit Function
+    End If
+
+    On Error GoTo Fail
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(modAppDef.SH_ERRLOG)
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then
+        RecentErrorsDetailed = 0
+        Exit Function
+    End If
+
+    Dim startR As Long: startR = lastR - 4
+    If startR < 2 Then startR = 2
+
+    Dim n As Long: n = 0
+    Dim i As Long
+    For i = lastR To startR Step -1
+        Dim ts As String: ts = CStr(ws.Cells(i, 1).Value)
+        Dim code As String: code = CStr(ws.Cells(i, 2).Value)
+        Dim ctx As String: ctx = CStr(ws.Cells(i, 3).Value)
+        Dim detail As String: detail = CStr(ws.Cells(i, 4).Value)
+        ' err_number/http_status(F/G列)は旧バージョンで作られたシートには
+        ' 存在しない場合があるため、読み取り自体を1行スコープで保護する。
+        Dim errNum As String: errNum = ""
+        Dim httpStatus As String: httpStatus = ""
+        On Error Resume Next
+        errNum = CStr(ws.Cells(i, 6).Value)
+        httpStatus = CStr(ws.Cells(i, 7).Value)
+        On Error GoTo Fail
+
+        Dim block As String
+        block = "[" & ts & "] " & code & "  " & ctx
+        If LenB(errNum) > 0 And errNum <> "0" Then block = block & "  (err#" & errNum & ")"
+        If LenB(httpStatus) > 0 And httpStatus <> "0" Then block = block & "  (HTTP " & httpStatus & ")"
+        block = block & vbCrLf & detail
+
+        blocks(n) = block
+        n = n + 1
+    Next i
+    ReDim Preserve blocks(0 To n - 1)
+    RecentErrorsDetailed = n
+    Exit Function
+Fail:
+    RecentErrorsDetailed = 0
+End Function
