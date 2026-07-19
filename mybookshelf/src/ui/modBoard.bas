@@ -46,7 +46,27 @@ Public Sub BootBoard()
     PublishBeacon
     RefreshBoard
     DrawWidget
+    ShowWeeklySummary      ' B-5: 週の初回起動時だけ、先週の節約時間を労いToast
     On Error GoTo 0
+End Sub
+
+' 週次サマリー(B-5): その週の初回起動時に1回だけ、先週の個人合計をToastで返す。
+' ガードはISO風の年+週番号キー(wk:yyyww)。sv:d:日付キーを7日分読むだけ。
+Private Sub ShowWeeklySummary()
+    Dim wkKey As String
+    wkKey = "wk:" & Format$(Date, "yyyy") & Format$(DatePart("ww", Date, vbMonday), "00")
+    If modStats.GetStat(wkKey) > 0 Then Exit Sub
+    modStats.Bump wkKey
+
+    ' 先週(直近の月曜の7日前〜日曜)の個人合計
+    Dim mon As Date: mon = Date - Weekday(Date, vbMonday) + 1   ' 今週の月曜
+    Dim total As Long, i As Long
+    For i = 1 To 7
+        total = total + MyMin("d", Format$(mon - i, "yyyymmdd"))
+    Next i
+    If total <= 0 Then Exit Sub   ' ゼロ週は何も言わない(空虚な自慢をしない)
+
+    modSkin.ShowToast "先週、あなたはこのツールで " & FmtMin(total) & " を取り戻しました。今週もいいスタートを。", "success"
 End Sub
 
 ' ----------------------------------------------------------------------------

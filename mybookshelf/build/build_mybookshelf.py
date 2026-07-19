@@ -170,6 +170,7 @@ def build_config_rows(mock_llm: bool):
         ("exp_register", 20, "ゲーミフィケーション: ナレッジ登録1件で得るEXP"),
         ("exp_thumbup", 10, "ゲーミフィケーション: 🟢自己解決(役立った)1回で得るEXP"),
         ("exp_pack_share", 30, "ゲーミフィケーション: パック共有(出力)1回で得るEXP"),
+        ("exp_feedback", 5, "ゲーミフィケーション: ご意見箱(フィードバック/バグ報告)1回で得るEXP(1日1回まで)"),
         ("exp_level_divisor", 100, "ゲーミフィケーション: レベル計算の除数。Lv=Int(√(EXP/除数))+1"),
         ("user_department", "", "分析用: あなたの部署名(分析CSVの部署比較フラグ列に入る。空なら未設定)"),
         ("noise_global_threshold", 2, "ナレッジ自浄: 異なるN人からの⚠️ノイズ報告(P2P集計)でその資料を全ユーザーの検索から組織的除外する閾値"),

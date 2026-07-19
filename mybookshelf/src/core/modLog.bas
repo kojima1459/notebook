@@ -73,8 +73,8 @@ Public Function FriendlyMessage(ByVal code As String) As String
             FriendlyMessage = "AIリボンが見つからず、AIに問い合わせできませんでした。" & _
                 "AIリボン入りのExcelで開き直すか、🩺診断ボタンで状態を確認してください。"
         Case "E0202"
-            FriendlyMessage = "AIからの応答がエラーになったか、空でした。" & _
-                "時間を置いてからもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
+            FriendlyMessage = "AIとの通信が混み合っているようです(あなたの操作に問題はありません)。" & _
+                "数十秒おいてもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
         Case "E0203"
             FriendlyMessage = "文章をAIが読める形に変換する処理(埋め込み取得)に失敗しました。" & _
                 "時間を置いてからもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
@@ -113,8 +113,8 @@ Public Function FriendlyMessage(ByVal code As String) As String
             FriendlyMessage = "本棚の中に手がかりが見つかりませんでした。" & _
                 "資料が本棚に入っているか確認するか、資料を追加してから試してください。"
         Case "E0602"
-            FriendlyMessage = "回答の作成に失敗しました。" & _
-                "もう一度質問を実行してください。"
+            FriendlyMessage = "うまく回答をまとめられませんでした(こちら側の処理の都合です)。" & _
+                "お手数ですが、もう一度送信してください。続く場合は質問の言い回しを少し変えると通ることがあります。"
         Case "E0701"
             FriendlyMessage = "パックの形式が正しくないか、バージョンが合っていません。" & _
                 "相手にパックの再書き出しを依頼してください。"
@@ -125,14 +125,14 @@ Public Function FriendlyMessage(ByVal code As String) As String
             FriendlyMessage = "書き出す内容に個人情報らしきものが見つかりました。" & _
                 "内容を確認してから、書き出しを続けるかどうか判断してください。"
         Case "E0801"
-            FriendlyMessage = "画面の再構築に失敗しました。" & _
-                "ブックを閉じて、もう一度開き直してください。"
+            FriendlyMessage = "画面の組み立てに失敗しました(データは失われていませんのでご安心ください)。" & _
+                "ブックを一度閉じて開き直せば、元どおり使えます。"
         Case "E0901"
             FriendlyMessage = "診断で問題が見つかりました。" & _
                 "診断レポートの指示に従って対応してください。"
         Case Else
-            FriendlyMessage = "予期しない問題が発生しました。" & _
-                "時間を置いてもう一度お試しいただき、続くようなら管理者へ連絡してください。"
+            FriendlyMessage = "予期しない問題が発生しました(あなたの操作のせいではありません)。" & _
+                "時間を置いてもう一度お試しいただき、続くようなら右上の ? から「ご意見・不具合報告」で教えてください。"
     End Select
 End Function
 

@@ -225,6 +225,13 @@ Public Sub Boot()
     HideGuardSheet
     On Error GoTo 0
 
+    ' 8.6) ホットキー登録: Ctrl+Shift+Q=一撃召喚 / Ctrl+Enter=送信(Nexus上のみ発火)。
+    '      解除はAuto_Close(既存のCtrl+Z解除と同じライフサイクル)。
+    On Error Resume Next
+    Application.OnKey "^+q", "modApp.SummonNexus"
+    Application.OnKey "^~", "modApp.HotSend"
+    On Error GoTo 0
+
     gBootDone = True
     On Error Resume Next
     Application.EnableEvents = True   ' 起動中に抑止したイベントを復帰
@@ -283,6 +290,8 @@ Public Sub Auto_Close()
     ' Nexusが隠したネイティブUI(リボン等)を必ず復元する
     On Error Resume Next
     modUI.RestoreExcelUI
+    Application.OnKey "^+q"   ' ホットキーも既定へ戻す(残存するとブック閉鎖後にエラー)
+    Application.OnKey "^~"
     On Error GoTo 0
 
     On Error Resume Next

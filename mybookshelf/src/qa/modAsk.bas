@@ -741,7 +741,7 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     End If
 
     Dim disp As String
-    disp = body & vbLf & vbLf & "🔎 深掘り候補(『続けて質問』でそのまま聞けます):"
+    disp = body & vbLf & vbLf & ChrW(&H1F4A1) & " さらに深掘り(『深掘り』ボタンでそのまま聞けます):"
     Dim fl() As String
     fl = Split(cands, vbLf)
     Dim i As Long

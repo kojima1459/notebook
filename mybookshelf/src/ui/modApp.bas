@@ -29,9 +29,10 @@ Public Sub LaunchNexus()
     modUI.InitUI
     RestoreLastConversation      ' ④前回の続きを薄く復元(失敗しても挨拶へ進む)
     modUI.AddChatBubble "ai", _
-        "こんにちは。Nexus Agentです。" & vbLf & _
+        TimeGreeting() & " Nexus Agentです。" & vbLf & _
         "上のモードボタンで「社内ナレッジ検索」(本棚の資料から出典付きで回答)と" & _
-        "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。"
+        "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。" & vbLf & _
+        "(送信は Ctrl+Enter、呼び出しはどこからでも Ctrl+Shift+Q が使えます)"
     On Error Resume Next         ' 以降は追加機能のフック(各自が内部で握るが二重に防護)
     modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計+サイドバーウィジェット
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
@@ -102,8 +103,25 @@ Public Sub OnSend()
                vbInformation, "Nexus Agent"
     End If
 
+    ' 遊び心: 弱音キーワードはAPIに投げず、関西弁コンシェルジュが即座に労う
+    ' (意図的なタイミング限定・完全ローカルなので事故りようがない)
+    If IsTiredWords(q) Then
+        modUI.AddChatBubble "user", q
+        ClearInputCell
+        modUI.AddChatBubble "ai", ComfortMessage()
+        modUiLock.Leave
+        Exit Sub
+    End If
+
     modUI.AddChatBubble "user", q
     ClearInputCell
+
+    ' 体感速度ハック: 待ち時間の無反応(壊れた?)を防ぐため、考え中バブルを即時表示。
+    ' 回答が来たら削除して本物を追加する(in-place置換はバブル高さ管理と衝突するため
+    ' 削除→追加方式。小さな余白が残るだけで崩れない)。
+    Dim phName As String
+    phName = modUI.AddChatBubble("ai", ChrW(&H1F4AD) & " 考えています…")
+    DoEvents
 
     Dim ans As String
     If CurrentMode() = "normal" Then
@@ -111,6 +129,10 @@ Public Sub OnSend()
     Else
         ans = modAsk.Answer(q, RagSpeed())
     End If
+
+    On Error Resume Next
+    If LenB(phName) > 0 Then ThisWorkbook.Worksheets("Nexus").Shapes(phName).Delete
+    On Error GoTo Fail
 
     Dim bubbleName As String
     bubbleName = modUI.AddChatBubble("ai", ans)
@@ -450,6 +472,7 @@ Public Sub OnLangCycle()
         Case "日本語": nextLang = "English"
         Case "English": nextLang = "中文"
         Case "中文": nextLang = "Tiếng Việt"
+        Case "Tiếng Việt": nextLang = "関西弁"   ' 遊び心: シークレット・オプション
         Case Else: nextLang = "日本語"
     End Select
     modConfig.SetValue "answer_language", nextLang
@@ -459,6 +482,66 @@ Public Sub OnLangCycle()
         ChrW(&H1F310) & " " & nextLang & "で回答"
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' ホットキー(modBootが登録/解除): Ctrl+Shift+Q=一撃召喚 / Ctrl+Enter=送信
+' ----------------------------------------------------------------------------
+' Ctrl+Shift+Q: どのブック・シートで作業中でも一瞬でNexusへ(軽量Activateのみ。
+' LaunchNexusのフル再描画は呼ばない=速い&会話を消さない)。
+Public Sub SummonNexus()
+    On Error Resume Next
+    ThisWorkbook.Activate
+    ThisWorkbook.Worksheets("Nexus").Activate
+    modUI.ParkFocus
+    On Error GoTo 0
+End Sub
+
+' Ctrl+Enter: Nexus画面がアクティブな時だけ送信を発火。他のブック上では何もしない
+' (副作用: 他ブックでのCtrl+Enter一括入力は本ブックを開いている間は効かなくなる。
+' 稀用途とのトレードオフとしてオーナー承認済み)。
+Public Sub HotSend()
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
+    If ActiveSheet.Name <> "Nexus" Then Exit Sub
+    On Error GoTo 0
+    OnSend
+End Sub
+
+' ----------------------------------------------------------------------------
+' 遊び心(血の通った余白): 時間帯挨拶/弱音への関西弁コンシェルジュ
+' ----------------------------------------------------------------------------
+Private Function TimeGreeting() As String
+    Dim h As Long: h = Hour(Now)
+    If h >= 5 And h < 10 Then
+        TimeGreeting = "おはようございます。今日もスムーズにいきましょう。"
+    ElseIf h >= 20 Or h < 5 Then
+        TimeGreeting = "こんな時間までお疲れ様です。キリのいいところで切り上げてくださいね。"
+    Else
+        TimeGreeting = "こんにちは。"
+    End If
+End Function
+
+Private Function IsTiredWords(ByVal q As String) As Boolean
+    Dim t As String: t = Trim$(q)
+    If Len(t) > 12 Then Exit Function   ' 長文は業務の質問(誤発動防止)
+    IsTiredWords = (InStr(t, "疲れた") > 0 Or InStr(t, "つかれた") > 0 Or _
+                    InStr(t, "しんどい") > 0 Or InStr(t, "眠い") > 0)
+End Function
+
+Private Function ComfortMessage() As String
+    Dim pick As Long: pick = (Minute(Now) Mod 3)   ' 乱数を使わない決定的な出し分け
+    Select Case pick
+        Case 0
+            ComfortMessage = "お疲れ様です！今日はずいぶん頑張ってはりますね。" & vbLf & _
+                "温かいお茶でも飲んで、ちょっと一息つきましょか。" & ChrW(&H1F375)
+        Case 1
+            ComfortMessage = "ようやってはりますよ、ほんまに。" & vbLf & _
+                "5分だけ肩の力抜いて、深呼吸してからまたいきましょ。" & ChrW(&H2615)
+        Case Else
+            ComfortMessage = "無理は禁物でっせ。仕事は明日も待ってくれます。" & vbLf & _
+                "今日はここまでにして、はよ休んでくださいね。" & ChrW(&H1F319)
+    End Select
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー

@@ -132,6 +132,7 @@ Public Sub AddExp(ByVal eventType As String)
         Case "register":   amt = modConfig.GetLong("exp_register", 20)
         Case "thumbup":    amt = modConfig.GetLong("exp_thumbup", 10)
         Case "pack_share": amt = modConfig.GetLong("exp_pack_share", 30)
+        Case "feedback":   amt = modConfig.GetLong("exp_feedback", 5)   ' ご意見箱(1日1回はmodHelp側で制御)
         Case Else:         amt = 0
     End Select
     If amt <> 0 Then Bump "exp_total", amt

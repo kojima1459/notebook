@@ -217,7 +217,132 @@ Private Sub ShowHelpCard()
     tourBtn.Placement = 3
     tourBtn.ZOrder 0
 
+    ' 2段目: ご意見箱(EXP)+P2P接続設定
+    Dim fbBtn As Shape
+    Set fbBtn = ws.Shapes.AddShape(5, cardL, belowT + 34, 170, 28)
+    fbBtn.Name = "nx_help_fb"
+    fbBtn.Adjustments(1) = 0.3
+    fbBtn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    fbBtn.Line.Visible = -1
+    fbBtn.Line.Weight = 1#
+    fbBtn.Line.ForeColor.RGB = modUI.UiColor("accent")
+    With fbBtn.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H1F4EE) & " ご意見・不具合報告 (EXP+5)"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .TextRange.Font.Bold = -1
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    fbBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    fbBtn.OnAction = "modHelp.OnFeedback"
+    fbBtn.Placement = 3
+    fbBtn.ZOrder 0
+
+    Dim cfgBtn As Shape
+    Set cfgBtn = ws.Shapes.AddShape(5, cardL + 170 + 10, belowT + 34, 170, 28)
+    cfgBtn.Name = "nx_help_cfg"
+    cfgBtn.Adjustments(1) = 0.3
+    cfgBtn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    cfgBtn.Line.Visible = -1
+    cfgBtn.Line.Weight = 0.75
+    cfgBtn.Line.ForeColor.RGB = modUI.UiColor("border")
+    With cfgBtn.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H2699) & " P2P接続設定(共有フォルダ)"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    cfgBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+    cfgBtn.OnAction = "modHelp.OnShareSetup"
+    cfgBtn.Placement = 3
+    cfgBtn.ZOrder 0
+
     On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' OnFeedback - ご意見箱(B-2)。感想・不具合を入力→本文をクリップボードへ格納し、
+'   作成者宛のOutlook新規メールを開く(mailto)。共有フォルダ設定に依存しない
+'   最も確実な経路。送信協力へのお礼として1日1回EXP+5(バグバウンティ)。
+' ----------------------------------------------------------------------------
+Public Sub OnFeedback()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    DoHideHelp
+
+    Dim fb As String
+    fb = InputBox("Nexus Agentへのご意見・改善案・不具合(エラーの状況など)を教えてください。" & vbCrLf & _
+                  "いただいた内容はすべて作成者(小島)が読み、改善に活かします。", _
+                  "Nexus Agent - ご意見箱")
+    fb = Trim$(fb)
+    If LenB(fb) = 0 Then GoTo Done
+
+    ' 本文(環境情報つき)をクリップボードへ。日本語のmailto本文は文字化けし得るため
+    ' 「件名はmailtoで、本文はCtrl+V貼り付け」方式が最も確実。
+    Dim body As String
+    body = "【Nexus Agent ご意見・不具合報告】" & vbCrLf & fb & vbCrLf & vbCrLf & _
+           "--- 環境情報(自動付記) ---" & vbCrLf & _
+           "Ver: " & modAppDef.APP_VERSION & " / " & modUtil.NowStamp()
+    modClip.SetClipboardText body
+
+    On Error Resume Next
+    ThisWorkbook.FollowHyperlink "mailto:m-kojima@aioinissaydowa.co.jp?subject=Nexus%20Agent%20feedback"
+    On Error GoTo Done
+
+    ' バグバウンティEXP(1日1回まで=空メール連打での稼ぎを防止)
+    Dim dayKey As String: dayKey = "fb:" & Format$(Date, "yyyymmdd")
+    If modStats.GetStat(dayKey) = 0 Then
+        modStats.Bump dayKey
+        modStats.AddExp "feedback"
+        modSkin.ShowToast "ありがとうございます(EXP+5)。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
+    Else
+        modSkin.ShowToast "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
+    End If
+    On Error Resume Next
+    modLog.LogUsage "feedback_box", "", modUtil.SafeLeft(fb, 120)
+    On Error GoTo Done
+Done:
+    modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
+' OnShareSetup - P2P接続設定(B-1)。隠しconfigシートを触らせずに、共有フォルダの
+'   パスをダイアログで設定できる唯一の窓口。保存後はボードを即時再構築。
+' ----------------------------------------------------------------------------
+Public Sub OnShareSetup()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    DoHideHelp
+
+    Dim cur As String
+    cur = modConfig.GetString("nexus_share_path", "")
+    Dim p As String
+    p = InputBox("P2P共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
+                 "パスを入力してください。チームで同じフォルダを指定します。" & vbCrLf & _
+                 "例: \\サーバー名\共有\Nexus_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
+                 "Nexus Agent - P2P接続設定", cur)
+    p = Trim$(p)
+    If LenB(p) = 0 Then GoTo Done
+    If Right$(p, 1) <> "\" Then p = p & "\"
+
+    If Len(Dir(p, vbDirectory)) = 0 Then
+        modSkin.ShowToast "そのフォルダが見つかりませんでした。パスをご確認ください(設定は変更していません)。", "error"
+        GoTo Done
+    End If
+
+    modConfig.SetValue "nexus_share_path", p
+    modSkin.ShowToast "接続しました。感謝状・専門家への質問・みんなの節約時間が使えます。", "success"
+    On Error Resume Next
+    modBoard.BootBoard   ' ウィジェットを即時再構築(次回起動を待たせない)
+    On Error GoTo Done
+Done:
+    modUiLock.Leave
 End Sub
 
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
@@ -234,7 +359,9 @@ Private Function HelpBodyText() As String
         ChrW(&H26A0) & "ノイズ報告 で検索から除外できます。" & vbLf & _
         ChrW(&H1F4A1) & " 専門家: 回答の下に「〇〇さんが詳しいです」と出たら、ボタンから" & _
         "直接質問を送れます。" & vbLf & _
-        ChrW(&H1F504) & " 画面が乱れたら: サイドバーの「画面を再描画」。" & vbLf & vbLf & _
+        ChrW(&H1F504) & " 画面が乱れたら: サイドバーの「画面を再描画」。" & vbLf & _
+        ChrW(&H2328) & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
+        "作成: リスクコンサルティング支援部 ニューリスクG 小島正豪" & vbLf & _
         "このカードはクリックで閉じます"
     HelpBodyText = s
 End Function
@@ -278,5 +405,7 @@ Private Sub DoHideHelp()
     ws.Shapes("nx_help_card").Delete
     ws.Shapes("nx_help_manual").Delete
     ws.Shapes("nx_help_tour").Delete
+    ws.Shapes("nx_help_fb").Delete
+    ws.Shapes("nx_help_cfg").Delete
     On Error GoTo 0
 End Sub
