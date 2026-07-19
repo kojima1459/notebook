@@ -21,7 +21,7 @@ Option Explicit
 '     一切参照しないため、ここには定数を置かない。
 ' ============================================================================
 
-Public Const APP_NAME As String = "マイ本棚AI"
+Public Const APP_NAME As String = "Nexus Agent"
 Public Const APP_VERSION As String = "0.1.0"   ' ビルド時にbuildスクリプトが検証表示
 Public Const PACK_FORMAT_VERSION As Long = 1
 

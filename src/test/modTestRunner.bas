@@ -23,7 +23,8 @@ Option Explicit
 '     LibreOffice Basicでの挙動の揺れが少なく、要素数もFailures()で
 '     即座に読めるため採用した。
 '   ・RunAllPureTestsは「まだ実装されていないmodTests*」を落とさず許容する
-'     設計にしている(Wave1時点ではmodTestsPureがまだ存在しない)。
+'     設計にしている(将来modTests*が増えても、個別モジュールの有無で
+'     全体が落ちないようにするための一般的な安全策)。
 '     On Error Resume Next で1行だけ囲み、失敗したらそれ自体を1件の
 '     テスト失敗として記録する(R5: エラー握りつぶし禁止に配慮し、
 '     「無かったことにする」のではなく「失敗として可視化する」)。

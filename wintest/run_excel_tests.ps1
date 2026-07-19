@@ -1,5 +1,5 @@
 # ============================================================================
-# run_excel_tests.ps1 - 「マイ本棚AI」Windows実機 自動スモークテスト
+# run_excel_tests.ps1 - 「Nexus Agent」Windows実機 自動スモークテスト
 # ----------------------------------------------------------------------------
 # 前提: Windows + デスクトップ版Excel(VBA必須。Web版/Storeアプリ版は不可)
 # 使い方(PowerShellをそのまま実行):
@@ -30,17 +30,46 @@ function Log([string]$msg) {
 
 if (-not (Test-Path $xlsm)) { throw "ビルド成果物が見つかりません: $xlsm (先に python build\build_mybookshelf.py --$Target)" }
 
-# --- 1) VBA信頼設定(現ユーザーのみ。テスト後も残るがユーザー環境なので許容) ---
-Log "VBA信頼設定(HKCU)を確認・設定します"
+# --- 1) VBA信頼設定(現ユーザーのみ。テスト終了後に元の値へ復元する) ---
+Log "VBA信頼設定(HKCU)を確認・設定します(終了時に元の値へ復元します)"
 $officeVersions = @("16.0")   # Office 2016以降/365は16.0
+$originalSecurity = @{}       # $v => @{ AccessVBOM = <元の値 or $null>; VBAWarnings = <元の値 or $null> }
 foreach ($v in $officeVersions) {
     $key = "HKCU:\Software\Microsoft\Office\$v\Excel\Security"
     New-Item -Path $key -Force | Out-Null
+
+    $existing = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+    $originalSecurity[$v] = @{
+        AccessVBOM  = if ($existing -and ($existing.PSObject.Properties.Name -contains "AccessVBOM"))  { $existing.AccessVBOM }  else { $null }
+        VBAWarnings = if ($existing -and ($existing.PSObject.Properties.Name -contains "VBAWarnings")) { $existing.VBAWarnings } else { $null }
+    }
+
     Set-ItemProperty -Path $key -Name AccessVBOM -Value 1 -Type DWord    # VBAプロジェクトOMを信頼
     Set-ItemProperty -Path $key -Name VBAWarnings -Value 1 -Type DWord   # マクロを有効化
 }
 
+function Restore-VbaTrustSettings {
+    foreach ($v in $officeVersions) {
+        $key = "HKCU:\Software\Microsoft\Office\$v\Excel\Security"
+        $orig = $originalSecurity[$v]
+        if ($null -ne $orig.AccessVBOM) {
+            Set-ItemProperty -Path $key -Name AccessVBOM -Value $orig.AccessVBOM -Type DWord
+        } else {
+            Remove-ItemProperty -Path $key -Name AccessVBOM -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $orig.VBAWarnings) {
+            Set-ItemProperty -Path $key -Name VBAWarnings -Value $orig.VBAWarnings -Type DWord
+        } else {
+            Remove-ItemProperty -Path $key -Name VBAWarnings -ErrorAction SilentlyContinue
+        }
+    }
+    Log "VBA信頼設定(HKCU)を元の値へ復元しました"
+}
+
 $excel = $null
+$wb = $null
+$tmpWb = $null
+$addin = $null
 $exitCode = 1
 try {
     # --- 2) Excel起動+(任意)ニセリボンちゃんの有効化 --------------------------
@@ -84,10 +113,32 @@ catch {
     Log ("エラー: " + $_.Exception.Message)
 }
 finally {
+    # 子COMオブジェクトを先にClose/Release→最後にExcel本体をQuit/Release。
+    # 順序を守らないとExcelプロセスが残留し、次回実行が不安定になる。
+    if ($tmpWb) {
+        try { $tmpWb.Close($false) } catch {}
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($tmpWb)
+        $tmpWb = $null
+    }
+    if ($addin) {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($addin)
+        $addin = $null
+    }
+    if ($wb) {
+        try { $wb.Close($false) } catch {}
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb)
+        $wb = $null
+    }
     if ($excel) {
         $excel.Quit()
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
+        $excel = $null
     }
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+
+    Restore-VbaTrustSettings
+
     Log "ログ: $log"
 }
 exit $exitCode

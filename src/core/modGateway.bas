@@ -172,16 +172,28 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
         Exit Function   ' 失敗は空配列(バッチ側でE0203記録済み)
     End If
 
+    GetEmbedding = GetEmbeddingRibbonOnly(t, dim_)
+    latency_ms = CLng((Timer - t0) * 1000)
+    Exit Function
+
+ErrHandler:
+    latency_ms = CLng((Timer - t0) * 1000)
+    modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description
+End Function
+
+' ribbon経由の単発埋め込みの実体。GetEmbedding(公開API)と、direct失敗時の
+' フォールバック経路(RibbonEmbedRange)の両方から呼ばれる。embed_transport設定は
+' 一切見ない(常にribbonを叩く)ため、direct→ribbonフォールバック時にここへ来ても
+' GetEmbeddingへ戻って再びdirect分岐へ入ることがなく、再帰しない。
+Private Function GetEmbeddingRibbonOnly(ByVal t As String, ByVal dim_ As Long) As Double()
     If Not RibbonAvailable() Then
         modLog.LogError "E0203", "modGateway.GetEmbedding", "リボン未検出"
-        latency_ms = CLng((Timer - t0) * 1000)
         Exit Function
     End If
 
     Dim raw As Variant
     raw = Application.Run("GetEmbeddings", modUtil.SafeLeft(t, 4000))
     Dim s As String: s = CStr(raw)
-    latency_ms = CLng((Timer - t0) * 1000)
 
     If LenB(s) = 0 Then
         modLog.LogError "E0203", "modGateway.GetEmbedding", "空応答"
@@ -203,12 +215,7 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
     End If
     ' Plan B: 保存次元(embed_dim)へ切詰め+再正規化(リボンは1536固定のため)
     modUtil.TruncateAndRenorm vec, dim_
-    GetEmbedding = vec
-    Exit Function
-
-ErrHandler:
-    latency_ms = CLng((Timer - t0) * 1000)
-    modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description
+    GetEmbeddingRibbonOnly = vec
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -431,11 +438,15 @@ End Function
 Private Function RibbonEmbedRange(texts() As String, ByVal arrLo As Long, _
                                   ByVal iFrom As Long, ByVal iTo As Long, _
                                   ByVal prec As String, ByRef outCsv() As String) As Long
+    Dim dim_ As Long: dim_ = modConfig.GetLong("embed_dim", 1536)
+    If dim_ < 1 Then dim_ = 1536
+
     Dim okCount As Long: okCount = 0
     Dim i As Long
     For i = iFrom To iTo
+        Dim t As String: t = modUtil.NormalizeForHash(texts(arrLo + i))
         Dim v() As Double
-        v = GetEmbedding(texts(arrLo + i))
+        If LenB(t) > 0 Then v = GetEmbeddingRibbonOnly(t, dim_)
         If modUtil.HasVector(v) Then
             outCsv(i) = SerializeVector(v, prec)
             okCount = okCount + 1
