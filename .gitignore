@@ -1,7 +1,5 @@
 dist/*.log
 dist/*.tmp
-build/template_chatbot.xlsm
-build/template_admin.xlsm
 *.log
 *.swp
 .DS_Store
