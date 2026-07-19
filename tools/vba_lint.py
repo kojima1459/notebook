@@ -103,6 +103,11 @@ CONTRACT: dict[str, dict] = {
             "TruncateAndRenorm", "VectorToCsvPrec",
             "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
             "FileNameOf", "ExtOf", "IsSameTimestamp",
+            # DeobfuscateSecret: build/build_mybookshelf.py obfuscate_secret() と対の
+            # 復号(XOR+16進)。configシートに置くAPIキーを平文で持たないための軽い
+            # 難読化解除。modGateway.DirectEmbedSliceのみが呼ぶ想定だが、R4純ロジック
+            # (Excelオブジェクト非依存)のためmodUtilに置く。
+            "DeobfuscateSecret",
         ],
     },
     "modGateway": {

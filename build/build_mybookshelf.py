@@ -115,6 +115,36 @@ class BuildError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# direct埋め込み(Azure)のURL/キーは、ソースにハードコードせず環境変数から
+# 読む(社内リポジトリに平文の認証情報を追加で増やさないため)。
+# 未設定なら空文字列のまま(config側は空欄扱いになり、modGateway.DirectEmbedSlice
+# が「azure_embed_url/keyが未設定」を検知して自動的にribbon経路へフォール
+# バックする。空文字列でもビルド・実行時エラーにはならない)。
+# ---------------------------------------------------------------------------
+AZURE_EMBED_URL_ENV = "AZURE_EMBED_URL"
+AZURE_EMBED_KEY_ENV = "AZURE_EMBED_KEY"
+
+# configシートに平文で置かないための軽い難読化(暗号的な秘匿ではない。
+# VBAプロジェクト自体に触れる人には無意味 = このアプリの配布モデル上、
+# それ以上の防御は不可能。configシートを開いただけの人の目に平文キーが
+# 直接触れないようにする程度の対策)。VBA側 modUtil.DeobfuscateSecret と
+# 対になる実装(XOR + 16進エンコード)。鍵・アルゴリズムを変える場合は
+# 両方を同時に直すこと。
+_OBF_PREFIX = "OBF1:"
+_OBF_KEY = "NexusAgentBuildObfuscationKey2026"
+
+
+def obfuscate_secret(plain: str) -> str:
+    if not plain:
+        return ""
+    xored = bytes(
+        (ord(c) ^ ord(_OBF_KEY[i % len(_OBF_KEY)])) & 0xFF
+        for i, c in enumerate(plain)
+    )
+    return _OBF_PREFIX + xored.hex()
+
+
+# ---------------------------------------------------------------------------
 # config 既定値 (MASTER_SPEC §5 config キー台帳を完全反映。値・説明とも準拠)
 # ---------------------------------------------------------------------------
 def build_config_rows(mock_llm: bool):
@@ -143,8 +173,10 @@ def build_config_rows(mock_llm: bool):
         ("embed_transport", "direct", "埋め込みの通信経路: ribbon=AIリボン単発 / direct=Azure APIへバッチ直接送信(裁定②)"),
         ("embed_batch_size", 128, "direct時に1リクエストへまとめるチャンク数"),
         ("azure_http_timeout_ms", 60000, "direct埋め込みのHTTPタイムアウト(ms)。NW瞬断時の無限フリーズ防止。resolve/connectは内部で短めに固定"),
-        ("azure_embed_url", "https://hd-us-e2-openai.openai.azure.com/openai/deployments/text-embedding-3-small-g/embeddings?api-version=2024-10-21", "direct時の埋め込みエンドポイント(URL全体)"),
-        ("azure_embed_key", "1d545a26153a4f2c990a543031d77b96", "direct時のAPIキー(注意: ブック配布=キー配布になる)"),
+        ("azure_embed_url", os.environ.get(AZURE_EMBED_URL_ENV, ""),
+         "direct時の埋め込みエンドポイント(URL全体)。ビルド時の環境変数 " + AZURE_EMBED_URL_ENV + " から注入(未設定なら空欄=ribbonへ自動フォールバック)"),
+        ("azure_embed_key", obfuscate_secret(os.environ.get(AZURE_EMBED_KEY_ENV, "")),
+         "direct時のAPIキー(注意: ブック配布=キー配布になる)。ビルド時の環境変数 " + AZURE_EMBED_KEY_ENV + " から注入し、configシートには平文で置かず軽い難読化(OBF1:接頭辞)を施す(modUtil.DeobfuscateSecretで復元。VBAプロジェクトへアクセスできる人には無意味な軽量対策)"),
         ("chunk_mode", "structure", "チャンク化方式: legacy=700字機械分割 / structure=見出し・条文の構造認識(推奨)"),
         ("chunk_target_chars", 700, "チャンクの目安文字数"),
         ("chunk_overlap_chars", 150, "チャンクのオーバーラップ文字数"),

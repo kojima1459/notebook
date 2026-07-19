@@ -46,6 +46,11 @@ Private Const FNV_OFFSET_LO As Long = &H84222325
 Private Const FNV_PRIME_HI As Long = &H100    ' = 256
 Private Const FNV_PRIME_LO As Long = &H1B3    ' = 435
 
+' DeobfuscateSecret用(下記関数の直前ではなくモジュール先頭に置く。理由は
+' すぐ上のコメントと同じ: LO Basicは宣言より前の行での参照を解決できない)。
+Private Const OBF_PREFIX As String = "OBF1:"
+Private Const OBF_KEY As String = "NexusAgentBuildObfuscationKey2026"
+
 ' ============================================================================
 ' Fnv1a64Hex - FNV-1a 64bit ハッシュを16進16桁(小文字)の文字列で返す。
 '   決定的: 同一の入力文字列 s に対して常に同一の出力を返す。
@@ -353,6 +358,51 @@ End Function
 Public Function IsSameTimestamp(ByVal a As Date, ByVal b As Date) As Boolean
     Dim diffSec As Double: diffSec = Abs(CDbl(a - b)) * 86400#
     IsSameTimestamp = (diffSec <= 2#)
+End Function
+
+' ============================================================================
+' DeobfuscateSecret - configシートに平文で置かないための軽い難読化の解除。
+' ----------------------------------------------------------------------------
+'   build/build_mybookshelf.py の obfuscate_secret() と対になる実装
+'   (XOR + 16進エンコード)。これは暗号的な秘匿ではなく、configシートを
+'   セルとして開いた人の目に平文キーが直接触れないようにする程度の対策
+'   (VBAプロジェクト自体に触れる人には無意味。VBAプロジェクトへの
+'   アクセス自体を前提とするこのアプリの配布モデル上、それ以上の防御は
+'   このモジュール単体では不可能)。
+'   "OBF1:"接頭辞が無い値(手動でconfigに平文キーを入力した場合等)は
+'   そのまま返す(後方互換)。
+' ============================================================================
+Public Function DeobfuscateSecret(ByVal raw As String) As String
+    Dim s As String: s = Trim$(raw)
+    If Left$(s, Len(OBF_PREFIX)) <> OBF_PREFIX Then
+        DeobfuscateSecret = s
+        Exit Function
+    End If
+    DeobfuscateSecret = XorWithObfKey(HexDecodeBytes(Mid$(s, Len(OBF_PREFIX) + 1)))
+End Function
+
+Private Function HexDecodeBytes(ByVal hexStr As String) As String
+    Dim n As Long: n = Len(hexStr) \ 2
+    Dim outStr As String: outStr = ""
+    Dim i As Long
+    On Error GoTo Fail
+    For i = 1 To n
+        outStr = outStr & Chr$(CLng("&H" & Mid$(hexStr, (i - 1) * 2 + 1, 2)))
+    Next i
+    HexDecodeBytes = outStr
+    Exit Function
+Fail:
+    HexDecodeBytes = ""   ' 壊れた16進文字列は空扱い(呼び出し側がE0203として処理)
+End Function
+
+Private Function XorWithObfKey(ByVal s As String) As String
+    Dim outStr As String: outStr = ""
+    Dim kLen As Long: kLen = Len(OBF_KEY)
+    Dim i As Long
+    For i = 1 To Len(s)
+        outStr = outStr & Chr$(Asc(Mid$(s, i, 1)) Xor Asc(Mid$(OBF_KEY, ((i - 1) Mod kLen) + 1, 1)))
+    Next i
+    XorWithObfKey = outStr
 End Function
 
 ' ============================================================================

@@ -134,6 +134,7 @@ Private Sub TestModUtil()
     TestSplitKeepNonEmpty
     TestHumanBytesSeconds
     TestNormalizeForHash
+    TestDeobfuscateSecret
 End Sub
 
 Private Sub TestFnv1a64Hex()
@@ -424,6 +425,26 @@ Private Sub TestNormalizeForHash()
 
     ' 空文字列は空文字列のまま
     modTestRunner.Check "NormalizeForHash_空文字", (modUtil.NormalizeForHash("") = "")
+End Sub
+
+' build/build_mybookshelf.py obfuscate_secret() とVBA側DeobfuscateSecretが
+' 同じXOR+16進アルゴリズムで対になっていることを固定値で検証する
+' (Python側で生成した既知の変換結果をここへ転記。鍵やアルゴリズムを
+' 片側だけ変えると密かに壊れるため、往復ではなく既知値の一致で検出する)。
+Private Sub TestDeobfuscateSecret()
+    modTestRunner.Check "DeobfuscateSecret_短い文字列", _
+        (modUtil.DeobfuscateSecret("OBF1:260014191c") = "hello")
+
+    modTestRunner.Check "DeobfuscateSecret_APIキー長の文字列", _
+        (modUtil.DeobfuscateSecret("OBF1:7f014d41462055535f4171145d0a562c5b5f4512565547595c5f2f524e500904") _
+            = "1d545a26153a4f2c990a543031d77b96")
+
+    ' 接頭辞が無い値(手動でconfigに平文キーを入力した場合等)はそのまま返す
+    modTestRunner.Check "DeobfuscateSecret_接頭辞なしはそのまま", _
+        (modUtil.DeobfuscateSecret("plain-manual-key") = "plain-manual-key")
+
+    ' 空文字列は空文字列のまま
+    modTestRunner.Check "DeobfuscateSecret_空文字", (modUtil.DeobfuscateSecret("") = "")
 End Sub
 
 ' ============================================================================

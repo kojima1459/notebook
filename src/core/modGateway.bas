@@ -461,7 +461,10 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
                                   ByVal dims As Long, ByVal prec As String, _
                                   ByRef outCsv() As String) As Long
     Dim apiUrl As String: apiUrl = Trim$(modConfig.GetString("azure_embed_url", ""))
-    Dim apiKey As String: apiKey = Trim$(modConfig.GetString("azure_embed_key", ""))
+    ' azure_embed_keyはビルド時に軽く難読化(OBF1:接頭辞)されて格納されている
+    ' 場合がある(build_mybookshelf.py obfuscate_secret)。未難読化の平文が
+    ' 手動で入っている場合はDeobfuscateSecretがそのまま素通しする。
+    Dim apiKey As String: apiKey = Trim$(modUtil.DeobfuscateSecret(modConfig.GetString("azure_embed_key", "")))
     If LenB(apiUrl) = 0 Or LenB(apiKey) = 0 Then
         modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", "azure_embed_url/keyが未設定(ribbonへフォールバック)"
         DirectEmbedSlice = RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)
