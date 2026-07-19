@@ -86,6 +86,157 @@ Public Sub ApplySoftShadow(ByVal shp As Shape)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' スキン(きせかえ): 称号と同じ「感謝受領数」ゲートで解放されるアンロック方式。
+'   light/darkは全員。sakura/oceanは感謝5件、goldは感謝20件で解放。
+'   チート防御: 解放判定はResolveColor(全描画の色解決点)でも強制するため、
+'   隠しシートのnexus_themeを手書きで"gold"にしても色はlightに落ちる。
+'   感謝数はP2P受領のみが源泉(自己付与不可)なので、スキン自体が偽装不可の勲章になる。
+' ----------------------------------------------------------------------------
+
+' テーマ名を検証し、未解放/未知ならlightへ落とした正規名を返す。
+Public Function EffectiveSkin(ByVal themeName As String) As String
+    Dim t As String: t = LCase$(Trim$(themeName))
+    Select Case t
+        Case "dark":            EffectiveSkin = "dark"
+        Case "sakura", "ocean": EffectiveSkin = IIf(ThanksCount() >= 5, t, "light")
+        Case "gold":            EffectiveSkin = IIf(ThanksCount() >= 20, t, "light")
+        Case Else:              EffectiveSkin = "light"
+    End Select
+End Function
+
+Private Function ThanksCount() As Long
+    On Error Resume Next
+    ThanksCount = modStats.GetStat("thanks_received_total")
+    On Error GoTo 0
+End Function
+
+' 全画面の配色解決点(modUI.ThemeColorから委譲される唯一の実装)。
+Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As Long
+    Dim t As String: t = EffectiveSkin(themeName)
+    Select Case t
+        Case "dark"
+            Select Case key
+                Case "bg":            ResolveColor = RGB(15, 23, 42)
+                Case "surface":       ResolveColor = RGB(30, 41, 59)
+                Case "text":          ResolveColor = RGB(248, 250, 252)
+                Case "muted":         ResolveColor = RGB(148, 163, 184)
+                Case "border":        ResolveColor = RGB(51, 65, 85)
+                Case "primary":       ResolveColor = RGB(52, 168, 96)
+                Case "accent":        ResolveColor = RGB(0, 168, 89)
+                Case "userBubble":    ResolveColor = RGB(51, 65, 85)
+                Case "aiBubble":      ResolveColor = RGB(30, 41, 59)
+                Case "sidebar":       ResolveColor = RGB(11, 15, 25)
+                Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
+                Case "sidebarActive": ResolveColor = RGB(30, 41, 59)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+        Case "sakura"   ' 感謝5件で解放: 少し華やかな春色
+            Select Case key
+                Case "bg":            ResolveColor = RGB(255, 241, 245)
+                Case "surface":       ResolveColor = RGB(255, 255, 255)
+                Case "text":          ResolveColor = RGB(66, 32, 44)
+                Case "muted":         ResolveColor = RGB(164, 120, 136)
+                Case "border":        ResolveColor = RGB(248, 214, 224)
+                Case "primary":       ResolveColor = RGB(214, 51, 108)
+                Case "accent":        ResolveColor = RGB(0, 168, 89)
+                Case "userBubble":    ResolveColor = RGB(255, 228, 238)
+                Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
+                Case "sidebar":       ResolveColor = RGB(84, 32, 52)
+                Case "sidebarText":   ResolveColor = RGB(240, 210, 222)
+                Case "sidebarActive": ResolveColor = RGB(112, 46, 72)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+        Case "ocean"    ' 感謝5件で解放: 集中の青
+            Select Case key
+                Case "bg":            ResolveColor = RGB(240, 247, 255)
+                Case "surface":       ResolveColor = RGB(255, 255, 255)
+                Case "text":          ResolveColor = RGB(15, 36, 62)
+                Case "muted":         ResolveColor = RGB(100, 126, 152)
+                Case "border":        ResolveColor = RGB(208, 226, 244)
+                Case "primary":       ResolveColor = RGB(2, 102, 190)
+                Case "accent":        ResolveColor = RGB(0, 145, 200)
+                Case "userBubble":    ResolveColor = RGB(224, 240, 255)
+                Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
+                Case "sidebar":       ResolveColor = RGB(10, 35, 66)
+                Case "sidebarText":   ResolveColor = RGB(198, 219, 240)
+                Case "sidebarActive": ResolveColor = RGB(20, 56, 96)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+        Case "gold"     ' 感謝20件で解放: 黒×金のエグゼクティブ
+            Select Case key
+                Case "bg":            ResolveColor = RGB(12, 12, 14)
+                Case "surface":       ResolveColor = RGB(24, 24, 28)
+                Case "text":          ResolveColor = RGB(240, 234, 216)
+                Case "muted":         ResolveColor = RGB(162, 150, 120)
+                Case "border":        ResolveColor = RGB(64, 58, 42)
+                Case "primary":       ResolveColor = RGB(212, 175, 55)
+                Case "accent":        ResolveColor = RGB(230, 196, 80)
+                Case "userBubble":    ResolveColor = RGB(45, 42, 30)
+                Case "aiBubble":      ResolveColor = RGB(24, 24, 28)
+                Case "sidebar":       ResolveColor = RGB(6, 6, 8)
+                Case "sidebarText":   ResolveColor = RGB(212, 175, 55)
+                Case "sidebarActive": ResolveColor = RGB(38, 34, 24)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+        Case Else       ' light = MS&ADスタンダード(従来値そのまま)
+            Select Case key
+                Case "bg":            ResolveColor = RGB(243, 244, 246)
+                Case "surface":       ResolveColor = RGB(255, 255, 255)
+                Case "text":          ResolveColor = RGB(17, 24, 39)
+                Case "muted":         ResolveColor = RGB(107, 114, 128)
+                Case "border":        ResolveColor = RGB(229, 231, 235)
+                Case "primary":       ResolveColor = RGB(0, 137, 62)
+                Case "accent":        ResolveColor = RGB(0, 168, 89)
+                Case "userBubble":    ResolveColor = RGB(239, 246, 255)
+                Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
+                Case "sidebar":       ResolveColor = RGB(17, 24, 39)
+                Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
+                Case "sidebarActive": ResolveColor = RGB(31, 41, 55)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+    End Select
+End Function
+
+' きせかえ切替(ヘルプの🎨ボタンから)。解放済みスキンを巡回し、未解放は
+' 「あと◯件で解放」のティザーToastを出してスキップ(欲しくなる導線)。
+Public Sub CycleSkin()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    Dim orderList As Variant
+    orderList = Array("light", "dark", "sakura", "ocean", "gold")
+    Dim labels As Variant
+    labels = Array("MS&AD スタンダード", "ダークモード", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
+
+    Dim cur As String: cur = EffectiveSkin(modUI.UiTheme())
+    Dim curIdx As Long: curIdx = 0
+    Dim i As Long
+    For i = 0 To 4
+        If CStr(orderList(i)) = cur Then curIdx = i
+    Next i
+
+    Dim tc As Long: tc = ThanksCount()
+    Dim tried As Long
+    For tried = 1 To 5
+        Dim nx As Long: nx = (curIdx + tried) Mod 5
+        Dim cand As String: cand = CStr(orderList(nx))
+        Dim needN As Long
+        needN = 0
+        If cand = "sakura" Or cand = "ocean" Then needN = 5
+        If cand = "gold" Then needN = 20
+        If tc >= needN Then
+            modState.SaveState "nexus_theme", cand
+            modUI.Repaint
+            modSkin.ShowToast "きせかえ: " & CStr(labels(nx)) & IIf(needN > 0, "(感謝" & needN & "件の限定スキン)", ""), "success"
+            GoTo Done
+        Else
+            modSkin.ShowToast CStr(labels(nx)) & " は「ありがとう」を" & needN & "件受け取ると解放されます(現在" & tc & "件)。", "info"
+        End If
+    Next tried
+Done:
+    modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ShowToast - MsgBoxの代替(非ブロッキング通知)。画面上部中央に細長Shapeを出し、
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------

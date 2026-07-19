@@ -37,8 +37,124 @@ Public Sub LaunchNexus()
     modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計+サイドバーウィジェット
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
     modHelp.EnsureHelpButton     ' ヘルプ(?)ボタン
+    DrawSidebarExtras            ' 質問テンプレチップ+ナレッジガチャ(白紙の恐怖対策)
     modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
     On Error GoTo 0
+End Sub
+
+' サイドバー下部の常設パーツ: 質問テンプレチップ3つ(クリックで入力欄へ流し込む
+' =シニア層の「何を聞けばいいか分からない」への補助輪)+🎲今日のナレッジガチャ。
+' nx_sb_接頭辞なので既存のZ-Order/テーマ再彩色ループが自動で面倒を見る。冪等。
+Private Sub DrawSidebarExtras()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+
+    Dim nm As Variant
+    For Each nm In Array("nx_sb_qa1", "nx_sb_qa2", "nx_sb_qa3", "nx_sb_gacha")
+        ws.Shapes(CStr(nm)).Delete
+    Next nm
+
+    Dim caps As Variant
+    caps = Array(ChrW(&H1F4AC) & " 改定ポイントを教えて", _
+                 ChrW(&H1F4AC) & " 用語をやさしく解説", _
+                 ChrW(&H1F4AC) & " 手続きの流れを知りたい")
+    Dim i As Long
+    For i = 0 To 2
+        Dim chip As Shape
+        Set chip = ws.Shapes.AddShape(5, 10, 396 + i * 28, 175, 24)
+        chip.Name = "nx_sb_qa" & (i + 1)
+        chip.Adjustments(1) = 0.4
+        chip.Line.Visible = 0
+        chip.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+        With chip.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = CStr(caps(i))
+            .TextRange.Font.Name = "Yu Gothic UI"
+            .TextRange.Font.Size = 8.5
+            .VerticalAnchor = 3
+            .MarginLeft = 10: .MarginTop = 0: .MarginBottom = 0
+        End With
+        chip.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("sidebarText")
+        chip.OnAction = "modApp.OnQuickAsk"
+        chip.Placement = 3
+    Next i
+
+    Dim g As Shape
+    Set g = ws.Shapes.AddShape(5, 10, 488, 175, 26)
+    g.Name = "nx_sb_gacha"
+    g.Adjustments(1) = 0.4
+    g.Line.Visible = -1
+    g.Line.Weight = 0.75
+    g.Line.ForeColor.RGB = modUI.UiColor("accent")
+    g.Fill.Visible = 0
+    With g.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H1F3B2) & " 今日のワンポイント"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 9
+        .TextRange.Font.Bold = -1
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+    End With
+    g.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    g.OnAction = "modApp.OnGacha"
+    g.Placement = 3
+    On Error GoTo 0
+End Sub
+
+' テンプレチップのクリック: 入力欄へ雛形を流し込むだけ(送信しない=補助輪)。
+Public Sub OnQuickAsk()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    Dim tpl As String
+    Select Case CStr(Application.Caller)
+        Case "nx_sb_qa1": tpl = "最新の改定ポイントを教えてください"
+        Case "nx_sb_qa2": tpl = "「(用語を入力)」を初めての人にもわかりやすく解説してください"
+        Case "nx_sb_qa3": tpl = "「(手続き名を入力)」の手続きの流れを教えてください"
+        Case Else: GoTo Done
+    End Select
+    On Error Resume Next
+    ThisWorkbook.Names("nx_input").RefersToRange.Value = tpl
+    On Error GoTo Done
+    modSkin.ShowToast "入力欄に雛形を入れました。編集して Ctrl+Enter で送信してください。", "info"
+Done:
+    modUiLock.Leave
+End Sub
+
+' 🎲 ナレッジガチャ: my_knowledgeからランダムに1件を「今日のワンポイント」として
+' バブル表示(API非通信・完全ローカル)。偶然の学びのエンタメ化。
+Public Sub OnGacha()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
+    If ws Is Nothing Then GoTo Done
+
+    Dim lastR As Long
+    lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then
+        modSkin.ShowToast "まだ資料がありません。「ナレッジ倉庫」から登録すると、ここで豆知識が引けます。", "info"
+        GoTo Done
+    End If
+
+    Randomize
+    Dim r As Long: r = 2 + Int(Rnd * (lastR - 1))
+    Dim src As String: src = CStr(ws.Cells(r, 2).Value)
+    Dim summ As String: summ = CStr(ws.Cells(r, 5).Value)
+    Dim body As String: body = CStr(ws.Cells(r, 7).Value)
+
+    modUI.AddChatBubble "ai", _
+        ChrW(&H1F3B2) & " 今日のワンポイント" & vbLf & _
+        "【" & modUtil.SafeLeft(src, 40) & "】" & IIf(LenB(summ) > 0, " " & summ, "") & vbLf & _
+        modUtil.SafeLeft(body, 300) & IIf(Len(body) > 300, "…", "") & vbLf & _
+        "(もう一度引く: サイドバーの「" & ChrW(&H1F3B2) & " 今日のワンポイント」)"
+    On Error Resume Next
+    modLog.LogUsage "gacha", "", modUtil.SafeLeft(src, 80)
+    On Error GoTo Done
+Done:
+    modUiLock.Leave
 End Sub
 
 ' ④会話の記憶: 直近2往復をui_stateへ保存し、次回起動時に薄く復元する。

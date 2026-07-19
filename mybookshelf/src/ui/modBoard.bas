@@ -251,7 +251,8 @@ Private Sub DrawWidget()
         .MarginLeft = 10: .MarginRight = 8: .MarginTop = 6: .MarginBottom = 4
         .TextRange.Text = ChrW(&H1F30D) & " みんなの節約時間" & vbLf & _
             "今日 " & FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon) & vbLf & _
-            "あなた: 今日 " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd")))
+            "あなた: 今日 " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd"))) & _
+            "・" & ChrW(&H1F525) & modStats.GetStat("streak_days") & "日連続"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
     End With

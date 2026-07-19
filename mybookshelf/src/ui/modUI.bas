@@ -574,7 +574,9 @@ Private Function CurrentTheme() As String
     Dim i As Long
     For i = 1 To lastRow
         If StrComp(CStr(ws.Cells(i, 1).Value), THEME_KEY, vbTextCompare) = 0 Then
-            If LCase$(Trim$(CStr(ws.Cells(i, 2).Value))) = "dark" Then CurrentTheme = "dark"
+            Dim v As String
+            v = LCase$(Trim$(CStr(ws.Cells(i, 2).Value)))
+            If LenB(v) > 0 Then CurrentTheme = v   ' スキン名も可(検証はResolveColor側)
             Exit Function
         End If
     Next i
@@ -605,25 +607,10 @@ Private Sub SaveTheme(ByVal themeName As String)
     ws.Cells(r, 2).Value = themeName
 End Sub
 
-' CSS変数に対応する色(RGB)。key: bg/surface/text/muted/border/primary/accent/
-' userBubble/aiBubble/sidebar/sidebarText/sidebarActive
+' 配色解決はmodSkin.ResolveColorへ委譲(スキン=きせかえ対応の単一実装。
+' 未解放スキンはResolveColor側でlightへ強制されるためチート不能)。
 Private Function ThemeColor(ByVal key As String) As Long
-    Dim dark As Boolean: dark = (CurrentTheme() = "dark")
-    Select Case key
-        Case "bg":            ThemeColor = IIf(dark, RGB(15, 23, 42), RGB(243, 244, 246))
-        Case "surface":       ThemeColor = IIf(dark, RGB(30, 41, 59), RGB(255, 255, 255))
-        Case "text":          ThemeColor = IIf(dark, RGB(248, 250, 252), RGB(17, 24, 39))
-        Case "muted":         ThemeColor = IIf(dark, RGB(148, 163, 184), RGB(107, 114, 128))
-        Case "border":        ThemeColor = IIf(dark, RGB(51, 65, 85), RGB(229, 231, 235))
-        Case "primary":       ThemeColor = IIf(dark, RGB(52, 168, 96), RGB(0, 137, 62))
-        Case "accent":        ThemeColor = RGB(0, 168, 89)
-        Case "userBubble":    ThemeColor = IIf(dark, RGB(51, 65, 85), RGB(239, 246, 255))
-        Case "aiBubble":      ThemeColor = IIf(dark, RGB(30, 41, 59), RGB(255, 255, 255))
-        Case "sidebar":       ThemeColor = IIf(dark, RGB(11, 15, 25), RGB(17, 24, 39))
-        Case "sidebarText":   ThemeColor = RGB(209, 213, 219)
-        Case "sidebarActive": ThemeColor = IIf(dark, RGB(30, 41, 59), RGB(31, 41, 55))
-        Case Else:            ThemeColor = RGB(0, 0, 0)
-    End Select
+    ThemeColor = modSkin.ResolveColor(key, CurrentTheme())
 End Function
 
 ' テーマを画面全体へ適用(背景セル+全nx_Shape再彩色)。

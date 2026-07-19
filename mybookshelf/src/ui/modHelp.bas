@@ -263,7 +263,39 @@ Private Sub ShowHelpCard()
     cfgBtn.Placement = 3
     cfgBtn.ZOrder 0
 
+    ' 3段目: きせかえ(感謝数で解放されるスキン)
+    Dim skinBtn As Shape
+    Set skinBtn = ws.Shapes.AddShape(5, cardL, belowT + 68, 350, 28)
+    skinBtn.Name = "nx_help_skin"
+    skinBtn.Adjustments(1) = 0.3
+    skinBtn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    skinBtn.Line.Visible = -1
+    skinBtn.Line.Weight = 0.75
+    skinBtn.Line.ForeColor.RGB = modUI.UiColor("border")
+    With skinBtn.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = ChrW(&H1F3A8) & " きせかえ(「ありがとう」を集めると限定スキンが解放)"
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    skinBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+    skinBtn.OnAction = "modHelp.OnCycleSkin"
+    skinBtn.Placement = 3
+    skinBtn.ZOrder 0
+
     On Error GoTo 0
+End Sub
+
+' きせかえボタン(ヘルプカードを閉じてからmodSkin.CycleSkinへ。CycleSkin自身が
+' modUiLockを取るため、ここではロックを取らず閉じ処理のみ行う)。
+Public Sub OnCycleSkin()
+    On Error Resume Next
+    DoHideHelp
+    On Error GoTo 0
+    modSkin.CycleSkin
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -407,5 +439,6 @@ Private Sub DoHideHelp()
     ws.Shapes("nx_help_tour").Delete
     ws.Shapes("nx_help_fb").Delete
     ws.Shapes("nx_help_cfg").Delete
+    ws.Shapes("nx_help_skin").Delete
     On Error GoTo 0
 End Sub
