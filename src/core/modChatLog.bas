@@ -77,6 +77,14 @@ Private Function EnsureChatSheet() As Worksheet
     On Error GoTo 0
 
     If ws Is Nothing Then
+        ' Worksheets.Addは新シートをアクティブ化する仕様のため、そのままだと
+        ' 「最初の回答の直後に画面がチャット履歴シートへ勝手に切り替わる」。
+        ' 追加前のアクティブシートを覚えて、生成後に必ず戻す。
+        Dim prevActive As Object
+        On Error Resume Next
+        Set prevActive = ThisWorkbook.ActiveSheet
+        On Error GoTo 0
+
         On Error GoTo Fail
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
         ws.Name = SHEET_NAME
@@ -89,6 +97,11 @@ Private Function EnsureChatSheet() As Worksheet
         ws.Columns(3).ColumnWidth = 20
         ws.Columns(4).ColumnWidth = 12
         ws.Visible = -1   ' xlSheetVisible (名前付き定数への依存を避けるmodLogの慣習に合わせる)
+        On Error GoTo 0
+
+        ' ユーザーが見ていた画面(Nexus/ホーム等)へフォーカスを戻す。
+        On Error Resume Next
+        If Not prevActive Is Nothing Then prevActive.Activate
         On Error GoTo 0
     End If
     Set EnsureChatSheet = ws
