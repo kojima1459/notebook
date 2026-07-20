@@ -660,7 +660,7 @@ End Function
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
     Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)   ' 5 = msoShapeRoundedRectangle
+    Set shp = AddShapeWithRetry(ws, rng)
     shp.Name = shapeName
     shp.TextFrame2.TextRange.Text = caption
     shp.TextFrame2.WordWrap = -1   ' msoTrue
@@ -673,6 +673,18 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.Line.Visible = 0   ' msoFalse
     shp.OnAction = action
 End Sub
+
+' 2026-07-21 実機対応: modUIMain.AddShapeWithRetryと同じ理由・同じ対処
+' (自己インストール直後の一過性エラー1004への耐性。詳細コメントは
+' modUIMain.bas側参照)。
+Private Function AddShapeWithRetry(ByVal ws As Worksheet, ByVal rng As Range) As Shape
+    On Error GoTo Retry
+    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
+    Exit Function
+Retry:
+    DoEvents
+    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
+End Function
 
 Private Sub RemoveManagedShapes(ByVal ws As Worksheet)
     Dim names() As String
