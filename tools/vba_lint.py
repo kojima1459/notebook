@@ -95,6 +95,12 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError"],
     },
+    # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
+    # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
+    "modChatLog": {
+        "closed": True,
+        "required": ["LogTurn"],
+    },
     "modUtil": {
         "closed": True,
         "required": [

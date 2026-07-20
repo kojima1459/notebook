@@ -110,15 +110,21 @@ Public Sub OnQuickAsk()
     On Error GoTo Done
     Dim tpl As String
     Select Case CStr(Application.Caller)
-        Case "nx_sb_qa1": tpl = "最新の改定ポイントを教えてください"
-        Case "nx_sb_qa2": tpl = "「(用語を入力)」を初めての人にもわかりやすく解説してください"
-        Case "nx_sb_qa3": tpl = "「(手続き名を入力)」の手続きの流れを教えてください"
+        Case "nx_sb_qa1": tpl = "【知りたい改定】: (資料名や年度を記入)" & vbLf & _
+            "【気になる点】: (例: 保険料への影響)" & vbLf & _
+            "【知りたい結論】: (例: 何がいつから変わるか)"
+        Case "nx_sb_qa2": tpl = "【わからない用語】: (ここに記入)" & vbLf & _
+            "【それを見た場所】: (例: 〇〇約款 第4条)" & vbLf & _
+            "【どこまで理解したいか】: (例: お客様に説明できるレベル)"
+        Case "nx_sb_qa3": tpl = "【手続き名】: (ここに記入)" & vbLf & _
+            "【お客様/自分の状況】: (例: 契約者が死亡、受取人が海外在住)" & vbLf & _
+            "【知りたい結論】: (例: 必要書類と所要日数)"
         Case Else: GoTo Done
     End Select
     On Error Resume Next
     ThisWorkbook.Names("nx_input").RefersToRange.Value = tpl
     On Error GoTo Done
-    modSkin.ShowToast "入力欄に雛形を入れました。編集して Ctrl+Enter で送信してください。", "info"
+    modSkin.ShowToast "(ここに記入)の部分を埋めて Ctrl+Enter で送信してください。", "info"
 Done:
     modUiLock.Leave
 End Sub
@@ -719,6 +725,11 @@ Private Function AskGeneral(ByVal q As String) As String
         AskGeneral = "回答の作成に失敗しました。時間を置いてもう一度お試しください。"
         Exit Function
     End If
+
+    ' チャット履歴シート記録(modChatLog、core層。書込失敗で死なない設計)。
+    On Error Resume Next
+    modChatLog.LogTurn q, resp, "general"
+    On Error GoTo 0
 
     ' 会話履歴(新しい順;;;区切り・最大followup_max_pairsペア)
     Dim maxPairs As Long

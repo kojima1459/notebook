@@ -30,6 +30,13 @@
       "wave": "1-A"
     },
     {
+      "name": "modChatLog",
+      "path": "src/core/modChatLog.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
       "name": "modUtil",
       "path": "src/core/modUtil.bas",
       "role": "core",

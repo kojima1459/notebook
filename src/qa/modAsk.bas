@@ -275,6 +275,19 @@ Done:
         AppendFollowupPair q, mLastCleanAnswer
     End If
 
+    ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で
+    ' 既に確定済みのため、ここでresultに警告を足しても履歴側には混入しない。
+    If ok And nHits > 0 Then
+        result = ApplyLowHitWarning(result, hits, nHits)
+    End If
+
+    ' チャット履歴シート記録(modChatLog、core層。書込失敗で死なない設計)。
+    If LenB(q) > 0 Then
+        On Error Resume Next
+        modChatLog.LogTurn q, result, mdMode
+        On Error GoTo 0
+    End If
+
     mLastQuestion = q
     mLastAnswer = result
     mLastMode = mdMode
@@ -300,16 +313,20 @@ End Function
 
 ' 直近回答で最上位スコアのソース名(P2P感謝状の宛先解決用)。
 Public Function LastTopSource() As String
+    ' 【2026-07-20修正】mLastHitsは ReDim(1 To n)(modRetrieve/RunMultiRetrieve共通)
+    ' なのに、ここだけ 0始まりで走査していたため初回の mLastHits(0) で
+    ' 添字エラー(9)→呼び出し元EmitThanksForLastAnswerのOn Error Resume Nextに
+    ' 握りつぶされ、感謝状が一度も発行されない実バグだった。1始まりに修正。
     Dim bestI As Long: bestI = -1
     Dim bestScore As Double: bestScore = -1E+30
     Dim i As Long
-    For i = 0 To mLastNHits - 1
+    For i = 1 To mLastNHits
         If mLastHits(i).score > bestScore Then
             bestScore = mLastHits(i).score
             bestI = i
         End If
     Next i
-    If bestI >= 0 Then LastTopSource = mLastHits(bestI).source
+    If bestI >= 1 Then LastTopSource = mLastHits(bestI).source
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -597,6 +614,28 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     Else
         RunDeepFlow = DecorateWithFollowups(ApplyAnswerTags(verified))
     End If
+End Function
+
+' 低関連度警告(表示専用): 検索ヒットの最高スコアがconfig low_hit_warn_score
+' (既定0.3・コサイン類似度+キーワード/2gramボーナスのスケール。modRetrieve.bas
+' 冒頭コメント参照)未満なら、表示用resultの先頭に注意書きを付ける。
+' 0以下の設定値は「無効化」として扱う(閾値なしで常時警告になるのを防ぐ)。
+Private Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal nHits As Long) As String
+    ApplyLowHitWarning = result
+    Dim threshold As Double
+    threshold = modConfig.GetDouble("low_hit_warn_score", 0.3)
+    If threshold <= 0 Then Exit Function
+
+    Dim maxScore As Double
+    maxScore = -1E+30
+    Dim i As Long
+    For i = 1 To nHits
+        If hits(i).score > maxScore Then maxScore = hits(i).score
+    Next i
+    If maxScore >= threshold Then Exit Function
+
+    ApplyLowHitWarning = "⚠️ 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。" & _
+        vbLf & vbLf & result
 End Function
 
 Private Function NormalizeMode(ByVal mode As String) As String
