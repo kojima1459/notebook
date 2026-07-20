@@ -825,8 +825,9 @@ def main():
                         ["timestamp", "event", "mode", "detail", "latency_ms", "hit_count"],
                         "hidden", widths=[20, 16, 10, 50, 12, 10],
                         text_cols=[4])   # detail(質問文等の非信頼テキスト)
-    _make_headers_only(wb, "err_log", ["timestamp", "code", "context", "detail", "version"],
-                        "hidden", widths=[20, 10, 24, 60, 12],
+    _make_headers_only(wb, "err_log",
+                        ["timestamp", "code", "context", "detail", "version", "err_number", "http_status"],
+                        "hidden", widths=[20, 10, 24, 60, 12, 12, 12],
                         text_cols=[3, 4])   # context/detail
     _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
 
