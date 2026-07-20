@@ -35,6 +35,48 @@ Public Sub RunDiagnostics()
     WriteCheck ws, r, True, "アプリ名: " & modAppDef.APP_NAME & "  version " & modAppDef.APP_VERSION, "": r = r + 1
     r = r + 1
 
+    ' [設定サマリー]
+    WriteLine ws, r, "[設定サマリー]": r = r + 1
+    On Error Resume Next
+    Dim cfgMockOn As Boolean: cfgMockOn = modConfig.GetBool("mock_llm", True)
+    WriteCheck ws, r, True, "  mock_llm: " & IIf(cfgMockOn, "TRUE", "FALSE"), _
+               IIf(cfgMockOn, "本番前にFALSEへ", ""): r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgEmbedTransport As String: cfgEmbedTransport = modConfig.GetString("embed_transport", "ribbon")
+    WriteCheck ws, r, True, "  embed_transport: " & cfgEmbedTransport, "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgShelfFolder As String: cfgShelfFolder = modConfig.GetString("shelf_folder", "")
+    WriteCheck ws, r, True, "  shelf_folder: " & _
+               IIf(LenB(cfgShelfFolder) = 0, "(未設定)", modUtil.SafeLeft(cfgShelfFolder, 80)), "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgSharePath As String: cfgSharePath = modConfig.GetString("nexus_share_path", "")
+    WriteCheck ws, r, True, "  nexus_share_path: " & _
+               IIf(LenB(cfgSharePath) = 0, "(未設定)", modUtil.SafeLeft(cfgSharePath, 80)), "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgRecModel As String: cfgRecModel = modConfig.GetString("recommended_model", "")
+    WriteCheck ws, r, True, "  recommended_model: " & cfgRecModel, "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgQuickModel As String: cfgQuickModel = modConfig.GetString("quick_model", "")
+    WriteCheck ws, r, True, "  quick_model: " & cfgQuickModel, "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim cfgSyncInterval As Long: cfgSyncInterval = modConfig.GetLong("sync_interval_min", 0)
+    WriteCheck ws, r, True, "  sync_interval_min: " & cfgSyncInterval & _
+               IIf(cfgSyncInterval = 0, "(自動同期オフ)", ""), "": r = r + 1
+    On Error GoTo 0
+    r = r + 1
+
     ' [AIリボン]
     WriteLine ws, r, "[AIリボン]": r = r + 1
     Dim mockOn As Boolean: mockOn = modConfig.GetBool("mock_llm", True)

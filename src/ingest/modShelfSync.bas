@@ -337,6 +337,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         On Error Resume Next
         modUIMain.SetStage "🔄 同期が完了しました(" & summaryLine & ")"
         On Error GoTo 0
+    ElseIf cappedN = 0 Then
+        ' ユーザーの追加アクションが不要な正常完了はMsgBoxを出さず、
+        ' silent時と同じくSetStageのみで知らせる(§機能6・MsgBox削減)。
+        On Error Resume Next
+        modUIMain.SetStage "✅ 同期が完了しました(" & summaryLine & ")"
+        On Error GoTo 0
     Else
         Dim summary As String
         summary = "同期が完了しました。" & vbLf & _
@@ -344,12 +350,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         If resumeNeeded Then
             summary = summary & vbLf & "未完了だった埋め込みを" & resumedCount & "件再開しました。"
         End If
-        If cappedN > 0 Then
-            summary = summary & vbLf & vbLf & _
-                "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
-                "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
-                "もう一度「🔄 フォルダと同期」を押してください。"
-        End If
+        summary = summary & vbLf & vbLf & _
+            "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
+            "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
+            "もう一度「🔄 フォルダと同期」を押してください。"
 
         On Error Resume Next
         modUIMain.SetStage ""

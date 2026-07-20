@@ -153,7 +153,9 @@ End Function
 
 Public Sub ShowError(ByVal code As String, ByVal context As String, ByVal detail As String)
     LogError code, context, detail
-    MsgBox FriendlyMessage(code) & vbLf & "(コード: " & code & ")", vbExclamation, modAppDef.APP_NAME
+    MsgBox FriendlyMessage(code) & vbLf & "(コード: " & code & ")" & vbLf & vbLf & _
+        "🩺診断ボタン→「📋 直近のエラーをコピー」で、詳しい情報をそのまま担当者に送れます。", _
+        vbExclamation, modAppDef.APP_NAME
 End Sub
 
 ' ----------------------------------------------------------------------------
