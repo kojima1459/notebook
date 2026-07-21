@@ -211,7 +211,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
 
     On Error GoTo Fail
 
-    modUIMain.SetStage "🔍 検索中…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD0D) & " 検索中…"
     Dim topK As Long
     topK = TopKFor(mdMode)
 
@@ -229,7 +229,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
         result = modLog.FriendlyMessage("E0601") & vbLf & vbLf & _
             "『マイ本棚』タブから資料を追加すると、次から答えられるようになります。"
     Else
-        modUIMain.SetStage "📄 " & nHits & "件の資料がヒット"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒット"
         modUIMain.RenderSourcesPreview hits, nHits
 
         If mdMode = MODE_DEEP Then
@@ -421,7 +421,7 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     standalone = "": hyde = ""
 
     If modConfig.GetBool("expand_enabled", False) Then
-        modUIMain.SetStage "🧭 質問を分析中…"
+        modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDED) & " 質問を分析中…"
         Dim lightMode As Boolean
         lightMode = (mdMode <> MODE_DEEP) And modConfig.GetBool("quick_expand_light", True)
 
@@ -470,7 +470,7 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim orderN As Long: orderN = 0
     Dim rankOrder() As Long
     If modConfig.GetBool("rerank_enabled", False) And poolN > topK Then
-        modUIMain.SetStage "🧮 関連度を精査中…"
+        modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDEE) & " 関連度を精査中…"
         Dim rkPrompt As String
         rkPrompt = modPrompts.BuildRerankPrompt(q, poolHits, poolN, _
             modConfig.GetLong("max_context_chars", 40000))
@@ -780,7 +780,7 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     End If
 
     Dim disp As String
-    disp = body & vbLf & vbLf & ChrW(&H1F4A1) & " さらに深掘り(『深掘り』ボタンでそのまま聞けます):"
+    disp = body & vbLf & vbLf & ChrW(&HD83D) & ChrW(&HDCA1) & " さらに深掘り(『深掘り』ボタンでそのまま聞けます):"
     Dim fl() As String
     fl = Split(cands, vbLf)
     Dim i As Long

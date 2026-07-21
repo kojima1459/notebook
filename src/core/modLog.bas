@@ -89,7 +89,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "配布元にこのファイルの再入手を依頼してください。"
         Case "E0201"
             FriendlyMessage = "AIリボンが見つからず、AIに問い合わせできませんでした。" & _
-                "AIリボン入りのExcelで開き直すか、🩺診断ボタンで状態を確認してください。"
+                "AIリボン入りのExcelで開き直すか、" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタンで状態を確認してください。"
         Case "E0202"
             FriendlyMessage = "AIとの通信が混み合っているようです(あなたの操作に問題はありません)。" & _
                 "数十秒おいてもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
@@ -98,7 +98,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "時間を置いてからもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
         Case "E0204"
             FriendlyMessage = "本日のAI利用上限に達した可能性があります。" & _
-                "今日はここまでにして、明日「🔄同期」を押せば続きから再開できます。"
+                "今日はここまでにして、明日「" & ChrW(&HD83D) & ChrW(&HDD04) & "同期」を押せば続きから再開できます。"
         Case "E0301"
             FriendlyMessage = "対応していない種類のファイルです。" & _
                 "対応形式(txt/md/csv/pdf/docx/doc/xlsx等)のファイルをお使いください。"
@@ -120,7 +120,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "(上限そのものを増やすこともできます: configシートの shelf_max_chunks の数字を大きくしてください)"
         Case "E0502"
             FriendlyMessage = "同期するフォルダが見つかりませんでした。" & _
-                "「📁フォルダを選ぶ」からフォルダを選び直してください。"
+                "「" & ChrW(&HD83D) & ChrW(&HDCC1) & "フォルダを選ぶ」からフォルダを選び直してください。"
         Case "E0503"
             FriendlyMessage = "今、別の取込処理が実行中です。" & _
                 "処理が完了するまで、少々お待ちください。"
@@ -145,7 +145,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0705"
             FriendlyMessage = "共有フォルダへの書き込み/読み込みに失敗しました" & _
                 "(ネットワークの瞬断・アクセス権限・セキュリティソフトのブロック等の可能性があります)。" & _
-                "この処理は自動でスキップされましたが、通常は次回の🔄同期で再試行されます。"
+                "この処理は自動でスキップされましたが、通常は次回の" & ChrW(&HD83D) & ChrW(&HDD04) & "同期で再試行されます。"
         Case "E0801"
             FriendlyMessage = "画面の組み立てに失敗しました(データは失われていませんのでご安心ください)。" & _
                 "ブックを一度閉じて開き直せば、元どおり使えます。"
@@ -161,7 +161,7 @@ End Function
 Public Sub ShowError(ByVal code As String, ByVal context As String, ByVal detail As String)
     LogError code, context, detail
     MsgBox FriendlyMessage(code) & vbLf & "(コード: " & code & ")" & vbLf & vbLf & _
-        "🩺診断ボタン→「📋 直近のエラーをコピー」で、詳しい情報をそのまま担当者に送れます。", _
+        "" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタン→「" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー」で、詳しい情報をそのまま担当者に送れます。", _
         vbExclamation, modAppDef.APP_NAME
 End Sub
 

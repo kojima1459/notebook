@@ -181,7 +181,7 @@ Private Sub ShowHelpCard()
     manualBtn.Line.Visible = 0
     With manualBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F4D6) & " 詳細マニュアルを開く"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCD6) & " 詳細マニュアルを開く"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
@@ -228,7 +228,7 @@ Private Sub ShowHelpCard()
     fbBtn.Line.ForeColor.RGB = modUI.UiColor("accent")
     With fbBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F4EE) & " ご意見・不具合報告 (EXP+5)"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCEE) & " ご意見・不具合報告 (EXP+5)"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .TextRange.Font.Bold = -1
@@ -274,7 +274,7 @@ Private Sub ShowHelpCard()
     skinBtn.Line.ForeColor.RGB = modUI.UiColor("border")
     With skinBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F3A8) & " きせかえ(「ありがとう」を集めると限定スキンが解放)"
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFA8) & " きせかえ(「ありがとう」を集めると限定スキンが解放)"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .TextRange.ParagraphFormat.Alignment = 2
@@ -380,18 +380,18 @@ End Sub
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
 Private Function HelpBodyText() As String
     Dim s As String
-    s = ChrW(&H1F4D6) & " Nexus Agent かんたんガイド" & vbLf & vbLf & _
-        ChrW(&H1F4AC) & " チャット: 入力欄に質問して「送信」。モードボタンで" & _
+    s = ChrW(&HD83D) & ChrW(&HDCD6) & " Nexus Agent かんたんガイド" & vbLf & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCAC) & " チャット: 入力欄に質問して「送信」。モードボタンで" & _
         "「社内ナレッジ検索」(出典付き)と「一般アシスタント」を切替。" & vbLf & _
-        ChrW(&H1F4C4) & " 出典チップ: 回答下のチップをクリックすると原文をその場で確認できます。" & vbLf & _
-        "アクションバー: " & ChrW(&H1F44D) & "/" & ChrW(&H1F44E) & "で評価、" & ChrW(&H1F50D) & _
-        "深掘り、" & ChrW(&H2705) & "解決した(EXP+作者へ感謝が届く)、" & ChrW(&H1F4CB) & _
-        "コピー、" & ChrW(&H1F4C4) & "Word出力。" & vbLf & _
-        ChrW(&H1F4DA) & " ナレッジ倉庫: 資料の登録・検索・カード詳細。品質が低い資料は " & _
+        ChrW(&HD83D) & ChrW(&HDCC4) & " 出典チップ: 回答下のチップをクリックすると原文をその場で確認できます。" & vbLf & _
+        "アクションバー: " & ChrW(&HD83D) & ChrW(&HDC4D) & "/" & ChrW(&HD83D) & ChrW(&HDC4E) & "で評価、" & ChrW(&HD83D) & ChrW(&HDD0D) & _
+        "深掘り、" & ChrW(&H2705) & "解決した(EXP+作者へ感謝が届く)、" & ChrW(&HD83D) & ChrW(&HDCCB) & _
+        "コピー、" & ChrW(&HD83D) & ChrW(&HDCC4) & "Word出力。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫: 資料の登録・検索・カード詳細。品質が低い資料は " & _
         ChrW(&H26A0) & "ノイズ報告 で検索から除外できます。" & vbLf & _
-        ChrW(&H1F4A1) & " 専門家: 回答の下に「〇〇さんが詳しいです」と出たら、ボタンから" & _
+        ChrW(&HD83D) & ChrW(&HDCA1) & " 専門家: 回答の下に「〇〇さんが詳しいです」と出たら、ボタンから" & _
         "直接質問を送れます。" & vbLf & _
-        ChrW(&H1F504) & " 画面が乱れたら: サイドバーの「画面を再描画」。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDD04) & " 画面が乱れたら: サイドバーの「画面を再描画」。" & vbLf & _
         ChrW(&H2328) & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
         "作成: リスクコンサルティング支援部 ニューリスクG 小島正豪" & vbLf & _
         "このカードはクリックで閉じます"

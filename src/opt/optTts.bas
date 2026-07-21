@@ -58,7 +58,7 @@ Public Function SpeakAnswer(ByVal Text As String) As String
         Exit Function
     End If
 
-    modUIMain.SetStage "🔊 読み上げ中…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD0A) & " 読み上げ中…"
 
     Dim result As Variant
     result = modGateway.TryRibbonRun(RIBBON_FUNC_NAME, BuildTtsArgs(t))

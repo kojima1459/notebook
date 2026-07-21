@@ -62,7 +62,7 @@ Public Sub RenderCitations(ByVal bubbleName As String)
     lbl.Fill.Visible = 0: lbl.Line.Visible = 0
     With lbl.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F50E) & " 出典(クリックで原文を確認):"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDD0E) & " 出典(クリックで原文を確認):"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .MarginLeft = 2: .MarginTop = 0: .MarginBottom = 0
@@ -110,7 +110,7 @@ Private Sub DrawChip(ByVal ws As Worksheet, ByVal hitIdx As Long, ByVal x As Dou
     chip.Fill.ForeColor.RGB = modUI.UiColor("surface")
 
     Dim cap As String
-    cap = ChrW(&H1F4C4) & " " & modUtil.SafeLeft(src, 16)
+    cap = ChrW(&HD83D) & ChrW(&HDCC4) & " " & modUtil.SafeLeft(src, 16)
     If page > 0 Then cap = cap & " p." & page
     With chip.TextFrame2
         .WordWrap = -1
@@ -151,7 +151,7 @@ Public Sub ShowPeek(ByVal idx As Long)
     On Error GoTo Done
 
     Dim head As String
-    head = ChrW(&H1F4C4) & " " & src
+    head = ChrW(&HD83D) & ChrW(&HDCC4) & " " & src
     If page > 0 Then head = head & "  (p." & page & ")"
 
     Dim shp As Shape

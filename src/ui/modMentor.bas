@@ -82,7 +82,7 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     honor = modBoard.TitleFor(expert)
     With btn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F4A1) & " この分野は " & honor & expert & " さんが詳しいです [質問を送る]"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCA1) & " この分野は " & honor & expert & " さんが詳しいです [質問を送る]"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
@@ -187,7 +187,7 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
                             shown = shown + 1
                             On Error Resume Next
                             modUI.AddChatBubble "ai", _
-                                ChrW(&H1F4EE) & " " & f(1) & " さんからあなた宛の質問が届いています。" & vbLf & _
+                                ChrW(&HD83D) & ChrW(&HDCEE) & " " & f(1) & " さんからあなた宛の質問が届いています。" & vbLf & _
                                 "「" & modUtil.SafeLeft(f(3), 400) & "」" & vbLf & _
                                 "(関連資料: " & modUtil.SafeLeft(f(4), 60) & " / " & f(5) & ")"
                             modLog.LogUsage "mentor_recv", "", "from=" & f(1) & " q=" & modUtil.SafeLeft(f(3), 120)

@@ -178,7 +178,7 @@ Private Sub DrawStep(ByVal n As Long)
             nextLabel = "次へ " & ChrW(&H2192)
         Case 2
             titleText = ChrW(&H2461) & " 出典をワンクリック確認"
-            bodyText = "AI回答の下の「" & ChrW(&H1F4C4) & " 出典チップ」を押すと、元の資料の" & _
+            bodyText = "AI回答の下の「" & ChrW(&HD83D) & ChrW(&HDCC4) & " 出典チップ」を押すと、元の資料の" & _
                 "該当箇所がその場で確認できます。AIの回答が正しいか、秒でチェック。"
             nextLabel = "次へ " & ChrW(&H2192)
         Case Else

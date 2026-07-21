@@ -527,7 +527,7 @@ Private Sub DrawBubbles(ByVal ws As Worksheet, ByVal areaX As Double, ByVal area
     titleShp.Fill.Visible = 0
     With titleShp.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F5FA) & " ナレッジ地図(似た資料のかたまり)"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDDFA) & " ナレッジ地図(似た資料のかたまり)"
         .TextRange.Font.Size = 11.5
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")

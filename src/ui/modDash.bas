@@ -186,7 +186,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     titleShp.Line.Visible = 0
     titleShp.Fill.Visible = 0
     With titleShp.TextFrame2
-        .TextRange.Text = ChrW(&H1F4CA) & " ダッシュボード"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード"
         .TextRange.Font.Size = 15
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
@@ -206,11 +206,11 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     End With
 
     DrawHeaderButton ws, "nxd_btn_export", BTN_EXPORT_X, HEADER_BTN_Y, BTN_EXPORT_W, HEADER_BTN_H, _
-        ChrW(&H1F4E5) & " 分析用ログ出力", "modAnalytics.ExportAnalyticsCsv"
+        ChrW(&HD83D) & ChrW(&HDCE5) & " 分析用ログ出力", "modAnalytics.ExportAnalyticsCsv"
     DrawHeaderButton ws, "nxd_btn_chat", BTN_CHAT_X, HEADER_BTN_Y, BTN_CHAT_W, HEADER_BTN_H, _
-        ChrW(&H1F4AC) & " チャットへ", "modDash.OnDashBackToChat"
+        ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modDash.OnDashBackToChat"
     DrawHeaderButton ws, "nxd_btn_refresh", BTN_REFRESH_X, HEADER_BTN_Y, BTN_REFRESH_W, HEADER_BTN_H, _
-        ChrW(&H1F504) & " 更新", "modDash.OnDashRefresh"
+        ChrW(&HD83D) & ChrW(&HDD04) & " 更新", "modDash.OnDashRefresh"
 End Sub
 
 Private Sub DrawHeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, ByVal x As Double, _
@@ -380,7 +380,7 @@ Private Sub DrawBadgeShelf(ByVal ws As Worksheet)
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
     With headShp.TextFrame2
-        .TextRange.Text = ChrW(&H1F3C5) & " バッジ"
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFC5) & " バッジ"
         .TextRange.Font.Size = 11.5
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
@@ -402,10 +402,10 @@ Private Sub DrawBadgeShelf(ByVal ws As Worksheet)
 
         Dim line1 As String, line2 As String
         If earned Then
-            line1 = ChrW(&H1F3C5) & " " & titles(i)
+            line1 = ChrW(&HD83C) & ChrW(&HDFC5) & " " & titles(i)
             line2 = dt
         Else
-            line1 = ChrW(&H1F512) & " " & titles(i)
+            line1 = ChrW(&HD83D) & ChrW(&HDD12) & " " & titles(i)
             line2 = modUtil.SafeLeft(conditions(i), 22)
         End If
 
@@ -459,8 +459,8 @@ Private Sub BadgeCatalog(ByRef ids() As String, ByRef titles() As String, ByRef 
         "資料を30冊集めると獲得|" & _
         "資料をパックとして誰かに渡すと獲得|" & _
         "誰かのパックを取り込むと獲得|" & _
-        "🟢解決したが10回になると獲得|" & _
-        "🟢解決したが50回になると獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが10回になると獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが50回になると獲得|" & _
         "7日連続で使うと獲得", "|")
 End Sub
 

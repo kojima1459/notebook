@@ -393,7 +393,7 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
 
     With ws.Range("B2:F2")
         .Merge
-        .Value = ChrW(&H1F4DA) & " ナレッジ倉庫 (Vault)"
+        .Value = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫 (Vault)"
         .Font.Size = 15
         .Font.Bold = True
     End With
@@ -407,15 +407,15 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     End With
     ws.Rows(4).RowHeight = 22
     With ws.Range("B3")
-        .Value = "キーワード検索(入力して🔍):"
+        .Value = "キーワード検索(入力して" & ChrW(&HD83D) & ChrW(&HDD0D) & "):"
         .Font.Size = 9
         .Font.Color = RGB(107, 114, 128)
     End With
 
     Dim defs As Variant, handlers As Variant, xs As Variant, wsz As Variant
-    defs = Array(ChrW(&H1F50D) & " 検索", ChrW(&H2795) & " 登録", ChrW(&H1F4C1) & " 追加", _
-                 ChrW(&H1F4E6) & " パック出力", ChrW(&H1F4E5) & " パック取込", _
-                 ChrW(&H1F504) & " 同期", ChrW(&H1F4AC) & " チャットへ")
+    defs = Array(ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", ChrW(&H2795) & " 登録", ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", _
+                 ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", _
+                 ChrW(&HD83D) & ChrW(&HDD04) & " 同期", ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
     handlers = Array("OnVaultSearch", "ShowVaultInput", "OnVaultAddFiles", _
                      "OnVaultExportPack", "OnVaultImportPack", "OnVaultSyncNow", "OnVaultBackToChat")
     xs = Array(390, 460, 528, 596, 692, 788, 850)
@@ -514,7 +514,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         icon.Fill.Visible = 0: icon.Line.Visible = 0
         With icon.TextFrame2
             .WordWrap = -1
-            .TextRange.Text = ChrW(&H1F50D)   ' 虫めがね
+            .TextRange.Text = ChrW(&HD83D) & ChrW(&HDD0D)   ' 虫めがね
             .TextRange.Font.Size = 40
             .TextRange.ParagraphFormat.Alignment = 2
         End With
@@ -531,7 +531,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
                                   "AIにこの質問を投げて、新しいナレッジを作りませんか?"
             Else
                 .TextRange.Text = "まだナレッジがありません。" & vbLf & _
-                                  "「➕ 登録」「📁 追加」で資料を取り込むか、AIに質問してみましょう。"
+                                  "「➕ 登録」「" & ChrW(&HD83D) & ChrW(&HDCC1) & " 追加」で資料を取り込むか、AIに質問してみましょう。"
             End If
             .TextRange.Font.Size = 11
             .TextRange.ParagraphFormat.Alignment = 2
@@ -546,7 +546,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         cta.Fill.ForeColor.RGB = modUI.UiColor("primary")
         With cta.TextFrame2
             .WordWrap = -1
-            .TextRange.Text = ChrW(&H1F4AC) & " AIに質問する"
+            .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " AIに質問する"
             .TextRange.Font.Size = 10.5
             .TextRange.Font.Bold = -1
             .TextRange.ParagraphFormat.Alignment = 2
@@ -628,7 +628,7 @@ Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Do
     Dim titleText As String: titleText = modUtil.SafeLeft(srcName, 40)
     Dim previewText As String: previewText = modUtil.SafeLeft(PreviewOf(srcName), 90)
     Dim footText As String
-    footText = ChrW(&H1F4C5) & " " & ShortStamp(addedAt) & "  ・ " & chunkN & " chunks"
+    footText = ChrW(&HD83D) & ChrW(&HDCC5) & " " & ShortStamp(addedAt) & "  ・ " & chunkN & " chunks"
 
     Dim isExcluded As Boolean
     On Error Resume Next

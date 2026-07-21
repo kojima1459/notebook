@@ -83,9 +83,9 @@ Public Function TitleFor(ByVal userId As String) As String
         If mTitles.Exists(LCase$(userId)) Then n = CLng(mTitles(LCase$(userId)))
     End If
     If n >= 20 Then
-        TitleFor = ChrW(&H1F31F) & " "        ' 🌟
+        TitleFor = ChrW(&HD83C) & ChrW(&HDF1F) & " "        ' 🌟
     ElseIf n >= 5 Then
-        TitleFor = ChrW(&H1F4A1) & " "        ' 💡
+        TitleFor = ChrW(&HD83D) & ChrW(&HDCA1) & " "        ' 💡
     End If
     On Error GoTo 0
 End Function
@@ -103,7 +103,7 @@ Public Sub OnWidgetClick()
     If ws Is Nothing Then GoTo Done
 
     Dim body As String
-    body = ChrW(&H1F4C8) & " 節約時間レポート" & vbLf & vbLf & _
+    body = ChrW(&HD83D) & ChrW(&HDCC8) & " 節約時間レポート" & vbLf & vbLf & _
            "【あなた】" & vbLf & _
            "  今日: " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd"))) & _
            "  /  今月: " & FmtMin(MyMin("m", Format$(Date, "yyyymm"))) & _
@@ -249,10 +249,10 @@ Private Sub DrawWidget()
     With card.TextFrame2
         .WordWrap = -1
         .MarginLeft = 10: .MarginRight = 8: .MarginTop = 6: .MarginBottom = 4
-        .TextRange.Text = ChrW(&H1F30D) & " みんなの節約時間" & vbLf & _
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間" & vbLf & _
             "今日 " & FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon) & vbLf & _
             "あなた: 今日 " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd"))) & _
-            "・" & ChrW(&H1F525) & modStats.GetStat("streak_days") & "日連続"
+            "・" & ChrW(&HD83D) & ChrW(&HDD25) & modStats.GetStat("streak_days") & "日連続"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
     End With

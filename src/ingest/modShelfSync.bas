@@ -139,7 +139,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     uiStep = "状態表示の更新"
     On Error Resume Next
-    modUIMain.SetStage "🔄 同期を確認しています…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期を確認しています…"
     On Error GoTo Failed
 
     uiStep = "本棚フォルダ設定の確認"
@@ -163,7 +163,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         On Error GoTo Failed
         If orphanPending > 0 Then
             On Error Resume Next
-            modUIMain.SetStage "📥 未完了の埋め込みを再開しています…"
+            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " 未完了の埋め込みを再開しています…"
             On Error GoTo Failed
             Dim orphanDone As Long
             orphanDone = modEmbed.EmbedPending()
@@ -173,7 +173,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
             If Not silent Then
                 MsgBox "同期フォルダはまだ設定されていませんが、未完了だった資料の変換(ベクトル化)を" & _
                        orphanDone & "件再開しました。" & vbLf & vbLf & _
-                       "フォルダごと自動同期したい場合は「📁 フォルダを選ぶ」から設定できます。", _
+                       "フォルダごと自動同期したい場合は「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から設定できます。", _
                        vbInformation, modAppDef.APP_NAME
             End If
         ElseIf Not silent Then
@@ -196,7 +196,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
             MsgBox "インターネット上のアドレス(SharePoint等のURL)は、本棚フォルダに設定できません。" & vbLf & vbLf & _
                    "SharePointのフォルダを使いたい場合は、まずOneDriveの「同期」ボタンで" & _
                    "パソコンのフォルダとして同期し、そのフォルダ(例: C:\Users\…\OneDrive - 会社名\…)を" & _
-                   "「📁 フォルダを選ぶ」から選んでください。" & vbLf & _
+                   "「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から選んでください。" & vbLf & _
                    "(コード: E0502)", vbExclamation, modAppDef.APP_NAME
         End If
         On Error Resume Next
@@ -250,7 +250,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         If Not diskDict.Exists(LCase$(diskNames(i))) Then diskDict.Add LCase$(diskNames(i)), True
 
         On Error Resume Next
-        modUIMain.SetStage "🔄 同期中 " & (i + 1) & "/" & diskCount & " …"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
         On Error GoTo Failed
 
         Dim path As String: path = folderNorm & diskNames(i)
@@ -313,7 +313,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim resumedCount As Long: resumedCount = 0
     If resumeNeeded Then
         On Error Resume Next
-        modUIMain.SetStage "📥 未完了の埋め込みを再開しています…"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " 未完了の埋め込みを再開しています…"
         On Error GoTo Failed
         resumedCount = modEmbed.EmbedPending()
     End If
@@ -335,7 +335,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' フォーカスを奪わない。状態表示行+StatusBarのみで完了を知らせる
         ' (§8 UXレビュー: 定期的なMsgBoxが作業を中断する問題への対応)。
         On Error Resume Next
-        modUIMain.SetStage "🔄 同期が完了しました(" & summaryLine & ")"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期が完了しました(" & summaryLine & ")"
         On Error GoTo 0
     ElseIf cappedN = 0 Then
         ' ユーザーの追加アクションが不要な正常完了はMsgBoxを出さず、
@@ -353,7 +353,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         summary = summary & vbLf & vbLf & _
             "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
             "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
-            "もう一度「🔄 フォルダと同期」を押してください。"
+            "もう一度「" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期」を押してください。"
 
         On Error Resume Next
         modUIMain.SetStage ""

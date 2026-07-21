@@ -91,7 +91,7 @@ Public Sub LogPerf(ByVal binMs As Double, ByVal floatMs As Double, _
     If binMs < 0 Then binMs = 0
     If floatMs < 0 Then floatMs = 0
     Dim msg As String
-    msg = ChrW(&H1F50D) & " ハイブリッド検索: バイナリ選別 " & Format$(binMs, "0") & "ms" & _
+    msg = ChrW(&HD83D) & ChrW(&HDD0D) & " ハイブリッド検索: バイナリ選別 " & Format$(binMs, "0") & "ms" & _
           " -> Float再ランク " & Format$(floatMs, "0") & "ms / 候補 " & candN & "件 / 総 " & totalN & "件"
     Debug.Print msg
     mLastPerf = msg   ' UI層(modApp)がConsumePerfLogで取り出してToast表示する(層の向きを守る)

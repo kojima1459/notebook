@@ -74,9 +74,7 @@ Public Sub EnsureLayout()
     Set ws = GetOrCreateHomeSheet()
     If ws Is Nothing Then Exit Sub
 
-    ' uiStep: 実機でだけ起きるエラー(型不一致など)を1回の報告で特定できるよう、
-    ' modBoot.bootStageと同じ考え方でブロック単位の進捗を追う
-    ' (2026-07-15 実機E0801「ホーム画面の組み立て」報告への対策)。
+    ' uiStep: 実機エラーの発生箇所を1回の報告で特定するための進捗マーカー。
     Dim uiStep As String
     On Error GoTo Fail
 
@@ -104,7 +102,7 @@ Public Sub EnsureLayout()
     uiStep = "タイトル行"
     With ws.Range("A1:E1")
         .Merge
-        .Value = "📚 " & modAppDef.APP_NAME & "  v" & modAppDef.APP_VERSION
+        .Value = "" & ChrW(&HD83D) & ChrW(&HDCDA) & " " & modAppDef.APP_NAME & "  v" & modAppDef.APP_VERSION
         .Font.Size = 14
         .Font.Bold = True
         .Interior.Color = COLOR_SELECTED_BG
@@ -123,10 +121,7 @@ Public Sub EnsureLayout()
         .Font.Italic = True
     End With
 
-    ' 実機防衛(2026-07-21再訂正): Activateあり/なしのどちらでも同じ1004が
-    ' 再現する実測結果が出たため、「Activateが成功すること」をこれ以上
-    ' 致命的な前提にしない。失敗を許容して描画へ進み、AddButton側の独立した
-    ' 診断ログで「Activate成否と無関係に描画自体が通るか」を切り分ける。
+    ' 実機防衛(2026-07-21): Activate失敗を致命的にしない(失敗しても続行)。
     uiStep = "描画前アクティブ化"
     Application.ScreenUpdating = True
     DoEvents
@@ -145,7 +140,7 @@ Public Sub EnsureLayout()
 
     uiStep = "ボタン(使い方/診断)"
     AddButton ws, ws.Range("F1:G2"), "btn_howto", "❓ 使い方", "modUIMain.OnOpenHowto"
-    AddButton ws, ws.Range("H1:H2"), "btn_diag", "🩺 診断", "modUIMain.OnRunDiag"
+    AddButton ws, ws.Range("H1:H2"), "btn_diag", "" & ChrW(&HD83E) & ChrW(&HDE7A) & " 診断", "modUIMain.OnRunDiag"
 
     ' ---- モードトグル ----------------------------------------------------
     uiStep = "モードトグルボタン"
@@ -178,7 +173,7 @@ Public Sub EnsureLayout()
     ' ---- 質問するボタン ----------------------------------------------------
     uiStep = "質問するボタン"
     ws.Rows("10:11").RowHeight = 20
-    AddButton ws, ws.Range("C10:F11"), "btn_ask", "💬  質 問 す る", "modUIMain.OnAskButton"
+    AddButton ws, ws.Range("C10:F11"), "btn_ask", "" & ChrW(&HD83D) & ChrW(&HDCAC) & "  質 問 す る", "modUIMain.OnAskButton"
 
     ' ---- 状態表示 ----------------------------------------------------
     uiStep = "状態表示行"
@@ -203,7 +198,7 @@ Public Sub EnsureLayout()
     uiStep = "回答本文欄"
     With ws.Range(RNG_ANSWER)
         .Merge
-        .Value = "（質問を入力して「💬 質問する」を押してください）"
+        .Value = "（質問を入力して「" & ChrW(&HD83D) & ChrW(&HDCAC) & " 質問する」を押してください）"
         .WrapText = True
         .VerticalAlignment = -4160
         .Interior.Color = 15987946   ' 薄い水色
@@ -234,9 +229,9 @@ Public Sub EnsureLayout()
 
     uiStep = "フィードバックボタン"
     ws.Rows("29:30").RowHeight = 18
-    AddButton ws, ws.Range("A29:C30"), "btn_fb_green", "🟢 解決した!", "modAsk.FeedbackGreen"
-    AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "🟡 ヒントになった", "modAsk.FeedbackYellow"
-    AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "🔴 だめだった", "modAsk.FeedbackRed"
+    AddButton ws, ws.Range("A29:C30"), "btn_fb_green", "" & ChrW(&HD83D) & ChrW(&HDFE2) & " 解決した!", "modAsk.FeedbackGreen"
+    AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "" & ChrW(&HD83D) & ChrW(&HDFE1) & " ヒントになった", "modAsk.FeedbackYellow"
+    AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "" & ChrW(&HD83D) & ChrW(&HDD34) & " だめだった", "modAsk.FeedbackRed"
 
     ' ---- 続けて質問+Wordで開く ------------------------------------------------
     ' 「続けて質問」(裁定D11)はコア機能(modAsk)への入口なので常時生成する。
@@ -245,18 +240,18 @@ Public Sub EnsureLayout()
     ' AIリボン本体でのみ利用可)。
     uiStep = "続けて質問ボタン"
     ws.Rows("31:32").RowHeight = 18
-    AddButton ws, ws.Range("A31:D32"), "btn_followup", "💬 続けて質問", "modUIMain.OnFollowupButton"
+    AddButton ws, ws.Range("A31:D32"), "btn_followup", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " 続けて質問", "modUIMain.OnFollowupButton"
     uiStep = "Wordで開くボタン(有効判定)"
     If modFeatures.FeatureEnabled("markdown") Then
         uiStep = "Wordで開くボタン(生成)"
-        AddButton ws, ws.Range("E31:H32"), "btn_word", "📝 Wordで開く", "modUIMain.OnOpenWordButton"
+        AddButton ws, ws.Range("E31:H32"), "btn_word", "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Wordで開く", "modUIMain.OnOpenWordButton"
     End If
 
     ' ---- 待ち時間豆知識 ----------------------------------------------------
     uiStep = "豆知識欄"
     With ws.Range(RNG_TIP)
         .Merge
-        .Value = "💡 豆知識: "
+        .Value = "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: "
         .WrapText = True
         .VerticalAlignment = -4160
         .Font.Size = 9
@@ -282,10 +277,7 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
-    ' 2026-07-21: Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない
-    ' 事例が実機で確認された(uiStepの角カッコが最終ログから消えることがある)。
-    ' 原因を仮定せず、失敗した瞬間にここで直接err_logへ書く(伝播に依存しない
-    ' 確実な記録)。
+    ' Err.Raise伝播に依存せず、失敗した瞬間にここで直接err_logへ書く。
     Dim diag As String: diag = ""
     On Error Resume Next
     diag = " ws.Visible=" & ws.Visible & " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name
@@ -358,7 +350,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
 
     Dim modeLabel As String
     If LCase$(mode) = "deep" Then
-        modeLabel = "🔍 しっかり調べる"
+        modeLabel = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる"
     Else
         modeLabel = "⚡ すぐ聞く"
     End If
@@ -367,7 +359,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     footer = vbLf & vbLf & "（" & modeLabel & " ・ 所要 " & modUtil.HumanSeconds(CDbl(seconds)) & "）"
 
     WriteSafe ws.Range(RNG_ANSWER), answerText & footer
-    WriteSafe ws.Range(RNG_SOURCES), "📖 この回答のもと: " & JoinSourceLabels(hits, nHits)
+    WriteSafe ws.Range(RNG_SOURCES), "" & ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: " & JoinSourceLabels(hits, nHits)
 
     On Error Resume Next
     ws.Range(RNG_STATUS).Value = "状態: 回答ができました。出典もあわせてご確認ください。"
@@ -389,7 +381,7 @@ Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
     If ws Is Nothing Then Exit Sub
 
     Dim preview As String
-    preview = "📄 " & nHits & "件の資料がヒットしました: " & JoinSourceLabels(hits, nHits)
+    preview = "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒットしました: " & JoinSourceLabels(hits, nHits)
     WriteSafe ws.Range(RNG_SOURCES), preview
     WriteSafe ws.Range(RNG_ANSWER), "（資料を確認しました。ここから回答を作成します。もう少しお待ちください…）"
 End Sub
@@ -438,7 +430,7 @@ End Sub
 Private Sub AddDiagCopyErrorsButton()
     On Error GoTo Fail
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("diag_report")
-    AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "📋 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
+    AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
     Exit Sub
 Fail:
     Err.Clear
@@ -483,7 +475,7 @@ Public Sub ShowTip()
     Dim idx As Long
     idx = Int(Rnd() * (UBound(tips) - LBound(tips) + 1)) + LBound(tips)
 
-    WriteSafe ws.Range(RNG_TIP), "💡 豆知識: " & tips(idx)
+    WriteSafe ws.Range(RNG_TIP), "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: " & tips(idx)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -549,9 +541,9 @@ Public Sub OnOpenWordButton()
     instruction = Trim$(CStr(resp))
 
     If LenB(instruction) > 0 Then
-        SetStage "📝 ご指定の形に整えて、Word文書を作成中…"
+        SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " ご指定の形に整えて、Word文書を作成中…"
     Else
-        SetStage "📝 Word文書を作成中…"
+        SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Word文書を作成中…"
     End If
 
     Dim result As Variant
@@ -709,7 +701,7 @@ End Sub
 
 Private Function ModeCaption(ByVal mode As String) As String
     If mode = "deep" Then
-        ModeCaption = "🔍 しっかり調べる (1〜2分)"
+        ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる (1〜2分)"
     Else
         ModeCaption = "⚡ すぐ聞く (10〜20秒)"
     End If
@@ -766,14 +758,14 @@ End Function
 
 Private Function TipList() As Variant
     TipList = Array( _
-        "「🔍しっかり調べる」は下書き→検証の2段階なので少し時間がかかりますが、より丁寧な回答になります。", _
+        "「" & ChrW(&HD83D) & ChrW(&HDD0D) & "しっかり調べる」は下書き→検証の2段階なので少し時間がかかりますが、より丁寧な回答になります。", _
         "資料を追加すると本棚が育ち、答えられる質問がどんどん増えていきます。", _
         "資料は「マイ本棚」タブの「フォルダと同期」でまとめて自動追加できます。", _
         "回答の下にある出典を見れば、元の資料のどこに書いてあるかすぐ確認できます。", _
         "同じ資料を入れ直すと、自動的に新しい内容に置き換わります(重複しません)。", _
         "他の人が作った「パック」を取り込むと、自分で資料を集めなくても本棚が増やせます。", _
-        "🟢🟡🔴のボタンで感想を送ると、ダッシュボードの記録に残ります。", _
-        "困ったときは🩺診断ボタンを押すと、今の状態が一目でわかります。", _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "" & ChrW(&HD83D) & ChrW(&HDFE1) & "" & ChrW(&HD83D) & ChrW(&HDD34) & "のボタンで感想を送ると、ダッシュボードの記録に残ります。", _
+        "困ったときは" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタンを押すと、今の状態が一目でわかります。", _
         "質問はできるだけ具体的に書くと、より的確な回答が返ってきます。", _
         "ダッシュボードでは、これまで取り戻した時間やバッジの獲得状況が見られます。" _
     )
@@ -840,9 +832,8 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.OnAction = action
     Exit Sub
 Fail:
-    ' Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない事例が実機で
-    ' 確認されたため、伝播に依存せずここで直接err_logへ書く。Err.Number/
-    ' Descriptionはこの後LogError呼び出しで上書きされ得るので先に退避する。
+    ' Err.Raise伝播に依存せず直接err_logへ書く(この後のLogError呼び出しで
+    ' Err自体が上書きされ得るため先に退避)。
     Dim btnErrNum As Long, btnErrDesc As String
     btnErrNum = Err.Number: btnErrDesc = Err.Description
     Dim diag As String: diag = ""
@@ -856,16 +847,12 @@ Fail:
     Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
 End Sub
 
-' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
-' 強制・Protect解除一式)。真因はコンパイルエラーであり、これらは的外れな
-' 対策だった。座標サニタイズ(下記SafeCoord)のみ実効性があるため維持する。
 Private Function SafeCoord(ByVal v As Double) As Double
     If v < 1 Then v = 1
     SafeCoord = v
 End Function
 
-' 呼び出し元がSafeCoordで既に安全化した値を渡す前提だが、直接呼ばれても
-' 壊れないよう二重にクランプする(コストはほぼ無い)。
+' 直接呼ばれても壊れないよう二重にクランプする。
 Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
                                  ByVal W As Double, ByVal H As Double) As Shape
     L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)

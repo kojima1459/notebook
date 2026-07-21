@@ -88,7 +88,7 @@ Public Function RenderMarkdownAt(ByVal sheetName As String, ByVal cellAddr As St
         Exit Function
     End If
 
-    modUIMain.SetStage "📝 表示を整えています…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " 表示を整えています…"
 
     ' (1) 対象セルへMarkdown文字列を書き込む(セル上限32,767字対策で
     '     SafeLeft(…, 32000) を経由。規約§12)。
@@ -152,7 +152,7 @@ Public Function OpenAnswerInWord(ByVal md As String) As String
         Exit Function
     End If
 
-    modUIMain.SetStage "📝 Wordで開いています…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Wordで開いています…"
 
     Dim result As Variant
     result = modGateway.TryRibbonRun(WORD_FUNC_NAME, Array(md))
@@ -217,7 +217,7 @@ Public Function ExportAnswerAsDoc(ByVal answerText As String, ByVal instruction 
         Exit Function
     End If
 
-    modUIMain.SetStage "📝 指示に沿って文書に整えています…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " 指示に沿って文書に整えています…"
 
     ' 整形プロンプト: 指示に従いMarkdown形式の文書に仕上げる。出典表記は保持
     ' (裁定D12)。effort/verbosityはconfigで調整可能(既定medium/medium)。
@@ -237,7 +237,7 @@ Public Function ExportAnswerAsDoc(ByVal answerText As String, ByVal instruction 
         Exit Function
     End If
 
-    modUIMain.SetStage "📝 Wordで開いています…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Wordで開いています…"
 
     Dim result As Variant
     result = modGateway.TryRibbonRun(WORD_FUNC_NAME, Array(formatted))

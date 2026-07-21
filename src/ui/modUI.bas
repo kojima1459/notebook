@@ -433,8 +433,8 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
     End With
 
     Dim items As Variant
-    items = Array(ChrW(&H1F4AC) & " チャット", ChrW(&H1F4DA) & " ナレッジ倉庫", _
-                  ChrW(&H1F4CA) & " ダッシュボード", ChrW(&H1F504) & " 画面を再描画")
+    items = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャット", ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
+                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード", ChrW(&HD83D) & ChrW(&HDD04) & " 画面を再描画")
     Dim navActions As Variant
     navActions = Array("modApp.OnNavChat", "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
     Dim i As Long
@@ -463,7 +463,7 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
     Set lang = ws.Shapes.AddShape(5, SIDEBAR_W + 480, 8, 130, 28)
     lang.Name = "nx_top_lang"
     With lang.TextFrame2
-        .TextRange.Text = ChrW(&H1F1EF) & ChrW(&H1F1F5) & " 日本語で回答"
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDDEF) & ChrW(&HD83C) & ChrW(&HDDF5) & " 日本語で回答"
         .TextRange.Font.Size = 9.5
         .TextRange.Font.Bold = -1
         .TextRange.ParagraphFormat.Alignment = 2
@@ -475,7 +475,7 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
     Set modeBtn = ws.Shapes.AddShape(5, SIDEBAR_W + 320, 8, 150, 28)
     modeBtn.Name = "nx_top_mode"
     With modeBtn.TextFrame2
-        .TextRange.Text = ChrW(&H1F3E2) & " 社内ナレッジ検索"
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
         .TextRange.Font.Size = 9.5
         .TextRange.Font.Bold = -1
         .TextRange.ParagraphFormat.Alignment = 2
@@ -525,7 +525,7 @@ Private Sub DrawInputArea(ByVal ws As Worksheet)
     clip.Name = "nx_top_clip"
     clip.Line.Visible = 0
     With clip.TextFrame2
-        .TextRange.Text = ChrW(&H1F4CE)
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCE)
         .TextRange.Font.Size = 12
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
@@ -538,10 +538,10 @@ End Sub
 ' バブル毎のボタン生成を全廃してShape増殖(32bitメモリクラッシュ)を防ぐ。
 Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     Dim labels As Variant, widths As Variant, kinds As Variant
-    labels = Array(ChrW(&H1F44D) & " グッド", ChrW(&H1F44E) & " バッド", _
-                   ChrW(&H1F50D) & " 深掘り", ChrW(&H2705) & " 解決した", _
-                   ChrW(&H1F198) & " 本社へ照会", ChrW(&H1F4C4) & " Word出力", _
-                   ChrW(&H1F4CB) & " コピー")
+    labels = Array(ChrW(&HD83D) & ChrW(&HDC4D) & " グッド", ChrW(&HD83D) & ChrW(&HDC4E) & " バッド", _
+                   ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", ChrW(&H2705) & " 解決した", _
+                   ChrW(&HD83C) & ChrW(&HDD98) & " 本社へ照会", ChrW(&HD83D) & ChrW(&HDCC4) & " Word出力", _
+                   ChrW(&HD83D) & ChrW(&HDCCB) & " コピー")
     widths = Array(70, 70, 70, 80, 92, 88, 76)
     kinds = Array("good", "bad", "drill", "resolve", "hq", "word", "copy")
     Dim handlers As Variant
@@ -719,7 +719,7 @@ Private Function ThemeIcon() As String
     If CurrentTheme() = "dark" Then
         ThemeIcon = ChrW(&H2600)    ' 太陽
     Else
-        ThemeIcon = ChrW(&H1F319)   ' 月
+        ThemeIcon = ChrW(&HD83C) & ChrW(&HDF19)   ' 月
     End If
 End Function
 

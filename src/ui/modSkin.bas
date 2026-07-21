@@ -268,7 +268,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     Select Case LCase$(kind)
         Case "success": bg = RGB(0, 168, 89):  fg = RGB(255, 255, 255): icon = ChrW(&H2705)
         Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255): icon = ChrW(&H26A0)
-        Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252): icon = ChrW(&H1F4A1)
+        Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252): icon = ChrW(&HD83D) & ChrW(&HDCA1)
     End Select
     shp.Fill.ForeColor.RGB = bg
 

@@ -149,7 +149,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         Dim bN As Long: bN = bEnd - bStart + 1
 
         On Error Resume Next
-        modUIMain.SetStage "📥 ベクトル化中 " & (bStart + 1) & "〜" & (bEnd + 1) & "/" & limit & " …"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & (bStart + 1) & "〜" & (bEnd + 1) & "/" & limit & " …"
         On Error GoTo 0
 
         On Error GoTo EscOrErr

@@ -86,7 +86,7 @@ Public Sub CompareTwoDocsDialog()
         Exit Sub
     End If
 
-    modUIMain.SetStage "📑 差分を分析中…"
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCD1) & " 差分を分析中…"
 
     Dim maxChars As Long: maxChars = modConfig.GetLong("max_context_chars", 40000)
     Dim halfChars As Long: halfChars = maxChars \ 2

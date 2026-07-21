@@ -57,9 +57,9 @@ Private Sub DrawSidebarExtras()
     Next nm
 
     Dim caps As Variant
-    caps = Array(ChrW(&H1F4AC) & " 改定ポイントを教えて", _
-                 ChrW(&H1F4AC) & " 用語をやさしく解説", _
-                 ChrW(&H1F4AC) & " 手続きの流れを知りたい")
+    caps = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " 改定ポイントを教えて", _
+                 ChrW(&HD83D) & ChrW(&HDCAC) & " 用語をやさしく解説", _
+                 ChrW(&HD83D) & ChrW(&HDCAC) & " 手続きの流れを知りたい")
     Dim i As Long
     For i = 0 To 2
         Dim chip As Shape
@@ -91,7 +91,7 @@ Private Sub DrawSidebarExtras()
     g.Fill.Visible = 0
     With g.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H1F3B2) & " 今日のワンポイント"
+        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
@@ -152,10 +152,10 @@ Public Sub OnGacha()
     Dim body As String: body = CStr(ws.Cells(r, 7).Value)
 
     modUI.AddChatBubble "ai", _
-        ChrW(&H1F3B2) & " 今日のワンポイント" & vbLf & _
+        ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント" & vbLf & _
         "【" & modUtil.SafeLeft(src, 40) & "】" & IIf(LenB(summ) > 0, " " & summ, "") & vbLf & _
         modUtil.SafeLeft(body, 300) & IIf(Len(body) > 300, "…", "") & vbLf & _
-        "(もう一度引く: サイドバーの「" & ChrW(&H1F3B2) & " 今日のワンポイント」)"
+        "(もう一度引く: サイドバーの「" & ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント」)"
     On Error Resume Next
     modLog.LogUsage "gacha", "", modUtil.SafeLeft(src, 80)
     On Error GoTo Done
@@ -193,7 +193,7 @@ Private Sub RestoreLastConversation()
     For i = n To 0 Step -1
         If LenB(Trim$(us(i))) > 0 Then
             modUI.AddChatBubble "user", us(i)
-            modUI.AddChatBubble "ai", ChrW(&H1F4DC) & "(前回の回答) " & aas(i)
+            modUI.AddChatBubble "ai", ChrW(&HD83D) & ChrW(&HDCDC) & "(前回の回答) " & aas(i)
         End If
     Next i
     On Error GoTo 0
@@ -242,7 +242,7 @@ Public Sub OnSend()
     ' 回答が来たら削除して本物を追加する(in-place置換はバブル高さ管理と衝突するため
     ' 削除→追加方式。小さな余白が残るだけで崩れない)。
     Dim phName As String
-    phName = modUI.AddChatBubble("ai", ChrW(&H1F4AD) & " 考えています…")
+    phName = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCAD) & " 考えています…")
     DoEvents
 
     Dim ans As String
@@ -388,7 +388,7 @@ Public Sub OnActDrill()
     End If
     If Len(q) > MAX_INPUT_CHARS Then q = Left$(q, MAX_INPUT_CHARS)   ' A3: 上限で切る
 
-    modUI.AddChatBubble "user", ChrW(&H1F50D) & " " & q
+    modUI.AddChatBubble "user", ChrW(&HD83D) & ChrW(&HDD0D) & " " & q
 
     Dim ans As String
     If modAsk.CanFollowup() Then
@@ -496,7 +496,7 @@ Public Sub OnAttachImage()
     If LenB(Trim$(prompt)) = 0 Then prompt = "この画像の内容を読み取り、要点を説明してください。"
     If Len(prompt) > MAX_INPUT_CHARS Then prompt = Left$(prompt, MAX_INPUT_CHARS)   ' A3: 上限で切る
 
-    modUI.AddChatBubble "user", ChrW(&H1F4CE) & "(画像) " & prompt
+    modUI.AddChatBubble "user", ChrW(&HD83D) & ChrW(&HDCCE) & "(画像) " & prompt
     ClearInputCell
 
     Dim b64 As Variant
@@ -601,7 +601,7 @@ Public Sub OnLangCycle()
 
     On Error Resume Next
     ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_lang").TextFrame2.TextRange.Text = _
-        ChrW(&H1F310) & " " & nextLang & "で回答"
+        ChrW(&HD83C) & ChrW(&HDF10) & " " & nextLang & "で回答"
     On Error GoTo 0
 End Sub
 
@@ -655,13 +655,13 @@ Private Function ComfortMessage() As String
     Select Case pick
         Case 0
             ComfortMessage = "お疲れ様です！今日はずいぶん頑張ってはりますね。" & vbLf & _
-                "温かいお茶でも飲んで、ちょっと一息つきましょか。" & ChrW(&H1F375)
+                "温かいお茶でも飲んで、ちょっと一息つきましょか。" & ChrW(&HD83C) & ChrW(&HDF75)
         Case 1
             ComfortMessage = "ようやってはりますよ、ほんまに。" & vbLf & _
                 "5分だけ肩の力抜いて、深呼吸してからまたいきましょ。" & ChrW(&H2615)
         Case Else
             ComfortMessage = "無理は禁物でっせ。仕事は明日も待ってくれます。" & vbLf & _
-                "今日はここまでにして、はよ休んでくださいね。" & ChrW(&H1F319)
+                "今日はここまでにして、はよ休んでくださいね。" & ChrW(&HD83C) & ChrW(&HDF19)
     End Select
 End Function
 
@@ -773,9 +773,9 @@ End Function
 Private Sub UpdateModeButton()
     Dim caption As String
     If CurrentMode() = "normal" Then
-        caption = ChrW(&H1F310) & " 一般アシスタント"
+        caption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
     Else
-        caption = ChrW(&H1F3E2) & " 社内ナレッジ検索"
+        caption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
     End If
     On Error Resume Next
     ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = caption

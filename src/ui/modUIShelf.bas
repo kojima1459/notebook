@@ -114,16 +114,16 @@ Public Sub EnsureLayout()
     uiStep = "操作ボタン行"
     ws.Rows("1:2").RowHeight = 22
     AddButton ws, ws.Range("A1:B2"), "btn_add", "＋ 資料を追加", "modUIShelf.OnAddFiles"
-    AddButton ws, ws.Range("C1:D2"), "btn_sync", "🔄 フォルダと同期", "modUIShelf.OnSyncNow"
-    AddButton ws, ws.Range("E1:F2"), "btn_pack_out", "📦 パックにして渡す", "modUIShelf.OnExportPack"
-    AddButton ws, ws.Range("G1:H2"), "btn_pack_in", "📥 パックを取り込む", "modUIShelf.OnImportPack"
-    AddButton ws, ws.Range("I1:J2"), "btn_delete", "🗑 選んだ資料を削除", "modUIShelf.OnDeleteSource"
+    AddButton ws, ws.Range("C1:D2"), "btn_sync", "" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期", "modUIShelf.OnSyncNow"
+    AddButton ws, ws.Range("E1:F2"), "btn_pack_out", "" & ChrW(&HD83D) & ChrW(&HDCE6) & " パックにして渡す", "modUIShelf.OnExportPack"
+    AddButton ws, ws.Range("G1:H2"), "btn_pack_in", "" & ChrW(&HD83D) & ChrW(&HDCE5) & " パックを取り込む", "modUIShelf.OnImportPack"
+    AddButton ws, ws.Range("I1:J2"), "btn_delete", "" & ChrW(&HD83D) & ChrW(&HDDD1) & " 選んだ資料を削除", "modUIShelf.OnDeleteSource"
     ' スクショ取込(裁定D13)は画像解析機能が有効なときだけボタンを出す
     ' (無効環境で「押したら断られるボタン」を見せないため)。
     uiStep = "スクショ取込ボタン(有効判定)"
     If modFeatures.FeatureEnabled("vision") Then
         uiStep = "スクショ取込ボタン(生成)"
-        AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "📸 スクショ取込", "modUIShelf.OnIngestScreenshot"
+        AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "" & ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot"
     End If
 
     ' ---- 本棚フォルダ情報 ----------------------------------------------------
@@ -137,7 +137,7 @@ Public Sub EnsureLayout()
 
     uiStep = "フォルダを選ぶボタン"
     ws.Rows("4:5").RowHeight = 18
-    AddButton ws, ws.Range("A4:C5"), "btn_pick_folder", "📁 フォルダを選ぶ", "modUIShelf.OnPickFolder"
+    AddButton ws, ws.Range("A4:C5"), "btn_pick_folder", "" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ", "modUIShelf.OnPickFolder"
     With ws.Range(RNG_SYNCINFO)
         .Merge
         .Value = "自動同期: "
@@ -476,7 +476,7 @@ Private Sub RefreshFolderInfo(ByVal ws As Worksheet)
 
     Dim folderText As String
     If LenB(folder) = 0 Then
-        folderText = "本棚フォルダ: (未設定。「📁 フォルダを選ぶ」から選んでください)"
+        folderText = "本棚フォルダ: (未設定。「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から選んでください)"
     Else
         folderText = "本棚フォルダ: " & folder
     End If
@@ -487,7 +487,7 @@ Private Sub RefreshFolderInfo(ByVal ws As Worksheet)
 
     Dim syncText As String
     If minutes < 1 Then
-        syncText = "自動同期: オフ(「🔄 フォルダと同期」を押すと今すぐ同期します)"
+        syncText = "自動同期: オフ(「" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期」を押すと今すぐ同期します)"
     Else
         syncText = "自動同期: " & minutes & "分ごと"
     End If
@@ -572,9 +572,9 @@ Private Function StatusIcon(ByVal status As String) As String
         Case "failed"
             StatusIcon = "⚠️"
         Case "image_pdf"
-            StatusIcon = "🖼"
+            StatusIcon = "" & ChrW(&HD83D) & ChrW(&HDDBC) & ""
         Case "missing"
-            StatusIcon = "🕒"
+            StatusIcon = "" & ChrW(&HD83D) & ChrW(&HDD52) & ""
         Case Else
             StatusIcon = "・"
     End Select
@@ -587,7 +587,7 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
         Case "pending"
             BuildMemo = "AIが読める形に変換中です。しばらくしてから確認してください。"
         Case "partial"
-            BuildMemo = "一部だけ変換が完了していません。「🔄フォルダと同期」を押すと続きから再開します。"
+            BuildMemo = "一部だけ変換が完了していません。「" & ChrW(&HD83D) & ChrW(&HDD04) & "フォルダと同期」を押すと続きから再開します。"
         Case "image_pdf"
             BuildMemo = "画像として保存されたPDFのため、文字を取り込めませんでした。"
         Case "missing"

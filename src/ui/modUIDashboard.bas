@@ -68,7 +68,7 @@ Public Sub EnsureLayout()
     uiStep = "タイトル行"
     With ws.Range("A1:H1")
         .Merge
-        .Value = "📊 ダッシュボード"
+        .Value = "" & ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード"
         .Font.Size = 14
         .Font.Bold = True
         .Interior.Color = 2039071   ' RGB(31,78,120)
@@ -97,7 +97,7 @@ Public Sub EnsureLayout()
     uiStep = "バッジ見出し"
     With ws.Range("A7:H7")
         .Merge
-        .Value = "🏅 バッジ"
+        .Value = "" & ChrW(&HD83C) & ChrW(&HDFC5) & " バッジ"
         .Font.Bold = True
         .Font.Size = 12
     End With
@@ -107,7 +107,7 @@ Public Sub EnsureLayout()
     uiStep = "育ちぐあい見出し"
     With ws.Range("A16:H16")
         .Merge
-        .Value = "📈 本棚の育ちぐあい"
+        .Value = "" & ChrW(&HD83D) & ChrW(&HDCC8) & " 本棚の育ちぐあい"
         .Font.Bold = True
         .Font.Size = 12
     End With
@@ -173,7 +173,7 @@ Public Sub RenderDashboard()
 
     uiStep = "統計タイルの描画"
     RenderTile ws, "A4:B6", CStr(askThisMonth), "今月の質問数"
-    RenderTile ws, "C4:D6", CStr(solveTotal), "🟢 自己解決した回数"
+    RenderTile ws, "C4:D6", CStr(solveTotal), "" & ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決した回数"
     RenderTile ws, "E4:F6", FormatMinutes(savedMinutes), "取り戻した時間"
     RenderTile ws, "G4:H6", CStr(shelfCount), "本棚の資料数"
 
@@ -249,9 +249,9 @@ Private Sub RenderBadges(ByVal ws As Worksheet)
         Dim earned As Boolean
         earned = (LenB(dt) > 0)
         If earned Then
-            line = "🏅 " & titles(i) & " — 獲得しました(" & dt & ")"
+            line = "" & ChrW(&HD83C) & ChrW(&HDFC5) & " " & titles(i) & " — 獲得しました(" & dt & ")"
         Else
-            line = "🔒 " & titles(i) & " — " & conditions(i)
+            line = "" & ChrW(&HD83D) & ChrW(&HDD12) & " " & titles(i) & " — " & conditions(i)
         End If
 
         With ws.Range("A" & r & ":H" & r)
@@ -278,8 +278,8 @@ Private Sub BadgeCatalog(ByRef ids() As String, ByRef titles() As String, ByRef 
         "資料を30冊集めると獲得|" & _
         "資料をパックとして誰かに渡すと獲得|" & _
         "誰かのパックを取り込むと獲得|" & _
-        "🟢解決したが10回になると獲得|" & _
-        "🟢解決したが50回になると獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが10回になると獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが50回になると獲得|" & _
         "7日連続で使うと獲得", "|")
 End Sub
 
