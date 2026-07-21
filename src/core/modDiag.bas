@@ -38,6 +38,11 @@ Public Sub RunDiagnostics()
     ' [設定サマリー]
     WriteLine ws, r, "[設定サマリー]": r = r + 1
     On Error Resume Next
+    Dim cfgBuildStamp As String: cfgBuildStamp = modConfig.GetString("build_stamp", "(不明)")
+    WriteCheck ws, r, True, "  build_stamp: " & cfgBuildStamp, "": r = r + 1
+    On Error GoTo 0
+
+    On Error Resume Next
     Dim cfgMockOn As Boolean: cfgMockOn = modConfig.GetBool("mock_llm", True)
     WriteCheck ws, r, True, "  mock_llm: " & IIf(cfgMockOn, "TRUE", "FALSE"), _
                IIf(cfgMockOn, "本番前にFALSEへ", ""): r = r + 1

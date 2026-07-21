@@ -41,7 +41,14 @@ Public Sub LogError(ByVal code As String, ByVal context As String, ByVal detail 
     ws.Cells(r, 2).Value = code
     ws.Cells(r, 3).Value = modUtil.SafeLeft(context, 255)
     ws.Cells(r, 4).Value = modUtil.SafeLeft(detail, 2000)
-    ws.Cells(r, 5).Value = modAppDef.APP_VERSION
+    ' 2026-07-21: version列にビルド識別子(日時+gitコミット)を併記する。
+    ' 「今テストしているファイルは本当に最新ビルドか」を実機報告から即座に
+    ' 判別できるようにするため(build/build_mybookshelf.py compute_build_stamp)。
+    Dim buildStamp As String
+    On Error Resume Next
+    buildStamp = modConfig.GetString("build_stamp", "")
+    On Error GoTo 0
+    ws.Cells(r, 5).Value = modAppDef.APP_VERSION & IIf(LenB(buildStamp) > 0, " " & buildStamp, "")
     ws.Cells(r, 6).Value = err_number
     ws.Cells(r, 7).Value = http_status
 

@@ -183,11 +183,16 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
+    ' 2026-07-21: Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない事例
+    ' が実機で確認されたため、伝播に依存せずここで直接err_logへ書く。
+    Dim diag As String: diag = ""
     On Error Resume Next
+    diag = " ws.Visible=" & ws.Visible & " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name
+    modLog.LogError "E0801", "modUIShelf.EnsureLayout", "[" & uiStep & "]" & diag, origNum
     If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
     On Error GoTo 0
-    Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc
+    Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -708,13 +713,16 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.OnAction = action
     Exit Sub
 Fail:
+    Dim btnErrNum As Long, btnErrDesc As String
+    btnErrNum = Err.Number: btnErrDesc = Err.Description
     Dim diag As String: diag = ""
     On Error Resume Next
-    diag = " [ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
+    diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive & "]"
+           " Interactive=" & Application.Interactive
+    modLog.LogError "E0801", "modUIShelf.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
-    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description & diag
+    Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
 End Sub
 
 ' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects

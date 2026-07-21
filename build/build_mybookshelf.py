@@ -43,11 +43,13 @@ mybookshelf/ 配下へ自己完結コピーしたもの。V2側のファイル�
 from __future__ import annotations
 
 import argparse
+import datetime
 import io
 import json
 import os
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -145,10 +147,35 @@ def obfuscate_secret(plain: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# build_stamp: 「実機で今テストしているファイルが、本当に最新のソースから
+# 作られたものか」を後から確定できるようにするための識別子(2026-07-21:
+# 何度も往復した実機デバッグで、テスト対象が最新ビルドかどうか自体を疑わざるを
+# 得ない場面があったことへの恒久対策)。ビルド日時+可能ならgitコミットの短縮
+# ハッシュを config シートへ焼き込み、modLog.LogError が全err_log行に自動で
+# 付記する(src/core/modLog.bas参照)。gitが無い/リポジトリ外でもビルドは
+# 止めない(取得失敗時はコミット部分を省略するだけ)。
+# ---------------------------------------------------------------------------
+def compute_build_stamp() -> str:
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    commit = ""
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=SCRIPT_DIR, stderr=subprocess.DEVNULL, timeout=5,
+        ).decode("ascii", errors="ignore").strip()
+    except Exception:
+        commit = ""
+    return f"{ts}Z" + (f"+{commit}" if commit else "")
+
+
+# ---------------------------------------------------------------------------
 # config 既定値 (MASTER_SPEC §5 config キー台帳を完全反映。値・説明とも準拠)
 # ---------------------------------------------------------------------------
 def build_config_rows(mock_llm: bool):
     return [
+        ("build_stamp", compute_build_stamp(),
+         "このビルドの識別子(日時+gitコミット短縮ハッシュ)。err_logの全行に自動付記される。"
+         "実機テストの結果が実際にどのビルドのものか後から特定するための識別子(書き換え不要)"),
         ("mock_llm", mock_llm,
          "TRUE=社内AIリボンを呼ばずダミー応答で動作確認(リボン無しでも取込→検索→回答が一通り動く)。本番はFALSE"),
         ("ribbon_addin_name", "リボンちゃん", "社内AIリボンのアドイン名(Application.AddInsからの検出に使用。名称が変わったときだけ書き換える)"),

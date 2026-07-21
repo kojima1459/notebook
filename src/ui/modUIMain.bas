@@ -273,11 +273,18 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
+    ' 2026-07-21: Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない
+    ' 事例が実機で確認された(uiStepの角カッコが最終ログから消えることがある)。
+    ' 原因を仮定せず、失敗した瞬間にここで直接err_logへ書く(伝播に依存しない
+    ' 確実な記録)。
+    Dim diag As String: diag = ""
     On Error Resume Next
+    diag = " ws.Visible=" & ws.Visible & " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name
+    modLog.LogError "E0801", "modUIMain.EnsureLayout", "[" & uiStep & "]" & diag, origNum
     If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
     On Error GoTo 0
-    Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc
+    Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -824,15 +831,19 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.OnAction = action
     Exit Sub
 Fail:
-    ' 次に同じ失敗が起きたとき推測に頼らないよう、失敗時点のシート/アプリ状態
-    ' をそのままerr_logへ残す(取得自体の失敗は1行スコープで無視して続行)。
+    ' Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない事例が実機で
+    ' 確認されたため、伝播に依存せずここで直接err_logへ書く。Err.Number/
+    ' Descriptionはこの後LogError呼び出しで上書きされ得るので先に退避する。
+    Dim btnErrNum As Long, btnErrDesc As String
+    btnErrNum = Err.Number: btnErrDesc = Err.Description
     Dim diag As String: diag = ""
     On Error Resume Next
-    diag = " [ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
+    diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive & "]"
+           " Interactive=" & Application.Interactive
+    modLog.LogError "E0801", "modUIMain.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
-    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description & diag
+    Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
 End Sub
 
 ' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
