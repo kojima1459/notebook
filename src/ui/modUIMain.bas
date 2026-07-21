@@ -82,6 +82,21 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
+    ' 実機根治(2026-07-21): Shapes.AddShapeは対象シートが非アクティブだと実行時
+    ' エラー1004「アプリケーション定義またはオブジェクト定義のエラー」になる
+    ' (実機Windows Excelの仕様。LibreOffice/開発機では再現しない)。起動時は
+    ' ガードシート「はじめにお読みください」がアクティブなため、ホーム/マイ本棚の
+    ' ボタン生成が最初の1個で全滅していた(err_log err_number=1004)。描画の前に
+    ' 対象シートをアクティブ化し、描画後に元のアクティブシートへ必ず戻す
+    ' (副作用ゼロ)。Nexus SPA(modUI/modDash)が既に採用している実証済み
+    ' パターンで、ScreenUpdating=False下でもActivateは有効=ちらつきは出ない。
+    Dim prevActive As Object
+    On Error Resume Next
+    Set prevActive = ThisWorkbook.ActiveSheet
+    On Error GoTo Fail
+    uiStep = "画面をアクティブ化"
+    ws.Activate
+
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
     uiStep = "セルのクリア"
@@ -242,6 +257,11 @@ Public Sub EnsureLayout()
     uiStep = "豆知識の表示"
     ShowTip
 
+    ' 元のアクティブシートへ復帰(描画のための一時Activateの後始末)。
+    On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate
+    On Error GoTo 0
+
     Application.ScreenUpdating = True
     Exit Sub
 
@@ -253,6 +273,7 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate   ' 失敗時も元画面へ戻す
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -782,7 +803,7 @@ End Function
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
     Dim shp As Shape
-    Set shp = AddShapeWithRetry(ws, rng)
+    Set shp = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)   ' 5 = msoShapeRoundedRectangle
     shp.Name = shapeName
     shp.TextFrame2.TextRange.Text = caption
     shp.TextFrame2.WordWrap = -1   ' msoTrue
@@ -795,24 +816,6 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.Line.Visible = 0   ' msoFalse
     shp.OnAction = action
 End Sub
-
-' 2026-07-21 実機対応: 自己インストール(vba_srcからVBComponents.Addで50個超の
-' モジュールを一気に注入)直後、Excelの図形描画レイヤーがまだ温まっていない
-' 状態で最初のShapes.AddShapeを呼ぶと、一過性の実行時エラー1004
-' 「アプリケーション定義またはオブジェクト定義のエラーです」になることが
-' 実機Windows Excelで確認された(LibreOffice/開発機では再現しない実機固有の
-' 事象。err_logの err_number=1004 context=[ボタン(使い方/診断)]で検出)。
-' DoEventsでメッセージループへ一度制御を譲ってから1回だけ再試行する
-' (2回目も失敗する場合は本物のエラーなので、呼び出し元のOn Error/uiStep記録
-' へそのまま伝播させる=握りつぶさない)。
-Private Function AddShapeWithRetry(ByVal ws As Worksheet, ByVal rng As Range) As Shape
-    On Error GoTo Retry
-    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
-    Exit Function
-Retry:
-    DoEvents
-    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
-End Function
 
 Private Sub RemoveManagedShapes(ByVal ws As Worksheet)
     Dim names() As String

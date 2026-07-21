@@ -101,15 +101,6 @@ Public Sub Boot()
     bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun
 
-    ' 2026-07-21 実機対応: 自己インストール(vba_srcから50個超のモジュールを
-    ' VBComponents.Addで一気に注入)直後は、Excelの図形描画レイヤーがまだ
-    ' 温まっていない状態で3画面目前のShapes.AddShapeが一過性エラー1004になる
-    ' ことが実機テストで確認された(err_log err_number=1004。LibreOffice/開発機
-    ' では再現しない)。3画面のUI構築を始める前にDoEventsでメッセージループへ
-    ' 一度制御を譲って安定させる(modUIMain/modUIShelfのAddShapeWithRetryと
-    ' 合わせた二重の備え)。
-    DoEvents
-
     ' 3) 3画面EnsureLayout(それぞれが内部でRenderShelf/RenderDashboardまで実行する)。
     ' 2026-07-16: 実機で「1画面の描画中の不具合がアプリ全体の起動を止める」
     ' 事例が立て続けに見つかった(ホーム→マイ本棚→…と直しても次の画面で

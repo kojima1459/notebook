@@ -69,6 +69,17 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
+    ' 実機根治(2026-07-21): Shapes.AddShapeは対象シートが非アクティブだと実行時
+    ' エラー1004になる(実機Windows Excel仕様。詳細はmodUIMain.EnsureLayout参照)。
+    ' 起動時はガードシートがアクティブなためマイ本棚のボタン生成が全滅していた。
+    ' 描画前に対象シートをアクティブ化し、描画後に元のアクティブシートへ戻す。
+    Dim prevActive As Object
+    On Error Resume Next
+    Set prevActive = ThisWorkbook.ActiveSheet
+    On Error GoTo Fail
+    uiStep = "画面をアクティブ化"
+    ws.Activate
+
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
     uiStep = "セルのクリア"
@@ -154,6 +165,12 @@ Public Sub EnsureLayout()
     End With
     ws.Rows(HEADER_ROW).RowHeight = 16
 
+    ' 元のアクティブシートへ復帰(描画のための一時Activateの後始末)。
+    ' RenderShelfはセル描画のみ(Shape非使用)なので非アクティブでも安全。
+    On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate
+    On Error GoTo 0
+
     Application.ScreenUpdating = True
 
     uiStep = "資料一覧の再描画(RenderShelf)"
@@ -165,6 +182,7 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate   ' 失敗時も元画面へ戻す
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -660,7 +678,7 @@ End Function
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
     Dim shp As Shape
-    Set shp = AddShapeWithRetry(ws, rng)
+    Set shp = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)   ' 5 = msoShapeRoundedRectangle
     shp.Name = shapeName
     shp.TextFrame2.TextRange.Text = caption
     shp.TextFrame2.WordWrap = -1   ' msoTrue
@@ -673,18 +691,6 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.Line.Visible = 0   ' msoFalse
     shp.OnAction = action
 End Sub
-
-' 2026-07-21 実機対応: modUIMain.AddShapeWithRetryと同じ理由・同じ対処
-' (自己インストール直後の一過性エラー1004への耐性。詳細コメントは
-' modUIMain.bas側参照)。
-Private Function AddShapeWithRetry(ByVal ws As Worksheet, ByVal rng As Range) As Shape
-    On Error GoTo Retry
-    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
-    Exit Function
-Retry:
-    DoEvents
-    Set AddShapeWithRetry = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)
-End Function
 
 Private Sub RemoveManagedShapes(ByVal ws As Worksheet)
     Dim names() As String
