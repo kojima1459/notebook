@@ -53,11 +53,11 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' Check: 1件のテスト結果を記録する
-'   name   : テスト名(例: "Fnv1a64Hex_決定性")
-'   cond   : True=成功 / False=失敗
-'   detail : 失敗時に添える補足(期待値/実際値など)。省略可
+'   testName : テスト名(例: "Fnv1a64Hex_決定性")
+'   cond     : True=成功 / False=失敗
+'   detail   : 失敗時に添える補足(期待値/実際値など)。省略可
 ' ----------------------------------------------------------------------------
-Public Sub Check(ByVal name As String, ByVal cond As Boolean, Optional ByVal detail As String = "")
+Public Sub Check(ByVal testName As String, ByVal cond As Boolean, Optional ByVal detail As String = "")
     If Not mStarted Then ResetTests
 
     mTotalCount = mTotalCount + 1
@@ -70,7 +70,7 @@ Public Sub Check(ByVal name As String, ByVal cond As Boolean, Optional ByVal det
         End If
 
         Dim line As String
-        line = "NG: " & name
+        line = "NG: " & testName
         If Len(detail) > 0 Then line = line & " -- " & detail
         mFailLines(mFailCount) = line
     End If

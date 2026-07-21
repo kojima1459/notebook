@@ -26,11 +26,11 @@ Public Sub SplitFollowupTrailer(ByVal a As String, ByRef body As String, ByRef c
     Dim fq As Long
     fq = InStr(fp, a, "]]")
     If fq > 0 Then
-        Dim fv As String
-        fv = Trim$(Mid$(a, fp + Len("[[FOLLOWUP:"), fq - fp - Len("[[FOLLOWUP:")))
-        If StrComp(fv, "なし", vbTextCompare) <> 0 And LenB(fv) > 0 Then
+        Dim fval As String
+        fval = Trim$(Mid$(a, fp + Len("[[FOLLOWUP:"), fq - fp - Len("[[FOLLOWUP:")))
+        If StrComp(fval, "なし", vbTextCompare) <> 0 And LenB(fval) > 0 Then
             Dim parts() As String
-            parts = Split(fv, "|")
+            parts = Split(fval, "|")
             Dim out As String
             Dim i As Long
             For i = LBound(parts) To UBound(parts)

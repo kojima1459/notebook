@@ -698,6 +698,76 @@ def check_reserved_identifiers(info: ModuleInfo) -> None:
             )
 
 
+# VBA_RESERVED_BLOCKLIST: 2026-07-21 実機事故の恒久再発防止。src/ui/modApp.bas の
+# 「Dim fix As String」が実機Windows Excelで「コンパイルエラー: 構文エラー」に
+# なり、プロジェクト全体が未コンパイル状態に陥った結果、起動時のShapes.AddShape/
+# OnAction割当てが無関係な「実行時エラー1004」として表面化し、原因特定に
+# 長時間を要した(実機写真で現物確認・IMG_4836)。LibreOffice Basicの構文
+# チェック(LOゲート)は 'Fix' を予約語として扱わずコンパイルを通してしまうため、
+# 本リポジトリの二段階検証(lint+LOテスト)を両方すり抜けていた。
+# この事故クラスを二度と実機まで持ち越さないため、VBA文法キーワードに加えて
+# VBA/Excelの組み込み関数名も総ざらいでブロックリスト化する(一部は実際には
+# 識別子として使えるものも含むが、実機コンパイラでの可否を出力側からは検証
+# できないため、コストゼロの防御としてまとめて禁止する)。
+VBA_RESERVED_BLOCKLIST = {
+    w.lower() for w in (
+        # 文法キーワード(全ダイアレクトで確実に予約語)
+        "Dim Static Const Public Private Friend As ByVal ByRef Optional ParamArray "
+        "Sub Function Property Get Let Set End If Then Else ElseIf Select Case "
+        "For Each In To Step Next Do While Wend Until Loop With Exit GoTo GoSub "
+        "Return On Error Resume Call New Nothing Is Like Mod And Or Not Xor Eqv Imp "
+        "True False Null Empty Me Option Explicit Compare Type Enum Declare "
+        "Lib Alias Implements WithEvents Event RaiseEvent Class Attribute Rem "
+        "ReDim Preserve Erase Stop Debug Variant Boolean Byte Integer Long "
+        "LongLong LongPtr Single Double Currency Decimal Date String Object "
+        # VBA/Excel組み込み関数名(識別子としての衝突が実機コンパイルエラーの
+        # 原因になりうるため予防的に全面禁止。'base'は別枠でcheck_reserved_
+        # identifiersが担当するためここには含めない)
+        "Abs Array Asc AscB AscW Atn CBool CByte CCur CDate CDbl CDec Chr ChrB ChrW "
+        "CInt CLng CLngLng CLngPtr Cos CSng CStr CurDir CVar CVDate CVErr "
+        "DateAdd DateDiff DatePart DateSerial DateValue Day DDB Dir DoEvents Environ "
+        "EOF Exp FileAttr FileDateTime FileLen Filter Fix Format "
+        "FormatCurrency FormatDateTime FormatNumber FormatPercent FreeFile FV "
+        "GetAllSettings GetAttr GetObject GetSetting Hex Hour IIf IMEStatus Input "
+        "InputB InputBox InStr InStrB InStrRev Int IPmt IRR IsArray IsDate IsEmpty "
+        "IsError IsMissing IsNull IsNumeric IsObject Join LBound LCase Left LeftB "
+        "Len LenB LoadPicture Loc LOF Log LTrim Mid MidB Minute MIRR MkDir Month "
+        "MonthName MsgBox Now NPer NPV Oct Partition Pmt PPmt PV QBColor Rate RGB "
+        "Right RightB RmDir Rnd Round RTrim Second Seek Sgn Shell Sin SLN Space Spc "
+        "Split Sqr Str StrComp StrConv StrReverse Switch SYD Tab Tan Time "
+        "Timer TimeSerial TimeValue Trim TypeName UBound UCase Val VarType Weekday "
+        "WeekdayName Year Name Kill Width Height Top"
+    ).split()
+}
+
+# Dim/Private/Public/Static/ReDim(Preserve)の変数宣言、およびByVal/ByRefの
+# 仮引数宣言を横断的に検出する(check_name_shadowingのLOCAL_DECL_PATTERN/
+# PROC_PARAM_PATTERNは目的が異なる限定用途のため、ここでは独自に定義する)。
+RESERVED_WORD_DECL_PATTERN = re.compile(
+    r"\b(?:Dim|Private|Public|Static|ReDim(?:\s+Preserve)?)\s+([A-Za-z_]\w*)\s+As\b"
+    r"|\b(?:ByVal|ByRef)\s+([A-Za-z_]\w*)\s+As\b",
+    re.IGNORECASE,
+)
+
+
+def check_vba_reserved_words(info: ModuleInfo) -> None:
+    """変数/引数名がVBA文法キーワードまたは組み込み関数名と衝突していないか
+    (2026-07-21実機事故の恒久ガード。詳細はVBA_RESERVED_BLOCKLIST直上のコメント
+    参照)。'base'単体は既存のcheck_reserved_identifiersが別途担当する。"""
+    for lineno, stmt in info.statements:
+        for m in RESERVED_WORD_DECL_PATTERN.finditer(stmt):
+            name = m.group(1) or m.group(2)
+            if name.lower() == "base":
+                continue   # check_reserved_identifiers側で専用メッセージを出す
+            if name.lower() in VBA_RESERVED_BLOCKLIST:
+                info.add(
+                    "ERROR", lineno,
+                    f"識別子「{name}」がVBAの予約語/組み込み関数名と衝突"
+                    f"(実機VBAでコンパイルエラー「構文エラー」の元。2026-07-21事故と同型): "
+                    f"「{stmt.strip()[:80]}」",
+                )
+
+
 def module_name_for_display(info: ModuleInfo) -> str:
     return info.vb_name or info.filename_stem
 
@@ -906,6 +976,7 @@ def run_lint(src_root: Path) -> int:
         check_name_shadowing(info)
         check_declaration_position(info)
         check_reserved_identifiers(info)
+        check_vba_reserved_words(info)
         check_pure_logic_tokens(info)
         check_opt_token_reference(info)
         check_application_run_whitelist(info)

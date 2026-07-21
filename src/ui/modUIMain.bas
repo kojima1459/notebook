@@ -82,14 +82,10 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
-    ' 実機防衛(2026-07-21): 図形(Shape)描画時の実行時エラー1004を、原因を1つに
-    ' 断定せず「1004を誘発しうるExcel環境要因」を漏れなく先回りで無効化して確実に
-    ' 通す。実機Windows Excelでは、対象シートが 非表示/超非表示・非アクティブ・
-    ' 「オブジェクトの表示=なし」・シート保護 のいずれかだと AddShape や Activate が
-    ' 1004で失敗する(LibreOffice/開発機では再現しない)。SafeBeginDrawが各要因を
-    ' 退避しつつ描画可能状態へ整え、SafeEndDrawが元の状態へ完全復元する
-    ' (すべてOn Error保護下で個別処理し、他シート・他モジュール・ユーザー設定へ
-    ' 副作用を残さない)。詳細は本モジュール末尾のヘルパー参照。
+    ' 実機防衛(2026-07-21): 1004を誘発しうる環境要因(非表示/非アクティブ/
+    ' オブジェクト表示オフ/シート保護)を先回り無効化する多層防御の1つ
+    ' (真因はmodBoot.bas Boot()側のコンパイルエラー起因だったが、これ自体は
+    ' 無害かつ他の潜在要因への保険として維持。詳細は末尾ヘルパー参照)。
     Dim sdState As Variant, prevActive As Object
     uiStep = "描画環境の整備"
     SafeBeginDraw ws, sdState, prevActive
@@ -796,21 +792,34 @@ Fail:
     Set GetOrCreateHomeSheet = Nothing
 End Function
 
+' マイクロログ(2026-07-21): 失敗した「正確な1行」をerr_logへ残す(uiStepへ
+' ネストして伝播。詳細な経緯はmodBoot.bas Boot()コメント参照)。
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
+    Dim uiStep As String
+    On Error GoTo Fail
     Dim shp As Shape
+    uiStep = "AddShape実行(L=" & rng.Left & " T=" & rng.Top & ")"
     Set shp = SafeRoundedRect(ws, rng.Left, rng.Top, rng.Width, rng.Height)
+    uiStep = "図形名設定"
     shp.Name = shapeName
+    uiStep = "テキスト代入"
     shp.TextFrame2.TextRange.Text = caption
+    uiStep = "フォント設定"
     shp.TextFrame2.WordWrap = -1   ' msoTrue
     shp.TextFrame2.TextRange.Font.Size = 11
     shp.TextFrame2.TextRange.Font.Bold = -1   ' msoTrue
     shp.TextFrame2.TextRange.ParagraphFormat.Alignment = 2   ' msoAlignCenter
     shp.TextFrame2.VerticalAnchor = 3   ' msoAnchorMiddle
+    uiStep = "色/塗りつぶし設定"
     shp.Fill.ForeColor.RGB = COLOR_UNSELECTED_BG
     shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = COLOR_UNSELECTED_FG
     shp.Line.Visible = 0   ' msoFalse
+    uiStep = "OnAction割当て"
     shp.OnAction = action
+    Exit Sub
+Fail:
+    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description
 End Sub
 
 ' 実機防衛(2026-07-21): 図形描画の1004を誘発しうるExcel環境要因を先回りで

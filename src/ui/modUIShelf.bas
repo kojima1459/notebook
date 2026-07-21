@@ -627,11 +627,11 @@ Private Function ShortDate(ByVal stamp As String) As String
         Exit Function
     End If
 
-    Dim datePart As String
-    datePart = Left$(stamp, 10)
+    Dim dateOnly As String
+    dateOnly = Left$(stamp, 10)
 
     Dim parts() As String
-    parts = Split(datePart, "-")
+    parts = Split(dateOnly, "-")
     If (UBound(parts) - LBound(parts) + 1) = 3 Then
         If IsNumeric(parts(1)) And IsNumeric(parts(2)) Then
             ShortDate = CStr(CLng(parts(1))) & "/" & CStr(CLng(parts(2)))
@@ -672,21 +672,34 @@ Fail:
     Set GetOrCreateShelfSheet = Nothing
 End Function
 
+' マイクロログ(2026-07-21): modUIMain.AddButtonと同じ理由・同じ実装
+' (失敗した「正確な1行」をerr_logへ残す。詳細はmodUIMain.bas側参照)。
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
+    Dim uiStep As String
+    On Error GoTo Fail
     Dim shp As Shape
+    uiStep = "AddShape実行(L=" & rng.Left & " T=" & rng.Top & ")"
     Set shp = SafeRoundedRect(ws, rng.Left, rng.Top, rng.Width, rng.Height)
+    uiStep = "図形名設定"
     shp.Name = shapeName
+    uiStep = "テキスト代入"
     shp.TextFrame2.TextRange.Text = caption
+    uiStep = "フォント設定"
     shp.TextFrame2.WordWrap = -1   ' msoTrue
     shp.TextFrame2.TextRange.Font.Size = 10
     shp.TextFrame2.TextRange.Font.Bold = -1   ' msoTrue
     shp.TextFrame2.TextRange.ParagraphFormat.Alignment = 2   ' msoAlignCenter
     shp.TextFrame2.VerticalAnchor = 3   ' msoAnchorMiddle
+    uiStep = "色/塗りつぶし設定"
     shp.Fill.ForeColor.RGB = 15921906   ' RGB(242,242,242)
     shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = 0
     shp.Line.Visible = 0   ' msoFalse
+    uiStep = "OnAction割当て"
     shp.OnAction = action
+    Exit Sub
+Fail:
+    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description
 End Sub
 
 ' ============================================================================

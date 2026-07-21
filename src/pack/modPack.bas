@@ -251,11 +251,11 @@ Public Function ValidatePack(ByVal wb As Workbook, ByRef reason As String) As Bo
     End If
 
     Dim wsMeta As Worksheet: Set wsMeta = wb.Worksheets("pack_meta")
-    Dim fv As Long: fv = CLngSafe(ReadMetaValue(wsMeta, "pack_format_version"))
+    Dim fmtVer As Long: fmtVer = CLngSafe(ReadMetaValue(wsMeta, "pack_format_version"))
     Dim ed As Long: ed = CLngSafe(ReadMetaValue(wsMeta, "embed_dim"))
 
     Dim metaReason As String
-    If Not ValidatePackMeta(fv, ed, metaReason) Then
+    If Not ValidatePackMeta(fmtVer, ed, metaReason) Then
         reason = metaReason
         Exit Function
     End If

@@ -354,16 +354,16 @@ Public Sub OnActBad()
     On Error GoTo Done
 
     ' RLHF簡易版(Phase 2): 正しい内容を教えてもらい、ナレッジとして学習する
-    Dim fix As String
-    fix = InputBox("この回答の正しい内容・修正点を教えてください。" & vbCrLf & _
+    Dim fixText As String
+    fixText = InputBox("この回答の正しい内容・修正点を教えてください。" & vbCrLf & _
                    "入力いただいた内容はナレッジとして学習し、次回から回答に反映されます。" & vbCrLf & _
                    "(空欄のまま閉じると記録のみ行います)", "Nexus Agent - 自己学習")
-    If LenB(Trim$(fix)) = 0 Then GoTo Done
+    If LenB(Trim$(fixText)) = 0 Then GoTo Done
 
     Dim body As String
     body = "【修正ナレッジ】" & vbLf & _
            "対象の回答(抜粋): " & modUtil.SafeLeft(TargetText(), 400) & vbLf & vbLf & _
-           "正しい内容: " & fix
+           "正しい内容: " & fixText
     If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
         modSkin.ShowToast "教えていただきありがとうございます。次回の回答から反映します。", "success"
     Else

@@ -145,12 +145,12 @@ Public Sub Boot()
     On Error GoTo 0
 
     ' 本棚が空なら回答エリアに常設案内を出す
-    Dim isEmpty As Boolean
-    isEmpty = False
+    Dim shelfIsEmpty As Boolean
+    shelfIsEmpty = False
     On Error Resume Next
-    isEmpty = (modShelf.TotalChunks() = 0)
+    shelfIsEmpty = (modShelf.TotalChunks() = 0)
     On Error GoTo 0
-    If isEmpty Then
+    If shelfIsEmpty Then
         On Error Resume Next
         modUIMain.ShowEmptyShelfHint
         On Error GoTo 0

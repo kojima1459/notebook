@@ -460,9 +460,9 @@ Private Sub JacobiEigen(ByRef ain() As Double, ByVal nn As Long, ByRef eval() As
             For q = p + 1 To nn - 1
                 If Abs(m(p, q)) > 0.000000000001 Then
                     Dim theta As Double: theta = (m(q, q) - m(p, p)) / (2# * m(p, q))
-                    Dim sgn As Double: sgn = 1#
-                    If theta < 0 Then sgn = -1#
-                    Dim tt As Double: tt = sgn / (Abs(theta) + Sqr(theta * theta + 1#))
+                    Dim signVal As Double: signVal = 1#
+                    If theta < 0 Then signVal = -1#
+                    Dim tt As Double: tt = signVal / (Abs(theta) + Sqr(theta * theta + 1#))
                     Dim cc As Double: cc = 1# / Sqr(tt * tt + 1#)
                     Dim sc As Double: sc = tt * cc
 
