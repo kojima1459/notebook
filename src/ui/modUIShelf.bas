@@ -91,13 +91,23 @@ Public Sub EnsureLayout()
     ws.Columns("F:G").ColumnWidth = 8
     ws.Columns("H:J").ColumnWidth = 15
 
-    ' 実機防衛(2026-07-21再導入): modUIMain.EnsureLayoutと同じ理由・同じ実装
-    ' (単純なActivateはA/Bで無効と確認済み。ScreenUpdating一時解除+DoEvents
-    ' +Activateの組み合わせを試す。詳細はmodUIMain.bas側コメント参照)。
+    ' 実機防衛(2026-07-21再訂正): modUIMain.EnsureLayoutと同じ理由・同じ実装
+    ' (Activateあり/なし双方で同一の1004が再現したため、Activate成否を致命的
+    ' 前提にしない。失敗を許容して描画へ進む。詳細はmodUIMain.bas側参照)。
     uiStep = "描画前アクティブ化"
     Application.ScreenUpdating = True
     DoEvents
+    On Error Resume Next
     ws.Activate
+    If Err.Number <> 0 Then
+        Dim actNum As Long: actNum = Err.Number
+        modLog.LogError "E0801", "modUIShelf.EnsureLayout", _
+            "[描画前アクティブ化(許容続行)] ws.Visible=" & ws.Visible & _
+            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, actNum
+        Err.Clear
+    End If
+    On Error GoTo Fail
     Application.ScreenUpdating = False
 
     ' ---- 操作ボタン行 ----------------------------------------------------
@@ -719,7 +729,8 @@ Fail:
     On Error Resume Next
     diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive
+           " Interactive=" & Application.Interactive & _
+           " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
     modLog.LogError "E0801", "modUIShelf.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
     Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag

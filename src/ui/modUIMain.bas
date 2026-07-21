@@ -123,15 +123,24 @@ Public Sub EnsureLayout()
         .Font.Italic = True
     End With
 
-    ' 実機防衛(2026-07-21再導入): 単純なws.Activateは効果が無いとA/B確認済み
-    ' (Activateの有無に関わらず全く同一の1004・同一引数で再現)。今回は
-    ' ScreenUpdating=Falseのままアクティブ化していたのが要因という仮説に基づき、
-    ' 描画開始直前だけ一時的にScreenUpdating=Trueへ戻してDoEventsでメッセージ
-    ' ポンプを一周させてからActivateする(以降は通常どおりFalseで描画する)。
+    ' 実機防衛(2026-07-21再訂正): Activateあり/なしのどちらでも同じ1004が
+    ' 再現する実測結果が出たため、「Activateが成功すること」をこれ以上
+    ' 致命的な前提にしない。失敗を許容して描画へ進み、AddButton側の独立した
+    ' 診断ログで「Activate成否と無関係に描画自体が通るか」を切り分ける。
     uiStep = "描画前アクティブ化"
     Application.ScreenUpdating = True
     DoEvents
+    On Error Resume Next
     ws.Activate
+    If Err.Number <> 0 Then
+        Dim actNum As Long: actNum = Err.Number
+        modLog.LogError "E0801", "modUIMain.EnsureLayout", _
+            "[描画前アクティブ化(許容続行)] ws.Visible=" & ws.Visible & _
+            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, actNum
+        Err.Clear
+    End If
+    On Error GoTo Fail
     Application.ScreenUpdating = False
 
     uiStep = "ボタン(使い方/診断)"
@@ -840,7 +849,8 @@ Fail:
     On Error Resume Next
     diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive
+           " Interactive=" & Application.Interactive & _
+           " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
     modLog.LogError "E0801", "modUIMain.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
     Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
