@@ -69,7 +69,7 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     Next shp
 
     Dim btn As Shape
-    Set btn = ws.Shapes.AddShape(5, anchor.Left, y, 360, 26)   ' 5=角丸四角
+    Set btn = SafeRoundedRect(ws, anchor.Left, y, 360, 26)
     btn.Name = BTN_NAME
     btn.Adjustments(1) = 0.4
     btn.Line.Visible = -1
@@ -227,7 +227,7 @@ Private Sub DrawReplyButton()
     If anchor Is Nothing Then Exit Sub
 
     Dim btn As Shape
-    Set btn = ws.Shapes.AddShape(5, anchor.Left, anchor.Top + anchor.Height + 6, 300, 26)
+    Set btn = SafeRoundedRect(ws, anchor.Left, anchor.Top + anchor.Height + 6, 300, 26)
     btn.Name = "nx_mentor_reply"
     btn.Adjustments(1) = 0.4
     btn.Line.Visible = -1
@@ -459,4 +459,23 @@ Private Function SanitizeField(ByVal s As String) As String
     t = Replace(t, vbCr, " ")
     t = Replace(t, vbLf, " ")
     SanitizeField = t
+End Function
+
+' 実機防衛(2026-07-21): modUIMain/modUIShelf.SafeRoundedRectと同じ理由・同じ
+' 実装。座標(anchor.Left/.Top+.Height由来)を1未満に落ちないようクランプし、
+' DoEvents+1回リトライ付きでAddShapeする(詳細はmodUIMain.bas側参照)。
+Private Function SafeCoord(ByVal v As Double) As Double
+    If v < 1 Then v = 1
+    SafeCoord = v
+End Function
+
+Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
+                                 ByVal W As Double, ByVal H As Double) As Shape
+    L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)
+    On Error GoTo Retry
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle(リテラル)
+    Exit Function
+Retry:
+    DoEvents
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)
 End Function

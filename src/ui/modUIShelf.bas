@@ -679,8 +679,12 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     Dim uiStep As String
     On Error GoTo Fail
     Dim shp As Shape
-    uiStep = "AddShape実行(L=" & rng.Left & " T=" & rng.Top & ")"
-    Set shp = SafeRoundedRect(ws, rng.Left, rng.Top, rng.Width, rng.Height)
+    ' ログと実呼出しに同じサニタイズ済み値を使う(生値だとログと実態が食い違う)。
+    Dim sL As Double, sT As Double, sW As Double, sH As Double
+    sL = SafeCoord(rng.Left): sT = SafeCoord(rng.Top)
+    sW = SafeCoord(rng.Width): sH = SafeCoord(rng.Height)
+    uiStep = "AddShape実行(Type=5 L=" & sL & " T=" & sT & " W=" & sW & " H=" & sH & ")"
+    Set shp = SafeRoundedRect(ws, sL, sT, sW, sH)
     uiStep = "図形名設定"
     shp.Name = shapeName
     uiStep = "テキスト代入"
@@ -777,14 +781,18 @@ Private Sub SafeEndDraw(ByVal ws As Worksheet, ByVal st As Variant, ByVal prevAc
     On Error GoTo 0
 End Sub
 
+Private Function SafeCoord(ByVal v As Double) As Double
+    If v < 1 Then v = 1
+    SafeCoord = v
+End Function
+
+' 呼び出し元がSafeCoordで既に安全化した値を渡す前提だが、直接呼ばれても
+' 壊れないよう二重にクランプする(コストはほぼ無い)。
 Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
                                  ByVal W As Double, ByVal H As Double) As Shape
-    If L < 1 Then L = 1
-    If T < 1 Then T = 1
-    If W < 1 Then W = 1
-    If H < 1 Then H = 1
+    L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)
     On Error GoTo Retry
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle(リテラル)
     Exit Function
 Retry:
     DoEvents

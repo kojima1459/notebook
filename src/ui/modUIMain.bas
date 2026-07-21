@@ -82,10 +82,8 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
-    ' 実機防衛(2026-07-21): 1004を誘発しうる環境要因(非表示/非アクティブ/
-    ' オブジェクト表示オフ/シート保護)を先回り無効化する多層防御の1つ
-    ' (真因はmodBoot.bas Boot()側のコンパイルエラー起因だったが、これ自体は
-    ' 無害かつ他の潜在要因への保険として維持。詳細は末尾ヘルパー参照)。
+    ' 実機防衛(2026-07-21): 1004誘発要因(非表示/非アクティブ/表示オフ/保護)を
+    ' 先回り無効化する多層防御(詳細は末尾ヘルパー参照。保険として維持)。
     Dim sdState As Variant, prevActive As Object
     uiStep = "描画環境の整備"
     SafeBeginDraw ws, sdState, prevActive
@@ -408,11 +406,8 @@ Fail:
     On Error GoTo 0
 End Sub
 
-' diag_reportシートに「📋直近のエラーをコピー」ボタンを追加する。
-' modDiag.RunDiagnostics自体はdiag_reportを毎回削除→再生成する基盤層(src/core)
-' の処理なので、Shape追加(UI操作)はここUI層で完結させる(R1: 基盤層は
-' 上位層を呼ばない)。シートは毎回作り直されるため、このSubもRunDiagnostics
-' の直後に毎回呼ぶ必要がある。
+' diag_reportシートに「📋直近のエラーをコピー」ボタンを追加(R1:基盤層は上位層を
+' 呼ばないためUI操作はここで完結。シートは毎回作り直されるので毎回呼ぶ)。
 Private Sub AddDiagCopyErrorsButton()
     On Error GoTo Fail
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("diag_report")
@@ -423,11 +418,7 @@ Fail:
     On Error GoTo 0
 End Sub
 
-' 「📋直近のエラーをコピー」ボタン: err_logの直近5件(コード・モジュール/関数名・
-' 生エラー番号・HTTPステータス・詳細)を整形テキストにしてクリップボードへ
-' コピーする。実機環境の壁(社内プロキシのエラー407、共有フォルダのエラー52/70等)
-' に遭遇したとき、利用者がコードを読まずそのまま開発者へ貼り付けて渡せるように
-' するための導線。
+' 📋直近のエラーをコピー: err_logの直近5件を整形テキストにしてクリップボードへ。
 Public Sub OnCopyRecentErrors()
     On Error GoTo Fail
     Dim text As String: text = modDiag.RecentErrorsForClipboard()
@@ -792,15 +783,18 @@ Fail:
     Set GetOrCreateHomeSheet = Nothing
 End Function
 
-' マイクロログ(2026-07-21): 失敗した「正確な1行」をerr_logへ残す(uiStepへ
-' ネストして伝播。詳細な経緯はmodBoot.bas Boot()コメント参照)。
+' マイクロログ(2026-07-21): 失敗箇所をuiStepでerr_logへネスト伝播する。
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
     Dim uiStep As String
     On Error GoTo Fail
     Dim shp As Shape
-    uiStep = "AddShape実行(L=" & rng.Left & " T=" & rng.Top & ")"
-    Set shp = SafeRoundedRect(ws, rng.Left, rng.Top, rng.Width, rng.Height)
+    ' ログと実呼出しに同じサニタイズ済み値を使う(生値だとログと実態が食い違う)。
+    Dim sL As Double, sT As Double, sW As Double, sH As Double
+    sL = SafeCoord(rng.Left): sT = SafeCoord(rng.Top)
+    sW = SafeCoord(rng.Width): sH = SafeCoord(rng.Height)
+    uiStep = "AddShape実行(Type=5 L=" & sL & " T=" & sT & " W=" & sW & " H=" & sH & ")"
+    Set shp = SafeRoundedRect(ws, sL, sT, sW, sH)
     uiStep = "図形名設定"
     shp.Name = shapeName
     uiStep = "テキスト代入"
@@ -894,14 +888,18 @@ Private Sub SafeEndDraw(ByVal ws As Worksheet, ByVal st As Variant, ByVal prevAc
 End Sub
 
 ' #5座標サニタイズ(負/0→1)+ #4 DoEvents1回リトライ付きで角丸四角を追加。
+Private Function SafeCoord(ByVal v As Double) As Double
+    If v < 1 Then v = 1
+    SafeCoord = v
+End Function
+
+' 呼び出し元がSafeCoordで既に安全化した値を渡す前提だが、直接呼ばれても
+' 壊れないよう二重にクランプする(コストはほぼ無い)。
 Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
                                  ByVal W As Double, ByVal H As Double) As Shape
-    If L < 1 Then L = 1
-    If T < 1 Then T = 1
-    If W < 1 Then W = 1
-    If H < 1 Then H = 1
+    L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)
     On Error GoTo Retry
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle(リテラル)
     Exit Function
 Retry:
     DoEvents
