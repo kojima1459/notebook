@@ -523,7 +523,12 @@ Public Sub Install()
   On Error Resume Next
   ThisWorkbook.Save
   Err.Clear
-  Application.Run "modBoot.Boot"
+  ' Detach Boot from Workbook_Open (avoids 1004 mid-init); fallback sync run.
+  Application.OnTime Now + TimeSerial(0, 0, 1), "modBoot.Boot"
+  If Err.Number <> 0 Then
+    Err.Clear
+    Application.Run "modBoot.Boot"
+  End If
   Exit Sub
 Trust:
   MsgBox "VBA Project trust required. See howto sheet.", vbCritical
