@@ -69,14 +69,12 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
-    ' 実機防衛(2026-07-21): 図形描画時の実行時エラー1004を「全要因先回り無効化」で
-    ' 根絶する。非表示/超非表示・非アクティブ・オブジェクト表示オフ・シート保護等の
-    ' 1004誘発要因を退避しつつ解除し(SafeBeginDraw)、描画後に完全復元する
-    ' (SafeEndDraw)。実装・詳細コメントは本モジュール末尾のヘルパー参照
-    ' (modUIMainと同一の局所防衛を各画面モジュールに閉じて持たせている)。
-    Dim sdState As Variant, prevActive As Object
-    uiStep = "描画環境の整備"
-    SafeBeginDraw ws, sdState, prevActive
+    ' 2026-07-21訂正: 以前ここにあった「描画前にws.Activateする」対策
+    ' (SafeBeginDraw/SafeEndDraw一式)は撤去した。真因はmodApp.basのコンパイル
+    ' エラー(Dim fix)で、Activate追加はその場しのぎの誤った対策だった。
+    ' Shapes.AddShapeは非表示でさえなければ非アクティブでも描画できるため、
+    ' 残すのは「非表示なら表示化する」最小限の1行のみ(詳細はmodUIMain.bas参照)。
+    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible
 
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
@@ -164,10 +162,6 @@ Public Sub EnsureLayout()
     End With
     ws.Rows(HEADER_ROW).RowHeight = 16
 
-    ' 描画環境を復元(RenderShelfはセル描画のみ=Shape非使用なので復元後でも安全)。
-    uiStep = "描画環境の復元"
-    SafeEndDraw ws, sdState, prevActive
-
     Application.ScreenUpdating = True
 
     uiStep = "資料一覧の再描画(RenderShelf)"
@@ -179,7 +173,6 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
-    SafeEndDraw ws, sdState, prevActive   ' 失敗時も環境・表示状態を完全復元
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -706,81 +699,9 @@ Fail:
     Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description
 End Sub
 
-' ============================================================================
-' 実機防衛ヘルパー(2026-07-21): modUIMain.SafeBeginDraw/SafeEndDraw/SafeRoundedRect
-' と同一実装。図形描画時の実行時エラー1004を誘発しうるExcel環境要因
-' (シート保護/オブジェクト表示オフ/非表示/非アクティブ/不正座標/COM衝突)を
-' すべて先回りで退避→無効化→完全復元する。影響範囲を該当2画面に閉じるため
-' 共有モジュール化せず各画面へ持たせている(詳細コメントはmodUIMain側参照)。
-' ============================================================================
-Private Sub SafeBeginDraw(ByVal ws As Worksheet, ByRef st As Variant, ByRef prevActive As Object)
-    Dim savedVis As Long: savedVis = -1
-    Dim savedDisp As Variant: savedDisp = Empty
-    Dim sheetUnprotected As Boolean: sheetUnprotected = False
-
-    Dim wb As Object: Set wb = ThisWorkbook
-    Dim o As Object: Set o = ws
-
-    On Error Resume Next
-    Set prevActive = wb.ActiveSheet
-    On Error GoTo 0
-
-    On Error Resume Next
-    Dim win As Object: Set win = wb.Windows(1)
-    If Not win Is Nothing Then
-        savedDisp = win.DisplayObjects
-        win.DisplayObjects = -4104   ' xlDisplayShapes
-    End If
-    On Error GoTo 0
-
-    On Error Resume Next
-    savedVis = ws.Visible
-    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible
-    On Error GoTo 0
-
-    On Error Resume Next
-    If o.ProtectContents Or o.ProtectDrawingObjects Then
-        o.Unprotect
-        If Not (o.ProtectContents Or o.ProtectDrawingObjects) Then sheetUnprotected = True
-    End If
-    On Error GoTo 0
-
-    On Error Resume Next
-    ws.Activate
-    On Error GoTo 0
-
-    st = Array(savedVis, savedDisp, sheetUnprotected)
-End Sub
-
-Private Sub SafeEndDraw(ByVal ws As Worksheet, ByVal st As Variant, ByVal prevActive As Object)
-    If Not IsArray(st) Then Exit Sub
-    Dim savedVis As Long: savedVis = CLng(st(0))
-    Dim savedDisp As Variant: savedDisp = st(1)
-    Dim sheetUnprotected As Boolean: sheetUnprotected = CBool(st(2))
-
-    Dim wb As Object: Set wb = ThisWorkbook
-    Dim o As Object: Set o = ws
-
-    On Error Resume Next
-    If sheetUnprotected Then o.Protect
-    On Error GoTo 0
-
-    On Error Resume Next
-    If Not prevActive Is Nothing Then prevActive.Activate
-    On Error GoTo 0
-
-    On Error Resume Next
-    If ws.Visible <> savedVis Then ws.Visible = savedVis
-    On Error GoTo 0
-
-    On Error Resume Next
-    If Not IsEmpty(savedDisp) Then
-        Dim win As Object: Set win = wb.Windows(1)
-        If Not win Is Nothing Then win.DisplayObjects = savedDisp
-    End If
-    On Error GoTo 0
-End Sub
-
+' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
+' 強制・Protect解除一式)。真因はコンパイルエラーであり、これらは的外れな
+' 対策だった。座標サニタイズ(下記SafeCoord)のみ実効性があるため維持する。
 Private Function SafeCoord(ByVal v As Double) As Double
     If v < 1 Then v = 1
     SafeCoord = v
