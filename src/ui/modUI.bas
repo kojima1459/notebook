@@ -56,7 +56,18 @@ Public Sub InitUI()
     Application.DisplayStatusBar = False
     On Error GoTo 0
 
+    ' 2026-07-21: modUIMain/modUIShelfと同じ理由でActivate失敗を致命的に
+    ' しない(失敗しても以降の描画を試みる。診断はerr_logへ直接記録する)。
+    On Error Resume Next
     ws.Activate
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", "modApp.LaunchNexus", _
+            "InitUI [ws.Activate] ws.Visible=" & ws.Visible & _
+            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
+        Err.Clear
+    End If
+    On Error GoTo 0
     On Error Resume Next
     With ActiveWindow
         .DisplayGridlines = False

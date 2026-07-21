@@ -208,6 +208,7 @@ Public Sub Boot()
     ' 7) 内部シート隠蔽
     bootStage = "内部シートの整理"
     HideInternalSheets
+    RemoveOrphanDefaultSheets
 
     ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても
     '    旧3画面は生きているため、起動自体は続行する)
@@ -215,6 +216,11 @@ Public Sub Boot()
         bootStage = "Nexus画面の起動"
         On Error Resume Next
         modApp.LaunchNexus
+        ' 2026-07-21: このstageだけLogBootStageErrorIfAnyの呼び出しが漏れており、
+        ' Nexus画面構築の失敗がerr_logに一切残らない盲点になっていた
+        ' (実機で「Nexus画面が白紙」という報告のみでは原因を特定できない
+        ' 状態が続いていた恒久対策)。Home/マイ本棚と同じ扱いに揃える。
+        LogBootStageErrorIfAny bootStage
         On Error GoTo Failed
         bootStage = ""
     End If
@@ -335,6 +341,33 @@ Private Sub HideInternalSheets()
     HideSheetSafely modAppDef.SH_STATS, HIDDEN
     HideSheetSafely modAppDef.SH_USAGE, HIDDEN
     HideSheetSafely modAppDef.SH_ERRLOG, HIDDEN
+End Sub
+
+' 2026-07-21実機対応: 原因未特定の「Sheet2のような既定名の空白シートが
+' 混入する」実機報告への当座の後始末。本アプリはビルド時・実行時とも
+' "Sheet"+数字という既定名のシートを作らない設計のため、その名前パターンに
+' 一致し、かつ本当に空(セル内容もShapeも無い)シートだけを安全に削除する
+' (取りこぼしても実害はないので、判定条件は厳しめに倒す。原因特定のため
+'  削除前にerr_logへ記録する)。
+Private Sub RemoveOrphanDefaultSheets()
+    On Error Resume Next
+    Dim i As Long
+    For i = ThisWorkbook.Worksheets.count To 1 Step -1
+        Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(i)
+        If ws.Name Like "Sheet[0-9]*" Then
+            Dim isEmptySheet As Boolean
+            isEmptySheet = (ws.UsedRange.Address = "$A$1") And _
+                           (LenB(CStr(ws.Range("A1").Value)) = 0) And (ws.Shapes.count = 0)
+            If isEmptySheet Then
+                modLog.LogError "E0801", "modBoot.Boot", _
+                    "原因不明の既定名シートを検出・削除: " & ws.Name
+                Application.DisplayAlerts = False
+                ws.Delete
+                Application.DisplayAlerts = True
+            End If
+        End If
+    Next i
+    On Error GoTo 0
 End Sub
 
 ' 盲点D1(軽量マクロ無効ガード)の実行時側。起動が成功したのでマクロ有効化の
