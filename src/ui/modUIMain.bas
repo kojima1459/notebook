@@ -82,23 +82,21 @@ Public Sub EnsureLayout()
 
     Application.ScreenUpdating = False
 
-    ' 実機根治(2026-07-21): Shapes.AddShapeは対象シートが非アクティブだと実行時
-    ' エラー1004「アプリケーション定義またはオブジェクト定義のエラー」になる
-    ' (実機Windows Excelの仕様。LibreOffice/開発機では再現しない)。起動時は
-    ' ガードシート「はじめにお読みください」がアクティブなため、ホーム/マイ本棚の
-    ' ボタン生成が最初の1個で全滅していた(err_log err_number=1004)。描画の前に
-    ' 対象シートをアクティブ化し、描画後に元のアクティブシートへ必ず戻す
-    ' (副作用ゼロ)。Nexus SPA(modUI/modDash)が既に採用している実証済み
-    ' パターンで、ScreenUpdating=False下でもActivateは有効=ちらつきは出ない。
-    Dim prevActive As Object
-    On Error Resume Next
-    Set prevActive = ThisWorkbook.ActiveSheet
-    On Error GoTo Fail
-    uiStep = "画面をアクティブ化"
-    ws.Activate
+    ' 実機防衛(2026-07-21): 図形(Shape)描画時の実行時エラー1004を、原因を1つに
+    ' 断定せず「1004を誘発しうるExcel環境要因」を漏れなく先回りで無効化して確実に
+    ' 通す。実機Windows Excelでは、対象シートが 非表示/超非表示・非アクティブ・
+    ' 「オブジェクトの表示=なし」・シート保護 のいずれかだと AddShape や Activate が
+    ' 1004で失敗する(LibreOffice/開発機では再現しない)。SafeBeginDrawが各要因を
+    ' 退避しつつ描画可能状態へ整え、SafeEndDrawが元の状態へ完全復元する
+    ' (すべてOn Error保護下で個別処理し、他シート・他モジュール・ユーザー設定へ
+    ' 副作用を残さない)。詳細は本モジュール末尾のヘルパー参照。
+    Dim sdState As Variant, prevActive As Object
+    uiStep = "描画環境の整備"
+    SafeBeginDraw ws, sdState, prevActive
 
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
+    DoEvents   ' 削除と追加の間でCOM/メモリを一拍解放する(先回り防衛#4)
     uiStep = "セルのクリア"
     ws.Cells.Clear
 
@@ -257,10 +255,8 @@ Public Sub EnsureLayout()
     uiStep = "豆知識の表示"
     ShowTip
 
-    ' 元のアクティブシートへ復帰(描画のための一時Activateの後始末)。
-    On Error Resume Next
-    If Not prevActive Is Nothing Then prevActive.Activate
-    On Error GoTo 0
+    uiStep = "描画環境の復元"
+    SafeEndDraw ws, sdState, prevActive
 
     Application.ScreenUpdating = True
     Exit Sub
@@ -273,7 +269,7 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
-    If Not prevActive Is Nothing Then prevActive.Activate   ' 失敗時も元画面へ戻す
+    SafeEndDraw ws, sdState, prevActive   ' 失敗時も環境・表示状態を完全復元
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -803,7 +799,7 @@ End Function
 Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
                       ByVal caption As String, ByVal action As String)
     Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, rng.Left, rng.Top, rng.Width, rng.Height)   ' 5 = msoShapeRoundedRectangle
+    Set shp = SafeRoundedRect(ws, rng.Left, rng.Top, rng.Width, rng.Height)
     shp.Name = shapeName
     shp.TextFrame2.TextRange.Text = caption
     shp.TextFrame2.WordWrap = -1   ' msoTrue
@@ -816,6 +812,92 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.Line.Visible = 0   ' msoFalse
     shp.OnAction = action
 End Sub
+
+' 実機防衛(2026-07-21): 図形描画の1004を誘発しうるExcel環境要因を先回りで
+' 全て無効化する。#1シート保護解除 / #3オブジェクト表示ON / 非表示→表示化 /
+' 非アクティブ→Activate試行 を退避しつつ実施し、SafeEndDrawで完全復元する。
+' 例外的メンバー(DisplayObjects/Protect系)は遅延バインドでLO互換も確保。
+' 局所化のためmodUIShelfにも同一実装を複製している。
+Private Sub SafeBeginDraw(ByVal ws As Worksheet, ByRef st As Variant, ByRef prevActive As Object)
+    Dim savedVis As Long: savedVis = -1
+    Dim savedDisp As Variant: savedDisp = Empty
+    Dim sheetUnprotected As Boolean: sheetUnprotected = False
+    Dim wb As Object: Set wb = ThisWorkbook
+    Dim o As Object: Set o = ws
+
+    On Error Resume Next
+    Set prevActive = wb.ActiveSheet
+    On Error GoTo 0
+
+    On Error Resume Next
+    Dim win As Object: Set win = wb.Windows(1)
+    If Not win Is Nothing Then
+        savedDisp = win.DisplayObjects
+        win.DisplayObjects = -4104   ' xlDisplayShapes
+    End If
+    On Error GoTo 0
+
+    On Error Resume Next
+    savedVis = ws.Visible
+    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible
+    On Error GoTo 0
+
+    On Error Resume Next
+    If o.ProtectContents Or o.ProtectDrawingObjects Then
+        o.Unprotect
+        If Not (o.ProtectContents Or o.ProtectDrawingObjects) Then sheetUnprotected = True
+    End If
+    On Error GoTo 0
+
+    On Error Resume Next
+    ws.Activate
+    On Error GoTo 0
+
+    st = Array(savedVis, savedDisp, sheetUnprotected)
+End Sub
+
+Private Sub SafeEndDraw(ByVal ws As Worksheet, ByVal st As Variant, ByVal prevActive As Object)
+    If Not IsArray(st) Then Exit Sub
+    Dim savedVis As Long: savedVis = CLng(st(0))
+    Dim savedDisp As Variant: savedDisp = st(1)
+    Dim sheetUnprotected As Boolean: sheetUnprotected = CBool(st(2))
+    Dim wb As Object: Set wb = ThisWorkbook
+    Dim o As Object: Set o = ws
+
+    On Error Resume Next
+    If sheetUnprotected Then o.Protect
+    On Error GoTo 0
+
+    On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate
+    On Error GoTo 0
+
+    On Error Resume Next
+    If ws.Visible <> savedVis Then ws.Visible = savedVis
+    On Error GoTo 0
+
+    On Error Resume Next
+    If Not IsEmpty(savedDisp) Then
+        Dim win As Object: Set win = wb.Windows(1)
+        If Not win Is Nothing Then win.DisplayObjects = savedDisp
+    End If
+    On Error GoTo 0
+End Sub
+
+' #5座標サニタイズ(負/0→1)+ #4 DoEvents1回リトライ付きで角丸四角を追加。
+Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
+                                 ByVal W As Double, ByVal H As Double) As Shape
+    If L < 1 Then L = 1
+    If T < 1 Then T = 1
+    If W < 1 Then W = 1
+    If H < 1 Then H = 1
+    On Error GoTo Retry
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle
+    Exit Function
+Retry:
+    DoEvents
+    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)
+End Function
 
 Private Sub RemoveManagedShapes(ByVal ws As Worksheet)
     Dim names() As String
