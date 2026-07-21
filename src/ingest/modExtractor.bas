@@ -85,6 +85,11 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     Dim truncated As Boolean
     Dim adapterErr As String
 
+    ' 実機報告(2026-07-21)「取込に失敗(#462等)」対策: 各アダプタは自分の
+    ' COM呼び出しを捕捉する契約だが、抜けがあれば生の実行時エラーが素通りして
+    ' しまう(呼び出し元へ意味不明な番号だけが伝わる)。ここでも保険的に捕捉し、
+    ' 必ずE0302+説明文に変換してから返す(R5: 原因不明のエラーを見せない)。
+    On Error GoTo ExtractFailed
     Select Case ext
         Case "txt", "md", "csv"
             ok = ExtractPlainText(workPath, pages, adapterErr)
@@ -95,6 +100,7 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Case "xlsx", "xls", "xlsm"
             ok = modExtractorExcel.Extract(workPath, maxPages, pages, truncated, adapterErr)
     End Select
+    On Error GoTo 0
 
     ' 一時コピーは用が済んだら消す(失敗しても無視)。
     If LenB(tmpCopy) > 0 Then
@@ -139,6 +145,18 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     End If
 
     ExtractFile = True
+    Exit Function
+
+ExtractFailed:
+    Dim leakNum As Long, leakDesc As String
+    leakNum = Err.Number: leakDesc = Err.Description
+    On Error Resume Next
+    If LenB(tmpCopy) > 0 Then Kill tmpCopy
+    On Error GoTo 0
+    errCode = "E0302"
+    errDetail = "err#" & leakNum & ": " & leakDesc
+    modLog.LogError "E0302", "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
+    ExtractFile = False
 End Function
 
 Public Function SupportedExts() As String

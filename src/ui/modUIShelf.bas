@@ -665,6 +665,10 @@ Private Sub WriteSafe(ByVal cell As Range, ByVal text As String)
     Dim t As String
     t = modUtil.SafeLeft(text, 32000)
     On Error Resume Next
+    ' 未Mergeのまま.Valueへ代入すると全セルに同じ値が複製される(実機報告の
+    ' バグ)。EnsureLayoutが途中で中断しMerge未実行のまま呼ばれても壊れない
+    ' よう、呼び出し側の前提に頼らずここで都度Mergeする(冪等・低コスト)。
+    If cell.Cells.Count > 1 Then cell.Merge
     cell.Value = t
     On Error GoTo 0
 End Sub

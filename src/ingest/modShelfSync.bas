@@ -173,7 +173,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
             If Not silent Then
                 MsgBox "同期フォルダはまだ設定されていませんが、未完了だった資料の変換(ベクトル化)を" & _
                        orphanDone & "件再開しました。" & vbLf & vbLf & _
-                       "フォルダごと自動同期したい場合は「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から設定できます。", _
+                       "フォルダごと自動同期したい場合は「フォルダを選ぶ」から設定できます。", _
                        vbInformation, modAppDef.APP_NAME
             End If
         ElseIf Not silent Then
@@ -196,7 +196,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
             MsgBox "インターネット上のアドレス(SharePoint等のURL)は、本棚フォルダに設定できません。" & vbLf & vbLf & _
                    "SharePointのフォルダを使いたい場合は、まずOneDriveの「同期」ボタンで" & _
                    "パソコンのフォルダとして同期し、そのフォルダ(例: C:\Users\…\OneDrive - 会社名\…)を" & _
-                   "「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から選んでください。" & vbLf & _
+                   "「フォルダを選ぶ」から選んでください。" & vbLf & _
                    "(コード: E0502)", vbExclamation, modAppDef.APP_NAME
         End If
         On Error Resume Next

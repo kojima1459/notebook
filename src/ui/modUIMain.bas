@@ -121,7 +121,7 @@ Public Sub EnsureLayout()
         .Font.Italic = True
     End With
 
-    ' 実機防衛(2026-07-21): Activate失敗を致命的にしない(失敗しても続行)。
+    ' Activate失敗を致命的にしない(失敗しても続行)。
     uiStep = "描画前アクティブ化"
     Application.ScreenUpdating = True
     DoEvents
@@ -775,6 +775,8 @@ Private Sub WriteSafe(ByVal cell As Range, ByVal text As String)
     Dim t As String
     t = modUtil.SafeLeft(text, 32000)
     On Error Resume Next
+    ' 未Mergeのまま代入すると全セルに同じ値が複製される。都度Mergeする。
+    If cell.Cells.Count > 1 Then cell.Merge
     cell.Value = t
     On Error GoTo 0
 End Sub

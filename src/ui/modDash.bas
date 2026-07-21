@@ -62,6 +62,7 @@ Private Const ADMIN_MAX_ROWS As Long = 12
 
 Private mAdminExclNames() As String
 Private mAdminExclCount As Long
+Private mDashStep As String   ' DrawDashboard失敗箇所の特定用(Fail:から参照)
 
 ' ----------------------------------------------------------------------------
 ' ShowDashboard - シートを取得/生成し、描画してSPA遷移する(公開エントリ)
@@ -88,13 +89,11 @@ Public Sub ShowDashboard()
     Exit Sub
 
 Fail:
-    ' 実機報告(2026-07-21)「KPIカードが1枚しか出ない」対策: 失敗が無言で
-    ' 握りつぶされていたため、次回以降は原因を残す。
     Dim failNum As Long, failDesc As String
     failNum = Err.Number: failDesc = Err.Description
     On Error Resume Next
     Application.ScreenUpdating = True
-    modLog.LogError "E0801", "modDash.ShowDashboard", "DrawDashboard失敗: " & failDesc, failNum
+    modLog.LogError "E0801", "modDash.ShowDashboard", "[" & mDashStep & "] " & failDesc, failNum
     On Error GoTo 0
 End Sub
 
@@ -120,13 +119,11 @@ Public Sub OnDashRefresh()
     Exit Sub
 
 Fail:
-    ' 実機報告(2026-07-21)「更新ボタンを押しても何も起こらない」対策:
-    ' 失敗が無言で握りつぶされていたため、次回以降は原因を残す。
     Dim failNum As Long, failDesc As String
     failNum = Err.Number: failDesc = Err.Description
     On Error Resume Next
     Application.ScreenUpdating = True
-    modLog.LogError "E0801", "modDash.OnDashRefresh", "DrawDashboard失敗: " & failDesc, failNum
+    modLog.LogError "E0801", "modDash.OnDashRefresh", "[" & mDashStep & "] " & failDesc, failNum
     On Error GoTo 0
 End Sub
 
@@ -175,12 +172,13 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = modUI.UiColor("bg")
     ws.Columns("A:T").ColumnWidth = 9
 
-    DrawHeader ws
-    DrawKpiRow ws
-    DrawExpBar ws
-    DrawBadgeShelf ws
-    DrawChartPlaceholder ws
-    DrawAdminSection ws
+    mDashStep = "DrawHeader": DrawHeader ws
+    mDashStep = "DrawKpiRow": DrawKpiRow ws
+    mDashStep = "DrawExpBar": DrawExpBar ws
+    mDashStep = "DrawBadgeShelf": DrawBadgeShelf ws
+    mDashStep = "DrawChartPlaceholder": DrawChartPlaceholder ws
+    mDashStep = "DrawAdminSection": DrawAdminSection ws
+    mDashStep = "FreezeShapePlacement"
     modUI.FreezeShapePlacement ws   ' 全Shape(クラスタ円含む)を絶対配置に固定
     modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 End Sub
@@ -308,7 +306,9 @@ Private Sub DrawKpiCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As Dou
         finalLabelColor = labelColor
     End If
 
-    Dim body As String: body = captionText & vbLf & valueText & vbLf & labelText
+    ' ParagraphsはvbCr区切りでしか分かれない(vbLfだと1段落のままParagraphs(2)が
+    ' 範囲外例外になる。実機報告「KPIカードが1枚しか出ない」の原因)。
+    Dim body As String: body = captionText & vbCr & valueText & vbCr & labelText
 
     With card.TextFrame2
         .WordWrap = -1

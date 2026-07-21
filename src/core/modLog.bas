@@ -119,8 +119,10 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "使っていない資料を削除してから、もう一度追加してください。" & vbLf & _
                 "(上限そのものを増やすこともできます: configシートの shelf_max_chunks の数字を大きくしてください)"
         Case "E0502"
+            ' E0502はMsgBox専用コード(shelf_folder関連)のため絵文字を使わない
+            ' (MsgBoxでの絵文字表示問題はShowErrorのコメント参照)。
             FriendlyMessage = "同期するフォルダが見つかりませんでした。" & _
-                "「" & ChrW(&HD83D) & ChrW(&HDCC1) & "フォルダを選ぶ」からフォルダを選び直してください。"
+                "「フォルダを選ぶ」からフォルダを選び直してください。"
         Case "E0503"
             FriendlyMessage = "今、別の取込処理が実行中です。" & _
                 "処理が完了するまで、少々お待ちください。"
@@ -158,10 +160,14 @@ Public Function FriendlyMessage(ByVal code As String) As String
     End Select
 End Function
 
+' 実機報告(2026-07-21): ここのChrW絵文字がMsgBox上で「??」表示になっていた。
+' Nexus画面のShape文字(TextFrame2)では正しく描画されるが、ネイティブMsgBox
+' (Win32 MessageBox)は既定フォントの絵文字グリフ対応が弱く、Excel側の描画
+' 経路とは別問題。MsgBoxはここだけ絵文字を使わない。
 Public Sub ShowError(ByVal code As String, ByVal context As String, ByVal detail As String)
     LogError code, context, detail
     MsgBox FriendlyMessage(code) & vbLf & "(コード: " & code & ")" & vbLf & vbLf & _
-        "" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタン→「" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー」で、詳しい情報をそのまま担当者に送れます。", _
+        "「診断」ボタン→「直近のエラーをコピー」で、詳しい情報をそのまま担当者に送れます。", _
         vbExclamation, modAppDef.APP_NAME
 End Sub
 
