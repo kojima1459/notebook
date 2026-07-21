@@ -10,10 +10,8 @@ Option Explicit
 '   ToggleTheme   - ライト/ダークモードの即時反転(全Shape再彩色)
 '   RestoreExcelUI- ネイティブUIの復元(Auto_Close時に必ず呼ぶこと)
 ' 設計メモ:
-'   ・アクションボタンはShape+OnAction方式。仕様書のWorksheet_FollowHyperlink
-'     方式は自己インストーラ配布(標準モジュールのみ注入可能・シートモジュール
-'     不可)と両立しないため、同一UXをOnActionで実現する(配布性を優先)。
-'   ・UserFormモーダルも同じ理由でShapeオーバーレイ方式(Phase 2)。
+'   ・アクションボタンはShape+OnAction方式(自己インストーラ配布は標準モジュール
+'     のみ注入可能・シートモジュール不可のため。UserFormも同じ理由でShape方式)。
 '   ・テーマ状態はui_stateシート(key="nexus_theme")に永続化。
 '   ・Shape命名規約: nx_sb_*(サイドバー) nx_top_*(トップバー)
 '     nx_msg_*(バブル) nx_act_*(アクションボタン) nx_thk_*(思考プロセス)
@@ -77,16 +75,14 @@ Public Sub InitUI()
     End With
     On Error GoTo 0
 
-    ' --- 実機耐性(盲点D2/D4/C1): OneDrive自動保存の割り込み停止・ズーム基準固定・
-    '     選択制限。いずれも環境差で例外になり得るのでOn Error Resume Next配下。 ---
+    ' --- 実機耐性: OneDrive自動保存の割り込み停止・ズーム基準固定・選択制限 ---
     On Error Resume Next
     ActiveWorkbook.AutoSaveOn = False   ' D2: 自動保存がVBAへ割り込みクラッシュ/遅延するのを止める
     ActiveWindow.Zoom = 100             ' D4: Ctrl+ホイール等のズームでShape配置が崩れる基準を100%へ固定
     ws.EnableSelection = 1              ' C1: xlUnlockedCells(完全抑止はProtect併用時のみ。park運用と併せ誤選択を抑える)
     On Error GoTo 0
 
-    ' C3: Ctrl+Z/Ctrl+Yを無効化。Shapeと隠しDBの整合が崩れるUndoを封じる
-    '     (RestoreExcelUIで既定へ復元。Auto_Close経由で必ず復元される)。
+    ' C3: Undoを封じる(Shapeと隠しDBの整合が崩れるため。復元はRestoreExcelUI)。
     DisableUndoRedo
 
     ' --- キャンバス骨格 ---
@@ -122,11 +118,9 @@ Public Sub InitUI()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' AddChatBubble - チャットバブル1件を追加する。
-'   role: "user" / "ai"。thinkingはAIの思考プロセス(空なら省略)。
-'   アクションはバブル毎には生成しない(オーナー裁定: Shape増殖による32bit
-'   メモリクラッシュ防止)。画面上部固定のフローティング・アクションバーが、
-'   選択中のAIバブル(クリックでmodApp.OnSelectBubbleが記録)に対して発火する。
+' AddChatBubble - チャットバブル1件を追加する(role: "user"/"ai"。thinkingは
+'   AIの思考プロセス、空なら省略)。アクションはバブル毎には生成せず(Shape増殖
+'   による32bitクラッシュ防止)、選択中のAIバブルに対しアクションバーが発火する。
 '   withActionsは後方互換のため残置(無視)。戻り値: バブルShape名。
 ' ----------------------------------------------------------------------------
 Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
@@ -183,7 +177,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
         .MarginLeft = 12: .MarginRight = 12: .MarginTop = 9: .MarginBottom = 9
         .TextRange.Text = bodyText
         .TextRange.Font.Size = 10.5
-        .TextRange.ParagraphFormat.Alignment = 0   ' 左揃え
+        .TextRange.ParagraphFormat.Alignment = 1   ' msoAlignLeft(左揃え。0は無効値)
         .AutoSize = 1
     End With
     If shp.Height < 28 Then shp.Height = 28
@@ -304,6 +298,26 @@ Public Sub RestoreExcelUI()
     ' D2/D4: 砂時計/ステータスバーも念のため既定へ(緊急脱出時の後始末)。
     Application.Cursor = -4143   ' xlDefault
     Application.StatusBar = False
+    On Error GoTo 0
+End Sub
+
+' GoToNexus - 「戻る」ボタン共通口。ws.Activateが失敗しても(実機で時々1004)
+'   RestoreExcelUIでネイティブタブを復元し、手動脱出の道を残す。
+Public Sub GoToNexus(ByVal source As String)
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    ws.Activate
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", source, _
+            "GoToNexus [ws.Activate失敗→ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
+            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
+        Err.Clear
+        RestoreExcelUI
+    End If
     On Error GoTo 0
 End Sub
 

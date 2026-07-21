@@ -112,9 +112,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub OnBackToNexus()
     If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-    ThisWorkbook.Worksheets("Nexus").Activate
-Done:
+    modUI.GoToNexus "modHelp.OnBackToNexus"
     modUiLock.Leave
 End Sub
 

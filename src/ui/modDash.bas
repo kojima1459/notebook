@@ -97,9 +97,7 @@ End Sub
 ' OnDashBackToChat - チャット画面(Nexusシート)へ戻る
 ' ----------------------------------------------------------------------------
 Public Sub OnDashBackToChat()
-    On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Activate
-    On Error GoTo 0
+    modUI.GoToNexus "modDash.OnDashBackToChat"
 End Sub
 
 ' ----------------------------------------------------------------------------

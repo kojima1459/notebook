@@ -531,9 +531,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub OnNavChat()
     If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Activate
-    On Error GoTo 0
+    modUI.GoToNexus "modApp.OnNavChat"
     modUiLock.Leave
 End Sub
 
@@ -613,7 +611,9 @@ End Sub
 Public Sub SummonNexus()
     On Error Resume Next
     ThisWorkbook.Activate
-    ThisWorkbook.Worksheets("Nexus").Activate
+    On Error GoTo 0
+    modUI.GoToNexus "modApp.SummonNexus"
+    On Error Resume Next
     modUI.ParkFocus
     On Error GoTo 0
 End Sub

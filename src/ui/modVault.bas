@@ -341,9 +341,7 @@ Public Sub OnVaultAddFiles()
 End Sub
 
 Public Sub OnVaultBackToChat()
-    On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Activate
-    On Error GoTo 0
+    modUI.GoToNexus "modVault.OnVaultBackToChat"
 End Sub
 
 ' カードクリック: 内容の先頭を表示し、削除も選べる
