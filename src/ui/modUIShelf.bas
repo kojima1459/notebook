@@ -68,13 +68,12 @@ Public Sub EnsureLayout()
     On Error GoTo Fail
 
     Application.ScreenUpdating = False
+    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible(非表示なら表示化)
 
-    ' 2026-07-21訂正: 以前ここにあった「描画前にws.Activateする」対策
-    ' (SafeBeginDraw/SafeEndDraw一式)は撤去した。真因はmodApp.basのコンパイル
-    ' エラー(Dim fix)で、Activate追加はその場しのぎの誤った対策だった。
-    ' Shapes.AddShapeは非表示でさえなければ非アクティブでも描画できるため、
-    ' 残すのは「非表示なら表示化する」最小限の1行のみ(詳細はmodUIMain.bas参照)。
-    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible
+    Dim prevActive As Object
+    On Error Resume Next
+    Set prevActive = ThisWorkbook.ActiveSheet
+    On Error GoTo Fail
 
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
@@ -91,6 +90,15 @@ Public Sub EnsureLayout()
     ws.Columns("E").ColumnWidth = 8
     ws.Columns("F:G").ColumnWidth = 8
     ws.Columns("H:J").ColumnWidth = 15
+
+    ' 実機防衛(2026-07-21再導入): modUIMain.EnsureLayoutと同じ理由・同じ実装
+    ' (単純なActivateはA/Bで無効と確認済み。ScreenUpdating一時解除+DoEvents
+    ' +Activateの組み合わせを試す。詳細はmodUIMain.bas側コメント参照)。
+    uiStep = "描画前アクティブ化"
+    Application.ScreenUpdating = True
+    DoEvents
+    ws.Activate
+    Application.ScreenUpdating = False
 
     ' ---- 操作ボタン行 ----------------------------------------------------
     uiStep = "操作ボタン行"
@@ -162,6 +170,9 @@ Public Sub EnsureLayout()
     End With
     ws.Rows(HEADER_ROW).RowHeight = 16
 
+    On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰
+    On Error GoTo 0
     Application.ScreenUpdating = True
 
     uiStep = "資料一覧の再描画(RenderShelf)"
@@ -173,6 +184,7 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -696,7 +708,13 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.OnAction = action
     Exit Sub
 Fail:
-    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description
+    Dim diag As String: diag = ""
+    On Error Resume Next
+    diag = " [ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
+           " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+           " Interactive=" & Application.Interactive & "]"
+    On Error GoTo 0
+    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description & diag
 End Sub
 
 ' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects

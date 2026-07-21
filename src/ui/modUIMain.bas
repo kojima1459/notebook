@@ -81,15 +81,12 @@ Public Sub EnsureLayout()
     On Error GoTo Fail
 
     Application.ScreenUpdating = False
+    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible(非表示なら表示化)
 
-    ' 2026-07-21訂正: 以前ここにあった「描画前にws.Activateする」対策(および
-    ' SafeBeginDraw/SafeEndDrawによる状態退避一式)は撤去した。真因は
-    ' modApp.basのコンパイルエラー(Dim fix)で、Activate追加はその場しのぎの
-    ' 誤った対策だった。Shapes.AddShapeは対象シートが非表示でさえなければ
-    ' 非アクティブでも問題なく描画できるため、残すのは「非表示なら表示化する」
-    ' 最小限の1行のみにする(このapp運用ではHome/マイ本棚は常時visible保存
-    ' なので通常は素通りする保険)。
-    If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible
+    Dim prevActive As Object
+    On Error Resume Next
+    Set prevActive = ThisWorkbook.ActiveSheet
+    On Error GoTo Fail
 
     uiStep = "既存ボタンの削除"
     RemoveManagedShapes ws
@@ -125,6 +122,17 @@ Public Sub EnsureLayout()
         .Font.Size = 10
         .Font.Italic = True
     End With
+
+    ' 実機防衛(2026-07-21再導入): 単純なws.Activateは効果が無いとA/B確認済み
+    ' (Activateの有無に関わらず全く同一の1004・同一引数で再現)。今回は
+    ' ScreenUpdating=Falseのままアクティブ化していたのが要因という仮説に基づき、
+    ' 描画開始直前だけ一時的にScreenUpdating=Trueへ戻してDoEventsでメッセージ
+    ' ポンプを一周させてからActivateする(以降は通常どおりFalseで描画する)。
+    uiStep = "描画前アクティブ化"
+    Application.ScreenUpdating = True
+    DoEvents
+    ws.Activate
+    Application.ScreenUpdating = False
 
     uiStep = "ボタン(使い方/診断)"
     AddButton ws, ws.Range("F1:G2"), "btn_howto", "❓ 使い方", "modUIMain.OnOpenHowto"
@@ -252,6 +260,9 @@ Public Sub EnsureLayout()
     uiStep = "豆知識の表示"
     ShowTip
 
+    On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰
+    On Error GoTo 0
     Application.ScreenUpdating = True
     Exit Sub
 
@@ -263,6 +274,7 @@ Fail:
     origNum = Err.Number
     origDesc = Err.Description
     On Error Resume Next
+    If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc
@@ -812,7 +824,15 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
     shp.OnAction = action
     Exit Sub
 Fail:
-    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description
+    ' 次に同じ失敗が起きたとき推測に頼らないよう、失敗時点のシート/アプリ状態
+    ' をそのままerr_logへ残す(取得自体の失敗は1行スコープで無視して続行)。
+    Dim diag As String: diag = ""
+    On Error Resume Next
+    diag = " [ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
+           " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+           " Interactive=" & Application.Interactive & "]"
+    On Error GoTo 0
+    Err.Raise Err.Number, "AddButton", "[" & uiStep & "] " & Err.Description & diag
 End Sub
 
 ' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
