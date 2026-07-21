@@ -309,6 +309,21 @@ End Sub
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
+' RunFirstRunPromptEarly - 自己インストーラのWorkbook_Open内、OnTimeでBootを
+'   予約する前に同期呼び出しされる(2026-07-21実機対応)。名前入力ダイアログ
+'   (EnsureFirstRun内のInputBox)がOnTime経由のBoot内で表示されると、その
+'   直後からws.Activateが実機で安定して失敗する現象が全ラウンドのログで
+'   一貫して観測されたため、ダイアログの発生タイミングをWorkbook_Openの
+'   通常のイベントコンテキスト内に変える対策。EnsureFirstRun自体はpack_author
+'   設定済みなら即returnする冪等な関数なので、Boot側の既存呼び出しは
+'   フォールバックとしてそのまま残す(二重表示にはならない)。
+Public Sub RunFirstRunPromptEarly()
+    On Error Resume Next
+    modConfig.EnsureLoaded
+    EnsureFirstRun
+    On Error GoTo 0
+End Sub
+
 Private Sub EnsureFirstRun()
     Dim cur As String
     cur = Trim$(modConfig.GetString("pack_author", ""))

@@ -115,8 +115,13 @@ Public Sub OnDashRefresh()
     Exit Sub
 
 Fail:
+    ' 実機報告(2026-07-21)「更新ボタンを押しても何も起こらない」対策:
+    ' 失敗が無言で握りつぶされていたため、次回以降は原因を残す。
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number: failDesc = Err.Description
     On Error Resume Next
     Application.ScreenUpdating = True
+    modLog.LogError "E0801", "modDash.OnDashRefresh", "DrawDashboard失敗: " & failDesc, failNum
     On Error GoTo 0
 End Sub
 

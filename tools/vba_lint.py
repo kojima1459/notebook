@@ -248,7 +248,10 @@ CONTRACT: dict[str, dict] = {
     },
     "modBoot": {
         "closed": True,
-        "required": ["Boot", "Auto_Open", "Auto_Close"],
+        # RunFirstRunPromptEarly(2026-07-21追加): 自己インストーラの
+        # Workbook_OpenがOnTime予約前に同期呼び出しする外部入口。Bootと同じ
+        # 理由(自己インストーラ文字列からApplication.Runで呼ばれる)で必要。
+        "required": ["Boot", "Auto_Open", "Auto_Close", "RunFirstRunPromptEarly"],
     },
     "ThisWorkbook": {
         # Workbook_Open/Workbook_BeforeClose は薄い転送のPrivateイベント

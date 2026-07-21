@@ -546,8 +546,9 @@ Public Sub Install()
       If LenB(s) > 0 Then c.CodeModule.AddFromString s
     End If
   Next r
-  ' Save failures (read-only file, locked share, etc.) must not skip Boot.
   On Error Resume Next
+  Application.Run "modBoot.RunFirstRunPromptEarly"
+  Err.Clear
   ThisWorkbook.Save
   Err.Clear
   ' Detach Boot from Workbook_Open (avoids 1004 mid-init); fallback sync run.
