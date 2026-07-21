@@ -88,8 +88,13 @@ Public Sub ShowDashboard()
     Exit Sub
 
 Fail:
+    ' 実機報告(2026-07-21)「KPIカードが1枚しか出ない」対策: 失敗が無言で
+    ' 握りつぶされていたため、次回以降は原因を残す。
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number: failDesc = Err.Description
     On Error Resume Next
     Application.ScreenUpdating = True
+    modLog.LogError "E0801", "modDash.ShowDashboard", "DrawDashboard失敗: " & failDesc, failNum
     On Error GoTo 0
 End Sub
 
@@ -811,6 +816,13 @@ Private Function GetOrCreateDashSheet() As Worksheet
     Set GetOrCreateDashSheet = ws
     Exit Function
 Fail:
+    If Not ws Is Nothing Then
+        On Error Resume Next
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+        On Error GoTo 0
+    End If
     Set GetOrCreateDashSheet = Nothing
 End Function
 

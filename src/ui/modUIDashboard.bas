@@ -255,6 +255,7 @@ Private Sub RenderBadges(ByVal ws As Worksheet)
         End If
 
         With ws.Range("A" & r & ":H" & r)
+            .Merge   ' 未Mergeのまま.Valueへ代入すると全列に同じ値が複製される(実機報告のバグ)
             .Value = line
             .Font.Size = 10
             If earned Then

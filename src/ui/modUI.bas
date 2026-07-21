@@ -11,8 +11,8 @@ Option Explicit
 '   RestoreExcelUI- ネイティブUIの復元(Auto_Close時に必ず呼ぶこと)
 ' 設計メモ:
 '   ・アクションボタンはShape+OnAction方式(自己インストーラ配布は標準モジュール
-'     のみ注入可能・シートモジュール不可のため。UserFormも同じ理由でShape方式)。
-'   ・テーマ状態はui_stateシート(key="nexus_theme")に永続化。
+'     のみ注入可能・シートモジュール不可のため)。テーマ状態はui_stateシート
+'     (key="nexus_theme")に永続化。
 '   ・Shape命名規約: nx_sb_*(サイドバー) nx_top_*(トップバー)
 '     nx_msg_*(バブル) nx_act_*(アクションボタン) nx_thk_*(思考プロセス)
 ' ============================================================================
@@ -22,7 +22,7 @@ Private Const THEME_KEY As String = "nexus_theme"
 Private Const MSO_BRING_TO_FRONT As Long = 0   ' msoBringToFront(数値でLO互換)
 Private Const MAX_BUBBLES As Long = 40         ' 32bitメモリ保護: 吹き出し保持上限
 
-' レイアウト(ポイント単位)
+' レイアウト(pt)
 Private Const SIDEBAR_W As Double = 195      ' 260px相当
 Private Const TOPBAR_H As Double = 45
 Private Const CHAT_LEFT_PAD As Double = 15
@@ -75,7 +75,7 @@ Public Sub InitUI()
     End With
     On Error GoTo 0
 
-    ' --- 実機耐性: OneDrive自動保存の割り込み停止・ズーム基準固定・選択制限 ---
+    ' --- 実機耐性: 自動保存停止・ズーム固定・選択制限 ---
     On Error Resume Next
     ActiveWorkbook.AutoSaveOn = False   ' D2: 自動保存がVBAへ割り込みクラッシュ/遅延するのを止める
     ActiveWindow.Zoom = 100             ' D4: Ctrl+ホイール等のズームでShape配置が崩れる基準を100%へ固定
@@ -100,7 +100,7 @@ Public Sub InitUI()
     DrawInputArea ws
     DrawFloatingActionBar ws
 
-    ' スクロール制御: 上部(トップバー+入力+アクションバー)とサイドバー列を固定
+    ' スクロール制御: 上部固定領域とサイドバー列を固定
     On Error Resume Next
     ws.Range("D8").Select
     ActiveWindow.FreezePanes = False
@@ -119,9 +119,8 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' AddChatBubble - チャットバブル1件を追加する(role: "user"/"ai"。thinkingは
-'   AIの思考プロセス、空なら省略)。アクションはバブル毎には生成せず(Shape増殖
-'   による32bitクラッシュ防止)、選択中のAIバブルに対しアクションバーが発火する。
-'   withActionsは後方互換のため残置(無視)。戻り値: バブルShape名。
+'   AIの思考プロセス、空なら省略)。withActionsは後方互換のため残置(無視)。
+'   戻り値: バブルShape名。
 ' ----------------------------------------------------------------------------
 Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
                               Optional ByVal withActions As Boolean = False, _
@@ -183,7 +182,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     If shp.Height < 28 Then shp.Height = 28
     shp.Shadow.Visible = 0
 
-    ' AIバブルはクリックで「選択」できる(コンテキスト・アクションの対象指定)
+    ' AIバブルはクリックで選択できる(アクションの対象指定)
     If Not isUser Then shp.OnAction = "modApp.OnSelectBubble"
 
     PaintBubble shp, isUser
@@ -196,9 +195,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     AddChatBubble = shp.Name
 End Function
 
-' 固定UI(サイドバー/トップバー/フローティングアクションバー)を最前面に維持する。
-' 新規バブルは常に最前面へ追加されるため、描画サイクル末に必ず呼び、操作用の
-' 固定要素がバブルの背面に隠れないようにする(裁定: Z-Order維持)。
+' 固定UI(サイドバー/トップバー/アクションバー)を最前面に維持する(描画末に必ず呼ぶ)。
 Public Sub BringFixedToFront(ByVal ws As Worksheet)
     On Error Resume Next
     Dim shp As Shape
@@ -211,9 +208,7 @@ Public Sub BringFixedToFront(ByVal ws As Worksheet)
     On Error GoTo 0
 End Sub
 
-' nx_msg_ の数が上限を超えたら、連番が小さい(古い)順に超過分を削除する。
-' 対応する思考プロセス(nx_thk_)も一緒に消す。※ローカル変数に予約語 Rem を
-' 使わないこと(コメント扱いされる)。
+' nx_msg_ の数が上限を超えたら古い順に超過分を削除する(nx_thk_も一緒に消す)。
 Private Sub CapBubbles(ByVal ws As Worksheet)
     Dim names() As String, seqs() As Long
     ReDim names(0 To 255)
@@ -301,8 +296,7 @@ Public Sub RestoreExcelUI()
     On Error GoTo 0
 End Sub
 
-' GoToNexus - 「戻る」ボタン共通口。ws.Activateが失敗しても(実機で時々1004)
-'   RestoreExcelUIでネイティブタブを復元し、手動脱出の道を残す。
+' GoToNexus - 「戻る」ボタン共通口。Activate失敗時はRestoreExcelUIで脱出路を残す。
 Public Sub GoToNexus(ByVal source As String)
     Dim ws As Worksheet
     Set ws = GetNexusSheet()
@@ -321,9 +315,8 @@ Public Sub GoToNexus(ByVal source As String)
     On Error GoTo 0
 End Sub
 
-' C3: Ctrl+Z(Undo)/Ctrl+Y(Redo)を無効化する。空文字""を渡すと「そのキーを無視」。
-' Nexus表示中はShapeと隠しシート(DB)の整合をUndoが壊すため封じる。復元は
-' RestoreExcelUI(Auto_Close時に必ず呼ばれる)が担う。
+' Ctrl+Z/Ctrl+Y(Undo/Redo)を無効化する。Shapeと隠しシート(DB)の整合をUndoが
+' 壊すため封じる。復元はRestoreExcelUI(Auto_Close時に必ず呼ばれる)が担う。
 Private Sub DisableUndoRedo()
     On Error Resume Next
     Application.OnKey "^z", ""
@@ -331,7 +324,7 @@ Private Sub DisableUndoRedo()
     On Error GoTo 0
 End Sub
 
-' A2/C4: Shape選択解除+アクティブセルpark(スクロール崩壊防止)。Leaveから必ず呼ばれる。
+' Shape選択解除+アクティブセルpark(スクロール崩壊防止)。Leaveから必ず呼ばれる。
 Public Sub ParkFocus()
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub   ' 別ブックの選択状態を汚さない
@@ -340,7 +333,7 @@ Public Sub ParkFocus()
     If ws Is Nothing Then Exit Sub
     Application.ScreenUpdating = False
     If ws.Name = NEXUS_SHEET Then
-        ws.Range("D2").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
+        ws.Range("D4").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
     Else
         ws.Range("A1").Select   ' Vault/Dashboard等は左上(固定領域)へpark
     End If
@@ -348,10 +341,7 @@ Public Sub ParkFocus()
     On Error GoTo 0
 End Sub
 
-' 盲点B2/C5: Nexusチャット画面を「壊さずに」再描画する。Shape(会話履歴)は削除せず、
-' ネイティブUI隠蔽・ズーム100%・絶対配置固定・Z-Order・テーマ・フォーカスparkだけを
-' 再適用し、リサイズ/Alt+Tab復帰/マルチモニタ移動で生じたゴーストやズレを解消する。
-' 手動リフレッシュボタン(modApp.OnRefreshUI)から呼ばれる。
+' Nexusチャット画面を会話履歴を消さずに再描画する。手動リフレッシュ用。
 Public Sub Repaint()
     Dim ws As Worksheet
     Set ws = GetNexusSheet()
@@ -382,14 +372,13 @@ Public Sub Repaint()
     ParkFocus
 End Sub
 
-' Phase 1の暫定アクション受け(Phase 2でmodApp=Controllerへ移管)。
+' Phase1暫定アクション受け(Phase2でController移管)。
 Public Sub NexusActionStub()
     MsgBox "このボタンは準備中です(次のフェーズで有効になります)。", vbInformation, "Nexus Agent"
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 公開ゲッター: 他のNexus画面(modDash等)がテーマ一貫の配色/現在テーマを
-' 得るための唯一の窓口。配色定義(ThemeColor)を各画面へ複製せず一元管理する。
+' 公開ゲッター: 他のNexus画面がテーマ一貫の配色/現在テーマを得る窓口。
 '   key: bg/surface/text/muted/border/primary/accent/userBubble/aiBubble/
 '        sidebar/sidebarText/sidebarActive
 ' ----------------------------------------------------------------------------
@@ -401,8 +390,7 @@ Public Function UiTheme() As String
     UiTheme = CurrentTheme()
 End Function
 
-' FreezeShapePlacement - 全Shapeをセル非依存の絶対配置(xlFreeFloating=3)へ固定し、
-'   列幅差・スクロール・処理負荷でのズレを防ぐ。各画面の描画終端から呼ぶ。
+' FreezeShapePlacement - 全Shapeを絶対配置(xlFreeFloating=3)へ固定しズレを防ぐ。
 Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
     On Error Resume Next
     Dim shp As Shape
@@ -413,7 +401,7 @@ Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 内部: 骨格描画
+'描画
 ' ----------------------------------------------------------------------------
 
 Private Sub DrawSidebar(ByVal ws As Worksheet)
@@ -512,13 +500,24 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
 End Sub
 
 Private Sub DrawInputArea(ByVal ws As Worksheet)
-    ' 入力はセル(名前付き範囲 nx_input)+送信ボタン。SPA下部固定は
-    ' FreezePanesと相性が悪いため、Phase 1では上部(トップバー直下)に置く。
+    ' 入力はセル(名前付き範囲 nx_input)+送信ボタン。行4に置く(旧D2はトップバー
+    ' 背景Shapeの真下に隠れ、実機で入力欄が見えない報告があった。Shapeは常に
+    ' セルより手前に描画されるため)。枠線+白背景で見える入力欄にする。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
+
+    With ws.Range("D4:N4")
+        .Merge
+        .Interior.Color = RGB(255, 255, 255)
+        .Borders.LineStyle = 1
+        .Borders.Color = modUI.UiColor("border")
+        .VerticalAlignment = -4108   ' xlCenter
+    End With
+    ws.Rows("4").RowHeight = 30
+
     On Error Resume Next
-    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$D$2"
+    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$D$4"
     On Error GoTo 0
 
     Dim send As Shape
@@ -547,9 +546,7 @@ Private Sub DrawInputArea(ByVal ws As Worksheet)
     clip.OnAction = "modApp.OnAttachImage"
 End Sub
 
-' フローティング・アクションバー(オーナー裁定②): 画面上部固定領域に
-' 6ボタンを1セットだけ常設し、選択中のAIバブルに対して発火させる。
-' バブル毎のボタン生成を全廃してShape増殖(32bitメモリクラッシュ)を防ぐ。
+' フローティング・アクションバー: 6ボタンを1セット常設し選択中バブルへ発火。
 Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     Dim labels As Variant, widths As Variant, kinds As Variant
     labels = Array(ChrW(&HD83D) & ChrW(&HDC4D) & " グッド", ChrW(&HD83D) & ChrW(&HDC4E) & " バッド", _
@@ -583,7 +580,7 @@ Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 内部: テーマ(HTMLモックのCSS変数を移植)
+'テーマ
 ' ----------------------------------------------------------------------------
 
 Private Function CurrentTheme() As String
@@ -632,15 +629,22 @@ Private Sub SaveTheme(ByVal themeName As String)
     ws.Cells(r, 2).Value = themeName
 End Sub
 
-' 配色解決はmodSkin.ResolveColorへ委譲(スキン=きせかえ対応の単一実装。
-' 未解放スキンはResolveColor側でlightへ強制されるためチート不能)。
+' 配色解決はmodSkin.ResolveColorへ委譲。
 Private Function ThemeColor(ByVal key As String) As Long
     ThemeColor = modSkin.ResolveColor(key, CurrentTheme())
 End Function
 
-' テーマを画面全体へ適用(背景セル+全nx_Shape再彩色)。
+' テーマ適用(背景セル+全nx_Shape再彩色)。
 Private Sub ApplyTheme(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = ThemeColor("bg")
+
+    ' 入力欄(nx_input=D4:N4)は上の一括塗りで消えるため塗り直す(DrawInputAreaと対)。
+    On Error Resume Next
+    With ws.Range("D4:N4")
+        .Interior.Color = RGB(255, 255, 255)
+        .Borders.Color = ThemeColor("border")
+    End With
+    On Error GoTo 0
 
     Dim shp As Shape
     For Each shp In ws.Shapes
@@ -749,7 +753,7 @@ Private Function ProfileCaption() As String
 End Function
 
 ' ----------------------------------------------------------------------------
-' 内部: ユーティリティ
+'util
 ' ----------------------------------------------------------------------------
 
 Private Function GetNexusSheet() As Worksheet
@@ -770,6 +774,14 @@ Private Function GetOrCreateNexusSheet() As Worksheet
     Set GetOrCreateNexusSheet = ws
     Exit Function
 Fail:
+    ' Name代入失敗でSheetがExcel既定名(Sheet2等)のまま孤児化するのを防ぐ。
+    If Not ws Is Nothing Then
+        On Error Resume Next
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+        On Error GoTo 0
+    End If
     Set GetOrCreateNexusSheet = Nothing
 End Function
 

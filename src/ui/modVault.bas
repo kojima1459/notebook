@@ -48,17 +48,10 @@ Public Sub ShowVaultInput()
     ws.Columns("C:H").ColumnWidth = 14
     ws.Columns("I").ColumnWidth = 3
 
-    ' カード風の背景(白・角丸)
-    Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, 20, 16, 560, 420)
-    card.Name = "nxv_card"
-    card.Adjustments(1) = 0.04
-    card.Fill.ForeColor.RGB = RGB(255, 255, 255)
-    card.Line.ForeColor.RGB = RGB(229, 231, 235)
-    card.Line.Weight = 0.75
-    card.Shadow.Visible = 0
-    ' カードを最背面へ(入力セルより奥)
-    card.ZOrder 1   ' msoSendToBack
+    ' カード風の背景(白)。Shapeはセルより必ず手前に描画される(ZOrderは
+    ' Shape同士の前後関係にしか効かない)ため、Shapeで背景を作るとラベル等の
+    ' セル文字が完全に隠れてしまう(実機報告のバグ)。セルの塗りつぶしで代替する。
+    ws.Range("C2:H18").Interior.Color = RGB(255, 255, 255)
 
     ' タイトル
     With ws.Range("C2:H2")
@@ -742,6 +735,14 @@ Private Function GetOrCreateGallerySheet() As Worksheet
     Set GetOrCreateGallerySheet = ws
     Exit Function
 Fail:
+    ' Name代入失敗でSheetがExcel既定名のまま孤児化するのを防ぐ(Sheet2対策候補)。
+    If Not ws Is Nothing Then
+        On Error Resume Next
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+        On Error GoTo 0
+    End If
     Set GetOrCreateGallerySheet = Nothing
 End Function
 
@@ -817,6 +818,13 @@ Private Function GetOrCreateVaultSheet() As Worksheet
     Set GetOrCreateVaultSheet = ws
     Exit Function
 Fail:
+    If Not ws Is Nothing Then
+        On Error Resume Next
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+        On Error GoTo 0
+    End If
     Set GetOrCreateVaultSheet = Nothing
 End Function
 
