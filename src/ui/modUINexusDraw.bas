@@ -24,26 +24,32 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
-    ' 会話クリア/保存して終了ボタン。
+    ' 会話クリア/保存して終了ボタン。実機報告(2026-07-22)「何のボタンか
+    ' わからない」対策: 絵文字だけの円ボタンから、短いテキスト付きの
+    ' 角丸ボタンに変更する。
     Dim clearBtn As Shape
-    Set clearBtn = ws.Shapes.AddShape(9, modUI.SIDEBAR_W - 66, 8, 28, 28)
+    Set clearBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W - 98, 9, 48, 26)
     clearBtn.Name = "nx_sb_clear"
+    clearBtn.Adjustments(1) = 0.3
     clearBtn.Line.Visible = 0
+    clearBtn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With clearBtn.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDDD1)
-        .TextRange.Font.Size = 12
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+        .TextRange.Font.Size = 7.5
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
     clearBtn.OnAction = "modApp.OnClearChat"
 
     Dim exitBtn As Shape
-    Set exitBtn = ws.Shapes.AddShape(9, modUI.SIDEBAR_W - 32, 8, 28, 28)
+    Set exitBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W - 46, 9, 44, 26)
     exitBtn.Name = "nx_sb_exit"
+    exitBtn.Adjustments(1) = 0.3
     exitBtn.Line.Visible = 0
+    exitBtn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With exitBtn.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDEAA)
-        .TextRange.Font.Size = 12
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
+        .TextRange.Font.Size = 7.5
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
@@ -107,6 +113,19 @@ Public Sub DrawTopbar(ByVal ws As Worksheet)
     tb.Name = "nx_top_bg"
     tb.Line.Visible = 0
 
+    ' すぐ聞く/しっかり調べる切替(ホームと同じui_state "mode"キーを共有)。
+    Dim speedBtn As Shape
+    Set speedBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 15, 8, 150, 28)
+    speedBtn.Name = "nx_top_speed"
+    With speedBtn.TextFrame2
+        .TextRange.Text = modApp.SpeedCaption()
+        .TextRange.Font.Size = 9.5
+        .TextRange.Font.Bold = -1
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+    End With
+    speedBtn.OnAction = "modApp.OnToggleSpeed"
+
     Dim lang As Shape
     Set lang = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 480, 8, 130, 28)
     lang.Name = "nx_top_lang"
@@ -147,21 +166,23 @@ End Sub
 
 Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' 編集中はExcelの編集オーバーレイがShapeより前面に出て隠すため、編集可能
-    ' セルは中央F4:J4のみに絞り、両端D4:E4/K4:N4は非編集の白背景土台にする。
+    ' セルは中央F4:J4のみに絞る。実機報告(2026-07-22)「両端が白い死角で
+    ' 紛らわしい・長文を打つとテキストが送信ボタンの下に隠れる」対策として、
+    ' 白背景/枠線は入力セルF4:J4だけに限定する(両端D4:E4/K4:N4は無地のまま
+    ' クリップ/送信ボタンの土台に徹させ、入力欄に見えないようにする)。
+    ' WrapText+行を高くして長文が右へあふれず折り返すようにする。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
 
-    With ws.Range("D4:N4")
-        .Interior.Color = RGB(255, 255, 255)
-        .VerticalAlignment = -4108   ' xlCenter
-        .BorderAround LineStyle:=1, Weight:=2, Color:=modUI.UiColor("border")
-    End With
-    ws.Rows("4").RowHeight = 30
+    ws.Rows("4").RowHeight = 48
 
     With ws.Range("F4:J4")
         .Merge
+        .Interior.Color = RGB(255, 255, 255)
         .VerticalAlignment = -4108   ' xlCenter
+        .WrapText = True
+        .BorderAround LineStyle:=1, Weight:=2, Color:=modUI.UiColor("border")
     End With
 
     On Error Resume Next
@@ -169,7 +190,7 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     On Error GoTo 0
 
     Dim send As Shape
-    Set send = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 560, modUI.TOPBAR_H + 6, 90, 30)
+    Set send = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 560, modUI.TOPBAR_H + 18, 90, 30)
     send.Name = "nx_top_send"
     send.Line.Visible = 0
     With send.TextFrame2
@@ -181,10 +202,15 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     End With
     send.OnAction = "modApp.OnSend"
 
+    ' 実機報告(2026-07-22)「お化けみたいなボタン」対策: 背景色・枠線を明示せず
+    ' 素の絵文字だけが浮いて見えていた。可視な円形ボタンとして描画する。
     Dim clip As Shape
-    Set clip = ws.Shapes.AddShape(9, modUI.SIDEBAR_W + 15, modUI.TOPBAR_H + 6, 30, 30)
+    Set clip = ws.Shapes.AddShape(9, modUI.SIDEBAR_W + 15, modUI.TOPBAR_H + 18, 30, 30)
     clip.Name = "nx_top_clip"
-    clip.Line.Visible = 0
+    clip.Line.Visible = -1
+    clip.Line.Weight = 0.75
+    clip.Line.ForeColor.RGB = modUI.UiColor("border")
+    clip.Fill.ForeColor.RGB = modUI.UiColor("surface")
     With clip.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCE)
         .TextRange.Font.Size = 12
@@ -207,7 +233,7 @@ Public Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     handlers = Array("OnActGood", "OnActBad", "OnActDrill", "OnActResolve", "OnActHq", "OnActWord", "OnActCopy")
 
     Dim x As Double: x = modUI.SIDEBAR_W + modUI.CHAT_LEFT_PAD
-    Dim topY As Double: topY = modUI.TOPBAR_H + 44
+    Dim topY As Double: topY = modUI.TOPBAR_H + 62   ' 入力行(行4=48pt)拡張分を反映
     Dim i As Long
     For i = 0 To 6
         Dim btn As Shape

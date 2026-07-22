@@ -29,7 +29,7 @@ Option Explicit
 ' ============================================================================
 
 Private Const BOARD_SUBDIR As String = "board"
-Private Const WIDGET_TOP As Double = 300     ' サイドバー内の縦位置(nav末端278の下)
+Private Const WIDGET_TOP As Double = 370     ' サイドバー内の縦位置(nav6項目の末端358の下)
 Private Const MIN_PER_SOLVE As Long = 15     ' modStats.MINUTES_PER_SELFSOLVEと同値
 
 ' ビーコン集計キャッシュ(セッション内。共有フォルダ再走査はBootBoard時のみ)

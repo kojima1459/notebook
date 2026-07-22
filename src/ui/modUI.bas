@@ -17,7 +17,7 @@ Public Const CHAT_LEFT_PAD As Double = 15
 Private Const BUBBLE_RATIO As Double = 0.62  ' チャット幅に対するバブル最大幅
 Private Const BUBBLE_GAP As Double = 14
 Public Const ACT_H As Double = 24
-Private Const CHAT_TOP As Double = 130   ' 固定領域(トップバー+入力+アクションバー)の直下
+Private Const CHAT_TOP As Double = 148   ' 固定領域(トップバー+入力48pt+アクションバー)の直下
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
@@ -26,6 +26,14 @@ Public Sub InitUI()
     Dim ws As Worksheet
     Set ws = GetOrCreateNexusSheet()
     If ws Is Nothing Then Exit Sub
+
+    ' 実機再発(2026-07-22): 保護状態(Protect)はブックの保存/再オープンをまたぐと
+    ' UserInterfaceOnly=Trueが失効し、以降のCells.Clear等のマクロ操作が
+    ' 「保護されたシート」err#1004で軒並み失敗し画面が真っ白になっていた。
+    ' 必ず最初に解除してから組み立て、末尾で改めて保護し直す。
+    On Error Resume Next
+    ws.Unprotect
+    On Error GoTo 0
 
     Application.ScreenUpdating = False
 
@@ -482,9 +490,10 @@ End Function
 Private Sub ApplyTheme(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = ThemeColor("bg")
 
-    ' 入力欄(F4:J4/土台D4:N4)は上の一括塗りで消えるため塗り直す。
+    ' 入力欄(F4:J4)は上の一括塗りで消えるため塗り直す(両端D4:E4/K4:N4は
+    ' あえて無地のまま=入力欄に見せない)。
     On Error Resume Next
-    With ws.Range("D4:N4")
+    With ws.Range("F4:J4")
         .Interior.Color = RGB(255, 255, 255)
         .BorderAround LineStyle:=1, Weight:=2, Color:=ThemeColor("border")
     End With
@@ -520,6 +529,10 @@ Private Sub ApplyTheme(ByVal ws As Worksheet)
                 shp.Fill.Visible = 0
                 SetShapeTextColor shp, ThemeColor("text")
                 shp.TextFrame2.TextRange.Text = ThemeIcon()
+            ElseIf nm = "nx_top_clip" Then
+                shp.Fill.ForeColor.RGB = ThemeColor("surface")
+                shp.Line.Visible = -1
+                shp.Line.ForeColor.RGB = ThemeColor("border")
             Else
                 shp.Fill.ForeColor.RGB = ThemeColor("bg")
                 shp.Line.ForeColor.RGB = ThemeColor("border")

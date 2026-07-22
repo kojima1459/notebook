@@ -1,23 +1,15 @@
 Attribute VB_Name = "modApp"
 Option Explicit
 
-' ============================================================================
-' modApp - Nexus Agent Controller(DOCS_NEXUS_SPEC Phase 1-2)
-' ----------------------------------------------------------------------------
-' UI(modUI)とエンジン(modAsk=多段RAG/modGateway/modShelf)を結合する制御層。
-' ・モード切替: 社内ナレッジ検索(RAG=modAsk.Answer) / 一般アシスタント(CallLLM直)
-' ・コンテキスト・アクション(裁定②): 固定アクションバーは「選択中のAIバブル」
-'   (クリックでOnSelectBubbleが記録。未選択時は最新のAIバブル)に対して発火
-' ・P2P共有パスは config nexus_share_path(既定は下記定数)で差替え可能(裁定③)
-' ============================================================================
+' modApp - Nexus Agent Controller。UI(modUI)とエンジン(modAsk/modGateway/
+' modShelf)を結合する制御層。固定アクションバーは「選択中のAIバブル」
+' (未選択時は最新)に対して発火。P2P共有パスはconfig nexus_share_pathで差替可。
 
 Private Const SHARE_PATH_DEFAULT As String = "\\pgiofs01\Nexus_Share\"
 Private Const MODE_KEY As String = "nexus_mode"      ' rag / normal
 Private Const MAX_INPUT_CHARS As Long = 2000         ' A3: 入力の最大文字数(超過はカット+警告)
 
-' 連打/多重発火(盲点A1/D7)は modUiLock のグローバルロックへ一本化した。
-' 旧: 本モジュールprivateのmBusy(送信系のみ保護)。全ハンドラが modUiLock.Enter/Leave を
-' 対で使い、正常・異常どちらの経路でも必ず Leave へ到達させる(ロック取りっぱなし防止)。
+' 連打/多重発火はmodUiLockのグローバルロックへ一本化(Enter/Leave対で必ずLeave到達)。
 Private mActiveBubble As String
 Private mGenPrevU As String   ' 一般モードの会話履歴(新しい順;;;区切り)
 Private mGenPrevA As String
@@ -63,7 +55,7 @@ Private Sub DrawSidebarExtras()
     Dim i As Long
     For i = 0 To 2
         Dim chip As Shape
-        Set chip = ws.Shapes.AddShape(5, 10, 396 + i * 28, 175, 24)
+        Set chip = ws.Shapes.AddShape(5, 10, 466 + i * 28, 175, 24)
         chip.Name = "nx_sb_qa" & (i + 1)
         chip.Adjustments(1) = 0.4
         chip.Line.Visible = 0
@@ -82,7 +74,7 @@ Private Sub DrawSidebarExtras()
     Next i
 
     Dim g As Shape
-    Set g = ws.Shapes.AddShape(5, 10, 488, 175, 26)
+    Set g = ws.Shapes.AddShape(5, 10, 558, 175, 26)
     g.Name = "nx_sb_gacha"
     g.Adjustments(1) = 0.4
     g.Line.Visible = -1
@@ -592,6 +584,29 @@ Public Sub OnToggleMode()
     WriteUiState MODE_KEY, newMode
     UpdateModeButton
 End Sub
+
+' Nexusにすぐ聞く/しっかり調べるの切替が無く既定quickのままだった対策。
+' ホームと同じui_state "mode"キーを共有する。
+Public Sub OnToggleSpeed()
+    Dim newSpeed As String
+    If ReadUiState("mode", "quick") = "deep" Then
+        newSpeed = "quick"
+    Else
+        newSpeed = "deep"
+    End If
+    WriteUiState "mode", newSpeed
+    On Error Resume Next
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_speed").TextFrame2.TextRange.Text = SpeedCaption()
+    On Error GoTo 0
+End Sub
+
+Public Function SpeedCaption() As String
+    If ReadUiState("mode", "quick") = "deep" Then
+        SpeedCaption = ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる"
+    Else
+        SpeedCaption = ChrW(&H26A1) & " すぐ聞く"
+    End If
+End Function
 
 ' 回答言語の巡回切替(日本語→English→中文→Tiếng Việt)。
 ' answer_languageは既存プロンプト(modPrompts)がそのまま使用する。
