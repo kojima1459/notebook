@@ -641,6 +641,29 @@ Public Sub HotSend()
     OnSend
 End Sub
 
+' 会話をクリアして新しい挨拶を出す(実機要望: 長い会話をリセットしたい)。
+Public Sub OnClearChat()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modUI.ClearChat
+    modUI.AddChatBubble "ai", TimeGreeting() & " 会話をクリアしました。新しい質問をどうぞ。"
+    On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
+' 保存して(このファイルだけ)閉じる(実機要望: 安全な終了方法が分からない)。
+Public Sub OnSaveAndExit()
+    If Not modUiLock.Enter() Then Exit Sub
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox("保存してこのファイルを閉じますか?", vbYesNoCancel + vbQuestion, modAppDef.APP_NAME)
+    If resp = vbCancel Then
+        modUiLock.Leave
+        Exit Sub
+    End If
+    modUiLock.Leave
+    ThisWorkbook.Close SaveChanges:=(resp = vbYes)
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' 遊び心(血の通った余白): 時間帯挨拶/弱音への関西弁コンシェルジュ
 ' ----------------------------------------------------------------------------
