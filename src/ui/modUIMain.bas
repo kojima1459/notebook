@@ -427,6 +427,9 @@ Private Sub AddDiagCopyErrorsButton()
     On Error GoTo Fail
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("diag_report")
     AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
+    ' 2026-07-22実機報告対策: diag_reportに戻る導線が無くタブも消えていて
+    ' 動けなくなっていた。チャットへの脱出路を追加。
+    AddButton ws, ws.Range("E1:F2"), "btn_diag_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
     Exit Sub
 Fail:
     Err.Clear
