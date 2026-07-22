@@ -69,12 +69,14 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     word.DisplayAlerts = 0   ' wdAlertsNone
 
     ' ConfirmConversions:=False でPDFリフロー確認ダイアログを抑止する。
+    ' 診断中はDocuments.Open側もVisible:=Trueにする(word.Visible=Trueだけだと
+    ' アプリ枠は見えても文書ウィンドウ自体が非表示のままで診断にならない)。
     Set doc = word.Documents.Open( _
         FileName:=path, _
         ConfirmConversions:=False, _
         ReadOnly:=True, _
         AddToRecentFiles:=False, _
-        Visible:=False)
+        Visible:=True)
 
     Dim pageCount As Long
     pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages
@@ -120,9 +122,15 @@ Failed:
 End Function
 
 ' Declareを使わない短い待機(リトライ前にWordプロセスの後始末を待つ)。
+' Timerは0時に0へリセットされるため、経過時間が負になったら日跨ぎとみなし
+' 即座に抜ける(旧実装は日跨ぎで最大24時間ループするバグがあった)。
 Private Sub WaitBriefly(ByVal ms As Long)
     Dim t0 As Double: t0 = Timer
-    Do While (Timer - t0) * 1000# < ms
+    Dim elapsedMs As Double
+    Do
+        elapsedMs = (Timer - t0) * 1000#
+        If elapsedMs < 0 Then Exit Do
+        If elapsedMs >= ms Then Exit Do
         DoEvents
     Loop
 End Sub

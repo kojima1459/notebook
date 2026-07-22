@@ -303,6 +303,12 @@ Public Sub Auto_Close()
     On Error Resume Next
     Application.StatusBar = False
     On Error GoTo 0
+
+    ' Ctrl+Break等でBoot/SyncNow途中のEnableEvents=False焼き付きが起きても、
+    ' ブックを閉じれば必ずここで復帰させる(次回セッションへ持ち越さない)。
+    On Error Resume Next
+    Application.EnableEvents = True
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------

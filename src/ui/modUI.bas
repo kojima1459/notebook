@@ -38,7 +38,6 @@ Public Sub InitUI()
     Application.DisplayStatusBar = False
     On Error GoTo 0
 
-    ' Activate失敗を致命的にしない(以降の描画を試みる。診断はerr_logへ記録)。
     On Error Resume Next
     ws.Activate
     If Err.Number <> 0 Then
@@ -76,7 +75,6 @@ Public Sub InitUI()
     ws.Columns("D:P").ColumnWidth = 14
     ws.Rows("1:400").RowHeight = 18
 
-    ' 1段の1004が他段を道連れにしない(実機再発: 無保護で入力欄ごと消えた)。
     On Error Resume Next
     DrawSidebar ws
     If Err.Number <> 0 Then LogDrawStageError "DrawSidebar", ws: Err.Clear
@@ -455,7 +453,6 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
                        "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
     Dim i As Long
     For i = 0 To 5
-        ' 項目ごとにResume Next(1つの1004が後続項目を道連れにしないため)。
         On Error Resume Next
         Dim nav As Shape
         Set nav = ws.Shapes.AddShape(1, 0, 120 + i * 40, SIDEBAR_W, 38)
@@ -476,15 +473,13 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
         On Error GoTo 0
     Next i
 
-    ' 診断用: ボタン消失報告(エラー無し・スクロールでも戻らない)の切り分けに
-    ' 実際の生成数をusage_logへ残す。
+    ' 診断用: 実際の生成数をusage_logへ残す。
     On Error Resume Next
     Dim navCount As Long, shp2 As Shape
-    navCount = 0
     For Each shp2 In ws.Shapes
         If Left$(shp2.Name, 10) = "nx_sb_nav" Then navCount = navCount + 1
     Next shp2
-    modLog.LogUsage "diag", "nexus_sidebar", "nav shapes created=" & navCount & "/6"
+    modLog.LogUsage "diag", "nexus_sidebar", "nav=" & navCount & "/6"
     On Error GoTo 0
 End Sub
 
@@ -533,9 +528,8 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
 End Sub
 
 Private Sub DrawInputArea(ByVal ws As Worksheet)
-    ' 入力はセル(nx_input)+送信/クリップボタン。編集中はExcelの編集オーバー
-    ' レイがShapeより前面に出て隠すため、編集可能セルは中央F4:J4のみに絞り、
-    ' 両端D4:E4/K4:N4は非編集の土台にして白背景でつなぐ(外周のみ枠線)。
+    ' 編集中はExcelの編集オーバーレイがShapeより前面に出て隠すため、編集可能
+    ' セルは中央F4:J4のみに絞り、両端D4:E4/K4:N4は非編集の白背景土台にする。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
@@ -838,10 +832,15 @@ End Sub
 
 ' バブル連番(既存Shape数から採番)。
 Private Function NextSeq(ByVal ws As Worksheet) As String
+    ' 個数ではなく既存の最大seqを見る(CapBubbles後は個数が減り、個数+1だと
+    ' 既存Shapeと同名衝突する実バグだった)。
     Dim maxN As Long: maxN = 0
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 7) = "nx_msg_" Then maxN = maxN + 1
+        If Left$(shp.Name, 7) = "nx_msg_" Then
+            Dim n As Long: n = CLng(Val(Right$(shp.Name, 4)))
+            If n > maxN Then maxN = n
+        End If
     Next shp
     NextSeq = Format$(maxN + 1, "0000")
 End Function
@@ -918,5 +917,8 @@ Private Sub ScrollToBottom(ByVal ws As Worksheet)
     targetRow = CLng(mChatBottom / 18) + 3
     If targetRow < 4 Then targetRow = 4
     Application.GoTo ws.Cells(targetRow, 4), True
+    ' GoToでアクティブセルがD列へ動くため、生成中の入力ずれ防止にF4へ戻す
+    ' (F4は固定領域内なのでスクロール位置は崩れない)。
+    ws.Range("F4").Select
     On Error GoTo 0
 End Sub
