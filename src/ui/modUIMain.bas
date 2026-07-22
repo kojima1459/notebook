@@ -1,9 +1,7 @@
 Attribute VB_Name = "modUIMain"
 Option Explicit
 
-' ============================================================================
 ' modUIMain - 「ホーム」画面(質問UI)の構築と描画(MASTER_SPEC §7.6/§8.1)
-' ----------------------------------------------------------------------------
 ' 役割:
 '   非エンジニアが説明書なしで使える「質問する画面」。EnsureLayoutが冪等に
 '   Shape(ボタン)とセルレイアウトを再構築し、SetStage/RenderAnswer/
@@ -50,7 +48,6 @@ Option Explicit
 '   ・On Error Resume Next は §12の規約どおり必ず1行スコープ(直後に
 '     On Error GoTo 0)で使う。複数行にまたがる保護が必要な場面では
 '     個別のヘルパーSubに切り出して1行スコープを保つ。
-' ============================================================================
 
 Private Const RNG_STATUS As String = "A12:H12"
 Private Const RNG_ANSWER As String = "A14:H25"
@@ -66,9 +63,7 @@ Private Const COLOR_UNSELECTED_FG As Long = 0        ' RGB(0,0,0) 黒
 
 Private mLastAnswerText As String
 
-' ----------------------------------------------------------------------------
 ' EnsureLayout - ホームを冪等再構築(既存Shapes全削除→再生成)
-' ----------------------------------------------------------------------------
 Public Sub EnsureLayout()
     Dim ws As Worksheet
     Set ws = GetOrCreateHomeSheet()
@@ -97,6 +92,7 @@ Public Sub EnsureLayout()
     ws.Cells.Font.Size = 11
 
     ws.Columns("A:H").ColumnWidth = 12
+    ws.Columns("I").ColumnWidth = 12
 
     ' ---- タイトル行 ----------------------------------------------------
     uiStep = "タイトル行"
@@ -141,6 +137,8 @@ Public Sub EnsureLayout()
     uiStep = "ボタン(使い方/診断)"
     AddButton ws, ws.Range("F1:G2"), "btn_howto", "❓ 使い方", "modUIMain.OnOpenHowto"
     AddButton ws, ws.Range("H1:H2"), "btn_diag", "" & ChrW(&HD83E) & ChrW(&HDE7A) & " 診断", "modUIMain.OnRunDiag"
+    ' 2026-07-22実機報告対策: Nexus(チャット)へタブなしで戻れる導線
+    AddButton ws, ws.Range("I1:I2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
 
     ' ---- モードトグル ----------------------------------------------------
     uiStep = "モードトグルボタン"
@@ -288,9 +286,7 @@ Fail:
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub
 
-' ----------------------------------------------------------------------------
 ' SetStage - ステータス行+Application.StatusBar 両方
-' ----------------------------------------------------------------------------
 Public Sub SetStage(ByVal msg As String)
     Dim displayMsg As String
     displayMsg = msg
@@ -314,9 +310,7 @@ Public Sub SetStage(ByVal msg As String)
     If LenB(msg) > 0 Then ShowTip
 End Sub
 
-' ----------------------------------------------------------------------------
 ' RenderAnswer - 回答本文セル(SafeLeft)+出典ブロック+所要秒
-' ----------------------------------------------------------------------------
 Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits As Long, _
                         ByVal mode As String, ByVal seconds As Long)
     Dim ws As Worksheet
@@ -370,9 +364,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 ' RenderSourcesPreview - 出典先出し(ドラフト生成前に呼ぶ)
-' ----------------------------------------------------------------------------
 Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
     Dim ws As Worksheet
     On Error Resume Next
@@ -386,9 +378,7 @@ Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
     WriteSafe ws.Range(RNG_ANSWER), "（資料を確認しました。ここから回答を作成します。もう少しお待ちください…）"
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnAskButton / OnModeQuick / OnModeDeep / OnOpenHowto / OnRunDiag
-' ----------------------------------------------------------------------------
 Public Sub OnAskButton()
     On Error GoTo Fail
     modAsk.AskFromUI
@@ -413,6 +403,12 @@ Public Sub OnOpenHowto()
     On Error Resume Next
     ThisWorkbook.Worksheets(modAppDef.SH_HOWTO).Activate
     On Error GoTo 0
+End Sub
+
+' 2026-07-22実機報告対策: タブが隠れていてもNexus(チャット)へ戻れるように
+' する(modUI.GoToNexusと同じ脱出路付き遷移をここから呼ぶだけ)。
+Public Sub OnBackToChat()
+    modUI.GoToNexus "modUIMain.OnBackToChat"
 End Sub
 
 Public Sub OnRunDiag()
@@ -454,9 +450,7 @@ Fail:
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ShowTip - 待ち時間豆知識(定型10本からRnd選択)
-' ----------------------------------------------------------------------------
 Public Sub ShowTip()
     Dim ws As Worksheet
     On Error Resume Next
@@ -478,12 +472,10 @@ Public Sub ShowTip()
     WriteSafe ws.Range(RNG_TIP), "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: " & tips(idx)
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnFollowupButton - 「続けて質問」ボタン(裁定D11)。直近の回答を踏まえた
 '   追加質問(深掘り)をInputBoxで受け取り、modAsk.AskFollowupへ渡す。
 '   会話がまだ始まっていない(modAsk.CanFollowup=False)ときは丁寧な案内のみ。
 '   文言はV2実証済みのmodChatUI.OnFollowupClickを踏襲(絵文字は使わない。§12)。
-' ----------------------------------------------------------------------------
 Public Sub OnFollowupButton()
     On Error GoTo Fail
 
@@ -511,7 +503,6 @@ Fail:
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnOpenWordButton - opt機能(Wordで開く)のUIラッパー(§7.7)。opt直接参照はしない。
 '   裁定D12(対話型文書生成): 押下時に「どんな文書に仕上げるか」の指示文を
 '   尋ね、直近回答テキストと合わせてmodFeatures.InvokeFeature経由で
@@ -521,7 +512,6 @@ End Sub
 '   キャンセルと空欄OKは区別が必要(キャンセル=中止/空欄=そのまま転記)な
 '   ため、VBAのInputBox(両者とも""が返り区別不能)ではなくApplication.InputBox
 '   (Type:=2。キャンセル時はBooleanのFalseが返る)を使う。
-' ----------------------------------------------------------------------------
 Public Sub OnOpenWordButton()
     If LenB(mLastAnswerText) = 0 Then
         MsgBox "Wordで開く回答がありません。まず質問して、回答を受け取ってください。", _
@@ -565,10 +555,8 @@ Public Sub OnOpenWordButton()
     End If
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ShowEmptyShelfHint - 本棚が空のとき、回答エリアに常設案内を表示する。
 '   呼び出し判断はmodBoot側の責務(本棚が空かどうかの判定はここではしない)。
-' ----------------------------------------------------------------------------
 Public Sub ShowEmptyShelfHint()
     Dim ws As Worksheet
     On Error Resume Next
@@ -581,9 +569,7 @@ Public Sub ShowEmptyShelfHint()
         "まず『マイ本棚』タブで資料を1つ追加してみましょう →"
 End Sub
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー
-' ----------------------------------------------------------------------------
 
 Private Sub RefreshBadgesAndDashboard()
     On Error Resume Next

@@ -1,21 +1,13 @@
 Attribute VB_Name = "modUI"
 Option Explicit
 
-' ============================================================================
-' modUI - Nexus Agent UIコア(DOCS_NEXUS_SPEC Phase 1 / HTMLモック完全再現)
-' ----------------------------------------------------------------------------
-' 対象実行環境はWindows版Microsoft Excelのみ。SPA風UI:
-'   InitUI        - ネイティブUI(リボン/枠線/数式バー等)の完全隠蔽+骨格描画
-'   AddChatBubble - チャットバブル(角丸Shape)+アクションボタン列の動的生成
-'   ToggleTheme   - ライト/ダークモードの即時反転(全Shape再彩色)
-'   RestoreExcelUI- ネイティブUIの復元(Auto_Close時に必ず呼ぶこと)
-' 設計メモ:
-'   ・アクションボタンはShape+OnAction方式(自己インストーラ配布は標準モジュール
-'     のみ注入可能・シートモジュール不可のため)。テーマ状態はui_stateシート
-'     (key="nexus_theme")に永続化。
-'   ・Shape命名規約: nx_sb_*(サイドバー) nx_top_*(トップバー)
-'     nx_msg_*(バブル) nx_act_*(アクションボタン) nx_thk_*(思考プロセス)
-' ============================================================================
+' modUI - Nexus Agent UIコア(Windows版Excel専用・SPA風UI)
+'   InitUI=隠蔽+骨格描画 AddChatBubble=バブル生成 ToggleTheme=配色反転
+'   RestoreExcelUI=ネイティブUI復元(Auto_Close時に必ず呼ぶ)
+'   ボタンはShape+OnAction(自己インストーラは標準モジュールのみ注入可のため)。
+'   テーマ状態はui_stateシート(key=nexus_theme)に永続化。
+'   Shape命名: nx_sb_*サイドバー nx_top_*トップバー nx_msg_*バブル
+'     nx_act_*アクションボタン nx_thk_*思考プロセス
 
 Private Const NEXUS_SHEET As String = "Nexus"
 Private Const THEME_KEY As String = "nexus_theme"
@@ -33,9 +25,7 @@ Private Const CHAT_TOP As Double = 130   ' 固定領域(トップバー+入力+�
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
-' ----------------------------------------------------------------------------
 ' InitUI - ネイティブUI隠蔽+Nexus骨格(サイドバー/トップバー/入力欄)描画
-' ----------------------------------------------------------------------------
 Public Sub InitUI()
     Dim ws As Worksheet
     Set ws = GetOrCreateNexusSheet()
@@ -117,11 +107,9 @@ Public Sub InitUI()
     ParkFocus                 ' A2/C4: Shape選択解除+アクティブセルpark(白ハンドルを出さない)
 End Sub
 
-' ----------------------------------------------------------------------------
 ' AddChatBubble - チャットバブル1件を追加する(role: "user"/"ai"。thinkingは
 '   AIの思考プロセス、空なら省略)。withActionsは後方互換のため残置(無視)。
 '   戻り値: バブルShape名。
-' ----------------------------------------------------------------------------
 Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
                               Optional ByVal withActions As Boolean = False, _
                               Optional ByVal thinking As String = "") As String
@@ -250,9 +238,7 @@ Private Sub CapBubbles(ByVal ws As Worksheet)
     Next ri
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ToggleTheme - ライト/ダーク反転(状態を永続化して全体を再彩色)
-' ----------------------------------------------------------------------------
 Public Sub ToggleTheme()
     If CurrentTheme() = "dark" Then
         SaveTheme "light"
@@ -271,9 +257,7 @@ Public Sub ToggleTheme()
     Application.ScreenUpdating = True
 End Sub
 
-' ----------------------------------------------------------------------------
 ' RestoreExcelUI - ネイティブUI復元(Auto_Close/緊急脱出用)
-' ----------------------------------------------------------------------------
 Public Sub RestoreExcelUI()
     On Error Resume Next
     Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",True)"
@@ -315,6 +299,27 @@ Public Sub GoToNexus(ByVal source As String)
     On Error GoTo 0
 End Sub
 
+' GoToNativeSheet - GoToNexusと同じ脱出路付き遷移をホーム/マイ本棚等にも提供。
+Public Sub GoToNativeSheet(ByVal sheetName As String, ByVal source As String)
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    ws.Activate
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", source, _
+            "GoToNativeSheet(" & sheetName & ") [ws.Activate失敗→ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
+            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
+        Err.Clear
+        RestoreExcelUI
+    End If
+    On Error GoTo 0
+End Sub
+
 ' Ctrl+Z/Ctrl+Y(Undo/Redo)を無効化する。Shapeと隠しシート(DB)の整合をUndoが
 ' 壊すため封じる。復元はRestoreExcelUI(Auto_Close時に必ず呼ばれる)が担う。
 Private Sub DisableUndoRedo()
@@ -333,7 +338,7 @@ Public Sub ParkFocus()
     If ws Is Nothing Then Exit Sub
     Application.ScreenUpdating = False
     If ws.Name = NEXUS_SHEET Then
-        ws.Range("D4").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
+        ws.Range("F4").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
     Else
         ws.Range("A1").Select   ' Vault/Dashboard等は左上(固定領域)へpark
     End If
@@ -377,11 +382,9 @@ Public Sub NexusActionStub()
     MsgBox "このボタンは準備中です(次のフェーズで有効になります)。", vbInformation, "Nexus Agent"
 End Sub
 
-' ----------------------------------------------------------------------------
 ' 公開ゲッター: 他のNexus画面がテーマ一貫の配色/現在テーマを得る窓口。
 '   key: bg/surface/text/muted/border/primary/accent/userBubble/aiBubble/
 '        sidebar/sidebarText/sidebarActive
-' ----------------------------------------------------------------------------
 Public Function UiColor(ByVal key As String) As Long
     UiColor = ThemeColor(key)
 End Function
@@ -400,9 +403,7 @@ Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 '描画
-' ----------------------------------------------------------------------------
 
 Private Sub DrawSidebar(ByVal ws As Worksheet)
     Dim sb As Shape
@@ -434,13 +435,16 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
         .WordWrap = -1
     End With
 
+    ' タブ非表示中でもホーム/マイ本棚へ行けるようサイドバーに直接導線を追加。
     Dim items As Variant
-    items = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャット", ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
+    items = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャット", ChrW(&HD83C) & ChrW(&HDFE0) & " ホーム", _
+                  ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
                   ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード", ChrW(&HD83D) & ChrW(&HDD04) & " 画面を再描画")
     Dim navActions As Variant
-    navActions = Array("modApp.OnNavChat", "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
+    navActions = Array("modApp.OnNavChat", "modApp.OnNavHome", "modApp.OnNavShelf", _
+                       "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
     Dim i As Long
-    For i = 0 To 3
+    For i = 0 To 5
         Dim nav As Shape
         Set nav = ws.Shapes.AddShape(1, 0, 120 + i * 40, SIDEBAR_W, 38)
         nav.Name = "nx_sb_nav" & (i + 1)
@@ -500,24 +504,29 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
 End Sub
 
 Private Sub DrawInputArea(ByVal ws As Worksheet)
-    ' 入力はセル(名前付き範囲 nx_input)+送信ボタン。行4に置く(旧D2はトップバー
-    ' 背景Shapeの真下に隠れ、実機で入力欄が見えない報告があった。Shapeは常に
-    ' セルより手前に描画されるため)。枠線+白背景で見える入力欄にする。
+    ' 入力はセル(nx_input)+送信/クリップボタン。行4、旧D2はトップバー下で
+    ' 不可視だった。送信/クリップは帯の両端に重ねているが、セル編集中は
+    ' Excelのネイティブ編集オーバーレイがShapeより前面に出て隠す実機報告あり。
+    ' 編集可能セルは中央F4:J4のみに絞り、両端D4:E4/K4:N4は非編集の土台にして
+    ' 白背景でつなぎ1本の帯に見せる(BorderAroundは外周のみ)。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
 
     With ws.Range("D4:N4")
-        .Merge
         .Interior.Color = RGB(255, 255, 255)
-        .Borders.LineStyle = 1
-        .Borders.Color = modUI.UiColor("border")
         .VerticalAlignment = -4108   ' xlCenter
+        .BorderAround LineStyle:=1, Weight:=2, Color:=modUI.UiColor("border")
     End With
     ws.Rows("4").RowHeight = 30
 
+    With ws.Range("F4:J4")
+        .Merge
+        .VerticalAlignment = -4108   ' xlCenter
+    End With
+
     On Error Resume Next
-    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$D$4"
+    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$F$4"
     On Error GoTo 0
 
     Dim send As Shape
@@ -579,9 +588,7 @@ Private Sub DrawFloatingActionBar(ByVal ws As Worksheet)
     Next i
 End Sub
 
-' ----------------------------------------------------------------------------
 'テーマ
-' ----------------------------------------------------------------------------
 
 Private Function CurrentTheme() As String
     CurrentTheme = "light"
@@ -638,11 +645,11 @@ End Function
 Private Sub ApplyTheme(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = ThemeColor("bg")
 
-    ' 入力欄(nx_input=D4:N4)は上の一括塗りで消えるため塗り直す(DrawInputAreaと対)。
+    ' 入力欄(F4:J4、土台D4:N4)は上の一括塗りで消えるため塗り直す(対:DrawInputArea)。
     On Error Resume Next
     With ws.Range("D4:N4")
         .Interior.Color = RGB(255, 255, 255)
-        .Borders.Color = ThemeColor("border")
+        .BorderAround LineStyle:=1, Weight:=2, Color:=ThemeColor("border")
     End With
     On Error GoTo 0
 
@@ -752,9 +759,7 @@ Private Function ProfileCaption() As String
     ProfileCaption = "ゲスト ユーザー" & vbLf & "Lv." & lv & " ・ EXP " & ex
 End Function
 
-' ----------------------------------------------------------------------------
 'util
-' ----------------------------------------------------------------------------
 
 Private Function GetNexusSheet() As Worksheet
     On Error Resume Next

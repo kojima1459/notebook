@@ -73,23 +73,45 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' なることがある(LibreOfficeでは再現しない実機固有の挙動)。安全のため、
     ' Office系(pdf/docx/doc/xlsx/xls/xlsm)はローカル一時フォルダへコピーした
     ' コピーを開く。コピー失敗時は元パスのままフォールバックする(悪化させない)。
+    ' 実機報告(2026-07-21)「取込に失敗(#462等)」対策: 各アダプタは自分の
+    ' COM呼び出しを捕捉する契約だが、抜けがあれば生の実行時エラーが素通りして
+    ' しまう(呼び出し元へ意味不明な番号だけが伝わる)。ここでも保険的に捕捉し、
+    ' 必ずE0302+説明文に変換してから返す(R5: 原因不明のエラーを見せない)。
+    ' 2026-07-22実機再発: 前回のトラップはSelect Case本体だけを覆っており、
+    ' その直前のCopyToLocalTemp呼び出しがトラップ外だったため、そちら側で
+    ' 何か漏れれば依然としてExtractFile自体が未捕捉のまま呼び出し元
+    ' (modShelf.IngestFile)まで抜けてしまう隙間があった。関数全体を覆うように
+    ' ここへ引き上げる。
+    On Error GoTo ExtractFailed
+
     Dim workPath As String: workPath = path
     Dim tmpCopy As String: tmpCopy = ""
+    Dim triedLocalCopy As Boolean: triedLocalCopy = False
     Select Case ext
         Case "pdf", "docx", "doc", "xlsx", "xls", "xlsm"
+            triedLocalCopy = True
             tmpCopy = CopyToLocalTemp(path)
             If LenB(tmpCopy) > 0 Then workPath = tmpCopy
     End Select
+
+    ' 診断用: ローカル一時コピーの成否を憶えておく(失敗時のerrDetailへ含め、
+    ' 「コピー自体が失敗してUNCパスのままWordへ渡った」のか「コピーは成功
+    ' したのにローカルコピーでも失敗した」のかを次回のログで切り分ける)。
+    Dim copyNote As String
+    If triedLocalCopy Then
+        If LenB(tmpCopy) > 0 Then
+            copyNote = "localcopy=ok"
+        Else
+            copyNote = "localcopy=failed(UNCパスのまま処理)"
+        End If
+    Else
+        copyNote = "localcopy=n/a"
+    End If
 
     Dim ok As Boolean
     Dim truncated As Boolean
     Dim adapterErr As String
 
-    ' 実機報告(2026-07-21)「取込に失敗(#462等)」対策: 各アダプタは自分の
-    ' COM呼び出しを捕捉する契約だが、抜けがあれば生の実行時エラーが素通りして
-    ' しまう(呼び出し元へ意味不明な番号だけが伝わる)。ここでも保険的に捕捉し、
-    ' 必ずE0302+説明文に変換してから返す(R5: 原因不明のエラーを見せない)。
-    On Error GoTo ExtractFailed
     Select Case ext
         Case "txt", "md", "csv"
             ok = ExtractPlainText(workPath, pages, adapterErr)
@@ -100,19 +122,19 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Case "xlsx", "xls", "xlsm"
             ok = modExtractorExcel.Extract(workPath, maxPages, pages, truncated, adapterErr)
     End Select
-    On Error GoTo 0
 
-    ' 一時コピーは用が済んだら消す(失敗しても無視)。
+    ' 一時コピーは用が済んだら消す(失敗しても無視)。GoTo ExtractFailedで
+    ' 関数全体のトラップを維持したまま一時的にResume Nextへ切り替える。
     If LenB(tmpCopy) > 0 Then
         On Error Resume Next
         Kill tmpCopy
-        On Error GoTo 0
+        On Error GoTo ExtractFailed
     End If
 
     If Not ok Then
         errCode = "E0302"
-        errDetail = adapterErr
-        modLog.LogError "E0302", "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & adapterErr, 500)
+        errDetail = adapterErr & " [" & copyNote & "]"
+        modLog.LogError "E0302", "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
         ExtractFile = False
         Exit Function
     End If
@@ -153,8 +175,9 @@ ExtractFailed:
     On Error Resume Next
     If LenB(tmpCopy) > 0 Then Kill tmpCopy
     On Error GoTo 0
+    If LenB(copyNote) = 0 Then copyNote = "localcopy=n/a(コピー処理到達前に失敗)"
     errCode = "E0302"
-    errDetail = "err#" & leakNum & ": " & leakDesc
+    errDetail = "err#" & leakNum & ": " & leakDesc & " [" & copyNote & "]"
     modLog.LogError "E0302", "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
     ExtractFile = False
 End Function

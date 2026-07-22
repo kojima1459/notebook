@@ -90,6 +90,7 @@ Public Sub EnsureLayout()
     ws.Columns("E").ColumnWidth = 8
     ws.Columns("F:G").ColumnWidth = 8
     ws.Columns("H:J").ColumnWidth = 15
+    ws.Columns("M:N").ColumnWidth = 10
 
     ' 実機防衛(2026-07-21再訂正): modUIMain.EnsureLayoutと同じ理由・同じ実装
     ' (Activateあり/なし双方で同一の1004が再現したため、Activate成否を致命的
@@ -125,6 +126,10 @@ Public Sub EnsureLayout()
         uiStep = "スクショ取込ボタン(生成)"
         AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "" & ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot"
     End If
+
+    ' 2026-07-22実機報告対策: Nexus(チャット)へタブなしで戻れる導線
+    uiStep = "チャットへ戻るボタン"
+    AddButton ws, ws.Range("M1:N2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIShelf.OnBackToChat"
 
     ' ---- 本棚フォルダ情報 ----------------------------------------------------
     uiStep = "本棚フォルダ情報見出し"
@@ -274,6 +279,13 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' OnAddFiles / OnSyncNow / OnPickFolder / OnExportPack / OnImportPack / OnDeleteSource
 ' ----------------------------------------------------------------------------
+
+' 2026-07-22実機報告対策: タブが隠れていてもNexus(チャット)へ戻れるように
+' する(modUI.GoToNexusと同じ脱出路付き遷移をここから呼ぶだけ)。
+Public Sub OnBackToChat()
+    modUI.GoToNexus "modUIShelf.OnBackToChat"
+End Sub
+
 Public Sub OnAddFiles()
     On Error GoTo Fail
     modShelf.AddFilesViaDialog

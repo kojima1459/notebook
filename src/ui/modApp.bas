@@ -535,6 +535,18 @@ Public Sub OnNavChat()
     modUiLock.Leave
 End Sub
 
+Public Sub OnNavHome()
+    If Not modUiLock.Enter() Then Exit Sub
+    modUI.GoToNativeSheet modAppDef.SH_HOME, "modApp.OnNavHome"
+    modUiLock.Leave
+End Sub
+
+Public Sub OnNavShelf()
+    If Not modUiLock.Enter() Then Exit Sub
+    modUI.GoToNativeSheet modAppDef.SH_SHELF, "modApp.OnNavShelf"
+    modUiLock.Leave
+End Sub
+
 Public Sub OnNavVault()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
