@@ -28,7 +28,6 @@ Public Sub InitUI()
 
     Application.ScreenUpdating = False
 
-    ' --- ネイティブUIの完全隠蔽(失敗しても続行: 環境差に耐える) ---
     On Error Resume Next
     Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",False)"
     On Error GoTo 0
@@ -39,8 +38,7 @@ Public Sub InitUI()
     Application.DisplayStatusBar = False
     On Error GoTo 0
 
-    ' 2026-07-21: modUIMain/modUIShelfと同じ理由でActivate失敗を致命的に
-    ' しない(失敗しても以降の描画を試みる。診断はerr_logへ直接記録する)。
+    ' Activate失敗を致命的にしない(以降の描画を試みる。診断はerr_logへ記録)。
     On Error Resume Next
     ws.Activate
     If Err.Number <> 0 Then
@@ -60,14 +58,13 @@ Public Sub InitUI()
     End With
     On Error GoTo 0
 
-    ' --- 実機耐性: 自動保存停止・ズーム固定・選択制限 ---
     On Error Resume Next
     ActiveWorkbook.AutoSaveOn = False   ' D2: 自動保存がVBAへ割り込みクラッシュ/遅延するのを止める
     ActiveWindow.Zoom = 100             ' D4: Ctrl+ホイール等のズームでShape配置が崩れる基準を100%へ固定
     ws.EnableSelection = 1              ' C1: xlUnlockedCells(完全抑止はProtect併用時のみ。park運用と併せ誤選択を抑える)
     On Error GoTo 0
 
-    ' C3: Undoを封じる(Shapeと隠しDBの整合が崩れるため。復元はRestoreExcelUI)。
+    ' Undoを封じる(Shapeと隠しDBの整合が崩れるため)。
     DisableUndoRedo
 
     ' --- キャンバス骨格 ---
@@ -75,7 +72,6 @@ Public Sub InitUI()
     ws.Cells.Clear
     ws.Cells.Font.Name = "Yu Gothic UI"
 
-    ' サイドバー列(A:C)を固定幅に、チャット面はD以降
     ws.Columns("A:C").ColumnWidth = 12
     ws.Columns("D:P").ColumnWidth = 14
     ws.Rows("1:400").RowHeight = 18
@@ -101,7 +97,6 @@ Public Sub InitUI()
     If Err.Number <> 0 Then LogDrawStageError "DrawFloatingActionBar", ws: Err.Clear
     On Error GoTo 0
 
-    ' スクロール制御: 上部固定領域とサイドバー列を固定
     On Error Resume Next
     ws.Range("D8").Select
     ActiveWindow.FreezePanes = False
@@ -139,7 +134,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     Dim topY As Double: topY = mChatBottom + BUBBLE_GAP
     Dim seq As String: seq = NextSeq(ws)
 
-    ' --- 思考プロセス(AIのみ・小さな灰色イタリック) ---
+    ' --- 思考プロセス(AI限定) ---
     If (Not isUser) And LenB(Trim$(thinking)) > 0 Then
         Dim thk As Shape
         Set thk = ws.Shapes.AddShape(1, chatL + 8, topY, bubbleW - 16, 20)   ' 1=四角
@@ -179,7 +174,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     If shp.Height < 28 Then shp.Height = 28
     shp.Shadow.Visible = 0
 
-    ' AIバブルはクリックで選択できる(アクションの対象指定)
+    ' AIバブルはクリックで選択可(アクション対象指定)
     If Not isUser Then shp.OnAction = "modApp.OnSelectBubble"
 
     PaintBubble shp, isUser
@@ -227,7 +222,7 @@ Private Sub CapBubbles(ByVal ws As Worksheet)
 
     Dim toRemove As Long: toRemove = n - MAX_BUBBLES
 
-    ' seq昇順にバブルソート(nは高々数百)
+    ' seq昇順バブルソート(nは高々数百)
     Dim a As Long, b As Long
     For a = 0 To n - 2
         For b = 0 To n - 2 - a
@@ -280,10 +275,10 @@ Public Sub RestoreExcelUI()
         .DisplayWorkbookTabs = True
         .DisplayHorizontalScrollBar = True
     End With
-    ' C3: Ctrl+Z/Ctrl+Yの無効化を解除(引数省略=Excel既定の動作へ戻す)。
+    ' Ctrl+Z/Ctrl+Yの無効化を解除(引数省略=既定へ戻す)。
     Application.OnKey "^z"
     Application.OnKey "^y"
-    ' D2/D4: 砂時計/ステータスバーも念のため既定へ(緊急脱出時の後始末)。
+    ' 砂時計/ステータスバーも念のため既定へ。
     Application.Cursor = -4143   ' xlDefault
     Application.StatusBar = False
     On Error GoTo 0
@@ -329,7 +324,7 @@ Public Sub GoToNativeSheet(ByVal sheetName As String, ByVal source As String)
     On Error GoTo 0
 End Sub
 
-' InitUIの各Draw*段が失敗したときの記録役(呼び出し側で捕捉したErrを渡す)。
+' InitUIの各Draw*段の失敗記録役。
 Private Sub LogDrawStageError(ByVal stageName As String, ByVal ws As Worksheet)
     Dim n As Long: n = Err.Number
     On Error Resume Next
@@ -480,6 +475,17 @@ Private Sub DrawSidebar(ByVal ws As Worksheet)
         End If
         On Error GoTo 0
     Next i
+
+    ' 診断用: ボタン消失報告(エラー無し・スクロールでも戻らない)の切り分けに
+    ' 実際の生成数をusage_logへ残す。
+    On Error Resume Next
+    Dim navCount As Long, shp2 As Shape
+    navCount = 0
+    For Each shp2 In ws.Shapes
+        If Left$(shp2.Name, 10) = "nx_sb_nav" Then navCount = navCount + 1
+    Next shp2
+    modLog.LogUsage "diag", "nexus_sidebar", "nav shapes created=" & navCount & "/6"
+    On Error GoTo 0
 End Sub
 
 Private Sub DrawTopbar(ByVal ws As Worksheet)
@@ -527,11 +533,9 @@ Private Sub DrawTopbar(ByVal ws As Worksheet)
 End Sub
 
 Private Sub DrawInputArea(ByVal ws As Worksheet)
-    ' 入力はセル(nx_input)+送信/クリップボタン。行4、旧D2はトップバー下で
-    ' 不可視だった。送信/クリップは帯の両端に重ねているが、セル編集中は
-    ' Excelのネイティブ編集オーバーレイがShapeより前面に出て隠す実機報告あり。
-    ' 編集可能セルは中央F4:J4のみに絞り、両端D4:E4/K4:N4は非編集の土台にして
-    ' 白背景でつなぎ1本の帯に見せる(BorderAroundは外周のみ)。
+    ' 入力はセル(nx_input)+送信/クリップボタン。編集中はExcelの編集オーバー
+    ' レイがShapeより前面に出て隠すため、編集可能セルは中央F4:J4のみに絞り、
+    ' 両端D4:E4/K4:N4は非編集の土台にして白背景でつなぐ(外周のみ枠線)。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
@@ -668,7 +672,7 @@ End Function
 Private Sub ApplyTheme(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = ThemeColor("bg")
 
-    ' 入力欄(F4:J4、土台D4:N4)は上の一括塗りで消えるため塗り直す(対:DrawInputArea)。
+    ' 入力欄(F4:J4/土台D4:N4)は上の一括塗りで消えるため塗り直す。
     On Error Resume Next
     With ws.Range("D4:N4")
         .Interior.Color = RGB(255, 255, 255)

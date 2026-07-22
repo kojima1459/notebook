@@ -61,7 +61,11 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 
     On Error GoTo Failed
     Set word = CreateObject("Word.Application")
-    word.Visible = False
+    ' 2026-07-22診断(ユーザー許可済み): 実機err#462はローカルコピーでも再現し
+    ' 保護ビュー説は否定された。非表示プロセスがセキュリティソフト等に
+    ' 妨害されている仮説を検証するため、一時的にVisible=Trueで診断する。
+    ' 原因が確定次第、Falseへ戻すか正式な対処に置き換える。
+    word.Visible = True
     word.DisplayAlerts = 0   ' wdAlertsNone
 
     ' ConfirmConversions:=False でPDFリフロー確認ダイアログを抑止する。
