@@ -14,9 +14,7 @@ Private mActiveBubble As String
 Private mGenPrevU As String   ' 一般モードの会話履歴(新しい順;;;区切り)
 Private mGenPrevA As String
 
-' ----------------------------------------------------------------------------
 ' LaunchNexus - Nexus UIの起動(modBootから呼ばれる)
-' ----------------------------------------------------------------------------
 Public Sub LaunchNexus()
     modUI.InitUI
     RestoreLastConversation      ' ④前回の続きを薄く復元(失敗しても挨拶へ進む)
@@ -54,7 +52,7 @@ Private Sub DrawSidebarExtras()
     Dim i As Long
     For i = 0 To 2
         Dim chip As Shape
-        Set chip = ws.Shapes.AddShape(5, 10, 466 + i * 28, 175, 24)
+        Set chip = ws.Shapes.AddShape(5, 10, 482 + i * 28, 175, 24)
         chip.Name = "nx_sb_qa" & (i + 1)
         chip.Adjustments(1) = 0.4
         chip.Line.Visible = 0
@@ -73,7 +71,7 @@ Private Sub DrawSidebarExtras()
     Next i
 
     Dim g As Shape
-    Set g = ws.Shapes.AddShape(5, 10, 558, 175, 26)
+    Set g = ws.Shapes.AddShape(5, 10, 574, 175, 26)
     g.Name = "nx_sb_gacha"
     g.Adjustments(1) = 0.4
     g.Line.Visible = -1
@@ -190,9 +188,7 @@ Private Sub RestoreLastConversation()
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnSend - 送信ボタン。入力セル(nx_input)を読み、モードに応じて回答生成。
-' ----------------------------------------------------------------------------
 Public Sub OnSend()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
@@ -280,9 +276,7 @@ Fail:
     modUiLock.Leave
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnSelectBubble - AIバブルのクリック(コンテキスト・アクションの対象指定)
-' ----------------------------------------------------------------------------
 Public Sub OnSelectBubble()
     Dim callerName As String
     On Error Resume Next
@@ -294,9 +288,7 @@ Public Sub OnSelectBubble()
     modUI.MarkActiveBubble callerName
 End Sub
 
-' ----------------------------------------------------------------------------
 ' Peek View(出典ポップアップ): 出典チップ/ポップアップのクリック受け。
-' ----------------------------------------------------------------------------
 ' 出典チップ(nx_cite_<i>)のクリック → そのチャンク本文をポップアップ表示。
 Public Sub OnPeek()
     If Not modUiLock.Enter() Then Exit Sub
@@ -319,9 +311,7 @@ Public Sub OnPeekClose()
     modUiLock.Leave
 End Sub
 
-' ----------------------------------------------------------------------------
 ' フローティング・アクションバー(裁定②): 選択中バブルに対して発火
-' ----------------------------------------------------------------------------
 Public Sub OnActGood()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
@@ -424,6 +414,7 @@ Public Sub OnActHq()
     modUiLock.Leave
 End Sub
 
+' ホームのOnOpenWordButtonと同じInputBoxを挟む(以前は指示文なし=""固定だった)。
 Public Sub OnActWord()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
@@ -431,8 +422,18 @@ Public Sub OnActWord()
     Dim answerBody As String
     answerBody = TargetText()
 
+    Dim resp As Variant
+    resp = Application.InputBox( _
+        Prompt:="どんな文書に仕上げますか?" & vbCrLf & _
+                "(例: お客様向けの回答文書風に / 社内回覧用の要約に)" & vbCrLf & _
+                "※空欄ならそのまま転記", _
+        Title:=modAppDef.APP_NAME & " - Wordで開く", Default:="", Type:=2)
+    If VarType(resp) = vbBoolean Then GoTo Done   ' キャンセル→何もしない
+    Dim instruction As String
+    instruction = Trim$(CStr(resp))
+
     Dim result As Variant
-    result = modFeatures.InvokeFeature("markdown", "ExportAnswerAsDoc", Array(answerBody, ""))
+    result = modFeatures.InvokeFeature("markdown", "ExportAnswerAsDoc", Array(answerBody, instruction))
     If VarType(result) = vbString Then
         If Left$(CStr(result), 5) = "#ERR:" Then
             MsgBox "Word出力は現在利用できません(管理者が有効化すると使えます)。", _
@@ -462,9 +463,7 @@ Done:
     modUiLock.Leave
 End Sub
 
-' ----------------------------------------------------------------------------
 ' OnAttachImage - 📎 クリップボード画像でVisionチャット(GPTV連携)
-' ----------------------------------------------------------------------------
 Public Sub OnAttachImage()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
@@ -520,9 +519,7 @@ Fail:
     modUiLock.Leave
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ナビゲーション(SPA遷移)・モード/言語トグル
-' ----------------------------------------------------------------------------
 Public Sub OnNavChat()
     If Not modUiLock.Enter() Then Exit Sub
     modUI.GoToNexus "modApp.OnNavChat"
@@ -631,9 +628,7 @@ Public Sub OnLangCycle()
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
 ' ホットキー(modBootが登録/解除): Ctrl+Shift+Q=一撃召喚 / Ctrl+Enter=送信
-' ----------------------------------------------------------------------------
 ' Ctrl+Shift+Q: どのブック・シートで作業中でも一瞬でNexusへ(軽量Activateのみ。
 ' LaunchNexusのフル再描画は呼ばない=速い&会話を消さない)。
 Public Sub SummonNexus()
@@ -680,9 +675,7 @@ Public Sub OnSaveAndExit()
     ThisWorkbook.Close SaveChanges:=(resp = vbYes)
 End Sub
 
-' ----------------------------------------------------------------------------
 ' 遊び心(血の通った余白): 時間帯挨拶/弱音への関西弁コンシェルジュ
-' ----------------------------------------------------------------------------
 Private Function TimeGreeting() As String
     Dim h As Long: h = Hour(Now)
     If h >= 5 And h < 10 Then
@@ -716,9 +709,7 @@ Private Function ComfortMessage() As String
     End Select
 End Function
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー
-' ----------------------------------------------------------------------------
 
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Private Function HasTarget() As Boolean

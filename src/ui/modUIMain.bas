@@ -135,7 +135,7 @@ Public Sub EnsureLayout()
     Application.ScreenUpdating = False
 
     uiStep = "ボタン(使い方/診断)"
-    AddButton ws, ws.Range("F1:G2"), "btn_howto", "❓ 使い方", "modUIMain.OnOpenHowto"
+    AddButton ws, ws.Range("F1:G2"), "btn_howto", ChrW(&H2753) & " 使い方", "modUIMain.OnOpenHowto"
     AddButton ws, ws.Range("H1:H2"), "btn_diag", "" & ChrW(&HD83E) & ChrW(&HDE7A) & " 診断", "modUIMain.OnRunDiag"
     ' 2026-07-22実機報告対策: Nexus(チャット)へタブなしで戻れる導線
     AddButton ws, ws.Range("I1:I2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
@@ -346,7 +346,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     If LCase$(mode) = "deep" Then
         modeLabel = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる"
     Else
-        modeLabel = "⚡ すぐ聞く"
+        modeLabel = ChrW(&H26A1) & " すぐ聞く"
     End If
 
     Dim footer As String
@@ -569,7 +569,7 @@ Public Sub ShowEmptyShelfHint()
 
     WriteSafe ws.Range(RNG_ANSWER), _
         "まだ本棚に資料がありません。" & vbLf & _
-        "まず『マイ本棚』タブで資料を1つ追加してみましょう →"
+        "まず『マイ本棚』タブで資料を1つ追加してみましょう " & ChrW(&H2192)
 End Sub
 
 ' 内部ヘルパー
@@ -692,7 +692,7 @@ Private Function ModeCaption(ByVal mode As String) As String
     If mode = "deep" Then
         ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる (1〜2分)"
     Else
-        ModeCaption = "⚡ すぐ聞く (10〜20秒)"
+        ModeCaption = ChrW(&H26A1) & " すぐ聞く (10〜20秒)"
     End If
 End Function
 
@@ -747,7 +747,7 @@ End Function
 
 Private Function TipList() As Variant
     TipList = Array( _
-        "「" & ChrW(&HD83D) & ChrW(&HDD0D) & "しっかり調べる」は下書き→検証の2段階なので少し時間がかかりますが、より丁寧な回答になります。", _
+        "「" & ChrW(&HD83D) & ChrW(&HDD0D) & "しっかり調べる」は下書き" & ChrW(&H2192) & "検証の2段階なので少し時間がかかりますが、より丁寧な回答になります。", _
         "資料を追加すると本棚が育ち、答えられる質問がどんどん増えていきます。", _
         "資料は「マイ本棚」タブの「フォルダと同期」でまとめて自動追加できます。", _
         "回答の下にある出典を見れば、元の資料のどこに書いてあるかすぐ確認できます。", _

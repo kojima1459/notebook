@@ -412,9 +412,14 @@ ErrHandler:
     TryRibbonRun = "#ERR:E0202:" & Err.Description
 End Function
 
-' LLMの応答文字列に「上限/limit/回数/rate/quota」の語が含まれるかを検知する。
-' 確実な判定ではないが、E0204(利用上限)の可能性を利用者に知らせる簡易判定。
+' LLMの応答文字列が「利用上限に達した」という定型拒否メッセージそのものらしいかを
+' 検知する。実機報告(2026-07-22)「しっかり調べるモードだけ必ずE0204になる」で
+' 確認された誤検知バグ: 保険約款は「上限」「回数」(支払限度額・請求回数等)を
+' ごく普通に含むため、深掘りモードの長文で正当な分析結果がほぼ確実に誤爆して
+' いた。定型拒否文は短いので、応答が短い場合に限って判定する(長い実回答は
+' 対象外)。
 Public Function LooksLikeLimitError(ByVal response As String) As Boolean
+    If Len(response) > 120 Then Exit Function
     Dim s As String: s = LCase$(response)
     LooksLikeLimitError = (InStr(s, "上限") > 0) Or (InStr(s, "limit") > 0) Or _
                            (InStr(s, "回数") > 0) Or (InStr(s, "rate") > 0) Or _

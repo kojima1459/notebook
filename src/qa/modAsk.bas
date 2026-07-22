@@ -545,7 +545,7 @@ End Function
 
 Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                               ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
-    modUIMain.SetStage "✍️ 回答作成中…"
+    modUIMain.SetStage ChrW(&H270D) & ChrW(&HFE0F) & " 回答作成中…"
 
     Dim prompt As String
     prompt = modPrompts.BuildQuickPrompt(q, hits, nHits, _
@@ -570,7 +570,7 @@ End Function
 
 Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                              ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
-    modUIMain.SetStage "✍️ 回答を下書き中…"
+    modUIMain.SetStage ChrW(&H270D) & ChrW(&HFE0F) & " 回答を下書き中…"
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
@@ -593,7 +593,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
         Exit Function
     End If
 
-    modUIMain.SetStage "✅ 検証中…"
+    modUIMain.SetStage ChrW(&H2705) & " 検証中…"
 
     Dim draftBody As String
     draftBody = ApplyAnswerTags(draft)
@@ -634,7 +634,7 @@ Private Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal
     Next i
     If maxScore >= threshold Then Exit Function
 
-    ApplyLowHitWarning = "⚠️ 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。" & _
+    ApplyLowHitWarning = ChrW(&H26A0) & ChrW(&HFE0F) & " 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。" & _
         vbLf & vbLf & result
 End Function
 

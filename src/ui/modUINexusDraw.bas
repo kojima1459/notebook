@@ -12,7 +12,7 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
     sb.Line.Visible = 0
 
     Dim brand As Shape
-    Set brand = ws.Shapes.AddShape(1, 0, 0, modUI.SIDEBAR_W, 44)
+    Set brand = ws.Shapes.AddShape(1, 0, 0, modUI.SIDEBAR_W, 34)
     brand.Name = "nx_sb_brand"
     brand.Line.Visible = 0
     brand.Fill.Visible = 0
@@ -24,11 +24,10 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
-    ' 会話クリア/保存して終了ボタン。実機報告(2026-07-22)「何のボタンか
-    ' わからない」対策: 絵文字だけの円ボタンから、短いテキスト付きの
-    ' 角丸ボタンに変更する。
+    ' 会話クリア/保存して終了ボタン。実機報告(2026-07-22)「ロゴと被る」対策:
+    ' ブランド文字と同じ行に詰め込まず、専用の行(Y=38)へ分離する。
     Dim clearBtn As Shape
-    Set clearBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W - 98, 9, 48, 26)
+    Set clearBtn = ws.Shapes.AddShape(5, 10, 38, 83, 24)
     clearBtn.Name = "nx_sb_clear"
     clearBtn.Adjustments(1) = 0.3
     clearBtn.Line.Visible = 0
@@ -42,7 +41,7 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
     clearBtn.OnAction = "modApp.OnClearChat"
 
     Dim exitBtn As Shape
-    Set exitBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W - 46, 9, 44, 26)
+    Set exitBtn = ws.Shapes.AddShape(5, 101, 38, 83, 24)
     exitBtn.Name = "nx_sb_exit"
     exitBtn.Adjustments(1) = 0.3
     exitBtn.Line.Visible = 0
@@ -56,7 +55,7 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
     exitBtn.OnAction = "modApp.OnSaveAndExit"
 
     Dim prof As Shape
-    Set prof = ws.Shapes.AddShape(5, 10, 52, modUI.SIDEBAR_W - 20, 52)
+    Set prof = ws.Shapes.AddShape(5, 10, 68, modUI.SIDEBAR_W - 20, 52)
     prof.Name = "nx_sb_profile"
     prof.Line.Visible = 0
     With prof.TextFrame2
@@ -79,7 +78,7 @@ Public Sub DrawSidebar(ByVal ws As Worksheet)
         ' 項目ごとにResume Next(1つの1004が後続項目を道連れにしないため)。
         On Error Resume Next
         Dim nav As Shape
-        Set nav = ws.Shapes.AddShape(1, 0, 120 + i * 40, modUI.SIDEBAR_W, 38)
+        Set nav = ws.Shapes.AddShape(1, 0, 136 + i * 40, modUI.SIDEBAR_W, 38)
         nav.Name = "nx_sb_nav" & (i + 1)
         nav.Line.Visible = 0
         With nav.TextFrame2
@@ -166,10 +165,8 @@ End Sub
 
 Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' 編集中はExcelの編集オーバーレイがShapeより前面に出て隠すため、編集可能
-    ' セルは中央F4:J4のみに絞る。実機報告(2026-07-22)「両端が白い死角で
-    ' 紛らわしい・長文を打つとテキストが送信ボタンの下に隠れる」対策として、
-    ' 白背景/枠線は入力セルF4:J4だけに限定する(両端D4:E4/K4:N4は無地のまま
-    ' クリップ/送信ボタンの土台に徹させ、入力欄に見えないようにする)。
+    ' セルは中央F4:J4のみに絞る。白背景/枠線は入力セルF4:J4だけに限定する
+    ' (両端D4:E4/K4:N4は無地のままクリップ/送信ボタンの土台に徹させる)。
     ' WrapText+行を高くして長文が右へあふれず折り返すようにする。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
@@ -189,8 +186,22 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$F$4"
     On Error GoTo 0
 
+    ' 実機報告(2026-07-22)「送信ボタンが入力欄に食い込む」対策: 列幅から
+    ' ピクセル位置を推測していたのがズレの原因だった。実際のセル座標
+    ' (D4:E4/K4:N4=土台セルの実測Left/Width)から動的に算出し、F4:J4の
+    ' 外側に確実に収まるようにする。
+    Dim baseD As Range, baseK As Range
+    Set baseD = ws.Range("D4:E4")
+    Set baseK = ws.Range("K4:N4")
+    Dim rowTop As Double, rowH As Double
+    rowTop = ws.Rows("4").Top
+    rowH = ws.Rows("4").Height
+
     Dim send As Shape
-    Set send = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 560, modUI.TOPBAR_H + 18, 90, 30)
+    Dim sendW As Double, sendH As Double
+    sendW = 80: sendH = 30
+    Set send = ws.Shapes.AddShape(5, _
+        baseK.Left + (baseK.Width - sendW) / 2, rowTop + (rowH - sendH) / 2, sendW, sendH)
     send.Name = "nx_top_send"
     send.Line.Visible = 0
     With send.TextFrame2
@@ -205,15 +216,19 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' 実機報告(2026-07-22)「お化けみたいなボタン」対策: 背景色・枠線を明示せず
     ' 素の絵文字だけが浮いて見えていた。可視な円形ボタンとして描画する。
     Dim clip As Shape
-    Set clip = ws.Shapes.AddShape(9, modUI.SIDEBAR_W + 15, modUI.TOPBAR_H + 18, 30, 30)
+    Dim clipD As Double
+    clipD = 30
+    Set clip = ws.Shapes.AddShape(9, _
+        baseD.Left + (baseD.Width - clipD) / 2, rowTop + (rowH - clipD) / 2, clipD, clipD)
     clip.Name = "nx_top_clip"
-    clip.Line.Visible = -1
-    clip.Line.Weight = 0.75
-    clip.Line.ForeColor.RGB = modUI.UiColor("border")
-    clip.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    clip.Line.Visible = 0
+    ' 実機報告(2026-07-22)「まだお化け」対策: surface色が背景と近く目立たな
+    ' かった。彩度のあるaccent色の塗りつぶし+白アイコンで明確なボタンにする。
+    clip.Fill.ForeColor.RGB = modUI.UiColor("accent")
     With clip.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCE)
         .TextRange.Font.Size = 12
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With

@@ -522,7 +522,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
                                   "AIにこの質問を投げて、新しいナレッジを作りませんか?"
             Else
                 .TextRange.Text = "まだナレッジがありません。" & vbLf & _
-                                  "「➕ 登録」「" & ChrW(&HD83D) & ChrW(&HDCC1) & " 追加」で資料を取り込むか、AIに質問してみましょう。"
+                                  "「" & ChrW(&H2795) & " 登録」「" & ChrW(&HD83D) & ChrW(&HDCC1) & " 追加」で資料を取り込むか、AIに質問してみましょう。"
             End If
             .TextRange.Font.Size = 11
             .TextRange.ParagraphFormat.Alignment = 2

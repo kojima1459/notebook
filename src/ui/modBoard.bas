@@ -29,7 +29,7 @@ Option Explicit
 ' ============================================================================
 
 Private Const BOARD_SUBDIR As String = "board"
-Private Const WIDGET_TOP As Double = 370     ' サイドバー内の縦位置(nav6項目の末端358の下)
+Private Const WIDGET_TOP As Double = 386     ' サイドバー内の縦位置(nav6項目の末端374の下)
 Private Const MIN_PER_SOLVE As Long = 15     ' modStats.MINUTES_PER_SELFSOLVEと同値
 
 ' ビーコン集計キャッシュ(セッション内。共有フォルダ再走査はBootBoard時のみ)
@@ -112,7 +112,7 @@ Public Sub OnWidgetClick()
            "【みんな(組織全体)】" & vbLf & _
            "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
            "  /  今年: " & FmtMin(mOrgYear) & vbLf & vbLf & _
-           "※「✅解決した」1回=15分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
+           "※「" & ChrW(&H2705) & "解決した」1回=15分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
            "  組織に共有・合算されます。" & vbLf & "(クリックで閉じる)"
 
     Dim shp As Shape

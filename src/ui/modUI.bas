@@ -312,7 +312,7 @@ Public Sub GoToNexus(ByVal source As String)
     ws.Activate
     If Err.Number <> 0 Then
         modLog.LogError "E0801", source, _
-            "GoToNexus [ws.Activate失敗→ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
+            "GoToNexus [ws.Activate失敗" & ChrW(&H2192) & "ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
             " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
             " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
         Err.Clear
@@ -333,7 +333,7 @@ Public Sub GoToNativeSheet(ByVal sheetName As String, ByVal source As String)
     ws.Activate
     If Err.Number <> 0 Then
         modLog.LogError "E0801", source, _
-            "GoToNativeSheet(" & sheetName & ") [ws.Activate失敗→ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
+            "GoToNativeSheet(" & sheetName & ") [ws.Activate失敗" & ChrW(&H2192) & "ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
             " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
             " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
         Err.Clear
@@ -530,9 +530,8 @@ Private Sub ApplyTheme(ByVal ws As Worksheet)
                 SetShapeTextColor shp, ThemeColor("text")
                 shp.TextFrame2.TextRange.Text = ThemeIcon()
             ElseIf nm = "nx_top_clip" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("surface")
-                shp.Line.Visible = -1
-                shp.Line.ForeColor.RGB = ThemeColor("border")
+                shp.Fill.ForeColor.RGB = ThemeColor("accent")
+                SetShapeTextColor shp, RGB(255, 255, 255)
             Else
                 shp.Fill.ForeColor.RGB = ThemeColor("bg")
                 shp.Line.ForeColor.RGB = ThemeColor("border")

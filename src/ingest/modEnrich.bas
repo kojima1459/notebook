@@ -121,7 +121,7 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
         If batchStart + batchSize > limit Then batchSize = limit - batchStart
 
         On Error Resume Next
-        modUIMain.SetStage "" & ChrW(&HD83C) & ChrW(&HDFF7) & "️ 富化中 " & (batchStart + batchSize) & "/" & limit & " …"
+        modUIMain.SetStage ChrW(&HD83C) & ChrW(&HDFF7) & ChrW(&HFE0F) & " 富化中 " & (batchStart + batchSize) & "/" & limit & " …"
         On Error GoTo 0
 
         On Error GoTo EscOrErr

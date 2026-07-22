@@ -209,9 +209,9 @@ End Sub
 
 Private Sub WriteCheck(ByVal ws As Worksheet, ByVal r As Long, ByVal ok As Boolean, _
                        ByVal text As String, ByVal howTo As String)
-    Dim mark As String: mark = IIf(ok, "✅ ", "⚠️ ")
+    Dim mark As String: mark = IIf(ok, ChrW(&H2705) & " ", ChrW(&H26A0) & ChrW(&HFE0F) & " ")
     Dim line As String: line = mark & text
-    If LenB(howTo) > 0 Then line = line & "  → " & howTo
+    If LenB(howTo) > 0 Then line = line & "  " & ChrW(&H2192) & " " & howTo
     ws.Cells(r, 1).Value = modUtil.SafeLeft(line, 500)
 End Sub
 

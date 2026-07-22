@@ -341,7 +341,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' ユーザーの追加アクションが不要な正常完了はMsgBoxを出さず、
         ' silent時と同じくSetStageのみで知らせる(§機能6・MsgBox削減)。
         On Error Resume Next
-        modUIMain.SetStage "✅ 同期が完了しました(" & summaryLine & ")"
+        modUIMain.SetStage ChrW(&H2705) & " 同期が完了しました(" & summaryLine & ")"
         On Error GoTo 0
     Else
         Dim summary As String
