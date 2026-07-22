@@ -832,7 +832,11 @@ Fail:
            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
     modLog.LogError "E0801", "modUIMain.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
-    Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
+    ' 2026-07-22実機再発: 従来はErr.Raiseで再伝播していたが、それだと1個の
+    ' ボタン生成失敗がEnsureLayout全体を中断させ、以降のボタン/レイアウトが
+    ' 丸ごと描画されない(実機報告「画面がほぼ空っぽ」の直接原因)。ログは残す
+    ' が再伝播はやめ、この1個だけ諦めて残りの描画を続けさせる。
+    Err.Clear
 End Sub
 
 Private Function SafeCoord(ByVal v As Double) As Double

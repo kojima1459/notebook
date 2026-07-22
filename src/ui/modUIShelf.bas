@@ -749,7 +749,9 @@ Fail:
            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
     modLog.LogError "E0801", "modUIShelf.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
     On Error GoTo 0
-    Err.Raise btnErrNum, "AddButton", "[" & uiStep & "] " & btnErrDesc & diag
+    ' 2026-07-22実機再発: modUIMain.AddButtonと同じ理由でErr.Raise再伝播をやめる
+    ' (1個のボタン失敗でEnsureLayout全体が中断→画面がほぼ空になるのを防ぐ)。
+    Err.Clear
 End Sub
 
 ' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
