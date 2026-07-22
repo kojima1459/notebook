@@ -225,9 +225,12 @@ Private Sub RefreshBoard()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 内部: サイドバーウィジェット描画(nx_sb_stat* = 既存Z-Order/テーマループ管轄)
+' サイドバーウィジェット描画(nx_sb_stat* = 既存Z-Order/テーマループ管轄)。
+' 実機報告(2026-07-22)「今日の節約時間が0分のまま」対策: 起動時に1度しか
+' 呼ばれておらず、その後「解決した」を押してもウィジェットが再描画されず
+' 表示が固まっていた。Publicにして加算直後にも呼べるようにする。
 ' ----------------------------------------------------------------------------
-Private Sub DrawWidget()
+Public Sub DrawWidget()
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("Nexus")

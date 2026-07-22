@@ -9,7 +9,7 @@ Private Const SHARE_PATH_DEFAULT As String = "\\pgiofs01\Nexus_Share\"
 Private Const MODE_KEY As String = "nexus_mode"      ' rag / normal
 Private Const MAX_INPUT_CHARS As Long = 2000         ' A3: 入力の最大文字数(超過はカット+警告)
 
-' 連打/多重発火はmodUiLockのグローバルロックへ一本化(Enter/Leave対で必ずLeave到達)。
+' 連打/多重発火はmodUiLockへ一本化(Enter/Leave対で必ずLeave到達)。
 Private mActiveBubble As String
 Private mGenPrevU As String   ' 一般モードの会話履歴(新しい順;;;区切り)
 Private mGenPrevA As String
@@ -34,8 +34,7 @@ Public Sub LaunchNexus()
     On Error GoTo 0
 End Sub
 
-' サイドバー下部の常設パーツ: 質問テンプレチップ3つ(クリックで入力欄へ流し込む
-' =シニア層の「何を聞けばいいか分からない」への補助輪)+🎲今日のナレッジガチャ。
+' サイドバー下部: 質問テンプレチップ3つ+🎲今日のナレッジガチャ。
 ' nx_sb_接頭辞なので既存のZ-Order/テーマ再彩色ループが自動で面倒を見る。冪等。
 Private Sub DrawSidebarExtras()
     On Error Resume Next
@@ -410,6 +409,9 @@ Public Sub OnActResolve()
     On Error GoTo Done
     If Not HasTarget() Then GoTo Done
     modAsk.FeedbackGreen   ' selfsolve_total加算+多重防止は既存ガードに従う
+    On Error Resume Next
+    modBoard.DrawWidget   ' 節約時間ウィジェット再描画(起動時のみで固まっていた対策)
+    On Error GoTo Done
 Done:
     modUiLock.Leave
 End Sub
@@ -566,7 +568,7 @@ Public Sub OnRefreshUI()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     Select Case ActiveSheet.Name
-        Case "Nexus":     modUI.Repaint
+        Case "Nexus":     modUI.Repaint: modBoard.DrawWidget
         Case "Dashboard": modDash.ShowDashboard
         Case Else:        modVault.ShowVaultGallery
     End Select
@@ -585,8 +587,7 @@ Public Sub OnToggleMode()
     UpdateModeButton
 End Sub
 
-' Nexusにすぐ聞く/しっかり調べるの切替が無く既定quickのままだった対策。
-' ホームと同じui_state "mode"キーを共有する。
+' すぐ聞く/しっかり調べる切替。ホームと同じui_state "mode"キーを共有。
 Public Sub OnToggleSpeed()
     Dim newSpeed As String
     If ReadUiState("mode", "quick") = "deep" Then
