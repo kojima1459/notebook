@@ -395,6 +395,41 @@
       "role": "test",
       "type": "std",
       "wave": "2-X"
+    },
+    {
+      "name": "modHub",
+      "path": "src/ui/modHub.bas",
+      "role": "ui",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modChat",
+      "path": "src/ui/modChat.bas",
+      "role": "ui",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modChatInput",
+      "path": "src/ui/modChatInput.bas",
+      "role": "ui",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modGacha",
+      "path": "src/ui/modGacha.bas",
+      "role": "ui",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modKnowledge",
+      "path": "src/ui/modKnowledge.bas",
+      "role": "ui",
+      "type": "std",
+      "wave": "UI-V2"
     }
   ]
 }

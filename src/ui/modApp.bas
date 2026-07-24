@@ -37,7 +37,7 @@ Public Sub LaunchNexus()
     modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計+サイドバーウィジェット
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
     modHelp.EnsureHelpButton     ' ヘルプ(?)ボタン
-    DrawSidebarExtras            ' 質問テンプレチップ+ナレッジガチャ(白紙の恐怖対策)
+    modHub.EnsureHubLayout   ' Hub画面構築(旧サイドバー+ダッシュボード統合)
     modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
     On Error GoTo 0
 End Sub
@@ -532,25 +532,35 @@ End Sub
 Public Sub OnNavChat()
     If Not modUiLock.Enter() Then Exit Sub
     modUI.GoToNexus "modApp.OnNavChat"
+    On Error Resume Next
+    modChat.EnsureChatLayout
+    On Error GoTo 0
     modUiLock.Leave
 End Sub
 
 Public Sub OnNavHome()
     If Not modUiLock.Enter() Then Exit Sub
-    modUI.GoToNativeSheet modAppDef.SH_HOME, "modApp.OnNavHome"
+    On Error Resume Next
+    modHub.EnsureHubLayout
+    On Error GoTo 0
     modUiLock.Leave
 End Sub
 
+
 Public Sub OnNavShelf()
     If Not modUiLock.Enter() Then Exit Sub
-    modUI.GoToNativeSheet modAppDef.SH_SHELF, "modApp.OnNavShelf"
+    On Error Resume Next
+    modConfig.SetValue "knowledge_view", "table"
+    modKnowledge.EnsureKnowledgeLayout
+    On Error GoTo 0
     modUiLock.Leave
 End Sub
 
 Public Sub OnNavVault()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modVault.ShowVaultGallery
+    modConfig.SetValue "knowledge_view", "gallery"
+    modKnowledge.EnsureKnowledgeLayout
     On Error GoTo 0
     modUiLock.Leave
 End Sub
