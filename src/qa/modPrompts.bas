@@ -64,6 +64,7 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
     sb = sb & vbLf
+    Dim uctx As String: uctx = UserContextBlock(): If LenB(uctx) > 0 Then sb = sb & vbLf & uctx
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & FollowupInstruction() & vbLf
@@ -90,6 +91,7 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
     If LenB(history) > 0 Then
         sb = sb & vbLf & "## これまでの会話(参考。続きの質問なら踏まえて回答する)" & vbLf & history
     End If
+    Dim uctx2 As String: uctx2 = UserContextBlock(): If LenB(uctx2) > 0 Then sb = sb & vbLf & uctx2
     sb = sb & vbLf & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "(この回答は下書きです。この後、別の検証ステップで事実確認されます。" & _
@@ -366,4 +368,45 @@ Private Function SourceTag(ByRef h As Hit) As String
     Else
         SourceTag = "[本棚:" & h.source & " p." & CStr(h.page) & "]"
     End If
+End Function
+
+' ----------------------------------------------------------------------------
+' UserContextBlock - 質問者の属性情報をプロンプトに注入(回答精度向上)。
+'   部署・役職・利用回数・連続利用日数から、LLMが回答の粒度・トーンを
+'   自動調整できるようにする。modConfig/modStatsへの呼び出しはR4対象外
+'   (modConfig自体はシートを読むが、modPromptsのソースにはExcelオブジェクト
+'   トークンが一切現れないためLintのトークン検査は通る)。
+' ----------------------------------------------------------------------------
+Private Function UserContextBlock() As String
+    Dim dept As String, userName As String
+    Dim askCount As Long, streak As Long, lvl As Long
+    On Error Resume Next
+    dept = modConfig.GetString("user_dept", "")
+    userName = modConfig.GetString("user_name", "")
+    askCount = modStats.GetStat("question_total")
+    streak = modStats.GetStat("streak_days")
+    lvl = modStats.Level()
+    On Error GoTo 0
+
+    If LenB(userName) = 0 And LenB(dept) = 0 And askCount = 0 Then
+        UserContextBlock = ""
+        Exit Function
+    End If
+
+    Dim sb As String
+    sb = "## 質問者コンテキスト(回答の粒度・トーン調整に使う。本人には言及しない)" & vbLf
+    If LenB(userName) > 0 Then sb = sb & "・氏名: " & userName & vbLf
+    If LenB(dept) > 0 Then sb = sb & "・部署: " & dept & vbLf
+    If lvl > 0 Then sb = sb & "・アプリLv: " & lvl & vbLf
+    If askCount > 0 Then
+        sb = sb & "・累計質問数: " & askCount & "回"
+        If askCount <= 5 Then
+            sb = sb & "(初心者=基礎から丁寧に)"
+        ElseIf askCount >= 50 Then
+            sb = sb & "(ヘビーユーザー=簡潔に本質だけ)"
+        End If
+        sb = sb & vbLf
+    End If
+    If streak >= 3 Then sb = sb & "・連続利用: " & streak & "日(定着ユーザー)" & vbLf
+    UserContextBlock = sb
 End Function

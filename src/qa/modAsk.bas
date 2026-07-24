@@ -232,6 +232,21 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒット"
         modUIMain.RenderSourcesPreview hits, nHits
 
+        ' 曖昧クエリ検知: 質問が短く、かつトップヒットの関連度が低い場合
+        ' LLMを呼ばずに確認プロンプトを返す(API節約+精度向上)
+        If Len(q) <= 10 And nHits >= 1 Then
+            If hits(1).score < 0.72 Then
+                result = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少し詳しく教えていただけますか？" & vbLf & vbLf & _
+                    "たとえば:" & vbLf & _
+                    "・どの資料について？（約款 / マニュアル / 規程）" & vbLf & _
+                    "・どんな状況で？（契約者対応 / 社内手続き / 研修）" & vbLf & _
+                    "・知りたい結論は？（必要書類 / 所要日数 / 保険料への影響）" & vbLf & vbLf & _
+                    "具体的に書くほど、精度の高い回答が得られます。"
+                modLog.LogUsage "ambiguous_clarify", "", "q=" & modUtil.SafeLeft(q, 50) & " score=" & Format$(hits(1).score, "0.000")
+                GoTo Done
+            End If
+        End If
+
         If mdMode = MODE_DEEP Then
             result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
         Else

@@ -54,6 +54,9 @@ Private Const COL_K_FULLTEXT As Long = 7
 Private Const PREVIEW_LEN As Long = 120
 Private Const KEYWORD_BONUS_PER_WORD As Double = 0.05
 Private Const KEYWORD_BONUS_MAX As Double = 0.15
+Private Const FULLTEXT_BONUS_PER_WORD As Double = 0.08
+Private Const FULLTEXT_BONUS_MAX As Double = 0.25
+Private Const EXACT_PHRASE_BONUS As Double = 0.15
 
 ' ----------------------------------------------------------------------------
 ' Search - MASTER_SPEC §7.3 唯一の公開関数。
@@ -192,6 +195,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Dim sc As Double
         sc = modUtil.DotProduct(qv, vv)
         sc = sc + KeywordBonus(words, summary, keywords, srcName)
+        sc = sc + FullTextBoost(words, fullText, query)
 
         If filled < k Then
             filled = filled + 1
@@ -361,6 +365,7 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
                                 CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
                                 CStr(kData(kRow, COL_K_SOURCE)) & " " & _
                                 modUtil.SafeLeft(CStr(kData(kRow, COL_K_FULLTEXT)), 200))
+            sc = sc + FullTextBoost(words, CStr(kData(kRow, COL_K_FULLTEXT)), queries(LBound(queries)))
 
             If unionScore.Exists(vid) Then
                 If sc > unionScore.Item(vid) Then unionScore.Item(vid) = sc
@@ -500,6 +505,48 @@ Private Function KeywordBonus(ByRef words() As String, ByVal summary As String, 
     bonus = CDbl(matched) * KEYWORD_BONUS_PER_WORD
     If bonus > KEYWORD_BONUS_MAX Then bonus = KEYWORD_BONUS_MAX
     KeywordBonus = bonus
+End Function
+
+' FullTextBoost - チャンク本文(full_text)内の語彙一致による追加ブースト。
+' 既存のKeywordBonus(summary/keywords/source対象)を補完し、本文に直接
+' 質問語が含まれるチャンクを優遇する。完全一致フレーズボーナス付き。
+Private Function FullTextBoost(ByRef words() As String, ByVal fullText As String, _
+                               ByVal rawQuery As String) As Double
+    If LenB(fullText) = 0 Then
+        FullTextBoost = 0#
+        Exit Function
+    End If
+
+    ' 完全一致フレーズボーナス: 質問文全体が本文に含まれていれば大幅加算
+    Dim bonus As Double: bonus = 0#
+    If LenB(rawQuery) >= 4 Then
+        If InStr(1, fullText, rawQuery, vbTextCompare) > 0 Then
+            bonus = bonus + EXACT_PHRASE_BONUS
+        End If
+    End If
+
+    ' 語彙単位ボーナス: 各語が本文に出現すれば加算(TF考慮: 2回以上で+50%)
+    Dim matched As Long: matched = 0
+    Dim i As Long
+    For i = LBound(words) To UBound(words)
+        If LenB(words(i)) >= 2 Then
+            Dim pos As Long: pos = InStr(1, fullText, words(i), vbTextCompare)
+            If pos > 0 Then
+                matched = matched + 1
+                ' 2回目出現チェック(TF: 頻出語はより関連度が高い)
+                If InStr(pos + Len(words(i)), fullText, words(i), vbTextCompare) > 0 Then
+                    matched = matched + 1  ' 0.5回分追加(整数で近似)
+                End If
+            End If
+        End If
+    Next i
+
+    Dim wordBonus As Double
+    wordBonus = CDbl(matched) * FULLTEXT_BONUS_PER_WORD * 0.667  ' 1.5倍を2/3で近似
+    If wordBonus > FULLTEXT_BONUS_MAX Then wordBonus = FULLTEXT_BONUS_MAX
+    bonus = bonus + wordBonus
+
+    FullTextBoost = bonus
 End Function
 
 ' bestScore(1..k)中の最小値とその添字を再計算する(ストリーミングtop-k用)。
