@@ -395,3 +395,12 @@ Private Sub BoardWait(ByVal ms As Long)
         If Timer < t0 Then Exit Do
     Loop
 End Sub
+
+' modHubからの参照用アクセサ
+Public Function OrgMinutesDay() As Long
+    OrgMinutesDay = mOrgDay
+End Function
+
+Public Function OrgMinutesMon() As Long
+    OrgMinutesMon = mOrgMon
+End Function

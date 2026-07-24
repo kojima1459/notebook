@@ -240,7 +240,7 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
         Array("B", "C", "今月の質問", CLng(modStats.GetStat("question_total"))), _
         Array("D", "E", ChrW(&HD83C) & ChrW(&HDFE2) & " 自己解決", CLng(modStats.GetStat("selfsolve_total"))), _
         Array("B", "C", ChrW(&H23F1) & " 節約時間", FmtMin(modStats.SavedMinutesEstimate())), _
-        Array("D", "E", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚", modShelf.SourceCount()), _
+        Array("D", "E", ChrW(&HD83D) & ChrW(&HDCD6) & " チャンク", modShelf.TotalChunks()), _
         Array("B", "C", ChrW(&HD83C) & ChrW(&HDFCD) & " みんな(今日)", GetOrgMin("d")), _
         Array("D", "E", ChrW(&HD83C) & ChrW(&HDFCD) & " みんな(今月)", GetOrgMin("m")), _
         Array("B", "C", ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", CLng(modStats.GetStat("streak_days")) & "日"), _
@@ -393,7 +393,7 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
     For i = 0 To UBound(ids)
         Dim earned As Boolean
         On Error Resume Next
-        earned = (LenB(modStats.GetStatValueString("badge:" & CStr(ids(i)))) > 0)
+        earned = (modStats.GetStat("badge:" & CStr(ids(i))) > 0)
         On Error GoTo 0
         If earned Then
             sb = sb & ChrW(&HD83C) & ChrW(&HDFC5) & " " & CStr(titles(i)) & "  "
@@ -420,12 +420,7 @@ Public Sub OnGoChat()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     modUI.GoToNexus "modHub.OnGoChat"
-    ' Chat遷移後、frmChatInputを表示(存在すれば)
-    On Error Resume Next
-    Dim frm As Object
-    Set frm = VBA.UserForms.Add("frmChatInput")
-    frm.Show False
-    On Error GoTo 0
+    modChat.EnsureChatLayout
 Done:
     modUiLock.Leave
 End Sub
@@ -433,7 +428,8 @@ End Sub
 Public Sub OnGoVault()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modVault.ShowVaultGallery
+    modConfig.SetValue "knowledge_view", "gallery"
+    modKnowledge.EnsureKnowledgeLayout
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -441,7 +437,8 @@ End Sub
 Public Sub OnGoShelf()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modUIShelf.EnsureLayout
+    modConfig.SetValue "knowledge_view", "table"
+    modKnowledge.EnsureKnowledgeLayout
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -449,7 +446,8 @@ End Sub
 Public Sub OnGoPack()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modVault.ShowVaultGallery
+    modConfig.SetValue "knowledge_view", "gallery"
+    modKnowledge.EnsureKnowledgeLayout
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -476,19 +474,9 @@ End Sub
 
 Public Sub OnGacha()
     If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-    ' frmGachaが存在すれば表示、なければToastで代替
     On Error Resume Next
-    Dim frm As Object
-    Set frm = VBA.UserForms.Add("frmGacha")
-    frm.Show True
-    If Err.Number <> 0 Then
-        Err.Clear
-        ' フォールバック: 既存のmodApp.OnGacha(バブル表示)
-        modApp.OnGacha
-    End If
+    modGacha.ShowGacha
     On Error GoTo 0
-Done:
     modUiLock.Leave
 End Sub
 
@@ -511,7 +499,7 @@ End Sub
 Public Sub OnThemeToggle()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modSkin.CycleTheme
+    modSkin.CycleSkin
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -519,7 +507,7 @@ End Sub
 Public Sub OnHelp()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modHelp.ShowHelp
+    modHelp.OnHelpClick
     On Error GoTo 0
     modUiLock.Leave
 End Sub

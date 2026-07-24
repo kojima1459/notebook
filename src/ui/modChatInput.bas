@@ -175,7 +175,7 @@ Private Function BuildInputFormCode() As String
     sb = sb & "    ThisWorkbook.Names(""nx_input"").RefersToRange.Value = q" & vbLf
     sb = sb & "    On Error GoTo 0" & vbLf
     sb = sb & "    ' 回答生成を呼び出し" & vbLf
-    sb = sb & "    modApp.OnAsk" & vbLf
+    sb = sb & "    modUIMain.OnAskButton" & vbLf
     sb = sb & "End Sub" & vbLf & vbLf
 
     sb = sb & "Private Sub UserForm_Initialize()" & vbLf
