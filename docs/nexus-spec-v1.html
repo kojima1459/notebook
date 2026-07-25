@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Nexus Agent UI/UX 完全仕様書 v1.0</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Yu Gothic UI','Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.7;padding:40px 20px}
+.container{max-width:1000px;margin:0 auto}
+h1{font-size:24px;text-align:center;margin-bottom:4px;color:#fff}
+.subtitle{text-align:center;color:#64748b;font-size:11px;margin-bottom:40px}
+h2{font-size:16px;color:#60a5fa;margin:40px 0 16px;padding-bottom:6px;border-bottom:1px solid #1e3a5f}
+h3{font-size:13px;color:#93c5fd;margin:24px 0 10px}
+h4{font-size:11px;color:#fbbf24;margin:16px 0 8px}
+p,li{font-size:11px;color:#cbd5e1}
+ul,ol{padding-left:20px;margin:8px 0}
+li{margin:4px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:10px}
+th{background:#1e293b;color:#93c5fd;padding:8px 10px;text-align:left;border:1px solid #334155}
+td{padding:7px 10px;border:1px solid #334155;color:#cbd5e1}
+tr:nth-child(even) td{background:#1a2332}
+.code{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:12px 16px;font-family:'Cascadia Code',monospace;font-size:10px;color:#a5f3fc;margin:10px 0;overflow-x:auto;white-space:pre-wrap}
+.warn{background:#451a03;border:1px solid #92400e;border-radius:6px;padding:10px 14px;margin:10px 0;font-size:10px;color:#fbbf24}
+.ok{background:#052e16;border:1px solid #166534;border-radius:6px;padding:10px 14px;margin:10px 0;font-size:10px;color:#4ade80}
+.flow{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px;margin:12px 0;font-size:10px;line-height:2}
+.flow .arrow{color:#60a5fa;font-weight:bold}
+.tag{display:inline-block;padding:2px 8px;border-radius:8px;font-size:8px;margin:2px}
+.tag-shape{background:#312e81;color:#a5b4fc}
+.tag-cell{background:#1e3a5f;color:#93c5fd}
+.tag-uf{background:#3b0764;color:#d8b4fe}
+.tag-dialog{background:#451a03;color:#fbbf24}
+.tag-nav{background:#052e16;color:#4ade80}
+.section-box{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:20px;margin:16px 0}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Nexus Agent UI/UX 完全仕様書 v1.0</h1>
+<p class="subtitle">Claude Code実装用 ｜ VBA再現可能性保証 ｜ 2026-07-22 ｜ 既存コードベース最小変更原則</p>
+
+<!-- ============================================================ -->
+<h2>§1. アーキテクチャ（画面構成）</h2>
+
+<h3>1.1 タブ構成（3タブ + 2サブビュー）</h3>
+<table>
+<tr><th>タブ</th><th>シート名</th><th>役割</th><th>既存モジュール</th><th>変更度</th></tr>
+<tr><td>🏠 Hub</td><td>Home（既存流用）</td><td>ダッシュボード + ナビゲーション + プロフィール</td><td>modUIMain + modUIDashboard</td><td>中（統合）</td></tr>
+<tr><td>💬 Chat</td><td>Nexus（既存流用）</td><td>チャット専用（バブル+アクション+入力）</td><td>modUI + modApp + modUINexusDraw</td><td>大（再設計）</td></tr>
+<tr><td>📚 Knowledge</td><td>Vault（既存流用）</td><td>ナレッジ倉庫ギャラリー + マイ本棚テーブル</td><td>modVault + modUIShelf</td><td>小（統合UI）</td></tr>
+<tr><td>（サブ）登録フォーム</td><td>VaultInput（既存）</td><td>テキストナレッジ新規登録</td><td>modVault.ShowVaultInput</td><td>無変更</td></tr>
+<tr><td>（サブ）UserForm入力</td><td>frmChatInput</td><td>ボーダーレスチャット入力</td><td>新規作成</td><td>新規</td></tr>
+</table>
+
+<h3>1.2 画面遷移図</h3>
+<div class="flow">
+<b>【起動時】</b><br>
+Workbook_Open → modBoot.Boot → <span class="arrow">→</span> 🏠 Hub表示（既定）<br><br>
+
+<b>【Hubからの遷移】</b><br>
+Hub [💬チャットで質問する] <span class="arrow">→</span> 💬 Chat タブ（NexusシートActivate）<br>
+Hub [📚ナレッジ倉庫] <span class="arrow">→</span> 📚 Knowledge タブ（VaultシートActivate, ギャラリーモード）<br>
+Hub [📖マイ本棚] <span class="arrow">→</span> 📚 Knowledge タブ（VaultシートActivate, テーブルモード）<br>
+Hub [📦パック共有] <span class="arrow">→</span> 📚 Knowledge タブ（ギャラリーモード, パック領域にスクロール）<br>
+Hub [💡定型テンプレ] <span class="arrow">→</span> 💬 Chat タブ + frmChatInput自動表示（テンプレセット済み）<br>
+Hub [🎲今日のワンポイント] <span class="arrow">→</span> frmGacha ポップアップ（モーダルUserForm）<br><br>
+
+<b>【Chatからの遷移】</b><br>
+Chat [← Hub] <span class="arrow">→</span> 🏠 Hub タブ<br>
+Chat [🆘本社照会] <span class="arrow">→</span> 外部URL開く（ThisWorkbook.FollowHyperlink）<br>
+Chat [📄Word] <span class="arrow">→</span> Word COM起動 → 回答をWord文書に出力（既存OnActWord流用）<br><br>
+
+<b>【Knowledgeからの遷移】</b><br>
+Knowledge [💬チャットへ] <span class="arrow">→</span> 💬 Chat タブ<br>
+Knowledge [＋登録] <span class="arrow">→</span> VaultInput サブビュー（SPA遷移）<br>
+Knowledge [📦パック出力] <span class="arrow">→</span> ネイティブFileDialog（MsgBox→保存先→完了MsgBox）<br>
+Knowledge [📥パック取込] <span class="arrow">→</span> ネイティブFileDialog（ファイル選択→重複チェック→完了MsgBox）<br>
+Knowledge [📁フォルダ選ぶ] <span class="arrow">→</span> ネイティブFileDialog（フォルダ選択→SyncNow→再描画）<br>
+Knowledge [カードクリック] <span class="arrow">→</span> MsgBox（プレビュー+削除/ノイズ報告/閉じる）<br><br>
+
+<b>【グローバル（どこからでも）】</b><br>
+Ctrl+Shift+Q <span class="arrow">→</span> 💬 Chat タブへ遷移 + frmChatInput表示<br>
+Ctrl+Enter（frmChatInput内） <span class="arrow">→</span> 送信（OnSend相当）
+</div>
+
+<!-- ============================================================ -->
+<h2>§2. 画面別 詳細設計</h2>
+
+<h3>2.1 🏠 Hub画面</h3>
+<div class="section-box">
+<h4>構成要素と実装方式</h4>
+<table>
+<tr><th>要素</th><th>実装</th><th>データソース</th><th>既存コード</th></tr>
+<tr><td>ヘッダーバー（⚡Nexus Agent + 🌐言語 + 🌙 + ❓ + 🚪）</td><td><span class="tag tag-shape">Shape</span> RoundedRectangle×1 + 子Shape×4</td><td>modConfig("lang"), modSkin</td><td>modUINexusDraw.DrawTopbar → 移植</td></tr>
+<tr><td>プロフィールカード（ユーザー名+部署+Lv+EXPバー）</td><td><span class="tag tag-shape">Shape</span> RoundedRectangle×1（影付き）+ 内部テキスト</td><td>modConfig("user_name"), modStats.Level/ExpTotal</td><td>modApp.ProfileCaption → 拡張</td></tr>
+<tr><td>EXPゲージ（次Lvまでの進捗バー）</td><td><span class="tag tag-shape">Shape</span> Rectangle×2（背景+Fill）</td><td>modStats.Level, ExpTotal, LevelDivisor</td><td>新規（modUIDashboardにREPTバーあり→Shape化）</td></tr>
+<tr><td>統計タイル×8（質問数/自己解決/節約時間/本棚/みんな今日/みんな今月/連続ログイン/パック数）</td><td><span class="tag tag-cell">セル</span> Merge+Interior.Color</td><td>modStats.GetStat, modBoard集計</td><td>modUIDashboard.FormatTile → 流用+拡張</td></tr>
+<tr><td>ナビボタン×4（チャット/ナレッジ/本棚/パック）</td><td><span class="tag tag-shape">Shape</span> RoundedRectangle×4（影+OnAction）</td><td>—</td><td>新規（modUIMainのボタン方式を参考）</td></tr>
+<tr><td>定型テンプレチップ×3</td><td><span class="tag tag-cell">セル</span> or <span class="tag tag-shape">Shape</span> 小型pill</td><td>固定テキスト</td><td>modApp.DrawSidebarExtras → 移植</td></tr>
+<tr><td>🎲今日のワンポイント</td><td><span class="tag tag-shape">Shape</span> RoundedRectangle×1（点線枠）</td><td>—</td><td>modApp.DrawSidebarExtras → 移植</td></tr>
+<tr><td>バッジ一覧</td><td><span class="tag tag-cell">セル</span> テキスト</td><td>modStats.EvaluateBadges</td><td>modUIDashboard.RenderBadges → 流用</td></tr>
+</table>
+
+<h4>ボタンアクション定義（Hub）</h4>
+<table>
+<tr><th>ボタン</th><th>OnAction</th><th>動作</th><th>遷移先</th></tr>
+<tr><td>💬 チャットで質問する</td><td>modHub.OnGoChat</td><td>NexusシートActivate + frmChatInput表示</td><td>💬 Chat</td></tr>
+<tr><td>📚 ナレッジ倉庫</td><td>modHub.OnGoVault</td><td>VaultシートActivate + ShowVaultGallery</td><td>📚 Knowledge（ギャラリー）</td></tr>
+<tr><td>📖 マイ本棚</td><td>modHub.OnGoShelf</td><td>VaultシートActivate + テーブルモード切替</td><td>📚 Knowledge（テーブル）</td></tr>
+<tr><td>📦 パック共有</td><td>modHub.OnGoPack</td><td>VaultシートActivate + ギャラリー + パック領域表示</td><td>📚 Knowledge（ギャラリー）</td></tr>
+<tr><td>💡 改定ポイントを教えて</td><td>modHub.OnQuickAsk</td><td>Chat遷移 + frmChatInput表示 + テンプレセット</td><td>💬 Chat + UserForm</td></tr>
+<tr><td>💡 用語をやさしく解説</td><td>modHub.OnQuickAsk</td><td>同上（テンプレ異なる）</td><td>💬 Chat + UserForm</td></tr>
+<tr><td>💡 手続きの流れを知りたい</td><td>modHub.OnQuickAsk</td><td>同上（テンプレ異なる）</td><td>💬 Chat + UserForm</td></tr>
+<tr><td>🎲 今日のワンポイント</td><td>modHub.OnGacha</td><td>frmGacha表示（モーダルUserForm）</td><td>ポップアップ（画面遷移なし）</td></tr>
+<tr><td>🌐 言語切替</td><td>modHub.OnLangCycle</td><td>lang設定を循環（ja→en→zh→ja）+ Toast</td><td>なし（その場）</td></tr>
+<tr><td>🌙 テーマ切替</td><td>modHub.OnThemeToggle</td><td>modSkin.CycleTheme + 全画面再彩色</td><td>なし（その場）</td></tr>
+<tr><td>❓ ヘルプ</td><td>modHelp.ShowHelp</td><td>既存ヘルプUserForm表示</td><td>ポップアップ</td></tr>
+<tr><td>🚪 保存して終了</td><td>modHub.OnSaveAndExit</td><td>modApp.OnSaveAndExit（既存流用）</td><td>Workbook保存+UI最小化</td></tr>
+</table>
+</div>
+
+<h3>2.2 💬 Chat画面</h3>
+<div class="section-box">
+<h4>構成要素</h4>
+<table>
+<tr><th>要素</th><th>実装</th><th>備考</th></tr>
+<tr><td>ヘッダー（← Hub | 💬チャット | モードpill | 言語pill | 🗑クリア）</td><td><span class="tag tag-shape">Shape</span> ×1背景 + 子×4</td><td>既存DrawTopbarから移植</td></tr>
+<tr><td>チャットバブル（ユーザー/AI）</td><td><span class="tag tag-shape">Shape</span> RoundedRectangle（動的生成）</td><td>既存AddChatBubble流用。CapBubbles=40維持</td></tr>
+<tr><td>アクションボタン（👍👎🔍📋📄🆘）</td><td><span class="tag tag-shape">Shape</span> pill×6（最新AI回答直下のみ）</td><td>既存DrawFloatingActionBar → 文脈表示化</td></tr>
+<tr><td>入力欄</td><td><span class="tag tag-uf">UserForm</span> frmChatInput（BorderStyle=0）</td><td>新規作成。シート埋め込み değil</td></tr>
+<tr><td>考え中インジケーター</td><td><span class="tag tag-shape">Shape</span> バブル（"考え中…"）</td><td>既存流用</td></tr>
+</table>
+
+<h4>frmChatInput 仕様（ボーダーレスUserForm）</h4>
+<table>
+<tr><th>プロパティ</th><th>値</th><th>理由</th></tr>
+<tr><td>BorderStyle</td><td>0 - fmBorderStyleNone</td><td>Win95感排除</td></tr>
+<tr><td>Width</td><td>620</td><td>長文対応（A4用紙相当）</td></tr>
+<tr><td>Height</td><td>120</td><td>3行表示+ボタン</td></tr>
+<tr><td>BackColor</td><td>&h00FCFBFA（#FAFBFC）</td><td>柔らかい白</td></tr>
+<tr><td>ShowModal</td><td>False（モードレス）</td><td>シート操作と併用可能</td></tr>
+<tr><td>StartupPosition</td><td>0 - Manual（コードで位置指定）</td><td>ウィンドウ下部中央に固定</td></tr>
+</table>
+<p><b>内部コントロール:</b></p>
+<ul>
+<li>TextBox1: MultiLine=True, WordWrap=True, ScrollBars=2, Font="Yu Gothic UI" 11pt, BackColor=&h00FFFFFF</li>
+<li>cmdSend: 円形ボタン（36×36, BackColor=&h00699605 緑, Caption="➤"）</li>
+<li>cmdClip: 📎ボタン（30×30, 画像添付 → 既存OnActClip流用）</li>
+<li>lblHint: "Ctrl+Enter送信 / Shift+Enter改行"（8pt, 灰色）</li>
+</ul>
+
+<h4>キーバインド（frmChatInput内）</h4>
+<table>
+<tr><th>キー</th><th>動作</th></tr>
+<tr><td>Ctrl+Enter</td><td>送信（OnSend相当）→ TextBoxクリア → バブル追加</td></tr>
+<tr><td>Enter（単独）</td><td>送信（設定で切替可能: config "enter_to_send" 既定True）</td></tr>
+<tr><td>Shift+Enter</td><td>改行</td></tr>
+<tr><td>Escape</td><td>UserForm非表示（Chatタブは維持）</td></tr>
+</table>
+
+<h4>アクションボタン（文脈表示ルール）</h4>
+<div class="warn">
+⚠️ 重要: アクションボタンは「最新のAI回答バブルの直下」にだけ表示する。
+古い回答の下には表示しない（クリックで選択切替は廃止）。
+新しい質問を送信したら、旧アクションボタンは即座に非表示（Delete or Visible=False）。
+</div>
+<table>
+<tr><th>ボタン</th><th>OnAction</th><th>動作</th><th>表示条件</th></tr>
+<tr><td>👍 役に立った</td><td>modApp.OnActGood</td><td>modAsk.FeedbackGreen + EXP+10 + Toast</td><td>AI回答バブル存在時</td></tr>
+<tr><td>👎 役に立たなかった</td><td>modApp.OnActBad</td><td>自己学習フロー（frmBadFeedback or 既存）</td><td>同上</td></tr>
+<tr><td>🔍 深掘り</td><td>modApp.OnActDrill</td><td>直前Q+Aをコンテキストに追加質問</td><td>同上</td></tr>
+<tr><td>📋 コピー</td><td>modApp.OnActCopy</td><td>回答テキストをClipboardへ</td><td>同上</td></tr>
+<tr><td>📄 Word</td><td>modApp.OnActWord</td><td>Word COM起動 → 回答出力</td><td>同上</td></tr>
+<tr><td>🆘 本社照会</td><td>modApp.OnActHq</td><td>HQ URLをFollowHyperlink</td><td>同上</td></tr>
+</table>
+</div>
+
+<h3>2.3 📚 Knowledge画面（ナレッジ倉庫 + マイ本棚 統合）</h3>
+<div class="section-box">
+<h4>現状の問題点（コードレビュー結果）</h4>
+<ul>
+<li>modVault（ギャラリー）とmodUIShelf（テーブル）が<b>別シート・別タブ</b>で存在 → ユーザーが迷う</li>
+<li>modUIShelfのボタン行が7個（A1:N2）で横に長すぎる → 画面からはみ出す</li>
+<li>modVaultのギャラリーカード（Shape×9）はクリックでMsgBox → Win95感</li>
+<li>パック出力/取込が両方の画面に重複して存在 → 混乱</li>
+</ul>
+
+<h4>新設計: 1シート2モード</h4>
+<table>
+<tr><th>モード</th><th>表示</th><th>切替方法</th><th>既存コード</th></tr>
+<tr><td>🃏 ギャラリー（既定）</td><td>3列カードグリッド + 検索 + ページング</td><td>上部タブ「ギャラリー」クリック</td><td>modVault.ShowVaultGallery（流用）</td></tr>
+<tr><td>📋 テーブル（マイ本棚）</td><td>1行=1資料の表（状態/名前/日付/チャンク/メモ）</td><td>上部タブ「マイ本棚」クリック</td><td>modUIShelf.RenderShelf（流用）</td></tr>
+</table>
+
+<h4>Knowledge画面のボタン（共通ツールバー）</h4>
+<table>
+<tr><th>ボタン</th><th>OnAction</th><th>動作</th><th>実装</th></tr>
+<tr><td>🔍 検索</td><td>modVault.OnVaultSearch</td><td>D3セルのキーワードでフィルタ</td><td>既存流用</td></tr>
+<tr><td>＋ 登録</td><td>modVault.ShowVaultInput</td><td>VaultInputサブビューへSPA遷移</td><td>既存流用</td></tr>
+<tr><td>📁 追加（ファイル）</td><td>modUIShelf.OnAddFiles</td><td>FileDialog → IngestFile</td><td>既存流用</td></tr>
+<tr><td>📦 パック出力</td><td>modPack.ExportPackDialog</td><td>MsgBox(範囲)→FileDialog(保存)→完了</td><td>既存流用（変更なし）</td></tr>
+<tr><td>📥 パック取込</td><td>modPack.ImportPackDialog</td><td>FileDialog(選択)→重複チェック→完了</td><td>既存流用（変更なし）</td></tr>
+<tr><td>🔄 同期</td><td>modShelfSync.SyncNow</td><td>フォルダ走査→差分取込/削除</td><td>既存流用</td></tr>
+<tr><td>📁 フォルダ選ぶ</td><td>modShelfSync.PickShelfFolder</td><td>FileDialog(フォルダ)→config保存→SyncNow</td><td>既存流用</td></tr>
+<tr><td>🗑 削除</td><td>modUIShelf.OnDeleteSource</td><td>アクティブ行の資料をMsgBox確認→削除</td><td>既存流用（テーブルモード時のみ有効）</td></tr>
+<tr><td>💬 チャットへ</td><td>modUI.GoToNexus</td><td>NexusシートActivate</td><td>既存流用</td></tr>
+</table>
+
+<div class="ok">
+✅ 既存コード変更最小化: modVault/modUIShelf/modPack/modShelfSyncのロジックは<b>1行も変更しない</b>。
+変更するのは「どのシートにボタンを置くか」と「モード切替の追加」のみ。
+</div>
+</div>
+
+<h3>2.4 frmGacha（今日のワンポイント ポップアップ）</h3>
+<div class="section-box">
+<h4>仕様</h4>
+<table>
+<tr><th>プロパティ</th><th>値</th></tr>
+<tr><td>BorderStyle</td><td>0 - fmBorderStyleNone</td></tr>
+<tr><td>Width / Height</td><td>420 / 280</td></tr>
+<tr><td>BackColor</td><td>&h00FFFFFF</td></tr>
+<tr><td>ShowModal</td><td>True（モーダル）</td></tr>
+<tr><td>StartupPosition</td><td>1 - CenterOwner</td></tr>
+</table>
+<p><b>内部:</b></p>
+<ul>
+<li>lblTitle: "🎲 今日のワンポイント"（14pt Bold, 中央）</li>
+<li>lblSource: "【資料名】"（9pt, 灰色）</li>
+<li>txtBody: MultiLine TextBox（ReadOnly, 本文300文字表示, ScrollBars=2）</li>
+<li>cmdClose: "閉じる"（RoundedRect風, 中央）</li>
+<li>cmdAgain: "🎲 もう一度引く"（小型リンク風）</li>
+</ul>
+<h4>データフロー</h4>
+<div class="flow">
+Hub [🎲クリック] <span class="arrow">→</span> modHub.OnGacha <span class="arrow">→</span> my_knowledgeからRandom行取得 <span class="arrow">→</span> frmGacha.Show（lblSource/txtBodyにセット）<br>
+frmGacha [もう一度引く] <span class="arrow">→</span> 再Random → ラベル更新（Unload不要）<br>
+frmGacha [閉じる] <span class="arrow">→</span> Unload Me
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>§3. チャットUX 詳細フロー（動的動作の忠実定義）</h2>
+
+<h3>3.1 送信フロー（最重要）</h3>
+<div class="flow">
+<b>トリガー:</b> frmChatInputのcmdSendクリック or Ctrl+Enter or Enter（設定次第）<br><br>
+<b>Step 1:</b> modUiLock.Enter() でロック取得（失敗=二重送信 → 無視）<br>
+<b>Step 2:</b> TextBox1.Text を取得 → Trim → 空ならToast("入力してください") + Exit<br>
+<b>Step 3:</b> 2000文字超過チェック → 超過ならカット + Toast警告<br>
+<b>Step 4:</b> TextBox1.Text = ""（即クリア。UX: 送信感は即座に）<br>
+<b>Step 5:</b> modUI.AddChatBubble "user", question（ユーザーバブル描画）<br>
+<b>Step 6:</b> modUI.AddChatBubble "ai", "⏳ 考え中…"（考え中バブル）<br>
+<b>Step 7:</b> DoEvents（画面更新を確実に）<br>
+<b>Step 8:</b> モード判定:<br>
+  - RAG モード: modAsk.Answer(question) → 回答文字列 + 出典<br>
+  - 一般モード: modApp.AskGeneral(question) → LLM直接応答<br>
+<b>Step 9:</b> 考え中バブルを削除（Shapes("nx_thinking").Delete）<br>
+<b>Step 10:</b> modUI.AddChatBubble "ai", answer（AI回答バブル描画）<br>
+<b>Step 11:</b> DrawContextActions（最新AIバブル直下にアクションボタン×6描画）<br>
+<b>Step 12:</b> SaveTurnForRestore（会話記憶保存）<br>
+<b>Step 13:</b> modStats.AddExp "question"（EXP+5）<br>
+<b>Step 14:</b> modUiLock.Leave（ロック解放）<br><br>
+<b>エラー時:</b> Step 8で例外 → 考え中バブル削除 → エラーバブル描画 → modUiLock.Leave
+</div>
+
+<h3>3.2 CapBubbles（バブル上限管理）</h3>
+<div class="warn">
+⚠️ Shape数上限: 最大40個（32bit Excel メモリ保護）。<br>
+41個目追加時 → 最古のバブル（seq最小）をDelete → 新規追加。<br>
+アクションボタン（6個）はバブル数に含めない（固定枠）。<br>
+固定Shape（ヘッダー1+子4 = 5個）+ バブル最大40 + アクション6 = 最大51個/シート。
+</div>
+
+<h3>3.3 画面スクロール（バブル追加時）</h3>
+<div class="flow">
+バブル追加後 → ActiveWindow.ScrollRow = 最新バブルのTopRow相当<br>
+（FreezePanesはD8維持 → 上部ヘッダーは固定、下部だけスクロール）<br>
+<b>VBA実装:</b> ws.Range("A" & nextRow).Select → ActiveWindow.ScrollRow = nextRow - 10
+</div>
+
+<!-- ============================================================ -->
+<h2>§4. エッジケース定義と対応</h2>
+
+<table>
+<tr><th>#</th><th>エッジケース</th><th>発生条件</th><th>対応</th><th>実装箇所</th></tr>
+<tr><td>E01</td><td>二重送信（連打）</td><td>cmdSend高速連打</td><td>modUiLock.Enter()で排他。2回目は即Exit</td><td>modUiLock（既存）</td></tr>
+<tr><td>E02</td><td>LLM応答なし（タイムアウト）</td><td>API 30秒無応答</td><td>考え中バブル→"⚠️ 応答がありませんでした"バブルに置換</td><td>modAsk.Answer内</td></tr>
+<tr><td>E03</td><td>本棚空（資料0件）でRAG質問</td><td>初回利用時</td><td>"まだ資料がありません。ナレッジ倉庫から登録しましょう"バブル + Hub遷移ボタン</td><td>modAsk.Answer内ガード</td></tr>
+<tr><td>E04</td><td>Word COM起動失敗（EDR）</td><td>セキュリティソフト干渉</td><td>Visible=Trueで起動（既存修正済み）。失敗時Toast</td><td>modExtractorWord（既存）</td></tr>
+<tr><td>E05</td><td>パック保存先が読み取り専用</td><td>権限不足フォルダ選択</td><td>On Error捕捉 → 案内MsgBox（既存PACK_SAVE_FAILED）</td><td>modPack（既存）</td></tr>
+<tr><td>E06</td><td>frmChatInput表示中にシート切替</td><td>ユーザーがタブクリック</td><td>Workbook_SheetActivateでfrmChatInput.Hide（非表示化）</td><td>ThisWorkbook（新規フック）</td></tr>
+<tr><td>E07</td><td>バブル40個到達時のアクションボタン</td><td>CapBubblesで最古削除</td><td>アクションボタンは最新バブルに紐づくため影響なし</td><td>—</td></tr>
+<tr><td>E08</td><td>frmGacha表示中にmy_knowledge空</td><td>初回（資料未登録）</td><td>Toast("まだ資料がありません") + frmGacha非表示</td><td>modHub.OnGacha内ガード</td></tr>
+<tr><td>E09</td><td>テーマ切替時のUserForm色</td><td>ダークテーマでUserForm白のまま</td><td>frmChatInput/frmGachaのBackColorをテーマ連動で設定</td><td>modSkin.Repaint拡張</td></tr>
+<tr><td>E10</td><td>Ctrl+Shift+QでChat遷移時frmChatInput二重表示</td><td>既に表示中の再呼び出し</td><td>If frmChatInput.Visible Then .SetFocus: Exit Sub</td><td>グローバルホットキーハンドラ</td></tr>
+<tr><td>E11</td><td>Knowledge テーブルモードで削除→ギャラリー表示不整合</td><td>モード切替時のデータ同期</td><td>モード切替時に必ずRenderShelf or RenderGalleryCards再実行</td><td>modVault切替ハンドラ</td></tr>
+<tr><td>E12</td><td>32bit ExcelでShape.Shadow.Blur無効</td><td>環境依存</td><td>On Error Resume NextでBlur設定。失敗時はOffsetY+Transparencyのみ</td><td>共通ヘルパーSafeShadow</td></tr>
+<tr><td>E13</td><td>保護ビュー状態でHub表示</td><td>ネットワーク経由で開いた直後</td><td>modBoot.Boot内の既存ガード（Unblock-File案内）を維持</td><td>modBoot（既存）</td></tr>
+<tr><td>E14</td><td>frmChatInputのTextBoxに画像ペースト</td><td>Ctrl+Vで画像</td><td>TextBoxはテキストのみ受付。画像は📎ボタン経由（既存OnActClip）</td><td>frmChatInput.KeyPress</td></tr>
+<tr><td>E15</td><td>連続ログインstreakが日跨ぎでリセット</td><td>Timer午夜ロールオーバー</td><td>modStats.TouchTodayはDate文字列比較（Timer不使用）。問題なし</td><td>modStats（既存）</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>§5. データモデル（ER図相当）</h2>
+
+<h3>5.1 シート（テーブル）構成</h3>
+<div class="code">
+┌─────────────────────────────────────────────────────────────────┐
+│ my_knowledge (チャンク格納)                                      │
+├─────────────────────────────────────────────────────────────────┤
+│ chunk_id(PK) │ source_name │ page │ summary │ keywords │        │
+│ full_text    │ added_at    │ embedded(0/1)  │ origin            │
+└─────────────────────────────────────────────────────────────────┘
+        │ 1:N
+        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ my_vectors (埋め込みベクトル)                                    │
+├─────────────────────────────────────────────────────────────────┤
+│ chunk_id(FK) │ dim_1 │ dim_2 │ ... │ dim_N (config embed_dim)  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ my_manifest (資料マスタ)                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ file_name(PK) │ status │ ingested_at │ chunk_count │            │
+│ error_note    │ origin │ content_hash                           │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ my_stats (ユーザー統計KV)                                        │
+├─────────────────────────────────────────────────────────────────┤
+│ key(PK)      │ value       │ updated_at                         │
+│ 例: exp_total│ 245         │ 2026-07-22                         │
+│ 例: streak_days│ 5         │ 2026-07-22                         │
+│ 例: selfsolve_total│ 7     │ 2026-07-21                         │
+│ 例: badge:first_ingest│ 20260715 │ ...                          │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ usage_log (操作ログ)                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ timestamp │ event │ detail │ context                             │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ config (設定KV)                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│ key(PK) │ value                                                 │
+│ 例: lang│ "ja"                                                  │
+│ 例: nexus_mode│ "rag"                                           │
+│ 例: shelf_folder│ "C:\Users\...\本棚"                           │
+│ 例: embed_dim│ "1536"                                           │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ ui_state (画面状態KV)                                            │
+├─────────────────────────────────────────────────────────────────┤
+│ key(PK) │ value                                                 │
+│ 例: nexus_hist_u│ "質問1;;;質問2"                               │
+│ 例: nexus_hist_a│ "回答1;;;回答2"                               │
+└─────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>5.2 P2P共有フォルダ構造（\\pgiofs01\Nexus_Share\）</h3>
+<div class="code">
+Nexus_Share\
+├── beacons\
+│   ├── {user_id}.json      ← 各ユーザーのビーコン（節約時間/日付キー）
+│   └── ...
+├── packs\
+│   ├── {author}_{date}.xlsx  ← パックファイル（pack_meta/chunks/vectors）
+│   └── ...
+├── thanks\
+│   └── {to_user_id}.json   ← 感謝状（P2Pサンクス）
+└── noise_votes\
+    └── {source_hash}.json  ← ノイズ報告（組織的除外投票）
+</div>
+
+<!-- ============================================================ -->
+<h2>§6. 非機能要件</h2>
+
+<table>
+<tr><th>カテゴリ</th><th>要件</th><th>基準値</th><th>実装方法</th></tr>
+<tr><td>性能</td><td>Hub表示完了時間</td><td>≤2秒</td><td>ScreenUpdating=False + 描画最小化</td></tr>
+<tr><td>性能</td><td>チャット送信→回答表示</td><td>≤10秒（LLM依存）</td><td>考え中バブルで体感改善</td></tr>
+<tr><td>性能</td><td>Shape総数/シート</td><td>≤51個</td><td>CapBubbles=40 + 固定11</td></tr>
+<tr><td>安定性</td><td>1004エラー耐性</td><td>単一Shape失敗で全体道連れにしない</td><td>On Error Resume Next + 項目別ガード</td></tr>
+<tr><td>安定性</td><td>EnableEvents焼き付き防止</td><td>例外時も必ず復元</td><td>modUiLock.Enter/Leave対 + Finally相当</td></tr>
+<tr><td>安定性</td><td>32bit Excel メモリ</td><td>Shape増殖なし</td><td>CapBubbles + ギャラリーCARDS_PER_PAGE=9固定</td></tr>
+<tr><td>互換性</td><td>Excel バージョン</td><td>Microsoft 365 32bit（実機）</td><td>TextFrame2使用（2010+）</td></tr>
+<tr><td>セキュリティ</td><td>EDR/セキュリティソフト</td><td>Word COM Visible=True</td><td>既存修正維持</td></tr>
+<tr><td>セキュリティ</td><td>PII（個人情報）</td><td>パック出力前スキャン</td><td>modPii.ScanText（既存）</td></tr>
+<tr><td>保守性</td><td>モジュール責務分離</td><td>1モジュール=1画面 or 1機能</td><td>modHub(新) / modUI(Chat) / modVault+modUIShelf(Knowledge)</td></tr>
+<tr><td>保守性</td><td>既存コード変更量</td><td>modPack/modShelfSync/modStats/modAsk = 0行変更</td><td>UI層のみ変更</td></tr>
+<tr><td>UX</td><td>多言語</td><td>ja/en/zh 循環切替</td><td>modConfig("lang") + 文字列リソース</td></tr>
+<tr><td>UX</td><td>初回オンボーディング</td><td>modTour.StartTourIfFirstRun</td><td>既存維持</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>§7. 技術スタック（VBA制約内）</h2>
+
+<table>
+<tr><th>レイヤー</th><th>技術</th><th>用途</th></tr>
+<tr><td>UI描画（静的）</td><td>Shape (RoundedRectangle, Oval, Rectangle)</td><td>ヘッダー、ボタン、バブル、カード</td></tr>
+<tr><td>UI描画（グリッド）</td><td>Range (Merge, Interior.Color, Borders, Font)</td><td>統計タイル、バッジ、テーブル</td></tr>
+<tr><td>UI描画（入力）</td><td>UserForm (BorderStyle=0, TextBox MultiLine)</td><td>チャット入力、ガチャポップアップ</td></tr>
+<tr><td>視覚効果</td><td>Shape.Shadow, Fill.TwoColorGradient, Adjustments</td><td>立体感、丸み、グラデーション</td></tr>
+<tr><td>通知</td><td>modSkin.ShowToast (Shape + Timer)</td><td>非ブロッキング通知</td></tr>
+<tr><td>ネイティブダイアログ</td><td>FileDialog(msoFileDialogFilePicker/FolderPicker)</td><td>ファイル選択、フォルダ選択、保存先</td></tr>
+<tr><td>確認</td><td>MsgBox（最低限のみ）</td><td>削除確認、パック範囲選択（既存維持）</td></tr>
+<tr><td>LLM通信</td><td>MSXML2.XMLHTTP / WinHTTP</td><td>API呼び出し（modGateway）</td></tr>
+<tr><td>Word COM</td><td>CreateObject("Word.Application")</td><td>PDF/DOCX抽出、Word出力</td></tr>
+<tr><td>データ永続化</td><td>Worksheet (hidden sheets)</td><td>my_knowledge, my_stats, config等</td></tr>
+<tr><td>クリップボード</td><td>MSForms.DataObject</td><td>回答コピー</td></tr>
+<tr><td>ホットキー</td><td>Application.OnKey</td><td>Ctrl+Shift+Q, Ctrl+Enter</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>§8. モジュール構成（変更マップ）</h2>
+
+<div class="code">
+src/
+├── ui/
+│   ├── modHub.bas          ← 【新規】Hub画面描画+ハンドラ
+│   ├── modUI.bas           ← 【中変更】Chat専用化（サイドバー描画削除、InitUI簡素化）
+│   ├── modUINexusDraw.bas  ← 【大変更→削除候補】DrawSidebar/DrawTopbar → modHub/modUIに吸収
+│   ├── modApp.bas          ← 【中変更】OnSend/OnAct*は維持。ナビ系はmodHubに委譲
+│   ├── modUIDashboard.bas  ← 【小変更】Hubに統合（FormatTile/RenderBadgesはmodHubから呼ぶ）
+│   ├── modUIMain.bas       ← 【小変更】Homeシート→Hub化（EnsureLayout拡張）
+│   ├── modVault.bas        ← 【小変更】ギャラリー+テーブル統合UI（モード切替追加）
+│   ├── modUIShelf.bas      ← 【小変更】modVaultのテーブルモードとして呼ばれる
+│   ├── modBoard.bas        ← 【無変更】（HubからBootBoard呼ぶ）
+│   ├── modSkin.bas         ← 【小変更】UserFormテーマ連動追加
+│   ├── modHelp.bas         ← 【無変更】
+│   └── modTour.bas         ← 【無変更】
+├── forms/
+│   ├── frmChatInput.frm    ← 【新規】ボーダーレスチャット入力
+│   └── frmGacha.frm        ← 【新規】今日のワンポイントポップアップ
+├── qa/
+│   └── modAsk.bas          ← 【無変更】
+├── stats/
+│   └── modStats.bas        ← 【無変更】
+├── pack/
+│   └── modPack.bas         ← 【無変更】
+├── ingest/
+│   ├── modShelf.bas        ← 【無変更】
+│   ├── modShelfSync.bas    ← 【無変更】
+│   └── modExtractorWord.bas← 【無変更】
+└── core/
+    ├── modBoot.bas         ← 【小変更】Boot完了後→Hub表示
+    ├── modConfig.bas       ← 【無変更】
+    ├── modLog.bas          ← 【無変更】
+    └── modUiLock.bas       ← 【無変更】
+</div>
+
+<!-- ============================================================ -->
+<h2>§9. VBA視覚効果 実装パラメータ（Apple風）</h2>
+
+<table>
+<tr><th>コンポーネント</th><th>Shape型</th><th>Adjustments</th><th>Fill</th><th>Shadow</th><th>Line</th></tr>
+<tr><td>ヘッダーバー</td><td>msoShapeRoundedRectangle(5)</td><td>0.02</td><td>TwoColorGradient(#1a365d→#1f4e78)</td><td>なし</td><td>Visible=False</td></tr>
+<tr><td>プロフィールカード</td><td>msoShapeRoundedRectangle(5)</td><td>0.06</td><td>Solid #FFFFFF</td><td>Blur=6, OffsetY=2, Transparency=0.85</td><td>Visible=False</td></tr>
+<tr><td>ナビボタン</td><td>msoShapeRoundedRectangle(5)</td><td>0.08</td><td>Solid #FFFFFF</td><td>Blur=4, OffsetY=1.5, Transparency=0.9</td><td>Color=#E8ECF0, Weight=0.75</td></tr>
+<tr><td>ユーザーバブル</td><td>msoShapeRoundedRectangle(5)</td><td>0.06</td><td>TwoColorGradient(#1a365d→#1f4e78)</td><td>Blur=4, OffsetY=1, Transparency=0.8</td><td>Visible=False</td></tr>
+<tr><td>AIバブル</td><td>msoShapeRoundedRectangle(5)</td><td>0.06</td><td>Solid #FFFFFF</td><td>Blur=4, OffsetY=1, Transparency=0.9</td><td>Color=#E8ECF0, Weight=0.5</td></tr>
+<tr><td>アクションpill</td><td>msoShapeRoundedRectangle(5)</td><td>0.4</td><td>Solid #FFFFFF</td><td>なし</td><td>Color=#E2E8F0, Weight=0.75</td></tr>
+<tr><td>送信ボタン</td><td>msoShapeOval(9)</td><td>—</td><td>TwoColorGradient(#059669→#047857)</td><td>Blur=4, OffsetY=1, Transparency=0.7</td><td>Visible=False</td></tr>
+<tr><td>EXPバー背景</td><td>msoShapeRoundedRectangle(5)</td><td>0.5</td><td>Solid #E2E8F0</td><td>なし</td><td>Visible=False</td></tr>
+<tr><td>EXPバーFill</td><td>msoShapeRoundedRectangle(5)</td><td>0.5</td><td>TwoColorGradient(#f59e0b→#fbbf24)</td><td>なし</td><td>Visible=False</td></tr>
+<tr><td>ガチャボタン</td><td>msoShapeRoundedRectangle(5)</td><td>0.1</td><td>Visible=False（透明）</td><td>なし</td><td>DashStyle=3(点線), Color=#A78BFA, Weight=1.5</td></tr>
+</table>
+
+<div class="warn">
+⚠️ Shadow.Blur は32bit Excelで効かない場合あり。<br>
+必ず On Error Resume Next で .Blur = 6 を試行し、失敗時は .OffsetY + .Transparency のみで近似。<br>
+共通ヘルパー <b>SafeShadow(shp, blur, offsetY, transparency)</b> を新規作成して全箇所で使う。
+</div>
+
+<!-- ============================================================ -->
+<h2>§10. 実装優先順位（Claude Codeへの指示順）</h2>
+
+<table>
+<tr><th>Phase</th><th>内容</th><th>依存</th><th>推定工数</th></tr>
+<tr><td>P0</td><td>frmChatInput作成（BorderStyle=0, TextBox, Send/Clip）</td><td>なし</td><td>小</td></tr>
+<tr><td>P1</td><td>Chat画面再設計（modUI.InitUI簡素化 + ヘッダーShape + バブル維持）</td><td>P0</td><td>中</td></tr>
+<tr><td>P2</td><td>Hub画面作成（modHub.bas新規 + modUIMain/modUIDashboard統合）</td><td>P1</td><td>中</td></tr>
+<tr><td>P3</td><td>Knowledge統合（modVaultにモード切替追加）</td><td>なし（P1/P2と並行可）</td><td>小</td></tr>
+<tr><td>P4</td><td>frmGacha作成 + Hubからのポップアップ</td><td>P2</td><td>小</td></tr>
+<tr><td>P5</td><td>画面遷移の配線（OnAction/GoToNexus/Activate）</td><td>P0-P4</td><td>小</td></tr>
+<tr><td>P6</td><td>テーマ連動（UserForm色 + Shape再彩色）</td><td>P0-P5</td><td>小</td></tr>
+<tr><td>P7</td><td>多言語リソース（ja/en/zh文字列テーブル）</td><td>P5</td><td>中</td></tr>
+</table>
+
+<div class="ok">
+✅ 原則: modPack / modShelfSync / modStats / modAsk / modEmbed / modGateway / modExtractorWord は<b>一切変更しない</b>。<br>
+変更はUI層（modUI, modApp, modUINexusDraw, modUIMain, modUIDashboard, modVault, modUIShelf）+ 新規（modHub, frmChatInput, frmGacha）のみ。
+</div>
+
+</div>
+</body>
+</html>

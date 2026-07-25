@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus Agent - Hub/Chat Final Design (VBA-reproducible)</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Yu Gothic UI', 'Segoe UI', sans-serif; background: #0f172a; }
+.page { max-width: 900px; margin: 0 auto; padding: 32px 16px; }
+.page-title { color: #fff; font-size: 22px; text-align: center; margin-bottom: 4px; }
+.page-sub { color: #64748b; font-size: 11px; text-align: center; margin-bottom: 36px; }
+.screen-title { color: #e2e8f0; font-size: 14px; margin: 36px 0 12px; padding-left: 4px; }
+.screen-title span { color: #64748b; font-size: 10px; margin-left: 8px; }
+.vba-note { color: #94a3b8; font-size: 9px; margin-top: 6px; padding-left: 4px; line-height: 1.6; }
+.vba-note b { color: #60a5fa; }
+
+/* === EXCEL WINDOW FRAME === */
+.excel-frame { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 12px 48px rgba(0,0,0,0.5); border: 1px solid #334155; }
+.excel-titlebar { background: #217346; padding: 6px 12px; display: flex; align-items: center; font-size: 11px; color: #fff; }
+.excel-titlebar .dots { display: flex; gap: 5px; margin-right: 10px; }
+.excel-titlebar .dots span { width: 9px; height: 9px; border-radius: 50%; }
+.excel-titlebar .dots .r { background: #ff5f57; }
+.excel-titlebar .dots .y { background: #febc2e; }
+.excel-titlebar .dots .g { background: #28c840; }
+
+/* === HUB SCREEN === */
+.hub { background: #f8fafc; min-height: 600px; }
+
+/* Hub header */
+.hub-head { background: linear-gradient(135deg, #1a365d 0%, #1f4e78 100%); padding: 16px 24px; display: flex; align-items: center; }
+.hub-head .logo { color: #fff; font-size: 15px; font-weight: bold; letter-spacing: 0.3px; }
+.hub-head .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.hub-head .pill { padding: 4px 10px; border-radius: 14px; font-size: 9px; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
+.hub-head .icon-btn { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; cursor: pointer; }
+
+/* Hub body grid */
+.hub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px 24px; }
+
+/* Profile card */
+.profile-card { background: #fff; border-radius: 14px; padding: 16px 18px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border: 1px solid #e8ecf0; margin-bottom: 16px; }
+.profile-card .row { display: flex; align-items: center; gap: 12px; }
+.profile-card .avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: bold; }
+.profile-card .info .name { font-size: 13px; font-weight: bold; color: #1e293b; }
+.profile-card .info .sub { font-size: 9px; color: #94a3b8; margin-top: 2px; }
+.profile-card .level-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.profile-card .lv-badge { padding: 2px 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border-radius: 10px; font-size: 10px; font-weight: bold; }
+.profile-card .exp-bar { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.profile-card .exp-bar .fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 4px; width: 65%; }
+.profile-card .exp-text { font-size: 8px; color: #94a3b8; }
+
+/* Stat tiles */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat-card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #e8ecf0; text-align: center; }
+.stat-card .num { font-size: 18px; font-weight: bold; color: #1f4e78; }
+.stat-card .label { font-size: 8px; color: #94a3b8; margin-top: 3px; }
+.stat-card.team { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-color: #a7f3d0; }
+.stat-card.team .num { color: #059669; }
+.stat-card.streak { background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #fcd34d; }
+.stat-card.streak .num { color: #d97706; }
+
+/* Nav buttons */
+.nav-section { }
+.nav-section .title { font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 12px; }
+.nav-btn { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: #fff; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #e8ecf0; cursor: pointer; transition: all 0.15s; }
+.nav-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: #cbd5e1; }
+.nav-btn .icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.nav-btn .icon.green { background: #ecfdf5; }
+.nav-btn .icon.purple { background: #f3e8ff; }
+.nav-btn .icon.amber { background: #fef3c7; }
+.nav-btn .icon.blue { background: #e0f2fe; }
+.nav-btn .text .name { font-size: 12px; font-weight: bold; color: #1e293b; }
+.nav-btn .text .desc { font-size: 9px; color: #94a3b8; margin-top: 1px; }
+.nav-btn .arrow { margin-left: auto; color: #cbd5e1; font-size: 13px; }
+
+/* Quick ask + gacha */
+.extras { margin-top: 16px; }
+.extras .title { font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 10px; }
+.quick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.quick-chip { padding: 5px 12px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 14px; font-size: 9px; color: #475569; cursor: pointer; }
+.quick-chip:hover { background: #e2e8f0; }
+.gacha-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #fff; border: 1.5px dashed #a78bfa; border-radius: 12px; font-size: 10px; color: #7c3aed; font-weight: bold; cursor: pointer; }
+.gacha-btn:hover { background: #f5f3ff; }
+
+/* Badges */
+.badge-section { margin-top: 16px; }
+.badge-section .title { font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 8px; }
+.badge-list { font-size: 9px; line-height: 2; color: #64748b; }
+.badge-list .earned { color: #1e293b; font-weight: bold; }
+
+/* === CHAT SCREEN === */
+.chat { display: flex; flex-direction: column; height: 600px; background: #f8fafc; }
+.chat-head { background: linear-gradient(135deg, #065f46 0%, #059669 100%); padding: 12px 20px; display: flex; align-items: center; }
+.chat-head .back { color: rgba(255,255,255,0.8); font-size: 10px; cursor: pointer; margin-right: 12px; padding: 3px 8px; border-radius: 8px; background: rgba(255,255,255,0.1); }
+.chat-head .title { color: #fff; font-size: 13px; font-weight: bold; }
+.chat-head .right { margin-left: auto; display: flex; gap: 6px; }
+.chat-head .pill { padding: 3px 9px; border-radius: 10px; font-size: 8px; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); }
+
+.chat-body { flex: 1; padding: 20px 24px; overflow-y: auto; }
+.c-msg { margin-bottom: 18px; }
+.c-msg .meta { font-size: 8px; color: #94a3b8; margin-bottom: 3px; }
+.c-msg.user { display: flex; flex-direction: column; align-items: flex-end; }
+.c-msg .bubble { max-width: 75%; padding: 11px 15px; border-radius: 14px; font-size: 11px; line-height: 1.7; }
+.c-msg.user .bubble { background: linear-gradient(135deg, #1a365d, #1f4e78); color: #fff; border-bottom-right-radius: 4px; box-shadow: 0 2px 8px rgba(31,78,120,0.2); }
+.c-msg.ai .bubble { background: #fff; border: 1px solid #e8ecf0; border-bottom-left-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); color: #334155; }
+.c-actions { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.c-actions .a { padding: 3px 9px; border-radius: 10px; font-size: 8px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; cursor: pointer; }
+.c-actions .a:hover { border-color: #059669; color: #059669; }
+
+/* Chat input (UserForm representation) */
+.chat-input { padding: 12px 24px 16px; background: #fff; border-top: 1px solid #e8ecf0; }
+.chat-input .uf-frame { border: 1.5px solid #d0d7de; border-radius: 12px; padding: 10px 14px; display: flex; align-items: flex-end; gap: 10px; background: #fafbfc; }
+.chat-input .uf-frame:focus-within { border-color: #059669; background: #fff; }
+.chat-input .uf-text { flex: 1; min-height: 36px; font-size: 11px; color: #94a3b8; line-height: 1.5; }
+.chat-input .uf-send { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #059669, #047857); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; box-shadow: 0 2px 6px rgba(5,150,105,0.3); }
+.chat-input .uf-clip { width: 30px; height: 30px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; }
+.chat-input .hint { font-size: 8px; color: #94a3b8; margin-top: 6px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-title">Nexus Agent ─ Final UI Design</div>
+  <div class="page-sub">VBA Shape + セル + ボーダーレスUserForm で再現可能 ｜ Apple-like depth & roundness</div>
+
+  <!-- ===== HUB ===== -->
+  <div class="screen-title">画面1: Hub（ホーム + ダッシュボード統合）<span>Shape 8個 + セル</span></div>
+  <div class="excel-frame">
+    <div class="excel-titlebar">
+      <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      MyBookshelf.xlsm - Excel
+    </div>
+    <div class="hub">
+      <!-- Header: Shape 1個 (全幅RoundedRectangle, gradient fill) -->
+      <div class="hub-head">
+        <span class="logo">⚡ Nexus Agent</span>
+        <div class="right">
+          <span class="pill">🌐 日本語 ▾</span>
+          <span class="icon-btn">🌙</span>
+          <span class="icon-btn">❓</span>
+          <span class="icon-btn">🚪</span>
+        </div>
+      </div>
+
+      <div class="hub-grid">
+        <!-- LEFT COLUMN -->
+        <div>
+          <!-- Profile: Shape 1個 (RoundedRectangle, shadow) -->
+          <div class="profile-card">
+            <div class="row">
+              <div class="avatar">小</div>
+              <div class="info">
+                <div class="name">小島 英登</div>
+                <div class="sub">S4-A 損害サービス課</div>
+              </div>
+            </div>
+            <div class="level-row">
+              <span class="lv-badge">Lv.3</span>
+              <div class="exp-bar"><div class="fill"></div></div>
+              <span class="exp-text">EXP 245/400</span>
+            </div>
+          </div>
+
+          <!-- Stats: セル (Merge + Interior.Color) -->
+          <div class="stat-grid">
+            <div class="stat-card"><div class="num">23</div><div class="label">今月の質問数</div></div>
+            <div class="stat-card"><div class="num">7</div><div class="label">🏢 自己解決</div></div>
+            <div class="stat-card"><div class="num">1h45m</div><div class="label">⏱ 取り戻した時間</div></div>
+            <div class="stat-card"><div class="num">12</div><div class="label">📖 本棚の資料</div></div>
+            <div class="stat-card team"><div class="num">4h20m</div><div class="label">🏍 みんなの節約（今日）</div></div>
+            <div class="stat-card team"><div class="num">38h</div><div class="label">🏍 みんなの節約（今月）</div></div>
+            <div class="stat-card streak"><div class="num">🔥 5日</div><div class="label">連続ログイン</div></div>
+            <div class="stat-card"><div class="num">3</div><div class="label">📦 パック共有数</div></div>
+          </div>
+
+          <!-- Badges: セル -->
+          <div class="badge-section">
+            <div class="title">🏅 バッジ</div>
+            <div class="badge-list">
+              <span class="earned">🏅 初めての取込</span> ・ <span class="earned">🏅 本棚10冊</span> ・ <span class="earned">🏅 初パック共有</span><br>
+              🔒 本棚30冊 ・ 🔒 自己解決10件 ・ 🔒 7日連続
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div class="nav-section">
+          <div class="title">🚀 できること</div>
+          <!-- Nav buttons: Shape 4個 (RoundedRectangle + Shadow + OnAction) -->
+          <div class="nav-btn">
+            <div class="icon green">💬</div>
+            <div class="text"><div class="name">チャットで質問する</div><div class="desc">本棚の資料からAIが回答（出典付き）</div></div>
+            <div class="arrow">›</div>
+          </div>
+          <div class="nav-btn">
+            <div class="icon purple">📚</div>
+            <div class="text"><div class="name">ナレッジ倉庫</div><div class="desc">資料の追加・削除・フォルダ同期・パック</div></div>
+            <div class="arrow">›</div>
+          </div>
+          <div class="nav-btn">
+            <div class="icon amber">📖</div>
+            <div class="text"><div class="name">マイ本棚</div><div class="desc">登録済み資料の一覧・チャンク数確認</div></div>
+            <div class="arrow">›</div>
+          </div>
+          <div class="nav-btn">
+            <div class="icon blue">📦</div>
+            <div class="text"><div class="name">パック共有（P2P）</div><div class="desc">部内でナレッジ共有・貢献の見える化</div></div>
+            <div class="arrow">›</div>
+          </div>
+
+          <!-- Quick ask + Gacha -->
+          <div class="extras">
+            <div class="title">💡 こんなふうに聞いてみよう</div>
+            <div class="quick-chips">
+              <span class="quick-chip">💬 改定ポイントを教えて</span>
+              <span class="quick-chip">💬 用語をやさしく解説</span>
+              <span class="quick-chip">💬 手続きの流れを知りたい</span>
+            </div>
+            <div class="gacha-btn">🎲 今日のワンポイントを引く</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="vba-note">
+    <b>VBA再現:</b> ヘッダー=RoundedRectangle(Adjustments=0.02, TwoColorGradient) ｜ プロフィールカード=RoundedRectangle(0.06)+Shadow ｜ 統計タイル=セルMerge+Interior.Color ｜ ナビボタン=RoundedRectangle(0.08)+Shadow+OnAction ｜ EXPバー=2つのRectangle(背景+Fill) ｜ バッジ/クイックチップ=セル値
+  </div>
+
+  <!-- ===== KNOWLEDGE ===== -->
+  <div class="screen-title" style="margin-top:48px;">画面3: ナレッジ（倉庫ギャラリー + マイ本棚テーブル 統合）<span>Shape: カード×9 + ツールバー×7 ｜ セル: テーブル</span></div>
+  <div class="excel-frame">
+    <div class="excel-titlebar">
+      <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      MyBookshelf.xlsm - Excel
+    </div>
+    <div style="background:#f9fafb;min-height:500px;">
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#4c1d95,#6d28d9);padding:12px 20px;display:flex;align-items:center;">
+        <span style="color:rgba(255,255,255,0.8);font-size:10px;cursor:pointer;margin-right:12px;padding:3px 8px;border-radius:8px;background:rgba(255,255,255,0.1);">← Hub</span>
+        <span style="color:#fff;font-size:13px;font-weight:bold;">📚 ナレッジ</span>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <span style="padding:3px 10px;border-radius:10px;font-size:9px;color:#fff;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);cursor:pointer;">🃏 ギャラリー</span>
+          <span style="padding:3px 10px;border-radius:10px;font-size:9px;color:rgba(255,255,255,0.6);background:transparent;border:1px solid rgba(255,255,255,0.15);cursor:pointer;">📋 マイ本棚</span>
+        </div>
+      </div>
+      <!-- Toolbar -->
+      <div style="padding:10px 20px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid #e8ecf0;background:#fff;">
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">🔍 検索</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;cursor:pointer;">＋ 登録</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">📁 追加</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">📦 パック出力</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">📥 パック取込</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">🔄 同期</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">📁 フォルダ</span>
+        <span style="padding:4px 10px;border-radius:10px;font-size:8px;border:1px solid #e2e8f0;background:#111827;color:#fff;cursor:pointer;">💬 チャットへ</span>
+      </div>
+      <!-- Search bar -->
+      <div style="padding:10px 20px;">
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 14px;font-size:10px;color:#94a3b8;">キーワードで検索...（例: 約款, 保険金, 特約）</div>
+      </div>
+      <!-- Gallery cards (3x3 grid) -->
+      <div style="padding:0 20px 20px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 顧客対応マニュアル</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">12チャンク · 2026/07/15</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">保険金請求手続き、死亡・入院・通院各ケースの必要書類と審査期間...</div>
+          <div style="margin-top:8px;font-size:7px;color:#059669;">✅ 取込完了</div>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 漁船保険約款 2026</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">8チャンク · 2026/07/10</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">第4条 保険責任の開始、第12条 免責事由、特約条項...</div>
+          <div style="margin-top:8px;font-size:7px;color:#059669;">✅ 取込完了</div>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 内部研修メモ</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">3チャンク · 2026/07/20</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">新人向けOJTポイント、よくある質問と回答例...</div>
+          <div style="margin-top:8px;font-size:7px;color:#d97706;">⏳ 埋め込み中</div>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 損害調査チェックリスト</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">5チャンク · 2026/07/08</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">現場写真の撮影ポイント、報告書テンプレート...</div>
+          <div style="margin-top:8px;font-size:7px;color:#059669;">✅ 取込完了</div>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 海外契約者対応ガイド</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">6チャンク · 2026/07/18</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">在留証明書、パスポート写し、外貨口座対応...</div>
+          <div style="margin-top:8px;font-size:7px;color:#059669;">✅ 取込完了</div>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1px solid #e8ecf0;box-shadow:0 2px 8px rgba(0,0,0,0.04);cursor:pointer;">
+          <div style="font-size:10px;font-weight:bold;color:#1e293b;margin-bottom:4px;">📄 2026年度 改定ポイント</div>
+          <div style="font-size:8px;color:#94a3b8;margin-bottom:6px;">4チャンク · 2026/07/01</div>
+          <div style="font-size:8px;color:#64748b;line-height:1.5;">保険料率改定、新特約追加、解約返戻金計算式変更...</div>
+          <div style="margin-top:8px;font-size:7px;color:#dc2626;">⚠️ 一部失敗（p.8-12）</div>
+        </div>
+      </div>
+      <!-- Pagination -->
+      <div style="padding:0 20px 16px;display:flex;align-items:center;gap:8px;">
+        <span style="padding:3px 10px;border-radius:8px;font-size:9px;border:1px solid #e2e8f0;background:#fff;color:#94a3b8;cursor:pointer;">← 前</span>
+        <span style="font-size:9px;color:#64748b;">1 / 2 ページ（全12件）</span>
+        <span style="padding:3px 10px;border-radius:8px;font-size:9px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">次 →</span>
+      </div>
+    </div>
+  </div>
+  <div class="vba-note">
+    <b>VBA再現:</b> ヘッダー=RoundedRectangle(gradient) ｜ モード切替pill=Shape×2 ｜ ツールバー=RoundedRectangle(0.35)×8 ｜ カード=RoundedRectangle(0.06)+Shadow×9（CARDS_PER_PAGE=9固定） ｜ ページング=Shape×2 ｜ テーブルモード=modUIShelf.RenderShelf（セル、変更なし）
+  </div>
+
+  <!-- ===== マイ本棚テーブルモード ===== -->
+  <div class="screen-title" style="margin-top:36px;">画面3b: ナレッジ（マイ本棚テーブルモード）<span>セル100%（既存modUIShelf流用）</span></div>
+  <div class="excel-frame">
+    <div class="excel-titlebar">
+      <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      MyBookshelf.xlsm - Excel
+    </div>
+    <div style="background:#f9fafb;min-height:300px;">
+      <!-- Same header with table mode active -->
+      <div style="background:linear-gradient(135deg,#4c1d95,#6d28d9);padding:12px 20px;display:flex;align-items:center;">
+        <span style="color:rgba(255,255,255,0.8);font-size:10px;cursor:pointer;margin-right:12px;padding:3px 8px;border-radius:8px;background:rgba(255,255,255,0.1);">← Hub</span>
+        <span style="color:#fff;font-size:13px;font-weight:bold;">📚 ナレッジ</span>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <span style="padding:3px 10px;border-radius:10px;font-size:9px;color:rgba(255,255,255,0.6);background:transparent;border:1px solid rgba(255,255,255,0.15);cursor:pointer;">🃏 ギャラリー</span>
+          <span style="padding:3px 10px;border-radius:10px;font-size:9px;color:#fff;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);cursor:pointer;">📋 マイ本棚</span>
+        </div>
+      </div>
+      <!-- Table -->
+      <div style="padding:16px 20px;">
+        <div style="font-size:9px;color:#94a3b8;margin-bottom:8px;">本棚フォルダ: C:\Users\kojima\Desktop\本棚 ｜ 自動同期: 60分間隔 ｜ <span style="color:#6d28d9;cursor:pointer;">📁 フォルダを選ぶ</span></div>
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
+          <tr style="background:#f1f5f9;"><th style="padding:6px 8px;text-align:left;border:1px solid #e2e8f0;color:#475569;">状態</th><th style="padding:6px 8px;text-align:left;border:1px solid #e2e8f0;color:#475569;">資料名</th><th style="padding:6px 8px;text-align:left;border:1px solid #e2e8f0;color:#475569;">追加日</th><th style="padding:6px 8px;text-align:left;border:1px solid #e2e8f0;color:#475569;">チャンク</th><th style="padding:6px 8px;text-align:left;border:1px solid #e2e8f0;color:#475569;">メモ</th></tr>
+          <tr><td style="padding:6px 8px;border:1px solid #e2e8f0;">✅</td><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:bold;">顧客対応マニュアル.pdf</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">07/15</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">12</td><td style="padding:6px 8px;border:1px solid #e2e8f0;color:#94a3b8;">—</td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid #e2e8f0;">✅</td><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:bold;">漁船保険約款2026.docx</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">07/10</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">8</td><td style="padding:6px 8px;border:1px solid #e2e8f0;color:#94a3b8;">—</td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid #e2e8f0;">⏳</td><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:bold;">内部研修メモ.txt</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">07/20</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">3</td><td style="padding:6px 8px;border:1px solid #e2e8f0;color:#d97706;">埋め込み中</td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid #e2e8f0;">⚠️</td><td style="padding:6px 8px;border:1px solid #e2e8f0;font-weight:bold;">2026改定ポイント.pdf</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">07/01</td><td style="padding:6px 8px;border:1px solid #e2e8f0;">4</td><td style="padding:6px 8px;border:1px solid #e2e8f0;color:#dc2626;">p.8-12抽出失敗</td></tr>
+        </table>
+        <div style="margin-top:10px;font-size:8px;color:#94a3b8;">💡 削除: 資料の行をクリックしてから「🗑 削除」ボタン ｜ パック: アクティブ行の資料をパック出力可能</div>
+      </div>
+    </div>
+  </div>
+  <div class="vba-note">
+    <b>VBA再現:</b> テーブル=100%セル（modUIShelf.RenderShelf既存流用、変更ゼロ） ｜ モード切替pillのみShape追加 ｜ ボタン行は既存のbtn_*をツールバーに再配置
+  </div>
+
+  <!-- ===== KNOWLEDGE ===== -->
+  <div class="screen-title" style="margin-top:48px;">画面4: ナレッジ（旧: 独立タブ → 新: 統合済み）<span>参考: 現状コードの問題点</span></div>
+  <div class="excel-frame" style="opacity:0.5;">
+    <div class="excel-titlebar">
+      <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      MyBookshelf.xlsm - Excel（現状: 別々のタブで混乱）
+    </div>
+    <div style="background:#fff;padding:20px;font-size:10px;color:#64748b;">
+      <b>現状の問題点（コードレビュー結果）:</b><br>
+      ❌ modUIShelf（マイ本棚）とmodVault（ナレッジ倉庫）が別シート・別タブ → ユーザーが違いを理解できない<br>
+      ❌ modUIShelfのボタン行がA1:N2で7個 → 画面幅からはみ出す<br>
+      ❌ パック出力/取込が両画面に重複 → どちらで押せばいいか分からない<br>
+      ❌ ギャラリーカードクリック → MsgBox（Win95感）<br>
+      <br>
+      <b>→ 新設計で解決:</b> 1シート2モード（ギャラリー/テーブル）に統合。ツールバー共通化。パックは1箇所。
+    </div>
+  </div>
+
+  <!-- ===== CHAT ===== -->
+  <div class="screen-title" style="margin-top:48px;">画面5: チャット（専用タブ）<span>Shape: バブル+アクション（動的）+ 固定3個 ｜ 入力: ボーダーレスUserForm</span></div>
+  <div class="excel-frame">
+    <div class="excel-titlebar">
+      <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      MyBookshelf.xlsm - Excel
+    </div>
+    <div class="chat">
+      <!-- Header: Shape 1個 -->
+      <div class="chat-head">
+        <span class="back">← Hub</span>
+        <span class="title">💬 チャット</span>
+        <div class="right">
+          <span class="pill">🏢 社内ナレッジ検索 ▾</span>
+          <span class="pill">🌐 日本語 ▾</span>
+          <span class="pill">🗑 クリア</span>
+        </div>
+      </div>
+
+      <!-- Messages: Shape (RoundedRectangle, dynamic) -->
+      <div class="chat-body">
+        <div class="c-msg user">
+          <div class="meta">あなた · 14:32</div>
+          <div class="bubble">契約者が死亡した場合の保険金請求手続きを教えて</div>
+        </div>
+        <div class="c-msg ai">
+          <div class="meta">Nexus · 出典: 顧客対応マニュアル p.12</div>
+          <div class="bubble">
+            <b>■ 結論</b>: 死亡保険金請求には以下が必要です。<br><br>
+            ・戸籍謄本（死亡記載あり）<br>
+            ・受取人の本人確認書類<br>
+            ・保険証券（原本）<br><br>
+            <b>■ 手順</b>: 本社コールセンター連絡 → 書類郵送 → 審査5〜10営業日
+          </div>
+          <!-- Actions: Shape 6個 (pill-shaped, contextual) -->
+          <div class="c-actions">
+            <span class="a">👍 役に立った</span>
+            <span class="a">👎 役に立たなかった</span>
+            <span class="a">🔍 深掘り</span>
+            <span class="a">📋 コピー</span>
+            <span class="a">📄 Word</span>
+            <span class="a">🆘 本社照会</span>
+          </div>
+        </div>
+        <div class="c-msg user">
+          <div class="meta">あなた · 14:33</div>
+          <div class="bubble">海外在住の受取人の場合は？</div>
+        </div>
+        <div class="c-msg ai">
+          <div class="meta">Nexus · 出典: 顧客対応マニュアル p.15</div>
+          <div class="bubble">
+            <b>■ 結論</b>: 通常の3点に加えて「在留証明書」「パスポート写し」が必要です。外貨口座のみ対応。
+          </div>
+          <div class="c-actions">
+            <span class="a">👍 役に立った</span>
+            <span class="a">👎 役に立たなかった</span>
+            <span class="a">🔍 深掘り</span>
+            <span class="a">📋 コピー</span>
+            <span class="a">📄 Word</span>
+            <span class="a">🆘 本社照会</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input: ボーダーレスUserForm (BorderStyle=0) -->
+      <div class="chat-input">
+        <div class="uf-frame">
+          <div class="uf-clip">📎</div>
+          <div class="uf-text">質問を入力...（Enter送信 / Shift+Enter改行 / 長文OK）</div>
+          <div class="uf-send">➤</div>
+        </div>
+        <div class="hint">Ctrl+Shift+Q でどこからでもこの画面を召喚 ｜ モード: 社内ナレッジ検索</div>
+      </div>
+    </div>
+  </div>
+  <div class="vba-note">
+    <b>VBA再現:</b> ヘッダー=RoundedRectangle(gradient) ｜ バブル=RoundedRectangle(0.06)+Shadow(ユーザーはgradient fill) ｜ アクション=RoundedRectangle(0.4, 小型pill)+OnAction ｜ 入力欄=ボーダーレスUserForm(Width=620, TextBox MultiLine, BackColor=&hFAFBFC) ｜ 送信ボタン=UserForm上のRoundFrame+Image
+  </div>
+
+</div>
+</body>
+</html>
