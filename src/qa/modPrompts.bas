@@ -64,6 +64,7 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
     sb = sb & vbLf
+    sb = sb & UserContextBlock()
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & FollowupInstruction() & vbLf
@@ -90,7 +91,8 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
     If LenB(history) > 0 Then
         sb = sb & vbLf & "## これまでの会話(参考。続きの質問なら踏まえて回答する)" & vbLf & history
     End If
-    sb = sb & vbLf & "## 本棚抜粋" & vbLf & ctx & vbLf
+    sb = sb & vbLf & UserContextBlock()
+    sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "(この回答は下書きです。この後、別の検証ステップで事実確認されます。" & _
         "根拠が弱い部分は無理に断定せず、その旨を書いてください。)"
@@ -366,4 +368,39 @@ Private Function SourceTag(ByRef h As Hit) As String
     Else
         SourceTag = "[本棚:" & h.source & " p." & CStr(h.page) & "]"
     End If
+End Function
+
+' UserContextBlock - 質問者の属性をプロンプトへ注入し、回答の粒度・トーンを
+'   LLM側で調整させる。参照キーは実在するものだけを使う(config pack_author /
+'   user_department、統計は ask_quick_total + ask_deep_total の合算)。
+'   何も設定されていなければ空文字を返し、プロンプトに一切影響させない。
+Private Function UserContextBlock() As String
+    Dim nm As String, dept As String
+    Dim askCount As Long, streak As Long, lvl As Long
+    On Error Resume Next
+    nm = Trim$(modConfig.GetString("pack_author", ""))
+    dept = Trim$(modConfig.GetString("user_department", ""))
+    askCount = modStats.GetStat("ask_quick_total") + modStats.GetStat("ask_deep_total")
+    streak = modStats.GetStat("streak_days")
+    lvl = modStats.Level()
+    On Error GoTo 0
+
+    If nm = "名称未設定" Then nm = ""
+    If LenB(nm) = 0 And LenB(dept) = 0 And askCount = 0 Then Exit Function
+
+    Dim sb As String
+    sb = "## 質問者の背景(回答の粒度・専門用語の量を調整するために使う。" & _
+         "回答本文でこの情報自体には言及しないこと)" & vbLf
+    If LenB(dept) > 0 Then sb = sb & "・所属: " & dept & vbLf
+    If askCount > 0 Then
+        sb = sb & "・このツールの利用回数: " & askCount & "回"
+        If askCount <= 5 Then
+            sb = sb & "(不慣れ。前提から補って丁寧に)"
+        ElseIf askCount >= 50 Then
+            sb = sb & "(習熟。前置きを省いて要点から)"
+        End If
+        sb = sb & vbLf
+    End If
+    If streak >= 3 Then sb = sb & "・連続利用: " & streak & "日" & vbLf
+    UserContextBlock = sb
 End Function

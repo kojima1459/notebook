@@ -55,6 +55,14 @@ Private Const PREVIEW_LEN As Long = 120
 Private Const KEYWORD_BONUS_PER_WORD As Double = 0.05
 Private Const KEYWORD_BONUS_MAX As Double = 0.15
 
+' ハイブリッド検索(ベクトル+全文一致)の加点。ベクトルは意味の近さに強い一方、
+' 「第4条」「漁船保険」のような固有名詞・条番号の完全一致に弱いため、本文
+' (full_text)への直接ヒットを加点して補う。上限を設けてベクトル順位を
+' 完全には覆さないようにする(あくまで補正)。
+Private Const FULLTEXT_BONUS_PER_WORD As Double = 0.06
+Private Const FULLTEXT_BONUS_MAX As Double = 0.24
+Private Const EXACT_PHRASE_BONUS As Double = 0.15
+
 ' ----------------------------------------------------------------------------
 ' Search - MASTER_SPEC §7.3 唯一の公開関数。
 '   戻り値 = 件数(0可)。埋め込み失敗時は-1(呼び出し側がE0203表示)。
@@ -192,6 +200,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Dim sc As Double
         sc = modUtil.DotProduct(qv, vv)
         sc = sc + KeywordBonus(words, summary, keywords, srcName)
+        sc = sc + FullTextBoost(words, fullText, query)
 
         If filled < k Then
             filled = filled + 1
@@ -361,6 +370,7 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
                                 CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
                                 CStr(kData(kRow, COL_K_SOURCE)) & " " & _
                                 modUtil.SafeLeft(CStr(kData(kRow, COL_K_FULLTEXT)), 200))
+            sc = sc + FullTextBoost(words, CStr(kData(kRow, COL_K_FULLTEXT)), qText)
 
             If unionScore.Exists(vid) Then
                 If sc > unionScore.Item(vid) Then unionScore.Item(vid) = sc
@@ -500,6 +510,55 @@ Private Function KeywordBonus(ByRef words() As String, ByVal summary As String, 
     bonus = CDbl(matched) * KEYWORD_BONUS_PER_WORD
     If bonus > KEYWORD_BONUS_MAX Then bonus = KEYWORD_BONUS_MAX
     KeywordBonus = bonus
+End Function
+
+' FullTextBoost - チャンク本文への直接ヒットによる加点(ハイブリッド検索)。
+'   KeywordBonusは要約/キーワード/資料名だけを見るため、本文にしか出てこない
+'   条番号・固有名詞を拾えなかった。ここで本文そのものを走査して補う。
+'   ・質問文まるごとが本文に含まれれば完全一致ボーナス(条番号の引用等)
+'   ・語単位は出現で加点し、2回以上出現ならさらに加点(頻出=関連度が高い)
+'   いずれも上限つき(ベクトル順位を覆さない補正に留める)。
+Private Function FullTextBoost(ByRef words() As String, ByVal fullText As String, _
+                               ByVal rawQuery As String) As Double
+    If LenB(fullText) = 0 Then Exit Function
+
+    Dim bonus As Double
+    Dim rq As String: rq = Trim$(rawQuery)
+    If Len(rq) >= 4 Then
+        If InStr(1, fullText, rq, vbTextCompare) > 0 Then bonus = EXACT_PHRASE_BONUS
+    End If
+
+    ' words()は未初期化(該当語なし)の場合があるためUBound参照前に保護する。
+    Dim lo As Long, hi As Long
+    On Error Resume Next
+    lo = LBound(words): hi = UBound(words)
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        FullTextBoost = bonus
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    Dim units As Double
+    Dim i As Long
+    For i = lo To hi
+        If Len(words(i)) >= 2 Then
+            Dim pos As Long
+            pos = InStr(1, fullText, words(i), vbTextCompare)
+            If pos > 0 Then
+                units = units + 1#
+                If InStr(pos + Len(words(i)), fullText, words(i), vbTextCompare) > 0 Then
+                    units = units + 0.5      ' 2回以上出現の重み
+                End If
+            End If
+        End If
+    Next i
+
+    Dim wordBonus As Double
+    wordBonus = units * FULLTEXT_BONUS_PER_WORD
+    If wordBonus > FULLTEXT_BONUS_MAX Then wordBonus = FULLTEXT_BONUS_MAX
+    FullTextBoost = bonus + wordBonus
 End Function
 
 ' bestScore(1..k)中の最小値とその添字を再計算する(ストリーミングtop-k用)。

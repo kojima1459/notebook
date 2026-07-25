@@ -269,12 +269,16 @@ Public Sub DrawFloatingActionBar(ByVal ws As Worksheet)
 End Sub
 
 Private Function ProfileCaption() As String
-    ' Phase 4でAD連携に置換予定。失敗時はGuest扱い。
-    Dim lv As Long, ex As Long
+    ' 実機報告(2026-07-22)「名前を入力してもゲストのまま」対策: 表示名を
+    ' "ゲスト ユーザー"でハードコードしており、初回起動で入力した名前
+    ' (modBoot.EnsureFirstRunがconfig pack_authorへ保存)を読んでいなかった。
+    Dim lv As Long, ex As Long, nm As String
     On Error Resume Next
     lv = modStats.Level()
     ex = modStats.ExpTotal()
+    nm = Trim$(modConfig.GetString("pack_author", ""))
     On Error GoTo 0
     If lv < 1 Then lv = 1
-    ProfileCaption = "ゲスト ユーザー" & vbLf & "Lv." & lv & " ・ EXP " & ex
+    If LenB(nm) = 0 Or nm = "名称未設定" Then nm = "ゲスト ユーザー"
+    ProfileCaption = nm & vbLf & "Lv." & lv & " ・ EXP " & ex
 End Function

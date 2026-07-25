@@ -1,9 +1,7 @@
 Attribute VB_Name = "modAsk"
 Option Explicit
 
-' ============================================================================
 ' modAsk - 2速QA(⚡すぐ聞く/🔍しっかり調べる)のオーケストレーション
-' ----------------------------------------------------------------------------
 ' 役割: ホームの質問+モード(またはAnswer(question, mode)の直接呼び出し)を
 '   modRetrieve.Search→modPrompts.Build*Prompt→modGateway.CallLLMの順に処理し、
 '   進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
@@ -28,7 +26,6 @@ Option Explicit
 '   ・深掘り候補(裁定D11): 応答末尾[[FOLLOWUP: 候補1 | 候補2]]をパースして本文から
 '     除去し、「深掘り候補」ブロックとして末尾に整形追記(V2 ParseTrailers流儀の
 '     寛容実装、マーカーなしでも壊れない)。履歴には除去後の本文のみ積む。
-' ============================================================================
 
 Private Const MODE_QUICK As String = "quick"
 Private Const MODE_DEEP As String = "deep"
@@ -66,10 +63,8 @@ Private mLastHits() As Hit
 Private mLastNHits As Long
 Private mLastSeconds As Long
 
-' ----------------------------------------------------------------------------
 ' AskFromUI - ホームの質問セル+モード(ui_state)を読み、Answer実行→
 '   RenderAnswer(MASTER_SPEC §7.3)。連打防止ガード付き。
-' ----------------------------------------------------------------------------
 Public Sub AskFromUI()
     If mAsking Then
         On Error Resume Next
@@ -101,22 +96,18 @@ Fail:
     mAsking = False
 End Sub
 
-' ----------------------------------------------------------------------------
 ' Answer - 質問文とモードから回答テキストを組み立てて返す(MASTER_SPEC §7.3)。
 '   契約どおりの公開API。会話履歴なしの単発質問として実行する(実体は
 '   AnswerWithContext。裁定D11のAskFollowupと本体を共有する)。
-' ----------------------------------------------------------------------------
 Public Function Answer(ByVal question As String, ByVal mode As String) As String
     Answer = AnswerWithContext(question, mode, "", "", False)
 End Function
 
-' ----------------------------------------------------------------------------
 ' CanFollowup - 「続けて質問」できる直近回答が存在するか(裁定D11)。
 '   このセッションで成功した回答が1件でもあればTrue。UI側(modUIMainの
 '   OnFollowupButton)がFalse時に「まず質問してから」の丁寧な案内を出す。
 '   config followup_max_pairs を0以下にすると履歴を持たなくなるため、
 '   常にFalse(=機能無効)になるエスケープハッチを兼ねる。
-' ----------------------------------------------------------------------------
 Public Function CanFollowup() As Boolean
     If LenB(mPrevU) = 0 Then
         mPrevU = modState.LoadState("nexus_ask_prevu", "")
@@ -125,7 +116,6 @@ Public Function CanFollowup() As Boolean
     CanFollowup = (LenB(mPrevU) > 0)
 End Function
 
-' ----------------------------------------------------------------------------
 ' AskFollowup - 直近の会話履歴を添えて追質問を実行する(裁定D11)。
 '   既存のAnswer系フローを再利用: 追質問文でmodRetrieve.Searchも再実行し、
 '   出典付き回答をRenderAnswerで表示する(2速モードは既存どおりui_stateの
@@ -133,7 +123,6 @@ End Function
 '   prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡す。履歴が空
 '   (CanFollowup=False)のまま呼ばれた場合は通常の単発質問と同じ動作に
 '   自然に退化する(UI側が事前案内する契約だが、直接呼ばれても壊れない防御)。
-' ----------------------------------------------------------------------------
 Public Sub AskFollowup(ByVal followupText As String)
     If mAsking Then
         On Error Resume Next
@@ -165,11 +154,9 @@ Fail:
     mAsking = False
 End Sub
 
-' ----------------------------------------------------------------------------
 ' AnswerWithContext - Answer/AskFollowup共通の回答生成本体(Private)。
 '   prevU/prevAはリボンChatGPT()へ渡す会話履歴(空文字=履歴なし)。
 '   isFollowupはusage_logの識別用(event="ask"のdetail先頭に"followup "を付す)。
-' ----------------------------------------------------------------------------
 Private Function AnswerWithContext(ByVal question As String, ByVal mode As String, _
                                    ByVal prevU As String, ByVal prevA As String, _
                                    ByVal isFollowup As Boolean) As String
@@ -232,7 +219,12 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒット"
         modUIMain.RenderSourcesPreview hits, nHits
 
-        If mdMode = MODE_DEEP Then
+        If IsTooVague(q, hits, nHits) Then
+            result = VagueQueryPrompt()
+            On Error Resume Next
+            modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
+            On Error GoTo Fail
+        ElseIf mdMode = MODE_DEEP Then
             result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
         Else
             result = RunQuickFlow(q, hits, nHits, ok, prevU, prevA)
@@ -329,11 +321,9 @@ Public Function LastTopSource() As String
     If bestI >= 1 Then LastTopSource = mLastHits(bestI).source
 End Function
 
-' ----------------------------------------------------------------------------
 ' Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が根拠にした
 ' 出典(source/page/origin/本文)をUI層へ公開する。添字は0始まり(0..LastHitCount-1)で
 ' LastTopSourceと同一規約。内部状態は一切変更しない(検索/回答ロジックに影響なし)。
-' ----------------------------------------------------------------------------
 Public Function LastHitCount() As Long
     LastHitCount = mLastNHits
 End Function
@@ -401,9 +391,7 @@ Private Function FeedbackAccepted() As Boolean
     FeedbackAccepted = True
 End Function
 
-' ----------------------------------------------------------------------------
 ' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)
-' ----------------------------------------------------------------------------
 
 ' 多段RAG検索段(§C): 拡張→マルチクエリ→再ランク。全段とも失敗時は
 ' 単段Search(q)へ安全退化(mock/タグ欠落でも壊れない)。
@@ -638,6 +626,42 @@ Private Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal
         vbLf & vbLf & result
 End Function
 
+' IsTooVague - 「短すぎる質問 かつ どの資料とも関連が薄い」ときだけTrue。
+'   該当時はLLMを呼ばず、聞き方の例を返して具体化を促す(API節約+精度向上)。
+'   ・判定は上位1件ではなく全ヒットの最高スコアで行う(再ランク後の1位は
+'     必ずしも検索スコア最大ではないため、1位だけ見ると誤発動する)。
+'   ・閾値と文字数はconfigで調整可能。ambiguous_score_x100=0 で機能停止。
+Private Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long) As Boolean
+    If nHits < 1 Then Exit Function
+
+    Dim maxChars As Long, thr As Double
+    On Error Resume Next
+    maxChars = modConfig.GetLong("ambiguous_max_chars", 10)
+    thr = CDbl(modConfig.GetLong("ambiguous_score_x100", 60)) / 100#
+    On Error GoTo 0
+    If thr <= 0# Then Exit Function              ' 0=無効化
+    If maxChars < 1 Then maxChars = 10
+    If Len(q) > maxChars Then Exit Function
+
+    Dim best As Double, i As Long
+    On Error Resume Next
+    For i = LBound(hits) To UBound(hits)
+        If i > nHits Then Exit For
+        If hits(i).score > best Then best = hits(i).score
+    Next i
+    On Error GoTo 0
+
+    IsTooVague = (best < thr)
+End Function
+
+Private Function VagueQueryPrompt() As String
+    VagueQueryPrompt = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少し詳しく教えていただけますか?" & vbLf & vbLf & _
+        "たとえば、次のどれかを添えると精度が上がります。" & vbLf & _
+        "・どの資料について?(約款 / マニュアル / 規程)" & vbLf & _
+        "・どんな場面?(契約者対応 / 社内手続き / 研修)" & vbLf & _
+        "・知りたい結論は?(必要書類 / 所要日数 / 保険料への影響)"
+End Function
+
 Private Function NormalizeMode(ByVal mode As String) As String
     If LCase$(Trim$(mode)) = MODE_DEEP Then
         NormalizeMode = MODE_DEEP
@@ -714,10 +738,8 @@ Private Function ReadModeFromUiState() As String
     Next i
 End Function
 
-' ----------------------------------------------------------------------------
 ' 会話履歴(直近HISTORY_MAX_TURNS往復): V2 modBoot.HistoryBlock/AppendHistory の
 ' 簡易版をmodAsk内に内蔵したもの。
-' ----------------------------------------------------------------------------
 Private Sub AppendHistory(ByVal q As String, ByVal a As String)
     Dim turn As String
     turn = "Q: " & q & vbLf & "A: " & modUtil.SafeLeft(a, 1500)
@@ -757,11 +779,9 @@ Private Function HistoryBlock() As String
     HistoryBlock = out
 End Function
 
-' ----------------------------------------------------------------------------
 ' 深掘り候補(裁定D11): [[FOLLOWUP: 候補1 | 候補2]] のパースと表示整形。
 ' V2実証済みの src/chatbot_v2/modPipeline.bas ParseTrailers(FOLLOWUP部)と
 ' modChatUI.bas の候補表示を、本モジュール用に移植したもの。
-' ----------------------------------------------------------------------------
 
 ' LLM応答からマーカーを分離し、候補があれば「深掘り候補」ブロックを本文
 ' 末尾に整形追記した表示用文字列を返す(RenderAnswerへはこの戻り値が渡る)。
@@ -790,14 +810,12 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     DecorateWithFollowups = disp
 End Function
 
-' ----------------------------------------------------------------------------
 ' prevU/prevA用履歴(裁定D11): 成功した各ターンのQ&Aを「新しい順;;;区切り」で
 ' セッション保持する(最大 config followup_max_pairs 既定3ペア)。
 ' mHistory(プロンプト内履歴)とは別物: こちらはリボンChatGPT()の確定引数
 ' prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡すための形式。
 ' パース/整形の純関数(SplitFollowupTrailer/KeepNewestPairs/
 ' SanitizeForFollowupHistory)は modFollowup へ分離済み(文字数上限対策)。
-' ----------------------------------------------------------------------------
 Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     Dim maxPairs As Long
     maxPairs = modConfig.GetLong("followup_max_pairs", 3)

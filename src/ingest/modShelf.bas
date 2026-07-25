@@ -199,7 +199,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         modConfig.GetLong("chunk_target_chars", CHUNK_TARGET_CHARS), _
         modConfig.GetLong("chunk_overlap_chars", CHUNK_OVERLAP_CHARS), _
         modConfig.GetLong("chunk_max_chars", 1800), _
-        modConfig.GetString("chunk_mode", "legacy"), chunks)
+        modConfig.GetString("chunk_mode", "structure"), chunks)
 
     If chunkN = 0 Then
         modLog.LogError "E0401", "modShelf.IngestFile", "source=" & sourceName
