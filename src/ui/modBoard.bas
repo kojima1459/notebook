@@ -398,3 +398,12 @@ Private Sub BoardWait(ByVal ms As Long)
         If Timer < t0 Then Exit Do
     Loop
 End Sub
+
+' modHubの統計タイルから参照する集計値のアクセサ(モジュール変数の直接公開を避ける)。
+Public Function OrgMinutesDay() As Long
+    OrgMinutesDay = mOrgDay
+End Function
+
+Public Function OrgMinutesMon() As Long
+    OrgMinutesMon = mOrgMon
+End Function

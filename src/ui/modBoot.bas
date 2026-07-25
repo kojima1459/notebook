@@ -109,9 +109,15 @@ Public Sub Boot()
     ' 独立してOn Error Resume Nextで保護し、失敗はerr_logに詳細(uiStepまで
     ' 埋め込み済みのErr.Description)を記録した上で次の画面へ進む
     ' (該当画面だけ表示が崩れる可能性はあるが、アプリが開けないよりずっと良い)。
+    ' ホームはHub画面(modHub)へ置き換えた。modUIMain.EnsureLayoutは
+    ' mb_question等の名前定義とRenderAnswerの土台を用意する役割が残るため
+    ' 先に実行し、その上からHubのレイアウトで描き替える(Hub側が旧btn_/lbl_
+    ' Shapeも消すので二重表示にはならない)。
     bootStage = "ホーム画面の組み立て"
     On Error Resume Next
     modUIMain.EnsureLayout
+    LogBootStageErrorIfAny bootStage
+    modHub.EnsureHubLayout
     LogBootStageErrorIfAny bootStage
     On Error GoTo Failed
 

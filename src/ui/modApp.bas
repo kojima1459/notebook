@@ -528,7 +528,9 @@ End Sub
 
 Public Sub OnNavHome()
     If Not modUiLock.Enter() Then Exit Sub
-    modUI.GoToNativeSheet modAppDef.SH_HOME, "modApp.OnNavHome"
+    On Error Resume Next
+    modHub.EnsureHubLayout activate:=True   ' 描画と遷移を必ずセットで行う
+    On Error GoTo 0
     modUiLock.Leave
 End Sub
 
