@@ -453,9 +453,14 @@ Public Sub OnGoVault()
     modUiLock.Leave
 End Sub
 
+' マイ本棚=ナレッジ画面のテーブルモード。EnsureLayoutを先に通して共通クロム
+' (ヘッダー+モード切替ピル+ツールバー)を確実に描いてから遷移する。
+' modKnowledge.OnGoTableを呼ばないのは、あちらもmodUiLockを取るため
+' ここで取得済みのロックと衝突して何も起きなくなるから。
 Public Sub OnGoShelf()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
+    modUIShelf.EnsureLayout
     modUI.GoToNativeSheet modAppDef.SH_SHELF, "modHub.OnGoShelf"
     On Error GoTo 0
     modUiLock.Leave
@@ -528,12 +533,15 @@ Public Sub OnThemeToggle()
     modUiLock.Leave
 End Sub
 
+' modHelp.OnHelpClick自身がmodUiLockを取る。modUiLockは非再入なので、
+' ここで先に取ると内側のEnterがFalseになりヘルプが一切開かなくなる
+' (Hub移植時に埋めてしまった不具合)。素通しにする。
+' ヘルプカードはチャット画面(Nexus)に描かれるため、先にそちらへ遷移する。
 Public Sub OnHelp()
-    If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modHelp.OnHelpClick
+    modUI.GoToNexus "modHub.OnHelp"
     On Error GoTo 0
-    modUiLock.Leave
+    modHelp.OnHelpClick
 End Sub
 
 Public Sub OnSaveAndExit()

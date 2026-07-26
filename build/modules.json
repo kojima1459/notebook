@@ -205,6 +205,13 @@
       "wave": "UI-V2"
     },
     {
+      "name": "modKnowledge",
+      "path": "src/ui/modKnowledge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
       "name": "modApp",
       "path": "src/ui/modApp.bas",
       "role": "core",

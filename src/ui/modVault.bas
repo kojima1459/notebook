@@ -375,72 +375,30 @@ End Sub
 
 ' ---- ギャラリー内部描画 ----
 
+' ギャラリーの枠。ヘッダー/モード切替/ツールバーは modKnowledge が両モード
+' 共通で描く(2026-07-26 再設計)。ここは検索欄とカード領域の下地だけを持つ。
 Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
-    RemoveShapesByPrefix ws, "nxg_bar_"
-    ws.Cells.Interior.Color = RGB(249, 250, 251)
+    RemoveShapesByPrefix ws, "nxg_bar_"   ' 旧ツールバー(x決め打ち)の掃除
+    ws.Cells.Interior.Color = modUI.UiColor("bg")
     ws.Cells.Font.Name = "Yu Gothic UI"
     ws.Columns("A").ColumnWidth = 2
-    ws.Columns("B:H").ColumnWidth = 14
+    ws.Columns("B:N").ColumnWidth = 12
 
-    With ws.Range("B2:F2")
-        .Merge
-        .Value = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫 (Vault)"
-        .Font.Size = 15
-        .Font.Bold = True
-    End With
+    modKnowledge.DrawChrome ws, "gallery"
 
-    ' 検索バー(セル)+ボタン群
-    With ws.Range("B4:E4")
+    ' 検索バー(セル)。位置は modKnowledge のクロム行(1..6)のうち行5。
+    With ws.Range(modKnowledge.SearchCellAddress())
         .Merge
         .Interior.Color = RGB(255, 255, 255)
         .Borders.LineStyle = 1
-        .Borders.Color = RGB(229, 231, 235)
+        .Borders.Color = modUI.UiColor("border")
+        .IndentLevel = 1
     End With
-    ws.Rows(4).RowHeight = 22
-    With ws.Range("B3")
-        .Value = "キーワード検索(入力して" & ChrW(&HD83D) & ChrW(&HDD0D) & "):"
+    With ws.Range("F5")
+        .Value = ChrW(&H2190) & " ここにキーワードを入れて「検索」を押す(例: 約款, 保険金)"
         .Font.Size = 9
-        .Font.Color = RGB(107, 114, 128)
+        .Font.Color = modUI.UiColor("muted")
     End With
-
-    Dim defs As Variant, handlers As Variant, xs As Variant, wsz As Variant
-    defs = Array(ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", ChrW(&H2795) & " 登録", ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", _
-                 ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", _
-                 ChrW(&HD83D) & ChrW(&HDD04) & " 同期", ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
-    handlers = Array("OnVaultSearch", "ShowVaultInput", "OnVaultAddFiles", _
-                     "OnVaultExportPack", "OnVaultImportPack", "OnVaultSyncNow", "OnVaultBackToChat")
-    xs = Array(390, 460, 528, 596, 692, 788, 850)
-    wsz = Array(64, 62, 62, 90, 90, 56, 84)
-
-    Dim i As Long
-    For i = 0 To 6
-        Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, CDbl(xs(i)), 44, CDbl(wsz(i)), 24)
-        btn.Name = "nxg_bar_btn" & i
-        btn.Adjustments(1) = 0.35
-        btn.Line.ForeColor.RGB = RGB(229, 231, 235)
-        If i = 1 Then
-            btn.Fill.ForeColor.RGB = RGB(37, 99, 235)
-        ElseIf i = 6 Then
-            btn.Fill.ForeColor.RGB = RGB(17, 24, 39)
-        Else
-            btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
-        End If
-        With btn.TextFrame2
-            .WordWrap = -1
-            .TextRange.Text = CStr(defs(i))
-            .TextRange.Font.Size = 8.5
-            .TextRange.ParagraphFormat.Alignment = 2
-            .VerticalAnchor = 3
-            .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
-            If i = 1 Or i = 6 Then
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-            Else
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(17, 24, 39)
-            End If
-        End With
-        btn.OnAction = "modVault." & CStr(handlers(i))
-    Next i
 End Sub
 
 ' 検索→フィルタ→現在ページのカードだけを描く(カードShapeは毎回作り直すが
@@ -450,8 +408,14 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     RemoveShapesByPrefix ws, "nxg_pg_"
     RemoveShapesByPrefix ws, "nxg_empty"
 
+    ' カード領域の起点。共通クロム(modKnowledgeのヘッダー+ツールバー+検索欄)の
+    ' 直下から実測で求める(旧コードのy=84決め打ちだとクロムと重なる)。
+    Dim cardL As Double: cardL = ws.Range("B1").Left
+    Dim cardT As Double: cardT = modKnowledge.ContentTop(ws) + 6
+    If cardT < 90 Then cardT = 90
+
     Dim keyword As String
-    keyword = LCase$(Trim$(CStr(ws.Range("B4").Value)))
+    keyword = LCase$(Trim$(CStr(ws.Range("B5").Value)))
 
     Dim names() As String, stats() As String
     Dim total As Long
@@ -500,7 +464,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         On Error GoTo 0
 
         Dim icon As Shape
-        Set icon = ws.Shapes.AddShape(1, 30, 150, 640, 60)
+        Set icon = ws.Shapes.AddShape(1, cardL, cardT + 40, 640, 60)
         icon.Name = "nxg_empty_icon"
         icon.Fill.Visible = 0: icon.Line.Visible = 0
         With icon.TextFrame2
@@ -512,13 +476,13 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         icon.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(148, 163, 184)
 
         Dim emsg As Shape
-        Set emsg = ws.Shapes.AddShape(1, 30, 214, 640, 46)
+        Set emsg = ws.Shapes.AddShape(1, cardL, cardT + 104, 640, 46)
         emsg.Name = "nxg_empty_msg"
         emsg.Fill.Visible = 0: emsg.Line.Visible = 0
         With emsg.TextFrame2
             .WordWrap = -1
             If LenB(keyword) > 0 Then
-                .TextRange.Text = "「" & ws.Range("B4").Value & "」に一致するナレッジが見つかりません。" & vbLf & _
+                .TextRange.Text = "「" & ws.Range("B5").Value & "」に一致するナレッジが見つかりません。" & vbLf & _
                                   "AIにこの質問を投げて、新しいナレッジを作りませんか?"
             Else
                 .TextRange.Text = "まだナレッジがありません。" & vbLf & _
@@ -530,7 +494,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         emsg.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
 
         Dim cta As Shape
-        Set cta = ws.Shapes.AddShape(5, 280, 268, 140, 34)
+        Set cta = ws.Shapes.AddShape(5, cardL + 250, cardT + 158, 140, 34)
         cta.Name = "nxg_empty_cta"
         cta.Adjustments(1) = 0.3
         cta.Line.Visible = 0
@@ -556,7 +520,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
             Dim slot As Long: slot = k - startIdx
             Dim col As Long: col = slot Mod 3
             Dim rowN As Long: rowN = slot \ 3
-            DrawOneCard ws, slot, 30 + col * (CARD_W + 14), 84 + rowN * (CARD_H + 14), _
+            DrawOneCard ws, slot, cardL + col * (CARD_W + 14), cardT + rowN * (CARD_H + 14), _
                         fNames(k), fStats(k)
             mGalleryNames(slot) = fNames(k)
             mGalleryCount = mGalleryCount + 1
@@ -564,9 +528,9 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     End If
 
     ' ページャ
-    Dim pgY As Double: pgY = 84 + 3 * (CARD_H + 14) + 6
+    Dim pgY As Double: pgY = cardT + 3 * (CARD_H + 14) + 6
     Dim prevBtn As Shape
-    Set prevBtn = ws.Shapes.AddShape(5, 30, pgY, 70, 22)
+    Set prevBtn = ws.Shapes.AddShape(5, cardL, pgY, 70, 22)
     prevBtn.Name = "nxg_pg_prev"
     prevBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     prevBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
@@ -592,7 +556,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     pgInfo.TextFrame2.MarginTop = 6: pgInfo.TextFrame2.MarginBottom = 6
 
     Dim nextBtn As Shape
-    Set nextBtn = ws.Shapes.AddShape(5, 256, pgY, 70, 22)
+    Set nextBtn = ws.Shapes.AddShape(5, cardL + 226, pgY, 70, 22)
     nextBtn.Name = "nxg_pg_next"
     nextBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     nextBtn.Line.ForeColor.RGB = RGB(229, 231, 235)

@@ -42,8 +42,8 @@ Option Explicit
 '     余白行(TTS等と同様の型)を確保できる設計にしてある。
 ' ============================================================================
 
-Private Const HEADER_ROW As Long = 8
-Private Const FIRST_CARD_ROW As Long = 9
+Private Const HEADER_ROW As Long = 12
+Private Const FIRST_CARD_ROW As Long = 13
 Private Const MAX_CARD_ROWS As Long = 400
 
 Private Const COL_ICON As Long = 1     ' A
@@ -52,8 +52,8 @@ Private Const COL_DATE As Long = 5     ' E
 Private Const COL_CHUNKS As Long = 6   ' F(F:G 結合)
 Private Const COL_MEMO As Long = 8     ' H(H:J 結合)
 
-Private Const RNG_FOLDER As String = "A3:J3"
-Private Const RNG_SYNCINFO As String = "D4:J5"
+Private Const RNG_FOLDER As String = "A7:J7"
+Private Const RNG_SYNCINFO As String = "D8:J9"
 
 ' ----------------------------------------------------------------------------
 ' EnsureLayout
@@ -111,25 +111,12 @@ Public Sub EnsureLayout()
     On Error GoTo Fail
     Application.ScreenUpdating = False
 
-    ' ---- 操作ボタン行 ----------------------------------------------------
-    uiStep = "操作ボタン行"
-    ws.Rows("1:2").RowHeight = 22
-    AddButton ws, ws.Range("A1:B2"), "btn_add", "＋ 資料を追加", "modUIShelf.OnAddFiles"
-    AddButton ws, ws.Range("C1:D2"), "btn_sync", "" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期", "modUIShelf.OnSyncNow"
-    AddButton ws, ws.Range("E1:F2"), "btn_pack_out", "" & ChrW(&HD83D) & ChrW(&HDCE6) & " パックにして渡す", "modUIShelf.OnExportPack"
-    AddButton ws, ws.Range("G1:H2"), "btn_pack_in", "" & ChrW(&HD83D) & ChrW(&HDCE5) & " パックを取り込む", "modUIShelf.OnImportPack"
-    AddButton ws, ws.Range("I1:J2"), "btn_delete", "" & ChrW(&HD83D) & ChrW(&HDDD1) & " 選んだ資料を削除", "modUIShelf.OnDeleteSource"
-    ' スクショ取込(裁定D13)は画像解析機能が有効なときだけボタンを出す
-    ' (無効環境で「押したら断られるボタン」を見せないため)。
-    uiStep = "スクショ取込ボタン(有効判定)"
-    If modFeatures.FeatureEnabled("vision") Then
-        uiStep = "スクショ取込ボタン(生成)"
-        AddButton ws, ws.Range("K1:L2"), "btn_screenshot", "" & ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot"
-    End If
-
-    ' 2026-07-22実機報告対策: Nexus(チャット)へタブなしで戻れる導線
-    uiStep = "チャットへ戻るボタン"
-    AddButton ws, ws.Range("M1:N2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIShelf.OnBackToChat"
+    ' ---- 共通クロム(ヘッダー+モード切替+ツールバー) ----------------------
+    ' 2026-07-26 再設計: ナレッジ倉庫(カード)とマイ本棚(一覧)で
+    ' まったく同じ上部UIを出し、ピルで切り替える1画面2モードに見せる。
+    ' 横一列に7個並べていた旧ボタン行(A1:N2)は画面幅からはみ出していた。
+    uiStep = "共通クロム(modKnowledge)"
+    modKnowledge.DrawChrome ws, "table"
 
     ' ---- 本棚フォルダ情報 ----------------------------------------------------
     uiStep = "本棚フォルダ情報見出し"
@@ -138,11 +125,12 @@ Public Sub EnsureLayout()
         .Value = "本棚フォルダ: "
         .Font.Size = 10
     End With
-    ws.Rows("3").RowHeight = 16
+    ws.Rows("7").RowHeight = 16
 
-    uiStep = "フォルダを選ぶボタン"
-    ws.Rows("4:5").RowHeight = 18
-    AddButton ws, ws.Range("A4:C5"), "btn_pick_folder", "" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ", "modUIShelf.OnPickFolder"
+    ' 「フォルダを選ぶ」ボタンは共通ツールバーの📂フォルダに集約したので
+    ' ここには置かない(同じ機能のボタンが2箇所にある状態を解消)。
+    uiStep = "同期情報"
+    ws.Rows("8:9").RowHeight = 18
     With ws.Range(RNG_SYNCINFO)
         .Merge
         .Value = "自動同期: "
@@ -151,22 +139,22 @@ Public Sub EnsureLayout()
     End With
 
     uiStep = "案内文(自動追加)"
-    With ws.Range("A6:J6")
+    With ws.Range("A10:J10")
         .Merge
         .Value = "ここにファイルを入れておくと、自動で本棚に追加されます(消せば本棚からも消えます)"
         .Font.Size = 9
         .Font.Italic = True
     End With
-    ws.Rows("6").RowHeight = 16
+    ws.Rows("10").RowHeight = 16
 
     uiStep = "資料カード見出し帯"
-    With ws.Range("A7:J7")
+    With ws.Range("A11:J11")
         .Merge
-        .Value = "── 資料カード(1行=1資料) ───────────────────"
+        .Value = "── 資料カード(1行=1資料。行をクリックしてから🗑削除) ─────────"
         .Font.Bold = True
         .Font.Size = 10
     End With
-    ws.Rows("7").RowHeight = 16
+    ws.Rows("11").RowHeight = 16
 
     ' ---- カード見出し行 ----------------------------------------------------
     uiStep = "カード見出し行"
