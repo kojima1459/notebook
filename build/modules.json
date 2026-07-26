@@ -149,6 +149,13 @@
       "wave": "RAG"
     },
     {
+      "name": "modClarify",
+      "path": "src/qa/modClarify.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
+    },
+    {
       "name": "modAsk",
       "path": "src/qa/modAsk.bas",
       "role": "core",
@@ -217,6 +224,13 @@
       "role": "core",
       "type": "std",
       "wave": "UI-V2"
+    },
+    {
+      "name": "modShared",
+      "path": "src/ui/modShared.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
     },
     {
       "name": "modApp",

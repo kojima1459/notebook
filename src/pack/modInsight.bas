@@ -90,6 +90,33 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' 発信: 修正内容(誰かが「違う」を押して正しい内容を書いてくれた)
+'   1人の訂正を全員の訂正にする。ただし個人の申告が即座に正になるのは危険なので、
+'   受け取り側では「参考情報」として扱い、同じ趣旨の訂正が複数集まったものだけを
+'   商品部が正式なナレッジに昇格させる運用を前提にしている(CorrectionAgreeCount)。
+' ----------------------------------------------------------------------------
+Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
+    On Error Resume Next
+    If LenB(Trim$(fixText)) = 0 Then Exit Sub
+
+    Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
+    If LenB(dirPath) = 0 Then Exit Sub
+    EnsureDir dirPath
+
+    Dim myId As String: myId = SafeUserId()
+    If LenB(myId) = 0 Then Exit Sub
+
+    Dim body As String
+    body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
+           Format$(Now, "yyyy-mm-dd hh:nn") & FIELD_SEP & _
+           Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200)) & FIELD_SEP & _
+           "correction" & FIELD_SEP & Clean1(fixText)
+
+    WriteShared dirPath & MakeNonce(myId) & ".txt", body
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 受信: 共有フォルダの新着をinsight_inboxへ取り込む(APIは呼ばない=速い)。
 '   戻り値 = 新しく受け取った件数。
 ' ----------------------------------------------------------------------------
@@ -163,6 +190,100 @@ Public Function PendingQAAt(ByVal idx As Long, ByRef outAuthor As String, _
     On Error GoTo 0
 End Function
 
+' 選択状態(J列)。選択式取り込みのために行単位で持つ。
+Public Function IsSelected(ByVal rowIdx As Long) As Boolean
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    IsSelected = (CStr(ws.Cells(rowIdx, 10).Value) = "1")
+    On Error GoTo 0
+End Function
+
+Public Sub ToggleSelected(ByVal rowIdx As Long)
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+    If rowIdx < 2 Then Exit Sub
+    If CStr(ws.Cells(rowIdx, 10).Value) = "1" Then
+        ws.Cells(rowIdx, 10).Value = ""
+    Else
+        ws.Cells(rowIdx, 10).Value = "1"
+    End If
+    On Error GoTo 0
+End Sub
+
+Public Sub SelectAllPending(ByVal onOff As Boolean)
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim r As Long
+    For r = 2 To lastR
+        If CStr(ws.Cells(r, 2).Value) = "qa" And CStr(ws.Cells(r, 9).Value) <> "1" Then
+            ws.Cells(r, 10).Value = IIf(onOff, "1", "")
+        End If
+    Next r
+    On Error GoTo 0
+End Sub
+
+Public Function SelectedCount() As Long
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim r As Long
+    For r = 2 To lastR
+        If CStr(ws.Cells(r, 2).Value) = "qa" And CStr(ws.Cells(r, 9).Value) <> "1" _
+           And CStr(ws.Cells(r, 10).Value) = "1" Then SelectedCount = SelectedCount + 1
+    Next r
+    On Error GoTo 0
+End Function
+
+' 未取り込みQ&Aの行番号を「同じ質問が多い順」に並べて返す。
+'   12000人規模では同じ質問が重なる。件数の多い=多くの人が困っているものから
+'   上に出すことで、全部を読まなくても価値の高いものだけ拾える。
+Public Function PendingRowsRanked(ByRef outRows() As Long) As Long
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Function
+
+    ReDim outRows(0 To lastR)
+    Dim scores() As Long: ReDim scores(0 To lastR)
+    Dim n As Long, r As Long
+    For r = 2 To lastR
+        If CStr(ws.Cells(r, 2).Value) = "qa" And CStr(ws.Cells(r, 9).Value) <> "1" Then
+            outRows(n) = r
+            scores(n) = SameQuestionCount(CStr(ws.Cells(r, 6).Value))
+            n = n + 1
+        End If
+    Next r
+    If n = 0 Then Exit Function
+
+    ' 件数の降順(nは高々数百なので単純なバブルで足りる)
+    Dim a As Long, b As Long
+    For a = 0 To n - 2
+        For b = 0 To n - 2 - a
+            If scores(b) < scores(b + 1) Then
+                Dim ts As Long: ts = scores(b): scores(b) = scores(b + 1): scores(b + 1) = ts
+                Dim tr As Long: tr = outRows(b): outRows(b) = outRows(b + 1): outRows(b + 1) = tr
+            End If
+        Next b
+    Next a
+    PendingRowsRanked = n
+    On Error GoTo 0
+End Function
+
+' 行番号から表示用の値を取り出す。
+Public Function RowField(ByVal rowIdx As Long, ByVal col As Long) As String
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    RowField = CStr(ws.Cells(rowIdx, col).Value)
+    On Error GoTo 0
+End Function
+
 ' 取り込み済みの印(二重登録を防ぐ)。
 Public Sub MarkQAConsumed(ByVal rowIdx As Long)
     On Error Resume Next
@@ -171,6 +292,36 @@ Public Sub MarkQAConsumed(ByVal rowIdx As Long)
     If rowIdx >= 2 Then ws.Cells(rowIdx, 9).Value = "1"
     On Error GoTo 0
 End Sub
+
+' 同じ趣旨の質問が何件届いているか(重複統合の要)。
+'   12000人規模では「同じ質問」が大量に重なる。1件ずつ見せるとお知らせ欄が
+'   ただの流れるログになり、既存の教えてBOXと同じ末路をたどる。件数の多い
+'   ものから見せることで、読む価値のある順に並ぶ。
+'   照合は「記号と空白を落とした先頭40字の一致」。形態素解析が使えないVBAで
+'   実務上いちばん誤爆が少なかった近似。
+Public Function SameQuestionCount(ByVal qText As String) As Long
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    Dim key As String: key = NormKey(qText)
+    If LenB(key) = 0 Then Exit Function
+
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim r As Long
+    For r = 2 To lastR
+        If NormKey(CStr(ws.Cells(r, 6).Value)) = key Then SameQuestionCount = SameQuestionCount + 1
+    Next r
+    On Error GoTo 0
+End Function
+
+Private Function NormKey(ByVal s As String) As String
+    Dim t As String: t = s
+    t = Replace(t, " ", ""): t = Replace(t, ChrW(&H3000), "")
+    t = Replace(t, ChrW(&H3001), ""): t = Replace(t, ChrW(&H3002), "")
+    t = Replace(t, "?", ""): t = Replace(t, ChrW(&HFF1F), "")
+    t = Replace(t, ChrW(&HFF08), ""): t = Replace(t, ChrW(&HFF09), "")
+    NormKey = LCase$(modUtil.SafeLeft(t, 40))
+End Function
 
 ' 取り込む本文の組み立て(表現をここに集約し、UI層は登録するだけにする)。
 Public Function QABodyText(ByVal author As String, ByVal qText As String, _

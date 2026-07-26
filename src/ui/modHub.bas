@@ -431,11 +431,22 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     gapN = modInsight.GapCount()
     On Error GoTo 0
 
+    ' 共有フォルダが未設定だと、この機能は丸ごと沈黙する。黙って何も起きない
+    ' のがいちばん不親切なので、まずそこを案内する。
+    Dim shareOk As Boolean
+    On Error Resume Next
+    shareOk = (LenB(Trim$(modConfig.GetString("nexus_share_path", ""))) > 0)
+    On Error GoTo 0
+
     Dim cap As String, act As String
-    If qaN > 0 Then
+    If Not shareOk Then
+        cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
+              "設定すると、みんなが解決したQ&Aが自動で届くようになります(config の nexus_share_path)"
+        act = "modHub.OnShareHelp"
+    ElseIf qaN > 0 Then
         cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _
-              "押すと本棚に取り込み、次から同じ質問に答えられるようになります"
-        act = "modKnowledge.OnImportSharedQA"
+              "押すと一覧が開きます。要るものだけ選んで本棚に入れられます"
+        act = "modKnowledge.OnGoShared"
     ElseIf gapN > 0 Then
         cap = ChrW(&HD83D) & ChrW(&HDCA1) & " まだ答えを用意できていない質問が " & gapN & "件" & vbCr & _
               "押すと一覧が開きます。答えられる資料を登録すると部内に行き渡ります"
@@ -632,6 +643,25 @@ End Sub
 ' 🔄 画面を再描画。ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の移動で
 ' Shapeがゴースト化/ズレたときの1クリック復旧手段(旧サイドバーから移設)。
 ' 会話は消さない。modApp.OnRefreshUIはロックを取るのでここでは取らない。
+' 共有フォルダの設定手順を案内する。管理者がconfigに1回入れるだけで済むが、
+' その1回が分からないまま放置されるのを防ぐ。
+Public Sub OnShareHelp()
+    MsgBox "部内で知恵を共有するには、共有フォルダを1回だけ設定します。" & vbCrLf & vbCrLf & _
+        "【設定するもの】" & vbCrLf & _
+        "  config シートの nexus_share_path に、部内の誰もが読み書きできる" & vbCrLf & _
+        "  共有サーバー上のフォルダパスを入れてください。" & vbCrLf & _
+        "  例) \\サーバー名\部門共有\Nexus_Share\" & vbCrLf & vbCrLf & _
+        "【そのあと何が起きるか】" & vbCrLf & _
+        "  ・必要なサブフォルダはこのアプリが自動で作ります" & vbCrLf & _
+        "  ・誰かが「解決した」を押すと、その質問と答えがそこへ置かれます" & vbCrLf & _
+        "  ・次に各自がこのファイルを開いたとき、自動で受け取ります" & vbCrLf & _
+        "  ・受け取っただけでは本棚に入りません。必要なものを選んで取り込みます" & vbCrLf & vbCrLf & _
+        "【注意】" & vbCrLf & _
+        "  同じパスを部内の全員が設定してはじめて共有が成立します。" & vbCrLf & _
+        "  配布用ファイルにあらかじめ入れておくのがいちばん確実です。", _
+        vbInformation, modAppDef.APP_NAME
+End Sub
+
 Public Sub OnRedraw()
     On Error Resume Next
     modApp.OnRefreshUI

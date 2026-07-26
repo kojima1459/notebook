@@ -79,16 +79,21 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
          "modKnowledge.OnBackHub", False
 
     ' --- モード切替ピル(右肩) ---
-    Dim isTable As Boolean: isTable = (LCase$(mode) = "table")
+    Dim md As String: md = LCase$(mode)
+    Dim isTable As Boolean: isTable = (md = "table")
+    Dim isShared As Boolean: isShared = (md = "shared")
     Dim px As Double: px = L + W - 8 - PILL_W
+    Pill ws, "nxk_m_shared", ChrW(&HD83C) & ChrW(&HDF81) & " みんなのQ&A", px, PILL_W, _
+         "modKnowledge.OnGoShared", isShared
+    px = px - 6 - PILL_W
     Pill ws, "nxk_m_table", ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚", px, PILL_W, _
          "modKnowledge.OnGoTable", isTable
     px = px - 6 - PILL_W
     Pill ws, "nxk_m_gallery", ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー", px, PILL_W, _
-         "modKnowledge.OnGoGallery", Not isTable
+         "modKnowledge.OnGoGallery", (Not isTable) And (Not isShared)
 
     ' --- ツールバー(行3の帯) ---
-    DrawToolbar ws, isTable, L, W
+    DrawToolbar ws, isTable, isShared, L, W
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
@@ -113,7 +118,7 @@ Public Function SearchCellAddress() As String
 End Function
 
 Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
-                        ByVal L As Double, ByVal W As Double)
+                        ByVal isShared As Boolean, ByVal L As Double, ByVal W As Double)
     Dim caps As Variant, acts As Variant, widths As Variant
     caps = Array(ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", _
                  ChrW(&H2795) & " 登録", _
@@ -131,6 +136,14 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
 
     Dim barTop As Double: barTop = ws.Rows(3).Top
     Dim x As Double: x = L + 8
+
+    ' みんなのQ&Aモードは操作が全く違う(選択と取り込み)。資料管理用の
+    ' ボタンを並べても押しどころが分からなくなるので、専用の並びにする。
+    If isShared Then
+        SharedToolbar ws, barTop, x
+        Exit Sub
+    End If
+
     Dim i As Long
     For i = 0 To 9
         ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
@@ -196,6 +209,59 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     On Error GoTo 0
 End Sub
 
+' みんなのQ&A専用ツールバー。
+Private Sub SharedToolbar(ByVal ws As Worksheet, ByVal barTop As Double, ByVal x0 As Double)
+    Dim caps As Variant, acts As Variant, widths As Variant
+    caps = Array(ChrW(&H2713) & " 選択を取り込む", "すべて選ぶ", "選択を解除", _
+                 ChrW(&H2190) & " 前", "次 " & ChrW(&H2192), _
+                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", _
+                 ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
+    acts = Array("modShared.OnImportSelected", "modShared.OnSelectAll", _
+                 "modShared.OnSelectNone", "modShared.OnPrevPage", "modShared.OnNextPage", _
+                 "modKnowledge.OnGapBoard", "modKnowledge.OnToChat")
+    widths = Array(112, 72, 72, 44, 44, 104, 76)
+
+    Dim x As Double: x = x0
+    Dim i As Long
+    For i = 0 To 6
+        On Error Resume Next
+        Dim btn As Shape
+        Set btn = ws.Shapes.AddShape(5, x, barTop, CDbl(widths(i)), BAR_H)
+        If Err.Number = 0 And Not btn Is Nothing Then
+            btn.Name = "nxk_sb" & i
+            btn.Adjustments(1) = 0.35
+            btn.Line.Visible = -1
+            btn.Line.Weight = 0.75
+            btn.Line.ForeColor.RGB = modUI.UiColor("border")
+            If i = 0 Then
+                btn.Fill.ForeColor.RGB = modUI.UiColor("accent")
+            Else
+                btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+            End If
+            With btn.TextFrame2
+                .WordWrap = -1
+                .TextRange.Text = CStr(caps(i))
+                .TextRange.Font.Size = 8.5
+                If i = 0 Then
+                    .TextRange.Font.Bold = -1
+                    .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                Else
+                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+                End If
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            End With
+            modSkin.ApplyLightShadow btn
+            btn.OnAction = CStr(acts(i))
+        End If
+        Set btn = Nothing
+        Err.Clear
+        On Error GoTo 0
+        x = x + CDbl(widths(i)) + 5
+    Next i
+End Sub
+
 ' ヘッダー上のピル。active:=Trueで「今いるモード」を塗りつぶして示す。
 Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
                  ByVal caption As String, ByVal x As Double, ByVal w As Double, _
@@ -258,6 +324,15 @@ Public Sub OnGoGallery()
     modVault.ShowVaultGallery
     On Error GoTo 0
     modUiLock.Leave
+End Sub
+
+' みんなのQ&A(選択式取り込み)へ。
+Public Sub OnGoShared()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modUiLock.Leave
+    modShared.Show
+    Exit Sub
 End Sub
 
 Public Sub OnGoTable()
@@ -330,7 +405,7 @@ End Sub
 '   埋め込みAPIを使う重い処理なので、起動時ではなく利用者が押したときだけ実行。
 '   取り込むと、次から同じ質問に「人が確認済みの答え」で応えられるようになる。
 ' ----------------------------------------------------------------------------
-Public Sub OnImportSharedQA()
+Public Sub OnImportSharedQA_Legacy()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 

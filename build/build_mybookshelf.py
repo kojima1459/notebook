@@ -256,6 +256,9 @@ def build_config_rows(mock_llm: bool):
         ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
         ("chat_log_enabled", True, "TRUE=チャット履歴シートに質問と回答を記録する(最新100件・古い順に自動削除)"),
         ("low_hit_warn_score", 0.3, "検索ヒットの最高スコアがこの値未満のとき回答に⚠️関連薄い警告を付ける(0で無効)"),
+        ("exp_correction", 20,
+         "「違う」「微妙」を押した上で正しい内容を書いてくれた人に付与するEXP。"
+         "資料登録(20)と同格。手間に見合う対価が無いと誰も書かない"),
         ("confidence_score_x100", 55,
          "回答の信頼度バッジのスコア閾値×100。この値以上のヒットが2件以上で「強く一致」、"
          "1件で「部分的に一致」、それ未満は「根拠なし」と表示する"),
@@ -961,8 +964,9 @@ def main():
     # 取り込みは利用者が押したときだけ行う。
     _make_headers_only(wb, "insight_inbox",
                         ["nonce", "kind", "user_id", "author", "created_at",
-                         "question", "answer_or_reason", "source_or_dept", "consumed"],
-                        "hidden", widths=[34, 8, 20, 18, 18, 60, 80, 30, 10],
+                         "question", "answer_or_reason", "source_or_dept", "consumed",
+                         "selected"],
+                        "hidden", widths=[34, 8, 20, 18, 18, 60, 80, 30, 10, 10],
                         text_cols=[4, 6, 7, 8])   # author/question/answer/source
 
     try:

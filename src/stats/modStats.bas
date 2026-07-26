@@ -150,6 +150,12 @@ Public Sub EvaluateBadges()
     CheckBadge "solve10", GetStat("selfsolve_total") >= 10, "自己解決10件"
     CheckBadge "solve50", GetStat("selfsolve_total") >= 50, "自己解決50件"
     CheckBadge "streak7", GetStat("streak_days") >= 7, "7日連続利用"
+    ' フィードバック系(2026-07-26): 正しい内容を教えてくれる行為そのものを
+    ' 称える。共有知は「使う人」ではなく「直す人」がいないと育たない。
+    CheckBadge "fb10", GetStat("correction_total") >= 10, "フィードバック名人(修正10件)"
+    CheckBadge "fb50", GetStat("correction_total") >= 50, "フィードバックキング(修正50件)"
+    CheckBadge "qa_share10", GetStat("qa_shared_total") >= 10, "知恵の配り手(解決済みQ&A10件を共有)"
+    CheckBadge "gapfill", GetStat("gapfill_total") >= 1, "穴埋め職人(みんなの困りごとに答えた)"
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -180,6 +186,10 @@ Public Sub AddExp(ByVal eventType As String)
         Case "thumbup":    amt = modConfig.GetLong("exp_thumbup", 10)
         Case "pack_share": amt = modConfig.GetLong("exp_pack_share", 30)
         Case "feedback":   amt = modConfig.GetLong("exp_feedback", 5)   ' ご意見箱(1日1回はmodHelp側で制御)
+        ' 修正入力(👎/🤔を押した上で正しい内容を書いてくれた人)。
+        ' 手間に見合う対価を明示的に置かないと、面倒なほうが必ず勝つ。
+        ' 質問1回(5)より高く、資料登録(20)と同格にしてある。
+        Case "correction": amt = modConfig.GetLong("exp_correction", 20)
         Case Else:         amt = 0
     End Select
     If amt <> 0 Then Bump "exp_total", amt

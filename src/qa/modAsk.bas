@@ -1,10 +1,9 @@
 Attribute VB_Name = "modAsk"
 Option Explicit
 
-' modAsk - 2速QA(⚡すぐ聞く/🔍しっかり調べる)のオーケストレーション
-' 役割: ホームの質問+モード(またはAnswer(question, mode)の直接呼び出し)を
-'   modRetrieve.Search→modPrompts.Build*Prompt→modGateway.CallLLMの順に処理し、
-'   進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
+' modAsk - 2速QA(すぐ聞く/しっかり調べる)のオーケストレーション。
+' modRetrieve.Search→modPrompts.Build*Prompt→modGateway.CallLLM の順に処理し、
+' 進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
 '
 ' 設計判断:
 '   ・quick=Search→出典先出し→CallLLMの2段 / deep=+検証の3段。
@@ -42,7 +41,7 @@ Private mLastCleanAnswer As String
 Private mLastQuestion As String
 Private mLastAnswer As String
 Private mLastMode As String
-' 感想の多重カウント防止(2026-07-16): 1回の回答につき1回だけ記録する。
+' 感想は1回の回答につき1回だけ記録する(多重カウント防止)。
 Private mFeedbackDone As Boolean
 Private mLastHits() As Hit
 Private mLastNHits As Long
@@ -131,9 +130,8 @@ Fail:
     mAsking = False
 End Sub
 
-' AnswerWithContext - Answer/AskFollowup共通の回答生成本体(Private)。
-'   prevU/prevAはリボンChatGPT()へ渡す会話履歴(空文字=履歴なし)。
-'   isFollowupはusage_logの識別用(event="ask"のdetail先頭に"followup "を付す)。
+' AnswerWithContext - Answer/AskFollowup共通の回答生成本体。prevU/prevAは
+'   会話履歴(空=なし)。isFollowupはusage_logの識別用。
 Private Function AnswerWithContext(ByVal question As String, ByVal mode As String, _
                                    ByVal prevU As String, ByVal prevA As String, _
                                    ByVal isFollowup As Boolean) As String
@@ -187,14 +185,18 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
         result = modLog.FriendlyMessage("E0203") & vbLf & "(コード: E0203)"
     ElseIf nHits = 0 Then
         modLog.LogError "E0601", "modAsk.Answer", "query=" & modUtil.SafeLeft(q, 200)
-        result = modLog.FriendlyMessage("E0601") & vbLf & vbLf & _
-            "『マイ本棚』タブから資料を追加すると、次から答えられるようになります。"
+        ' 「見つかりません」で終わらせず、探すべき資料の種類まで示す。
+        ' 本棚が空では回答自体が成立しない以上、次の一手を出すのが唯一の親切。
+        result = modClarify.MissingDocGuide(q)
+        On Error Resume Next
+        modInsight.EmitGap q, "no_hit"    ' 資料が無い領域として部内に共有する
+        On Error GoTo Fail
     Else
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒット"
         modUIMain.RenderSourcesPreview hits, nHits
 
         If IsTooVague(q, hits, nHits) Then
-            result = VagueQueryPrompt()
+            result = modClarify.BuildClarifyPrompt(q, HitSourceList(hits, nHits))
             On Error Resume Next
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
@@ -309,10 +311,8 @@ Public Function LastHitPeek(ByVal i As Long) As String
     If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i).full_text
 End Function
 
-' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。実務者は答えの正誤を自力で
-' 判断できず、判断できないとフィードバックも押されない。検索スコアを人間に
-' 見える形にして「確認すべきときだけ確認させる」。閾値=config
-' confidence_score_x100(既定55)。強いヒット2件以上=2、最高値が閾値以上=1。
+' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。検索スコアを人間に見える形に
+' して「確認すべきときだけ確認させる」。閾値=config confidence_score_x100。
 Public Function LastConfidence() As Long
     If mLastNHits < 1 Then Exit Function
 
@@ -338,8 +338,7 @@ Public Function LastConfidence() As Long
     End If
 End Function
 
-' 信頼度の説明文(チャット画面のバッジに出す)。一般アシスタント回答や
-' 検索を行わなかったターンでは空文字を返し、バッジ自体を出さない。
+' 信頼度の説明文(バッジ用)。検索しなかったターンでは空文字=バッジを出さない。
 Public Function LastConfidenceText() As String
     If LenB(mLastMode) = 0 Then Exit Function
     Select Case LastConfidence()
@@ -695,13 +694,26 @@ Private Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Lon
     IsTooVague = (best < thr)
 End Function
 
-Private Function VagueQueryPrompt() As String
-    VagueQueryPrompt = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少し詳しく教えていただけますか?" & vbLf & vbLf & _
-        "たとえば、次のどれかを添えると精度が上がります。" & vbLf & _
-        "・どの資料について?(約款 / マニュアル / 規程)" & vbLf & _
-        "・どんな場面?(契約者対応 / 社内手続き / 研修)" & vbLf & _
-        "・知りたい結論は?(必要書類 / 所要日数 / 保険料への影響)"
+' 逆質問の材料: ヒットした資料名を重複除去して最大4件、| 区切りで返す。
+Private Function HitSourceList(hits() As Hit, ByVal nHits As Long) As String
+    Dim sb As String, cnt As Long
+    Dim i As Long
+    On Error Resume Next
+    For i = 1 To nHits
+        Dim nm As String: nm = Trim$(hits(i).source)
+        If LenB(nm) > 0 Then
+            If InStr(1, "|" & sb & "|", "|" & nm & "|", vbTextCompare) = 0 Then
+                If LenB(sb) > 0 Then sb = sb & "|"
+                sb = sb & nm
+                cnt = cnt + 1
+                If cnt >= 4 Then Exit For
+            End If
+        End If
+    Next i
+    On Error GoTo 0
+    HitSourceList = sb
 End Function
+
 
 Private Function NormalizeMode(ByVal mode As String) As String
     If LCase$(Trim$(mode)) = MODE_DEEP Then

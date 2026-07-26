@@ -142,6 +142,12 @@ Public Sub OnSend()
     modUI.AddChatBubble "user", q
     ClearInputCell
 
+    ' 逆質問の途中なら、返事(番号選択 or 書き直し)を元の質問と合成して
+    ' 完全な質問文に組み立て直す。利用者は番号を打つだけでよい。
+    On Error Resume Next
+    If modClarify.HasPending() Then q = modClarify.MergeAnswer(q)
+    On Error GoTo Fail
+
     ' 体感速度ハック: 待ち時間の無反応(壊れた?)を防ぐため、考え中バブルを即時表示。
     ' 回答が来たら削除して本物を追加する(in-place置換はバブル高さ管理と衝突するため
     ' 削除→追加方式。小さな余白が残るだけで崩れない)。
@@ -279,33 +285,48 @@ Done:
     modUiLock.Leave
 End Sub
 
+' ❌ 違う: まずシグナルだけ1クリックで確定させ、修正入力は任意で聞く。
+' 入力を先に要求すると、面倒が勝って誰も押さなくなる(旧実装の失敗)。
+' 書いてくれた人にはEXPとバッジで明確に報いる。
 Public Sub OnActBad()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     If Not HasTarget() Then GoTo Done
-    On Error Resume Next
-    modStats.Bump "fail_total"
-    modLog.LogUsage "feedback_bad", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
-    On Error GoTo Done
 
-    ' RLHF簡易版(Phase 2): 正しい内容を教えてもらい、ナレッジとして学習する
+    modAsk.FeedbackRed        ' 記録+知識の穴として部内共有(ここまでは1クリック)
+
     Dim fixText As String
-    fixText = InputBox("この回答の正しい内容・修正点を教えてください。" & vbCrLf & _
-                   "入力いただいた内容はナレッジとして学習し、次回から回答に反映されます。" & vbCrLf & _
-                   "(空欄のまま閉じると記録のみ行います)", "Nexus Agent - 自己学習")
+    fixText = InputBox( _
+        "もしお分かりでしたら、正しい内容を教えてください。" & vbCrLf & _
+        "書いていただくと EXP +20、修正が貯まると「フィードバックキング」の" & vbCrLf & _
+        "バッジがもらえます。空欄のまま閉じても記録は済んでいます。", _
+        "Nexus Agent - 正しい内容を教える")
     If LenB(Trim$(fixText)) = 0 Then GoTo Done
 
+    RecordCorrection fixText
+Done:
+    modUiLock.Leave
+End Sub
+
+' 修正入力の共通処理(👎/🤔の両方から呼ぶ)。ナレッジ化+EXP+カウント。
+Private Sub RecordCorrection(ByVal fixText As String)
+    On Error Resume Next
     Dim body As String
     body = "【修正ナレッジ】" & vbLf & _
            "対象の回答(抜粋): " & modUtil.SafeLeft(TargetText(), 400) & vbLf & vbLf & _
            "正しい内容: " & fixText
+
     If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
-        modSkin.ShowToast "教えていただきありがとうございます。次回の回答から反映します。", "success"
+        modStats.Bump "correction_total"
+        modStats.AddExp "correction"
+        modStats.EvaluateBadges
+        ' 修正内容も部内へ共有する。1人の訂正が全員の訂正になる。
+        modInsight.EmitCorrection modAsk.LastAnswerText(), fixText
+        modSkin.ShowToast "ありがとうございます。EXP +20。次回から反映します。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
     End If
-Done:
-    modUiLock.Leave
+    On Error GoTo 0
 End Sub
 
 Public Sub OnActDrill()
@@ -374,7 +395,17 @@ Public Sub OnActUnsure()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     If Not HasTarget() Then GoTo Done
-    modAsk.FeedbackUnsure
+
+    modAsk.FeedbackUnsure     ' ここまでは1クリックで完結
+
+    Dim hint As String
+    hint = InputBox( _
+        "どのあたりが引っかかりましたか?(任意)" & vbCrLf & _
+        "一言でも書いていただくと EXP +20 です。空欄のまま閉じても構いません。", _
+        "Nexus Agent - どこが気になりましたか")
+    If LenB(Trim$(hint)) = 0 Then GoTo Done
+
+    RecordCorrection hint
 Done:
     modUiLock.Leave
 End Sub
@@ -637,6 +668,7 @@ Public Sub OnClearChat()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUI.ClearChat
+    modClarify.ClearPending
     modUI.AddChatBubble "ai", TimeGreeting() & " 会話をクリアしました。新しい質問をどうぞ。"
     On Error GoTo 0
     modUiLock.Leave
