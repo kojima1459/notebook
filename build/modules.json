@@ -184,6 +184,13 @@
       "wave": "NEXUS-P4"
     },
     {
+      "name": "modChannel",
+      "path": "src/pack/modChannel.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "CHANNEL"
+    },
+    {
       "name": "modInsight",
       "path": "src/pack/modInsight.bas",
       "role": "core",

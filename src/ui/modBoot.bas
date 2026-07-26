@@ -212,6 +212,10 @@ Public Sub Boot()
     modInsight.CollectInsights
     On Error GoTo 0
 
+    ' 部門チャンネルは「更新があるか」だけ見る(version.txtを読むだけ=軽い)。
+    ' 実際の取り込みは埋め込みAPIを使うので、必ず利用者のクリックを待つ。
+    ' 起動が遅いことが最大の離脱要因なので、ここで重い処理は絶対にしない。
+
     ' 6) ScheduleAutoSync
     On Error Resume Next
     modShelfSync.ScheduleAutoSync

@@ -384,6 +384,16 @@ Fail:
     Set EnsureStatsSheet = Nothing
 End Function
 
+' 文字列値の読み書き(部門チャンネルの取り込み済み版番号など、数値でない
+' 状態を持つため)。数値カウンタのBump/GetStatとは用途が違う。
+Public Function GetStatText(ByVal key As String) As String
+    GetStatText = GetStatValueString(key)
+End Function
+
+Public Sub SetStatText(ByVal key As String, ByVal valText As String)
+    SetStatValue key, valText
+End Sub
+
 Private Sub SetStatValue(ByVal key As String, ByVal value As Variant)
     Dim ws As Worksheet: Set ws = EnsureStatsSheet()
     If ws Is Nothing Then Exit Sub

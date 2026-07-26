@@ -237,11 +237,11 @@ End Sub
 Private Sub DrawStatTiles(ByVal ws As Worksheet)
     Dim labels As Variant, vals As Variant
     labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
-                   ChrW(&H23F1) & " 取り戻した時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 蔵書チャンク", _
+                   ChrW(&H23F1) & " 取り戻した時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
                    ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今月)", _
                    ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有")
     vals = Array(CStr(AskTotal()), CStr(SafeStat("selfsolve_total")), _
-                 FmtMin(SafeSavedMinutes()), CStr(SafeChunks()), _
+                 FmtMin(SafeSavedMinutes()), ChunkUsage(), _
                  OrgMin("d"), OrgMin("m"), _
                  SafeStat("streak_days") & "日", CStr(SafeStat("pack_export_total")))
 
@@ -438,11 +438,27 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     shareOk = (LenB(Trim$(modConfig.GetString("nexus_share_path", ""))) > 0)
     On Error GoTo 0
 
+    Dim chPend As String
+    On Error Resume Next
+    chPend = modChannel.PendingUpdates()
+    On Error GoTo 0
+
     Dim cap As String, act As String
     If Not shareOk Then
         cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
               "設定すると、みんなが解決したQ&Aが自動で届くようになります(config の nexus_share_path)"
         act = "modHub.OnShareHelp"
+    ElseIf LenB(chPend) > 0 Then
+        ' 正典の改定は最優先で知らせる。古い版のまま使い続けると、AIが
+        ' 古い条文を根拠に答えるという最悪の事故になる。
+        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネルに更新があります(" & _
+              Replace(chPend, "|", " / ") & ")" & vbCr & _
+              "押すと最新版に入れ替えます。古い内容で回答しないために早めの更新を"
+        act = "modKnowledge.OnChannels"
+    ElseIf modChannel.IsBudgetTight() Then
+        cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
+              "押すと部門チャンネルの購読を見直せます(使っていないものを外すと空きます)"
+        act = "modKnowledge.OnChannels"
     ElseIf qaN > 0 Then
         cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _
               "押すと一覧が開きます。要るものだけ選んで本棚に入れられます"
@@ -713,6 +729,16 @@ Private Function SafeChunks() As Long
     On Error Resume Next
     SafeChunks = modShelf.TotalChunks()
     On Error GoTo 0
+End Function
+
+' 本棚の使用量。実数だけ出しても上限が分からないので割合で見せる。
+' 部門チャンネルを増やすほど埋まるので、増やしてよいかの判断材料になる。
+Private Function ChunkUsage() As String
+    Dim pct As Long
+    On Error Resume Next
+    pct = modChannel.ChunkUsagePercent()
+    On Error GoTo 0
+    ChunkUsage = pct & "%"
 End Function
 
 Private Function FmtMin(ByVal minutes As Long) As String

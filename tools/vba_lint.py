@@ -223,7 +223,9 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # EXP/レベル(ゲーミフィケーション): AddExp=加点イベント口、ExpTotal/Level/
         # LevelProgress/ExpFloorForLevel はダッシュボードが読む集計ゲッター。
-        "required": ["Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
+        # GetStatText/SetStatText: 部門チャンネルの取り込み済み版番号など、
+        #   数値でない状態を持つための文字列アクセサ(2026-07-26)。
+        "required": ["GetStatText", "SetStatText", "Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
                      "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
                      "ReportNoise", "NoiseThreshold", "ExcludedSources",
                      "MarkGlobalExcluded", "ResetGlobalExcluded",

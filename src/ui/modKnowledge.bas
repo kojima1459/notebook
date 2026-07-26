@@ -129,10 +129,11 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
                  ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", _
                  ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", _
                  ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", _
+                 ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", _
                  ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
     acts = Array("OnSearch", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn", _
-                 "OnSync", "OnPickFolder", "OnDelete", "OnGapBoard", "OnToChat")
-    widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 104, 76)
+                 "OnSync", "OnPickFolder", "OnDelete", "OnGapBoard", "OnChannels", "OnToChat")
+    widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 104, 96, 76)
 
     Dim barTop As Double: barTop = ws.Rows(3).Top
     Dim x As Double: x = L + 8
@@ -145,7 +146,7 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     End If
 
     Dim i As Long
-    For i = 0 To 9
+    For i = 0 To 10
         ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
         ' 見せない=実機報告「どっちで押せばいいか分からない」への対処)。
         Dim skip As Boolean
@@ -449,6 +450,108 @@ Public Sub OnImportSharedQA_Legacy()
     Exit Sub
 Done:
     modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
+' 部門チャンネル: 購読・更新・チャンク予算をひとまとめに扱う入口。
+'   全社共通/商品/システム/人事… と部門ごとに正典が発行される。ここで
+'   必要なものだけ購読する。全部入れないのが既定なので、部門が増えても
+'   ひとりのブックが際限なく膨らむことはない。
+' ----------------------------------------------------------------------------
+Public Sub OnChannels()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    Dim all As String, pend As String
+    On Error Resume Next
+    all = modChannel.ListChannels()
+    pend = modChannel.PendingUpdates()
+    On Error GoTo Done
+
+    If LenB(all) = 0 Then
+        modUiLock.Leave
+        MsgBox "部門チャンネルが1つも見つかりませんでした。" & vbCrLf & vbCrLf & _
+            "各部門が正典パックを発行すると、ここに一覧が出ます。" & vbCrLf & _
+            "(共有フォルダの channels\<部門名>\ に pack.xlsx と version.txt を置く形です)" & vbCrLf & _
+            "共有フォルダ自体が未設定の場合は、Hubのお知らせから設定してください。", _
+            vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    Dim body As String
+    body = "■ 使えるチャンネル(購読すると本棚に正典が入り、初日から答えが返ります)" & vbCrLf
+    Dim parts() As String: parts = Split(all, "|")
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim mark As String
+        If modChannel.IsSubscribed(parts(i)) Then
+            mark = "[購読中]"
+        Else
+            mark = "[未購読]"
+        End If
+        body = body & "  " & mark & " " & parts(i) & vbCrLf
+    Next i
+
+    body = body & vbCrLf & "■ 本棚の使用量: " & modChannel.ChunkUsagePercent() & "%"
+    If modChannel.IsBudgetTight() Then
+        body = body & "  ← 8割を超えています。使っていないチャンネルの購読を外してください。"
+    End If
+    body = body & vbCrLf & vbCrLf
+
+    If LenB(pend) > 0 Then
+        body = body & "■ 更新があります: " & Replace(pend, "|", " / ") & vbCrLf & vbCrLf & _
+               "「はい」で最新版に更新します(古い版は自動で置き換えます)。"
+        If MsgBox(body, vbYesNo + vbQuestion, modAppDef.APP_NAME & " - 部門チャンネル") = vbYes Then
+            Dim got As Long
+            modUiLock.Leave
+            got = modChannel.SyncSubscribed()
+            MsgBox got & " 件の内容を最新版に更新しました。", vbInformation, modAppDef.APP_NAME
+            Exit Sub
+        End If
+        GoTo Done
+    End If
+
+    body = body & "購読を変更しますか?(チャンネル名を入力すると購読/解除が切り替わります)"
+    Dim ans As String
+    ans = InputBox(body, modAppDef.APP_NAME & " - 部門チャンネル")
+    If LenB(Trim$(ans)) = 0 Then GoTo Done
+
+    modUiLock.Leave
+    ToggleChannel Trim$(ans)
+    Exit Sub
+Done:
+    modUiLock.Leave
+End Sub
+
+' 購読の切り替え。解除時はそのチャンネル由来のチャンクを本棚から取り除く
+' (残すと使っていない知識が検索を薄めるうえ、チャンク上限も食い続ける)。
+Private Sub ToggleChannel(ByVal chName As String)
+    On Error Resume Next
+    If modChannel.IsSubscribed(chName) Then
+        If MsgBox("「" & chName & "」の購読を解除します。" & vbCrLf & _
+                  "このチャンネル由来の内容は本棚から取り除かれます" & vbCrLf & _
+                  "(あなたが自分で入れた資料は消えません)。よろしいですか?", _
+                  vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then Exit Sub
+        Dim removed As Long
+        removed = modChannel.PurgeChannelChunks(chName)
+        modChannel.Unsubscribe chName
+        modStats.SetStatText "ch:" & LCase$(chName), ""
+        MsgBox "購読を解除し、" & removed & " 件を本棚から取り除きました。", _
+               vbInformation, modAppDef.APP_NAME
+    Else
+        modChannel.Subscribe chName
+        Dim got As Long
+        got = modChannel.SyncChannel(chName)
+        If got > 0 Then
+            MsgBox "「" & chName & "」を購読しました。" & vbCrLf & _
+                   got & " 件の正典を本棚に取り込みました。" & vbCrLf & _
+                   "すぐに質問できます。", vbInformation, modAppDef.APP_NAME
+        Else
+            MsgBox "「" & chName & "」を購読しました。" & vbCrLf & _
+                   "(取り込む新しい内容はありませんでした)", vbInformation, modAppDef.APP_NAME
+        End If
+    End If
+    On Error GoTo 0
 End Sub
 
 Public Sub OnRegister()

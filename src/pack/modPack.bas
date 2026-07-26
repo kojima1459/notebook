@@ -171,8 +171,14 @@ Public Sub ImportPackDialog()
 
     If fd.Show <> -1 Then Exit Sub   ' キャンセル
     If fd.SelectedItems.count < 1 Then Exit Sub
-    Dim packPath As String: packPath = CStr(fd.SelectedItems(1))
+    ImportPackFile CStr(fd.SelectedItems(1)), False
+End Sub
 
+' ImportPackFile - パスを直接指定してパックを取り込む(部門チャンネルの
+'   自動同期から使う)。silent:=True のときは完了/失敗のダイアログを出さず、
+'   取り込み件数だけを返す(起動時の同期でダイアログが出ると業務が止まる)。
+'   ダイアログ経由の従来動作は ImportPackDialog がここを silent:=False で呼ぶ。
+Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean) As Long
     Dim wb As Workbook
     On Error GoTo OpenFail
     Set wb = Application.Workbooks.Open(Filename:=packPath, ReadOnly:=True, UpdateLinks:=0)
@@ -190,10 +196,12 @@ Public Sub ImportPackDialog()
         Else
             badCode = "E0701"
         End If
-        modLog.LogError badCode, "modPack.ImportPackDialog", reason
-        MsgBox modLog.FriendlyMessage(badCode) & vbLf & "(コード: " & badCode & ")" & vbLf & _
-            "詳細: " & reason, vbExclamation, modAppDef.APP_NAME
-        Exit Sub
+        modLog.LogError badCode, "modPack.ImportPackFile", reason
+        If Not silent Then
+            MsgBox modLog.FriendlyMessage(badCode) & vbLf & "(コード: " & badCode & ")" & vbLf & _
+                "詳細: " & reason, vbExclamation, modAppDef.APP_NAME
+        End If
+        Exit Function
     End If
 
     Dim authorName As String
@@ -210,9 +218,11 @@ Public Sub ImportPackDialog()
     On Error GoTo 0
 
     If n = 0 Then
-        MsgBox "パックの中に取込める資料がありませんでした。" & vbLf & _
-            "別のパックファイルでお試しください。", vbExclamation, modAppDef.APP_NAME
-        Exit Sub
+        If Not silent Then
+            MsgBox "パックの中に取込める資料がありませんでした。" & vbLf & _
+                "別のパックファイルでお試しください。", vbExclamation, modAppDef.APP_NAME
+        End If
+        Exit Function
     End If
 
     Dim importedCount As Long, skippedCount As Long
@@ -223,17 +233,22 @@ Public Sub ImportPackDialog()
     modLog.LogUsage "pack_import", "", "imported=" & importedCount & " skipped=" & skippedCount & _
         " author=" & authorName
 
-    MsgBox importedCount & "件取込 / " & skippedCount & "件は既にありました。", _
-        vbInformation, modAppDef.APP_NAME
-    Exit Sub
+    ImportPackFile = importedCount
+    If Not silent Then
+        MsgBox importedCount & "件取込 / " & skippedCount & "件は既にありました。", _
+            vbInformation, modAppDef.APP_NAME
+    End If
+    Exit Function
 
 OpenFail:
     On Error GoTo 0
-    modLog.LogError "E0701", "modPack.ImportPackDialog", "ファイルを開けません: " & Err.Description
-    MsgBox "パックファイルを開けませんでした。" & vbLf & _
-        "壊れたファイルでないか、パスに間違いがないか確認してください。" & vbLf & "(コード: E0701)", _
-        vbExclamation, modAppDef.APP_NAME
-End Sub
+    modLog.LogError "E0701", "modPack.ImportPackFile", "ファイルを開けません: " & Err.Description
+    If Not silent Then
+        MsgBox "パックファイルを開けませんでした。" & vbLf & _
+            "壊れたファイルでないか、パスに間違いがないか確認してください。" & vbLf & "(コード: E0701)", _
+            vbExclamation, modAppDef.APP_NAME
+    End If
+End Function
 
 ' ValidatePack - Workbook実物を検査(3シート存在・pack_format_version一致・
 '   embed_dim一致)。E0701/E0702の判定材料をreasonに返す。
