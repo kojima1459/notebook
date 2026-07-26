@@ -45,6 +45,15 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ws.Rows(5).RowHeight = 22
     ws.Rows(6).RowHeight = 8
 
+    ' 罫線と行列番号を隠す。ここを消さないと、どれだけ整えても
+    ' 画面が「Excelのシート」にしか見えない(実機要望: エクセル感を消す)。
+    On Error Resume Next
+    If ThisWorkbook.ActiveSheet Is ws Then
+        ActiveWindow.DisplayGridlines = False
+        ActiveWindow.DisplayHeadings = False
+    End If
+    On Error GoTo Fail
+
     Dim L As Double, W As Double
     L = ws.Range("A1").Left
     W = ws.Range("A1:N1").Width
@@ -56,6 +65,7 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     hdr.Adjustments(1) = 0.02
     hdr.Line.Visible = 0
     hdr.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+    modSkin.ApplyHeaderDepth hdr          ' §9: 濃紺の2色グラデーション
     With hdr.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ"
         .TextRange.Font.Size = 12
@@ -147,6 +157,7 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
                     .VerticalAnchor = 3
                     .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
                 End With
+                modSkin.ApplyLightShadow btn
                 btn.OnAction = "modKnowledge." & CStr(acts(i))
             End If
             Set btn = Nothing

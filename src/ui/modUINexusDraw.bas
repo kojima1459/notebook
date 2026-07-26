@@ -49,6 +49,7 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
     bg.Adjustments(1) = 0.02
     bg.Line.Visible = 0
     bg.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+    modSkin.ApplyHeaderDepth bg           ' §9: 濃紺の2色グラデーション
     With bg.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット"
         .TextRange.Font.Size = 12
@@ -63,7 +64,11 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
 
     ' 右端から左へ順に積む(文字数が変わっても右揃えが崩れない)。
     Dim x As Double: x = L + W - 8
-    x = x - 62:  HeaderButton ws, "nx_top_clear", ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", _
+    ' 🚪はタブもExcelの×ボタンも隠している構成での唯一の脱出路。Hubまで
+    ' 戻らないと終われない状態にしないため、チャット側にも必ず置く。
+    x = x - 30:  HeaderButton ws, "nx_top_exit", ChrW(&HD83D) & ChrW(&HDEAA), _
+                              x, 30, "modApp.OnSaveAndExit"
+    x = x - 6 - 62: HeaderButton ws, "nx_top_clear", ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", _
                               x, 62, "modApp.OnClearChat"
     x = x - 6 - 30:  HeaderButton ws, "nx_top_help", ChrW(&H2753), x, 30, "modHelp.OnHelpClick"
     x = x - 6 - HDR_BTN_H

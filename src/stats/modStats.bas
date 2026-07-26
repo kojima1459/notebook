@@ -74,21 +74,68 @@ End Function
 ' TouchToday - streak_days/last_used_date 更新(連続利用日数)
 '   last_used_dateが昨日なら+1、今日なら不変、それ以外は1にリセット。
 ' ----------------------------------------------------------------------------
+' 実機要望(2026-07-26): 当社は原則 土日祝休みなので「昨日と today が連続」判定
+' だと金曜→月曜で必ず途切れ、連続記録が最大5日で頭打ちになっていた。
+' 「1営業日前に使っていれば連続」に改める。
+'   ・土日と config holidays に載っている日は営業日として数えない。
+'   ・休日に使った場合は記録だけ残し、連続日数は増減させない
+'     (last_streak_date を動かさないので、次の営業日の判定が壊れない)。
 Public Sub TouchToday()
     Dim todayStr As String: todayStr = Format$(Date, "yyyy-mm-dd")
-    Dim yesterdayStr As String: yesterdayStr = Format$(Date - 1, "yyyy-mm-dd")
-    Dim lastStr As String: lastStr = GetStatValueString("last_used_date")
+
+    If Not IsBusinessDay(Date) Then
+        ' 休日利用: 連続記録には影響させず、最終利用日だけ更新する。
+        SetStatValue "last_used_date", todayStr
+        Exit Sub
+    End If
+
+    ' 旧データからの移行: last_streak_date が無ければ last_used_date を引き継ぐ。
+    Dim lastStr As String: lastStr = GetStatValueString("last_streak_date")
+    If LenB(lastStr) = 0 Then lastStr = GetStatValueString("last_used_date")
 
     If lastStr = todayStr Then
         If GetStat("streak_days") < 1 Then SetStatValue "streak_days", 1
-    ElseIf lastStr = yesterdayStr Then
+    ElseIf lastStr = Format$(PrevBusinessDay(Date), "yyyy-mm-dd") Then
         SetStatValue "streak_days", GetStat("streak_days") + 1
     Else
         SetStatValue "streak_days", 1
     End If
 
+    SetStatValue "last_streak_date", todayStr
     SetStatValue "last_used_date", todayStr
 End Sub
+
+' 営業日判定: 土日を除き、config "holidays"(yyyy-mm-dd をカンマ区切り)に
+' 載っている日も休みとして扱う。祝日はカレンダーごと年で変わるため、
+' 計算で求めず管理者が config シートで足し引きできる形にしてある。
+Private Function IsBusinessDay(ByVal d As Date) As Boolean
+    Dim wd As Long: wd = Weekday(d, 1)      ' 1=日曜, 7=土曜
+    If wd = 1 Or wd = 7 Then Exit Function
+
+    Dim hol As String
+    On Error Resume Next
+    hol = modConfig.GetString("holidays", "")
+    On Error GoTo 0
+    If LenB(hol) > 0 Then
+        If InStr(1, "," & Replace(Replace(hol, " ", ""), "/", "-") & ",", _
+                 "," & Format$(d, "yyyy-mm-dd") & ",", vbTextCompare) > 0 Then Exit Function
+    End If
+
+    IsBusinessDay = True
+End Function
+
+' 直前の営業日。連休や年末年始でも遡れるよう最大30日戻る
+' (見つからなければ単純な前日を返し、判定が固まらないようにする)。
+Private Function PrevBusinessDay(ByVal d As Date) As Date
+    Dim i As Long
+    For i = 1 To 30
+        If IsBusinessDay(d - i) Then
+            PrevBusinessDay = d - i
+            Exit Function
+        End If
+    Next i
+    PrevBusinessDay = d - 1
+End Function
 
 ' ----------------------------------------------------------------------------
 ' EvaluateBadges - §9のバッジ条件を検査。新規獲得は badge:<id> に日付を記録し、

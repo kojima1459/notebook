@@ -55,7 +55,7 @@ import tempfile
 import zipfile
 
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import olefile
 
@@ -255,6 +255,15 @@ def build_config_rows(mock_llm: bool):
         ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
         ("chat_log_enabled", True, "TRUE=チャット履歴シートに質問と回答を記録する(最新100件・古い順に自動削除)"),
         ("low_hit_warn_score", 0.3, "検索ヒットの最高スコアがこの値未満のとき回答に⚠️関連薄い警告を付ける(0で無効)"),
+        ("holidays", (
+            "2026-01-01,2026-01-12,2026-02-11,2026-02-23,2026-03-20,2026-04-29,"
+            "2026-05-03,2026-05-04,2026-05-05,2026-05-06,2026-07-20,2026-08-11,"
+            "2026-09-21,2026-09-22,2026-09-23,2026-10-12,2026-11-03,2026-11-23,"
+            "2026-12-29,2026-12-30,2026-12-31,"
+            "2027-01-01,2027-01-11,2027-02-11,2027-02-23,2027-03-21,2027-03-22,"
+            "2027-04-29,2027-05-03,2027-05-04,2027-05-05,2027-07-19,2027-08-11,"
+            "2027-09-20,2027-09-23,2027-10-11,2027-11-03,2027-11-23"
+         ), "連続ログイン日数で休みとして数える日(yyyy-mm-dd をカンマ区切り)。土日は自動で除外されるので祝日・年末年始だけ書けばよい"),
         ("ambiguous_max_chars", 10, "この文字数以下の質問だけを『曖昧かも』の判定対象にする(長い質問は常にそのままAIへ)"),
         ("ambiguous_score_x100", 60, "曖昧判定のスコア閾値×100。全ヒットの最高スコアがこの値未満なら聞き返す。0で機能OFF"),
     ]
@@ -325,86 +334,162 @@ def _make_macro_guard(wb):
 
 def _make_howto(wb):
     """使い方シート: マクロ無効でも読める唯一の救済ページ。
-    マクロ有効化4ステップ+最初の1冊+質問+困ったら診断、をdocs/00_はじめての方へ.md と
-    同じトーン・同じ手順で構成する(D1担当の清書済みユーザー向け文書と歩調を合わせる)。
-    ボタン名・タブ名は src/ui/modUIMain.bas・modUIShelf.bas の実際の文字列と一致させてある
-    (この関数を編集するときは実装の文字列が変わっていないか必ず突き合わせること)。"""
+
+    実機要望(2026-07-26)「文字だらけで表もなく、改行も適切でなく、認知負荷が
+    高くて読む気が失せる」への全面作り直し。Shapeは使わずセルだけで、
+    (1) 番号つきの手順、(2) 1行1項目の早見表、(3) 用語のミニ辞書 という
+    3つの構造に分解した。1セルに長文を詰め込まず、手順は1ステップ1行にする。
+    画面名・ボタン名は 2026-07-26 の3画面リデザイン(Hub / チャット / ナレッジ)に
+    合わせてある(この関数を編集するときは実装の文字列と必ず突き合わせること)。
+    """
     ws = wb["Sheet1"]
     ws.title = "使い方"
     _clear_sheet(ws)
-    ws.column_dimensions["A"].width = 20
-    ws.column_dimensions["B"].width = 90
+    ws.column_dimensions["A"].width = 4
+    ws.column_dimensions["B"].width = 26
+    ws.column_dimensions["C"].width = 78
 
     _banner(ws, f"{APP_TITLE} — 使い方")
 
-    sections = [
-        ("📚 マイ本棚AIとは",
-         "自分で入れた資料に、承認なしですぐAIに質問できる社内版NotebookLMです。\n"
-         "「マイ本棚」タブで資料を追加すると、AIが読める形(ベクトル化)に自動で変換され、\n"
-         "「ホーム」タブから質問できるようになります。"),
-        ("⚠️ ステップ1: マクロを有効にする(初回のみ・ここで9割の人がつまずきます)",
-         "次の(A)(B)は【両方とも必須】です。どちらか片方だけでは動きません。\n"
-         "(A) マクロを許可する\n"
-         "  1. このファイルをExcelで開く\n"
-         "  2. 画面上部に黄色い「セキュリティの警告」バーが出たら「コンテンツの有効化」を押す\n"
-         "(B) 自動インストールを許可する(初回のみ)\n"
-         "  3. [ファイル]→[オプション]→[トラストセンター]→[トラストセンターの設定]→\n"
-         "     [マクロの設定] で「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」に\n"
-         "     チェックを入れる→OKで閉じてExcelを再起動→もう一度ファイルを開き直す\n"
-         "  4. 数秒待つと、画面が自動的に組み立てられます(タブが増えます)\n"
-         "英語の「VBA Project trust required」という表示が出た場合は、(B)がまだ済んでいない合図です。\n"
-         "なぜこの手順が必要か: このファイルは初回起動時に自分で画面と機能を組み立てる方式のため、\n"
-         "マクロの許可(A)と、組み立てに使う仕組みの許可(B)の両方が必要だからです。"),
-        ("📖 ステップ2: 「マイ本棚」タブで資料を1つ追加する",
-         "1. 画面下のタブから「マイ本棚」をクリックして開く\n"
-         "2. 左上の「＋ 資料を追加」ボタンを押す\n"
-         "3. PDF・Word・Excel・テキストなどのファイルを1つ選んで開く\n"
-         "しばらくすると、資料カードの状態が ⏳(変換中)→ ✅(完了)に変わります。\n"
-         "これで資料が「AIが読める形(ベクトル化)」に変換され、質問できる状態になりました。"),
-        ("💬 ステップ3: 「ホーム」タブで質問する",
-         "1. 画面下のタブから「ホーム」をクリックして開く\n"
-         "2. 質問入力欄(「質問をここに入力してください(例: 〇〇の手続きに必要な書類は?)」)に、\n"
-         "   知りたいことを書く\n"
-         "3. 「⚡ すぐ聞く (10〜20秒)」が選ばれていることを確認する(初期状態で選択済みです)\n"
-         "4. 中央の「💬 質 問 す る」ボタンを押す\n"
-         "状態表示が 🔍検索中… → ✍️回答作成中… と進み、回答と出典\n"
-         "(「📖 この回答のもと: ○○.pdf p.3」など)が表示されます。"),
-        ("🩺 困ったときは",
-         "1. 画面右上の「🩺 診断」ボタンを押す\n"
-         "2. 表示された画面をスクリーンショットで撮る\n"
-         "3. 管理者に送る\n"
-         "自己判断で設定をいじる必要はありません。まずスクリーンショットを送ってください。"),
-        ("✅ 使えるタブ",
-         "「使い方」「ホーム」「マイ本棚」「ダッシュボード」の4つだけです。\n"
-         "それ以外のタブはシステムが自動管理しており、通常は表示されません。"),
-        ("⚠️ 個人情報について",
-         "契約者名・電話番号などの個人情報を含む資料の取込・質問は避けてください。\n"
-         "本ツールは社内AIリボン経由でクラウドLLMを呼び出します。"),
-        ("このシートについて",
-         "このシートはマクロが無効でも読めるようにしてあります(マクロ有効化の案内はここでしか出せないため)。\n"
-         "マクロを有効にして開き直すと、実際の操作画面(ホーム/マイ本棚/ダッシュボード)が使えるようになります。\n"
-         "全機能を詳しく知りたい方は docs/10_使い方ガイド.md もあわせてご覧ください。"),
-    ]
-
-    row = 3
-    label_font = Font(bold=True, size=11, color="3C5AA0")
+    head_font = Font(bold=True, size=12, color="FFFFFF")
+    head_fill = PatternFill("solid", fgColor="1F4E78")
+    key_font = Font(bold=True, size=10, color="1F4E78")
     body_font = Font(size=10)
-    warning_fill = PatternFill("solid", fgColor="FFF4D6")
-    section_fill = PatternFill("solid", fgColor="F4F6FB")
-    for label, body in sections:
-        is_warning = "⚠️" in label
-        ws.cell(row=row, column=1, value=label).font = label_font
-        ws.cell(row=row, column=1).alignment = Alignment(vertical="top", wrap_text=True)
-        ws.cell(row=row, column=2, value=body).font = body_font
-        ws.cell(row=row, column=2).alignment = Alignment(vertical="top", wrap_text=True)
-        fill = warning_fill if is_warning else section_fill
-        ws.cell(row=row, column=1).fill = fill
-        ws.cell(row=row, column=2).fill = fill
-        n_lines = body.count("\n") + 1
-        ws.row_dimensions[row].height = max(28, 16 * n_lines + 6)
-        row += 1
+    step_font = Font(bold=True, size=10, color="FFFFFF")
+    step_fill = PatternFill("solid", fgColor="7F9DB9")
+    warn_fill = PatternFill("solid", fgColor="FFF4D6")
+    zebra_fill = PatternFill("solid", fgColor="F4F6FB")
+    thin = Side(style="thin", color="D9E1EC")
+
+    row = [3]
+
+    def section(title, fill="1F4E78"):
+        if row[0] > 3:
+            row[0] += 1          # 直前ブロックとの間に必ず1行空ける
+        r = row[0]
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=1, value=title)
+        c.font = head_font
+        c.fill = PatternFill("solid", fgColor=fill)
+        c.alignment = Alignment(vertical="center", indent=1)
+        ws.row_dimensions[r].height = 24
+        row[0] = r + 2
+
+    def step(n, text, warn=False):
+        r = row[0]
+        c0 = ws.cell(row=r, column=1, value=n)
+        c0.font = step_font
+        c0.fill = step_fill
+        c0.alignment = Alignment(horizontal="center", vertical="center")
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value=text)
+        c.font = body_font
+        c.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        if warn:
+            c.fill = warn_fill
+        ws.row_dimensions[r].height = max(20, 15 * (text.count("\n") + 1) + 6)
+        row[0] = r + 1
+
+    def kv(k, v, i=0):
+        r = row[0]
+        ck = ws.cell(row=r, column=2, value=k)
+        ck.font = key_font
+        ck.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        cv = ws.cell(row=r, column=3, value=v)
+        cv.font = body_font
+        cv.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        if i % 2 == 1:
+            ck.fill = zebra_fill
+            cv.fill = zebra_fill
+        for c in (ck, cv):
+            c.border = Border(bottom=thin)
+        ws.row_dimensions[r].height = max(20, 15 * (v.count("\n") + 1) + 5)
+        row[0] = r + 1
+
+    def note(text):
+        r = row[0]
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value=text)
+        c.font = Font(size=9, italic=True, color="6B7280")
+        c.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        ws.row_dimensions[r].height = max(18, 14 * (text.count("\n") + 1) + 5)
+        row[0] = r + 2
+
+    # ---- これは何か -------------------------------------------------------
+    section("これは何ですか")
+    kv("ひとことで言うと", "自分で入れた資料にAIが答えてくれる、社内版のNotebookLMです。", 0)
+    kv("普通のAIとの違い", "答えの根拠になった資料名とページが必ず一緒に出ます。原文もその場で開けます。", 1)
+    kv("入れられる資料", "PDF / Word / Excel / テキスト / 画面のスクリーンショット", 0)
+    note("※ 契約者名・電話番号などの個人情報を含む資料は入れないでください。")
+
+    # ---- 最初の設定 -------------------------------------------------------
+    section("はじめに 1回だけやること(ここで9割の人がつまずきます)", "B45F06")
+    step("1", "このファイルをExcelで開く。")
+    step("2", "画面の上に黄色い帯で「セキュリティの警告」と出たら、その中の\n「コンテンツの有効化」ボタンを押す。", warn=True)
+    step("3", "[ファイル] → [オプション] → [トラストセンター] →\n[トラストセンターの設定] → [マクロの設定] と進む。")
+    step("4", "「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」に\nチェックを入れて [OK]。", warn=True)
+    step("5", "Excelをいったん全部閉じて、もう一度このファイルを開く。")
+    step("6", "数秒待つと画面が自動で組み上がります。これで準備完了です。")
+    note("英語で「VBA Project trust required」と出たときは、手順3〜4がまだ終わっていない合図です。\nこのファイルは初回に自分で画面を組み立てる作りなので、この許可が必要です。")
+
+    # ---- 画面の見取り図 ---------------------------------------------------
+    section("画面は3つだけです")
+    kv("🏠 Hub(拠点)", "最初に出る画面。自分の記録と、他の画面への入口が並んでいます。", 0)
+    kv("💬 チャット", "AIに質問する画面。ここだけで会話が完結します。", 1)
+    kv("📚 ナレッジ", "資料を入れる・探す・共有する画面。上のボタンで\n「ギャラリー(カード表示)」と「マイ本棚(一覧表)」を切り替えます。", 0)
+    note("画面の行き来はすべてボタンで行います。左上の「← Hub」でいつでも拠点に戻れます。")
+
+    # ---- 質問する ---------------------------------------------------------
+    section("質問してみる")
+    step("1", "Hubの「💬 チャットで質問する」を押す。")
+    step("2", "上の白い入力らんをクリックして、知りたいことを文章で書く。\n  例) 契約者が亡くなったときの手続きを教えて")
+    step("3", "右はしの緑色の「➤ 送信」を押す(Ctrlキー+Enterでも送れます)。")
+    step("4", "答えの下に出る資料名のボタンを押して、元の文章を必ず確認する。")
+    step("5", "役に立ったら「✅ 解決した」を押す。記録が貯まり、資料を作った人にも届きます。")
+
+    # ---- ボタン早見表 -----------------------------------------------------
+    section("ボタン早見表(チャット画面)")
+    kv("⚡ すぐ聞く", "10〜20秒。ふだんはこちら。", 0)
+    kv("🔍 しっかり調べる", "40〜60秒。念入りに調べて答えを検証してから返します。", 1)
+    kv("🏢 社内ナレッジ検索", "自分の本棚の資料だけを見て答えます(出典つき)。", 0)
+    kv("🌐 一般アシスタント", "本棚を見ずに一般知識で答えます。文章の下書きなどに。", 1)
+    kv("📎 (クリップ)", "画面のスクリーンショットを貼って、その中身について質問できます。", 0)
+    kv("✅ 解決した", "自己解決として記録。節約時間と経験値が増えます。", 1)
+    kv("👎 役に立たなかった", "正しい内容を入力すると、それを覚えて次から反映します。", 0)
+    kv("🔍 深掘り", "直前の会話をふまえて、続けて質問します。", 1)
+    kv("📋 コピー / 📄 Word", "答えをコピー、またはWord文書として書き出します。", 0)
+    kv("🗑 クリア", "会話を消して最初からやり直します(資料は消えません)。", 1)
+    kv("🚪 (ドア)", "保存してこのファイルを閉じます。", 0)
+
+    # ---- 資料を入れる -----------------------------------------------------
+    section("資料を入れる")
+    step("1", "Hubの「📚 ナレッジ倉庫」を押す。")
+    step("2", "上のツールバーの「📁 追加」でファイルを選ぶ。")
+    step("3", "状態が ⏳(変換中) から ✅(完了) に変わったら質問できます。")
+    note("「📂 フォルダ」で本棚フォルダを決めておくと、そこに置いたファイルは自動で取り込まれます\n(フォルダから消せば本棚からも消えます)。")
+
+    # ---- 状態の記号 -------------------------------------------------------
+    section("状態の記号")
+    kv("✅", "取り込み完了。質問に使えます。", 0)
+    kv("⏳", "変換中。しばらく待ってください。", 1)
+    kv("⚠️", "一部うまく読めませんでした。ページ番号がメモ欄に出ます。", 0)
+    kv("🖼", "画像だけのPDFです。文字が入っていないため読み取れません。", 1)
+    kv("🕒", "元のファイルが見つかりません(移動・削除された可能性)。", 0)
+
+    # ---- 困ったとき -------------------------------------------------------
+    section("困ったときは", "9C1F1F")
+    kv("画面が崩れた・ボタンが消えた", "Hub右上の「🔄」を押すと画面を描き直します。", 0)
+    kv("答えが途中で止まる", "いったん保存して閉じ、開き直してからもう一度お試しください。", 1)
+    kv("それでも直らない", "ヘルプ「❓」→「診断」の画面をスクリーンショットで撮って管理者へ送ってください。", 0)
+    kv("操作を思い出したい", "ヘルプ「❓」→「ツアーをもう一度見る」で、最初の案内を再表示できます。", 1)
+    note("自己判断で設定を変える必要はありません。まずスクリーンショットを送ってください。")
+
+    # ---- このシートについて -----------------------------------------------
+    section("このシートについて")
+    note("このシートだけは、マクロが無効な状態でも読めるようにしてあります\n(マクロ有効化の案内は、ここでしか出せないためです)。\nマクロを有効にして開き直すと、実際の操作画面が使えるようになります。")
 
     ws.sheet_properties.tabColor = TAB_COLORS["使い方"]
+    ws.sheet_view.showGridLines = False
     return ws
 
 

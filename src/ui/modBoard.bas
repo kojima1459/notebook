@@ -98,8 +98,11 @@ Public Sub OnWidgetClick()
     On Error GoTo Done
     HideHistory
 
+    ' 2026-07-26: 呼び出し元がHubの統計タイル(ホームシート)へ移ったのに、
+    ' ここは常にNexusシートへ描いていた。別シートに描かれるので画面上は
+    ' 「押しても何も出ない」状態になる。今アクティブなシートへ描く。
     Dim ws As Worksheet
-    Set ws = ThisWorkbook.Worksheets("Nexus")
+    Set ws = ThisWorkbook.ActiveSheet
     If ws Is Nothing Then GoTo Done
 
     Dim body As String
@@ -115,9 +118,22 @@ Public Sub OnWidgetClick()
            "※「" & ChrW(&H2705) & "解決した」1回=15分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
            "  組織に共有・合算されます。" & vbLf & "(クリックで閉じる)"
 
+    ' 位置は画面の見えている範囲から中央寄せ(旧サイドバー幅を前提にした
+    ' x=260の決め打ちだと、サイドバー廃止後は左に寄りすぎる)。
+    Dim popW As Double: popW = 470
+    Dim popL As Double: popL = 40
+    Dim popT As Double: popT = 90
+    On Error Resume Next
+    popL = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - popW) / 2
+    popT = ActiveWindow.VisibleRange.Top + 80
+    On Error GoTo Done
+    If popL < 8 Then popL = 8
+
     Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, 260, 110, 470, 60)
-    shp.Name = "nx_sb_stat_hist"
+    Set shp = ws.Shapes.AddShape(5, popL, popT, popW, 60)
+    ' nx_hub_ 接頭辞にしておくと、Hubの再描画(RemoveHubShapes)が
+    ' 消し忘れのポップアップを自動で片付けてくれる。
+    shp.Name = "nx_hub_hist"
     shp.Adjustments(1) = 0.06
     shp.Line.Visible = -1
     shp.Line.Weight = 1#
@@ -148,9 +164,12 @@ Public Sub OnHistoryClose()
     modUiLock.Leave
 End Sub
 
+' ポップアップはアクティブなシートに描かれるため、Hub/チャットの両方から消す。
 Private Sub HideHistory()
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_sb_stat_hist").Delete
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_hub_hist").Delete
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_sb_stat_hist").Delete   ' 旧名の残骸
+    ThisWorkbook.Worksheets(modAppDef.SH_HOME).Shapes("nx_hub_hist").Delete
     On Error GoTo 0
 End Sub
 
@@ -243,6 +262,7 @@ Public Sub DrawWidget()
     ws.Shapes("nx_sb_stat_bg").Delete
     ws.Shapes("nx_sb_stat_bar").Delete
     ws.Shapes("nx_sb_stat_fill").Delete
+    ws.Shapes("nx_sb_stat_hist").Delete
     On Error GoTo 0
 End Sub
 

@@ -532,6 +532,8 @@ Private Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
     If isUser Then
         shp.Fill.ForeColor.RGB = ThemeColor("userBubble")
         shp.Line.Visible = 0
+        ' §9(Apple風): 自分の発言だけ濃紺の微グラデーションで奥行きを出す。
+        modSkin.ApplyGradient shp, ThemeColor("userBubble"), ThemeColor("primary")
     Else
         shp.Fill.ForeColor.RGB = ThemeColor("aiBubble")
         shp.Line.Visible = -1

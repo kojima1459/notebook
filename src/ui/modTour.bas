@@ -131,16 +131,15 @@ Private Sub DrawStep(ByVal n As Long)
 
     mStep = n
 
-    ' サイドバー廃止(2026-07-26)に伴い、決め打ちのx=195+15ではなく
-    ' チャット領域の実測幾何から求める。
-    Dim cardW As Double: cardW = 400
-    Dim cardL As Double: cardL = modUINexusDraw.ChatLeft(ws) + 15
-    Dim cardT As Double
-    Select Case n
-        Case 1: cardT = modUINexusDraw.ChatTop(ws) + 10
-        Case Else: cardT = modUINexusDraw.ChatTop(ws) + 140
-    End Select
-    Dim cardH As Double: cardH = 130
+    ' 実機要望(2026-07-26): 1枚目と2枚目でカードが動くと目線が迷子になるため、
+    ' 3枚とも同じ位置・同じ大きさに固定する。文字量も増やしたので大きめに取る。
+    ' 座標はチャット領域の実測幾何から中央寄せ(決め打ちのx=195+15は廃止)。
+    Dim cardW As Double: cardW = 540
+    Dim cardH As Double: cardH = 236
+    Dim cardL As Double
+    cardL = modUINexusDraw.ChatLeft(ws) + (modUINexusDraw.ChatWidth(ws) - cardW) / 2
+    If cardL < 8 Then cardL = 8
+    Dim cardT As Double: cardT = modUINexusDraw.ChatTop(ws) + 24
 
     Dim card As Shape
     Set card = ws.Shapes.AddShape(5, cardL, cardT, cardW, cardH)   ' 5=角丸四角
@@ -156,14 +155,14 @@ Private Sub DrawStep(ByVal n As Long)
 
     ' 段数表示("1 / 3")
     Dim stepLbl As Shape
-    Set stepLbl = ws.Shapes.AddShape(1, cardL + cardW - 60, cardT + 8, 48, 14)
+    Set stepLbl = ws.Shapes.AddShape(1, cardL + cardW - 76, cardT + 14, 56, 16)
     stepLbl.Name = "nx_tour_step"
     stepLbl.Fill.Visible = 0
     stepLbl.Line.Visible = 0
     With stepLbl.TextFrame2
         .TextRange.Text = CStr(n) & " / 3"
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 8
+        .TextRange.Font.Size = 9
         .TextRange.ParagraphFormat.Alignment = 3   ' 右
         .MarginLeft = 0: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
@@ -172,26 +171,40 @@ Private Sub DrawStep(ByVal n As Long)
     stepLbl.ZOrder 0
 
     Dim titleText As String, bodyText As String, nextLabel As String
+    ' 文面はPC操作に不慣れな人向け。専門用語を使わず、押す場所・色・形で示す。
     Select Case n
         Case 1
-            titleText = ChrW(&H2460) & " 質問してみましょう"
-            bodyText = "上の入力欄にメッセージを入力し「送信」。「社内ナレッジ検索」" & _
-                "モードなら本棚の資料から出典付きで回答します。"
+            titleText = ChrW(&H2460) & " まず、聞きたいことを書きます"
+            bodyText = _
+                "画面のいちばん上にある白い入力らんを1回クリックして、知りたいことを" & vbLf & _
+                "ふだんの話しことばのまま書いてください。" & vbLf & vbLf & _
+                "  例)  契約者が亡くなったときの手続きを教えて" & vbLf & vbLf & _
+                "書けたら、右はしの緑色の「送信」ボタンを押します。" & vbLf & _
+                "キーボードの Ctrl キーを押しながら Enter キーでも送れます。" & vbLf & _
+                "※ 検索と違って、単語ではなく文章で聞くほど良い答えが返ってきます。"
             nextLabel = "次へ " & ChrW(&H2192)
         Case 2
-            titleText = ChrW(&H2461) & " 出典をワンクリック確認"
-            bodyText = "AI回答の下の「" & ChrW(&HD83D) & ChrW(&HDCC4) & " 出典チップ」を押すと、元の資料の" & _
-                "該当箇所がその場で確認できます。AIの回答が正しいか、秒でチェック。"
+            titleText = ChrW(&H2461) & " 答えの「もとになった資料」を確かめます"
+            bodyText = _
+                "AIの答えの下に、資料名が書かれた小さなボタンが出ます。" & vbLf & vbLf & _
+                "  例)  " & ChrW(&HD83D) & ChrW(&HDCC4) & " 顧客対応マニュアル" & vbLf & vbLf & _
+                "これを押すと、答えのもとになった資料の実際の文章がその場で開きます。" & vbLf & _
+                "AIはときどき間違えます。お客さまへの説明や大事な判断をする前に、" & vbLf & _
+                "必ずここを押して原文を自分の目で確かめてください。"
             nextLabel = "次へ " & ChrW(&H2192)
         Case Else
-            titleText = ChrW(&H2462) & " 役立ったら " & ChrW(&H2705) & "解決した"
-            bodyText = "上のアクションバーで評価できます。「" & ChrW(&H2705) & "解決した」で" & _
-                "EXPが貯まり、資料の作者へ「ありがとう」が自動で届きます。"
+            titleText = ChrW(&H2462) & " 役に立ったら「解決した」を押します"
+            bodyText = _
+                "答えの下に出るボタンの、いちばん左が「" & ChrW(&H2705) & " 解決した」です。" & vbLf & vbLf & _
+                "押すと、あなたが節約できた時間が記録され、レベルと経験値が上がります。" & vbLf & _
+                "その資料を登録した人にも「ありがとう」が自動で届きます。" & vbLf & vbLf & _
+                "答えが間違っていたときは「" & ChrW(&HD83D) & ChrW(&HDC4E) & " 役に立たなかった」を押して、" & vbLf & _
+                "正しい内容を教えてください。次から賢くなります。"
             nextLabel = "はじめる " & ChrW(&H2728)
     End Select
 
     Dim titleShp As Shape
-    Set titleShp = ws.Shapes.AddShape(1, cardL + 14, cardT + 12, cardW - 28, 20)
+    Set titleShp = ws.Shapes.AddShape(1, cardL + 20, cardT + 16, cardW - 40, 24)
     titleShp.Name = "nx_tour_title"
     titleShp.Fill.Visible = 0
     titleShp.Line.Visible = 0
@@ -199,7 +212,7 @@ Private Sub DrawStep(ByVal n As Long)
         .WordWrap = -1
         .TextRange.Text = titleText
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 11
+        .TextRange.Font.Size = 13.5
         .TextRange.Font.Bold = -1
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
     End With
@@ -208,7 +221,7 @@ Private Sub DrawStep(ByVal n As Long)
     titleShp.ZOrder 0
 
     Dim bodyShp As Shape
-    Set bodyShp = ws.Shapes.AddShape(1, cardL + 14, cardT + 38, cardW - 28, 60)
+    Set bodyShp = ws.Shapes.AddShape(1, cardL + 20, cardT + 48, cardW - 40, 150)
     bodyShp.Name = "nx_tour_body"
     bodyShp.Fill.Visible = 0
     bodyShp.Line.Visible = 0
@@ -216,18 +229,18 @@ Private Sub DrawStep(ByVal n As Long)
         .WordWrap = -1
         .TextRange.Text = bodyText
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 9.5
+        .TextRange.Font.Size = 10.5
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
     End With
-    bodyShp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+    bodyShp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
     bodyShp.Placement = 3
     bodyShp.ZOrder 0
 
-    Dim btnW As Double: btnW = 78
-    Dim btnH As Double: btnH = 24
-    Dim btnT As Double: btnT = cardT + cardH - btnH - 10
-    Dim nextL As Double: nextL = cardL + cardW - btnW - 10
-    Dim skipL As Double: skipL = nextL - btnW - 8
+    Dim btnW As Double: btnW = 104
+    Dim btnH As Double: btnH = 30
+    Dim btnT As Double: btnT = cardT + cardH - btnH - 14
+    Dim nextL As Double: nextL = cardL + cardW - btnW - 20
+    Dim skipL As Double: skipL = nextL - btnW - 10
 
     Dim skipBtn As Shape
     Set skipBtn = ws.Shapes.AddShape(5, skipL, btnT, btnW, btnH)
@@ -240,7 +253,7 @@ Private Sub DrawStep(ByVal n As Long)
     With skipBtn.TextFrame2
         .TextRange.Text = "スキップ"
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 9
+        .TextRange.Font.Size = 10
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
@@ -259,7 +272,7 @@ Private Sub DrawStep(ByVal n As Long)
     With nextBtn.TextFrame2
         .TextRange.Text = nextLabel
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 9
+        .TextRange.Font.Size = 10.5
         .TextRange.Font.Bold = -1
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3

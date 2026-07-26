@@ -46,11 +46,16 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Cells.Interior.Color = modUI.UiColor("bg")
 
     ' 幾何を確定させてからShapeを置く(順序が逆だと座標がズレる)。
+    ' 「セル感」を消すための列取り: 統計タイル2枚の間にD列の細い溝を入れ、
+    ' 左ブロック(B:F)と右ブロック(H:K)の間にもG列の溝を置く。タイル同士が
+    ' 隣接していると罫線の有無に関わらず表に見えてしまう。
     ws.Columns("A").ColumnWidth = 1.5
-    ws.Columns("B:E").ColumnWidth = 13
-    ws.Columns("F").ColumnWidth = 2
-    ws.Columns("G:J").ColumnWidth = 13
-    ws.Columns("K").ColumnWidth = 1.5
+    ws.Columns("B:C").ColumnWidth = 13
+    ws.Columns("D").ColumnWidth = 1.2
+    ws.Columns("E:F").ColumnWidth = 13
+    ws.Columns("G").ColumnWidth = 2.5
+    ws.Columns("H:K").ColumnWidth = 13
+    ws.Columns("L").ColumnWidth = 1.5
     ws.Rows("1:60").RowHeight = 15
 
     If activate Then
@@ -91,7 +96,7 @@ End Sub
 Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim L As Double, W As Double
     L = ws.Range("A1").Left
-    W = ws.Range("A1:K1").Width
+    W = ws.Range("A1:L1").Width
 
     Dim hdr As Shape
     Set hdr = ws.Shapes.AddShape(5, L, 0, W, HDR_H)
@@ -99,6 +104,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     hdr.Line.Visible = 0
     hdr.Adjustments(1) = 0.02
     hdr.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+    modSkin.ApplyHeaderDepth hdr          ' §9: 濃紺の2色グラデーション
     With hdr.TextFrame2
         .TextRange.Text = ChrW(&H26A1) & " Nexus Agent"
         .TextRange.Font.Size = 14
@@ -109,15 +115,18 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     End With
 
     Dim icons As Variant, acts As Variant, tips As Variant
+    ' 🔄=画面を再描画。旧サイドバーにあった復旧用ボタンの移設先
+    ' (ウィンドウ移動やAlt+Tab復帰で表示が崩れたときの1クリック復旧手段)。
     icons = Array(ChrW(&HD83C) & ChrW(&HDF10), ChrW(&HD83C) & ChrW(&HDF19), _
-                  ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
+                  ChrW(&HD83D) & ChrW(&HDD04), ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
     acts = Array("modHub.OnLangCycle", "modHub.OnThemeToggle", _
-                 "modHub.OnHelp", "modHub.OnSaveAndExit")
-    tips = Array("回答言語を切り替える", "配色を切り替える", "ヘルプ", "保存して閉じる")
+                 "modHub.OnRedraw", "modHub.OnHelp", "modHub.OnSaveAndExit")
+    tips = Array("回答言語を切り替える", "配色を切り替える", "画面を描き直す", _
+                 "ヘルプ・使い方", "保存して閉じる")
 
     Dim xRight As Double: xRight = L + W - 8
     Dim i As Long
-    For i = 3 To 0 Step -1
+    For i = 4 To 0 Step -1
         xRight = xRight - 30
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(9, xRight, (HDR_H - 26) / 2, 26, 26)
@@ -143,7 +152,7 @@ End Sub
 Private Sub DrawProfileCard(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("B3").Left
-    W = ws.Range("B3:E3").Width
+    W = ws.Range("B3:F3").Width
     T = HDR_H + 12
 
     Dim card As Shape
@@ -152,7 +161,7 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
     card.Adjustments(1) = 0.06
     card.Line.Visible = 0
     card.Fill.ForeColor.RGB = modUI.UiColor("surface")
-    SafeShadow card
+    modSkin.ApplyLightShadow card
 
     Dim nm As String, dept As String
     Dim lvl As Long, ex As Long
@@ -218,11 +227,14 @@ Private Sub DrawExpGauge(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Do
     fl.Adjustments(1) = 0.5
     fl.Line.Visible = 0
     fl.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    modSkin.ApplyGradient fl, RGB(245, 158, 11), RGB(251, 191, 36)   ' §9: amber
 End Sub
 
-' 統計タイル8枚(セル。Merge+塗りで軽く保つ)
+' 統計タイル8枚。実機要望(2026-07-26)「セル感を消したい」への対処で、
+' セルのMerge+罫線から角丸Shape+影に作り替えた。セルの矩形は等間隔・直角・
+' 罫線という「表」の記号そのもので、罫線を消しても格子として認識されるため。
+' 座標は左ブロック(B:F)の実測幾何から2列×4段で割り付ける。
 Private Sub DrawStatTiles(ByVal ws As Worksheet)
-    Dim startRow As Long: startRow = 9
     Dim labels As Variant, vals As Variant
     labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
                    ChrW(&H23F1) & " 取り戻した時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 蔵書チャンク", _
@@ -233,61 +245,70 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
                  OrgMin("d"), OrgMin("m"), _
                  SafeStat("streak_days") & "日", CStr(SafeStat("pack_export_total")))
 
+    ' 左ブロックの幾何。D列(溝)を挟んで B:C と E:F の2枚並び。
+    Dim colL As Double, colW As Double, gutter As Double
+    colL = ws.Range("B1").Left
+    colW = ws.Range("B1:C1").Width
+    gutter = ws.Range("D1").Width
+
+    Dim tileH As Double: tileH = 52
+    Dim gapY As Double: gapY = 8
+    Dim topY As Double: topY = HDR_H + 12 + CARD_H + 18   ' プロフィールカードの下
+
     Dim i As Long
     For i = 0 To 7
-        Dim r As Long: r = startRow + (i \ 2) * 3
-        Dim c1 As String, c2 As String
-        If (i Mod 2) = 0 Then
-            c1 = "B": c2 = "C"
-        Else
-            c1 = "D": c2 = "E"
+        On Error Resume Next
+        Dim x As Double, y As Double
+        x = colL + (i Mod 2) * (colW + gutter)
+        y = topY + (i \ 2) * (tileH + gapY)
+
+        Dim tile As Shape
+        Set tile = ws.Shapes.AddShape(5, x, y, colW, tileH)
+        If Err.Number = 0 And Not tile Is Nothing Then
+            tile.Name = "nx_hub_tile" & i
+            tile.Adjustments(1) = 0.12
+            tile.Line.Visible = -1
+            tile.Line.Weight = 0.75
+            tile.Line.ForeColor.RGB = modUI.UiColor("border")
+            tile.Fill.ForeColor.RGB = modUI.UiColor("surface")
+            modSkin.ApplyLightShadow tile
+            ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
+            With tile.TextFrame2
+                .WordWrap = -1
+                .MarginLeft = 12: .MarginRight = 8: .MarginTop = 7: .MarginBottom = 5
+                .TextRange.Text = CStr(labels(i)) & vbCr & CStr(vals(i))
+                .TextRange.Font.Size = 8
+                On Error Resume Next
+                .TextRange.Paragraphs(1).Font.Size = 8
+                .TextRange.Paragraphs(1).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+                .TextRange.Paragraphs(2).Font.Size = 16
+                .TextRange.Paragraphs(2).Font.Bold = -1
+                .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
+                On Error GoTo 0
+            End With
+            ' みんなの節約(i=4,5)はクリックで部内ランキングを出す
+            ' (旧サイドバーウィジェットのクリック機能の移設先)。
+            If i = 4 Or i = 5 Then
+                tile.OnAction = "modBoard.OnWidgetClick"
+                tile.AlternativeText = "クリックで部内の節約ランキングを表示"
+            End If
         End If
-
-        With ws.Range(c1 & r & ":" & c2 & r)
-            .Merge
-            .Value = CStr(labels(i))
-            .Font.Size = 8
-            .Font.Color = modUI.UiColor("muted")
-            .HorizontalAlignment = -4108
-            .VerticalAlignment = -4108
-        End With
-        With ws.Range(c1 & (r + 1) & ":" & c2 & (r + 1))
-            .Merge
-            .Value = CStr(vals(i))
-            .Font.Size = 15
-            .Font.Bold = True
-            .Font.Color = modUI.UiColor("primary")
-            .HorizontalAlignment = -4108
-            .VerticalAlignment = -4108
-            .Interior.Color = modUI.UiColor("surface")
-            .BorderAround LineStyle:=1, Weight:=2, Color:=modUI.UiColor("border")
-        End With
-        ws.Rows(r + 1).RowHeight = 26
+        Set tile = Nothing
+        Err.Clear
+        On Error GoTo 0
     Next i
-
-    ' 「みんなの節約」タイル(i=4,5 の行)にだけ透明のクリック領域を重ね、
-    ' 部内ランキングの詳細を出す(旧サイドバーウィジェットのクリック機能の移設)。
-    On Error Resume Next
-    Dim orgRow As Long: orgRow = startRow + (4 \ 2) * 3
-    Dim hot As Range
-    Set hot = ws.Range("B" & orgRow & ":E" & (orgRow + 1))
-    Dim hit As Shape
-    Set hit = ws.Shapes.AddShape(1, hot.Left, hot.Top, hot.Width, hot.Height)
-    If Not hit Is Nothing Then
-        hit.Name = "nx_hub_orghit"
-        hit.Fill.Visible = 0
-        hit.Line.Visible = 0
-        hit.OnAction = "modBoard.OnWidgetClick"
-        hit.AlternativeText = "クリックで部内の節約ランキングを表示"
-    End If
-    On Error GoTo 0
 End Sub
+
+' 統計タイル群の下端(バッジ等をその下に置くために使う)。
+Private Function StatTilesBottom() As Double
+    StatTilesBottom = HDR_H + 12 + CARD_H + 18 + 4 * (52 + 8)
+End Function
 
 ' ナビボタン4枚(右カラムG:Jの幾何に合わせる)
 Private Sub DrawNavButtons(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
-    L = ws.Range("G3").Left
-    W = ws.Range("G3:J3").Width
+    L = ws.Range("H3").Left
+    W = ws.Range("H3:K3").Width
     T = HDR_H + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
@@ -313,7 +334,7 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
         btn.Line.Weight = 0.75
         btn.Line.ForeColor.RGB = modUI.UiColor("border")
         btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
-        SafeShadow btn
+        modSkin.ApplyLightShadow btn
         With btn.TextFrame2
             .WordWrap = -1
             .MarginLeft = 14: .MarginTop = 5: .MarginRight = 8
@@ -334,8 +355,8 @@ End Sub
 ' テンプレチップ3つ + 今日のワンポイント(ナビボタンの直下に続けて置く)
 Private Sub DrawExtras(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
-    L = ws.Range("G3").Left
-    W = ws.Range("G3:J3").Width
+    L = ws.Range("H3").Left
+    W = ws.Range("H3:K3").Width
     T = HDR_H + 12 + 5 * (NAV_H + NAV_GAP) + 10
 
     Dim lbl As Shape
@@ -397,10 +418,15 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     gacha.OnAction = "modHub.OnGacha"
 End Sub
 
-' バッジ(セル。獲得済みは🏅、未獲得は🔒)
+' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので
+' この帯だけが左ブロックのセル表示になる。
 Private Sub DrawBadges(ByVal ws As Worksheet)
-    Dim r As Long: r = 22
-    With ws.Range("B" & r & ":E" & r)
+    ' タイルの下端が入る行を実測で探す(行高15pt固定なので割り算で足りる)。
+    Dim r As Long
+    r = CLng(StatTilesBottom() / 15) + 2
+    If r < 10 Then r = 10
+
+    With ws.Range("B" & r & ":F" & r)
         .Merge
         .Value = ChrW(&HD83C) & ChrW(&HDFC5) & " バッジ"
         .Font.Size = 9
@@ -425,7 +451,7 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
         sb = sb & mark & " " & CStr(titles(i)) & "   "
     Next i
 
-    With ws.Range("B" & (r + 1) & ":E" & (r + 3))
+    With ws.Range("B" & (r + 1) & ":F" & (r + 3))
         .Merge
         .WrapText = True
         .Value = sb
@@ -548,6 +574,15 @@ Public Sub OnSaveAndExit()
     modApp.OnSaveAndExit
 End Sub
 
+' 🔄 画面を再描画。ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の移動で
+' Shapeがゴースト化/ズレたときの1クリック復旧手段(旧サイドバーから移設)。
+' 会話は消さない。modApp.OnRefreshUIはロックを取るのでここでは取らない。
+Public Sub OnRedraw()
+    On Error Resume Next
+    modApp.OnRefreshUI
+    On Error GoTo 0
+End Sub
+
 ' ---- 内部ヘルパー ----
 
 ' 前回のHub Shapeに加え、旧ホーム画面(modUIMain)のbtn_/lbl_も消す。
@@ -570,18 +605,6 @@ Private Sub RemoveHubShapes(ByVal ws As Worksheet)
         ws.Shapes(names(i)).Delete
         On Error GoTo 0
     Next i
-End Sub
-
-' 32bit環境ではShadow.Blurが未対応のことがある。個別にResume Nextで包む。
-Private Sub SafeShadow(ByVal shp As Shape)
-    On Error Resume Next
-    shp.Shadow.Visible = -1
-    shp.Shadow.OffsetX = 0
-    shp.Shadow.OffsetY = 1.5
-    shp.Shadow.Transparency = 0.88
-    shp.Shadow.ForeColor.RGB = RGB(0, 0, 0)
-    shp.Shadow.Blur = 5
-    On Error GoTo 0
 End Sub
 
 Private Function SafeStat(ByVal key As String) As Long

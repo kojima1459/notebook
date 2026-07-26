@@ -49,6 +49,50 @@ Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     ' 深み(Depth)の演出: 送信ボタンだけ同系グリーンの極微グラデーション
     ' (明るい緑→深い緑)。多用は描画負荷になるため主役の1ボタンに限定する。
     If nm = "nx_top_send" Then ApplyGreenDepth shp
+    ' 仕様書§9(Apple風): 3画面のヘッダーバーは濃紺の2色グラデーション。
+    ' ApplyThemeがベタ塗りに戻すため、BeautifyAll経由でここが必ず塗り直す。
+    If nm = "nx_top_bg" Or nm = "nx_hub_hdr" Or nm = "nxk_hdr" Then
+        ApplyHeaderDepth shp
+    End If
+    On Error GoTo 0
+End Sub
+
+' ヘッダーバーの2色グラデーション(#1a365d → #1f4e78)。32bit Excelで
+' TwoColorGradientが失敗する環境ではベタ塗りのまま進む(平らに見えるだけ)。
+Public Sub ApplyHeaderDepth(ByVal shp As Shape)
+    On Error Resume Next
+    With shp.Fill
+        .TwoColorGradient 1, 1        ' msoGradientHorizontal, variant1
+        .ForeColor.RGB = RGB(26, 54, 93)
+        .BackColor.RGB = RGB(31, 78, 120)
+    End With
+    On Error GoTo 0
+End Sub
+
+' 汎用の2色グラデーション(ユーザーバブル・EXPゲージ等)。
+Public Sub ApplyGradient(ByVal shp As Shape, ByVal c1 As Long, ByVal c2 As Long)
+    On Error Resume Next
+    With shp.Fill
+        .TwoColorGradient 1, 1
+        .ForeColor.RGB = c1
+        .BackColor.RGB = c2
+    End With
+    On Error GoTo 0
+End Sub
+
+' カード/ボタン用の控えめな浮遊感(§9: Blur=4, OffsetY=1.5, Transparency=0.9)。
+' ApplySoftShadowより弱く、要素が多い画面で影が重ならないようにする。
+Public Sub ApplyLightShadow(ByVal shp As Shape)
+    On Error Resume Next
+    With shp.Shadow
+        .Visible = -1
+        .OffsetX = 0
+        .OffsetY = 1.5
+        .Transparency = 0.9
+        .Size = 100
+        .ForeColor.RGB = RGB(15, 23, 42)
+        .Blur = 4
+    End With
     On Error GoTo 0
 End Sub
 
