@@ -7,25 +7,12 @@ Option Explicit
 '   進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
 '
 ' 設計判断:
-'   ・quick: Search(topk_quick)→出典先出し→CallLLM(quick_draft)の2段。
-'     deep : Search(topk_deep)→出典先出し→draft→検証(verify)の3段。
-'   ・UI連携はSetStage/RenderSourcesPreview/RenderAnswerの3本のみ。
-'   ・Answer(question, mode)は最終回答テキストのみを返す契約(§7.3)。
-'     hits/nHits・所要秒・実モードはmLast*に保持し、AskFromUIがRenderAnswerへ渡す。
-'   ・質問セルは定義済み名前"mb_question"、モードはui_state(key="mode")から読む。
-'   ・検索0件はLLM未呼び出しで定型文+資料追加案内(E0601はログのみ)。
-'     埋め込み失敗(Search=-1)はE0203案内(LogErrorはGetEmbedding内で完了済み)。
-'   ・CallLLMの"#ERR:E02xx:..."はコードを抽出しmodLog.FriendlyMessageへ変換。
-'   ・質問は3000字打ち切り、空質問は案内のみ。連打防止はmAskingでAskFromUI側がガード。
-'   ・ESC: EnableCancelKey=xlErrorHandler、Err.Number=18は「操作を中断しました」。
-'   ・会話履歴: 直近3往復をmHistoryに保持(V2 modBoot流用)。成功ターンのみ積む。
-'   ・続けて質問(裁定D11): 成功ターンのQ&Aをリボン確定引数prevU/prevA形式
-'     (新しい順;;;区切り)でmPrevU/mPrevAにも保持(最大followup_max_pairsペア)。
-'     AskFollowupはAnswer系フローを再利用しSearchも再実行、prevU/prevAを添えて返す。
-'     mPrevU/mPrevAはVBAリセットに備えmodStateでui_state退避・復元する。
-'   ・深掘り候補(裁定D11): 応答末尾[[FOLLOWUP: 候補1 | 候補2]]をパースして本文から
-'     除去し、「深掘り候補」ブロックとして末尾に整形追記(V2 ParseTrailers流儀の
-'     寛容実装、マーカーなしでも壊れない)。履歴には除去後の本文のみ積む。
+'   ・quick=Search→出典先出し→CallLLMの2段 / deep=+検証の3段。
+'   ・Answer()は最終回答テキストのみ返す契約。hits等はmLast*に保持しUIへ渡す。
+'   ・検索0件はLLM未呼び出しで定型文。埋め込み失敗はE0203案内。
+'   ・質問3000字打ち切り、連打防止はmAsking。ESCはErr18で「操作を中断」。
+'   ・続けて質問(D11)はprevU/prevA(新しい順;;;区切り)をCallLLMへ渡す。
+'   ・[[FOLLOWUP:...]]は本文から除去し「深掘り候補」ブロックへ整形する。
 
 Private Const MODE_QUICK As String = "quick"
 Private Const MODE_DEEP As String = "deep"
@@ -55,9 +42,7 @@ Private mLastCleanAnswer As String
 Private mLastQuestion As String
 Private mLastAnswer As String
 Private mLastMode As String
-' フィードバックの多重カウント防止(2026-07-16): 🟢🟡🔴ボタンは何度でも
-' 押せてしまい、押すたびにselfsolve_total等が加算されて「取り戻した時間」も
-' 実態とズレていた。1回の回答につき感想は1回だけ記録する。
+' 感想の多重カウント防止(2026-07-16): 1回の回答につき1回だけ記録する。
 Private mFeedbackDone As Boolean
 Private mLastHits() As Hit
 Private mLastNHits As Long
@@ -103,11 +88,8 @@ Public Function Answer(ByVal question As String, ByVal mode As String) As String
     Answer = AnswerWithContext(question, mode, "", "", False)
 End Function
 
-' CanFollowup - 「続けて質問」できる直近回答が存在するか(裁定D11)。
-'   このセッションで成功した回答が1件でもあればTrue。UI側(modUIMainの
-'   OnFollowupButton)がFalse時に「まず質問してから」の丁寧な案内を出す。
-'   config followup_max_pairs を0以下にすると履歴を持たなくなるため、
-'   常にFalse(=機能無効)になるエスケープハッチを兼ねる。
+' CanFollowup - 追質問できる直近回答があるか(D11)。followup_max_pairs<=0で
+'   常にFalse=機能停止のエスケープハッチを兼ねる。
 Public Function CanFollowup() As Boolean
     If LenB(mPrevU) = 0 Then
         mPrevU = modState.LoadState("nexus_ask_prevu", "")
@@ -116,13 +98,8 @@ Public Function CanFollowup() As Boolean
     CanFollowup = (LenB(mPrevU) > 0)
 End Function
 
-' AskFollowup - 直近の会話履歴を添えて追質問を実行する(裁定D11)。
-'   既存のAnswer系フローを再利用: 追質問文でmodRetrieve.Searchも再実行し、
-'   出典付き回答をRenderAnswerで表示する(2速モードは既存どおりui_stateの
-'   設定に従う)。履歴はmPrevU/mPrevA(新しい順;;;区切り)をCallLLMの
-'   prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡す。履歴が空
-'   (CanFollowup=False)のまま呼ばれた場合は通常の単発質問と同じ動作に
-'   自然に退化する(UI側が事前案内する契約だが、直接呼ばれても壊れない防御)。
+' AskFollowup - 会話履歴を添えた追質問(D11)。Searchも再実行し、mPrevU/mPrevAを
+'   CallLLMのprevU/prevAへ渡す。履歴が空でも単発質問として正常に退化する。
 Public Sub AskFollowup(ByVal followupText As String)
     If mAsking Then
         On Error Resume Next
@@ -169,12 +146,9 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     mdMode = NormalizeMode(mode)
 
     If LenB(q) = 0 Then
-        ' Wave4修正: 以前はここでmLast*を更新せずExit Functionしていたため、
-        ' 直前の(本物の)質問のヒット/所要秒がmodUIMain.RenderAnswerの
-        ' footer・出典欄に残り、まるで空クリックがその資料で回答したかの
-        ' ように見える不具合があった。mLastMode=""は「検索・回答生成を
-        ' 一切行わなかった」ことを示す目印としてmodUIMain.RenderAnswer側
-        ' でも使う(footer/出典欄を出さない判定)。
+        ' 空質問でもmLast*を必ず更新する。しないと前回のヒットが残り、空クリックが
+        ' その資料で回答したように見える(Wave4実バグ)。mLastMode=""は
+        ' 「検索も回答生成もしなかった」印でmodUIMain.RenderAnswerも使う。
         Dim emptyHits() As Hit
         mLastQuestion = q
         mLastAnswer = EMPTY_QUESTION_MESSAGE
@@ -305,10 +279,7 @@ End Function
 
 ' 直近回答で最上位スコアのソース名(P2P感謝状の宛先解決用)。
 Public Function LastTopSource() As String
-    ' 【2026-07-20修正】mLastHitsは ReDim(1 To n)(modRetrieve/RunMultiRetrieve共通)
-    ' なのに、ここだけ 0始まりで走査していたため初回の mLastHits(0) で
-    ' 添字エラー(9)→呼び出し元EmitThanksForLastAnswerのOn Error Resume Nextに
-    ' 握りつぶされ、感謝状が一度も発行されない実バグだった。1始まりに修正。
+    ' mLastHitsは ReDim(1 To n)。0始まり走査は添字エラーになる(2026-07-20実バグ)。
     Dim bestI As Long: bestI = -1
     Dim bestScore As Double: bestScore = -1E+30
     Dim i As Long
@@ -321,9 +292,7 @@ Public Function LastTopSource() As String
     If bestI >= 1 Then LastTopSource = mLastHits(bestI).source
 End Function
 
-' Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が根拠にした
-' 出典(source/page/origin/本文)をUI層へ公開する。添字は0始まり(0..LastHitCount-1)で
-' LastTopSourceと同一規約。内部状態は一切変更しない(検索/回答ロジックに影響なし)。
+' Peek View用の読み取り専用アクセサ(添字0始まり)。内部状態は変更しない。
 Public Function LastHitCount() As Long
     LastHitCount = mLastNHits
 End Function
@@ -338,6 +307,52 @@ Public Function LastHitOrigin(ByVal i As Long) As String
 End Function
 Public Function LastHitPeek(ByVal i As Long) As String
     If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i).full_text
+End Function
+
+' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。実務者は答えの正誤を自力で
+' 判断できず、判断できないとフィードバックも押されない。検索スコアを人間に
+' 見える形にして「確認すべきときだけ確認させる」。閾値=config
+' confidence_score_x100(既定55)。強いヒット2件以上=2、最高値が閾値以上=1。
+Public Function LastConfidence() As Long
+    If mLastNHits < 1 Then Exit Function
+
+    Dim thr As Double
+    On Error Resume Next
+    thr = CDbl(modConfig.GetLong("confidence_score_x100", 55)) / 100#
+    On Error GoTo 0
+    If thr <= 0# Then thr = 0.55
+
+    Dim best As Double, strong As Long
+    Dim i As Long
+    On Error Resume Next
+    For i = 1 To mLastNHits
+        If mLastHits(i).score > best Then best = mLastHits(i).score
+        If mLastHits(i).score >= thr Then strong = strong + 1
+    Next i
+    On Error GoTo 0
+
+    If strong >= 2 Then
+        LastConfidence = 2
+    ElseIf best >= thr Then
+        LastConfidence = 1
+    End If
+End Function
+
+' 信頼度の説明文(チャット画面のバッジに出す)。一般アシスタント回答や
+' 検索を行わなかったターンでは空文字を返し、バッジ自体を出さない。
+Public Function LastConfidenceText() As String
+    If LenB(mLastMode) = 0 Then Exit Function
+    Select Case LastConfidence()
+        Case 2
+            LastConfidenceText = ChrW(&HD83D) & ChrW(&HDFE2) & _
+                " 本棚の資料と強く一致(" & mLastNHits & "件)"
+        Case 1
+            LastConfidenceText = ChrW(&HD83D) & ChrW(&HDFE1) & _
+                " 部分的に一致 — 下の出典で原文をご確認ください"
+        Case Else
+            LastConfidenceText = ChrW(&HD83D) & ChrW(&HDD34) & _
+                " 本棚に十分な根拠なし — 内容をうのみにしないでください"
+    End Select
 End Function
 
 Public Sub FeedbackGreen()
@@ -355,9 +370,17 @@ Public Sub FeedbackGreen()
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next
     modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
+    ' 共有知フライホイール: 人が正しいと確認したQ&Aは組織の一次情報になる。
+    ' 社内ナレッジ検索の回答のときだけ発信する(一般アシスタントの雑談は流さない)。
+    If LenB(mLastMode) > 0 Then
+        modInsight.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
+    End If
     On Error GoTo 0
 
-    MsgBox "ありがとうございます。解決に役立てて何よりです。", vbInformation, modAppDef.APP_NAME
+    MsgBox "ありがとうございます。" & vbCrLf & _
+           "この質問と回答は「解決済みQ&A」として部内に共有され、" & vbCrLf & _
+           "同じことで困っている人がすぐ答えにたどり着けるようになります。", _
+           vbInformation, modAppDef.APP_NAME
 End Sub
 
 Public Sub FeedbackYellow()
@@ -371,7 +394,28 @@ Public Sub FeedbackRed()
     If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "fail_total"
     modLog.LogUsage "feedback_red", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
-    MsgBox "ご意見ありがとうございます。改善の参考にします。", vbInformation, modAppDef.APP_NAME
+    ' 共有知フライホイール: 答えられなかった質問は「組織に文書が無い領域」の
+    ' 一次情報。資料を書ける人の画面へ自動で流す。
+    On Error Resume Next
+    modInsight.EmitGap mLastQuestion, "wrong"
+    On Error GoTo 0
+    MsgBox "教えていただきありがとうございます。" & vbCrLf & _
+           "この質問は「まだ答えを用意できていない質問」として記録し、" & vbCrLf & _
+           "資料を作れる担当者の画面に届きます。", vbInformation, modAppDef.APP_NAME
+End Sub
+
+' 🤔 微妙(判断がつかない)。入力を一切求めず1クリックで終わる。
+' 「正しいか分からないから何も押さない」を無くすための逃げ道。
+Public Sub FeedbackUnsure()
+    If Not FeedbackAccepted() Then Exit Sub
+    modStats.Bump "unsure_total"
+    modLog.LogUsage "feedback_unsure", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
+    On Error Resume Next
+    modInsight.EmitGap mLastQuestion, "low_conf"
+    On Error GoTo 0
+    MsgBox "ありがとうございます。" & vbCrLf & _
+           "「判断がつかない」も立派な情報です。この質問は資料が不足している" & vbCrLf & _
+           "可能性が高い領域として記録しました。", vbInformation, modAppDef.APP_NAME
 End Sub
 
 ' 感想を記録してよい状態かの共通判定(多重カウント防止・回答前クリック防止)。
@@ -626,11 +670,8 @@ Private Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal
         vbLf & vbLf & result
 End Function
 
-' IsTooVague - 「短すぎる質問 かつ どの資料とも関連が薄い」ときだけTrue。
-'   該当時はLLMを呼ばず、聞き方の例を返して具体化を促す(API節約+精度向上)。
-'   ・判定は上位1件ではなく全ヒットの最高スコアで行う(再ランク後の1位は
-'     必ずしも検索スコア最大ではないため、1位だけ見ると誤発動する)。
-'   ・閾値と文字数はconfigで調整可能。ambiguous_score_x100=0 で機能停止。
+' IsTooVague - 短すぎ かつ どの資料とも関連が薄い質問だけTrue。LLMを呼ばず
+'   聞き方の例を返す。判定は全ヒットの最高スコア(1位だけ見ると誤発動する)。
 Private Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long) As Boolean
     If nHits < 1 Then Exit Function
 
@@ -783,11 +824,8 @@ End Function
 ' V2実証済みの src/chatbot_v2/modPipeline.bas ParseTrailers(FOLLOWUP部)と
 ' modChatUI.bas の候補表示を、本モジュール用に移植したもの。
 
-' LLM応答からマーカーを分離し、候補があれば「深掘り候補」ブロックを本文
-' 末尾に整形追記した表示用文字列を返す(RenderAnswerへはこの戻り値が渡る)。
-' マーカー除去後の本文(履歴保存用)はmLastCleanAnswerに保持する。
-' マーカーなし・候補なし・形式崩れでも壊れない(候補ブロックなしで本文を
-' そのまま返すだけ。mockLLM応答にマーカーが無い場合もこの経路で正常動作)。
+' [[FOLLOWUP:...]]を分離し「深掘り候補」ブロックを末尾に付けた表示用文字列を返す。
+' 除去後の本文はmLastCleanAnswerへ。マーカー無し・形式崩れでも壊れない。
 Private Function DecorateWithFollowups(ByVal resp As String) As String
     Dim body As String
     Dim cands As String
@@ -810,12 +848,8 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     DecorateWithFollowups = disp
 End Function
 
-' prevU/prevA用履歴(裁定D11): 成功した各ターンのQ&Aを「新しい順;;;区切り」で
-' セッション保持する(最大 config followup_max_pairs 既定3ペア)。
-' mHistory(プロンプト内履歴)とは別物: こちらはリボンChatGPT()の確定引数
-' prevU/prevA(台帳§1 #1 第7・8引数)へそのまま渡すための形式。
-' パース/整形の純関数(SplitFollowupTrailer/KeepNewestPairs/
-' SanitizeForFollowupHistory)は modFollowup へ分離済み(文字数上限対策)。
+' prevU/prevA用履歴(D11): 成功ターンを新しい順;;;区切りで保持(最大
+' followup_max_pairs)。mHistory(プロンプト内履歴)とは別物。純関数はmodFollowup。
 Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     Dim maxPairs As Long
     maxPairs = modConfig.GetLong("followup_max_pairs", 3)

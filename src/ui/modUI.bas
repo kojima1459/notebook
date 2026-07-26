@@ -551,8 +551,16 @@ Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
         Case "resolve"
             shp.Line.ForeColor.RGB = RGB(16, 185, 129)
             SetShapeTextColor shp, RGB(16, 185, 129)
+        Case "unsure"
+            shp.Line.ForeColor.RGB = RGB(245, 158, 11)
+            SetShapeTextColor shp, RGB(180, 110, 8)
         Case "bad"
             shp.Line.ForeColor.RGB = RGB(148, 163, 184)
+            SetShapeTextColor shp, ThemeColor("muted")
+        Case "conf"
+            ' 信頼度バッジは枠も塗りも持たない文字だけの表示。
+            shp.Line.Visible = 0
+            shp.Fill.Visible = 0
             SetShapeTextColor shp, ThemeColor("muted")
         Case "hq"
             shp.Line.ForeColor.RGB = RGB(239, 68, 68)

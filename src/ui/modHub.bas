@@ -416,6 +416,61 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
     gacha.OnAction = "modHub.OnGacha"
+
+    DrawInbox ws, L, W, T + 20 + CHIP_H + 8 + 26 + 12
+End Sub
+
+' 共有知のお知らせ。届いた「解決済みQ&A」と「みんなの困りごと」の件数を出し、
+' 1クリックでそれぞれの行き先へ送る。ここが無いと、せっかく届いた知見が
+' 誰にも気づかれないまま眠る(通知が無い共有機能は使われない)。
+Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
+                      ByVal W As Double, ByVal T As Double)
+    Dim qaN As Long, gapN As Long
+    On Error Resume Next
+    qaN = modInsight.PendingQACount()
+    gapN = modInsight.GapCount()
+    On Error GoTo 0
+
+    Dim cap As String, act As String
+    If qaN > 0 Then
+        cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _
+              "押すと本棚に取り込み、次から同じ質問に答えられるようになります"
+        act = "modKnowledge.OnImportSharedQA"
+    ElseIf gapN > 0 Then
+        cap = ChrW(&HD83D) & ChrW(&HDCA1) & " まだ答えを用意できていない質問が " & gapN & "件" & vbCr & _
+              "押すと一覧が開きます。答えられる資料を登録すると部内に行き渡ります"
+        act = "modKnowledge.OnGapBoard"
+    Else
+        cap = ChrW(&HD83D) & ChrW(&HDD01) & " 部内の知恵は自動で行き来しています" & vbCr & _
+              ChrW(&H2705) & "解決した を押すとその答えが、答えが無かった質問は課題として共有されます"
+        act = ""
+    End If
+
+    On Error Resume Next
+    Dim box As Shape
+    Set box = ws.Shapes.AddShape(5, L, T, W, 44)
+    If box Is Nothing Then Exit Sub
+    box.Name = "nx_hub_inbox"
+    box.Adjustments(1) = 0.08
+    box.Line.Visible = -1
+    box.Line.Weight = 0.75
+    box.Line.ForeColor.RGB = modUI.UiColor("border")
+    box.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    modSkin.ApplyLightShadow box
+    ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
+    With box.TextFrame2
+        .WordWrap = -1
+        .MarginLeft = 12: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 4
+        .TextRange.Text = cap
+        .TextRange.Font.Size = 9
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+        .TextRange.Paragraphs(1).Font.Bold = -1
+        .TextRange.Paragraphs(2).Font.Size = 7.5
+        .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        .VerticalAnchor = 3
+    End With
+    If LenB(act) > 0 Then box.OnAction = act
+    On Error GoTo 0
 End Sub
 
 ' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので

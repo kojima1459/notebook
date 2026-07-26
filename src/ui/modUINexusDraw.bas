@@ -216,21 +216,59 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     On Error GoTo 0
     If anchor Is Nothing Then Exit Sub
 
+    Dim y As Double: y = anchor.Top + anchor.Height + 6
+
+    ' --- 信頼度バッジ ---
+    ' 「この答えを信じてよいか」を利用者が自分で判断できないことが、
+    ' フィードバックが集まらない根本原因だった。検索スコアという機械側の
+    ' 情報を、確認すべきときだけ確認を促す一文に翻訳して先に見せる。
+    Dim confText As String
+    On Error Resume Next
+    confText = modAsk.LastConfidenceText()
+    On Error GoTo 0
+    If LenB(confText) > 0 Then
+        On Error Resume Next
+        Dim badge As Shape
+        Set badge = ws.Shapes.AddShape(5, anchor.Left, y, 330, 18)
+        If Err.Number = 0 And Not badge Is Nothing Then
+            badge.Name = "nx_act_conf"
+            badge.Adjustments(1) = 0.4
+            badge.Line.Visible = 0
+            badge.Fill.Visible = 0
+            With badge.TextFrame2
+                .WordWrap = -1
+                .TextRange.Text = confText
+                .TextRange.Font.Size = 8
+                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+                .VerticalAnchor = 3
+                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            End With
+            badge.Placement = 3
+            y = y + 20
+        End If
+        Set badge = Nothing
+        Err.Clear
+        On Error GoTo 0
+    End If
+
     Dim caps As Variant, kinds As Variant, widths As Variant, acts As Variant
+    ' 評価は「解決した/微妙/違う」の3択。どれも1クリックで完結し、
+    ' 入力を強制しない(入力を求めた途端に誰も押さなくなる)。
     caps = Array(ChrW(&H2705) & " 解決した", _
-                 ChrW(&HD83D) & ChrW(&HDC4E) & " 役に立たなかった", _
+                 ChrW(&HD83E) & ChrW(&HDD14) & " 微妙", _
+                 ChrW(&H274C) & " 違う", _
                  ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", _
                  ChrW(&HD83D) & ChrW(&HDCCB) & " コピー", _
                  ChrW(&HD83D) & ChrW(&HDCC4) & " Word", _
                  ChrW(&HD83C) & ChrW(&HDD98) & " 本社照会")
-    kinds = Array("resolve", "bad", "drill", "copy", "word", "hq")
-    widths = Array(84, 122, 74, 72, 68, 86)
-    acts = Array("OnActResolve", "OnActBad", "OnActDrill", "OnActCopy", "OnActWord", "OnActHq")
+    kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word", "hq")
+    widths = Array(84, 64, 64, 74, 72, 68, 86)
+    acts = Array("OnActResolve", "OnActUnsure", "OnActBad", "OnActDrill", _
+                 "OnActCopy", "OnActWord", "OnActHq")
 
     Dim x As Double: x = anchor.Left
-    Dim y As Double: y = anchor.Top + anchor.Height + 6
     Dim i As Long
-    For i = 0 To 5
+    For i = 0 To 6
         ' 1個の1004で残りを道連れにしない(実機で繰り返した描画中断の教訓)。
         On Error Resume Next
         Dim btn As Shape

@@ -93,6 +93,7 @@ EXPECTED_SHEETS = {
     "usage_log": "hidden",
     "err_log": "hidden",
     "ui_state": "veryHidden",
+    "insight_inbox": "hidden",
     "vba_src": "veryHidden",
 }
 
@@ -255,6 +256,9 @@ def build_config_rows(mock_llm: bool):
         ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
         ("chat_log_enabled", True, "TRUE=チャット履歴シートに質問と回答を記録する(最新100件・古い順に自動削除)"),
         ("low_hit_warn_score", 0.3, "検索ヒットの最高スコアがこの値未満のとき回答に⚠️関連薄い警告を付ける(0で無効)"),
+        ("confidence_score_x100", 55,
+         "回答の信頼度バッジのスコア閾値×100。この値以上のヒットが2件以上で「強く一致」、"
+         "1件で「部分的に一致」、それ未満は「根拠なし」と表示する"),
         ("holidays", (
             "2026-01-01,2026-01-12,2026-02-11,2026-02-23,2026-03-20,2026-04-29,"
             "2026-05-03,2026-05-04,2026-05-05,2026-05-06,2026-07-20,2026-08-11,"
@@ -952,6 +956,14 @@ def main():
                         "hidden", widths=[20, 10, 24, 60, 12, 12, 12],
                         text_cols=[3, 4])   # context/detail
     _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
+    # 共有知フライホイールの受信箱(modInsight)。共有フォルダから届いた
+    # 「解決済みQ&A」と「答えられなかった質問」をここに溜め、本棚への
+    # 取り込みは利用者が押したときだけ行う。
+    _make_headers_only(wb, "insight_inbox",
+                        ["nonce", "kind", "user_id", "author", "created_at",
+                         "question", "answer_or_reason", "source_or_dept", "consumed"],
+                        "hidden", widths=[34, 8, 20, 18, 18, 60, 80, 30, 10],
+                        text_cols=[4, 6, 7, 8])   # author/question/answer/source
 
     try:
         injected = _make_vba_src(wb, present, root)

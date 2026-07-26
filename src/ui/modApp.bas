@@ -367,6 +367,18 @@ Done:
     modUiLock.Leave
 End Sub
 
+' 🤔 微妙: 入力を一切求めない1クリック評価。「正しいか分からないから何も
+' 押さない」を無くすための逃げ道であり、同時に「資料が足りない領域」の
+' シグナルとして共有される(modAsk.FeedbackUnsure)。
+Public Sub OnActUnsure()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    If Not HasTarget() Then GoTo Done
+    modAsk.FeedbackUnsure
+Done:
+    modUiLock.Leave
+End Sub
+
 Public Sub OnActHq()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next   ' 何が起きてもLeaveへ到達させる(ロック取りっぱなし=永久フリーズ防止)

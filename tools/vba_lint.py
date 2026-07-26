@@ -196,8 +196,14 @@ CONTRACT: dict[str, dict] = {
         # LastAnswerText: Nexus UI(modApp)が直近回答をバブル表示するためのゲッター。
         # LastHit*: Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が
         #   根拠にした出典(source/page/origin/本文)をUI層(modPeek)へ公開する。0始まり。
+        # LastConfidence/LastConfidenceText: 回答の信頼度(2/1/0)とその説明文。
+        #   検索スコアという機械側の情報を人間が判断に使える形でUI層へ渡す
+        #   (2026-07-26: 利用者が回答の正誤を判断できずフィードバックが集まらない
+        #   という課題への対処。共有知フライホイールの入口)。
+        # FeedbackUnsure: 🤔微妙(入力を求めない1クリック評価)。
         "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
-                     "CanFollowup", "AskFollowup", "LastAnswerText", "LastTopSource",
+                     "FeedbackUnsure", "CanFollowup", "AskFollowup", "LastAnswerText",
+                     "LastTopSource", "LastConfidence", "LastConfidenceText",
                      "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek"],
     },
     # ---- 7.4 パック層 ----

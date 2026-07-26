@@ -61,6 +61,7 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     sb = sb & StyleInstruction() & vbLf
     sb = sb & CitationInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
+    sb = sb & DomainGuardInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
     sb = sb & vbLf
@@ -86,6 +87,7 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
          "以下の本棚抜粋を根拠に、質問へ" & lang & "で丁寧に、根拠を示しながら回答してください。" & vbLf
     sb = sb & CitationInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
+    sb = sb & DomainGuardInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
     If LenB(history) > 0 Then
@@ -279,6 +281,23 @@ Private Function NotFoundInstruction() As String
     NotFoundInstruction = "本棚抜粋に書かれていないことは、推測で埋めずに" & _
         "「資料には見当たらない」とはっきり述べてください。" & _
         "やむを得ず推測で補う場合は、それが推測であることを明示してください。"
+End Function
+
+' 金融・保険ドメインのガードレール(2026-07-26)。
+' 社内の既存RAGツールとの差は「速さ」だけでは作れない。約款・規程の
+' 条文番号や日数・金額を記憶で補って答えると、実務では致命傷になる。
+' 「どこまでが資料の裏付けで、どこからが確認が必要か」を回答自身に
+' 語らせることが、利用者が正誤を判断できる唯一の現実的な手段になる。
+Private Function DomainGuardInstruction() As String
+    DomainGuardInstruction = _
+        "【数値の厳格性】条文番号・日数・金額・料率・期限は、抜粋に書かれた値だけを" & _
+        "そのまま使う。抜粋に無い数値は絶対に書かず「資料に記載なし」と述べる。" & vbLf & _
+        "【確認マーク】抜粋から完全には裏付けられない記述の文末に (要確認) と付ける。" & _
+        "裏付けのある記述には付けない。全文に付けるのは禁止(意味が消えるため)。" & vbLf & _
+        "【実務での使いどころ】お客さま対応に関わる内容では、最後に1行だけ" & _
+        "「お客さまへ案内する前に確認すべき点」を書く(無ければ書かない)。" & vbLf & _
+        "【断定の禁止】例外規定・特約・経過措置の有無が抜粋から読み取れないときは、" & _
+        "断定せず「この抜粋の範囲では」と限定して述べる。"
 End Function
 
 ' グラウンディング強制文(strict_grounding=TRUE時。設計書§D-1)。

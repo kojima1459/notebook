@@ -123,15 +123,16 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
                  ChrW(&HD83D) & ChrW(&HDD04) & " 同期", _
                  ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", _
                  ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", _
+                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", _
                  ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
     acts = Array("OnSearch", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn", _
-                 "OnSync", "OnPickFolder", "OnDelete", "OnToChat")
-    widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 76)
+                 "OnSync", "OnPickFolder", "OnDelete", "OnGapBoard", "OnToChat")
+    widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 104, 76)
 
     Dim barTop As Double: barTop = ws.Rows(3).Top
     Dim x As Double: x = L + 8
     Dim i As Long
-    For i = 0 To 8
+    For i = 0 To 9
         ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
         ' 見せない=実機報告「どっちで押せばいいか分からない」への対処)。
         Dim skip As Boolean
@@ -286,6 +287,93 @@ End Sub
 
 Public Sub OnSearch()
     modVault.OnVaultSearch
+End Sub
+
+' ----------------------------------------------------------------------------
+' 💡 みんなの困りごと: 組織で答えが見つからなかった質問の一覧。
+'   資料を書ける人(商品部)がここを見て、その場でナレッジを書けるようにする。
+'   営業の「分からない」が、商品部の「書くべきこと」に直結する一番短い経路。
+' ----------------------------------------------------------------------------
+Public Sub OnGapBoard()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    Dim body As String
+    On Error Resume Next
+    body = modInsight.GapListText()
+    On Error GoTo Done
+
+    Dim n As Long
+    On Error Resume Next
+    n = modInsight.GapCount()
+    On Error GoTo Done
+
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox( _
+        "みんなが質問して、本棚に答えが無かった質問です(新しい順・最大20件)。" & vbCrLf & _
+        "ここに並ぶ質問に答える資料を用意すると、部内の全員がすぐ答えを得られます。" & vbCrLf & vbCrLf & _
+        body & vbCrLf & _
+        "この内容に答える資料を、今すぐ登録しますか?", _
+        vbYesNo + vbInformation, modAppDef.APP_NAME & " - みんなの困りごと (" & n & "件)")
+
+    If resp = vbYes Then
+        modUiLock.Leave
+        modVault.ShowVaultInput
+        Exit Sub
+    End If
+Done:
+    modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
+' 受け取った「解決済みQ&A」を自分の本棚へ取り込む。
+'   埋め込みAPIを使う重い処理なので、起動時ではなく利用者が押したときだけ実行。
+'   取り込むと、次から同じ質問に「人が確認済みの答え」で応えられるようになる。
+' ----------------------------------------------------------------------------
+Public Sub OnImportSharedQA()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    Dim total As Long
+    On Error Resume Next
+    total = modInsight.PendingQACount()
+    On Error GoTo Done
+
+    If total < 1 Then
+        modUiLock.Leave
+        MsgBox "取り込める新しいQ&Aはありません。", vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    If MsgBox(total & " 件の「みんなが解決したQ&A」を本棚に取り込みます。" & vbCrLf & _
+              "取り込むと、次から同じ内容を質問したときに出典つきで答えられます。" & vbCrLf & _
+              "(件数によっては1〜2分かかります)", _
+              vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then GoTo Done
+
+    Dim okN As Long, i As Long
+    For i = total To 1 Step -1        ' 後ろから処理(消化印で番号が詰まるため)
+        Dim author As String, qText As String, aText As String, srcText As String
+        Dim rowIdx As Long
+        On Error Resume Next
+        If modInsight.PendingQAAt(i, author, qText, aText, srcText, rowIdx) Then
+            If modVault.RegisterKnowledgeText( _
+                   "解決済みQ&A: " & modUtil.SafeLeft(qText, 40), _
+                   modInsight.QABodyText(author, qText, aText, srcText), _
+                   "解決済みQ&A," & author) Then
+                modInsight.MarkQAConsumed rowIdx
+                okN = okN + 1
+            End If
+        End If
+        On Error GoTo Done
+    Next i
+
+    modUiLock.Leave
+    MsgBox okN & " 件を本棚に取り込みました。" & vbCrLf & _
+           "同じことで困っている人が、次からはすぐ答えにたどり着けます。", _
+           vbInformation, modAppDef.APP_NAME
+    Exit Sub
+Done:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnRegister()

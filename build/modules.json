@@ -177,6 +177,13 @@
       "wave": "NEXUS-P4"
     },
     {
+      "name": "modInsight",
+      "path": "src/pack/modInsight.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
+    },
+    {
       "name": "modStats",
       "path": "src/stats/modStats.bas",
       "role": "core",

@@ -206,6 +206,12 @@ Public Sub Boot()
         On Error GoTo 0
     End If
 
+    ' 共有知フライホイールの受信(ファイルコピーだけ=API呼び出しなし)。
+    ' 本棚への取り込みは利用者がHubのお知らせを押したときだけ行う。
+    On Error Resume Next
+    modInsight.CollectInsights
+    On Error GoTo 0
+
     ' 6) ScheduleAutoSync
     On Error Resume Next
     modShelfSync.ScheduleAutoSync
