@@ -527,94 +527,124 @@ Public Sub OnChannels()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
-    Dim all As String, pend As String
+    Dim all As String, cur As String
     On Error Resume Next
     all = modChannel.ListChannels()
-    pend = modChannel.PendingUpdates()
+    cur = modChannel.ActiveChannel()
     On Error GoTo Done
 
     If LenB(all) = 0 Then
         modUiLock.Leave
-        MsgBox "部門チャンネルが1つも見つかりませんでした。" & vbCrLf & vbCrLf & _
-            "各部門が正典パックを発行すると、ここに一覧が出ます。" & vbCrLf & _
-            "(共有フォルダの channels\<部門名>\ に pack.xlsx と version.txt を置く形です)" & vbCrLf & _
+        MsgBox "部門の公式ナレッジがまだ1つも見つかりません。" & vbCrLf & vbCrLf & _
+            "各部門が正典を発行すると、ここに一覧が出ます。" & vbCrLf & _
+            "(共有フォルダの channels\<部門名>\ に pack.xlsx と version.txt が置かれる形です)" & vbCrLf & vbCrLf & _
             "共有フォルダ自体が未設定の場合は、Hubのお知らせから設定してください。", _
             vbInformation, modAppDef.APP_NAME
         Exit Sub
     End If
 
     Dim body As String
-    body = "■ 使えるチャンネル(購読すると本棚に正典が入り、初日から答えが返ります)" & vbCrLf
+    body = "聞きたい分野の部門を1つ選んでください。" & vbCrLf & _
+           "選ぶと、その部門の公式ナレッジが本棚に読み込まれます。" & vbCrLf & vbCrLf
+    If LenB(cur) > 0 Then
+        body = body & "  いま接続中: 【" & cur & "】" & vbCrLf & vbCrLf
+    Else
+        body = body & "  いま接続中: (なし)" & vbCrLf & vbCrLf
+    End If
+
+    body = body & "■ 選べる部門" & vbCrLf
     Dim parts() As String: parts = Split(all, "|")
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
         Dim mark As String
-        If modChannel.IsSubscribed(parts(i)) Then
-            mark = "[購読中]"
+        If StrComp(parts(i), cur, vbTextCompare) = 0 Then
+            mark = ChrW(&H25CF) & " "
         Else
-            mark = "[未購読]"
+            mark = ChrW(&H25CB) & " "
         End If
-        body = body & "  " & mark & " " & parts(i) & vbCrLf
+        body = body & "  " & mark & parts(i)
+        If StrComp(parts(i), cur, vbTextCompare) = 0 Then
+            If modChannel.RemoteVersion(parts(i)) <> modChannel.LocalVersion(parts(i)) Then
+                body = body & "  ← 更新があります"
+            End If
+        End If
+        body = body & vbCrLf
     Next i
 
-    body = body & vbCrLf & "■ 本棚の使用量: " & modChannel.ChunkUsagePercent() & "%"
-    If modChannel.IsBudgetTight() Then
-        body = body & "  ← 8割を超えています。使っていないチャンネルの購読を外してください。"
-    End If
-    body = body & vbCrLf & vbCrLf
+    body = body & vbCrLf & "■ 本棚の使用量: " & modChannel.ChunkUsagePercent() & "%" & vbCrLf & vbCrLf & _
+           "【切り替えについて】" & vbCrLf & _
+           "  ・常時つないでおけるのは1部門だけです" & vbCrLf & _
+           "  ・切り替えると前の部門の内容は本棚から外れます" & vbCrLf & _
+           "    (あなたが自分で入れた資料は消えません)" & vbCrLf & _
+           "  ・分量によっては読み込みに1〜2分かかります" & vbCrLf & vbCrLf & _
+           "接続する部門名を入力してください(空欄で閉じる)。"
 
-    If LenB(pend) > 0 Then
-        body = body & "■ 更新があります: " & Replace(pend, "|", " / ") & vbCrLf & vbCrLf & _
-               "「はい」で最新版に更新します(古い版は自動で置き換えます)。"
-        If MsgBox(body, vbYesNo + vbQuestion, modAppDef.APP_NAME & " - 部門チャンネル") = vbYes Then
-            Dim got As Long
-            modUiLock.Leave
-            got = modChannel.SyncSubscribed()
-            MsgBox got & " 件の内容を最新版に更新しました。", vbInformation, modAppDef.APP_NAME
-            Exit Sub
-        End If
-        GoTo Done
-    End If
-
-    body = body & "購読を変更しますか?(チャンネル名を入力すると購読/解除が切り替わります)"
     Dim ans As String
-    ans = InputBox(body, modAppDef.APP_NAME & " - 部門チャンネル")
-    If LenB(Trim$(ans)) = 0 Then GoTo Done
+    ans = Trim$(InputBox(body, modAppDef.APP_NAME & " - 部門の公式ナレッジ"))
+    If LenB(ans) = 0 Then GoTo Done
+
+    ' 入力された名前が実在するか確認する(打ち間違いで無言で失敗させない)。
+    Dim found As Boolean
+    For i = LBound(parts) To UBound(parts)
+        If StrComp(parts(i), ans, vbTextCompare) = 0 Then
+            ans = parts(i)
+            found = True
+            Exit For
+        End If
+    Next i
+    If Not found Then
+        modUiLock.Leave
+        MsgBox "「" & ans & "」という部門は見つかりませんでした。" & vbCrLf & _
+               "一覧に表示されている名前をそのまま入力してください。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
 
     modUiLock.Leave
-    ToggleChannel Trim$(ans)
+    DoSwitch ans
     Exit Sub
 Done:
     modUiLock.Leave
 End Sub
 
-' 購読の切り替え。解除時はそのチャンネル由来のチャンクを本棚から取り除く
-' (残すと使っていない知識が検索を薄めるうえ、チャンク上限も食い続ける)。
-Private Sub ToggleChannel(ByVal chName As String)
+' 部門の切り替え。時間がかかる処理なので、始まる前に必ず予告する。
+' 「押したあと固まったように見える」が離脱の最大要因なので、
+' 待ち時間の見込みを先に言い、終わったら結果を必ず出す。
+Private Sub DoSwitch(ByVal chName As String)
     On Error Resume Next
-    If modChannel.IsSubscribed(chName) Then
-        If MsgBox("「" & chName & "」の購読を解除します。" & vbCrLf & _
-                  "このチャンネル由来の内容は本棚から取り除かれます" & vbCrLf & _
-                  "(あなたが自分で入れた資料は消えません)。よろしいですか?", _
-                  vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then Exit Sub
-        Dim removed As Long
-        removed = modChannel.PurgeChannelChunks(chName)
-        modChannel.Unsubscribe chName
-        modStats.SetStatText "ch:" & LCase$(chName), ""
-        MsgBox "購読を解除し、" & removed & " 件を本棚から取り除きました。", _
+
+    If MsgBox("【" & chName & "】に接続します。" & vbCrLf & vbCrLf & _
+              "読み込みの間、画面が止まったように見えることがあります。" & vbCrLf & _
+              "そのままお待ちください(分量によっては1〜2分)。" & vbCrLf & vbCrLf & _
+              "実行しますか?", vbOKCancel + vbQuestion, _
+              modAppDef.APP_NAME) <> vbOK Then Exit Sub
+
+    Application.Cursor = 2                      ' xlWait
+    Application.StatusBar = "【" & chName & "】を読み込んでいます..."
+
+    Dim got As Long
+    got = modChannel.SwitchTo(chName)
+
+    Application.Cursor = -4143                  ' xlDefault
+    Application.StatusBar = False
+
+    If got = -1 Then
+        MsgBox "【" & chName & "】は既に最新の状態で接続されています。" & vbCrLf & _
+               "そのまま質問できます。", vbInformation, modAppDef.APP_NAME
+    ElseIf got > 0 Then
+        On Error Resume Next
+        modHub.EnsureHubLayout                  ' 使用量タイルと接続中表示を更新
+        On Error GoTo 0
+        MsgBox "【" & chName & "】に接続しました(" & got & " 件)。" & vbCrLf & vbCrLf & _
+               "この分野の質問に、出典つきで答えられます。" & vbCrLf & _
+               "別の分野を聞きたくなったら、また部門を切り替えてください。", _
                vbInformation, modAppDef.APP_NAME
     Else
-        modChannel.Subscribe chName
-        Dim got As Long
-        got = modChannel.SyncChannel(chName)
-        If got > 0 Then
-            MsgBox "「" & chName & "」を購読しました。" & vbCrLf & _
-                   got & " 件の正典を本棚に取り込みました。" & vbCrLf & _
-                   "すぐに質問できます。", vbInformation, modAppDef.APP_NAME
-        Else
-            MsgBox "「" & chName & "」を購読しました。" & vbCrLf & _
-                   "(取り込む新しい内容はありませんでした)", vbInformation, modAppDef.APP_NAME
-        End If
+        MsgBox "【" & chName & "】を読み込めませんでした。" & vbCrLf & vbCrLf & _
+               "・共有フォルダにつながっているか" & vbCrLf & _
+               "・その部門がまだ正典を発行していないか" & vbCrLf & _
+               "をご確認ください。もう一度試すと成功することもあります。", _
+               vbExclamation, modAppDef.APP_NAME
     End If
     On Error GoTo 0
 End Sub

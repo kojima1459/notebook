@@ -296,13 +296,20 @@ End Function
 
 ' 上限に近いか(8割超)。Hubの警告表示とツールバーの棚卸し導線に使う。
 Public Function IsBudgetTight() As Boolean
+    On Error Resume Next
     IsBudgetTight = (ChunkUsagePercent() >= 80)
+    On Error GoTo 0
 End Function
 
 ' ----------------------------------------------------------------------------
 ' PurgeChannelChunks - あるチャンネル由来のチャンクを本棚から取り除く。
-'   購読解除と版の入れ替えの両方で使う。my_knowledge と my_vectors の
-'   両方を同じ判定で消さないとベクトルだけが残って検索が壊れる。
+'   チャンネル切替と版の入れ替えの両方で使う。
+'
+'   性能上の要点(ここを素朴に書くと実機で数分固まる):
+'     ・行を1行ずつ Rows(r).Delete すると、5,000行で数分かかる。
+'       Union で領域をまとめ、200領域ごとに一括Deleteする。
+'     ・my_vectors 側の突き合わせを二重ループでやると 5,000×5,000=2,500万回。
+'       Dictionary で chunk_id を引けるようにして1回の走査で終える。
 ' ----------------------------------------------------------------------------
 Public Function PurgeChannelChunks(ByVal chName As String) As Long
     On Error Resume Next
@@ -315,41 +322,152 @@ Public Function PurgeChannelChunks(ByVal chName As String) As Long
     Dim lastR As Long: lastR = wsK.Cells(wsK.Rows.Count, 1).End(xlUp).Row
     If lastR < 2 Then Exit Function
 
-    ' 消すchunk_idを先に集める(行を消しながら走査すると添字がずれる)。
-    Dim ids() As String: ReDim ids(0 To lastR)
+    Application.ScreenUpdating = False
+    Dim prevCalc As Long: prevCalc = Application.Calculation
+    Application.Calculation = -4135          ' xlCalculationManual
+
+    ' 1) 消す対象の chunk_id を Dictionary に集める(値の読み出しは一括)。
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    Dim data As Variant
+    data = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastR, 3)).Value
+
     Dim n As Long
-    Dim r As Long
-    For r = 2 To lastR
-        If StrComp(Trim$(CStr(wsK.Cells(r, 3).Value)), tag, vbTextCompare) = 0 Then
-            ids(n) = CStr(wsK.Cells(r, 1).Value)
+    Dim i As Long
+    For i = 1 To UBound(data, 1)
+        If StrComp(Trim$(CStr(data(i, 3))), tag, vbTextCompare) = 0 Then
+            dict(CStr(data(i, 1))) = 1
             n = n + 1
         End If
-    Next r
-    If n = 0 Then Exit Function
+    Next i
+    If n = 0 Then
+        Application.Calculation = prevCalc
+        Application.ScreenUpdating = True
+        Exit Function
+    End If
 
-    ' 後ろから消す。
-    For r = lastR To 2 Step -1
-        If StrComp(Trim$(CStr(wsK.Cells(r, 3).Value)), tag, vbTextCompare) = 0 Then
-            wsK.Rows(r).Delete
-        End If
-    Next r
+    ' 2) my_knowledge をまとめて削除。
+    DeleteRowsWhere wsK, 1, dict, lastR
 
+    ' 3) my_vectors も同じIDでまとめて削除(片方だけ残すと検索が壊れる)。
     If Not wsV Is Nothing Then
         Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.Count, 1).End(xlUp).Row
-        Dim v As Long, i As Long
-        For v = lastV To 2 Step -1
-            Dim cid As String: cid = CStr(wsV.Cells(v, 1).Value)
-            For i = 0 To n - 1
-                If ids(i) = cid Then
-                    wsV.Rows(v).Delete
-                    Exit For
-                End If
-            Next i
-        Next v
+        If lastV >= 2 Then DeleteRowsWhere wsV, 1, dict, lastV
     End If
+
+    Application.Calculation = prevCalc
+    Application.ScreenUpdating = True
 
     modLog.LogUsage "channel_purge", chName, "removed=" & n
     PurgeChannelChunks = n
+    On Error GoTo 0
+End Function
+
+' 指定列の値が dict に含まれる行を、Unionでまとめて削除する。
+' Unionは領域が増えすぎると遅くなるため200領域ごとに実行する。
+Private Sub DeleteRowsWhere(ByVal ws As Worksheet, ByVal keyCol As Long, _
+                            ByVal dict As Object, ByVal lastRow As Long)
+    On Error Resume Next
+    If lastRow < 2 Then Exit Sub
+
+    ' データが1行しかないとき Range(...).Value は配列ではなくスカラーを返す。
+    ' そのまま UBound すると失敗し、On Error Resume Next に握られて
+    ' 「1件だけ消えない」という気づきにくい不具合になる。1行は個別に扱う。
+    If lastRow = 2 Then
+        If dict.Exists(CStr(ws.Cells(2, keyCol).Value)) Then ws.Rows(2).Delete
+        Exit Sub
+    End If
+
+    Dim keys As Variant
+    keys = ws.Range(ws.Cells(2, keyCol), ws.Cells(lastRow, keyCol)).Value
+
+    Dim target As Range
+    Dim areas As Long
+    Dim r As Long
+    ' 後ろから積む(削除は最後に一括なので順序自体は結果に影響しないが、
+    ' 途中フラッシュしたときに行番号がずれないよう降順で扱う)。
+    For r = UBound(keys, 1) To 1 Step -1
+        If dict.Exists(CStr(keys(r, 1))) Then
+            If target Is Nothing Then
+                Set target = ws.Rows(r + 1)
+            Else
+                Set target = Application.Union(target, ws.Rows(r + 1))
+            End If
+            areas = areas + 1
+            If areas >= 200 Then
+                target.Delete
+                Set target = Nothing
+                areas = 0
+            End If
+        End If
+    Next r
+    If Not target Is Nothing Then target.Delete
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' アクティブチャンネル(都度切替方式)
+' ----------------------------------------------------------------------------
+'   実機要望(2026-07-26): 1部門の正典が1,000チャンクで収まる想定は甘かった。
+'   商品部だけで教えてBOX 1年分のQ&Aに加え、マニュアル・約款の読み方・
+'   商品パンフレットの解説まで入れると5,000チャンクを軽く超える。
+'   全部門を常駐させると本棚が埋まり、マイ本棚に使える枠が無くなる。
+'
+'   そこで「常駐は1部門だけ」にする。利用者は聞きたい分野の部門をクリックし、
+'   同期が終わったら質問する。別の分野に移るときは部門を切り替える。
+'   切替時に前の部門のチャンクは丸ごと消えるので、本棚は常に
+'   「マイ本棚 + いま選んでいる1部門」だけになる。
+'
+'   トレードオフ(利用者に必ず伝えること):
+'     ・切替に時間がかかる(5,000チャンクで数十秒〜)
+'     ・複数部門にまたがる質問は一度にできない
+'     ・「今どこにつないでいるか」が分からないと混乱する
+'       → Hubとチャット画面のヘッダーに常時表示して迷子を防ぐ
+Public Function ActiveChannel() As String
+    On Error Resume Next
+    ActiveChannel = Trim$(modConfig.GetString("active_channel", ""))
+    On Error GoTo 0
+End Function
+
+' SwitchTo - 常駐チャンネルを切り替える。戻り値=取り込んだチャンク数。
+'   前の部門を消してから新しい部門を入れる。順序が逆だと一瞬だけ
+'   両方が載って本棚の上限を超える恐れがある。
+Public Function SwitchTo(ByVal chName As String) As Long
+    On Error Resume Next
+    Dim cur As String: cur = ActiveChannel()
+
+    ' 同じ部門を選び直した場合は、更新があるときだけ入れ替える。
+    If StrComp(cur, chName, vbTextCompare) = 0 Then
+        If RemoteVersion(chName) = LocalVersion(chName) Then
+            SwitchTo = -1          ' -1 = 既に最新(呼び出し側が案内に使う)
+            Exit Function
+        End If
+    End If
+
+    If LenB(cur) > 0 Then
+        PurgeChannelChunks cur
+        modStats.SetStatText "ch:" & LCase$(cur), ""
+    End If
+
+    modConfig.SetValue "active_channel", chName
+    SwitchTo = SyncChannel(chName)
+    If SwitchTo <= 0 Then
+        ' 取り込めなかった場合はアクティブを戻さない(空のまま)。
+        ' 「つないだつもりで実は空」が一番たちが悪い。
+        modConfig.SetValue "active_channel", ""
+    End If
+    On Error GoTo 0
+End Function
+
+' 今つないでいる部門の表示用ラベル(ヘッダーに常時出す)。
+Public Function ActiveLabel() As String
+    On Error Resume Next
+    Dim c As String: c = ActiveChannel()
+    If LenB(c) = 0 Then
+        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門: 未接続"
+    Else
+        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " " & c
+    End If
     On Error GoTo 0
 End Function
 

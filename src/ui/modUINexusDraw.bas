@@ -50,8 +50,16 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
     bg.Line.Visible = 0
     bg.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
     modSkin.ApplyHeaderDepth bg           ' §9: 濃紺の2色グラデーション
+    ' 「今どの部門の公式ナレッジにつないでいるか」を必ず見せる。
+    ' 切替式である以上、これが見えないと「なぜ答えられないのか」が
+    ' 分からなくなる(迷子の最大要因)。
+    Dim chLabel As String
+    On Error Resume Next
+    chLabel = modChannel.ActiveLabel()
+    On Error GoTo 0
+
     With bg.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット   " & chLabel
         .TextRange.Font.Size = 12
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)

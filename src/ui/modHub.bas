@@ -325,7 +325,12 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
                  ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", _
                  ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有(P2P)", _
                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード")
-    descs = Array("本棚の資料からAIが出典付きで回答", "資料の登録・検索・フォルダ同期", _
+    Dim chLbl As String
+    On Error Resume Next
+    chLbl = modChannel.ActiveLabel()
+    On Error GoTo 0
+    descs = Array("本棚の資料からAIが出典付きで回答 ・ " & chLbl, _
+                  "資料の登録・検索・部門の公式ナレッジ切替", _
                   "取り込んだ資料の一覧と状態", "部内でナレッジを配る・受け取る", _
                   "バッジ・EXP・ナレッジ地図")
     acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoShelf", _
@@ -456,12 +461,18 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
               "設定すると、みんなが解決したQ&Aが自動で届くようになります(config の nexus_share_path)"
         act = "modHub.OnShareHelp"
+    ElseIf LenB(modChannel.ActiveChannel()) = 0 Then
+        ' まだどの部門にもつないでいない。ここを案内しないと、
+        ' 「聞いても答えが返ってこない」理由が利用者に分からない。
+        cap = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門の公式ナレッジにまだ接続していません" & vbCr & _
+              "押すと部門を選べます。選ぶだけで、その分野の質問に答えられるようになります"
+        act = "modKnowledge.OnChannels"
     ElseIf LenB(chPend) > 0 Then
         ' 正典の改定は最優先で知らせる。古い版のまま使い続けると、AIが
         ' 古い条文を根拠に答えるという最悪の事故になる。
-        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネルに更新があります(" & _
-              Replace(chPend, "|", " / ") & ")" & vbCr & _
-              "押すと最新版に入れ替えます。古い内容で回答しないために早めの更新を"
+        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 【" & modChannel.ActiveChannel() & _
+              "】に更新があります" & vbCr & _
+              "押して読み込み直してください。古い内容で回答しないために早めの更新を"
         act = "modKnowledge.OnChannels"
     ElseIf modChannel.IsBudgetTight() Then
         cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _

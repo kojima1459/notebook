@@ -194,9 +194,11 @@ End Function
 ' PackDestPath - 発行先の pack.xlsx フルパス(UI層が書き出し先に使う)。
 ' ----------------------------------------------------------------------------
 Public Function PackDestPath(ByVal chName As String) As String
+    On Error Resume Next
     Dim d As String: d = PrepareDir(chName)
     If LenB(d) = 0 Then Exit Function
     PackDestPath = d & PACK_NAME
+    On Error GoTo 0
 End Function
 
 ' 直近の発行ログ(新しい順に最大10行)。発行画面に出して履歴を見せる。
