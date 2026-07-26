@@ -73,6 +73,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     End If
     On Error GoTo Fail
 
+    On Error Resume Next
+    modTelemetry.TrackScreen "hub"
+    On Error GoTo Fail
+
     DrawHeader ws
     DrawProfileCard ws
     DrawStatTiles ws
@@ -117,16 +121,20 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim icons As Variant, acts As Variant, tips As Variant
     ' 🔄=画面を再描画。旧サイドバーにあった復旧用ボタンの移設先
     ' (ウィンドウ移動やAlt+Tab復帰で表示が崩れたときの1クリック復旧手段)。
+    ' 📮=匿名の投書箱。実名だと率直な意見は出てこないので、名前を一切
+    ' 記録しない経路を別に用意する(既存のご意見箱はメール=実名)。
     icons = Array(ChrW(&HD83C) & ChrW(&HDF10), ChrW(&HD83C) & ChrW(&HDF19), _
-                  ChrW(&HD83D) & ChrW(&HDD04), ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
+                  ChrW(&HD83D) & ChrW(&HDD04), ChrW(&HD83D) & ChrW(&HDCEE), _
+                  ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
     acts = Array("modHub.OnLangCycle", "modHub.OnThemeToggle", _
-                 "modHub.OnRedraw", "modHub.OnHelp", "modHub.OnSaveAndExit")
+                 "modHub.OnRedraw", "modHub.OnAnonFeedback", _
+                 "modHub.OnHelp", "modHub.OnSaveAndExit")
     tips = Array("回答言語を切り替える", "配色を切り替える", "画面を描き直す", _
-                 "ヘルプ・使い方", "保存して閉じる")
+                 "匿名で感想・要望を送る", "ヘルプ・使い方", "保存して閉じる")
 
     Dim xRight As Double: xRight = L + W - 8
     Dim i As Long
-    For i = 4 To 0 Step -1
+    For i = 5 To 0 Step -1
         xRight = xRight - 30
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(9, xRight, (HDR_H - 26) / 2, 26, 26)
@@ -676,6 +684,67 @@ Public Sub OnShareHelp()
         "  同じパスを部内の全員が設定してはじめて共有が成立します。" & vbCrLf & _
         "  配布用ファイルにあらかじめ入れておくのがいちばん確実です。", _
         vbInformation, modAppDef.APP_NAME
+End Sub
+
+' 匿名フィードバック。名前も所属も記録しないことを画面で明示する。
+' 「匿名です」と書いてあるかどうかで、集まる本音の量が変わる。
+' オーナー向け: 利用状況と匿名フィードバックの一覧。
+' 発行キーを持つ端末(=運営側)にだけ意味がある機能なので、キー確認を挟む。
+Public Sub OnOwnerReport()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    If Not modPublish.VerifyKey(InputBox( _
+            "運営用の画面です。発行キーを入力してください。", _
+            modAppDef.APP_NAME & " - 利用状況")) Then GoTo Done
+
+    Dim body As String, fb As String
+    On Error Resume Next
+    body = modTelemetry.SummaryText()
+    fb = modTelemetry.FeedbackText()
+    On Error GoTo Done
+
+    modUiLock.Leave
+    MsgBox body & vbCrLf & "■ 匿名で届いた声(新しい順)" & vbCrLf & fb, _
+           vbInformation, modAppDef.APP_NAME & " - 利用状況"
+    Exit Sub
+Done:
+    modUiLock.Leave
+End Sub
+
+Public Sub OnAnonFeedback()
+    Dim fb As String
+    fb = InputBox( _
+        "このツールへの感想・要望・不満を、匿名で送れます。" & vbCrLf & vbCrLf & _
+        "  ・お名前も所属も記録しません(あとから誰が書いたかは分かりません)" & vbCrLf & _
+        "  ・辛口で構いません。使いにくい点ほど価値があります" & vbCrLf & vbCrLf & _
+        "例) 検索が遅い / ボタンの意味が分からない / この機能が欲しい", _
+        modAppDef.APP_NAME & " - 匿名の投書箱")
+    If LenB(Trim$(fb)) = 0 Then Exit Sub
+
+    Dim ok As Boolean
+    On Error Resume Next
+    ok = modTelemetry.SendAnonymousFeedback(fb)
+    On Error GoTo 0
+
+    If ok Then
+        On Error Resume Next
+        modStats.AddExp "feedback"
+        On Error GoTo 0
+        MsgBox "ありがとうございます。匿名で届きました。" & vbCrLf & _
+               "いただいた声は改善に使わせていただきます。(EXP +5)", _
+               vbInformation, modAppDef.APP_NAME
+    Else
+        ' 共有フォルダに書けない環境ではメール経路へ逃がす(黙って捨てない)。
+        On Error Resume Next
+        modClip.SetClipboardText fb
+        ThisWorkbook.FollowHyperlink _
+            "mailto:m-kojima@aioinissaydowa.co.jp?subject=Nexus%20Agent%20feedback"
+        On Error GoTo 0
+        MsgBox "共有フォルダへ送れなかったため、メールの下書きを開きました。" & vbCrLf & _
+               "本文はクリップボードに入っています(Ctrl+V で貼り付けてください)。", _
+               vbInformation, modAppDef.APP_NAME
+    End If
 End Sub
 
 Public Sub OnRedraw()

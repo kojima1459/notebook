@@ -92,6 +92,10 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     Pill ws, "nxk_m_gallery", ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー", px, PILL_W, _
          "modKnowledge.OnGoGallery", (Not isTable) And (Not isShared)
 
+    On Error Resume Next
+    modTelemetry.TrackScreen "knowledge"
+    On Error GoTo Fail
+
     ' --- ツールバー(行3の帯) ---
     DrawToolbar ws, isTable, isShared, L, W
 
@@ -134,6 +138,12 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     acts = Array("OnSearch", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn", _
                  "OnSync", "OnPickFolder", "OnDelete", "OnGapBoard", "OnChannels", "OnToChat")
     widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 104, 96, 76)
+    ' 発行ボタンは、発行キーが設定されている端末にだけ出す。
+    ' 一般利用者の画面に「押してはいけないボタン」を置かない。
+    Dim canPub As Boolean
+    On Error Resume Next
+    canPub = modPublish.CanPublish()
+    On Error GoTo 0
 
     Dim barTop As Double: barTop = ws.Rows(3).Top
     Dim x As Double: x = L + 8
@@ -181,6 +191,61 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
             x = x + CDbl(widths(i)) + 5
         End If
     Next i
+
+    ' 発行者だけに見える「正典を発行」。
+    If canPub Then
+        On Error Resume Next
+        Dim pb As Shape
+        Set pb = ws.Shapes.AddShape(5, x, barTop, 104, BAR_H)
+        If Not pb Is Nothing Then
+            pb.Name = "nxk_tbpub"
+            pb.Adjustments(1) = 0.35
+            pb.Line.Visible = 0
+            pb.Fill.ForeColor.RGB = modUI.UiColor("primary")
+            With pb.TextFrame2
+                .WordWrap = -1
+                .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行"
+                .TextRange.Font.Size = 8.5
+                .TextRange.Font.Bold = -1
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            End With
+            pb.OnAction = "modKnowledge.OnPublish"
+        End If
+        Set pb = Nothing
+        Err.Clear
+        On Error GoTo 0
+        x = x + 109
+
+        ' 運営向けの利用状況。発行者=運営なので同じ条件で出す。
+        On Error Resume Next
+        Dim rp As Shape
+        Set rp = ws.Shapes.AddShape(5, x, barTop, 88, BAR_H)
+        If Not rp Is Nothing Then
+            rp.Name = "nxk_tbrep"
+            rp.Adjustments(1) = 0.35
+            rp.Line.Visible = -1
+            rp.Line.Weight = 0.75
+            rp.Line.ForeColor.RGB = modUI.UiColor("border")
+            rp.Fill.ForeColor.RGB = modUI.UiColor("surface")
+            With rp.TextFrame2
+                .WordWrap = -1
+                .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況"
+                .TextRange.Font.Size = 8.5
+                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            End With
+            rp.OnAction = "modHub.OnOwnerReport"
+        End If
+        Set rp = Nothing
+        Err.Clear
+        On Error GoTo 0
+        x = x + 93
+    End If
 
     ' 画像解析が使える環境でだけスクショ取込を出す(無効環境で「押したら
     ' 断られるボタン」を見せない。既存modUIShelfの方針をそのまま踏襲)。
@@ -550,6 +615,144 @@ Private Sub ToggleChannel(ByVal chName As String)
             MsgBox "「" & chName & "」を購読しました。" & vbCrLf & _
                    "(取り込む新しい内容はありませんでした)", vbInformation, modAppDef.APP_NAME
         End If
+    End If
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' 正典の発行ウィザード(発行者向け)。
+'   手を動かすのは役職なしの若手という前提で、迷いどころを全部潰してある。
+'     ・何が起きるかを先に全部書く
+'     ・件数を発行前に見せる
+'     ・発行キーを知らない人は先へ進めない
+'     ・失敗しても「直前に戻す」で数十秒で復旧できることを画面で伝える
+' ----------------------------------------------------------------------------
+Public Sub OnPublish()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    Dim chName As String
+    chName = Trim$(InputBox( _
+        "部門の正典を発行します。" & vbCrLf & vbCrLf & _
+        "【これから起きること】" & vbCrLf & _
+        "  1. 今の本棚の内容がパックとして書き出されます" & vbCrLf & _
+        "  2. 共有フォルダの channels\<部門名>\ に置かれます" & vbCrLf & _
+        "  3. 部内の全員が、次にファイルを開いたときに受け取ります" & vbCrLf & vbCrLf & _
+        "【まちがえても大丈夫です】" & vbCrLf & _
+        "  前の版は自動で保存されます。この画面の「戻す」でいつでも" & vbCrLf & _
+        "  直前の版に戻せます(戻した内容も全員に自動で配られます)。" & vbCrLf & vbCrLf & _
+        "発行する部門名を入力してください(例: 商品部)。" & vbCrLf & _
+        "※ 既存のチャンネルを更新する場合は、同じ名前を入れてください。", _
+        modAppDef.APP_NAME & " - 正典を発行"))
+    If LenB(chName) = 0 Then GoTo Done
+
+    If Not modPublish.VerifyKey(InputBox( _
+            "発行キーを入力してください。" & vbCrLf & _
+            "(分からない場合は、このツールの管理担当者に確認してください)", _
+            modAppDef.APP_NAME & " - 発行キー")) Then
+        modUiLock.Leave
+        MsgBox "発行キーが違います。発行は行いませんでした。", vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    Dim total As Long
+    On Error Resume Next
+    total = modShelf.TotalChunks()
+    On Error GoTo Done
+
+    Dim log_ As String
+    On Error Resume Next
+    log_ = modPublish.RecentLog(chName)
+    On Error GoTo Done
+
+    Dim msg As String
+    msg = "【" & chName & "】として発行します。" & vbCrLf & vbCrLf & _
+          "  今の本棚: " & total & " チャンク" & vbCrLf & vbCrLf & _
+          "【発行前の確認】" & vbCrLf & _
+          "  ・正典には『確認済みQ&A・要点』だけを入れてください" & vbCrLf & _
+          "  ・100ページの約款などの原文を丸ごと入れると、受け取る側の" & vbCrLf & _
+          "    本棚がすぐ上限に達します(原文は各自が個別に入れます)" & vbCrLf & _
+          "  ・個人情報が含まれていると、書き出しの途中で中止されます" & vbCrLf & vbCrLf
+    If LenB(log_) > 0 Then msg = msg & "【この部門の発行履歴】" & vbCrLf & log_ & vbCrLf
+    msg = msg & "このまま発行しますか?" & vbCrLf & _
+          "(「いいえ」を選ぶと、直前の版に戻す操作に進みます)"
+
+    Dim ans As VbMsgBoxResult
+    ans = MsgBox(msg, vbYesNoCancel + vbQuestion, modAppDef.APP_NAME & " - 発行の確認")
+    If ans = vbCancel Then GoTo Done
+    If ans = vbNo Then
+        modUiLock.Leave
+        DoRollback chName
+        Exit Sub
+    End If
+
+    ' 旧版を退避してから書き出す。順序を守ることが事故防止そのもの。
+    On Error Resume Next
+    modPublish.ArchiveCurrent chName
+    Dim dest As String: dest = modPublish.PackDestPath(chName)
+    On Error GoTo Done
+    If LenB(dest) = 0 Then
+        modUiLock.Leave
+        MsgBox "共有フォルダが未設定のため発行できません。" & vbCrLf & _
+               "Hubのお知らせから設定してください。", vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    modUiLock.Leave
+    MsgBox "次にパックの書き出し画面が開きます。" & vbCrLf & vbCrLf & _
+           "保存先に、次のパスをそのまま貼り付けて保存してください:" & vbCrLf & vbCrLf & _
+           dest & vbCrLf & vbCrLf & _
+           "保存が終わったら、もう一度「正典を発行」を押して" & vbCrLf & _
+           "同じ部門名を入れると、配信が開始されます。", _
+           vbInformation, modAppDef.APP_NAME
+
+    modClip.SetClipboardText dest   ' 保存先をクリップボードへ(貼るだけで済む)
+    modPack.ExportPackDialog
+
+    ' 書き出しが終わっているならここで配信を確定する。
+    On Error Resume Next
+    Dim ver As String
+    ver = modPublish.FinalizePublish(chName, total)
+    On Error GoTo 0
+    If LenB(ver) > 0 Then
+        modStats.Bump "publish_total"
+        MsgBox "発行しました(版: " & ver & ")。" & vbCrLf & _
+               "部内の全員が、次にファイルを開いたときに受け取ります。" & vbCrLf & vbCrLf & _
+               "内容に誤りが見つかったら、もう一度この画面から" & vbCrLf & _
+               "「いいえ」を選んで直前の版に戻せます。", _
+               vbInformation, modAppDef.APP_NAME
+    End If
+    Exit Sub
+Done:
+    modUiLock.Leave
+End Sub
+
+' 直前の版に戻す。事故を止める最終手段なので、操作は最短手数にする。
+Private Sub DoRollback(ByVal chName As String)
+    On Error Resume Next
+    Dim list_ As String
+    list_ = modPublish.ArchiveList(chName)
+    If LenB(list_) = 0 Then
+        MsgBox "戻せる過去版がありません(まだ1度も発行していない部門です)。", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    Dim parts() As String: parts = Split(list_, "|")
+    Dim newest As String: newest = parts(0)
+
+    If MsgBox("【" & chName & "】を直前の版に戻します。" & vbCrLf & vbCrLf & _
+              "  戻す版: " & newest & vbCrLf & vbCrLf & _
+              "戻すと、部内の全員が次にファイルを開いたときに" & vbCrLf & _
+              "その版へ自動で置き換わります(誤った内容は各PCから消えます)。" & vbCrLf & vbCrLf & _
+              "実行しますか?", vbOKCancel + vbExclamation, _
+              modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then Exit Sub
+
+    If modPublish.Rollback(chName, newest) Then
+        MsgBox "戻しました。全員に自動で配信されます。", vbInformation, modAppDef.APP_NAME
+    Else
+        MsgBox "戻せませんでした。共有フォルダへの書き込み権限をご確認ください。", _
+               vbExclamation, modAppDef.APP_NAME
     End If
     On Error GoTo 0
 End Sub

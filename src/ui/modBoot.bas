@@ -97,6 +97,23 @@ Public Sub Boot()
     bootStage = "設定の読み込み(config)"
     modConfig.EnsureLoaded
 
+    ' 1.5) 端末チェック(config allowed_domain が設定された組織だけ有効)。
+    '      許可外の端末では知識を消して案内だけ出す。私物PCへコピーされた
+    '      場合の一次防御。設定が空なら何もしない=既定では誰の業務も止めない。
+    bootStage = "端末の確認"
+    On Error Resume Next
+    If Not modGuard.CheckDomain() Then
+        modGuard.WipeKnowledge
+        Application.EnableEvents = True
+        Application.ScreenUpdating = True
+        modGuard.ShowDomainBlocked
+        Exit Sub
+    End If
+    ' 社内ネットワークに長期間つながっていない端末は知識を失効させる
+    ' (7日前から予告あり。黙って消さない)。
+    modGuard.EnforceExpiry
+    On Error GoTo Failed
+
     ' 2) first-run: pack_author入力
     bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun
@@ -208,8 +225,12 @@ Public Sub Boot()
 
     ' 共有知フライホイールの受信(ファイルコピーだけ=API呼び出しなし)。
     ' 本棚への取り込みは利用者がHubのお知らせを押したときだけ行う。
+    ' 朝の一斉起動で共有フォルダへ全員が同時に殺到しないよう散らす。
     On Error Resume Next
+    modChannel.StartupJitter
     modInsight.CollectInsights
+    ' 共有フォルダに到達できたことを記録(端末失効タイマーのリセット)。
+    If LenB(modChannel.ListChannels()) > 0 Then modGuard.TouchReach
     On Error GoTo 0
 
     ' 部門チャンネルは「更新があるか」だけ見る(version.txtを読むだけ=軽い)。
@@ -318,6 +339,12 @@ Public Sub Auto_Close()
 
     On Error Resume Next
     Application.StatusBar = False
+    On Error GoTo 0
+
+    ' 利用データの送信は終了時に行う(起動時にやると朝の一斉アクセスと
+    ' 重なるうえ、起動が遅くなる。終了時なら数秒かかっても業務を止めない)。
+    On Error Resume Next
+    modTelemetry.Publish
     On Error GoTo 0
 
     ' Ctrl+Break等でBoot/SyncNow途中のEnableEvents=False焼き付きが起きても、

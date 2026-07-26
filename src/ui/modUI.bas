@@ -117,6 +117,10 @@ Public Sub InitUI()
     ws.EnableSelection = 1
     On Error GoTo 0
 
+    On Error Resume Next
+    modTelemetry.TrackScreen "chat"
+    On Error GoTo 0
+
     ApplyTheme ws
     FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     BringFixedToFront ws      ' 固定UIを最前面へ(Z-Order維持)

@@ -24,8 +24,14 @@ Option Explicit
 '   どちらが欠けても実務のペインは消えない。
 '
 ' 2万チャンク上限をどう越えるか(部門が5つ以上ある前提での設計):
-'   1) 購読制: 全社共通と自部門は既定で購読、他部門は必要な人だけ。
-'      「全部入れる」を既定にしない。
+'   1) 既定で全チャンネルを購読する(2026-07-26 設計変更)。
+'      「必要なものだけ購読」は誤りだった。利用者の行動は
+'      「今日は商品、明日はシステム、明後日は経費精算」であり、聞く前に
+'      分野を判断して購読操作をさせた時点で、ポータルを探し回るのと同じ
+'      認知負荷が発生する。解決したかった問題を作り直してしまう。
+'      成立の根拠: 正典はQ&A粒度(1件1〜2チャンク)なので、6部門×500件でも
+'      3,000〜6,000チャンク。個人の本棚と合わせても上限に届かない。
+'      ただし「正典に原文マニュアルを丸ごと入れない」ことが絶対条件。
 '   2) 正典は原文全部ではなく「確認済みQ&A+要点」に絞る運用を前提にする。
 '      100ページの約款をそのまま入れれば1部門で数千チャンク食うが、
 '      正典Q&Aなら1件1〜2チャンクで済む。原文が要る人は自分の本棚へ入れる。
@@ -84,27 +90,21 @@ Public Function ListChannels() As String
     On Error GoTo 0
 End Function
 
-' 購読中か(config subscribed_channels のカンマ区切りに載っているか)。
+' 購読中か。既定は「全部購読」なので、判定は除外リスト(config
+' unsubscribed_channels)に載っていないこと。新しい部門が正典を発行したら
+' 誰も操作しなくても自動的に届く。これが v3 の要。
 Public Function IsSubscribed(ByVal chName As String) As Boolean
     On Error Resume Next
-    Dim subs As String: subs = "," & modConfig.GetString("subscribed_channels", "") & ","
-    IsSubscribed = (InStr(1, subs, "," & chName & ",", vbTextCompare) > 0)
+    Dim ex As String: ex = "," & modConfig.GetString("unsubscribed_channels", "") & ","
+    IsSubscribed = (InStr(1, ex, "," & chName & ",", vbTextCompare) = 0)
     On Error GoTo 0
 End Function
 
+' 購読を戻す(除外リストから外す)。
 Public Sub Subscribe(ByVal chName As String)
     On Error Resume Next
-    If IsSubscribed(chName) Then Exit Sub
-    Dim subs As String: subs = Trim$(modConfig.GetString("subscribed_channels", ""))
-    If LenB(subs) > 0 Then subs = subs & ","
-    modConfig.SetValue "subscribed_channels", subs & chName
-    On Error GoTo 0
-End Sub
-
-Public Sub Unsubscribe(ByVal chName As String)
-    On Error Resume Next
-    Dim subs As String: subs = modConfig.GetString("subscribed_channels", "")
-    Dim parts() As String: parts = Split(subs, ",")
+    Dim ex As String: ex = modConfig.GetString("unsubscribed_channels", "")
+    Dim parts() As String: parts = Split(ex, ",")
     Dim sb As String
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
@@ -114,7 +114,17 @@ Public Sub Unsubscribe(ByVal chName As String)
             sb = sb & one
         End If
     Next i
-    modConfig.SetValue "subscribed_channels", sb
+    modConfig.SetValue "unsubscribed_channels", sb
+    On Error GoTo 0
+End Sub
+
+' 購読をやめる(除外リストへ追加)。
+Public Sub Unsubscribe(ByVal chName As String)
+    On Error Resume Next
+    If Not IsSubscribed(chName) Then Exit Sub
+    Dim ex As String: ex = Trim$(modConfig.GetString("unsubscribed_channels", ""))
+    If LenB(ex) > 0 Then ex = ex & ","
+    modConfig.SetValue "unsubscribed_channels", ex & chName
     On Error GoTo 0
 End Sub
 
@@ -174,11 +184,21 @@ Public Function SyncChannel(ByVal chName As String) As Long
     Dim packPath As String: packPath = ChannelsDir() & chName & "\" & PACK_NAME
     If LenB(Dir(packPath)) = 0 Then Exit Function
 
+    ' 朝の一斉起動で数千人が同じファイルを掴みに行くため、共有側に読み取り
+    ' ロックを残さないよう %TEMP% へコピーしてから開く。発行者が書き換えても
+    ' こちらが読むのはコピーなので壊れたファイルを掴まない。
+    Dim localPath As String
+    localPath = CopyToTemp(packPath, chName)
+    If LenB(localPath) = 0 Then Exit Function
+
     ' 旧版の掃除。origin が "pack:<チャンネル名>" のチャンクをまとめて消す。
     PurgeChannelChunks chName
 
     Dim got As Long
-    got = modPack.ImportPackFile(packPath, True)
+    got = modPack.ImportPackFile(localPath, True)
+    On Error Resume Next
+    Kill localPath
+    On Error GoTo 0
     If got > 0 Then
         modStats.SetStatText "ch:" & LCase$(chName), remote
         modLog.LogUsage "channel_sync", chName, "version=" & remote & " chunks=" & got
@@ -199,6 +219,61 @@ Public Function SyncSubscribed() As Long
     Next i
     On Error GoTo 0
 End Function
+
+' 共有フォルダのファイルを%TEMP%へコピーする(3回までリトライ)。
+' サーバの同時接続上限やAVスキャンで一時的に失敗することがあるため、
+' 失敗しても例外を出さず空文字を返して静かに次回へ回す。
+Private Function CopyToTemp(ByVal src As String, ByVal tag As String) As String
+    Dim tmpDir As String: tmpDir = Environ$("TEMP")
+    If LenB(tmpDir) = 0 Then tmpDir = Environ$("TMP")
+    If LenB(tmpDir) = 0 Then Exit Function
+    If Right$(tmpDir, 1) <> "\" Then tmpDir = tmpDir & "\"
+
+    Dim dest As String
+    dest = tmpDir & "nexus_ch_" & SafeName(tag) & "_" & Format$(Now, "hhnnss") & ".xlsx"
+
+    Dim attempt As Long
+    For attempt = 1 To 3
+        On Error Resume Next
+        Err.Clear
+        FileCopy src, dest
+        If Err.Number = 0 Then
+            On Error GoTo 0
+            CopyToTemp = dest
+            Exit Function
+        End If
+        On Error GoTo 0
+        Wait_ 200 * attempt
+    Next attempt
+End Function
+
+Private Function SafeName(ByVal s As String) As String
+    Dim t As String: t = s
+    Dim bad As Variant
+    For Each bad In Array("\", "/", ":", "*", "?", """", "<", ">", "|", " ")
+        t = Replace(t, CStr(bad), "_")
+    Next bad
+    SafeName = modUtil.SafeLeft(t, 24)
+End Function
+
+Private Sub Wait_(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do
+    Loop
+End Sub
+
+' 起動直後の一斉アクセスを散らすためのランダム待機(0〜jitterMs)。
+' 全員が同一ミリ秒に共有フォルダへ殺到する状況を構造的に避ける。
+Public Sub StartupJitter()
+    On Error Resume Next
+    Dim maxMs As Long: maxMs = modConfig.GetLong("startup_jitter_ms", 3000)
+    If maxMs <= 0 Then Exit Sub
+    Randomize
+    Wait_ CLng(Rnd() * maxMs)
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' チャンク予算。上限に当たってから慌てないよう、常に使用率を見せる。
