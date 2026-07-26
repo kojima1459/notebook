@@ -131,13 +131,15 @@ Private Sub DrawStep(ByVal n As Long)
 
     mStep = n
 
-    Dim cardL As Double: cardL = 195 + 15
+    ' サイドバー廃止(2026-07-26)に伴い、決め打ちのx=195+15ではなく
+    ' チャット領域の実測幾何から求める。
+    Dim cardW As Double: cardW = 400
+    Dim cardL As Double: cardL = modUINexusDraw.ChatLeft(ws) + 15
     Dim cardT As Double
     Select Case n
-        Case 1: cardT = 100
-        Case Else: cardT = 240
+        Case 1: cardT = modUINexusDraw.ChatTop(ws) + 10
+        Case Else: cardT = modUINexusDraw.ChatTop(ws) + 140
     End Select
-    Dim cardW As Double: cardW = 400
     Dim cardH As Double: cardH = 130
 
     Dim card As Shape

@@ -56,14 +56,15 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub
 
-    ' 描画位置: 出典チップ(nx_cite_*)の最下端の下。チップが無ければバブルの下。
+    ' 描画位置: 文脈アクション(nx_act_*)と出典チップ(nx_cite_*)の最下端の下。
+    ' どちらも無ければバブルの直下。
     Dim anchor As Shape
     Set anchor = ws.Shapes(bubbleName)
     If anchor Is Nothing Then Exit Sub
     Dim y As Double: y = anchor.Top + anchor.Height + 6
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 8) = "nx_cite_" Then
+        If Left$(shp.Name, 8) = "nx_cite_" Or Left$(shp.Name, 7) = "nx_act_" Then
             If shp.Top + shp.Height + 6 > y Then y = shp.Top + shp.Height + 6
         End If
     Next shp

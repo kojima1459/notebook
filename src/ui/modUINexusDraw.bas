@@ -1,229 +1,164 @@
 Attribute VB_Name = "modUINexusDraw"
 Option Explicit
 
-' modUINexusDraw - Nexus画面の骨格描画(サイドバー/トップバー/入力欄/
-' フローティングアクションバー)。modUI.InitUIから呼ばれる。定数・共有ヘルパー
-' (SIDEBAR_W等/PaintActionButton/ThemeIcon/UiColor)はmodUI側のPublicを使う。
+' modUINexusDraw - チャット画面(Nexusシート)の骨格描画。
+'
+' 2026-07-26 再設計(nexus-spec-v1 §2.2 / nexus-ui-final 画面5):
+'   ・サイドバーを全廃した。移動導線はHub画面(modHub)に集約し、チャット画面は
+'     「会話」だけを担う。結果、バブルの表示幅が約30%広がる。
+'   ・常時表示のフローティング・アクションバー(7個)を廃止し、最新のAI回答
+'     バブルの直下にだけ6個のアクションpillを出す「文脈表示」に変えた。
+'     質問前はボタンが0個になるので入力に集中できる。
+'   ・ヘッダーは1行(← Hub / タイトル / 速度 / モード / 言語 / テーマ / クリア)。
+'
+' 設計の鉄則(実機で繰り返し事故った点):
+'   ・Shape座標は必ず実セル幾何(Range.Left/.Width/Rows().Top)から導く。
+'     pt決め打ちは列幅・行高・DPIの差で必ずズレる。
+'   ・配色は modUI.UiColor() を単一情報源にする。
+'   ・絵文字はChrW()で組み立てる(ソースへの直書きは自己インストーラの
+'     文字列注入で化ける)。BMP外はサロゲートペアで2つ繋ぐ。
 
-Public Sub DrawSidebar(ByVal ws As Worksheet)
-    Dim sb As Shape
-    Set sb = ws.Shapes.AddShape(1, 0, 0, modUI.SIDEBAR_W, 760)
-    sb.Name = "nx_sb_bg"
-    sb.Line.Visible = 0
+Public Const HDR_H As Double = 42          ' ヘッダー行(行1)の高さ
+Public Const INPUT_ROW As Long = 3         ' 入力欄の行
+Public Const ACT_H As Double = 22          ' 文脈アクションpillの高さ
+Private Const HDR_BTN_H As Double = 26
 
-    Dim brand As Shape
-    Set brand = ws.Shapes.AddShape(1, 0, 0, modUI.SIDEBAR_W, 34)
-    brand.Name = "nx_sb_brand"
-    brand.Line.Visible = 0
-    brand.Fill.Visible = 0
-    With brand.TextFrame2
-        .TextRange.Text = ChrW(&H26A1) & " Nexus Agent"
-        .TextRange.Font.Size = 15
+' チャット領域(バブル/アクションの基準)。列幅の実測から求める。
+Public Function ChatLeft(ByVal ws As Worksheet) As Double
+    ChatLeft = ws.Range("B1").Left
+End Function
+
+Public Function ChatWidth(ByVal ws As Worksheet) As Double
+    ChatWidth = ws.Range("B1:L1").Width
+End Function
+
+' 固定領域(行1〜4)の直下=会話の開始Y。FreezePanesの境界と必ず一致する。
+Public Function ChatTop(ByVal ws As Worksheet) As Double
+    ChatTop = ws.Rows(5).Top
+End Function
+
+' ヘッダー1行。左に「← Hub」、右に操作pillを右詰めで並べる。
+Public Sub DrawChatHeader(ByVal ws As Worksheet)
+    Dim L As Double, W As Double
+    L = ws.Range("A1").Left
+    W = ws.Range("A1:M1").Width
+
+    Dim bg As Shape
+    Set bg = ws.Shapes.AddShape(5, L, 0, W, HDR_H)
+    bg.Name = "nx_top_bg"
+    bg.Adjustments(1) = 0.02
+    bg.Line.Visible = 0
+    bg.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+    With bg.TextFrame2
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット"
+        .TextRange.Font.Size = 12
         .TextRange.Font.Bold = -1
-        .MarginLeft = 14
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .MarginLeft = 82
         .VerticalAnchor = 3
     End With
 
-    ' 会話クリア/保存して終了ボタン。実機報告(2026-07-22)「ロゴと被る」対策:
-    ' ブランド文字と同じ行に詰め込まず、専用の行(Y=38)へ分離する。
-    Dim clearBtn As Shape
-    Set clearBtn = ws.Shapes.AddShape(5, 10, 38, 83, 24)
-    clearBtn.Name = "nx_sb_clear"
-    clearBtn.Adjustments(1) = 0.3
-    clearBtn.Line.Visible = 0
-    clearBtn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
-    With clearBtn.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
-        .TextRange.Font.Size = 7.5
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    clearBtn.OnAction = "modApp.OnClearChat"
+    HeaderButton ws, "nx_top_back", ChrW(&H2190) & " Hub", _
+                 L + 8, 62, "modApp.OnNavHome"
 
-    Dim exitBtn As Shape
-    Set exitBtn = ws.Shapes.AddShape(5, 101, 38, 83, 24)
-    exitBtn.Name = "nx_sb_exit"
-    exitBtn.Adjustments(1) = 0.3
-    exitBtn.Line.Visible = 0
-    exitBtn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
-    With exitBtn.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
-        .TextRange.Font.Size = 7.5
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    exitBtn.OnAction = "modApp.OnSaveAndExit"
+    ' 右端から左へ順に積む(文字数が変わっても右揃えが崩れない)。
+    Dim x As Double: x = L + W - 8
+    x = x - 62:  HeaderButton ws, "nx_top_clear", ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", _
+                              x, 62, "modApp.OnClearChat"
+    x = x - 6 - 30:  HeaderButton ws, "nx_top_help", ChrW(&H2753), x, 30, "modHelp.OnHelpClick"
+    x = x - 6 - HDR_BTN_H
+    HeaderTheme ws, x
+    x = x - 6 - 92:  HeaderButton ws, "nx_top_lang", LangCaption(), x, 92, "modApp.OnLangCycle"
+    x = x - 6 - 118: HeaderButton ws, "nx_top_mode", modApp.ModeCaption(), x, 118, "modApp.OnToggleMode"
+    x = x - 6 - 124: HeaderButton ws, "nx_top_speed", modApp.SpeedCaption(), x, 124, "modApp.OnToggleSpeed"
+End Sub
 
-    Dim prof As Shape
-    Set prof = ws.Shapes.AddShape(5, 10, 68, modUI.SIDEBAR_W - 20, 52)
-    prof.Name = "nx_sb_profile"
-    prof.Line.Visible = 0
-    With prof.TextFrame2
-        .TextRange.Text = ProfileCaption()
-        .TextRange.Font.Size = 9.5
-        .MarginLeft = 10: .MarginTop = 6
-        .WordWrap = -1
-    End With
-
-    ' タブ非表示中でもホーム/マイ本棚へ行けるようサイドバーに直接導線を追加。
-    Dim items As Variant
-    items = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャット", ChrW(&HD83C) & ChrW(&HDFE0) & " ホーム", _
-                  ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
-                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード", ChrW(&HD83D) & ChrW(&HDD04) & " 画面を再描画")
-    Dim navActions As Variant
-    navActions = Array("modApp.OnNavChat", "modApp.OnNavHome", "modApp.OnNavShelf", _
-                       "modApp.OnNavVault", "modApp.OnNavDash", "modApp.OnRefreshUI")
-    Dim i As Long
-    For i = 0 To 5
-        ' 項目ごとにResume Next(1つの1004が後続項目を道連れにしないため)。
-        On Error Resume Next
-        Dim nav As Shape
-        Set nav = ws.Shapes.AddShape(1, 0, 136 + i * 40, modUI.SIDEBAR_W, 38)
-        nav.Name = "nx_sb_nav" & (i + 1)
-        nav.Line.Visible = 0
-        With nav.TextFrame2
-            .TextRange.Text = CStr(items(i))
-            .TextRange.Font.Size = 10.5
-            .MarginLeft = 16
-            .VerticalAnchor = 3
-        End With
-        nav.OnAction = CStr(navActions(i))
-        If Err.Number <> 0 Then
-            modLog.LogError "E0801", "modApp.LaunchNexus", _
-                "DrawSidebar[nav" & (i + 1) & "]", Err.Number
-            Err.Clear
-        End If
-        On Error GoTo 0
-    Next i
-
-    ' 診断用: 実際の生成数をusage_logへ残す。
+Private Sub HeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, _
+                         ByVal caption As String, ByVal x As Double, _
+                         ByVal w As Double, ByVal action As String)
     On Error Resume Next
-    Dim navCount As Long, shp2 As Shape
-    For Each shp2 In ws.Shapes
-        If Left$(shp2.Name, 9) = "nx_sb_nav" Then navCount = navCount + 1
-    Next shp2
-    modLog.LogUsage "diag", "nexus_sidebar", "nav=" & navCount & "/6"
+    Dim btn As Shape
+    Set btn = ws.Shapes.AddShape(5, x, (HDR_H - HDR_BTN_H) / 2, w, HDR_BTN_H)
+    If btn Is Nothing Then Exit Sub
+    btn.Name = shapeName
+    btn.Adjustments(1) = 0.35
+    btn.Line.Visible = 0
+    btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+    With btn.TextFrame2
+        .TextRange.Text = caption
+        .TextRange.Font.Size = 9
+        .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    btn.OnAction = action
     On Error GoTo 0
 End Sub
 
-Public Sub DrawTopbar(ByVal ws As Worksheet)
-    Dim tb As Shape
-    Set tb = ws.Shapes.AddShape(1, modUI.SIDEBAR_W, 0, 700, modUI.TOPBAR_H)
-    tb.Name = "nx_top_bg"
-    tb.Line.Visible = 0
-
-    ' すぐ聞く/しっかり調べる切替(ホームと同じui_state "mode"キーを共有)。
-    Dim speedBtn As Shape
-    Set speedBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 15, 8, 150, 28)
-    speedBtn.Name = "nx_top_speed"
-    With speedBtn.TextFrame2
-        .TextRange.Text = modApp.SpeedCaption()
-        .TextRange.Font.Size = 9.5
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    speedBtn.OnAction = "modApp.OnToggleSpeed"
-
-    Dim lang As Shape
-    Set lang = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 480, 8, 130, 28)
-    lang.Name = "nx_top_lang"
-    With lang.TextFrame2
-        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDDEF) & ChrW(&HD83C) & ChrW(&HDDF5) & " 日本語で回答"
-        .TextRange.Font.Size = 9.5
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    lang.OnAction = "modApp.OnLangCycle"
-
-    Dim modeBtn As Shape
-    Set modeBtn = ws.Shapes.AddShape(5, modUI.SIDEBAR_W + 320, 8, 150, 28)
-    modeBtn.Name = "nx_top_mode"
-    With modeBtn.TextFrame2
-        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
-        .TextRange.Font.Size = 9.5
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    modeBtn.OnAction = "modApp.OnToggleMode"
-
-    Dim theme As Shape
-    Set theme = ws.Shapes.AddShape(9, modUI.SIDEBAR_W + 625, 8, 28, 28)   ' 9=楕円
-    theme.Name = "nx_top_theme"
-    theme.Line.Visible = 0
-    With theme.TextFrame2
+Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double)
+    On Error Resume Next
+    Dim th As Shape
+    Set th = ws.Shapes.AddShape(9, x, (HDR_H - HDR_BTN_H) / 2, HDR_BTN_H, HDR_BTN_H)
+    If th Is Nothing Then Exit Sub
+    th.Name = "nx_top_theme"
+    th.Line.Visible = 0
+    th.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+    With th.TextFrame2
         .TextRange.Text = modUI.ThemeIcon()
-        .TextRange.Font.Size = 12
+        .TextRange.Font.Size = 11
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
     End With
-    theme.OnAction = "modUI.ToggleTheme"
+    th.OnAction = "modUI.ToggleTheme"
+    On Error GoTo 0
 End Sub
 
+Private Function LangCaption() As String
+    Dim v As String
+    On Error Resume Next
+    v = modConfig.GetString("answer_language", "日本語")
+    On Error GoTo 0
+    If LenB(v) = 0 Then v = "日本語"
+    LangCaption = ChrW(&HD83C) & ChrW(&HDF10) & " " & v
+End Function
+
+' 入力欄(行3)。編集できるセルはC3:K3だけに絞り、📎と送信はその外側の
+' 土台セル(B列/L列)の実測幾何の中央へ置く。構造的に重ならない。
 Public Sub DrawInputArea(ByVal ws As Worksheet)
-    ' 編集中はExcelの編集オーバーレイがShapeより前面に出て隠すため、編集可能
-    ' セルは中央F4:J4のみに絞る。白背景/枠線は入力セルF4:J4だけに限定する
-    ' (両端D4:E4/K4:N4は無地のままクリップ/送信ボタンの土台に徹させる)。
-    ' WrapText+行を高くして長文が右へあふれず折り返すようにする。
     On Error Resume Next
     ThisWorkbook.Names("nx_input").Delete
     On Error GoTo 0
 
-    ws.Rows("4").RowHeight = 48
-
-    With ws.Range("F4:J4")
+    Dim r As String: r = CStr(INPUT_ROW)
+    With ws.Range("C" & r & ":K" & r)
         .Merge
         .Interior.Color = RGB(255, 255, 255)
-        .VerticalAlignment = -4108   ' xlCenter
+        .VerticalAlignment = -4108        ' xlCenter
         .WrapText = True
+        .Font.Size = 11
+        .IndentLevel = 1
         .BorderAround LineStyle:=1, Weight:=2, Color:=modUI.UiColor("border")
     End With
 
     On Error Resume Next
-    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$F$4"
+    ThisWorkbook.Names.Add "nx_input", "='" & ws.Name & "'!$C$" & r
     On Error GoTo 0
 
-    ' 実機報告(2026-07-22)「送信ボタンが入力欄に食い込む」対策: 列幅から
-    ' ピクセル位置を推測していたのがズレの原因だった。実際のセル座標
-    ' (D4:E4/K4:N4=土台セルの実測Left/Width)から動的に算出し、F4:J4の
-    ' 外側に確実に収まるようにする。
-    Dim baseD As Range, baseK As Range
-    Set baseD = ws.Range("D4:E4")
-    Set baseK = ws.Range("K4:N4")
     Dim rowTop As Double, rowH As Double
-    rowTop = ws.Rows("4").Top
-    rowH = ws.Rows("4").Height
+    rowTop = ws.Rows(INPUT_ROW).Top
+    rowH = ws.Rows(INPUT_ROW).Height
 
-    Dim send As Shape
-    Dim sendW As Double, sendH As Double
-    sendW = 80: sendH = 30
-    Set send = ws.Shapes.AddShape(5, _
-        baseK.Left + (baseK.Width - sendW) / 2, rowTop + (rowH - sendH) / 2, sendW, sendH)
-    send.Name = "nx_top_send"
-    send.Line.Visible = 0
-    With send.TextFrame2
-        .TextRange.Text = "送信"
-        .TextRange.Font.Size = 11
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    send.OnAction = "modApp.OnSend"
-
-    ' 実機報告(2026-07-22)「お化けみたいなボタン」対策: 背景色・枠線を明示せず
-    ' 素の絵文字だけが浮いて見えていた。可視な円形ボタンとして描画する。
+    Dim cellB As Range: Set cellB = ws.Range("B" & r)
+    Dim clipD As Double: clipD = 28
     Dim clip As Shape
-    Dim clipD As Double
-    clipD = 30
     Set clip = ws.Shapes.AddShape(9, _
-        baseD.Left + (baseD.Width - clipD) / 2, rowTop + (rowH - clipD) / 2, clipD, clipD)
+        cellB.Left + (cellB.Width - clipD) / 2, rowTop + (rowH - clipD) / 2, clipD, clipD)
     clip.Name = "nx_top_clip"
     clip.Line.Visible = 0
-    ' 実機報告(2026-07-22)「まだお化け」対策: surface色が背景と近く目立たな
-    ' かった。彩度のあるaccent色の塗りつぶし+白アイコンで明確なボタンにする。
     clip.Fill.ForeColor.RGB = modUI.UiColor("accent")
     With clip.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCE)
@@ -231,54 +166,121 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
+        .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
     End With
     clip.OnAction = "modApp.OnAttachImage"
+
+    Dim cellL As Range: Set cellL = ws.Range("L" & r)
+    Dim sendH As Double: sendH = 32
+    Dim send As Shape
+    Set send = ws.Shapes.AddShape(5, _
+        cellL.Left + 4, rowTop + (rowH - sendH) / 2, cellL.Width - 8, sendH)
+    send.Name = "nx_top_send"
+    send.Adjustments(1) = 0.3
+    send.Line.Visible = 0
+    send.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    With send.TextFrame2
+        .TextRange.Text = ChrW(&H27A4) & " 送信"
+        .TextRange.Font.Size = 11
+        .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+    End With
+    send.OnAction = "modApp.OnSend"
+
+    ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。
+    With ws.Range("C" & (INPUT_ROW + 1))
+        .Value = "Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し"
+        .Font.Size = 8
+        .Font.Color = modUI.UiColor("muted")
+        .VerticalAlignment = -4160        ' xlTop
+    End With
 End Sub
 
-' フローティングアクションバー: 6ボタン常設し選択中バブルへ発火。
-Public Sub DrawFloatingActionBar(ByVal ws As Worksheet)
-    Dim labels As Variant, widths As Variant, kinds As Variant
-    labels = Array(ChrW(&HD83D) & ChrW(&HDC4D) & " グッド", ChrW(&HD83D) & ChrW(&HDC4E) & " バッド", _
-                   ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", ChrW(&H2705) & " 解決した", _
-                   ChrW(&HD83C) & ChrW(&HDD98) & " 本社へ照会", ChrW(&HD83D) & ChrW(&HDCC4) & " Word出力", _
-                   ChrW(&HD83D) & ChrW(&HDCCB) & " コピー")
-    widths = Array(70, 70, 70, 80, 92, 88, 76)
-    kinds = Array("good", "bad", "drill", "resolve", "hq", "word", "copy")
-    Dim handlers As Variant
-    handlers = Array("OnActGood", "OnActBad", "OnActDrill", "OnActResolve", "OnActHq", "OnActWord", "OnActCopy")
+' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。
+' 新しい質問を送るたびにClearContextActionsで消えるので、古い回答の下には残らない。
+Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
+    ClearContextActions ws
+    If ws Is Nothing Then Exit Sub
+    If LenB(bubbleName) = 0 Then Exit Sub
 
-    Dim x As Double: x = modUI.SIDEBAR_W + modUI.CHAT_LEFT_PAD
-    Dim topY As Double: topY = modUI.TOPBAR_H + 62   ' 入力行(行4=48pt)拡張分を反映
+    Dim anchor As Shape
+    On Error Resume Next
+    Set anchor = ws.Shapes(bubbleName)
+    On Error GoTo 0
+    If anchor Is Nothing Then Exit Sub
+
+    Dim caps As Variant, kinds As Variant, widths As Variant, acts As Variant
+    caps = Array(ChrW(&H2705) & " 解決した", _
+                 ChrW(&HD83D) & ChrW(&HDC4E) & " 役に立たなかった", _
+                 ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", _
+                 ChrW(&HD83D) & ChrW(&HDCCB) & " コピー", _
+                 ChrW(&HD83D) & ChrW(&HDCC4) & " Word", _
+                 ChrW(&HD83C) & ChrW(&HDD98) & " 本社照会")
+    kinds = Array("resolve", "bad", "drill", "copy", "word", "hq")
+    widths = Array(84, 122, 74, 72, 68, 86)
+    acts = Array("OnActResolve", "OnActBad", "OnActDrill", "OnActCopy", "OnActWord", "OnActHq")
+
+    Dim x As Double: x = anchor.Left
+    Dim y As Double: y = anchor.Top + anchor.Height + 6
     Dim i As Long
-    For i = 0 To 6
+    For i = 0 To 5
+        ' 1個の1004で残りを道連れにしない(実機で繰り返した描画中断の教訓)。
+        On Error Resume Next
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, x, topY, CDbl(widths(i)), modUI.ACT_H)
-        btn.Name = "nx_fab_" & CStr(kinds(i))
-        btn.Adjustments(1) = 0.28   ' 浅めの角丸(Webアプリ風のシャープでモダンな角)
-        With btn.TextFrame2
-            .TextRange.Text = CStr(labels(i))
-            .TextRange.Font.Size = 8.5
-            .TextRange.ParagraphFormat.Alignment = 2
-            .VerticalAnchor = 3
-            .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-        End With
-        btn.OnAction = "modApp." & CStr(handlers(i))
-        modUI.PaintActionButton btn, CStr(kinds(i))
-        x = x + CDbl(widths(i)) + 6
+        Set btn = ws.Shapes.AddShape(5, x, y, CDbl(widths(i)), ACT_H)
+        If Err.Number = 0 And Not btn Is Nothing Then
+            btn.Name = "nx_act_" & CStr(kinds(i))
+            btn.Adjustments(1) = 0.4
+            With btn.TextFrame2
+                .TextRange.Text = CStr(caps(i))
+                .TextRange.Font.Size = 8.5
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+            End With
+            btn.OnAction = "modApp." & CStr(acts(i))
+            btn.Placement = 3
+            modUI.PaintActionButton btn, CStr(kinds(i))
+        End If
+        Set btn = Nothing
+        Err.Clear
+        On Error GoTo 0
+        x = x + CDbl(widths(i)) + 5
     Next i
 End Sub
 
-Private Function ProfileCaption() As String
-    ' 実機報告(2026-07-22)「名前を入力してもゲストのまま」対策: 表示名を
-    ' "ゲスト ユーザー"でハードコードしており、初回起動で入力した名前
-    ' (modBoot.EnsureFirstRunがconfig pack_authorへ保存)を読んでいなかった。
-    Dim lv As Long, ex As Long, nm As String
-    On Error Resume Next
-    lv = modStats.Level()
-    ex = modStats.ExpTotal()
-    nm = Trim$(modConfig.GetString("pack_author", ""))
-    On Error GoTo 0
-    If lv < 1 Then lv = 1
-    If LenB(nm) = 0 Or nm = "名称未設定" Then nm = "ゲスト ユーザー"
-    ProfileCaption = nm & vbLf & "Lv." & lv & " ・ EXP " & ex
+Public Sub ClearContextActions(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    Dim names() As String
+    ReDim names(0 To ws.Shapes.Count)
+    Dim n As Long
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 7) = "nx_act_" Then
+            names(n) = shp.Name
+            n = n + 1
+        End If
+    Next shp
+    Dim i As Long
+    For i = 0 To n - 1
+        On Error Resume Next
+        ws.Shapes(names(i)).Delete
+        On Error GoTo 0
+    Next i
+End Sub
+
+' 文脈アクションの最下端(出典チップ等をその下へ積むために使う)。
+' アクションが無ければ0を返す。
+Public Function ContextActionsBottom(ByVal ws As Worksheet) As Double
+    If ws Is Nothing Then Exit Function
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 7) = "nx_act_" Then
+            If shp.Top + shp.Height > ContextActionsBottom Then
+                ContextActionsBottom = shp.Top + shp.Height
+            End If
+        End If
+    Next shp
 End Function

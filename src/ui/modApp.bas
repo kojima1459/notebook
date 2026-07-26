@@ -24,99 +24,15 @@ Public Sub LaunchNexus()
         "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。" & vbLf & _
         "(送信は Ctrl+Enter、呼び出しはどこからでも Ctrl+Shift+Q が使えます)"
     On Error Resume Next         ' 以降は追加機能のフック(各自が内部で握るが二重に防護)
-    modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計+サイドバーウィジェット
+    modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計(表示はHubのタイル)
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
     modHelp.EnsureHelpButton     ' ヘルプ(?)ボタン
-    DrawSidebarExtras            ' 質問テンプレチップ+ナレッジガチャ(白紙の恐怖対策)
     modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
     On Error GoTo 0
 End Sub
 
-' サイドバー下部: 質問テンプレチップ3つ+🎲今日のナレッジガチャ。
-' nx_sb_接頭辞なので既存のZ-Order/テーマ再彩色ループが自動で面倒を見る。冪等。
-Private Sub DrawSidebarExtras()
-    On Error Resume Next
-    Dim ws As Worksheet
-    Set ws = ThisWorkbook.Worksheets("Nexus")
-    If ws Is Nothing Then Exit Sub
-
-    Dim nm As Variant
-    For Each nm In Array("nx_sb_qa1", "nx_sb_qa2", "nx_sb_qa3", "nx_sb_gacha")
-        ws.Shapes(CStr(nm)).Delete
-    Next nm
-
-    Dim caps As Variant
-    caps = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " 改定ポイントを教えて", _
-                 ChrW(&HD83D) & ChrW(&HDCAC) & " 用語をやさしく解説", _
-                 ChrW(&HD83D) & ChrW(&HDCAC) & " 手続きの流れを知りたい")
-    Dim i As Long
-    For i = 0 To 2
-        Dim chip As Shape
-        Set chip = ws.Shapes.AddShape(5, 10, 482 + i * 28, 175, 24)
-        chip.Name = "nx_sb_qa" & (i + 1)
-        chip.Adjustments(1) = 0.4
-        chip.Line.Visible = 0
-        chip.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
-        With chip.TextFrame2
-            .WordWrap = -1
-            .TextRange.Text = CStr(caps(i))
-            .TextRange.Font.Name = "Yu Gothic UI"
-            .TextRange.Font.Size = 8.5
-            .VerticalAnchor = 3
-            .MarginLeft = 10: .MarginTop = 0: .MarginBottom = 0
-        End With
-        chip.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("sidebarText")
-        chip.OnAction = "modApp.OnQuickAsk"
-        chip.Placement = 3
-    Next i
-
-    Dim g As Shape
-    Set g = ws.Shapes.AddShape(5, 10, 574, 175, 26)
-    g.Name = "nx_sb_gacha"
-    g.Adjustments(1) = 0.4
-    g.Line.Visible = -1
-    g.Line.Weight = 0.75
-    g.Line.ForeColor.RGB = modUI.UiColor("accent")
-    g.Fill.Visible = 0
-    With g.TextFrame2
-        .WordWrap = -1
-        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント"
-        .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 9
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    g.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
-    g.OnAction = "modApp.OnGacha"
-    g.Placement = 3
-    On Error GoTo 0
-End Sub
-
-' テンプレチップのクリック: 入力欄へ雛形を流し込むだけ(送信しない=補助輪)。
-Public Sub OnQuickAsk()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-    Dim tpl As String
-    Select Case CStr(Application.Caller)
-        Case "nx_sb_qa1": tpl = "【知りたい改定】: (資料名や年度を記入)" & vbLf & _
-            "【気になる点】: (例: 保険料への影響)" & vbLf & _
-            "【知りたい結論】: (例: 何がいつから変わるか)"
-        Case "nx_sb_qa2": tpl = "【わからない用語】: (ここに記入)" & vbLf & _
-            "【それを見た場所】: (例: 〇〇約款 第4条)" & vbLf & _
-            "【どこまで理解したいか】: (例: お客様に説明できるレベル)"
-        Case "nx_sb_qa3": tpl = "【手続き名】: (ここに記入)" & vbLf & _
-            "【お客様/自分の状況】: (例: 契約者が死亡、受取人が海外在住)" & vbLf & _
-            "【知りたい結論】: (例: 必要書類と所要日数)"
-        Case Else: GoTo Done
-    End Select
-    On Error Resume Next
-    ThisWorkbook.Names("nx_input").RefersToRange.Value = tpl
-    On Error GoTo Done
-    modSkin.ShowToast "(ここに記入)の部分を埋めて Ctrl+Enter で送信してください。", "info"
-Done:
-    modUiLock.Leave
-End Sub
+' 2026-07-26 再設計: 質問テンプレチップ/ナレッジガチャはサイドバー廃止に伴い
+' Hub画面(modHub.DrawExtras)へ移した。チャット画面は会話だけを担う。
 
 ' 🎲 ナレッジガチャ: my_knowledgeからランダムに1件を「今日のワンポイント」として
 ' バブル表示(API非通信・完全ローカル)。偶然の学びのエンタメ化。
@@ -194,6 +110,7 @@ Public Sub OnSend()
     On Error GoTo Fail
     modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
     modMentor.ClearMentor   ' Mentorボタンも同時に掃除(内部On Error Resume Next=安全弁)
+    ClearActions            ' 文脈アクションも消す(質問中はボタン0個=入力に集中)
 
     Dim q As String
     q = ReadInputCell()
@@ -249,12 +166,18 @@ Public Sub OnSend()
     modUI.MarkActiveBubble bubbleName
     SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
 
+    ' 文脈アクション(仕様書§2.2): 最新のAI回答バブルの直下にだけ6個のpillを出す。
+    DrawActions bubbleName
+
     ' Peek View: RAG(社内ナレッジ検索)回答のときだけ、出典チップを回答直下に描画する
     ' (一般アシスタントは出典が無いので出さない=古いチップの誤表示も防ぐ)。
     If CurrentMode() <> "normal" Then
         modPeek.RenderCitations bubbleName
         modMentor.OfferMentor bubbleName   ' Mentor: 専門家ボタン(失敗しても出ないだけ=安全弁内蔵)
     End If
+    On Error Resume Next
+    modUI.SettleChat        ' 次のバブルがアクション/出典に重ならないよう下端を確定
+    On Error GoTo Fail
 
     ' 爆速証明(狂気案Lv.1): binary_rag_debug=TRUEのとき、直近ハイブリッド検索の所要msを
     ' Toastで見せる(qa層のperfログをUI層で取り出す=R1レイヤリングを守る)。
@@ -276,7 +199,38 @@ Fail:
     modUiLock.Leave
 End Sub
 
-' OnSelectBubble - AIバブルのクリック(コンテキスト・アクションの対象指定)
+' 文脈アクションの描画/消去。対象は常に「最新のAI回答」なので、描いたバブル名を
+' mActiveBubbleにも記録し、各OnAct*が同じものを見るようにする。
+Private Sub DrawActions(ByVal bubbleName As String)
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    modUINexusDraw.DrawContextActions ws, bubbleName
+    On Error GoTo 0
+End Sub
+
+Private Sub ClearActions()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    modUINexusDraw.ClearContextActions ws
+    On Error GoTo 0
+End Sub
+
+' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。
+Public Function ModeCaption() As String
+    If CurrentMode() = "normal" Then
+        ModeCaption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
+    Else
+        ModeCaption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
+    End If
+End Function
+
+' OnSelectBubble - 旧UIのバブル選択(現在は未使用。文脈アクションが常に最新の
+' 回答へ紐づくため対象切り替えの概念自体を廃止した)。外部からの誤呼び出しに
+' 備えて残す。
 Public Sub OnSelectBubble()
     Dim callerName As String
     On Error Resume Next
@@ -359,6 +313,7 @@ Public Sub OnActDrill()
     On Error GoTo Fail
     modPeek.HideCitations   ' 前回の出典チップ/ポップアップを消す
     modMentor.ClearMentor   ' Mentorボタンも掃除(安全弁内蔵)
+    ClearActions
 
     Dim q As String
     q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
@@ -383,8 +338,12 @@ Public Sub OnActDrill()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
+    DrawActions bubbleName               ' 文脈アクション(最新回答の直下)
     modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
     modMentor.OfferMentor bubbleName     ' Mentor: 専門家ボタン(安全弁内蔵)
+    On Error Resume Next
+    modUI.SettleChat
+    On Error GoTo 0
     modUiLock.Leave
     Exit Sub
 
@@ -399,8 +358,10 @@ Public Sub OnActResolve()
     On Error GoTo Done
     If Not HasTarget() Then GoTo Done
     modAsk.FeedbackGreen   ' selfsolve_total加算+多重防止は既存ガードに従う
+    ' 統計の表示先はHubの統計タイルへ移した。加算直後に描き直して
+    ' 「押しても0のまま」を防ぐ(activate:=Falseなので画面は移動しない)。
     On Error Resume Next
-    modBoard.DrawWidget   ' 節約時間ウィジェット再描画(起動時のみで固まっていた対策)
+    modHub.EnsureHubLayout
     On Error GoTo Done
 Done:
     modUiLock.Leave
@@ -510,6 +471,10 @@ Public Sub OnAttachImage()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
+    DrawActions bubbleName
+    On Error Resume Next
+    modUI.SettleChat
+    On Error GoTo 0
     modUiLock.Leave
     Exit Sub
 
@@ -567,8 +532,9 @@ Public Sub OnRefreshUI()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     Select Case ActiveSheet.Name
-        Case "Nexus":     modUI.Repaint: modBoard.DrawWidget
+        Case "Nexus":     modUI.Repaint
         Case "Dashboard": modDash.ShowDashboard
+        Case modAppDef.SH_HOME: modHub.EnsureHubLayout
         Case Else:        modVault.ShowVaultGallery
     End Select
     On Error GoTo 0
@@ -626,7 +592,7 @@ Public Sub OnLangCycle()
 
     On Error Resume Next
     ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_lang").TextFrame2.TextRange.Text = _
-        ChrW(&HD83C) & ChrW(&HDF10) & " " & nextLang & "で回答"
+        ChrW(&HD83C) & ChrW(&HDF10) & " " & nextLang
     On Error GoTo 0
 End Sub
 
@@ -815,14 +781,8 @@ Private Function CurrentMode() As String
 End Function
 
 Private Sub UpdateModeButton()
-    Dim caption As String
-    If CurrentMode() = "normal" Then
-        caption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
-    Else
-        caption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
-    End If
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = caption
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = ModeCaption()
     On Error GoTo 0
 End Sub
 

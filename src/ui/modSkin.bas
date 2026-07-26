@@ -41,7 +41,9 @@ End Sub
 Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     On Error Resume Next
     shp.TextFrame2.TextRange.Font.Name = "Yu Gothic UI"
-    If nm = "nx_top_bg" Or Left$(nm, 7) = "nx_fab_" Or nm = "nx_sb_bg" Then
+    ' 影は固定クロム(ヘッダーバー)と文脈アクションpillにだけ。
+    ' 2026-07-26: nx_fab_(旧・常設アクションバー)/nx_sb_(旧サイドバー)は廃止。
+    If nm = "nx_top_bg" Or Left$(nm, 7) = "nx_act_" Then
         ApplySoftShadow shp
     End If
     ' 深み(Depth)の演出: 送信ボタンだけ同系グリーンの極微グラデーション

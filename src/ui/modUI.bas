@@ -9,15 +9,10 @@ Private Const THEME_KEY As String = "nexus_theme"
 Private Const MSO_BRING_TO_FRONT As Long = 0   ' msoBringToFront(数値でLO互換)
 Private Const MAX_BUBBLES As Long = 40         ' 32bitメモリ保護: 吹き出し保持上限
 
-' レイアウト(pt)。SIDEBAR_W/TOPBAR_H/CHAT_LEFT_PAD/ACT_HはmodUINexusDraw側の
-' Draw*関数からも参照するためPublic。
-Public Const SIDEBAR_W As Double = 195      ' 260px相当
-Public Const TOPBAR_H As Double = 45
-Public Const CHAT_LEFT_PAD As Double = 15
-Private Const BUBBLE_RATIO As Double = 0.62  ' チャット幅に対するバブル最大幅
+' 2026-07-26 再設計: サイドバー全廃。レイアウト定数(HDR_H/INPUT_ROW/ACT_H)と
+' チャット領域の幾何(ChatLeft/ChatWidth/ChatTop)はmodUINexusDrawが単一情報源。
+Private Const BUBBLE_RATIO As Double = 0.72  ' チャット幅に対するバブル最大幅
 Private Const BUBBLE_GAP As Double = 14
-Public Const ACT_H As Double = 24
-Private Const CHAT_TOP As Double = 148   ' 固定領域(トップバー+入力48pt+アクションバー)の直下
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
@@ -80,18 +75,22 @@ Public Sub InitUI()
     ws.Cells.Clear
     ws.Cells.Font.Name = "Yu Gothic UI"
 
-    ws.Columns("A:C").ColumnWidth = 12
-    ws.Columns("D:P").ColumnWidth = 14
+    ' 幾何を先に確定させてからShapeを置く(順序が逆だと座標がズレる)。
+    ' A=左余白 / B=📎 / C:K=入力欄(結合) / L=送信 / M=右余白。
+    ws.Columns("A").ColumnWidth = 1.5
+    ws.Columns("B").ColumnWidth = 4.5
+    ws.Columns("C:K").ColumnWidth = 10.5
+    ws.Columns("L").ColumnWidth = 11
+    ws.Columns("M:P").ColumnWidth = 1.5
     ws.Rows("1:400").RowHeight = 18
+    ws.Rows(1).RowHeight = modUINexusDraw.HDR_H
+    ws.Rows(2).RowHeight = 8
+    ws.Rows(modUINexusDraw.INPUT_ROW).RowHeight = 46
+    ws.Rows(4).RowHeight = 12
 
     On Error Resume Next
-    modUINexusDraw.DrawSidebar ws
-    If Err.Number <> 0 Then LogDrawStageError "DrawSidebar", ws: Err.Clear
-    On Error GoTo 0
-
-    On Error Resume Next
-    modUINexusDraw.DrawTopbar ws
-    If Err.Number <> 0 Then LogDrawStageError "DrawTopbar", ws: Err.Clear
+    modUINexusDraw.DrawChatHeader ws
+    If Err.Number <> 0 Then LogDrawStageError "DrawChatHeader", ws: Err.Clear
     On Error GoTo 0
 
     On Error Resume Next
@@ -99,33 +98,30 @@ Public Sub InitUI()
     If Err.Number <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
     On Error GoTo 0
 
+    ' 行1〜4(ヘッダー+入力+ヒント)だけを固定。A5(=A列)を選ぶことで列は
+    ' 固定しない(旧D8指定だとC列までが横方向にも固定されていた)。
+    ' 保護をかける前に行う: EnableSelection=xlUnlockedCells下ではA5(ロック済み)を
+    ' Selectできず、FreezePanesが黙って失敗するため。順序が意味を持つ。
     On Error Resume Next
-    modUINexusDraw.DrawFloatingActionBar ws
-    If Err.Number <> 0 Then LogDrawStageError "DrawFloatingActionBar", ws: Err.Clear
+    ActiveWindow.FreezePanes = False
+    ws.Range("A5").Select
+    ActiveWindow.FreezePanes = True
     On Error GoTo 0
 
-    ' D4:E4/K4:N4は白背景の土台セルだが未ロックで入力できてしまっていた。
-    ' 入力可能セルをF4:J4だけに絞る(UserInterfaceOnly=Trueでマクロは自由)。
+    ' 入力できるセルはC3:K3だけに絞る(UserInterfaceOnly=Trueなのでマクロは自由)。
     On Error Resume Next
     ws.Unprotect
     ws.Cells.Locked = True
-    ws.Range("F4:J4").Locked = False
-    ws.Range("D8").Locked = False
+    ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW).Locked = False
     ws.Protect DrawingObjects:=False, Contents:=True, Scenarios:=True, UserInterfaceOnly:=True
     ws.EnableSelection = 1
-    On Error GoTo 0
-
-    On Error Resume Next
-    ws.Range("D8").Select
-    ActiveWindow.FreezePanes = False
-    ActiveWindow.FreezePanes = True
     On Error GoTo 0
 
     ApplyTheme ws
     FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     BringFixedToFront ws      ' 固定UIを最前面へ(Z-Order維持)
     modSkin.BeautifyAll ws    ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
-    mChatBottom = CHAT_TOP
+    mChatBottom = modUINexusDraw.ChatTop(ws)
 
     Application.ScreenUpdating = True
     ParkFocus                 ' A2/C4: Shape選択解除+アクティブセルpark(白ハンドルを出さない)
@@ -139,14 +135,14 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     Set ws = GetNexusSheet()
     If ws Is Nothing Then Exit Function
 
-    If mChatBottom < CHAT_TOP Then RecalcChatBottom ws
+    If mChatBottom < modUINexusDraw.ChatTop(ws) Then RecalcChatBottom ws
 
     Dim isUser As Boolean
     isUser = (LCase$(role) = "user")
 
     Dim chatL As Double, chatW As Double
-    chatL = SIDEBAR_W + CHAT_LEFT_PAD
-    chatW = 640
+    chatL = modUINexusDraw.ChatLeft(ws)
+    chatW = modUINexusDraw.ChatWidth(ws)
     Dim bubbleW As Double: bubbleW = chatW * BUBBLE_RATIO
 
     Dim topY As Double: topY = mChatBottom + BUBBLE_GAP
@@ -192,8 +188,8 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     If shp.Height < 28 Then shp.Height = 28
     shp.Shadow.Visible = 0
 
-    ' AIバブルはクリックで選択可(アクション対象指定)
-    If Not isUser Then shp.OnAction = "modApp.OnSelectBubble"
+    ' 2026-07-26: アクションは常に「最新のAI回答」に紐づく文脈表示へ変えたため、
+    ' 古いバブルをクリックして対象を切り替える操作は廃止した(仕様書§2.2)。
 
     PaintBubble shp, isUser
     modSkin.StyleBubble shp  ' Yu Gothic UI(バブルはフラット=影は選択時のみ)
@@ -205,15 +201,12 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     AddChatBubble = shp.Name
 End Function
 
-' 固定UIを最前面に維持(描画末に必ず呼ぶ)。
+' 固定UI(ヘッダー+入力欄)を最前面に維持(描画末に必ず呼ぶ)。
 Public Sub BringFixedToFront(ByVal ws As Worksheet)
     On Error Resume Next
     Dim shp As Shape
     For Each shp In ws.Shapes
-        Dim nm As String: nm = shp.Name
-        If Left$(nm, 6) = "nx_sb_" Or Left$(nm, 7) = "nx_top_" Or Left$(nm, 7) = "nx_fab_" Then
-            shp.ZOrder MSO_BRING_TO_FRONT
-        End If
+        If Left$(shp.Name, 7) = "nx_top_" Then shp.ZOrder MSO_BRING_TO_FRONT
     Next shp
     On Error GoTo 0
 End Sub
@@ -368,7 +361,8 @@ Public Sub ParkFocus()
     If ws Is Nothing Then Exit Sub
     Application.ScreenUpdating = False
     If ws.Name = NEXUS_SHEET Then
-        ws.Range("F4").Select   ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
+        ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
+        ws.Range("C" & modUINexusDraw.INPUT_ROW).Select
     Else
         ws.Range("A1").Select   ' Vault/Dashboard等は左上(固定領域)へpark
     End If
@@ -490,10 +484,10 @@ End Function
 Private Sub ApplyTheme(ByVal ws As Worksheet)
     ws.Cells.Interior.Color = ThemeColor("bg")
 
-    ' 入力欄(F4:J4)は上の一括塗りで消えるため塗り直す(両端D4:E4/K4:N4は
+    ' 入力欄(C3:K3)は上の一括塗りで消えるため塗り直す(両端B/L列は
     ' あえて無地のまま=入力欄に見せない)。
     On Error Resume Next
-    With ws.Range("F4:J4")
+    With ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW)
         .Interior.Color = RGB(255, 255, 255)
         .BorderAround LineStyle:=1, Weight:=2, Color:=ThemeColor("border")
     End With
@@ -504,45 +498,29 @@ Private Sub ApplyTheme(ByVal ws As Worksheet)
         Dim nm As String: nm = shp.Name
         If Left$(nm, 3) <> "nx_" Then GoTo NextShp
 
-        If Left$(nm, 6) = "nx_sb_" Then
-            If nm = "nx_sb_bg" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
-            ElseIf nm = "nx_sb_profile" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, ThemeColor("sidebarText")
-            ElseIf nm = "nx_sb_nav1" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, RGB(255, 255, 255)
-            ElseIf Left$(nm, 9) = "nx_sb_nav" Then
-                shp.Fill.Visible = 0
-                SetShapeTextColor shp, ThemeColor("sidebarText")
-            Else
-                SetShapeTextColor shp, RGB(255, 255, 255)
-            End If
-        ElseIf Left$(nm, 7) = "nx_top_" Then
+        If Left$(nm, 7) = "nx_top_" Then
             If nm = "nx_top_bg" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("surface")
-            ElseIf nm = "nx_top_send" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("primary")
+                ' ヘッダーバーは濃色(ロゴ・操作pillの白文字が乗る)。
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
                 SetShapeTextColor shp, RGB(255, 255, 255)
-            ElseIf nm = "nx_top_theme" Then
-                shp.Fill.Visible = 0
-                SetShapeTextColor shp, ThemeColor("text")
-                shp.TextFrame2.TextRange.Text = ThemeIcon()
-            ElseIf nm = "nx_top_clip" Then
+            ElseIf nm = "nx_top_send" Or nm = "nx_top_clip" Then
                 shp.Fill.ForeColor.RGB = ThemeColor("accent")
                 SetShapeTextColor shp, RGB(255, 255, 255)
+            ElseIf nm = "nx_top_theme" Then
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
+                SetShapeTextColor shp, RGB(255, 255, 255)
+                shp.TextFrame2.TextRange.Text = ThemeIcon()
             Else
-                shp.Fill.ForeColor.RGB = ThemeColor("bg")
-                shp.Line.ForeColor.RGB = ThemeColor("border")
-                SetShapeTextColor shp, ThemeColor("text")
+                ' ヘッダー上の操作pill(back/clear/lang/mode/speed)。
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
+                SetShapeTextColor shp, RGB(255, 255, 255)
             End If
+        ElseIf Left$(nm, 7) = "nx_act_" Then
+            PaintActionButton shp, Mid$(nm, 8)
         ElseIf Left$(nm, 9) = "nx_msg_u_" Then
             PaintBubble shp, True
         ElseIf Left$(nm, 9) = "nx_msg_a_" Then
             PaintBubble shp, False
-        ElseIf Left$(nm, 7) = "nx_fab_" Then
-            PaintActionButton shp, Mid$(nm, 8)
         ElseIf Left$(nm, 7) = "nx_thk_" Then
             SetShapeTextColor shp, ThemeColor("muted")
         End If
@@ -571,6 +549,9 @@ Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
         Case "resolve"
             shp.Line.ForeColor.RGB = RGB(16, 185, 129)
             SetShapeTextColor shp, RGB(16, 185, 129)
+        Case "bad"
+            shp.Line.ForeColor.RGB = RGB(148, 163, 184)
+            SetShapeTextColor shp, ThemeColor("muted")
         Case "hq"
             shp.Line.ForeColor.RGB = RGB(239, 68, 68)
             SetShapeTextColor shp, RGB(239, 68, 68)
@@ -662,16 +643,34 @@ Private Function NextSeq(ByVal ws As Worksheet) As String
     NextSeq = Format$(maxN + 1, "0000")
 End Function
 
-' 状態リセット後の再計算: 既存バブルの最下端を探す。
-Private Sub RecalcChatBottom(ByVal ws As Worksheet)
-    mChatBottom = CHAT_TOP
+' 会話領域の最下端を再計算する。固定クロム(nx_top_)以外の全nx_Shapeを見るので、
+' バブルだけでなく文脈アクション(nx_act_)や出典チップ(nx_cite_)も自動で考慮され、
+' 次のバブルがそれらに重ならない。1ターン描き終わるたびに呼ぶ。
+Public Sub RecalcChatBottom(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    mChatBottom = modUINexusDraw.ChatTop(ws)
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 3) = "nx_" And Left$(shp.Name, 6) <> "nx_sb_" _
-           And Left$(shp.Name, 7) <> "nx_top_" And Left$(shp.Name, 7) <> "nx_fab_" Then
+        ' 会話の流れに属するShapeだけを数える。除外ではなく明示の許可リストに
+        ' したのは、トースト/ツアー/ヘルプ等の重ね表示(nx_toast/nx_tour_/
+        ' nx_help_/nx_peek)が画面下部に出たときに下端が引きずられ、次の
+        ' バブルが画面外へ飛ぶ事故を構造的に防ぐため。
+        Dim nm As String: nm = shp.Name
+        If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
+           Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
+           Or Left$(nm, 10) = "nx_mentor_" Then
             If shp.Top + shp.Height > mChatBottom Then mChatBottom = shp.Top + shp.Height
         End If
     Next shp
+End Sub
+
+' 1ターン分(バブル+アクション+出典)を描き終えたあとの締め処理。
+Public Sub SettleChat()
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Sub
+    RecalcChatBottom ws
+    ScrollToBottom ws
 End Sub
 
 ' ClearChat - 会話をクリアする(実機要望: 長い会話をリセットしたい)。
@@ -685,8 +684,10 @@ Public Sub ClearChat()
     Dim n As Long: n = 0
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 7) = "nx_msg_" Or Left$(shp.Name, 7) = "nx_thk_" Then
-            names(n) = shp.Name
+        Dim nm As String: nm = shp.Name
+        If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
+           Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" Then
+            names(n) = nm
             n = n + 1
         End If
     Next shp
@@ -694,7 +695,7 @@ Public Sub ClearChat()
     For i = 0 To n - 1
         ws.Shapes(names(i)).Delete
     Next i
-    mChatBottom = CHAT_TOP
+    mChatBottom = modUINexusDraw.ChatTop(ws)
     On Error GoTo 0
 End Sub
 
@@ -752,14 +753,16 @@ Public Function LatestAiBubbleName() As String
     LatestAiBubbleName = bestName
 End Function
 
+' 最新バブルが見えるところまでスクロールする。Application.GoToはセル選択を
+' 伴い保護シート+EnableSelectionと衝突するため、ScrollRowだけを動かす
+' (FreezePanes下では下ペインのスクロール位置だけが変わる)。
 Private Sub ScrollToBottom(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    If Not (ThisWorkbook.ActiveSheet Is ws) Then Exit Sub
     On Error Resume Next
     Dim targetRow As Long
-    targetRow = CLng(mChatBottom / 18) + 3
-    If targetRow < 4 Then targetRow = 4
-    Application.GoTo ws.Cells(targetRow, 4), True
-    ' GoToでアクティブセルがD列へ動くため、生成中の入力ずれ防止にF4へ戻す
-    ' (F4は固定領域内なのでスクロール位置は崩れない)。
-    ws.Range("F4").Select
+    targetRow = CLng(mChatBottom / 18) - 8
+    If targetRow < 5 Then targetRow = 5
+    ActiveWindow.ScrollRow = targetRow
     On Error GoTo 0
 End Sub

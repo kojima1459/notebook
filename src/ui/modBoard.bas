@@ -230,67 +230,27 @@ End Sub
 ' 呼ばれておらず、その後「解決した」を押してもウィジェットが再描画されず
 ' 表示が固まっていた。Publicにして加算直後にも呼べるようにする。
 ' ----------------------------------------------------------------------------
+' 2026-07-26 再設計: チャット画面のサイドバーを全廃したため、このウィジェットの
+' 置き場所そのものが無くなった。集計値は Hub の統計タイル(みんな今日/今月)へ
+' 移し、詳細ランキングは modBoard.OnWidgetClick(Hubのタイル上の透明Shape)から
+' 出す。既存ブックに残っている旧Shapeを掃除するだけの後方互換スタブとして残す
+' (Public契約と呼び出し元を壊さないため)。
 Public Sub DrawWidget()
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("Nexus")
-    On Error GoTo 0
     If ws Is Nothing Then Exit Sub
-
-    On Error Resume Next
     ws.Shapes("nx_sb_stat_bg").Delete
     ws.Shapes("nx_sb_stat_bar").Delete
     ws.Shapes("nx_sb_stat_fill").Delete
     On Error GoTo 0
-
-    Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, 10, WIDGET_TOP, 175, 84)
-    card.Name = "nx_sb_stat_bg"
-    card.Adjustments(1) = 0.12
-    card.Line.Visible = 0
-    card.Fill.ForeColor.RGB = RGB(31, 41, 55)   ' sidebarActive系(ダーク地に馴染む)
-    With card.TextFrame2
-        .WordWrap = -1
-        .MarginLeft = 10: .MarginRight = 8: .MarginTop = 6: .MarginBottom = 4
-        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間" & vbLf & _
-            "今日 " & FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon) & vbLf & _
-            "あなた: 今日 " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd"))) & _
-            "・" & ChrW(&HD83D) & ChrW(&HDD25) & modStats.GetStat("streak_days") & "日連続"
-        .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 8.5
-    End With
-    card.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(209, 213, 219)
-    card.OnAction = "modBoard.OnWidgetClick"
-    card.Placement = 3
-
-    ' 月間目標プログレスバー(config org_saved_goal_h 既定50時間)
-    Dim goalMin As Long
-    goalMin = modConfig.GetLong("org_saved_goal_h", 50) * 60
-    If goalMin < 60 Then goalMin = 60
-    Dim ratio As Double: ratio = CDbl(mOrgMon) / CDbl(goalMin)
-    If ratio > 1# Then ratio = 1#
-    If ratio < 0# Then ratio = 0#
-
-    Dim bar As Shape
-    Set bar = ws.Shapes.AddShape(5, 20, WIDGET_TOP + 66, 155, 8)
-    bar.Name = "nx_sb_stat_bar"
-    bar.Adjustments(1) = 0.5
-    bar.Line.Visible = 0
-    bar.Fill.ForeColor.RGB = RGB(55, 65, 81)
-    bar.Placement = 3
-    bar.OnAction = "modBoard.OnWidgetClick"
-
-    If ratio > 0.02 Then
-        Dim barFill As Shape
-        Set barFill = ws.Shapes.AddShape(5, 20, WIDGET_TOP + 66, 155 * ratio, 8)
-        barFill.Name = "nx_sb_stat_fill"
-        barFill.Adjustments(1) = 0.5
-        barFill.Line.Visible = 0
-        barFill.Fill.ForeColor.RGB = modUI.UiColor("accent")   ' MS&ADグリーン
-        barFill.Placement = 3
-        barFill.OnAction = "modBoard.OnWidgetClick"
-    End If
 End Sub
+
+' Hub の「みんなの節約」タイルから呼ぶための公開集計値。
+Public Function OrgSummaryText() As String
+    OrgSummaryText = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間: 今日 " & _
+        FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon)
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー

@@ -29,37 +29,18 @@ Option Explicit
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
-' EnsureHelpButton - エントリポイント(架け元: modApp.LaunchNexus末尾の
-'   1行フック、想定)。トップバー右端に丸い「?」ボタンを描く(冪等)。
+' EnsureHelpButton - 旧「?」浮きボタンの掃除(架け元: modApp.LaunchNexus)。
+'   2026-07-26: 「?」はチャットのヘッダー(nx_top_help)とHubのヘッダー
+'   アイコンへ統合した。旧座標(195+662)は廃止したサイドバー幅が前提で、
+'   サイドバーを外した今は画面外/変な位置に浮くため、生成をやめて
+'   既存ブックに残っている分の削除だけを行う。
 ' ----------------------------------------------------------------------------
 Public Sub EnsureHelpButton()
     On Error Resume Next   ' 安全弁: 本機能の失敗を絶対にメインへ波及させない
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub
-
-    ws.Shapes("nx_help_btn").Delete   ' 冪等: 再呼び出しでの孤児/重複を防ぐ
-
-    Dim btn As Shape
-    Set btn = ws.Shapes.AddShape(9, 195 + 662, 9, 27, 27)   ' 9=楕円
-    btn.Name = "nx_help_btn"
-    btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
-    btn.Line.Visible = -1
-    btn.Line.Weight = 0.75
-    btn.Line.ForeColor.RGB = modUI.UiColor("border")
-    With btn.TextFrame2
-        .TextRange.Text = "?"
-        .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 12
-        .TextRange.Font.Bold = -1
-        .TextRange.ParagraphFormat.Alignment = 2   ' 中央
-        .VerticalAnchor = 3
-        .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
-    End With
-    btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
-    btn.OnAction = "modHelp.OnHelpClick"
-    btn.Placement = 3   ' xlFreeFloating
-    btn.ZOrder 0        ' msoBringToFront
+    ws.Shapes("nx_help_btn").Delete
     On Error GoTo 0
 End Sub
 
@@ -141,9 +122,13 @@ Private Sub ShowHelpCard()
 
     DoHideHelp
 
-    Dim cardL As Double: cardL = 260
-    Dim cardT As Double: cardT = 100
+    ' サイドバー廃止(2026-07-26)で左端が変わったため、決め打ちのx=260ではなく
+    ' チャット領域の実測幾何から中央寄せする。
     Dim cardW As Double: cardW = 500
+    Dim cardL As Double
+    Dim cardT As Double: cardT = modUINexusDraw.ChatTop(ws) + 20
+    cardL = modUINexusDraw.ChatLeft(ws) + (modUINexusDraw.ChatWidth(ws) - cardW) / 2
+    If cardL < 8 Then cardL = 8
 
     Dim card As Shape
     Set card = ws.Shapes.AddShape(5, cardL, cardT, cardW, 60)   ' 5=角丸四角(高さはAutoSize)

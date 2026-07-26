@@ -55,6 +55,14 @@ Public Sub RenderCitations(ByVal bubbleName As String)
     Dim baseL As Double: baseL = anchor.Left
     Dim baseY As Double: baseY = anchor.Top + anchor.Height + 6
 
+    ' 2026-07-26: 回答バブルの直下には文脈アクション(nx_act_)が入るように
+    ' なったため、出典チップはさらにその下へ積む(重なり防止)。
+    On Error Resume Next
+    Dim actBottom As Double
+    actBottom = modUINexusDraw.ContextActionsBottom(ws)
+    If actBottom + 6 > baseY Then baseY = actBottom + 6
+    On Error GoTo Done
+
     ' 見出しラベル
     Dim lbl As Shape
     Set lbl = ws.Shapes.AddShape(1, baseL, baseY, 260, 16)

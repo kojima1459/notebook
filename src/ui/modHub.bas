@@ -264,6 +264,23 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
         End With
         ws.Rows(r + 1).RowHeight = 26
     Next i
+
+    ' 「みんなの節約」タイル(i=4,5 の行)にだけ透明のクリック領域を重ね、
+    ' 部内ランキングの詳細を出す(旧サイドバーウィジェットのクリック機能の移設)。
+    On Error Resume Next
+    Dim orgRow As Long: orgRow = startRow + (4 \ 2) * 3
+    Dim hot As Range
+    Set hot = ws.Range("B" & orgRow & ":E" & (orgRow + 1))
+    Dim hit As Shape
+    Set hit = ws.Shapes.AddShape(1, hot.Left, hot.Top, hot.Width, hot.Height)
+    If Not hit Is Nothing Then
+        hit.Name = "nx_hub_orghit"
+        hit.Fill.Visible = 0
+        hit.Line.Visible = 0
+        hit.OnAction = "modBoard.OnWidgetClick"
+        hit.AlternativeText = "クリックで部内の節約ランキングを表示"
+    End If
+    On Error GoTo 0
 End Sub
 
 ' ナビボタン4枚(右カラムG:Jの幾何に合わせる)
@@ -277,13 +294,16 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     caps = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャットで質問する", _
                  ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
                  ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", _
+                 ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有(P2P)", _
                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード")
     descs = Array("本棚の資料からAIが出典付きで回答", "資料の登録・検索・フォルダ同期", _
-                  "取り込んだ資料の一覧と状態", "バッジ・EXP・ナレッジ地図")
-    acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoShelf", "modHub.OnGoDash")
+                  "取り込んだ資料の一覧と状態", "部内でナレッジを配る・受け取る", _
+                  "バッジ・EXP・ナレッジ地図")
+    acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoShelf", _
+                 "modHub.OnGoPack", "modHub.OnGoDash")
 
     Dim i As Long
-    For i = 0 To 3
+    For i = 0 To 4
         Dim navTop As Double: navTop = T + i * (NAV_H + NAV_GAP)
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, L, navTop, W, NAV_H)
@@ -316,7 +336,7 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("G3").Left
     W = ws.Range("G3:J3").Width
-    T = HDR_H + 12 + 4 * (NAV_H + NAV_GAP) + 10
+    T = HDR_H + 12 + 5 * (NAV_H + NAV_GAP) + 10
 
     Dim lbl As Shape
     Set lbl = ws.Shapes.AddShape(1, L, T, W, 16)
@@ -445,6 +465,16 @@ Public Sub OnGoDash()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modDash.ShowDashboard
+    On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
+' パック共有: ナレッジ倉庫(パックの出力/取込ボタンがある画面)へ送る。
+Public Sub OnGoPack()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modVault.ShowVaultGallery
+    modSkin.ShowToast "画面下の「パック出力」「パック取込」で部内共有ができます。", "info"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
