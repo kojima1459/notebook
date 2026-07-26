@@ -71,21 +71,34 @@ Public Function ListChannels() As String
     If LenB(baseDir) = 0 Then Exit Function
     If Len(Dir(baseDir, vbDirectory)) = 0 Then Exit Function
 
-    Dim sb As String, n As Long
+    ' 【重要】Dir()は「1つの列挙状態」しか持たない。フォルダ列挙のループの
+    ' 中で別の Dir(パス) を呼ぶと、その瞬間に列挙が乗っ取られ、続く Dir() は
+    ' 内側のパターンを返す。結果、チャンネルが1つしか見つからない/無限ループ
+    ' になる。必ず「先に名前を全部集める → あとで中身を確認する」の2段にする。
+    Dim names() As String
+    ReDim names(0 To MAX_CHANNELS)
+    Dim n As Long
     Dim nm As String
     nm = Dir(baseDir & "*", vbDirectory)
     Do While LenB(nm) > 0 And n < MAX_CHANNELS
         If nm <> "." And nm <> ".." And Left$(nm, 1) <> "_" Then
-            ' フォルダかどうかは version.txt の有無で判定する(GetAttrは
-            ' ネットワークドライブで例外を投げることがあるため使わない)。
-            If LenB(Dir(baseDir & nm & "\" & VER_NAME)) > 0 Then
-                If LenB(sb) > 0 Then sb = sb & "|"
-                sb = sb & nm
-                n = n + 1
-            End If
+            names(n) = nm
+            n = n + 1
         End If
         nm = Dir()
     Loop
+
+    ' ここから先は列挙が終わっているので Dir() を自由に使える。
+    ' フォルダかどうかは version.txt の有無で判定する(GetAttrは
+    ' ネットワークドライブで例外を投げることがあるため使わない)。
+    Dim sb As String
+    Dim i As Long
+    For i = 0 To n - 1
+        If LenB(Dir(baseDir & names(i) & "\" & VER_NAME)) > 0 Then
+            If LenB(sb) > 0 Then sb = sb & "|"
+            sb = sb & names(i)
+        End If
+    Next i
     ListChannels = sb
     On Error GoTo 0
 End Function

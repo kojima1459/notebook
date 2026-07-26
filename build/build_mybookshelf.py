@@ -645,6 +645,17 @@ def _make_vba_src(wb, present_modules, root):
 # modBoot.Boot に変更(V2実証済み機構をそのまま流用。値自体は元から
 # modBoot.Boot だったので、mybookshelfでも変更なしで成立する)。
 # ---------------------------------------------------------------------------
+# 注: このVBAソースは vbaProject.bin の ThisWorkbook ストリームへ
+# 「元のバイト長ぴったり」に圧縮して差し込む。長いコメントを入れると
+# pad_to_exact が溢れてビルドが落ちるため、意図の説明はここに書く。
+#
+#   ・モジュール追加の失敗は1本ずつローカルに握る(2026-07-26)。
+#     以前は Add の失敗で Done へ飛び、残り全モジュールの導入を黙って
+#     打ち切ったうえ Boot も呼ばれなかった。実機では「なぜか特定の
+#     モジュールだけ未定義」という再現しにくいコンパイルエラーになる。
+#   ・CodeModule の既存行を消してから AddFromString するのは、VBEの
+#     「変数の宣言を強制する」がONだと Option Explicit が自動挿入され、
+#     ソース側の Option Explicit と重複してコンパイルエラーになるため。
 _INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
 Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
 Attribute VB_GlobalNameSpace = False
@@ -670,14 +681,15 @@ Public Sub Install()
       On Error Resume Next
       Set e = Nothing: Set e = p.VBComponents(n)
       If Not e Is Nothing Then p.VBComponents.Remove e
-      On Error GoTo Done
+      Set c = Nothing
       Set c = p.VBComponents.Add(1)
-      c.Name = n
-      ' Strip any auto-inserted lines (e.g. Option Explicit when VBE's
-      ' "Require Variable Declaration" is ON). Without this, the source's
-      ' own Option Explicit becomes a duplicate -> compile error.
-      If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
-      If LenB(s) > 0 Then c.CodeModule.AddFromString s
+      If Not c Is Nothing Then
+        c.Name = n
+        If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
+        If LenB(s) > 0 Then c.CodeModule.AddFromString s
+      End If
+      Err.Clear
+      On Error GoTo Done
     End If
   Next r
   On Error Resume Next
@@ -767,7 +779,40 @@ def load_manifest(path):
     return modules
 
 
+# 2026-07-26 恒久対策: src/ 配下に実在するのに modules.json へ登録されていない
+# .bas を検出してビルドを止める。
+#   実際に起きた事故: modGuard/modTelemetry/modPublish を作ったのに台帳への
+#   登録が漏れ、ビルドは「台帳と件数一致」で通り、実機で初めて
+#   「変数が定義されていません(modGuard)」のコンパイルエラーになった。
+#   台帳との突き合わせだけでは、台帳に無いものは永久に検出できない。
+#   ファイルシステムを正として突き合わせる検査をここに置く。
+# 除外したいファイル(意図的にビルドへ含めないもの)は EXCLUDE に明記する。
+UNREGISTERED_EXCLUDE = {
+    "src/opt/optTts.bas",   # 音声合成はリボン非公開で確定(裁定D4)。ソース保管のみ
+}
+
+
+def check_unregistered(modules, root):
+    import glob as _glob
+    registered = {m["path"].replace("\\", "/") for m in modules}
+    found = set()
+    for p in _glob.glob(os.path.join(root, "src", "**", "*.bas"), recursive=True):
+        rel = os.path.relpath(p, root).replace("\\", "/")
+        found.add(rel)
+    orphans = sorted(found - registered - UNREGISTERED_EXCLUDE)
+    if orphans:
+        print("modules.json に未登録の .bas があります(実機でコンパイルエラーになります):",
+              file=sys.stderr)
+        for o in orphans:
+            print(f"  {o}", file=sys.stderr)
+        print("  → build/modules.json に追加するか、"
+              "意図的に除外するなら UNREGISTERED_EXCLUDE へ明記してください。",
+              file=sys.stderr)
+        sys.exit(1)
+
+
 def validate_modules(modules, root, allow_missing):
+    check_unregistered(modules, root)
     present, missing = [], []
     for m in modules:
         p = os.path.join(root, m["path"])

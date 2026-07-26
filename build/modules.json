@@ -198,11 +198,32 @@
       "wave": "INSIGHT"
     },
     {
+      "name": "modPublish",
+      "path": "src/pack/modPublish.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "CHANNEL"
+    },
+    {
       "name": "modStats",
       "path": "src/stats/modStats.bas",
       "role": "core",
       "type": "std",
       "wave": "2-E"
+    },
+    {
+      "name": "modTelemetry",
+      "path": "src/stats/modTelemetry.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "OPS"
+    },
+    {
+      "name": "modGuard",
+      "path": "src/stats/modGuard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "OPS"
     },
     {
       "name": "modUI",
