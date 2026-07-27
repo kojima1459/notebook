@@ -60,6 +60,60 @@ Option Explicit
 '   本ファイルのdeviationsとして最終報告に記載する)。
 ' ============================================================================
 
+' ----------------------------------------------------------------------------
+' 取込正規化の回帰テスト(2026-07-27追加)
+' ----------------------------------------------------------------------------
+' 実物の約款PDFで、条見出しの20.2%(252行中51行)を取りこぼしていた。
+' 原因はPDFの字詰めで「第１ ０条」のように数字のあいだへ空白が入ること。
+' 第1条〜第9条は通り、第10条以降が全滅する ―― 約款の中身の大半である。
+' 見出しを落とすとその条は隣の条の本文に吸収され、「第12条は?」に別の条が
+' 返る。しかも利用者には理由が永久に分からない。
+' 入力の欠陥は出力の全部に効くので、二度と戻さないための固定テスト。
+Private Sub RunIngestNormalizeTests()
+    modTestRunner.Check "桁割れ: 第1 0条", _
+        modChunker.JoinSplitNumbers("第1 0条(定義)") = "第10条(定義)", _
+        "実際=" & modChunker.JoinSplitNumbers("第1 0条(定義)")
+    modTestRunner.Check "桁割れ: 全角 第１ ０ 条", _
+        modChunker.JoinSplitNumbers("第１ ０ 条") = "第10条", _
+        "実際=" & modChunker.JoinSplitNumbers("第１ ０ 条")
+    modTestRunner.Check "桁割れ: 第 ２ ０ ０ 条", _
+        modChunker.JoinSplitNumbers("第 ２ ０ ０ 条") = "第200条", _
+        "実際=" & modChunker.JoinSplitNumbers("第 ２ ０ ０ 条")
+    modTestRunner.Check "桁割れ: 章にも効く", _
+        modChunker.JoinSplitNumbers("第 １ 章 総則") = "第1章 総則", _
+        "実際=" & modChunker.JoinSplitNumbers("第 １ 章 総則")
+
+    modTestRunner.Check "桁割れ: 本文の空白は壊さない", _
+        modChunker.JoinSplitNumbers("この 保険 は 次の とおり") = "この 保険 は 次の とおり", _
+        "過剰置換は本文を壊す"
+    modTestRunner.Check "桁割れ: 単位が続かない第は不変", _
+        modChunker.JoinSplitNumbers("第 3 者に対して") = "第 3 者に対して", _
+        "「第3者」は条番号ではない"
+
+    modTestRunner.Check "正規化後は条見出しとして認識される", _
+        modChunker.ClassifyLine(modChunker.JoinSplitNumbers("第１ ２条(保険契約の無効)")) = 2, _
+        "2桁の条を拾えないと、その条は隣の条に吸収される"
+
+    modTestRunner.Check "ページ番号行: - 19 -", _
+        modChunker.IsPageNumberLine("- 19 -") = True, ""
+    modTestRunner.Check "ページ番号行: 全角ダッシュ", _
+        modChunker.IsPageNumberLine(ChrW(&H2014) & "19" & ChrW(&H2014)) = True, ""
+    modTestRunner.Check "ページ番号行: 本文は落とさない", _
+        modChunker.IsPageNumberLine("- 保険金の支払 -") = False, _
+        "本文を誤って落とすと資料が欠ける"
+    modTestRunner.Check "ページ番号行: 空行は対象外", _
+        modChunker.IsPageNumberLine("") = False, ""
+
+    Dim src As String
+    src = "- 12 -" & vbLf & "第１ ５条(保険契約の取消)" & vbLf & "当社は、次の場合は取り消します。"
+    Dim got As String
+    got = modChunker.NormalizeForIngest(src)
+    modTestRunner.Check "取込正規化: ページ番号行が消える", InStr(got, "- 12 -") = 0, "実際=" & got
+    modTestRunner.Check "取込正規化: 条番号が繋がる", InStr(got, "第15条") > 0, "実際=" & got
+    modTestRunner.Check "取込正規化: 本文は残る", InStr(got, "取り消します") > 0, "実際=" & got
+End Sub
+
+
 Public Sub RunAll()
     On Error GoTo UtilFail
     TestModUtil
@@ -72,6 +126,8 @@ NextPii:
 NextPure2:
     On Error GoTo Pure2Fail
     modTestsPure2.RunAll2
+
+    RunIngestNormalizeTests
 NextDone:
     On Error GoTo 0
     Exit Sub

@@ -143,7 +143,12 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # ChunkPagesEx/ClassifyLine/BuildBreadcrumb: 構造認識チャンク化(設計書§B)。
         # ChunkPagesは後方互換(legacy)のまま不変。
-        "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb"],
+        # NormalizeForIngest/JoinSplitNumbers/IsPageNumberLine: 取込正規化
+        #   (2026-07-27追加)。実物の約款PDFで条見出しの20.2%を取りこぼしていた
+        #   ため、全取込経路が最初に通す正規化として追加。純ロジックなので
+        #   Publicにして modTestsPure から直接検証する(回帰を二度と許さない)。
+        "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb",
+                     "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine"],
     },
     "modEmbed": {
         "closed": True,

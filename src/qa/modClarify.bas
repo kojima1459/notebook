@@ -32,6 +32,12 @@ Option Explicit
 Private Const K_PENDING_Q As String = "clarify_q"        ' 聞き返し中の元質問
 Private Const K_PENDING_SRC As String = "clarify_src"    ' 候補資料名(|区切り)
 Private Const MAX_SRC As Long = 4
+Private Const CJK_LO As Long = 19968       ' &H4E00 CJK統合漢字 開始
+Private Const CJK_HI As Long = 40959       ' &H9FFF CJK統合漢字 終端
+Private Const KATA_LO As Long = 12449      ' &H30A1 ァ
+Private Const KATA_HI As Long = 12538      ' &H30FA ヺ
+Private Const KATA_PROLONG As Long = 12540 ' &H30FC ー
+
 
 ' 意図の区分。番号で選ばせるので順序を変えないこと(利用者の記憶に残る)。
 Private Const INTENT_1 As String = "適用の条件・対象(どんなときに当てはまるか)"
@@ -235,11 +241,19 @@ Private Function MainKeyword(ByVal q As String) As String
     If Len(best) >= 2 Then MainKeyword = best
 End Function
 
+' 文字コードの定数は10進で書く。&H9FFF は 40959 だが、VBA/LO Basic は
+' 0x8000 以上の &H リテラルを16bit整数として解釈するため -24577 になる。
+' その結果 "c <= &H9FFF" は正の c に対して常に偽となり、
+' 漢字が1文字も単語として認識されていなかった(2026-07-27発見)。
+' カタカナ(&H30A1〜&H30FA)は 0x8000 未満なので偶然動いていた。
+' 影響: 質問からのキーワード抽出が漢字を拾えず、資料調達の案内が
+' 的外れになっていた。損保の用語はほぼ漢字なので実質機能していない。
+
 Private Function IsWordChar(ByVal ch As String) As Boolean
+    If LenB(ch) = 0 Then Exit Function
     Dim c As Long: c = AscW(ch)
     If c < 0 Then c = c + 65536
-    ' 漢字(CJK統合漢字) / カタカナ / 全角英数
-    If c >= &H4E00 And c <= &H9FFF Then IsWordChar = True: Exit Function
-    If c >= &H30A1 And c <= &H30FA Then IsWordChar = True: Exit Function
-    If c = &H30FC Then IsWordChar = True                       ' 長音符
+    If c >= CJK_LO And c <= CJK_HI Then IsWordChar = True: Exit Function
+    If c >= KATA_LO And c <= KATA_HI Then IsWordChar = True: Exit Function
+    If c = KATA_PROLONG Then IsWordChar = True                 ' 長音符
 End Function
