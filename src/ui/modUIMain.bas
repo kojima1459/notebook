@@ -63,6 +63,11 @@ Private Const COLOR_UNSELECTED_FG As Long = 0        ' RGB(0,0,0) 黒
 
 Private mLastAnswerText As String
 
+' 待ち時間の実況先は modLive が持つ。modAsk は進捗を SetStage /
+' RenderSourcesPreview でここへ知らせる契約(§7.3・R1で許可された唯一のUI
+' コールバック)だが、その宛先だった旧ホームシートのセルは、既定UIがNexus
+' チャットになった今、利用者が一切見ていない。契約は変えずに転送先を足す。
+
 ' EnsureLayout - ホームを冪等再構築(既存Shapes全削除→再生成)
 Public Sub EnsureLayout()
     Dim ws As Worksheet
@@ -307,6 +312,10 @@ Public Sub SetStage(ByVal msg As String)
     Application.StatusBar = displayMsg
     On Error GoTo 0
 
+    ' 空文字は「実況終わり」の合図。ここでバブルを消すと一瞬空白が出るので
+    ' 触らない(生成中バブルは呼び出し側が本物の回答へ差し替える)。
+    If LenB(msg) > 0 Then modLive.PaintStage msg
+
     If LenB(msg) > 0 Then ShowTip
 End Sub
 
@@ -364,8 +373,17 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     On Error GoTo 0
 End Sub
 
-' RenderSourcesPreview - 出典先出し(ドラフト生成前に呼ぶ)
+' RenderSourcesPreview - 出典先出し(ドラフト生成前に呼ぶ)。
+'
+' これはこのアプリで最も価値のある1秒。ここに来た時点で「どの資料に答えが
+' あるか」は既に判明しており、あとはLLMが文章にするのを待つだけになっている。
+' 従来はその事実を旧ホームシートのセルにだけ書いていたため、Nexusチャットを
+' 見ている利用者には最後まで伝わらず、10〜20秒がただの無反応だった。
+' 実況先(生成中バブル)が預けられていれば、そちらへも必ず出す。
 Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
+    ' 先に実況へ出す(こちらが利用者の見ている画面)。
+    modLive.PaintSources hits, nHits
+
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = GetHomeSheet()

@@ -205,6 +205,49 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     AddChatBubble = shp.Name
 End Function
 
+' UpdateBubbleText - 既に描いたバブルの本文を差し替える。
+'
+' なぜ必要か:
+'   回答を待つ10〜20秒(しっかり調べるなら1〜2分)のあいだ、画面には
+'   「考えています…」が1個あるだけだった。ところが実際には、検索は最初の
+'   1〜2秒で終わっていて、どの資料に答えがあるかはその時点で分かっている。
+'   その一番おいしい情報を、利用者の見ていない旧ホームシートへ書いていた
+'   (modUIMain.RenderSourcesPreview)。
+'   ここを差し替えられるようにして、「もう見つけてある。いま文章にしている
+'   だけ」という状態を待ち時間の主役にする。待たされている時間は変わらない
+'   のに、体感はまるで別物になる。
+'
+'   AutoSizeで高さが変わるため、会話の下端(mChatBottom)は必ず取り直す。
+'   取り直さないと、次に置くバブルがこのバブルへ重なる。
+Public Sub UpdateBubbleText(ByVal shapeName As String, ByVal newText As String)
+    If LenB(shapeName) = 0 Then Exit Sub
+
+    Dim ws As Worksheet
+    Set ws = GetNexusSheet()
+    If ws Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    Dim shp As Shape
+    Set shp = ws.Shapes(shapeName)
+    On Error GoTo 0
+    If shp Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    With shp.TextFrame2
+        .WordWrap = -1
+        .AutoSize = 0                    ' 一度切ってから入れ直さないと再フィットしない
+        .TextRange.Text = newText
+        .TextRange.Font.Size = 10.5
+        .AutoSize = 1                    ' msoAutoSizeShapeToFitText
+    End With
+    If shp.Height < 28 Then shp.Height = 28
+
+    RecalcChatBottom ws
+    ScrollToBottom ws
+    BringFixedToFront ws
+    On Error GoTo 0
+End Sub
+
 ' 固定UI(ヘッダー+入力欄)を最前面に維持(描画末に必ず呼ぶ)。
 Public Sub BringFixedToFront(ByVal ws As Worksheet)
     On Error Resume Next
@@ -507,7 +550,7 @@ Private Sub ApplyTheme(ByVal ws As Worksheet)
                 ' ヘッダーバーは濃色(ロゴ・操作pillの白文字が乗る)。
                 shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
                 SetShapeTextColor shp, RGB(255, 255, 255)
-            ElseIf nm = "nx_top_send" Or nm = "nx_top_clip" Then
+            ElseIf nm = "nx_top_send" Or nm = "nx_top_add" Then
                 shp.Fill.ForeColor.RGB = ThemeColor("accent")
                 SetShapeTextColor shp, RGB(255, 255, 255)
             ElseIf nm = "nx_top_theme" Then

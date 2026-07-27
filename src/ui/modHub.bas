@@ -442,28 +442,7 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
         chip.OnAction = "modHub.OnQuickAsk"
     Next i
 
-    Dim gacha As Shape
-    Set gacha = ws.Shapes.AddShape(5, L, T + 20 + CHIP_H + 8, W, 26)
-    gacha.Name = "nx_hub_gacha"
-    gacha.Adjustments(1) = 0.1
-    gacha.Fill.Visible = 0
-    gacha.Line.Visible = -1
-    gacha.Line.Weight = 1.25
-    gacha.Line.ForeColor.RGB = modUI.UiColor("accent")
-    On Error Resume Next
-    gacha.Line.DashStyle = 4       ' msoLineDash(未対応環境では実線のまま)
-    On Error GoTo 0
-    With gacha.TextFrame2
-        .TextRange.Text = ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイントを引く"
-        .TextRange.Font.Size = 9.5
-        .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
-        .TextRange.ParagraphFormat.Alignment = 2
-        .VerticalAnchor = 3
-    End With
-    gacha.OnAction = "modHub.OnGacha"
-
-    DrawInbox ws, L, W, T + 20 + CHIP_H + 8 + 26 + 12
+    DrawInbox ws, L, W, T + 20 + CHIP_H + 14
 End Sub
 
 ' 共有知のお知らせ。通知が無い共有機能は使われないので、件数と行き先を出す。
@@ -664,15 +643,6 @@ Public Sub OnQuickAsk()
     On Error GoTo Done
 Done:
     modUiLock.Leave
-End Sub
-
-' 今日のワンポイントは既存のチャットバブル実装を再利用する
-' (専用UserFormは実行時VBAプロジェクト書き換えが必要で実機リスクが高いため採らない)。
-Public Sub OnGacha()
-    On Error Resume Next
-    modUI.GoToNexus "modHub.OnGacha"
-    On Error GoTo 0
-    modApp.OnGacha
 End Sub
 
 Public Sub OnLangCycle()

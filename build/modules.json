@@ -373,6 +373,13 @@
       "wave": "NEXUS-P11"
     },
     {
+      "name": "modLive",
+      "path": "src/ui/modLive.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
       "role": "core",

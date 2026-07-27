@@ -173,23 +173,36 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     rowTop = ws.Rows(INPUT_ROW).Top
     rowH = ws.Rows(INPUT_ROW).Height
 
+    ' 入力欄の左は「資料を入れる」。
+    '
+    ' READMEが売っているのは「ぶちこんで、すぐ聞ける」という2つの動詞なのに、
+    ' 起動して最初に立つこの画面には、後半の「聞く」しか無かった。資料を
+    ' 入れるには Hub → ナレッジ倉庫 → 11個並んだ同じ見た目のボタンの3番目、
+    ' と3画面移動する必要がある。初めて開いた人が辿り着けるはずがない。
+    ' 送信ボタンの真向かいに置いて、2つの動詞を同じ場所に揃える。
+    '
+    ' ここにあった📎(クリップボード画像)はナレッジ画面の「📸 スクショ取込」
+    ' と同じ機能で、そちらに残っている。1等地は主役の動詞に譲る。
     Dim cellB As Range: Set cellB = ws.Range("B" & r)
-    Dim clipD As Double: clipD = 28
-    Dim clip As Shape
-    Set clip = ws.Shapes.AddShape(9, _
-        cellB.Left + (cellB.Width - clipD) / 2, rowTop + (rowH - clipD) / 2, clipD, clipD)
-    clip.Name = "nx_top_clip"
-    clip.Line.Visible = 0
-    clip.Fill.ForeColor.RGB = modUI.UiColor("accent")
-    With clip.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCE)
+    Dim addD As Double: addD = 28
+    Dim addBtn As Shape
+    Set addBtn = ws.Shapes.AddShape(9, _
+        cellB.Left + (cellB.Width - addD) / 2, rowTop + (rowH - addD) / 2, addD, addD)
+    addBtn.Name = "nx_top_add"
+    addBtn.Line.Visible = 0
+    addBtn.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    With addBtn.TextFrame2
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCC1)
         .TextRange.Font.Size = 12
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
     End With
-    clip.OnAction = "modApp.OnAttachImage"
+    addBtn.OnAction = "modApp.OnAddDocs"
+    On Error Resume Next
+    addBtn.AlternativeText = "資料を入れる"
+    On Error GoTo 0
 
     Dim cellL As Range: Set cellL = ws.Range("L" & r)
     Dim sendH As Double: sendH = 32
@@ -211,8 +224,23 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     send.OnAction = "modApp.OnSend"
 
     ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。
+    ' 資料が1件も無いあいだは、ショートカットの案内より先に
+    ' 「何をすれば使えるようになるか」を出す。空のときにキーボード
+    ' ショートカットを教えても、押す先が無い。
+    Dim hint As String
+    Dim n As Long
+    On Error Resume Next
+    n = modShelf.TotalChunks()
+    On Error GoTo 0
+    If n = 0 Then
+        hint = ChrW(&HD83D) & ChrW(&HDCC1) & " 左の緑のボタンから約款やマニュアルを入れると、" & _
+               "出典付きで答えられるようになります(そのまま質問もできます)"
+    Else
+        hint = "Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し ・ " & _
+               ChrW(&HD83D) & ChrW(&HDCC1) & " で資料を追加"
+    End If
     With ws.Range("C" & (INPUT_ROW + 1))
-        .Value = "Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し"
+        .Value = hint
         .Font.Size = 8
         .Font.Color = modUI.UiColor("muted")
         .VerticalAlignment = -4160        ' xlTop
@@ -245,46 +273,58 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     If LenB(confText) > 0 Then
         On Error Resume Next
         Dim badge As Shape
-        Set badge = ws.Shapes.AddShape(5, anchor.Left, y, 330, 18)
+        Set badge = ws.Shapes.AddShape(5, anchor.Left, y, 330, 22)
         If Err.Number = 0 And Not badge Is Nothing Then
             badge.Name = "nx_act_conf"
-            badge.Adjustments(1) = 0.4
+            badge.Adjustments(1) = 0.45
             badge.Line.Visible = 0
-            badge.Fill.Visible = 0
+            ' 8pt・塗りなし・muted では、いちばん大事な一文がいちばん
+            ' 目立たない字になっていた。この1行は「この答えを信じてよいか」
+            ' の判断そのものなので、色の付いたピルにして先に読ませる。
+            badge.Fill.Visible = -1
+            badge.Fill.ForeColor.RGB = ConfidenceTint(confText)
             With badge.TextFrame2
                 .WordWrap = -1
                 .TextRange.Text = confText
-                .TextRange.Font.Size = 8
-                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+                .TextRange.Font.Size = 9
+                .TextRange.Font.Bold = -1
+                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
                 .VerticalAnchor = 3
-                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+                .MarginLeft = 8: .MarginRight = 8: .MarginTop = 0: .MarginBottom = 0
             End With
             badge.Placement = 3
-            y = y + 20
+            y = y + 25
         End If
         Set badge = Nothing
         Err.Clear
         On Error GoTo 0
     End If
 
+    ' 出典チップ(modPeek)はこの直後・評価ボタンより上に積まれる。
+    ' 「根拠を見る前に評価させない」ための順序で、ここで確保した y を
+    ' modPeek が使う(ContextActionsBottom 経由)。
     Dim caps As Variant, kinds As Variant, widths As Variant, acts As Variant
     ' 評価は「解決した/微妙/違う」の3択。どれも1クリックで完結し、
     ' 入力を強制しない(入力を求めた途端に誰も押さなくなる)。
+    '
+    ' 「本社照会」は削除した。押しても常に「準備中です」としか返らない
+    ' ボタンが、全ての回答の下に永久に並んでいた。動かないものが1つでも
+    ' 混じっていると、利用者は「他も見せかけかもしれない」と学習する。
+    ' 出せないなら出さないほうが、信用は減らない。
     caps = Array(ChrW(&H2705) & " 解決した", _
                  ChrW(&HD83E) & ChrW(&HDD14) & " 微妙", _
                  ChrW(&H274C) & " 違う", _
                  ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", _
                  ChrW(&HD83D) & ChrW(&HDCCB) & " コピー", _
-                 ChrW(&HD83D) & ChrW(&HDCC4) & " Word", _
-                 ChrW(&HD83C) & ChrW(&HDD98) & " 本社照会")
-    kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word", "hq")
-    widths = Array(84, 64, 64, 74, 72, 68, 86)
+                 ChrW(&HD83D) & ChrW(&HDCC4) & " Word")
+    kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word")
+    widths = Array(84, 64, 64, 74, 72, 68)
     acts = Array("OnActResolve", "OnActUnsure", "OnActBad", "OnActDrill", _
-                 "OnActCopy", "OnActWord", "OnActHq")
+                 "OnActCopy", "OnActWord")
 
     Dim x As Double: x = anchor.Left
     Dim i As Long
-    For i = 0 To 6
+    For i = 0 To 5
         ' 1個の1004で残りを道連れにしない(実機で繰り返した描画中断の教訓)。
         On Error Resume Next
         Dim btn As Shape
@@ -309,6 +349,22 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
         x = x + CDbl(widths(i)) + 5
     Next i
 End Sub
+
+' 信頼度バッジの背景色。🟢/🟡/🔴 のどれで始まるかだけで決める
+' (文言そのものは modAsk が持つ単一情報源。ここでは色だけを足す)。
+Private Function ConfidenceTint(ByVal confText As String) As Long
+    Dim head As String
+    head = Left$(confText, 2)
+    If head = ChrW(&HD83D) & ChrW(&HDFE2) Then          ' 🟢 強く一致
+        ConfidenceTint = RGB(220, 245, 225)
+    ElseIf head = ChrW(&HD83D) & ChrW(&HDFE1) Then      ' 🟡 部分的
+        ConfidenceTint = RGB(253, 246, 214)
+    ElseIf head = ChrW(&HD83D) & ChrW(&HDD34) Then      ' 🔴 根拠が乏しい
+        ConfidenceTint = RGB(253, 226, 226)
+    Else
+        ConfidenceTint = modUI.UiColor("bg")
+    End If
+End Function
 
 Public Sub ClearContextActions(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub

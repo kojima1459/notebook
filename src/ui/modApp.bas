@@ -18,11 +18,10 @@ Private mGenPrevA As String
 Public Sub LaunchNexus()
     modUI.InitUI
     RestoreLastConversation      ' ④前回の続きを薄く復元(失敗しても挨拶へ進む)
-    modUI.AddChatBubble "ai", _
-        TimeGreeting() & " Nexus Agentです。" & vbLf & _
-        "上のモードボタンで「社内ナレッジ検索」(本棚の資料から出典付きで回答)と" & _
-        "「一般アシスタント」を切り替えられます。メッセージを入力して送信してください。" & vbLf & _
-        "(送信は Ctrl+Enter、呼び出しはどこからでも Ctrl+Shift+Q が使えます)"
+    ' 最初の1言はできるだけ短く。以前はここでモード切替の説明と
+    ' ショートカット2つを並べていたが、まだ何の役にも立っていない段階で
+    ' 設定の話をされても頭に入らない。操作説明は「?」に置いてある。
+    modUI.AddChatBubble "ai", modLive.OpeningLine()
     On Error Resume Next         ' 以降は追加機能のフック(各自が内部で握るが二重に防護)
     modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計(表示はHubのタイル)
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
@@ -33,40 +32,6 @@ End Sub
 
 ' 2026-07-26 再設計: 質問テンプレチップ/ナレッジガチャはサイドバー廃止に伴い
 ' Hub画面(modHub.DrawExtras)へ移した。チャット画面は会話だけを担う。
-
-' 🎲 ナレッジガチャ: my_knowledgeからランダムに1件を「今日のワンポイント」として
-' バブル表示(API非通信・完全ローカル)。偶然の学びのエンタメ化。
-Public Sub OnGacha()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-    Dim ws As Worksheet
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
-    If ws Is Nothing Then GoTo Done
-
-    Dim lastR As Long
-    lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    If lastR < 2 Then
-        modSkin.ShowToast "まだ資料がありません。「ナレッジ倉庫」から登録すると、ここで豆知識が引けます。", "info"
-        GoTo Done
-    End If
-
-    Randomize
-    Dim r As Long: r = 2 + Int(Rnd * (lastR - 1))
-    Dim src As String: src = CStr(ws.Cells(r, 2).Value)
-    Dim summ As String: summ = CStr(ws.Cells(r, 5).Value)
-    Dim body As String: body = CStr(ws.Cells(r, 7).Value)
-
-    modUI.AddChatBubble "ai", _
-        ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント" & vbLf & _
-        "【" & modUtil.SafeLeft(src, 40) & "】" & IIf(LenB(summ) > 0, " " & summ, "") & vbLf & _
-        modUtil.SafeLeft(body, 300) & IIf(Len(body) > 300, "…", "") & vbLf & _
-        "(もう一度引く: サイドバーの「" & ChrW(&HD83C) & ChrW(&HDFB2) & " 今日のワンポイント」)"
-    On Error Resume Next
-    modLog.LogUsage "gacha", "", modUtil.SafeLeft(src, 80)
-    On Error GoTo Done
-Done:
-    modUiLock.Leave
-End Sub
 
 ' ④会話の記憶: 直近2往復をui_stateへ保存し、次回起動時に薄く復元する。
 ' 区切りはAskGeneral履歴と同じ";;;"(質問/回答に含まれる場合は改行1個に置換して保護)。
@@ -131,10 +96,10 @@ Public Sub OnSend()
 
     ' 遊び心: 弱音キーワードはAPIに投げず、関西弁コンシェルジュが即座に労う
     ' (意図的なタイミング限定・完全ローカルなので事故りようがない)
-    If IsTiredWords(q) Then
+    If modLive.IsTiredWords(q) Then
         modUI.AddChatBubble "user", q
         ClearInputCell
-        modUI.AddChatBubble "ai", ComfortMessage()
+        modUI.AddChatBubble "ai", modLive.ComfortMessage()
         modUiLock.Leave
         Exit Sub
     End If
@@ -151,23 +116,47 @@ Public Sub OnSend()
     ' 体感速度ハック: 待ち時間の無反応(壊れた?)を防ぐため、考え中バブルを即時表示。
     ' 回答が来たら削除して本物を追加する(in-place置換はバブル高さ管理と衝突するため
     ' 削除→追加方式。小さな余白が残るだけで崩れない)。
+    '
+    ' さらに、このバブルを modUIMain へ「実況先」として預ける。検索は最初の
+    ' 1〜2秒で終わっているので、どの資料に答えがあるかはその時点で分かる。
+    ' 預けておけば modAsk の進捗通知(SetStage/RenderSourcesPreview)がそのまま
+    ' ここへ流れ込み、「考えています…」が「もう見つけた。いま書いている」へ
+    ' 変わる。待ち時間そのものは1秒も縮まないが、体感は完全に別物になる。
     Dim phName As String
     phName = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCAD) & " 考えています…")
+    On Error Resume Next
+    modLive.Begin phName
+    On Error GoTo Fail
     DoEvents
 
+    Dim t0 As Double: t0 = Timer
+
     Dim ans As String
+    Dim grounded As Boolean
     If CurrentMode() = "normal" Then
-        ans = AskGeneral(q)
+        ans = AskGeneral(q, "")
+    ElseIf ShelfIsEmpty() Then
+        ' 資料が1件も無いのに検索へ行くと、埋め込みAPIを1往復使ったうえで
+        ' 「資料がありません」とだけ返る。いちばん遅い経路が、いちばん
+        ' 価値の無い返事に着く。空だと分かっているなら聞くまでもない。
+        ans = AnswerWithoutShelf(q)
     Else
         ans = modAsk.Answer(q, RagSpeed())
+        grounded = True
     End If
 
+    Dim secs As Double: secs = Timer - t0
+
     On Error Resume Next
+    modLive.Finish
     If LenB(phName) > 0 Then ThisWorkbook.Worksheets("Nexus").Shapes(phName).Delete
     On Error GoTo Fail
 
+    ' 速さと調べた量は、言わなければ伝わらない。「15秒待たされた」と
+    ' 「3冊の資料から12秒で根拠付き」は同じ時間の別の体験になる。
     Dim bubbleName As String
-    bubbleName = modUI.AddChatBubble("ai", ans)
+    bubbleName = modUI.AddChatBubble("ai", ans & vbCr & modLive.Footer(secs, grounded))
+    modLive.StyleFooter bubbleName
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
     SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
@@ -199,6 +188,7 @@ Fail:
     Dim failDesc As String: failDesc = Err.Description
     Err.Clear
     On Error Resume Next
+    modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
     modLog.LogError "E0602", "modApp.OnSend", failDesc
     modUI.AddChatBubble "ai", "エラーが発生しました。もう一度お試しください。(" & failDesc & ")"
     On Error GoTo 0
@@ -347,6 +337,14 @@ Public Sub OnActDrill()
 
     modUI.AddChatBubble "user", ChrW(&HD83D) & ChrW(&HDD0D) & " " & q
 
+    ' 深掘りも本流の送信と同じ待ち時間が発生する。同じように実況する。
+    Dim phName As String
+    phName = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCAD) & " 考えています…")
+    On Error Resume Next
+    modLive.Begin phName
+    On Error GoTo Fail
+    DoEvents
+
     Dim ans As String
     If modAsk.CanFollowup() Then
         modAsk.AskFollowup q
@@ -354,6 +352,11 @@ Public Sub OnActDrill()
     Else
         ans = modAsk.Answer(q, RagSpeed())
     End If
+
+    On Error Resume Next
+    modLive.Finish
+    If LenB(phName) > 0 Then ThisWorkbook.Worksheets("Nexus").Shapes(phName).Delete
+    On Error GoTo Fail
 
     Dim bubbleName As String
     bubbleName = modUI.AddChatBubble("ai", ans)
@@ -370,6 +373,8 @@ Public Sub OnActDrill()
 
 Fail:
     Err.Clear
+    On Error Resume Next
+    modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -410,13 +415,10 @@ Done:
     modUiLock.Leave
 End Sub
 
-Public Sub OnActHq()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next   ' 何が起きてもLeaveへ到達させる(ロック取りっぱなし=永久フリーズ防止)
-    modSkin.ShowToast "本社への照会機能は準備中です。公開までいましばらくお待ちください。", "info"
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
+' 「🏘 本社照会」は削除した(2026-07-27)。押しても常に
+' 「準備中です」としか返らないボタンが、すべての回答の下に永久に並んでいた。
+' 動かないものが1つ混じっているだけで、利用者は「他も見せかけかもしれない」と
+' 学習する。出せる目処が立つまでは、出さないほうが信用は減らない。
 
 ' ホームのOnOpenWordButtonと同じInputBoxを挟む(以前は指示文なし=""固定だった)。
 Public Sub OnActWord()
@@ -524,6 +526,53 @@ Public Sub OnAttachImage()
 Fail:
     Err.Clear
     On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
+' OnAddDocs - 入力欄の左「📁 資料を入れる」。チャットから離れずに資料を入れる。
+' ----------------------------------------------------------------------------
+' 画面を移動させないのが肝。資料を入れる目的は、たいてい「いま聞きたいこと
+' がある」からで、別画面へ飛ばされると質問のほうを見失う。取り込みが終わったら
+' 会話の中に結果を出し、そのまま次の一言を打てる状態に戻す。
+Public Sub OnAddDocs()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+
+    Dim before As Long
+    On Error Resume Next
+    before = modShelf.TotalChunks()
+    On Error GoTo Done
+
+    modShelf.AddFilesViaDialog
+
+    Dim after As Long
+    On Error Resume Next
+    after = modShelf.TotalChunks()
+    On Error GoTo Done
+
+    ' 取り込み処理は別シートを触ることがあるので、必ずチャットへ戻す。
+    On Error Resume Next
+    modUI.GoToNexus "modApp.OnAddDocs"
+    On Error GoTo Done
+
+    If after > before Then
+        modUI.AddChatBubble "ai", _
+            ChrW(&H2705) & " 資料を取り込みました。" & vbLf & _
+            "これで、この資料の中身について「どのページに書いてあるか」まで付けてお答えできます。" & vbLf & _
+            "さっそく、いま知りたいことをそのまま聞いてみてください。"
+    Else
+        ' 0件のときに黙って戻ると「壊れた?」になる。取り消したのか
+        ' 失敗したのかを言い切らず、次の一手だけ示す。
+        modUI.AddChatBubble "ai", _
+            "資料は追加されませんでした。" & vbLf & _
+            "対応しているのは PDF / Word / Excel / テキスト です。" & vbLf & _
+            "資料が無くても、一般的な内容ならこのままお答えできます。"
+    End If
+    On Error Resume Next
+    modUI.SettleChat
+    On Error GoTo Done
+Done:
     modUiLock.Leave
 End Sub
 
@@ -669,7 +718,7 @@ Public Sub OnClearChat()
     On Error Resume Next
     modUI.ClearChat
     modClarify.ClearPending
-    modUI.AddChatBubble "ai", TimeGreeting() & " 会話をクリアしました。新しい質問をどうぞ。"
+    modUI.AddChatBubble "ai", modLive.TimeGreeting() & " 会話をクリアしました。新しい質問をどうぞ。"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -687,41 +736,22 @@ Public Sub OnSaveAndExit()
     ThisWorkbook.Close SaveChanges:=(resp = vbYes)
 End Sub
 
-' 遊び心(血の通った余白): 時間帯挨拶/弱音への関西弁コンシェルジュ
-Private Function TimeGreeting() As String
-    Dim h As Long: h = Hour(Now)
-    If h >= 5 And h < 10 Then
-        TimeGreeting = "おはようございます。今日もスムーズにいきましょう。"
-    ElseIf h >= 20 Or h < 5 Then
-        TimeGreeting = "こんな時間までお疲れ様です。キリのいいところで切り上げてくださいね。"
-    Else
-        TimeGreeting = "こんにちは。"
-    End If
-End Function
-
-Private Function IsTiredWords(ByVal q As String) As Boolean
-    Dim t As String: t = Trim$(q)
-    If Len(t) > 12 Then Exit Function   ' 長文は業務の質問(誤発動防止)
-    IsTiredWords = (InStr(t, "疲れた") > 0 Or InStr(t, "つかれた") > 0 Or _
-                    InStr(t, "しんどい") > 0 Or InStr(t, "眠い") > 0)
-End Function
-
-Private Function ComfortMessage() As String
-    Dim pick As Long: pick = (Minute(Now) Mod 3)   ' 乱数を使わない決定的な出し分け
-    Select Case pick
-        Case 0
-            ComfortMessage = "お疲れ様です！今日はずいぶん頑張ってはりますね。" & vbLf & _
-                "温かいお茶でも飲んで、ちょっと一息つきましょか。" & ChrW(&HD83C) & ChrW(&HDF75)
-        Case 1
-            ComfortMessage = "ようやってはりますよ、ほんまに。" & vbLf & _
-                "5分だけ肩の力抜いて、深呼吸してからまたいきましょ。" & ChrW(&H2615)
-        Case Else
-            ComfortMessage = "無理は禁物でっせ。仕事は明日も待ってくれます。" & vbLf & _
-                "今日はここまでにして、はよ休んでくださいね。" & ChrW(&HD83C) & ChrW(&HDF19)
-    End Select
-End Function
-
 ' 内部ヘルパー
+
+' 本棚が空のときは「答えない」のではなく「何に基づく答えかをはっきり
+' させて答える」。文面と安全指示は modLive が持つ(§modLive参照)。
+Private Function ShelfIsEmpty() As Boolean
+    On Error Resume Next
+    ShelfIsEmpty = (modShelf.TotalChunks() = 0)
+    On Error GoTo 0
+End Function
+
+Private Function AnswerWithoutShelf(ByVal q As String) As String
+    On Error Resume Next
+    modLive.PaintStage "一般知識でお答えしています…"
+    On Error GoTo 0
+    AnswerWithoutShelf = modLive.EmptyShelfWrap(AskGeneral(q, modLive.EmptyShelfGuard()))
+End Function
 
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Private Function HasTarget() As Boolean
@@ -753,7 +783,9 @@ Private Function SharePath() As String
 End Function
 
 ' 一般アシスタントモード: 本棚を介さずCallLLM直(会話履歴つき)。
-Private Function AskGeneral(ByVal q As String) As String
+' extraRules: 呼び出し文脈ごとの追加制約(空可)。本棚が空のときの
+' 「社内固有の数字を断定させない」制約はここから注入される。
+Private Function AskGeneral(ByVal q As String, ByVal extraRules As String) As String
     If LenB(mGenPrevU) = 0 Then
         mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
         mGenPrevA = modState.LoadState("nexus_gen_preva", "")
@@ -767,6 +799,7 @@ Private Function AskGeneral(ByVal q As String) As String
           "見出しは「■ 」、箇条書きは「・」、最重要語だけ【 】で囲む。1ブロック3行以内。" & vbLf & _
           "・全体はおおむね200〜400字。言い換えの繰り返しや締めの挨拶は書かない。" & vbLf & _
           "・専門用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。"
+    If LenB(extraRules) > 0 Then sys = sys & vbLf & extraRules
 
     Dim lat As Long
     Dim resp As String
