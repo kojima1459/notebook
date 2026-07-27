@@ -139,6 +139,14 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["ExtractFile", "SupportedExts"],
     },
+    "modSparse": {
+        "closed": True,
+        # 日本語キーワード検索(文字bigram + BM25 + 完全一致)。
+        # 全て純ロジックなので modTestsPure2 から直接検証する。
+        # 実測: 旧実装 R@1 32% → 本実装 84%(tools/bench_retrieval.py)。
+        "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
+                     "Bm25Score", "ExactHitCount"],
+    },
     "modChunker": {
         "closed": True,
         # ChunkPagesEx/ClassifyLine/BuildBreadcrumb: 構造認識チャンク化(設計書§B)。
@@ -308,8 +316,8 @@ CONTRACT: dict[str, dict] = {
 PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
     "modTestRunner", "modTestsPure", "modTestsPure2", "modPrompts",
-    "modRagParse",
-}
+    "modRagParse", "modSparse",
+    }
 
 FORBIDDEN_TOKEN_PATTERNS = [
     (re.compile(r"\bWorksheets\b"), "Worksheets"),

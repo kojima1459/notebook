@@ -35,6 +35,65 @@ Option Explicit
 '   ドット直後に英字が来ない書き方に統一する)。
 ' ============================================================================
 
+' ----------------------------------------------------------------------------
+' 日本語キーワード検索(modSparse)の回帰テスト(2026-07-27追加)
+' ----------------------------------------------------------------------------
+' 実測(実物6資料180チャンク31問・toolsのベンチ):
+'   旧実装(空白分割+一律加点)  R@1 32% / MRR 0.34   ← 赤点
+'   本実装(文字bigram+BM25)    R@1 84% / R@5 100% / MRR 0.91
+' 差の大半は「日本語は空白で区切らない」という一点。ここが壊れると
+' 検索は静かにゴミへ戻るので、性質を固定しておく。
+Private Sub RunSparseTests()
+    modTestRunner.Check "正規化: 全角数字を半角へ", _
+        modSparse.NormalizeForSearch("第２０条") = "第20条", _
+        "実際=" & modSparse.NormalizeForSearch("第２０条")
+    modTestRunner.Check "正規化: 英大文字を小文字へ", _
+        modSparse.NormalizeForSearch("Recall") = "recall", _
+        "実際=" & modSparse.NormalizeForSearch("Recall")
+    modTestRunner.Check "正規化: 全角英字を半角小文字へ", _
+        modSparse.NormalizeForSearch("ＲＥＣＡＬＬ") = "recall", _
+        "実際=" & modSparse.NormalizeForSearch("ＲＥＣＡＬＬ")
+    modTestRunner.Check "正規化: 全角空白を半角へ", _
+        modSparse.NormalizeForSearch("あ" & ChrW(12288) & "い") = "あ い", _
+        "実際=" & modSparse.NormalizeForSearch("あ" & ChrW(12288) & "い")
+
+    Dim t As String
+    t = modSparse.Tokenize("保険金")
+    modTestRunner.Check "bigram: 保険金から保険と険金が出る", _
+        InStr(t, "保険") > 0 And InStr(t, "険金") > 0, "実際=" & t
+    modTestRunner.Check "bigram: 英数字は語のまま残す", _
+        InStr(modSparse.Tokenize("code123"), "code123") > 0, _
+        "実際=" & modSparse.Tokenize("code123")
+    modTestRunner.Check "bigram: 途中の空白で語を割らない", _
+        InStr(modSparse.Tokenize("保 険 金"), "保険") > 0, _
+        "実際=" & modSparse.Tokenize("保 険 金")
+
+    Dim keys As String
+    keys = modSparse.DistinctiveKeys("第12条の内容を教えて")
+    modTestRunner.Check "効く語: 条番号を必ず拾う", _
+        InStr(keys, "第12条") > 0, "実際=" & keys
+
+    modTestRunner.Check "完全一致: 本文に含まれれば1", _
+        modSparse.ExactHitCount("第12条", "【第12条(保険金)】当社は") = 1, ""
+    modTestRunner.Check "完全一致: 含まれなければ0", _
+        modSparse.ExactHitCount("第12条", "【第13条(通知)】当社は") = 0, ""
+
+    Dim q As String
+    q = modSparse.Tokenize("保険金を支払わない場合")
+    Dim hi As Double, lo As Double
+    hi = modSparse.Bm25Score(q, "保険金を支払わない場合について定めます。", "", 100, 50)
+    lo = modSparse.Bm25Score(q, "保険料の払込方法について定めます。", "", 100, 50)
+    modTestRunner.Check "BM25: 一致の多い文書が上位になる", hi > lo, _
+        "hi=" & Format$(hi, "0.000") & " lo=" & Format$(lo, "0.000")
+    modTestRunner.Check "BM25: 無関係な文書は0点", _
+        modSparse.Bm25Score(q, "abcdefg hijklmn", "", 100, 50) = 0, ""
+
+    modTestRunner.Check "揺れ: 全角でも同じトークン列になる", _
+        modSparse.Tokenize("第20条") = modSparse.Tokenize("第２０条"), _
+        "半角=" & modSparse.Tokenize("第20条") & " 全角=" & modSparse.Tokenize("第２０条")
+End Sub
+
+
 Public Sub RunAll2()
     On Error GoTo PromptsFail
     TestModPrompts
@@ -44,6 +103,8 @@ NextShelfSync:
 NextPack:
     On Error GoTo PackFail
     TestModPack
+    On Error GoTo SparseFail
+    RunSparseTests
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -54,6 +115,9 @@ PromptsFail:
 ShelfSyncFail:
     modTestRunner.Check "TestModShelfSync(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPack
+SparseFail:
+    modTestRunner.Check "RunSparseTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone

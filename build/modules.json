@@ -135,6 +135,13 @@
       "wave": "2-C"
     },
     {
+      "name": "modSparse",
+      "path": "src/qa/modSparse.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SPARSE"
+    },
+    {
       "name": "modRetrieve",
       "path": "src/qa/modRetrieve.bas",
       "role": "core",

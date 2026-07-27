@@ -122,6 +122,9 @@ PURE_ALLOWLIST = [
     "modTypes", "modUtil", "modChunker", "modPii", "modPrompts",
     "modTestRunner", "modTestsPure", "modTestsPure2",
     "modAppDef", "modShelfSync", "modPack",
+    # modSparse: 日本語キーワード検索(文字bigram+BM25+完全一致)。
+    # 純ロジックなので実行テストで検証できる。検索精度の要なので必ず載せる。
+    "modSparse",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
