@@ -111,6 +111,15 @@ Public Sub Boot()
     modGuard.EnforceExpiry
     On Error GoTo Failed
 
+    ' 1.7) 初期ナレッジの展開(初回のみ)。同梱パックを本棚へ写すだけなので
+    '      チャンク分割もAPI呼び出しも起きない。開いた瞬間から質問できる
+    '      状態を作るのが目的で、ここが遅いと意味が無い。
+    bootStage = "初期ナレッジの取り込み"
+    On Error Resume Next
+    modSeed.EnsureSeedLoaded
+    LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
+
     ' 2) first-run: pack_author入力
     bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun

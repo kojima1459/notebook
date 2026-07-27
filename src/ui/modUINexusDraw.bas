@@ -86,6 +86,9 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
                               x, 30, "modApp.OnSaveAndExit"
     x = x - 6 - 62: HeaderButton ws, "nx_top_clear", ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", _
                               x, 62, "modApp.OnClearChat"
+    ' 「質問例」。初日は案内、翌日からは調べもののショートカットになる。
+    x = x - 6 - 74: HeaderButton ws, "nx_top_sq", ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例", _
+                              x, 74, "modStarter.OnShowList"
     x = x - 6 - 30:  HeaderButton ws, "nx_top_help", ChrW(&H2753), x, 30, "modHelp.OnHelpClick"
     x = x - 6 - HDR_BTN_H
     HeaderTheme ws, x

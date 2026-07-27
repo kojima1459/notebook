@@ -279,6 +279,96 @@ def pack_blocks(blocks: list[Block], source: str) -> list[dict]:
     return chunks
 
 
+
+# ---------------------------------------------------------------- 質問の生成
+
+# 見出しから「その資料が確実に答えられる質問」を作る。手で書くと、資料に
+# 無いことを聞いてしまい初手で外す。見出し由来なら必ず該当チャンクが当たる。
+# 左=見出しに含まれる語 / 右=質問の型。上にあるものほど優先して採用する。
+QUESTION_RULES: list[tuple[str, str]] = [
+    ("保険金を支払わない",   "{src}で保険金が支払われないのは、どんな場合ですか?"),
+    ("引受",                 "{src}の引受にあたって確認すべき点を教えてください。"),
+    ("できない",             "{src}で引受できないのは、どんなケースですか?"),
+    ("用語の定義",           "{src}の用語の定義を、実務で使う形で説明してください。"),
+    ("定義",                 "{h}について、{src}ではどう定義されていますか?"),
+    ("支払額",               "{src}の保険金の支払額は、どう計算しますか?"),
+    ("支払限度",             "{src}の支払限度額はどうなっていますか?"),
+    ("保険料",               "{h}について、{src}の取扱いを教えてください。"),
+    ("保険期間",             "{src}の保険期間の取扱いを教えてください。"),
+    ("通知義務",             "{src}で通知が必要になるのは、どんなときですか?"),
+    ("告知義務",             "{src}の告知義務について教えてください。"),
+    ("解除",                 "{src}の契約が解除されるのは、どんなときですか?"),
+    ("免責",                 "{src}の免責事項をまとめてください。"),
+    ("対象",                 "{h}について、{src}ではどう定めていますか?"),
+    ("手続",                 "{src}の手続きの流れを教えてください。"),
+    ("とは",                 "{h}について教えてください。"),
+]
+
+
+def strip_label(head: str) -> str:
+    """「第12条(保険金を支払わない場合)」→「保険金を支払わない場合」。
+
+    先頭の番号(「14.」「1-2.」)は必ず落とす。落とさないと
+    「14. 最低保険料について…」という質問文になる。
+    """
+    m = re.search(r"[(（]([^)）]+)[)）]", head)
+    t = m.group(1).strip() if m else head
+    t = re.sub(r"^\s*第\d+条(?:の\d+)?\s*", "", t)
+    t = re.sub(r"^\s*(?:[(（]?\d+[)）]|(?:\d+[-－.．]){0,3}\d+[.．)）])\s*", "", t)
+    t = re.sub(r"^\s*[◆■●▲]\s*", "", t)
+    return t.strip()
+
+
+def is_good_topic(t: str) -> bool:
+    """質問文に埋め込んでよい話題か。
+
+    見出しとして拾った行が、実は本文の一部だったときに
+    「に規定する次のいずれかの感染症をいいます。について、…の取扱いを
+    教えてください。」という壊れた質問が出る。文の断片を弾く。
+    """
+    if not t or not (2 <= len(t) <= 30):
+        return False
+    if any(c in t for c in "。、，"):
+        return False
+    if t[0] in "にをがはでとやのへも":          # 助詞始まり=文の途中
+        return False
+    if t.endswith(("います", "ます", "する", "した", "です", "から", "とき")):
+        return False
+    return True
+
+
+def build_questions(chunks: list[dict], per_source: int = 6) -> list[dict]:
+    """資料ごとに、答えの在り処が確定している質問を作る。"""
+    out: list[dict] = []
+    by_src: dict[str, list[dict]] = {}
+    for c in chunks:
+        by_src.setdefault(c["source"], []).append(c)
+
+    for src, items in by_src.items():
+        seen_q: set[str] = set()
+        picked: list[dict] = []
+        short = re.sub(r"\s*[(（].*?[)）]\s*", "", src).strip()
+        for rule_kw, tmpl in QUESTION_RULES:
+            for c in items:
+                head = (c.get("summary") or "").strip()
+                if not head or rule_kw not in head:
+                    continue
+                topic = strip_label(head)
+                # {h} を使う型のときだけ話題の質を検査する({src}だけの型は不要)
+                if "{h}" in tmpl and not is_good_topic(topic):
+                    continue
+                q = tmpl.format(src=short, h=topic)
+                if q in seen_q:
+                    continue
+                seen_q.add(q)
+                picked.append({"q": q, "source": src, "page": c["page"], "head": head})
+                break
+            if len(picked) >= per_source:
+                break
+        out.extend(picked)
+    return out
+
+
 # ---------------------------------------------------------------- 出力
 
 
@@ -295,7 +385,8 @@ def normalize_for_hash(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def write_pack(out_path: str, chunks: list[dict], sources: list[str]) -> None:
+def write_pack(out_path: str, chunks: list[dict], sources: list[str],
+               questions: list[dict] | None = None) -> None:
     wb = Workbook()
 
     ws = wb.active
@@ -312,6 +403,11 @@ def write_pack(out_path: str, chunks: list[dict], sources: list[str]) -> None:
         ("chunk_count", len(chunks)),
     ]:
         ws.append([k, v])
+    # 初回ガイドで出す質問。pack_meta の key/value に載せるので、
+    # パック形式(3シート)を1バイトも変えずに運べる。
+    for i, q in enumerate(questions or [], start=1):
+        ws.append([f"question{i}", q["q"]])
+        ws.append([f"question{i}_src", f'{q["source"]}|{q["page"]}'])
 
     wc = wb.create_sheet("pack_chunks")
     wc.append(["chunk_id", "source", "page", "summary", "keywords", "full_text"])
@@ -358,12 +454,14 @@ def main(argv: list[str]) -> int:
         print("チャンクが1件も作れませんでした。")
         return 1
 
-    write_pack(out_path, all_chunks, sources)
+    questions = build_questions(all_chunks)
+    write_pack(out_path, all_chunks, sources, questions)
     lens = [len(c["full_text"]) for c in all_chunks]
     print()
     print(f"出力: {out_path}")
     print(f"  資料 {len(sources)}件 / チャンク {len(all_chunks)}件 / "
           f"1チャンク平均 {sum(lens)//len(lens)}字 (最大 {max(lens)})")
+    print(f"  すぐ押せる質問 {len(questions)}件を同梱(全て資料内に答えがあるもの)")
     print("  ベクトルは未生成。リボンのあるPCで取込→再書き出しして埋めてください。")
     return 0
 

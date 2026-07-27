@@ -228,7 +228,41 @@ Public Function OpeningLine() As String
     n = modShelf.TotalChunks()
     On Error GoTo 0
 
-    If n = 0 Then
+    ' 同梱の初期ナレッジがあるときは、必ず資料名を名指しする。
+    ' 「何か聞いてください」では、利用者はまだ何を聞くか考えないといけない。
+    ' 入っている物の名前が出ていれば、そこから連想するだけで済む。
+    Dim docs As String
+    On Error Resume Next
+    If modSeed.HasSeed() Then docs = modSeed.SeedDocList()
+    On Error GoTo 0
+
+    If LenB(docs) > 0 Then
+        Dim parts() As String: parts = Split(docs, "|")
+        Dim body As String
+        Dim i As Long
+        For i = LBound(parts) To UBound(parts)
+            body = body & vbLf & "　・" & parts(i)
+        Next i
+        Dim pending As Boolean
+        On Error Resume Next
+        pending = modSeed.SeedNeedsEmbedding()
+        On Error GoTo 0
+
+        If pending Then
+            ' ベクトル未生成のまま配られた場合。「資料はあるのに答えられない」
+            ' という状態を黙って見せるのが最悪なので、必ず先に言う。
+            OpeningLine = TimeGreeting() & vbLf & _
+                "この端末には、次の " & (UBound(parts) + 1) & "つの資料が入っています。" & body & vbLf & vbLf & _
+                ChrW(&H23F3) & " いまAIが読み込み中です。終わるとこの資料から" & _
+                "「どの資料の何ページか」まで付けて答えられるようになります。" & vbLf & _
+                "読み込み中でも、一般的な内容ならそのままお答えします。"
+        Else
+            OpeningLine = TimeGreeting() & vbLf & _
+                "この端末には、次の " & (UBound(parts) + 1) & "つの資料がすでに入っています。" & body & vbLf & vbLf & _
+                "この内容なら、いま聞けば「どの資料の何ページか」まで付けてお答えします。" & vbLf & _
+                "下の質問はどれも押すだけで試せます。まず1つどうぞ。"
+        End If
+    ElseIf n = 0 Then
         OpeningLine = TimeGreeting() & vbLf & _
             "知りたいことを、ふだんの言葉のまま書いてください。そのままお答えします。" & vbLf & _
             ChrW(&HD83D) & ChrW(&HDCC1) & " 左のボタンで約款やマニュアルを入れると、" & _

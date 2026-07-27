@@ -88,6 +88,11 @@ EXPECTED_SHEETS = {
     "config": "hidden",
     "my_knowledge": "veryHidden",
     "my_vectors": "veryHidden",
+    # 初期ナレッジ(同梱シード)。ビルド時に焼き込み、初回起動で modSeed が
+    # my_knowledge / my_vectors へ写す。利用者には一切見せない。
+    "seed_meta": "veryHidden",
+    "seed_chunks": "veryHidden",
+    "seed_vectors": "veryHidden",
     "my_manifest": "hidden",
     "my_stats": "hidden",
     "usage_log": "hidden",
@@ -237,7 +242,7 @@ def build_config_rows(mock_llm: bool):
         ("user_department", "", "分析用: あなたの部署名(分析CSVの部署比較フラグ列に入る。空なら未設定)"),
         ("noise_global_threshold", 2, "ナレッジ自浄: 異なるN人からの⚠️ノイズ報告(P2P集計)でその資料を全ユーザーの検索から組織的除外する閾値"),
         ("admin_users", "", "組織的除外を解除できる管理者ADユーザー名(カンマ区切り)。空なら誰も解除不可"),
-        ("shelf_max_chunks", 20000, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),
+        ("shelf_max_chunks", 20500, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),
         ("binary_rag", False, "狂気案Lv.1: TRUE=大規模時にバイナリ量子化(XORハミング)で候補を高速粗選別してからFloatコサインで再ランク。小規模(binary_rag_min未満)では自動的に厳密Floatのまま=挙動不変"),
         ("binary_rag_min", 5000, "バイナリ量子化ハイブリッドが作動する最小チャンク数(これ未満は従来どおり全件Floatスキャン)"),
         ("binary_rag_prefilter", 200, "バイナリ粗選別で残す候補数(topKより十分大きくFloat再ランクの精度を担保)"),
@@ -558,6 +563,69 @@ def _make_placeholder(wb, name, note):
     ws["A3"].alignment = Alignment(wrap_text=True, vertical="top")
     ws.sheet_properties.tabColor = TAB_COLORS[name]
     return ws
+
+
+
+def _make_seed_sheets(wb, seed_path: str | None):
+    """初期ナレッジ(シードパック)を seed_* シートとして焼き込む。
+
+    tools/make_seed_pack.py が作った pack形式(.xlsx) の3シートを、そのまま
+    veryHidden で持ち込む。実行時に modSeed が my_knowledge / my_vectors へ
+    写すだけなので、初回起動でチャンク分割もAPI呼び出しも起きない。
+
+    pack_vectors が空のパックでも壊れない(embedded=0 で入り、次の同期で
+    埋め込まれる)。ただし初回体験のためには、リボンのあるPCで一度
+    ベクトル化したパックを指定するのが本来の運用。
+    """
+    from openpyxl import load_workbook as _lw
+
+    specs = [
+        ("seed_meta",    ["key", "value"],                 [28, 110]),
+        ("seed_chunks",  ["chunk_id", "source", "page", "summary", "keywords", "full_text"],
+                                                           [32, 28, 6, 44, 30, 90]),
+        ("seed_vectors", ["chunk_id", "vector_csv"],        [32, 100]),
+    ]
+    if not seed_path or not os.path.exists(seed_path):
+        for name, hdr, w in specs:
+            _make_headers_only(wb, name, hdr, "veryHidden", widths=w)
+        return 0, 0, 0
+
+    src = _lw(seed_path, read_only=True, data_only=True)
+    n_chunks = n_vecs = n_docs = 0
+    docs = set()
+
+    for name, hdr, widths in specs:
+        ws = wb.create_sheet(name)
+        ws.append(hdr)
+        for c, wd in enumerate(widths, start=1):
+            ws.column_dimensions[ws.cell(row=1, column=c).column_letter].width = wd
+
+        pack_name = name.replace("seed_", "pack_")
+        if pack_name not in src.sheetnames:
+            ws.sheet_state = "veryHidden"
+            continue
+
+        srcws = src[pack_name]
+        for r, row in enumerate(srcws.iter_rows(min_row=2, values_only=True)):
+            if row is None or all(v is None for v in row):
+                continue
+            ws.append(list(row[:len(hdr)]))
+            if name == "seed_chunks":
+                n_chunks += 1
+                if row[1]:
+                    docs.add(str(row[1]))
+            elif name == "seed_vectors":
+                n_vecs += 1
+        # full_text 等は必ず文字列として持たせる(数字だけの本文が数値化するのを防ぐ)
+        if name == "seed_chunks":
+            for row in ws.iter_rows(min_row=2):
+                for idx in (2, 4, 5, 6):
+                    row[idx - 1].number_format = "@"
+        ws.sheet_state = "veryHidden"
+
+    src.close()
+    n_docs = len(docs)
+    return n_docs, n_chunks, n_vecs
 
 
 def _make_config(wb, mock_llm: bool):
@@ -973,6 +1041,8 @@ def main():
     ap.add_argument("--template", default=DEFAULT_TEMPLATE, help="template_skeleton.xlsm のパス")
     ap.add_argument("--out", default=None,
                      help="出力先.xlsmパス(既定: <root>/dist/MyBookshelf[_dev].xlsm)")
+    ap.add_argument("--seed", default=None,
+                    help="初期ナレッジのパック(.xlsx)。tools/make_seed_pack.py の出力")
     ap.add_argument("--allow-missing", action="store_true",
                      help="modules.jsonに列挙されたファイルの欠落をエラーでなく警告にして続行する")
     args = ap.parse_args()
@@ -1030,6 +1100,12 @@ def main():
                         text_cols=[2, 5, 6, 7])   # source/summary/keywords/full_text
     _make_headers_only(wb, "my_vectors", ["chunk_id", "vector_csv"], "veryHidden",
                         widths=[32, 100])
+    _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)
+    if _sc:
+        print(f"  初期ナレッジ: {_sd}資料 / {_sc}チャンク / ベクトル{_sv}件"
+              + ("" if _sv else "  ← 未ベクトル化(初回起動で埋め込みが走ります)"))
+    else:
+        print("  初期ナレッジ: なし(--seed 未指定)")
     _make_headers_only(wb, "my_manifest",
                         ["file_path", "file_name", "modified_at", "size", "chunk_count",
                          "status", "error_note", "ingested_at", "origin"],

@@ -121,6 +121,13 @@
       "wave": "2-C"
     },
     {
+      "name": "modSeed",
+      "path": "src/ingest/modSeed.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SEED"
+    },
+    {
       "name": "modEnrich",
       "path": "src/ingest/modEnrich.bas",
       "role": "core",
@@ -378,6 +385,13 @@
       "role": "core",
       "type": "std",
       "wave": "2-F"
+    },
+    {
+      "name": "modStarter",
+      "path": "src/ui/modStarter.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SEED"
     },
     {
       "name": "modUIMain",

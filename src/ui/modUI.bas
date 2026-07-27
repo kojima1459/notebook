@@ -248,6 +248,14 @@ Public Sub UpdateBubbleText(ByVal shapeName As String, ByVal newText As String)
     On Error GoTo 0
 End Sub
 
+' ChatBottomFor - 会話の現在の下端。modStarter が質問ボタンを積む基準に使う
+'   (mChatBottom は Private なので、読み取り専用の窓口だけ開ける)。
+Public Function ChatBottomFor(ByVal ws As Worksheet) As Double
+    If ws Is Nothing Then Exit Function
+    If mChatBottom < modUINexusDraw.ChatTop(ws) Then RecalcChatBottom ws
+    ChatBottomFor = mChatBottom
+End Function
+
 ' 固定UI(ヘッダー+入力欄)を最前面に維持(描画末に必ず呼ぶ)。
 Public Sub BringFixedToFront(ByVal ws As Worksheet)
     On Error Resume Next
@@ -715,7 +723,8 @@ Public Sub RecalcChatBottom(ByVal ws As Worksheet)
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
            Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
-           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 10) = "nx_mentor_" Then
+           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 6) = "nx_sq_" _
+           Or Left$(nm, 10) = "nx_mentor_" Then
             If shp.Top + shp.Height > mChatBottom Then mChatBottom = shp.Top + shp.Height
         End If
     Next shp
@@ -744,7 +753,7 @@ Public Sub ClearChat()
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
            Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
-           Or Left$(nm, 8) = "nx_conf_" Then
+           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 6) = "nx_sq_" Then
             names(n) = nm
             n = n + 1
         End If

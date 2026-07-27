@@ -34,6 +34,9 @@ Public Sub LaunchNexus()
     thx = modP2P.NoticeText()
     If LenB(thx) > 0 Then modUI.AddChatBubble "ai", thx
 
+    ' 押すだけで試せる質問を並べる。初手で「何を聞こう」と考えさせない。
+    modStarter.Draw
+
     modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
     On Error GoTo 0
 End Sub
@@ -85,6 +88,7 @@ Public Sub OnSend()
     modMentor.ClearMentor   ' Mentorボタンも同時に掃除(内部On Error Resume Next=安全弁)
     ClearActions            ' 文脈アクションも消す(質問中はボタン0個=入力に集中)
     ClearConfidence         ' 信頼度バッジはnx_act_ではないので個別に消す
+    modStarter.Clear        ' 質問例も消す(会話が始まったら役目は終わり)
 
     Dim q As String
     q = ReadInputCell()
