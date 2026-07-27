@@ -139,6 +139,24 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Exit Function
     End If
 
+    ' 文字化けページの除去(2026-07-27追加)。
+    '
+    ' 実物の約款PDFで確認: 表紙・裏の連絡先ページが装飾用の埋め込みフォント
+    ' (ToUnicodeマップ無し)で作られていると、抽出結果が制御文字とギリシャ/
+    ' キリル文字の羅列になる。例) "ঝೝʣ(/$ʢʣ ϛη"
+    ' 本文は正常なので既存の画像PDF判定(総文字数)には引っかからず、化けた行が
+    ' そのままチャンクになり、プロンプトに載り、検索の邪魔をする。
+    ' 「答えが的外れ」の原因として最悪の部類で、しかも誰にも見えない。
+    ' ページ単位で落とせば、本文は1文字も失わずにノイズだけ消える。
+    Dim droppedPages As Long
+    droppedPages = DropGarbledPages(pages)
+    If droppedPages > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "extract_garbled", "", _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & " 化けページ" & droppedPages & "件を除外"
+        On Error GoTo ExtractFailed
+    End If
+
     Dim totalChars As Long: totalChars = SumPageChars(pages)
     Dim pageCount As Long: pageCount = PageArrayCount(pages)
 
@@ -285,6 +303,52 @@ Failed:
     End If
     Set st = Nothing
     ExtractPlainText = False
+End Function
+
+' ----------------------------------------------------------------------------
+' DropGarbledPages - 文字化けしたページの本文を空にする(戻り値=落とした数)。
+' ----------------------------------------------------------------------------
+' 判定は「日本語の業務文書には出ない文字」の比率。具体的には
+'   ・制御文字(Chr 0〜31。タブ/改行を除く)
+'   ・キリル文字/ギリシャ文字のブロック
+' これらが本文の2割を超えるページは、フォント由来の化けと見なして捨てる。
+' 保険の約款・ガイドラインにギリシャ文字やキリル文字が2割入ることはない。
+' 短いページ(50字未満)は判定しない(誤爆すると目次や章扉を落としてしまう)。
+Private Function DropGarbledPages(ByRef pages() As ExtractedPage) As Long
+    On Error Resume Next
+    Dim i As Long
+    For i = LBound(pages) To UBound(pages)
+        Dim t As String: t = pages(i).Text
+        If Len(t) >= 50 Then
+            If GarbleRatio(t) > 0.2 Then
+                pages(i).Text = ""
+                DropGarbledPages = DropGarbledPages + 1
+            End If
+        End If
+    Next i
+    On Error GoTo 0
+End Function
+
+' 化け文字の比率(0.0〜1.0)。空白は数えない。
+Private Function GarbleRatio(ByVal s As String) As Double
+    Dim bad As Long, tot As Long
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim c As Long: c = AscW(Mid$(s, i, 1))
+        If c = 32 Or c = 9 Or c = 10 Or c = 13 Or c = &H3000 Then
+            ' 空白類は分母に入れない
+        Else
+            tot = tot + 1
+            If c < 32 Then
+                bad = bad + 1                        ' 制御文字
+            ElseIf c >= &H370 And c <= &H3FF Then
+                bad = bad + 1                        ' ギリシャ文字
+            ElseIf c >= &H400 And c <= &H52F Then
+                bad = bad + 1                        ' キリル文字
+            End If
+        End If
+    Next i
+    If tot > 0 Then GarbleRatio = bad / tot
 End Function
 
 Private Function SumPageChars(pages() As ExtractedPage) As Long
