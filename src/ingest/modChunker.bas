@@ -34,7 +34,7 @@ Option Explicit
 ' ============================================================================
 
 Private Const MAX_CHUNK_CHARS As Long = 32000
-Private Const DEFAULT_TARGET_CHARS As Long = 700
+Private Const DEFAULT_TARGET_CHARS As Long = 1200
 ' 構造チャンクの資料名プレースホルダ(modShelfが実ファイル名へ置換する)
 Private Const CRUMB_PLACEHOLDER As String = "〔資料〕"
 

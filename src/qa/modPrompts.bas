@@ -141,6 +141,15 @@ Public Function BuildExpandPrompt(ByVal q As String, ByVal history As String, _
     Dim sb As String
     sb = "あなたは社内資料検索システムの検索プランナーです。利用者の質問を、" & _
          "ベクトル検索でヒットしやすい形に変換してください。" & vbLf
+    sb = sb & "【保険ドメイン知識】以下の同義語・関連語を積極的に展開すること:" & vbLf & _
+         "・約款=保険契約の条款 / 規約 / 普通保険約款 / 特約" & vbLf & _
+         "・保険金=給付金 / 支払金 / 補償額" & vbLf & _
+         "・被保険者=契約対象者 / 保険の対象" & vbLf & _
+         "・告知義務=通知義務 / 重要事項の説明" & vbLf & _
+         "・免責=支払い対象外 / 補償除外 / 不担保" & vbLf & _
+         "・失効=効力喪失 / 契約切れ / 無効" & vbLf & _
+         "・解約=契約解除 / 取り消し / 中途解約" & vbLf & _
+         "subqueriesには必ずこれらの同義語を使った検索文を含めること。" & vbLf
     If LenB(history) > 0 Then
         sb = sb & vbLf & "## これまでの会話(代名詞や『それ』の解決に使う)" & vbLf & history & vbLf
     End If
@@ -170,6 +179,8 @@ Public Function BuildRerankPrompt(ByVal q As String, hits() As Hit, ByVal nHits 
     Dim sb As String
     sb = "あなたは社内資料検索システムの関連度審査員です。以下の候補チャンクを、" & _
          "質問への関連度が高い順に並べ替えてください。" & vbLf
+    sb = sb & "【重要】関連度が少しでもあるものは全て残し、完全に関係ないものだけを末尾に回す。" & vbLf & _
+         "保険用語の同義語(約款=規約、保険金=給付金、免責=不担保等)で書かれたチャンクも関連ありと判定すること。" & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf & vbLf
     sb = sb & "## 候補チャンク" & vbLf
 
@@ -236,9 +247,9 @@ End Function
 Private Function SafeMaxContextChars() As Long
     Dim v As Long: v = 40000
     On Error Resume Next
-    v = modConfig.GetLong("max_context_chars", 40000)
+    v = modConfig.GetLong("max_context_chars", 100000)
     On Error GoTo 0
-    If v <= 0 Then v = 40000
+    If v <= 0 Then v = 100000
     SafeMaxContextChars = v
 End Function
 

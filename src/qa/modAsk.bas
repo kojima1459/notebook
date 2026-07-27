@@ -663,9 +663,9 @@ End Function
 
 Private Function TopKFor(ByVal mdMode As String) As Long
     If mdMode = MODE_DEEP Then
-        TopKFor = modConfig.GetLong("topk_deep", 12)
+        TopKFor = modConfig.GetLong("topk_deep", 24)
     Else
-        TopKFor = modConfig.GetLong("topk_quick", 6)
+        TopKFor = modConfig.GetLong("topk_quick", 10)
     End If
 End Function
 
