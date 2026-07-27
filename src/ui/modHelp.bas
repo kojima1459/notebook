@@ -211,7 +211,7 @@ Private Sub ShowHelpCard()
     fbBtn.Line.ForeColor.RGB = modUI.UiColor("accent")
     With fbBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCEE) & " ご意見・不具合報告 (EXP+5)"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCEE) & " ご意見・不具合報告"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .TextRange.Font.Bold = -1
@@ -315,7 +315,7 @@ Public Sub OnFeedback()
     If modStats.GetStat(dayKey) = 0 Then
         modStats.Bump dayKey
         modStats.AddExp "feedback"
-        modSkin.ShowToast "ありがとうございます(EXP+5)。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
+        modSkin.ShowToast "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
     Else
         modSkin.ShowToast "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
     End If
@@ -368,7 +368,7 @@ Private Function HelpBodyText() As String
         "「社内ナレッジ検索」(出典付き)と「一般アシスタント」を切替。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCC4) & " 出典チップ: 回答下のチップをクリックすると原文をその場で確認できます。" & vbLf & _
         "アクションバー: " & ChrW(&HD83D) & ChrW(&HDC4D) & "/" & ChrW(&HD83D) & ChrW(&HDC4E) & "で評価、" & ChrW(&HD83D) & ChrW(&HDD0D) & _
-        "深掘り、" & ChrW(&H2705) & "解決した(EXP+作者へ感謝が届く)、" & ChrW(&HD83D) & ChrW(&HDCCB) & _
+        "深掘り、" & ChrW(&H2705) & "解決した(資料を書いた人へ感謝が届く)、" & ChrW(&HD83D) & ChrW(&HDCCB) & _
         "コピー、" & ChrW(&HD83D) & ChrW(&HDCC4) & "Word出力。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫: 資料の登録・検索・カード詳細。品質が低い資料は " & _
         ChrW(&H26A0) & "ノイズ報告 で検索から除外できます。" & vbLf & _

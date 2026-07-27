@@ -6,11 +6,10 @@ Option Explicit
 ' 進捗をmodUIMain経由で実況する(MASTER_SPEC §7.3)。
 '
 ' 設計判断:
-'   ・quick=Search→出典先出し→CallLLMの2段 / deep=+検証の3段。
+'   ・quick=Search→出典先出し→CallLLM / deep=+検証段。
 '   ・Answer()は最終回答テキストのみ返す契約。hits等はmLast*に保持しUIへ渡す。
 '   ・検索0件はLLM未呼び出しで定型文。埋め込み失敗はE0203案内。
 '   ・質問3000字打ち切り、連打防止はmAsking。ESCはErr18で「操作を中断」。
-'   ・続けて質問(D11)はprevU/prevA(新しい順;;;区切り)をCallLLMへ渡す。
 '   ・[[FOLLOWUP:...]]は本文から除去し「深掘り候補」ブロックへ整形する。
 
 Private Const MODE_QUICK As String = "quick"
@@ -24,16 +23,13 @@ Private Const EMPTY_QUESTION_MESSAGE As String = _
 Private Const HISTORY_MAX_TURNS As Long = 3
 Private Const HISTORY_SEP As String = "<<<__QA_TURN__>>>"
 
-' 続けて質問(裁定D11): リボンChatGPT()のprevU/prevA引数の履歴区切り文字
-' (確定: 新しい順;;;区切り。台帳§1 #1+裁定D11)。
+' 続けて質問(D11): prevU/prevA の履歴区切り(新しい順;;;区切り)。
 Private Const FOLLOWUP_PAIR_SEP As String = ";;;"
 
 Private mAsking As Boolean
 Private mHistory As String
 
-' 続けて質問(裁定D11)用のセッション履歴: prevU=過去の質問/prevA=過去の
-' 回答(どちらも新しい順;;;区切り・最大 config followup_max_pairs ペア)。
-' mLastCleanAnswerは深掘り候補ブロック除去後の直近回答本文(履歴保存用)。
+' 続けて質問(D11)用の履歴。mLastCleanAnswerは深掘り候補除去後の本文。
 Private mPrevU As String
 Private mPrevA As String
 Private mLastCleanAnswer As String
@@ -451,7 +447,19 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim subs() As String
     standalone = "": hyde = ""
 
-    If modConfig.GetBool("expand_enabled", False) Then
+    ' 「⚡すぐ聞く」から拡張・再ランクを外す(2026-07-27)。出荷設定では
+    ' すぐ聞くでもLLMを3回叩いていた(①質問書き換え ②並べ替え ③回答)。
+    ' ①②は回答が1文字も出ない待ち時間。速さが唯一の売りのモードで、
+    ' 速さを最初に捨てていた。検索自体は手元のベクトル演算で1〜2秒なので、
+    ' すぐ聞くは「検索+回答1回」に絞る。しっかり調べるは全段そのまま。
+    ' config quick_expand / quick_rerank で従来動作へ戻せる。
+    Dim useExpand As Boolean
+    useExpand = modConfig.GetBool("expand_enabled", False)
+    If mdMode <> MODE_DEEP Then
+        useExpand = useExpand And modConfig.GetBool("quick_expand", False)
+    End If
+
+    If useExpand Then
         modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDED) & " 質問を分析中…"
         Dim lightMode As Boolean
         lightMode = (mdMode <> MODE_DEEP) And modConfig.GetBool("quick_expand_light", True)
@@ -500,7 +508,12 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
     Dim orderN As Long: orderN = 0
     Dim rankOrder() As Long
-    If modConfig.GetBool("rerank_enabled", False) And poolN > topK Then
+    Dim useRerank As Boolean
+    useRerank = modConfig.GetBool("rerank_enabled", False)
+    If mdMode <> MODE_DEEP Then
+        useRerank = useRerank And modConfig.GetBool("quick_rerank", False)
+    End If
+    If useRerank And poolN > topK Then
         modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDEE) & " 関連度を精査中…"
         Dim rkPrompt As String
         rkPrompt = modPrompts.BuildRerankPrompt(q, poolHits, poolN, _
@@ -647,10 +660,8 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     End If
 End Function
 
-' 低関連度警告(表示専用): 検索ヒットの最高スコアがconfig low_hit_warn_score
-' (既定0.3・コサイン類似度+キーワード/2gramボーナスのスケール。modRetrieve.bas
-' 冒頭コメント参照)未満なら、表示用resultの先頭に注意書きを付ける。
-' 0以下の設定値は「無効化」として扱う(閾値なしで常時警告になるのを防ぐ)。
+' 低関連度警告(表示専用): 最高スコアが config low_hit_warn_score(既定0.3)
+' 未満なら注意書きを先頭に付ける。0以下は無効化扱い。
 Private Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal nHits As Long) As String
     ApplyLowHitWarning = result
     Dim threshold As Double
@@ -791,8 +802,7 @@ Private Function ReadModeFromUiState() As String
     Next i
 End Function
 
-' 会話履歴(直近HISTORY_MAX_TURNS往復): V2 modBoot.HistoryBlock/AppendHistory の
-' 簡易版をmodAsk内に内蔵したもの。
+' 会話履歴(直近HISTORY_MAX_TURNS往復)。
 Private Sub AppendHistory(ByVal q As String, ByVal a As String)
     Dim turn As String
     turn = "Q: " & q & vbLf & "A: " & modUtil.SafeLeft(a, 1500)
@@ -832,10 +842,6 @@ Private Function HistoryBlock() As String
     HistoryBlock = out
 End Function
 
-' 深掘り候補(裁定D11): [[FOLLOWUP: 候補1 | 候補2]] のパースと表示整形。
-' V2実証済みの src/chatbot_v2/modPipeline.bas ParseTrailers(FOLLOWUP部)と
-' modChatUI.bas の候補表示を、本モジュール用に移植したもの。
-
 ' [[FOLLOWUP:...]]を分離し「深掘り候補」ブロックを末尾に付けた表示用文字列を返す。
 ' 除去後の本文はmLastCleanAnswerへ。マーカー無し・形式崩れでも壊れない。
 Private Function DecorateWithFollowups(ByVal resp As String) As String
@@ -860,8 +866,7 @@ Private Function DecorateWithFollowups(ByVal resp As String) As String
     DecorateWithFollowups = disp
 End Function
 
-' prevU/prevA用履歴(D11): 成功ターンを新しい順;;;区切りで保持(最大
-' followup_max_pairs)。mHistory(プロンプト内履歴)とは別物。純関数はmodFollowup。
+' prevU/prevA用履歴(D11)。mHistory(プロンプト内履歴)とは別物。
 Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     Dim maxPairs As Long
     maxPairs = modConfig.GetLong("followup_max_pairs", 3)

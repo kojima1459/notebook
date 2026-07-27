@@ -347,8 +347,10 @@ Private Sub CheckBadge(ByVal badgeId As String, ByVal achieved As Boolean, ByVal
 
     SetStatValue key, Format$(Date, "yyyy-mm-dd")
 
-    MsgBox "新しいバッジを獲得しました: " & label & vbLf & _
-        "これからも「マイ本棚AI」を使ってみてください。", vbInformation, modAppDef.APP_NAME
+    ' 旧文面は (a) 廃止済みの旧名「マイ本棚AI」を名乗り、タイトルバーの
+    ' APP_NAME("Nexus Agent")と矛盾していた (b)「これからも使ってみてください」と
+    ' 懇願していた。祝う側が懇願する時点で、祝いになっていない。
+    MsgBox "バッジを獲得しました: " & label, vbInformation, modAppDef.APP_NAME
 End Sub
 
 Private Function ShelfSourceCount() As Long

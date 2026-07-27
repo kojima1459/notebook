@@ -314,10 +314,16 @@ Public Sub OnActBad()
     modAsk.FeedbackRed        ' 記録+知識の穴として部内共有(ここまでは1クリック)
 
     Dim fixText As String
+    ' 「EXP +20」「フィードバックキングのバッジ」で釣るのをやめた。
+    ' 誤った回答を訂正するのは、客先事故を1件止めうる専門職の仕事であって、
+    ' ポイントで報いる対象ではない。42歳の課長がこの文面を横から見たとき、
+    ' 「若手向けのおもちゃ」と判定された時点で、その部署では終わる。
+    ' 本当の見返り(自分の訂正が次から全員の答えになる)は既に実装済み
+    ' (modInsight.EmitCorrection)。それをそのまま書けばいい。
     fixText = InputBox( _
         "もしお分かりでしたら、正しい内容を教えてください。" & vbCrLf & _
-        "書いていただくと EXP +20、修正が貯まると「フィードバックキング」の" & vbCrLf & _
-        "バッジがもらえます。空欄のまま閉じても記録は済んでいます。", _
+        "書いていただいた内容は、次から同じ質問をした人全員の答えになります。" & vbCrLf & _
+        "空欄のまま閉じても、記録は済んでいます。", _
         "Nexus Agent - 正しい内容を教える")
     If LenB(Trim$(fixText)) = 0 Then GoTo Done
 
@@ -340,7 +346,7 @@ Private Sub RecordCorrection(ByVal fixText As String)
         modStats.EvaluateBadges
         ' 修正内容も部内へ共有する。1人の訂正が全員の訂正になる。
         modInsight.EmitCorrection modAsk.LastAnswerText(), fixText
-        modSkin.ShowToast "ありがとうございます。EXP +20。次回から反映します。", "success"
+        modSkin.ShowToast "ありがとうございます。次に同じ質問をした人から、この内容で答えます。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
     End If
@@ -436,7 +442,8 @@ Public Sub OnActUnsure()
     Dim hint As String
     hint = InputBox( _
         "どのあたりが引っかかりましたか?(任意)" & vbCrLf & _
-        "一言でも書いていただくと EXP +20 です。空欄のまま閉じても構いません。", _
+        "一言でも書いていただければ、同じ引っかかりを次の人が踏まずに済みます。" & vbCrLf & _
+        "空欄のまま閉じても構いません。", _
         "Nexus Agent - どこが気になりましたか")
     If LenB(Trim$(hint)) = 0 Then GoTo Done
 
@@ -499,71 +506,16 @@ Done:
     modUiLock.Leave
 End Sub
 
-' OnAttachImage - 📎 クリップボード画像でVisionチャット(GPTV連携)
-Public Sub OnAttachImage()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Fail
-
-    If modConfig.GetBool("mock_llm", True) Then
-        modUiLock.Leave
-        MsgBox "画像チャットは本番環境(AIリボンあり)でのみ動作します。", vbInformation, "Nexus Agent"
-        Exit Sub
-    End If
-
-    Dim hasImg As Variant
-    hasImg = modFeatures.InvokeFeature("vision", "HasClipboardImage", Array())
-    If VarType(hasImg) = vbString Or Not CBool(hasImg) Then
-        modUiLock.Leave
-        MsgBox "クリップボードに画像がありません。" & vbCrLf & _
-               "画面をコピー(Win+Shift+S等)してから、もう一度押してください。", _
-               vbInformation, "Nexus Agent"
-        Exit Sub
-    End If
-
-    Dim prompt As String
-    prompt = ReadInputCell()
-    If LenB(Trim$(prompt)) = 0 Then prompt = "この画像の内容を読み取り、要点を説明してください。"
-    If Len(prompt) > MAX_INPUT_CHARS Then prompt = Left$(prompt, MAX_INPUT_CHARS)   ' A3: 上限で切る
-
-    modUI.AddChatBubble "user", ChrW(&HD83D) & ChrW(&HDCCE) & "(画像) " & prompt
-    ClearInputCell
-
-    Dim b64 As Variant
-    b64 = modGateway.TryRibbonRun("Base64FromCB", Array())
-    Dim ans As String
-    If VarType(b64) = vbString And LenB(CStr(b64)) > 0 And Left$(CStr(b64), 5) <> "#ERR:" Then
-        Dim resp As Variant
-        resp = modGateway.TryRibbonRun("ChatGPTV", Array(prompt, CStr(b64), "", "high", "マイ本棚AI:nexus_vision"))
-        ans = CStr(resp)
-        If LenB(ans) = 0 Or Left$(ans, 5) = "#ERR:" Then
-            ans = "画像の解析に失敗しました。もう一度お試しください。"
-        End If
-    Else
-        ans = "画像の取得に失敗しました。画像をコピーし直してからお試しください。"
-    End If
-
-    Dim bubbleName As String
-    bubbleName = modUI.AddChatBubble("ai", ans)
-    mActiveBubble = bubbleName
-    modUI.MarkActiveBubble bubbleName
-    DrawActions bubbleName
-    On Error Resume Next
-    modUI.SettleChat
-    On Error GoTo 0
-    modUiLock.Leave
-    Exit Sub
-
-Fail:
-    Err.Clear
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
+' 📎 クリップボード画像チャット(OnAttachImage)は削除した(2026-07-27)。
+' 入力欄左の一等地を「📁 資料を入れる」に譲った時点でボタンが無くなり、
+' どこからも呼べない死んだ経路になっていた。画像の取込自体はナレッジ画面の
+' 「📸 スクショ取込」(modUIShelf.OnIngestScreenshot)に生きている。
 
 ' ----------------------------------------------------------------------------
 ' OnAddDocs - 入力欄の左「📁 資料を入れる」。チャットから離れずに資料を入れる。
 ' ----------------------------------------------------------------------------
-' 画面を移動させないのが肝。資料を入れる目的は、たいてい「いま聞きたいこと
-' がある」からで、別画面へ飛ばされると質問のほうを見失う。取り込みが終わったら
+' 画面を移動させないのが肝。資料を入れる目的はたいてい「いま聞きたいことが
+' ある」からで、別画面へ飛ばされると質問のほうを見失う。取り込みが終わったら
 ' 会話の中に結果を出し、そのまま次の一言を打てる状態に戻す。
 Public Sub OnAddDocs()
     If Not modUiLock.Enter() Then Exit Sub
@@ -579,11 +531,7 @@ Public Sub OnAddDocs()
     Dim after As Long
     On Error Resume Next
     after = modShelf.TotalChunks()
-    On Error GoTo Done
-
-    ' 取り込み処理は別シートを触ることがあるので、必ずチャットへ戻す。
-    On Error Resume Next
-    modUI.GoToNexus "modApp.OnAddDocs"
+    modUI.GoToNexus "modApp.OnAddDocs"   ' 取込は別シートを触るので必ず戻す
     On Error GoTo Done
 
     If after > before Then
@@ -592,8 +540,8 @@ Public Sub OnAddDocs()
             "これで、この資料の中身について「どのページに書いてあるか」まで付けてお答えできます。" & vbLf & _
             "さっそく、いま知りたいことをそのまま聞いてみてください。"
     Else
-        ' 0件のときに黙って戻ると「壊れた?」になる。取り消したのか
-        ' 失敗したのかを言い切らず、次の一手だけ示す。
+        ' 0件のときに黙って戻ると「壊れた?」になる。取り消したのか失敗したのかを
+        ' 言い切らず、次の一手だけ示す。
         modUI.AddChatBubble "ai", _
             "資料は追加されませんでした。" & vbLf & _
             "対応しているのは PDF / Word / Excel / テキスト です。" & vbLf & _
@@ -688,9 +636,13 @@ Public Sub OnToggleSpeed()
     On Error GoTo 0
 End Sub
 
+' 2つのモードは「速い/遅い」ではなく「何をするか」が違う。
+' そこが伝わらないと、利用者は選びようがない(選べない選択肢は認知負荷でしかない)。
+'   すぐ聞く       = 検索して答える
+'   しっかり調べる = 質問を分析 → 広く検索 → 関連度を精査 → 下書き → 資料と照合
 Public Function SpeedCaption() As String
     If ReadUiState("mode", "quick") = "deep" Then
-        SpeedCaption = ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる"
+        SpeedCaption = ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる(照合あり)"
     Else
         SpeedCaption = ChrW(&H26A1) & " すぐ聞く"
     End If

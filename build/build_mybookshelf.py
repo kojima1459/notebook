@@ -218,6 +218,8 @@ def build_config_rows(mock_llm: bool):
         ("expand_verbosity", "low", "拡張段のverbosity"),
         ("multi_candidates", 40, "マルチクエリ検索の候補プール上限"),
         ("rerank_enabled", True, "TRUE=候補チャンクをAIで再ランクしてから回答生成する"),
+        ("quick_expand", False, "TRUE=「すぐ聞く」でも質問拡張を行う(AI呼び出しが1回増え数秒遅くなる)"),
+        ("quick_rerank", False, "TRUE=「すぐ聞く」でも再ランクを行う(AI呼び出しが1回増え数秒遅くなる)"),
         ("rerank_model", "", "再ランク段のモデル(空=quick_modelを使用)"),
         ("rerank_effort", "low", "再ランク段のreasoning_effort"),
         ("rerank_verbosity", "low", "再ランク段のverbosity"),

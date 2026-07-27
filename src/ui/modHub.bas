@@ -14,7 +14,6 @@ Option Explicit
 
 Private Const HDR_H As Double = 48
 Private Const CARD_H As Double = 68
-Private Const GAUGE_H As Double = 8
 Private Const NAV_H As Double = 46
 Private Const NAV_GAP As Double = 8
 Private Const CHIP_H As Double = 22
@@ -201,22 +200,28 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
     modSkin.ApplyLightShadow card
 
     Dim nm As String, dept As String
-    Dim lvl As Long, ex As Long
     On Error Resume Next
     nm = Trim$(modConfig.GetString("pack_author", ""))
     dept = Trim$(modConfig.GetString("user_department", ""))
-    lvl = modStats.Level()
-    ex = modStats.ExpTotal()
     On Error GoTo 0
     If LenB(nm) = 0 Or nm = "名称未設定" Then nm = "ゲスト ユーザー"
-    If lvl < 1 Then lvl = 1
 
+    ' 2行目は「Lv.3  EXP 240」だった。琥珀色のゲージ付きで、Hubのいちばん
+    ' 目立つ位置に常時出ていた。
+    ' 42歳の課長が部下の画面を横から見て、レベルと経験値バーが載っている
+    ' 業務ツールをどう判定するか ―― 「若手向けのおもちゃ」で終わる。
+    ' 「すごいですね」と言われて使われない、あの反応の一因がここにある。
+    '
+    ' JTCで実際に価値のある通貨は、点数ではなく「同僚の役に立った事実」。
+    ' 幸い thanks_received_total は既に集計されている(modP2P)。
+    ' 同じ場所に、点数の代わりにそれを置く。こちらは自慢しても角が立たない。
+    ' EXP自体は内部に残す(きせかえの解放条件に使っている)。表に出さないだけ。
     ' Paragraphsで書式を分けるため区切りはvbCr(vbLfだと1段落のまま)。
     With card.TextFrame2
         .WordWrap = -1
-        .MarginLeft = 14: .MarginTop = 8: .MarginRight = 10
+        .MarginLeft = 14: .MarginTop = 10: .MarginRight = 10
         .TextRange.Text = nm & IIf(LenB(dept) > 0, "  (" & dept & ")", "") & vbCr & _
-            "Lv." & lvl & "   EXP " & ex
+            ContributionLine()
         .TextRange.Font.Size = 11
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         On Error Resume Next
@@ -226,46 +231,25 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
         .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         On Error GoTo 0
     End With
-
-    DrawExpGauge ws, L + 12, T + CARD_H - 14, W - 24, lvl, ex
 End Sub
 
-Private Sub DrawExpGauge(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
-                         ByVal W As Double, ByVal lvl As Long, ByVal ex As Long)
-    Dim bg As Shape
-    Set bg = ws.Shapes.AddShape(5, L, T, W, GAUGE_H)
-    bg.Name = "nx_hub_expbg"
-    bg.Adjustments(1) = 0.5
-    bg.Line.Visible = 0
-    bg.Fill.ForeColor.RGB = modUI.UiColor("border")
+' プロフィール2行目。点数ではなく、その人がどう役に立ったかを書く。
+' まだ何も無い人には、責める言葉にならないよう所属だけ/空にする。
+Private Function ContributionLine() As String
+    Dim thanks As Long, solved As Long
+    thanks = SafeStat("thanks_received_total")
+    solved = SafeStat("selfsolve_total")
 
-    Dim divisor As Long
-    On Error Resume Next
-    divisor = modConfig.GetLong("exp_level_divisor", 100)
-    On Error GoTo 0
-    If divisor < 1 Then divisor = 100
+    If thanks > 0 Then
+        ContributionLine = ChrW(&HD83C) & ChrW(&HDF31) & _
+            " あなたが入れた資料で、これまで " & thanks & "人が解決しました"
+    ElseIf solved > 0 Then
+        ContributionLine = ChrW(&H2705) & " これまで " & solved & "件を自分で解決しました"
+    Else
+        ContributionLine = "資料を入れて質問すると、ここに記録が残ります"
+    End If
+End Function
 
-    ' Lv = Int(sqrt(EXP/divisor)) + 1 の逆算(modStats.Levelと同じ曲線)。
-    Dim curFloor As Double, nextFloor As Double
-    curFloor = CDbl(lvl - 1) * CDbl(lvl - 1) * divisor
-    nextFloor = CDbl(lvl) * CDbl(lvl) * divisor
-
-    Dim progress As Double
-    If nextFloor > curFloor Then progress = (CDbl(ex) - curFloor) / (nextFloor - curFloor)
-    If progress < 0# Then progress = 0#
-    If progress > 1# Then progress = 1#
-
-    Dim fillW As Double: fillW = W * progress
-    If fillW < 3 Then Exit Sub          ' 0%は描かない(1pxの謎バーを出さない)
-
-    Dim fl As Shape
-    Set fl = ws.Shapes.AddShape(5, L, T, fillW, GAUGE_H)
-    fl.Name = "nx_hub_expfill"
-    fl.Adjustments(1) = 0.5
-    fl.Line.Visible = 0
-    fl.Fill.ForeColor.RGB = modUI.UiColor("accent")
-    modSkin.ApplyGradient fl, RGB(245, 158, 11), RGB(251, 191, 36)   ' §9: amber
-End Sub
 
 ' 統計タイル8枚。セルのMerge+罫線は「表」の記号そのもので、罫線を消しても
 ' 格子に見える。角丸Shape+影にして「セル感」を消す。座標は左ブロック(B:F)から。
@@ -779,7 +763,7 @@ Public Sub OnAnonFeedback()
         modStats.AddExp "feedback"
         On Error GoTo 0
         MsgBox "ありがとうございます。匿名で届きました。" & vbCrLf & _
-               "いただいた声は改善に使わせていただきます。(EXP +5)", _
+               "いただいた声は改善に使わせていただきます。", _
                vbInformation, modAppDef.APP_NAME
     Else
         ' 共有フォルダに書けない環境ではメール経路へ逃がす(黙って捨てない)。
