@@ -560,127 +560,66 @@ Public Sub OnChannels()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
-    Dim all As String, cur As String
+    Dim all As String
     On Error Resume Next
     all = modChannel.ListChannels()
-    cur = modChannel.ActiveChannel()
     On Error GoTo Done
 
     If LenB(all) = 0 Then
         modUiLock.Leave
         MsgBox "部門の公式ナレッジがまだ1つも見つかりません。" & vbCrLf & vbCrLf & _
-            "各部門が正典を発行すると、ここに一覧が出ます。" & vbCrLf & _
+            "各部門が正典を発行すると、自動でここに現れます。" & vbCrLf & _
             "(共有フォルダの channels\<部門名>\ に pack.xlsx と version.txt が置かれる形です)" & vbCrLf & vbCrLf & _
             "共有フォルダ自体が未設定の場合は、Hubのお知らせから設定してください。", _
             vbInformation, modAppDef.APP_NAME
         Exit Sub
     End If
 
-    Dim body As String
-    body = "聞きたい分野の部門を1つ選んでください。" & vbCrLf & _
-           "選ぶと、その部門の公式ナレッジが本棚に読み込まれます。" & vbCrLf & vbCrLf
-    If LenB(cur) > 0 Then
-        body = body & "  いま接続中: 【" & cur & "】" & vbCrLf & vbCrLf
-    Else
-        body = body & "  いま接続中: (なし)" & vbCrLf & vbCrLf
-    End If
-
-    body = body & "■ 選べる部門" & vbCrLf
+    ' 2026-07-27: 「どの部門か」を利用者に選ばせるのをやめた。
+    '
+    ' 以前はここで、アプリが既に知っている部門名を一覧表示したうえで、その
+    ' どれかを利用者にInputBoxへ打ち直させていた。さらに「常時つないでおける
+    ' のは1部門だけ」「切り替えると前の部門は本棚から外れます」と説明していた。
+    ' これは modChannel 冒頭のコメントが「誤りだった」と名指ししている設計
+    ' そのもの ―― 聞く前に分野を自分で判断させた時点で、ポータルを探し回る
+    ' のと同じ認知負荷が生まれる。実務は「今日は商品、明日はシステム」であり、
+    ' 分野の判定は人間ではなく検索側の仕事。
     Dim parts() As String: parts = Split(all, "|")
+    Dim n As Long: n = UBound(parts) - LBound(parts) + 1
+
+    Dim listText As String
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
-        Dim mark As String
-        If StrComp(parts(i), cur, vbTextCompare) = 0 Then
-            mark = ChrW(&H25CF) & " "
-        Else
-            mark = ChrW(&H25CB) & " "
-        End If
-        body = body & "  " & mark & parts(i)
-        If StrComp(parts(i), cur, vbTextCompare) = 0 Then
-            If modChannel.RemoteVersion(parts(i)) <> modChannel.LocalVersion(parts(i)) Then
-                body = body & "  ← 更新があります"
-            End If
-        End If
-        body = body & vbCrLf
+        listText = listText & "  ・" & parts(i) & vbCrLf
     Next i
-
-    body = body & vbCrLf & "■ 本棚の使用量: " & modChannel.ChunkUsagePercent() & "%" & vbCrLf & vbCrLf & _
-           "【切り替えについて】" & vbCrLf & _
-           "  ・常時つないでおけるのは1部門だけです" & vbCrLf & _
-           "  ・切り替えると前の部門の内容は本棚から外れます" & vbCrLf & _
-           "    (あなたが自分で入れた資料は消えません)" & vbCrLf & _
-           "  ・分量によっては読み込みに1〜2分かかります" & vbCrLf & vbCrLf & _
-           "接続する部門名を入力してください(空欄で閉じる)。"
-
-    Dim ans As String
-    ans = Trim$(InputBox(body, modAppDef.APP_NAME & " - 部門の公式ナレッジ"))
-    If LenB(ans) = 0 Then GoTo Done
-
-    ' 入力された名前が実在するか確認する(打ち間違いで無言で失敗させない)。
-    Dim found As Boolean
-    For i = LBound(parts) To UBound(parts)
-        If StrComp(parts(i), ans, vbTextCompare) = 0 Then
-            ans = parts(i)
-            found = True
-            Exit For
-        End If
-    Next i
-    If Not found Then
-        modUiLock.Leave
-        MsgBox "「" & ans & "」という部門は見つかりませんでした。" & vbCrLf & _
-               "一覧に表示されている名前をそのまま入力してください。", _
-               vbExclamation, modAppDef.APP_NAME
-        Exit Sub
-    End If
 
     modUiLock.Leave
-    DoSwitch ans
+    If MsgBox("見つかった " & n & " 部門の公式ナレッジを、まとめて本棚に読み込みます。" & vbCrLf & vbCrLf & _
+              listText & vbCrLf & _
+              "以後はどの分野の質問でも、部門を選ばずにそのまま聞けます。" & vbCrLf & _
+              "(あなたが自分で入れた資料はそのまま残ります)" & vbCrLf & vbCrLf & _
+              "分量によっては数分かかることがあります。よろしいですか?", _
+              vbOKCancel + vbQuestion, modAppDef.APP_NAME & " - 部門の公式ナレッジ") <> vbOK Then Exit Sub
+
+    Dim result As String
+    On Error Resume Next
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の公式ナレッジを読み込んでいます…"
+    result = modChannel.SubscribeAllAvailable()
+    modUIMain.SetStage ""
+    On Error GoTo 0
+
+    On Error Resume Next
+    modHub.EnsureHubLayout
+    On Error GoTo 0
+
+    MsgBox result & vbCrLf & vbCrLf & _
+           "本棚の使用量: " & modChannel.ChunkUsagePercent() & "%", _
+           vbInformation, modAppDef.APP_NAME
     Exit Sub
 Done:
     modUiLock.Leave
 End Sub
 
-' 部門の切り替え。時間がかかる処理なので、始まる前に必ず予告する。
-' 「押したあと固まったように見える」が離脱の最大要因なので、
-' 待ち時間の見込みを先に言い、終わったら結果を必ず出す。
-Private Sub DoSwitch(ByVal chName As String)
-    On Error Resume Next
-
-    If MsgBox("【" & chName & "】に接続します。" & vbCrLf & vbCrLf & _
-              "読み込みの間、画面が止まったように見えることがあります。" & vbCrLf & _
-              "そのままお待ちください(分量によっては1〜2分)。" & vbCrLf & vbCrLf & _
-              "実行しますか?", vbOKCancel + vbQuestion, _
-              modAppDef.APP_NAME) <> vbOK Then Exit Sub
-
-    Application.Cursor = 2                      ' xlWait
-    Application.StatusBar = "【" & chName & "】を読み込んでいます..."
-
-    Dim got As Long
-    got = modChannel.SwitchTo(chName)
-
-    Application.Cursor = -4143                  ' xlDefault
-    Application.StatusBar = False
-
-    If got = -1 Then
-        MsgBox "【" & chName & "】は既に最新の状態で接続されています。" & vbCrLf & _
-               "そのまま質問できます。", vbInformation, modAppDef.APP_NAME
-    ElseIf got > 0 Then
-        On Error Resume Next
-        modHub.EnsureHubLayout                  ' 使用量タイルと接続中表示を更新
-        On Error GoTo 0
-        MsgBox "【" & chName & "】に接続しました(" & got & " 件)。" & vbCrLf & vbCrLf & _
-               "この分野の質問に、出典つきで答えられます。" & vbCrLf & _
-               "別の分野を聞きたくなったら、また部門を切り替えてください。", _
-               vbInformation, modAppDef.APP_NAME
-    Else
-        MsgBox "【" & chName & "】を読み込めませんでした。" & vbCrLf & vbCrLf & _
-               "・共有フォルダにつながっているか" & vbCrLf & _
-               "・その部門がまだ正典を発行していないか" & vbCrLf & _
-               "をご確認ください。もう一度試すと成功することもあります。", _
-               vbExclamation, modAppDef.APP_NAME
-    End If
-    On Error GoTo 0
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' 正典の発行(1操作で完結)。

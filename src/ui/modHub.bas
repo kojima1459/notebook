@@ -519,8 +519,8 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     ElseIf LenB(modChannel.ActiveChannel()) = 0 Then
         ' まだどの部門にもつないでいない。ここを案内しないと、
         ' 「聞いても答えが返ってこない」理由が利用者に分からない。
-        cap = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門の公式ナレッジにまだ接続していません" & vbCr & _
-              "押すと部門を選べます。選ぶだけで、その分野の質問に答えられるようになります"
+        cap = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門の公式ナレッジをまだ読み込んでいません" & vbCr & _
+              "押すと全部門をまとめて取り込みます。以後は分野を選ばずそのまま聞けます"
         act = "modKnowledge.OnChannels"
     ElseIf LenB(chPend) > 0 Then
         ' 正典の改定は最優先で知らせる。古い版のまま使い続けると、AIが
@@ -531,7 +531,7 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         act = "modKnowledge.OnChannels"
     ElseIf modChannel.IsBudgetTight() Then
         cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
-              "押すと部門チャンネルの購読を見直せます(使っていないものを外すと空きます)"
+              "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
         act = "modKnowledge.OnChannels"
     ElseIf qaN > 0 Then
         cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _

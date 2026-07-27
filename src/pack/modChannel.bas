@@ -475,12 +475,109 @@ End Function
 ' 今つないでいる部門の表示用ラベル(ヘッダーに常時出す)。
 Public Function ActiveLabel() As String
     On Error Resume Next
-    Dim c As String: c = ActiveChannel()
-    If LenB(c) = 0 Then
-        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門: 未接続"
+    Dim have As Long, all As Long
+    have = SubscribedCount(all)
+    If have <= 0 Then
+        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門: 未読込"
+    ElseIf have >= all Then
+        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 全" & all & "部門"
     Else
-        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " " & c
+        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " " & have & "/" & all & "部門"
     End If
+    On Error GoTo 0
+End Function
+
+' SubscribedCount - 読み込み済みの部門数(totalに発見できた総数を返す)。
+Public Function SubscribedCount(ByRef total As Long) As Long
+    On Error Resume Next
+    Dim all As String: all = ListChannels()
+    If LenB(all) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(all, "|")
+    total = UBound(parts) - LBound(parts) + 1
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(LocalVersion(parts(i))) > 0 Then SubscribedCount = SubscribedCount + 1
+    Next i
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' SubscribeAllAvailable - 見つかった部門を「全部」読み込む/更新する。
+' ----------------------------------------------------------------------------
+' 本モジュール冒頭のコメントは、こう書いてある:
+'   「必要なものだけ購読」は誤りだった。聞く前に分野を判断して購読操作を
+'   させた時点で、ポータルを探し回るのと同じ認知負荷が発生する。
+'   解決したかった問題を作り直してしまう。既定で全チャンネルを購読する。
+' ところが実装は SwitchTo 一本で、1部門だけを常駐させ、切り替えのたびに
+' 前の部門を消していた。書き残した失敗モードを、そのまま作ってしまっていた。
+' (DESIGN_v3 §9 は SubscribeAllAvailable が実装済みと書いていたが、
+'  この関数は存在しなかった。ここで実際に用意する。)
+'
+' 全部入れて成立するのか:
+'   チャンク上限は 20,000(config shelf_max_chunks)。正典はQ&A粒度で
+'   1件1〜2チャンクなので、6部門×500件でも 3,000〜6,000。個人の本棚
+'   (20冊で〜2,800)を足しても 9,000 前後で収まる。数字は足りている。
+'
+' データ構造上も問題ない:
+'   各チャンネルのチャンクは origin="pack:<部門名>" で区別され、
+'   PurgeChannelChunks はその部門の分だけを消す。SyncChannel も取り込み前に
+'   自分の旧版だけを掃除する。つまり複数部門の同居は元から成立していて、
+'   単一常駐を強制していたのは SwitchTo の「前の部門を消す」1行だけだった。
+'
+' 予算保護:
+'   上限の9割に達したらそこで止め、何を入れて何を見送ったかを返す。
+'   黙って打ち切らない(残りは版が変わったときに改めて入る)。
+Public Function SubscribeAllAvailable() As String
+    On Error Resume Next
+    Dim all As String: all = ListChannels()
+    If LenB(all) = 0 Then
+        SubscribeAllAvailable = ""
+        Exit Function
+    End If
+
+    Dim parts() As String: parts = Split(all, "|")
+    Dim okN As Long, skipN As Long, chunkN As Long
+    Dim doneNames As String, skipNames As String
+
+    Dim guard As Long: guard = CLng(ChunkLimit() * 0.9)
+    If guard < 1 Then guard = 18000
+
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim nm As String: nm = parts(i)
+        If LenB(nm) > 0 And IsSubscribed(nm) Then
+            If RemoteVersion(nm) <> LocalVersion(nm) Then
+                If modShelf.TotalChunks() >= guard Then
+                    skipN = skipN + 1
+                    skipNames = skipNames & IIf(LenB(skipNames) > 0, "/", "") & nm
+                Else
+                    Dim got As Long
+                    got = SyncChannel(nm)
+                    If got > 0 Then
+                        okN = okN + 1
+                        chunkN = chunkN + got
+                        doneNames = doneNames & IIf(LenB(doneNames) > 0, "/", "") & nm
+                    End If
+                End If
+            End If
+        End If
+    Next i
+
+    ' 「どの部門につないでいるか」という単一の概念は無くなったが、
+    ' 既存UI(ヘッダー表示・お知らせ)が空文字を「未接続」と解釈するため、
+    ' 1つでも入っていることを示す目印として先頭の部門名を入れておく。
+    If okN > 0 Then modConfig.SetValue "active_channel", parts(LBound(parts))
+
+    Dim sb As String
+    If okN > 0 Then
+        sb = okN & "部門を読み込みました(" & doneNames & " / 合計" & chunkN & "件)。"
+    Else
+        sb = "すべて最新です。読み込み直すものはありませんでした。"
+    End If
+    If skipN > 0 Then
+        sb = sb & vbLf & "本棚の空きが足りないため " & skipN & "部門は見送りました(" & skipNames & ")。"
+    End If
+    SubscribeAllAvailable = sb
     On Error GoTo 0
 End Function
 
