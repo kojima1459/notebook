@@ -250,10 +250,6 @@ CONTRACT: dict[str, dict] = {
             "OnPickFolder", "OnExportPack", "OnImportPack", "OnDeleteSource",
         ],
     },
-    "modUIDashboard": {
-        "closed": True,
-        "required": ["EnsureLayout", "RenderDashboard"],
-    },
     "modBoot": {
         "closed": True,
         # RunFirstRunPromptEarly(2026-07-21追加): 自己インストーラの

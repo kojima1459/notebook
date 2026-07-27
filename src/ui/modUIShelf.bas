@@ -464,10 +464,6 @@ Private Sub RefreshBadgesAndDashboard()
     On Error Resume Next
     modStats.EvaluateBadges
     On Error GoTo 0
-
-    On Error Resume Next
-    modUIDashboard.RenderDashboard
-    On Error GoTo 0
 End Sub
 
 Private Sub RefreshFolderInfo(ByVal ws As Worksheet)

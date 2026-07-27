@@ -394,13 +394,6 @@
       "wave": "2-F"
     },
     {
-      "name": "modUIDashboard",
-      "path": "src/ui/modUIDashboard.bas",
-      "role": "core",
-      "type": "std",
-      "wave": "2-F"
-    },
-    {
       "name": "modBoot",
       "path": "src/ui/modBoot.bas",
       "role": "core",

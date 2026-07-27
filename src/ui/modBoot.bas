@@ -72,9 +72,6 @@ Public Sub Boot()
         On Error Resume Next
         modUIShelf.EnsureLayout
         On Error GoTo 0
-        On Error Resume Next
-        modUIDashboard.EnsureLayout
-        On Error GoTo 0
         Exit Sub
     End If
 
@@ -144,11 +141,9 @@ Public Sub Boot()
     LogBootStageErrorIfAny bootStage
     On Error GoTo Failed
 
-    bootStage = "ダッシュボード画面の組み立て"
-    On Error Resume Next
-    modUIDashboard.EnsureLayout
-    LogBootStageErrorIfAny bootStage
-    On Error GoTo Failed
+    ' 「ダッシュボード」シート(SH_DASH)の組み立ては削除した(2026-07-27)。
+    ' このシートへ遷移するコードはソース全体に1行も無く、起動のたびに
+    ' 誰も到達できない画面を作っていた。統計の表示先はHubとDashboard画面。
     bootStage = ""
 
     ' Wave4修正: modStats.TouchToday(streak_days/last_used_date更新)を
@@ -162,9 +157,6 @@ Public Sub Boot()
 
     On Error Resume Next
     modStats.EvaluateBadges
-    On Error GoTo 0
-    On Error Resume Next
-    modUIDashboard.RenderDashboard
     On Error GoTo 0
 
     ' 本棚が空なら回答エリアに常設案内を出す
@@ -400,6 +392,8 @@ Private Sub HideInternalSheets()
     HideSheetSafely modAppDef.SH_UISTATE, VERY_HIDDEN
     HideSheetSafely "vba_src", VERY_HIDDEN
 
+    ' 到達導線が無く中身も描かなくなったので隠す(空の可視シートを残さない)。
+    HideSheetSafely modAppDef.SH_DASH, HIDDEN
     HideSheetSafely modAppDef.SH_CONFIG, HIDDEN
     HideSheetSafely modAppDef.SH_MANIFEST, HIDDEN
     HideSheetSafely modAppDef.SH_STATS, HIDDEN
