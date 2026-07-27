@@ -12,7 +12,7 @@ Option Explicit
 '   ・TextFrame2.Paragraphsは vbCr でしか分割されない。複数段落に書式を当てる
 '     ときは必ず vbCr を使う(vbLfだとParagraphs(2)が範囲外エラーになる)。
 
-Private Const HDR_H As Double = 40
+Private Const HDR_H As Double = 48
 Private Const CARD_H As Double = 68
 Private Const GAUGE_H As Double = 8
 Private Const NAV_H As Double = 46
@@ -131,6 +131,8 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
                  "modHub.OnHelp", "modHub.OnSaveAndExit")
     tips = Array("回答言語を切り替える", "配色を切り替える", "画面を描き直す", _
                  "匿名で感想・要望を送る", "ヘルプ・使い方", "保存して閉じる")
+    Dim shortLabels As Variant
+    shortLabels = Array("言語", "配色", "再描画", "ご意見", "使い方", "終了")
 
     Dim xRight As Double: xRight = L + W - 8
     Dim i As Long
@@ -152,6 +154,30 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         btn.OnAction = CStr(acts(i))
         On Error Resume Next
         btn.AlternativeText = CStr(tips(i))
+        On Error GoTo 0
+
+        ' Excelの図形はマウスを乗せても代替テキストがツールチップとして
+        ' 出ない。アイコンだけでは何のボタンか分からないという実機報告に
+        ' 対し、真下に小さな文字ラベルを必ず添える。
+        On Error Resume Next
+        Dim cap As Shape
+        Set cap = ws.Shapes.AddShape(1, xRight - 10, HDR_H - 11, 46, 10)
+        If Not cap Is Nothing Then
+            cap.Name = "nx_hub_icl" & i
+            cap.Line.Visible = 0
+            cap.Fill.Visible = 0
+            With cap.TextFrame2
+                .WordWrap = 0
+                .TextRange.Text = CStr(shortLabels(i))
+                .TextRange.Font.Size = 6
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(190, 210, 235)
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
+            End With
+        End If
+        Set cap = Nothing
+        Err.Clear
         On Error GoTo 0
     Next i
 End Sub
@@ -238,20 +264,27 @@ Private Sub DrawExpGauge(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Do
     modSkin.ApplyGradient fl, RGB(245, 158, 11), RGB(251, 191, 36)   ' §9: amber
 End Sub
 
-' 統計タイル8枚。実機要望(2026-07-26)「セル感を消したい」への対処で、
-' セルのMerge+罫線から角丸Shape+影に作り替えた。セルの矩形は等間隔・直角・
-' 罫線という「表」の記号そのもので、罫線を消しても格子として認識されるため。
-' 座標は左ブロック(B:F)の実測幾何から2列×4段で割り付ける。
+' 統計タイル8枚。セルのMerge+罫線は「表」の記号そのもので、罫線を消しても
+' 格子に見える。角丸Shape+影にして「セル感」を消す。座標は左ブロック(B:F)から。
 Private Sub DrawStatTiles(ByVal ws As Worksheet)
     Dim labels As Variant, vals As Variant
     labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
-                   ChrW(&H23F1) & " 取り戻した時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
+                   ChrW(&H23F1) & " 節約できた時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
                    ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今月)", _
                    ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有")
-    vals = Array(CStr(AskTotal()), CStr(SafeStat("selfsolve_total")), _
-                 FmtMin(SafeSavedMinutes()), ChunkUsage(), _
-                 OrgMin("d"), OrgMin("m"), _
-                 SafeStat("streak_days") & "日", CStr(SafeStat("pack_export_total")))
+    ' 実機報告(2026-07-27)「一部のタイルが真っ白」対策: Array()内で直接
+    ' 関数を呼ぶと1つの失敗が空文字になる。1つずつ受けて必ず値を入れる。
+    Dim vAsk As String, vSolve As String, vSaved As String, vUse As String
+    Dim vOrgD As String, vOrgM As String, vStreak As String, vPack As String
+    vAsk = NumText(AskTotal())
+    vSolve = NumText(SafeStat("selfsolve_total"))
+    vSaved = FmtMin(SafeSavedMinutes())
+    vUse = ChunkUsage()
+    vOrgD = OrgMin("d")
+    vOrgM = OrgMin("m")
+    vStreak = NumText(SafeStat("streak_days")) & "日"
+    vPack = NumText(SafeStat("pack_export_total"))
+    vals = Array(vAsk, vSolve, vSaved, vUse, vOrgD, vOrgM, vStreak, vPack)
 
     ' 左ブロックの幾何。D列(溝)を挟んで B:C と E:F の2枚並び。
     Dim colL As Double, colW As Double, gutter As Double
@@ -433,9 +466,7 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     DrawInbox ws, L, W, T + 20 + CHIP_H + 8 + 26 + 12
 End Sub
 
-' 共有知のお知らせ。届いた「解決済みQ&A」と「みんなの困りごと」の件数を出し、
-' 1クリックでそれぞれの行き先へ送る。ここが無いと、せっかく届いた知見が
-' 誰にも気づかれないまま眠る(通知が無い共有機能は使われない)。
+' 共有知のお知らせ。通知が無い共有機能は使われないので、件数と行き先を出す。
 Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
                       ByVal W As Double, ByVal T As Double)
     Dim qaN As Long, gapN As Long
@@ -651,13 +682,15 @@ Public Sub OnLangCycle()
     On Error GoTo 0
 End Sub
 
+' modSkin.CycleSkin 自身が modUiLock を取る。modUiLockは非再入なので、
+' ここで先に取ると内側のEnterがFalseになり、配色が一切変わらないまま
+' ステータスバーの「処理中です...」だけが残る(実機で再現した不具合)。
+' 素通しにして、CycleSkin の完了後にHubを描き直す。
 Public Sub OnThemeToggle()
-    If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modSkin.CycleSkin
     EnsureHubLayout
     On Error GoTo 0
-    modUiLock.Leave
 End Sub
 
 ' modHelp.OnHelpClick自身がmodUiLockを取る。modUiLockは非再入なので、
@@ -766,8 +799,7 @@ End Sub
 
 ' ---- 内部ヘルパー ----
 
-' 前回のHub Shapeに加え、旧ホーム画面(modUIMain)のbtn_/lbl_も消す。
-' nx_hub_だけ消すと旧ボタンが新レイアウトの上に浮いたまま残る。
+' nx_hub_ に加え旧ホーム画面のbtn_/lbl_も消す(残ると上に浮く)。
 Private Sub RemoveHubShapes(ByVal ws As Worksheet)
     Dim names() As String
     ReDim names(0 To ws.Shapes.Count)
@@ -787,6 +819,12 @@ Private Sub RemoveHubShapes(ByVal ws As Worksheet)
         On Error GoTo 0
     Next i
 End Sub
+
+' 数値を必ず表示できる文字列にする(空欄にしない)。
+Private Function NumText(ByVal v As Long) As String
+    NumText = CStr(v)
+    If LenB(NumText) = 0 Then NumText = "0"
+End Function
 
 Private Function SafeStat(ByVal key As String) As Long
     On Error Resume Next
@@ -823,11 +861,12 @@ End Function
 
 Private Function FmtMin(ByVal minutes As Long) As String
     If minutes < 60 Then
-        FmtMin = minutes & "分"
+        FmtMin = CStr(minutes) & "分"
     Else
-        FmtMin = (minutes \ 60) & "時間"
-        If (minutes Mod 60) > 0 Then FmtMin = FmtMin & (minutes Mod 60) & "分"
+        FmtMin = CStr(minutes \ 60) & "時間"
+        If (minutes Mod 60) > 0 Then FmtMin = FmtMin & CStr(minutes Mod 60) & "分"
     End If
+    If LenB(FmtMin) = 0 Then FmtMin = "0分"
 End Function
 
 Private Function OrgMin(ByVal period As String) As String

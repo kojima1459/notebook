@@ -65,12 +65,19 @@ Public Sub Show()
     DrawHeaderRow ws, baseRow
 
     If n = 0 Then
-        With ws.Range("B" & (baseRow + 2) & ":N" & (baseRow + 4))
+        With ws.Range("B" & (baseRow + 2) & ":N" & (baseRow + 12))
             .Merge
             .WrapText = True
-            .Value = "まだ届いていません。" & vbLf & _
-                "誰かが回答に「" & ChrW(&H2705) & " 解決した」を押すと、その質問と答えが" & _
-                "ここに届きます。要るものだけを選んで本棚に入れてください。"
+            ' 空のときこそ丁寧に。「押したけど何も起きない」が一番の離脱要因。
+            .Value = ChrW(&HD83C) & ChrW(&HDF81) & " この画面は「部内のみんなが解決した質問と答え」が集まる場所です。" & vbLf & vbLf & _
+                "■ まだ1件も届いていません" & vbLf & _
+                "  誰かがチャットで質問し、良い答えが出たときに「" & ChrW(&H2705) & " 解決した」を" & vbLf & _
+                "  押すと、その質問と答えがここへ自動で届きます。" & vbLf & vbLf & _
+                "■ 届いたら何をするか" & vbLf & _
+                "  左の□をクリックして、自分に必要なものだけ選び、" & vbLf & _
+                "  上の「" & ChrW(&H2713) & " 選択を取り込む」を押します。" & vbLf & _
+                "  取り込んだ内容は、次から自分の質問の答えに使われます。" & vbLf & vbLf & _
+                "  ※ 全部取り込む必要はありません。既に知っていることは選ばなくて構いません。"
             .Font.Size = 10
             .Font.Color = modUI.UiColor("muted")
             .VerticalAlignment = -4160

@@ -67,8 +67,16 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
+    ' 戻り導線はヘッダーと同色だと埋没する。白地+濃紺文字で最も目立たせる。
     HeaderButton ws, "nx_top_back", ChrW(&H2190) & " Hub", _
-                 L + 8, 62, "modApp.OnNavHome"
+                 L + 8, 72, "modApp.OnNavHome"
+    On Error Resume Next
+    With ws.Shapes("nx_top_back")
+        .Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+        .TextFrame2.TextRange.Font.Size = 10
+    End With
+    On Error GoTo 0
 
     ' 右端から左へ順に積む(文字数が変わっても右揃えが崩れない)。
     Dim x As Double: x = L + W - 8

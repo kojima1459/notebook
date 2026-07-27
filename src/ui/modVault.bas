@@ -532,8 +532,13 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     Dim prevBtn As Shape
     Set prevBtn = ws.Shapes.AddShape(5, cardL, pgY, 70, 22)
     prevBtn.Name = "nxg_pg_prev"
-    prevBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
-    prevBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    ' 実機報告(2026-07-27)「ページ送りが真っ白で何か分からない」対策。
+    ' 白地+薄グレー枠では背景に溶ける。塗りと文字色を明示する。
+    prevBtn.Adjustments(1) = 0.3
+    prevBtn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+    prevBtn.Line.Visible = 0
+    prevBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    prevBtn.TextFrame2.TextRange.Font.Bold = -1
     prevBtn.TextFrame2.WordWrap = -1
     prevBtn.TextFrame2.TextRange.Text = ChrW(&H25C0) & " 前へ"
     prevBtn.TextFrame2.TextRange.Font.Size = 8.5
@@ -544,13 +549,15 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     prevBtn.OnAction = "modVault.OnVaultPrev"
 
     Dim pgInfo As Shape
-    Set pgInfo = ws.Shapes.AddShape(1, 108, pgY, 140, 22)
+    Set pgInfo = ws.Shapes.AddShape(1, cardL + 76, pgY, 146, 22)
     pgInfo.Name = "nxg_pg_info"
     pgInfo.Fill.Visible = 0
     pgInfo.Line.Visible = 0
     pgInfo.TextFrame2.WordWrap = -1
     pgInfo.TextFrame2.TextRange.Text = (mGalleryPage + 1) & " / " & (maxPage + 1) & " ページ(全" & fCount & "件)"
     pgInfo.TextFrame2.TextRange.Font.Size = 9
+    pgInfo.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+    pgInfo.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
     pgInfo.TextFrame2.VerticalAnchor = 3
     pgInfo.TextFrame2.MarginLeft = 10: pgInfo.TextFrame2.MarginRight = 10
     pgInfo.TextFrame2.MarginTop = 6: pgInfo.TextFrame2.MarginBottom = 6
@@ -558,8 +565,11 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     Dim nextBtn As Shape
     Set nextBtn = ws.Shapes.AddShape(5, cardL + 226, pgY, 70, 22)
     nextBtn.Name = "nxg_pg_next"
-    nextBtn.Fill.ForeColor.RGB = RGB(255, 255, 255)
-    nextBtn.Line.ForeColor.RGB = RGB(229, 231, 235)
+    nextBtn.Adjustments(1) = 0.3
+    nextBtn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+    nextBtn.Line.Visible = 0
+    nextBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    nextBtn.TextFrame2.TextRange.Font.Bold = -1
     nextBtn.TextFrame2.WordWrap = -1
     nextBtn.TextFrame2.TextRange.Text = "次へ " & ChrW(&H25B6)
     nextBtn.TextFrame2.TextRange.Font.Size = 8.5

@@ -38,10 +38,14 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     RemoveChrome ws
 
     ' 幾何を先に確定させる(順序が逆だとShape座標がズレる)。
+    ' 実機報告(2026-07-27)「ボタンが横に並びきらず、右へスクロールしないと
+    ' 見えない」への対処。ツールバーを2段(行3・行4)に折り返す。
+    ' 横スクロールを要求する時点でUIとして失格なので、幅に収まらなければ
+    ' 必ず折り返す実装にしてある(ボタンが増えても破綻しない)。
     ws.Rows(1).RowHeight = HDR_H
     ws.Rows(2).RowHeight = 6
     ws.Rows(3).RowHeight = BAR_H
-    ws.Rows(4).RowHeight = 6
+    ws.Rows(4).RowHeight = BAR_H + 2
     ws.Rows(5).RowHeight = 22
     ws.Rows(6).RowHeight = 8
 
@@ -75,15 +79,17 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
         .VerticalAnchor = 3
     End With
 
-    Pill ws, "nxk_back", ChrW(&H2190) & " Hub", L + 8, 62, _
-         "modKnowledge.OnBackHub", False
+    ' 実機報告(2026-07-27)「←Hubがヘッダーと同色で目立たない」対策。
+    ' 戻り導線は一番見つけやすくなければならないので、白ピルで強調する。
+    Pill ws, "nxk_back", ChrW(&H2190) & " Hub", L + 8, 72, _
+         "modKnowledge.OnBackHub", True
 
     ' --- モード切替ピル(右肩) ---
     Dim md As String: md = LCase$(mode)
     Dim isTable As Boolean: isTable = (md = "table")
     Dim isShared As Boolean: isShared = (md = "shared")
     Dim px As Double: px = L + W - 8 - PILL_W
-    Pill ws, "nxk_m_shared", ChrW(&HD83C) & ChrW(&HDF81) & " みんなのQ&A", px, PILL_W, _
+    Pill ws, "nxk_m_shared", ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例", px, PILL_W, _
          "modKnowledge.OnGoShared", isShared
     px = px - 6 - PILL_W
     Pill ws, "nxk_m_table", ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚", px, PILL_W, _
@@ -147,11 +153,13 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
 
     Dim barTop As Double: barTop = ws.Rows(3).Top
     Dim x As Double: x = L + 8
+    Dim rowIdx As Long: rowIdx = 0
+    Dim maxX As Double: maxX = L + W - 8
 
     ' みんなのQ&Aモードは操作が全く違う(選択と取り込み)。資料管理用の
     ' ボタンを並べても押しどころが分からなくなるので、専用の並びにする。
     If isShared Then
-        SharedToolbar ws, barTop, x
+        SharedToolbar ws, barTop, L + 8, maxX
         Exit Sub
     End If
 
@@ -162,10 +170,16 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
         Dim skip As Boolean
         skip = (i = 0 And isTable) Or (i = 7 And Not isTable)
         If Not skip Then
+            ' 幅に収まらなくなったら次の段へ折り返す(横スクロールさせない)。
+            If x + CDbl(widths(i)) > maxX And rowIdx = 0 Then
+                rowIdx = 1
+                x = L + 8
+            End If
             ' 1個の1004で残りを道連れにしない。
             On Error Resume Next
             Dim btn As Shape
-            Set btn = ws.Shapes.AddShape(5, x, barTop, CDbl(widths(i)), BAR_H)
+            Set btn = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), _
+                                         CDbl(widths(i)), BAR_H)
             If Err.Number = 0 And Not btn Is Nothing Then
                 btn.Name = "nxk_tb" & i
                 btn.Adjustments(1) = 0.35
@@ -194,9 +208,13 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
 
     ' 発行者だけに見える「正典を発行」。
     If canPub Then
+        If x + 104 > maxX And rowIdx = 0 Then
+            rowIdx = 1
+            x = L + 8
+        End If
         On Error Resume Next
         Dim pb As Shape
-        Set pb = ws.Shapes.AddShape(5, x, barTop, 104, BAR_H)
+        Set pb = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 104, BAR_H)
         If Not pb Is Nothing Then
             pb.Name = "nxk_tbpub"
             pb.Adjustments(1) = 0.35
@@ -220,9 +238,13 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
         x = x + 109
 
         ' 運営向けの利用状況。発行者=運営なので同じ条件で出す。
+        If x + 88 > maxX And rowIdx = 0 Then
+            rowIdx = 1
+            x = L + 8
+        End If
         On Error Resume Next
         Dim rp As Shape
-        Set rp = ws.Shapes.AddShape(5, x, barTop, 88, BAR_H)
+        Set rp = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 88, BAR_H)
         If Not rp Is Nothing Then
             rp.Name = "nxk_tbrep"
             rp.Adjustments(1) = 0.35
@@ -251,8 +273,12 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     ' 断られるボタン」を見せない。既存modUIShelfの方針をそのまま踏襲)。
     On Error Resume Next
     If modFeatures.FeatureEnabled("vision") Then
+        If x + 84 > maxX And rowIdx = 0 Then
+            rowIdx = 1
+            x = L + 8
+        End If
         Dim sc As Shape
-        Set sc = ws.Shapes.AddShape(5, x, barTop, 84, BAR_H)
+        Set sc = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 84, BAR_H)
         If Not sc Is Nothing Then
             sc.Name = "nxk_tbshot"
             sc.Adjustments(1) = 0.35
@@ -276,7 +302,8 @@ Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
 End Sub
 
 ' みんなのQ&A専用ツールバー。
-Private Sub SharedToolbar(ByVal ws As Worksheet, ByVal barTop As Double, ByVal x0 As Double)
+Private Sub SharedToolbar(ByVal ws As Worksheet, ByVal barTop As Double, _
+                          ByVal x0 As Double, ByVal maxX As Double)
     Dim caps As Variant, acts As Variant, widths As Variant
     caps = Array(ChrW(&H2713) & " 選択を取り込む", "すべて選ぶ", "選択を解除", _
                  ChrW(&H2190) & " 前", "次 " & ChrW(&H2192), _
@@ -288,11 +315,17 @@ Private Sub SharedToolbar(ByVal ws As Worksheet, ByVal barTop As Double, ByVal x
     widths = Array(112, 72, 72, 44, 44, 104, 76)
 
     Dim x As Double: x = x0
+    Dim rowIdx As Long
     Dim i As Long
     For i = 0 To 6
+        If x + CDbl(widths(i)) > maxX And rowIdx = 0 Then
+            rowIdx = 1
+            x = x0
+        End If
         On Error Resume Next
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, x, barTop, CDbl(widths(i)), BAR_H)
+        Set btn = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), _
+                                     CDbl(widths(i)), BAR_H)
         If Err.Number = 0 And Not btn Is Nothing Then
             btn.Name = "nxk_sb" & i
             btn.Adjustments(1) = 0.35
@@ -650,12 +683,11 @@ Private Sub DoSwitch(ByVal chName As String)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 正典の発行ウィザード(発行者向け)。
-'   手を動かすのは役職なしの若手という前提で、迷いどころを全部潰してある。
-'     ・何が起きるかを先に全部書く
-'     ・件数を発行前に見せる
-'     ・発行キーを知らない人は先へ進めない
-'     ・失敗しても「直前に戻す」で数十秒で復旧できることを画面で伝える
+' 正典の発行(1操作で完結)。
+'   以前は「保存先を手で貼り付けて保存 → もう一度発行を押す」の2段だった。
+'   実機で共有フォルダに channels\<部門>\ が作られず止まった原因がこれ。
+'   保存先はアプリが知っているのだから、人に貼らせる理由が無い。
+'   ボタン1回で 書き出し → 旧版退避 → 配置 → version.txt まで通す。
 ' ----------------------------------------------------------------------------
 Public Sub OnPublish()
     If Not modUiLock.Enter() Then Exit Sub
@@ -663,16 +695,15 @@ Public Sub OnPublish()
 
     Dim chName As String
     chName = Trim$(InputBox( _
-        "部門の正典を発行します。" & vbCrLf & vbCrLf & _
-        "【これから起きること】" & vbCrLf & _
-        "  1. 今の本棚の内容がパックとして書き出されます" & vbCrLf & _
-        "  2. 共有フォルダの channels\<部門名>\ に置かれます" & vbCrLf & _
-        "  3. 部内の全員が、次にファイルを開いたときに受け取ります" & vbCrLf & vbCrLf & _
+        "部門の公式ナレッジ(正典)を発行します。" & vbCrLf & vbCrLf & _
+        "【ボタン1回で完了します】" & vbCrLf & _
+        "  今の本棚の内容がそのまま部内へ配られます。" & vbCrLf & _
+        "  保存先を選ぶ操作は要りません。" & vbCrLf & vbCrLf & _
         "【まちがえても大丈夫です】" & vbCrLf & _
-        "  前の版は自動で保存されます。この画面の「戻す」でいつでも" & vbCrLf & _
-        "  直前の版に戻せます(戻した内容も全員に自動で配られます)。" & vbCrLf & vbCrLf & _
+        "  前の版は自動で保存されます。もう一度この画面を開いて" & vbCrLf & _
+        "  「いいえ」を選ぶと、直前の版に戻せます。" & vbCrLf & vbCrLf & _
         "発行する部門名を入力してください(例: 商品部)。" & vbCrLf & _
-        "※ 既存のチャンネルを更新する場合は、同じ名前を入れてください。", _
+        "※ 更新するときも、前と同じ名前を入れてください。", _
         modAppDef.APP_NAME & " - 正典を発行"))
     If LenB(chName) = 0 Then GoTo Done
 
@@ -685,27 +716,37 @@ Public Sub OnPublish()
         Exit Sub
     End If
 
+    ' 共有フォルダに書ける状態かを、書き出す前に確かめる。
+    ' 権限が無いフォルダを指しているのが実機で一番多い失敗なので、
+    ' 重い書き出しをやってから失敗させない。
+    Dim dest As String
+    On Error Resume Next
+    dest = modPublish.PackDestPath(chName)
+    On Error GoTo Done
+    If LenB(dest) = 0 Then
+        modUiLock.Leave
+        MsgBox "共有フォルダが未設定です。" & vbCrLf & _
+               "Hubのお知らせから設定してから、もう一度お試しください。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
     Dim total As Long
     On Error Resume Next
     total = modShelf.TotalChunks()
-    On Error GoTo Done
-
-    Dim log_ As String
-    On Error Resume Next
-    log_ = modPublish.RecentLog(chName)
+    Dim log_ As String: log_ = modPublish.RecentLog(chName)
     On Error GoTo Done
 
     Dim msg As String
     msg = "【" & chName & "】として発行します。" & vbCrLf & vbCrLf & _
-          "  今の本棚: " & total & " チャンク" & vbCrLf & vbCrLf & _
+          "  今の本棚: " & total & " チャンク" & vbCrLf & _
+          "  配置先: " & dest & vbCrLf & vbCrLf & _
           "【発行前の確認】" & vbCrLf & _
-          "  ・正典には『確認済みQ&A・要点』だけを入れてください" & vbCrLf & _
-          "  ・100ページの約款などの原文を丸ごと入れると、受け取る側の" & vbCrLf & _
-          "    本棚がすぐ上限に達します(原文は各自が個別に入れます)" & vbCrLf & _
-          "  ・個人情報が含まれていると、書き出しの途中で中止されます" & vbCrLf & vbCrLf
+          "  ・正典には『確認済みQ&A・要点』を入れてください" & vbCrLf & _
+          "  ・個人情報が見つかった場合は自動で中止します" & vbCrLf & vbCrLf
     If LenB(log_) > 0 Then msg = msg & "【この部門の発行履歴】" & vbCrLf & log_ & vbCrLf
     msg = msg & "このまま発行しますか?" & vbCrLf & _
-          "(「いいえ」を選ぶと、直前の版に戻す操作に進みます)"
+          "(「いいえ」= 直前の版に戻す操作に進みます)"
 
     Dim ans As VbMsgBoxResult
     ans = MsgBox(msg, vbYesNoCancel + vbQuestion, modAppDef.APP_NAME & " - 発行の確認")
@@ -716,44 +757,58 @@ Public Sub OnPublish()
         Exit Sub
     End If
 
-    ' 旧版を退避してから書き出す。順序を守ることが事故防止そのもの。
+    ' ここから先は待たせるので、必ず砂時計と進捗を出す。
     On Error Resume Next
-    modPublish.ArchiveCurrent chName
-    Dim dest As String: dest = modPublish.PackDestPath(chName)
+    Application.Cursor = 2
+    Application.StatusBar = "【" & chName & "】を書き出しています..."
+    modPublish.ArchiveCurrent chName          ' 旧版を退避(戻せるように)
     On Error GoTo Done
-    If LenB(dest) = 0 Then
+
+    Dim wrote As Long
+    Dim ok As Boolean
+    On Error Resume Next
+    ok = modPack.ExportPackToFile(dest, "", True, wrote)
+    Application.Cursor = -4143
+    Application.StatusBar = False
+    On Error GoTo Done
+
+    If Not ok Then
         modUiLock.Leave
-        MsgBox "共有フォルダが未設定のため発行できません。" & vbCrLf & _
-               "Hubのお知らせから設定してください。", vbExclamation, modAppDef.APP_NAME
+        MsgBox "発行できませんでした。" & vbCrLf & vbCrLf & _
+               "・共有フォルダに書き込む権限があるか" & vbCrLf & _
+               "・パスが正しいか(" & dest & ")" & vbCrLf & _
+               "をご確認ください。", vbExclamation, modAppDef.APP_NAME
         Exit Sub
     End If
 
-    modUiLock.Leave
-    MsgBox "次にパックの書き出し画面が開きます。" & vbCrLf & vbCrLf & _
-           "保存先に、次のパスをそのまま貼り付けて保存してください:" & vbCrLf & vbCrLf & _
-           dest & vbCrLf & vbCrLf & _
-           "保存が終わったら、もう一度「正典を発行」を押して" & vbCrLf & _
-           "同じ部門名を入れると、配信が開始されます。", _
-           vbInformation, modAppDef.APP_NAME
-
-    modClip.SetClipboardText dest   ' 保存先をクリップボードへ(貼るだけで済む)
-    modPack.ExportPackDialog
-
-    ' 書き出しが終わっているならここで配信を確定する。
-    On Error Resume Next
+    ' pack.xlsx を置き終えてから version.txt を書く。順序が逆だと
+    ' 「新しい版番号なのに中身が古い」を掴む人が出る。
     Dim ver As String
-    ver = modPublish.FinalizePublish(chName, total)
-    On Error GoTo 0
+    On Error Resume Next
+    ver = modPublish.FinalizePublish(chName, wrote)
+    modStats.Bump "publish_total"
+    On Error GoTo Done
+
+    modUiLock.Leave
     If LenB(ver) > 0 Then
-        modStats.Bump "publish_total"
-        MsgBox "発行しました(版: " & ver & ")。" & vbCrLf & _
-               "部内の全員が、次にファイルを開いたときに受け取ります。" & vbCrLf & vbCrLf & _
-               "内容に誤りが見つかったら、もう一度この画面から" & vbCrLf & _
-               "「いいえ」を選んで直前の版に戻せます。", _
+        MsgBox "発行しました。" & vbCrLf & vbCrLf & _
+               "  部門: " & chName & vbCrLf & _
+               "  件数: " & wrote & " チャンク" & vbCrLf & _
+               "  版: " & ver & vbCrLf & vbCrLf & _
+               "部内の全員が、次にファイルを開いたときに受け取れます。" & vbCrLf & _
+               "内容に誤りが見つかったら、この画面から「いいえ」で戻せます。", _
                vbInformation, modAppDef.APP_NAME
+    Else
+        MsgBox "ファイルは置けましたが、版の記録に失敗しました。" & vbCrLf & _
+               "共有フォルダの書き込み権限をご確認のうえ、もう一度発行してください。", _
+               vbExclamation, modAppDef.APP_NAME
     End If
     Exit Sub
 Done:
+    On Error Resume Next
+    Application.Cursor = -4143
+    Application.StatusBar = False
+    On Error GoTo 0
     modUiLock.Leave
 End Sub
 

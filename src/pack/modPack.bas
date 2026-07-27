@@ -4,32 +4,17 @@ Option Explicit
 ' ============================================================================
 ' modPack - ナレッジパックの書き出し/取込(MASTER_SPEC §7.4)
 ' ----------------------------------------------------------------------------
-' 役割:
-'   本棚全体、またはアクティブ行の資料1件を、新規の.xlsx(マクロ無し)へ
-'   pack_meta/pack_chunks/pack_vectors の3シートとして書き出す。取込側は
-'   逆に他者のパックを読み込み、chunk_idのfnvハッシュ部で重複排除しながら
-'   my_knowledge/my_vectorsへ追記する(origin="pack:"&作成者)。
+' 本棚(全体 or 1資料)を新規.xlsx(マクロ無し)へ pack_meta/pack_chunks/
+' pack_vectors の3シートで書き出し、取込側は chunk_id の fnv ハッシュ部で
+' 重複排除しながら my_knowledge/my_vectors へ追記する(origin="pack:"&作成者)。
 '
-' 設計判断(要点のみ。詳細は各関数直前のコメント参照):
-'   ・検証は2つに分離(§7.4指示どおり): ValidatePack(wb,reason)がWorkbook
-'     実物(シート存在+embed_dim一致)を検査し、内部で純関数ValidatePackMeta
-'     (Long/Long/Stringのみ=テスト可能な「バージョン/次元」判定部)を呼ぶ。
-'     自分のconfig embed_dimとの一致はValidatePack側で行う(ValidatePackMeta
-'     の契約引数に「自分の次元」が無いため)。
-'   ・「アクティブ行の資料1件」特定は、UI層(modUIShelf)のカード行レイア
-'     ウトに依存せず、Application.ActiveCellの行にmy_manifestのfile_name
-'     と一致する文字列が無いか探す疎結合な方式にした(R1・担当外不可侵)。
-'   ・ImportPackDialog完了後の一覧再描画は、あえてmodPack側から呼ばない
-'     (R1違反回避)。ボタンラッパー(modUIShelf.OnImportPack、担当外)の責務。
-'   ・PIIスキャン(E0703)は書き出し前に全チャンクへmodPii.ScanTextを適用し、
-'     検知時は件数+例示を出してYes/Noで続行確認する(警告であり停止ではない)。
-'   ・重複排除はchunk_idの"bs::HASH::pN::cN"からHASH部を比較する
-'     (modShelf.bas BuildExistingHashSetと同じ設計。非Publicのため複製)。
-'   ・保存失敗(読み取り専用フォルダ等・§13)はOn Error捕捉。§6にこのケース
-'     専用コードが無いため新規コードは追加せず(§6は契約として変更禁止)、
-'     err_logには識別用タグ"PACK_SAVE_FAILED"で記録し、ユーザーには2文
-'     構成の案内を直接表示する。
-'   ・my_knowledge/my_vectorsへの読み書きは配列一括(§12)。
+' 設計判断:
+'   ・検証は2段(§7.4): ValidatePack(wb,reason)がWorkbook実物(シート存在+
+'     embed_dim一致)を見て、内部で純関数ValidatePackMeta(Long/Long/String
+'     のみ=テスト可能)を呼ぶ。自分のembed_dimとの一致はValidatePack側。
+'   ・ダイアログ版とパス指定版を分けてある。ExportPackToFile /
+'     ImportPackFile はダイアログを出さずに完了でき、部門正典の発行と
+'     チャンネル同期がこちらを使う。PII走査だけはどちらの経路でも必ず通す。
 ' ============================================================================
 
 Private Const COL_ID As Long = 1
@@ -42,8 +27,7 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
-' ExportPackDialog - 本棚全体 or アクティブ行の資料1件を選び、新規.xlsxへ
-'   pack_meta/pack_chunks/pack_vectors を書き出す。
+' ExportPackDialog - 対象を選び、保存先を選び、ExportPackToFileへ渡す。
 Public Sub ExportPackDialog()
     Dim scopeAns As Long
     scopeAns = MsgBox( _
@@ -63,32 +47,6 @@ Public Sub ExportPackDialog()
         End If
     End If
 
-    Dim ids() As String, sources() As String, pages() As Long
-    Dim summaries() As String, keywords() As String, fullTexts() As String
-    Dim n As Long
-    n = LoadChunksForExport(sourceFilter, ids, sources, pages, summaries, keywords, fullTexts)
-    If n = 0 Then
-        MsgBox "書き出せる資料がありません。" & vbLf & _
-            "マイ本棚に資料を追加してから、もう一度お試しください。", vbExclamation, modAppDef.APP_NAME
-        Exit Sub
-    End If
-
-    ' 書き出し前PIIスキャン(全チャンク・E0703)
-    Dim piiCount As Long, piiExamples As String
-    ScanChunksForPii sources, fullTexts, n, piiCount, piiExamples
-
-    If piiCount > 0 Then
-        Dim promptMsg As String
-        promptMsg = modLog.FriendlyMessage("E0703") & vbLf & vbLf & _
-            "件数: " & piiCount & "件" & vbLf & _
-            "例: " & piiExamples & vbLf & vbLf & _
-            "このまま書き出しを続けますか?" & vbLf & "(コード: E0703)"
-        Dim contAns As Long
-        contAns = MsgBox(promptMsg, vbYesNo + vbExclamation, modAppDef.APP_NAME)
-        modLog.LogError "E0703", "modPack.ExportPackDialog", "件数=" & piiCount & " 例=" & piiExamples
-        If contAns = vbNo Then Exit Sub
-    End If
-
     ' 保存先ダイアログ
     Dim fd As Object
     Set fd = Application.FileDialog(2)   ' msoFileDialogSaveAs(名前付き定数は使わない)
@@ -106,8 +64,50 @@ Public Sub ExportPackDialog()
     Dim savePath As String: savePath = CStr(fd.SelectedItems(1))
     If LCase$(modUtil.ExtOf(savePath)) <> "xlsx" Then savePath = savePath & ".xlsx"
 
+    Dim wroteN As Long
+    If ExportPackToFile(savePath, sourceFilter, False, wroteN) Then
+        MsgBox "パックを書き出しました。" & vbLf & _
+            wroteN & "件の資料を「" & modUtil.FileNameOf(savePath) & "」として保存しました。", _
+            vbInformation, modAppDef.APP_NAME
+    End If
+End Sub
+
+' ----------------------------------------------------------------------------
+' ExportPackToFile - パスを直接指定してパックを書き出す(部門正典の発行から使う)。
+'   ダイアログを一切出さずに完了できるので、発行を1操作にまとめられる。
+'   silent:=True でも【PII走査だけは必ず通す】。個人情報入りの資料を無言で
+'   全社配布する経路は作らない(検出したら中止してFalseを返す)。
+'   戻り値 True=保存成功。outCount に書き出した件数を返す。
+' ----------------------------------------------------------------------------
+Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As String, _
+                                 ByVal silent As Boolean, ByRef outCount As Long) As Boolean
+    Dim ids() As String, sources() As String, pages() As Long
+    Dim summaries() As String, keywords() As String, fullTexts() As String
+    Dim n As Long
+    n = LoadChunksForExport(sourceFilter, ids, sources, pages, summaries, keywords, fullTexts)
+    If n = 0 Then
+        If Not silent Then
+            MsgBox "書き出せる資料がありません。" & vbLf & _
+                "マイ本棚に資料を追加してから、もう一度お試しください。", _
+                vbExclamation, modAppDef.APP_NAME
+        End If
+        Exit Function
+    End If
+
+    Dim piiCount As Long, piiExamples As String
+    ScanChunksForPii sources, fullTexts, n, piiCount, piiExamples
+    If piiCount > 0 Then
+        modLog.LogError "E0703", "modPack.ExportPackToFile", _
+            "件数=" & piiCount & " 例=" & piiExamples
+        MsgBox modLog.FriendlyMessage("E0703") & vbLf & vbLf & _
+            "件数: " & piiCount & "件" & vbLf & "例: " & piiExamples & vbLf & vbLf & _
+            "個人情報が含まれる可能性があるため、書き出しを中止しました。" & vbLf & _
+            "該当の資料を本棚から外してから、もう一度お試しください。" & vbLf & _
+            "(コード: E0703)", vbExclamation, modAppDef.APP_NAME
+        Exit Function
+    End If
+
     Dim authorName As String: authorName = Trim$(modConfig.GetString("pack_author", ""))
-    ' 作者名が未設定なら、P2P感謝状の宛先解決に使えるようログインID(AD/USERNAME)を使う。
     If LenB(authorName) = 0 Then
         On Error Resume Next
         authorName = modP2P.CurrentUserId()
@@ -142,10 +142,9 @@ Public Sub ExportPackDialog()
     modStats.AddExp "pack_share"
     modLog.LogUsage "pack_export", "", "n=" & n & " scope=" & IIf(LenB(sourceFilter) = 0, "all", sourceFilter)
 
-    MsgBox "パックを書き出しました。" & vbLf & _
-        n & "件の資料を「" & modUtil.FileNameOf(savePath) & "」として保存しました。", _
-        vbInformation, modAppDef.APP_NAME
-    Exit Sub
+    outCount = n
+    ExportPackToFile = True
+    Exit Function
 
 SaveFail:
     Dim saveErrDetail As String: saveErrDetail = Err.Description
@@ -153,11 +152,11 @@ SaveFail:
     On Error Resume Next
     If Not newWb Is Nothing Then newWb.Close SaveChanges:=False
     On Error GoTo 0
-    modLog.LogError "PACK_SAVE_FAILED", "modPack.ExportPackDialog", saveErrDetail
-    MsgBox "書き出し先にファイルを保存できませんでした(読み取り専用のフォルダや権限不足の可能性があります)。" & vbLf & _
-        "別の保存先を選ぶか、書き込み権限があるか確認してから、もう一度お試しください。", _
-        vbExclamation, modAppDef.APP_NAME
-End Sub
+    modLog.LogError "PACK_SAVE_FAILED", "modPack.ExportPackToFile", saveErrDetail
+    MsgBox "書き出し先にファイルを保存できませんでした。" & vbLf & _
+        "読み取り専用のフォルダ、権限不足、パスの打ち間違いが考えられます。" & vbLf & _
+        "保存先: " & savePath, vbExclamation, modAppDef.APP_NAME
+End Function
 
 ' ImportPackDialog - ファイル選択→ValidatePack→重複(fnvハッシュ)スキップ
 '   しつつmy_knowledge/my_vectorsへ取込。origin="pack:"&作成者。
