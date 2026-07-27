@@ -23,6 +23,13 @@ Option Explicit
 ' ============================================================================
 
 Private Const THANKS_SUBDIR As String = "thanks"   ' サブフォルダ名(区切り"\"は連結時に付与)
+
+' 届いた「ありがとう」を会話で伝えるための控え(NoticeTextが引き取ると消える)。
+' VBAはモジュールレベル宣言をプロシージャより前に置く必要がある。
+Private Const MAX_NOTICE As Long = 3
+Private mThanksFrom(0 To 2) As String
+Private mThanksSrc(0 To 2) As String
+Private mThanksN As Long
 Private Const NOISE_SUBDIR As String = "noise"      ' サブフォルダ名(区切り"\"は連結時に付与)
 Private mUserIdCache As String
 
@@ -166,6 +173,9 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
                         modStats.Bump "thanks_received_total"
                         On Error Resume Next
                         modLog.LogUsage "thanks_recv", "", "from=" & f(1) & " src=" & modUtil.SafeLeft(f(3), 120)
+                        ' 誰が・どの資料で解決したかを控える。EXPの数字ではなく
+                        ' この2つが、届けるべき中身そのもの(NoticeText)。
+                        RememberThanks f(1), f(3)
                         On Error GoTo Done
                         awarded = awarded + 1
                     End If
@@ -177,14 +187,64 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
         End If
     Next i
 
-    If awarded > 0 And Not silent Then
-        MsgBox awarded & "件の「ありがとう」が届きました。" & vbLf & _
-               "あなたが共有したナレッジが、誰かの役に立っています。" & vbLf & _
-               "(感謝EXP +" & (awarded * modConfig.GetLong("exp_thumbup", 10)) & ")", _
-               vbInformation, modAppDef.APP_NAME
-    End If
+    ' 2026-07-27: ここにあった祝福MsgBoxは到達不能コードだった。呼び出し元は
+    ' modBoot・modShelfSync とも全て silent:=True で、silent:=False は
+    ' ソース全体に1か所も無かった。つまり「あなたの資料で誰かが解決した」という、
+    ' このアプリで唯一の人対人の瞬間が、誰にも届かないまま消えていた。
+    ' ファイル数を数えるバッジにはモーダルが出るのに、である。
+    '
+    ' 起動処理の途中でダイアログを重ねるのは元の設計判断として正しいので、
+    ' MsgBoxは復活させない。代わりに内容を控えておき(NoticeText)、チャットが
+    ' 描き終わったあとに会話の中で伝える。相手の名前と資料名が本体で、
+    ' 感謝EXPの数字はそこに要らない。
     CollectThanks = awarded
 Done:
+End Function
+
+' ----------------------------------------------------------------------------
+' 届いた「ありがとう」を、会話で伝えるための控え
+' ----------------------------------------------------------------------------
+' 起動中に集めた分をモジュール変数に貯め、UI側(modApp.LaunchNexus)が
+' 描画完了後に1回だけ引き取る。引き取ったら消える(二度は出さない)。
+
+Private Sub RememberThanks(ByVal fromName As String, ByVal srcName As String)
+    If mThanksN >= MAX_NOTICE Then
+        mThanksN = mThanksN + 1     ' 件数だけは数え続ける(「ほか N件」用)
+        Exit Sub
+    End If
+    mThanksFrom(mThanksN) = Trim$(fromName)
+    mThanksSrc(mThanksN) = Trim$(srcName)
+    mThanksN = mThanksN + 1
+End Sub
+
+' NoticeText - 会話に出す文面を返して控えを消す。無ければ空文字。
+Public Function NoticeText() As String
+    If mThanksN <= 0 Then Exit Function
+
+    Dim sb As String
+    sb = ChrW(&HD83C) & ChrW(&HDF89) & " あなたが登録した資料で、他の方の疑問が解決しました。"
+
+    Dim shown As Long
+    shown = mThanksN
+    If shown > MAX_NOTICE Then shown = MAX_NOTICE
+
+    Dim i As Long
+    For i = 0 To shown - 1
+        Dim who As String: who = mThanksFrom(i)
+        If LenB(who) = 0 Then who = "どなたか"
+        Dim what As String: what = mThanksSrc(i)
+        If LenB(what) = 0 Then
+            sb = sb & vbLf & "　・" & who & " さん"
+        Else
+            sb = sb & vbLf & "　・" & who & " さん —「" & modUtil.SafeLeft(what, 40) & "」"
+        End If
+    Next i
+    If mThanksN > shown Then sb = sb & vbLf & "　　ほか " & (mThanksN - shown) & "件"
+
+    sb = sb & vbLf & "資料を入れておくと、こうして自分がいない場面でも誰かの助けになります。"
+
+    mThanksN = 0
+    NoticeText = sb
 End Function
 
 ' ----------------------------------------------------------------------------

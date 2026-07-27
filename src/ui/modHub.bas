@@ -46,9 +46,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Cells.Interior.Color = modUI.UiColor("bg")
 
     ' 幾何を確定させてからShapeを置く(順序が逆だと座標がズレる)。
-    ' 「セル感」を消すための列取り: 統計タイル2枚の間にD列の細い溝を入れ、
-    ' 左ブロック(B:F)と右ブロック(H:K)の間にもG列の溝を置く。タイル同士が
-    ' 隣接していると罫線の有無に関わらず表に見えてしまう。
+    ' D列/G列の細い溝は「セル感」消し。タイルが隣接すると表に見えてしまう。
     ws.Columns("A").ColumnWidth = 1.5
     ws.Columns("B:C").ColumnWidth = 13
     ws.Columns("D").ColumnWidth = 1.2
@@ -79,10 +77,17 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
 
     DrawHeader ws
     DrawProfileCard ws
-    DrawStatTiles ws
+    ' 0点のスコアボードを初見の人に見せない。全部ゼロのタイル8枚と鍵つき
+    ' バッジ8個は「ここまで来た」ではなく「まだ何もしていない」としか読めない。
+    ' 1問でも通してから出す(§DrawFirstStep)。
+    If HasAnyActivity() Then
+        DrawStatTiles ws
+        DrawBadges ws
+    Else
+        DrawFirstStep ws
+    End If
     DrawNavButtons ws
     DrawExtras ws
-    DrawBadges ws
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
@@ -119,10 +124,8 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     End With
 
     Dim icons As Variant, acts As Variant, tips As Variant
-    ' 🔄=画面を再描画。旧サイドバーにあった復旧用ボタンの移設先
-    ' (ウィンドウ移動やAlt+Tab復帰で表示が崩れたときの1クリック復旧手段)。
-    ' 📮=匿名の投書箱。実名だと率直な意見は出てこないので、名前を一切
-    ' 記録しない経路を別に用意する(既存のご意見箱はメール=実名)。
+    ' 🔄=画面を再描画(Alt+Tab復帰等の崩れの1クリック復旧)。
+    ' 📮=匿名の投書箱。実名だと率直な意見は出てこないので別経路を用意する。
     icons = Array(ChrW(&HD83C) & ChrW(&HDF10), ChrW(&HD83C) & ChrW(&HDF19), _
                   ChrW(&HD83D) & ChrW(&HDD04), ChrW(&HD83D) & ChrW(&HDCEE), _
                   ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
@@ -340,6 +343,58 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
     Next i
 End Sub
 
+' まだ何も起きていない状態か。質問も取込も0のときだけ「初回」とみなす。
+Private Function HasAnyActivity() As Boolean
+    If AskTotal() > 0 Then
+        HasAnyActivity = True
+        Exit Function
+    End If
+    HasAnyActivity = (SafeChunks() > 0)
+End Function
+
+' 初回のHub左半分。数字の代わりに、次にやる1つのことだけを大きく置く。
+' ゲーミフィケーションは実績を語る道具で、実績ゼロの相手には逆に働く。
+Private Sub DrawFirstStep(ByVal ws As Worksheet)
+    Dim L As Double, W As Double, T As Double
+    L = ws.Range("B1").Left
+    W = ws.Range("B1:F1").Width
+    T = HDR_H + 12 + CARD_H + 18
+
+    On Error Resume Next
+    Dim card As Shape
+    Set card = ws.Shapes.AddShape(5, L, T, W, 128)
+    If card Is Nothing Then Exit Sub
+    card.Name = "nx_hub_first"
+    card.Adjustments(1) = 0.06
+    card.Line.Visible = -1
+    card.Line.Weight = 1.25
+    card.Line.ForeColor.RGB = modUI.UiColor("accent")
+    card.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    modSkin.ApplyLightShadow card
+    ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
+    With card.TextFrame2
+        .WordWrap = -1
+        .MarginLeft = 16: .MarginRight = 14: .MarginTop = 14: .MarginBottom = 10
+        .TextRange.Text = _
+            ChrW(&HD83D) & ChrW(&HDCAC) & " まず、1つ聞いてみてください" & vbCr & _
+            "知りたいことを、ふだんの言葉のまま書くだけです。" & vbLf & _
+            "資料をまだ入れていなくても、そのまま答えます。" & vbLf & vbLf & _
+            "約款やマニュアルを入れると、「どの資料の何ページか」まで" & vbLf & _
+            "付けて答えられるようになります。"
+        .TextRange.Font.Size = 9.5
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        On Error Resume Next
+        .TextRange.Paragraphs(1).Font.Size = 13
+        .TextRange.Paragraphs(1).Font.Bold = -1
+        .TextRange.Paragraphs(1).Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+        On Error GoTo 0
+    End With
+    card.OnAction = "modHub.OnGoChat"
+    Set card = Nothing
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
 ' 統計タイル群の下端(バッジ等をその下に置くために使う)。
 Private Function StatTilesBottom() As Double
     StatTilesBottom = HDR_H + 12 + CARD_H + 18 + 4 * (52 + 8)
@@ -353,24 +408,27 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     T = HDR_H + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
+    ' 「パック共有(P2P)」は削除した。押してもナレッジ倉庫が開くだけで、
+    ' 「下のボタンを使ってください」というトーストが出る扉だった。行き先の
+    ' 無い扉が1つあると、5つ全部の信用が落ちる。パックの出力/取込は
+    ' ナレッジ倉庫のツールバーに元からある。
     caps = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャットで質問する", _
                  ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
                  ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", _
-                 ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有(P2P)", _
                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード")
     Dim chLbl As String
     On Error Resume Next
     chLbl = modChannel.ActiveLabel()
     On Error GoTo 0
     descs = Array("本棚の資料からAIが出典付きで回答 ・ " & chLbl, _
-                  "資料の登録・検索・部門の公式ナレッジ切替", _
-                  "取り込んだ資料の一覧と状態", "部内でナレッジを配る・受け取る", _
+                  "資料の登録・検索・部内で配る/受け取る", _
+                  "取り込んだ資料の一覧と状態", _
                   "バッジ・EXP・ナレッジ地図")
     acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoShelf", _
-                 "modHub.OnGoPack", "modHub.OnGoDash")
+                 "modHub.OnGoDash")
 
     Dim i As Long
-    For i = 0 To 4
+    For i = 0 To 3
         Dim navTop As Double: navTop = T + i * (NAV_H + NAV_GAP)
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, L, navTop, W, NAV_H)
@@ -403,22 +461,9 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
     W = ws.Range("H3:K3").Width
-    T = HDR_H + 12 + 5 * (NAV_H + NAV_GAP) + 10
+    T = HDR_H + 12 + 4 * (NAV_H + NAV_GAP) + 10
 
-    Dim lbl As Shape
-    Set lbl = ws.Shapes.AddShape(1, L, T, W, 16)
-    lbl.Name = "nx_hub_qalbl"
-    lbl.Line.Visible = 0
-    lbl.Fill.Visible = 0
-    With lbl.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCA1) & " こんなふうに聞いてみよう"
-        .TextRange.Font.Size = 9
-        .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
-        .MarginLeft = 2
-        .VerticalAnchor = 3
-    End With
-
+    ' 見出しは置かない。チップの文面自体が「こう聞けばいい」の見本になっている。
     Dim chips As Variant
     chips = Array("改定ポイントを教えて", "用語をやさしく解説", "手続きの流れを知りたい")
     Dim chipW As Double: chipW = (W - 12) / 3
@@ -611,16 +656,6 @@ Public Sub OnGoDash()
     modUiLock.Leave
 End Sub
 
-' パック共有: ナレッジ倉庫(パックの出力/取込ボタンがある画面)へ送る。
-Public Sub OnGoPack()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    modVault.ShowVaultGallery
-    modSkin.ShowToast "画面下の「パック出力」「パック取込」で部内共有ができます。", "info"
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
-
 Public Sub OnQuickAsk()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
@@ -681,8 +716,6 @@ End Sub
 ' 🔄 画面を再描画。ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の移動で
 ' Shapeがゴースト化/ズレたときの1クリック復旧手段(旧サイドバーから移設)。
 ' 会話は消さない。modApp.OnRefreshUIはロックを取るのでここでは取らない。
-' 共有フォルダの設定手順を案内する。管理者がconfigに1回入れるだけで済むが、
-' その1回が分からないまま放置されるのを防ぐ。
 Public Sub OnShareHelp()
     MsgBox "部内で知恵を共有するには、共有フォルダを1回だけ設定します。" & vbCrLf & vbCrLf & _
         "【設定するもの】" & vbCrLf & _

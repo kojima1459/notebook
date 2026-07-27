@@ -260,49 +260,20 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     On Error GoTo 0
     If anchor Is Nothing Then Exit Sub
 
+    ' 評価ボタンは「信頼度バッジ」と「出典チップ」より必ず下に置く。
+    ' 画面の縦順は、何を先に読ませたいかの主張そのもの。根拠を見る前に
+    ' 「解決した / 違う」を押させる並びは、評価してから確かめろと言っている
+    ' に等しい。損保でAIの回答を信じてよい理由は原文確認だけなので、
+    ' 根拠のほうを先に、上に置く。
     Dim y As Double: y = anchor.Top + anchor.Height + 6
-
-    ' --- 信頼度バッジ ---
-    ' 「この答えを信じてよいか」を利用者が自分で判断できないことが、
-    ' フィードバックが集まらない根本原因だった。検索スコアという機械側の
-    ' 情報を、確認すべきときだけ確認を促す一文に翻訳して先に見せる。
-    Dim confText As String
+    Dim cb As Double
     On Error Resume Next
-    confText = modAsk.LastConfidenceText()
+    cb = ConfidenceBottom(ws)
+    If cb + 6 > y Then y = cb + 6
+    cb = modPeek.CitationsBottom(ws)
+    If cb + 8 > y Then y = cb + 8
     On Error GoTo 0
-    If LenB(confText) > 0 Then
-        On Error Resume Next
-        Dim badge As Shape
-        Set badge = ws.Shapes.AddShape(5, anchor.Left, y, 330, 22)
-        If Err.Number = 0 And Not badge Is Nothing Then
-            badge.Name = "nx_act_conf"
-            badge.Adjustments(1) = 0.45
-            badge.Line.Visible = 0
-            ' 8pt・塗りなし・muted では、いちばん大事な一文がいちばん
-            ' 目立たない字になっていた。この1行は「この答えを信じてよいか」
-            ' の判断そのものなので、色の付いたピルにして先に読ませる。
-            badge.Fill.Visible = -1
-            badge.Fill.ForeColor.RGB = ConfidenceTint(confText)
-            With badge.TextFrame2
-                .WordWrap = -1
-                .TextRange.Text = confText
-                .TextRange.Font.Size = 9
-                .TextRange.Font.Bold = -1
-                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-                .VerticalAnchor = 3
-                .MarginLeft = 8: .MarginRight = 8: .MarginTop = 0: .MarginBottom = 0
-            End With
-            badge.Placement = 3
-            y = y + 25
-        End If
-        Set badge = Nothing
-        Err.Clear
-        On Error GoTo 0
-    End If
 
-    ' 出典チップ(modPeek)はこの直後・評価ボタンより上に積まれる。
-    ' 「根拠を見る前に評価させない」ための順序で、ここで確保した y を
-    ' modPeek が使う(ContextActionsBottom 経由)。
     Dim caps As Variant, kinds As Variant, widths As Variant, acts As Variant
     ' 評価は「解決した/微妙/違う」の3択。どれも1クリックで完結し、
     ' 入力を強制しない(入力を求めた途端に誰も押さなくなる)。
@@ -349,6 +320,80 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
         x = x + CDbl(widths(i)) + 5
     Next i
 End Sub
+
+' ----------------------------------------------------------------------------
+' DrawConfidence - 信頼度バッジ。回答バブルの直下、いちばん最初に読ませる1行。
+' ----------------------------------------------------------------------------
+' 「この答えを信じてよいか」を利用者が自分で判断できないことが、フィードバックが
+' 集まらない根本原因だった。検索スコアという機械側の情報を、確認すべきときだけ
+' 確認を促す一文に翻訳して先に見せる。
+'
+' Shape名を nx_conf_ にしたのは、評価ボタン(nx_act_)の掃除に巻き込まれないため。
+' 描画順が バッジ → 出典 → 評価 になったので、最後に走る ClearContextActions で
+' 消されてしまうのを構造的に防ぐ。
+Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String) As Double
+    ClearConfidence ws
+    If ws Is Nothing Then Exit Function
+    If LenB(bubbleName) = 0 Then Exit Function
+
+    Dim anchor As Shape
+    On Error Resume Next
+    Set anchor = ws.Shapes(bubbleName)
+    On Error GoTo 0
+    If anchor Is Nothing Then Exit Function
+
+    DrawConfidence = anchor.Top + anchor.Height
+
+    Dim confText As String
+    On Error Resume Next
+    confText = modAsk.LastConfidenceText()
+    On Error GoTo 0
+    If LenB(confText) = 0 Then Exit Function
+
+    On Error Resume Next
+    Dim badge As Shape
+    Set badge = ws.Shapes.AddShape(5, anchor.Left, anchor.Top + anchor.Height + 6, 330, 22)
+    If Err.Number = 0 And Not badge Is Nothing Then
+        badge.Name = "nx_conf_badge"
+        badge.Adjustments(1) = 0.45
+        badge.Line.Visible = 0
+        ' 8pt・塗りなし・muted では、いちばん大事な一文がいちばん目立たない
+        ' 字になっていた。色の付いたピルにして、先に目に入るようにする。
+        badge.Fill.Visible = -1
+        badge.Fill.ForeColor.RGB = ConfidenceTint(confText)
+        With badge.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = confText
+            .TextRange.Font.Size = 9
+            .TextRange.Font.Bold = -1
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+            .VerticalAnchor = 3
+            .MarginLeft = 8: .MarginRight = 8: .MarginTop = 0: .MarginBottom = 0
+        End With
+        badge.Placement = 3
+        DrawConfidence = badge.Top + badge.Height
+    End If
+    Set badge = Nothing
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+Public Sub ClearConfidence(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    ws.Shapes("nx_conf_badge").Delete
+    On Error GoTo 0
+End Sub
+
+' 信頼度バッジの下端(無ければ0)。出典・評価の積み上げ基準に使う。
+Public Function ConfidenceBottom(ByVal ws As Worksheet) As Double
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim shp As Shape
+    Set shp = ws.Shapes("nx_conf_badge")
+    If Not shp Is Nothing Then ConfidenceBottom = shp.Top + shp.Height
+    On Error GoTo 0
+End Function
 
 ' 信頼度バッジの背景色。🟢/🟡/🔴 のどれで始まるかだけで決める
 ' (文言そのものは modAsk が持つ単一情報源。ここでは色だけを足す)。

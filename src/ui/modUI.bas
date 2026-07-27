@@ -715,7 +715,7 @@ Public Sub RecalcChatBottom(ByVal ws As Worksheet)
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
            Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
-           Or Left$(nm, 10) = "nx_mentor_" Then
+           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 10) = "nx_mentor_" Then
             If shp.Top + shp.Height > mChatBottom Then mChatBottom = shp.Top + shp.Height
         End If
     Next shp
@@ -743,7 +743,8 @@ Public Sub ClearChat()
     For Each shp In ws.Shapes
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
-           Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" Then
+           Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
+           Or Left$(nm, 8) = "nx_conf_" Then
             names(n) = nm
             n = n + 1
         End If

@@ -26,6 +26,14 @@ Public Sub LaunchNexus()
     modBoard.BootBoard           ' チーム連帯ボード: ビーコン発信+集計(表示はHubのタイル)
     modMentor.CollectQuestions   ' Mentor受信: 自分宛の質問を回収
     modHelp.EnsureHelpButton     ' ヘルプ(?)ボタン
+
+    ' 起動処理中に届いていた「ありがとう」を、ここで会話として伝える。
+    ' このアプリで唯一、機械ではなく人が相手にいる瞬間なので、統計タイルの
+    ' 数字ではなく、名前と資料名のまま出す。
+    Dim thx As String
+    thx = modP2P.NoticeText()
+    If LenB(thx) > 0 Then modUI.AddChatBubble "ai", thx
+
     modTour.StartTourIfFirstRun  ' 初回オンボーディングツアー
     On Error GoTo 0
 End Sub
@@ -76,6 +84,7 @@ Public Sub OnSend()
     modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
     modMentor.ClearMentor   ' Mentorボタンも同時に掃除(内部On Error Resume Next=安全弁)
     ClearActions            ' 文脈アクションも消す(質問中はボタン0個=入力に集中)
+    ClearConfidence         ' 信頼度バッジはnx_act_ではないので個別に消す
 
     Dim q As String
     q = ReadInputCell()
@@ -161,13 +170,14 @@ Public Sub OnSend()
     modUI.MarkActiveBubble bubbleName
     SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
 
-    ' 文脈アクション(仕様書§2.2): 最新のAI回答バブルの直下にだけ6個のpillを出す。
-    DrawActions bubbleName
-
-    ' Peek View: RAG(社内ナレッジ検索)回答のときだけ、出典チップを回答直下に描画する
-    ' (一般アシスタントは出典が無いので出さない=古いチップの誤表示も防ぐ)。
+    ' 積む順は 回答 → 信頼度 → 出典 → 評価。根拠を見る前に評価させない。
+    ' (一般アシスタントは出典が無いので信頼度・出典は出さない=誤表示も防ぐ)
     If CurrentMode() <> "normal" Then
+        DrawConfidence bubbleName
         modPeek.RenderCitations bubbleName
+    End If
+    DrawActions bubbleName
+    If CurrentMode() <> "normal" Then
         modMentor.OfferMentor bubbleName   ' Mentor: 専門家ボタン(失敗しても出ないだけ=安全弁内蔵)
     End If
     On Error Resume Next
@@ -203,6 +213,24 @@ Private Sub DrawActions(ByVal bubbleName As String)
     Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub
     modUINexusDraw.DrawContextActions ws, bubbleName
+    On Error GoTo 0
+End Sub
+
+Private Sub ClearConfidence()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    modUINexusDraw.ClearConfidence ws
+    On Error GoTo 0
+End Sub
+
+Private Sub DrawConfidence(ByVal bubbleName As String)
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    modUINexusDraw.DrawConfidence ws, bubbleName
     On Error GoTo 0
 End Sub
 
@@ -325,6 +353,7 @@ Public Sub OnActDrill()
     modPeek.HideCitations   ' 前回の出典チップ/ポップアップを消す
     modMentor.ClearMentor   ' Mentorボタンも掃除(安全弁内蔵)
     ClearActions
+    ClearConfidence
 
     Dim q As String
     q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
@@ -362,8 +391,9 @@ Public Sub OnActDrill()
     bubbleName = modUI.AddChatBubble("ai", ans)
     mActiveBubble = bubbleName
     modUI.MarkActiveBubble bubbleName
-    DrawActions bubbleName               ' 文脈アクション(最新回答の直下)
+    DrawConfidence bubbleName            ' 信頼度 → 出典 → 評価 の順に積む
     modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
+    DrawActions bubbleName               ' 文脈アクション(根拠より下)
     modMentor.OfferMentor bubbleName     ' Mentor: 専門家ボタン(安全弁内蔵)
     On Error Resume Next
     modUI.SettleChat

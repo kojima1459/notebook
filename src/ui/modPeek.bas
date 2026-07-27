@@ -55,12 +55,15 @@ Public Sub RenderCitations(ByVal bubbleName As String)
     Dim baseL As Double: baseL = anchor.Left
     Dim baseY As Double: baseY = anchor.Top + anchor.Height + 6
 
-    ' 2026-07-26: 回答バブルの直下には文脈アクション(nx_act_)が入るように
-    ' なったため、出典チップはさらにその下へ積む(重なり防止)。
+    ' 2026-07-27: 積む順を「回答 → 信頼度 → 出典 → 評価」に変えた。
+    ' 以前は評価ボタン(nx_act_)の下に出典を置いていたため、利用者は
+    ' 542pt分のボタンを越えないと根拠にたどり着けなかった。つまり
+    ' 「確かめる前に評価しろ」という並びになっていた。順序は主張なので、
+    ' 根拠を先に、上に出す。評価ボタン側がこちらの下端を見て下がる。
     On Error Resume Next
-    Dim actBottom As Double
-    actBottom = modUINexusDraw.ContextActionsBottom(ws)
-    If actBottom + 6 > baseY Then baseY = actBottom + 6
+    Dim confBottom As Double
+    confBottom = modUINexusDraw.ConfidenceBottom(ws)
+    If confBottom + 6 > baseY Then baseY = confBottom + 6
     On Error GoTo Done
 
     ' 見出しラベル
@@ -186,12 +189,66 @@ Public Sub ShowPeek(ByVal idx As Long)
     shp.Placement = 3
     modSkin.ApplySoftShadow shp
     shp.ZOrder 0   ' msoBringToFront
+
+    ' 「📂 原文を開く」。抜粋を読んで終わりではなく、実物の該当ページまで
+    ' 連れて行く。ここまで来て初めて、人に見せられる根拠になる。
+    ' 元ファイルの記録が無い資料(パック由来・手入力)には出さない。
+    If LenB(SourcePath(src)) = 0 Then GoTo Done
+
+    Dim openCap As String
+    openCap = ChrW(&HD83D) & ChrW(&HDCC2) & " 原文を開く"
+    If page > 0 Then openCap = openCap & "（p." & page & "）"
+
+    Dim btn As Shape
+    On Error Resume Next
+    Set btn = ws.Shapes.AddShape(5, shp.Left + PEEK_W - 158, shp.Top + shp.Height - 34, 142, 26)
+    If Err.Number = 0 And Not btn Is Nothing Then
+        btn.Name = "nx_peek_open_" & CStr(idx)
+        btn.Adjustments(1) = 0.4
+        btn.Line.Visible = 0
+        btn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+        With btn.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = openCap
+            .TextRange.Font.Name = "Yu Gothic UI"
+            .TextRange.Font.Size = 9
+            .TextRange.Font.Bold = -1
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+            .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+        End With
+        btn.OnAction = "modPeek.OnOpenSource"
+        btn.Placement = 3
+        btn.ZOrder 0
+    End If
+    Set btn = Nothing
+    Err.Clear
+    On Error GoTo Done
 Done:
 End Sub
 
 Public Sub HidePeek()
     On Error Resume Next
-    GetSheet().Shapes("nx_peek").Delete
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Sub
+    ws.Shapes("nx_peek").Delete
+    ' 「原文を開く」ボタンはポップアップとは別Shapeなので、道連れにしないと
+    ' 本文だけ消えてボタンだけが宙に浮いて残る。
+    Dim names() As String
+    ReDim names(0 To ws.Shapes.count)
+    Dim n As Long: n = 0
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 13) = "nx_peek_open_" Then
+            names(n) = shp.Name
+            n = n + 1
+        End If
+    Next shp
+    Dim i As Long
+    For i = 0 To n - 1
+        ws.Shapes(names(i)).Delete
+    Next i
     On Error GoTo 0
 End Sub
 
@@ -205,7 +262,8 @@ Public Sub HideCitations()
     Dim n As Long: n = 0
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If Left$(shp.Name, 8) = "nx_cite_" Or shp.Name = "nx_peek" Then
+        If Left$(shp.Name, 8) = "nx_cite_" Or shp.Name = "nx_peek" _
+           Or Left$(shp.Name, 13) = "nx_peek_open_" Then
             names(n) = shp.Name
             n = n + 1
         End If
@@ -216,6 +274,115 @@ Public Sub HideCitations()
     Next i
     On Error GoTo 0
 End Sub
+
+' 出典チップ群の下端(無ければ0)。評価ボタンがこの下へ回り込むために使う。
+Public Function CitationsBottom(ByVal ws As Worksheet) As Double
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 8) = "nx_cite_" Then
+            If shp.Top + shp.Height > CitationsBottom Then CitationsBottom = shp.Top + shp.Height
+        End If
+    Next shp
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' OnOpenSource - ポップアップの「📂 原文を開く」。
+' ----------------------------------------------------------------------------
+' ここが無いせいで、このアプリは「retrievalのデモ」で止まっていた。
+' 損保の実務で意味を持つ瞬間は、上司やお客さまに約款の該当ページそのものを
+' 見せるとき。灰色のテキストボックスで終わっていては、その場に持っていけない。
+' file_pathは my_manifest に既にある。開くだけでよかった。
+Public Sub OnOpenSource()
+    On Error Resume Next
+    Dim caller As String
+    caller = CStr(Application.Caller)
+    On Error GoTo 0
+    If Left$(caller, 13) <> "nx_peek_open_" Then Exit Sub
+
+    Dim idx As Long
+    idx = CLng(Val(Mid$(caller, 14)))
+
+    Dim src As String, page As Long
+    On Error Resume Next
+    src = modAsk.LastHitSource(idx)
+    page = modAsk.LastHitPage(idx)
+    On Error GoTo 0
+    If LenB(src) = 0 Then Exit Sub
+
+    Dim path As String
+    path = SourcePath(src)
+
+    If LenB(path) = 0 Then
+        MsgBox "この資料の元ファイルの場所が記録されていません。" & vbCrLf & _
+               "(パックで受け取った資料や、手入力で登録した内容には元ファイルがありません)", _
+               vbInformation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
+    ' PDFはページ指定で開く。対応しないビューアでは先頭ページで開くだけで、
+    ' 失敗はしない。開けなかったときはパスを見せる(手で辿れるようにする)。
+    Dim target As String: target = path
+    If page > 0 Then
+        If LCase$(modUtil.ExtOf(path)) = "pdf" Then target = path & "#page=" & page
+    End If
+
+    Dim ok As Boolean: ok = True
+    On Error Resume Next
+    ThisWorkbook.FollowHyperlink target
+    If Err.Number <> 0 Then ok = False
+    Err.Clear
+    On Error GoTo 0
+
+    If Not ok Then
+        On Error Resume Next
+        modClip.SetClipboardText path
+        On Error GoTo 0
+        MsgBox "元ファイルを開けませんでした(移動または削除された可能性があります)。" & vbCrLf & _
+               "場所をクリップボードにコピーしました:" & vbCrLf & path, _
+               vbExclamation, modAppDef.APP_NAME
+    End If
+End Sub
+
+' ----------------------------------------------------------------------------
+' SourcePath - 資料名(= my_manifest の file_name)から元ファイルの実パスを引く。
+'   見つからない/実体が消えている場合は空文字を返し、呼び出し側はボタンを出さない。
+' ----------------------------------------------------------------------------
+' パスは取込時から manifest 1列目に入っていたのに、そこへ到達する道が
+' どこにも無かった。パック由来・手入力のナレッジは manifest に行が無いので空。
+Private Function SourcePath(ByVal sourceName As String) As String
+    Dim nm As String: nm = Trim$(sourceName)
+    If LenB(nm) = 0 Then Exit Function
+
+    On Error Resume Next
+    Dim wsM As Worksheet
+    Set wsM = ThisWorkbook.Worksheets(modAppDef.SH_MANIFEST)
+    On Error GoTo 0
+    If wsM Is Nothing Then Exit Function
+
+    Dim lastR As Long
+    On Error Resume Next
+    lastR = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
+    On Error GoTo 0
+    If lastR < 2 Then Exit Function
+
+    Dim r As Long
+    On Error Resume Next
+    For r = 2 To lastR
+        If StrComp(Trim$(CStr(wsM.Cells(r, 2).Value)), nm, vbTextCompare) = 0 Then
+            Dim p As String: p = Trim$(CStr(wsM.Cells(r, 1).Value))
+            ' 消えたファイルのパスを返すと「開けません」で終わる。存在確認まで
+            ' 済ませてから返し、無ければボタン自体を出さない。
+            If LenB(p) > 0 Then
+                If LenB(Dir(p)) > 0 Then SourcePath = p
+            End If
+            Exit For
+        End If
+    Next r
+    On Error GoTo 0
+End Function
 
 Private Function GetSheet() As Worksheet
     On Error Resume Next
