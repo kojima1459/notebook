@@ -532,7 +532,7 @@ Private Sub EnumFolderFiles(ByVal folderNorm As String, ByRef fileNames() As Str
     On Error GoTo 0
 
     Do While LenB(nm) > 0
-        If IsSupportedExtLocal(nm) Then
+        If IsSupportedExtLocal(nm) And Not IsExcludedFile(folderNorm, nm) Then
             If cnt > UBound(names) Then ReDim Preserve names(0 To (UBound(names) + 1) * 2 - 1)
             names(cnt) = nm
             cnt = cnt + 1
@@ -548,6 +548,46 @@ Private Sub EnumFolderFiles(ByVal folderNorm As String, ByRef fileNames() As Str
     End If
     fileCount = cnt
 End Sub
+
+' ----------------------------------------------------------------------------
+' IsExcludedFile - 走査から必ず除く files(2026-07-28追加)
+' ----------------------------------------------------------------------------
+' 実務で確実に踏む2つの地雷を塞ぐ。どちらも「置き場所を間違えた」だけで
+' 起きるのに、症状が分かりにくい。
+'
+' 1) このアプリ自身(.xlsm)
+'    対応拡張子に xlsm が含まれるため、本棚フォルダを .xlsm と同じ場所に
+'    設定すると、アプリが自分自身を資料として開こうとする。
+'    既に開いているブックなので取込は失敗し、毎回同期のたびに
+'    err_log へ E0302 が積まれる。運用担当が「同じフォルダでいいですか」と
+'    聞いてくるのは自然な発想なので、構造的に禁じるのではなく無視する。
+'
+' 2) Office の一時ファイル(~$で始まる)
+'    誰かが Word/Excel で資料を開いている間、同じフォルダに ~$資料名.docx が
+'    作られる。拡張子は docx/xlsx なので対応形式に該当してしまい、
+'    中身は本文ではないため取り込むとゴミが本棚に入る。
+'    「共有フォルダに置いて、誰かが開いている」は常に起きる状況なので必須。
+Private Function IsExcludedFile(ByVal folderNorm As String, ByVal fileName As String) As Boolean
+    ' Office一時ファイル(~$資料名.docx 等)
+    If Left$(fileName, 2) = "~$" Then
+        IsExcludedFile = True
+        Exit Function
+    End If
+
+    ' このアプリ自身。フルパスで比べる(同名の別ファイルを巻き添えにしない)。
+    On Error Resume Next
+    Dim me_ As String: me_ = ThisWorkbook.FullName
+    On Error GoTo 0
+    If LenB(me_) > 0 Then
+        If StrComp(folderNorm & fileName, me_, vbTextCompare) = 0 Then
+            IsExcludedFile = True
+            Exit Function
+        End If
+    End If
+
+    ' パック(.xlsx)の取り違え防止までは行わない。パックは「📥パック取込」
+    ' から明示的に入れるものなので、本棚フォルダに置く運用は想定しない。
+End Function
 
 Private Function IsSupportedExtLocal(ByVal fileName As String) As Boolean
     Dim ext As String: ext = modUtil.ExtOf(fileName)
