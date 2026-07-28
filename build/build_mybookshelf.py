@@ -289,6 +289,10 @@ def build_config_rows(mock_llm: bool):
         ("chunk_limit", 20000,
          "本棚に置けるチャンクの上限。Hubの「本棚の使用量」はこの値に対する割合。"
          "8割を超えると警告し、使っていない部門チャンネルの購読解除を促す"),
+        ("feedback_mail_to", "",
+         "ご意見・不具合報告のメール送信先。共有フォルダへ書けない環境の逃がし先として使う。"
+         "空欄のときはメール経路そのものを出さない(本文はクリップボードへ入る)。"
+         "個人アドレスをソースへ直書きすると担当交代・異動のたびに再ビルドが要るためconfig化した"),
         ("thanks_gc_days", 30,
          "宛先不明の感謝状(共有フォルダの thanks\\thx_*.txt)を何日で片付けるか。"
          "宛先の綴りが変わった端末や、異動・退職でもう誰も取りに来ないファイルを"
@@ -1079,11 +1083,28 @@ def main():
                     help="初期ナレッジのパック(.xlsx)。tools/make_seed_pack.py の出力")
     ap.add_argument("--allow-missing", action="store_true",
                      help="modules.jsonに列挙されたファイルの欠落をエラーでなく警告にして続行する")
+    ap.add_argument("--allow-embedded-key", action="store_true",
+                     help="本番ビルドに azure_embed_key を焼き込むことを明示的に許可する"
+                          "(既定は禁止。ブック配布=キー配布になるため)")
     args = ap.parse_args()
 
     root = os.path.abspath(args.root)
     is_dev = bool(args.dev)
     mock_llm = is_dev
+
+    # 2026-07-28(レビュー H-17): 配布ビルドにAzureキーを焼き込ませない。
+    # このブックは全社員へ配る前提で、難読化はXOR+16進の可逆変換、鍵も
+    # modUtil.bas に平文で同梱されている。つまり「配った時点で全受領者に
+    # キーが渡る」。一般配布は embed_transport=ribbon に倒すのが正で、
+    # direct が要る特殊ケースだけ --allow-embedded-key で明示的に外す。
+    if not is_dev and not args.allow_embedded_key:
+        if os.environ.get(AZURE_EMBED_KEY_ENV, "").strip():
+            sys.exit(
+                f"ERROR: 本番ビルドに {AZURE_EMBED_KEY_ENV} が設定されています。\n"
+                "  ブックの配布はそのままキーの配布になります(難読化は可逆・鍵も同梱)。\n"
+                "  一般配布は embed_transport=ribbon で行ってください。\n"
+                f"  どうしても焼き込む場合は --allow-embedded-key を付けてください。"
+            )
 
     if args.out:
         out_path = os.path.abspath(args.out)

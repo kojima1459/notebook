@@ -307,7 +307,8 @@ Public Sub OnFeedback()
     modClip.SetClipboardText body
 
     On Error Resume Next
-    ThisWorkbook.FollowHyperlink "mailto:m-kojima@aioinissaydowa.co.jp?subject=Nexus%20Agent%20feedback"
+    Dim mailUrl As String: mailUrl = FeedbackMailto()
+    If LenB(mailUrl) > 0 Then ThisWorkbook.FollowHyperlink mailUrl
     On Error GoTo Done
 
     ' バグバウンティEXP(1日1回まで=空メール連打での稼ぎを防止)
@@ -425,3 +426,16 @@ Private Sub DoHideHelp()
     ws.Shapes("nx_help_skin").Delete
     On Error GoTo 0
 End Sub
+
+' 問い合わせ先のメールアドレス。2026-07-28(レビュー H-17): 個人の
+' メールアドレスがソースへ直書きされていた。担当が変わるたびに再ビルドが
+' 要るうえ、退職・異動で宛先が死ぬ。config へ出す(既定は空。空のときは
+' メール経路そのものを出さない)。
+Private Function FeedbackMailto() As String
+    On Error Resume Next
+    Dim addr As String
+    addr = Trim$(modConfig.GetString("feedback_mail_to", ""))
+    If LenB(addr) = 0 Then Exit Function
+    FeedbackMailto = "mailto:" & addr & "?subject=Nexus%20Agent%20feedback"
+    On Error GoTo 0
+End Function

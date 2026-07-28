@@ -774,12 +774,18 @@ Public Sub OnAnonFeedback()
         ' 共有フォルダに書けない環境ではメール経路へ逃がす(黙って捨てない)。
         On Error Resume Next
         modClip.SetClipboardText fb
-        ThisWorkbook.FollowHyperlink _
-            "mailto:m-kojima@aioinissaydowa.co.jp?subject=Nexus%20Agent%20feedback"
+        Dim mailUrl As String: mailUrl = FeedbackMailto()
+        If LenB(mailUrl) > 0 Then ThisWorkbook.FollowHyperlink mailUrl
         On Error GoTo 0
-        MsgBox "共有フォルダへ送れなかったため、メールの下書きを開きました。" & vbCrLf & _
-               "本文はクリップボードに入っています(Ctrl+V で貼り付けてください)。", _
-               vbInformation, modAppDef.APP_NAME
+        If LenB(mailUrl) > 0 Then
+            MsgBox "共有フォルダへ送れなかったため、メールの下書きを開きました。" & vbCrLf & _
+                   "本文はクリップボードに入っています(Ctrl+V で貼り付けてください)。", _
+                   vbInformation, modAppDef.APP_NAME
+        Else
+            MsgBox "共有フォルダへ送れませんでした。" & vbCrLf & _
+                   "本文はクリップボードに入っています(Ctrl+V で貼り付けて、" & vbCrLf & _
+                   "管理者へお送りください)。", vbInformation, modAppDef.APP_NAME
+        End If
     End If
 End Sub
 
@@ -791,3 +797,15 @@ End Sub
 
 ' ---- 内部ヘルパー ----
 
+' 問い合わせ先のメールアドレス。2026-07-28(レビュー H-17): 個人の
+' メールアドレスがソースへ直書きされていた。担当が変わるたびに再ビルドが
+' 要るうえ、退職・異動で宛先が死ぬ。config へ出す(既定は空。空のときは
+' メール経路そのものを出さない)。
+Private Function FeedbackMailto() As String
+    On Error Resume Next
+    Dim addr As String
+    addr = Trim$(modConfig.GetString("feedback_mail_to", ""))
+    If LenB(addr) = 0 Then Exit Function
+    FeedbackMailto = "mailto:" & addr & "?subject=Nexus%20Agent%20feedback"
+    On Error GoTo 0
+End Function

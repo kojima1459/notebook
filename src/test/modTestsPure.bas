@@ -491,9 +491,17 @@ Private Sub TestDeobfuscateSecret()
     modTestRunner.Check "DeobfuscateSecret_短い文字列", _
         (modUtil.DeobfuscateSecret("OBF1:260014191c") = "hello")
 
+    ' 2026-07-28(レビュー H-17): ここの固定値は【本番のAzureキーそのもの】
+    ' だった。config の azure_embed_key とバイト単位で同一の OBF1 文字列と、
+    ' その復号後の平文キー(32桁hex)が期待値として直書きされていたため、
+    ' 難読化を解くまでもなく、このモジュールを開けばキーが読めた。
+    ' vba_src シート(veryHidden・パスワード保護なし)にも同じ文字列が入るので、
+    ' VBAプロジェクト保護の有無に関係なく全受領者へ渡っていた。
+    ' 本番と一切関係のないダミー値へ差し替える。長さだけ実キーと揃えて
+    ' (32文字)、長い入力でも往復が壊れないことを引き続き検証する。
     modTestRunner.Check "DeobfuscateSecret_APIキー長の文字列", _
-        (modUtil.DeobfuscateSecret("OBF1:7f014d41462055535f4171145d0a562c5b5f4512565547595c5f2f524e500904") _
-            = "1d545a26153a4f2c990a543031d77b96")
+        (modUtil.DeobfuscateSecret("OBF1:0a3035382a6c090a1a5923581b0905234f0d100a4e51455b5c5a7e534e0a0953") _
+            = "DUMMY-not-a-real-key-0123456789a")
 
     ' 接頭辞が無い値(手動でconfigに平文キーを入力した場合等)はそのまま返す
     modTestRunner.Check "DeobfuscateSecret_接頭辞なしはそのまま", _
