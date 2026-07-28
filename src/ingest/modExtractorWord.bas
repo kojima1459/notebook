@@ -154,11 +154,16 @@ Private Function ExtractPageText(ByVal doc As Object, ByVal pageNum As Long, ByV
     Set startRange = doc.GoTo(What:=1, Which:=1, count:=pageNum)
     If pageNum < totalPages Then
         Set endRange = doc.GoTo(What:=1, Which:=1, count:=pageNum + 1)
-        startRange.End = endRange.Start - 1
+        ' 2026-07-28(レビュー M-14): ここは endRange.Start - 1 だった。
+        ' 次ページの開始位置の1つ手前まで、という意図だが、Word の Range は
+        ' End が排他(終端の1つ先)なので、-1 すると【各ページ末尾の1文字が
+        ' 欠落】する。「100万円」の「円」が消える類で、300ページの約款なら
+        ' 最大299箇所。改ページ文字が混じる分は文字列側で落とす。
+        startRange.End = endRange.Start
     Else
         startRange.End = doc.Content.End
     End If
-    ExtractPageText = startRange.Text
+    ExtractPageText = TrimPageBreak(startRange.Text)
 End Function
 
 ' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
@@ -170,4 +175,19 @@ Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As
     Else
         DescribeComError = desc
     End If
+End Function
+
+' ページ末尾に付く改ページ文字(Chr(12))と、その直前の改行を落とす。
+' 本文の1文字を守るために End を1つ伸ばした副作用の後始末(レビュー M-14)。
+Private Function TrimPageBreak(ByVal s As String) As String
+    Dim t As String: t = s
+    Do While Len(t) > 0
+        Dim lastCh As String: lastCh = Right$(t, 1)
+        If lastCh = Chr$(12) Or lastCh = vbCr Or lastCh = vbLf Then
+            t = Left$(t, Len(t) - 1)
+        Else
+            Exit Do
+        End If
+    Loop
+    TrimPageBreak = t
 End Function

@@ -1,6 +1,9 @@
 Attribute VB_Name = "modExtractorAcrobat"
 Option Explicit
 
+' 1ページから取り出す単語数の上限(壊れたPDFでの暴走防止)。
+Private Const MAX_WORDS_PER_PAGE As Long = 20000
+
 ' ============================================================================
 ' modExtractorAcrobat - Adobe Acrobat COM経由のPDF抽出(フォールバック)
 ' ----------------------------------------------------------------------------
@@ -32,7 +35,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef errDetail As String) As Boolean
     truncated = False
 
-    Dim app As Object, doc As Object, pg As Object
+    Dim app As Object, doc As Object
 
     On Error GoTo Failed
     Set app = CreateObject("AcroExch.App")
@@ -54,13 +57,23 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
         truncated = True
     End If
 
+    ' 2026-07-28(レビュー M-13): テキスト取り出しは PDDoc の JSObject 経由。
+    ' 取得は文書につき1回でよい(ページごとに取り直す必要は無い)。
+    Dim js As Object
+    On Error Resume Next
+    Set js = doc.GetJSObject()
+    On Error GoTo Failed
+    If js Is Nothing Then
+        errDetail = "Acrobat の JavaScript オブジェクトを取得できませんでした" & _
+                    "(Acrobat Reader では利用できません。Acrobat Pro が必要です)"
+        GoTo CleanupFail
+    End If
+
     Dim tmp() As ExtractedPage: ReDim tmp(0 To loopCount - 1)
     Dim i As Long
     For i = 0 To loopCount - 1
-        Set pg = doc.AcquirePage(i)
         tmp(i).page = i + 1
-        tmp(i).Text = ExtractPageWords(pg)
-        Set pg = Nothing
+        tmp(i).Text = ExtractPageWords(js, i)
     Next i
 
     doc.Close
@@ -85,7 +98,6 @@ CleanupFail:
         app.Exit
         On Error GoTo 0
     End If
-    Set pg = Nothing
     Set doc = Nothing
     Set app = Nothing
     Extract = False
@@ -103,7 +115,6 @@ Failed:
         app.Exit
         On Error GoTo 0
     End If
-    Set pg = Nothing
     Set doc = Nothing
     Set app = Nothing
     Extract = False
@@ -111,15 +122,29 @@ End Function
 
 ' 1ページ分の単語をAcrobatから取り出し、配列+Joinでスペース区切り連結する
 ' (§12: &連鎖の長大化禁止)。
-Private Function ExtractPageWords(ByVal pg As Object) As String
-    Dim numWords As Long: numWords = pg.GetNumWords()
+Private Function ExtractPageWords(ByVal js As Object, ByVal pageIndex As Long) As String
+    ' 2026-07-28(レビュー M-13): PDPage.GetNumWords / GetWord は
+    ' Acrobat IAC(COM)に存在しないメソッドで、エラー438が確実に返っていた。
+    ' つまり「Word失敗 → Acrobatで救済」という経路は、Acrobat Pro が
+    ' 入っている端末でも一度も機能していない死に経路だった。
+    ' 正規の手段は JSObject(Acrobat JavaScript)の
+    ' getPageNumWords / getPageNthWord を叩くこと。
+    If js Is Nothing Then Exit Function
+
+    Dim numWords As Long
+    On Error Resume Next
+    numWords = CLng(js.getPageNumWords(pageIndex))
+    On Error GoTo 0
     If numWords < 1 Then Exit Function
+    If numWords > MAX_WORDS_PER_PAGE Then numWords = MAX_WORDS_PER_PAGE
 
     Dim parts() As String: ReDim parts(0 To numWords - 1)
     Dim w As Long
+    On Error Resume Next
     For w = 0 To numWords - 1
-        parts(w) = pg.GetWord(w)
+        parts(w) = CStr(js.getPageNthWord(pageIndex, w, True))
     Next w
+    On Error GoTo 0
     ExtractPageWords = Join(parts, " ")
 End Function
 

@@ -113,7 +113,12 @@ Public Sub InitUI()
     ws.Unprotect
     ws.Cells.Locked = True
     ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW).Locked = False
-    ws.Protect DrawingObjects:=False, Contents:=True, Scenarios:=True, UserInterfaceOnly:=True
+    ' 2026-07-28(レビュー M-25): 図形も保護する(DrawingObjects:=True)。
+    ' False だとチャットの吹き出しをクリックすると白い選択ハンドルが付き、
+    ' Delete キーで【回答が消える】。Ctrl+Z は無効化してあるので復元できない。
+    ' バブルの OnAction 結線は廃止済みで、利用者がバブルを選択する必要は
+    ' もう無い。UserInterfaceOnly:=True なのでマクロ側の描画は従来どおり動く。
+    ws.Protect DrawingObjects:=True, Contents:=True, Scenarios:=True, UserInterfaceOnly:=True
     ws.EnableSelection = 1
     On Error GoTo 0
 

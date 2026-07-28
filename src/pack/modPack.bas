@@ -64,10 +64,18 @@ End Sub
 Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean, _
                                Optional ByVal originOverride As String = "", _
                                Optional ByVal purgeOrigins As String = "") As Long
+    ' 2026-07-28(レビュー M-10): Open から Close までを必ずハンドラで覆う。
+    ' 従来はこの区間が無ハンドラで、pack 内のエラー値セル等で素のVBAエラーが
+    ' 出ると【pack.xlsx が開きっぱなし】のまま抜けていた。共有フォルダの
+    ' ファイルを掴んだままになるので、発行者が次の版を書けなくなる。
+    ' 画面のちらつき(ScreenUpdating)もここで抑える。
     Dim wb As Workbook
+    Dim prevScreen As Boolean: prevScreen = Application.ScreenUpdating
+    Application.ScreenUpdating = False
+
     On Error GoTo OpenFail
     Set wb = Application.Workbooks.Open(Filename:=packPath, ReadOnly:=True, UpdateLinks:=0)
-    On Error GoTo 0
+    On Error GoTo LoadFailed
 
     Dim reason As String
     If Not ValidatePack(wb, reason) Then
@@ -82,6 +90,7 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
             badCode = "E0701"
         End If
         modLog.LogError badCode, "modPack.ImportPackFile", reason
+        Application.ScreenUpdating = prevScreen
         If Not silent Then
             MsgBox modLog.FriendlyMessage(badCode) & vbLf & "(コード: " & badCode & ")" & vbLf & _
                 "詳細: " & reason, vbExclamation, modAppDef.APP_NAME
@@ -113,7 +122,9 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
 
     On Error Resume Next
     wb.Close SaveChanges:=False
+    Set wb = Nothing
     On Error GoTo 0
+    Application.ScreenUpdating = prevScreen
 
     If n = 0 Then
         If Not silent Then
@@ -152,8 +163,26 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     End If
     Exit Function
 
+LoadFailed:
+    ' 検証・読み出しの途中で落ちた。何より先にブックを閉じる
+    ' (掴んだままにすると発行者が次の版を書けなくなる)。
+    Dim loadDesc As String: loadDesc = Err.Description
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    Set wb = Nothing
+    On Error GoTo 0
+    Application.ScreenUpdating = prevScreen
+    modLog.LogError "E0701", "modPack.ImportPackFile", "パックの読み出しに失敗: " & loadDesc
+    If Not silent Then
+        MsgBox "パックファイルを読み込めませんでした。" & vbLf & _
+            "壊れたファイルでないか確認してください。" & vbLf & "(コード: E0701)", _
+            vbExclamation, modAppDef.APP_NAME
+    End If
+    Exit Function
+
 OpenFail:
     On Error GoTo 0
+    Application.ScreenUpdating = prevScreen
     modLog.LogError "E0701", "modPack.ImportPackFile", "ファイルを開けません: " & Err.Description
     If Not silent Then
         MsgBox "パックファイルを開けませんでした。" & vbLf & _
@@ -340,6 +369,7 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
 
     Dim outK() As Variant: ReDim outK(1 To n, 1 To 9)
     Dim outV() As Variant: ReDim outV(1 To n, 1 To 2)
+    Dim vecCount As Long          ' 実際に書くベクトル行数(空ベクトルは書かない)
     Dim addedStamp As String: addedStamp = modUtil.NowStamp()
     ' 部門チャンネル経由なら "channel:"&部門名、手渡しパックなら "pack:"&作者名。
     ' 消す側(modChannel/modShelfStore)が探すタグと必ず同じ値になるよう、
@@ -371,28 +401,61 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
             outK(importedCount, COL_ADDED) = addedStamp
             outK(importedCount, COL_EMBEDDED) = IIf(LenB(vectors(i)) > 0, 1, 0)
 
-            outV(importedCount, 1) = ids(i)
-            outV(importedCount, 2) = modUtil.SafeLeft(vectors(i), 32000)
+            ' 2026-07-28(レビュー M-17): ベクトルが空のチャンクは
+            ' my_vectors に空行を作らない。作ると、あとで埋め込みが走った
+            ' ときに同じ chunk_id の行がもう1本できて恒久的に残る
+            ' (単段検索では同じチャンクが topK の枠を2つ占める)。
+            If LenB(vectors(i)) > 0 Then
+                vecCount = vecCount + 1
+                outV(vecCount, 1) = ids(i)
+                outV(vecCount, 2) = modUtil.SafeLeft(vectors(i), 32000)
+            End If
         End If
     Next i
 
+    ' 2026-07-28(レビュー M-17): 数千行×9列(full_text は最大32,000字)を
+    ' 1回の Range 代入で書くと、大型正典の初回接続で実行時エラー7
+    ' (メモリが不足しています)になり得る。modShelf.IngestFile は同じ処理を
+    ' 既に200行バッチ化して同じ事故を回避済みだったので、こちらも揃える。
     If importedCount > 0 Then
         Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
         If lastK < 1 Then lastK = 1
         Dim firstKRow As Long: firstKRow = lastK + 1
         If firstKRow < 2 Then firstKRow = 2
+        WriteRowsBatched wsK, firstKRow, outK, importedCount, 9
+    End If
 
-        Dim wArrK As Variant: wArrK = CompactRows(outK, importedCount, 9)
-        wsK.Range(wsK.Cells(firstKRow, 1), wsK.Cells(firstKRow + importedCount - 1, 9)).Value = wArrK
-
+    If vecCount > 0 Then
         Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row
         If lastV < 1 Then lastV = 1
         Dim firstVRow As Long: firstVRow = lastV + 1
         If firstVRow < 2 Then firstVRow = 2
-
-        Dim wArrV As Variant: wArrV = CompactRows(outV, importedCount, 2)
-        wsV.Range(wsV.Cells(firstVRow, 1), wsV.Cells(firstVRow + importedCount - 1, 2)).Value = wArrV
+        WriteRowsBatched wsV, firstVRow, outV, vecCount, 2
     End If
+End Sub
+
+' 配列を200行ずつに割って書き込む(1回の巨大な Range 代入で err#7 になるのを
+' 避けるため。modShelf.IngestFile と同じ方式)。
+Private Sub WriteRowsBatched(ByVal ws As Worksheet, ByVal firstRow As Long, _
+                             ByRef src As Variant, ByVal rowCount As Long, ByVal colCount As Long)
+    Const BATCH_ROWS As Long = 200
+    Dim start As Long
+    For start = 1 To rowCount Step BATCH_ROWS
+        Dim nRows As Long
+        nRows = rowCount - start + 1
+        If nRows > BATCH_ROWS Then nRows = BATCH_ROWS
+
+        Dim chunkArr() As Variant: ReDim chunkArr(1 To nRows, 1 To colCount)
+        Dim r As Long, c As Long
+        For r = 1 To nRows
+            For c = 1 To colCount
+                chunkArr(r, c) = src(start + r - 1, c)
+            Next c
+        Next r
+
+        Dim rowTop As Long: rowTop = firstRow + start - 1
+        ws.Range(ws.Cells(rowTop, 1), ws.Cells(rowTop + nRows - 1, colCount)).Value = chunkArr
+    Next start
 End Sub
 
 ' my_knowledge/my_vectors共通: 無ければveryHiddenで新規作成しヘッダを書く
@@ -465,15 +528,3 @@ Private Function ExtractHashFromChunkId(ByVal chunkId As String) As String
     ExtractHashFromChunkId = parts(LBound(parts) + 1)
 End Function
 
-' src(1 To n以上, 1 To cols)の先頭n行だけを(1 To n, 1 To cols)へ詰め直す
-' (Range書込みは配列サイズが対象範囲と一致していないといけないため)。
-Private Function CompactRows(ByRef src As Variant, ByVal n As Long, ByVal cols As Long) As Variant
-    Dim outArr() As Variant: ReDim outArr(1 To n, 1 To cols)
-    Dim r As Long, c As Long
-    For r = 1 To n
-        For c = 1 To cols
-            outArr(r, c) = src(r, c)
-        Next c
-    Next r
-    CompactRows = outArr
-End Function

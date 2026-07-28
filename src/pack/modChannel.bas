@@ -659,14 +659,11 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' 内部
 ' ----------------------------------------------------------------------------
+' 到達性の判定は modShare が1セッション1回だけ行う(レビュー M-20)。
+' 共有が死んでいる日に、起動のたび複数箇所で OS のタイムアウトを
+' 払い直すのをやめる(「開かない」「閉じたのに数十秒残る」の主因)。
 Private Function ChannelsDir() As String
-    Dim basePath As String
-    On Error Resume Next
-    basePath = modConfig.GetString("nexus_share_path", "")
-    On Error GoTo 0
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    ChannelsDir = basePath & CH_SUBDIR & "\"
+    ChannelsDir = modShare.SubDir(CH_SUBDIR)
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

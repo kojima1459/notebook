@@ -575,18 +575,16 @@ Private Function AuthorOfSource(ByVal srcName As String) As String
     Next r
 End Function
 
+' 到達性の判定は modShare が1セッション1回だけ行う(レビュー M-20)。
+' 届かない共有に毎回挨拶しに行くと、起動と終了が数十秒ブロックする。
 Private Function ThanksDir() As String
-    Dim basePath As String: basePath = modConfig.GetString("nexus_share_path", "")
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    ThanksDir = basePath & THANKS_SUBDIR & "\"
+    ThanksDir = modShare.SubDir(THANKS_SUBDIR)
 End Function
 
+' 到達性の判定は modShare が1セッション1回だけ行う(レビュー M-20)。
+' 届かない共有に毎回挨拶しに行くと、起動と終了が数十秒ブロックする。
 Private Function NoiseDir() As String
-    Dim basePath As String: basePath = modConfig.GetString("nexus_share_path", "")
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    NoiseDir = basePath & NOISE_SUBDIR & "\"
+    NoiseDir = modShare.SubDir(NOISE_SUBDIR)
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

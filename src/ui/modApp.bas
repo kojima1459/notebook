@@ -142,10 +142,19 @@ Public Sub OnSend()
     On Error GoTo Fail
     DoEvents
 
+    ' 2026-07-28(レビュー M-26): モードと速さは【送信の入口で一度だけ】
+    ' 確定させ、以降はこのローカル変数だけを見る。
+    ' 従来は OnSend の中で CurrentMode()/RagSpeed() を都度読み直していたため、
+    ' LLMの応答待ち(数十秒)の間にヘッダーのトグルを押されると、
+    ' 「一般回答の下に前回RAGの出典チップが出る」という【出典の誤提示】が
+    ' 起きた。回答は根拠と対で意味を持つので、これは表示崩れでは済まない。
+    Dim sendMode As String: sendMode = modAppState.CurrentMode()
+    Dim sendSpeed As String: sendSpeed = modAppState.RagSpeed()
+
     ' 入念は数分かかる。始まる前に「何をするか・どれくらいかかるか」を
     ' 必ず出す。黙って数分止まると、利用者は固まったと判断して閉じる。
     On Error Resume Next
-    If modAppState.RagSpeed() = "thorough" Then
+    If sendSpeed = "thorough" Then
         modLive.PaintStage "入念に調べます。多方向から検索して、資料と1行ずつ照合します…"
     End If
     On Error GoTo Fail
@@ -154,7 +163,7 @@ Public Sub OnSend()
 
     Dim ans As String
     Dim grounded As Boolean
-    If modAppState.CurrentMode() = "normal" Then
+    If sendMode = "normal" Then
         ans = modAppState.AskGeneral(q, "")
     ElseIf modAppState.ShelfIsEmpty() Then
         ' 資料が1件も無いのに検索へ行くと、埋め込みAPIを1往復使ったうえで
@@ -162,7 +171,7 @@ Public Sub OnSend()
         ' 価値の無い返事に着く。空だと分かっているなら聞くまでもない。
         ans = modAppState.AnswerWithoutShelf(q)
     Else
-        ans = modAsk.Answer(q, modAppState.RagSpeed())
+        ans = modAsk.Answer(q, sendSpeed)
         grounded = True
     End If
 
@@ -184,12 +193,12 @@ Public Sub OnSend()
 
     ' 積む順は 回答 → 信頼度 → 出典 → 評価。根拠を見る前に評価させない。
     ' (一般アシスタントは出典が無いので信頼度・出典は出さない=誤表示も防ぐ)
-    If modAppState.CurrentMode() <> "normal" Then
+    If sendMode <> "normal" Then
         DrawConfidence bubbleName
         modPeek.RenderCitations bubbleName
     End If
     DrawActions bubbleName
-    If modAppState.CurrentMode() <> "normal" Then
+    If sendMode <> "normal" Then
         modMentor.OfferMentor bubbleName   ' Mentor: 専門家ボタン(失敗しても出ないだけ=安全弁内蔵)
     End If
     On Error Resume Next
@@ -257,7 +266,7 @@ End Sub
 
 ' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。
 Public Function ModeCaption() As String
-    If modAppState.CurrentMode() = "normal" Then
+    If sendMode = "normal" Then
         ModeCaption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
     Else
         ModeCaption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
@@ -624,6 +633,17 @@ Public Sub OnRefreshUI()
 End Sub
 
 Public Sub OnToggleMode()
+    ' 2026-07-28(レビュー M-26): 送信処理中はモード類を切り替えさせない。
+    ' このトグル4本だけ modUiLock を通っておらず、LLMの応答待ち中に
+    ' 押せてしまうため、待っている回答と表示の前提がずれる。
+    ' ロックは取らない(この操作自体は一瞬で終わる)。busy かどうかだけ見る。
+    If modUiLock.IsBusy() Then
+        On Error Resume Next
+        modSkin.ShowToast "回答の生成中です。終わってから切り替えてください。", "info"
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     Dim newMode As String
     If modAppState.CurrentMode() = "normal" Then
         newMode = "rag"
@@ -636,6 +656,17 @@ End Sub
 
 ' すぐ聞く/しっかり調べる切替。ホームと同じui_state "mode"キーを共有。
 Public Sub OnToggleSpeed()
+    ' 2026-07-28(レビュー M-26): 送信処理中はモード類を切り替えさせない。
+    ' このトグル4本だけ modUiLock を通っておらず、LLMの応答待ち中に
+    ' 押せてしまうため、待っている回答と表示の前提がずれる。
+    ' ロックは取らない(この操作自体は一瞬で終わる)。busy かどうかだけ見る。
+    If modUiLock.IsBusy() Then
+        On Error Resume Next
+        modSkin.ShowToast "回答の生成中です。終わってから切り替えてください。", "info"
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     ' すぐ聞く → しっかり調べる → 入念に調べる → すぐ聞く の巡回。
     ' 押すたびに何が変わるかをトーストで必ず出す。モード名だけでは
     ' 「押したら遅くなった」としか分からず、選ぶ理由が伝わらない。
@@ -656,6 +687,17 @@ End Function
 ' 回答言語の巡回切替(日本語→English→中文→Tiếng Việt)。
 ' answer_languageは既存プロンプト(modPrompts)がそのまま使用する。
 Public Sub OnLangCycle()
+    ' 2026-07-28(レビュー M-26): 送信処理中はモード類を切り替えさせない。
+    ' このトグル4本だけ modUiLock を通っておらず、LLMの応答待ち中に
+    ' 押せてしまうため、待っている回答と表示の前提がずれる。
+    ' ロックは取らない(この操作自体は一瞬で終わる)。busy かどうかだけ見る。
+    If modUiLock.IsBusy() Then
+        On Error Resume Next
+        modSkin.ShowToast "回答の生成中です。終わってから切り替えてください。", "info"
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     Dim cur As String
     cur = modConfig.GetString("answer_language", "日本語")
 

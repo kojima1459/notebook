@@ -297,6 +297,14 @@ Public Sub Boot()
     '    操作への応答ではないため silent:=True で呼び、完了/未設定時の警告
     '    ダイアログでブックを開いた直後にポップアップを出さない
     '    (Wave4修正: 名前入力直後にE0502警告が必ず出る不具合への対応)。
+    ' 2026-07-28(レビュー M-23): 起動ジッタは【共有I/Oを始める前】に置く。
+    ' 従来は SyncNow(その中で感謝状・品質報告の全ファイル走査をする)を
+    ' 済ませてから散らしていたため、朝の一斉起動で最も重い処理が
+    ' 全員同時刻に走っていた。分散させたい負荷の後で散らしても意味が無い。
+    On Error Resume Next
+    modChannel.StartupJitter
+    On Error GoTo Failed
+
     If modConfig.GetBool("sync_on_open", True) Then
         On Error Resume Next
         modShelfSync.SyncNow silent:=True
@@ -314,7 +322,6 @@ Public Sub Boot()
     ' 本棚への取り込みは利用者がHubのお知らせを押したときだけ行う。
     ' 朝の一斉起動で共有フォルダへ全員が同時に殺到しないよう散らす。
     On Error Resume Next
-    modChannel.StartupJitter
     ' 旧タグ("pack:<作者名>")で入った部門チャンクの一度きりの掃除。
     ' 修正前のビルドで部門へつないだ端末には、消せない残骸が溜まっている
     ' (レビュー C-1)。掃除して版数を空にし、正しいタグで入れ直させる。

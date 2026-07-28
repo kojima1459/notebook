@@ -304,6 +304,17 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     uiStep = "ベクトル化(埋め込み)"
     modEmbed.EmbedPending
 
+    ' 9.5) バッチ富化(要約・キーワード付与)。config enrich_mode の既定は "off"
+    '      で、その場合 EnrichPending は即0を返して何もしない。
+    '      2026-07-28(レビュー M-15): この呼び出しがソース全体に1つも無く、
+    '      config の enrich_mode は【どこからも読まれない死に設定】だった
+    '      (設定台帳には載っているので、管理者は効くと思って設定する)。
+    '      既定offなので、配線しても既定の挙動は1ミリも変わらない。
+    uiStep = "要約・キーワードの付与"
+    On Error Resume Next
+    modEnrich.EnrichPending
+    On Error GoTo Failed
+
     ' 10) status確定(embedded=0が残ればpartial)
     uiStep = "取込状態の確定"
     Dim stillPending As Boolean: stillPending = False

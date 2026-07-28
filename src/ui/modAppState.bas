@@ -31,8 +31,10 @@ End Function
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Public Function HasTarget() As Boolean
     If LenB(TargetBubbleName()) = 0 Then
-        MsgBox "対象のAI回答がありません。まず質問して回答を受け取ってください。" & vbCrLf & _
-               "(過去の回答に対して操作する場合は、その吹き出しをクリックして選択してから押してください)", _
+        ' 2026-07-28(レビュー M-25): 「吹き出しをクリックして選択」という
+        ' 案内をやめた。図形保護を掛けたので選択できないし、そもそも
+        ' 選択できた頃はDeleteで回答が消える操作へ誘導していた。
+        MsgBox "対象のAI回答がありません。まず質問して回答を受け取ってください。", _
                vbInformation, "Nexus Agent"
         Exit Function
     End If

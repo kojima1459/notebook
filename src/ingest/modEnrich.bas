@@ -128,12 +128,19 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
         DoEvents   ' ESC割込みとUI応答性の確保
         On Error GoTo 0
 
+        ' 2026-07-28(レビュー M-15): 書き戻し先を行番号ではなく chunk_id で
+        ' 解決する。LLM呼び出しには数秒かかり、その間の DoEvents で利用者が
+        ' 資料を削除すると行が詰まって【別のチャンクの要約を上書きする】。
+        ' modEmbed は既に chunk_id を Find で引き直しており、こちらだけ
+        ' 素の行番号のままだった。
         Dim idxs() As Long: ReDim idxs(0 To batchSize - 1)
+        Dim ids() As String: ReDim ids(0 To batchSize - 1)
         Dim parts() As String: ReDim parts(0 To batchSize - 1)
         Dim j As Long
         For j = 0 To batchSize - 1
             Dim ai As Long: ai = pendingRows(batchStart + j)
             idxs(j) = ai
+            ids(j) = CStr(arr(ai, COL_ID))
             parts(j) = "[" & (j + 1) & "] " & modUtil.SafeLeft(CStr(arr(ai, COL_FULLTEXT)), SOURCE_TEXT_MAX_CHARS)
         Next j
         Dim batchText As String: batchText = Join(parts, vbLf & vbLf)
@@ -153,10 +160,13 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
                 For p = 0 To pCount - 1
                     Dim localI As Long: localI = pIdx(p) - 1   ' "i"は1始まり
                     If localI >= 0 And localI < batchSize Then
-                        Dim sheetRow As Long: sheetRow = idxs(localI) + 1   ' arr(1,..)はシート2行目
-                        wsK.Cells(sheetRow, COL_SUMMARY).Value = modUtil.SafeLeft(pSummary(p), SUMMARY_MAX_CHARS)
-                        wsK.Cells(sheetRow, COL_KEYWORDS).Value = modUtil.SafeLeft(pKeywords(p), KEYWORDS_MAX_CHARS)
-                        doneCount = doneCount + 1
+                        Dim sheetRow As Long
+                        sheetRow = ResolveRowByChunkId(wsK, ids(localI), idxs(localI) + 1)
+                        If sheetRow > 0 Then
+                            wsK.Cells(sheetRow, COL_SUMMARY).Value = modUtil.SafeLeft(pSummary(p), SUMMARY_MAX_CHARS)
+                            wsK.Cells(sheetRow, COL_KEYWORDS).Value = modUtil.SafeLeft(pKeywords(p), KEYWORDS_MAX_CHARS)
+                            doneCount = doneCount + 1
+                        End If
                     End If
                 Next p
             End If
@@ -338,4 +348,24 @@ Private Function ExtractJsonStringValue(ByVal s As String, ByVal fromPos As Long
         ReDim Preserve buf(1 To bufLen)
         ExtractJsonStringValue = Join(buf, "")
     End If
+End Function
+
+' chunk_id から現在の行番号を引き直す。見つからなければ0(=そのチャンクは
+' LLM 呼び出しの最中に削除された。書かずに捨てるのが正しい)。
+' hintRow は読み取り時の行番号で、まだ同じ chunk_id ならそのまま使う
+' (毎回 Find すると数千行で遅いため、当たりを先に確かめる)。
+Private Function ResolveRowByChunkId(ByVal wsK As Worksheet, ByVal chunkId As String, _
+                                     ByVal hintRow As Long) As Long
+    On Error Resume Next
+    If LenB(chunkId) = 0 Then Exit Function
+    If hintRow >= 2 Then
+        If StrComp(CStr(wsK.Cells(hintRow, COL_ID).Value), chunkId, vbBinaryCompare) = 0 Then
+            ResolveRowByChunkId = hintRow
+            Exit Function
+        End If
+    End If
+    Dim found As Range
+    Set found = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+    If Not found Is Nothing Then ResolveRowByChunkId = found.row
+    On Error GoTo 0
 End Function

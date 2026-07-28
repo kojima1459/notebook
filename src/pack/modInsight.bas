@@ -521,15 +521,12 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' 内部: 小物
 ' ----------------------------------------------------------------------------
+' 到達性の判定は modShare が1セッション1回だけ行う(レビュー M-20)。
 Private Function SubDir(ByVal leaf As String) As String
-    Dim basePath As String
-    On Error Resume Next
-    basePath = modConfig.GetString("nexus_share_path", "")
-    On Error GoTo 0
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    EnsureDir basePath & INSIGHT_SUBDIR & "\"
-    SubDir = basePath & INSIGHT_SUBDIR & "\" & leaf & "\"
+    Dim root As String: root = modShare.SubDir(INSIGHT_SUBDIR)
+    If LenB(root) = 0 Then Exit Function
+    EnsureDir root
+    SubDir = root & leaf & "\"
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

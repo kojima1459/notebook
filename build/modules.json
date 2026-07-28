@@ -65,6 +65,13 @@
       "wave": "1-A"
     },
     {
+      "name": "modShare",
+      "path": "src/core/modShare.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
       "name": "modExtractor",
       "path": "src/ingest/modExtractor.bas",
       "role": "core",

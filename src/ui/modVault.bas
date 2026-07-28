@@ -1,6 +1,11 @@
 Attribute VB_Name = "modVault"
 Option Explicit
 
+' ナレッジ画面のカードに出す先頭チャンクの索引(レビュー M-16)。
+' source名(小文字) -> プレビュー文字列。mPreviewRows は作り直し判定用の行数。
+Private mPreview As Object
+Private mPreviewRows As Long
+
 ' ============================================================================
 ' modVault - ナレッジ登録フォーム(DOCS_NEXUS_SPEC Phase 2・裁定①)
 ' ----------------------------------------------------------------------------
@@ -647,39 +652,62 @@ End Sub
 
 ' 資料の先頭チャンク本文(breadcrumb行を除去した150字)をプレビューとして返す。
 Private Function PreviewOf(ByVal srcName As String) As String
-    Static cacheName As String
-    Static cacheText As String
-    If cacheName = srcName And LenB(cacheText) > 0 Then
-        PreviewOf = cacheText
-        Exit Function
-    End If
+    ' 2026-07-28(レビュー M-16): 資料ごとに my_knowledge を1セルずつ
+    ' 走査していた。資料100件×1万チャンクなら最悪100万回のCOM往復で、
+    ' ナレッジ画面が分単位でフリーズする(Static のキャッシュは直近1件しか
+    ' 効かないので、カードを縦に並べる用途では毎回ミスする)。
+    ' 「全資料ぶんの先頭チャンク」を一括読みで一度だけ索引化する。
+    EnsurePreviewIndex
+    If mPreview Is Nothing Then Exit Function
+    If mPreview.Exists(LCase$(srcName)) Then PreviewOf = mPreview(LCase$(srcName))
+End Function
 
-    Dim ws As Worksheet
+' my_knowledge を一括で読み、資料ごとの先頭チャンクだけを拾って索引化する。
+' 行数が変わったら作り直す(取込・削除のあとに古い内容を出さないため)。
+Private Sub EnsurePreviewIndex()
     On Error Resume Next
+    Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Function
+    If ws Is Nothing Then Exit Sub
 
     Dim lastK As Long
     lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    If lastK < 2 Then Exit Function
+    If lastK < 2 Then
+        Set mPreview = CreateObject("Scripting.Dictionary")
+        mPreviewRows = 0
+        Exit Sub
+    End If
 
-    Dim r As Long
-    For r = 2 To lastK
-        If StrComp(CStr(ws.Cells(r, 2).Value), srcName, vbTextCompare) = 0 Then
-            Dim txt As String
-            txt = CStr(ws.Cells(r, 7).Value)
-            ' breadcrumb行(【…】)を剥がす
-            If Left$(txt, 1) = "【" Then
-                Dim lfPos As Long: lfPos = InStr(txt, vbLf)
-                If lfPos > 0 Then txt = Mid$(txt, lfPos + 1)
+    If Not mPreview Is Nothing Then
+        If mPreviewRows = lastK Then Exit Sub    ' 変化なし=作り直さない
+    End If
+
+    Set mPreview = CreateObject("Scripting.Dictionary")
+    mPreviewRows = lastK
+
+    ' source(2列目)と full_text(7列目)だけが要る。
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 2), ws.Cells(lastK, 7)).Value
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        Dim nm As String: nm = LCase$(Trim$(CStr(arr(i, 1))))
+        If LenB(nm) > 0 Then
+            If Not mPreview.Exists(nm) Then
+                mPreview(nm) = MakePreviewText(CStr(arr(i, 6)))
             End If
-            cacheName = srcName
-            cacheText = modUtil.SafeLeft(Replace(txt, vbLf, " "), 150)
-            PreviewOf = cacheText
-            Exit Function
         End If
-    Next r
+    Next i
+    On Error GoTo 0
+End Sub
+
+' full_text をカード用の1行プレビューへ整える(breadcrumb行【…】は剥がす)。
+Private Function MakePreviewText(ByVal fullText As String) As String
+    Dim txt As String: txt = fullText
+    If Left$(txt, 1) = "【" Then
+        Dim lfPos As Long: lfPos = InStr(txt, vbLf)
+        If lfPos > 0 Then txt = Mid$(txt, lfPos + 1)
+    End If
+    MakePreviewText = modUtil.SafeLeft(Replace(txt, vbLf, " "), 150)
 End Function
 
 Private Function ShortStamp(ByVal stamp As String) As String

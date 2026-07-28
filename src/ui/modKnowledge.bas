@@ -601,12 +601,24 @@ Public Sub OnChannels()
               "分量によっては数分かかることがあります。よろしいですか?", _
               vbOKCancel + vbQuestion, modAppDef.APP_NAME & " - 部門の公式ナレッジ") <> vbOK Then Exit Sub
 
+    ' 2026-07-28(レビュー M-21): 実処理の区間はロックを取り直す。
+    ' 確認ダイアログの前に Leave しているため、ここは無防備だった。
+    ' 取り込みは共有I/Oのリトライ待ちで DoEvents を回すので、その間に
+    ' もう一度押されると同じ処理が入れ子で走り、purge と import が
+    ' 交錯して本棚が中途半端な状態になる。
+    If Not modUiLock.Enter() Then Exit Sub
+
     Dim result As String
     On Error Resume Next
+    ' 取り込み中の ESC を実行時エラー18として捕捉できるようにする
+    ' (捕捉しないと Excel が処理を強制中断し、purge 直後で止まり得る)。
+    Application.EnableCancelKey = 2      ' xlErrorHandler
     modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の公式ナレッジを読み込んでいます…"
     result = modChannel.SubscribeAllAvailable()
     modUIMain.SetStage ""
+    Application.EnableCancelKey = 1      ' xlInterrupt(既定へ戻す)
     On Error GoTo 0
+    modUiLock.Leave
 
     On Error Resume Next
     modHub.EnsureHubLayout
@@ -696,6 +708,7 @@ Public Sub OnPublish()
     If ans = vbCancel Then GoTo Done
     If ans = vbNo Then
         modUiLock.Leave
+        ' DoRollback は内部で自分のロックを取り直す(レビュー M-21)。
         DoRollback chName
         Exit Sub
     End If
@@ -757,13 +770,18 @@ End Sub
 
 ' 直前の版に戻す。事故を止める最終手段なので、操作は最短手数にする。
 Private Sub DoRollback(ByVal chName As String)
+    ' 2026-07-28(レビュー M-21): 呼び出し側が Leave してから来るので、
+    ' 実処理はここでロックを取り直す。取れなければ何もしない
+    ' (巻き戻しの二重実行は共有フォルダの版を壊す)。
+    If Not modUiLock.Enter() Then GoTo RollbackDone
+    On Error GoTo RollbackDone
     On Error Resume Next
     Dim list_ As String
     list_ = modPublish.ArchiveList(chName)
     If LenB(list_) = 0 Then
         MsgBox "戻せる過去版がありません(まだ1度も発行していない部門です)。", _
                vbInformation, modAppDef.APP_NAME
-        Exit Sub
+        GoTo RollbackDone
     End If
 
     Dim parts() As String: parts = Split(list_, "|")
@@ -774,7 +792,7 @@ Private Sub DoRollback(ByVal chName As String)
               "戻すと、部内の全員が次にファイルを開いたときに" & vbCrLf & _
               "その版へ自動で置き換わります(誤った内容は各PCから消えます)。" & vbCrLf & vbCrLf & _
               "実行しますか?", vbOKCancel + vbExclamation, _
-              modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then Exit Sub
+              modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then GoTo RollbackDone
 
     If modPublish.Rollback(chName, newest) Then
         MsgBox "戻しました。全員に自動で配信されます。", vbInformation, modAppDef.APP_NAME
@@ -783,6 +801,8 @@ Private Sub DoRollback(ByVal chName As String)
                vbExclamation, modAppDef.APP_NAME
     End If
     On Error GoTo 0
+RollbackDone:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnRegister()

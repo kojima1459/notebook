@@ -110,7 +110,11 @@ Public Function FinalizePublish(ByVal chName As String, ByVal chunkCount As Long
 
     Dim author As String: author = PublisherName()
     Dim ver As String
-    ver = Format$(Now, "yyyymmdd-hhnn") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & author
+    ' 2026-07-28(レビュー M-18): 版番号は秒精度。分精度だと
+    ' 「発行 → 巻き戻し → 再発行」を同一分内でやったときに版文字列が
+    ' 初回と一致してしまい、購読者側は「更新なし」と判断して配信されない。
+    ' テストで連続発行すると現実に踏む。
+    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & author
 
     If Not WriteShared(d & VER_NAME, ver) Then Exit Function
 
@@ -180,7 +184,11 @@ Public Function Rollback(ByVal chName As String, ByVal archiveName As String) As
     ' 版番号は必ず「新しい値」にする。古い版番号に戻すと、既にその版を
     ' 取り込み済みの人が「変化なし」と判定して巻き戻しが届かない。
     Dim ver As String
-    ver = Format$(Now, "yyyymmdd-hhnn") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & _
+    ' 2026-07-28(レビュー M-18): 版番号は秒精度。分精度だと
+    ' 「発行 → 巻き戻し → 再発行」を同一分内でやったときに版文字列が
+    ' 初回と一致してしまい、購読者側は「更新なし」と判断して配信されない。
+    ' テストで連続発行すると現実に踏む。
+    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & _
           PublisherName() & "(巻き戻し:" & archiveName & ")"
     If Not WriteShared(d & VER_NAME, ver) Then Exit Function
 

@@ -73,7 +73,39 @@ Public Sub Publish()
     sb = sb & "scr_knowledge" & vbTab & modStats.GetStat("scr:knowledge") & vbLf
     sb = sb & "scr_dash" & vbTab & modStats.GetStat("scr:dash") & vbLf
 
-    WriteShared dirPath & SafeName(uid) & "_" & Format$(Date, "yyyymm") & ".txt", sb
+    ' 2026-07-28(レビュー M-19): ファイル名から月を外した。
+    ' 送っているのは【生涯累計】のスナップショットなのに、ファイルを
+    ' 「ユーザー×月」で分けていたため、2ヶ月目以降は同じ人の累計が
+    ' 月数ぶん足し合わされ、利用者数・質問総数・節約時間が過大に出ていた
+    ' (集計側は素直に全ファイルを足す)。1人1ファイルの上書きにする。
+    Dim outPath As String
+    outPath = dirPath & SafeName(uid) & ".txt"
+    WriteShared outPath, sb
+
+    ' 旧形式(<uid>_yyyymm.txt)が残っていると二重計上が続くので、
+    ' 自分のぶんだけ片付ける。他人のファイルには触らない。
+    CleanupLegacyMonthlyFiles dirPath, SafeName(uid)
+    On Error GoTo 0
+End Sub
+
+' 旧「ユーザー×月」形式の自分のファイルを消す(移行用・レビュー M-19)。
+' 列挙中に Kill すると列挙が壊れるので「集めてから消す」。
+Private Sub CleanupLegacyMonthlyFiles(ByVal dirPath As String, ByVal uidSafe As String)
+    On Error Resume Next
+    Dim names() As String: ReDim names(0 To 63)
+    Dim n As Long
+    Dim fn As String: fn = Dir(dirPath & uidSafe & "_*.txt")
+    Do While LenB(fn) > 0
+        If n > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+        names(n) = fn
+        n = n + 1
+        fn = Dir()
+    Loop
+    Dim i As Long
+    For i = 0 To n - 1
+        Kill dirPath & names(i)
+        Err.Clear
+    Next i
     On Error GoTo 0
 End Sub
 
@@ -227,14 +259,11 @@ Private Function HeaderDept(ByVal txt As String) As String
     If UBound(parts) >= 3 Then HeaderDept = Trim$(parts(3))
 End Function
 
+' 到達性の判定は modShare が1セッション1回だけ行う(レビュー M-20)。
+' 終了時のテレメトリ送信がここで数十秒ブロックすると、
+' 「閉じたのにExcelが残る」という最悪の別れ方になる。
 Private Function SubDir(ByVal leaf As String) As String
-    Dim basePath As String
-    On Error Resume Next
-    basePath = modConfig.GetString("nexus_share_path", "")
-    On Error GoTo 0
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    SubDir = basePath & leaf & "\"
+    SubDir = modShare.SubDir(leaf)
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

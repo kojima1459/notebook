@@ -681,6 +681,13 @@ End Sub
 ' ステータスバーの「処理中です...」だけが残る(実機で再現した不具合)。
 ' 素通しにして、CycleSkin の完了後にHubを描き直す。
 Public Sub OnThemeToggle()
+    ' 2026-07-28(レビュー M-26): 処理中の再描画は画面を壊す。
+    If modUiLock.IsBusy() Then
+        On Error Resume Next
+        modSkin.ShowToast "処理中です。終わってから切り替えてください。", "info"
+        On Error GoTo 0
+        Exit Sub
+    End If
     On Error Resume Next
     modSkin.CycleSkin
     EnsureHubLayout
