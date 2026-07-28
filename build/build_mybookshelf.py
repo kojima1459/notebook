@@ -210,7 +210,12 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("embed_dim", 768, "埋め込みベクトルの保存次元数(Plan B: 1536取得→先頭768切詰め+再正規化。パック互換検査にも使用)"),
         ("embed_sleep_ms", 0, "埋め込みAPI呼び出し間のスロットリング(ミリ秒)。0=待たない(取込を速くする)。レート制限が出る場合のみ50〜150へ"),
         ("vector_precision", "d6", "ベクトル保存精度: full=フル精度 / d6=小数6桁丸め(Plan B推奨。サイズ約-42%)"),
-        ("embed_transport", "direct", "埋め込みの通信経路: ribbon=AIリボン単発 / direct=Azure APIへバッチ直接送信(裁定②)"),
+        ("embed_transport", "ribbon",
+         "埋め込みの通信経路: ribbon=AIリボン経由 / direct=Azure APIへバッチ直接送信。"
+         "2026-07-28: 既定を ribbon にした。本番ビルドは azure_embed_key を焼き込めない"
+         "(配布=キー配布になるため)ので、direct のままだと毎回 ribbon へフォールバックし、"
+         "err_log に E0203 が積み上がって本当の障害が埋もれる。"
+         "direct は、キーを自分で入れる管理端末で明示的に切り替えて使う"),
         ("embed_batch_size", 128, "direct時に1リクエストへまとめるチャンク数"),
         ("azure_http_timeout_ms", 60000, "direct埋め込みのHTTPタイムアウト(ms)。NW瞬断時の無限フリーズ防止。resolve/connectは内部で短めに固定"),
         ("azure_embed_url", os.environ.get(AZURE_EMBED_URL_ENV, ""),

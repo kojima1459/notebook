@@ -124,7 +124,12 @@ CONTRACT: dict[str, dict] = {
         # 起動時のAIリボン利用期限チェック。True=続行不可(公式サンプルの解釈)。
         # GetEmbeddingsBatch: RAG再設計(RAG_OVERHAUL_DESIGN.md §E-1)。
         # ribbon(単発ループ)/direct(Azure配列POST)/mock を透過切替する唯一のバッチ窓口。
-        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun", "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch"],
+        # RibbonEmbedRange / SerializeVector: 2026-07-28 に direct 経路を
+        # modGatewayDirect へ切り出した際、フォールバック先とベクトルCSV化を
+        # 共有するため公開した(経路が変わってもCSVの形は変えない)。
+        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun",
+                     "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch",
+                     "RibbonEmbedRange", "SerializeVector"],
     },
     "modFeatures": {
         "closed": True,

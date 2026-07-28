@@ -51,6 +51,13 @@
       "wave": "1-A"
     },
     {
+      "name": "modGatewayDirect",
+      "path": "src/core/modGatewayDirect.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
       "name": "modFeatures",
       "path": "src/core/modFeatures.bas",
       "role": "core",
