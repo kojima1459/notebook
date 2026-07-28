@@ -48,6 +48,25 @@ Option Explicit
 
 Private gBootDone As Boolean
 
+' 2026-07-28(レビュー H-1): Bootが1回の起動で2回走る経路がある。
+'   Workbook_Open → Install が OnTime(+1秒) で Boot を予約
+'   → 直後に保存済みの Auto_Open が Boot を同期実行
+'   → Boot は共有同期＋起動ジッタ(DoEventsループ)で1秒を超えるため、
+'      そのDoEvents中に期限到来済みのOnTime Bootが「割り込んで」発火する。
+' gBootDone は Boot の最後で立つので、この時点ではまだ False。つまり
+' フル初期化が二重に走り、MsgBoxが2連発したり SyncNow が二重に走ったり、
+' AutoSyncTick の予約が追跡不能になったりする。
+' gBootDone とは別に「今まさに走っている」フラグが要る。
+Private mBootRunning As Boolean
+
+' インストーラが予約した OnTime の時刻を置く場所(vba_src シートのE1)。
+' OnTime のキャンセルには予約時刻そのものが要るが、インストーラ側の
+' ローカル変数はプロシージャを抜けた時点で消えるため、シートに残す。
+' 保存後に書くので .xlsm には残らない(セッション内だけの一時状態で正しい)。
+Private Const BOOT_SCHED_SHEET As String = "vba_src"
+Private Const BOOT_SCHED_ROW As Long = 1
+Private Const BOOT_SCHED_COL As Long = 5
+
 ' 軽量マクロ無効ガード(盲点D1)の案内シート名。ビルド時に先頭・可視で作られ、
 ' マクロ無効で開かれた場合はこのシートがそのまま見える(壊れたUIを見せない)。
 ' 起動が成功したこの経路(HideInternalSheets)でだけ隠す。ビルド側の
@@ -62,18 +81,73 @@ Public Sub Auto_Open()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' CancelPendingInstallerBoot - インストーラが予約した OnTime Boot を取り消す。
+'
+' 自己インストーラ(ThisWorkbookストリーム)は Workbook_Open の中で
+' Application.OnTime Now+1秒, "modBoot.Boot" を予約する。VBEへの注入直後に
+' 同期でBootを呼ぶと1004になることがあるための逃げなのだが、予約時刻を
+' どこにも残していなかったため、誰もキャンセルできなかった。
+' 予約時刻は vba_src シートのE1にDouble(シリアル値)で置いてもらい、
+' 先に走った側とAuto_Closeがそれを使って取り消す。
+'
+' OnTime のキャンセルは EarliestTime が一致しないと 1004 になるが、
+' 「既に発火済み」も同じく 1004 なので、失敗は握って構わない(取り消す
+' 相手がもう居ないだけ)。セルは必ず消してから取り消しにいくので、
+' 2回目以降の呼び出しは何もしない。
+' ----------------------------------------------------------------------------
+Private Sub CancelPendingInstallerBoot()
+    On Error Resume Next
+    Dim w As Worksheet
+    Set w = ThisWorkbook.Worksheets(BOOT_SCHED_SHEET)
+    If w Is Nothing Then Exit Sub
+
+    Dim v As Variant
+    v = w.Cells(BOOT_SCHED_ROW, BOOT_SCHED_COL).Value
+    If IsError(v) Then Exit Sub
+    If Not IsNumeric(v) Then Exit Sub
+    Dim serial As Double
+    serial = CDbl(v)
+    If serial <= 0 Then Exit Sub
+
+    w.Cells(BOOT_SCHED_ROW, BOOT_SCHED_COL).ClearContents
+    Application.OnTime EarliestTime:=CDate(serial), Procedure:="modBoot.Boot", Schedule:=False
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' Boot - V2パターン踏襲の起動シーケンス本体
 ' ----------------------------------------------------------------------------
 Public Sub Boot()
+    ' インストーラが予約した「+1秒後のBoot」を、先着した側がここで取り消す。
+    ' 取り消せないままだと (a) 起動中のDoEvents中に割り込んで二重初期化、
+    ' (b) 発火前にブックを閉じると数秒後に勝手に開き直して保存までされる、
+    ' という2つの事故になる(レビュー H-1)。
+    CancelPendingInstallerBoot
+
+    ' 再入ガード。Boot の途中の DoEvents から Boot が呼ばれても、
+    ' 2本目は何もせずに戻る。gBootDone は最後に立つので守りにならない。
+    If mBootRunning Then Exit Sub
+
     If gBootDone Then
+        ' 2026-07-28(レビュー H-2): この再実行パスは Hub 化以前のまま
+        ' 取り残されており、旧ホームUI(btn_/lbl_)だけを組み直して
+        ' 抜けていた。初回パスは EnsureLayout の上から EnsureHubLayout で
+        ' 描き替える規約なので、ここだけ通ると Hub タイルの上に旧「質問する」
+        ' 画面が重なる。既知の「タブが常時表示されない」「位置がずれる」は
+        ' これが最有力(EnsureHubLayout を通ると直るので「再描画で直る」とも
+        ' 症状が一致する)。初回パスと同じ順序に揃える。
         On Error Resume Next
         modUIMain.EnsureLayout
+        modHub.EnsureHubLayout
         On Error GoTo 0
         On Error Resume Next
         modUIShelf.EnsureLayout
         On Error GoTo 0
         Exit Sub
     End If
+
+    mBootRunning = True
 
     ' bootStage: 失敗時に「どの段階で落ちたか」をユーザー向けダイアログと
     ' err_logの両方に出すための段階名。実機で初発のエラーが出たとき、
@@ -103,6 +177,11 @@ Public Sub Boot()
         modGuard.WipeKnowledge
         Application.EnableEvents = True
         Application.ScreenUpdating = True
+        ' 2026-07-28(レビュー L-8): この脱出だけ gBootDone を立てずに
+        ' 抜けていたため、二重Boot(H-1)を踏むと消去と案内が2回走った。
+        ' 「起動としては終わった」ので、成功パスと同じくフラグを立てる。
+        gBootDone = True
+        mBootRunning = False
         modGuard.ShowDomainBlocked
         Exit Sub
     End If
@@ -162,22 +241,22 @@ Public Sub Boot()
     ' (§7.5: 昨日なら+1/今日なら不変/それ以外リセット)は成立する。
     On Error Resume Next
     modStats.TouchToday
-    On Error GoTo 0
+    On Error GoTo Failed
 
     On Error Resume Next
     modStats.EvaluateBadges
-    On Error GoTo 0
+    On Error GoTo Failed
 
     ' 本棚が空なら回答エリアに常設案内を出す
     Dim shelfIsEmpty As Boolean
     shelfIsEmpty = False
     On Error Resume Next
     shelfIsEmpty = (modShelf.TotalChunks() = 0)
-    On Error GoTo 0
+    On Error GoTo Failed
     If shelfIsEmpty Then
         On Error Resume Next
         modUIMain.ShowEmptyShelfHint
-        On Error GoTo 0
+        On Error GoTo Failed
     End If
 
     ' 4) QuickHealthCheck
@@ -198,7 +277,7 @@ Public Sub Boot()
     limited = False
     On Error Resume Next
     limited = modGateway.RunLimitCheck()
-    On Error GoTo 0
+    On Error GoTo Failed
     If limited Then
         MsgBox "AIリボンの利用期限確認により、現在AI機能の利用が制限されています。" & vbLf & _
                "本棚の閲覧や資料の管理は、これまでどおりお使いいただけます。" & vbLf & _
@@ -214,14 +293,14 @@ Public Sub Boot()
     If modConfig.GetBool("sync_on_open", True) Then
         On Error Resume Next
         modShelfSync.SyncNow silent:=True
-        On Error GoTo 0
+        On Error GoTo Failed
     Else
         ' sync_on_open=Falseでも、起動時にP2P感謝状・品質報告集計は一度回収する
         ' (sync_on_open=TrueのときはSyncNow内で回収済み=二重回収しない)。
         On Error Resume Next
         modP2P.CollectThanks silent:=True
         modP2P.CollectNoiseVotes silent:=True
-        On Error GoTo 0
+        On Error GoTo Failed
     End If
 
     ' 共有知フライホイールの受信(ファイルコピーだけ=API呼び出しなし)。
@@ -237,7 +316,7 @@ Public Sub Boot()
     modInsight.CollectInsights
     ' 共有フォルダに到達できたことを記録(端末失効タイマーのリセット)。
     If LenB(modChannel.ListChannels()) > 0 Then modGuard.TouchReach
-    On Error GoTo 0
+    On Error GoTo Failed
 
     ' 部門チャンネルは「更新があるか」だけ見る(version.txtを読むだけ=軽い)。
     ' 実際の取り込みは埋め込みAPIを使うので、必ず利用者のクリックを待つ。
@@ -246,7 +325,7 @@ Public Sub Boot()
     ' 6) ScheduleAutoSync
     On Error Resume Next
     modShelfSync.ScheduleAutoSync
-    On Error GoTo 0
+    On Error GoTo Failed
 
     ' 7) 内部シート隠蔽
     bootStage = "内部シートの整理"
@@ -272,16 +351,17 @@ Public Sub Boot()
     '      (Nexus起動後=別シートがアクティブな状態で隠すため確実に隠れる)。
     On Error Resume Next
     HideGuardSheet
-    On Error GoTo 0
+    On Error GoTo Failed
 
     ' 8.6) ホットキー登録: Ctrl+Shift+Q=一撃召喚 / Ctrl+Enter=送信(Nexus上のみ発火)。
     '      解除はAuto_Close(既存のCtrl+Z解除と同じライフサイクル)。
     On Error Resume Next
     Application.OnKey "^+q", "modApp.SummonNexus"
     Application.OnKey "^~", "modApp.HotSend"
-    On Error GoTo 0
+    On Error GoTo Failed
 
     gBootDone = True
+    mBootRunning = False
     On Error Resume Next
     Application.EnableEvents = True   ' 起動中に抑止したイベントを復帰
     ' 3画面EnsureLayout/LaunchNexusはResume Next保護下で中断し得るため、暗転
@@ -291,6 +371,7 @@ Public Sub Boot()
     Exit Sub
 
 Failed:
+    mBootRunning = False   ' 失敗しても必ず降ろす(降ろし忘れると次回が素通りする)
     ' EnsureLayout途中で落ちるとScreenUpdating=Falseのまま画面が固まって
     ' 見えるため、必ず戻す(ダイアログより先に)。
     Dim failDesc As String
@@ -334,6 +415,10 @@ End Sub
 Public Sub Auto_Close()
     On Error Resume Next
     modShelfSync.CancelAutoSync
+    ' インストーラが予約した「+1秒後のBoot」がまだ残っていたら取り消す。
+    ' 残したまま閉じると、数秒後にExcelがこのブックを勝手に開き直し、
+    ' インストーラが走って保存までしてしまう(レビュー H-1)。
+    CancelPendingInstallerBoot
     On Error GoTo 0
 
     ' Nexusが隠したネイティブUI(リボン等)を必ず復元する

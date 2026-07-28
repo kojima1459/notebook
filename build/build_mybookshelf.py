@@ -671,6 +671,12 @@ def _make_vba_src(wb, present_modules, root):
     ws = wb.create_sheet("vba_src")
     for c, h in enumerate(["module_name", "type", "source"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+    # E1(row=1, col=5)は実行時の一時領域として予約する。自己インストーラが
+    # Application.OnTime で予約した modBoot.Boot の時刻(シリアル値)を置き、
+    # modBoot.CancelPendingInstallerBoot がそれを読んで予約を取り消す。
+    # 保存後に書かれるのでファイルには残らない(セッション内だけの状態)。
+    # ここを別用途に使わないこと。
+    ws.cell(row=1, column=5, value="").font = Font(bold=True)
 
     injected = []
     row = 2
@@ -770,10 +776,16 @@ Public Sub Install()
   ThisWorkbook.Save
   Err.Clear
   ' Detach Boot from Workbook_Open (avoids 1004 mid-init); fallback sync run.
-  Application.OnTime Now + TimeSerial(0, 0, 1), "modBoot.Boot"
+  ' Store the time in vba_src!E1 so modBoot can cancel the schedule.
+  Dim bt As Date
+  bt = Now + TimeSerial(0, 0, 1)
+  Application.OnTime bt, "modBoot.Boot"
   If Err.Number <> 0 Then
     Err.Clear
     Application.Run "modBoot.Boot"
+  Else
+    w.Cells(1, 5).Value = CDbl(bt)
+    Err.Clear
   End If
   Exit Sub
 Trust:
@@ -824,7 +836,23 @@ def patch_installer(vba_bin: bytes, installer_src: bytes) -> bytes:
     orig_dir_size = skel.entries["dir"]["size"]
     orig_tw_size = skel.entries["ThisWorkbook"]["size"]
     new_dir = ovba.pad_to_exact(ovba.ovba_compress(dir_dec), orig_dir_size)
-    new_tw = ovba.pad_to_exact(ovba.ovba_compress(installer_src), orig_tw_size)
+
+    # ThisWorkbookストリームは「元と同じバイト数」でしか差し替えられない
+    # (in-place外科パッチのため。ストリームを伸ばすとCFBのFATを組み直す
+    # 必要があり、Excelが読めなくなる)。自己インストーラのVBAソースには
+    # 圧縮後のサイズ上限があり、うっかり数行足すと超える。
+    # 2026-07-28: 実際にOnTime予約時刻の記録を足した際に超過した。
+    # ovba.pad_to_exact の生の ValueError では原因が読めないので、
+    # ここで「何をすればよいか」まで含めて落とす。
+    tw_compressed = ovba.ovba_compress(installer_src)
+    if len(tw_compressed) > orig_tw_size:
+        raise BuildError(
+            f"自己インストーラ(ThisWorkbookストリーム)が圧縮後{len(tw_compressed)}バイトで、"
+            f"差し替え可能な上限{orig_tw_size}バイトを{len(tw_compressed) - orig_tw_size}バイト超過しました。"
+            "_INSTALLER_SRC_TEXT のコメント/変数名を削るか、処理そのものを "
+            "modBoot 側(vba_srcから注入される標準モジュール。サイズ上限が緩い)へ移してください。"
+        )
+    new_tw = ovba.pad_to_exact(tw_compressed, orig_tw_size)
 
     buf = io.BytesIO(vba_bin)
     ole = olefile.OleFileIO(buf, write_mode=True)
