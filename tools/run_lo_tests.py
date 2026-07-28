@@ -125,6 +125,11 @@ PURE_ALLOWLIST = [
     # modSparse: 日本語キーワード検索(文字bigram+BM25+完全一致)。
     # 純ロジックなので実行テストで検証できる。検索精度の要なので必ず載せる。
     "modSparse", "modMode",
+    # modChannel: 部門チャンネル。Excel依存が多いが、origin タグの組み立て
+    # (ChannelOriginTag)だけは純関数で、ここがズレると切替・更新配信が
+    # まるごと空振りする(2026-07-28 レビュー C-1 の実バグ)。コンパイルごと
+    # 載せてタグ規約を実行テストで固定する。
+    "modChannel",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

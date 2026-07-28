@@ -156,6 +156,104 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
     RemoveVectorsByIds removedIds
 End Sub
 
+' ----------------------------------------------------------------------------
+' RemoveRowsByOrigin - origin列が originTag と一致する行を knowledge/vectors
+'   から取り除く。戻り値=消した件数。
+'
+' 2026-07-28(レビュー C-1): この「origin で消す」処理は modChannel が
+' 自前に持っており、消す側のタグ("pack:"&部門名)と書く側のタグ
+' ("pack:"&作者名)が食い違ったまま誰も気付かなかった。同じ概念の実装が
+' 2つあると片方だけ直る。書き手(modPack)と消し手(modChannel)の両方が
+' ここを呼ぶようにして、タグの取り扱いを1箇所に集める。
+'
+' 比較は StrComp(vbTextCompare)=大文字小文字を無視。部門名の表記ゆれで
+' 消し漏らすより、寄せて消せる方が事故が小さい。
+' ----------------------------------------------------------------------------
+Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
+    If LenB(Trim$(originTag)) = 0 Then Exit Function
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Function
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 9)).Value
+    Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
+
+    Dim removedIds As Object: Set removedIds = CreateObject("Scripting.Dictionary")
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivorCount As Long: survivorCount = 0
+
+    Dim i As Long, c As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If StrComp(Trim$(CStr(arr(i, COL_ORIGIN))), originTag, vbTextCompare) = 0 Then
+            Dim cid As String: cid = CStr(arr(i, COL_ID))
+            If LenB(cid) > 0 Then
+                If Not removedIds.Exists(cid) Then removedIds.Add cid, True
+            End If
+        Else
+            survivorCount = survivorCount + 1
+            For c = 1 To 9
+                survivors(survivorCount, c) = arr(i, c)
+            Next c
+        End If
+    Next i
+
+    If survivorCount = nRows Then Exit Function   ' 一致無し
+
+    If survivorCount > 0 Then
+        Dim writeArr As Variant: writeArr = CompactRows(survivors, survivorCount)
+        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, 9)).Value = writeArr
+    End If
+    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, 9)).ClearContents
+
+    RemoveVectorsByIds removedIds
+    RemoveRowsByOrigin = nRows - survivorCount
+End Function
+
+' origin列が "<prefix>" で始まる行を全部消す(移行用。戻り値=消した件数)。
+' 例: PrefixTag="pack:" で、旧仕様のチャンネル残骸をまとめて掃除する。
+Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long
+    If LenB(prefixTag) = 0 Then Exit Function
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Function
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 9)).Value
+    Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
+    Dim pfxLen As Long: pfxLen = Len(prefixTag)
+
+    Dim removedIds As Object: Set removedIds = CreateObject("Scripting.Dictionary")
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivorCount As Long: survivorCount = 0
+
+    Dim i As Long, c As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If StrComp(Left$(Trim$(CStr(arr(i, COL_ORIGIN))), pfxLen), prefixTag, vbTextCompare) = 0 Then
+            Dim cid As String: cid = CStr(arr(i, COL_ID))
+            If LenB(cid) > 0 Then
+                If Not removedIds.Exists(cid) Then removedIds.Add cid, True
+            End If
+        Else
+            survivorCount = survivorCount + 1
+            For c = 1 To 9
+                survivors(survivorCount, c) = arr(i, c)
+            Next c
+        End If
+    Next i
+
+    If survivorCount = nRows Then Exit Function
+
+    If survivorCount > 0 Then
+        Dim writeArr2 As Variant: writeArr2 = CompactRows(survivors, survivorCount)
+        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, 9)).Value = writeArr2
+    End If
+    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, 9)).ClearContents
+
+    RemoveVectorsByIds removedIds
+    RemoveRowsByOriginPrefix = nRows - survivorCount
+End Function
+
 Public Sub RemoveVectorsByIds(ByVal removedIds As Object)
     Dim wsV As Worksheet: Set wsV = GetSheet(modAppDef.SH_VECTORS)
     If wsV Is Nothing Then Exit Sub

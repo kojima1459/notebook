@@ -47,7 +47,23 @@ End Sub
 '   自動同期から使う)。silent:=True のときは完了/失敗のダイアログを出さず、
 '   取り込み件数だけを返す(起動時の同期でダイアログが出ると業務が止まる)。
 '   ダイアログ経由の従来動作は ImportPackDialog がここを silent:=False で呼ぶ。
-Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean) As Long
+'
+' originOverride (2026-07-28 レビュー C-1):
+'   取り込んだ行の origin 列に書く値。空なら従来どおり "pack:"&作者名。
+'   部門チャンネルの同期は "channel:"&部門名 を渡す。
+'   従来はチャンネル経由でも "pack:"&作者名 が書かれる一方、消す側は
+'   "pack:"&部門名 を探していたため、部門名≠作者名である限り削除は常に
+'   0件だった(=切替しても前の部門が残り、更新配信で新旧が混ざる)。
+'   手渡しパックと部門正典で名前空間を分け、二度と衝突させない。
+'
+' purgeOrigins (2026-07-28 レビュー H-14):
+'   書き込む直前に消す origin タグ("|"区切りで複数可)。
+'   「消してから読み込む」と、読み込みに失敗したときに何も残らない。
+'   ここまで来た時点でパックの検証もチャンクの読み出しも済んでいるので、
+'   消してから書くまでの間に失敗する余地がほぼ無い。
+Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean, _
+                               Optional ByVal originOverride As String = "", _
+                               Optional ByVal purgeOrigins As String = "") As Long
     Dim wb As Workbook
     On Error GoTo OpenFail
     Set wb = Application.Workbooks.Open(Filename:=packPath, ReadOnly:=True, UpdateLinks:=0)
@@ -94,13 +110,27 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
         Exit Function
     End If
 
+    ' ここまででパックの検証もチャンクの読み出しも終わり、ブックも閉じてある。
+    ' 「旧版を消す」のはこの位置。これより前で消すと、読み込みに失敗した時に
+    ' 旧版も新版も無いという最悪の状態が残る(レビュー H-14)。
+    Dim purgedCount As Long
+    If LenB(purgeOrigins) > 0 Then
+        Dim tags() As String: tags = Split(purgeOrigins, "|")
+        Dim ti As Long
+        For ti = LBound(tags) To UBound(tags)
+            If LenB(Trim$(tags(ti))) > 0 Then
+                purgedCount = purgedCount + modShelfStore.RemoveRowsByOrigin(Trim$(tags(ti)))
+            End If
+        Next ti
+    End If
+
     Dim importedCount As Long, skippedCount As Long
     ImportChunksDedup ids, sources, pages, summaries, keywords, fullTexts, vectors, n, authorName, _
-        importedCount, skippedCount
+        originOverride, importedCount, skippedCount
 
     modStats.Bump "pack_import_total"
     modLog.LogUsage "pack_import", "", "imported=" & importedCount & " skipped=" & skippedCount & _
-        " author=" & authorName
+        " purged=" & purgedCount & " author=" & authorName
 
     ImportPackFile = importedCount
     If Not silent Then
@@ -285,7 +315,7 @@ End Function
 
 Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As Long, summaries() As String, _
         keywords() As String, fullTexts() As String, vectors() As String, ByVal n As Long, ByVal authorName As String, _
-        ByRef importedCount As Long, ByRef skippedCount As Long)
+        ByVal originOverride As String, ByRef importedCount As Long, ByRef skippedCount As Long)
     importedCount = 0
     skippedCount = 0
 
@@ -298,7 +328,15 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
     Dim outK() As Variant: ReDim outK(1 To n, 1 To 9)
     Dim outV() As Variant: ReDim outV(1 To n, 1 To 2)
     Dim addedStamp As String: addedStamp = modUtil.NowStamp()
-    Dim originStr As String: originStr = "pack:" & authorName
+    ' 部門チャンネル経由なら "channel:"&部門名、手渡しパックなら "pack:"&作者名。
+    ' 消す側(modChannel/modShelfStore)が探すタグと必ず同じ値になるよう、
+    ' 呼び出し側から受け取った値をそのまま書く(レビュー C-1)。
+    Dim originStr As String
+    If LenB(Trim$(originOverride)) > 0 Then
+        originStr = Trim$(originOverride)
+    Else
+        originStr = "pack:" & authorName
+    End If
 
     Dim i As Long
     For i = 0 To n - 1

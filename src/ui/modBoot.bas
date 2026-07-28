@@ -229,6 +229,11 @@ Public Sub Boot()
     ' 朝の一斉起動で共有フォルダへ全員が同時に殺到しないよう散らす。
     On Error Resume Next
     modChannel.StartupJitter
+    ' 旧タグ("pack:<作者名>")で入った部門チャンクの一度きりの掃除。
+    ' 修正前のビルドで部門へつないだ端末には、消せない残骸が溜まっている
+    ' (レビュー C-1)。掃除して版数を空にし、正しいタグで入れ直させる。
+    ' 掃除が走ったことは usage_log("channel_origin_migration")に残る。
+    modChannel.MigrateOriginNamespace
     modInsight.CollectInsights
     ' 共有フォルダに到達できたことを記録(端末失効タイマーのリセット)。
     If LenB(modChannel.ListChannels()) > 0 Then modGuard.TouchReach

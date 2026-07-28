@@ -223,6 +223,8 @@ NextPack:
     RunSparseTests
     RunKeyScoreTests
     RunModeTests
+    On Error GoTo ChannelFail
+    RunChannelOriginTests
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -235,6 +237,9 @@ ShelfSyncFail:
     Resume NextPack
 SparseFail:
     modTestRunner.Check "RunSparseTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone
+ChannelFail:
+    modTestRunner.Check "RunChannelOriginTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
@@ -472,4 +477,46 @@ Private Sub TestModPack()
     Dim okDimNegative As Boolean
     okDimNegative = modPack.ValidatePackMeta(modAppDef.PACK_FORMAT_VERSION, -5, reason)
     modTestRunner.Check "ValidatePackMeta_次元負値はFalse", (Not okDimNegative), "reason=" & reason
+End Sub
+
+
+' ----------------------------------------------------------------------------
+' 部門チャンネルの origin タグ規約(2026-07-28 レビュー C-1 の恒久再発防止)
+'
+' 実バグ: 取込側が書くタグは "pack:"&作者名、削除側が探すタグは
+' "pack:"&部門名 で、部門名≠作者名である限り削除は常に0件だった。
+' 結果、部門を切り替えても前の部門が本棚に残り、更新配信では新旧の条文が
+' 混ざった(=AIが古い条文を根拠に答える)。どちらも静かに壊れるので、
+' 実機テストでも「動いているように見える」のが最悪だった。
+'
+' ここで固定するのは次の3点:
+'   1. タグの組み立ては ChannelOriginTag 1関数に集約されていること
+'   2. チャンネルのタグは手渡しパックの "pack:" と別名前空間であること
+'      (混ざると手渡しパックが部門切替で巻き添えで消える)
+'   3. 前後の空白でタグがズレないこと(部門名は人が打つフォルダ名)
+' ----------------------------------------------------------------------------
+Private Sub RunChannelOriginTests()
+    modTestRunner.Check "ChannelOriginTag_基本", _
+        (modChannel.ChannelOriginTag("商品部") = "channel:商品部"), _
+        "actual=" & modChannel.ChannelOriginTag("商品部")
+
+    modTestRunner.Check "ChannelOriginTag_前後空白を落とす", _
+        (modChannel.ChannelOriginTag("  人事部 ") = "channel:人事部"), _
+        "actual=" & modChannel.ChannelOriginTag("  人事部 ")
+
+    modTestRunner.Check "ChannelOriginTag_空は空を返す", _
+        (LenB(modChannel.ChannelOriginTag("")) = 0)
+
+    modTestRunner.Check "ChannelOriginTag_空白のみは空を返す", _
+        (LenB(modChannel.ChannelOriginTag("   ")) = 0)
+
+    ' 手渡しパックの名前空間("pack:")と衝突しないこと。ここが崩れると
+    ' 部門を切り替えたときに手渡しパックまで一緒に消える。
+    modTestRunner.Check "ChannelOriginTag_手渡しパックと別名前空間", _
+        (Left$(modChannel.ChannelOriginTag("商品部"), 5) <> "pack:"), _
+        "actual=" & modChannel.ChannelOriginTag("商品部")
+
+    ' 部門名が違えばタグも違う(切替時に他部門を巻き込まない)。
+    modTestRunner.Check "ChannelOriginTag_部門ごとに異なる", _
+        (modChannel.ChannelOriginTag("商品部") <> modChannel.ChannelOriginTag("人事部"))
 End Sub

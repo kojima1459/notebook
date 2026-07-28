@@ -57,6 +57,7 @@ Option Explicit
 ' ============================================================================
 
 Private Const CH_SUBDIR As String = "channels"
+Private Const MIGRATION_KEY As String = "origin_ns_migrated"
 Private Const PACK_NAME As String = "pack.xlsx"
 Private Const VER_NAME As String = "version.txt"
 Private Const ARCHIVE_DIR As String = "_archive"
@@ -183,16 +184,28 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' SyncChannel - 1チャンネルを最新版へ更新する。
-'   版が変わっているときは、まず旧版で取り込んだチャンクを削除してから
-'   入れ直す(差分ではなく置換)。これをやらないと改定のたびに古い記述が
-'   残り、AIが古い条文を根拠に答えるという最悪の事故になる。
-'   戻り値 = 取り込んだチャンク数(0=更新なし/失敗)。
+'   版が変わっているときは、旧版で取り込んだチャンクを削除してから入れ直す
+'   (差分ではなく置換)。これをやらないと改定のたびに古い記述が残り、
+'   AIが古い条文を根拠に答えるという最悪の事故になる。
+'   戻り値 = 取り込んだチャンク数(0=更新なし/失敗、-1は使わない)。
+'
+' leavingChannel (2026-07-28 レビュー H-14):
+'   部門を切り替えるときに「離れる部門」を渡す。旧部門の削除は
+'   SwitchTo ではなくここで行う。SwitchTo が先に消していた頃は、
+'   共有瞬断や発行者の上書きロックで pack のコピーに失敗すると
+'   「旧部門は消えた・新部門は入らない・active_channel は空」という
+'   三重苦で終わっていた。破壊的な操作は、失敗しうる I/O を全部
+'   終えてから始める。
 ' ----------------------------------------------------------------------------
-Public Function SyncChannel(ByVal chName As String) As Long
+Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChannel As String = "") As Long
     On Error Resume Next
     Dim remote As String: remote = RemoteVersion(chName)
     If LenB(remote) = 0 Then Exit Function
-    If remote = LocalVersion(chName) Then Exit Function
+    ' 切替時(leavingChannel あり)は「版が同じ」でも処理を通す。旧部門を
+    ' 消して新部門を入れ直す必要があるため。
+    If LenB(leavingChannel) = 0 Then
+        If remote = LocalVersion(chName) Then Exit Function
+    End If
 
     Dim packPath As String: packPath = ChannelsDir() & chName & "\" & PACK_NAME
     If LenB(Dir(packPath)) = 0 Then Exit Function
@@ -204,20 +217,44 @@ Public Function SyncChannel(ByVal chName As String) As Long
     localPath = CopyToTemp(packPath, chName)
     If LenB(localPath) = 0 Then Exit Function
 
-    ' 旧版の掃除。origin が "pack:<チャンネル名>" のチャンクをまとめて消す。
-    PurgeChannelChunks chName
+    ' 消す対象のタグを組み立てる。実際の削除は ImportPackFile の中、
+    ' 「パックを読み終えて書き込む直前」に行われる(同居時間ゼロのまま、
+    ' 読み込み失敗で旧版まで失う窓を無くす)。
+    Dim purgeTags As String
+    purgeTags = ChannelOriginTag(chName)
+    If LenB(leavingChannel) > 0 Then
+        If StrComp(leavingChannel, chName, vbTextCompare) <> 0 Then
+            purgeTags = purgeTags & "|" & ChannelOriginTag(leavingChannel)
+        End If
+    End If
 
     Dim got As Long
-    got = modPack.ImportPackFile(localPath, True)
+    got = modPack.ImportPackFile(localPath, True, ChannelOriginTag(chName), purgeTags)
     On Error Resume Next
     Kill localPath
     On Error GoTo 0
+
     If got > 0 Then
+        ' 離れた部門の版数は空へ。「アクティブな部門だけが版数を持つ」という
+        ' 不変条件を保つ(PendingUpdates と SwitchTo の両方がこれに依存する)。
+        If LenB(leavingChannel) > 0 Then
+            If StrComp(leavingChannel, chName, vbTextCompare) <> 0 Then
+                modStats.SetStatText "ch:" & LCase$(leavingChannel), ""
+            End If
+        End If
         modStats.SetStatText "ch:" & LCase$(chName), remote
         modLog.LogUsage "channel_sync", chName, "version=" & remote & " chunks=" & got
     End If
     SyncChannel = got
     On Error GoTo 0
+End Function
+
+' 部門チャンネル由来のチャンクに付ける origin タグ。
+' 書く側(modPack.ImportChunksDedup)と消す側(PurgeChannelChunks)が
+' 必ず同じ文字列を使うよう、組み立てはこの1関数に集約する(レビュー C-1)。
+Public Function ChannelOriginTag(ByVal chName As String) As String
+    If LenB(Trim$(chName)) = 0 Then Exit Function
+    ChannelOriginTag = "channel:" & Trim$(chName)
 End Function
 
 ' 購読中の全チャンネルを同期する(利用者が明示的に押したときだけ呼ぶ)。
@@ -316,107 +353,65 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' PurgeChannelChunks - あるチャンネル由来のチャンクを本棚から取り除く。
-'   チャンネル切替と版の入れ替えの両方で使う。
+'   チャンネル切替と版の入れ替えの両方で使う。戻り値=消した件数。
 '
-'   性能上の要点(ここを素朴に書くと実機で数分固まる):
-'     ・行を1行ずつ Rows(r).Delete すると、5,000行で数分かかる。
-'       Union で領域をまとめ、200領域ごとに一括Deleteする。
-'     ・my_vectors 側の突き合わせを二重ループでやると 5,000×5,000=2,500万回。
-'       Dictionary で chunk_id を引けるようにして1回の走査で終える。
+' 2026-07-28(レビュー C-1): 探すタグが "pack:"&部門名 だったのに対し、
+' 取込側が書いていたのは "pack:"&作者名 で、部門名≠作者名である限り
+' 削除は常に0件だった。行削除そのものは modShelfStore にも同型の実装が
+' あり「同じ概念の実装が2つある」ことがタグずれの温床だったため、
+' 実処理は modShelfStore.RemoveRowsByOrigin へ寄せ、ここはタグの決定と
+' 画面更新の抑止だけを持つ。
 ' ----------------------------------------------------------------------------
 Public Function PurgeChannelChunks(ByVal chName As String) As Long
     On Error Resume Next
-    Dim wsK As Worksheet, wsV As Worksheet
-    Set wsK = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
-    Set wsV = ThisWorkbook.Worksheets(modAppDef.SH_VECTORS)
-    If wsK Is Nothing Then Exit Function
-
-    Dim tag As String: tag = "pack:" & chName
-    Dim lastR As Long: lastR = wsK.Cells(wsK.Rows.Count, 1).End(xlUp).Row
-    If lastR < 2 Then Exit Function
+    Dim tag As String: tag = ChannelOriginTag(chName)
+    If LenB(tag) = 0 Then Exit Function
 
     Application.ScreenUpdating = False
     Dim prevCalc As Long: prevCalc = Application.Calculation
     Application.Calculation = -4135          ' xlCalculationManual
 
-    ' 1) 消す対象の chunk_id を Dictionary に集める(値の読み出しは一括)。
-    Dim dict As Object
-    Set dict = CreateObject("Scripting.Dictionary")
-    Dim data As Variant
-    data = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastR, 3)).Value
-
     Dim n As Long
-    Dim i As Long
-    For i = 1 To UBound(data, 1)
-        If StrComp(Trim$(CStr(data(i, 3))), tag, vbTextCompare) = 0 Then
-            dict(CStr(data(i, 1))) = 1
-            n = n + 1
-        End If
-    Next i
-    If n = 0 Then
-        Application.Calculation = prevCalc
-        Application.ScreenUpdating = True
-        Exit Function
-    End If
-
-    ' 2) my_knowledge をまとめて削除。
-    DeleteRowsWhere wsK, 1, dict, lastR
-
-    ' 3) my_vectors も同じIDでまとめて削除(片方だけ残すと検索が壊れる)。
-    If Not wsV Is Nothing Then
-        Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.Count, 1).End(xlUp).Row
-        If lastV >= 2 Then DeleteRowsWhere wsV, 1, dict, lastV
-    End If
+    n = modShelfStore.RemoveRowsByOrigin(tag)
 
     Application.Calculation = prevCalc
     Application.ScreenUpdating = True
 
-    modLog.LogUsage "channel_purge", chName, "removed=" & n
+    If n > 0 Then modLog.LogUsage "channel_purge", chName, "removed=" & n
     PurgeChannelChunks = n
     On Error GoTo 0
 End Function
 
-' 指定列の値が dict に含まれる行を、Unionでまとめて削除する。
-' Unionは領域が増えすぎると遅くなるため200領域ごとに実行する。
-Private Sub DeleteRowsWhere(ByVal ws As Worksheet, ByVal keyCol As Long, _
-                            ByVal dict As Object, ByVal lastRow As Long)
+' ----------------------------------------------------------------------------
+' PurgeLegacyPackChunks - 旧仕様(origin="pack:<作者名>")で取り込まれた
+'   チャンネル残骸をまとめて掃除する。戻り値=消した件数。
+'
+' レビュー C-1 の修正前に部門チャンネルへつないだ端末には、消せないまま
+' 溜まった "pack:" 行が残っている。新旧のタグが混在すると
+' 「切り替えたのに前の部門の出典で答える」が直らないため、移行時に一度だけ
+' 全部消して、正しいタグで入れ直す。
+'
+' 注意: 手渡しパック(ImportPackDialog で取り込んだもの)も同じ "pack:" 
+' 名前空間にいるため、一緒に消える。これは区別する手段が本棚側に無いため
+' の割り切りで、消えた手渡しパックは再取込で戻せる(呼び出し側が利用者へ
+' その旨を伝えること)。
+' ----------------------------------------------------------------------------
+Public Function PurgeLegacyPackChunks() As Long
     On Error Resume Next
-    If lastRow < 2 Then Exit Sub
+    Application.ScreenUpdating = False
+    Dim prevCalc As Long: prevCalc = Application.Calculation
+    Application.Calculation = -4135
 
-    ' データが1行しかないとき Range(...).Value は配列ではなくスカラーを返す。
-    ' そのまま UBound すると失敗し、On Error Resume Next に握られて
-    ' 「1件だけ消えない」という気づきにくい不具合になる。1行は個別に扱う。
-    If lastRow = 2 Then
-        If dict.Exists(CStr(ws.Cells(2, keyCol).Value)) Then ws.Rows(2).Delete
-        Exit Sub
-    End If
+    Dim n As Long
+    n = modShelfStore.RemoveRowsByOriginPrefix("pack:")
 
-    Dim keys As Variant
-    keys = ws.Range(ws.Cells(2, keyCol), ws.Cells(lastRow, keyCol)).Value
+    Application.Calculation = prevCalc
+    Application.ScreenUpdating = True
 
-    Dim target As Range
-    Dim areas As Long
-    Dim r As Long
-    ' 後ろから積む(削除は最後に一括なので順序自体は結果に影響しないが、
-    ' 途中フラッシュしたときに行番号がずれないよう降順で扱う)。
-    For r = UBound(keys, 1) To 1 Step -1
-        If dict.Exists(CStr(keys(r, 1))) Then
-            If target Is Nothing Then
-                Set target = ws.Rows(r + 1)
-            Else
-                Set target = Application.Union(target, ws.Rows(r + 1))
-            End If
-            areas = areas + 1
-            If areas >= 200 Then
-                target.Delete
-                Set target = Nothing
-                areas = 0
-            End If
-        End If
-    Next r
-    If Not target Is Nothing Then target.Delete
+    If n > 0 Then modLog.LogUsage "channel_purge_legacy", "", "removed=" & n
+    PurgeLegacyPackChunks = n
     On Error GoTo 0
-End Sub
+End Function
 
 ' ----------------------------------------------------------------------------
 ' アクティブチャンネル(都度切替方式)
@@ -442,9 +437,17 @@ Public Function ActiveChannel() As String
     On Error GoTo 0
 End Function
 
-' SwitchTo - 常駐チャンネルを切り替える。戻り値=取り込んだチャンク数。
-'   前の部門を消してから新しい部門を入れる。順序が逆だと一瞬だけ
-'   両方が載って本棚の上限を超える恐れがある。
+' SwitchTo - 常駐チャンネルを切り替える。戻り値=取り込んだチャンク数
+'   (-1 = 既に最新、0 = 失敗)。
+'
+' 2026-07-28(レビュー H-14): 以前はここで「先に旧部門を消してから
+' SyncChannel を呼ぶ」形になっていた。版の読み取り・pack の存在確認・
+' %TEMP% へのコピー(リトライ込み)は全部 SyncChannel の中にあるので、
+' 共有の瞬断や発行者の上書きロックでコピーに失敗すると
+'   旧部門は消えた / 新部門は入らない / active_channel は空
+' の三重苦で終わっていた。旧部門の削除は SyncChannel の中の
+' 「読み込み完了後・書き込み直前」へ移し、ここは順序を決めるだけにする。
+' active_channel も、取り込みが成功してから書き換える。
 Public Function SwitchTo(ByVal chName As String) As Long
     On Error Resume Next
     Dim cur As String: cur = ActiveChannel()
@@ -457,18 +460,14 @@ Public Function SwitchTo(ByVal chName As String) As Long
         End If
     End If
 
-    If LenB(cur) > 0 Then
-        PurgeChannelChunks cur
-        modStats.SetStatText "ch:" & LCase$(cur), ""
+    Dim got As Long
+    got = SyncChannel(chName, cur)
+    If got > 0 Then
+        modConfig.SetValue "active_channel", chName
     End If
-
-    modConfig.SetValue "active_channel", chName
-    SwitchTo = SyncChannel(chName)
-    If SwitchTo <= 0 Then
-        ' 取り込めなかった場合はアクティブを戻さない(空のまま)。
-        ' 「つないだつもりで実は空」が一番たちが悪い。
-        modConfig.SetValue "active_channel", ""
-    End If
+    ' 失敗時は active_channel を触らない。旧部門の中身も消えていないので、
+    ' 「つないだつもりで実は空」にはならず、前の状態のまま留まる。
+    SwitchTo = got
     On Error GoTo 0
 End Function
 
@@ -498,6 +497,53 @@ Public Function SubscribedCount(ByRef total As Long) As Long
     For i = LBound(parts) To UBound(parts)
         If LenB(LocalVersion(parts(i))) > 0 Then SubscribedCount = SubscribedCount + 1
     Next i
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' MigrateOriginNamespace - 旧タグ("pack:<作者名>")で入った部門チャンクを掃除する
+'   一度だけの移行処理。戻り値=消した件数(0=移行不要または対象なし)。
+'
+' 背景(レビュー C-1): 修正前のビルドで部門チャンネルへつないだ端末には、
+' origin="pack:<作者名>" のチャンクが消せないまま残っている。新タグ
+' ("channel:<部門名>")で入れ直しても、旧タグの行は誰も消さないので
+' 「切り替えたのに前の部門の出典で答える」「使用量だけ増える」が続く。
+'
+' 判定を「チャンネルを使ったことがある端末」に限っているのは、手渡しパック
+' (ImportPackDialog)も同じ "pack:" 名前空間にいるため。チャンネルを一度も
+' 使っていない端末で消すのは、ただのデータ破壊にしかならない。
+'
+' 実行後は全チャンネルのローカル版数を空にして、次の同期で正しいタグで
+' 入れ直させる。
+' ----------------------------------------------------------------------------
+Public Function MigrateOriginNamespace() As Long
+    On Error Resume Next
+    If LenB(modStats.GetStatText(MIGRATION_KEY)) > 0 Then Exit Function
+
+    Dim all As String: all = ListChannels()
+    If LenB(all) = 0 Then
+        ' 共有フォルダが見えない/チャンネルが無い端末。今回は判断できないので
+        ' フラグも立てない(次にチャンネルが見えたときに改めて判定する)。
+        Exit Function
+    End If
+
+    Dim parts() As String: parts = Split(all, "|")
+    Dim usedChannels As Boolean
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(LocalVersion(parts(i))) > 0 Then usedChannels = True
+    Next i
+
+    If usedChannels Then
+        MigrateOriginNamespace = PurgeLegacyPackChunks()
+        For i = LBound(parts) To UBound(parts)
+            modStats.SetStatText "ch:" & LCase$(parts(i)), ""
+        Next i
+        modLog.LogUsage "channel_origin_migration", "", _
+            "removed=" & MigrateOriginNamespace & " channels=" & UBound(parts) - LBound(parts) + 1
+    End If
+
+    modStats.SetStatText MIGRATION_KEY, modUtil.NowStamp()
     On Error GoTo 0
 End Function
 

@@ -51,6 +51,13 @@ Public Sub OfferMentor(ByVal bubbleName As String)
 
     Dim expert As String, topSource As String
     If Not FindExpert(expert, topSource) Then Exit Sub
+    ' 2026-07-28(レビュー C-2): 冒頭の On Error Resume Next のせいで、
+    ' FindExpert 内で例外が起きても「見つかった」扱いのまま空文字で先へ進み、
+    ' 「この分野は さんが詳しいです」という宛先の無いボタンが出ていた。
+    ' 押しても何も起きないので、利用者から見ると壊れたボタンでしかない。
+    ' 名前が取れていないなら出さない、を最終防衛線として置く。
+    expert = Trim$(expert)
+    If LenB(expert) = 0 Then Exit Sub
 
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets("Nexus")

@@ -293,20 +293,32 @@ Public Function LastTopSource() As String
 End Function
 
 ' Peek View用の読み取り専用アクセサ(添字0始まり)。内部状態は変更しない。
+'
+' 2026-07-28(レビュー C-2): 公開契約は「0始まり」で、呼び出し側3箇所
+' (modPeek.RenderCitations / modPeek.ShowPeek / modMentor.FindExpert /
+'  modLive.UniqueSourceCount)はすべて For i = 0 To n - 1 で回している。
+' しかし内部の mLastHits は ReDim(1 To n) なので、i をそのまま添字に使うと
+' i=0 で実行時エラー9(添字が範囲外)になっていた。
+' 呼び出し側は On Error でエラーを握る作りのため落ちはせず、代わりに
+'   ・出典チップが1枚も出ない(Peek View 機能が丸ごと死ぬ)
+'   ・「この分野は さんが詳しいです」という空名ボタンが出る
+' という「静かに壊れている」状態になっていた。
+' すぐ上の LastTopSource には同じ罠のコメントが残っているのに、
+' アクセサ側だけ直し漏れていた。ここで 1 始まりへ変換する。
 Public Function LastHitCount() As Long
     LastHitCount = mLastNHits
 End Function
 Public Function LastHitSource(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitSource = mLastHits(i).source
+    If i >= 0 And i < mLastNHits Then LastHitSource = mLastHits(i + 1).source
 End Function
 Public Function LastHitPage(ByVal i As Long) As Long
-    If i >= 0 And i < mLastNHits Then LastHitPage = mLastHits(i).page
+    If i >= 0 And i < mLastNHits Then LastHitPage = mLastHits(i + 1).page
 End Function
 Public Function LastHitOrigin(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitOrigin = mLastHits(i).origin
+    If i >= 0 And i < mLastNHits Then LastHitOrigin = mLastHits(i + 1).origin
 End Function
 Public Function LastHitPeek(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i).full_text
+    If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i + 1).full_text
 End Function
 
 ' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。検索スコアを人間に見える形に

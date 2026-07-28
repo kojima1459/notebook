@@ -129,6 +129,29 @@ Public Sub RunExcelE2ESmokeTest()
     modTestRunner.Check "E2E_Answer_quick_非空", (LenB(Trim$(ans)) > 0), "len=" & Len(ans)
     modTestRunner.Check "E2E_Answer_quick_出典表記を含む", (InStr(ans, "[本棚:") > 0), "ans=" & modUtil.SafeLeft(ans, 300)
 
+    ' 6b) 出典アクセサ(Peek View用・添字0始まり)が i=0 で落ちないこと。
+    '     2026-07-28(レビュー C-2): 内部配列が ReDim(1 To n) なのにアクセサが
+    '     i をそのまま添字に使っていたため、i=0 で実行時エラー9になり、
+    '     呼び出し側(modPeek)が On Error で握って「出典チップが1枚も出ない」
+    '     という静かな全滅になっていた。呼び出し側と同じ 0 始まりで叩いて
+    '     資料名が取れることを確認する(握らずにここで検出させる)。
+    Dim hitN As Long: hitN = modAsk.LastHitCount()
+    modTestRunner.Check "E2E_出典アクセサ_件数0件超", (hitN > 0), "LastHitCount=" & hitN
+    If hitN > 0 Then
+        Dim acc0 As String
+        Dim accErr As Long
+        On Error Resume Next
+        Err.Clear
+        acc0 = modAsk.LastHitSource(0)
+        accErr = Err.Number
+        Err.Clear
+        On Error GoTo Cleanup
+        modTestRunner.Check "E2E_出典アクセサ_LastHitSource(0)が例外を出さない", _
+            (accErr = 0), "Err=" & accErr
+        modTestRunner.Check "E2E_出典アクセサ_LastHitSource(0)が非空", _
+            (LenB(acc0) > 0), "src0=" & acc0
+    End If
+
     ' 7) 重複排除の確認: 全く同じ内容を別ファイル名で2件目として取込むと、
     '    chunk_idのハッシュ部が1件目と一致するためチャンクは追加されない
     '    (modShelf.IngestFile内のBuildExistingHashSet+Fnv1a64Hexによる判定。
