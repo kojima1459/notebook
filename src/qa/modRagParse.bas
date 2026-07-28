@@ -108,14 +108,55 @@ Public Function ExtractAnswer(ByVal resp As String, ByRef thinking As String, _
                               ByRef answer As String) As Boolean
     thinking = Trim$(TagInner(resp, "thinking"))
 
-    Dim body As String: body = TagInner(resp, "answer")
+    ' 2026-07-28(レビュー M-2): <answer> は【thinking を閉じたあと】から探す。
+    ' 資料本文に "<answer>…</answer>" という文字列が含まれていて、モデルが
+    ' それを thinking の中で引用すると、先頭一致で拾ってしまい
+    ' 【資料由来の偽の回答】が表示される(資料をそのまま信じるRAGでは、
+    ' これはプロンプトインジェクションの経路そのものになる)。
+    Dim searchFrom As Long: searchFrom = 1
+    Dim pEndThink As Long
+    pEndThink = InStr(1, resp, "</thinking>", vbTextCompare)
+    If pEndThink > 0 Then searchFrom = pEndThink + Len("</thinking>")
+
+    Dim body As String: body = TagInnerFrom(resp, "answer", searchFrom)
+    If LenB(Trim$(body)) = 0 And searchFrom > 1 Then
+        ' thinking の後に <answer> が無いモデルもある。その場合だけ
+        ' 従来どおり全体から探す(退化はするが黙って空にはしない)。
+        body = TagInner(resp, "answer")
+    End If
+
     If LenB(Trim$(body)) > 0 Then
         answer = Trim$(body)
         ExtractAnswer = True
     Else
-        answer = Trim$(resp)
+        ' <answer> が無いときのフォールバック。従来は応答全体をそのまま
+        ' 表示していたため、thinking(モデルの思考過程)が利用者に見えていた。
+        ' 思考は根拠ではないので、剥がしてから返す。
+        answer = Trim$(StripThinking(resp))
         ExtractAnswer = False
     End If
+End Function
+
+' <thinking>…</thinking> を取り除く(閉じタグが無い場合は開始位置以降を捨てる)。
+Private Function StripThinking(ByVal s As String) As String
+    Dim p1 As Long: p1 = InStr(1, s, "<thinking>", vbTextCompare)
+    If p1 = 0 Then
+        StripThinking = s
+        Exit Function
+    End If
+    Dim p2 As Long: p2 = InStr(p1, s, "</thinking>", vbTextCompare)
+    If p2 = 0 Then
+        StripThinking = Left$(s, p1 - 1)
+    Else
+        StripThinking = Left$(s, p1 - 1) & Mid$(s, p2 + Len("</thinking>"))
+    End If
+End Function
+
+' TagInner の開始位置指定版。
+Private Function TagInnerFrom(ByVal s As String, ByVal tagName As String, ByVal startAt As Long) As String
+    If startAt < 1 Then startAt = 1
+    If startAt > Len(s) Then Exit Function
+    TagInnerFrom = TagInner(Mid$(s, startAt), tagName)
 End Function
 
 ' ----------------------------------------------------------------------------

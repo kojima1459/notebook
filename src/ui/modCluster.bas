@@ -128,16 +128,25 @@ Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef
     If wsV Is Nothing Then Exit Function
 
     ' my_knowledge: chunk_id(1) -> source(2) & keywords(6) の索引を作る
+    '
+    ' 2026-07-28(レビュー M-5): ここは1セルずつ読んでいた。2万チャンクなら
+    ' 3列×2万=6万回のCOM往復で、しかもダッシュボード表示と分析CSVで2回走る。
+    ' 大規模な本棚でダッシュボードが数十秒フリーズする直接の原因だった。
+    ' modRetrieve と同じく Range 一括読みへ揃える(MASTER_SPEC §12)。
     Dim meta As Object: Set meta = CreateObject("Scripting.Dictionary")
     If Not wsK Is Nothing Then
         Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
-        Dim r As Long
-        For r = 2 To lastK
-            Dim cid As String: cid = CStr(wsK.Cells(r, 1).Value)
-            If LenB(cid) > 0 And Not meta.Exists(cid) Then
-                meta(cid) = CStr(wsK.Cells(r, 2).Value) & vbTab & CStr(wsK.Cells(r, 6).Value)
-            End If
-        Next r
+        If lastK >= 2 Then
+            Dim arrK As Variant
+            arrK = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 6)).Value
+            Dim r As Long
+            For r = LBound(arrK, 1) To UBound(arrK, 1)
+                Dim cid As String: cid = CStr(arrK(r, 1))
+                If LenB(cid) > 0 And Not meta.Exists(cid) Then
+                    meta(cid) = CStr(arrK(r, 2)) & vbTab & CStr(arrK(r, 6))
+                End If
+            Next r
+        End If
     End If
 
     Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row

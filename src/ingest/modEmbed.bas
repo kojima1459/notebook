@@ -174,9 +174,21 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
                 If targetCell Is Nothing Then
                     ' 直前に削除されたチャンク(再入DeleteSource等)はスキップ。
                 Else
+                    ' 2026-07-28(レビュー M-3): 追記ではなく upsert にする。
+                    ' 「ベクトル追記 → embedded=1」の間に ESC やエラーで
+                    ' 中断すると、次回の再埋め込みで同じ chunk_id の行が
+                    ' もう1本できていた。単段検索は my_vectors を素直に
+                    ' 走査するので、同じチャンクが topK の枠を2つ占める。
+                    ' 既存行があれば上書きする(無ければ末尾へ追記)。
                     Dim vRow As Long
-                    vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
-                    If vRow < 2 Then vRow = 2
+                    Dim vFound As Range
+                    Set vFound = wsV.Columns(1).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+                    If vFound Is Nothing Then
+                        vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
+                        If vRow < 2 Then vRow = 2
+                    Else
+                        vRow = vFound.row
+                    End If
                     wsV.Cells(vRow, 1).Value = chunkId
                     wsV.Cells(vRow, 2).Value = modUtil.SafeLeft(outCsv(n), 32000)
                     wsK.Cells(targetCell.row, COL_EMBEDDED).Value = 1

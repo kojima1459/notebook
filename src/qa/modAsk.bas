@@ -162,6 +162,12 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     Dim ok As Boolean
     ok = False
 
+    ' 2026-07-28(レビュー M-4): 回答バッファを毎ターン空にする。
+    ' 設定するのは DecorateWithFollowups(成功ターンだけ)なので、
+    ' ここで消しておかないと 0件回答・聞き返しのターンでも前回の回答が
+    ' residual として残り、✅を押したときに噛み合わないQ&Aが部内へ流れる。
+    mLastCleanAnswer = ""
+
     On Error Resume Next
     Application.EnableCancelKey = xlErrorHandler
     On Error GoTo 0
@@ -381,7 +387,12 @@ Public Sub FeedbackGreen()
     modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
     ' 共有知フライホイール: 人が正しいと確認したQ&Aは組織の一次情報になる。
     ' 社内ナレッジ検索の回答のときだけ発信する(一般アシスタントの雑談は流さない)。
-    If LenB(mLastMode) > 0 Then
+    ' 2026-07-28(レビュー M-4): 回答本文は成功ターンでしか更新されないのに、
+    ' 質問は毎ターン更新される。そのため「0件回答」や「聞き返し」の直後に
+    ' ✅を押すと、【今回の質問 + 前回成功ターンの回答】という噛み合わない
+    ' ペアが「人が確認したQ&A」として部内へ配信されていた。
+    ' 中身が揃っているときだけ発信する。
+    If LenB(mLastMode) > 0 And LenB(Trim$(mLastCleanAnswer)) > 0 Then
         modInsight.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
     End If
     On Error GoTo 0

@@ -420,10 +420,27 @@ End Function
 ' 対象外)。
 Public Function LooksLikeLimitError(ByVal response As String) As Boolean
     If Len(response) > 120 Then Exit Function
+
+    ' 2026-07-28(レビュー M-1): 120字以下で「上限」「回数」等を含むだけで
+    ' 利用上限エラー扱いにしていたため、
+    '   「請求回数の上限はありません。[本棚: 約款.pdf p.12]」
+    ' のような【正当な短文回答】がまるごとエラーメッセージに差し替わっていた。
+    ' 出典タグや構造タグを含む応答は、モデルが実際に答えを返した証拠なので
+    ' 上限エラーではありえない。先に除外する。
+    If LooksLikeRealAnswer(response) Then Exit Function
+
     Dim s As String: s = LCase$(response)
     LooksLikeLimitError = (InStr(s, "上限") > 0) Or (InStr(s, "limit") > 0) Or _
                            (InStr(s, "回数") > 0) Or (InStr(s, "rate") > 0) Or _
                            (InStr(s, "quota") > 0)
+End Function
+
+' 出典タグ・構造タグを含む=モデルが答えを組み立てている応答か。
+Private Function LooksLikeRealAnswer(ByVal response As String) As Boolean
+    If InStr(1, response, "[本棚:", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "[出典", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "<answer>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True
 End Function
 
 ' ----------------------------------------------------------------------------

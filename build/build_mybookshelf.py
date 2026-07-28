@@ -289,6 +289,9 @@ def build_config_rows(mock_llm: bool):
         ("chunk_limit", 20000,
          "本棚に置けるチャンクの上限。Hubの「本棚の使用量」はこの値に対する割合。"
          "8割を超えると警告し、使っていない部門チャンネルの購読解除を促す"),
+        ("domain_wipe_after_n_boots", 3,
+         "allowed_domain と一致しない状態が何回続いたら本棚を消すか。1回目は表示ブロックのみ。"
+         "VPN未接続や一時的なプロファイル不整合でも不一致になり得るため、即消さない。0以下なら決して消さない(表示ブロックのみ)"),
         ("feedback_mail_to", "",
          "ご意見・不具合報告のメール送信先。共有フォルダへ書けない環境の逃がし先として使う。"
          "空欄のときはメール経路そのものを出さない(本文はクリップボードへ入る)。"
@@ -754,7 +757,7 @@ Private Sub Workbook_Open()
 End Sub
 Public Sub Install()
   Dim p As Object, w As Worksheet, c As Object, e As Object
-  Dim r As Long, n As String, s As String, l As Long
+  Dim r As Long, n As String, s As String, l As Long, f As Long
   On Error GoTo Trust
   Set p = ThisWorkbook.VBProject
   On Error GoTo Done
@@ -769,7 +772,9 @@ Public Sub Install()
       If Not e Is Nothing Then p.VBComponents.Remove e
       Set c = Nothing
       Set c = p.VBComponents.Add(1)
-      If Not c Is Nothing Then
+      If c Is Nothing Then
+        f = f + 1
+      Else
         c.Name = n
         If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
         If LenB(s) > 0 Then c.CodeModule.AddFromString s
@@ -781,6 +786,11 @@ Public Sub Install()
   On Error Resume Next
   Application.Run "modBoot.RunFirstRunPromptEarly"
   Err.Clear
+  ' Never Save a half-injected project: it freezes the breakage into the file.
+  If f > 0 Then
+    MsgBox "Setup incomplete. Please get a fresh copy of this file.", vbCritical
+    Exit Sub
+  End If
   ThisWorkbook.Save
   Err.Clear
   ' Detach Boot from Workbook_Open (avoids 1004 mid-init); fallback sync run.

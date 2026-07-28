@@ -38,40 +38,71 @@ NoSheet:
            "(コード: E0101)", vbCritical, modAppDef.APP_NAME
 End Sub
 
+' 2026-07-28(レビュー M-7): config は非エンジニアが直接編集する設計なので、
+' セルにエラー値(#REF! 等)や桁あふれが混ざることは現実的に起きる。
+' 従来は LookupValue が返した vbError を CStr/CLng に渡して型不一致や
+' オーバーフローを起こし、【そのキーだけでなく、以降の全キーの取得が例外化】
+' していた。しかも modBoot は中盤でハンドラを外していた(H-3)ため、
+' そこで素のエラーダイアログが出て EnableEvents=False が焼き付く経路があった。
+' 「既定値へ落ちる」という契約を、どんな入力でも守り切る。
 Public Function GetString(ByVal key As String, ByVal defaultValue As String) As String
+    On Error GoTo Fallback
     Dim v As Variant
     v = LookupValue(key)
-    If IsEmpty(v) Then
+    If IsEmpty(v) Or IsError(v) Then
         GetString = defaultValue
     Else
         GetString = CStr(v)
     End If
+    Exit Function
+Fallback:
+    GetString = defaultValue
 End Function
 
 Public Function GetLong(ByVal key As String, ByVal defaultValue As Long) As Long
+    On Error GoTo Fallback
     Dim v As Variant
     v = LookupValue(key)
-    If IsEmpty(v) Or Not IsNumeric(v) Then
+    If IsEmpty(v) Or IsError(v) Then
+        GetLong = defaultValue
+    ElseIf Not IsNumeric(v) Then
         GetLong = defaultValue
     Else
-        GetLong = CLng(v)
+        ' "99999999999" のような桁あふれは CLng がオーバーフローする。
+        ' 既定値へ落とす(Long の範囲外は設定として意味を成さない)。
+        Dim d As Double: d = CDbl(v)
+        If d > 2147483647# Or d < -2147483648# Then
+            GetLong = defaultValue
+        Else
+            GetLong = CLng(d)
+        End If
     End If
+    Exit Function
+Fallback:
+    GetLong = defaultValue
 End Function
 
 Public Function GetDouble(ByVal key As String, ByVal defaultValue As Double) As Double
+    On Error GoTo Fallback
     Dim v As Variant
     v = LookupValue(key)
-    If IsEmpty(v) Or Not IsNumeric(v) Then
+    If IsEmpty(v) Or IsError(v) Then
+        GetDouble = defaultValue
+    ElseIf Not IsNumeric(v) Then
         GetDouble = defaultValue
     Else
         GetDouble = CDbl(v)
     End If
+    Exit Function
+Fallback:
+    GetDouble = defaultValue
 End Function
 
 Public Function GetBool(ByVal key As String, ByVal defaultValue As Boolean) As Boolean
+    On Error GoTo Fallback
     Dim v As Variant
     v = LookupValue(key)
-    If IsEmpty(v) Then
+    If IsEmpty(v) Or IsError(v) Then
         GetBool = defaultValue
     ElseIf VarType(v) = vbBoolean Then
         GetBool = CBool(v)
@@ -81,6 +112,9 @@ Public Function GetBool(ByVal key As String, ByVal defaultValue As Boolean) As B
         Dim s As String: s = LCase$(Trim$(CStr(v)))
         GetBool = (s = "true" Or s = "1" Or s = "yes" Or s = "on")
     End If
+    Exit Function
+Fallback:
+    GetBool = defaultValue
 End Function
 
 Public Sub SetValue(ByVal key As String, ByVal value As Variant)

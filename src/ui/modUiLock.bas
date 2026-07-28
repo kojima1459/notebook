@@ -30,6 +30,13 @@ Option Explicit
 ' ============================================================================
 
 Private mBusy As Boolean
+' 2026-07-28(レビュー M-9): Leave の呼び忘れが1箇所でもあると、全ボタンが
+' 【無音・無期限】に死ぬ。利用者にできることが何も無い(再起動しかない)。
+' modShelfSync の同種ガードには30分の自動解除があるのに、こちらには無かった。
+' 全数調査では現時点で漏れは見つからなかったが、将来の1バグで全滅する
+' 構造そのものが危うい。取得時刻を控え、期限を過ぎたロックは無効とみなす。
+Private mBusySince As Date
+Private Const LOCK_EXPIRY_MIN As Long = 10
 
 ' ----------------------------------------------------------------------------
 ' Enter - ロック取得を試みる。取得できたらTrue(処理続行可)、既に処理中ならFalse
@@ -37,10 +44,23 @@ Private mBusy As Boolean
 ' ----------------------------------------------------------------------------
 Public Function Enter() As Boolean
     If mBusy Then
-        Enter = False
-        Exit Function
+        If Not LockExpired() Then
+            Enter = False
+            ' 押しても無反応、では利用者は壊れたと判断する。何が起きているかは
+            ' 一言でも返す(StatusBar は Nexus 画面では隠れているためトースト)。
+            On Error Resume Next
+            modSkin.ShowToast "まだ前の処理が動いています。少しお待ちください。", "info"
+            On Error GoTo 0
+            Exit Function
+        End If
+        ' 期限切れ。前の処理は Leave に到達せず落ちたとみなして奪い返す。
+        On Error Resume Next
+        modLog.LogError "E0801", "modUiLock.Enter", _
+            "UIロックが" & LOCK_EXPIRY_MIN & "分を超えたため自動解除しました"
+        On Error GoTo 0
     End If
     mBusy = True
+    mBusySince = Now
     Enter = True
     On Error Resume Next
     Application.Cursor = 2                      ' xlWait(砂時計)
@@ -54,6 +74,7 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Sub Leave()
     mBusy = False
+    mBusySince = 0
     On Error Resume Next
     Application.Cursor = -4143                  ' xlDefault
     Application.StatusBar = False
@@ -70,5 +91,21 @@ End Sub
 ' IsBusy - 現在ロック中か(参照用)。
 ' ----------------------------------------------------------------------------
 Public Function IsBusy() As Boolean
-    IsBusy = mBusy
+    If Not mBusy Then Exit Function
+    IsBusy = Not LockExpired()
+End Function
+
+' 取得から LOCK_EXPIRY_MIN 分を過ぎたか(=Leave 漏れの疑い)。
+' 時刻が読めないときは期限切れ扱いにする(判断できないロックで
+' 全ボタンを殺し続けるより、奪い返す方が害が小さい)。
+Private Function LockExpired() As Boolean
+    On Error GoTo Expired
+    If mBusySince = 0 Then
+        LockExpired = True
+        Exit Function
+    End If
+    LockExpired = (DateDiff("n", mBusySince, Now) >= LOCK_EXPIRY_MIN)
+    Exit Function
+Expired:
+    LockExpired = True
 End Function

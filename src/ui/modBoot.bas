@@ -174,7 +174,11 @@ Public Sub Boot()
     bootStage = "端末の確認"
     On Error Resume Next
     If Not modGuard.CheckDomain() Then
-        modGuard.WipeKnowledge
+        ' 2026-07-28(レビュー M-6): 1回の不一致では消さない。VPN未接続や
+        ' 一時的なプロファイル不整合でも不一致になり得るのに、帰結が
+        ' 予告なしの即ワイプでは誤判定のコストが高すぎる。
+        ' 規定回数(既定3回)続けて不一致だったときだけ消す。
+        If modGuard.DomainBlockShouldWipe() Then modGuard.WipeKnowledge
         Application.EnableEvents = True
         Application.ScreenUpdating = True
         ' 2026-07-28(レビュー L-8): この脱出だけ gBootDone を立てずに
@@ -185,6 +189,9 @@ Public Sub Boot()
         modGuard.ShowDomainBlocked
         Exit Sub
     End If
+    ' 通ったので不一致の連続回数はリセットする。
+    modGuard.ClearDomainBlockStreak
+
     ' 社内ネットワークに長期間つながっていない端末は知識を失効させる
     ' (7日前から予告あり。黙って消さない)。
     modGuard.EnforceExpiry

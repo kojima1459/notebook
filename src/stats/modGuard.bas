@@ -1,6 +1,9 @@
 Attribute VB_Name = "modGuard"
 Option Explicit
 
+' ドメイン不一致の連続回数を控えるmy_statsのキー(レビュー M-6)。
+Private Const STREAK_KEY As String = "domain_block_streak"
+
 ' ============================================================================
 ' modGuard - 端末セキュリティ(PC紛失・持ち出し対策)
 ' ----------------------------------------------------------------------------
@@ -45,21 +48,53 @@ Public Function CheckDomain() As Boolean
     allowed = Trim$(modConfig.GetString("allowed_domain", ""))
     If LenB(allowed) = 0 Then Exit Function
 
-    Dim dom As String
-    dom = Trim$(Environ$("USERDOMAIN"))
-    If LenB(dom) = 0 Then dom = Trim$(Environ$("USERDNSDOMAIN"))
+    ' 2026-07-28(レビュー M-6): 判定を2変数の突き合わせにした。
+    ' 従来は USERDOMAIN(NetBIOS名)しか実質見ておらず、FQDN で
+    ' allowed_domain を設定した組織や Azure AD 参加端末では
+    ' 【正規の端末が全滅】する。不一致の帰結が予告なしの即ワイプなので、
+    ' 誤判定のコストが極端に高い。どちらかが一致すれば許可する。
+    Dim domNb As String: domNb = Trim$(Environ$("USERDOMAIN"))
+    Dim domDns As String: domDns = Trim$(Environ$("USERDNSDOMAIN"))
 
     ' ドメイン名が取れない環境(ワークグループ等)は許可しない。
     ' allowed_domain を設定した組織は「ドメイン参加端末でのみ使う」意思表示。
-    If LenB(dom) = 0 Then
+    If LenB(domNb) = 0 And LenB(domDns) = 0 Then
         CheckDomain = False
         Exit Function
     End If
 
-    ' 複数許可はカンマ区切り。
-    CheckDomain = (InStr(1, "," & Replace(allowed, " ", "") & ",", _
-                         "," & dom & ",", vbTextCompare) > 0)
+    ' 複数許可はカンマ区切り。config は人が手で書くため、半角/全角の
+    ' スペースとカンマの表記ゆれを正規化してから比較する
+    ' (全角カンマ1つで全社員が締め出される、という事故を作らない)。
+    Dim allowNorm As String: allowNorm = "," & NormalizeDomainList(allowed) & ","
+    CheckDomain = MatchesDomain(allowNorm, domNb) Or MatchesDomain(allowNorm, domDns)
     On Error GoTo 0
+End Function
+
+' allowed_domain の表記ゆれを吸収する(全角カンマ/全角スペース/半角スペース)。
+Private Function NormalizeDomainList(ByVal s As String) As String
+    Dim t As String: t = s
+    t = Replace(t, ChrW(&HFF0C), ",")      ' 全角カンマ
+    t = Replace(t, ChrW(&H3001), ",")      ' 読点
+    t = Replace(t, ChrW(&H3000), "")       ' 全角スペース
+    t = Replace(t, " ", "")
+    t = Replace(t, vbTab, "")
+    NormalizeDomainList = t
+End Function
+
+' 許可リスト(前後をカンマで囲った文字列)に dom が含まれるか。
+' FQDN の先頭ラベル("CORP.EXAMPLE.CO.JP" に対する "CORP")でも一致させる。
+Private Function MatchesDomain(ByVal allowNorm As String, ByVal dom As String) As Boolean
+    Dim d As String: d = NormalizeDomainList(dom)
+    If LenB(d) = 0 Then Exit Function
+    If InStr(1, allowNorm, "," & d & ",", vbTextCompare) > 0 Then
+        MatchesDomain = True
+        Exit Function
+    End If
+    Dim p As Long: p = InStr(d, ".")
+    If p > 1 Then
+        MatchesDomain = (InStr(1, allowNorm, "," & Left$(d, p - 1) & ",", vbTextCompare) > 0)
+    End If
 End Function
 
 ' 所属チェックに落ちたときの案内(起動を止めるのではなく、知識を出さない)。
@@ -142,6 +177,51 @@ End Function
 ' ----------------------------------------------------------------------------
 ' WipeKnowledge - my_knowledge / my_vectors の中身を消す(見出し行は残す)。
 '   チャンネルの取り込み済み版番号も消す。次回接続時に再取得させるため。
+
+' ----------------------------------------------------------------------------
+' DomainBlockShouldWipe - ドメイン不一致を何回続けて観測したら消すか。
+'
+' 2026-07-28(レビュー M-6): 端末失効(EnforceExpiry)は7日前から予告するのに、
+' ドメイン不一致は【予告なしの即ワイプ】だった。しかも判定は環境変数1つに
+' 依存していて、VPN未接続・一時的なプロファイル不整合・FQDN設定の違いでも
+' 不一致になり得る。H-8(ワイプ後に自分の資料が復元されない)と重なると
+' 実質不可逆だった。
+'
+' 1回目は表示ブロックだけにして、連続して規定回数に達したときだけ消す。
+' 一度でも一致したらカウンタは0へ戻す(たまたまの1回で近づかない)。
+' 既定3回。config domain_wipe_after_n_boots で調整でき、0以下なら
+' 「絶対に消さない(表示ブロックのみ)」になる。
+' ----------------------------------------------------------------------------
+Public Function DomainBlockShouldWipe() As Boolean
+    On Error Resume Next
+    Dim threshold As Long
+    threshold = modConfig.GetLong("domain_wipe_after_n_boots", 3)
+
+    ' 数値統計(Bump)は減算・リセットの口が無いので、文字列統計を使う。
+    Dim n As Long
+    n = CLngSafeStat(modStats.GetStatText(STREAK_KEY)) + 1
+    modStats.SetStatText STREAK_KEY, CStr(n)
+
+    If threshold <= 0 Then Exit Function
+    DomainBlockShouldWipe = (n >= threshold)
+    On Error GoTo 0
+End Function
+
+' ドメイン確認に通ったので、不一致の連続回数をリセットする。
+Private Function CLngSafeStat(ByVal s As String) As Long
+    On Error Resume Next
+    If IsNumeric(s) Then CLngSafeStat = CLng(Val(s))
+    On Error GoTo 0
+End Function
+
+Public Sub ClearDomainBlockStreak()
+    On Error Resume Next
+    If LenB(modStats.GetStatText(STREAK_KEY)) > 0 Then
+        modStats.SetStatText STREAK_KEY, "0"
+    End If
+    On Error GoTo 0
+End Sub
+
 ' ----------------------------------------------------------------------------
 Public Function WipeKnowledge() As Long
     On Error Resume Next
