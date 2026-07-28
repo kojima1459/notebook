@@ -260,9 +260,14 @@ Fail:
     ' 契約チェック対策: LogErrorのcontext引数は「modX.Y」形式だとYがPublicか
     ' 検証されるため(§7)、Private助手関数の名前ではなく実際のPublic呼び出し
     ' 元(SyncNow)を書き、助手関数名はdetail側に含める。
-    If Err.Number <> 53 Then
+    ' 2026-07-28(レビュー L-9): Err の退避を On Error Resume Next より前へ。
+    ' On Error Resume Next 文そのものが Err をリセットするため、従来は
+    ' 番号も説明も空のログしか残らず、権限なのか瞬断なのか判別できなかった。
+    Dim errNum As Long: errNum = Err.Number
+    Dim errDesc As String: errDesc = Err.Description
+    If errNum <> 53 Then
         On Error Resume Next
-        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileLen: " & modUtil.SafeLeft(path, 300) & " : " & Err.Description, Err.Number
+        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileLen: " & modUtil.SafeLeft(path, 300) & " : " & errDesc, errNum
         On Error GoTo 0
     End If
 End Function
@@ -273,9 +278,14 @@ Public Function SafeFileDateTime(ByVal path As String) As Date
     Exit Function
 Fail:
     SafeFileDateTime = Now
-    If Err.Number <> 53 Then
+    ' 2026-07-28(レビュー L-9): Err の退避を On Error Resume Next より前へ。
+    ' On Error Resume Next 文そのものが Err をリセットするため、従来は
+    ' 番号も説明も空のログしか残らず、権限なのか瞬断なのか判別できなかった。
+    Dim errNum As Long: errNum = Err.Number
+    Dim errDesc As String: errDesc = Err.Description
+    If errNum <> 53 Then
         On Error Resume Next
-        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileDateTime: " & modUtil.SafeLeft(path, 300) & " : " & Err.Description, Err.Number
+        modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileDateTime: " & modUtil.SafeLeft(path, 300) & " : " & errDesc, errNum
         On Error GoTo 0
     End If
 End Function

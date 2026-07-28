@@ -178,8 +178,10 @@ Public Function Rollback(ByVal chName As String, ByVal archiveName As String) As
     ' 巻き戻す前に、今の版も退避しておく(巻き戻し自体を取り消せるように)。
     ArchiveCurrent chName
 
-    FileCopy src, d & PACK_NAME
-    If Err.Number <> 0 Then Exit Function
+    ' 2026-07-28(レビュー L-14): FileCopy をリトライする。
+    ' 共有フォルダは他の人が読んでいる最中だと一時的に掴めない。
+    ' 1回で諦めると「戻せませんでした」だけが出る。
+    If Not CopyWithRetry(src, d & PACK_NAME) Then Exit Function
 
     ' 版番号は必ず「新しい値」にする。古い版番号に戻すと、既にその版を
     ' 取り込み済みの人が「変化なし」と判定して巻き戻しが届かない。
@@ -190,7 +192,14 @@ Public Function Rollback(ByVal chName As String, ByVal archiveName As String) As
     ' テストで連続発行すると現実に踏む。
     ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & _
           PublisherName() & "(巻き戻し:" & archiveName & ")"
-    If Not WriteShared(d & VER_NAME, ver) Then Exit Function
+    If Not WriteShared(d & VER_NAME, ver) Then
+        ' 2026-07-28(レビュー L-14): pack は既に旧版へ置き換わっているのに
+        ' 版番号だけ書けなかった状態。「戻せませんでした」と言うと嘘になる
+        ' (中身は戻っている。届かないだけ)。実状をそのまま記録して返す。
+        modLog.LogError "E0801", "modPublish.Rollback", _
+            "pack は旧版へ置換済みだが version.txt を更新できなかった: " & chName
+        Exit Function
+    End If
 
     AppendLog chName, "巻き戻し" & vbTab & ver & vbTab & archiveName
     modLog.LogUsage "channel_rollback", chName, archiveName
@@ -239,12 +248,46 @@ Private Sub AppendLog(ByVal chName As String, ByVal line_ As String)
     Dim p As String: p = PrepareDir(chName) & LOG_NAME
     If LenB(p) = 0 Then Exit Sub
 
-    Dim prev As String
-    ReadShared p, prev
-    Dim body As String
-    body = prev & Format$(Now, "yyyy-mm-dd hh:nn:ss") & vbTab & PublisherName() & _
-           vbTab & line_ & vbLf
-    WriteShared p, body
+    ' 2026-07-28(レビュー L-16): OSの追記モードで書く。
+    ' 従来は「全部読む → 末尾に足す → 全部書く」だったため、2人が同時刻に
+    ' 発行すると後から書いた方が相手の行を消していた(発行履歴は
+    ' 「誰がいつ何を配ったか」の唯一の記録なので、静かに欠けると困る)。
+    ' FreeFile は Integer を返すが、契約(Integer型禁止)に合わせて Long で受ける。
+    Dim fnum As Long
+    fnum = FreeFile
+    Open p For Append As #fnum
+    Print #fnum, Format$(Now, "yyyy-mm-dd hh:nn:ss") & vbTab & PublisherName() & vbTab & line_
+    Close #fnum
+    On Error GoTo 0
+End Sub
+
+' 共有フォルダ上のファイルコピーを3回まで試す(他者が読んでいる最中は
+' 一時的に掴めないため。レビュー L-14)。
+Private Function CopyWithRetry(ByVal srcPath As String, ByVal destPath As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        On Error Resume Next
+        Err.Clear
+        FileCopy srcPath, destPath
+        If Err.Number = 0 Then
+            On Error GoTo 0
+            CopyWithRetry = True
+            Exit Function
+        End If
+        On Error GoTo 0
+        WaitMs 200 * attempt
+    Next attempt
+End Function
+
+' 指定ミリ秒だけ待つ(Declareを増やさずTimerで回す。共有I/Oのリトライ間隔
+' なので精度は要らない。日跨ぎでTimerが0へ戻ったら即抜ける)。
+Private Sub WaitMs(ByVal ms As Long)
+    On Error Resume Next
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000 < ms
+        DoEvents
+        If Timer < t0 Then Exit Do
+    Loop
     On Error GoTo 0
 End Sub
 

@@ -190,16 +190,42 @@ End Function
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
+' 2026-07-28(レビュー L-6): 追加と改名を1つの手続きとして扱う。
+' 従来は Delete が失敗しても構わず Add し、直後の Name 代入が
+' 「同名シートが既にある」で失敗すると、Sheet1 のような既定名の
+' シートが可視のまま残っていた。modBoot.RemoveOrphanDefaultSheets が
+' 「原因未特定」と注記して毎起動これを掃除しているが、その発生源が
+' ここである可能性が高い。改名に失敗したら、作ったシートを片付けてから
+' 既存シートを使い回す(孤児を残さない)。
 Private Function RecreateDiagSheet() As Worksheet
     Application.DisplayAlerts = False
     On Error Resume Next
     ThisWorkbook.Worksheets(DIAG_SHEET).Delete
+    Err.Clear
     On Error GoTo 0
     Application.DisplayAlerts = True
 
     Dim ws As Worksheet
+    On Error GoTo Fallback
     Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
     ws.Name = DIAG_SHEET
+    On Error GoTo 0
+    Set RecreateDiagSheet = ws
+    Exit Function
+
+Fallback:
+    ' 改名できなかった。作ったばかりのシートは消して、既にある
+    ' 診断シートを再利用する(中身は呼び出し側が上書きする)。
+    On Error Resume Next
+    If Not ws Is Nothing Then
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+    End If
+    Set ws = ThisWorkbook.Worksheets(DIAG_SHEET)
+    If Not ws Is Nothing Then ws.Cells.ClearContents
+    Err.Clear
+    On Error GoTo 0
     Set RecreateDiagSheet = ws
 End Function
 

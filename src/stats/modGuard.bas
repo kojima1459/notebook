@@ -3,6 +3,10 @@ Option Explicit
 
 ' ドメイン不一致の連続回数を控えるmy_statsのキー(レビュー M-6)。
 Private Const STREAK_KEY As String = "domain_block_streak"
+' 失効の予告を出した日数(同じ日数で繰り返し出さないため)と、
+' 実際に消した記録(消したあと毎回通知しないため)。レビュー L-7。
+Private Const WARNED_KEY As String = "expiry_warned_days"
+Private Const WIPED_KEY As String = "expiry_wiped_at"
 
 ' ============================================================================
 ' modGuard - 端末セキュリティ(PC紛失・持ち出し対策)
@@ -116,6 +120,11 @@ End Sub
 Public Sub TouchReach()
     On Error Resume Next
     modStats.SetStatText K_LAST_REACH, Format$(Date, "yyyy-mm-dd")
+    ' つながったので失効まわりの記録はリセットする(レビュー L-7)。
+    ' これをしないと、復帰後も「予告済み」「消去済み」の印が残り、
+    ' 次に離れたときの予告が出なくなる。
+    If LenB(modStats.GetStatText(WARNED_KEY)) > 0 Then modStats.SetStatText WARNED_KEY, ""
+    If LenB(modStats.GetStatText(WIPED_KEY)) > 0 Then modStats.SetStatText WIPED_KEY, ""
     On Error GoTo 0
 End Sub
 
@@ -150,7 +159,16 @@ Public Function EnforceExpiry() As Boolean
     Dim d As Long: d = DaysSinceReach()
     If d < limitDays - 7 Then Exit Function
 
-    If d < limitDays Then
+    ' 2026-07-28(レビュー L-7): 3つの雑さを直す。
+    '  (a) expire_days<=7 だと limitDays-7<=0 になり、初日から毎回警告が出る
+    '      → 「1日でも猶予がある」ときだけ予告する。
+    '  (b) 期限超過後は開くたびにワイプ通知が出ていた
+    '      → 一度消したら記録し、二度目からは黙って通す(もう消すものが無い)。
+    '  (c) 端末の時計が前へ飛ぶと、予告を一度も出さずにいきなり消えていた
+    '      → 予告を出した記録が無ければ、まず予告だけ出して1回見送る。
+    If d >= 1 And d < limitDays Then
+        If StrComp(modStats.GetStatText(WARNED_KEY), CStr(d), vbTextCompare) = 0 Then Exit Function
+        modStats.SetStatText WARNED_KEY, CStr(d)
         ' 予告。黙って消さない。
         MsgBox "社内ネットワークに " & d & " 日間つながっていません。" & vbCrLf & _
                "あと " & (limitDays - d) & " 日つながらないと、" & vbCrLf & _
@@ -161,9 +179,25 @@ Public Function EnforceExpiry() As Boolean
         Exit Function
     End If
 
-    ' 期限超過。知識だけを消す。
+    ' 期限超過。
+    ' 予告を一度も出せていない(時計の前進ジャンプ等)なら、まず予告だけ出す。
+    If LenB(modStats.GetStatText(WARNED_KEY)) = 0 Then
+        modStats.SetStatText WARNED_KEY, CStr(d)
+        MsgBox "社内ネットワークに " & d & " 日間つながっていません。" & vbCrLf & _
+               "次に開いたときも接続できていない場合、安全のため" & vbCrLf & _
+               "取り込んだ知識を消去します。" & vbCrLf & vbCrLf & _
+               "社内ネットワークに接続して一度開いていただければ解除されます。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Function
+    End If
+
+    ' 既に消したあとなら、開くたびに同じ通知を出さない。
+    If LenB(modStats.GetStatText(WIPED_KEY)) > 0 Then Exit Function
+
+    ' 知識だけを消す。
     Dim removed As Long
     removed = WipeKnowledge()
+    modStats.SetStatText WIPED_KEY, modUtil.NowStamp()
     modLog.LogUsage "guard_wipe", "", "days=" & d & " removed=" & removed
     MsgBox "社内ネットワークに " & d & " 日間つながらなかったため、" & vbCrLf & _
            "安全のため取り込んだ知識を消去しました。" & vbCrLf & vbCrLf & _

@@ -705,9 +705,23 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     maxPairs = modConfig.GetLong("followup_max_pairs", 3)
     If maxPairs <= 0 Then
         ' 0以下=履歴を持たない(CanFollowup=Falseになる)エスケープハッチ。
+        ' 2026-07-28(レビュー L-2): メモリだけ消して ui_state を消していな
+        ' かったため、無効化したはずなのに保存済みの古い履歴が読み直され、
+        ' LLMへ送られ続けていた。保存側も空にする。
         mPrevU = ""
         mPrevA = ""
+        modState.SaveState "nexus_ask_prevu", ""
+        modState.SaveState "nexus_ask_preva", ""
         Exit Sub
+    End If
+
+    ' 2026-07-28(レビュー L-3): 書く前に必ず読む。VBAリセット等でモジュール
+    ' 変数が消えた直後に新規質問が来ると、mPrevU が空のまま「先頭に積む」
+    ' 処理が走り、保存済みの履歴を1ターンで上書き消去していた。
+    ' CanFollowup と同じ遅延ロードをここでも通す。
+    If LenB(mPrevU) = 0 Then
+        mPrevU = modState.LoadState("nexus_ask_prevu", "")
+        mPrevA = modState.LoadState("nexus_ask_preva", "")
     End If
 
     ' 回答は1500字で打ち切る(AppendHistoryと同じ判断: 履歴でトークンを

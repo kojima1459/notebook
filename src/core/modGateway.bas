@@ -496,14 +496,26 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
     On Error GoTo HttpFail
 
     ' リクエストボディ {"input":["...",...]}(正規化+4000字打ち切りはribbon経路と同一)
-    Dim bodyParts() As String
-    ReDim bodyParts(0 To iTo - iFrom)
+    '
+    ' 2026-07-28(レビュー L-4): 空チャンクをダミー1字 " " で埋めて
+    ' 「ベクトル化成功」として保存していた。中身の無いチャンクに空白1文字の
+    ' ベクトルが付き、検索の邪魔にしかならない。しかも ribbon/mock 経路は
+    ' 空を失敗扱いにするため、経路によって結果が変わる非対称もあった。
+    ' 空はリクエストから外し、結果も空のままにする。
+    Dim sendIdx() As Long: ReDim sendIdx(0 To iTo - iFrom)
+    Dim bodyParts() As String: ReDim bodyParts(0 To iTo - iFrom)
+    Dim sendN As Long: sendN = 0
     Dim i As Long
     For i = iFrom To iTo
         Dim t As String: t = modUtil.NormalizeForHash(texts(arrLo + i))
-        If LenB(t) = 0 Then t = " "   ' Azureは空文字を拒否するためダミー1字
-        bodyParts(i - iFrom) = """" & EscapeJsonStr(modUtil.SafeLeft(t, 4000)) & """"
+        If LenB(t) > 0 Then
+            sendIdx(sendN) = i
+            bodyParts(sendN) = """" & EscapeJsonStr(modUtil.SafeLeft(t, 4000)) & """"
+            sendN = sendN + 1
+        End If
     Next i
+    If sendN = 0 Then Exit Function      ' 送るものが無い(全部空)
+    ReDim Preserve bodyParts(0 To sendN - 1)
     Dim body As String
     body = "{""input"":[" & Join(bodyParts, ",") & "]}"
 
@@ -535,19 +547,21 @@ Private Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
     Dim resp As String: resp = CStr(http.responseText)
     Dim okCount As Long: okCount = 0
     Dim searchPos As Long: searchPos = 1
-    For i = iFrom To iTo
+    Dim k As Long
+    For k = 0 To sendN - 1
         Dim vecCsv As String
         vecCsv = NextEmbeddingArray(resp, searchPos)
         If LenB(vecCsv) > 0 Then
             Dim v() As Double
             If modUtil.CsvToVector(vecCsv, v) Then
                 If modUtil.TruncateAndRenorm(v, dims) Then
-                    outCsv(i) = SerializeVector(v, prec)
+                    ' 応答は入力順。空を外した分、書き戻し先は sendIdx で引く。
+                    outCsv(sendIdx(k)) = SerializeVector(v, prec)
                     okCount = okCount + 1
                 End If
             End If
         End If
-    Next i
+    Next k
 
     If okCount = 0 Then
         modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _

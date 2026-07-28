@@ -239,7 +239,9 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
         hint = ChrW(&HD83D) & ChrW(&HDCC1) & " 左の緑のボタンから約款やマニュアルを入れると、" & _
                "出典付きで答えられるようになります(そのまま質問もできます)"
     Else
-        hint = "Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し ・ " & _
+        ' 2026-07-28(レビュー L-19): セル編集中は OnKey が効かず1回目の
+        ' Ctrl+Enter は「確定」になる(Excelの仕様)。実挙動に合わせて書く。
+        hint = "入力後に Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し ・ " & _
                ChrW(&HD83D) & ChrW(&HDCC1) & " で資料を追加"
     End If
     With ws.Range("C" & (INPUT_ROW + 1))

@@ -227,6 +227,8 @@ NextPack:
     RunChannelOriginTests
     On Error GoTo ClarifyFail
     RunClarifyChoiceTests
+    On Error GoTo VecFail
+    RunVectorCsvTests
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -245,6 +247,9 @@ ChannelFail:
     Resume NextDone
 ClarifyFail:
     modTestRunner.Check "RunClarifyChoiceTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone
+VecFail:
+    modTestRunner.Check "RunVectorCsvTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
@@ -568,4 +573,33 @@ Private Sub RunClarifyChoiceTests()
         (Not modClarify.IsNumberChoiceOnly("-.-"))
     modTestRunner.Check "番号選択_長すぎる数字列はFalse", _
         (Not modClarify.IsNumberChoiceOnly("1234567890"))
+End Sub
+
+
+' ----------------------------------------------------------------------------
+' ベクトルCSVの読み取り(2026-07-28 レビュー L-5)
+'
+' 実バグ: Val() は解釈できない文字列を黙って 0 にするため、壊れたCSVが
+' 「全要素0の正常なベクトル」として通っていた。ゼロベクトルは内積が常に0で
+' どの質問とも無関係になるので、そのチャンクは検索から静かに消える。
+' 「壊れている」と「関係が無い」が区別できないのがいちばん困る。
+' ----------------------------------------------------------------------------
+Private Sub RunVectorCsvTests()
+    Dim v() As Double
+
+    modTestRunner.Check "CsvToVector_正常", modUtil.CsvToVector("0.1,-0.2,0.3", v)
+    modTestRunner.Check "CsvToVector_正常_指数表記", modUtil.CsvToVector("1e-3,2E+2,-3.5e1", v)
+    modTestRunner.Check "CsvToVector_正常_整数", modUtil.CsvToVector("1,2,3", v)
+
+    modTestRunner.Check "CsvToVector_文字混入は失敗", _
+        (Not modUtil.CsvToVector("0.1,abc,0.3", v))
+    modTestRunner.Check "CsvToVector_全角数字は失敗", _
+        (Not modUtil.CsvToVector("0.1," & ChrW(65298) & ",0.3", v))
+    modTestRunner.Check "CsvToVector_小数点2つは失敗", _
+        (Not modUtil.CsvToVector("0.1,1.2.3,0.3", v))
+    modTestRunner.Check "CsvToVector_符号だけは失敗", _
+        (Not modUtil.CsvToVector("0.1,-,0.3", v))
+    modTestRunner.Check "CsvToVector_空要素は失敗", _
+        (Not modUtil.CsvToVector("0.1,,0.3", v))
+    modTestRunner.Check "CsvToVector_空文字は失敗", (Not modUtil.CsvToVector("", v))
 End Sub

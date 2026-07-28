@@ -200,6 +200,12 @@ Public Function CsvToVector(ByVal s As String, ByRef vec() As Double) As Boolean
     For i = LBound(parts) To UBound(parts)
         Dim p As String: p = Trim$(parts(i))
         If LenB(p) = 0 Then Exit Function   ' 空要素(連続カンマ等)=不正なCSV
+        ' 2026-07-28(レビュー L-5): Val() は解釈できない文字列を黙って 0 に
+        ' するため、壊れたベクトルCSVが「全要素0の正常なベクトル」として
+        ' 通っていた。ゼロベクトルは全ての質問と無関係になるので、
+        ' そのチャンクは検索から静かに消える(誰も気付けない)。
+        ' 数値として読める形かを先に確かめ、読めなければ不正なCSVとして落とす。
+        If Not LooksNumeric(p) Then Exit Function
         tmp(j) = Val(p)                      ' Valは"."小数点固定でロケール非依存
         j = j + 1
     Next i
@@ -515,4 +521,34 @@ End Sub
 ' VBAのHex$()はビットパターンをそのまま16進化するため符号を気にせず使える。
 Private Function U32ToHex8(ByVal L As Long) As String
     U32ToHex8 = LCase$(Right$("00000000" & Hex$(L), 8))
+End Function
+
+' ベクトルCSVの1要素が数値として読める形か(純関数)。
+' 許すのは 先頭の符号 / 数字 / 小数点1つ / 指数表記(e|E と符号)。
+' ロケール差を避けるため IsNumeric は使わない(全角数字や通貨記号を通す)。
+Private Function LooksNumeric(ByVal s As String) As Boolean
+    Dim i As Long, ch As String
+    Dim seenDigit As Boolean, seenDot As Boolean, seenExp As Boolean
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            seenDigit = True
+        ElseIf ch = "." Then
+            If seenDot Or seenExp Then Exit Function
+            seenDot = True
+        ElseIf ch = "e" Or ch = "E" Then
+            If seenExp Or Not seenDigit Then Exit Function
+            seenExp = True
+            seenDigit = False        ' 指数部にも数字が要る
+        ElseIf ch = "+" Or ch = "-" Then
+            ' 符号は先頭か、指数の直後だけ許す
+            If i > 1 Then
+                Dim prev As String: prev = Mid$(s, i - 1, 1)
+                If prev <> "e" And prev <> "E" Then Exit Function
+            End If
+        Else
+            Exit Function
+        End If
+    Next i
+    LooksNumeric = seenDigit
 End Function

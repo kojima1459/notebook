@@ -77,6 +77,9 @@ Private mSyncRunningSince As Date
 Private Const GUARD_EXPIRY_MIN As Long = 30
 Private mScheduled As Boolean       ' OnTime予約中かどうか
 Private mNextRunTime As Date        ' 予約時刻(Cancelは同時刻指定のため保持)
+' 予約時刻の控え(ui_state)。VBAリセットでモジュール変数が消えても
+' Auto_Close が解除できるようにするため(レビュー L-23)。
+Private Const SCHED_KEY As String = "autosync_next"
 
 ' ----------------------------------------------------------------------------
 ' PickShelfFolder - フォルダ選択→config shelf_folder 保存→即SyncNow
@@ -243,7 +246,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     modShelfScan.LoadManifestScope wsM, folderNorm, mPaths, mNames, mModified, mSize, mStatus, mCount
 
     Dim diskDict As Object: Set diskDict = CreateObject("Scripting.Dictionary")
-    Dim ingestedN As Long, replacedN As Long, deletedN As Long
+    Dim ingestedN As Long, replacedN As Long, deletedN As Long, failedN As Long
     Dim resumeNeeded As Boolean: resumeNeeded = False
 
     ' 本棚上限(2026-07-16 実機対応): 大容量フォルダを同期すると、上限到達後の
@@ -287,20 +290,36 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         If existsInManifest Then curStatus = mStatus(mi)
         decision = ResolveDecision(decision, existsInManifest, curStatus)
 
+        ' 2026-07-28(レビュー L-11): 同期は silent:=True で取り込み、
+        ' 結果を戻り値で数える。従来は
+        '   ・同名衝突(E0504)が silent を無視してモーダルを出す
+        '     → 誰も見ていない朝の同期がそこで止まる
+        '   ・失敗も「新規/更新」の件数に足す
+        '     → サマリが「新規12件」と言うのに本棚は増えていない
+        ' という2つの嘘があった。数えるのは実際に入ったものだけにする。
+        Dim st As String
         Select Case decision
             Case "ingest"
                 If modShelf.TotalChunks() >= capMax Then
                     cappedN = cappedN + 1
                 Else
-                    modShelf.IngestFile path, "self"
-                    ingestedN = ingestedN + 1
+                    st = modShelf.IngestFile(path, "self", True)
+                    If st = "done" Or st = "partial" Then
+                        ingestedN = ingestedN + 1
+                    Else
+                        failedN = failedN + 1
+                    End If
                 End If
             Case "replace"
                 If modShelf.TotalChunks() >= capMax Then
                     cappedN = cappedN + 1
                 Else
-                    modShelf.IngestFile path, "self"
-                    replacedN = replacedN + 1
+                    st = modShelf.IngestFile(path, "self", True)
+                    If st = "done" Or st = "partial" Then
+                        replacedN = replacedN + 1
+                    Else
+                        failedN = failedN + 1
+                    End If
                 End If
             Case "keep"
                 If mi >= 0 Then
@@ -331,6 +350,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     Dim summaryLine As String
     summaryLine = "新規" & ingestedN & "件・更新" & replacedN & "件・削除" & deletedN & "件"
+    If failedN > 0 Then summaryLine = summaryLine & "・失敗" & failedN & "件"
+
     If resumeNeeded Then summaryLine = summaryLine & "・再開" & resumedCount & "件"
     If cappedN > 0 Then summaryLine = summaryLine & "・上限見送り" & cappedN & "件"
 
@@ -415,6 +436,14 @@ Public Sub ScheduleAutoSync()
     Application.OnTime EarliestTime:=nextTime, Procedure:="AutoSyncTick"
     mNextRunTime = nextTime
     mScheduled = True
+    ' 2026-07-28(レビュー L-23): 予約時刻を ui_state にも残す。
+    ' モジュール変数だけに持っていると、VBAリセット(エラー中断・VBEでの
+    ' リセット)で消え、Auto_Close が予約を解除できなくなる。
+    ' 解除できない OnTime は「閉じたのに数分後にExcelが勝手に開き直す」
+    ' という事故になる(§9 が防ぐと明記している事故そのもの)。
+    On Error Resume Next
+    modState.SaveState SCHED_KEY, CStr(CDbl(nextTime))
+    On Error GoTo Fail
     Exit Sub
 
 Fail:
@@ -430,11 +459,25 @@ End Sub
 ' CancelAutoSync - 予約解除(必ずOn Error握り: 予約なしでも安全)
 ' ----------------------------------------------------------------------------
 Public Sub CancelAutoSync()
-    If Not mScheduled Then Exit Sub
     On Error Resume Next
-    Application.OnTime EarliestTime:=mNextRunTime, Procedure:="AutoSyncTick", Schedule:=False
-    On Error GoTo 0
+    ' モジュール変数が生きていればそれで解除する。
+    If mScheduled Then
+        Application.OnTime EarliestTime:=mNextRunTime, Procedure:="AutoSyncTick", Schedule:=False
+        Err.Clear
+    End If
+
+    ' 2026-07-28(レビュー L-23): モジュール変数が消えていても、
+    ' ui_state に残した予約時刻で解除を試みる。
+    Dim s As String: s = modState.LoadState(SCHED_KEY, "")
+    If LenB(s) > 0 Then
+        If IsNumeric(s) Then
+            Application.OnTime EarliestTime:=CDate(CDbl(s)), Procedure:="AutoSyncTick", Schedule:=False
+            Err.Clear
+        End If
+        modState.SaveState SCHED_KEY, ""
+    End If
     mScheduled = False
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------

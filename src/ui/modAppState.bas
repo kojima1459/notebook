@@ -149,6 +149,15 @@ Public Function ReadInputCell() As String
     ReadInputCell = modUtil.SafeLeft(CStr(v), 3000)
 End Function
 
+' 入力欄へ文章を書き戻す(送信に失敗したときの復元。レビュー L-22)。
+' 読み書きは ClearInputCell/ReadInputCell と同じ名前定義 nx_input を使う
+' (座標を別に持つと、レイアウト変更で片方だけずれる)。
+Public Sub RestoreInputCell(ByVal s As String)
+    On Error Resume Next
+    ThisWorkbook.Names("nx_input").RefersToRange.Value = s
+    On Error GoTo 0
+End Sub
+
 Public Sub ClearInputCell()
     On Error Resume Next
     ThisWorkbook.Names("nx_input").RefersToRange.Value = ""

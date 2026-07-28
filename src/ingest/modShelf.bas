@@ -84,7 +84,13 @@ End Sub
 ' IngestFile - MASTER_SPEC §7.2 の手順どおりに1ファイルを取込む。
 '   戻り値=manifest status("done"/"partial"/"failed"/"image_pdf")
 '
-Public Function IngestFile(ByVal path As String, ByVal origin As String) As String
+' silent (2026-07-28 レビュー L-11):
+'   フォルダ同期のように「まとめて何十件も取り込む」経路では、1件ごとに
+'   モーダルを出されると同期が止まる。同名衝突(E0504)は従来 silent を見ずに
+'   必ずダイアログを出していたため、同期中に人がいないと朝まで止まっていた。
+'   silent:=True のときは記録だけ残し、結果は戻り値で呼び出し側へ伝える。
+Public Function IngestFile(ByVal path As String, ByVal origin As String, _
+                           Optional ByVal silent As Boolean = False) As String
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
@@ -118,8 +124,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         Dim conflictPath As String
         conflictPath = modShelfStore.FindConflictingManifestPath(sourceName, path)
         If LenB(conflictPath) > 0 Then
-            modLog.ShowError "E0504", "modShelf.IngestFile", _
-                "source=" & sourceName & " newPath=" & path & " existingPath=" & conflictPath
+            If silent Then
+                modLog.LogError "E0504", "modShelf.IngestFile", _
+                    "source=" & sourceName & " newPath=" & path & " existingPath=" & conflictPath
+            Else
+                modLog.ShowError "E0504", "modShelf.IngestFile", _
+                    "source=" & sourceName & " newPath=" & path & " existingPath=" & conflictPath
+            End If
             resultStatus = "failed"
             GoTo Finish
         End If
@@ -151,11 +162,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     Dim pagesTruncated As Boolean: pagesTruncated = (extractOk And errCode = "PARTIAL_PAGES")
 
     If Not extractOk Then
+        ' 2026-07-28(レビュー L-12): 画像PDF(E0303)を vision へ渡さない。
+        ' optVision は PDF を受け付けないため、この経路は必ず失敗する
+        ' 死に経路だった。失敗するまでの待ち時間を利用者に払わせたうえで
+        ' 同じ案内を出すくらいなら、最初からスクショ取込を案内する。
+        ' vision が効くのは画像そのもの(png/jpg)を入れたときだけ。
         Dim visionEligible As Boolean
-        visionEligible = (errCode = "E0303")
-        If (Not visionEligible) And errCode = "E0301" Then
-            visionEligible = IsImageExtension(path)
-        End If
+        If errCode = "E0301" Then visionEligible = IsImageExtension(path)
         If visionEligible And modFeatures.FeatureEnabled("vision") Then
             Dim visionResult As Variant
             visionResult = modFeatures.InvokeFeature("vision", "ExtractImagePdfText", path)

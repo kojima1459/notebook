@@ -221,7 +221,13 @@ Fail:
     On Error Resume Next
     modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
     modLog.LogError "E0602", "modApp.OnSend", failDesc
-    modUI.AddChatBubble "ai", "エラーが発生しました。もう一度お試しください。(" & failDesc & ")"
+    ' 2026-07-28(レビュー L-22): 失敗したら入力欄へ書き戻す。
+    ' 送信直後に入力欄をクリアする作りなので、長文を書いて送って落ちると
+    ' 打った文章が丸ごと消えていた。「もう一度お試しください」と言われても、
+    ' もう一度打ち直すところからになる。
+    If LenB(q) > 0 Then modAppState.RestoreInputCell q
+    modUI.AddChatBubble "ai", "エラーが発生しました。入力欄に文章を戻しましたので、" & _
+        "もう一度お試しください。(" & failDesc & ")"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -266,7 +272,7 @@ End Sub
 
 ' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。
 Public Function ModeCaption() As String
-    If sendMode = "normal" Then
+    If modAppState.CurrentMode() = "normal" Then
         ModeCaption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
     Else
         ModeCaption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
@@ -429,9 +435,17 @@ Public Sub OnActDrill()
     Exit Sub
 
 Fail:
+    ' 2026-07-28(レビュー L-21): 無言で終わらない。
+    ' ここは Err.Clear してログも通知も出さずに Leave していたため、
+    ' 深掘りが失敗すると【押したのに何も起きない】だけになっていた。
+    ' 利用者はボタンが壊れたと判断し、二度と押さない。
+    ' OnSend の Fail と同じく、記録とエラーバブルの両方を出す。
+    Dim drillDesc As String: drillDesc = Err.Description
     Err.Clear
     On Error Resume Next
     modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
+    modLog.LogError "E0602", "modApp.OnActDrill", drillDesc
+    modUI.AddChatBubble "ai", "深掘りに失敗しました。もう一度お試しください。(" & drillDesc & ")"
     On Error GoTo 0
     modUiLock.Leave
 End Sub
@@ -757,6 +771,19 @@ Public Sub OnClearChat()
     On Error Resume Next
     modUI.ClearChat
     modClarify.ClearPending
+    ' 2026-07-28(レビュー L-18): クリアで消えていなかったものを片付ける。
+    '   ・出典チップ / 専門家ボタン … 消した会話の下にボタンだけ残っていた
+    '   ・続けて質問の履歴 / 復元用の直近ターン … 残っていると、再起動時に
+    '     「クリアしたはずの会話」が復元される(利用者から見れば消えていない)
+    ' 「消した」と言った以上は、次に開いたときも消えていなければならない。
+    modPeek.HideCitations
+    modMentor.ClearMentor
+    ClearActions
+    ClearConfidence
+    modState.SaveState "nexus_ask_prevu", ""
+    modState.SaveState "nexus_ask_preva", ""
+    modState.SaveState "nexus_hist_u", ""
+    modState.SaveState "nexus_hist_a", ""
     modUI.AddChatBubble "ai", modLive.TimeGreeting() & " 会話をクリアしました。新しい質問をどうぞ。"
     On Error GoTo 0
     modUiLock.Leave

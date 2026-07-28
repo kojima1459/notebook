@@ -371,7 +371,14 @@ Public Sub Boot()
     '      解除はAuto_Close(既存のCtrl+Z解除と同じライフサイクル)。
     On Error Resume Next
     Application.OnKey "^+q", "modApp.SummonNexus"
+    ' 2026-07-28(レビュー L-19): Ctrl+Enter を2通り登録する。
+    ' "^~" はメインキーの Enter しか拾わないため、テンキーの Enter で
+    ' 送信できなかった。"^{ENTER}" を足して両方拾う。
+    ' なお、セル編集中(入力欄に文字を打っている最中)は OnKey が効かず、
+    ' 1回目の Ctrl+Enter は「確定」になる。これはExcelの仕様で回避できない
+    ' ため、ヒント文は「入力後に Ctrl+Enter」と書き換えてある。
     Application.OnKey "^~", "modApp.HotSend"
+    Application.OnKey "^{ENTER}", "modApp.HotSend"
     On Error GoTo Failed
 
     gBootDone = True
@@ -440,6 +447,7 @@ Public Sub Auto_Close()
     modUI.RestoreExcelUI
     Application.OnKey "^+q"   ' ホットキーも既定へ戻す(残存するとブック閉鎖後にエラー)
     Application.OnKey "^~"
+    Application.OnKey "^{ENTER}"
     On Error GoTo 0
 
     On Error Resume Next

@@ -317,6 +317,13 @@
       "wave": "UI-V2"
     },
     {
+      "name": "modPublishUI",
+      "path": "src/ui/modPublishUI.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
       "name": "modShared",
       "path": "src/ui/modShared.bas",
       "role": "core",
