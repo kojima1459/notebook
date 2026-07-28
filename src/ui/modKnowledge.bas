@@ -706,7 +706,7 @@ Public Sub OnPublish()
     Dim wrote As Long
     Dim ok As Boolean
     On Error Resume Next
-    ok = modPack.ExportPackToFile(dest, "", True, wrote)
+    ok = modPackExport.ExportPackToFile(dest, "", True, wrote)
     Application.Cursor = -4143
     Application.StatusBar = False
     On Error GoTo Done
@@ -793,7 +793,7 @@ Public Sub OnAddFiles()
 End Sub
 
 Public Sub OnPackOut()
-    modPack.ExportPackDialog
+    modPackExport.ExportPackDialog
 End Sub
 
 Public Sub OnPackIn()

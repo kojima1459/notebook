@@ -168,7 +168,7 @@ Cleanup:
 End Sub
 
 ' ----------------------------------------------------------------------------
-' RunExcelPackDialogRoundTrip - modPack.ExportPackDialog/ImportPackDialogを
+' RunExcelPackDialogRoundTrip - modPackExport.ExportPackDialog/ImportPackDialogを
 '   実際に呼び出す、人が操作することを前提にした補助確認(モジュール冒頭の
 '   コメント参照)。RunExcelE2ESmokeTestからは呼ばれない。ダイアログが
 '   表示されるので、テスト実行者は以下の手順で操作すること:
@@ -186,7 +186,7 @@ Public Sub RunExcelPackDialogRoundTrip()
         "続いて表示される取込ダイアログでは、いま書き出したファイルを選んでください。", _
         vbInformation, "パック往復確認(手動)"
 
-    modPack.ExportPackDialog
+    modPackExport.ExportPackDialog
     modPack.ImportPackDialog
 
     Dim afterFirstImport As Long: afterFirstImport = modShelf.TotalChunks()

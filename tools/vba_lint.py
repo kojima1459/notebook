@@ -62,6 +62,8 @@ MYBOOKSHELF_ROOT = TOOLS_DIR.parent
 DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
 
 MAX_MODULE_CHARS = 30000
+# 残り2,000字を切ったら警告する(バグ修正1件ぶんの余裕がある状態を保つため)。
+MODULE_WARN_CHARS = 28000
 
 # ------------------------------------------------------------------------------
 # §7 契約シグネチャ表: モジュール名 -> {"closed": bool, "required": [Public名...]}
@@ -174,6 +176,16 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["AddFilesViaDialog", "IngestFile", "DeleteSource", "SourceList", "TotalChunks"],
     },
+    # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
+    # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
+    "modShelfStore": {
+        "closed": False,
+        "required": [
+            "EnsureKnowledgeSheet", "EnsureManifestSheet", "BuildExistingHashSet",
+            "RemoveKnowledgeAndVectorsForSource", "RemoveVectorsByIds",
+            "RemoveManifestRowForSource", "UpsertManifestRow", "SliceRows",
+        ],
+    },
     "modShelfSync": {
         "closed": True,
         # DiffDecision は §7.8 の記述により modShelfSync の差分判定を
@@ -224,7 +236,17 @@ CONTRACT: dict[str, dict] = {
         "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
                      "FeedbackUnsure", "CanFollowup", "AskFollowup", "LastAnswerText",
                      "LastTopSource", "LastConfidence", "LastConfidenceText",
-                     "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek"],
+                     "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek",
+                     # 2026-07-28: modAskRetrieve への切り出し(レビューI-2)に伴い公開。
+                     # HistoryBlock=拡張プロンプトに載せる直近履歴、
+                     # IsErrorResponse=#ERR:応答を検索途中で捨てる判定。
+                     "HistoryBlock", "IsErrorResponse"],
+    },
+    # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
+    # modAskのモジュール変数を触らず、引数のhits()だけで完結する。
+    "modAskRetrieve": {
+        "closed": True,
+        "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -236,7 +258,12 @@ CONTRACT: dict[str, dict] = {
         # する」ことを求めているが名前が未確定のため open にして、名前不明の
         # 追加Publicまでは許容する(3つの契約関数の欠落だけは検出する)。
         "closed": False,
-        "required": ["ExportPackDialog", "ImportPackDialog", "ValidatePack"],
+        "required": ["ImportPackDialog", "ValidatePack"],
+    },
+    # 2026-07-28 レビューI-2対応でmodPackから切り出した発行(書き出し)側。
+    "modPackExport": {
+        "closed": False,
+        "required": ["ExportPackDialog", "ExportPackToFile"],
     },
     # ---- 7.5 統計層 ----
     "modStats": {
@@ -581,9 +608,20 @@ def check_basics(info: ModuleInfo) -> None:
         )
 
     # モジュール30,000字以内
+    #
+    # 2026-07-28(レビューI-2): 上限ちょうどまで使い切ったモジュールが6本あり、
+    # 「バグを1行直すこともできない」状態になっていた。上限超過はビルドが
+    # 落ちるので事故にはならないが、気付くのが遅すぎる。残りが少なくなった
+    # 時点で警告し、切り出しを促す。
     n = len(info.raw_text)
     if n > MAX_MODULE_CHARS:
         info.add("ERROR", 1, f"モジュールが{n}字で上限{MAX_MODULE_CHARS}字を超過")
+    elif n > MODULE_WARN_CHARS:
+        info.add(
+            "WARN", 1,
+            f"モジュールが{n}字で上限{MAX_MODULE_CHARS}字まで残り{MAX_MODULE_CHARS - n}字。"
+            f"次の修正が入らなくなる前に凝集した機能を新モジュールへ切り出すこと",
+        )
 
 
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:

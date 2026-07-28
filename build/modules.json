@@ -114,6 +114,13 @@
       "wave": "2-C"
     },
     {
+      "name": "modShelfStore",
+      "path": "src/ingest/modShelfStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
       "name": "modShelfSync",
       "path": "src/ingest/modShelfSync.bas",
       "role": "core",
@@ -184,6 +191,13 @@
       "wave": "2-D"
     },
     {
+      "name": "modAskRetrieve",
+      "path": "src/qa/modAskRetrieve.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-D"
+    },
+    {
       "name": "modPii",
       "path": "src/pack/modPii.bas",
       "role": "core",
@@ -193,6 +207,13 @@
     {
       "name": "modPack",
       "path": "src/pack/modPack.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-E"
+    },
+    {
+      "name": "modPackExport",
+      "path": "src/pack/modPackExport.bas",
       "role": "core",
       "type": "std",
       "wave": "2-E"
@@ -268,6 +289,13 @@
       "wave": "UI-V2"
     },
     {
+      "name": "modHubStat",
+      "path": "src/ui/modHubStat.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
       "name": "modKnowledge",
       "path": "src/ui/modKnowledge.bas",
       "role": "core",
@@ -289,6 +317,13 @@
       "wave": "NEXUS-P1"
     },
     {
+      "name": "modAppState",
+      "path": "src/ui/modAppState.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
       "name": "modVault",
       "path": "src/ui/modVault.bas",
       "role": "core",
@@ -298,6 +333,13 @@
     {
       "name": "modDash",
       "path": "src/ui/modDash.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P3"
+    },
+    {
+      "name": "modDashStat",
+      "path": "src/ui/modDashStat.bas",
       "role": "core",
       "type": "std",
       "wave": "NEXUS-P3"
@@ -410,6 +452,13 @@
     {
       "name": "modUIMain",
       "path": "src/ui/modUIMain.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modUIMainShape",
+      "path": "src/ui/modUIMainShape.bas",
       "role": "core",
       "type": "std",
       "wave": "2-F"

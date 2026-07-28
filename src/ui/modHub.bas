@@ -37,7 +37,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
 
     ' 旧ホーム画面(modUIMainのbtn_/lbl_)と前回のHub Shapeを両方消す。
     ' nx_hub_だけ消すと旧ボタンが上に浮いたまま残る。
-    RemoveHubShapes ws
+    modHubStat.RemoveHubShapes ws
 
     ws.Cells.Clear
     ws.Cells.Font.Name = "Yu Gothic UI"
@@ -237,8 +237,8 @@ End Sub
 ' まだ何も無い人には、責める言葉にならないよう所属だけ/空にする。
 Private Function ContributionLine() As String
     Dim thanks As Long, solved As Long
-    thanks = SafeStat("thanks_received_total")
-    solved = SafeStat("selfsolve_total")
+    thanks = modHubStat.SafeStat("thanks_received_total")
+    solved = modHubStat.SafeStat("selfsolve_total")
 
     If thanks > 0 Then
         ContributionLine = ChrW(&HD83C) & ChrW(&HDF31) & _
@@ -263,14 +263,14 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
     ' 関数を呼ぶと1つの失敗が空文字になる。1つずつ受けて必ず値を入れる。
     Dim vAsk As String, vSolve As String, vSaved As String, vUse As String
     Dim vOrgD As String, vOrgM As String, vStreak As String, vPack As String
-    vAsk = NumText(AskTotal())
-    vSolve = NumText(SafeStat("selfsolve_total"))
-    vSaved = FmtMin(SafeSavedMinutes())
-    vUse = ChunkUsage()
-    vOrgD = OrgMin("d")
-    vOrgM = OrgMin("m")
-    vStreak = NumText(SafeStat("streak_days")) & "日"
-    vPack = NumText(SafeStat("pack_export_total"))
+    vAsk = modHubStat.NumText(modHubStat.AskTotal())
+    vSolve = modHubStat.NumText(modHubStat.SafeStat("selfsolve_total"))
+    vSaved = modHubStat.FmtMin(modHubStat.SafeSavedMinutes())
+    vUse = modHubStat.ChunkUsage()
+    vOrgD = modHubStat.OrgMin("d")
+    vOrgM = modHubStat.OrgMin("m")
+    vStreak = modHubStat.NumText(modHubStat.SafeStat("streak_days")) & "日"
+    vPack = modHubStat.NumText(modHubStat.SafeStat("pack_export_total"))
     vals = Array(vAsk, vSolve, vSaved, vUse, vOrgD, vOrgM, vStreak, vPack)
 
     ' 左ブロックの幾何。D列(溝)を挟んで B:C と E:F の2枚並び。
@@ -329,11 +329,11 @@ End Sub
 
 ' まだ何も起きていない状態か。質問も取込も0のときだけ「初回」とみなす。
 Private Function HasAnyActivity() As Boolean
-    If AskTotal() > 0 Then
+    If modHubStat.AskTotal() > 0 Then
         HasAnyActivity = True
         Exit Function
     End If
-    HasAnyActivity = (SafeChunks() > 0)
+    HasAnyActivity = (modHubStat.SafeChunks() > 0)
 End Function
 
 ' 初回のHub左半分。数字の代わりに、次にやる1つのことだけを大きく置く。
@@ -583,7 +583,7 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
     Dim i As Long
     For i = 0 To UBound(ids)
         Dim mark As String
-        If SafeStat("badge:" & CStr(ids(i))) > 0 Then
+        If modHubStat.SafeStat("badge:" & CStr(ids(i))) > 0 Then
             mark = ChrW(&HD83C) & ChrW(&HDFC5)
         Else
             mark = ChrW(&HD83D) & ChrW(&HDD12)
@@ -786,84 +786,3 @@ End Sub
 
 ' ---- 内部ヘルパー ----
 
-' nx_hub_ に加え旧ホーム画面のbtn_/lbl_も消す(残ると上に浮く)。
-Private Sub RemoveHubShapes(ByVal ws As Worksheet)
-    Dim names() As String
-    ReDim names(0 To ws.Shapes.Count)
-    Dim n As Long
-    Dim shp As Shape
-    For Each shp In ws.Shapes
-        Dim nm As String: nm = shp.Name
-        If Left$(nm, 7) = "nx_hub_" Or Left$(nm, 4) = "btn_" Or Left$(nm, 4) = "lbl_" Then
-            names(n) = nm
-            n = n + 1
-        End If
-    Next shp
-    Dim i As Long
-    For i = 0 To n - 1
-        On Error Resume Next
-        ws.Shapes(names(i)).Delete
-        On Error GoTo 0
-    Next i
-End Sub
-
-' 数値を必ず表示できる文字列にする(空欄にしない)。
-Private Function NumText(ByVal v As Long) As String
-    NumText = CStr(v)
-    If LenB(NumText) = 0 Then NumText = "0"
-End Function
-
-Private Function SafeStat(ByVal key As String) As Long
-    On Error Resume Next
-    SafeStat = modStats.GetStat(key)
-    On Error GoTo 0
-End Function
-
-' 質問回数は quick/deep 別カウンタの合算(単一のquestion_totalキーは存在しない)。
-Private Function AskTotal() As Long
-    AskTotal = SafeStat("ask_quick_total") + SafeStat("ask_deep_total")
-End Function
-
-Private Function SafeSavedMinutes() As Long
-    On Error Resume Next
-    SafeSavedMinutes = modStats.SavedMinutesEstimate()
-    On Error GoTo 0
-End Function
-
-Private Function SafeChunks() As Long
-    On Error Resume Next
-    SafeChunks = modShelf.TotalChunks()
-    On Error GoTo 0
-End Function
-
-' 本棚の使用量。実数だけ出しても上限が分からないので割合で見せる。
-' 部門チャンネルを増やすほど埋まるので、増やしてよいかの判断材料になる。
-Private Function ChunkUsage() As String
-    Dim pct As Long
-    On Error Resume Next
-    pct = modChannel.ChunkUsagePercent()
-    On Error GoTo 0
-    ChunkUsage = pct & "%"
-End Function
-
-Private Function FmtMin(ByVal minutes As Long) As String
-    If minutes < 60 Then
-        FmtMin = CStr(minutes) & "分"
-    Else
-        FmtMin = CStr(minutes \ 60) & "時間"
-        If (minutes Mod 60) > 0 Then FmtMin = FmtMin & CStr(minutes Mod 60) & "分"
-    End If
-    If LenB(FmtMin) = 0 Then FmtMin = "0分"
-End Function
-
-Private Function OrgMin(ByVal period As String) As String
-    Dim v As Long
-    On Error Resume Next
-    If period = "d" Then
-        v = modBoard.OrgMinutesDay()
-    Else
-        v = modBoard.OrgMinutesMon()
-    End If
-    On Error GoTo 0
-    OrgMin = FmtMin(v)
-End Function

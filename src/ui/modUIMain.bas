@@ -71,7 +71,7 @@ Private mLastAnswerText As String
 ' EnsureLayout - ホームを冪等再構築(既存Shapes全削除→再生成)
 Public Sub EnsureLayout()
     Dim ws As Worksheet
-    Set ws = GetOrCreateHomeSheet()
+    Set ws = modUIMainShape.GetOrCreateHomeSheet()
     If ws Is Nothing Then Exit Sub
 
     ' uiStep: 実機エラーの発生箇所を1回の報告で特定するための進捗マーカー。
@@ -87,7 +87,7 @@ Public Sub EnsureLayout()
     On Error GoTo Fail
 
     uiStep = "既存ボタンの削除"
-    RemoveManagedShapes ws
+    modUIMainShape.RemoveManagedShapes ws
     DoEvents   ' 削除と追加の間でCOM/メモリを一拍解放する(先回り防衛#4)
     uiStep = "セルのクリア"
     ws.Cells.Clear
@@ -140,16 +140,16 @@ Public Sub EnsureLayout()
     Application.ScreenUpdating = False
 
     uiStep = "ボタン(使い方/診断)"
-    AddButton ws, ws.Range("F1:G2"), "btn_howto", ChrW(&H2753) & " 使い方", "modUIMain.OnOpenHowto"
-    AddButton ws, ws.Range("H1:H2"), "btn_diag", "" & ChrW(&HD83E) & ChrW(&HDE7A) & " 診断", "modUIMain.OnRunDiag"
+    modUIMainShape.AddButton ws, ws.Range("F1:G2"), "btn_howto", ChrW(&H2753) & " 使い方", "modUIMain.OnOpenHowto"
+    modUIMainShape.AddButton ws, ws.Range("H1:H2"), "btn_diag", "" & ChrW(&HD83E) & ChrW(&HDE7A) & " 診断", "modUIMain.OnRunDiag"
     ' 2026-07-22実機報告対策: Nexus(チャット)へタブなしで戻れる導線
-    AddButton ws, ws.Range("I1:I2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
+    modUIMainShape.AddButton ws, ws.Range("I1:I2"), "btn_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
 
     ' ---- モードトグル ----------------------------------------------------
     uiStep = "モードトグルボタン"
     ws.Rows("3:4").RowHeight = 20
-    AddButton ws, ws.Range("A3:D4"), "btn_mode_quick", ModeCaption("quick"), "modUIMain.OnModeQuick"
-    AddButton ws, ws.Range("E3:H4"), "btn_mode_deep", ModeCaption("deep"), "modUIMain.OnModeDeep"
+    modUIMainShape.AddButton ws, ws.Range("A3:D4"), "btn_mode_quick", ModeCaption("quick"), "modUIMain.OnModeQuick"
+    modUIMainShape.AddButton ws, ws.Range("E3:H4"), "btn_mode_deep", ModeCaption("deep"), "modUIMain.OnModeDeep"
 
     ' ---- 質問入力 ----------------------------------------------------
     uiStep = "質問入力欄の見出し"
@@ -176,7 +176,7 @@ Public Sub EnsureLayout()
     ' ---- 質問するボタン ----------------------------------------------------
     uiStep = "質問するボタン"
     ws.Rows("10:11").RowHeight = 20
-    AddButton ws, ws.Range("C10:F11"), "btn_ask", "" & ChrW(&HD83D) & ChrW(&HDCAC) & "  質 問 す る", "modUIMain.OnAskButton"
+    modUIMainShape.AddButton ws, ws.Range("C10:F11"), "btn_ask", "" & ChrW(&HD83D) & ChrW(&HDCAC) & "  質 問 す る", "modUIMain.OnAskButton"
 
     ' ---- 状態表示 ----------------------------------------------------
     uiStep = "状態表示行"
@@ -232,9 +232,9 @@ Public Sub EnsureLayout()
 
     uiStep = "フィードバックボタン"
     ws.Rows("29:30").RowHeight = 18
-    AddButton ws, ws.Range("A29:C30"), "btn_fb_green", "" & ChrW(&HD83D) & ChrW(&HDFE2) & " 解決した!", "modAsk.FeedbackGreen"
-    AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "" & ChrW(&HD83D) & ChrW(&HDFE1) & " ヒントになった", "modAsk.FeedbackYellow"
-    AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "" & ChrW(&HD83D) & ChrW(&HDD34) & " だめだった", "modAsk.FeedbackRed"
+    modUIMainShape.AddButton ws, ws.Range("A29:C30"), "btn_fb_green", "" & ChrW(&HD83D) & ChrW(&HDFE2) & " 解決した!", "modAsk.FeedbackGreen"
+    modUIMainShape.AddButton ws, ws.Range("D29:E30"), "btn_fb_yellow", "" & ChrW(&HD83D) & ChrW(&HDFE1) & " ヒントになった", "modAsk.FeedbackYellow"
+    modUIMainShape.AddButton ws, ws.Range("F29:H30"), "btn_fb_red", "" & ChrW(&HD83D) & ChrW(&HDD34) & " だめだった", "modAsk.FeedbackRed"
 
     ' ---- 続けて質問+Wordで開く ------------------------------------------------
     ' 「続けて質問」(裁定D11)はコア機能(modAsk)への入口なので常時生成する。
@@ -243,11 +243,11 @@ Public Sub EnsureLayout()
     ' AIリボン本体でのみ利用可)。
     uiStep = "続けて質問ボタン"
     ws.Rows("31:32").RowHeight = 18
-    AddButton ws, ws.Range("A31:D32"), "btn_followup", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " 続けて質問", "modUIMain.OnFollowupButton"
+    modUIMainShape.AddButton ws, ws.Range("A31:D32"), "btn_followup", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " 続けて質問", "modUIMain.OnFollowupButton"
     uiStep = "Wordで開くボタン(有効判定)"
     If modFeatures.FeatureEnabled("markdown") Then
         uiStep = "Wordで開くボタン(生成)"
-        AddButton ws, ws.Range("E31:H32"), "btn_word", "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Wordで開く", "modUIMain.OnOpenWordButton"
+        modUIMainShape.AddButton ws, ws.Range("E31:H32"), "btn_word", "" & ChrW(&HD83D) & ChrW(&HDCDD) & " Wordで開く", "modUIMain.OnOpenWordButton"
     End If
 
     ' ---- 待ち時間豆知識 ----------------------------------------------------
@@ -299,7 +299,7 @@ Public Sub SetStage(ByVal msg As String)
 
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
 
     If Not ws Is Nothing Then
@@ -324,7 +324,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
                         ByVal mode As String, ByVal seconds As Long)
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
@@ -336,8 +336,8 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     ' 開く」の入力)も更新しない(案内文をWordで開いても意味がないため。
     ' 実際の回答のときだけこの下で更新する)。
     If LenB(mode) = 0 Then
-        WriteSafe ws.Range(RNG_ANSWER), answerText
-        WriteSafe ws.Range(RNG_SOURCES), ""
+        modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), answerText
+        modUIMainShape.WriteSafe ws.Range(RNG_SOURCES), ""
 
         On Error Resume Next
         ws.Range(RNG_STATUS).Value = "状態: 準備できています"
@@ -361,8 +361,8 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     Dim footer As String
     footer = vbLf & vbLf & "（" & modeLabel & " ・ 所要 " & modUtil.HumanSeconds(CDbl(seconds)) & "）"
 
-    WriteSafe ws.Range(RNG_ANSWER), answerText & footer
-    WriteSafe ws.Range(RNG_SOURCES), "" & ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: " & JoinSourceLabels(hits, nHits)
+    modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), answerText & footer
+    modUIMainShape.WriteSafe ws.Range(RNG_SOURCES), "" & ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: " & JoinSourceLabels(hits, nHits)
 
     On Error Resume Next
     ws.Range(RNG_STATUS).Value = "状態: 回答ができました。出典もあわせてご確認ください。"
@@ -386,14 +386,14 @@ Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
 
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
     Dim preview As String
     preview = "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒットしました: " & JoinSourceLabels(hits, nHits)
-    WriteSafe ws.Range(RNG_SOURCES), preview
-    WriteSafe ws.Range(RNG_ANSWER), "（資料を確認しました。ここから回答を作成します。もう少しお待ちください…）"
+    modUIMainShape.WriteSafe ws.Range(RNG_SOURCES), preview
+    modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), "（資料を確認しました。ここから回答を作成します。もう少しお待ちください…）"
 End Sub
 
 ' OnAskButton / OnModeQuick / OnModeDeep / OnOpenHowto / OnRunDiag
@@ -444,10 +444,10 @@ End Sub
 Private Sub AddDiagCopyErrorsButton()
     On Error GoTo Fail
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("diag_report")
-    AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
+    modUIMainShape.AddButton ws, ws.Range("C1:D2"), "btn_diag_copy_errors", "" & ChrW(&HD83D) & ChrW(&HDCCB) & " 直近のエラーをコピー", "modUIMain.OnCopyRecentErrors"
     ' 2026-07-22実機報告対策: diag_reportに戻る導線が無くタブも消えていて
     ' 動けなくなっていた。チャットへの脱出路を追加。
-    AddButton ws, ws.Range("E1:F2"), "btn_diag_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
+    modUIMainShape.AddButton ws, ws.Range("E1:F2"), "btn_diag_back_chat", "" & ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modUIMain.OnBackToChat"
     Exit Sub
 Fail:
     Err.Clear
@@ -475,7 +475,7 @@ End Sub
 Public Sub ShowTip()
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
@@ -490,7 +490,7 @@ Public Sub ShowTip()
     Dim idx As Long
     idx = Int(Rnd() * (UBound(tips) - LBound(tips) + 1)) + LBound(tips)
 
-    WriteSafe ws.Range(RNG_TIP), "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: " & tips(idx)
+    modUIMainShape.WriteSafe ws.Range(RNG_TIP), "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: " & tips(idx)
 End Sub
 
 ' OnFollowupButton - 「続けて質問」ボタン(裁定D11)。直近の回答を踏まえた
@@ -581,11 +581,11 @@ End Sub
 Public Sub ShowEmptyShelfHint()
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
-    WriteSafe ws.Range(RNG_ANSWER), _
+    modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), _
         "まだ本棚に資料がありません。" & vbLf & _
         "まず『マイ本棚』タブで資料を1つ追加してみましょう " & ChrW(&H2192)
 End Sub
@@ -675,7 +675,7 @@ End Function
 Private Sub ApplyModeColors(ByVal mode As String)
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = GetHomeSheet()
+    Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
@@ -774,123 +774,3 @@ Private Function TipList() As Variant
     )
 End Function
 
-Private Sub WriteSafe(ByVal cell As Range, ByVal text As String)
-    Dim t As String
-    t = modUtil.SafeLeft(text, 32000)
-    On Error Resume Next
-    ' 未Mergeのまま代入すると全セルに同じ値が複製される。都度Mergeする。
-    If cell.Cells.Count > 1 Then cell.Merge
-    cell.Value = t
-    On Error GoTo 0
-End Sub
-
-Private Function GetHomeSheet() As Worksheet
-    On Error Resume Next
-    Set GetHomeSheet = ThisWorkbook.Worksheets(modAppDef.SH_HOME)
-    On Error GoTo 0
-End Function
-
-Private Function GetOrCreateHomeSheet() As Worksheet
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_HOME)
-    On Error GoTo 0
-    If ws Is Nothing Then
-        On Error GoTo Fail
-        Set ws = ThisWorkbook.Worksheets.Add(Before:=ThisWorkbook.Worksheets(1))
-        ws.Name = modAppDef.SH_HOME
-        On Error GoTo 0
-    End If
-    Set GetOrCreateHomeSheet = ws
-    Exit Function
-Fail:
-    Set GetOrCreateHomeSheet = Nothing
-End Function
-
-' マイクロログ(2026-07-21): 失敗箇所をuiStepでerr_logへネスト伝播する。
-Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
-                      ByVal caption As String, ByVal action As String)
-    Dim uiStep As String
-    On Error GoTo Fail
-    Dim shp As Shape
-    ' ログと実呼出しに同じサニタイズ済み値を使う(生値だとログと実態が食い違う)。
-    Dim sL As Double, sT As Double, sW As Double, sH As Double
-    sL = SafeCoord(rng.Left): sT = SafeCoord(rng.Top)
-    sW = SafeCoord(rng.Width): sH = SafeCoord(rng.Height)
-    uiStep = "AddShape実行(Type=5 L=" & sL & " T=" & sT & " W=" & sW & " H=" & sH & ")"
-    Set shp = SafeRoundedRect(ws, sL, sT, sW, sH)
-    uiStep = "図形名設定"
-    shp.Name = shapeName
-    uiStep = "テキスト代入"
-    shp.TextFrame2.TextRange.Text = caption
-    uiStep = "フォント設定"
-    shp.TextFrame2.WordWrap = -1   ' msoTrue
-    shp.TextFrame2.TextRange.Font.Size = 11
-    shp.TextFrame2.TextRange.Font.Bold = -1   ' msoTrue
-    shp.TextFrame2.TextRange.ParagraphFormat.Alignment = 2   ' msoAlignCenter
-    shp.TextFrame2.VerticalAnchor = 3   ' msoAnchorMiddle
-    uiStep = "色/塗りつぶし設定"
-    shp.Fill.ForeColor.RGB = COLOR_UNSELECTED_BG
-    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = COLOR_UNSELECTED_FG
-    shp.Line.Visible = 0   ' msoFalse
-    uiStep = "OnAction割当て"
-    shp.OnAction = action
-    Exit Sub
-Fail:
-    ' Err.Raise伝播に依存せず直接err_logへ書く(この後のLogError呼び出しで
-    ' Err自体が上書きされ得るため先に退避)。
-    Dim btnErrNum As Long, btnErrDesc As String
-    btnErrNum = Err.Number: btnErrDesc = Err.Description
-    Dim diag As String: diag = ""
-    On Error Resume Next
-    diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
-           " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive & _
-           " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
-    modLog.LogError "E0801", "modUIMain.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
-    On Error GoTo 0
-    ' 2026-07-22実機再発: 従来はErr.Raiseで再伝播していたが、それだと1個の
-    ' ボタン生成失敗がEnsureLayout全体を中断させ、以降のボタン/レイアウトが
-    ' 丸ごと描画されない(実機報告「画面がほぼ空っぽ」の直接原因)。ログは残す
-    ' が再伝播はやめ、この1個だけ諦めて残りの描画を続けさせる。
-    Err.Clear
-End Sub
-
-Private Function SafeCoord(ByVal v As Double) As Double
-    If v < 1 Then v = 1
-    SafeCoord = v
-End Function
-
-' 直接呼ばれても壊れないよう二重にクランプする。
-Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
-                                 ByVal W As Double, ByVal H As Double) As Shape
-    L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)
-    On Error GoTo Retry
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle(リテラル)
-    Exit Function
-Retry:
-    DoEvents
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)
-End Function
-
-Private Sub RemoveManagedShapes(ByVal ws As Worksheet)
-    Dim names() As String
-    ReDim names(0 To ws.Shapes.Count)
-    Dim n As Long
-    n = 0
-
-    Dim shp As Shape
-    For Each shp In ws.Shapes
-        If Left$(shp.Name, 4) = "btn_" Or Left$(shp.Name, 4) = "lbl_" Then
-            names(n) = shp.Name
-            n = n + 1
-        End If
-    Next shp
-
-    Dim i As Long
-    For i = 0 To n - 1
-        On Error Resume Next
-        ws.Shapes(names(i)).Delete
-        On Error GoTo 0
-    Next i
-End Sub

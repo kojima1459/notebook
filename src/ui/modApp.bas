@@ -53,8 +53,8 @@ Private Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
     a = Replace(modUtil.SafeLeft(ans, 700), ";;;", " ")
     Dim prevU As String: prevU = modState.LoadState("nexus_hist_u", "")
     Dim prevA As String: prevA = modState.LoadState("nexus_hist_a", "")
-    modState.SaveState "nexus_hist_u", TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
-    modState.SaveState "nexus_hist_a", TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
+    modState.SaveState "nexus_hist_u", modAppState.TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
+    modState.SaveState "nexus_hist_a", modAppState.TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
     On Error GoTo 0
 End Sub
 
@@ -91,7 +91,7 @@ Public Sub OnSend()
     modStarter.Clear        ' 質問例も消す(会話が始まったら役目は終わり)
 
     Dim q As String
-    q = ReadInputCell()
+    q = modAppState.ReadInputCell()
     If LenB(Trim$(q)) = 0 Then
         modUiLock.Leave
         modSkin.ShowToast "はじめにメッセージをご入力ください。ご質問をお待ちしています。", "info"
@@ -111,14 +111,14 @@ Public Sub OnSend()
     ' (意図的なタイミング限定・完全ローカルなので事故りようがない)
     If modLive.IsTiredWords(q) Then
         modUI.AddChatBubble "user", q
-        ClearInputCell
+        modAppState.ClearInputCell
         modUI.AddChatBubble "ai", modLive.ComfortMessage()
         modUiLock.Leave
         Exit Sub
     End If
 
     modUI.AddChatBubble "user", q
-    ClearInputCell
+    modAppState.ClearInputCell
 
     ' 逆質問の途中なら、返事(番号選択 or 書き直し)を元の質問と合成して
     ' 完全な質問文に組み立て直す。利用者は番号を打つだけでよい。
@@ -145,7 +145,7 @@ Public Sub OnSend()
     ' 入念は数分かかる。始まる前に「何をするか・どれくらいかかるか」を
     ' 必ず出す。黙って数分止まると、利用者は固まったと判断して閉じる。
     On Error Resume Next
-    If RagSpeed() = "thorough" Then
+    If modAppState.RagSpeed() = "thorough" Then
         modLive.PaintStage "入念に調べます。多方向から検索して、資料と1行ずつ照合します…"
     End If
     On Error GoTo Fail
@@ -154,15 +154,15 @@ Public Sub OnSend()
 
     Dim ans As String
     Dim grounded As Boolean
-    If CurrentMode() = "normal" Then
-        ans = AskGeneral(q, "")
-    ElseIf ShelfIsEmpty() Then
+    If modAppState.CurrentMode() = "normal" Then
+        ans = modAppState.AskGeneral(q, "")
+    ElseIf modAppState.ShelfIsEmpty() Then
         ' 資料が1件も無いのに検索へ行くと、埋め込みAPIを1往復使ったうえで
         ' 「資料がありません」とだけ返る。いちばん遅い経路が、いちばん
         ' 価値の無い返事に着く。空だと分かっているなら聞くまでもない。
-        ans = AnswerWithoutShelf(q)
+        ans = modAppState.AnswerWithoutShelf(q)
     Else
-        ans = modAsk.Answer(q, RagSpeed())
+        ans = modAsk.Answer(q, modAppState.RagSpeed())
         grounded = True
     End If
 
@@ -184,12 +184,12 @@ Public Sub OnSend()
 
     ' 積む順は 回答 → 信頼度 → 出典 → 評価。根拠を見る前に評価させない。
     ' (一般アシスタントは出典が無いので信頼度・出典は出さない=誤表示も防ぐ)
-    If CurrentMode() <> "normal" Then
+    If modAppState.CurrentMode() <> "normal" Then
         DrawConfidence bubbleName
         modPeek.RenderCitations bubbleName
     End If
     DrawActions bubbleName
-    If CurrentMode() <> "normal" Then
+    If modAppState.CurrentMode() <> "normal" Then
         modMentor.OfferMentor bubbleName   ' Mentor: 専門家ボタン(失敗しても出ないだけ=安全弁内蔵)
     End If
     On Error Resume Next
@@ -257,7 +257,7 @@ End Sub
 
 ' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。
 Public Function ModeCaption() As String
-    If CurrentMode() = "normal" Then
+    If modAppState.CurrentMode() = "normal" Then
         ModeCaption = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
     Else
         ModeCaption = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
@@ -305,10 +305,10 @@ End Sub
 Public Sub OnActGood()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
+    If Not modAppState.HasTarget() Then GoTo Done
     On Error Resume Next
     modStats.Bump "hint_total"
-    modLog.LogUsage "feedback_good", CurrentMode(), modUtil.SafeLeft(TargetText(), 120)
+    modLog.LogUsage "feedback_good", modAppState.CurrentMode(), modUtil.SafeLeft(modAppState.TargetText(), 120)
     On Error GoTo Done
     modSkin.ShowToast "フィードバックありがとうございます。今後の回答の質に活かします。", "success"
 Done:
@@ -321,7 +321,7 @@ End Sub
 Public Sub OnActBad()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
+    If Not modAppState.HasTarget() Then GoTo Done
 
     modAsk.FeedbackRed        ' 記録+知識の穴として部内共有(ここまでは1クリック)
 
@@ -349,7 +349,7 @@ Private Sub RecordCorrection(ByVal fixText As String)
     On Error Resume Next
     Dim body As String
     body = "【修正ナレッジ】" & vbLf & _
-           "対象の回答(抜粋): " & modUtil.SafeLeft(TargetText(), 400) & vbLf & vbLf & _
+           "対象の回答(抜粋): " & modUtil.SafeLeft(modAppState.TargetText(), 400) & vbLf & vbLf & _
            "正しい内容: " & fixText
 
     If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
@@ -397,7 +397,7 @@ Public Sub OnActDrill()
         modAsk.AskFollowup q
         ans = modAsk.LastAnswerText()
     Else
-        ans = modAsk.Answer(q, RagSpeed())
+        ans = modAsk.Answer(q, modAppState.RagSpeed())
     End If
 
     On Error Resume Next
@@ -430,7 +430,7 @@ End Sub
 Public Sub OnActResolve()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
+    If Not modAppState.HasTarget() Then GoTo Done
     modAsk.FeedbackGreen   ' selfsolve_total加算+多重防止は既存ガードに従う
     ' 統計の表示先はHubの統計タイルへ移した。加算直後に描き直して
     ' 「押しても0のまま」を防ぐ(activate:=Falseなので画面は移動しない)。
@@ -447,7 +447,7 @@ End Sub
 Public Sub OnActUnsure()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
+    If Not modAppState.HasTarget() Then GoTo Done
 
     modAsk.FeedbackUnsure     ' ここまでは1クリックで完結
 
@@ -473,9 +473,9 @@ End Sub
 Public Sub OnActWord()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
+    If Not modAppState.HasTarget() Then GoTo Done
     Dim answerBody As String
-    answerBody = TargetText()
+    answerBody = modAppState.TargetText()
 
     Dim resp As Variant
     resp = Application.InputBox( _
@@ -505,8 +505,8 @@ End Sub
 Public Sub OnActCopy()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
-    If Not HasTarget() Then GoTo Done
-    Dim t As String: t = TargetText()
+    If Not modAppState.HasTarget() Then GoTo Done
+    Dim t As String: t = modAppState.TargetText()
     If LenB(t) = 0 Then GoTo Done
     If modClip.SetClipboardText(t) Then
         modSkin.ShowToast "回答をコピーしました。Ctrl+V でどこへでも貼り付けできます。", "success"
@@ -625,13 +625,13 @@ End Sub
 
 Public Sub OnToggleMode()
     Dim newMode As String
-    If CurrentMode() = "normal" Then
+    If modAppState.CurrentMode() = "normal" Then
         newMode = "rag"
     Else
         newMode = "normal"
     End If
-    WriteUiState MODE_KEY, newMode
-    UpdateModeButton
+    modAppState.WriteUiState MODE_KEY, newMode
+    modAppState.UpdateModeButton
 End Sub
 
 ' すぐ聞く/しっかり調べる切替。ホームと同じui_state "mode"キーを共有。
@@ -640,8 +640,8 @@ Public Sub OnToggleSpeed()
     ' 押すたびに何が変わるかをトーストで必ず出す。モード名だけでは
     ' 「押したら遅くなった」としか分からず、選ぶ理由が伝わらない。
     Dim newSpeed As String
-    newSpeed = modMode.NextMode(ReadUiState("mode", "quick"))
-    WriteUiState "mode", newSpeed
+    newSpeed = modMode.NextMode(modAppState.ReadUiState("mode", "quick"))
+    modAppState.WriteUiState "mode", newSpeed
     On Error Resume Next
     ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_speed").TextFrame2.TextRange.Text = _
         modMode.Caption(newSpeed)
@@ -650,7 +650,7 @@ Public Sub OnToggleSpeed()
 End Sub
 
 Public Function SpeedCaption() As String
-    SpeedCaption = modMode.Caption(ReadUiState("mode", "quick"))
+    SpeedCaption = modMode.Caption(modAppState.ReadUiState("mode", "quick"))
 End Function
 
 ' 回答言語の巡回切替(日本語→English→中文→Tiếng Việt)。
@@ -725,188 +725,3 @@ End Sub
 
 ' 内部ヘルパー
 
-' 本棚が空のときは「答えない」のではなく「何に基づく答えかをはっきり
-' させて答える」。文面と安全指示は modLive が持つ(§modLive参照)。
-Private Function ShelfIsEmpty() As Boolean
-    On Error Resume Next
-    ShelfIsEmpty = (modShelf.TotalChunks() = 0)
-    On Error GoTo 0
-End Function
-
-Private Function AnswerWithoutShelf(ByVal q As String) As String
-    On Error Resume Next
-    modLive.PaintStage "一般知識でお答えしています…"
-    On Error GoTo 0
-    AnswerWithoutShelf = modLive.EmptyShelfWrap(AskGeneral(q, modLive.EmptyShelfGuard()))
-End Function
-
-' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
-Private Function HasTarget() As Boolean
-    If LenB(TargetBubbleName()) = 0 Then
-        MsgBox "対象のAI回答がありません。まず質問して回答を受け取ってください。" & vbCrLf & _
-               "(過去の回答に対して操作する場合は、その吹き出しをクリックして選択してから押してください)", _
-               vbInformation, "Nexus Agent"
-        Exit Function
-    End If
-    HasTarget = True
-End Function
-
-Private Function TargetBubbleName() As String
-    If LenB(mActiveBubble) > 0 Then
-        If LenB(modUI.BubbleTextOf(mActiveBubble)) > 0 Then
-            TargetBubbleName = mActiveBubble
-            Exit Function
-        End If
-    End If
-    TargetBubbleName = modUI.LatestAiBubbleName()
-End Function
-
-Private Function TargetText() As String
-    TargetText = modUI.BubbleTextOf(TargetBubbleName())
-End Function
-
-Private Function SharePath() As String
-    SharePath = modConfig.GetString("nexus_share_path", SHARE_PATH_DEFAULT)
-End Function
-
-' 一般アシスタントモード: 本棚を介さずCallLLM直(会話履歴つき)。
-' extraRules: 呼び出し文脈ごとの追加制約(空可)。本棚が空のときの
-' 「社内固有の数字を断定させない」制約はここから注入される。
-Private Function AskGeneral(ByVal q As String, ByVal extraRules As String) As String
-    If LenB(mGenPrevU) = 0 Then
-        mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
-        mGenPrevA = modState.LoadState("nexus_gen_preva", "")
-    End If
-
-    Dim sys As String
-    sys = "あなたはMS&ADの最上位ナレッジコンシェルジュです。プロフェッショナルで簡潔、温かく頼りになるトーンで、" & _
-          modConfig.GetString("answer_language", "日本語") & "で回答してください。" & vbLf & _
-          "・必ず最初の1〜2行で結論を言い切る(前置き・挨拶から始めない)。" & vbLf & _
-          "・Markdown記号(#、**、`、表)は使わない(この画面では装飾されない)。" & _
-          "見出しは「■ 」、箇条書きは「・」、最重要語だけ【 】で囲む。1ブロック3行以内。" & vbLf & _
-          "・全体はおおむね200〜400字。言い換えの繰り返しや締めの挨拶は書かない。" & vbLf & _
-          "・専門用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。"
-    If LenB(extraRules) > 0 Then sys = sys & vbLf & extraRules
-
-    Dim lat As Long
-    Dim resp As String
-    resp = modGateway.CallLLM(sys & vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general", _
-        modConfig.GetString("quick_effort", "low"), _
-        modConfig.GetString("quick_verbosity", "low"), _
-        modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
-
-    If Left$(resp, 5) = "#ERR:" Then
-        AskGeneral = "回答の作成に失敗しました。時間を置いてもう一度お試しください。"
-        Exit Function
-    End If
-
-    ' チャット履歴シート記録(modChatLog、core層。書込失敗で死なない設計)。
-    On Error Resume Next
-    modChatLog.LogTurn q, resp, "general"
-    On Error GoTo 0
-
-    ' 会話履歴(新しい順;;;区切り・最大followup_max_pairsペア)
-    Dim maxPairs As Long
-    maxPairs = modConfig.GetLong("followup_max_pairs", 3)
-    If maxPairs > 0 Then
-        mGenPrevU = TrimPairs(q & IIf(LenB(mGenPrevU) > 0, ";;;" & mGenPrevU, ""), maxPairs)
-        mGenPrevA = TrimPairs(modUtil.SafeLeft(resp, 2000) & IIf(LenB(mGenPrevA) > 0, ";;;" & mGenPrevA, ""), maxPairs)
-    End If
-    modState.SaveState "nexus_gen_prevu", mGenPrevU
-    modState.SaveState "nexus_gen_preva", mGenPrevA
-    AskGeneral = resp
-End Function
-
-' ";;;"区切り文字列を先頭maxN件へ切り詰める。
-Private Function TrimPairs(ByVal s As String, ByVal maxN As Long) As String
-    Dim parts() As String: parts = Split(s, ";;;")
-    Dim n As Long: n = UBound(parts) - LBound(parts) + 1
-    If n <= maxN Then
-        TrimPairs = s
-        Exit Function
-    End If
-    Dim keep() As String: ReDim keep(0 To maxN - 1)
-    Dim i As Long
-    For i = 0 To maxN - 1
-        keep(i) = parts(LBound(parts) + i)
-    Next i
-    TrimPairs = Join(keep, ";;;")
-End Function
-
-' RAGモードの速度(既存ui_stateのquick/deep設定を流用。既定quick)。
-Private Function RagSpeed() As String
-    ' 3モードの正規化は modMode が単一情報源(quick/deep/thorough)。
-    RagSpeed = modMode.Normalize(ReadUiState("mode", "quick"))
-End Function
-
-Private Function CurrentMode() As String
-    CurrentMode = ReadUiState(MODE_KEY, "rag")
-    If CurrentMode <> "normal" Then CurrentMode = "rag"
-End Function
-
-Private Sub UpdateModeButton()
-    On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = ModeCaption()
-    On Error GoTo 0
-End Sub
-
-Private Function ReadInputCell() As String
-    On Error Resume Next
-    Dim v As Variant
-    v = ThisWorkbook.Names("nx_input").RefersToRange.Value
-    On Error GoTo 0
-    If IsEmpty(v) Or IsError(v) Then Exit Function
-    ReadInputCell = modUtil.SafeLeft(CStr(v), 3000)
-End Function
-
-Private Sub ClearInputCell()
-    On Error Resume Next
-    ThisWorkbook.Names("nx_input").RefersToRange.Value = ""
-    On Error GoTo 0
-End Sub
-
-Private Function ReadUiState(ByVal keyName As String, ByVal defaultVal As String) As String
-    ReadUiState = defaultVal
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_UISTATE)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Function
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    Dim i As Long
-    For i = 1 To lastRow
-        If StrComp(CStr(ws.Cells(i, 1).Value), keyName, vbTextCompare) = 0 Then
-            Dim v As String
-            v = Trim$(CStr(ws.Cells(i, 2).Value))
-            If LenB(v) > 0 Then ReadUiState = LCase$(v)
-            Exit Function
-        End If
-    Next i
-End Function
-
-Private Sub WriteUiState(ByVal keyName As String, ByVal valText As String)
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_UISTATE)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Sub
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    Dim r As Long: r = 0
-    Dim i As Long
-    For i = 1 To lastRow
-        If StrComp(CStr(ws.Cells(i, 1).Value), keyName, vbTextCompare) = 0 Then
-            r = i
-            Exit For
-        End If
-    Next i
-    If r = 0 Then
-        r = lastRow + 1
-        If r < 1 Then r = 1
-        ws.Cells(r, 1).Value = keyName
-    End If
-    ws.Cells(r, 2).Value = valText
-End Sub

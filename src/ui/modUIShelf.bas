@@ -386,7 +386,7 @@ End Sub
 
 Public Sub OnExportPack()
     On Error GoTo Fail
-    modPack.ExportPackDialog
+    modPackExport.ExportPackDialog
     RefreshBadgesAndDashboard
     Exit Sub
 Fail:

@@ -310,7 +310,7 @@ End Sub
 
 ' ツールバー: 既存エンジンへの配線(実装済み機能の入口)
 Public Sub OnVaultExportPack()
-    modPack.ExportPackDialog
+    modPackExport.ExportPackDialog
 End Sub
 
 Public Sub OnVaultImportPack()
