@@ -40,7 +40,10 @@ Private Const BADGES_PER_ROW As Long = 4
 Private Const BADGE_HEAD_Y As Double = EXPLABEL_Y + 22
 Private Const BADGE_GRID_Y As Double = BADGE_HEAD_Y + 24
 
-Private Const CHART_NOTE_Y As Double = BADGE_GRID_Y + 2 * (BADGE_H + BADGE_GAP_Y) + 20
+' 2026-07-28(解説書 §11-11): バッジが8種から12種に増えた。
+' 以前は「2行ぶん」と決め打ちしていたため、増えた行がチャート枠と重なる。
+' VBAの定数式では関数を呼べないので、位置は実行時に ChartNoteY() で求める。
+Private Const BADGE_ROWS_FALLBACK As Long = 3
 
 Private Const HEADER_TITLE_Y As Double = 14
 Private Const HEADER_SUB_Y As Double = 40
@@ -381,6 +384,22 @@ End Sub
 
 ' ---- バッジ棚(8種・4列×2行) ----
 
+' バッジ棚の下端 = チャート類の開始位置。バッジ件数から行数を出すので、
+' バッジを増やしてもレイアウト定数を直す必要がない(解説書 §11-11)。
+Private Function ChartNoteY() As Double
+    Dim rowsN As Long: rowsN = BADGE_ROWS_FALLBACK
+    On Error Resume Next
+    Dim ids() As String, titles() As String, shorts() As String, conditions() As String
+    Dim n As Long: n = modStats.BadgeCatalog(ids, titles, shorts, conditions)
+    If n > 0 Then
+        rowsN = (n + BADGES_PER_ROW - 1) \ BADGES_PER_ROW
+    End If
+    Err.Clear
+    On Error GoTo 0
+    If rowsN < 1 Then rowsN = 1
+    ChartNoteY = BADGE_GRID_Y + rowsN * (BADGE_H + BADGE_GAP_Y) + 20
+End Function
+
 Private Sub DrawBadgeShelf(ByVal ws As Worksheet)
     Dim headShp As Shape
     Set headShp = ws.Shapes.AddShape(1, KPI_X0, BADGE_HEAD_Y, 300, 20)
@@ -395,17 +414,21 @@ Private Sub DrawBadgeShelf(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
-    Dim ids() As String, titles() As String, conditions() As String
-    BadgeCatalog ids, titles, conditions
+    ' 2026-07-28(解説書 §11-11): バッジ表を自前で持たない。
+    ' 判定している modStats から受け取る(表を2つ持つと必ずズレる)。
+    Dim ids() As String, titles() As String, shorts() As String, conditions() As String
+    Dim badgeN As Long
+    badgeN = modStats.BadgeCatalog(ids, titles, shorts, conditions)
+    If badgeN < 1 Then Exit Sub
 
     Dim i As Long
-    For i = 0 To UBound(ids)
+    For i = 0 To badgeN - 1
         Dim col As Long: col = i Mod BADGES_PER_ROW
         Dim rowN As Long: rowN = i \ BADGES_PER_ROW
         Dim cardX As Double: cardX = KPI_X0 + col * (BADGE_W + BADGE_GAP_X)
         Dim cardY As Double: cardY = BADGE_GRID_Y + rowN * (BADGE_H + BADGE_GAP_Y)
 
-        Dim dt As String: dt = BadgeDate(ids(i))
+        Dim dt As String: dt = modStats.BadgeEarnedOn(ids(i))
         Dim earned As Boolean: earned = (LenB(dt) > 0)
 
         Dim line1 As String, line2 As String
@@ -457,44 +480,6 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
     End With
 End Sub
 
-' MASTER_SPEC §9のバッジ定義(modUIDashboard.BadgeCatalogを移植)。
-Private Sub BadgeCatalog(ByRef ids() As String, ByRef titles() As String, ByRef conditions() As String)
-    ids = Split("first_ingest,shelf10,shelf30,first_pack_out,first_pack_in,solve10,solve50,streak7", ",")
-    titles = Split("初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込,自己解決10件,自己解決50件,7日連続利用", ",")
-    conditions = Split( _
-        "資料を1つ本棚に追加すると獲得|" & _
-        "資料を10冊集めると獲得|" & _
-        "資料を30冊集めると獲得|" & _
-        "資料をパックとして誰かに渡すと獲得|" & _
-        "誰かのパックを取り込むと獲得|" & _
-        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが10回になると獲得|" & _
-        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが50回になると獲得|" & _
-        "7日連続で使うと獲得", "|")
-End Sub
-
-' badge:<id> の獲得日文字列(未獲得は"")。my_statsを直接読む(modUIDashboardと同じ理由)。
-Private Function BadgeDate(ByVal badgeId As String) As String
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Function
-
-    Dim key As String
-    key = "badge:" & badgeId
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    If lastRow < 2 Then Exit Function
-
-    Dim i As Long
-    For i = 2 To lastRow
-        If StrComp(CStr(ws.Cells(i, 1).Value), key, vbTextCompare) = 0 Then
-            BadgeDate = Trim$(CStr(ws.Cells(i, 2).Value))
-            Exit Function
-        End If
-    Next i
-End Function
 
 ' ---- 育ちぐあいの将来枠(クラスタチャートのプレースホルダ) ----
 
@@ -503,12 +488,12 @@ Private Sub DrawChartPlaceholder(ByVal ws As Worksheet)
     ' 案内テキストを出す(いずれも nxd_ 接頭辞=次回描画で一括削除される)。
     Dim drawn As Long
     On Error Resume Next
-    drawn = modCluster.DrawClusterMap(ws, KPI_X0, CHART_NOTE_Y, ROW_WIDTH, 250)
+    drawn = modCluster.DrawClusterMap(ws, KPI_X0, ChartNoteY(), ROW_WIDTH, 250)
     On Error GoTo 0
     If drawn > 0 Then Exit Sub
 
     Dim note As Shape
-    Set note = ws.Shapes.AddShape(1, KPI_X0, CHART_NOTE_Y, ROW_WIDTH, 24)
+    Set note = ws.Shapes.AddShape(1, KPI_X0, ChartNoteY(), ROW_WIDTH, 24)
     note.Name = "nxd_chart_note"
     note.Line.Visible = 0
     note.Fill.Visible = 0
@@ -526,7 +511,7 @@ End Sub
 Private Sub DrawAdminSection(ByVal ws As Worksheet)
     If Not modP2P.IsAdmin() Then Exit Sub
 
-    Dim topY As Double: topY = CHART_NOTE_Y + 270   ' クラスタ地図(~250pt)の下に確保
+    Dim topY As Double: topY = ChartNoteY() + 270   ' クラスタ地図(~250pt)の下に確保
 
     Dim headShp As Shape
     Set headShp = ws.Shapes.AddShape(1, KPI_X0, topY, ROW_WIDTH, 20)

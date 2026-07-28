@@ -328,8 +328,24 @@ Public Sub Boot()
     ' 掃除が走ったことは usage_log("channel_origin_migration")に残る。
     modChannel.MigrateOriginNamespace
     modInsight.CollectInsights
+
     ' 共有フォルダに到達できたことを記録(端末失効タイマーのリセット)。
-    If LenB(modChannel.ListChannels()) > 0 Then modGuard.TouchReach
+    '
+    ' 2026-07-28(解説書 §11-10): 条件が「チャンネルが1件以上見つかったとき」
+    ' だった。ListChannels は channels\ が無い、または version.txt を持つ
+    ' サブフォルダが1つも無ければ空を返すため、
+    '   【共有フォルダには正常に到達できているが、まだどの部門も正典を
+    '     発行していない】
+    ' という状態では TouchReach が呼ばれず、失効カウンタだけが進み続ける。
+    ' knowledge_expire_days(既定30)日後に、部門の正典どころか
+    ' 【利用者が自分で取り込んだ資料まで】消える。
+    ' PoC の初期状態(共有パスは設定済み・正典は未発行)がまさにこの条件。
+    '
+    ' 失効タイマーが見ているのは「社内ネットワークに繋がっているか」であって
+    ' 「正典が発行されているか」ではない。判定は共有フォルダのルートへ
+    ' 到達できたかどうかにする。到達性は modShare が1セッション1回だけ
+    ' 確かめてキャッシュするので、ここでの追加コストは無い。
+    If modShare.Reachable() Then modGuard.TouchReach
     On Error GoTo Failed
 
     ' 部門チャンネルは「更新があるか」だけ見る(version.txtを読むだけ=軽い)。

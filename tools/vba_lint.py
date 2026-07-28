@@ -276,7 +276,12 @@ CONTRACT: dict[str, dict] = {
                      "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
                      "ReportNoise", "NoiseThreshold", "ExcludedSources",
                      "MarkGlobalExcluded", "ResetGlobalExcluded",
-                     "IsGloballyExcluded", "GlobalExcludedSources"],
+                     "IsGloballyExcluded", "GlobalExcludedSources",
+                     # 2026-07-28(解説書 §11-11): バッジ表の単一情報源。
+                     # 判定(EvaluateBadges)と表示(modDash/modHub)で表が
+                     # 二重化していたため、獲得しても表示されないバッジが
+                     # 4種あった。判定を持つ側が名前も持ち、表示は読むだけにする。
+                     "BadgeCatalog", "BadgeEarnedOn"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

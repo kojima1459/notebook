@@ -580,15 +580,20 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
         .VerticalAlignment = -4108
     End With
 
-    Dim ids As Variant, titles As Variant
-    ids = Split("first_ingest,shelf10,shelf30,first_pack_out,first_pack_in,solve10,solve50,streak7", ",")
-    titles = Split("初取込,本棚10冊,本棚30冊,初パック出力,初パック取込,自己解決10,自己解決50,7日連続", ",")
+    ' 2026-07-28(解説書 §11-11): バッジ表を自前で持たない。
+    ' 判定している modStats から受け取る(表を2つ持つと必ずズレる。
+    ' 実際、共有知に最も貢献した4種がここに無かったため、獲得しても
+    ' 本人には一生見えなかった)。
+    Dim ids() As String, titles() As String, longs_() As String, conds() As String
+    Dim badgeN As Long
+    badgeN = modStats.BadgeCatalog(ids, longs_, titles, conds)
+    If badgeN < 1 Then Exit Sub
 
     Dim sb As String
     Dim i As Long
-    For i = 0 To UBound(ids)
+    For i = 0 To badgeN - 1
         Dim mark As String
-        If modHubStat.SafeStat("badge:" & CStr(ids(i))) > 0 Then
+        If LenB(modStats.BadgeEarnedOn(CStr(ids(i)))) > 0 Then
             mark = ChrW(&HD83C) & ChrW(&HDFC5)
         Else
             mark = ChrW(&HD83D) & ChrW(&HDD12)
@@ -596,7 +601,7 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
         sb = sb & mark & " " & CStr(titles(i)) & "   "
     Next i
 
-    With ws.Range("B" & (r + 1) & ":F" & (r + 3))
+    With ws.Range("B" & (r + 1) & ":F" & (r + 4))
         .Merge
         .WrapText = True
         .Value = sb

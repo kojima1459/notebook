@@ -133,6 +133,10 @@ PURE_ALLOWLIST = [
     # modClarify: 聞き返し。IsNumberChoiceOnly は純関数で、ここがゆるいと
     # 利用者が打った質問が黙って捨てられる(2026-07-28 レビュー H-12 の実バグ)。
     "modClarify",
+    # modStats: バッジ表の単一情報源(BadgeCatalog)。判定と表示で表が
+    # 二重化して「獲得しても見えないバッジ」が4種あった(解説書 §11-11)。
+    # 表の整合(4配列の長さ一致・id重複なし)はここで固定する。
+    "modStats",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -132,6 +132,13 @@ class BuildError(Exception):
 AZURE_EMBED_URL_ENV = "AZURE_EMBED_URL"
 AZURE_EMBED_KEY_ENV = "AZURE_EMBED_KEY"
 
+# 正典を発行できる端末に入れる合言葉(config publish_key)。
+# 2026-07-28(解説書 §12.3 B2): これが入ったブックを一般配布すると、
+# 受け取った全員が部門の正典を上書き発行できてしまう。
+# 発行者用ビルドは --publisher を明示したときだけ作られ、出力ファイル名も
+# 変わる(見分けがつかない2つのブックを作らないため)。
+PUBLISH_KEY_ENV = "MYBOOKSHELF_PUBLISH_KEY"
+
 # configシートに平文で置かないための軽い難読化(暗号的な秘匿ではない。
 # VBAプロジェクト自体に触れる人には無意味 = このアプリの配布モデル上、
 # それ以上の防御は不可能。configシートを開いただけの人の目に平文キーが
@@ -177,7 +184,7 @@ def compute_build_stamp() -> str:
 # ---------------------------------------------------------------------------
 # config 既定値 (MASTER_SPEC §5 config キー台帳を完全反映。値・説明とも準拠)
 # ---------------------------------------------------------------------------
-def build_config_rows(mock_llm: bool):
+def build_config_rows(mock_llm: bool, publish_key: str = ""):
     return [
         ("build_stamp", compute_build_stamp(),
          "このビルドの識別子(日時+gitコミット短縮ハッシュ)。err_logの全行に自動付記される。"
@@ -271,9 +278,10 @@ def build_config_rows(mock_llm: bool):
         ("unsubscribed_channels", "",
          "購読【しない】部門チャンネル(カンマ区切り)。既定は空=全チャンネルを自動購読する。"
          "『今日は商品、明日はシステム』という実際の使われ方に、購読操作を挟ませないため"),
-        ("publish_key", "",
+        ("publish_key", publish_key,
          "正典を発行できる端末に入れる合言葉。空欄だと発行ボタン自体が出ない。"
-         "各部門の発行担当者にだけ伝える(パスワードではなく誤操作防止の関所)"),
+         "各部門の発行担当者にだけ伝える(パスワードではなく誤操作防止の関所)。"
+         "ビルド時に --publisher を付けた発行者用ブックにだけ焼き込まれる"),
         ("startup_jitter_ms", 3000,
          "起動時に共有フォルダを見に行くまでのランダム待機の上限(ミリ秒)。"
          "始業時に全員が同時アクセスしてファイルサーバが詰まるのを避ける。0で無効"),
@@ -650,11 +658,11 @@ def _make_seed_sheets(wb, seed_path: str | None):
     return n_docs, n_chunks, n_vecs
 
 
-def _make_config(wb, mock_llm: bool):
+def _make_config(wb, mock_llm: bool, publish_key: str = ""):
     ws = wb.create_sheet("config")
     for c, h in enumerate(["key", "value", "description"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, (k, v, d) in enumerate(build_config_rows(mock_llm), 2):
+    for i, (k, v, d) in enumerate(build_config_rows(mock_llm, publish_key), 2):
         ws.cell(row=i, column=1, value=k)
         ws.cell(row=i, column=2, value=v)
         ws.cell(row=i, column=3, value=d)
@@ -1105,6 +1113,10 @@ def main():
     ap.add_argument("--allow-embedded-key", action="store_true",
                      help="本番ビルドに azure_embed_key を焼き込むことを明示的に許可する"
                           "(既定は禁止。ブック配布=キー配布になるため)")
+    ap.add_argument("--publisher", action="store_true",
+                     help="発行者用ビルドを作る(config publish_key を環境変数 "
+                          + PUBLISH_KEY_ENV + " から焼き込む)。"
+                          "既定の出力名も MyBookshelf_発行者用.xlsm に変わる")
     args = ap.parse_args()
 
     root = os.path.abspath(args.root)
@@ -1125,10 +1137,32 @@ def main():
                 f"  どうしても焼き込む場合は --allow-embedded-key を付けてください。"
             )
 
+    # 2026-07-28(解説書 §12.3 B2): 発行者用と利用者用を、ビルドの時点で
+    # 物理的に別物にする。
+    # publish_key が入ったブックを配ると、受け取った全員が部門の正典を
+    # 上書き発行できてしまう(誤操作防止の関所が外れた状態で配ることになる)。
+    # 「発行者用のコピーを作って手で config を消す」という運用は必ず忘れるので、
+    # 焼き込みは --publisher を明示したときだけにし、出力名も変える。
+    publish_key = ""
+    env_pub = os.environ.get(PUBLISH_KEY_ENV, "").strip()
+    if args.publisher:
+        if not env_pub:
+            sys.exit(
+                f"ERROR: --publisher を指定しましたが環境変数 {PUBLISH_KEY_ENV} が空です。\n"
+                "  発行者用ブックには合言葉が必要です。設定してから再実行してください。"
+            )
+        publish_key = env_pub
+    elif env_pub:
+        print(f"注意: {PUBLISH_KEY_ENV} が設定されていますが、--publisher が無いため"
+              "焼き込みません(利用者用ビルドとして作ります)。")
+
     if args.out:
         out_path = os.path.abspath(args.out)
     else:
-        fname = "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
+        if args.publisher:
+            fname = "MyBookshelf_発行者用_dev.xlsm" if is_dev else "MyBookshelf_発行者用.xlsm"
+        else:
+            fname = "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
         out_path = os.path.join(root, "dist", fname)
 
     print(f"=== build_mybookshelf.py ({'dev' if is_dev else 'prod'}) ===")
@@ -1166,7 +1200,7 @@ def main():
     _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "ダッシュボード", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
-    _make_config(wb, mock_llm)
+    _make_config(wb, mock_llm, publish_key)
     _make_headers_only(wb, "my_knowledge",
                         ["chunk_id", "source", "origin", "page", "summary",
                          "keywords", "full_text", "added_at", "embedded"],

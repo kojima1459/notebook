@@ -229,6 +229,8 @@ NextPack:
     RunClarifyChoiceTests
     On Error GoTo VecFail
     RunVectorCsvTests
+    On Error GoTo BadgeFail
+    RunBadgeCatalogTests
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -250,6 +252,9 @@ ClarifyFail:
     Resume NextDone
 VecFail:
     modTestRunner.Check "RunVectorCsvTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone
+BadgeFail:
+    modTestRunner.Check "RunBadgeCatalogTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
@@ -603,3 +608,64 @@ Private Sub RunVectorCsvTests()
         (Not modUtil.CsvToVector("0.1,,0.3", v))
     modTestRunner.Check "CsvToVector_空文字は失敗", (Not modUtil.CsvToVector("", v))
 End Sub
+
+
+' ----------------------------------------------------------------------------
+' バッジ表の整合(解説書 §11-11 の恒久再発防止)
+'
+' 実バグ: EvaluateBadges が12種を判定・記録する一方、表示側(modDash/modHub)は
+' それぞれ独立に8種の配列を持っていた。共有知フライホイールに最も貢献した
+' 4種(fb10/fb50/qa_share10/gapfill)は、獲得しても本人に一生見えなかった。
+' 「共有知は使う人ではなく直す人がいないと育たない」という設計意図に対して、
+' 実装が正反対を向いていたことになる。
+'
+' 表を単一情報源(modStats.BadgeCatalog)へ寄せたので、ここでは
+' 「表そのものが壊れていないこと」を固定する。
+'   ・4つの配列の長さが揃っていること(ズレると表示が別バッジの説明になる)
+'   ・id に重複が無いこと(重複すると獲得日の取り違えが起きる)
+'   ・空の要素が無いこと(空ラベルのバッジは画面上ただの穴になる)
+'   ・判定側にある4種が表にも載っていること(今回の実バグそのもの)
+' ----------------------------------------------------------------------------
+Private Sub RunBadgeCatalogTests()
+    Dim ids() As String, titles() As String, shorts() As String, conds() As String
+    Dim n As Long
+    n = modStats.BadgeCatalog(ids, titles, shorts, conds)
+
+    modTestRunner.Check "バッジ表_件数が1以上", (n >= 1), "n=" & n
+    modTestRunner.Check "バッジ表_titlesの長さ一致", _
+        (UBound(titles) - LBound(titles) + 1 = n)
+    modTestRunner.Check "バッジ表_shortTitlesの長さ一致", _
+        (UBound(shorts) - LBound(shorts) + 1 = n)
+    modTestRunner.Check "バッジ表_conditionsの長さ一致", _
+        (UBound(conds) - LBound(conds) + 1 = n)
+
+    Dim i As Long, j As Long
+    Dim emptyN As Long, dupN As Long
+    For i = LBound(ids) To UBound(ids)
+        If LenB(Trim$(ids(i))) = 0 Then emptyN = emptyN + 1
+        If LenB(Trim$(titles(i))) = 0 Then emptyN = emptyN + 1
+        If LenB(Trim$(shorts(i))) = 0 Then emptyN = emptyN + 1
+        If LenB(Trim$(conds(i))) = 0 Then emptyN = emptyN + 1
+        For j = i + 1 To UBound(ids)
+            If StrComp(ids(i), ids(j), vbTextCompare) = 0 Then dupN = dupN + 1
+        Next j
+    Next i
+    modTestRunner.Check "バッジ表_空の要素が無い", (emptyN = 0), "empty=" & emptyN
+    modTestRunner.Check "バッジ表_idに重複が無い", (dupN = 0), "dup=" & dupN
+
+    ' 実バグで落ちていた4種が載っていること。
+    modTestRunner.Check "バッジ表_fb10を含む", BadgeIdExists(ids, "fb10")
+    modTestRunner.Check "バッジ表_fb50を含む", BadgeIdExists(ids, "fb50")
+    modTestRunner.Check "バッジ表_qa_share10を含む", BadgeIdExists(ids, "qa_share10")
+    modTestRunner.Check "バッジ表_gapfillを含む", BadgeIdExists(ids, "gapfill")
+End Sub
+
+Private Function BadgeIdExists(ByRef ids() As String, ByVal target As String) As Boolean
+    Dim i As Long
+    For i = LBound(ids) To UBound(ids)
+        If StrComp(Trim$(ids(i)), target, vbTextCompare) = 0 Then
+            BadgeIdExists = True
+            Exit Function
+        End If
+    Next i
+End Function

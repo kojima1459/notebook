@@ -22,11 +22,16 @@ Option Explicit
 '     (src/ingest/modShelf.bas が既に同じ手法を使っており本アプリ内で
 '     実証済み)。modRetrieveはR4対象外(§11.1のPURE_LOGIC_MODULESに
 '     含まれない)なのでExcelオブジェクト・CreateObjectの利用は自由。
-'   ・キーワードボーナス: 質問文を空白(半角・全角)で分割した「語」ごとに、
-'     summary/keywords/source のいずれかに含まれていれば+0.05、
-'     合計上限+0.15(MASTER_SPEC §7.3の記述どおり)。日本語の質問は
-'     スペース区切りが無いことが多く、その場合は質問文全体を1語として
-'     部分一致判定する(素朴だが単純で決定的な実装を優先)。
+'   ・キーワード側は modSparse(文字bigram + BM25 + 完全一致)へ委譲する。
+'     旧実装は「質問文を空白で分割して語ごとに+0.05(上限+0.15)」
+'     「本文への出現で+0.06(上限+0.24)」「質問文まるごと一致で+0.15」
+'     という加点の積み上げだったが、日本語は空白で区切らないため
+'     実測 R@1 は 32% しか出なかった(本実装は 84%)。
+'     2026-07-28(解説書 §11-8/§11-9): 単段 Search だけが新実装へ移行し、
+'     既定である多段 SearchExpanded は旧実装のまま取り残されていた。
+'     つまり測って上げた精度が、既定構成では一度も効いていなかった。
+'     両方を modSparse へ寄せ、スコア式はこのモジュールに1つだけにする。
+'     式が1つなら「多段が失敗して単段へ落ちたら結果が変わる」も起きない。
 '   ・GetEmbedding失敗(空配列)時は-1を返し、実際のE0203ログは
 '     modGateway.GetEmbedding内で既に行われているため、ここで重複して
 '     modLogを呼ばない(呼び出し側=modAskがFriendlyMessage("E0203")を
@@ -52,16 +57,6 @@ Private Const COL_K_KEYWORDS As Long = 6
 Private Const COL_K_FULLTEXT As Long = 7
 
 Private Const PREVIEW_LEN As Long = 120
-Private Const KEYWORD_BONUS_PER_WORD As Double = 0.05
-Private Const KEYWORD_BONUS_MAX As Double = 0.15
-
-' ハイブリッド検索(ベクトル+全文一致)の加点。ベクトルは意味の近さに強い一方、
-' 「第4条」「漁船保険」のような固有名詞・条番号の完全一致に弱いため、本文
-' (full_text)への直接ヒットを加点して補う。上限を設けてベクトル順位を
-' 完全には覆さないようにする(あくまで補正)。
-Private Const FULLTEXT_BONUS_PER_WORD As Double = 0.06
-Private Const FULLTEXT_BONUS_MAX As Double = 0.24
-Private Const EXACT_PHRASE_BONUS As Double = 0.15
 
 ' modSparse のスコアをベクトル(-1～1)と同じ土俵へ乗せるための係数。
 ' SPARSE_WEIGHT: BM25(質問長で正規化済み)にかける倍率
@@ -133,8 +128,6 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         End If
     Next i
 
-    Dim words() As String
-    words = TokenizeQuery(query)
 
     ' キーワード側の準備は「1クエリにつき1回」だけ。
     ' 以前はチャンクごとに modSparse.Tokenize を呼んでおり、実測 225ms/件、
@@ -358,17 +351,32 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         validQ = validQ + 1
         Dim qDim As Long: qDim = UBound(qv) - LBound(qv) + 1
 
-        Dim words() As String
-        words = TokenizeQuery(qText)
         Dim sparseKeys2 As String
         On Error Resume Next
         sparseKeys2 = modSparse.DistinctiveKeys(qText)
         On Error GoTo 0
-        Dim grams() As String
-        grams = BigramsIfSingleToken(qText, words)
+
+        ' 2026-07-28(解説書 §11-7): 多段側にも粗選別を配線した。
+        '
+        ' バイナリ量子化による候補絞り込み(modBitwiseOpt)は単段 Search に
+        ' しか組み込まれておらず、config の既定は retrieve_mode=multi なので、
+        ' 【binary_rag=TRUE にしても既定構成では一切作動しない】状態だった。
+        ' しかも多段は「クエリ数 × 全チャンク」の総当たりで、deep なら
+        ' 最大5周する。速くしたい場所にこそ効いていなかったことになる。
+        '
+        ' 粗選別はクエリごとに行う(クエリが違えば近い候補も違う)。
+        ' 候補が本棚を代表していないとき(次元混在など)は modBitwiseOpt 側が
+        ' 辞退するので、その場合は従来どおり全件を見る。
+        ' binary_rag の既定は FALSE のままなので、既定の挙動は変わらない。
+        Dim useCandQ As Boolean: useCandQ = False
+        Dim candRowsQ As Object
+        If modBitwiseOpt.Enabled(UBound(vData, 1) - LBound(vData, 1) + 1) Then
+            useCandQ = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRowsQ)
+        End If
 
         Dim r As Long
         For r = LBound(vData, 1) To UBound(vData, 1)
+            If useCandQ Then If Not candRowsQ.Exists(r) Then GoTo NextRow
             Dim vid As String
             vid = CStr(vData(r, COL_V_ID))
             If LenB(vid) = 0 Then GoTo NextRow
@@ -389,15 +397,33 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
 
             Dim kRow As Long: kRow = idx.Item(vid)
             If excl.Exists(CStr(kData(kRow, COL_K_SOURCE))) Then GoTo NextRow   ' ノイズ論理除外
+
+            ' 2026-07-28(解説書 §11-8/§11-9): スコア式を単段と同じにした。
+            '
+            ' それまで、単段 Search は modSparse(文字bigram+BM25+完全一致)へ
+            ' 移行済みだったのに、多段 SearchExpanded だけが旧方式
+            ' (KeywordBonus + GramBonus + FullTextBoost、加点上限の合計+0.64)
+            ' のまま取り残されていた。config の既定は retrieve_mode=multi
+            ' なので、【実測で R@1 32% -> 84% まで上げたスパース検索が、
+            ' 既定の構成では一度も使われていなかった】ことになる。
+            ' 直した側が利用者に届いていない、という最悪の形の作り込み。
+            '
+            ' これは解説書が指摘した2点の共通の根でもある:
+            '   §11-8 加点上限+0.64 … 旧方式の合計。長い本文ほど有利になる
+            '                          FullTextBoost もここに含まれる
+            '   §11-9 単段と多段でスコアが違う … 式が2つあることそのもの
+            ' 多段が例外で単段へフォールバックすると結果が変わる問題も、
+            ' 式が1つになれば消える。
+            '
+            ' 数値を勘で調整するのではなく、既に実測した方の実装へ寄せる。
             Dim sc As Double
             sc = modUtil.DotProduct(qv, vv)
-            sc = sc + KeywordBonus(words, CStr(kData(kRow, COL_K_SUMMARY)), _
-                                   CStr(kData(kRow, COL_K_KEYWORDS)), CStr(kData(kRow, COL_K_SOURCE)))
-            sc = sc + GramBonus(grams, CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
-                                CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
-                                CStr(kData(kRow, COL_K_SOURCE)) & " " & _
-                                modUtil.SafeLeft(CStr(kData(kRow, COL_K_FULLTEXT)), 200))
-            sc = sc + FullTextBoost(words, CStr(kData(kRow, COL_K_FULLTEXT)), qText)
+            sc = sc + SparseBoost(sparseKeys2, _
+                     modSparse.CompactForMatch( _
+                         CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
+                         CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
+                         CStr(kData(kRow, COL_K_SOURCE)) & " " & _
+                         CStr(kData(kRow, COL_K_FULLTEXT))))
 
             If unionScore.Exists(vid) Then
                 If sc > unionScore.Item(vid) Then unionScore.Item(vid) = sc
@@ -460,54 +486,6 @@ Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error GoTo 0
 End Function
 
-' 日本語向け補助トークン: 分割語が1語だけ(=スペース無しの日本語質問)で
-' 6文字以上のとき、文字2-gram(最大20個)を作る(設計書§C-2の改良)。
-' 対象外のときは0要素配列(Split(vbNullString))。
-Private Function BigramsIfSingleToken(ByVal qText As String, ByRef words() As String) As String()
-    Dim wc As Long: wc = 0
-    On Error Resume Next
-    wc = UBound(words) - LBound(words) + 1
-    Err.Clear
-    On Error GoTo 0
-
-    Dim src As String: src = Replace(Replace(Trim$(qText), " ", ""), "　", "")
-    If wc > 1 Or Len(src) < 6 Then
-        BigramsIfSingleToken = Split(vbNullString)
-        Exit Function
-    End If
-
-    Dim maxG As Long: maxG = Len(src) - 1
-    If maxG > 20 Then maxG = 20
-    Dim outArr() As String: ReDim outArr(0 To maxG - 1)
-    Dim i As Long
-    For i = 1 To maxG
-        outArr(i - 1) = Mid$(src, i, 2)
-    Next i
-    BigramsIfSingleToken = outArr
-End Function
-
-' 2-gram補助ボーナス: 1個一致につき+0.02、上限+0.10(SearchExpanded専用)。
-Private Function GramBonus(ByRef grams() As String, ByVal haystack As String) As Double
-    Dim n As Long: n = 0
-    On Error Resume Next
-    n = UBound(grams) - LBound(grams) + 1
-    Err.Clear
-    On Error GoTo 0
-    If n <= 0 Then Exit Function
-
-    Dim matched As Long: matched = 0
-    Dim i As Long
-    For i = LBound(grams) To UBound(grams)
-        If LenB(grams(i)) > 0 Then
-            If InStr(1, haystack, grams(i), vbTextCompare) > 0 Then matched = matched + 1
-        End If
-    Next i
-
-    Dim bonus As Double
-    bonus = CDbl(matched) * 0.02
-    If bonus > 0.1 Then bonus = 0.1
-    GramBonus = bonus
-End Function
 
 ' 質問文を半角/全角スペースで分割し、空要素を除いた語配列を返す。
 ' スペースが無い日本語の質問は「質問文全体」が1語になり、部分一致判定に使われる。
@@ -530,82 +508,6 @@ Private Function SparseBoost(ByVal preparedKeys As String, ByVal compactDoc As S
     On Error GoTo 0
 End Function
 
-Private Function TokenizeQuery(ByVal query As String) As String()
-    Dim q As String
-    q = Replace(query, "　", " ")
-    TokenizeQuery = modUtil.SplitKeepNonEmpty(q, " ")
-End Function
-
-' summary/keywords/source のいずれかに語が含まれていれば+0.05、上限+0.15。
-Private Function KeywordBonus(ByRef words() As String, ByVal summary As String, _
-                              ByVal keywords As String, ByVal srcName As String) As Double
-    Dim haystack As String
-    haystack = summary & " " & keywords & " " & srcName
-
-    Dim matched As Long: matched = 0
-    Dim i As Long
-    For i = LBound(words) To UBound(words)
-        If LenB(words(i)) > 0 Then
-            If InStr(1, haystack, words(i), vbTextCompare) > 0 Then
-                matched = matched + 1
-            End If
-        End If
-    Next i
-
-    Dim bonus As Double
-    bonus = CDbl(matched) * KEYWORD_BONUS_PER_WORD
-    If bonus > KEYWORD_BONUS_MAX Then bonus = KEYWORD_BONUS_MAX
-    KeywordBonus = bonus
-End Function
-
-' FullTextBoost - チャンク本文への直接ヒットによる加点(ハイブリッド検索)。
-'   KeywordBonusは要約/キーワード/資料名だけを見るため、本文にしか出てこない
-'   条番号・固有名詞を拾えなかった。ここで本文そのものを走査して補う。
-'   ・質問文まるごとが本文に含まれれば完全一致ボーナス(条番号の引用等)
-'   ・語単位は出現で加点し、2回以上出現ならさらに加点(頻出=関連度が高い)
-'   いずれも上限つき(ベクトル順位を覆さない補正に留める)。
-Private Function FullTextBoost(ByRef words() As String, ByVal fullText As String, _
-                               ByVal rawQuery As String) As Double
-    If LenB(fullText) = 0 Then Exit Function
-
-    Dim bonus As Double
-    Dim rq As String: rq = Trim$(rawQuery)
-    If Len(rq) >= 4 Then
-        If InStr(1, fullText, rq, vbTextCompare) > 0 Then bonus = EXACT_PHRASE_BONUS
-    End If
-
-    ' words()は未初期化(該当語なし)の場合があるためUBound参照前に保護する。
-    Dim lo As Long, hi As Long
-    On Error Resume Next
-    lo = LBound(words): hi = UBound(words)
-    If Err.Number <> 0 Then
-        Err.Clear
-        On Error GoTo 0
-        FullTextBoost = bonus
-        Exit Function
-    End If
-    On Error GoTo 0
-
-    Dim units As Double
-    Dim i As Long
-    For i = lo To hi
-        If Len(words(i)) >= 2 Then
-            Dim pos As Long
-            pos = InStr(1, fullText, words(i), vbTextCompare)
-            If pos > 0 Then
-                units = units + 1#
-                If InStr(pos + Len(words(i)), fullText, words(i), vbTextCompare) > 0 Then
-                    units = units + 0.5      ' 2回以上出現の重み
-                End If
-            End If
-        End If
-    Next i
-
-    Dim wordBonus As Double
-    wordBonus = units * FULLTEXT_BONUS_PER_WORD
-    If wordBonus > FULLTEXT_BONUS_MAX Then wordBonus = FULLTEXT_BONUS_MAX
-    FullTextBoost = bonus + wordBonus
-End Function
 
 ' bestScore(1..k)中の最小値とその添字を再計算する(ストリーミングtop-k用)。
 Private Sub RecomputeMin(ByRef scores() As Double, ByVal k As Long, _

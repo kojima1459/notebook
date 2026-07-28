@@ -159,6 +159,57 @@ Public Sub EvaluateBadges()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' BadgeCatalog - バッジの一覧(id / 長い名前 / 短い名前 / 獲得条件の説明)。
+'   戻り値 = 件数。全ての配列は 0 始まりで同じ長さ。
+'
+' 2026-07-28(解説書 §11-11): ここが単一情報源。
+'
+' それまでは EvaluateBadges が12種を判定・記録する一方で、表示側
+' (modDash / modHub)がそれぞれ独立に8種の配列をハードコードしていた。
+' 結果、共有知フライホイールに最も貢献した行為を称える4種
+' (fb10 / fb50 / qa_share10 / gapfill)は、獲得しても本人に見えなかった。
+' 「共有知は使う人ではなく直す人がいないと育たない」という設計意図と、
+' 実装が正反対を向いていたことになる。
+'
+' 同じ表を3箇所に置けば必ずズレる(部門チャンネルの origin タグで既に
+' 一度やった失敗)。判定を持っている側が名前も持ち、表示側は読むだけにする。
+' バッジを増やすときは EvaluateBadges とこの表の2箇所だけを直せばよく、
+' 画面のことは考えなくてよい。
+' ----------------------------------------------------------------------------
+Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
+                             ByRef shortTitles() As String, ByRef conditions() As String) As Long
+    ids = Split("first_ingest,shelf10,shelf30,first_pack_out,first_pack_in," & _
+                "solve10,solve50,streak7,fb10,fb50,qa_share10,gapfill", ",")
+    titles = Split("初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込," & _
+                   "自己解決10件,自己解決50件,7日連続利用," & _
+                   "フィードバック名人,フィードバックキング,知恵の配り手,穴埋め職人", ",")
+    shortTitles = Split("初取込,本棚10冊,本棚30冊,初パック出力,初パック取込," & _
+                        "自己解決10,自己解決50,7日連続," & _
+                        "修正10件,修正50件,Q&A共有10,穴埋め", ",")
+    conditions = Split( _
+        "資料を1つ本棚に追加すると獲得|" & _
+        "資料を10冊集めると獲得|" & _
+        "資料を30冊集めると獲得|" & _
+        "資料をパックとして誰かに渡すと獲得|" & _
+        "誰かのパックを取り込むと獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが10回になると獲得|" & _
+        "" & ChrW(&HD83D) & ChrW(&HDFE2) & "解決したが50回になると獲得|" & _
+        "7日連続で使うと獲得|" & _
+        "正しい内容を10回教えると獲得|" & _
+        "正しい内容を50回教えると獲得|" & _
+        "解決済みQ&Aを10件共有すると獲得|" & _
+        "みんなの困りごとに1件答えると獲得", "|")
+    BadgeCatalog = UBound(ids) - LBound(ids) + 1
+End Function
+
+' badge:<id> の獲得日文字列(未獲得は "")。表示側が獲得済みかを判定するのに使う。
+Public Function BadgeEarnedOn(ByVal badgeId As String) As String
+    On Error Resume Next
+    BadgeEarnedOn = GetStatValueString("badge:" & badgeId)
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
 ' SavedMinutesEstimate - 自己解決1件=15分換算(config化不要・定数で明示)
 ' ----------------------------------------------------------------------------
 Public Function SavedMinutesEstimate() As Long

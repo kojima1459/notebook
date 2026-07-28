@@ -116,6 +116,14 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
          "本棚抜粋で裏付けられない断定や事実と異なる記載は、修正するか削除してください。" & vbLf
     sb = sb & StyleInstruction() & vbLf
     sb = sb & CitationInstruction() & vbLf
+    ' 2026-07-28(解説書 §11-9): 検証段にも DomainGuard を入れる。
+    ' 下書き段(quick/deep draft)には入っているのに検証段だけ抜けており、
+    ' 数値の厳格さと「(要確認)」の付与ルールを知らないモデルが
+    ' 最終回答を書き直していた。下書きが正しく付けた (要確認) を
+    ' 検証段が「不要な但し書き」と判断して落とすと、
+    ' 【確認が要る数字が、確認不要の顔をして残る】。
+    ' 保険の金額・期限・料率でこれが起きると実害が出る。
+    sb = sb & DomainGuardInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
@@ -123,6 +131,8 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "## 下書き回答" & vbLf & draft & vbLf
+    sb = sb & vbLf & "(注意: 下書きに付いている「(要確認)」は、根拠が弱い箇所に" & _
+        "意図的に付けたものです。抜粋で裏付けられない限り外さないでください。)" & vbLf
     sb = sb & vbLf & "(指示: 検証済みの最終回答のみを出力してください。下書きとの差分説明や、" & _
         "検証過程の説明は不要です。)"
     sb = sb & vbLf & FollowupInstruction() & vbLf
