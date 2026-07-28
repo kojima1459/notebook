@@ -215,7 +215,7 @@ Public Function ExpFloorForLevel(ByVal lv As Long) As Long
     ExpFloorForLevel = LevelDivisor() * (lv - 1) * (lv - 1)
 End Function
 
-' 現レベル内の進捗(0.0〜1.0)。次レベルまであとどれくらいか、をバーで見せる用。
+' 現レベル内の進捗(0.0～1.0)。次レベルまであとどれくらいか、をバーで見せる用。
 Public Function LevelProgress() As Double
     Dim lv As Long: lv = Level()
     Dim curFloor As Long: curFloor = ExpFloorForLevel(lv)

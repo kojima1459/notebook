@@ -16,7 +16,7 @@ Option Explicit
 ' ----------------------------------------------------------------------------
 
 ' 今月/先月の"feedback_green"件数から前月比の表示文字列を作る。
-'   isUp: ▲(上昇/新記録)ならTrue、▼/—ならFalse(アクセント色の切替に使用)。
+'   isUp: ▲(上昇/新記録)ならTrue、▼/―ならFalse(アクセント色の切替に使用)。
 Public Function SavedTimeDeltaLabel(ByRef isUp As Boolean) As String
     Dim thisMonthCount As Long: thisMonthCount = CountUsageEvent("feedback_green", False)
     Dim lastMonthCount As Long: lastMonthCount = CountUsageEvent("feedback_green", True)

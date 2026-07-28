@@ -87,9 +87,9 @@ Public Function Description(ByVal mode As String) As String
             Description = "多方向から検索 → 関連度を精査 → 下書き → 資料と1行ずつ照合。" & _
                           "数分かかりますが、精度を最優先します。"
         Case MODE_DEEP
-            Description = "質問を分析して検索 → 下書き → 資料と照合。1〜2分ほど。"
+            Description = "質問を分析して検索 → 下書き → 資料と照合。1～2分ほど。"
         Case Else
-            Description = "そのまま検索して答えます。数秒〜20秒ほど。"
+            Description = "そのまま検索して答えます。数秒～20秒ほど。"
     End Select
 End Function
 

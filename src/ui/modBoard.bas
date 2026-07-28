@@ -58,7 +58,7 @@ Private Sub ShowWeeklySummary()
     If modStats.GetStat(wkKey) > 0 Then Exit Sub
     modStats.Bump wkKey
 
-    ' 先週(直近の月曜の7日前〜日曜)の個人合計
+    ' 先週(直近の月曜の7日前～日曜)の個人合計
     Dim mon As Date: mon = Date - Weekday(Date, vbMonday) + 1   ' 今週の月曜
     Dim total As Long, i As Long
     For i = 1 To 7
@@ -83,9 +83,9 @@ Public Function TitleFor(ByVal userId As String) As String
         If mTitles.Exists(LCase$(userId)) Then n = CLng(mTitles(LCase$(userId)))
     End If
     If n >= 20 Then
-        TitleFor = ChrW(&HD83C) & ChrW(&HDF1F) & " "        ' 🌟
+        TitleFor = ChrW(&HD83C) & ChrW(&HDF1F) & " "        ' U+1F31F 星
     ElseIf n >= 5 Then
-        TitleFor = ChrW(&HD83D) & ChrW(&HDCA1) & " "        ' 💡
+        TitleFor = ChrW(&HD83D) & ChrW(&HDCA1) & " "        ' U+1F4A1 電球
     End If
     On Error GoTo 0
 End Function

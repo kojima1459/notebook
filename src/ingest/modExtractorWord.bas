@@ -61,22 +61,33 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 
     On Error GoTo Failed
     Set word = CreateObject("Word.Application")
-    ' 2026-07-22診断(ユーザー許可済み): 実機err#462はローカルコピーでも再現し
-    ' 保護ビュー説は否定された。非表示プロセスがセキュリティソフト等に
-    ' 妨害されている仮説を検証するため、一時的にVisible=Trueで診断する。
-    ' 原因が確定次第、Falseへ戻すか正式な対処に置き換える。
-    word.Visible = True
+    ' 2026-07-28(レビュー M-12): 2026-07-22の診断コード(Visible=True)が
+    ' 本番ビルドに残っていた。PDF/docx を取り込むたびに Word のウィンドウが
+    ' 開いては閉じ、利用者がそこを触ると COM エラーや WINWORD の残留を招く。
+    ' 診断は終わったので非表示へ戻す。
+    word.Visible = False
     word.DisplayAlerts = 0   ' wdAlertsNone
 
+    ' 2026-07-28(レビュー H-11): 取り込む文書のマクロを走らせない。
+    ' 3 = msoAutomationSecurityForceDisable。出所の分からないファイルを
+    ' 取り込むのは日常操作なので、そこが任意コード実行の経路になっていては
+    ' いけない。このWordインスタンスは最後に Quit するので元へ戻す必要はない。
+    On Error Resume Next
+    word.AutomationSecurity = 3
+    Err.Clear
+    On Error GoTo Failed
+
     ' ConfirmConversions:=False でPDFリフロー確認ダイアログを抑止する。
-    ' 診断中はDocuments.Open側もVisible:=Trueにする(word.Visible=Trueだけだと
-    ' アプリ枠は見えても文書ウィンドウ自体が非表示のままで診断にならない)。
+    ' PasswordDocument にダミーを渡すのは、暗号化文書に当たったときに
+    ' パスワード入力ダイアログでフリーズさせないため(レビュー M-11)。
+    ' 誤ったパスワードは即エラーになるので、E0302 として扱える。
     Set doc = word.Documents.Open( _
         FileName:=path, _
         ConfirmConversions:=False, _
         ReadOnly:=True, _
         AddToRecentFiles:=False, _
-        Visible:=True)
+        PasswordDocument:="__mybookshelf_no_password__", _
+        Visible:=False)
 
     Dim pageCount As Long
     pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages

@@ -91,7 +91,24 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Case "pdf", "docx", "doc", "xlsx", "xls", "xlsm"
             triedLocalCopy = True
             tmpCopy = CopyToLocalTemp(path)
-            If LenB(tmpCopy) > 0 Then workPath = tmpCopy
+            If LenB(tmpCopy) > 0 Then
+                workPath = tmpCopy
+            Else
+                ' 2026-07-28(レビュー H-11): コピーに失敗したら原本へ
+                ' フォールバックしない。コピーが失敗する主因は
+                ' 「そのファイルが今そのPCで開かれている(ロック中)」で、
+                ' そのまま原本を開くと Excel は既存のブックオブジェクトを
+                ' 返し、抽出後の wb.Close False が【利用者が編集中のブックを
+                ' 破棄して閉じる】ことになる。
+                ' 取り込めないと伝える方が、他人の作業を消すよりましである。
+                errCode = "E0302"
+                errDetail = "ファイルを一時フォルダへコピーできませんでした。" & _
+                    "そのファイルを開いている場合は閉じてから、もう一度お試しください"
+                modLog.LogError "E0302", "modExtractor.ExtractFile", _
+                    modUtil.SafeLeft(path & " : localcopy=failed(原本フォールバックは行わない)", 500)
+                ExtractFile = False
+                Exit Function
+            End If
     End Select
 
     ' 診断用: ローカル一時コピーの成否を憶えておく(失敗時のerrDetailへ含め、
@@ -309,7 +326,7 @@ End Function
 ' DropGarbledPages - 文字化けしたページの本文を空にする(戻り値=落とした数)。
 ' ----------------------------------------------------------------------------
 ' 判定は「日本語の業務文書には出ない文字」の比率。具体的には
-'   ・制御文字(Chr 0〜31。タブ/改行を除く)
+'   ・制御文字(Chr 0～31。タブ/改行を除く)
 '   ・キリル文字/ギリシャ文字のブロック
 ' これらが本文の2割を超えるページは、フォント由来の化けと見なして捨てる。
 ' 保険の約款・ガイドラインにギリシャ文字やキリル文字が2割入ることはない。
@@ -329,7 +346,7 @@ Private Function DropGarbledPages(ByRef pages() As ExtractedPage) As Long
     On Error GoTo 0
 End Function
 
-' 化け文字の比率(0.0〜1.0)。空白は数えない。
+' 化け文字の比率(0.0～1.0)。空白は数えない。
 Private Function GarbleRatio(ByVal s As String) As Double
     Dim bad As Long, tot As Long
     Dim i As Long

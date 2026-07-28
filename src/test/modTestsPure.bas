@@ -65,7 +65,7 @@ Option Explicit
 ' ----------------------------------------------------------------------------
 ' 実物の約款PDFで、条見出しの20.2%(252行中51行)を取りこぼしていた。
 ' 原因はPDFの字詰めで「第１ ０条」のように数字のあいだへ空白が入ること。
-' 第1条〜第9条は通り、第10条以降が全滅する ―― 約款の中身の大半である。
+' 第1条～第9条は通り、第10条以降が全滅する ―― 約款の中身の大半である。
 ' 見出しを落とすとその条は隣の条の本文に吸収され、「第12条は?」に別の条が
 ' 返る。しかも利用者には理由が永久に分からない。
 ' 入力の欠陥は出力の全部に効くので、二度と戻さないための固定テスト。
@@ -229,7 +229,7 @@ Private Sub TestFnv1a64Hex()
 
     ' 絵文字混在(サロゲートペア): 決定性のみ確認(クラッシュしないことも兼ねる)。
     Dim hEmoji1 As String, hEmoji2 As String
-    Dim emojiText As String: emojiText = "資料A" & ChrW(&HD83D) & ChrW(&HDE00) & "です"   ' 😀 のサロゲートペア
+    Dim emojiText As String: emojiText = "資料A" & ChrW(&HD83D) & ChrW(&HDE00) & "です"   ' U+1F600 のサロゲートペア
     hEmoji1 = modUtil.Fnv1a64Hex(emojiText)
     hEmoji2 = modUtil.Fnv1a64Hex(emojiText)
     modTestRunner.Check "Fnv1a64Hex_決定性_絵文字混在", (hEmoji1 = hEmoji2) And (Len(hEmoji1) = 16), "hEmoji1=" & hEmoji1

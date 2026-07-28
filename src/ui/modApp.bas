@@ -131,7 +131,7 @@ Public Sub OnSend()
     ' 削除→追加方式。小さな余白が残るだけで崩れない)。
     '
     ' さらに、このバブルを modUIMain へ「実況先」として預ける。検索は最初の
-    ' 1〜2秒で終わっているので、どの資料に答えがあるかはその時点で分かる。
+    ' 1～2秒で終わっているので、どの資料に答えがあるかはその時点で分かる。
     ' 預けておけば modAsk の進捗通知(SetStage/RenderSourcesPreview)がそのまま
     ' ここへ流れ込み、「考えています…」が「もう見つけた。いま書いている」へ
     ' 変わる。待ち時間そのものは1秒も縮まないが、体感は完全に別物になる。
@@ -659,12 +659,22 @@ Public Sub OnLangCycle()
     Dim cur As String
     cur = modConfig.GetString("answer_language", "日本語")
 
+    ' 2026-07-28(レビュー H-16): "Tiếng Việt" をリテラルで書けない。
+    ' このブックは起動のたび vba_src のソースを VBE へ注入するが、VBE は
+    ' コードを CP932 で保持するため、CP932 に無い ế/ệ はリテラル "?" として
+    ' 保存される。結果、ボタン表示も config に保存される値も "Ti?ng Vi?t" に
+    ' なり、LLM への言語指定まで壊れていた(vbaProject.bin の実バイトで確認済み)。
+    ' ChrW で組み立てれば、ソースは ASCII のまま実行時に正しい文字になる。
+    Dim viet As String
+    viet = "Ti" & ChrW(&H1EBF) & "ng Vi" & ChrW(&H1EC7) & "t"
+
     Dim nextLang As String
     Select Case cur
         Case "日本語": nextLang = "English"
         Case "English": nextLang = "中文"
-        Case "中文": nextLang = "Tiếng Việt"
-        Case "Tiếng Việt": nextLang = "関西弁"   ' 遊び心: シークレット・オプション
+        Case "中文": nextLang = viet
+        ' 既に "Ti?ng Vi?t" で保存されてしまった config からの移行も拾う。
+        Case viet, "Ti?ng Vi?t": nextLang = "関西弁"   ' 遊び心: シークレット・オプション
         Case Else: nextLang = "日本語"
     End Select
     modConfig.SetValue "answer_language", nextLang

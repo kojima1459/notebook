@@ -150,7 +150,10 @@ Public Sub EnsureLayout()
     uiStep = "資料カード見出し帯"
     With ws.Range("A11:J11")
         .Merge
-        .Value = "── 資料カード(1行=1資料。行をクリックしてから🗑削除) ─────────"
+        ' 2026-07-28(レビュー H-16): 🗑 は CP932 に無く、VBE 注入時に "??" へ
+    ' 化けていた("??削除" と表示される)。サロゲートペアを ChrW で組む。
+    .Value = "── 資料カード(1行=1資料。行をクリックしてから" & _
+             ChrW(&HD83D) & ChrW(&HDDD1) & "削除) ─────────"
         .Font.Bold = True
         .Font.Size = 10
     End With
@@ -566,11 +569,11 @@ Private Function StatusIcon(ByVal status As String) As String
     ' ChrWのコードポイント指定に統一する。
     Select Case LCase$(status)
         Case "done"
-            StatusIcon = ChrW(&H2705)                          ' ✅
+            StatusIcon = ChrW(&H2705)                          ' U+2705 チェック
         Case "pending", "partial"
-            StatusIcon = ChrW(&H23F3)                          ' ⏳
+            StatusIcon = ChrW(&H23F3)                          ' U+23F3 砂時計
         Case "failed"
-            StatusIcon = ChrW(&H26A0) & ChrW(&HFE0F)            ' ⚠️
+            StatusIcon = ChrW(&H26A0) & ChrW(&HFE0F)            ' U+26A0+FE0F 警告
         Case "image_pdf"
             StatusIcon = ChrW(&HD83D) & ChrW(&HDDBC)
         Case "missing"

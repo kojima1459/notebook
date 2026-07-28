@@ -97,7 +97,7 @@ End Sub
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
-' BuildCsvText - usage_logの2行目〜lastRow行を読み、ヘッダ+全データ行を
+' BuildCsvText - usage_logの2行目～lastRow行を読み、ヘッダ+全データ行を
 '   CSV(vbCrLf区切り)として組み立てて返す。呼び出し時点で lastRow>=2 が
 '   保証されている前提(ExportAnalyticsCsv側で検査済み)。
 Private Function BuildCsvText(ByVal ws As Worksheet, ByVal lastRow As Long) As String
@@ -174,7 +174,7 @@ Private Function BuildCsvText(ByVal ws As Worksheet, ByVal lastRow As Long) As S
     BuildCsvText = Join(lines, vbCrLf)
 End Function
 
-' ReadUsageRows - usage_logの2行目〜lastRow行(A:F列)をVariant配列で返す。
+' ReadUsageRows - usage_logの2行目～lastRow行(A:F列)をVariant配列で返す。
 '   1データ行のみの場合、Range.Valueがスカラーではなく2次元配列で返るよう
 '   手動で組み立てる(modDash.CountUsageEvent/modUIDashboard.MonthlyAskCountと
 '   同じ慣習)。
@@ -194,8 +194,8 @@ Private Function ReadUsageRows(ByVal ws As Worksheet, ByVal lastRow As Long) As 
 End Function
 
 ' ExtractSourceName - detail文字列から資料名を抜き出す。
-'   "source=<NAME> ..." 形式(ingest)は "source=" の後〜次の半角空白まで。
-'   "... src=<NAME>" 形式(thanks_emit/thanks_recv)は "src=" の後〜末尾まで。
+'   "source=<NAME> ..." 形式(ingest)は "source=" の後～次の半角空白まで。
+'   "... src=<NAME>" 形式(thanks_emit/thanks_recv)は "src=" の後～末尾まで。
 '   どちらも無ければ空文字("q=..."のask行など、資料に紐付かない行)。
 Private Function ExtractSourceName(ByVal detail As String) As String
     Dim p As Long

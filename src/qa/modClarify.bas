@@ -31,11 +31,20 @@ Option Explicit
 
 Private Const K_PENDING_Q As String = "clarify_q"        ' 聞き返し中の元質問
 Private Const K_PENDING_SRC As String = "clarify_src"    ' 候補資料名(|区切り)
+' 番号だけの返答とみなす最大文字数(これを超えたら文章とみなす)。
+Private Const MAX_CHOICE_CHARS As Long = 6
+Private Const K_PENDING_AT As String = "clarify_at"      ' 保留を作った時刻(有効期限判定用)
+
+' 保留の有効期限(分)。これを過ぎた聞き返しは無かったことにする。
+' 2026-07-28(レビュー H-12): 保留はチャットをクリアするまでブックの再起動を
+' またいで残るため、期限が無いと「翌日のまったく無関係な質問」が
+' 前日の聞き返しに吸収されるという乗っ取りが起きる。
+Private Const PENDING_TTL_MIN As Long = 30
 Private Const MAX_SRC As Long = 4
 Private Const CJK_LO As Long = 19968       ' &H4E00 CJK統合漢字 開始
 Private Const CJK_HI As Long = 40959       ' &H9FFF CJK統合漢字 終端
 Private Const KATA_LO As Long = 12449      ' &H30A1 ァ
-Private Const KATA_HI As Long = 12538      ' &H30FA ヺ
+Private Const KATA_HI As Long = 12538      ' &H30FA カタカナ末尾
 Private Const KATA_PROLONG As Long = 12540 ' &H30FC ー
 
 
@@ -54,6 +63,7 @@ Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) A
     On Error Resume Next
     modState.SaveState K_PENDING_Q, q
     modState.SaveState K_PENDING_SRC, sources
+    modState.SaveState K_PENDING_AT, Format$(Now, "yyyy-mm-dd hh:nn:ss")
     On Error GoTo 0
 
     Dim sb As String
@@ -98,14 +108,34 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function HasPending() As Boolean
     On Error Resume Next
-    HasPending = (LenB(modState.LoadState(K_PENDING_Q, "")) > 0)
+    If LenB(modState.LoadState(K_PENDING_Q, "")) = 0 Then Exit Function
+    ' 期限切れの保留は「無い」とみなし、その場で片付ける(レビュー H-12)。
+    If PendingExpired() Then
+        ClearPending
+        Exit Function
+    End If
+    HasPending = True
     On Error GoTo 0
+End Function
+
+' 保留を作ってから PENDING_TTL_MIN 分を過ぎたか。時刻が読めないときは
+' 期限切れ扱いにする(判断できない保留を残す方が危ない)。
+Private Function PendingExpired() As Boolean
+    On Error GoTo Expired
+    Dim s As String: s = modState.LoadState(K_PENDING_AT, "")
+    If LenB(s) = 0 Then Exit Function      ' 旧データ(時刻なし)は従来どおり有効
+    Dim t0 As Date: t0 = CDate(s)
+    PendingExpired = (DateDiff("n", t0, Now) > PENDING_TTL_MIN)
+    Exit Function
+Expired:
+    PendingExpired = True
 End Function
 
 Public Sub ClearPending()
     On Error Resume Next
     modState.SaveState K_PENDING_Q, ""
     modState.SaveState K_PENDING_SRC, ""
+    modState.SaveState K_PENDING_AT, ""
     On Error GoTo 0
 End Sub
 
@@ -129,9 +159,21 @@ Public Function MergeAnswer(ByVal reply As String) As String
         Exit Function
     End If
 
+    ' 2026-07-28(レビュー H-12): 番号選択とみなす条件を厳しくした。
+    '
+    ' 以前は「返答のどこかに半角1～4がある」だけで番号選択と判定し、
+    ' 利用者が実際に打った文章を捨てて「前回の質問＋対象の資料: 候補N」を
+    ' 送っていた。保険実務の質問は「第1条」「3日以内」「2026年度」のように
+    ' 数字をほぼ確実に含むため、聞き返しのあと普通に質問を書き直した人は
+    ' 自分の文章が消えたことに気付けない(何も言わずに別の質問が送られる)。
+    '
+    ' 番号選択は「番号だけを短く打った」ときに限る。それ以外は書き直しとして
+    ' 打った文章をそのまま優先する。
     Dim srcPick As String, intentPick As String
-    srcPick = PickSource(r, srcList)
-    intentPick = PickIntent(r)
+    If IsNumberChoiceOnly(r) Then
+        srcPick = PickSource(r, srcList)
+        intentPick = PickIntent(r)
+    End If
 
     ' 番号がひとつも読み取れない=自分の言葉で書き直した、と解釈する。
     If LenB(srcPick) = 0 And LenB(intentPick) = 0 Then
@@ -153,6 +195,64 @@ Public Function MergeAnswer(ByVal reply As String) As String
 End Function
 
 ' 返事から資料番号(1..MAX_SRC)を読み取り、対応する資料名を返す。
+' ----------------------------------------------------------------------------
+' IsNumberChoiceOnly - 「番号だけを打った返答」かどうか(純関数)。
+'
+' True にする例: "2" / "２" / "1-3" / "① ③" / "3." / "(2)" / "2、4"
+' False にする例: "第1条の適用範囲は?" / "3日以内に出す必要ある?" / "2026年度"
+'
+' 判定は「短い」かつ「数字とその周辺記号だけでできている」かつ
+' 「数字を1つ以上含む」の3点。文字が1つでも混じったら書き直しとみなす。
+' レビュー H-12 の恒久再発防止として、ここだけを見ればルールが分かるように
+' 1つの純関数に閉じてある(テストは modTestsPure2 側)。
+' ----------------------------------------------------------------------------
+Public Function IsNumberChoiceOnly(ByVal s As String) As Boolean
+    Dim r As String: r = Trim$(s)
+    If LenB(r) = 0 Then Exit Function
+    If Len(r) > MAX_CHOICE_CHARS Then Exit Function
+
+    Dim hasDigit As Boolean
+    Dim i As Long
+    For i = 1 To Len(r)
+        Dim cp As Long: cp = AscW(Mid$(r, i, 1))
+        If cp < 0 Then cp = cp + 65536          ' AscWは符号付きで返る
+        If IsChoiceDigit(cp) Then
+            hasDigit = True
+        ElseIf Not IsChoiceSeparator(cp) Then
+            Exit Function                        ' 数字でも区切りでもない文字
+        End If
+    Next i
+    IsNumberChoiceOnly = hasDigit
+End Function
+
+' 選択肢の番号として認める文字か。半角0-9 / 全角０-９ / 丸数字①-⑳。
+Private Function IsChoiceDigit(ByVal cp As Long) As Boolean
+    If cp >= 48 And cp <= 57 Then IsChoiceDigit = True: Exit Function        ' 0-9
+    If cp >= 65296 And cp <= 65305 Then IsChoiceDigit = True: Exit Function  ' ０-９
+    If cp >= 9312 And cp <= 9331 Then IsChoiceDigit = True                   ' ①-⑳
+End Function
+
+' 番号の周りに来てよい区切り文字か。ここに無い文字が1つでもあれば
+' 「文章を書いた」とみなす。
+Private Function IsChoiceSeparator(ByVal cp As Long) As Boolean
+    Select Case cp
+        Case 32, 9                      ' 半角スペース / タブ
+            IsChoiceSeparator = True
+        Case 12288                      ' 全角スペース
+            IsChoiceSeparator = True
+        Case 46, 44, 45, 40, 41         ' . , - ( )
+            IsChoiceSeparator = True
+        Case 65294, 65292, 65293, 65288, 65289   ' ．，－（）
+            IsChoiceSeparator = True
+        Case 12289, 12290               ' 、。
+            IsChoiceSeparator = True
+        Case 12540                      ' ー(長音。全角ハイフンの打ち間違い)
+            IsChoiceSeparator = True
+        Case 8722                       ' −(マイナス記号)
+            IsChoiceSeparator = True
+    End Select
+End Function
+
 Private Function PickSource(ByVal reply As String, ByVal srcList As String) As String
     If LenB(srcList) = 0 Then Exit Function
     Dim parts() As String
@@ -163,14 +263,14 @@ Private Function PickSource(ByVal reply As String, ByVal srcList As String) As S
         Dim num As String: num = CStr(i + 1)
         ' 「2-②」「2.」「2 」等に耐える: 半角数字の出現位置だけを見る。
         If InStr(1, reply, num) > 0 Then
-            ' ①〜⑤に含まれる数字と誤認しないよう、半角数字のみを対象にする。
+            ' ①～⑤に含まれる数字と誤認しないよう、半角数字のみを対象にする。
             PickSource = parts(i)
             Exit Function
         End If
     Next i
 End Function
 
-' 返事から意図番号(①〜⑤ または 半角1〜5の後置)を読み取る。
+' 返事から意図番号(①～⑤ または 半角1～5の後置)を読み取る。
 Private Function PickIntent(ByVal reply As String) As String
     If InStr(1, reply, ChrW(&H2460)) > 0 Then PickIntent = INTENT_1: Exit Function
     If InStr(1, reply, ChrW(&H2461)) > 0 Then PickIntent = INTENT_2: Exit Function
@@ -245,7 +345,7 @@ End Function
 ' 0x8000 以上の &H リテラルを16bit整数として解釈するため -24577 になる。
 ' その結果 "c <= &H9FFF" は正の c に対して常に偽となり、
 ' 漢字が1文字も単語として認識されていなかった(2026-07-27発見)。
-' カタカナ(&H30A1〜&H30FA)は 0x8000 未満なので偶然動いていた。
+' カタカナ(&H30A1～&H30FA)は 0x8000 未満なので偶然動いていた。
 ' 影響: 質問からのキーワード抽出が漢字を拾えず、資料調達の案内が
 ' 的外れになっていた。損保の用語はほぼ漢字なので実質機能していない。
 

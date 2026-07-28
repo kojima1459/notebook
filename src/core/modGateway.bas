@@ -365,7 +365,7 @@ CheckFail:
 End Function
 
 ' ----------------------------------------------------------------------------
-' TryRibbonRun - Variant配列argsを展開してApplication.Runを呼ぶ(要素数0〜6)。
+' TryRibbonRun - Variant配列argsを展開してApplication.Runを呼ぶ(要素数0～6)。
 '   opt層はリボン呼び出しにこれだけを使う(R3)。失敗時は例外を出さず
 '   "#ERR:E0202:<説明>" を返す。
 ' ----------------------------------------------------------------------------
@@ -403,7 +403,7 @@ Public Function TryRibbonRun(ByVal funcName As String, ByVal args As Variant) As
         Case 6
             TryRibbonRun = Application.Run(funcName, args(lo), args(lo + 1), args(lo + 2), args(lo + 3), args(lo + 4), args(lo + 5))
         Case Else
-            TryRibbonRun = "#ERR:E0202:引数の数が不正です(0〜6のみ対応)"
+            TryRibbonRun = "#ERR:E0202:引数の数が不正です(0～6のみ対応)"
     End Select
     Exit Function
 

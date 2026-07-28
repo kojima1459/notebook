@@ -59,7 +59,7 @@ Private Const OBF_KEY As String = "NexusAgentBuildObfuscationKey2026"
 '   offset_basis = 0xCBF29CE484222325
 '   prime        = 0x100000001B3            (= 2^40 + 435)
 '   文字列 s を先頭から1文字ずつ、UTF-16コードユニット(VBAのAscW値。
-'   負値は+65536して0〜65535の符号なし相当に補正)として取り出し、
+'   負値は+65536して0～65535の符号なし相当に補正)として取り出し、
 '   各コードユニットを「下位バイト→上位バイト」の順に2バイトとして
 '   FNVへ投入する:
 '     hash = offset_basis
@@ -76,7 +76,7 @@ Public Function Fnv1a64Hex(ByVal s As String) As String
     Dim i As Long
     For i = 1 To n
         Dim code As Long: code = AscW(Mid$(s, i, 1))
-        If code < 0 Then code = code + 65536   ' 符号なし0〜65535に補正
+        If code < 0 Then code = code + 65536   ' 符号なし0～65535に補正
 
         Dim byteLo As Long: byteLo = code And &HFF
         Dim byteHi As Long: byteHi = (code \ 256) And &HFF
@@ -423,7 +423,7 @@ Empty0:
     ArrLenD = 0
 End Function
 
-' Longのビットパターン(0〜2^32-1相当、符号は無視)をDoubleの数値に変換する。
+' Longのビットパターン(0～2^32-1相当、符号は無視)をDoubleの数値に変換する。
 Private Function U32ToDouble(ByVal L As Long) As Double
     If L < 0 Then
         U32ToDouble = CDbl(L) + 4294967296#     ' 2^32
@@ -449,7 +449,7 @@ End Function
 ' を計算する(各項は最大 65535*65535 ≒ 4.29e9 なのでDoubleで厳密に表現できる。
 ' Doubleが誤差なく表せる整数の上限は 2^53 ≒ 9.007e15 であり、この計算に
 ' 現れる最大の中間値でもそれを大きく下回る)。
-' これらを16bit単位の桁(digit0〜digit3)としてキャリー(繰り上がり)を
+' これらを16bit単位の桁(digit0～digit3)としてキャリー(繰り上がり)を
 ' 手動で伝播しながら合算し、
 '   lo32 = digit1*65536 + digit0
 '   hi32 = digit3*65536 + digit2

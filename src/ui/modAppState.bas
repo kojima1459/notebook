@@ -69,10 +69,10 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
     Dim sys As String
     sys = "あなたはMS&ADの最上位ナレッジコンシェルジュです。プロフェッショナルで簡潔、温かく頼りになるトーンで、" & _
           modConfig.GetString("answer_language", "日本語") & "で回答してください。" & vbLf & _
-          "・必ず最初の1〜2行で結論を言い切る(前置き・挨拶から始めない)。" & vbLf & _
+          "・必ず最初の1～2行で結論を言い切る(前置き・挨拶から始めない)。" & vbLf & _
           "・Markdown記号(#、**、`、表)は使わない(この画面では装飾されない)。" & _
           "見出しは「■ 」、箇条書きは「・」、最重要語だけ【 】で囲む。1ブロック3行以内。" & vbLf & _
-          "・全体はおおむね200〜400字。言い換えの繰り返しや締めの挨拶は書かない。" & vbLf & _
+          "・全体はおおむね200～400字。言い換えの繰り返しや締めの挨拶は書かない。" & vbLf & _
           "・専門用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。"
     If LenB(extraRules) > 0 Then sys = sys & vbLf & extraRules
 

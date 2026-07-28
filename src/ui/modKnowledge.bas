@@ -521,7 +521,7 @@ Public Sub OnImportSharedQA_Legacy()
 
     If MsgBox(total & " 件の「みんなが解決したQ&A」を本棚に取り込みます。" & vbCrLf & _
               "取り込むと、次から同じ内容を質問したときに出典つきで答えられます。" & vbCrLf & _
-              "(件数によっては1〜2分かかります)", _
+              "(件数によっては1～2分かかります)", _
               vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then GoTo Done
 
     Dim okN As Long, i As Long

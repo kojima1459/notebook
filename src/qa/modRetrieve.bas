@@ -63,10 +63,10 @@ Private Const FULLTEXT_BONUS_PER_WORD As Double = 0.06
 Private Const FULLTEXT_BONUS_MAX As Double = 0.24
 Private Const EXACT_PHRASE_BONUS As Double = 0.15
 
-' modSparse のスコアをベクトル(-1〜1)と同じ土俵へ乗せるための係数。
+' modSparse のスコアをベクトル(-1～1)と同じ土俵へ乗せるための係数。
 ' SPARSE_WEIGHT: BM25(質問長で正規化済み)にかける倍率
 ' EXACT_WEIGHT : 条番号・型番の完全一致1件あたりの加点。決定的に効かせる
-' KeyScore は 0〜20程度のスケール。ベクトル(-1〜1)と同じ土俵に乗せる係数。
+' KeyScore は 0～20程度のスケール。ベクトル(-1～1)と同じ土俵に乗せる係数。
 ' 大きすぎるとキーワードだけで順位が決まり、小さすぎるとベクトルに埋もれる。
 ' 実測(31問)で R@1 が最大になる範囲の中央を採った。
 Private Const SPARSE_WEIGHT As Double = 0.06
@@ -115,7 +115,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     End If
 
     ' 2列以上(>=2セル)の読込みは常に2次元配列になるため単一行の特別扱いは不要
-    ' (§4データモデル: 列数はmy_vectors=2, my_knowledgeは1〜7列目を読む=7列)。
+    ' (§4データモデル: 列数はmy_vectors=2, my_knowledgeは1～7列目を読む=7列)。
     Dim vData As Variant
     vData = wsV.Range(wsV.Cells(2, COL_V_ID), wsV.Cells(lastV, COL_V_VEC)).Value
 
@@ -513,9 +513,9 @@ End Function
 ' スペースが無い日本語の質問は「質問文全体」が1語になり、部分一致判定に使われる。
 
 ' ----------------------------------------------------------------------------
-' SparseBoost - キーワード側のスコア(0〜おおよそ1.0)。
+' SparseBoost - キーワード側のスコア(0～おおよそ1.0)。
 ' ----------------------------------------------------------------------------
-' ベクトル(内積)は -1〜1 のスケールなので、こちらも同程度に収めてから足す。
+' ベクトル(内積)は -1～1 のスケールなので、こちらも同程度に収めてから足す。
 ' 上限で頭打ちにはしない(強く一致したものは確実に上へ来るべき)が、
 ' 係数でスケールを合わせ、ベクトル順位を不当に覆さないようにする。
 '

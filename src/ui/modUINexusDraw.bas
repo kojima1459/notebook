@@ -32,7 +32,7 @@ Public Function ChatWidth(ByVal ws As Worksheet) As Double
     ChatWidth = ws.Range("B1:L1").Width
 End Function
 
-' 固定領域(行1〜4)の直下=会話の開始Y。FreezePanesの境界と必ず一致する。
+' 固定領域(行1～4)の直下=会話の開始Y。FreezePanesの境界と必ず一致する。
 Public Function ChatTop(ByVal ws As Worksheet) As Double
     ChatTop = ws.Rows(5).Top
 End Function
@@ -403,11 +403,11 @@ End Function
 Private Function ConfidenceTint(ByVal confText As String) As Long
     Dim head As String
     head = Left$(confText, 2)
-    If head = ChrW(&HD83D) & ChrW(&HDFE2) Then          ' 🟢 強く一致
+    If head = ChrW(&HD83D) & ChrW(&HDFE2) Then          ' U+1F7E2 緑 強く一致
         ConfidenceTint = RGB(220, 245, 225)
-    ElseIf head = ChrW(&HD83D) & ChrW(&HDFE1) Then      ' 🟡 部分的
+    ElseIf head = ChrW(&HD83D) & ChrW(&HDFE1) Then      ' U+1F7E1 黄 部分的
         ConfidenceTint = RGB(253, 246, 214)
-    ElseIf head = ChrW(&HD83D) & ChrW(&HDD34) Then      ' 🔴 根拠が乏しい
+    ElseIf head = ChrW(&HD83D) & ChrW(&HDD34) Then      ' U+1F534 赤 根拠が乏しい
         ConfidenceTint = RGB(253, 226, 226)
     Else
         ConfidenceTint = modUI.UiColor("bg")

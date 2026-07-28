@@ -357,10 +357,10 @@ Public Function LastConfidenceText() As String
                 " 本棚の資料と強く一致(" & mLastNHits & "件)"
         Case 1
             LastConfidenceText = ChrW(&HD83D) & ChrW(&HDFE1) & _
-                " 部分的に一致 — 下の出典で原文をご確認ください"
+                " 部分的に一致 ― 下の出典で原文をご確認ください"
         Case Else
             LastConfidenceText = ChrW(&HD83D) & ChrW(&HDD34) & _
-                " 本棚に十分な根拠なし — 内容をうのみにしないでください"
+                " 本棚に十分な根拠なし ― 内容をうのみにしないでください"
     End Select
 End Function
 

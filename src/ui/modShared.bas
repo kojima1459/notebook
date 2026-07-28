@@ -274,7 +274,7 @@ Public Sub OnImportSelected()
     End If
 
     If MsgBox("選択した " & total & " 件を本棚に取り込みます。" & vbCrLf & _
-              "(件数によっては1〜2分かかります)", _
+              "(件数によっては1～2分かかります)", _
               vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then GoTo Done
 
     Dim rows_() As Long

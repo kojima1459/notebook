@@ -20,7 +20,7 @@ Option Explicit
 '     (ループ内でCellsの直接アクセスを繰り返さない。MASTER_SPEC §12)。
 '     成功行の書込み(embeddedフラグ・vectors追記)自体は再開可能性のため
 '     都度Cellsへ書く必要があるが、これは「毎回シート全体を読み直す」
-'     パターンではなく1〜2セルへの確定書込みのみなので同じ問題ではない。
+'     パターンではなく1～2セルへの確定書込みのみなので同じ問題ではない。
 '   ・3連続失敗の判定に加え、modGateway.GetEmbedding は失敗時に応答文字列を
 '     外へ返さない契約(空配列のみ)のため、LooksLikeLimitError へ渡す
 '     材料がこのモジュールには直接無い。そこで直近の modLog.LogError 書込み
@@ -149,7 +149,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         Dim bN As Long: bN = bEnd - bStart + 1
 
         On Error Resume Next
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & (bStart + 1) & "〜" & (bEnd + 1) & "/" & limit & " …"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & (bStart + 1) & "～" & (bEnd + 1) & "/" & limit & " …"
         On Error GoTo 0
 
         On Error GoTo EscOrErr

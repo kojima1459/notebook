@@ -323,7 +323,7 @@ Public Function NoticeText() As String
         If LenB(what) = 0 Then
             sb = sb & vbLf & "　・" & who & " さん"
         Else
-            sb = sb & vbLf & "　・" & who & " さん —「" & modUtil.SafeLeft(what, 40) & "」"
+            sb = sb & vbLf & "　・" & who & " さん ―「" & modUtil.SafeLeft(what, 40) & "」"
         End If
     Next i
     If mThanksN > shown Then sb = sb & vbLf & "　　ほか " & (mThanksN - shown) & "件"

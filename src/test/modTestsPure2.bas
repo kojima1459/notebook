@@ -225,6 +225,8 @@ NextPack:
     RunModeTests
     On Error GoTo ChannelFail
     RunChannelOriginTests
+    On Error GoTo ClarifyFail
+    RunClarifyChoiceTests
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -240,6 +242,9 @@ SparseFail:
     Resume NextDone
 ChannelFail:
     modTestRunner.Check "RunChannelOriginTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone
+ClarifyFail:
+    modTestRunner.Check "RunClarifyChoiceTests(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
@@ -519,4 +524,48 @@ Private Sub RunChannelOriginTests()
     ' 部門名が違えばタグも違う(切替時に他部門を巻き込まない)。
     modTestRunner.Check "ChannelOriginTag_部門ごとに異なる", _
         (modChannel.ChannelOriginTag("商品部") <> modChannel.ChannelOriginTag("人事部"))
+End Sub
+
+
+' ----------------------------------------------------------------------------
+' 聞き返しの「番号選択」判定(2026-07-28 レビュー H-12 の恒久再発防止)
+'
+' 実バグ: 聞き返し保留中の返信に半角1～4がどこかに1つでもあれば番号選択と
+' みなし、利用者が実際に打った文章を捨てて「前回の質問＋対象の資料: 候補N」
+' を送っていた。保険実務の質問は「第1条」「3日以内」のように数字をほぼ確実に
+' 含むので、書き直したつもりの人の文章が黙って消えていた。
+'
+' 固定するルール: 番号選択とみなすのは「番号だけを短く打った」ときだけ。
+' 日本語が1文字でも混ざったら、それは書き直しである。
+' ----------------------------------------------------------------------------
+Private Sub RunClarifyChoiceTests()
+    ' --- 番号だけ = True ---
+    modTestRunner.Check "番号選択_半角1文字", modClarify.IsNumberChoiceOnly("2")
+    modTestRunner.Check "番号選択_全角数字", modClarify.IsNumberChoiceOnly(ChrW(65298))
+    modTestRunner.Check "番号選択_丸数字", modClarify.IsNumberChoiceOnly(ChrW(9313))
+    modTestRunner.Check "番号選択_資料と観点の組", modClarify.IsNumberChoiceOnly("1-3")
+    modTestRunner.Check "番号選択_丸数字2つ", _
+        modClarify.IsNumberChoiceOnly(ChrW(9312) & " " & ChrW(9314))
+    modTestRunner.Check "番号選択_ピリオド付き", modClarify.IsNumberChoiceOnly("3.")
+    modTestRunner.Check "番号選択_括弧付き", modClarify.IsNumberChoiceOnly("(2)")
+    modTestRunner.Check "番号選択_読点区切り", modClarify.IsNumberChoiceOnly("2" & ChrW(12289) & "4")
+    modTestRunner.Check "番号選択_前後空白", modClarify.IsNumberChoiceOnly("  1  ")
+
+    ' --- 文章 = False(ここが実バグの本体) ---
+    modTestRunner.Check "書き直し_第1条を含む質問は番号選択ではない", _
+        (Not modClarify.IsNumberChoiceOnly("第1条の適用範囲は?"))
+    modTestRunner.Check "書き直し_3日以内を含む質問は番号選択ではない", _
+        (Not modClarify.IsNumberChoiceOnly("3日以内に出す必要ある?"))
+    modTestRunner.Check "書き直し_年度を含む短文も番号選択ではない", _
+        (Not modClarify.IsNumberChoiceOnly("2026年度"))
+    modTestRunner.Check "書き直し_数字なしの文章", _
+        (Not modClarify.IsNumberChoiceOnly("もっと詳しく教えて"))
+
+    ' --- 境界 ---
+    modTestRunner.Check "番号選択_空文字はFalse", (Not modClarify.IsNumberChoiceOnly(""))
+    modTestRunner.Check "番号選択_空白のみはFalse", (Not modClarify.IsNumberChoiceOnly("   "))
+    modTestRunner.Check "番号選択_区切りだけで数字なしはFalse", _
+        (Not modClarify.IsNumberChoiceOnly("-.-"))
+    modTestRunner.Check "番号選択_長すぎる数字列はFalse", _
+        (Not modClarify.IsNumberChoiceOnly("1234567890"))
 End Sub

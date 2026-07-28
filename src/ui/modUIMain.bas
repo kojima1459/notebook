@@ -378,7 +378,7 @@ End Sub
 ' これはこのアプリで最も価値のある1秒。ここに来た時点で「どの資料に答えが
 ' あるか」は既に判明しており、あとはLLMが文章にするのを待つだけになっている。
 ' 従来はその事実を旧ホームシートのセルにだけ書いていたため、Nexusチャットを
-' 見ている利用者には最後まで伝わらず、10〜20秒がただの無反応だった。
+' 見ている利用者には最後まで伝わらず、10～20秒がただの無反応だった。
 ' 実況先(生成中バブル)が預けられていれば、そちらへも必ず出す。
 Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
     ' 先に実況へ出す(こちらが利用者の見ている画面)。
@@ -704,9 +704,9 @@ End Sub
 
 Private Function ModeCaption(ByVal mode As String) As String
     If mode = "deep" Then
-        ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる (1〜2分)"
+        ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる (1～2分)"
     Else
-        ModeCaption = ChrW(&H26A1) & " すぐ聞く (10〜20秒)"
+        ModeCaption = ChrW(&H26A1) & " すぐ聞く (10～20秒)"
     End If
 End Function
 

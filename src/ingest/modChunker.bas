@@ -114,7 +114,7 @@ End Function
 '   ・条見出し 252行のうち 51行(20.2%)を見出しとして認識できていなかった
 '     内訳はほぼ全てが2桁の条。PDFの字詰めで「第１ １条」「第 １ ０ 条」の
 '     ように数字のあいだへ空白が入り、MatchesDaiN(数字の連続を要求)が外れる。
-'     第1条〜第9条は通り、第10条以降が全滅する ―― 約款の中身の大半である。
+'     第1条～第9条は通り、第10条以降が全滅する ―― 約款の中身の大半である。
 '   ・「- 19 -」のようなページ番号行が本文に混じり、条文を分断していた。
 '
 ' 見出しを取りこぼすと、その条は本文として隣の条にくっつき、
@@ -143,7 +143,7 @@ Public Function NormalizeForIngest(ByVal s As String) As String
     NormalizeForIngest = Join(keep, vbLf)
 End Function
 
-' JoinSplitNumbers - 「第 １ ０ 条」→「第10条」。第〜条/章/節/項/号 の
+' JoinSplitNumbers - 「第 １ ０ 条」→「第10条」。第～条/章/節/項/号 の
 '   あいだにある空白だけを取り除く(本文の空白には触れない)。
 '   全角数字は半角へ寄せる(検索側も半角で来るため)。
 Public Function JoinSplitNumbers(ByVal lineText As String) As String
@@ -189,7 +189,7 @@ Public Function JoinSplitNumbers(ByVal lineText As String) As String
     JoinSplitNumbers = out
 End Function
 
-' IsPageNumberLine - 「- 19 -」「—19—」「‐ 3 ‐」等、ページ番号だけの行か。
+' IsPageNumberLine - 「- 19 -」「―19―」「‐ 3 ‐」等、ページ番号だけの行か。
 Public Function IsPageNumberLine(ByVal lineText As String) As Boolean
     Dim t As String: t = Trim$(lineText)
     t = Replace(Replace(t, ChrW(&H3000), ""), " ", "")
@@ -499,7 +499,7 @@ Private Function IsNumberHeading(ByVal t As String) As Boolean
     IsNumberHeading = (sep = "." Or sep = "．")
 End Function
 
-' 箇条書きマーカー: ・ / - / (N) / （N） / ①〜⑳ 始まり。
+' 箇条書きマーカー: ・ / - / (N) / （N） / ①～⑳ 始まり。
 Private Function IsItemMarker(ByVal t As String) As Boolean
     Dim h As String: h = Left$(t, 1)
     If h = "・" Then IsItemMarker = True: Exit Function
@@ -510,7 +510,7 @@ Private Function IsItemMarker(ByVal t As String) As Boolean
     End If
     Dim code As Long: code = AscW(h)
     If code < 0 Then code = code + 65536
-    IsItemMarker = (code >= &H2460 And code <= &H2473)   ' ①〜⑳
+    IsItemMarker = (code >= &H2460 And code <= &H2473)   ' ①～⑳
 End Function
 
 ' 半角/全角数字か。

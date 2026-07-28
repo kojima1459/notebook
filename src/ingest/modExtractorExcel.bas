@@ -35,13 +35,38 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Dim restoreScreen As Boolean: restoreScreen = Application.ScreenUpdating
     Application.ScreenUpdating = False
 
+    ' 2026-07-28(レビュー H-11): 同じExcelで既に開かれているブックは触らない。
+    ' 開いていると Workbooks.Open は既存のブックオブジェクトを返すので、
+    ' 抽出後の wb.Close False が【利用者が編集中のブックを破棄して閉じる】
+    ' ことになる。%TEMP% コピー経由なら普通は起きないが、コピーに失敗して
+    ' 原本を掴んだ場合に直撃する。取り込めないと伝える方が桁違いにましである。
+    If IsWorkbookOpen(path) Then
+        errDetail = "このファイルは今このExcelで開かれています。閉じてから取り込んでください"
+        Application.ScreenUpdating = restoreScreen
+        Extract = False
+        Exit Function
+    End If
+
+    ' 取り込むブックのマクロ(Auto_Open/Workbook_Open)を走らせない。
+    ' 3 = msoAutomationSecurityForceDisable。イベントも止める。
+    ' どちらも必ず元の値へ戻す(Failed 経路を含む)。
+    Dim prevSec As Long: prevSec = -1
+    Dim prevEvents As Boolean: prevEvents = Application.EnableEvents
+    On Error Resume Next
+    prevSec = Application.AutomationSecurity
+    Application.AutomationSecurity = 3
+    Application.EnableEvents = False
+    Err.Clear
     On Error GoTo Failed
+
     Set wb = Application.Workbooks.Open( _
         FileName:=path, _
         ReadOnly:=True, _
         UpdateLinks:=0, _
         IgnoreReadOnlyRecommended:=True, _
-        AddToMru:=False)
+        AddToMru:=False, _
+        Password:="__mybookshelf_no_password__", _
+        WriteResPassword:="__mybookshelf_no_password__")
 
     Dim sheetCount As Long: sheetCount = wb.Worksheets.count
     If sheetCount < 1 Then sheetCount = 1
@@ -62,6 +87,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Next s
 
     wb.Close False
+    RestoreAppState prevSec, prevEvents
     Application.ScreenUpdating = restoreScreen
     Set wb = Nothing
 
@@ -76,8 +102,53 @@ Failed:
         wb.Close False
         On Error GoTo 0
     End If
+    RestoreAppState prevSec, prevEvents
     Application.ScreenUpdating = restoreScreen
     Extract = False
+End Function
+
+' AutomationSecurity / EnableEvents を元へ戻す。戻し忘れると、
+' このセッションのExcel全体でイベントが死ぬ(他ブックまで巻き添えになる)。
+Private Sub RestoreAppState(ByVal prevSec As Long, ByVal prevEvents As Boolean)
+    On Error Resume Next
+    If prevSec >= 0 Then Application.AutomationSecurity = prevSec
+    Application.EnableEvents = prevEvents
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' 同名のブックが既にこのExcelで開かれているか。Workbooks(名前) は
+' フルパスではなくファイル名で引くため、名前で照合する。
+Private Function IsWorkbookOpen(ByVal path As String) As Boolean
+    On Error Resume Next
+    Dim nm As String: nm = modUtil.FileNameOf(path)
+    If LenB(nm) = 0 Then Exit Function
+    Dim wbx As Object
+    Set wbx = Application.Workbooks(nm)
+    IsWorkbookOpen = Not (wbx Is Nothing)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+' エラー値セルを、画面に出ているのと同じ表記の文字列にする。
+' CVErr の値から逆引きする(CStr は型不一致で落ちるため使えない)。
+Private Function ErrorCellText(ByVal v As Variant) As String
+    On Error Resume Next
+    Dim code As Long
+    code = CLng(v)                     ' vbError の中身は xlErr* の数値
+    Select Case code
+        Case 2000: ErrorCellText = "#NULL!"
+        Case 2007: ErrorCellText = "#DIV/0!"
+        Case 2015: ErrorCellText = "#VALUE!"
+        Case 2023: ErrorCellText = "#REF!"
+        Case 2029: ErrorCellText = "#NAME?"
+        Case 2036: ErrorCellText = "#NUM!"
+        Case 2042: ErrorCellText = "#N/A"
+        Case 2043: ErrorCellText = "#GETTING_DATA"
+        Case Else: ErrorCellText = "#ERR"
+    End Select
+    Err.Clear
+    On Error GoTo 0
 End Function
 
 ' シート全体を1回のCOM往復(used.Value)で配列取得し、タブ区切り行のテキストにする。
@@ -106,7 +177,17 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
             Dim cellCount As Long: cellCount = 0
             For c = 1 To lastC
                 Dim v As Variant: v = arr(r, c)
-                If Not IsEmpty(v) Then
+                ' 2026-07-28(レビュー H-10): エラー値(#N/A/#REF!/#DIV/0! 等)は
+                ' Variant の型が vbError で、CStr() が型の不一致(13)を投げる。
+                ' 従来はそれで抽出済みシートまで破棄して E0302 で全体失敗して
+                ' いた。VLOOKUP の #N/A を含む一覧表は実務で頻出なので、
+                ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
+                ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
+                ' (空にすると列がずれて表の意味が変わるため、残す)。
+                If IsError(v) Then
+                    cellParts(cellCount) = ErrorCellText(v)
+                    cellCount = cellCount + 1
+                ElseIf Not IsEmpty(v) Then
                     cellParts(cellCount) = CStr(v)
                     cellCount = cellCount + 1
                 End If

@@ -130,6 +130,9 @@ PURE_ALLOWLIST = [
     # まるごと空振りする(2026-07-28 レビュー C-1 の実バグ)。コンパイルごと
     # 載せてタグ規約を実行テストで固定する。
     "modChannel",
+    # modClarify: 聞き返し。IsNumberChoiceOnly は純関数で、ここがゆるいと
+    # 利用者が打った質問が黙って捨てられる(2026-07-28 レビュー H-12 の実バグ)。
+    "modClarify",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

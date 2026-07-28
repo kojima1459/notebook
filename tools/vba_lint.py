@@ -624,6 +624,59 @@ def check_basics(info: ModuleInfo) -> None:
         )
 
 
+def check_cp932_safe(info: ModuleInfo) -> None:
+    """CP932に無い文字がソースに混ざっていないか。
+
+    このブックは開くたび vba_src シートのソースを VBE へ注入するが、VBE は
+    コードを CP932 で保持する。CP932 に無い文字はリテラル "?"(0x3F)として
+    保存されるため、実行時の文字列がそのまま化ける。
+    2026-07-28 のレビュー(H-16)では、全RAG回答の信頼度表示・常時見えている
+    モードボタン・言語名・LLMへの指示文まで20箇所が化けていた。
+    しかも vbaProject.bin を覗かないと気付けない(ソースは正しく見える)。
+
+    規約(modUINexusDraw 冒頭)は「非ASCIIは ChrW で組む」だが、規約は破られる。
+    ここで機械的に落とす。実行時文字列は ERROR、コメントは WARN
+    (コメントの化けは動作に影響しないが、次に読む人が混乱する)。
+
+    代表的な差し替え先:
+        〜 U+301C  -> ～ U+FF5E   (見た目は同じ。CP932 の 0x8160 はこちら)
+        —  U+2014  -> ― U+2015   (CP932 の 0x815C)
+        絵文字・ベトナム語の声調記号 -> ChrW() で組み立てる
+    """
+    # 検査するのはコメントを除いた実行文だけ。コメント側の絵文字は
+    # 「このChrWが何の字か」を示す注釈で、化けても動作に影響しない。
+    # そこまで ERROR/WARN にすると警告が数十件常駐して、本当に直すべき
+    # 実行時文字列の1件が埋もれる(それでは検査の意味が無い)。
+    for lineno, stmt in info.statements:
+        bad = sorted({ch for ch in stmt if not _cp932_encodable(ch)})
+        if not bad:
+            continue
+        shown = " ".join(f"{ch}(U+{ord(ch):04X})" for ch in bad[:6])
+        info.add(
+            "ERROR", lineno,
+            f"CP932に無い文字が実行文に含まれる: {shown} 。"
+            f"VBEへの注入時に'?'へ化けます。ChrW()で組むかCP932内の字へ置き換えてください",
+        )
+
+
+def _cp932_encodable(ch: str) -> bool:
+    # Pythonのcp932コーデックはWindowsより寛容な文字(U+301C等)があるため、
+    # Windowsの CP932 表に合わせて明示的に除外する。
+    if ch in _CP932_DENY:
+        return False
+    try:
+        ch.encode("cp932")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+# WindowsのCP932では0x8160はU+FF5Eであり、U+301C(WAVE DASH)には対応バイトが
+# 無い。同様にU+2212/U+00A2等もWindows側では落ちる。実機で"?"化を確認した
+# 文字を明示的に拒否する(Pythonのコーデックだけに任せると見逃す)。
+_CP932_DENY = frozenset("〜‖−¢£¬")
+
+
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
@@ -1037,6 +1090,7 @@ def run_lint(src_root: Path) -> int:
 
     for info in modules:
         check_basics(info)
+        check_cp932_safe(info)
         check_dim_type_drop_and_integer(info)
         check_name_shadowing(info)
         check_declaration_position(info)
