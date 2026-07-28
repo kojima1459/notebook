@@ -385,9 +385,16 @@ Failed:
     resultStatus = "failed"
 
 Finish:
-    On Error Resume Next
-    modUIShelf.RenderShelf
-    On Error GoTo 0
+    ' 2026-07-28(レビュー I-11): 同期中(silent)は1件ごとに再描画しない。
+    ' RenderShelf は manifest と my_knowledge を全読みして最大400枚の
+    ' カードを描き直すので、フォルダ同期で100件取り込むと
+    ' O(件数×総チャンク)になり、取込より描画の方が時間を食う。
+    ' 同期の完了時に呼び出し側(SyncNow)が1回だけ描き直す。
+    If Not silent Then
+        On Error Resume Next
+        modUIShelf.RenderShelf
+        On Error GoTo 0
+    End If
 
     mIngesting = False
     IngestFile = resultStatus

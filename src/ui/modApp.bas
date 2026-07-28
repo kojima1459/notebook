@@ -279,19 +279,6 @@ Public Function ModeCaption() As String
     End If
 End Function
 
-' OnSelectBubble - 旧UIのバブル選択(現在は未使用。文脈アクションが常に最新の
-' 回答へ紐づくため対象切り替えの概念自体を廃止した)。外部からの誤呼び出しに
-' 備えて残す。
-Public Sub OnSelectBubble()
-    Dim callerName As String
-    On Error Resume Next
-    callerName = CStr(Application.Caller)
-    On Error GoTo 0
-    If LenB(callerName) = 0 Then Exit Sub
-
-    mActiveBubble = callerName
-    modUI.MarkActiveBubble callerName
-End Sub
 
 ' Peek View(出典ポップアップ): 出典チップ/ポップアップのクリック受け。
 ' 出典チップ(nx_cite_<i>)のクリック → そのチャンク本文をポップアップ表示。
@@ -316,19 +303,6 @@ Public Sub OnPeekClose()
     modUiLock.Leave
 End Sub
 
-' フローティング・アクションバー(裁定②): 選択中バブルに対して発火
-Public Sub OnActGood()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-    If Not modAppState.HasTarget() Then GoTo Done
-    On Error Resume Next
-    modStats.Bump "hint_total"
-    modLog.LogUsage "feedback_good", modAppState.CurrentMode(), modUtil.SafeLeft(modAppState.TargetText(), 120)
-    On Error GoTo Done
-    modSkin.ShowToast "フィードバックありがとうございます。今後の回答の質に活かします。", "success"
-Done:
-    modUiLock.Leave
-End Sub
 
 ' ❌ 違う: まずシグナルだけ1クリックで確定させ、修正入力は任意で聞く。
 ' 入力を先に要求すると、面倒が勝って誰も押さなくなる(旧実装の失敗)。
@@ -610,21 +584,6 @@ Public Sub OnNavShelf()
     modUiLock.Leave
 End Sub
 
-Public Sub OnNavVault()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    modVault.ShowVaultGallery
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
-
-Public Sub OnNavDash()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    modDash.ShowDashboard
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
 
 ' 🔄 画面を再描画(盲点B2/C5): ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の
 ' 移動でShapeがゴースト化/ズレたとき、ユーザーが1クリックで現在の画面を作り直す。

@@ -115,6 +115,11 @@ Public Function IsSubscribed(ByVal chName As String) As Boolean
 End Function
 
 ' 購読を戻す(除外リストから外す)。
+' 2026-07-28(レビュー I-14/I-4): 現在この2本を呼ぶUIは無い。ただし
+' unsubscribed_channels 自体は IsSubscribed → PendingUpdates 経由で
+' Hub の更新通知に効いており「死に設定」ではない。設定UIが無いだけなので、
+' config を手編集する運用のための対として残す(消すと設定を安全に
+' 書き換える手段が無くなる)。
 Public Sub Subscribe(ByVal chName As String)
     On Error Resume Next
     Dim ex As String: ex = modConfig.GetString("unsubscribed_channels", "")
@@ -627,34 +632,6 @@ Public Function SubscribeAllAvailable() As String
     On Error GoTo 0
 End Function
 
-' ----------------------------------------------------------------------------
-' PublishChannel - 自分の本棚の内容を、部門の正典として発行する(発行者用)。
-'   既存の pack.xlsx は消さず、_archive へ版を残してから置き換える。
-'   誤発行しても過去版から戻せるようにするための世代管理。
-'   実際のパック生成は modPack のダイアログ経路を使う(PII走査を必ず通す
-'   ため。無言でPII入りの資料を全社配布する経路は作らない)。
-' ----------------------------------------------------------------------------
-Public Function PrepareChannelDir(ByVal chName As String) As String
-    On Error Resume Next
-    Dim d As String: d = ChannelsDir()
-    If LenB(d) = 0 Then Exit Function
-    EnsureDir d
-    EnsureDir d & chName & "\"
-    EnsureDir d & chName & "\" & ARCHIVE_DIR & "\"
-    PrepareChannelDir = d & chName & "\"
-    On Error GoTo 0
-End Function
-
-' 新しい版番号を書き込む(発行の最後に呼ぶ)。既存版は _archive に退避済み前提。
-Public Sub WriteVersion(ByVal chName As String, ByVal author As String)
-    On Error Resume Next
-    Dim d As String: d = PrepareChannelDir(chName)
-    If LenB(d) = 0 Then Exit Sub
-    Dim ver As String
-    ver = Format$(Now, "yyyymmdd-hhnn") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & author
-    WriteShared d & VER_NAME, ver
-    On Error GoTo 0
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' 内部

@@ -99,7 +99,11 @@ End Function
 ' featureId -> モジュール名 対応表(MASTER_SPEC §7.1)。
 Private Function ModuleNameOf(ByVal featureId As String) As String
     Select Case featureId
-        Case "tts": ModuleNameOf = "optTts"
+        ' 2026-07-28(レビュー I-15): optTts は実体が無い(AIリボンが読み上げAPIを
+        ' 公開していないため作れなかった)。config feature_tts は既定FALSEで
+        ' 握り潰されるので実害は無いが、対応表に載っていると「あるはず」に
+        ' 見える。名前は残しつつ、無いことをここに明記する。
+        Case "tts": ModuleNameOf = "optTts"   ' 実体なし(feature_tts=False固定)
         Case "vision": ModuleNameOf = "optVision"
         Case "markdown": ModuleNameOf = "optMarkdown"
         Case "diffdoc": ModuleNameOf = "optDiffDoc"

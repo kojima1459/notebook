@@ -362,6 +362,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         On Error GoTo 0
     End If
 
+    ' 2026-07-28(レビュー I-11): 本棚カードの描き直しは同期の最後に1回だけ。
+    ' IngestFile は silent のとき描かないので、ここで必ず1回呼ぶ。
+    On Error Resume Next
+    modUIShelf.RenderShelf
+    On Error GoTo Failed
+
     If silent Then
         ' バックグラウンド同期(sync_on_open/自動同期)は対話ダイアログで
         ' フォーカスを奪わない。状態表示行+StatusBarのみで完了を知らせる

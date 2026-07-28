@@ -1,6 +1,10 @@
 Attribute VB_Name = "modBitwiseOpt"
 Option Explicit
 
+' 次元不一致でキャッシュに載せられなかった行数(レビュー L-1)。
+' 呼び出し側はこれを見て「キャッシュが本棚を代表していない」ことを判断する。
+Private mSkippedDim As Long
+
 ' ============================================================================
 ' modBitwiseOpt - バイナリ量子化ハイブリッドRAG(狂気案Lv.1)。完全独立の最適化層。
 ' ----------------------------------------------------------------------------
@@ -117,6 +121,19 @@ Public Function Prefilter(ByRef qv() As Double, ByRef vData As Variant, _
     If Not BuildCache(vData) Then GoTo Fail
     If mNCached < 1 Then GoTo Fail
 
+    ' 2026-07-28(レビュー L-1): キャッシュが本棚を代表していないなら辞退する。
+    ' 次元不一致で載らなかった行が1件でもあると、その資料は粗選別の
+    ' 候補に一度も入らず、検索結果から静かに消える。
+    ' 「速いが一部見えない」より「遅いが全部見える」を選ぶ。
+    ' 辞退すると呼び出し側は従来どおり全件Float比較へ退避する。
+    If mSkippedDim > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "binary_rag_declined", "", _
+            "次元不一致" & mSkippedDim & "件のため粗選別を辞退し全件比較へ退避"
+        On Error GoTo Fail
+        GoTo Fail
+    End If
+
     Dim qcode() As Long
     QuantizeToLongs qv, qcode
     If (UBound(qcode) - LBound(qcode) + 1) <> mNLongs Then GoTo Fail   ' 次元不一致→辞退
@@ -183,6 +200,7 @@ Private Function BuildCache(ByRef vData As Variant) As Boolean
     rLo = LBound(vData, 1): rHi = UBound(vData, 1)
 
     ' 次元をまず1件確定(nLongs算出)
+    mSkippedDim = 0
     Dim nLongs As Long: nLongs = 0
     Dim r As Long
     For r = rLo To rHi
@@ -209,7 +227,17 @@ Private Function BuildCache(ByRef vData As Variant) As Boolean
         If LenB(vcsv) = 0 Then GoTo NextRow
         Dim vv() As Double
         If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextRow
-        If (UBound(vv) - LBound(vv) + 1 + 31) \ 32 <> nLongs Then GoTo NextRow   ' 次元不一致はキャッシュ対象外
+        ' 2026-07-28(レビュー L-1): 次元が違う行はキャッシュに載せられない。
+        ' 従来はここで黙って捨てていたため、次元が混在するストア
+        ' (embed_dim 変更後に再埋め込みが途中まで進んだ状態など)では
+        ' 【残りの行が検索から丸ごと消えて】いた。0件になるならまだしも、
+        ' 「一部だけ出る」ので誰も異常に気付けない。
+        ' 捨てた件数を数えておき、呼び出し側が多すぎると判断したら
+        ' キャッシュ自体を使わない(全件Float比較へ退避する)。
+        If (UBound(vv) - LBound(vv) + 1 + 31) \ 32 <> nLongs Then
+            mSkippedDim = mSkippedDim + 1
+            GoTo NextRow
+        End If
 
         Dim code() As Long
         QuantizeToLongs vv, code
@@ -324,3 +352,10 @@ Private Sub RecomputeWorst(ByRef dist() As Long, ByVal n As Long, _
         End If
     Next i
 End Sub
+
+' 直近の BuildCache で次元不一致により除外した行数。
+' 0より大きいときは、そのキャッシュは本棚全体を表していない
+' (=そのまま検索に使うと、載らなかった資料が結果から消える)。
+Public Function SkippedByDimension() As Long
+    SkippedByDimension = mSkippedDim
+End Function

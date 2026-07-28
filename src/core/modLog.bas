@@ -51,6 +51,7 @@ Public Sub LogError(ByVal code As String, ByVal context As String, ByVal detail 
     ws.Cells(r, 5).Value = modAppDef.APP_VERSION & IIf(LenB(buildStamp) > 0, " " & buildStamp, "")
     ws.Cells(r, 6).Value = err_number
     ws.Cells(r, 7).Value = http_status
+    TrimLog ws
 
     If modConfig.GetBool("debug_mode", False) Then
         Debug.Print "[modLog.LogError] " & code & " " & context & " : " & detail & _
@@ -75,6 +76,7 @@ Public Sub LogUsage(ByVal event_name As String, ByVal mode As String, ByVal deta
     ws.Cells(r, 4).Value = modUtil.SafeLeft(detail, 2000)
     ws.Cells(r, 5).Value = latency_ms
     ws.Cells(r, 6).Value = hit_count
+    TrimLog ws
     Exit Sub
 Fail:
     Debug.Print "[modLog.LogUsage:書込失敗] " & event_name & " " & mode & " : " & detail
@@ -216,3 +218,35 @@ Private Function NextRow(ByVal ws As Worksheet) As Long
     If r < 1 Then r = 1
     NextRow = r + 1
 End Function
+
+' ----------------------------------------------------------------------------
+' TrimLog - ログシートの古い行を落として上限行数に収める。
+'
+' 2026-07-28(レビュー I-1): err_log / usage_log は無限追記だった。
+' このブックは自己インストーラが開くたび ThisWorkbook.Save するので、
+' 行が増えるほど毎起動の保存が重くなり、最後はファイルサイズそのものが
+' 配布の邪魔になる。チャット履歴(modChatLog)は既に100件でローテして
+' いたのに、ログ側だけ野放しだった。
+'
+' 新しい行は末尾へ積む(NextRow)。したがって落とすのは【上側=古い方】で、
+' 直近の記録は必ず残す。ここを逆にすると、障害が起きた直後に最も見たい
+' 行から消えるという最悪の挙動になる。
+' 毎回 EntireRow.Delete すると重いので、上限を1割超えてから
+' 上限ちょうどまで一気に削る(削る頻度を下げる)。
+' 保持件数は config log_max_rows(既定2000・0以下でローテ無効)。
+' ----------------------------------------------------------------------------
+Private Sub TrimLog(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim maxRows As Long
+    maxRows = modConfig.GetLong("log_max_rows", 2000)
+    If maxRows <= 0 Then Exit Sub
+
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    Dim dataRows As Long: dataRows = lastRow - 1
+    If dataRows <= maxRows + (maxRows \ 10) Then Exit Sub
+
+    ' 残すのは末尾 maxRows 行。ヘッダ(1行目)の直下から、余った分だけ消す。
+    Dim dropCount As Long: dropCount = dataRows - maxRows
+    ws.Range(ws.Cells(2, 1), ws.Cells(1 + dropCount, 1)).EntireRow.Delete
+    On Error GoTo 0
+End Sub

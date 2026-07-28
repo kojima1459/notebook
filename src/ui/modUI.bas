@@ -52,6 +52,18 @@ Public Sub InitUI()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-07-28(レビュー L-17): ws.Activate に失敗していた場合、ここから
+    ' 先の ActiveWindow 設定と FreezePanes は【別のシート】に適用される。
+    ' 利用者から見ると「触っていない画面の見出しが消え、変な位置で固定
+    ' された」という説明のつかない壊れ方になる。
+    ' Repaint 側には既にあるシート一致ガードを、こちらにも入れる。
+    Dim isFront As Boolean
+    On Error Resume Next
+    isFront = (ThisWorkbook.ActiveSheet Is ws)
+    On Error GoTo 0
+    If Not isFront Then Exit Sub
+
     On Error Resume Next
     With ActiveWindow
         .DisplayGridlines = False

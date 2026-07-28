@@ -240,6 +240,13 @@
       "wave": "NEXUS-P4"
     },
     {
+      "name": "modP2PIo",
+      "path": "src/pack/modP2PIo.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
       "name": "modChannel",
       "path": "src/pack/modChannel.bas",
       "role": "core",

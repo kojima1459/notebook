@@ -313,30 +313,6 @@ Private Sub OnVaultSearchKeepPage()
     Application.ScreenUpdating = True
 End Sub
 
-' ツールバー: 既存エンジンへの配線(実装済み機能の入口)
-Public Sub OnVaultExportPack()
-    modPackExport.ExportPackDialog
-End Sub
-
-Public Sub OnVaultImportPack()
-    modPack.ImportPackDialog
-    OnVaultSearchKeepPage
-End Sub
-
-Public Sub OnVaultPickFolder()
-    modShelfSync.PickShelfFolder
-    OnVaultSearchKeepPage
-End Sub
-
-Public Sub OnVaultSyncNow()
-    modShelfSync.SyncNow
-    OnVaultSearchKeepPage
-End Sub
-
-Public Sub OnVaultAddFiles()
-    modShelf.AddFilesViaDialog
-    OnVaultSearchKeepPage
-End Sub
 
 Public Sub OnVaultBackToChat()
     modUI.GoToNexus "modVault.OnVaultBackToChat"

@@ -1,6 +1,9 @@
 Attribute VB_Name = "modP2P"
 Option Explicit
 
+' my_stats に置く nonce 行の接頭辞(レビュー L-15)。GcOldNonces が掃除する。
+Private Const NONCE_PREFIX As String = "thx:"
+
 ' ============================================================================
 ' modP2P - Phase 4: P2P 感謝状(EXP交換)+ AD連携ユーザーID
 ' ----------------------------------------------------------------------------
@@ -46,38 +49,18 @@ Public Function CurrentUserId() As String
     On Error Resume Next
     Dim adsi As Object
     Set adsi = CreateObject("ADSystemInfo")
-    uid = CnFromDn(CStr(adsi.UserName))   ' 例 "CN=山田 太郎,OU=..,DC=.."
+    uid = modP2PIo.CnFromDn(CStr(adsi.UserName))   ' 例 "CN=山田 太郎,OU=..,DC=.."
     Set adsi = Nothing                    ' COM解放(正常・異常ともOn Error Resume Next配下)
     On Error GoTo 0
 
     If LenB(uid) = 0 Then uid = Environ$("USERNAME")
     If LenB(uid) = 0 Then uid = "user"
-    uid = SanitizeId(uid)
+    uid = modP2PIo.SanitizeId(uid)
 
     mUserIdCache = uid
     CurrentUserId = uid
 End Function
 
-Private Function CnFromDn(ByVal dn As String) As String
-    If LenB(dn) = 0 Then Exit Function
-    Dim p As Long: p = InStr(1, dn, "CN=", vbTextCompare)
-    If p = 0 Then Exit Function
-    Dim rest As String: rest = Mid$(dn, p + 3)
-    Dim c As Long: c = InStr(rest, ",")
-    If c > 0 Then rest = Left$(rest, c - 1)
-    CnFromDn = Trim$(rest)
-End Function
-
-Private Function SanitizeId(ByVal s As String) As String
-    Dim bad As Variant
-    bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|", ",", vbTab, vbCr, vbLf)
-    Dim t As String: t = s
-    Dim i As Long
-    For i = LBound(bad) To UBound(bad)
-        t = Replace(t, CStr(bad(i)), "_")
-    Next i
-    SanitizeId = modUtil.SafeLeft(Trim$(t), 64)
-End Function
 
 ' ----------------------------------------------------------------------------
 ' EmitThanksForLastAnswer - ✅解決時に modAsk.FeedbackGreen から呼ぶ。
@@ -113,25 +96,25 @@ Public Sub EmitThanks(ByVal topSource As String)
     ' 対応が無い(author_id を持たない旧いパック)ときだけ、従来どおり
     ' 表示名で宛先を作る。
     Dim authorKey As String
-    authorKey = SanitizeId(ResolveAuthorId(author))
+    authorKey = modP2PIo.SanitizeId(ResolveAuthorId(author))
     If LenB(authorKey) = 0 Then Exit Sub
 
     Dim folderPath As String: folderPath = ThanksDir()
     If LenB(folderPath) = 0 Then Exit Sub
-    EnsureDir folderPath
+    modP2PIo.EnsureDir folderPath
 
     ' MAX_PATH対策(SRE監査Phase2.2): ファイル名に載せるID成分は Fnv1a64Hex(16桁)へ
     ' 圧縮する。SanitizeIdは最大64字で、深い共有UNCパス(例 \\host\部\課\...)配下では
     ' thx_<author64>_<myId64...> が260字を超えて Dir/Kill/SaveToFile がクラッシュし得る。
     ' payload(TSV)側は生の sanitize済ID のまま保持し、受信側 CollectThanks の
     ' StrComp(f(2), myId) 照合を壊さない(ファイル名だけを短縮する)。
-    Dim nonce As String: nonce = NewNonce(modUtil.Fnv1a64Hex(myId))
+    Dim nonce As String: nonce = modP2PIo.NewNonce(modUtil.Fnv1a64Hex(myId))
     Dim rowText As String
     rowText = nonce & vbTab & myId & vbTab & authorKey & vbTab & _
-              SanitizeField(topSource) & vbTab & modUtil.NowStamp()
+              modP2PIo.SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
     ' ネットワークドライブのロック(実行時エラー70等)に耐えるリトライ書込み
-    If WriteUtf8Retry(folderPath & "thx_" & modUtil.Fnv1a64Hex(authorKey) & "_" & nonce & ".txt", rowText, "modP2P.EmitThanks") Then
+    If modP2PIo.WriteUtf8Retry(folderPath & "thx_" & modUtil.Fnv1a64Hex(authorKey) & "_" & nonce & ".txt", rowText, "modP2P.EmitThanks") Then
         On Error Resume Next
         modLog.LogUsage "thanks_emit", "", "to=" & author & " src=" & modUtil.SafeLeft(topSource, 120)
         On Error GoTo 0
@@ -184,7 +167,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     ' nonce の重複排除があるのでEXPは二重加算されない)。
     Dim myName As String
     On Error Resume Next
-    myName = SanitizeId(Trim$(modConfig.GetString("pack_author", "")))
+    myName = modP2PIo.SanitizeId(Trim$(modConfig.GetString("pack_author", "")))
     On Error GoTo Done
     If LenB(myName) > 0 Then
         If StrComp(myName, myId, vbTextCompare) <> 0 Then
@@ -203,7 +186,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     For i = 0 To nFiles - 1
         Dim full As String: full = folderPath & names(i)
         Dim rec As String
-        If ReadUtf8Retry(full, rec, "modP2P.CollectThanks") Then
+        If modP2PIo.ReadUtf8Retry(full, rec, "modP2P.CollectThanks") Then
             Dim f() As String: f = Split(rec, vbTab)
             If UBound(f) >= 4 Then
                 Dim nonce As String: nonce = f(0)
@@ -228,7 +211,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
                     End If
                     ' 自分宛の処理済み(または既知)ファイルはGC。失敗しても
                     ' nonce重複排除があるので二重加算にはならない(次回再スキップ)。
-                    KillRetry full
+                    modP2PIo.KillRetry full
                 End If
             End If
         End If
@@ -250,6 +233,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     ' 溜まり、Dir列挙が毎起動で重くなる(レビュー H-5)。
     ' 既定30日。0以下でGC無効(config thanks_gc_days)。
     GcOldThanks folderPath
+    GcOldNonces
 Done:
 End Function
 
@@ -281,7 +265,7 @@ Private Sub GcOldThanks(ByVal folderPath As String)
         Err.Clear
         stamp = FileDateTime(full)
         If Err.Number = 0 Then
-            If stamp < limit Then KillRetry full
+            If stamp < limit Then modP2PIo.KillRetry full
         End If
         Err.Clear
     Next i
@@ -344,13 +328,13 @@ Public Sub EmitNoiseVote(ByVal source As String)
 
     Dim folderPath As String: folderPath = NoiseDir()
     If LenB(folderPath) = 0 Then Exit Sub
-    EnsureDir folderPath
+    modP2PIo.EnsureDir folderPath
 
     Dim myId As String: myId = CurrentUserId()
     Dim srcHash As String: srcHash = modUtil.Fnv1a64Hex(source)
 
     Dim content As String
-    content = myId & vbTab & SanitizeField(source) & vbTab & modUtil.NowStamp()
+    content = myId & vbTab & modP2PIo.SanitizeField(source) & vbTab & modUtil.NowStamp()
 
     ' MAX_PATH対策(Phase2.2): reporter IDもFnv1a64Hex(16桁)で綴る。(reporter,source)毎に
     ' 決定的なので再投票は同一ファイルを上書き=重複排除は不変。集計/GCはsrcHash前方一致で
@@ -359,7 +343,7 @@ Public Sub EmitNoiseVote(ByVal source As String)
     votePath = folderPath & "noise_" & srcHash & "_" & modUtil.Fnv1a64Hex(myId) & ".txt"
     ' 3回リトライしても書けなかった場合のE0705記録はWriteUtf8Retry内で一元化済み
     ' (重複排除により二重投票にはならないので、ここでは追加の対応は不要)。
-    WriteUtf8Retry votePath, content, "modP2P.EmitNoiseVote"
+    modP2PIo.WriteUtf8Retry votePath, content, "modP2P.EmitNoiseVote"
 Done:
 End Sub
 
@@ -401,7 +385,7 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     Dim i As Long
     For i = 0 To nFlags - 1
         Dim frec As String
-        If ReadUtf8Retry(folderPath & flagNames(i), frec, "modP2P.CollectNoiseVotes") Then
+        If modP2PIo.ReadUtf8Retry(folderPath & flagNames(i), frec, "modP2P.CollectNoiseVotes") Then
             Dim ff() As String: ff = Split(frec, vbTab)
             If UBound(ff) >= 0 Then
                 If LenB(ff(0)) > 0 Then
@@ -427,7 +411,7 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     Dim reporters As Object: Set reporters = CreateObject("Scripting.Dictionary"): reporters.CompareMode = 0
     For i = 0 To nVotes - 1
         Dim vrec As String
-        If ReadUtf8Retry(folderPath & voteNames(i), vrec, "modP2P.CollectNoiseVotes") Then
+        If modP2PIo.ReadUtf8Retry(folderPath & voteNames(i), vrec, "modP2P.CollectNoiseVotes") Then
             Dim vf() As String: vf = Split(vrec, vbTab)
             If UBound(vf) >= 1 Then
                 Dim who As String: who = vf(0)
@@ -469,8 +453,8 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
             Dim repList As String
             repList = ""
             If reporters.Exists(s) Then repList = CStr(reporters(s))
-            WriteUtf8Retry folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
-                s & vbTab & modUtil.NowStamp() & vbTab & SanitizeField(repList), "modP2P.CollectNoiseVotes"
+            modP2PIo.WriteUtf8Retry folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
+                s & vbTab & modUtil.NowStamp() & vbTab & modP2PIo.SanitizeField(repList), "modP2P.CollectNoiseVotes"
         End If
         GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
     Next k
@@ -499,7 +483,7 @@ Private Sub GcNoiseVotesForSource(ByVal folderPath As String, ByVal source As St
     Loop
     Dim i As Long
     For i = 0 To n - 1
-        KillRetry folderPath & names(i)
+        modP2PIo.KillRetry folderPath & names(i)
     Next i
 Done:
 End Sub
@@ -518,7 +502,7 @@ Public Function ClearNoise(ByVal source As String) As Boolean
     If LenB(folderPath) = 0 Then Exit Function
 
     Dim srcHash As String: srcHash = modUtil.Fnv1a64Hex(source)
-    KillRetry folderPath & "gexcl_" & srcHash & ".txt"   ' 確定フラグを削除
+    modP2PIo.KillRetry folderPath & "gexcl_" & srcHash & ".txt"   ' 確定フラグを削除
     GcNoiseVotesForSource folderPath, source              ' 残存する個別投票も削除
 
     On Error Resume Next
@@ -587,61 +571,64 @@ Private Function NoiseDir() As String
     NoiseDir = modShare.SubDir(NOISE_SUBDIR)
 End Function
 
-Private Sub EnsureDir(ByVal folderPath As String)
-    On Error Resume Next
-    If Len(Dir(folderPath, vbDirectory)) = 0 Then MkDir folderPath
-    On Error GoTo 0
-End Sub
 
-Private Function NewNonce(ByVal myId As String) As String
-    NewNonce = myId & "-" & Format$(Now, "yyyymmddhhnnss") & "-" & _
-               Format$(Int(Timer * 1000) Mod 100000, "00000")
-End Function
-
+' 2026-07-28(レビュー L-15): nonce の記録に日付を持たせ、古いものを掃除する。
+'
+' 従来は my_stats に "thx:<nonce>" 行が無限に溜まり、
+' modStats.FindKeyRow は線形探索なので、使い込むほど全ての統計参照が
+' 遅くなっていた(感謝が届くほど遅くなる、という逆向きの設計)。
+' nonce の役目は「同じ感謝状を二度数えない」ことだけで、送信側が
+' thanks_gc_days 日で共有フォルダのファイルを掃除する以上、
+' それより長く覚えている必要が無い。
 Private Function SeenNonce(ByVal nonce As String) As Boolean
-    SeenNonce = (modStats.GetStat("thx:" & nonce) > 0)
+    SeenNonce = (LenB(modStats.GetStatText(NONCE_PREFIX & nonce)) > 0)
 End Function
 
 Private Sub MarkNonce(ByVal nonce As String)
-    modStats.Bump "thx:" & nonce
+    modStats.SetStatText NONCE_PREFIX & nonce, Format$(Date, "yyyy-mm-dd")
 End Sub
 
-Private Function SanitizeField(ByVal s As String) As String
-    Dim t As String: t = s
-    t = Replace(t, vbTab, " ")
-    t = Replace(t, vbCr, " ")
-    t = Replace(t, vbLf, " ")
-    SanitizeField = t
-End Function
+' 期限を過ぎた nonce 行を my_stats から取り除く(CollectThanks の最後に呼ぶ)。
+' 保持日数は共有フォルダのGCと同じ既定30日＋余裕7日。
+Private Sub GcOldNonces()
+    On Error Resume Next
+    Dim keepDays As Long
+    keepDays = modConfig.GetLong("thanks_gc_days", 30) + 7
+    If keepDays < 1 Then Exit Sub
+
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then Exit Sub
+
+    Dim limit As Date: limit = DateAdd("d", -keepDays, Date)
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+
+    ' 下から消す(上から消すと行番号がずれる)。
+    Dim i As Long
+    For i = UBound(arr, 1) To LBound(arr, 1) Step -1
+        Dim k As String: k = CStr(arr(i, 1))
+        If Left$(k, Len(NONCE_PREFIX)) = NONCE_PREFIX Then
+            Dim v As String: v = Trim$(CStr(arr(i, 2)))
+            Dim drop As Boolean: drop = True        ' 日付が読めない旧形式も掃除対象
+            If LenB(v) > 0 Then
+                Err.Clear
+                Dim d As Date: d = CDate(v)
+                If Err.Number = 0 Then drop = (d < limit)
+                Err.Clear
+            End If
+            If drop Then ws.Rows(i + 1).Delete
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
 
 ' ネットワークドライブのロック(実行時エラー70/55/75等)に耐えるリトライI/O。
 ' 失敗時は短時間バックオフ待機して最大3回試行。全滅でも例外は出さず False。
 
-' 3回リトライしても書けなかった場合、握りつぶさずE0705として記録する
-' (SRE監査Phase2.1の方針をEmitNoiseVote以外の全書込み経路にも拡張。
-' 実機環境の壁(共有フォルダのアクセス権限・セキュリティソフトのブロック等=
-' エラー52/70想定)を、利用者が🩺診断の「コピー」ボタンでそのまま
-' 開発者へ伝えられるようにするため、err_number構造化フィールドに残す)。
-' context: 実際に呼んでいるPublic関数名を "modP2P.XxxYyy" 形式で呼び出し元が渡す
-' (LogErrorのcontext引数は「modX.Y」形式だとYがPublicか契約チェックされるため
-' 「§7」、Private助手関数自身の名前は使えない。呼び出し元ごとに正しい実体を
-' 渡すことで、どの機能から起きた失敗かerr_log上で見分けられるようにする)。
-Private Function WriteUtf8Retry(ByVal filePath As String, ByVal content As String, _
-                                ByVal context As String) As Boolean
-    Dim attempt As Long
-    Dim lastNum As Long, lastDesc As String
-    For attempt = 1 To 3
-        If TryWriteUtf8(filePath, content, lastNum, lastDesc) Then
-            WriteUtf8Retry = True
-            Exit Function
-        End If
-        WaitMs 250 * attempt   ' 250 / 500 / 750ms バックオフ
-    Next attempt
-    On Error Resume Next
-    modLog.LogError "E0705", context, _
-        "3回リトライしても書込み失敗: " & modUtil.SafeLeft(filePath, 300) & " : " & lastDesc, lastNum
-    On Error GoTo 0
-End Function
 
 Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String, _
                               Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
@@ -668,28 +655,6 @@ Fail:
     On Error GoTo 0
 End Function
 
-Private Function ReadUtf8Retry(ByVal filePath As String, ByRef outText As String, _
-                               ByVal context As String) As Boolean
-    Dim attempt As Long
-    Dim lastNum As Long, lastDesc As String
-    For attempt = 1 To 3
-        If TryReadUtf8(filePath, outText, lastNum, lastDesc) Then
-            ReadUtf8Retry = True
-            Exit Function
-        End If
-        WaitMs 250 * attempt
-    Next attempt
-    ' エラー53(ファイルが見つかりません)は、列挙後に他ユーザーの並行GCで
-    ' ファイルが消えた正常な競合(このモジュール冒頭のKillRetryコメント参照)。
-    ' 想定内の自己解決ケースなのでログを汚さない。それ以外(52/70等の
-    ' アクセス権限・ネットワーク瞬断)のみE0705として記録する。
-    If lastNum <> 53 Then
-        On Error Resume Next
-        modLog.LogError "E0705", context, _
-            "3回リトライしても読込み失敗: " & modUtil.SafeLeft(filePath, 300) & " : " & lastDesc, lastNum
-        On Error GoTo 0
-    End If
-End Function
 
 Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String, _
                              Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
@@ -714,37 +679,6 @@ Fail:
     On Error GoTo 0
 End Function
 
-' 処理済み感謝状の削除(GC)。ロック時はバックオフして最大3回。失敗しても無害
-' (nonce重複排除で二重加算は起きない)。err_logは汚さず、診断用にusage_logへ
-' だけ記録する(GC失敗は非致命なので🩺診断の「直近のエラー」には出さない)。
-Private Function KillRetry(ByVal filePath As String) As Boolean
-    Dim attempt As Long
-    Dim lastNum As Long
-    For attempt = 1 To 3
-        On Error Resume Next
-        Err.Clear
-        ' 並行GC耐性: 複数ユーザーが同時に同じ投票/感謝状をGCすると、後着のKillは
-        ' error 53(ファイルなし)になる。「既に無い=削除目的は達成」なので成功扱いにし、
-        ' 無駄な3回×最大1.5秒のリトライ(その間ロック保持)を避ける。
-        If LenB(Dir(filePath)) = 0 Then
-            On Error GoTo 0
-            KillRetry = True
-            Exit Function
-        End If
-        Kill filePath
-        lastNum = Err.Number
-        If lastNum = 0 Then
-            On Error GoTo 0
-            KillRetry = True
-            Exit Function
-        End If
-        On Error GoTo 0
-        WaitMs 250 * attempt
-    Next attempt
-    On Error Resume Next
-    modLog.LogUsage "p2p_gc_failed", "", "3回リトライしても削除失敗 err#" & lastNum & ": " & modUtil.SafeLeft(filePath, 300)
-    On Error GoTo 0
-End Function
 
 ' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。
 Private Sub WaitMs(ByVal ms As Long)

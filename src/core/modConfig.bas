@@ -25,12 +25,10 @@ Option Explicit
 '   ・シートやキーが見つからない場合は例外を投げず既定値にフォールバックする。
 ' ============================================================================
 
-Private mLoaded As Boolean
 
 Public Sub EnsureLoaded()
     On Error GoTo NoSheet
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(modAppDef.SH_CONFIG)
-    mLoaded = True
     Exit Sub
 NoSheet:
     MsgBox "設定ファイル(configシート)に必要な項目が見つかりません。" & vbLf & _

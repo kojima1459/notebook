@@ -499,56 +499,6 @@ Done:
     modUiLock.Leave
 End Sub
 
-' ----------------------------------------------------------------------------
-' 受け取った「解決済みQ&A」を自分の本棚へ取り込む。
-'   埋め込みAPIを使う重い処理なので、起動時ではなく利用者が押したときだけ実行。
-'   取り込むと、次から同じ質問に「人が確認済みの答え」で応えられるようになる。
-' ----------------------------------------------------------------------------
-Public Sub OnImportSharedQA_Legacy()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-
-    Dim total As Long
-    On Error Resume Next
-    total = modInsight.PendingQACount()
-    On Error GoTo Done
-
-    If total < 1 Then
-        modUiLock.Leave
-        MsgBox "取り込める新しいQ&Aはありません。", vbInformation, modAppDef.APP_NAME
-        Exit Sub
-    End If
-
-    If MsgBox(total & " 件の「みんなが解決したQ&A」を本棚に取り込みます。" & vbCrLf & _
-              "取り込むと、次から同じ内容を質問したときに出典つきで答えられます。" & vbCrLf & _
-              "(件数によっては1～2分かかります)", _
-              vbOKCancel + vbQuestion, modAppDef.APP_NAME) <> vbOK Then GoTo Done
-
-    Dim okN As Long, i As Long
-    For i = total To 1 Step -1        ' 後ろから処理(消化印で番号が詰まるため)
-        Dim author As String, qText As String, aText As String, srcText As String
-        Dim rowIdx As Long
-        On Error Resume Next
-        If modInsight.PendingQAAt(i, author, qText, aText, srcText, rowIdx) Then
-            If modVault.RegisterKnowledgeText( _
-                   "解決済みQ&A: " & modUtil.SafeLeft(qText, 40), _
-                   modInsight.QABodyText(author, qText, aText, srcText), _
-                   "解決済みQ&A," & author) Then
-                modInsight.MarkQAConsumed rowIdx
-                okN = okN + 1
-            End If
-        End If
-        On Error GoTo Done
-    Next i
-
-    modUiLock.Leave
-    MsgBox okN & " 件を本棚に取り込みました。" & vbCrLf & _
-           "同じことで困っている人が、次からはすぐ答えにたどり着けます。", _
-           vbInformation, modAppDef.APP_NAME
-    Exit Sub
-Done:
-    modUiLock.Leave
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' 部門チャンネル: 購読・更新・チャンク予算をひとまとめに扱う入口。
