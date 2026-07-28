@@ -233,6 +233,13 @@
       "wave": "2-E"
     },
     {
+      "name": "modMigrate",
+      "path": "src/pack/modMigrate.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MIGRATE"
+    },
+    {
       "name": "modP2P",
       "path": "src/pack/modP2P.bas",
       "role": "core",

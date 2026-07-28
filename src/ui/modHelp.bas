@@ -269,6 +269,47 @@ Private Sub ShowHelpCard()
     skinBtn.Placement = 3
     skinBtn.ZOrder 0
 
+    ' 4段目: 引き継ぎ(解説書 §12.3 B3)。新しい版へ差し替えると本棚も記録も
+    ' 設定も消えるため、その前に控えを作れる導線をここに置く。
+    ' 「配布のたびに全部消える」を利用者が自力で回避できる唯一の手段なので、
+    ' 隠しシートではなく人が見つけられる場所に出す。
+    AddHelpAction ws, "nx_help_migout", cardL, belowT + 102, 170, _
+                  ChrW(&HD83D) & ChrW(&HDCE4) & " 引き継ぎファイルを作る", _
+                  "modHelp.OnExportUserData"
+    AddHelpAction ws, "nx_help_migin", cardL + 170 + 10, belowT + 102, 170, _
+                  ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む", _
+                  "modHelp.OnImportUserData"
+
+    On Error GoTo 0
+End Sub
+
+' ヘルプカード内の小さなボタンを1つ作る(同じ書式を4回書かないための共通化)。
+Private Sub AddHelpAction(ByVal ws As Worksheet, ByVal shapeName As String, _
+                          ByVal x As Double, ByVal y As Double, ByVal w As Double, _
+                          ByVal caption As String, ByVal action As String)
+    On Error Resume Next
+    Dim btn As Shape
+    Set btn = ws.Shapes.AddShape(5, x, y, w, 28)
+    If btn Is Nothing Then Exit Sub
+    btn.Name = shapeName
+    btn.Adjustments(1) = 0.3
+    btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
+    btn.Line.Visible = -1
+    btn.Line.Weight = 0.75
+    btn.Line.ForeColor.RGB = modUI.UiColor("border")
+    With btn.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = caption
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+    btn.OnAction = action
+    btn.Placement = 3
+    btn.ZOrder 0
     On Error GoTo 0
 End Sub
 
@@ -413,17 +454,33 @@ End Sub
 ' 内部: ヘルプカード+導線ボタンの削除(孤児防止)。ロックを取らない生の
 ' 削除処理として分離し、既にmodUiLockを保持している呼び出し元
 ' (OnOpenManual/OnRestartTour)からも再入デッドロックなしで呼べるようにする。
+' 2026-07-28: 消す図形を名前で1つずつ列挙するのをやめ、接頭辞で掃除する。
+' 列挙式だと【ボタンを1つ足すたびに、ここへ足し忘れた分が画面に残る】。
+' 実際、引き継ぎボタン2つを足した時点でその状態になった。
+' 常設の ❓ ボタン(nx_help_btn)だけは残す。
+' 列挙しながら Delete するとコレクションが崩れるので、名前を集めてから消す。
 Private Sub DoHideHelp()
     On Error Resume Next
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub
-    ws.Shapes("nx_help_card").Delete
-    ws.Shapes("nx_help_manual").Delete
-    ws.Shapes("nx_help_tour").Delete
-    ws.Shapes("nx_help_fb").Delete
-    ws.Shapes("nx_help_cfg").Delete
-    ws.Shapes("nx_help_skin").Delete
+
+    Dim names() As String: ReDim names(0 To 63)
+    Dim n As Long
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 8) = "nx_help_" And shp.Name <> "nx_help_btn" Then
+            If n > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+            names(n) = shp.Name
+            n = n + 1
+        End If
+    Next shp
+
+    Dim i As Long
+    For i = 0 To n - 1
+        ws.Shapes(names(i)).Delete
+        Err.Clear
+    Next i
     On Error GoTo 0
 End Sub
 
@@ -439,3 +496,32 @@ Private Function FeedbackMailto() As String
     FeedbackMailto = "mailto:" & addr & "?subject=Nexus%20Agent%20feedback"
     On Error GoTo 0
 End Function
+
+' ----------------------------------------------------------------------------
+' 引き継ぎ(解説書 §12.3 B3)
+'   このアプリは全データをブック内のシートに持つため、新しい版の .xlsm へ
+'   差し替えると本棚も記録も設定も消える。PoC 中は修正版を何度も配るので、
+'   配るたびに全員の資産が消える状態では誰も本気で資料を入れない。
+'   実処理は modMigrate(pack層)。ここは UI ロックを取って呼ぶだけ。
+' ----------------------------------------------------------------------------
+Public Sub OnExportUserData()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    DoHideHelp
+    modMigrate.ExportUserData
+Done:
+    On Error Resume Next
+    modUiLock.Leave
+    On Error GoTo 0
+End Sub
+
+Public Sub OnImportUserData()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
+    DoHideHelp
+    modMigrate.ImportUserData
+Done:
+    On Error Resume Next
+    modUiLock.Leave
+    On Error GoTo 0
+End Sub
