@@ -225,6 +225,8 @@ def build_config_rows(mock_llm: bool):
         ("rerank_enabled", True, "TRUE=候補チャンクをAIで再ランクしてから回答生成する"),
         ("quick_expand", False, "TRUE=「すぐ聞く」でも質問拡張を行う(AI呼び出しが1回増え数秒遅くなる)"),
         ("quick_rerank", False, "TRUE=「すぐ聞く」でも再ランクを行う(AI呼び出しが1回増え数秒遅くなる)"),
+        ("topk_thorough", 16, "「入念に調べる」でLLMに渡す上位ヒット件数。実測で件数増は効果が薄いため控えめ"),
+        ("thorough_subqueries", 6, "「入念に調べる」の質問拡張で作るサブクエリ数。角度の数が精度に効く(実測 R@10 90%→97%)"),
         ("rerank_model", "", "再ランク段のモデル(空=quick_modelを使用)"),
         ("rerank_effort", "low", "再ランク段のreasoning_effort"),
         ("rerank_verbosity", "low", "再ランク段のverbosity"),

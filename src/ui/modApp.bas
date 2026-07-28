@@ -142,6 +142,14 @@ Public Sub OnSend()
     On Error GoTo Fail
     DoEvents
 
+    ' 入念は数分かかる。始まる前に「何をするか・どれくらいかかるか」を
+    ' 必ず出す。黙って数分止まると、利用者は固まったと判断して閉じる。
+    On Error Resume Next
+    If RagSpeed() = "thorough" Then
+        modLive.PaintStage "入念に調べます。多方向から検索して、資料と1行ずつ照合します…"
+    End If
+    On Error GoTo Fail
+
     Dim t0 As Double: t0 = Timer
 
     Dim ans As String
@@ -628,28 +636,21 @@ End Sub
 
 ' すぐ聞く/しっかり調べる切替。ホームと同じui_state "mode"キーを共有。
 Public Sub OnToggleSpeed()
+    ' すぐ聞く → しっかり調べる → 入念に調べる → すぐ聞く の巡回。
+    ' 押すたびに何が変わるかをトーストで必ず出す。モード名だけでは
+    ' 「押したら遅くなった」としか分からず、選ぶ理由が伝わらない。
     Dim newSpeed As String
-    If ReadUiState("mode", "quick") = "deep" Then
-        newSpeed = "quick"
-    Else
-        newSpeed = "deep"
-    End If
+    newSpeed = modMode.NextMode(ReadUiState("mode", "quick"))
     WriteUiState "mode", newSpeed
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_speed").TextFrame2.TextRange.Text = SpeedCaption()
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_speed").TextFrame2.TextRange.Text = _
+        modMode.Caption(newSpeed)
+    modSkin.ShowToast modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed), "info"
     On Error GoTo 0
 End Sub
 
-' 2つのモードは「速い/遅い」ではなく「何をするか」が違う。
-' そこが伝わらないと、利用者は選びようがない(選べない選択肢は認知負荷でしかない)。
-'   すぐ聞く       = 検索して答える
-'   しっかり調べる = 質問を分析 → 広く検索 → 関連度を精査 → 下書き → 資料と照合
 Public Function SpeedCaption() As String
-    If ReadUiState("mode", "quick") = "deep" Then
-        SpeedCaption = ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる(照合あり)"
-    Else
-        SpeedCaption = ChrW(&H26A1) & " すぐ聞く"
-    End If
+    SpeedCaption = modMode.Caption(ReadUiState("mode", "quick"))
 End Function
 
 ' 回答言語の巡回切替(日本語→English→中文→Tiếng Việt)。
@@ -834,8 +835,8 @@ End Function
 
 ' RAGモードの速度(既存ui_stateのquick/deep設定を流用。既定quick)。
 Private Function RagSpeed() As String
-    RagSpeed = ReadUiState("mode", "quick")
-    If RagSpeed <> "deep" Then RagSpeed = "quick"
+    ' 3モードの正規化は modMode が単一情報源(quick/deep/thorough)。
+    RagSpeed = modMode.Normalize(ReadUiState("mode", "quick"))
 End Function
 
 Private Function CurrentMode() As String

@@ -55,6 +55,64 @@ Option Explicit
 ' 9000件では34分になるため毎クエリ全件には使えない。採用案は
 ' トークナイズ不要で、出典ページの正確さ(81%)も最も高い。
 ' 表記揺れ(全角/大文字/空白挿入/空白除去)は全て84%を維持した。
+' ----------------------------------------------------------------------------
+' 3モード(すぐ聞く/しっかり/入念)の方針テスト(2026-07-28)
+' ----------------------------------------------------------------------------
+' 実測(実物6資料180チャンク31問):
+'   単発検索      R@1 84% / R@5 90% / R@10 90%
+'   多クエリ→RRF  R@1 77% / R@5 90% / R@10 97%
+' 「渡す件数」を増やしても効かず(R@5 90%→R@10 90%)、「引き方」を増やすと
+' 効く(R@10 90%→97%)。モードごとに戦略が違うので、その方針を固定する。
+Private Sub RunModeTests()
+    modTestRunner.Check "モード: 未知の値はすぐ聞くへ倒す", _
+        modMode.Normalize("xxx") = "quick", "実際=" & modMode.Normalize("xxx")
+    modTestRunner.Check "モード: 大文字でも認識する", _
+        modMode.Normalize("THOROUGH") = "thorough", "実際=" & modMode.Normalize("THOROUGH")
+
+    modTestRunner.Check "巡回: すぐ聞く→しっかり", modMode.NextMode("quick") = "deep", ""
+    modTestRunner.Check "巡回: しっかり→入念", modMode.NextMode("deep") = "thorough", ""
+    modTestRunner.Check "巡回: 入念→すぐ聞く", modMode.NextMode("thorough") = "quick", ""
+
+    ' 入念は時間より精度。全段を必ず通す
+    modTestRunner.Check "入念: 質問拡張を必ず行う", _
+        modMode.UseExpand("thorough", False, False) = True, _
+        "configがFalseでも入念だけは通す"
+    modTestRunner.Check "入念: 再ランクを必ず行う", _
+        modMode.UseRerank("thorough", False, False) = True, ""
+    modTestRunner.Check "入念: 検証段を必ず通す", modMode.UseVerify("thorough") = True, ""
+    modTestRunner.Check "しっかり: 検証段を通す", modMode.UseVerify("deep") = True, ""
+    modTestRunner.Check "すぐ聞く: 検証段は通さない", modMode.UseVerify("quick") = False, _
+        "すぐ聞くで検証まで走ると速さの意味が無くなる"
+
+    ' すぐ聞くは既定で拡張・再ランクを行わない(実測でLLM3回→1回)
+    modTestRunner.Check "すぐ聞く: 既定では拡張しない", _
+        modMode.UseExpand("quick", True, False) = False, ""
+    modTestRunner.Check "すぐ聞く: optInすれば拡張する", _
+        modMode.UseExpand("quick", True, True) = True, ""
+
+    ' 件数
+    modTestRunner.Check "件数: モードごとに変わる", _
+        modMode.TopK("quick", 6, 12, 16) = 6 And _
+        modMode.TopK("deep", 6, 12, 16) = 12 And _
+        modMode.TopK("thorough", 6, 12, 16) = 16, ""
+    modTestRunner.Check "件数: 0以下は安全側へ倒す", modMode.TopK("quick", 0, 0, 0) = 6, ""
+
+    ' サブクエリ数(角度の数がそのまま精度になる)
+    modTestRunner.Check "サブクエリ: 入念は多い", _
+        modMode.SubQueryCount("thorough", 3, 6) = 6, ""
+    modTestRunner.Check "サブクエリ: 通常は既定", _
+        modMode.SubQueryCount("deep", 3, 6) = 3, ""
+
+    ' 表示文言(利用者が選ぶ理由になる情報が入っていること)
+    modTestRunner.Check "表示: 入念の説明に所要時間が入る", _
+        InStr(modMode.Description("thorough"), "分") > 0, _
+        "時間を隠すと固まったと思われる"
+    modTestRunner.Check "表示: モード名が3つとも異なる", _
+        modMode.Caption("quick") <> modMode.Caption("deep") And _
+        modMode.Caption("deep") <> modMode.Caption("thorough"), ""
+End Sub
+
+
 Private Sub RunKeyScoreTests()
     ' 照合用テキスト: 正規化 + 空白の完全除去
     modTestRunner.Check "照合用: 空白を落として揃える", _
@@ -164,6 +222,7 @@ NextPack:
     On Error GoTo SparseFail
     RunSparseTests
     RunKeyScoreTests
+    RunModeTests
 NextDone:
     On Error GoTo 0
     Exit Sub

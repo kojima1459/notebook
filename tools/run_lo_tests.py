@@ -124,7 +124,7 @@ PURE_ALLOWLIST = [
     "modAppDef", "modShelfSync", "modPack",
     # modSparse: 日本語キーワード検索(文字bigram+BM25+完全一致)。
     # 純ロジックなので実行テストで検証できる。検索精度の要なので必ず載せる。
-    "modSparse",
+    "modSparse", "modMode",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

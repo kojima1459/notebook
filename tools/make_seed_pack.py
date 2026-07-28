@@ -44,10 +44,13 @@ pack_vectors は空で出す。ベクトルは社内AIリボンでしか作れ�
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import unicodedata
 from dataclasses import dataclass
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import pypdf
@@ -59,6 +62,8 @@ try:
 except ImportError:
     sys.exit("openpyxl が必要です: pip install openpyxl")
 
+import pdf_layout
+
 PACK_FORMAT_VERSION = 1
 EMBED_DIM = 1536
 
@@ -67,6 +72,10 @@ EMBED_DIM = 1536
 TARGET_CHARS = 1100
 MAX_CHARS = 1800          # modChunker と同じ上限に合わせる
 MIN_CHARS = 60            # これ未満の断片は捨てる(見出しだけの行など)
+
+# 座標ベースの段組復元を使うか(--layout で有効)。既定オフの理由は
+# extract_pages の説明を参照。
+USE_LAYOUT = False
 
 # 条見出し。必ず行頭が「第N条」であること。「(1)第20条…」のような
 # 本文中の相互参照を見出しと誤認しないための厳格版。
@@ -156,13 +165,30 @@ class Page:
 
 
 def extract_pages(path: str) -> tuple[list[Page], list[int], list[int]]:
-    """(使えるページ, 化けて落としたページ, 目次として落としたページ)"""
+    """(使えるページ, 化けて落としたページ, 目次として落としたページ)
+
+    --layout を付けると pdf_layout(座標ベース)で段組を復元する。
+
+    現時点では既定オフ。理由は実測にある(同一31問での比較):
+        素の抽出        R@1 84% / R@3 84% / R@5 90% / ページ81%
+        座標で列復元    R@1 81% / R@3 84% / R@5 90% / ページ81%
+    文字の欠落は0(実物6資料204ページで確認)だが、列境界が項目名の
+    途中に落ちる行があり(「3. 保険期間と｜補償期間 …」)、その行は
+    素の抽出より読みにくくなる。作ったから使う、はしない。
+    列境界の決め方を直して数字が上回ってから既定にする。
+    """
     reader = pypdf.PdfReader(path)
     good: list[Page] = []
     garbled: list[int] = []
     toc: list[int] = []
     for i, page in enumerate(reader.pages, start=1):
-        raw = page.extract_text() or ""
+        if USE_LAYOUT:
+            try:
+                raw = pdf_layout.render_page(page)
+            except Exception:
+                raw = page.extract_text() or ""  # 失敗しても資料を落とさない
+        else:
+            raw = page.extract_text() or ""
         if len(raw.strip()) < 50:
             continue
         if garble_ratio(raw) > 0.20:
@@ -422,15 +448,19 @@ def write_pack(out_path: str, chunks: list[dict], sources: list[str],
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
+    if len([a for a in argv[1:] if a != "--layout"]) < 2:
         print(__doc__)
         return 2
 
-    out_path = argv[1]
+    global USE_LAYOUT
+    args = [a for a in argv[1:] if a != "--layout"]
+    USE_LAYOUT = ("--layout" in argv)
+
+    out_path = args[0]
     all_chunks: list[dict] = []
     sources: list[str] = []
 
-    for spec in argv[2:]:
+    for spec in args[1:]:
         path, _, label = spec.partition(":")
         pages, garbled, toc = extract_pages(path)
         if not pages:

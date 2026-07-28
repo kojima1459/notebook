@@ -331,6 +331,61 @@ def instr_compact_scorer(chunks):
         return out
     return score
 
+
+# ==================================================================
+# 入念モードの検証: 多クエリ検索は本当に効くのか
+# ==================================================================
+# 「topKを増やす」は実測でほぼ効かなかった(R@5 90% → R@10 90%)。
+# 上限に当たっているのは"渡す数"ではなく"見つける力"なので、
+# 入念モードで増やすべきは件数ではなく検索の回数(角度)である。
+#
+# ここでは「1つの質問を複数の切り口で引く」= 多クエリ検索を模擬する:
+#   ・元の質問そのもの
+#   ・質問から抜いた効く語を1つずつ単独で引く
+# それぞれの上位を集めて統合すると、単発で沈んだ資料が拾えるか。
+
+def multi_query_scorer(chunks, per_query_top: int = 5):
+    """多クエリ検索(入念モード想定)。元の質問+各キー単独で引いて統合する。"""
+    base = instr_compact_scorer(chunks)
+    bodies = [normalize_query(c["text"] + " " + c["source"]).replace(" ", "")
+              for c in chunks]
+    lens = [max(len(b), 1) for b in bodies]
+
+    def one_key_score(k):
+        out = [0.0] * len(chunks)
+        w = len(k) ** 1.5
+        for i, b in enumerate(bodies):
+            c = b.count(k)
+            if c:
+                out[i] = w * (1 + math.log(c)) / (1 + math.log(1 + lens[i] / 900.0))
+        return out
+
+    def score(q):
+        ranks = []
+        s0 = base(q)
+        ranks.append(sorted(range(len(chunks)), key=lambda i: -s0[i])[:per_query_top])
+
+        for k in [x.replace(" ", "") for x in distinctive_keys(q, limit=5)]:
+            if len(k) < 2:
+                continue
+            sk = one_key_score(k)
+            if max(sk) <= 0:
+                continue
+            ranks.append(sorted(range(len(chunks)), key=lambda i: -sk[i])[:per_query_top])
+
+        # 複数の検索結果は尺度が違うので、順位だけを見る RRF で統合する
+        fused = rrf(ranks)
+        out = [-1e9] * len(chunks)
+        for i, v in fused.items():
+            out[i] = v
+        # 統合に入らなかったものは元スコアの順で下にぶら下げる
+        order0 = sorted(range(len(chunks)), key=lambda i: -s0[i])
+        for pos, i in enumerate(order0):
+            if out[i] < -1e8:
+                out[i] = -1.0 - pos * 1e-6
+        return out
+    return score
+
 # ==================================================================
 # 表記揺れ耐性(金融では「揺れたら0件」が最悪の事故)
 # ==================================================================
@@ -371,7 +426,7 @@ def robustness_check(chunks, questions, scorer_factory):
 # ==================================================================
 
 def evaluate(chunks, questions, scorer, name: str) -> dict:
-    hit1 = hit3 = hit5 = 0
+    hit1 = hit3 = hit5 = hit10 = hit20 = 0
     page_hit = 0
     rr_sum = 0.0
     for q in questions:
@@ -390,6 +445,8 @@ def evaluate(chunks, questions, scorer, name: str) -> dict:
             if rank <= 1: hit1 += 1
             if rank <= 3: hit3 += 1
             if rank <= 5: hit5 += 1
+            if rank <= 10: hit10 += 1
+            if rank <= 20: hit20 += 1
 
         for idx in order[:5]:
             if chunks[idx]["source"] == gold_src and abs(chunks[idx]["page"] - gold_page) <= 1:
@@ -400,6 +457,7 @@ def evaluate(chunks, questions, scorer, name: str) -> dict:
     return {
         "name": name,
         "R@1": hit1 / n, "R@3": hit3 / n, "R@5": hit5 / n,
+        "R@10": hit10 / n, "R@20": hit20 / n,
         "MRR": rr_sum / n, "page": page_hit / n,
     }
 
@@ -481,14 +539,16 @@ def main(argv):
         evaluate(chunks, questions, final_scorer(chunks, idx_bi),
                  "InStr全件→上位20をBM25→RRF"),
         evaluate(chunks, questions, instr_compact_scorer(chunks),
-                 "★最終案(InStr全件・空白除去マッチ)"),
+                 "★すぐ聞く/通常(InStr全件・空白除去)"),
+        evaluate(chunks, questions, multi_query_scorer(chunks),
+                 "★入念(多クエリ→RRF統合)"),
     ]
 
-    print(f"\n{'手法':<34}{'R@1':>7}{'R@3':>7}{'R@5':>7}{'MRR':>7}{'ページ':>8}")
+    print(f"\n{'手法':<30}{'R@1':>6}{'R@3':>6}{'R@5':>6}{'R@10':>7}{'R@20':>7}{'MRR':>7}{'ページ':>8}")
     print("-" * 78)
     for r in rows:
-        print(f"{r['name']:<34}{r['R@1']:>6.0%}{r['R@3']:>7.0%}{r['R@5']:>7.0%}"
-              f"{r['MRR']:>7.2f}{r['page']:>8.0%}")
+        print(f"{r['name']:<30}{r['R@1']:>5.0%}{r['R@3']:>6.0%}{r['R@5']:>6.0%}"
+              f"{r['R@10']:>7.0%}{r['R@20']:>7.0%}{r['MRR']:>7.2f}{r['page']:>8.0%}")
     print()
     print("R@k = 正解資料のチャンクが上位k件に入った割合 / MRR = 正解順位の逆数平均")
     print("ページ = 上位5件に正解ページ±1が入った割合(出典表示の正確さ)")

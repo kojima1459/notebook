@@ -139,6 +139,13 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["ExtractFile", "SupportedExts"],
     },
+    "modMode": {
+        "closed": True,
+        # 回答モード(すぐ聞く/通常/入念)の方針。純ロジックなのでLOで検証する。
+        "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
+                     "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
+                     "SubQueryCount"],
+    },
     "modSparse": {
         "closed": True,
         # 日本語キーワード検索(文字bigram + BM25 + 完全一致)。
@@ -316,7 +323,7 @@ CONTRACT: dict[str, dict] = {
 PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
     "modTestRunner", "modTestsPure", "modTestsPure2", "modPrompts",
-    "modRagParse", "modSparse",
+    "modRagParse", "modSparse", "modMode",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

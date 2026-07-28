@@ -14,6 +14,8 @@ Option Explicit
 
 Private Const MODE_QUICK As String = "quick"
 Private Const MODE_DEEP As String = "deep"
+' モードの方針は modMode が単一情報源(実測の根拠もそちら)。
+Private Const MODE_THOROUGH As String = "thorough"
 Private Const MAX_QUESTION_CHARS As Long = 3000
 Private Const QUESTION_RANGE_NAME As String = "mb_question"
 Private Const UI_STATE_MODE_KEY As String = "mode"
@@ -196,7 +198,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
             On Error Resume Next
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
-        ElseIf mdMode = MODE_DEEP Then
+        ElseIf modMode.UseVerify(mdMode) Then
             result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
         Else
             result = RunQuickFlow(q, hits, nHits, ok, prevU, prevA)
@@ -432,8 +434,7 @@ End Function
 
 ' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)
 
-' 多段RAG検索段(§C): 拡張→マルチクエリ→再ランク。全段とも失敗時は
-' 単段Search(q)へ安全退化(mock/タグ欠落でも壊れない)。
+' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
 Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
                                   ByVal topK As Long, ByRef hits() As Hit) As Long
     On Error GoTo FallbackSingle
@@ -447,26 +448,20 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim subs() As String
     standalone = "": hyde = ""
 
-    ' 「⚡すぐ聞く」から拡張・再ランクを外す(2026-07-27)。出荷設定では
-    ' すぐ聞くでもLLMを3回叩いていた(①質問書き換え ②並べ替え ③回答)。
-    ' ①②は回答が1文字も出ない待ち時間。速さが唯一の売りのモードで、
-    ' 速さを最初に捨てていた。検索自体は手元のベクトル演算で1〜2秒なので、
-    ' すぐ聞くは「検索+回答1回」に絞る。しっかり調べるは全段そのまま。
-    ' config quick_expand / quick_rerank で従来動作へ戻せる。
+    ' 各段を通すかはモードで決まる(modMode)。
     Dim useExpand As Boolean
-    useExpand = modConfig.GetBool("expand_enabled", False)
-    If mdMode <> MODE_DEEP Then
-        useExpand = useExpand And modConfig.GetBool("quick_expand", False)
-    End If
+    useExpand = modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
+                                  modConfig.GetBool("quick_expand", False))
 
     If useExpand Then
         modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDED) & " 質問を分析中…"
         Dim lightMode As Boolean
-        lightMode = (mdMode <> MODE_DEEP) And modConfig.GetBool("quick_expand_light", True)
+        lightMode = modMode.UseLightExpand(mdMode, modConfig.GetBool("quick_expand_light", True))
 
         Dim exPrompt As String
         exPrompt = modPrompts.BuildExpandPrompt(q, HistoryBlock(), _
-            modConfig.GetLong("expand_subqueries", 3), lightMode)
+            modMode.SubQueryCount(mdMode, modConfig.GetLong("expand_subqueries", 3), _
+                                  modConfig.GetLong("thorough_subqueries", 6)), lightMode)
 
         Dim exModel As String: exModel = modConfig.GetString("expand_model", "")
         If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.5")
@@ -509,10 +504,8 @@ Private Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim orderN As Long: orderN = 0
     Dim rankOrder() As Long
     Dim useRerank As Boolean
-    useRerank = modConfig.GetBool("rerank_enabled", False)
-    If mdMode <> MODE_DEEP Then
-        useRerank = useRerank And modConfig.GetBool("quick_rerank", False)
-    End If
+    useRerank = modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
+                                  modConfig.GetBool("quick_rerank", False))
     If useRerank And poolN > topK Then
         modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDEE) & " 関連度を精査中…"
         Dim rkPrompt As String
@@ -727,19 +720,13 @@ End Function
 
 
 Private Function NormalizeMode(ByVal mode As String) As String
-    If LCase$(Trim$(mode)) = MODE_DEEP Then
-        NormalizeMode = MODE_DEEP
-    Else
-        NormalizeMode = MODE_QUICK
-    End If
+    NormalizeMode = modMode.Normalize(mode)
 End Function
 
 Private Function TopKFor(ByVal mdMode As String) As Long
-    If mdMode = MODE_DEEP Then
-        TopKFor = modConfig.GetLong("topk_deep", 12)
-    Else
-        TopKFor = modConfig.GetLong("topk_quick", 6)
-    End If
+    TopKFor = modMode.TopK(mdMode, modConfig.GetLong("topk_quick", 6), _
+                           modConfig.GetLong("topk_deep", 12), _
+                           modConfig.GetLong("topk_thorough", 16))
 End Function
 
 Private Function IsErrorResponse(ByVal s As String) As Boolean
@@ -797,6 +784,7 @@ Private Function ReadModeFromUiState() As String
             Dim v As String
             v = LCase$(Trim$(CStr(ws.Cells(i, 2).Value)))
             If v = MODE_DEEP Then ReadModeFromUiState = MODE_DEEP
+            If v = MODE_THOROUGH Then ReadModeFromUiState = MODE_THOROUGH
             Exit Function
         End If
     Next i

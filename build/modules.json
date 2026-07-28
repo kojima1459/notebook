@@ -170,6 +170,13 @@
       "wave": "INSIGHT"
     },
     {
+      "name": "modMode",
+      "path": "src/qa/modMode.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MODE3"
+    },
+    {
       "name": "modAsk",
       "path": "src/qa/modAsk.bas",
       "role": "core",
