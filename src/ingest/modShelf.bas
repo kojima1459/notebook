@@ -135,9 +135,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
         GoTo Finish
     End If
 
-    ' 3) 既存同名sourceは置換(古いchunk/vector削除)
-    uiStep = "既存同名資料の置換準備"
-    modShelfStore.RemoveKnowledgeAndVectorsForSource sourceName
+    ' 3) 既存同名sourceの置換は「抽出に成功してから」消す(手順は下の
+    '    7)の直前)。2026-07-28(レビュー H-6): ここで先に消していたため、
+    '    そのPDFを本人が開いていてWordが起動できない・一時的なネットワーク断
+    '    などで抽出に失敗すると、旧データは戻らずその資料の検索が即座に
+    '    全滅していた。置き換えに失敗したら、前のままである方が正しい。
 
     ' 4) 抽出
     uiStep = "ファイルからの本文抽出"
@@ -214,7 +216,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     ' 6) chunk_id付番(bs::hash::pN::cN)+ハッシュ重複スキップ
     uiStep = "チャンクの採番と重複排除"
     Dim wsK As Worksheet: Set wsK = modShelfStore.EnsureKnowledgeSheet()
-    Dim existingHashes As Object: Set existingHashes = modShelfStore.BuildExistingHashSet(wsK)
+    ' 置き換え対象(同名source)の行はまだ消していないので、ハッシュ集合から
+    ' 除外する。除外しないと入れ直すチャンクが全部「自分自身との重複」と
+    ' 判定されて1件も入らない(レビュー H-6)。
+    Dim existingHashes As Object
+    Set existingHashes = modShelfStore.BuildExistingHashSet(wsK, sourceName)
 
     Dim outRows() As Variant: ReDim outRows(1 To chunkN, 1 To 9)
     Dim acceptedCount As Long: acceptedCount = 0
@@ -253,6 +259,12 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
             outRows(acceptedCount, COL_EMBEDDED) = 0
         End If
     Next ci
+
+    ' 6.5) ここまで来て初めて旧データを消す(レビュー H-6)。
+    '      抽出もチャンク分割も採番も終わっていて、あとは書くだけ。
+    '      消してから書くまでの間に失敗する余地がほぼ無い位置。
+    uiStep = "既存同名資料の置き換え"
+    modShelfStore.RemoveKnowledgeAndVectorsForSource sourceName
 
     ' 7) my_knowledge追記(err#7対策で200行バッチ書込み)
     uiStep = "本棚への保存(my_knowledge書込み)"

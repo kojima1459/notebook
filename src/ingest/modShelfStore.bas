@@ -79,7 +79,15 @@ Fail:
     Set EnsureManifestSheet = Nothing
 End Function
 
-Public Function BuildExistingHashSet(ByVal wsK As Worksheet) As Object
+' 既存チャンクのハッシュ集合(重複排除用)。
+'
+' excludeSource (2026-07-28 レビュー H-6):
+'   このsource名の行をハッシュ集合に入れない。同名資料の置き換えで
+'   「先に消してから抽出する」のをやめ、「抽出が成功してから消す」順に
+'   変えるために要る。消す前に集合を作ると、入れ直すチャンクが全部
+'   自分自身との重複と判定されて1件も入らなくなる。
+Public Function BuildExistingHashSet(ByVal wsK As Worksheet, _
+                                     Optional ByVal excludeSource As String = "") As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     If wsK Is Nothing Then
         Set BuildExistingHashSet = dict
@@ -92,15 +100,17 @@ Public Function BuildExistingHashSet(ByVal wsK As Worksheet) As Object
         Exit Function
     End If
 
-    If lastK = 2 Then
-        AddHashFromId dict, CStr(wsK.Cells(2, 1).Value)
-    Else
-        Dim ids As Variant: ids = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 1)).Value
-        Dim i As Long
-        For i = LBound(ids, 1) To UBound(ids, 1)
-            AddHashFromId dict, CStr(ids(i, 1))
-        Next i
-    End If
+    ' chunk_id(1列目)と source(2列目)を一括で読む。
+    Dim arr As Variant
+    arr = wsK.Range(wsK.Cells(2, COL_ID), wsK.Cells(lastK, COL_SOURCE)).Value
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If LenB(excludeSource) = 0 Then
+            AddHashFromId dict, CStr(arr(i, 1))
+        ElseIf StrComp(CStr(arr(i, 2)), excludeSource, vbTextCompare) <> 0 Then
+            AddHashFromId dict, CStr(arr(i, 1))
+        End If
+    Next i
     Set BuildExistingHashSet = dict
 End Function
 

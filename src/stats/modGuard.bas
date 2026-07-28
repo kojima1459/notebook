@@ -171,5 +171,33 @@ Public Function WipeKnowledge() As Long
             If Left$(CStr(wsS.Cells(r, 1).Value), 3) = "ch:" Then wsS.Rows(r).Delete
         Next r
     End If
+
+    ' 2026-07-28(レビュー H-8): my_manifest も status="failed" に倒す。
+    '
+    ' チャンネル分は上の ch: 版クリアで next sync に復元されるが、
+    ' 自分で取り込んだ資料は manifest が status="done" のまま残るため、
+    ' 次回の同期が「変化なし=keep」でスキップし、shelf_folder が健在でも
+    ' 二度と自動復元されなかった。失効ダイアログは
+    ' 「接続して開き直すと自動的に取り込み直せます」と案内しているのに、
+    ' 実装がそうなっていなかった。本棚UIはカードを出し続けるのに検索は
+    ' 0件、という説明できない不整合にもなる。
+    ' 行は消さずに status を倒すのは、DiffDecision が failed/missing を
+    ' replace 経路へ乗せる既存ルール(ResolveDecision)にそのまま乗るため。
+    ' パスと元ファイル名の記録が残るので、何が復元されるかも追える。
+    Dim wsM As Worksheet
+    Set wsM = ThisWorkbook.Worksheets(modAppDef.SH_MANIFEST)
+    If Not wsM Is Nothing Then
+        Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.Count, 1).End(xlUp).Row
+        If lastM >= 2 Then
+            Dim arr As Variant
+            arr = wsM.Range(wsM.Cells(2, 5), wsM.Cells(lastM, 6)).Value
+            Dim i As Long
+            For i = LBound(arr, 1) To UBound(arr, 1)
+                arr(i, 1) = 0                ' chunk_count(消した実態に合わせる)
+                arr(i, 2) = "failed"         ' status
+            Next i
+            wsM.Range(wsM.Cells(2, 5), wsM.Cells(lastM, 6)).Value = arr
+        End If
+    End If
     On Error GoTo 0
 End Function
