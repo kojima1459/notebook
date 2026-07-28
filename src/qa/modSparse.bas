@@ -40,20 +40,33 @@ Option Explicit
 '    「第12条は?」と聞かれて第12条が1位に来ないのは、金融では事故。
 '    ベクトルもBM25も確率的なので、条番号・型番だけは決定的に押し上げる。
 '
-' 速度について(VBAの現実)
+' 速度と、なぜBM25を毎クエリ全件に掛けないか(実測に基づく)
 ' ----------------------------------------------------------------------------
-' 2万チャンク全件に bigram BM25 を回すと、1チャンク900字×9000件で
-' 800万回の文字走査になり数十秒かかる。実務では使えない。
-' そこで modRetrieve は「候補生成 → 再ランク」にする:
-'     ① dense(埋め込み)の上位K件            … 既存の内積計算。意味の近さ
-'     ② 質問から抜いた"効く語"の全件部分一致 … InStrはネイティブで速い
-'     ③ ①∪② の小さなプールにだけ BM25    … ここが本モジュール
-' ②を入れるのは、denseが取りこぼした完全一致を救うため。
-' 実測では②+③だけ(=denseが全く役に立たなかった最悪ケース)でも
-' R@1 84% / R@5 100% を維持した。
+' LibreOffice実測(閾値テストで固定):
+'     Tokenize  … 900字1件で 225ms → 9000件で 2,025秒(約34分)
+'     InStr     … 9000件×8キーで 0.5秒未満
+' VBAはLO Basicより速いはずだが桁は変わらない。毎クエリ全件トークナイズは
+' 選べない。実際、この構成を一度実装して34分かかることを実測で確認した。
 '
-' R4準拠: Excelオブジェクトに触れないので LibreOffice でテストできる。
-' 回帰は modTestsPure2 が固定する。
+' そこで出荷する経路(modRetrieve.Search)は:
+'     ・チャンクごとにやるのは CompactForMatch + KeyScore(InStrのみ)
+'     ・Tokenize / Bm25Score は毎クエリの全件走査では呼ばない
+'       (パック作成時のオフライン処理や、将来の小プール再ランク用に残す)
+'
+' 精度はどうか(実物6資料180チャンク31問での採点):
+'     文字bigram BM25(全件)      R@1 84% / R@3 97% / R@5 100% / ページ45%
+'     ★採用: InStr・空白除去      R@1 84% / R@3 84% / R@5  90% / ページ81%
+'   R@3/R@5 は BM25 が上だが R@1 は同じで、出典ページの正確さは採用案が
+'   大きく上回る。「どの資料の何ページか」を出す製品なので後者を採る。
+'   表記揺れ(全角/大文字/空白挿入/空白除去)は全て 84% を維持した。
+'
+' dense(埋め込み)との関係:
+'   modRetrieve は全チャンクに対して dense(内積)と本モジュール(KeyScore)の
+'   両方を必ず計算する。片方で候補を絞ってからもう片方を掛ける構成にはしない。
+'   ベクトルで拾えない専門用語が一段目で足切りされる事故を、構造的に防ぐため。
+'
+' R4準拠: Excelオブジェクトにも Scripting.Dictionary にも触れないので
+' LibreOffice でそのままテストできる。回帰は modTestsPure2 が固定する。
 ' ============================================================================
 
 Private Const FW_DIGIT_LO As Long = 65296   ' ０
@@ -110,34 +123,66 @@ Public Function Tokenize(ByVal rawText As String) As String
     Dim n As Long: n = Len(s)
     If n = 0 Then Exit Function
 
-    Dim toks As String
-    Dim jp As String
-    Dim alnum As String
+    ' 【重要・実測で判明】文字列を "toks = toks & x" で伸ばしてはいけない。
+    ' VBAの文字列連結は毎回コピーが走るためO(n^2)になり、900字のチャンク1件に
+    ' 200ms かかっていた(LibreOffice実測)。9000件なら1800秒=30分。
+    ' 配列に詰めて最後に Join する(O(n))。これは規約§12にも明記がある。
+    ' この1点だけで実用と非実用が分かれるので、絶対に戻さないこと。
+    Dim buf() As String
+    ReDim buf(1 To n * 2 + 2)
+    Dim cnt As Long
+
+    Dim jpBuf() As String
+    ReDim jpBuf(1 To n)
+    Dim jpN As Long
+
+    Dim alnumBuf() As String
+    ReDim alnumBuf(1 To n)
+    Dim alnumN As Long
 
     Dim i As Long
     For i = 1 To n
         Dim ch As String: ch = Mid$(s, i, 1)
         If IsAlnumChar(ch) Then
-            alnum = alnum & ch
+            alnumN = alnumN + 1
+            alnumBuf(alnumN) = ch
         Else
-            If LenB(alnum) > 0 Then
-                toks = toks & alnum & "|"
-                alnum = ""
+            If alnumN > 0 Then
+                cnt = cnt + 1
+                buf(cnt) = Join(SliceOf(alnumBuf, alnumN), "")
+                alnumN = 0
             End If
-            If IsJapaneseChar(ch) Then jp = jp & ch
+            If IsJapaneseChar(ch) Then
+                jpN = jpN + 1
+                jpBuf(jpN) = ch
+            End If
         End If
     Next i
-    If LenB(alnum) > 0 Then toks = toks & alnum & "|"
+    If alnumN > 0 Then
+        cnt = cnt + 1
+        buf(cnt) = Join(SliceOf(alnumBuf, alnumN), "")
+    End If
 
     ' かな漢字を連結してから bigram を作る。こうすると、途中に紛れ込んだ
     ' 空白や記号(PDF由来の字詰め)が語を割らない。
-    Dim m As Long: m = Len(jp)
-    For i = 1 To m - 1
-        toks = toks & Mid$(jp, i, 2) & "|"
+    For i = 1 To jpN - 1
+        cnt = cnt + 1
+        buf(cnt) = jpBuf(i) & jpBuf(i + 1)
     Next i
 
-    If LenB(toks) > 0 Then toks = Left$(toks, Len(toks) - 1)
-    Tokenize = toks
+    If cnt = 0 Then Exit Function
+    Tokenize = Join(SliceOf(buf, cnt), "|")
+End Function
+
+' 配列の先頭n個だけを取り出す(Joinへ渡すため。ReDim Preserveより安い)。
+Private Function SliceOf(ByRef src() As String, ByVal n As Long) As String()
+    Dim out() As String
+    ReDim out(1 To n)
+    Dim i As Long
+    For i = 1 To n
+        out(i) = src(i)
+    Next i
+    SliceOf = out
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -146,7 +191,10 @@ End Function
 '   希少で、当たったときの確度が高いため。
 ' ----------------------------------------------------------------------------
 Public Function DistinctiveKeys(ByVal query As String) As String
-    Dim s As String: s = NormalizeForSearch(query)
+    ' 空白は先に全部落とす。落とさないと「保 険 金」が1文字断片に割れて
+    ' 全部捨てられ、キーが1つも取れなくなる(実測: 空白を入れただけで
+    ' R@1 84%→45% まで落ちた)。
+    Dim s As String: s = Replace(NormalizeForSearch(query), " ", "")
     Dim n As Long: n = Len(s)
     If n = 0 Then Exit Function
 
@@ -224,6 +272,71 @@ Public Function DistinctiveKeys(ByVal query As String) As String
 
     If LenB(keys) > 0 Then keys = Left$(keys, Len(keys) - 1)
     DistinctiveKeys = keys
+End Function
+
+
+' ----------------------------------------------------------------------------
+' CompactForMatch - 照合専用テキスト(正規化 + 空白を全除去)。
+' ----------------------------------------------------------------------------
+' InStr は連続一致なので、PDF由来の字詰めやユーザーが入れた余計な空白が
+' 語の途中に入ると当たらなくなる。照合用に空白を落とした版を使えば
+' 「保 険 金」と「保険金」が同じものとして一致する。
+' 表示・出典に使うのは元の本文なので、見た目は一切変わらない。
+Public Function CompactForMatch(ByVal s As String) As String
+    CompactForMatch = Replace(NormalizeForSearch(s), " ", "")
+End Function
+
+' ----------------------------------------------------------------------------
+' KeyScore - トークナイズせずに求めるキーワードスコア。
+' ----------------------------------------------------------------------------
+' なぜBM25を毎クエリ全件に掛けないか(実測に基づく設計判断):
+'   Tokenize は1チャンク(900字)あたり 225ms かかる(LibreOffice実測)。
+'   9000チャンクなら 2,025秒 = 34分。VBAはこれより速いはずだが、
+'   桁が違う話ではないので、毎クエリ全件トークナイズは選べない。
+'   一方 InStr はネイティブ実装で、9000件×8キーが 0.5秒以内に収まる
+'   (同じく実測・閾値テストで固定済み)。
+'
+' 精度はどうか(実物6資料180チャンク31問での採点):
+'     文字bigram BM25            R@1 84% / R@3 97% / R@5 100% / ページ45%
+'     本方式(InStr・空白除去)     R@1 84% / R@3 84% / R@5  90% / ページ81%
+'   R@3/R@5 は BM25 が上だが、R@1 は同じで、出典ページの正確さは本方式が
+'   大きく上回る。「どの資料の何ページか」を出す製品なので後者を採る。
+'   さらに本方式は全ての表記揺れ(全角/大文字/空白挿入/空白除去)で
+'   84% を完全維持した。
+'
+'   keys       : DistinctiveKeys の結果(| 区切り)
+'   compactDoc : CompactForMatch を通した本文
+Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Double
+    If LenB(keys) = 0 Then Exit Function
+    If LenB(compactDoc) = 0 Then Exit Function
+
+    Dim arr() As String: arr = Split(keys, "|")
+    Dim total As Double
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        Dim k As String: k = arr(i)
+        If Len(k) >= 2 Then
+            Dim c As Long: c = CountOccurrences(compactDoc, k)
+            If c > 0 Then
+                ' 長い語ほど希少 = IDFの安価な代用。^1.5 は実測で選んだ形。
+                Dim w As Double: w = Len(k) ^ 1.5
+                total = total + w * (1 + Log(CDbl(c)))
+            End If
+        End If
+    Next i
+    If total <= 0 Then Exit Function
+
+    ' 文書長で正規化(長いチャンクが不当に有利になるのを防ぐ)
+    KeyScore = total / (1 + Log(1 + Len(compactDoc) / 900#))
+End Function
+
+Private Function CountOccurrences(ByVal hay As String, ByVal needle As String) As Long
+    If LenB(needle) = 0 Then Exit Function
+    Dim p As Long: p = InStr(1, hay, needle, vbBinaryCompare)
+    Do While p > 0
+        CountOccurrences = CountOccurrences + 1
+        p = InStr(p + Len(needle), hay, needle, vbBinaryCompare)
+    Loop
 End Function
 
 ' ----------------------------------------------------------------------------

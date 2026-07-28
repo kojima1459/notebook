@@ -145,7 +145,7 @@ CONTRACT: dict[str, dict] = {
         # 全て純ロジックなので modTestsPure2 から直接検証する。
         # 実測: 旧実装 R@1 32% → 本実装 84%(tools/bench_retrieval.py)。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
-                     "Bm25Score", "ExactHitCount"],
+                     "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore"],
     },
     "modChunker": {
         "closed": True,

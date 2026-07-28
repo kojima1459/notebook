@@ -194,8 +194,13 @@ RARE_RE = re.compile(r"第\d+条(?:の\d+)?|[0-9A-Za-z]{3,}|[一-鿿]{2,}")
 
 
 def distinctive_keys(query: str, limit: int = 8) -> list[str]:
-    """質問から「効く語」を抜く。長い漢字連続と英数字・条番号を優先する。"""
-    q = normalize_query(query)
+    """質問から「効く語」を抜く。長い漢字連続と英数字・条番号を優先する。
+
+    空白は先に全部落とす。落とさないと「保 険 金」が「保」「険」「金」の
+    1文字断片に割れて全部捨てられ、キーが1つも取れなくなる
+    (実測: 空白を入れただけで R@1 84%→45% まで落ちた)。
+    """
+    q = normalize_query(query).replace(" ", "")
     keys = RARE_RE.findall(q)
     keys = [k for k in keys if len(k) >= 2]
     keys.sort(key=len, reverse=True)
@@ -229,6 +234,100 @@ def shipping_scorer(chunks, idx_bi):
         out = [-1e9] * len(chunks)
         for i in cand:
             out[i] = full[i] + ex[i]
+        return out
+    return score
+
+
+def instr_only_scorer(chunks):
+    """トークナイズを一切しない構成(InStrの部分一致だけ)。
+
+    VBAで毎クエリ全件トークナイズすると 9000件で数百秒〜数十分かかる
+    (LibreOffice実測 225ms/件)。そこで「効く語の部分一致回数」だけで
+    順位を付けたらどこまで出るかを測る。IDFの代わりに
+    「語が長いほど希少」という近似で重みを付ける。
+    """
+    bodies = [normalize_query(c["text"] + " " + c["source"]) for c in chunks]
+
+    def score(q):
+        keys = distinctive_keys(q, limit=8)
+        out = [0.0] * len(chunks)
+        for k in keys:
+            w = len(k) ** 1.5          # 長い語ほど重い(IDFの安価な代用)
+            for i, b in enumerate(bodies):
+                c = b.count(k)
+                if c:
+                    out[i] += w * (1 + math.log(c))
+        # 文書長で正規化(長いチャンクが不当に有利になるのを防ぐ)
+        for i, b in enumerate(bodies):
+            if out[i] > 0:
+                out[i] = out[i] / (1 + math.log(1 + len(b) / 900.0))
+        return out
+    return score
+
+
+def final_scorer(chunks, idx_bi, pool: int = 20):
+    """出荷する最終構成。
+
+      ① InStr の部分一致だけで全件をスコアリング(トークナイズしないので速い)
+      ② 上位 pool 件だけを BM25 で再ランク(ここだけトークナイズする)
+      ③ 2つの順位を RRF で融合する
+
+    ①は「効く語が本文にあるか」= キーワード完全一致に強く、ページ命中率が高い。
+    ②は「語の重なり全体」= 意味的な近さに強く、R@3/R@5 を押し上げる。
+    性質が違うので、順位だけを見る RRF で混ぜるのが素直(スコアの尺度が
+    違うものを足すと必ずどちらかが支配してしまう)。
+    実運用ではここに dense(埋め込み)の順位が3本目として加わる。
+    """
+    instr = instr_only_scorer(chunks)
+
+    def score(q):
+        s1 = instr(q)
+        r1 = sorted(range(len(chunks)), key=lambda i: -s1[i])
+        top = [i for i in r1[:pool] if s1[i] > 0]
+        if not top:
+            return s1
+
+        bm = bm25_scores(idx_bi, tokenize_bigram(q))
+        r2 = sorted(top, key=lambda i: -bm[i])
+
+        fused = rrf([r1[:pool], r2])
+        out = [-1e9] * len(chunks)
+        for i in top:
+            out[i] = fused.get(i, 0.0)
+        # プール外は元の順位を維持(スコアを大きく下げてぶら下げる)
+        for pos, i in enumerate(r1[pool:], start=pool):
+            if out[i] < -1e8:
+                out[i] = -1.0 - pos * 1e-6
+        return out
+    return score
+
+
+def instr_compact_scorer(chunks):
+    """InStrのみ + 空白除去マッチ(最終案)。
+
+    InStr は連続一致なので、PDF由来やユーザー入力の余計な空白が
+    語の途中に入ると当たらなくなる(実測 R@1 84%→55%)。
+    照合用に「空白を除いた本文」を持ち、質問側も空白を除いてから当てる。
+    こうすると「保 険 金」と「保険金」が同じものとして一致する。
+    元本文は表示・出典用にそのまま残すので、表示は壊れない。
+    """
+    bodies = [normalize_query(c["text"] + " " + c["source"]).replace(" ", "")
+              for c in chunks]
+    lens = [max(len(b), 1) for b in bodies]
+
+    def score(q):
+        keys = [k.replace(" ", "") for k in distinctive_keys(q, limit=8)]
+        keys = [k for k in keys if len(k) >= 2]
+        out = [0.0] * len(chunks)
+        for k in keys:
+            w = len(k) ** 1.5
+            for i, b in enumerate(bodies):
+                c = b.count(k)
+                if c:
+                    out[i] += w * (1 + math.log(c))
+        for i in range(len(chunks)):
+            if out[i] > 0:
+                out[i] = out[i] / (1 + math.log(1 + lens[i] / 900.0))
         return out
     return score
 
@@ -377,6 +476,12 @@ def main(argv):
         evaluate(chunks, questions, s_rrf_pair,   "採用案(BM25順位 + 完全一致)"),
         evaluate(chunks, questions, shipping_scorer(chunks, idx_bi),
                  "出荷構成(候補生成→BM25再ランク)"),
+        evaluate(chunks, questions, instr_only_scorer(chunks),
+                 "InStrのみ(トークナイズ無し・最速)"),
+        evaluate(chunks, questions, final_scorer(chunks, idx_bi),
+                 "InStr全件→上位20をBM25→RRF"),
+        evaluate(chunks, questions, instr_compact_scorer(chunks),
+                 "★最終案(InStr全件・空白除去マッチ)"),
     ]
 
     print(f"\n{'手法':<34}{'R@1':>7}{'R@3':>7}{'R@5':>7}{'MRR':>7}{'ページ':>8}")
@@ -393,7 +498,7 @@ def main(argv):
     print("=" * 78)
     print(f"{'入力の揺れ':<34}{'R@1':>7}{'R@3':>7}{'R@5':>7}{'MRR':>7}")
     print("-" * 78)
-    for r in robustness_check(chunks, questions, shipping_scorer(chunks, idx_bi)):
+    for r in robustness_check(chunks, questions, instr_compact_scorer(chunks)):
         print(f"{r['name']:<34}{r['R@1']:>6.0%}{r['R@3']:>7.0%}{r['R@5']:>7.0%}{r['MRR']:>7.2f}")
     print()
     return 0

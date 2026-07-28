@@ -43,6 +43,64 @@ Option Explicit
 '   本実装(文字bigram+BM25)    R@1 84% / R@5 100% / MRR 0.91
 ' 差の大半は「日本語は空白で区切らない」という一点。ここが壊れると
 ' 検索は静かにゴミへ戻るので、性質を固定しておく。
+' ----------------------------------------------------------------------------
+' 出荷する検索経路の回帰テスト(2026-07-27)
+' ----------------------------------------------------------------------------
+' 実測(実物6資料180チャンク31問)で選んだ最終構成:
+'     手法                              R@1  R@3  R@5  MRR  ページ
+'     旧実装(空白分割+一律加点)           32%  32%  32% 0.34   16%
+'     文字bigram BM25(全件)              84%  97% 100% 0.91   45%
+'     ★採用: InStr全件・空白除去マッチ     84%  84%  90% 0.86   81%
+' BM25は R@3/R@5 が上だが、1チャンクのトークナイズに225ms(LO実測)かかり
+' 9000件では34分になるため毎クエリ全件には使えない。採用案は
+' トークナイズ不要で、出典ページの正確さ(81%)も最も高い。
+' 表記揺れ(全角/大文字/空白挿入/空白除去)は全て84%を維持した。
+Private Sub RunKeyScoreTests()
+    ' 照合用テキスト: 正規化 + 空白の完全除去
+    modTestRunner.Check "照合用: 空白を落として揃える", _
+        modSparse.CompactForMatch("保 険 　金") = "保険金", _
+        "実際=" & modSparse.CompactForMatch("保 険 　金")
+    modTestRunner.Check "照合用: 全角数字も揃う", _
+        modSparse.CompactForMatch("第 ２ ０ 条") = "第20条", _
+        "実際=" & modSparse.CompactForMatch("第 ２ ０ 条")
+
+    ' 空白入りの質問からでもキーが取れること(取れないと0件になる)
+    Dim k1 As String, k2 As String
+    k1 = modSparse.DistinctiveKeys("保険金を支払わない場合")
+    k2 = modSparse.DistinctiveKeys("保 険 金 を 支 払 わ な い 場 合")
+    modTestRunner.Check "効く語: 空白が入っても同じキーが取れる", k1 = k2, _
+        "空白なし=" & k1 & " / 空白あり=" & k2
+
+    ' スコア: 一致が多い文書のほうが高い
+    Dim body1 As String, body2 As String
+    body1 = modSparse.CompactForMatch("第12条(保険金を支払わない場合)当社は保険金を支払いません。")
+    body2 = modSparse.CompactForMatch("第30条(保険料の払込方法)当社は保険料を集金します。")
+    Dim keys As String: keys = modSparse.DistinctiveKeys("保険金を支払わない場合")
+    modTestRunner.Check "スコア: 一致の多い文書が上位になる", _
+        modSparse.KeyScore(keys, body1) > modSparse.KeyScore(keys, body2), _
+        "body1=" & Format$(modSparse.KeyScore(keys, body1), "0.000") & _
+        " body2=" & Format$(modSparse.KeyScore(keys, body2), "0.000")
+
+    ' 条番号は確実に効くこと(金融では外せない)
+    Dim ka As String: ka = modSparse.DistinctiveKeys("第12条について教えて")
+    modTestRunner.Check "条番号: 第12条の文書が第30条より上位", _
+        modSparse.KeyScore(ka, body1) > modSparse.KeyScore(ka, body2), _
+        "12条=" & Format$(modSparse.KeyScore(ka, body1), "0.000") & _
+        " 30条=" & Format$(modSparse.KeyScore(ka, body2), "0.000")
+
+    ' 無関係な文書は0点(ノイズを上げない)
+    modTestRunner.Check "スコア: 無関係な文書は0点", _
+        modSparse.KeyScore(keys, modSparse.CompactForMatch("abcdefg hijklmn")) = 0, ""
+
+    ' 空白の入った本文にも当たること(PDF字詰め対策の本丸)
+    Dim spaced As String
+    spaced = modSparse.CompactForMatch("第12条(保 険 金 を 支 払 わ な い 場 合)")
+    modTestRunner.Check "字詰め: 空白入り本文にも一致する", _
+        modSparse.KeyScore(keys, spaced) > 0, _
+        "PDFの字詰めで空白が入ると当たらない実装は使えない"
+End Sub
+
+
 Private Sub RunSparseTests()
     modTestRunner.Check "正規化: 全角数字を半角へ", _
         modSparse.NormalizeForSearch("第２０条") = "第20条", _
@@ -105,6 +163,7 @@ NextPack:
     TestModPack
     On Error GoTo SparseFail
     RunSparseTests
+    RunKeyScoreTests
 NextDone:
     On Error GoTo 0
     Exit Sub

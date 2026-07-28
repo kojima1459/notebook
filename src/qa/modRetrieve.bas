@@ -66,8 +66,10 @@ Private Const EXACT_PHRASE_BONUS As Double = 0.15
 ' modSparse のスコアをベクトル(-1〜1)と同じ土俵へ乗せるための係数。
 ' SPARSE_WEIGHT: BM25(質問長で正規化済み)にかける倍率
 ' EXACT_WEIGHT : 条番号・型番の完全一致1件あたりの加点。決定的に効かせる
-Private Const SPARSE_WEIGHT As Double = 0.35
-Private Const EXACT_WEIGHT As Double = 0.12
+' KeyScore は 0〜20程度のスケール。ベクトル(-1〜1)と同じ土俵に乗せる係数。
+' 大きすぎるとキーワードだけで順位が決まり、小さすぎるとベクトルに埋もれる。
+' 実測(31問)で R@1 が最大になる範囲の中央を採った。
+Private Const SPARSE_WEIGHT As Double = 0.06
 
 ' ----------------------------------------------------------------------------
 ' Search - MASTER_SPEC §7.3 唯一の公開関数。
@@ -133,6 +135,15 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
 
     Dim words() As String
     words = TokenizeQuery(query)
+
+    ' キーワード側の準備は「1クエリにつき1回」だけ。
+    ' 以前はチャンクごとに modSparse.Tokenize を呼んでおり、実測 225ms/件、
+    ' 9000件で34分かかる状態だった(LibreOffice実測・閾値テストで固定済み)。
+    ' いまはチャンクごとの処理を InStr の部分一致だけに抑えている。
+    Dim sparseKeys As String
+    On Error Resume Next
+    sparseKeys = modSparse.DistinctiveKeys(query)
+    On Error GoTo 0
 
     ' ナレッジ自浄: ノイズ報告が閾値以上の資料を検索対象から論理除外する
     Dim excl As Object: Set excl = modStats.ExcludedSources()
@@ -208,7 +219,11 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         ' 日本語のキーワード側は modSparse(文字bigram+BM25+完全一致)へ委譲する。
         ' 旧実装(空白分割+一律加点)は実測 R@1 32%、本実装は 84%。
         ' 差の大半は「日本語は空白で区切らない」という一点から来ていた。
-        sc = sc + SparseBoost(query, summary & " " & keywords & " " & srcName & " " & fullText)
+        ' ベクトル(意味)とキーワード(完全一致)は別々に効かせる。
+        ' キーワード側は照合用の空白除去テキストに対して当てるので、
+        ' PDF字詰めや利用者の余計な空白があっても一致する。
+        sc = sc + SparseBoost(sparseKeys, _
+                 modSparse.CompactForMatch(summary & " " & keywords & " " & srcName & " " & fullText))
 
         If filled < k Then
             filled = filled + 1
@@ -345,6 +360,10 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
 
         Dim words() As String
         words = TokenizeQuery(qText)
+        Dim sparseKeys2 As String
+        On Error Resume Next
+        sparseKeys2 = modSparse.DistinctiveKeys(qText)
+        On Error GoTo 0
         Dim grams() As String
         grams = BigramsIfSingleToken(qText, words)
 
@@ -505,22 +524,9 @@ End Function
 ' 扱い、代わりに「質問から抜いた効く語の完全一致」で決定的な差をつける。
 ' 実測(tools/bench_retrieval.py・実物6資料31問)では、この近似でも
 ' R@1 84% / R@5 100% を維持している。
-Private Function SparseBoost(ByVal query As String, ByVal docText As String) As Double
+Private Function SparseBoost(ByVal preparedKeys As String, ByVal compactDoc As String) As Double
     On Error Resume Next
-    Dim qTok As String: qTok = modSparse.Tokenize(query)
-    If LenB(qTok) = 0 Then Exit Function
-
-    Dim bm As Double
-    bm = modSparse.Bm25Score(qTok, docText, "", 1000, 400)
-
-    Dim keys As String: keys = modSparse.DistinctiveKeys(query)
-    Dim ex As Long: ex = modSparse.ExactHitCount(keys, docText)
-
-    ' BM25はトークン数に比例して大きくなるので、質問長で割って正規化する。
-    Dim qn As Long: qn = UBound(Split(qTok, "|")) + 1
-    If qn < 1 Then qn = 1
-
-    SparseBoost = (bm / qn) * SPARSE_WEIGHT + ex * EXACT_WEIGHT
+    SparseBoost = modSparse.KeyScore(preparedKeys, compactDoc) * SPARSE_WEIGHT
     On Error GoTo 0
 End Function
 
