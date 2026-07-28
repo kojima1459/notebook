@@ -509,7 +509,12 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     ElseIf LenB(chPend) > 0 Then
         ' 正典の改定は最優先で知らせる。古い版のまま使い続けると、AIが
         ' 古い条文を根拠に答えるという最悪の事故になる。
-        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 【" & modChannel.ActiveChannel() & _
+        '
+        ' 2026-07-28(レビュー H-13): 表示は「アクティブ部門名」を出していた
+        ' ため、更新があるのは人事部なのに「【商品部】に更新があります」と
+        ' 出て、押しても商品部は最新なので何も起きない、という
+        ' 消えないバッジになっていた。保留リストの実体をそのまま出す。
+        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 【" & modHubStat.PendingLabel(chPend) & _
               "】に更新があります" & vbCr & _
               "押して読み込み直してください。古い内容で回答しないために早めの更新を"
         act = "modKnowledge.OnChannels"

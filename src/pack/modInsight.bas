@@ -344,26 +344,61 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
     If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
 
     Dim myId As String: myId = SafeUserId()
+
+    ' 1) まずファイル名を全部集める。Dir()は列挙状態を1つしか持たないので、
+    '    ループの中で読み書きをすると列挙が壊れる(他モジュールと同じ2段方式)。
+    Dim names() As String: ReDim names(0 To 255)
+    Dim nFiles As Long
     Dim fname As String
     fname = Dir(dirPath & "*.txt")
-
-    Dim guard As Long
-    Do While LenB(fname) > 0 And guard < MAX_COLLECT
-        guard = guard + 1
-        Dim nc As String: nc = Left$(fname, Len(fname) - 4)
-        ' 自分が出したものは取り込まない(自作自演の循環を作らない)。
-        If InStr(1, nc, myId, vbTextCompare) <> 1 Then
-            If modStats.GetStat("ins:" & nc) = 0 Then
-                Dim raw As String
-                If ReadShared(dirPath & fname, raw) Then
-                    If AppendRow(ws, kind, nc, raw) Then CollectFrom = CollectFrom + 1
-                End If
-                modStats.Bump "ins:" & nc
-            End If
-        End If
+    Do While LenB(fname) > 0
+        If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 256)
+        names(nFiles) = fname
+        nFiles = nFiles + 1
         fname = Dir()
     Loop
+
+    ' 2) 未読だけを処理する。
+    '
+    ' 2026-07-28(レビュー H-15)で直した3点:
+    '   (a) 読み取りに失敗しても既読にしていた
+    '       → その投稿はその端末に二度と入らない。既読化は成功パスへ移す。
+    '   (b) 上限60を「列挙した件数」で数えていた
+    '       → 既読・自分発のファイルも枠を食うため、部内の累計投稿が60件を
+    '         超えた日から新着が誰にも届かなくなる(エラー表示も無し)。
+    '         共有知フライホイールが静かに止まる。数えるのは「実際に
+    '         処理した未読の件数」にする。
+    '   (c) 自分発の判定が前方一致だった(レビュー M-22)
+    '       → ID "鈴木" が "鈴木一" さんの投稿まで自分発と誤認して受信しない。
+    '         ファイル名は "<ID>-<nonce>" なので、区切りまで含めて比較する。
+    Dim processed As Long
+    Dim i As Long
+    For i = 0 To nFiles - 1
+        If processed >= MAX_COLLECT Then Exit For
+        Dim nc As String: nc = Left$(names(i), Len(names(i)) - 4)
+        If Not IsMine(nc, myId) Then
+            If modStats.GetStat("ins:" & nc) = 0 Then
+                processed = processed + 1
+                Dim raw As String
+                If ReadShared(dirPath & names(i), raw) Then
+                    If AppendRow(ws, kind, nc, raw) Then CollectFrom = CollectFrom + 1
+                    modStats.Bump "ins:" & nc      ' 読めたときだけ既読にする
+                End If
+            End If
+        End If
+    Next i
     On Error GoTo 0
+End Function
+
+' ファイル名の先頭が自分のIDか。前方一致だと "鈴木" が "鈴木一" を巻き込むため、
+' 「ID そのもの」か「ID + 区切り」でだけ一致とみなす(レビュー M-22)。
+Private Function IsMine(ByVal nameCore As String, ByVal myId As String) As Boolean
+    If LenB(myId) = 0 Then Exit Function
+    If StrComp(nameCore, myId, vbTextCompare) = 0 Then
+        IsMine = True
+        Exit Function
+    End If
+    IsMine = (StrComp(Left$(nameCore, Len(myId) + 1), myId & "-", vbTextCompare) = 0)
 End Function
 
 ' insight_inbox の列: nonce / kind / user_id / author / created_at /
@@ -428,7 +463,34 @@ Fail:
     On Error GoTo 0
 End Function
 
+' 共有フォルダからの読み取り。AVスキャン中・書込み直後のロックで一時的に
+' 失敗することがあるため、modP2P と同じく3回まで待って試す(レビュー H-15)。
+' 1回で諦めると、その投稿は既読化されないまま毎回失敗し続けるか、
+' 修正前のように既読化されて永久に落ちる。
 Private Function ReadShared(ByVal filePath As String, ByRef outText As String) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If ReadSharedOnce(filePath, outText) Then
+            ReadShared = True
+            Exit Function
+        End If
+        WaitMs 150 * attempt
+    Next attempt
+End Function
+
+' 指定ミリ秒だけ待つ(Sleep宣言を増やさないためTimerで回す。共有I/Oの
+' リトライ間隔なので精度は要らない)。
+Private Sub WaitMs(ByVal ms As Long)
+    On Error Resume Next
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000 < ms
+        DoEvents
+        If Timer < t0 Then Exit Do      ' 日付をまたいだ(Timerが0へ戻る)
+    Loop
+    On Error GoTo 0
+End Sub
+
+Private Function ReadSharedOnce(ByVal filePath As String, ByRef outText As String) As Boolean
     Dim st As Object
     On Error GoTo Fail
     Set st = CreateObject("ADODB.Stream")
@@ -439,7 +501,7 @@ Private Function ReadShared(ByVal filePath As String, ByRef outText As String) A
     outText = CStr(st.ReadText(-1))
     st.Close
     Set st = Nothing
-    ReadShared = True
+    ReadSharedOnce = True
     Exit Function
 Fail:
     On Error Resume Next

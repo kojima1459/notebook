@@ -210,6 +210,31 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
     RemoveRowsByOrigin = nRows - survivorCount
 End Function
 
+' origin列が originTag と一致する行数を数える(消さない)。
+' 発行前の確認ダイアログで「実際に何件出るか」を出すために使う。
+' 本棚の総数を見せると、他部門を購読している端末で数字が合わない。
+Public Function CountRowsByOrigin(ByVal originTag As String) As Long
+    On Error Resume Next
+    If LenB(Trim$(originTag)) = 0 Then Exit Function
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Function
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, COL_ORIGIN), wsK.Cells(lastK, COL_ORIGIN)).Value
+    Dim i As Long
+    If Not IsArray(arr) Then
+        If StrComp(Trim$(CStr(arr)), originTag, vbTextCompare) = 0 Then CountRowsByOrigin = 1
+        Exit Function
+    End If
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If StrComp(Trim$(CStr(arr(i, 1))), originTag, vbTextCompare) = 0 Then
+            CountRowsByOrigin = CountRowsByOrigin + 1
+        End If
+    Next i
+    On Error GoTo 0
+End Function
+
 ' origin列が "<prefix>" で始まる行を全部消す(移行用。戻り値=消した件数)。
 ' 例: PrefixTag="pack:" で、旧仕様のチャンネル残骸をまとめて掃除する。
 Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long

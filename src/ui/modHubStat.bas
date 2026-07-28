@@ -1,6 +1,25 @@
 Attribute VB_Name = "modHubStat"
 Option Explicit
 
+' 更新保留チャンネルの表示ラベル。"|"区切りの保留リストから、
+' 1件ならその名前、2件以上なら「先頭ほか N件」を返す。
+' 2026-07-28(レビュー H-13): 保留の実体を見ずにアクティブ部門名を出して
+' いたため、「押しても『既に最新です』でバッジが消えない」という
+' 説明不能な状態になっていた。名前は必ず保留リストから取る。
+Public Function PendingLabel(ByVal pendList As String) As String
+    On Error Resume Next
+    Dim s As String: s = Trim$(pendList)
+    If LenB(s) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(s, "|")
+    Dim n As Long: n = UBound(parts) - LBound(parts) + 1
+    If n <= 1 Then
+        PendingLabel = Trim$(parts(LBound(parts)))
+    Else
+        PendingLabel = Trim$(parts(LBound(parts))) & " ほか" & (n - 1) & "部門"
+    End If
+    On Error GoTo 0
+End Function
+
 ' ========================================
 ' modHubStat - Hub(ホーム)が出す数値の取得・整形と、Hub図形の一括削除
 '

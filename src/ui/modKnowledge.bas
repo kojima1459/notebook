@@ -670,15 +670,19 @@ Public Sub OnPublish()
         Exit Sub
     End If
 
+    ' 2026-07-28(レビュー H-4): 発行するのは「自分で入れた資料」だけ
+    ' (origin="self")。購読中の他部門の正典まで自部門のパックへ混ぜて
+    ' 再配布しないため。確認ダイアログの件数も、本棚の総数ではなく
+    ' 実際に出る件数に揃える(数字が違うと発行者が気付けない)。
     Dim total As Long
     On Error Resume Next
-    total = modShelf.TotalChunks()
+    total = modShelfStore.CountRowsByOrigin("self")
     Dim log_ As String: log_ = modPublish.RecentLog(chName)
     On Error GoTo Done
 
     Dim msg As String
     msg = "【" & chName & "】として発行します。" & vbCrLf & vbCrLf & _
-          "  今の本棚: " & total & " チャンク" & vbCrLf & _
+          "  発行する件数: " & total & " チャンク(自分で入れた資料のみ)" & vbCrLf & _
           "  配置先: " & dest & vbCrLf & vbCrLf & _
           "【発行前の確認】" & vbCrLf & _
           "  ・正典には『確認済みQ&A・要点』を入れてください" & vbCrLf & _
@@ -706,7 +710,7 @@ Public Sub OnPublish()
     Dim wrote As Long
     Dim ok As Boolean
     On Error Resume Next
-    ok = modPackExport.ExportPackToFile(dest, "", True, wrote)
+    ok = modPackExport.ExportPackToFile(dest, "", True, wrote, "self")
     Application.Cursor = -4143
     Application.StatusBar = False
     On Error GoTo Done

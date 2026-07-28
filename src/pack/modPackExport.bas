@@ -81,13 +81,16 @@ End Sub
 '   silent:=True でも【PII走査だけは必ず通す】。個人情報入りの資料を無言で
 '   全社配布する経路は作らない(検出したら中止してFalseを返す)。
 '   戻り値 True=保存成功。outCount に書き出した件数を返す。
+'   originFilter: 書き出す行の origin を絞る(レビュー H-4)。部門正典の
+'   発行は "self" を渡す。詳細は LoadChunksForExport のコメント参照。
 ' ----------------------------------------------------------------------------
 Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As String, _
-                                 ByVal silent As Boolean, ByRef outCount As Long) As Boolean
+                                 ByVal silent As Boolean, ByRef outCount As Long, _
+                                 Optional ByVal originFilter As String = "") As Boolean
     Dim ids() As String, sources() As String, pages() As Long
     Dim summaries() As String, keywords() As String, fullTexts() As String
     Dim n As Long
-    n = LoadChunksForExport(sourceFilter, ids, sources, pages, summaries, keywords, fullTexts)
+    n = LoadChunksForExport(sourceFilter, ids, sources, pages, summaries, keywords, fullTexts, originFilter)
     If n = 0 Then
         If Not silent Then
             MsgBox "書き出せる資料がありません。" & vbLf & _
@@ -214,9 +217,17 @@ Public Sub AddNameIfNotEmpty(ByVal dict As Object, ByVal nm As String)
 End Sub
 
 ' 内部ヘルパー: 書き出し(ExportPackDialog)
+' originFilter (2026-07-28 レビュー H-4):
+'   書き出す行の origin を絞る。空なら全部(従来動作=手渡しパック)。
+'   部門正典の発行は "self" を渡し、自分で取り込んだ資料だけを出す。
+'   これが無かったため、他部門を購読している端末で発行すると
+'   【他部門の正典の全文が自部門のパックとして再配布】されていた。
+'   元部門が改定してもコピーは古いまま残るので、改定が効かない資料が
+'   社内に増え続ける。1台のPCで発行者と利用者を兼ねてテストする
+'   手順(=PoC初日にやること)で確実に踏む。
 Public Function LoadChunksForExport(ByVal sourceFilter As String, ByRef ids() As String, ByRef sources() As String, _
         ByRef pages() As Long, ByRef summaries() As String, ByRef keywords() As String, _
-        ByRef fullTexts() As String) As Long
+        ByRef fullTexts() As String, Optional ByVal originFilter As String = "") As Long
     ReDim ids(0 To 0): ReDim sources(0 To 0): ReDim pages(0 To 0)
     ReDim summaries(0 To 0): ReDim keywords(0 To 0): ReDim fullTexts(0 To 0)
 
@@ -239,7 +250,11 @@ Public Function LoadChunksForExport(ByVal sourceFilter As String, ByRef ids() As
     Dim i As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
         Dim srcName As String: srcName = CStr(arr(i, COL_SOURCE))
-        If LenB(sourceFilter) = 0 Or StrComp(srcName, sourceFilter, vbTextCompare) = 0 Then
+        Dim okSrc As Boolean, okOrigin As Boolean
+        okSrc = (LenB(sourceFilter) = 0) Or (StrComp(srcName, sourceFilter, vbTextCompare) = 0)
+        okOrigin = (LenB(originFilter) = 0) Or _
+                   (StrComp(Trim$(CStr(arr(i, COL_ORIGIN))), originFilter, vbTextCompare) = 0)
+        If okSrc And okOrigin Then
             tmpIds(cnt) = CStr(arr(i, COL_ID))
             tmpSources(cnt) = srcName
             If IsNumeric(arr(i, COL_PAGE)) Then tmpPages(cnt) = CLng(arr(i, COL_PAGE))
@@ -297,8 +312,21 @@ Public Sub RemoveExtraSheets(ByVal wb As Workbook)
     Application.DisplayAlerts = True
 End Sub
 
+' 2026-07-28(レビュー H-5): author_id を追加した。
+' 感謝状の宛先は「パックの作者」だが、これまで宛先キーに使っていたのは
+' author(=初回起動で本人が打つ表示名)で、受け取る側の照合キーは
+' AD の CN または %USERNAME% だった。両者が偶然一致しない限り、
+' 感謝EXP も thanks_received_total も称号も永久に付かず、宛先不明の
+' thx_ ファイルが共有フォルダに溜まり続ける。
+' 「使うと作った人に感謝が届く」というこのプロダクトの中核ループが、
+' 構造的に無効だった。表示は従来どおり author、宛先は author_id を使う。
 Public Sub WritePackMeta(ByVal ws As Worksheet, ByVal authorName As String, ByVal chunkCount As Long)
-    Dim rows(1 To 9, 1 To 2) As Variant
+    Dim authorId As String
+    On Error Resume Next
+    authorId = modP2P.CurrentUserId()
+    On Error GoTo 0
+
+    Dim rows(1 To 10, 1 To 2) As Variant
     rows(1, 1) = "key": rows(1, 2) = "value"
     rows(2, 1) = "pack_format_version": rows(2, 2) = modAppDef.PACK_FORMAT_VERSION
     rows(3, 1) = "pack_name": rows(3, 2) = "マイ本棚パック_" & Format$(Now, "yyyymmdd")
@@ -308,7 +336,8 @@ Public Sub WritePackMeta(ByVal ws As Worksheet, ByVal authorName As String, ByVa
     rows(7, 1) = "embed_dim": rows(7, 2) = modConfig.GetLong("embed_dim", 1536)
     rows(8, 1) = "app_version": rows(8, 2) = modAppDef.APP_VERSION
     rows(9, 1) = "chunk_count": rows(9, 2) = chunkCount
-    ws.Range(ws.Cells(1, 1), ws.Cells(9, 2)).Value = rows
+    rows(10, 1) = "author_id": rows(10, 2) = authorId
+    ws.Range(ws.Cells(1, 1), ws.Cells(10, 2)).Value = rows
 End Sub
 
 Public Sub WritePackChunks(ByVal ws As Worksheet, ids() As String, sources() As String, pages() As Long, _

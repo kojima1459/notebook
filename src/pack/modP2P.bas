@@ -105,7 +105,15 @@ Public Sub EmitThanks(ByVal topSource As String)
     ' (a) 共有フォルダでのファイル作成が実行時エラーになる、(b) 受信側は sanitize済の
     '     自分IDで thx_<myId>_*.txt を集めるため前方一致が崩れ感謝EXPが永久に届かない。
     ' そこで送信側も宛先キーをsanitizeし、ファイル名・payloadの綴りを両側で一致させる。
-    Dim authorKey As String: authorKey = SanitizeId(author)
+    ' 2026-07-28(レビュー H-5): 宛先キーは「作者のID」を使う。
+    ' 以前は表示名(初回起動で本人が打つ pack_author)をそのまま宛先に
+    ' していたが、受け取る側の照合キーは AD の CN または %USERNAME% で、
+    ' 両者が偶然一致しない限り感謝は誰にも届かなかった。
+    ' パック取込時に控えた 表示名→ID の対応(my_stats "pkauth:")を引く。
+    ' 対応が無い(author_id を持たない旧いパック)ときだけ、従来どおり
+    ' 表示名で宛先を作る。
+    Dim authorKey As String
+    authorKey = SanitizeId(ResolveAuthorId(author))
     If LenB(authorKey) = 0 Then Exit Sub
 
     Dim folderPath As String: folderPath = ThanksDir()
@@ -130,6 +138,19 @@ Public Sub EmitThanks(ByVal topSource As String)
     End If
 Done:
 End Sub
+
+' 表示名から、感謝状の宛先に使うIDを解決する。
+' パック取込時に my_stats へ控えた "pkauth:<表示名>" を引き、無ければ
+' 表示名をそのまま返す(author_id を持たない旧いパックとの過渡期互換)。
+Private Function ResolveAuthorId(ByVal authorName As String) As String
+    ResolveAuthorId = authorName
+    On Error Resume Next
+    Dim v As String
+    v = Trim$(modStats.GetStatText("pkauth:" & LCase$(Trim$(authorName))))
+    If LenB(v) > 0 Then ResolveAuthorId = v
+    On Error GoTo 0
+End Function
+
 
 ' ----------------------------------------------------------------------------
 ' CollectThanks - 同期/起動時に呼ぶ。宛先=自分の未処理感謝状ごとに感謝EXP加算。
@@ -157,6 +178,26 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
         fn = Dir()   ' このループ内で他のDir()を呼ばないこと
     Loop
 
+    ' 2026-07-28(レビュー H-5)の過渡期対応: 修正前のビルドから送られた
+    ' 感謝状は、宛先が「表示名」でハッシュされている。自分の表示名でも
+    ' 一度だけ集めて拾う(表示名とIDが同じ端末では二重に集まるが、
+    ' nonce の重複排除があるのでEXPは二重加算されない)。
+    Dim myName As String
+    On Error Resume Next
+    myName = SanitizeId(Trim$(modConfig.GetString("pack_author", "")))
+    On Error GoTo Done
+    If LenB(myName) > 0 Then
+        If StrComp(myName, myId, vbTextCompare) <> 0 Then
+            fn = Dir(folderPath & "thx_" & modUtil.Fnv1a64Hex(myName) & "_*.txt")
+            Do While LenB(fn) > 0
+                If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+                names(nFiles) = fn
+                nFiles = nFiles + 1
+                fn = Dir()
+            Loop
+        End If
+    End If
+
     ' 2) 処理: リトライ読取り→加点(nonce dedup)→GC(処理済みは削除してDir肥大化防止)
     Dim i As Long
     For i = 0 To nFiles - 1
@@ -166,7 +207,13 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
             Dim f() As String: f = Split(rec, vbTab)
             If UBound(f) >= 4 Then
                 Dim nonce As String: nonce = f(0)
-                If StrComp(f(2), myId, vbTextCompare) = 0 Then
+                ' 宛先はIDか、過渡期は表示名(上のコメント参照)。
+                Dim isForMe As Boolean
+                isForMe = (StrComp(f(2), myId, vbTextCompare) = 0)
+                If Not isForMe And LenB(myName) > 0 Then
+                    isForMe = (StrComp(f(2), myName, vbTextCompare) = 0)
+                End If
+                If isForMe Then
                     If Not SeenNonce(nonce) Then
                         MarkNonce nonce
                         modStats.AddExp "thumbup"
@@ -198,8 +245,48 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     ' 描き終わったあとに会話の中で伝える。相手の名前と資料名が本体で、
     ' 感謝EXPの数字はそこに要らない。
     CollectThanks = awarded
+    ' 宛先不明の感謝状のGC。宛先の綴りが変わった端末や、退職・異動で
+    ' もう誰も取りに来ないファイルは、放置すると共有フォルダに無限に
+    ' 溜まり、Dir列挙が毎起動で重くなる(レビュー H-5)。
+    ' 既定30日。0以下でGC無効(config thanks_gc_days)。
+    GcOldThanks folderPath
 Done:
 End Function
+
+' 作成からN日以上経った thx_ ファイルを消す。自分宛かどうかは見ない
+' (自分宛は上の処理で読まれた時点で消えているため、ここに残っているのは
+'  誰も取りに来ていないファイル)。列挙中にKillすると列挙が壊れるので、
+' 必ず「集めてから消す」。
+Private Sub GcOldThanks(ByVal folderPath As String)
+    On Error Resume Next
+    Dim days As Long: days = modConfig.GetLong("thanks_gc_days", 30)
+    If days <= 0 Then Exit Sub
+
+    Dim old() As String: ReDim old(0 To 63)
+    Dim n As Long
+    Dim limit As Date: limit = DateAdd("d", -days, Now)
+
+    Dim fn As String: fn = Dir(folderPath & "thx_*.txt")
+    Do While LenB(fn) > 0
+        If n > UBound(old) Then ReDim Preserve old(0 To UBound(old) + 64)
+        old(n) = fn
+        n = n + 1
+        fn = Dir()
+    Loop
+
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim full As String: full = folderPath & old(i)
+        Dim stamp As Date
+        Err.Clear
+        stamp = FileDateTime(full)
+        If Err.Number = 0 Then
+            If stamp < limit Then KillRetry full
+        End If
+        Err.Clear
+    Next i
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' 届いた「ありがとう」を、会話で伝えるための控え

@@ -93,6 +93,19 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     authorName = Trim$(ReadMetaValue(wb.Worksheets("pack_meta"), "author"))
     If LenB(authorName) = 0 Then authorName = "不明"
 
+    ' 2026-07-28(レビュー H-5): 感謝状の宛先に使う作者のID(ADのCN等)。
+    ' チャンクの origin には従来どおり表示名を書く(画面に出るのは名前)。
+    ' 表示名→IDの対応だけ my_stats に控えておき、modP2P が宛先解決に使う。
+    ' 旧いパック(author_id 無し)を取り込んだときは何も記録しないので、
+    ' modP2P 側は従来どおり表示名で宛先を作る(過渡期の互換)。
+    Dim authorId As String
+    authorId = Trim$(ReadMetaValue(wb.Worksheets("pack_meta"), "author_id"))
+    If LenB(authorId) > 0 Then
+        On Error Resume Next
+        modStats.SetStatText "pkauth:" & LCase$(authorName), authorId
+        On Error GoTo 0
+    End If
+
     Dim ids() As String, sources() As String, pages() As Long
     Dim summaries() As String, keywords() As String, fullTexts() As String, vectors() As String
     Dim n As Long
