@@ -59,7 +59,17 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     If Not IsSupportedExt(ext) Then
         errCode = "E0301"
         errDetail = "対応外の拡張子です: " & ext
-        modLog.LogError "E0301", "modExtractor.ExtractFile", modUtil.SafeLeft(path, 500)
+        ' 2026-07-29: 画像(png/jpg/jpeg)は「対応外」で正しいが、呼び出し側
+        ' (modShelf.IngestFile)がこの後 vision へ回して成功させる。
+        ' 成功する経路の途中経過を err_log へエラーとして書くと、
+        ' スクショを取り込むたびに err_log が伸び、本当の障害が埋もれる。
+        ' 画像だけは usage_log 側へ回す(記録は残すが障害ではない)。
+        If IsImageExt(ext) Then
+            modLog.LogUsage "extract_to_vision", "", _
+                "画像なので画像解析へ回します: " & modUtil.SafeLeft(modUtil.FileNameOf(path), 200)
+        Else
+            modLog.LogError "E0301", "modExtractor.ExtractFile", modUtil.SafeLeft(path, 500)
+        End If
         ExtractFile = False
         Exit Function
     End If
@@ -224,6 +234,12 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+' 画像の拡張子か(vision へ回す対象。modShelf.IsImageExtension と同じ判定)。
+Private Function IsImageExt(ByVal ext As String) As Boolean
+    Dim e As String: e = LCase$(ext)
+    IsImageExt = (e = "png" Or e = "jpg" Or e = "jpeg")
+End Function
 
 Private Function IsSupportedExt(ByVal ext As String) As Boolean
     IsSupportedExt = (InStr(1, "," & SUPPORTED_EXTS & ",", "," & ext & ",", vbTextCompare) > 0)

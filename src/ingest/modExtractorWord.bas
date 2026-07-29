@@ -1,6 +1,11 @@
 Attribute VB_Name = "modExtractorWord"
 Option Explicit
 
+' 文書の開き方。1=非表示+パスワード無効化 / 2=非表示 / 3=表示。
+' 実機で通った開き方をセッション中おぼえておく(0=未確定)。
+Private mPreferredMode As Long
+Private Const OPEN_MODE_MAX As Long = 3
+
 ' ============================================================================
 ' modExtractorWord - PDF/Word抽出(Word.Application COM経由)
 ' ----------------------------------------------------------------------------
@@ -37,23 +42,69 @@ Option Explicit
 ' 実機Windows特有の揺らぎ。LibreOfficeでは再現しない)。1回の失敗で
 ' 資料を「取込失敗」にせず、少し待ってからまっさらなWordで1回だけ
 ' やり直す(2回目も失敗したら本当の失敗として報告する)。
+' 2026-07-29(実機事故): 取込が .doc / .pdf で全滅した(err#462
+' 「リモート サーバーがないか、使用できる状態ではありません」)。
+'
+' 原因は 2026-07-28 の修正で Word を Visible=False に戻したこと。
+' あの Visible=True は「診断コードの消し忘れ」ではなく、
+' 【非表示のWordが起動直後に落ちる環境で、実際に効いていた回避策】だった。
+' コメントにも「実機err#462はローカルコピーでも再現し」と書いてあったのに、
+' レビューの「診断コードの残存」という指摘をそのまま適用してしまった。
+' 動いているものを、理由を確かめずに外した。
+'
+' 直し方: どちらか一方を選ぶのをやめる。
+' 開き方を「静かな順」に並べて、通るまで降りていく。
+'   1. 非表示 + パスワード無効化   … いちばん行儀が良い
+'   2. 非表示(パスワード引数なし)  … 引数が原因のときここで通る
+'   3. 表示                        … 実機で動いていた形。最後の砦
+' 一度成功した開き方はセッション中おぼえておき、次からそこから始める
+' (毎回1から試すと、100件のフォルダ同期で失敗待ちの時間を100回払う)。
+' どの開き方で通ったかは usage_log に残す。次はこれで推測ではなく事実から
+' 判断できる。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String) As Boolean
-    Dim attempt As Long
-    For attempt = 1 To 2
-        If TryExtractOnce(path, maxPages, pages, truncated, errDetail) Then
-            Extract = True
-            Exit Function
-        End If
-        If attempt = 1 Then WaitBriefly 800
-    Next attempt
+    Dim startMode As Long
+    startMode = mPreferredMode
+    If startMode < 1 Or startMode > OPEN_MODE_MAX Then startMode = 1
+
+    Dim mode As Long
+    For mode = startMode To OPEN_MODE_MAX
+        Dim attempt As Long
+        For attempt = 1 To 2
+            If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode) Then
+                If mPreferredMode <> mode Then
+                    mPreferredMode = mode
+                    On Error Resume Next
+                    modLog.LogUsage "word_open_mode", "", _
+                        "この端末では開き方" & mode & "(" & OpenModeName(mode) & ")で成功しました"
+                    On Error GoTo 0
+                End If
+                Extract = True
+                Exit Function
+            End If
+            If attempt = 1 Then WaitBriefly 800
+        Next attempt
+    Next mode
+
+    ' 一度おぼえた開き方でも駄目だったなら、環境が変わった可能性がある。
+    ' 次回は1から試し直す。
+    mPreferredMode = 0
     Extract = False
+End Function
+
+' 開き方の名前(ログ用)。
+Private Function OpenModeName(ByVal mode As Long) As String
+    Select Case mode
+        Case 1: OpenModeName = "非表示+パスワード無効化"
+        Case 2: OpenModeName = "非表示"
+        Case Else: OpenModeName = "表示"
+    End Select
 End Function
 
 Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
                                 ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
-                                ByRef errDetail As String) As Boolean
+                                ByRef errDetail As String, ByVal openMode As Long) As Boolean
     truncated = False
 
     Dim word As Object
@@ -61,17 +112,17 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 
     On Error GoTo Failed
     Set word = CreateObject("Word.Application")
-    ' 2026-07-28(レビュー M-12): 2026-07-22の診断コード(Visible=True)が
-    ' 本番ビルドに残っていた。PDF/docx を取り込むたびに Word のウィンドウが
-    ' 開いては閉じ、利用者がそこを触ると COM エラーや WINWORD の残留を招く。
-    ' 診断は終わったので非表示へ戻す。
-    word.Visible = False
+    ' 開き方は openMode で切り替える(Extract のコメント参照)。
+    ' 3 = 表示。実機で err#462 を回避できていた形なので最後の砦にする。
+    Dim showWord As Boolean: showWord = (openMode >= 3)
+    word.Visible = showWord
     word.DisplayAlerts = 0   ' wdAlertsNone
 
-    ' 2026-07-28(レビュー H-11): 取り込む文書のマクロを走らせない。
+    ' 取り込む文書のマクロを走らせない(レビュー H-11)。
     ' 3 = msoAutomationSecurityForceDisable。出所の分からないファイルを
     ' 取り込むのは日常操作なので、そこが任意コード実行の経路になっていては
-    ' いけない。このWordインスタンスは最後に Quit するので元へ戻す必要はない。
+    ' いけない。この設定自体は err#462 の原因ではないので全モードで掛ける。
+    ' このWordインスタンスは最後に Quit するので元へ戻す必要はない。
     On Error Resume Next
     word.AutomationSecurity = 3
     Err.Clear
@@ -80,14 +131,24 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' ConfirmConversions:=False でPDFリフロー確認ダイアログを抑止する。
     ' PasswordDocument にダミーを渡すのは、暗号化文書に当たったときに
     ' パスワード入力ダイアログでフリーズさせないため(レビュー M-11)。
-    ' 誤ったパスワードは即エラーになるので、E0302 として扱える。
-    Set doc = word.Documents.Open( _
-        FileName:=path, _
-        ConfirmConversions:=False, _
-        ReadOnly:=True, _
-        AddToRecentFiles:=False, _
-        PasswordDocument:="__mybookshelf_no_password__", _
-        Visible:=False)
+    ' ただしこの引数自体が環境によっては Open を失敗させうるので、
+    ' openMode=1 のときだけ付ける(駄目なら 2 以降で外して試す)。
+    If openMode <= 1 Then
+        Set doc = word.Documents.Open( _
+            FileName:=path, _
+            ConfirmConversions:=False, _
+            ReadOnly:=True, _
+            AddToRecentFiles:=False, _
+            PasswordDocument:="__mybookshelf_no_password__", _
+            Visible:=showWord)
+    Else
+        Set doc = word.Documents.Open( _
+            FileName:=path, _
+            ConfirmConversions:=False, _
+            ReadOnly:=True, _
+            AddToRecentFiles:=False, _
+            Visible:=showWord)
+    End If
 
     Dim pageCount As Long
     pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages

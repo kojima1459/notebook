@@ -1,6 +1,14 @@
 Attribute VB_Name = "modExtractorExcel"
 Option Explicit
 
+' 暗号化ブックでパスワード入力ダイアログを出さないためのダミー。
+' 正しいはずがないので、保護ブックなら即エラーになり E0302 として扱える。
+Private Const DUMMY_PASSWORD As String = "__mybookshelf_no_password__"
+
+' パスワード引数つきで開けるか。0=未確定 / 1=引数つきでOK / 2=引数なしでOK。
+' 実機で通った方をおぼえて、毎ファイル無駄打ちしないようにする。
+Private mPwArgWorks As Long
+
 ' ============================================================================
 ' modExtractorExcel - xlsx/xls/xlsm からのテキスト抽出
 ' ----------------------------------------------------------------------------
@@ -59,14 +67,21 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Err.Clear
     On Error GoTo Failed
 
-    Set wb = Application.Workbooks.Open( _
-        FileName:=path, _
-        ReadOnly:=True, _
-        UpdateLinks:=0, _
-        IgnoreReadOnlyRecommended:=True, _
-        AddToMru:=False, _
-        Password:="__mybookshelf_no_password__", _
-        WriteResPassword:="__mybookshelf_no_password__")
+    ' 2026-07-29(実機事故): .xlsx / .xlsm の取込が
+    ' 「'Open' メソッドは失敗しました: 'Workbooks' オブジェクト」で全滅した。
+    ' 2026-07-28 に足した Password / WriteResPassword 引数が環境によっては
+    ' Open 自体を失敗させる。パスワード入力ダイアログでの停止を防ぐための
+    ' 引数(レビュー M-11)が、保護されていない普通のブックまで開けなくして
+    ' いては本末転倒である。
+    '
+    ' 引数付きで開いてみて、駄目なら引数なしでもう一度開く。
+    ' 暗号化ブックは引数なしだとダイアログで止まってしまうので、
+    ' 「引数付きで失敗 → 引数なしでも失敗」なら素直に取込失敗として返す
+    ' (M-11 の意図はここで保たれる)。
+    ' どちらで通ったかはセッション中おぼえて、次から無駄打ちしない。
+    Set wb = OpenForExtract(path)
+    If wb Is Nothing Then Err.Raise 1004, "modExtractorExcel", _
+        "ブックを開けませんでした(パスワード保護、または破損の可能性)"
 
     Dim sheetCount As Long: sheetCount = wb.Worksheets.count
     If sheetCount < 1 Then sheetCount = 1
@@ -105,6 +120,56 @@ Failed:
     RestoreAppState prevSec, prevEvents
     Application.ScreenUpdating = restoreScreen
     Extract = False
+End Function
+
+' ----------------------------------------------------------------------------
+' OpenForExtract - 抽出用にブックを開く。開けなければ Nothing。
+'   1回目: パスワード引数つき(暗号化ブックでダイアログを出さないため)
+'   2回目: パスワード引数なし(1回目の引数が原因で開けない環境への保険)
+'   一度通った方をおぼえて、次からそちらを先に試す。
+' ----------------------------------------------------------------------------
+Private Function OpenForExtract(ByVal path As String) As Workbook
+    Dim order(0 To 1) As Boolean
+    If mPwArgWorks = 2 Then
+        order(0) = False: order(1) = True      ' 引数なしが通る環境
+    Else
+        order(0) = True: order(1) = False      ' 既定は引数つきから
+    End If
+
+    Dim i As Long
+    For i = 0 To 1
+        Dim wb As Workbook
+        Set wb = Nothing
+        On Error Resume Next
+        Err.Clear
+        If order(i) Then
+            Set wb = Application.Workbooks.Open( _
+                FileName:=path, ReadOnly:=True, UpdateLinks:=0, _
+                IgnoreReadOnlyRecommended:=True, AddToMru:=False, _
+                Password:=DUMMY_PASSWORD, WriteResPassword:=DUMMY_PASSWORD)
+        Else
+            Set wb = Application.Workbooks.Open( _
+                FileName:=path, ReadOnly:=True, UpdateLinks:=0, _
+                IgnoreReadOnlyRecommended:=True, AddToMru:=False)
+        End If
+        Dim openErr As Long: openErr = Err.Number
+        Err.Clear
+        On Error GoTo 0
+
+        If openErr = 0 And Not wb Is Nothing Then
+            Dim mark As Long: mark = IIf(order(i), 1, 2)
+            If mPwArgWorks <> mark Then
+                mPwArgWorks = mark
+                On Error Resume Next
+                modLog.LogUsage "excel_open_mode", "", _
+                    "この端末では" & IIf(order(i), "パスワード引数つき", "パスワード引数なし") & _
+                    "でブックを開けました"
+                On Error GoTo 0
+            End If
+            Set OpenForExtract = wb
+            Exit Function
+        End If
+    Next i
 End Function
 
 ' AutomationSecurity / EnableEvents を元へ戻す。戻し忘れると、
