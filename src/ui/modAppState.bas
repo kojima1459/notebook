@@ -157,7 +157,9 @@ End Function
 
 Public Sub UpdateModeButton()
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = ModeCaption()
+    ' ModeCaption は modApp の公開関数(ヘッダー描画とトグルの単一情報源)。
+    ' 2026-07-28: 切り出し時に修飾を付け忘れて未定義参照になっていた。
+    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = modApp.ModeCaption()
     On Error GoTo 0
 End Sub
 

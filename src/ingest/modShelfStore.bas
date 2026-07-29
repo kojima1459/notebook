@@ -27,6 +27,16 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
+' シートを1枚取る。無ければ Nothing(呼び出し側が黙って諦められるように)。
+' 2026-07-28: modShelf からここへ切り出したとき、この関数だけ切り出し範囲の
+' 外にあり、持ってくるのを忘れていた。実機で
+' 「Sub または Function が定義されていません」となり、資料の取込が全滅した。
+Private Function GetSheet(ByVal sheetName As String) As Worksheet
+    On Error Resume Next
+    Set GetSheet = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+End Function
+
 Public Function EnsureKnowledgeSheet() As Worksheet
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_KNOWLEDGE)
     If ws Is Nothing Then

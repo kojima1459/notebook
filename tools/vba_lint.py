@@ -765,6 +765,93 @@ def check_module_level_refs(infos: list[ModuleInfo]) -> None:
                 )
 
 
+PROC_DEF_RE = re.compile(
+    r"^\s*(?:Public|Private|Friend)?\s*(?:Static\s+)?"
+    r"(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+(\w+)", re.IGNORECASE)
+LABEL_DEF_RE = re.compile(r"^\s*([A-Za-z_]\w*):\s*$")
+JUMP_RE = re.compile(r"\b(GoTo|GoSub|Resume)\s+\w+", re.IGNORECASE)
+
+
+def _strip_strings(line: str) -> str:
+    """文字列リテラルを空白へ潰す(コメントは strip_comment 済み前提)。
+
+    "modApp.OnActBad" のような OnAction 文字列を識別子と誤認しないため。
+    """
+    out = []
+    in_s = False
+    for ch in line:
+        if ch == '"':
+            in_s = not in_s
+            out.append(" ")
+        else:
+            out.append(" " if in_s else ch)
+    return "".join(out)
+
+
+def check_undefined_proc_refs(infos: list[ModuleInfo]) -> None:
+    """他モジュールにしか定義が無いプロシージャを、修飾なしで呼んでいないか。
+
+    2026-07-28 の実機事故(2件目): modShelf から modShelfStore を切り出したとき、
+    切り出した側が使う GetSheet が範囲の外にあり、持ってくるのを忘れた。
+    実機Excelでは「Sub または Function が定義されていません」になり、
+    【資料の取込が全滅】した。modP2PIo・modAppState でも同じことが起きていた。
+
+    モジュールを分けるとき、動かすのはコードだけでは足りない。
+    そのコードが呼んでいるものも一緒に動かす必要がある。
+    人間の目視で担保するのは無理なので機械で見る。
+
+    誤検出を避けるための限定:
+      ・見るのは「このプロジェクトのどこかのモジュールが定義している名前」だけ。
+        VBA/Excel の組み込み関数は対象外(名前を列挙しきれないため)。
+      ・行ラベル(Fail: / NextRow: 等)と GoTo/GoSub/Resume の飛び先は除外。
+      ・文字列リテラルの中身は除外(OnAction に入れるマクロ名を拾わないため)。
+      ・宣言行そのものは除外。
+    """
+    proc_owners: dict[str, set[str]] = {}
+    proc_defs: dict[str, set[str]] = {}
+    labels: dict[str, set[str]] = {}
+    for info in infos:
+        names, labs = set(), set()
+        for raw in info.raw_text.split("\n"):
+            m = PROC_DEF_RE.match(raw)
+            if m:
+                names.add(m.group(1))
+            lm = LABEL_DEF_RE.match(strip_comment(raw))
+            if lm:
+                labs.add(lm.group(1))
+        proc_defs[info.vb_name] = {n.lower() for n in names}
+        labels[info.vb_name] = {n.lower() for n in labs}
+        for n in names:
+            proc_owners.setdefault(n, set()).add(info.vb_name)
+
+    for info in infos:
+        mine = proc_defs.get(info.vb_name, set())
+        labs = labels.get(info.vb_name, set())
+        for lineno, raw in merge_continuations(info.raw_text.split("\n")):
+            code = _strip_strings(strip_comment(raw))
+            if not code.strip():
+                continue
+            if PROC_DEF_RE.match(code):
+                continue
+            if LABEL_DEF_RE.match(code):
+                continue
+            code = JUMP_RE.sub(" ", code)
+            for ident in set(re.findall(r"(?<![\w.])([A-Za-z_]\w*)", code)):
+                own = proc_owners.get(ident)
+                if not own:
+                    continue
+                if ident.lower() in mine or ident.lower() in labs:
+                    continue
+                if info.vb_name in own:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"「{ident}」は {'/'.join(sorted(own))} でしか定義されていません。"
+                    f"{info.vb_name} には無いので、修飾して呼ぶか、この モジュールへ持ってくること"
+                    f"(実機Excelで『Sub または Function が定義されていません』になります)",
+                )
+
+
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
@@ -1195,6 +1282,7 @@ def run_lint(src_root: Path) -> int:
     # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
     # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。
     check_module_level_refs(modules)
+    check_undefined_proc_refs(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())
