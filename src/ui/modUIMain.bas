@@ -58,8 +58,7 @@ Private Const QUESTION_RANGE_NAME As String = "mb_question"
 
 Private Const COLOR_SELECTED_BG As Long = 2039071    ' RGB(31,78,120) 濃紺
 Private Const COLOR_SELECTED_FG As Long = 16777215   ' RGB(255,255,255) 白
-Private Const COLOR_UNSELECTED_BG As Long = 15921906 ' RGB(242,242,242) 薄灰
-Private Const COLOR_UNSELECTED_FG As Long = 0        ' RGB(0,0,0) 黒
+' 配色は modUIMainShape(図形を描く側)を単一情報源にする。
 
 Private mLastAnswerText As String
 
@@ -697,8 +696,8 @@ Private Sub PaintModeButton(ByVal ws As Worksheet, ByVal shapeName As String, By
         shp.Fill.ForeColor.RGB = COLOR_SELECTED_BG
         shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = COLOR_SELECTED_FG
     Else
-        shp.Fill.ForeColor.RGB = COLOR_UNSELECTED_BG
-        shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = COLOR_UNSELECTED_FG
+        shp.Fill.ForeColor.RGB = modUIMainShape.COLOR_UNSELECTED_BG
+        shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUIMainShape.COLOR_UNSELECTED_FG
     End If
 End Sub
 

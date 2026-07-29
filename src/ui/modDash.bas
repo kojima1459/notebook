@@ -58,7 +58,6 @@ Private Const BTN_CHAT_X As Double = BTN_REFRESH_X - BTN_GAP - BTN_CHAT_W
 Private Const BTN_EXPORT_W As Double = 128
 Private Const BTN_EXPORT_X As Double = BTN_CHAT_X - BTN_GAP - BTN_EXPORT_W
 
-Private Const MINUTES_PER_SELFSOLVE As Long = 15   ' modStatsの換算値と同じ(先方はPrivateのため複製)
 
 Private Const ADMIN_ROW_H As Double = 26
 Private Const ADMIN_MAX_ROWS As Long = 12

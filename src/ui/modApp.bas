@@ -5,14 +5,9 @@ Option Explicit
 ' modShelf)を結合する制御層。固定アクションバーは「選択中のAIバブル」
 ' (未選択時は最新)に対して発火。P2P共有パスはconfig nexus_share_pathで差替可。
 
-Private Const SHARE_PATH_DEFAULT As String = "\\pgiofs01\Nexus_Share\"
-Private Const MODE_KEY As String = "nexus_mode"      ' rag / normal
 Private Const MAX_INPUT_CHARS As Long = 2000         ' A3: 入力の最大文字数(超過はカット+警告)
 
 ' 連打/多重発火はmodUiLockへ一本化(Enter/Leave対で必ずLeave到達)。
-Private mActiveBubble As String
-Private mGenPrevU As String   ' 一般モードの会話履歴(新しい順;;;区切り)
-Private mGenPrevA As String
 
 ' LaunchNexus - Nexus UIの起動(modBootから呼ばれる)
 Public Sub LaunchNexus()
@@ -187,7 +182,7 @@ Public Sub OnSend()
     Dim bubbleName As String
     bubbleName = modUI.AddChatBubble("ai", ans & vbCr & modLive.Footer(secs, grounded))
     modLive.StyleFooter bubbleName
-    mActiveBubble = bubbleName
+    modAppState.SetActiveBubble bubbleName
     modUI.MarkActiveBubble bubbleName
     SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
 
@@ -396,7 +391,7 @@ Public Sub OnActDrill()
 
     Dim bubbleName As String
     bubbleName = modUI.AddChatBubble("ai", ans)
-    mActiveBubble = bubbleName
+    modAppState.SetActiveBubble bubbleName
     modUI.MarkActiveBubble bubbleName
     DrawConfidence bubbleName            ' 信頼度 → 出典 → 評価 の順に積む
     modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
@@ -623,7 +618,7 @@ Public Sub OnToggleMode()
     Else
         newMode = "normal"
     End If
-    modAppState.WriteUiState MODE_KEY, newMode
+    modAppState.WriteUiState modAppState.MODE_KEY, newMode
     modAppState.UpdateModeButton
 End Sub
 

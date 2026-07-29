@@ -13,6 +13,27 @@ Option Explicit
 ' まとめて入れる余裕が無かった(レビュー I-2)。
 ' ========================================
 
+' 2026-07-28: modApp からここへ切り出した際、下記の定数とモジュール変数を
+' 向こうに置いたままにしてしまい、実機で「変数が定義されていません」という
+' コンパイルエラーになった。使う側であるここが持つのが正しい。
+Private Const SHARE_PATH_DEFAULT As String = "\\pgiofs01\Nexus_Share\"
+Public Const MODE_KEY As String = "nexus_mode"      ' rag / normal
+
+' 一般モードの会話履歴(新しい順;;;区切り)。AskGeneral だけが読み書きする。
+Private mGenPrevU As String
+Private mGenPrevA As String
+
+' 文脈アクション(👍/解決/深掘り等)の対象になる直近のAI回答バブル名。
+' 【共有状態】書くのは modApp(回答を描いた直後)、読むのはここ。
+' 変数を両方に置くと片方の書き込みがもう片方に見えないので、
+' 持ち主をここ1つに決めて、modApp は SetActiveBubble 経由で書く。
+Private mActiveBubble As String
+
+' modApp が回答バブルを描いた直後に呼ぶ。
+Public Sub SetActiveBubble(ByVal bubbleName As String)
+    mActiveBubble = bubbleName
+End Sub
+
 ' 本棚が空のときは「答えない」のではなく「何に基づく答えかをはっきり
 ' させて答える」。文面と安全指示は modLive が持つ(§modLive参照)。
 Public Function ShelfIsEmpty() As Boolean

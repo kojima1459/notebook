@@ -687,6 +687,84 @@ def _cp932_encodable(ch: str) -> bool:
 _CP932_DENY = frozenset("〜‖−¢£¬")
 
 
+MODULE_DECL_RE = re.compile(
+    r"^(?:Public|Private|Global|Dim)\s+(?:Const\s+|WithEvents\s+)?(\w+)", re.IGNORECASE)
+PROC_HEAD_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(?:Sub|Function|Property)\s+\w+",
+    re.IGNORECASE)
+PROC_TAIL_RE = re.compile(r"^End\s+(Sub|Function|Property)\s*$", re.IGNORECASE)
+TYPE_DECL_RE = re.compile(r"^(?:Public|Private)\s+(?:Type|Enum)\b", re.IGNORECASE)
+
+
+def collect_module_level_names(raw_text: str) -> set[str]:
+    """モジュールレベルで宣言された定数・変数の名前を集める。
+
+    プロシージャの中の Dim は対象外(ローカルなので他モジュールから見えない)。
+    Public Type / Public Enum は型名であって変数ではないので除外する
+    (modTypes.ExtractedPage 等は他モジュールから正しく参照される)。
+    """
+    names: set[str] = set()
+    inside = False
+    for raw in raw_text.split("\n"):
+        s = strip_comment(raw).strip()
+        if not s:
+            continue
+        if PROC_HEAD_RE.match(s):
+            inside = True
+        elif PROC_TAIL_RE.match(s):
+            inside = False
+        elif not inside:
+            if TYPE_DECL_RE.match(s):
+                continue
+            m = MODULE_DECL_RE.match(s)
+            if m:
+                names.add(m.group(1))
+    return names
+
+
+def check_module_level_refs(infos: list[ModuleInfo]) -> None:
+    """他モジュールのモジュールレベル定数・変数を、宣言せずに参照していないか。
+
+    2026-07-28 の実機事故: modUIMain から AddButton を modUIMainShape へ
+    切り出したとき、そこで使っている定数 COLOR_UNSELECTED_BG を元のモジュール
+    へ置いたままにした。実機Excelでは Option Explicit により
+    「変数が定義されていません」というコンパイルエラーになり、
+    アプリが起動しなくなる。
+
+    ところが、これは vba_lint も LibreOffice のモジュール読み込みも素通りした
+    (LibreOffice は Option VBASupport 下で未定義参照を実行時まで遅延する)。
+    つまり【実機で開いて初めて全機能停止】という最悪の壊れ方になる。
+    同じ切り出し作業で4モジュールが同時にこの状態だった。
+
+    誤検出を避けるため、見るのは「モジュールレベルの宣言名」だけに限る。
+    ローカル変数・引数・プロシージャ名は対象にしない(名前の重複が普通に
+    起きるため。そこまで見ると警告だらけになって検査自体が無視される)。
+    """
+    owners: dict[str, set[str]] = {}
+    declared: dict[str, set[str]] = {}
+    for info in infos:
+        names = collect_module_level_names(info.raw_text)
+        declared[info.vb_name] = {n.lower() for n in names}
+        for n in names:
+            owners.setdefault(n, set()).add(info.vb_name)
+
+    for info in infos:
+        mine = declared.get(info.vb_name, set())
+        for lineno, stmt in info.statements:
+            for ident in set(re.findall(r"(?<![\w.])([A-Za-z_]\w*)", stmt)):
+                own = owners.get(ident)
+                if not own:
+                    continue
+                if ident.lower() in mine or info.vb_name in own:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"「{ident}」は {'/'.join(sorted(own))} のモジュールレベル宣言で、"
+                    f"{info.vb_name} では宣言されていません"
+                    f"(実機Excelで『変数が定義されていません』のコンパイルエラーになります)",
+                )
+
+
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
@@ -1113,6 +1191,10 @@ def run_lint(src_root: Path) -> int:
         check_layer_dependency(info, known_modules)
         check_contract(info)
         check_safeleft_warning(info)
+
+    # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
+    # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。
+    check_module_level_refs(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())

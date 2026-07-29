@@ -42,6 +42,9 @@ Option Explicit
 '     で呼ぶ(modEmbedと同じ作法。Wave2-F完了後は通常呼びとして機能する)。
 ' ============================================================================
 
+' 2026-07-28: chunk_id での書き戻し先の引き直し(レビュー M-15)を足したときに
+' COL_ID の宣言を入れ忘れ、コンパイルエラーになっていた。
+Private Const COL_ID As Long = 1
 Private Const COL_SUMMARY As Long = 5
 Private Const COL_KEYWORDS As Long = 6
 Private Const COL_FULLTEXT As Long = 7

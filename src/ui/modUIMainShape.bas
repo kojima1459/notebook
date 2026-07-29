@@ -12,6 +12,14 @@ Option Explicit
 ' しかなかった(レビュー I-2)。
 ' ========================================
 
+' 旧ホーム画面のボタン配色。
+' 2026-07-28: modUIMain から AddButton をここへ移した際、この2つを向こうに
+' 置いたままにしてしまい、実機で「変数が定義されていません」というコンパイル
+' エラーになった。複製せず、図形を描く側であるここを単一情報源にする
+' (modUIMain.PaintModeButton は modUIMainShape.COLOR_... を参照する)。
+Public Const COLOR_UNSELECTED_BG As Long = 15921906 ' RGB(242,242,242) 薄灰
+Public Const COLOR_UNSELECTED_FG As Long = 0        ' RGB(0,0,0) 黒
+
 Public Sub WriteSafe(ByVal cell As Range, ByVal text As String)
     Dim t As String
     t = modUtil.SafeLeft(text, 32000)
