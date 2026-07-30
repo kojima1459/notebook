@@ -137,6 +137,23 @@ PURE_ALLOWLIST = [
     # 二重化して「獲得しても見えないバッジ」が4種あった(解説書 §11-11)。
     # 表の整合(4配列の長さ一致・id重複なし)はここで固定する。
     "modStats",
+    # 2026-07-30 R2要件B/C対応で追加。modShelfSync/modPackと同じ考え方
+    # (モジュール全体がR4準拠というわけではないが、テストで実際に呼ぶ関数
+    # 自体はExcel/COMオブジェクトに触れない)。
+    #   modExtractor: SharedCopyNextChunkLen(共有読みコピーの分割サイズ計算)
+    #     だけが純ロジックだが、テストから modExtractor.SharedCopyNextChunkLen
+    #     を呼ぶには本モジュール自体をこの一時ライブラリへ注入する必要がある。
+    #     未注入のまま呼ぶと実行時エラー12(Variable not defined)になる
+    #     (「対象モジュールを1本だけ隔離してコンパイル」するモード2では
+    #     既にコンパイル成功を確認済み=Excel専用トークンは未実行なら
+    #     未解決のままで良い、というtechメモ4のとおり)。
+    #   modTestsPure3: modTestsPure/modTestsPure2とも30,000字上限まで残りが
+    #     少なく、要件Bの新規テストを追加する場所が無かったための分割先
+    #     (src/test/modTestsPure3.bas冒頭コメント参照)。modTestsPure2.RunAll2
+    #     の末尾がmodTestsPure3.RunAll3を呼ぶため、この一時ライブラリに
+    #     注入しないと同じく実行時エラー12になり分割先のテストが
+    #     「実行されないまま」になる(modTestsPure2追加時と同型の理由)。
+    "modExtractor", "modTestsPure3",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

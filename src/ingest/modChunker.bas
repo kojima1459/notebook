@@ -154,6 +154,13 @@ Public Function NormalizeForIngest(ByVal s As String) As String
     Dim t As String
     t = Replace(Replace(s, vbCrLf, vbLf), vbCr, vbLf)
 
+    ' 2026-07-30(要件B): t="" だと Split(t, vbLf) が0要素配列(LBound=0/
+    ' UBound=-1)になり、次の ReDim keep(0 To UBound(rows)) が
+    ' 「ReDim keep(0 To -1)」= 実行時エラー9になる(実測で確認。実機Excel
+    ' VBAでも上限<下限のReDimはエラー9になる仕様どおり)。これが背景に
+    ' あった「空文字ページが後段のどこかでerr#9を出す」の正体だった。
+    If LenB(t) = 0 Then Exit Function
+
     Dim rows() As String: rows = Split(t, vbLf)
     Dim keep() As String: ReDim keep(0 To UBound(rows))
     Dim n As Long

@@ -219,6 +219,13 @@ NextShelfSync:
 NextPack:
     On Error GoTo PackFail
     TestModPack
+
+    ' 2026-07-30 R2要件B: modTestsPure/modTestsPure2とも30,000字上限まで
+    ' 残りが少なく、新規テストの置き場が無かったための分割先(モジュール
+    ' 冒頭コメント参照)。ここで失敗しても後続のSparse以降は道連れにしない。
+    On Error GoTo Pure3Fail
+    modTestsPure3.RunAll3
+NextSparse:
     On Error GoTo SparseFail
     RunSparseTests
     RunKeyScoreTests
@@ -259,6 +266,9 @@ BadgeFail:
 PackFail:
     modTestRunner.Check "TestModPack(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
+Pure3Fail:
+    modTestRunner.Check "modTestsPure3のRunAll3(グループ全体)", False, "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSparse
 End Sub
 
 ' modTestsPureの CanUseTypeArrays と同一実装(モジュール冒頭コメント参照)。
