@@ -87,6 +87,11 @@ Fail:
     ' Err自体が上書きされ得るため先に退避)。
     Dim btnErrNum As Long, btnErrDesc As String
     btnErrNum = Err.Number: btnErrDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup3
+FailCleanup3:
     Dim diag As String: diag = ""
     On Error Resume Next
     diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _

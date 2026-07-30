@@ -212,6 +212,11 @@ Public Sub OnSend()
 
 Fail:
     Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup3
+FailCleanup3:
     Err.Clear
     On Error Resume Next
     modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
@@ -410,6 +415,11 @@ Fail:
     ' 利用者はボタンが壊れたと判断し、二度と押さない。
     ' OnSend の Fail と同じく、記録とエラーバブルの両方を出す。
     Dim drillDesc As String: drillDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup13
+FailCleanup13:
     Err.Clear
     On Error Resume Next
     modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)

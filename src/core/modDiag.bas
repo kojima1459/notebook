@@ -214,6 +214,11 @@ Private Function RecreateDiagSheet() As Worksheet
     Exit Function
 
 Fallback:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FallbackCleanup2
+FallbackCleanup2:
     ' 改名できなかった。作ったばかりのシートは消して、既にある
     ' 診断シートを再利用する(中身は呼び出し側が上書きする)。
     On Error Resume Next

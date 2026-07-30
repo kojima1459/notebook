@@ -943,6 +943,142 @@ def _check_handler_exit_in_proc(info: ModuleInfo, lines, start: int, end: int) -
         )
 
 
+ON_ERROR_RESUME_NEXT_RE = re.compile(r"^\s*On\s+Error\s+Resume\s+Next\s*$", re.IGNORECASE)
+TERMINATOR_RE = re.compile(
+    r"^\s*(Exit\s+(Sub|Function|Property)\b|GoTo\s+\w+\s*$|Resume\b|End\s*$)", re.IGNORECASE)
+
+
+def check_resume_on_fallthrough_label(info: ModuleInfo) -> None:
+    """正常系からも落ちてくるラベルの中で Resume を使っていないか。
+
+    Resume は「エラーが起きている」ことが前提の命令で、エラーなしで実行すると
+    実行時エラー20「Resume にエラーがありません」になる。
+
+        Exit Sub は書かず、正常系がそのまま Finish: へ落ちる作り
+    Finish:
+        Resume FinishCleanup    ' ← 正常終了時にここを踏んで即クラッシュ
+
+    ハンドラ兼後始末ラベル(Finish: / Done: / Cleanup: など、Exit を挟まずに
+    正常系から流れ込む形)は本コードベースに多数あるため、
+    「ハンドラを Resume で抜ける」修正を入れるときに必ず踏む罠。
+    正しくはラベルの直前へ GoTo を置いて、正常系が Resume を跨ぐようにする。
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    proc_start = None
+    for idx, (_lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_fallthrough_resume_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_fallthrough_resume_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    for idx in range(start + 1, end):
+        if not LABEL_DEF_RE.match(lines[idx][1]):
+            continue
+        prev = next((lines[j][1] for j in range(idx - 1, start, -1) if lines[j][1].strip()), "")
+        if TERMINATOR_RE.match(prev):
+            continue          # 正常系はここへ落ちてこない
+        for j in range(idx + 1, end):
+            code = lines[j][1]
+            if LABEL_DEF_RE.match(code):
+                break
+            if RESUME_RE.match(code):
+                info.add(
+                    "ERROR", lines[j][0],
+                    f"ラベル「{LABEL_DEF_RE.match(lines[idx][1]).group(1)}:」は正常系からも"
+                    f"落ちてくるのに Resume がある。エラーなしで Resume を実行すると"
+                    f"実行時エラー20になる(ラベルの直前へ GoTo を置き、"
+                    f"正常系が Resume を跨ぐようにすること)",
+                )
+                break
+
+
+def check_resume_next_inside_handler(info: ModuleInfo) -> None:
+    """稼働中のエラーハンドラの内側に On Error Resume Next を書いていないか。
+
+    2026-07-30 実機: .doc/.docx/.pdf の取込が err#462 で全滅した件の真因。
+
+    VBAには「有効(enabled)なハンドラ」と「稼働中(active)なハンドラ」の区別が
+    ある。ハンドラへ飛んだ瞬間から Resume / Exit / プロシージャ終了までは
+    「稼働中」で、この間に起きたエラーは【そのプロシージャでは一切捕まえられず、
+    呼び出し元へ投げ返される】。On Error Resume Next を書いてあっても効かない。
+
+    modExtractorWord.TryExtractOnce はこうなっていた。
+
+        On Error GoTo Failed
+        Set word = CreateObject("Word.Application")
+        word.Visible = False          ' ← ここで実機は死んでいた
+        ...
+    Failed:
+        errDetail = 実際の原因        ' ← 正しく作っている
+        If Not word Is Nothing Then
+            On Error Resume Next      ' ← 稼働中なので効かない
+            word.Quit 0               ' ← 死んだWordを叩いて err#462
+            On Error GoTo 0
+        End If
+        TryExtractOnce = False        ' ← ここへ到達しない
+
+    結果として
+      ・後始末の err#462 が呼び出し元(modExtractor.ExtractFile)まで飛び、
+        本当の原因を上書きしたエラーだけがログに残る
+      ・Extract の「開き方3通り」フォールバックが一度も走らない
+      ・PDFの Acrobat フォールバックも一度も走らない
+    つまり、ログに見えている 462 は原因ではなく【後始末の失敗】であり、
+    フォールバックは全部ダメコードだった。ハンドラの中は素手で歩けない。
+
+    正しい書き方はどちらか。
+      ・後始末を別Subへ切り出す(呼ばれた側は新しいエラー文脈を持つので
+        On Error Resume Next が効く)
+      ・`Resume <ラベル>` でハンドラを抜けてから後始末する
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    proc_start = None
+    for idx, (_lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_resume_next_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_resume_next_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    targets = set()
+    for _, code in lines[start:end]:
+        m = ON_ERROR_GOTO_LABEL_RE.match(code)
+        if m and m.group(1) != "0":
+            targets.add(m.group(1).lower())
+    if not targets:
+        return
+
+    for idx in range(start, end):
+        m = LABEL_DEF_RE.match(lines[idx][1])
+        if not m or m.group(1).lower() not in targets:
+            continue
+        # ハンドラ稼働区間 = ラベル行の次から、Resume / Exit / プロシージャ末尾まで
+        for j in range(idx + 1, end):
+            code = lines[j][1]
+            if RESUME_RE.match(code) or EXIT_PROC_RE.match(code):
+                break
+            if LABEL_DEF_RE.match(code):
+                # 次のラベルへ落ちている場合は check_handler_exit が別途警告する。
+                # 稼働中の状態は解除されないまま続くので、区間はここでは切らない。
+                continue
+            if ON_ERROR_RESUME_NEXT_RE.match(code):
+                info.add(
+                    "ERROR", lines[j][0],
+                    f"エラーハンドラ「{m.group(1)}:」の稼働中に On Error Resume Next を書いている。"
+                    f"VBAはハンドラ稼働中のエラーを同一プロシージャでは捕捉できないため無効で、"
+                    f"ここで起きたエラーは呼び出し元へ飛び、本来の原因を上書きする"
+                    f"(後始末は別Subへ切り出すか、Resume でハンドラを抜けてから行うこと)",
+                )
+
+
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
@@ -1361,6 +1497,8 @@ def run_lint(src_root: Path) -> int:
         check_name_shadowing(info)
         check_declaration_position(info)
         check_handler_exit(info)
+        check_resume_next_inside_handler(info)
+        check_resume_on_fallthrough_label(info)
         check_reserved_identifiers(info)
         check_vba_reserved_words(info)
         check_pure_logic_tokens(info)

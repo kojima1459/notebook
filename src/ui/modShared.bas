@@ -106,7 +106,15 @@ Public Sub Show()
         .Font.Color = modUI.UiColor("muted")
     End With
 
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo FinishCleanup0
 Finish:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FinishCleanup0
+FinishCleanup0:
     On Error Resume Next
     ActiveWindow.DisplayGridlines = False
     ActiveWindow.DisplayHeadings = False

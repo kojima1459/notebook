@@ -158,6 +158,11 @@ Fail:
     ' st.Closeで上書きされないようにするため)。
     outErrNum = Err.Number
     outErrDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup8
+FailCleanup8:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
@@ -181,6 +186,11 @@ Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String, 
 Fail:
     outErrNum = Err.Number
     outErrDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup9
+FailCleanup9:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)

@@ -1,10 +1,15 @@
 Attribute VB_Name = "modExtractorWord"
 Option Explicit
 
-' 文書の開き方。1=非表示+パスワード無効化 / 2=非表示 / 3=表示。
+' 文書の開き方。
+'   1 = 自分でWordを起動(非表示) + パスワード引数
+'   2 = 自分でWordを起動(非表示)
+'   3 = 自分でWordを起動(表示)
+'   4 = 既に起動しているWordへ相乗りする(GetObject。自分では起動しない)
 ' 実機で通った開き方をセッション中おぼえておく(0=未確定)。
 Private mPreferredMode As Long
-Private Const OPEN_MODE_MAX As Long = 3
+Private Const OPEN_MODE_MAX As Long = 4
+Private Const MODE_ATTACH As Long = 4
 
 ' どのCOM呼び出しで落ちたかを表す段階名(err_log / usage_log に出す)。
 ' 実機でしか再現しない失敗を、次に推測ではなく事実から追うための手掛かり。
@@ -51,25 +56,38 @@ Private Const STEP_CLOSE As String = "後始末"
 ' 実機Windows特有の揺らぎ。LibreOfficeでは再現しない)。1回の失敗で
 ' 資料を「取込失敗」にせず、少し待ってからまっさらなWordで1回だけ
 ' やり直す(2回目も失敗したら本当の失敗として報告する)。
-' 2026-07-29(実機事故): 取込が .doc / .pdf で全滅した(err#462
-' 「リモート サーバーがないか、使用できる状態ではありません」)。
+' 【2026-07-30 実機ログからの確定診断】.doc/.docx/.pdf を全滅させていた
+' err#462 は原因ではなく【後始末の失敗】だった。
 '
-' 原因は 2026-07-28 の修正で Word を Visible=False に戻したこと。
-' あの Visible=True は「診断コードの消し忘れ」ではなく、
-' 【非表示のWordが起動直後に落ちる環境で、実際に効いていた回避策】だった。
-' コメントにも「実機err#462はローカルコピーでも再現し」と書いてあったのに、
-' レビューの「診断コードの残存」という指摘をそのまま適用してしまった。
-' 動いているものを、理由を確かめずに外した。
+' VBAには「有効なハンドラ」と「稼働中のハンドラ」の区別があり、ハンドラへ
+' 飛んでから Resume / Exit までの間に起きたエラーは、そのプロシージャでは
+' 捕まえられず呼び出し元へ投げ返される。On Error Resume Next を書いても効かない。
+' 下の Failed: は doc.Close / word.Quit を On Error Resume Next で囲んでいたが
+' それが無効だったため、
+'   ・本当の最初のエラー(errDetail に正しく入れていた)は返らずに捨てられ、
+'   ・後始末で死んだWordを叩いた err#462 だけが modExtractor.ExtractFile まで
+'     飛んで記録され、
+'   ・その結果 Extract の開き方フォールバックも、PDFの Acrobat
+'     フォールバックも【一度も走っていなかった】。
+' ログ上の根拠: .pdf の失敗が "Word: … / Acrobat: …"(ExtractPdfWithFallback
+' の書式)ではなく "err#462: … [localcopy=ok]"(ExtractFile のハンドラの書式)
+' で出ていた。つまり戻り値ではなく例外で抜けている。
 '
-' 直し方: どちらか一方を選ぶのをやめる。
+' 同時に分かること: word が Nothing なら後始末は何も叩かないので上書きは
+' 起きない。上書きが起きていた以上、CreateObject は成功している。
+' つまりこの端末では【Wordは起動するが、その直後に死ぬ/届かなくなる】。
+' 自分で起動したWordが使えない環境(ライセンスの初回起動待ち、EDR/DLPが
+' Officeの子プロセス起動を止める等)は実在するので、起動しない道を用意する。
+'
 ' 開き方を「静かな順」に並べて、通るまで降りていく。
-'   1. 非表示 + パスワード無効化   … いちばん行儀が良い
-'   2. 非表示(パスワード引数なし)  … 引数が原因のときここで通る
-'   3. 表示                        … 実機で動いていた形。最後の砦
+'   1. 自分で起動(非表示)+パスワード引数 … いちばん行儀が良い
+'   2. 自分で起動(非表示)                … 引数が原因のときここで通る
+'   3. 自分で起動(表示)                  … 非表示だと落ちる環境向け
+'   4. 起動中のWordへ相乗り(GetObject)   … 自分では起動できない環境向け
+' 4 は利用者のWordなので Quit しない(編集中のWordを閉じたら大事故)。
+' 起動そのものに失敗したときは 2・3 を試すのは無駄なので 4 へ直行する。
 ' 一度成功した開き方はセッション中おぼえておき、次からそこから始める
 ' (毎回1から試すと、100件のフォルダ同期で失敗待ちの時間を100回払う)。
-' どの開き方で通ったかは usage_log に残す。次はこれで推測ではなく事実から
-' 判断できる。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String) As Boolean
@@ -77,17 +95,12 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     startMode = mPreferredMode
     If startMode < 1 Or startMode > OPEN_MODE_MAX Then startMode = 1
 
-    ' 2026-07-29(実機): 開き方を3通り試しても .doc / .pdf が全滅し、
-    ' usage_log に word_open_mode が1行も出なかった。つまり「表示」まで
-    ' 降りても駄目で、Visible の有無は原因ではなかった。
-    ' 開き方の違いが効くのは Documents.Open 以降だけなので、
-    ' 【どのCOM呼び出しで落ちたか】が分からないと、これ以上は勘で直すことになる。
-    ' そこで失敗した段階名を errDetail の先頭に付け、err_log に残す。
-    ' さらに CreateObject 自体で落ちているなら開き方を変えても無意味なので、
-    ' 6回ぶんの待ち時間(約5秒/ファイル)を払わずに即座に打ち切る。
+    ' どのCOM呼び出しで落ちたかを errDetail の先頭に付け、err_log へ残す。
+    ' 実機でしか出ない失敗を、次から推測ではなく事実で追えるようにするため。
     Dim failedStep As String
     Dim mode As Long
-    For mode = startMode To OPEN_MODE_MAX
+    mode = startMode
+    Do While mode <= OPEN_MODE_MAX
         Dim attempt As Long
         For attempt = 1 To 2
             If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, failedStep) Then
@@ -103,11 +116,14 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
             End If
             If attempt = 1 Then WaitBriefly 800
         Next attempt
-        ' Word の起動そのものに失敗しているなら、開き方(Visible/引数)を
-        ' 変えても届かない。残りのモードは試さず、その分の待ち時間を返す。
-        ' 起動の一時的な失敗に備えた 2 回のリトライは上で済ませてある。
-        If failedStep = STEP_CREATE Then Exit For
-    Next mode
+        If failedStep = STEP_CREATE And mode < MODE_ATTACH Then
+            ' Word を起動できないなら、開き方(表示・引数)を変えても届かない。
+            ' 起動方法そのものが違う「相乗り」へ直行する(待ち時間の節約)。
+            mode = MODE_ATTACH
+        Else
+            mode = mode + 1
+        End If
+    Loop
 
     ' 何をどこまで試して駄目だったのかを、あとから追える形で1行残す。
     On Error Resume Next
@@ -126,7 +142,8 @@ Private Function OpenModeName(ByVal mode As Long) As String
     Select Case mode
         Case 1: OpenModeName = "非表示+パスワード無効化"
         Case 2: OpenModeName = "非表示"
-        Case Else: OpenModeName = "表示"
+        Case 3: OpenModeName = "表示"
+        Case Else: OpenModeName = "起動中のWordへ相乗り"
     End Select
 End Function
 
@@ -139,23 +156,44 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Dim word As Object
     Dim doc As Object
     Dim stepName As String
+    ' このWordを自分で起動したのか(相乗りなら Quit してはいけない)。
+    Dim ownsApp As Boolean
 
     On Error GoTo Failed
     stepName = STEP_CREATE
-    Set word = CreateObject("Word.Application")
+    If openMode >= MODE_ATTACH Then
+        ' 自分では起動しない。既に開いているWordへ相乗りする。
+        ' 起動できない端末(ライセンス初回起動待ち、EDR/DLPがOfficeの
+        ' 子プロセス起動を止める等)でも、人が開いたWordなら使える。
+        ' Wordが1つも開いていなければ 429 になり、案内文でそれを伝える。
+        Set word = GetObject(, "Word.Application")
+        ownsApp = False
+    Else
+        Set word = CreateObject("Word.Application")
+        ownsApp = True
+    End If
+
     ' 開き方は openMode で切り替える(Extract のコメント参照)。
-    ' 3 = 表示。実機で err#462 を回避できていた形なので最後の砦にする。
     stepName = STEP_VISIBLE
-    Dim showWord As Boolean: showWord = (openMode >= 3)
-    word.Visible = showWord
+    Dim showWord As Boolean
+    If ownsApp Then
+        showWord = (openMode >= 3)
+        word.Visible = showWord
+    Else
+        ' 相乗り先は利用者のWord。表示状態は触らない(勝手に隠したら事故)。
+        showWord = True
+    End If
     word.DisplayAlerts = 0   ' wdAlertsNone
 
     ' 取り込む文書のマクロを走らせない(レビュー H-11)。
     ' 3 = msoAutomationSecurityForceDisable。出所の分からないファイルを
     ' 取り込むのは日常操作なので、そこが任意コード実行の経路になっていては
-    ' いけない。この設定自体は err#462 の原因ではないので全モードで掛ける。
-    ' このWordインスタンスは最後に Quit するので元へ戻す必要はない。
+    ' いけない。
+    ' 相乗り(mode 4)のときは利用者のWordの設定なので、必ず元へ戻す
+    ' (自分で起動した分は Quit するので戻す必要はない)。
+    Dim prevSecurity As Long: prevSecurity = -1
     On Error Resume Next
+    If Not ownsApp Then prevSecurity = word.AutomationSecurity
     word.AutomationSecurity = 3
     Err.Clear
     On Error GoTo Failed
@@ -203,10 +241,7 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Next i
 
     stepName = STEP_CLOSE
-    doc.Close 0    ' wdDoNotSaveChanges
-    word.Quit 0
-    Set doc = Nothing
-    Set word = Nothing
+    Cleanup doc, word, ownsApp, prevSecurity
 
     pages = tmp
     TryExtractOnce = True
@@ -215,21 +250,39 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 Failed:
     failedStep = stepName
     errDetail = "[" & stepName & "/開き方" & openMode & "] " & _
-                DescribeComError(Err.Number, Err.Description)
-    If Not doc Is Nothing Then
-        On Error Resume Next
-        doc.Close 0
-        On Error GoTo 0
-    End If
-    If Not word Is Nothing Then
-        On Error Resume Next
-        word.Quit 0
-        On Error GoTo 0
-    End If
-    Set doc = Nothing
-    Set word = Nothing
+                DescribeComError(Err.Number, Err.Description, openMode)
+    ' 後始末は Cleanup(別Sub)に任せる。ハンドラ稼働中は On Error Resume Next
+    ' が効かないため、ここで直接 doc.Close / word.Quit を叩くと、その失敗が
+    ' 呼び出し元へ飛んで【本来の原因を上書きする】。呼ばれた側は新しい
+    ' エラー文脈を持つので、Cleanup 内の On Error Resume Next は正しく働く。
+    ' 2026-07-30 実機: この上書きで err#462 だけが記録され、開き方の
+    ' フォールバックもPDFのAcrobatフォールバックも一度も走っていなかった。
+    Cleanup doc, word, ownsApp, prevSecurity
     TryExtractOnce = False
 End Function
+
+' ----------------------------------------------------------------------------
+' Cleanup - 文書とWordの後始末。何が起きても黙って終わる。
+'   稼働中のエラーハンドラから呼ばれる前提のため、必ず別プロシージャに置く
+'   (同一プロシージャ内の On Error Resume Next は効かない)。
+'   ownsApp=False は利用者のWordへ相乗りした場合。Quit してはいけないので
+'   自分が開いた文書だけ閉じ、変更した設定を元へ戻す。
+' ----------------------------------------------------------------------------
+Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
+                    ByVal ownsApp As Boolean, ByVal prevSecurity As Long)
+    On Error Resume Next
+    If Not doc Is Nothing Then doc.Close 0   ' wdDoNotSaveChanges
+    Set doc = Nothing
+    If Not app Is Nothing Then
+        If ownsApp Then
+            app.Quit 0
+        ElseIf prevSecurity >= 0 Then
+            app.AutomationSecurity = prevSecurity
+        End If
+    End If
+    Set app = Nothing
+    Err.Clear
+End Sub
 
 ' Declareを使わない短い待機(リトライ前にWordプロセスの後始末を待つ)。
 ' Timerは0時に0へリセットされるため、経過時間が負になったら日跨ぎとみなし
@@ -266,8 +319,16 @@ Private Function ExtractPageText(ByVal doc As Object, ByVal pageNum As Long, ByV
 End Function
 
 ' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
-Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As String
-    If errNum = 429 Then
+Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String, _
+                                  ByVal openMode As Long) As String
+    If errNum = 429 And openMode >= MODE_ATTACH Then
+        ' 相乗りモードでの429 = Wordが1つも起動していない。
+        ' この端末は自分でWordを起動できないので、人が開いてもらう必要がある。
+        DescribeComError = "この端末ではExcelからWordを起動できないため、" & _
+            "すでに開いているWordを使おうとしましたが、Wordが開いていませんでした。" & _
+            "Wordを開いたままにして、もう一度お試しください。" & _
+            "(詳細: " & desc & ")"
+    ElseIf errNum = 429 Then
         DescribeComError = "この環境ではWord連携(COM)が利用できません。" & _
             "Mac版ExcelやCOM未対応環境の可能性があります。Windows版Excel+Wordでお試しください。" & _
             "(詳細: " & desc & ")"

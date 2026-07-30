@@ -134,6 +134,11 @@ HttpFail:
     Dim httpFailNum As Long: httpFailNum = Err.Number
     modLog.LogError "E0203", "modGateway.GetEmbeddingsBatch", _
         "通信エラー: " & Err.Description & "(ribbonへフォールバック)", httpFailNum
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume HttpFailCleanup0
+HttpFailCleanup0:
     Err.Clear
     On Error GoTo 0
     DirectEmbedSlice = modGateway.RibbonEmbedRange(texts, arrLo, iFrom, iTo, prec, outCsv)

@@ -509,7 +509,15 @@ Public Sub OnExportUserData()
     On Error GoTo Done
     DoHideHelp
     modMigrate.ExportUserData
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo DoneCleanup15
 Done:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume DoneCleanup15
+DoneCleanup15:
     On Error Resume Next
     modUiLock.Leave
     On Error GoTo 0
@@ -520,7 +528,15 @@ Public Sub OnImportUserData()
     On Error GoTo Done
     DoHideHelp
     modMigrate.ImportUserData
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo DoneCleanup16
 Done:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume DoneCleanup16
+DoneCleanup16:
     On Error Resume Next
     modUiLock.Leave
     On Error GoTo 0

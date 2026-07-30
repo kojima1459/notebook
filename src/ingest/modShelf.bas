@@ -388,6 +388,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 Failed:
     Dim failNum As Long: failNum = Err.Number
     Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailedCleanup1
+FailedCleanup1:
     On Error Resume Next
     modLog.LogError "E0801", "modShelf.IngestFile", _
         "[" & uiStep & "] path=" & modUtil.SafeLeft(path, 200) & " err#" & failNum & ": " & failDesc
@@ -518,6 +523,11 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup3
+FailCleanup3:
     On Error Resume Next
     modLog.LogError "E0801", "modShelf.SourceList", "[" & uiStep & "] err#" & origNum & ": " & origDesc
     On Error GoTo 0

@@ -159,7 +159,15 @@ Public Sub ShowVaultInput()
     ws.Range(CELL_TITLE).Select
     On Error GoTo 0
 
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo FinishCleanup0
 Finish:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FinishCleanup0
+FinishCleanup0:
     On Error Resume Next
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
     On Error GoTo 0
@@ -243,8 +251,15 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
     Exit Function
 
 Fail:
+    ' Err の内容は Resume でクリアされるので先に控える。
+    Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup3
+FailCleanup3:
     On Error Resume Next
-    modLog.LogError "E0801", "modVault.RegisterKnowledgeText", Err.Description
+    modLog.LogError "E0801", "modVault.RegisterKnowledgeText", failDesc
     If Not st Is Nothing Then st.Close
     Set st = Nothing
     On Error GoTo 0
@@ -278,7 +293,15 @@ Public Sub ShowVaultGallery()
     ActiveWindow.DisplayWorkbookTabs = False
     On Error GoTo 0
 
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo FinishCleanup4
 Finish:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FinishCleanup4
+FinishCleanup4:
     On Error Resume Next
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
     On Error GoTo 0
@@ -713,6 +736,11 @@ Private Function GetOrCreateGallerySheet() As Worksheet
     Set GetOrCreateGallerySheet = ws
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup19
+FailCleanup19:
     ' Name代入失敗でSheetがExcel既定名のまま孤児化するのを防ぐ(Sheet2対策候補)。
     If Not ws Is Nothing Then
         On Error Resume Next
@@ -796,6 +824,11 @@ Private Function GetOrCreateVaultSheet() As Worksheet
     Set GetOrCreateVaultSheet = ws
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup26
+FailCleanup26:
     If Not ws Is Nothing Then
         On Error Resume Next
         Application.DisplayAlerts = False

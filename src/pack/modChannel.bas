@@ -663,6 +663,11 @@ Private Function WriteShared(ByVal filePath As String, ByVal content As String) 
     WriteShared = True
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup27
+FailCleanup27:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing
@@ -683,6 +688,11 @@ Private Function ReadShared(ByVal filePath As String, ByRef outText As String) A
     ReadShared = True
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup28
+FailCleanup28:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing

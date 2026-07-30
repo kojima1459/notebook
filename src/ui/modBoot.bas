@@ -415,6 +415,11 @@ Failed:
     failDesc = Err.Description
     Dim failNum As Long
     failNum = Err.Number
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailedCleanup2
+FailedCleanup2:
     On Error Resume Next
     Application.ScreenUpdating = True
     Application.EnableEvents = True   ' イベント抑止も必ず復帰(死の連鎖防止)

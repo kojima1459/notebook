@@ -189,6 +189,11 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup0
+FailCleanup0:
     ' 2026-07-21: Err.Raiseで包んだDescriptionが呼び出し元まで生き残らない事例
     ' が実機で確認されたため、伝播に依存せずここで直接err_logへ書く。
     Dim diag As String: diag = ""
@@ -261,6 +266,11 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup1
+FailCleanup1:
     On Error Resume Next
     Application.ScreenUpdating = True
     On Error GoTo 0
@@ -732,6 +742,11 @@ Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName
 Fail:
     Dim btnErrNum As Long, btnErrDesc As String
     btnErrNum = Err.Number: btnErrDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup23
+FailCleanup23:
     Dim diag As String: diag = ""
     On Error Resume Next
     diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _

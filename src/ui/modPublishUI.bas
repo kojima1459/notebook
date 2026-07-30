@@ -157,6 +157,11 @@ Public Sub OnPublish()
     End If
     Exit Sub
 Done:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume DoneCleanup0
+DoneCleanup0:
     On Error Resume Next
     Application.Cursor = -4143
     Application.StatusBar = False

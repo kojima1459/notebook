@@ -217,6 +217,11 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
 ExtractFailed:
     Dim leakNum As Long, leakDesc As String
     leakNum = Err.Number: leakDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume ExtractFailedCleanup0
+ExtractFailedCleanup0:
     On Error Resume Next
     If LenB(tmpCopy) > 0 Then Kill tmpCopy
     On Error GoTo 0
@@ -329,6 +334,11 @@ Private Function ExtractPlainText(ByVal path As String, ByRef pages() As Extract
 
 Failed:
     errDetail = DescribeComError(Err.Number, Err.Description)
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailedCleanup6
+FailedCleanup6:
     If Not st Is Nothing Then
         On Error Resume Next
         st.Close

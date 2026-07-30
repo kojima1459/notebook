@@ -173,12 +173,24 @@ Public Sub RunExcelE2ESmokeTest()
     Dim n2 As Long: n2 = modShelf.SourceList(names2, stats2)
     modTestRunner.Check "E2E_重複スキップ後もmanifestに2件目が記録される", ContainsName(names2, n2, TEST_SOURCE_2)
 
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo CleanupBody
+
 Cleanup:
-    If Err.Number <> 0 Then
-        modTestRunner.Check "E2E_想定外エラー", False, "Err=" & Err.Number & ": " & Err.Description
-        Err.Clear
-    End If
+    ' Err の内容は Resume でクリアされるので先に控える。
+    Dim unexpectedNum As Long: unexpectedNum = Err.Number
+    Dim unexpectedDesc As String: unexpectedDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かない(下の後始末が素通りし、
+    ' 後始末で起きたエラーが呼び出し元へ飛ぶ)。まずハンドラを抜ける。
+    Resume CleanupBody
+
+CleanupBody:
     On Error Resume Next
+    If unexpectedNum <> 0 Then
+        modTestRunner.Check "E2E_想定外エラー", False, _
+            "Err=" & unexpectedNum & ": " & unexpectedDesc
+    End If
 
     ' 8) 後始末: 取込んだテスト資料を削除し、一時ファイルも削除する。
     modShelf.DeleteSource TEST_SOURCE_1

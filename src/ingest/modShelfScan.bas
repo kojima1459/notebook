@@ -265,6 +265,11 @@ Fail:
     ' 番号も説明も空のログしか残らず、権限なのか瞬断なのか判別できなかった。
     Dim errNum As Long: errNum = Err.Number
     Dim errDesc As String: errDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup9
+FailCleanup9:
     If errNum <> 53 Then
         On Error Resume Next
         modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileLen: " & modUtil.SafeLeft(path, 300) & " : " & errDesc, errNum
@@ -283,6 +288,11 @@ Fail:
     ' 番号も説明も空のログしか残らず、権限なのか瞬断なのか判別できなかった。
     Dim errNum As Long: errNum = Err.Number
     Dim errDesc As String: errDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup10
+FailCleanup10:
     If errNum <> 53 Then
         On Error Resume Next
         modLog.LogError "E0801", "modShelfSync.SyncNow", "SafeFileDateTime: " & modUtil.SafeLeft(path, 300) & " : " & errDesc, errNum

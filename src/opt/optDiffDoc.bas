@@ -123,6 +123,11 @@ Public Sub CompareTwoDocsDialog()
 
 Fail:
     Dim errDesc As String: errDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup1
+FailCleanup1:
     Err.Clear
     On Error GoTo 0
     On Error Resume Next
@@ -179,6 +184,11 @@ Private Function ExtractPlainText(ByVal path As String, ByRef outText As String,
     Exit Function
 
 Failed:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailedCleanup3
+FailedCleanup3:
     errDetail = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。"
     If Not st Is Nothing Then
         On Error Resume Next

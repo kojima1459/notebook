@@ -139,7 +139,15 @@ Public Function EnsureSeedLoaded() As Long
 
     EnsureSeedLoaded = n
 
+    ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
+    ' (Resume はエラーが起きていないと実行時エラー20になる)。
+    GoTo DoneCleanup0
 Done:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume DoneCleanup0
+DoneCleanup0:
     On Error Resume Next
     Application.Calculation = prevCalc
     Application.ScreenUpdating = True

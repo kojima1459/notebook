@@ -167,6 +167,11 @@ LoadFailed:
     ' 検証・読み出しの途中で落ちた。何より先にブックを閉じる
     ' (掴んだままにすると発行者が次の版を書けなくなる)。
     Dim loadDesc As String: loadDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume LoadFailedCleanup1
+LoadFailedCleanup1:
     On Error Resume Next
     If Not wb Is Nothing Then wb.Close SaveChanges:=False
     Set wb = Nothing

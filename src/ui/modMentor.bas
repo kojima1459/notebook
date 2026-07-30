@@ -309,6 +309,11 @@ Private Function TryReadOnce(ByVal filePath As String, ByRef outText As String) 
     TryReadOnce = True
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup7
+FailCleanup7:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing
@@ -433,6 +438,11 @@ Private Function TryWriteOnce(ByVal filePath As String, ByVal content As String)
     TryWriteOnce = True
     Exit Function
 Fail:
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
+    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
+    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
+    Resume FailCleanup13
+FailCleanup13:
     On Error Resume Next
     If Not st Is Nothing Then st.Close
     Set st = Nothing
