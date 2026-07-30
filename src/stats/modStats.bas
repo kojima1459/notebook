@@ -142,6 +142,14 @@ End Function
 '   お祝いMsgBoxを1回だけ出す(絵文字はMsgBoxに入れない)。
 ' ----------------------------------------------------------------------------
 Public Sub EvaluateBadges()
+    ' 要件C(2026-07-30 R3): ウェルカムバッジ。「はじめの一歩」相当の
+    ' バッジがカタログに存在せず、初回の名前入力(pack_author登録)で
+    ' 何かが起きることを利用者が期待しているのに何も起きなかった
+    ' (R3要件定義書 背景3)。先頭に置くのは、modBootの起動順是正(要件A)と
+    ' 合わせて「名前入力→(同じBoot内で)EvaluateBadges→ポップアップ→
+    ' Hubのバッジ棚に点灯」まで一続きに起きるようにするため。
+    CheckBadge "welcome", LenB(modConfig.GetString("pack_author", "")) > 0, _
+        "はじめの一歩(名前を登録した)"
     CheckBadge "first_ingest", GetStat("ingest_files_total") >= 1, "はじめての資料取込"
     CheckBadge "shelf10", ShelfSourceCount() >= 10, "本棚に10冊"
     CheckBadge "shelf30", ShelfSourceCount() >= 30, "本棚に30冊"
@@ -178,15 +186,19 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
                              ByRef shortTitles() As String, ByRef conditions() As String) As Long
-    ids = Split("first_ingest,shelf10,shelf30,first_pack_out,first_pack_in," & _
+    ' 要件C(2026-07-30 R3): welcomeをEvaluateBadgesと同じく先頭に追加。
+    ' 単一情報源(このBadgeCatalog)へ追加すれば、これを読むmodHub.DrawBadges/
+    ' modStats.BadgeEarnedOnが自動で拾う(画面側の個別対応は不要)。
+    ids = Split("welcome,first_ingest,shelf10,shelf30,first_pack_out,first_pack_in," & _
                 "solve10,solve50,streak7,fb10,fb50,qa_share10,gapfill", ",")
-    titles = Split("初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込," & _
+    titles = Split("はじめの一歩(名前を登録した),初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込," & _
                    "自己解決10件,自己解決50件,7日連続利用," & _
                    "フィードバック名人,フィードバックキング,知恵の配り手,穴埋め職人", ",")
-    shortTitles = Split("初取込,本棚10冊,本棚30冊,初パック出力,初パック取込," & _
+    shortTitles = Split("はじめの一歩,初取込,本棚10冊,本棚30冊,初パック出力,初パック取込," & _
                         "自己解決10,自己解決50,7日連続," & _
                         "修正10件,修正50件,Q&A共有10,穴埋め", ",")
     conditions = Split( _
+        "名前を登録すると獲得|" & _
         "資料を1つ本棚に追加すると獲得|" & _
         "資料を10冊集めると獲得|" & _
         "資料を30冊集めると獲得|" & _

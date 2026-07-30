@@ -101,6 +101,25 @@ Public Function FmtMin(ByVal minutes As Long) As String
     If LenB(FmtMin) = 0 Then FmtMin = "0分"
 End Function
 
+' タイル既定値(要件D・2026-07-30 R3)。modHub.DrawStatTilesが値のLenB=0を
+' 検出したときに埋める既定文字列。0でも意味が通じるよう単位付きで返す
+' (数字だけの"0"だと本当にゼロなのか値取得に失敗したのか画面上で
+' 区別が付かないため)。idxはDrawStatTiles内のlabels/valsと同じ並び
+' (0始まり、8枚固定)。modHubの30,000字上限に余裕が無かったため、
+' 数値整形の裏方であるこちらへ置く(modHubStat切り出しの元々の理由と同じ)。
+Public Function DefaultTileValue(ByVal idx As Long) As String
+    Select Case idx
+        Case 2, 4, 5   ' 節約できた時間 / みんな(今日) / みんな(今月)
+            DefaultTileValue = "0分"
+        Case 6         ' 連続ログイン
+            DefaultTileValue = "0日"
+        Case 3         ' 本棚の使用量
+            DefaultTileValue = "0%"
+        Case Else      ' 質問した回数 / 自己解決 / パック共有
+            DefaultTileValue = "0"
+    End Select
+End Function
+
 Public Function OrgMin(ByVal period As String) As String
     Dim v As Long
     On Error Resume Next

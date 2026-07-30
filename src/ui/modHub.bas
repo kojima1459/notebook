@@ -80,6 +80,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' バッジ8個は「ここまで来た」ではなく「まだ何もしていない」としか読めない。
     ' 1問でも通してから出す(§DrawFirstStep)。
     If HasAnyActivity() Then
+        RefreshOrgTilesIfReachable
         DrawStatTiles ws
         DrawBadges ws
     Else
@@ -251,6 +252,19 @@ Private Function ContributionLine() As String
 End Function
 
 
+' 要件D(2026-07-30 R3): 「みんな(今日/今月)」タイルはmodBoard.BootBoard
+' (LaunchNexus内=EnsureHubLayoutよりさらに後)で初めて集計されるため、
+' 初回描画時点では前回セッションの値のまま(Hubは明示的に再描画されるまで
+' そのまま。R3要件定義書 背景1)。共有フォルダに届く見込みがあるとき
+' (modShare.Reachable。1セッション1回のキャッシュ判定なので、届かないと
+' 分かった後の追加コストは実質ゼロ)だけ、タイル描画の直前に集計をやり直す。
+' 未設定・到達不能なら呼ばず0表示のままにする(ブロッキングさせない)。
+Private Sub RefreshOrgTilesIfReachable()
+    On Error Resume Next
+    If modShare.Reachable() Then modBoard.RefreshBoardTiles
+    On Error GoTo 0
+End Sub
+
 ' 統計タイル8枚。セルのMerge+罫線は「表」の記号そのもので、罫線を消しても
 ' 格子に見える。角丸Shape+影にして「セル感」を消す。座標は左ブロック(B:F)から。
 Private Sub DrawStatTiles(ByVal ws As Worksheet)
@@ -272,6 +286,24 @@ Private Sub DrawStatTiles(ByVal ws As Worksheet)
     vStreak = modHubStat.NumText(modHubStat.SafeStat("streak_days")) & "日"
     vPack = modHubStat.NumText(modHubStat.SafeStat("pack_export_total"))
     vals = Array(vAsk, vSolve, vSaved, vUse, vOrgD, vOrgM, vStreak, vPack)
+
+    ' 要件D/E(2026-07-30 R3): 実機写真で4タイル(節約できた時間/みんな今日/
+    ' みんな今月/連続ログイン)がラベルのみで値が空、という報告があった。
+    ' 静的解析では空文字を返す経路を特定できなかったため(R3要件定義書
+    ' 背景4)、値のLenB=0を検出したらタイル種別に応じた既定値へ置換して
+    ' 描画を続け(タイルを絶対に空文字にしない)、発生した事実だけは
+    ' 1行usage_logへ残す(次に実機で空が出たとき、どのタイルで起きたか
+    ' 特定できるようにする)。
+    Dim tileIdx As Long
+    For tileIdx = 0 To 7
+        If LenB(CStr(vals(tileIdx))) = 0 Then
+            On Error Resume Next
+            modLog.LogUsage "hub_tile_empty", "", _
+                "タイル" & tileIdx & ":" & CStr(labels(tileIdx)) & " の値が空でした"
+            On Error GoTo 0
+            vals(tileIdx) = modHubStat.DefaultTileValue(tileIdx)
+        End If
+    Next tileIdx
 
     ' 左ブロックの幾何。D列(溝)を挟んで B:C と E:F の2枚並び。
     Dim colL As Double, colW As Double, gutter As Double

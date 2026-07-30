@@ -201,6 +201,18 @@ Private Sub PublishBeacon()
     WriteBeacon folderPath & "stats_" & modUtil.Fnv1a64Hex(myId) & ".txt", rowText
 End Sub
 
+' RefreshBoardTiles - 要件D(2026-07-30 R3)。modHub.EnsureHubLayoutが
+'   タイル描画前に「みんな(今日/今月)」を鮮度良くするために呼ぶ公開口
+'   (RefreshBoard自体はPrivateなのでモジュール外から直接は呼べない)。
+'   RefreshBoardは集計をやり直すだけ(mOrgDay等の再計算)で副作用が無い
+'   ので、BootBoard(LaunchNexus内=EnsureHubLayoutよりさらに後に走る)から
+'   の既存呼び出しと重複しても壊れない(冪等)。呼び出し元(modHub)側で
+'   modShare.Reachable()ガード+On Error保護を必ず付けること
+'   (共有フォルダ未設定・到達不能時にブロッキングしないため)。
+Public Sub RefreshBoardTiles()
+    RefreshBoard
+End Sub
+
 Private Sub RefreshBoard()
     mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
     Set mTitles = CreateObject("Scripting.Dictionary")

@@ -447,6 +447,22 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         modLog.LogUsage "ingest", origin, "source=" & sourceName & " chunks=" & acceptedCount & _
             " status=" & resultStatus
         On Error GoTo 0
+
+        ' 要件B(2026-07-30 R3): バッジ評価の入口をIngestFileへ一本化する。
+        ' 従来EvaluateBadgesを呼んでいたのはmodBoot/modUIMain/modUIShelf/
+        ' modApp の4箇所のみで、取込の中核であるIngestFile自体はどこからも
+        ' 呼んでいなかった(R3要件定義書 背景2)。そのため、直後に呼び出し側が
+        ' 自分でEvaluateBadgesを呼ぶ経路(スクショ取込等)ではバッジが出るのに、
+        ' 呼ばない経路(ナレッジ登録等)では一切出ない、という体験差があった。
+        ' ここが唯一の評価点になれば、以降どの入口(ダイアログ/フォルダ同期/
+        ' ナレッジ登録/スクショ/チャット)を新設しても取りこぼさない。
+        ' CheckBadgeは取得済みなら即Exitするため、フォルダ同期の大量取込中に
+        ' 呼んでも新規獲得の瞬間以外はMsgBoxを出さない(既存の挙動を変えない。
+        ' 詳細はR3要件定義書 要件B注記)。既存のRefreshBadgesAndDashboard等の
+        ' 呼び出しは冪等なので削除しない。
+        On Error Resume Next
+        modStats.EvaluateBadges
+        On Error GoTo 0
     End If
 
     GoTo Finish

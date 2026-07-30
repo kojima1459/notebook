@@ -210,6 +210,25 @@ Public Sub Boot()
     bootStage = "はじめの設定(名前の保存)"
     EnsureFirstRun
 
+    ' 2.5) 統計の更新(streak_days/バッジ)。2026-07-30(R3是正・要件A):
+    ' 従来はここより後、3画面のEnsureLayout(Hub描画を含む)が終わった後に
+    ' TouchToday/EvaluateBadgesを呼んでいた。Hubは明示的に再描画されるまで
+    ' そのままなので、初回描画の「連続ログイン」「みんな(今日/今月)」等の
+    ' タイルとバッジ棚が1つ前の値のまま固まっていた(R3要件定義書 背景1)。
+    ' pack_author入力(直前のEnsureFirstRun)の直後・Hub等のEnsureLayoutより
+    ' 前にここへ移すことで、初回描画時点からstreak_daysと獲得済みバッジが
+    ' 最新になる。またEvaluateBadgesの先頭にあるwelcomeバッジ(要件C)は
+    ' pack_author登録が条件なので、EnsureFirstRunの直後に置くことで
+    ' 「名前入力→(同じBoot内で)EvaluateBadges→ポップアップ→Hubのバッジ棚に
+    ' 点灯」まで一続きに起きる(要件定義書 要件C)。
+    bootStage = "統計の更新(連続利用日数・バッジ)"
+    On Error Resume Next
+    modStats.TouchToday
+    LogBootStageErrorIfAny bootStage
+    modStats.EvaluateBadges
+    LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
+
     ' 3) 3画面EnsureLayout(それぞれが内部でRenderShelf/RenderDashboardまで実行する)。
     ' 2026-07-16: 実機で「1画面の描画中の不具合がアプリ全体の起動を止める」
     ' 事例が立て続けに見つかった(ホーム→マイ本棚→…と直しても次の画面で
@@ -243,16 +262,11 @@ Public Sub Boot()
 
     ' Wave4修正: modStats.TouchToday(streak_days/last_used_date更新)を
     ' どこからも呼んでいなかったため、streak7バッジもダッシュボードの
-    ' 連続利用日数も永久に更新されない不具合があった。1セッション1回
-    ' (gBootDoneで守られたこの初回Boot経路)呼べばTouchTodayの契約
-    ' (§7.5: 昨日なら+1/今日なら不変/それ以外リセット)は成立する。
-    On Error Resume Next
-    modStats.TouchToday
-    On Error GoTo Failed
-
-    On Error Resume Next
-    modStats.EvaluateBadges
-    On Error GoTo Failed
+    ' 連続利用日数も永久に更新されない不具合があった。TouchToday/
+    ' EvaluateBadgesの呼び出し自体は2.5)へ移した(要件A・上記コメント参照)。
+    ' 1セッション1回(gBootDoneで守られたこの初回Boot経路)呼べば
+    ' TouchTodayの契約(§7.5: 昨日なら+1/今日なら不変/それ以外リセット)は
+    ' 成立する。
 
     ' 本棚が空なら回答エリアに常設案内を出す
     Dim shelfIsEmpty As Boolean

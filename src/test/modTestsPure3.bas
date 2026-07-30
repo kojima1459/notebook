@@ -154,6 +154,69 @@ Private Sub TestSharedCopyNextChunkLen()
         modExtractor.SharedCopyNextChunkLen(100, 100, 1048576) = 1, ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' R3要件C(2026-07-30): welcomeバッジがBadgeCatalog(単一情報源)に含まれ、
+' 件数が期待どおりであることを固定する(受入条件に明記された検証項目)。
+' ----------------------------------------------------------------------------
+Private Sub TestBadgeCatalogWelcome()
+    Dim ids() As String, titles() As String, shorts() As String, conds() As String
+    Dim n As Long
+    n = modStats.BadgeCatalog(ids, titles, shorts, conds)
+
+    ' 従来12種+welcome=13種。件数がズレたらここで気づける。
+    modTestRunner.Check "R3バッジ表_件数は13", (n = 13), "n=" & n
+
+    Dim found As Boolean, i As Long
+    For i = LBound(ids) To UBound(ids)
+        If StrComp(Trim$(ids(i)), "welcome", vbTextCompare) = 0 Then found = True
+    Next i
+    modTestRunner.Check "R3バッジ表_welcomeを含む", found
+
+    ' EvaluateBadges側もwelcomeを先頭で判定する設計(要件C)。表の並びも
+    ' 揃えてあることを固定する(必須ではないが、崩れたら気づけるように)。
+    modTestRunner.Check "R3バッジ表_welcomeは先頭", _
+        (n > 0) And (StrComp(Trim$(ids(LBound(ids))), "welcome", vbTextCompare) = 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R3要件D(2026-07-30): Hubタイルの既定値ロジック(空文字を絶対に返さない)。
+' 実体はmodHubStat.DefaultTileValue(UI層・Shape/Worksheet依存の濃い
+' modHub/modHubStatはPURE_ALLOWLISTへ注入できない)にあるため、ここでは
+' 同じ選択規則を複製して固定する(modTestsPure/2でのCanUseTypeArrays複製と
+' 同じ考え方。modHubStat.DefaultTileValueの実装を変えたらこちらも
+' 合わせて直すこと)。
+' ----------------------------------------------------------------------------
+Private Function HubTileDefaultTextForTest(ByVal idx As Long) As String
+    Select Case idx
+        Case 2, 4, 5   ' 節約できた時間 / みんな(今日) / みんな(今月)
+            HubTileDefaultTextForTest = "0分"
+        Case 6         ' 連続ログイン
+            HubTileDefaultTextForTest = "0日"
+        Case 3         ' 本棚の使用量
+            HubTileDefaultTextForTest = "0%"
+        Case Else      ' 質問した回数 / 自己解決 / パック共有
+            HubTileDefaultTextForTest = "0"
+    End Select
+End Function
+
+Private Sub TestHubTileDefaultValue()
+    modTestRunner.Check "R3タイル既定値_質問した回数は0", HubTileDefaultTextForTest(0) = "0"
+    modTestRunner.Check "R3タイル既定値_自己解決は0", HubTileDefaultTextForTest(1) = "0"
+    modTestRunner.Check "R3タイル既定値_節約できた時間は0分", HubTileDefaultTextForTest(2) = "0分"
+    modTestRunner.Check "R3タイル既定値_本棚の使用量は0%", HubTileDefaultTextForTest(3) = "0%"
+    modTestRunner.Check "R3タイル既定値_みんな今日は0分", HubTileDefaultTextForTest(4) = "0分"
+    modTestRunner.Check "R3タイル既定値_みんな今月は0分", HubTileDefaultTextForTest(5) = "0分"
+    modTestRunner.Check "R3タイル既定値_連続ログインは0日", HubTileDefaultTextForTest(6) = "0日"
+    modTestRunner.Check "R3タイル既定値_パック共有は0", HubTileDefaultTextForTest(7) = "0"
+
+    ' どのindexでも空文字を返さない(仕様上の絶対条件そのもの)。
+    Dim i As Long, emptyN As Long
+    For i = 0 To 7
+        If LenB(HubTileDefaultTextForTest(i)) = 0 Then emptyN = emptyN + 1
+    Next i
+    modTestRunner.Check "R3タイル既定値_どのタイルも空文字を返さない", (emptyN = 0), "empty=" & emptyN
+End Sub
+
 Public Sub RunAll3()
     On Error GoTo NormEmptyGroupFail
     TestNormalizeForIngestEmpty
@@ -166,6 +229,12 @@ NextCompacted:
 NextCopyChunk:
     On Error GoTo CopyChunkFail
     TestSharedCopyNextChunkLen
+NextBadgeCatalog:
+    On Error GoTo BadgeCatalogFail
+    TestBadgeCatalogWelcome
+NextTileDefault:
+    On Error GoTo TileDefaultFail
+    TestHubTileDefaultValue
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -184,6 +253,14 @@ CompactedFail:
     Resume NextCopyChunk
 CopyChunkFail:
     modTestRunner.Check "TestSharedCopyNextChunkLen(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBadgeCatalog
+BadgeCatalogFail:
+    modTestRunner.Check "TestBadgeCatalogWelcome(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextTileDefault
+TileDefaultFail:
+    modTestRunner.Check "TestHubTileDefaultValue(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 End Sub
