@@ -22,7 +22,10 @@ Private Const CELL_BODY As String = "C8"
 Private Const CELL_TAGS As String = "C18"
 
 ' ナレッジ倉庫ギャラリー用の宣言(実機VBAは宣言部をモジュール先頭に集約する必要あり)
-Private Const GALLERY_SHEET As String = "Vault"
+' 2026-07-30(R4要件A): 描画先を実行時生成の "Vault" シートから
+' 「マイ本棚」(modAppDef.SH_SHELF)へ移した。タブに出る画面が
+' 「マイ本棚」と「ナレッジ倉庫」の2枚に割れていて、中身が同じデータなのに
+' 別物に見えていたのが実機の混乱の元だったため、シートを1枚に統合する。
 Private Const CARDS_PER_PAGE As Long = 9
 Private Const CARD_W As Double = 215
 Private Const CARD_H As Double = 120
@@ -269,7 +272,8 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・3列グリッド・ページング。
 ' Shape増殖なし=毎回同数のカードを描き直す)
-' 宣言部(GALLERY_SHEET/CARDS_PER_PAGE/CARD_W/CARD_H/mGallery*)はモジュール先頭に集約済み。
+' 宣言部(CARDS_PER_PAGE/CARD_W/CARD_H/mGallery*)はモジュール先頭に集約済み。
+' 描画先は「マイ本棚」シート(R4要件A)。専用シートはもう作らない。
 ' ----------------------------------------------------------------------------
 
 ' ギャラリーを表示(SPA遷移)。検索語はシートのD3セル(検索バー)から読む。
@@ -292,6 +296,8 @@ Public Sub ShowVaultGallery()
     ActiveWindow.DisplayHeadings = False
     ActiveWindow.DisplayWorkbookTabs = False
     On Error GoTo 0
+    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    modKnowledge.PrepareScreenView ws
 
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。
@@ -383,10 +389,17 @@ End Sub
 ' 共通で描く(2026-07-26 再設計)。ここは検索欄とカード領域の下地だけを持つ。
 Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     RemoveShapesByPrefix ws, "nxg_bar_"   ' 旧ツールバー(x決め打ち)の掃除
+    ' 「マイ本棚」シートを3モードで共有する(R4要件A)ので、前のモードが
+    ' 書いたセル(一覧表の結合・行高・値)を必ず消してから描く。消さないと
+    ' カードの裏に一覧表が透けて残る。Shapeの掃除はDrawChromeが行う。
+    ws.Cells.Clear
     ws.Cells.Interior.Color = modUI.UiColor("bg")
     ws.Cells.Font.Name = "Yu Gothic UI"
+    ' A:N を全列ぶん明示する(一覧表モードがK/L未設定だったために、
+    ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B:N").ColumnWidth = 12
+    ws.Rows("7:400").RowHeight = 15       ' 一覧表モードの可変行高を戻す
 
     modKnowledge.DrawChrome ws, "gallery"
 
@@ -718,9 +731,12 @@ Private Function ShortStamp(ByVal stamp As String) As String
     End If
 End Function
 
+' ギャラリーの描画先は「マイ本棚」シート(2026-07-30 R4要件A)。
+' このシートは起動時(modBoot→modUIShelf.EnsureLayout)に必ず作られるので、
+' ここで作る必要はない。無い場合はmodUIShelf側に作らせる。
 Private Function GetGallerySheet() As Worksheet
     On Error Resume Next
-    Set GetGallerySheet = ThisWorkbook.Worksheets(GALLERY_SHEET)
+    Set GetGallerySheet = ThisWorkbook.Worksheets(modAppDef.SH_SHELF)
     On Error GoTo 0
 End Function
 
@@ -728,28 +744,12 @@ Private Function GetOrCreateGallerySheet() As Worksheet
     Dim ws As Worksheet
     Set ws = GetGallerySheet()
     If ws Is Nothing Then
-        On Error GoTo Fail
-        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
-        ws.Name = GALLERY_SHEET
+        On Error Resume Next
+        modUIShelf.EnsureLayout        ' シートごと作る責務はmodUIShelfが持つ
         On Error GoTo 0
+        Set ws = GetGallerySheet()
     End If
     Set GetOrCreateGallerySheet = ws
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup19
-FailCleanup19:
-    ' Name代入失敗でSheetがExcel既定名のまま孤児化するのを防ぐ(Sheet2対策候補)。
-    If Not ws Is Nothing Then
-        On Error Resume Next
-        Application.DisplayAlerts = False
-        ws.Delete
-        Application.DisplayAlerts = True
-        On Error GoTo 0
-    End If
-    Set GetOrCreateGallerySheet = Nothing
 End Function
 
 Private Sub RemoveShapesByPrefix(ByVal ws As Worksheet, ByVal prefix As String)

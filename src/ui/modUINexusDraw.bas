@@ -18,10 +18,23 @@ Option Explicit
 '   ・絵文字はChrW()で組み立てる(ソースへの直書きは自己インストーラの
 '     文字列注入で化ける)。BMP外はサロゲートペアで2つ繋ぐ。
 
-Public Const HDR_H As Double = 42          ' ヘッダー行(行1)の高さ
+Public Const HDR_H As Double = 42          ' ヘッダー1段ぶんの高さ(行1の既定)
 Public Const INPUT_ROW As Long = 3         ' 入力欄の行
 Public Const ACT_H As Double = 22          ' 文脈アクションpillの高さ
 Private Const HDR_BTN_H As Double = 26
+Private Const HDR_GAP As Double = 6        ' 右端ピルの間隔
+Private Const HDR_RIGHT_PAD As Double = 8  ' ヘッダー右端の余白
+Private Const HDR_TITLE_MIN As Double = 280 ' タイトルのために必ず空けておく幅
+Private Const HDR_TITLE_LEFT As Double = 82 ' タイトル文字の左余白(bgのMarginLeft)
+Private Const HDR_TITLE_HEAD As Double = 96 ' "💬 チャット   " の実測目安(pt)
+Private Const HDR_TITLE_PITCH As Double = 12 ' タイトル12pt太字の全角1字ぶん
+Private Const HDR_PILL_PITCH As Double = 9   ' ピル9ptの全角1字ぶん
+Private Const HDR_PILL_PAD As Double = 14    ' ピル内の左右余白の合計
+Private Const HDR_PILL_MIN As Double = 30    ' アイコン1個ぶんの最小幅
+Private Const HDR_PILLS As Long = 8          ' 右端ピルの個数
+
+' 直近に描いたヘッダーの実使用高さ(段数×HDR_H)。行1の高さに反映する。
+Private mHeaderH As Double
 
 ' チャット領域(バブル/アクションの基準)。列幅の実測から求める。
 Public Function ChatLeft(ByVal ws As Worksheet) As Double
@@ -37,39 +50,115 @@ Public Function ChatTop(ByVal ws As Worksheet) As Double
     ChatTop = ws.Rows(5).Top
 End Function
 
-' ヘッダー1行。左に「← Hub」、右に操作pillを右詰めで並べる。
-Public Sub DrawChatHeader(ByVal ws As Worksheet)
+' 直近のDrawChatHeaderが実際に使った高さ。呼び出し元(modUI.InitUI)が
+' 行1の高さに入れることで、2段目へ流れた場合でも入力欄と重ならない。
+Public Function HeaderHeight() As Double
+    If mHeaderH < HDR_H Then mHeaderH = HDR_H
+    HeaderHeight = mHeaderH
+End Function
+
+' ----------------------------------------------------------------------------
+' DrawChatHeader - ヘッダー。左に「← Hub」、右に操作pillを右詰めで並べる。
+'   戻り値 = 実際に使った高さ(pt)。
+' ----------------------------------------------------------------------------
+' 2026-07-30(R4要件D)の作り直し:
+'   実機で ⚡すぐ聞く がタイトル「💬 チャット」に重なっていた。原因は幅の
+'   決め打ちで、右端ピル8個の固定予約幅の合計は 606pt(exit30/clear62/sq74/
+'   help30/theme26/lang92/mode118/speed124 + gap6×7 + 右余白8)、対して
+'   Nexusシートのヘッダー実幅 W(A1:M1)は約597pt。**予約が実幅を超えている
+'   のに、一度も W と突き合わせずに右から積んでいた**ので、最内側に来る
+'   speed が必ずタイトルへ食い込む。「たまたま重なった」のではなく
+'   「重ならない置き方が存在しない」状態だった。
+'
+'   直し方は3段構え。どれも「固定幅の合計 vs 予算」を必ずコードで比較する。
+'     1. タイトル用に HDR_TITLE_MIN(280pt)を必ず確保し、残りを予算とする。
+'     2. 通常表記→短縮表記→アイコンのみ、と収まる中で最も情報量の多い
+'        表記を選ぶ。幅はキャプションの実文字から出す(予約と実物が
+'        食い違わないようにする)。
+'     3. それでも収まらない端末では modChrome.FlowRight が段を増やして
+'        2段目以降へ右詰めで流す(同じ濃色帯を1行ぶん足す)。
+'   3のおかげで、Wがどんな値でも「タイトル領域へ入り込む配置」は
+'   構造的に作れない(FlowRightのコメント参照)。
+Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
     Dim L As Double, W As Double
     L = ws.Range("A1").Left
     W = ws.Range("A1:M1").Width
 
+    ' --- 幅予算の決定 ---------------------------------------------------
+    ' タイトル用に HDR_TITLE_MIN を確保し、残りを右端ピルの予算とする。
+    ' 帯そのものが極端に狭い端末では確保幅のほうを縮める(確保しすぎると
+    ' ピルの置き場所が1ptも残らず、かえって壊れる)。
+    Dim titleMin As Double
+    titleMin = modChrome.TitleReserve(W, HDR_TITLE_MIN)
+    Dim budget As Double
+    budget = W - HDR_RIGHT_PAD - titleMin
+
+    ' 通常表記のキャプションは、短縮したときのツールチップに使うので控えておく。
+    Dim capsFull() As String, nmFull() As String, actsFull() As String
+    Dim wFull() As Double
+    PillSpec 0, capsFull, nmFull, actsFull, wFull
+
+    ' 収まる中でいちばん情報量の多い表記を選ぶ。ここが「固定幅の合計と
+    ' 帯幅Wを突き合わせる」比較そのもの(旧実装にはこの比較が無かった)。
+    Dim tier As Long
+    Dim caps() As String, nm() As String, acts() As String
+    Dim widths() As Double
+    tier = 0
+    PillSpec 0, caps, nm, acts, widths
+    If modChrome.SumSpan(widths, HDR_PILLS, HDR_GAP) > budget Then
+        tier = 1
+        PillSpec 1, caps, nm, acts, widths
+        If modChrome.SumSpan(widths, HDR_PILLS, HDR_GAP) > budget Then
+            tier = 2
+            PillSpec 2, caps, nm, acts, widths
+        End If
+    End If
+
+    ' --- 配置(右詰め・段数無制限) ---------------------------------------
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowRight(widths, HDR_PILLS, L + W - HDR_RIGHT_PAD, _
+                               L + titleMin, L + HDR_RIGHT_PAD, HDR_GAP, _
+                               xs, rws, useW)
+    If rowN < 1 Then rowN = 1
+    mHeaderH = rowN * HDR_H
+
+    ' --- 濃色帯(段数ぶんの高さ) -----------------------------------------
     Dim bg As Shape
-    Set bg = ws.Shapes.AddShape(5, L, 0, W, HDR_H)
+    Set bg = ws.Shapes.AddShape(5, L, 0, W, mHeaderH)
     bg.Name = "nx_top_bg"
+    bg.Placement = 3
     bg.Adjustments(1) = 0.02
     bg.Line.Visible = 0
     bg.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
     modSkin.ApplyHeaderDepth bg           ' §9: 濃紺の2色グラデーション
+
+    ' --- タイトル(部門ラベルは残り幅に合わせて切り詰める) ---------------
     ' 「今どの部門の公式ナレッジにつないでいるか」を必ず見せる。
     ' 切替式である以上、これが見えないと「なぜ答えられないのか」が
-    ' 分からなくなる(迷子の最大要因)。
+    ' 分からなくなる(迷子の最大要因)。ただし幅を超えてまで出さない。
     Dim chLabel As String
     On Error Resume Next
     chLabel = modChannel.ActiveLabel()
     On Error GoTo 0
+
+    Dim titleAvail As Double
+    titleAvail = LeftmostRow0(xs, rws, HDR_PILLS, L + W - HDR_RIGHT_PAD) _
+                 - (L + HDR_TITLE_LEFT) - HDR_GAP
+    chLabel = modChrome.ClipToWidth(chLabel, titleAvail - HDR_TITLE_HEAD, HDR_TITLE_PITCH)
 
     With bg.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット   " & chLabel
         .TextRange.Font.Size = 12
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-        .MarginLeft = 82
+        .MarginLeft = HDR_TITLE_LEFT
         .VerticalAnchor = 3
     End With
 
     ' 戻り導線はヘッダーと同色だと埋没する。白地+濃紺文字で最も目立たせる。
     HeaderButton ws, "nx_top_back", ChrW(&H2190) & " Hub", _
-                 L + 8, 72, "modApp.OnNavHome"
+                 L + HDR_RIGHT_PAD, PillTop(0), 72, "modApp.OnNavHome"
     On Error Resume Next
     With ws.Shapes("nx_top_back")
         .Fill.ForeColor.RGB = RGB(255, 255, 255)
@@ -78,33 +167,120 @@ Public Sub DrawChatHeader(ByVal ws As Worksheet)
     End With
     On Error GoTo 0
 
-    ' 右端から左へ順に積む(文字数が変わっても右揃えが崩れない)。
-    Dim x As Double: x = L + W - 8
-    ' 🚪はタブもExcelの×ボタンも隠している構成での唯一の脱出路。Hubまで
-    ' 戻らないと終われない状態にしないため、チャット側にも必ず置く。
-    x = x - 30:  HeaderButton ws, "nx_top_exit", ChrW(&HD83D) & ChrW(&HDEAA), _
-                              x, 30, "modApp.OnSaveAndExit"
-    x = x - 6 - 62: HeaderButton ws, "nx_top_clear", ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", _
-                              x, 62, "modApp.OnClearChat"
-    ' 「質問例」。初日は案内、翌日からは調べもののショートカットになる。
-    x = x - 6 - 74: HeaderButton ws, "nx_top_sq", ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例", _
-                              x, 74, "modStarter.OnShowList"
-    x = x - 6 - 30:  HeaderButton ws, "nx_top_help", ChrW(&H2753), x, 30, "modHelp.OnHelpClick"
-    x = x - 6 - HDR_BTN_H
-    HeaderTheme ws, x
-    x = x - 6 - 92:  HeaderButton ws, "nx_top_lang", LangCaption(), x, 92, "modApp.OnLangCycle"
-    x = x - 6 - 118: HeaderButton ws, "nx_top_mode", modApp.ModeCaption(), x, 118, "modApp.OnToggleMode"
-    x = x - 6 - 124: HeaderButton ws, "nx_top_speed", modApp.SpeedCaption(), x, 124, "modApp.OnToggleSpeed"
+    ' --- 右端ピル -------------------------------------------------------
+    Dim i As Long
+    For i = 0 To HDR_PILLS - 1
+        If nm(i) = "nx_top_theme" Then
+            HeaderTheme ws, xs(i), PillTop(rws(i))
+        Else
+            HeaderButton ws, nm(i), caps(i), xs(i), PillTop(rws(i)), useW(i), acts(i)
+        End If
+        ' 短縮表記のときは「何のボタンか」をツールチップで補う。
+        ' 絵文字だけにした瞬間に意味が消えるボタン(モード/速度)があるため。
+        If tier > 0 Then SetPillTip ws, nm(i), capsFull(i)
+    Next i
+
+    DrawChatHeader = mHeaderH
+End Function
+
+' 段番号からピルのY座標(その段の中央)を出す。
+Private Function PillTop(ByVal rowIdx As Long) As Double
+    PillTop = rowIdx * HDR_H + (HDR_H - HDR_BTN_H) / 2
+End Function
+
+' 1段目に置かれたピルのうち最も左のX(=タイトルが使える右端)。
+Private Function LeftmostRow0(ByRef xs() As Double, ByRef rws() As Long, _
+                              ByVal n As Long, ByVal fallbackX As Double) As Double
+    Dim edge As Double: edge = fallbackX
+    Dim i As Long
+    For i = 0 To n - 1
+        If rws(i) = 0 Then
+            If xs(i) < edge Then edge = xs(i)
+        End If
+    Next i
+    LeftmostRow0 = edge
+End Function
+
+' ----------------------------------------------------------------------------
+' PillSpec - 右端ピル8個の表記と幅を組み立てる。
+'   tier 0=通常 / 1=短縮(語句を短く) / 2=アイコンのみ
+'   幅はキャプションの実文字から出す(固定の予約幅が実物と食い違って
+'   いたことが重なりの原因だったため、予約という概念自体をやめる)。
+' ----------------------------------------------------------------------------
+Private Sub PillSpec(ByVal tier As Long, ByRef caps() As String, ByRef nm() As String, _
+                     ByRef acts() As String, ByRef widths() As Double)
+    ReDim caps(0 To HDR_PILLS - 1)
+    ReDim nm(0 To HDR_PILLS - 1)
+    ReDim acts(0 To HDR_PILLS - 1)
+    ReDim widths(0 To HDR_PILLS - 1)
+
+    Dim clearCap As String, sqCap As String
+    Dim langCap As String, modeCap As String, speedCap As String
+    clearCap = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+    sqCap = ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例"
+    langCap = LangCaption()
+    modeCap = modApp.ModeCaption()
+    speedCap = modApp.SpeedCaption()
+
+    If tier = 1 Then
+        ' 短縮: アイコン+語句の先頭だけ。何のボタンかは残る。
+        clearCap = modChrome.LeadIcon(clearCap)
+        sqCap = modChrome.LeadIcon(sqCap)
+        modeCap = modChrome.LeadIcon(modeCap) & " " & modChrome.ClipToWidth( _
+                  modChrome.TailWords(modeCap), HDR_PILL_PITCH * 3, HDR_PILL_PITCH)
+        speedCap = modChrome.LeadIcon(speedCap) & " " & modChrome.ClipToWidth( _
+                   modChrome.TailWords(speedCap), HDR_PILL_PITCH * 3, HDR_PILL_PITCH)
+    ElseIf tier >= 2 Then
+        ' アイコンのみ。ここでも「今どちらのモードか」は消さない
+        ' (状態が見えないトグルは、押す前に押した結果が分からない)。
+        clearCap = modChrome.LeadIcon(clearCap)
+        sqCap = modChrome.LeadIcon(sqCap)
+        langCap = modChrome.LeadIcon(langCap)
+        speedCap = modChrome.LeadIcon(speedCap)
+        modeCap = modChrome.LeadIcon(modeCap)
+        ' 一般アシスタント側のアイコン🌐は言語ピルと同じ絵柄で見分けが
+        ' つかなくなるので、アイコンだけにするときは⚪へ置き換える。
+        If modeCap = ChrW(&HD83C) & ChrW(&HDF10) Then modeCap = ChrW(&H26AA)
+    End If
+
+    ' 右から左へ積む順(配列の先頭=最も右)。
+    SetPill caps, nm, acts, widths, 0, ChrW(&HD83D) & ChrW(&HDEAA), _
+            "nx_top_exit", "modApp.OnSaveAndExit"
+    SetPill caps, nm, acts, widths, 1, clearCap, "nx_top_clear", "modApp.OnClearChat"
+    SetPill caps, nm, acts, widths, 2, sqCap, "nx_top_sq", "modStarter.OnShowList"
+    SetPill caps, nm, acts, widths, 3, ChrW(&H2753), "nx_top_help", "modHelp.OnHelpClick"
+    SetPill caps, nm, acts, widths, 4, "", "nx_top_theme", "modUI.ToggleTheme"
+    widths(4) = HDR_BTN_H                 ' テーマは正円(別Shape)なので固定
+    SetPill caps, nm, acts, widths, 5, langCap, "nx_top_lang", "modApp.OnLangCycle"
+    SetPill caps, nm, acts, widths, 6, modeCap, "nx_top_mode", "modApp.OnToggleMode"
+    SetPill caps, nm, acts, widths, 7, speedCap, "nx_top_speed", "modApp.OnToggleSpeed"
+End Sub
+
+Private Sub SetPill(ByRef caps() As String, ByRef nm() As String, ByRef acts() As String, _
+                    ByRef widths() As Double, ByVal idx As Long, ByVal capText As String, _
+                    ByVal shapeName As String, ByVal action As String)
+    caps(idx) = capText
+    nm(idx) = shapeName
+    acts(idx) = action
+    widths(idx) = modChrome.PillWidth(capText, HDR_PILL_PITCH, HDR_PILL_PAD, HDR_PILL_MIN)
+End Sub
+
+' 短縮表記にしたピルへツールチップ(代替テキスト)で元の意味を添える。
+Private Sub SetPillTip(ByVal ws As Worksheet, ByVal shapeName As String, ByVal tipText As String)
+    On Error Resume Next
+    ws.Shapes(shapeName).AlternativeText = tipText
+    On Error GoTo 0
 End Sub
 
 Private Sub HeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, _
-                         ByVal caption As String, ByVal x As Double, _
+                         ByVal caption As String, ByVal x As Double, ByVal y As Double, _
                          ByVal w As Double, ByVal action As String)
     On Error Resume Next
     Dim btn As Shape
-    Set btn = ws.Shapes.AddShape(5, x, (HDR_H - HDR_BTN_H) / 2, w, HDR_BTN_H)
+    Set btn = ws.Shapes.AddShape(5, x, y, w, HDR_BTN_H)
     If btn Is Nothing Then Exit Sub
     btn.Name = shapeName
+    btn.Placement = 3          ' 行1の高さを後から変えてもピルは動かさない
     btn.Adjustments(1) = 0.35
     btn.Line.Visible = 0
     btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
@@ -121,12 +297,13 @@ Private Sub HeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, _
     On Error GoTo 0
 End Sub
 
-Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double)
+Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double, ByVal y As Double)
     On Error Resume Next
     Dim th As Shape
-    Set th = ws.Shapes.AddShape(9, x, (HDR_H - HDR_BTN_H) / 2, HDR_BTN_H, HDR_BTN_H)
+    Set th = ws.Shapes.AddShape(9, x, y, HDR_BTN_H, HDR_BTN_H)
     If th Is Nothing Then Exit Sub
     th.Name = "nx_top_theme"
+    th.Placement = 3           ' 行1の高さを後から変えても動かさない
     th.Line.Visible = 0
     th.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With th.TextFrame2

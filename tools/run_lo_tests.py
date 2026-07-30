@@ -154,6 +154,10 @@ PURE_ALLOWLIST = [
     #     注入しないと同じく実行時エラー12になり分割先のテストが
     #     「実行されないまま」になる(modTestsPure2追加時と同型の理由)。
     "modExtractor", "modTestsPure3",
+    # modChrome(2026-07-30 R4要件C/D): ツールバーとヘッダーピルの配置計算。
+    # 「Wがいくつでも枠内に収まる/タイトルに重ならない」という保証は、
+    # 実機で描いて目視するのではなくここで実行テストとして固定する。
+    "modChrome",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

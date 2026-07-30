@@ -23,7 +23,6 @@ Option Explicit
 ' ============================================================================
 
 Private Const PAGE_SIZE As Long = 12
-Private Const SHEET_NAME As String = "Vault"     ' ナレッジ画面と同じシートを使う
 
 Private mPage As Long
 
@@ -31,9 +30,12 @@ Private mPage As Long
 ' Show - みんなのQ&A画面を描画して表示する。
 ' ----------------------------------------------------------------------------
 Public Sub Show()
+    ' 2026-07-30(R4要件A): 描画先を実行時生成の "Vault" シートから
+    ' 「マイ本棚」へ移した。ギャラリー/一覧表/解決事例はもともと同じ
+    ' modShelf.SourceList を見ており、違いは描画先シートだけだった。
     Dim ws As Worksheet
     On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(SHEET_NAME)
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_SHELF)
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
@@ -44,16 +46,21 @@ Public Sub Show()
     ws.Cells.Clear
     ws.Cells.Interior.Color = modUI.UiColor("bg")
     ws.Cells.Font.Name = "Yu Gothic UI"
+    ' A:N を全列ぶん明示する(モードごとに前提の列幅が違うので、
+    ' 前のモードの列幅が残っていると DrawChrome の W がぶれる)。
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B").ColumnWidth = 5      ' チェックボックス
     ws.Columns("C").ColumnWidth = 6      ' 件数
     ws.Columns("D:J").ColumnWidth = 12   ' 質問
     ws.Columns("K:N").ColumnWidth = 10   ' 提供者/日付
+    ws.Rows("7:400").RowHeight = 15      ' 前モードの可変行高を戻す
 
     modKnowledge.DrawChrome ws, "shared"
 
     ws.Visible = -1
     ws.Activate
+    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    modKnowledge.PrepareScreenView ws
 
     Dim rows_() As Long
     Dim n As Long

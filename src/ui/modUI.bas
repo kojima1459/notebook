@@ -105,6 +105,13 @@ Public Sub InitUI()
     If Err.Number <> 0 Then LogDrawStageError "DrawChatHeader", ws: Err.Clear
     On Error GoTo 0
 
+    ' ヘッダーが右端ピルを2段目へ流した場合(極端に狭い列幅の端末)は、
+    ' 行1をその実使用高さまで広げる。広げないと2段目が入力欄に重なる。
+    ' ピルはPlacement=3で固定してあるので、行高を変えても位置は動かない。
+    On Error Resume Next
+    ws.Rows(1).RowHeight = modUINexusDraw.HeaderHeight()
+    On Error GoTo 0
+
     On Error Resume Next
     modUINexusDraw.DrawInputArea ws
     If Err.Number <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
@@ -436,7 +443,7 @@ Public Sub ParkFocus()
         ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
         ws.Range("C" & modUINexusDraw.INPUT_ROW).Select
     Else
-        ws.Range("A1").Select   ' Vault/Dashboard等は左上(固定領域)へpark
+        ws.Range("A1").Select   ' マイ本棚/Dashboard等は左上(固定領域)へpark
     End If
     Application.ScreenUpdating = True
     On Error GoTo 0

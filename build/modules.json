@@ -317,6 +317,13 @@
       "wave": "NEXUS-P1"
     },
     {
+      "name": "modChrome",
+      "path": "src/ui/modChrome.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R4-UI"
+    },
+    {
       "name": "modHub",
       "path": "src/ui/modHub.bas",
       "role": "core",

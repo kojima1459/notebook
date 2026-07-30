@@ -531,42 +531,140 @@ End Sub
 ' 画面を移動させないのが肝。資料を入れる目的はたいてい「いま聞きたいことが
 ' ある」からで、別画面へ飛ばされると質問のほうを見失う。取り込みが終わったら
 ' 会話の中に結果を出し、そのまま次の一言を打てる状態に戻す。
+' 2026-07-30(R4要件E)の作り直し:
+'   旧実装は TotalChunks の差分だけで成否を判定していた。ところが「既に
+'   入っている資料をもう一度入れた」ときは取込自体は成功(status=done)なのに
+'   チャンクは1件も増えない。その結果、成功しているのに
+'   「資料は追加されませんでした」と言い、同時にmodShelf側のMsgBoxが
+'   「1件を本棚に追加しました」と言う ―― 正反対の報告が2つ同時に出ていた。
+'   R2で追加された modShelf.AddFilesResult(showMsgBox:=False) を使い、
+'   報告をチャットバブル1本に統一して、結果ごとに正直な文言を出す。
 Public Sub OnAddDocs()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
-    Dim before As Long
+    Dim res As String
     On Error Resume Next
-    before = modShelf.TotalChunks()
-    On Error GoTo Done
-
-    modShelf.AddFilesViaDialog
-
-    Dim after As Long
-    On Error Resume Next
-    after = modShelf.TotalChunks()
+    res = modShelf.AddFilesResult(showMsgBox:=False)
     modUI.GoToNexus "modApp.OnAddDocs"   ' 取込は別シートを触るので必ず戻す
     On Error GoTo Done
 
-    If after > before Then
-        modUI.AddChatBubble "ai", _
-            ChrW(&H2705) & " 資料を取り込みました。" & vbLf & _
-            "これで、この資料の中身について「どのページに書いてあるか」まで付けてお答えできます。" & vbLf & _
-            "さっそく、いま知りたいことをそのまま聞いてみてください。"
-    Else
-        ' 0件のときに黙って戻ると「壊れた?」になる。取り消したのか失敗したのかを
-        ' 言い切らず、次の一手だけ示す。
-        modUI.AddChatBubble "ai", _
-            "資料は追加されませんでした。" & vbLf & _
-            "対応しているのは PDF / Word / Excel / テキスト です。" & vbLf & _
-            "資料が無くても、一般的な内容ならこのままお答えできます。"
-    End If
+    Dim say As String
+    say = AddDocsMessage(res)
+    ' ファイル選択をキャンセルしただけのときは何も言わない
+    ' (押し間違いに見えるだけで、利用者に伝えることが無い)。
+    If LenB(say) > 0 Then modUI.AddChatBubble "ai", say
+
     On Error Resume Next
     modUI.SettleChat
     On Error GoTo Done
 Done:
     modUiLock.Leave
 End Sub
+
+' 取込結果("ok=..;ng=..;capped=..;chunks=..;reasons=<code>:<n>,..")を
+' 利用者向けの1本の文面へ翻訳する。空文字=何も言わない(キャンセル)。
+Private Function AddDocsMessage(ByVal res As String) As String
+    Dim okN As Long, ngN As Long, capN As Long, chunkN As Long
+    okN = ResultNum(res, "ok")
+    ngN = ResultNum(res, "ng")
+    capN = ResultNum(res, "capped")
+    chunkN = ResultNum(res, "chunks")
+
+    Dim reasons As String
+    reasons = ResultText(res, "reasons")
+
+    If okN = 0 And ngN = 0 And capN = 0 Then Exit Function   ' キャンセル
+
+    Dim say As String
+    If okN > 0 And chunkN > 0 Then
+        say = ChrW(&H2705) & " 資料を取り込みました。" & vbLf & _
+            "これで、この資料の中身について「どのページに書いてあるか」まで付けてお答えできます。" & vbLf & _
+            "さっそく、いま知りたいことをそのまま聞いてみてください。"
+    ElseIf okN > 0 Then
+        ' 取込は成功したのにチャンクが増えていない=中身が既存と同一だった。
+        say = "その資料はすでに本棚に入っています(中身が同じだったので、増やしませんでした)。" & vbLf & _
+            "そのまま、この資料について聞いていただけます。"
+    End If
+
+    Dim dupN As Long, imgN As Long
+    dupN = ReasonCount(reasons, "E0504")
+    imgN = ReasonCount(reasons, "image_pdf")
+
+    If dupN > 0 Then
+        say = AppendBlock(say, ChrW(&H26A0) & " 同じ名前の資料が、別の場所からすでに登録されています(" & dupN & "件)。" & vbLf & _
+            "ファイル名を変えて入れ直すか、マイ本棚で古いほうを削除してから、もう一度お試しください。")
+    End If
+    If imgN > 0 Then
+        say = AppendBlock(say, ChrW(&HD83D) & ChrW(&HDDBC) & " 画像として保存されたPDFで、文字を取り出せませんでした(" & imgN & "件)。" & vbLf & _
+            "その画面をコピー(Win+Shift+S)して、ナレッジ画面の「" & _
+            ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込」からお試しください。")
+    End If
+
+    Dim otherN As Long
+    otherN = ngN - dupN - imgN
+    If otherN > 0 Then
+        say = AppendBlock(say, otherN & "件、取り込めませんでした。" & vbLf & _
+            "マイ本棚の一覧で、その資料の状態欄をご確認ください。")
+    End If
+    If capN > 0 Then
+        say = AppendBlock(say, capN & "件は本棚の上限に達したため見送りました。" & vbLf & _
+            "configシートの shelf_max_chunks を大きくすると上限を増やせます。")
+    End If
+
+    If LenB(say) = 0 Then
+        say = "資料は追加されませんでした。" & vbLf & _
+            "対応しているのは PDF / Word / Excel / テキスト です。" & vbLf & _
+            "資料が無くても、一般的な内容ならこのままお答えできます。"
+    End If
+    AddDocsMessage = say
+End Function
+
+' "ok=1;ng=0;..." から key の値(文字列)を取り出す。
+Private Function ResultText(ByVal res As String, ByVal keyName As String) As String
+    Dim parts() As String
+    parts = Split(res, ";")
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If Left$(parts(i), Len(keyName) + 1) = keyName & "=" Then
+            ResultText = Mid$(parts(i), Len(keyName) + 2)
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function ResultNum(ByVal res As String, ByVal keyName As String) As Long
+    Dim s As String
+    s = ResultText(res, keyName)
+    If IsNumeric(s) Then ResultNum = CLng(s)
+End Function
+
+' reasons="E0504:2,image_pdf:1" から特定コードの件数を取り出す。
+Private Function ReasonCount(ByVal reasons As String, ByVal codeName As String) As Long
+    If LenB(reasons) = 0 Then Exit Function
+    Dim parts() As String
+    parts = Split(reasons, ",")
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim kv() As String
+        kv = Split(parts(i), ":")
+        If (UBound(kv) - LBound(kv)) >= 1 Then
+            If kv(0) = codeName Then
+                If IsNumeric(kv(1)) Then ReasonCount = CLng(kv(1))
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+' 文面のブロック連結(1つ目のブロックの前に空行を作らない)。
+Private Function AppendBlock(ByVal say As String, ByVal extra As String) As String
+    If LenB(say) = 0 Then
+        AppendBlock = extra
+    Else
+        AppendBlock = say & vbLf & vbLf & extra
+    End If
+End Function
 
 ' ナビゲーション(SPA遷移)・モード/言語トグル
 Public Sub OnNavChat()
@@ -596,7 +694,10 @@ End Sub
 ' 自動ではなく明示的なリフレッシュ手段を提供する。アクティブな画面に応じて振り分け:
 '   Nexus     → 会話履歴を壊さず視覚不変条件だけ再適用(modUI.Repaint)
 '   Dashboard → データから再構築(modDash)
-'   その他    → ナレッジ倉庫をデータから再構築(modVault)
+'   その他    → マイ本棚シートを「今のモードのまま」データから再構築
+'               (2026-07-30 R4要件F: ギャラリー/一覧/解決事例は同じシートに
+'                描くようになったので、決め打ちでギャラリーへ戻すと
+'                一覧を見ていた人の画面が勝手に変わってしまう)
 Public Sub OnRefreshUI()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
@@ -604,7 +705,7 @@ Public Sub OnRefreshUI()
         Case "Nexus":     modUI.Repaint
         Case "Dashboard": modDash.ShowDashboard
         Case modAppDef.SH_HOME: modHub.EnsureHubLayout
-        Case Else:        modVault.ShowVaultGallery
+        Case Else:        modKnowledge.RefreshCurrent
     End Select
     On Error GoTo 0
     modUiLock.Leave

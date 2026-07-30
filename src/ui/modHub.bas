@@ -70,6 +70,9 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     End If
     On Error GoTo Fail
 
+    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    modKnowledge.PrepareScreenView ws
+
     On Error Resume Next
     modTelemetry.TrackScreen "hub"
     On Error GoTo Fail
@@ -424,27 +427,24 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     T = HDR_H + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
-    ' 「パック共有(P2P)」は削除した。押してもナレッジ倉庫が開くだけで、
-    ' 「下のボタンを使ってください」というトーストが出る扉だった。行き先の
-    ' 無い扉が1つあると、5つ全部の信用が落ちる。パックの出力/取込は
-    ' ナレッジ倉庫のツールバーに元からある。
+    ' 2026-07-30(R4要件F): 「ナレッジ倉庫」と「マイ本棚」を1枚に統合した。
+    ' 中身は元から同じデータ(modShelf.SourceList)で、違いは見せ方だけ
+    ' だったのに、扉を2つ並べていたせいで「どっちに入れた資料か」を
+    ' 利用者が悩んでいた。行き先も同じ1枚のシートになった。
     caps = Array(ChrW(&HD83D) & ChrW(&HDCAC) & " チャットで質問する", _
-                 ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫", _
-                 ChrW(&HD83D) & ChrW(&HDCD6) & " マイ本棚", _
+                 ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジと本棚", _
                  ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード")
     Dim chLbl As String
     On Error Resume Next
     chLbl = modChannel.ActiveLabel()
     On Error GoTo 0
     descs = Array("本棚の資料からAIが出典付きで回答 ・ " & chLbl, _
-                  "資料の登録・検索・部内で配る/受け取る", _
-                  "取り込んだ資料の一覧と状態", _
+                  "資料の登録・検索・一覧 ・ 部内で配る/受け取る", _
                   "バッジ・EXP・ナレッジ地図")
-    acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoShelf", _
-                 "modHub.OnGoDash")
+    acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoDash")
 
     Dim i As Long
-    For i = 0 To 3
+    For i = 0 To 2
         Dim navTop As Double: navTop = T + i * (NAV_H + NAV_GAP)
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, L, navTop, W, NAV_H)
@@ -653,23 +653,13 @@ Public Sub OnGoChat()
     modUiLock.Leave
 End Sub
 
+' 📚 ナレッジと本棚 = マイ本棚シートのギャラリーモード(R4要件F)。
+' 一覧表・みんなの解決事例へは、開いた先の上部ピルで切り替える。
+' 旧OnGoShelf(一覧表を直接開く導線)は、行き先が同じ1枚になったので廃止した。
 Public Sub OnGoVault()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modVault.ShowVaultGallery
-    On Error GoTo 0
-    modUiLock.Leave
-End Sub
-
-' マイ本棚=ナレッジ画面のテーブルモード。EnsureLayoutを先に通して共通クロム
-' (ヘッダー+モード切替ピル+ツールバー)を確実に描いてから遷移する。
-' modKnowledge.OnGoTableを呼ばないのは、あちらもmodUiLockを取るため
-' ここで取得済みのロックと衝突して何も起きなくなるから。
-Public Sub OnGoShelf()
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    modUIShelf.EnsureLayout
-    modUI.GoToNativeSheet modAppDef.SH_SHELF, "modHub.OnGoShelf"
     On Error GoTo 0
     modUiLock.Leave
 End Sub

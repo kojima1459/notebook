@@ -319,6 +319,17 @@ CONTRACT: dict[str, dict] = {
             "OnPickFolder", "OnExportPack", "OnImportPack", "OnDeleteSource",
         ],
     },
+    # modChrome(2026-07-30 R4要件C/D): ツールバーとヘッダーピルの配置計算だけを
+    # 集めた純ロジック(R4準拠)。「ボタンが見切れる」「タイトルに重なる」は
+    # どちらも算数の誤りだったので、算数だけを実行テストで固定できる形にした。
+    # 表示側の都合で補助関数が増えうるため open。
+    "modChrome": {
+        "closed": False,
+        "required": [
+            "SumSpan", "FlowLeft", "FlowRight", "TitleReserve",
+            "TextSpan", "ClipToWidth", "PillWidth",
+        ],
+    },
     "modBoot": {
         "closed": True,
         # RunFirstRunPromptEarly(2026-07-21追加): 自己インストーラの
@@ -382,6 +393,9 @@ PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
     "modTestRunner", "modTestsPure", "modTestsPure2", "modTestsPure3", "modPrompts",
     "modRagParse", "modSparse", "modMode",
+    # modChrome(2026-07-30 R4): 配置計算だけを持つのでExcelオブジェクトは
+    # 一切要らない。ここへ載せることで「うっかりRangeを触る」改修を機械で止める。
+    "modChrome",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

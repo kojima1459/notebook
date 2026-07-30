@@ -25,9 +25,23 @@ Option Explicit
 Private Const HDR_H As Double = 40
 Private Const BAR_H As Double = 24
 Private Const PILL_W As Double = 88
+Private Const TB_GAP As Double = 5      ' ツールバーのボタン間隔
+Private Const TB_PAD As Double = 8      ' ツールバー帯の左右余白
+Private Const TB_MAX As Long = 20       ' ツールバーに載りうるボタンの最大数
+
+' 旧ギャラリー/解決事例の描画先だった実行時生成シート。2026-07-30(R4要件A)で
+' 描画先を「マイ本棚」へ統合したため、既存ブックに残っているものを消すためだけに
+' 名前を持っている(新規に作ることは二度と無い)。
+Private Const LEGACY_VAULT_SHEET As String = "Vault"
 
 ' 上部クロムが占める行(1..6)。本文はDrawChrome後の ContentTop から下に描く。
+' 行3がツールバーの帯で、段数に応じて高さが伸びる(行数は変えない)。
 Public Const CHROME_ROWS As Long = 6
+
+' 直近に描いたモード("gallery"/"table"/"shared")。
+' 3モードとも同じ「マイ本棚」シートに描くようになった(2026-07-30 R4要件A)ため、
+' 「今どのモードか」はシート名からは分からない。ここが唯一の情報源。
+Private mMode As String
 
 ' DrawChrome - ヘッダー+モードピル+ツールバーを描く(冪等)。
 '   mode: "gallery"(ナレッジ倉庫のカード) / "table"(マイ本棚の一覧)
@@ -36,18 +50,13 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     On Error GoTo Fail
 
     RemoveChrome ws
+    mMode = LCase$(mode)
 
     ' 幾何を先に確定させる(順序が逆だとShape座標がズレる)。
-    ' 実機報告(2026-07-27)「ボタンが横に並びきらず、右へスクロールしないと
-    ' 見えない」への対処。ツールバーを2段(行3・行4)に折り返す。
-    ' 横スクロールを要求する時点でUIとして失格なので、幅に収まらなければ
-    ' 必ず折り返す実装にしてある(ボタンが増えても破綻しない)。
+    ' 行1(ヘッダー)と行2(隙間)だけ先に決めれば 行3.Top は確定する
+    ' (行3自身の高さはツールバーが何段になったかが分かってから入れる)。
     ws.Rows(1).RowHeight = HDR_H
     ws.Rows(2).RowHeight = 6
-    ws.Rows(3).RowHeight = BAR_H
-    ws.Rows(4).RowHeight = BAR_H + 2
-    ws.Rows(5).RowHeight = 22
-    ws.Rows(6).RowHeight = 8
 
     ' 罫線と行列番号を隠す。ここを消さないと、どれだけ整えても
     ' 画面が「Excelのシート」にしか見えない(実機要望: エクセル感を消す)。
@@ -103,7 +112,19 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     On Error GoTo Fail
 
     ' --- ツールバー(行3の帯) ---
-    DrawToolbar ws, isTable, isShared, L, W
+    ' 2026-07-30(R4要件C): 折り返しが「1段目だけ」だったため、2段目に
+    ' あふれたボタンは幅を見ずに右へ描き続けられ、画面外で見切れていた
+    ' (実機写真の「🗑削除が『除』しか見えない」)。段数無制限の流し込みに
+    ' 統一し、実際に使った高さをそのまま帯(行3)の高さにする。
+    ' こうすると検索欄(行5)もカード領域(行7以降)も自動で下がり、
+    ' 何段になっても重ならない。
+    Dim barH As Double
+    barH = DrawToolbar(ws, isTable, isShared, L, W, ws.Rows(3).Top)
+    If barH < BAR_H + 2 Then barH = BAR_H + 2
+    ws.Rows(3).RowHeight = barH
+    ws.Rows(4).RowHeight = 2
+    ws.Rows(5).RowHeight = 22
+    ws.Rows(6).RowHeight = 8
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
@@ -113,6 +134,58 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
 Fail:
     modLog.LogError "E0801", "modKnowledge.DrawChrome", Err.Description, Err.Number
 End Sub
+
+' ----------------------------------------------------------------------------
+' PrepareScreenView - 「マイ本棚」「Hub」を表示・再描画するときの共通儀式。
+' ----------------------------------------------------------------------------
+' 2026-07-30(R4要件B): 実機で「🗑削除が『除』しか見えない」「ボタンが右で
+' 切れている」と報告された画面は、多くが「一度右へスクロールした状態が
+' 持ち越されているだけ」だった。Nexus起動時に水平スクロールバーを消して
+' あるため、利用者には戻す手段が無い。表示のたびに必ず左上へ戻す。
+' あわせて、旧"Vault"シートが残っているブックの移行掃除もここで行う
+' (表示経路すべてがここを通るので、掃除の呼び忘れが起きない)。
+' 罫線・行列番号の表示制御は各画面の既存処理に任せる(ここでは触らない)。
+Public Sub PrepareScreenView(ByVal ws As Worksheet)
+    PurgeLegacyVaultSheet
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    ' ActiveWindow系は、そのシートが実際に前面のときだけ触る
+    ' (別シートの表示状態を巻き添えで変えないため)。
+    If ThisWorkbook.ActiveSheet Is ws Then
+        ActiveWindow.ScrollColumn = 1
+        ActiveWindow.ScrollRow = 1
+        ActiveWindow.Zoom = 100
+    End If
+    On Error GoTo 0
+End Sub
+
+' 旧"Vault"シートの移行削除。ギャラリーと解決事例の描画先を「マイ本棚」へ
+' 統合した(R4要件A)ので、既存ブックに残る空の"Vault"タブは
+' 「同じ資料が2つの画面にある」という元の混乱をそのまま残してしまう。
+Private Sub PurgeLegacyVaultSheet()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(LEGACY_VAULT_SHEET)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    ws.Visible = -1          ' veryHiddenのままだとDeleteが1004になる環境がある
+    ws.Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+End Sub
+
+' 今「マイ本棚」シートに描かれているのが一覧表モードかどうか。
+' 3モードが同じシートを共有する(R4要件A)ため、取込・同期の完了時に
+' 走る自動再描画(modShelf/modShelfSync → modUIShelf.RenderShelf)が、
+' ギャラリー表示中に一覧表をカードの裏へ書き込んでしまう経路ができた。
+' RenderShelf側でここを見て空振りさせる。
+' 未描画(起動直後)は一覧表とみなす ―― 既定の画面が一覧表だから。
+Public Function IsTableMode() As Boolean
+    IsTableMode = (mMode <> "gallery" And mMode <> "shared")
+End Function
 
 ' 本文(カード/表)を描き始めてよいY座標。
 Public Function ContentTop(ByVal ws As Worksheet) As Double
@@ -127,238 +200,187 @@ Public Function SearchCellAddress() As String
     SearchCellAddress = "B5:E5"
 End Function
 
-Private Sub DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
-                        ByVal isShared As Boolean, ByVal L As Double, ByVal W As Double)
-    Dim caps As Variant, acts As Variant, widths As Variant
-    caps = Array(ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", _
-                 ChrW(&H2795) & " 登録", _
-                 ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", _
-                 ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", _
-                 ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", _
-                 ChrW(&HD83D) & ChrW(&HDD04) & " 同期", _
-                 ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", _
-                 ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", _
-                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", _
-                 ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", _
-                 ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
-    acts = Array("OnSearch", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn", _
-                 "OnSync", "OnPickFolder", "OnDelete", "OnGapBoard", "OnChannels", "OnToChat")
-    widths = Array(62, 58, 58, 80, 80, 54, 68, 58, 104, 96, 76)
+' ----------------------------------------------------------------------------
+' DrawToolbar - ツールバーを1本の流し込みレイアウトで描き、実使用高さを返す。
+' ----------------------------------------------------------------------------
+' 旧実装は「通常ボタン群」「正典を発行」「利用状況」「スクショ取込」の4箇所で
+' 別々に折り返し判定を書いており、そのすべてが `rowIdx = 0` 限定だった。
+' つまり2段目に入った瞬間から幅を一切見ずに右へ描き続けていた
+' (全ボタン有効な端末では合計約1,068pt=帯幅の約1.8倍)。
+' ボタンの並びを1本の配列にまとめ、段数無制限の流し込み(modChrome.FlowLeft)
+' へ一本化する。判定が1箇所になったので「ここだけ直し忘れる」が起きない。
+Private Function DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
+                             ByVal isShared As Boolean, ByVal L As Double, _
+                             ByVal W As Double, ByVal barTop As Double) As Double
+    Dim caps() As String, acts() As String, kinds() As String
+    Dim widths() As Double
+    Dim n As Long
+    ToolbarSpec isTable, isShared, caps, acts, kinds, widths, n
+    If n < 1 Then Exit Function
+
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowLeft(widths, n, L + TB_PAD, L + W - TB_PAD, TB_GAP, _
+                              xs, rws, useW)
+    If rowN < 1 Then rowN = 1
+
+    Dim i As Long
+    For i = 0 To n - 1
+        ToolButton ws, "nxk_tb" & i, caps(i), acts(i), kinds(i), _
+                   xs(i), barTop + rws(i) * (BAR_H + 2), useW(i)
+    Next i
+
+    ' 実使用高さ。呼び出し元(DrawChrome)がこれを行3の高さに入れるので、
+    ' 下の検索欄・カード領域は段数に応じて自動で下がる。
+    DrawToolbar = rowN * (BAR_H + 2)
+End Function
+
+' ----------------------------------------------------------------------------
+' ToolbarSpec - モードと端末の権限に応じたボタンの並びを1本の配列で組み立てる。
+'   ここが「何を出すか」の唯一の場所。配置(どこへ置くか)は一切決めない。
+' ----------------------------------------------------------------------------
+Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
+                        ByRef caps() As String, ByRef acts() As String, _
+                        ByRef kinds() As String, ByRef widths() As Double, _
+                        ByRef n As Long)
+    ReDim caps(0 To TB_MAX - 1)
+    ReDim acts(0 To TB_MAX - 1)
+    ReDim kinds(0 To TB_MAX - 1)
+    ReDim widths(0 To TB_MAX - 1)
+    n = 0
+
+    ' みんなの解決事例モードは操作が全く違う(選択と取り込み)。資料管理用の
+    ' ボタンを並べても押しどころが分からなくなるので、専用の並びにする。
+    If isShared Then
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&H2713) & " 選択を取り込む", "modShared.OnImportSelected", "accent", 112
+        AddTool caps, acts, kinds, widths, n, "すべて選ぶ", "modShared.OnSelectAll", "plain", 72
+        AddTool caps, acts, kinds, widths, n, "選択を解除", "modShared.OnSelectNone", "plain", 72
+        AddTool caps, acts, kinds, widths, n, ChrW(&H2190) & " 前", "modShared.OnPrevPage", "plain", 44
+        AddTool caps, acts, kinds, widths, n, "次 " & ChrW(&H2192), "modShared.OnNextPage", "plain", 44
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
+        Exit Sub
+    End If
+
+    ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
+    ' 見せない=実機報告「どっちで押せばいいか分からない」への対処)。
+    If Not isTable Then
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", "modKnowledge.OnSearch", "plain", 62
+    End If
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", "modKnowledge.OnPackOut", "plain", 80
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", "modKnowledge.OnPackIn", "plain", 80
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDD04) & " 同期", "modKnowledge.OnSync", "plain", 54
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", "modKnowledge.OnPickFolder", "plain", 68
+    If isTable Then
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "plain", 58
+    End If
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", "modKnowledge.OnChannels", "plain", 96
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
+
     ' 発行ボタンは、発行キーが設定されている端末にだけ出す。
     ' 一般利用者の画面に「押してはいけないボタン」を置かない。
     Dim canPub As Boolean
     On Error Resume Next
     canPub = modPublish.CanPublish()
     On Error GoTo 0
-
-    Dim barTop As Double: barTop = ws.Rows(3).Top
-    Dim x As Double: x = L + 8
-    Dim rowIdx As Long: rowIdx = 0
-    Dim maxX As Double: maxX = L + W - 8
-
-    ' みんなのQ&Aモードは操作が全く違う(選択と取り込み)。資料管理用の
-    ' ボタンを並べても押しどころが分からなくなるので、専用の並びにする。
-    If isShared Then
-        SharedToolbar ws, barTop, L + 8, maxX
-        Exit Sub
-    End If
-
-    Dim i As Long
-    For i = 0 To 10
-        ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
-        ' 見せない=実機報告「どっちで押せばいいか分からない」への対処)。
-        Dim skip As Boolean
-        skip = (i = 0 And isTable) Or (i = 7 And Not isTable)
-        If Not skip Then
-            ' 幅に収まらなくなったら次の段へ折り返す(横スクロールさせない)。
-            If x + CDbl(widths(i)) > maxX And rowIdx = 0 Then
-                rowIdx = 1
-                x = L + 8
-            End If
-            ' 1個の1004で残りを道連れにしない。
-            On Error Resume Next
-            Dim btn As Shape
-            Set btn = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), _
-                                         CDbl(widths(i)), BAR_H)
-            If Err.Number = 0 And Not btn Is Nothing Then
-                btn.Name = "nxk_tb" & i
-                btn.Adjustments(1) = 0.35
-                btn.Line.Visible = -1
-                btn.Line.Weight = 0.75
-                btn.Line.ForeColor.RGB = modUI.UiColor("border")
-                btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
-                With btn.TextFrame2
-                    .WordWrap = -1
-                    .TextRange.Text = CStr(caps(i))
-                    .TextRange.Font.Size = 8.5
-                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-                    .TextRange.ParagraphFormat.Alignment = 2
-                    .VerticalAnchor = 3
-                    .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-                End With
-                modSkin.ApplyLightShadow btn
-                btn.OnAction = "modKnowledge." & CStr(acts(i))
-            End If
-            Set btn = Nothing
-            Err.Clear
-            On Error GoTo 0
-            x = x + CDbl(widths(i)) + 5
-        End If
-    Next i
-
-    ' 発行者だけに見える「正典を発行」。
     If canPub Then
-        If x + 104 > maxX And rowIdx = 0 Then
-            rowIdx = 1
-            x = L + 8
-        End If
-        On Error Resume Next
-        Dim pb As Shape
-        Set pb = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 104, BAR_H)
-        If Not pb Is Nothing Then
-            pb.Name = "nxk_tbpub"
-            pb.Adjustments(1) = 0.35
-            pb.Line.Visible = 0
-            pb.Fill.ForeColor.RGB = modUI.UiColor("primary")
-            With pb.TextFrame2
-                .WordWrap = -1
-                .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行"
-                .TextRange.Font.Size = 8.5
-                .TextRange.Font.Bold = -1
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-                .TextRange.ParagraphFormat.Alignment = 2
-                .VerticalAnchor = 3
-                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-            End With
-            pb.OnAction = "modPublishUI.OnPublish"
-        End If
-        Set pb = Nothing
-        Err.Clear
-        On Error GoTo 0
-        x = x + 109
-
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行", "modPublishUI.OnPublish", "primary", 104
         ' 運営向けの利用状況。発行者=運営なので同じ条件で出す。
-        If x + 88 > maxX And rowIdx = 0 Then
-            rowIdx = 1
-            x = L + 8
-        End If
-        On Error Resume Next
-        Dim rp As Shape
-        Set rp = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 88, BAR_H)
-        If Not rp Is Nothing Then
-            rp.Name = "nxk_tbrep"
-            rp.Adjustments(1) = 0.35
-            rp.Line.Visible = -1
-            rp.Line.Weight = 0.75
-            rp.Line.ForeColor.RGB = modUI.UiColor("border")
-            rp.Fill.ForeColor.RGB = modUI.UiColor("surface")
-            With rp.TextFrame2
-                .WordWrap = -1
-                .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況"
-                .TextRange.Font.Size = 8.5
-                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-                .TextRange.ParagraphFormat.Alignment = 2
-                .VerticalAnchor = 3
-                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-            End With
-            rp.OnAction = "modHub.OnOwnerReport"
-        End If
-        Set rp = Nothing
-        Err.Clear
-        On Error GoTo 0
-        x = x + 93
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況", "modHub.OnOwnerReport", "plain", 88
     End If
 
     ' 画像解析が使える環境でだけスクショ取込を出す(無効環境で「押したら
     ' 断られるボタン」を見せない。既存modUIShelfの方針をそのまま踏襲)。
+    Dim hasVision As Boolean
     On Error Resume Next
-    If modFeatures.FeatureEnabled("vision") Then
-        If x + 84 > maxX And rowIdx = 0 Then
-            rowIdx = 1
-            x = L + 8
-        End If
-        Dim sc As Shape
-        Set sc = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), 84, BAR_H)
-        If Not sc Is Nothing Then
-            sc.Name = "nxk_tbshot"
-            sc.Adjustments(1) = 0.35
-            sc.Line.Visible = -1
-            sc.Line.Weight = 0.75
-            sc.Line.ForeColor.RGB = modUI.UiColor("border")
-            sc.Fill.ForeColor.RGB = modUI.UiColor("surface")
-            With sc.TextFrame2
-                .WordWrap = -1
-                .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込"
-                .TextRange.Font.Size = 8.5
-                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-                .TextRange.ParagraphFormat.Alignment = 2
-                .VerticalAnchor = 3
-                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-            End With
-            sc.OnAction = "modUIShelf.OnIngestScreenshot"
-        End If
-    End If
+    hasVision = modFeatures.FeatureEnabled("vision")
     On Error GoTo 0
+    If hasVision Then
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot", "plain", 84
+    End If
 End Sub
 
-' みんなのQ&A専用ツールバー。
-Private Sub SharedToolbar(ByVal ws As Worksheet, ByVal barTop As Double, _
-                          ByVal x0 As Double, ByVal maxX As Double)
-    Dim caps As Variant, acts As Variant, widths As Variant
-    caps = Array(ChrW(&H2713) & " 選択を取り込む", "すべて選ぶ", "選択を解除", _
-                 ChrW(&H2190) & " 前", "次 " & ChrW(&H2192), _
-                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", _
-                 ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ")
-    acts = Array("modShared.OnImportSelected", "modShared.OnSelectAll", _
-                 "modShared.OnSelectNone", "modShared.OnPrevPage", "modShared.OnNextPage", _
-                 "modKnowledge.OnGapBoard", "modKnowledge.OnToChat")
-    widths = Array(112, 72, 72, 44, 44, 104, 76)
+' 並びへ1個足す(TB_MAXを超えたら黙って捨てる=配列外参照で全滅させない)。
+Private Sub AddTool(ByRef caps() As String, ByRef acts() As String, _
+                    ByRef kinds() As String, ByRef widths() As Double, _
+                    ByRef n As Long, ByVal capText As String, _
+                    ByVal actName As String, ByVal kind As String, ByVal itemW As Double)
+    If n >= TB_MAX Then Exit Sub
+    caps(n) = capText
+    acts(n) = actName
+    kinds(n) = kind
+    widths(n) = itemW
+    n = n + 1
+End Sub
 
-    Dim x As Double: x = x0
-    Dim rowIdx As Long
-    Dim i As Long
-    For i = 0 To 6
-        If x + CDbl(widths(i)) > maxX And rowIdx = 0 Then
-            rowIdx = 1
-            x = x0
-        End If
-        On Error Resume Next
-        Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, x, barTop + rowIdx * (BAR_H + 2), _
-                                     CDbl(widths(i)), BAR_H)
-        If Err.Number = 0 And Not btn Is Nothing Then
-            btn.Name = "nxk_sb" & i
-            btn.Adjustments(1) = 0.35
+' ツールバーのボタン1個。kind: "plain"(白地) / "primary"(青地) / "accent"(強調)。
+Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
+                       ByVal capText As String, ByVal action As String, _
+                       ByVal kind As String, ByVal x As Double, ByVal y As Double, _
+                       ByVal w As Double)
+    ' 1個の1004で残りを道連れにしない。
+    On Error Resume Next
+    Dim btn As Shape
+    Set btn = ws.Shapes.AddShape(5, x, y, w, BAR_H)
+    If Err.Number = 0 And Not btn Is Nothing Then
+        btn.Name = shapeName
+        ' 行3の高さは描いたあとに入れる(段数が決まるのが描画後のため)。
+        ' 絶対配置にしておかないと行高の変更でボタンが伸縮する。
+        btn.Placement = 3
+        btn.Adjustments(1) = 0.35
+        If kind = "primary" Or kind = "accent" Then
+            btn.Line.Visible = 0
+            If kind = "primary" Then
+                btn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+            Else
+                btn.Fill.ForeColor.RGB = modUI.UiColor("accent")
+            End If
+        Else
             btn.Line.Visible = -1
             btn.Line.Weight = 0.75
             btn.Line.ForeColor.RGB = modUI.UiColor("border")
-            If i = 0 Then
-                btn.Fill.ForeColor.RGB = modUI.UiColor("accent")
-            Else
-                btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
-            End If
-            With btn.TextFrame2
-                .WordWrap = -1
-                .TextRange.Text = CStr(caps(i))
-                .TextRange.Font.Size = 8.5
-                If i = 0 Then
-                    .TextRange.Font.Bold = -1
-                    .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-                Else
-                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-                End If
-                .TextRange.ParagraphFormat.Alignment = 2
-                .VerticalAnchor = 3
-                .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
-            End With
-            modSkin.ApplyLightShadow btn
-            btn.OnAction = CStr(acts(i))
+            btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
         End If
-        Set btn = Nothing
-        Err.Clear
-        On Error GoTo 0
-        x = x + CDbl(widths(i)) + 5
-    Next i
+        With btn.TextFrame2
+            .WordWrap = -1
+            .TextRange.Text = capText
+            .TextRange.Font.Size = 8.5
+            If kind = "primary" Or kind = "accent" Then
+                .TextRange.Font.Bold = -1
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            Else
+                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+            End If
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+            .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+        End With
+        modSkin.ApplyLightShadow btn
+        btn.OnAction = action
+    End If
+    Set btn = Nothing
+    Err.Clear
+    On Error GoTo 0
 End Sub
 
 ' ヘッダー上のピル。active:=Trueで「今いるモード」を塗りつぶして示す。
@@ -370,6 +392,7 @@ Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
     Set p = ws.Shapes.AddShape(5, x, (HDR_H - 26) / 2, w, 26)
     If p Is Nothing Then Exit Sub
     p.Name = shapeName
+    p.Placement = 3          ' 行高を後から変えてもピルは動かさない
     p.Adjustments(1) = 0.35
     p.Line.Visible = 0
     If active Then
@@ -400,9 +423,14 @@ Private Sub RemoveChrome(ByVal ws As Worksheet)
     Dim n As Long
     Dim shp As Shape
     For Each shp In ws.Shapes
-        ' 旧マイ本棚のボタン(btn_)も一緒に消す。残すと新ツールバーの上に
+        ' 旧マイ本棚のボタン(btn_/lbl_)も一緒に消す。残すと新ツールバーの上に
         ' 浮いたまま二重表示になる(Hub移植時に踏んだのと同じ罠)。
-        If Left$(shp.Name, 4) = "nxk_" Or Left$(shp.Name, 4) = "btn_" Then
+        ' 2026-07-30(R4要件A): 3モードが同じ「マイ本棚」シートを共有する
+        ' ようになったので、前のモードのカード(nxg_)とチェックボックス(nxs_)も
+        ' ここで必ず落とす。残すとギャラリーのカードの上に一覧表が重なる。
+        If Left$(shp.Name, 4) = "nxk_" Or Left$(shp.Name, 4) = "btn_" _
+           Or Left$(shp.Name, 4) = "lbl_" Or Left$(shp.Name, 4) = "nxg_" _
+           Or Left$(shp.Name, 4) = "nxs_" Then
             names(n) = shp.Name
             n = n + 1
         End If
@@ -620,13 +648,21 @@ End Sub
 
 ' 今表示しているモードだけを描き直す(モード切替をまたいで表示がズレないよう、
 ' 資料を足した/消した直後は必ずここを通す)。
-Private Sub RefreshCurrent()
+'
+' 2026-07-30(R4要件A/F): 3モードとも描画先が「マイ本棚」シート1枚になったので、
+' 旧実装のように ActiveSheet.Name では現在モードを判別できない。DrawChromeが
+' 記録した mMode を唯一の情報源にする。modApp.OnRefreshUI(🔄再描画)の
+' フォールバック先でもあるため Public。
+Public Sub RefreshCurrent()
     On Error Resume Next
-    If ThisWorkbook.ActiveSheet.Name = modAppDef.SH_SHELF Then
-        modUIShelf.RenderShelf
-    Else
-        modVault.ShowVaultGallery
-    End If
+    Select Case mMode
+        Case "table"
+            modUIShelf.RenderShelf
+        Case "shared"
+            modShared.Show
+        Case Else
+            modVault.ShowVaultGallery
+    End Select
     On Error GoTo 0
 End Sub
 

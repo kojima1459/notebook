@@ -85,12 +85,18 @@ Public Sub EnsureLayout()
     ws.Cells.Font.Name = "游ゴシック"
     ws.Cells.Font.Size = 11
 
+    ' A:N を全列ぶん明示する(2026-07-30 R4要件A)。
+    ' 旧実装はK列・L列だけ設定しておらず、DrawChromeが使う W=A1:N1 の幅が
+    ' 機種と操作履歴に依存してぶれていた。ツールバーの折り返し判定はこのWを
+    ' 基準にしているので、Wがぶれると「端末によってだけボタンが見切れる」
+    ' という再現しにくい不具合になる。3モードとも同じシートを共有する
+    ' ようになった今は、前のモードの列幅が残る経路も増えている。
     ws.Columns("A").ColumnWidth = 6
     ws.Columns("B:D").ColumnWidth = 10
     ws.Columns("E").ColumnWidth = 8
     ws.Columns("F:G").ColumnWidth = 8
     ws.Columns("H:J").ColumnWidth = 15
-    ws.Columns("M:N").ColumnWidth = 10
+    ws.Columns("K:N").ColumnWidth = 10
 
     ' 実機防衛(2026-07-21再訂正): modUIMain.EnsureLayoutと同じ理由・同じ実装
     ' (Activateあり/なし双方で同一の1004が再現したため、Activate成否を致命的
@@ -110,6 +116,12 @@ Public Sub EnsureLayout()
     End If
     On Error GoTo Fail
     Application.ScreenUpdating = False
+
+    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    ' 一度右へスクロールした状態が持ち越されると、この画面には戻す手段が
+    ' 無い(水平スクロールバーはNexus起動時に消してある)。実機報告の
+    ' 「🗑削除が『除』しか見えない」の主因はこれ。
+    modKnowledge.PrepareScreenView ws
 
     ' ---- 共通クロム(ヘッダー+モード切替+ツールバー) ----------------------
     ' 2026-07-26 再設計: ナレッジ倉庫(カード)とマイ本棚(一覧)で
@@ -210,6 +222,19 @@ End Sub
 ' RenderShelf - manifest+modShelf.SourceListから1行=1資料で再描画(§8.2)
 ' ----------------------------------------------------------------------------
 Public Sub RenderShelf()
+    ' 2026-07-30(R4要件A): ギャラリー/一覧表/解決事例が同じ「マイ本棚」
+    ' シートを共有するようになった。取込・同期の完了時に走る自動再描画
+    ' (modShelf/modShelfSync → ここ)は、利用者がギャラリーを見ている
+    ' 最中でも呼ばれるので、そのまま書くとカードの裏に一覧表が現れる。
+    ' 一覧表モード以外では空振りさせ、表示中のモードの描き直しは
+    ' modKnowledge.RefreshCurrent に任せる。
+    Dim isTable As Boolean
+    isTable = True
+    On Error Resume Next
+    isTable = modKnowledge.IsTableMode()
+    On Error GoTo 0
+    If Not isTable Then Exit Sub
+
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = GetShelfSheet()

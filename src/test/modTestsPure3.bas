@@ -217,6 +217,173 @@ Private Sub TestHubTileDefaultValue()
     modTestRunner.Check "R3タイル既定値_どのタイルも空文字を返さない", (emptyN = 0), "empty=" & emptyN
 End Sub
 
+' ----------------------------------------------------------------------------
+' R4要件C: ツールバーの完全折り返し(2026-07-30)
+' ----------------------------------------------------------------------------
+' 背景: 折り返し判定が `rowIdx = 0` のときだけ発火していたため、2段目に
+' 入った時点で幅を見なくなり、あふれたボタンは画面外へ描かれていた
+' (実機写真「削除ボタンが『除』しか見えない」)。modChrome.FlowLeftは段数を
+' 無制限にした流し込みで、「どの要素も帯の右端を超えない」ことを保証する。
+' ここでは3段以上に折れるケースを作って、その保証を固定する。
+Private Sub TestChromeFlowLeft()
+    Dim widths() As Double
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim hugeW() As Double
+    Dim xs2() As Double, rws2() As Long, useW2() As Double
+    Dim n As Long, i As Long, rowN As Long, rowN2 As Long
+    Dim overflow As Long
+
+    n = 11
+    ReDim widths(0 To n - 1)
+    For i = 0 To n - 1
+        widths(i) = 100
+    Next i
+
+    rowN = modChrome.FlowLeft(widths, n, 0, 350, 5, xs, rws, useW)
+
+    ' 100pt+間隔5pt なら1段に3個(x=0/105/210)。11個なら4段になる。
+    modTestRunner.Check "FlowLeft: 11個100ptが幅350へ4段で収まる", rowN = 4, _
+        "rowN=" & rowN
+    modTestRunner.Check "FlowLeft: 4個目は2段目の左端へ戻る", _
+        rws(3) = 1 And xs(3) = 0, "row=" & rws(3) & " x=" & xs(3)
+
+    overflow = 0
+    For i = 0 To n - 1
+        If xs(i) + useW(i) > 350 Then overflow = overflow + 1
+        If xs(i) < 0 Then overflow = overflow + 1
+    Next i
+    modTestRunner.Check "FlowLeft: 帯からはみ出す要素が1つも無い", overflow = 0, _
+        "はみ出し=" & overflow & "件"
+
+    ' 1個で帯幅を超える要素は帯幅へ丸める(丸めないと何段折ってもはみ出す)。
+    ReDim hugeW(0 To 0)
+    hugeW(0) = 1000
+    rowN2 = modChrome.FlowLeft(hugeW, 1, 0, 350, 5, xs2, rws2, useW2)
+    modTestRunner.Check "FlowLeft: 帯より広い1個は帯幅へ丸める", _
+        rowN2 = 1 And useW2(0) = 350 And xs2(0) = 0, _
+        "rowN=" & rowN2 & " w=" & useW2(0) & " x=" & xs2(0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R4要件D: チャットヘッダーの幅予算(2026-07-30)
+' ----------------------------------------------------------------------------
+' 背景: 右端ピル8個の固定予約幅の合計598pt(+右余白8pt)が、ヘッダー実幅
+' (約597pt)を一度も突き合わせられないまま右から積まれ、最内側のピルが必ず
+' タイトルへ重なっていた。modChrome.FlowRightは「その段の左限界より左へは
+' 絶対に置かない/段幅を超える要素は段幅へ丸める」の2点で、帯幅Wがどんな値でも
+' タイトル領域へ入り込む配置を作れないようにしている。
+' Wを極端な値まで振って、その不変条件が崩れないことを固定する。
+Private Sub TestChromeHeaderBudget()
+    Dim widths() As Double
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim cases_ As Variant
+    Dim n As Long, i As Long, c As Long, rowN As Long, bad As Long
+    Dim barW As Double, titleMin As Double, limitX As Double
+    Dim detail As String
+
+    n = 8
+    ReDim widths(0 To n - 1)
+    widths(0) = 30: widths(1) = 62: widths(2) = 74: widths(3) = 30
+    widths(4) = 26: widths(5) = 92: widths(6) = 118: widths(7) = 124
+
+    ' 旧実装の固定予約幅の合計(間隔込み)は598pt。実幅597ptの帯には入らない。
+    modTestRunner.Check "SumSpan: 旧予約幅の合計は598pt(実幅597ptを超える)", _
+        modChrome.SumSpan(widths, n, 6) = 598, _
+        "sum=" & modChrome.SumSpan(widths, n, 6)
+
+    cases_ = Array(120, 200, 300, 400, 597, 640, 900, 1400)
+    bad = 0
+    detail = ""
+    For c = LBound(cases_) To UBound(cases_)
+        barW = CDbl(cases_(c))
+        ' 確保幅は帯幅の半分が上限(TitleReserve)。極端に狭い帯でも
+        ' 「確保しすぎてピルが1個も置けない」状態にはしない。
+        titleMin = modChrome.TitleReserve(barW, 280)
+        rowN = modChrome.FlowRight(widths, n, barW - 8, titleMin, 8, 6, xs, rws, useW)
+        If rowN < 1 Then bad = bad + 1
+        For i = 0 To n - 1
+            If rws(i) = 0 Then
+                limitX = titleMin
+            Else
+                limitX = 8
+            End If
+            If xs(i) < limitX Then
+                bad = bad + 1
+                detail = detail & " W=" & barW & "/i=" & i & "/x=" & xs(i)
+            End If
+            If xs(i) + useW(i) > barW - 8 Then
+                bad = bad + 1
+                detail = detail & " W=" & barW & "/i=" & i & "/右端超過"
+            End If
+        Next i
+    Next c
+    modTestRunner.Check "FlowRight: どの帯幅でもタイトル領域へ食い込まない", bad = 0, _
+        "違反=" & bad & "件" & detail
+
+    ' 広い帯なら1段に収まり、実機幅では旧予約幅のままだと段が増える
+    ' (=旧実装が1段に詰め込んでいたのは物理的に不可能だった、という確認)。
+    rowN = modChrome.FlowRight(widths, n, 1400 - 8, 280, 8, 6, xs, rws, useW)
+    modTestRunner.Check "FlowRight: 1400pt幅なら1段で収まる", rowN = 1, "rowN=" & rowN
+    rowN = modChrome.FlowRight(widths, n, 597 - 8, 280, 8, 6, xs, rws, useW)
+    modTestRunner.Check "FlowRight: 597pt幅では旧予約幅は1段に入らない", rowN >= 2, _
+        "rowN=" & rowN
+
+    ' 確保幅の上限(TitleReserve)そのものの固定。
+    modTestRunner.Check "TitleReserve: 広い帯では要求どおり280ptを確保", _
+        modChrome.TitleReserve(900, 280) = 280, _
+        "got=" & modChrome.TitleReserve(900, 280)
+    modTestRunner.Check "TitleReserve: 狭い帯では帯幅の半分まで縮める", _
+        modChrome.TitleReserve(120, 280) = 60, _
+        "got=" & modChrome.TitleReserve(120, 280)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R4要件D: 部門ラベルの切り詰め(2026-07-30)
+' ----------------------------------------------------------------------------
+' ヘッダーのタイトルは「チャット + 部門ラベル」で、部門ラベルは
+' modChannel.ActiveLabel()由来なので長さが読めない。利用可能幅で切り詰める。
+' サロゲートペアの途中で切ると文字そのものが壊れるので、そこも固定する。
+Private Sub TestChromeClipToWidth()
+    Dim clipped As String, src As String, cut As String
+    Dim lastUnit As Long
+
+    modTestRunner.Check "ClipToWidth: 収まる文字列はそのまま返す", _
+        modChrome.ClipToWidth("日本語", 100, 12) = "日本語", _
+        "got=" & modChrome.ClipToWidth("日本語", 100, 12)
+
+    clipped = modChrome.ClipToWidth("あいうえお", 36, 12)
+    modTestRunner.Check "ClipToWidth: あふれたら省略記号を付けて縮める", _
+        clipped = "あい" & ChrW(&H2026), "got=" & clipped
+
+    modTestRunner.Check "ClipToWidth: 1字も置けない幅なら空を返す", _
+        LenB(modChrome.ClipToWidth("あ", 6, 12)) = 0, _
+        "got=" & modChrome.ClipToWidth("あ", 6, 12)
+
+    ' U+1F4DA(サロゲートペア)+全角2字。24pt分だけ許すとペアで止まるはずで、
+    ' 上位サロゲート単独で終わってはいけない。
+    src = ChrW(&HD83D) & ChrW(&HDCDA) & "部門"
+    cut = modChrome.ClipToWidth(src, 24, 12)
+    lastUnit = 0
+    If Len(cut) > 1 Then lastUnit = AscW(Mid$(cut, Len(cut) - 1, 1))
+    If lastUnit < 0 Then lastUnit = lastUnit + 65536
+    modTestRunner.Check "ClipToWidth: サロゲートペアの途中で切らない", _
+        Left$(cut, 2) = Left$(src, 2) And lastUnit = &HDCDA& And Right$(cut, 1) = ChrW(&H2026), _
+        "len=" & Len(cut) & " lastUnit=" & lastUnit
+
+    ' 半角は全角の半分で数える(英語表記で極端に切られないため)。
+    modTestRunner.Check "TextSpan: 半角は全角の半分", _
+        modChrome.TextSpan("abcd", 12) = modChrome.TextSpan("あい", 12), _
+        "half=" & modChrome.TextSpan("abcd", 12) & " full=" & modChrome.TextSpan("あい", 12)
+
+    ' 幅はキャプションの実文字から出す(固定予約幅と実物の食い違いを無くす)。
+    modTestRunner.Check "PillWidth: 短いキャプションでも最小幅を下回らない", _
+        modChrome.PillWidth("A", 9, 14, 30) = 30, _
+        "got=" & modChrome.PillWidth("A", 9, 14, 30)
+    modTestRunner.Check "PillWidth: 長いキャプションは文字幅+余白になる", _
+        modChrome.PillWidth("しっかり調べる", 9, 14, 30) = 7 * 9 + 14, _
+        "got=" & modChrome.PillWidth("しっかり調べる", 9, 14, 30)
+End Sub
+
 Public Sub RunAll3()
     On Error GoTo NormEmptyGroupFail
     TestNormalizeForIngestEmpty
@@ -235,6 +402,15 @@ NextBadgeCatalog:
 NextTileDefault:
     On Error GoTo TileDefaultFail
     TestHubTileDefaultValue
+NextChromeFlow:
+    On Error GoTo ChromeFlowFail
+    TestChromeFlowLeft
+NextChromeBudget:
+    On Error GoTo ChromeBudgetFail
+    TestChromeHeaderBudget
+NextChromeClip:
+    On Error GoTo ChromeClipFail
+    TestChromeClipToWidth
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -261,6 +437,18 @@ BadgeCatalogFail:
     Resume NextTileDefault
 TileDefaultFail:
     modTestRunner.Check "TestHubTileDefaultValue(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChromeFlow
+ChromeFlowFail:
+    modTestRunner.Check "TestChromeFlowLeft(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChromeBudget
+ChromeBudgetFail:
+    modTestRunner.Check "TestChromeHeaderBudget(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChromeClip
+ChromeClipFail:
+    modTestRunner.Check "TestChromeClipToWidth(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 End Sub
