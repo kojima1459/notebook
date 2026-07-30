@@ -572,6 +572,14 @@
       "note": "modTestsPureが§7.1の30,000字上限を超えたための分割先(modPrompts/modShelfSync/modPackテスト)。modTestsPure.RunAll末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure3",
+      "path": "src/test/modTestsPure3.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "3-T",
+      "note": "modTestsPure2の容量逼迫による分割先(R2取込コア/R3統計バッジの回帰テスト)。modTestsPure2.RunAll2末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",
