@@ -98,19 +98,20 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     Dim tmpCopy As String: tmpCopy = ""
     Dim triedLocalCopy As Boolean: triedLocalCopy = False
     Select Case ext
-        Case "pdf", "docx", "doc", "xlsx", "xls", "xlsm"
+        Case "xlsx", "xls", "xlsm"
             triedLocalCopy = True
             tmpCopy = CopyToLocalTemp(path)
             If LenB(tmpCopy) > 0 Then
                 workPath = tmpCopy
             Else
-                ' 2026-07-28(レビュー H-11): コピーに失敗したら原本へ
-                ' フォールバックしない。コピーが失敗する主因は
-                ' 「そのファイルが今そのPCで開かれている(ロック中)」で、
-                ' そのまま原本を開くと Excel は既存のブックオブジェクトを
-                ' 返し、抽出後の wb.Close False が【利用者が編集中のブックを
-                ' 破棄して閉じる】ことになる。
-                ' 取り込めないと伝える方が、他人の作業を消すよりましである。
+                ' 2026-07-28(レビュー H-11)→2026-07-30(要件D)で対象をExcel系
+                ' だけへ絞った。危険が実在するのは「同一Excelインスタンスで
+                ' 開かれるxls/xlsx/xlsm」だけである。コピーに失敗したまま
+                ' 原本を開くと、Excelは既存のブックオブジェクトを返してしまい、
+                ' 抽出後の wb.Close False が【利用者が編集中のブックを破棄して
+                ' 閉じる】ことになる。取り込めないと伝える方が、他人の作業を
+                ' 消すよりましである(pdf/doc/docxはこの危険が無いので下のCase
+                ' で原本フォールバックを許す。H-11の過剰一般化を正した)。
                 errCode = "E0302"
                 errDetail = "ファイルを一時フォルダへコピーできませんでした。" & _
                     "そのファイルを開いている場合は閉じてから、もう一度お試しください"
@@ -118,6 +119,26 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
                     modUtil.SafeLeft(path & " : localcopy=failed(原本フォールバックは行わない)", 500)
                 ExtractFile = False
                 Exit Function
+            End If
+        Case "pdf", "docx", "doc"
+            triedLocalCopy = True
+            tmpCopy = CopyToLocalTemp(path)
+            If LenB(tmpCopy) > 0 Then
+                workPath = tmpCopy
+            Else
+                ' 2026-07-30(要件D): Word COMはReadOnlyで開くだけで、Excelと
+                ' 違って利用者の編集セッションに触れる経路が無い(既存インス
+                ' タンスのブックを掴んで閉じる、という事故が起きない)。
+                ' コピーが失敗する主因は「そのファイルが今そのPCで開かれて
+                ' いる(ロック中)」で、「Wordを開いたまま使う」運用の回避策が
+                ' 定着したため頻発する(実機ログ: 悪天候の定義.docx :
+                ' localcopy=failed)。取り込めないより原本で読める方が良いので、
+                ' 原本パスのまま続行する。次回の切り分け用にログへ残す。
+                workPath = path
+                On Error Resume Next
+                modLog.LogUsage "extract_localcopy_fallback", "", _
+                    modUtil.SafeLeft(path & " : localcopy=failed(原本で続行)", 500)
+                On Error GoTo ExtractFailed
             End If
     End Select
 
@@ -166,7 +187,7 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Exit Function
     End If
 
-    ' 文字化けページの除去(2026-07-27追加)。
+    ' 文字化けページの除去(2026-07-27追加。2026-07-30 要件Aで配列圧縮化)。
     '
     ' 実物の約款PDFで確認: 表紙・裏の連絡先ページが装飾用の埋め込みフォント
     ' (ToUnicodeマップ無し)で作られていると、抽出結果が制御文字とギリシャ/
@@ -175,8 +196,16 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' そのままチャンクになり、プロンプトに載り、検索の邪魔をする。
     ' 「答えが的外れ」の原因として最悪の部類で、しかも誰にも見えない。
     ' ページ単位で落とせば、本文は1文字も失わずにノイズだけ消える。
+    '
+    ' 2026-07-30実機: 旧実装は化けページの.Textを""にするだけで配列を詰め
+    ' なかった。実機ログで extract_garbled N件 と chunk_skipped_pages N件が
+    ' 全6ペアで完全一致しており、空文字ページが後段でerr#9を出しページ単位
+    ' スキップに化けていた。1ページしかない.docだと全文が消えtotalChars=0→
+    ' E0304「抽出結果が空」で取込不能になっていた(実機:【個別特約】興行中止
+    ' 保険特約(関係者読替).doc)。DropGarbledPages側で配列そのものを詰め、
+    ' 空文字ページを後段へ渡さないようにする。
     Dim droppedPages As Long
-    droppedPages = DropGarbledPages(pages)
+    droppedPages = DropGarbledPages(pages, path)
     If droppedPages > 0 Then
         On Error Resume Next
         modLog.LogUsage "extract_garbled", "", _
@@ -255,6 +284,13 @@ End Function
 ' 拡張子は必ず元と同じにする(抽出は拡張子で振り分けるため)。
 ' Word/Excelの保護ビュー(ネットワーク/クラウド上のファイルで発動)を避け、
 ' かつ抽出中の元ファイルロック・ネットワーク瞬断の影響を受けないようにする。
+'
+' 2026-07-30(要件C): 従来はFileCopy(排他オープン)を使っており、Word/Excel/
+' Acrobatで開いているファイルはコピーに失敗していた(実機ログ: 悪天候の
+' 定義.docx : localcopy=failed。Desktopのファイル。「Wordを開いたまま使う」
+' 運用のため頻発)。共有読み(Open ... For Binary Access Read Shared)は、
+' 他プロセスが開いていても読み出しだけなら成立する(排他ロックは書き込み側
+' の意図が無い限りかからない)ため、これへ置き換える。
 Private Function CopyToLocalTemp(ByVal path As String) As String
     On Error GoTo Fail
 
@@ -280,12 +316,71 @@ Private Function CopyToLocalTemp(ByVal path As String) As String
         If n > 500 Then Exit Function   ' 異常時の暴走防止
     Loop
 
-    FileCopy path, dest
+    If Not CopySharedRead(path, dest) Then Exit Function
     CopyToLocalTemp = dest
     Exit Function
 
 Fail:
     CopyToLocalTemp = ""
+End Function
+
+' 共有読み(Shared)でsrcPathをdestPathへバイナリコピーする。
+' 0バイトファイルはGet/Putを一度も行わず、空ファイルのままコピー成立とする
+' (要件C: 0バイトファイルの扱いに注意)。
+Private Function CopySharedRead(ByVal srcPath As String, ByVal destPath As String) As Boolean
+    Dim srcNum As Long: srcNum = 0
+    Dim dstNum As Long: dstNum = 0
+    On Error GoTo Failed
+
+    srcNum = FreeFile
+    Open srcPath For Binary Access Read Shared As #srcNum
+
+    Dim totalLen As Long: totalLen = LOF(srcNum)
+
+    dstNum = FreeFile
+    Open destPath For Binary Access Write As #dstNum
+
+    Const CHUNK_BYTES As Long = 1048576   ' 1MB単位。巨大PDFでも一括Getせず段階的に読む
+    Dim pos As Long: pos = 1
+    Do While pos <= totalLen
+        Dim thisLen As Long: thisLen = SharedCopyNextChunkLen(pos, totalLen, CHUNK_BYTES)
+        If thisLen < 1 Then Exit Do
+        Dim buf() As Byte: ReDim buf(1 To thisLen)
+        Get #srcNum, pos, buf
+        Put #dstNum, pos, buf
+        pos = pos + thisLen
+    Loop
+
+    Close #dstNum
+    Close #srcNum
+    CopySharedRead = True
+    Exit Function
+
+Failed:
+    ' ハンドラ稼働中はOn Error Resume Nextが効かないため、後始末は
+    ' 別Subへ切り出す(R6)。開きかけたファイル番号を確実に閉じる。
+    CloseCopyFileNumbers srcNum, dstNum
+    CopySharedRead = False
+End Function
+
+' CopySharedRead失敗時の後始末専用(R6: 稼働中ハンドラの中では
+' On Error Resume Nextが効かないため、新しいエラー文脈を持つ別Subへ切り出す)。
+Private Sub CloseCopyFileNumbers(ByVal n1 As Long, ByVal n2 As Long)
+    On Error Resume Next
+    If n1 <> 0 Then Close #n1
+    If n2 <> 0 Then Close #n2
+    On Error GoTo 0
+End Sub
+
+' CopySharedReadの分割サイズ計算(純ロジック部分。要件C)。実ファイルI/Oを
+' 除いた「pos(1始まり)から次に読むべきバイト数」の決定だけを切り出し、
+' LibreOffice側の純ロジックテストで検証できるようにする(バッファ組み立て
+' の境界条件=端数処理・0バイト・pos超過を固定する)。
+Public Function SharedCopyNextChunkLen(ByVal pos As Long, ByVal totalLen As Long, ByVal chunkBytes As Long) As Long
+    If pos > totalLen Or chunkBytes < 1 Then Exit Function
+    Dim n As Long: n = chunkBytes
+    If pos + n - 1 > totalLen Then n = totalLen - pos + 1
+    SharedCopyNextChunkLen = n
 End Function
 
 ' pdfはWordのPDF Reflowを優先し、失敗時のみAcrobat COMへフォールバックする
@@ -349,7 +444,9 @@ FailedCleanup6:
 End Function
 
 ' ----------------------------------------------------------------------------
-' DropGarbledPages - 文字化けしたページの本文を空にする(戻り値=落とした数)。
+' DropGarbledPages - 文字化けしたページを配列から取り除いて詰める
+'   (戻り値=取り除いた数)。要件A(2026-07-30): 旧実装は.Textを""にする
+'   だけで配列を詰めず、空文字ページが後段でerr#9を誘発していた。
 ' ----------------------------------------------------------------------------
 ' 判定は「日本語の業務文書には出ない文字」の比率。具体的には
 '   ・制御文字(Chr 0～31。タブ/改行を除く)
@@ -357,19 +454,52 @@ End Function
 ' これらが本文の2割を超えるページは、フォント由来の化けと見なして捨てる。
 ' 保険の約款・ガイドラインにギリシャ文字やキリル文字が2割入ることはない。
 ' 短いページ(50字未満)は判定しない(誤爆すると目次や章扉を落としてしまう)。
-Private Function DropGarbledPages(ByRef pages() As ExtractedPage) As Long
-    On Error Resume Next
+' 残すページの.pageは元のページ番号のまま(出典表示のため詰め直さない)。
+' 全ページが化け判定になる場合は除去しない。フィルタの誤判定で文書を丸ごと
+' 失うより、化けた本文でも取り込む方がまし(この場合は戻り値0=何も取り除
+' いていないことにして、呼び出し側の"extract_garbled"ログは出させない。
+' 代わりにここで"extract_garbled_kept"を1本残す)。
+Private Function DropGarbledPages(ByRef pages() As ExtractedPage, ByVal path As String) As Long
+    Dim n As Long: n = PageArrayCount(pages)
+    If n = 0 Then Exit Function
+
+    Dim lo As Long: lo = LBound(pages)
+    Dim isGarbled() As Boolean: ReDim isGarbled(0 To n - 1)
+    Dim garbledCount As Long: garbledCount = 0
+
     Dim i As Long
-    For i = LBound(pages) To UBound(pages)
-        Dim t As String: t = pages(i).Text
+    For i = 0 To n - 1
+        Dim t As String: t = pages(lo + i).Text
         If Len(t) >= 50 Then
             If GarbleRatio(t) > 0.2 Then
-                pages(i).Text = ""
-                DropGarbledPages = DropGarbledPages + 1
+                isGarbled(i) = True
+                garbledCount = garbledCount + 1
             End If
         End If
     Next i
-    On Error GoTo 0
+
+    If garbledCount = 0 Then Exit Function
+
+    If garbledCount = n Then
+        On Error Resume Next
+        modLog.LogUsage "extract_garbled_kept", "", _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
+            " 全" & garbledCount & "件が化け判定のため除外せず続行"
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Dim kept() As ExtractedPage: ReDim kept(0 To n - garbledCount - 1)
+    Dim k As Long: k = 0
+    For i = 0 To n - 1
+        If Not isGarbled(i) Then
+            kept(k) = pages(lo + i)
+            k = k + 1
+        End If
+    Next i
+    pages = kept
+
+    DropGarbledPages = garbledCount
 End Function
 
 ' 化け文字の比率(0.0～1.0)。空白は数えない。

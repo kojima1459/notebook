@@ -144,7 +144,11 @@ CONTRACT: dict[str, dict] = {
     # MASTER_SPECが個別のPublic契約を明示していないため対象外(自由)。
     "modExtractor": {
         "closed": True,
-        "required": ["ExtractFile", "SupportedExts"],
+        # SharedCopyNextChunkLen: 2026-07-30 R2要件C(共有読みローカルコピー)の
+        # 純ロジック部分。実ファイルI/Oを含むCopySharedRead自体はテストできない
+        # ため、「次に読むべきバイト数」の境界計算だけを切り出してPublic化し、
+        # modTestsPure3から検証できるようにした。
+        "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen"],
     },
     "modMode": {
         "closed": True,
@@ -183,7 +187,11 @@ CONTRACT: dict[str, dict] = {
     },
     "modShelf": {
         "closed": True,
-        "required": ["AddFilesViaDialog", "IngestFile", "DeleteSource", "SourceList", "TotalChunks"],
+        # AddFilesResult: 2026-07-30 R2要件E。AddFilesViaDialog(OnAction互換)は
+        # 内部でこれを呼ぶ薄いラッパーへ変えた。ok/ng/capped件数・新規追加
+        # チャンク数・失敗理由の内訳を戻り値の文字列で返し、showMsgBox:=False
+        # で呼び出し元(modApp.OnAddDocs等)が独自に表示を担えるようにする。
+        "required": ["AddFilesViaDialog", "AddFilesResult", "IngestFile", "DeleteSource", "SourceList", "TotalChunks"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -354,6 +362,15 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll2"],
     },
+    # modTestsPure3: 2026-07-30 R2要件Bで追加。modTestsPure(28,906字)/
+    # modTestsPure2(29,170字)とも30,000字上限まで余裕が無く、要件Bの回帰
+    # テスト(空ページ防御・化けページ圧縮後のチャンク数)を追加する場所が
+    # 無かったための新規分割先。modTestsPure2.RunAll2の末尾から呼ばれる
+    # 入口 RunAll3 だけが契約。
+    "modTestsPure3": {
+        "closed": False,
+        "required": ["RunAll3"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -363,7 +380,7 @@ CONTRACT: dict[str, dict] = {
 # (1-Iタスク定義)により本Lintでは禁止トークン検査の対象に加える。
 PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
-    "modTestRunner", "modTestsPure", "modTestsPure2", "modPrompts",
+    "modTestRunner", "modTestsPure", "modTestsPure2", "modTestsPure3", "modPrompts",
     "modRagParse", "modSparse", "modMode",
     }
 

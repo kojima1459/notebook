@@ -105,6 +105,12 @@ Public Function ChunkPagesEx(pages() As ExtractedPage, ByVal targetChars As Long
             ' chunk_mode は config で切り替えられるので、こちらだけ無防備に
             ' しておくと設定次第で同じ事故が再発する。
             For p = 0 To pageCount - 1
+                ' 要件B(2026-07-30・多層防御): 空ページ(化けページ圧縮後の
+                ' 詰め直しや、元から空文字の1ページ資料等)は正常スキップと
+                ' して扱う。エラーハンドラに乗せず、mSkippedPagesにも数えない
+                ' (「読めたのに落ちた」件数と「元々空だった」件数を混ぜると、
+                ' 利用者への「Nページ飛ばした」報告が不正確になる)。
+                If LenB(Trim$(pages(pLo + p).Text)) = 0 Then GoTo NextLegacyPage
                 On Error GoTo SkipLegacyPage
                 ChunkOnePage pages(pLo + p).page, pages(pLo + p).Text, tgt, ov, outArr, outCount
                 On Error GoTo 0
@@ -353,6 +359,9 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
 
     Dim p As Long
     For p = 0 To pageCount - 1
+        ' 要件B(2026-07-30・多層防御): 空ページは正常スキップ。エラー
+        ' ハンドラに乗せず、mSkippedPagesにも数えない(理由はlegacy側と同じ)。
+        If LenB(Trim$(pages(pLo + p).Text)) = 0 Then GoTo NextPage
         On Error GoTo SkipPage
         Dim pageNo As Long: pageNo = pages(pLo + p).page
         Dim raw As String

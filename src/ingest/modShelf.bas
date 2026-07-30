@@ -29,8 +29,28 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 
 '
 ' AddFilesViaDialog - 複数選択FileDialog(フィルタ=SupportedExts)→各IngestFile
+'   OnAction互換の後方互換ラッパー(リボン/ボタンから直接呼ぶ用)。
+'   結果表示はAddFilesResultの既定どおりMsgBoxで行う。
 '
 Public Sub AddFilesViaDialog()
+    AddFilesResult True
+End Sub
+
+'
+' AddFilesResult - 複数選択FileDialog→各IngestFileの結果をまとめて返す(要件E)。
+'   2026-07-30(背景5): modShelf自前のMsgBox「追加しました」と、呼び出し元
+'   modApp.OnAddDocsのTotalChunks差分によるチャットバブル「追加されません
+'   でした」が、既存資料の再取込(重複で新規0行・status="done")のとき
+'   同時に出ていた。呼び出し元が表示を担うときはshowMsgBox:=Falseを渡せば
+'   このMsgBoxを出さず、戻り値の集計結果だけで正しい文言を組み立てられる。
+'   (modApp.OnAddDocs側の文言変更自体は本タスクの範囲外。ここでは
+'   「結果を正しく返す口」を作るところまで。)
+'
+'   戻り値: "ok=<n>;ng=<n>;capped=<n>;chunks=<n>;reasons=<code>:<count>,..."
+'   reasonsはE0504(同名衝突)/image_pdf/E0302等、失敗理由コードごとの内訳。
+'   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0 で返す。
+'
+Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As String
     Dim fd As Object
     Set fd = Application.FileDialog(3)   ' msoFileDialogFilePicker(名前付き定数は使わない)
     fd.AllowMultiSelect = True
@@ -38,7 +58,10 @@ Public Sub AddFilesViaDialog()
     fd.Filters.Clear
     fd.Filters.Add "対応ファイル", BuildFilterPattern()
 
-    If fd.Show <> -1 Then Exit Sub   ' キャンセル
+    If fd.Show <> -1 Then
+        AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons="
+        Exit Function   ' キャンセル
+    End If
 
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
     If capMax < 1 Then capMax = 10000
@@ -46,19 +69,38 @@ Public Sub AddFilesViaDialog()
     Dim okCount As Long: okCount = 0
     Dim ngCount As Long: ngCount = 0
     Dim cappedN As Long: cappedN = 0
+    Dim chunksAdded As Long: chunksAdded = 0
+
+    ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
+    Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
+    Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
+    Dim reasonN As Long: reasonN = 0
+
     Dim i As Long
     For i = 1 To fd.SelectedItems.count
         If TotalChunks() >= capMax Then
             cappedN = cappedN + 1
         Else
+            Dim beforeChunks As Long: beforeChunks = TotalChunks()
             Dim st As String: st = "failed"
+            Dim errCd As String: errCd = ""
             On Error Resume Next
-            st = IngestFile(CStr(fd.SelectedItems(i)), "self")
+            st = IngestFile(CStr(fd.SelectedItems(i)), "self", , errCd)
             On Error GoTo 0
+            chunksAdded = chunksAdded + (TotalChunks() - beforeChunks)
             If st = "done" Or st = "partial" Then
                 okCount = okCount + 1
             Else
                 ngCount = ngCount + 1
+                Dim reasonKey As String
+                If st = "image_pdf" Then
+                    reasonKey = "image_pdf"
+                ElseIf LenB(errCd) > 0 Then
+                    reasonKey = errCd
+                Else
+                    reasonKey = "failed"
+                End If
+                BumpReasonCount reasonKeys, reasonCounts, reasonN, reasonKey
             End If
         End If
     Next i
@@ -73,12 +115,24 @@ Public Sub AddFilesViaDialog()
             "※本棚の上限に達したため" & cappedN & "件は見送りました。" & vbLf & _
             "configシートの shelf_max_chunks を大きくすると上限を増やせます。"
         On Error Resume Next
-        modLog.LogError "E0501", "modShelf.AddFilesViaDialog", _
+        modLog.LogError "E0501", "modShelf.AddFilesResult", _
             "上限" & capMax & "到達で" & cappedN & "件見送り"
         On Error GoTo 0
     End If
-    MsgBox msg, vbInformation, modAppDef.APP_NAME
-End Sub
+    If showMsgBox Then
+        MsgBox msg, vbInformation, modAppDef.APP_NAME
+    End If
+
+    Dim reasonsPart As String
+    Dim r As Long
+    For r = 0 To reasonN - 1
+        If LenB(reasonsPart) > 0 Then reasonsPart = reasonsPart & ","
+        reasonsPart = reasonsPart & reasonKeys(r) & ":" & reasonCounts(r)
+    Next r
+
+    AddFilesResult = "ok=" & okCount & ";ng=" & ngCount & ";capped=" & cappedN & _
+        ";chunks=" & chunksAdded & ";reasons=" & reasonsPart
+End Function
 
 '
 ' IngestFile - MASTER_SPEC §7.2 の手順どおりに1ファイルを取込む。
@@ -89,8 +143,15 @@ End Sub
 '   モーダルを出されると同期が止まる。同名衝突(E0504)は従来 silent を見ずに
 '   必ずダイアログを出していたため、同期中に人がいないと朝まで止まっていた。
 '   silent:=True のときは記録だけ残し、結果は戻り値で呼び出し側へ伝える。
+'
+' outErrCode (2026-07-30・要件E):
+'   AddFilesResultが失敗理由の内訳(E0504/image_pdf/E0302等)を集計するための
+'   補助出口。Optionalの末尾追加なので既存の呼び出し元(modVault/modUIShelf/
+'   modShelfSync等)は無改修のまま動く。成功時は""のまま。
 Public Function IngestFile(ByVal path As String, ByVal origin As String, _
-                           Optional ByVal silent As Boolean = False) As String
+                           Optional ByVal silent As Boolean = False, _
+                           Optional ByRef outErrCode As String = "") As String
+    outErrCode = ""   ' 呼び出し側が使い回した変数でも必ずここで初期化する
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
@@ -106,6 +167,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
     If mIngesting Then
         modLog.ShowError "E0503", "modShelf.IngestFile", "path=" & modUtil.SafeLeft(path, 300)
+        outErrCode = "E0503"
         IngestFile = "failed"
         Exit Function
     End If
@@ -132,6 +194,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                     "source=" & sourceName & " newPath=" & path & " existingPath=" & conflictPath
             End If
             resultStatus = "failed"
+            outErrCode = "E0504"
             GoTo Finish
         End If
     End If
@@ -143,6 +206,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     If TotalChunks() >= maxChunks Then
         modLog.ShowError "E0501", "modShelf.IngestFile", "source=" & sourceName
         resultStatus = "failed"
+        outErrCode = "E0501"
         GoTo Finish
     End If
 
@@ -202,6 +266,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                     failStatus, failMsg, origin
             End If
             resultStatus = failStatus
+            outErrCode = errCode
             GoTo Finish
         End If
     End If
@@ -237,6 +302,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                 "failed", modLog.FriendlyMessage("E0401") & "(コード: E0401)", origin
         End If
         resultStatus = "failed"
+        outErrCode = "E0401"
         GoTo Finish
     End If
 
@@ -401,6 +467,7 @@ FailedCleanup1:
             "failed", "取込に失敗[" & uiStep & "](#" & failNum & ")", origin
     End If
     resultStatus = "failed"
+    outErrCode = "E0801"
     ' Resume で抜けることでハンドラ実行中の状態を解除する。
     ' On Error GoTo 0 はトラップの登録を消すだけで、この状態は消えない。
     ' 消えないまま Finish: の後始末へ落ちると、そこで起きたエラーが
@@ -593,6 +660,26 @@ Private Sub AppendSourceEntry(ByRef tmpNames() As String, ByRef tmpStats() As St
     tmpNames(outN) = nameVal
     tmpStats(outN) = statVal
     outN = outN + 1
+End Sub
+
+' 失敗理由の内訳へ1件加算する(要件E: AddFilesResultの"reasons="組立用)。
+' 既存キーがあれば加算、無ければ新規キーとして追加(容量不足時は倍々拡張)。
+Private Sub BumpReasonCount(ByRef keys() As String, ByRef counts() As Long, _
+                            ByRef n As Long, ByVal reasonKey As String)
+    Dim i As Long
+    For i = 0 To n - 1
+        If keys(i) = reasonKey Then
+            counts(i) = counts(i) + 1
+            Exit Sub
+        End If
+    Next i
+    If n > UBound(keys) Then
+        ReDim Preserve keys(0 To (UBound(keys) + 1) * 2 - 1)
+        ReDim Preserve counts(0 To (UBound(counts) + 1) * 2 - 1)
+    End If
+    keys(n) = reasonKey
+    counts(n) = 1
+    n = n + 1
 End Sub
 
 
