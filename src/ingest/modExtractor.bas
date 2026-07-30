@@ -164,9 +164,11 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Case "txt", "md", "csv"
             ok = ExtractPlainText(workPath, pages, adapterErr)
         Case "pdf"
-            ok = ExtractPdfWithFallback(workPath, maxPages, pages, truncated, adapterErr)
+            ' 原本パスも渡す(レビュー4-D)。Word側が「利用者が編集中の文書を
+            ' 掴んでいないか」を、一時コピー・原本の両方のパスで調べる。
+            ok = ExtractPdfWithFallback(workPath, maxPages, pages, truncated, adapterErr, path)
         Case "docx", "doc"
-            ok = modExtractorWord.Extract(workPath, maxPages, pages, truncated, adapterErr)
+            ok = modExtractorWord.Extract(workPath, maxPages, pages, truncated, adapterErr, path)
         Case "xlsx", "xls", "xlsm"
             ok = modExtractorExcel.Extract(workPath, maxPages, pages, truncated, adapterErr)
     End Select
@@ -359,16 +361,23 @@ Private Function CopySharedRead(ByVal srcPath As String, ByVal destPath As Strin
 Failed:
     ' ハンドラ稼働中はOn Error Resume Nextが効かないため、後始末は
     ' 別Subへ切り出す(R6)。開きかけたファイル番号を確実に閉じる。
-    CloseCopyFileNumbers srcNum, dstNum
+    CloseCopyFileNumbers srcNum, dstNum, destPath
     CopySharedRead = False
 End Function
 
 ' CopySharedRead失敗時の後始末専用(R6: 稼働中ハンドラの中では
 ' On Error Resume Nextが効かないため、新しいエラー文脈を持つ別Subへ切り出す)。
-Private Sub CloseCopyFileNumbers(ByVal n1 As Long, ByVal n2 As Long)
+' 2026-07-30(レビュー4-E): 書きかけのコピー先も消す。途中まで書けた
+' ファイルを残すと、%TEMP%に壊れたファイルが溜まるだけでなく、
+' 次回の連番探索(mbtmp/mbtmp1/...)がその残骸を避けて番号を消費し続ける。
+Private Sub CloseCopyFileNumbers(ByVal n1 As Long, ByVal n2 As Long, _
+                                 ByVal destPath As String)
     On Error Resume Next
     If n1 <> 0 Then Close #n1
     If n2 <> 0 Then Close #n2
+    If LenB(destPath) > 0 Then
+        If LenB(Dir$(destPath)) > 0 Then Kill destPath
+    End If
     On Error GoTo 0
 End Sub
 
@@ -387,9 +396,10 @@ End Function
 ' (V1 modExtractor.ExtractPdfWithFallback を踏襲)。
 Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As Long, _
                                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
-                                        ByRef errDetail As String) As Boolean
+                                        ByRef errDetail As String, _
+                                        Optional ByVal origPath As String = "") As Boolean
     Dim wordErr As String
-    If modExtractorWord.Extract(path, maxPages, pages, truncated, wordErr) Then
+    If modExtractorWord.Extract(path, maxPages, pages, truncated, wordErr, origPath) Then
         ExtractPdfWithFallback = True
         Exit Function
     End If

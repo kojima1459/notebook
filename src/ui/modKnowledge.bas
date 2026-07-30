@@ -121,6 +121,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     Dim barH As Double
     barH = DrawToolbar(ws, isTable, isShared, L, W, ws.Rows(3).Top)
     If barH < BAR_H + 2 Then barH = BAR_H + 2
+    ' 3-C: Excelの行高上限は409.5pt。段数無制限にしたので、極端に狭い帯
+    ' (異常な列幅設定など)では計算上それを超えうる。超えた値を代入すると
+    ' 1004になり、そこから先(検索欄・カード)が丸ごと描かれない。
+    ' 手前でクランプして「崩れても描き切る」ほうを選ぶ。
+    If barH > 400 Then barH = 400
     ws.Rows(3).RowHeight = barH
     ws.Rows(4).RowHeight = 2
     ws.Rows(5).RowHeight = 22
@@ -169,13 +174,50 @@ Private Sub PurgeLegacyVaultSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
+    ' 2026-07-30(レビュー2-D/7-B): DisplayAlerts は変更前の値を控えて戻す
+    ' (True 決め打ちで戻すと、警告を切って一括処理している最中に呼ばれた
+    ' ときに、その処理の途中から警告ダイアログが出るようになる)。
+    ' また Delete に失敗した場合、可視化したままにすると旧"Vault"タブが
+    ' 画面に出てしまう(消せなかったうえに混乱だけが増える)ので、
+    ' まだ残っていたら veryHidden へ戻す。
+    Dim prevAlerts As Boolean: prevAlerts = True
     On Error Resume Next
+    prevAlerts = Application.DisplayAlerts
     Application.DisplayAlerts = False
     ws.Visible = -1          ' veryHiddenのままだとDeleteが1004になる環境がある
     ws.Delete
-    Application.DisplayAlerts = True
+    Application.DisplayAlerts = prevAlerts
+    On Error GoTo 0
+
+    ' 消えたかどうかを取り直して確認する(消えていれば参照は失敗する)。
+    Dim still As Worksheet
+    On Error Resume Next
+    Set still = ThisWorkbook.Worksheets(LEGACY_VAULT_SHEET)
+    On Error GoTo 0
+    If still Is Nothing Then Exit Sub
+    On Error Resume Next
+    still.Visible = 2        ' xlSheetVeryHidden(消せなかったので隠し直す)
+    modLog.LogError "E0801", "modKnowledge(PurgeLegacyVaultSheet)", _
+        "旧Vaultシートを削除できなかったため veryHidden へ戻しました"
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' CurrentMode - 現在モードの正規化(このモジュールで唯一の解釈)。
+' ----------------------------------------------------------------------------
+' 2026-07-30(レビュー1-A): mMode が "" (起動直後・未描画)のときの解釈が
+' IsTableMode(=一覧表とみなす)と RefreshCurrent(Case Else でギャラリー)で
+' 食い違っていた。取込直後の自動再描画が「一覧表のつもりで書いた上に
+' ギャラリーを描く」といった噛み合わない動きの原因になる。
+' 既定の画面は一覧表なので、"" は "table" に寄せる。両方ここを使う。
+Private Function CurrentMode() As String
+    Dim m As String: m = LCase$(Trim$(mMode))
+    If m = "gallery" Or m = "shared" Then
+        CurrentMode = m
+    Else
+        CurrentMode = "table"
+    End If
+End Function
 
 ' 今「マイ本棚」シートに描かれているのが一覧表モードかどうか。
 ' 3モードが同じシートを共有する(R4要件A)ため、取込・同期の完了時に
@@ -184,7 +226,7 @@ End Sub
 ' RenderShelf側でここを見て空振りさせる。
 ' 未描画(起動直後)は一覧表とみなす ―― 既定の画面が一覧表だから。
 Public Function IsTableMode() As Boolean
-    IsTableMode = (mMode <> "gallery" And mMode <> "shared")
+    IsTableMode = (CurrentMode() = "table")
 End Function
 
 ' 本文(カード/表)を描き始めてよいY座標。
@@ -655,13 +697,15 @@ End Sub
 ' フォールバック先でもあるため Public。
 Public Sub RefreshCurrent()
     On Error Resume Next
-    Select Case mMode
-        Case "table"
-            modUIShelf.RenderShelf
+    ' モードの解釈は CurrentMode() 1箇所に集約する(レビュー1-A)。
+    ' ここで mMode を直接見ると、"" の扱いが IsTableMode とずれる。
+    Select Case CurrentMode()
         Case "shared"
             modShared.Show
-        Case Else
+        Case "gallery"
             modVault.ShowVaultGallery
+        Case Else
+            modUIShelf.RenderShelf
     End Select
     On Error GoTo 0
 End Sub

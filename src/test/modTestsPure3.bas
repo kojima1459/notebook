@@ -384,6 +384,141 @@ Private Sub TestChromeClipToWidth()
         "got=" & modChrome.PillWidth("しっかり調べる", 9, 14, 30)
 End Sub
 
+' ----------------------------------------------------------------------------
+' レビュー3-A(3): 実キャプション+実幅でヘッダーの重なりゼロを固定する
+' ----------------------------------------------------------------------------
+' 従来の TestChromeHeaderBudget は固定幅の配列を渡していたため、
+' 【どのティアが選ばれるか】と【そのティアの実キャプションで重ならないか】を
+' 一度も通っていなかった(実機で崩れていたのはまさにそこ)。
+' ここでは modUINexusDraw.PillSpec と同じキャプションを組み立て、
+'   PillWidth(実文字→幅) → PickTier(予算との突き合わせ) → FlowRight(配置)
+' という描画側と同じ順路を通してから、
+'   ・タイトル領域へ食い込まない
+'   ・帯の右端を超えない
+'   ・同じ段のピル同士が1ptも重ならない
+'   ・状態を持つ3ピル(モード/速度/言語)はどのティアでも語が残る
+' を検証する。キャプションは描画側の写しなので、片方だけ変えるとここが
+' 落ちる(それが狙い: 崩れる変更を機械で止める)。
+Private Sub TestChromeHeaderRealCaptions()
+    Dim caps() As String, widths() As Double
+    Dim w0() As Double, w1() As Double, w2() As Double
+    Dim capsT() As String
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim n As Long, i As Long, j As Long, tier As Long, rowN As Long
+    Dim barW As Double, titleMin As Double, budget As Double
+    Dim rightX As Double, limitX As Double
+    Dim bad As Long, detail As String
+    Dim gap As Double, pad As Double
+    Dim wideTier As Long
+
+    n = 8
+    gap = 6
+    pad = 8                       ' HDR_RIGHT_PAD
+
+    HeaderCapSpec 0, caps, w0
+    HeaderCapSpec 1, capsT, w1
+    HeaderCapSpec 2, capsT, w2
+
+    ' 実機のヘッダー実幅は約597pt。ここで選ばれるティアを固定する。
+    barW = 597
+    titleMin = modChrome.TitleReserve(barW, 280)
+    budget = barW - pad - titleMin
+    tier = modChrome.PickTier(w0, w1, w2, n, gap, budget)
+    modTestRunner.Check "ヘッダー実幅597pt: 実キャプションでは最短ティアが選ばれる", _
+        tier = 2, "tier=" & tier & " budget=" & budget & _
+        " sum0=" & modChrome.SumSpan(w0, n, gap) & " sum2=" & modChrome.SumSpan(w2, n, gap)
+
+    ' 広い帯なら通常表記が選ばれる(縮めっぱなしにならないことの確認)。
+    wideTier = modChrome.PickTier(w0, w1, w2, n, gap, _
+                                  1400 - pad - modChrome.TitleReserve(1400, 280))
+    modTestRunner.Check "ヘッダー1400pt: 通常表記が選ばれる", wideTier = 0, _
+        "tier=" & wideTier
+
+    ' 選ばれたティアの実キャプションで配置し、重なりゼロを確かめる。
+    HeaderCapSpec tier, caps, widths
+    rightX = barW - pad
+    rowN = modChrome.FlowRight(widths, n, rightX, titleMin, pad, gap, xs, rws, useW)
+    bad = 0
+    detail = ""
+    For i = 0 To n - 1
+        If rws(i) = 0 Then
+            limitX = titleMin
+        Else
+            limitX = pad
+        End If
+        If xs(i) < limitX Then
+            bad = bad + 1
+            detail = detail & " i=" & i & "/タイトル食い込み"
+        End If
+        If xs(i) + useW(i) > rightX Then
+            bad = bad + 1
+            detail = detail & " i=" & i & "/右端超過"
+        End If
+        For j = i + 1 To n - 1
+            If rws(i) = rws(j) Then
+                If xs(i) < xs(j) + useW(j) And xs(j) < xs(i) + useW(i) Then
+                    bad = bad + 1
+                    detail = detail & " i=" & i & "とj=" & j & "が重なる"
+                End If
+            End If
+        Next j
+    Next i
+    modTestRunner.Check "実キャプション+実幅597pt: ピルが1ptも重ならない", bad = 0, _
+        "違反=" & bad & "件" & detail & " 段数=" & rowN
+
+    ' 状態を持つ3ピル(5=言語 / 6=モード / 7=速度)は語が残っていること。
+    ' アイコンだけになると「今どちらか」が画面から消える(レビュー3-A(2))。
+    bad = 0
+    For i = 5 To 7
+        If LenB(modChrome.TailWords(caps(i))) = 0 Then bad = bad + 1
+        If modChrome.TailWords(caps(i)) = caps(i) Then bad = bad + 1   ' 空白無し=アイコンのみ
+    Next i
+    modTestRunner.Check "最短ティアでも状態ピル3つは短い語を保つ", bad = 0, _
+        "違反=" & bad & "件 lang=" & caps(5) & " mode=" & caps(6) & " speed=" & caps(7)
+End Sub
+
+' modUINexusDraw.PillSpec のキャプション組み立ての写し。状態は最も長い
+' 組み合わせ(社内ナレッジ検索/入念に調べる/日本語)を使う ―― 最悪ケースで
+' 収まれば他の状態でも収まる。並びは右から左(0=最も右)。
+Private Sub HeaderCapSpec(ByVal tier As Long, ByRef caps() As String, ByRef widths() As Double)
+    Dim clearCap As String, sqCap As String
+    Dim langCap As String, modeCap As String, speedCap As String
+    Dim i As Long
+
+    ReDim caps(0 To 7)
+    ReDim widths(0 To 7)
+
+    clearCap = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+    sqCap = ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例"
+    langCap = ChrW(&HD83C) & ChrW(&HDF10) & " 日本語"
+    modeCap = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"
+    speedCap = ChrW(&HD83D) & ChrW(&HDD2C) & " 入念に調べる"
+
+    If tier >= 1 Then
+        clearCap = modChrome.LeadIcon(clearCap)
+        sqCap = modChrome.LeadIcon(sqCap)
+    End If
+    If tier >= 2 Then
+        modeCap = modChrome.LeadIcon(modeCap) & " 社内"
+        speedCap = modChrome.LeadIcon(speedCap) & " 徹底"
+        langCap = modChrome.LeadIcon(langCap) & " 日"
+    End If
+
+    caps(0) = ChrW(&HD83D) & ChrW(&HDEAA)     ' 終了
+    caps(1) = clearCap
+    caps(2) = sqCap
+    caps(3) = ChrW(&H2753)                    ' ヘルプ
+    caps(4) = ""                              ' テーマ(正円・固定幅)
+    caps(5) = langCap
+    caps(6) = modeCap
+    caps(7) = speedCap
+
+    For i = 0 To 7
+        widths(i) = modChrome.PillWidth(caps(i), 9, 14, 30)
+    Next i
+    widths(4) = 26                            ' HDR_BTN_H
+End Sub
+
 Public Sub RunAll3()
     On Error GoTo NormEmptyGroupFail
     TestNormalizeForIngestEmpty
@@ -411,6 +546,9 @@ NextChromeBudget:
 NextChromeClip:
     On Error GoTo ChromeClipFail
     TestChromeClipToWidth
+NextChromeReal:
+    On Error GoTo ChromeRealFail
+    TestChromeHeaderRealCaptions
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -449,6 +587,10 @@ ChromeBudgetFail:
     Resume NextChromeClip
 ChromeClipFail:
     modTestRunner.Check "TestChromeClipToWidth(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChromeReal
+ChromeRealFail:
+    modTestRunner.Check "TestChromeHeaderRealCaptions(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 End Sub

@@ -18,6 +18,7 @@ Option Explicit
 '   ・絵文字はChrW()で組み立てる(ソースへの直書きは自己インストーラの
 '     文字列注入で化ける)。BMP外はサロゲートペアで2つ繋ぐ。
 
+Private Const NEXUS_SHEET As String = "Nexus"
 Public Const HDR_H As Double = 42          ' ヘッダー1段ぶんの高さ(行1の既定)
 Public Const INPUT_ROW As Long = 3         ' 入力欄の行
 Public Const ACT_H As Double = 22          ' 文脈アクションpillの高さ
@@ -100,19 +101,18 @@ Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
 
     ' 収まる中でいちばん情報量の多い表記を選ぶ。ここが「固定幅の合計と
     ' 帯幅Wを突き合わせる」比較そのもの(旧実装にはこの比較が無かった)。
+    ' 判断は modChrome.PickTier(純ロジック)に置き、実行テストが同じ
+    ' 判断を通れるようにする(レビュー3-A(3))。
+    Dim caps1() As String, nm1() As String, acts1() As String, w1() As Double
+    Dim caps2() As String, nm2() As String, acts2() As String, w2() As Double
+    PillSpec 1, caps1, nm1, acts1, w1
+    PillSpec 2, caps2, nm2, acts2, w2
+
     Dim tier As Long
     Dim caps() As String, nm() As String, acts() As String
     Dim widths() As Double
-    tier = 0
-    PillSpec 0, caps, nm, acts, widths
-    If modChrome.SumSpan(widths, HDR_PILLS, HDR_GAP) > budget Then
-        tier = 1
-        PillSpec 1, caps, nm, acts, widths
-        If modChrome.SumSpan(widths, HDR_PILLS, HDR_GAP) > budget Then
-            tier = 2
-            PillSpec 2, caps, nm, acts, widths
-        End If
-    End If
+    tier = modChrome.PickTier(wFull, w1, w2, HDR_PILLS, HDR_GAP, budget)
+    PillSpec tier, caps, nm, acts, widths
 
     ' --- 配置(右詰め・段数無制限) ---------------------------------------
     Dim xs() As Double, rws() As Long, useW() As Double
@@ -183,6 +183,57 @@ Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
     DrawChatHeader = mHeaderH
 End Function
 
+' ----------------------------------------------------------------------------
+' RedrawChatHeader - ヘッダーだけを作り直す(モード/速度/言語のトグル後)。
+' ----------------------------------------------------------------------------
+' 2026-07-30(レビュー3-A(1)): トグルの3箇所は、ピルのTextRangeへ新しい
+' キャプションを直接書き込んでいた。書き込みは幅計算(ティア選択+FlowRight)
+' を一切通らないので、
+'   ・「⚡ すぐ聞く」→「🔬 入念に調べる」のように長い語に変わった瞬間、
+'     ピルの幅は元のままで文字だけがはみ出す
+'   ・幅が変わらない以上、隣のピルもタイトルも位置を譲らないので重なる
+' という壊れ方をする。実機でヘッダーが崩れていた直接の原因がこれ。
+' 状態が変わったらヘッダー全体を描き直す(= 必ず幅から作り直す)。
+Public Sub RedrawChatHeader()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(NEXUS_SHEET)
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+
+    ClearChatHeader ws
+    On Error Resume Next
+    DrawChatHeader ws
+    ' 2段目へ流れた場合に備えて行1の高さも合わせ直す(InitUIと同じ手順)。
+    ws.Rows(1).RowHeight = HeaderHeight()
+    modUI.BringFixedToFront ws
+    On Error GoTo 0
+End Sub
+
+' ヘッダーが持つShapeだけを消す。入力欄の nx_top_add / nx_top_send は
+' 同じ接頭辞だがヘッダーの持ち物ではないので消さない(消すと📎と送信が
+' 二度と戻らない)。
+Private Sub ClearChatHeader(ByVal ws As Worksheet)
+    Dim names() As String
+    ReDim names(0 To ws.Shapes.Count)
+    Dim n As Long
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 7) = "nx_top_" Then
+            If shp.Name <> "nx_top_add" And shp.Name <> "nx_top_send" Then
+                names(n) = shp.Name
+                n = n + 1
+            End If
+        End If
+    Next shp
+    Dim i As Long
+    For i = 0 To n - 1
+        On Error Resume Next
+        ws.Shapes(names(i)).Delete
+        On Error GoTo 0
+    Next i
+End Sub
+
 ' 段番号からピルのY座標(その段の中央)を出す。
 Private Function PillTop(ByVal rowIdx As Long) As Double
     PillTop = rowIdx * HDR_H + (HDR_H - HDR_BTN_H) / 2
@@ -203,10 +254,18 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' PillSpec - 右端ピル8個の表記と幅を組み立てる。
-'   tier 0=通常 / 1=短縮(語句を短く) / 2=アイコンのみ
+'   tier 0=通常 / 1=無状態ボタンをアイコンのみへ / 2=状態ピルも短い語へ
 '   幅はキャプションの実文字から出す(固定の予約幅が実物と食い違って
 '   いたことが重なりの原因だったため、予約という概念自体をやめる)。
 ' ----------------------------------------------------------------------------
+' ティア方針(2026-07-30 レビュー3-A(2)):
+'   状態を持つ3つ(モード/速度/言語)は、どのティアでも短い文字ラベルを保つ。
+'   アイコンだけにすると「今どちらなのか」が画面から消え、押す前に押した
+'   結果が分からないトグルになる。実機幅(約597pt)では常に最短ティアが
+'   選ばれるため、ここを落とすと【常に状態が読めない】ことになっていた。
+'   無状態の5つ(終了/クリア/質問例/ヘルプ/テーマ)は意味がアイコンに載って
+'   いるので、先にこちらを落とす。それでも1段に入らない分は
+'   modChrome.FlowRight が2段目へ流す(重なりゼロが最優先)。
 Private Sub PillSpec(ByVal tier As Long, ByRef caps() As String, ByRef nm() As String, _
                      ByRef acts() As String, ByRef widths() As Double)
     ReDim caps(0 To HDR_PILLS - 1)
@@ -222,25 +281,16 @@ Private Sub PillSpec(ByVal tier As Long, ByRef caps() As String, ByRef nm() As S
     modeCap = modApp.ModeCaption()
     speedCap = modApp.SpeedCaption()
 
-    If tier = 1 Then
-        ' 短縮: アイコン+語句の先頭だけ。何のボタンかは残る。
+    If tier >= 1 Then
+        ' 無状態のボタンはアイコンのみ(意味が絵柄に載っている)。
         clearCap = modChrome.LeadIcon(clearCap)
         sqCap = modChrome.LeadIcon(sqCap)
-        modeCap = modChrome.LeadIcon(modeCap) & " " & modChrome.ClipToWidth( _
-                  modChrome.TailWords(modeCap), HDR_PILL_PITCH * 3, HDR_PILL_PITCH)
-        speedCap = modChrome.LeadIcon(speedCap) & " " & modChrome.ClipToWidth( _
-                   modChrome.TailWords(speedCap), HDR_PILL_PITCH * 3, HDR_PILL_PITCH)
-    ElseIf tier >= 2 Then
-        ' アイコンのみ。ここでも「今どちらのモードか」は消さない
-        ' (状態が見えないトグルは、押す前に押した結果が分からない)。
-        clearCap = modChrome.LeadIcon(clearCap)
-        sqCap = modChrome.LeadIcon(sqCap)
-        langCap = modChrome.LeadIcon(langCap)
-        speedCap = modChrome.LeadIcon(speedCap)
-        modeCap = modChrome.LeadIcon(modeCap)
-        ' 一般アシスタント側のアイコン🌐は言語ピルと同じ絵柄で見分けが
-        ' つかなくなるので、アイコンだけにするときは⚪へ置き換える。
-        If modeCap = ChrW(&HD83C) & ChrW(&HDF10) Then modeCap = ChrW(&H26AA)
+    End If
+    If tier >= 2 Then
+        ' 状態ピルは短い語へ。アイコンだけにはしない(状態が読めなくなる)。
+        modeCap = modChrome.LeadIcon(modeCap) & " " & ModeShortWord()
+        speedCap = modChrome.LeadIcon(speedCap) & " " & SpeedShortWord()
+        langCap = modChrome.LeadIcon(langCap) & " " & LangShortWord()
     End If
 
     ' 右から左へ積む順(配列の先頭=最も右)。
@@ -317,6 +367,52 @@ Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double, ByVal y As Dou
     th.OnAction = "modUI.ToggleTheme"
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' 状態ピルの短い語(レビュー3-A(2))。アイコン+この語で「今どちらか」を保つ。
+' 語は状態の単一情報源(modAppState/modMode/config)から引く。
+' ----------------------------------------------------------------------------
+Private Function ModeShortWord() As String
+    Dim m As String
+    On Error Resume Next
+    m = modAppState.CurrentMode()
+    On Error GoTo 0
+    If m = "normal" Then
+        ModeShortWord = "一般"
+    Else
+        ModeShortWord = "社内"
+    End If
+End Function
+
+Private Function SpeedShortWord() As String
+    Dim m As String: m = "quick"
+    On Error Resume Next
+    m = modMode.Normalize(modAppState.ReadUiState("mode", "quick"))
+    On Error GoTo 0
+    Select Case m
+        Case "thorough": SpeedShortWord = "徹底"
+        Case "deep": SpeedShortWord = "調べ"
+        Case Else: SpeedShortWord = "すぐ"
+    End Select
+End Function
+
+Private Function LangShortWord() As String
+    Dim v As String
+    v = modChrome.TailWords(LangCaption())
+    Select Case v
+        Case "日本語": LangShortWord = "日"
+        Case "English": LangShortWord = "EN"
+        Case "中文": LangShortWord = "中"
+        Case "関西弁": LangShortWord = "関西"
+        Case Else
+            ' "Tiếng Việt" 等(CP932外の文字を含むのでリテラルで比較しない)。
+            If InStr(v, "Vi") > 0 Then
+                LangShortWord = "VN"
+            Else
+                LangShortWord = Left$(v, 2)
+            End If
+    End Select
+End Function
 
 Private Function LangCaption() As String
     Dim v As String

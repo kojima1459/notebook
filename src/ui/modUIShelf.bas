@@ -233,7 +233,18 @@ Public Sub RenderShelf()
     On Error Resume Next
     isTable = modKnowledge.IsTableMode()
     On Error GoTo 0
-    If Not isTable Then Exit Sub
+    If Not isTable Then
+        ' 2026-07-30(レビュー1-B): 空振り(no-op)だと、ギャラリー/解決事例を
+        ' 見ている最中に取り込んだ資料が【画面のどこにも出ない】。利用者から
+        ' 見れば「押したのに何も起きない」で、取り込めたかどうかも分からない。
+        ' 表示中のモードを描き直す方へ委譲する。
+        ' 再帰しない: RefreshCurrent の table 分岐はここを呼ぶが、その分岐へ
+        ' 入るのは IsTableMode()=True のときだけで、そのときこの委譲は起きない。
+        On Error Resume Next
+        modKnowledge.RefreshCurrent
+        On Error GoTo 0
+        Exit Sub
+    End If
 
     Dim ws As Worksheet
     On Error Resume Next
@@ -391,6 +402,12 @@ Public Sub OnIngestScreenshot()
     ingestStatus = modShelf.IngestFile(destPath, "self")
 
     RefreshBadgesAndDashboard
+    ' 2026-07-30(レビュー1-B): 取込結果を今見ている画面へ必ず反映する。
+    ' スクショ取込はギャラリー/解決事例のツールバーからも押せるが、
+    ' IngestFile 側の再描画は一覧表モードのときしか効かなかった。
+    On Error Resume Next
+    modKnowledge.RefreshCurrent
+    On Error GoTo 0
     Exit Sub
 Fail:
     modLog.LogError "E0801", "modUIShelf.OnIngestScreenshot", Err.Description

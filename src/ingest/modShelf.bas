@@ -38,19 +38,30 @@ End Sub
 
 '
 ' AddFilesResult - 複数選択FileDialog→各IngestFileの結果をまとめて返す(要件E)。
-'   2026-07-30(背景5): modShelf自前のMsgBox「追加しました」と、呼び出し元
-'   modApp.OnAddDocsのTotalChunks差分によるチャットバブル「追加されません
-'   でした」が、既存資料の再取込(重複で新規0行・status="done")のとき
-'   同時に出ていた。呼び出し元が表示を担うときはshowMsgBox:=Falseを渡せば
-'   このMsgBoxを出さず、戻り値の集計結果だけで正しい文言を組み立てられる。
-'   (modApp.OnAddDocs側の文言変更自体は本タスクの範囲外。ここでは
-'   「結果を正しく返す口」を作るところまで。)
+'   2026-07-30(背景5): modShelf自前のMsgBoxと、呼び出し元modApp.OnAddDocsの
+'   チャットバブルが同時に出ていた。呼び出し元が表示を担うときは
+'   showMsgBox:=Falseを渡せば、戻り値の集計だけで文言を組み立てられる。
 '
 '   戻り値: "ok=<n>;ng=<n>;capped=<n>;chunks=<n>;reasons=<code>:<count>,..."
 '   reasonsはE0504(同名衝突)/image_pdf/E0302等、失敗理由コードごとの内訳。
 '   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0 で返す。
 '
 Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As String
+    ' 集計値の宣言はハンドラより前に置く(途中で落ちても集計を返すため)。
+    Dim okCount As Long: okCount = 0
+    Dim ngCount As Long: ngCount = 0
+    Dim cappedN As Long: cappedN = 0
+    Dim chunksAdded As Long: chunksAdded = 0
+    ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
+    Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
+    Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
+    Dim reasonN As Long: reasonN = 0
+
+    ' レビュー4-B: プロシージャレベルのハンドラ。従来は素通りで、途中の
+    ' 実行時エラーは呼び出し元(modApp.OnAddDocsのOn Error Resume Next)に
+    ' 握り潰され、戻り値が空文字=「何も言わない」になっていた。
+    On Error GoTo AddFailed
+
     Dim fd As Object
     Set fd = Application.FileDialog(3)   ' msoFileDialogFilePicker(名前付き定数は使わない)
     fd.AllowMultiSelect = True
@@ -66,16 +77,6 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
     If capMax < 1 Then capMax = 10000
 
-    Dim okCount As Long: okCount = 0
-    Dim ngCount As Long: ngCount = 0
-    Dim cappedN As Long: cappedN = 0
-    Dim chunksAdded As Long: chunksAdded = 0
-
-    ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
-    Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
-    Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
-    Dim reasonN As Long: reasonN = 0
-
     Dim i As Long
     For i = 1 To fd.SelectedItems.count
         If TotalChunks() >= capMax Then
@@ -84,9 +85,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             Dim beforeChunks As Long: beforeChunks = TotalChunks()
             Dim st As String: st = "failed"
             Dim errCd As String: errCd = ""
+            ' silent:=True(レビュー4-A): 1件ごとのモーダルを全廃する。同名衝突
+            ' (E0504)だけが silent を見ずにモーダルを出し、選んだ件数ぶん出た
+            ' 上で集計メッセージが同じことをもう一度言っていた(二重報告)。
+            ' 情報は戻り値の reasons に載るので失わない。
             On Error Resume Next
-            st = IngestFile(CStr(fd.SelectedItems(i)), "self", , errCd)
-            On Error GoTo 0
+            st = IngestFile(CStr(fd.SelectedItems(i)), "self", True, errCd)
+            On Error GoTo AddFailed
             chunksAdded = chunksAdded + (TotalChunks() - beforeChunks)
             If st = "done" Or st = "partial" Then
                 okCount = okCount + 1
@@ -105,10 +110,24 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         End If
     Next i
 
+    ' silent にしたぶん1件ごとの再描画も走らない(IngestFileのFinishは
+    ' silent時RenderShelfを呼ばない)。まとめて1回だけ描き直す(R1例外)。
+    On Error Resume Next
+    modUIShelf.RenderShelf
+    On Error GoTo AddFailed
+
     Dim msg As String
     msg = okCount & "件を本棚に追加しました。"
     If ngCount > 0 Then
         msg = msg & vbLf & ngCount & "件は取込めませんでした。マイ本棚の一覧で状態をご確認ください。"
+    End If
+    ' E0504はper-fileモーダルをやめた(4-A)ので、ここで必ず件数を伝える。
+    ' 伝えないと「入れたはずの資料が無い」理由がどこにも出ない。
+    Dim dupN As Long
+    dupN = ReasonCountOf(reasonKeys, reasonCounts, reasonN, "E0504")
+    If dupN > 0 Then
+        msg = msg & vbLf & "同じ名前の資料が別の場所から登録済みのものが" & dupN & "件あります。" & _
+            vbLf & "ファイル名を変えて入れ直すか、マイ本棚で古いほうを削除してからお試しください。"
     End If
     If cappedN > 0 Then
         msg = msg & vbLf & vbLf & _
@@ -117,21 +136,53 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         On Error Resume Next
         modLog.LogError "E0501", "modShelf.AddFilesResult", _
             "上限" & capMax & "到達で" & cappedN & "件見送り"
-        On Error GoTo 0
+        On Error GoTo AddFailed
     End If
     If showMsgBox Then
         MsgBox msg, vbInformation, modAppDef.APP_NAME
     End If
 
-    Dim reasonsPart As String
-    Dim r As Long
-    For r = 0 To reasonN - 1
-        If LenB(reasonsPart) > 0 Then reasonsPart = reasonsPart & ","
-        reasonsPart = reasonsPart & reasonKeys(r) & ":" & reasonCounts(r)
-    Next r
+    AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _
+        ReasonsText(reasonKeys, reasonCounts, reasonN))
+    Exit Function
 
-    AddFilesResult = "ok=" & okCount & ";ng=" & ngCount & ";capped=" & cappedN & _
+AddFailed:
+    ' Err は Resume で消えるので先に控える。
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    ' R6: ハンドラ稼働中は On Error Resume Next が効かない。
+    ' 後始末(ログ書込)の前に Resume でハンドラを抜ける。
+    Resume AddFailedCleanup
+AddFailedCleanup:
+    On Error Resume Next
+    modLog.LogError "E0801", "modShelf.AddFilesResult", _
+        "err#" & failNum & ": " & failDesc & _
+        " (ok=" & okCount & " ng=" & ngCount & " capped=" & cappedN & ")"
+    On Error GoTo 0
+    ' 途中で落ちても、そこまでの集計を返す。空文字で返すと呼び出し元は
+    ' 「キャンセル」と区別できず、利用者には何も表示されない(レビュー4-B)。
+    AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _
+        ReasonsText(reasonKeys, reasonCounts, reasonN))
+End Function
+
+' 集計結果の文字列化(正常終了と途中失敗の両方から使う。書式は1箇所に持つ)。
+Private Function ComposeAddResult(ByVal okCount As Long, ByVal ngCount As Long, _
+                                  ByVal cappedN As Long, ByVal chunksAdded As Long, _
+                                  ByVal reasonsPart As String) As String
+    ComposeAddResult = "ok=" & okCount & ";ng=" & ngCount & ";capped=" & cappedN & _
         ";chunks=" & chunksAdded & ";reasons=" & reasonsPart
+End Function
+
+' 失敗理由の内訳を "E0504:2,image_pdf:1" の形へ。
+Private Function ReasonsText(ByRef keys() As String, ByRef counts() As Long, _
+                             ByVal n As Long) As String
+    Dim s As String
+    Dim r As Long
+    For r = 0 To n - 1
+        If LenB(s) > 0 Then s = s & ","
+        s = s & keys(r) & ":" & counts(r)
+    Next r
+    ReasonsText = s
 End Function
 
 '
@@ -697,6 +748,18 @@ Private Sub BumpReasonCount(ByRef keys() As String, ByRef counts() As Long, _
     counts(n) = 1
     n = n + 1
 End Sub
+
+' 失敗理由の内訳から特定コードの件数を取り出す(レビュー4-A)。
+Private Function ReasonCountOf(ByRef keys() As String, ByRef counts() As Long, _
+                               ByVal n As Long, ByVal reasonKey As String) As Long
+    Dim i As Long
+    For i = 0 To n - 1
+        If keys(i) = reasonKey Then
+            ReasonCountOf = counts(i)
+            Exit Function
+        End If
+    Next i
+End Function
 
 
 Private Function SafeFileDateTime(ByVal path As String) As Date

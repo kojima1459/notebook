@@ -42,11 +42,19 @@ End Function
 '   outX/outRow/outW : 要素ごとの左端X・段番号・実際に使う幅(丸め後)
 '   戻り値: 使った段数(1以上)
 ' ----------------------------------------------------------------------------
+'   契約(2026-07-30 レビュー3-B): n<1 のときも outX/outRow/outW は必ず
+'   ReDim(0 To 0) 済みで返る(戻り値は0)。呼び出し側が「0段だから触らない」
+'   と書き忘れても、未初期化配列への添字アクセスで実行時エラー9にならない。
 Public Function FlowLeft(ByRef widths() As Double, ByVal n As Long, _
                          ByVal x0 As Double, ByVal maxX As Double, ByVal gap As Double, _
                          ByRef outX() As Double, ByRef outRow() As Long, _
                          ByRef outW() As Double) As Long
-    If n < 1 Then Exit Function
+    If n < 1 Then
+        ReDim outX(0 To 0)
+        ReDim outRow(0 To 0)
+        ReDim outW(0 To 0)
+        Exit Function
+    End If
     ReDim outX(0 To n - 1)
     ReDim outRow(0 To n - 1)
     ReDim outW(0 To n - 1)
@@ -92,12 +100,19 @@ End Function
 '     (2) itemW は段幅(rightX - 左限界)へ丸めてある
 '   つまり「重ならなかった」ではなく「重なる置き方が存在しない」。
 ' ----------------------------------------------------------------------------
+'   契約(2026-07-30 レビュー3-B): n<1 のときも outX/outRow/outW は必ず
+'   ReDim(0 To 0) 済みで返る(戻り値は0)。FlowLeft と同じ契約。
 Public Function FlowRight(ByRef widths() As Double, ByVal n As Long, _
                           ByVal rightX As Double, ByVal leftLimit0 As Double, _
                           ByVal leftLimitN As Double, ByVal gap As Double, _
                           ByRef outX() As Double, ByRef outRow() As Long, _
                           ByRef outW() As Double) As Long
-    If n < 1 Then Exit Function
+    If n < 1 Then
+        ReDim outX(0 To 0)
+        ReDim outRow(0 To 0)
+        ReDim outW(0 To 0)
+        Exit Function
+    End If
     ReDim outX(0 To n - 1)
     ReDim outRow(0 To n - 1)
     ReDim outW(0 To n - 1)
@@ -132,6 +147,24 @@ Private Function ClampSpan(ByVal itemW As Double, ByVal spanW As Double) As Doub
     If itemW > spanW Then itemW = spanW
     If itemW < 1 Then itemW = 1
     ClampSpan = itemW
+End Function
+
+' ----------------------------------------------------------------------------
+' PickTier - 3段階の表記(0=通常 / 1=短縮 / 2=最短)のうち、予算に収まる中で
+'   いちばん情報量の多いものを選ぶ。どれも収まらなければ 2 を返す
+'   (収まらない分は FlowRight が段を増やして流す)。
+' ----------------------------------------------------------------------------
+'   なぜ純ロジックへ出したのか(2026-07-30 レビュー3-A):
+'   選択そのものは「合計幅 vs 予算」の比較でしかないのに、描画コードの中に
+'   埋まっていたため、実行テストからは固定幅の配列を渡すことしかできず、
+'   【実際のキャプションで選ばれるティア】を一度も検証できていなかった。
+'   ここに置けば、描画側とテストが同じ判断を通る。
+Public Function PickTier(ByRef w0() As Double, ByRef w1() As Double, ByRef w2() As Double, _
+                         ByVal n As Long, ByVal gap As Double, ByVal budget As Double) As Long
+    If SumSpan(w0, n, gap) <= budget Then Exit Function      ' 0
+    PickTier = 1
+    If SumSpan(w1, n, gap) <= budget Then Exit Function
+    PickTier = 2
 End Function
 
 ' ----------------------------------------------------------------------------

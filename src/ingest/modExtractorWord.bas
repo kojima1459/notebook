@@ -88,9 +88,15 @@ Private Const STEP_CLOSE As String = "後始末"
 ' 起動そのものに失敗したときは 2・3 を試すのは無駄なので 4 へ直行する。
 ' 一度成功した開き方はセッション中おぼえておき、次からそこから始める
 ' (毎回1から試すと、100件のフォルダ同期で失敗待ちの時間を100回払う)。
+'
+' origPath(2026-07-30 レビュー4-D): modExtractor は保護ビュー対策として
+' ローカル一時コピーを開くため、path には一時コピーのパスが来る。利用者が
+' 編集中の文書を掴んでいないかを調べるには原本のパスも要るので、呼び出し元
+' から受け取る(省略時は path だけで判定する)。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
-                        ByRef errDetail As String) As Boolean
+                        ByRef errDetail As String, _
+                        Optional ByVal origPath As String = "") As Boolean
     Dim startMode As Long
     startMode = mPreferredMode
     If startMode < 1 Or startMode > OPEN_MODE_MAX Then startMode = 1
@@ -103,7 +109,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Do While mode <= OPEN_MODE_MAX
         Dim attempt As Long
         For attempt = 1 To 2
-            If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, failedStep) Then
+            If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, failedStep, origPath) Then
                 If mPreferredMode <> mode Then
                     mPreferredMode = mode
                     On Error Resume Next
@@ -150,7 +156,8 @@ End Function
 Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
                                 ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                                 ByRef errDetail As String, ByVal openMode As Long, _
-                                ByRef failedStep As String) As Boolean
+                                ByRef failedStep As String, _
+                                Optional ByVal origPath As String = "") As Boolean
     truncated = False
 
     Dim word As Object
@@ -158,6 +165,9 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Dim stepName As String
     ' このWordを自分で起動したのか(相乗りなら Quit してはいけない)。
     Dim ownsApp As Boolean
+    ' この文書を自分で開いたのか(相乗り先で既に開かれていた文書なら
+    ' 閉じてはいけない。閉じると利用者の未保存の編集がその場で消える)。
+    Dim ownsDoc As Boolean
 
     On Error GoTo Failed
     stepName = STEP_CREATE
@@ -203,22 +213,41 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' パスワード入力ダイアログでフリーズさせないため(レビュー M-11)。
     ' ただしこの引数自体が環境によっては Open を失敗させうるので、
     ' openMode=1 のときだけ付ける(駄目なら 2 以降で外して試す)。
+    ' 【2026-07-30 レビュー4-D】開く前に「もう開かれていないか」を必ず調べる。
+    ' 相乗り(mode 4)先は利用者のWordなので、取り込もうとしている資料を本人が
+    ' 開いたまま作業していることが普通にある。その状態で Documents.Open を
+    ' 呼ぶと、Wordは新しい文書ではなく【その開いている文書オブジェクト】を
+    ' 返す。抽出後の後始末 doc.Close 0 は wdDoNotSaveChanges なので、
+    ' 未保存の編集が黙って消える(データ喪失)。
+    ' 見つかったら開き直さず・閉じもせず、その文書からテキストだけ取る。
     stepName = STEP_OPEN
-    If openMode <= 1 Then
-        Set doc = word.Documents.Open( _
-            FileName:=path, _
-            ConfirmConversions:=False, _
-            ReadOnly:=True, _
-            AddToRecentFiles:=False, _
-            PasswordDocument:="__mybookshelf_no_password__", _
-            Visible:=showWord)
+    Set doc = FindOpenDocument(word, path, origPath)
+    ownsDoc = (doc Is Nothing)
+    If ownsDoc Then
+        If openMode <= 1 Then
+            Set doc = word.Documents.Open( _
+                FileName:=path, _
+                ConfirmConversions:=False, _
+                ReadOnly:=True, _
+                AddToRecentFiles:=False, _
+                PasswordDocument:="__mybookshelf_no_password__", _
+                Visible:=showWord)
+        Else
+            Set doc = word.Documents.Open( _
+                FileName:=path, _
+                ConfirmConversions:=False, _
+                ReadOnly:=True, _
+                AddToRecentFiles:=False, _
+                Visible:=showWord)
+        End If
     Else
-        Set doc = word.Documents.Open( _
-            FileName:=path, _
-            ConfirmConversions:=False, _
-            ReadOnly:=True, _
-            AddToRecentFiles:=False, _
-            Visible:=showWord)
+        ' 何が起きたのかを1行残す(実機で「開いたまま取り込んだ」ことを
+        ' あとから確認できるようにする。障害ではないので usage_log 側)。
+        On Error Resume Next
+        modLog.LogUsage "word_reuse_open_doc", "", _
+            "既に開かれている文書をそのまま読みました(閉じません): " & _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120)
+        On Error GoTo Failed
     End If
 
     stepName = STEP_PAGES
@@ -241,7 +270,7 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Next i
 
     stepName = STEP_CLOSE
-    Cleanup doc, word, ownsApp, prevSecurity
+    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc
 
     pages = tmp
     TryExtractOnce = True
@@ -257,7 +286,7 @@ Failed:
     ' エラー文脈を持つので、Cleanup 内の On Error Resume Next は正しく働く。
     ' 2026-07-30 実機: この上書きで err#462 だけが記録され、開き方の
     ' フォールバックもPDFのAcrobatフォールバックも一度も走っていなかった。
-    Cleanup doc, word, ownsApp, prevSecurity
+    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc
     TryExtractOnce = False
 End Function
 
@@ -267,11 +296,17 @@ End Function
 '   (同一プロシージャ内の On Error Resume Next は効かない)。
 '   ownsApp=False は利用者のWordへ相乗りした場合。Quit してはいけないので
 '   自分が開いた文書だけ閉じ、変更した設定を元へ戻す。
+'   ownsDoc=False は「開く前から開かれていた文書」(レビュー4-D)。
+'   doc.Close 0 は wdDoNotSaveChanges なので、閉じた瞬間に利用者の
+'   未保存の編集が消える。自分が開いた文書だけを閉じる。
 ' ----------------------------------------------------------------------------
 Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
-                    ByVal ownsApp As Boolean, ByVal prevSecurity As Long)
+                    ByVal ownsApp As Boolean, ByVal prevSecurity As Long, _
+                    ByVal ownsDoc As Boolean)
     On Error Resume Next
-    If Not doc Is Nothing Then doc.Close 0   ' wdDoNotSaveChanges
+    If ownsDoc Then
+        If Not doc Is Nothing Then doc.Close 0   ' wdDoNotSaveChanges
+    End If
     Set doc = Nothing
     If Not app Is Nothing Then
         If ownsApp Then
@@ -283,6 +318,40 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
     Set app = Nothing
     Err.Clear
 End Sub
+
+' ----------------------------------------------------------------------------
+' FindOpenDocument - 対象ファイルが【そのWordで既に開かれている】なら、その
+'   Document を返す(開かれていなければ Nothing)。レビュー4-D の判定本体。
+' ----------------------------------------------------------------------------
+'   比較は Document.FullName の大文字小文字無視。原本パスと一時コピーパスの
+'   両方を見る(modExtractor は保護ビュー対策でローカル一時コピーを開くが、
+'   コピーに失敗した資料は原本パスのまま渡ってくる。どちらの経路でも
+'   利用者が編集中の文書を掴みうるので、片方だけ見ても穴が残る)。
+'   走査そのものが失敗しても取込を止めない(Nothing を返して従来どおり
+'   Open へ進む)。ここは「壊さないための保険」であって主経路ではない。
+Private Function FindOpenDocument(ByVal app As Object, ByVal path1 As String, _
+                                  ByVal path2 As String) As Object
+    On Error Resume Next
+    Dim n As Long: n = 0
+    n = app.Documents.count
+    Dim i As Long
+    For i = 1 To n
+        Dim fullName As String: fullName = ""
+        fullName = app.Documents(i).fullName
+        If SamePath(fullName, path1) Or SamePath(fullName, path2) Then
+            Set FindOpenDocument = app.Documents(i)
+            Exit For
+        End If
+    Next i
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+' パスの一致判定(大文字小文字無視。空文字はどれとも一致させない)。
+Private Function SamePath(ByVal a As String, ByVal b As String) As Boolean
+    If LenB(a) = 0 Or LenB(b) = 0 Then Exit Function
+    SamePath = (StrComp(a, b, vbTextCompare) = 0)
+End Function
 
 ' Declareを使わない短い待機(リトライ前にWordプロセスの後始末を待つ)。
 ' Timerは0時に0へリセットされるため、経過時間が負になったら日跨ぎとみなし

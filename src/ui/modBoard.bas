@@ -36,6 +36,9 @@ Private Const MIN_PER_SOLVE As Long = 15     ' modStats.MINUTES_PER_SELFSOLVEと
 Private mOrgDay As Long, mOrgMon As Long, mOrgYear As Long
 Private mTitles As Object    ' Dictionary: id(小文字) -> thanks受領数
 Private mLoaded As Boolean
+' BootBoard を通ったか(2026-07-30 レビュー2-C)。起動シーケンス中の
+' Hub初期描画から共有フォルダI/Oを走らせないためのゲート。
+Private mBooted As Boolean
 
 ' ----------------------------------------------------------------------------
 ' BootBoard - エントリポイント(LaunchNexus末尾から1行フック)。
@@ -47,6 +50,8 @@ Public Sub BootBoard()
     RefreshBoard
     DrawWidget
     ShowWeeklySummary      ' B-5: 週の初回起動時だけ、先週の節約時間を労いToast
+    ' ここまで来て初めて RefreshBoardTiles を有効化する(レビュー2-C)。
+    mBooted = True
     On Error GoTo 0
 End Sub
 
@@ -209,7 +214,15 @@ End Sub
 '   の既存呼び出しと重複しても壊れない(冪等)。呼び出し元(modHub)側で
 '   modShare.Reachable()ガード+On Error保護を必ず付けること
 '   (共有フォルダ未設定・到達不能時にブロッキングしないため)。
+'   2026-07-30(レビュー2-C): BootBoard を通るまでは何もしない。
+'   Boot 中の Hub 初期描画(modBoot→EnsureHubLayout)からここが呼ばれると、
+'   起動を軽くするための StartupJitter より前に共有フォルダの同期I/Oが
+'   走ってしまい、遅い/届かない共有フォルダでは起動そのものが待たされる
+'   (LAN外・VPN未接続では Dir がタイムアウトするまで固まる)。
+'   初期描画は前回セッションの値(=従来どおり)のままにし、
+'   LaunchNexus 内の BootBoard 以降の再描画から鮮度を取りに行く。
 Public Sub RefreshBoardTiles()
+    If Not mBooted Then Exit Sub
     RefreshBoard
 End Sub
 

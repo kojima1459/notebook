@@ -88,6 +88,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
         DrawBadges ws
     Else
         DrawFirstStep ws
+        DrawBadges ws        ' 2-A: 初回からバッジ棚(welcome)を見せる
     End If
     DrawNavButtons ws
     DrawExtras ws

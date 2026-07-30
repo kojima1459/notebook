@@ -399,7 +399,7 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B:N").ColumnWidth = 12
-    ws.Rows("7:400").RowHeight = 15       ' 一覧表モードの可変行高を戻す
+    ws.Rows("7:412").RowHeight = 15       ' 一覧表モードの可変行高を戻す(1-D: 最終行412まで)
 
     modKnowledge.DrawChrome ws, "gallery"
 
@@ -788,11 +788,18 @@ Private Sub ClearInputs(ByVal ws As Worksheet)
     On Error GoTo 0
 End Sub
 
+' レビュー1-C: 順序を逆にした。アクティブなシートは隠せず1004になるため、
+' 旧実装は「隠そうとして失敗→隠れないままギャラリーを描く」状態だった。
+' 先に行き先(登録前に見ていたモード)を描いて前面へ出し、そのあとで隠す。
+' ギャラリー固定をやめたのは、一覧表から登録した人が毎回ギャラリーへ
+' 飛ばされていたため。
 Private Sub CloseVault(ByVal ws As Worksheet)
     On Error Resume Next
+    modKnowledge.RefreshCurrent
+    ' RenderShelf(一覧表)はシートをアクティブにしないので必ず前面へ出す。
+    modUI.GoToNativeSheet modAppDef.SH_SHELF, "modVault(CloseVault)"
     ws.Visible = 2   ' xlSheetVeryHidden
     On Error GoTo 0
-    ShowVaultGallery
 End Sub
 
 Private Function SanitizeName(ByVal s As String) As String

@@ -53,7 +53,7 @@ Public Sub Show()
     ws.Columns("C").ColumnWidth = 6      ' 件数
     ws.Columns("D:J").ColumnWidth = 12   ' 質問
     ws.Columns("K:N").ColumnWidth = 10   ' 提供者/日付
-    ws.Rows("7:400").RowHeight = 15      ' 前モードの可変行高を戻す
+    ws.Rows("7:412").RowHeight = 15      ' 前モードの可変行高を戻す(1-D: 最終行412まで)
 
     modKnowledge.DrawChrome ws, "shared"
 
@@ -89,7 +89,11 @@ Public Sub Show()
             .Font.Color = modUI.UiColor("muted")
             .VerticalAlignment = -4160
         End With
-        GoTo Finish
+        ' 2026-07-30(レビュー5-A): ここは正常系(0件の案内を出しただけ)。
+        ' Finish: はハンドラ本体で、先頭が Resume なのでエラーが起きていない
+        ' 状態で踏むと実行時エラー20「Resume にエラーがありません」になる。
+        ' 正常系は後始末ラベルへ直行し、Resume を跨ぐ(R6の標準形)。
+        GoTo FinishCleanup0
     End If
 
     If mPage < 0 Then mPage = 0

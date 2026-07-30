@@ -155,11 +155,13 @@ Public Function CurrentMode() As String
     If CurrentMode <> "normal" Then CurrentMode = "rag"
 End Function
 
+' 2026-07-30(レビュー3-A(1)): ピルへ直接テキストを書き込むのをやめ、
+' ヘッダー全体を描き直す。文字だけを差し替えると幅計算(ティア選択と
+' FlowRight)を通らないため、長い語に変わった瞬間にピルからはみ出し、
+' 隣のピルやタイトルへ重なる(実機のヘッダー崩れの直接原因)。
 Public Sub UpdateModeButton()
     On Error Resume Next
-    ' ModeCaption は modApp の公開関数(ヘッダー描画とトグルの単一情報源)。
-    ' 2026-07-28: 切り出し時に修飾を付け忘れて未定義参照になっていた。
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_mode").TextFrame2.TextRange.Text = modApp.ModeCaption()
+    modUINexusDraw.RedrawChatHeader
     On Error GoTo 0
 End Sub
 

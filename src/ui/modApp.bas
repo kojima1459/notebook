@@ -550,7 +550,15 @@ Public Sub OnAddDocs()
     On Error GoTo Done
 
     Dim say As String
-    say = AddDocsMessage(res)
+    If LenB(res) = 0 Then
+        ' 4-B: AddFilesResult が例外で抜けた(戻り値が入らなかった)場合。
+        ' キャンセルは "ok=0;ng=0;..." が必ず入るので区別できる。
+        ' ここで黙ると、押したのに何も起きない=最悪の無反応になる。
+        say = ChrW(&H26A0) & " 取込処理でエラーが発生しました。" & vbLf & _
+              "err_log シートをご確認ください(管理者にこの画面を見せてください)。"
+    Else
+        say = AddDocsMessage(res)
+    End If
     ' ファイル選択をキャンセルしただけのときは何も言わない
     ' (押し間違いに見えるだけで、利用者に伝えることが無い)。
     If LenB(say) > 0 Then modUI.AddChatBubble "ai", say
@@ -582,8 +590,12 @@ Private Function AddDocsMessage(ByVal res As String) As String
             "これで、この資料の中身について「どのページに書いてあるか」まで付けてお答えできます。" & vbLf & _
             "さっそく、いま知りたいことをそのまま聞いてみてください。"
     ElseIf okN > 0 Then
-        ' 取込は成功したのにチャンクが増えていない=中身が既存と同一だった。
-        say = "その資料はすでに本棚に入っています(中身が同じだったので、増やしませんでした)。" & vbLf & _
+        ' 取込は成功したのにチャンクが増えていない。4-C: 「すでに入っています」と
+        ' 言い切ると【更新版を入れ直した人に嘘をつく】ことになる。更新取込では
+        ' 変わった部分だけが入れ替わり、同じ部分は重複排除で増えないので、
+        ' 総数が増えないことは珍しくない(反映はされている)。
+        say = ChrW(&H2705) & " 取り込みました。前回から内容が変わっていない部分は増やしていません" & _
+            "(更新は反映されています)。" & vbLf & _
             "そのまま、この資料について聞いていただけます。"
     End If
 
@@ -753,8 +765,8 @@ Public Sub OnToggleSpeed()
     newSpeed = modMode.NextMode(modAppState.ReadUiState("mode", "quick"))
     modAppState.WriteUiState "mode", newSpeed
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_speed").TextFrame2.TextRange.Text = _
-        modMode.Caption(newSpeed)
+    ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
+    modUINexusDraw.RedrawChatHeader
     modSkin.ShowToast modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed), "info"
     On Error GoTo 0
 End Sub
@@ -801,8 +813,8 @@ Public Sub OnLangCycle()
     modConfig.SetValue "answer_language", nextLang
 
     On Error Resume Next
-    ThisWorkbook.Worksheets("Nexus").Shapes("nx_top_lang").TextFrame2.TextRange.Text = _
-        ChrW(&HD83C) & ChrW(&HDF10) & " " & nextLang
+    ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
+    modUINexusDraw.RedrawChatHeader
     On Error GoTo 0
 End Sub
 
