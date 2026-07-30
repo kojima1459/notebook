@@ -1,6 +1,10 @@
 Attribute VB_Name = "modChunker"
 Option Explicit
 
+' 直近のチャンク分割で、実行時エラーのため飛ばしたページ数(2026-07-29)。
+' 1ページの失敗で資料まるごとを失わないための記録。取込側が件数を出す。
+Private mSkippedPages As Long
+
 ' ============================================================================
 ' modChunker - 抽出済みページ群をオーバーラップ付きチャンクへ分割する
 ' ----------------------------------------------------------------------------
@@ -61,6 +65,11 @@ End Function
 Public Function ChunkPagesEx(pages() As ExtractedPage, ByVal targetChars As Long, _
                              ByVal overlapChars As Long, ByVal maxChars As Long, _
                              ByVal mode As String, ByRef chunks() As ShelfChunk) As Long
+    ' 飛ばしたページ数は【この呼び出しの結果】なので、必ずここで0に戻す。
+    ' structure 経路の中だけで初期化すると、legacy モードのときに前のファイル
+    ' の値が残り、無関係な資料に「Nページ飛ばした」と出る。
+    mSkippedPages = 0
+
     Dim tgt As Long: tgt = targetChars
     If tgt < 1 Then tgt = DEFAULT_TARGET_CHARS
     If tgt > MAX_CHUNK_CHARS Then tgt = MAX_CHUNK_CHARS
@@ -92,8 +101,19 @@ Public Function ChunkPagesEx(pages() As ExtractedPage, ByVal targetChars As Long
             ' 先頭行が属するページを引き継ぐ(出典表示はそのままで良い)。
             ChunkAllPagesStructured pages, pLo, pageCount, tgt, ov, mx, outArr, outCount
         Else
+            ' structure 経路と同じく、1ページの失敗で資料全体を捨てない。
+            ' chunk_mode は config で切り替えられるので、こちらだけ無防備に
+            ' しておくと設定次第で同じ事故が再発する。
             For p = 0 To pageCount - 1
+                On Error GoTo SkipLegacyPage
                 ChunkOnePage pages(pLo + p).page, pages(pLo + p).Text, tgt, ov, outArr, outCount
+                On Error GoTo 0
+                GoTo NextLegacyPage
+SkipLegacyPage:
+                ' Resume で抜ける理由は ChunkAllPagesStructured の SkipPage 参照。
+                mSkippedPages = mSkippedPages + 1
+                Resume NextLegacyPage
+NextLegacyPage:
             Next p
         End If
     End If
@@ -324,8 +344,16 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
     Dim blockText As String
     Dim blockPage As Long
 
+    ' 2026-07-29(実機事故): 1ページ(1シート)の処理で実行時エラーが出ると、
+    ' ファイル全体が「取込失敗」になっていた(err#9 インデックスが有効範囲に
+    ' ありません)。88チャンク取れるはずの資料が丸ごと0件になる。
+    ' 資料は「全部入るか、全部入らないか」ではない。読めたページは入れる。
+    ' 落ちたページ数は呼び出し側が拾えるよう mSkippedPages に残す
+    ' (0への初期化は ChunkPagesEx の入口で行う)。
+
     Dim p As Long
     For p = 0 To pageCount - 1
+        On Error GoTo SkipPage
         Dim pageNo As Long: pageNo = pages(pLo + p).page
         Dim raw As String
         raw = NormalizeForIngest(pages(pLo + p).Text)
@@ -361,8 +389,27 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
                 End If
             Next i
         End If
+        On Error GoTo 0
+        GoTo NextPage
+SkipPage:
+        ' このページだけ諦めて次へ。組み立て途中のブロックは捨てる
+        ' (壊れたページの続きを次のページへ繋ぐと、内容が混ざる)。
+        mSkippedPages = mSkippedPages + 1
+        blockText = ""
+        ' 【重要】ここは On Error GoTo 0 では駄目で、Resume で抜ける。
+        ' VBAは「エラーハンドラ実行中」という状態を持ち、これを解除できるのは
+        ' Resume だけである。On Error GoTo 0 はトラップの登録を消すだけなので、
+        ' ハンドラ実行中のまま次のページへ進むと、2ページ目の失敗は
+        ' SkipPage へ飛ばずに呼び出し元へ突き抜ける
+        ' (= 1ページ目は救えるが2ページ目でファイル全体が失敗する、という
+        '    直したつもりで直っていない状態になる)。
+        Resume NextPage
+NextPage:
     Next p
+
+    On Error Resume Next
     FlushBlock blockPage, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -644,4 +691,9 @@ Private Function PageCountOf(pages() As ExtractedPage) As Long
     Exit Function
 Empty0:
     PageCountOf = 0
+End Function
+
+' 直近の ChunkPagesEx で飛ばしたページ数。0なら全ページ処理できている。
+Public Function SkippedPageCount() As Long
+    SkippedPageCount = mSkippedPages
 End Function

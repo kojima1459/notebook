@@ -186,9 +186,10 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
     GoTo AfterLoop
 
 EscOrErr:
-    Err.Clear
-    On Error GoTo 0
     abortReason = "中断(ESCまたは例外)"
+    ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 では
+    ' 解除されず、AfterLoop: の後始末で起きたエラーが呼び出し元へ素通りする)。
+    Resume AfterLoop
 
 AfterLoop:
     On Error Resume Next

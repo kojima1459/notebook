@@ -414,7 +414,9 @@ Failed:
     On Error Resume Next
     modLog.LogError "E0801", "modShelfSync.SyncNow", "[" & uiStep & "] err#" & failNum & ": " & failDesc, failNum
     modUIMain.SetStage ""
-    On Error GoTo 0
+    ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 では
+    ' 解除されず、Finish: の後始末で起きたエラーが呼び出し元へ素通りする)。
+    Resume Finish
 
 Finish:
     mSyncRunning = False

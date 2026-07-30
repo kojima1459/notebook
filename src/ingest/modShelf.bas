@@ -216,6 +216,20 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         modConfig.GetLong("chunk_max_chars", 1800), _
         modConfig.GetString("chunk_mode", "structure"), chunks)
 
+    ' 2026-07-29: 分割は1ページの失敗でファイル全体を捨てないようにした。
+    ' ただし黙って減らすと「88チャンク入るはずが70だった」に誰も気づけない。
+    ' 飛ばしたページ数は必ず1行残す。
+    Dim skippedPages As Long: skippedPages = modChunker.SkippedPageCount()
+    If skippedPages > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "chunk_skipped_pages", "", _
+            sourceName & ": " & skippedPages & "ページを処理できず飛ばしました"
+        ' ここは On Error GoTo 0 ではなく Failed へ戻す。0 にすると
+        ' この関数の Failed ハンドラごと解除され、以降の実行時エラーが
+        ' 利用者の画面へ素通りする(レビュー H-3 と同じ型の事故)。
+        On Error GoTo Failed
+    End If
+
     If chunkN = 0 Then
         modLog.LogError "E0401", "modShelf.IngestFile", "source=" & sourceName
         If isSelf Then
@@ -381,8 +395,12 @@ Failed:
         modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
             "failed", "取込に失敗[" & uiStep & "](#" & failNum & ")", origin
     End If
-    On Error GoTo 0
     resultStatus = "failed"
+    ' Resume で抜けることでハンドラ実行中の状態を解除する。
+    ' On Error GoTo 0 はトラップの登録を消すだけで、この状態は消えない。
+    ' 消えないまま Finish: の後始末へ落ちると、そこで起きたエラーが
+    ' 呼び出し元へ素通りする(フォルダ同期なら残りのファイルが中断する)。
+    Resume Finish
 
 Finish:
     ' 2026-07-28(レビュー I-11): 同期中(silent)は1件ごとに再描画しない。

@@ -9,6 +9,29 @@ Private Const DUMMY_PASSWORD As String = "__mybookshelf_no_password__"
 ' 実機で通った方をおぼえて、毎ファイル無駄打ちしないようにする。
 Private mPwArgWorks As Long
 
+' 2026-07-29(実機事故): 大きな .xlsx で E0302「メモリが不足しています」。
+' 原因は used.Value による【シート全体の一括読み】。UsedRange が
+' 100万行×数十列まで伸びた業務ブック(書式や空白セルの残骸で簡単にそうなる)
+' では、Variant 配列だけで数百MBからGB級になり、32bit Excel の 2GB 空間を
+' 使い切って落ちる。しかも落ちた時点でそのファイルの取込は全滅する。
+'
+' ここで「1回のCOM往復にまとめる」(§12)を、そのまま守り切ることはできない。
+' §12 の狙いはセル1個ずつのCOM呼び出しを避けることであって、
+' サイズ無制限の一括読みを保証することではない。
+' そこで【行ブロック単位の一括読み】に変える。COM往復は行数/ブロック行数回
+' で済み(1万行でも数十回)、1回あたりの確保量には上限がかかる。
+'
+' 併せて、取り込む総セル数と総文字数にも上限を置く。埋め込みに使うのは
+' 要約可能な平文であって、100万行の明細そのものではない。上限で切ったことは
+' 本文の末尾に明記して、利用者が「全部入っている」と誤解しないようにする。
+Private Const MAX_CELLS_PER_READ As Long = 100000   ' 1回の一括読みの上限セル数
+Private Const MAX_CELLS_PER_SHEET As Long = 400000  ' 1シートから取り込む上限セル数
+Private Const MAX_COLS_PER_SHEET As Long = 256      ' 横方向の上限(これ以上は表ではない)
+' 1シートの本文の上限文字数。セル数だけを見ていると、1セルに数千文字ある
+' 備考欄のシートで結局メモリを使い切る。ここを超えたら読むのをやめる
+' (この文字数でも既にチャンクは数百個になる。埋め込み費用の歯止めも兼ねる)。
+Private Const MAX_CHARS_PER_SHEET As Long = 300000
+
 ' ============================================================================
 ' modExtractorExcel - xlsx/xls/xlsm からのテキスト抽出
 ' ----------------------------------------------------------------------------
@@ -216,7 +239,8 @@ Private Function ErrorCellText(ByVal v As Variant) As String
     On Error GoTo 0
 End Function
 
-' シート全体を1回のCOM往復(used.Value)で配列取得し、タブ区切り行のテキストにする。
+' シートを行ブロック単位で一括読みし、タブ区切り行のテキストにする。
+' 上限の考え方は本モジュール冒頭の宣言部を参照。
 Private Function ExtractSheetText(ByVal ws As Worksheet) As String
     Dim used As Range
     Set used = ws.UsedRange
@@ -226,51 +250,136 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
     Dim lastR As Long, lastC As Long
     lastR = used.Rows.count
     lastC = used.Columns.count
+    If lastR < 1 Or lastC < 1 Then Exit Function
 
-    Dim arr As Variant
-    arr = used.Value   ' 一括読み取り(§12: ループ内Range直接アクセス禁止)
+    Dim clipped As Boolean
+    If lastC > MAX_COLS_PER_SHEET Then
+        lastC = MAX_COLS_PER_SHEET
+        clipped = True
+    End If
 
-    Dim lineParts() As String: ReDim lineParts(0 To lastR)
-    Dim lineCount As Long: lineCount = 0
+    Dim maxRows As Long: maxRows = MAX_CELLS_PER_SHEET \ lastC
+    If maxRows < 1 Then maxRows = 1
+    Dim readRows As Long: readRows = lastR
+    If readRows > maxRows Then
+        readRows = maxRows
+        clipped = True
+    End If
+
+    Dim blockRows As Long: blockRows = MAX_CELLS_PER_READ \ lastC
+    If blockRows < 1 Then blockRows = 1
+
+    Dim lineParts() As String: ReDim lineParts(0 To readRows + 1)
+    Dim lineCount As Long
     lineParts(0) = "[シート: " & ws.Name & "]"
     lineCount = 1
 
-    Dim r As Long, c As Long
-    If IsArray(arr) Then
-        For r = 1 To lastR
-            Dim cellParts() As String: ReDim cellParts(0 To lastC - 1)
-            Dim cellCount As Long: cellCount = 0
-            For c = 1 To lastC
-                Dim v As Variant: v = arr(r, c)
-                ' 2026-07-28(レビュー H-10): エラー値(#N/A/#REF!/#DIV/0! 等)は
-                ' Variant の型が vbError で、CStr() が型の不一致(13)を投げる。
-                ' 従来はそれで抽出済みシートまで破棄して E0302 で全体失敗して
-                ' いた。VLOOKUP の #N/A を含む一覧表は実務で頻出なので、
-                ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
-                ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
-                ' (空にすると列がずれて表の意味が変わるため、残す)。
-                If IsError(v) Then
-                    cellParts(cellCount) = ErrorCellText(v)
-                    cellCount = cellCount + 1
-                ElseIf Not IsEmpty(v) Then
-                    cellParts(cellCount) = CStr(v)
-                    cellCount = cellCount + 1
-                End If
-            Next c
-            If cellCount > 0 Then
-                ReDim Preserve cellParts(0 To cellCount - 1)
-                lineParts(lineCount) = Join(cellParts, vbTab)
-                lineCount = lineCount + 1
+    Dim r0 As Long, failCount As Long, charCount As Long
+    r0 = 1
+    Do While r0 <= readRows
+        Dim blkRows As Long: blkRows = blockRows
+        If r0 + blkRows - 1 > readRows Then blkRows = readRows - r0 + 1
+
+        Dim arr As Variant
+        If ReadBlock(used, r0, blkRows, lastC, arr) Then
+            charCount = charCount + AppendBlockLines(arr, blkRows, lastC, lineParts, lineCount)
+            If charCount >= MAX_CHARS_PER_SHEET Then
+                clipped = True
+                r0 = r0 + blkRows
+                Exit Do
             End If
-        Next r
-    Else
-        ' UsedRangeが単一セルの場合、arrはスカラー値になる
-        lineParts(lineCount) = CStr(arr)
+        Else
+            ' このブロックだけ諦める。ここで全体を失敗させると、
+            ' 壊れた1箇所のせいでシート全部が捨てられる。
+            clipped = True
+            failCount = failCount + 1
+            ' 何度も失敗するなら、そのシートはもう読めない。1行ずつ
+            ' 失敗し続けて何十万回も回るのを防ぐ。
+            If failCount >= 5 Then Exit Do
+        End If
+        r0 = r0 + blkRows
+    Loop
+
+    If clipped Then
+        lineParts(lineCount) = "[※このシートは大きいため一部のみ取り込みました]"
         lineCount = lineCount + 1
     End If
 
     ReDim Preserve lineParts(0 To lineCount - 1)
     ExtractSheetText = Join(lineParts, vbLf) & vbLf
+End Function
+
+' 行ブロックを1回のCOM往復で読む。確保に失敗したらブロックを半分にして
+' もう一度だけ試す(空きメモリが足りないだけなら、これで通ることが多い)。
+Private Function ReadBlock(ByVal used As Range, ByVal r0 As Long, ByRef blkRows As Long, _
+                           ByVal cols As Long, ByRef arr As Variant) As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 2
+        On Error Resume Next
+        Err.Clear
+        arr = used.Cells(r0, 1).Resize(blkRows, cols).Value
+        Dim e As Long: e = Err.Number
+        Err.Clear
+        On Error GoTo 0
+        If e = 0 Then
+            ReadBlock = True
+            Exit Function
+        End If
+        If blkRows <= 1 Then Exit For
+        blkRows = blkRows \ 2
+        If blkRows < 1 Then blkRows = 1
+    Next attempt
+End Function
+
+' 読み込んだブロックを行テキストへ変換して lineParts に積む。
+' 戻り値は積んだ文字数(呼び出し元の文字数上限の判定に使う)。
+Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, ByVal cols As Long, _
+                                  ByRef lineParts() As String, ByRef lineCount As Long) As Long
+    Dim added As Long
+    If Not IsArray(arr) Then
+        ' 1セルだけの範囲は Value がスカラーになる。
+        If Not IsEmpty(arr) Then
+            If IsError(arr) Then
+                lineParts(lineCount) = ErrorCellText(arr)
+            Else
+                lineParts(lineCount) = CStr(arr)
+            End If
+            added = Len(lineParts(lineCount))
+            lineCount = lineCount + 1
+        End If
+        AppendBlockLines = added
+        Exit Function
+    End If
+
+    Dim r As Long, c As Long
+    For r = 1 To blkRows
+        Dim cellParts() As String: ReDim cellParts(0 To cols - 1)
+        Dim cellCount As Long: cellCount = 0
+        For c = 1 To cols
+            Dim v As Variant: v = arr(r, c)
+            ' 2026-07-28(レビュー H-10): エラー値(#N/A/#REF!/#DIV/0! 等)は
+            ' Variant の型が vbError で、CStr() が型の不一致(13)を投げる。
+            ' 従来はそれで抽出済みシートまで破棄して E0302 で全体失敗して
+            ' いた。VLOOKUP の #N/A を含む一覧表は実務で頻出なので、
+            ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
+            ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
+            ' (空にすると列がずれて表の意味が変わるため、残す)。
+            If IsError(v) Then
+                cellParts(cellCount) = ErrorCellText(v)
+                cellCount = cellCount + 1
+            ElseIf Not IsEmpty(v) Then
+                cellParts(cellCount) = CStr(v)
+                cellCount = cellCount + 1
+            End If
+        Next c
+        If cellCount > 0 Then
+            ReDim Preserve cellParts(0 To cellCount - 1)
+            lineParts(lineCount) = Join(cellParts, vbTab)
+            added = added + Len(lineParts(lineCount)) + 1
+            lineCount = lineCount + 1
+        End If
+    Next r
+    AppendBlockLines = added
 End Function
 
 ' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。

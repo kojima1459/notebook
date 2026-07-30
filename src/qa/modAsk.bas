@@ -232,7 +232,9 @@ Fail:
 
     On Error Resume Next
     modUIMain.SetStage ""
-    On Error GoTo 0
+    ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 では
+    ' 解除されず、Done: の後始末で起きたエラーが呼び出し元へ素通りする)。
+    Resume Done
 
 Done:
     Dim elapsedMs As Long

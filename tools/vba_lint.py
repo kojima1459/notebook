@@ -169,8 +169,12 @@ CONTRACT: dict[str, dict] = {
         #   (2026-07-27追加)。実物の約款PDFで条見出しの20.2%を取りこぼしていた
         #   ため、全取込経路が最初に通す正規化として追加。純ロジックなので
         #   Publicにして modTestsPure から直接検証する(回帰を二度と許さない)。
+        # SkippedPageCount: 2026-07-29 実機事故対応。1ページの実行時エラーで
+        # 資料まるごとが取込失敗になっていたため、ページ単位で飛ばせるように
+        # した。何ページ飛ばしたかを取込側が利用者へ伝えるためのゲッター。
         "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb",
-                     "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine"],
+                     "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine",
+                     "SkippedPageCount"],
     },
     "modEmbed": {
         "closed": True,
@@ -852,6 +856,93 @@ def check_undefined_proc_refs(infos: list[ModuleInfo]) -> None:
                 )
 
 
+ON_ERROR_GOTO_LABEL_RE = re.compile(r"^\s*On\s+Error\s+GoTo\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE)
+PROC_END_RE = re.compile(r"^\s*End\s+(?:Sub|Function|Property)\b", re.IGNORECASE)
+EXIT_PROC_RE = re.compile(r"^\s*(?:Exit\s+(?:Sub|Function|Property)|End)\s*$", re.IGNORECASE)
+RESUME_RE = re.compile(r"^\s*Resume\b", re.IGNORECASE)
+ERR_RAISE_RE = re.compile(r"\bErr\.Raise\b", re.IGNORECASE)
+
+
+def check_handler_exit(info: ModuleInfo) -> None:
+    """エラーハンドラから通常フローへ戻るとき Resume を使っているか。
+
+    2026-07-29 に自分で踏んだ。VBAは「エラーハンドラ実行中」という状態を持ち、
+    これを解除できるのは Resume と、プロシージャを抜けることだけである。
+    On Error GoTo 0 はトラップの登録を消すだけで、この状態は解除しない。
+
+    そのため
+
+        For p = ...
+            On Error GoTo SkipPage
+            ...処理...
+            GoTo NextPage
+    SkipPage:
+            skipped = skipped + 1
+            On Error GoTo 0      ' ← これでは抜けられない
+    NextPage:
+        Next p
+
+    と書くと、【1ページ目の失敗は拾えるが、2ページ目の失敗は SkipPage へ
+    飛ばずに呼び出し元へ突き抜ける】。「1ページの失敗で資料全体を失わない」
+    ための修正が、2ページ目以降では効かない。しかもテストでは
+    1件しか壊さないので気づけない。正しくは `Resume NextPage`。
+
+    検出方法: On Error GoTo <L> の飛び先ラベル <L> のブロック
+    (ラベル行から、次のラベル行またはプロシージャ末尾まで)を見て、
+    そのブロックがプロシージャ末尾に到達せず、かつ Resume / Exit /
+    Err.Raise のいずれも含まないものを WARN にする。
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    # プロシージャ単位に切る
+    proc_start = None
+    for idx, (lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_handler_exit_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_handler_exit_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    targets = set()
+    for _, code in lines[start:end]:
+        m = ON_ERROR_GOTO_LABEL_RE.match(code)
+        if m and m.group(1) != "0":
+            targets.add(m.group(1).lower())
+    if not targets:
+        return
+
+    label_at = {}
+    for idx in range(start, end):
+        m = LABEL_DEF_RE.match(lines[idx][1])
+        if m:
+            label_at[m.group(1).lower()] = idx
+
+    for name in sorted(targets):
+        idx = label_at.get(name)
+        if idx is None:
+            continue
+        # ブロック = ラベル行の次から、次のラベル行 or プロシージャ末尾まで
+        stop = end
+        for j in range(idx + 1, end):
+            if LABEL_DEF_RE.match(lines[j][1]):
+                stop = j
+                break
+        if stop == end:
+            continue  # プロシージャ末尾まで届く = 抜けるので問題ない
+        body = [lines[j][1] for j in range(idx + 1, stop)]
+        if any(RESUME_RE.match(c) or EXIT_PROC_RE.match(c) or ERR_RAISE_RE.search(c) for c in body):
+            continue
+        info.add(
+            "WARN", lines[idx][0],
+            f"エラーハンドラ「{name}:」が Resume / Exit を使わずに次のラベルへ落ちている。"
+            f"VBAは On Error GoTo 0 ではハンドラ実行中の状態を解除しないため、"
+            f"2回目以降のエラーが素通りする(`Resume <ラベル>` で抜けること)",
+        )
+
+
 def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if AS_INTEGER_PATTERN.search(stmt):
@@ -1269,6 +1360,7 @@ def run_lint(src_root: Path) -> int:
         check_dim_type_drop_and_integer(info)
         check_name_shadowing(info)
         check_declaration_position(info)
+        check_handler_exit(info)
         check_reserved_identifiers(info)
         check_vba_reserved_words(info)
         check_pure_logic_tokens(info)
