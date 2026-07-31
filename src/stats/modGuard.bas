@@ -70,12 +70,18 @@ Public Function CheckDomain() As Boolean
     Dim domNb As String: domNb = Trim$(Environ$("USERDOMAIN"))
     Dim domDns As String: domDns = Trim$(Environ$("USERDNSDOMAIN"))
 
-    ' ドメイン名が取れない環境(ワークグループ等)は許可しない。
-    ' allowed_domain を設定した組織は「ドメイン参加端末でのみ使う」意思表示。
-    If LenB(domNb) = 0 And LenB(domDns) = 0 Then
-        CheckDomain = False
-        Exit Function
-    End If
+    ' 2026-07-31(R8b B6): ドメイン名が【両方とも取れない】ときは
+    ' 「不一致」ではなく「シグナル無し」として扱い、許可する。
+    ' 従来はここで False を返していたが、不一致の帰結は数回の観測で
+    ' 知識の消去(DomainBlockShouldWipe)である。環境変数が取れない状況は
+    '   ・ワークグループ端末(社内でも一定数ある)
+    '   ・サービス/タスクスケジューラ起動でユーザー環境が薄い
+    '   ・プロファイル読み込み前・一時的な環境変数の欠落
+    ' など、【所属が違うこと以外の理由】で普通に起こる。
+    ' 「持ち出された端末を止める」という目的に対し、情報が無いことを
+    ' 有罪の証拠にしてはいけない。実際に別ドメイン名が取れたときだけ
+    ' 不一致とみなす(その分岐は下の突き合わせで従来どおり動く)。
+    If LenB(domNb) = 0 And LenB(domDns) = 0 Then Exit Function
 
     ' 複数許可はカンマ区切り。config は人が手で書くため、半角/全角の
     ' スペースとカンマの表記ゆれを正規化してから比較する

@@ -178,6 +178,12 @@ PURE_ALLOWLIST = [
     #     の末尾が modTestsPure5.RunAll5 を呼ぶため、未注入だと実行時エラー12に
     #     なり分割先のテストが「実行されないまま」になる(modTestsPure4と同型)。
     "modShareRule", "modTestsPure5",
+    # modTestsPure6(2026-07-31 R8b): modTestsPure5(30,000字上限まで残り僅か)の
+    #   分割先。敵対的レビューで見つかった「起きたら取り返しがつかないが実機では
+    #   報告として上がりにくい」穴(B1 失効判定の戻り値/B7b 時計ズレ/B10 UNC共有
+    #   ルート)を固定する。modTestsPure5.RunAll5 の末尾が RunAll6 を呼ぶため、
+    #   未注入だと実行時エラー12になりテストが「実行されないまま」になる。
+    "modTestsPure6",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

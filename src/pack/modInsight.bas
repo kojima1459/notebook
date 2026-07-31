@@ -142,13 +142,37 @@ Public Function CollectInsights() As Long
     CollectInsights = CollectFrom(ws, qaDir, "qa", seen) + _
                       CollectFrom(ws, gapDir, "gap", seen)
 
-    ' GC(R8 F10)。modP2P.GcOldThanks / GcOldNonces と同じ作法で、
-    ' 共有フォルダ側のファイルと my_stats 側の既読印の両方を掃除する。
-    ' どちらか片方だけだと、消えたファイルの既読印が永久に残る(=my_stats
-    ' 無限成長)か、掃除済みのファイルを二度取り込む(=重複)。
-    GcOldInsights qaDir
-    GcOldInsights gapDir
+    ' GC(R8 F10)。my_stats 側の既読印は【全端末】が自分のブックを掃除する。
+    ' 自分のシートが太るのは自分の問題なので、誰がやっても構わない。
     GcOldNonces
+
+    ' 2026-07-31(R8b B12): 共有フォルダ側(qa/gap の実ファイル)を消すのは
+    ' 【発行者端末だけ】に限定する。
+    ' 全端末が消しに行くと、次の2つが同時に起きる:
+    '   ・朝の一斉起動で数十台が同じフォルダに対して Kill を撃ち合う
+    '     (消えた直後のファイルへの Kill でエラー、列挙と削除の競合)
+    '   ・「まだ誰も受け取っていない投稿」を、たまたま最初に起動した1台の
+    '     時計や設定(thanks_gc_days)の都合で全員から奪える
+    ' 共有フォルダの寿命管理は、本来1箇所が責任を持つべき運用作業に近い。
+    ' 判定は既存の発行者判定(modPublish.CanPublish = config publish_key が
+    ' 入っている = --publisher 付きでビルドした発行者用ブック)を再利用する。
+    ' 新しい設定キーを増やさない(増やすほど運用が壊れやすくなる)。
+    Dim isPublisher As Boolean
+    isPublisher = False
+    On Error Resume Next
+    isPublisher = modPublish.CanPublish()
+    On Error GoTo 0
+    If Not isPublisher Then Exit Function
+
+    Dim killedN As Long
+    killedN = GcOldInsights(qaDir) + GcOldInsights(gapDir)
+    If killedN > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "insight_gc", "", _
+            "共有フォルダの古い共有知を " & killedN & "件片付けました" & _
+            "(発行者端末のみが実行。保持日数は config thanks_gc_days)。"
+        On Error GoTo 0
+    End If
     On Error GoTo 0
 End Function
 
@@ -184,17 +208,19 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' GcOldInsights - N日以上前の qa/gap ファイルを共有フォルダから消す(R8 F10)。
+'   戻り値 = 実際に消した件数(R8b B12: 呼び出し側が usage_log に残す)。
 '   modP2P.GcOldThanks と同じ作法(集めてから消す。列挙中に Kill しない)。
 '   保持日数は感謝状と揃えて config thanks_gc_days(既定60)。0以下でGC無効。
 '   ここに掃除が無かったため、共有の insight\qa\ は永久に増え続け、
 '   起動のたびの Dir 列挙が全員ぶん重くなっていた。
+'   【呼ぶのは発行者端末だけ】(R8b B12。理由は CollectInsights 側のコメント)。
 ' ----------------------------------------------------------------------------
-Private Sub GcOldInsights(ByVal dirPath As String)
-    If LenB(dirPath) = 0 Then Exit Sub
+Private Function GcOldInsights(ByVal dirPath As String) As Long
+    If LenB(dirPath) = 0 Then Exit Function
     On Error Resume Next
     Dim days As Long: days = modConfig.GetLong("thanks_gc_days", 60)
-    If days <= 0 Then Exit Sub
-    If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Sub
+    If days <= 0 Then Exit Function
+    If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
 
     Dim old() As String: ReDim old(0 To 63)
     Dim n As Long
@@ -215,12 +241,14 @@ Private Sub GcOldInsights(ByVal dirPath As String)
         Err.Clear
         stamp = FileDateTime(full)
         If Err.Number = 0 Then
-            If stamp < limit Then modP2PIo.KillRetry full
+            If stamp < limit Then
+                If modP2PIo.KillRetry(full) Then GcOldInsights = GcOldInsights + 1
+            End If
         End If
         Err.Clear
     Next i
     On Error GoTo 0
-End Sub
+End Function
 
 ' ----------------------------------------------------------------------------
 ' GcOldNonces - 期限を過ぎた "ins:" 行を my_stats から取り除く(R8 F10)。

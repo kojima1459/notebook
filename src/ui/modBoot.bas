@@ -241,20 +241,28 @@ Public Sub Boot()
     ' mb_question等の名前定義とRenderAnswerの土台を用意する役割が残るため
     ' 先に実行し、その上からHubのレイアウトで描き替える(Hub側が旧btn_/lbl_
     ' Shapeも消すので二重表示にはならない)。
-    ' 2026-07-31(レビュー R8 F3): 起動ジッタは【共有I/Oを伴う最初の処理より
-    ' 前】へ置く。従来はここより後(SyncNow の直前)にあったが、この直後の
-    ' modHub.EnsureHubLayout が受信箱の描画で modShare.Reachable() と
-    ' modChannel.PendingUpdates() を呼ぶ = そこが実際の「最初の共有I/O」で、
-    ' 朝の一斉起動では全員が同時刻にファイルサーバへ殺到していた。
-    ' 分散させたい負荷の【後】で散らしても意味が無い、が M-23 の要点。
-    On Error Resume Next
-    modChannel.StartupJitter
-    On Error GoTo Failed
-
     bootStage = "ホーム画面の組み立て"
     On Error Resume Next
     modUIMain.EnsureLayout
     LogBootStageErrorIfAny bootStage
+    On Error GoTo Failed
+
+    ' 2026-07-31(レビュー R8 F3 / R8b B9): 起動ジッタは【共有I/Oを伴う最初の
+    ' 処理の直前】へ置く。共有I/Oを最初に行うのは modHub.EnsureHubLayout
+    ' (受信箱の描画で modShare.Reachable() を呼ぶ)なので、その1行手前が正しい。
+    '
+    ' B9: R8では modUIMain.EnsureLayout よりさらに前に置いていたが、この時点では
+    ' まだ軽量マクロ無効ガードの案内シートがアクティブで、Nexus画面も
+    ' ホーム画面も組み上がっていない。StartupJitter は中で DoEvents を回して
+    ' 最大3秒待つため、【利用者にはガードシートが見えていて、しかも操作を
+    ' 受け付けてしまう】3秒の窓ができていた。そこでシートを触られると、
+    ' 起動処理と競合して原因不明の崩れ方をする。画面が組み上がってから散らす。
+    ' F3の要件(最初の共有I/Oより前)は、EnsureHubLayout の直前なので満たす。
+    On Error Resume Next
+    modChannel.StartupJitter
+    On Error GoTo Failed
+
+    On Error Resume Next
     modHub.EnsureHubLayout
     LogBootStageErrorIfAny bootStage
     On Error GoTo Failed

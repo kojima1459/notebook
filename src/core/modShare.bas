@@ -100,6 +100,22 @@ Public Function Reachable() As Boolean
     attrVal = GetAttr(modShareRule.ProbeTargetPath(p))   ' OSのタイムアウトはここで1回だけ払う
     Dim probeErr As Long: probeErr = Err.Number
     Err.Clear
+
+    ' 2026-07-31(R8b B10): UNC共有ルートを直接指した場合の取りこぼしを拾う。
+    ' 上の実引数は末尾の "\" を落とした形("\\srv\share")で、環境によっては
+    ' そこで実行時エラー52/76が返る(共有ルートは "\\srv\share\" の形でしか
+    ' 受け付けない実装がある)。1回目が失敗したときだけ、末尾を残した形で
+    ' もう一度だけ試す。成功する見込みが無い(形が変わらない)ときは
+    ' ProbeRetryPath が空文字を返すので、無駄なタイムアウトは払わない。
+    If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
+        Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(p)
+        If LenB(retryPath) > 0 Then
+            Err.Clear
+            attrVal = GetAttr(retryPath)
+            probeErr = Err.Number
+            Err.Clear
+        End If
+    End If
     On Error GoTo 0
 
     If modShareRule.ProbeIsReachable(probeErr, attrVal) Then

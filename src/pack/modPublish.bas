@@ -47,6 +47,12 @@ Private Const LOCK_NAME As String = "publish.lock"
 ' 端末のロック1つで部門の発行が数時間止まる(R8 F12)。
 Private Const LOCK_STALE_MIN As Double = 10#
 
+' いま自分が置いている publish.lock のフルパス(2026-07-31 R8b B7a)。
+' 解放を ChannelsDir() から組み直すと、発行中に共有が落ちて modShare が
+' セッションを降格したとき SubDir が空になり、自分のロックを外せなくなる。
+' VBAはモジュールレベル宣言をプロシージャより前に置く必要がある。
+Private mLockPath As String
+
 ' ----------------------------------------------------------------------------
 ' CanPublish - 発行キーが設定されているか(発行画面を出してよいか)。
 '   キーが空の配布物では発行機能そのものを見せない。一般利用者の画面に
@@ -107,6 +113,7 @@ End Function
 Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) As Boolean
     On Error Resume Next
     outHolder = ""
+    mLockPath = ""
     Dim d As String: d = PrepareDir(chName)
     If LenB(d) = 0 Then Exit Function
 
@@ -117,7 +124,10 @@ Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) A
     If hasLock Then
         Err.Clear
         ageMin = (Now - FileDateTime(lockPath)) * 1440#
-        If Err.Number <> 0 Then ageMin = 0        ' 読めない=判らない=待たせる
+        ' 2026-07-31(R8b B7b): タイムスタンプが読めないときは 0 分(=新しい)
+        ' ではなく、残骸側へ倒す。読めないロックで永久に発行できなくなるより、
+        ' 上書きして続行する方が害が小さい(判断材料は err_log に残す)。
+        If Err.Number <> 0 Then ageMin = LOCK_STALE_MIN
         Err.Clear
         Dim body As String
         If ReadShared(lockPath, body) Then outHolder = Trim$(Replace(body, vbTab, " / "))
@@ -129,22 +139,50 @@ Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) A
         Case "stale"
             ' 残骸とみなして続行する。誰がいつ残したかは記録に残す。
             modLog.LogUsage "publish_lock_stale", chName, _
-                "10分以上前の publish.lock を上書きしました: " & modUtil.SafeLeft(outHolder, 120)
+                "古い publish.lock を上書きしました(経過" & CLng(ageMin) & "分): " & _
+                modUtil.SafeLeft(outHolder, 120)
+            ' 2026-07-31(R8b B7b): 時計ズレ(経過が負)で stale になった場合は、
+            ' 原因を追えるように err_log にも残す。端末の時計が共有サーバより
+            ' 進んでいると、正常な発行のロックまで残骸に見える。
+            If ageMin < 0 Then
+                modLog.LogError "E0807", "modPublish.AcquireLock", _
+                    "publish.lock の更新時刻が未来です(端末の時計が共有サーバとずれている" & _
+                    "可能性があります)。残骸とみなして発行を続行しました: " & chName
+            End If
             outHolder = ""
     End Select
 
-    WriteShared lockPath, PublisherName() & vbTab & Format$(Now, "yyyy-mm-dd hh:nn:ss")
+    ' 2026-07-31(R8b B2): ロックの作成に失敗したら【取れなかった】と答える。
+    ' 従来は WriteShared の戻り値を捨てて無条件に True を返していたため、
+    ' 権限不足や共有断でロックが1バイトも書けていないのに「取れた」と報告し、
+    ' 2人が同時に発行へ進める = 見張りが存在しないのと同じ状態だった。
+    ' しかも「誰もロックを見ない」ので、事故が起きたことすら誰も気付けない。
+    If Not WriteShared(lockPath, PublisherName() & vbTab & Format$(Now, "yyyy-mm-dd hh:nn:ss")) Then
+        modLog.LogError "E0807", "modPublish.AcquireLock", _
+            "publish.lock を作成できませんでした(共有フォルダへの書き込み権限を" & _
+            "ご確認ください)。発行は中止しました: " & chName
+        Exit Function
+    End If
+
+    ' 2026-07-31(R8b B7a): 解放に使うフルパスをここで控える。
+    ' ReleaseLock が ChannelsDir() から組み直していると、発行中に共有が
+    ' 一時的に落ちて modShare がセッションを降格した場合、SubDir が空文字を
+    ' 返して【自分が置いたロックを外せなくなる】。その部門は次の10分間
+    ' 誰も発行できない。取得時のパスをそのまま Kill する。
+    mLockPath = lockPath
     AcquireLock = True
     On Error GoTo 0
 End Function
 
 ' ReleaseLock - 発行ロックを外す。発行が成功しても失敗しても必ず呼ぶ。
+'   chName は記録用。実際に消すのは AcquireLock 成功時に控えたフルパス
+'   (2026-07-31 R8b B7a。理由は AcquireLock 側のコメント参照)。
 Public Sub ReleaseLock(ByVal chName As String)
     On Error Resume Next
-    Dim baseDir As String: baseDir = ChannelsDir()
-    If LenB(baseDir) = 0 Then Exit Sub
-    Kill baseDir & chName & "\" & LOCK_NAME
+    If LenB(mLockPath) = 0 Then Exit Sub
+    Kill mLockPath
     Err.Clear
+    mLockPath = ""
     On Error GoTo 0
 End Sub
 

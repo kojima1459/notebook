@@ -209,7 +209,7 @@ Private Sub TestStandardSubDirs()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 端末失効(F4)— 【データ喪失に直結するので最優先で固定する】
+' 端末失効(F4): 【データ喪失に直結するので最優先で固定する】
 ' ----------------------------------------------------------------------------
 ' 最重要: guard_last_reach が空(=一度も共有へ届いた記録が無い)なら、
 ' 日数がいくつであろうと絶対に "wipe" を返さない。
@@ -474,34 +474,6 @@ Private Sub TestSyncSummaryText()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' 同時発行の見張り(F12)
-' ----------------------------------------------------------------------------
-Private Sub TestPublishLockAction()
-    modTestRunner.Check "発行ロック: ロック無しなら go", _
-        (modShareRule.PublishLockAction(False, 0, 10) = "go"), ""
-    modTestRunner.Check "発行ロック: ロック無しは経過時間を見ない", _
-        (modShareRule.PublishLockAction(False, 999, 10) = "go"), ""
-
-    modTestRunner.Check "発行ロック: 直後(0分)は wait", _
-        (modShareRule.PublishLockAction(True, 0, 10) = "wait"), ""
-    modTestRunner.Check "発行ロック: 9.9分は wait", _
-        (modShareRule.PublishLockAction(True, 9.9, 10) = "wait"), ""
-    ' 境界: ちょうど10分は残骸とみなす(発行は数十秒で終わるため)。
-    modTestRunner.Check "発行ロック: ちょうど10分は stale", _
-        (modShareRule.PublishLockAction(True, 10, 10) = "stale"), _
-        "実際=" & modShareRule.PublishLockAction(True, 10, 10)
-    modTestRunner.Check "発行ロック: 60分は stale", _
-        (modShareRule.PublishLockAction(True, 60, 10) = "stale"), ""
-
-    ' 端末の時計がずれていて経過時間が負になったら、上書きより待つ側へ倒す。
-    ' 同時発行は「両方成功したように見えて中身が混ざる」壊れ方をするため、
-    ' 判断が付かないときは必ず中断する。
-    modTestRunner.Check "発行ロック: 経過が負(時計ずれ)は wait", _
-        (modShareRule.PublishLockAction(True, -5, 10) = "wait"), _
-        "実際=" & modShareRule.PublishLockAction(True, -5, 10)
-End Sub
-
-' ----------------------------------------------------------------------------
 ' Ghostscript解決候補の組み立て(R9・optOcrCore.GsCandidatePaths/
 ' GsCandidatesForFolder)。空要素スキップ・末尾\正規化・優先順位の3点が
 ' ここで壊れると、実機では「config通りに書いたのに見つからない」という
@@ -596,12 +568,14 @@ NextCache:
 NextSyncSum:
     On Error GoTo SyncSumFail
     TestSyncSummaryText
-NextLock:
-    On Error GoTo LockFail
-    TestPublishLockAction
 NextGsCand:
     On Error GoTo GsCandFail
     TestGsCandidatePaths
+NextPure6:
+    ' 2026-07-31 R8b: 敵対的レビュー対応(B1/B7b/B10)のテストは
+    ' modTestsPure6 へ置いた。ここが唯一の導線なので消さないこと。
+    On Error GoTo Pure6Fail
+    modTestsPure6.RunAll6
 NextDone5:
     On Error GoTo 0
     Exit Sub
@@ -657,13 +631,13 @@ CacheFail:
 SyncSumFail:
     modTestRunner.Check "TestSyncSummaryText(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
-    Resume NextLock
-LockFail:
-    modTestRunner.Check "TestPublishLockAction(グループ全体)", False, _
-        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextGsCand
 GsCandFail:
     modTestRunner.Check "TestGsCandidatePaths(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure6
+Pure6Fail:
+    modTestRunner.Check "modTestsPure6.RunAll6(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone5
 End Sub

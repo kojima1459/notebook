@@ -141,7 +141,10 @@ Public Function SummaryText() As String
     On Error Resume Next
     Dim dirPath As String: dirPath = SubDir(TELE_SUBDIR)
     If LenB(dirPath) = 0 Then
-        SummaryText = "共有フォルダが未設定です。"
+        ' 2026-07-31(R8b B14): SubDir は modShare の関所越しなので、
+        ' 空が返る理由は「未設定」と「今は届かない」の両方がある。
+        SummaryText = "共有フォルダが未設定か、共有フォルダに接続できません。" & vbLf & _
+                      "(設定済みの場合は、社内ネットワークへの接続をご確認ください)"
         Exit Function
     End If
     If Len(Dir(dirPath, vbDirectory)) = 0 Then

@@ -499,12 +499,6 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         cap = ChrW(&H26A0) & " 部門が多すぎて " & chOver & "部門を読み込めていません" & vbCr & _
               "このツールの管理担当者にご連絡ください(部門数の上限を超えています)"
         act = "modKnowledge.OnChannels"
-    ElseIf Not modHubStat.ShareQueriesAllowed() Then
-        ' 起動中は共有フォルダへ問い合わせない(R8 F3)。「更新はありません」と
-        ' 言い切ると嘘になり得るので、まだ見ていないことをそのまま書く。
-        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の更新はまだ確認していません" & vbCr & _
-              "押すと今すぐ確認します(起動を軽くするため、開いた直後は確認しません)"
-        act = "modHub.OnCheckUpdates"
     ElseIf modChannel.IsBudgetTight() Then
         cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
               "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
@@ -517,6 +511,20 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         cap = ChrW(&HD83D) & ChrW(&HDCA1) & " まだ答えを用意できていない質問が " & gapN & "件" & vbCr & _
               "押すと一覧が開きます。答えられる資料を登録すると部内に行き渡ります"
         act = "modKnowledge.OnGapBoard"
+    ElseIf Not modHubStat.ShareQueriesAllowed() Then
+        ' 起動中は共有フォルダへ問い合わせない(R8 F3)。「更新はありません」と
+        ' 言い切ると嘘になり得るので、まだ見ていないことをそのまま書く。
+        '
+        ' 2026-07-31(R8b B4): この分岐は qaN/gapN/IsBudgetTight の【後ろ】に置く。
+        ' それらは insight_inbox シートと本棚のチャンク数を見るだけで共有
+        ' フォルダに一切触らない、起動直後でも正しく出せる通知である。
+        ' 前に置くと、せっかく受信済みの「みんなが解決したQ&A N件」が
+        ' 起動直後は必ず「更新はまだ確認していません」に塗り潰されてしまい、
+        ' 共有知フライホイールの入口(利用者が新着に気付く唯一の場所)が
+        ' 事実上ふさがる。共有I/Oを要する通知だけを後回しにするのが趣旨。
+        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の更新はまだ確認していません" & vbCr & _
+              "押すと今すぐ確認します(起動を軽くするため、開いた直後は確認しません)"
+        act = "modHub.OnCheckUpdates"
     Else
         cap = ChrW(&HD83D) & ChrW(&HDD01) & " 部内の知恵は自動で行き来しています" & vbCr & _
               ChrW(&H2705) & "解決した を押すとその答えが、答えが無かった質問は課題として共有されます"

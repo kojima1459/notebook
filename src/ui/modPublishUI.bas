@@ -77,8 +77,15 @@ Public Sub OnPublish()
     On Error GoTo Done
     If LenB(dest) = 0 Then
         modUiLock.Leave
-        MsgBox "共有フォルダが未設定です。" & vbCrLf & _
-               "Hubのお知らせから設定してから、もう一度お試しください。", _
+        ' 2026-07-31(R8b B14): dest が空になる理由は「未設定」だけではない。
+        ' modShare の関所を通すようにしたため、【設定済みだが今は届かない】
+        ' (VPN未接続・サーバ停止・セッション降格)でも空が返る。
+        ' 「未設定です」と断定すると、設定済みの発行者が config を疑って
+        ' 探し回ることになる。両方の可能性をそのまま示す。
+        MsgBox "共有フォルダが未設定か、共有フォルダに接続できません。" & vbCrLf & vbCrLf & _
+               "・まだ設定していない場合: Hubのお知らせから設定してください" & vbCrLf & _
+               "・設定済みの場合: 社内ネットワーク(VPN)に接続できているか" & vbCrLf & _
+               "  ご確認のうえ、ファイルを開き直してからお試しください", _
                vbExclamation, modAppDef.APP_NAME
         Exit Sub
     End If

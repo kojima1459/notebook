@@ -465,6 +465,8 @@ PURE_LOGIC_MODULES = {
     "modShareRule",
     # modTestsPure5(2026-07-31 R8): modShareRule の境界値テスト。
     "modTestsPure5",
+    # modTestsPure6(2026-07-31 R8b): 敵対的レビュー対応(B1/B7b/B10)のテスト。
+    "modTestsPure6",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

@@ -120,6 +120,32 @@ Public Function ProbeIsReachable(ByVal probeErrNo As Long, ByVal attrValue As Lo
     ProbeIsReachable = ((attrValue And ATTR_DIRECTORY) <> 0)
 End Function
 
+' ProbeRetryPath - 1回目のプローブが失敗したときに、もう1回だけ試す形を返す。
+'   もう試す価値が無ければ空文字(呼び出し側は再試行しない)。
+'
+' なぜ必要か(2026-07-31 R8b B10):
+'   ProbeTargetPath は GetAttr のために末尾の "\" を1つ落とす。ところが
+'   UNC の共有ルートを直接指した場合、
+'       設定値      \\srv\share\
+'       1回目の実引数 \\srv\share      ← "\" を落とした形
+'   となり、Windows/ネットワークリダイレクタの組み合わせによっては
+'   ここで実行時エラー52(不正なファイル名)や76(パスが見つかりません)が返る。
+'   共有ルートは「\\srv\share\」の形でしか受け付けない実装があるため。
+'   その結果、【共有フォルダを正しく指定しているのに永久に到達不能】になり、
+'   しかも症状は「何も起きない」なので利用者にはまず原因が分からない。
+'   1回目が失敗したときだけ、末尾 "\" を残した形でもう一度だけ試す。
+'
+'   再試行するのは「落とした結果が元と違う」ときだけ。落としていない
+'   (元から "\" が無い / ルートなので残した)なら同じ実引数を2回投げるだけで、
+'   遅い共有に対して OS のタイムアウトを二重に払うことになる。
+Public Function ProbeRetryPath(ByVal basePath As String) As String
+    Dim p As String: p = Trim$(basePath)
+    If LenB(p) = 0 Then Exit Function
+    If Right$(p, 1) <> "\" Then Exit Function        ' 落としていない = 再試行しない
+    If StrComp(ProbeTargetPath(p), p, vbBinaryCompare) = 0 Then Exit Function
+    ProbeRetryPath = p
+End Function
+
 ' 共有ルート直下に必ず在ってほしい標準サブフォルダ(R8 F6)。
 ' 「初期化の入口」を1箇所に集めるための一覧。順序は表示都合のみ。
 Public Function StandardSubDirs() As String
@@ -245,13 +271,18 @@ End Function
 '   戻り値:
 '     "go"    … ロックが無い。自分がロックを取って発行してよい
 '     "wait"  … 他の人が発行中(ロックが新しい)。断って案内する
-'     "stale" … ロックはあるが古い。前回の発行が異常終了した残骸とみなし、
-'               上書きして続行する(残骸1つで発行機能が永久に死ぬのを防ぐ)
+'     "stale" … ロックはあるが古い / 更新時刻が未来。前回の発行が異常終了した
+'               残骸とみなし、上書きして続行する
 '
-'   ageMinutes が負(端末の時計がずれている・日を跨いだ)ときは、
-'   「新しいロック」として扱う。判断が付かないときは、上書きより待つ方が安全。
-'   同時発行は「両方成功したように見えて、片方の pack と他方の version.txt が
-'   混ざる」という最悪の壊れ方をするため、迷ったら中断する。
+'   ageMinutes が負(= ロックの更新時刻が未来)のとき(2026-07-31 R8b B7b):
+'   当初は「判らないなら待つ」として wait にしていたが、これは
+'   【端末の時計が共有サーバより遅れている人が、永久に発行できなくなる】。
+'   ファイルサーバと端末の時計が数分ずれるのは社内では普通にあり、
+'   その端末から見ると他人のロックは常に未来の時刻に見える。
+'   一方、同時発行はロック以外にも守り(発行はローカル%TEMP%へ書いてから
+'   コピー = 共有側の書込み窓が短い)があるうえ、そもそも同じ部門を2人が
+'   同じ数分内に発行する頻度は低い。「発行機能が特定の端末で完全に死ぬ」方が
+'   害が大きいので、残骸側へ倒し、呼び出し側で err_log に1行残す。
 Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As Double, _
                                   ByVal staleMinutes As Double) As String
     If Not hasLock Then
@@ -259,7 +290,7 @@ Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As 
         Exit Function
     End If
     If ageMinutes < 0 Then
-        PublishLockAction = "wait"
+        PublishLockAction = "stale"
         Exit Function
     End If
     If ageMinutes >= staleMinutes Then
