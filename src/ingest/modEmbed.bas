@@ -142,6 +142,13 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim n As Long
     Dim chunkId As String
 
+    ' 2026-07-31(R7 B-1): 進捗に目安時間を出す。1件あたりの所要ミリ秒は
+    ' 直近2バッチの移動平均で追う(先頭バッチは接続の立ち上がりで遅く、
+    ' 累積平均だと最後まで悲観的な数字を出し続けるため)。
+    ' 最初のバッチが終わるまでは0のまま=件数だけの表示になる。
+    Dim msPerItem As Double: msPerItem = 0
+    Dim batchT0 As Double
+
     Dim bStart As Long
     For bStart = 0 To limit - 1 Step batchSize
         Dim bEnd As Long: bEnd = bStart + batchSize - 1
@@ -149,9 +156,11 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         Dim bN As Long: bN = bEnd - bStart + 1
 
         On Error Resume Next
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & (bStart + 1) & "～" & (bEnd + 1) & "/" & limit & " …"
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & _
+            modUtil.ProgressText(bEnd + 1, limit, modUtil.EtaText(limit - bStart, msPerItem)) & " …"
         On Error GoTo 0
 
+        batchT0 = Timer
         On Error GoTo EscOrErr
         DoEvents
 
@@ -207,6 +216,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         Next n
 
         If throttleMs > 0 Then SleepMs throttleMs
+        msPerItem = BlendPerItemMs(msPerItem, batchT0, bN)
         On Error GoTo 0
         If LenB(abortReason) > 0 Then Exit For
     Next bStart
@@ -341,6 +351,23 @@ Private Function LastFailureLooksLikeLimit() As Boolean
     Exit Function
 NoLog:
     LastFailureLooksLikeLimit = False
+End Function
+
+' 1件あたり所要ミリ秒の更新(R7 B-1)。直近バッチの実測と現在値の平均を返す
+' (=直近2バッチの移動平均)。Timerは0時に0へ戻るので、経過が負になったら
+' 日跨ぎとみなして現在値を据え置く(見積りが跳ねるのを防ぐ)。
+Private Function BlendPerItemMs(ByVal curMs As Double, ByVal t0 As Double, _
+                                ByVal itemCount As Long) As Double
+    BlendPerItemMs = curMs
+    If itemCount < 1 Then Exit Function
+    Dim elapsedMs As Double: elapsedMs = (Timer - t0) * 1000#
+    If elapsedMs < 0 Then Exit Function
+    Dim thisMs As Double: thisMs = elapsedMs / CDbl(itemCount)
+    If curMs <= 0 Then
+        BlendPerItemMs = thisMs
+    Else
+        BlendPerItemMs = (curMs + thisMs) / 2#
+    End If
 End Function
 
 ' Declareを使わないスリープ(§13: 32/64bit互換のためDeclare不使用で回避)。

@@ -24,7 +24,12 @@ Option Explicit
 
 Private Const HDR_H As Double = 40
 Private Const BAR_H As Double = 24
-Private Const PILL_W As Double = 88
+Private Const PILL_H As Double = 26
+' 右肩ピル(R7 A-5): モード3つ + 🎨着せ替え + 🚪終了 の5個。
+Private Const PILL_N As Long = 5
+Private Const PILL_PITCH As Double = 9
+Private Const PILL_PAD As Double = 14
+Private Const PILL_MIN As Double = 44
 Private Const TB_GAP As Double = 5      ' ツールバーのボタン間隔
 Private Const TB_PAD As Double = 8      ' ツールバー帯の左右余白
 Private Const TB_MAX As Long = 20       ' ツールバーに載りうるボタンの最大数
@@ -71,9 +76,32 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     L = ws.Range("A1").Left
     W = ws.Range("A1:N1").Width
 
+    ' --- 右肩ピルの配置を先に決める(帯の高さがこれで決まるため) ---
+    ' 2026-07-31(R7 A-5): 🎨着せ替え / 🚪終了 をここへ統合し、
+    ' 「どの画面でも右上は同じ」にする(並びはチャット画面と同じで一番右が🚪)。
+    ' 位置は固定座標をやめて modChrome.FlowRight に任せる。1段に入らなければ
+    ' 段を増やし、帯の高さもそれに合わせて伸ばす=画面外や見切れが起きない。
+    Dim pcaps(0 To PILL_N - 1) As String, pnames(0 To PILL_N - 1) As String
+    Dim pacts(0 To PILL_N - 1) As String, pwid(0 To PILL_N - 1) As Double
+    Dim pactive(0 To PILL_N - 1) As Boolean
+    Dim md As String: md = LCase$(mode)
+    Dim isTable As Boolean: isTable = (md = "table")
+    Dim isShared As Boolean: isShared = (md = "shared")
+    PillSpec md, isTable, isShared, pcaps, pnames, pacts, pactive, pwid
+
+    Dim pxs() As Double, prows() As Long, pws() As Double
+    Dim pillRowN As Long
+    pillRowN = modChrome.FlowRight(pwid, PILL_N, L + W - 8, _
+                                   L + modChrome.TitleReserve(W, 160), L + 8, 6, _
+                                   pxs, prows, pws)
+    If pillRowN < 1 Then pillRowN = 1
+    Dim hdrH As Double: hdrH = HDR_H + (pillRowN - 1) * (PILL_H + 2)
+    If hdrH > 200 Then hdrH = 200          ' 行高の異常値でDrawChrome全体を落とさない
+    ws.Rows(1).RowHeight = hdrH
+
     ' --- ヘッダーバー ---
     Dim hdr As Shape
-    Set hdr = ws.Shapes.AddShape(5, L, 0, W, HDR_H)
+    Set hdr = ws.Shapes.AddShape(5, L, 0, W, hdrH)
     hdr.Name = "nxk_hdr"
     hdr.Adjustments(1) = 0.02
     hdr.Line.Visible = 0
@@ -90,22 +118,15 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
 
     ' 実機報告(2026-07-27)「←Hubがヘッダーと同色で目立たない」対策。
     ' 戻り導線は一番見つけやすくなければならないので、白ピルで強調する。
-    Pill ws, "nxk_back", ChrW(&H2190) & " Hub", L + 8, 72, _
+    Pill ws, "nxk_back", ChrW(&H2190) & " Hub", L + 8, 72, 0, _
          "modKnowledge.OnBackHub", True
 
-    ' --- モード切替ピル(右肩) ---
-    Dim md As String: md = LCase$(mode)
-    Dim isTable As Boolean: isTable = (md = "table")
-    Dim isShared As Boolean: isShared = (md = "shared")
-    Dim px As Double: px = L + W - 8 - PILL_W
-    Pill ws, "nxk_m_shared", ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例", px, PILL_W, _
-         "modKnowledge.OnGoShared", isShared
-    px = px - 6 - PILL_W
-    Pill ws, "nxk_m_table", ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚", px, PILL_W, _
-         "modKnowledge.OnGoTable", isTable
-    px = px - 6 - PILL_W
-    Pill ws, "nxk_m_gallery", ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー", px, PILL_W, _
-         "modKnowledge.OnGoGallery", (Not isTable) And (Not isShared)
+    ' --- モード切替ピル+共通ヘッダー機能(右肩) ---
+    Dim pi As Long
+    For pi = 0 To PILL_N - 1
+        Pill ws, pnames(pi), pcaps(pi), pxs(pi), pws(pi), _
+             prows(pi) * (PILL_H + 2), pacts(pi), pactive(pi)
+    Next pi
 
     On Error Resume Next
     modTelemetry.TrackScreen "knowledge"
@@ -152,6 +173,11 @@ End Sub
 ' 罫線・行列番号の表示制御は各画面の既存処理に任せる(ここでは触らない)。
 Public Sub PrepareScreenView(ByVal ws As Worksheet)
     PurgeLegacyVaultSheet
+    ' 2026-07-31(R7 A-2): 全画面/数式バー/罫線の崩れをここでも自己修復する。
+    ' 「閉じる→キャンセル」で壊れた表示が、次にどのボタンを押しても戻る。
+    On Error Resume Next
+    modUI.EnsureAppView
+    On Error GoTo 0
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
     ' ActiveWindow系は、そのシートが実際に前面のときだけ触る
@@ -425,13 +451,41 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' PillSpec - 右肩に並べるものの唯一の定義(2026-07-31 R7 A-5)。
+'   右から: 🚪終了 / 🎨着せ替え / みんなの解決事例 / マイ本棚 / ギャラリー。
+'   幅はキャプションの実文字から出す(固定幅の予約と実物が食い違うと、
+'   実機で「🗑削除が『除』しか見えない」類の見切れになる。R4要件Cの教訓)。
+' ----------------------------------------------------------------------------
+Private Sub PillSpec(ByVal md As String, ByVal isTable As Boolean, ByVal isShared As Boolean, _
+                     ByRef caps() As String, ByRef nms() As String, ByRef acts() As String, _
+                     ByRef actives() As Boolean, ByRef widths() As Double)
+    caps(0) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
+    nms(0) = "nxk_exit": acts(0) = "modApp.OnSaveAndExit": actives(0) = False
+    caps(1) = ChrW(&HD83C) & ChrW(&HDFA8) & " 着せ替え"
+    nms(1) = "nxk_skin": acts(1) = "modHub.OnThemeToggle": actives(1) = False
+    caps(2) = ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例"
+    nms(2) = "nxk_m_shared": acts(2) = "modKnowledge.OnGoShared": actives(2) = isShared
+    caps(3) = ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚"
+    nms(3) = "nxk_m_table": acts(3) = "modKnowledge.OnGoTable": actives(3) = isTable
+    caps(4) = ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー"
+    nms(4) = "nxk_m_gallery": acts(4) = "modKnowledge.OnGoGallery"
+    actives(4) = (Not isTable) And (Not isShared)
+
+    Dim i As Long
+    For i = 0 To PILL_N - 1
+        widths(i) = modChrome.PillWidth(caps(i), PILL_PITCH, PILL_PAD, PILL_MIN)
+    Next i
+End Sub
+
 ' ヘッダー上のピル。active:=Trueで「今いるモード」を塗りつぶして示す。
+' yOff は段送り(1段に入りきらなかったぶんを下の段へ置くための縦オフセット)。
 Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
                  ByVal caption As String, ByVal x As Double, ByVal w As Double, _
-                 ByVal action As String, ByVal active As Boolean)
+                 ByVal yOff As Double, ByVal action As String, ByVal active As Boolean)
     On Error Resume Next
     Dim p As Shape
-    Set p = ws.Shapes.AddShape(5, x, (HDR_H - 26) / 2, w, 26)
+    Set p = ws.Shapes.AddShape(5, x, (HDR_H - PILL_H) / 2 + yOff, w, PILL_H)
     If p Is Nothing Then Exit Sub
     p.Name = shapeName
     p.Placement = 3          ' 行高を後から変えてもピルは動かさない
@@ -486,8 +540,15 @@ Private Sub RemoveChrome(ByVal ws As Worksheet)
 End Sub
 
 ' ---- ツールバーのハンドラ(既存エンジンへの配線に徹する) ----
+'
+' 2026-07-31(R7 B-2): 画面遷移・資料操作の入口は必ず
+' modUiLock.BlockIfIngesting を最初に通す。取込/同期の最中は
+' 抽出ループのDoEventsでここが【取込の途中から入れ子で】走り出し、
+' 実機の「取込中にボタンを押すとExcelが応答なし」になっていた。
+' busy のときはモーダルを出さず、実況行だけ出して即Exitする。
 
 Public Sub OnGoGallery()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modVault.ShowVaultGallery
@@ -497,6 +558,7 @@ End Sub
 
 ' みんなのQ&A(選択式取り込み)へ。
 Public Sub OnGoShared()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUiLock.Leave
@@ -505,6 +567,7 @@ Public Sub OnGoShared()
 End Sub
 
 Public Sub OnGoTable()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUIShelf.EnsureLayout
@@ -514,6 +577,7 @@ Public Sub OnGoTable()
 End Sub
 
 Public Sub OnBackHub()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modHub.EnsureHubLayout activate:=True
@@ -522,6 +586,7 @@ Public Sub OnBackHub()
 End Sub
 
 Public Sub OnToChat()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUI.GoToNexus "modKnowledge.OnToChat"
@@ -530,6 +595,7 @@ Public Sub OnToChat()
 End Sub
 
 Public Sub OnSearch()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modVault.OnVaultSearch
 End Sub
 
@@ -539,6 +605,7 @@ End Sub
 '   営業の「分からない」が、商品部の「書くべきこと」に直結する一番短い経路。
 ' ----------------------------------------------------------------------------
 Public Sub OnGapBoard()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
@@ -577,6 +644,7 @@ End Sub
 '   ひとりのブックが際限なく膨らむことはない。
 ' ----------------------------------------------------------------------------
 Public Sub OnChannels()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
@@ -654,10 +722,12 @@ End Sub
 
 
 Public Sub OnRegister()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modVault.ShowVaultInput
 End Sub
 
 Public Sub OnAddFiles()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     modShelf.AddFilesViaDialog
     On Error GoTo 0
@@ -665,25 +735,30 @@ Public Sub OnAddFiles()
 End Sub
 
 Public Sub OnPackOut()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modPackExport.ExportPackDialog
 End Sub
 
 Public Sub OnPackIn()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modPack.ImportPackDialog
     RefreshCurrent
 End Sub
 
 Public Sub OnSync()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modShelfSync.SyncNow
     RefreshCurrent
 End Sub
 
 Public Sub OnPickFolder()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modShelfSync.PickShelfFolder
     RefreshCurrent
 End Sub
 
 Public Sub OnDelete()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modUIShelf.OnDeleteSource
     RefreshCurrent
 End Sub

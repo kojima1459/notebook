@@ -14,8 +14,12 @@ Option Explicit
 
 Private Const HDR_H As Double = 48
 Private Const CARD_H As Double = 68
-Private Const NAV_H As Double = 46
-Private Const NAV_GAP As Double = 8
+' 2026-07-31(R7 A-3): ナビを4枚→3枚に減らしたときに縦幅の後始末が漏れ、
+' 右列の下半分が丸ごと余白になっていた。3枚で従来4枚分をほぼ埋める寸法へ。
+' (46*4+8*3=208 → 60*3+10*2=200。説明文の窮屈さも同時に解消する)
+Private Const NAV_H As Double = 60
+Private Const NAV_GAP As Double = 10
+Private Const NAV_COUNT As Long = 3
 Private Const CHIP_H As Double = 22
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
@@ -84,7 +88,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' 1問でも通してから出す(§DrawFirstStep)。
     If HasAnyActivity() Then
         RefreshOrgTilesIfReachable
-        DrawStatTiles ws
+        modHubStat.DrawStatTiles ws, TilesTop()
         DrawBadges ws
     Else
         DrawFirstStep ws
@@ -269,99 +273,11 @@ Private Sub RefreshOrgTilesIfReachable()
     On Error GoTo 0
 End Sub
 
-' 統計タイル8枚。セルのMerge+罫線は「表」の記号そのもので、罫線を消しても
-' 格子に見える。角丸Shape+影にして「セル感」を消す。座標は左ブロック(B:F)から。
-Private Sub DrawStatTiles(ByVal ws As Worksheet)
-    Dim labels As Variant, vals As Variant
-    labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
-                   ChrW(&H23F1) & " 節約できた時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
-                   ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今月)", _
-                   ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有")
-    ' 実機報告(2026-07-27)「一部のタイルが真っ白」対策: Array()内で直接
-    ' 関数を呼ぶと1つの失敗が空文字になる。1つずつ受けて必ず値を入れる。
-    Dim vAsk As String, vSolve As String, vSaved As String, vUse As String
-    Dim vOrgD As String, vOrgM As String, vStreak As String, vPack As String
-    vAsk = modHubStat.NumText(modHubStat.AskTotal())
-    vSolve = modHubStat.NumText(modHubStat.SafeStat("selfsolve_total"))
-    vSaved = modHubStat.FmtMin(modHubStat.SafeSavedMinutes())
-    vUse = modHubStat.ChunkUsage()
-    vOrgD = modHubStat.OrgMin("d")
-    vOrgM = modHubStat.OrgMin("m")
-    vStreak = modHubStat.NumText(modHubStat.SafeStat("streak_days")) & "日"
-    vPack = modHubStat.NumText(modHubStat.SafeStat("pack_export_total"))
-    vals = Array(vAsk, vSolve, vSaved, vUse, vOrgD, vOrgM, vStreak, vPack)
-
-    ' 要件D/E(2026-07-30 R3): 実機写真で4タイル(節約できた時間/みんな今日/
-    ' みんな今月/連続ログイン)がラベルのみで値が空、という報告があった。
-    ' 静的解析では空文字を返す経路を特定できなかったため(R3要件定義書
-    ' 背景4)、値のLenB=0を検出したらタイル種別に応じた既定値へ置換して
-    ' 描画を続け(タイルを絶対に空文字にしない)、発生した事実だけは
-    ' 1行usage_logへ残す(次に実機で空が出たとき、どのタイルで起きたか
-    ' 特定できるようにする)。
-    Dim tileIdx As Long
-    For tileIdx = 0 To 7
-        If LenB(CStr(vals(tileIdx))) = 0 Then
-            On Error Resume Next
-            modLog.LogUsage "hub_tile_empty", "", _
-                "タイル" & tileIdx & ":" & CStr(labels(tileIdx)) & " の値が空でした"
-            On Error GoTo 0
-            vals(tileIdx) = modHubStat.DefaultTileValue(tileIdx)
-        End If
-    Next tileIdx
-
-    ' 左ブロックの幾何。D列(溝)を挟んで B:C と E:F の2枚並び。
-    Dim colL As Double, colW As Double, gutter As Double
-    colL = ws.Range("B1").Left
-    colW = ws.Range("B1:C1").Width
-    gutter = ws.Range("D1").Width
-
-    Dim tileH As Double: tileH = 52
-    Dim gapY As Double: gapY = 8
-    Dim topY As Double: topY = HDR_H + 12 + CARD_H + 18   ' プロフィールカードの下
-
-    Dim i As Long
-    For i = 0 To 7
-        On Error Resume Next
-        Dim x As Double, y As Double
-        x = colL + (i Mod 2) * (colW + gutter)
-        y = topY + (i \ 2) * (tileH + gapY)
-
-        Dim tile As Shape
-        Set tile = ws.Shapes.AddShape(5, x, y, colW, tileH)
-        If Err.Number = 0 And Not tile Is Nothing Then
-            tile.Name = "nx_hub_tile" & i
-            tile.Adjustments(1) = 0.12
-            tile.Line.Visible = -1
-            tile.Line.Weight = 0.75
-            tile.Line.ForeColor.RGB = modUI.UiColor("border")
-            tile.Fill.ForeColor.RGB = modUI.UiColor("surface")
-            modSkin.ApplyLightShadow tile
-            ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
-            With tile.TextFrame2
-                .WordWrap = -1
-                .MarginLeft = 12: .MarginRight = 8: .MarginTop = 7: .MarginBottom = 5
-                .TextRange.Text = CStr(labels(i)) & vbCr & CStr(vals(i))
-                .TextRange.Font.Size = 8
-                On Error Resume Next
-                .TextRange.Paragraphs(1).Font.Size = 8
-                .TextRange.Paragraphs(1).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
-                .TextRange.Paragraphs(2).Font.Size = 16
-                .TextRange.Paragraphs(2).Font.Bold = -1
-                .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
-                On Error GoTo 0
-            End With
-            ' みんなの節約(i=4,5)はクリックで部内ランキングを出す
-            ' (旧サイドバーウィジェットのクリック機能の移設先)。
-            If i = 4 Or i = 5 Then
-                tile.OnAction = "modBoard.OnWidgetClick"
-                tile.AlternativeText = "クリックで部内の節約ランキングを表示"
-            End If
-        End If
-        Set tile = Nothing
-        Err.Clear
-        On Error GoTo 0
-    Next i
-End Sub
+' 統計タイル8枚の描画本体は modHubStat へ移した(2026-07-31 R7 A-4)。
+' ここは「どこから始めるか」だけを渡す(幾何の持ち主はHub側のまま)。
+Private Function TilesTop() As Double
+    TilesTop = HDR_H + 12 + CARD_H + 18       ' プロフィールカードの下
+End Function
 
 ' まだ何も起きていない状態か。質問も取込も0のときだけ「初回」とみなす。
 Private Function HasAnyActivity() As Boolean
@@ -416,8 +332,9 @@ Private Sub DrawFirstStep(ByVal ws As Worksheet)
 End Sub
 
 ' 統計タイル群の下端(バッジ等をその下に置くために使う)。
+' 高さは描いている側(modHubStat)から取る。両方に数字を持つとズレる。
 Private Function StatTilesBottom() As Double
-    StatTilesBottom = HDR_H + 12 + CARD_H + 18 + 4 * (52 + 8)
+    StatTilesBottom = TilesTop() + modHubStat.TilesHeight()
 End Function
 
 ' ナビボタン4枚(右カラムG:Jの幾何に合わせる)
@@ -445,7 +362,7 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoDash")
 
     Dim i As Long
-    For i = 0 To 2
+    For i = 0 To NAV_COUNT - 1
         Dim navTop As Double: navTop = T + i * (NAV_H + NAV_GAP)
         Dim btn As Shape
         Set btn = ws.Shapes.AddShape(5, L, navTop, W, NAV_H)
@@ -477,8 +394,11 @@ End Sub
 Private Sub DrawExtras(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
+    ' 2026-07-31(R7 A-3・タスク#27): ここは 4 * (NAV_H + NAV_GAP) だった。
+    ' ナビを4枚から3枚へ減らしたときの後始末漏れで、実枚数と食い違った
+    ' 1枚ぶん(54pt)がそのまま右列の空白として残っていた。実枚数から出す。
     W = ws.Range("H3:K3").Width
-    T = HDR_H + 12 + 4 * (NAV_H + NAV_GAP) + 10
+    T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
 
     ' 見出しは置かない。チップの文面自体が「こう聞けばいい」の見本になっている。
     Dim chips As Variant
@@ -647,6 +567,7 @@ End Sub
 ' ---- ボタンハンドラ ----
 
 Public Sub OnGoChat()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUI.GoToNexus "modHub.OnGoChat"
@@ -658,6 +579,7 @@ End Sub
 ' 一覧表・みんなの解決事例へは、開いた先の上部ピルで切り替える。
 ' 旧OnGoShelf(一覧表を直接開く導線)は、行き先が同じ1枚になったので廃止した。
 Public Sub OnGoVault()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modVault.ShowVaultGallery
@@ -666,6 +588,7 @@ Public Sub OnGoVault()
 End Sub
 
 Public Sub OnGoDash()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modDash.ShowDashboard
@@ -674,6 +597,7 @@ Public Sub OnGoDash()
 End Sub
 
 Public Sub OnQuickAsk()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     Dim tpl As String

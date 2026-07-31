@@ -446,6 +446,11 @@ NoRun:
 End Function
 
 ' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
+' 2026-07-31(R7 B-2ついで): このループは DoEvents 専業で、Ghostscript が
+' ページ画像を書いている数分のあいだCPUを1コア回し切っていた(R6の報告)。
+' 待っているのはファイルの出現であって、詰めても早くは終わらない。
+' 1周ごとに約100ms止めて間引く(挙動は不変。判定間隔が0.1秒になるだけ)。
+' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
 Private Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
     Dim t0 As Double: t0 = Timer
     Do
@@ -454,6 +459,9 @@ Private Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As L
             Exit Function
         End If
         DoEvents
+        On Error Resume Next
+        Application.Wait Now + 0.1 / 86400#
+        On Error GoTo 0
         If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
     Loop While (Timer - t0) < timeoutSec
 End Function

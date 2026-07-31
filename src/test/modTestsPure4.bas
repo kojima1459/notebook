@@ -298,6 +298,50 @@ Private Sub TestGarbledRouteCode()
         (modExtractor.GarbledRouteCode("pdf", False) = ""), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' R7 B-1: 進捗の目安時間(modUtil.EtaText / modUtil.ProgressText)
+'   実機報告「チャンク化中の進捗に目安時間が無い」への対応。
+'   時間の見積りは「当たらない予告を出さない」ことが要件なので、
+'   ①まだ測れていないときは何も言わない ②1分未満は数字を出さない
+'   の2点を回帰として固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestEtaText()
+    modTestRunner.Check "ETA: 実測前(msPerItem=0)は何も言わない", _
+        (modUtil.EtaText(50, 0) = ""), "実際=[" & modUtil.EtaText(50, 0) & "]"
+    modTestRunner.Check "ETA: 残り0件は何も言わない", _
+        (modUtil.EtaText(0, 500) = ""), "実際=[" & modUtil.EtaText(0, 500) & "]"
+    modTestRunner.Check "ETA: 残り件数が負でも何も言わない", _
+        (modUtil.EtaText(-3, 500) = ""), ""
+    ' 10件 × 1000ms = 10秒 → 秒数は出さない
+    modTestRunner.Check "ETA: 60秒未満は「まもなく完了」", _
+        (modUtil.EtaText(10, 1000) = "まもなく完了"), "実際=" & modUtil.EtaText(10, 1000)
+    ' 76件 × 2000ms = 152秒 = 2.53分 → 四捨五入で3分
+    modTestRunner.Check "ETA: 152秒は「残り約3分」(四捨五入)", _
+        (modUtil.EtaText(76, 2000) = "残り約3分"), "実際=" & modUtil.EtaText(76, 2000)
+    ' 60件 × 1000ms = 60秒ちょうど → 1分
+    modTestRunner.Check "ETA: 60秒ちょうどは「残り約1分」", _
+        (modUtil.EtaText(60, 1000) = "残り約1分"), "実際=" & modUtil.EtaText(60, 1000)
+    ' 3600件 × 1000ms = 3600秒 = 60分 → 1時間(端数なしは「分」を付けない)
+    modTestRunner.Check "ETA: ちょうど60分は「残り約1時間」", _
+        (modUtil.EtaText(3600, 1000) = "残り約1時間"), "実際=" & modUtil.EtaText(3600, 1000)
+    ' 4500件 × 1000ms = 75分 → 1時間15分
+    modTestRunner.Check "ETA: 75分は「残り約1時間15分」", _
+        (modUtil.EtaText(4500, 1000) = "残り約1時間15分"), "実際=" & modUtil.EtaText(4500, 1000)
+End Sub
+
+Private Sub TestProgressText()
+    modTestRunner.Check "進捗: 見積り無しなら件数だけ", _
+        (modUtil.ProgressText(12, 88, "") = "12/88件"), _
+        "実際=" & modUtil.ProgressText(12, 88, "")
+    modTestRunner.Check "進捗: 要件の書式「12/88件・残り約3分」", _
+        (modUtil.ProgressText(12, 88, "残り約3分") = "12/88件・残り約3分"), _
+        "実際=" & modUtil.ProgressText(12, 88, "残り約3分")
+    ' modEmbedが実際に組み立てる形(残り76件・1件2秒)を通しで固定する。
+    modTestRunner.Check "進捗: EtaTextとの結線(76件×2秒→3分)", _
+        (modUtil.ProgressText(12, 88, modUtil.EtaText(76, 2000)) = "12/88件・残り約3分"), _
+        "実際=" & modUtil.ProgressText(12, 88, modUtil.EtaText(76, 2000))
+End Sub
+
 Public Sub RunAll4()
     On Error GoTo GsGoldenFail
     TestBuildGsCommandGolden
@@ -319,6 +363,12 @@ NextMarkerLike:
 NextGarbledRoute:
     On Error GoTo GarbledRouteFail
     TestGarbledRouteCode
+NextEta:
+    On Error GoTo EtaFail
+    TestEtaText
+NextProgress:
+    On Error GoTo ProgressFail
+    TestProgressText
 NextDone4:
     On Error GoTo 0
     Exit Sub
@@ -349,6 +399,14 @@ MarkerLikeFail:
     Resume NextGarbledRoute
 GarbledRouteFail:
     modTestRunner.Check "TestGarbledRouteCode(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextEta
+EtaFail:
+    modTestRunner.Check "TestEtaText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextProgress
+ProgressFail:
+    modTestRunner.Check "TestProgressText(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone4
 End Sub

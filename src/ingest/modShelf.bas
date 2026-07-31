@@ -217,7 +217,14 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         End If
     End If
     If mIngesting Then
-        modLog.ShowError "E0503", "modShelf.IngestFile", "path=" & modUtil.SafeLeft(path, 300)
+        ' 2026-07-31(R7 B-2): ここは ShowError(モーダル)だった。取込中の
+        ' DoEvents で発火したクリックが再入するたびにダイアログが積み上がり、
+        ' 実機では「Excelが応答なし」に見えていた。E0503のログは従来どおり
+        ' 残し、利用者へは実況行で「待てばよい」ことだけを伝える。
+        modLog.LogError "E0503", "modShelf.IngestFile", "path=" & modUtil.SafeLeft(path, 300)
+        On Error Resume Next
+        modUIMain.SetStage "処理中です。完了までお待ちください…"
+        On Error GoTo 0
         outErrCode = "E0503"
         IngestFile = "failed"
         Exit Function
@@ -659,6 +666,20 @@ Public Function TotalChunks() As Long
     Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Function
     TotalChunks = lastK - 1
+End Function
+
+'
+' IsBusy - 取込が走っているか(2026-07-31 R7 B-2)。
+'   抽出ループの DoEvents で発火したクリックを、画面遷移側の入口で
+'   受け流すための判定。再入ガード mIngesting をそのまま公開する。
+'   焼き付いたガードで全ボタンが無反応になるのを避けるため、
+'   IngestFile と同じ期限(GUARD_EXPIRY_MIN)を過ぎたものは busy とみなさない。
+'
+Public Function IsBusy() As Boolean
+    If Not mIngesting Then Exit Function
+    On Error Resume Next
+    IsBusy = (DateDiff("n", mIngestingSince, Now) < GUARD_EXPIRY_MIN)
+    On Error GoTo 0
 End Function
 
 ' ---- 内部ヘルパー ----

@@ -374,6 +374,47 @@ Public Sub RestoreExcelUI()
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' EnsureAppView - アプリ表示状態の自己修復(2026-07-31 R7 A-2)。
+' ----------------------------------------------------------------------------
+' 実機報告: 「閉じる」→「キャンセル」を押すと、全画面が解除され数式バーと
+' 行列見出しが戻ったまま元に戻らない(Auto_Close が閉じる前提で
+' RestoreExcelUI を走らせるため)。利用者にはExcelの表示設定を戻す手段が
+' 無く、たまたま「着せ替え」を押した人だけが直っていた。
+'
+' そこで「壊れていたら直す」を全画面の入口に置く。冪等・非破壊で、
+' 既にその状態なら何も書かない(書くとその都度チラつくため必ず読んでから触る)。
+' Auto_Close 側は触らない(閉じる進行中に表示を復元し直すと、閉じる操作と
+' 競合する。ThisWorkbook ストリームも圧縮予算の都合で触らない)。
+Public Sub EnsureAppView()
+    ' 別ブック誤爆ガード: DisplayFullScreen はExcel全体の設定なので、利用者が
+    ' 他の業務ブックを見ている最中に触ってはいけない(ShowToastと同じ作法)。
+    Dim mine As Boolean
+    On Error Resume Next
+    mine = (ActiveWorkbook Is ThisWorkbook)
+    On Error GoTo 0
+    If Not mine Then Exit Sub
+
+    On Error Resume Next
+    If Not Application.DisplayFullScreen Then Application.DisplayFullScreen = True
+    If Application.DisplayFormulaBar Then Application.DisplayFormulaBar = False
+    On Error GoTo 0
+
+    Dim win As Object
+    On Error Resume Next
+    Set win = ActiveWindow
+    On Error GoTo 0
+    If win Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    If win.DisplayGridlines Then win.DisplayGridlines = False
+    If win.DisplayHeadings Then win.DisplayHeadings = False
+    If win.ScrollColumn <> 1 Then win.ScrollColumn = 1
+    If win.ScrollRow <> 1 Then win.ScrollRow = 1
+    If win.Zoom <> 100 Then win.Zoom = 100
+    On Error GoTo 0
+End Sub
+
 ' GoToNexus - 「戻る」共通口。Activate失敗時はRestoreExcelUIで脱出路を残す。
 Public Sub GoToNexus(ByVal source As String)
     Dim ws As Worksheet
@@ -389,8 +430,11 @@ Public Sub GoToNexus(ByVal source As String)
             " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
         Err.Clear
         RestoreExcelUI
+        On Error GoTo 0
+        Exit Sub                ' 脱出路を出した直後に全画面へ戻さない(R7 A-2)
     End If
     On Error GoTo 0
+    EnsureAppView               ' R7 A-2: 崩れた表示状態はここで自己修復する
 End Sub
 
 ' GoToNativeSheet - GoToNexus同様の脱出路付き遷移をホーム/マイ本棚等にも提供。

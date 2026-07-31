@@ -122,6 +122,13 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
         Set ws = wb.Worksheets(s)
         tmp(s - 1).page = s
         tmp(s - 1).Text = ExtractSheetText(ws)
+        Set ws = Nothing
+        ' 2026-07-31(R7 B-2): 1シート分の読み取り(UsedRange→行ブロック一括読み)
+        ' が完全に終わり、次のシートをまだ掴んでいない合間で1回だけ捌く。
+        ' 直前に Set ws = Nothing しているので、ここでイベントへ抜けている間に
+        ' Range/Worksheet の参照を保持しない。ブロック読みの途中(ReadBlock内)
+        ' には絶対に置かない。
+        DoEvents
     Next s
 
     wb.Close False

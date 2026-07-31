@@ -267,6 +267,13 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
         On Error GoTo Failed
 
+        ' 2026-07-31(R7 B-2): 1ファイルごとに1回だけメッセージを捌く。
+        ' ここは「前のファイルの取込が完全に終わり、次のファイルの
+        ' 抽出(COM)がまだ始まっていない」唯一の合間で、Word/Excelの
+        ' オブジェクトを1つも掴んでいない。取込中に押されたボタンは
+        ' modUiLock.BlockIfIngesting が実況を出して受け流す。
+        DoEvents
+
         Dim path As String: path = folderNorm & diskNames(i)
         Dim mi As Long: mi = modShelfScan.FindManifestIndexByName(mNames, mCount, diskNames(i))
         Dim existsInManifest As Boolean: existsInManifest = (mi >= 0)
@@ -435,6 +442,20 @@ Finish:
     modP2P.CollectNoiseVotes silent   ' 品質報告を集計し組織的除外(gexcl)を再計算
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' IsBusy - 同期が走っているか(2026-07-31 R7 B-2)。
+'   ファイルループの DoEvents で発火したクリックを、画面遷移側の入口で
+'   受け流すための判定。再入ガード mSyncRunning をそのまま公開する。
+'   焼き付いたガードで全ボタンが無反応になるのを避けるため、SyncNow と同じ
+'   期限(GUARD_EXPIRY_MIN)を過ぎたものは busy とみなさない。
+' ----------------------------------------------------------------------------
+Public Function IsBusy() As Boolean
+    If Not mSyncRunning Then Exit Function
+    On Error Resume Next
+    IsBusy = (DateDiff("n", mSyncRunningSince, Now) < GUARD_EXPIRY_MIN)
+    On Error GoTo 0
+End Function
 
 ' ----------------------------------------------------------------------------
 ' ScheduleAutoSync - sync_interval_min>0ならApplication.OnTimeで次回予約(自己再帰)

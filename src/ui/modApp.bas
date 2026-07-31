@@ -681,12 +681,14 @@ End Function
 
 ' ナビゲーション(SPA遷移)・モード/言語トグル
 Public Sub OnNavChat()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     modUI.GoToNexus "modApp.OnNavChat"
     modUiLock.Leave
 End Sub
 
 Public Sub OnNavHome()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modHub.EnsureHubLayout activate:=True   ' 描画と遷移を必ずセットで行う
@@ -695,6 +697,7 @@ Public Sub OnNavHome()
 End Sub
 
 Public Sub OnNavShelf()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     modUI.GoToNativeSheet modAppDef.SH_SHELF, "modApp.OnNavShelf"
     modUiLock.Leave
@@ -714,6 +717,7 @@ End Sub
 Public Sub OnRefreshUI()
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
+    modUI.EnsureAppView          ' R7 A-2: 表示状態の自己修復を再描画にも載せる
     Select Case ActiveSheet.Name
         Case "Nexus":     modUI.Repaint
         Case "Dashboard": modDash.ShowDashboard

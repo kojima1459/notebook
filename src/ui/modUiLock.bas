@@ -95,6 +95,33 @@ Public Function IsBusy() As Boolean
     IsBusy = Not LockExpired()
 End Function
 
+' ----------------------------------------------------------------------------
+' BlockIfIngesting - 取込・同期の最中なら実況だけ出してTrueを返す(R7 B-2)。
+' ----------------------------------------------------------------------------
+' 取込は長時間かかるうえ、抽出ループの DoEvents でメッセージが捌かれるため、
+' その最中に押されたボタン(OnAction)は【取込の途中から入れ子で】走り出す。
+' 実機報告「取込中にボタンを押すとExcelが応答なし」の正体はこれで、
+' 画面遷移が取込の掴んでいるCOMオブジェクトやシート状態と噛み合わなくなる。
+'
+' 画面遷移系の入口はここを最初に通し、busyなら何もせず即Exitする。
+' モーダルは出さない(連打のたびにダイアログが積み上がると、それ自体が
+' 「応答なし」に見える)。実況行だけで「待てばよい」ことを伝える。
+' modUiLock 自身のロック(Enter/Leave)とは別物: あちらは1アクションの二重
+' 発火を防ぐもので、こちらは【別プロセスのように長く走る取込】から画面を守る。
+Public Function BlockIfIngesting() As Boolean
+    Dim busyNow As Boolean
+    On Error Resume Next
+    busyNow = modShelf.IsBusy()
+    If Not busyNow Then busyNow = modShelfSync.IsBusy()
+    On Error GoTo 0
+    If Not busyNow Then Exit Function
+
+    BlockIfIngesting = True
+    On Error Resume Next
+    modUIMain.SetStage "処理中です。完了までお待ちください…"
+    On Error GoTo 0
+End Function
+
 ' 取得から LOCK_EXPIRY_MIN 分を過ぎたか(=Leave 漏れの疑い)。
 ' 時刻が読めないときは期限切れ扱いにする(判断できないロックで
 ' 全ボタンを殺し続けるより、奪い返す方が害が小さい)。

@@ -111,6 +111,10 @@ CONTRACT: dict[str, dict] = {
             "TruncateAndRenorm", "VectorToCsvPrec",
             "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
             "FileNameOf", "ExtOf", "IsSameTimestamp",
+            # EtaText/ProgressText: バッチ処理の進捗実況(2026-07-31 R7 B-1)。
+            # 「残り約N分」の算数と文言整形。modEmbed/modEnrichが計測値を
+            # 渡すだけで済むよう純ロジック側に置き、modTestsPure4で固定する。
+            "EtaText", "ProgressText",
             # JoinPagedText/SplitPagedText: 画像PDFのOCR(R6)で複数ページの
             # 結果を「文字列1本」の境界(modFeatures.InvokeFeature)越しに運ぶ
             # ための行マーカー符号化/復号。純文字列処理なのでmodUtilに置く。
@@ -199,7 +203,10 @@ CONTRACT: dict[str, dict] = {
         # 内部でこれを呼ぶ薄いラッパーへ変えた。ok/ng/capped件数・新規追加
         # チャンク数・失敗理由の内訳を戻り値の文字列で返し、showMsgBox:=False
         # で呼び出し元(modApp.OnAddDocs等)が独自に表示を担えるようにする。
-        "required": ["AddFilesViaDialog", "AddFilesResult", "IngestFile", "DeleteSource", "SourceList", "TotalChunks"],
+        # IsBusy: 2026-07-31 R7 B-2。抽出ループのDoEventsで発火したクリックを
+        # 画面遷移側(modUiLock.BlockIfIngesting)が受け流すための取込中フラグ。
+        "required": ["AddFilesViaDialog", "AddFilesResult", "IngestFile", "DeleteSource",
+                     "SourceList", "TotalChunks", "IsBusy"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -229,9 +236,11 @@ CONTRACT: dict[str, dict] = {
         # 誤りだった)。ResolveDecision(同じくWave4修正・§7.8): DiffDecisionに
         # manifestの現在statusによる上書きルール(failed/missing→replace)を適用する
         # 純関数で、DiffDecisionと同じ理由でテスト可能にするため公開契約に追加した。
+        # IsBusy(2026-07-31 R7 B-2): modShelf.IsBusy と対。同期のファイルループも
+        # DoEvents を回すため、同期中かどうかを画面側へ公開する。
         "required": [
             "PickShelfFolder", "SyncNow", "ScheduleAutoSync", "CancelAutoSync",
-            "DiffDecision", "AutoSyncTick", "ResolveDecision",
+            "DiffDecision", "AutoSyncTick", "ResolveDecision", "IsBusy",
         ],
     },
     "modEnrich": {

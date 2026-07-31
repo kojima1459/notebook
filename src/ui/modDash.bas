@@ -25,7 +25,8 @@ Private Const KPI_CARD_W As Double = 215
 Private Const KPI_CARD_H As Double = 92
 Private Const KPI_GAP As Double = 14
 Private Const KPI_X0 As Double = 20
-Private Const KPI_Y0 As Double = 64
+' 2026-07-31(R7 A-1): ヘッダー帯(48pt)+サブタイトルの下から本文を始める。
+Private Const KPI_Y0 As Double = 80
 Private Const ROW_WIDTH As Double = KPI_CARD_W * 4 + KPI_GAP * 3
 
 Private Const EXPBAR_H As Double = 12
@@ -45,18 +46,27 @@ Private Const BADGE_GRID_Y As Double = BADGE_HEAD_Y + 24
 ' VBAの定数式では関数を呼べないので、位置は実行時に ChartNoteY() で求める。
 Private Const BADGE_ROWS_FALLBACK As Long = 3
 
-Private Const HEADER_TITLE_Y As Double = 14
-Private Const HEADER_SUB_Y As Double = 40
-Private Const HEADER_BTN_Y As Double = 14
-Private Const HEADER_BTN_H As Double = 26
-Private Const BTN_CHAT_W As Double = 118
-Private Const BTN_REFRESH_W As Double = 96
-Private Const BTN_GAP As Double = 10
-Private Const CONTENT_RIGHT As Double = KPI_X0 + ROW_WIDTH
-Private Const BTN_REFRESH_X As Double = CONTENT_RIGHT - BTN_REFRESH_W
-Private Const BTN_CHAT_X As Double = BTN_REFRESH_X - BTN_GAP - BTN_CHAT_W
-Private Const BTN_EXPORT_W As Double = 128
-Private Const BTN_EXPORT_X As Double = BTN_CHAT_X - BTN_GAP - BTN_EXPORT_W
+' 2026-07-31(R7 A-1): ヘッダーは他画面(Hub/チャット/ナレッジ)と同じ形にする。
+'   ・濃色バー(全幅)+タイトル
+'   ・ナビピル(← Hub / 💬チャット / 📚ナレッジと本棚)
+'   ・共通ユーティリティ(🔄更新 / 📥ログ / 🎨着せ替え / 🚪保存して終わる)
+' 旧実装はボタンを CONTENT_RIGHT(=KPI_X0+ROW_WIDTH=922pt)へ右寄せしていた。
+' このアプリの画面幅は約600pt(チャットヘッダーの実測597pt・Hubの帯626pt)
+' なので、右寄せしたボタンは【画面外】に置かれていた。実機報告
+' 「ダッシュボード上部が真っ白・ナビが無い」の正体はこれで、ボタンは
+' 描かれていたが誰にも見えていなかった。操作系は必ず HDR_CTL_COLS 列の
+' 内側(=他画面と同じ幅)に置き、はみ出す分は modChrome.FlowLeft が段を
+' 増やして受ける(画面外へ描かない)。
+Private Const HDR_BAR_H As Double = 48
+Private Const HDR_PILL_H As Double = 26
+Private Const HDR_PILL_GAP As Double = 5
+Private Const HDR_PILL_PITCH As Double = 9
+Private Const HDR_PILL_PAD As Double = 14
+Private Const HDR_PILL_MIN As Double = 40
+Private Const HDR_TITLE_RESERVE As Double = 140   ' タイトル「📊 ダッシュボード」用
+Private Const HDR_CTL_COLS As String = "A1:L1"    ' 操作系を置いてよい範囲(約600pt)
+Private Const HDR_ITEMS As Long = 7
+Private Const HEADER_SUB_Y As Double = 54
 
 
 Private Const ADMIN_ROW_H As Double = 26
@@ -82,9 +92,12 @@ Public Sub ShowDashboard()
     ws.Visible = -1   ' xlSheetVisible
     ws.Activate
     On Error Resume Next
-    ActiveWindow.DisplayGridlines = False
-    ActiveWindow.DisplayHeadings = False
     ActiveWindow.DisplayWorkbookTabs = False
+    On Error GoTo 0
+    ' R7 A-2: 全画面/数式バー/罫線/スクロール位置/等倍をまとめて自己修復する
+    ' (「閉じる→キャンセル」で壊れた表示が、この画面を開くだけで戻る)。
+    On Error Resume Next
+    modUI.EnsureAppView
     On Error GoTo 0
 
     Application.ScreenUpdating = True
@@ -108,6 +121,7 @@ End Sub
 ' OnDashBackToChat - チャット画面(Nexusシート)へ戻る
 ' ----------------------------------------------------------------------------
 Public Sub OnDashBackToChat()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     modUI.GoToNexus "modDash.OnDashBackToChat"
 End Sub
 
@@ -115,6 +129,7 @@ End Sub
 ' OnDashRefresh - 既存のダッシュボードシートを再描画する
 ' ----------------------------------------------------------------------------
 Public Sub OnDashRefresh()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     Dim ws As Worksheet
     Set ws = GetDashSheet()
     If ws Is Nothing Then Exit Sub
@@ -198,21 +213,49 @@ End Sub
 ' ---- ヘッダー ----
 
 Private Sub DrawHeader(ByVal ws As Worksheet)
-    Dim titleShp As Shape
-    Set titleShp = ws.Shapes.AddShape(1, KPI_X0, HEADER_TITLE_Y, 400, 26)
-    titleShp.Name = "nxd_title"
-    titleShp.Line.Visible = 0
-    titleShp.Fill.Visible = 0
-    With titleShp.TextFrame2
+    Dim L As Double, W As Double
+    L = ws.Range("A1").Left
+    W = ws.Range("A1:T1").Width                      ' 帯そのものは画面いっぱい
+
+    Dim caps(0 To HDR_ITEMS - 1) As String
+    Dim acts(0 To HDR_ITEMS - 1) As String
+    Dim nms(0 To HDR_ITEMS - 1) As String
+    Dim wds(0 To HDR_ITEMS - 1) As Double
+    HeaderSpec caps, acts, nms, wds
+
+    ' 配置の算数は modChrome に任せる(枠外へ描く置き方が存在しない形にする)。
+    Dim xs() As Double, rws() As Long, uws() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowLeft(wds, HDR_ITEMS, L + HDR_TITLE_RESERVE, _
+                              L + ws.Range(HDR_CTL_COLS).Width - 8, HDR_PILL_GAP, _
+                              xs, rws, uws)
+    If rowN < 1 Then rowN = 1
+    Dim barH As Double: barH = HDR_BAR_H + (rowN - 1) * (HDR_PILL_H + 4)
+
+    Dim hdr As Shape
+    Set hdr = ws.Shapes.AddShape(5, L, 0, W, barH)
+    hdr.Name = "nxd_hdr"
+    hdr.Line.Visible = 0
+    hdr.Adjustments(1) = 0.02
+    hdr.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
+    modSkin.ApplyHeaderDepth hdr                      ' §9: 濃紺の2色グラデーション
+    With hdr.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード"
-        .TextRange.Font.Size = 15
+        .TextRange.Font.Size = 14
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .MarginLeft = 14
         .VerticalAnchor = 3
     End With
 
+    Dim i As Long
+    For i = 0 To HDR_ITEMS - 1
+        HeaderPill ws, nms(i), caps(i), acts(i), xs(i), _
+                   (HDR_BAR_H - HDR_PILL_H) / 2 + rws(i) * (HDR_PILL_H + 4), uws(i)
+    Next i
+
     Dim subShp As Shape
-    Set subShp = ws.Shapes.AddShape(1, KPI_X0, HEADER_SUB_Y, 400, 18)
+    Set subShp = ws.Shapes.AddShape(1, KPI_X0, barH + HEADER_SUB_Y - HDR_BAR_H, 400, 18)
     subShp.Name = "nxd_subtitle"
     subShp.Line.Visible = 0
     subShp.Fill.Visible = 0
@@ -222,36 +265,59 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         .VerticalAnchor = 3
     End With
-
-    DrawHeaderButton ws, "nxd_btn_export", BTN_EXPORT_X, HEADER_BTN_Y, BTN_EXPORT_W, HEADER_BTN_H, _
-        ChrW(&HD83D) & ChrW(&HDCE5) & " 分析用ログ出力", "modAnalytics.ExportAnalyticsCsv"
-    DrawHeaderButton ws, "nxd_btn_chat", BTN_CHAT_X, HEADER_BTN_Y, BTN_CHAT_W, HEADER_BTN_H, _
-        ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modDash.OnDashBackToChat"
-    DrawHeaderButton ws, "nxd_btn_refresh", BTN_REFRESH_X, HEADER_BTN_Y, BTN_REFRESH_W, HEADER_BTN_H, _
-        ChrW(&HD83D) & ChrW(&HDD04) & " 更新", "modDash.OnDashRefresh"
 End Sub
 
-Private Sub DrawHeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, ByVal x As Double, _
-                             ByVal y As Double, ByVal w As Double, ByVal h As Double, _
-                             ByVal caption As String, ByVal handlerName As String)
+' ヘッダーに載せるものの唯一の定義。ナビ3枚→ユーティリティ4枚の順で、
+' 並びとアイコンはHub・チャット画面に合わせる(いちばん右が🚪)。
+' 「💬 チャットへ」が2つあった問題(旧ボタンとナビの重複)はナビ側へ一本化した。
+Private Sub HeaderSpec(ByRef caps() As String, ByRef acts() As String, _
+                       ByRef nms() As String, ByRef wds() As Double)
+    caps(0) = ChrW(&H2190) & " Hub":                          nms(0) = "nxd_nav_hub"
+    acts(0) = "modKnowledge.OnBackHub"
+    caps(1) = ChrW(&HD83D) & ChrW(&HDCAC) & " チャット":      nms(1) = "nxd_nav_chat"
+    acts(1) = "modDash.OnDashBackToChat"
+    caps(2) = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジと本棚": nms(2) = "nxd_nav_vault"
+    acts(2) = "modHub.OnGoVault"
+    caps(3) = ChrW(&HD83D) & ChrW(&HDD04) & " 更新":          nms(3) = "nxd_btn_refresh"
+    acts(3) = "modDash.OnDashRefresh"
+    caps(4) = ChrW(&HD83D) & ChrW(&HDCE5) & " ログ":          nms(4) = "nxd_btn_export"
+    acts(4) = "modAnalytics.ExportAnalyticsCsv"
+    caps(5) = ChrW(&HD83C) & ChrW(&HDFA8) & " 着せ替え":      nms(5) = "nxd_btn_skin"
+    acts(5) = "modHub.OnThemeToggle"
+    caps(6) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了":          nms(6) = "nxd_btn_exit"
+    acts(6) = "modApp.OnSaveAndExit"
+
+    Dim i As Long
+    For i = 0 To HDR_ITEMS - 1
+        wds(i) = modChrome.PillWidth(caps(i), HDR_PILL_PITCH, HDR_PILL_PAD, HDR_PILL_MIN)
+    Next i
+End Sub
+
+' 帯の上に置くピル1個(1個の失敗で残りを道連れにしない)。
+Private Sub HeaderPill(ByVal ws As Worksheet, ByVal shapeName As String, _
+                       ByVal caption As String, ByVal handlerName As String, _
+                       ByVal x As Double, ByVal y As Double, ByVal w As Double)
+    On Error Resume Next
     Dim btn As Shape
-    Set btn = ws.Shapes.AddShape(5, x, y, w, h)
+    Set btn = ws.Shapes.AddShape(5, x, y, w, HDR_PILL_H)
+    If btn Is Nothing Then Exit Sub
     btn.Name = shapeName
     btn.Adjustments(1) = 0.35
-    btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
-    btn.Line.ForeColor.RGB = modUI.UiColor("border")
-    btn.Line.Weight = 0.75
+    btn.Line.Visible = 0
     btn.Shadow.Visible = 0
+    btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With btn.TextFrame2
         .WordWrap = -1
         .TextRange.Text = caption
         .TextRange.Font.Size = 9
-        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+        .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
-        .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
+        .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
     btn.OnAction = handlerName
+    On Error GoTo 0
 End Sub
 
 ' ---- KPIカード4枚 ----

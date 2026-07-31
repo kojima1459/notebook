@@ -267,6 +267,12 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     For i = 1 To loopCount
         tmp(i - 1).page = i
         tmp(i - 1).Text = ExtractPageText(doc, i, pageCount)
+        ' 2026-07-31(R7 B-2): 1ページ分のCOMシーケンス(GoTo→範囲確定→Text)が
+        ' 完全に終わった【あと】で1回だけメッセージを捌く。ページの途中に
+        ' 置くと、Rangeを掴んだままイベントへ抜けることになり、その間に
+        ' 文書が閉じられると掴んでいる参照が無効になる。300ページの約款でも
+        ' 追加コストはページ数回のDoEventsだけ。
+        DoEvents
     Next i
 
     stepName = STEP_CLOSE

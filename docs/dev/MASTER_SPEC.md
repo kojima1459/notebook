@@ -230,6 +230,11 @@ Public Function NowStamp() As String                            ' "yyyy-mm-dd hh
 Public Function FileNameOf(ByVal path As String) As String      ' 区切りは \ と / 両対応
 Public Function ExtOf(ByVal path As String) As String           ' 小文字拡張子(ドットなし)
 Public Function IsSameTimestamp(ByVal a As Date, ByVal b As Date) As Boolean ' 2秒丸め(FAT/OneDrive誤差)
+Public Function EtaText(ByVal remainCount As Long, ByVal msPerItem As Double) As String
+    ' R7 B-1: 残り件数×1件あたりミリ秒 → "残り約3分" / 60秒未満は "まもなく完了" /
+    ' 見積り不能(msPerItem<=0)・残り0件は "" を返す(呼び出し側は件数だけ出す)
+Public Function ProgressText(ByVal doneN As Long, ByVal totalN As Long, ByVal etaPart As String) As String
+    ' R7 B-1: "12/88件・残り約3分"(etaPartが空なら "12/88件")
 ```
 注: `NowStamp`はNow()を使う(Excel/LO両対応)。`FileNameOf`/`ExtOf`は文字列処理のみなのでR4適合。
 
@@ -334,7 +339,15 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
 Public Sub DeleteSource(ByVal sourceName As String)  ' knowledge/vectors/manifest から一括削除+再描画
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long ' カード描画用
 Public Function TotalChunks() As Long
+Public Function IsBusy() As Boolean
+    ' R7 B-2: 再入ガード mIngesting の公開。抽出ループのDoEventsで発火した
+    ' クリックを画面遷移側(modUiLock.BlockIfIngesting)が受け流すために使う。
+    ' 焼き付き対策としてGUARD_EXPIRY_MIN超過のガードはFalseを返す。
 ```
+注(R7 B-2): 再入guard(E0503)は ShowError(モーダル)ではなく
+`modLog.LogError` + `modUIMain.SetStage` のみで通知する(連打のたびに
+ダイアログが積み上がると、それ自体が「応答なし」に見えるため)。
+E0503 のログ記録は従来どおり残す。
 
 **modShelfSync.bas**
 ```vba
@@ -350,6 +363,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' silent:=Trueで呼ぶ(対話ダイアログでフォーカスを奪わない。§8 UXレビュー対応:
     ' 配布直後にshelf_folder未設定のままE0502警告が必ず出る問題/定期MsgBoxが
     ' 作業を中断する問題への対応)。手動🔄ボタン・PickShelfFolder直後はsilent=False。
+Public Function IsBusy() As Boolean
+    ' R7 B-2: 再入ガード mSyncRunning の公開(modShelf.IsBusyと対)。
+    ' 同期のファイルループも1ファイルごとにDoEventsを回すため必要。
 Public Sub ScheduleAutoSync()     ' sync_interval_min>0ならApplication.OnTimeで次回予約(自己再帰)
 Public Sub CancelAutoSync()       ' 予約解除(必ずOn Error握り: 予約なしでも安全)
 Public Sub AutoSyncTick()         ' OnTimeコールバック本体(Wave4修正: 契約上Public必須。下記注参照)

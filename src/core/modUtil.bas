@@ -332,6 +332,52 @@ Public Function HumanSeconds(ByVal sec As Double) As String
     End If
 End Function
 
+' ----------------------------------------------------------------------------
+' EtaText / ProgressText - バッチ処理の進捗表示(2026-07-31 R7 B-1)
+' ----------------------------------------------------------------------------
+' 実機報告「チャンク化中の進捗に目安時間が無い」。件数だけの実況は、
+' 全部で何件あるのかを見ても【あと何分待てばよいのか】が分からないため、
+' 利用者は「止まったのでは」と思ってExcelを強制終了してしまう。
+' 残り時間の算数と文言整形はここ(純ロジック)へ置き、modEmbed/modEnrichは
+' 計測値を渡すだけにする(この2つはテストで固定できる)。
+'
+' EtaText: 残り件数と「1件あたりミリ秒」から目安を作る。
+'   msPerItem<=0(まだ1バッチも終わっていない)や残り0件は空文字を返す
+'   =呼び出し側は件数だけを出す。60秒未満は数字を出さず「まもなく完了」。
+'   秒単位の予告は当たらないうえ、当たらない予告は信用を失う。
+Public Function EtaText(ByVal remainCount As Long, ByVal msPerItem As Double) As String
+    If remainCount <= 0 Then Exit Function
+    If msPerItem <= 0 Then Exit Function
+
+    Dim sec As Double: sec = (CDbl(remainCount) * msPerItem) / 1000#
+    If sec < 60# Then
+        EtaText = "まもなく完了"
+        Exit Function
+    End If
+
+    Dim mins As Long: mins = CLng(Int(sec / 60# + 0.5))
+    If mins < 1 Then mins = 1
+    If mins < 60 Then
+        EtaText = "残り約" & mins & "分"
+        Exit Function
+    End If
+
+    Dim hrs As Long: hrs = mins \ 60
+    Dim rem2 As Long: rem2 = mins Mod 60
+    If rem2 = 0 Then
+        EtaText = "残り約" & hrs & "時間"
+    Else
+        EtaText = "残り約" & hrs & "時間" & rem2 & "分"
+    End If
+End Function
+
+' ProgressText: 「12/88件・残り約3分」。etaが空なら「12/88件」だけ。
+Public Function ProgressText(ByVal doneN As Long, ByVal totalN As Long, _
+                             ByVal etaPart As String) As String
+    ProgressText = doneN & "/" & totalN & "件"
+    If LenB(etaPart) > 0 Then ProgressText = ProgressText & "・" & etaPart
+End Function
+
 Public Function SafeLeft(ByVal s As String, ByVal n As Long) As String
     Dim lim As Long: lim = n
     If lim < 0 Then lim = 0
