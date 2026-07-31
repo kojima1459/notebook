@@ -369,6 +369,12 @@ NextEta:
 NextProgress:
     On Error GoTo ProgressFail
     TestProgressText
+NextPure5:
+    ' 2026-07-31 R8: modShareRule(P2P/共有系の判定式)のテストは
+    ' modTestsPure5 へ置いた。ここが唯一の導線なので消さないこと
+    ' (消えるとテストが「全部PASS」のまま実行されなくなる)。
+    On Error GoTo Pure5Fail
+    modTestsPure5.RunAll5
 NextDone4:
     On Error GoTo 0
     Exit Sub
@@ -407,6 +413,10 @@ EtaFail:
     Resume NextProgress
 ProgressFail:
     modTestRunner.Check "TestProgressText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure5
+Pure5Fail:
+    modTestRunner.Check "modTestsPure5.RunAll5(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone4
 End Sub

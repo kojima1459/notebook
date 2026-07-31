@@ -241,6 +241,16 @@ Public Sub Boot()
     ' mb_question等の名前定義とRenderAnswerの土台を用意する役割が残るため
     ' 先に実行し、その上からHubのレイアウトで描き替える(Hub側が旧btn_/lbl_
     ' Shapeも消すので二重表示にはならない)。
+    ' 2026-07-31(レビュー R8 F3): 起動ジッタは【共有I/Oを伴う最初の処理より
+    ' 前】へ置く。従来はここより後(SyncNow の直前)にあったが、この直後の
+    ' modHub.EnsureHubLayout が受信箱の描画で modShare.Reachable() と
+    ' modChannel.PendingUpdates() を呼ぶ = そこが実際の「最初の共有I/O」で、
+    ' 朝の一斉起動では全員が同時刻にファイルサーバへ殺到していた。
+    ' 分散させたい負荷の【後】で散らしても意味が無い、が M-23 の要点。
+    On Error Resume Next
+    modChannel.StartupJitter
+    On Error GoTo Failed
+
     bootStage = "ホーム画面の組み立て"
     On Error Resume Next
     modUIMain.EnsureLayout
@@ -315,9 +325,8 @@ Public Sub Boot()
     ' 従来は SyncNow(その中で感謝状・品質報告の全ファイル走査をする)を
     ' 済ませてから散らしていたため、朝の一斉起動で最も重い処理が
     ' 全員同時刻に走っていた。分散させたい負荷の後で散らしても意味が無い。
-    On Error Resume Next
-    modChannel.StartupJitter
-    On Error GoTo Failed
+    ' 2026-07-31(レビュー R8 F3): その呼び出しは 3) の直前へ移した
+    ' (受信箱の描画がさらに前で共有を触っていたため)。1回で足りる。
 
     If modConfig.GetBool("sync_on_open", True) Then
         On Error Resume Next
@@ -409,6 +418,13 @@ Public Sub Boot()
     ' ため、ヒント文は「入力後に Ctrl+Enter」と書き換えてある。
     Application.OnKey "^~", "modApp.HotSend"
     Application.OnKey "^{ENTER}", "modApp.HotSend"
+    On Error GoTo Failed
+
+    ' 2026-07-31(レビュー R8 F3): ここから先の再描画では、Hubの受信箱が
+    ' 共有フォルダへ実際に問い合わせてよい。起動シーケンス中は
+    ' 「押して確認」のプレースホルダで済ませ、共有I/Oを1回も走らせない。
+    On Error Resume Next
+    modHubStat.AllowShareQueries
     On Error GoTo Failed
 
     gBootDone = True

@@ -404,11 +404,12 @@ Private Function SendQuestion(ByVal expert As String, ByVal q As String, _
         folderPath & "q_" & modUtil.Fnv1a64Hex(expert) & "_" & nonce & ".txt", rowText)
 End Function
 
+' 2026-07-31(レビュー R8 F2): modShare の関所を通す。自前で
+' nexus_share_path を読むと、届かない共有でも毎回パスが組み上がり、
+' 書込みリトライ(3回×バックオフ)を丸ごと払ってから失敗する。
+' 到達判定とルート解決は modShare だけが行う(modShare 冒頭「唯一性の原則」)。
 Private Function QuestionsDir() As String
-    Dim basePath As String: basePath = modConfig.GetString("nexus_share_path", "")
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    QuestionsDir = basePath & QUESTIONS_SUBDIR & "\"
+    QuestionsDir = modShare.SubDir(QUESTIONS_SUBDIR)
 End Function
 
 ' AVロック(エラー70等)に耐える書込みリトライ。modP2Pと同仕様の自前実装

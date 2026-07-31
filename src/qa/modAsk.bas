@@ -388,6 +388,11 @@ Public Sub FeedbackGreen()
     modStats.Bump "sv:d:" & Format$(Date, "yyyymmdd"), 15
     modStats.Bump "sv:m:" & Format$(Date, "yyyymm"), 15
     modStats.Bump "sv:y:" & Format$(Date, "yyyy"), 15
+    ' 2026-07-31(レビュー R8 F8): 加算した「今日の節約時間」は、この直後に
+    ' 共有フォルダのビーコンへ反映する必要がある(起動時にしか発信していない
+    ' ため、全員のビーコンが「今日 0分」のまま置かれていた)。
+    ' ただし modBoard は UI層で、ここ(qa層)から呼ぶと層の向きが逆になる。
+    ' 発信は UI層の呼び出し元(modApp.OnActResolve)が担当する。
     On Error GoTo 0
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next

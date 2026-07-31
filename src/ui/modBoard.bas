@@ -40,12 +40,25 @@ Private mLoaded As Boolean
 ' Hub初期描画から共有フォルダI/Oを走らせないためのゲート。
 Private mBooted As Boolean
 
+' ビーコン再発信のスロットル(2026-07-31 R8 F8)と、集計のTTL(同 F9)。
+' どちらも Timer(0:00からの経過秒)で持つ。判定は modShareRule.CacheIsFresh
+' に寄せてあり、日跨ぎで Timer が0へ戻る場合も「古い」に倒れる。
+Private mBeaconAt As Double
+Private mAggAt As Double
+Private Const BEACON_THROTTLE_SEC As Double = 600#
+Private Const AGG_TTL_SEC As Double = 600#
+
 ' ----------------------------------------------------------------------------
 ' BootBoard - エントリポイント(LaunchNexus末尾から1行フック)。
 '   発信→集計→ウィジェット描画。全障害を内部で握る。
 ' ----------------------------------------------------------------------------
 Public Sub BootBoard()
     On Error Resume Next   ' 安全弁: 本機能の失敗を起動へ絶対に波及させない
+    ' 2026-07-31(レビュー R8 F2): 共有へ届かないなら、ここで即やめる。
+    ' 以下は発信・集計とも全部が共有フォルダI/Oで、届かない共有に対しては
+    ' リトライ(3回×バックオフ)を全部払ってから空振りする。到達判定は
+    ' modShare が1セッション1回だけキャッシュ付きで行うので追加費用は無い。
+    If Not modShare.Reachable() Then Exit Sub
     PublishBeacon
     RefreshBoard
     DrawWidget
@@ -181,7 +194,26 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' 内部: ビーコン発信/集計
 ' ----------------------------------------------------------------------------
-Private Sub PublishBeacon()
+' ----------------------------------------------------------------------------
+' PublishBeacon - 自分の統計を共有フォルダへ1ファイルで置く(上書き=競合ゼロ)。
+'
+' 2026-07-31(レビュー R8 F8): Public にして、✅解決の直後にも呼べるようにした。
+'   従来は起動時(BootBoard)にしか発信していなかった。ところが「今日の節約
+'   時間」は【その日に✅を押した分】で、押すのは起動よりずっと後になる。
+'   つまり全員のビーコンが「今日 0分」の状態で置かれ、翌朝の起動で上書き
+'   されるまで誰の画面でも「みんなの節約(今日)」が構造的にほぼ0だった。
+'   目玉の指標が常に0では、共有そのものが動いていないように見える。
+'
+'   ただし✅は1日に何度も押されるので、そのたび共有へ書くと人数×回数の
+'   書込みになる。10分に1回までに絞る(その日の合計値を書く方式なので、
+'   1回遅れても次の発信で必ず正しい値に追い付く=取りこぼしが残らない)。
+' ----------------------------------------------------------------------------
+Public Sub PublishBeacon()
+    ' 共有へ届かないなら何もしない。届かない共有への書込みリトライ
+    ' (3回×バックオフ)を✅のたびに払わせない(R8 F2/F8)。
+    If Not modShare.Reachable() Then Exit Sub
+    If modShareRule.CacheIsFresh(mBeaconAt, Timer, BEACON_THROTTLE_SEC) Then Exit Sub
+
     Dim folderPath As String: folderPath = BoardDir()
     If LenB(folderPath) = 0 Then Exit Sub
     On Error Resume Next
@@ -203,6 +235,9 @@ Private Sub PublishBeacon()
               mk & vbTab & MyMin("m", mk) & vbTab & _
               yk & vbTab & MyMin("y", yk) & vbTab & modUtil.NowStamp()
 
+    ' スロットルの起点は「実際に書きに行った時刻」。書けたかどうかに関わらず
+    ' 進める(届かない共有へ10分より短い間隔で挑み続けないため)。
+    mBeaconAt = Timer
     WriteBeacon folderPath & "stats_" & modUtil.Fnv1a64Hex(myId) & ".txt", rowText
 End Sub
 
@@ -226,7 +261,36 @@ Public Sub RefreshBoardTiles()
     RefreshBoard
 End Sub
 
+' ----------------------------------------------------------------------------
+' ForceRefreshBoard - TTLを無視して集計をやり直す(2026-07-31 R8 F9)。
+'   ダッシュボードの「更新」ボタンだけがこれを呼ぶ。利用者が明示的に
+'   更新を押したときに「10分経っていないので前の値です」と返すのは、
+'   ボタンが壊れているのと区別が付かない。
+' ----------------------------------------------------------------------------
+Public Sub ForceRefreshBoard()
+    mAggAt = 0
+    RefreshBoard
+End Sub
+
+' ----------------------------------------------------------------------------
+' RefreshBoard - 全員のビーコンを読んで組織合計を出し直す。
+'
+' 2026-07-31(レビュー R8 F9): 10分のTTLを付けた。
+'   ここは board\stats_*.txt を【人数ぶん】開いて読む。Hubは画面を戻る
+'   たびに描き直されるので、TTLが無いと「1人が画面を行き来した回数 ×
+'   部内の人数」がそのままファイルサーバへの往復になる。数十人のPoCでも
+'   午前中に数千回になり得る。値は分単位の集計で、10分古くても実害は無い。
+'
+'   本来は「誰か1人が集計スナップショットを書き、他は1ファイル読むだけ」に
+'   すべきで、1,000人を超える規模ではTTLでは足りない。ただしそれは
+'   「誰が書くか」「壊れたスナップショットをどう検出するか」という別設計を
+'   伴うため、PoC(数十人)ではTTLで足りると判断した。本格展開時の設計課題。
+' ----------------------------------------------------------------------------
 Private Sub RefreshBoard()
+    ' TTL内なら前回の集計値をそのまま使う(mOrgDay等は消さない)。
+    If modShareRule.CacheIsFresh(mAggAt, Timer, AGG_TTL_SEC) Then Exit Sub
+    mAggAt = Timer
+
     mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
@@ -326,11 +390,14 @@ Private Function FmtMin(ByVal m As Long) As String
     End If
 End Function
 
+' 2026-07-31(レビュー R8 F2): 自前で nexus_share_path を読んでパスを
+' 組み立てていたため、modShare の関所(1セッション1回の到達判定)を
+' 素通りしていた。届かない共有に対して起動のたび OS のタイムアウトを
+' 払い直すうえ、「modShare は届かないと言っているのに modBoard は
+' 触りに行く」という矛盾した状態になる。到達判定とルート解決は
+' modShare だけが行う、が本来の設計(modShare 冒頭「唯一性の原則」)。
 Private Function BoardDir() As String
-    Dim basePath As String: basePath = modConfig.GetString("nexus_share_path", "")
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    BoardDir = basePath & BOARD_SUBDIR & "\"
+    BoardDir = modShare.SubDir(BOARD_SUBDIR)
 End Function
 
 ' ビーコンI/O(AVロック耐性リトライ。COMは両経路Set=Nothing。modMentorと同仕様の複製)
@@ -338,11 +405,20 @@ Private Function WriteBeacon(ByVal filePath As String, ByVal content As String) 
     Dim attempt As Long
     For attempt = 1 To 3
         If TryW(filePath, content) Then
+            ' 2026-07-31(レビュー R8・F7最小実装): 成功/失敗を modShare へ伝える。
+            ' 到達OKと判定した後にVPNが切れると、各所のリトライ(3回×バックオフ)を
+            ' 延々と払い続ける。連続5回の失敗でそのセッションを見送りへ倒す。
+            On Error Resume Next
+            modShare.ReportSuccess
+            On Error GoTo 0
             WriteBeacon = True
             Exit Function
         End If
         BoardWait 250 * attempt
     Next attempt
+    On Error Resume Next
+    modShare.ReportFailure "modBoard WriteBeacon(ビーコン発信)"
+    On Error GoTo 0
 End Function
 
 Private Function TryW(ByVal filePath As String, ByVal content As String) As Boolean
@@ -374,11 +450,19 @@ Private Function ReadBeacon(ByVal filePath As String, ByRef outText As String) A
     Dim attempt As Long
     For attempt = 1 To 3
         If TryR(filePath, outText) Then
+            On Error Resume Next
+            modShare.ReportSuccess
+            On Error GoTo 0
             ReadBeacon = True
             Exit Function
         End If
         BoardWait 150 * attempt
     Next attempt
+    ' 1件読めないだけなら他人のファイルがロックされているだけのことが多い。
+    ' 連続5件が全滅して初めて「共有そのものが落ちた」とみなす(R8 F7)。
+    On Error Resume Next
+    modShare.ReportFailure "modBoard ReadBeacon(ビーコン集計)"
+    On Error GoTo 0
 End Function
 
 Private Function TryR(ByVal filePath As String, ByRef outText As String) As Boolean

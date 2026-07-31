@@ -388,13 +388,50 @@ Public Sub OnShareSetup()
     If LenB(p) = 0 Then GoTo Done
     If Right$(p, 1) <> "\" Then p = p & "\"
 
-    If Len(Dir(p, vbDirectory)) = 0 Then
+    ' 2026-07-31(レビュー R8 F6): 存在確認を Dir から GetAttr へ揃える。
+    ' Dir にフォルダを渡すと返るのは【そのフォルダの中の最初のエントリ】で、
+    ' 空フォルダでは空文字になる。つまり「共有フォルダを作ったばかりで
+    ' まだ何も入っていない」という、PoC開始直後にいちばん起こる状態で
+    ' 「そのフォルダが見つかりませんでした」と言って設定を拒んでいた。
+    ' 判定式は modShare の到達性プローブと同じものを使う(2箇所で違う答えを
+    ' 出さない)。
+    On Error Resume Next
+    Err.Clear
+    Dim attrVal As Long
+    attrVal = GetAttr(modShareRule.ProbeTargetPath(p))
+    Dim probeErr As Long: probeErr = Err.Number
+    Err.Clear
+    On Error GoTo Done
+    If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
         modSkin.ShowToast "そのフォルダが見つかりませんでした。パスをご確認ください(設定は変更していません)。", "error"
         GoTo Done
     End If
 
     modConfig.SetValue "nexus_share_path", p
-    modSkin.ShowToast "接続しました。感謝状・専門家への質問・みんなの節約時間が使えます。", "success"
+
+    ' 2026-07-31(レビュー R8 F5): modShare は到達判定を1セッションに1回だけ
+    ' 行い、結果をモジュール変数へキャッシュする。設定を直した直後に
+    ' キャッシュを捨てないと、【この起動中は何をしても共有が使えないまま】に
+    ' なる。「設定し直したのに直らない → ブックを開き直したら直った」という、
+    ' 利用者が原因を突き止めようのない状態がこれ。
+    On Error Resume Next
+    modShare.ResetProbe
+    On Error GoTo Done
+
+    ' 文言は、判定をやり直したあとの実際の到達性で決める。
+    ' 「接続しました」と言い切ってから届かないのが分かるのは、
+    ' 利用者に嘘をつくのと同じで、次の失敗の原因調査を必ず遠回りさせる。
+    Dim reach As Boolean
+    On Error Resume Next
+    reach = modShare.Reachable()
+    On Error GoTo Done
+    If reach Then
+        modSkin.ShowToast "接続しました。感謝状・専門家への質問・みんなの節約時間が使えます。", "success"
+    Else
+        modSkin.ShowToast "設定は保存しましたが、そのフォルダへ今は届きませんでした。" & _
+                          "ネットワーク接続をご確認のうえ、開き直してお試しください。", "error"
+    End If
+
     On Error Resume Next
     modBoard.BootBoard   ' ウィジェットを即時再構築(次回起動を待たせない)
     On Error GoTo Done

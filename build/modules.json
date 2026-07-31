@@ -618,6 +618,14 @@
       "note": "modTestsPure3の容量逼迫による分割先(R6: 画像PDFのOCR取込。GSコマンドのゴールデンテスト/ページ付きテキストの往復/全ページ化けPDFの振り替え)。modTestsPure3.RunAll3末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure5",
+      "path": "src/test/modTestsPure5.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R8-P2P",
+      "note": "modTestsPure4の分割先(R8: P2P/共有系の判定式 modShareRule の境界値。失効判定は『一度も共有へ到達していない端末は絶対に消さない』を最優先で固定する)。modTestsPure4.RunAll4末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

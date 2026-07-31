@@ -213,3 +213,34 @@ Public Function SyncSummaryText(ByVal okN As Long, ByVal failN As Long, _
     End If
     SyncSummaryText = "すべて最新です。読み込み直すものはありませんでした。"
 End Function
+
+' ----------------------------------------------------------------------------
+' 同時発行の見張り(R8 F12)
+' ----------------------------------------------------------------------------
+' PublishLockAction - publish.lock の状態から、発行を続けてよいかを決める。
+'   戻り値:
+'     "go"    … ロックが無い。自分がロックを取って発行してよい
+'     "wait"  … 他の人が発行中(ロックが新しい)。断って案内する
+'     "stale" … ロックはあるが古い。前回の発行が異常終了した残骸とみなし、
+'               上書きして続行する(残骸1つで発行機能が永久に死ぬのを防ぐ)
+'
+'   ageMinutes が負(端末の時計がずれている・日を跨いだ)ときは、
+'   「新しいロック」として扱う。判断が付かないときは、上書きより待つ方が安全。
+'   同時発行は「両方成功したように見えて、片方の pack と他方の version.txt が
+'   混ざる」という最悪の壊れ方をするため、迷ったら中断する。
+Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As Double, _
+                                  ByVal staleMinutes As Double) As String
+    If Not hasLock Then
+        PublishLockAction = "go"
+        Exit Function
+    End If
+    If ageMinutes < 0 Then
+        PublishLockAction = "wait"
+        Exit Function
+    End If
+    If ageMinutes >= staleMinutes Then
+        PublishLockAction = "stale"
+        Exit Function
+    End If
+    PublishLockAction = "wait"
+End Function

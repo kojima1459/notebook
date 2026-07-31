@@ -452,9 +452,20 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     shareOk = (LenB(Trim$(modConfig.GetString("nexus_share_path", ""))) > 0)
     On Error GoTo 0
 
+    ' 2026-07-31(レビュー R8 F3): ここで直接 modChannel.PendingUpdates を
+    ' 呼ぶと、購読中の部門ぶんの version.txt をその場で読みに行く。Hubの
+    ' 初期描画は起動シーケンスの途中なので、遅い共有では起動が止まる。
+    ' 起動中は問い合わせず(空が返る)、起動後の再描画で10分TTL付きで引く。
     Dim chPend As String
     On Error Resume Next
-    chPend = modChannel.PendingUpdates()
+    chPend = modHubStat.PendingUpdatesCached()
+    On Error GoTo 0
+
+    ' 上限超過(R8 F13)。41件目以降の部門は静かに捨てられていたため、
+    ' 「うちの部門にだけ正典が届かない」が誰にも調べられない不具合だった。
+    Dim chOver As Long
+    On Error Resume Next
+    chOver = modChannel.OverflowCount()
     On Error GoTo 0
 
     Dim cap As String, act As String
@@ -480,6 +491,20 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
               "】に更新があります" & vbCr & _
               "押して読み込み直してください。古い内容で回答しないために早めの更新を"
         act = "modKnowledge.OnChannels"
+    ElseIf chOver > 0 Then
+        ' 2026-07-31(レビュー R8 F13): 部門数が上限を超えると、41件目以降は
+        ' 一覧から静かに落ちる。落ちた部門の正典は誰にも届かないのに、
+        ' 画面にもログにも何も出ないため「うちの部門だけ届かない」という
+        ' 調べようのない不具合になっていた。件数を必ず見せる。
+        cap = ChrW(&H26A0) & " 部門が多すぎて " & chOver & "部門を読み込めていません" & vbCr & _
+              "このツールの管理担当者にご連絡ください(部門数の上限を超えています)"
+        act = "modKnowledge.OnChannels"
+    ElseIf Not modHubStat.ShareQueriesAllowed() Then
+        ' 起動中は共有フォルダへ問い合わせない(R8 F3)。「更新はありません」と
+        ' 言い切ると嘘になり得るので、まだ見ていないことをそのまま書く。
+        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の更新はまだ確認していません" & vbCr & _
+              "押すと今すぐ確認します(起動を軽くするため、開いた直後は確認しません)"
+        act = "modHub.OnCheckUpdates"
     ElseIf modChannel.IsBudgetTight() Then
         cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
               "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
@@ -683,6 +708,22 @@ End Sub
 ' 🔄 画面を再描画。ウィンドウのリサイズ・Alt+Tab復帰・マルチモニタ間の移動で
 ' Shapeがゴースト化/ズレたときの1クリック復旧手段(旧サイドバーから移設)。
 ' 会話は消さない。modApp.OnRefreshUIはロックを取るのでここでは取らない。
+' OnCheckUpdates - 受信箱の「押すと今すぐ確認します」(2026-07-31 R8 F3)。
+'   起動シーケンス中は共有フォルダへ問い合わせない代わりに、利用者が
+'   自分の意思で確認できる入口をここに置く。押した時点で TTL キャッシュを
+'   捨て、問い合わせを許可してから Hub を描き直す。
+Public Sub OnCheckUpdates()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modHubStat.AllowShareQueries
+    modHubStat.InvalidatePending
+    On Error GoTo 0
+    modUiLock.Leave
+    On Error Resume Next
+    EnsureHubLayout
+    On Error GoTo 0
+End Sub
+
 Public Sub OnShareHelp()
     MsgBox "部内で知恵を共有するには、共有フォルダを1回だけ設定します。" & vbCrLf & vbCrLf & _
         "【設定するもの】" & vbCrLf & _

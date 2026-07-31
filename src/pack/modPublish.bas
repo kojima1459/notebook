@@ -39,6 +39,13 @@ Private Const PACK_NAME As String = "pack.xlsx"
 Private Const VER_NAME As String = "version.txt"
 Private Const LOG_NAME As String = "publish_log.txt"
 Private Const ARCHIVE_DIR As String = "_archive"
+Private Const LOCK_NAME As String = "publish.lock"
+
+' publish.lock を「前回の異常終了の残骸」とみなすまでの時間(分)。
+' 発行そのものは数十秒で終わるので、10分もあれば正常な発行は必ず終わっている。
+' 短すぎると大きな本棚の発行中に他の人が割り込み、長すぎると Excel が落ちた
+' 端末のロック1つで部門の発行が数時間止まる(R8 F12)。
+Private Const LOCK_STALE_MIN As Double = 10#
 
 ' ----------------------------------------------------------------------------
 ' CanPublish - 発行キーが設定されているか(発行画面を出してよいか)。
@@ -71,6 +78,106 @@ Public Function PrepareDir(ByVal chName As String) As String
     EnsureDir baseDir & chName & "\"
     EnsureDir baseDir & chName & "\" & ARCHIVE_DIR & "\"
     PrepareDir = baseDir & chName & "\"
+    On Error GoTo 0
+End Function
+
+' ============================================================================
+' 同時発行の見張り(2026-07-31 レビュー R8 F12)
+' ----------------------------------------------------------------------------
+' 何が起きていたか:
+'   発行は「旧版を退避 → pack.xlsx を共有へ直接 SaveAs → version.txt」の順で、
+'   pack.xlsx の書込みが共有フォルダ上で数十秒続く。その間に別の担当者が
+'   同じ部門を発行すると、
+'     ・Aの pack を書いている最中に B が退避・上書きを始める
+'     ・A の version.txt と B の pack.xlsx が組み合わさる
+'   という、どちらの発行者にもエラーが出ないまま中身と版番号が食い違う
+'   壊れ方をする。購読者は「新しい版だから」と信じて取り込む。
+'
+' 対策は2つ:
+'   (1) 書込み窓を短くする。pack.xlsx はまず %TEMP% へ書き、出来上がった
+'       ものを共有へ FileCopy する(共有側が中途半端な状態でいる時間が、
+'       数十秒から1回のコピーに縮む)。→ StagePackPath / CommitPack
+'   (2) 発行の間だけ publish.lock を置く。他の人はそれを見て中断する。
+'       10分を超えた残骸は無視して続行する(ロック1つで発行機能が
+'       永久に死ぬのを防ぐ)。→ AcquireLock / ReleaseLock
+' ============================================================================
+
+' AcquireLock - 発行ロックを取る。取れたら True。
+'   取れなかったときは outHolder に「誰がいつ始めたか」を返す(案内に使う)。
+Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) As Boolean
+    On Error Resume Next
+    outHolder = ""
+    Dim d As String: d = PrepareDir(chName)
+    If LenB(d) = 0 Then Exit Function
+
+    Dim lockPath As String: lockPath = d & LOCK_NAME
+    Dim hasLock As Boolean: hasLock = (LenB(Dir(lockPath)) > 0)
+
+    Dim ageMin As Double
+    If hasLock Then
+        Err.Clear
+        ageMin = (Now - FileDateTime(lockPath)) * 1440#
+        If Err.Number <> 0 Then ageMin = 0        ' 読めない=判らない=待たせる
+        Err.Clear
+        Dim body As String
+        If ReadShared(lockPath, body) Then outHolder = Trim$(Replace(body, vbTab, " / "))
+    End If
+
+    Select Case modShareRule.PublishLockAction(hasLock, ageMin, LOCK_STALE_MIN)
+        Case "wait"
+            Exit Function
+        Case "stale"
+            ' 残骸とみなして続行する。誰がいつ残したかは記録に残す。
+            modLog.LogUsage "publish_lock_stale", chName, _
+                "10分以上前の publish.lock を上書きしました: " & modUtil.SafeLeft(outHolder, 120)
+            outHolder = ""
+    End Select
+
+    WriteShared lockPath, PublisherName() & vbTab & Format$(Now, "yyyy-mm-dd hh:nn:ss")
+    AcquireLock = True
+    On Error GoTo 0
+End Function
+
+' ReleaseLock - 発行ロックを外す。発行が成功しても失敗しても必ず呼ぶ。
+Public Sub ReleaseLock(ByVal chName As String)
+    On Error Resume Next
+    Dim baseDir As String: baseDir = ChannelsDir()
+    If LenB(baseDir) = 0 Then Exit Sub
+    Kill baseDir & chName & "\" & LOCK_NAME
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' StagePackPath - pack.xlsx を一旦置くローカル(%TEMP%)のパス。
+'   共有フォルダ上で「書きかけの pack.xlsx」が見えている時間を短くするため、
+'   重い書き出しは必ずローカルで済ませる(R8 F12)。
+'   同じ秒に2人が同じ端末を使うことは無いが、同一端末での連続発行に備えて
+'   Timer 由来のサフィックスも足す(modChannel.CopyToTemp と同じ作法)。
+Public Function StagePackPath(ByVal chName As String) As String
+    On Error Resume Next
+    Dim tmpDir As String: tmpDir = Environ$("TEMP")
+    If LenB(tmpDir) = 0 Then tmpDir = Environ$("TMP")
+    If LenB(tmpDir) = 0 Then Exit Function
+    If Right$(tmpDir, 1) <> "\" Then tmpDir = tmpDir & "\"
+
+    StagePackPath = tmpDir & "nexus_pub_" & modUtil.Fnv1a64Hex(chName) & "_" & _
+                    Format$(Now, "hhnnss") & "_" & _
+                    Format$(Int(Timer * 1000) Mod 100000, "00000") & ".xlsx"
+    On Error GoTo 0
+End Function
+
+' CommitPack - %TEMP% に出来上がったパックを共有の pack.xlsx へ据える。
+'   コピーが済んだら一時ファイルは消す(%TEMP%に発行物を残さない)。
+Public Function CommitPack(ByVal chName As String, ByVal stagePath As String) As Boolean
+    On Error Resume Next
+    If LenB(stagePath) = 0 Then Exit Function
+    If LenB(Dir(stagePath)) = 0 Then Exit Function
+    Dim d As String: d = PrepareDir(chName)
+    If LenB(d) = 0 Then Exit Function
+
+    CommitPack = CopyWithRetry(stagePath, d & PACK_NAME)
+    Kill stagePath
+    Err.Clear
     On Error GoTo 0
 End Function
 
@@ -129,7 +236,11 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function ArchiveList(ByVal chName As String) As String
     On Error Resume Next
-    Dim d As String: d = ChannelsDir() & chName & "\" & ARCHIVE_DIR & "\"
+    ' 判定は【連結する前】に行う(R8・低)。連結後だと "<部門>\_archive\" が
+    ' 付いている分だけ必ず長さ0より大きく、ガードとして働かない。
+    Dim baseDir As String: baseDir = ChannelsDir()
+    If LenB(baseDir) = 0 Then Exit Function
+    Dim d As String: d = baseDir & chName & "\" & ARCHIVE_DIR & "\"
     If Len(Dir(d, vbDirectory)) = 0 Then Exit Function
 
     Dim names() As String: ReDim names(0 To 63)
@@ -221,7 +332,10 @@ End Function
 ' 直近の発行ログ(新しい順に最大10行)。発行画面に出して履歴を見せる。
 Public Function RecentLog(ByVal chName As String) As String
     On Error Resume Next
-    Dim p As String: p = ChannelsDir() & chName & "\" & LOG_NAME
+    ' 連結前判定(R8・低)。
+    Dim baseDir As String: baseDir = ChannelsDir()
+    If LenB(baseDir) = 0 Then Exit Function
+    Dim p As String: p = baseDir & chName & "\" & LOG_NAME
     If LenB(Dir(p)) = 0 Then Exit Function
     Dim txt As String
     If Not ReadShared(p, txt) Then Exit Function
@@ -245,8 +359,14 @@ End Function
 ' ----------------------------------------------------------------------------
 Private Sub AppendLog(ByVal chName As String, ByVal line_ As String)
     On Error Resume Next
-    Dim p As String: p = PrepareDir(chName) & LOG_NAME
-    If LenB(p) = 0 Then Exit Sub
+    ' 2026-07-31(レビュー R8・低): 判定は【連結する前】に行う。
+    ' 連結後の LenB(p) は "publish_log.txt" が付いている分、共有が未設定でも
+    ' 必ず 0 より大きく、このガードは一度も働いたことが無かった。
+    ' 空パス + ファイル名 = カレントフォルダへ Open するので、共有未設定の
+    ' 端末が自分のどこかに発行ログを作ってしまう(潜在欠陥の芽)。
+    Dim baseDir As String: baseDir = PrepareDir(chName)
+    If LenB(baseDir) = 0 Then Exit Sub
+    Dim p As String: p = baseDir & LOG_NAME
 
     ' 2026-07-28(レビュー L-16): OSの追記モードで書く。
     ' 従来は「全部読む → 末尾に足す → 全部書く」だったため、2人が同時刻に
@@ -300,14 +420,15 @@ Private Function PublisherName() As String
     On Error GoTo 0
 End Function
 
+' 2026-07-31(レビュー R8 F2): modShare の関所を通す。発行は共有フォルダへの
+' 書込みが本体なので、届かない共有では「重い書き出しを全部やってから失敗」
+' という一番悪い順序になっていた。到達判定とルート解決は modShare だけが行う
+'(modShare 冒頭「唯一性の原則」)。届かなければ空文字 = 既存の
+' 「パスが空なら共有フォルダ未設定の案内を出す」経路にそのまま乗る。
 Private Function ChannelsDir() As String
-    Dim basePath As String
     On Error Resume Next
-    basePath = modConfig.GetString("nexus_share_path", "")
+    ChannelsDir = modShare.SubDir(CH_SUBDIR)
     On Error GoTo 0
-    If LenB(basePath) = 0 Then Exit Function
-    If Right$(basePath, 1) <> "\" Then basePath = basePath & "\"
-    ChannelsDir = basePath & CH_SUBDIR & "\"
 End Function
 
 Private Sub EnsureDir(ByVal folderPath As String)

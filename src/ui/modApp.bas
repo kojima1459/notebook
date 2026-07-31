@@ -434,6 +434,15 @@ Public Sub OnActResolve()
     On Error GoTo Done
     If Not modAppState.HasTarget() Then GoTo Done
     modAsk.FeedbackGreen   ' selfsolve_total加算+多重防止は既存ガードに従う
+    ' 2026-07-31(レビュー R8 F8): 加算した「今日の節約時間」を、その場で
+    ' 共有フォルダのビーコンへ反映する。従来は起動時(BootBoard)にしか
+    ' 発信しておらず、✅を押すのは起動よりずっと後なので、全員のビーコンが
+    ' 「今日 0分」のまま置かれていた。結果、Hubの「みんなの節約(今日)」が
+    ' 構造的にほぼ常に0で、共有そのものが動いていないように見えていた。
+    ' 中で共有到達ガードと10分スロットルが効くので、連打しても重くならない。
+    On Error Resume Next
+    modBoard.PublishBeacon
+    On Error GoTo Done
     ' 統計の表示先はHubの統計タイルへ移した。加算直後に描き直して
     ' 「押しても0のまま」を防ぐ(activate:=Falseなので画面は移動しない)。
     On Error Resume Next

@@ -42,6 +42,9 @@ Private Const SHEET_NAME As String = "insight_inbox"
 Private Const MAX_COLLECT As Long = 60      ' 1回の起動で読むファイル数の上限
 Private Const FIELD_SEP As String = vbTab
 
+' 既読印(my_stats)の接頭辞。modP2P の "thx:" と同じ作法(R8 F10)。
+Private Const INS_PREFIX As String = "ins:"
+
 ' ----------------------------------------------------------------------------
 ' 発信: 解決済みQ&A(✅解決したの発火点から呼ばれる)
 ' ----------------------------------------------------------------------------
@@ -124,10 +127,157 @@ Public Function CollectInsights() As Long
     On Error Resume Next
     Dim ws As Worksheet: Set ws = EnsureSheet()
     If ws Is Nothing Then Exit Function
-    CollectInsights = CollectFrom(ws, SubDir(QA_SUBDIR), "qa") + _
-                      CollectFrom(ws, SubDir(GAP_SUBDIR), "gap")
+
+    ' 2026-07-31(レビュー R8 F10): 既読印(my_stats の "ins:" 行)を
+    ' 【1回の一括読み】で集合(Dictionary)にしてから照合する。
+    ' 従来は1ファイルにつき modStats.GetStat("ins:"&nc) を呼んでいた。
+    ' GetStat は my_stats を上から探す実装なので、共有フォルダのファイル数
+    ' × my_stats の行数の計算量になり、しかも my_stats はこの機能自体が
+    ' 際限なく行を足す(下の GcOldNonces まで掃除する仕組みが無かった)。
+    ' 使うほど起動が重くなる形だった。
+    Dim seen As Object: Set seen = LoadSeenSet()
+
+    Dim qaDir As String: qaDir = SubDir(QA_SUBDIR)
+    Dim gapDir As String: gapDir = SubDir(GAP_SUBDIR)
+    CollectInsights = CollectFrom(ws, qaDir, "qa", seen) + _
+                      CollectFrom(ws, gapDir, "gap", seen)
+
+    ' GC(R8 F10)。modP2P.GcOldThanks / GcOldNonces と同じ作法で、
+    ' 共有フォルダ側のファイルと my_stats 側の既読印の両方を掃除する。
+    ' どちらか片方だけだと、消えたファイルの既読印が永久に残る(=my_stats
+    ' 無限成長)か、掃除済みのファイルを二度取り込む(=重複)。
+    GcOldInsights qaDir
+    GcOldInsights gapDir
+    GcOldNonces
     On Error GoTo 0
 End Function
+
+' ----------------------------------------------------------------------------
+' LoadSeenSet - my_stats の "ins:" 行を1回で読んで既読集合にする(R8 F10)。
+'   キーは nonce(ファイル名から拡張子を除いたもの)。値は使わない。
+' ----------------------------------------------------------------------------
+Private Function LoadSeenSet() As Object
+    Dim d As Object
+    On Error Resume Next
+    Set d = CreateObject("Scripting.Dictionary")
+    Set LoadSeenSet = d
+    If d Is Nothing Then Exit Function
+
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Function
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Function
+
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 1)).Value
+
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        Dim k As String: k = CStr(arr(i, 1))
+        If Left$(k, Len(INS_PREFIX)) = INS_PREFIX Then
+            d(LCase$(Mid$(k, Len(INS_PREFIX) + 1))) = 1
+        End If
+    Next i
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' GcOldInsights - N日以上前の qa/gap ファイルを共有フォルダから消す(R8 F10)。
+'   modP2P.GcOldThanks と同じ作法(集めてから消す。列挙中に Kill しない)。
+'   保持日数は感謝状と揃えて config thanks_gc_days(既定60)。0以下でGC無効。
+'   ここに掃除が無かったため、共有の insight\qa\ は永久に増え続け、
+'   起動のたびの Dir 列挙が全員ぶん重くなっていた。
+' ----------------------------------------------------------------------------
+Private Sub GcOldInsights(ByVal dirPath As String)
+    If LenB(dirPath) = 0 Then Exit Sub
+    On Error Resume Next
+    Dim days As Long: days = modConfig.GetLong("thanks_gc_days", 60)
+    If days <= 0 Then Exit Sub
+    If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Sub
+
+    Dim old() As String: ReDim old(0 To 63)
+    Dim n As Long
+    Dim limit As Date: limit = DateAdd("d", -days, Now)
+
+    Dim fn As String: fn = Dir(dirPath & "*.txt")
+    Do While LenB(fn) > 0
+        If n > UBound(old) Then ReDim Preserve old(0 To UBound(old) + 64)
+        old(n) = fn
+        n = n + 1
+        fn = Dir()
+    Loop
+
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim full As String: full = dirPath & old(i)
+        Dim stamp As Date
+        Err.Clear
+        stamp = FileDateTime(full)
+        If Err.Number = 0 Then
+            If stamp < limit Then modP2PIo.KillRetry full
+        End If
+        Err.Clear
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' GcOldNonces - 期限を過ぎた "ins:" 行を my_stats から取り除く(R8 F10)。
+'   modP2P.GcOldNonces と同じ作法。共有側のファイルを N日で消す以上、
+'   既読印だけ永久に残すと my_stats が無限に伸びる(=起動が重くなる)。
+'   保持は共有側+7日。
+'
+'   旧い端末の既読印は Bump で書かれた数値("1")で、日付として読めない。
+'   modP2P は読めない値を掃除対象にしているが、ここで同じことをすると
+'   【まだ共有に残っている投稿を二度取り込む】ことになり、受信箱に同じ
+'   Q&Aが並ぶ。読めない値は今日の日付へ書き直すだけにして、次の周回から
+'   正しく期限管理する(移行は1回で終わる)。
+' ----------------------------------------------------------------------------
+Private Sub GcOldNonces()
+    On Error Resume Next
+    Dim keepDays As Long
+    keepDays = modConfig.GetLong("thanks_gc_days", 60) + 7
+    If keepDays < 1 Then Exit Sub
+
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Sub
+
+    Dim limit As Date: limit = DateAdd("d", -keepDays, Date)
+    Dim today As String: today = Format$(Date, "yyyy-mm-dd")
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+
+    ' 下から消す(上から消すと行番号がずれる)。
+    Dim i As Long
+    For i = UBound(arr, 1) To LBound(arr, 1) Step -1
+        Dim k As String: k = CStr(arr(i, 1))
+        If Left$(k, Len(INS_PREFIX)) = INS_PREFIX Then
+            Dim v As String: v = Trim$(CStr(arr(i, 2)))
+            ' 旧形式は Bump が書いた数値("1")。CDate("1") は 1899-12-31 という
+            ' 「有効な日付」になってしまうので、数値かどうかを先に見る
+            ' (ここを間違えると、旧端末の既読印が全部期限切れ扱いで消える)。
+            Dim isOldForm As Boolean
+            isOldForm = (LenB(v) = 0)
+            If Not isOldForm Then isOldForm = IsNumeric(v)
+            If isOldForm Then
+                ws.Cells(i + 1, 2).Value = today     ' 旧形式("1")の移行
+            Else
+                Dim d As Date
+                Err.Clear
+                d = CDate(v)
+                If Err.Number = 0 Then
+                    If d < limit Then ws.Rows(i + 1).Delete
+                End If
+                Err.Clear
+            End If
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
 
 ' 未取り込みの解決済みQ&A件数(Hubのお知らせに出す)。
 Public Function PendingQACount() As Long
@@ -338,7 +488,7 @@ End Function
 ' 内部: 共有フォルダ→シート
 ' ----------------------------------------------------------------------------
 Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
-                             ByVal kind As String) As Long
+                             ByVal kind As String, ByVal seen As Object) As Long
     If LenB(dirPath) = 0 Then Exit Function
     On Error Resume Next
     If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
@@ -377,17 +527,33 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
         If processed >= MAX_COLLECT Then Exit For
         Dim nc As String: nc = Left$(names(i), Len(names(i)) - 4)
         If Not IsMine(nc, myId) Then
-            If modStats.GetStat("ins:" & nc) = 0 Then
+            ' 既読判定は一括読みした集合で行う(R8 F10)。my_stats を
+            ' ファイル1件ごとに走査しない。
+            If Not IsSeen(seen, nc) Then
                 processed = processed + 1
                 Dim raw As String
                 If ReadShared(dirPath & names(i), raw) Then
                     If AppendRow(ws, kind, nc, raw) Then CollectFrom = CollectFrom + 1
-                    modStats.Bump "ins:" & nc      ' 読めたときだけ既読にする
+                    ' 読めたときだけ既読にする。値は日付にしておく
+                    ' (GcOldNonces が期限を判定できるようにするため。R8 F10)。
+                    modStats.SetStatText INS_PREFIX & nc, Format$(Date, "yyyy-mm-dd")
+                    If Not seen Is Nothing Then seen(LCase$(nc)) = 1
                 End If
             End If
         End If
     Next i
     On Error GoTo 0
+End Function
+
+' 既読集合の照合(R8 F10)。集合が作れなかった環境(Scripting.Dictionary が
+' 使えない等)では、従来どおり my_stats を1件ずつ引く経路へ落とす。
+' 「速くするための仕組みが無いと動かない」は、機能そのものを壊す作りなので避ける。
+Private Function IsSeen(ByVal seen As Object, ByVal nc As String) As Boolean
+    If seen Is Nothing Then
+        IsSeen = (LenB(modStats.GetStatText(INS_PREFIX & nc)) > 0)
+        Exit Function
+    End If
+    IsSeen = seen.Exists(LCase$(nc))
 End Function
 
 ' ファイル名の先頭が自分のIDか。前方一致だと "鈴木" が "鈴木一" を巻き込むため、

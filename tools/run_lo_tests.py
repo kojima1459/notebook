@@ -168,6 +168,16 @@ PURE_ALLOWLIST = [
     #     modTestsPure4.RunAll4を呼ぶため、未注入だと実行時エラー12になり
     #     分割先のテストが「実行されないまま」になる(modTestsPure3と同型の理由)。
     "optOcrCore", "modTestsPure4",
+    # 2026-07-31 R8(P2P/共有系の修正)で追加。
+    #   modShareRule: 共有まわりの判定式だけを集めた純ロジック。感謝状の宛先
+    #     解決(origin の名前空間)、到達性プローブ、端末失効、TTLキャッシュ、
+    #     同期結果の文面。R8で見つかった実害級の不具合はどれもここの判定式の
+    #     間違いで、しかも「Windows+共有フォルダ2台」でしか症状が出ない形で
+    #     埋まっていた。実行テストで境界値を固定できる唯一の場所なので必ず載せる。
+    #   modTestsPure5: modTestsPure4(17,713字)の分割先。modTestsPure4.RunAll4
+    #     の末尾が modTestsPure5.RunAll5 を呼ぶため、未注入だと実行時エラー12に
+    #     なり分割先のテストが「実行されないまま」になる(modTestsPure4と同型)。
+    "modShareRule", "modTestsPure5",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -9,6 +9,55 @@ Private Const TILE_GAP_Y As Double = 8
 Private Const TILE_ROWS As Long = 4
 Private Const TILE_COUNT As Long = 8
 
+' ----------------------------------------------------------------------------
+' 受信箱の共有問い合わせ(2026-07-31 R8 F3)
+' ----------------------------------------------------------------------------
+' modChannel.PendingUpdates は、購読中の全部門の version.txt を
+' ADODB.Stream で開いて読む【実I/O】。Hubの受信箱はこれを描画のたびに
+' 呼んでおり、しかも Hub の初期描画は起動シーケンスの真ん中にある。
+' 遅い/届かない共有では、そこで起動そのものが止まる。
+'   ・起動中(AllowShareQueries が呼ばれるまで)は一切問い合わせない。
+'     受信箱は「押して確認」のプレースホルダを出す。
+'   ・起動後の再描画では問い合わせるが、結果を10分だけ持ち回す。
+'     Hubは画面を戻るたびに描き直されるので、TTLが無いと人数×往復が
+'     そのままファイルサーバの負荷になる。
+Private mShareQueryOk As Boolean
+Private mPendCache As String
+Private mPendAt As Double
+Private Const PEND_TTL_SEC As Double = 600#
+
+' AllowShareQueries - 起動シーケンスの完了を知らせる(modBoot が最後に呼ぶ)。
+Public Sub AllowShareQueries()
+    mShareQueryOk = True
+End Sub
+
+' ShareQueriesAllowed - 受信箱が「押して確認」を出すべきか判断するための印。
+Public Function ShareQueriesAllowed() As Boolean
+    ShareQueriesAllowed = mShareQueryOk
+End Function
+
+' PendingUpdatesCached - 更新のある部門一覧("|"区切り)。
+'   起動中は必ず空文字(共有I/Oを走らせない)。
+'   起動後は10分TTLのキャッシュ越しに modChannel へ問い合わせる。
+Public Function PendingUpdatesCached() As String
+    If Not mShareQueryOk Then Exit Function
+    If modShareRule.CacheIsFresh(mPendAt, Timer, PEND_TTL_SEC) Then
+        PendingUpdatesCached = mPendCache
+        Exit Function
+    End If
+    On Error Resume Next
+    mPendCache = modChannel.PendingUpdates()
+    On Error GoTo 0
+    mPendAt = Timer
+    PendingUpdatesCached = mPendCache
+End Function
+
+' InvalidatePending - 取り込み直後など、キャッシュを捨てて次回に取り直させる。
+Public Sub InvalidatePending()
+    mPendCache = ""
+    mPendAt = 0
+End Sub
+
 ' 更新保留チャンネルの表示ラベル。"|"区切りの保留リストから、
 ' 1件ならその名前、2件以上なら「先頭ほか N件」を返す。
 ' 2026-07-28(レビュー H-13): 保留の実体を見ずにアクティブ部門名を出して

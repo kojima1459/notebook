@@ -461,6 +461,8 @@ PURE_LOGIC_MODULES = {
     "modTestsPure4",
     # modShareRule(2026-07-31 R8): 共有系の判定式だけの純ロジック。
     "modShareRule",
+    # modTestsPure5(2026-07-31 R8): modShareRule の境界値テスト。
+    "modTestsPure5",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

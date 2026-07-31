@@ -13,6 +13,11 @@ Option Explicit
 ' 次の修正が入らなくなっていた(レビュー I-2)。
 ' ========================================
 
+' いま発行ロックを握っている部門名(2026-07-31 R8 F12)。
+' 途中でエラーが起きても Done ハンドラから確実に外すために持つ。
+' VBAはモジュールレベル宣言をプロシージャより前に置く必要がある。
+Private mLockedChannel As String
+
 ' ----------------------------------------------------------------------------
 ' 正典の発行(1操作で完結)。
 '   以前は「保存先を手で貼り付けて保存 → もう一度発行を押す」の2段だった。
@@ -109,22 +114,72 @@ Public Sub OnPublish()
         Exit Sub
     End If
 
+    ' 2026-07-31(レビュー R8 F12): 同時発行の見張り。
+    ' 2人が同じ部門を同時に発行すると、片方の pack.xlsx ともう片方の
+    ' version.txt が組み合わさった状態になり得る。どちらの発行者にも
+    ' エラーは出ないまま、購読者だけが「新しい版番号の古い中身」を掴む。
+    Dim holder As String
+    Dim gotLock As Boolean
+    On Error Resume Next
+    gotLock = modPublish.AcquireLock(chName, holder)
+    On Error GoTo Done
+    If Not gotLock Then
+        modUiLock.Leave
+        MsgBox "いま別の方が【" & chName & "】を発行中です。" & vbCrLf & vbCrLf & _
+               IIf(LenB(holder) > 0, "  発行を始めた方: " & holder & vbCrLf & vbCrLf, "") & _
+               "同時に発行すると内容と版番号が食い違うことがあるため、" & vbCrLf & _
+               "今回は発行しませんでした。数分おいてもう一度お試しください。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+    mLockedChannel = chName        ' 失敗経路でも必ず外すための控え
+
     ' ここから先は待たせるので、必ず砂時計と進捗を出す。
+    ' 2026-07-31(レビュー R8 F12): 重い書き出しは【ローカルの%TEMP%】へ行い、
+    ' 出来上がったものだけを共有へ据える。共有フォルダ上に「書きかけの
+    ' pack.xlsx」が見えている時間を、数十秒から1回のコピーへ縮める。
+    Dim stage As String
+    On Error Resume Next
+    stage = modPublish.StagePackPath(chName)
+    On Error GoTo Done
+    If LenB(stage) = 0 Then stage = dest      ' %TEMP%が引けない環境は従来どおり
+    If stage = dest Then
+        ' 共有へ直接書く従来経路。書き出しの前に旧版を退避しておかないと
+        ' 巻き戻し先が消える。
+        On Error Resume Next
+        modPublish.ArchiveCurrent chName
+        On Error GoTo Done
+    End If
+
     On Error Resume Next
     Application.Cursor = 2
     Application.StatusBar = "【" & chName & "】を書き出しています..."
-    modPublish.ArchiveCurrent chName          ' 旧版を退避(戻せるように)
     On Error GoTo Done
 
     Dim wrote As Long
     Dim ok As Boolean
     On Error Resume Next
-    ok = modPackExport.ExportPackToFile(dest, "", True, wrote, "self")
+    ok = modPackExport.ExportPackToFile(stage, "", True, wrote, "self")
     Application.Cursor = -4143
     Application.StatusBar = False
     On Error GoTo Done
 
+    If ok And stage <> dest Then
+        ' 共有側を触るのはここから。退避も、据え付ける直前に行う
+        ' (書き出しに失敗したときに旧版を動かさないため)。
+        On Error Resume Next
+        Application.StatusBar = "【" & chName & "】を共有フォルダへ置いています..."
+        modPublish.ArchiveCurrent chName      ' 旧版を退避(戻せるように)
+        ok = modPublish.CommitPack(chName, stage)
+        Application.StatusBar = False
+        On Error GoTo Done
+    End If
+
     If Not ok Then
+        On Error Resume Next
+        modPublish.ReleaseLock chName
+        mLockedChannel = ""
+        On Error GoTo 0
         modUiLock.Leave
         MsgBox "発行できませんでした。" & vbCrLf & vbCrLf & _
                "・共有フォルダに書き込む権限があるか" & vbCrLf & _
@@ -139,6 +194,8 @@ Public Sub OnPublish()
     On Error Resume Next
     ver = modPublish.FinalizePublish(chName, wrote)
     modStats.Bump "publish_total"
+    modPublish.ReleaseLock chName
+    mLockedChannel = ""
     On Error GoTo Done
 
     modUiLock.Leave
@@ -165,6 +222,12 @@ DoneCleanup0:
     On Error Resume Next
     Application.Cursor = -4143
     Application.StatusBar = False
+    ' 2026-07-31(レビュー R8 F12): どの経路で抜けても発行ロックは必ず外す。
+    ' 外し忘れると、その部門は10分間(LOCK_STALE_MIN)誰も発行できなくなる。
+    If LenB(mLockedChannel) > 0 Then
+        modPublish.ReleaseLock mLockedChannel
+        mLockedChannel = ""
+    End If
     On Error GoTo 0
     modUiLock.Leave
 End Sub

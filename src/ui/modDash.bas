@@ -139,6 +139,13 @@ Public Sub OnDashRefresh()
     Set ws = GetDashSheet()
     If ws Is Nothing Then Exit Sub
 
+    ' 2026-07-31(レビュー R8 F9): ビーコン集計には10分のTTLが入っている。
+    ' 利用者が明示的に「更新」を押したときだけはTTLを無視して取り直す
+    '(押しても値が変わらないのは、ボタンが壊れているのと区別が付かない)。
+    On Error Resume Next
+    modBoard.ForceRefreshBoard
+    On Error GoTo 0
+
     On Error GoTo Fail
     Application.ScreenUpdating = False
     DrawDashboard ws

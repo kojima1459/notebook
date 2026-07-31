@@ -503,6 +503,14 @@ End Function
 ' の三重苦で終わっていた。旧部門の削除は SyncChannel の中の
 ' 「読み込み完了後・書き込み直前」へ移し、ここは順序を決めるだけにする。
 ' active_channel も、取り込みが成功してから書き換える。
+'
+' 2026-07-31(レビュー R8・低): 【この関数は現在どこからも呼ばれていない】。
+' 「1部門だけを常駐させて切り替える」という v2 の考え方の名残で、v3 では
+' SubscribeAllAvailable(全部門をまとめて購読する)へ移行済み。
+' 削除しないのは、過去に配布したブックの Shape に OnAction として
+' "modChannel.SwitchTo" が残っている可能性を潰しきれていないため
+'(残っていると押した瞬間に「マクロが見つかりません」で止まる)。
+' OnAction 残存の再調査が済むまでは、消さずにこの注記だけ置く。
 Public Function SwitchTo(ByVal chName As String) As Long
     On Error Resume Next
     Dim cur As String: cur = ActiveChannel()
