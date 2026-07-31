@@ -51,6 +51,15 @@ Private Const FNV_PRIME_LO As Long = &H1B3    ' = 435
 Private Const OBF_PREFIX As String = "OBF1:"
 Private Const OBF_KEY As String = "NexusAgentBuildObfuscationKey2026"
 
+' JoinPagedText/SplitPagedText用のマーカー(同上の理由でモジュール先頭に置く)。
+' 「1本の文字列」しか受け渡せない境界(modFeatures.InvokeFeatureの戻り値)を
+' 越えて複数ページを運ぶための行単位マーカー。行頭から行末までが完全一致した
+' 行だけをマーカーとして扱うので、本文中に似た文字列があっても壊れない
+' (最悪でもそこでページが割れるだけ。本文は1文字も失わない)。
+Private Const PAGED_MARK_PRE As String = "@@NEXUS_PAGE:"
+Private Const PAGED_MARK_SUF As String = "@@"
+Private Const PAGED_TRUNC_MARK As String = "@@NEXUS_TRUNCATED@@"
+
 ' ============================================================================
 ' Fnv1a64Hex - FNV-1a 64bit ハッシュを16進16桁(小文字)の文字列で返す。
 '   決定的: 同一の入力文字列 s に対して常に同一の出力を返す。
