@@ -2,12 +2,17 @@ Attribute VB_Name = "optGsTxt"
 Option Explicit
 
 ' ============================================================================
-' optGsTxt - テキストPDFをGhostscript(txtwrite)でCOM無しに読む(opt機能・R10-3)
+' optGsTxt - Ghostscript実行の共通道具 + テキストPDFのtxtwrite抽出
+'            (opt機能・R10-3 / R10-3b)
 ' ----------------------------------------------------------------------------
 ' 役割:
-'   PDFの本文抽出の【第1選択】。同梱の gswin32c.exe に -sDEVICE=txtwrite を
-'   渡し、PDFに埋まっている文字をそのまま書き出させて読む。COM(Word/Acrobat)
-'   を一切使わないので、CreateObjectがポリシーで塞がれた管理端末でも動く。
+'   (1) PDFの本文抽出の【第1選択】。同梱の gswin32c.exe に -sDEVICE=txtwrite
+'       を渡し、PDFに埋まっている文字をそのまま書き出させて読む。COM
+'       (Word/Acrobat)を一切使わないので、CreateObjectがポリシーで塞がれた
+'       管理端末でも動く。入口は ExtractPdfTextNoOcr。
+'   (2) Ghostscriptを動かすための共通道具(一時フォルダ・非同期起動・完了
+'       待ち・後始末)の置き場。txtwrite経路と、optVisionの画像PDF OCR経路
+'       (jpeg化)の両方がここを使う(R10-3bでoptVisionから移設)。
 '
 ' なぜ第1選択なのか(2026-07-31 実機報告):
 '   ・会社の管理端末では Word・Acrobat の CreateObject が塞がれており、
@@ -21,11 +26,12 @@ Option Explicit
 '   落ちる(modExtractor.ExtractPdfWithFallback)。
 '
 ' 設計判断:
-'   ・置き場所: 道具一式(GS起動・完了待ち・一時フォルダ)がある optVision へ
-'     足すのが素直だが、optVisionは30,000字上限まで残りが無く入らない。
-'     要件R10-3の事前承認に従って実行部だけを本モジュールへ分けた。道具は
-'     optVision側をPublic化して共用する(重複実装はしない)。コマンド文字列の
-'     組み立てと採否判定は optOcrCore(純ロジック)。
+'   ・置き場所: 当初は道具一式のある optVision へ足す想定だったが、optVision
+'     は30,000字上限まで残りが無く入らなかった。R10-3で実行部を本モジュール
+'     へ分け(道具はoptVision側をPublic化して共用)、R10-3bで道具そのものを
+'     こちらへ移設して役割を整理した(optGsTxt=GS実行、optVision=Vision API
+'     +OCRオーケストレーション)。コマンド文字列の組み立てと採否判定は
+'     optOcrCore(純ロジック)。
 '   ・入口は modFeatures.InvokeFeature("vision","ExtractPdfTextNoOcr",…)。
 '     vision機能の行き先は optVision 固定(modFeatures.ModuleNameOf)なので、
 '     optVision側に同名の薄い受け口を置き、そこからここへ転送している。
@@ -103,7 +109,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
         Exit Function
     End If
 
-    folderPath = optVision.MakeOcrFolder()
+    folderPath = MakeOcrFolder()
     If LenB(folderPath) = 0 Then
         ExtractPdfTextNoOcr = ERR_302 & "作業用の一時フォルダを作成できませんでした。"
         Exit Function
@@ -119,7 +125,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
 
     modUIMain.SetStage "PDFの文字を取り出しています…"
 
-    If Not optVision.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
+    If Not RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
         modUIMain.SetStage ""
         CleanupTxtFolder folderPath, outTxt
         ' WScript.Shell自体がポリシーで塞がれている端末をここで切り分ける。
@@ -129,7 +135,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
         Exit Function
     End If
 
-    finished = optVision.WaitForDoneFlag(flagPath, waitSec)
+    finished = WaitForDoneFlag(flagPath, waitSec)
     txt = ReadUtf8Text(outTxt, gsErrNum, gsErrDesc)
 
     modUIMain.SetStage ""
@@ -176,7 +182,7 @@ End Function
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
-' 出力txtと一時フォルダの後始末。optVision.CleanupOcrFolder は *.jpg と
+' 出力txtと一時フォルダの後始末。CleanupOcrFolder は *.jpg と
 ' *.flag しか消さない(OCR経路の規約)ので、txtは先に自分で消してから
 ' フォルダごと片付ける。ロック中で消せなくても無視する(TEMPなのでOSが
 ' 後で片付ける)。
@@ -185,7 +191,7 @@ Private Sub CleanupTxtFolder(ByVal folderPath As String, ByVal outTxt As String)
     On Error Resume Next
     If LenB(outTxt) > 0 Then Kill outTxt
     On Error GoTo 0
-    optVision.CleanupOcrFolder folderPath
+    CleanupOcrFolder folderPath
 End Sub
 
 ' txtwriteの出力を ADODB.Stream(Charset "utf-8")で読む
@@ -221,6 +227,92 @@ ReadCleanup:
     End If
     Set st = Nothing
     ReadUtf8Text = ""
+End Function
+
+' ----------------------------------------------------------------------------
+' Ghostscript実行の共通道具(R10-3bで optVision から移設)
+' ----------------------------------------------------------------------------
+' 元は optVision の内部ヘルパーだったが、R10-3でtxtwrite経路からも使うように
+' なり、optVisionが30,000字上限まで残り15字という状態になった。GS実行の
+' 道具一式(一時フォルダ・非同期起動・完了待ち・後始末)はどちらの経路
+' (txtwrite / OCRのjpeg化)からも同じ形で使うものなので、ここへまとめて
+' 置き、optVision 側は optGsTxt.〜 で呼ぶ。中身は移設前と1文字も変えていない。
+
+' 一時フォルダ(TEMP\nxocr_<一意名>)を作って返す。失敗時は""。
+Public Function MakeOcrFolder() As String
+    Dim tempRoot As String: tempRoot = Environ$("TEMP")
+    If LenB(tempRoot) = 0 Then tempRoot = Environ$("TMP")
+    If LenB(tempRoot) = 0 Then Exit Function
+
+    Dim uniqueName As String
+    uniqueName = Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(Int(Rnd() * 9000) + 1000)
+
+    Dim folderPath As String
+    folderPath = optOcrCore.TempFolderFor(tempRoot, uniqueName)
+
+    On Error Resume Next
+    MkDir folderPath
+    On Error GoTo 0
+
+    If FolderExists(folderPath) Then MakeOcrFolder = folderPath
+End Function
+
+' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
+' R10-2: 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値は
+' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
+' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
+' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
+Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
+                            ByRef errDesc As String) As Boolean
+    Dim wsh As Object
+    On Error GoTo NoRun
+    Set wsh = CreateObject("WScript.Shell")
+    wsh.Run runCmd, 0, False
+    Set wsh = Nothing
+    RunGsAsync = True
+    Exit Function
+NoRun:
+    errNum = Err.Number
+    errDesc = Err.Description
+    RunGsAsync = False
+End Function
+
+' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
+' 2026-07-31(R7 B-2ついで): このループは DoEvents 専業で、Ghostscript が
+' ページ画像を書いている数分のあいだCPUを1コア回し切っていた(R6の報告)。
+' 待っているのはファイルの出現であって、詰めても早くは終わらない。
+' 1周ごとに約100ms止めて間引く(挙動は不変。判定間隔が0.1秒になるだけ)。
+' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
+Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
+    Dim t0 As Double: t0 = Timer
+    Do
+        If optVision.PathExists(flagPath) Then
+            WaitForDoneFlag = True
+            Exit Function
+        End If
+        DoEvents
+        On Error Resume Next
+        Application.Wait Now + 0.1 / 86400#
+        On Error GoTo 0
+        If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
+    Loop While (Timer - t0) < timeoutSec
+End Function
+
+' 一時フォルダの後始末(成功・失敗の両経路から呼ぶ。R6規約により別Sub)。
+' ロック中でKillに失敗しても無視する(TEMPなのでOSが後で片付ける)。
+Public Sub CleanupOcrFolder(ByVal folderPath As String)
+    If LenB(folderPath) = 0 Then Exit Sub
+    On Error Resume Next
+    Kill folderPath & "\*.jpg"
+    Kill folderPath & "\*.flag"
+    RmDir folderPath
+    On Error GoTo 0
+End Sub
+
+Private Function FolderExists(ByVal p As String) As Boolean
+    On Error Resume Next
+    FolderExists = (LenB(Dir$(p, vbDirectory)) > 0)
+    On Error GoTo 0
 End Function
 
 ' 空白類(半角/全角スペース・タブ・改行・改ページ)を除いた文字数。

@@ -2,7 +2,8 @@ Attribute VB_Name = "optVision"
 Option Explicit
 
 ' ============================================================================
-' optVision - 画像ファイルの文字抽出(opt機能・MASTER_SPEC §7.7)
+' optVision - Vision API(文字起こし)+画像PDF OCRのオーケストレーション
+'             (opt機能・MASTER_SPEC §7.7)
 ' ----------------------------------------------------------------------------
 ' 役割:
 '   通常抽出(modExtractor)がE0303(画像PDF・文字が取れない)を返した資料や、
@@ -38,6 +39,9 @@ Option Explicit
 '     ChatGPTV)で1ページずつ読む。「PDF→画像変換の手段がVBA単体に無い」という
 '     唯一の穴を、公式配布物の再利用で塞ぐ。入口は ExtractPdfOcrPagedText。
 '     コマンド文字列の組み立ては optOcrCore(純ロジック)に切り出してある。
+'     GSを動かす道具(一時フォルダ・非同期起動・完了待ち・後始末)は
+'     optGsTxt へ移設済み(R10-3b)で、ここは「何ページ描いて何をOCRするか」
+'     という段取りだけを持つ。
 '   ・Ghostscriptの配布・自動検出(2026-07-31 R9): dist/Ghostscript を常置
 '     配布物に同梱する方針(要件書R9)に伴い、ResolveGsExeの解決順を
 '     「config ghostscript_path → 同梱(ThisWorkbook.Path\Ghostscript\
@@ -257,7 +261,7 @@ End Function
 '     config vision_pdf_timeout_sec(既定120秒)を超えたら失敗として返す。
 '     GSプロセスのkillはしない(こちらが壊す方が危ない)。
 '   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末は
-'     R6規約に従って別Sub(CleanupOcrFolder)へ切り出してある
+'     R6規約に従って別Sub(optGsTxt.CleanupOcrFolder)へ切り出してある
 '     (稼働中のエラーハンドラの中では On Error Resume Next が効かないため)。
 '   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、複数枚を
 '     まとめて渡すとページ境界が崩れて出典ページ番号が信用できなくなるため
@@ -299,7 +303,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
         Exit Function
     End If
 
-    folderPath = MakeOcrFolder()
+    folderPath = optGsTxt.MakeOcrFolder()
     If LenB(folderPath) = 0 Then
         ExtractPdfOcrPagedText = "#ERR:E0303:作業用の一時フォルダを作成できませんでした。" & _
             "一時フォルダ(TEMP)の空き容量と書き込み権限をご確認ください。"
@@ -322,9 +326,9 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
 
     Dim gsErrNum As Long: gsErrNum = 0
     Dim gsErrDesc As String: gsErrDesc = ""
-    If Not RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
+    If Not optGsTxt.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
         modUIMain.SetStage ""
-        CleanupOcrFolder folderPath
+        optGsTxt.CleanupOcrFolder folderPath
         ' R10-2: 従来はパスのみで原因が残らなかった。WScript.Shellがポリシーで
         ' ブロックされる端末の切り分けに、CreateObject/Run失敗時のErr情報が必須。
         modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
@@ -334,7 +338,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
         Exit Function
     End If
 
-    Dim finished As Boolean: finished = WaitForDoneFlag(flagPath, waitSec)
+    Dim finished As Boolean: finished = optGsTxt.WaitForDoneFlag(flagPath, waitSec)
     Dim foundN As Long: foundN = CountRenderedPages(folderPath, renderCap)
 
     ' タイムアウトした場合、最後の1枚はGSが書いている途中の可能性がある。
@@ -343,7 +347,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
 
     If foundN = 0 Then
         modUIMain.SetStage ""
-        CleanupOcrFolder folderPath
+        optGsTxt.CleanupOcrFolder folderPath
         modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
             "描画0枚 finished=" & finished & " " & modUtil.SafeLeft(path, 200)
         If finished Then
@@ -364,7 +368,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
     ocrText = OcrRenderedPages(folderPath, keepN, truncated)
 
     modUIMain.SetStage ""
-    CleanupOcrFolder folderPath
+    optGsTxt.CleanupOcrFolder folderPath
 
     ' 全ページ失敗のときだけ "#ERR:..." が返る(OcrRenderedPages内で判定済み)。
     ExtractPdfOcrPagedText = ocrText
@@ -376,7 +380,7 @@ Fail:
     Err.Clear
     On Error GoTo 0
     modUIMain.SetStage ""
-    CleanupOcrFolder folderPath
+    optGsTxt.CleanupOcrFolder folderPath
     modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", errDesc
     ExtractPdfOcrPagedText = "#ERR:E0303:画像PDFの読み取り処理でエラーが発生しました: " & errDesc
 End Function
@@ -590,66 +594,6 @@ NoDialog:
     PickGsFolder = ""
 End Function
 
-' 一時フォルダ(TEMP\nxocr_<一意名>)を作って返す。失敗時は""。
-Public Function MakeOcrFolder() As String
-    Dim tempRoot As String: tempRoot = Environ$("TEMP")
-    If LenB(tempRoot) = 0 Then tempRoot = Environ$("TMP")
-    If LenB(tempRoot) = 0 Then Exit Function
-
-    Dim uniqueName As String
-    uniqueName = Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(Int(Rnd() * 9000) + 1000)
-
-    Dim folderPath As String
-    folderPath = optOcrCore.TempFolderFor(tempRoot, uniqueName)
-
-    On Error Resume Next
-    MkDir folderPath
-    On Error GoTo 0
-
-    If FolderExists(folderPath) Then MakeOcrFolder = folderPath
-End Function
-
-' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
-' R10-2: 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値は
-' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
-' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
-' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
-Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
-                            ByRef errDesc As String) As Boolean
-    Dim wsh As Object
-    On Error GoTo NoRun
-    Set wsh = CreateObject("WScript.Shell")
-    wsh.Run runCmd, 0, False
-    Set wsh = Nothing
-    RunGsAsync = True
-    Exit Function
-NoRun:
-    errNum = Err.Number
-    errDesc = Err.Description
-    RunGsAsync = False
-End Function
-
-' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
-' 2026-07-31(R7 B-2ついで): このループは DoEvents 専業で、Ghostscript が
-' ページ画像を書いている数分のあいだCPUを1コア回し切っていた(R6の報告)。
-' 待っているのはファイルの出現であって、詰めても早くは終わらない。
-' 1周ごとに約100ms止めて間引く(挙動は不変。判定間隔が0.1秒になるだけ)。
-' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
-Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
-    Dim t0 As Double: t0 = Timer
-    Do
-        If PathExists(flagPath) Then
-            WaitForDoneFlag = True
-            Exit Function
-        End If
-        DoEvents
-        On Error Resume Next
-        Application.Wait Now + 0.1 / 86400#
-        On Error GoTo 0
-        If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
-    Loop While (Timer - t0) < timeoutSec
-End Function
-
 ' page_001.jpgから連番で何枚できているかを数える(Dirの列挙状態に依存しない)。
 Private Function CountRenderedPages(ByVal folderPath As String, ByVal renderCap As Long) As Long
     Dim i As Long
@@ -659,26 +603,11 @@ Private Function CountRenderedPages(ByVal folderPath As String, ByVal renderCap 
     CountRenderedPages = i - 1
 End Function
 
-' 一時フォルダの後始末(成功・失敗の両経路から呼ぶ。R6規約により別Sub)。
-' ロック中でKillに失敗しても無視する(TEMPなのでOSが後で片付ける)。
-Public Sub CleanupOcrFolder(ByVal folderPath As String)
-    If LenB(folderPath) = 0 Then Exit Sub
-    On Error Resume Next
-    Kill folderPath & "\*.jpg"
-    Kill folderPath & "\*.flag"
-    RmDir folderPath
-    On Error GoTo 0
-End Sub
-
-Private Function PathExists(ByVal p As String) As Boolean
+' R10-3bで optGsTxt へ移設したGS実行の道具(MakeOcrFolder/RunGsAsync/
+' WaitForDoneFlag/CleanupOcrFolder)からも使うためPublic。
+Public Function PathExists(ByVal p As String) As Boolean
     On Error Resume Next
     PathExists = (LenB(Dir$(p)) > 0)
-    On Error GoTo 0
-End Function
-
-Private Function FolderExists(ByVal p As String) As Boolean
-    On Error Resume Next
-    FolderExists = (LenB(Dir$(p, vbDirectory)) > 0)
     On Error GoTo 0
 End Function
 

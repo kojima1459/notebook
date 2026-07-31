@@ -388,22 +388,23 @@ CONTRACT: dict[str, dict] = {
     # 実体はoptGsTxt(optVisionに容量が無いための分割)で、ここは
     # modFeatures.InvokeFeature("vision", ...) の行き先がoptVision固定である
     # ことに合わせた薄い転送。
-    # FindGsExeByCandidates/MakeOcrFolder/RunGsAsync/WaitForDoneFlag/
-    # CleanupOcrFolder は同じくR10-3でPublic化した「Ghostscript実行の道具」。
-    # optGsTxtが重複実装せずに使うためだけの公開で、コア側からは呼ばない
-    # (opt層内の参照はR2の対象外)。
+    # FindGsExeByCandidates/PathExists は optGsTxt へ貸すためのPublic
+    # (R10-3 / R10-3b)。前者は案内カードを出さない「静かなGS解決」、後者は
+    # Dir$による実在確認。コア側からは呼ばない(opt層内の参照はR2の対象外)。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
                                                "ExtractPdfOcrPagedText",
                                                "HasClipboardImage", "SaveClipboardImage",
                                                "ResetGsGuidance", "ExtractPdfTextNoOcr",
-                                               "FindGsExeByCandidates", "MakeOcrFolder",
-                                               "RunGsAsync", "WaitForDoneFlag",
-                                               "CleanupOcrFolder"]},
-    # optGsTxt(2026-07-31 R10-3): テキストPDFをGhostscriptのtxtwriteデバイスで
-    # COM無しに読む実行部。PDF本文抽出の第1選択(Word/AcrobatのOLE待ち回避)。
-    # opt層に置く以上、他のoptと同様に Ping を持たせる。純ロジックではない
-    # (Shell起動・ファイルI/O・ログ)ので PURE_LOGIC_MODULES には載せない。
-    "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr"]},
+                                               "FindGsExeByCandidates", "PathExists"]},
+    # optGsTxt(2026-07-31 R10-3 / R10-3b): Ghostscript実行の共通道具
+    # (MakeOcrFolder/RunGsAsync/WaitForDoneFlag/CleanupOcrFolder。R10-3bで
+    # optVisionから移設)と、txtwriteによるテキストPDF抽出(PDF本文抽出の
+    # 第1選択。Word/AcrobatのOLE待ち回避)。opt層に置く以上、他のoptと同様に
+    # Ping を持たせる。純ロジックではない(Shell起動・ファイルI/O・ログ)ので
+    # PURE_LOGIC_MODULES には載せない。
+    "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
+                                              "MakeOcrFolder", "RunGsAsync",
+                                              "WaitForDoneFlag", "CleanupOcrFolder"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
