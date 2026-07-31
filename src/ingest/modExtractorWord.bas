@@ -210,24 +210,29 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' R11-A C2: 相乗り先の DisplayAlerts は必ず元へ戻す(下の Cleanup)。
     ' wdAlertsNone のまま返すと、そのWordはこのあと利用者が文書を閉じる
     ' ときの「保存しますか?」まで出さなくなり、編集が黙って消える。
+    ' R11-A2: 控えは ownsApp に関わらず【無条件】に取る。自分で起動した
+    ' つもりのWordでも、Quit を見送る分岐(Cleanup の remain>0)を通ると
+    ' そのWordは生きたまま利用者の手元に残る。控えが無いとそこで元へ戻せず、
+    ' 「保存しますか?」の出ないWordを利用者に渡すことになる。
+    ' 取得できなかったときは ALERTS_UNSET のまま=触らない(既存規約)。
     Dim prevAlerts As Long: prevAlerts = ALERTS_UNSET
-    If Not ownsApp Then
-        On Error Resume Next
-        prevAlerts = word.DisplayAlerts
-        Err.Clear
-        On Error GoTo Failed
-    End If
+    On Error Resume Next
+    prevAlerts = word.DisplayAlerts
+    Err.Clear
+    On Error GoTo Failed
     word.DisplayAlerts = 0   ' wdAlertsNone
 
     ' 取り込む文書のマクロを走らせない(レビュー H-11)。
     ' 3 = msoAutomationSecurityForceDisable。出所の分からないファイルを
     ' 取り込むのは日常操作なので、そこが任意コード実行の経路になっていては
     ' いけない。
-    ' 相乗り(mode 4)のときは利用者のWordの設定なので、必ず元へ戻す
-    ' (自分で起動した分は Quit するので戻す必要はない)。
+    ' 相乗り(mode 4)のときは利用者のWordの設定なので、必ず元へ戻す。
+    ' R11-A2: 控えは prevAlerts と同じ理由で【無条件】に取る(自分で起動した
+    ' Wordでも、Quit を見送ればそのWordは利用者の手元に残るため)。
+    ' 取得できなかったときは -1 のまま=触らない(既存規約)。
     Dim prevSecurity As Long: prevSecurity = -1
     On Error Resume Next
-    If Not ownsApp Then prevSecurity = word.AutomationSecurity
+    prevSecurity = word.AutomationSecurity
     word.AutomationSecurity = 3
     Err.Clear
     On Error GoTo Failed
@@ -382,9 +387,15 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
             Dim remain As Long: remain = -1
             remain = app.Documents.count
             If remain > 0 Then
+                ' R11-A2: 終了しない=このWordは利用者の手元に残る。ならば
+                ' こちらが変えた設定は必ず返し、見える状態に戻す。戻さないと
+                ' 「見えないWordの中に自分の文書があり、しかも保存確認が
+                ' 出ない」という、最も気付けない形の喪失経路になる。
+                RestoreAppSettings app, prevSecurity, prevAlerts
+                app.Visible = True
                 modLog.LogUsage "word_quit_skipped", "", _
                     "Wordに文書が" & remain & "件残っているため終了しませんでした" & _
-                    "(利用者が使用中の可能性)"
+                    "(利用者が使用中の可能性)。表示と設定を復元しました"
             Else
                 If remain < 0 Then
                     modLog.LogUsage "word_doc_count_unknown", "", _
@@ -393,12 +404,28 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
                 app.Quit 0
             End If
         Else
-            If prevSecurity >= 0 Then app.AutomationSecurity = prevSecurity
-            ' 相乗り先のWordへ、こちらが変えた DisplayAlerts を返す。
-            If prevAlerts <> ALERTS_UNSET Then app.DisplayAlerts = prevAlerts
+            ' 相乗り先のWordへ、こちらが変えた設定を返す。
+            RestoreAppSettings app, prevSecurity, prevAlerts
         End If
     End If
     Set app = Nothing
+    Err.Clear
+End Sub
+
+' ----------------------------------------------------------------------------
+' RestoreAppSettings - こちらが変えたWordの設定を元へ戻す(R11-A2)。
+'   「相乗りしたWord」と「自分で起動したが終了を見送ったWord」の両方で
+'   同じ復元が要る(どちらも利用者の手元に残るWordだから)。同型の処理を
+'   2箇所に書き分けると片方だけ直す事故が起きるので、1本にまとめる。
+'   控えが取れていない値(-1 / ALERTS_UNSET)は触らない。
+'   Cleanup(On Error Resume Next の中)からのみ呼ばれる。
+' ----------------------------------------------------------------------------
+Private Sub RestoreAppSettings(ByRef app As Object, ByVal prevSecurity As Long, _
+                               ByVal prevAlerts As Long)
+    On Error Resume Next
+    If app Is Nothing Then Exit Sub
+    If prevSecurity >= 0 Then app.AutomationSecurity = prevSecurity
+    If prevAlerts <> ALERTS_UNSET Then app.DisplayAlerts = prevAlerts
     Err.Clear
 End Sub
 
