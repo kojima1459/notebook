@@ -60,9 +60,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Rows("1:60").RowHeight = 15
 
     If activate Then
-        On Error Resume Next
-        ws.Activate
-        On Error GoTo Fail
+        If Not modUI.ActivateSheetRobust(ws, "modHub.EnsureHubLayout") Then modUI.RestoreExcelUI
     End If
 
     ' ActiveWindow系はそのシートが実際に前面のときだけ触る(別シートの
@@ -110,13 +108,45 @@ Fail:
 End Sub
 
 ' ヘッダーバー(全幅) + 右肩のユーティリティアイコン
+' R11-B(#30): 固定30pt×6の決め打ちをやめ、modChrome.PillWidth+FlowRightで
+' 可視幅(modUIMain.ViewportWidth)基準に並べ直す。帯の背景は従来どおり
+' セル幅いっぱい(cellW)のまま、操作系(アイコン+ラベル)の右端だけを
+' modChrome.BarWidthでクランプする。
 Private Sub DrawHeader(ByVal ws As Worksheet)
-    Dim L As Double, W As Double
+    Dim L As Double, cellW As Double
     L = ws.Range("A1").Left
-    W = ws.Range("A1:L1").Width
+    cellW = ws.Range("A1:L1").Width
+    Dim barW As Double
+    barW = modChrome.BarWidth(cellW, modUIMain.ViewportWidth(), 8)
+
+    ' 右→左に置く並び(終了が最も右)。旧実装の decrement 順をそのまま
+    ' 配列順にした(icons(0)が最初に置かれる=右端)。
+    Dim icons As Variant, acts As Variant, tips As Variant, labels As Variant
+    icons = Array(ChrW(&HD83D) & ChrW(&HDEAA), ChrW(&H2753), _
+                  ChrW(&HD83D) & ChrW(&HDCEE), ChrW(&HD83D) & ChrW(&HDD04), _
+                  ChrW(&HD83C) & ChrW(&HDF19), ChrW(&HD83C) & ChrW(&HDF10))
+    acts = Array("modHub.OnSaveAndExit", "modHub.OnHelp", _
+                 "modHub.OnAnonFeedback", "modHub.OnRedraw", _
+                 "modHub.OnThemeToggle", "modHub.OnLangCycle")
+    tips = Array("保存して閉じる", "ヘルプ・使い方", "匿名で感想・要望を送る", _
+                 "画面を描き直す", "配色を切り替える", "回答言語を切り替える")
+    labels = Array("終了", "使い方", "ご意見", "再描画", "配色", "言語")
+
+    Dim widths(0 To 5) As Double
+    Dim i As Long
+    For i = 0 To 5
+        widths(i) = modChrome.PillWidth(CStr(labels(i)), 7, 6, 30)
+    Next i
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowRight(widths, 6, L + barW - 8, L + 140, L + 8, 0, xs, rws, useW)
+    If rowN < 1 Then rowN = 1
+    Dim hdrH As Double: hdrH = rowN * HDR_H
+    If hdrH > 200 Then hdrH = 200
+    ws.Rows(1).RowHeight = hdrH
 
     Dim hdr As Shape
-    Set hdr = ws.Shapes.AddShape(5, L, 0, W, HDR_H)
+    Set hdr = ws.Shapes.AddShape(5, L, 0, cellW, hdrH)
     hdr.Name = "nx_hub_hdr"
     hdr.Line.Visible = 0
     hdr.Adjustments(1) = 0.02
@@ -131,55 +161,44 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         .VerticalAnchor = 3
     End With
 
-    Dim icons As Variant, acts As Variant, tips As Variant
-    ' 🔄=画面を再描画(Alt+Tab復帰等の崩れの1クリック復旧)。
-    ' 📮=匿名の投書箱。実名だと率直な意見は出てこないので別経路を用意する。
-    icons = Array(ChrW(&HD83C) & ChrW(&HDF10), ChrW(&HD83C) & ChrW(&HDF19), _
-                  ChrW(&HD83D) & ChrW(&HDD04), ChrW(&HD83D) & ChrW(&HDCEE), _
-                  ChrW(&H2753), ChrW(&HD83D) & ChrW(&HDEAA))
-    acts = Array("modHub.OnLangCycle", "modHub.OnThemeToggle", _
-                 "modHub.OnRedraw", "modHub.OnAnonFeedback", _
-                 "modHub.OnHelp", "modHub.OnSaveAndExit")
-    tips = Array("回答言語を切り替える", "配色を切り替える", "画面を描き直す", _
-                 "匿名で感想・要望を送る", "ヘルプ・使い方", "保存して閉じる")
-    Dim shortLabels As Variant
-    shortLabels = Array("言語", "配色", "再描画", "ご意見", "使い方", "終了")
-
-    Dim xRight As Double: xRight = L + W - 8
-    Dim i As Long
-    For i = 5 To 0 Step -1
-        xRight = xRight - 30
-        Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(9, xRight, (HDR_H - 26) / 2, 26, 26)
-        btn.Name = "nx_hub_ic" & i
-        btn.Line.Visible = 0
-        btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
-        With btn.TextFrame2
-            .TextRange.Text = CStr(icons(i))
-            .TextRange.Font.Size = 10
-            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-            .TextRange.ParagraphFormat.Alignment = 2
-            .VerticalAnchor = 3
-            .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
-        End With
-        btn.OnAction = CStr(acts(i))
+    For i = 0 To 5
+        Dim rowTop As Double: rowTop = rws(i) * HDR_H
+        Dim xCenter As Double: xCenter = xs(i) + (useW(i) - 26) / 2
         On Error Resume Next
-        btn.AlternativeText = CStr(tips(i))
+        Dim btn As Shape
+        Set btn = ws.Shapes.AddShape(9, xCenter, rowTop + (HDR_H - 26) / 2, 26, 26)
+        If Not btn Is Nothing Then
+            btn.Name = "nx_hub_ic" & i
+            btn.Line.Visible = 0
+            btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+            With btn.TextFrame2
+                .TextRange.Text = CStr(icons(i))
+                .TextRange.Font.Size = 10
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
+            End With
+            btn.OnAction = CStr(acts(i))
+            btn.AlternativeText = CStr(tips(i))
+        End If
+        Set btn = Nothing
+        Err.Clear
         On Error GoTo 0
 
         ' Excelの図形はマウスを乗せても代替テキストがツールチップとして
         ' 出ない。アイコンだけでは何のボタンか分からないという実機報告に
-        ' 対し、真下に小さな文字ラベルを必ず添える。
+        ' 対し、真下に小さな文字ラベルを必ず添える(幅はスロット幅=useWに揃える)。
         On Error Resume Next
         Dim cap As Shape
-        Set cap = ws.Shapes.AddShape(1, xRight - 10, HDR_H - 11, 46, 10)
+        Set cap = ws.Shapes.AddShape(1, xs(i), rowTop + HDR_H - 11, useW(i), 10)
         If Not cap Is Nothing Then
             cap.Name = "nx_hub_icl" & i
             cap.Line.Visible = 0
             cap.Fill.Visible = 0
             With cap.TextFrame2
                 .WordWrap = 0
-                .TextRange.Text = CStr(shortLabels(i))
+                .TextRange.Text = CStr(labels(i))
                 .TextRange.Font.Size = 6
                 .TextRange.Font.Fill.ForeColor.RGB = RGB(190, 210, 235)
                 .TextRange.ParagraphFormat.Alignment = 2

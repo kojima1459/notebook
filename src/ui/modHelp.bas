@@ -82,8 +82,14 @@ Public Sub OnOpenManual()
     If ws Is Nothing Then GoTo Done
 
     ws.Visible = -1   ' xlSheetVisible
-    ws.Activate
-    DrawManualBackButton ws
+    ' 2026-07-31(R11-B): 素のActivateは失敗を握りつぶし、戻るボタンの
+    ' 無いマニュアル画面に取り残される(脱出不能)。失敗時はネイティブUIを
+    ' 復元して、リボン/タブから戻れる状態にする。
+    If modUI.ActivateSheetRobust(ws, "modHelp.OnOpenManual") Then
+        DrawManualBackButton ws
+    Else
+        modUI.RestoreExcelUI
+    End If
 Done:
     modUiLock.Leave
 End Sub

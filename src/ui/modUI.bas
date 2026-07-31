@@ -378,16 +378,10 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' EnsureAppView - アプリ表示状態の自己修復(2026-07-31 R7 A-2)。
+'   「閉じる」→「キャンセル」等で全画面/バーが崩れたまま戻らない事故の自己修復。
+'   冪等・非破壊(既にその状態なら書かない)。Auto_Close側・ThisWorkbookは触らない。
+'   R11-B: Nexus以外は水平スクロールバーを維持(#30安全弁・回復手段ゼロ化の防止)。
 ' ----------------------------------------------------------------------------
-' 実機報告: 「閉じる」→「キャンセル」を押すと、全画面が解除され数式バーと
-' 行列見出しが戻ったまま元に戻らない(Auto_Close が閉じる前提で
-' RestoreExcelUI を走らせるため)。利用者にはExcelの表示設定を戻す手段が
-' 無く、たまたま「着せ替え」を押した人だけが直っていた。
-'
-' そこで「壊れていたら直す」を全画面の入口に置く。冪等・非破壊で、
-' 既にその状態なら何も書かない(書くとその都度チラつくため必ず読んでから触る)。
-' Auto_Close 側は触らない(閉じる進行中に表示を復元し直すと、閉じる操作と
-' 競合する。ThisWorkbook ストリームも圧縮予算の都合で触らない)。
 Public Sub EnsureAppView()
     ' 別ブック誤爆ガード: DisplayFullScreen はExcel全体の設定なので、利用者が
     ' 他の業務ブックを見ている最中に触ってはいけない(ShowToastと同じ作法)。
@@ -414,6 +408,7 @@ Public Sub EnsureAppView()
     If win.ScrollColumn <> 1 Then win.ScrollColumn = 1
     If win.ScrollRow <> 1 Then win.ScrollRow = 1
     If win.Zoom <> 100 Then win.Zoom = 100
+    If ActiveSheet.Name <> NEXUS_SHEET Then win.DisplayHorizontalScrollBar = True
     On Error GoTo 0
 End Sub
 

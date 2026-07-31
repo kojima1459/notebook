@@ -72,9 +72,14 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     End If
     On Error GoTo Fail
 
-    Dim L As Double, W As Double
+    Dim L As Double, cellW As Double, W As Double
     L = ws.Range("A1").Left
-    W = ws.Range("A1:N1").Width
+    cellW = ws.Range("A1:N1").Width
+    ' R11-B(#30本丸): セル範囲幅(cellW)基準のクロムは本棚系で772〜882ptに
+    ' なり、実可視域(約600pt)を大幅超過して右肩ピルが画面外へ出ていた。
+    ' 帯の背景(下のhdr)は従来どおりcellWいっぱいのまま、操作系を置く
+    ' 右端(W)だけを実可視幅(modUIMain.ViewportWidth)へクランプする。
+    W = modChrome.BarWidth(cellW, modUIMain.ViewportWidth(), 8)
 
     ' --- 右肩ピルの配置を先に決める(帯の高さがこれで決まるため) ---
     ' 2026-07-31(R7 A-5): 🎨着せ替え / 🚪終了 をここへ統合し、
@@ -101,7 +106,7 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
 
     ' --- ヘッダーバー ---
     Dim hdr As Shape
-    Set hdr = ws.Shapes.AddShape(5, L, 0, W, hdrH)
+    Set hdr = ws.Shapes.AddShape(5, L, 0, cellW, hdrH)
     hdr.Name = "nxk_hdr"
     hdr.Adjustments(1) = 0.02
     hdr.Line.Visible = 0

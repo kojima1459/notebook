@@ -59,8 +59,9 @@ Private Const BADGE_ROWS_FALLBACK As Long = 3
 ' このアプリの画面幅は約600pt(チャットヘッダーの実測597pt・Hubの帯626pt)
 ' なので、右寄せしたボタンは【画面外】に置かれていた。実機報告
 ' 「ダッシュボード上部が真っ白・ナビが無い」の正体はこれで、ボタンは
-' 描かれていたが誰にも見えていなかった。操作系は必ず HDR_CTL_COLS 列の
-' 内側(=他画面と同じ幅)に置き、はみ出す分は modChrome.FlowLeft が段を
+' 描かれていたが誰にも見えていなかった。操作系は必ず実可視幅
+' (R11-B: HDR_CTL_COLSの決め打ち"A1:L1"を廃止しmodChrome.BarWidth+
+' modUIMain.ViewportWidthへ)の内側に置き、はみ出す分はFlowLeftが段を
 ' 増やして受ける(画面外へ描かない)。
 Private Const HDR_BAR_H As Double = 48
 Private Const HDR_PILL_H As Double = 26
@@ -69,7 +70,6 @@ Private Const HDR_PILL_PITCH As Double = 9
 Private Const HDR_PILL_PAD As Double = 14
 Private Const HDR_PILL_MIN As Double = 40
 Private Const HDR_TITLE_RESERVE As Double = 140   ' タイトル「📊 ダッシュボード」用
-Private Const HDR_CTL_COLS As String = "A1:L1"    ' 操作系を置いてよい範囲(約600pt)
 Private Const HDR_ITEMS As Long = 7
 Private Const HEADER_SUB_Y As Double = 54
 
@@ -95,10 +95,13 @@ Public Sub ShowDashboard()
     DrawDashboard ws
 
     ws.Visible = -1   ' xlSheetVisible
-    ws.Activate
-    On Error Resume Next
-    ActiveWindow.DisplayWorkbookTabs = False
-    On Error GoTo 0
+    If modUI.ActivateSheetRobust(ws, "modDash.ShowDashboard") Then
+        On Error Resume Next
+        ActiveWindow.DisplayWorkbookTabs = False
+        On Error GoTo 0
+    Else
+        modUI.RestoreExcelUI
+    End If
     ' R7 A-2: 全画面/数式バー/罫線/スクロール位置/等倍をまとめて自己修復する
     ' (「閉じる→キャンセル」で壊れた表示が、この画面を開くだけで戻る)。
     On Error Resume Next
@@ -236,10 +239,13 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     HeaderSpec caps, acts, nms, wds
 
     ' 配置の算数は modChrome に任せる(枠外へ描く置き方が存在しない形にする)。
+    ' R11-B(#30): 右端はセル幅(W)ではなく実可視幅でクランプする。
+    Dim barW As Double
+    barW = modChrome.BarWidth(W, modUIMain.ViewportWidth(), 8)
     Dim xs() As Double, rws() As Long, uws() As Double
     Dim rowN As Long
     rowN = modChrome.FlowLeft(wds, HDR_ITEMS, L + HDR_TITLE_RESERVE, _
-                              L + ws.Range(HDR_CTL_COLS).Width - 8, HDR_PILL_GAP, _
+                              L + barW - 8, HDR_PILL_GAP, _
                               xs, rws, uws)
     If rowN < 1 Then rowN = 1
     Dim barH As Double: barH = HDR_BAR_H + (rowN - 1) * (HDR_PILL_H + 4)

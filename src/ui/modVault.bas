@@ -7,13 +7,10 @@ Private mPreview As Object
 Private mPreviewRows As Long
 
 ' ============================================================================
-' modVault - ナレッジ登録フォーム(DOCS_NEXUS_SPEC Phase 2・裁定①)
-' ----------------------------------------------------------------------------
-' UserForm代替: 「登録フォーム用にデザインされた専用シート」をSPAの画面遷移
-' としてアクティブ化する方式(Shape上のテキスト入力はフォーカス制御が不安定な
-' ため、入力欄はセルで作る)。登録は既存の取込パイプライン(modShelf.IngestFile)
-' を再利用: 入力内容を%TEMP%のUTF-8テキストに書き出して取り込むことで、
-' 構造チャンク化・重複排除・バッチ埋め込みまで全て既存の実証済み経路に乗せる。
+' modVault - ナレッジ登録フォーム(DOCS_NEXUS_SPEC Phase 2・裁定①)。
+'   UserForm代替(専用シートをSPA遷移でアクティブ化。フォーカス制御が
+'   不安定なためShape入力は使わず、入力欄はセルで作る)。登録は既存の
+'   取込パイプライン(modShelf.IngestFile)を再利用する。
 ' ============================================================================
 
 Private Const VAULT_SHEET As String = "VaultInput"
@@ -155,12 +152,15 @@ Public Sub ShowVaultInput()
 
     ' SPA遷移(表示してアクティブ化・枠線等は非表示)
     ws.Visible = -1   ' xlSheetVisible
-    ws.Activate
-    On Error Resume Next
-    ActiveWindow.DisplayGridlines = False
-    ActiveWindow.DisplayHeadings = False
-    ws.Range(CELL_TITLE).Select
-    On Error GoTo 0
+    If modUI.ActivateSheetRobust(ws, "modVault.ShowVaultInput") Then
+        On Error Resume Next
+        ActiveWindow.DisplayGridlines = False
+        ActiveWindow.DisplayHeadings = False
+        ws.Range(CELL_TITLE).Select
+        On Error GoTo 0
+    Else
+        modUI.RestoreExcelUI
+    End If
 
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。

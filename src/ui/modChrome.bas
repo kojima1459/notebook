@@ -278,6 +278,22 @@ Public Function TailWords(ByVal capText As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' BarWidth - クロム帯の「操作系を置く右端」の実効幅(pt)。
+'   #30恒久対策: セル範囲幅だけを見て右肩ピル/ツールバーを配置すると、
+'   ウィンドウの実可視幅より遥かに広いことがあり(本棚系で772〜882pt vs
+'   可視域約600pt)、右端の操作が構造的に画面外へ出る。セル幅と
+'   (可視幅-右余白)の狭いほうを採用し、必ず1pt以上を返す。
+' ----------------------------------------------------------------------------
+Public Function BarWidth(ByVal cellRangeW As Double, ByVal viewportW As Double, _
+                         ByVal rightPad As Double) As Double
+    Dim avail As Double
+    avail = viewportW - rightPad
+    BarWidth = cellRangeW
+    If avail < BarWidth Then BarWidth = avail
+    If BarWidth < 1 Then BarWidth = 1
+End Function
+
+' ----------------------------------------------------------------------------
 ' PillWidth - キャプションから必要なピル幅を求める(左右の余白込み)。
 '   固定の予約幅を人が手で置いていたのが606pt問題の元凶なので、
 '   文字から幅を出して「予約と実物が食い違わない」状態にする。

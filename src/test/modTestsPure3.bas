@@ -477,6 +477,59 @@ Private Sub TestChromeHeaderRealCaptions()
         "違反=" & bad & "件 lang=" & caps(5) & " mode=" & caps(6) & " speed=" & caps(7)
 End Sub
 
+' R11-B(#30恒久対策): BarWidth(セル幅と可視幅の狭い方)と、それを使う
+' 本棚系右肩ピル(modKnowledge.PillSpec)の配置が、どのウィンドウ幅でも
+' 画面外へ出ないことを固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestChromeBarWidthViewport()
+    modTestRunner.Check "BarWidth: セル882pt/可視600pt/pad8 -> 592", _
+        modChrome.BarWidth(882, 600, 8) = 592, _
+        "got=" & modChrome.BarWidth(882, 600, 8)
+    modTestRunner.Check "BarWidth: セル400pt/可視1200pt/pad8 -> 400", _
+        modChrome.BarWidth(400, 1200, 8) = 400, _
+        "got=" & modChrome.BarWidth(400, 1200, 8)
+
+    ' modKnowledge.PillSpecの実キャプション5本(終了/着せ替え/
+    ' みんなの解決事例/マイ本棚/ギャラリー)。監査確定事実のセル幅882ptを、
+    ' 可視幅480/600/800/1280ptの4条件で流し込む。
+    Dim caps(0 To 4) As String, widths(0 To 4) As Double
+    caps(0) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
+    caps(1) = ChrW(&HD83C) & ChrW(&HDFA8) & " 着せ替え"
+    caps(2) = ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例"
+    caps(3) = ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚"
+    caps(4) = ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー"
+    Dim i As Long
+    For i = 0 To 4
+        widths(i) = modChrome.PillWidth(caps(i), 9, 14, 44)
+    Next i
+
+    Dim viewports As Variant
+    viewports = Array(480, 600, 800, 1280)
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim v As Long, barW As Double, titleMin As Double, rowN As Long
+    Dim bad As Long, detail As String, limitX As Double
+    bad = 0: detail = ""
+    For v = LBound(viewports) To UBound(viewports)
+        barW = modChrome.BarWidth(882, CDbl(viewports(v)), 8)
+        titleMin = modChrome.TitleReserve(barW, 160)
+        rowN = modChrome.FlowRight(widths, 5, barW - 8, titleMin, 8, 6, xs, rws, useW)
+        If rowN < 1 Then bad = bad + 1
+        For i = 0 To 4
+            If rws(i) = 0 Then limitX = titleMin Else limitX = 8
+            If xs(i) < limitX Then
+                bad = bad + 1
+                detail = detail & " vp=" & viewports(v) & "/i=" & i & "/左端未満"
+            End If
+            If xs(i) + useW(i) > barW - 8 Then
+                bad = bad + 1
+                detail = detail & " vp=" & viewports(v) & "/i=" & i & "/可視幅超過"
+            End If
+        Next i
+    Next v
+    modTestRunner.Check "本棚右肩ピル5本: 可視幅480/600/800/1280で全条件leftLimit以上かつ可視幅以内", _
+        bad = 0, "違反=" & bad & "件" & detail
+End Sub
+
 ' modUINexusDraw.PillSpec のキャプション組み立ての写し。状態は最も長い
 ' 組み合わせ(社内ナレッジ検索/入念に調べる/日本語)を使う ―― 最悪ケースで
 ' 収まれば他の状態でも収まる。並びは右から左(0=最も右)。
@@ -549,6 +602,9 @@ NextChromeClip:
 NextChromeReal:
     On Error GoTo ChromeRealFail
     TestChromeHeaderRealCaptions
+NextChromeBarWidth:
+    On Error GoTo ChromeBarWidthFail
+    TestChromeBarWidthViewport
 NextPure4:
     ' 2026-07-31 R6: 本モジュールも上限に近づいたため、画像PDFのOCR取込
     ' (optOcrCore/modUtilのページ付きテキスト)のテストはmodTestsPure4へ分割。
@@ -596,6 +652,10 @@ ChromeClipFail:
     Resume NextChromeReal
 ChromeRealFail:
     modTestRunner.Check "TestChromeHeaderRealCaptions(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChromeBarWidth
+ChromeBarWidthFail:
+    modTestRunner.Check "TestChromeBarWidthViewport(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPure4
 Pure4Fail:

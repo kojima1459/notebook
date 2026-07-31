@@ -1643,6 +1643,44 @@ def check_safeleft_warning(info: ModuleInfo) -> None:
         )
 
 
+RAW_ACTIVATE_PATTERN = re.compile(r"\b([A-Za-z_]\w*)\.Activate\b")
+# ThisWorkbook.Activate(複数ウィンドウの前面切替。シート遷移とは別物)と
+# prevActive.Activate(EnsureLayout等の「元のシートへ戻す」復帰処理。戻す先の
+# 失敗は非致命的で既存のOERNで許容されている)は素の.Activateチェックの
+# 対象外にする(2026-07-31 R11-B)。
+RAW_ACTIVATE_EXEMPT_PREFIXES = {"thisworkbook", "prevactive"}
+
+
+def check_raw_activate(info: ModuleInfo) -> None:
+    """modUI以外での素の.Activate使用をWARNにする(R11-B・C6系の再発防止)。
+
+    2026-07-31実機「ギャラリー無反応」の真因は、ActivateSheetRobust(失敗を
+    検知し、失敗時はRestoreExcelUIで脱出路を出す)を経由しない素の
+    ws.Activateが複数箇所に残っていたこと。失敗しても利用者には何も伝わらず、
+    画面が固まったまま戻る手段が無い。modUIはActivateSheetRobust自身の
+    実装場所として唯一許可する(対象外)。
+
+    まだ移行できていない既存箇所(modUIMain.EnsureLayout等の「Activate失敗を
+    許容してログだけ残す」防御パターンや、opt層の単発Activate)がR11-B時点で
+    残っているため、いきなりERRORにはしない。全数の置換を確認できてから
+    ERRORへ格上げする(§検収基準・司令塔裁定待ち)。
+    """
+    name = module_name_for_display(info)
+    if name == "modUI":
+        return
+    for lineno, raw in merge_continuations(info.raw_text.split("\n")):
+        code = _strip_strings(strip_comment(raw))
+        for m in RAW_ACTIVATE_PATTERN.finditer(code):
+            if m.group(1).lower() in RAW_ACTIVATE_EXEMPT_PREFIXES:
+                continue
+            info.add(
+                "WARN", lineno,
+                f"素の.Activate使用(modUI.ActivateSheetRobust経由にすること。"
+                f"失敗時の脱出路が無いと『ギャラリー無反応』と同型の無反応画面になる): "
+                f"「{code.strip()[:80]}」",
+            )
+
+
 # ==============================================================================
 # メイン
 # ==============================================================================
@@ -1683,6 +1721,7 @@ def run_lint(src_root: Path) -> int:
         check_layer_dependency(info, known_modules)
         check_contract(info)
         check_safeleft_warning(info)
+        check_raw_activate(info)
 
     # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
     # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。

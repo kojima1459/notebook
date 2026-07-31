@@ -58,8 +58,10 @@ Public Sub Show()
     modKnowledge.DrawChrome ws, "shared"
 
     ws.Visible = -1
-    ws.Activate
+    If Not modUI.ActivateSheetRobust(ws, "modShared.Show") Then modUI.RestoreExcelUI
     ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    ' PrepareScreenView自身がActiveSheet Is wsを見るため、Activate失敗時は
+    ' 後続のActiveWindow操作を自動でスキップする。
     modKnowledge.PrepareScreenView ws
 
     Dim rows_() As Long
@@ -127,9 +129,13 @@ Finish:
     Resume FinishCleanup0
 FinishCleanup0:
     On Error Resume Next
-    ActiveWindow.DisplayGridlines = False
-    ActiveWindow.DisplayHeadings = False
-    ActiveWindow.DisplayWorkbookTabs = False
+    ' 2026-07-31(R11-B H-1): ActiveWindow系は、そのシートが実際に前面の
+    ' ときだけ触る(別シートの表示状態を巻き添えで変えないため)。
+    If ThisWorkbook.ActiveSheet Is ws Then
+        ActiveWindow.DisplayGridlines = False
+        ActiveWindow.DisplayHeadings = False
+        ActiveWindow.DisplayWorkbookTabs = False
+    End If
     modUI.FreezeShapePlacement ws
     Application.ScreenUpdating = True
     On Error GoTo 0
@@ -261,6 +267,19 @@ Public Sub OnSelectNone()
 End Sub
 
 Public Sub OnNextPage()
+    ' 2026-07-31(R11-B M-6): 旧実装は最終ページで押しても無言で先頭(1ページ目)
+    ' へワープしていた(Show内のmPage*PAGE_SIZE>=n防御による副作用)。押した
+    ' のに反応が見えない=無反応と同義(憲章§3-1)なので、ここで先読みして
+    ' 「最後のページです」を明示する。
+    Dim rows_() As Long
+    Dim n As Long
+    On Error Resume Next
+    n = modInsight.PendingRowsRanked(rows_)
+    On Error GoTo 0
+    If (mPage + 1) * PAGE_SIZE >= n Then
+        modSkin.ShowToast "最後のページです。", "info"
+        Exit Sub
+    End If
     mPage = mPage + 1
     Show
 End Sub

@@ -81,9 +81,13 @@ End Function
 '   3のおかげで、Wがどんな値でも「タイトル領域へ入り込む配置」は
 '   構造的に作れない(FlowRightのコメント参照)。
 Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
-    Dim L As Double, W As Double
+    Dim L As Double, cellW As Double, W As Double
     L = ws.Range("A1").Left
-    W = ws.Range("A1:M1").Width
+    cellW = ws.Range("A1:M1").Width
+    ' R11-B(#30恒久対策): セル範囲幅(cellW)だけでなく実可視幅も見る。
+    ' 帯の背景(下のbg)は従来どおりcellWいっぱいのまま、操作系(ピル)の
+    ' 右端だけをmodChrome.BarWidthでウィンドウ実幅へクランプする。
+    W = modChrome.BarWidth(cellW, modUIMain.ViewportWidth(), HDR_RIGHT_PAD)
 
     ' --- 幅予算の決定 ---------------------------------------------------
     ' タイトル用に HDR_TITLE_MIN を確保し、残りを右端ピルの予算とする。
@@ -124,8 +128,9 @@ Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
     mHeaderH = rowN * HDR_H
 
     ' --- 濃色帯(段数ぶんの高さ) -----------------------------------------
+    ' 背景の帯は従来どおりセル幅いっぱい(cellW)。狭めるのは操作系の右端だけ。
     Dim bg As Shape
-    Set bg = ws.Shapes.AddShape(5, L, 0, W, mHeaderH)
+    Set bg = ws.Shapes.AddShape(5, L, 0, cellW, mHeaderH)
     bg.Name = "nx_top_bg"
     bg.Placement = 3
     bg.Adjustments(1) = 0.02
@@ -552,7 +557,7 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     If cb + 8 > y Then y = cb + 8
     On Error GoTo 0
 
-    Dim caps As Variant, kinds As Variant, widths As Variant, acts As Variant
+    Dim caps As Variant, kinds As Variant, acts As Variant
     ' 評価は「解決した/微妙/違う」の3択。どれも1クリックで完結し、
     ' 入力を強制しない(入力を求めた途端に誰も押さなくなる)。
     '
@@ -567,17 +572,31 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
                  ChrW(&HD83D) & ChrW(&HDCCB) & " コピー", _
                  ChrW(&HD83D) & ChrW(&HDCC4) & " Word")
     kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word")
-    widths = Array(84, 64, 64, 74, 72, 68)
     acts = Array("OnActResolve", "OnActUnsure", "OnActBad", "OnActDrill", _
                  "OnActCopy", "OnActWord")
 
-    Dim x As Double: x = anchor.Left
+    ' R11-B(#30): 固定幅6個の決め打ちをやめ、modChrome.PillWidth+FlowLeftで
+    ' 実可視幅(modUIMain.ViewportWidth)基準に流し込む。入り切らない分は
+    ' modChrome.FlowLeftが段を増やして下へ流す(画面外へ見切れない)。
+    Dim widths(0 To 5) As Double
     Dim i As Long
     For i = 0 To 5
+        widths(i) = modChrome.PillWidth(CStr(caps(i)), 13, 16, 40)
+    Next i
+    Dim maxX As Double
+    maxX = ChatLeft(ws) + modChrome.BarWidth(ChatWidth(ws), modUIMain.ViewportWidth(), 8)
+
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowLeft(widths, 6, anchor.Left, maxX, 5, xs, rws, useW)
+    If rowN < 1 Then rowN = 1
+
+    For i = 0 To 5
+        Dim rowY As Double: rowY = y + rws(i) * (ACT_H + 6)
         ' 1個の1004で残りを道連れにしない(実機で繰り返した描画中断の教訓)。
         On Error Resume Next
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, x, y, CDbl(widths(i)), ACT_H)
+        Set btn = ws.Shapes.AddShape(5, xs(i), rowY, useW(i), ACT_H)
         If Err.Number = 0 And Not btn Is Nothing Then
             btn.Name = "nx_act_" & CStr(kinds(i))
             btn.Adjustments(1) = 0.4
@@ -595,7 +614,6 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
         Set btn = Nothing
         Err.Clear
         On Error GoTo 0
-        x = x + CDbl(widths(i)) + 5
     Next i
 End Sub
 

@@ -67,6 +67,23 @@ Private mLastAnswerText As String
 ' コールバック)だが、その宛先だった旧ホームシートのセルは、既定UIがNexus
 ' チャットになった今、利用者が一切見ていない。契約は変えずに転送先を足す。
 
+' ViewportWidth - ウィンドウの実可視幅(pt)。#30恒久対策(R11-B)の共通部品。
+'   セル範囲幅だけを見るクロム配置(modHub/modKnowledge/modDash/
+'   modUINexusDraw)が実ウィンドウ幅を一度も見ていなかったのが#30の真因
+'   (本棚系は基準882pt vs 可視域約600pt)。ここが単一の取得口。
+'   ActiveWindow.UsableWidth(自ブック前面時)→取れなければVisibleRange.Width
+'   →最後に320〜1600ptへクランプ(異常値でクロム計算全体を壊さない)。
+Public Function ViewportWidth() As Double
+    Dim w As Double
+    On Error Resume Next
+    If ActiveWorkbook Is ThisWorkbook Then w = ActiveWindow.UsableWidth
+    If w <= 0 Then w = ActiveWindow.VisibleRange.Width
+    On Error GoTo 0
+    If w < 320 Then w = 320
+    If w > 1600 Then w = 1600
+    ViewportWidth = w
+End Function
+
 ' EnsureLayout - ホームを冪等再構築(既存Shapes全削除→再生成)
 Public Sub EnsureLayout()
     Dim ws As Worksheet
@@ -447,9 +464,12 @@ Public Sub OnModeDeep()
 End Sub
 
 Public Sub OnOpenHowto()
+    Dim ws As Worksheet
     On Error Resume Next
-    ThisWorkbook.Worksheets(modAppDef.SH_HOWTO).Activate
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_HOWTO)
     On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+    If Not modUI.ActivateSheetRobust(ws, "modUIMain.OnOpenHowto") Then modUI.RestoreExcelUI
 End Sub
 
 ' 2026-07-22実機報告対策: タブが隠れていてもNexus(チャット)へ戻れるように
