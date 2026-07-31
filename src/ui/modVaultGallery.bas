@@ -109,7 +109,8 @@ End Sub
 Public Sub OnVaultPrev()
     If mGalleryPage <= 0 Then
         ' 端で無反応にしない。「押したのに何も起きない」は故障と同じ(憲章§3-1)。
-        modSkin.ShowToast "最初のページです。", "info"
+        ' waitless: 端で押しただけの案内に1.1秒待たせない(R11-H Med4)。
+        modSkin.ShowToast "最初のページです。", "info", True
         Exit Sub
     End If
     mGalleryPage = mGalleryPage - 1
@@ -118,7 +119,7 @@ End Sub
 
 Public Sub OnVaultNext()
     If mGalleryPage >= mGalleryMaxPage Then
-        modSkin.ShowToast "最後のページです。", "info"
+        modSkin.ShowToast "最後のページです。", "info", True
         Exit Sub
     End If
     mGalleryPage = mGalleryPage + 1

@@ -234,6 +234,9 @@ Public Sub Boot()
     ' 点灯」まで一続きに起きる(要件定義書 要件C)。
     bootStage = "統計の更新(連続利用日数・バッジ)"
     On Error Resume Next
+    ' 2026-07-31(R11-H Med3): ここでの獲得告知はまだ画面が無い状態で出るうえ、
+    ' 1本1.1秒止まる。積むだけにして下の FlushBadgeToasts で1本にまとめる。
+    modStats.BeginDeferredBadges
     modStats.TouchToday
     LogBootStageErrorIfAny bootStage
     modStats.EvaluateBadges
@@ -462,6 +465,12 @@ Public Sub Boot()
     modHubStat.AllowShareQueries
     On Error GoTo Failed
 
+    ' 起動中に積んだバッジ獲得告知を、画面が確定したここで1本にまとめて出す
+    ' (2026-07-31 R11-H Med3)。積みが0件なら何も出ない。
+    On Error Resume Next
+    modStats.FlushBadgeToasts
+    On Error GoTo Failed
+
     gBootDone = True
     mBootRunning = False
     On Error Resume Next
@@ -488,6 +497,9 @@ FailedCleanup2:
     On Error Resume Next
     Application.ScreenUpdating = True
     Application.EnableEvents = True   ' イベント抑止も必ず復帰(死の連鎖防止)
+    ' 遅延キューも必ず解除(忘れると以降の獲得が永久に無言。R11-H Med3)。
+    ' failDesc/failNum は控え済みなのでErrが変わっても害はない。
+    modStats.FlushBadgeToasts
     On Error GoTo 0
     modLog.LogError "E0801", "modBoot.Boot", _
         "stage=" & bootStage & " err#" & failNum & ": " & failDesc
@@ -670,9 +682,17 @@ Private Sub GcOldOcrFolders()
         stamp = FileDateTime(full)
         If Err.Number = 0 And isDir Then
             If DateDiff("h", stamp, Now) >= 24 Then
-                Kill full & "\*.*"
+                ' R11-H Low: "*.*" は拡張子の無いファイル(GSの完了フラグ等)に
+                ' 当たらず、1つ残るとRmDirが失敗して永久に積み上がる。"\*"へ。
+                Kill full & "\*"
                 RmDir full
-                If LenB(Dir$(full, vbDirectory)) = 0 Then removed = removed + 1
+                If LenB(Dir$(full, vbDirectory)) = 0 Then
+                    removed = removed + 1
+                Else
+                    ' 消せなかったことを1行残す(黙って積み上げない。憲章§4-1)。
+                    modLog.LogUsage "gc_ocr_leftover", "", _
+                        "作業フォルダを削除できませんでした: " & full
+                End If
             End If
         End If
         Err.Clear

@@ -331,6 +331,14 @@ Private Function AddDocsMessage(ByVal res As String) As String
     Dim reasons As String
     reasons = ResultText(res, "reasons")
 
+    ' 2026-07-31(R11-H Med1): 「取込中で受け付けなかった」をキャンセルと
+    ' 区別する。どちらも件数は全部0なので、reasons=busy でしか見分けられない。
+    If ReasonCount(reasons, "busy") > 0 Then
+        AddDocsMessage = ChrW(&H23F3) & " いま別の取り込みが動いています。" & vbLf & _
+            "完了後にもう一度お試しください(進み具合は画面上部の帯に出ています)。"
+        Exit Function
+    End If
+
     If okN = 0 And ngN = 0 And capN = 0 Then Exit Function   ' キャンセル
 
     Dim say As String

@@ -174,6 +174,14 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' この文書を自分で開いたのか(相乗り先で既に開かれていた文書なら
     ' 閉じてはいけない。閉じると利用者の未保存の編集がその場で消える)。
     Dim ownsDoc As Boolean
+    ' Wordの設定の控え(復元用)。2026-07-31(R11-H Low): 宣言と初期化を
+    ' 手続きの先頭へ上げる。従来は STEP_VISIBLE より後で初期化していたため、
+    ' そこへ到達する前に例外が起きると 0 のまま Cleanup へ渡り、
+    ' 「控えを取れていない」ことを表す番兵(ALERTS_UNSET / -1)ではなく
+    ' 実在する値0(wdAlertsNone / msoAutomationSecurityLow)として
+    ' 書き戻される芽があった。宣言位置で封じる。
+    Dim prevAlerts As Long: prevAlerts = ALERTS_UNSET
+    Dim prevSecurity As Long: prevSecurity = -1
 
     On Error GoTo Failed
     stepName = STEP_CREATE
@@ -215,7 +223,6 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' そのWordは生きたまま利用者の手元に残る。控えが無いとそこで元へ戻せず、
     ' 「保存しますか?」の出ないWordを利用者に渡すことになる。
     ' 取得できなかったときは ALERTS_UNSET のまま=触らない(既存規約)。
-    Dim prevAlerts As Long: prevAlerts = ALERTS_UNSET
     On Error Resume Next
     prevAlerts = word.DisplayAlerts
     Err.Clear
@@ -230,7 +237,6 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     ' R11-A2: 控えは prevAlerts と同じ理由で【無条件】に取る(自分で起動した
     ' Wordでも、Quit を見送ればそのWordは利用者の手元に残るため)。
     ' 取得できなかったときは -1 のまま=触らない(既存規約)。
-    Dim prevSecurity As Long: prevSecurity = -1
     On Error Resume Next
     prevSecurity = word.AutomationSecurity
     word.AutomationSecurity = 3
@@ -412,6 +418,8 @@ End Function
 '   ownsDoc=False は「開く前から開かれていた文書」(レビュー4-D)。
 '   doc.Close 0 は wdDoNotSaveChanges なので、閉じた瞬間に利用者の
 '   未保存の編集が消える。自分が開いた文書だけを閉じる。
+'   2026-07-31(R11-H): 文書数が【不明】(remain<0)のときも Quit しない。
+'   ownsDoc の規約(不明なら閉じない)と同じ向きに揃える。
 ' ----------------------------------------------------------------------------
 Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
                     ByVal ownsApp As Boolean, ByVal prevSecurity As Long, _
@@ -429,21 +437,33 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
             ' (Quit は未保存の編集の破棄をその場で確定させる)。
             Dim remain As Long: remain = -1
             remain = app.Documents.count
-            If remain > 0 Then
+            ' 2026-07-31(R11-H High): remain<0 は「文書数を確認できなかった」
+            ' という【不明】であって「空だった」ではない。従来はこれを Quit 側へ
+            ' 倒していたので、Documents.Count が読めない状況(相乗り判定の失敗・
+            ' COMの一時不調)では、利用者の未保存文書ごと閉じる可能性が残って
+            ' いた。ownsDoc の規約(不明なら閉じない)と対称に、不明も
+            ' 「閉じない」側へ倒す。データ保全は機能要件に優先する(憲章§3-5)。
+            If remain <> 0 Then
                 ' R11-A2: 終了しない=このWordは利用者の手元に残る。ならば
                 ' こちらが変えた設定は必ず返し、見える状態に戻す。戻さないと
                 ' 「見えないWordの中に自分の文書があり、しかも保存確認が
                 ' 出ない」という、最も気付けない形の喪失経路になる。
                 RestoreAppSettings app, prevSecurity, prevAlerts
                 app.Visible = True
-                modLog.LogUsage "word_quit_skipped", "", _
-                    "Wordに文書が" & remain & "件残っているため終了しませんでした" & _
-                    "(利用者が使用中の可能性)。表示と設定を復元しました"
-            Else
-                If remain < 0 Then
+                If remain > 0 Then
+                    modLog.LogUsage "word_quit_skipped", "", _
+                        "Wordに文書が" & remain & "件残っているため終了しませんでした" & _
+                        "(利用者が使用中の可能性)。表示と設定を復元しました"
+                Else
                     modLog.LogUsage "word_doc_count_unknown", "", _
-                        "Wordの文書数を確認できないまま終了しました"
+                        "Wordの文書数を確認できなかったため、終了を見送りました" & _
+                        "(利用者の文書を巻き込まないため)。表示と設定を復元しました"
                 End If
+            Else
+                ' 空だと確認できたときだけ閉じる。閉じる前でも設定は戻す
+                ' (自分で起動した空のWordでは無害。ここを通る/通らないで
+                ' 作法が変わらない方が、後から読んで安全側だと分かる)。
+                RestoreAppSettings app, prevSecurity, prevAlerts
                 app.Quit 0
             End If
         Else

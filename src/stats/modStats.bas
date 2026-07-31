@@ -39,6 +39,53 @@ Option Explicit
 Private Const MINUTES_PER_SELFSOLVE As Long = 15   ' 自己解決1件=15分換算(§7.5)
 
 ' ----------------------------------------------------------------------------
+' バッジ獲得告知の遅延キュー(2026-07-31 R11-H Med3)。
+'   EvaluateBadges は起動シーケンスの途中(Hubやチャットを描く前)でも走る。
+'   そこで即トーストを出すと、まだ画面が出来ていないシートの上に描く/
+'   1件ごとに1.1秒止まる/初回起動で複数個まとめて獲得すると連続で割り込む、
+'   という三重の害があった(憲章§3-4「利用者を不安にさせない」)。
+'   起動中は積むだけにして、画面が確定してから modBoot が
+'   FlushBadgeToasts でまとめて1本だけ出す。
+'   通常操作中(既定)は従来どおり即時トースト。
+' ----------------------------------------------------------------------------
+Private mDeferBadges As Boolean
+Private mBadgeQueue() As String
+Private mBadgeQueueN As Long
+
+' BeginDeferredBadges - 以降の獲得告知をキューへ積む(modBoot が起動の先頭で呼ぶ)。
+Public Sub BeginDeferredBadges()
+    mDeferBadges = True
+    mBadgeQueueN = 0
+    ReDim mBadgeQueue(0 To 15)
+End Sub
+
+' FlushBadgeToasts - 積んだ獲得告知をまとめて1本のトーストで出し、即時表示へ戻す。
+'   起動が途中で失敗した経路からも必ず呼ぶこと(呼ばないと以降の獲得が
+'   永久に無言になる=無言の失敗)。積みが0件なら何も出さない。
+Public Sub FlushBadgeToasts()
+    mDeferBadges = False
+    If mBadgeQueueN < 1 Then Exit Sub
+
+    Dim msg As String
+    If mBadgeQueueN = 1 Then
+        msg = "バッジを獲得しました: " & mBadgeQueue(0)
+    Else
+        Dim i As Long
+        Dim names As String
+        For i = 0 To mBadgeQueueN - 1
+            If i > 0 Then names = names & "、"
+            names = names & mBadgeQueue(i)
+        Next i
+        msg = "新しいバッジを" & mBadgeQueueN & "個獲得! " & names
+    End If
+    mBadgeQueueN = 0
+
+    On Error Resume Next
+    modSkin.ShowToast msg, "success"
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' Bump - my_stats upsert(現在値にdeltaを加算)
 ' ----------------------------------------------------------------------------
 Public Sub Bump(ByVal key As String, Optional ByVal delta As Long = 1)
@@ -417,6 +464,15 @@ Private Sub CheckBadge(ByVal badgeId As String, ByVal achieved As Boolean, ByVal
     ' は起動時にも呼ばれる)でモーダルとして割り込み、利用者が「止まっている
     ' のか」戸惑う原因になっていた(憲章§3-4)。非モーダルのトーストへ変える
     ' (lintのR1例外に modStats を追加済み。表示失敗が判定を壊さないようOERN)。
+    ' 2026-07-31(R11-H Med3): 起動中は積むだけ(画面確定後に
+    ' modBoot が FlushBadgeToasts でまとめて1本出す)。
+    If mDeferBadges Then
+        If mBadgeQueueN > UBound(mBadgeQueue) Then Exit Sub   ' 上限16件で打ち切り
+        mBadgeQueue(mBadgeQueueN) = label
+        mBadgeQueueN = mBadgeQueueN + 1
+        Exit Sub
+    End If
+
     On Error Resume Next
     modSkin.ShowToast "バッジを獲得しました: " & label, "success"
     On Error GoTo 0

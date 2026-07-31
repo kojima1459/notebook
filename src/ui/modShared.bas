@@ -280,7 +280,8 @@ Public Sub OnNextPage()
     n = modInsight.PendingRowsRanked(rows_)
     On Error GoTo 0
     If (mPage + 1) * PAGE_SIZE >= n Then
-        modSkin.ShowToast "最後のページです。", "info"
+        ' waitless: 端で押しただけの案内に1.1秒待たせない(R11-H Med4)。
+        modSkin.ShowToast "最後のページです。", "info", True
         Exit Sub
     End If
     mPage = mPage + 1
@@ -327,18 +328,24 @@ Public Sub OnImportSelected()
     ' 2026-07-31(R11-E H-3): 件数によっては1～2分かかると案内しているのに
     ' 進捗が一切見えていなかった(監査1)。取込済み/選択総数のETA付き
     ' バナーを1件ごとに更新する(表示失敗が取込を止めないようOERNで包む)。
+    ' 2026-07-31(R11-H Med2): 分母を「保留Q&Aの全行数 n」ではなく
+    ' 「選ばれた件数 total」にした。従来は20件中3件だけ選んでも
+    ' 「1/20」から始まり、3件目で終わって「3/20」で消える=数字が嘘になり、
+    ' 残り時間も約6倍に見積もられていた。分子は処理済みの選択数、
+    ' ETAも同じ基準(1件あたり実測×残りの選択数)で出す。
     Dim okN As Long, i As Long
+    Dim doneN As Long: doneN = 0
     Dim tStart As Double: tStart = Timer
     For i = 0 To n - 1
         On Error Resume Next
         Dim rr As Long: rr = rows_(i)
         If modInsight.IsSelected(rr) Then
             Dim etaPart As String: etaPart = ""
-            If i > 0 Then
-                Dim elapsedSec As Double: elapsedSec = Timer - tStart
-                If elapsedSec >= 0 Then etaPart = modUtil.EtaText(n - i, (elapsedSec * 1000#) / i)
+            If doneN > 0 Then
+                Dim elapsedMs As Double: elapsedMs = modUtilText.ElapsedMsSince(tStart)
+                etaPart = modUtil.EtaText(total - doneN, elapsedMs / doneN)
             End If
-            modUIMain.ShowProgress modUtil.ProgressText(i + 1, n, etaPart) & " Q&Aを取り込み中…"
+            modUIMain.ShowProgress modUtil.ProgressText(doneN + 1, total, etaPart) & " Q&Aを取り込み中…"
             If modVault.RegisterKnowledgeText( _
                    "解決済みQ&A: " & modUtil.SafeLeft(modInsight.RowField(rr, 6), 40), _
                    modInsight.QABodyText(modInsight.RowField(rr, 4), _
@@ -349,6 +356,7 @@ Public Sub OnImportSelected()
                 modInsight.MarkQAConsumed rr
                 okN = okN + 1
             End If
+            doneN = doneN + 1
         End If
         On Error GoTo Done
     Next i

@@ -71,12 +71,35 @@ Public Sub OnSyncPending()
     On Error Resume Next
     modUIMain.ShowProgress "部門の更新を取り込んでいます…"
     Dim failN As Long
-    Dim got As Long: got = modChannel.SyncSubscribed(failN)
+    Dim lastErr As String
+    Dim got As Long: got = modChannel.SyncSubscribed(failN, lastErr)
     modUIMain.HideProgress
     InvalidatePending
     modUiLock.Leave
-    modSkin.ShowToast IIf(got > 0, got & "件のまとまりを取り込みました。", "更新はありませんでした。") & _
-        IIf(failN > 0, "(" & failN & "部門は取り込めませんでした)", ""), "info"
+
+    ' 2026-07-31(R11-H Med5): 取り込めなかった部門があったことを err_log にも
+    ' 残す。従来はトーストで一瞬「N部門は取り込めませんでした」と流れるだけで、
+    ' 「うちの部門にだけ正典が届かない」を後から調べる材料がゼロだった
+    ' (憲章§4-1 無言の失敗禁止)。
+    If failN > 0 Then
+        modLog.LogError "E0801", "modHubStat.OnSyncPending", _
+            failN & "部門の更新を取り込めませんでした。最後の理由: " & _
+            modUtil.SafeLeft(lastErr, 300)
+    End If
+
+    ' 文言の整合(R11-H Med5): 「成功で0件(すべて最新)」と「失敗」を
+    ' 分けて言う。両方0のときだけ「更新はありませんでした」。
+    Dim msg As String
+    If got > 0 Then
+        msg = got & "件のまとまりを取り込みました。"
+    ElseIf failN > 0 Then
+        msg = "更新を取り込めませんでした。"
+    Else
+        msg = "更新はありませんでした(すべて最新です)。"
+    End If
+    If failN > 0 Then msg = msg & "(" & failN & "部門は取り込めませんでした)"
+    modSkin.ShowToast msg, IIf(failN > 0, "error", "info")
+
     modHub.EnsureHubLayout
     On Error GoTo 0
 End Sub

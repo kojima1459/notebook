@@ -342,7 +342,10 @@ CONTRACT: dict[str, dict] = {
                      # 判定(EvaluateBadges)と表示(modDash/modHub)で表が
                      # 二重化していたため、獲得しても表示されないバッジが
                      # 4種あった。判定を持つ側が名前も持ち、表示は読むだけにする。
-                     "BadgeCatalog", "BadgeEarnedOn"],
+                     "BadgeCatalog", "BadgeEarnedOn",
+                     # 2026-07-31(R11-H Med3): 起動中のバッジ獲得告知を積んで
+                     # 画面確定後にまとめて1本出すための遅延キュー。
+                     "BeginDeferredBadges", "FlushBadgeToasts"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {

@@ -226,6 +226,11 @@ End Function
 '   (差分ではなく置換)。これをやらないと改定のたびに古い記述が残り、
 '   AIが古い条文を根拠に答えるという最悪の事故になる。
 '   戻り値 = 取り込んだチャンク数(0=更新なし/失敗、-1は使わない)。
+'   2026-07-31(R11-H Med5): 戻り値0が「更新が無かった(成功)」と
+'   「取り込めなかった(失敗)」の両方を意味していたため、呼び出し側は
+'   全部まとめて失敗として数えるしかなかった(実機で「更新はありませんでした
+'   (1部門は取り込めませんでした)」という自己矛盾した通知が出る)。
+'   outOk に「処理として成功したか」を、outErrDesc に失敗の理由を返す。
 '
 ' leavingChannel (2026-07-28 レビュー H-14):
 '   部門を切り替えるときに「離れる部門」を渡す。旧部門の削除は
@@ -235,29 +240,48 @@ End Function
 '   三重苦で終わっていた。破壊的な操作は、失敗しうる I/O を全部
 '   終えてから始める。
 ' ----------------------------------------------------------------------------
-Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChannel As String = "") As Long
+Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChannel As String = "", _
+                           Optional ByRef outOk As Boolean, _
+                           Optional ByRef outErrDesc As String) As Long
     On Error Resume Next
+    outOk = False
+    outErrDesc = ""
     Dim remote As String: remote = RemoteVersion(chName)
-    If LenB(remote) = 0 Then Exit Function
+    If LenB(remote) = 0 Then
+        outErrDesc = "版番号(version.txt)を読めませんでした"
+        Exit Function
+    End If
     ' 切替時(leavingChannel あり)は「版が同じ」でも処理を通す。旧部門を
     ' 消して新部門を入れ直す必要があるため。
     If LenB(leavingChannel) = 0 Then
-        If remote = LocalVersion(chName) Then Exit Function
+        If remote = LocalVersion(chName) Then
+            outOk = True        ' 更新なし=成功で0件(失敗ではない)
+            Exit Function
+        End If
     End If
 
     ' 連結前にガードする(R8・低)。共有が未設定/到達不能なら ChannelsDir は
     ' 空文字を返すので、そのまま連結すると相対パスを掴みに行くことになる。
     Dim baseDir As String: baseDir = ChannelsDir()
-    If LenB(baseDir) = 0 Then Exit Function
+    If LenB(baseDir) = 0 Then
+        outErrDesc = "共有フォルダが未設定または到達できません"
+        Exit Function
+    End If
     Dim packPath As String: packPath = baseDir & chName & "\" & PACK_NAME
-    If LenB(Dir(packPath)) = 0 Then Exit Function
+    If LenB(Dir(packPath)) = 0 Then
+        outErrDesc = "部門のパックファイルが見つかりません"
+        Exit Function
+    End If
 
     ' 朝の一斉起動で数千人が同じファイルを掴みに行くため、共有側に読み取り
     ' ロックを残さないよう %TEMP% へコピーしてから開く。発行者が書き換えても
     ' こちらが読むのはコピーなので壊れたファイルを掴まない。
     Dim localPath As String
     localPath = CopyToTemp(packPath, chName)
-    If LenB(localPath) = 0 Then Exit Function
+    If LenB(localPath) = 0 Then
+        outErrDesc = "パックを一時フォルダへコピーできませんでした"
+        Exit Function
+    End If
 
     ' 消す対象のタグを組み立てる。実際の削除は ImportPackFile の中、
     ' 「パックを読み終えて書き込む直前」に行われる(同居時間ゼロのまま、
@@ -286,6 +310,9 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
         End If
         modStats.SetStatText "ch:" & LCase$(chName), remote
         modLog.LogUsage "channel_sync", chName, "version=" & remote & " chunks=" & got
+        outOk = True
+    Else
+        outErrDesc = "パックを読み込めませんでした(取り込めたまとまりが0件)"
     End If
     SyncChannel = got
     On Error GoTo 0
@@ -302,19 +329,25 @@ End Function
 ' 購読中の全チャンネルを同期する(利用者が明示的に押したときだけ呼ぶ)。
 ' outFailN に「更新があるのに取り込めなかった部門数」を返す(R8 F11)。
 ' 呼び出し側が「0件=すべて最新」と誤って報告しないための材料。
-Public Function SyncSubscribed(Optional ByRef outFailN As Long = 0) As Long
+' 2026-07-31(R11-H Med5): 「成功だが取り込むものが無かった」部門を失敗として
+' 数えていたため、通知が自己矛盾していた。SyncChannel の outOk で分ける。
+' outLastErr には最後に起きた失敗の理由を返す(呼び出し側のE0801の材料)。
+Public Function SyncSubscribed(Optional ByRef outFailN As Long = 0, _
+                               Optional ByRef outLastErr As String) As Long
     On Error Resume Next
     outFailN = 0
+    outLastErr = ""
     Dim pend As String: pend = PendingUpdates()
     If LenB(pend) = 0 Then Exit Function
     Dim parts() As String: parts = Split(pend, "|")
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
-        Dim got As Long: got = SyncChannel(parts(i))
-        If got > 0 Then
-            SyncSubscribed = SyncSubscribed + got
-        Else
+        Dim chOk As Boolean, chErr As String
+        Dim got As Long: got = SyncChannel(parts(i), "", chOk, chErr)
+        If got > 0 Then SyncSubscribed = SyncSubscribed + got
+        If Not chOk Then
             outFailN = outFailN + 1
+            outLastErr = parts(i) & ": " & chErr
         End If
     Next i
     On Error GoTo 0
@@ -677,12 +710,14 @@ Public Function SubscribeAllAvailable() As String
                     modUIMain.ShowProgress modUtil.ProgressText(i - LBound(parts) + 1, nSub, "") & _
                         " " & nm & " を読み込み中…"
                     Dim got As Long
-                    got = SyncChannel(nm)
+                    Dim chOk2 As Boolean, chErr2 As String
+                    got = SyncChannel(nm, "", chOk2, chErr2)
                     If got > 0 Then
                         okN = okN + 1
                         chunkN = chunkN + got
                         doneNames = doneNames & IIf(LenB(doneNames) > 0, "/", "") & nm
-                    Else
+                    ElseIf Not chOk2 Then
+                        ' 2026-07-31(R11-H Med5): 「成功で0件」は失敗に数えない。
                         failN = failN + 1
                     End If
                 End If

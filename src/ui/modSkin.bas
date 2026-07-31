@@ -292,7 +292,13 @@ End Sub
 ' ShowToast - MsgBoxの代替(非ブロッキング通知)。画面上部中央に細長Shapeを出し、
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------
-Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info")
+' waitless(2026-07-31 R11-H Med4): True のとき 1.1秒の待機と削除を行わず、
+' 描いたらすぐ戻る。「押した瞬間に一言返すだけ」の用途(ページ端の案内など)は、
+' 待たせること自体が害になる(連打すると待ち時間が積み上がり、押しても
+' 効かないように見える)。残ったToastは次の ShowToast / PaintProgress が
+' 先頭の掃除で消すので、孤児にはならない。既定は従来どおり待って消す。
+Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
+                     Optional ByVal waitless As Boolean = False)
     On Error Resume Next
     ' 別ブック誤爆ガード: ユーザーが他の業務Excelを見ている間にToastを描くと、
     ' 他人のブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
@@ -338,6 +344,10 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     ApplySoftShadow shp
     shp.ZOrder 0   ' msoBringToFront
     DoEvents
+    If waitless Then
+        On Error GoTo 0
+        Exit Sub
+    End If
     ToastWait 1100
     ws.Shapes("nx_toast").Delete
     On Error GoTo 0
@@ -365,6 +375,10 @@ Public Sub PaintProgress(ByVal message As String)
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
+
+    ' 2026-07-31(R11-H Med4): waitless で出したToastは自分では消えないので、
+    ' 進捗バナーを出すここでも掃除する(ShowToastの先頭と同じ役目)。
+    ws.Shapes("nx_toast").Delete
 
     If LenB(mProgressSheetName) > 0 And mProgressSheetName <> ws.Name Then
         Dim wsOld As Worksheet

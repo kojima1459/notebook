@@ -70,7 +70,8 @@ End Sub
 '
 '   戻り値: "ok=<n>;ng=<n>;capped=<n>;chunks=<n>;reasons=<code>:<count>,..."
 '   reasonsはE0504(同名衝突)/image_pdf/E0302等、失敗理由コードごとの内訳。
-'   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0 で返す。
+'   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0;reasons= 。
+'   別の取込が動いていて受け付けなかったときは reasons=busy:1(R11-H Med1)。
 '
 Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As String
     ' R11-C(H-6): 入口での再入ガード。DoEvents経由で同時に2本目が走ることは
@@ -78,7 +79,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' 前回の呼び出しがAddFailed経路で解除し損ねた場合の保険としてキャンセル
     ' 相当を返す(mBatchIngestingの退避/復元はせず、入口で弾くだけで足りる)。
     If IsBatchBusy() Then
-        AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons="
+        ' 2026-07-31(R11-H Med1): 従来はキャンセルと同じ戻り値だったため、
+        ' 呼び出し元(modApp.OnAddDocs)は「押し間違い」とみなして何も言わず、
+        ' 利用者には【押しても何も起きない】としか見えなかった(憲章§3-1)。
+        ' reasons=busy を立てて、呼び出し元が理由を説明できるようにする。
+        modLog.LogUsage "add_files_busy", "", _
+            "取込中に「資料を追加」が押されたため受け付けませんでした"
+        AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons=busy:1"
         Exit Function
     End If
     ' 集計値の宣言はハンドラより前に置く(途中で落ちても集計を返すため)。
