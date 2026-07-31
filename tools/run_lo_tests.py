@@ -154,6 +154,13 @@ PURE_ALLOWLIST = [
     #     注入しないと同じく実行時エラー12になり分割先のテストが
     #     「実行されないまま」になる(modTestsPure2追加時と同型の理由)。
     "modExtractor", "modTestsPure3",
+    # modUtilText(2026-07-31 R11-F2): ページ分割の添字計算 GsPageBounds /
+    #   CleanTextLen / BlendPerItemMs / ElapsedMsSince を1本化した共通部品。
+    #   optOcrCore.GsPageCount と modExtractor.BuildPagesFromGsText の両方が
+    #   ここへ委譲するので、未注入だと両者を呼ぶテストが実行時エラー12になる。
+    #   ADODB.Streamを使うのは Read/WriteTextFileUtf8 だけで、テストからは
+    #   呼ばない(実行に到達しなければコンパイルは通る=techメモ4)。
+    "modUtilText",
     # modChrome(2026-07-30 R4要件C/D): ツールバーとヘッダーピルの配置計算。
     # 「Wがいくつでも枠内に収まる/タイトルに重ならない」という保証は、
     # 実機で描いて目視するのではなくここで実行テストとして固定する。

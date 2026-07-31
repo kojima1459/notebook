@@ -242,10 +242,12 @@ FailCleanup4:
     Resume Done
 
 Done:
+    ' 経過時間は modUtilText.ElapsedMsSince に一本化(Timerは0時に0へ戻るため、
+    ' 素の引き算だと日付をまたいだ質問で負の値になる。2026-07-31 R11-F2)。
     Dim elapsedMs As Long
-    elapsedMs = CLng((Timer - tStart) * 1000)
+    elapsedMs = CLng(modUtilText.ElapsedMsSince(tStart))
     Dim elapsedSec As Long
-    elapsedSec = CLng(Timer - tStart)
+    elapsedSec = CLng(elapsedMs / 1000#)
 
     ' 成功ターンのみ履歴に積む。積むのは深掘り候補ブロックを含まない
     ' 除去後の本文(mLastCleanAnswer。DecorateWithFollowupsが設定)。

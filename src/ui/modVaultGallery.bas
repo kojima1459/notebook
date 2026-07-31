@@ -29,6 +29,11 @@ Private mGalleryPage As Long
 Private mGalleryNames() As String   ' 現在ページのカード順の資料名(クリック解決用)
 Private mGalleryCount As Long
 
+' 直近の描画で確定した最大ページ番号(0起点)。ページ端で「最後のページです」と
+' 知らせるために持つ(2026-07-31 R11-F2。R11-Bで容量不足のため保留になっていた
+' 監査1 H-2/M-6の回収)。
+Private mGalleryMaxPage As Long
+
 ' ----------------------------------------------------------------------------
 ' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・3列グリッド・ページング。
 ' Shape増殖なし=毎回同数のカードを描き直す)
@@ -88,33 +93,74 @@ FinishCleanup4:
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' 検索・ページ送りの3ハンドラ(2026-07-31 R11-F2)。
+'   従来は例外保護が無く、描画の途中で1004等が出ると ScreenUpdating=False の
+'   まま呼び出し元へ飛び、画面が固まったように見えた(暗転固定)。しかも
+'   err_log に何も残らないため、実機で「押しても何も起きない」としか報告
+'   できなかった(監査1 H-2。R11-Bで容量不足のため保留になっていた項目)。
+'   3本とも RedrawGallery に集約し、そこで E0801 と画面更新の復帰を必ず行う。
+' ----------------------------------------------------------------------------
 Public Sub OnVaultSearch()
     mGalleryPage = 0
-    Dim ws As Worksheet
-    Set ws = GetGallerySheet()
-    If ws Is Nothing Then Exit Sub
-    Application.ScreenUpdating = False
-    RenderGalleryCards ws
-    Application.ScreenUpdating = True
+    RedrawGallery "modVaultGallery.OnVaultSearch"
 End Sub
 
 Public Sub OnVaultPrev()
-    If mGalleryPage > 0 Then mGalleryPage = mGalleryPage - 1
-    OnVaultSearchKeepPage
+    If mGalleryPage <= 0 Then
+        ' 端で無反応にしない。「押したのに何も起きない」は故障と同じ(憲章§3-1)。
+        modSkin.ShowToast "最初のページです。", "info"
+        Exit Sub
+    End If
+    mGalleryPage = mGalleryPage - 1
+    RedrawGallery "modVaultGallery.OnVaultPrev"
 End Sub
 
 Public Sub OnVaultNext()
+    If mGalleryPage >= mGalleryMaxPage Then
+        modSkin.ShowToast "最後のページです。", "info"
+        Exit Sub
+    End If
     mGalleryPage = mGalleryPage + 1
-    OnVaultSearchKeepPage
+    RedrawGallery "modVaultGallery.OnVaultNext"
 End Sub
 
+' ページ位置を変えずに描き直す(カードからの削除・品質報告の後に使う)。
+' context には呼び出し元の公開ハンドラ名を渡す(err_logから経路が追えるように)。
 Private Sub OnVaultSearchKeepPage()
+    RedrawGallery "modVaultGallery.OnVaultCardClick"
+End Sub
+
+' ギャラリーの再描画(唯一の入口)。例外が出ても必ず ScreenUpdating を戻し、
+' 何が起きたかを E0801 に1行残す。
+Private Sub RedrawGallery(ByVal context As String)
     Dim ws As Worksheet
+    Dim gErrNum As Long, gErrDesc As String
+
     Set ws = GetGallerySheet()
-    If ws Is Nothing Then Exit Sub
+    If ws Is Nothing Then
+        modLog.LogError "E0801", context, "「マイ本棚」シートが見つかりませんでした"
+        Exit Sub
+    End If
+
+    On Error GoTo Fail
     Application.ScreenUpdating = False
     RenderGalleryCards ws
-    Application.ScreenUpdating = True
+    GoTo RedrawCleanup
+Fail:
+    gErrNum = Err.Number
+    gErrDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かない。後始末の前に Resume で
+    ' ハンドラを抜ける(2026-07-30 実機err#462と同型)。
+    Resume RedrawCleanup
+RedrawCleanup:
+    On Error Resume Next
+    Application.ScreenUpdating = True   ' 例外時も必ず戻す(暗転固定を防ぐ)
+    If gErrNum <> 0 Then
+        modLog.LogError "E0801", context, gErrDesc, gErrNum
+        modSkin.ShowToast "一覧を描き直せませんでした。もう一度お試しください。", "error"
+    End If
+    On Error GoTo 0
 End Sub
 
 
@@ -128,7 +174,12 @@ Public Sub OnVaultCardClick()
     On Error Resume Next
     callerName = CStr(Application.Caller)
     On Error GoTo 0
-    If Left$(callerName, 9) <> "nxg_card_" Then Exit Sub
+    If Left$(callerName, 9) <> "nxg_card_" Then
+        ' 想定外のShapeから呼ばれた(配線ミス/Shape名の変更)。無言で消えると
+        ' 「押しても何も起きない」として二度と使われないため必ず1行残す。
+        modLog.LogUsage "caller_mismatch", "modVaultGallery.OnVaultCardClick", callerName
+        Exit Sub
+    End If
 
     Dim idx As Long
     idx = CLng(Val(Mid$(callerName, 10)))
@@ -240,6 +291,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     End If
     If mGalleryPage > maxPage Then mGalleryPage = maxPage
     If mGalleryPage < 0 Then mGalleryPage = 0
+    mGalleryMaxPage = maxPage   ' ページ端トーストの判定材料(R11-F2)
 
     Dim startIdx As Long: startIdx = mGalleryPage * CARDS_PER_PAGE
     Dim endIdx As Long: endIdx = startIdx + CARDS_PER_PAGE - 1
@@ -319,7 +371,11 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         Next k
     End If
 
-    ' ページャ
+    ' ページャ。0件のときは描かない(2026-07-31 R11-F2。監査1 M-6の回収)。
+    ' 「1 / 1 ページ(全0件)」と前へ/次へだけが浮いている画面は、押しても
+    ' 何も起きないボタンを2つ見せることになり、Empty Stateの案内を打ち消す。
+    If fCount = 0 Then Exit Sub
+
     Dim pgY As Double: pgY = cardT + 3 * (CARD_H + 14) + 6
     Dim prevBtn As Shape
     Set prevBtn = ws.Shapes.AddShape(5, cardL, pgY, 70, 22)

@@ -536,15 +536,7 @@ End Function
 ' (改行だけのページを中身ありと数えると出典ページ番号が全部1つずれる)。
 ' optOcrCore.CleanTextLen と同じ規約(R2で2箇所に分かれる。突合はmodTestsPure6)。
 Private Function IsBlankGsPage(ByVal s As String) As Boolean
-    Dim t As String
-
-    t = Replace(s, vbCr, "")
-    t = Replace(t, vbLf, "")
-    t = Replace(t, vbTab, "")
-    t = Replace(t, Chr$(12), "")
-    t = Replace(t, " ", "")
-    t = Replace(t, ChrW(&H3000), "")
-    IsBlankGsPage = (LenB(t) = 0)
+    IsBlankGsPage = modUtilText.GsPageIsBlank(s)
 End Function
 
 ' InvokeFeatureの戻り値(Variant)を安全に文字列化する
@@ -584,25 +576,13 @@ Public Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long
     truncated = False
     If IsBlankGsPage(txt) Then Exit Function
 
+    ' 先頭側・末尾側の空ページ(空白類だけの要素)を対称に読み飛ばす添字計算は
+    ' modUtilText.GsPageBounds が唯一の実装(2026-07-31 R11-F2)。従来は
+    ' optOcrCore.GsPageCount と同じ規約を2箇所で書いており、ズレると出典ページ
+    ' 番号が丸ごとずれる=「出典 p.5 を開くと別のページが出る」壊れ方をした。
+    keptN = modUtilText.GsPageBounds(txt, firstIdx, lastIdx)
+    If keptN < 1 Then Exit Function
     parts = Split(txt, Chr$(12))
-    firstIdx = LBound(parts)
-    lastIdx = UBound(parts)
-
-    ' 先頭側・末尾側の空ページ(空白類だけの要素)を対称に読み飛ばす。
-    ' optOcrCore.GsPageCount と同じ規約(あちらは件数だけを数える純関数で、
-    ' R2によりコア層からは呼べないため実装が2箇所に分かれている。ズレると
-    ' GsTextVerdictの分母が狂うので modTestsPure6 が突き合わせを固定する)。
-    ' 上の早期returnにより中身のあるページが必ず1つはある=ループは必ず解ける。
-    Do While firstIdx < lastIdx
-        If Not IsBlankGsPage(parts(firstIdx)) Then Exit Do
-        firstIdx = firstIdx + 1
-    Loop
-    Do While lastIdx > firstIdx
-        If Not IsBlankGsPage(parts(lastIdx)) Then Exit Do
-        lastIdx = lastIdx - 1
-    Loop
-
-    keptN = lastIdx - firstIdx + 1
     If maxPages > 0 And keptN > maxPages Then
         keptN = maxPages
         truncated = True
@@ -622,17 +602,17 @@ End Function
 ' txt/md/csv はADODB.StreamでUTF-8として読み込む(常に1ページ扱い)。
 Private Function ExtractPlainText(ByVal path As String, ByRef pages() As ExtractedPage, _
                                   ByRef errDetail As String) As Boolean
-    Dim st As Object
+    Dim txt As String
+    Dim readErrNum As Long
+    Dim readErrDesc As String
 
-    On Error GoTo Failed
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile path
-    Dim txt As String: txt = st.ReadText
-    st.Close
-    Set st = Nothing
+    ' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2で
+    ' 10箇所の同型実装を1本化)。失敗時の利用者向け文言(DescribeComError)は
+    ' ここが従来どおり組み立てる=挙動は変えない。
+    If Not modUtilText.ReadTextFileUtf8(path, txt, readErrNum, readErrDesc) Then
+        errDetail = modUtil.DescribeComError(readErrNum, readErrDesc, "Office")
+        Exit Function
+    End If
 
     Dim tmp(0 To 0) As ExtractedPage
     tmp(0).page = 1
@@ -640,22 +620,6 @@ Private Function ExtractPlainText(ByVal path As String, ByRef pages() As Extract
     pages = tmp
 
     ExtractPlainText = True
-    Exit Function
-
-Failed:
-    errDetail = modUtil.DescribeComError(Err.Number, Err.Description, "Office")
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailedCleanup6
-FailedCleanup6:
-    If Not st Is Nothing Then
-        On Error Resume Next
-        st.Close
-        On Error GoTo 0
-    End If
-    Set st = Nothing
-    ExtractPlainText = False
 End Function
 
 ' ----------------------------------------------------------------------------

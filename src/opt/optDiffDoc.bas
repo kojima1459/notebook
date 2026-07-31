@@ -169,34 +169,15 @@ Private Function ExtractPlainText(ByVal path As String, ByRef outText As String,
         Exit Function
     End If
 
-    Dim st As Object
-    On Error GoTo Failed
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile path
-    outText = st.ReadText
-    st.Close
-    Set st = Nothing
+    ' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
+    ' 失敗時の文言は従来どおりここで固定する=挙動は変えない。
+    If Not modUtilText.ReadTextFileUtf8(path, outText) Then
+        outText = ""
+        errDetail = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。"
+        Exit Function
+    End If
 
     ExtractPlainText = True
-    Exit Function
-
-Failed:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailedCleanup3
-FailedCleanup3:
-    errDetail = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。"
-    If Not st Is Nothing Then
-        On Error Resume Next
-        st.Close
-        On Error GoTo 0
-    End If
-    Set st = Nothing
-    ExtractPlainText = False
 End Function
 
 Private Function TruncateWithNotice(ByVal s As String, ByVal lim As Long) As String

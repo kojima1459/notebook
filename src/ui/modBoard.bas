@@ -472,29 +472,9 @@ Private Function WriteBeacon(ByVal filePath As String, ByVal content As String) 
     On Error GoTo 0
 End Function
 
+' UTF-8書き出しの実体は modUtilText.WriteTextFileUtf8(2026-07-31 R11-F2)。
 Private Function TryW(ByVal filePath As String, ByVal content As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2
-    st.Close
-    Set st = Nothing
-    TryW = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup15
-FailCleanup15:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    TryW = modUtilText.WriteTextFileUtf8(filePath, content)
 End Function
 
 Private Function ReadBeacon(ByVal filePath As String, ByRef outText As String) As Boolean
@@ -520,29 +500,9 @@ Private Function ReadBeacon(ByVal filePath As String, ByRef outText As String) A
     ' 側だけ(そちらは残してある)。
 End Function
 
+' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
 Private Function TryR(ByVal filePath As String, ByRef outText As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile filePath
-    outText = CStr(st.ReadText(-1))
-    st.Close
-    Set st = Nothing
-    TryR = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup17
-FailCleanup17:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    TryR = modUtilText.ReadTextFileUtf8(filePath, outText)
 End Function
 
 Private Sub BoardWait(ByVal ms As Long)

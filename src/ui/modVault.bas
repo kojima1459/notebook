@@ -163,29 +163,64 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' OnVaultSubmit - 入力内容を既存取込パイプラインへ流して登録
 ' ----------------------------------------------------------------------------
+' ----------------------------------------------------------------------------
+' OnVaultSubmit - 「登録」ボタン(2026-07-31 R11-F2で進捗表示と二重送信ガードを
+'   追加。R11-Eで容量不足のため保留になっていた項目)。
+'   登録は本文のチャンク分割+埋め込みAPI呼び出しを伴い、本文が長いと十数秒
+'   かかる。従来はその間まったくの無反応で、利用者が「効いていない」と思って
+'   もう一度押すと同じナレッジが2件登録されていた(憲章§3-1/§3-2)。
+' ----------------------------------------------------------------------------
 Public Sub OnVaultSubmit()
     If modUiLock.BlockIfIngesting() Then Exit Sub
-    Dim ws As Worksheet
-    Set ws = GetVaultSheet()
-    If ws Is Nothing Then Exit Sub
+    ' 二重送信ガード: 1回目の登録が終わるまで2回目を受け付けない
+    ' (modUiLock.Enter が False を返す=すでに何かが走っている)。
+    If Not modUiLock.Enter() Then Exit Sub
 
+    Dim ws As Worksheet
+    Dim ok As Boolean
     Dim titleText As String, bodyText As String, tagsText As String
+
+    Set ws = GetVaultSheet()
+    If ws Is Nothing Then GoTo SubmitDone
+
     titleText = Trim$(CStr(ws.Range(CELL_TITLE).Value))
     bodyText = Trim$(CStr(ws.Range(CELL_BODY).Value))
     tagsText = Trim$(CStr(ws.Range(CELL_TAGS).Value))
 
     If LenB(titleText) = 0 Or LenB(bodyText) = 0 Then
         MsgBox "タイトルと本文を入力してください。", vbExclamation, "Nexus Agent"
-        Exit Sub
+        GoTo SubmitDone
     End If
 
-    If RegisterKnowledgeText(titleText, TagsHeader(tagsText) & bodyText, tagsText) Then
+    On Error GoTo SubmitFail
+    modUIMain.ShowProgress "ナレッジを登録しています…(長い本文は少し時間がかかります)"
+    ok = RegisterKnowledgeText(titleText, TagsHeader(tagsText) & bodyText, tagsText)
+    modUIMain.HideProgress
+
+    If ok Then
         MsgBox "ナレッジデータベースに追加され、ベクトル化されました。", vbInformation, "Nexus Agent"
         ClearInputs ws
         CloseVault ws
     Else
         MsgBox "登録に失敗しました。マイ本棚の一覧で状態をご確認ください。", vbExclamation, "Nexus Agent"
     End If
+    GoTo SubmitDone
+
+SubmitFail:
+    Dim subDesc As String: subDesc = Err.Description
+    Dim subNum As Long: subNum = Err.Number
+    ' ハンドラ稼働中は On Error Resume Next が効かない。後始末の前に Resume で抜ける。
+    Resume SubmitCleanup
+SubmitCleanup:
+    On Error Resume Next
+    modUIMain.HideProgress
+    modLog.LogError "E0801", "modVault.OnVaultSubmit", subDesc, subNum
+    MsgBox "登録に失敗しました。もう一度お試しください。" & vbLf & _
+           "(繰り返す場合は、本文を短くして分けて登録してみてください)", _
+           vbExclamation, "Nexus Agent"
+    On Error GoTo 0
+SubmitDone:
+    modUiLock.Leave
 End Sub
 
 Public Sub OnVaultCancel()
@@ -216,16 +251,16 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
     Dim content As String
     content = "【" & titleText & "】" & vbLf & bodyText
 
-    ' UTF-8で保存(modExtractorのtxt読取りがUTF-8のため整合)
-    Dim st As Object
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
-    st.Close
-    Set st = Nothing
+    ' UTF-8で保存(modExtractorのtxt読取りがUTF-8のため整合)。実体は
+    ' modUtilText.WriteTextFileUtf8(2026-07-31 R11-F2で9箇所の同型実装を
+    ' 1本化)。書けなかったときは従来と同じく E0801 を1行残して False を返す
+    ' (無言で「登録できませんでした」だけを出さない。憲章§4-1)。
+    Dim wErrNum As Long, wErrDesc As String
+    If Not modUtilText.WriteTextFileUtf8(filePath, content, wErrNum, wErrDesc) Then
+        modLog.LogError "E0801", "modVault.RegisterKnowledgeText", _
+            "一時ファイルの書き出しに失敗: " & wErrDesc, wErrNum
+        Exit Function
+    End If
 
     Dim resultStatus As String
     resultStatus = modShelf.IngestFile(filePath, "self")
@@ -248,8 +283,6 @@ Fail:
 FailCleanup3:
     On Error Resume Next
     modLog.LogError "E0801", "modVault.RegisterKnowledgeText", failDesc
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
     On Error GoTo 0
     RegisterKnowledgeText = False
 End Function

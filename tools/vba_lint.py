@@ -534,7 +534,7 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "CHROME_ROWS", "DrawChrome", "PrepareScreenView", "IsTableMode",
             "ContentTop", "SearchCellAddress", "OnGoGallery", "OnGoShared",
-            "OnGoTable", "OnBackHub", "OnToChat", "OnSearch", "OnGapBoard",
+            "OnGoTable", "OnBackHub", "OnHelp", "OnToChat", "OnSearch", "OnGapBoard",
             "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",
             "OnSync", "OnPickFolder", "OnDelete", "RefreshCurrent",
         ],
@@ -566,7 +566,8 @@ CONTRACT: dict[str, dict] = {
     "modDash": {
         "closed": True,
         "required": [
-            "ShowDashboard", "OnDashBackToChat", "OnDashRefresh", "OnDashRestore",
+            "ShowDashboard", "OnDashBackToChat", "OnHelp", "OnDashRefresh",
+            "OnDashRestore",
         ],
     },
     # R11-F1: ダッシュボードの数値+本文描画。KPI_X0/ROW_WIDTH は modDash のヘッダー・管理者行と共有する版面基準のため Public。
@@ -596,6 +597,42 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": [
             "EmitVerifiedQA", "EmitGap", "EmitCorrection", "CollectInsights",
+        ],
+    },
+    # ---- R11-F2 で契約に載せたモジュール(監査4: 93モジュール中46しか契約が
+    #      有効でなかった件の解消を、今回の変更が触った範囲から進める)。
+    # modShare: 共有フォルダのベースパス解決と到達性プローブ(唯一の窓口)。
+    "modShare": {
+        "closed": True,
+        "required": [
+            "BasePath", "Reachable", "ProbePath", "ReportFailure",
+            "ReportSuccess", "SubDir", "ResetProbe",
+        ],
+    },
+    # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。
+    "modUiLock": {
+        "closed": True,
+        "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting"],
+    },
+    # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
+    "modAppState": {
+        "closed": True,
+        "required": [
+            "MODE_KEY", "SetActiveBubble", "ShelfIsEmpty", "AnswerWithoutShelf",
+            "HasTarget", "TargetBubbleName", "TargetText", "SharePath",
+            "AskGeneral", "TrimPairs", "RagSpeed", "CurrentMode",
+            "UpdateModeButton", "ReadInputCell", "RestoreInputCell",
+            "ClearInputCell", "ReadUiState", "WriteUiState",
+        ],
+    },
+    # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・
+    # GSページ分割添字の共通部品。ここに何でも足されると「雑多置き場」になるので
+    # closed で固定する。
+    "modUtilText": {
+        "closed": True,
+        "required": [
+            "ReadTextFileUtf8", "WriteTextFileUtf8", "ElapsedMsSince",
+            "BlendPerItemMs", "GsPageIsBlank", "CleanTextLen", "GsPageBounds",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -661,6 +698,14 @@ PURE_LOGIC_MODULES = {
     "modTestsPure5",
     # modTestsPure6(2026-07-31 R8b): 敵対的レビュー対応(B1/B7b/B10)のテスト。
     "modTestsPure6",
+    # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
+    # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
+    # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として
+    # 固定し、「ちょっとRangeを見たい」という改修を機械で止める。
+    #   modBitwiseOpt: ビット演算による候補絞り込み。
+    #   modFollowup  : 深掘り候補の抽出と本文からの除去。
+    #   modClarify   : 聞き返し文の生成と番号選択の判定。
+    "modBitwiseOpt", "modFollowup", "modClarify",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

@@ -218,7 +218,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         Next n
 
         If throttleMs > 0 Then SleepMs throttleMs
-        msPerItem = BlendPerItemMs(msPerItem, batchT0, bN)
+        msPerItem = modUtilText.BlendPerItemMs(msPerItem, batchT0, bN)
         On Error GoTo 0
         If LenB(abortReason) > 0 Then Exit For
     Next bStart
@@ -364,22 +364,6 @@ NoLog:
     LastFailureLooksLikeLimit = False
 End Function
 
-' 1件あたり所要ミリ秒の更新(R7 B-1)。直近バッチの実測と現在値の平均を返す
-' (=直近2バッチの移動平均)。Timerは0時に0へ戻るので、経過が負になったら
-' 日跨ぎとみなして現在値を据え置く(見積りが跳ねるのを防ぐ)。
-Private Function BlendPerItemMs(ByVal curMs As Double, ByVal t0 As Double, _
-                                ByVal itemCount As Long) As Double
-    BlendPerItemMs = curMs
-    If itemCount < 1 Then Exit Function
-    Dim elapsedMs As Double: elapsedMs = (Timer - t0) * 1000#
-    If elapsedMs < 0 Then Exit Function
-    Dim thisMs As Double: thisMs = elapsedMs / CDbl(itemCount)
-    If curMs <= 0 Then
-        BlendPerItemMs = thisMs
-    Else
-        BlendPerItemMs = (curMs + thisMs) / 2#
-    End If
-End Function
 
 ' Declareを使わないスリープ(§13: 32/64bit互換のためDeclare不使用で回避)。
 ' DoEventsで応答性を保ちながらTimer基準で待つ(Timerの日跨ぎは軽微な誤差

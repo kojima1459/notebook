@@ -254,47 +254,20 @@ End Function
 '   無駄に重いため、Replaceで落としてから数える。
 ' ----------------------------------------------------------------------------
 Public Function CleanTextLen(ByVal s As String) As Long
-    Dim t As String
-
-    t = Replace(s, vbCr, "")
-    t = Replace(t, vbLf, "")
-    t = Replace(t, vbTab, "")
-    t = Replace(t, Chr$(12), "")
-    t = Replace(t, " ", "")
-    t = Replace(t, ChrW(&H3000), "")
-    CleanTextLen = Len(t)
+    CleanTextLen = modUtilText.CleanTextLen(s)
 End Function
 
 ' ----------------------------------------------------------------------------
 ' GsPageCount - txtwrite出力が実質何ページ分あるかを数える(R10c)。
-'   改ページ文字 Chr(12) で割り、先頭側・末尾側の空ページ(空白類だけの要素)を
-'   落とした残りの件数を返す。中身が全く無ければ0。
-'   modExtractor.BuildPagesFromGsText と【同じ規約】でなければならない
-'   (あちらはExtractedPage配列を組むためコア層に置かざるを得ず、R2により
-'   optOcrCoreを直接呼べない)。両者がズレるとGsTextVerdictの分母と実際の
-'   ページ数が食い違うので、modTestsPure6 で突き合わせテストを固定してある。
+'   2026-07-31(R11-F2): 添字計算の実体を modUtilText.GsPageBounds へ一本化した。
+'   従来は modExtractor.BuildPagesFromGsText と同じ規約を2箇所で書いており、
+'   ズレると GsTextVerdict の分母と出典ページ番号が食い違うため、
+'   modTestsPure6 の突き合わせテストで守っていた(実装が1本になったので、
+'   突き合わせではなく modUtilText.GsPageBounds の単体テストで固定する)。
 ' ----------------------------------------------------------------------------
-'   空判定に Trim$ は使わない: VBAのTrim$は半角スペースしか落とさないため、
-'   改行だけのページ(GSが白紙ページに対して吐く典型)を「中身あり」と数えて
-'   しまう。CleanTextLen と同じ「空白類を全部落として残るか」で判定する。
 Public Function GsPageCount(ByVal txt As String) As Long
-    If CleanTextLen(txt) = 0 Then Exit Function   ' 全体が空白類だけ=0ページ
-
-    Dim parts() As String: parts = Split(txt, Chr$(12))
-    Dim firstIdx As Long: firstIdx = LBound(parts)
-    Dim lastIdx As Long: lastIdx = UBound(parts)
-
-    ' 上の早期returnにより、必ずどこかに中身のあるページがある=ループは必ず解ける。
-    Do While firstIdx < lastIdx
-        If CleanTextLen(parts(firstIdx)) > 0 Then Exit Do
-        firstIdx = firstIdx + 1
-    Loop
-    Do While lastIdx > firstIdx
-        If CleanTextLen(parts(lastIdx)) > 0 Then Exit Do
-        lastIdx = lastIdx - 1
-    Loop
-
-    GsPageCount = lastIdx - firstIdx + 1
+    Dim firstIdx As Long, lastIdx As Long
+    GsPageCount = modUtilText.GsPageBounds(txt, firstIdx, lastIdx)
 End Function
 
 ' 一時フォルダのフルパス(例: C:\Users\x\AppData\Local\Temp\nxocr_20260731_101112_437)。

@@ -11,7 +11,9 @@ Option Explicit
 Private Const HDR_H As Double = 40
 Private Const PILL_H As Double = 26
 ' 右肩ピル(R7 A-5): モード3つ + 🎨着せ替え + 🚪終了 の5個。
-Private Const PILL_N As Long = 5
+' 2026-07-31(R11-F2): 「?」ヘルプを足して6個(監査1 L-3。ナレッジ画面から
+' ヘルプへ行く手段が無く、困った人が詰む状態だった。R11-Eでは容量不足で保留)。
+Private Const PILL_N As Long = 6
 Private Const PILL_PITCH As Double = 9
 Private Const PILL_PAD As Double = 14
 Private Const PILL_MIN As Double = 44
@@ -275,6 +277,10 @@ Private Sub PillSpec(ByVal md As String, ByVal isTable As Boolean, ByVal isShare
     caps(4) = ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー"
     nms(4) = "nxk_m_gallery": acts(4) = "modKnowledge.OnGoGallery"
     actives(4) = (Not isTable) And (Not isShared)
+    ' 「?」= 使い方。ヘルプカードはチャット画面(Nexus)の上に描く作りなので、
+    ' modHub.OnHelp と同じくチャットへ移ってから開く(2026-07-31 R11-F2)。
+    caps(5) = ChrW(&H2753)
+    nms(5) = "nxk_help": acts(5) = "modKnowledge.OnHelp": actives(5) = False
 
     Dim i As Long
     For i = 0 To PILL_N - 1
@@ -392,6 +398,18 @@ Public Sub OnBackHub()
     modHub.EnsureHubLayout activate:=True
     On Error GoTo 0
     modUiLock.Leave
+End Sub
+
+' 「?」= 使い方。ヘルプカードはNexus(チャット)シート上に描かれるため、
+' 先にチャットへ移ってから modHelp.OnHelpClick を呼ぶ(modHub.OnHelpと同型)。
+' OnHelpClick 自身が modUiLock を取るので、ここではロックを取らない。
+Public Sub OnHelp()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    On Error Resume Next
+    modUI.GoToNexus "modKnowledge.OnHelp"
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnHelp", Err.Description, Err.Number
+    On Error GoTo 0
+    modHelp.OnHelpClick
 End Sub
 
 Public Sub OnToChat()

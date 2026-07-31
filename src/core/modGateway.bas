@@ -71,14 +71,14 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
 
     If modConfig.GetBool("mock_llm", True) Then
         CallLLM = MockLLMResponse(prompt, step_name)
-        latency_ms = CLng((Timer - t0) * 1000)
+        latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         Exit Function
     End If
 
     If Not RibbonAvailable() Then
         modLog.LogError "E0201", "modGateway.CallLLM", "step=" & step_name
         CallLLM = "#ERR:E0201:AIリボンが見つかりません"
-        latency_ms = CLng((Timer - t0) * 1000)
+        latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         Exit Function
     End If
 
@@ -101,7 +101,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     Dim result As Variant
     result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, prevU, prevA, "マイ本棚AI:" & step_name, eff, vrb)
     Dim s As String: s = CStr(result)
-    latency_ms = CLng((Timer - t0) * 1000)
+    latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
 
     If LenB(s) = 0 Then
         modLog.LogError "E0202", "modGateway.CallLLM", "空応答 step=" & step_name
@@ -118,7 +118,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     Exit Function
 
 ErrHandler:
-    latency_ms = CLng((Timer - t0) * 1000)
+    latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
     modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & Err.Description, Err.Number
     CallLLM = "#ERR:E0202:" & Err.Description
 End Function
@@ -142,13 +142,13 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
     Dim t As String: t = modUtil.NormalizeForHash(Text)
     If LenB(t) = 0 Then
         modLog.LogError "E0203", "modGateway.GetEmbedding", "空文字列は埋め込み不可"
-        latency_ms = CLng((Timer - t0) * 1000)
+        latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         Exit Function   ' 空配列を返す
     End If
 
     If modConfig.GetBool("mock_llm", True) Then
         GetEmbedding = MockEmbedVector(t, dim_)
-        latency_ms = CLng((Timer - t0) * 1000)
+        latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         Exit Function
     End If
 
@@ -163,21 +163,21 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
                 Dim dvec() As Double
                 If modUtil.CsvToVector(outCsv(0), dvec) Then
                     GetEmbedding = dvec
-                    latency_ms = CLng((Timer - t0) * 1000)
+                    latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
                     Exit Function
                 End If
             End If
         End If
-        latency_ms = CLng((Timer - t0) * 1000)
+        latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         Exit Function   ' 失敗は空配列(バッチ側でE0203記録済み)
     End If
 
     GetEmbedding = GetEmbeddingRibbonOnly(t, dim_)
-    latency_ms = CLng((Timer - t0) * 1000)
+    latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
     Exit Function
 
 ErrHandler:
-    latency_ms = CLng((Timer - t0) * 1000)
+    latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
     modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description, Err.Number
 End Function
 

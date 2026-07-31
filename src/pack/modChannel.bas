@@ -724,52 +724,15 @@ Private Sub EnsureDir(ByVal folderPath As String)
     On Error GoTo 0
 End Sub
 
+' UTF-8書き出しの実体は modUtilText.WriteTextFileUtf8(2026-07-31 R11-F2で
+' 9箇所の同型実装を1本化)。戻り値の意味は従来どおり(成功=True/失敗=False・
+' 例外は外へ出さない)。
 Private Function WriteShared(ByVal filePath As String, ByVal content As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2
-    st.Close
-    Set st = Nothing
-    WriteShared = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup27
-FailCleanup27:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    WriteShared = modUtilText.WriteTextFileUtf8(filePath, content)
 End Function
 
+' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2で
+' 10箇所の同型実装を1本化)。
 Private Function ReadShared(ByVal filePath As String, ByRef outText As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile filePath
-    outText = CStr(st.ReadText(-1))
-    st.Close
-    Set st = Nothing
-    ReadShared = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup28
-FailCleanup28:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    ReadShared = modUtilText.ReadTextFileUtf8(filePath, outText)
 End Function

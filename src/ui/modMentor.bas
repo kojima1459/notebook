@@ -303,29 +303,9 @@ Private Function ReadUtf8WithRetry(ByVal filePath As String, ByRef outText As St
     Next attempt
 End Function
 
+' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
 Private Function TryReadOnce(ByVal filePath As String, ByRef outText As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile filePath
-    outText = CStr(st.ReadText(-1))
-    st.Close
-    Set st = Nothing
-    TryReadOnce = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup7
-FailCleanup7:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    TryReadOnce = modUtilText.ReadTextFileUtf8(filePath, outText)
 End Function
 
 ' 削除リトライ(並行GC耐性: 既に無い=達成として即成功)。
@@ -476,29 +456,9 @@ Private Function WriteUtf8WithRetry(ByVal filePath As String, ByVal content As S
     Next attempt
 End Function
 
+' UTF-8書き出しの実体は modUtilText.WriteTextFileUtf8(2026-07-31 R11-F2)。
 Private Function TryWriteOnce(ByVal filePath As String, ByVal content As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
-    st.Close
-    Set st = Nothing
-    TryWriteOnce = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup13
-FailCleanup13:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    TryWriteOnce = modUtilText.WriteTextFileUtf8(filePath, content)
 End Function
 
 Private Sub MentorWait(ByVal ms As Long)

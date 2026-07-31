@@ -179,10 +179,8 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     modUIMain.SetStage ""
     CleanupTxtFolder folderPath, outTxt
 
-    ' ADODB.StreamはUTF-8のBOMを落とすが、環境差で残ることがあるので念のため。
-    If Len(txt) > 0 Then
-        If Left$(txt, 1) = ChrW(&HFEFF) Then txt = Mid$(txt, 2)
-    End If
+    ' 先頭BOMの除去は modUtilText.ReadTextFileUtf8 が行う(2026-07-31 R11-F2で
+    ' ここにあった個別対処を共通部品側へ集約した)。
 
     If LenB(txt) = 0 Then
         modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
@@ -250,36 +248,12 @@ End Sub
 ' txtwriteの出力を ADODB.Stream(Charset "utf-8")で読む
 ' (modExtractor.ExtractPlainText と同じ作法)。読めなければ ""。
 ' 失敗理由は呼び出し元のerr_log用にByRefで返す。
+' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
+' 先頭BOMの除去も向こうが行う(旧実装はここの呼び出し元で個別に落としていた)。
 Private Function ReadUtf8Text(ByVal txtPath As String, ByRef errNum As Long, _
                               ByRef errDesc As String) As String
-    Dim st As Object
-
-    On Error GoTo Failed
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile txtPath
-    ReadUtf8Text = st.ReadText
-    st.Close
-    Set st = Nothing
-    Exit Function
-
-Failed:
-    errNum = Err.Number
-    errDesc = Err.Description
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きたエラーは
-    ' 呼び出し元へ飛んで本来の原因を上書きする。後始末の前に Resume で
-    ' ハンドラを抜ける(modExtractor.ExtractPlainText と同型)。
-    Resume ReadCleanup
-ReadCleanup:
-    If Not st Is Nothing Then
-        On Error Resume Next
-        st.Close
-        On Error GoTo 0
-    End If
-    Set st = Nothing
-    ReadUtf8Text = ""
+    Dim txt As String
+    If modUtilText.ReadTextFileUtf8(txtPath, txt, errNum, errDesc) Then ReadUtf8Text = txt
 End Function
 
 ' ----------------------------------------------------------------------------

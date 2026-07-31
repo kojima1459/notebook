@@ -40,7 +40,9 @@ Private Const HDR_PILL_PITCH As Double = 9
 Private Const HDR_PILL_PAD As Double = 14
 Private Const HDR_PILL_MIN As Double = 40
 Private Const HDR_TITLE_RESERVE As Double = 140   ' タイトル「📊 ダッシュボード」用
-Private Const HDR_ITEMS As Long = 7
+' 2026-07-31(R11-F2): 「?」ヘルプを足して8個(監査1 L-3。ダッシュボードから
+' ヘルプへ行く手段が無かった。R11-Eでは容量不足で保留になっていた)。
+Private Const HDR_ITEMS As Long = 8
 Private Const HEADER_SUB_Y As Double = 54
 
 
@@ -106,6 +108,18 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' OnDashRefresh - 既存のダッシュボードシートを再描画する
 ' ----------------------------------------------------------------------------
+' 「?」= 使い方。ヘルプカードはNexus(チャット)シート上に描かれるため、
+' 先にチャットへ移ってから modHelp.OnHelpClick を呼ぶ。OnHelpClick 自身が
+' modUiLock を取るので、ここではロックを取らない(2026-07-31 R11-F2)。
+Public Sub OnHelp()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    On Error Resume Next
+    modUI.GoToNexus "modDash.OnHelp"
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modDash.OnHelp", Err.Description, Err.Number
+    On Error GoTo 0
+    modHelp.OnHelpClick
+End Sub
+
 Public Sub OnDashRefresh()
     If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     Dim ws As Worksheet
@@ -278,6 +292,10 @@ Private Sub HeaderSpec(ByRef caps() As String, ByRef acts() As String, _
     acts(5) = "modHub.OnThemeToggle"
     caps(6) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了":          nms(6) = "nxd_btn_exit"
     acts(6) = "modApp.OnSaveAndExit"
+    ' ヘルプカードはNexus(チャット)シート上に描く作りなので、押すとチャットへ
+    ' 移ってから開く(modHub.OnHelp/modKnowledge.OnHelp と同型)。
+    caps(7) = ChrW(&H2753):                                   nms(7) = "nxd_btn_help"
+    acts(7) = "modDash.OnHelp"
 
     Dim i As Long
     For i = 0 To HDR_ITEMS - 1

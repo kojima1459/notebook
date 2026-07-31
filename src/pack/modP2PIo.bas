@@ -139,62 +139,18 @@ End Function
 ' 切り出したとき、これらを向こうに置いたままにしていた。実機で
 ' 「Sub または Function が定義されていません」になる。使う側へ一緒に運ぶ。
 ' ----------------------------------------------------------------------------
+' UTF-8書き出しの実体は modUtilText.WriteTextFileUtf8(2026-07-31 R11-F2で
+' 同型実装を1本化)。err番号/説明の受け渡し(呼び出し元のリトライ判定と
+' E0705の材料)はそのまま素通しする。
 Private Function TryWriteUtf8(ByVal filePath As String, ByVal content As String, _
                               Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
-    st.Close
-    Set st = Nothing            ' COM解放(正常パス)
-    TryWriteUtf8 = True
-    Exit Function
-Fail:
-    ' Err.Clear相当が起きる前に必ず先頭で退避する(以降のOn Error Resume Next/
-    ' st.Closeで上書きされないようにするため)。
-    outErrNum = Err.Number
-    outErrDesc = Err.Description
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup8
-FailCleanup8:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
-    On Error GoTo 0
+    TryWriteUtf8 = modUtilText.WriteTextFileUtf8(filePath, content, outErrNum, outErrDesc)
 End Function
 
+' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
 Private Function TryReadUtf8(ByVal filePath As String, ByRef outText As String, _
                              Optional ByRef outErrNum As Long, Optional ByRef outErrDesc As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2
-    st.Charset = "utf-8"
-    st.Open
-    st.LoadFromFile filePath
-    outText = st.ReadText
-    st.Close
-    Set st = Nothing            ' COM解放(正常パス)
-    TryReadUtf8 = True
-    Exit Function
-Fail:
-    outErrNum = Err.Number
-    outErrDesc = Err.Description
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup9
-FailCleanup9:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
-    On Error GoTo 0
+    TryReadUtf8 = modUtilText.ReadTextFileUtf8(filePath, outText, outErrNum, outErrDesc)
 End Function
 
 ' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。

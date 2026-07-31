@@ -189,7 +189,7 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
             End If
         End If
 
-        msPerItem = BlendPerItemMs(msPerItem, batchT0, batchSize)
+        msPerItem = modUtilText.BlendPerItemMs(msPerItem, batchT0, batchSize)
         batchStart = batchStart + batchSize
         If LenB(abortReason) > 0 Then Exit Do
     Loop
@@ -228,22 +228,6 @@ Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error GoTo 0
 End Function
 
-' 1件あたり所要ミリ秒の更新(R7 B-1)。直近バッチの実測と現在値の平均を返す
-' (=直近2バッチの移動平均)。Timerは0時に0へ戻るので、経過が負になったら
-' 日跨ぎとみなして現在値を据え置く(見積りが跳ねるのを防ぐ)。
-Private Function BlendPerItemMs(ByVal curMs As Double, ByVal t0 As Double, _
-                                ByVal itemCount As Long) As Double
-    BlendPerItemMs = curMs
-    If itemCount < 1 Then Exit Function
-    Dim elapsedMs As Double: elapsedMs = (Timer - t0) * 1000#
-    If elapsedMs < 0 Then Exit Function
-    Dim thisMs As Double: thisMs = elapsedMs / CDbl(itemCount)
-    If curMs <= 0 Then
-        BlendPerItemMs = thisMs
-    Else
-        BlendPerItemMs = (curMs + thisMs) / 2#
-    End If
-End Function
 
 ' 期待形 [{"i":1,"summary":"…","keywords":"a,b"},…] を軽量自前パースする。
 ' "i"キーの出現を各オブジェクトの区切りとみなし、その範囲内から"summary"/

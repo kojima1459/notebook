@@ -36,6 +36,40 @@ Private Function CanUseTypeArrays() As Boolean
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' CanAssignTypeArrays - 「Public Type の配列を丸ごと代入できるか」の追試
+'   (2026-07-31 R11-F2)。ReDim(上の CanUseTypeArrays)とは別の言語機能で、
+'   本番コードには `pages = tmp` の代入形式が14箇所ある。ReDimだけを見て
+'   「この環境では検証不能」と判断しているスキップ条件が、代入形式にも
+'   当てはまるのかを事実として確かめる(置き場所を modTestsPure ではなく
+'   ここにしたのは、あちらが28,906字でWARN帯に入っており憲章§4-6により
+'   足せないため)。
+'
+'   LO実測の結果(2026-07-31): ReDim=False / 代入=False。どちらも実行時
+'   エラー420になる=代入形式も既存のスキップ条件で正しく覆われており、
+'   14箇所に追加の穴は無い。片方だけ通る環境が現れたら下のテストが落ちる。
+' ----------------------------------------------------------------------------
+Private Function CanAssignTypeArrays() As Boolean
+    On Error Resume Next
+    Err.Clear
+    Dim srcArr(0 To 0) As ExtractedPage
+    Dim dstArr() As ExtractedPage
+    dstArr = srcArr
+    CanAssignTypeArrays = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+Private Sub TestTypeArrayProbes()
+    Dim redimOk As Boolean: redimOk = CanUseTypeArrays()
+    Dim assignOk As Boolean: assignOk = CanAssignTypeArrays()
+    modTestRunner.Check "R11-F2: UDT配列のReDimと代入(pages = tmp)の可否が一致する", _
+        (redimOk = assignOk), _
+        "ReDim=" & redimOk & " / 代入=" & assignOk & _
+        " ―― 食い違う場合、片方だけを見て「この環境では検証不能」と判断している" & _
+        "既存のスキップ条件(CanUseTypeArrays)が実態と合っていない。"
+End Sub
+
 ' 二重引用符で囲む(期待値の組み立て用。実装側のQuotedとは別物)。
 Private Function Dq(ByVal s As String) As String
     Dq = Chr$(34) & s & Chr$(34)
@@ -349,6 +383,7 @@ Private Sub TestProgressText()
 End Sub
 
 Public Sub RunAll4()
+    TestTypeArrayProbes
     On Error GoTo GsGoldenFail
     TestBuildGsCommandGolden
 NextRunCmd:

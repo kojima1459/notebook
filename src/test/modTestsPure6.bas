@@ -417,20 +417,18 @@ Private Sub TestGsTextVerdictBoundary()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' R10c(L1): CleanTextLen / GsPageCount / BuildPagesFromGsText の境界
+' R10c(L1): CleanTextLen / GsPageBounds / BuildPagesFromGsText の境界
 ' ----------------------------------------------------------------------------
-' txtwriteの出力はページ区切りが改ページ文字(Chr(12))。ここの数え方・割り方が
-' ズレると (a) 採否しきい値の分母が狂う (b) 出典ページ番号が丸ごとずれる、
-' という「誰も気付けない壊れ方」をする。特に(b)は「出典 p.5」を開いても別の
-' ページが出る形で、利用者が製品全体を信用しなくなる。
-' GsPageCount(optOcrCore)と BuildPagesFromGsText(modExtractor)は、R2により
-' コア層からopt層を呼べないため実装が2箇所に分かれている。同じ入力で同じ
-' ページ数になることを突き合わせて固定する。
+' txtwriteの出力はページ区切りが改ページ文字(Chr(12))。数え方・割り方がズレると
+' (a) 採否しきい値の分母が狂う (b) 出典ページ番号が丸ごとずれる。特に(b)は
+' 「出典 p.5」を開いても別のページが出る形で、製品全体の信用を失う。
+' 2026-07-31(R11-F2): 添字計算を modUtilText.GsPageBounds へ一本化したので、
+' 突き合わせではなく唯一の実装の単体テストとして境界を固定する(委譲側の
+' optOcrCore.GsPageCount が同値を返すことも併せて見る)。
 '
-' ただし BuildPagesFromGsText は ExtractedPage() を ReDim するため、
-' LibreOffice実行環境では既知の制限(実行時エラー420。modTestsPure冒頭の
-' コメントと CanUseTypeArrays 参照)に当たる。当たる環境ではそこだけを
-' スキップし、同じ規約を持つ純文字列側(GsPageCount)で境界を固定する。
+' ただし BuildPagesFromGsText は ExtractedPage() を ReDim するため、LibreOffice
+' では既知の制限(実行時エラー420。CanUseTypeArrays参照)に当たる。当たる環境では
+' そこだけスキップし、純文字列側(GsPageBounds)で境界を固定する。
 Private Sub TestGsTextPageSplit()
     Dim ff As String: ff = Chr$(12)
 
@@ -498,11 +496,19 @@ Private Sub TestGsTextPageSplit()
     End If
 End Sub
 
-' 純文字列側(optOcrCore.GsPageCount)の期待ページ数を確かめる。
+' ページ分割の唯一の実装(modUtilText.GsPageBounds)の単体テスト+委譲確認。
 Private Sub CheckPageSplit(ByVal label As String, ByVal txt As String, ByVal wantN As Long)
-    Dim gotN As Long: gotN = optOcrCore.GsPageCount(txt)
-    modTestRunner.Check "R10c: GsPageCount " & label, (gotN = wantN), _
+    Dim firstIdx As Long, lastIdx As Long
+    Dim gotN As Long: gotN = modUtilText.GsPageBounds(txt, firstIdx, lastIdx)
+    modTestRunner.Check "R11-F2: GsPageBounds " & label, (gotN = wantN), _
         "期待=" & wantN & " 実際=" & gotN
+
+    If gotN > 0 Then
+        modTestRunner.Check "R11-F2: GsPageBounds " & label & "(添字幅=件数)", _
+            ((lastIdx - firstIdx + 1) = wantN), "first=" & firstIdx & " last=" & lastIdx
+    End If
+    modTestRunner.Check "R11-F2: GsPageCount(optOcrCore)は委譲先と同値 " & label, _
+        (optOcrCore.GsPageCount(txt) = gotN), "GsPageCount=" & optOcrCore.GsPageCount(txt)
 End Sub
 
 ' コア側(modExtractor.BuildPagesFromGsText)が同じページ数・同じ1ページ目に
@@ -518,9 +524,10 @@ Private Sub CheckPageBuild(ByVal label As String, ByVal txt As String, _
     buildN = 0
     If okBuild Then buildN = UBound(pages) - LBound(pages) + 1
 
-    modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(件数がGsPageCountと一致)", _
-        (okBuild And buildN = optOcrCore.GsPageCount(txt) And buildN = wantN), _
-        "期待=" & wantN & " 実際=" & buildN & " GsPageCount=" & optOcrCore.GsPageCount(txt)
+    Dim firstIdx As Long, lastIdx As Long
+    modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(件数が共通部品と一致)", _
+        (okBuild And buildN = modUtilText.GsPageBounds(txt, firstIdx, lastIdx) And buildN = wantN), _
+        "期待=" & wantN & " 実際=" & buildN
 
     If okBuild Then
         modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(1ページ目の中身)", _

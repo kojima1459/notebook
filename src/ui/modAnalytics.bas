@@ -275,29 +275,11 @@ Private Function WriteCsvWithBom(ByVal filePath As String, ByVal content As Stri
     Next attempt
 End Function
 
+' UTF-8(BOM付)書き出しの実体は modUtilText.WriteTextFileUtf8(2026-07-31
+' R11-F2)。BOMは ADODB.Stream の既定どおり付く=Excelが日本語CSVを文字化け
+' せずに開ける、という本機能の前提はそのまま維持される。
 Private Function TryWriteCsvOnce(ByVal filePath As String, ByVal content As String) As Boolean
-    Dim st As Object
-    On Error GoTo Fail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
-    st.Open
-    st.WriteText content
-    st.SaveToFile filePath, 2   ' adSaveCreateOverWrite
-    st.Close
-    Set st = Nothing
-    TryWriteCsvOnce = True
-    Exit Function
-Fail:
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup6
-FailCleanup6:
-    On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
-    On Error GoTo 0
+    TryWriteCsvOnce = modUtilText.WriteTextFileUtf8(filePath, content)
 End Function
 
 ' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。
