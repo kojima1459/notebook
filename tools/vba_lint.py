@@ -218,9 +218,11 @@ CONTRACT: dict[str, dict] = {
     # ok/ng/capped件数・新規追加チャンク数・失敗理由の内訳を戻り値の文字列で
     # 返し、showMsgBox:=False で呼び出し元(modApp.OnAddDocs等)が独自に
     # 表示を担えるようにする。
+    # IsBatchBusy(2026-07-31 R10c H2): バッチ取込全体を覆う再入ガードの参照口。
+    # modShelf.IsBusy が自分の mIngesting と OR で見るためだけに公開している。
     "modShelfBatch": {
         "closed": True,
-        "required": ["AddFilesViaDialog", "AddFilesResult"],
+        "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。

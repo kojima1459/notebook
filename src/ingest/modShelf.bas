@@ -519,6 +519,13 @@ End Function
 '   IngestFile と同じ期限(GUARD_EXPIRY_MIN)を過ぎたものは busy とみなさない。
 '
 Public Function IsBusy() As Boolean
+    ' R10c(H2): mIngesting は IngestFile 1件ぶんしか覆わない。ファイルと
+    ' ファイルの隙間(進捗バナー更新やトーストのDoEvents中)も busy として
+    ' 返すため、一括取込のバッチガード(modShelfBatch)を OR で見る。
+    If modShelfBatch.IsBatchBusy() Then
+        IsBusy = True
+        Exit Function
+    End If
     If Not mIngesting Then Exit Function
     On Error Resume Next
     IsBusy = (DateDiff("n", mIngestingSince, Now) < GUARD_EXPIRY_MIN)

@@ -30,6 +30,29 @@ Option Explicit
 '   ・opt名は書かず modFeatures.InvokeFeature 経由(R2)
 ' ============================================================================
 
+' R10c(H2): バッチ取込【全体】を覆う再入ガード。modShelf の mIngesting は
+' IngestFile 1件ぶんしか覆っておらず、ファイルとファイルの隙間(進捗バナーの
+' 更新やトーストの DoEvents 中)はガードが下りていなかった。そこで発火した
+' クリックは modUiLock.BlockIfIngesting を素通りし、取込ループの途中から
+' 画面遷移が入れ子で走り出す(実機「取込中にボタンを押すとExcelが応答なし」
+' の残り火)。modShelf.IsBusy がこのフラグも OR で見る。
+' 強制停止などで焼き付いても全ボタンが永久に死なないよう、mIngesting と
+' 同じ作法(GUARD_EXPIRY_MIN=30分)で自動失効させる。
+Private mBatchIngesting As Boolean
+Private mBatchSince As Date
+Private Const GUARD_EXPIRY_MIN As Long = 30
+
+' ----------------------------------------------------------------------------
+' IsBatchBusy - バッチ取込の最中か(modShelf.IsBusy から OR で参照される)。
+'   期限切れのガードは busy とみなさない(modShelf.IsBusy と同じ考え方)。
+' ----------------------------------------------------------------------------
+Public Function IsBatchBusy() As Boolean
+    If Not mBatchIngesting Then Exit Function
+    On Error Resume Next
+    IsBatchBusy = (DateDiff("n", mBatchSince, Now) < GUARD_EXPIRY_MIN)
+    On Error GoTo 0
+End Function
+
 '
 ' AddFilesViaDialog - 複数選択FileDialog(フィルタ=SupportedExts)→各IngestFile
 '   OnAction互換の後方互換ラッパー(リボン/ボタンから直接呼ぶ用)。
@@ -77,6 +100,10 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         Exit Function   ' キャンセル
     End If
 
+    ' R10c(H2): ここから下はバッチ取込中。全終了経路(正常/AddFailed)で必ず解除する。
+    mBatchIngesting = True
+    mBatchSince = Now
+
     ' R10-2: ファイル選択が確定した(キャンセルではない)ので、GS未検出の
     ' 案内カード(セッション1回きり)を再提示可能に戻す。利用者が能動的に
     ' 取込を実行する入口のみが対象で、自動同期(modShelfSync)からは呼ばない。
@@ -102,8 +129,12 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
                     (elapsedSec * 1000#) / (i - 1))
             End If
         End If
+        ' R10c(M5): 表示系は modEmbed/modShelfSync と同形にOERNで挟む
+        ' (バナー描画の失敗で AddFailed へ飛ばし取込を止めてはならない)。
+        On Error Resume Next
         modUIMain.ShowProgress modUtil.ProgressText(i, fd.SelectedItems.count, etaPart) & " " & _
             modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40)
+        On Error GoTo AddFailed
 
         If modShelf.TotalChunks() >= capMax Then
             cappedN = cappedN + 1
@@ -136,12 +167,15 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         End If
     Next i
 
-    ' R10-5: 進捗バナーを閉じる前に完了を1回だけトーストで知らせる
-    ' (連呼はしない。ここは完了1回のみなので1.1秒のブロッキングも許容)。
+    ' R10-5: 完了を1回だけトーストで知らせる(連呼はしない。ここは完了1回のみ
+    ' なので1.1秒のブロッキングも許容)。
+    ' R10c(M4): 「バナーを閉じる → トースト」の順にする。逆順だと1.1秒のあいだ
+    ' 2枚がならび、どちらが今の状態なのか読み手に判断できない(バナーには
+    ' 最後のファイル名が残っている)。modShelfSync も同じ順序。
     On Error Resume Next
+    modUIMain.HideProgress
     modSkin.ShowToast "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件)", "info"
     On Error GoTo AddFailed
-    modUIMain.HideProgress
 
     ' silent にしたぶん1件ごとの再描画も走らない(IngestFileのFinishは
     ' silent時RenderShelfを呼ばない)。まとめて1回だけ描き直す(R1例外)。
@@ -175,6 +209,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         MsgBox msg, vbInformation, modAppDef.APP_NAME
     End If
 
+    mBatchIngesting = False   ' R10c(H2): 正常終了経路の解除
     AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _
         ReasonsText(reasonKeys, reasonCounts, reasonN))
     Exit Function
@@ -193,6 +228,7 @@ AddFailedCleanup:
         " (ok=" & okCount & " ng=" & ngCount & " capped=" & cappedN & ")"
     modUIMain.HideProgress   ' R10-5: 異常終了経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
+    mBatchIngesting = False   ' R10c(H2): 異常終了経路でも必ず解除する
     ' 途中で落ちても、そこまでの集計を返す。空文字で返すと呼び出し元は
     ' 「キャンセル」と区別できず、利用者には何も表示されない(レビュー4-B)。
     AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _
