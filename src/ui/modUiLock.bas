@@ -119,6 +119,9 @@ Public Function BlockIfIngesting() As Boolean
     BlockIfIngesting = True
     On Error Resume Next
     modUIMain.SetStage "処理中です。完了までお待ちください…"
+    ' SetStageの実況(ホームのセル/StatusBar/チャットバブル)はマイ本棚系画面
+    ' からは不可視。Enter()の既存トーストと同じ作法でどの画面でも見せる。
+    modSkin.ShowToast "取り込み処理が終わるまでお待ちください。", "info"
     On Error GoTo 0
 End Function
 

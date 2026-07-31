@@ -359,6 +359,8 @@ Public Sub RestoreExcelUI()
     On Error Resume Next
     Application.DisplayFormulaBar = True
     Application.DisplayStatusBar = True
+    ' 2026-07-31(R10-1): 全画面のままだとタブ/リボン復元が視覚的に効かない。
+    Application.DisplayFullScreen = False
     With ActiveWindow
         .DisplayGridlines = True
         .DisplayHeadings = True
@@ -421,19 +423,10 @@ Public Sub GoToNexus(ByVal source As String)
     Set ws = GetNexusSheet()
     If ws Is Nothing Then Exit Sub
 
-    On Error Resume Next
-    ws.Activate
-    If Err.Number <> 0 Then
-        modLog.LogError "E0801", source, _
-            "GoToNexus [ws.Activate失敗" & ChrW(&H2192) & "ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
-            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
-        Err.Clear
+    If Not ActivateSheetRobust(ws, source) Then
         RestoreExcelUI
-        On Error GoTo 0
         Exit Sub                ' 脱出路を出した直後に全画面へ戻さない(R7 A-2)
     End If
-    On Error GoTo 0
     EnsureAppView               ' R7 A-2: 崩れた表示状態はここで自己修復する
 End Sub
 
@@ -445,18 +438,46 @@ Public Sub GoToNativeSheet(ByVal sheetName As String, ByVal source As String)
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
+    If Not ActivateSheetRobust(ws, source & ":" & sheetName) Then RestoreExcelUI
+End Sub
+
+' ActivateSheetRobust - Activate失敗を「本当の失敗」と「見た目だけの失敗」に
+' 仕分ける(2026-07-31 R10-1 実機err91対策)。モーダル/外部COM直後の
+' ws.Activateはerr91を返すことがあるが、シートは切り替わっている場合が多い
+' (ActiveSheet=対象が根拠)。「本当に切り替わったか」だけを成否の基準にする。
+Public Function ActivateSheetRobust(ByVal ws As Worksheet, ByVal source As String) As Boolean
+    Dim errNum As Long, errDesc As String
+    Dim isFront As Boolean
+
     On Error Resume Next
+    Err.Clear
     ws.Activate
     If Err.Number <> 0 Then
-        modLog.LogError "E0801", source, _
-            "GoToNativeSheet(" & sheetName & ") [ws.Activate失敗" & ChrW(&H2192) & "ネイティブタブ復元で脱出路確保] ws.Visible=" & ws.Visible & _
-            " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-            " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, Err.Number
+        errNum = Err.Number
+        errDesc = Err.Description
         Err.Clear
-        RestoreExcelUI
+        Application.Goto ws.Range("A1")   ' 1回だけ再試行
     End If
+    isFront = (ThisWorkbook.ActiveSheet Is ws)
     On Error GoTo 0
-End Sub
+
+    If isFront Then
+        If errNum <> 0 Then
+            On Error Resume Next
+            modLog.LogUsage "activate_recovered", "", source & " err#" & errNum
+            On Error GoTo 0
+        End If
+        ActivateSheetRobust = True
+        Exit Function
+    End If
+
+    On Error Resume Next
+    modLog.LogError "E0801", source, _
+        "ActivateSheetRobust [ws.Activate失敗・再試行後も不一致] err#" & errNum & " " & errDesc & _
+        " ws.Visible=" & ws.Visible & " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
+        " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count, errNum
+    On Error GoTo 0
+End Function
 
 ' InitUIの各Draw*段の失敗記録役。
 Private Sub LogDrawStageError(ByVal stageName As String, ByVal ws As Worksheet)

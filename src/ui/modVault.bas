@@ -277,38 +277,53 @@ End Function
 ' ----------------------------------------------------------------------------
 
 ' ギャラリーを表示(SPA遷移)。検索語はシートのD3セル(検索バー)から読む。
+' uiStep: modUIShelf.EnsureLayoutと同型(2026-07-31 R10-1)。Activate失敗の
+' 無言スキップ(ギャラリー無反応の原因)を解消し、E0801を必ず1行残す。
 Public Sub ShowVaultGallery()
     Dim ws As Worksheet
     Set ws = GetOrCreateGallerySheet()
     If ws Is Nothing Then Exit Sub
 
+    Dim uiStep As String
+    Dim gErrNum As Long, gErrDesc As String
     On Error GoTo Finish
     Application.ScreenUpdating = False
+    uiStep = "枠の描画(DrawGalleryFrame)"
     DrawGalleryFrame ws
+    uiStep = "カードの描画(RenderGalleryCards)"
     RenderGalleryCards ws
     modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 
     ws.Visible = -1
-    ws.Activate
-    On Error Resume Next
-    ActiveWindow.DisplayGridlines = False
-    ActiveWindow.DisplayHeadings = False
-    ActiveWindow.DisplayWorkbookTabs = False
-    On Error GoTo 0
-    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
-    modKnowledge.PrepareScreenView ws
+    uiStep = "シートのアクティブ化(ActivateSheetRobust)"
+    If modUI.ActivateSheetRobust(ws, "modVault.ShowVaultGallery") Then
+        On Error Resume Next
+        ActiveWindow.DisplayGridlines = False
+        ActiveWindow.DisplayHeadings = False
+        ActiveWindow.DisplayWorkbookTabs = False
+        On Error GoTo Finish
+        ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+        uiStep = "表示の共通儀式(PrepareScreenView)"
+        modKnowledge.PrepareScreenView ws
+    End If
+    ' Falseのときは両者をスキップ(ActiveWindowが別シートを向いたまま触らない)。
 
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。
     GoTo FinishCleanup4
 Finish:
+    gErrNum = Err.Number
+    gErrDesc = Err.Description
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
     Resume FinishCleanup4
 FinishCleanup4:
     On Error Resume Next
+    If gErrNum <> 0 Then
+        modLog.LogError "E0801", "modVault.ShowVaultGallery", "[" & uiStep & "] " & gErrDesc, gErrNum
+    End If
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
     On Error GoTo 0
 End Sub
