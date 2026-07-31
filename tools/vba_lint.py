@@ -413,6 +413,14 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll3"],
     },
+    # modTestsPure4: 2026-07-31 R6で追加。modTestsPure3も上限に近づいたため、
+    # 画像PDFのOCR取込(optOcrCoreのGSコマンド組み立て・modUtilのページ付き
+    # テキスト・全ページ化けPDFの振り替え)のテストを分割した先。
+    # modTestsPure3.RunAll3の末尾から呼ばれる入口 RunAll4 だけが契約。
+    "modTestsPure4": {
+        "closed": False,
+        "required": ["RunAll4"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 

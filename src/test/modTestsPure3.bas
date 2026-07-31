@@ -549,6 +549,11 @@ NextChromeClip:
 NextChromeReal:
     On Error GoTo ChromeRealFail
     TestChromeHeaderRealCaptions
+NextPure4:
+    ' 2026-07-31 R6: 本モジュールも上限に近づいたため、画像PDFのOCR取込
+    ' (optOcrCore/modUtilのページ付きテキスト)のテストはmodTestsPure4へ分割。
+    On Error GoTo Pure4Fail
+    modTestsPure4.RunAll4
 NextDone:
     On Error GoTo 0
     Exit Sub
@@ -591,6 +596,10 @@ ChromeClipFail:
     Resume NextChromeReal
 ChromeRealFail:
     modTestRunner.Check "TestChromeHeaderRealCaptions(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure4
+Pure4Fail:
+    modTestRunner.Check "modTestsPure4.RunAll4(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone
 End Sub

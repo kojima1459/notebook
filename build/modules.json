@@ -603,6 +603,14 @@
       "note": "modTestsPure2の容量逼迫による分割先(R2取込コア/R3統計バッジの回帰テスト)。modTestsPure2.RunAll2末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure4",
+      "path": "src/test/modTestsPure4.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "modTestsPure3の容量逼迫による分割先(R6: 画像PDFのOCR取込。GSコマンドのゴールデンテスト/ページ付きテキストの往復/全ページ化けPDFの振り替え)。modTestsPure3.RunAll3末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

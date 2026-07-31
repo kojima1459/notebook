@@ -301,6 +301,10 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
     Dim finished As Boolean: finished = WaitForDoneFlag(flagPath, waitSec)
     Dim foundN As Long: foundN = CountRenderedPages(folderPath, renderCap)
 
+    ' タイムアウトした場合、最後の1枚はGSが書いている途中の可能性がある。
+    ' 途中のJPEGを読ませても意味が無いので使わない(2枚以上あるときだけ)。
+    If Not finished And foundN > 1 Then foundN = foundN - 1
+
     If foundN = 0 Then
         modUIMain.SetStage ""
         CleanupOcrFolder folderPath

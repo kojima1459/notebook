@@ -9,6 +9,7 @@
 |---|---|---|
 | マルチ形式取込 | PDF/Word/Excel/テキストをフォルダ投入 or ダイアログで取込 | `modExtractor*`, `modShelf` |
 | 構造認識チャンク化 | 見出し・条文単位での分割(`chunk_mode=structure`) | `modChunker` |
+| 画像PDFのOCR取込 | スキャンPDF(E0303)を同梱外のGhostscriptでページ毎にJPEG化し、1ページ=1回のChatGPTVで文字起こし。上限は`vision_pdf_max_pages`(既定20)で超過分はpartial。全ページ文字化けのPDFも自動でこの経路へ回る。手順は`docs/43_画像PDFのOCR取込設定.md` | `optVision`, `optOcrCore`, `modShelfVision` |
 | 自動同期 | 指定フォルダとの差分同期(`sync_interval_min`でOnTime自動化) | `modShelfSync` |
 | 同期完了表示(静かな完了) | 手動同期が正常完了(上限見送りなし)のとき、状態表示行とステータスバーに「✅ 同期が完了しました(…)」と出るだけでダイアログを出さない。上限見送りがあった場合のみ従来どおりダイアログ表示 | `modShelfSync` |
 | ハイブリッド検索(標準) | 全件Float内積スコアリング+キーワードボーナス | `modRetrieve` |
