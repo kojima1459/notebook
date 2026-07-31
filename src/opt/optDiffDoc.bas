@@ -255,8 +255,14 @@ Private Sub WriteDiffReportSheet(ByVal oldPath As String, ByVal newPath As Strin
     ws.Range(ws.Cells(1, 1), ws.Cells(totalRows, 1)).Value = arr
     ws.Columns("A").ColumnWidth = 120
 
+    ' R11-C(lint許容登録): Activate失敗を致命的にしない(レポートは既に書き
+    ' 終わっているため、前面化に失敗しても続行する)。ログ付き許容続行。
     On Error Resume Next
-    ws.Activate
+    Err.Clear
+    ws.Activate   ' lint:allow-raw-activate(許容続行・R11-C裁定)
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", "optDiffDoc.CompareTwoDocsDialog", "[許容続行] 差分レポートActivate失敗", Err.Number
+    End If
     On Error GoTo 0
 End Sub
 

@@ -322,6 +322,7 @@ End Sub
 ' きせかえボタン(ヘルプカードを閉じてからmodSkin.CycleSkinへ。CycleSkin自身が
 ' modUiLockを取るため、ここではロックを取らず閉じ処理のみ行う)。
 Public Sub OnCycleSkin()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     DoHideHelp
     On Error GoTo 0

@@ -169,8 +169,14 @@ Public Sub RunDiagnostics()
 
     ws.Columns("A").ColumnWidth = 110
 
+    ' R11-C(lint許容登録): Activate失敗を致命的にしない(診断結果は既に書き
+    ' 終わっているため、前面化に失敗しても続行する)。ログ付き許容続行。
     On Error Resume Next
-    ws.Activate
+    Err.Clear
+    ws.Activate   ' lint:allow-raw-activate(許容続行・R11-C裁定)
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", "modDiag.RunDiagnostics", "[許容続行] 診断シートActivate失敗", Err.Number
+    End If
     On Error GoTo 0
 End Sub
 

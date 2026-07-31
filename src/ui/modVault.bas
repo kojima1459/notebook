@@ -180,6 +180,7 @@ End Sub
 ' OnVaultSubmit - 入力内容を既存取込パイプラインへ流して登録
 ' ----------------------------------------------------------------------------
 Public Sub OnVaultSubmit()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim ws As Worksheet
     Set ws = GetVaultSheet()
     If ws Is Nothing Then Exit Sub

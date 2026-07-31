@@ -2,25 +2,11 @@ Attribute VB_Name = "modKnowledge"
 Option Explicit
 
 ' modKnowledge - ナレッジ画面の共通クロム(ヘッダー+モード切替+ツールバー)。
-'
-' 2026-07-26 再設計(nexus-spec-v1 §2.3 / nexus-ui-final 画面3):
-'   実機報告「ナレッジ倉庫とマイ本棚の違いが分からない」への対処。
-'   中身は今までどおり2枚のシート(Vault=カードギャラリー / マイ本棚=一覧表)
-'   だが、タブは隠してあるので利用者にシートの区別は見えない。両方に
-'   まったく同じヘッダーとツールバーを描き、上部のピルで
-'   「🃏 ギャラリー / 📋 マイ本棚」を切り替える1画面2モードとして見せる。
-'
-'   ツールバーの各ボタンは既存のmodVault/modUIShelf/modPack/modShelfSyncへ
-'   そのまま配線するだけで、取込・同期・パックのロジックには一切触っていない
-'   (仕様書の「既存コード変更最小化」原則)。これまで2画面に重複していた
-'   パック出力/取込の入口も、この1本のツールバーに集約した。
-'
-' 設計の鉄則:
-'   ・Shape座標は実セル幾何(Range.Left/.Width/Rows().Top)から導く。
-'     旧modVaultのツールバーはx=390,460,528...と決め打ちで、列幅を変えると
-'     すぐ画面外へはみ出していた。
-'   ・配色は modUI.UiColor()。絵文字はChrW()で組み立てる。
-'   ・Shape名は nxk_ 接頭辞(冪等な全削除に使う)。
+' 2026-07-26再設計: Vault(カードギャラリー)/マイ本棚(一覧表)の2シートに
+' 同じヘッダー・ツールバーを描き、上部ピルで切り替える1画面2モードに見せる。
+' ツールバーは既存のmodVault/modUIShelf/modPack/modShelfSyncへ配線するだけ。
+' 設計の鉄則: Shape座標は実セル幾何から導く(旧実装の決め打ち座標が画面外に
+' はみ出していた教訓)。配色はmodUI.UiColor()。Shape名はnxk_接頭辞。
 
 Private Const HDR_H As Double = 40
 Private Const BAR_H As Double = 24
@@ -606,7 +592,12 @@ End Sub
 
 Public Sub OnSearch()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modVault.OnVaultSearch
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnSearch", Err.Description, Err.Number
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -733,44 +724,82 @@ End Sub
 
 Public Sub OnRegister()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modVault.ShowVaultInput
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnRegister", Err.Description, Err.Number
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnAddFiles()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modShelfBatch.AddFilesViaDialog
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnAddFiles", Err.Description, Err.Number
     On Error GoTo 0
     RefreshCurrent
+    modUiLock.Leave
 End Sub
 
+' OnPackOut/OnPackIn: 例外ハンドラ必須(監査1 M-9・VBA生ダイアログ防止)。
 Public Sub OnPackOut()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Fail
     modPackExport.ExportPackDialog
+    modUiLock.Leave
+    Exit Sub
+Fail:
+    modUiLock.Leave
+    modLog.ShowError "E0801", "modKnowledge.OnPackOut", Err.Description
 End Sub
 
 Public Sub OnPackIn()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Fail
     modPack.ImportPackDialog
     RefreshCurrent
+    modUiLock.Leave
+    Exit Sub
+Fail:
+    modUiLock.Leave
+    modLog.ShowError "E0801", "modKnowledge.OnPackIn", Err.Description
 End Sub
 
 Public Sub OnSync()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modShelfSync.SyncNow
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnSync", Err.Description, Err.Number
+    On Error GoTo 0
     RefreshCurrent
+    modUiLock.Leave
 End Sub
 
 Public Sub OnPickFolder()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modShelfSync.PickShelfFolder
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnPickFolder", Err.Description, Err.Number
+    On Error GoTo 0
     RefreshCurrent
+    modUiLock.Leave
 End Sub
 
 Public Sub OnDelete()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
     modUIShelf.OnDeleteSource
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnDelete", Err.Description, Err.Number
+    On Error GoTo 0
     RefreshCurrent
+    modUiLock.Leave
 End Sub
 
 ' 今表示しているモードだけを描き直す(モード切替をまたいで表示がズレないよう、
@@ -792,6 +821,7 @@ Public Sub RefreshCurrent()
         Case Else
             modUIShelf.RenderShelf
     End Select
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.RefreshCurrent", Err.Description, Err.Number
     On Error GoTo 0
 End Sub
 

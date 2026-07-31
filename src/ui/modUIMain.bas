@@ -143,7 +143,7 @@ Public Sub EnsureLayout()
     Application.ScreenUpdating = True
     DoEvents
     On Error Resume Next
-    ws.Activate
+    ws.Activate   ' lint:allow-raw-activate(許容続行・R11-C裁定)
     If Err.Number <> 0 Then
         Dim actNum As Long: actNum = Err.Number
         modLog.LogError "E0801", "modUIMain.EnsureLayout", _
@@ -464,6 +464,7 @@ Public Sub OnModeDeep()
 End Sub
 
 Public Sub OnOpenHowto()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_HOWTO)
@@ -475,6 +476,7 @@ End Sub
 ' 2026-07-22実機報告対策: タブが隠れていてもNexus(チャット)へ戻れるように
 ' する(modUI.GoToNexusと同じ脱出路付き遷移をここから呼ぶだけ)。
 Public Sub OnBackToChat()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modUI.GoToNexus "modUIMain.OnBackToChat"
 End Sub
 

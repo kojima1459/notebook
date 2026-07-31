@@ -1649,10 +1649,14 @@ RAW_ACTIVATE_PATTERN = re.compile(r"\b([A-Za-z_]\w*)\.Activate\b")
 # 失敗は非致命的で既存のOERNで許容されている)は素の.Activateチェックの
 # 対象外にする(2026-07-31 R11-B)。
 RAW_ACTIVATE_EXEMPT_PREFIXES = {"thisworkbook", "prevactive"}
+# R11-C: 「Activate失敗を許容してログ(E0801)に残したうえで続行する」防御が
+# 確立済みの既存4箇所だけ、行末にこのマーカーを付けて許可リスト化する
+# (司令塔裁定・spec_20260731_R11 §5b)。新規追加箇所には付けないこと。
+RAW_ACTIVATE_ALLOW_MARKER = "lint:allow-raw-activate"
 
 
 def check_raw_activate(info: ModuleInfo) -> None:
-    """modUI以外での素の.Activate使用をWARNにする(R11-B・C6系の再発防止)。
+    """modUI以外での素の.Activate使用をERRORにする(R11-B/C6・C系の再発防止)。
 
     2026-07-31実機「ギャラリー無反応」の真因は、ActivateSheetRobust(失敗を
     検知し、失敗時はRestoreExcelUIで脱出路を出す)を経由しない素の
@@ -1660,21 +1664,24 @@ def check_raw_activate(info: ModuleInfo) -> None:
     画面が固まったまま戻る手段が無い。modUIはActivateSheetRobust自身の
     実装場所として唯一許可する(対象外)。
 
-    まだ移行できていない既存箇所(modUIMain.EnsureLayout等の「Activate失敗を
-    許容してログだけ残す」防御パターンや、opt層の単発Activate)がR11-B時点で
-    残っているため、いきなりERRORにはしない。全数の置換を確認できてから
-    ERRORへ格上げする(§検収基準・司令塔裁定待ち)。
+    R11-Cで全数を処理済み: modBoot.HideGuardSheetはActivateSheetRobust化、
+    modDiag/optDiffDoc/modUIMain/modUIShelfの残り4箇所は「Activate失敗を
+    E0801へログして続行する」防御が既に成立している(致命的にしない設計を
+    裁定で受容)ため、RAW_ACTIVATE_ALLOW_MARKERを付けて許可リスト化した。
+    以後の新規の素の.ActivateはERRORにして機械的に検出する。
     """
     name = module_name_for_display(info)
     if name == "modUI":
         return
     for lineno, raw in merge_continuations(info.raw_text.split("\n")):
+        if RAW_ACTIVATE_ALLOW_MARKER in raw:
+            continue
         code = _strip_strings(strip_comment(raw))
         for m in RAW_ACTIVATE_PATTERN.finditer(code):
             if m.group(1).lower() in RAW_ACTIVATE_EXEMPT_PREFIXES:
                 continue
             info.add(
-                "WARN", lineno,
+                "ERROR", lineno,
                 f"素の.Activate使用(modUI.ActivateSheetRobust経由にすること。"
                 f"失敗時の脱出路が無いと『ギャラリー無反応』と同型の無反応画面になる): "
                 f"「{code.strip()[:80]}」",

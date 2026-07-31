@@ -433,7 +433,11 @@ Public Sub GoToNativeSheet(ByVal sheetName As String, ByVal source As String)
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
 
-    If Not ActivateSheetRobust(ws, source & ":" & sheetName) Then RestoreExcelUI
+    If ActivateSheetRobust(ws, source & ":" & sheetName) Then
+        EnsureAppView            ' R11-C: 成功経路の水平スクロールバー復元漏れ
+    Else
+        RestoreExcelUI
+    End If
 End Sub
 
 ' ActivateSheetRobust - Activate失敗を「本当の失敗」と「見た目だけの失敗」に

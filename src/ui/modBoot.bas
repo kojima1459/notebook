@@ -622,7 +622,8 @@ Private Sub HideGuardSheet()
         For Each other In ThisWorkbook.Worksheets
             If Not (other Is gs) Then
                 If other.Visible = -1 Then   ' xlSheetVisible
-                    other.Activate
+                    If Not modUI.ActivateSheetRobust(other, "modBoot.Boot") Then _
+                        modLog.LogError "E0801", "modBoot.Boot", "案内シート退避のActivateに失敗"
                     Exit For
                 End If
             End If

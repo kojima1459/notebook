@@ -105,7 +105,7 @@ Public Sub EnsureLayout()
     Application.ScreenUpdating = True
     DoEvents
     On Error Resume Next
-    ws.Activate
+    ws.Activate   ' lint:allow-raw-activate(許容続行・R11-C裁定)
     If Err.Number <> 0 Then
         Dim actNum As Long: actNum = Err.Number
         modLog.LogError "E0801", "modUIShelf.EnsureLayout", _
@@ -353,6 +353,7 @@ End Sub
 '   optVisionへの参照はR2に従いmodFeatures.InvokeFeature経由のみ。
 ' ----------------------------------------------------------------------------
 Public Sub OnIngestScreenshot()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error GoTo Fail
 
     ' 1) クリップボードに画像があるか(機能無効/mock時は#ERR文字列が返る)

@@ -733,6 +733,7 @@ Public Sub OnRefreshUI()
         Case modAppDef.SH_HOME: modHub.EnsureHubLayout
         Case Else:        modKnowledge.RefreshCurrent
     End Select
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modApp.OnRefreshUI", Err.Description, Err.Number
     On Error GoTo 0
     modUiLock.Leave
 End Sub

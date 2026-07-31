@@ -693,18 +693,16 @@ Done:
 End Sub
 
 Public Sub OnLangCycle()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     modApp.OnLangCycle
     modSkin.ShowToast "回答言語: " & modConfig.GetString("answer_language", "日本語"), "success"
     On Error GoTo 0
 End Sub
 
-' modSkin.CycleSkin 自身が modUiLock を取る。modUiLockは非再入なので、
-' ここで先に取ると内側のEnterがFalseになり、配色が一切変わらないまま
-' ステータスバーの「処理中です...」だけが残る(実機で再現した不具合)。
-' 素通しにして、CycleSkin の完了後にHubを描き直す。
+' CycleSkin自身がmodUiLockを取るため非再入で素通し(先取りすると変色しない)。
 Public Sub OnThemeToggle()
-    ' 2026-07-28(レビュー M-26): 処理中の再描画は画面を壊す。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If modUiLock.IsBusy() Then
         On Error Resume Next
         modSkin.ShowToast "処理中です。終わってから切り替えてください。", "info"
@@ -717,11 +715,9 @@ Public Sub OnThemeToggle()
     On Error GoTo 0
 End Sub
 
-' modHelp.OnHelpClick自身がmodUiLockを取る。modUiLockは非再入なので、
-' ここで先に取ると内側のEnterがFalseになりヘルプが一切開かなくなる
-' (Hub移植時に埋めてしまった不具合)。素通しにする。
-' ヘルプカードはチャット画面(Nexus)に描かれるため、先にそちらへ遷移する。
+' OnHelpClick自身がmodUiLockを取るため非再入で素通し。先にNexusへ遷移する。
 Public Sub OnHelp()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     modUI.GoToNexus "modHub.OnHelp"
     On Error GoTo 0
@@ -752,6 +748,7 @@ Public Sub OnCheckUpdates()
 End Sub
 
 Public Sub OnShareHelp()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     MsgBox "部内で知恵を共有するには、共有フォルダを1回だけ設定します。" & vbCrLf & vbCrLf & _
         "【設定するもの】" & vbCrLf & _
         "  config シートの nexus_share_path に、部内の誰もが読み書きできる" & vbCrLf & _
@@ -795,6 +792,7 @@ Done:
 End Sub
 
 Public Sub OnAnonFeedback()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim fb As String
     fb = InputBox( _
         "このツールへの感想・要望・不満を、匿名で送れます。" & vbCrLf & vbCrLf & _
@@ -836,6 +834,7 @@ Public Sub OnAnonFeedback()
 End Sub
 
 Public Sub OnRedraw()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     modApp.OnRefreshUI
     On Error GoTo 0

@@ -34,6 +34,7 @@ Private Const CSV_HEADER As String = _
 '   として書き出す。唯一のPublicメンバー(ダッシュボードのボタンから直接呼ばれる)。
 ' ----------------------------------------------------------------------------
 Public Sub ExportAnalyticsCsv()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_USAGE)

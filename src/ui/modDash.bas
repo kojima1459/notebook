@@ -173,6 +173,7 @@ End Sub
 ' OnDashRestore - 管理者用「復帰」ボタンのハンドラ(組織的除外を解除する)
 ' ----------------------------------------------------------------------------
 Public Sub OnDashRestore()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim callerName As String
     On Error Resume Next
     callerName = CStr(Application.Caller)

@@ -73,6 +73,14 @@ End Sub
 '   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0 で返す。
 '
 Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As String
+    ' R11-C(H-6): 入口での再入ガード。DoEvents経由で同時に2本目が走ることは
+    ' 構造的に無い(FileDialog.Showはモーダルでイベントループを回さない)が、
+    ' 前回の呼び出しがAddFailed経路で解除し損ねた場合の保険としてキャンセル
+    ' 相当を返す(mBatchIngestingの退避/復元はせず、入口で弾くだけで足りる)。
+    If IsBatchBusy() Then
+        AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons="
+        Exit Function
+    End If
     ' 集計値の宣言はハンドラより前に置く(途中で落ちても集計を返すため)。
     Dim okCount As Long: okCount = 0
     Dim ngCount As Long: ngCount = 0
