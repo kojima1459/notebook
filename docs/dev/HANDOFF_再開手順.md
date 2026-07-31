@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R10クローズ時点）
+# 再開手順（セッション中断対策・最終更新: R11完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,11 +6,9 @@
 
 ## 1. 現在地
 
-**最新の完成コミット = HEAD(16eeab4)。R10全件クローズ(敵対的レビュー指摘9/9消化)。**
-R1〜R10まで全ラウンド完了・検収済み・push済み。テスト452件・lint WARN 10(1減)。
-次は R11(全体品質総点検): 憲章基準の4面レビュー(UI/UX全画面走査・エラー
-ハンドリング監査・実機依存層防御監査・保守性監査)→裁定→構造修正→
-配布zip+実機スモーク手順書。タスク#30(右寄せ見切れ)はR11で恒久対策。
+**最新の完成コミット = HEAD(c7587b7)。R11全6波+G完了。敵対的レビュー→配布zip待ち。**
+R1〜R11全体品質総点検まで全ラウンド完了・検収済み・push済み。テスト491件・lint WARN 3(全てテスト系)。
+次: 敵対的レビュー(読取専用Opus・R11全差分)→司令塔裁定→修正→配布zip(--prod --zip)+docs/45実機スモークテスト手順書。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -24,6 +22,14 @@ R1〜R10まで全ラウンド完了・検収済み・push済み。テスト452�
 | R10-4 | Haiku | docs追随 | 7cd686e | 完了 |
 | R10c | Opus | 敵対的レビュー裁定の修正8件(H1/M1-M5/L1/L5/L6) | e117750 | 完了 |
 | R10d | Opus | modShelf分割(modShelfBatch新設)+H2/M4/M5残 | 69a3364/16eeab4 | 完了 |
+| R11-A | Opus | データ保全Critical(C1取込中終了禁止/C2Word所有判定/C3失敗検知/C4silent伝播/C5統計防御) | eded8b2 | 完了 |
+| R11-B | Sonnet | #30恒久対策+Activate全数(C5ビューポート/C6素のActivate) | 0d9fa66 | 完了 |
+| R11-C | Sonnet | 関所とログの全数配線(BlockIfIngesting/再入ガード/ツールバーログ/委譲先ログ) | b3d446e | 完了 |
+| R11-D | Opus | GS/COM/実機層堅牢化(観測性/タイムアウト/Dictionary/ComError) | ed977de | 完了 |
+| R11-E | Sonnet | 進捗・文言・ヘルプ・UI細部(OnChannels/UIUX修復/ヘルプ刷新/Caller不一致) | 6fb3707 | 完了 |
+| R11-F1/F2 | Opus | 保守性・分割・重複統合(modVaultGallery/modSkin/重複統合/lint) | 130e314/3087a33 | 完了 |
+| R11-F2 | Opus | 重複統合最終(UTF-8/移動平均/ページ分割/Timer)+保留回収 | c7587b7 | 完了 |
+| R11-G | Haiku | docs同期(エラー表/構成/HANDOFF)+実機スモークテスト手順書(docs/45)新規 | TBD | 実施中 |
 
 配布方法: GitHubの「Code → Download ZIP」→解凍→ dist/MyBookshelf.xlsm を開く
 (dist/Ghostscript が隣にあるのでOCRも追加作業なし)。
@@ -61,3 +67,9 @@ R1〜R10まで全ラウンド完了・検収済み・push済み。テスト452�
 - LibreOfficeテスト(tools/run_lo_tests.py)は多重起動禁止。
 - API月次上限で実装エージェントが落ちた場合: WIPを即コミットして保全し、
   軽作業のみで待つ(今回それで乗り切った)。
+- モジュール数: 98本(実装)/テスト: 491件/WARN: 3本(全てテスト系)。
+- R11での事実確認・修正メモ:
+  - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
+  - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。
+  - modFeatures.InvokeFeature 引数: 最大6個。opt側の引数追加は末尾Optional固定。
+  - Dir(vbDirectory): 実測24箇所(記録済み・次期統一)。
