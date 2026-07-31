@@ -132,7 +132,10 @@ Public Sub OnPick()
     On Error Resume Next
     caller = CStr(Application.Caller)
     On Error GoTo 0
-    If Left$(caller, Len(PREFIX)) <> PREFIX Then Exit Sub
+    If Left$(caller, Len(PREFIX)) <> PREFIX Then
+        modLog.LogUsage "caller_mismatch", "modStarter.OnPick", caller
+        Exit Sub
+    End If
 
     Dim tail As String: tail = Mid$(caller, Len(PREFIX) + 1)
     If tail = "more" Then Exit Sub

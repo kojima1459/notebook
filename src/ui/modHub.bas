@@ -509,7 +509,7 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 【" & modHubStat.PendingLabel(chPend) & _
               "】に更新があります" & vbCr & _
               "押して読み込み直してください。古い内容で回答しないために早めの更新を"
-        act = "modKnowledge.OnChannels"
+        act = "modHubStat.OnSyncPending"
     ElseIf chOver > 0 Then
         ' 2026-07-31(レビュー R8 F13): 部門数が上限を超えると、41件目以降は
         ' 一覧から静かに落ちる。落ちた部門の正典は誰にも届かないのに、
@@ -680,6 +680,7 @@ Public Sub OnQuickAsk()
         Case "nx_hub_qa2"
             tpl = "【手続き名】: (ここに記入)" & vbLf & "【知りたい結論】: (例: 必要書類と所要日数)"
         Case Else
+            modLog.LogUsage "caller_mismatch", "modHub.OnQuickAsk", CStr(Application.Caller)
             GoTo Done
     End Select
 
@@ -819,7 +820,10 @@ Public Sub OnAnonFeedback()
         On Error Resume Next
         modClip.SetClipboardText fb
         Dim mailUrl As String: mailUrl = FeedbackMailto()
-        If LenB(mailUrl) > 0 Then ThisWorkbook.FollowHyperlink mailUrl
+        If LenB(mailUrl) > 0 Then
+            modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
+            ThisWorkbook.FollowHyperlink mailUrl
+        End If
         On Error GoTo 0
         If LenB(mailUrl) > 0 Then
             MsgBox "共有フォルダへ送れなかったため、メールの下書きを開きました。" & vbCrLf & _

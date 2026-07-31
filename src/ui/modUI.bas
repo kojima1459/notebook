@@ -544,11 +544,6 @@ Public Sub Repaint()
     ParkFocus
 End Sub
 
-' Phase1暫定(Phase2でController移管)。
-Public Sub NexusActionStub()
-    MsgBox "このボタンは準備中です(次のフェーズで有効になります)。", vbInformation, "Nexus Agent"
-End Sub
-
 ' 公開ゲッター: 他のNexus画面がテーマ一貫の配色/現在テーマを得る窓口。
 Public Function UiColor(ByVal key As String) As Long
     UiColor = ThemeColor(key)

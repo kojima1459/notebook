@@ -275,7 +275,7 @@ Public Sub RenderShelf()
         uiStep = "空の本棚の案内表示"
         With ws.Range(ws.Cells(FIRST_CARD_ROW, COL_NAME), ws.Cells(FIRST_CARD_ROW, 10))
             .Merge
-            .Value = "まだ資料がありません。上の「＋資料を追加」から始めましょう。"
+            .Value = "まだ資料がありません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDCC1) & " 追加」から始めましょう。"
             .Font.Italic = True
             .Font.Size = 10
         End With
@@ -311,38 +311,6 @@ FailCleanup1:
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.RenderShelf", "[" & uiStep & "] " & origDesc
-End Sub
-
-' ----------------------------------------------------------------------------
-' OnAddFiles / OnSyncNow / OnPickFolder / OnExportPack / OnImportPack / OnDeleteSource
-' ----------------------------------------------------------------------------
-
-' 2026-07-22実機報告対策: タブが隠れていてもNexus(チャット)へ戻れるように
-' する(modUI.GoToNexusと同じ脱出路付き遷移をここから呼ぶだけ)。
-Public Sub OnBackToChat()
-    modUI.GoToNexus "modUIShelf.OnBackToChat"
-End Sub
-
-Public Sub OnAddFiles()
-    On Error GoTo Fail
-    modShelfBatch.AddFilesViaDialog
-    RefreshBadgesAndDashboard
-    Exit Sub
-Fail:
-    modLog.LogError "E0801", "modUIShelf.OnAddFiles", Err.Description
-    Err.Clear
-    On Error GoTo 0
-End Sub
-
-Public Sub OnSyncNow()
-    On Error GoTo Fail
-    modShelfSync.SyncNow
-    RefreshBadgesAndDashboard
-    Exit Sub
-Fail:
-    modLog.LogError "E0801", "modUIShelf.OnSyncNow", Err.Description
-    Err.Clear
-    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -429,39 +397,6 @@ Private Function SanitizeFileName(ByVal s As String) As String
     SanitizeFileName = modUtil.SafeLeft(Trim$(t), 80)
 End Function
 
-Public Sub OnPickFolder()
-    On Error GoTo Fail
-    modShelfSync.PickShelfFolder
-    RefreshBadgesAndDashboard
-    Exit Sub
-Fail:
-    modLog.LogError "E0801", "modUIShelf.OnPickFolder", Err.Description
-    Err.Clear
-    On Error GoTo 0
-End Sub
-
-Public Sub OnExportPack()
-    On Error GoTo Fail
-    modPackExport.ExportPackDialog
-    RefreshBadgesAndDashboard
-    Exit Sub
-Fail:
-    modLog.LogError "E0801", "modUIShelf.OnExportPack", Err.Description
-    Err.Clear
-    On Error GoTo 0
-End Sub
-
-Public Sub OnImportPack()
-    On Error GoTo Fail
-    modPack.ImportPackDialog
-    RefreshBadgesAndDashboard
-    Exit Sub
-Fail:
-    modLog.LogError "E0801", "modUIShelf.OnImportPack", Err.Description
-    Err.Clear
-    On Error GoTo 0
-End Sub
-
 Public Sub OnDeleteSource()
     On Error GoTo Fail
 
@@ -528,7 +463,7 @@ Private Sub RefreshFolderInfo(ByVal ws As Worksheet)
 
     Dim folderText As String
     If LenB(folder) = 0 Then
-        folderText = "本棚フォルダ: (未設定。「" & ChrW(&HD83D) & ChrW(&HDCC1) & " フォルダを選ぶ」から選んでください)"
+        folderText = "本棚フォルダ: (未設定。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ」から選んでください)"
     Else
         folderText = "本棚フォルダ: " & folder
     End If
@@ -539,7 +474,7 @@ Private Sub RefreshFolderInfo(ByVal ws As Worksheet)
 
     Dim syncText As String
     If minutes < 1 Then
-        syncText = "自動同期: オフ(「" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期」を押すと今すぐ同期します)"
+        syncText = "自動同期: オフ(上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期」を押すと今すぐ同期します)"
     Else
         syncText = "自動同期: " & minutes & "分ごと"
     End If
@@ -643,7 +578,7 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
         Case "pending"
             BuildMemo = "AIが読める形に変換中です。しばらくしてから確認してください。"
         Case "partial"
-            BuildMemo = "一部だけ変換が完了していません。「" & ChrW(&HD83D) & ChrW(&HDD04) & "フォルダと同期」を押すと続きから再開します。"
+            BuildMemo = "一部だけ変換が完了していません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期」を押すと続きから再開します。"
         Case "image_pdf"
             BuildMemo = "画像として保存されたPDFです。Ghostscriptを置くとAIが1ページずつ読み取れます" & _
                 "(手順は「43_画像PDFのOCR取込設定」)。急ぐときは画面をコピーしてスクショ取込へ。"
@@ -751,78 +686,6 @@ Private Function GetOrCreateShelfSheet() As Worksheet
     Exit Function
 Fail:
     Set GetOrCreateShelfSheet = Nothing
-End Function
-
-' マイクロログ(2026-07-21): modUIMain.AddButtonと同じ理由・同じ実装
-' (失敗した「正確な1行」をerr_logへ残す。詳細はmodUIMain.bas側参照)。
-Private Sub AddButton(ByVal ws As Worksheet, ByVal rng As Range, ByVal shapeName As String, _
-                      ByVal caption As String, ByVal action As String)
-    Dim uiStep As String
-    On Error GoTo Fail
-    Dim shp As Shape
-    ' ログと実呼出しに同じサニタイズ済み値を使う(生値だとログと実態が食い違う)。
-    Dim sL As Double, sT As Double, sW As Double, sH As Double
-    sL = SafeCoord(rng.Left): sT = SafeCoord(rng.Top)
-    sW = SafeCoord(rng.Width): sH = SafeCoord(rng.Height)
-    uiStep = "AddShape実行(Type=5 L=" & sL & " T=" & sT & " W=" & sW & " H=" & sH & ")"
-    Set shp = SafeRoundedRect(ws, sL, sT, sW, sH)
-    uiStep = "図形名設定"
-    shp.Name = shapeName
-    uiStep = "テキスト代入"
-    shp.TextFrame2.TextRange.Text = caption
-    uiStep = "フォント設定"
-    shp.TextFrame2.WordWrap = -1   ' msoTrue
-    shp.TextFrame2.TextRange.Font.Size = 10
-    shp.TextFrame2.TextRange.Font.Bold = -1   ' msoTrue
-    shp.TextFrame2.TextRange.ParagraphFormat.Alignment = 2   ' msoAlignCenter
-    shp.TextFrame2.VerticalAnchor = 3   ' msoAnchorMiddle
-    uiStep = "色/塗りつぶし設定"
-    shp.Fill.ForeColor.RGB = 15921906   ' RGB(242,242,242)
-    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = 0
-    shp.Line.Visible = 0   ' msoFalse
-    uiStep = "OnAction割当て"
-    shp.OnAction = action
-    Exit Sub
-Fail:
-    Dim btnErrNum As Long, btnErrDesc As String
-    btnErrNum = Err.Number: btnErrDesc = Err.Description
-    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
-    ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
-    ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
-    Resume FailCleanup23
-FailCleanup23:
-    Dim diag As String: diag = ""
-    On Error Resume Next
-    diag = " ws.Visible=" & ws.Visible & " ws.ProtectContents=" & ws.ProtectContents & _
-           " ActiveSheet=" & ThisWorkbook.ActiveSheet.Name & _
-           " Interactive=" & Application.Interactive & _
-           " AppWin=" & Application.Windows.Count & " WbWin=" & ThisWorkbook.Windows.Count
-    modLog.LogError "E0801", "modUIShelf.EnsureLayout", "AddButton [" & uiStep & "]" & diag, btnErrNum
-    On Error GoTo 0
-    ' 2026-07-22実機再発: modUIMain.AddButtonと同じ理由でErr.Raise再伝播をやめる
-    ' (1個のボタン失敗でEnsureLayout全体が中断→画面がほぼ空になるのを防ぐ)。
-    Err.Clear
-End Sub
-
-' 2026-07-21訂正で撤去: 旧SafeBeginDraw/SafeEndDraw(ws.Activate・DisplayObjects
-' 強制・Protect解除一式)。真因はコンパイルエラーであり、これらは的外れな
-' 対策だった。座標サニタイズ(下記SafeCoord)のみ実効性があるため維持する。
-Private Function SafeCoord(ByVal v As Double) As Double
-    If v < 1 Then v = 1
-    SafeCoord = v
-End Function
-
-' 呼び出し元がSafeCoordで既に安全化した値を渡す前提だが、直接呼ばれても
-' 壊れないよう二重にクランプする(コストはほぼ無い)。
-Private Function SafeRoundedRect(ByVal ws As Worksheet, ByVal L As Double, ByVal T As Double, _
-                                 ByVal W As Double, ByVal H As Double) As Shape
-    L = SafeCoord(L): T = SafeCoord(T): W = SafeCoord(W): H = SafeCoord(H)
-    On Error GoTo Retry
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)   ' 5=msoShapeRoundedRectangle(リテラル)
-    Exit Function
-Retry:
-    DoEvents
-    Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)
 End Function
 
 Private Sub RemoveManagedShapes(ByVal ws As Worksheet)

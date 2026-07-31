@@ -144,7 +144,15 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40)
         On Error GoTo AddFailed
 
-        If modShelf.TotalChunks() >= capMax Then
+        ' 2026-07-31(§7裁定3件目 採用1): 手動「資料を追加」でこのブック自身
+        ' (フルパス一致、または同名の一時コピー)を選んだ場合は取り込まない。
+        ' 自動同期側の判定は modShelfScan.IsExcludedFile(フォルダ走査専用)が
+        ' 別に持っており、こちらは手動選択という別経路の共通入口を担うため
+        ' 重複ではない。
+        If IsSelfWorkbookFile(CStr(fd.SelectedItems(i))) Then
+            ngCount = ngCount + 1
+            BumpReasonCount reasonKeys, reasonCounts, reasonN, "self"
+        ElseIf modShelf.TotalChunks() >= capMax Then
             cappedN = cappedN + 1
         Else
             Dim beforeChunks As Long: beforeChunks = modShelf.TotalChunks()
@@ -203,6 +211,11 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     If dupN > 0 Then
         msg = msg & vbLf & "同じ名前の資料が別の場所から登録済みのものが" & dupN & "件あります。" & _
             vbLf & "ファイル名を変えて入れ直すか、マイ本棚で古いほうを削除してからお試しください。"
+    End If
+    Dim selfN As Long
+    selfN = ReasonCountOf(reasonKeys, reasonCounts, reasonN, "self")
+    If selfN > 0 Then
+        msg = msg & vbLf & "このファイルは本ツール自身のため取り込めません。"
     End If
     If cappedN > 0 Then
         msg = msg & vbLf & vbLf & _
@@ -294,6 +307,23 @@ Private Function ReasonCountOf(ByRef keys() As String, ByRef counts() As Long, _
             Exit Function
         End If
     Next i
+End Function
+
+' このブック自身、または同名の一時コピーかどうか(§7裁定3件目 採用1)。
+'   フルパス一致(完全一致)に加え、拡張子を問わずファイル名だけが
+'   ThisWorkbook.Nameと一致する場合も自分自身とみなす(共有フォルダ経由で
+'   コピーされた同名の一時ファイルを選んでしまうケースを含めて防ぐ)。
+Private Function IsSelfWorkbookFile(ByVal path As String) As Boolean
+    On Error Resume Next
+    Dim me_ As String: me_ = ThisWorkbook.FullName
+    Dim myName As String: myName = ThisWorkbook.Name
+    If LenB(me_) = 0 Then Exit Function
+    If StrComp(path, me_, vbTextCompare) = 0 Then
+        IsSelfWorkbookFile = True
+    ElseIf StrComp(modUtil.FileNameOf(path), myName, vbTextCompare) = 0 Then
+        IsSelfWorkbookFile = True
+    End If
+    On Error GoTo 0
 End Function
 
 Private Function BuildFilterPattern() As String

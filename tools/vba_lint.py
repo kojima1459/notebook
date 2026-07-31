@@ -358,9 +358,12 @@ CONTRACT: dict[str, dict] = {
     },
     "modUIShelf": {
         "closed": False,  # 同上(opt機能ボタンラッパーを許容)
+        # 2026-07-31(R11-E H-5): OnAddFiles/OnSyncNow/OnPickFolder/OnExportPack/
+        # OnImportPack/OnBackToChat+AddButtonは、どのShapeのOnActionからも
+        # 参照されない死にコードだったため削除した(実装は modKnowledge 側の
+        # 同名+同等ハンドラに一本化済み)。契約の必須名からも外す。
         "required": [
-            "EnsureLayout", "RenderShelf", "OnAddFiles", "OnSyncNow",
-            "OnPickFolder", "OnExportPack", "OnImportPack", "OnDeleteSource",
+            "EnsureLayout", "RenderShelf", "OnDeleteSource",
         ],
     },
     # modChrome(2026-07-30 R4要件C/D): ツールバーとヘッダーピルの配置計算だけを
@@ -546,7 +549,12 @@ RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
 # R1例外のうち modSkin.ShowToast を呼んでよい機能層モジュール(R10c L5)。
 # ShowToastは表示に1.1秒のブロッキング待ちを含むため、「完了を1回だけ知らせる」
 # 用途に限る。取込(modShelf)と同期(modShelfSync)の完了通知だけが該当する。
-R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync"}
+# 2026-07-31(R11-E 監査3 M-5): modStatsのバッジ獲得通知も「一度きりの完了
+# 告知」で、上の2モジュールと同じ性質(業務ロジックの継続に影響しない・
+# 起きても稀)なので追加する。MsgBoxのままだと起動シーケンスの途中で
+# モーダルが割り込み、利用者が「まだ動いているのか」判断できなくなる
+# (憲章§3-4)。
+R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")

@@ -178,7 +178,10 @@ Public Sub OnDashRestore()
     On Error Resume Next
     callerName = CStr(Application.Caller)
     On Error GoTo 0
-    If Left$(callerName, Len("nxd_adm_btn_")) <> "nxd_adm_btn_" Then Exit Sub
+    If Left$(callerName, Len("nxd_adm_btn_")) <> "nxd_adm_btn_" Then
+        modLog.LogUsage "caller_mismatch", "modDash.OnDashRestore", callerName
+        Exit Sub
+    End If
 
     Dim idx As Long
     idx = CLng(Val(Mid$(callerName, Len("nxd_adm_btn_") + 1)))
@@ -383,12 +386,17 @@ End Sub
 
 ' 単一Shape=1カード(caption/value/label の3段を1テキストで結合し段別書式)。
 '   段1=caption(小・muted)、段2=value(大・太・text)、段3=label(小・指定色)。
+' 2026-07-31(R11-E M-4): 従来はOERNが一切無く、1枚のShape生成/書式設定の
+' 失敗が例外として呼び出し元(4枚ループ)へ飛び、残りのKPIカードごと本文が
+' 全滅していた。カード単位でOERNを閉じ、Paragraphs.Count不足も個別に弾く。
 Private Sub DrawKpiCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As Double, ByVal y As Double, _
                         ByVal cardW As Double, ByVal cardH As Double, ByVal captionText As String, _
                         ByVal valueText As String, ByVal labelText As String, _
                         Optional ByVal labelColor As Long = -1)
+    On Error Resume Next
     Dim card As Shape
     Set card = ws.Shapes.AddShape(5, x, y, cardW, cardH)
+    If card Is Nothing Then GoTo Done
     card.Name = "nxd_kpi_" & idx
     card.Adjustments(1) = 0.08
     card.Fill.ForeColor.RGB = modUI.UiColor("surface")
@@ -414,18 +422,23 @@ Private Sub DrawKpiCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As Dou
         .TextRange.Font.Size = 9
         .TextRange.Font.Fill.ForeColor.RGB = finalLabelColor
         .VerticalAnchor = 1
-        ' 段1: caption(小・muted)
-        With .TextRange.Paragraphs(1).Font
-            .Size = 9
-            .Fill.ForeColor.RGB = modUI.UiColor("muted")
-        End With
-        ' 段2: value(大・太・text)
-        With .TextRange.Paragraphs(2).Font
-            .Size = 17
-            .Bold = -1
-            .Fill.ForeColor.RGB = modUI.UiColor("text")
-        End With
+        If .TextRange.Paragraphs.Count >= 2 Then
+            ' 段1: caption(小・muted)
+            With .TextRange.Paragraphs(1).Font
+                .Size = 9
+                .Fill.ForeColor.RGB = modUI.UiColor("muted")
+            End With
+            ' 段2: value(大・太・text)
+            With .TextRange.Paragraphs(2).Font
+                .Size = 17
+                .Bold = -1
+                .Fill.ForeColor.RGB = modUI.UiColor("text")
+            End With
+        End If
     End With
+Done:
+    Err.Clear
+    On Error GoTo 0
 End Sub
 
 ' ---- EXP進捗バー ----
@@ -538,10 +551,14 @@ Private Sub DrawBadgeShelf(ByVal ws As Worksheet)
     Next i
 End Sub
 
+' 2026-07-31(R11-E M-4): KpiCardと同じ理由でOERN+Err.Clearに統一(1枚の
+' 失敗でバッジ棚全体が空になるのを防ぐ)。
 Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As Double, ByVal y As Double, _
                           ByVal earned As Boolean, ByVal line1 As String, ByVal line2 As String)
+    On Error Resume Next
     Dim card As Shape
     Set card = ws.Shapes.AddShape(5, x, y, BADGE_W, BADGE_H)
+    If card Is Nothing Then GoTo Done
     card.Name = "nxd_badge_" & idx
     card.Adjustments(1) = 0.14
     card.Line.Weight = 0.75
@@ -562,16 +579,21 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
         .TextRange.Font.Size = 7.5
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         .VerticalAnchor = 1
-        With .TextRange.Paragraphs(1).Font
-            .Size = 9
-            .Bold = -1
-            If earned Then
-                .Fill.ForeColor.RGB = modUI.UiColor("text")
-            Else
-                .Fill.ForeColor.RGB = modUI.UiColor("muted")
-            End If
-        End With
+        If .TextRange.Paragraphs.Count >= 1 Then
+            With .TextRange.Paragraphs(1).Font
+                .Size = 9
+                .Bold = -1
+                If earned Then
+                    .Fill.ForeColor.RGB = modUI.UiColor("text")
+                Else
+                    .Fill.ForeColor.RGB = modUI.UiColor("muted")
+                End If
+            End With
+        End If
     End With
+Done:
+    Err.Clear
+    On Error GoTo 0
 End Sub
 
 

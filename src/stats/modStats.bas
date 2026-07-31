@@ -413,7 +413,13 @@ Private Sub CheckBadge(ByVal badgeId As String, ByVal achieved As Boolean, ByVal
     ' 旧文面は (a) 廃止済みの旧名「マイ本棚AI」を名乗り、タイトルバーの
     ' APP_NAME("Nexus Agent")と矛盾していた (b)「これからも使ってみてください」と
     ' 懇願していた。祝う側が懇願する時点で、祝いになっていない。
-    MsgBox "バッジを獲得しました: " & label, vbInformation, modAppDef.APP_NAME
+    ' 2026-07-31(R11-E 監査3 M-5): MsgBoxは起動シーケンスの途中(EvaluateBadges
+    ' は起動時にも呼ばれる)でモーダルとして割り込み、利用者が「止まっている
+    ' のか」戸惑う原因になっていた(憲章§3-4)。非モーダルのトーストへ変える
+    ' (lintのR1例外に modStats を追加済み。表示失敗が判定を壊さないようOERN)。
+    On Error Resume Next
+    modSkin.ShowToast "バッジを獲得しました: " & label, "success"
+    On Error GoTo 0
 End Sub
 
 Private Function ShelfSourceCount() As Long

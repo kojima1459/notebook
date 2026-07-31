@@ -88,7 +88,15 @@ Public Sub ExportAnalyticsCsv()
     Exit Sub
 
 Fail:
+    ' Fail:はエラー経由(On Error GoTo Fail)だけでなく、WriteCsvWithBom失敗時の
+    ' 明示的な GoTo Fail(エラー未発生)でも来る。両方から安全に通れるよう、
+    ' ここでは新たに On Error を書かない(modLog.LogErrorは内部で自己防御済み
+    ' の薄いラッパーなので、ここでの追加保護は不要)。
+    Dim expErrNum As Long: expErrNum = Err.Number
     Application.ScreenUpdating = prevScreenUpdating
+    ' 2026-07-31(R11-E M-5): 失敗が画面のMsgBoxだけに留まり、err_logに痕跡が
+    ' 残らなかった(監査1)。原因調査ができない無言の失敗(憲章§4-1)を解消する。
+    modLog.LogError "E0801", "modAnalytics.ExportAnalyticsCsv", "CSV書き出し失敗", expErrNum
     MsgBox "分析ログの書き出しに失敗しました。" & vbLf & _
         "保存先フォルダの権限を確認するか、時間を置いてからもう一度お試しください。", _
         vbExclamation, modAppDef.APP_NAME

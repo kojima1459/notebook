@@ -662,6 +662,10 @@ Public Function SubscribeAllAvailable() As String
     ' 「更新が無かった」のか「読めなかった」のかは、正直に区別して伝える。
     Dim failN As Long
     Dim i As Long
+    ' 2026-07-31(R11-E H-3): 部門ぶんの読み込みは数分かかることがあるのに
+    ' 進捗が何も出ていなかった(監査1)。実際に同期する部門だけ「N/M部門」を
+    ' 進捗バナーに出す(mid層からのShowProgress/HideProgressはlint許容済み)。
+    Dim nSub As Long: nSub = UBound(parts) - LBound(parts) + 1
     For i = LBound(parts) To UBound(parts)
         Dim nm As String: nm = parts(i)
         If LenB(nm) > 0 And IsSubscribed(nm) Then
@@ -670,6 +674,8 @@ Public Function SubscribeAllAvailable() As String
                     skipN = skipN + 1
                     skipNames = skipNames & IIf(LenB(skipNames) > 0, "/", "") & nm
                 Else
+                    modUIMain.ShowProgress modUtil.ProgressText(i - LBound(parts) + 1, nSub, "") & _
+                        " " & nm & " を読み込み中…"
                     Dim got As Long
                     got = SyncChannel(nm)
                     If got > 0 Then
@@ -683,6 +689,7 @@ Public Function SubscribeAllAvailable() As String
             End If
         End If
     Next i
+    modUIMain.HideProgress
 
     ' 「どの部門につないでいるか」という単一の概念は無くなったが、
     ' 既存UI(ヘッダー表示・お知らせ)が空文字を「未接続」と解釈するため、

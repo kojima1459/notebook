@@ -300,7 +300,10 @@ Public Sub OnOpenSource()
     Dim caller As String
     caller = CStr(Application.Caller)
     On Error GoTo 0
-    If Left$(caller, 13) <> "nx_peek_open_" Then Exit Sub
+    If Left$(caller, 13) <> "nx_peek_open_" Then
+        modLog.LogUsage "caller_mismatch", "modPeek.OnOpenSource", caller
+        Exit Sub
+    End If
 
     Dim idx As Long
     idx = CLng(Val(Mid$(caller, 14)))
@@ -331,6 +334,7 @@ Public Sub OnOpenSource()
 
     Dim ok As Boolean: ok = True
     On Error Resume Next
+    modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
     ThisWorkbook.FollowHyperlink target
     If Err.Number <> 0 Then ok = False
     Err.Clear

@@ -286,6 +286,12 @@ Private Sub ShowHelpCard()
                   ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む", _
                   "modHelp.OnImportUserData"
 
+    ' 5段目(2026-07-31 R11-E L-4): 診断画面はNexus画面上部のボタンからしか
+    ' 開けず、ヘルプカードから直接たどり着く手段が無かった(監査1 H-4/L-4)。
+    AddHelpAction ws, "nx_help_diag", cardL, belowT + 136, 350, _
+                  ChrW(&HD83E) & ChrW(&HDE7A) & " 診断を開く", _
+                  "modHelp.OnOpenDiag"
+
     On Error GoTo 0
 End Sub
 
@@ -316,6 +322,16 @@ Private Sub AddHelpAction(ByVal ws As Worksheet, ByVal shapeName As String, _
     btn.OnAction = action
     btn.Placement = 3
     btn.ZOrder 0
+    On Error GoTo 0
+End Sub
+
+' 診断導線(2026-07-31 R11-E L-4): ヘルプカードを閉じてからmodUIMain.OnRunDiag
+' へ委譲するだけ(OnRunDiagはロックを取らないため、ここもBlockIfIngestingのみ)。
+Public Sub OnOpenDiag()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    On Error Resume Next
+    DoHideHelp
+    modUIMain.OnRunDiag
     On Error GoTo 0
 End Sub
 
@@ -356,7 +372,10 @@ Public Sub OnFeedback()
 
     On Error Resume Next
     Dim mailUrl As String: mailUrl = FeedbackMailto()
-    If LenB(mailUrl) > 0 Then ThisWorkbook.FollowHyperlink mailUrl
+    If LenB(mailUrl) > 0 Then
+        modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
+        ThisWorkbook.FollowHyperlink mailUrl
+    End If
     On Error GoTo Done
 
     ' バグバウンティEXP(1日1回まで=空メール連打での稼ぎを防止)
@@ -447,20 +466,25 @@ Done:
 End Sub
 
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
+' 2026-07-31(R11-E H-4): 廃止済みのサイドバー/👍👎評価の記述が残っていた
+' (実際の画面には既に存在しない)。現行の5画面構成・「← Hub」・出典チップ・
+' ✅🤔❌の3択評価に合わせて全面書き直し。
 Private Function HelpBodyText() As String
     Dim s As String
     s = ChrW(&HD83D) & ChrW(&HDCD6) & " Nexus Agent かんたんガイド" & vbLf & vbLf & _
-        ChrW(&HD83D) & ChrW(&HDCAC) & " チャット: 入力欄に質問して「送信」。モードボタンで" & _
+        ChrW(&HD83C) & ChrW(&HDFE0) & " 画面は5つ: Hub(ホーム)・チャット・マイ本棚(登録/一覧/解決事例)" & _
+        "・ダッシュボード・診断。どこからでも左上「" & ChrW(&H2190) & " Hub」で戻れます。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCAC) & " チャット: 入力欄に質問して「質問する」。モードボタンで" & _
         "「社内ナレッジ検索」(出典付き)と「一般アシスタント」を切替。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCC4) & " 出典チップ: 回答下のチップをクリックすると原文をその場で確認できます。" & vbLf & _
-        "アクションバー: " & ChrW(&HD83D) & ChrW(&HDC4D) & "/" & ChrW(&HD83D) & ChrW(&HDC4E) & "で評価、" & ChrW(&HD83D) & ChrW(&HDD0D) & _
-        "深掘り、" & ChrW(&H2705) & "解決した(資料を書いた人へ感謝が届く)、" & ChrW(&HD83D) & ChrW(&HDCCB) & _
-        "コピー、" & ChrW(&HD83D) & ChrW(&HDCC4) & "Word出力。" & vbLf & _
-        ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ倉庫: 資料の登録・検索・カード詳細。品質が低い資料は " & _
+        "評価: " & ChrW(&H2705) & "解決した / " & ChrW(&HD83E) & ChrW(&HDD14) & "微妙 / " & _
+        ChrW(&H274C) & "違う を回答の下から1クリック。「解決した」は資料を書いた人へ感謝が届きます。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCDA) & " マイ本棚: 資料の登録・検索・カード詳細。品質が低い資料は " & _
         ChrW(&H26A0) & "ノイズ報告 で検索から除外できます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCA1) & " 専門家: 回答の下に「〇〇さんが詳しいです」と出たら、ボタンから" & _
         "直接質問を送れます。" & vbLf & _
-        ChrW(&HD83D) & ChrW(&HDD04) & " 画面が乱れたら: サイドバーの「画面を再描画」。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDD04) & " 画面が乱れたら: Hubのアイコン列にある「再描画」。" & vbLf & _
+        ChrW(&HD83E) & ChrW(&HDE7A) & " 動きがおかしいときは、下の「診断」で状態を確認できます。" & vbLf & _
         ChrW(&H2328) & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
         "作成: リスクコンサルティング支援部 ニューリスクG 小島正豪" & vbLf & _
         "このカードはクリックで閉じます"

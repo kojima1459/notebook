@@ -58,6 +58,29 @@ Public Sub InvalidatePending()
     mPendAt = 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' OnSyncPending - 受信箱の「【部門】に更新があります」を押したときの実行口
+'   (2026-07-31 R11-E・監査4)。従来はここが modKnowledge.OnChannels(全部門を
+'   まとめて再取込する重い確認ダイアログ付き)に配線されていて、「更新のある
+'   部門だけ静かに取り込む」というバッジの意味と実際の挙動がずれていた。
+'   modChannel.SyncSubscribed は購読中で更新のある部門だけを対象にする軽量版
+'   だが、これまで呼び出し元が1つも無かった(押下手段の無いバッジ)。
+' ----------------------------------------------------------------------------
+Public Sub OnSyncPending()
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modUIMain.ShowProgress "部門の更新を取り込んでいます…"
+    Dim failN As Long
+    Dim got As Long: got = modChannel.SyncSubscribed(failN)
+    modUIMain.HideProgress
+    InvalidatePending
+    modUiLock.Leave
+    modSkin.ShowToast IIf(got > 0, got & "件のまとまりを取り込みました。", "更新はありませんでした。") & _
+        IIf(failN > 0, "(" & failN & "部門は取り込めませんでした)", ""), "info"
+    modHub.EnsureHubLayout
+    On Error GoTo 0
+End Sub
+
 ' 更新保留チャンネルの表示ラベル。"|"区切りの保留リストから、
 ' 1件ならその名前、2件以上なら「先頭ほか N件」を返す。
 ' 2026-07-28(レビュー H-13): 保留の実体を見ずにアクティブ部門名を出して

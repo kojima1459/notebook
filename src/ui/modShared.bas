@@ -240,7 +240,10 @@ Public Sub OnToggle()
     On Error Resume Next
     caller = CStr(Application.Caller)
     On Error GoTo 0
-    If Left$(caller, 7) <> "nxs_ck_" Then Exit Sub
+    If Left$(caller, 7) <> "nxs_ck_" Then
+        modLog.LogUsage "caller_mismatch", "modShared.OnToggle", caller
+        Exit Sub
+    End If
 
     On Error Resume Next
     modInsight.ToggleSelected CLng(Val(Mid$(caller, 8)))
@@ -321,11 +324,21 @@ Public Sub OnImportSelected()
     n = modInsight.PendingRowsRanked(rows_)
     On Error GoTo Done
 
+    ' 2026-07-31(R11-E H-3): 件数によっては1～2分かかると案内しているのに
+    ' 進捗が一切見えていなかった(監査1)。取込済み/選択総数のETA付き
+    ' バナーを1件ごとに更新する(表示失敗が取込を止めないようOERNで包む)。
     Dim okN As Long, i As Long
+    Dim tStart As Double: tStart = Timer
     For i = 0 To n - 1
         On Error Resume Next
         Dim rr As Long: rr = rows_(i)
         If modInsight.IsSelected(rr) Then
+            Dim etaPart As String: etaPart = ""
+            If i > 0 Then
+                Dim elapsedSec As Double: elapsedSec = Timer - tStart
+                If elapsedSec >= 0 Then etaPart = modUtil.EtaText(n - i, (elapsedSec * 1000#) / i)
+            End If
+            modUIMain.ShowProgress modUtil.ProgressText(i + 1, n, etaPart) & " Q&Aを取り込み中…"
             If modVault.RegisterKnowledgeText( _
                    "解決済みQ&A: " & modUtil.SafeLeft(modInsight.RowField(rr, 6), 40), _
                    modInsight.QABodyText(modInsight.RowField(rr, 4), _
@@ -339,6 +352,9 @@ Public Sub OnImportSelected()
         End If
         On Error GoTo Done
     Next i
+    On Error Resume Next
+    modUIMain.HideProgress
+    On Error GoTo Done
 
     modUiLock.Leave
     MsgBox okN & " 件を本棚に取り込みました。" & vbCrLf & _
@@ -347,6 +363,10 @@ Public Sub OnImportSelected()
     Show
     Exit Sub
 Done:
+    ' modUIMain.HideProgress自体が内部でOERN込みの薄いラッパーなので、
+    ' ここで新たにOn Errorを書く必要が無い(書くとハンドラ稼働中の
+    ' On Error Resume Nextが効かない問題を踏む)。
+    modUIMain.HideProgress
     modUiLock.Leave
 End Sub
 

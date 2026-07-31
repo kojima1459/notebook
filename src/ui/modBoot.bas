@@ -314,8 +314,14 @@ Public Sub Boot()
     Dim warn As String
     warn = modDiag.QuickHealthCheck()
     If LenB(warn) > 0 Then
-        MsgBox "起動時の確認で気になる点がありました。" & vbLf & warn & vbLf & _
-               "詳しくは診断ボタンで確認できます。", vbExclamation, modAppDef.APP_NAME
+        ' 2026-07-31(R11-E 監査3 M-5): 起動直後にモーダルで割り込むと、
+        ' 「まだ起動中なのか固まったのか」を利用者が判断できない(憲章§3-4)。
+        ' 続行不可を意味する確認ではないため、非モーダルのトーストへ変える
+        ' (詳細は診断ボタンで確認できる旨は文言に残す)。
+        On Error Resume Next
+        modSkin.ShowToast "起動時の確認: " & modUtil.SafeLeft(warn, 60) & _
+            "(詳しくは診断ボタンで)", "info"
+        On Error GoTo Failed
     End If
 
     ' 4.5) AIリボンの利用期限確認(裁定D3の穏当運用)。True=続行不可でも
