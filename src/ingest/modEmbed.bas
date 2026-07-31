@@ -155,10 +155,8 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         If bEnd > limit - 1 Then bEnd = limit - 1
         Dim bN As Long: bN = bEnd - bStart + 1
 
-        ' R10-5: ShowProgress化(文言は現行のまま)。EmbedPendingは取込ループの
-        ' 中から呼ばれ、戻った直後に呼び出し元が次の進捗表示で上書きするため、
-        ' ここではHideProgressを呼ばない(Hide→Showのちらつき防止。呼び出し元
-        ' 〔modShelf.AddFilesResult/modShelfSync.SyncNow〕が必ずHideする)。
+        ' R10-5/R10-5b: ShowProgress化(文言は現行のまま)。関数を抜けるとき
+        ' (AfterLoop)に必ずHideProgressするので、ここでは表示だけを都度更新する。
         On Error Resume Next
         modUIMain.ShowProgress "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & _
             modUtil.ProgressText(bEnd + 1, limit, modUtil.EtaText(limit - bStart, msPerItem)) & " …"
@@ -235,6 +233,15 @@ EscOrErr:
 AfterLoop:
     On Error Resume Next
     Application.EnableCancelKey = 1   ' xlInterrupt(既定へ戻す)
+    ' R10-5b: ShowProgressを呼んだ者が自分で消す原則に統一する。従来は
+    ' 「呼び出し元(AddFilesResult/SyncNow)が必ずHideする」前提だったが、
+    ' modShelf.IngestFileを直接呼ぶ経路(modUIShelf.OnAddScreenshot/
+    ' modVault.RegisterKnowledgeText)はHideを呼ばないため、進捗バナーが
+    ' 消え残っていた(発見事項1の裁定)。ここは正常完了・ESC中断・バッチ内
+    ' 例外のいずれもAfterLoopへ合流する唯一の出口なので、ここで1回Hideすれば
+    ' 全経路をカバーできる(呼び出し元側の既存Hide呼び出しは冗長になるが
+    ' 二重Hideは無害なのでそのまま残す)。
+    modUIMain.HideProgress
     On Error GoTo 0
 
     If InStr(abortReason, "上限") > 0 Or InStr(abortReason, "連続失敗") > 0 Then
