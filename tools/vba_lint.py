@@ -111,6 +111,10 @@ CONTRACT: dict[str, dict] = {
             "TruncateAndRenorm", "VectorToCsvPrec",
             "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
             "FileNameOf", "ExtOf", "IsSameTimestamp",
+            # JoinPagedText/SplitPagedText: 画像PDFのOCR(R6)で複数ページの
+            # 結果を「文字列1本」の境界(modFeatures.InvokeFeature)越しに運ぶ
+            # ための行マーカー符号化/復号。純文字列処理なのでmodUtilに置く。
+            "JoinPagedText", "SplitPagedText",
             # DeobfuscateSecret: build/build_mybookshelf.py obfuscate_secret() と対の
             # 復号(XOR+16進)。configシートに置くAPIキーを平文で持たないための軽い
             # 難読化解除。modGateway.DirectEmbedSliceのみが呼ぶ想定だが、R4純ロジック
@@ -148,7 +152,11 @@ CONTRACT: dict[str, dict] = {
         # 純ロジック部分。実ファイルI/Oを含むCopySharedRead自体はテストできない
         # ため、「次に読むべきバイト数」の境界計算だけを切り出してPublic化し、
         # modTestsPure3から検証できるようにした。
-        "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen"],
+        # GarbledRouteCode: 2026-07-31 R6追補。「全ページ化け」のPDFをOCR経路
+        # (E0303)へ回すか、従来どおり化けたまま続行するかの分岐だけを純関数に
+        # 切り出したもの(modTestsPure4が検証する)。
+        "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen",
+                     "GarbledRouteCode"],
     },
     "modMode": {
         "closed": True,
@@ -202,6 +210,13 @@ CONTRACT: dict[str, dict] = {
             "RemoveKnowledgeAndVectorsForSource", "RemoveVectorsByIds",
             "RemoveManifestRowForSource", "UpsertManifestRow", "SliceRows",
         ],
+    },
+    # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
+    # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
+    # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
+    "modShelfVision": {
+        "closed": True,
+        "required": ["TryVisionFallback"],
     },
     "modShelfSync": {
         "closed": True,
@@ -346,13 +361,29 @@ CONTRACT: dict[str, dict] = {
     # ---- 7.7 opt層(全モジュール共通でPing必須) ----
     "optTts": {"closed": True, "required": ["Ping", "SpeakAnswer"]},
     # HasClipboardImage/SaveClipboardImage: スクショ取込(裁定D13・RIBBON_API_CONFIRMED.md §2b)
+    # ExtractPdfOcrPagedText: 画像PDF(E0303)のOCR取込(2026-07-31 R6)。Ghostscriptで
+    # ページ毎にJPEG化→1ページ=1回のChatGPTV→modUtil.JoinPagedTextで1本の文字列。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
+                                               "ExtractPdfOcrPagedText",
                                                "HasClipboardImage", "SaveClipboardImage"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
                                                  "ExportAnswerAsDoc"]},
     "optDiffDoc": {"closed": True, "required": ["Ping", "CompareTwoDocsDialog"]},
+    # optOcrCore(2026-07-31 R6): 画像PDFのOCR取込で使う「文字列の組み立てだけ」を
+    # 集めた純ロジック(R4準拠)。GSコマンドの引用符の付け方が最大の地雷なので、
+    # そこだけを副作用ゼロで切り出し modTestsPure4 のゴールデンテストで固定する。
+    # modFeatures経由では呼ばれない(optVision専用の部品)が、opt層に置く以上
+    # 他のopt同様に Ping を持たせる。
+    "optOcrCore": {
+        "closed": True,
+        "required": [
+            "Ping", "BuildGsCommand", "BuildRunCommand", "TempFolderFor",
+            "OutPatternFor", "DoneFlagFor", "PageJpgName", "RenderCapFor",
+            "IsTruncatedCount", "KeepPageCount", "SafeDpi", "SafeMaxPages",
+        ],
+    },
     # ---- 7.8 テストモジュール ----
     "modTestRunner": {
         "closed": True,
@@ -396,6 +427,12 @@ PURE_LOGIC_MODULES = {
     # modChrome(2026-07-30 R4): 配置計算だけを持つのでExcelオブジェクトは
     # 一切要らない。ここへ載せることで「うっかりRangeを触る」改修を機械で止める。
     "modChrome",
+    # optOcrCore(2026-07-31 R6): GSコマンド文字列の組み立てとページ上限の算数
+    # だけを持つ。opt層のモジュールだが副作用ゼロで、LO実行テストから直接
+    # 呼べる状態を維持するために純ロジック検査の対象へ入れる。
+    "optOcrCore",
+    # modTestsPure4: optOcrCore/modUtil(ページ付きテキスト)の純ロジックテスト。
+    "modTestsPure4",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [
@@ -1339,6 +1376,13 @@ def check_pure_logic_tokens(info: ModuleInfo) -> None:
 def check_opt_token_reference(info: ModuleInfo) -> None:
     if info.layer == LAYER_OPT:
         return  # src/opt自身はoptトークンを書いてよい
+    # テスト層も対象外(2026-07-31 R6)。R2の禁止対象は「コアのどのモジュール」で、
+    # 目的は【opt機能を1行削除で撤去してもコアが壊れないこと】。テストモジュールは
+    # 製品に同梱されるコアではなく、opt層の純ロジック(optOcrCoreのGSコマンド
+    # 組み立て等)を直接検証できないと、一番壊れやすい引用符の付け方を実行テストで
+    # 固定できない。同じ理由で check_layer_dependency も既にテスト層を除外している。
+    if info.layer == LAYER_TEST:
+        return
     for lineno, stmt in info.statements:
         m = OPT_TOKEN_PATTERN.search(stmt)
         if m:

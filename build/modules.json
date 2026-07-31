@@ -135,6 +135,14 @@
       "wave": "2-C"
     },
     {
+      "name": "modShelfVision",
+      "path": "src/ingest/modShelfVision.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "取込失敗時のvisionフォールバック(E0301の画像ファイル/E0303の画像PDF OCR)の一本化。opt名は書かずmodFeatures.InvokeFeature経由(R2)。"
+    },
+    {
       "name": "modShelfSync",
       "path": "src/ingest/modShelfSync.bas",
       "role": "core",
@@ -541,6 +549,14 @@
       "role": "opt",
       "type": "std",
       "wave": "2-G"
+    },
+    {
+      "name": "optOcrCore",
+      "path": "src/opt/optOcrCore.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "画像PDFのOCR取込(R6)でoptVisionが使うGSコマンド組み立ての純ロジック。modFeatures経由では呼ばれずoptVisionからのみ参照される。optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
       "name": "optMarkdown",

@@ -566,8 +566,9 @@ Public Sub OnOpenWordButton()
                                        Array(mLastAnswerText, instruction))
     SetStage ""
 
-    ' ExportAnswerAsDocの契約: ""=成功 / "#ERR:..."=失敗(InvokeFeature側で
-    ' "#ERR:FEATURE_UNAVAILABLE" に正規化される)。
+    ' ExportAnswerAsDocの契約: ""=成功 / "#ERR:..."=失敗(機能が無効・不在なら
+    ' InvokeFeatureが "#ERR:FEATURE_UNAVAILABLE" を返す。opt側が返した理由付きの
+    ' "#ERR:..." もそのまま届くが、判定は接頭辞だけを見るので互換)。
     Dim isErr As Boolean
     isErr = False
     If VarType(result) = vbString Then

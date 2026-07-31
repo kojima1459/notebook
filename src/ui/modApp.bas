@@ -609,8 +609,9 @@ Private Function AddDocsMessage(ByVal res As String) As String
     End If
     If imgN > 0 Then
         say = AppendBlock(say, ChrW(&HD83D) & ChrW(&HDDBC) & " 画像として保存されたPDFで、文字を取り出せませんでした(" & imgN & "件)。" & vbLf & _
-            "その画面をコピー(Win+Shift+S)して、ナレッジ画面の「" & _
-            ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込」からお試しください。")
+            "Ghostscriptを置くとAIが1ページずつ読み取れます(手順は「43_画像PDFのOCR取込設定」)。" & vbLf & _
+            "すぐ試すなら、その画面をコピー(Win+Shift+S)して、ナレッジ画面の「" & _
+            ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込」からどうぞ。")
     End If
 
     Dim otherN As Long

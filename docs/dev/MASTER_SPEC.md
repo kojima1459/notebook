@@ -123,6 +123,10 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | feature_tts | FALSE | 読み上げ: 非公開確定のため提供不可・FALSE固定(裁定D4) |
 | feature_vision / feature_markdown | TRUE | opt機能フラグ(公式仕様確定によりTRUE昇格。裁定D14) |
 | feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
+| ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
+| vision_pdf_max_pages | 20 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。超過は打ち切りpartial) |
+| vision_pdf_dpi | 150 | 画像PDFのページ画像化の解像度(公式帳票OCR版と同値。300は約2倍重い) |
+| vision_pdf_timeout_sec | 120 | ページ画像化の待ち時間上限(秒)。超過はその資料を失敗にして固まらせない |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
 | debug_mode | FALSE | ゲートウェイのプロンプト/応答ログ |
 

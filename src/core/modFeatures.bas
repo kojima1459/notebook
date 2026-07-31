@@ -65,8 +65,9 @@ Public Function ModulePresent(ByVal featureId As String) As Boolean
 End Function
 
 ' Application.Run("opt<Pascal>." & procName, ...) 遅延バインド。
-' 無効/不在/失敗 -> "#ERR:FEATURE_UNAVAILABLE" を返し、呼び出しUI側が
-' 「この機能は現在利用できません(管理者が有効化すると使えます)」を表示する。
+' 機能が無効/モジュール不在 -> "#ERR:FEATURE_UNAVAILABLE"(呼び出しUI側が
+' 「この機能は現在利用できません(管理者が有効化すると使えます)」を表示する)。
+' 呼べたが失敗した場合 -> opt側が返した "#ERR:..." をそのまま返す(R6要件9)。
 Public Function InvokeFeature(ByVal featureId As String, ByVal procName As String, ByVal args As Variant) As Variant
     If Not FeatureEnabled(featureId) Then
         InvokeFeature = "#ERR:FEATURE_UNAVAILABLE"
@@ -81,15 +82,14 @@ Public Function InvokeFeature(ByVal featureId As String, ByVal procName As Strin
 
     ' TryRibbonRunの「Variant配列を展開してApplication.Runする」ロジックを
     ' そのまま再利用する(呼び先がリボンではなくoptモジュールという違いのみ)。
-    Dim result As Variant
-    result = modGateway.TryRibbonRun(modName & "." & procName, args)
-    If VarType(result) = vbString Then
-        If Left$(CStr(result), 5) = "#ERR:" Then
-            InvokeFeature = "#ERR:FEATURE_UNAVAILABLE"
-            Exit Function
-        End If
-    End If
-    InvokeFeature = result
+    '
+    ' 2026-07-31(R6要件9): opt側が返した "#ERR:..." を一律
+    ' "#ERR:FEATURE_UNAVAILABLE" へ潰すのをやめ、元の文字列をそのまま返す。
+    ' 潰していたせいで「Ghostscriptが見つからないので社内ポータルのzipから
+    ' 置いてください」のような、利用者がその場で打てる一手の案内が全部消えて
+    ' 「この機能は現在利用できません」だけになっていた。"#ERR:" の接頭辞は
+    ' 維持されるため、失敗を判定している既存の呼び出し元はすべて互換。
+    InvokeFeature = modGateway.TryRibbonRun(modName & "." & procName, args)
 End Function
 
 ' ----------------------------------------------------------------------------

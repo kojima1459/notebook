@@ -108,8 +108,9 @@ Public Function FriendlyMessage(ByVal code As String) As String
             FriendlyMessage = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。" & _
                 "ファイルを閉じてから、もう一度お試しください。"
         Case "E0303"
-            FriendlyMessage = "このPDFは画像として保存されていて、文字を読み取れませんでした。" & _
-                "画像PDFの取込には対応していません(将来のVision対応をお待ちください)。"
+            FriendlyMessage = "このPDFは画像として保存されていて、そのままでは文字を読み取れませんでした。" & _
+                "画像解析(config の feature_vision)を有効にし、Ghostscript を配置すると" & _
+                "AIが1ページずつ読み取れます(設定は「43_画像PDFのOCR取込設定」を参照)。"
         Case "E0304"
             FriendlyMessage = "ファイルは開けましたが、中身の文章が空でした。" & _
                 "中身が空か、保護されているファイルの可能性があります。別の資料でお試しください。"

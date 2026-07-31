@@ -273,6 +273,19 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("feature_vision", True, "opt機能フラグ: 画像読み取り・スクショ取込(公式仕様確定済み。問題があればFALSEで無効化)"),
         ("feature_markdown", True, "opt機能フラグ: Markdown表示・Wordで開く(公式仕様確定済み。問題があればFALSEで無効化)"),
         ("feature_diffdoc", True, "opt機能フラグ: 約款差分比較(確認済み関数のみ使用のため既定TRUE)"),
+        ("ghostscript_path", "",
+         "画像PDFの読み取り(OCR)に使う gswin32c.exe のフルパス。"
+         "空欄のときは、このファイルと同じ場所にある Ghostscript フォルダを自動で探す。"
+         "詳しい置き方は docs/43_画像PDFのOCR取込設定.md を参照"),
+        ("vision_pdf_max_pages", 20,
+         "画像PDFを何ページ目まで読み取るか。1ページごとにAIを1回呼ぶので、"
+         "大きくすると時間もコストも比例して増える(超過分は打ち切り=partial表示)"),
+        ("vision_pdf_dpi", 150,
+         "画像PDFをページ画像にするときの解像度。150で十分読める。"
+         "細かい文字が読めないときだけ300へ(処理時間は約2倍になる)"),
+        ("vision_pdf_timeout_sec", 120,
+         "画像PDFのページ画像化を何秒待つか。超えるとその資料は失敗扱いにして"
+         "Excelを固まらせない。ページ数の多い資料で頻発するときだけ大きくする"),
         ("pack_author", "", "パック作成者名(空の場合は初回起動時に入力を促す)"),
         ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
         ("chat_log_enabled", True, "TRUE=チャット履歴シートに質問と回答を記録する(最新100件・古い順に自動削除)"),

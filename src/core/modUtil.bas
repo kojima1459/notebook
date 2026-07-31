@@ -376,6 +376,140 @@ Public Function IsSameTimestamp(ByVal a As Date, ByVal b As Date) As Boolean
 End Function
 
 ' ============================================================================
+' JoinPagedText / SplitPagedText - ページ付きテキストの符号化・復号(R6)
+' ----------------------------------------------------------------------------
+'   画像PDFのOCRは「1ページ=1回のAI呼び出し」で複数ページ分の結果を作るが、
+'   opt層とコア層の境界(modFeatures.InvokeFeature)は文字列1本しか運べない。
+'   そこで行単位のマーカーでページ境界を埋め込み、受け取った側が
+'   ExtractedPage() へ戻す。改行はLFへ統一する(CRLF/CR混在の資料でも
+'   往復で形が変わらないようにするため)。
+'
+'   例(2ページ・上限で打ち切った場合):
+'     @@NEXUS_TRUNCATED@@      ← 打ち切りがあったときだけ先頭行に付く
+'     @@NEXUS_PAGE:1@@
+'     1ページ目の本文
+'     @@NEXUS_PAGE:2@@
+'     2ページ目の本文
+'
+'   マーカーは「行全体が完全一致」した行だけを境界として扱う。本文中に
+'   マーカーそっくりの行があっても壊れず、最悪でもそこでページが割れるだけで
+'   本文の文字は1文字も失われない。
+' ============================================================================
+Public Function JoinPagedText(pages() As ExtractedPage, Optional ByVal truncated As Boolean = False) As String
+    Dim head As String
+    If truncated Then head = PAGED_TRUNC_MARK
+
+    Dim n As Long: n = ArrLenP(pages)
+    If n <= 0 Then
+        JoinPagedText = head
+        Exit Function
+    End If
+
+    Dim parts() As String: ReDim parts(0 To n - 1)
+    Dim lo As Long: lo = LBound(pages)
+    Dim i As Long
+    For i = 0 To n - 1
+        parts(i) = PAGED_MARK_PRE & CStr(pages(lo + i).page) & PAGED_MARK_SUF & vbLf & _
+                   NormalizeEol(pages(lo + i).Text)
+    Next i
+
+    JoinPagedText = Join(parts, vbLf)
+    If LenB(head) > 0 Then JoinPagedText = head & vbLf & JoinPagedText
+End Function
+
+' 復号。1ページも見つからなければFalse(pagesは触らない=呼び出し側は
+' 「ページ付きではない普通の全文」として扱えばよい)。
+Public Function SplitPagedText(ByVal s As String, ByRef pages() As ExtractedPage, ByRef truncated As Boolean) As Boolean
+    truncated = False
+
+    Dim body As String: body = NormalizeEol(s)
+    If LenB(body) = 0 Then Exit Function
+
+    Dim rows() As String: rows = Split(body, vbLf)
+    Dim first As Long: first = LBound(rows)
+    If rows(first) = PAGED_TRUNC_MARK Then
+        truncated = True
+        first = first + 1
+    End If
+
+    ' 1回目の走査でページ数を数える(ReDim Preserveの繰り返しを避ける)。
+    Dim cnt As Long: cnt = 0
+    Dim i As Long
+    For i = first To UBound(rows)
+        If PagedMarkNumber(rows(i)) > 0 Then cnt = cnt + 1
+    Next i
+    If cnt = 0 Then
+        truncated = False
+        Exit Function
+    End If
+
+    Dim tmp() As ExtractedPage: ReDim tmp(0 To cnt - 1)
+    Dim buf() As String: ReDim buf(0 To UBound(rows) - first)
+    Dim bufN As Long: bufN = 0
+    Dim idx As Long: idx = -1
+
+    For i = first To UBound(rows)
+        Dim pno As Long: pno = PagedMarkNumber(rows(i))
+        If pno > 0 Then
+            If idx >= 0 Then tmp(idx).Text = JoinFirstN(buf, bufN)
+            idx = idx + 1
+            bufN = 0
+            tmp(idx).page = pno
+        ElseIf idx >= 0 Then
+            buf(bufN) = rows(i)
+            bufN = bufN + 1
+        End If
+    Next i
+    If idx >= 0 Then tmp(idx).Text = JoinFirstN(buf, bufN)
+
+    pages = tmp
+    SplitPagedText = True
+End Function
+
+' 行がページマーカーなら実ページ番号(1以上)、そうでなければ0を返す。
+Private Function PagedMarkNumber(ByVal rowText As String) As Long
+    Dim preLen As Long: preLen = Len(PAGED_MARK_PRE)
+    Dim sufLen As Long: sufLen = Len(PAGED_MARK_SUF)
+    If Len(rowText) <= preLen + sufLen - 1 Then Exit Function
+    If Left$(rowText, preLen) <> PAGED_MARK_PRE Then Exit Function
+    If Right$(rowText, sufLen) <> PAGED_MARK_SUF Then Exit Function
+
+    Dim digits As String
+    digits = Mid$(rowText, preLen + 1, Len(rowText) - preLen - sufLen)
+    If LenB(digits) = 0 Or Len(digits) > 9 Then Exit Function   ' 9桁超はCLng溢れ回避
+
+    Dim i As Long, ch As String
+    For i = 1 To Len(digits)
+        ch = Mid$(digits, i, 1)
+        If ch < "0" Or ch > "9" Then Exit Function
+    Next i
+    PagedMarkNumber = CLng(digits)
+End Function
+
+Private Function JoinFirstN(arr() As String, ByVal n As Long) As String
+    If n <= 0 Then Exit Function
+    Dim keep() As String: ReDim keep(0 To n - 1)
+    Dim i As Long
+    For i = 0 To n - 1
+        keep(i) = arr(i)
+    Next i
+    JoinFirstN = Join(keep, vbLf)
+End Function
+
+Private Function NormalizeEol(ByVal s As String) As String
+    NormalizeEol = Replace(Replace(s, vbCrLf, vbLf), vbCr, vbLf)
+End Function
+
+' 未割り当て/空のExtractedPage配列でも例外にせず0を返す(ArrLenDと同じ趣旨)。
+Private Function ArrLenP(arr() As ExtractedPage) As Long
+    On Error GoTo Empty0
+    ArrLenP = UBound(arr) - LBound(arr) + 1
+    Exit Function
+Empty0:
+    ArrLenP = 0
+End Function
+
+' ============================================================================
 ' DeobfuscateSecret - configシートに平文で置かないための軽い難読化の解除。
 ' ----------------------------------------------------------------------------
 '   build/build_mybookshelf.py の obfuscate_secret() と対になる実装

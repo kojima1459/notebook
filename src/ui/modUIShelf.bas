@@ -644,7 +644,8 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
         Case "partial"
             BuildMemo = "一部だけ変換が完了していません。「" & ChrW(&HD83D) & ChrW(&HDD04) & "フォルダと同期」を押すと続きから再開します。"
         Case "image_pdf"
-            BuildMemo = "画像として保存されたPDFのため、文字を取り込めませんでした。"
+            BuildMemo = "画像として保存されたPDFです。Ghostscriptを置くとAIが1ページずつ読み取れます" & _
+                "(手順は「43_画像PDFのOCR取込設定」)。急ぐときは画面をコピーしてスクショ取込へ。"
         Case "missing"
             BuildMemo = "元のファイルが見つかりません。フォルダを確認するか、次回の同期をお待ちください。"
         Case "failed"

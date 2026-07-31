@@ -207,12 +207,42 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' 保険特約(関係者読替).doc)。DropGarbledPages側で配列そのものを詰め、
     ' 空文字ページを後段へ渡さないようにする。
     Dim droppedPages As Long
-    droppedPages = DropGarbledPages(pages, path)
+    Dim allGarbled As Boolean
+    droppedPages = DropGarbledPages(pages, allGarbled)
     If droppedPages > 0 Then
         On Error Resume Next
         modLog.LogUsage "extract_garbled", "", _
             modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & " 化けページ" & droppedPages & "件を除外"
         On Error GoTo ExtractFailed
+    End If
+
+    ' 2026-07-31(R6追補): 全ページが化け判定になるPDFは、実機ログを見ると
+    ' 「WordのリフローがゴミWord文字しか返せていない画像PDF」だった
+    ' (総文字数は多いので既存のE0303判定=文字数の少なさには引っかからない)。
+    ' 化けたまま取り込んでも検索の邪魔にしかならないので、PDFに限り
+    ' E0303として返し、OCRフォールバック(modShelfVision)へ回す。
+    ' PDF以外(doc/docx/xls系)はGhostscriptで画像化できないため従来どおり続行。
+    If allGarbled Then
+        Dim routeCode As String
+        routeCode = GarbledRouteCode(ext, allGarbled)
+        On Error Resume Next
+        If LenB(routeCode) > 0 Then
+            modLog.LogUsage "extract_garbled_ocr_route", "", _
+                modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
+                " 全" & PageArrayCount(pages) & "件が化け判定のためOCR経路へ回します"
+        Else
+            modLog.LogUsage "extract_garbled_kept", "", _
+                modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
+                " 全" & PageArrayCount(pages) & "件が化け判定のため除外せず続行"
+        End If
+        On Error GoTo ExtractFailed
+        If LenB(routeCode) > 0 Then
+            errCode = routeCode
+            errDetail = "全ページが文字化け判定(Wordリフロー不能の画像PDFとみなす)"
+            modLog.LogError routeCode, "modExtractor.ExtractFile", modUtil.SafeLeft(path, 500)
+            ExtractFile = False
+            Exit Function
+        End If
     End If
 
     Dim totalChars As Long: totalChars = SumPageChars(pages)
@@ -381,6 +411,20 @@ Private Sub CloseCopyFileNumbers(ByVal n1 As Long, ByVal n2 As Long, _
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' GarbledRouteCode - 「全ページが化け判定」だったときの行き先(純ロジック)。
+'   2026-07-31 R6追補。実機ログでは画像PDFの典型症状が「E0303(文字が少ない)」
+'   ではなく「WordリフローがゴミWord文字を返し、全ページが化け判定になる」形
+'   だった。この形はPDFならOCRで救えるので E0303 を返してフォールバックを
+'   発火させる。doc/docx/xls系はGhostscriptで画像化できない(PDF専用)ため
+'   従来どおり "" =化けたまま続行にする。
+'   分岐だけを純関数として切り出し、modTestsPure4で固定する。
+' ----------------------------------------------------------------------------
+Public Function GarbledRouteCode(ByVal ext As String, ByVal allGarbled As Boolean) As String
+    If Not allGarbled Then Exit Function
+    If LCase$(Trim$(ext)) = "pdf" Then GarbledRouteCode = "E0303"
+End Function
+
 ' CopySharedReadの分割サイズ計算(純ロジック部分。要件C)。実ファイルI/Oを
 ' 除いた「pos(1始まり)から次に読むべきバイト数」の決定だけを切り出し、
 ' LibreOffice側の純ロジックテストで検証できるようにする(バッファ組み立て
@@ -465,11 +509,14 @@ End Function
 ' 保険の約款・ガイドラインにギリシャ文字やキリル文字が2割入ることはない。
 ' 短いページ(50字未満)は判定しない(誤爆すると目次や章扉を落としてしまう)。
 ' 残すページの.pageは元のページ番号のまま(出典表示のため詰め直さない)。
-' 全ページが化け判定になる場合は除去しない。フィルタの誤判定で文書を丸ごと
-' 失うより、化けた本文でも取り込む方がまし(この場合は戻り値0=何も取り除
-' いていないことにして、呼び出し側の"extract_garbled"ログは出させない。
-' 代わりにここで"extract_garbled_kept"を1本残す)。
-Private Function DropGarbledPages(ByRef pages() As ExtractedPage, ByVal path As String) As Long
+' 全ページが化け判定になる場合は除去しない(戻り値0=何も取り除いていない)。
+' フィルタの誤判定で文書を丸ごと失うより、化けた本文でも取り込む方がまし。
+' 2026-07-31(R6追補): ただしPDFだけは例外で、呼び出し側が outAllGarbled=True を
+' 見てOCR経路(E0303)へ回す。どちらの扱いになったかのusage_logは呼び出し側が
+' 1本だけ残す(ここで出すと二重になり、ログを読む人が混乱するため)。
+Private Function DropGarbledPages(ByRef pages() As ExtractedPage, _
+                                  ByRef outAllGarbled As Boolean) As Long
+    outAllGarbled = False
     Dim n As Long: n = PageArrayCount(pages)
     If n = 0 Then Exit Function
 
@@ -491,11 +538,7 @@ Private Function DropGarbledPages(ByRef pages() As ExtractedPage, ByVal path As 
     If garbledCount = 0 Then Exit Function
 
     If garbledCount = n Then
-        On Error Resume Next
-        modLog.LogUsage "extract_garbled_kept", "", _
-            modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
-            " 全" & garbledCount & "件が化け判定のため除外せず続行"
-        On Error GoTo 0
+        outAllGarbled = True
         Exit Function
     End If
 

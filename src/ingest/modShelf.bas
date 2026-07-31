@@ -277,41 +277,21 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim pagesTruncated As Boolean: pagesTruncated = (extractOk And errCode = "PARTIAL_PAGES")
 
     If Not extractOk Then
-        ' 2026-07-28(レビュー L-12): 画像PDF(E0303)を vision へ渡さない。
-        ' optVision は PDF を受け付けないため、この経路は必ず失敗する
-        ' 死に経路だった。失敗するまでの待ち時間を利用者に払わせたうえで
-        ' 同じ案内を出すくらいなら、最初からスクショ取込を案内する。
-        ' vision が効くのは画像そのもの(png/jpg)を入れたときだけ。
-        Dim visionEligible As Boolean
-        If errCode = "E0301" Then visionEligible = IsImageExtension(path)
-        If visionEligible And modFeatures.FeatureEnabled("vision") Then
-            Dim visionResult As Variant
-            visionResult = modFeatures.InvokeFeature("vision", "ExtractImagePdfText", path)
-            Dim visionText As String: visionText = ""
-            If VarType(visionResult) = vbString Then
-                If Left$(CStr(visionResult), 5) <> "#ERR:" Then visionText = CStr(visionResult)
-            End If
-            If LenB(Trim$(visionText)) > 0 Then
-                ReDim pages(0 To 0)
-                pages(0).page = 1
-                pages(0).Text = visionText
-                extractOk = True
-            End If
-        End If
-
-        If Not extractOk Then
+        ' vision フォールバック(画像ファイルの文字起こし・画像PDFのOCR)は
+        ' 判断ごと modShelfVision が引き受ける(2026-07-31 R6)。上限ページで
+        ' 打ち切られた場合は pagesTruncated が立ち、下の partial 判定へ合流する。
+        Dim visionNote As String
+        If modShelfVision.TryVisionFallback(path, errCode, pages, pagesTruncated, visionNote) Then
+            extractOk = True
+        Else
             Dim failStatus As String
             If errCode = "E0303" Then
                 failStatus = "image_pdf"
             Else
                 failStatus = "failed"
             End If
-            Dim failMsg As String
-            failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
-            If errCode = "E0301" And IsImageExtension(path) Then
-                failMsg = "画像の取込には画像解析機能の有効化が必要です。" & _
-                    "configシートの feature_vision を TRUE にしてから、もう一度お試しください。(コード: E0301)"
-            End If
+            Dim failMsg As String: failMsg = visionNote
+            If LenB(failMsg) = 0 Then failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
             If isSelf Then
                 modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
                     failStatus, failMsg, origin
@@ -699,13 +679,6 @@ Private Function ApplyCrumb(ByVal s As String, ByVal sourceName As String, ByVal
             ApplyCrumb = s
         End If
     End If
-End Function
-
-' 画像拡張子か(vision委譲判定・D13)。optVisionのIMAGE_EXTSと揃える。
-Private Function IsImageExtension(ByVal path As String) As Boolean
-    Dim e As String
-    e = LCase$(modUtil.ExtOf(path))
-    IsImageExtension = (e = "png" Or e = "jpg" Or e = "jpeg")
 End Function
 
 Private Function GetSheet(ByVal sheetName As String) As Worksheet

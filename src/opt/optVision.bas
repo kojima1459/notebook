@@ -33,6 +33,11 @@ Option Explicit
 '     モジュール内Private変数(mLastErrorMsg)に直近の失敗メッセージを
 '     保持する(VBAは単一スレッドで実行されるため競合の心配がない)。
 '   ・modUIMain.SetStage 以外のコア参照は行わない(基盤層のみ参照可・§7.7)。
+'   ・画像PDF(E0303)のOCR取込(2026-07-31 R6): 会社公式ツール同梱の
+'     Ghostscript でページ毎にJPEG化してから、上と同じ経路(Base64FromFile→
+'     ChatGPTV)で1ページずつ読む。「PDF→画像変換の手段がVBA単体に無い」という
+'     唯一の穴を、公式配布物の再利用で塞ぐ。入口は ExtractPdfOcrPagedText。
+'     コマンド文字列の組み立ては optOcrCore(純ロジック)に切り出してある。
 ' ============================================================================
 
 ' === 確定済みシグネチャ(出典: RIBBON_API_CONFIRMED.md §1 #5, #8 / 裁定D5) ===
@@ -217,10 +222,269 @@ Public Function ExtractImagePdfText(ByVal path As String) As String
     End If
 End Function
 
+' ============================================================================
+' ExtractPdfOcrPagedText - 画像PDFをGhostscriptでページ毎にJPEG化し、
+'   1ページ=1回のChatGPTV(既存のVISION_PROMPT・resolution="high")で
+'   文字起こしして、modUtil.JoinPagedText の1本の文字列にして返す(R6)。
+' ----------------------------------------------------------------------------
+'   成功: ページ付きテキスト(先頭行が@@NEXUS_TRUNCATED@@なら上限で打ち切り)
+'   失敗: "#ERR:E0303:<何が起きたか+どうすればよいか>"
+'
+'   ・GSの起動はブロッキング待ちにしない(壊れたPDF1つでExcelが永久に固まる
+'     ことを避けるため)。完了フラグファイルの出現をDoEventsつきで監視し、
+'     config vision_pdf_timeout_sec(既定120秒)を超えたら失敗として返す。
+'     GSプロセスのkillはしない(こちらが壊す方が危ない)。
+'   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末は
+'     R6規約に従って別Sub(CleanupOcrFolder)へ切り出してある
+'     (稼働中のエラーハンドラの中では On Error Resume Next が効かないため)。
+'   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、複数枚を
+'     まとめて渡すとページ境界が崩れて出典ページ番号が信用できなくなるため
+'     v1では使わない。ページ番号を保ったまま束ねる方法が確立できたら再検討する。
+' ============================================================================
+Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
+    Dim folderPath As String: folderPath = ""
+
+    On Error GoTo Fail
+
+    If modUtil.ExtOf(path) <> "pdf" Then
+        ExtractPdfOcrPagedText = "#ERR:E0303:この処理はPDF専用です(画像ファイルは" & _
+            "そのまま取り込めます)。"
+        Exit Function
+    End If
+
+    If modConfig.GetBool("mock_llm", True) Then
+        ExtractPdfOcrPagedText = "#ERR:E0303:mockモード(mock_llm=TRUE)では画像PDFの" & _
+            "OCR取込を利用できません。config の mock_llm を FALSE にすると実際に" & _
+            "読み取れるようになります。"
+        Exit Function
+    End If
+
+    Dim gsExe As String: gsExe = ResolveGsExe()
+    If LenB(gsExe) = 0 Then
+        ExtractPdfOcrPagedText = "#ERR:E0303:画像PDFを読み取るための Ghostscript が" & _
+            "見つかりませんでした。社内ポータルの「Excel帳票OCR」zipに入っている " & _
+            "Ghostscript フォルダを、このファイルと同じ場所に置くか、config シートの " & _
+            "ghostscript_path に gswin32c.exe のフルパスを設定してください。"
+        Exit Function
+    End If
+
+    folderPath = MakeOcrFolder()
+    If LenB(folderPath) = 0 Then
+        ExtractPdfOcrPagedText = "#ERR:E0303:作業用の一時フォルダを作成できませんでした。" & _
+            "一時フォルダ(TEMP)の空き容量と書き込み権限をご確認ください。"
+        Exit Function
+    End If
+
+    Dim maxPages As Long: maxPages = modConfig.GetLong("vision_pdf_max_pages", 20)
+    Dim dpi As Long: dpi = modConfig.GetLong("vision_pdf_dpi", 150)
+    Dim waitSec As Long: waitSec = modConfig.GetLong("vision_pdf_timeout_sec", 120)
+    If waitSec < 10 Then waitSec = 10
+
+    Dim renderCap As Long: renderCap = optOcrCore.RenderCapFor(maxPages)
+    Dim flagPath As String: flagPath = optOcrCore.DoneFlagFor(folderPath)
+    Dim runCmd As String
+    runCmd = optOcrCore.BuildRunCommand( _
+        optOcrCore.BuildGsCommand(gsExe, path, optOcrCore.OutPatternFor(folderPath), dpi, renderCap), _
+        flagPath)
+
+    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
+
+    If Not RunGsAsync(runCmd) Then
+        modUIMain.SetStage ""
+        CleanupOcrFolder folderPath
+        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", "GS起動失敗 " & modUtil.SafeLeft(path, 200)
+        ExtractPdfOcrPagedText = "#ERR:E0303:PDFを画像に変換する処理を開始できませんでした。" & _
+            "config の ghostscript_path が正しいかご確認ください。"
+        Exit Function
+    End If
+
+    Dim finished As Boolean: finished = WaitForDoneFlag(flagPath, waitSec)
+    Dim foundN As Long: foundN = CountRenderedPages(folderPath, renderCap)
+
+    If foundN = 0 Then
+        modUIMain.SetStage ""
+        CleanupOcrFolder folderPath
+        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
+            "描画0枚 finished=" & finished & " " & modUtil.SafeLeft(path, 200)
+        If finished Then
+            ExtractPdfOcrPagedText = "#ERR:E0303:このPDFからページ画像を作れませんでした。" & _
+                "ファイルが壊れているか、パスワードで保護されている可能性があります。"
+        Else
+            ExtractPdfOcrPagedText = "#ERR:E0303:PDFの画像変換が" & waitSec & "秒以内に" & _
+                "終わりませんでした。ページ数の少ないPDFに分けるか、config の " & _
+                "vision_pdf_timeout_sec を大きくしてからお試しください。"
+        End If
+        Exit Function
+    End If
+
+    Dim truncated As Boolean: truncated = optOcrCore.IsTruncatedCount(foundN, maxPages)
+    Dim keepN As Long: keepN = optOcrCore.KeepPageCount(foundN, maxPages)
+
+    Dim ocrText As String
+    ocrText = OcrRenderedPages(folderPath, keepN, truncated)
+
+    modUIMain.SetStage ""
+    CleanupOcrFolder folderPath
+
+    ' 全ページ失敗のときだけ "#ERR:..." が返る(OcrRenderedPages内で判定済み)。
+    ExtractPdfOcrPagedText = ocrText
+    Exit Function
+
+Fail:
+    Dim errDesc As String
+    errDesc = Err.Description
+    Err.Clear
+    On Error GoTo 0
+    modUIMain.SetStage ""
+    CleanupOcrFolder folderPath
+    modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", errDesc
+    ExtractPdfOcrPagedText = "#ERR:E0303:画像PDFの読み取り処理でエラーが発生しました: " & errDesc
+End Function
+
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー(すべてPrivate: optVisionの公開契約はPing/ExtractImagePdf/
-' ExtractImagePdfTextのみ)
+' ExtractImagePdfText/ExtractPdfOcrPagedText/HasClipboardImage/
+' SaveClipboardImageのみ)
 ' ----------------------------------------------------------------------------
+
+' ページ画像を1枚ずつOCRして1本のページ付きテキストにする。
+' 1ページの失敗で資料全体を捨てない(読めたページだけを返す)。
+Private Function OcrRenderedPages(ByVal folderPath As String, ByVal keepN As Long, _
+                                  ByVal truncated As Boolean) As String
+    Dim pages() As ExtractedPage
+    ReDim pages(0 To keepN - 1)
+    Dim okN As Long: okN = 0
+
+    Dim i As Long
+    For i = 1 To keepN
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " OCR中… " & i & "/" & keepN & " ページ"
+
+        Dim jpgPath As String
+        jpgPath = folderPath & "\" & optOcrCore.PageJpgName(i)
+
+        Dim b64 As String
+        b64 = SafeResultToString(modGateway.TryRibbonRun(BASE64_FUNC_NAME, Array(jpgPath)))
+
+        If LenB(Trim$(b64)) > 0 And Left$(b64, 5) <> "#ERR:" Then
+            Dim s As String
+            s = SafeResultToString(modGateway.TryRibbonRun(RIBBON_FUNC_NAME, _
+                Array(VISION_PROMPT, b64, "", VISION_RESOLUTION, VISION_TOOL_NAME)))
+            If Not IsVisionError(s) Then
+                pages(okN).page = i
+                pages(okN).Text = s
+                okN = okN + 1
+            Else
+                modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
+                    "p" & i & " 読取失敗: " & modUtil.SafeLeft(s, 200)
+            End If
+        Else
+            modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
+                "p" & i & " Base64失敗: " & modUtil.SafeLeft(b64, 200)
+        End If
+    Next i
+
+    If okN = 0 Then
+        OcrRenderedPages = "#ERR:E0303:ページ画像は作れましたが、文字を読み取れませんでした。" & _
+            "しばらく時間を置いてからもう一度お試しください。"
+        Exit Function
+    End If
+
+    If okN < keepN Then ReDim Preserve pages(0 To okN - 1)
+    OcrRenderedPages = modUtil.JoinPagedText(pages, truncated)
+End Function
+
+' Ghostscriptの実行ファイルを解決する(config優先→公式ツールと同じ配置規約)。
+Private Function ResolveGsExe() As String
+    Dim cfgPath As String
+    cfgPath = Trim$(modConfig.GetString("ghostscript_path", ""))
+    If LenB(cfgPath) > 0 Then
+        If PathExists(cfgPath) Then
+            ResolveGsExe = cfgPath
+            Exit Function
+        End If
+    End If
+
+    Dim sidePath As String
+    sidePath = ThisWorkbook.path & "\Ghostscript\gswin32c.exe"
+    If PathExists(sidePath) Then ResolveGsExe = sidePath
+End Function
+
+' 一時フォルダ(TEMP\nxocr_<一意名>)を作って返す。失敗時は""。
+Private Function MakeOcrFolder() As String
+    Dim tempRoot As String: tempRoot = Environ$("TEMP")
+    If LenB(tempRoot) = 0 Then tempRoot = Environ$("TMP")
+    If LenB(tempRoot) = 0 Then Exit Function
+
+    Dim uniqueName As String
+    uniqueName = Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(Int(Rnd() * 9000) + 1000)
+
+    Dim folderPath As String
+    folderPath = optOcrCore.TempFolderFor(tempRoot, uniqueName)
+
+    On Error Resume Next
+    MkDir folderPath
+    On Error GoTo 0
+
+    If FolderExists(folderPath) Then MakeOcrFolder = folderPath
+End Function
+
+' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
+Private Function RunGsAsync(ByVal runCmd As String) As Boolean
+    Dim wsh As Object
+    On Error GoTo NoRun
+    Set wsh = CreateObject("WScript.Shell")
+    wsh.Run runCmd, 0, False
+    Set wsh = Nothing
+    RunGsAsync = True
+    Exit Function
+NoRun:
+    RunGsAsync = False
+End Function
+
+' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
+Private Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
+    Dim t0 As Double: t0 = Timer
+    Do
+        If PathExists(flagPath) Then
+            WaitForDoneFlag = True
+            Exit Function
+        End If
+        DoEvents
+        If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
+    Loop While (Timer - t0) < timeoutSec
+End Function
+
+' page_001.jpgから連番で何枚できているかを数える(Dirの列挙状態に依存しない)。
+Private Function CountRenderedPages(ByVal folderPath As String, ByVal renderCap As Long) As Long
+    Dim i As Long
+    For i = 1 To renderCap
+        If Not PathExists(folderPath & "\" & optOcrCore.PageJpgName(i)) Then Exit For
+    Next i
+    CountRenderedPages = i - 1
+End Function
+
+' 一時フォルダの後始末(成功・失敗の両経路から呼ぶ。R6規約により別Sub)。
+' ロック中でKillに失敗しても無視する(TEMPなのでOSが後で片付ける)。
+Private Sub CleanupOcrFolder(ByVal folderPath As String)
+    If LenB(folderPath) = 0 Then Exit Sub
+    On Error Resume Next
+    Kill folderPath & "\*.jpg"
+    Kill folderPath & "\*.flag"
+    RmDir folderPath
+    On Error GoTo 0
+End Sub
+
+Private Function PathExists(ByVal p As String) As Boolean
+    On Error Resume Next
+    PathExists = (LenB(Dir$(p)) > 0)
+    On Error GoTo 0
+End Function
+
+Private Function FolderExists(ByVal p As String) As Boolean
+    On Error Resume Next
+    FolderExists = (LenB(Dir$(p, vbDirectory)) > 0)
+    On Error GoTo 0
+End Function
 
 Private Function IsImageExt(ByVal ext As String) As Boolean
     IsImageExt = (InStr(1, "," & IMAGE_EXTS & ",", "," & ext & ",", vbTextCompare) > 0)

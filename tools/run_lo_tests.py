@@ -158,6 +158,16 @@ PURE_ALLOWLIST = [
     # 「Wがいくつでも枠内に収まる/タイトルに重ならない」という保証は、
     # 実機で描いて目視するのではなくここで実行テストとして固定する。
     "modChrome",
+    # 2026-07-31 R6(画像PDFのOCR取込)で追加。
+    #   optOcrCore: Ghostscriptコマンド文字列の組み立てとページ上限の算数だけを
+    #     持つ純ロジック(src/opt配下だが副作用ゼロ)。会社公式ツールが実際に
+    #     踏んでいた「gsPathを引用符で囲み忘れる」バグを二度と出さないため、
+    #     組み立て結果を1文字単位のゴールデンテストで固定する。
+    #   modTestsPure4: modTestsPure3(24,111字)に要件R6のテストを足すと
+    #     30,000字上限を超えるための分割先。modTestsPure3.RunAll3の末尾が
+    #     modTestsPure4.RunAll4を呼ぶため、未注入だと実行時エラー12になり
+    #     分割先のテストが「実行されないまま」になる(modTestsPure3と同型の理由)。
+    "optOcrCore", "modTestsPure4",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
