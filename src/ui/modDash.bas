@@ -21,9 +21,13 @@ Option Explicit
 '     を追加で持つ(DateAdd("m",-1,Now)基準)。
 ' ============================================================================
 
-Private Const KPI_CARD_W As Double = 215
+' 2026-07-31(R7実装後の追加是正・発見事項1): 215pt×4枚+間隔だと902ptになり、
+' 実画面幅(他画面の実測で約597〜650pt)を大幅に超えて3・4枚目が画面外に出る。
+' A-1ではヘッダー帯だけを幅内に収めたが、本文のカード自体は放置されていた。
+' 4枚とも1画面に収まる130ptへ縮小する(バッジも同じ行幅に揃える)。
+Private Const KPI_CARD_W As Double = 130
 Private Const KPI_CARD_H As Double = 92
-Private Const KPI_GAP As Double = 14
+Private Const KPI_GAP As Double = 10
 Private Const KPI_X0 As Double = 20
 ' 2026-07-31(R7 A-1): ヘッダー帯(48pt)+サブタイトルの下から本文を始める。
 Private Const KPI_Y0 As Double = 80
@@ -33,9 +37,10 @@ Private Const EXPBAR_H As Double = 12
 Private Const EXPBAR_Y As Double = KPI_Y0 + KPI_CARD_H + 18
 Private Const EXPLABEL_Y As Double = EXPBAR_Y + EXPBAR_H + 4
 
-Private Const BADGE_W As Double = 208
+' 2026-07-31: KPIカードと同じ行幅(130*4+10*3+X0*2=590pt)に揃える。
+Private Const BADGE_W As Double = 130
 Private Const BADGE_H As Double = 54
-Private Const BADGE_GAP_X As Double = 12
+Private Const BADGE_GAP_X As Double = 10
 Private Const BADGE_GAP_Y As Double = 10
 Private Const BADGES_PER_ROW As Long = 4
 Private Const BADGE_HEAD_Y As Double = EXPLABEL_Y + 22

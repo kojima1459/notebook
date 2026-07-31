@@ -560,10 +560,15 @@ End Sub
 Public Sub OnGoShared()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
+    ' 2026-07-31(R7実装後の追加是正・発見事項4): Leave→Showの順で
+    ' 順序が入れ替わっていたうえ、On Error Resume Nextの直後にGoTo 0が
+    ' 無く、その後のExit Subまで丸ごと保護区間に入っていた。modShared.Show
+    ' が失敗しても完全に無音になり、他の兄弟ハンドラ(OnGoGallery等)と
+    ' 挙動が食い違っていた。
     On Error Resume Next
-    modUiLock.Leave
     modShared.Show
-    Exit Sub
+    On Error GoTo 0
+    modUiLock.Leave
 End Sub
 
 Public Sub OnGoTable()

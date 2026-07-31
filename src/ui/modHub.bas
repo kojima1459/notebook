@@ -236,8 +236,14 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
         On Error Resume Next
         .TextRange.Paragraphs(1).Font.Bold = -1
         .TextRange.Paragraphs(1).Font.Size = 12
-        .TextRange.Paragraphs(2).Font.Size = 9
-        .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        ' 2026-07-31(発見事項3): 段落数を数えてから触る。テキストが箱の
+        ' 高さを超えて2段落目がはみ出す環境では、無条件の Paragraphs(2)
+        ' アクセスがOn Error Resume Nextに握られ「気づかれない失敗」になる
+        ' (A-4のHubタイルと同型の脆弱性)。
+        If .TextRange.Paragraphs.Count >= 2 Then
+            .TextRange.Paragraphs(2).Font.Size = 9
+            .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        End If
         On Error GoTo 0
     End With
 End Sub
@@ -381,8 +387,11 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
             .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
             On Error Resume Next
             .TextRange.Paragraphs(1).Font.Bold = -1
-            .TextRange.Paragraphs(2).Font.Size = 8
-            .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+            ' 2026-07-31(発見事項3): 段落数チェック(理由はDrawProfileCard参照)。
+            If .TextRange.Paragraphs.Count >= 2 Then
+                .TextRange.Paragraphs(2).Font.Size = 8
+                .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+            End If
             On Error GoTo 0
             .VerticalAnchor = 3
         End With
@@ -490,8 +499,16 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     End If
 
     On Error Resume Next
+    ' 2026-07-31(発見事項3): capは部門名・件数を含む可変長で、固定44ptの
+    ' 箱に収まらないと2行目が枠外へ送られて消える(A-4と同型)。1行目の
+    ' おおよその折返し行数を文字数から見積もり、箱を可変高にする。
+    Dim estLines As Long: estLines = 1 + Int(Len(cap) / 46)
+    If estLines < 2 Then estLines = 2
+    Dim boxH As Double: boxH = 20 + estLines * 13
+    If boxH < 44 Then boxH = 44
+
     Dim box As Shape
-    Set box = ws.Shapes.AddShape(5, L, T, W, 44)
+    Set box = ws.Shapes.AddShape(5, L, T, W, boxH)
     If box Is Nothing Then Exit Sub
     box.Name = "nx_hub_inbox"
     box.Adjustments(1) = 0.08
@@ -508,8 +525,10 @@ Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         .TextRange.Font.Size = 9
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         .TextRange.Paragraphs(1).Font.Bold = -1
-        .TextRange.Paragraphs(2).Font.Size = 7.5
-        .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        If .TextRange.Paragraphs.Count >= 2 Then
+            .TextRange.Paragraphs(2).Font.Size = 7.5
+            .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        End If
         .VerticalAnchor = 3
     End With
     If LenB(act) > 0 Then box.OnAction = act
