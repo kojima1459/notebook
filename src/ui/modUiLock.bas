@@ -120,8 +120,13 @@ Public Function BlockIfIngesting() As Boolean
     On Error Resume Next
     modUIMain.SetStage "処理中です。完了までお待ちください…"
     ' SetStageの実況(ホームのセル/StatusBar/チャットバブル)はマイ本棚系画面
-    ' からは不可視。Enter()の既存トーストと同じ作法でどの画面でも見せる。
-    modSkin.ShowToast "取り込み処理が終わるまでお待ちください。", "info"
+    ' からは不可視なので、どの画面でも見える進捗バナーへ出す。
+    ' R10c(M3): ここは R10-1 で ShowToast にしていたが、トーストは表示に
+    ' 1.1秒のブロッキング待ちが入る。連打されるほど待ちが積もり、
+    ' 「押しても無反応」を直すつもりが「押すほど固まる」を作っていた
+    ' (取込中に連打されるのがまさにこの関所)。待ちゼロのバナーへ置換する。
+    ' バナーは取込側の次のShowProgress更新かHideProgressで上書き/消去される。
+    modUIMain.ShowProgress "取り込み処理が終わるまでお待ちください…"
     On Error GoTo 0
 End Function
 

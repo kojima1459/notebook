@@ -279,27 +279,183 @@ Private Sub TestGsTextCommandGolden()
                vbTextCompare) > 0), "実際=[" & runCmd & "]"
 End Sub
 
-' GsTextVerdict の境界(しきい値40字)。テキストPDFとして採用するか、
-' 画像PDF(ほぼ空)としてOCR経路へ回すかの分かれ目そのもの。ここが緩いと
-' 画像PDFを「文字が取れた」と誤認してOCRへ回らなくなり、逆に厳しすぎると
-' 表紙だけの短いテキストPDFがOCR送りになる。
+' ----------------------------------------------------------------------------
+' R10c(M1/M2): GsTextVerdict の3値化と、ページ数に比例するしきい値
+' ----------------------------------------------------------------------------
+' R10-3の実装は固定40字の2値判定だった。これだと「100ページのスキャンPDFに
+' 透明テキストが50字だけ乗っている」資料を "ok" と判定して取り込んでしまい、
+' 中身の無い本が本棚に並ぶ(しかもOCRへ回らないので二度と読めない)。
+' 逆に一律で厳しくすると、表紙1枚だけの正当な短いPDFがOCR送りになる。
+' そこで3値にした:
+'   image  文字層ゼロ  → 呼び出し元は即E0303(OCR経路)
+'   sparse 薄すぎる    → 呼び出し元は Word/Acrobat を先に試し、両方失敗時のみE0303
+'   ok     採用
+' しきい値は Max(40, pageCount×10)。境界の上下両側を固定する。
 Private Sub TestGsTextVerdictBoundary()
-    modTestRunner.Check "R10-3: 0字はimage(画像PDF疑い)", _
-        (optOcrCore.GsTextVerdict(0) = "image"), "実際=" & optOcrCore.GsTextVerdict(0)
-    modTestRunner.Check "R10-3: 39字はimage(しきい値の1つ手前)", _
-        (optOcrCore.GsTextVerdict(39) = "image"), "実際=" & optOcrCore.GsTextVerdict(39)
-    modTestRunner.Check "R10-3: 40字はok(しきい値ちょうどは採用)", _
-        (optOcrCore.GsTextVerdict(40) = "ok"), "実際=" & optOcrCore.GsTextVerdict(40)
-    modTestRunner.Check "R10-3: 41字はok", _
-        (optOcrCore.GsTextVerdict(41) = "ok"), "実際=" & optOcrCore.GsTextVerdict(41)
-    modTestRunner.Check "R10-3: 十分に長ければok", _
-        (optOcrCore.GsTextVerdict(120000) = "ok"), "実際=" & optOcrCore.GsTextVerdict(120000)
+    ' --- 文字層ゼロは常に image(ページ数によらない) ---
+    modTestRunner.Check "R10c: 0字はimage(1ページ)", _
+        (optOcrCore.GsTextVerdict(0, 1) = "image"), "実際=" & optOcrCore.GsTextVerdict(0, 1)
+    modTestRunner.Check "R10c: 0字はimage(100ページ)", _
+        (optOcrCore.GsTextVerdict(0, 100) = "image"), "実際=" & optOcrCore.GsTextVerdict(0, 100)
+    ' 負の値(想定外)も image 側へ倒す。数え方を誤ったときに本文ありと
+    ' 誤認するより、OCRへ回す方が被害が小さい。
+    modTestRunner.Check "R10c: 負の値はimage(安全側へ倒す)", _
+        (optOcrCore.GsTextVerdict(-1, 1) = "image"), "実際=" & optOcrCore.GsTextVerdict(-1, 1)
 
-    ' 負の値(想定外)は「採用しない」側へ倒す。数え方を間違えたときに、
-    ' 画像PDFを本文ありと誤認するより、OCRへ回す方が被害が小さい。
-    modTestRunner.Check "R10-3: 負の値はimage(安全側へ倒す)", _
-        (optOcrCore.GsTextVerdict(-1) = "image"), "実際=" & optOcrCore.GsTextVerdict(-1)
+    ' --- 少ページ側は固定40字が効く(下限40) ---
+    modTestRunner.Check "R10c: 1字はsparse(1ページ・40未満)", _
+        (optOcrCore.GsTextVerdict(1, 1) = "sparse"), "実際=" & optOcrCore.GsTextVerdict(1, 1)
+    modTestRunner.Check "R10c: 39字はsparse(しきい値の1つ手前)", _
+        (optOcrCore.GsTextVerdict(39, 1) = "sparse"), "実際=" & optOcrCore.GsTextVerdict(39, 1)
+    modTestRunner.Check "R10c: 40字はok(しきい値ちょうどは採用)", _
+        (optOcrCore.GsTextVerdict(40, 1) = "ok"), "実際=" & optOcrCore.GsTextVerdict(40, 1)
+    modTestRunner.Check "R10c: 40字はok(4ページでも40が下限)", _
+        (optOcrCore.GsTextVerdict(40, 4) = "ok"), "実際=" & optOcrCore.GsTextVerdict(40, 4)
+
+    ' --- 多ページ側はページ比例(pageCount×10)が効く ---
+    modTestRunner.Check "R10c: 100ページ×50字はsparse(透明テキスト付きスキャンPDF)", _
+        (optOcrCore.GsTextVerdict(50, 100) = "sparse"), "実際=" & optOcrCore.GsTextVerdict(50, 100)
+    modTestRunner.Check "R10c: 100ページ×999字はsparse(比例しきい値1000の直下)", _
+        (optOcrCore.GsTextVerdict(999, 100) = "sparse"), "実際=" & optOcrCore.GsTextVerdict(999, 100)
+    modTestRunner.Check "R10c: 100ページ×1000字はok(比例しきい値ちょうど)", _
+        (optOcrCore.GsTextVerdict(1000, 100) = "ok"), "実際=" & optOcrCore.GsTextVerdict(1000, 100)
+    modTestRunner.Check "R10c: 十分に長ければok", _
+        (optOcrCore.GsTextVerdict(120000, 100) = "ok"), "実際=" & optOcrCore.GsTextVerdict(120000, 100)
+
+    ' pageCountが0(数えられなかった)ときは固定40字だけで判定する
+    ' (比例分を0にして、しきい値が消えたり負になったりしないこと)。
+    modTestRunner.Check "R10c: pageCount=0なら40字でok", _
+        (optOcrCore.GsTextVerdict(40, 0) = "ok"), "実際=" & optOcrCore.GsTextVerdict(40, 0)
+    modTestRunner.Check "R10c: pageCount=0でも39字はsparse", _
+        (optOcrCore.GsTextVerdict(39, 0) = "sparse"), "実際=" & optOcrCore.GsTextVerdict(39, 0)
 End Sub
+
+' ----------------------------------------------------------------------------
+' R10c(L1): CleanTextLen / GsPageCount / BuildPagesFromGsText の境界
+' ----------------------------------------------------------------------------
+' txtwriteの出力はページ区切りが改ページ文字(Chr(12))。ここの数え方・割り方が
+' ズレると (a) 採否しきい値の分母が狂う (b) 出典ページ番号が丸ごとずれる、
+' という「誰も気付けない壊れ方」をする。特に(b)は「出典 p.5」を開いても別の
+' ページが出る形で、利用者が製品全体を信用しなくなる。
+' GsPageCount(optOcrCore)と BuildPagesFromGsText(modExtractor)は、R2により
+' コア層からopt層を呼べないため実装が2箇所に分かれている。同じ入力で同じ
+' ページ数になることを突き合わせて固定する。
+'
+' ただし BuildPagesFromGsText は ExtractedPage() を ReDim するため、
+' LibreOffice実行環境では既知の制限(実行時エラー420。modTestsPure冒頭の
+' コメントと CanUseTypeArrays 参照)に当たる。当たる環境ではそこだけを
+' スキップし、同じ規約を持つ純文字列側(GsPageCount)で境界を固定する。
+Private Sub TestGsTextPageSplit()
+    Dim ff As String: ff = Chr$(12)
+
+    ' --- CleanTextLen: 空白類は数えない ---
+    modTestRunner.Check "R10c: CleanTextLenは改ページ・改行・タブ・空白を数えない", _
+        (optOcrCore.CleanTextLen(ff & vbCrLf & vbTab & " " & ChrW(&H3000)) = 0), _
+        "実際=" & optOcrCore.CleanTextLen(ff & vbCrLf & vbTab & " " & ChrW(&H3000))
+    modTestRunner.Check "R10c: CleanTextLenは本文だけを数える", _
+        (optOcrCore.CleanTextLen("あい" & ff & " う" & vbCrLf & "え") = 4), _
+        "実際=" & optOcrCore.CleanTextLen("あい" & ff & " う" & vbCrLf & "え")
+    modTestRunner.Check "R10c: CleanTextLenの空文字は0", _
+        (optOcrCore.CleanTextLen("") = 0), "実際=" & optOcrCore.CleanTextLen("")
+
+    ' --- ページ分割の境界(先頭FF/末尾FF/FFのみ/改行だけのページ/FF無し) ---
+    CheckPageSplit "改ページ無しの単一ページ", "本文だけ", 1
+    CheckPageSplit "末尾に改ページ(GSの通常出力)", "1ページ目" & ff, 1
+    CheckPageSplit "先頭に改ページ(本文前に1枚吐く形)", ff & "本文", 1
+    CheckPageSplit "先頭と末尾の両方に改ページ", ff & "本文" & ff, 1
+    CheckPageSplit "2ページ", "1枚目" & ff & "2枚目", 2
+    CheckPageSplit "先頭空+2ページ+末尾空", ff & "1枚目" & ff & "2枚目" & ff, 2
+    ' 中間の空ページは落とさない(本当に白紙のページがあり得るので、
+    ' 落とすと以降のページ番号が全部ずれる)。
+    CheckPageSplit "中間の空ページは残す", "1枚目" & ff & ff & "3枚目", 3
+    ' 改行だけのページ(実質白紙)も先頭・末尾なら落とす。
+    CheckPageSplit "改行だけの先頭ページは空扱い", vbCrLf & ff & "本文", 1
+
+    ' --- 中身が無い入力は0ページ ---
+    CheckPageSplit "改ページだけの入力", ff & ff, 0
+    CheckPageSplit "空文字", "", 0
+    CheckPageSplit "空白だけの入力", " " & vbCrLf, 0
+
+    If Not CanUseTypeArrays() Then
+        modTestRunner.Check "R10c: BuildPagesFromGsTextはLO環境の既知の制限によりスキップ", True, _
+            "ExtractedPage()のReDimがLibreOfficeで実行時エラー420になる" & _
+            "(modTestsPure冒頭コメント/CanUseTypeArrays参照)。ページ分割の規約は" & _
+            "同一規約の純文字列版 optOcrCore.GsPageCount で固定済み。" & _
+            "Excel実機受入チェック(§11.3)で出典ページ番号を必ず目視確認すること。"
+        Exit Sub
+    End If
+
+    CheckPageBuild "改ページ無しの単一ページ", "本文だけ", 1, "本文だけ"
+    CheckPageBuild "先頭に改ページ(本文前に1枚吐く形)", ff & "本文", 1, "本文"
+    CheckPageBuild "先頭空+2ページ+末尾空", ff & "1枚目" & ff & "2枚目" & ff, 2, "1枚目"
+    CheckPageBuild "中間の空ページは残す", "1枚目" & ff & ff & "3枚目", 3, "1枚目"
+
+    Dim emptyPages() As ExtractedPage
+    Dim emptyTrunc As Boolean
+    modTestRunner.Check "R10c: 改ページだけの入力はBuildPagesFromGsText=False", _
+        (modExtractor.BuildPagesFromGsText(ff & ff, 20, emptyPages, emptyTrunc) = False), ""
+    modTestRunner.Check "R10c: 空文字はBuildPagesFromGsText=False", _
+        (modExtractor.BuildPagesFromGsText("", 20, emptyPages, emptyTrunc) = False), ""
+
+    ' --- 上限ページの打ち切り ---
+    Dim capPages() As ExtractedPage
+    Dim capTrunc As Boolean
+    Dim okCap As Boolean
+    okCap = modExtractor.BuildPagesFromGsText("A" & ff & "B" & ff & "C", 2, capPages, capTrunc)
+    modTestRunner.Check "R10c: 上限2ページで打ち切りtruncated=True", _
+        (okCap And capTrunc And (UBound(capPages) - LBound(capPages) + 1) = 2), _
+        "ok=" & okCap & " trunc=" & capTrunc
+    If okCap Then
+        modTestRunner.Check "R10c: 打ち切っても先頭ページは1ページ目のまま", _
+            (capPages(0).page = 1 And capPages(0).Text = "A"), _
+            "page=" & capPages(0).page & " text=[" & capPages(0).Text & "]"
+    End If
+End Sub
+
+' 純文字列側(optOcrCore.GsPageCount)の期待ページ数を確かめる。
+Private Sub CheckPageSplit(ByVal label As String, ByVal txt As String, ByVal wantN As Long)
+    Dim gotN As Long: gotN = optOcrCore.GsPageCount(txt)
+    modTestRunner.Check "R10c: GsPageCount " & label, (gotN = wantN), _
+        "期待=" & wantN & " 実際=" & gotN
+End Sub
+
+' コア側(modExtractor.BuildPagesFromGsText)が同じページ数・同じ1ページ目に
+' なることを確かめる(2箇所に分かれた実装のズレ=出典ページずれの検出)。
+Private Sub CheckPageBuild(ByVal label As String, ByVal txt As String, _
+                           ByVal wantN As Long, ByVal wantFirst As String)
+    Dim pages() As ExtractedPage
+    Dim trunc As Boolean
+    Dim okBuild As Boolean
+    Dim buildN As Long
+
+    okBuild = modExtractor.BuildPagesFromGsText(txt, 100, pages, trunc)
+    buildN = 0
+    If okBuild Then buildN = UBound(pages) - LBound(pages) + 1
+
+    modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(件数がGsPageCountと一致)", _
+        (okBuild And buildN = optOcrCore.GsPageCount(txt) And buildN = wantN), _
+        "期待=" & wantN & " 実際=" & buildN & " GsPageCount=" & optOcrCore.GsPageCount(txt)
+
+    If okBuild Then
+        modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(1ページ目の中身)", _
+            (Trim$(pages(0).Text) = wantFirst And pages(0).page = 1), _
+            "実際=[" & Trim$(pages(0).Text) & "] page=" & pages(0).page
+    End If
+End Sub
+
+' ----------------------------------------------------------------------------
+' CanUseTypeArrays - modTypes の Public Type 配列を ReDim できる実行環境か
+'   (modTestsPure の同名関数と同じ実測プローブ。LibreOfficeでは420になる)。
+' ----------------------------------------------------------------------------
+Private Function CanUseTypeArrays() As Boolean
+    On Error Resume Next
+    Err.Clear
+    Dim probe() As ExtractedPage
+    ReDim probe(0 To 0)
+    CanUseTypeArrays = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
 
 Public Sub RunAll6()
     On Error GoTo VocabFail
@@ -319,6 +475,9 @@ NextGsTextCmd:
 NextGsVerdict:
     On Error GoTo GsVerdictFail
     TestGsTextVerdictBoundary
+NextGsSplit:
+    On Error GoTo GsSplitFail
+    TestGsTextPageSplit
 NextDone6:
     On Error GoTo 0
     Exit Sub
@@ -345,6 +504,10 @@ GsTextCmdFail:
     Resume NextGsVerdict
 GsVerdictFail:
     modTestRunner.Check "TestGsTextVerdictBoundary(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsSplit
+GsSplitFail:
+    modTestRunner.Check "TestGsTextPageSplit(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone6
 End Sub

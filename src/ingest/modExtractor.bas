@@ -45,6 +45,10 @@ Option Explicit
 
 Private Const SUPPORTED_EXTS As String = "txt,md,csv,pdf,docx,doc,xlsx,xls,xlsm"
 
+' R10c(M1/M2): optGsTxtが「文字が薄すぎる」と判定した印。Word/Acrobatへは
+' 通常のE0302と同様に譲り、そちらも失敗した場合の最終コードだけE0303にする。
+Private Const GS_SPARSE_TOKEN As String = "#ERR:E0302:GS_SPARSE:"
+
 ' ----------------------------------------------------------------------------
 ' ExtractFile - 拡張子で振り分けて抽出する。
 '   成功: True(pagesに1件以上、またはPARTIAL_PAGES時は打ち切り分を格納)
@@ -476,8 +480,10 @@ Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As 
     Dim gsErr As String
     Dim wordErr As String
     Dim acroErr As String
+    Dim sparseSeen As Boolean
 
     outCode = ""
+    sparseSeen = False
 
     gsText = VisionResultToText(modFeatures.InvokeFeature("vision", "ExtractPdfTextNoOcr", path))
     If LenB(gsText) > 0 And Left$(gsText, 5) <> "#ERR:" Then
@@ -487,7 +493,8 @@ Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As 
         End If
         gsErr = "抽出テキストをページへ分解できませんでした"
     ElseIf Left$(gsText, 11) = "#ERR:E0303:" Then
-        ' 文字データがほとんど入っていないPDF=画像PDF。ここで即OCR経路へ回す。
+        ' 文字層が1文字も無いPDF=スキャン確定。Wordに渡しても必ず空振りする
+        ' (しかも遅い)ので、ここで即OCR経路へ回す。
         outCode = "E0303"
         errDetail = modUtil.SafeLeft("GS: " & gsText, 600)
         ExtractPdfWithFallback = False
@@ -495,6 +502,9 @@ Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As 
     Else
         gsErr = gsText
         If LenB(gsErr) = 0 Then gsErr = "(応答なし)"
+        ' R10c(M1/M2): 「薄すぎる」は判断が割れる領域。即OCRへ回すと表紙だけの
+        ' 短い正当なPDFを取りこぼすので、まずWord/Acrobatに任せる。
+        If Left$(gsText, Len(GS_SPARSE_TOKEN)) = GS_SPARSE_TOKEN Then sparseSeen = True
     End If
 
     If modExtractorWord.Extract(path, maxPages, pages, truncated, wordErr, origPath) Then
@@ -507,9 +517,26 @@ Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As 
         Exit Function
     End If
 
+    If sparseSeen Then outCode = "E0303"
+
     errDetail = modUtil.SafeLeft("GS: " & gsErr & " / Word: " & wordErr & _
         " / Acrobat: " & acroErr, 600)
     ExtractPdfWithFallback = False
+End Function
+
+' 空白類しか無いページか。Trim$ は半角スペースしか落とさないため使わない
+' (改行だけのページを中身ありと数えると出典ページ番号が全部1つずれる)。
+' optOcrCore.CleanTextLen と同じ規約(R2で2箇所に分かれる。突合はmodTestsPure6)。
+Private Function IsBlankGsPage(ByVal s As String) As Boolean
+    Dim t As String
+
+    t = Replace(s, vbCr, "")
+    t = Replace(t, vbLf, "")
+    t = Replace(t, vbTab, "")
+    t = Replace(t, Chr$(12), "")
+    t = Replace(t, " ", "")
+    t = Replace(t, ChrW(&H3000), "")
+    IsBlankGsPage = (LenB(t) = 0)
 End Function
 
 ' InvokeFeatureの戻り値(Variant)を安全に文字列化する
@@ -528,40 +555,58 @@ End Function
 ' BuildPagesFromGsText - Ghostscript(txtwrite)の出力を ExtractedPage 配列へ。
 '   txtwriteはページの区切りに改ページ文字 Chr(12) を挟むので、そこで割れば
 '   Word/Acrobat経路と同じページ番号つきで取り込める(出典表示のため
-'   ページ番号は落とせない)。末尾の空ページ(最終ページ直後の改ページ)は
-'   捨てる。上限ページを超えた場合は先頭maxPagesだけ残して truncated=True
-'   にする(他アダプタと同じ規約)。中身が空なら False を返し、呼び出し元は
-'   Word → Acrobat の連鎖へ落ちる。
+'   ページ番号は落とせない)。上限ページを超えた場合は先頭maxPagesだけ残して
+'   truncated=True にする(他アダプタと同じ規約)。中身が空なら False を返し、
+'   呼び出し元は Word → Acrobat の連鎖へ落ちる。
+'
+'   R10c(L1): 空ページの読み飛ばしを先頭側・末尾側で対称にした。従来は末尾しか
+'   見ておらず、先頭が改ページで始まるPDFでは1ページ目が空になり、以降の出典
+'   ページ番号が丸ごと1つズレていた(「出典 p.5」で別ページが開く壊れ方)。
+'   Public なのは modTestsPure6 から境界を検証するため(lintのCONTRACTに明記)。
 ' ----------------------------------------------------------------------------
-Private Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long, _
-                                      ByRef pages() As ExtractedPage, _
-                                      ByRef truncated As Boolean) As Boolean
+Public Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long, _
+                                     ByRef pages() As ExtractedPage, _
+                                     ByRef truncated As Boolean) As Boolean
     Dim parts() As String
-    Dim tmp() As ExtractedPage
+    Dim firstIdx As Long
+    Dim lastIdx As Long
     Dim keptN As Long
     Dim i As Long
 
     truncated = False
-    If LenB(Trim$(txt)) = 0 Then Exit Function
+    If IsBlankGsPage(txt) Then Exit Function
 
     parts = Split(txt, Chr$(12))
-    keptN = UBound(parts) - LBound(parts) + 1
-    Do While keptN > 1
-        If LenB(Trim$(parts(LBound(parts) + keptN - 1))) > 0 Then Exit Do
-        keptN = keptN - 1
+    firstIdx = LBound(parts)
+    lastIdx = UBound(parts)
+
+    ' 先頭側・末尾側の空ページ(空白類だけの要素)を対称に読み飛ばす。
+    ' optOcrCore.GsPageCount と同じ規約(あちらは件数だけを数える純関数で、
+    ' R2によりコア層からは呼べないため実装が2箇所に分かれている。ズレると
+    ' GsTextVerdictの分母が狂うので modTestsPure6 が突き合わせを固定する)。
+    ' 上の早期returnにより中身のあるページが必ず1つはある=ループは必ず解ける。
+    Do While firstIdx < lastIdx
+        If Not IsBlankGsPage(parts(firstIdx)) Then Exit Do
+        firstIdx = firstIdx + 1
+    Loop
+    Do While lastIdx > firstIdx
+        If Not IsBlankGsPage(parts(lastIdx)) Then Exit Do
+        lastIdx = lastIdx - 1
     Loop
 
+    keptN = lastIdx - firstIdx + 1
     If maxPages > 0 And keptN > maxPages Then
         keptN = maxPages
         truncated = True
     End If
 
-    ReDim tmp(0 To keptN - 1)
+    ' 受け取った配列を直接ReDimする(一時配列からの代入はLO実行テストで
+    ' ユーザー定義型の配列代入が420になるため使わない。全件コピーも省ける)。
+    ReDim pages(0 To keptN - 1)
     For i = 0 To keptN - 1
-        tmp(i).page = i + 1
-        tmp(i).Text = parts(LBound(parts) + i)
+        pages(i).page = i + 1
+        pages(i).Text = parts(firstIdx + i)
     Next i
-    pages = tmp
 
     BuildPagesFromGsText = True
 End Function

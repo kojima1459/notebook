@@ -159,8 +159,14 @@ CONTRACT: dict[str, dict] = {
         # GarbledRouteCode: 2026-07-31 R6追補。「全ページ化け」のPDFをOCR経路
         # (E0303)へ回すか、従来どおり化けたまま続行するかの分岐だけを純関数に
         # 切り出したもの(modTestsPure4が検証する)。
+        # BuildPagesFromGsText: 2026-07-31 R10c(L1)。Ghostscript(txtwrite)の
+        # 出力を改ページ文字で割ってExtractedPage配列にする純ロジック。先頭/末尾の
+        # 空ページの読み飛ばしがズレると出典ページ番号が丸ごと1つずれるため、
+        # modTestsPure6 が境界を固定する。R2によりコア層からoptOcrCoreを呼べず、
+        # ページ数の数え方が optOcrCore.GsPageCount と2箇所に分かれているので、
+        # 両者の突き合わせもそちらのテストで担保している。
         "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen",
-                     "GarbledRouteCode"],
+                     "GarbledRouteCode", "BuildPagesFromGsText"],
     },
     "modMode": {
         "closed": True,
@@ -424,7 +430,11 @@ CONTRACT: dict[str, dict] = {
             # R9: Ghostscript実行ファイルの解決候補列挙(配布・自動検出)。
             "GsCandidatePaths", "GsCandidatesForFolder",
             # R10-3: txtwriteによるテキストPDF抽出のコマンド組み立てと採否判定。
+            # R10c: 採否判定を3値化(image/sparse/ok)し、その材料である
+            # 「空白類を除いた文字数」と「実ページ数」も純ロジックとしてここへ集めた
+            # (CleanTextLenはR10cでoptGsTxtから移設)。
             "BuildGsTextCommand", "GsTextVerdict",
+            "CleanTextLen", "GsPageCount",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -510,6 +520,11 @@ RUN_LITERAL_WHITELIST_PREFIX = re.compile(r"^opt[A-Za-z]\w*\.")
 RUN_LITERAL_GATEWAY_ONLY = {"ChatGPT", "GetEmbeddings", "LimitCheck"}
 # 変数経由(非リテラル)のApplication.Runはこの2ファイルのみ許可
 RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
+
+# R1例外のうち modSkin.ShowToast を呼んでよい機能層モジュール(R10c L5)。
+# ShowToastは表示に1.1秒のブロッキング待ちを含むため、「完了を1回だけ知らせる」
+# 用途に限る。取込(modShelf)と同期(modShelfSync)の完了通知だけが該当する。
+R1_TOAST_ALLOWED_MODULES = {"modShelf", "modShelfSync"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
@@ -1519,6 +1534,8 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
     if cur_layer is None or cur_layer == LAYER_TEST:
         return  # 分類不能・テスト層は依存順序の対象外
 
+    self_name = module_name_for_display(info)
+
     for lineno, stmt in info.statements:
         for m in DOTTED_REF_PATTERN.finditer(stmt):
             prefix, member = m.group(1), m.group(2)
@@ -1527,7 +1544,7 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
             target = known_modules.get(prefix)
             if target is None or target.layer is None:
                 continue
-            if prefix == module_name_for_display(info):
+            if prefix == self_name:
                 continue
 
             if cur_layer == LAYER_OPT:
@@ -1552,8 +1569,7 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     # ShowProgress/HideProgress(R10-5): 取込中の進捗バナー。
                     # SetStageと同じ「UIへ実況を伝えるだけ」の通知コールバックで、
                     # ShowProgress自体が内部でSetStageを呼ぶ薄いラッパーのため、
-                    # 既存のSetStage例外と同列に扱う。ShowToast(R10-5): 取込/同期の
-                    # 完了1回だけを知らせる非ブロッキング通知(連呼はしない)。
+                    # 既存のSetStage例外と同列に扱う。
                     if cur_layer == LAYER_MID and (prefix, member) in (
                         ("modUIMain", "SetStage"),
                         ("modUIMain", "RenderSourcesPreview"),
@@ -1561,8 +1577,17 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                         ("modUIMain", "ShowProgress"),
                         ("modUIMain", "HideProgress"),
                         ("modUIShelf", "RenderShelf"),
-                        ("modSkin", "ShowToast"),
                     ):
+                        continue
+                    # ShowToast(R10-5、R10cのL5で絞り込み): 取込/同期の【完了
+                    # 1回だけ】を知らせる非ブロッキング通知。ShowToastは表示に
+                    # 1.1秒のブロッキング待ちを含むため、「お待ちください」等の
+                    # 常用へ広がると待ち時間が積み上がる(R10cのM3で modUiLock
+                    # から撤去したのがまさにその事故)。完了通知を出す2モジュール
+                    # に限定し、他所へ広がったらLintで止める。
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modSkin", "ShowToast")
+                            and self_name in R1_TOAST_ALLOWED_MODULES):
                         continue
                     info.add(
                         "ERROR", lineno,

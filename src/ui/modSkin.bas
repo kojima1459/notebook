@@ -374,7 +374,10 @@ Public Sub PaintProgress(ByVal message As String)
     Dim barW As Double: barW = 380
     Dim leftPos As Double, topPos As Double
     leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
-    topPos = ActiveWindow.VisibleRange.Top + 92
+    ' R10c(M4): トースト(nx_toast)も同じ +92 に出るため、取込完了の瞬間だけ
+    ' 2枚が完全に重なり、下になった方の文字が読めなくなっていた。バナーは
+    ' トースト(高さ34)の下へずらす。92 + 34 + 余白4 = 130。
+    topPos = ActiveWindow.VisibleRange.Top + 130
 
     Dim shp As Shape
     Set shp = ws.Shapes("nx_progress")

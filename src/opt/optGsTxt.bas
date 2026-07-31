@@ -46,7 +46,10 @@ Option Explicit
 '     呼ぶからであって、ここには当てはまらない)。
 '   ・戻り値の規約(optVisionの各関数と同じ "#ERR:" 文字列):
 '       成功          : 抽出したテキスト(ページ区切りは改ページ文字のまま)
-'       ほぼ空        : "#ERR:E0303:…" 画像PDF疑い。呼び出し元はOCR経路へ回す
+'       文字層ゼロ    : "#ERR:E0303:…" スキャンPDF確定。呼び出し元は即OCRへ
+'       文字が薄い    : "#ERR:E0302:GS_SPARSE:…" 呼び出し元は Word → Acrobat を
+'                       先に試し、両方失敗したときだけOCR(E0303)へ回す
+'       タイムアウト  : "#ERR:E0302:GS_TIMEOUT:…" 途中まで読めていても採用しない
 '       その他の失敗  : "#ERR:E0302:…" 呼び出し元は Word → Acrobat へ落ちる
 '   ・失敗を握りつぶさない。CreateObject("WScript.Shell") まで塞がれている
 '     端末があり得るので、GS起動・出力読取で拾ったErr.Number/Descriptionは
@@ -59,6 +62,13 @@ Option Explicit
 Private Const OUT_TXT_NAME As String = "gstext.txt"
 Private Const ERR_302 As String = "#ERR:E0302:"
 Private Const ERR_303 As String = "#ERR:E0303:"
+
+' R10c: 呼び出し元(modExtractor)が挙動を変える必要のある2つの失敗だけ、
+' E0302系のうちに識別用トークンを立てる。どちらも「Word/Acrobatへ譲る」点は
+' 通常のE0302と同じで、SPARSE だけが「Word/Acrobatも失敗したらE0303へ」と
+' 最終コードを変える。文言の先頭に置くのでSafeLeftで落ちない。
+Private Const TOKEN_TIMEOUT As String = "#ERR:E0302:GS_TIMEOUT:"
+Private Const TOKEN_SPARSE As String = "#ERR:E0302:GS_SPARSE:"
 
 Public Function Ping() As Boolean
     Ping = True
@@ -87,6 +97,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     Dim gsErrDesc As String
     Dim finished As Boolean
     Dim txt As String
+    Dim verdict As String
 
     folderPath = ""
     outTxt = ""
@@ -136,6 +147,22 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     End If
 
     finished = WaitForDoneFlag(flagPath, waitSec)
+
+    ' R10c(H1): タイムアウトは【失敗】。完了フラグが出ていない間、GSはまだ
+    ' 出力txtを書いている途中なので、その時点で40字以上読めたとしても
+    ' 「本文の途中まで」でしかない。採用すると資料が黙って欠けたまま本棚に
+    ' 入り、以後の回答が虫食いの本文に基づくものになる(誰も気付けない)。
+    ' Word→Acrobat連鎖へ譲るため E0302 系トークンで返す。
+    If Not finished Then
+        modUIMain.SetStage ""
+        CleanupTxtFolder folderPath, outTxt
+        modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
+            "GS_TIMEOUT " & waitSec & "秒以内に完了フラグが出ませんでした " & path, 2000)
+        ExtractPdfTextNoOcr = TOKEN_TIMEOUT & "PDFからの文字取り出しが" & waitSec & _
+            "秒以内に終わりませんでした。"
+        Exit Function
+    End If
+
     txt = ReadUtf8Text(outTxt, gsErrNum, gsErrDesc)
 
     modUIMain.SetStage ""
@@ -148,16 +175,23 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
 
     If LenB(txt) = 0 Then
         modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
-            "txtwrite出力を読めず finished=" & finished & " err#" & gsErrNum & _
-            ": " & gsErrDesc & " " & path, 2000)
+            "txtwrite出力を読めず err#" & gsErrNum & ": " & gsErrDesc & " " & path, 2000)
         ExtractPdfTextNoOcr = ERR_302 & "PDFから文字を取り出せませんでした" & _
-            "(変換が終わらなかったか、出力を読めませんでした)。"
+            "(出力ファイルを読めませんでした)。"
         Exit Function
     End If
 
-    If optOcrCore.GsTextVerdict(CleanTextLen(txt)) = "image" Then
+    ' R10c(M1/M2): 採否は3値。文字層ゼロ(image)は即OCRへ、薄すぎる(sparse)は
+    ' Word/Acrobatに先を譲り、両方失敗したときだけ呼び出し元がOCRへ回す。
+    verdict = optOcrCore.GsTextVerdict(optOcrCore.CleanTextLen(txt), _
+                                       optOcrCore.GsPageCount(txt))
+    If verdict = "image" Then
         ExtractPdfTextNoOcr = ERR_303 & "このPDFには文字データがほとんど入って" & _
             "いません(画像として保存されたPDFとみられます)。"
+        Exit Function
+    ElseIf verdict = "sparse" Then
+        ExtractPdfTextNoOcr = TOKEN_SPARSE & "このPDFの文字データはページ数に対して" & _
+            "薄すぎます(" & optOcrCore.GsPageCount(txt) & "ページ)。"
         Exit Function
     End If
 
@@ -315,18 +349,3 @@ Private Function FolderExists(ByVal p As String) As Boolean
     On Error GoTo 0
 End Function
 
-' 空白類(半角/全角スペース・タブ・改行・改ページ)を除いた文字数。
-' txtwriteは画像PDFに対しても改ページ文字だけは律儀に書き出すので、素のLenで
-' 判定すると「文字がある」と誤認する。1文字ずつ走査するとページ数の多いPDFで
-' 無駄に重いため、Replaceで落としてから数える。
-Private Function CleanTextLen(ByVal s As String) As Long
-    Dim t As String
-
-    t = Replace(s, vbCr, "")
-    t = Replace(t, vbLf, "")
-    t = Replace(t, vbTab, "")
-    t = Replace(t, Chr$(12), "")
-    t = Replace(t, " ", "")
-    t = Replace(t, ChrW(&H3000), "")
-    CleanTextLen = Len(t)
-End Function

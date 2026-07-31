@@ -391,6 +391,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' R10-5: 手動同期(silent=False)は現行何も出ないため、トーストで1回知らせる。
         ' kind:="success"はShowToast側が自前でChrW(&H2705)を付けるため、文言に
         ' 重ねて絵文字を書かない。
+        ' R10c(M4): 進捗バナーを先に閉じてからトーストを出す(modShelfと同順)。
+        ' 逆順だと1.1秒のあいだ2枚がならび、どちらが今の状態か分からなくなる。
+        ' Finish: の HideProgress は異常系用に残す(二重呼び出しは無害)。
+        modUIMain.HideProgress
         modSkin.ShowToast "同期が完了しました(" & summaryLine & ")", "success"
         On Error GoTo 0
     Else

@@ -331,9 +331,13 @@ End Sub
 '   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。表示部の実体は
 '   modSkin.PaintProgress/ClearProgress(ShowToastの隣に同型で置く)。
 ' ----------------------------------------------------------------------------
+' R10c(M5): 本体を丸ごとOERNで包む。従来は SetStage だけがハンドラの外に
+' あり、状態行の書込みで例外が出ると呼び出し元(取込ループ)の
+' On Error GoTo へ飛んで取込そのものを止めていた。表示は「出せたら出す」
+' 補助であって、失敗が処理を殺してはならない。
 Public Sub ShowProgress(ByVal msg As String)
-    SetStage msg   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
     On Error Resume Next
+    SetStage msg   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
     modSkin.PaintProgress msg
     On Error GoTo 0
 End Sub

@@ -59,10 +59,13 @@ Private Const PAGES_MIN As Long = 1
 Private Const PAGES_MAX As Long = 200
 
 ' txtwrite救済(R10-3)の採否しきい値。空白類を除いた抽出文字数がこれ未満なら
-' 「文字データがほとんど入っていないPDF=画像PDF疑い」とみなしてOCR経路へ回す。
-' テキストPDFなら1ページでも普通は数百字あり、画像PDFのtxtwrite出力は
-' ほぼ0字(埋め込みフォントの断片が数文字混じる程度)になる。
+' 「文字が薄すぎる」とみなす。テキストPDFなら1ページでも普通は数百字ある。
+' R10c(M1/M2): 固定40字だけでは「100ページのスキャンPDFに透明テキストが
+' 50字だけ乗っている」ケースを採用してしまい、OCRへ回らず中身の無い資料が
+' 本棚に入る。ページ数に比例する下限(1ページ10字。modExtractorの既存の
+' 画像PDF判定と同じ係数)と、固定40字の大きい方をしきい値にする。
 Private Const GS_TEXT_MIN_CHARS As Long = 40
+Private Const GS_TEXT_MIN_PER_PAGE As Long = 10
 
 Public Function Ping() As Boolean
     Ping = True
@@ -136,18 +139,93 @@ Public Function BuildGsTextCommand(ByVal gsExe As String, ByVal pdfPath As Strin
 End Function
 
 ' ----------------------------------------------------------------------------
-' GsTextVerdict - txtwriteで抜き出せた文字数から採否を決める(R10-3)。
-'   cleanLen : 空白類(スペース・タブ・改行・改ページ)を除いた抽出文字数の
-'              全ページ合計
-'   戻り値   : "ok"    = テキストPDFとして採用してよい
-'              "image" = ほぼ空。画像PDF疑いなのでOCR経路(E0303)へ回す
+' GsTextVerdict - txtwriteで抜き出せた文字数から採否を決める(R10-3 / R10c)。
+'   cleanLen  : 空白類(スペース・タブ・改行・改ページ)を除いた抽出文字数の
+'               全ページ合計(CleanTextLen の戻り値)
+'   pageCount : 抜き出せたページ数(GsPageCount の戻り値)
+'   戻り値の3値:
+'     "image"  文字層が1文字も無い=スキャンPDF確定。呼び出し元は即E0303
+'              (OCR経路)へ回してよい。Word/Acrobatに渡しても必ず空振りする。
+'     "sparse" 文字はあるがページ数に対して薄すぎる。判断が割れる領域なので
+'              「まずWord/Acrobatに任せ、両方失敗したときだけE0303」に回す。
+'              ・薄い透明テキスト付きスキャンPDF → Word/Acrobatも失敗 → OCRへ
+'              ・表紙だけの短い正当なPDF        → Word/Acrobatが成功 → 救済
+'              R10cの敵対的レビュー M1/M2: 固定40字だけで判定していたため、
+'              100ページのスキャンPDFに透明テキストが50字乗っているだけの
+'              資料を「本文あり」として取り込んでいた(中身の無い資料が
+'              本棚に入り、検索の邪魔にしかならない)。
+'     "ok"     テキストPDFとして採用してよい。
+'   しきい値は Max(GS_TEXT_MIN_CHARS, pageCount × GS_TEXT_MIN_PER_PAGE)。
+'   後者の係数10は modExtractor の既存の画像PDF判定(総文字数 < ページ数×10)
+'   と同じで、2箇所で別々の常識を持たないようにしている。
 ' ----------------------------------------------------------------------------
-Public Function GsTextVerdict(ByVal cleanLen As Long) As String
-    If cleanLen >= GS_TEXT_MIN_CHARS Then
+Public Function GsTextVerdict(ByVal cleanLen As Long, ByVal pageCount As Long) As String
+    If cleanLen <= 0 Then
+        GsTextVerdict = "image"
+        Exit Function
+    End If
+
+    Dim need As Long: need = GS_TEXT_MIN_CHARS
+    Dim byPage As Long: byPage = 0
+    If pageCount > 0 Then byPage = pageCount * GS_TEXT_MIN_PER_PAGE
+    If byPage > need Then need = byPage
+
+    If cleanLen >= need Then
         GsTextVerdict = "ok"
     Else
-        GsTextVerdict = "image"
+        GsTextVerdict = "sparse"
     End If
+End Function
+
+' ----------------------------------------------------------------------------
+' CleanTextLen - 空白類(半角/全角スペース・タブ・改行・改ページ)を除いた
+'   文字数(R10cで optGsTxt から移設。純ロジックなのでここが正しい置き場)。
+'   txtwriteは画像PDFに対しても改ページ文字だけは律儀に書き出すので、素のLenで
+'   判定すると「文字がある」と誤認する。1文字ずつ走査するとページ数の多いPDFで
+'   無駄に重いため、Replaceで落としてから数える。
+' ----------------------------------------------------------------------------
+Public Function CleanTextLen(ByVal s As String) As Long
+    Dim t As String
+
+    t = Replace(s, vbCr, "")
+    t = Replace(t, vbLf, "")
+    t = Replace(t, vbTab, "")
+    t = Replace(t, Chr$(12), "")
+    t = Replace(t, " ", "")
+    t = Replace(t, ChrW(&H3000), "")
+    CleanTextLen = Len(t)
+End Function
+
+' ----------------------------------------------------------------------------
+' GsPageCount - txtwrite出力が実質何ページ分あるかを数える(R10c)。
+'   改ページ文字 Chr(12) で割り、先頭側・末尾側の空ページ(空白類だけの要素)を
+'   落とした残りの件数を返す。中身が全く無ければ0。
+'   modExtractor.BuildPagesFromGsText と【同じ規約】でなければならない
+'   (あちらはExtractedPage配列を組むためコア層に置かざるを得ず、R2により
+'   optOcrCoreを直接呼べない)。両者がズレるとGsTextVerdictの分母と実際の
+'   ページ数が食い違うので、modTestsPure6 で突き合わせテストを固定してある。
+' ----------------------------------------------------------------------------
+'   空判定に Trim$ は使わない: VBAのTrim$は半角スペースしか落とさないため、
+'   改行だけのページ(GSが白紙ページに対して吐く典型)を「中身あり」と数えて
+'   しまう。CleanTextLen と同じ「空白類を全部落として残るか」で判定する。
+Public Function GsPageCount(ByVal txt As String) As Long
+    If CleanTextLen(txt) = 0 Then Exit Function   ' 全体が空白類だけ=0ページ
+
+    Dim parts() As String: parts = Split(txt, Chr$(12))
+    Dim firstIdx As Long: firstIdx = LBound(parts)
+    Dim lastIdx As Long: lastIdx = UBound(parts)
+
+    ' 上の早期returnにより、必ずどこかに中身のあるページがある=ループは必ず解ける。
+    Do While firstIdx < lastIdx
+        If CleanTextLen(parts(firstIdx)) > 0 Then Exit Do
+        firstIdx = firstIdx + 1
+    Loop
+    Do While lastIdx > firstIdx
+        If CleanTextLen(parts(lastIdx)) > 0 Then Exit Do
+        lastIdx = lastIdx - 1
+    Loop
+
+    GsPageCount = lastIdx - firstIdx + 1
 End Function
 
 ' 一時フォルダのフルパス(例: C:\Users\x\AppData\Local\Temp\nxocr_20260731_101112_437)。

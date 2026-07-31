@@ -396,6 +396,9 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function ResetGsGuidance() As String
     mGsGuidanceShown = False
+    ' R10c(L6): カードの結果も一緒に戻す。残したままだと次にE0303が出たとき、
+    ' err_logのdetailに前回の card=cancel 等が載って調査を誤らせる。
+    mGsCardState = ""
     ResetGsGuidance = ""
 End Function
 
