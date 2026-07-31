@@ -238,8 +238,18 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ArchiveCurrent - 今ある pack.xlsx を _archive へ退避する。
 '   戻り値 = 退避したファイル名(無ければ空)。発行の前に必ず呼ぶ。
+'
+'   outFailed(2026-07-31 R11-A C3): 「退避すべき旧版が実在したのに退避
+'   できなかった」ときだけ True。旧実装は失敗も「旧版なし」も同じ空文字で
+'   返していたため、退避に失敗しても発行はそのまま進み、pack.xlsx が
+'   上書きされて【戻せる版が消えた】。発行画面が利用者に約束している
+'   「まちがえても前の版に戻せます」が黙って不履行になる経路だった。
+'   共有フォルダを準備できなかった場合(d が空)は失敗として扱わない。
+'   その場合はこの後の配置も必ず失敗し、旧版は上書きされないため。
 ' ----------------------------------------------------------------------------
-Public Function ArchiveCurrent(ByVal chName As String) As String
+Public Function ArchiveCurrent(ByVal chName As String, _
+                               Optional ByRef outFailed As Boolean = False) As String
+    outFailed = False
     On Error Resume Next
     Dim d As String: d = PrepareDir(chName)
     If LenB(d) = 0 Then Exit Function
@@ -247,12 +257,30 @@ Public Function ArchiveCurrent(ByVal chName As String) As String
 
     Dim stamp As String: stamp = Format$(Now, "yyyymmdd-hhnnss")
     Dim dest As String: dest = d & ARCHIVE_DIR & "\pack_" & stamp & ".xlsx"
+    Err.Clear
     FileCopy d & PACK_NAME, dest
-    If LenB(Dir(dest)) > 0 Then ArchiveCurrent = "pack_" & stamp & ".xlsx"
+    Dim copyErr As String: copyErr = "err#" & Err.Number & " " & Err.Description
+    Err.Clear
+    If LenB(Dir(dest)) > 0 Then
+        ArchiveCurrent = "pack_" & stamp & ".xlsx"
+    Else
+        outFailed = True
+        modLog.LogError "E0808", "modPublish.ArchiveCurrent", _
+            "旧版の退避に失敗(戻せる版が作れていない): " & _
+            modUtil.SafeLeft(dest, 200) & " / " & copyErr
+    End If
 
     ' version.txt も同じ名前で残す(巻き戻しで版番号ごと戻すため)。
     If LenB(Dir(d & VER_NAME)) > 0 Then
+        Err.Clear
         FileCopy d & VER_NAME, d & ARCHIVE_DIR & "\ver_" & stamp & ".txt"
+        If Err.Number <> 0 Then
+            ' 巻き戻しは pack_*.xlsx だけで成立する(Rollback は版番号を
+            ' 新しく書き直す)ので、ここの失敗では中止しない。記録は残す。
+            modLog.LogUsage "publish_archive_ver_fail", chName, _
+                "err#" & Err.Number & " " & Err.Description
+            Err.Clear
+        End If
     End If
     On Error GoTo 0
 End Function

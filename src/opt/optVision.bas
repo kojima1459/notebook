@@ -266,8 +266,16 @@ End Function
 '   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、複数枚を
 '     まとめて渡すとページ境界が崩れて出典ページ番号が信用できなくなるため
 '     v1では使わない。ページ番号を保ったまま束ねる方法が確立できたら再検討する。
+'
+'   silent(2026-07-31 R11-A C4): True=無人経路(フォルダ同期・起動時同期)。
+'     Ghostscript が見つからないときの案内カード(MsgBox+フォルダ選択)を
+'     出さず、静かな解決だけを行う。誰も見ていない画面でモーダルが開くと
+'     同期はそこで止まり、翌朝まで誰も気付けない。呼び出しは
+'     modShelfVision→modFeatures.InvokeFeature 経由(Application.Run)なので
+'     省略可能な引数にしてある(省略時=従来どおり案内を出す)。
 ' ============================================================================
-Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
+Public Function ExtractPdfOcrPagedText(ByVal path As String, _
+                                       Optional ByVal silent As Boolean = False) As String
     Dim folderPath As String: folderPath = ""
 
     On Error GoTo Fail
@@ -285,7 +293,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
         Exit Function
     End If
 
-    Dim gsExe As String: gsExe = ResolveGsExe()
+    Dim gsExe As String: gsExe = ResolveGsExe(silent)
     If LenB(gsExe) = 0 Then
         ' R10-2: 「GS未検出」は実機初報Aの本体だが従来は完全無言だった。
         ' 候補パス・案内カードの状態を必ずerr_logへ残す(観測性ゼロの解消)。
@@ -466,8 +474,11 @@ End Function
 '   (4) 見つからない場合: 1回きりの案内カード→フォルダ選択→即続行
 '   候補の組み立ては optOcrCore.GsCandidatePaths(純ロジック)、実在確認は
 '   ここ(Dir$)。解決済みパスはセッション内(モジュール変数)にキャッシュする。
+'   silent=True(無人経路。R11-A C4)のときは (4) を丸ごと飛ばし、(1)-(3) の
+'   静かな解決だけを行う。「1回きり」の権利(mGsGuidanceShown)も消費しない
+'   ため、あとで人が手動で取り込んだときに案内カードは従来どおり出る。
 ' ----------------------------------------------------------------------------
-Private Function ResolveGsExe() As String
+Private Function ResolveGsExe(ByVal silent As Boolean) As String
     If mGsResolved Then
         ResolveGsExe = mGsExeCache
         Exit Function
@@ -486,6 +497,17 @@ Private Function ResolveGsExe() As String
     '     mGsResolvedはTrueにしない: config書き換え・フォルダ設置が後から
     '     行われた場合に、次回呼び出しで(3)までを毎回再チェックできるように
     '     しておくため(ダイアログさえ出さなければ再探索自体は軽い)。
+    If silent Then
+        ' 無人経路。ダイアログは出さず、何が起きたかだけ残す(呼び出し元は
+        ' このあと E0303 を err_log へ書き、資料は image_pdf として残る)。
+        mGsCardState = "skip_silent"
+        On Error Resume Next
+        modLog.LogUsage "gs_guidance_card", mGsCardState, _
+            "無人の取込のため Ghostscript の案内は出しませんでした"
+        On Error GoTo 0
+        Exit Function
+    End If
+
     If Not mGsGuidanceShown Then
         mGsGuidanceShown = True
         Dim viaCard As String

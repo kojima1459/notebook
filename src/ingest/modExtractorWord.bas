@@ -2,14 +2,20 @@ Attribute VB_Name = "modExtractorWord"
 Option Explicit
 
 ' 文書の開き方。
-'   1 = 自分でWordを起動(非表示) + パスワード引数
-'   2 = 自分でWordを起動(非表示)
-'   3 = 自分でWordを起動(表示)
+'   1 = Wordを用意(非表示) + パスワード引数
+'   2 = Wordを用意(非表示)
+'   3 = Wordを用意(表示)
 '   4 = 既に起動しているWordへ相乗りする(GetObject。自分では起動しない)
+' 1-3 も「起動中のWordがあればそれに相乗りする」(R11-A C2。AttachOrCreateWord
+' のコメント参照)。相乗りになった場合は表示状態を触らず Quit もしないため、
+' 実際の振る舞いは 4 と同じになる(違いは Documents.Open の引数だけ)。
 ' 実機で通った開き方をセッション中おぼえておく(0=未確定)。
 Private mPreferredMode As Long
 Private Const OPEN_MODE_MAX As Long = 4
 Private Const MODE_ATTACH As Long = 4
+' DisplayAlerts の元値を控えられなかった印(WdAlertLevel に無い値を使う。
+' wdAlertsNone=0 / wdAlertsAll=-1 / wdAlertsMessageBox=-2 のため負値も有効値)。
+Private Const ALERTS_UNSET As Long = -999
 
 ' どのCOM呼び出しで落ちたかを表す段階名(err_log / usage_log に出す)。
 ' 実機でしか再現しない失敗を、次に推測ではなく事実から追うための手掛かり。
@@ -179,8 +185,16 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
         Set word = GetObject(, "Word.Application")
         ownsApp = False
     Else
-        Set word = CreateObject("Word.Application")
-        ownsApp = True
+        Set word = AttachOrCreateWord(ownsApp)
+        If Not ownsApp Then
+            ' 相乗りになったことを1行残す(実機で「開き方1なのに終了して
+            ' いない」を後から説明できるようにするため)。
+            On Error Resume Next
+            modLog.LogUsage "word_attach_existing", "", _
+                "開き方" & openMode & ": 起動中のWordが見つかったため相乗りしました" & _
+                "(このWordは終了しません)"
+            On Error GoTo Failed
+        End If
     End If
 
     ' 開き方は openMode で切り替える(Extract のコメント参照)。
@@ -192,6 +206,16 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Else
         ' 相乗り先は利用者のWord。表示状態は触らない(勝手に隠したら事故)。
         showWord = True
+    End If
+    ' R11-A C2: 相乗り先の DisplayAlerts は必ず元へ戻す(下の Cleanup)。
+    ' wdAlertsNone のまま返すと、そのWordはこのあと利用者が文書を閉じる
+    ' ときの「保存しますか?」まで出さなくなり、編集が黙って消える。
+    Dim prevAlerts As Long: prevAlerts = ALERTS_UNSET
+    If Not ownsApp Then
+        On Error Resume Next
+        prevAlerts = word.DisplayAlerts
+        Err.Clear
+        On Error GoTo Failed
     End If
     word.DisplayAlerts = 0   ' wdAlertsNone
 
@@ -276,7 +300,7 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Next i
 
     stepName = STEP_CLOSE
-    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc
+    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc, prevAlerts
 
     pages = tmp
     TryExtractOnce = True
@@ -292,8 +316,41 @@ Failed:
     ' エラー文脈を持つので、Cleanup 内の On Error Resume Next は正しく働く。
     ' 2026-07-30 実機: この上書きで err#462 だけが記録され、開き方の
     ' フォールバックもPDFのAcrobatフォールバックも一度も走っていなかった。
-    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc
+    Cleanup doc, word, ownsApp, prevSecurity, ownsDoc, prevAlerts
     TryExtractOnce = False
+End Function
+
+' ----------------------------------------------------------------------------
+' AttachOrCreateWord - 使えるWordを1つ用意し、それを自分が起動したのかを返す。
+' ----------------------------------------------------------------------------
+'   【2026-07-31 R11-A C2・データ喪失の封鎖】
+'   Word.Application は単一インスタンスのCOMサーバである。利用者がWordを
+'   開いていると CreateObject は新しいWordを起こさず【その利用者のWord】を
+'   返す。旧実装は CreateObject の戻りを無条件に「自分が起動したWord」と
+'   みなして ownsApp=True にしていたため、後始末の word.Quit で利用者が
+'   編集中の文書ごとWordを閉じてしまう経路があった(未保存分は消える)。
+'   所有者かどうかは推定してよい事柄ではないので、先に GetObject で
+'   「すでに動いているWordがあるか」という事実を確かめる。
+'   取れたら相乗り(ownsApp=False。表示状態を変えず、Quitもしない)。
+'   取れない(429)ときだけ CreateObject して ownsApp=True にする。
+'   CreateObject が失敗したときは例外を呼び出し元(TryExtractOnce の
+'   Failed ハンドラ)へそのまま渡す。ここで握り潰すと STEP_CREATE の
+'   フォールバック連鎖(起動できない端末 → 相乗りへ直行)が働かなくなる。
+Private Function AttachOrCreateWord(ByRef ownsApp As Boolean) As Object
+    Dim running As Object
+    On Error Resume Next
+    Set running = GetObject(, "Word.Application")
+    Err.Clear
+    On Error GoTo 0
+
+    If Not running Is Nothing Then
+        ownsApp = False
+        Set AttachOrCreateWord = running
+        Exit Function
+    End If
+
+    ownsApp = True
+    Set AttachOrCreateWord = CreateObject("Word.Application")
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -301,14 +358,16 @@ End Function
 '   稼働中のエラーハンドラから呼ばれる前提のため、必ず別プロシージャに置く
 '   (同一プロシージャ内の On Error Resume Next は効かない)。
 '   ownsApp=False は利用者のWordへ相乗りした場合。Quit してはいけないので
-'   自分が開いた文書だけ閉じ、変更した設定を元へ戻す。
+'   自分が開いた文書だけ閉じ、変更した設定(AutomationSecurity /
+'   DisplayAlerts)を元へ戻す。prevAlerts=ALERTS_UNSET は控えが取れなかった
+'   場合で、そのときは触らない(適当な値を書き戻す方が害が大きい)。
 '   ownsDoc=False は「開く前から開かれていた文書」(レビュー4-D)。
 '   doc.Close 0 は wdDoNotSaveChanges なので、閉じた瞬間に利用者の
 '   未保存の編集が消える。自分が開いた文書だけを閉じる。
 ' ----------------------------------------------------------------------------
 Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
                     ByVal ownsApp As Boolean, ByVal prevSecurity As Long, _
-                    ByVal ownsDoc As Boolean)
+                    ByVal ownsDoc As Boolean, ByVal prevAlerts As Long)
     On Error Resume Next
     If ownsDoc Then
         If Not doc Is Nothing Then doc.Close 0   ' wdDoNotSaveChanges
@@ -316,9 +375,27 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
     Set doc = Nothing
     If Not app Is Nothing Then
         If ownsApp Then
-            app.Quit 0
-        ElseIf prevSecurity >= 0 Then
-            app.AutomationSecurity = prevSecurity
+            ' R11-A C2: 自分で起動したはずのWordでも、終了する前に「本当に
+            ' 空か」を確かめる。自分の文書を閉じた後に文書が残っているなら、
+            ' それは利用者が同じWordで開いているものなので、閉じてはいけない
+            ' (Quit は未保存の編集の破棄をその場で確定させる)。
+            Dim remain As Long: remain = -1
+            remain = app.Documents.count
+            If remain > 0 Then
+                modLog.LogUsage "word_quit_skipped", "", _
+                    "Wordに文書が" & remain & "件残っているため終了しませんでした" & _
+                    "(利用者が使用中の可能性)"
+            Else
+                If remain < 0 Then
+                    modLog.LogUsage "word_doc_count_unknown", "", _
+                        "Wordの文書数を確認できないまま終了しました"
+                End If
+                app.Quit 0
+            End If
+        Else
+            If prevSecurity >= 0 Then app.AutomationSecurity = prevSecurity
+            ' 相乗り先のWordへ、こちらが変えた DisplayAlerts を返す。
+            If prevAlerts <> ALERTS_UNSET Then app.DisplayAlerts = prevAlerts
         End If
     End If
     Set app = Nothing

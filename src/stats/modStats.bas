@@ -470,11 +470,18 @@ Private Sub SetStatValue(ByVal key As String, ByVal value As Variant)
 End Sub
 
 Private Function GetStatValueString(ByVal key As String) As String
+    ' 2026-07-31(R11-A): セルがエラー値(#REF!/#N/A等)だと CStr は型不一致で
+    ' 落ちる。ここは失効判定(modGuard.EnforceExpiry)の材料を読む経路でもあり、
+    ' 呼び出し側が On Error Resume Next で握っていると【値が取れなかったこと】
+    ' に気付けないまま先へ進む。読めない値は空文字として返し切る。
+    On Error Resume Next
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_STATS)
     If ws Is Nothing Then Exit Function
     Dim r As Long: r = FindKeyRow(ws, key)
     If r = 0 Then Exit Function
-    GetStatValueString = CStr(ws.Cells(r, 2).Value)
+    Dim v As Variant: v = ws.Cells(r, 2).Value
+    If IsError(v) Then Exit Function
+    GetStatValueString = CStr(v)
 End Function
 
 Private Function FindKeyRow(ByVal ws As Worksheet, ByVal key As String) As Long

@@ -131,7 +131,10 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         ' 判断ごと modShelfVision が引き受ける(2026-07-31 R6)。上限ページで
         ' 打ち切られた場合は pagesTruncated が立ち、下の partial 判定へ合流する。
         Dim visionNote As String
-        If modShelfVision.TryVisionFallback(path, errCode, pages, pagesTruncated, visionNote) Then
+        ' silent をそのまま渡す(R11-A C4)。無人のフォルダ同期から
+        ' Ghostscript の案内ダイアログが出ると、そこで同期が止まる。
+        If modShelfVision.TryVisionFallback(path, errCode, pages, pagesTruncated, _
+                                            visionNote, silent) Then
             extractOk = True
         Else
             Dim failStatus As String

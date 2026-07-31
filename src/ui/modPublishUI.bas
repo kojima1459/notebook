@@ -41,7 +41,11 @@ Public Sub OnPublish()
         "発行する部門名を入力してください(例: 商品部)。" & vbCrLf & _
         "※ 更新するときも、前と同じ名前を入れてください。", _
         modAppDef.APP_NAME & " - 正典を発行"))
-    If LenB(chName) = 0 Then GoTo Done
+    ' 2026-07-31(R11-A C3): 取りやめの経路は Done: ではなく DoneCleanup0 へ
+    ' 直行する。Done: の Resume は「エラーが起きていない」状態で実行すると
+    ' 実行時エラー20を起こし、【取りやめただけなのに例外扱い】になるため
+    ' (Done: に例外の通知を足した結果、その違いが表に出るようになった)。
+    If LenB(chName) = 0 Then GoTo DoneCleanup0
 
     If Not modPublish.VerifyKey(InputBox( _
             "発行キーを入力してください。" & vbCrLf & _
@@ -113,7 +117,7 @@ Public Sub OnPublish()
 
     Dim ans As VbMsgBoxResult
     ans = MsgBox(msg, vbYesNoCancel + vbQuestion, modAppDef.APP_NAME & " - 発行の確認")
-    If ans = vbCancel Then GoTo Done
+    If ans = vbCancel Then GoTo DoneCleanup0
     If ans = vbNo Then
         modUiLock.Leave
         ' DoRollback は内部で自分のロックを取り直す(レビュー M-21)。
@@ -166,12 +170,21 @@ Public Sub OnPublish()
     stage = modPublish.StagePackPath(chName)
     On Error GoTo Done
     If LenB(stage) = 0 Then stage = dest      ' %TEMP%が引けない環境は従来どおり
+    Dim arcFailed As Boolean
     If stage = dest Then
         ' 共有へ直接書く従来経路。書き出しの前に旧版を退避しておかないと
         ' 巻き戻し先が消える。
         On Error Resume Next
-        modPublish.ArchiveCurrent chName
+        modPublish.ArchiveCurrent chName, arcFailed
         On Error GoTo Done
+        ' 2026-07-31(R11-A C3): 退避に失敗したまま進めると、発行画面で
+        ' 約束した「前の版に戻せます」が果たせなくなる。黙って進めない。
+        If arcFailed Then
+            If Not ConfirmArchiveFailure() Then
+                AbortPublish chName, stage, dest
+                Exit Sub
+            End If
+        End If
     End If
 
     On Error Resume Next
@@ -192,7 +205,20 @@ Public Sub OnPublish()
         ' (書き出しに失敗したときに旧版を動かさないため)。
         On Error Resume Next
         Application.StatusBar = "【" & chName & "】を共有フォルダへ置いています..."
-        modPublish.ArchiveCurrent chName      ' 旧版を退避(戻せるように)
+        modPublish.ArchiveCurrent chName, arcFailed   ' 旧版を退避(戻せるように)
+        Application.StatusBar = False
+        On Error GoTo Done
+        ' 据え付ける(=旧版を上書きする)【前】に確認する。ここを通り過ぎた
+        ' あとでは、もう戻せる版は残っていない(R11-A C3)。
+        If arcFailed Then
+            If Not ConfirmArchiveFailure() Then
+                AbortPublish chName, stage, dest
+                Exit Sub
+            End If
+        End If
+
+        On Error Resume Next
+        Application.StatusBar = "【" & chName & "】を共有フォルダへ置いています..."
         ok = modPublish.CommitPack(chName, stage)
         Application.StatusBar = False
         On Error GoTo Done
@@ -237,6 +263,12 @@ Public Sub OnPublish()
     End If
     Exit Sub
 Done:
+    ' 2026-07-31(R11-A C3): 例外でここへ来た場合、従来は後始末だけして
+    ' 【完全に無言で】終わっていた。押した人から見れば「発行を押したのに
+    ' 何も起きない」で、err_log にも1行も残らない(憲章§3-1/§4-1違反)。
+    ' Resume はハンドラを抜けると同時に Err を消すので、先に控えておく。
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
@@ -253,6 +285,55 @@ DoneCleanup0:
     End If
     On Error GoTo 0
     modUiLock.Leave
+
+    ' 例外で中断したときだけ、記録と通知を必ず出す。
+    ' failNum=20 は「エラーが起きていないのに Resume した」ときの番号で、
+    ' 取りやめの経路が Done: を踏んだ場合にだけ出る自作自演の値。
+    ' 利用者の操作は正常なので通知しない(取りやめの経路自体も
+    ' DoneCleanup0 直行に変えてあるが、二重の安全弁として残す)。
+    If failNum <> 0 And failNum <> 20 Then
+        On Error Resume Next
+        modLog.LogError "E0808", "modPublishUI.OnPublish", _
+            "発行の処理が例外で中断: " & modUtil.SafeLeft(failDesc, 300), failNum
+        On Error GoTo 0
+        MsgBox modLog.FriendlyMessage("E0808") & vbLf & "(コード: E0808)" & vbLf & vbLf & _
+               "「診断」ボタン" & ChrW(&H2192) & "「直近のエラーをコピー」で、" & _
+               "詳しい情報をそのまま担当者に送れます。", _
+               vbExclamation, modAppDef.APP_NAME
+    End If
+End Sub
+
+' ----------------------------------------------------------------------------
+' ConfirmArchiveFailure - 旧版の退避に失敗したときの確認(R11-A C3)。
+'   True = 戻せなくなることを承知のうえで発行を続ける。
+' ----------------------------------------------------------------------------
+Private Function ConfirmArchiveFailure() As Boolean
+    ConfirmArchiveFailure = (MsgBox( _
+        "以前の版の控え(アーカイブ)を保存できませんでした。" & vbCrLf & vbCrLf & _
+        "このまま発行すると前の版に戻せません。" & vbCrLf & vbCrLf & _
+        "・共有フォルダの空き容量と書き込み権限" & vbCrLf & _
+        "・社内ネットワーク(VPN)への接続" & vbCrLf & _
+        "をご確認のうえ、あとでやり直すこともできます。" & vbCrLf & vbCrLf & _
+        "続行しますか?", vbYesNo + vbExclamation, _
+        modAppDef.APP_NAME & " - 前の版の控えを保存できません") = vbYes)
+End Function
+
+' ----------------------------------------------------------------------------
+' AbortPublish - 発行を取りやめて後始末する(R11-A C3)。
+'   stage が共有の本番パス(dest)と同じときは消してはいけない。それは
+'   いま配られている正典そのもので、消すと全員の受け取り先が無くなる。
+' ----------------------------------------------------------------------------
+Private Sub AbortPublish(ByVal chName As String, ByVal stage As String, ByVal dest As String)
+    On Error Resume Next
+    If LenB(stage) > 0 And stage <> dest Then Kill stage
+    Application.Cursor = -4143
+    Application.StatusBar = False
+    modPublish.ReleaseLock chName
+    mLockedChannel = ""
+    On Error GoTo 0
+    modUiLock.Leave
+    MsgBox "発行を取りやめました。前の版はそのまま残っています。", _
+           vbInformation, modAppDef.APP_NAME
 End Sub
 
 ' 直前の版に戻す。事故を止める最終手段なので、操作は最短手数にする。

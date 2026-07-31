@@ -197,10 +197,22 @@ Public Function EnforceExpiry() As Boolean
     '      → 予告を出した記録が無ければ、まず予告だけ出して1回見送る。
     Dim lastReach As String: lastReach = LastReachRaw()
     Dim d As Long: d = DaysSinceReach()
+    Err.Clear
     Dim act As String
     act = modShareRule.ExpiryDecision(lastReach, d, limitDays, _
                                       modStats.GetStatText(WARNED_KEY), _
                                       modStats.GetStatText(WIPED_KEY))
+    ' 2026-07-31(R11-A): 判定材料(config・my_stats・判定式)の取得が失敗しても、
+    ' この関数は冒頭の On Error Resume Next で黙って先へ進む。act は空のまま
+    ' になり、下のホワイトリスト(act<>"wipe" なら何もしない)で消去は
+    ' 防がれるが、【なぜ判定できなかったのか】がどこにも残らない。
+    ' 失効判定はデータ喪失に直結する処理なので、材料が欠けたことは必ず残す。
+    If Err.Number <> 0 Then
+        modLog.LogUsage "guard_material_fail", "", _
+            "失効判定の材料を取得できませんでした(err#" & Err.Number & " " & _
+            Err.Description & ")。判定結果=" & act
+        Err.Clear
+    End If
 
     ' 2026-07-31(レビュー R8 F4・データ喪失): 【一度も共有へ到達した記録が
     ' 無い端末は、絶対に消さない】。
@@ -262,14 +274,25 @@ Public Function EnforceExpiry() As Boolean
 
     ' 知識だけを消す。
     Dim removed As Long
-    removed = WipeKnowledge()
+    Dim leftRows As Long
+    removed = WipeKnowledge(leftRows)
     modStats.SetStatText WIPED_KEY, modUtil.NowStamp()
-    modLog.LogUsage "guard_wipe", "", "days=" & d & " removed=" & removed
-    MsgBox "社内ネットワークに " & d & " 日間つながらなかったため、" & vbCrLf & _
-           "安全のため取り込んだ知識を消去しました。" & vbCrLf & vbCrLf & _
-           "社内ネットワークに接続して開き直すと、部門チャンネルから" & vbCrLf & _
-           "自動的に取り込み直せます。設定・統計・履歴は残っています。", _
-           vbInformation, modAppDef.APP_NAME
+    modLog.LogUsage "guard_wipe", "", "days=" & d & " removed=" & removed & " left=" & leftRows
+    If leftRows > 0 Then
+        ' 消し切れていないのに「消去しました」と言わない(R11-A)。
+        MsgBox "社内ネットワークに " & d & " 日間つながらなかったため、" & vbCrLf & _
+               "取り込んだ知識の消去を行いましたが、" & vbCrLf & _
+               "一部の資料を消去できませんでした。" & vbCrLf & vbCrLf & _
+               "ファイルを開き直してからもう一度お試しください。" & vbCrLf & _
+               "それでも残る場合は、このツールの管理担当者にご連絡ください。", _
+               vbExclamation, modAppDef.APP_NAME
+    Else
+        MsgBox "社内ネットワークに " & d & " 日間つながらなかったため、" & vbCrLf & _
+               "安全のため取り込んだ知識を消去しました。" & vbCrLf & vbCrLf & _
+               "社内ネットワークに接続して開き直すと、部門チャンネルから" & vbCrLf & _
+               "自動的に取り込み直せます。設定・統計・履歴は残っています。", _
+               vbInformation, modAppDef.APP_NAME
+    End If
     EnforceExpiry = True
     On Error GoTo 0
 End Function
@@ -323,7 +346,8 @@ Public Sub ClearDomainBlockStreak()
 End Sub
 
 ' ----------------------------------------------------------------------------
-Public Function WipeKnowledge() As Long
+Public Function WipeKnowledge(Optional ByRef outLeftRows As Long = 0) As Long
+    outLeftRows = 0
     On Error Resume Next
     Dim wsK As Worksheet, wsV As Worksheet
     Set wsK = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
@@ -378,6 +402,27 @@ Public Function WipeKnowledge() As Long
             Next i
             wsM.Range(wsM.Cells(2, 5), wsM.Cells(lastM, 6)).Value = arr
         End If
+    End If
+
+    ' 2026-07-31(R11-A): 消えたことを確かめてから「消しました」と言う。
+    ' ここは全体が On Error Resume Next のため、シートの保護・行の削除拒否・
+    ' 参照エラーで Delete が空振りしても、そのまま「消去しました」という
+    ' 完了案内だけが出ていた(利用者は消えたと信じるが実際は残っている)。
+    ' 残った行数を数えて呼び出し元へ返し、文言を切り替えられるようにする。
+    Dim leftK As Long, leftV As Long
+    If Not wsK Is Nothing Then
+        leftK = wsK.Cells(wsK.Rows.Count, 1).End(xlUp).Row - 1
+        If leftK < 0 Then leftK = 0
+    End If
+    If Not wsV Is Nothing Then
+        leftV = wsV.Cells(wsV.Rows.Count, 1).End(xlUp).Row - 1
+        If leftV < 0 Then leftV = 0
+    End If
+    outLeftRows = leftK + leftV
+    If outLeftRows > 0 Then
+        modLog.LogUsage "guard_wipe_incomplete", "", _
+            "消去後も行が残っています(my_knowledge=" & leftK & _
+            " / my_vectors=" & leftV & ")。シート保護・削除拒否の可能性。"
     End If
     On Error GoTo 0
 End Function

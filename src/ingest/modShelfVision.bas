@@ -49,11 +49,16 @@ Private Const VISION_FEATURE As String = "vision"
 '   pages     : 成功時に本文を格納する(ページ番号つき)
 '   truncated : 上限ページで打ち切られた場合に True(呼び出し元は partial へ)
 '   outNote   : 失敗時に manifest へ残す利用者向けの説明(空なら既定文を使う)
+'   silent    : True=無人経路(フォルダ同期など)。誰も見ていない画面で
+'               モーダルを出すと、そこで同期が朝まで止まる(R11-A C4)。
+'               opt側へそのまま渡し、案内ダイアログを出さない解決だけを
+'               させる。手動取込(False)では従来どおり案内を出す。
 '   戻り値    : True=pagesに本文が入った / False=救えなかった
 ' ----------------------------------------------------------------------------
 Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String, _
                                   ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
-                                  ByRef outNote As String) As Boolean
+                                  ByRef outNote As String, _
+                                  Optional ByVal silent As Boolean = False) As Boolean
     outNote = ""
 
     Dim isImageFile As Boolean: isImageFile = IsImageFileExt(path)
@@ -72,15 +77,21 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         Exit Function
     End If
 
+    ' OCR経路(ExtractPdfOcrPagedText)だけは silent を渡す。Ghostscript が
+    ' 見つからないときに opt 側が案内カード(モーダル)を出すのはこの経路
+    ' だけで、無人の同期からそれが出ると同期がそこで止まる(R11-A C4)。
     Dim procName As String
+    Dim callArgs As Variant
     If isImageFile Then
         procName = "ExtractImagePdfText"
+        callArgs = path
     Else
         procName = "ExtractPdfOcrPagedText"
+        callArgs = Array(path, silent)
     End If
 
     Dim raw As String
-    raw = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, procName, path))
+    raw = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, procName, callArgs))
 
     If LenB(Trim$(raw)) = 0 Or Left$(raw, 5) = "#ERR:" Then
         outNote = FailureNote(raw, errCode)

@@ -882,9 +882,15 @@ End Sub
 
 ' 保存して(このファイルだけ)閉じる(実機要望: 安全な終了方法が分からない)。
 Public Sub OnSaveAndExit()
+    ' R11-A C1: 取込中は閉じない(閉じると取込中の資料がまるごと消える)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     Dim resp As VbMsgBoxResult
-    resp = MsgBox("保存してこのファイルを閉じますか?", vbYesNoCancel + vbQuestion, modAppDef.APP_NAME)
+    resp = MsgBox("保存してこのファイルを閉じますか?" & vbCrLf & vbCrLf & _
+        "  [はい] 保存して閉じます" & vbCrLf & _
+        "  [いいえ] 保存せずに閉じます(今回取り込んだ資料は消えます)" & vbCrLf & _
+        "  [キャンセル] 閉じずに元の画面へ戻ります", _
+        vbYesNoCancel + vbQuestion, modAppDef.APP_NAME)
     If resp = vbCancel Then
         modUiLock.Leave
         Exit Sub
