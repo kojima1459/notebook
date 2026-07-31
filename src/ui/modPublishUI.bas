@@ -132,11 +132,27 @@ Public Sub OnPublish()
     On Error GoTo Done
     If Not gotLock Then
         modUiLock.Leave
-        MsgBox "いま別の方が【" & chName & "】を発行中です。" & vbCrLf & vbCrLf & _
-               IIf(LenB(holder) > 0, "  発行を始めた方: " & holder & vbCrLf & vbCrLf, "") & _
-               "同時に発行すると内容と版番号が食い違うことがあるため、" & vbCrLf & _
-               "今回は発行しませんでした。数分おいてもう一度お試しください。", _
-               vbExclamation, modAppDef.APP_NAME
+        ' 2026-07-31(C3): 取れなかった理由は2つあり、対処がまるで違う。
+        '   (a) 他の人のロックが実在する(holder が読めている)→ 待てば解ける
+        '   (b) ロックを作れなかった(権限不足・共有断。R8b B2 で False を返す)
+        '       → いくら待っても解けない。権限と接続を見るしかない
+        ' holder が空のまま「いま別の方が発行中です」と出すと、実在しない
+        ' 相手を探して待ち続けることになる(発行担当は1人のことも多く、
+        ' 「自分しかいないのに誰が発行中なのか」で必ず詰まる)。
+        If LenB(holder) > 0 Then
+            MsgBox "いま別の方が【" & chName & "】を発行中です。" & vbCrLf & vbCrLf & _
+                   "  発行を始めた方: " & holder & vbCrLf & vbCrLf & _
+                   "同時に発行すると内容と版番号が食い違うことがあるため、" & vbCrLf & _
+                   "今回は発行しませんでした。数分おいてもう一度お試しください。", _
+                   vbExclamation, modAppDef.APP_NAME
+        Else
+            MsgBox "発行の見張り(publish.lock)を作成できませんでした。" & vbCrLf & vbCrLf & _
+                   "共有フォルダへの書き込み権限と、社内ネットワークへの接続を" & vbCrLf & _
+                   "ご確認のうえ、もう一度お試しください。" & vbCrLf & vbCrLf & _
+                   "安全のため、見張りを置けない状態では発行しません" & vbCrLf & _
+                   "(2人が同時に発行すると、内容と版番号が食い違います)。", _
+                   vbExclamation, modAppDef.APP_NAME
+        End If
         Exit Sub
     End If
     mLockedChannel = chName        ' 失敗経路でも必ず外すための控え

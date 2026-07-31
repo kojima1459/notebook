@@ -388,21 +388,21 @@ Public Sub OnShareSetup()
     If LenB(p) = 0 Then GoTo Done
     If Right$(p, 1) <> "\" Then p = p & "\"
 
-    ' 2026-07-31(レビュー R8 F6): 存在確認を Dir から GetAttr へ揃える。
-    ' Dir にフォルダを渡すと返るのは【そのフォルダの中の最初のエントリ】で、
-    ' 空フォルダでは空文字になる。つまり「共有フォルダを作ったばかりで
-    ' まだ何も入っていない」という、PoC開始直後にいちばん起こる状態で
-    ' 「そのフォルダが見つかりませんでした」と言って設定を拒んでいた。
-    ' 判定式は modShare の到達性プローブと同じものを使う(2箇所で違う答えを
-    ' 出さない)。
+    ' 2026-07-31(レビュー R8 F6 / C1): 存在確認は modShare.ProbePath に一本化する。
+    ' 元は Dir(p, vbDirectory) で見ていたが、Dir にフォルダを渡すと返るのは
+    ' 【そのフォルダの中の最初のエントリ】で、空フォルダでは空文字になる。
+    ' 「共有フォルダを作ったばかりでまだ何も入っていない」という、PoC開始直後に
+    ' いちばん起こる状態で「見つかりませんでした」と言って設定を拒んでいた。
+    '
+    ' C1: ここに判定式のコピーを置いていたため、UNC共有ルート向けの再試行
+    ' (R8b B10)が Reachable() 側にしか入らず、【\\srv\share\ を入力しても
+    ' 保存できない】という片側だけ直った状態になっていた。設定画面で弾かれる
+    ' 以上、Reachable() の再試行には永久に到達しない。判定は必ず同じ関数を通す。
+    Dim reachOk As Boolean
     On Error Resume Next
-    Err.Clear
-    Dim attrVal As Long
-    attrVal = GetAttr(modShareRule.ProbeTargetPath(p))
-    Dim probeErr As Long: probeErr = Err.Number
-    Err.Clear
+    reachOk = modShare.ProbePath(p)
     On Error GoTo Done
-    If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
+    If Not reachOk Then
         modSkin.ShowToast "そのフォルダが見つかりませんでした。パスをご確認ください(設定は変更していません)。", "error"
         GoTo Done
     End If

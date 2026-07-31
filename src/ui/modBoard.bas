@@ -272,9 +272,16 @@ Public Sub PublishBeacon()
     ' スロットルの起点は「実際に書きに行った時刻」。書けたかどうかに関わらず
     ' 進める(届かない共有へ短い間隔で挑み続けないため)。
     mBeaconAt = Timer
-    mLastBeaconData = dataText
-    WriteBeacon folderPath & "stats_" & modUtil.Fnv1a64Hex(myId) & ".txt", _
-                dataText & vbTab & modUtil.NowStamp()
+
+    ' 2026-07-31(C4): 「前回送った中身」は【書けたときだけ】更新する。
+    ' 送る前に更新すると、書込みに失敗したビーコンが「送信済み」扱いになり、
+    ' 次回は中身が同じ = 10分待ちの側へ倒れる。失敗したのに10分間だまって
+    ' 再送しない、が一番まずい(その間の「みんなの節約(今日)」は古いまま)。
+    ' 失敗のままなら中身は前回と違うままなので、60秒後にもう一度挑戦する。
+    If WriteBeacon(folderPath & "stats_" & modUtil.Fnv1a64Hex(myId) & ".txt", _
+                   dataText & vbTab & modUtil.NowStamp()) Then
+        mLastBeaconData = dataText
+    End If
 End Sub
 
 ' RefreshBoardTiles - 要件D(2026-07-30 R3)。modHub.EnsureHubLayoutが

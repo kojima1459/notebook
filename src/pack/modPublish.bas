@@ -135,6 +135,12 @@ Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) A
 
     Select Case modShareRule.PublishLockAction(hasLock, ageMin, LOCK_STALE_MIN)
         Case "wait"
+            ' 2026-07-31(C3): 呼び出し側は outHolder が空かどうかで
+            ' 「他の人が発行中(待てば解ける)」と「ロックを作れなかった
+            '  (待っても解けない)」を区別する。ここは前者なので、
+            ' ロック本文が読めなかった(書込み中でロックされている等)場合でも
+            ' 必ず何かを返す。空のまま返すと後者と誤診断される。
+            If LenB(outHolder) = 0 Then outHolder = "(お名前を読み取れませんでした)"
             Exit Function
         Case "stale"
             ' 残骸とみなして続行する。誰がいつ残したかは記録に残す。
@@ -180,9 +186,19 @@ End Function
 Public Sub ReleaseLock(ByVal chName As String)
     On Error Resume Next
     If LenB(mLockPath) = 0 Then Exit Sub
-    Kill mLockPath
+    Dim released As String: released = mLockPath
+    Kill released
     Err.Clear
     mLockPath = ""
+
+    ' 2026-07-31(C6): どの部門のロックをいつ外したかを usage_log に残す。
+    ' publish.lock は「残ってしまうと10分間その部門の発行が止まる」ものなので、
+    ' 取得(publish_lock_stale)と解放が対で追えないと、実機で
+    ' 「発行できない」と言われたときに何が起きたのか復元できない。
+    ' 引数 chName はこれまで使っておらず、記録の宛名として使う
+    '(シグネチャと呼び出し元は変えない)。
+    modLog.LogUsage "publish_lock_release", chName, _
+        "発行の見張りを外しました: " & modUtil.SafeLeft(released, 160)
     On Error GoTo 0
 End Sub
 

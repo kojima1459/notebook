@@ -83,42 +83,7 @@ Public Function Reachable() As Boolean
         Exit Function
     End If
 
-    ' 2026-07-31(レビュー R8 F6): プローブを「中身1件以上」から
-    ' 「ディレクトリとして存在する」へ変更した。
-    ' 旧実装は Dir(p, vbDirectory) の戻り文字列で判定していたが、Dir に
-    ' フォルダを渡したときに返るのは【そのフォルダの中の最初のエントリ】で、
-    ' 空フォルダでは空文字が返る。つまり
-    '   「共有ルートは正常に作られているが、まだ誰も何も置いていない」
-    ' という健全な初期状態が share_unreachable になっていた。
-    ' しかも共有ルートの下に thanks\ などを作るのは全部 modShare 経由なので、
-    ' 誰も最初の1ファイルを置けない=永久に空=永久に到達不能、という
-    ' デッドロックだった(PoC開始直後がまさにこの状態)。
-    ' GetAttr は「存在するか」だけを答えるので、空フォルダでも真になる。
-    On Error Resume Next
-    Err.Clear
-    Dim attrVal As Long
-    attrVal = GetAttr(modShareRule.ProbeTargetPath(p))   ' OSのタイムアウトはここで1回だけ払う
-    Dim probeErr As Long: probeErr = Err.Number
-    Err.Clear
-
-    ' 2026-07-31(R8b B10): UNC共有ルートを直接指した場合の取りこぼしを拾う。
-    ' 上の実引数は末尾の "\" を落とした形("\\srv\share")で、環境によっては
-    ' そこで実行時エラー52/76が返る(共有ルートは "\\srv\share\" の形でしか
-    ' 受け付けない実装がある)。1回目が失敗したときだけ、末尾を残した形で
-    ' もう一度だけ試す。成功する見込みが無い(形が変わらない)ときは
-    ' ProbeRetryPath が空文字を返すので、無駄なタイムアウトは払わない。
-    If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
-        Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(p)
-        If LenB(retryPath) > 0 Then
-            Err.Clear
-            attrVal = GetAttr(retryPath)
-            probeErr = Err.Number
-            Err.Clear
-        End If
-    End If
-    On Error GoTo 0
-
-    If modShareRule.ProbeIsReachable(probeErr, attrVal) Then
+    If ProbePath(p) Then
         mState = ST_OK
         mFailStreak = 0
         Reachable = True
@@ -130,6 +95,61 @@ Public Function Reachable() As Boolean
             "このセッションは共有フォルダへのアクセスを見送ります: " & modUtil.SafeLeft(p, 200)
         On Error GoTo 0
     End If
+End Function
+
+' ----------------------------------------------------------------------------
+' ProbePath - 指定したパスへ実際に届くかを1回だけ確かめる(キャッシュしない)。
+'
+' 判定の中身(R8 F6 / R8b B10):
+'   ・プローブは「中身が1件以上あるか」ではなく「ディレクトリとして存在するか」。
+'     旧実装は Dir(p, vbDirectory) の戻り文字列を見ていたが、Dir にフォルダを
+'     渡すと返るのは【そのフォルダの中の最初のエントリ】で、空フォルダでは
+'     空文字になる。つまり「共有ルートは正常に作られているが、まだ誰も何も
+'     置いていない」という健全な初期状態が到達不能と判定されていた。
+'     しかも共有ルートの下に thanks\ などを作るのは全部 modShare 経由なので、
+'     誰も最初の1ファイルを置けない=永久に空=永久に到達不能、という
+'     デッドロックになる(PoC開始直後がまさにこの状態)。
+'     GetAttr は「存在するか」だけを答えるので、空フォルダでも真になる。
+'   ・1回目は末尾の "\" を落とした形("\\srv\share")で試す。ところが環境に
+'     よってはそこで実行時エラー52/76が返る(共有ルートは "\\srv\share\" の
+'     形でしか受け付けない実装がある)。失敗したときだけ、末尾を残した形で
+'     もう一度だけ試す。成功する見込みが無い(形が変わらない)ときは
+'     ProbeRetryPath が空文字を返すので、無駄なタイムアウトは払わない。
+'
+' なぜ Public な関数に切り出すか(2026-07-31 C1):
+'   この2段プローブは Reachable() と、共有パスの設定画面
+'   (modHelp.OnShareSetup の保存前チェック)の【2箇所】で必要になる。
+'   設定画面側にコピーを置いていたところ、B10の再試行を入れたのが
+'   Reachable() だけだったため、
+'     「UNC共有ルート(\\srv\share\)を入力 → 設定画面が『見つかりません』と
+'       拒否 → そもそも保存できないので Reachable まで到達しない」
+'   という、片側だけ直っても意味が無い形になっていた。
+'   判定式が2箇所にあると、いつか必ず片方だけが更新される。
+'   関数を1本にして「2箇所で違う答えを出さない」を構造で保証する。
+' ----------------------------------------------------------------------------
+Public Function ProbePath(ByVal p As String) As Boolean
+    Dim target As String: target = Trim$(p)
+    If LenB(target) = 0 Then Exit Function
+
+    On Error Resume Next
+    Err.Clear
+    Dim attrVal As Long
+    attrVal = GetAttr(modShareRule.ProbeTargetPath(target))  ' OSのタイムアウトはここで払う
+    Dim probeErr As Long: probeErr = Err.Number
+    Err.Clear
+
+    If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
+        Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(target)
+        If LenB(retryPath) > 0 Then
+            Err.Clear
+            attrVal = GetAttr(retryPath)
+            probeErr = Err.Number
+            Err.Clear
+        End If
+    End If
+    On Error GoTo 0
+
+    ProbePath = modShareRule.ProbeIsReachable(probeErr, attrVal)
 End Function
 
 ' ----------------------------------------------------------------------------

@@ -274,15 +274,19 @@ End Function
 '     "stale" … ロックはあるが古い / 更新時刻が未来。前回の発行が異常終了した
 '               残骸とみなし、上書きして続行する
 '
-'   ageMinutes が負(= ロックの更新時刻が未来)のとき(2026-07-31 R8b B7b):
-'   当初は「判らないなら待つ」として wait にしていたが、これは
+'   ageMinutes が負(= ロックの更新時刻が未来)のとき(2026-07-31 R8b B7b / C2):
+'   当初は「判らないなら待つ」として一律 wait にしていたが、これは
 '   【端末の時計が共有サーバより遅れている人が、永久に発行できなくなる】。
 '   ファイルサーバと端末の時計が数分ずれるのは社内では普通にあり、
 '   その端末から見ると他人のロックは常に未来の時刻に見える。
-'   一方、同時発行はロック以外にも守り(発行はローカル%TEMP%へ書いてから
-'   コピー = 共有側の書込み窓が短い)があるうえ、そもそも同じ部門を2人が
-'   同じ数分内に発行する頻度は低い。「発行機能が特定の端末で完全に死ぬ」方が
-'   害が大きいので、残骸側へ倒し、呼び出し側で err_log に1行残す。
+'   逆に一律 stale にすると、今度は
+'   【時計が1分ずれた端末が、本当に発行中の人のロックを踏み潰す】。
+'   負の側も大きさで分ける(C2):
+'     ・-staleMinutes < age < 0 … 小さなズレ。「たった今誰かが作った」の方が
+'       ありそうなので wait(待てば数分で解ける)
+'     ・age <= -staleMinutes    … 時計が大きく狂っているか、未来の日付が
+'       書かれた残骸。放置すると永久に発行できないので stale
+'   どちらに倒したかは呼び出し側が err_log に残し、原因を追えるようにする。
 Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As Double, _
                                   ByVal staleMinutes As Double) As String
     If Not hasLock Then
@@ -290,7 +294,11 @@ Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As 
         Exit Function
     End If
     If ageMinutes < 0 Then
-        PublishLockAction = "stale"
+        If ageMinutes <= -staleMinutes Then
+            PublishLockAction = "stale"
+        Else
+            PublishLockAction = "wait"
+        End If
         Exit Function
     End If
     If ageMinutes >= staleMinutes Then

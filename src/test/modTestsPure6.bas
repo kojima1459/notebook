@@ -73,11 +73,10 @@ Private Sub TestExpiryDecisionVocabulary()
     modTestRunner.Check "B1: 上の総当たりに wipe が実際に含まれる(テストが空回りしていない)", _
         (seenWipe = True), "wipeが1度も出ていない = 条件の作り方が間違っている"
 
-    ' 消去してよい唯一の値は "wipe"。空文字は【絶対に】消去側ではない。
-    ' modGuard 側は If act <> "wipe" Then Exit Function で守っているので、
-    ' 空文字が来ても消えない。ここではその前提(空はwipeではない)を明示する。
-    modTestRunner.Check "B1: 空文字は wipe ではない(ホワイトリストの前提)", _
-        (LenB("") = 0 And "" <> "wipe"), ""
+    ' (C5: ここにあった『空文字は wipe ではない』はリテラル同士の比較で
+    '  常に真になるトートロジーだった。modGuard 側のホワイトリスト
+    '  If act <> "wipe" Then Exit Function を守るのは上の語彙テストであり、
+    '  何も検証していない行を残すとテスト件数だけが増えて安心感を偽装する。)
     modTestRunner.Check "B1: 未到達端末は総当たりでも never のみ", _
         (modShareRule.ExpiryDecision("", 0, 30, "", "") = "never" And _
          modShareRule.ExpiryDecision("", 400, 1, "400", "") = "never"), ""
@@ -111,28 +110,45 @@ Private Sub TestPublishLockClockSkew()
     modTestRunner.Check "発行ロック: 60分は stale", _
         (modShareRule.PublishLockAction(True, 60, 10) = "stale"), ""
 
-    ' --- B7b: 経過が負(ロックの更新時刻が未来)は残骸扱いへ変更した ---
-    modTestRunner.Check "B7b: 経過が負(-1分)は stale", _
-        (modShareRule.PublishLockAction(True, -1, 10) = "stale"), _
+    ' --- B7b/C2: 経過が負(ロックの更新時刻が未来)は、ズレの大きさで分ける ---
+    ' 小さなズレ(-staleMinutes < age < 0)は「たった今誰かが作った」の方が
+    ' ありそうなので待つ。踏み潰して同時発行になる方が害が大きい。
+    modTestRunner.Check "C2: 小さな時計ズレ(-1分)は wait", _
+        (modShareRule.PublishLockAction(True, -1, 10) = "wait"), _
         "実際=" & modShareRule.PublishLockAction(True, -1, 10)
-    modTestRunner.Check "B7b: 経過が負(-5分)は stale", _
-        (modShareRule.PublishLockAction(True, -5, 10) = "stale"), _
+    modTestRunner.Check "C2: 小さな時計ズレ(-5分)は wait", _
+        (modShareRule.PublishLockAction(True, -5, 10) = "wait"), _
         "実際=" & modShareRule.PublishLockAction(True, -5, 10)
-    modTestRunner.Check "B7b: 経過が負(-600分)は stale", _
+    modTestRunner.Check "C2: -9.99分は wait(境界の内側)", _
+        (modShareRule.PublishLockAction(True, -9.99, 10) = "wait"), ""
+
+    ' 大きなズレ(age <= -staleMinutes)は残骸扱い。ここを wait にすると
+    ' 時計が大きく狂った端末が永久に発行できなくなる。
+    modTestRunner.Check "C2: -10分ちょうどは stale(境界)", _
+        (modShareRule.PublishLockAction(True, -10, 10) = "stale"), _
+        "実際=" & modShareRule.PublishLockAction(True, -10, 10)
+    modTestRunner.Check "C2: -600分は stale", _
         (modShareRule.PublishLockAction(True, -600, 10) = "stale"), ""
 
-    ' 待たせるのは「ロックがあり、経過が0以上 staleMinutes 未満」のときだけ。
+    ' 待たせるのは「ロックがあり、-10分 < 経過 < 10分」のときだけ。
+    ' つまり wait の窓は原点をはさんで staleMinutes ぶんずつ、が新仕様。
     Dim m As Long
     Dim badWait As Boolean
+    Dim badStale As Boolean
     For m = -20 To 20
         Dim act As String
         act = modShareRule.PublishLockAction(True, CDbl(m), 10)
         If act = "wait" Then
-            If m < 0 Or m >= 10 Then badWait = True
+            If m <= -10 Or m >= 10 Then badWait = True
+        End If
+        If act = "stale" Then
+            If m > -10 And m < 10 Then badStale = True
         End If
     Next m
-    modTestRunner.Check "B7b: waitになるのは0分以上10分未満のときだけ", _
-        (badWait = False), "時計ズレや残骸で待たせている"
+    modTestRunner.Check "C2: waitになるのは -10分 < 経過 < 10分 のときだけ", _
+        (badWait = False), "大きな時計ズレや残骸で待たせている"
+    modTestRunner.Check "C2: staleになるのは経過が±10分の外だけ", _
+        (badStale = False), "発行中のロックを踏み潰す経路がある"
 End Sub
 
 ' ----------------------------------------------------------------------------
