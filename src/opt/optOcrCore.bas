@@ -170,6 +170,10 @@ End Function
 '                        (直下 / bin直下)へ展開して順に追加する。
 '   空要素(空文字列・空白のみ)はスキップし、各パスの末尾の \ と / は
 '   正規化してから連結する(configの書式ゆれを吸収するため)。
+'   R10-2: wbDir が "http" 始まり(大小無視。OneDriveの共有URL等で
+'   ThisWorkbook.Path が "https://..." を返すケース)のときは、(2)の
+'   同梱候補を組み立てない。URLへ "\Ghostscript\gswin32c.exe" を単純連結
+'   しても実在確認(Dir$)が必ず失敗する無意味な候補になるだけなので省く。
 ' ----------------------------------------------------------------------------
 Public Function GsCandidatePaths(ByVal cfgPath As String, ByVal wbDir As String, _
                                  ByVal searchDirs As String) As String
@@ -179,7 +183,11 @@ Public Function GsCandidatePaths(ByVal cfgPath As String, ByVal wbDir As String,
     If LenB(c) > 0 Then result = AppendCandidate(result, c)
 
     Dim wb As String: wb = TrimTrailingSep(Trim$(wbDir))
-    If LenB(wb) > 0 Then result = AppendCandidate(result, wb & "\Ghostscript\gswin32c.exe")
+    If LenB(wb) > 0 Then
+        If LCase$(Left$(wb, 4)) <> "http" Then
+            result = AppendCandidate(result, wb & "\Ghostscript\gswin32c.exe")
+        End If
+    End If
 
     Dim dirs() As String: dirs = Split(searchDirs, ";")
     Dim i As Long

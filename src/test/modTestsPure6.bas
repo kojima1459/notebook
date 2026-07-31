@@ -209,6 +209,37 @@ Private Sub TestProbeRetryPath()
         (Right$(modShareRule.ProbeRetryPath("\\srv\share\"), 1) = "\"), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' R10-2: GsCandidatePaths の http(s) 境界(実機初報A・GS解決の堅牢化)
+' ----------------------------------------------------------------------------
+' ThisWorkbook.Path はOneDrive上のブックだと "https://d.docs.live.net/..." の
+' ようなURLになり得る。従来はそのまま "\Ghostscript\gswin32c.exe" を連結して
+' 無意味な候補を作っていた(実在確認は必ず失敗するだけの死に候補)。
+' wbDir が "http" 始まり(大小無視)のときは同梱候補(stage2)を作らないことを
+' 純ロジックで固定する。
+Private Sub TestGsCandidatePathsHttpBoundary()
+    Dim cHttps As String
+    cHttps = optOcrCore.GsCandidatePaths("", "https://d.docs.live.net/xxx", "")
+    modTestRunner.Check "R10-2: httpsのwbDirは同梱Ghostscript候補を含まない", _
+        (InStr(1, cHttps, "Ghostscript", vbTextCompare) = 0), "実際=[" & cHttps & "]"
+
+    Dim cHttpUpper As String
+    cHttpUpper = optOcrCore.GsCandidatePaths("", "HTTP://example.com/x", "")
+    modTestRunner.Check "R10-2: 大文字HTTPも同梱Ghostscript候補を含まない(大小無視)", _
+        (InStr(1, cHttpUpper, "Ghostscript", vbTextCompare) = 0), "実際=[" & cHttpUpper & "]"
+
+    Dim cNormal As String
+    cNormal = optOcrCore.GsCandidatePaths("", "C:\work", "")
+    modTestRunner.Check "R10-2: 通常のローカルパスは同梱Ghostscript候補を含む", _
+        (InStr(1, cNormal, "Ghostscript", vbTextCompare) > 0), "実際=[" & cNormal & "]"
+
+    ' cfgPath/searchDirsはhttp判定と無関係(候補として素通り)であることも確認する。
+    Dim cCfgOnly As String
+    cCfgOnly = optOcrCore.GsCandidatePaths("C:\gs\gswin32c.exe", "https://d.docs.live.net/xxx", "")
+    modTestRunner.Check "R10-2: httpsのwbDirでもcfgPath候補は残る", _
+        (InStr(1, cCfgOnly, "C:\gs\gswin32c.exe", vbTextCompare) > 0), "実際=[" & cCfgOnly & "]"
+End Sub
+
 Public Sub RunAll6()
     On Error GoTo VocabFail
     TestExpiryDecisionVocabulary
@@ -218,6 +249,9 @@ NextSkew:
 NextRetry:
     On Error GoTo RetryFail
     TestProbeRetryPath
+NextGsHttp:
+    On Error GoTo GsHttpFail
+    TestGsCandidatePathsHttpBoundary
 NextDone6:
     On Error GoTo 0
     Exit Sub
@@ -232,6 +266,10 @@ SkewFail:
     Resume NextRetry
 RetryFail:
     modTestRunner.Check "TestProbeRetryPath(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsHttp
+GsHttpFail:
+    modTestRunner.Check "TestGsCandidatePathsHttpBoundary(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone6
 End Sub

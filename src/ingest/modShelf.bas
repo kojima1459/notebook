@@ -74,6 +74,14 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         Exit Function   ' キャンセル
     End If
 
+    ' R10-2: ファイル選択が確定した(キャンセルではない)ので、GS未検出の
+    ' 案内カード(セッション1回きり)を再提示可能に戻す。利用者が能動的に
+    ' 取込を実行する入口のみが対象で、自動同期(modShelfSync)からは呼ばない。
+    ' vision機能が無効なビルドでもInvokeFeature側で安全に無視される。
+    On Error Resume Next
+    modFeatures.InvokeFeature "vision", "ResetGsGuidance", Array()
+    On Error GoTo AddFailed
+
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
     If capMax < 1 Then capMax = 10000
 

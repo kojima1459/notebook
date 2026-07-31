@@ -381,9 +381,13 @@ CONTRACT: dict[str, dict] = {
     # HasClipboardImage/SaveClipboardImage: スクショ取込(裁定D13・RIBBON_API_CONFIRMED.md §2b)
     # ExtractPdfOcrPagedText: 画像PDF(E0303)のOCR取込(2026-07-31 R6)。Ghostscriptで
     # ページ毎にJPEG化→1ページ=1回のChatGPTV→modUtil.JoinPagedTextで1本の文字列。
+    # ResetGsGuidance(2026-07-31 R10-2): GS未検出の案内カード(セッション1回きり)
+    # を再提示可能に戻す。modShelf.AddFilesResultからmodFeatures.InvokeFeature
+    # 経由で呼ばれる(実機初報Aの観測性・堅牢化対応)。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
                                                "ExtractPdfOcrPagedText",
-                                               "HasClipboardImage", "SaveClipboardImage"]},
+                                               "HasClipboardImage", "SaveClipboardImage",
+                                               "ResetGsGuidance"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",

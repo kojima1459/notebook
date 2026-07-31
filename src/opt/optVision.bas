@@ -95,6 +95,11 @@ Private mGsExeCache As String        ' 解決済みパス(mGsResolved=Trueのと
 Private mGsResolved As Boolean       ' Trueなら以後mGsExeCacheをそのまま使う
 Private mGsGuidanceShown As Boolean  ' 案内カード(FileDialog)はセッション中1回だけ
 
+' R10-2: GS解決の観測性(実機初報A)。E0303のerr_log detailへ載せるための
+' 直近状態を保持する(いずれも副作用ゼロの記録用途のみ)。
+Private mGsLastCands As String  ' FindGsExeByCandidatesが最後に試した候補(|区切り)
+Private mGsCardState As String  ' 案内カードの結果: ""/"cancel"/"nofind"/"saved"
+
 Public Function Ping() As Boolean
     Ping = True
 End Function
@@ -278,11 +283,19 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
 
     Dim gsExe As String: gsExe = ResolveGsExe()
     If LenB(gsExe) = 0 Then
+        ' R10-2: 「GS未検出」は実機初報Aの本体だが従来は完全無言だった。
+        ' 候補パス・案内カードの状態を必ずerr_logへ残す(観測性ゼロの解消)。
+        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
+            "GS未解決 wbPath=" & ThisWorkbook.path & " cand=" & mGsLastCands & _
+            " card=" & mGsCardState, 2000)
         ExtractPdfOcrPagedText = "#ERR:E0303:画像PDFを読み取るための Ghostscript が" & _
             "見つかりませんでした。配布zip(リポジトリのZIPをDL→解凍したもの)は " & _
             "Ghostscript フォルダを同梱済みのはずです。このファイルと同じ場所に " & _
             "Ghostscript フォルダがあるかご確認いただくか、config シートの " & _
-            "ghostscript_path に gswin32c.exe のフルパスを設定してください。"
+            "ghostscript_path に gswin32c.exe のフルパスを設定してください。" & vbLf & _
+            "このファイルの場所: " & ThisWorkbook.path & vbLf & _
+            "zipの中から直接開くと動きません。zipを右クリック→[すべて展開]で展開し、" & _
+            "展開先の MyBookshelf.xlsm を開いてください。"
         Exit Function
     End If
 
@@ -307,10 +320,15 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
 
     modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
 
-    If Not RunGsAsync(runCmd) Then
+    Dim gsErrNum As Long: gsErrNum = 0
+    Dim gsErrDesc As String: gsErrDesc = ""
+    If Not RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
         modUIMain.SetStage ""
         CleanupOcrFolder folderPath
-        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", "GS起動失敗 " & modUtil.SafeLeft(path, 200)
+        ' R10-2: 従来はパスのみで原因が残らなかった。WScript.Shellがポリシーで
+        ' ブロックされる端末の切り分けに、CreateObject/Run失敗時のErr情報が必須。
+        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
+            "GS起動失敗 err#" & gsErrNum & ": " & gsErrDesc & " " & path, 2000)
         ExtractPdfOcrPagedText = "#ERR:E0303:PDFを画像に変換する処理を開始できませんでした。" & _
             "config の ghostscript_path が正しいかご確認ください。"
         Exit Function
@@ -364,9 +382,23 @@ Fail:
 End Function
 
 ' ----------------------------------------------------------------------------
+' ResetGsGuidance - GS未検出の案内カード(セッション1回きり)を再提示可能に
+'   戻す(R10-2)。mGsGuidanceShownのみFalseへ戻し、解決済みキャッシュ
+'   (mGsResolved/mGsExeCache)には触れない(設置済みのGSは再解決不要)。
+'   利用者が能動的に「資料を追加」を実行する入口(modShelf.AddFilesResult)
+'   から modFeatures.InvokeFeature("vision","ResetGsGuidance",…) 経由で
+'   呼ばれる想定。自動同期(modShelfSync)からは呼ばれない=起動時に
+'   モーダルが出ない現行性質を維持する。戻り値は契約合わせの空文字列。
+' ----------------------------------------------------------------------------
+Public Function ResetGsGuidance() As String
+    mGsGuidanceShown = False
+    ResetGsGuidance = ""
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー(すべてPrivate: optVisionの公開契約はPing/ExtractImagePdf/
 ' ExtractImagePdfText/ExtractPdfOcrPagedText/HasClipboardImage/
-' SaveClipboardImageのみ)
+' SaveClipboardImage/ResetGsGuidanceのみ)
 ' ----------------------------------------------------------------------------
 
 ' ページ画像を1枚ずつOCRして1本のページ付きテキストにする。
@@ -467,6 +499,7 @@ Private Function FindGsExeByCandidates() As String
 
     Dim candStr As String
     candStr = optOcrCore.GsCandidatePaths(cfgPath, ThisWorkbook.path, searchDirs)
+    mGsLastCands = candStr   ' R10-2: E0303のerr_log detailで参照するため毎回更新
     FindGsExeByCandidates = FirstExistingCandidate(candStr)
 End Function
 
@@ -507,20 +540,32 @@ Private Function OfferGsFolderPicker() As String
         "場所を指定してください。" & vbLf & vbLf & _
         "[OK] を押すとフォルダを選ぶ画面が開きます。", _
         vbInformation + vbOKCancel, modAppDef.APP_NAME)
-    If resp <> vbOK Then Exit Function
+    If resp <> vbOK Then
+        mGsCardState = "cancel"
+        modLog.LogUsage "gs_guidance_card", mGsCardState, ""
+        Exit Function
+    End If
 
     Dim picked As String
     picked = PickGsFolder()
-    If LenB(picked) = 0 Then Exit Function
+    If LenB(picked) = 0 Then
+        mGsCardState = "cancel"
+        modLog.LogUsage "gs_guidance_card", mGsCardState, ""
+        Exit Function
+    End If
 
     Dim candStr As String: candStr = optOcrCore.GsCandidatesForFolder(picked)
     Dim found As String: found = FirstExistingCandidate(candStr)
     If LenB(found) = 0 Then
         modUIMain.SetStage "選んだフォルダに gswin32c.exe が見つかりませんでした。"
+        mGsCardState = "nofind"
+        modLog.LogUsage "gs_guidance_card", mGsCardState, modUtil.SafeLeft(picked, 200)
         Exit Function
     End If
 
     modConfig.SetValue "ghostscript_path", found
+    mGsCardState = "saved"
+    modLog.LogUsage "gs_guidance_card", mGsCardState, modUtil.SafeLeft(found, 200)
     OfferGsFolderPicker = found
 End Function
 
@@ -560,7 +605,12 @@ Private Function MakeOcrFolder() As String
 End Function
 
 ' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
-Private Function RunGsAsync(ByVal runCmd As String) As Boolean
+' R10-2: 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値は
+' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
+' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
+' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
+Private Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
+                            ByRef errDesc As String) As Boolean
     Dim wsh As Object
     On Error GoTo NoRun
     Set wsh = CreateObject("WScript.Shell")
@@ -569,6 +619,8 @@ Private Function RunGsAsync(ByVal runCmd As String) As Boolean
     RunGsAsync = True
     Exit Function
 NoRun:
+    errNum = Err.Number
+    errDesc = Err.Description
     RunGsAsync = False
 End Function
 
