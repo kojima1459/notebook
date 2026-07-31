@@ -205,14 +205,22 @@ CONTRACT: dict[str, dict] = {
     },
     "modShelf": {
         "closed": True,
-        # AddFilesResult: 2026-07-30 R2要件E。AddFilesViaDialog(OnAction互換)は
-        # 内部でこれを呼ぶ薄いラッパーへ変えた。ok/ng/capped件数・新規追加
-        # チャンク数・失敗理由の内訳を戻り値の文字列で返し、showMsgBox:=False
-        # で呼び出し元(modApp.OnAddDocs等)が独自に表示を担えるようにする。
         # IsBusy: 2026-07-31 R7 B-2。抽出ループのDoEventsで発火したクリックを
         # 画面遷移側(modUiLock.BlockIfIngesting)が受け流すための取込中フラグ。
-        "required": ["AddFilesViaDialog", "AddFilesResult", "IngestFile", "DeleteSource",
+        # AddFilesViaDialog / AddFilesResult は 2026-07-31 R10d で modShelfBatch へ
+        # 移設した(modShelfが30,000字上限まで残り440字になったため)。
+        "required": ["IngestFile", "DeleteSource",
                      "SourceList", "TotalChunks", "IsBusy"],
+    },
+    # modShelfBatch(2026-07-31 R10d): modShelfから切り出した一括取込の
+    # オーケストレーション。AddFilesResult: 2026-07-30 R2要件E。
+    # AddFilesViaDialog(OnAction互換)は内部でこれを呼ぶ薄いラッパー。
+    # ok/ng/capped件数・新規追加チャンク数・失敗理由の内訳を戻り値の文字列で
+    # 返し、showMsgBox:=False で呼び出し元(modApp.OnAddDocs等)が独自に
+    # 表示を担えるようにする。
+    "modShelfBatch": {
+        "closed": True,
+        "required": ["AddFilesViaDialog", "AddFilesResult"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -524,7 +532,7 @@ RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
 # R1例外のうち modSkin.ShowToast を呼んでよい機能層モジュール(R10c L5)。
 # ShowToastは表示に1.1秒のブロッキング待ちを含むため、「完了を1回だけ知らせる」
 # 用途に限る。取込(modShelf)と同期(modShelfSync)の完了通知だけが該当する。
-R1_TOAST_ALLOWED_MODULES = {"modShelf", "modShelfSync"}
+R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")

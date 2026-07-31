@@ -389,7 +389,7 @@ End Function
 ' ResetGsGuidance - GS未検出の案内カード(セッション1回きり)を再提示可能に
 '   戻す(R10-2)。mGsGuidanceShownのみFalseへ戻し、解決済みキャッシュ
 '   (mGsResolved/mGsExeCache)には触れない(設置済みのGSは再解決不要)。
-'   利用者が能動的に「資料を追加」を実行する入口(modShelf.AddFilesResult)
+'   利用者が能動的に「資料を追加」を実行する入口(modShelfBatch.AddFilesResult)
 '   から modFeatures.InvokeFeature("vision","ResetGsGuidance",…) 経由で
 '   呼ばれる想定。自動同期(modShelfSync)からは呼ばれない=起動時に
 '   モーダルが出ない現行性質を維持する。戻り値は契約合わせの空文字列。

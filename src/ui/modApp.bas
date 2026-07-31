@@ -546,7 +546,7 @@ End Sub
 '   チャンクは1件も増えない。その結果、成功しているのに
 '   「資料は追加されませんでした」と言い、同時にmodShelf側のMsgBoxが
 '   「1件を本棚に追加しました」と言う ―― 正反対の報告が2つ同時に出ていた。
-'   R2で追加された modShelf.AddFilesResult(showMsgBox:=False) を使い、
+'   R2で追加された modShelfBatch.AddFilesResult(showMsgBox:=False) を使い、
 '   報告をチャットバブル1本に統一して、結果ごとに正直な文言を出す。
 Public Sub OnAddDocs()
     If Not modUiLock.Enter() Then Exit Sub
@@ -554,7 +554,7 @@ Public Sub OnAddDocs()
 
     Dim res As String
     On Error Resume Next
-    res = modShelf.AddFilesResult(showMsgBox:=False)
+    res = modShelfBatch.AddFilesResult(showMsgBox:=False)
     modUI.GoToNexus "modApp.OnAddDocs"   ' 取込は別シートを触るので必ず戻す
     On Error GoTo Done
 

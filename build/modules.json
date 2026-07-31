@@ -135,6 +135,14 @@
       "wave": "2-C"
     },
     {
+      "name": "modShelfBatch",
+      "path": "src/ingest/modShelfBatch.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R10d",
+      "note": "「資料を追加」の一括取込オーケストレーション(AddFilesViaDialog/AddFilesResult)。modShelfが30,000字上限まで残り440字となりバグ修正1件も入らなくなったための分割先(憲章§4-6)。1ファイルぶんの取込本体はmodShelf.IngestFileのまま。"
+    },
+    {
       "name": "modShelfStore",
       "path": "src/ingest/modShelfStore.bas",
       "role": "core",

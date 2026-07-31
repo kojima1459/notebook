@@ -325,7 +325,7 @@ End Sub
 
 Public Sub OnAddFiles()
     On Error GoTo Fail
-    modShelf.AddFilesViaDialog
+    modShelfBatch.AddFilesViaDialog
     RefreshBadgesAndDashboard
     Exit Sub
 Fail:

@@ -734,7 +734,7 @@ End Sub
 Public Sub OnAddFiles()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
-    modShelf.AddFilesViaDialog
+    modShelfBatch.AddFilesViaDialog
     On Error GoTo 0
     RefreshCurrent
 End Sub
