@@ -263,8 +263,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     For i = 0 To diskCount - 1
         If Not diskDict.Exists(LCase$(diskNames(i))) Then diskDict.Add LCase$(diskNames(i)), True
 
+        ' R10-5: SetStageはShowProgress内部で呼ぶので二重呼び出しにしない。
         On Error Resume Next
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
+        modUIMain.ShowProgress "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
         On Error GoTo Failed
 
         ' 2026-07-31(R7 B-2): 1ファイルごとに1回だけメッセージを捌く。
@@ -387,6 +388,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' silent時と同じくSetStageのみで知らせる(§機能6・MsgBox削減)。
         On Error Resume Next
         modUIMain.SetStage ChrW(&H2705) & " 同期が完了しました(" & summaryLine & ")"
+        ' R10-5: 手動同期(silent=False)は現行何も出ないため、トーストで1回知らせる。
+        ' kind:="success"はShowToast側が自前でChrW(&H2705)を付けるため、文言に
+        ' 重ねて絵文字を書かない。
+        modSkin.ShowToast "同期が完了しました(" & summaryLine & ")", "success"
         On Error GoTo 0
     Else
         Dim summary As String
@@ -434,6 +439,7 @@ Finish:
     mSyncRunning = False
     On Error Resume Next
     Application.EnableEvents = True   ' 抑止したイベントを必ず復帰
+    modUIMain.HideProgress   ' R10-5: 正常/異常どちらの経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
     ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収して感謝EXPを加算する。
     ' shelf_folder未設定でもここは通る(P2P共有はnexus_share_pathで独立)。

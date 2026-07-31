@@ -85,8 +85,23 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
     If capMax < 1 Then capMax = 10000
 
+    ' R10-5(実機報告「止まってるのか分からない」): 経過秒÷完了件数の単純平均で
+    ' 目安時間を出す。1件目はまだ実績が無いのでETA無し(modUtil.EtaText任せ)。
+    Dim tIngStart As Double: tIngStart = Timer
+
     Dim i As Long
     For i = 1 To fd.SelectedItems.count
+        Dim etaPart As String: etaPart = ""
+        If i > 1 Then
+            Dim elapsedSec As Double: elapsedSec = Timer - tIngStart
+            If elapsedSec >= 0 Then   ' 日跨ぎのTimerロールオーバーはETA非表示に落とす
+                etaPart = modUtil.EtaText(fd.SelectedItems.count - (i - 1), _
+                    (elapsedSec * 1000#) / (i - 1))
+            End If
+        End If
+        modUIMain.ShowProgress modUtil.ProgressText(i, fd.SelectedItems.count, etaPart) & " " & _
+            modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40)
+
         If TotalChunks() >= capMax Then
             cappedN = cappedN + 1
         Else
@@ -117,6 +132,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             End If
         End If
     Next i
+
+    ' R10-5: 進捗バナーを閉じる前に完了を1回だけトーストで知らせる
+    ' (連呼はしない。ここは完了1回のみなので1.1秒のブロッキングも許容)。
+    On Error Resume Next
+    modSkin.ShowToast "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件)", "info"
+    On Error GoTo AddFailed
+    modUIMain.HideProgress
 
     ' silent にしたぶん1件ごとの再描画も走らない(IngestFileのFinishは
     ' silent時RenderShelfを呼ばない)。まとめて1回だけ描き直す(R1例外)。
@@ -166,6 +188,7 @@ AddFailedCleanup:
     modLog.LogError "E0801", "modShelf.AddFilesResult", _
         "err#" & failNum & ": " & failDesc & _
         " (ok=" & okCount & " ng=" & ngCount & " capped=" & cappedN & ")"
+    modUIMain.HideProgress   ' R10-5: 異常終了経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
     ' 途中で落ちても、そこまでの集計を返す。空文字で返すと呼び出し元は
     ' 「キャンセル」と区別できず、利用者には何も表示されない(レビュー4-B)。

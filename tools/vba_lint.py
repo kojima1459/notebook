@@ -1549,11 +1549,19 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                 if target.layer > cur_layer:
                     # R1例外(UI通知コールバック。MASTER_SPEC §3 R1 / Wave2 PM裁定):
                     # 機能層は処理の進捗・結果をUIへ通知するために以下のみ呼んでよい。
+                    # ShowProgress/HideProgress(R10-5): 取込中の進捗バナー。
+                    # SetStageと同じ「UIへ実況を伝えるだけ」の通知コールバックで、
+                    # ShowProgress自体が内部でSetStageを呼ぶ薄いラッパーのため、
+                    # 既存のSetStage例外と同列に扱う。ShowToast(R10-5): 取込/同期の
+                    # 完了1回だけを知らせる非ブロッキング通知(連呼はしない)。
                     if cur_layer == LAYER_MID and (prefix, member) in (
                         ("modUIMain", "SetStage"),
                         ("modUIMain", "RenderSourcesPreview"),
                         ("modUIMain", "RenderAnswer"),
+                        ("modUIMain", "ShowProgress"),
+                        ("modUIMain", "HideProgress"),
                         ("modUIShelf", "RenderShelf"),
+                        ("modSkin", "ShowToast"),
                     ):
                         continue
                     info.add(

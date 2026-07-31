@@ -155,8 +155,12 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
         If bEnd > limit - 1 Then bEnd = limit - 1
         Dim bN As Long: bN = bEnd - bStart + 1
 
+        ' R10-5: ShowProgress化(文言は現行のまま)。EmbedPendingは取込ループの
+        ' 中から呼ばれ、戻った直後に呼び出し元が次の進捗表示で上書きするため、
+        ' ここではHideProgressを呼ばない(Hide→Showのちらつき防止。呼び出し元
+        ' 〔modShelf.AddFilesResult/modShelfSync.SyncNow〕が必ずHideする)。
         On Error Resume Next
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & _
+        modUIMain.ShowProgress "" & ChrW(&HD83D) & ChrW(&HDCE5) & " ベクトル化中 " & _
             modUtil.ProgressText(bEnd + 1, limit, modUtil.EtaText(limit - bStart, msPerItem)) & " …"
         On Error GoTo 0
 

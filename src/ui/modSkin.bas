@@ -22,6 +22,10 @@ Option Explicit
 '     ためコンパイル可能。
 ' ============================================================================
 
+' R10-5: PaintProgress/ClearProgressが進捗バナーの直前描画シート名を控える
+' (モジュールレベル宣言はプロシージャ定義より前に置く。実機VBAの制約)。
+Private mProgressSheetName As String
+
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
 '   modUI.InitUI/Repaint、および各画面(Vault/Dashboard)の描画終端から呼ぶ。
@@ -344,4 +348,70 @@ Private Sub ToastWait(ByVal ms As Long)
         DoEvents
         If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
     Loop
+End Sub
+
+' ----------------------------------------------------------------------------
+' PaintProgress / ClearProgress - 進捗バナー("nx_progress")の表示部(R10-5)。
+'   ShowToastと違い待機ゼロ(ToastWaitは呼ばない。ファイル数×1.1秒の純増を
+'   避けるのが要件)。更新後にDoEvents1回だけ挟んで再描画させる。
+'   別ブック表示中は何もしない(ShowToastと同じ誤爆ガード)。直前と違うシートへ
+'   移っていたら旧シートのShapeを消してから今のシートへ描き直す
+'   (mProgressSheetNameでシート名を控える)。
+' ----------------------------------------------------------------------------
+Public Sub PaintProgress(ByVal message As String)
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    If ws Is Nothing Then Exit Sub
+
+    If LenB(mProgressSheetName) > 0 And mProgressSheetName <> ws.Name Then
+        Dim wsOld As Worksheet
+        Set wsOld = ThisWorkbook.Worksheets(mProgressSheetName)
+        If Not wsOld Is Nothing Then wsOld.Shapes("nx_progress").Delete
+    End If
+    mProgressSheetName = ws.Name
+
+    Dim barW As Double: barW = 380
+    Dim leftPos As Double, topPos As Double
+    leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
+    topPos = ActiveWindow.VisibleRange.Top + 92
+
+    Dim shp As Shape
+    Set shp = ws.Shapes("nx_progress")
+    If shp Is Nothing Then
+        Set shp = ws.Shapes.AddShape(5, leftPos, topPos, barW, 30)   ' 5=角丸四角
+        shp.Name = "nx_progress"
+        shp.Adjustments(1) = 0.3
+        shp.Line.Visible = 0
+        shp.Placement = 3   ' xlFreeFloating
+        shp.Fill.ForeColor.RGB = RGB(30, 41, 59)
+        With shp.TextFrame2
+            .WordWrap = -1
+            .MarginLeft = 16: .MarginRight = 16: .MarginTop = 4: .MarginBottom = 4
+            .TextRange.Font.Name = "Yu Gothic UI"
+            .TextRange.Font.Size = 10
+            .TextRange.ParagraphFormat.Alignment = 2   ' 中央
+            .VerticalAnchor = 3
+        End With
+        shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(248, 250, 252)
+        ApplySoftShadow shp
+    Else
+        shp.Left = leftPos
+        shp.Top = topPos
+    End If
+    shp.TextFrame2.TextRange.Text = message
+    shp.ZOrder 0   ' msoBringToFront
+    DoEvents
+    On Error GoTo 0
+End Sub
+
+Public Sub ClearProgress()
+    On Error Resume Next
+    If LenB(mProgressSheetName) > 0 Then
+        Dim ws As Worksheet
+        Set ws = ThisWorkbook.Worksheets(mProgressSheetName)
+        If Not ws Is Nothing Then ws.Shapes("nx_progress").Delete
+    End If
+    mProgressSheetName = ""
+    On Error GoTo 0
 End Sub

@@ -323,6 +323,27 @@ Public Sub SetStage(ByVal msg As String)
     If LenB(msg) > 0 Then ShowTip
 End Sub
 
+' ----------------------------------------------------------------------------
+' ShowProgress / HideProgress - 取込中の進捗バナー(R10-5)。
+'   実機報告「取込が数分かかるのに進捗が何も見えず、止まってるのか分からない」
+'   への対応。SetStageの出力先(状態行/StatusBar/チャットバブル)はNexus画面
+'   では不可視のため、画面上に常時見えるShapeバナー("nx_progress")を別途出す。
+'   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。表示部の実体は
+'   modSkin.PaintProgress/ClearProgress(ShowToastの隣に同型で置く)。
+' ----------------------------------------------------------------------------
+Public Sub ShowProgress(ByVal msg As String)
+    SetStage msg   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
+    On Error Resume Next
+    modSkin.PaintProgress msg
+    On Error GoTo 0
+End Sub
+
+Public Sub HideProgress()
+    On Error Resume Next
+    modSkin.ClearProgress
+    On Error GoTo 0
+End Sub
+
 ' RenderAnswer - 回答本文セル(SafeLeft)+出典ブロック+所要秒
 Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits As Long, _
                         ByVal mode As String, ByVal seconds As Long)
