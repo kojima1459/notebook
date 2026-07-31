@@ -35,6 +35,11 @@ Option Explicit
 '     (run_lo_tests.pyの既知の制約により `As String()` という配列戻り値の
 '     関数宣言はLibreOffice Basicでコンパイルがハングするため。modUtil.
 '     SplitKeepNonEmptyと同じ理由・同じ回避策)。
+'   ・テキストPDFのCOM無し抽出(2026-07-31 R10-3): Word/AcrobatのCOMが端末
+'     ポリシーで塞がれていてもテキストPDFを取り込めるよう、同じGhostscriptの
+'     txtwriteデバイスを使う経路を足した。その「コマンドの組み立て」と
+'     「抜き出せた文字数から採否を決める判定」だけをここへ置く
+'     (BuildGsTextCommand / GsTextVerdict)。実行するのは optGsTxt。
 ' ============================================================================
 
 ' 公式ツール(gazou版)と同じ規約。ページ番号3桁ゼロ埋め。
@@ -52,6 +57,12 @@ Private Const DPI_DEFAULT As Long = 150
 ' 1ファイルあたりのページ上限の安全範囲(configの値が壊れていても暴走しない)。
 Private Const PAGES_MIN As Long = 1
 Private Const PAGES_MAX As Long = 200
+
+' txtwrite救済(R10-3)の採否しきい値。空白類を除いた抽出文字数がこれ未満なら
+' 「文字データがほとんど入っていないPDF=画像PDF疑い」とみなしてOCR経路へ回す。
+' テキストPDFなら1ページでも普通は数百字あり、画像PDFのtxtwrite出力は
+' ほぼ0字(埋め込みフォントの断片が数文字混じる程度)になる。
+Private Const GS_TEXT_MIN_CHARS As Long = 40
 
 Public Function Ping() As Boolean
     Ping = True
@@ -96,6 +107,47 @@ End Function
 Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String) As String
     BuildRunCommand = "cmd.exe /s /c " & Chr$(34) & gsCommand & _
         " & echo done>" & Quoted(doneFlagPath) & Chr$(34)
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildGsTextCommand - Ghostscriptの txtwrite デバイスで「PDFに埋まっている
+'   文字をそのまま抜き出す」コマンドラインを組み立てる(2026-07-31 R10-3)。
+'   gsExe   : gswin32c.exe のフルパス
+'   pdfPath : 変換元のPDFのフルパス
+'   outTxt  : 書き出し先テキストファイルのフルパス
+'   戻り値の形(パスは全て二重引用符で囲む・BuildGsCommandと同じ規約):
+'     "<gs>" -dSAFER -dNOPAUSE -dBATCH -sDEVICE=txtwrite
+'     -sOutputFile="<out>" "<pdf>"
+'   ページ指定はしない(全ページを1本のテキストへ書き出す。txtwriteはページの
+'   区切りに改ページ文字 Chr(12) を挟むので、ページ分けは読み手の仕事)。
+'   出力先の指定は -o ではなく -sOutputFile + -dNOPAUSE -dBATCH にした。
+'   -o は「-sOutputFile と -dBATCH -dNOPAUSE をまとめた省略形」で意味は同じだが、
+'   BuildGsCommand(jpeg側)と字面を揃えておく方が、両者を見比べたときに
+'   引用符の付け忘れ等の差分が目で見つけやすい。
+'   完了フラグ付きの cmd.exe ラップは BuildRunCommand をそのまま共用する。
+' ----------------------------------------------------------------------------
+Public Function BuildGsTextCommand(ByVal gsExe As String, ByVal pdfPath As String, _
+                                   ByVal outTxt As String) As String
+    BuildGsTextCommand = Quoted(gsExe) & _
+        " -dSAFER -dNOPAUSE -dBATCH" & _
+        " -sDEVICE=txtwrite" & _
+        " -sOutputFile=" & Quoted(outTxt) & _
+        " " & Quoted(pdfPath)
+End Function
+
+' ----------------------------------------------------------------------------
+' GsTextVerdict - txtwriteで抜き出せた文字数から採否を決める(R10-3)。
+'   cleanLen : 空白類(スペース・タブ・改行・改ページ)を除いた抽出文字数の
+'              全ページ合計
+'   戻り値   : "ok"    = テキストPDFとして採用してよい
+'              "image" = ほぼ空。画像PDF疑いなのでOCR経路(E0303)へ回す
+' ----------------------------------------------------------------------------
+Public Function GsTextVerdict(ByVal cleanLen As Long) As String
+    If cleanLen >= GS_TEXT_MIN_CHARS Then
+        GsTextVerdict = "ok"
+    Else
+        GsTextVerdict = "image"
+    End If
 End Function
 
 ' 一時フォルダのフルパス(例: C:\Users\x\AppData\Local\Temp\nxocr_20260731_101112_437)。

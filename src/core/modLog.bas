@@ -106,7 +106,9 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "対応形式(txt/md/csv/pdf/docx/doc/xlsx等)のファイルをお使いください。"
         Case "E0302"
             FriendlyMessage = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。" & _
-                "ファイルを閉じてから、もう一度お試しください。"
+                "ファイルを閉じてから、もう一度お試しください。" & _
+                "PDFの場合は Ghostscript による読み取り(Word不要の経路)も試したうえでの結果です。" & _
+                "このファイルと同じ場所に Ghostscript フォルダがあるかもご確認ください。"
         Case "E0303"
             FriendlyMessage = "このPDFは画像として保存されていて、そのままでは文字を読み取れませんでした。" & _
                 "画像解析(config の feature_vision)を有効にし、Ghostscript を配置すると" & _

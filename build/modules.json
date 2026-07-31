@@ -566,6 +566,14 @@
       "note": "画像PDFのOCR取込(R6)でoptVisionが使うGSコマンド組み立ての純ロジック。modFeatures経由では呼ばれずoptVisionからのみ参照される。optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
+      "name": "optGsTxt",
+      "path": "src/opt/optGsTxt.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R10-3",
+      "note": "テキストPDFのCOM無し抽出(Ghostscriptのtxtwriteデバイス)。PDF本文抽出の第1選択で、失敗時のみWord→Acrobatへ落ちる。入口はmodFeatures.InvokeFeature(\"vision\",\"ExtractPdfTextNoOcr\")でoptVisionの薄い受け口から転送される。GS起動・完了待ち・一時フォルダはoptVisionのPublic化した道具を共用するため、optVisionを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
       "name": "optMarkdown",
       "path": "src/opt/optMarkdown.bas",
       "role": "opt",

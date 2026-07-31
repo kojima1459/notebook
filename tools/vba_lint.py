@@ -384,10 +384,26 @@ CONTRACT: dict[str, dict] = {
     # ResetGsGuidance(2026-07-31 R10-2): GS未検出の案内カード(セッション1回きり)
     # を再提示可能に戻す。modShelf.AddFilesResultからmodFeatures.InvokeFeature
     # 経由で呼ばれる(実機初報Aの観測性・堅牢化対応)。
+    # ExtractPdfTextNoOcr(2026-07-31 R10-3): テキストPDFのCOM無し抽出の受け口。
+    # 実体はoptGsTxt(optVisionに容量が無いための分割)で、ここは
+    # modFeatures.InvokeFeature("vision", ...) の行き先がoptVision固定である
+    # ことに合わせた薄い転送。
+    # FindGsExeByCandidates/MakeOcrFolder/RunGsAsync/WaitForDoneFlag/
+    # CleanupOcrFolder は同じくR10-3でPublic化した「Ghostscript実行の道具」。
+    # optGsTxtが重複実装せずに使うためだけの公開で、コア側からは呼ばない
+    # (opt層内の参照はR2の対象外)。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
                                                "ExtractPdfOcrPagedText",
                                                "HasClipboardImage", "SaveClipboardImage",
-                                               "ResetGsGuidance"]},
+                                               "ResetGsGuidance", "ExtractPdfTextNoOcr",
+                                               "FindGsExeByCandidates", "MakeOcrFolder",
+                                               "RunGsAsync", "WaitForDoneFlag",
+                                               "CleanupOcrFolder"]},
+    # optGsTxt(2026-07-31 R10-3): テキストPDFをGhostscriptのtxtwriteデバイスで
+    # COM無しに読む実行部。PDF本文抽出の第1選択(Word/AcrobatのOLE待ち回避)。
+    # opt層に置く以上、他のoptと同様に Ping を持たせる。純ロジックではない
+    # (Shell起動・ファイルI/O・ログ)ので PURE_LOGIC_MODULES には載せない。
+    "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
@@ -406,6 +422,8 @@ CONTRACT: dict[str, dict] = {
             "IsTruncatedCount", "KeepPageCount", "SafeDpi", "SafeMaxPages",
             # R9: Ghostscript実行ファイルの解決候補列挙(配布・自動検出)。
             "GsCandidatePaths", "GsCandidatesForFolder",
+            # R10-3: txtwriteによるテキストPDF抽出のコマンド組み立てと採否判定。
+            "BuildGsTextCommand", "GsTextVerdict",
         ],
     },
     # ---- 7.8 テストモジュール ----

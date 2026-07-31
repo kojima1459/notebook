@@ -240,6 +240,67 @@ Private Sub TestGsCandidatePathsHttpBoundary()
         (InStr(1, cCfgOnly, "C:\gs\gswin32c.exe", vbTextCompare) > 0), "実際=[" & cCfgOnly & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' R10-3: txtwriteによるテキストPDF抽出の純ロジック
+' ----------------------------------------------------------------------------
+' 実機の管理端末は Word/Acrobat の COM が塞がれており、さらに使えている端末でも
+' WordのPDF Reflowが「'Word'がOLE操作を完了するのを待っています」を頻発させて
+' いた。そこで同梱Ghostscriptの txtwrite を PDF本文抽出の第1選択にした。
+' 実GSはLibreOffice環境で動かせないので、机上で担保できるのは
+'   (1) コマンド文字列の組み立て(引用符の付け忘れが最大の地雷)
+'   (2) 「採用するか、画像PDFとしてOCRへ回すか」の境界
+' の2つ。どちらも1文字単位で固定する。
+Private Sub TestGsTextCommandGolden()
+    Dim cmdText As String
+    cmdText = optOcrCore.BuildGsTextCommand("C:\Program Files\gs\gswin32c.exe", _
+        "C:\My Docs\約款.pdf", "C:\Temp\nxocr_x\gstext.txt")
+
+    modTestRunner.Check "R10-3: BuildGsTextCommandのゴールデン(全パスが二重引用符)", _
+        (cmdText = Chr$(34) & "C:\Program Files\gs\gswin32c.exe" & Chr$(34) & _
+            " -dSAFER -dNOPAUSE -dBATCH" & _
+            " -sDEVICE=txtwrite" & _
+            " -sOutputFile=" & Chr$(34) & "C:\Temp\nxocr_x\gstext.txt" & Chr$(34) & _
+            " " & Chr$(34) & "C:\My Docs\約款.pdf" & Chr$(34)), _
+        "実際=[" & cmdText & "]"
+
+    ' 画像化(jpeg)側と取り違えていないこと。txtwrite側に -sDEVICE=jpeg や
+    ' 解像度指定が混ざると、テキストのつもりで画像を吐いて必ず空振りする。
+    modTestRunner.Check "R10-3: txtwriteコマンドにjpeg/解像度指定が混ざらない", _
+        (InStr(1, cmdText, "jpeg", vbTextCompare) = 0 And _
+         InStr(1, cmdText, " -r", vbTextCompare) = 0), "実際=[" & cmdText & "]"
+
+    ' 完了フラグ付きのcmd.exeラップは画像化側と共用する(BuildRunCommand)。
+    ' ここが繋がっていないと監視ループがタイムアウトまで解けない。
+    Dim runCmd As String
+    runCmd = optOcrCore.BuildRunCommand(cmdText, "C:\Temp\nxocr_x\done.flag")
+    modTestRunner.Check "R10-3: txtwriteコマンドもBuildRunCommandで完了フラグを付けられる", _
+        (Left$(runCmd, 14) = "cmd.exe /s /c " And _
+         InStr(1, runCmd, "echo done>" & Chr$(34) & "C:\Temp\nxocr_x\done.flag" & Chr$(34), _
+               vbTextCompare) > 0), "実際=[" & runCmd & "]"
+End Sub
+
+' GsTextVerdict の境界(しきい値40字)。テキストPDFとして採用するか、
+' 画像PDF(ほぼ空)としてOCR経路へ回すかの分かれ目そのもの。ここが緩いと
+' 画像PDFを「文字が取れた」と誤認してOCRへ回らなくなり、逆に厳しすぎると
+' 表紙だけの短いテキストPDFがOCR送りになる。
+Private Sub TestGsTextVerdictBoundary()
+    modTestRunner.Check "R10-3: 0字はimage(画像PDF疑い)", _
+        (optOcrCore.GsTextVerdict(0) = "image"), "実際=" & optOcrCore.GsTextVerdict(0)
+    modTestRunner.Check "R10-3: 39字はimage(しきい値の1つ手前)", _
+        (optOcrCore.GsTextVerdict(39) = "image"), "実際=" & optOcrCore.GsTextVerdict(39)
+    modTestRunner.Check "R10-3: 40字はok(しきい値ちょうどは採用)", _
+        (optOcrCore.GsTextVerdict(40) = "ok"), "実際=" & optOcrCore.GsTextVerdict(40)
+    modTestRunner.Check "R10-3: 41字はok", _
+        (optOcrCore.GsTextVerdict(41) = "ok"), "実際=" & optOcrCore.GsTextVerdict(41)
+    modTestRunner.Check "R10-3: 十分に長ければok", _
+        (optOcrCore.GsTextVerdict(120000) = "ok"), "実際=" & optOcrCore.GsTextVerdict(120000)
+
+    ' 負の値(想定外)は「採用しない」側へ倒す。数え方を間違えたときに、
+    ' 画像PDFを本文ありと誤認するより、OCRへ回す方が被害が小さい。
+    modTestRunner.Check "R10-3: 負の値はimage(安全側へ倒す)", _
+        (optOcrCore.GsTextVerdict(-1) = "image"), "実際=" & optOcrCore.GsTextVerdict(-1)
+End Sub
+
 Public Sub RunAll6()
     On Error GoTo VocabFail
     TestExpiryDecisionVocabulary
@@ -252,6 +313,12 @@ NextRetry:
 NextGsHttp:
     On Error GoTo GsHttpFail
     TestGsCandidatePathsHttpBoundary
+NextGsTextCmd:
+    On Error GoTo GsTextCmdFail
+    TestGsTextCommandGolden
+NextGsVerdict:
+    On Error GoTo GsVerdictFail
+    TestGsTextVerdictBoundary
 NextDone6:
     On Error GoTo 0
     Exit Sub
@@ -270,6 +337,14 @@ RetryFail:
     Resume NextGsHttp
 GsHttpFail:
     modTestRunner.Check "TestGsCandidatePathsHttpBoundary(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsTextCmd
+GsTextCmdFail:
+    modTestRunner.Check "TestGsTextCommandGolden(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsVerdict
+GsVerdictFail:
+    modTestRunner.Check "TestGsTextVerdictBoundary(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone6
 End Sub

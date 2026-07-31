@@ -6,8 +6,9 @@ Option Explicit
 ' ----------------------------------------------------------------------------
 ' 役割:
 '   ファイルパスの拡張子を見て、専門モジュール(txt/md/csv=自前読込、
-'   pdf=Word→Acrobatフォールバック、docx/doc=Word、xlsx/xls/xlsm=Excel)へ
-'   処理を振り分け、結果を ExtractedPage() の配列に統一して返す。
+'   pdf=Ghostscript→Word→Acrobatフォールバック、docx/doc=Word、
+'   xlsx/xls/xlsm=Excel)へ処理を振り分け、結果を ExtractedPage() の配列に
+'   統一して返す。
 '
 ' 流用元: /home/user/notebook/src/admin/modExtractor.bas(V2チャットボット資産。
 '   コピー元として精読のみ・変更禁止)。
@@ -159,6 +160,9 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     Dim ok As Boolean
     Dim truncated As Boolean
     Dim adapterErr As String
+    ' R10-3: PDF経路だけが「E0302ではなくE0303で返したい」場合がある
+    ' (Ghostscriptが『文字がほとんど入っていない』と判定した=画像PDF)。
+    Dim pdfRouteCode As String
 
     Select Case ext
         Case "txt", "md", "csv"
@@ -166,7 +170,8 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         Case "pdf"
             ' 原本パスも渡す(レビュー4-D)。Word側が「利用者が編集中の文書を
             ' 掴んでいないか」を、一時コピー・原本の両方のパスで調べる。
-            ok = ExtractPdfWithFallback(workPath, maxPages, pages, truncated, adapterErr, path)
+            ok = ExtractPdfWithFallback(workPath, maxPages, pages, truncated, adapterErr, _
+                                        pdfRouteCode, path)
         Case "docx", "doc"
             ok = modExtractorWord.Extract(workPath, maxPages, pages, truncated, adapterErr, path)
         Case "xlsx", "xls", "xlsm"
@@ -183,8 +188,11 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
 
     If Not ok Then
         errCode = "E0302"
+        ' R10-3: GS(txtwrite)が画像PDFと判定した場合だけE0303へ振り替え、
+        ' modShelfVision のOCR経路へ回す。それ以外は従来どおりE0302。
+        If LenB(pdfRouteCode) > 0 Then errCode = pdfRouteCode
         errDetail = adapterErr & " [" & copyNote & "]"
-        modLog.LogError "E0302", "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
+        modLog.LogError errCode, "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
         ExtractFile = False
         Exit Function
     End If
@@ -436,26 +444,126 @@ Public Function SharedCopyNextChunkLen(ByVal pos As Long, ByVal totalLen As Long
     SharedCopyNextChunkLen = n
 End Function
 
-' pdfはWordのPDF Reflowを優先し、失敗時のみAcrobat COMへフォールバックする
-' (V1 modExtractor.ExtractPdfWithFallback を踏襲)。
+' ----------------------------------------------------------------------------
+' ExtractPdfWithFallback - PDFの本文抽出。3経路を順に試す。
+'   (1) Ghostscript(txtwrite)  COM不要。同梱GSに文字を書き出させて読む
+'   (2) Word(PDF Reflow)       COM
+'   (3) Acrobat                 COM
+'   outCode : "" のまま返れば呼び出し元が E0302 を採用する。"E0303" を入れて
+'             返した場合は「画像PDF(文字が入っていない)」の印で、呼び出し元が
+'             OCR経路(modShelfVision)へ回す。
+'
+' 2026-07-31(R10-3): 順序を「Word → Acrobat」から「GS → Word → Acrobat」へ
+' 変えた。実機(管理端末)では、
+'   ・Word/AcrobatのCreateObjectがポリシーで塞がれ、テキストPDFが1本も
+'     取り込めない(実機初報B・E0302)。
+'   ・塞がれていない端末でも、WordのPDF Reflowが「'Word'がOLE操作を完了する
+'     のを待っています」ダイアログを頻発させ、数分たっても終わりが見えない
+'     (追加報告)。
+' という2つの症状が出ていた。GSは別プロセスでタイムアウト制御が効き、
+' テキストPDFなら数秒で返るため、先に通せばOLE待ちダイアログごと消える。
+' 画像PDFもGSが「文字がほとんど無い」と判定した時点でOCR経路へ回し、
+' Wordには渡さない(必ず失敗するか極端に遅いだけなので待たせる意味が無い)。
+' opt名は書かず modFeatures.InvokeFeature 経由で呼ぶ(R2)。vision機能が
+' 無効なビルド構成では "#ERR:FEATURE_UNAVAILABLE" が返るだけなので、
+' 従来どおり Word → Acrobat の連鎖へ静かに落ちる。
+' ----------------------------------------------------------------------------
 Private Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As Long, _
                                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
-                                        ByRef errDetail As String, _
+                                        ByRef errDetail As String, ByRef outCode As String, _
                                         Optional ByVal origPath As String = "") As Boolean
+    Dim gsText As String
+    Dim gsErr As String
     Dim wordErr As String
+    Dim acroErr As String
+
+    outCode = ""
+
+    gsText = VisionResultToText(modFeatures.InvokeFeature("vision", "ExtractPdfTextNoOcr", path))
+    If LenB(gsText) > 0 And Left$(gsText, 5) <> "#ERR:" Then
+        If BuildPagesFromGsText(gsText, maxPages, pages, truncated) Then
+            ExtractPdfWithFallback = True
+            Exit Function
+        End If
+        gsErr = "抽出テキストをページへ分解できませんでした"
+    ElseIf Left$(gsText, 11) = "#ERR:E0303:" Then
+        ' 文字データがほとんど入っていないPDF=画像PDF。ここで即OCR経路へ回す。
+        outCode = "E0303"
+        errDetail = modUtil.SafeLeft("GS: " & gsText, 600)
+        ExtractPdfWithFallback = False
+        Exit Function
+    Else
+        gsErr = gsText
+        If LenB(gsErr) = 0 Then gsErr = "(応答なし)"
+    End If
+
     If modExtractorWord.Extract(path, maxPages, pages, truncated, wordErr, origPath) Then
         ExtractPdfWithFallback = True
         Exit Function
     End If
 
-    Dim acroErr As String
     If modExtractorAcrobat.Extract(path, maxPages, pages, truncated, acroErr) Then
         ExtractPdfWithFallback = True
         Exit Function
     End If
 
-    errDetail = "Word: " & wordErr & " / Acrobat: " & acroErr
+    errDetail = modUtil.SafeLeft("GS: " & gsErr & " / Word: " & wordErr & _
+        " / Acrobat: " & acroErr, 600)
     ExtractPdfWithFallback = False
+End Function
+
+' InvokeFeatureの戻り値(Variant)を安全に文字列化する
+' (modShelfVision.ResultToText と同型。エラー値・非文字列は "" 扱い)。
+Private Function VisionResultToText(ByVal result As Variant) As String
+    On Error GoTo NotText
+    If IsError(result) Then Exit Function
+    If VarType(result) <> vbString Then Exit Function
+    VisionResultToText = CStr(result)
+    Exit Function
+NotText:
+    VisionResultToText = ""
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildPagesFromGsText - Ghostscript(txtwrite)の出力を ExtractedPage 配列へ。
+'   txtwriteはページの区切りに改ページ文字 Chr(12) を挟むので、そこで割れば
+'   Word/Acrobat経路と同じページ番号つきで取り込める(出典表示のため
+'   ページ番号は落とせない)。末尾の空ページ(最終ページ直後の改ページ)は
+'   捨てる。上限ページを超えた場合は先頭maxPagesだけ残して truncated=True
+'   にする(他アダプタと同じ規約)。中身が空なら False を返し、呼び出し元は
+'   Word → Acrobat の連鎖へ落ちる。
+' ----------------------------------------------------------------------------
+Private Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long, _
+                                      ByRef pages() As ExtractedPage, _
+                                      ByRef truncated As Boolean) As Boolean
+    Dim parts() As String
+    Dim tmp() As ExtractedPage
+    Dim keptN As Long
+    Dim i As Long
+
+    truncated = False
+    If LenB(Trim$(txt)) = 0 Then Exit Function
+
+    parts = Split(txt, Chr$(12))
+    keptN = UBound(parts) - LBound(parts) + 1
+    Do While keptN > 1
+        If LenB(Trim$(parts(LBound(parts) + keptN - 1))) > 0 Then Exit Do
+        keptN = keptN - 1
+    Loop
+
+    If maxPages > 0 And keptN > maxPages Then
+        keptN = maxPages
+        truncated = True
+    End If
+
+    ReDim tmp(0 To keptN - 1)
+    For i = 0 To keptN - 1
+        tmp(i).page = i + 1
+        tmp(i).Text = parts(LBound(parts) + i)
+    Next i
+    pages = tmp
+
+    BuildPagesFromGsText = True
 End Function
 
 ' txt/md/csv はADODB.StreamでUTF-8として読み込む(常に1ページ扱い)。

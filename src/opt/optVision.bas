@@ -395,10 +395,14 @@ Public Function ResetGsGuidance() As String
     ResetGsGuidance = ""
 End Function
 
+' R10-3: テキストPDFのCOM無し抽出(実体はoptGsTxt・容量都合の分割)。
+' vision機能の行き先はoptVision固定なので受け口だけ置く。
+Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
+    ExtractPdfTextNoOcr = optGsTxt.ExtractPdfTextNoOcr(path)
+End Function
+
 ' ----------------------------------------------------------------------------
-' 内部ヘルパー(すべてPrivate: optVisionの公開契約はPing/ExtractImagePdf/
-' ExtractImagePdfText/ExtractPdfOcrPagedText/HasClipboardImage/
-' SaveClipboardImage/ResetGsGuidanceのみ)
+' 内部ヘルパー(GS実行まわりの5本のみoptGsTxt用にPublic・R10-3)
 ' ----------------------------------------------------------------------------
 
 ' ページ画像を1枚ずつOCRして1本のページ付きテキストにする。
@@ -491,7 +495,8 @@ End Function
 
 ' config ghostscript_path / 同梱 / ghostscript_search_dirs の順で候補を
 ' 実在確認する(optOcrCore.GsCandidatePathsが組み立てた候補文字列を使う)。
-Private Function FindGsExeByCandidates() As String
+' R10-3でPublic化: 案内カードを出せないoptGsTxt用の「静かな解決」がこの関数。
+Public Function FindGsExeByCandidates() As String
     Dim cfgPath As String
     cfgPath = modConfig.GetString("ghostscript_path", "")
     Dim searchDirs As String
@@ -586,7 +591,7 @@ NoDialog:
 End Function
 
 ' 一時フォルダ(TEMP\nxocr_<一意名>)を作って返す。失敗時は""。
-Private Function MakeOcrFolder() As String
+Public Function MakeOcrFolder() As String
     Dim tempRoot As String: tempRoot = Environ$("TEMP")
     If LenB(tempRoot) = 0 Then tempRoot = Environ$("TMP")
     If LenB(tempRoot) = 0 Then Exit Function
@@ -609,7 +614,7 @@ End Function
 ' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
 ' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
 ' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
-Private Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
+Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
                             ByRef errDesc As String) As Boolean
     Dim wsh As Object
     On Error GoTo NoRun
@@ -630,7 +635,7 @@ End Function
 ' 待っているのはファイルの出現であって、詰めても早くは終わらない。
 ' 1周ごとに約100ms止めて間引く(挙動は不変。判定間隔が0.1秒になるだけ)。
 ' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
-Private Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
+Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long) As Boolean
     Dim t0 As Double: t0 = Timer
     Do
         If PathExists(flagPath) Then
@@ -656,7 +661,7 @@ End Function
 
 ' 一時フォルダの後始末(成功・失敗の両経路から呼ぶ。R6規約により別Sub)。
 ' ロック中でKillに失敗しても無視する(TEMPなのでOSが後で片付ける)。
-Private Sub CleanupOcrFolder(ByVal folderPath As String)
+Public Sub CleanupOcrFolder(ByVal folderPath As String)
     If LenB(folderPath) = 0 Then Exit Sub
     On Error Resume Next
     Kill folderPath & "\*.jpg"
