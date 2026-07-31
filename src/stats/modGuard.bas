@@ -151,7 +151,11 @@ Public Function DaysSinceReach() As Long
     On Error Resume Next
     Dim s As String: s = LastReachRaw()
     If LenB(s) = 0 Then Exit Function
-    DaysSinceReach = CLng(Date - CDate(s))
+    ' 2026-07-31(R8b B13): CLng は【四捨五入】する。guard_last_reach に
+    ' 時刻付きの値が入っていると Date - CDate(s) が例えば 29.6 になり、
+    ' CLng だと 30 へ切り上がって【1日早く消える】。経過日数は切り捨てが正しい
+    ' (「まだ29日と14時間」を30日経過とは呼ばない)。
+    DaysSinceReach = CLng(Int(Date - CDate(s)))
     If DaysSinceReach < 0 Then DaysSinceReach = 0
     On Error GoTo 0
 End Function
@@ -235,7 +239,22 @@ Public Function EnforceExpiry() As Boolean
         Exit Function
     End If
 
-    ' act = "wipe"。知識だけを消す。
+    ' ------------------------------------------------------------------------
+    ' 2026-07-31(R8b B1・最重要/データ喪失封鎖): 消去は【ホワイトリスト】で守る。
+    '
+    ' ここまでの分岐は "never"/"off"/"none"/"warn"/"warn_first" を1つずつ
+    ' 弾く【ブラックリスト】で、最後に残ったものを消していた。つまり
+    ' 既定の振る舞いが「消す」になっている。この関数の冒頭は
+    ' On Error Resume Next なので、
+    '   ・my_stats のセルがエラー値(#REF! 等)で GetStatText が失敗する
+    '   ・modShareRule の呼び出しが何らかの理由で失敗する
+    ' といったときに act が空文字のままここへ落ち、【利用者の資料が消える】。
+    ' 判定式がどれだけ正しくても、呼び出し側の既定が「消す」ならいつか消える。
+    ' 消してよいのは act が明示的に "wipe" のときだけ、と裏返す。
+    If act <> "wipe" Then Exit Function
+    ' ------------------------------------------------------------------------
+
+    ' 知識だけを消す。
     Dim removed As Long
     removed = WipeKnowledge()
     modStats.SetStatText WIPED_KEY, modUtil.NowStamp()
