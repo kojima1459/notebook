@@ -13,8 +13,15 @@ Private Const NONCE_PREFIX As String = "thx:"
 ' 貯まり、感謝EXPと合算してレベルになる(オーナー裁定: 活動+感謝の合算型)。
 '
 ' 仕組み:
-'   ・出所: パック取込時に各チャンクの origin が "pack:<作者>" になっている
-'     (modPack実装済み)。この作者情報をそのまま「誰へ感謝するか」に使う。
+'   ・出所: 取り込んだチャンクの origin は2つの名前空間を持つ(レビュー C-1)。
+'       手渡しパック   … "pack:<作者表示名>"
+'       部門チャンネル … "channel:<部門名>"
+'     この出所情報から「誰へ感謝するか」を決める。
+'     2026-07-31(レビュー R8 F1): ここが "pack:" しか解決していなかったため、
+'     チャンネル経由で解決した人の感謝は【構造的に一度も送られていなかった】。
+'     部門名は人ではないので、チャンネルは取込時に控えた発行者ID
+'     ("chauth:<部門名>" → modPack が記録)を引いて宛先にする。
+'     発行者IDを持たない旧い正典パックは、従来どおり静かに感謝なしで終わる。
 '   ・発行: ✅解決時、直近回答の最上位引用ソースの作者(自分以外)へ、共有フォルダ
 '     <nexus_share_path>\thanks\ に感謝状(1件1ファイル・nonce付きTSV)を書く。
 '   ・受領: 同期/起動時に thanks\ を走査し、宛先=自分かつ未処理(nonce重複排除)
@@ -76,7 +83,11 @@ Public Sub EmitThanks(ByVal topSource As String)
     On Error GoTo Done
     If LenB(topSource) = 0 Then Exit Sub
 
-    Dim author As String: author = AuthorOfSource(topSource)
+    ' 出所(origin)をそのまま取り出し、名前空間ごとに宛先を解決する。
+    ' 2026-07-31(レビュー R8 F1): 以前はここで "pack:" 接頭辞だけを剥がして
+    ' いたため、origin="channel:<部門名>" は空文字になり即Exitしていた。
+    Dim origin As String: origin = OriginOfSource(topSource)
+    Dim author As String: author = modShareRule.OriginName(origin)
     If LenB(author) = 0 Then Exit Sub                          ' 自作/出所不明 → 感謝なし
     If StrComp(author, "不明", vbTextCompare) = 0 Then Exit Sub
 
@@ -95,8 +106,17 @@ Public Sub EmitThanks(ByVal topSource As String)
     ' パック取込時に控えた 表示名→ID の対応(my_stats "pkauth:")を引く。
     ' 対応が無い(author_id を持たない旧いパック)ときだけ、従来どおり
     ' 表示名で宛先を作る。
+    ' 2026-07-31(レビュー R8 F1): チャンネル("channel:<部門名>")は
+    ' 表示名での代用を許さない。部門名は人ではないので、代用すると
+    ' 「人事部」宛の感謝状が誰にも受け取られず共有フォルダに溜まるだけになる。
+    Dim resolvedId As String
+    resolvedId = ResolveAuthorId(origin, author)
+    If LenB(resolvedId) = 0 Then Exit Sub
+    ' 解決したIDが自分なら送らない(自部門の正典を自分で発行している人)。
+    If StrComp(resolvedId, myId, vbTextCompare) = 0 Then Exit Sub
+
     Dim authorKey As String
-    authorKey = modP2PIo.SanitizeId(ResolveAuthorId(author))
+    authorKey = modP2PIo.SanitizeId(resolvedId)
     If LenB(authorKey) = 0 Then Exit Sub
 
     Dim folderPath As String: folderPath = ThanksDir()
@@ -122,16 +142,27 @@ Public Sub EmitThanks(ByVal topSource As String)
 Done:
 End Sub
 
-' 表示名から、感謝状の宛先に使うIDを解決する。
-' パック取込時に my_stats へ控えた "pkauth:<表示名>" を引き、無ければ
-' 表示名をそのまま返す(author_id を持たない旧いパックとの過渡期互換)。
-Private Function ResolveAuthorId(ByVal authorName As String) As String
-    ResolveAuthorId = authorName
-    On Error Resume Next
+' origin から、感謝状の宛先に使うIDを解決する。
+'   pack:<表示名>   … my_stats "pkauth:<表示名>" を引く。無ければ表示名で代用
+'                      (author_id を持たない旧いパックとの過渡期互換。H-5)
+'   channel:<部門名> … my_stats "chauth:<部門名>" を引く。無ければ空文字
+'                      (代用不可。裁定 R8 F1: 旧い正典は静かに感謝なし)
+' キーの綴りは modShareRule.AuthorStatKey が唯一の決定者。書く側(modPack)と
+' 読む側(ここ)でずれると感謝が永久に届かないため、必ず同じ関数を通す。
+Private Function ResolveAuthorId(ByVal origin As String, ByVal authorName As String) As String
+    Dim key As String: key = modShareRule.AuthorStatKey(origin)
+    If LenB(key) = 0 Then Exit Function
+
     Dim v As String
-    v = Trim$(modStats.GetStatText("pkauth:" & LCase$(Trim$(authorName))))
-    If LenB(v) > 0 Then ResolveAuthorId = v
+    On Error Resume Next
+    v = Trim$(modStats.GetStatText(key))
     On Error GoTo 0
+    If LenB(v) > 0 Then
+        ResolveAuthorId = v
+        Exit Function
+    End If
+    If modShareRule.NeedsResolvedId(origin) Then Exit Function
+    ResolveAuthorId = authorName
 End Function
 
 
@@ -231,7 +262,7 @@ Public Function CollectThanks(Optional ByVal silent As Boolean = False) As Long
     ' 宛先不明の感謝状のGC。宛先の綴りが変わった端末や、退職・異動で
     ' もう誰も取りに来ないファイルは、放置すると共有フォルダに無限に
     ' 溜まり、Dir列挙が毎起動で重くなる(レビュー H-5)。
-    ' 既定30日。0以下でGC無効(config thanks_gc_days)。
+    ' 既定60日。0以下でGC無効(config thanks_gc_days)。
     GcOldThanks folderPath
     GcOldNonces
 Done:
@@ -239,11 +270,18 @@ End Function
 
 ' 作成からN日以上経った thx_ ファイルを消す。自分宛かどうかは見ない
 ' (自分宛は上の処理で読まれた時点で消えているため、ここに残っているのは
-'  誰も取りに来ていないファイル)。列挙中にKillすると列挙が壊れるので、
+'  【まだ受け取りに来ていない】ファイル)。列挙中にKillすると列挙が壊れるので、
 ' 必ず「集めてから消す」。
+'
+' 2026-07-31(レビュー R8 F14): 保持を30日から60日へ延ばした。
+' 以前のコメントは「退職・異動でもう誰も取りに来ないファイル」と書いていたが、
+' これは前提が間違っている。ここに残っているファイルの大半は
+' 「宛先の人がまだこの30日間ブックを開いていない」だけで、育休・長期出張・
+' 長期休職なら普通に起こる。感謝は届かなかったことにも気付けないまま消える。
+' 共有フォルダのDir列挙が重くなるのを避ける目的は60日でも十分達成できる。
 Private Sub GcOldThanks(ByVal folderPath As String)
     On Error Resume Next
-    Dim days As Long: days = modConfig.GetLong("thanks_gc_days", 30)
+    Dim days As Long: days = modConfig.GetLong("thanks_gc_days", 60)
     If days <= 0 Then Exit Sub
 
     Dim old() As String: ReDim old(0 To 63)
@@ -361,11 +399,13 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
     ' できないため、ResetGlobalExcludedで既存の組織的除外を消さない=前回状態を保持。
     ' 共有は到達できるが noise\ が未作成(まだ誰も報告していない)なら通常どおり
     ' 集計する(=正当に空へ再計算)。
-    Dim shareRoot As String: shareRoot = modConfig.GetString("nexus_share_path", "")
-    On Error Resume Next
-    Dim probe As String: probe = Dir(shareRoot, vbDirectory)
-    On Error GoTo Done
-    If LenB(probe) = 0 Then Exit Function   ' 共有到達不能 → 除外状態を保持して撤退
+    '
+    ' 2026-07-31(レビュー R8 F6): ここには「末尾"\"無しのパスを Dir で見る」
+    ' 独自プローブがあった。判定式が modShare と違ううえ、空の共有ルートを
+    ' 到達不能と誤判定する(F6の本題)。到達判定は modShare に一本化する。
+    ' NoiseDir() が空でない時点で modShare.Reachable() は真だが、意図
+    '(「共有そのものへ届くか」を確かめてから集計する)を残すため明示する。
+    If Not modShare.Reachable() Then Exit Function   ' 共有到達不能 → 除外状態を保持して撤退
 
     ' 1) 確定除外フラグ(gexcl_*.txt)を集める。これは閾値到達で確定し、個別投票を
     '    GC(削除)して1ファイルへ圧縮した「軽量な確定除外フラグ」。中身は
@@ -540,8 +580,11 @@ End Function
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
-' ソース名 → 作者(origin が "pack:<作者>" のときのみ。自作等は "")
-Private Function AuthorOfSource(ByVal srcName As String) As String
+' ソース名 → origin セルの生値("pack:<作者>" / "channel:<部門名>" / "self" 等)。
+' 名前空間の解釈は modShareRule に一本化してある(2026-07-31 R8 F1)。
+' 以前はここで "pack:" だけを剥がしていたため、チャンネル由来のソースは
+' 常に空文字になり、感謝状が一度も発行されなかった。
+Private Function OriginOfSource(ByVal srcName As String) As String
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
@@ -552,8 +595,7 @@ Private Function AuthorOfSource(ByVal srcName As String) As String
     Dim r As Long
     For r = 2 To lastR
         If StrComp(CStr(ws.Cells(r, 2).Value), srcName, vbTextCompare) = 0 Then
-            Dim origin As String: origin = CStr(ws.Cells(r, 3).Value)
-            If LCase$(Left$(origin, 5)) = "pack:" Then AuthorOfSource = Trim$(Mid$(origin, 6))
+            OriginOfSource = CStr(ws.Cells(r, 3).Value)
             Exit Function
         End If
     Next r
@@ -589,11 +631,11 @@ Private Sub MarkNonce(ByVal nonce As String)
 End Sub
 
 ' 期限を過ぎた nonce 行を my_stats から取り除く(CollectThanks の最後に呼ぶ)。
-' 保持日数は共有フォルダのGCと同じ既定30日＋余裕7日。
+' 保持日数は共有フォルダのGCと同じ既定60日＋余裕7日(R8 F14で30→60)。
 Private Sub GcOldNonces()
     On Error Resume Next
     Dim keepDays As Long
-    keepDays = modConfig.GetLong("thanks_gc_days", 30) + 7
+    keepDays = modConfig.GetLong("thanks_gc_days", 60) + 7
     If keepDays < 1 Then Exit Sub
 
     Dim ws As Worksheet

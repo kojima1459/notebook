@@ -7,6 +7,9 @@ Private Const STREAK_KEY As String = "domain_block_streak"
 ' 実際に消した記録(消したあと毎回通知しないため)。レビュー L-7。
 Private Const WARNED_KEY As String = "expiry_warned_days"
 Private Const WIPED_KEY As String = "expiry_wiped_at"
+' 「一度も共有へ到達していないので失効判定を見送った」ことを usage_log へ
+' 1行だけ残すための印(R8 F4)。毎起動で同じ行を積まないための重複防止。
+Private Const NEVER_LOGGED_KEY As String = "expiry_never_reached_logged"
 
 ' ============================================================================
 ' modGuard - 端末セキュリティ(PC紛失・持ち出し対策)
@@ -37,6 +40,13 @@ Private Const WIPED_KEY As String = "expiry_wiped_at"
 '     だけが有効になる。初期状態で誰かの業務を止める作りにはしない。
 '   ・消えるのは取り込んだ知識だけ。設定・統計・履歴は残す。共有フォルダに
 '     つながればチャンネルから再取得できるので、実害は再同期の待ち時間だけ。
+'   ・【一度も共有フォルダへ到達した記録が無い端末は絶対に消さない】
+'     (2026-07-31 R8 F4)。共有パスにダミー値が入っているだけ、共有をまだ
+'     作っていない、という状態で30日経つと全端末の知識が消えていた。
+'     「つながらなくなった」と「そもそも一度もつながっていない」は別物で、
+'     後者はこの機能が想定している脅威(持ち出された端末)ではない。
+'     判定は modShareRule.ExpiryDecision に切り出し、境界値をテストで固定した。
+'   ・knowledge_expire_days は config から変更できる(0で無効。PoC中は0推奨)。
 ' ============================================================================
 
 Private Const K_LAST_REACH As String = "guard_last_reach"   ' 共有フォルダ最終到達日
@@ -129,16 +139,27 @@ Public Sub TouchReach()
 End Sub
 
 ' 最終到達日からの経過日数(記録が無ければ0=今日として扱い、誤爆を防ぐ)。
+'
+' 2026-07-31(レビュー R8 F4): 記録が無いときに TouchReach を呼んで
+' 【到達したことにしていた】のをやめた。共有フォルダへ一度も届いていない
+' 端末が「今日届いた」ことになり、そこから30日を数え始めてしまう。
+' 失効の最終防壁は「一度も到達した記録が無い端末は消さない」なので、
+' その記録を勝手に作ってしまうと防壁ごと無効になる。
+' 記録が無ければ 0 を返すだけにし、書き込みは実際に到達した TouchReach
+' だけが行う(EnforceExpiry は LastReachRaw() の空判定を先に見る)。
 Public Function DaysSinceReach() As Long
     On Error Resume Next
-    Dim s As String: s = modStats.GetStatText(K_LAST_REACH)
-    If LenB(s) = 0 Then
-        ' 初回起動や共有フォルダ未設定。記録を作って0日扱いにする。
-        TouchReach
-        Exit Function
-    End If
+    Dim s As String: s = LastReachRaw()
+    If LenB(s) = 0 Then Exit Function
     DaysSinceReach = CLng(Date - CDate(s))
     If DaysSinceReach < 0 Then DaysSinceReach = 0
+    On Error GoTo 0
+End Function
+
+' 共有フォルダへ最後に到達した日の生値(未到達なら空文字)。
+Public Function LastReachRaw() As String
+    On Error Resume Next
+    LastReachRaw = Trim$(modStats.GetStatText(K_LAST_REACH))
     On Error GoTo 0
 End Function
 
@@ -150,24 +171,49 @@ Public Function EnforceExpiry() As Boolean
     On Error Resume Next
     Dim limitDays As Long
     limitDays = modConfig.GetLong("knowledge_expire_days", 30)
-    If limitDays <= 0 Then Exit Function      ' 0以下で機能OFF
 
     ' 共有フォルダを使っていない環境ではこの機能自体を動かさない
     ' (単独利用の人の知識を、つながる先が無いという理由で消すのは理不尽)。
     If LenB(Trim$(modConfig.GetString("nexus_share_path", ""))) = 0 Then Exit Function
 
-    Dim d As Long: d = DaysSinceReach()
-    If d < limitDays - 7 Then Exit Function
-
-    ' 2026-07-28(レビュー L-7): 3つの雑さを直す。
+    ' 判定式そのものは純ロジック(modShareRule.ExpiryDecision)へ切り出した。
+    ' 境界値をテストで固定するため、およびここでの分岐を読める長さに保つため。
+    ' 2026-07-28(レビュー L-7): 3つの雑さを直してある。
     '  (a) expire_days<=7 だと limitDays-7<=0 になり、初日から毎回警告が出る
     '      → 「1日でも猶予がある」ときだけ予告する。
     '  (b) 期限超過後は開くたびにワイプ通知が出ていた
     '      → 一度消したら記録し、二度目からは黙って通す(もう消すものが無い)。
     '  (c) 端末の時計が前へ飛ぶと、予告を一度も出さずにいきなり消えていた
     '      → 予告を出した記録が無ければ、まず予告だけ出して1回見送る。
-    If d >= 1 And d < limitDays Then
-        If StrComp(modStats.GetStatText(WARNED_KEY), CStr(d), vbTextCompare) = 0 Then Exit Function
+    Dim lastReach As String: lastReach = LastReachRaw()
+    Dim d As Long: d = DaysSinceReach()
+    Dim act As String
+    act = modShareRule.ExpiryDecision(lastReach, d, limitDays, _
+                                      modStats.GetStatText(WARNED_KEY), _
+                                      modStats.GetStatText(WIPED_KEY))
+
+    ' 2026-07-31(レビュー R8 F4・データ喪失): 【一度も共有へ到達した記録が
+    ' 無い端末は、絶対に消さない】。
+    ' 共有パスにダミー値が入っているだけの端末・共有フォルダをまだ作って
+    ' いないPoC初期状態では、guard_last_reach が空のまま日数だけが進む。
+    ' 旧実装はそれを「30日つながっていない」と解釈して、部門の正典どころか
+    ' 【利用者が自分で取り込んだ資料まで】全消去していた。
+    ' 消してよいのは「かつて届いていたのに30日届かない」端末だけ、が設計意図。
+    ' 予告も出さない(まだ一度も繋がっていない人に「消えます」と脅す意味が無い)。
+    ' 見送ったことは usage_log に1行だけ残し、原因調査の手掛かりにする。
+    If act = "never" Then
+        If LenB(modStats.GetStatText(NEVER_LOGGED_KEY)) = 0 Then
+            modStats.SetStatText NEVER_LOGGED_KEY, modUtil.NowStamp()
+            modLog.LogUsage "guard_expiry_skipped", "", _
+                "共有フォルダへ一度も到達した記録が無いため、失効判定を行いません" & _
+                "(guard_last_reach が空)。共有パスの設定・到達性をご確認ください。"
+        End If
+        Exit Function
+    End If
+    If act = "off" Then Exit Function        ' knowledge_expire_days<=0 で機能OFF
+    If act = "none" Then Exit Function
+
+    If act = "warn" Then
         modStats.SetStatText WARNED_KEY, CStr(d)
         ' 予告。黙って消さない。
         MsgBox "社内ネットワークに " & d & " 日間つながっていません。" & vbCrLf & _
@@ -179,9 +225,7 @@ Public Function EnforceExpiry() As Boolean
         Exit Function
     End If
 
-    ' 期限超過。
-    ' 予告を一度も出せていない(時計の前進ジャンプ等)なら、まず予告だけ出す。
-    If LenB(modStats.GetStatText(WARNED_KEY)) = 0 Then
+    If act = "warn_first" Then
         modStats.SetStatText WARNED_KEY, CStr(d)
         MsgBox "社内ネットワークに " & d & " 日間つながっていません。" & vbCrLf & _
                "次に開いたときも接続できていない場合、安全のため" & vbCrLf & _
@@ -191,10 +235,7 @@ Public Function EnforceExpiry() As Boolean
         Exit Function
     End If
 
-    ' 既に消したあとなら、開くたびに同じ通知を出さない。
-    If LenB(modStats.GetStatText(WIPED_KEY)) > 0 Then Exit Function
-
-    ' 知識だけを消す。
+    ' act = "wipe"。知識だけを消す。
     Dim removed As Long
     removed = WipeKnowledge()
     modStats.SetStatText WIPED_KEY, modUtil.NowStamp()

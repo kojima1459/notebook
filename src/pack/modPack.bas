@@ -115,6 +115,23 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
         On Error GoTo 0
     End If
 
+    ' 2026-07-31(レビュー R8 F1): 部門チャンネル経由の取込では、チャンクの
+    ' origin が "channel:<部門名>" になる(originOverride)。部門名は人では
+    ' ないため、pkauth(表示名→ID)だけでは感謝状の宛先を解決できず、
+    ' チャンネル経由の感謝は【構造的に一度も発行されていなかった】。
+    ' pkauth と同じ作法で "chauth:<部門名>" → 発行者ID を控える。
+    ' キーの綴りは modShareRule.AuthorStatKey が唯一の決定者(読む側の
+    ' modP2P.ResolveAuthorId も同じ関数を通す)。
+    ' 発行者IDを持たない旧い正典パックでは何も記録しない = 従来どおり感謝なし。
+    If LenB(authorId) > 0 Then
+        Dim chKey As String: chKey = modShareRule.AuthorStatKey(originOverride)
+        If LenB(chKey) > 0 Then
+            On Error Resume Next
+            modStats.SetStatText chKey, authorId
+            On Error GoTo 0
+        End If
+    End If
+
     Dim ids() As String, sources() As String, pages() As Long
     Dim summaries() As String, keywords() As String, fullTexts() As String, vectors() As String
     Dim n As Long

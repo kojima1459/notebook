@@ -26,6 +26,14 @@ Option Explicit
 '   各モジュールの <なんとか>Dir() は、パスを組み立てる前に Reachable() を
 '   通す。届かなければ空文字を返し、呼び出し側は既存の「パスが空なら
 '   何もしない」経路にそのまま乗る(新しい失敗経路を増やさない)。
+'
+' 唯一性の原則(2026-07-31 R8 F2):
+'   共有ルートの解決と到達判定は【このモジュールだけ】が行う。
+'   modBoard/modPublish/modMentor は自前で nexus_share_path を読んで
+'   パスを組み立てており、modShare の関所を素通りしていた。結果、
+'   届かない共有に対して起動のたび OS のタイムアウトを払い直していたうえ、
+'   「modShare は NG と言っているのに他は触りに行く」という矛盾した状態に
+'   なっていた。パスの組み立ては必ず SubDir() を通すこと。
 ' ============================================================================
 
 ' 0 = 未判定 / 1 = 到達可 / 2 = 到達不可(このセッションは以後スキップ)
@@ -33,6 +41,15 @@ Private mState As Long
 Private Const ST_UNKNOWN As Long = 0
 Private Const ST_OK As Long = 1
 Private Const ST_NG As Long = 2
+
+' 到達OKと判定したあとの連続失敗回数(2026-07-31 R8・F7の最小実装)。
+' セッション途中のVPN切断で「届く」と言い張り続けないための受け口。
+' 完全な降格機構(状態機械)は次期。ここは連続 FAIL_TO_NG 回で NG へ倒すだけ。
+Private mFailStreak As Long
+Private Const FAIL_TO_NG As Long = 5
+
+' 標準サブフォルダの初期化を1セッションに1回だけ行うための印。
+Private mDirsEnsured As Boolean
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -66,16 +83,30 @@ Public Function Reachable() As Boolean
         Exit Function
     End If
 
+    ' 2026-07-31(レビュー R8 F6): プローブを「中身1件以上」から
+    ' 「ディレクトリとして存在する」へ変更した。
+    ' 旧実装は Dir(p, vbDirectory) の戻り文字列で判定していたが、Dir に
+    ' フォルダを渡したときに返るのは【そのフォルダの中の最初のエントリ】で、
+    ' 空フォルダでは空文字が返る。つまり
+    '   「共有ルートは正常に作られているが、まだ誰も何も置いていない」
+    ' という健全な初期状態が share_unreachable になっていた。
+    ' しかも共有ルートの下に thanks\ などを作るのは全部 modShare 経由なので、
+    ' 誰も最初の1ファイルを置けない=永久に空=永久に到達不能、という
+    ' デッドロックだった(PoC開始直後がまさにこの状態)。
+    ' GetAttr は「存在するか」だけを答えるので、空フォルダでも真になる。
     On Error Resume Next
-    Dim probe As String
-    probe = Dir(p, vbDirectory)      ' ここで OS のタイムアウトを1回だけ払う
+    Err.Clear
+    Dim attrVal As Long
+    attrVal = GetAttr(modShareRule.ProbeTargetPath(p))   ' OSのタイムアウトはここで1回だけ払う
     Dim probeErr As Long: probeErr = Err.Number
     Err.Clear
     On Error GoTo 0
 
-    If probeErr = 0 And LenB(probe) > 0 Then
+    If modShareRule.ProbeIsReachable(probeErr, attrVal) Then
         mState = ST_OK
+        mFailStreak = 0
         Reachable = True
+        EnsureStandardDirs p
     Else
         mState = ST_NG
         On Error Resume Next
@@ -84,6 +115,51 @@ Public Function Reachable() As Boolean
         On Error GoTo 0
     End If
 End Function
+
+' ----------------------------------------------------------------------------
+' EnsureStandardDirs - 初回OK時に標準サブフォルダを1回だけ用意する。
+'   これが「共有フォルダの初期化の入口」で、アプリ内にここ以外は作らない
+'   (2026-07-31 R8 F6)。各モジュールが自分のフォルダを作るだけだと、
+'   その機能を一度も使わない限りフォルダが生まれず、他端末から見ると
+'   「まだ何も無い=壊れている?」と区別が付かない。
+' ----------------------------------------------------------------------------
+Private Sub EnsureStandardDirs(ByVal rootPath As String)
+    If mDirsEnsured Then Exit Sub
+    mDirsEnsured = True
+    On Error Resume Next
+    Dim leafs() As String: leafs = Split(modShareRule.StandardSubDirs(), "|")
+    Dim i As Long
+    For i = LBound(leafs) To UBound(leafs)
+        Dim d As String: d = rootPath & leafs(i) & "\"
+        If Len(Dir(d, vbDirectory)) = 0 Then MkDir d
+        Err.Clear
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' ReportFailure - 共有I/Oが失敗したことの受け口(2026-07-31 R8・F7最小実装)。
+'   到達OKと判定した後にVPNが切れた場合、各所のリトライ(3回)を延々と
+'   払い続けることになる。連続5回の失敗でこのセッションを NG へ倒し、
+'   以降の共有I/Oを見送る。1回でも成功すれば連続回数は0へ戻る
+'   (たまたまの1回でNGに倒さない)。
+' ----------------------------------------------------------------------------
+Public Sub ReportFailure(ByVal src As String)
+    If mState <> ST_OK Then Exit Sub
+    mFailStreak = mFailStreak + 1
+    If mFailStreak < FAIL_TO_NG Then Exit Sub
+    mState = ST_NG
+    On Error Resume Next
+    modLog.LogUsage "share_degraded", "", _
+        "共有I/Oが" & FAIL_TO_NG & "回続けて失敗したため、このセッションは以後見送ります: " & _
+        modUtil.SafeLeft(src, 120)
+    On Error GoTo 0
+End Sub
+
+' ReportSuccess - 共有I/Oが成功したときに連続失敗回数を戻す。
+Public Sub ReportSuccess()
+    mFailStreak = 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' SubDir - <nexus_share_path>\<name>\ を返す。届かないときは空文字。
@@ -100,4 +176,6 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Sub ResetProbe()
     mState = ST_UNKNOWN
+    mFailStreak = 0
+    mDirsEnsured = False
 End Sub

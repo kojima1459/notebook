@@ -63,6 +63,11 @@ Private Const VER_NAME As String = "version.txt"
 Private Const ARCHIVE_DIR As String = "_archive"
 Private Const MAX_CHANNELS As Long = 40
 
+' 直近の ListChannels で上限を超えて読み込めなかった部門数(R8 F13)。
+' Hub の受信箱がこれを見て注意を出す。VBAはモジュールレベル宣言を
+' プロシージャより前に置く必要がある。
+Private mLastOverflow As Long
+
 ' ----------------------------------------------------------------------------
 ' ListChannels - 共有フォルダにある部門チャンネル名を | 区切りで返す。
 ' ----------------------------------------------------------------------------
@@ -79,15 +84,30 @@ Public Function ListChannels() As String
     Dim names() As String
     ReDim names(0 To MAX_CHANNELS)
     Dim n As Long
+    Dim overflow As Long
     Dim nm As String
     nm = Dir(baseDir & "*", vbDirectory)
-    Do While LenB(nm) > 0 And n < MAX_CHANNELS
+    Do While LenB(nm) > 0
         If nm <> "." And nm <> ".." And Left$(nm, 1) <> "_" Then
-            names(n) = nm
-            n = n + 1
+            If n < MAX_CHANNELS Then
+                names(n) = nm
+                n = n + 1
+            Else
+                ' 2026-07-31(レビュー R8 F13): 41件目以降は静かに捨てられて
+                ' いた。上限に当たったこと自体が誰にも見えないため、
+                ' 「うちの部門だけ正典が届かない」という調べようのない
+                ' 不具合になる。落とした件数を数えて必ず記録する。
+                overflow = overflow + 1
+            End If
         End If
         nm = Dir()
     Loop
+    mLastOverflow = overflow
+    If overflow > 0 Then
+        modLog.LogError "E0806", "modChannel.ListChannels", _
+            "部門チャンネルが上限(" & MAX_CHANNELS & ")を超えました。" & _
+            overflow & "部門を読み込み対象から外しています。MAX_CHANNELS の引き上げが必要です。"
+    End If
 
     ' ここから先は列挙が終わっているので Dir() を自由に使える。
     ' フォルダかどうかは version.txt の有無で判定する(GetAttrは
@@ -102,6 +122,12 @@ Public Function ListChannels() As String
     Next i
     ListChannels = sb
     On Error GoTo 0
+End Function
+
+' OverflowCount - 直近の ListChannels で上限超過により切り捨てた部門数(R8 F13)。
+' 0 なら正常。Hub の受信箱がこれを見て注意表示を出す。
+Public Function OverflowCount() As Long
+    OverflowCount = mLastOverflow
 End Function
 
 ' 購読中か。既定は「全部購読」なので、判定は除外リスト(config
@@ -150,8 +176,12 @@ End Sub
 ' チャンネルの現在の版(共有フォルダ側)。"版番号|発行日|発行者" 形式。
 Public Function RemoteVersion(ByVal chName As String) As String
     On Error Resume Next
-    Dim p As String: p = ChannelsDir() & chName & "\" & VER_NAME
-    If LenB(p) = 0 Then Exit Function
+    ' 2026-07-31(レビュー R8・低): 判定は【連結する前】に行う。
+    ' 連結後の LenB(p) は "\version.txt" が付いている分、共有が未設定でも
+    ' 必ず 0 より大きく、ガードとして一度も働かなかった(潜在欠陥の芽)。
+    Dim baseDir As String: baseDir = ChannelsDir()
+    If LenB(baseDir) = 0 Then Exit Function
+    Dim p As String: p = baseDir & chName & "\" & VER_NAME
     Dim txt As String
     If ReadShared(p, txt) Then RemoteVersion = Trim$(Replace(Replace(txt, vbCr, ""), vbLf, ""))
     On Error GoTo 0
@@ -175,11 +205,14 @@ Public Function PendingUpdates() As String
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
         If IsSubscribed(parts(i)) Then
-            If RemoteVersion(parts(i)) <> LocalVersion(parts(i)) Then
-                If LenB(RemoteVersion(parts(i))) > 0 Then
-                    If LenB(sb) > 0 Then sb = sb & "|"
-                    sb = sb & parts(i)
-                End If
+            ' 2026-07-31(レビュー R8 F3): RemoteVersion は共有フォルダの
+            ' version.txt を ADODB.Stream で開いて読む【実I/O】。同じ部門に
+            ' つき2回呼んでいたため、部門数×2回の共有アクセスを毎回払っていた。
+            ' 変数へ1回だけ受ける(結果は同じ)。
+            Dim remote As String: remote = RemoteVersion(parts(i))
+            If LenB(remote) > 0 And remote <> LocalVersion(parts(i)) Then
+                If LenB(sb) > 0 Then sb = sb & "|"
+                sb = sb & parts(i)
             End If
         End If
     Next i
@@ -212,7 +245,11 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
         If remote = LocalVersion(chName) Then Exit Function
     End If
 
-    Dim packPath As String: packPath = ChannelsDir() & chName & "\" & PACK_NAME
+    ' 連結前にガードする(R8・低)。共有が未設定/到達不能なら ChannelsDir は
+    ' 空文字を返すので、そのまま連結すると相対パスを掴みに行くことになる。
+    Dim baseDir As String: baseDir = ChannelsDir()
+    If LenB(baseDir) = 0 Then Exit Function
+    Dim packPath As String: packPath = baseDir & chName & "\" & PACK_NAME
     If LenB(Dir(packPath)) = 0 Then Exit Function
 
     ' 朝の一斉起動で数千人が同じファイルを掴みに行くため、共有側に読み取り
@@ -263,14 +300,22 @@ Public Function ChannelOriginTag(ByVal chName As String) As String
 End Function
 
 ' 購読中の全チャンネルを同期する(利用者が明示的に押したときだけ呼ぶ)。
-Public Function SyncSubscribed() As Long
+' outFailN に「更新があるのに取り込めなかった部門数」を返す(R8 F11)。
+' 呼び出し側が「0件=すべて最新」と誤って報告しないための材料。
+Public Function SyncSubscribed(Optional ByRef outFailN As Long = 0) As Long
     On Error Resume Next
+    outFailN = 0
     Dim pend As String: pend = PendingUpdates()
     If LenB(pend) = 0 Then Exit Function
     Dim parts() As String: parts = Split(pend, "|")
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
-        SyncSubscribed = SyncSubscribed + SyncChannel(parts(i))
+        Dim got As Long: got = SyncChannel(parts(i))
+        If got > 0 Then
+            SyncSubscribed = SyncSubscribed + got
+        Else
+            outFailN = outFailN + 1
+        End If
     Next i
     On Error GoTo 0
 End Function
@@ -284,8 +329,13 @@ Private Function CopyToTemp(ByVal src As String, ByVal tag As String) As String
     If LenB(tmpDir) = 0 Then Exit Function
     If Right$(tmpDir, 1) <> "\" Then tmpDir = tmpDir & "\"
 
+    ' 2026-07-31(レビュー R8・低): 一時名に Timer 由来のサフィックスを足す。
+    ' 秒精度だけだと、同じ秒に2つのチャンネルを同期したとき(全部門一括取込の
+    ' 実行中は普通に起こる)同じ一時ファイル名になり、片方が他方の Kill と
+    ' 競合する。部門名も入っているので衝突は稀だが、稀な失敗ほど原因が追えない。
     Dim dest As String
-    dest = tmpDir & "nexus_ch_" & SafeName(tag) & "_" & Format$(Now, "hhnnss") & ".xlsx"
+    dest = tmpDir & "nexus_ch_" & SafeName(tag) & "_" & Format$(Now, "hhnnss") & _
+           "_" & Format$(Int(Timer * 1000) Mod 100000, "00000") & ".xlsx"
 
     Dim attempt As Long
     For attempt = 1 To 3
@@ -570,7 +620,11 @@ End Function
 '   (20冊で～2,800)を足しても 9,000 前後で収まる。数字は足りている。
 '
 ' データ構造上も問題ない:
-'   各チャンネルのチャンクは origin="pack:<部門名>" で区別され、
+'   各チャンネルのチャンクは origin="channel:<部門名>" で区別され
+'   (2026-07-31 R8・低: ここは "pack:<部門名>" と書いてあった。レビュー C-1 の
+'    名前空間分離より前の記述で、実装は ChannelOriginTag が返す
+'    "channel:<部門名>"。誤ったまま残すと、次にここを読んだ人が
+'    「タグは pack: だ」と信じて F1 と同型のバグを作り直す)、
 '   PurgeChannelChunks はその部門の分だけを消す。SyncChannel も取り込み前に
 '   自分の旧版だけを掃除する。つまり複数部門の同居は元から成立していて、
 '   単一常駐を強制していたのは SwitchTo の「前の部門を消す」1行だけだった。
@@ -593,6 +647,12 @@ Public Function SubscribeAllAvailable() As String
     Dim guard As Long: guard = CLng(ChunkLimit() * 0.9)
     If guard < 1 Then guard = 18000
 
+    ' 2026-07-31(レビュー R8 F11): 失敗件数(failN)を数える。
+    ' 従来は「取り込めた部門が0件」を無条件に「すべて最新です」と報告して
+    ' いた。発行者が pack.xlsx を書き換えている最中(=読めない)や共有の
+    ' 瞬断でも同じ文言が出るため、利用者は【古い正典のまま】仕事を続ける。
+    ' 「更新が無かった」のか「読めなかった」のかは、正直に区別して伝える。
+    Dim failN As Long
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
         Dim nm As String: nm = parts(i)
@@ -608,6 +668,8 @@ Public Function SubscribeAllAvailable() As String
                         okN = okN + 1
                         chunkN = chunkN + got
                         doneNames = doneNames & IIf(LenB(doneNames) > 0, "/", "") & nm
+                    Else
+                        failN = failN + 1
                     End If
                 End If
             End If
@@ -619,12 +681,10 @@ Public Function SubscribeAllAvailable() As String
     ' 1つでも入っていることを示す目印として先頭の部門名を入れておく。
     If okN > 0 Then modConfig.SetValue "active_channel", parts(LBound(parts))
 
+    ' 文面の組み立ては純ロジック(modShareRule.SyncSummaryText)へ寄せて
+    ' 「okN=0 かつ failN>0 のときに『すべて最新です』と言わない」をテストで固定する。
     Dim sb As String
-    If okN > 0 Then
-        sb = okN & "部門を読み込みました(" & doneNames & " / 合計" & chunkN & "件)。"
-    Else
-        sb = "すべて最新です。読み込み直すものはありませんでした。"
-    End If
+    sb = modShareRule.SyncSummaryText(okN, failN, chunkN, doneNames)
     If skipN > 0 Then
         sb = sb & vbLf & "本棚の空きが足りないため " & skipN & "部門は見送りました(" & skipNames & ")。"
     End If

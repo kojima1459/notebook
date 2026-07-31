@@ -79,6 +79,13 @@
       "wave": "1-A"
     },
     {
+      "name": "modShareRule",
+      "path": "src/core/modShareRule.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R8-P2P"
+    },
+    {
       "name": "modExtractor",
       "path": "src/ingest/modExtractor.bas",
       "role": "core",

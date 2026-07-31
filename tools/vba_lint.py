@@ -354,6 +354,15 @@ CONTRACT: dict[str, dict] = {
             "TextSpan", "ClipToWidth", "PillWidth",
         ],
     },
+    # modShareRule(2026-07-31 R8): P2P/共有系の判定式だけを集めた純ロジック。
+    # WIP段階のため open(補助関数が増えうる)。
+    "modShareRule": {
+        "closed": False,
+        "required": [
+            "OriginKind", "AuthorStatKey", "ProbeIsReachable",
+            "ExpiryDecision", "StandardSubDirs",
+        ],
+    },
     "modBoot": {
         "closed": True,
         # RunFirstRunPromptEarly(2026-07-21追加): 自己インストーラの
@@ -450,6 +459,8 @@ PURE_LOGIC_MODULES = {
     "optOcrCore",
     # modTestsPure4: optOcrCore/modUtil(ページ付きテキスト)の純ロジックテスト。
     "modTestsPure4",
+    # modShareRule(2026-07-31 R8): 共有系の判定式だけの純ロジック。
+    "modShareRule",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [
