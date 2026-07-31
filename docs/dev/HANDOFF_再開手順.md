@@ -24,12 +24,13 @@ R1〜R11全体品質総点検まで全ラウンド完了・検収済み・push�
 | R10d | Opus | modShelf分割(modShelfBatch新設)+H2/M4/M5残 | 69a3364/16eeab4 | 完了 |
 | R11-A | Opus | データ保全Critical(C1取込中終了禁止/C2Word所有判定/C3失敗検知/C4silent伝播/C5統計防御) | eded8b2 | 完了 |
 | R11-B | Sonnet | #30恒久対策+Activate全数(C5ビューポート/C6素のActivate) | 0d9fa66 | 完了 |
-| R11-C | Sonnet | 関所とログの全数配線(BlockIfIngesting/再入ガード/ツールバーログ/委譲先ログ) | b3d446e | 完了 |
-| R11-D | Opus | GS/COM/実機層堅牢化(観測性/タイムアウト/Dictionary/ComError) | ed977de | 完了 |
-| R11-E | Sonnet | 進捗・文言・ヘルプ・UI細部(OnChannels/UIUX修復/ヘルプ刷新/Caller不一致) | 6fb3707 | 完了 |
-| R11-F1/F2 | Opus | 保守性・分割・重複統合(modVaultGallery/modSkin/重複統合/lint) | 130e314/3087a33 | 完了 |
-| R11-F2 | Opus | 重複統合最終(UTF-8/移動平均/ページ分割/Timer)+保留回収 | c7587b7 | 完了 |
-| R11-G | Haiku | docs同期(エラー表/構成/HANDOFF)+実機スモークテスト手順書(docs/45)新規 | TBD | 実施中 |
+| R11-A2 | Opus | Word設定復元の無条件化(外部レビューHigh)+発行後始末統一 | b3d446e | 完了 |
+| R11-C | Sonnet | 関所とログの全数配線(BlockIfIngesting/再入ガード/ツールバーログ/委譲先ログ) | ed977de | 完了 |
+| R11-D | Opus | GS/COM/実機層堅牢化(観測性/タイムアウト/Dictionary/ComError/Word所有事実判定) | 6fb3707 | 完了 |
+| R11-E | Sonnet | 進捗・文言・ヘルプ・UI細部(進捗配線/ヘルプ刷新/死にコード削除/自己取込ガード) | 130e314 | 完了 |
+| R11-F1 | Opus | 容量救済の分割6本(純移設。実装側WARNゼロ化) | 3087a33 | 完了 |
+| R11-F2 | Opus | 重複統合(UTF-8/移動平均/ページ分割/Timer)+保留回収 | c7587b7 | 完了 |
+| R11-G | Haiku | docs同期(エラー表/構成/HANDOFF)+実機スモークテスト手順書(docs/45)新規 | 7f2216a | 完了 |
 
 配布方法: GitHubの「Code → Download ZIP」→解凍→ dist/MyBookshelf.xlsm を開く
 (dist/Ghostscript が隣にあるのでOCRも追加作業なし)。
@@ -37,26 +38,24 @@ R1〜R11全体品質総点検まで全ラウンド完了・検収済み・push�
 
 ## 2. 残タスク(優先順)
 
-1. **実機再テスト待ち**: docs/44_P2P実機テスト手順.md の10項目(a〜j。R10で(i)(j)追加)を
-   利用者が実機2台で確認する段階。R10実装の進捗バナー・テキストPDF・Ghostscriptエラー観測性が正常か確認。
-   不具合報告が来たら次ラウンド(R11)として裁定。
-2. タスク#30: ダッシュボード等の右寄せクロムをウィンドウ幅基準に(恒久対策)。
+1. **敵対的レビュー(読取専用Opus・R11全差分)→司令塔裁定→修正→配布zip生成**。
+2. **実機テスト待ち(利用者)**: docs/45(15分スモーク・1台)と docs/44(P2P・2台)。
+   不具合報告が来たら次ラウンドとして裁定。
 3. 記録済みの次期課題(裁定で受容・未対応):
-   - GetStatText がエラー値セルで err13(B1で消去は封鎖済み。読み側の保護は次期)
    - ロック取得のTOCTOU(PoCでは受容。本格展開時に Open For Output 排他)
-   - Dir(vbDirectory) イディオム残存6箇所の ProbeIsReachable への統一
-   - SyncSubscribed 未配線 / SwitchTo デッドコード
-   - ダミーローカルパスが Reachable=True になる(既定expire=0で無害化済み)
-   - modInsight/modApp の容量逼迫(WARN 11件)
-   - B9副作用: ホーム表示→Hub描画の間に最大3秒の間
-   - modShare の lint 契約テーブル未登録(ProbePath追加時の検討事項)
+   - Dir(vbDirectory) イディオム実測24箇所の統一(次期クリーンアップ)
+   - SwitchTo / Subscribe/Unsubscribe(意図的未使用・契約表で可視化済み)
+   - ダミーローカルパスが Reachable=True(既定expire=0で無害化済み)
+   - B9副作用: ホーム表示→Hub描画の間に最大3秒の間(経過観察)
    - 発行者不在部門の共有肥大(docs/30 §9-1 に注意記載済み)
-   - R10で発見した懸念(裁定で受容):
-     - modUI・modVault の容量枯渇(残20数字)
-     - nx_progress が RemoveNexusShapes の nx_ 一括削除対象(受容・再作成されるので無害)
-     - PathExist のopt層内相互参照(受容)
-     - 画像PDF取込でGhostscript起動2回(受容)
-     - E0801の OnToChat/OnGoChat側 2件は環境要因の疑い(activate_recovered ログで経過観察)
+   - nx_progress が nx_ 一括削除対象(受容・再作成されるので無害)
+   - PathExists のopt層内相互参照 / 画像PDFでGS起動2回(受容)
+   - E0801の OnToChat/OnGoChat側2件(activate_recovered ログで経過観察)
+   - State Loss時の mFeedbackDone 消失(二重FB可能になるのみ・受容)
+   - チャンク重複排除の先着帰属(設計判断・受容)
+   - Excel強制終了時のWordゾンビ(プラットフォーム限界・受容)
+   - NextEmbeddingArray のAPI形式変更耐性(現行形式では正・将来課題)
+   - PACK_SAVE_FAILED の独自コード(E0704化は次期。docs/30に注記済み)
 
 ## 3. 運用メモ
 
