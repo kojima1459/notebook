@@ -26,6 +26,8 @@ Option Explicit
 ' (モジュールレベル宣言はプロシージャ定義より前に置く。実機VBAの制約)。
 Private mProgressSheetName As String
 
+Private Const THEME_KEY As String = "nexus_theme"
+
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
 '   modUI.InitUI/Repaint、および各画面(Vault/Dashboard)の描画終端から呼ぶ。
@@ -257,7 +259,7 @@ Public Sub CycleSkin()
     Dim labels As Variant
     labels = Array("MS&AD スタンダード", "ダークモード", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
 
-    Dim cur As String: cur = EffectiveSkin(modUI.UiTheme())
+    Dim cur As String: cur = EffectiveSkin(CurrentTheme())
     Dim curIdx As Long: curIdx = 0
     Dim i As Long
     For i = 0 To 4
@@ -274,7 +276,7 @@ Public Sub CycleSkin()
         If cand = "sakura" Or cand = "ocean" Then needN = 5
         If cand = "gold" Then needN = 20
         If tc >= needN Then
-            modState.SaveState "nexus_theme", cand
+            SaveTheme cand
             modUI.Repaint
             modSkin.ShowToast "きせかえ: " & CStr(labels(nx)) & IIf(needN > 0, "(感謝" & needN & "件の限定スキン)", ""), "success"
             GoTo Done
@@ -418,3 +420,142 @@ Public Sub ClearProgress()
     mProgressSheetName = ""
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' テーマ(配色の適用)。2026-07-31(R11-F1)に modUI から移設した。
+'   modUI が30,000字上限まで残り168字となり修正が入らない状態だったため、
+'   「配色の単一情報源」を持つ本モジュールへテーマ塊(CurrentTheme/SaveTheme/
+'   ThemeColor/ApplyTheme/PaintBubble/PaintActionButton/SetShapeTextColor/
+'   ThemeIcon)を寄せた(憲章§4-6)。modUI 側には UiColor/UiTheme/ToggleTheme
+'   の薄い委譲だけを残す(呼び出し元の書き換えを最小化するため)。
+' ----------------------------------------------------------------------------
+
+' ----------------------------------------------------------------------------
+' CurrentTheme / SaveTheme - 現在のテーマ(スキン)名の読み書き。
+'   2026-07-31(R11-F1): ui_stateシートの走査を自前で持っていた実装
+'   (modUI.CurrentTheme/SaveTheme)を modState.LoadState/SaveState への委譲へ
+'   置き換えた。同じ "nexus_theme" キーを modSkin.CycleSkin は modState 経由、
+'   modUI は自前走査で読み書きしており、同型の処理が2つあった(憲章§4-5)。
+'   既定は "light"。値はスキン名も入る(検証は EffectiveSkin/ResolveColor 側)。
+' ----------------------------------------------------------------------------
+Public Function CurrentTheme() As String
+    CurrentTheme = LCase$(Trim$(modState.LoadState(THEME_KEY, "light")))
+    If LenB(CurrentTheme) = 0 Then CurrentTheme = "light"
+End Function
+
+Public Sub SaveTheme(ByVal themeName As String)
+    modState.SaveState THEME_KEY, themeName
+End Sub
+
+' 配色解決はmodSkin.ResolveColorへ委譲。
+Public Function ThemeColor(ByVal key As String) As Long
+    ThemeColor = ResolveColor(key, CurrentTheme())
+End Function
+
+' テーマ適用(背景+全nx_Shape再彩色)。
+Public Sub ApplyTheme(ByVal ws As Worksheet)
+    ws.Cells.Interior.Color = ThemeColor("bg")
+
+    ' 入力欄(C3:K3)は上の一括塗りで消えるため塗り直す(両端B/L列は
+    ' あえて無地のまま=入力欄に見せない)。
+    On Error Resume Next
+    With ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW)
+        .Interior.Color = RGB(255, 255, 255)
+        .BorderAround LineStyle:=1, Weight:=2, Color:=ThemeColor("border")
+    End With
+    On Error GoTo 0
+
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        Dim nm As String: nm = shp.Name
+        If Left$(nm, 3) <> "nx_" Then GoTo NextShp
+
+        If Left$(nm, 7) = "nx_top_" Then
+            If nm = "nx_top_bg" Then
+                ' ヘッダーバーは濃色(ロゴ・操作pillの白文字が乗る)。
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
+                SetShapeTextColor shp, RGB(255, 255, 255)
+            ElseIf nm = "nx_top_send" Or nm = "nx_top_add" Then
+                shp.Fill.ForeColor.RGB = ThemeColor("accent")
+                SetShapeTextColor shp, RGB(255, 255, 255)
+            ElseIf nm = "nx_top_theme" Then
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
+                SetShapeTextColor shp, RGB(255, 255, 255)
+                shp.TextFrame2.TextRange.Text = ThemeIcon()
+            Else
+                ' ヘッダー上の操作pill(back/clear/lang/mode/speed)。
+                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
+                SetShapeTextColor shp, RGB(255, 255, 255)
+            End If
+        ElseIf Left$(nm, 7) = "nx_act_" Then
+            PaintActionButton shp, Mid$(nm, 8)
+        ElseIf Left$(nm, 9) = "nx_msg_u_" Then
+            PaintBubble shp, True
+        ElseIf Left$(nm, 9) = "nx_msg_a_" Then
+            PaintBubble shp, False
+        ElseIf Left$(nm, 7) = "nx_thk_" Then
+            SetShapeTextColor shp, ThemeColor("muted")
+        End If
+NextShp:
+    Next shp
+End Sub
+
+Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
+    If isUser Then
+        shp.Fill.ForeColor.RGB = ThemeColor("userBubble")
+        shp.Line.Visible = 0
+        ' §9(Apple風): 自分の発言だけ濃紺の微グラデーションで奥行きを出す。
+        ApplyGradient shp, ThemeColor("userBubble"), ThemeColor("primary")
+    Else
+        shp.Fill.ForeColor.RGB = ThemeColor("aiBubble")
+        shp.Line.Visible = -1
+        shp.Line.ForeColor.RGB = ThemeColor("border")
+        shp.Line.Weight = 0.75
+    End If
+    SetShapeTextColor shp, ThemeColor("text")
+End Sub
+
+Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
+    shp.Fill.ForeColor.RGB = ThemeColor("surface")
+    shp.Line.Visible = -1
+    shp.Line.Weight = 0.75
+    Select Case kind
+        Case "resolve"
+            shp.Line.ForeColor.RGB = RGB(16, 185, 129)
+            SetShapeTextColor shp, RGB(16, 185, 129)
+        Case "unsure"
+            shp.Line.ForeColor.RGB = RGB(245, 158, 11)
+            SetShapeTextColor shp, RGB(180, 110, 8)
+        Case "bad"
+            shp.Line.ForeColor.RGB = RGB(148, 163, 184)
+            SetShapeTextColor shp, ThemeColor("muted")
+        Case "conf"
+            ' 信頼度バッジは枠も塗りも持たない文字だけの表示。
+            shp.Line.Visible = 0
+            shp.Fill.Visible = 0
+            SetShapeTextColor shp, ThemeColor("muted")
+        Case "hq"
+            shp.Line.ForeColor.RGB = RGB(239, 68, 68)
+            SetShapeTextColor shp, RGB(239, 68, 68)
+        Case "word"
+            shp.Line.ForeColor.RGB = ThemeColor("primary")
+            SetShapeTextColor shp, ThemeColor("primary")
+        Case Else
+            shp.Line.ForeColor.RGB = ThemeColor("border")
+            SetShapeTextColor shp, ThemeColor("text")
+    End Select
+End Sub
+
+Public Sub SetShapeTextColor(ByVal shp As Shape, ByVal rgbVal As Long)
+    On Error Resume Next
+    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = rgbVal
+    On Error GoTo 0
+End Sub
+
+Public Function ThemeIcon() As String
+    If CurrentTheme() = "dark" Then
+        ThemeIcon = ChrW(&H2600)    ' 太陽
+    Else
+        ThemeIcon = ChrW(&HD83C) & ChrW(&HDF19)   ' 月
+    End If
+End Function

@@ -452,139 +452,7 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
         chip.OnAction = "modHub.OnQuickAsk"
     Next i
 
-    DrawInbox ws, L, W, T + 20 + CHIP_H + 14
-End Sub
-
-' 共有知のお知らせ。通知が無い共有機能は使われないので、件数と行き先を出す。
-Private Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
-                      ByVal W As Double, ByVal T As Double)
-    Dim qaN As Long, gapN As Long
-    On Error Resume Next
-    qaN = modInsight.PendingQACount()
-    gapN = modInsight.GapCount()
-    On Error GoTo 0
-
-    ' 共有フォルダが未設定だと、この機能は丸ごと沈黙する。黙って何も起きない
-    ' のがいちばん不親切なので、まずそこを案内する。
-    Dim shareOk As Boolean
-    On Error Resume Next
-    shareOk = (LenB(Trim$(modConfig.GetString("nexus_share_path", ""))) > 0)
-    On Error GoTo 0
-
-    ' 2026-07-31(レビュー R8 F3): ここで直接 modChannel.PendingUpdates を
-    ' 呼ぶと、購読中の部門ぶんの version.txt をその場で読みに行く。Hubの
-    ' 初期描画は起動シーケンスの途中なので、遅い共有では起動が止まる。
-    ' 起動中は問い合わせず(空が返る)、起動後の再描画で10分TTL付きで引く。
-    Dim chPend As String
-    On Error Resume Next
-    chPend = modHubStat.PendingUpdatesCached()
-    On Error GoTo 0
-
-    ' 上限超過(R8 F13)。41件目以降の部門は静かに捨てられていたため、
-    ' 「うちの部門にだけ正典が届かない」が誰にも調べられない不具合だった。
-    Dim chOver As Long
-    On Error Resume Next
-    chOver = modChannel.OverflowCount()
-    On Error GoTo 0
-
-    Dim cap As String, act As String
-    If Not shareOk Then
-        cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
-              "設定すると、みんなが解決したQ&Aが自動で届くようになります(config の nexus_share_path)"
-        act = "modHub.OnShareHelp"
-    ElseIf LenB(modChannel.ActiveChannel()) = 0 Then
-        ' まだどの部門にもつないでいない。ここを案内しないと、
-        ' 「聞いても答えが返ってこない」理由が利用者に分からない。
-        cap = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門の公式ナレッジをまだ読み込んでいません" & vbCr & _
-              "押すと全部門をまとめて取り込みます。以後は分野を選ばずそのまま聞けます"
-        act = "modKnowledge.OnChannels"
-    ElseIf LenB(chPend) > 0 Then
-        ' 正典の改定は最優先で知らせる。古い版のまま使い続けると、AIが
-        ' 古い条文を根拠に答えるという最悪の事故になる。
-        '
-        ' 2026-07-28(レビュー H-13): 表示は「アクティブ部門名」を出していた
-        ' ため、更新があるのは人事部なのに「【商品部】に更新があります」と
-        ' 出て、押しても商品部は最新なので何も起きない、という
-        ' 消えないバッジになっていた。保留リストの実体をそのまま出す。
-        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 【" & modHubStat.PendingLabel(chPend) & _
-              "】に更新があります" & vbCr & _
-              "押して読み込み直してください。古い内容で回答しないために早めの更新を"
-        act = "modHubStat.OnSyncPending"
-    ElseIf chOver > 0 Then
-        ' 2026-07-31(レビュー R8 F13): 部門数が上限を超えると、41件目以降は
-        ' 一覧から静かに落ちる。落ちた部門の正典は誰にも届かないのに、
-        ' 画面にもログにも何も出ないため「うちの部門だけ届かない」という
-        ' 調べようのない不具合になっていた。件数を必ず見せる。
-        cap = ChrW(&H26A0) & " 部門が多すぎて " & chOver & "部門を読み込めていません" & vbCr & _
-              "このツールの管理担当者にご連絡ください(部門数の上限を超えています)"
-        act = "modKnowledge.OnChannels"
-    ElseIf modChannel.IsBudgetTight() Then
-        cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
-              "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
-        act = "modKnowledge.OnChannels"
-    ElseIf qaN > 0 Then
-        cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _
-              "押すと一覧が開きます。要るものだけ選んで本棚に入れられます"
-        act = "modKnowledge.OnGoShared"
-    ElseIf gapN > 0 Then
-        cap = ChrW(&HD83D) & ChrW(&HDCA1) & " まだ答えを用意できていない質問が " & gapN & "件" & vbCr & _
-              "押すと一覧が開きます。答えられる資料を登録すると部内に行き渡ります"
-        act = "modKnowledge.OnGapBoard"
-    ElseIf Not modHubStat.ShareQueriesAllowed() Then
-        ' 起動中は共有フォルダへ問い合わせない(R8 F3)。「更新はありません」と
-        ' 言い切ると嘘になり得るので、まだ見ていないことをそのまま書く。
-        '
-        ' 2026-07-31(R8b B4): この分岐は qaN/gapN/IsBudgetTight の【後ろ】に置く。
-        ' それらは insight_inbox シートと本棚のチャンク数を見るだけで共有
-        ' フォルダに一切触らない、起動直後でも正しく出せる通知である。
-        ' 前に置くと、せっかく受信済みの「みんなが解決したQ&A N件」が
-        ' 起動直後は必ず「更新はまだ確認していません」に塗り潰されてしまい、
-        ' 共有知フライホイールの入口(利用者が新着に気付く唯一の場所)が
-        ' 事実上ふさがる。共有I/Oを要する通知だけを後回しにするのが趣旨。
-        cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の更新はまだ確認していません" & vbCr & _
-              "押すと今すぐ確認します(起動を軽くするため、開いた直後は確認しません)"
-        act = "modHub.OnCheckUpdates"
-    Else
-        cap = ChrW(&HD83D) & ChrW(&HDD01) & " 部内の知恵は自動で行き来しています" & vbCr & _
-              ChrW(&H2705) & "解決した を押すとその答えが、答えが無かった質問は課題として共有されます"
-        act = ""
-    End If
-
-    On Error Resume Next
-    ' 2026-07-31(発見事項3): capは部門名・件数を含む可変長で、固定44ptの
-    ' 箱に収まらないと2行目が枠外へ送られて消える(A-4と同型)。1行目の
-    ' おおよその折返し行数を文字数から見積もり、箱を可変高にする。
-    Dim estLines As Long: estLines = 1 + Int(Len(cap) / 46)
-    If estLines < 2 Then estLines = 2
-    Dim boxH As Double: boxH = 20 + estLines * 13
-    If boxH < 44 Then boxH = 44
-
-    Dim box As Shape
-    Set box = ws.Shapes.AddShape(5, L, T, W, boxH)
-    If box Is Nothing Then Exit Sub
-    box.Name = "nx_hub_inbox"
-    box.Adjustments(1) = 0.08
-    box.Line.Visible = -1
-    box.Line.Weight = 0.75
-    box.Line.ForeColor.RGB = modUI.UiColor("border")
-    box.Fill.ForeColor.RGB = modUI.UiColor("surface")
-    modSkin.ApplyLightShadow box
-    ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
-    With box.TextFrame2
-        .WordWrap = -1
-        .MarginLeft = 12: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 4
-        .TextRange.Text = cap
-        .TextRange.Font.Size = 9
-        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-        .TextRange.Paragraphs(1).Font.Bold = -1
-        If .TextRange.Paragraphs.Count >= 2 Then
-            .TextRange.Paragraphs(2).Font.Size = 7.5
-            .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
-        End If
-        .VerticalAnchor = 3
-    End With
-    If LenB(act) > 0 Then box.OnAction = act
-    On Error GoTo 0
+    modHubStat.DrawInbox ws, L, W, T + 20 + CHIP_H + 14
 End Sub
 
 ' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので
@@ -653,7 +521,7 @@ Public Sub OnGoVault()
     If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    modVault.ShowVaultGallery
+    modVaultGallery.ShowVaultGallery
     On Error GoTo 0
     modUiLock.Leave
 End Sub

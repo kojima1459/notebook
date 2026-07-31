@@ -462,6 +462,142 @@ CONTRACT: dict[str, dict] = {
             "GsLogFor", "GsExitCodeFromFlag",
         ],
     },
+    # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
+    #      「移したつもりで元にも残っている」「新設先にうっかり公開APIが増える」を機械で止める。
+    # R11-F1: テーマ塊を modSkin へ移設した残り。UiColor/UiTheme/ToggleTheme は薄い委譲として残す。
+    "modUI": {
+        "closed": True,
+        "required": [
+            "InitUI", "AddChatBubble", "UpdateBubbleText", "ChatBottomFor",
+            "BringFixedToFront", "ToggleTheme", "RestoreExcelUI", "EnsureAppView",
+            "GoToNexus", "GoToNativeSheet", "ActivateSheetRobust", "ParkFocus",
+            "Repaint", "UiColor", "UiTheme", "FreezeShapePlacement",
+            "RecalcChatBottom", "SettleChat", "ClearChat", "MarkActiveBubble",
+            "BubbleTextOf", "LatestAiBubbleName",
+        ],
+    },
+    # R11-F1: modUI からテーマ塊(CurrentTheme/SaveTheme/ThemeColor/ApplyTheme/PaintBubble/PaintActionButton/SetShapeTextColor/ThemeIcon)を受け入れた。
+    "modSkin": {
+        "closed": True,
+        "required": [
+            "BeautifyAll", "StyleShape", "ApplyHeaderDepth", "ApplyGradient",
+            "ApplyLightShadow", "ApplyGreenDepth", "StyleBubble", "ApplySoftShadow",
+            "EffectiveSkin", "ResolveColor", "CycleSkin", "ShowToast",
+            "PaintProgress", "ClearProgress", "CurrentTheme", "SaveTheme",
+            "ThemeColor", "ApplyTheme", "PaintBubble", "PaintActionButton",
+            "SetShapeTextColor", "ThemeIcon",
+        ],
+    },
+    # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
+    "modApp": {
+        "closed": True,
+        "required": [
+            "MAX_INPUT_CHARS", "LaunchNexus", "OnSend", "ModeCaption", "OnPeek",
+            "OnPeekClose", "OnAddDocs", "OnNavChat", "OnNavHome", "OnNavShelf",
+            "OnRefreshUI", "OnToggleMode", "OnToggleSpeed", "SpeedCaption",
+            "OnLangCycle", "SummonNexus", "HotSend", "OnClearChat", "OnSaveAndExit",
+        ],
+    },
+    # R11-F1: modApp から分離した回答の文脈アクション行(描画4本+ボタン6本のハンドラ)。
+    "modAppAct": {
+        "closed": True,
+        "required": [
+            "DrawActions", "ClearConfidence", "DrawConfidence", "ClearActions",
+            "OnActBad", "OnActDrill", "OnActResolve", "OnActUnsure", "OnActWord",
+            "OnActCopy",
+        ],
+    },
+    # R11-F1: 受信箱(DrawInbox)を modHubStat へ移設した残り。
+    "modHub": {
+        "closed": True,
+        "required": [
+            "EnsureHubLayout", "OnGoChat", "OnGoVault", "OnGoDash", "OnQuickAsk",
+            "OnLangCycle", "OnThemeToggle", "OnHelp", "OnSaveAndExit",
+            "OnCheckUpdates", "OnShareHelp", "OnOwnerReport", "OnAnonFeedback",
+            "OnRedraw",
+        ],
+    },
+    # R11-F1: Hubの数字とお知らせ。DrawInbox を modHub から受け入れた。
+    "modHubStat": {
+        "closed": True,
+        "required": [
+            "AllowShareQueries", "ShareQueriesAllowed", "PendingUpdatesCached",
+            "InvalidatePending", "OnSyncPending", "PendingLabel", "RemoveHubShapes",
+            "NumText", "SafeStat", "AskTotal", "SafeSavedMinutes", "SafeChunks",
+            "ChunkUsage", "FmtMin", "DefaultTileValue", "OrgMin", "TilesHeight",
+            "DrawStatTiles", "DrawInbox",
+        ],
+    },
+    # R11-F1: ツールバーを modKnowledgeBar へ分離した残り(ヘッダー/右肩ピル/モード管理/ハンドラ)。
+    "modKnowledge": {
+        "closed": True,
+        "required": [
+            "CHROME_ROWS", "DrawChrome", "PrepareScreenView", "IsTableMode",
+            "ContentTop", "SearchCellAddress", "OnGoGallery", "OnGoShared",
+            "OnGoTable", "OnBackHub", "OnToChat", "OnSearch", "OnGapBoard",
+            "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",
+            "OnSync", "OnPickFolder", "OnDelete", "RefreshCurrent",
+        ],
+    },
+    # R11-F1: modKnowledge から分離したツールバー(BAR_H は DrawChrome が行3の高さに使うため Public)。
+    "modKnowledgeBar": {
+        "closed": True,
+        "required": [
+            "BAR_H", "DrawToolbar",
+        ],
+    },
+    # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。
+    "modVault": {
+        "closed": True,
+        "required": [
+            "ShowVaultInput", "OnVaultSubmit", "OnVaultCancel",
+            "RegisterKnowledgeText",
+        ],
+    },
+    # R11-F1: modVault から分離したナレッジ倉庫ギャラリー(カード一覧・検索・ページング)。
+    "modVaultGallery": {
+        "closed": True,
+        "required": [
+            "ShowVaultGallery", "OnVaultSearch", "OnVaultPrev", "OnVaultNext",
+            "OnVaultBackToChat", "OnVaultCardClick",
+        ],
+    },
+    # R11-F1: 本文の描画(KPI/経験値/バッジ/クラスタ地図)を modDashStat へ移設した残り。
+    "modDash": {
+        "closed": True,
+        "required": [
+            "ShowDashboard", "OnDashBackToChat", "OnDashRefresh", "OnDashRestore",
+        ],
+    },
+    # R11-F1: ダッシュボードの数値+本文描画。KPI_X0/ROW_WIDTH は modDash のヘッダー・管理者行と共有する版面基準のため Public。
+    "modDashStat": {
+        "closed": True,
+        "required": [
+            "KPI_CARD_W", "KPI_GAP", "KPI_X0", "ROW_WIDTH", "SavedTimeDeltaLabel", "CountUsageEvent",
+            "IsThisMonthStamp", "IsLastMonthStamp", "UsageBarText", "FormatMinutes",
+            "SafeGetStat", "SafeSavedMinutes", "SafeTotalChunks", "SafeShelfMax",
+            "SafeLevel", "SafeExpTotal", "SafeExpFloorForLevel", "SafeLevelProgress",
+            "DrawKpiRow", "DrawExpBar", "ChartNoteY", "DrawBadgeShelf",
+            "DrawChartPlaceholder",
+        ],
+    },
+    # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。
+    "modInsight": {
+        "closed": True,
+        "required": [
+            "PendingQACount", "GapCount", "PendingQAAt", "IsSelected",
+            "ToggleSelected", "SelectAllPending", "SelectedCount",
+            "PendingRowsRanked", "RowField", "MarkQAConsumed", "SameQuestionCount",
+            "QABodyText", "EnsureSheet", "GapListText",
+        ],
+    },
+    # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
+    "modInsightIo": {
+        "closed": True,
+        "required": [
+            "EmitVerifiedQA", "EmitGap", "EmitCorrection", "CollectInsights",
+        ],
+    },
     # ---- 7.8 テストモジュール ----
     "modTestRunner": {
         "closed": True,

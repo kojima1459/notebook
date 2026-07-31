@@ -362,7 +362,7 @@ Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double, ByVal y As Dou
     th.Line.Visible = 0
     th.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With th.TextFrame2
-        .TextRange.Text = modUI.ThemeIcon()
+        .TextRange.Text = modSkin.ThemeIcon()
         .TextRange.Font.Size = 11
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
         .TextRange.ParagraphFormat.Alignment = 2
@@ -607,9 +607,9 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
                 .VerticalAnchor = 3
                 .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
             End With
-            btn.OnAction = "modApp." & CStr(acts(i))
+            btn.OnAction = "modAppAct." & CStr(acts(i))
             btn.Placement = 3
-            modUI.PaintActionButton btn, CStr(kinds(i))
+            modSkin.PaintActionButton btn, CStr(kinds(i))
         End If
         Set btn = Nothing
         Err.Clear

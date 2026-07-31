@@ -375,7 +375,7 @@ Public Sub Boot()
     ' (レビュー C-1)。掃除して版数を空にし、正しいタグで入れ直させる。
     ' 掃除が走ったことは usage_log("channel_origin_migration")に残る。
     modChannel.MigrateOriginNamespace
-    modInsight.CollectInsights
+    modInsightIo.CollectInsights
 
     ' 共有フォルダに到達できたことを記録(端末失効タイマーのリセット)。
     '

@@ -5,7 +5,6 @@ Option Explicit
 ' OnAction。テーマはui_state(key=nexus_theme)。Shape命名はnx_接頭辞で分類。
 
 Private Const NEXUS_SHEET As String = "Nexus"
-Private Const THEME_KEY As String = "nexus_theme"
 Private Const MSO_BRING_TO_FRONT As Long = 0   ' msoBringToFront(数値でLO互換)
 Private Const MAX_BUBBLES As Long = 40         ' 32bitメモリ保護: 吹き出し保持上限
 
@@ -145,7 +144,7 @@ Public Sub InitUI()
     modTelemetry.TrackScreen "chat"
     On Error GoTo 0
 
-    ApplyTheme ws
+    modSkin.ApplyTheme ws
     FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
     BringFixedToFront ws      ' 固定UIを最前面へ(Z-Order維持)
     modSkin.BeautifyAll ws    ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
@@ -219,7 +218,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     ' 2026-07-26: アクションは常に「最新のAI回答」に紐づく文脈表示へ変えたため、
     ' 古いバブルをクリックして対象を切り替える操作は廃止した(仕様書§2.2)。
 
-    PaintBubble shp, isUser
+    modSkin.PaintBubble shp, isUser
     modSkin.StyleBubble shp  ' Yu Gothic UI(バブルはフラット=影は選択時のみ)
     mChatBottom = shp.Top + shp.Height
 
@@ -334,10 +333,10 @@ End Sub
 
 ' ToggleTheme - ライト/ダーク反転+全体再彩色
 Public Sub ToggleTheme()
-    If CurrentTheme() = "dark" Then
-        SaveTheme "light"
+    If modSkin.CurrentTheme() = "dark" Then
+        modSkin.SaveTheme "light"
     Else
-        SaveTheme "dark"
+        modSkin.SaveTheme "dark"
     End If
 
     Dim ws As Worksheet
@@ -346,7 +345,7 @@ Public Sub ToggleTheme()
 
     Application.ScreenUpdating = False
     On Error Resume Next   ' 再彩色が中断しても必ず暗転解除へ到達させる
-    ApplyTheme ws
+    modSkin.ApplyTheme ws
     On Error GoTo 0
     Application.ScreenUpdating = True
 End Sub
@@ -536,7 +535,7 @@ Public Sub Repaint()
     End If
     On Error GoTo 0
 
-    ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
+    modSkin.ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
     FreezeShapePlacement ws  ' 絶対配置に再固定
     BringFixedToFront ws     ' 固定UIを最前面へ
     modSkin.BeautifyAll ws   ' フォント統一+固定クロムに柔らかい影
@@ -545,12 +544,15 @@ Public Sub Repaint()
 End Sub
 
 ' 公開ゲッター: 他のNexus画面がテーマ一貫の配色/現在テーマを得る窓口。
+' UiColor / UiTheme - 配色とテーマ名の窓口(実体は modSkin。2026-07-31 R11-F1で
+' テーマ塊を modSkin へ移設したあとも、呼び出し元(20モジュール超)の記述を
+' 変えずに済むよう薄い委譲としてここに残す)。
 Public Function UiColor(ByVal key As String) As Long
-    UiColor = ThemeColor(key)
+    UiColor = modSkin.ThemeColor(key)
 End Function
 
 Public Function UiTheme() As String
-    UiTheme = CurrentTheme()
+    UiTheme = modSkin.CurrentTheme()
 End Function
 
 ' FreezeShapePlacement - 全Shapeを絶対配置固定しズレを防ぐ。
@@ -564,167 +566,6 @@ Public Sub FreezeShapePlacement(ByVal ws As Worksheet)
 End Sub
 
 '描画
-
-'テーマ
-
-Private Function CurrentTheme() As String
-    CurrentTheme = "light"
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_UISTATE)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Function
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    Dim i As Long
-    For i = 1 To lastRow
-        If StrComp(CStr(ws.Cells(i, 1).Value), THEME_KEY, vbTextCompare) = 0 Then
-            Dim v As String
-            v = LCase$(Trim$(CStr(ws.Cells(i, 2).Value)))
-            If LenB(v) > 0 Then CurrentTheme = v   ' スキン名も可(検証はResolveColor側)
-            Exit Function
-        End If
-    Next i
-End Function
-
-Private Sub SaveTheme(ByVal themeName As String)
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_UISTATE)
-    On Error GoTo 0
-    If ws Is Nothing Then Exit Sub
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
-    Dim r As Long: r = 0
-    Dim i As Long
-    For i = 1 To lastRow
-        If StrComp(CStr(ws.Cells(i, 1).Value), THEME_KEY, vbTextCompare) = 0 Then
-            r = i
-            Exit For
-        End If
-    Next i
-    If r = 0 Then
-        r = lastRow + 1
-        If r < 1 Then r = 1
-        ws.Cells(r, 1).Value = THEME_KEY
-    End If
-    ws.Cells(r, 2).Value = themeName
-End Sub
-
-' 配色解決はmodSkin.ResolveColorへ委譲。
-Private Function ThemeColor(ByVal key As String) As Long
-    ThemeColor = modSkin.ResolveColor(key, CurrentTheme())
-End Function
-
-' テーマ適用(背景+全nx_Shape再彩色)。
-Private Sub ApplyTheme(ByVal ws As Worksheet)
-    ws.Cells.Interior.Color = ThemeColor("bg")
-
-    ' 入力欄(C3:K3)は上の一括塗りで消えるため塗り直す(両端B/L列は
-    ' あえて無地のまま=入力欄に見せない)。
-    On Error Resume Next
-    With ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW)
-        .Interior.Color = RGB(255, 255, 255)
-        .BorderAround LineStyle:=1, Weight:=2, Color:=ThemeColor("border")
-    End With
-    On Error GoTo 0
-
-    Dim shp As Shape
-    For Each shp In ws.Shapes
-        Dim nm As String: nm = shp.Name
-        If Left$(nm, 3) <> "nx_" Then GoTo NextShp
-
-        If Left$(nm, 7) = "nx_top_" Then
-            If nm = "nx_top_bg" Then
-                ' ヘッダーバーは濃色(ロゴ・操作pillの白文字が乗る)。
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
-                SetShapeTextColor shp, RGB(255, 255, 255)
-            ElseIf nm = "nx_top_send" Or nm = "nx_top_add" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("accent")
-                SetShapeTextColor shp, RGB(255, 255, 255)
-            ElseIf nm = "nx_top_theme" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, RGB(255, 255, 255)
-                shp.TextFrame2.TextRange.Text = ThemeIcon()
-            Else
-                ' ヘッダー上の操作pill(back/clear/lang/mode/speed)。
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, RGB(255, 255, 255)
-            End If
-        ElseIf Left$(nm, 7) = "nx_act_" Then
-            PaintActionButton shp, Mid$(nm, 8)
-        ElseIf Left$(nm, 9) = "nx_msg_u_" Then
-            PaintBubble shp, True
-        ElseIf Left$(nm, 9) = "nx_msg_a_" Then
-            PaintBubble shp, False
-        ElseIf Left$(nm, 7) = "nx_thk_" Then
-            SetShapeTextColor shp, ThemeColor("muted")
-        End If
-NextShp:
-    Next shp
-End Sub
-
-Private Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
-    If isUser Then
-        shp.Fill.ForeColor.RGB = ThemeColor("userBubble")
-        shp.Line.Visible = 0
-        ' §9(Apple風): 自分の発言だけ濃紺の微グラデーションで奥行きを出す。
-        modSkin.ApplyGradient shp, ThemeColor("userBubble"), ThemeColor("primary")
-    Else
-        shp.Fill.ForeColor.RGB = ThemeColor("aiBubble")
-        shp.Line.Visible = -1
-        shp.Line.ForeColor.RGB = ThemeColor("border")
-        shp.Line.Weight = 0.75
-    End If
-    SetShapeTextColor shp, ThemeColor("text")
-End Sub
-
-Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
-    shp.Fill.ForeColor.RGB = ThemeColor("surface")
-    shp.Line.Visible = -1
-    shp.Line.Weight = 0.75
-    Select Case kind
-        Case "resolve"
-            shp.Line.ForeColor.RGB = RGB(16, 185, 129)
-            SetShapeTextColor shp, RGB(16, 185, 129)
-        Case "unsure"
-            shp.Line.ForeColor.RGB = RGB(245, 158, 11)
-            SetShapeTextColor shp, RGB(180, 110, 8)
-        Case "bad"
-            shp.Line.ForeColor.RGB = RGB(148, 163, 184)
-            SetShapeTextColor shp, ThemeColor("muted")
-        Case "conf"
-            ' 信頼度バッジは枠も塗りも持たない文字だけの表示。
-            shp.Line.Visible = 0
-            shp.Fill.Visible = 0
-            SetShapeTextColor shp, ThemeColor("muted")
-        Case "hq"
-            shp.Line.ForeColor.RGB = RGB(239, 68, 68)
-            SetShapeTextColor shp, RGB(239, 68, 68)
-        Case "word"
-            shp.Line.ForeColor.RGB = ThemeColor("primary")
-            SetShapeTextColor shp, ThemeColor("primary")
-        Case Else
-            shp.Line.ForeColor.RGB = ThemeColor("border")
-            SetShapeTextColor shp, ThemeColor("text")
-    End Select
-End Sub
-
-Private Sub SetShapeTextColor(ByVal shp As Shape, ByVal rgbVal As Long)
-    On Error Resume Next
-    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = rgbVal
-    On Error GoTo 0
-End Sub
-
-Public Function ThemeIcon() As String
-    If CurrentTheme() = "dark" Then
-        ThemeIcon = ChrW(&H2600)    ' 太陽
-    Else
-        ThemeIcon = ChrW(&HD83C) & ChrW(&HDF19)   ' 月
-    End If
-End Function
 
 'util
 
@@ -865,11 +706,11 @@ Public Sub MarkActiveBubble(ByVal shapeName As String)
         If Left$(shp.Name, 9) = "nx_msg_a_" Then
             If shp.Name = shapeName Then
                 shp.Line.Visible = -1
-                shp.Line.ForeColor.RGB = ThemeColor("primary")
+                shp.Line.ForeColor.RGB = modSkin.ThemeColor("primary")
                 shp.Line.Weight = 1.75
                 modSkin.ApplySoftShadow shp   ' Active State: 選択中バブルだけ浮遊させる
             Else
-                PaintBubble shp, False
+                modSkin.PaintBubble shp, False
                 On Error Resume Next
                 shp.Shadow.Visible = 0        ' 非選択はフラットへ戻す
                 On Error GoTo 0

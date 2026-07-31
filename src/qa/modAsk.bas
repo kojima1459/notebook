@@ -193,7 +193,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
         ' 本棚が空では回答自体が成立しない以上、次の一手を出すのが唯一の親切。
         result = modClarify.MissingDocGuide(q)
         On Error Resume Next
-        modInsight.EmitGap q, "no_hit"    ' 資料が無い領域として部内に共有する
+        modInsightIo.EmitGap q, "no_hit"    ' 資料が無い領域として部内に共有する
         On Error GoTo Fail
     Else
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒット"
@@ -392,7 +392,7 @@ Public Sub FeedbackGreen()
     ' 共有フォルダのビーコンへ反映する必要がある(起動時にしか発信していない
     ' ため、全員のビーコンが「今日 0分」のまま置かれていた)。
     ' ただし modBoard は UI層で、ここ(qa層)から呼ぶと層の向きが逆になる。
-    ' 発信は UI層の呼び出し元(modApp.OnActResolve)が担当する。
+    ' 発信は UI層の呼び出し元(modAppAct.OnActResolve)が担当する。
     On Error GoTo 0
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next
@@ -405,7 +405,7 @@ Public Sub FeedbackGreen()
     ' ペアが「人が確認したQ&A」として部内へ配信されていた。
     ' 中身が揃っているときだけ発信する。
     If LenB(mLastMode) > 0 And LenB(Trim$(mLastCleanAnswer)) > 0 Then
-        modInsight.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
+        modInsightIo.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
     End If
     On Error GoTo 0
 
@@ -429,7 +429,7 @@ Public Sub FeedbackRed()
     ' 共有知フライホイール: 答えられなかった質問は「組織に文書が無い領域」の
     ' 一次情報。資料を書ける人の画面へ自動で流す。
     On Error Resume Next
-    modInsight.EmitGap mLastQuestion, "wrong"
+    modInsightIo.EmitGap mLastQuestion, "wrong"
     On Error GoTo 0
     MsgBox "教えていただきありがとうございます。" & vbCrLf & _
            "この質問は「まだ答えを用意できていない質問」として記録し、" & vbCrLf & _
@@ -443,7 +443,7 @@ Public Sub FeedbackUnsure()
     modStats.Bump "unsure_total"
     modLog.LogUsage "feedback_unsure", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next
-    modInsight.EmitGap mLastQuestion, "low_conf"
+    modInsightIo.EmitGap mLastQuestion, "low_conf"
     On Error GoTo 0
     MsgBox "ありがとうございます。" & vbCrLf & _
            "「判断がつかない」も立派な情報です。この質問は資料が不足している" & vbCrLf & _

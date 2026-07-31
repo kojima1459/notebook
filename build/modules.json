@@ -44,6 +44,14 @@
       "wave": "1-A"
     },
     {
+      "name": "modUtilText",
+      "path": "src/core/modUtilText.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "テキストファイル入出力(ADODB.Stream UTF-8)と、複数モジュールに散っていた同じ算数を1本化するための共通部品。modUtilが27,822字で余地が少ないため新設(R11-F2の重複統合の受け皿)。"
+    },
+    {
       "name": "modGateway",
       "path": "src/core/modGateway.bas",
       "role": "core",
@@ -298,6 +306,14 @@
       "wave": "INSIGHT"
     },
     {
+      "name": "modInsightIo",
+      "path": "src/pack/modInsightIo.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "部内の知恵の発信(共有フォルダへ書く)/収集(拾ってinsight_inboxへ)/GC(古い残骸と既読印の掃除)と低水準ファイルI/O。modInsightが30,000字上限まで残り363字となったための分割先(憲章§4-6)。受信箱シートの参照・選択はmodInsightのまま。"
+    },
+    {
       "name": "modPublish",
       "path": "src/pack/modPublish.bas",
       "role": "core",
@@ -368,6 +384,14 @@
       "wave": "UI-V2"
     },
     {
+      "name": "modKnowledgeBar",
+      "path": "src/ui/modKnowledgeBar.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "ナレッジ画面のツールバー(ToolbarSpec=何を出すかの唯一の定義+ボタン1個の描画)。modKnowledgeが30,000字上限まで残り110字となったための分割先(憲章§4-6)。ボタンのOnAction先(ハンドラ)はmodKnowledgeのまま。"
+    },
+    {
       "name": "modPublishUI",
       "path": "src/ui/modPublishUI.bas",
       "role": "core",
@@ -401,6 +425,22 @@
       "role": "core",
       "type": "std",
       "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modAppAct",
+      "path": "src/ui/modAppAct.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "回答に付く文脈アクション行/信頼度バッジの描画とそのハンドラ(解決した/微妙/違う/深掘り/コピー/Word)。modAppが30,000字上限まで残り160字となったための分割先(憲章§4-6)。質問→回答を作る流れ本体はmodAppのまま。"
+    },
+    {
+      "name": "modVaultGallery",
+      "path": "src/ui/modVaultGallery.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "ナレッジ倉庫ギャラリー(カード一覧・検索・ページング)。modVaultが30,000字上限まで残り34字となり保留中の修正が入らなくなったための分割先(憲章§4-6)。ナレッジ登録フォーム本体はmodVaultのまま。"
     },
     {
       "name": "modDash",
