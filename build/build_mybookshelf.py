@@ -160,6 +160,33 @@ def obfuscate_secret(plain: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# --zip (R9): 大規模配布用のワンコマンド梱包。完成した .xlsm と dist/Ghostscript
+# (雑務担当が取得・常置済みの gswin32c.exe + gsdll32.dll + LICENSE + README)を
+# 1本のzipへまとめる。この梱包物はgitignore対象(dist/*_配布.zip): リポジトリ
+# 常置はGhostscriptの生ファイルそのもので足りており、zipまで履歴に積むと
+# 肥大するだけのため。既定ビルド(--prod/--dev、--zip無し)の挙動には一切影響しない。
+# ---------------------------------------------------------------------------
+def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool) -> str:
+    gs_dir = os.path.join(dist_dir, "Ghostscript")
+    if not os.path.isdir(gs_dir):
+        raise BuildError(f"--zip: dist/Ghostscript が見つかりません: {gs_dir}")
+
+    zip_name = "MyBookshelf_発行者用_配布.zip" if is_publisher else "MyBookshelf_配布.zip"
+    zip_path = os.path.join(dist_dir, zip_name)
+    xlsm_name = os.path.basename(xlsm_path)
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(xlsm_path, xlsm_name)
+        for root, _dirs, files in os.walk(gs_dir):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                arcname = os.path.join("Ghostscript", os.path.relpath(fp, gs_dir))
+                zf.write(fp, arcname)
+
+    return zip_path
+
+
+# ---------------------------------------------------------------------------
 # build_stamp: 「実機で今テストしているファイルが、本当に最新のソースから
 # 作られたものか」を後から確定できるようにするための識別子(2026-07-21:
 # 何度も往復した実機デバッグで、テスト対象が最新ビルドかどうか自体を疑わざるを
@@ -277,6 +304,12 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
          "画像PDFの読み取り(OCR)に使う gswin32c.exe のフルパス。"
          "空欄のときは、このファイルと同じ場所にある Ghostscript フォルダを自動で探す。"
          "詳しい置き方は docs/43_画像PDFのOCR取込設定.md を参照"),
+        ("ghostscript_search_dirs", "",
+         "ghostscript_path・同梱(Ghostscriptフォルダ)のどちらでも見つからないときに"
+         "追加で探すフォルダ(セミコロン区切り、複数可)。各フォルダの直下と"
+         "bin\\直下の両方に gswin32c.exe が無いか探す。IT部門が社内の標準配置先を"
+         "焼き込んでおく用途を想定した項目で、通常の利用者は空欄のままでよい"
+         "(同梱のGhostscriptで動く)。詳細は docs/30_運用保守ガイド.md を参照"),
         ("vision_pdf_max_pages", 20,
          "画像PDFを何ページ目まで読み取るか。1ページごとにAIを1回呼ぶので、"
          "大きくすると時間もコストも比例して増える(超過分は打ち切り=partial表示)"),
@@ -1137,6 +1170,10 @@ def main():
                      help="発行者用ビルドを作る(config publish_key を環境変数 "
                           + PUBLISH_KEY_ENV + " から焼き込む)。"
                           "既定の出力名も MyBookshelf_発行者用.xlsm に変わる")
+    ap.add_argument("--zip", action="store_true",
+                     help="ビルド後、完成した.xlsm + dist/Ghostscript を "
+                          "dist/MyBookshelf[_発行者用]_配布.zip へ梱包する"
+                          "(大規模配布用。既定ビルドの挙動は変えない)")
     args = ap.parse_args()
 
     root = os.path.abspath(args.root)
@@ -1317,6 +1354,11 @@ def main():
         sys.exit(1)
     print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
           "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
+
+    if args.zip:
+        print("\nStage 7: --zip 配布梱包...")
+        zip_path = build_dist_zip(out_path, os.path.dirname(out_path), args.publisher)
+        print(f"  出力: {zip_path} ({os.path.getsize(zip_path):,} bytes)")
 
     print("\nDone.")
 

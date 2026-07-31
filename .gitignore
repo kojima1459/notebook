@@ -1,5 +1,6 @@
 dist/*.log
 dist/*.tmp
+dist/*_配布.zip
 *.log
 *.swp
 .DS_Store

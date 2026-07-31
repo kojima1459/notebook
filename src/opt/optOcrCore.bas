@@ -26,6 +26,15 @@ Option Explicit
 '     切り詰めあり」と判定する(総ページ数を知る手段がGS抜きには無いため)。
 '     RenderCapFor / IsTruncatedCount / KeepPageCount がその算数。
 '   ・optVision からのみ呼ばれる。opt層内の参照なので依存ルール上も問題ない。
+'   ・Ghostscript実行ファイルの解決候補列挙(2026-07-31 R9): 同梱配布(dist/
+'     Ghostscript同封)・IT焼き込み(ghostscript_search_dirs)の2経路を
+'     追加するにあたり、「候補パス文字列をどの順で・どう組み立てるか」を
+'     ここへ切り出した(GsCandidatePaths / GsCandidatesForFolder)。
+'     実際のファイル存在確認(Dir$)とApplication.FileDialogは副作用そのもの
+'     なのでoptVision側の仕事のまま。戻り値は "|" 区切りの1本の文字列にした
+'     (run_lo_tests.pyの既知の制約により `As String()` という配列戻り値の
+'     関数宣言はLibreOffice Basicでコンパイルがハングするため。modUtil.
+'     SplitKeepNonEmptyと同じ理由・同じ回避策)。
 ' ============================================================================
 
 ' 公式ツール(gazou版)と同じ規約。ページ番号3桁ゼロ埋め。
@@ -151,8 +160,60 @@ Public Function SafeMaxPages(ByVal maxPages As Long) As Long
 End Function
 
 ' ----------------------------------------------------------------------------
+' GsCandidatePaths - Ghostscript実行ファイル(gswin32c.exe)の解決候補を、
+'   要件書R9の優先順位どおりに1本の文字列(候補ごとに "|" 区切り)で返す。
+'   実在確認(Dir$)は行わない・呼び出し側(optVision)が先頭から順に試す。
+'     (1) cfgPath    : config ghostscript_path(明示フルパス。空なら候補なし)
+'     (2) wbDir       : wbDir\Ghostscript\gswin32c.exe(同梱・既定経路)
+'     (3) searchDirs  : config ghostscript_search_dirs(セミコロン区切り)。
+'                        各ディレクトリを GsCandidatesForFolder で2候補
+'                        (直下 / bin直下)へ展開して順に追加する。
+'   空要素(空文字列・空白のみ)はスキップし、各パスの末尾の \ と / は
+'   正規化してから連結する(configの書式ゆれを吸収するため)。
+' ----------------------------------------------------------------------------
+Public Function GsCandidatePaths(ByVal cfgPath As String, ByVal wbDir As String, _
+                                 ByVal searchDirs As String) As String
+    Dim result As String: result = ""
+
+    Dim c As String: c = Trim$(cfgPath)
+    If LenB(c) > 0 Then result = AppendCandidate(result, c)
+
+    Dim wb As String: wb = TrimTrailingSep(Trim$(wbDir))
+    If LenB(wb) > 0 Then result = AppendCandidate(result, wb & "\Ghostscript\gswin32c.exe")
+
+    Dim dirs() As String: dirs = Split(searchDirs, ";")
+    Dim i As Long
+    For i = LBound(dirs) To UBound(dirs)
+        Dim forDir As String: forDir = GsCandidatesForFolder(dirs(i))
+        If LenB(forDir) > 0 Then result = AppendCandidate(result, forDir)
+    Next i
+
+    GsCandidatePaths = result
+End Function
+
+' ----------------------------------------------------------------------------
+' GsCandidatesForFolder - 1つのフォルダから「直下」「bin直下」の2候補を
+'   "|" 区切りで返す(R9)。案内カードでフォルダを選んでもらった直後の確認と、
+'   GsCandidatePathsのsearchDirs展開の両方から使う共通ロジック(規約は1つ:
+'   直下 → 無ければbin直下)。空・空白のみのフォルダは候補を作らず ""。
+' ----------------------------------------------------------------------------
+Public Function GsCandidatesForFolder(ByVal folderPath As String) As String
+    Dim d As String: d = TrimTrailingSep(Trim$(folderPath))
+    If LenB(d) = 0 Then Exit Function
+    GsCandidatesForFolder = d & "\gswin32c.exe|" & d & "\bin\gswin32c.exe"
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+Private Function AppendCandidate(ByVal existing As String, ByVal newPart As String) As String
+    If LenB(existing) = 0 Then
+        AppendCandidate = newPart
+    Else
+        AppendCandidate = existing & "|" & newPart
+    End If
+End Function
 
 ' パスを二重引用符で囲む(Windowsのファイル名に " は使えないのでエスケープ不要)。
 Private Function Quoted(ByVal s As String) As String

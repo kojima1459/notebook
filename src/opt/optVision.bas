@@ -38,6 +38,18 @@ Option Explicit
 '     ChatGPTV)で1ページずつ読む。「PDF→画像変換の手段がVBA単体に無い」という
 '     唯一の穴を、公式配布物の再利用で塞ぐ。入口は ExtractPdfOcrPagedText。
 '     コマンド文字列の組み立ては optOcrCore(純ロジック)に切り出してある。
+'   ・Ghostscriptの配布・自動検出(2026-07-31 R9): dist/Ghostscript を常置
+'     配布物に同梱する方針(要件書R9)に伴い、ResolveGsExeの解決順を
+'     「config ghostscript_path → 同梱(ThisWorkbook.Path\Ghostscript\
+'     gswin32c.exe)→ config ghostscript_search_dirs(IT焼き込み用)→
+'     案内カード(1回きり・赤エラーでなく)」の4段へ拡張した。
+'     候補パスの組み立ては optOcrCore.GsCandidatePaths / GsCandidatesForFolder
+'     (純ロジック)に切り出し、実在確認(Dir$)とApplication.FileDialogは
+'     副作用なのでここに残す(§7.7契約: opt層の唯一のコア参照は
+'     modUIMain.SetStageのみ・opt層内は自由参照)。
+'     解決結果はセッション内(モジュール変数)にキャッシュし、案内カードは
+'     このブックを開いている間は1回しか出さない(見つからなくても毎回の
+'     OCR実行のたびにダイアログで割り込まない)。
 ' ============================================================================
 
 ' === 確定済みシグネチャ(出典: RIBBON_API_CONFIRMED.md §1 #5, #8 / 裁定D5) ===
@@ -77,6 +89,11 @@ Private Const VISION_PROMPT As String = _
     "・画像に無い情報を補って書かないこと"
 
 Private mLastErrorMsg As String
+
+' R9: Ghostscript解決のセッションキャッシュと案内カードの1回きりフラグ。
+Private mGsExeCache As String        ' 解決済みパス(mGsResolved=Trueのときのみ有効)
+Private mGsResolved As Boolean       ' Trueなら以後mGsExeCacheをそのまま使う
+Private mGsGuidanceShown As Boolean  ' 案内カード(FileDialog)はセッション中1回だけ
 
 Public Function Ping() As Boolean
     Ping = True
@@ -262,8 +279,9 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String) As String
     Dim gsExe As String: gsExe = ResolveGsExe()
     If LenB(gsExe) = 0 Then
         ExtractPdfOcrPagedText = "#ERR:E0303:画像PDFを読み取るための Ghostscript が" & _
-            "見つかりませんでした。社内ポータルの「Excel帳票OCR」zipに入っている " & _
-            "Ghostscript フォルダを、このファイルと同じ場所に置くか、config シートの " & _
+            "見つかりませんでした。配布zip(リポジトリのZIPをDL→解凍したもの)は " & _
+            "Ghostscript フォルダを同梱済みのはずです。このファイルと同じ場所に " & _
+            "Ghostscript フォルダがあるかご確認いただくか、config シートの " & _
             "ghostscript_path に gswin32c.exe のフルパスを設定してください。"
         Exit Function
     End If
@@ -397,20 +415,129 @@ Private Function OcrRenderedPages(ByVal folderPath As String, ByVal keepN As Lon
     OcrRenderedPages = modUtil.JoinPagedText(pages, truncated)
 End Function
 
-' Ghostscriptの実行ファイルを解決する(config優先→公式ツールと同じ配置規約)。
+' ----------------------------------------------------------------------------
+' ResolveGsExe - Ghostscript実行ファイルを解決する(R9: 4段階)。
+'   (1) config ghostscript_path(明示フルパス)
+'   (2) 同梱(ThisWorkbook.Path\Ghostscript\gswin32c.exe)
+'   (3) config ghostscript_search_dirs(セミコロン区切り。IT焼き込み用)
+'   (4) 見つからない場合: 1回きりの案内カード→フォルダ選択→即続行
+'   候補の組み立ては optOcrCore.GsCandidatePaths(純ロジック)、実在確認は
+'   ここ(Dir$)。解決済みパスはセッション内(モジュール変数)にキャッシュする。
+' ----------------------------------------------------------------------------
 Private Function ResolveGsExe() As String
-    Dim cfgPath As String
-    cfgPath = Trim$(modConfig.GetString("ghostscript_path", ""))
-    If LenB(cfgPath) > 0 Then
-        If PathExists(cfgPath) Then
-            ResolveGsExe = cfgPath
+    If mGsResolved Then
+        ResolveGsExe = mGsExeCache
+        Exit Function
+    End If
+
+    Dim found As String
+    found = FindGsExeByCandidates()
+    If LenB(found) > 0 Then
+        CacheGsExe found
+        ResolveGsExe = found
+        Exit Function
+    End If
+
+    ' (4) 案内カード。見つからなかった/カード自体を出したことが既にある
+    '     場合は、今回はダイアログを出さず未解決のまま返す(1回きり)。
+    '     mGsResolvedはTrueにしない: config書き換え・フォルダ設置が後から
+    '     行われた場合に、次回呼び出しで(3)までを毎回再チェックできるように
+    '     しておくため(ダイアログさえ出さなければ再探索自体は軽い)。
+    If Not mGsGuidanceShown Then
+        mGsGuidanceShown = True
+        Dim viaCard As String
+        viaCard = OfferGsFolderPicker()
+        If LenB(viaCard) > 0 Then
+            CacheGsExe viaCard
+            ResolveGsExe = viaCard
             Exit Function
         End If
     End If
 
-    Dim sidePath As String
-    sidePath = ThisWorkbook.path & "\Ghostscript\gswin32c.exe"
-    If PathExists(sidePath) Then ResolveGsExe = sidePath
+    ResolveGsExe = ""
+End Function
+
+' config ghostscript_path / 同梱 / ghostscript_search_dirs の順で候補を
+' 実在確認する(optOcrCore.GsCandidatePathsが組み立てた候補文字列を使う)。
+Private Function FindGsExeByCandidates() As String
+    Dim cfgPath As String
+    cfgPath = modConfig.GetString("ghostscript_path", "")
+    Dim searchDirs As String
+    searchDirs = modConfig.GetString("ghostscript_search_dirs", "")
+
+    Dim candStr As String
+    candStr = optOcrCore.GsCandidatePaths(cfgPath, ThisWorkbook.path, searchDirs)
+    FindGsExeByCandidates = FirstExistingCandidate(candStr)
+End Function
+
+' "|" 区切りの候補文字列から、実在する最初の1件を返す(無ければ空文字列)。
+Private Function FirstExistingCandidate(ByVal candStr As String) As String
+    If LenB(candStr) = 0 Then Exit Function
+    Dim cands() As String: cands = Split(candStr, "|")
+    Dim i As Long
+    For i = LBound(cands) To UBound(cands)
+        If PathExists(cands(i)) Then
+            FirstExistingCandidate = cands(i)
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Sub CacheGsExe(ByVal resolvedPath As String)
+    mGsExeCache = resolvedPath
+    mGsResolved = True
+End Sub
+
+' ----------------------------------------------------------------------------
+' OfferGsFolderPicker - 1回きりの丁寧な案内(赤エラーでなく)+フォルダ選択。
+'   選択フォルダ直下または bin\ 直下に gswin32c.exe があれば
+'   config ghostscript_path へ保存して即そのパスを返す。無ければ
+'   modUIMain.SetStage で1行案内して ""(未解決)を返す(§7.7契約により
+'   opt層からのUI参照はSetStageのみ許可)。
+'   ※LibreOfficeテスト環境にはApplication.FileDialogが無いため、この関数と
+'   PickGsFolder(実際のダイアログ呼び出し)はLOの純ロジックテスト(モード1)
+'   からは一切呼ばれない(候補の組み立てはoptOcrCore側の純ロジックとして
+'   分離済み・そちらだけが境界値テストの対象)。
+' ----------------------------------------------------------------------------
+Private Function OfferGsFolderPicker() As String
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox( _
+        "画像PDFの読み取りには Ghostscript が必要です。" & vbLf & _
+        "配布zipの Ghostscript フォルダをこのファイルの隣に置くか、" & vbLf & _
+        "場所を指定してください。" & vbLf & vbLf & _
+        "[OK] を押すとフォルダを選ぶ画面が開きます。", _
+        vbInformation + vbOKCancel, modAppDef.APP_NAME)
+    If resp <> vbOK Then Exit Function
+
+    Dim picked As String
+    picked = PickGsFolder()
+    If LenB(picked) = 0 Then Exit Function
+
+    Dim candStr As String: candStr = optOcrCore.GsCandidatesForFolder(picked)
+    Dim found As String: found = FirstExistingCandidate(candStr)
+    If LenB(found) = 0 Then
+        modUIMain.SetStage "選んだフォルダに gswin32c.exe が見つかりませんでした。"
+        Exit Function
+    End If
+
+    modConfig.SetValue "ghostscript_path", found
+    OfferGsFolderPicker = found
+End Function
+
+' フォルダ選択ダイアログ(msoFileDialogFolderPicker=4)。名前付き定数は使わない
+' (modShelfSync.PickShelfFolderと同じ慣習・LibreOffice互換のため)。
+' キャンセル・実行時エラー(FileDialog非対応環境)はどちらも空文字列で返す。
+Private Function PickGsFolder() As String
+    On Error GoTo NoDialog
+    Dim fd As Object
+    Set fd = Application.FileDialog(4)   ' msoFileDialogFolderPicker
+    fd.Title = "Ghostscript フォルダを選択してください"
+    If fd.Show <> -1 Then Exit Function   ' キャンセル
+    If fd.SelectedItems.count < 1 Then Exit Function
+    PickGsFolder = CStr(fd.SelectedItems(1))
+    Exit Function
+NoDialog:
+    PickGsFolder = ""
 End Function
 
 ' 一時フォルダ(TEMP\nxocr_<一意名>)を作って返す。失敗時は""。

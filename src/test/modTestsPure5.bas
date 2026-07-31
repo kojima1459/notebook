@@ -501,6 +501,62 @@ Private Sub TestPublishLockAction()
         "実際=" & modShareRule.PublishLockAction(True, -5, 10)
 End Sub
 
+' ----------------------------------------------------------------------------
+' Ghostscript解決候補の組み立て(R9・optOcrCore.GsCandidatePaths/
+' GsCandidatesForFolder)。空要素スキップ・末尾\正規化・優先順位の3点が
+' ここで壊れると、実機では「config通りに書いたのに見つからない」という
+' 再現しづらい不具合になる(パス文字列だけの純ロジックなので機械で固定する)。
+' ----------------------------------------------------------------------------
+Private Sub TestGsCandidatePaths()
+    Dim s As String
+
+    ' 優先順位: cfgPath→同梱→search_dirs の順で先頭から並ぶこと。
+    s = optOcrCore.GsCandidatePaths("C:\GS\gswin32c.exe", "C:\Book", "C:\Tools\GS")
+    Dim parts() As String: parts = Split(s, "|")
+    modTestRunner.Check "GS候補: 1件目はcfgPathそのまま", _
+        (parts(0) = "C:\GS\gswin32c.exe"), "実際=" & s
+    modTestRunner.Check "GS候補: 2件目は同梱(wbDir\Ghostscript\gswin32c.exe)", _
+        (parts(1) = "C:\Book\Ghostscript\gswin32c.exe"), "実際=" & s
+    modTestRunner.Check "GS候補: 3件目はsearch_dirs直下", _
+        (parts(2) = "C:\Tools\GS\gswin32c.exe"), "実際=" & s
+    modTestRunner.Check "GS候補: 4件目はsearch_dirsのbin直下", _
+        (parts(3) = "C:\Tools\GS\bin\gswin32c.exe"), "実際=" & s
+    modTestRunner.Check "GS候補: 合計4件(空要素なし)", _
+        ((UBound(parts) - LBound(parts) + 1) = 4), "実際=" & s
+
+    ' cfgPathが空なら候補に加えない(空文字列の候補を作らない)。
+    s = optOcrCore.GsCandidatePaths("", "C:\Book", "")
+    modTestRunner.Check "GS候補: cfgPath空はスキップし同梱1件のみ", _
+        (s = "C:\Book\Ghostscript\gswin32c.exe"), "実際=" & s
+
+    ' 同梱パスの末尾\は正規化(二重\にならない)。
+    s = optOcrCore.GsCandidatePaths("", "C:\Book\", "")
+    modTestRunner.Check "GS候補: wbDirの末尾\は正規化", _
+        (s = "C:\Book\Ghostscript\gswin32c.exe"), "実際=" & s
+
+    ' search_dirsはセミコロン区切り。空要素(連続";"・前後空白)はスキップする。
+    s = optOcrCore.GsCandidatePaths("", "", " C:\A ;;D:\B\ ")
+    parts = Split(s, "|")
+    modTestRunner.Check "GS候補: search_dirsの空要素はスキップされ2フォルダ×2=4件", _
+        ((UBound(parts) - LBound(parts) + 1) = 4), "実際=" & s
+    modTestRunner.Check "GS候補: search_dirsの前後空白は落ちる", _
+        (parts(0) = "C:\A\gswin32c.exe"), "実際=" & s
+    modTestRunner.Check "GS候補: search_dirsの末尾\は正規化(二重\にならない)", _
+        (parts(2) = "D:\B\gswin32c.exe"), "実際=" & s
+
+    ' 3引数すべて空なら候補ゼロ("")。
+    modTestRunner.Check "GS候補: 全て空なら空文字列", _
+        (LenB(optOcrCore.GsCandidatePaths("", "", "")) = 0), ""
+
+    ' GsCandidatesForFolder単体: 直下→bin直下の順で2件。空白のみは""。
+    modTestRunner.Check "フォルダ候補: 直下とbin直下の2件", _
+        (optOcrCore.GsCandidatesForFolder("D:\GS") = "D:\GS\gswin32c.exe|D:\GS\bin\gswin32c.exe"), ""
+    modTestRunner.Check "フォルダ候補: 末尾\は正規化", _
+        (optOcrCore.GsCandidatesForFolder("D:\GS\") = "D:\GS\gswin32c.exe|D:\GS\bin\gswin32c.exe"), ""
+    modTestRunner.Check "フォルダ候補: 空白のみは空文字列", _
+        (LenB(optOcrCore.GsCandidatesForFolder("   ")) = 0), ""
+End Sub
+
 Public Sub RunAll5()
     On Error GoTo OriginKindFail
     TestOriginKind
@@ -543,6 +599,9 @@ NextSyncSum:
 NextLock:
     On Error GoTo LockFail
     TestPublishLockAction
+NextGsCand:
+    On Error GoTo GsCandFail
+    TestGsCandidatePaths
 NextDone5:
     On Error GoTo 0
     Exit Sub
@@ -601,6 +660,10 @@ SyncSumFail:
     Resume NextLock
 LockFail:
     modTestRunner.Check "TestPublishLockAction(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsCand
+GsCandFail:
+    modTestRunner.Check "TestGsCandidatePaths(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone5
 End Sub

@@ -9,38 +9,44 @@
 そのまま本棚に追加しても「このPDFは画像として保存されていて、そのままでは文字を読み取れませんでした」と表示され、
 マイ本棚のカードには 🖼 のしるしが付きます。
 
-準備をしておくと、この種のPDFを **1ページずつ画像にしてAIに読ませ(OCR)、本棚に取り込めるようになります**。
-準備は1回だけで、次からは普通の資料と同じようにドラッグして追加するだけです。
-
-準備するもの: **Ghostscript**(ゴーストスクリプト)という、PDFを画像に変換する道具。
-社内ポータルで配られている **「Excel帳票OCR」のzip** に同梱されているものをそのまま使います。
+このツールは、この種のPDFを **1ページずつ画像にしてAIに読ませ(OCR)、本棚に取り込めます**。
+そのために **Ghostscript**(ゴーストスクリプト。PDFを画像に変換する道具)を使いますが、
+**配布物にあらかじめ同梱されている**ため、利用者側での準備は基本的に不要です。
 
 ---
 
-## 1. 準備(5分・1回だけ)
+## 1. 準備(通常は不要)
 
-1. 社内ポータルから **「Excel帳票OCR」のzip** をダウンロードして展開する
-2. 中にある **`Ghostscript` フォルダ**(`gswin32c.exe` と `gsdll32.dll` が入っています)を丸ごとコピーする
-3. **このツール(`MyBookshelf.xlsm`)と同じ場所**に貼り付ける
+**リポジトリのZIPをダウンロード→解凍→`dist` フォルダの中の `.xlsm` を開くだけ**で使えます。
+`dist` フォルダの中には、開く `.xlsm` の隣に `Ghostscript` フォルダ(`gswin32c.exe` 等一式)が
+最初から並んでいて、起動時に自動的に見つけて使います。
 
 ```
-（例）
-C:\Users\自分\Documents\マイ本棚AI\
-    ├── MyBookshelf.xlsm        ← このツール
-    └── Ghostscript\            ← ここに置く
+（解凍した状態の例）
+dist\
+    ├── MyBookshelf.xlsm     ← これを開く
+    └── Ghostscript\         ← 同梱済み(何もしなくてよい)
             ├── gswin32c.exe
-            └── gsdll32.dll
+            ├── gsdll32.dll
+            ├── LICENSE.txt
+            └── README.txt
 ```
 
-4. Excelを開き直す(すでに開いていた場合)
+あわせて、`config` シートの **`feature_vision` が `TRUE`** になっていることを確認してください(初期値はTRUEです)。
 
-**別の場所に置きたい場合**は、`config` シートの `ghostscript_path` に `gswin32c.exe` のフルパスを入れてください
-(例: `C:\Tools\Ghostscript\gswin32c.exe`)。こちらが設定されていれば、そちらが優先されます。
+### 1-1. 「Ghostscript が見つかりません」という案内が出たら
+
+`Ghostscript` フォルダを`.xlsm`の隣から動かした・削除した等でGhostscriptが見つからない場合だけ、
+赤いエラーではなく **丁寧な案内カード**(1回だけ)が出ます。
+「フォルダを選ぶ」の案内でOKを押すとフォルダ選択画面が開くので、`Ghostscript` フォルダ
+(または `gswin32c.exe` が入っている `bin` フォルダの1つ上)を選んでください。
+見つかれば `config` の `ghostscript_path` に自動で保存され、そのまま処理が続きます。
+
+**手動で設定したい場合**は、`config` シートの `ghostscript_path` に `gswin32c.exe` のフルパスを
+直接入れても構いません(例: `C:\Tools\Ghostscript\gswin32c.exe`)。こちらが設定されていれば最優先で使われます。
 
 > `config` シートの出し方: シート見出しを右クリック →「再表示」→ `config` を選ぶ。
 > 変更したら上書き保存してください。
-
-あわせて、`config` シートの **`feature_vision` が `TRUE`** になっていることを確認してください(初期値はTRUEです)。
 
 ---
 
@@ -79,7 +85,7 @@ C:\Users\自分\Documents\マイ本棚AI\
 
 | 出たメッセージ | 意味 | どうすればよいか |
 |---|---|---|
-| Ghostscript が見つかりませんでした | 道具が置かれていない | 上の「1. 準備」をやり直す。別の場所に置いたなら `ghostscript_path` を設定する |
+| Ghostscript が見つかりませんでした | 道具が見つからない(通常は同梱済み) | `Ghostscript` フォルダが`.xlsm`の隣にあるか確認する。案内カードが出たら「1-1」の手順でフォルダを選ぶ |
 | 画像解析機能が有効なときだけ使えます | `feature_vision` が FALSE | `config` の `feature_vision` を `TRUE` にして開き直す |
 | ページ画像を作れませんでした | PDFが壊れている/パスワード保護 | PDFを開けるか確認する。保護されている場合は解除したものを用意する |
 | ○秒以内に終わりませんでした | 変換に時間がかかりすぎた | ページ数を減らして分割する。または `vision_pdf_timeout_sec` を大きくする |
@@ -93,11 +99,27 @@ C:\Users\自分\Documents\マイ本棚AI\
 
 ## 5. 保守担当向けメモ
 
-- Ghostscript はこのリポジトリには同梱していません(AGPLv3・22MBのDLLを含むため)。
-  社内で配布済みの公式ツールに入っているものを、置き場所の規約(`ThisWorkbook.Path & "\Ghostscript\gswin32c.exe"`)ごと再利用しています。
+- Ghostscript(10.03.1 Windows 32bit・AGPL)は `dist/Ghostscript/` に **常置**でコミットしてある
+  (`gswin32c.exe` + `gsdll32.dll` + `LICENSE.txt` + `README.txt`)。GitHubの
+  「Code → Download ZIP」で取得したものをそのまま解凍すれば、`dist/` 内の `.xlsm` の隣に
+  Ghostscriptが並ぶ状態になる(2026-07-31 R9)。`dist/Ghostscript/` はビルドスクリプトが
+  一切触らないフォルダなので、ビルドを何度実行しても消えたり上書きされたりしない。
+- `ResolveGsExe`(`src/opt/optVision.bas`)の解決順は次の4段階:
+  1. `config` `ghostscript_path`(明示フルパス)
+  2. 同梱(`ThisWorkbook.Path & "\Ghostscript\gswin32c.exe"`)
+  3. `config` `ghostscript_search_dirs`(セミコロン区切り。IT部門が社内の標準配置先を
+     焼き込んでおく用途。各フォルダの直下と `bin\` 直下の両方を探す)
+  4. どれでも見つからない場合だけ、1回きりの案内カード→フォルダ選択→
+     見つかれば `ghostscript_path` へ自動保存して続行
+  候補パスの組み立て(優先順位・空要素スキップ・末尾`\`の正規化)は
+  `src/opt/optOcrCore.bas` の `GsCandidatePaths` / `GsCandidatesForFolder`(純ロジック・
+  境界値テストは `src/test/modTestsPure5.bas`)に切り出してある。
 - 変換は **非同期で起動し、完了フラグファイルの出現を監視**しています。壊れたPDFでExcelが永久に固まることはありません
   (タイムアウトしたらその資料だけ失敗になります)。一時ファイルは成功・失敗のどちらでも削除します。
 - 実装は `src/opt/optVision.bas`(取込本体)と `src/opt/optOcrCore.bas`(コマンド組み立ての純ロジック)にあります。
   取込フロー側の入口は `src/ingest/modShelfVision.bas` です。
 - Wordのリフローが文字化けだけを返すPDF(全ページ化け判定)も、自動的にこのOCR経路へ回ります
   (`usage_log` に `extract_garbled_ocr_route` の行が残ります)。
+- 大規模配布(社内へまとめて配る等)には `python3 build/build_mybookshelf.py --prod --zip` で
+  `dist/MyBookshelf_配布.zip`(`.xlsm` + `Ghostscript/` 一式)をワンコマンドで梱包できる。
+  手順の詳細は `docs/30_運用保守ガイド.md` を参照。

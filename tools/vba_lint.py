@@ -400,6 +400,8 @@ CONTRACT: dict[str, dict] = {
             "Ping", "BuildGsCommand", "BuildRunCommand", "TempFolderFor",
             "OutPatternFor", "DoneFlagFor", "PageJpgName", "RenderCapFor",
             "IsTruncatedCount", "KeepPageCount", "SafeDpi", "SafeMaxPages",
+            # R9: Ghostscript実行ファイルの解決候補列挙(配布・自動検出)。
+            "GsCandidatePaths", "GsCandidatesForFolder",
         ],
     },
     # ---- 7.8 テストモジュール ----
