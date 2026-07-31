@@ -50,24 +50,24 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     ClearMentor
 
     Dim expert As String, topSource As String
-    If Not FindExpert(expert, topSource) Then Exit Sub
+    If Not FindExpert(expert, topSource) Then GoTo Done
     ' 2026-07-28(レビュー C-2): 冒頭の On Error Resume Next のせいで、
     ' FindExpert 内で例外が起きても「見つかった」扱いのまま空文字で先へ進み、
     ' 「この分野は さんが詳しいです」という宛先の無いボタンが出ていた。
     ' 押しても何も起きないので、利用者から見ると壊れたボタンでしかない。
     ' 名前が取れていないなら出さない、を最終防衛線として置く。
     expert = Trim$(expert)
-    If LenB(expert) = 0 Then Exit Sub
+    If LenB(expert) = 0 Then GoTo Done
 
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets("Nexus")
-    If ws Is Nothing Then Exit Sub
+    If ws Is Nothing Then GoTo Done
 
     ' 描画位置: 文脈アクション(nx_act_*)と出典チップ(nx_cite_*)の最下端の下。
     ' どちらも無ければバブルの直下。
     Dim anchor As Shape
     Set anchor = ws.Shapes(bubbleName)
-    If anchor Is Nothing Then Exit Sub
+    If anchor Is Nothing Then GoTo Done
     Dim y As Double: y = anchor.Top + anchor.Height + 6
     Dim shp As Shape
     For Each shp In ws.Shapes
@@ -105,6 +105,11 @@ Public Sub OfferMentor(ByVal bubbleName As String)
 
     mExpert = expert
     mTopSource = topSource
+Done:
+    ' 2026-07-31 R11-D(監査2 指摘3): 冒頭の On Error Resume Next で本機能の
+    ' 失敗をメインへ波及させない設計(サーキットブレーカー)は維持したまま、
+    ' 【痕跡だけ】を残す。利用者への通知は増やさない(静かに諦めるのが正しい)。
+    LogMentorFail "modMentor.OfferMentor"
 End Sub
 
 ' ClearMentor - ボタン削除(送信の先頭フック/OfferMentor冒頭から。孤児Shape防止)。
@@ -142,6 +147,7 @@ Public Sub OnAskExpert()
         modSkin.ShowToast "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。", "error"
     End If
 Done:
+    LogMentorFail "modMentor.OnAskExpert"
     modUiLock.Leave
 End Sub
 
@@ -213,6 +219,7 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
         DrawReplyButton   ' 往復→対話へ: 最後の質問の差出人へ返信するボタン
     End If
 Done:
+    LogMentorFail "modMentor.CollectQuestions"
 End Sub
 
 ' 返信ボタン(nx_mentor_reply)を最下端バブルの下に描く。質問と同機構で逆向きに送る。
@@ -280,6 +287,7 @@ Public Sub OnReplyQuestion()
         modSkin.ShowToast "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。", "error"
     End If
 Done:
+    LogMentorFail "modMentor.OnReplyQuestion"
     modUiLock.Leave
 End Sub
 
@@ -340,6 +348,12 @@ Private Function KillWithRetry(ByVal filePath As String) As Boolean
         On Error GoTo 0
         MentorWait 250 * attempt
     Next attempt
+    ' 3回とも消せなかった。nonce重複排除があるので二重表示にはならないが、
+    ' 質問ファイルが共有フォルダに残り続ける(掃除役は他にいない)。R11-D。
+    On Error Resume Next
+    modLog.LogUsage "mentor_kill_failed", "", _
+        "質問ファイルを削除できませんでした: " & modUtil.SafeLeft(filePath, 200)
+    On Error GoTo 0
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -380,6 +394,10 @@ End Function
 ' ----------------------------------------------------------------------------
 Private Function SendQuestion(ByVal expert As String, ByVal q As String, _
                               ByVal topSource As String) As Boolean
+    ' R11-D(監査2 指摘3): ここは唯一ハンドラの無い入口だった。共有フォルダの
+    ' MkDir や書込みで例外が出ると、呼び出し元(OnAskExpert/OnReplyQuestion)の
+    ' Done: へ飛んで「送信できませんでした」だけが出て、原因が何も残らない。
+    On Error GoTo Fail
     Dim folderPath As String: folderPath = QuestionsDir()
     If LenB(folderPath) = 0 Then Exit Function
     On Error Resume Next
@@ -402,7 +420,40 @@ Private Function SendQuestion(ByVal expert As String, ByVal q As String, _
 
     SendQuestion = WriteUtf8WithRetry( _
         folderPath & "q_" & modUtil.Fnv1a64Hex(expert) & "_" & nonce & ".txt", rowText)
+    If Not SendQuestion Then
+        LogMentorErr "modMentor(SendQuestion)", 0, _
+            "共有フォルダへ質問ファイルを書けませんでした(3回リトライ後)"
+    End If
+    Exit Function
+Fail:
+    LogMentorErr "modMentor(SendQuestion)", Err.Number, Err.Description
+    SendQuestion = False
 End Function
+
+' ----------------------------------------------------------------------------
+' LogMentorFail / LogMentorErr - 無言の失敗を1行だけ残す(R11-D / 監査2 指摘3)。
+'   本モジュールは「失敗しても利用者には静かに何もしない」サーキットブレーカー
+'   設計で、それ自体は正しい。しかし痕跡まで無いと、専門家への質問が届かない
+'   ことに誰も気付けない(憲章§4-1)。通知は増やさず、ログだけを足す。
+'   LogMentorFail は Err が立っているときだけ書く(正常な取りやめでは書かない)。
+'   どちらも別Subなので、稼働中のハンドラの中から呼んでも On Error Resume Next
+'   が正しく効く。
+' ----------------------------------------------------------------------------
+Private Sub LogMentorFail(ByVal context As String)
+    If Err.Number = 0 Then Exit Sub
+    Dim n As Long: n = Err.Number
+    Dim d As String: d = Err.Description
+    Err.Clear
+    LogMentorErr context, n, d
+End Sub
+
+Private Sub LogMentorErr(ByVal context As String, ByVal errNum As Long, _
+                         ByVal errDesc As String)
+    On Error Resume Next
+    modLog.LogError "E0801", context, _
+        "err#" & errNum & ": " & modUtil.SafeLeft(errDesc, 300)
+    On Error GoTo 0
+End Sub
 
 ' 2026-07-31(レビュー R8 F2): modShare の関所を通す。自前で
 ' nexus_share_path を読むと、届かない共有でも毎回パスが組み上がり、

@@ -89,6 +89,14 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0101"
             FriendlyMessage = "設定ファイル(configシート)に必要な項目が見つかりません。" & _
                 "配布元にこのファイルの再入手を依頼してください。"
+        Case "E0102"
+            ' 2026-07-31 R11-D(監査3 H-4): Scripting.Dictionary(Windows
+            ' Script Runtime)が端末ポリシーで塞がれている状態。検索・同期・
+            ' 集計の中核がここに依存しており、利用者にはどれも「静かに
+            ' 空振りする」形でしか現れない。宛先を明示する。
+            FriendlyMessage = "この端末では検索機能に必要な部品" & _
+                "(Windows Script Runtime)が利用できません。" & _
+                "管理者へご連絡ください。"
         Case "E0201"
             FriendlyMessage = "AIリボンが見つからず、AIに問い合わせできませんでした。" & _
                 "AIリボン入りのExcelで開き直すか、" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタンで状態を確認してください。"

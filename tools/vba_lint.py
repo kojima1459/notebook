@@ -119,6 +119,10 @@ CONTRACT: dict[str, dict] = {
             # 結果を「文字列1本」の境界(modFeatures.InvokeFeature)越しに運ぶ
             # ための行マーカー符号化/復号。純文字列処理なのでmodUtilに置く。
             "JoinPagedText", "SplitPagedText",
+            # DescribeComError(2026-07-31 R11-D / 監査2 指摘5): COM失敗の
+            # 日本語案内。modExtractor/Word/Excel/Acrobat の4重実装を1本へ
+            # まとめたもの。アプリ名を引数で差し替えるだけの純ロジック。
+            "DescribeComError",
             # DeobfuscateSecret: build/build_mybookshelf.py obfuscate_secret() と対の
             # 復号(XOR+16進)。configシートに置くAPIキーを平文で持たないための軽い
             # 難読化解除。modGateway.DirectEmbedSliceのみが呼ぶ想定だが、R4純ロジック
@@ -418,9 +422,13 @@ CONTRACT: dict[str, dict] = {
     # 第1選択。Word/AcrobatのOLE待ち回避)。opt層に置く以上、他のoptと同様に
     # Ping を持たせる。純ロジックではない(Shell起動・ファイルI/O・ログ)ので
     # PURE_LOGIC_MODULES には載せない。
+    # GsFailureDetail / GsExitCode(2026-07-31 R11-D・監査3 H-2): 完了フラグの
+    # 中身(GSの終了コード)と gs_out.log の先頭を読み、err_log の detail に
+    # そのまま入れられる1本の文字列にする。optVision(OCR経路)からも呼ぶ。
     "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
                                               "MakeOcrFolder", "RunGsAsync",
-                                              "WaitForDoneFlag", "CleanupOcrFolder"]},
+                                              "WaitForDoneFlag", "CleanupOcrFolder",
+                                              "GsFailureDetail", "GsExitCode"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
@@ -445,6 +453,10 @@ CONTRACT: dict[str, dict] = {
             # (CleanTextLenはR10cでoptGsTxtから移設)。
             "BuildGsTextCommand", "GsTextVerdict",
             "CleanTextLen", "GsPageCount",
+            # R11-D(監査3 H-2): GS実行の観測性。標準出力/標準エラーの落とし先
+            # (GsLogFor)と、完了フラグに書かせた終了コードの読み取り
+            # (GsExitCodeFromFlag)。どちらも純粋な文字列処理。
+            "GsLogFor", "GsExitCodeFromFlag",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -1580,6 +1592,17 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     # SetStageと同じ「UIへ実況を伝えるだけ」の通知コールバックで、
                     # ShowProgress自体が内部でSetStageを呼ぶ薄いラッパーのため、
                     # 既存のSetStage例外と同列に扱う。
+                    # SetStage は基盤層からも1箇所だけ許す(2026-07-31 R11-D /
+                    # 監査3 M-7)。modGatewayDirect の埋め込みHTTPは【同期】
+                    # Send で、NW瞬断時は最大60秒 Excel が完全に固まる。何の
+                    # 表示も無く固まるのは憲章§3-2違反だが、待ちが発生する
+                    # 場所そのものは基盤層にしかない。SetStage は opt層にも
+                    # 同じ理由で既に例外が置かれている「実況を伝えるだけ」の
+                    # 通知コールバックなので、同列に扱う。
+                    if (cur_layer == LAYER_FOUNDATION
+                            and (prefix, member) == ("modUIMain", "SetStage")
+                            and self_name == "modGatewayDirect"):
+                        continue
                     if cur_layer == LAYER_MID and (prefix, member) in (
                         ("modUIMain", "SetStage"),
                         ("modUIMain", "RenderSourcesPreview"),

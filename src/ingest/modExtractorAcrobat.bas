@@ -39,6 +39,14 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
 
     On Error GoTo Failed
     Set app = CreateObject("AcroExch.App")
+    ' 2026-07-31 R11-D(監査3 M-2): 生成直後に必ず隠す。AcroExch.App は既定で
+    ' ウィンドウを出しうるので、取込のたびに利用者の画面へAcrobatが割り込む
+    ' (憲章§3-4「OSやOfficeの生の画面に利用者を晒さない」)。Hide が無い版の
+    ' Acrobat でも取込を止めないよう1行スコープの On Error Resume Next で包む。
+    On Error Resume Next
+    app.Hide
+    Err.Clear
+    On Error GoTo Failed
     Set doc = CreateObject("AcroExch.PDDoc")
     If Not doc.Open(path) Then
         errDetail = "PDDoc.Open に失敗しました"
@@ -77,9 +85,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Next i
 
     doc.Close
-    On Error Resume Next
-    app.Exit
-    On Error GoTo 0
+    ExitAcrobat app
     Set doc = Nothing
     Set app = Nothing
 
@@ -93,18 +99,14 @@ CleanupFail:
         doc.Close
         On Error GoTo 0
     End If
-    If Not app Is Nothing Then
-        On Error Resume Next
-        app.Exit
-        On Error GoTo 0
-    End If
+    If Not app Is Nothing Then ExitAcrobat app
     Set doc = Nothing
     Set app = Nothing
     Extract = False
     Exit Function
 
 Failed:
-    errDetail = DescribeComError(Err.Number, Err.Description)
+    errDetail = modUtil.DescribeComError(Err.Number, Err.Description, "Acrobat")
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
@@ -115,15 +117,34 @@ FailedCleanup0:
         doc.Close
         On Error GoTo 0
     End If
-    If Not app Is Nothing Then
-        On Error Resume Next
-        app.Exit
-        On Error GoTo 0
-    End If
+    If Not app Is Nothing Then ExitAcrobat app
     Set doc = Nothing
     Set app = Nothing
     Extract = False
 End Function
+
+' ----------------------------------------------------------------------------
+' ExitAcrobat - Acrobatを終了させ、【終了できなかった事実】を残す(R11-D)。
+'   AVDoc が1つでも開いていると AcroExch.App.Exit は False を返して終了せず、
+'   Acrobat.exe が常駐したまま残る。取込を繰り返すとプロセスが積み上がり、
+'   やがて端末が重くなる。旧実装は戻り値を捨てていたため、この状態が
+'   起きているのかどうかを知る手段が一切無かった(憲章§4-1)。
+'   取込自体は止めない。事実を usage_log に1行残すだけにする。
+' ----------------------------------------------------------------------------
+Private Sub ExitAcrobat(ByVal app As Object)
+    Dim ok As Boolean
+    Dim exitErr As Long
+
+    On Error Resume Next
+    ok = CBool(app.Exit)
+    exitErr = Err.Number
+    Err.Clear
+    If Not ok Then
+        modLog.LogUsage "acrobat_exit_failed", "", _
+            "AcroExch.App.Exit が False(Acrobatが常駐したままの可能性) err#" & exitErr
+    End If
+    On Error GoTo 0
+End Sub
 
 ' 1ページ分の単語をAcrobatから取り出し、配列+Joinでスペース区切り連結する
 ' (§12: &連鎖の長大化禁止)。
@@ -153,13 +174,3 @@ Private Function ExtractPageWords(ByVal js As Object, ByVal pageIndex As Long) A
     ExtractPageWords = Join(parts, " ")
 End Function
 
-' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
-Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As String
-    If errNum = 429 Then
-        DescribeComError = "この環境ではAcrobat連携(COM)が利用できません。" & _
-            "Mac版ExcelやCOM未対応環境、またはAcrobat Pro未インストールの可能性があります。" & _
-            "Windows版Excel+Acrobat Proでお試しください。(詳細: " & desc & ")"
-    Else
-        DescribeComError = desc
-    End If
-End Function

@@ -253,6 +253,21 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
     Set doc = FindOpenDocument(word, path, origPath)
     ownsDoc = (doc Is Nothing)
     If ownsDoc Then
+        ' 2026-07-31 R11-D(外部レビュー採用・追加項目9): 所有判定をパス表記に
+        ' 依存させない。FindOpenDocument は文字列比較なので、同じファイルでも
+        ' ネットワークドライブ(Z:\…)とUNC(\\server\share\…)、8.3形式、
+        ' 大小・全半角のゆれで【すり抜ける】。すり抜けた状態で Documents.Open を
+        ' 呼ぶと Word は既存の文書オブジェクトをそのまま返すため、ownsDoc=True の
+        ' まま後始末の doc.Close 0(wdDoNotSaveChanges)が利用者の未保存編集を
+        ' 破棄する。Open の前後で Documents.Count を数え、増えていなければ
+        ' 「既存の文書へ接続した」という【事実】として ownsDoc=False へ倒す。
+        ' 件数が読めない環境では安全側(閉じない)へ倒し、痕跡を1行残す。
+        Dim beforeN As Long: beforeN = -1
+        On Error Resume Next
+        beforeN = word.Documents.count
+        Err.Clear
+        On Error GoTo Failed
+
         If openMode <= 1 Then
             Set doc = word.Documents.Open( _
                 FileName:=path, _
@@ -268,6 +283,33 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
                 ReadOnly:=True, _
                 AddToRecentFiles:=False, _
                 Visible:=showWord)
+        End If
+
+        Dim afterN As Long: afterN = -1
+        On Error Resume Next
+        afterN = word.Documents.count
+        Err.Clear
+        On Error GoTo Failed
+
+        If beforeN < 0 Or afterN < 0 Then
+            ' 件数が読めない = 自分が開いたのかどうか確かめられない。
+            ' 確かめられないものを閉じてはいけない(データ喪失側へ倒さない)。
+            ownsDoc = False
+            On Error Resume Next
+            modLog.LogUsage "word_open_count_unknown", "", _
+                "Documents.Count を読めないため閉じません before=" & beforeN & _
+                " after=" & afterN & " " & modUtil.SafeLeft(modUtil.FileNameOf(path), 120)
+            On Error GoTo Failed
+        ElseIf afterN <= beforeN Then
+            ' 開いたのに件数が増えていない = Word は既存の文書を返した。
+            ' パス表記が違うだけで FindOpenDocument をすり抜けた場合がこれ。
+            ownsDoc = False
+            On Error Resume Next
+            modLog.LogUsage "word_reuse_open_doc", "", _
+                "件数が増えないため既存文書と判断しました(閉じません) " & _
+                "before=" & beforeN & " after=" & afterN & " " & _
+                modUtil.SafeLeft(modUtil.FileNameOf(path), 120)
+            On Error GoTo Failed
         End If
     Else
         ' 何が起きたのかを1行残す(実機で「開いたまま取り込んだ」ことを
@@ -314,7 +356,8 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 Failed:
     failedStep = stepName
     errDetail = "[" & stepName & "/開き方" & openMode & "] " & _
-                DescribeComError(Err.Number, Err.Description, openMode)
+                modUtil.DescribeComError(Err.Number, Err.Description, "Word", _
+                                         (openMode >= MODE_ATTACH))
     ' 後始末は Cleanup(別Sub)に任せる。ハンドラ稼働中は On Error Resume Next
     ' が効かないため、ここで直接 doc.Close / word.Quit を叩くと、その失敗が
     ' 呼び出し元へ飛んで【本来の原因を上書きする】。呼ばれた側は新しい
@@ -497,35 +540,6 @@ Private Function ExtractPageText(ByVal doc As Object, ByVal pageNum As Long, ByV
     ExtractPageText = TrimPageBreak(startRange.Text)
 End Function
 
-' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
-Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String, _
-                                  ByVal openMode As Long) As String
-    If errNum = 429 And openMode >= MODE_ATTACH Then
-        ' 相乗りモードでの429 = Wordが1つも起動していない。
-        ' この端末は自分でWordを起動できないので、人が開いてもらう必要がある。
-        DescribeComError = "この端末ではExcelからWordを起動できないため、" & _
-            "すでに開いているWordを使おうとしましたが、Wordが開いていませんでした。" & _
-            "Wordを開いたままにして、もう一度お試しください。" & _
-            "(詳細: " & desc & ")"
-    ElseIf errNum = 429 Then
-        DescribeComError = "この環境ではWord連携(COM)が利用できません。" & _
-            "Mac版ExcelやCOM未対応環境の可能性があります。Windows版Excel+Wordでお試しください。" & _
-            "(詳細: " & desc & ")"
-    ElseIf errNum = 462 Then
-        ' 462 は「相手のCOMサーバが居ない/応答しない」。実機では
-        ' Wordが未インストール、セキュリティ製品にプロセス起動を止められて
-        ' いる、起動したWordが即座に落ちている、のいずれかであることが多い。
-        ' 生の文言は原因を何も示さないので、確かめる先を書く。
-        DescribeComError = "Wordを操作できませんでした。" & _
-            "Wordがインストールされているか、" & _
-            "Wordを手で起動できるか(スタートメニューから)をご確認ください。" & _
-            "手で起動できるのにここで失敗する場合、" & _
-            "セキュリティ製品が他アプリからのWord操作を止めている可能性があります。" & _
-            "(詳細: " & desc & ")"
-    Else
-        DescribeComError = desc
-    End If
-End Function
 
 ' ページ末尾に付く改ページ文字(Chr(12))と、その直前の改行を落とす。
 ' 本文の1文字を守るために End を1つ伸ばした副作用の後始末(レビュー M-14)。

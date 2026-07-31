@@ -80,6 +80,18 @@ Public Function DirectEmbedSlice(texts() As String, ByVal arrLo As Long, _
     http.Open "POST", apiUrl, False
     http.SetRequestHeader "Content-Type", "application/json"
     http.SetRequestHeader "api-key", apiKey
+
+    ' 2026-07-31 R11-D(監査3 M-7): この Send は【同期】で、NW瞬断時は
+    ' azure_http_timeout_ms(既定60秒)まで Excel が完全に固まる。何の表示も
+    ' 出ないまま固まると、利用者から見れば故障と区別が付かない(憲章§3-2)。
+    ' 待つ理由と目安を出してから送る。表示の失敗が送信を壊さないよう
+    ' 1行スコープの On Error Resume Next で包む(進捗は modEmbed が次の
+    ' バッチで上書きし、最後は HideProgress が消す)。
+    On Error Resume Next
+    modUIMain.SetStage "AIサーバーへ問い合わせ中…(最大60秒)"
+    Err.Clear
+    On Error GoTo HttpFail
+
     http.Send body
 
     If CLng(http.Status) <> 200 Then

@@ -361,7 +361,15 @@ End Function
 '   archiveName は ArchiveList が返すファイル名(pack_yyyymmdd-hhnnss.xlsx)。
 '   購読者は次回起動時に版の変化を検知し、旧版へ置き換える。
 ' ----------------------------------------------------------------------------
-Public Function Rollback(ByVal chName As String, ByVal archiveName As String) As Boolean
+'   outArcFailed(2026-07-31 R11-D・A波発見事項3): 巻き戻す【前】に今の版を
+'   退避する処理が失敗したとき True。E0808はArchiveCurrentが記録済みだが、
+'   利用者には何も伝わっていなかった。この状態で巻き戻すと「巻き戻しを
+'   取り消して元に戻す」ことができなくなる(いま配っている版が控え無しで
+'   消える)ので、呼び出し元が必ず知らせる。巻き戻し自体は続行してよい
+'   (誤った正典の配信を止めることの方が優先度が高い)。
+Public Function Rollback(ByVal chName As String, ByVal archiveName As String, _
+                         Optional ByRef outArcFailed As Boolean = False) As Boolean
+    outArcFailed = False
     On Error Resume Next
     Dim d As String: d = PrepareDir(chName)
     If LenB(d) = 0 Then Exit Function
@@ -369,7 +377,7 @@ Public Function Rollback(ByVal chName As String, ByVal archiveName As String) As
     If LenB(Dir(src)) = 0 Then Exit Function
 
     ' 巻き戻す前に、今の版も退避しておく(巻き戻し自体を取り消せるように)。
-    ArchiveCurrent chName
+    ArchiveCurrent chName, outArcFailed
 
     ' 2026-07-28(レビュー L-14): FileCopy をリトライする。
     ' 共有フォルダは他の人が読んでいる最中だと一時的に掴めない。

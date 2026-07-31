@@ -52,12 +52,39 @@ Public Function CurrentUserId() As String
         Exit Function
     End If
 
+    ' 2026-07-31 R11-D(監査3 M-1): ADSystemInfo は「失敗しても静かに
+    ' USERNAME へ落ちる」設計だが、落ちたこと自体がどこにも残らなかった。
+    ' 感謝状の宛先IDが端末ごとに AD の CN と USERNAME で食い違うと、送った
+    ' 感謝が誰にも届かない(誰も気付けない)。落ちたら1行残す。
+    ' もう1つの罠が【遅延】: 切断されたドメインでは ADSystemInfo の生成が
+    ' 数十秒ブロックすることがあり、起動が固まったように見える。閾値2秒を
+    ' 超えたら、成功していても1行残す(次の調査の起点になる)。
     Dim uid As String
+    Dim adT0 As Double: adT0 = Timer
+    Dim adErrNum As Long: adErrNum = 0
+    Dim adErrDesc As String: adErrDesc = ""
     On Error Resume Next
     Dim adsi As Object
     Set adsi = CreateObject("ADSystemInfo")
     uid = modP2PIo.CnFromDn(CStr(adsi.UserName))   ' 例 "CN=山田 太郎,OU=..,DC=.."
+    adErrNum = Err.Number
+    adErrDesc = Err.Description
+    Err.Clear
     Set adsi = Nothing                    ' COM解放(正常・異常ともOn Error Resume Next配下)
+    On Error GoTo 0
+
+    Dim adElapsed As Double: adElapsed = Timer - adT0
+    If adElapsed < 0 Then adElapsed = 0        ' 深夜0時のTimerロールオーバー
+    On Error Resume Next
+    If LenB(uid) = 0 Then
+        modLog.LogUsage "p2p_userid_fallback", "", "ADSystemInfo失敗のためUSERNAMEを使用 " & _
+            "err#" & adErrNum & ": " & modUtil.SafeLeft(adErrDesc, 200) & _
+            " (" & Format$(adElapsed, "0.0") & "秒)"
+    End If
+    If adElapsed >= 2# Then
+        modLog.LogUsage "p2p_userid_slow", "", "ADSystemInfo の応答に " & _
+            Format$(adElapsed, "0.0") & "秒かかりました(閾値2秒)"
+    End If
     On Error GoTo 0
 
     If LenB(uid) = 0 Then uid = Environ$("USERNAME")

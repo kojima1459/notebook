@@ -141,7 +141,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     Exit Function
 
 Failed:
-    errDetail = DescribeComError(Err.Number, Err.Description)
+    errDetail = modUtil.DescribeComError(Err.Number, Err.Description, "Excel")
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
@@ -394,13 +394,3 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
     AppendBlockLines = added
 End Function
 
-' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
-Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As String
-    If errNum = 429 Then
-        DescribeComError = "この環境ではExcelブックの読込(COM)が利用できません。" & _
-            "Mac版ExcelやCOM未対応環境の可能性があります。Windows版Excelでお試しください。" & _
-            "(詳細: " & desc & ")"
-    Else
-        DescribeComError = desc
-    End If
-End Function

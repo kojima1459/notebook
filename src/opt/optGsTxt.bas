@@ -129,7 +129,8 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     outTxt = folderPath & "\" & OUT_TXT_NAME
     flagPath = optOcrCore.DoneFlagFor(folderPath)
     runCmd = optOcrCore.BuildRunCommand( _
-        optOcrCore.BuildGsTextCommand(gsExe, path, outTxt), flagPath)
+        optOcrCore.BuildGsTextCommand(gsExe, path, outTxt), flagPath, _
+        optOcrCore.GsLogFor(folderPath))
 
     waitSec = modConfig.GetLong("vision_pdf_timeout_sec", 120)
     If waitSec < 10 Then waitSec = 10
@@ -153,17 +154,27 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     ' 「本文の途中まで」でしかない。採用すると資料が黙って欠けたまま本棚に
     ' 入り、以後の回答が虫食いの本文に基づくものになる(誰も気付けない)。
     ' Word→Acrobat連鎖へ譲るため E0302 系トークンで返す。
+    ' R11-D(監査3 H-1): タイムアウト時は作業フォルダを【消さない】。
+    ' 書きかけの gs_out.log と出力txtこそが「なぜ終わらないのか」の唯一の
+    ' 手がかりで、消してしまうと二度と調べられない。残骸は次回起動時の
+    ' GC(modBoot)が24時間後に片付けるので溜まり続けることはない。
     If Not finished Then
         modUIMain.SetStage ""
-        CleanupTxtFolder folderPath, outTxt
         modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
-            "GS_TIMEOUT " & waitSec & "秒以内に完了フラグが出ませんでした " & path, 2000)
+            "GS_TIMEOUT " & waitSec & "秒以内に完了フラグが出ませんでした " & path & _
+            " work=" & folderPath & " " & GsFailureDetail(folderPath), 2000)
         ExtractPdfTextNoOcr = TOKEN_TIMEOUT & "PDFからの文字取り出しが" & waitSec & _
             "秒以内に終わりませんでした。"
         Exit Function
     End If
 
     txt = ReadUtf8Text(outTxt, gsErrNum, gsErrDesc)
+
+    ' R11-D(監査3 H-2): 終了コードとGS出力ログは【後始末の前】に読む。
+    ' フォルダを消してから読もうとしても何も残っていない。
+    Dim gsRc As Long: gsRc = GsExitCode(folderPath)
+    Dim gsDetail As String
+    If gsRc > 0 Or LenB(txt) = 0 Then gsDetail = GsFailureDetail(folderPath)
 
     modUIMain.SetStage ""
     CleanupTxtFolder folderPath, outTxt
@@ -175,10 +186,18 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
 
     If LenB(txt) = 0 Then
         modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
-            "txtwrite出力を読めず err#" & gsErrNum & ": " & gsErrDesc & " " & path, 2000)
+            "txtwrite出力を読めず err#" & gsErrNum & ": " & gsErrDesc & " " & path & _
+            " " & gsDetail, 2000)
         ExtractPdfTextNoOcr = ERR_302 & "PDFから文字を取り出せませんでした" & _
             "(出力ファイルを読めませんでした)。"
         Exit Function
+    End If
+
+    ' 終了コードが非0でも本文が取れているなら採用する(GSは軽微な警告でも
+    ' 非0を返すことがあり、ここで捨てると取り込めるPDFが取り込めなくなる)。
+    ' ただし「非0なのに通っている」事実は次の調査の手がかりなので必ず残す。
+    If gsRc > 0 Then
+        modLog.LogUsage "gs_txt_rc_nonzero", "", modUtil.SafeLeft(gsDetail, 500)
     End If
 
     ' R10c(M1/M2): 採否は3値。文字層ゼロ(image)は即OCRへ、薄すぎる(sparse)は
@@ -339,7 +358,77 @@ Public Sub CleanupOcrFolder(ByVal folderPath As String)
     On Error Resume Next
     Kill folderPath & "\*.jpg"
     Kill folderPath & "\*.flag"
+    Kill folderPath & "\*.log"   ' R11-D: GSの出力ログ(gs_out.log)も片付ける
     RmDir folderPath
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' GsFailureDetail - 完了フラグとGS出力ログから「なぜ画像/テキストが出ないのか」
+'   を1本の文字列にまとめる(2026-07-31 R11-D・監査3 H-2)。
+'   err_log の detail へそのまま入れる用途。読めないものは黙って飛ばす
+'   (観測のための処理が取込を壊してはならない)。
+'   戻り値の形: "rc=<終了コード or ?> flag=[<生の中身>] gs_out=[<先頭500字>]"
+' ----------------------------------------------------------------------------
+Public Function GsFailureDetail(ByVal folderPath As String) As String
+    Dim flagText As String: flagText = ReadTextHead(optOcrCore.DoneFlagFor(folderPath), 80)
+    Dim logText As String: logText = ReadTextHead(optOcrCore.GsLogFor(folderPath), 500)
+
+    Dim rc As Long: rc = optOcrCore.GsExitCodeFromFlag(flagText)
+    Dim rcText As String
+    If rc < 0 Then rcText = "?" Else rcText = CStr(rc)
+
+    GsFailureDetail = "rc=" & rcText & " flag=[" & Trim$(flagText) & "]" & _
+        " gs_out=[" & logText & "]"
+End Function
+
+' ----------------------------------------------------------------------------
+' GsExitCode - 完了フラグの中身から終了コードを読む(0=正常 / -1=判定不能)。
+' ----------------------------------------------------------------------------
+Public Function GsExitCode(ByVal folderPath As String) As Long
+    GsExitCode = optOcrCore.GsExitCodeFromFlag( _
+        ReadTextHead(optOcrCore.DoneFlagFor(folderPath), 80))
+End Function
+
+' テキストファイルの先頭 maxChars 字だけを読む(改行はスペースへ潰す)。
+' 失敗しても例外を出さず ""(観測用なので絶対に本処理を止めない)。
+' GSのログはCP932(コンソールのコードページ)なので、ADODB.Streamではなく
+' 素のOpen/Inputで読む(Charset指定を誤ると文字化けだけが残るため)。
+Private Function ReadTextHead(ByVal filePath As String, ByVal maxChars As Long) As String
+    Dim fn As Long: fn = 0
+    Dim buf As String
+
+    On Error GoTo NoRead
+    If LenB(Dir$(filePath)) = 0 Then Exit Function
+    fn = FreeFile
+    Open filePath For Binary Access Read As #fn
+    Dim n As Double: n = LOF(fn)
+    If n > maxChars Then n = maxChars
+    If n > 0 Then
+        buf = Space$(CLng(n))
+        Get #fn, 1, buf
+    End If
+    Close #fn
+    fn = 0
+
+    buf = Replace(buf, vbCr, " ")
+    buf = Replace(buf, vbLf, " ")
+    ReadTextHead = buf
+    Exit Function
+NoRead:
+    ' ハンドラ稼働中は On Error Resume Next が効かない。後始末は Resume で
+    ' ハンドラを抜けてから、別Subで行う(本モジュール共通の作法)。
+    Resume ReadHeadCleanup
+ReadHeadCleanup:
+    CloseFileNumberSafely fn
+    ReadTextHead = ""
+End Function
+
+' 開きかけのファイル番号を確実に閉じる(0=未取得は何もしない)。
+Private Sub CloseFileNumberSafely(ByVal fn As Long)
+    If fn = 0 Then Exit Sub
+    On Error Resume Next
+    Close #fn
     On Error GoTo 0
 End Sub
 

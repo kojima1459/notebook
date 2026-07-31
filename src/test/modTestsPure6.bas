@@ -272,11 +272,97 @@ Private Sub TestGsTextCommandGolden()
     ' 完了フラグ付きのcmd.exeラップは画像化側と共用する(BuildRunCommand)。
     ' ここが繋がっていないと監視ループがタイムアウトまで解けない。
     Dim runCmd As String
-    runCmd = optOcrCore.BuildRunCommand(cmdText, "C:\Temp\nxocr_x\done.flag")
+    runCmd = optOcrCore.BuildRunCommand(cmdText, "C:\Temp\nxocr_x\done.flag", _
+                                        "C:\Temp\nxocr_x\gs_out.log")
     modTestRunner.Check "R10-3: txtwriteコマンドもBuildRunCommandで完了フラグを付けられる", _
         (Left$(runCmd, 14) = "cmd.exe /s /c " And _
-         InStr(1, runCmd, "echo done>" & Chr$(34) & "C:\Temp\nxocr_x\done.flag" & Chr$(34), _
+         InStr(1, runCmd, " >" & Chr$(34) & "C:\Temp\nxocr_x\done.flag" & Chr$(34), _
                vbTextCompare) > 0), "実際=[" & runCmd & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R11-D(監査3 H-2): GS実行の観測性
+' ----------------------------------------------------------------------------
+' 実機(管理端末)では MOTW / AppLocker / EDR に gswin32c.exe の実行を
+' 止められることがあるが、旧実装は標準出力も標準エラーも捨てていたため
+' 「フラグは出たのに1枚も画像ができていない」としか観測できなかった。
+' 新仕様: (1) GS本体を丸括弧でまとめて gs_out.log へ 1> と 2>&1 で落とす
+'         (2) 完了フラグの中身を "done" 固定から【終了コード】へ変える
+'         (3) フラグ作成は従来どおり `&`(無条件)連結=必ず出る
+' ここでは「文字列の組み立て」と「フラグの読み方」だけを固定する。
+Private Sub TestGsRunCommandObservability()
+    Dim gsCmd As String
+    gsCmd = Chr$(34) & "C:\Program Files\gs\gswin32c.exe" & Chr$(34) & " -dSAFER " & _
+            Chr$(34) & "C:\My Docs\約款.pdf" & Chr$(34)
+    Dim runCmd As String
+    runCmd = optOcrCore.BuildRunCommand(gsCmd, "C:\Temp\nxocr_x\done.flag", _
+                                        "C:\Temp\nxocr_x\gs_out.log")
+
+    ' (1) 標準出力・標準エラーの両方がログへ落ちること。
+    modTestRunner.Check "R11-D: stdoutをgs_out.logへ落とす", _
+        (InStr(runCmd, " 1>" & Chr$(34) & "C:\Temp\nxocr_x\gs_out.log" & Chr$(34)) > 0), _
+        "実際=[" & runCmd & "]"
+    modTestRunner.Check "R11-D: stderrをstdoutへ合流させる(2>&1)", _
+        (InStr(runCmd, " 2>&1") > 0), "実際=[" & runCmd & "]"
+
+    ' (2) GS本体は丸括弧でまとめる(まとめないとリダイレクトが最終トークン
+    '     にしか掛からず、PDFのパスがログ名として解釈されうる)。
+    modTestRunner.Check "R11-D: GS本体が丸括弧でまとめられている", _
+        (InStr(runCmd, "/c " & Chr$(34) & "(" & gsCmd & ")") > 0), "実際=[" & runCmd & "]"
+
+    ' (3) フラグへ書くのは終了コード。`call` が無いと初回解析で親プロセスの
+    '     0 に展開されてしまい、常に「成功」に見える。
+    modTestRunner.Check "R11-D: 終了コードをcall経由でフラグへ書く", _
+        (InStr(runCmd, " & call echo %^ERRORLEVEL% >") > 0), "実際=[" & runCmd & "]"
+
+    ' (4) `>` の直前に必ず空白がある。空白が無いと echo 1>… の 1 が
+    '     リダイレクト先ハンドル番号として食われ、フラグが空になる。
+    modTestRunner.Check "R11-D: フラグへのリダイレクト直前に空白がある", _
+        (InStr(runCmd, "% >" & Chr$(34)) > 0), "実際=[" & runCmd & "]"
+
+    ' (5) 連結は `&`(無条件)のまま=GSが異常終了してもフラグは必ず出る。
+    modTestRunner.Check "R11-D: フラグ作成の連結は無条件の&のまま(&&にしない)", _
+        (InStr(runCmd, " && ") = 0 And InStr(runCmd, " & call echo") > 0), _
+        "実際=[" & runCmd & "]"
+
+    ' (6) ログのパス規約。
+    modTestRunner.Check "R11-D: GsLogForはフォルダ直下のgs_out.log", _
+        (optOcrCore.GsLogFor("C:\Temp\nxocr_x") = "C:\Temp\nxocr_x\gs_out.log"), _
+        "実際=" & optOcrCore.GsLogFor("C:\Temp\nxocr_x")
+    modTestRunner.Check "R11-D: GsLogForは末尾の区切り文字を正規化する", _
+        (optOcrCore.GsLogFor("C:\Temp\nxocr_x\") = "C:\Temp\nxocr_x\gs_out.log"), _
+        "実際=" & optOcrCore.GsLogFor("C:\Temp\nxocr_x\")
+End Sub
+
+' 完了フラグの中身から終了コードを読む。判定不能(-1)は「失敗と決めつけない」
+' 側へ倒す約束なので、そこを含めて境界を固定する。
+Private Sub TestGsExitCodeFromFlag()
+    modTestRunner.Check "R11-D: 正常終了は0", _
+        (optOcrCore.GsExitCodeFromFlag("0 " & vbCrLf) = 0), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("0 " & vbCrLf)
+    modTestRunner.Check "R11-D: 失敗コードはそのまま読む", _
+        (optOcrCore.GsExitCodeFromFlag("1 " & vbCrLf) = 1), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("1 " & vbCrLf)
+    modTestRunner.Check "R11-D: 空白や改行だけが混ざっても読める", _
+        (optOcrCore.GsExitCodeFromFlag(vbCrLf & "  9009  " & vbCrLf) = 9009), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag(vbCrLf & "  9009  " & vbCrLf)
+    ' 旧形式("done")や、%^ERRORLEVEL% が展開できなかった端末の残骸は
+    ' 【判定不能=-1】。ここを0や失敗へ倒すと、取込を壊すか嘘の成功になる。
+    modTestRunner.Check "R11-D: 旧形式doneは判定不能(-1)", _
+        (optOcrCore.GsExitCodeFromFlag("done") = -1), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("done")
+    modTestRunner.Check "R11-D: 展開されなかった変数名は判定不能(-1)", _
+        (optOcrCore.GsExitCodeFromFlag("%^ERRORLEVEL% ") = -1), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("%^ERRORLEVEL% ")
+    modTestRunner.Check "R11-D: 空のフラグは判定不能(-1)", _
+        (optOcrCore.GsExitCodeFromFlag("") = -1), ""
+    ' クラッシュ系の負の終了コードは「非0の失敗」として255へ丸める。
+    modTestRunner.Check "R11-D: 負の終了コードは失敗(255)へ丸める", _
+        (optOcrCore.GsExitCodeFromFlag("-1073741819 ") = 255), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("-1073741819 ")
+    modTestRunner.Check "R11-D: 桁あふれする長い数字は判定不能(-1)", _
+        (optOcrCore.GsExitCodeFromFlag("12345678901") = -1), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("12345678901")
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -472,6 +558,12 @@ NextGsHttp:
 NextGsTextCmd:
     On Error GoTo GsTextCmdFail
     TestGsTextCommandGolden
+NextGsRunObs:
+    On Error GoTo GsRunObsFail
+    TestGsRunCommandObservability
+NextGsExitCode:
+    On Error GoTo GsExitCodeFail
+    TestGsExitCodeFromFlag
 NextGsVerdict:
     On Error GoTo GsVerdictFail
     TestGsTextVerdictBoundary
@@ -500,6 +592,14 @@ GsHttpFail:
     Resume NextGsTextCmd
 GsTextCmdFail:
     modTestRunner.Check "TestGsTextCommandGolden(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsRunObs
+GsRunObsFail:
+    modTestRunner.Check "TestGsRunCommandObservability(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsExitCode
+GsExitCodeFail:
+    modTestRunner.Check "TestGsExitCodeFromFlag(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextGsVerdict
 GsVerdictFail:

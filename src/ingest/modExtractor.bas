@@ -365,6 +365,10 @@ Private Function CopyToLocalTemp(ByVal path As String) As String
     Exit Function
 
 Fail:
+    ' R11-D(監査3 M-6): 従来ここは完全な無言だった。MAX_PATH超過・権限・
+    ' 容量を切り分けるためErr情報とパス長を残す(LogUsageは自前で失敗を握る)。
+    modLog.LogUsage "localcopy_fail", "", "err#" & Err.Number & " " & _
+        modUtil.SafeLeft(Err.Description, 120) & " len=" & Len(path)
     CopyToLocalTemp = ""
 End Function
 
@@ -379,7 +383,11 @@ Private Function CopySharedRead(ByVal srcPath As String, ByVal destPath As Strin
     srcNum = FreeFile
     Open srcPath For Binary Access Read Shared As #srcNum
 
-    Dim totalLen As Long: totalLen = LOF(srcNum)
+    ' R11-D(監査3 M-7): 2GB超はLongに収まらず代入自体がerr#6になる。
+    ' Doubleで受けて範囲外は明示的に失敗させ、壊れた中途半端なコピーを作らない。
+    Dim totalLenD As Double: totalLenD = LOF(srcNum)
+    If totalLenD > 2147483647# Then Err.Raise 6
+    Dim totalLen As Long: totalLen = CLng(totalLenD)
 
     dstNum = FreeFile
     Open destPath For Binary Access Write As #dstNum
@@ -635,7 +643,7 @@ Private Function ExtractPlainText(ByVal path As String, ByRef pages() As Extract
     Exit Function
 
 Failed:
-    errDetail = DescribeComError(Err.Number, Err.Description)
+    errDetail = modUtil.DescribeComError(Err.Number, Err.Description, "Office")
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
@@ -751,14 +759,3 @@ Empty0:
     PageArrayCount = 0
 End Function
 
-' Mac等COM不可環境向けの丁寧な案内文を生成する(§13)。
-' errNum=429は「ActiveX component can't create object」= COM未対応環境の定番エラー。
-Private Function DescribeComError(ByVal errNum As Long, ByVal desc As String) As String
-    If errNum = 429 Then
-        DescribeComError = "この環境ではOffice連携(COM)が利用できません。" & _
-            "Mac版ExcelやCOM未対応環境の可能性があります。Windows版Excelでお試しください。" & _
-            "(詳細: " & desc & ")"
-    Else
-        DescribeComError = desc
-    End If
-End Function

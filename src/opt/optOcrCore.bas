@@ -48,6 +48,10 @@ Private Const JPG_SUFFIX As String = ".jpg"
 Private Const JPG_PATTERN As String = "page_%03d.jpg"
 Private Const DONE_FLAG_NAME As String = "done.flag"
 Private Const TEMP_DIR_PREFIX As String = "nxocr_"
+' R11-D(監査3 H-2): Ghostscriptの標準出力・標準エラーの受け皿。
+' MOTW/AppLocker/EDRに実行を止められた場合、GSは何も出力せず終了コードだけを
+' 返すため、従来は「フラグは出たのに1枚もできていない」としか観測できなかった。
+Private Const GS_LOG_NAME As String = "gs_out.log"
 
 ' dpiの安全範囲(既定150は公式帳票OCR版と同値。300は倍重い)。
 Private Const DPI_MIN As Long = 72
@@ -106,10 +110,75 @@ End Function
 '   そのまま実行する」ので、内側のパスの引用符が壊れない。
 '   連結は `&`(無条件)なのでGSが失敗しても必ずフラグが作られ、
 '   監視ループがタイムアウトを待たずに解ける。
+'
+'   2026-07-31 R11-D(監査3 H-2): 観測性の追加。
+'   (1) GS本体を丸括弧でまとめ、標準出力と標準エラーを logPath へ落とす。
+'       AppLocker/MOTW/EDRに止められた場合の "アクセスが拒否されました" は
+'       ここにしか出ない。従来は捨てていたため実機で切り分け不能だった。
+'   (2) 完了フラグの中身を "done" 固定から【GSの終了コード】へ変える。
+'       `%^ERRORLEVEL%` と `call` の組み合わせは、コマンドラインの初回解析で
+'       展開されてしまう(常に親プロセスの0になる)のを避けるための定石で、
+'       call の二度目の解析で初めて実際の終了コードへ展開される。
+'       `%^...%` が展開できない環境でもフラグそのものは必ず作られ、中身が
+'       数値にならないだけ(GsExitCodeFromFlag が「不明」を返す)なので、
+'       「フラグは必ず出る=監視ループは必ず解ける」性質は変わらない。
+'   (3) `echo <値> >"<flag>"` の `>` の直前には必ず空白を1つ置く。空白が
+'       無いと `echo 1>...` の 1 が【リダイレクト先ハンドル番号】として
+'       解釈され、フラグが空で作られてしまう(cmdの古典的な罠)。
 ' ----------------------------------------------------------------------------
-Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String) As String
-    BuildRunCommand = "cmd.exe /s /c " & Chr$(34) & gsCommand & _
-        " & echo done>" & Quoted(doneFlagPath) & Chr$(34)
+Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String, _
+                                ByVal logPath As String) As String
+    BuildRunCommand = "cmd.exe /s /c " & Chr$(34) & _
+        "(" & gsCommand & ") 1>" & Quoted(logPath) & " 2>&1" & _
+        " & call echo %^ERRORLEVEL% >" & Quoted(doneFlagPath) & Chr$(34)
+End Function
+
+' ----------------------------------------------------------------------------
+' GsLogFor - GSの標準出力/標準エラーを落とすログファイルのフルパス(R11-D)。
+' ----------------------------------------------------------------------------
+Public Function GsLogFor(ByVal folderPath As String) As String
+    GsLogFor = TrimTrailingSep(folderPath) & "\" & GS_LOG_NAME
+End Function
+
+' ----------------------------------------------------------------------------
+' GsExitCodeFromFlag - 完了フラグの中身からGSの終了コードを読む(R11-D)。
+'   0以上   : その終了コード(0=正常終了)
+'   -1      : 判定不能(空・数字以外・旧形式の "done" など)。
+'             呼び出し元は「不明」として扱い、失敗と決めつけない
+'             (フラグの形式が変わっても取込を壊さないための安全側)。
+'   前後の空白・改行は落としてから判定する(echo は末尾に空白と改行を残す)。
+'   負の終了コード("-1073741819" 等のクラッシュ系)は「非0の失敗」として
+'   255 に丸める。生のフラグ内容は呼び出し元が err_log へそのまま残すので、
+'   実際の値が分からなくなることはない。
+' ----------------------------------------------------------------------------
+Public Function GsExitCodeFromFlag(ByVal flagText As String) As Long
+    GsExitCodeFromFlag = -1
+
+    Dim t As String: t = flagText
+    t = Replace(t, vbCr, "")
+    t = Replace(t, vbLf, "")
+    t = Replace(t, vbTab, "")
+    t = Trim$(t)
+    If LenB(t) = 0 Then Exit Function
+
+    If Left$(t, 1) = "-" Then
+        Dim body As String: body = Mid$(t, 2)
+        If LenB(body) = 0 Then Exit Function
+        Dim k As Long
+        For k = 1 To Len(body)
+            If InStr("0123456789", Mid$(body, k, 1)) = 0 Then Exit Function
+        Next k
+        GsExitCodeFromFlag = 255
+        Exit Function
+    End If
+
+    Dim i As Long
+    For i = 1 To Len(t)
+        If InStr("0123456789", Mid$(t, i, 1)) = 0 Then Exit Function
+    Next i
+    If Len(t) > 9 Then Exit Function        ' Longの桁あふれ防止
+
+    GsExitCodeFromFlag = CLng(t)
 End Function
 
 ' ----------------------------------------------------------------------------

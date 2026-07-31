@@ -328,7 +328,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
     Dim runCmd As String
     runCmd = optOcrCore.BuildRunCommand( _
         optOcrCore.BuildGsCommand(gsExe, path, optOcrCore.OutPatternFor(folderPath), dpi, renderCap), _
-        flagPath)
+        flagPath, optOcrCore.GsLogFor(folderPath))
 
     modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
 
@@ -353,11 +353,26 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
     ' 途中のJPEGを読ませても意味が無いので使わない(2枚以上あるときだけ)。
     If Not finished And foundN > 1 Then foundN = foundN - 1
 
+    ' R11-D(監査3 H-2): 終了コードとGS出力ログは【後始末の前】に読む。
+    ' MOTW/AppLocker/EDRにブロックされたときの "アクセスが拒否されました" は
+    ' gs_out.log にしか出ず、従来はそれを捨ててから記録していた。
+    Dim gsRc As Long: gsRc = optGsTxt.GsExitCode(folderPath)
+
     If foundN = 0 Then
         modUIMain.SetStage ""
-        optGsTxt.CleanupOcrFolder folderPath
-        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
-            "描画0枚 finished=" & finished & " " & modUtil.SafeLeft(path, 200)
+        ' R11-D(監査3 H-1): タイムアウトのときは作業フォルダを残す。
+        ' 書きかけの出力とログが原因究明の唯一の材料で、消すと二度と調べ
+        ' られない。残骸は次回起動時のGC(modBoot)が24時間後に片付ける。
+        Dim gsDetail As String: gsDetail = optGsTxt.GsFailureDetail(folderPath)
+        Dim workNote As String: workNote = ""
+        If finished Then
+            optGsTxt.CleanupOcrFolder folderPath
+        Else
+            workNote = " work=" & folderPath
+        End If
+        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
+            "描画0枚 finished=" & finished & " " & gsDetail & workNote & " " & _
+            modUtil.SafeLeft(path, 200), 2000)
         If finished Then
             ExtractPdfOcrPagedText = "#ERR:E0303:このPDFからページ画像を作れませんでした。" & _
                 "ファイルが壊れているか、パスワードで保護されている可能性があります。"
@@ -367,6 +382,13 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
                 "vision_pdf_timeout_sec を大きくしてからお試しください。"
         End If
         Exit Function
+    End If
+
+    ' 画像は出来ているが終了コードが非0(GSは軽微な警告でも非0を返す)。
+    ' 取込は続けるが、事実は次の調査の手がかりとして必ず残す(R11-D)。
+    If gsRc > 0 Then
+        modLog.LogUsage "gs_ocr_rc_nonzero", "", modUtil.SafeLeft( _
+            optGsTxt.GsFailureDetail(folderPath), 500)
     End If
 
     Dim truncated As Boolean: truncated = optOcrCore.IsTruncatedCount(foundN, maxPages)

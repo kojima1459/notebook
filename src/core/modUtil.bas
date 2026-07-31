@@ -741,3 +741,57 @@ Private Function LooksNumeric(ByVal s As String) As Boolean
     Next i
     LooksNumeric = seenDigit
 End Function
+
+' ============================================================================
+' DescribeComError - COM(自動化)の失敗を、利用者が次の一手を打てる日本語へ
+'   直す(2026-07-31 R11-D / 監査2 指摘5)。
+' ----------------------------------------------------------------------------
+'   従来は modExtractor / Word / Excel / Acrobat の4箇所に別々の実装があり、
+'   案内の厚みが経路ごとに違っていた。とくに err462 への「セキュリティ製品が
+'   他アプリからの操作を止めている可能性」という案内は Word版にしか無く、
+'   実機で最も多い管理端末のブロックが Excel/Acrobat 経路では原因不明のまま
+'   終わっていた(憲章§4-5違反)。アプリ名だけを引数で差し替える1本にする。
+'
+'   appName    : 相手アプリの表示名("Word"/"Excel"/"Acrobat"/"Office")
+'   attachOnly : True = 自分でアプリを起動できず、すでに開いているものへ
+'                相乗りするしかない状況(modExtractorWord の MODE_ATTACH
+'                以降)。429 の意味が変わるため案内も変える。
+'
+'   置き場所: 裁定では modExtractor が自然とされたが、同モジュールは27,923字で
+'   入れるとWARN帯(28,000字)へ入る(憲章§4-6)。中身は純粋な文字列組み立てで
+'   modUtil は PURE_LOGIC 契約下=LOテストで直接固定できるため、ここに置く。
+' ============================================================================
+Public Function DescribeComError(ByVal errNum As Long, ByVal desc As String, _
+                                 ByVal appName As String, _
+                                 Optional ByVal attachOnly As Boolean = False) As String
+    Dim nm As String: nm = Trim$(appName)
+    If LenB(nm) = 0 Then nm = "Office"
+
+    If errNum = 429 And attachOnly Then
+        ' 相乗りモードでの429 = 相手アプリが1つも起動していない。
+        ' この端末は自分で起動できないので、人に開いてもらう必要がある。
+        DescribeComError = "この端末ではExcelから" & nm & "を起動できないため、" & _
+            "すでに開いている" & nm & "を使おうとしましたが、" & nm & _
+            "が開いていませんでした。" & nm & "を開いたままにして、" & _
+            "もう一度お試しください。(詳細: " & desc & ")"
+    ElseIf errNum = 429 Then
+        ' 429 = ActiveX component can't create object。COM未対応環境の定番。
+        DescribeComError = "この環境では" & nm & "連携(COM)が利用できません。" & _
+            "Mac版ExcelやCOM未対応環境、または" & nm & "が入っていない可能性が" & _
+            "あります。Windows版Excelと" & nm & "の入った端末でお試しください。" & _
+            "(詳細: " & desc & ")"
+    ElseIf errNum = 462 Then
+        ' 462 は「相手のCOMサーバが居ない/応答しない」。実機では
+        ' 未インストール、セキュリティ製品にプロセス起動を止められている、
+        ' 起動した相手が即座に落ちている、のいずれかであることが多い。
+        ' 生の文言は原因を何も示さないので、確かめる先を書く。
+        DescribeComError = nm & "を操作できませんでした。" & _
+            nm & "がインストールされているか、" & _
+            nm & "を手で起動できるか(スタートメニューから)をご確認ください。" & _
+            "手で起動できるのにここで失敗する場合、" & _
+            "セキュリティ製品が他アプリからの" & nm & "操作を止めている" & _
+            "可能性があります。(詳細: " & desc & ")"
+    Else
+        DescribeComError = desc
+    End If
+End Function

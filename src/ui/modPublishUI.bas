@@ -367,8 +367,21 @@ Private Sub DoRollback(ByVal chName As String)
               "実行しますか?", vbOKCancel + vbExclamation, _
               modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then GoTo RollbackDone
 
-    If modPublish.Rollback(chName, newest) Then
-        MsgBox "戻しました。全員に自動で配信されます。", vbInformation, modAppDef.APP_NAME
+    Dim rbArcFailed As Boolean
+    If modPublish.Rollback(chName, newest, rbArcFailed) Then
+        ' R11-D(A波発見事項3): 巻き戻しの直前に「いま配っている版」の控えを
+        ' 取れなかった場合、この巻き戻しはもう取り消せない。E0808はログに
+        ' 残っているが利用者には完全に無言だった。データ保全に関わる知らせ
+        ' なので、完了メッセージに必ず併記する(憲章§3-5)。
+        If rbArcFailed Then
+            MsgBox "戻しました。全員に自動で配信されます。" & vbCrLf & vbCrLf & _
+                   "ただし、いま配っていた版の控え(アーカイブ)を保存できません" & _
+                   "でした。この巻き戻しを取り消して元の版へ戻すことはできません。" & vbCrLf & _
+                   "共有フォルダの空き容量と書き込み権限をご確認ください。" & vbCrLf & _
+                   "(コード: E0808)", vbExclamation, modAppDef.APP_NAME
+        Else
+            MsgBox "戻しました。全員に自動で配信されます。", vbInformation, modAppDef.APP_NAME
+        End If
     Else
         MsgBox "戻せませんでした。共有フォルダへの書き込み権限をご確認ください。", _
                vbExclamation, modAppDef.APP_NAME

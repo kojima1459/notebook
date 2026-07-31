@@ -236,7 +236,16 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         modShelfScan.MarkFolderScopeMissing folderNorm
         modLog.LogError "E0502", "modShelfSync.SyncNow", _
             "フォルダを列挙できませんでした(権限/ネットワーク/ウイルス対策の可能性): " & folderNorm
-        GoTo Failed
+        ' 2026-07-31 R11-D(A波発見事項2): ここは【エラーが起きていない】
+        ' 正常な打ち切り経路なので、Failed: へ飛ばしてはいけない。Failed: の
+        ' Resume はエラー未発生の状態で実行されると err#20(Resume without
+        ' error)を起こし、それが On Error GoTo Failed に捕まって2周目で
+        ' 初めて成立する。その2周目で failNum/failDesc が 20 /「Resume without
+        ' error」に上書きされるため、err_log には上のE0502ではなく自作自演の
+        ' err#20 だけが残っていた。後始末(FailedCleanup1)へ直行させる。
+        ' 挙動は不変(記録内容が実態どおりになるだけ)。modPublishUI.OnPublish
+        ' で同型を是正したのと同じ構造。
+        GoTo FailedCleanup1
     End If
 
     uiStep = "資料台帳スコープの読込"
@@ -433,7 +442,13 @@ Failed:
     Resume FailedCleanup1
 FailedCleanup1:
     On Error Resume Next
-    modLog.LogError "E0801", "modShelfSync.SyncNow", "[" & uiStep & "] err#" & failNum & ": " & failDesc, failNum
+    ' failNum=0 は「例外ではない打ち切り」でここへ直行してきた場合(列挙失敗
+    ' など。その経路は自分で E0502 等を既に記録済み)。中身の無い E0801 を
+    ' 重ねると、err_logで本当の原因が埋もれる(R11-D・A波発見事項2)。
+    If failNum <> 0 Then
+        modLog.LogError "E0801", "modShelfSync.SyncNow", _
+            "[" & uiStep & "] err#" & failNum & ": " & failDesc, failNum
+    End If
     modUIMain.SetStage ""
     ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 では
     ' 解除されず、Finish: の後始末で起きたエラーが呼び出し元へ素通りする)。

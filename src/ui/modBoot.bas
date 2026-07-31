@@ -172,6 +172,17 @@ Public Sub Boot()
     '      許可外の端末では知識を消して案内だけ出す。私物PCへコピーされた
     '      場合の一次防御。設定が空なら何もしない=既定では誰の業務も止めない。
     bootStage = "端末の確認"
+
+    ' 1.4) Scripting.Dictionary(Windows Script Runtime)の1回きりのプローブ。
+    '      2026-07-31 R11-D(監査3 H-4): 検索・同期・集計の中核34箇所が
+    '      CreateObject("Scripting.Dictionary") に依存している。管理端末で
+    '      これが塞がれていると、利用者から見えるのは「押しても何も出ない」
+    '      「同期しても件数が増えない」といった無関係に見える不調だけで、
+    '      原因に辿り着く手がかりが1つも無い。34箇所を個別に防御しても
+    '      体験は良くならない(どこで失敗しても結論は同じ)ので、起動時に
+    '      1回だけ確かめて、日本語で1回だけ伝える。成功時は何も出さない。
+    ProbeScriptingRuntime
+
     On Error Resume Next
     If Not modGuard.CheckDomain() Then
         ' 2026-07-28(レビュー M-6): 1回の不一致では消さない。VPN未接続や
@@ -393,6 +404,16 @@ Public Sub Boot()
     HideInternalSheets
     RemoveOrphanDefaultSheets
 
+    ' 7.5) 画像PDF/テキストPDFの作業フォルダ(%TEMP%\nxocr_*)のGC。
+    '      2026-07-31 R11-D(監査3 H-1): Ghostscriptがタイムアウトしたときは
+    '      原因究明のために作業フォルダを消さずに残す方針へ変えた。放置すると
+    '      1件あたり数十MBの残骸が溜まり続けるので、掃除役をここに1箇所だけ
+    '      置く。24時間より古いものだけが対象=いま動いている取込は絶対に
+    '      壊さない(同時に複数のExcelが開かれていても安全)。
+    On Error Resume Next
+    GcOldOcrFolders
+    On Error GoTo Failed
+
     ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても
     '    旧3画面は生きているため、起動自体は続行する)
     If modConfig.GetBool("nexus_ui", False) Then
@@ -558,6 +579,106 @@ Private Sub EnsureFirstRun()
     nm = Trim$(CStr(nm))
     If LenB(nm) = 0 Then nm = "名称未設定"
     modConfig.SetValue "pack_author", nm
+End Sub
+
+' ----------------------------------------------------------------------------
+' ProbeScriptingRuntime - Scripting.Dictionary が使えるかを1回だけ確かめる
+'   (2026-07-31 R11-D / 監査3 H-4)。
+'   使えるなら【何も出さない・何も書かない】(正常が既定なので、正常時に
+'   ログを増やすと本当の異常が埋もれる)。使えないときだけ err_log 1行と、
+'   起動時1回のモーダル案内を出す。モーダルにするのは、この状態では検索も
+'   同期も静かに空振りし続け、あとから原因に辿り着く手段が無いため。
+' ----------------------------------------------------------------------------
+Private Sub ProbeScriptingRuntime()
+    Dim d As Object
+    Dim errNum As Long
+    Dim errDesc As String
+
+    On Error Resume Next
+    Set d = CreateObject("Scripting.Dictionary")
+    errNum = Err.Number
+    errDesc = Err.Description
+    Err.Clear
+    On Error GoTo 0
+
+    If errNum = 0 And Not d Is Nothing Then
+        Set d = Nothing
+        Exit Sub
+    End If
+    Set d = Nothing
+
+    On Error Resume Next
+    modLog.LogError "E0102", "modBoot.Boot", _
+        "Scripting.Dictionary を生成できません err#" & errNum & ": " & errDesc
+    On Error GoTo 0
+
+    MsgBox "この端末では検索機能に必要な部品(Windows Script Runtime)が" & _
+           "利用できません。管理者へご連絡ください。" & vbLf & vbLf & _
+           "(コード: E0102)", vbExclamation, modAppDef.APP_NAME
+End Sub
+
+' ----------------------------------------------------------------------------
+' GcOldOcrFolders - %TEMP%\nxocr_* のうち24時間より古いものを削除する
+'   (2026-07-31 R11-D / 監査3 H-1)。
+'   ・タイムアウトした取込の作業フォルダは、原因究明のためその場では
+'     消さない方針にした。その残骸を回収する唯一の場所がここ。
+'   ・24時間という線は「いま動いている取込を絶対に壊さない」ため。取込の
+'     タイムアウト上限は config vision_pdf_timeout_sec(既定120秒)なので、
+'     24時間前のフォルダが使用中である可能性は無い。
+'   ・列挙中に削除するとDirの列挙が壊れるので、先に名前だけ集める
+'     (modMentor.CollectQuestions と同じ collect-then-process)。
+'   ・削除できたときだけ usage_log を1行。0件なら何も書かない。
+' ----------------------------------------------------------------------------
+Private Sub GcOldOcrFolders()
+    Dim tempRoot As String: tempRoot = Environ$("TEMP")
+    If LenB(tempRoot) = 0 Then tempRoot = Environ$("TMP")
+    If LenB(tempRoot) = 0 Then Exit Sub
+    If Right$(tempRoot, 1) <> "\" Then tempRoot = tempRoot & "\"
+
+    Dim names() As String: ReDim names(0 To 63)
+    Dim n As Long: n = 0
+
+    On Error Resume Next
+    Dim nm As String: nm = Dir$(tempRoot & "nxocr_*", vbDirectory)
+    Do While LenB(nm) > 0
+        If nm <> "." And nm <> ".." Then
+            If n > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+            names(n) = nm
+            n = n + 1
+        End If
+        If n >= 500 Then Exit Do        ' 暴走防止(1回の起動で見る上限)
+        nm = Dir$()
+    Loop
+    Err.Clear
+    On Error GoTo 0
+
+    Dim removed As Long: removed = 0
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim full As String: full = tempRoot & names(i)
+        Dim isDir As Boolean
+        Dim stamp As Date
+        On Error Resume Next
+        isDir = False
+        isDir = ((GetAttr(full) And vbDirectory) = vbDirectory)
+        stamp = FileDateTime(full)
+        If Err.Number = 0 And isDir Then
+            If DateDiff("h", stamp, Now) >= 24 Then
+                Kill full & "\*.*"
+                RmDir full
+                If LenB(Dir$(full, vbDirectory)) = 0 Then removed = removed + 1
+            End If
+        End If
+        Err.Clear
+        On Error GoTo 0
+    Next i
+
+    If removed > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "ocr_temp_gc", "", CStr(removed) & _
+            "件の古い作業フォルダ(" & tempRoot & "nxocr_*)を削除しました"
+        On Error GoTo 0
+    End If
 End Sub
 
 ' V2 HideInternalSheets踏襲。§4の可視性表のとおり:
