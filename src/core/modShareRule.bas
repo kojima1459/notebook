@@ -142,6 +142,20 @@ End Function
 '   共有パスにダミー値が入っているだけ・共有をまだ作っていないPoC初期状態で
 '   30日後に全端末の知識が消える、という事故を構造的に不可能にする。
 '   消してよいのは「かつて届いていたのに30日届かない」端末だけ、が設計意図。
+'
+'   2026-07-31(司令塔裁定・R8後追い): limitDays が小さいとき(管理者が
+'   knowledge_expire_days に7以下を入れたとき)の端を純ロジックで塞いだ。
+'   旧実装は予告フェーズの条件が「1日以上かつ期限未満」だけだったため、
+'     ・limitDays<=7 では daysSince=0(=今日共有へ届いている端末)が
+'       予告フェーズに入らず、そのまま期限超過側の分岐へ落ちていた
+'     ・expiry_warned_days に古い値が残っていれば、0日目でも wipe に届いた
+'   つまり「今日つながっている端末の知識が消える」経路が存在した。
+'   守る不変条件を3つに固定する:
+'     (1) daysSince=0 では warn/warn_first/wipe を【決して】返さない
+'     (2) 予告窓は max(1, limitDays-7) 〜 limitDays-1 に clamp する
+'         (limitDays がいくつでも、最低1日は予告のためだけの猶予が残る)
+'     (3) wipe は「daysSince >= limitDays かつ 予告済み」のときだけ。
+'         予告済みフラグが古くても daysSince < limitDays なら消さない
 Public Function ExpiryDecision(ByVal lastReachRaw As String, ByVal daysSince As Long, _
                                ByVal limitDays As Long, ByVal warnedRaw As String, _
                                ByVal wipedRaw As String) As String
@@ -155,9 +169,19 @@ Public Function ExpiryDecision(ByVal lastReachRaw As String, ByVal daysSince As 
     End If
 
     ExpiryDecision = "none"
-    If daysSince < limitDays - 7 Then Exit Function
 
-    If daysSince >= 1 And daysSince < limitDays Then
+    ' (1) 今日(あるいは未来の日付)に到達している端末には何もしない。
+    '     ここを通す限り「つながっているのに消えた」は起こり得ない。
+    If daysSince <= 0 Then Exit Function
+
+    ' (2) 予告窓の下限。limitDays<=7 でも 1 未満へは下げない。
+    Dim warnFrom As Long
+    warnFrom = limitDays - 7
+    If warnFrom < 1 Then warnFrom = 1
+
+    If daysSince < limitDays Then
+        ' 期限内。ここでは【何があっても消さない】(3)。
+        If daysSince < warnFrom Then Exit Function
         ' 予告フェーズ。同じ日数で繰り返し出さない(レビュー L-7)。
         If StrComp(Trim$(warnedRaw), CStr(daysSince), vbTextCompare) = 0 Then Exit Function
         ExpiryDecision = "warn"

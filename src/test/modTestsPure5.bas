@@ -313,32 +313,105 @@ Private Sub TestExpiryNormalFlow()
         "1回目=" & first & " / 2回目=" & second
 End Sub
 
-' limitDays が小さいとき(limitDays-7 が0以下になる領域)の振る舞いを記録する。
-' 予告フェーズの条件が「1日以上かつ期限未満」なので、limitDays<=7 では
-' 0日目が予告フェーズに入らず、いきなり期限超過側の分岐へ落ちる。
-' そこでも【まず warn_first を出して1回見送る】ので、黙って消えることは無い。
-' この領域は既定(30日)から外れた管理者設定でしか通らないが、通ったときに
-' どう動くかを固定しておかないと、次の修正で静かに wipe 側へ倒れかねない。
+' limitDays が小さいとき(limitDays-7 が0以下になる領域)の境界。
+' 管理者が knowledge_expire_days に7以下を入れると必ずここを通る。
+' 守るべき不変条件は3つ(modShareRule.ExpiryDecision のコメントと対):
+'   (1) daysSince=0(今日つながっている)では warn/warn_first/wipe を返さない
+'   (2) 予告窓は max(1, limitDays-7) ～ limitDays-1
+'   (3) wipe は daysSince >= limitDays かつ予告済みのときだけ
+' ここが崩れると「つながっているのに知識が消えた」が起きる。
 Private Sub TestExpirySmallLimit()
     Dim reach As String: reach = "2026-06-01"
-    modTestRunner.Check "失効: limitDays=3・0日目は warn_first(黙って消さない)", _
-        (modShareRule.ExpiryDecision(reach, 0, 3, "", "") = "warn_first"), _
-        "実際=" & modShareRule.ExpiryDecision(reach, 0, 3, "", "")
-    modTestRunner.Check "失効: limitDays=3・1日目は warn", _
-        (modShareRule.ExpiryDecision(reach, 1, 3, "", "") = "warn"), _
-        "実際=" & modShareRule.ExpiryDecision(reach, 1, 3, "", "")
-    modTestRunner.Check "失効: limitDays=3・2日目は warn", _
-        (modShareRule.ExpiryDecision(reach, 2, 3, "", "") = "warn"), ""
-    modTestRunner.Check "失効: limitDays=3・3日目+予告済みは wipe", _
-        (modShareRule.ExpiryDecision(reach, 3, 3, "2", "") = "wipe"), _
-        "実際=" & modShareRule.ExpiryDecision(reach, 3, 3, "2", "")
-    modTestRunner.Check "失効: limitDays=1・0日目も warn_first", _
-        (modShareRule.ExpiryDecision(reach, 0, 1, "", "") = "warn_first"), _
+
+    ' --- (1) 0日目は、どの limitDays でも・予告済みでも何もしない ---
+    modTestRunner.Check "失効: limitDays=1・0日目は none", _
+        (modShareRule.ExpiryDecision(reach, 0, 1, "", "") = "none"), _
         "実際=" & modShareRule.ExpiryDecision(reach, 0, 1, "", "")
+    modTestRunner.Check "失効: limitDays=2・0日目は none", _
+        (modShareRule.ExpiryDecision(reach, 0, 2, "", "") = "none"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 0, 2, "", "")
+    modTestRunner.Check "失効: limitDays=7・0日目は none", _
+        (modShareRule.ExpiryDecision(reach, 0, 7, "", "") = "none"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 0, 7, "", "")
+    modTestRunner.Check "失効: limitDays=8・0日目は none", _
+        (modShareRule.ExpiryDecision(reach, 0, 8, "", "") = "none"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 0, 8, "", "")
+    ' 古い予告済みフラグが残っていても、0日目は消さない(旧実装の抜け穴)。
+    modTestRunner.Check "失効: limitDays=1・0日目+予告済みでも none", _
+        (modShareRule.ExpiryDecision(reach, 0, 1, "99", "") = "none"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 0, 1, "99", "")
+
+    ' 0日目の総当たり(limitDays 0～40 × 予告済み有無)で none/off だけを返す。
+    Dim L As Long
+    Dim badDay0 As Boolean
+    Dim act0 As String
+    For L = 0 To 40
+        act0 = modShareRule.ExpiryDecision(reach, 0, L, "", "")
+        If act0 <> "none" And act0 <> "off" Then badDay0 = True
+        act0 = modShareRule.ExpiryDecision(reach, 0, L, "0", "")
+        If act0 <> "none" And act0 <> "off" Then badDay0 = True
+        act0 = modShareRule.ExpiryDecision(reach, 0, L, "99", "9")
+        If act0 <> "none" And act0 <> "off" Then badDay0 = True
+    Next L
+    modTestRunner.Check "失効: 0日目はlimitDays0～40のどの条件でもnone/offのみ", _
+        (badDay0 = False), "今日つながっている端末に警告か消去を返す経路がある"
+
+    ' --- (2) 予告窓の clamp: limitDays<=8 では1日目から予告 ---
+    modTestRunner.Check "失効: limitDays=2・1日目は warn", _
+        (modShareRule.ExpiryDecision(reach, 1, 2, "", "") = "warn"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 1, 2, "", "")
+    modTestRunner.Check "失効: limitDays=7・1日目は warn", _
+        (modShareRule.ExpiryDecision(reach, 1, 7, "", "") = "warn"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 1, 7, "", "")
+    modTestRunner.Check "失効: limitDays=7・6日目(期限の前日)は warn", _
+        (modShareRule.ExpiryDecision(reach, 6, 7, "", "") = "warn"), ""
+    modTestRunner.Check "失効: limitDays=8・1日目は warn(8-7=1が窓の下限)", _
+        (modShareRule.ExpiryDecision(reach, 1, 8, "", "") = "warn"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 1, 8, "", "")
+    modTestRunner.Check "失効: limitDays=3・1日目/2日目は warn", _
+        (modShareRule.ExpiryDecision(reach, 1, 3, "", "") = "warn" And _
+         modShareRule.ExpiryDecision(reach, 2, 3, "", "") = "warn"), ""
+
+    ' --- (3) 期限内は予告済みフラグが古くても決して wipe しない ---
+    modTestRunner.Check "失効: limitDays=7・6日目+古い予告済みでも wipe しない", _
+        (modShareRule.ExpiryDecision(reach, 6, 7, "1", "") = "warn"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 6, 7, "1", "")
+    modTestRunner.Check "失効: limitDays=8・7日目+古い予告済みでも wipe しない", _
+        (modShareRule.ExpiryDecision(reach, 7, 8, "2", "") = "warn"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 7, 8, "2", "")
+
+    ' 期限ちょうどで初めて消える(予告が出ていれば)。
+    modTestRunner.Check "失効: limitDays=1・1日目+予告なしは warn_first", _
+        (modShareRule.ExpiryDecision(reach, 1, 1, "", "") = "warn_first"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 1, 1, "", "")
+    modTestRunner.Check "失効: limitDays=2・2日目+予告済みは wipe", _
+        (modShareRule.ExpiryDecision(reach, 2, 2, "1", "") = "wipe"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 2, 2, "1", "")
+    modTestRunner.Check "失効: limitDays=3・3日目+予告済みは wipe", _
+        (modShareRule.ExpiryDecision(reach, 3, 3, "2", "") = "wipe"), ""
+    modTestRunner.Check "失効: limitDays=7・7日目+予告済みは wipe", _
+        (modShareRule.ExpiryDecision(reach, 7, 7, "6", "") = "wipe"), _
+        "実際=" & modShareRule.ExpiryDecision(reach, 7, 7, "6", "")
+    modTestRunner.Check "失効: limitDays=8・8日目+予告済みは wipe", _
+        (modShareRule.ExpiryDecision(reach, 8, 8, "7", "") = "wipe"), ""
+
+    ' 期限内(daysSince < limitDays)からは、どの予告済み値でも wipe が出ない。
+    Dim d As Long
+    Dim badInside As Boolean
+    For L = 1 To 40
+        For d = 0 To L - 1
+            If modShareRule.ExpiryDecision(reach, d, L, "999", "") = "wipe" Then badInside = True
+            If modShareRule.ExpiryDecision(reach, d, L, CStr(d), "") = "wipe" Then badInside = True
+        Next d
+    Next L
+    modTestRunner.Check "失効: 期限内(日数<limitDays)は総当たりでwipeを返さない", _
+        (badInside = False), "期限前に消す経路がある"
 
     ' 未到達の端末は、limitDays をどれだけ小さくしても never のまま。
     modTestRunner.Check "失効: limitDays=1でも未到達なら never", _
         (modShareRule.ExpiryDecision("", 0, 1, "", "") = "never"), ""
+    modTestRunner.Check "失効: limitDays=1・未到達・1日目でも never", _
+        (modShareRule.ExpiryDecision("", 1, 1, "1", "") = "never"), ""
 End Sub
 
 ' ----------------------------------------------------------------------------
