@@ -451,13 +451,33 @@ Private Sub CopyInsightInboxInto(ByVal destWb As Workbook)
     For i = LBound(arr, 1) To UBound(arr, 1)
         If CStr(arr(i, 9)) <> "1" Then
             For c = 1 To lastC
-                dst.Cells(outR, c).Value = arr(i, c)
+                dst.Cells(outR, c).Value = InboxCellValue(arr(i, c), c)
             Next c
             outR = outR + 1
         End If
     Next i
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' InboxCellValue - insight_inbox の1セルを書く直前に通す(R12-H-4)。
+' ----------------------------------------------------------------------------
+' 受信箱は【他人が書いた文章】が入る唯一のシートで、引き継ぎファイルは
+' 端末をまたいで運ばれる。取込経路(modInsightIo)は SanitizeForCell 済みでも、
+' 引き継ぎ経路だけが素通りだと、そこが数式インジェクションの抜け道になる
+' (R12-2 で塞いだ3経路と同型の穴)。
+' 対象は未信頼テキスト列だけに限る: 4=author / 6=question / 7=answer_or_reason
+' / 8=source_or_dept(ビルド側 text_cols と同じ集合)。nonce・created_at・
+' consumed・selected のような機械が作る列に "'" を足すと、突合や数値判定が
+' 壊れるので触らない。
+Private Function InboxCellValue(ByVal v As Variant, ByVal col As Long) As Variant
+    Select Case col
+        Case 4, 6, 7, 8
+            InboxCellValue = modUtilText.SanitizeForCell(CStr(v))
+        Case Else
+            InboxCellValue = v
+    End Select
+End Function
 
 ' ビルドが決める値・秘密は引き継がない(§12.3 B1/B2 の再発防止)。
 Private Function IsBuildOwnedKey(ByVal k As String) As Boolean
@@ -526,6 +546,15 @@ Private Function RestoreSheet(ByVal srcWb As Workbook, ByVal sheetName As String
 
     outRows = dst.Cells(dst.Rows.count, 1).End(xlUp).row - 1
     If outRows < 0 Then outRows = 0
+    ' R12-H-6: 引き継ぎはシートを丸ごと入れ替える。my_vectors を入れ替えたら
+    ' セッション内キャッシュは中身ごと別物なので、解放して世代を進める
+    ' (件数も先頭/末尾idも偶然一致し得るため、印だけでは足りない)。
+    If StrComp(sheetName, modAppDef.SH_VECTORS, vbTextCompare) = 0 Then
+        On Error Resume Next
+        modVecCache.ResetVecCache
+        modVecCache.BumpGeneration
+        On Error GoTo Fail
+    End If
     RestoreSheet = True
     Exit Function
 
@@ -648,7 +677,7 @@ Private Sub MergeInsightInbox(ByVal srcWb As Workbook)
                 dup = dup + 1
             Else
                 For c = 1 To lastC
-                    dst.Cells(outR, c).Value = srcArr(i, c)
+                    dst.Cells(outR, c).Value = InboxCellValue(srcArr(i, c), c)   ' R12-H-4
                 Next c
                 known.Add nc, True
                 outR = outR + 1

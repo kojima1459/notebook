@@ -202,15 +202,25 @@ Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef 
     ' ならないよう、書く直前に列を文字列書式へ固定する(冪等)。
     wsK.Columns(COL_K_NORM).NumberFormat = "@"
 
+    ' 2026-08-01(R12-H-5): 書けた件数を数える。1件も書けなかったときは
+    ' 「毎回計算し直しているのに誰も気付けない」= 恒久的に遅いまま黙って
+    ' 使い続けることになるので、必ず痕跡を残す(憲章§4-1)。
+    Dim wrote As Long: wrote = 0
     Dim i As Long
     If mBfN <= BACKFILL_CELL_MAX Then
         ' 数行だけなら直接書く(列まるごとの書き戻しは1回でも数万セルを触る)。
         For i = 0 To mBfN - 1
+            Err.Clear
             wsK.Cells(1 + mBfRow(i), COL_K_NORM).Value = mBfVal(i)
-            kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
+            If Err.Number = 0 Then
+                kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
+                wrote = wrote + 1
+            End If
         Next i
     Else
-        ' 初回のような大量バックフィルは列を1回で書く(1行ずつは数千行で固まる)。
+        ' 初回のような大量バックフィルは200行バッチで書く(modPack.WriteRowsBatched
+        ' と同じ作法)。数万行×長文の1回代入は実行時エラー7になり得るうえ、
+        ' 途中で失敗すると【1件も書けない】=毎回計算し直す状態が固定される。
         Dim nRows As Long: nRows = UBound(kData, 1) - LBound(kData, 1) + 1
         Dim colArr() As Variant: ReDim colArr(1 To nRows, 1 To 1)
         For i = 1 To nRows
@@ -218,9 +228,33 @@ Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef 
         Next i
         For i = 0 To mBfN - 1
             colArr(mBfRow(i), 1) = mBfVal(i)
-            kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
         Next i
-        wsK.Range(wsK.Cells(2, COL_K_NORM), wsK.Cells(1 + nRows, COL_K_NORM)).Value = colArr
+
+        Dim startR As Long
+        For startR = 1 To nRows Step BACKFILL_CELL_MAX
+            Dim batchN As Long: batchN = nRows - startR + 1
+            If batchN > BACKFILL_CELL_MAX Then batchN = BACKFILL_CELL_MAX
+            Dim batchArr() As Variant: ReDim batchArr(1 To batchN, 1 To 1)
+            Dim b As Long
+            For b = 1 To batchN
+                batchArr(b, 1) = colArr(startR + b - 1, 1)
+            Next b
+            Err.Clear
+            wsK.Range(wsK.Cells(1 + startR, COL_K_NORM), _
+                      wsK.Cells(startR + batchN, COL_K_NORM)).Value = batchArr
+            If Err.Number = 0 Then wrote = wrote + batchN
+        Next startR
+        If wrote > 0 Then
+            For i = 0 To mBfN - 1
+                kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
+            Next i
+        End If
+    End If
+
+    If wrote = 0 Then
+        modLog.LogUsage "normtext_backfill_failed", "", _
+            "照合テキスト(norm_text)を1件も保存できませんでした。検索は動きますが、" & _
+            "毎回の質問で計算し直すため遅いままです(対象" & mBfN & "件)"
     End If
     mBfN = 0
     On Error GoTo 0

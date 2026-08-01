@@ -1273,6 +1273,21 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
 # ---------------------------------------------------------------------------
 # メイン
 # ---------------------------------------------------------------------------
+def _sweep_build_leftovers(dist_dir: str) -> None:
+    """dist/ に残った *.building.xlsm / *.failed.xlsm を消す(R12-H-7)。
+    消せなくてもビルドは続ける(掃除の失敗で配布物を作れなくしない)。"""
+    if not os.path.isdir(dist_dir):
+        return
+    for name in os.listdir(dist_dir):
+        if name.endswith(".building.xlsm") or name.endswith(".failed.xlsm"):
+            path = os.path.join(dist_dir, name)
+            try:
+                os.remove(path)
+                print(f"  前回の中間生成物を削除: {name}")
+            except OSError as e:
+                print(f"  注意: 中間生成物を削除できませんでした({name}: {e})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=f"{APP_TITLE} ビルドスクリプト")
     mode = ap.add_mutually_exclusive_group(required=True)
@@ -1348,6 +1363,12 @@ def main():
         else:
             fname = "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
         out_path = os.path.join(root, "dist", fname)
+
+    # 2026-08-01(R12-H-7): 前回の中断・失敗で残った中間生成物を先に片付ける。
+    # *.building は Stage5→6 の途中経過、*.failed は自己検証に落ちた不良品。
+    # 残しておくと「dist に .xlsm が3つある」状態になり、利用者がどれを開けば
+    # よいか分からなくなる(配布物の一意性は R12-9 で決めた原則)。
+    _sweep_build_leftovers(os.path.join(root, "dist"))
 
     print(f"=== build_mybookshelf.py ({'dev' if is_dev else 'prod'}) ===")
     print(f"root:     {root}")

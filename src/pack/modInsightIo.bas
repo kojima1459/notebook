@@ -200,14 +200,21 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
     Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, INBOX_COLS)).Value
     Dim keep() As Variant: ReDim keep(1 To nRows, 1 To INBOX_COLS)
     Dim keepN As Long, dropped As Long
+    ' 2026-08-01(R12-H-8): 上限超過ぶんと期限切れぶんのカウンタを分ける。
+    ' 従来は1つの dropped を「超過何件目か」の判定にも使っていたため、
+    ' 期限切れの行を1件消すたびに超過枠が1つ埋まったことになり、
+    ' 【上限500行を超えたぶんを掃除しきれない】(次回も超過が残る)状態だった。
+    Dim overN As Long, agedN As Long
     Dim i As Long, c As Long
     For i = 1 To nRows
         Dim drop As Boolean: drop = False
         If CStr(arr(i, 9)) = "1" Then                      ' consumed
-            If dropped < excessN Then
+            If overN < excessN Then
                 drop = True                                ' 上限超過分(古い順)
+                overN = overN + 1
             ElseIf LenB(Trim$(CStr(arr(i, 5)))) > 0 Then   ' created_at
                 drop = (Left$(modUtilText.NormalizeIsoDate(CStr(arr(i, 5))), 10) < cutoff)
+                If drop Then agedN = agedN + 1
             End If
         End If
         If drop Then
@@ -234,7 +241,8 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
     ws.Range(ws.Cells(2 + keepN, 1), ws.Cells(1 + nRows, INBOX_COLS)).ClearContents
 
     modLog.LogUsage "insight_inbox_trim", "", _
-        "取込済みの古い行を" & dropped & "件片付けました(残り" & keepN & "行。" & _
+        "取込済みの古い行を" & dropped & "件片付けました(上限超過" & overN & _
+        "件/期限切れ" & agedN & "件。残り" & keepN & "行。" & _
         "上限" & INBOX_MAX_ROWS & "行/" & INBOX_KEEP_DAYS & "日)"
     On Error GoTo 0
 End Sub

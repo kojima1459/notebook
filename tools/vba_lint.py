@@ -724,6 +724,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll7"],
     },
+    # modTestsPure8: 2026-08-01 R12-8で追加した分割先。R12-Hの敵対的レビューで
+    # 「自己ルール(分割先は入口だけを契約にする)の適用漏れ」として指摘された。
+    # modTestsPure7.RunAll7 の末尾から呼ばれる入口 RunAll8 だけが契約。
+    "modTestsPure8": {
+        "closed": False,
+        "required": ["RunAll8"],
+    },
     # modTestsPure9: 2026-08-01 R12-4で追加。modTestsPure8が28,000字(WARN帯)に
     # 達したための分割先。modTestsPure8.RunAll8の末尾から呼ばれる入口 RunAll9
     # だけが契約。
@@ -803,6 +810,15 @@ RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
 # モーダルが割り込み、利用者が「まだ動いているのか」判断できなくなる
 # (憲章§3-4)。
 R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats"}
+
+# R1例外(UIロックの状態問い合わせ。2026-08-01 R12-H-2a 裁定)。
+# modUiLock.IsBusy は副作用ゼロの読み取り専用ゲッターで、UIを操作しない。
+# 自動同期(OnTime)は「利用者が質問・取込をしている最中には始めない」判断が
+# 要るが、その事実を持っているのはUI層のロックだけである。SetStage 等の
+# 通知コールバック例外と同じ性質(向きは逆だが、状態を1つ読むだけで
+# 機能層の処理がUIの都合に依存しない)として、同期モジュールにのみ許す。
+# 広げるときは必ずここへ足す=どのモジュールがUIロックを見ているかが1箇所で分かる。
+R1_UILOCK_ALLOWED_MODULES = {"modShelfSync"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
@@ -1877,6 +1893,10 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     if (cur_layer == LAYER_MID
                             and (prefix, member) == ("modSkin", "ShowToast")
                             and self_name in R1_TOAST_ALLOWED_MODULES):
+                        continue
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modUiLock", "IsBusy")
+                            and self_name in R1_UILOCK_ALLOWED_MODULES):
                         continue
                     info.add(
                         "ERROR", lineno,

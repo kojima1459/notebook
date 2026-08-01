@@ -123,26 +123,32 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         End If
     End If
     If mSyncRunning Then Exit Sub
-    mSyncRunning = True
-    mSyncRunningSince = Now
 
-    ' R12-4: 同期も取込と同じくシートを大きく書き換える。検索用ベクトル
-    ' キャッシュを先に解放し、取込側の配列とピークが重ならないようにする。
+    ' R12-H-2a: 自動同期(silent)は他の処理中(UIロック取得中)には始めない。
+    ' 検索は重ループ内でDoEventsを回すため、割り込むと結果が欠ける。次tickへ
+    ' 委ねる(手動🔄は利用者がロックを持って呼ぶので対象外=無反応にしない)。
+    ' R12-4: 始める側は検索用ベクトルキャッシュを解放しピークを重ねない。
     On Error Resume Next
+    If silent Then
+        If modUiLock.IsBusy() Then
+            modLog.LogUsage "autosync_deferred", "sync", "他の処理中のため見送りました"
+            Exit Sub
+        End If
+    End If
     modVecCache.ResetVecCache
     On Error GoTo 0
 
-    ' 自動同期(OnTime)/手動同期中の大量シート書換え中にイベント連鎖が起きない
-    ' よう抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
+    mSyncRunning = True
+    mSyncRunningSince = Now
+
+    ' 大量シート書換え中のイベント連鎖を抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
     On Error Resume Next
     Application.EnableEvents = False
     On Error GoTo 0
 
-    ' 2026-07-16 恒久対策: 同期処理のどこで実行時エラーが起きても、必ず
-    ' Finish(mSyncRunningの解除)へ合流させる。従来は本体を覆うエラー
-    ' ハンドラが無く、フォルダ走査やmanifest突合で例外が出るとmSyncRunning=True
-    ' のまま抜けて以降の同期が永久に走らなくなる危険があった(IngestFileの
-    ' 焼き付きと同種の予防)。
+    ' 2026-07-16 恒久対策: どこで実行時エラーが起きても必ず Finish
+    ' (mSyncRunningの解除)へ合流させる。従来は本体を覆うハンドラが無く、
+    ' 例外が出ると mSyncRunning=True のまま抜けて同期が永久に走らなくなった。
     Dim uiStep As String
     On Error GoTo Failed
 
@@ -154,16 +160,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     uiStep = "本棚フォルダ設定の確認"
     Dim folder As String: folder = Trim$(modConfig.GetString("shelf_folder", ""))
     If LenB(folder) = 0 Then
-        ' 初回起動直後(shelf_folder未設定)は「まだ何も設定していない正常な
-        ' 状態」であって障害ではない。バックグラウンド同期(silent)のときは
-        ' err_logを汚さない(実機で毎起動E0502が3件ずつ記録され、本当の
-        ' 障害が埋もれる問題への対応)。手動🔄時のみ丁寧に案内する。
-        '
-        ' 【2026-07-16 袋小路の解消】「＋資料を追加」で入れた資料がpartial
-        ' (ベクトル化未完了)のとき、カードのメモは「🔄フォルダと同期を押すと
-        ' 続きから再開します」と案内するのに、フォルダ未設定だとE0502で
-        ' 弾かれて再開手段が無かった。フォルダが未設定でも、未完了の
-        ' ベクトル化(EmbedPending)だけは実行して「続きから再開」を成立させる。
+        ' shelf_folder未設定は障害ではない(初回起動直後の正常な状態)。
+        ' silent時はerr_logを汚さず、手動🔄のときだけ案内する(毎起動E0502が
+        ' 3件ずつ積もり本当の障害が埋もれた実機報告への対応)。
+        ' 【2026-07-16 袋小路の解消】partial資料のメモは「🔄同期で続きから
+        ' 再開」と案内するのに、フォルダ未設定だとE0502で弾かれ再開手段が
+        ' 無かった。未設定でも未完了のベクトル化(EmbedPending)だけは実行する。
         uiStep = "未完了ベクトル化の再開(フォルダ未設定)"
         Dim orphanPending As Long
         orphanPending = 0

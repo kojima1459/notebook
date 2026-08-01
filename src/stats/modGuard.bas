@@ -371,6 +371,11 @@ Public Function WipeKnowledge(Optional ByRef outLeftRows As Long = 0) As Long
         Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.Count, 1).End(xlUp).Row
         If lastV >= 2 Then wsV.Rows("2:" & lastV).Delete
     End If
+    ' R12-H-6: 失効ワイプで全ベクトルが消えた。セッション内キャッシュ
+    ' (32bit Excelで最大126MB)を抱えたままにする理由はもう無いので解放し、
+    ' 世代も進めて「消したはずの本棚で検索できる」状態を作らない。
+    modVecCache.ResetVecCache
+    modVecCache.BumpGeneration
 
     ' 取り込み済み版の記録を消し、次回接続時に全チャンネルを取り直させる。
     Dim wsS As Worksheet

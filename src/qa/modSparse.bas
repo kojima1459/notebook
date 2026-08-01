@@ -348,12 +348,20 @@ End Function
 ' HasAnyKey - keys(DistinctiveKeysの結果)のどれか1つでも doc に含まれるか。
 ' ----------------------------------------------------------------------------
 ' 2026-08-01(R12-3-7): バイナリ粗選別(binary_rag)の「救済union」専用の
-' 粗い包含判定。採点(KeyScore)と違い、正規化していない生テキストに対して
-' 大小文字を無視した部分一致で見る。理由は速度で、粗選別が省いた全件走査へ
-' 正規化(NormalizeForSearch は1文字ずつのループ)を持ち込むと、粗選別で
-' 得た速さをそのまま失うため。狙いは「第12条」のような決定的な語を持つ行を
-' 候補集合から落とさないことで、拾いすぎ側の誤りは後段のFloatスコアと
-' KeyScore が正しく並べ替える(落としたら二度と戻らないが、拾いすぎは直せる)。
+' 粗い包含判定。狙いは「第12条」のような決定的な語を持つ行を候補集合から
+' 落とさないことで、拾いすぎ側の誤りは後段のFloatスコアと KeyScore が
+' 正しく並べ替える(落としたら二度と戻らないが、拾いすぎは直せる)。
+'
+' 2026-08-01(R12-H-1 敵対的レビュー High-1/Med-4): doc は【正規化済み】の
+' 照合テキスト(modSparse.MatchDocText の結果 = my_knowledge.norm_text)を
+' 渡すこと。当初は速度を理由に生テキストへ vbTextCompare で当てていたが、
+'   ・keys(DistinctiveKeys)は正規化済み(小文字・半角・空白除去)なので、
+'     生テキスト相手では全角英数「ＡＢＣ」やPDF字詰め「保 険 金」を
+'     取りこぼす。救済のはずが救済漏れを作っていた
+'   ・R12-4 で norm_text を前計算したので、正規化のやり直しはもう発生しない
+'     (速度を理由に生テキストを見る動機が消えた)
+' 正規化済み同士なので比較は vbBinaryCompare で足りる(vbTextCompare は
+' ロケール依存の照合表を引くぶん遅く、正規化済みなら結果も変わらない)。
 Public Function HasAnyKey(ByVal keys As String, ByVal doc As String) As Boolean
     If LenB(keys) = 0 Then Exit Function
     If LenB(doc) = 0 Then Exit Function
@@ -362,7 +370,7 @@ Public Function HasAnyKey(ByVal keys As String, ByVal doc As String) As Boolean
     Dim i As Long
     For i = LBound(arr) To UBound(arr)
         If Len(arr(i)) >= 2 Then                   ' 1文字キーは拾いすぎるので見ない
-            If InStr(1, doc, arr(i), vbTextCompare) > 0 Then
+            If InStr(1, doc, arr(i), vbBinaryCompare) > 0 Then
                 HasAnyKey = True
                 Exit Function
             End If

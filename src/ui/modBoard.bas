@@ -100,7 +100,10 @@ Private Sub ShowWeeklySummary()
     Dim mon As Date: mon = Date - Weekday(Date, vbMonday) + 1   ' 今週の月曜
     Dim total As Long, i As Long
     For i = 1 To 7
-        total = total + MyMin("d", Format$(mon - i, "yyyymmdd"))
+        ' R12-H-3: 和暦カレンダー端末では Format$(d,"yyyymmdd") が元号年を返す。
+        ' 書く側(modAsk)は既に modUtilText.IsoDateCompact なので、読む側が
+        ' Format$ のままだと【一致しないキーを引いて常に0分】になっていた。
+        total = total + MyMin("d", modUtilText.IsoDateCompact(mon - i))
     Next i
     If total <= 0 Then Exit Sub   ' ゼロ週は何も言わない(空虚な自慢をしない)
 
@@ -427,7 +430,7 @@ Private Function History7() As String
     Dim i As Long
     For i = 0 To 6
         Dim d As Date: d = Date - i
-        Dim v As Long: v = MyMin("d", Format$(d, "yyyymmdd"))
+        Dim v As Long: v = MyMin("d", modUtilText.IsoDateCompact(d))   ' R12-H-3(同上)
         s = s & "  " & Format$(d, "mm/dd") & ": " & IIf(v > 0, FmtMin(v), "-") & vbLf
     Next i
     History7 = s

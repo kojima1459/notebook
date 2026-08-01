@@ -134,6 +134,10 @@ Public Function EnsureSeedLoaded() As Long
 
     modStats.SetStatText STAT_SEED_DONE, modUtil.NowStamp()
     On Error Resume Next
+    ' R12-H-6: 初期ナレッジで my_knowledge/my_vectors が増えた。検索側の
+    ' セッションキャッシュを古いまま使わせない(初回起動直後に質問されても
+    ' 初期ナレッジが検索に出ないことが無いように)。
+    modVecCache.BumpGeneration
     modLog.LogUsage "seed_load", "", "chunks=" & n & " vectors=" & wrote
     On Error GoTo Done
 

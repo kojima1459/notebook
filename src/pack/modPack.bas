@@ -456,6 +456,12 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
         Dim firstVRow As Long: firstVRow = lastV + 1
         If firstVRow < 2 Then firstVRow = 2
         WriteRowsBatched wsV, firstVRow, outV, vecCount, 2
+        ' R12-H-6: my_vectors を増やしたら検索側のセッションキャッシュは古い。
+        ' 件数が変わるので印だけでも作り直されるが、世代を進める場所を
+        ' 「ベクトルを書いた所」に統一しておく(検知漏れを型で防ぐ)。
+        On Error Resume Next
+        modVecCache.BumpGeneration
+        On Error GoTo 0
     End If
 End Sub
 

@@ -1,6 +1,11 @@
 dist/*.log
 dist/*.tmp
 dist/*_配布.zip
+# ビルドの中間生成物(R12-9-2の原子的確定)。*.building は Stage5→6 の途中経過、
+# *.failed は自己検証に落ちた不良品の退避先。どちらもコミット対象ではない
+# (2026-08-01 R12-H-7。混入すると「壊れた配布物がリポジトリに居る」状態になる)。
+dist/*.building.xlsm
+dist/*.failed.xlsm
 *.log
 *.swp
 .DS_Store

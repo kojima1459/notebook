@@ -188,9 +188,28 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim tF0 As Double: tF0 = modBitwiseOpt.MicroTimerMs()   ' 爆速証明: Float再ランク計測開始
     Dim r As Long
     Dim rLo As Long: rLo = LBound(idData, 1)
+RescanAll:
     For r = rLo To UBound(idData, 1)
         ' R12-4: 20,500行の全走査は数秒〜十数秒かかる。無反応にしない。
-        If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then TickScan r - rLo, nV
+        If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then
+            TickScan r - rLo, nV
+            ' R12-H-2: DoEvents の隙に取込/同期がキャッシュを解放し得る。
+            ' 気付かずに続けると SlotOfRow が全て -1 を返し、残りの行が
+            ' 【無言で検索結果から消える】。検知したら記録して、その質問は
+            ' 従来経路で最初からやり直す(欠けた結果を返すより時間を使う)。
+            If useCache Then
+                If Not modVecCache.Ready() Then
+                    LostMidScan "modRetrieve.Search"
+                    useCache = False
+                    modVecCache.LoadDirectVectors wsV, lastV, idData, vData
+                    filled = 0
+                    minIdx = 0
+                    minScore = 0
+                    e0702Logged = False
+                    GoTo RescanAll
+                End If
+            End If
+        End If
         If useCand Then If Not candRows.Exists(r) Then GoTo NextR   ' [Lv.1] 粗選別候補以外は除外
         Dim vid As String
         vid = CStr(idData(r, 1))
@@ -421,8 +440,23 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
 
         Dim r As Long
         Dim rLo As Long: rLo = LBound(idData, 1)
+RescanQuery:
         For r = rLo To UBound(idData, 1)
-            If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then TickScan r - rLo, nV
+            If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then
+                TickScan r - rLo, nV
+                ' R12-H-2: 単段と同じ理由でキャッシュ消失を検知する。
+                ' union は「同じchunk_idなら最大スコアを採る」ので、同じ行を
+                ' もう一度採点しても結果は変わらない(スコアは両経路で同一)。
+                If useCache Then
+                    If Not modVecCache.Ready() Then
+                        LostMidScan "modRetrieve.SearchExpanded"
+                        useCache = False
+                        modVecCache.LoadDirectVectors wsV, lastV, idData, vData
+                        e0702Logged = False
+                        GoTo RescanQuery
+                    End If
+                End If
+            End If
             If useCandQ Then If Not candRowsQ.Exists(r) Then GoTo NextRow
             Dim vid As String
             vid = CStr(idData(r, 1))
@@ -581,6 +615,15 @@ End Function
 ' のは金融では事故」と自ら定義した決定的救済が、粗選別より後段に置かれて
 ' いたための矛盾である。候補に足すだけなので、順位付けは従来どおり
 ' Floatスコア+KeyScore が決める(拾いすぎても結果は壊れない)。
+'
+' 2026-08-01(R12-H-1 敵対的レビュー High-1/Med-4): 照合先を生4列の連結から
+' 前計算済みの norm_text(modShelfStore.NormTextAt)へ変えた。
+' DistinctiveKeys が返すキーは正規化済み(小文字・半角・空白除去)なのに、
+' 当てる先が生テキストのままだったため、全角英数の型番や
+' PDF字詰めの「保 険 金」を含む行が【救済されずに落ちて】いた。
+' 救済のための仕組みが、救済すべき行を取りこぼしていたことになる。
+' R12-4 で norm_text を前計算した今は、正規化のやり直しコストも掛からない
+' (当初 vbTextCompare で生テキストを見ていた理由=速度が消えた)。
 Private Sub UnionKeyMatchRows(ByRef idData As Variant, ByRef kData As Variant, _
                               ByVal idx As Object, ByVal keys As String, _
                               ByVal cand As Object)
@@ -589,17 +632,17 @@ Private Sub UnionKeyMatchRows(ByRef idData As Variant, ByRef kData As Variant, _
     If LenB(keys) = 0 Then Exit Sub
 
     Dim r As Long
-    For r = LBound(idData, 1) To UBound(idData, 1)
+    Dim rLo As Long: rLo = LBound(idData, 1)
+    Dim nAll As Long: nAll = UBound(idData, 1) - rLo + 1
+    For r = rLo To UBound(idData, 1)
+        ' 救済unionも全件走査(粗選別が省いたぶんをここで見る)。無反応にしない。
+        If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then TickScan r - rLo, nAll
         If Not cand.Exists(r) Then
             Dim vid As String: vid = CStr(idData(r, 1))
             If LenB(vid) > 0 Then
                 If idx.Exists(vid) Then
                     Dim kRow As Long: kRow = idx.Item(vid)
-                    If modSparse.HasAnyKey(keys, _
-                            CStr(kData(kRow, COL_K_SOURCE)) & " " & _
-                            CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
-                            CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
-                            CStr(kData(kRow, COL_K_FULLTEXT))) Then
+                    If modSparse.HasAnyKey(keys, modShelfStore.NormTextAt(kData, kRow)) Then
                         cand.Add r, True
                     End If
                 End If
@@ -631,6 +674,16 @@ End Sub
 ' 押されたボタンは modUiLock.Enter(OnSend系が取得済み)が受け流すので、
 ' ここで DoEvents を回しても検索が二重に走ることはない。
 ' 表示の失敗が検索を止めないよう、丸ごと On Error Resume Next の中で行う。
+' キャッシュがスキャン中に解放されたことの記録(無言の失敗禁止・憲章§4-1)。
+' 「たまに答えが薄い」を後から説明できる唯一の痕跡になる。
+Private Sub LostMidScan(ByVal ctx As String)
+    On Error Resume Next
+    modLog.LogUsage "veccache_lost_midscan", "", _
+        ctx & ": 検索中にベクトルキャッシュが解放されたため、この質問は" & _
+        "従来の経路で最初からやり直しました(結果は欠けません)"
+    On Error GoTo 0
+End Sub
+
 Private Sub TickScan(ByVal doneRows As Long, ByVal totalRows As Long)
     On Error Resume Next
     modUIMain.SetStage ChrW(&HD83D) & ChrW(&HDD0D) & " 検索中 " & _

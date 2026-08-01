@@ -119,8 +119,25 @@ Private Sub TestHasAnyKey()
         (modSparse.HasAnyKey(keys, "") = False), ""
     modTestRunner.Check "R12-3-7: 1文字キーは拾わない(KeyScoreと同じ規則)", _
         (modSparse.HasAnyKey("第|", "第") = False), ""
-    modTestRunner.Check "R12-3-7: 英字は大小を区別しない", _
-        modSparse.HasAnyKey("abc", "XABCX"), ""
+    ' 2026-08-01(R12-H-1): 判定規則を「正規化済みキー × 正規化済みテキスト」の
+    ' 二項に変えた(doc は my_knowledge.norm_text = MatchDocText の結果)。
+    ' 大小・全角の吸収は【正規化が済ませる】ので、InStr 自体は vbBinaryCompare。
+    ' 生テキストへ当てるのは誤用(下の2本目がその境界を示す)。
+    modTestRunner.Check "R12-H-1: 正規化済みなら英字の大小は既に吸収されている", _
+        modSparse.HasAnyKey("abc", modSparse.MatchDocText("", "", "", "XABCX")), ""
+    modTestRunner.Check "R12-H-1: 生テキスト(未正規化)には当たらない=呼び出し側の契約", _
+        (modSparse.HasAnyKey("abc", "XABCX") = False), ""
+    ' 全角の型番とPDF字詰めの本文。救済unionが取りこぼしていた実例そのもの
+    ' (キーは正規化済みなのに、当てる先が生テキストだったため落ちていた)。
+    ' 「同じ資料」を正規化して当てればTrue、生のまま当てればFalseになる、
+    ' という非対称をここで固定する。
+    Dim fwKeys As String: fwKeys = modSparse.DistinctiveKeys("ＡＢＣ－１２の適用範囲")
+    Dim rawDoc As String: rawDoc = "型番 ＡＢＣ－１２ の 適 用"
+    modTestRunner.Check "R12-H-1: 全角・字詰めでも正規化テキストなら当たる", _
+        modSparse.HasAnyKey(fwKeys, modSparse.MatchDocText("", "", "", rawDoc)), _
+        "keys=[" & fwKeys & "]"
+    modTestRunner.Check "R12-H-1: 同じ資料でも生テキストのままでは当たらない(旧実装の穴)", _
+        (modSparse.HasAnyKey(fwKeys, rawDoc) = False), "keys=[" & fwKeys & "]"
 End Sub
 
 ' ----------------------------------------------------------------------------

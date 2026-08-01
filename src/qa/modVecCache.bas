@@ -315,8 +315,10 @@ Public Function BuildFrom(ByRef vData As Variant, ByVal stampKey As String, _
 Abort:
     ' 例外ではない断念(行が無い/1本もパースできない)。ここは Resume を
     ' 使ってはいけない(エラーが起きていないときの Resume は実行時エラー20)。
+    ' 2026-08-01(R12-H-10): 例外ではないので err# を書かない。err#0 と書くと
+    ' 「原因不明の失敗」に見え、読み手が存在しないエラーを探すことになる。
     On Error GoTo 0
-    Cleanup stampKey, 0, withProgress
+    Cleanup stampKey, "ベクトルの行が無いか、1本も読み取れませんでした", withProgress
     BuildFrom = False
     Exit Function
 
@@ -326,23 +328,23 @@ Fail:
     ' ハンドラを抜ける(2026-07-30 実機err#462と同型の作法)。
     Resume FailTail
 FailTail:
-    Cleanup stampKey, origNum, withProgress
+    Cleanup stampKey, "メモリが足りませんでした(err#" & origNum & ")", withProgress
     BuildFrom = False
 End Function
 
 ' 断念したときの後始末: 解放して「この内容ではもう試さない」印を残し、記録する。
-Private Sub Cleanup(ByVal stampKey As String, ByVal origNum As Long, ByVal withProgress As Boolean)
+Private Sub Cleanup(ByVal stampKey As String, ByVal reason As String, ByVal withProgress As Boolean)
     ResetVecCache
     mFailStamp = stampKey & "|g" & mGeneration
-    ReportFallback origNum, withProgress
+    ReportFallback reason, withProgress
 End Sub
 
 ' 構築を断念したことの記録(無言の失敗禁止・憲章§4-1)。機能は落とさないが
 ' 「なぜ今日は遅いのか」を後から特定できるよう usage_log に1行だけ残す。
-Private Sub ReportFallback(ByVal origNum As Long, ByVal withProgress As Boolean)
+Private Sub ReportFallback(ByVal reason As String, ByVal withProgress As Boolean)
     On Error Resume Next
     modLog.LogUsage "veccache_fallback", "", _
-        "ベクトルキャッシュを作れなかったため従来の検索経路で続行します(err#" & origNum & ")"
+        "ベクトルキャッシュを作れなかったため従来の検索経路で続行します: " & reason
     If withProgress Then modUIMain.HideProgress
     On Error GoTo 0
 End Sub
@@ -405,6 +407,14 @@ End Function
 
 ' 従来経路(毎回パース)で必要な2列を読む。読めなくても検索側が0件で
 ' 安全に終われるよう、失敗は握って空のまま返す。
+' 2026-08-01(R12-H-2): 走査の途中でキャッシュが解放されたとき、検索側が
+' 「その場で従来経路へ切り替えて最初からやり直す」ために公開している
+' (my_vectors の読み方をこのモジュール1箇所に保つ)。
+Public Sub LoadDirectVectors(ByVal wsV As Worksheet, ByVal lastV As Long, _
+                             ByRef idData As Variant, ByRef vData As Variant)
+    LoadDirect wsV, lastV, idData, vData
+End Sub
+
 Private Sub LoadDirect(ByVal wsV As Worksheet, ByVal lastV As Long, _
                        ByRef idData As Variant, ByRef vData As Variant)
     On Error Resume Next
