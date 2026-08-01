@@ -119,6 +119,14 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     mBatchIngesting = True
     mBatchSince = Now
 
+    ' R12-4: 取込はシートを大きく書き換える。検索用のベクトルキャッシュ
+    ' (32bit Excelで最大126MB)を抱えたまま取込に入ると、取込側の配列と
+    ' ピークが重なってメモリ不足(err7)を起こしやすい。先に解放しておく
+    ' (次の検索で作り直される)。
+    On Error Resume Next
+    modVecCache.ResetVecCache
+    On Error GoTo AddFailed
+
     ' R10-2: ファイル選択が確定した(キャンセルではない)ので、GS未検出の
     ' 案内カード(セッション1回きり)を再提示可能に戻す。利用者が能動的に
     ' 取込を実行する入口のみが対象で、自動同期(modShelfSync)からは呼ばない。

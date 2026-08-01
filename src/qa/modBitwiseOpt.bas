@@ -38,6 +38,9 @@ Private mSkippedDim As Long
 ' 実行時上書きも可)。topK(quick=6/deep=12)より十分大きくFloat再ランクの再現率を担保。
 Public Const TOP_K_ROUGH As Long = 200
 
+' 重ループの進捗更新+DoEvents間隔(行)。憲章§3-2。
+Private Const PROGRESS_STEP As Long = 2000
+
 Private mBit(0 To 31) As Long        ' ビットマスク(bit31は&H80000000=符号ビット)
 Private mPop(0 To 255) As Long       ' バイトpopcountテーブル
 Private mTablesReady As Boolean
@@ -56,13 +59,31 @@ Private mLastPerf As String          ' 直近の爆速証明ログ(UI層がConsu
 ' ----------------------------------------------------------------------------
 Public Function Enabled(ByVal rowCount As Long) As Boolean
     On Error GoTo Off
-    If Not modConfig.GetBool("binary_rag", False) Then Exit Function
-    Dim minN As Long: minN = modConfig.GetLong("binary_rag_min", 5000)
-    If rowCount < minN Then Exit Function
-    Enabled = True
+    Enabled = ShouldPrefilter(rowCount, modConfig.GetLong("binary_rag_min", 5000), _
+                              modConfig.GetBool("binary_rag", False), _
+                              modConfig.GetBool("binary_rag_auto", True))
     Exit Function
 Off:
     Enabled = False
+End Function
+
+' ----------------------------------------------------------------------------
+' ShouldPrefilter - 粗選別を使うかの判定(純ロジック。configから切り離してテスト)。
+' ----------------------------------------------------------------------------
+' 2026-08-01(R12-4): binary_rag_auto(既定TRUE)を新設した。
+'   ・件数が binary_rag_min 未満なら常に使わない(小規模KBは厳密Floatのまま)。
+'   ・binary_rag=TRUE なら従来どおり有効(明示指定)。
+'   ・binary_rag=FALSE でも binary_rag_auto=TRUE なら大規模時だけ自動で有効。
+' キーを3値(TRUE/FALSE/AUTO)にせず2キーに分けたのは、config は文字列セルで
+' あり「明示FALSE」と「既定FALSE」を区別できないため。既定FALSEの人まで
+' 自動化から外れると、この対策が一番効くべき大規模利用者に届かない。
+' 完全に切りたい管理者は binary_rag_auto=FALSE を書けばよい(1キーで止まる)。
+Public Function ShouldPrefilter(ByVal rowCount As Long, ByVal minN As Long, _
+                                ByVal explicitOn As Boolean, ByVal autoOn As Boolean) As Boolean
+    Dim lim As Long: lim = minN
+    If lim < 1 Then lim = 5000
+    If rowCount < lim Then Exit Function
+    ShouldPrefilter = (explicitOn Or autoOn)
 End Function
 
 ' 粗選別で残す候補数。既定は定数TOP_K_ROUGH、config binary_rag_prefilterで実行時上書き可。
@@ -161,6 +182,7 @@ Public Function Prefilter(ByRef qv() As Double, ByRef vData As Variant, _
 
     Dim s As Long
     For s = 0 To mNCached - 1
+        If (s Mod PROGRESS_STEP) = 0 And s > 0 Then Tick s, mNCached
         Dim d As Long
         d = HammingAt(qcode, s)
         If filled < n Then
@@ -197,6 +219,13 @@ Private Function BuildCache(ByRef vData As Variant) As Boolean
         Exit Function
     End If
 
+    ' 2026-08-01(R12-4): ベクトルキャッシュがあるならCSVを読み直さない。
+    ' 量子化コードの材料は「パース済みのDouble配列」であって、CSV文字列ではない。
+    If modVecCache.Ready() Then
+        BuildCache = BuildFromVecCache(stamp)
+        Exit Function
+    End If
+
     Dim rLo As Long, rHi As Long
     rLo = LBound(vData, 1): rHi = UBound(vData, 1)
 
@@ -222,6 +251,7 @@ Private Function BuildCache(ByRef vData As Variant) As Boolean
     Dim slot As Long: slot = 0
 
     For r = rLo To rHi
+        If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then Tick r - rLo, maxRows
         Dim vid As String: vid = CStr(vData(r, 1))
         If LenB(vid) = 0 Then GoTo NextRow
         Dim vcsv As String: vcsv = CStr(vData(r, 2))
@@ -257,12 +287,74 @@ NextRow:
     BuildCache = (slot > 0)
 End Function
 
-' キャッシュ鍵: 件数+先頭/末尾chunk_id(ナレッジが変わると変化→自動再構築)。
+' ----------------------------------------------------------------------------
+' BuildFromVecCache - パース済みベクトル(modVecCache)から量子化コードを作る。
+' ----------------------------------------------------------------------------
+' 載せる行・次元不一致の扱いは従来の vData 版と同じ(次元不一致は載せず、
+' 件数を mSkippedDim に数えて呼び出し側が辞退を判断できるようにする)。
+Private Function BuildFromVecCache(ByVal stamp As String) As Boolean
+    On Error GoTo Fail
+    Dim dimN As Long: dimN = modVecCache.CachedDim()
+    If dimN < 1 Then Exit Function
+    Dim nLongs As Long: nLongs = (dimN + 31) \ 32
+    Dim slots As Long: slots = modVecCache.SlotCount()
+    If slots < 1 Then Exit Function
+
+    ReDim mCodes(0 To slots * nLongs - 1)
+    ReDim mRowOf(0 To slots - 1)
+    mSkippedDim = modVecCache.MismatchCount()
+
+    Dim vv() As Double
+    Dim code() As Long
+    Dim s As Long, j As Long
+    For s = 0 To slots - 1
+        If (s Mod PROGRESS_STEP) = 0 And s > 0 Then Tick s, slots
+        If modVecCache.VectorAt(s, vv) Then
+            QuantizeToLongs vv, code
+            For j = 0 To nLongs - 1
+                mCodes(s * nLongs + j) = code(j)
+            Next j
+            mRowOf(s) = modVecCache.RowOfSlot(s)
+        End If
+    Next s
+
+    mNLongs = nLongs
+    mNCached = slots
+    mStamp = stamp
+    BuildFromVecCache = True
+    Exit Function
+Fail:
+    mNCached = 0
+    mStamp = vbNullString
+    BuildFromVecCache = False
+End Function
+
+' キャッシュ鍵: 件数+先頭/末尾chunk_id+埋め込み世代。
+' 2026-08-01(R12-4): 世代を混ぜる。件数も先頭/末尾idも変わらない
+' 「同じ行を上書きする再埋め込み」(MarkAllForReembed→EmbedPending)を
+' 従来は検知できず、古い量子化コードで粗選別し続けていた。
 Private Function CacheStamp(ByRef vData As Variant) As String
+    Dim g As String
+    On Error Resume Next
+    g = "|g" & modVecCache.Generation()
+    On Error GoTo 0
+    If modVecCache.Ready() Then
+        CacheStamp = modVecCache.Stamp() & g
+        Exit Function
+    End If
     Dim rLo As Long, rHi As Long
     rLo = LBound(vData, 1): rHi = UBound(vData, 1)
-    CacheStamp = CStr(rHi - rLo + 1) & "|" & CStr(vData(rLo, 1)) & "|" & CStr(vData(rHi, 1))
+    CacheStamp = CStr(rHi - rLo + 1) & "|" & CStr(vData(rLo, 1)) & "|" & CStr(vData(rHi, 1)) & g
 End Function
+
+' 粗選別ループの進捗更新+DoEvents(2026-08-01 R12-4。憲章§3-2)。
+Private Sub Tick(ByVal doneN As Long, ByVal totalN As Long)
+    On Error Resume Next
+    modUIMain.SetStage ChrW(&HD83D) & ChrW(&HDD0D) & " 候補をしぼり込み中 " & _
+        modUtil.ProgressText(doneN, totalN, "")
+    DoEvents
+    On Error GoTo 0
+End Sub
 
 ' キャッシュ内スロットsのコードとqcodeのハミング距離。
 Private Function HammingAt(ByRef qcode() As Long, ByVal slot As Long) As Long

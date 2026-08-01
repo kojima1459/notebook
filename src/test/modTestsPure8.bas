@@ -380,6 +380,11 @@ NextMerge:
 NextRerank:
     On Error GoTo RerankFail
     TestRerankPromptRoundTrip
+NextRun9:
+    ' 2026-08-01(R12-4): 容量のための分割先(modTestsPure9)。ここが唯一の
+    ' 導線で、消すとR12-4のテストが「実行されないまま」全部PASSに見える。
+    On Error GoTo Run9Fail
+    modTestsPure9.RunAll9
 NextDone8:
     On Error GoTo 0
     Exit Sub
@@ -422,6 +427,10 @@ MergeFail:
     Resume NextRerank
 RerankFail:
     modTestRunner.Check "TestRerankPromptRoundTrip(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun9
+Run9Fail:
+    modTestRunner.Check "modTestsPure9.RunAll9(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone8
 End Sub

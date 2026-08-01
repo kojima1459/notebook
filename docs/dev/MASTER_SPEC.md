@@ -74,7 +74,13 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `ui_state` | veryHidden | UI内部状態(モード選択等) |
 | `vba_src` | veryHidden | 自己インストーラ用ソース格納(ビルド時生成) |
 
-**my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded`
+**my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded, norm_text`
+- norm_text(10列目・2026-08-01 R12-4追加): 照合用の正規化済みテキスト
+  (`modSparse.MatchDocText(summary, keywords, source, full_text)` の結果)。
+  取込時に1回だけ作り、検索側は読むだけにする。空欄は「未計算」を意味し、
+  検索時にその行だけ計算して書き戻す(遅延バックフィル)。見出しは
+  `modShelfStore.EnsureKnowledgeSheet` が毎回・冪等に付ける(既存ブックの
+  移行処理は不要。manifest の fail_count と同じ作法)。
 - chunk_id 形式: `bs::<fnv64hex(full_text正規化後)>::p<page>::c<連番>`。fnvハッシュ部が重複排除キー。
 - origin: `self` | `pack:<作成者名>`
 - embedded: 0/1(1=my_vectorsに行がある)。再開可能バッチの走査キー。
@@ -113,6 +119,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | embed_dim | 768 | ベクトル次元(パック互換性検査に使用。Plan B: 1536取得→先頭768切詰め+再正規化) |
 | embed_sleep_ms | 0 | 埋め込み呼び出し間スロットリング(ミリ秒。0=待たない。レート制限時のみ50〜150へ) |
 | shelf_max_chunks | 20500 | 本棚チャンク上限(超過時は取込拒否+整理案内) |
+| binary_rag / binary_rag_auto | FALSE / TRUE | 粗選別(バイナリ量子化)の明示指定と自動有効化。binary_rag=FALSEでも binary_rag_auto=TRUE かつ件数>=binary_rag_min なら自動で有効(R12-4)。完全に止めるには binary_rag_auto=FALSE |
 | shelf_folder | (空) | 本棚フォルダパス |
 | sync_interval_min | 0 | OnTime自動同期間隔(0=off) |
 | sync_on_open | TRUE | 起動時に差分同期 |
@@ -398,6 +405,16 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
 ```
 
 ### 7.3 QA層
+
+**modVecCache**(2026-08-01 R12-4追加): セッション内ベクトルキャッシュと
+埋め込み世代カウンタ。`Generation` / `BumpGeneration` / `ResetVecCache` /
+`BuildFrom` / `PrepareVectors` / `DotAt` / `SlotOfRow` / `StampOf` /
+`IsStale` / `Ready` ほか参照系。my_vectors の vector_csv を1セッション1回だけ
+パースして Double 配列で保持する。世代カウンタは「取込(EmbedPendingの書込)・
+削除(RemoveVectorsByIds)・再埋め込み(MarkAllForReembed)」の3つの書込点が
+必ず進め、キャッシュと modBitwiseOpt の量子化コードの双方を無効化する
+(件数・先頭/末尾idの印だけでは再埋め込みを検知できない)。構築失敗(err7)は
+捕捉して従来経路へ自動フォールバックし、usage_log に `veccache_fallback` を残す。
 
 **modRetrieve.bas**
 ```vba

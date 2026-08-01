@@ -126,6 +126,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     mSyncRunning = True
     mSyncRunningSince = Now
 
+    ' R12-4: 同期も取込と同じくシートを大きく書き換える。検索用ベクトル
+    ' キャッシュを先に解放し、取込側の配列とピークが重ならないようにする。
+    On Error Resume Next
+    modVecCache.ResetVecCache
+    On Error GoTo 0
+
     ' 自動同期(OnTime)/手動同期中の大量シート書換え中にイベント連鎖が起きない
     ' よう抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
     On Error Resume Next

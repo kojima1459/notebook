@@ -193,9 +193,13 @@ CONTRACT: dict[str, dict] = {
         # 生テキストへの粗い包含判定を1本だけ公開する(判定規則が2箇所に
         # 分かれないよう、modRetrieve 側には条件を書かない)。純関数なので
         # modTestsPure4 が境界を固定する。
+        # MatchDocText(2026-08-01 R12-4): 1チャンクの照合テキストを作る式を
+        # 1本にした。取込時に my_knowledge の norm_text 列へ前計算して保存する
+        # ようになったため、式が2箇所にあると保存済み行と未保存行でスコアが
+        # 変わる(順位が静かに割れる)。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
                      "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
-                     "HasAnyKey"],
+                     "HasAnyKey", "MatchDocText"],
     },
     "modChunker": {
         "closed": True,
@@ -282,6 +286,19 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         # SearchExpanded: マルチクエリ検索(設計書§C-2)。Searchは不変。
         "required": ["Search", "SearchExpanded"],
+    },
+    # modVecCache(2026-08-01 R12-4): セッション内ベクトルキャッシュと埋め込み
+    # 世代カウンタ。my_vectors の再パースを1セッション1回に畳む。open にして
+    # あるのは、参照系アクセサ(SlotOfRow/DimOfRow/RowOfSlot/CachedDim…)が
+    # 実装都合で増減するため。要件で名指しされている「世代」「解放」「構築」
+    # 「等価な内積」の4点だけを契約として固定する。
+    "modVecCache": {
+        "closed": False,
+        "required": [
+            "Generation", "BumpGeneration", "ResetVecCache",
+            "BuildFrom", "PrepareVectors", "DotAt", "SlotOfRow",
+            "StampOf", "IsStale", "Ready",
+        ],
     },
     "modPrompts": {
         "closed": True,
@@ -707,6 +724,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll7"],
     },
+    # modTestsPure9: 2026-08-01 R12-4で追加。modTestsPure8が28,000字(WARN帯)に
+    # 達したための分割先。modTestsPure8.RunAll8の末尾から呼ばれる入口 RunAll9
+    # だけが契約。
+    "modTestsPure9": {
+        "closed": False,
+        "required": ["RunAll9"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -738,6 +762,9 @@ PURE_LOGIC_MODULES = {
     # modTestsPure8(2026-08-01 R12-8): テスト補強(モジュール全滅解消・ハッシュ
     # 互換ゴールデン値)の純ロジックテスト。modTestsPure7の容量逼迫による分割先。
     "modTestsPure8",
+    # modTestsPure9(2026-08-01 R12-4): 検索スケール恒久対策の純ロジックテスト。
+    # modTestsPure8の容量逼迫(WARN帯)による分割先。
+    "modTestsPure9",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

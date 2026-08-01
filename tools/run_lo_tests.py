@@ -210,11 +210,22 @@ PURE_ALLOWLIST = [
     #     allowlistが未登録だった。bit31境界(符号ビット)とマーカー
     #     パース/履歴縮約ループの停止性を実行テストで固定する。
     "modRagParse", "modBitwiseOpt", "modFollowup",
+    # modVecCache(2026-08-01 R12-4): セッション内ベクトルキャッシュ。
+    #   シートを読むのは PrepareVectors 1本だけで、キャッシュ構築(BuildFrom)・
+    #   世代判定(IsStale/StampOf)・内積(DotAt)はいずれも配列だけで完結する
+    #   (modShelfSync/modPack と同じ「モジュール全体はR4準拠ではないが、
+    #   テストで呼ぶ関数自体はExcelに触れない」型)。等価テスト
+    #   (キャッシュ経路 vs 直接パース経路のスコア一致)を走らせるために必須。
+    "modVecCache",
     # modTestsPure8(2026-08-01 R12-8): modTestsPure7の容量逼迫による分割先。
     #   modTestsPure7.RunAll7 の末尾が RunAll8 を呼ぶため、未注入だと実行時
     #   エラー12になり分割先のテストが「実行されないまま」になる
     #   (modTestsPure7追加時と同型の理由)。
     "modTestsPure8",
+    # modTestsPure9(2026-08-01 R12-4): modTestsPure8の容量逼迫による分割先。
+    #   modTestsPure8.RunAll8 の末尾が RunAll9 を呼ぶため、未注入だと実行時
+    #   エラー12になり分割先のテストが「実行されないまま」になる。
+    "modTestsPure9",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -212,7 +212,9 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim existingHashes As Object
     Set existingHashes = modShelfStore.BuildExistingHashSet(wsK, sourceName)
 
-    Dim outRows() As Variant: ReDim outRows(1 To chunkN, 1 To 9)
+    ' 10列目 norm_text(R12-4): 照合用の正規化済みテキストをここで1回だけ作る。
+    ' 検索のたびに全チャンクを正規化し直していたぶんが丸ごと消える(総量は不変)。
+    Dim outRows() As Variant: ReDim outRows(1 To chunkN, 1 To 10)
     Dim acceptedCount As Long: acceptedCount = 0
     Dim lastPage As Long: lastPage = -1
     Dim seq As Long: seq = 0
@@ -247,6 +249,12 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             outRows(acceptedCount, COL_FULLTEXT) = modUtil.SafeLeft(bodyText, 32000)
             outRows(acceptedCount, COL_ADDED) = addedStamp
             outRows(acceptedCount, COL_EMBEDDED) = 0
+            ' 保存する本文(SafeLeft後)から作る。1セルに収まらない場合だけ空に
+            ' しておき、検索側の遅延バックフィルへ委ねる(切り詰めた値を保存すると
+            ' 保存済み行と未保存行でスコアが変わる)。
+            Dim normDoc As String
+            normDoc = modSparse.MatchDocText("", "", sourceName, CStr(outRows(acceptedCount, COL_FULLTEXT)))
+            If Len(normDoc) <= 32000 Then outRows(acceptedCount, modShelfStore.COL_K_NORM) = normDoc
         End If
     Next ci
 
@@ -279,7 +287,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             batchArr = modShelfStore.SliceRows(outRows, batchStart, batchN)
 
             Dim wTop As Long: wTop = firstNewRow + batchStart - 1
-            wsK.Range(wsK.Cells(wTop, 1), wsK.Cells(wTop + batchN - 1, 9)).Value = batchArr
+            wsK.Range(wsK.Cells(wTop, 1), wsK.Cells(wTop + batchN - 1, modShelfStore.COL_K_NORM)).Value = batchArr
         Next batchStart
     End If
 

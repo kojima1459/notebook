@@ -366,7 +366,8 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("noise_global_threshold", 2, "ナレッジ自浄: 異なるN人からの⚠️ノイズ報告(P2P集計)でその資料を全ユーザーの検索から組織的除外する閾値"),
         ("admin_users", "", "組織的除外を解除できる管理者ADユーザー名(カンマ区切り)。空なら誰も解除不可"),
         ("shelf_max_chunks", 20500, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),
-        ("binary_rag", False, "狂気案Lv.1: TRUE=大規模時にバイナリ量子化(XORハミング)で候補を高速粗選別してからFloatコサインで再ランク。小規模(binary_rag_min未満)では自動的に厳密Floatのまま=挙動不変"),
+        ("binary_rag", False, "狂気案Lv.1: TRUE=大規模時にバイナリ量子化(XORハミング)で候補を高速粗選別してからFloatコサインで再ランク。小規模(binary_rag_min未満)では自動的に厳密Floatのまま=挙動不変。FALSEでも binary_rag_auto=TRUE なら大規模時は自動で有効になる"),
+        ("binary_rag_auto", True, "TRUE=binary_rag が FALSE でも、チャンク数が binary_rag_min 以上なら粗選別を自動で有効にする(大規模な本棚ほど検索が重くなるため既定TRUE)。粗選別を完全に止めたいときだけ FALSE にする"),
         ("binary_rag_min", 5000, "バイナリ量子化ハイブリッドが作動する最小チャンク数(これ未満は従来どおり全件Floatスキャン)"),
         ("binary_rag_prefilter", 200, "バイナリ粗選別で残す候補数(topKより十分大きくFloat再ランクの精度を担保)"),
         ("binary_rag_debug", False, "狂気案Lv.1のデモ用: TRUE=ハイブリッド検索の所要ms(バイナリ選別/Float再ランク)をToastで画面表示(爆速証明)。Debug.Printには常時出力"),
@@ -1384,11 +1385,14 @@ def main():
     _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "ダッシュボード", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_config(wb, mock_llm, publish_key)
+    # norm_text(10列目・R12-4): 照合用の正規化済みテキスト。取込時に前計算し、
+    # 空欄の行は検索時に遅延バックフィルする(modShelfStore)。数式注入防御の
+    # ため text_cols にも入れる(先頭"="の本文が格納型数式にならないように)。
     _make_headers_only(wb, "my_knowledge",
                         ["chunk_id", "source", "origin", "page", "summary",
-                         "keywords", "full_text", "added_at", "embedded"],
-                        "veryHidden", widths=[32, 24, 14, 6, 50, 40, 80, 20, 10],
-                        text_cols=[2, 5, 6, 7])   # source/summary/keywords/full_text
+                         "keywords", "full_text", "added_at", "embedded", "norm_text"],
+                        "veryHidden", widths=[32, 24, 14, 6, 50, 40, 80, 20, 10, 80],
+                        text_cols=[2, 5, 6, 7, 10])   # source/summary/keywords/full_text/norm_text
     _make_headers_only(wb, "my_vectors", ["chunk_id", "vector_csv"], "veryHidden",
                         widths=[32, 100])
     _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)

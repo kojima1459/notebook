@@ -248,6 +248,14 @@ AfterLoop:
         modLog.LogError "E0204", "modEmbed.EmbedPending", abortReason & " done=" & doneCount & "/" & limit
     End If
 
+    ' R12-4: my_vectors に1本でも書いたらセッション内キャッシュは古い。
+    ' 途中中断(ESC/上限)でも書いた分はあるので doneCount で判断する。
+    If doneCount > 0 Then
+        On Error Resume Next
+        modVecCache.BumpGeneration
+        On Error GoTo 0
+    End If
+
     mRunning = False
     EmbedPending = doneCount
 End Function
@@ -316,6 +324,11 @@ Public Sub MarkAllForReembed()
     End If
 
     On Error Resume Next
+    ' R12-4: 再埋め込みは「件数も先頭/末尾idも同じまま中身だけ変わる」典型例。
+    ' 世代を進めないと、セッション内キャッシュも粗選別の量子化コードも
+    ' 古いベクトルのまま使われ続ける(RAG監査3の「再埋め込みを検知しない」)。
+    modVecCache.ResetVecCache
+    modVecCache.BumpGeneration
     modLog.LogUsage "reembed_reset", "embed", "全チャンクを再ベクトル化対象に設定"
     On Error GoTo 0
 End Sub

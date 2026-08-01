@@ -1,0 +1,261 @@
+Attribute VB_Name = "modTestsPure9"
+Option Explicit
+
+' ============================================================================
+' modTestsPure9 - R12-4(検索スケール恒久対策)の純ロジック回帰テスト
+' ----------------------------------------------------------------------------
+' なぜ新しいモジュールなのか:
+'   modTestsPure8 に足すと28,000字(WARN帯)を超える。憲章§4-6「WARN帯の
+'   モジュールに機能を足さない。足す前に分割を裁定する」に従った分割先で、
+'   modTestsPure2〜8 と同じ理由・同じ作法である。
+'   入口は modTestsPure8.RunAll8 の末尾から呼ばれる Public Sub RunAll9()。
+'   この1行が唯一の導線で、消すと本モジュールのテストは「実行されないまま」
+'   全部PASSに見える(分割群と同型の事故)。
+'
+' 固定する事実:
+'   ・modVecCache: キャッシュ経路と直接パース経路のスコア【完全一致】。
+'     R12-4の検収条件そのもので、加算順序を変える"最適化"を機械で止める。
+'   ・modVecCache: 世代カウンタによる無効化。件数も先頭/末尾idも変わらない
+'     再埋め込みは、印(Stamp)だけでは検知できない。
+'   ・modVecCache: 次元混在時に載らなかった行を-2で区別すること
+'     (-1と同じ扱いにするとE0702が出ないまま資料が静かに検索から消える)。
+'   ・modBitwiseOpt.ShouldPrefilter: binary_rag_auto の真理値表。
+'   ・modSparse.MatchDocText: my_knowledge.norm_text(取込時の前計算)と
+'     検索時のその場計算が1文字も違わないこと。
+' ============================================================================
+
+' テスト用の my_vectors 相当(chunk_id, vector_csv)の2列配列を作る。
+Private Function FakeVData() As Variant
+    Dim v As Variant
+    ReDim v(1 To 5, 1 To 2)
+    v(1, 1) = "bs::a::p1::c1": v(1, 2) = "0.1234567,-0.7654321,0.3333333,0.5555555"
+    v(2, 1) = "bs::b::p1::c2": v(2, 2) = "-0.9876543,0.1111111,0.2222222,-0.4444444"
+    v(3, 1) = "bs::c::p2::c1": v(3, 2) = ""                       ' ベクトル未生成の行
+    v(4, 1) = "bs::d::p2::c2": v(4, 2) = "0.5000001,0.5000002,0.4999999,0.4999998"
+    v(5, 1) = "bs::e::p3::c1": v(5, 2) = "not,a,number,x"         ' 壊れたCSV
+    FakeVData = v
+End Function
+
+' ----------------------------------------------------------------------------
+' 等価テスト(R12-4 検収条件): キャッシュ経路と直接パース経路のスコアが
+'   「近い」ではなく【完全に同じ】であること。
+' ----------------------------------------------------------------------------
+' 浮動小数の加算は順序が変われば結果も変わる。キャッシュ側(modVecCache.DotAt)を
+' 「速くしよう」として加算順序や中間型を変えると、順位が静かに入れ替わる。
+' ここは近似(誤差以内)ではなく完全一致(=)で固定する。
+Private Sub TestVecCacheScoreEquivalence()
+    Dim vData As Variant: vData = FakeVData()
+    Dim qv(0 To 3) As Double
+    qv(0) = 0.2672612: qv(1) = -0.5345225: qv(2) = 0.8017837: qv(3) = -0.0123456
+
+    modVecCache.ResetVecCache
+    modTestRunner.Check "VecCache_構築できる", _
+        modVecCache.BuildFrom(vData, "s1", False), "BuildFrom=False"
+    modTestRunner.Check "VecCache_載るのはパースできた行だけ", _
+        (modVecCache.SlotCount() = 3), "slots=" & modVecCache.SlotCount()
+    modTestRunner.Check "VecCache_次元は先頭の有効行で確定", _
+        (modVecCache.CachedDim() = 4), "dim=" & modVecCache.CachedDim()
+
+    Dim r As Long, diffN As Long: diffN = 0
+    Dim worst As String: worst = ""
+    For r = 1 To 5
+        Dim slot As Long: slot = modVecCache.SlotOfRow(r)
+        Dim vv() As Double
+        If modUtil.CsvToVector(CStr(vData(r, 2)), vv) Then
+            Dim direct As Double: direct = modUtil.DotProduct(qv, vv)
+            Dim cached As Double: cached = modVecCache.DotAt(qv, slot)
+            If cached <> direct Then
+                diffN = diffN + 1
+                worst = "row=" & r & " direct=" & direct & " cached=" & cached
+            End If
+        Else
+            ' パースできない行はキャッシュにも載らない(=従来経路と同じく飛ばす)
+            If slot >= 0 Then diffN = diffN + 1
+        End If
+    Next r
+    modTestRunner.Check "VecCache_全行でスコアが完全一致(キャッシュ経路=直接パース経路)", _
+        (diffN = 0), "不一致=" & diffN & " " & worst
+
+    ' 順位(top1)まで同じであることも直接見る。「検索結果が変わらない」という
+    ' 検収条件は、スコアの一致だけでなく並びで確かめる方が読み手に伝わる。
+    Dim bestDirect As String, bestCached As String
+    Dim maxD As Double: maxD = -1E+30
+    Dim maxC As Double: maxC = -1E+30
+    For r = 1 To 5
+        Dim vv2() As Double
+        If modUtil.CsvToVector(CStr(vData(r, 2)), vv2) Then
+            Dim d2 As Double: d2 = modUtil.DotProduct(qv, vv2)
+            If d2 > maxD Then
+                maxD = d2
+                bestDirect = CStr(vData(r, 1))
+            End If
+            Dim c2 As Double: c2 = modVecCache.DotAt(qv, modVecCache.SlotOfRow(r))
+            If c2 > maxC Then
+                maxC = c2
+                bestCached = CStr(vData(r, 1))
+            End If
+        End If
+    Next r
+    modTestRunner.Check "VecCache_top1が一致", _
+        (bestDirect = bestCached And LenB(bestDirect) > 0), _
+        "direct=" & bestDirect & " cached=" & bestCached
+    modVecCache.ResetVecCache
+End Sub
+
+' ----------------------------------------------------------------------------
+' 世代カウンタと無効化判定(純ロジック)
+' ----------------------------------------------------------------------------
+' 件数も先頭/末尾idも変わらないのに中身だけ変わる「再埋め込み」は、
+' 印(Stamp)だけでは検知できない。世代で必ず落ちることを固定する。
+Private Sub TestVecCacheGeneration()
+    Dim ids As Variant
+    ReDim ids(1 To 3, 1 To 1)
+    ids(1, 1) = "bs::a::p1::c1": ids(2, 1) = "bs::b::p1::c2": ids(3, 1) = "bs::c::p2::c1"
+    modTestRunner.Check "VecCache_StampOfは件数と先頭末尾idで作る", _
+        (modVecCache.StampOf(ids) = "3|bs::a::p1::c1|bs::c::p2::c1"), _
+        "stamp=" & modVecCache.StampOf(ids)
+
+    modTestRunner.Check "VecCache_未構築は無効", _
+        modVecCache.IsStale(False, "s1", 1, "s1", 1), "built=Falseなのに有効"
+    modTestRunner.Check "VecCache_印も世代も同じなら有効", _
+        (Not modVecCache.IsStale(True, "s1", 1, "s1", 1)), "同一なのに無効"
+    modTestRunner.Check "VecCache_印が変われば無効(取込/削除)", _
+        modVecCache.IsStale(True, "s1", 1, "s2", 1), "印違いを見逃した"
+    modTestRunner.Check "VecCache_世代が変われば無効(再埋め込み)", _
+        modVecCache.IsStale(True, "s1", 1, "s1", 2), "世代違いを見逃した"
+
+    ' 実体でも同じことが起きるか(BumpGenerationで即無効・ResetVecCacheで解放)
+    Dim vData As Variant: vData = FakeVData()
+    modVecCache.ResetVecCache
+    modVecCache.BuildFrom vData, "s1", False
+    modTestRunner.Check "VecCache_構築直後は有効", modVecCache.ValidFor("s1"), "直後に無効"
+    Dim g0 As Long: g0 = modVecCache.Generation()
+    modVecCache.BumpGeneration
+    modTestRunner.Check "VecCache_世代は単調に増える", _
+        (modVecCache.Generation() = g0 + 1), "g0=" & g0 & " g1=" & modVecCache.Generation()
+    modTestRunner.Check "VecCache_世代を進めると同じ印でも無効", _
+        (Not modVecCache.ValidFor("s1")), "再埋め込みを検知できていない"
+
+    modVecCache.BuildFrom vData, "s1", False
+    modVecCache.ResetVecCache
+    modTestRunner.Check "VecCache_解放後は参照できない", _
+        (modVecCache.Ready() = False And modVecCache.SlotOfRow(1) = -1), "解放されていない"
+
+    ' 1行1列のRange読みはスカラーになる。配列へ揃える前処理の固定。
+    Dim one As Variant: one = modVecCache.AsColumnArray("bs::x::p1::c1")
+    modTestRunner.Check "VecCache_単一セル読みも(1,1)配列へ揃う", _
+        (IsArray(one) And CStr(one(1, 1)) = "bs::x::p1::c1"), "スカラーのまま"
+End Sub
+
+' 次元混在(embed_dim変更後の途中状態)で、載らなかった行が-2で区別されること。
+' -1(ベクトル無し)と同じ扱いにすると、E0702が1件も出ないまま検索結果から
+' 資料が静かに消える(従来経路はここでE0702を残していた)。
+Private Sub TestVecCacheDimMismatch()
+    Dim v As Variant
+    ReDim v(1 To 3, 1 To 2)
+    v(1, 1) = "id1": v(1, 2) = "0.1,0.2,0.3,0.4"
+    v(2, 1) = "id2": v(2, 2) = "0.5,0.5,0.5"          ' 次元が違う
+    v(3, 1) = "id3": v(3, 2) = "0.9,0.1,0.1,0.1"
+
+    modVecCache.ResetVecCache
+    modVecCache.BuildFrom v, "sx", False
+    modTestRunner.Check "VecCache_次元不一致行は-2で返る", _
+        (modVecCache.SlotOfRow(2) = -2), "slot=" & modVecCache.SlotOfRow(2)
+    modTestRunner.Check "VecCache_不一致行の次元を記録する(E0702の記録内容)", _
+        (modVecCache.DimOfRow(2) = 3), "dim=" & modVecCache.DimOfRow(2)
+    modTestRunner.Check "VecCache_不一致件数を数える(粗選別の辞退判断に使う)", _
+        (modVecCache.MismatchCount() = 1), "n=" & modVecCache.MismatchCount()
+    modTestRunner.Check "VecCache_正常行は載る", _
+        (modVecCache.SlotOfRow(1) >= 0 And modVecCache.SlotOfRow(3) >= 0), "正常行が落ちた"
+    modVecCache.ResetVecCache
+End Sub
+
+' ----------------------------------------------------------------------------
+' binary_rag_auto(R12-4): 粗選別を使うかの判定(configから切り離した純ロジック)
+' ----------------------------------------------------------------------------
+Private Sub TestPrefilterAutoDecision()
+    modTestRunner.Check "粗選別_小規模では自動でも使わない", _
+        (modBitwiseOpt.ShouldPrefilter(4999, 5000, False, True) = False), "小規模で作動した"
+    modTestRunner.Check "粗選別_大規模かつ自動ONで有効(R12-4の新既定)", _
+        modBitwiseOpt.ShouldPrefilter(5000, 5000, False, True), "自動が効いていない"
+    modTestRunner.Check "粗選別_明示TRUEは従来どおり有効", _
+        modBitwiseOpt.ShouldPrefilter(20500, 5000, True, False), "明示指定が効かない"
+    modTestRunner.Check "粗選別_両方OFFなら大規模でも使わない(止める手段が残る)", _
+        (modBitwiseOpt.ShouldPrefilter(20500, 5000, False, False) = False), "止められない"
+    modTestRunner.Check "粗選別_binary_rag_minが0以下でも既定5000で守る", _
+        (modBitwiseOpt.ShouldPrefilter(100, 0, False, True) = False), "閾値が壊れている"
+End Sub
+
+' ----------------------------------------------------------------------------
+' norm_text(前計算した照合テキスト)の等価性
+' ----------------------------------------------------------------------------
+' 保存済みの行(第10列に値がある)と未保存の行(その場で計算)で、採点対象の
+' 文字列が1文字も違わないことを固定する。ここがズレると、同じ本棚なのに
+' 取込時期によって順位が変わる。
+Private Sub TestMatchDocTextEquivalence()
+    Dim summary As String: summary = "保険金の 支払い"
+    Dim keywords As String: keywords = "支払,免責"
+    Dim src As String: src = "ＡＢＣ約款2025.pdf"
+    Dim body As String: body = "第１２条　保 険 金 は 30 日以内に支払う"
+
+    Dim legacy As String
+    legacy = modSparse.CompactForMatch(summary & " " & keywords & " " & src & " " & body)
+    Dim precomputed As String
+    precomputed = modSparse.MatchDocText(summary, keywords, src, body)
+    modTestRunner.Check "norm_text_前計算と従来の照合テキストが完全一致", _
+        (precomputed = legacy), "legacy=[" & legacy & "] pre=[" & precomputed & "]"
+
+    Dim keys As String: keys = modSparse.DistinctiveKeys("第12条の保険金はいつ支払われますか")
+    modTestRunner.Check "norm_text_採点結果も一致(保存済み行=未保存行)", _
+        (modSparse.KeyScore(keys, precomputed) = modSparse.KeyScore(keys, legacy)), _
+        "スコアが割れた"
+
+    ' 取込時点(要約・キーワードは空)と富化後では照合テキストが変わる。
+    ' だから modEnrich は要約を書いたら norm_text を空へ戻す(作り直させる)。
+    Dim atIngest As String: atIngest = modSparse.MatchDocText("", "", src, body)
+    modTestRunner.Check "norm_text_富化で内容が変わる(空へ戻す根拠)", _
+        (atIngest <> precomputed), "富化前後で同じになっている"
+    modTestRunner.Check "norm_text_空白は全て落ちる(PDF字詰めに強い)", _
+        (InStr(precomputed, " ") = 0), "空白が残っている"
+End Sub
+
+Public Sub RunAll9()
+    On Error GoTo VecEquivFail
+    TestVecCacheScoreEquivalence
+NextVecGen:
+    On Error GoTo VecGenFail
+    TestVecCacheGeneration
+NextVecDim:
+    On Error GoTo VecDimFail
+    TestVecCacheDimMismatch
+NextPrefilterAuto:
+    On Error GoTo PrefilterAutoFail
+    TestPrefilterAutoDecision
+NextNormText:
+    On Error GoTo NormTextFail
+    TestMatchDocTextEquivalence
+NextDone9:
+    On Error GoTo 0
+    Exit Sub
+
+VecEquivFail:
+    modTestRunner.Check "TestVecCacheScoreEquivalence(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextVecGen
+VecGenFail:
+    modTestRunner.Check "TestVecCacheGeneration(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextVecDim
+VecDimFail:
+    modTestRunner.Check "TestVecCacheDimMismatch(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPrefilterAuto
+PrefilterAutoFail:
+    modTestRunner.Check "TestPrefilterAutoDecision(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextNormText
+NormTextFail:
+    modTestRunner.Check "TestMatchDocTextEquivalence(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone9
+End Sub

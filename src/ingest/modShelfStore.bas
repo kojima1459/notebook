@@ -26,6 +26,20 @@ Private Const COL_KEYWORDS As Long = 6
 Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
+' ----------------------------------------------------------------------------
+' my_knowledge の列(1..10)。10列目 norm_text は 2026-08-01(R12-4)で追加。
+' ----------------------------------------------------------------------------
+' 照合用の正規化済みテキスト(modSparse.MatchDocText の結果)を取込時に1回だけ
+' 作って持つ。以前は検索のたびに全チャンクを正規化し直しており、20,500件では
+' 1質問あたり1,540万文字ぶんのループになっていた(R12-4 背景)。
+' 追加の作法は R12-3 の manifest fail_count と同じ:
+'   ・見出しは EnsureKnowledgeSheet が毎回・冪等に付ける(既存ブックも移行不要)
+'   ・空欄は「未計算」とみなし、検索側がその行だけ計算して書き戻す(遅延)
+'   ・行の詰め直しは必ず全列(KNOWLEDGE_COLS)を運ぶ。9列のまま詰めると
+'     norm_text だけが別の行に残り、【別チャンクの照合テキストで採点する】
+'     という静かな事故になる。
+Public Const COL_K_NORM As Long = 10
+Private Const KNOWLEDGE_COLS As Long = 10
 
 ' ----------------------------------------------------------------------------
 ' my_manifest の列(1..10)。10列目 fail_count は 2026-08-01(R12-3-3)で追加。
@@ -48,6 +62,12 @@ Private Const MAX_FAIL_STREAK As Long = 3
 ' LOテストの都合で本モジュールを参照できないため、既存の語彙と作法を揃える)。
 Private Const STATUS_FAILED_PERMANENT As String = "failed_permanent"
 
+' norm_text(第10列)の遅延バックフィル用バッファ(検索1回ぶん・R12-4)。
+Private Const BACKFILL_CELL_MAX As Long = 200   ' これ以下なら1セルずつ書く
+Private mBfRow() As Long
+Private mBfVal() As String
+Private mBfN As Long
+
 ' シートを1枚取る。無ければ Nothing(呼び出し側が黙って諦められるように)。
 ' 2026-07-28: modShelf からここへ切り出したとき、この関数だけ切り出し範囲の
 ' 外にあり、持ってくるのを忘れていた。実機で
@@ -65,7 +85,8 @@ Public Function EnsureKnowledgeSheet() As Worksheet
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
         ws.Name = modAppDef.SH_KNOWLEDGE
         Dim hdr As Variant
-        hdr = Array("chunk_id", "source", "origin", "page", "summary", "keywords", "full_text", "added_at", "embedded")
+        hdr = Array("chunk_id", "source", "origin", "page", "summary", "keywords", _
+                    "full_text", "added_at", "embedded", "norm_text")
         Dim i As Long
         For i = LBound(hdr) To UBound(hdr)
             ws.Cells(1, i + 1).Value = hdr(i)
@@ -74,6 +95,13 @@ Public Function EnsureKnowledgeSheet() As Worksheet
         ws.Visible = 2   ' xlSheetVeryHidden
         On Error GoTo 0
     End If
+    ' 既存ブック(9列時代のmy_knowledge)への見出し追加も毎回・冪等に行う。
+    ' 値が空の行は「未計算」として読むので、移行処理は要らない(R12-4)。
+    On Error Resume Next
+    If LenB(Trim$(CStr(ws.Cells(1, COL_K_NORM).Value))) = 0 Then
+        ws.Cells(1, COL_K_NORM).Value = "norm_text"
+    End If
+    On Error GoTo 0
     ' 数式インジェクション防御(毎回・冪等): 配布テンプレートの既存my_knowledgeでも
     ' 効くよう If の外で適用。非信頼テキスト列を"@"書式へ固定し先頭=等の格納型数式化を防ぐ。
     On Error Resume Next
@@ -81,6 +109,7 @@ Public Function EnsureKnowledgeSheet() As Worksheet
     ws.Columns(COL_SUMMARY).NumberFormat = "@"
     ws.Columns(COL_KEYWORDS).NumberFormat = "@"
     ws.Columns(COL_FULLTEXT).NumberFormat = "@"
+    ws.Columns(COL_K_NORM).NumberFormat = "@"
     On Error GoTo 0
     Set EnsureKnowledgeSheet = ws
     Exit Function
@@ -117,6 +146,85 @@ Public Function EnsureManifestSheet() As Worksheet
 Fail:
     Set EnsureManifestSheet = Nothing
 End Function
+
+' ----------------------------------------------------------------------------
+' norm_text(第10列)の供給と遅延バックフィル(2026-08-01 R12-4)
+' ----------------------------------------------------------------------------
+' 検索側(modRetrieve)は「この行の照合テキストをくれ」とだけ言えばよい。
+' 値があればそれを返し、空(旧データ・富化直後)ならその行だけ計算して返し、
+' 走査の最後にまとめてセルへ書き戻す。my_knowledge の列の都合を知っているのは
+' この行操作層だけ、という切り分けを保つ(検索側にセル書込みを置かない)。
+Public Sub ResetNormBackfill()
+    mBfN = 0
+    ReDim mBfRow(0 To 63)
+    ReDim mBfVal(0 To 63)
+End Sub
+
+' kData は my_knowledge の1〜10列を読んだ配列、kRow はその配列内の行番号。
+Public Function NormTextAt(ByRef kData As Variant, ByVal kRow As Long) As String
+    Dim s As String
+    s = CStr(kData(kRow, COL_K_NORM))
+    If LenB(s) > 0 Then
+        NormTextAt = s
+        Exit Function
+    End If
+    s = modSparse.MatchDocText(CStr(kData(kRow, COL_SUMMARY)), CStr(kData(kRow, COL_KEYWORDS)), _
+                               CStr(kData(kRow, COL_SOURCE)), CStr(kData(kRow, COL_FULLTEXT)))
+    NormTextAt = s
+    QueueNormBackfill kRow, s
+End Function
+
+Private Sub QueueNormBackfill(ByVal kRow As Long, ByVal s As String)
+    On Error Resume Next
+    ' 1セルに収まらない長さは保存しない(切り詰めて保存すると、保存済みの行と
+    ' 未保存の行でスコアが変わってしまう=挙動等価が壊れる)。
+    If Len(s) > 32000 Then Exit Sub
+    If mBfN > UBound(mBfRow) Then
+        ReDim Preserve mBfRow(0 To UBound(mBfRow) * 2 + 1)
+        ReDim Preserve mBfVal(0 To UBound(mBfVal) * 2 + 1)
+    End If
+    mBfRow(mBfN) = kRow
+    mBfVal(mBfN) = s
+    mBfN = mBfN + 1
+    On Error GoTo 0
+End Sub
+
+' 走査で作った norm_text をまとめて書き戻す。書けなくても検索結果は変わらない
+' (次回また計算するだけ)ので、全体を On Error Resume Next で包む。
+Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef kData As Variant)
+    On Error Resume Next
+    If mBfN < 1 Then Exit Sub
+    If wsK Is Nothing Then Exit Sub
+    ' 走査中のDoEventsで行が動いていたら書かない(別の行へ書く事故を避ける)。
+    If wsK.Cells(wsK.Rows.count, COL_ID).End(xlUp).row <> lastK Then Exit Sub
+
+    ' 数式インジェクション防御(R12-2と同じ作法): 先頭"="の文字列が格納型数式に
+    ' ならないよう、書く直前に列を文字列書式へ固定する(冪等)。
+    wsK.Columns(COL_K_NORM).NumberFormat = "@"
+
+    Dim i As Long
+    If mBfN <= BACKFILL_CELL_MAX Then
+        ' 数行だけなら直接書く(列まるごとの書き戻しは1回でも数万セルを触る)。
+        For i = 0 To mBfN - 1
+            wsK.Cells(1 + mBfRow(i), COL_K_NORM).Value = mBfVal(i)
+            kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
+        Next i
+    Else
+        ' 初回のような大量バックフィルは列を1回で書く(1行ずつは数千行で固まる)。
+        Dim nRows As Long: nRows = UBound(kData, 1) - LBound(kData, 1) + 1
+        Dim colArr() As Variant: ReDim colArr(1 To nRows, 1 To 1)
+        For i = 1 To nRows
+            If LenB(CStr(kData(i, COL_K_NORM))) > 0 Then colArr(i, 1) = CStr(kData(i, COL_K_NORM))
+        Next i
+        For i = 0 To mBfN - 1
+            colArr(mBfRow(i), 1) = mBfVal(i)
+            kData(mBfRow(i), COL_K_NORM) = mBfVal(i)
+        Next i
+        wsK.Range(wsK.Cells(2, COL_K_NORM), wsK.Cells(1 + nRows, COL_K_NORM)).Value = colArr
+    End If
+    mBfN = 0
+    On Error GoTo 0
+End Sub
 
 ' 既存チャンクのハッシュ集合(重複排除用)。
 '
@@ -170,11 +278,11 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
     Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Sub
 
-    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 9)).Value
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, KNOWLEDGE_COLS)).Value
     Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
 
     Dim removedIds As Object: Set removedIds = CreateObject("Scripting.Dictionary")
-    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To KNOWLEDGE_COLS)
     Dim survivorCount As Long: survivorCount = 0
 
     Dim i As Long, c As Long
@@ -186,7 +294,7 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
             End If
         Else
             survivorCount = survivorCount + 1
-            For c = 1 To 9
+            For c = 1 To KNOWLEDGE_COLS
                 survivors(survivorCount, c) = arr(i, c)
             Next c
         End If
@@ -196,10 +304,10 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
 
     If survivorCount > 0 Then
         Dim writeArr As Variant: writeArr = CompactRows(survivors, survivorCount)
-        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, 9)).Value = writeArr
+        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, KNOWLEDGE_COLS)).Value = writeArr
     End If
     If survivorCount < nRows Then
-        wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, 9)).ClearContents
+        wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, KNOWLEDGE_COLS)).ClearContents
     End If
 
     RemoveVectorsByIds removedIds
@@ -225,11 +333,11 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
     Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Function
 
-    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 9)).Value
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, KNOWLEDGE_COLS)).Value
     Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
 
     Dim removedIds As Object: Set removedIds = CreateObject("Scripting.Dictionary")
-    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To KNOWLEDGE_COLS)
     Dim survivorCount As Long: survivorCount = 0
 
     Dim i As Long, c As Long
@@ -241,7 +349,7 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
             End If
         Else
             survivorCount = survivorCount + 1
-            For c = 1 To 9
+            For c = 1 To KNOWLEDGE_COLS
                 survivors(survivorCount, c) = arr(i, c)
             Next c
         End If
@@ -251,9 +359,9 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
 
     If survivorCount > 0 Then
         Dim writeArr As Variant: writeArr = CompactRows(survivors, survivorCount)
-        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, 9)).Value = writeArr
+        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, KNOWLEDGE_COLS)).Value = writeArr
     End If
-    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, 9)).ClearContents
+    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, KNOWLEDGE_COLS)).ClearContents
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOrigin = nRows - survivorCount
@@ -293,12 +401,12 @@ Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long
     Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Function
 
-    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 9)).Value
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, KNOWLEDGE_COLS)).Value
     Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
     Dim pfxLen As Long: pfxLen = Len(prefixTag)
 
     Dim removedIds As Object: Set removedIds = CreateObject("Scripting.Dictionary")
-    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To KNOWLEDGE_COLS)
     Dim survivorCount As Long: survivorCount = 0
 
     Dim i As Long, c As Long
@@ -310,7 +418,7 @@ Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long
             End If
         Else
             survivorCount = survivorCount + 1
-            For c = 1 To 9
+            For c = 1 To KNOWLEDGE_COLS
                 survivors(survivorCount, c) = arr(i, c)
             Next c
         End If
@@ -320,9 +428,9 @@ Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long
 
     If survivorCount > 0 Then
         Dim writeArr2 As Variant: writeArr2 = CompactRows(survivors, survivorCount)
-        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, 9)).Value = writeArr2
+        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, KNOWLEDGE_COLS)).Value = writeArr2
     End If
-    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, 9)).ClearContents
+    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, KNOWLEDGE_COLS)).ClearContents
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOriginPrefix = nRows - survivorCount
@@ -349,6 +457,13 @@ Public Sub RemoveVectorsByIds(ByVal removedIds As Object)
     Next i
 
     If survivorCount = nRows Then Exit Sub   ' 一致無し
+
+    ' R12-4: ベクトルが1本でも消えたらセッション内キャッシュは無効。
+    ' 「消したはずのチャンクが検索に出続ける」を構造的に防ぐため、
+    ' my_vectors から行を落とす唯一の場所であるここで世代を進める。
+    On Error Resume Next
+    modVecCache.BumpGeneration
+    On Error GoTo 0
 
     If survivorCount > 0 Then
         Dim writeArr() As Variant: ReDim writeArr(1 To survivorCount, 1 To 2)
@@ -524,18 +639,18 @@ Public Function FindManifestRowByPath(ByVal wsM As Worksheet, ByVal filePath As 
     Next i
 End Function
 
-' src(1 To n以上, 1 To 9)の先頭n行だけを(1 To n, 1 To 9)へ詰め直す(Range書込みは配列サイズ一致が必須)。
+' src(1 To n以上, 1 To 10)の先頭n行だけを(1 To n, 1 To 10)へ詰め直す(Range書込みは配列サイズ一致が必須)。
 Public Function CompactRows(ByRef src As Variant, ByVal n As Long) As Variant
     CompactRows = SliceRows(src, 1, n)
 End Function
 
-' src(1 To n以上, 1 To 9)の startIdx 行目から count 行を(1 To count, 1 To 9)へ
+' src(1 To n以上, 1 To 10)の startIdx 行目から count 行を(1 To count, 1 To 10)へ
 ' 切り出す(バッチ書込み用。CompactRowsの一般化)。
 Public Function SliceRows(ByRef src As Variant, ByVal startIdx As Long, ByVal count As Long) As Variant
-    Dim outArr() As Variant: ReDim outArr(1 To count, 1 To 9)
+    Dim outArr() As Variant: ReDim outArr(1 To count, 1 To KNOWLEDGE_COLS)
     Dim r As Long, c As Long
     For r = 1 To count
-        For c = 1 To 9
+        For c = 1 To KNOWLEDGE_COLS
             outArr(r, c) = src(startIdx + r - 1, c)
         Next c
     Next r

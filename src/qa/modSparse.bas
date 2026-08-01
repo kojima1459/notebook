@@ -287,6 +287,20 @@ Public Function CompactForMatch(ByVal s As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' MatchDocText - 1チャンクの「照合用テキスト」を作る唯一の場所(2026-08-01 R12-4)。
+' ----------------------------------------------------------------------------
+' 要約・キーワード・資料名・本文をこの順で連結し、CompactForMatch を通す。
+' R12-4 で my_knowledge の第10列(norm_text)へ取込時に前計算して保存するように
+' したため、この式が2箇所にあると【保存済みの行と未保存の行でスコアが変わる】。
+' 取込側(modShelf)・検索側(modRetrieve)・遅延バックフィルの三者が必ずここを
+' 通ること。連結の順番や区切りを変えると保存済みデータと食い違うので変えない
+' (空白は CompactForMatch が全て落とすので、区切りの見た目は結果に影響しない)。
+Public Function MatchDocText(ByVal summary As String, ByVal keywords As String, _
+                             ByVal source As String, ByVal fullText As String) As String
+    MatchDocText = CompactForMatch(summary & " " & keywords & " " & source & " " & fullText)
+End Function
+
+' ----------------------------------------------------------------------------
 ' KeyScore - トークナイズせずに求めるキーワードスコア。
 ' ----------------------------------------------------------------------------
 ' なぜBM25を毎クエリ全件に掛けないか(実測に基づく設計判断):

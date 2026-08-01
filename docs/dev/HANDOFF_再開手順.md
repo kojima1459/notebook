@@ -36,6 +36,28 @@ R12-1(最優先小粒: 失効フォールバック0/終了ボタンのAuto_Close
 | R11-G | Haiku | docs同期+実機スモークテスト手順書(docs/45)新規 | 7f2216a | 完了 |
 | R11-H | Opus | 敵対的レビュー裁定の最終修正8件(Word保全対称化/バッジ遅延通知ほか) | 1855097 | 完了 |
 
+| R12-4 | Opus | 検索スケール恒久対策(ベクトルキャッシュ/norm_text前計算/binary_rag自動化/進捗+DoEvents) | (本コミット) | 完了 |
+
+### R12-4 で増えたもの(次に触る人が最初に知るべき3点)
+
+1. **新モジュール `modVecCache`(src/qa)** = セッション内ベクトルキャッシュ+
+   **埋め込み世代カウンタ**。my_vectors の vector_csv は1セッション1回しか
+   パースしない。世代を進める場所は3つだけ: `modEmbed.EmbedPending`(書込あり時)・
+   `modEmbed.MarkAllForReembed`・`modShelfStore.RemoveVectorsByIds`。
+   **ベクトルを書く/消すコードを足したらここを呼ぶこと**(呼び忘れると
+   「古いベクトルで検索し続ける」という無言の誤り)。取込・同期の開始時
+   (modShelfBatch/modShelfSync)は `ResetVecCache` でメモリを解放している。
+   構築失敗(err7)は捕捉して従来経路へ落ち、usage_log に `veccache_fallback`。
+2. **my_knowledge に第10列 `norm_text`** = 照合用の正規化済みテキスト
+   (`modSparse.MatchDocText` が唯一の作り手)。取込時に前計算し、空欄の行は
+   検索時に遅延バックフィルする。**行の詰め直しは必ず10列を運ぶこと**
+   (modShelfStore の KNOWLEDGE_COLS)。要約・キーワードを書き換えたら
+   norm_text を空へ戻す(modEnrich がそうしている)。
+3. **config `binary_rag_auto`(既定TRUE)** = binary_rag=FALSE でも
+   チャンク数 >= binary_rag_min なら粗選別を自動有効化。止めるには
+   binary_rag_auto=FALSE。判定は `modBitwiseOpt.ShouldPrefilter`(純ロジック)に
+   1本化してあり、真理値表は modTestsPure9 が固定している。
+
 配布方法: GitHubの「Code → Download ZIP」→解凍→ dist/MyBookshelf.xlsm を開く
 (dist/Ghostscript が隣にあるのでOCRも追加作業なし)。
 大規模配布は `python3 build/build_mybookshelf.py --prod --zip`。
@@ -83,6 +105,8 @@ R12-1(最優先小粒: 失効フォールバック0/終了ボタンのAuto_Close
 - API月次上限で実装エージェントが落ちた場合: WIPを即コミットして保全し、
   軽作業のみで待つ(今回それで乗り切った)。
 - モジュール数: 98本(実装)/テスト: 491件/WARN: 3本(全てテスト系)。
+  ※R12-4時点: 実装90本+テスト11本=101本(modVecCache/modTestsPure9を追加)、
+    LOモード1のPASSは669件、WARNは3本(modTestsPure/2/5)のまま。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。

@@ -177,6 +177,11 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
                         If sheetRow > 0 Then
                             wsK.Cells(sheetRow, COL_SUMMARY).Value = modUtil.SafeLeft(pSummary(p), SUMMARY_MAX_CHARS)
                             wsK.Cells(sheetRow, COL_KEYWORDS).Value = modUtil.SafeLeft(pKeywords(p), KEYWORDS_MAX_CHARS)
+                            ' R12-4: 照合用テキスト(norm_text)は要約・キーワードを含む。
+                            ' 富化で中身が変わったのに古い値が残ると、その行だけ
+                            ' 【富化前の本文で採点され続ける】。空に戻して検索側の
+                            ' 遅延バックフィルに作り直させる。
+                            wsK.Cells(sheetRow, modShelfStore.COL_K_NORM).Value = ""
                             doneCount = doneCount + 1
                         End If
                     End If

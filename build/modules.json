@@ -513,6 +513,14 @@
       "wave": "NEXUS-P8"
     },
     {
+      "name": "modVecCache",
+      "path": "src/qa/modVecCache.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R12-4",
+      "note": "R12-4(検索スケール恒久対策)のセッション内ベクトルキャッシュ。my_vectorsのvector_csvを1回だけパースしてDouble配列で保持し、毎クエリのCSV再パース(20,500件で1クエリ1,574万要素)を無くす。埋め込み世代カウンタの持ち主でもあり、取込/削除/再埋め込みの書込点がBumpGenerationを呼ぶ。構築失敗(err7)は捕捉して従来経路へ自動フォールバックする。"
+    },
+    {
       "name": "modPeek",
       "path": "src/ui/modPeek.bas",
       "role": "core",
@@ -704,6 +712,14 @@
       "type": "std",
       "wave": "R12-8",
       "note": "R12-8(テスト補強)の純ロジック回帰テスト。modTestsPure7がFnv1a64Hexゴールデン値+modRagParse4関数の追加で30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(modBitwiseOptのbit31境界/modFollowup全3関数/modUtil.TruncateAndRenorm・HasVector/modUtilText.ElapsedMsSince・BlendPerItemMs/modClarify.MergeAnswerのLO到達範囲/BuildRerankPrompt<->ParseRankOrderの番号規約突合)。modTestsPure7.RunAll7末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure9",
+      "path": "src/test/modTestsPure9.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-4",
+      "note": "R12-4(検索スケール恒久対策)の純ロジック回帰テスト。modTestsPure8が28,000字(WARN帯)に達したため憲章§4-6に従って新設した分割先(ベクトルキャッシュ経路と直接パース経路のスコア完全一致/世代カウンタによる無効化/次元混在の-2区別/binary_rag_autoの真理値表/norm_text前計算の等価性)。modTestsPure8.RunAll8末尾から呼ばれる。"
     },
     {
       "name": "modTestsExcel",

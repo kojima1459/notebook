@@ -55,8 +55,16 @@ Private Const COL_K_PAGE As Long = 4
 Private Const COL_K_SUMMARY As Long = 5
 Private Const COL_K_KEYWORDS As Long = 6
 Private Const COL_K_FULLTEXT As Long = 7
+' 第10列 norm_text は 2026-08-01(R12-4)で追加した「照合用の正規化済みテキスト」。
+' 取込時に1回だけ作り、検索側は読むだけにする。列の中身の作り方・空欄の
+' 遅延バックフィル・書き戻しは my_knowledge の行操作層(modShelfStore)が持つ。
+Private Const COL_K_NORM As Long = 10
 
 Private Const PREVIEW_LEN As Long = 120
+
+' 重ループの進捗更新+DoEvents間隔(行)。憲章§3-2「無反応を作らない」。
+Private Const PROGRESS_STEP As Long = 2000
+
 
 ' modSparse のスコアをベクトル(-1～1)と同じ土俵へ乗せるための係数。
 ' SPARSE_WEIGHT: BM25(質問長で正規化済み)にかける倍率
@@ -109,13 +117,22 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Exit Function
     End If
 
-    ' 2列以上(>=2セル)の読込みは常に2次元配列になるため単一行の特別扱いは不要
-    ' (§4データモデル: 列数はmy_vectors=2, my_knowledgeは1～7列目を読む=7列)。
-    Dim vData As Variant
-    vData = wsV.Range(wsV.Cells(2, COL_V_ID), wsV.Cells(lastV, COL_V_VEC)).Value
+    ' R12-4: ベクトルはセッション内キャッシュ(modVecCache)から引く。
+    ' キャッシュが生きていれば vector_csv 列は読み込まない(idDataだけ)。
+    ' 作れなかった/次元が食い違うときは False が返り、vData に従来どおり
+    ' 2列が読み込まれて元の経路(毎回パース)で動く=機能は落とさない。
+    Dim idData As Variant, vData As Variant
+    Dim useCache As Boolean
+    useCache = modVecCache.PrepareVectors(wsV, lastV, qDim, idData, vData)
+    If IsEmpty(idData) Then          ' シートを読めなかった(0件と同じ扱いで静かに終える)
+        Search = 0
+        Exit Function
+    End If
 
+    ' my_knowledgeは1～10列目を読む(10列目=norm_text)。
     Dim kData As Variant
-    kData = wsK.Range(wsK.Cells(2, COL_K_ID), wsK.Cells(lastK, COL_K_FULLTEXT)).Value
+    kData = wsK.Range(wsK.Cells(2, COL_K_ID), wsK.Cells(lastK, COL_K_NORM)).Value
+    modShelfStore.ResetNormBackfill
 
     Dim idx As Object
     Set idx = CreateObject("Scripting.Dictionary")
@@ -145,14 +162,15 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     ' binary_rag=TRUEのときだけ、ハミング距離で候補行を粗選別する。以降のFloat
     ' コサイン/キーワードボーナス/ストリーミングtop-kは一切不変(候補以外をスキップ
     ' する1行のガードを足すだけ)。Prefilterが辞退(次元不一致等)したら全件Floatへ。
+    Dim nV As Long: nV = UBound(idData, 1) - LBound(idData, 1) + 1
     Dim useCand As Boolean: useCand = False
     Dim candRows As Object
     Dim binMs As Double: binMs = 0
-    If modBitwiseOpt.Enabled(UBound(vData, 1) - LBound(vData, 1) + 1) Then
+    If modBitwiseOpt.Enabled(nV) Then
         Dim tB0 As Double: tB0 = modBitwiseOpt.MicroTimerMs()
         useCand = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRows)
         binMs = modBitwiseOpt.MicroTimerMs() - tB0   ' 爆速証明: バイナリ粗選別のms
-        If useCand Then UnionKeyMatchRows vData, kData, idx, sparseKeys, candRows
+        If useCand Then UnionKeyMatchRows idData, kData, idx, sparseKeys, candRows
     End If
 
     Dim bestId() As String: ReDim bestId(1 To k)
@@ -169,19 +187,15 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
 
     Dim tF0 As Double: tF0 = modBitwiseOpt.MicroTimerMs()   ' 爆速証明: Float再ランク計測開始
     Dim r As Long
-    For r = LBound(vData, 1) To UBound(vData, 1)
+    Dim rLo As Long: rLo = LBound(idData, 1)
+    For r = rLo To UBound(idData, 1)
+        ' R12-4: 20,500行の全走査は数秒〜十数秒かかる。無反応にしない。
+        If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then TickScan r - rLo, nV
         If useCand Then If Not candRows.Exists(r) Then GoTo NextR   ' [Lv.1] 粗選別候補以外は除外
         Dim vid As String
-        vid = CStr(vData(r, COL_V_ID))
+        vid = CStr(idData(r, 1))
         If LenB(vid) = 0 Then GoTo NextR
         If Not idx.Exists(vid) Then GoTo NextR
-
-        Dim vcsv As String
-        vcsv = CStr(vData(r, COL_V_VEC))
-        If LenB(vcsv) = 0 Then GoTo NextR
-
-        Dim vv() As Double
-        If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextR
 
         ' Wave4修正: modUtil.DotProductは次元不一致を「呼び出し側が別途次元検査を
         ' 行う規約」(modUtil.bas冒頭コメント)としているが、以前はここで一切
@@ -189,13 +203,32 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         ' 変わった保存済みベクトルが残っていると、全チャンクが無言で0点になり
         ' err_log/診断のどちらにも痕跡が残らない不具合があった(E0702は元々
         ' パック検証専用だったが、検索時の次元不一致もE0702として記録する)。
-        If UBound(vv) - LBound(vv) + 1 <> qDim Then
-            If Not e0702Logged Then
-                modLog.LogError "E0702", "modRetrieve.Search", _
-                    "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
-                e0702Logged = True
+        ' R12-4: キャッシュ経路では次元判定も構築時に済んでいる(slot=-2)。
+        Dim slot As Long: slot = -1
+        Dim vv() As Double
+        If useCache Then
+            slot = modVecCache.SlotOfRow(r)
+            If slot < 0 Then
+                If slot = -2 And Not e0702Logged Then
+                    modLog.LogError "E0702", "modRetrieve.Search", _
+                        "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & modVecCache.DimOfRow(r)
+                    e0702Logged = True
+                End If
+                GoTo NextR
             End If
-            GoTo NextR
+        Else
+            Dim vcsv As String
+            vcsv = CStr(vData(r, COL_V_VEC))
+            If LenB(vcsv) = 0 Then GoTo NextR
+            If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextR
+            If UBound(vv) - LBound(vv) + 1 <> qDim Then
+                If Not e0702Logged Then
+                    modLog.LogError "E0702", "modRetrieve.Search", _
+                        "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
+                    e0702Logged = True
+                End If
+                GoTo NextR
+            End If
         End If
 
         Dim kRow As Long
@@ -204,20 +237,21 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         If excl.Exists(srcName) Then GoTo NextR   ' ノイズ報告で論理除外された資料
         Dim origin As String: origin = CStr(kData(kRow, COL_K_ORIGIN))
         Dim pageNum As Long: pageNum = CLng(Val(kData(kRow, COL_K_PAGE)))
-        Dim summary As String: summary = CStr(kData(kRow, COL_K_SUMMARY))
-        Dim keywords As String: keywords = CStr(kData(kRow, COL_K_KEYWORDS))
         Dim fullText As String: fullText = CStr(kData(kRow, COL_K_FULLTEXT))
 
         Dim sc As Double
-        sc = modUtil.DotProduct(qv, vv)
+        If useCache Then
+            sc = modVecCache.DotAt(qv, slot)      ' 加算順序はDotProductと同一(等価テストで固定)
+        Else
+            sc = modUtil.DotProduct(qv, vv)
+        End If
         ' 日本語のキーワード側は modSparse(文字bigram+BM25+完全一致)へ委譲する。
         ' 旧実装(空白分割+一律加点)は実測 R@1 32%、本実装は 84%。
         ' 差の大半は「日本語は空白で区切らない」という一点から来ていた。
         ' ベクトル(意味)とキーワード(完全一致)は別々に効かせる。
         ' キーワード側は照合用の空白除去テキストに対して当てるので、
         ' PDF字詰めや利用者の余計な空白があっても一致する。
-        sc = sc + SparseBoost(sparseKeys, _
-                 modSparse.CompactForMatch(summary & " " & keywords & " " & srcName & " " & fullText))
+        sc = sc + SparseBoost(sparseKeys, modShelfStore.NormTextAt(kData, kRow))
 
         If filled < k Then
             filled = filled + 1
@@ -244,9 +278,9 @@ NextR:
 
     ' 爆速証明ログ(バイナリ選別が作動したときだけ。Debug.Print + debug時Toast)
     If useCand Then
-        modBitwiseOpt.LogPerf binMs, modBitwiseOpt.MicroTimerMs() - tF0, _
-            candRows.count, UBound(vData, 1) - LBound(vData, 1) + 1
+        modBitwiseOpt.LogPerf binMs, modBitwiseOpt.MicroTimerMs() - tF0, candRows.count, nV
     End If
+    modShelfStore.FlushNormBackfill wsK, lastK, kData
 
     If filled = 0 Then
         Search = 0
@@ -317,10 +351,13 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
     lastK = wsK.Cells(wsK.Rows.count, COL_K_ID).End(xlUp).row
     If lastK < 2 Then Exit Function
 
-    Dim vData As Variant
-    vData = wsV.Range(wsV.Cells(2, COL_V_ID), wsV.Cells(lastV, COL_V_VEC)).Value
+    ' R12-4: ベクトルはクエリ本数に関わらず1回だけパースする(modVecCache)。
+    ' 多段は「クエリ数 × 全チャンク」を回るので、毎回のCSVパースが最も重かった。
+    Dim idData As Variant, vData As Variant
+    Dim useCache As Boolean: useCache = False
     Dim kData As Variant
-    kData = wsK.Range(wsK.Cells(2, COL_K_ID), wsK.Cells(lastK, COL_K_FULLTEXT)).Value
+    kData = wsK.Range(wsK.Cells(2, COL_K_ID), wsK.Cells(lastK, COL_K_NORM)).Value
+    modShelfStore.ResetNormBackfill
 
     Dim idx As Object
     Set idx = CreateObject("Scripting.Dictionary")
@@ -357,6 +394,12 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         sparseKeys2 = modSparse.DistinctiveKeys(qText)
         On Error GoTo 0
 
+        ' キャッシュはクエリごとに問い直す(2回目以降は判定だけで即返る)。
+        ' 質問側の次元がキャッシュと違うクエリだけ従来経路へ落ちる。
+        useCache = modVecCache.PrepareVectors(wsV, lastV, qDim, idData, vData)
+        If IsEmpty(idData) Then GoTo NextQ    ' シートを読めなかった
+        Dim nV As Long: nV = UBound(idData, 1) - LBound(idData, 1) + 1
+
         ' 2026-07-28(解説書 §11-7): 多段側にも粗選別を配線した。
         '
         ' バイナリ量子化による候補絞り込み(modBitwiseOpt)は単段 Search に
@@ -371,30 +414,45 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         ' binary_rag の既定は FALSE のままなので、既定の挙動は変わらない。
         Dim useCandQ As Boolean: useCandQ = False
         Dim candRowsQ As Object
-        If modBitwiseOpt.Enabled(UBound(vData, 1) - LBound(vData, 1) + 1) Then
+        If modBitwiseOpt.Enabled(nV) Then
             useCandQ = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRowsQ)
-            If useCandQ Then UnionKeyMatchRows vData, kData, idx, sparseKeys2, candRowsQ
+            If useCandQ Then UnionKeyMatchRows idData, kData, idx, sparseKeys2, candRowsQ
         End If
 
         Dim r As Long
-        For r = LBound(vData, 1) To UBound(vData, 1)
+        Dim rLo As Long: rLo = LBound(idData, 1)
+        For r = rLo To UBound(idData, 1)
+            If ((r - rLo) Mod PROGRESS_STEP) = 0 And r > rLo Then TickScan r - rLo, nV
             If useCandQ Then If Not candRowsQ.Exists(r) Then GoTo NextRow
             Dim vid As String
-            vid = CStr(vData(r, COL_V_ID))
+            vid = CStr(idData(r, 1))
             If LenB(vid) = 0 Then GoTo NextRow
             If Not idx.Exists(vid) Then GoTo NextRow
-            Dim vcsv As String
-            vcsv = CStr(vData(r, COL_V_VEC))
-            If LenB(vcsv) = 0 Then GoTo NextRow
+            Dim slot As Long: slot = -1
             Dim vv() As Double
-            If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextRow
-            If UBound(vv) - LBound(vv) + 1 <> qDim Then
-                If Not e0702Logged Then
-                    modLog.LogError "E0702", "modRetrieve.SearchExpanded", _
-                        "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
-                    e0702Logged = True
+            If useCache Then
+                slot = modVecCache.SlotOfRow(r)
+                If slot < 0 Then
+                    If slot = -2 And Not e0702Logged Then
+                        modLog.LogError "E0702", "modRetrieve.SearchExpanded", _
+                            "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & modVecCache.DimOfRow(r)
+                        e0702Logged = True
+                    End If
+                    GoTo NextRow
                 End If
-                GoTo NextRow
+            Else
+                Dim vcsv As String
+                vcsv = CStr(vData(r, COL_V_VEC))
+                If LenB(vcsv) = 0 Then GoTo NextRow
+                If Not modUtil.CsvToVector(vcsv, vv) Then GoTo NextRow
+                If UBound(vv) - LBound(vv) + 1 <> qDim Then
+                    If Not e0702Logged Then
+                        modLog.LogError "E0702", "modRetrieve.SearchExpanded", _
+                            "chunk_id=" & vid & " queryDim=" & qDim & " vectorDim=" & (UBound(vv) - LBound(vv) + 1)
+                        e0702Logged = True
+                    End If
+                    GoTo NextRow
+                End If
             End If
 
             Dim kRow As Long: kRow = idx.Item(vid)
@@ -419,13 +477,12 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
             '
             ' 数値を勘で調整するのではなく、既に実測した方の実装へ寄せる。
             Dim sc As Double
-            sc = modUtil.DotProduct(qv, vv)
-            sc = sc + SparseBoost(sparseKeys2, _
-                     modSparse.CompactForMatch( _
-                         CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
-                         CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
-                         CStr(kData(kRow, COL_K_SOURCE)) & " " & _
-                         CStr(kData(kRow, COL_K_FULLTEXT))))
+            If useCache Then
+                sc = modVecCache.DotAt(qv, slot)
+            Else
+                sc = modUtil.DotProduct(qv, vv)
+            End If
+            sc = sc + SparseBoost(sparseKeys2, modShelfStore.NormTextAt(kData, kRow))
 
             If unionScore.Exists(vid) Then
                 If sc > unionScore.Item(vid) Then unionScore.Item(vid) = sc
@@ -437,6 +494,7 @@ NextRow:
 NextQ:
     Next qi
 
+    modShelfStore.FlushNormBackfill wsK, lastK, kData
     If validQ = 0 Then Exit Function
     Dim total As Long: total = unionScore.count
     If total = 0 Then Exit Function
@@ -523,7 +581,7 @@ End Function
 ' のは金融では事故」と自ら定義した決定的救済が、粗選別より後段に置かれて
 ' いたための矛盾である。候補に足すだけなので、順位付けは従来どおり
 ' Floatスコア+KeyScore が決める(拾いすぎても結果は壊れない)。
-Private Sub UnionKeyMatchRows(ByRef vData As Variant, ByRef kData As Variant, _
+Private Sub UnionKeyMatchRows(ByRef idData As Variant, ByRef kData As Variant, _
                               ByVal idx As Object, ByVal keys As String, _
                               ByVal cand As Object)
     On Error Resume Next
@@ -531,9 +589,9 @@ Private Sub UnionKeyMatchRows(ByRef vData As Variant, ByRef kData As Variant, _
     If LenB(keys) = 0 Then Exit Sub
 
     Dim r As Long
-    For r = LBound(vData, 1) To UBound(vData, 1)
+    For r = LBound(idData, 1) To UBound(idData, 1)
         If Not cand.Exists(r) Then
-            Dim vid As String: vid = CStr(vData(r, COL_V_ID))
+            Dim vid As String: vid = CStr(idData(r, 1))
             If LenB(vid) > 0 Then
                 If idx.Exists(vid) Then
                     Dim kRow As Long: kRow = idx.Item(vid)
@@ -563,6 +621,22 @@ Private Sub RecomputeMin(ByRef scores() As Double, ByVal k As Long, _
             outIdx = i
         End If
     Next i
+End Sub
+
+' ----------------------------------------------------------------------------
+' TickScan - 全件走査中の進捗更新+DoEvents(2026-08-01 R12-4)。
+' ----------------------------------------------------------------------------
+' 20,500行の走査は実機で数秒かかる。その間 DoEvents が1回も無いと Excel は
+' 応答なし(白画面)になり、利用者には「壊れた」としか見えない(憲章§3-1/§3-2)。
+' 押されたボタンは modUiLock.Enter(OnSend系が取得済み)が受け流すので、
+' ここで DoEvents を回しても検索が二重に走ることはない。
+' 表示の失敗が検索を止めないよう、丸ごと On Error Resume Next の中で行う。
+Private Sub TickScan(ByVal doneRows As Long, ByVal totalRows As Long)
+    On Error Resume Next
+    modUIMain.SetStage ChrW(&HD83D) & ChrW(&HDD0D) & " 検索中 " & _
+        modUtil.ProgressText(doneRows, totalRows, "")
+    DoEvents
+    On Error GoTo 0
 End Sub
 
 ' 選択ソート内で使う、並行配列7本分のインデックスa/bの要素を入れ替える。
