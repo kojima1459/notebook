@@ -162,6 +162,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         ElseIf modShelf.TotalChunks() >= capMax Then
             cappedN = cappedN + 1
         Else
+            ' R12-3-3: 恒久失敗(failed_permanent)で自動同期から外れたファイルも、
+            ' 利用者がここで明示的に選び直したのなら、もう一度試すのが正しい。
+            ' 連続失敗の記録を消してから取込へ入る。
+            On Error Resume Next
+            modShelfStore.ResetFailCountForPath CStr(fd.SelectedItems(i))
+            On Error GoTo AddFailed
+
             Dim beforeChunks As Long: beforeChunks = modShelf.TotalChunks()
             Dim st As String: st = "failed"
             Dim errCd As String: errCd = ""

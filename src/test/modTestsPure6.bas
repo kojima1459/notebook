@@ -452,7 +452,7 @@ Private Sub TestGsTextPageSplit()
     ' 中間の空ページは落とさない(本当に白紙のページがあり得るので、
     ' 落とすと以降のページ番号が全部ずれる)。
     CheckPageSplit "中間の空ページは残す", "1枚目" & ff & ff & "3枚目", 3
-    ' 改行だけのページ(実質白紙)も先頭・末尾なら落とす。
+    ' 改行だけのページ(実質白紙)も先頭・末尾なら落とす(番号側はCheckPageBuild)。
     CheckPageSplit "改行だけの先頭ページは空扱い", vbCrLf & ff & "本文", 1
 
     ' --- 中身が無い入力は0ページ ---
@@ -530,9 +530,10 @@ Private Sub CheckPageBuild(ByVal label As String, ByVal txt As String, _
         "期待=" & wantN & " 実際=" & buildN
 
     If okBuild Then
-        modTestRunner.Check "R10c: BuildPagesFromGsText " & label & "(1ページ目の中身)", _
-            (Trim$(pages(0).Text) = wantFirst And pages(0).page = 1), _
-            "実際=[" & Trim$(pages(0).Text) & "] page=" & pages(0).page
+        ' R12-3-6: 先頭の空ページも番号を消費する=先頭要素は firstIdx+1 ページ目。
+        modTestRunner.Check "R12-3-6: BuildPages " & label & "(先頭の中身と物理番号)", _
+            (Trim$(pages(0).Text) = wantFirst And pages(0).page = firstIdx + 1), _
+            "実際=[" & Trim$(pages(0).Text) & "] page=" & pages(0).page & " first=" & firstIdx
     End If
 End Sub
 

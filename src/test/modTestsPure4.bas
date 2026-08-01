@@ -513,6 +513,11 @@ NextSafeLeftSurrogate:
 NextIsoDate:
     On Error GoTo IsoDateFail
     TestIsoDateFamily
+NextPure7:
+    ' 2026-08-01 R12-3: 堅牢化の純ロジックテストは modTestsPure7 へ置いた
+    ' (本モジュールも上限に近いため。憲章§4-6)。ここが唯一の導線。
+    On Error GoTo Pure7Fail
+    modTestsPure7.RunAll7
 NextPure5:
     ' 2026-07-31 R8: modShareRule(P2P/共有系の判定式)のテストは
     ' modTestsPure5 へ置いた。ここが唯一の導線なので消さないこと
@@ -565,6 +570,10 @@ SafeLeftSurrogateFail:
     Resume NextIsoDate
 IsoDateFail:
     modTestRunner.Check "TestIsoDateFamily(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure7
+Pure7Fail:
+    modTestRunner.Check "modTestsPure7.RunAll7(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPure5
 Pure5Fail:

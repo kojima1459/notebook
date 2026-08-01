@@ -882,11 +882,10 @@ Public Sub Install()
   End If
   ThisWorkbook.Save
   Err.Clear
-  ' Detach Boot from Workbook_Open (avoids 1004 mid-init); fallback sync run.
-  ' Store the time in vba_src!E1 so modBoot can cancel the schedule.
+  ' Detach Boot from Open (1004); E1 keeps the time. Name-qualified: R12-3-8.
   Dim bt As Date
   bt = Now + TimeSerial(0, 0, 1)
-  Application.OnTime bt, "modBoot.Boot"
+  Application.OnTime bt, "'" & ThisWorkbook.Name & "'!modBoot.Boot"
   If Err.Number <> 0 Then
     Err.Clear
     Application.Run "modBoot.Boot"

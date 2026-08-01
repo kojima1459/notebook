@@ -191,6 +191,11 @@ PURE_ALLOWLIST = [
     #   ルート)を固定する。modTestsPure5.RunAll5 の末尾が RunAll6 を呼ぶため、
     #   未注入だと実行時エラー12になりテストが「実行されないまま」になる。
     "modTestsPure6",
+    # modTestsPure7(2026-08-01 R12-3): 既存テストモジュールが軒並み30,000字
+    #   上限に近く(憲章§4-6)、堅牢化の回帰テストを置くために新設した分割先。
+    #   modTestsPure4.RunAll4 の末尾が RunAll7 を呼ぶため、未注入だと実行時
+    #   エラー12になりテストが「実行されないまま」になる。
+    "modTestsPure7",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

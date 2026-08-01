@@ -157,13 +157,27 @@ Public Function PendingRowsRanked(ByRef outRows() As Long) As Long
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastR < 2 Then Exit Function
 
+    ' 2026-08-01(R12-3-5): 行ごとに SameQuestionCount を呼ぶと、その中で
+    ' 受信箱を毎回全走査するのでO(n²)になっていた(未取込1,000件で100万回の
+    ' セル読み=お知らせ欄を開くだけで数十秒固まる)。集計表を【1回】作って
+    ' 引くだけにする。行の読みも kind/question/consumed を一括Rangeで取る。
+    Dim counts As Object: Set counts = BuildQuestionCounts()
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 2), ws.Cells(lastR, 9)).Value
+
     ReDim outRows(0 To lastR)
     Dim scores() As Long: ReDim scores(0 To lastR)
     Dim n As Long, r As Long
     For r = 2 To lastR
-        If CStr(ws.Cells(r, 2).Value) = "qa" And CStr(ws.Cells(r, 9).Value) <> "1" Then
+        ' 複数列のRangeは1行でも必ず2次元配列になる(単一セルのときだけ
+        ' スカラーになるVBAの仕様に当たらない)。
+        Dim kind As String, qTxt As String, cons As String
+        kind = CStr(arr(r - 1, 1))       ' 2列目=kind
+        qTxt = CStr(arr(r - 1, 5))       ' 6列目=question
+        cons = CStr(arr(r - 1, 8))       ' 9列目=consumed
+        If kind = "qa" And cons <> "1" Then
             outRows(n) = r
-            scores(n) = SameQuestionCount(CStr(ws.Cells(r, 6).Value))
+            Dim ky As String: ky = NormKey(qTxt)
+            If counts.Exists(ky) Then scores(n) = counts.Item(ky)
             n = n + 1
         End If
     Next r
@@ -209,18 +223,53 @@ End Sub
 '   実務上いちばん誤爆が少なかった近似。
 Public Function SameQuestionCount(ByVal qText As String) As Long
     On Error Resume Next
-    Dim ws As Worksheet: Set ws = GetSheet()
-    If ws Is Nothing Then Exit Function
     Dim key As String: key = NormKey(qText)
     If LenB(key) = 0 Then Exit Function
 
-    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    Dim r As Long
-    For r = 2 To lastR
-        If NormKey(CStr(ws.Cells(r, 6).Value)) = key Then SameQuestionCount = SameQuestionCount + 1
-    Next r
+    Dim counts As Object: Set counts = BuildQuestionCounts()
+    If counts Is Nothing Then Exit Function
+    If counts.Exists(key) Then SameQuestionCount = counts.Item(key)
     On Error GoTo 0
 End Function
+
+' ----------------------------------------------------------------------------
+' BuildQuestionCounts - 質問キー→件数の集計表を【一括Range読み1回】で作る。
+'   2026-08-01(R12-3-5)。キャッシュは持たない。受信箱は起動時の収集で増え、
+'   取込・トリムで減る「動く表」なので、古い集計を持ち回るくらいなら
+'   毎回作り直す方が安全で、それでも全体はO(n)で収まる(作るのは1回、
+'   引くのはDictionaryのO(1))。
+' ----------------------------------------------------------------------------
+Private Function BuildQuestionCounts() As Object
+    Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
+    Set BuildQuestionCounts = d
+
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet()
+    If ws Is Nothing Then Exit Function
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Function
+
+    Dim r As Long
+    If lastR = 2 Then
+        ' 1行だけのときRange.Valueは配列にならない(VBAの仕様)。
+        BumpKey d, NormKey(CStr(ws.Cells(2, 6).Value))
+    Else
+        Dim arr As Variant: arr = ws.Range(ws.Cells(2, 6), ws.Cells(lastR, 6)).Value
+        For r = LBound(arr, 1) To UBound(arr, 1)
+            BumpKey d, NormKey(CStr(arr(r, 1)))
+        Next r
+    End If
+    On Error GoTo 0
+End Function
+
+Private Sub BumpKey(ByVal d As Object, ByVal key As String)
+    If LenB(key) = 0 Then Exit Sub
+    If d.Exists(key) Then
+        d.Item(key) = CLng(d.Item(key)) + 1
+    Else
+        d.Add key, 1
+    End If
+End Sub
 
 Private Function NormKey(ByVal s As String) As String
     Dim t As String: t = s

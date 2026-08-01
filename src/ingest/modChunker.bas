@@ -184,13 +184,18 @@ Public Function JoinSplitNumbers(ByVal lineText As String) As String
     Dim p As Long: p = InStr(lineText, "第")
     If p = 0 Then Exit Function
 
-    Dim out As String
+    ' R12-3-9: 1文字ずつ連結すると行長Lに対しO(L²)(改行の無い巨大txt/CSVの
+    ' 1行=数十万字に「第」が1つあるだけで数十GBのコピー)。区切り無しJoinなので
+    ' 未使用の末尾要素("")は出力に影響しない。
+    Dim out() As String: ReDim out(1 To Len(lineText) + 1)
+    Dim outN As Long
     Dim i As Long: i = 1
     Dim ln As Long: ln = Len(lineText)
     Do While i <= ln
         Dim c As String: c = Mid$(lineText, i, 1)
         If c <> "第" Then
-            out = out & c
+            outN = outN + 1
+            out(outN) = c
             i = i + 1
         Else
             ' 「第」の後ろを走査: 数字と空白だけが続き、そのあと単位漢字が来るか
@@ -211,15 +216,17 @@ Public Function JoinSplitNumbers(ByVal lineText As String) As String
             If j <= ln Then unit = Mid$(lineText, j, 1)
             If LenB(digits) > 0 And (unit = "条" Or unit = "章" Or unit = "節" _
                                      Or unit = "項" Or unit = "号" Or unit = "編") Then
-                out = out & "第" & digits & unit
+                outN = outN + 1
+                out(outN) = "第" & digits & unit
                 i = j + 1
             Else
-                out = out & c
+                outN = outN + 1
+                out(outN) = c
                 i = i + 1
             End If
         End If
     Loop
-    JoinSplitNumbers = out
+    JoinSplitNumbers = Join(out, "")
 End Function
 
 ' IsPageNumberLine - 「- 19 -」「―19―」「‐ 3 ‐」等、ページ番号だけの行か。
@@ -354,7 +361,7 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
                                     ByVal ov As Long, ByVal mx As Long, _
                                     ByRef outArr() As ShelfChunk, ByRef outCount As Long)
     Dim chapter As String, section As String
-    Dim blockText As String
+    Dim blockBuf() As String, blockN As Long
     Dim blockPage As Long
 
     ' 2026-07-29(実機事故): 1ページ(1シート)の処理で実行時エラーが出ると、
@@ -381,14 +388,14 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
             For i = LBound(rows) To UBound(rows)
                 Dim lbl As Long: lbl = ClassifyLine(rows(i))
                 If lbl = 1 Or lbl = 2 Then
-                    FlushBlock blockPage, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+                    FlushBlock blockPage, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
                     If lbl = 1 Then
                         chapter = Trim$(StripHeadingMark(rows(i)))
                         section = ""
                     Else
                         section = Trim$(rows(i))
                     End If
-                    blockText = Trim$(rows(i))
+                    BlockAdd blockBuf, blockN, Trim$(rows(i))
                     blockPage = pageNo
                 Else
                     Dim rowText As String
@@ -398,9 +405,8 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
                         rowText = CollapseSpaces(rows(i))
                     End If
                     If LenB(Trim$(rowText)) > 0 Then
-                        If LenB(blockText) = 0 Then blockPage = pageNo
-                        If LenB(blockText) > 0 Then blockText = blockText & vbLf
-                        blockText = blockText & rowText
+                        If blockN = 0 Then blockPage = pageNo
+                        BlockAdd blockBuf, blockN, rowText
                     End If
                 End If
             Next i
@@ -411,7 +417,7 @@ SkipPage:
         ' このページだけ諦めて次へ。組み立て途中のブロックは捨てる
         ' (壊れたページの続きを次のページへ繋ぐと、内容が混ざる)。
         mSkippedPages = mSkippedPages + 1
-        blockText = ""
+        blockN = 0
         ' 【重要】ここは On Error GoTo 0 では駄目で、Resume で抜ける。
         ' VBAは「エラーハンドラ実行中」という状態を持ち、これを解除できるのは
         ' Resume だけである。On Error GoTo 0 はトラップの登録を消すだけなので、
@@ -424,9 +430,31 @@ NextPage:
     Next p
 
     On Error Resume Next
-    FlushBlock blockPage, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+    FlushBlock blockPage, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
     On Error GoTo 0
 End Sub
+
+' ブロック本文の組み立て(R12-3-9)。行を配列に積み確定時にJoin(vbLf)する
+' (modSparse.Tokenizeと同作法)。旧 "blockText = blockText & 行" は見出しの無い
+' 資料でブロックが全文まで成長し総コピー量O(n²)だった(2MB/4万行=累積約80GB。
+' txt/csvは全文1ページ扱いのため見出し記法が無ければ無条件に踏む)。空文字を
+' 積まないのは旧実装が「空なら区切りを足さない」ため=出力は不変。
+Private Sub BlockAdd(ByRef buf() As String, ByRef n As Long, ByVal s As String)
+    If LenB(s) = 0 Then Exit Sub
+    If n = 0 Then ReDim buf(1 To 64)
+    If n >= UBound(buf) Then ReDim Preserve buf(1 To UBound(buf) * 2)
+    n = n + 1
+    buf(n) = s
+End Sub
+
+' 取り出して空にする(Joinは配列全長を繋ぐので実長へ詰めてから)。捨てるだけの
+' ときは呼び出し側で n = 0 とすればよい(次のBlockAddが張り直す)。
+Private Function BlockTake(ByRef buf() As String, ByRef n As Long) As String
+    If n < 1 Then Exit Function
+    ReDim Preserve buf(1 To n)
+    BlockTake = Join(buf, vbLf)
+    n = 0
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 構造認識チャンク化の内部実装(設計書§B-1)
@@ -445,7 +473,7 @@ Private Sub ChunkOnePageStructured(ByVal pageNum As Long, ByVal rawText As Strin
 
     Dim chapter As String: chapter = ""
     Dim section As String: section = ""
-    Dim blockText As String: blockText = ""
+    Dim blockBuf() As String, blockN As Long
 
     Dim i As Long
     For i = LBound(rows) To UBound(rows)
@@ -453,7 +481,7 @@ Private Sub ChunkOnePageStructured(ByVal pageNum As Long, ByVal rawText As Strin
 
         If lbl = 1 Or lbl = 2 Then
             ' 見出し=ブロック境界。ここまでのブロックを確定し、階層を更新。
-            FlushBlock pageNum, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+            FlushBlock pageNum, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
             If lbl = 1 Then
                 chapter = Trim$(StripHeadingMark(rows(i)))
                 section = ""
@@ -461,7 +489,7 @@ Private Sub ChunkOnePageStructured(ByVal pageNum As Long, ByVal rawText As Strin
                 section = Trim$(rows(i))
             End If
             ' 見出し行自体は直後ブロックの先頭に含める(見出しだけの空チャンクは作らない)
-            blockText = Trim$(rows(i))
+            BlockAdd blockBuf, blockN, Trim$(rows(i))
         Else
             Dim rowText As String
             If lbl = 4 Then
@@ -469,13 +497,10 @@ Private Sub ChunkOnePageStructured(ByVal pageNum As Long, ByVal rawText As Strin
             Else
                 rowText = CollapseSpaces(rows(i))
             End If
-            If LenB(Trim$(rowText)) > 0 Then
-                If LenB(blockText) > 0 Then blockText = blockText & vbLf
-                blockText = blockText & rowText
-            End If
+            If LenB(Trim$(rowText)) > 0 Then BlockAdd blockBuf, blockN, rowText
         End If
     Next i
-    FlushBlock pageNum, blockText, chapter, section, tgt, ov, mx, outArr, outCount
+    FlushBlock pageNum, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
 End Sub
 
 ' ブロック1つをチャンク列へ確定する。breadcrumb(プレースホルダ資料名)を

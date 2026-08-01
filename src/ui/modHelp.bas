@@ -379,7 +379,7 @@ Public Sub OnFeedback()
     On Error GoTo Done
 
     ' バグバウンティEXP(1日1回まで=空メール連打での稼ぎを防止)
-    Dim dayKey As String: dayKey = "fb:" & Format$(Date, "yyyymmdd")
+    Dim dayKey As String: dayKey = "fb:" & modUtilText.IsoDateCompact(Date)
     If modStats.GetStat(dayKey) = 0 Then
         modStats.Bump dayKey
         modStats.AddExp "feedback"

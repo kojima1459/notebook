@@ -560,7 +560,7 @@ Private Function StatusIcon(ByVal status As String) As String
             StatusIcon = ChrW(&H2705)                          ' U+2705 チェック
         Case "pending", "partial"
             StatusIcon = ChrW(&H23F3)                          ' U+23F3 砂時計
-        Case "failed"
+        Case "failed", "failed_permanent"
             StatusIcon = ChrW(&H26A0) & ChrW(&HFE0F)            ' U+26A0+FE0F 警告
         Case "image_pdf"
             StatusIcon = ChrW(&HD83D) & ChrW(&HDDBC)
@@ -590,6 +590,12 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
             Else
                 BuildMemo = "取込に失敗しました。"
             End If
+        Case "failed_permanent"
+            ' R12-3-3: 3回続けて失敗したので自動同期の対象から外した状態。
+            ' 「なぜ同期しても直らないのか」と「次の一手」を必ず書く。
+            BuildMemo = "3回続けて取込に失敗したため、自動同期の対象から外しました。" & _
+                "上のツールバーの「資料を追加」でこのファイルを選び直すと、もう一度試します。"
+            If LenB(errorNote) > 0 Then BuildMemo = BuildMemo & "(前回: " & errorNote & ")"
         Case Else
             BuildMemo = errorNote
     End Select

@@ -376,6 +376,35 @@ Public Sub RestoreExcelUI()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' EnsureSessionResources - ホットキーと自動同期を「あるべき状態」へ戻す(冪等)。
+' ----------------------------------------------------------------------------
+' 2026-08-01(R12-3-8): Auto_Close はX閉じの保存確認【より前】に走るため、
+' 利用者が「キャンセル」を押すと、閉じないのに OnKey 3種と OnTime 予約だけが
+' 解除された状態が残る。表示は EnsureAppView が次の遷移で自己修復するのに、
+' ホットキーと自動同期には戻り道が無く、以降そのセッションは Ctrl+Enter 送信も
+' Ctrl+Shift+Q 召喚も無反応(=憲章§3-1「押せるものは必ず反応する」違反)。
+' 同じ遷移点(modUI.EnsureAppView)から呼び、資源も一緒に戻す。
+' 二重登録は起きない: OnKey は同じキーへの再登録が上書き、ScheduleAutoSync は
+' 予約済みなら何もしない(modShelfSync 側の冪等ガード)。
+'
+' Procedure名を "'ブック名'!" で修飾する理由: OnKey/OnTime は Application 単位の
+' 資源で、配布更新時に「MyBookshelf (1).xlsm」等の別名コピーと新旧併存する
+' ことが現実に起こる。無修飾だと発火時の名前解決が2ブック間で曖昧になる。
+Public Sub EnsureSessionResources()
+    On Error Resume Next
+    Dim qn As String: qn = "'" & ThisWorkbook.Name & "'!"
+    Application.OnKey "^+q", qn & "modApp.SummonNexus"
+    ' 2026-07-28(レビュー L-19): Ctrl+Enter を2通り登録する。"^~" はメインキーの
+    ' Enter しか拾わないため、テンキーの Enter で送信できなかった。"^{ENTER}" を
+    ' 足して両方拾う。なお、セル編集中は OnKey が効かず1回目の Ctrl+Enter は
+    ' 「確定」になる(Excelの仕様で回避不可。ヒント文もそう書いてある)。
+    Application.OnKey "^~", qn & "modApp.HotSend"
+    Application.OnKey "^{ENTER}", qn & "modApp.HotSend"
+    modShelfSync.ScheduleAutoSync
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' EnsureAppView - アプリ表示状態の自己修復(2026-07-31 R7 A-2)。
 '   「閉じる」→「キャンセル」等で全画面/バーが崩れたまま戻らない事故の自己修復。
 '   冪等・非破壊(既にその状態なら書かない)。Auto_Close側・ThisWorkbookは触らない。
@@ -393,6 +422,12 @@ Public Sub EnsureAppView()
     On Error Resume Next
     If Not Application.DisplayFullScreen Then Application.DisplayFullScreen = True
     If Application.DisplayFormulaBar Then Application.DisplayFormulaBar = False
+    On Error GoTo 0
+
+    ' R12-3-8: 表示だけでなく「押せるもの」も戻す。X閉じ→キャンセルの後は
+    ' Auto_Close がホットキーと自動同期を解除したまま残っている(冪等)。
+    On Error Resume Next
+    EnsureSessionResources
     On Error GoTo 0
 
     Dim win As Object

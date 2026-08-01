@@ -486,13 +486,25 @@ End Function
 ' ScheduleAutoSync - sync_interval_min>0ならApplication.OnTimeで次回予約(自己再帰)
 ' ----------------------------------------------------------------------------
 Public Sub ScheduleAutoSync()
+    ' 2026-08-01(R12-3-8): 二重予約の防止。画面遷移ごとの自己修復
+    ' (modUI.EnsureSessionResources)からも呼ばれるようになったため、
+    ' 「予約が生きているなら何もしない」を関数の側で保証する。予約が2本に
+    ' なると CancelAutoSync が最後の1本しか解除できず、閉じたブックを
+    ' Excelが勝手に開き直す事故(§9)の芽になる。
+    ' AutoSyncTick は自分の発火時に mScheduled=False にしてから再予約するので、
+    ' 自己再帰は従来どおり回る。
+    If mScheduled Then Exit Sub
+
     Dim minutes As Long: minutes = modConfig.GetLong("sync_interval_min", 0)
     If minutes < 1 Then Exit Sub
 
     Dim nextTime As Date: nextTime = Now + TimeSerial(0, minutes, 0)
 
     On Error GoTo Fail
-    Application.OnTime EarliestTime:=nextTime, Procedure:="AutoSyncTick"
+    ' Procedure は "'ブック名'!" 修飾(R12-3-8)。新旧2版が別名で併存したとき、
+    ' 無修飾だと発火時の名前解決がどちらのブックへ向くか決まらない。解除側
+    ' (CancelAutoSync)も同じ式で組み立てるので、文字列は必ず一致する。
+    Application.OnTime EarliestTime:=nextTime, Procedure:=TickProcName()
     mNextRunTime = nextTime
     mScheduled = True
     ' 2026-07-28(レビュー L-23): 予約時刻を ui_state にも残す。
@@ -521,7 +533,7 @@ Public Sub CancelAutoSync()
     On Error Resume Next
     ' モジュール変数が生きていればそれで解除する。
     If mScheduled Then
-        Application.OnTime EarliestTime:=mNextRunTime, Procedure:="AutoSyncTick", Schedule:=False
+        Application.OnTime EarliestTime:=mNextRunTime, Procedure:=TickProcName(), Schedule:=False
         Err.Clear
     End If
 
@@ -530,7 +542,7 @@ Public Sub CancelAutoSync()
     Dim s As String: s = modState.LoadState(SCHED_KEY, "")
     If LenB(s) > 0 Then
         If IsNumeric(s) Then
-            Application.OnTime EarliestTime:=CDate(CDbl(s)), Procedure:="AutoSyncTick", Schedule:=False
+            Application.OnTime EarliestTime:=CDate(CDbl(s)), Procedure:=TickProcName(), Schedule:=False
             Err.Clear
         End If
         modState.SaveState SCHED_KEY, ""
@@ -563,6 +575,12 @@ End Function
 '   decision="keep" かつ status="missing" -> "replace"(フォルダ復活時に復帰。
 '     Wave4修正: 従来はmissing行がkeepのまま固定され、フォルダが戻っても
 '     カードが「削除待ち」表示のまま・埋め込み再開も走らない不具合があった)
+'   decision="keep" かつ status="failed_permanent" -> "keep" のまま
+'     (2026-08-01 R12-3-3。連続3回失敗したファイルは自動同期の対象から外す。
+'      毎回の同期時間と err_log を食い続けるのを止めるため。ファイル自体が
+'      更新されれば DiffDecision が "replace" を返すので自動で再試行になり、
+'      利用者が「資料を追加」で選び直せば modShelfStore.ResetFailCountForPath
+'      が status を "failed" に戻して通常の再試行経路へ復帰する)
 '   それ以外はdecisionをそのまま返す。
 ' ----------------------------------------------------------------------------
 Public Function ResolveDecision(ByVal decision As String, ByVal existsInManifest As Boolean, _
@@ -599,6 +617,13 @@ Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(sheetName)
     On Error GoTo 0
+End Function
+
+' OnTime へ渡すプロシージャ名。予約側と解除側で必ず同じ文字列にするため、
+' 組み立てはここ1箇所に置く(R12-3-8)。ブック名は実行時に決まる
+' (配布更新で「MyBookshelf (1).xlsm」等へ変わり得る)ので定数にはできない。
+Private Function TickProcName() As String
+    TickProcName = "'" & ThisWorkbook.Name & "'!AutoSyncTick"
 End Function
 
 ' フォルダの存在確認。Dir(path, vbDirectory)は末尾に区切り文字が付いていると

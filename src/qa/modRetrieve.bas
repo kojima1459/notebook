@@ -152,6 +152,7 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
         Dim tB0 As Double: tB0 = modBitwiseOpt.MicroTimerMs()
         useCand = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRows)
         binMs = modBitwiseOpt.MicroTimerMs() - tB0   ' 爆速証明: バイナリ粗選別のms
+        If useCand Then UnionKeyMatchRows vData, kData, idx, sparseKeys, candRows
     End If
 
     Dim bestId() As String: ReDim bestId(1 To k)
@@ -372,6 +373,7 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         Dim candRowsQ As Object
         If modBitwiseOpt.Enabled(UBound(vData, 1) - LBound(vData, 1) + 1) Then
             useCandQ = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRowsQ)
+            If useCandQ Then UnionKeyMatchRows vData, kData, idx, sparseKeys2, candRowsQ
         End If
 
         Dim r As Long
@@ -508,6 +510,46 @@ Private Function SparseBoost(ByVal preparedKeys As String, ByVal compactDoc As S
     On Error GoTo 0
 End Function
 
+
+' ----------------------------------------------------------------------------
+' UnionKeyMatchRows - 粗選別(binary_rag)の候補集合へ「効く語の完全一致を含む
+'   行」を強制的に足す(2026-08-01 R12-3-7)。
+' ----------------------------------------------------------------------------
+' modSparse.bas:63-67 は「片方で候補を絞ってからもう片方を掛ける構成には
+' しない。ベクトルで拾えない専門用語が一段目で足切りされる事故を、構造的に
+' 防ぐため」と設計保証を書いている。ところが binary_rag=TRUE のときだけは、
+' ハミング距離(dense近似)だけで選んだ上位200件の外にある行が SparseBoost の
+' 適用機会そのものを失っていた。「第12条は?と聞かれて第12条が1位に来ない
+' のは金融では事故」と自ら定義した決定的救済が、粗選別より後段に置かれて
+' いたための矛盾である。候補に足すだけなので、順位付けは従来どおり
+' Floatスコア+KeyScore が決める(拾いすぎても結果は壊れない)。
+Private Sub UnionKeyMatchRows(ByRef vData As Variant, ByRef kData As Variant, _
+                              ByVal idx As Object, ByVal keys As String, _
+                              ByVal cand As Object)
+    On Error Resume Next
+    If cand Is Nothing Then Exit Sub
+    If LenB(keys) = 0 Then Exit Sub
+
+    Dim r As Long
+    For r = LBound(vData, 1) To UBound(vData, 1)
+        If Not cand.Exists(r) Then
+            Dim vid As String: vid = CStr(vData(r, COL_V_ID))
+            If LenB(vid) > 0 Then
+                If idx.Exists(vid) Then
+                    Dim kRow As Long: kRow = idx.Item(vid)
+                    If modSparse.HasAnyKey(keys, _
+                            CStr(kData(kRow, COL_K_SOURCE)) & " " & _
+                            CStr(kData(kRow, COL_K_SUMMARY)) & " " & _
+                            CStr(kData(kRow, COL_K_KEYWORDS)) & " " & _
+                            CStr(kData(kRow, COL_K_FULLTEXT))) Then
+                        cand.Add r, True
+                    End If
+                End If
+            End If
+        End If
+    Next r
+    On Error GoTo 0
+End Sub
 
 ' bestScore(1..k)中の最小値とその添字を再計算する(ストリーミングtop-k用)。
 Private Sub RecomputeMin(ByRef scores() As Double, ByVal k As Long, _

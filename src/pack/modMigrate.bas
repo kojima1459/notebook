@@ -48,6 +48,43 @@ Private Const CFG_SKIP_EXACT As String = "|mock_llm|build_stamp|publish_key|"
 Private Const CFG_SKIP_PREFIX As String = "azure_"
 
 ' ----------------------------------------------------------------------------
+' 引き継ぐ config キーのホワイトリスト(2026-08-01 R12-3-2)
+' ----------------------------------------------------------------------------
+' なぜ「引き継がないものを除く」から「引き継ぐものだけ」へ変えたか:
+'   従来は IsBuildOwnedKey に載っていない全キーを新版へ書き戻していた。
+'   その結果、新版で【既定値を直した】キー(例: knowledge_expire_days を
+'   30→0 に直した R12-1-1、shelf_max_chunks・chunk_limit の上限統一)が、
+'   引き継ぎのたびに旧ブックの値で静かに巻き戻る。直したはずの不具合が
+'   移行した人にだけ再発する、という最悪の形の劣化になる。
+'   「新版が正しい」を既定に置き、利用者が自分で決めた値だけを運ぶ。
+'
+' 何を載せたか(configシートの説明文からの判断):
+'   (a) 実行時に利用者操作で書き換わるキー = 画面から設定できるもの。
+'       modConfig.SetValue の呼び出し元を全数確認して列挙した:
+'         nexus_share_path(modHelp)/ pack_author(modBoot)/
+'         answer_language(modApp)/ shelf_folder(modShelfSync)/
+'         ghostscript_path(optVision)/ active_channel・
+'         unsubscribed_channels(modChannel)
+'   (b) 端末ごとに人が書き入れる環境値・好み。
+'         user_department(分析用の自己申告)/ ghostscript_search_dirs
+'         (社内の標準配置先)/ sync_interval_min・sync_on_open(同期の好み)/
+'         chat_log_enabled(履歴を残すか)/ telemetry_enabled(送信の可否)
+'
+' 何を載せなかったか(意図的):
+'   ・モデル名・effort・topk・チャンク設定・検索方式などのチューニング値は
+'     製品の作り手が決める。新版の既定を優先する。
+'   ・allowed_domain / knowledge_expire_days / admin_users /
+'     domain_wipe_after_n_boots / feedback_mail_to / noise_global_threshold は
+'     配布する側(IT・管理者)がビルドまたは配布時に決める運用値。旧端末の値を
+'     持ち込むと、新しい運用方針が端末単位で無効化される。
+'   ・feature_* / holidays / exp_* も同じ理由で新版の値を使う。
+Private Const CFG_KEEP_KEYS As String = _
+    "|nexus_share_path|shelf_folder|sync_interval_min|sync_on_open|" & _
+    "user_department|pack_author|answer_language|active_channel|" & _
+    "unsubscribed_channels|ghostscript_path|ghostscript_search_dirs|" & _
+    "chat_log_enabled|telemetry_enabled|"
+
+' ----------------------------------------------------------------------------
 ' ExportUserData - 引き継ぎファイルを書き出す。
 ' ----------------------------------------------------------------------------
 ' 呼び出し側(UI層)が modUiLock を取ってから呼ぶこと。R1(層の向き)により
@@ -182,9 +219,13 @@ Public Sub ImportUserData()
         GoTo Done
     End If
 
-    RestoreSheet wb, modAppDef.SH_KNOWLEDGE
-    RestoreSheet wb, modAppDef.SH_VECTORS
-    RestoreSheet wb, modAppDef.SH_MANIFEST
+    ' R12-3-1: 3シートそれぞれの成否と実測行数を受け取る。1枚でも失敗したら
+    ' 完了ダイアログの文言を切り替える(「引き継ぎました」と言わない)。
+    Dim rowsK As Long, rowsV As Long, rowsM As Long
+    Dim allOk As Boolean: allOk = True
+    If Not RestoreSheet(wb, modAppDef.SH_KNOWLEDGE, rowsK) Then allOk = False
+    If Not RestoreSheet(wb, modAppDef.SH_VECTORS, rowsV) Then allOk = False
+    If Not RestoreSheet(wb, modAppDef.SH_MANIFEST, rowsM) Then allOk = False
     MergeStats wb
     MergeConfig wb
 
@@ -197,15 +238,28 @@ Public Sub ImportUserData()
     Dim got As Long
     On Error Resume Next
     got = modShelf.TotalChunks()
-    modLog.LogUsage "migrate_import", "", "chunks=" & got
+    ' R12-3-1: 「何件戻したつもりか」ではなく、復元後のシートを数えた実測値を残す。
+    modLog.LogUsage "migrate_import", "", "chunks=" & got & _
+        " knowledge=" & rowsK & " vectors=" & rowsV & " manifest=" & rowsM & _
+        " restored_ok=" & allOk
     On Error GoTo Failed
 
-    MsgBox "引き継ぎました。" & vbCrLf & vbCrLf & _
-           "本棚: " & got & " 件" & vbCrLf & vbCrLf & _
-           "設定は、この版に存在する項目だけを引き継いでいます" & vbCrLf & _
-           "(新しく増えた設定は初期値のままです)。" & vbCrLf & _
-           "画面を描き直すため、一度閉じて開き直してください。", _
-           vbInformation, modAppDef.APP_NAME
+    If allOk Then
+        MsgBox "引き継ぎました。" & vbCrLf & vbCrLf & _
+               "本棚: " & got & " 件" & vbCrLf & vbCrLf & _
+               "設定は、あなたが決めた項目(共有フォルダ・同期フォルダ・部署名・" & vbCrLf & _
+               "作成者名・部門チャンネル等)だけを引き継いでいます" & vbCrLf & _
+               "(その他はこの版の初期値のままです)。" & vbCrLf & _
+               "画面を描き直すため、一度閉じて開き直してください。", _
+               vbInformation, modAppDef.APP_NAME
+    Else
+        MsgBox "一部復元できませんでした。元のファイルは残っています。" & vbCrLf & _
+               "もう一度お試しください。" & vbCrLf & vbCrLf & _
+               "いま入っているのは 本棚: " & got & " 件 です。" & vbCrLf & _
+               "続けて同じ結果になるときは、診断ボタンの" & vbCrLf & _
+               "「直近のエラーをコピー」で担当者へご連絡ください。", _
+               vbExclamation, modAppDef.APP_NAME
+    End If
 
 Done:
     On Error Resume Next
@@ -373,21 +427,52 @@ Private Function IsBuildOwnedKey(ByVal k As String) As Boolean
     IsBuildOwnedKey = (StrComp(Left$(LCase$(k), Len(CFG_SKIP_PREFIX)), CFG_SKIP_PREFIX, vbTextCompare) = 0)
 End Function
 
+' 利用者が決めた値として引き継ぐキーか(R12-3-2。判断根拠は CFG_KEEP_KEYS の上)。
+' 書き出し側(CopyConfigInto)は従来どおり広めに持ち出す。読み込み側で絞るのは、
+' 旧い引き継ぎファイルでも新しい判断基準がそのまま効くようにするため。
+Private Function IsUserOwnedKey(ByVal k As String) As Boolean
+    IsUserOwnedKey = (InStr(1, CFG_KEEP_KEYS, "|" & LCase$(Trim$(k)) & "|", vbTextCompare) > 0)
+End Function
+
 ' 引き継ぎブックのシートで、このブックのシートを置き換える。
-Private Sub RestoreSheet(ByVal srcWb As Workbook, ByVal sheetName As String)
-    On Error Resume Next
-    If Not SheetExistsIn(srcWb, sheetName) Then Exit Sub
+'
+' 2026-08-01(R12-3-1): 戻り値 Boolean + 実測行数へ変えた。
+' 従来は関数全体が On Error Resume Next で、書き戻しの途中で失敗しても
+' 「引き継ぎました」という完了ダイアログだけが出た(憲章§4-1 無言の失敗禁止)。
+' 本棚が半分しか戻っていないのに成功と言うのは、利用者が最も気付けない形の
+' データ欠損である。失敗は E0801 で記録し、呼び出し側が文言を切り替える。
+'   outRows : 復元後に dst 側で【実際に】数えたデータ行数(見出し行を除く)。
+'             書けたつもりの件数ではなく、書けた結果を数える。
+Private Function RestoreSheet(ByVal srcWb As Workbook, ByVal sheetName As String, _
+                              ByRef outRows As Long) As Boolean
+    outRows = 0
+    On Error GoTo Fail
+
+    ' 引き継ぎファイル側にそのシートが無いのは失敗ではない(旧版の
+    ' 引き継ぎファイルには存在しないシートがあり得る)。何も置き換えない。
+    If Not SheetExistsIn(srcWb, sheetName) Then
+        RestoreSheet = True
+        Exit Function
+    End If
+
     Dim src As Worksheet: Set src = srcWb.Worksheets(sheetName)
+    ' 置き換え先が無い(=このブックが壊れている)場合は Worksheets(...) が
+    ' 実行時エラー9を出し、下の Fail が記録する。黙って諦めない。
     Dim dst As Worksheet: Set dst = ThisWorkbook.Worksheets(sheetName)
-    If dst Is Nothing Then Exit Sub
 
     Dim lastR As Long: lastR = src.Cells(src.Rows.count, 1).End(xlUp).row
     Dim lastC As Long: lastC = src.Cells(1, src.Columns.count).End(xlToLeft).Column
-    If lastC < 1 Then Exit Sub
+    If lastC < 1 Then
+        RestoreSheet = True
+        Exit Function
+    End If
 
     ' 既存を消してから入れる(混ぜない)。見出し行は入れ直すので全消しでよい。
     dst.Cells.ClearContents
-    If lastR < 1 Then Exit Sub
+    If lastR < 1 Then
+        RestoreSheet = True
+        Exit Function
+    End If
 
     Dim rowStart As Long
     For rowStart = 1 To lastR Step 200
@@ -397,8 +482,24 @@ Private Sub RestoreSheet(ByVal srcWb As Workbook, ByVal sheetName As String)
         dst.Range(dst.Cells(rowStart, 1), dst.Cells(rowStart + rowsN - 1, lastC)).Value = _
             src.Range(src.Cells(rowStart, 1), src.Cells(rowStart + rowsN - 1, lastC)).Value
     Next rowStart
+
+    outRows = dst.Cells(dst.Rows.count, 1).End(xlUp).row - 1
+    If outRows < 0 Then outRows = 0
+    RestoreSheet = True
+    Exit Function
+
+Fail:
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かない。記録の前に Resume で
+    ' ハンドラを抜ける(modShelf.IngestFile と同じ作法。2026-07-30 実機err#462)。
+    Resume FailCleanup
+FailCleanup:
+    On Error Resume Next
+    modLog.LogError "E0801", "modMigrate.ImportUserData", _
+        "シート復元に失敗: " & sheetName & " err#" & failNum & ": " & failDesc
     On Error GoTo 0
-End Sub
+End Function
 
 ' my_stats はキー単位で併合する(新版が先に書いた行を消さない)。
 Private Sub MergeStats(ByVal srcWb As Workbook)
@@ -444,18 +545,22 @@ Private Sub MergeConfig(ByVal srcWb As Workbook)
     Next j
 
     Dim arr As Variant: arr = src.Range(src.Cells(2, 1), src.Cells(lastR, 2)).Value
-    Dim i As Long, applied As Long
+    Dim i As Long, applied As Long, skipped As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
         Dim k As String: k = Trim$(CStr(arr(i, 1)))
         If LenB(k) > 0 Then
-            If Not IsBuildOwnedKey(k) Then
+            ' R12-3-2: ホワイトリスト方式。ビルドが決める値の除外(従来)に加え、
+            ' 「利用者が決めた値」だけを通す。新版の既定値を旧値で巻き戻さない。
+            If IsUserOwnedKey(k) And Not IsBuildOwnedKey(k) Then
                 If known.Exists(LCase$(k)) Then
                     modConfig.SetValue k, CStr(arr(i, 2))
                     applied = applied + 1
                 End If
+            Else
+                skipped = skipped + 1
             End If
         End If
     Next i
-    modLog.LogUsage "migrate_config", "", "applied=" & applied
+    modLog.LogUsage "migrate_config", "", "applied=" & applied & " kept_new_default=" & skipped
     On Error GoTo 0
 End Sub

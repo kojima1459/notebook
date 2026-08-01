@@ -330,6 +330,32 @@ Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Do
     KeyScore = total / (1 + Log(1 + Len(compactDoc) / 900#))
 End Function
 
+' ----------------------------------------------------------------------------
+' HasAnyKey - keys(DistinctiveKeysの結果)のどれか1つでも doc に含まれるか。
+' ----------------------------------------------------------------------------
+' 2026-08-01(R12-3-7): バイナリ粗選別(binary_rag)の「救済union」専用の
+' 粗い包含判定。採点(KeyScore)と違い、正規化していない生テキストに対して
+' 大小文字を無視した部分一致で見る。理由は速度で、粗選別が省いた全件走査へ
+' 正規化(NormalizeForSearch は1文字ずつのループ)を持ち込むと、粗選別で
+' 得た速さをそのまま失うため。狙いは「第12条」のような決定的な語を持つ行を
+' 候補集合から落とさないことで、拾いすぎ側の誤りは後段のFloatスコアと
+' KeyScore が正しく並べ替える(落としたら二度と戻らないが、拾いすぎは直せる)。
+Public Function HasAnyKey(ByVal keys As String, ByVal doc As String) As Boolean
+    If LenB(keys) = 0 Then Exit Function
+    If LenB(doc) = 0 Then Exit Function
+
+    Dim arr() As String: arr = Split(keys, "|")
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        If Len(arr(i)) >= 2 Then                   ' 1文字キーは拾いすぎるので見ない
+            If InStr(1, doc, arr(i), vbTextCompare) > 0 Then
+                HasAnyKey = True
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
 Private Function CountOccurrences(ByVal hay As String, ByVal needle As String) As Long
     If LenB(needle) = 0 Then Exit Function
     Dim p As Long: p = InStr(1, hay, needle, vbBinaryCompare)

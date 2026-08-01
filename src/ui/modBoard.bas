@@ -92,7 +92,7 @@ End Sub
 ' ガードはISO風の年+週番号キー(wk:yyyww)。sv:d:日付キーを7日分読むだけ。
 Private Sub ShowWeeklySummary()
     Dim wkKey As String
-    wkKey = "wk:" & Format$(Date, "yyyy") & Format$(DatePart("ww", Date, vbMonday), "00")
+    wkKey = "wk:" & modUtilText.IsoYear(Date) & Format$(DatePart("ww", Date, vbMonday), "00")
     If modStats.GetStat(wkKey) > 0 Then Exit Sub
     modStats.Bump wkKey
 
@@ -146,9 +146,9 @@ Public Sub OnWidgetClick()
     Dim body As String
     body = ChrW(&HD83D) & ChrW(&HDCC8) & " 節約時間レポート" & vbLf & vbLf & _
            "【あなた】" & vbLf & _
-           "  今日: " & FmtMin(MyMin("d", Format$(Date, "yyyymmdd"))) & _
-           "  /  今月: " & FmtMin(MyMin("m", Format$(Date, "yyyymm"))) & _
-           "  /  今年: " & FmtMin(MyMin("y", Format$(Date, "yyyy"))) & vbLf & vbLf & _
+           "  今日: " & FmtMin(MyMin("d", modUtilText.IsoDateCompact(Date))) & _
+           "  /  今月: " & FmtMin(MyMin("m", modUtilText.IsoYm(Date))) & _
+           "  /  今年: " & FmtMin(MyMin("y", modUtilText.IsoYear(Date))) & vbLf & vbLf & _
            "【直近7日の履歴】" & vbLf & History7() & vbLf & _
            "【みんな(組織全体)】" & vbLf & _
            "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
@@ -246,9 +246,9 @@ Public Sub PublishBeacon()
 
     ' 統計の読み出しは my_stats(ローカル)なので、スロットル判定の前に
     ' 済ませてよい。共有I/Oは下の MkDir/WriteBeacon だけ。
-    Dim dk As String: dk = Format$(Date, "yyyymmdd")
-    Dim mk As String: mk = Format$(Date, "yyyymm")
-    Dim yk As String: yk = Format$(Date, "yyyy")
+    Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
+    Dim mk As String: mk = modUtilText.IsoYm(Date)
+    Dim yk As String: yk = modUtilText.IsoYear(Date)
     Dim dataText As String
     dataText = myId & vbTab & modStats.GetStat("thanks_received_total") & vbTab & _
                dk & vbTab & MyMin("d", dk) & vbTab & _
@@ -350,9 +350,9 @@ Private Sub RefreshBoard()
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
 
-    Dim dk As String: dk = Format$(Date, "yyyymmdd")
-    Dim mk As String: mk = Format$(Date, "yyyymm")
-    Dim yk As String: yk = Format$(Date, "yyyy")
+    Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
+    Dim mk As String: mk = modUtilText.IsoYm(Date)
+    Dim yk As String: yk = modUtilText.IsoYear(Date)
 
     ' collect-then-process(Dir列挙中に他のDirを呼ばない)
     Dim names() As String: ReDim names(0 To 63)

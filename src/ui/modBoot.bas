@@ -110,7 +110,10 @@ Private Sub CancelPendingInstallerBoot()
     If serial <= 0 Then Exit Sub
 
     w.Cells(BOOT_SCHED_ROW, BOOT_SCHED_COL).ClearContents
-    Application.OnTime EarliestTime:=CDate(serial), Procedure:="modBoot.Boot", Schedule:=False
+    ' R12-3-8: 予約側(インストーラ)と同じ "'ブック名'!" 修飾で解除する。
+    ' ブック名は実行時に決まる(別名コピーで新旧併存し得る)ので合成する。
+    Application.OnTime EarliestTime:=CDate(serial), _
+        Procedure:="'" & ThisWorkbook.Name & "'!modBoot.Boot", Schedule:=False
     Err.Clear
     On Error GoTo 0
 End Sub
@@ -445,18 +448,10 @@ Public Sub Boot()
     HideGuardSheet
     On Error GoTo Failed
 
-    ' 8.6) ホットキー登録: Ctrl+Shift+Q=一撃召喚 / Ctrl+Enter=送信(Nexus上のみ発火)。
+    ' 8.6) ホットキー登録+自動同期の予約(実体は EnsureSessionResources)。
     '      解除はAuto_Close(既存のCtrl+Z解除と同じライフサイクル)。
     On Error Resume Next
-    Application.OnKey "^+q", "modApp.SummonNexus"
-    ' 2026-07-28(レビュー L-19): Ctrl+Enter を2通り登録する。
-    ' "^~" はメインキーの Enter しか拾わないため、テンキーの Enter で
-    ' 送信できなかった。"^{ENTER}" を足して両方拾う。
-    ' なお、セル編集中(入力欄に文字を打っている最中)は OnKey が効かず、
-    ' 1回目の Ctrl+Enter は「確定」になる。これはExcelの仕様で回避できない
-    ' ため、ヒント文は「入力後に Ctrl+Enter」と書き換えてある。
-    Application.OnKey "^~", "modApp.HotSend"
-    Application.OnKey "^{ENTER}", "modApp.HotSend"
+    modUI.EnsureSessionResources
     On Error GoTo Failed
 
     ' 2026-07-31(レビュー R8 F3): ここから先の再描画では、Hubの受信箱が

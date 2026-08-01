@@ -23,6 +23,15 @@ Private Const FIELD_SEP As String = vbTab
 ' 既読印(my_stats)の接頭辞。modP2P の "thx:" と同じ作法(R8 F10)。
 Private Const INS_PREFIX As String = "ins:"
 
+' 受信箱(insight_inbox)のトリム条件(2026-08-01 R12-3-5)。
+' 取り込み済み(consumed=1)の行は、本棚に入った時点で役目を終えている。
+' 消さないと、共有知が回るほど受信箱が一方的に伸び、起動時の収集も
+' 「みんなの困りごと」の描画も毎回そのぶん重くなる(chat_logの100件
+' ローテと同じ考え方。ただしこちらは【未取込の行は絶対に消さない】)。
+Private Const INBOX_MAX_ROWS As Long = 500
+Private Const INBOX_KEEP_DAYS As Long = 60
+Private Const INBOX_COLS As Long = 10       ' A..J(J=選択状態)
+
 ' ----------------------------------------------------------------------------
 ' 発信: 解決済みQ&A(✅解決したの発火点から呼ばれる)
 ' ----------------------------------------------------------------------------
@@ -106,6 +115,11 @@ Public Function CollectInsights() As Long
     Dim ws As Worksheet: Set ws = modInsight.EnsureSheet()
     If ws Is Nothing Then Exit Function
 
+    ' 収集の前に受信箱を掃除する(R12-3-5)。ここが「行番号を握っている
+    ' 利用者操作が1つも走っていない」と言える唯一の場所(起動時の収集)で、
+    ' 取り込みループの最中に行を消すと outRow の指す先がずれる。
+    TrimConsumedRows ws
+
     ' 2026-07-31(レビュー R8 F10): 既読印(my_stats の "ins:" 行)を
     ' 【1回の一括読み】で集合(Dictionary)にしてから照合する。
     ' 従来は1ファイルにつき modStats.GetStat("ins:"&nc) を呼んでいた。
@@ -153,6 +167,69 @@ Public Function CollectInsights() As Long
     End If
     On Error GoTo 0
 End Function
+
+' ----------------------------------------------------------------------------
+' TrimConsumedRows - 取り込み済み(consumed=1)の行を古い側から片付ける。
+'   条件は「60日より古い」または「全体が500行を超えたぶんの超過分」。
+'   未取込の行(consumed<>1)は何行あっても消さない。届いた知恵を、読む前に
+'   こちらの都合で捨てないため。
+'   行の詰め直しは modShelfStore と同じ「一括読み→配列でフィルタ→一括書戻し」
+'   (1行ずつ Rows().Delete すると数千行で実機が固まる。MASTER_SPEC §12)。
+' ----------------------------------------------------------------------------
+Private Sub TrimConsumedRows(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 3 Then Exit Sub                      ' データ1行以下なら触らない
+
+    Dim nRows As Long: nRows = lastR - 1
+    Dim excessN As Long: excessN = nRows - INBOX_MAX_ROWS
+    If excessN < 0 Then excessN = 0
+
+    ' 期限の境界は文字列比較で判定する(ISO日付は辞書順=時系列順。
+    ' 和暦カレンダー端末でも壊れない。R12-1-4と同じ理由でCDateを通さない)。
+    Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - INBOX_KEEP_DAYS)
+
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, INBOX_COLS)).Value
+    Dim keep() As Variant: ReDim keep(1 To nRows, 1 To INBOX_COLS)
+    Dim keepN As Long, dropped As Long
+    Dim i As Long, c As Long
+    For i = 1 To nRows
+        Dim drop As Boolean: drop = False
+        If CStr(arr(i, 9)) = "1" Then                      ' consumed
+            If dropped < excessN Then
+                drop = True                                ' 上限超過分(古い順)
+            ElseIf LenB(Trim$(CStr(arr(i, 5)))) > 0 Then   ' created_at
+                drop = (Left$(modUtilText.NormalizeIsoDate(CStr(arr(i, 5))), 10) < cutoff)
+            End If
+        End If
+        If drop Then
+            dropped = dropped + 1
+        Else
+            keepN = keepN + 1
+            For c = 1 To INBOX_COLS
+                keep(keepN, c) = arr(i, c)
+            Next c
+        End If
+    Next i
+    If dropped = 0 Then Exit Sub
+
+    If keepN > 0 Then
+        Dim outArr() As Variant: ReDim outArr(1 To keepN, 1 To INBOX_COLS)
+        Dim k As Long
+        For k = 1 To keepN
+            For c = 1 To INBOX_COLS
+                outArr(k, c) = keep(k, c)
+            Next c
+        Next k
+        ws.Range(ws.Cells(2, 1), ws.Cells(1 + keepN, INBOX_COLS)).Value = outArr
+    End If
+    ws.Range(ws.Cells(2 + keepN, 1), ws.Cells(1 + nRows, INBOX_COLS)).ClearContents
+
+    modLog.LogUsage "insight_inbox_trim", "", _
+        "取込済みの古い行を" & dropped & "件片付けました(残り" & keepN & "行。" & _
+        "上限" & INBOX_MAX_ROWS & "行/" & INBOX_KEEP_DAYS & "日)"
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' LoadSeenSet - my_stats の "ins:" 行を1回で読んで既読集合にする(R8 F10)。

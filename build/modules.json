@@ -690,6 +690,14 @@
       "note": "modTestsPure5の容量逼迫による分割先(R8b 敵対的レビュー対応: B1 失効判定の戻り値ホワイトリスト/B7b 発行ロックの時計ズレ/B10 UNC共有ルートのプローブ再試行)。modTestsPure5.RunAll5末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure7",
+      "path": "src/test/modTestsPure7.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-3",
+      "note": "R12-3(堅牢化)の純ロジック回帰テスト。既存のmodTestsPure/2/4/5/6がいずれも30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(出典ページの物理番号/救済unionのHasAnyKey/チャンク連結の出力不変/元号非依存の統計キー/failed_permanentの同期スコープ)。modTestsPure4.RunAll4末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

@@ -27,6 +27,27 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
+' ----------------------------------------------------------------------------
+' my_manifest の列(1..10)。10列目 fail_count は 2026-08-01(R12-3-3)で追加。
+' ----------------------------------------------------------------------------
+' 恒久失敗ファイルのバックオフ:
+'   フォルダ同期は status="failed" の行を毎回 replace 判定で拾い直す
+'   (modShelfSync.ResolveDecision)。壊れたPDF・権限の無いファイルのように
+'   「何度やっても失敗するもの」は、そのぶん毎回の同期時間と err_log を
+'   食い続ける。連続失敗を数え、MAX_FAIL_STREAK 回で "failed_permanent" へ
+'   倒して同期スコープから外す。
+'   復帰の道は必ず残す: (a) 利用者が「資料を追加」で明示的に選び直したとき
+'   (ResetFailCountForPath)、(b) ファイル自体が更新されたとき(サイズ/更新
+'   日時の変化は DiffDecision が replace を返すので再試行される)。
+Private Const COL_M_STATUS As Long = 6
+Private Const COL_M_FAILN As Long = 10
+Private Const MANIFEST_COLS As Long = 10
+Private Const MAX_FAIL_STREAK As Long = 3
+' status 語彙は "done"/"pending"/"partial"/"failed"/"image_pdf"/"missing" と
+' 同じく素の文字列で持つ(読み手=modShelfSync.ResolveDecision・modUIShelf は
+' LOテストの都合で本モジュールを参照できないため、既存の語彙と作法を揃える)。
+Private Const STATUS_FAILED_PERMANENT As String = "failed_permanent"
+
 ' シートを1枚取る。無ければ Nothing(呼び出し側が黙って諦められるように)。
 ' 2026-07-28: modShelf からここへ切り出したとき、この関数だけ切り出し範囲の
 ' 外にあり、持ってくるのを忘れていた。実機で
@@ -74,7 +95,8 @@ Public Function EnsureManifestSheet() As Worksheet
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
         ws.Name = modAppDef.SH_MANIFEST
         Dim hdr As Variant
-        hdr = Array("file_path", "file_name", "modified_at", "size", "chunk_count", "status", "error_note", "ingested_at", "origin")
+        hdr = Array("file_path", "file_name", "modified_at", "size", "chunk_count", _
+                    "status", "error_note", "ingested_at", "origin", "fail_count")
         Dim i As Long
         For i = LBound(hdr) To UBound(hdr)
             ws.Cells(1, i + 1).Value = hdr(i)
@@ -83,6 +105,13 @@ Public Function EnsureManifestSheet() As Worksheet
         ws.Visible = 0   ' xlSheetHidden
         On Error GoTo 0
     End If
+    ' 既存ブック(9列時代のmy_manifest)への見出し追加も毎回・冪等に行う。
+    ' 値が空の行は fail_count=0 として読むので、移行処理は要らない。
+    On Error Resume Next
+    If LenB(Trim$(CStr(ws.Cells(1, COL_M_FAILN).Value))) = 0 Then
+        ws.Cells(1, COL_M_FAILN).Value = "fail_count"
+    End If
+    On Error GoTo 0
     Set EnsureManifestSheet = ws
     Exit Function
 Fail:
@@ -340,16 +369,18 @@ Public Sub RemoveManifestRowForSource(ByVal sourceName As String)
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
     If lastM < 2 Then Exit Sub
 
-    Dim arr As Variant: arr = wsM.Range(wsM.Cells(2, 1), wsM.Cells(lastM, 9)).Value
+    ' manifest は10列(R12-3-3 で fail_count を追加)。行を詰める処理だけは
+    ' 全列を運ばないと、削除の前後で fail_count だけが別の行に残る。
+    Dim arr As Variant: arr = wsM.Range(wsM.Cells(2, 1), wsM.Cells(lastM, MANIFEST_COLS)).Value
     Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
 
-    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To 9)
+    Dim survivors() As Variant: ReDim survivors(1 To nRows, 1 To MANIFEST_COLS)
     Dim survivorCount As Long: survivorCount = 0
     Dim i As Long, c As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
         If StrComp(CStr(arr(i, 2)), sourceName, vbTextCompare) <> 0 Then
             survivorCount = survivorCount + 1
-            For c = 1 To 9
+            For c = 1 To MANIFEST_COLS
                 survivors(survivorCount, c) = arr(i, c)
             Next c
         End If
@@ -358,10 +389,16 @@ Public Sub RemoveManifestRowForSource(ByVal sourceName As String)
     If survivorCount = nRows Then Exit Sub   ' 一致無し
 
     If survivorCount > 0 Then
-        Dim writeArr As Variant: writeArr = CompactRows(survivors, survivorCount)
-        wsM.Range(wsM.Cells(2, 1), wsM.Cells(1 + survivorCount, 9)).Value = writeArr
+        Dim writeArr() As Variant: ReDim writeArr(1 To survivorCount, 1 To MANIFEST_COLS)
+        Dim r2 As Long
+        For r2 = 1 To survivorCount
+            For c = 1 To MANIFEST_COLS
+                writeArr(r2, c) = survivors(r2, c)
+            Next c
+        Next r2
+        wsM.Range(wsM.Cells(2, 1), wsM.Cells(1 + survivorCount, MANIFEST_COLS)).Value = writeArr
     End If
-    wsM.Range(wsM.Cells(2 + survivorCount, 1), wsM.Cells(1 + nRows, 9)).ClearContents
+    wsM.Range(wsM.Cells(2 + survivorCount, 1), wsM.Cells(1 + nRows, MANIFEST_COLS)).ClearContents
 End Sub
 
 Public Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String, ByVal modifiedAt As Date, _
@@ -377,15 +414,75 @@ Public Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String,
         If r < 2 Then r = 2
     End If
 
+    ' R12-3-3: 連続失敗のバックオフ。ここが manifest への status 書込みの
+    ' 唯一の入口なので、数える場所もここ1箇所にする(§4-5 同型の問題は
+    ' 共通部品で一度だけ)。
+    Dim prevFail As Long
+    prevFail = FailCountAt(wsM, r)
+    Dim newFail As Long: newFail = prevFail
+    Dim newStatus As String: newStatus = status
+    Select Case LCase$(status)
+        Case "failed"
+            newFail = prevFail + 1
+            If newFail >= MAX_FAIL_STREAK Then
+                newStatus = STATUS_FAILED_PERMANENT
+                On Error Resume Next
+                modLog.LogUsage "ingest_backoff", "", _
+                    "連続" & newFail & "回失敗のため自動同期の対象から外しました: " & _
+                    modUtil.SafeLeft(fileName, 200)
+                On Error GoTo 0
+            End If
+        Case "done", "partial"
+            newFail = 0            ' 成功で連続記録はリセット
+    End Select
+
     wsM.Cells(r, 1).Value = filePath
     wsM.Cells(r, 2).Value = fileName
     wsM.Cells(r, 3).Value = modifiedAt
     wsM.Cells(r, 4).Value = sizeBytes
     wsM.Cells(r, 5).Value = chunkCount
-    wsM.Cells(r, 6).Value = status
+    wsM.Cells(r, COL_M_STATUS).Value = newStatus
     wsM.Cells(r, 7).Value = modUtil.SafeLeft(errorNote, 2000)
     wsM.Cells(r, 8).Value = modUtil.NowStamp()
     wsM.Cells(r, 9).Value = origin
+    wsM.Cells(r, COL_M_FAILN).Value = newFail
+End Sub
+
+' 連続失敗回数の読み出し(空欄・非数値は0)。
+Private Function FailCountAt(ByVal wsM As Worksheet, ByVal r As Long) As Long
+    On Error Resume Next
+    If r < 2 Then Exit Function
+    Dim v As Variant: v = wsM.Cells(r, COL_M_FAILN).Value
+    If IsError(v) Then Exit Function
+    If Not IsNumeric(v) Then Exit Function
+    FailCountAt = CLng(v)
+    If FailCountAt < 0 Then FailCountAt = 0
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' ResetFailCountForPath - 恒久失敗(failed_permanent)からの復帰口(R12-3-3)。
+'   利用者が「資料を追加」で同じファイルを明示的に選び直したときに呼ぶ。
+'   連続失敗回数を0に戻し、status も "failed" へ戻すことで、通常の再取込
+'   (と、次回以降の同期)の対象へ復帰させる。
+'   自動処理からは呼ばない。「もう一度やってみる」という人の意思だけが
+'   バックオフを解除できる、というのがこの機能の約束である。
+' ----------------------------------------------------------------------------
+Public Sub ResetFailCountForPath(ByVal filePath As String)
+    On Error Resume Next
+    If LenB(Trim$(filePath)) = 0 Then Exit Sub
+    Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
+    If wsM Is Nothing Then Exit Sub
+    Dim r As Long: r = FindManifestRowByPath(wsM, filePath)
+    If r < 2 Then Exit Sub
+    If FailCountAt(wsM, r) = 0 Then Exit Sub
+    wsM.Cells(r, COL_M_FAILN).Value = 0
+    If LCase$(CStr(wsM.Cells(r, COL_M_STATUS).Value)) = STATUS_FAILED_PERMANENT Then
+        wsM.Cells(r, COL_M_STATUS).Value = "failed"
+        modLog.LogUsage "ingest_backoff_reset", "", _
+            "明示選択により再試行対象へ戻しました: " & modUtil.SafeLeft(filePath, 200)
+    End If
+    On Error GoTo 0
 End Sub
 
 ' 同名別パスのmanifest行(self)を探す。同一パス(置換)は衝突扱いしない。

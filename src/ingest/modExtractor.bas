@@ -49,6 +49,9 @@ Private Const SUPPORTED_EXTS As String = "txt,md,csv,pdf,docx,doc,xlsx,xls,xlsm"
 ' 通常のE0302と同様に譲り、そちらも失敗した場合の最終コードだけE0303にする。
 Private Const GS_SPARSE_TOKEN As String = "#ERR:E0302:GS_SPARSE:"
 
+' txt/md/csv の入力上限50MB(R12-3-4。理由は ExtractPlainText の見出し)。
+Private Const PLAINTEXT_MAX_BYTES As Double = 52428800#
+
 ' ----------------------------------------------------------------------------
 ' ExtractFile - 拡張子で振り分けて抽出する。
 '   成功: True(pagesに1件以上、またはPARTIAL_PAGES時は打ち切り分を格納)
@@ -590,9 +593,15 @@ Public Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long
 
     ' 受け取った配列を直接ReDimする(一時配列からの代入はLO実行テストで
     ' ユーザー定義型の配列代入が420になるため使わない。全件コピーも省ける)。
+    '
+    ' R12-3-6: ページ番号は【物理ページ】。txtwriteは1ページごとに末尾へ改ページを
+    ' 出すので、0起点のSplit添字がそのまま物理ページになる。従来は読み飛ばした先頭の
+    ' 空ページを詰めてi+1を振り直しており、表紙が画像だけのPDF(保険のパンフレット・
+    ' 装飾表紙の約款)で全チャンクのページ番号が表紙の枚数ぶん手前にずれた=
+    ' 「出典 p.5 を開くと別ページ」。OCR経路は元から物理番号。
     ReDim pages(0 To keptN - 1)
     For i = 0 To keptN - 1
-        pages(i).page = i + 1
+        pages(i).page = firstIdx + i + 1
         pages(i).Text = parts(firstIdx + i)
     Next i
 
@@ -600,11 +609,25 @@ Public Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long
 End Function
 
 ' txt/md/csv はADODB.StreamでUTF-8として読み込む(常に1ページ扱い)。
+'
+' R12-3-4: 読む前にサイズを見る。txt/md/csvは「1ファイル=全文1ページ」で丸ごと
+' メモリに載せるため、上限無しだと32bitExcelは巨大ファイル1本でerr7や無応答に陥る。
+' 力尽きるのは読込の後(チャンク化・埋込)で原因が見えない。入口で明示的に止める。
 Private Function ExtractPlainText(ByVal path As String, ByRef pages() As ExtractedPage, _
                                   ByRef errDetail As String) As Boolean
     Dim txt As String
     Dim readErrNum As Long
     Dim readErrDesc As String
+
+    Dim sizeBytes As Double
+    On Error Resume Next
+    sizeBytes = CDbl(FileLen(path))
+    On Error GoTo 0
+    If sizeBytes > PLAINTEXT_MAX_BYTES Then
+        errDetail = "ファイルが大きすぎます(上限50MB)。分割してお試しください。" & _
+                    "(" & modUtil.HumanBytes(sizeBytes) & ")"
+        Exit Function
+    End If
 
     ' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2で
     ' 10箇所の同型実装を1本化)。失敗時の利用者向け文言(DescribeComError)は

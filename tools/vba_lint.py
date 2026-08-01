@@ -188,8 +188,14 @@ CONTRACT: dict[str, dict] = {
         # 日本語キーワード検索(文字bigram + BM25 + 完全一致)。
         # 全て純ロジックなので modTestsPure2 から直接検証する。
         # 実測: 旧実装 R@1 32% → 本実装 84%(tools/bench_retrieval.py)。
+        # HasAnyKey(2026-08-01 R12-3-7): binary_rag の粗選別が「効く語の完全
+        # 一致」を持つ行を先に落とす件の救済union用。採点(KeyScore)とは別に、
+        # 生テキストへの粗い包含判定を1本だけ公開する(判定規則が2箇所に
+        # 分かれないよう、modRetrieve 側には条件を書かない)。純関数なので
+        # modTestsPure4 が境界を固定する。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
-                     "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore"],
+                     "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
+                     "HasAnyKey"],
     },
     "modChunker": {
         "closed": True,
@@ -477,6 +483,11 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "InitUI", "AddChatBubble", "UpdateBubbleText", "ChatBottomFor",
             "BringFixedToFront", "ToggleTheme", "RestoreExcelUI", "EnsureAppView",
+            # EnsureSessionResources(2026-08-01 R12-3-8): X閉じ→キャンセルで
+            # Auto_Close だけが走った後、ホットキー3種と自動同期の予約を
+            # 遷移時に冪等に戻す自己修復。EnsureAppView(表示の自己修復)と
+            # 同じ場所・同じ考え方なので modUI に置き、modBoot.Boot もここを呼ぶ。
+            "EnsureSessionResources",
             "GoToNexus", "GoToNativeSheet", "ActivateSheetRobust", "ParkFocus",
             "Repaint", "UiColor", "UiTheme", "FreezeShapePlacement",
             "RecalcChatBottom", "SettleChat", "ClearChat", "MarkActiveBubble",
@@ -643,6 +654,9 @@ CONTRACT: dict[str, dict] = {
             # 2026-08-01(R12-1-4): カレンダー設定(和暦)非依存の日付文字列。
             # 日付を文字列で永続化・比較する箇所はここだけを通す。
             "IsoDate", "IsoDateTime", "NormalizeIsoDate",
+            # 2026-08-01(R12-3-10): 区切り無しの統計キー用。同じ元号防御を
+            # yyyymmdd/yyyymm/yyyy でも1箇所に集める(modBoard/modAsk/modHelp)。
+            "IsoDateCompact", "IsoYm", "IsoYear",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -682,6 +696,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll4"],
     },
+    # modTestsPure7: 2026-08-01 R12-3で追加。既存のテストモジュールがいずれも
+    # 30,000字上限に余裕が無く(憲章§4-6)、堅牢化の回帰テストを置く先として
+    # 新設した。modTestsPure4.RunAll4の末尾から呼ばれる入口 RunAll7 だけが契約。
+    "modTestsPure7": {
+        "closed": False,
+        "required": ["RunAll7"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -708,6 +729,8 @@ PURE_LOGIC_MODULES = {
     "modTestsPure5",
     # modTestsPure6(2026-07-31 R8b): 敵対的レビュー対応(B1/B7b/B10)のテスト。
     "modTestsPure6",
+    # modTestsPure7(2026-08-01 R12-3): 堅牢化の純ロジックテスト。
+    "modTestsPure7",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

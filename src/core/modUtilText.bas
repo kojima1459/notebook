@@ -167,6 +167,32 @@ Public Function IsoDateTime(ByVal dt As Date) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' IsoDateCompact / IsoYm / IsoYear - 区切り無しの日・月・年キー(2026-08-01
+'   R12-3-10)。統計キー("sv:d:20260801" 等)や1日1回の判定キーに使う。
+'
+'   IsoDate と同じ理由(和暦カレンダー端末で Format$(Date,"yyyymmdd") が元号年に
+'   なる)だが、こちらは失効ではなく【集計の分断】として現れる: 元号年の
+'   "00080801" と西暦の "20260801" が別キーになり、端末の設定を変えた日を境に
+'   その日の記録が二重化し、連番も昇順に並ばなくなる(気付ける人がいない)。
+'
+'   対象は「キーとして保存・比較する日付」だけ。ファイル名や nonce に使う
+'   Format$(Now,"yyyymmddhhnnss") は【対象外】のままにしている。あれは一意性の
+'   ためのラベルで、和暦になっても衝突しない限り実害が無く、むしろ既存
+'   ファイル名との照合規則を変える方が危ないため(判断根拠を残す)。
+' ----------------------------------------------------------------------------
+Public Function IsoDateCompact(ByVal d As Date) As String
+    IsoDateCompact = Pad0(Year(d), 4) & Pad0(Month(d), 2) & Pad0(Day(d), 2)
+End Function
+
+Public Function IsoYm(ByVal d As Date) As String
+    IsoYm = Pad0(Year(d), 4) & Pad0(Month(d), 2)
+End Function
+
+Public Function IsoYear(ByVal d As Date) As String
+    IsoYear = Pad0(Year(d), 4)
+End Function
+
+' ----------------------------------------------------------------------------
 ' NormalizeIsoDate - セルへ書いた日付文字列が「セルの日付型自動変換」で
 '   ロケール短形式("2026/08/01")へ化けて戻ってくる現象を吸収し、
 '   "yyyy-mm-dd" へ戻す。日付として読めない文字列はそのまま返す
