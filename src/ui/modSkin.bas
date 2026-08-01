@@ -86,6 +86,18 @@ Public Sub ApplyGradient(ByVal shp As Shape, ByVal c1 As Long, ByVal c2 As Long)
     On Error GoTo 0
 End Sub
 
+' 2026-08-01(R12-7-2): RGBを各チャンネル一律 pct だけ暗くする(0〜1)。
+' 自分の発言バブルのグラデーション終端を userBubble の同系微差色にするための
+' 内部部品(a11y監査Med: 終端をprimaryにしていたためバブル下端の文字が
+' light 3.93/dark 2.90/ocean 2.72/gold 1.75 まで沈んでいた)。
+Private Function DarkenRgb(ByVal rgbVal As Long, ByVal pct As Double) As Long
+    Dim r As Long, g As Long, b As Long
+    r = rgbVal Mod 256
+    g = (rgbVal \ 256) Mod 256
+    b = (rgbVal \ 65536) Mod 256
+    DarkenRgb = RGB(CLng(r * (1 - pct)), CLng(g * (1 - pct)), CLng(b * (1 - pct)))
+End Function
+
 ' カード/ボタン用の控えめな浮遊感(§9: Blur=4, OffsetY=1.5, Transparency=0.9)。
 ' ApplySoftShadowより弱く、要素が多い画面で影が重ならないようにする。
 Public Sub ApplyLightShadow(ByVal shp As Shape)
@@ -187,7 +199,10 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(255, 241, 245)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(66, 32, 44)
-                Case "muted":         ResolveColor = RGB(164, 120, 136)
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比3.41/surface比3.74
+                ' で通常文字基準4.5未満(8pt多用のためほぼ全ペアで基準未達)。
+                ' bg比5.3/surface比5.81へ(機械計算)。
+                Case "muted":         ResolveColor = RGB(130, 90, 105)
                 Case "border":        ResolveColor = RGB(248, 214, 224)
                 Case "primary":       ResolveColor = RGB(214, 51, 108)
                 Case "accent":        ResolveColor = RGB(0, 168, 89)
@@ -203,7 +218,9 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(240, 247, 255)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(15, 36, 62)
-                Case "muted":         ResolveColor = RGB(100, 126, 152)
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比3.91/surface比4.22
+                ' で通常文字基準4.5未満。bg比5.28/surface比5.7へ(機械計算)。
+                Case "muted":         ResolveColor = RGB(80, 105, 130)
                 Case "border":        ResolveColor = RGB(208, 226, 244)
                 Case "primary":       ResolveColor = RGB(2, 102, 190)
                 Case "accent":        ResolveColor = RGB(0, 145, 200)
@@ -235,7 +252,10 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(243, 244, 246)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(17, 24, 39)
-                Case "muted":         ResolveColor = RGB(107, 114, 128)
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比4.39で通常文字
+                ' 基準4.5に僅かに未達(8pt多用のため基準はこちら)。
+                ' bg比5.6/surface比6.16へ(機械計算)。
+                Case "muted":         ResolveColor = RGB(90, 98, 110)
                 Case "border":        ResolveColor = RGB(229, 231, 235)
                 Case "primary":       ResolveColor = RGB(0, 137, 62)
                 Case "accent":        ResolveColor = RGB(0, 168, 89)
@@ -518,8 +538,13 @@ Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
     If isUser Then
         shp.Fill.ForeColor.RGB = ThemeColor("userBubble")
         shp.Line.Visible = 0
-        ' §9(Apple風): 自分の発言だけ濃紺の微グラデーションで奥行きを出す。
-        ApplyGradient shp, ThemeColor("userBubble"), ThemeColor("primary")
+        ' §9(Apple風): 自分の発言だけ微グラデーションで奥行きを出す。
+        ' 2026-08-01(R12-7-2): 終端は primary ではなく userBubble を14%
+        ' 暗くした同系色にする。primary終端だとバブル下端が実質primary色に
+        ' なり、全面に乗る text 色との対比が全テーマで3:1未満(酷いものは
+        ' gold 1.75)まで落ちていた(a11y監査Med)。同系微差色なら
+        ' text-on-userBubble の高い対比(9.1〜13.3、機械計算)をほぼ保てる。
+        ApplyGradient shp, ThemeColor("userBubble"), DarkenRgb(ThemeColor("userBubble"), 0.14)
     Else
         shp.Fill.ForeColor.RGB = ThemeColor("aiBubble")
         shp.Line.Visible = -1
@@ -535,13 +560,18 @@ Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
     shp.Line.Weight = 0.75
     Select Case kind
         Case "resolve"
-            shp.Line.ForeColor.RGB = RGB(16, 185, 129)
-            SetShapeTextColor shp, RGB(16, 185, 129)
+            ' 2026-08-01(R12-7-5・a11y監査Med): 白surface上で比2.54(3:1未満)
+            ' だった。フィードバック機構の主ボタンのため濃緑へ(白地で比5.48、
+            ' 機械計算)。
+            shp.Line.ForeColor.RGB = RGB(4, 120, 87)
+            SetShapeTextColor shp, RGB(4, 120, 87)
         Case "unsure"
             shp.Line.ForeColor.RGB = RGB(245, 158, 11)
             SetShapeTextColor shp, RGB(180, 110, 8)
         Case "bad"
-            shp.Line.ForeColor.RGB = RGB(148, 163, 184)
+            ' 2026-08-01(R12-7-5): 枠が白surface上で比2.56(3:1未満)だった。
+            ' 濃いスレートグレーへ(白地で比4.76、機械計算)。
+            shp.Line.ForeColor.RGB = RGB(100, 116, 139)
             SetShapeTextColor shp, ThemeColor("muted")
         Case "conf"
             ' 信頼度バッジは枠も塗りも持たない文字だけの表示。

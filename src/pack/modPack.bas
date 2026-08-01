@@ -414,12 +414,15 @@ Private Sub ImportChunksDedup(ids() As String, sources() As String, pages() As L
             existingHashes.Add hashHex, True
             importedCount = importedCount + 1
             outK(importedCount, COL_ID) = ids(i)
-            outK(importedCount, COL_SOURCE) = sources(i)
+            ' 2026-08-01(R12-2-1): source/summary/keywords/full_text は他者が
+            ' 作った資料・部門パック由来の未信頼テキスト。セルへ書く前に
+            ' 数式インジェクション対策を通す(セキュリティ監査3)。
+            outK(importedCount, COL_SOURCE) = modUtilText.SanitizeForCell(sources(i))
             outK(importedCount, COL_ORIGIN) = originStr
             outK(importedCount, COL_PAGE) = pages(i)
-            outK(importedCount, COL_SUMMARY) = summaries(i)
-            outK(importedCount, COL_KEYWORDS) = keywords(i)
-            outK(importedCount, COL_FULLTEXT) = modUtil.SafeLeft(fullTexts(i), 32000)
+            outK(importedCount, COL_SUMMARY) = modUtilText.SanitizeForCell(summaries(i))
+            outK(importedCount, COL_KEYWORDS) = modUtilText.SanitizeForCell(keywords(i))
+            outK(importedCount, COL_FULLTEXT) = modUtilText.SanitizeForCell(modUtil.SafeLeft(fullTexts(i), 32000))
             outK(importedCount, COL_ADDED) = addedStamp
             outK(importedCount, COL_EMBEDDED) = IIf(LenB(vectors(i)) > 0, 1, 0)
 

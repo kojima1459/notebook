@@ -144,7 +144,20 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                 failStatus = "failed"
             End If
             Dim failMsg As String: failMsg = visionNote
-            If LenB(failMsg) = 0 Then failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+            If LenB(failMsg) = 0 Then
+                ' 2026-08-01(同梱-9): 50MBガード(txt/md/csv入力上限。E0501の
+                ' 本棚上限とは別物)は errDetail に具体的な理由(上限・実サイズ)
+                ' が入っているのに、従来は errCode="E0302" の一般文言
+                ' (「他のアプリで開いている…Ghostscript…」)で上書きしていて、
+                ' 本棚カードのメモに「大きすぎる」ことが一切出ていなかった。
+                ' このケースだけは具体的な理由文をそのまま使う(他のerrDetailは
+                ' 技術的な生ログのままの箇所があるため一律採用はしない)。
+                If InStr(errDetail, "ファイルが大きすぎます") > 0 Then
+                    failMsg = Split(errDetail, " [")(0)
+                Else
+                    failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+                End If
+            End If
             If isSelf Then
                 modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), 0, _
                     failStatus, failMsg, origin

@@ -48,8 +48,8 @@ Public Sub LogTurn(ByVal q As String, ByVal ans As String, ByVal mode As String)
     ws.Rows(2).Insert Shift:=-4121   ' xlShiftDown (名前付き定数への依存を避ける本プロジェクトの慣習に合わせ数値リテラル)
 
     Dim qs As String, ans2 As String
-    qs = SanitizeForCell(modUtil.SafeLeft(q, MAX_Q_CHARS))
-    ans2 = SanitizeForCell(modUtil.SafeLeft(ans, MAX_ANS_CHARS))
+    qs = modUtilText.SanitizeForCell(modUtil.SafeLeft(q, MAX_Q_CHARS))
+    ans2 = modUtilText.SanitizeForCell(modUtil.SafeLeft(ans, MAX_ANS_CHARS))
 
     With ws.Range(ws.Cells(2, 1), ws.Cells(2, 4))
         .WrapText = False
@@ -108,21 +108,6 @@ Private Function EnsureChatSheet() As Worksheet
     Exit Function
 Fail:
     Set EnsureChatSheet = Nothing
-End Function
-
-' 数式インジェクション対策: 先頭が =/+/-/@ ならアポストロフィを前置してテキスト強制する。
-Private Function SanitizeForCell(ByVal s As String) As String
-    If LenB(s) = 0 Then
-        SanitizeForCell = s
-        Exit Function
-    End If
-    Dim c As String
-    c = Left$(s, 1)
-    If c = "=" Or c = "+" Or c = "-" Or c = "@" Then
-        SanitizeForCell = "'" & s
-    Else
-        SanitizeForCell = s
-    End If
 End Function
 
 ' データ行(2行目以降)が上限を超えたら、最下行から削除して上限件数に収める。

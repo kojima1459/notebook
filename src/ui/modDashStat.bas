@@ -476,7 +476,7 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
         .WordWrap = -1
         .MarginLeft = 10: .MarginRight = 10: .MarginTop = 6: .MarginBottom = 6
         .TextRange.Text = body
-        .TextRange.Font.Size = 7.5
+        .TextRange.Font.Size = 8.5   ' R12-7-4: 7.5pt→8.5pt(a11y監査Med)
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         .VerticalAnchor = 1
         If .TextRange.Paragraphs.Count >= 1 Then

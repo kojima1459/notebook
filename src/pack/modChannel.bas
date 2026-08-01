@@ -308,7 +308,11 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
                 modStats.SetStatText "ch:" & LCase$(leavingChannel), ""
             End If
         End If
-        modStats.SetStatText "ch:" & LCase$(chName), remote
+        ' 2026-08-01(R12-2-1): remote は共有フォルダの version.txt から読んだ
+        ' 未信頼テキスト。my_stats のセルへ書く前に数式インジェクション対策を
+        ' 通す(セキュリティ監査3。modStats.SetStatValue自体は汎用関数のため
+        ' この呼出元で適用する)。
+        modStats.SetStatText "ch:" & LCase$(chName), modUtilText.SanitizeForCell(remote)
         modLog.LogUsage "channel_sync", chName, "version=" & remote & " chunks=" & got
         outOk = True
     Else

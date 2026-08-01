@@ -37,6 +37,9 @@ Private Const INBOX_COLS As Long = 10       ' A..J(J=選択状態)
 ' ----------------------------------------------------------------------------
 Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As String)
     On Error Resume Next
+    ' 2026-08-01(R12-2-2): 質問全文・氏名・部署の共有フォルダ送信を止める
+    ' プライバシーのエスケープハッチ(既定TRUE=共有知は維持)。docs/30 §9-1参照。
+    If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Or LenB(Trim$(ans)) = 0 Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(QA_SUBDIR)
@@ -61,6 +64,9 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     On Error Resume Next
+    ' 2026-08-01(R12-2-2): 検索0件時は利用者操作を介さず自動発火するため、
+    ' このゲートが最も効く経路(既定TRUE。docs/30 §9-1参照)。
+    If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
@@ -87,6 +93,8 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     On Error Resume Next
+    ' 2026-08-01(R12-2-2): Emit系入口共通のゲート(既定TRUE。docs/30 §9-1参照)。
+    If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(fixText)) = 0 Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
@@ -457,16 +465,19 @@ Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
     If r < 2 Then r = 2
     ws.Cells(r, 1).Value = nc
     ws.Cells(r, 2).Value = kind
-    ws.Cells(r, 3).Value = f(1)
-    ws.Cells(r, 4).Value = f(2)
-    ws.Cells(r, 5).Value = f(3)
-    ws.Cells(r, 6).Value = f(4)
+    ' 2026-08-01(R12-2-1): f(1)〜f(6) は共有フォルダの他人のファイルから
+    ' 読んだ未信頼テキスト。セルへ書く前に数式インジェクション対策を通す
+    ' (セキュリティ監査3)。
+    ws.Cells(r, 3).Value = modUtilText.SanitizeForCell(f(1))
+    ws.Cells(r, 4).Value = modUtilText.SanitizeForCell(f(2))
+    ws.Cells(r, 5).Value = modUtilText.SanitizeForCell(f(3))
+    ws.Cells(r, 6).Value = modUtilText.SanitizeForCell(f(4))
     If kind = "qa" Then
-        ws.Cells(r, 7).Value = f(5)
-        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = f(6)
+        ws.Cells(r, 7).Value = modUtilText.SanitizeForCell(f(5))
+        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     Else
-        ws.Cells(r, 7).Value = f(5)                       ' reason
-        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = f(6)   ' 部署
+        ws.Cells(r, 7).Value = modUtilText.SanitizeForCell(f(5))                       ' reason
+        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))   ' 部署
     End If
     ws.Cells(r, 9).Value = ""
     AppendRow = True

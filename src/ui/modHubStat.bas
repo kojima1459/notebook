@@ -516,7 +516,7 @@ Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         .TextRange.Paragraphs(1).Font.Bold = -1
         If .TextRange.Paragraphs.Count >= 2 Then
-            .TextRange.Paragraphs(2).Font.Size = 7.5
+            .TextRange.Paragraphs(2).Font.Size = 8.5   ' R12-7-4: 7.5pt→8.5pt(a11y監査Med)
             .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
         End If
         .VerticalAnchor = 3

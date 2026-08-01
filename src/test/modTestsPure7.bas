@@ -126,6 +126,18 @@ Private Sub TestChunkJoinUnchanged()
         (modChunker.JoinSplitNumbers("第 12 回") = "第 12 回"), _
         "実際=[" & modChunker.JoinSplitNumbers("第 12 回") & "]"
 
+    ' 2026-08-01(同梱-7): digitsがループ内Dimで、1行に「第」が複数回現れると
+    ' 前回値を引き継いで「第1条と第2条」→「第12条」に化けていたバグの固定。
+    modTestRunner.Check "同梱-7: 1行に第N条が2回でも化けない", _
+        (modChunker.JoinSplitNumbers("第 1 条 と 第 2 条") = "第1条 と 第2条"), _
+        "実際=[" & modChunker.JoinSplitNumbers("第 1 条 と 第 2 条") & "]"
+    modTestRunner.Check "同梱-7: 1行に第N条が3回でも化けない", _
+        (modChunker.JoinSplitNumbers("第 1 条 、 第 2 条 、 第 3 条") = "第1条 、 第2条 、 第3条"), _
+        "実際=[" & modChunker.JoinSplitNumbers("第 1 条 、 第 2 条 、 第 3 条") & "]"
+    modTestRunner.Check "同梱-7: 2件目が単位漢字無しでも1件目の連結が壊れない", _
+        (modChunker.JoinSplitNumbers("第 1 条 と 第 2 回") = "第1条 と 第 2 回"), _
+        "実際=[" & modChunker.JoinSplitNumbers("第 1 条 と 第 2 回") & "]"
+
     If Not CanUseTypeArrays() Then
         modTestRunner.Check "R12-3-9: 大入力の同一性検査はLO環境の制限によりスキップ", True, _
             "ExtractedPage()のReDimが420になる環境。"
@@ -215,6 +227,31 @@ Private Sub TestFailedPermanentScope()
         (modShelfSync.ResolveDecision("keep", True, "missing") = "replace"), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' (1) 数式インジェクション対策の共通関数(R12-2-1)
+' ----------------------------------------------------------------------------
+' modChatLog.SanitizeForCellを modUtilText へ共通化した。未信頼テキストを
+' セルへ書く3経路(modInsightIo.AppendRow/modPack.ImportChunksDedup/
+' modChannel経由のmodStats.SetStatValue)がここへ揃うため、先頭 =/+/-/@ の
+' 無害化と通常文字の素通しを固定する。
+Private Sub TestSanitizeForCell()
+    modTestRunner.Check "R12-2-1: 先頭=は'を前置", _
+        (modUtilText.SanitizeForCell("=SUM(A1:A9)") = "'=SUM(A1:A9)"), _
+        "実際=[" & modUtilText.SanitizeForCell("=SUM(A1:A9)") & "]"
+    modTestRunner.Check "R12-2-1: 先頭+は'を前置", _
+        (modUtilText.SanitizeForCell("+1+1") = "'+1+1"), ""
+    modTestRunner.Check "R12-2-1: 先頭-は'を前置", _
+        (modUtilText.SanitizeForCell("-1-1") = "'-1-1"), ""
+    modTestRunner.Check "R12-2-1: 先頭@は'を前置", _
+        (modUtilText.SanitizeForCell("@SUM(1)") = "'@SUM(1)"), ""
+    modTestRunner.Check "R12-2-1: 通常文字は素通し", _
+        (modUtilText.SanitizeForCell("第1条について") = "第1条について"), ""
+    modTestRunner.Check "R12-2-1: 空文字は空文字のまま", _
+        (modUtilText.SanitizeForCell("") = ""), ""
+    modTestRunner.Check "R12-2-1: 危険文字が先頭以外にあっても無害", _
+        (modUtilText.SanitizeForCell("保険金は=1000円です") = "保険金は=1000円です"), ""
+End Sub
+
 Public Sub RunAll7()
     On Error GoTo PageFail
     TestGsPhysicalPageNumber
@@ -230,6 +267,9 @@ NextIso:
 NextScope:
     On Error GoTo ScopeFail
     TestFailedPermanentScope
+NextSanitize:
+    On Error GoTo SanitizeFail
+    TestSanitizeForCell
 NextDone7:
     On Error GoTo 0
     Exit Sub
@@ -252,6 +292,10 @@ IsoFail:
     Resume NextScope
 ScopeFail:
     modTestRunner.Check "TestFailedPermanentScope(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSanitize
+SanitizeFail:
+    modTestRunner.Check "TestSanitizeForCell(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone7
 End Sub

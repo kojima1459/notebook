@@ -68,7 +68,10 @@ Private Const CFG_SKIP_PREFIX As String = "azure_"
 '   (b) 端末ごとに人が書き入れる環境値・好み。
 '         user_department(分析用の自己申告)/ ghostscript_search_dirs
 '         (社内の標準配置先)/ sync_interval_min・sync_on_open(同期の好み)/
-'         chat_log_enabled(履歴を残すか)/ telemetry_enabled(送信の可否)
+'         chat_log_enabled(履歴を残すか)/ telemetry_enabled(送信の可否)/
+'         insight_share_enabled(2026-08-01 R12-2-2追加。共有知の送信可否。
+'         telemetry_enabledと同じ「送信の可否」トグルであり、載せないと
+'         利用者がFALSEにした個人の意思表示が移行のたびにTRUEへ巻き戻る)
 '
 ' 何を載せなかったか(意図的):
 '   ・モデル名・effort・topk・チャンク設定・検索方式などのチューニング値は
@@ -82,7 +85,7 @@ Private Const CFG_KEEP_KEYS As String = _
     "|nexus_share_path|shelf_folder|sync_interval_min|sync_on_open|" & _
     "user_department|pack_author|answer_language|active_channel|" & _
     "unsubscribed_channels|ghostscript_path|ghostscript_search_dirs|" & _
-    "chat_log_enabled|telemetry_enabled|"
+    "chat_log_enabled|telemetry_enabled|insight_share_enabled|"
 
 ' ----------------------------------------------------------------------------
 ' ExportUserData - 引き継ぎファイルを書き出す。

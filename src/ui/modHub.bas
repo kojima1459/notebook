@@ -20,7 +20,9 @@ Private Const CARD_H As Double = 68
 Private Const NAV_H As Double = 60
 Private Const NAV_GAP As Double = 10
 Private Const NAV_COUNT As Long = 3
-Private Const CHIP_H As Double = 22
+' 2026-08-01(R12-7-4・a11y監査Med): 押せる質問チップの文字を8.5ptへ広げた
+' ぶん、折返し時の2行ぶんが収まるよう高さも4pt広げる。
+Private Const CHIP_H As Double = 26
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
@@ -135,7 +137,11 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim widths(0 To 5) As Double
     Dim i As Long
     For i = 0 To 5
-        widths(i) = modChrome.PillWidth(CStr(labels(i)), 7, 6, 30)
+        ' 2026-08-01(R12-7-3): ラベルを6pt→8.5ptにするため、幅見積りの
+        ' pitch/padも実フォントに合わせて引き上げる(9pt換算のpitch。
+        ' modUINexusDraw.HDR_PILL_PITCHと同じ考え方)。FlowRightが折返しで
+        ' 吸収するため、幅が多少増えてもレイアウトは崩れない。
+        widths(i) = modChrome.PillWidth(CStr(labels(i)), 9, 8, 30)
     Next i
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
@@ -191,7 +197,10 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         ' 対し、真下に小さな文字ラベルを必ず添える(幅はスロット幅=useWに揃える)。
         On Error Resume Next
         Dim cap As Shape
-        Set cap = ws.Shapes.AddShape(1, xs(i), rowTop + HDR_H - 11, useW(i), 10)
+        ' 2026-08-01(R12-7-3・a11y監査Med): 6pt(実表示≒8px)は高齢の営業所員に
+        ' は判読不能。8.5ptへ拡大し、収容できる高さも10→12へ広げる
+        ' (Zoom=100固定で拡大による自衛ができないため)。
+        Set cap = ws.Shapes.AddShape(1, xs(i), rowTop + HDR_H - 12, useW(i), 12)
         If Not cap Is Nothing Then
             cap.Name = "nx_hub_icl" & i
             cap.Line.Visible = 0
@@ -199,7 +208,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
             With cap.TextFrame2
                 .WordWrap = 0
                 .TextRange.Text = CStr(labels(i))
-                .TextRange.Font.Size = 6
+                .TextRange.Font.Size = 8.5
                 .TextRange.Font.Fill.ForeColor.RGB = RGB(190, 210, 235)
                 .TextRange.ParagraphFormat.Alignment = 2
                 .VerticalAnchor = 3
@@ -443,7 +452,7 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
         With chip.TextFrame2
             .WordWrap = -1
             .TextRange.Text = CStr(chips(i))
-            .TextRange.Font.Size = 7.5
+            .TextRange.Font.Size = 8.5   ' R12-7-4: 7.5pt→8.5pt(a11y監査Med)
             .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3

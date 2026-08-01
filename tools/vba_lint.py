@@ -657,6 +657,10 @@ CONTRACT: dict[str, dict] = {
             # 2026-08-01(R12-3-10): 区切り無しの統計キー用。同じ元号防御を
             # yyyymmdd/yyyymm/yyyy でも1箇所に集める(modBoard/modAsk/modHelp)。
             "IsoDateCompact", "IsoYm", "IsoYear",
+            # 2026-08-01(R12-2-1): 数式インジェクション対策(数式注入)の
+            # 共通化先。modChatLogの重複実装を吸収し、未信頼テキストを
+            # セルへ書く全経路(modInsightIo/modPack/modChannel)から呼ぶ。
+            "SanitizeForCell",
         ],
     },
     # ---- 7.8 テストモジュール ----

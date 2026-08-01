@@ -312,6 +312,33 @@ Public Function BlendPerItemMs(ByVal curMs As Double, ByVal t0 As Double, _
 End Function
 
 ' ----------------------------------------------------------------------------
+' SanitizeForCell - 数式インジェクション対策。未信頼テキスト(共有フォルダ・
+'   部門パック・他モジュール由来のファイル内容等、自分以外が書いたテキスト)
+'   をセルへ .Value = で書く直前に必ず通す。先頭文字が =/+/-/@ だとExcelが
+'   数式として解釈してしまうため、アポストロフィを前置してテキスト強制する。
+'
+'   2026-08-01(R12-2-1): 元は modChatLog の Private 実装(チャット履歴シート
+'   のみに適用)だったが、未信頼テキストをセルへ書く経路が他に3つ
+'   (modInsightIo.AppendRow / modPack.ImportChunksDedup / modChannel.SyncChannel
+'   経由の modStats.SetStatValue)あり、そこは無防備だった(セキュリティ監査3)。
+'   同じ答えを2箇所以上に書かないという憲章§4-5に基づき、ここへ1本化する。
+'   modChatLog はこちらへ委譲する(重複実装を残さない)。
+' ----------------------------------------------------------------------------
+Public Function SanitizeForCell(ByVal s As String) As String
+    If LenB(s) = 0 Then
+        SanitizeForCell = s
+        Exit Function
+    End If
+    Dim c As String
+    c = Left$(s, 1)
+    If c = "=" Or c = "+" Or c = "-" Or c = "@" Then
+        SanitizeForCell = "'" & s
+    Else
+        SanitizeForCell = s
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
 ' GsPageIsBlank - 空白類しか無いページか。
 '   Trim$ は半角スペースしか落とさないため使わない(改行だけのページを
 '   「中身あり」と数えると出典ページ番号が丸ごと1つずれる)。

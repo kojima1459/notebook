@@ -408,6 +408,14 @@ Public Function WipeKnowledge(Optional ByRef outLeftRows As Long = 0) As Long
                 arr(i, 2) = "failed"         ' status
             Next i
             wsM.Range(wsM.Cells(2, 5), wsM.Cells(lastM, 6)).Value = arr
+
+            ' 2026-08-01(同梱-8): fail_count(10列目)もここでリセットする。
+            ' status は上で"failed"へ戻したのに fail_count(連続失敗回数)だけ
+            ' ワイプ前の値を引き継ぐと、ワイプ後に社内NWへ再接続して最初の
+            ' 取込がたまたま1回失敗しただけで MAX_FAIL_STREAK(3)に達し
+            ' failed_permanent へ倒れる(恒久失敗バックオフの芽が育ってしまう)。
+            ' ワイプは全資料を仕切り直す操作なので、連続失敗もゼロから数え直す。
+            wsM.Range(wsM.Cells(2, 10), wsM.Cells(lastM, 10)).Value = 0
         End If
     End If
 

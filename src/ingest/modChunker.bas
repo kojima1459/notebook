@@ -201,6 +201,7 @@ Public Function JoinSplitNumbers(ByVal lineText As String) As String
             ' 「第」の後ろを走査: 数字と空白だけが続き、そのあと単位漢字が来るか
             Dim j As Long: j = i + 1
             Dim digits As String
+            digits = ""   ' Dimは再初期化しない。2件目以降の第N条化け防止
             Do While j <= ln
                 Dim d As String: d = Mid$(lineText, j, 1)
                 If IsDigitChar(d) Then

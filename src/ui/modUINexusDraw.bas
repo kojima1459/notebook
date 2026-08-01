@@ -602,7 +602,7 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
             btn.Adjustments(1) = 0.4
             With btn.TextFrame2
                 .TextRange.Text = CStr(caps(i))
-                .TextRange.Font.Size = 8.5
+                .TextRange.Font.Size = 9.5   ' R12-7-5: 8.5pt→9.5pt(a11y監査Med)
                 .TextRange.ParagraphFormat.Alignment = 2
                 .VerticalAnchor = 3
                 .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
@@ -662,7 +662,13 @@ Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String
             .TextRange.Text = confText
             .TextRange.Font.Size = 9
             .TextRange.Font.Bold = -1
-            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+            ' 2026-08-01(R12-7-1): テーマ追従のtext色だと、dark/goldのように
+            ' 明るいtextが淡色tint(パステル)に乗ると比1.0台まで沈み、
+            ' 「いちばん大事な一文」(上コメント参照)が読めなくなる(a11y監査
+            ' High)。tintは常に淡色固定なので、文字側もテーマ非依存の
+            ' 固定濃色にする(RGB(17,24,39)。3色いずれの塗りに対しても
+            ' 比7以上を機械確認済み)。
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(17, 24, 39)
             .VerticalAnchor = 3
             .MarginLeft = 8: .MarginRight = 8: .MarginTop = 0: .MarginBottom = 0
         End With
