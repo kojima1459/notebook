@@ -416,6 +416,69 @@ Private Sub TestSafeLeftSurrogate()
         (modUtil.SafeLeft(s, 0) = ""), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' TestIsoDateFamily - modUtilText.IsoDate / IsoDateTime / NormalizeIsoDate
+'   (2026-08-01 R12-1-3 / R12-1-4)。
+'
+'   守りたい事実は2つ:
+'     (a) 日付文字列は Format$ を通さず Year()/Month()/Day() の数値合成で作る。
+'         和暦カレンダー設定の端末で Format$(Date,"yyyy") が元号年を返しても、
+'         永続化される文字列は必ず西暦になる(端末失効タイマーの暴発と
+'         無言無効化の両方を止めるための土台)。
+'     (b) セルの日付型自動変換でロケール短形式へ化けた値("2026/08/01")を
+'         比較前に "yyyy-mm-dd" へ戻せる。日付でない文字列は素通しする
+'         (my_stats には日付以外の値も入るため、壊してはならない)。
+'   置き場所をここにしたのは modTestsPure が28,906字でWARN帯にあるため
+'   (憲章§4-6。TestSafeLeftSurrogate と同じ事情)。
+' ----------------------------------------------------------------------------
+Private Sub TestIsoDateFamily()
+    ' (a) 数値合成の形式。桁のゼロ詰めまで固定する。
+    modTestRunner.Check "IsoDate_通常日", _
+        (modUtilText.IsoDate(DateSerial(2026, 8, 1)) = "2026-08-01"), _
+        "実際=[" & modUtilText.IsoDate(DateSerial(2026, 8, 1)) & "]"
+    modTestRunner.Check "IsoDate_2桁月日はゼロ詰めしない", _
+        (modUtilText.IsoDate(DateSerial(1999, 12, 31)) = "1999-12-31"), _
+        "実際=[" & modUtilText.IsoDate(DateSerial(1999, 12, 31)) & "]"
+    modTestRunner.Check "IsoDate_年は常に4桁", _
+        (Len(modUtilText.IsoDate(DateSerial(2026, 1, 2))) = 10), _
+        "実際=[" & modUtilText.IsoDate(DateSerial(2026, 1, 2)) & "]"
+
+    Dim dt As Date
+    dt = DateSerial(2026, 1, 2) + TimeSerial(3, 4, 5)
+    modTestRunner.Check "IsoDateTime_日付と時刻の連結", _
+        (modUtilText.IsoDateTime(dt) = "2026-01-02 03:04:05"), _
+        "実際=[" & modUtilText.IsoDateTime(dt) & "]"
+    modTestRunner.Check "IsoDateTime_先頭10字はIsoDateと一致", _
+        (Left$(modUtilText.IsoDateTime(dt), 10) = modUtilText.IsoDate(dt)), ""
+
+    ' (b) 正規化。日付型セル経由でロケール表記に化けた値を戻す。
+    modTestRunner.Check "NormalizeIsoDate_スラッシュ表記を戻す", _
+        (modUtilText.NormalizeIsoDate("2026/08/01") = "2026-08-01"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("2026/08/01") & "]"
+    modTestRunner.Check "NormalizeIsoDate_月日が入れ替わらない", _
+        (modUtilText.NormalizeIsoDate("2026/12/25") = "2026-12-25"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("2026/12/25") & "]"
+    modTestRunner.Check "NormalizeIsoDate_ゼロ詰めなしの月日も揃える", _
+        (modUtilText.NormalizeIsoDate("2026/8/1") = "2026-08-01"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("2026/8/1") & "]"
+    modTestRunner.Check "NormalizeIsoDate_既にyyyy-mm-ddならそのまま", _
+        (modUtilText.NormalizeIsoDate("2026-08-01") = "2026-08-01"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("2026-08-01") & "]"
+    modTestRunner.Check "NormalizeIsoDate_時刻付きは日付部だけ返す", _
+        (modUtilText.NormalizeIsoDate("2026-08-01 15:02:33") = "2026-08-01"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("2026-08-01 15:02:33") & "]"
+    modTestRunner.Check "NormalizeIsoDate_前後の空白を落とす", _
+        (modUtilText.NormalizeIsoDate("  2026-08-01  ") = "2026-08-01"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("  2026-08-01  ") & "]"
+
+    ' 日付でない値は絶対に書き換えない(my_stats の非日付値を壊さないため)。
+    modTestRunner.Check "NormalizeIsoDate_非日付文字列は素通し", _
+        (modUtilText.NormalizeIsoDate("badge:first") = "badge:first"), _
+        "実際=[" & modUtilText.NormalizeIsoDate("badge:first") & "]"
+    modTestRunner.Check "NormalizeIsoDate_空文字は空文字", _
+        (modUtilText.NormalizeIsoDate("") = ""), ""
+End Sub
+
 Public Sub RunAll4()
     TestTypeArrayProbes
     On Error GoTo GsGoldenFail
@@ -447,6 +510,9 @@ NextProgress:
 NextSafeLeftSurrogate:
     On Error GoTo SafeLeftSurrogateFail
     TestSafeLeftSurrogate
+NextIsoDate:
+    On Error GoTo IsoDateFail
+    TestIsoDateFamily
 NextPure5:
     ' 2026-07-31 R8: modShareRule(P2P/共有系の判定式)のテストは
     ' modTestsPure5 へ置いた。ここが唯一の導線なので消さないこと
@@ -495,6 +561,10 @@ ProgressFail:
     Resume NextSafeLeftSurrogate
 SafeLeftSurrogateFail:
     modTestRunner.Check "TestSafeLeftSurrogate(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextIsoDate
+IsoDateFail:
+    modTestRunner.Check "TestIsoDateFamily(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPure5
 Pure5Fail:

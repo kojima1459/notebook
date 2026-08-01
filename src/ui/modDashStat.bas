@@ -129,7 +129,7 @@ Public Function IsThisMonthStamp(ByVal v As Variant) As Boolean
         Dim d As Date: d = CDate(v)
         IsThisMonthStamp = (Year(d) = Year(Now) And Month(d) = Month(Now))
     Else
-        IsThisMonthStamp = (Left$(CStr(v), 7) = Format$(Now, "yyyy-mm"))
+        IsThisMonthStamp = (Left$(CStr(v), 7) = Left$(modUtilText.IsoDate(Date), 7))
     End If
 End Function
 
@@ -140,7 +140,7 @@ Public Function IsLastMonthStamp(ByVal v As Variant) As Boolean
         Dim d As Date: d = CDate(v)
         IsLastMonthStamp = (Year(d) = Year(refDate) And Month(d) = Month(refDate))
     Else
-        IsLastMonthStamp = (Left$(CStr(v), 7) = Format$(refDate, "yyyy-mm"))
+        IsLastMonthStamp = (Left$(CStr(v), 7) = Left$(modUtilText.IsoDate(refDate), 7))
     End If
 End Function
 
@@ -199,9 +199,9 @@ End Function
 
 Public Function SafeShelfMax() As Long
     On Error Resume Next
-    SafeShelfMax = modConfig.GetLong("shelf_max_chunks", 20000)
+    SafeShelfMax = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
     On Error GoTo 0
-    If SafeShelfMax <= 0 Then SafeShelfMax = 20000
+    If SafeShelfMax <= 0 Then SafeShelfMax = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
 End Function
 
 Public Function SafeLevel() As Long

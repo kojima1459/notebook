@@ -39,7 +39,7 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
 
     Dim body As String
     body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
-           Format$(Now, "yyyy-mm-dd hh:nn") & FIELD_SEP & _
+           Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1(q) & FIELD_SEP & Clean1(ans) & FIELD_SEP & Clean1(src)
 
     WriteShared dirPath & MakeNonce(myId) & ".txt", body
@@ -63,7 +63,7 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
 
     Dim body As String
     body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
-           Format$(Now, "yyyy-mm-dd hh:nn") & FIELD_SEP & _
+           Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1(q) & FIELD_SEP & reason & FIELD_SEP & DeptName()
 
     WriteShared dirPath & MakeNonce(myId) & ".txt", body
@@ -89,7 +89,7 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
 
     Dim body As String
     body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
-           Format$(Now, "yyyy-mm-dd hh:nn") & FIELD_SEP & _
+           Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200)) & FIELD_SEP & _
            "correction" & FIELD_SEP & Clean1(fixText)
 
@@ -253,7 +253,7 @@ Private Sub GcOldNonces()
     If lastR < 2 Then Exit Sub
 
     Dim limit As Date: limit = DateAdd("d", -keepDays, Date)
-    Dim today As String: today = Format$(Date, "yyyy-mm-dd")
+    Dim today As String: today = modUtilText.IsoDate(Date)
     Dim arr As Variant
     arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
 
@@ -337,7 +337,7 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
                     If AppendRow(ws, kind, nc, raw) Then CollectFrom = CollectFrom + 1
                     ' 読めたときだけ既読にする。値は日付にしておく
                     ' (GcOldNonces が期限を判定できるようにするため。R8 F10)。
-                    modStats.SetStatText INS_PREFIX & nc, Format$(Date, "yyyy-mm-dd")
+                    modStats.SetStatText INS_PREFIX & nc, modUtilText.IsoDate(Date)
                     If Not seen Is Nothing Then seen(LCase$(nc)) = 1
                 End If
             End If

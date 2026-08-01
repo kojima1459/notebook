@@ -395,7 +395,7 @@ End Function
 
 ' "yyyy-mm-dd hh:nn:ss"。Now()はExcel/LO両対応のVBAランタイム関数。
 Public Function NowStamp() As String
-    NowStamp = Format$(Now, "yyyy-mm-dd hh:nn:ss")
+    NowStamp = modUtilText.IsoDateTime(Now)
 End Function
 
 Public Function FileNameOf(ByVal path As String) As String

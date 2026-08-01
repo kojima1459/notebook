@@ -654,7 +654,7 @@ Private Function SeenNonce(ByVal nonce As String) As Boolean
 End Function
 
 Private Sub MarkNonce(ByVal nonce As String)
-    modStats.SetStatText NONCE_PREFIX & nonce, Format$(Date, "yyyy-mm-dd")
+    modStats.SetStatText NONCE_PREFIX & nonce, modUtilText.IsoDate(Date)
 End Sub
 
 ' 期限を過ぎた nonce 行を my_stats から取り除く(CollectThanks の最後に呼ぶ)。

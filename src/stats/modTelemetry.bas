@@ -58,7 +58,7 @@ Public Sub Publish()
 
     Dim sb As String
     sb = "v1" & vbTab & uid & vbTab & AuthorName() & vbTab & DeptName() & vbTab & _
-         Format$(Now, "yyyy-mm-dd hh:nn") & vbLf
+         Left$(modUtilText.IsoDateTime(Now), 16) & vbLf
     sb = sb & "ask_quick" & vbTab & modStats.GetStat("ask_quick_total") & vbLf
     sb = sb & "ask_deep" & vbTab & modStats.GetStat("ask_deep_total") & vbLf
     sb = sb & "solved" & vbTab & modStats.GetStat("selfsolve_total") & vbLf
@@ -123,7 +123,7 @@ Public Function SendAnonymousFeedback(ByVal bodyText As String) As Boolean
 
     ' 本文と日付だけ。所属も名前も書かない(書けば匿名ではなくなる)。
     Dim sb As String
-    sb = "v1" & vbTab & Format$(Now, "yyyy-mm-dd hh:nn") & vbTab & _
+    sb = "v1" & vbTab & Left$(modUtilText.IsoDateTime(Now), 16) & vbTab & _
          Clean1(bodyText)
 
     Randomize

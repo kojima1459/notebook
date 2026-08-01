@@ -163,7 +163,7 @@ Public Function AcquireLock(ByVal chName As String, ByRef outHolder As String) A
     ' 権限不足や共有断でロックが1バイトも書けていないのに「取れた」と報告し、
     ' 2人が同時に発行へ進める = 見張りが存在しないのと同じ状態だった。
     ' しかも「誰もロックを見ない」ので、事故が起きたことすら誰も気付けない。
-    If Not WriteShared(lockPath, PublisherName() & vbTab & Format$(Now, "yyyy-mm-dd hh:nn:ss")) Then
+    If Not WriteShared(lockPath, PublisherName() & vbTab & modUtilText.IsoDateTime(Now)) Then
         modLog.LogError "E0807", "modPublish.AcquireLock", _
             "publish.lock を作成できませんでした(共有フォルダへの書き込み権限を" & _
             "ご確認ください)。発行は中止しました: " & chName
@@ -303,7 +303,7 @@ Public Function FinalizePublish(ByVal chName As String, ByVal chunkCount As Long
     ' 「発行 → 巻き戻し → 再発行」を同一分内でやったときに版文字列が
     ' 初回と一致してしまい、購読者側は「更新なし」と判断して配信されない。
     ' テストで連続発行すると現実に踏む。
-    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & author
+    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & modUtilText.IsoDate(Date) & "|" & author
 
     If Not WriteShared(d & VER_NAME, ver) Then Exit Function
 
@@ -391,7 +391,7 @@ Public Function Rollback(ByVal chName As String, ByVal archiveName As String, _
     ' 「発行 → 巻き戻し → 再発行」を同一分内でやったときに版文字列が
     ' 初回と一致してしまい、購読者側は「更新なし」と判断して配信されない。
     ' テストで連続発行すると現実に踏む。
-    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & Format$(Date, "yyyy-mm-dd") & "|" & _
+    ver = Format$(Now, "yyyymmdd-hhnnss") & "|" & modUtilText.IsoDate(Date) & "|" & _
           PublisherName() & "(巻き戻し:" & archiveName & ")"
     If Not WriteShared(d & VER_NAME, ver) Then
         ' 2026-07-28(レビュー L-14): pack は既に旧版へ置き換わっているのに
@@ -466,7 +466,7 @@ Private Sub AppendLog(ByVal chName As String, ByVal line_ As String)
     Dim fnum As Long
     fnum = FreeFile
     Open p For Append As #fnum
-    Print #fnum, Format$(Now, "yyyy-mm-dd hh:nn:ss") & vbTab & PublisherName() & vbTab & line_
+    Print #fnum, modUtilText.IsoDateTime(Now) & vbTab & PublisherName() & vbTab & line_
     Close #fnum
     On Error GoTo 0
 End Sub

@@ -263,8 +263,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' 「ダイアログ地獄」になっていた(実機で35連発)。上限はこのループ側で
     ' 先に判定し、到達後は取込を静かに見送って件数だけ数え、最後に1回だけ
     ' まとめて案内する。
-    Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
-    If capMax < 1 Then capMax = 10000
+    Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
+    If capMax < 1 Then capMax = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
     Dim cappedN As Long: cappedN = 0
 
     uiStep = "新規・更新の差分判定"

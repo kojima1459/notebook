@@ -358,7 +358,10 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long, ByVal maxC
             Dim remain As Long
             remain = lim - used
             If remain > 0 Then
-                sb = sb & Left$(entry, remain)
+                ' 2026-08-01(R12-1-6): 生の Left$ ではサロゲートペアの
+                ' 真ん中で切れて孤立サロゲートがプロンプトへ混入する
+                ' (R11-I で SafeLeft へ寄せた際の適用漏れ箇所)。
+                sb = sb & modUtil.SafeLeft(entry, remain)
                 used = used + remain
             End If
             truncated = True

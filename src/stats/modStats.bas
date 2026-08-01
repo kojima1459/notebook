@@ -128,7 +128,7 @@ End Function
 '   ・休日に使った場合は記録だけ残し、連続日数は増減させない
 '     (last_streak_date を動かさないので、次の営業日の判定が壊れない)。
 Public Sub TouchToday()
-    Dim todayStr As String: todayStr = Format$(Date, "yyyy-mm-dd")
+    Dim todayStr As String: todayStr = modUtilText.IsoDate(Date)
 
     If Not IsBusinessDay(Date) Then
         ' 休日利用: 連続記録には影響させず、最終利用日だけ更新する。
@@ -140,9 +140,17 @@ Public Sub TouchToday()
     Dim lastStr As String: lastStr = GetStatValueString("last_streak_date")
     If LenB(lastStr) = 0 Then lastStr = GetStatValueString("last_used_date")
 
+    ' 2026-08-01(R12-1-3): my_stats の値セルは書式指定なし(General)なので、
+    ' 書き込んだ "2026-08-01" をExcelが日付型に自動変換し、読み戻すと
+    ' ロケール短形式 "2026/08/01" になる。素の文字列比較だと毎回ここで
+    ' 「連続が途切れた」と判定され、連続利用日数が実機で永久に1のままだった
+    ' (Hubの「連続利用」タイルと streak7 バッジが構造的に機能しない)。
+    ' 表示系(modUIShelf.ShortDate 等)と同じ作法で比較前に正規化する。
+    lastStr = modUtilText.NormalizeIsoDate(lastStr)
+
     If lastStr = todayStr Then
         If GetStat("streak_days") < 1 Then SetStatValue "streak_days", 1
-    ElseIf lastStr = Format$(PrevBusinessDay(Date), "yyyy-mm-dd") Then
+    ElseIf lastStr = modUtilText.IsoDate(PrevBusinessDay(Date)) Then
         SetStatValue "streak_days", GetStat("streak_days") + 1
     Else
         SetStatValue "streak_days", 1
@@ -165,7 +173,7 @@ Private Function IsBusinessDay(ByVal d As Date) As Boolean
     On Error GoTo 0
     If LenB(hol) > 0 Then
         If InStr(1, "," & Replace(Replace(hol, " ", ""), "/", "-") & ",", _
-                 "," & Format$(d, "yyyy-mm-dd") & ",", vbTextCompare) > 0 Then Exit Function
+                 "," & modUtilText.IsoDate(d) & ",", vbTextCompare) > 0 Then Exit Function
     End If
 
     IsBusinessDay = True
@@ -455,7 +463,7 @@ Private Sub CheckBadge(ByVal badgeId As String, ByVal achieved As Boolean, ByVal
     Dim key As String: key = "badge:" & badgeId
     If LenB(GetStatValueString(key)) > 0 Then Exit Sub   ' 既に取得済み
 
-    SetStatValue key, Format$(Date, "yyyy-mm-dd")
+    SetStatValue key, modUtilText.IsoDate(Date)
 
     ' 旧文面は (a) 廃止済みの旧名「マイ本棚AI」を名乗り、タイトルバーの
     ' APP_NAME("Nexus Agent")と矛盾していた (b)「これからも使ってみてください」と

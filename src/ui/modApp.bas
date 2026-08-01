@@ -645,6 +645,25 @@ Public Sub OnSaveAndExit()
         Exit Sub
     End If
     modUiLock.Leave
+
+    ' 2026-08-01(R12-1-2): 終了時の後始末を明示的に実行してから閉じる。
+    ' 本番ビルドの ThisWorkbook ストリームは自己インストーラが占有していて
+    ' Workbook_BeforeClose を持たず、かつ Excel は「VBAから呼んだ Close」では
+    ' Auto_Close マクロを実行しない。つまりこの終了ボタン経由で閉じると
+    ' 後始末が一切走らず、
+    '   ・Application.OnKey "^z", "" が残る(閉じた後もExcel全体でCtrl+Zが死ぬ)
+    '   ・^+q / ^~ / ^{ENTER} が閉じたブックのマクロに紐付いたまま残る
+    '   ・リボン非表示・全画面・数式バー非表示がExcel全体に残る
+    '   ・modTelemetry.Publish(送信は終了時の設計)が実行されない
+    '   ・sync_interval_min>0 なら AutoSyncTick の OnTime 予約が残り、
+    '     閉じたブックをExcelが勝手に開き直す
+    ' という状態でExcelに戻ることになる。Auto_Close は解除系と上書き系だけで
+    ' 構成されていて冪等なので、開発構成(ThisWorkbook.cls あり)で
+    ' Workbook_BeforeClose と二重に走っても害はない。
+    On Error Resume Next
+    modBoot.Auto_Close
+    On Error GoTo 0
+
     ThisWorkbook.Close SaveChanges:=(resp = vbYes)
 End Sub
 

@@ -83,6 +83,10 @@ CONTRACT: dict[str, dict] = {
             "SH_KNOWLEDGE", "SH_VECTORS", "SH_MANIFEST", "SH_STATS",
             "SH_USAGE", "SH_ERRLOG", "SH_UISTATE",
             "SH_NEXUS_DASH",   # Nexus専用ダッシュボード(Phase 3)のシート名
+            # 2026-08-01(R12-1-8): 本棚チャンク上限の代替値。呼び出し側4箇所
+            # (modShelf/modShelfSync/modShelfBatch/modDashStat)で 20,000 と
+            # 10,000 に割れていたものを1箇所へ集約した。
+            "DEFAULT_SHELF_MAX_CHUNKS",
         ],
     },
     "modTypes": {
@@ -636,6 +640,9 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "ReadTextFileUtf8", "WriteTextFileUtf8", "ElapsedMsSince",
             "BlendPerItemMs", "GsPageIsBlank", "CleanTextLen", "GsPageBounds",
+            # 2026-08-01(R12-1-4): カレンダー設定(和暦)非依存の日付文字列。
+            # 日付を文字列で永続化・比較する箇所はここだけを通す。
+            "IsoDate", "IsoDateTime", "NormalizeIsoDate",
         ],
     },
     # ---- 7.8 テストモジュール ----

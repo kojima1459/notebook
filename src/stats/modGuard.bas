@@ -29,7 +29,8 @@ Private Const NEVER_LOGGED_KEY As String = "expiry_never_reached_logged"
 '
 '   2) 有効期限(kill switch)
 '      共有フォルダに最後に到達できた日から config knowledge_expire_days
-'      (既定30日)が過ぎたら、my_knowledge / my_vectors の中身を消す。
+'      (出荷既定0=無効。運用で日数を入れて初めて有効になる)が過ぎたら、
+'      my_knowledge / my_vectors の中身を消す。
 '      社内ネットワークから切り離された端末は、放っておけば空になる。
 '      「盗まれた瞬間に守る」のではなく「持ち出し続けさせない」設計。
 '
@@ -135,7 +136,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub TouchReach()
     On Error Resume Next
-    modStats.SetStatText K_LAST_REACH, Format$(Date, "yyyy-mm-dd")
+    modStats.SetStatText K_LAST_REACH, modUtilText.IsoDate(Date)
     ' つながったので失効まわりの記録はリセットする(レビュー L-7)。
     ' これをしないと、復帰後も「予告済み」「消去済み」の印が残り、
     ' 次に離れたときの予告が出なくなる。
@@ -180,7 +181,13 @@ End Function
 Public Function EnforceExpiry() As Boolean
     On Error Resume Next
     Dim limitDays As Long
-    limitDays = modConfig.GetLong("knowledge_expire_days", 30)
+    ' 2026-08-01(R12-1-1): 既定値は 0(=失効させない)でなければならない。
+    ' ここが 30 だと、config の knowledge_expire_days セルが空になった/文字列に
+    ' なった/シートが読めなかった、というだけで「30日で全知識を消すタイマー」が
+    ' 勝手に起動する。出荷既定は 0(build_mybookshelf.py)なので、読めなかった
+    ' ときに出荷既定より危険な側へ倒れるのは逆向きの既定。読めない時は
+    ' 「何もしない」へ倒す(憲章§3-5: データ保全は全機能に優先する)。
+    limitDays = modConfig.GetLong("knowledge_expire_days", 0)
 
     ' 共有フォルダを使っていない環境ではこの機能自体を動かさない
     ' (単独利用の人の知識を、つながる先が無いという理由で消すのは理不尽)。

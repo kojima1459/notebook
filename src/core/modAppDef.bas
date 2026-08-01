@@ -25,6 +25,15 @@ Public Const APP_NAME As String = "Nexus Agent"
 Public Const APP_VERSION As String = "0.1.0"   ' ビルド時にbuildスクリプトが検証表示
 Public Const PACK_FORMAT_VERSION As Long = 1
 
+' 本棚チャンク数上限の「configが読めなかったときの代替値」(2026-08-01 R12-1-8)。
+' config シートの shelf_max_chunks が正であり、ここは読めなかった場合の保険。
+' 従来はこの保険が呼び出し側4箇所に散らばり、20,000 / 10,000 の2種類に
+' 割れていた(ビルドが書く既定は20,500)。同じ問いに3つの答えがある状態は
+' 憲章§4-5違反であり、実害としても「取込は10,000で止まるのにダッシュボードの
+' 残量ゲージは20,000で計算する」という食い違いになる。
+' 値は build_mybookshelf.py が config へ書く既定値と必ず一致させること。
+Public Const DEFAULT_SHELF_MAX_CHUNKS As Long = 20500
+
 ' ---- シート名(MASTER_SPEC §4) ----------------------------------------------
 Public Const SH_HOWTO As String = "使い方"
 Public Const SH_HOME As String = "ホーム"

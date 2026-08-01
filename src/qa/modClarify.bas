@@ -63,7 +63,7 @@ Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) A
     On Error Resume Next
     modState.SaveState K_PENDING_Q, q
     modState.SaveState K_PENDING_SRC, sources
-    modState.SaveState K_PENDING_AT, Format$(Now, "yyyy-mm-dd hh:nn:ss")
+    modState.SaveState K_PENDING_AT, modUtilText.IsoDateTime(Now)
     On Error GoTo 0
 
     Dim sb As String

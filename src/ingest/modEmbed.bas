@@ -372,5 +372,6 @@ Private Sub SleepMs(ByVal ms As Long)
     Dim t0 As Double: t0 = Timer
     Do While (Timer - t0) * 1000# < ms
         DoEvents
+        If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
     Loop
 End Sub

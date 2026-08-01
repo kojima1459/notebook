@@ -102,8 +102,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 
     ' 2) 上限検査(E0501)
     uiStep = "本棚上限の確認"
-    Dim maxChunks As Long: maxChunks = modConfig.GetLong("shelf_max_chunks", 10000)
-    If maxChunks < 1 Then maxChunks = 10000
+    Dim maxChunks As Long: maxChunks = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
+    If maxChunks < 1 Then maxChunks = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
     If TotalChunks() >= maxChunks Then
         modLog.ShowError "E0501", "modShelf.IngestFile", "source=" & sourceName
         resultStatus = "failed"

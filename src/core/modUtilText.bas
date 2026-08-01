@@ -137,6 +137,135 @@ Public Function ElapsedMsSince(ByVal t0 As Double) As Double
 End Function
 
 ' ----------------------------------------------------------------------------
+' IsoDate / IsoDateTime - カレンダー設定に左右されないグレゴリオ暦の
+'   日付文字列("yyyy-mm-dd" / "yyyy-mm-dd hh:nn:ss")を作る。
+'
+'   2026-08-01(R12-1-4): Windowsの地域設定「カレンダーの種類=和暦」の端末では
+'   VBAの Format$(Date, "yyyy-mm-dd") が元号年を返す(令和8年→"0008-08-01")。
+'   本製品は保険営業向けで和暦運用が濃い業種であり、この設定は日本語Windowsの
+'   正規の選択肢である。日付を文字列で永続化している箇所(端末失効タイマーの
+'   guard_last_reach、連続利用日数の last_used_date/last_streak_date、既読印の
+'   日付 等)が元号年で書かれると、
+'     ・読み側 CDate("0008-08-01") が過去年に解釈されれば失効判定が暴発し
+'       知識が消える(憲章§3-5に反する最悪の壊れ方)
+'     ・変換エラーになれば失効タイマーが永久に発火しない(無言の機能喪失)
+'   という両方向の事故になる。左辺の Date はシリアル値で常に西暦なので、
+'   文字列側だけが元号化する非対称が問題の核である。
+'
+'   Year()/Month()/Day()/Hour()/Minute()/Second() はカレンダー設定に依存せず
+'   常に西暦(グレゴリオ暦)の数値を返すため、数値から自前で連結すれば
+'   設定に関わらず同じ文字列になる。日付を「文字列として書く・比べる」箇所は
+'   Format$ を使わず必ずこの2関数を通すこと(憲章§4-5: 答えは1つ)。
+' ----------------------------------------------------------------------------
+Public Function IsoDate(ByVal d As Date) As String
+    IsoDate = Pad0(Year(d), 4) & "-" & Pad0(Month(d), 2) & "-" & Pad0(Day(d), 2)
+End Function
+
+Public Function IsoDateTime(ByVal dt As Date) As String
+    IsoDateTime = IsoDate(dt) & " " & Pad0(Hour(dt), 2) & ":" & _
+                  Pad0(Minute(dt), 2) & ":" & Pad0(Second(dt), 2)
+End Function
+
+' ----------------------------------------------------------------------------
+' NormalizeIsoDate - セルへ書いた日付文字列が「セルの日付型自動変換」で
+'   ロケール短形式("2026/08/01")へ化けて戻ってくる現象を吸収し、
+'   "yyyy-mm-dd" へ戻す。日付として読めない文字列はそのまま返す
+'   (日付ではないキーや値を壊さないため)。
+'
+'   2026-08-01(R12-1-3): 連続利用日数(streak)が実機で永久に1のままだった
+'   原因がこれ。my_stats の値セルは書式指定なし(General)なので、書いた
+'   "2026-08-01" がExcelの日付型セルになり、CStr で読むと "2026/08/01" に
+'   なる。表示系(modUIShelf.ShortDate 等)は既にIsDate分岐で対処済みだが、
+'   modStats.TouchToday の等値比較だけが素の文字列比較で、毎回「連続が
+'   途切れた」と判定していた。
+' ----------------------------------------------------------------------------
+Public Function NormalizeIsoDate(ByVal s As String) As String
+    NormalizeIsoDate = s
+
+    Dim t As String
+    t = Trim$(s)
+    If LenB(t) = 0 Then Exit Function
+
+    ' 年から始まる表記(この製品が書く形と、日本語Windowsの短い日付形式
+    ' "yyyy/mm/dd" の両方)は数字だけを見て組み直す。CDate を通さないので
+    ' ロケールにもカレンダー設定にも一切依存しない(和暦端末で CDate が
+    ' 元号として解釈しても、こちらの経路なら影響を受けない)。
+    Dim iso As String
+    iso = YearFirstIso(t)
+    If LenB(iso) > 0 Then
+        NormalizeIsoDate = iso
+        Exit Function
+    End If
+
+    ' 年から始まらない表記(他ロケールの短い日付形式など)は最後の手段として
+    ' CDate に任せる。読めなければ元の文字列をそのまま返す
+    ' (my_stats には日付でない値も入るので、勝手に書き換えてはならない)。
+    If Not IsDate(t) Then Exit Function
+
+    On Error Resume Next
+    Err.Clear
+    Dim d As Date
+    d = CDate(t)
+    If Err.Number = 0 Then NormalizeIsoDate = IsoDate(d)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+' "yyyy-m-d" / "yyyy/mm/dd" / "yyyy.mm.dd"(後ろに時刻が付いていてもよい)を
+' "yyyy-mm-dd" にする。当てはまらなければ空文字を返す。
+Private Function YearFirstIso(ByVal t As String) As String
+    Dim head As String
+    head = t
+    Dim sp As Long
+    sp = InStr(head, " ")
+    If sp > 0 Then head = Left$(head, sp - 1)      ' 時刻部は落とす
+    head = Replace(Replace(head, "/", "-"), ".", "-")
+
+    Dim parts() As String
+    parts = Split(head, "-")
+    If UBound(parts) <> 2 Then Exit Function
+
+    If Len(parts(0)) <> 4 Then Exit Function
+    If Not AllDigits(parts(0)) Then Exit Function
+    If Len(parts(1)) < 1 Or Len(parts(1)) > 2 Then Exit Function
+    If Not AllDigits(parts(1)) Then Exit Function
+    If Len(parts(2)) < 1 Or Len(parts(2)) > 2 Then Exit Function
+    If Not AllDigits(parts(2)) Then Exit Function
+
+    Dim mn As Long: mn = CLng(parts(1))
+    Dim dn As Long: dn = CLng(parts(2))
+    If mn < 1 Or mn > 12 Then Exit Function
+    If dn < 1 Or dn > 31 Then Exit Function
+
+    YearFirstIso = parts(0) & "-" & Pad0(mn, 2) & "-" & Pad0(dn, 2)
+End Function
+
+' 半角数字だけで出来ているか(IsNumericは "1e2" や " 1 " も通すので使わない)。
+Private Function AllDigits(ByVal s As String) As Boolean
+    If LenB(s) = 0 Then Exit Function
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim c As String: c = Mid$(s, i, 1)
+        If c < "0" Or c > "9" Then Exit Function
+    Next i
+    AllDigits = True
+End Function
+
+' 数値を左ゼロ詰めの固定桁文字列にする(IsoDate/IsoDateTime専用の内部部品)。
+Private Function Pad0(ByVal n As Long, ByVal digits As Long) As String
+    Dim t As String
+    If n < 0 Then
+        t = "0"          ' 起こり得ないが、桁数の約束だけは壊さない
+    Else
+        t = CStr(n)
+    End If
+    Do While Len(t) < digits
+        t = "0" & t
+    Loop
+    Pad0 = t
+End Function
+
+' ----------------------------------------------------------------------------
 ' BlendPerItemMs - 1件あたり所要ミリ秒の更新(R7 B-1)。直近バッチの実測と
 '   現在値の平均(=直近2バッチの移動平均)を返す。
 '   2026-07-31(R11-F2): modEmbed と modEnrich に同じ実装が2本あった。

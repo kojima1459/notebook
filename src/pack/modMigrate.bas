@@ -262,6 +262,21 @@ Private Function ValidateMigFile(ByVal wb As Workbook, ByRef reason As String) A
         Exit Function
     End If
 
+    ' 2026-08-01(R12-1-7): この版より新しい形式の引き継ぎファイルは断る。
+    ' mig_format_version を書いておきながら誰も読んでいなかったため、将来の版で
+    ' 列や意味を足したファイルを旧版が黙って部分的に取り込み、「移行したのに
+    ' 一部だけ欠けている」という気付けない壊れ方をする(前方互換の穴)。
+    ' 旧い形式(小さい番号)は従来どおり受け入れる。
+    Dim srcFmt As Long
+    srcFmt = CLng(Val(ReadMetaValue(wb.Worksheets(MIG_META), "mig_format_version")))
+    If srcFmt > MIG_FORMAT_VERSION Then
+        reason = "この引き継ぎファイルは、より新しい版のマイ本棚で作られています" & _
+                 "(ファイルの形式=" & srcFmt & " / この版が読めるのは " & _
+                 MIG_FORMAT_VERSION & " まで)。" & vbCrLf & _
+                 "新しい版のマイ本棚を開いて、そちらで取り込んでください"
+        Exit Function
+    End If
+
     ' ベクトルの次元が違うブックへ移すと、検索が全件で次元不一致になる。
     ' 取り込んでから気付くと本棚が使えないので、入口で止める。
     Dim srcDim As Long: srcDim = CLng(Val(ReadMetaValue(wb.Worksheets(MIG_META), "embed_dim")))

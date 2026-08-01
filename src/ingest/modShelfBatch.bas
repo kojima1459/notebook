@@ -127,8 +127,8 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     modFeatures.InvokeFeature "vision", "ResetGsGuidance", Array()
     On Error GoTo AddFailed
 
-    Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", 10000)
-    If capMax < 1 Then capMax = 10000
+    Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
+    If capMax < 1 Then capMax = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
 
     ' R10-5(実機報告「止まってるのか分からない」): 経過秒÷完了件数の単純平均で
     ' 目安時間を出す。1件目はまだ実績が無いのでETA無し(modUtil.EtaText任せ)。
