@@ -378,14 +378,19 @@ Public Function ProgressText(ByVal doneN As Long, ByVal totalN As Long, _
     If LenB(etaPart) > 0 Then ProgressText = ProgressText & "・" & etaPart
 End Function
 
+' SafeLeft: 切り詰め時、末尾の単独高位サロゲート(&HD800~&HDBFF)も道連れで落とす。
 Public Function SafeLeft(ByVal s As String, ByVal n As Long) As String
     Dim lim As Long: lim = n
     If lim < 0 Then lim = 0
     If Len(s) <= lim Then
         SafeLeft = s
-    Else
-        SafeLeft = Left$(s, lim)
+        Exit Function
     End If
+    SafeLeft = Left$(s, lim)
+    If lim = 0 Then Exit Function
+    Dim code As Long: code = AscW(Right$(SafeLeft, 1))
+    If code < 0 Then code = code + 65536
+    If code >= &HD800& And code <= &HDBFF& Then SafeLeft = Left$(SafeLeft, lim - 1)
 End Function
 
 ' "yyyy-mm-dd hh:nn:ss"。Now()はExcel/LO両対応のVBAランタイム関数。
@@ -556,16 +561,14 @@ Empty0:
 End Function
 
 ' ============================================================================
-' DeobfuscateSecret - configシートに平文で置かないための軽い難読化の解除。
-' ----------------------------------------------------------------------------
-'   build/build_mybookshelf.py の obfuscate_secret() と対になる実装
-'   (XOR + 16進エンコード)。これは暗号的な秘匿ではなく、configシートを
-'   セルとして開いた人の目に平文キーが直接触れないようにする程度の対策
-'   (VBAプロジェクト自体に触れる人には無意味。VBAプロジェクトへの
-'   アクセス自体を前提とするこのアプリの配布モデル上、それ以上の防御は
-'   このモジュール単体では不可能)。
-'   "OBF1:"接頭辞が無い値(手動でconfigに平文キーを入力した場合等)は
-'   そのまま返す(後方互換)。
+' DeobfuscateSecret - configシートに平文を置かないための軽い難読化の解除。
+'   build/build_mybookshelf.py の obfuscate_secret() と対になる実装(XOR+16進、
+'   暗号的秘匿ではない)。"OBF1:"接頭辞が無い値はそのまま返す(後方互換)。
+'
+'   ■ 7bit不変条件: バイト志向(Chr$/Asc)実装で平文・鍵ともASCII(0x7F以下)
+'   が前提。このときXOR結果も0x7F以下になりbuild側のバイト単位XORと形式
+'   互換になる。0x7F超はbuild側ガードでビルド失敗し到達しない。AscW/ChrW化
+'   は前提を壊し結果が化ける。
 ' ============================================================================
 Public Function DeobfuscateSecret(ByVal raw As String) As String
     Dim s As String: s = Trim$(raw)

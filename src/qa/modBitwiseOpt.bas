@@ -77,8 +77,9 @@ End Function
 ' MicroTimerMs - 経過時間計測用のミリ秒タイマー(Timer基準)。Windows APIの
 '   GetTickCount/QueryPerformanceCounterはDeclareが必要で32/64bit宣言地雷+本
 '   コードベースの無API方針に反するため、bitness非依存のTimer(精度~15ms)を使う。
-'   検索が数百ms規模の大規模デモでは十分。深夜0時のロールオーバーは呼び出し側で
-'   差分が負なら0に丸める。
+'   検索が数百ms規模の大規模デモでは十分。深夜0時のロールオーバーで差分が負に
+'   なりうるが、その丸め(0未満なら0)は呼び出し側ではなくLogPerfの入口
+'   (本ファイル下方)で一括して行う(1箇所で全呼び出しを守るため)。
 ' ----------------------------------------------------------------------------
 Public Function MicroTimerMs() As Double
     MicroTimerMs = Timer * 1000#

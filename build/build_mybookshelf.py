@@ -152,6 +152,22 @@ _OBF_KEY = "NexusAgentBuildObfuscationKey2026"
 def obfuscate_secret(plain: str) -> str:
     if not plain:
         return ""
+    # VBA側 modUtil.XorWithObfKey はバイト志向(Chr$/Asc)の実装で、XOR結果が
+    # 0x7F以下(ASCII平文 xor ASCII鍵は最上位ビットが立たない)である前提の
+    # 上でしか正しく動かない。平文(環境変数由来。運用ミスで非ASCIIが混入
+    # しうる)・鍵(このファイル内の定数)のどちらかがASCII外だと、その前提が
+    # 崩れて復元側で文字化けや例外につながるため、ここで機械的に弾く。
+    for ch in plain:
+        if ord(ch) >= 0x80:
+            raise BuildError(
+                "obfuscate_secret: 平文がASCII外の文字を含んでいます"
+                f"(環境変数 {AZURE_EMBED_KEY_ENV} を確認してください): {ch!r}"
+            )
+    for ch in _OBF_KEY:
+        if ord(ch) >= 0x80:
+            raise BuildError(
+                f"obfuscate_secret: _OBF_KEY がASCII外の文字を含んでいます: {ch!r}"
+            )
     xored = bytes(
         (ord(c) ^ ord(_OBF_KEY[i % len(_OBF_KEY)])) & 0xFF
         for i, c in enumerate(plain)

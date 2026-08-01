@@ -382,6 +382,40 @@ Private Sub TestProgressText()
         "実際=" & modUtil.ProgressText(12, 88, modUtil.EtaText(76, 2000))
 End Sub
 
+' TestSafeLeftSurrogate - SafeLeftのサロゲート分断防止(R11-I 外部レビュー採用)。
+'   置き場所をmodTestsPure(既存のSafeLeft基本テスト置き場)ではなくここに
+'   したのは、あちらが28,906字でWARN帯に入っており憲章§4-6により足せない
+'   ため(TestTypeArrayProbes直上のコメントと同じ事情)。
+'   絵文字1個 = 高位サロゲート(&HD83D)+ 低位サロゲート(&HDCAC)のペアで検証する。
+Private Sub TestSafeLeftSurrogate()
+    Dim emoji As String: emoji = ChrW(&HD83D) & ChrW(&HDCAC)
+    Dim s As String: s = "ab" & emoji & "cd"   ' a,b,高,低,c,d の6コードユニット
+
+    ' (a) 絵文字の直後(=低位サロゲートの直後)で切る→分断されない
+    Dim gotA As String: gotA = modUtil.SafeLeft(s, 4)
+    modTestRunner.Check "SafeLeft_絵文字直後で切ると分断されない", _
+        (gotA = "ab" & emoji), "実際=[" & gotA & "] len=" & Len(gotA)
+
+    ' (b) 絵文字の中間(=高位サロゲートの直後)で切る→高位サロゲートごと落ちて1字短くなる
+    Dim gotB As String: gotB = modUtil.SafeLeft(s, 3)
+    modTestRunner.Check "SafeLeft_絵文字の中間で切ると高位サロゲートごと落ちる", _
+        (gotB = "ab"), "実際=[" & gotB & "] len=" & Len(gotB)
+    If Len(gotB) > 0 Then
+        Dim tailCode As Long: tailCode = AscW(Right$(gotB, 1))
+        If tailCode < 0 Then tailCode = tailCode + 65536
+        modTestRunner.Check "SafeLeft_結果の末尾は高位サロゲートでない", _
+            (tailCode < &HD800& Or tailCode > &HDBFF&), "tailCode=" & Hex$(tailCode)
+    End If
+
+    ' (c) ASCIIのみ→従来どおり(サロゲート判定に一切引っかからない)
+    modTestRunner.Check "SafeLeft_ASCIIのみは従来どおり切り詰め", _
+        (modUtil.SafeLeft("abcdefgh", 3) = "abc"), ""
+
+    ' (d) lim=0→空文字(空文字列に対するAscW呼び出しでエラーにならないこと)
+    modTestRunner.Check "SafeLeft_lim0は空文字", _
+        (modUtil.SafeLeft(s, 0) = ""), ""
+End Sub
+
 Public Sub RunAll4()
     TestTypeArrayProbes
     On Error GoTo GsGoldenFail
@@ -410,6 +444,9 @@ NextEta:
 NextProgress:
     On Error GoTo ProgressFail
     TestProgressText
+NextSafeLeftSurrogate:
+    On Error GoTo SafeLeftSurrogateFail
+    TestSafeLeftSurrogate
 NextPure5:
     ' 2026-07-31 R8: modShareRule(P2P/共有系の判定式)のテストは
     ' modTestsPure5 へ置いた。ここが唯一の導線なので消さないこと
@@ -454,6 +491,10 @@ EtaFail:
     Resume NextProgress
 ProgressFail:
     modTestRunner.Check "TestProgressText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSafeLeftSurrogate
+SafeLeftSurrogateFail:
+    modTestRunner.Check "TestSafeLeftSurrogate(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPure5
 Pure5Fail:
