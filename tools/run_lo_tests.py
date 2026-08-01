@@ -196,6 +196,25 @@ PURE_ALLOWLIST = [
     #   modTestsPure4.RunAll4 の末尾が RunAll7 を呼ぶため、未注入だと実行時
     #   エラー12になりテストが「実行されないまま」になる。
     "modTestsPure7",
+    # 2026-08-01(R12-8 テスト補強): 監査「testmeta」Highで指摘された、
+    # 純ロジック契約モジュールなのにテストが1件も無くPURE_ALLOWLIST未登録の
+    # ため「テストを書いても実行時エラー12で走らない」状態だったモジュール。
+    #   modRagParse: 多段RAGのLLM応答パーサ(ParseExpand/ParseSubqueries/
+    #     ParseRankOrder/ExtractAnswer)。ExtractAnswerはM-2のプロンプト
+    #     インジェクション対策(</thinking>後からの<answer>探索)の中枢で、
+    #     回帰しても検知手段が無かった。vba_lint.py の PURE_LOGIC_MODULES には
+    #     既に登録済み(R4準拠の実態はあった)だが、こちらの実行テスト用
+    #     allowlistには無かったため、テストを書いても走らせられなかった。
+    #   modBitwiseOpt / modFollowup: 同じく vba_lint.py の PURE_LOGIC_MODULES
+    #     には登録済み(Excel専用トークン0件を実測済み)だが、実行テスト用
+    #     allowlistが未登録だった。bit31境界(符号ビット)とマーカー
+    #     パース/履歴縮約ループの停止性を実行テストで固定する。
+    "modRagParse", "modBitwiseOpt", "modFollowup",
+    # modTestsPure8(2026-08-01 R12-8): modTestsPure7の容量逼迫による分割先。
+    #   modTestsPure7.RunAll7 の末尾が RunAll8 を呼ぶため、未注入だと実行時
+    #   エラー12になり分割先のテストが「実行されないまま」になる
+    #   (modTestsPure7追加時と同型の理由)。
+    "modTestsPure8",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

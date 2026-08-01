@@ -698,6 +698,14 @@
       "note": "R12-3(堅牢化)の純ロジック回帰テスト。既存のmodTestsPure/2/4/5/6がいずれも30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(出典ページの物理番号/救済unionのHasAnyKey/チャンク連結の出力不変/元号非依存の統計キー/failed_permanentの同期スコープ)。modTestsPure4.RunAll4末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure8",
+      "path": "src/test/modTestsPure8.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-8",
+      "note": "R12-8(テスト補強)の純ロジック回帰テスト。modTestsPure7がFnv1a64Hexゴールデン値+modRagParse4関数の追加で30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(modBitwiseOptのbit31境界/modFollowup全3関数/modUtil.TruncateAndRenorm・HasVector/modUtilText.ElapsedMsSince・BlendPerItemMs/modClarify.MergeAnswerのLO到達範囲/BuildRerankPrompt<->ParseRankOrderの番号規約突合)。modTestsPure7.RunAll7末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

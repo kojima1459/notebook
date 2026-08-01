@@ -735,6 +735,9 @@ PURE_LOGIC_MODULES = {
     "modTestsPure6",
     # modTestsPure7(2026-08-01 R12-3): 堅牢化の純ロジックテスト。
     "modTestsPure7",
+    # modTestsPure8(2026-08-01 R12-8): テスト補強(モジュール全滅解消・ハッシュ
+    # 互換ゴールデン値)の純ロジックテスト。modTestsPure7の容量逼迫による分割先。
+    "modTestsPure8",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

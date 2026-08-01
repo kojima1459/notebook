@@ -36,6 +36,9 @@ modChunker)とは別に、ここで「普段より丁寧に」切る:
 使い方
 ------
   python3 tools/make_seed_pack.py <出力先.xlsx> <PDF>[:表示名] ...
+  python3 tools/make_seed_pack.py --self-test
+      Fnv1a64Hex/NormalizeForHash が modUtil(VBA)側と同じ値を返すことを
+      ゴールデン値で確認する(R12-8。詳細は self_test() 直前のコメント)。
 
 出力は modPack と同じ3シート(pack_meta/pack_chunks/pack_vectors)。
 pack_vectors は空で出す。ベクトルは社内AIリボンでしか作れないため、
@@ -52,17 +55,23 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-try:
-    import pypdf
-except ImportError:
-    sys.exit("pypdf が必要です: pip install pypdf")
+# --self-test(R12-8: Fnv1a64Hex/NormalizeForHashのゴールデン値照合)はPDF/xlsxに
+# 一切触れない純粋な文字列アルゴリズム検証なので、pypdf/openpyxlが未インストール
+# の環境(CIやゴールデン値の単体確認だけしたい場合)でも実行できるようにする。
+_SELF_TEST_ONLY = "--self-test" in sys.argv[1:]
 
-try:
-    from openpyxl import Workbook
-except ImportError:
-    sys.exit("openpyxl が必要です: pip install openpyxl")
+if not _SELF_TEST_ONLY:
+    try:
+        import pypdf
+    except ImportError:
+        sys.exit("pypdf が必要です: pip install pypdf")
 
-import pdf_layout
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        sys.exit("openpyxl が必要です: pip install openpyxl")
+
+    import pdf_layout
 
 PACK_FORMAT_VERSION = 1
 EMBED_DIM = 1536
@@ -399,16 +408,117 @@ def build_questions(chunks: list[dict], per_source: int = 6) -> list[dict]:
 
 
 def fnv1a64_hex(s: str) -> str:
-    """modUtil.Fnv1a64Hex と同じ値を返す(重複排除キーの互換のため)。"""
+    """modUtil.Fnv1a64Hex(src/core/modUtil.bas)と同じ値を返す
+    (重複排除キーの互換のため。R12-8で修正: 旧実装はUTF-8バイト列を1バイトずつ
+    XOR/乗算していたが、VBA側は文字列をUTF-16コードユニット(AscW値)として
+    読み、各コードユニットを「下位バイト→上位バイト」の順に2バイトとして
+    別々にXOR/乗算する。ASCIIだけの文字列でもバイト列の粒度が違う(1バイト/字
+    vs 2バイト/字)ため、旧実装は全ての非空文字列でVBA側と不一致だった
+    (シード資料を本棚へ再取込した際、chunk_idのハッシュ部が一度も一致せず、
+    全チャンクが無言で二重登録される実害があった)。
+
+    s.encode("utf-16-le") は文字列を「コードユニットごとに下位バイト→上位
+    バイト」の順で並べたバイト列を返すため、VBAの
+        code = AscW(ch): if code<0 then code += 65536
+        byteLo = code And &HFF: byteHi = (code \\ 256) And &HFF
+    と1バイト単位で完全に同じ列になる(サロゲートペア文字も、Pythonの
+    utf-16-le エンコードとVBAのAscW走査が同じ2コードユニットを生成するため
+    一致する)。"""
     h = 0xCBF29CE484222325
-    for b in s.encode("utf-8"):
-        h ^= b
-        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    prime = 0x100000001B3
+    mask = 0xFFFFFFFFFFFFFFFF
+    data = s.encode("utf-16-le")
+    for i in range(0, len(data), 2):
+        h ^= data[i]
+        h = (h * prime) & mask
+        h ^= data[i + 1]
+        h = (h * prime) & mask
     return f"{h:016x}"
 
 
 def normalize_for_hash(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip()
+    """modUtil.NormalizeForHash と同じ規則で正規化する(R12-8で修正: 旧実装は
+    `re.sub(r"\\s+", " ", s)` で改行(LF)も1個の半角スペースへ潰していたが、
+    VBA側は「半角スペース/タブの連続だけ」を1個へ圧縮し、改行(LF。CRLF/CRは
+    先にLFへ統一)は段落境界の情報として保持したうえでTrim(前後の半角スペース
+    のみ除去。改行は前後に残っていても取らない)する規則。この差もFnv1a64Hexと
+    同様、実運用のチャンク本文(改行を含む)では常にハッシュ不一致を招いていた。
+    """
+    t = s.replace("\r\n", "\n").replace("\r", "\n")
+    out_chars: list[str] = []
+    prev_space = False
+    for ch in t:
+        if ch == " " or ch == "\t":
+            if not prev_space:
+                out_chars.append(" ")
+            prev_space = True
+        else:
+            out_chars.append(ch)
+            prev_space = False
+    return "".join(out_chars).strip(" ")
+
+
+# ---------------------------------------------------------------- self-test
+
+
+# modUtil.Fnv1a64Hex / NormalizeForHash をLibreOffice上で実行して実測した
+# ゴールデン値(2026-08-01)。src/test/modTestsPure7.bas の
+# TestFnvGoldenValues に同じ入力・同じ16進値を複製してVBA側でも固定して
+# いるため、この関数のロジックを壊すとどちらのテストも落ちる(=退行が
+# 両側から検知できる)。
+_SELF_TEST_VECTORS: list[tuple[str, str, str]] = [
+    # (ラベル, 入力, 期待hex)
+    ("EMPTY", "", "cbf29ce484222325"),
+    ("ASCII_HELLO", "hello", "32964f71b2764b97"),
+    ("JP_KANJO", "第12条", "5b02a1a0f87d2243"),
+    ("LF_MIX", "abc\ndef", "5282a5bd26d7a4f0"),
+    ("EMOJI", "OK\U0001F600!", "68ebcbd198394d37"),
+    ("SPACES_RAW", "a  b", "d5c496e1f5147176"),
+    ("NORM_PIPELINE_RAW", " a   b\t\tc \r\n d ", "6bf429157296e5c6"),
+]
+
+# (ラベル, 入力, 期待する正規化後文字列, 正規化後の期待hex)
+_SELF_TEST_NORM_VECTORS: list[tuple[str, str, str, str]] = [
+    ("SPACES_RAW", "a  b", "a b", "8d862a1a321d76f6"),
+    ("NORM_PIPELINE", " a   b\t\tc \r\n d ", "a b c \n d", "2a2ebcad2e5f4f03"),
+    ("JP_KANJO", "第12条", "第12条", "5b02a1a0f87d2243"),
+]
+
+
+def self_test() -> bool:
+    """fnv1a64_hex/normalize_for_hash がVBA(modUtil.Fnv1a64Hex/
+    NormalizeForHash)と同一のゴールデン値を返すことを確認する。
+    python3 tools/make_seed_pack.py --self-test で実行する。"""
+    ok = True
+    for label, raw, expected in _SELF_TEST_VECTORS:
+        got = fnv1a64_hex(raw)
+        status = "OK" if got == expected else "NG"
+        if got != expected:
+            ok = False
+        print(f"  [{status}] Fnv1a64Hex[{label}] 期待={expected} 実際={got}")
+
+    for label, raw, expected_norm, expected_hash in _SELF_TEST_NORM_VECTORS:
+        norm = normalize_for_hash(raw)
+        norm_ok = norm == expected_norm
+        got_hash = fnv1a64_hex(norm)
+        hash_ok = got_hash == expected_hash
+        if not (norm_ok and hash_ok):
+            ok = False
+        status = "OK" if (norm_ok and hash_ok) else "NG"
+        print(f"  [{status}] NormalizeForHash[{label}] "
+              f"norm期待={expected_norm!r} norm実際={norm!r} "
+              f"hash期待={expected_hash} hash実際={got_hash}")
+
+    print()
+    if ok:
+        print("全件OK: Python側のFnv1a64Hex/NormalizeForHashはVBA(modUtil)と一致します"
+              "(src/test/modTestsPure7.bas TestFnvGoldenValues と同じゴールデン値)。")
+    else:
+        print("!! 不一致があります。tools/make_seed_pack.py の "
+              "fnv1a64_hex/normalize_for_hash がVBA(modUtil.Fnv1a64Hex/"
+              "NormalizeForHash)と非互換になっています。シード資料の再取込で"
+              "chunk_idの重複排除が効かなくなるため修正が必須です。")
+    return ok
 
 
 def write_pack(out_path: str, chunks: list[dict], sources: list[str],
@@ -448,6 +558,11 @@ def write_pack(out_path: str, chunks: list[dict], sources: list[str],
 
 
 def main(argv: list[str]) -> int:
+    if "--self-test" in argv:
+        print("Fnv1a64Hex/NormalizeForHash セルフテスト "
+              "(modUtil.Fnv1a64Hex/NormalizeForHashとの互換性をゴールデン値で照合)")
+        return 0 if self_test() else 1
+
     if len([a for a in argv[1:] if a != "--layout"]) < 2:
         print(__doc__)
         return 2
