@@ -512,17 +512,23 @@ Public Sub ScheduleAutoSync()
     ' リセット)で消え、Auto_Close が予約を解除できなくなる。
     ' 解除できない OnTime は「閉じたのに数分後にExcelが勝手に開き直す」
     ' という事故になる(§9 が防ぐと明記している事故そのもの)。
+    ' R12-5-10: CStr(CDbl)の15桁精度欠落を避け、数値セルへ直書き(下のSaveSchedTime)。
     On Error Resume Next
-    modState.SaveState SCHED_KEY, CStr(CDbl(nextTime))
+    SaveSchedTime nextTime
     On Error GoTo Fail
     Exit Sub
 
 Fail:
     ' OnTime予約自体の失敗は非致命(次回起動時のBoot経由の再予約に委ねる)。
-    ' ログ書き込み失敗と同じ扱いでDebug.Printのみに留める(R5の「ログで
-    ' 死なない」運用と同様、背景処理のスケジューリング失敗を理由にアプリ
-    ' 全体を止めたくないための設計判断)。
-    Debug.Print "[modShelfSync.ScheduleAutoSync:予約失敗] " & Err.Description
+    ' R12-5-8: Debug.Printは実機で誰も見ないため modLog.LogUsage(OERN下)へ。
+    ' ハンドラ稼働中はResume Nextが効かないため、Resumeで抜けてから記録する
+    ' (modMigrate等と同じ作法。2026-07-30実機err#462)。
+    Dim schedErrDesc As String: schedErrDesc = Err.Description
+    Resume FailCleanup
+FailCleanup:
+    On Error Resume Next
+    modLog.LogUsage "autosync_schedule_failed", "", schedErrDesc
+    On Error GoTo 0
     mScheduled = False
 End Sub
 
@@ -538,14 +544,13 @@ Public Sub CancelAutoSync()
     End If
 
     ' 2026-07-28(レビュー L-23): モジュール変数が消えていても、
-    ' ui_state に残した予約時刻で解除を試みる。
-    Dim s As String: s = modState.LoadState(SCHED_KEY, "")
-    If LenB(s) > 0 Then
-        If IsNumeric(s) Then
-            Application.OnTime EarliestTime:=CDate(CDbl(s)), Procedure:=TickProcName(), Schedule:=False
-            Err.Clear
-        End If
-        modState.SaveState SCHED_KEY, ""
+    ' ui_state に残した予約時刻で解除を試みる(R12-5-10: 数値セル直書き)。
+    Dim schedFound As Boolean
+    Dim schedT As Double: schedT = LoadSchedTime(schedFound)
+    If schedFound Then
+        Application.OnTime EarliestTime:=CDate(schedT), Procedure:=TickProcName(), Schedule:=False
+        Err.Clear
+        ClearSchedTime
     End If
     mScheduled = False
     On Error GoTo 0
@@ -625,6 +630,63 @@ End Function
 Private Function TickProcName() As String
     TickProcName = "'" & ThisWorkbook.Name & "'!AutoSyncTick"
 End Function
+
+' ----------------------------------------------------------------------------
+' SCHED_KEY 保存(R12-5-10)。modState経由(CStr(CDbl)文字列化)は最大15桁の
+' 精度欠落でEarliestTime完全一致解除が壊れ得るため、ui_stateのB列へ数値を
+' 直書きする(インストーラのE1=CDbl直書きと同型)。modStateは汎用のまま残し、
+' この用途だけ直接シート操作する。
+' ----------------------------------------------------------------------------
+Private Function FindStateRow(ByVal ws As Worksheet, ByVal keyName As String) As Long
+    On Error Resume Next
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(-4162).Row
+    Dim i As Long
+    For i = 1 To lastRow
+        If StrComp(CStr(ws.Cells(i, 1).Value), keyName, vbTextCompare) = 0 Then
+            FindStateRow = i
+            Exit Function
+        End If
+    Next i
+    On Error GoTo 0
+End Function
+
+Private Sub SaveSchedTime(ByVal t As Date)
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_UISTATE)
+    If ws Is Nothing Then Exit Sub
+    Dim r As Long: r = FindStateRow(ws, SCHED_KEY)
+    If r = 0 Then
+        r = ws.Cells(ws.Rows.Count, 1).End(-4162).Row + 1
+        If r < 1 Then r = 1
+        ws.Cells(r, 1).Value = SCHED_KEY
+    End If
+    ws.Cells(r, 2).Value = CDbl(t)
+    On Error GoTo 0
+End Sub
+
+Private Function LoadSchedTime(ByRef found As Boolean) As Double
+    found = False
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_UISTATE)
+    If ws Is Nothing Then Exit Function
+    Dim r As Long: r = FindStateRow(ws, SCHED_KEY)
+    If r = 0 Then Exit Function
+    Dim v As Variant: v = ws.Cells(r, 2).Value
+    If IsNumeric(v) Then
+        LoadSchedTime = CDbl(v)
+        found = True
+    End If
+    On Error GoTo 0
+End Function
+
+Private Sub ClearSchedTime()
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_UISTATE)
+    If ws Is Nothing Then Exit Sub
+    Dim r As Long: r = FindStateRow(ws, SCHED_KEY)
+    If r > 0 Then ws.Cells(r, 2).Value = ""
+    On Error GoTo 0
+End Sub
 
 ' フォルダの存在確認。Dir(path, vbDirectory)は末尾に区切り文字が付いていると
 ' 正しく判定できないため、まず末尾のスラッシュ・バックスラッシュを取り除く。

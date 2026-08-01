@@ -181,21 +181,87 @@ def obfuscate_secret(plain: str) -> str:
 # 1本のzipへまとめる。この梱包物はgitignore対象(dist/*_配布.zip): リポジトリ
 # 常置はGhostscriptの生ファイルそのもので足りており、zipまで履歴に積むと
 # 肥大するだけのため。既定ビルド(--prod/--dev、--zip無し)の挙動には一切影響しない。
+#
+# 2026-08-01(R12-9-5・憲章§5-3): 配布物には実機スモークテスト手順書を必ず
+# 添える。従来は「zip+docs/45を別送」という運用依存の穴があり(大規模配布で
+# 別送を忘れると手順書なしのファイルだけが現場に届く)、ここでzip自体に
+# 同梱して運用ミスの発生余地を無くす。簡易README.txtも同梱し、zipを渡された
+# だけの人でも「展開して・全部同じ場所に置いて・マクロを有効化する」の3点が
+# 分かるようにする(CP932でエンコードできる文字のみ使用)。
 # ---------------------------------------------------------------------------
-def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool) -> str:
+_README_TEXT = (
+    "マイ本棚AI 配布物 README\n"
+    "==========================================\n"
+    "\n"
+    "【1. 開き方】\n"
+    "  1. この zip ファイルの中身を、すべて同じフォルダへ展開(解凍)してください。\n"
+    "  2. 展開してできた MyBookshelf.xlsm (または MyBookshelf_dev.xlsm) を\n"
+    "     Excel で開いてください。\n"
+    "\n"
+    "【2. zip の中身はすべて展開してください】\n"
+    "  同梱の Ghostscript フォルダは、画像だけのPDF(スキャンした資料など)を\n"
+    "  読み取るための部品です。.xlsm と同じ場所に置かれていないと、\n"
+    "  画像PDFの取り込みができません。1つも欠かさず、すべて同じフォルダへ\n"
+    "  展開してください。\n"
+    "\n"
+    "【3. マクロを有効にしてください】\n"
+    "  開いた直後、画面の上に黄色い帯で「セキュリティの警告」と出たら、\n"
+    "  その中の「コンテンツの有効化」ボタンを押してください。\n"
+    "  有効化しないと、案内画面が表示されるだけで実際の機能が使えません。\n"
+    "\n"
+    "詳しい手順は、同梱の docs\\45_実機スモークテスト手順.md を参照してください。\n"
+)
+
+
+def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bool,
+                    root: str) -> str:
     gs_dir = os.path.join(dist_dir, "Ghostscript")
     if not os.path.isdir(gs_dir):
         raise BuildError(f"--zip: dist/Ghostscript が見つかりません: {gs_dir}")
 
-    zip_name = "MyBookshelf_発行者用_配布.zip" if is_publisher else "MyBookshelf_配布.zip"
+    # 2026-08-01(R12-9-4): ディレクトリの存在だけでなくOCRに必須の実体ファイル
+    # を検査する。ビルド機のAV/EDRがexeを隔離した場合や部分チェックアウトで
+    # 欠落していると、OCR不能なzipが無警告で完成してしまう(受領者側では
+    # 「画像PDFが読めない」としてしか現れない)。
+    for fn in ("gswin32c.exe", "gsdll32.dll"):
+        fp = os.path.join(gs_dir, fn)
+        if not os.path.isfile(fp) or os.path.getsize(fp) <= 0:
+            raise BuildError(
+                f"--zip: dist/Ghostscript/{fn} が見つからないか空です({fp})。"
+                "OCR(画像PDF読み取り)が使えないzipになるため、配布前に"
+                "Ghostscriptの再取得が必要です。"
+            )
+
+    # 2026-08-01(R12-9-1): --dev --zip が利用者向けと同名の配布zipを作り、
+    # 既存の本番配布zipを無警告で上書きしていた(mock_llmビルドが全受領者へ
+    # 渡る事故)。発行者/開発の2軸それぞれで出力名を分離する
+    # (--out の既定ファイル名の4分岐と同じ考え方)。
+    if is_publisher and is_dev:
+        zip_name = "MyBookshelf_発行者用_dev_配布.zip"
+    elif is_publisher:
+        zip_name = "MyBookshelf_発行者用_配布.zip"
+    elif is_dev:
+        zip_name = "MyBookshelf_dev_配布.zip"
+    else:
+        zip_name = "MyBookshelf_配布.zip"
     zip_path = os.path.join(dist_dir, zip_name)
     xlsm_name = os.path.basename(xlsm_path)
 
+    docs45_path = os.path.join(root, "docs", "45_実機スモークテスト手順.md")
+    if not os.path.exists(docs45_path):
+        raise BuildError(f"--zip: 同梱すべき手順書が見つかりません: {docs45_path}")
+    try:
+        readme_bytes = _README_TEXT.encode("cp932")
+    except UnicodeEncodeError as e:
+        raise BuildError(f"--zip: README.txt がCP932でエンコードできません: {e}")
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(xlsm_path, xlsm_name)
-        for root, _dirs, files in os.walk(gs_dir):
+        zf.writestr("README.txt", readme_bytes)
+        zf.write(docs45_path, "docs/45_実機スモークテスト手順.md")
+        for walk_root, _dirs, files in os.walk(gs_dir):
             for fn in files:
-                fp = os.path.join(root, fn)
+                fp = os.path.join(walk_root, fn)
                 arcname = os.path.join("Ghostscript", os.path.relpath(fp, gs_dir))
                 zf.write(fp, arcname)
 
@@ -878,14 +944,15 @@ Public Sub Install()
   On Error Resume Next
   Application.Run "modBoot.RunFirstRunPromptEarly"
   Err.Clear
-  ' Never Save a half-injected project: it freezes the breakage into the file.
+  ' f>0: half-injected. Do not Save.
   If f > 0 Then
     MsgBox "Setup incomplete. Please get a fresh copy of this file.", vbCritical
     Exit Sub
   End If
   ThisWorkbook.Save
+  If Err.Number<>0 Then Application.Run "modLog.LogUsage","save_fail","",Err.Description
   Err.Clear
-  ' Detach Boot from Open (1004); E1 keeps the time. Name-qualified: R12-3-8.
+  ' Detach Boot(1004); E1=time. R12-3-8.
   Dim bt As Date
   bt = Now + TimeSerial(0, 0, 1)
   Application.OnTime bt, "'" & ThisWorkbook.Name & "'!modBoot.Boot"
@@ -911,6 +978,25 @@ def build_installer_src() -> bytes:
     except UnicodeEncodeError as e:
         raise BuildError(f"INSTALLER_SRC must be ASCII-only (MASTER_SPEC §14): {e}")
     return _INSTALLER_SRC_TEXT.replace("\n", "\r\n").encode("cp932")
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-01(R12-9-6): ovba.pad_to_exact の到達不能差分をBuildError化する。
+# 空チャンクは5バイト/3バイトの組合せでしか埋められないため、
+# diff ∈ {1,2,4,7} は原理的に到達不能で ovba.py 側は生の ValueError を出す
+# (ovba.py はプロダクト固有ロジックを持たない自己完結モジュールという設計
+# 方針のため、BuildError化・誘導文はここ=呼び出し側で行う)。
+# ---------------------------------------------------------------------------
+def _pad_to_exact_or_die(compressed: bytes, target: int, stream_name: str) -> bytes:
+    try:
+        return ovba.pad_to_exact(compressed, target)
+    except ValueError as e:
+        raise BuildError(
+            f"{stream_name}ストリームのpaddingが目標バイト数に到達できません({e})。"
+            "OVBA空チャンクは3バイト単位/5バイト単位の組合せでしか長さを埋められず、"
+            "元サイズとの差分が1/2/4/7バイトのときは原理的に到達不能です。"
+            "_INSTALLER_SRC_TEXT のコメント・変数名を1〜2バイト増減してから再実行してください。"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -944,7 +1030,7 @@ def patch_installer(vba_bin: bytes, installer_src: bytes) -> bytes:
 
     orig_dir_size = skel.entries["dir"]["size"]
     orig_tw_size = skel.entries["ThisWorkbook"]["size"]
-    new_dir = ovba.pad_to_exact(ovba.ovba_compress(dir_dec), orig_dir_size)
+    new_dir = _pad_to_exact_or_die(ovba.ovba_compress(dir_dec), orig_dir_size, "dir")
 
     # ThisWorkbookストリームは「元と同じバイト数」でしか差し替えられない
     # (in-place外科パッチのため。ストリームを伸ばすとCFBのFATを組み直す
@@ -961,7 +1047,7 @@ def patch_installer(vba_bin: bytes, installer_src: bytes) -> bytes:
             "_INSTALLER_SRC_TEXT のコメント/変数名を削るか、処理そのものを "
             "modBoot 側(vba_srcから注入される標準モジュール。サイズ上限が緩い)へ移してください。"
         )
-    new_tw = ovba.pad_to_exact(tw_compressed, orig_tw_size)
+    new_tw = _pad_to_exact_or_die(tw_compressed, orig_tw_size, "ThisWorkbook")
 
     buf = io.BytesIO(vba_bin)
     ole = olefile.OleFileIO(buf, write_mode=True)
@@ -979,12 +1065,31 @@ def load_manifest(path):
     with open(path, encoding="utf-8") as fp:
         data = json.load(fp)
     modules = data["modules"]
+    # 2026-08-01(R12-9-3): name/path の重複検出。インストーラは行順に
+    # Remove→Add するため、重複があると「後の行のソースが無言で勝つ」
+    # (Stage6の集合照合も重複が両側に同数入るため通過してしまう)。
+    seen_names = {}
+    seen_paths = {}
     for m in modules:
         for key in ("name", "path", "role"):
             if key not in m:
                 raise BuildError(f"modules.json: エントリに必須キー'{key}'がありません: {m}")
         if m["role"] not in ("core", "opt", "test"):
             raise BuildError(f"modules.json: {m['name']} の role が不正です: {m['role']}")
+        nm, pth = m["name"], m["path"]
+        if nm in seen_names:
+            raise BuildError(
+                f"modules.json: name '{nm}' が重複しています"
+                f"(既存: {seen_names[nm]['path']} / 重複: {pth})。"
+                "重複を解消してください(後の行が無言で勝つ事故を防ぐため)。"
+            )
+        seen_names[nm] = m
+        if pth in seen_paths:
+            raise BuildError(
+                f"modules.json: path '{pth}' が重複しています"
+                f"(name={seen_paths[pth]['name']!r} と name={nm!r} の2エントリ)。"
+            )
+        seen_paths[pth] = m
     return modules
 
 
@@ -1358,27 +1463,57 @@ def main():
     parts["xl/vbaProject.bin"] = patched_bin
     print(f"  vbaProject.bin: {len(skel_bin):,} bytes (不変)")
 
-    print("Stage 5: 最終.xlsm書き出し...")
+    # 2026-08-01(R12-9-2): Stage5/6を原子的に確定する。従来はStage5が
+    # dist/MyBookshelf.xlsm(正規配布パス。HANDOFF §1の「Code→Download ZIP→
+    # dist/…を開く」経路そのもの)を直接上書きしていたため、Stage6の検証に
+    # 失敗しても不良ファイルがそこに残置され、前回の良品は既に破壊済みだった。
+    # 一時パスへ書いてStage6合格後にos.replaceで確定し、失敗時は不良品を
+    # *.failed へ退避する(前回の良品には一切触れない)。
+    print("Stage 5: 最終.xlsm書き出し(一時パスへ)...")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    # 拡張子を .xlsm のまま保つ(verify_build内のopenpyxl.load_workbookが
+    # 拡張子でフォーマットを判定するため、".building"のような接尾辞を単純に
+    # 足すと"サポートしていない形式"として自己検証自体が失敗してしまう)。
+    _out_base, _out_ext = os.path.splitext(out_path)
+    staging_path = f"{_out_base}.building{_out_ext}"
+    failed_path = f"{_out_base}.failed{_out_ext}"
+    with zipfile.ZipFile(staging_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for n, data in parts.items():
             zout.writestr(n, data)
     os.unlink(tmp_path)
-    print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
+    print(f"  一時出力: {staging_path} ({os.path.getsize(staging_path):,} bytes)")
 
     print("\nStage 6: ビルド後自己検証...")
-    errors = verify_build(out_path, injected, installer_src, mock_llm)
+    errors = verify_build(staging_path, injected, installer_src, mock_llm)
     if errors:
         print("自己検証 失敗:")
         for e in errors:
             print(f"  - {e}")
+        try:
+            if os.path.exists(failed_path):
+                os.remove(failed_path)
+            os.replace(staging_path, failed_path)
+            print(f"  不良な出力を退避しました(前回の良品は無傷): {failed_path}")
+        except OSError as e2:
+            print(f"  不良な出力の退避にも失敗しました: {e2}")
         sys.exit(1)
+
+    # 検証OKになって初めて正規パスへ確定する(os.replaceは同一ファイル
+    # システム内であれば原子的)。ここまで前回の良品は無傷のまま。
+    os.replace(staging_path, out_path)
+    if os.path.exists(failed_path):
+        try:
+            os.remove(failed_path)   # 過去の失敗退避物が残っていれば掃除する
+        except OSError:
+            pass
+    print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
     print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
           "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
 
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")
-        zip_path = build_dist_zip(out_path, os.path.dirname(out_path), args.publisher)
+        zip_path = build_dist_zip(out_path, os.path.dirname(out_path), args.publisher,
+                                   is_dev, root)
         print(f"  出力: {zip_path} ({os.path.getsize(zip_path):,} bytes)")
 
     print("\nDone.")

@@ -63,6 +63,15 @@ R12-1(最優先小粒: 失効フォールバック0/終了ボタンのAuto_Close
    - ArchiveCurrent 初回_archive未作成時の過剰警告エッジ(次期)
    - AddFilesViaDialog の busy 早期戻りが無言(通常経路は関所が先に停止・次期)
    - modBoot 残2,244字(次の機能追加時に分割裁定)
+   - **FindKeyRow裁定前提の更新(2026-08-01 R12-5-11)**: spec_20260731_R11
+     §9「FindKeyRow線形探索(103キーでms級)」は modConfig.FindKeyRow
+     (config = 103キーで固定・安定)の前提であり、modStats.FindKeyRowには
+     そのまま適用できない。my_statsは "thx:"/"ins:" のnonce行が記録先
+     (modP2P.MarkNonce/modInsight系)で、GC(thanks_gc_days・GcOldNonces)は
+     入っているものの周期実行のため、GCが効くまでの間はS(my_statsの行数)が
+     数百〜千行に成長し得る事実がある。線形探索の即時最適化は見送り継続
+     (体感数百ms。まず前提行数の事実更新のみ)だが、「103キーでms級だから
+     全FindKeyRowが軽い」という読み方はしないこと。
 
 ## 3. 運用メモ
 

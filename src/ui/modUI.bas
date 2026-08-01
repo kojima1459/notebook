@@ -360,12 +360,19 @@ Public Sub RestoreExcelUI()
     Application.DisplayStatusBar = True
     ' 2026-07-31(R10-1): 全画面のままだとタブ/リボン復元が視覚的に効かない。
     Application.DisplayFullScreen = False
-    With ActiveWindow
-        .DisplayGridlines = True
-        .DisplayHeadings = True
-        .DisplayWorkbookTabs = True
-        .DisplayHorizontalScrollBar = True
-    End With
+    ' 2026-08-01(R12-5-9・監査1指摘7): ActiveWindowブロックだけ自ブックガード。
+    ' 複数ブックを開いた状態で「Excel全体を終了」すると、他ブックがアクティブな
+    ' まま本ブックのAuto_Closeが走り得て、その他ブックの枠線/見出し/シートタブ
+    ' 設定を書き換えてしまう(EnsureAppViewと同じ作法)。Application全体設定
+    ' (リボン・数式バー等、上の行)はブックを問わない一般設定のため現状維持。
+    If ActiveWorkbook Is ThisWorkbook Then
+        With ActiveWindow
+            .DisplayGridlines = True
+            .DisplayHeadings = True
+            .DisplayWorkbookTabs = True
+            .DisplayHorizontalScrollBar = True
+        End With
+    End If
     ' Ctrl+Z/Ctrl+Yの無効化を解除(引数省略=既定へ戻す)。
     Application.OnKey "^z"
     Application.OnKey "^y"

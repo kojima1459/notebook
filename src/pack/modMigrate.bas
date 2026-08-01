@@ -123,6 +123,7 @@ Public Sub ExportUserData()
     CopySheetInto wb, modAppDef.SH_MANIFEST
     CopySheetInto wb, modAppDef.SH_STATS
     CopyConfigInto wb
+    CopyInsightInboxInto wb
 
     wb.SaveAs Filename:=savePath, FileFormat:=51   ' xlOpenXMLWorkbook(.xlsx)
     wb.Close SaveChanges:=False
@@ -231,6 +232,7 @@ Public Sub ImportUserData()
     If Not RestoreSheet(wb, modAppDef.SH_MANIFEST, rowsM) Then allOk = False
     MergeStats wb
     MergeConfig wb
+    MergeInsightInbox wb
 
     wb.Close SaveChanges:=False
     Set wb = Nothing
@@ -421,6 +423,42 @@ Private Sub CopyConfigInto(ByVal destWb As Workbook)
     On Error GoTo 0
 End Sub
 
+' insight_inbox は「未取込(consumed<>1)の行だけ」を別途持ち出す(2026-08-01
+' R12-5-12)。取込済み行は本棚へ既に反映済みで運ぶ理由が無く、
+' modInsightIo.TrimConsumedRows(R12-3-5)と同じ「取込前の共有知は消さない」
+' 判断に合わせる。列構成は insight_inbox 実シートと同じ(先頭行=ヘッダー)。
+Private Sub CopyInsightInboxInto(ByVal destWb As Workbook)
+    On Error Resume Next
+    Dim src As Worksheet: Set src = ThisWorkbook.Worksheets("insight_inbox")
+    If src Is Nothing Then Exit Sub
+
+    Dim lastR As Long: lastR = src.Cells(src.Rows.count, 1).End(xlUp).row
+    Dim lastC As Long: lastC = src.Cells(1, src.Columns.count).End(xlToLeft).Column
+    If lastC < 1 Then lastC = 10   ' ヘッダーすら読めない異常系の保険(実シート想定は10列)
+
+    Dim dst As Worksheet
+    Set dst = destWb.Worksheets.Add(After:=destWb.Worksheets(destWb.Worksheets.count))
+    dst.Name = "insight_inbox"
+    dst.Range(dst.Cells(1, 1), dst.Cells(1, lastC)).Value = _
+        src.Range(src.Cells(1, 1), src.Cells(1, lastC)).Value
+    If lastR < 2 Then Exit Sub
+
+    ' 列I(9列目)=consumed。一括読み→フィルタ→書出しで行数に依らず軽く保つ
+    ' (TrimConsumedRowsと同じ作法。受信箱は最大500行=R12-3-5のため実質軽い)。
+    Dim arr As Variant: arr = src.Range(src.Cells(2, 1), src.Cells(lastR, lastC)).Value
+    Dim outR As Long: outR = 2
+    Dim i As Long, c As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If CStr(arr(i, 9)) <> "1" Then
+            For c = 1 To lastC
+                dst.Cells(outR, c).Value = arr(i, c)
+            Next c
+            outR = outR + 1
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
 ' ビルドが決める値・秘密は引き継がない(§12.3 B1/B2 の再発防止)。
 Private Function IsBuildOwnedKey(ByVal k As String) As Boolean
     If InStr(1, CFG_SKIP_EXACT, "|" & LCase$(k) & "|", vbTextCompare) > 0 Then
@@ -565,5 +603,62 @@ Private Sub MergeConfig(ByVal srcWb As Workbook)
         End If
     Next i
     modLog.LogUsage "migrate_config", "", "applied=" & applied & " kept_new_default=" & skipped
+    On Error GoTo 0
+End Sub
+
+' insight_inbox は書き出し側(CopyInsightInboxInto)と対称に「未取込の行を
+' 追記」する(2026-08-01 R12-5-12)。置換ではない: 移行先ブックが起動後に
+' 自分で受信した共有知を消さないため、既存の受信箱に合流させる。
+' nonce(A列)が既に存在する行は二重取り込みしない。
+Private Sub MergeInsightInbox(ByVal srcWb As Workbook)
+    On Error Resume Next
+    If Not SheetExistsIn(srcWb, "insight_inbox") Then Exit Sub
+    Dim src As Worksheet: Set src = srcWb.Worksheets("insight_inbox")
+    Dim srcLastR As Long: srcLastR = src.Cells(src.Rows.count, 1).End(xlUp).row
+    If srcLastR < 2 Then Exit Sub
+
+    Dim dst As Worksheet: Set dst = ThisWorkbook.Worksheets("insight_inbox")
+    If dst Is Nothing Then Exit Sub
+    Dim dstLastR As Long: dstLastR = dst.Cells(dst.Rows.count, 1).End(xlUp).row
+
+    Dim lastC As Long: lastC = src.Cells(1, src.Columns.count).End(xlToLeft).Column
+    If lastC < 1 Then lastC = 10
+
+    ' 既存nonce(A列)の集合(重複取り込み防止)。
+    Dim known As Object: Set known = CreateObject("Scripting.Dictionary")
+    If dstLastR >= 2 Then
+        Dim dstArr As Variant: dstArr = dst.Range(dst.Cells(2, 1), dst.Cells(dstLastR, 1)).Value
+        Dim j As Long
+        For j = LBound(dstArr, 1) To UBound(dstArr, 1)
+            Dim dn As String: dn = CStr(dstArr(j, 1))
+            If LenB(dn) > 0 Then
+                If Not known.Exists(dn) Then known.Add dn, True
+            End If
+        Next j
+    End If
+
+    Dim srcArr As Variant: srcArr = src.Range(src.Cells(2, 1), src.Cells(srcLastR, lastC)).Value
+    Dim outR As Long: outR = dstLastR + 1
+    Dim added As Long, dup As Long, skipped As Long
+    Dim i As Long, c As Long
+    For i = LBound(srcArr, 1) To UBound(srcArr, 1)
+        Dim nc As String: nc = CStr(srcArr(i, 1))
+        If LenB(nc) > 0 And CStr(srcArr(i, 9)) <> "1" Then   ' consumed(念のため防御的に再確認)
+            If known.Exists(nc) Then
+                dup = dup + 1
+            Else
+                For c = 1 To lastC
+                    dst.Cells(outR, c).Value = srcArr(i, c)
+                Next c
+                known.Add nc, True
+                outR = outR + 1
+                added = added + 1
+            End If
+        Else
+            skipped = skipped + 1
+        End If
+    Next i
+    modLog.LogUsage "migrate_insight", "", "added=" & added & " dup_skip=" & dup & _
+        " consumed_skip=" & skipped
     On Error GoTo 0
 End Sub
