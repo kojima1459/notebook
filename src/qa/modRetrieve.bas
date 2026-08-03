@@ -78,7 +78,12 @@ Private Const SPARSE_WEIGHT As Double = 0.06
 ' Search - MASTER_SPEC §7.3 唯一の公開関数。
 '   戻り値 = 件数(0可)。埋め込み失敗時は-1(呼び出し側がE0203表示)。
 ' ----------------------------------------------------------------------------
-Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() As Hit) As Long
+' scopeSources(R13-5a): 許可資料名のDictionary。Nothing=従来動作(既存呼び出しは
+'   無指定で完全互換)。判定は excl.Exists の真隣に対称に置く。行の採用点は
+'   Search/SearchExpanded とも1箇所で、粗選別も再スキャンも必ずそこを通る。
+' ----------------------------------------------------------------------------
+Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() As Hit, _
+                       Optional ByVal scopeSources As Object) As Long
     Dim emptyHits() As Hit
     hits = emptyHits
 
@@ -254,6 +259,7 @@ RescanAll:
         kRow = idx.Item(vid)
         Dim srcName As String: srcName = CStr(kData(kRow, COL_K_SOURCE))
         If excl.Exists(srcName) Then GoTo NextR   ' ノイズ報告で論理除外された資料
+        If Not scopeSources Is Nothing Then If Not scopeSources.Exists(srcName) Then GoTo NextR
         Dim origin As String: origin = CStr(kData(kRow, COL_K_ORIGIN))
         Dim pageNum As Long: pageNum = CLng(Val(kData(kRow, COL_K_PAGE)))
         Dim fullText As String: fullText = CStr(kData(kRow, COL_K_FULLTEXT))
@@ -339,8 +345,10 @@ End Function
 '   スコアリングし、chunk_id単位のunion(最大スコア採用)から上位poolK件を返す。
 '   シート読込はクエリ数に関わらず1回。有効クエリ0本・空ストアは0を返す。
 '   既存Search(単段)の挙動には一切影響しない。
+'   scopeSources(R13-5a)の意味と置き場所は Search と同じ。
 ' ----------------------------------------------------------------------------
-Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef hits() As Hit) As Long
+Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef hits() As Hit, _
+                               Optional ByVal scopeSources As Object) As Long
     Dim emptyHits() As Hit
     hits = emptyHits
     SearchExpanded = 0
@@ -490,7 +498,9 @@ RescanQuery:
             End If
 
             Dim kRow As Long: kRow = idx.Item(vid)
-            If excl.Exists(CStr(kData(kRow, COL_K_SOURCE))) Then GoTo NextRow   ' ノイズ論理除外
+            Dim sName As String: sName = CStr(kData(kRow, COL_K_SOURCE))
+            If excl.Exists(sName) Then GoTo NextRow   ' ノイズ論理除外
+            If Not scopeSources Is Nothing Then If Not scopeSources.Exists(sName) Then GoTo NextRow
 
             ' 2026-07-28(解説書 §11-8/§11-9): スコア式を単段と同じにした。
             '

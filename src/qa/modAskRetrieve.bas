@@ -13,9 +13,19 @@ Option Explicit
 ' 出典アクセサの添字修正(レビュー C-2)すら入らなかった(レビュー I-2)。
 ' ========================================
 
+' 段階ナレーション(R13-9b)の計画。算数は modMode(純ロジック)が持つ。
+Private mStgExpand As Boolean
+Private mStgRerank As Boolean
+Private mStgTotal As Long
+
 ' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
+' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
+' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
+'   config/モードに関係なく拡張段を必ず通す(深掘りのスコープ内多段検索用)。
 Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
-                                  ByVal topK As Long, ByRef hits() As Hit) As Long
+                                  ByVal topK As Long, ByRef hits() As Hit, _
+                                  Optional ByVal scopeSources As Object, _
+                                  Optional ByVal subqOverride As Long = 0) As Long
     On Error GoTo FallbackSingle
 
     ' 1) クエリ拡張
@@ -31,16 +41,22 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim useExpand As Boolean
     useExpand = modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
                                   modConfig.GetBool("quick_expand", False))
+    If subqOverride > 0 Then useExpand = True     ' R13-5c: スコープ内多段は必ず角度を作る
 
     If useExpand Then
-        modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDED) & " 質問を分析中…"
+        ShowAskStage "expand"
         Dim lightMode As Boolean
         lightMode = modMode.UseLightExpand(mdMode, modConfig.GetBool("quick_expand_light", True))
 
+        Dim subN As Long
+        subN = subqOverride
+        If subN < 1 Then
+            subN = modMode.SubQueryCount(mdMode, modConfig.GetLong("expand_subqueries", 3), _
+                                         modConfig.GetLong("thorough_subqueries", 6))
+        End If
+
         Dim exPrompt As String
-        exPrompt = modPrompts.BuildExpandPrompt(q, modAsk.HistoryBlock(), _
-            modMode.SubQueryCount(mdMode, modConfig.GetLong("expand_subqueries", 3), _
-                                  modConfig.GetLong("thorough_subqueries", 6)), lightMode)
+        exPrompt = modPrompts.BuildExpandPrompt(q, modAsk.HistoryBlock(), subN, lightMode)
 
         Dim exModel As String: exModel = modConfig.GetString("expand_model", "")
         If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.5")
@@ -76,7 +92,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     If poolK < topK Then poolK = topK
     Dim poolHits() As Hit
     Dim poolN As Long
-    poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits)
+    poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits, scopeSources)
     If poolN <= 0 Then GoTo FallbackSingle
 
     ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
@@ -86,7 +102,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     useRerank = modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
                                   modConfig.GetBool("quick_rerank", False))
     If useRerank And poolN > topK Then
-        modUIMain.SetStage "" & ChrW(&HD83E) & ChrW(&HDDEE) & " 関連度を精査中…"
+        ShowAskStage "rerank"
         Dim rkPrompt As String
         rkPrompt = modPrompts.BuildRerankPrompt(q, poolHits, poolN, _
             modConfig.GetLong("max_context_chars", 40000))
@@ -126,8 +142,105 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
 FallbackSingle:
     Err.Clear
     On Error GoTo 0
-    RunMultiRetrieve = modRetrieve.Search(q, topK, hits)
+    RunMultiRetrieve = modRetrieve.Search(q, topK, hits, scopeSources)
 End Function
+
+' ----------------------------------------------------------------------------
+' RunDeepScoped - 深掘り(followup かつ deep)の検索(2026-08-03 R13-5c)
+' ----------------------------------------------------------------------------
+' 「深掘り=会話の流れの中を深く掘る」を実装する唯一の場所。
+'   (i)   会話出典メモリ(modFollowup)があればそれをスコープにする
+'   (ii)  無ければ通常検索を1回だけ行い、上位ヒットの資料名をスコープにする
+'   (iii) そのスコープの中で多段検索(サブクエリ deep_scope_subqueries 本)
+'   (iv)  スコープ内のヒットが2件未満なら、無スコープで取り直す
+'         (今日より悪くなる経路を作らない。落ちたことは usage_log に残す)
+' 新規質問(非followup)の deep はこの関数を通らない=現行動作のまま。
+Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
+                              ByVal topK As Long, ByRef hits() As Hit) As Long
+    Dim scopeD As Object
+    Set scopeD = modFollowup.CitedSourcesDict()
+
+    If scopeD Is Nothing Then
+        ' (ii) 会話出典がまだ無い(State Loss後など)。1回だけ通常検索して
+        '      「いまの話題の資料」を自分で決める。ここで失敗したら
+        '      スコープ無しへ静かに退化する(質問は必ず答える)。
+        Dim seed() As Hit
+        Dim seedN As Long
+        seedN = modRetrieve.Search(q, topK, seed)
+        If seedN = -1 Then
+            RunDeepScoped = -1      ' 埋め込み失敗(E0203)。もう一度呼んでも同じなので繰り返さない
+            Exit Function
+        End If
+        If seedN > 0 Then Set scopeD = modFollowup.ScopeDictFrom(HitSourceList(seed, seedN))
+    End If
+
+    If Not scopeD Is Nothing Then
+        ' (iii) スコープ内で多段検索。拡張段は必ず通す(角度を作らないと
+        '       「狭い中を深く」にならず、ただの絞り込みで終わる)。
+        mStgExpand = True
+        mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, True)
+
+        Dim subN As Long
+        subN = modConfig.GetLong("deep_scope_subqueries", 6)
+        If subN < 1 Then subN = 6
+
+        Dim n As Long
+        n = RunMultiRetrieve(q, mdMode, topK, hits, scopeD, subN)
+        If n >= 2 Then
+            On Error Resume Next
+            modLog.LogUsage "deep_scoped", mdMode, "scope=" & scopeD.count & " subq=" & subN, 0, n
+            On Error GoTo 0
+            RunDeepScoped = n
+            Exit Function
+        End If
+        If n = -1 Then
+            RunDeepScoped = -1      ' 埋め込み失敗。広げ直しても同じ結果にしかならない
+            Exit Function
+        End If
+
+        On Error Resume Next
+        modLog.LogUsage "deep_scope_fallback", mdMode, _
+            "会話の資料の中では" & n & "件しか見つからず、本棚全体へ広げ直しました(scope=" & scopeD.count & ")"
+        On Error GoTo 0
+        PlanAskStages mdMode          ' 番号計画を通常構成へ戻す
+    End If
+
+    ' (iv)/退化: 従来どおり本棚全体を検索する。
+    RunDeepScoped = RunUnscoped(q, mdMode, topK, hits)
+End Function
+
+' 従来の検索経路(retrieve_mode に従う)。modAsk と同じ判断を2箇所に書かない。
+Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
+                            ByVal topK As Long, ByRef hits() As Hit) As Long
+    If LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi" Then
+        RunUnscoped = RunMultiRetrieve(q, mdMode, topK, hits)
+    Else
+        RunUnscoped = modRetrieve.Search(q, topK, hits)
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' 段階ナレーション(R13-9b): この質問で何段通すかを先に決めてから実況する。
+' ----------------------------------------------------------------------------
+Public Sub PlanAskStages(ByVal mdMode As String)
+    On Error Resume Next
+    Dim isMulti As Boolean
+    isMulti = (LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi")
+    mStgExpand = isMulti And modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
+                                               modConfig.GetBool("quick_expand", False))
+    mStgRerank = isMulti And modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
+                                               modConfig.GetBool("quick_rerank", False))
+    mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, modMode.UseVerify(mdMode))
+    On Error GoTo 0
+End Sub
+
+' kind = "expand" / "rerank" / "draft" / "verify" / "quick"
+Public Sub ShowAskStage(ByVal kind As String)
+    On Error Resume Next
+    modUIMain.SetStage modMode.AskStageText( _
+        modMode.AskStageIndex(kind, mStgExpand, mStgRerank), mStgTotal, modMode.AskStageLabel(kind))
+    On Error GoTo 0
+End Sub
 
 ' 低関連度警告(表示専用): 最高スコアが config low_hit_warn_score(既定0.3)
 ' 未満なら注意書きを先頭に付ける。0以下は無効化扱い。

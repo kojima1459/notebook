@@ -13,7 +13,17 @@ Option Explicit
 '   modApp と共有するモジュールレベル状態を持たないため縫い目が残らない。
 '   描画ラッパー4本(DrawActions/ClearActions/DrawConfidence/ClearConfidence)は
 '   この行を出し入れする道具なので同時に移し、modApp 側から Public で呼ぶ。
+'
+' 2026-08-03(R13-6a): 「続けて質問/深掘り」の armed followup 一式もここに置く
+'   (modUIMain は残383字で呼び出し1行しか入らないため。憲章§4-6)。
 ' ============================================================================
+
+' 「続きの質問」チップのShape名。nx_ 接頭辞なので、Nexus画面の全面再描画
+' (modUI の nx_ 一括削除)で自動的に消える=取り残しが構造的に起きない。
+Private Const FCHIP_NAME As String = "nx_fchip"
+
+' armed状態(セッション変数)。State Lossで消えたら「武装していない」に倒れる。
+Private mArmedFollowup As Boolean
 
 ' 文脈アクションの描画/消去。対象は常に「最新のAI回答」なので、描いたバブル名を
 ' mActiveBubbleにも記録し、各OnAct*が同じものを見るようにする。
@@ -103,6 +113,13 @@ Private Sub RecordCorrection(ByVal fixText As String)
     On Error GoTo 0
 End Sub
 
+' 🔍 深掘り: 2026-08-03(R13-6a)から InputBox をやめ「armed followup」にした。
+' 旧実装は幅を制御できない素のInputBoxで長文を書かせ、しかも押した瞬間に
+' 「その時のモード」が暗黙で確定していた(実機第2報 RC7)。
+' いまは「次の送信を続きの質問として扱う」印を立てるだけにして、入力は
+' 既存の幅広い入力欄(nx_input)で受け、送信ボタンの1本道へ合流させる。
+' 実際の質問処理は modApp.OnSend が行う(=経路が1つになり、実況・出典・
+' 評価ボタンの積み方が深掘りだけ別実装、という重複も消える)。
 Public Sub OnActDrill()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
@@ -110,59 +127,12 @@ Public Sub OnActDrill()
     modMentor.ClearMentor   ' Mentorボタンも掃除(安全弁内蔵)
     ClearActions
     ClearConfidence
-
-    Dim q As String
-    q = InputBox("さらに深掘りしたい内容を入力してください。" & vbCrLf & _
-                 "(直前までの会話を踏まえて回答します)", "Nexus Agent - 深掘り")
-    If LenB(Trim$(q)) = 0 Then
-        modUiLock.Leave
-        Exit Sub
-    End If
-    If Len(q) > modApp.MAX_INPUT_CHARS Then q = Left$(q, modApp.MAX_INPUT_CHARS)   ' A3: 上限で切る
-
-    modUI.AddChatBubble "user", ChrW(&HD83D) & ChrW(&HDD0D) & " " & q
-
-    ' 深掘りも本流の送信と同じ待ち時間が発生する。同じように実況する。
-    Dim phName As String
-    phName = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCAD) & " 考えています…")
-    On Error Resume Next
-    modLive.Begin phName
-    On Error GoTo Fail
-    DoEvents
-
-    Dim ans As String
-    If modAsk.CanFollowup() Then
-        modAsk.AskFollowup q
-        ans = modAsk.LastAnswerText()
-    Else
-        ans = modAsk.Answer(q, modAppState.RagSpeed())
-    End If
-
-    On Error Resume Next
-    modLive.Finish
-    If LenB(phName) > 0 Then ThisWorkbook.Worksheets("Nexus").Shapes(phName).Delete
-    On Error GoTo Fail
-
-    Dim bubbleName As String
-    bubbleName = modUI.AddChatBubble("ai", ans)
-    modAppState.SetActiveBubble bubbleName
-    modUI.MarkActiveBubble bubbleName
-    DrawConfidence bubbleName            ' 信頼度 → 出典 → 評価 の順に積む
-    modPeek.RenderCitations bubbleName   ' Peek View: 深掘り回答の出典チップ
-    DrawActions bubbleName               ' 文脈アクション(根拠より下)
-    modMentor.OfferMentor bubbleName     ' Mentor: 専門家ボタン(安全弁内蔵)
-    On Error Resume Next
-    modUI.SettleChat
-    On Error GoTo 0
+    ArmFollowup
     modUiLock.Leave
     Exit Sub
 
 Fail:
-    ' 2026-07-28(レビュー L-21): 無言で終わらない。
-    ' ここは Err.Clear してログも通知も出さずに Leave していたため、
-    ' 深掘りが失敗すると【押したのに何も起きない】だけになっていた。
-    ' 利用者はボタンが壊れたと判断し、二度と押さない。
-    ' OnSend の Fail と同じく、記録とエラーバブルの両方を出す。
+    ' 2026-07-28(レビュー L-21): 無言で終わらない。押したのに何も起きない、を作らない。
     Dim drillDesc As String: drillDesc = Err.Description
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
@@ -171,11 +141,104 @@ Fail:
 FailCleanup13:
     Err.Clear
     On Error Resume Next
-    modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
     modLog.LogError "E0602", "modAppAct.OnActDrill", drillDesc
-    modUI.AddChatBubble "ai", "深掘りに失敗しました。もう一度お試しください。(" & drillDesc & ")"
+    modUI.AddChatBubble "ai", "深掘りの準備に失敗しました。もう一度お試しください。(" & drillDesc & ")"
     On Error GoTo 0
     modUiLock.Leave
+End Sub
+
+' ============================================================================
+' armed followup(2026-08-03 R13-6a/6b)
+' ----------------------------------------------------------------------------
+' 「続けて質問」「深掘り」を押すと、
+'   (i)   セッション変数に「次の送信は続きの質問」という印を立て、
+'   (ii)  入力欄(nx_input)へフォーカスし、
+'   (iii) 入力欄の下に小さなチップを1枚出す。
+' この状態で送信すると modApp.OnSend が modAsk.AskFollowup へ回す。
+' チップをクリックすると解除(=押せるものは必ず反応する。憲章§3-1)。
+'
+' 状態はモジュール変数なので、VBAのState Lossで自然に消える。消えたときに
+' チップだけが画面に残らないよう、再描画(RedrawFollowupChip)は「必ず消して
+' から、armedのときだけ描く」形にし、Nexus画面の描画(modUI.InitUI)からも呼ぶ。
+'
+' 6b(エフォートの明示): チップに出すモード名は【押した時点】のもの。
+' 実際に使われるのは【送信時点】のトグル値(modAsk.AskFollowup が ui_state を
+' 読む既存の作り)。つまり利用者はチップを出したままモードを切り替えてから
+' 送れる ―― これが「深掘りの力の入れ方を選べる」の実装であり、
+' そのためにチップへ「モード: 〜」を書いて選択肢の存在を見せている。
+' 宣言(FCHIP_NAME / mArmedFollowup)はモジュール先頭にある。
+' ============================================================================
+
+' 「続きの質問」を武装する(modUIMain.OnFollowupButton / OnActDrill の共通実体)。
+Public Sub ArmFollowup()
+    If Not modAsk.CanFollowup() Then
+        MsgBox "まず質問して回答を受け取ってから使ってください。", vbInformation, "Nexus Agent"
+        Exit Sub
+    End If
+
+    mArmedFollowup = True
+    On Error Resume Next
+    modUI.GoToNexus "modAppAct.ArmFollowup"   ' ホーム画面から押されたときはチャットへ
+    RedrawFollowupChip
+    modUI.ParkFocus                           ' 入力欄(nx_input)へフォーカス
+    On Error GoTo 0
+End Sub
+
+' 送信時に1回だけTrueを返し、同時に解除+チップを消す(modApp.OnSend から)。
+Public Function ConsumeArmedFollowup() As Boolean
+    If Not mArmedFollowup Then Exit Function
+    mArmedFollowup = False
+    RedrawFollowupChip
+    ConsumeArmedFollowup = True
+End Function
+
+' チップ([×])のクリック。Shape.OnAction の宛先なので Public。
+Public Sub OnFollowupChipOff()
+    mArmedFollowup = False
+    RedrawFollowupChip
+End Sub
+
+' チップの再描画=掃除。armedでなければ消すだけ(State Lossで印だけ消え、
+' チップが残ったまま…を構造的に起こさない)。
+Public Sub RedrawFollowupChip()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    ws.Shapes(FCHIP_NAME).Delete
+    Err.Clear
+    If mArmedFollowup Then DrawFollowupChip ws
+    On Error GoTo 0
+End Sub
+
+Private Sub DrawFollowupChip(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim rowIdx As Long: rowIdx = modUINexusDraw.INPUT_ROW + 1
+    Dim r As String: r = CStr(rowIdx)
+    Dim anchor As Range: Set anchor = ws.Range("C" & r)
+    If anchor Is Nothing Then Exit Sub
+
+    Dim chip As Shape
+    Set chip = ws.Shapes.AddShape(5, anchor.Left, ws.Rows(rowIdx).Top - 1, _
+                                  ws.Range("C" & r & ":K" & r).Width, 15)
+    If chip Is Nothing Then Exit Sub
+    chip.Name = FCHIP_NAME
+    chip.Placement = 3
+    chip.Adjustments(1) = 0.4
+    chip.Line.Visible = 0
+    chip.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    With chip.TextFrame2
+        .TextRange.Text = ChrW(&H21B3) & " 続きの質問(前回の会話を引き継ぐ)  [" & _
+                          ChrW(&HD7) & "]  モード: " & modApp.SpeedCaption()
+        .TextRange.Font.Size = 8
+        .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .VerticalAnchor = 3
+        .MarginLeft = 6: .MarginRight = 4: .MarginTop = 0: .MarginBottom = 0
+    End With
+    chip.OnAction = "modAppAct.OnFollowupChipOff"
+    chip.AlternativeText = "クリックすると「続きの質問」をやめます"
+    On Error GoTo 0
 End Sub
 
 Public Sub OnActResolve()

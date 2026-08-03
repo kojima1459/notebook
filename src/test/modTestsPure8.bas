@@ -350,6 +350,132 @@ Private Sub TestRerankPromptRoundTrip()
         (cnt = 3 And order(0) = 3 And order(1) = 1 And order(2) = 2), "cnt=" & cnt
 End Sub
 
+' ----------------------------------------------------------------------------
+' 会話出典メモリ(2026-08-03 R13-5b)
+' ----------------------------------------------------------------------------
+' 「深掘り=会話の流れ(引用済み資料)の中を深く」の材料そのもの。
+' 順番(新しい順)と上限(8件)が崩れると、深掘りのスコープが古い話題を
+' 引きずったり本棚全体に近づいたりして、モードの区別が静かに消える。
+Private Sub TestCitedSourceMemory()
+    ' 入力は modAskRetrieve.HitSourceList と同じ "|" 区切り。
+    Dim a As String
+    a = modFollowup.MergeCitedSources("", "資料A|資料B", 8)
+    modTestRunner.Check "会話出典_初回は与えた順に積む", _
+        (a = "資料A" & vbLf & "資料B"), "got=[" & Replace(a, vbLf, "/") & "]"
+
+    ' 直近ターンの資料が先頭へ来る(最後に引用した資料が最優先で残る)。
+    Dim b As String
+    b = modFollowup.MergeCitedSources(a, "資料C|資料A", 8)
+    modTestRunner.Check "会話出典_新しい順で重複を除く", _
+        (b = "資料C" & vbLf & "資料A" & vbLf & "資料B"), "got=[" & Replace(b, vbLf, "/") & "]"
+
+    Dim c As String
+    c = modFollowup.MergeCitedSources("", "s1|s2|s3|s4|s5|s6|s7|s8|s9", 8)
+    modTestRunner.Check "会話出典_上限8件で打ち切る", _
+        (UBound(Split(c, vbLf)) = 7 And InStr(vbLf & c & vbLf, vbLf & "s9" & vbLf) = 0), _
+        "got=[" & Replace(c, vbLf, "/") & "]"
+
+    modTestRunner.Check "会話出典_空入力は空のまま", _
+        (modFollowup.MergeCitedSources("", "", 8) = ""), "空にならない"
+    modTestRunner.Check "会話出典_空白だけの名前は捨てる", _
+        (modFollowup.MergeCitedSources("", " | ", 8) = ""), "空白が残る"
+End Sub
+
+' ----------------------------------------------------------------------------
+' スコープ判定と同値性(2026-08-03 R13-5a)
+' ----------------------------------------------------------------------------
+' modRetrieve は許可Dictionaryの .Exists で行を弾く。Scripting.Dictionary は
+' 実機(Windows)専用でLOからは作れないため、ここでは【判定の意味】を
+' modFollowup.InCitedScope(検索側と同じ完全一致の定義。Dictionaryを作る
+' ScopeDictFrom もこの規則で名前を積む)で固定する。
+' 検収条件は「スコープを掛けた結果 = 掛けない結果からスコープ外を抜いたもの」
+' で、順位が変わらないこと。
+Private Sub TestCitedScopeFilter()
+    Dim scopeLine As String
+    scopeLine = "資料A" & vbLf & "資料C"
+
+    modTestRunner.Check "スコープ_完全一致なら入る", _
+        modFollowup.InCitedScope(scopeLine, "資料A"), ""
+    modTestRunner.Check "スコープ_前方一致では入らない", _
+        (modFollowup.InCitedScope(scopeLine, "資料AB") = False), "部分一致が通っている"
+    modTestRunner.Check "スコープ_未収録の資料は落ちる", _
+        (modFollowup.InCitedScope(scopeLine, "資料B") = False), ""
+    modTestRunner.Check "スコープ_空リストは何も通さない(無制限はNothingで表す)", _
+        (modFollowup.InCitedScope("", "資料A") = False), ""
+
+    Dim ranked As Variant
+    ranked = Array("資料B", "資料A", "資料D", "資料C", "資料A")
+    Dim unscoped As String, scoped As String
+    Dim i As Long
+    For i = LBound(ranked) To UBound(ranked)
+        If LenB(unscoped) > 0 Then unscoped = unscoped & "|"
+        unscoped = unscoped & CStr(ranked(i))
+        If modFollowup.InCitedScope(scopeLine, CStr(ranked(i))) Then
+            If LenB(scoped) > 0 Then scoped = scoped & "|"
+            scoped = scoped & CStr(ranked(i))
+        End If
+    Next i
+    modTestRunner.Check "スコープ同値性_落ちるのはスコープ外だけ・順位は不変", _
+        (scoped = "資料A|資料C|資料A"), "unscoped=[" & unscoped & "] scoped=[" & scoped & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
+' 段階ナレーションの番号(2026-08-03 R13-9b)
+' ----------------------------------------------------------------------------
+' 番号は「その回に実際に通す段の数」から作る。総数を4に固定すると、
+' 拡張も再ランクも通さない既定構成で「(3/4)で終わる」という嘘になる。
+Private Sub TestAskStageNumbering()
+    modTestRunner.Check "段階_すぐ聞くは番号を出さない", _
+        (modMode.AskStageTotal(False, False, False) = 0), _
+        "total=" & modMode.AskStageTotal(False, False, False)
+    modTestRunner.Check "段階_すぐ聞くのラベルは素のまま", _
+        (modMode.AskStageText(modMode.AskStageIndex("quick", False, False), 0, _
+                              modMode.AskStageLabel("quick")) = "回答を作成中…"), ""
+
+    modTestRunner.Check "段階_拡張も再ランクも無い深掘りは2段", _
+        (modMode.AskStageTotal(False, False, True) = 2), ""
+    modTestRunner.Check "段階_2段構成の下書きは(1/2)", _
+        (modMode.AskStageText(modMode.AskStageIndex("draft", False, False), 2, _
+                              modMode.AskStageLabel("draft")) = "(1/2) 下書きを作成中…"), ""
+    modTestRunner.Check "段階_2段構成の検証は(2/2)", _
+        (modMode.AskStageText(modMode.AskStageIndex("verify", False, False), 2, _
+                              modMode.AskStageLabel("verify")) = "(2/2) 検証中…"), ""
+
+    Dim t As Long: t = modMode.AskStageTotal(True, True, True)
+    modTestRunner.Check "段階_全段構成は4段", (t = 4), "total=" & t
+    modTestRunner.Check "段階_(1/4)質問を分解中", _
+        (modMode.AskStageText(modMode.AskStageIndex("expand", True, True), t, _
+                              modMode.AskStageLabel("expand")) = "(1/4) 質問を分解中…"), ""
+    modTestRunner.Check "段階_(2/4)資料を照合中", _
+        (modMode.AskStageText(modMode.AskStageIndex("rerank", True, True), t, _
+                              modMode.AskStageLabel("rerank")) = "(2/4) 資料を照合中…"), ""
+    modTestRunner.Check "段階_(3/4)下書きを作成中", _
+        (modMode.AskStageText(modMode.AskStageIndex("draft", True, True), t, _
+                              modMode.AskStageLabel("draft")) = "(3/4) 下書きを作成中…"), ""
+    modTestRunner.Check "段階_(4/4)検証中", _
+        (modMode.AskStageText(modMode.AskStageIndex("verify", True, True), t, _
+                              modMode.AskStageLabel("verify")) = "(4/4) 検証中…"), ""
+
+    ' 計画に入っていない段は番号を持たない(素のラベルへ退化する)。
+    modTestRunner.Check "段階_通さない段には番号を付けない", _
+        (modMode.AskStageIndex("rerank", True, False) = 0), ""
+End Sub
+
+' ----------------------------------------------------------------------------
+' 3モードの役割説明(2026-08-03 R13-5d)
+' ----------------------------------------------------------------------------
+' deep と thorough が「同じことをパラメータ違いでやる」状態を直した以上、
+' 説明も役割で言い分ける。ここが元に戻ると、利用者から見て3つ目のモードは
+' 「ただ遅いだけの選択肢」に戻る。
+Private Sub TestModeRoleWording()
+    modTestRunner.Check "モード説明_すぐ聞く=まず速く", _
+        (InStr(modMode.Description("quick"), "まず速く") > 0), modMode.Description("quick")
+    modTestRunner.Check "モード説明_しっかり調べる=会話の流れの中を深く", _
+        (InStr(modMode.Description("deep"), "会話の流れ") > 0), modMode.Description("deep")
+    modTestRunner.Check "モード説明_入念に調べる=本棚全体を広く", _
+        (InStr(modMode.Description("thorough"), "本棚全体") > 0), modMode.Description("thorough")
+End Sub
+
 Public Sub RunAll8()
     On Error GoTo BitwiseFail
     TestBitwiseBoundaries
@@ -380,6 +506,18 @@ NextMerge:
 NextRerank:
     On Error GoTo RerankFail
     TestRerankPromptRoundTrip
+NextCited:
+    On Error GoTo CitedFail
+    TestCitedSourceMemory
+NextScope:
+    On Error GoTo ScopeFail
+    TestCitedScopeFilter
+NextStageNum:
+    On Error GoTo StageNumFail
+    TestAskStageNumbering
+NextModeWord:
+    On Error GoTo ModeWordFail
+    TestModeRoleWording
 NextRun9:
     ' 2026-08-01(R12-4): 容量のための分割先(modTestsPure9)。ここが唯一の
     ' 導線で、消すとR12-4のテストが「実行されないまま」全部PASSに見える。
@@ -427,6 +565,22 @@ MergeFail:
     Resume NextRerank
 RerankFail:
     modTestRunner.Check "TestRerankPromptRoundTrip(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextCited
+CitedFail:
+    modTestRunner.Check "TestCitedSourceMemory(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextScope
+ScopeFail:
+    modTestRunner.Check "TestCitedScopeFilter(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextStageNum
+StageNumFail:
+    modTestRunner.Check "TestAskStageNumbering(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextModeWord
+ModeWordFail:
+    modTestRunner.Check "TestModeRoleWording(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextRun9
 Run9Fail:

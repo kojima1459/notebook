@@ -30,8 +30,8 @@ Option Explicit
 '     AIリボン本体でのみ利用可。出典: RIBBON_API_CONFIRMED.md §0/§2b D10)。
 '   ・「続けて質問」ボタン(OnFollowupButton。裁定D11)は旧読み上げボタンの
 '     位置(A31:D32)に置く。深掘りの実体(会話履歴の保持・再質問)はすべて
-'     modAsk.CanFollowup/AskFollowupの責務で、ここはInputBoxで追質問を
-'     受け取って渡すだけの薄いラッパーに徹する。
+'     modAsk.CanFollowup/AskFollowupの責務で、押下時の武装(R13-6a)は
+'     modAppAct.ArmFollowupへ委ねる薄いラッパーに徹する。
 '   ・opt機能ボタン(Wordで開く)はmodFeatures.FeatureEnabledがTrueのときだけ
 '     EnsureLayout内で生成する(§7.7)。押下時は「どんな文書に仕上げるか」の
 '     指示文を尋ねてから(裁定D12: 対話型文書生成)、OnOpenWordButtonラッパー
@@ -544,29 +544,13 @@ Public Sub ShowTip()
     modUIMainShape.WriteSafe ws.Range(RNG_TIP), "" & ChrW(&HD83D) & ChrW(&HDCA1) & " 豆知識: " & tips(idx)
 End Sub
 
-' OnFollowupButton - 「続けて質問」ボタン(裁定D11)。直近の回答を踏まえた
-'   追加質問(深掘り)をInputBoxで受け取り、modAsk.AskFollowupへ渡す。
-'   会話がまだ始まっていない(modAsk.CanFollowup=False)ときは丁寧な案内のみ。
-'   文言はV2実証済みのmodChatUI.OnFollowupClickを踏襲(絵文字は使わない。§12)。
+' OnFollowupButton - 「続けて質問」ボタン(裁定D11)。
+'   2026-08-03(R13-6a): InputBoxをやめ、既存の幅広い入力欄で受ける
+'   「armed followup」へ移行した。実体(印・チップ・解除)は modAppAct にあり、
+'   ここは呼び出し1行に徹する(憲章§4-6の容量規律)。
 Public Sub OnFollowupButton()
     On Error GoTo Fail
-
-    If Not modAsk.CanFollowup() Then
-        MsgBox "まず質問して回答を受け取ってから使ってください。", _
-               vbInformation, modAppDef.APP_NAME
-        Exit Sub
-    End If
-
-    Dim hint As String
-    hint = "前回までの会話を踏まえて、追加の質問・深掘りを入力してください。" & vbCrLf & _
-           "(何度でも続けられます。空欄のまま閉じると何もしません)"
-
-    Dim followup As String
-    followup = InputBox(hint, modAppDef.APP_NAME & " - 続けて質問", "")
-    If LenB(Trim$(followup)) = 0 Then Exit Sub   ' キャンセル/空欄は何もしない
-
-    modAsk.AskFollowup followup
-    RefreshBadgesAndDashboard
+    modAppAct.ArmFollowup
     Exit Sub
 
 Fail:

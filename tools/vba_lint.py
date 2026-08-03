@@ -208,9 +208,14 @@ CONTRACT: dict[str, dict] = {
     "modMode": {
         "closed": True,
         # 回答モード(すぐ聞く/通常/入念)の方針。純ロジックなのでLOで検証する。
+        # AskStage*(2026-08-03 R13-9b): 質問処理の段階ナレーションの算数。
+        #   「(2/4) 資料を照合中…」の番号は、その回に実際に通す段の数から作る
+        #   (拡張・再ランクは構成で有無が変わるため、総数を4に固定すると嘘になる)。
+        #   表示そのものは modAskRetrieve.ShowAskStage が行い、ここは純ロジック。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
-                     "SubQueryCount"],
+                     "SubQueryCount",
+                     "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
     },
     "modSparse": {
         "closed": True,
@@ -365,9 +370,15 @@ CONTRACT: dict[str, dict] = {
     },
     # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
     # modAskのモジュール変数を触らず、引数のhits()だけで完結する。
+    # RunDeepScoped/RunUnscoped(2026-08-03 R13-5c): 深掘り(followup かつ deep)の
+    #   スコープ内多段検索と、その退避先である従来経路。modAsk はこの2本しか
+    #   呼ばない(retrieve_mode の判断を2箇所に書かない)。
+    # PlanAskStages/ShowAskStage(R13-9b): 質問処理の段階ナレーション。
+    #   何段通すかを先に決めてから「(2/4) 資料を照合中…」を出す。
     "modAskRetrieve": {
         "closed": True,
-        "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList"],
+        "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList",
+                     "RunDeepScoped", "RunUnscoped", "PlanAskStages", "ShowAskStage"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -576,12 +587,19 @@ CONTRACT: dict[str, dict] = {
         ],
     },
     # R11-F1: modApp から分離した回答の文脈アクション行(描画4本+ボタン6本のハンドラ)。
+    # R13-6a(2026-08-03): 「続けて質問」の armed followup 一式。InputBoxを廃し、
+    #   既存の広い入力欄+送信ボタンの1本道へ合流させるための印・チップ・解除。
+    #   ArmFollowup は modUIMain.OnFollowupButton / OnActDrill の共通実体、
+    #   ConsumeArmedFollowup は modApp.OnSend が1回だけ引く印、
+    #   RedrawFollowupChip は再描画時の掃除、OnFollowupChipOff は Shape.OnAction。
     "modAppAct": {
         "closed": True,
         "required": [
             "DrawActions", "ClearConfidence", "DrawConfidence", "ClearActions",
             "OnActBad", "OnActDrill", "OnActResolve", "OnActUnsure", "OnActWord",
             "OnActCopy",
+            "ArmFollowup", "ConsumeArmedFollowup", "RedrawFollowupChip",
+            "OnFollowupChipOff",
         ],
     },
     # R11-F1: 受信箱(DrawInbox)を modHubStat へ移設した残り。

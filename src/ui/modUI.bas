@@ -114,6 +114,9 @@ Public Sub InitUI()
     On Error Resume Next
     modUINexusDraw.DrawInputArea ws
     If Err.Number <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
+    ' R13-6a: 「続きの質問」チップの掃除+再掲。再描画のたびに armed 状態と
+    ' 画面を一致させる(State Lossでチップだけが残る、を構造的に潰す)。
+    modAppAct.RedrawFollowupChip
     On Error GoTo 0
 
     ' 行1～4(ヘッダー+入力+ヒント)だけを固定。A5(=A列)を選ぶことで列は

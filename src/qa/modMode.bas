@@ -81,15 +81,22 @@ End Function
 ' Description - 待ち時間の目安と、そのモードが何をするか(利用者向け)。
 '   時間を隠さない。隠すと「固まった」と思われる。
 ' ----------------------------------------------------------------------------
+' 2026-08-03(R13-5d): 3モードの役割を「速さの段階」から「探し方の違い」へ
+' 書き直した。deep と thorough が「同じことをパラメータ違いでやる」状態
+' (実機第2報 RC7)を直した以上、説明も役割で言い分ける。
+'   すぐ聞く   … まず速く
+'   しっかり   … 会話の流れ(引用済み資料)の中を深く
+'   入念       … 本棚全体を広く
 Public Function Description(ByVal mode As String) As String
     Select Case Normalize(mode)
         Case MODE_THOROUGH
-            Description = "多方向から検索 → 関連度を精査 → 下書き → 資料と1行ずつ照合。" & _
-                          "数分かかりますが、精度を最優先します。"
+            Description = "本棚全体を広く。多方向から検索 → 関連度を精査 → 下書き → " & _
+                          "資料と1行ずつ照合。数分かかりますが、精度を最優先します。"
         Case MODE_DEEP
-            Description = "質問を分析して検索 → 下書き → 資料と照合。1～2分ほど。"
+            Description = "会話の流れ(引用済み資料)の中を深く。続けて質問したときは、" & _
+                          "直前までに使った資料へ絞って掘り下げます。1～2分ほど。"
         Case Else
-            Description = "そのまま検索して答えます。数秒～20秒ほど。"
+            Description = "まず速く。そのまま検索して答えます。数秒～20秒ほど。"
     End Select
 End Function
 
@@ -141,6 +148,76 @@ End Function
 ' 拡張の軽量版を使うか(すぐ聞くのときだけ。入念で軽くしては意味が無い)
 Public Function UseLightExpand(ByVal mode As String, ByVal cfgLight As Boolean) As Boolean
     UseLightExpand = (Normalize(mode) = MODE_QUICK) And cfgLight
+End Function
+
+' ----------------------------------------------------------------------------
+' 質問処理の段階ナレーション(2026-08-03 R13-9b)
+' ----------------------------------------------------------------------------
+' 「(1/4) 質問を分解中…」のような番号付き実況を出すための算数だけをここに置く
+' (表示そのものは modAskRetrieve が SetStage へ流す)。
+'
+' 番号の誠実さについて:
+'   拡張(expand)と再ランク(rerank)はモードとconfigで実行有無が変わる。
+'   総数を常に4と書くと、2段しか通らない構成で「(3/4)で終わる」という嘘に
+'   なる。そこで総数は【その回に通す段の数】から作る。
+'   quick(検証段を通さない)では番号を出さない=AskStageTotal が0を返し、
+'   AskStageText が素のラベルへ退化する。
+'   なお rerank は「候補数がtopKより多いときだけ」実行されるため、計画には
+'   入ったが実行されない回がある。その場合は番号が1つ飛ぶ(総数は嘘に
+'   ならず、最後は必ず (N/N) で終わる)。
+Public Function AskStageTotal(ByVal hasExpand As Boolean, ByVal hasRerank As Boolean, _
+                              ByVal hasVerify As Boolean) As Long
+    If Not hasVerify Then Exit Function      ' 0 = 番号を出さない(すぐ聞く)
+    AskStageTotal = 2                        ' 下書き + 検証は必ず通る
+    If hasExpand Then AskStageTotal = AskStageTotal + 1
+    If hasRerank Then AskStageTotal = AskStageTotal + 1
+End Function
+
+' 段の番号(1起点)。計画に入っていない段は0(=番号を出さない)。
+Public Function AskStageIndex(ByVal kind As String, ByVal hasExpand As Boolean, _
+                              ByVal hasRerank As Boolean) As Long
+    Dim head As Long
+    head = 0
+    If hasExpand Then head = head + 1
+    If hasRerank Then head = head + 1
+
+    Select Case LCase$(Trim$(kind))
+        Case "expand"
+            If hasExpand Then AskStageIndex = 1
+        Case "rerank"
+            If hasRerank Then
+                If hasExpand Then
+                    AskStageIndex = 2
+                Else
+                    AskStageIndex = 1
+                End If
+            End If
+        Case "draft"
+            AskStageIndex = head + 1
+        Case "verify"
+            AskStageIndex = head + 2
+    End Select
+End Function
+
+' 段のラベル(利用者の言葉。専門用語を出さない)。
+Public Function AskStageLabel(ByVal kind As String) As String
+    Select Case LCase$(Trim$(kind))
+        Case "expand": AskStageLabel = "質問を分解中…"
+        Case "rerank": AskStageLabel = "資料を照合中…"
+        Case "draft":  AskStageLabel = "下書きを作成中…"
+        Case "verify": AskStageLabel = "検証中…"
+        Case Else:     AskStageLabel = "回答を作成中…"
+    End Select
+End Function
+
+' 実況テキスト。番号が付けられないときは素のラベルへ退化する(嘘の番号を
+' 出すくらいなら番号を出さない)。
+Public Function AskStageText(ByVal idx As Long, ByVal total As Long, ByVal label As String) As String
+    If total > 0 And idx > 0 And idx <= total Then
+        AskStageText = "(" & idx & "/" & total & ") " & label
+    Else
+        AskStageText = label
+    End If
 End Function
 
 ' サブクエリ数。入念は角度の数がそのまま精度になる(実測 R@10 90%→97%)。

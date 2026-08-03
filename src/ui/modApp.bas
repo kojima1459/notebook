@@ -5,9 +5,9 @@ Option Explicit
 ' modShelf)を結合する制御層。固定アクションバーは「選択中のAIバブル」
 ' (未選択時は最新)に対して発火。P2P共有パスはconfig nexus_share_pathで差替可。
 
-' A3: 入力の最大文字数(超過はカット+警告)。2026-07-31(R11-F1)に modAppAct を
-' 分離した際、深掘り(OnActDrill)の再質問も同じ上限で切るため Public にした
-' (同じ数字を2箇所に置かない。憲章§4-5)。
+' A3: 入力の最大文字数(超過はカット+警告)。2026-07-31(R11-F1)の modAppAct 分離で
+' Public にした。2026-08-03(R13-6a)に深掘りも入力欄+送信の1本道へ合流したため、
+' 上限を掛ける場所はこの OnSend だけになっている(同じ数字を2箇所に置かない)。
 Public Const MAX_INPUT_CHARS As Long = 2000
 
 ' 連打/多重発火はmodUiLockへ一本化(Enter/Leave対で必ずLeave到達)。
@@ -164,6 +164,14 @@ Public Sub OnSend()
     Dim grounded As Boolean
     If sendMode = "normal" Then
         ans = modAppState.AskGeneral(q, "")
+    ElseIf modAppAct.ConsumeArmedFollowup() Then
+        ' R13-6a: 「続けて質問/深掘り」で武装済み。会話を引き継いで答える
+        ' (エフォートは AskFollowup が送信時点のトグル値を読む=6b)。
+        ' 本棚が空かどうかより先に判定する。ここを後ろに置くと、資料を
+        ' 全部消した直後の1回だけ武装が解けずチップが残る。
+        modAsk.AskFollowup q
+        ans = modAsk.LastAnswerText()
+        grounded = True
     ElseIf modAppState.ShelfIsEmpty() Then
         ' 資料が1件も無いのに検索へ行くと、埋め込みAPIを1往復使ったうえで
         ' 「資料がありません」とだけ返る。いちばん遅い経路が、いちばん
@@ -622,6 +630,8 @@ Public Sub OnClearChat()
     modMentor.ClearMentor
     modAppAct.ClearActions
     modAppAct.ClearConfidence
+    modAppAct.OnFollowupChipOff   ' R13-6a: 武装したままの「続きの質問」も解除する
+    modFollowup.ClearCitedSources ' R13-5b: 会話の出典メモリも消す(会話リセット)
     modState.SaveState "nexus_ask_prevu", ""
     modState.SaveState "nexus_ask_preva", ""
     modState.SaveState "nexus_hist_u", ""

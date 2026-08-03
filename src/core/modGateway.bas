@@ -72,6 +72,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     If modConfig.GetBool("mock_llm", True) Then
         CallLLM = MockLLMResponse(prompt, step_name)
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+        LogStepLatency step_name, latency_ms
         Exit Function
     End If
 
@@ -79,6 +80,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
         modLog.LogError "E0201", "modGateway.CallLLM", "step=" & step_name
         CallLLM = "#ERR:E0201:AIリボンが見つかりません"
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+        LogStepLatency step_name, latency_ms
         Exit Function
     End If
 
@@ -102,6 +104,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     result = Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, mdl, prevU, prevA, "マイ本棚AI:" & step_name, eff, vrb)
     Dim s As String: s = CStr(result)
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+    LogStepLatency step_name, latency_ms
 
     If LenB(s) = 0 Then
         modLog.LogError "E0202", "modGateway.CallLLM", "空応答 step=" & step_name
@@ -119,9 +122,34 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
 
 ErrHandler:
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+    LogStepLatency step_name, latency_ms
     modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & Err.Description, Err.Number
     CallLLM = "#ERR:E0202:" & Err.Description
 End Function
+
+' ----------------------------------------------------------------------------
+' LogStepLatency - LLM 1段ぶんの所要時間を usage_log へ残す(2026-08-03 R13-9a)
+' ----------------------------------------------------------------------------
+' 実機第2報 RC10「入念114秒の内訳が計測不能(CallLLMのlatency_msを誰も記録して
+' いない)」への対処。どの段(expand/rerank/quick_draft/deep_draft/deep_verify/
+' enrich…)が何ミリ秒かかったかが分からないと、遅さの相談に事実で答えられない。
+' 成功・失敗・mock の全経路で1行ずつ残す(失敗した段こそ時間を知りたい)。
+' 記録の失敗が呼び出しを壊さないよう、全体を1行スコープの保護で囲む。
+Private Sub LogStepLatency(ByVal step_name As String, ByVal ms As Long)
+    On Error Resume Next
+    modLog.LogUsage "llm_step", step_name, "", ms
+    On Error GoTo 0
+End Sub
+
+' 埋め込み1バッチぶんの件数と所要時間(R13-9a)。件数は detail と hit_count の
+' 両方に入れる(表計算で足し算しやすい形と、目で読める形の両方を残す)。
+' 呼ぶのは「実際に外へ問い合わせた層」だけ。単発GetEmbeddingのdirect経路は
+' 内部で GetEmbeddingsBatch を通るので、そちらに任せて二重計上しない。
+Private Sub LogEmbedStep(ByVal cnt As Long, ByVal ms As Long)
+    On Error Resume Next
+    modLog.LogUsage "embed_step", "", "n=" & cnt, ms, cnt
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' GetEmbedding - GetEmbeddings()の唯一の呼び出し口。
@@ -149,6 +177,7 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
     If modConfig.GetBool("mock_llm", True) Then
         GetEmbedding = MockEmbedVector(t, dim_)
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+        LogEmbedStep 1, latency_ms
         Exit Function
     End If
 
@@ -174,10 +203,12 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
 
     GetEmbedding = GetEmbeddingRibbonOnly(t, dim_)
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+    LogEmbedStep 1, latency_ms     ' 質問側の埋め込み(多段検索ではクエリ本数ぶん出る)
     Exit Function
 
 ErrHandler:
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
+    LogEmbedStep 1, latency_ms
     modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description, Err.Number
 End Function
 
@@ -227,6 +258,7 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) As Long
     GetEmbeddingsBatch = 0
+    Dim tB0 As Double: tB0 = Timer      ' R13-9a: 1バッチぶんの所要時間
 
     Dim lo As Long, hi As Long
     Dim badArr As Boolean: badArr = False
@@ -263,6 +295,7 @@ Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) 
             End If
         Next i
         GetEmbeddingsBatch = okCount
+        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
         Exit Function
     End If
 
@@ -279,12 +312,14 @@ Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) 
             okCount = okCount + modGatewayDirect.DirectEmbedSlice(texts, lo, bStart, bEnd, dim_, prec, outCsv)
         Next bStart
         GetEmbeddingsBatch = okCount
+        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
         Exit Function
     End If
 
     ' ---- ribbon: 既存の単発GetEmbeddingをループ(現行と同挙動・安全) ----
     okCount = RibbonEmbedRange(texts, lo, 0, n - 1, prec, outCsv)
     GetEmbeddingsBatch = okCount
+    LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
 End Function
 
 ' ----------------------------------------------------------------------------

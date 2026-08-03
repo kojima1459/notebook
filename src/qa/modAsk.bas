@@ -140,6 +140,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     q = modUtil.SafeLeft(Trim$(question), MAX_QUESTION_CHARS)
     Dim mdMode As String
     mdMode = NormalizeMode(mode)
+    modAskRetrieve.PlanAskStages mdMode   ' R13-9b: 何段通すかを先に決めてから実況する
 
     If LenB(q) = 0 Then
         ' 空質問でもmLast*を必ず更新する。しないと前回のヒットが残り、空クリックが
@@ -178,11 +179,13 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     Dim topK As Long
     topK = TopKFor(mdMode)
 
-    ' 多段RAG(§C)。retrieve_mode=singleで従来の単段Searchへ完全退化。
-    If LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi" Then
-        nHits = modAskRetrieve.RunMultiRetrieve(q, mdMode, topK, hits)
+    ' 多段RAG(§C)。retrieve_mode=singleで従来の単段Searchへ完全退化(RunUnscoped)。
+    ' R13-5c: 「続けて質問」かつ「しっかり調べる」のときだけ、会話で引用済みの
+    ' 資料へスコープを絞って掘り下げる。新規質問の deep は従来どおり。
+    If isFollowup And mdMode = MODE_DEEP Then
+        nHits = modAskRetrieve.RunDeepScoped(q, mdMode, topK, hits)
     Else
-        nHits = modRetrieve.Search(q, topK, hits)
+        nHits = modAskRetrieve.RunUnscoped(q, mdMode, topK, hits)
     End If
 
     If nHits = -1 Then
@@ -254,6 +257,9 @@ Done:
     If ok Then
         AppendHistory q, mLastCleanAnswer
         AppendFollowupPair q, mLastCleanAnswer
+        ' R13-5b: この回答が根拠にした資料を「会話の出典」として覚える。
+        ' 新規質問(非followup)なら覚え直す(=前の話題を引きずらない)。
+        If nHits > 0 Then modFollowup.RememberCitedSources modAskRetrieve.HitSourceList(hits, nHits), Not isFollowup
     End If
 
     ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で
@@ -504,7 +510,7 @@ End Function
 
 Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                               ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
-    modUIMain.SetStage ChrW(&H270D) & ChrW(&HFE0F) & " 回答作成中…"
+    modAskRetrieve.ShowAskStage "quick"
 
     Dim prompt As String
     prompt = modPrompts.BuildQuickPrompt(q, hits, nHits, _
@@ -529,7 +535,7 @@ End Function
 
 Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                              ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
-    modUIMain.SetStage ChrW(&H270D) & ChrW(&HFE0F) & " 回答を下書き中…"
+    modAskRetrieve.ShowAskStage "draft"
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
@@ -552,7 +558,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
         Exit Function
     End If
 
-    modUIMain.SetStage ChrW(&H2705) & " 検証中…"
+    modAskRetrieve.ShowAskStage "verify"
 
     Dim draftBody As String
     draftBody = ApplyAnswerTags(draft)
