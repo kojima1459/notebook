@@ -338,7 +338,9 @@ Public Sub OnActCopy()
     If Not modAppState.HasTarget() Then GoTo Done
     Dim t As String: t = modAppState.TargetText()
     If LenB(t) = 0 Then GoTo Done
-    If modClip.SetClipboardText(t) Then
+    ' R14-8c: クリップボードの改行はWindows標準のCRLFで渡す(TargetTextはvbLf
+    ' 統一済み)。LFのままだとメモ帳など古い貼り付け先で1行に潰れて見える。
+    If modClip.SetClipboardText(Replace(t, vbLf, vbCrLf)) Then
         modSkin.ShowToast "回答をコピーしました。Ctrl+V でどこへでも貼り付けできます。", "success"
     Else
         MsgBox "コピーに失敗しました。お使いの環境では手動での選択をお試しください。", _

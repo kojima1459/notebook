@@ -227,9 +227,14 @@ CONTRACT: dict[str, dict] = {
         #   「(2/4) 資料を照合中…」の番号は、その回に実際に通す段の数から作る
         #   (拡張・再ランクは構成で有無が変わるため、総数を4に固定すると嘘になる)。
         #   表示そのものは modAskRetrieve.ShowAskStage が行い、ここは純ロジック。
+        # ShouldEmitInsight(2026-08-03 R14-1b): 「解決した」で部内へ発信して
+        #   よい回答かの判定(モード×出典件数の真理表)。一般モードの解禁と
+        #   残留状態による誤爆(実機第3報 RC2)を1つの式で塞ぐ。
+        # RerankEffort(2026-08-03 R14-8a): 入念モードだけ再ランクの effort を
+        #   別設定(rerank_effort_thorough)にする分岐。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
-                     "SubQueryCount",
+                     "SubQueryCount", "ShouldEmitInsight", "RerankEffort",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
     },
     "modSparse": {
@@ -356,7 +361,13 @@ CONTRACT: dict[str, dict] = {
     "modPrompts": {
         "closed": True,
         # BuildExpandPrompt/BuildRerankPrompt: 多段RAGの拡張・再ランク段(設計書§C)。
-        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt"],
+        # BuildSourceDigestPrompt/BuildCritiquePrompt(2026-08-03 R14-8a):
+        #   入念モードの(1)資料の要点整理と(3)自己批判。
+        # SourceTag(同): 出典タグの形の単一情報源。LLMへ指示する形と
+        #   modAskThorough が突合に使う形が別実装になると、検査が全件一致か
+        #   全件不一致のどちらかへ静かに退化する(憲章§4-5)。
+        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt",
+                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag"],
     },
     "modRagParse": {
         "closed": True,
@@ -381,7 +392,15 @@ CONTRACT: dict[str, dict] = {
                      # 2026-07-28: modAskRetrieve への切り出し(レビューI-2)に伴い公開。
                      # HistoryBlock=拡張プロンプトに載せる直近履歴、
                      # IsErrorResponse=#ERR:応答を検索途中で捨てる判定。
-                     "HistoryBlock", "IsErrorResponse"],
+                     # NoteGeneralAnswered(2026-08-03 R14-1b): 一般アシスタントで
+                     #   答えたことを「直近の回答」として記録する唯一の窓口。
+                     #   これが無いと一般モードの「解決した」が、前のRAG質問の
+                     #   回答を解決したことにされる(実機第3報 RC2)。
+                     # ApplyAnswerTags(2026-08-03 R14-8a): answer_tags時の本文抽出。
+                     #   入念モードの各段(modAskThorough)も同じ規約で取り出す必要が
+                     #   あるため公開した(2実装に分かれると片方だけ<thinking>が漏れる)。
+                     "HistoryBlock", "IsErrorResponse",
+                     "NoteGeneralAnswered", "ApplyAnswerTags"],
     },
     # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
     # modAskのモジュール変数を触らず、引数のhits()だけで完結する。
@@ -394,6 +413,24 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList",
                      "RunDeepScoped", "RunUnscoped", "PlanAskStages", "ShowAskStage"],
+    },
+    # modAskThorough(2026-08-03 R14-8a): 「入念に調べる」専用の生成パイプライン。
+    #   実機第3報 RC8「deep と thorough が生成側で完全に同じ(下書き・検証の
+    #   プロンプトもモデルも effort も共有)」への対処で、入念だけを
+    #   要点整理→下書き→自己批判→検証→出典の機械的突合 の5段にする。
+    #   quick/deep の経路は1行も変えない。
+    #   RunThoroughFlow が唯一の入口(modAsk から1箇所だけ呼ばれる)。
+    #   残りは最後の出典突合の部品で、LLMを一切使わない純ロジック。
+    #   AnnotateAgainstHits がログ付きの本体、CiteIndexFrom/NormalizeCiteTag/
+    #   ExtractCiteTags/IsCiteTag/TagIsKnown/AnnotateCitations は
+    #   modTestsPure11 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST
+    #   にも登録済み。未登録だとテストが実行時エラー12で走らない)。
+    #   UNVERIFIED_MARK は付記の文言で、テスト側と表示側の単一情報源。
+    "modAskThorough": {
+        "closed": True,
+        "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
+                     "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
+                     "IsCiteTag", "TagIsKnown", "AnnotateCitations"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -431,7 +468,11 @@ CONTRACT: dict[str, dict] = {
                      "BadgeCatalog", "BadgeEarnedOn",
                      # 2026-07-31(R11-H Med3): 起動中のバッジ獲得告知を積んで
                      # 画面確定後にまとめて1本出すための遅延キュー。
-                     "BeginDeferredBadges", "FlushBadgeToasts"],
+                     "BeginDeferredBadges", "FlushBadgeToasts",
+                     # AskTotalAll(2026-08-03 R14-1a): 質問回数の合算の単一情報源。
+                     # quick+deep 決め打ちが3箇所にあり、入念モードの質問が
+                     # どこにも出てこなかった(実機第3報 RC1)。
+                     "AskTotalAll"],
     },
     # ---- 7.6 UI層 ----
     "modUIMain": {
@@ -871,6 +912,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll11"],
     },
+    # modTestsPure12: 2026-08-03 R14-8で追加。modTestsPure11 に R14-8 の
+    # テストを足すと30,000字上限を超えるための分割先。
+    # modTestsPure11.RunAll11 の末尾から呼ばれる入口 RunAll12 だけが契約。
+    "modTestsPure12": {
+        "closed": False,
+        "required": ["RunAll12"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -912,6 +960,9 @@ PURE_LOGIC_MODULES = {
     # OCRのバッチ分割・上限メモの純ロジックテスト。modTestsPure9の容量逼迫に
     # よる分割先(modTestsPure10.RunAll10の末尾から呼ばれる)。
     "modTestsPure11",
+    # modTestsPure12(2026-08-03 R14-8): 入念モードの段数・出典突合と、回答本文の
+    # 記法正規化の純ロジックテスト。modTestsPure11の容量逼迫による分割先。
+    "modTestsPure12",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

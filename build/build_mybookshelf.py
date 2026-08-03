@@ -352,6 +352,22 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("quick_rerank", False, "TRUE=「すぐ聞く」でも再ランクを行う(AI呼び出しが1回増え数秒遅くなる)"),
         ("topk_thorough", 16, "「入念に調べる」でLLMに渡す上位ヒット件数。実測で件数増は効果が薄いため控えめ"),
         ("thorough_subqueries", 6, "「入念に調べる」の質問拡張で作るサブクエリ数。角度の数が精度に効く(実測 R@10 90%→97%)"),
+        # R14-8a(入念モードの本格強化): 入念だけ生成側のパラメータを分ける。
+        # ここが deep と共有だったため「同じことを少し多い資料でやり直すだけの
+        # 遅いモード」になっていた(実機第3報 RC8)。
+        ("rerank_effort_thorough", "medium",
+         "「入念に調べる」の再ランク段のreasoning_effort(他モードは rerank_effort)。"
+         "どの資料を根拠にするかを決める段で、ここが雑だと後段の検証では直らない"),
+        ("thorough_digest_effort", "low",
+         "「入念に調べる」(1)資料の要点整理のreasoning_effort。抜粋から質問に効く部分を"
+         "抜き出すだけの作業なので既定は軽い"),
+        ("thorough_draft_effort", "high", "「入念に調べる」(2)下書き生成のreasoning_effort"),
+        ("thorough_draft_verbosity", "high", "「入念に調べる」(2)下書き生成のverbosity"),
+        ("thorough_critique_effort", "medium",
+         "「入念に調べる」(3)自己批判のreasoning_effort。下書きの未検証の断定・出典不備・"
+         "論点漏れ・憶測を指摘だけさせる段(書き直しはさせない)"),
+        ("thorough_verify_effort", "high",
+         "「入念に調べる」(4)検証のreasoning_effort。verbosityは deep_verify_verbosity を共用"),
         ("deep_scope_subqueries", 6, "「続けて質問」を『しっかり調べる』で行うときに、会話で引用済みの資料の中だけを掘るために作るサブクエリ数。狭い範囲を多角度から見るための本数(0以下は6扱い)"),
         ("rerank_model", "", "再ランク段のモデル(空=quick_modelを使用)"),
         ("rerank_effort", "low", "再ランク段のreasoning_effort"),

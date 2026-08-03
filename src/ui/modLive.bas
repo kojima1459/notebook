@@ -144,6 +144,148 @@ Public Sub StyleFooter(ByVal bubbleName As String)
     On Error GoTo 0
 End Sub
 
+' StyleAnswerParas - 「■」で始まる段落だけを太字にする(2026-08-03 R14-8c)。
+'   段落の区切りは vbCr(StyleFooter と同じ。vbLf では1段落のままで
+'   Paragraphs が分かれないため、AnswerParagraphs で vbCr へ変換済み)。
+'
+'   実機第3報 RC9: この画面は完全なプレーンテキストで、回答の見出しは
+'   「■ 」という文字が行頭に在るだけだった。長い回答ほど、どこが区切りか
+'   目で追えない。太字は Shape のテキストで唯一きく強調で、しかも
+'   段落単位なら本文の折り返しに影響しない。
+'   表示の失敗が回答を壊してはならないので、全体を On Error Resume Next で
+'   包む(太字にならないことはあっても、ここで質問が落ちることはない)。
+Public Sub StyleAnswerParas(ByVal bubbleName As String)
+    If LenB(bubbleName) = 0 Then Exit Sub
+    On Error Resume Next
+    Dim shp As Shape
+    Set shp = ThisWorkbook.Worksheets("Nexus").Shapes(bubbleName)
+    If shp Is Nothing Then Exit Sub
+    Dim pcount As Long
+    pcount = shp.TextFrame2.TextRange.Paragraphs.count
+    If pcount < 1 Then Exit Sub
+    Dim i As Long
+    For i = 1 To pcount
+        If Left$(LTrim$(shp.TextFrame2.TextRange.Paragraphs(i).Text), 1) = "■" Then
+            shp.TextFrame2.TextRange.Paragraphs(i).Font.Bold = True
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ============================================================================
+' 回答本文の読みやすさ(2026-08-03 R14-8c / 実機第3報 RC9)
+' ============================================================================
+' プロンプトでは「Markdown記号は使うな、見出しは■、箇条書きは・」と何度も
+' 言っているが、モデルは長い回答ほど地の癖で "## " や "**強調**" を混ぜる。
+' この画面は Markdown を描画しないので、混ざった瞬間に記号が生のまま出て
+' 「壊れている」ように見える。プロンプトは確率、ここは保険。両方要る。
+'
+' 純関数(Excelに触れない)なので LibreOffice の実行テストで固定する。
+
+' AnswerParagraphs - バブルへ書き込む直前の変換。
+'   記法を整えたうえで、段落区切りを vbCr にする(Shape の Paragraphs は
+'   vbCr でしか分かれず、フッターの装飾もそれ前提で組んである)。
+Public Function AnswerParagraphs(ByVal s As String) As String
+    AnswerParagraphs = Replace(NormalizeAnswerText(s), vbLf, vbCr)
+End Function
+
+' NormalizeAnswerText - 混入した Markdown をこの画面の記法へ寄せる。
+'   ・行頭 "# " / "## " / "### " → "■ "
+'   ・**強調** → 【強調】
+'   ・行頭 "- " / "* " → "・"
+'   ・空行3つ以上 → 1つ
+'   ・■見出しの前には必ず空行を1つ(先頭行を除く)
+'   改行は vbLf に統一して返す(vbCr への変換は AnswerParagraphs の担当)。
+Public Function NormalizeAnswerText(ByVal s As String) As String
+    If LenB(s) = 0 Then Exit Function
+
+    Dim t As String
+    t = Replace(Replace(s, vbCrLf, vbLf), vbCr, vbLf)
+    t = ConvertBoldMarks(t)
+
+    Dim src() As String
+    src = Split(t, vbLf)
+
+    Dim outS As String
+    Dim blanks As Long
+    Dim wrote As Boolean
+    Dim i As Long
+    For i = LBound(src) To UBound(src)
+        Dim ln As String
+        ln = NormalizeAnswerLine(src(i))
+        If LenB(Trim$(ln)) = 0 Then
+            blanks = blanks + 1
+        Else
+            If wrote Then
+                Dim gap As Long
+                gap = blanks
+                ' 空行3つ以上は「間が空きすぎ」ではなく体裁の事故なので1つへ畳む。
+                If gap > 2 Then gap = 1
+                ' 見出しの前は必ず1行空ける(直前の本文とくっつくと見出しに見えない)。
+                If gap < 1 And Left$(Trim$(ln), 1) = "■" Then gap = 1
+                Dim g As Long
+                For g = 1 To gap
+                    outS = outS & vbLf
+                Next g
+                outS = outS & vbLf
+            End If
+            outS = outS & ln
+            wrote = True
+            blanks = 0
+        End If
+    Next i
+
+    NormalizeAnswerText = outS
+End Function
+
+' 1行ぶんの記法変換。行頭の字下げは保つ(階層で読ませている回答があるため)。
+Private Function NormalizeAnswerLine(ByVal ln As String) As String
+    Dim i As Long: i = 1
+    Do While i <= Len(ln)
+        Dim c As String
+        c = Mid$(ln, i, 1)
+        If c <> " " And c <> vbTab And c <> ChrW(&H3000) Then Exit Do
+        i = i + 1
+    Loop
+
+    Dim lead As String: lead = Left$(ln, i - 1)
+    Dim body As String: body = Mid$(ln, i)
+
+    Dim h As Long: h = 0
+    Do While Mid$(body, h + 1, 1) = "#"
+        h = h + 1
+    Loop
+
+    If h > 0 And Mid$(body, h + 1, 1) = " " Then
+        body = "■ " & LTrim$(Mid$(body, h + 2))
+    ElseIf Left$(body, 2) = "- " Or Left$(body, 2) = "* " Then
+        body = "・" & LTrim$(Mid$(body, 3))
+    End If
+
+    NormalizeAnswerLine = lead & body
+End Function
+
+' **強調** → 【強調】。中身が空の "****" は記号として残す(そこで打ち切らないと
+' 進まなくなるため。回数の上限も併せて置く)。
+Private Function ConvertBoldMarks(ByVal s As String) As String
+    Dim t As String: t = s
+    Dim guard As Long
+    Do While guard < 200
+        Dim a As Long
+        a = InStr(t, "**")
+        If a = 0 Then Exit Do
+        Dim b As Long
+        b = InStr(a + 2, t, "**")
+        If b = 0 Then Exit Do
+        Dim inner As String
+        inner = Mid$(t, a + 2, b - a - 2)
+        If LenB(Trim$(inner)) = 0 Then Exit Do
+        t = Left$(t, a - 1) & "【" & inner & "】" & Mid$(t, b + 2)
+        guard = guard + 1
+    Loop
+    ConvertBoldMarks = t
+End Function
+
 ' 直近回答が根拠にした資料の異なり数と、参照箇所の総数。
 Private Function UniqueSourceCount(ByRef spotCount As Long) As Long
     Dim n As Long
@@ -308,26 +450,55 @@ End Function
 ' 待ち時間に読む文章は、何が起きているかではなく「自分の質問がどう
 ' 扱われているか」を伝えるべきなので、UI層でここだけ書き換える。
 ' qa層は1行も変えない(どちらの語彙も、それぞれの層では正しい)。
-Private Function Humanize(ByVal msg As String) As String
-    Humanize = msg
+'
+' 2026-08-03(R14-8a): 先頭に付く「(3/6) 」は R13-9b の誠実な段数表示で、
+' 入念モードが数分かかることの唯一の説明になっている。言い換えのときに
+' 番号ごと捨てていたため、チャット画面では何段目かが一度も見えていなかった。
+' 番号は切り離して保ち、言い換えるのは本体だけにする。
+Public Function Humanize(ByVal msg As String) As String
+    Dim head As String
+    Dim body As String
+    body = msg
+
+    If Left$(msg, 1) = "(" Then
+        Dim p As Long
+        p = InStr(msg, ") ")
+        If p > 1 Then
+            head = Left$(msg, p + 1)
+            body = Mid$(msg, p + 2)
+        End If
+    End If
+
+    Humanize = head & HumanizeBody(body)
+End Function
+
+Private Function HumanizeBody(ByVal msg As String) As String
+    HumanizeBody = msg
 
     If InStr(msg, "検索中") > 0 Then
-        Humanize = "本棚ぜんぶを見ています…"
-    ElseIf InStr(msg, "質問を分析") > 0 Then
-        Humanize = "ご質問の意図を読み取っています…"
-    ElseIf InStr(msg, "関連度を精査") > 0 Then
-        Humanize = "見つかった中から、いちばん確かなものを選んでいます…"
+        HumanizeBody = "本棚ぜんぶを見ています…"
+    ElseIf InStr(msg, "質問を分析") > 0 Or InStr(msg, "質問を分解") > 0 Then
+        HumanizeBody = "ご質問の意図を読み取っています…"
+    ElseIf InStr(msg, "関連度を精査") > 0 Or InStr(msg, "資料を照合") > 0 Then
+        HumanizeBody = "見つかった中から、いちばん確かなものを選んでいます…"
+    ElseIf InStr(msg, "要点") > 0 Then
+        ' R14-8a(入念): 資料を読み込んで質問に効く部分だけを抜いている段。
+        HumanizeBody = "見つけた資料を読んで、要点を書き出しています…"
+    ElseIf InStr(msg, "自己点検") > 0 Then
+        ' 「自分で自分の下書きにダメ出ししている」と分かることが、
+        ' 入念モードが数分かかる理由の説明そのものになる。
+        HumanizeBody = "書いた下書きに言い過ぎや抜けが無いか、自分で点検しています…"
     ElseIf InStr(msg, "下書き") > 0 Then
-        Humanize = "見つけた内容を読んで、下書きを書いています…"
+        HumanizeBody = "見つけた内容を読んで、下書きを書いています…"
     ElseIf InStr(msg, "検証") > 0 Then
         ' ここが「しっかり調べる」の価値そのもの。何をしているか伝われば、
         ' 1～2分は「遅い」ではなく「そこまでやるのか」に変わる。
-        Humanize = "書いた内容を、資料と1行ずつ突き合わせて確認しています…"
+        HumanizeBody = "書いた内容を、資料と1行ずつ突き合わせて確認しています…"
     ElseIf InStr(msg, "回答作成") > 0 Then
-        Humanize = "見つけた内容を読んで、回答をまとめています…"
+        HumanizeBody = "見つけた内容を読んで、回答をまとめています…"
     ElseIf InStr(msg, "件の資料がヒット") > 0 Then
         ' 直後に PaintSources が資料名まで出すので、ここは何も足さない。
-        Humanize = "答えのありかを絞り込んでいます…"
+        HumanizeBody = "答えのありかを絞り込んでいます…"
     End If
 End Function
 

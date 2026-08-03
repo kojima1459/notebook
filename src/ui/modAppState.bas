@@ -73,7 +73,11 @@ Public Function TargetBubbleName() As String
 End Function
 
 Public Function TargetText() As String
-    TargetText = modUI.BubbleTextOf(TargetBubbleName())
+    ' R14-8c: バブルの段落区切りは vbCr(Shape の Paragraphs は vbCr でしか
+    ' 分かれないため)。ここから先はコピー・Word化・確認プレビューといった
+    ' 「ただの文章」として扱われるので、読み出した時点で vbLf へ戻す。
+    ' 戻さないと Word へ渡すプロンプトや貼り付け先で改行が1行に潰れて見える。
+    TargetText = Replace(Replace(modUI.BubbleTextOf(TargetBubbleName()), vbCrLf, vbLf), vbCr, vbLf)
 End Function
 
 Public Function SharePath() As String
@@ -125,6 +129,10 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
     End If
     modState.SaveState "nexus_gen_prevu", mGenPrevU
     modState.SaveState "nexus_gen_preva", mGenPrevA
+    ' R14-1b: 一般モードで答えたことを「直近の回答」として qa 層へ知らせる。
+    ' これが無いと、この直後の「解決した」が拒否されるか、前のRAG質問の
+    ' 回答を解決したことにされる(実機第3報 RC2)。
+    modAsk.NoteGeneralAnswered q
     AskGeneral = resp
 End Function
 

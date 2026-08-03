@@ -59,8 +59,14 @@ Public Sub Publish()
     Dim sb As String
     sb = "v1" & vbTab & uid & vbTab & AuthorName() & vbTab & DeptName() & vbTab & _
          Left$(modUtilText.IsoDateTime(Now), 16) & vbLf
+    ' モード別は集計側で内訳を見たいので残す。総計(ask_total)を別行で足すのは、
+    ' 2026-08-03(R14-1a)まで ask_quick+ask_deep しか送っておらず、入念モードの
+    ' 質問が組織集計から丸ごと欠けていたため(実機第3報 RC1)。モードが増えても
+    ' 集計側を直さずに済むよう、総計は modStats.AskTotalAll を1行で送る。
     sb = sb & "ask_quick" & vbTab & modStats.GetStat("ask_quick_total") & vbLf
     sb = sb & "ask_deep" & vbTab & modStats.GetStat("ask_deep_total") & vbLf
+    sb = sb & "ask_thorough" & vbTab & modStats.GetStat("ask_thorough_total") & vbLf
+    sb = sb & "ask_total" & vbTab & modStats.AskTotalAll() & vbLf
     sb = sb & "solved" & vbTab & modStats.GetStat("selfsolve_total") & vbLf
     sb = sb & "unsure" & vbTab & modStats.GetStat("unsure_total") & vbLf
     sb = sb & "wrong" & vbTab & modStats.GetStat("fail_total") & vbLf

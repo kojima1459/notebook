@@ -203,8 +203,12 @@ Public Sub OnSend()
     ' 速さと調べた量は、言わなければ伝わらない。「15秒待たされた」と
     ' 「3冊の資料から12秒で根拠付き」は同じ時間の別の体験になる。
     Dim bubbleName As String
-    bubbleName = modUI.AddChatBubble("ai", ans & vbCr & modLive.Footer(secs, grounded))
+    ' R14-8c: 本文は modLive で記法を整え、段落区切りを vbCr にしてから書く
+    ' (Shape の Paragraphs は vbCr でしか分かれない。フッターの装飾も同じ前提)。
+    bubbleName = modUI.AddChatBubble("ai", _
+        modLive.AnswerParagraphs(ans) & vbCr & modLive.Footer(secs, grounded))
     modLive.StyleFooter bubbleName
+    modLive.StyleAnswerParas bubbleName   ' ■見出しの段落だけ太字(AI回答のみ)
     modAppState.SetActiveBubble bubbleName
     modUI.MarkActiveBubble bubbleName
     SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存

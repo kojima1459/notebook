@@ -30,6 +30,12 @@ Option Explicit
 '   ・optOcrCore.OcrPageBanner(R14-4a): 進捗の文面とETAの出し方。
 '   ・optOcrCore.OcrCapMemoFor(R14-4c): 上限打ち切りの正直なメモ。
 '     総ページ数が不明(0や上限以下)のときに数字をでっち上げないこと。
+'   ・modMode.ShouldEmitInsight(R14-1b): 「解決した」で部内へ発信してよい
+'     回答かの真理表(実機第3報 RC2)。
+'
+' 2026-08-03(R14-8): 本モジュールも28,000字のWARN帯へ入ったため、R14-8
+'   (入念モードの本格強化+回答可読性)のテストは modTestsPure12 へ分割した。
+'   末尾の RunAll11 が RunAll12 を呼ぶ。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -256,6 +262,41 @@ Private Sub TestOcrBannerAndCapMemo()
         (InStr(m2, "240ページ中100ページのみ取り込みました") > 0), "実際=" & m2
 End Sub
 
+' ----------------------------------------------------------------------------
+' R14-1b: 「解決した」で部内へ発信してよい回答かの真理表(実機第3報 RC2)
+'   緩むと (a)一般アシスタントの雑談が「人が確認した社内Q&A」として配信され
+'   (b)残留出典へ無関係な感謝状が飛ぶ。配信も感謝状も取り消せない。
+' ----------------------------------------------------------------------------
+Private Sub TestShouldEmitInsight()
+    ' 本棚の資料を根拠に答えたターンだけ発信してよい。
+    modTestRunner.Check "発信判定_すぐ聞くで出典あり", _
+        (modMode.ShouldEmitInsight("quick", 1) = True)
+    modTestRunner.Check "発信判定_深掘りで出典あり", _
+        (modMode.ShouldEmitInsight("deep", 3) = True)
+    modTestRunner.Check "発信判定_入念で出典あり", _
+        (modMode.ShouldEmitInsight("thorough", 12) = True)
+
+    ' 一般モードは出典の有無に関わらず発信しない(残留 hits があっても)。
+    modTestRunner.Check "発信判定_一般モードは出典0でも発信しない", _
+        (modMode.ShouldEmitInsight("general", 0) = False)
+    modTestRunner.Check "発信判定_一般モードは残留出典があっても発信しない", _
+        (modMode.ShouldEmitInsight("general", 5) = False)
+
+    ' 検索も生成もしなかったターン(空質問・0件・聞き返し)は mode="" になる。
+    modTestRunner.Check "発信判定_モード空は発信しない", _
+        (modMode.ShouldEmitInsight("", 4) = False)
+    modTestRunner.Check "発信判定_出典0件は発信しない", _
+        (modMode.ShouldEmitInsight("deep", 0) = False)
+    modTestRunner.Check "発信判定_出典が負でも発信しない", _
+        (modMode.ShouldEmitInsight("deep", -1) = False)
+
+    ' 表記ゆれで判定が反転しないこと(モード名はui_state由来)。
+    modTestRunner.Check "発信判定_大文字小文字を無視", _
+        (modMode.ShouldEmitInsight("GENERAL", 3) = False)
+    modTestRunner.Check "発信判定_前後空白を無視", _
+        (modMode.ShouldEmitInsight("  general  ", 3) = False)
+End Sub
+
 Public Sub RunAll11()
     On Error GoTo CopyReasonFail
     TestCopyFailReason
@@ -271,6 +312,15 @@ NextBatch:
 NextBanner:
     On Error GoTo BannerFail
     TestOcrBannerAndCapMemo
+NextEmit:
+    On Error GoTo EmitFail
+    TestShouldEmitInsight
+NextPure12:
+    ' R14-8(入念モードの本格強化+回答可読性)のテストは modTestsPure12 へ
+    ' 分割した(本モジュールが28,000字のWARN帯へ入ったため。憲章§4-6)。
+    ' この1行を消すと向こうのテストは「実行されないまま」全部PASSに見える。
+    On Error GoTo Pure12Fail
+    modTestsPure12.RunAll12
 NextDone11:
     On Error GoTo 0
     Exit Sub
@@ -293,6 +343,14 @@ BatchFail:
     Resume NextBanner
 BannerFail:
     modTestRunner.Check "TestOcrBannerAndCapMemo(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextEmit
+EmitFail:
+    modTestRunner.Check "TestShouldEmitInsight(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure12
+Pure12Fail:
+    modTestRunner.Check "modTestsPure12(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone11
 End Sub

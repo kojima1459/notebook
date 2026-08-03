@@ -17,6 +17,8 @@ Option Explicit
 Private mStgExpand As Boolean
 Private mStgRerank As Boolean
 Private mStgTotal As Long
+' R14-8a: 入念モードは要点整理・自己批判の2段が増えて最大6段になる。
+Private mStgThorough As Boolean
 
 ' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
@@ -110,8 +112,11 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
         If LenB(rkModel) = 0 Then rkModel = modConfig.GetString("quick_model", "gpt-5.5")
         Dim rkLat As Long
         Dim rkResp As String
+        ' R14-8a: 入念モードだけ再ランクの effort を上げる(rerank_effort_thorough)。
+        ' どの資料を根拠にするかを決める段なので、ここが雑だと後段の検証では直らない。
         rkResp = modGateway.CallLLM(rkPrompt, "rerank", _
-            modConfig.GetString("rerank_effort", "low"), _
+            modMode.RerankEffort(mdMode, modConfig.GetString("rerank_effort", "low"), _
+                                 modConfig.GetString("rerank_effort_thorough", "medium")), _
             modConfig.GetString("rerank_verbosity", "low"), rkModel, rkLat)
         If Not modAsk.IsErrorResponse(rkResp) Then
             orderN = modRagParse.ParseRankOrder(rkResp, poolN, rankOrder)
@@ -178,7 +183,7 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
         ' (iii) スコープ内で多段検索。拡張段は必ず通す(角度を作らないと
         '       「狭い中を深く」にならず、ただの絞り込みで終わる)。
         mStgExpand = True
-        mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, True)
+        mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, True, mStgThorough)
 
         Dim subN As Long
         subN = modConfig.GetLong("deep_scope_subqueries", 6)
@@ -230,15 +235,17 @@ Public Sub PlanAskStages(ByVal mdMode As String)
                                                modConfig.GetBool("quick_expand", False))
     mStgRerank = isMulti And modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
                                                modConfig.GetBool("quick_rerank", False))
-    mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, modMode.UseVerify(mdMode))
+    mStgThorough = (modMode.Normalize(mdMode) = "thorough")
+    mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, modMode.UseVerify(mdMode), mStgThorough)
     On Error GoTo 0
 End Sub
 
-' kind = "expand" / "rerank" / "draft" / "verify" / "quick"
+' kind = "expand" / "rerank" / "digest" / "draft" / "critique" / "verify" / "quick"
 Public Sub ShowAskStage(ByVal kind As String)
     On Error Resume Next
     modUIMain.SetStage modMode.AskStageText( _
-        modMode.AskStageIndex(kind, mStgExpand, mStgRerank), mStgTotal, modMode.AskStageLabel(kind))
+        modMode.AskStageIndex(kind, mStgExpand, mStgRerank, mStgThorough), _
+        mStgTotal, modMode.AskStageLabel(kind))
     On Error GoTo 0
 End Sub
 

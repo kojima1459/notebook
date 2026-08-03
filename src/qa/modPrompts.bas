@@ -72,15 +72,23 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     BuildQuickPrompt = sb
 End Function
 
+' digest(2026-08-03 R14-8a): 入念モードが先に作る「資料の要点」。空なら従来と
+'   完全に同じプロンプトになる。要点を足したぶんだけ原文の枠を減らし、合計が
+'   max_context_chars を超えないようにする(減らさないと入念だけ本文が2倍に
+'   なり、上限で黙って切れて後半の資料が丸ごと消える)。
 Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByVal history As String, _
                                      Optional ByVal strictGrounding As Boolean = False, _
-                                     Optional ByVal answerTags As Boolean = False) As String
+                                     Optional ByVal answerTags As Boolean = False, _
+                                     Optional ByVal digest As String = "") As String
     Dim lang As String
     lang = SafeAnswerLanguage()
     Dim maxChars As Long
     maxChars = SafeMaxContextChars()
+    Dim budget As Long
+    budget = maxChars - Len(digest)
+    If budget < 2000 Then budget = 2000
     Dim ctx As String
-    ctx = BuildSourceBlock(hits, nHits, maxChars)
+    ctx = BuildSourceBlock(hits, nHits, budget)
 
     Dim sb As String
     sb = "あなたは社内の資料検索AIアシスタントです。「しっかり調べる」モードの下書き回答を作成します。" & _
@@ -94,6 +102,10 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
         sb = sb & vbLf & "## これまでの会話(参考。続きの質問なら踏まえて回答する)" & vbLf & history
     End If
     sb = sb & vbLf & UserContextBlock()
+    If LenB(Trim$(digest)) > 0 Then
+        sb = sb & "## 資料の要点(質問に関係する部分を先に整理したもの。" & _
+             "数値・条文は必ず下の本棚抜粋の原文で裏を取ること)" & vbLf & digest & vbLf & vbLf
+    End If
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "(この回答は下書きです。この後、別の検証ステップで事実確認されます。" & _
@@ -101,9 +113,12 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
     BuildDeepDraftPrompt = sb
 End Function
 
+' critique(2026-08-03 R14-8a): 入念モードの自己批判段が挙げた指摘。空なら
+'   従来と完全に同じプロンプトになる(深掘りは指摘段を持たない)。
 Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, hits() As Hit, ByVal nHits As Long, _
                                       Optional ByVal strictGrounding As Boolean = False, _
-                                      Optional ByVal answerTags As Boolean = False) As String
+                                      Optional ByVal answerTags As Boolean = False, _
+                                      Optional ByVal critique As String = "") As String
     Dim lang As String
     lang = SafeAnswerLanguage()
     Dim maxChars As Long
@@ -131,6 +146,12 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
     sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
     sb = sb & "## 質問" & vbLf & q & vbLf
     sb = sb & vbLf & "## 下書き回答" & vbLf & draft & vbLf
+    If LenB(Trim$(critique)) > 0 Then
+        sb = sb & vbLf & "## 査読で挙がった指摘" & vbLf & critique & vbLf
+        sb = sb & vbLf & "(指示: 以下の指摘を踏まえて修正せよ。指摘が抜粋と食い違う場合は" & _
+            "抜粋を優先し、元の記述を残してよい。指摘そのものへの言及・弁明は" & _
+            "最終回答に書かないこと。)" & vbLf
+    End If
     sb = sb & vbLf & "(注意: 下書きに付いている「(要確認)」は、根拠が弱い箇所に" & _
         "意図的に付けたものです。抜粋で裏付けられない限り外さないでください。)" & vbLf
     sb = sb & vbLf & "(指示: 検証済みの最終回答のみを出力してください。下書きとの差分説明や、" & _
@@ -203,6 +224,63 @@ Public Function BuildRerankPrompt(ByVal q As String, hits() As Hit, ByVal nHits 
     sb = sb & "関連度が高い順に候補番号をカンマ区切りで並べ、次の形式で出力: <rank>3,1,7</rank>" & vbLf
     sb = sb & "質問と無関係な候補は含めなくてよい。最低1件は含めること。"
     BuildRerankPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildSourceDigestPrompt - 入念モード(1)資料の要点整理(2026-08-03 R14-8a)
+' ----------------------------------------------------------------------------
+' 本棚抜粋を1回のLLM呼び出しで「質問に関係する部分だけ」資料ごと2～3行へ畳む。
+' 下書き段へは この要点 + 上位の原文 のハイブリッドを渡す(要点だけだと数値や
+' 条文が丸まり、原文だけだと件数が増えたとき中盤が読み飛ばされる)。
+' 出力の粒度をJSON等にしないのは、この結果を人ではなく次のプロンプトが読む
+' からで、素の日本語のまま下書き段へ差し込むのがいちばん壊れない
+' (BuildEnrichPromptがJSONなのは、あちらの読み手がVBAのパーサだから)。
+Public Function BuildSourceDigestPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
+    Dim maxChars As Long
+    maxChars = SafeMaxContextChars()
+
+    Dim sb As String
+    sb = "以下は社内資料から検索で拾った抜粋です。質問に答えるうえで意味のある部分だけを、" & _
+         "資料ごとに2～3行へ要約してください。" & vbLf
+    sb = sb & "・各行の末尾に、その内容の出典タグ([本棚:ファイル名 p.ページ番号] または " & _
+         "[パック(作成者名):ファイル名])を抜粋にあるとおり書き写すこと。" & vbLf
+    sb = sb & "・条文番号・日数・金額・料率・期限は要約せず、抜粋の値をそのまま書き写すこと。" & vbLf
+    sb = sb & "・質問と関係の無い抜粋は「(質問とは関係なし)」の1行だけにすること。" & vbLf
+    sb = sb & "・抜粋に書かれていないことは推測で補わないこと。" & vbLf
+    sb = sb & "・前置き・総括・結論は書かず、資料ごとの要約だけを出力すること。" & vbLf & vbLf
+    sb = sb & "## 質問" & vbLf & q & vbLf & vbLf
+    sb = sb & "## 本棚抜粋" & vbLf & BuildSourceBlock(hits, nHits, maxChars) & vbLf
+    BuildSourceDigestPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildCritiquePrompt - 入念モード(3)自己批判(2026-08-03 R14-8a)
+' ----------------------------------------------------------------------------
+' 下書きの問題点【だけ】を挙げさせる。書き直しを同時に頼まないのが要点で、
+' 「指摘して直せ」と言うとモデルは自分の文章を守るために指摘を軽くする。
+' 指摘だけを吐かせ、別の呼び出し(検証段)に直させたほうが、実際に消える
+' 未検証の断定の数が多い。
+Public Function BuildCritiquePrompt(ByVal q As String, ByVal draft As String, _
+                                    hits() As Hit, ByVal nHits As Long) As String
+    Dim maxChars As Long
+    maxChars = SafeMaxContextChars()
+
+    Dim sb As String
+    sb = "あなたは社内資料の査読者です。下書き回答を本棚抜粋と突き合わせ、" & _
+         "問題点だけを指摘してください。書き直した文章や修正版の提示は禁止です。" & vbLf
+    sb = sb & "見る観点は次の4つ:" & vbLf
+    sb = sb & "1. 未検証の断定 … 抜粋で裏付けられないのに言い切っている" & vbLf
+    sb = sb & "2. 出典不備 … 出典が付いていない/別の資料の出典が付いている/ページが違う" & vbLf
+    sb = sb & "3. 論点漏れ … 質問のうち答えていない部分がある" & vbLf
+    sb = sb & "4. 憶測 … 抜粋に無い数値・条件・例外を補っている" & vbLf & vbLf
+    sb = sb & "## 出力形式(この形式のみ。前置き・総括・修正文は書かない)" & vbLf
+    sb = sb & "1. [観点] 該当箇所の引用(20字程度) → 何が問題か" & vbLf
+    sb = sb & "2. [観点] …" & vbLf
+    sb = sb & "問題が1つも無ければ「指摘なし」とだけ出力してください。" & vbLf & vbLf
+    sb = sb & "## 質問" & vbLf & q & vbLf & vbLf
+    sb = sb & "## 本棚抜粋" & vbLf & BuildSourceBlock(hits, nHits, maxChars) & vbLf
+    sb = sb & "## 下書き回答" & vbLf & draft & vbLf
+    BuildCritiquePrompt = sb
 End Function
 
 Public Function BuildEnrichPrompt(ByVal batchText As String) As String
@@ -392,7 +470,13 @@ End Function
 
 ' origin="pack:<作成者>"なら [パック(作成者):ファイル名]、それ以外(self)は
 ' [本棚:ファイル名 p.N] の出典タグ文字列を返す(§4/§7.3)。
-Private Function SourceTag(ByRef h As Hit) As String
+'
+' 2026-08-03(R14-8a): Publicにした。入念モードの出典突合
+' (modAskThorough.CiteIndexFrom)が「回答に書かれたタグが検索結果に在るか」を
+' 機械的に照合するとき、LLMへ指示している形と検査に使う形が別々の実装だと、
+' 一致するはずのものが全件不一致になるか、その逆になる。タグの形は
+' ここが唯一の持ち主(憲章§4-5)。
+Public Function SourceTag(ByRef h As Hit) As String
     If LCase$(Left$(h.origin, 5)) = "pack:" Then
         Dim authorName As String
         authorName = Mid$(h.origin, 6)
@@ -404,7 +488,7 @@ End Function
 
 ' UserContextBlock - 質問者の属性をプロンプトへ注入し、回答の粒度・トーンを
 '   LLM側で調整させる。参照キーは実在するものだけを使う(config pack_author /
-'   user_department、統計は ask_quick_total + ask_deep_total の合算)。
+'   user_department、統計は modStats.AskTotalAll = 全モードの質問回数の合算)。
 '   何も設定されていなければ空文字を返し、プロンプトに一切影響させない。
 Private Function UserContextBlock() As String
     Dim nm As String, dept As String
@@ -412,7 +496,8 @@ Private Function UserContextBlock() As String
     On Error Resume Next
     nm = Trim$(modConfig.GetString("pack_author", ""))
     dept = Trim$(modConfig.GetString("user_department", ""))
-    askCount = modStats.GetStat("ask_quick_total") + modStats.GetStat("ask_deep_total")
+    ' R14-1a: quick+deep 決め打ちをやめ、全モードの合算(modStats)へ委譲する。
+    askCount = modStats.AskTotalAll()
     streak = modStats.GetStat("streak_days")
     lvl = modStats.Level()
     On Error GoTo 0

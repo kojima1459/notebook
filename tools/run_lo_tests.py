@@ -260,7 +260,23 @@ PURE_ALLOWLIST = [
     #   検証対象は modExtractorPdf(コピー失敗理由の判定)・optOcrCore
     #   (空入力の分類/バッチ境界/上限メモ/進捗バナー)・modLog(共有読み
     #   失敗の案内文が汎用文言に潰されないこと)で、いずれも既に注入済み。
-    "modTestsPure11",
+    # modAskThorough(2026-08-03 R14-8a): 「入念に調べる」専用パイプラインの
+    #   最後の段=出典の機械的突合(ExtractCiteTags/NormalizeCiteTag/TagIsKnown/
+    #   AnnotateCitations)は LLM を使わない純ロジックで、ここがズレると
+    #   「存在しない資料名やページを引用しても誰も気付けない」状態に戻る。
+    #   RunThoroughFlow(CallLLM を呼ぶ段)はテストから呼ばないので、
+    #   modShelfSync/modPack/modLog と同じ「モジュール全体はR4準拠ではないが、
+    #   テストが呼ぶ関数自体はExcel/COMに触れない」型。未注入のまま
+    #   modTestsPure11 から呼ぶと実行時エラー12になる。
+    # modLive(2026-08-03 R14-8c): 回答本文の記法正規化(NormalizeAnswerText /
+    #   AnswerParagraphs)と実況文の言い換え(Humanize)。どちらも文字列だけで
+    #   完結する(Shapeを触るのは PaintStage/StyleFooter/StyleAnswerParas で、
+    #   テストからは呼ばない)。■見出しの前の空行や【】変換は目で見るしか
+    #   確認手段が無かった部分なので、ここで実行テストとして固定する。
+    # modTestsPure12(2026-08-03 R14-8): modTestsPure11の容量逼迫による分割先。
+    #   modTestsPure11.RunAll11 の末尾が RunAll12 を呼ぶため、未注入だと
+    #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
+    "modTestsPure11", "modAskThorough", "modLive", "modTestsPure12",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

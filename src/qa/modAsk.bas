@@ -207,6 +207,14 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
             On Error Resume Next
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
+        ElseIf mdMode = MODE_THOROUGH Then
+            ' R14-8a: 入念だけ専用の5段(modAskThorough)。
+            result = modAskThorough.RunThoroughFlow(q, hits, nHits, ok, HistoryBlock(), prevU, prevA)
+            If ok Then
+                result = DecorateWithFollowups(result)
+            Else
+                result = BuildErrorAnswer(result)
+            End If
         ElseIf modMode.UseVerify(mdMode) Then
             result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
         Else
@@ -403,6 +411,17 @@ Public Function LastConfidenceText() As String
     End Select
 End Function
 
+' NoteGeneralAnswered - 一般アシスタントの回答を「直近の回答」として記録する
+'   (R14-1b / RC2)。nHits=0・本文空が modMode.ShouldEmitInsight の
+'   「発信しない」根拠(mLastHits は残るが nHits=0 では誰も走査しない)。
+Public Sub NoteGeneralAnswered(ByVal q As String)
+    mLastQuestion = q
+    mLastMode = "general"
+    mLastCleanAnswer = ""
+    mLastNHits = 0
+    mFeedbackDone = False
+End Sub
+
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
@@ -426,24 +445,33 @@ Public Sub FeedbackGreen()
     ' 発信は UI層の呼び出し元(modAppAct.OnActResolve)が担当する。
     On Error GoTo 0
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
+
+    ' 部内への発信は「本棚の資料を根拠に答えたターン」だけ(理由と真理表は
+    ' modMode.ShouldEmitInsight)。R14-1bの一般モード解禁もM-4の誤爆も同型。
+    Dim mayEmit As Boolean
+    mayEmit = modMode.ShouldEmitInsight(mLastMode, mLastNHits)
     On Error Resume Next
-    modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
-    ' 共有知フライホイール: 人が正しいと確認したQ&Aは組織の一次情報になる。
-    ' 社内ナレッジ検索の回答のときだけ発信する(一般アシスタントの雑談は流さない)。
-    ' 2026-07-28(レビュー M-4): 回答本文は成功ターンでしか更新されないのに、
-    ' 質問は毎ターン更新される。そのため「0件回答」や「聞き返し」の直後に
-    ' ✅を押すと、【今回の質問 + 前回成功ターンの回答】という噛み合わない
-    ' ペアが「人が確認したQ&A」として部内へ配信されていた。
-    ' 中身が揃っているときだけ発信する。
-    If LenB(mLastMode) > 0 And LenB(Trim$(mLastCleanAnswer)) > 0 Then
-        modInsightIo.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
+    If mayEmit Then
+        modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
+        ' 共有知フライホイール: 人が正しいと確認したQ&Aは組織の一次情報になる。
+        ' 回答本文は成功ターンでしか更新されないので、中身が空なら送らない。
+        If LenB(Trim$(mLastCleanAnswer)) > 0 Then
+            modInsightIo.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
+        End If
     End If
     On Error GoTo 0
 
-    MsgBox "ありがとうございます。" & vbCrLf & _
-           "この質問と回答は「解決済みQ&A」として部内に共有され、" & vbCrLf & _
-           "同じことで困っている人がすぐ答えにたどり着けるようになります。", _
-           vbInformation, modAppDef.APP_NAME
+    ' 文面も判定に合わせる(共有していないのに共有したと言わない。憲章§3-3)。
+    If mayEmit Then
+        MsgBox "ありがとうございます。" & vbCrLf & _
+               "この質問と回答は「解決済みQ&A」として部内に共有され、" & vbCrLf & _
+               "同じことで困っている人がすぐ答えにたどり着けるようになります。", _
+               vbInformation, modAppDef.APP_NAME
+    Else
+        MsgBox "ありがとうございます。解決できたことを記録しました。" & vbCrLf & _
+               "(この回答は社内資料を根拠にしていないため、部内への共有は行いません。)", _
+               vbInformation, modAppDef.APP_NAME
+    End If
 End Sub
 
 Public Sub FeedbackYellow()
@@ -502,7 +530,8 @@ End Function
 
 
 ' answer_tags時: <answer>抽出+タグ外FOLLOWUP救出+thinkingデバッグ記録。
-Private Function ApplyAnswerTags(ByVal resp As String) As String
+' R14-8a でPublic(入念モードの各段も同じ規約で取り出すため)。
+Public Function ApplyAnswerTags(ByVal resp As String) As String
     If Not modConfig.GetBool("answer_tags", False) Then
         ApplyAnswerTags = resp
         Exit Function

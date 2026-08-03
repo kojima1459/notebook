@@ -87,16 +87,21 @@ End Function
 '   すぐ聞く   … まず速く
 '   しっかり   … 会話の流れ(引用済み資料)の中を深く
 '   入念       … 本棚全体を広く
+'
+' 2026-08-03(R14-8b): 入念モードが実際に何をするかを書き直した。R14-8a で
+' 「要点整理 → 下書き → 自己批判 → 検証 → 出典の突合」の5段になり、実測で
+' 2～4分かかる。所要時間を「数分」とぼかすと、待っている人は止まったのか
+' 判断できない(憲章§3-2)。刻んだ段と幅のある実測値をそのまま書く。
 Public Function Description(ByVal mode As String) As String
     Select Case Normalize(mode)
         Case MODE_THOROUGH
-            Description = "本棚全体を広く。多方向から検索 → 関連度を精査 → 下書き → " & _
-                          "資料と1行ずつ照合。数分かかりますが、精度を最優先します。"
+            Description = "本棚全体を広く、時間をかけて多段検証。要点整理 → 下書き → " & _
+                          "自己批判 → 検証 → 出典の突合まで通します。2～4分ほど。"
         Case MODE_DEEP
             Description = "会話の流れ(引用済み資料)の中を深く。続けて質問したときは、" & _
                           "直前までに使った資料へ絞って掘り下げます。1～2分ほど。"
         Case Else
-            Description = "まず速く。そのまま検索して答えます。数秒～20秒ほど。"
+            Description = "速さ優先。まず速く、そのまま検索して答えます。数秒～20秒ほど。"
     End Select
 End Function
 
@@ -145,6 +150,19 @@ Public Function UseVerify(ByVal mode As String) As Boolean
     UseVerify = (m = MODE_DEEP Or m = MODE_THOROUGH)
 End Function
 
+' 再ランク段の reasoning_effort(2026-08-03 R14-8a)。
+'   入念モードだけ別の設定(rerank_effort_thorough、既定medium)を使う。
+'   再ランクは「どの資料を根拠にするか」を決める段で、ここを間違えると
+'   後段でいくら検証しても直らない。入念だけは他モードの速度事情に
+'   引きずられないようにする。空文字が渡されたら従来値へ倒す。
+Public Function RerankEffort(ByVal mode As String, ByVal baseEffort As String, _
+                             ByVal thoroughEffort As String) As String
+    RerankEffort = baseEffort
+    If Normalize(mode) <> MODE_THOROUGH Then Exit Function
+    If LenB(Trim$(thoroughEffort)) = 0 Then Exit Function
+    RerankEffort = thoroughEffort
+End Function
+
 ' 拡張の軽量版を使うか(すぐ聞くのときだけ。入念で軽くしては意味が無い)
 Public Function UseLightExpand(ByVal mode As String, ByVal cfgLight As Boolean) As Boolean
     UseLightExpand = (Normalize(mode) = MODE_QUICK) And cfgLight
@@ -165,17 +183,24 @@ End Function
 '   なお rerank は「候補数がtopKより多いときだけ」実行されるため、計画には
 '   入ったが実行されない回がある。その場合は番号が1つ飛ぶ(総数は嘘に
 '   ならず、最後は必ず (N/N) で終わる)。
+'
+' 2026-08-03(R14-8a): 入念モードは要点整理(digest)と自己批判(critique)の
+'   2段が増えて最大6段になった。hasThorough を足すのは Optional にしてある
+'   ので、深掘り(4段まで)の番号は1つも動かない。
 Public Function AskStageTotal(ByVal hasExpand As Boolean, ByVal hasRerank As Boolean, _
-                              ByVal hasVerify As Boolean) As Long
+                              ByVal hasVerify As Boolean, _
+                              Optional ByVal hasThorough As Boolean = False) As Long
     If Not hasVerify Then Exit Function      ' 0 = 番号を出さない(すぐ聞く)
     AskStageTotal = 2                        ' 下書き + 検証は必ず通る
     If hasExpand Then AskStageTotal = AskStageTotal + 1
     If hasRerank Then AskStageTotal = AskStageTotal + 1
+    If hasThorough Then AskStageTotal = AskStageTotal + 2   ' 要点整理 + 自己批判
 End Function
 
 ' 段の番号(1起点)。計画に入っていない段は0(=番号を出さない)。
 Public Function AskStageIndex(ByVal kind As String, ByVal hasExpand As Boolean, _
-                              ByVal hasRerank As Boolean) As Long
+                              ByVal hasRerank As Boolean, _
+                              Optional ByVal hasThorough As Boolean = False) As Long
     Dim head As Long
     head = 0
     If hasExpand Then head = head + 1
@@ -192,21 +217,36 @@ Public Function AskStageIndex(ByVal kind As String, ByVal hasExpand As Boolean, 
                     AskStageIndex = 1
                 End If
             End If
+        Case "digest"
+            ' 入念モード以外にこの段は無い(番号を出さない)。
+            If hasThorough Then AskStageIndex = head + 1
         Case "draft"
-            AskStageIndex = head + 1
+            If hasThorough Then
+                AskStageIndex = head + 2
+            Else
+                AskStageIndex = head + 1
+            End If
+        Case "critique"
+            If hasThorough Then AskStageIndex = head + 3
         Case "verify"
-            AskStageIndex = head + 2
+            If hasThorough Then
+                AskStageIndex = head + 4
+            Else
+                AskStageIndex = head + 2
+            End If
     End Select
 End Function
 
 ' 段のラベル(利用者の言葉。専門用語を出さない)。
 Public Function AskStageLabel(ByVal kind As String) As String
     Select Case LCase$(Trim$(kind))
-        Case "expand": AskStageLabel = "質問を分解中…"
-        Case "rerank": AskStageLabel = "資料を照合中…"
-        Case "draft":  AskStageLabel = "下書きを作成中…"
-        Case "verify": AskStageLabel = "検証中…"
-        Case Else:     AskStageLabel = "回答を作成中…"
+        Case "expand":   AskStageLabel = "質問を分解中…"
+        Case "rerank":   AskStageLabel = "資料を照合中…"
+        Case "digest":   AskStageLabel = "資料の要点を整理中…"
+        Case "draft":    AskStageLabel = "下書きを作成中…"
+        Case "critique": AskStageLabel = "下書きを自己点検中…"
+        Case "verify":   AskStageLabel = "検証中…"
+        Case Else:       AskStageLabel = "回答を作成中…"
     End Select
 End Function
 
@@ -218,6 +258,31 @@ Public Function AskStageText(ByVal idx As Long, ByVal total As Long, ByVal label
     Else
         AskStageText = label
     End If
+End Function
+
+' ----------------------------------------------------------------------------
+' ShouldEmitInsight - 「解決した」を押したとき、部内へ発信してよい回答か
+'                     (2026-08-03 R14-1b / 実機第3報 RC2)
+' ----------------------------------------------------------------------------
+' 発信とは (a) 資料の作者への感謝状(modP2P.EmitThanksForLastAnswer)と
+' (b) 解決済みQ&Aの部内共有(modInsightIo.EmitVerifiedQA)の2つ。どちらも
+' 「本棚の資料を根拠に答えた」ことが前提で、根拠が無い回答で撃つと
+'   ・一般アシスタントの雑談が「人が確認した社内Q&A」として配信される
+'   ・直前まで残っていた別の質問の出典へ、無関係な感謝状が飛ぶ
+' という取り返しのつかない誤爆になる(実機第3報 RC2 の危険)。
+'
+' 判定材料はモードと出典件数の2つだけ:
+'   ・mode="" … 検索も回答生成もしなかったターン(空質問・0件・聞き返し)
+'   ・mode="general" … 一般アシスタント(本棚を通っていない)
+'   ・nHits=0 … 根拠となる資料が1件も無い
+' いずれか1つでも当てはまれば発信しない。個人統計(selfsolve_total・
+' 節約時間・usage_log)は「解決した」という事実そのものなので、この判定とは
+' 無関係に必ず加算する(呼び出し側の責任)。
+Public Function ShouldEmitInsight(ByVal mode As String, ByVal nHits As Long) As Boolean
+    Dim m As String: m = LCase$(Trim$(mode))
+    If LenB(m) = 0 Then Exit Function
+    If m = "general" Then Exit Function
+    ShouldEmitInsight = (nHits > 0)
 End Function
 
 ' サブクエリ数。入念は角度の数がそのまま精度になる(実測 R@10 90%→97%)。

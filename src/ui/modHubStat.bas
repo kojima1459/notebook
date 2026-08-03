@@ -167,9 +167,14 @@ Public Function SafeStat(ByVal key As String) As Long
     On Error GoTo 0
 End Function
 
-' 質問回数は quick/deep 別カウンタの合算(単一のquestion_totalキーは存在しない)。
+' 質問回数はモード別カウンタの合算(単一のquestion_totalキーは存在しない)。
+' 2026-08-03(R14-1a): 合算そのものは modStats.AskTotalAll が唯一の持ち主。
+' ここで quick+deep と書いていたため入念モードの質問が Hub のタイルから
+' 丸ごと落ちていた(実機第3報 RC1)。以後は1行の委譲に留める。
 Public Function AskTotal() As Long
-    AskTotal = SafeStat("ask_quick_total") + SafeStat("ask_deep_total")
+    On Error Resume Next
+    AskTotal = modStats.AskTotalAll()
+    On Error GoTo 0
 End Function
 
 Public Function SafeSavedMinutes() As Long
