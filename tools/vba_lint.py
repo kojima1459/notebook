@@ -393,8 +393,13 @@ CONTRACT: dict[str, dict] = {
         # ParseQuestionLines(2026-08-03 R14-7a): 質問例オンデマンド生成の応答
         #   パーサ(1行1問・番号無しへ寛容退化)。RAG本体とは無関係だが、
         #   「LLM応答をパースする純関数」という性質はここと同じなので同居させる。
+        # IsErrorResponse/BuildErrorAnswer(2026-08-03 R14-G1): modGateway.CallLLM の
+        #   失敗は "#ERR:コード:説明" という応答文字列で返る契約なので、その判定と
+        #   利用者向け文言化も「LLM応答のパース」。modAsk が30,000字上限まで残り44字に
+        #   なったため(憲章§4-6)、3モジュール(modAsk/modAskRetrieve/modAskThorough)が
+        #   共有していたこの3本を副作用ゼロのまま本モジュールへ移設した。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
-                     "ParseQuestionLines"],
+                     "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer"],
     },
     "modAsk": {
         "closed": True,
@@ -421,7 +426,15 @@ CONTRACT: dict[str, dict] = {
                      # ApplyAnswerTags(2026-08-03 R14-8a): answer_tags時の本文抽出。
                      #   入念モードの各段(modAskThorough)も同じ規約で取り出す必要が
                      #   あるため公開した(2実装に分かれると片方だけ<thinking>が漏れる)。
-                     "HistoryBlock", "IsErrorResponse",
+                     # IsErrorResponse は 2026-08-03 R14-G1 で modRagParse へ移設
+                     #   (#ERR: 応答のパースであり、容量的にもmodAskに置く理由が無い)。
+                     # CanShareInsight(2026-08-03 R14-G1): 直近回答を部内へ発信して
+                     #   よいか。判定材料(モード・出典件数)はmodAskのモジュール変数
+                     #   にしか無いので、UI層(modAppAct)の訂正共有もこの窓口を通す。
+                     # NoteAnswerFailed(2026-08-03 R14-G2): 回答を作れなかったターン。
+                     #   これが無いと、一般モードの失敗直後の感想ボタンが【前の質問】
+                     #   の状態で受理される。
+                     "HistoryBlock", "CanShareInsight", "NoteAnswerFailed",
                      "NoteGeneralAnswered", "ApplyAnswerTags"],
     },
     # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
@@ -450,9 +463,13 @@ CONTRACT: dict[str, dict] = {
     #   UNVERIFIED_MARK は付記の文言で、テスト側と表示側の単一情報源。
     "modAskThorough": {
         "closed": True,
+        # VerifyNote(2026-08-03 R14-G11): 検証段が落ちたターンの内部注記。
+        #   本文へ混ぜると mLastCleanAnswer(=会話履歴と「解決済みQ&A」の部内
+        #   共有)にまで注記が入るため、modAsk が整形の後に足せるよう別で返す
+        #   (deep の RunDeepFlow と同じ並びに揃えた)。
         "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
                      "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
-                     "IsCiteTag", "TagIsKnown", "AnnotateCitations"],
+                     "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {

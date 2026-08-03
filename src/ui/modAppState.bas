@@ -111,6 +111,13 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
         modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
 
     If Left$(resp, 5) = "#ERR:" Then
+        ' R14-G2: 失敗したターンは「直近の回答」を持たない。ここで印を消さないと、
+        ' この後に押された感想ボタンが【前の質問】の状態(mLastQuestion/mLastHits)
+        ' で受理され、失敗した回答に対する「解決した」が前の資料の感謝状や
+        ' 部内共有まで撃ってしまう。回答前と同じ「まず質問して…」で断らせる。
+        On Error Resume Next
+        modAsk.NoteAnswerFailed
+        On Error GoTo 0
         AskGeneral = "回答の作成に失敗しました。時間を置いてもう一度お試しください。"
         Exit Function
     End If
@@ -132,7 +139,8 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
     ' R14-1b: 一般モードで答えたことを「直近の回答」として qa 層へ知らせる。
     ' これが無いと、この直後の「解決した」が拒否されるか、前のRAG質問の
     ' 回答を解決したことにされる(実機第3報 RC2)。
-    modAsk.NoteGeneralAnswered q
+    ' R14-G1: 回答本文も一緒に渡す(残った前回のRAG回答を読む経路を潰す)。
+    modAsk.NoteGeneralAnswered q, resp
     AskGeneral = resp
 End Function
 

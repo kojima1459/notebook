@@ -92,7 +92,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 - status: `done` | `pending` | `partial`(埋め込み未了あり) | `failed` | `image_pdf` | `missing`(同期でファイル消失検知→削除待ち)
 - ダイアログ取込のfile_pathは実パス。パック由来はmanifestに載せない(my_knowledge.originで管理)。
 
-**my_stats** 列: `key, value, updated_at`(key例: `ask_quick_total`, `ask_deep_total`, `selfsolve_total`, `hint_total`, `fail_total`, `ingest_files_total`, `pack_export_total`, `pack_import_total`, `streak_days`, `last_used_date`, `badge:<id>`=取得日)
+**my_stats** 列: `key, value, updated_at`(key例: `ask_quick_total`, `ask_deep_total`, `ask_thorough_total`, `selfsolve_total`, `hint_total`, `fail_total`, `ingest_files_total`, `pack_export_total`, `pack_import_total`, `streak_days`, `last_used_date`, `badge:<id>`=取得日)
 
 **usage_log** 列: `timestamp, event, mode, detail, latency_ms, hit_count`
 (event: `ask` / `feedback_green` / `feedback_yellow` / `feedback_red` / `ingest` / `sync` / `pack_export` / `pack_import` / `diag`)
@@ -101,7 +101,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 
 ## 5. config キー台帳(config シート A=key, B=value, C=説明(日本語))
 
-**注: configの正典は `build/build_mybookshelf.py` の `build_config_rows()` 関数(103キー)です。本表は概要であり、既定値・全キーはビルドスクリプトを参照してください。**
+**注: configの正典は `build/build_mybookshelf.py` の `build_config_rows()` 関数(2026-08-03時点で約120キー)です。本表は概要であり、既定値・全キーはビルドスクリプトを参照してください。キー数は要件ごとに増えるため、この文に固定値は書かない。**
 
 | key | 既定値 | 意味 |
 |---|---|---|

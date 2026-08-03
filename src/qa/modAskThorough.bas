@@ -13,28 +13,30 @@ Option Explicit
 '   本当に検索結果に在るかを機械的に確かめる仕組みは1つも無かった
 '   (=存在しない資料名やページを堂々と引用しても誰も気付けない)。
 '
-'   そこで入念だけを別の道筋にする。段は5つ:
-'     (1) 資料の要点整理 … 抜粋を1回のLLM呼び出しで質問に関係する部分だけへ畳む
-'     (2) 下書き         … 要点+原文のハイブリッドを根拠に書かせる(effort=high)
-'     (3) 自己批判       … 自分の下書きの問題点【だけ】を挙げさせる(書き直させない)
-'     (4) 検証           … 指摘を踏まえて本棚抜粋と照合し直させる(effort=high)
-'     (5) 出典突合       … 回答中の出典タグを hits() と機械的に照合する(LLM不使用)
+'   そこで入念だけを別の道筋にする。段は6つ(番号は modMode.AskStageIndex の
+'   実況番号と同じ並び。(1)は検索側=modAskRetrieve が担当する):
+'     (1) 再ランク       … 入念だけ専用の effort で候補を並べ直す(modMode.RerankEffort)
+'     (2) 資料の要点整理 … 抜粋を1回のLLM呼び出しで質問に関係する部分だけへ畳む
+'     (3) 下書き         … 要点+原文のハイブリッドを根拠に書かせる(effort=high)
+'     (4) 自己批判       … 自分の下書きの問題点【だけ】を挙げさせる(書き直させない)
+'     (5) 検証           … 指摘を踏まえて本棚抜粋と照合し直させる(effort=high)
+'     (6) 出典突合       … 回答中の出典タグを hits() と機械的に照合する(LLM不使用)
 '   quick / deep は1行も変わらない。
 '
 ' 設計判断:
-'   ・(3)で書き直しまでさせない。「指摘と修正を1回でやれ」と言うと、モデルは
+'   ・(4)で書き直しまでさせない。「指摘と修正を1回でやれ」と言うと、モデルは
 '     指摘を軽くして自分の文章を守る。指摘だけを吐かせてから、別の呼び出しに
 '     直させるほうが、実際に消える断定の数が多い。
-'   ・(1)と(3)は補助段。失敗しても回答自体は成立するので、握って先へ進み
+'   ・(2)と(4)は補助段。失敗しても回答自体は成立するので、握って先へ進み
 '     usage_log に痕跡だけ残す(憲章§4-1: 無言の失敗禁止、ただし止めない)。
-'     下書き(2)の失敗だけは #ERR: をそのまま返して呼び出し元に処理させる。
-'   ・(5)は純ロジック。LLMに「出典が正しいか」を聞いても、聞かれたモデルは
+'     下書き(3)の失敗だけは #ERR: をそのまま返して呼び出し元に処理させる。
+'   ・(6)は純ロジック。LLMに「出典が正しいか」を聞いても、聞かれたモデルは
 '     自分が書いたタグを肯定する。文字列として在るか無いかを数えるだけの
 '     検査は、遅くもなく、嘘もつかない。突合の基準になるタグの形は
 '     modPrompts.SourceTag が単一情報源(指示する形と検査する形が別々に
 '     なった瞬間、この検査は全件不一致か全件一致のどちらかに退化する)。
 '   ・Excelオブジェクトには一切触れない。実況は modAskRetrieve.ShowAskStage
-'     へ委ね、(5)の純関数群は LibreOffice の実行テストから直接呼ぶ
+'     へ委ね、(6)の純関数群は LibreOffice の実行テストから直接呼ぶ
 '     (tools/run_lo_tests.py の PURE_ALLOWLIST に登録済み)。
 ' ============================================================================
 
@@ -47,6 +49,21 @@ Public Const UNVERIFIED_MARK As String = "(出典確認できず)"
 ' 1回の回答から拾う出典タグの上限(異常な応答でループを長引かせないため)。
 Private Const MAX_CITE_TAGS As Long = 64
 
+' 資料名に "]" を含むファイル名(report[1].pdf 等)を救済するとき、
+' タグの終端を次の "]" まで伸ばす回数の上限(2026-08-03 R14-G3)。
+Private Const MAX_TAG_EXTEND As Long = 2
+
+' 検証段が落ちたターンの内部注記(2026-08-03 R14-G11)。回答本文には混ぜず、
+' 呼び出し元(modAsk)が深掘り候補の整形【後】に足す。本文へ混ぜると
+' mLastCleanAnswer=会話履歴と「解決済みQ&A」の部内共有にまで注記が入り、
+' 「人が確認した回答」として配られる文面が内部事情で汚れる(deepと同型)。
+Private mVerifyNote As String
+
+' VerifyNote - 直近の入念モード実行で検証段が落ちたときの注記(無ければ空)。
+Public Function VerifyNote() As String
+    VerifyNote = mVerifyNote
+End Function
+
 ' ----------------------------------------------------------------------------
 ' RunThoroughFlow - 入念モードの本体。戻り値は最終回答本文、または "#ERR:…"。
 '   ok = True のとき呼び出し元(modAsk)が深掘り候補の整形と履歴登録を行う。
@@ -55,19 +72,20 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
                                 ByRef ok As Boolean, ByVal history As String, _
                                 ByVal prevU As String, ByVal prevA As String) As String
     ok = False
+    mVerifyNote = ""
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
     Dim lat As Long
 
-    ' --- (1) 資料の要点整理 -------------------------------------------------
+    ' --- (2) 資料の要点整理 -------------------------------------------------
     modAskRetrieve.ShowAskStage "digest"
     Dim digest As String
     digest = modGateway.CallLLM(modPrompts.BuildSourceDigestPrompt(q, hits, nHits), _
         "thorough_digest", modConfig.GetString("thorough_digest_effort", "low"), _
         "medium", mdl, lat)
-    If modAsk.IsErrorResponse(digest) Then
+    If modRagParse.IsErrorResponse(digest) Then
         ' 要点整理は「あれば効く」補助段。ここで止めると、資料は揃っているのに
         ' 答えが出ないという一番惜しい失敗になる。原文だけで下書きへ進む。
         On Error Resume Next
@@ -78,14 +96,14 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
         digest = modAsk.ApplyAnswerTags(digest)
     End If
 
-    ' --- (2) 下書き ---------------------------------------------------------
+    ' --- (3) 下書き ---------------------------------------------------------
     modAskRetrieve.ShowAskStage "draft"
     Dim draft As String
     draft = modGateway.CallLLM( _
         modPrompts.BuildDeepDraftPrompt(q, hits, nHits, history, strictG, ansTags, digest), _
         "thorough_draft", modConfig.GetString("thorough_draft_effort", "high"), _
         modConfig.GetString("thorough_draft_verbosity", "high"), mdl, lat, prevU, prevA)
-    If modAsk.IsErrorResponse(draft) Then
+    If modRagParse.IsErrorResponse(draft) Then
         RunThoroughFlow = draft
         Exit Function
     End If
@@ -93,7 +111,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     Dim draftBody As String
     draftBody = modAsk.ApplyAnswerTags(draft)
 
-    ' --- (3) 自己批判(指摘のみ。書き直しはさせない) -----------------------
+    ' --- (4) 自己批判(指摘のみ。書き直しはさせない) -----------------------
     modAskRetrieve.ShowAskStage "critique"
     Dim critique As String
     ' 冗長性は最小で固定する。この段の出力は「番号付きの指摘」だけで、
@@ -101,7 +119,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, draftBody, hits, nHits), _
         "thorough_critique", modConfig.GetString("thorough_critique_effort", "medium"), _
         "low", mdl, lat)
-    If modAsk.IsErrorResponse(critique) Then
+    If modRagParse.IsErrorResponse(critique) Then
         On Error Resume Next
         modLog.LogUsage "thorough_critique_skip", MODE_THOROUGH, modUtil.SafeLeft(critique, 120)
         On Error GoTo 0
@@ -110,7 +128,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
         critique = modAsk.ApplyAnswerTags(critique)
     End If
 
-    ' --- (4) 検証(指摘を踏まえて抜粋と照合し直す) -------------------------
+    ' --- (5) 検証(指摘を踏まえて抜粋と照合し直す) -------------------------
     modAskRetrieve.ShowAskStage "verify"
     Dim verified As String
     verified = modGateway.CallLLM( _
@@ -120,19 +138,22 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
 
     ok = True
     Dim body As String
-    If modAsk.IsErrorResponse(verified) Then
-        body = draftBody & vbLf & vbLf & _
+    If modRagParse.IsErrorResponse(verified) Then
+        ' 注記は本文へ混ぜない(mVerifyNoteの宣言部を参照)。呼び出し元が
+        ' 深掘り候補の整形後に足すので、履歴にも部内共有にも入らない。
+        body = draftBody
+        mVerifyNote = vbLf & vbLf & _
             "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
     Else
         body = modAsk.ApplyAnswerTags(verified)
     End If
 
-    ' --- (5) 出典の機械的突合 -----------------------------------------------
+    ' --- (6) 出典の機械的突合 -----------------------------------------------
     RunThoroughFlow = AnnotateAgainstHits(body, hits, nHits)
 End Function
 
 ' ============================================================================
-' (5) 出典突合 ― ここから下は純ロジック(LibreOfficeの実行テストで固定する)
+' (6) 出典突合 ― ここから下は純ロジック(LibreOfficeの実行テストで固定する)
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -274,14 +295,60 @@ Public Function AnnotateCitations(ByVal answerText As String, ByVal citeIndex As
     Dim prev As Long: prev = 0
     Dim i As Long
     For i = 0 To n - 1
-        outS = outS & Mid$(answerText, prev + 1, tagEnd(i) - prev)
-        prev = tagEnd(i)
-        If Not TagIsKnown(tags(i), citeIndex) Then
-            outS = outS & UNVERIFIED_MARK
-            mismatchN = mismatchN + 1
+        ' 伸ばしたタグが次のタグを飲み込んだ場合は、その次のタグを飛ばす
+        ' (同じ範囲を二度書き出さない。Mid$の長さが負になる事故も防ぐ)。
+        If tagEnd(i) > prev Then
+            Dim tg As String: tg = tags(i)
+            Dim te As Long: te = tagEnd(i)
+            Dim known As Boolean
+            known = ResolveTag(answerText, citeIndex, tg, te)
+            outS = outS & Mid$(answerText, prev + 1, te - prev)
+            prev = te
+            If Not known Then
+                outS = outS & UNVERIFIED_MARK
+                mismatchN = mismatchN + 1
+            End If
         End If
     Next i
     outS = outS & Mid$(answerText, prev + 1)
 
     AnnotateCitations = outS
+End Function
+
+' ----------------------------------------------------------------------------
+' ResolveTag - タグが突合表に在るかを判定し、必要なら終端を伸ばして再判定する
+'   (2026-08-03 R14-G3)。
+' ----------------------------------------------------------------------------
+' 実機の資料には "report[1].pdf" のように名前へ "]" を含むものが普通にある
+' (ブラウザやメールの重複ダウンロードが自動で付ける番号)。抽出は最初の "]"
+' で切るため、そのままでは
+'   ・突合表(正しい形は "[本棚:report[1].pdf p.3]")と一致せず全件が不一致になり
+'   ・「(出典確認できず)」がタグの途中("report[1]" の直後)へ差し込まれて
+'     残りの ".pdf p.3]" が本文に取り残される
+' という二重の壊れ方をする。次の "]" まで最大MAX_TAG_EXTEND回だけ伸ばして
+' 再照合し、一致したらタグ本体と終端位置の両方をその位置へ更新する。
+' 伸ばして一致しなければ元のまま(=不一致として付記)へ戻る。
+Private Function ResolveTag(ByVal s As String, ByVal citeIndex As String, _
+                            ByRef tag As String, ByRef tagEndPos As Long) As Boolean
+    ResolveTag = TagIsKnown(tag, citeIndex)
+    If ResolveTag Then Exit Function
+
+    Dim startPos As Long
+    startPos = tagEndPos - Len(tag) + 1
+    If startPos < 1 Then Exit Function
+
+    Dim e As Long: e = tagEndPos
+    Dim k As Long
+    For k = 1 To MAX_TAG_EXTEND
+        e = InStr(e + 1, s, "]")
+        If e = 0 Then Exit Function
+        Dim cand As String
+        cand = Mid$(s, startPos, e - startPos + 1)
+        If TagIsKnown(cand, citeIndex) Then
+            tag = cand
+            tagEndPos = e
+            ResolveTag = True
+            Exit Function
+        End If
+    Next k
 End Function

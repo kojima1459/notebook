@@ -207,6 +207,8 @@ Private Sub ShowQuestionsFromKnowledge()
     Dim sig As String: sig = KnowledgeSignature()
     Dim cached As String: cached = modState.LoadState(QCACHE_KEY, "")
 
+    ' R14-G4a: この分岐は SetStage の【前】なので実況は出ていない(出す前に
+    ' 戻る経路では消す必要も無い)。以降の経路は必ず SetStage "" で閉じる。
     If LenB(cached) > 0 And LenB(sig) > 0 And sig = modState.LoadState(QSRCSIG_KEY, "") Then
         modUI.AddChatBubble "ai", _
             ChrW(&HD83D) & ChrW(&HDCA1) & " お使いの資料から、そのまま聞ける質問です。押すだけで答えます。"
@@ -235,6 +237,9 @@ Private Sub ShowQuestionsFromKnowledge()
     End If
 
     If LenB(qs) = 0 Then
+        ' R14-G4a: 失敗経路でも実況を必ず消す。残すと「質問例を作成中…」が
+        ' 出たまま固まったように見える(押した結果が失敗でも、動きは止める)。
+        modUIMain.SetStage ""
         modUI.AddChatBubble "ai", _
             ChrW(&HD83D) & ChrW(&HDCA1) & " すぐ押せる質問はまだありません。" & vbLf & _
             "資料を取り込むと、ここに質問例が並びます。"
@@ -243,6 +248,7 @@ Private Sub ShowQuestionsFromKnowledge()
 
     modState.SaveState QCACHE_KEY, qs
     modState.SaveState QSRCSIG_KEY, sig
+    modUIMain.SetStage ""
     modUI.AddChatBubble "ai", _
         ChrW(&HD83D) & ChrW(&HDCA1) & " お使いの資料から、そのまま聞ける質問です。押すだけで答えます。"
     Draw
@@ -266,7 +272,18 @@ End Function
 ' 資料の状態の指紋(my_manifestの件数+直近処理時刻の最大値)。取込・削除・
 ' 再取込のいずれでも変わるので、キャッシュの有効/無効判定に使える
 ' (7b: 取込側の変更は不要。ここが自然に変わるだけで失効する)。
+'
+' R14-G6:
+'   ・比較を文字列から日付シリアル値(CDbl)へ変えた。処理時刻は書式が
+'     端末の地域設定に従うため、文字列比較では "2026/8/3" < "2026/12/1" が
+'     成り立たない日付並びがあり、指紋が最新を追わない端末が出る。
+'     数値のシリアルなら大小はどの地域設定でも同じ。日付として読めない
+'     セル(空・文字列)は0として無視する。
+'   ・manifestが無い/空のときは "0_0" を返す(旧実装は空文字で、呼び出し側の
+'     「LenB(sig)>0」条件によりキャッシュが一切効かず、資料が1件も無い端末で
+'     質問例の生成を毎回やり直していた)。指紋としても「0件」は正しい値。
 Private Function KnowledgeSignature() As String
+    KnowledgeSignature = "0_0"
     On Error Resume Next
     Dim wsM As Worksheet
     Set wsM = ThisWorkbook.Worksheets(modAppDef.SH_MANIFEST)
@@ -274,17 +291,29 @@ Private Function KnowledgeSignature() As String
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
     If lastM < 2 Then Exit Function
 
-    ' 列2(fileName)～列8(処理時刻)を一括読み(複数列なので1行でも2次元配列。
-    ' 単一セル範囲のスカラー化を避けるための定石)。
+    ' 読めなくても件数だけの指紋は返す(空文字にしない=キャッシュは効く)。
+    KnowledgeSignature = (lastM - 1) & "_0"
+
+    ' 列8(処理時刻)だけを一括読み(1列でも複数行なので2次元配列。
+    ' 単一セル範囲のスカラー化を避けるため lastM>=2 を先に確かめてある)。
     Dim arr As Variant
-    arr = wsM.Range(wsM.Cells(2, 2), wsM.Cells(lastM, 8)).Value
-    Dim maxStamp As String
+    arr = wsM.Range(wsM.Cells(2, 8), wsM.Cells(lastM, 8)).Value
+    If IsEmpty(arr) Then Exit Function
+
+    Dim maxStamp As Double
     Dim i As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
-        Dim s As String: s = CStr(arr(i, 7))   ' 列8 = 配列オフセット7
-        If s > maxStamp Then maxStamp = s
+        Dim d As Double
+        d = 0
+        Err.Clear
+        d = CDbl(arr(i, 1))      ' 日付として読めない値(空・文字列)は0のまま
+        If Err.Number <> 0 Then
+            d = 0
+            Err.Clear
+        End If
+        If d > maxStamp Then maxStamp = d
     Next i
-    KnowledgeSignature = (lastM - 1) & "_" & maxStamp
+    KnowledgeSignature = (lastM - 1) & "_" & CStr(maxStamp)
     On Error GoTo 0
 End Function
 
@@ -319,39 +348,65 @@ Private Function RecentSourceDigest(ByVal maxN As Long, ByVal maxCharsEach As Lo
     On Error GoTo 0
 End Function
 
-' my_knowledgeを一括読みし、指定した資料名(最大QGEN_MAXSRC件)それぞれの
-' 最初に見つかったチャンクの本文冒頭を拾う(EnsurePreviewIndexと同型の
-' 「1回の一括読みで済ませる」作法。呼び出しは生成が要るときだけなので
-' 頻度は低い)。
+' 指定した資料名(最大QGEN_MAXSRC件)それぞれについて、my_knowledge で最初に
+' 見つかったチャンクの本文冒頭を拾う。
+'
+' R14-G4b(メモリ): 従来は列2～列7(=source..full_text)を全行まとめて配列へ
+'   読み込んでいた。full_text はチャンク本文そのもの(1件あたり数百～数千字)
+'   なので、数万チャンク入っている端末では【必要なのは8件の冒頭200字だけ】
+'   なのに数百MBのVariant配列を作ることになり、質問例ボタンを押しただけで
+'   メモリ不足(実行時エラー7)や長い無反応が起きる。
+'   照合に要るのは資料名(列2)だけなので、まず列2だけを読んで該当行の行番号を
+'   決め、本文は決まった行の full_text セルだけを個別に読む(最大8セル)。
+' 失敗時は無言で握らず usage_log に残す(質問例が出ない理由が追える)。
 Private Sub LoadFirstChunkPreviews(ByRef srcNames() As String, ByVal n As Long, _
                                    ByVal maxCharsEach As Long, ByRef outPreviews() As String)
-    On Error Resume Next
+    On Error GoTo PreviewFail
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
     If ws Is Nothing Then Exit Sub
     Dim lastK As Long: lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Sub
 
-    Dim arr As Variant
-    arr = ws.Range(ws.Cells(2, 2), ws.Cells(lastK, 7)).Value  ' 2=source .. 7=full_text
-    Dim found() As Boolean: ReDim found(0 To n - 1)
+    Dim srcs As Variant
+    srcs = ws.Range(ws.Cells(2, 2), ws.Cells(lastK, 2)).Value   ' 列2=source のみ
+    If IsEmpty(srcs) Then Exit Sub
+
+    Dim rowOf() As Long: ReDim rowOf(0 To n - 1)
     Dim foundCount As Long: foundCount = 0
 
     Dim i As Long, j As Long
-    For i = LBound(arr, 1) To UBound(arr, 1)
+    For i = LBound(srcs, 1) To UBound(srcs, 1)
         If foundCount >= n Then Exit For
-        Dim nm As String: nm = CStr(arr(i, 1))
-        For j = 0 To n - 1
-            If Not found(j) Then
-                If StrComp(nm, srcNames(j), vbTextCompare) = 0 Then
-                    outPreviews(j) = modUtil.SafeLeft(CStr(arr(i, 6)), maxCharsEach)
-                    found(j) = True
-                    foundCount = foundCount + 1
-                    Exit For
+        Dim nm As String: nm = CStr(srcs(i, 1))
+        If LenB(nm) > 0 Then
+            For j = 0 To n - 1
+                If rowOf(j) = 0 Then
+                    If StrComp(nm, srcNames(j), vbTextCompare) = 0 Then
+                        rowOf(j) = i + 1        ' 配列先頭=シート2行目
+                        foundCount = foundCount + 1
+                        Exit For
+                    End If
                 End If
-            End If
-        Next j
+            Next j
+        End If
     Next i
+    srcs = Empty        ' 資料名の一括読みはここで解放(残すのは行番号だけ)
+
+    ' 本文は決まった行だけ(最大QGEN_MAXSRC件)を個別に読む。
+    For j = 0 To n - 1
+        If rowOf(j) > 0 Then
+            outPreviews(j) = modUtil.SafeLeft(CStr(ws.Cells(rowOf(j), 7).Value), maxCharsEach)
+        End If
+    Next j
+    Exit Sub
+
+PreviewFail:
+    Dim pfDesc As String: pfDesc = Err.Description
+    Resume PreviewCleanup
+PreviewCleanup:
+    On Error Resume Next
+    modLog.LogUsage "qgen_preview_fail", "", modUtil.SafeLeft(pfDesc, 200)
     On Error GoTo 0
 End Sub
 

@@ -11,6 +11,39 @@ Option Explicit
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
+' "#ERR:…" 応答の判定と文言化(2026-08-03 R14-G1: modAsk から移設)
+' ----------------------------------------------------------------------------
+' modGateway.CallLLM の失敗は "#ERR:コード:説明" という応答文字列で返る契約
+' なので、その読み取りも「LLM応答のパース」であり、ここが正しい置き場所。
+' modAsk / modAskRetrieve / modAskThorough の3モジュールが同じ判定を使う。
+' 副作用は無い(modLog.FriendlyMessage は Select Case だけの純ロジック)。
+Public Function IsErrorResponse(ByVal s As String) As Boolean
+    IsErrorResponse = (Left$(s, 5) = "#ERR:")
+End Function
+
+' "#ERR:…" を利用者向けの1文へ。コードが読めないときは E0202(API失敗)。
+Public Function BuildErrorAnswer(ByVal errResp As String) As String
+    Dim code As String
+    code = ExtractErrorCode(errResp)
+    If LenB(code) = 0 Then code = "E0202"
+    BuildErrorAnswer = modLog.FriendlyMessage(code) & vbLf & "(コード: " & code & ")"
+End Function
+
+' "#ERR:E0202:説明..." -> "E0202"
+Private Function ExtractErrorCode(ByVal s As String) As String
+    If Left$(s, 5) <> "#ERR:" Then Exit Function
+    Dim rest As String
+    rest = Mid$(s, 6)
+    Dim p As Long
+    p = InStr(rest, ":")
+    If p = 0 Then
+        ExtractErrorCode = rest
+    Else
+        ExtractErrorCode = Left$(rest, p - 1)
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
 ' ParseExpand - クエリ拡張応答から <standalone>/<subqueries>/<hyde> を抽出。
 '   standaloneが取れたらTrue。取れなければ standalone="" でFalse
 '   (呼び出し側が元質問へ退化する)。subsは空でも必ず初期化済みで返る。
@@ -164,6 +197,11 @@ End Function
 '   1行1問想定のLLM応答をTrim・空行除去・先頭の番号/箇条書き記号の除去の
 '   うえ、先頭maxN件だけ拾い"|"区切りへ畳む(modStarter.Drawが読む形式は
 '   modSeed.SeedQuestionsと同じ"|"区切りのため、描画路を1本に保てる)。
+'
+' R14-G5: 質問文そのものに "|" が入っていると、区切り文字と衝突して1問が
+'   2つのボタンへ割れる(後半は文の途中から始まる意味不明なボタンになる)。
+'   区切りに使う以上、要素側からは必ず落とす。消すのではなく全角の "／" へ
+'   置換して、元が並列の列挙だったことを読めるまま残す。
 ' ----------------------------------------------------------------------------
 Public Function ParseQuestionLines(ByVal resp As String, ByVal maxN As Long) As String
     If maxN < 1 Then Exit Function
@@ -177,6 +215,7 @@ Public Function ParseQuestionLines(ByVal resp As String, ByVal maxN As Long) As 
     For i = LBound(lines) To UBound(lines)
         If cnt >= maxN Then Exit For
         Dim q As String: q = StripQuestionNumbering(Trim$(lines(i)))
+        q = Trim$(Replace(q, "|", ChrW(&HFF0F)))
         If LenB(q) > 0 Then
             sb = sb & IIf(LenB(sb) > 0, "|", "") & q
             cnt = cnt + 1

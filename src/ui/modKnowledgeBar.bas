@@ -62,7 +62,9 @@ End Function
 '   正体。ここでツールバーの「実際に使っている右端」を先に計算し、
 '   DrawChrome側がピルの右アンカーをそこへ合わせる。
 ' 戻り値: 全段のうち最も右まで到達したボタンの右端X(pt)。ボタンが0個の
-'   ときは0を返す(呼び出し側がL+200未満をフォールバック判定に使う)。
+'   ときは0を返す(R14-G13: 呼び出し側は「L+TB_PAD以下=縮退」だけを
+'   フォールバック条件にする。少ボタン構成でも整列の恩恵を受けられるよう、
+'   「右端が手前にある」こと自体は異常値として扱わない)。
 Public Function ToolbarContentRight(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                                     ByVal L As Double, ByVal W As Double) As Double
     Dim caps() As String, acts() As String, kinds() As String

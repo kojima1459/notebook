@@ -81,14 +81,19 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ' R14-2a(実機第3報 RC10): ピルは帯の右端(L+W-8)へ密着させていたが、
     ' ツールバーはボタン数が減ると帯の右端まで届かず、両者の右端が
     ' 食い違って見えていた。ツールバーの実際の右端へピルの右アンカーを
-    ' 合わせる(異常値=帯の右端付近まで届いていないときはL+W-8へ戻す。
-    ' 200pt未満は「計算が壊れた」とみなせる下限)。isTable/isSharedは
-    ' 下のDrawToolbar呼び出しと同じ値(このSub内で唯一の判定)。
+    ' 合わせる。isTable/isSharedは下のDrawToolbar呼び出しと同じ値
+    ' (このSub内で唯一の判定)。
+    ' R14-G13: フォールバック条件を「L+200未満」から「値が縮退しているとき」
+    ' へ変えた。ボタンが少ない端末ほどツールバーの右端は左に来るのに、
+    ' L+200 未満だと丸ごとフォールバックして帯の右端(L+W-8)へ戻り、
+    ' 【この修正が一番効くはずの構成】でだけ整列しないという逆転が起きていた。
+    ' 縮退=ボタン0個(ToolbarContentRightは0を返す)か、左余白(TB_PAD=8)にも
+    ' 届かない値。そのときだけ従来の右端へ倒す。
     Dim tbRight As Double
     On Error Resume Next
     tbRight = modKnowledgeBar.ToolbarContentRight(isTable, isShared, L, W)
     On Error GoTo Fail
-    If tbRight < L + 200 Then tbRight = L + W - 8
+    If tbRight <= L + 8 Then tbRight = L + W - 8
 
     Dim pxs() As Double, prows() As Long, pws() As Double
     Dim pillRowN As Long
@@ -376,10 +381,14 @@ Public Sub OnGoGallery()
     ' 見た目が変わらない=憲章§3-1違反)。押下前のモードを CurrentMode()
     ' (右肩ピルのactives()判定と同じ唯一の情報源)で控えておき、既に
     ' ギャラリーだった場合だけ再描画後にトーストで「効いた」ことを伝える。
+    ' R14-G8: トーストを出すのは【描き直しに成功したとき】だけ。失敗しても
+    ' 「表示を更新しました」を出していたため、ShowVaultGallery が出した
+    ' 「描き直せませんでした」を自分で上書きし、壊れているのに成功に見えていた。
     Dim wasGallery As Boolean: wasGallery = (CurrentMode() = "gallery")
     On Error Resume Next
-    modVaultGallery.ShowVaultGallery
-    If wasGallery Then modSkin.ShowToast "表示を更新しました", "info", True
+    Dim drawOk As Boolean
+    drawOk = modVaultGallery.ShowVaultGallery()
+    If wasGallery And drawOk Then modSkin.ShowToast "表示を更新しました", "info", True
     On Error GoTo 0
     modUiLock.Leave
 End Sub

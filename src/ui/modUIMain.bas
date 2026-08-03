@@ -738,8 +738,13 @@ Private Sub PaintModeButton(ByVal ws As Worksheet, ByVal shapeName As String, By
     End If
 End Sub
 
+' R14-G14: 入念(thorough)が抜けていて、3つ目のモードでは「すぐ聞く」の
+'   キャプションが出ていた(所要2～4分の待ちを10～20秒と名乗る=憲章§3-2違反)。
+'   絵文字と所要時間は modMode.Caption / modMode.Description に合わせる。
 Private Function ModeCaption(ByVal mode As String) As String
-    If mode = "deep" Then
+    If mode = "thorough" Then
+        ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD2C) & " 入念に調べる (2～4分)"
+    ElseIf mode = "deep" Then
         ModeCaption = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる (1～2分)"
     Else
         ModeCaption = ChrW(&H26A1) & " すぐ聞く (10～20秒)"

@@ -193,7 +193,7 @@ End Function
 '   ・行頭 "# " / "## " / "### " → "■ "
 '   ・**強調** → 【強調】
 '   ・行頭 "- " / "* " → "・"
-'   ・空行3つ以上 → 1つ
+'   ・空行2つ以上 → 1つ
 '   ・■見出しの前には必ず空行を1つ(先頭行を除く)
 '   改行は vbLf に統一して返す(vbCr への変換は AnswerParagraphs の担当)。
 Public Function NormalizeAnswerText(ByVal s As String) As String
@@ -219,8 +219,10 @@ Public Function NormalizeAnswerText(ByVal s As String) As String
             If wrote Then
                 Dim gap As Long
                 gap = blanks
-                ' 空行3つ以上は「間が空きすぎ」ではなく体裁の事故なので1つへ畳む。
-                If gap > 2 Then gap = 1
+                ' R14-G9: 空行が2つ以上続くのは体裁の事故(段落の間は1つで
+                ' 足りる)。閾値が「3つ以上」だったため、一番よく出る
+                ' 「空行2つ」だけが畳まれず素通りしていた。
+                If gap >= 2 Then gap = 1
                 ' 見出しの前は必ず1行空ける(直前の本文とくっつくと見出しに見えない)。
                 If gap < 1 And Left$(Trim$(ln), 1) = "■" Then gap = 1
                 Dim g As Long
@@ -265,22 +267,37 @@ Private Function NormalizeAnswerLine(ByVal ln As String) As String
     NormalizeAnswerLine = lead & body
 End Function
 
-' **強調** → 【強調】。中身が空の "****" は記号として残す(そこで打ち切らないと
-' 進まなくなるため。回数の上限も併せて置く)。
+' **強調** → 【強調】。
+' R14-G10:
+'   ・中身が空の "** **" で【打ち切らない】。そこで Exit Do していたため、
+'     1つでも空ペアが混ざると、それ以降の正しい **強調** が全部 "**" の
+'     生記号のまま画面に出ていた。読み飛ばして走査を続ける。
+'   ・既に【】で囲まれている中身は二重に囲まない(**【重要】** → 【重要】)。
+'     プロンプトの指示どおり【】で書いたうえで太字も付けたモデルの回答が
+'     【【重要】】になり、かえって読みにくかった。
+'   走査位置(pos)を常に前へ進めるので、guard に頼らずとも必ず停止する。
 Private Function ConvertBoldMarks(ByVal s As String) As String
     Dim t As String: t = s
+    Dim pos As Long: pos = 1
     Dim guard As Long
     Do While guard < 200
         Dim a As Long
-        a = InStr(t, "**")
+        a = InStr(pos, t, "**")
         If a = 0 Then Exit Do
         Dim b As Long
         b = InStr(a + 2, t, "**")
         If b = 0 Then Exit Do
         Dim inner As String
-        inner = Mid$(t, a + 2, b - a - 2)
-        If LenB(Trim$(inner)) = 0 Then Exit Do
-        t = Left$(t, a - 1) & "【" & inner & "】" & Mid$(t, b + 2)
+        inner = Trim$(Mid$(t, a + 2, b - a - 2))
+        If LenB(inner) = 0 Then
+            pos = b + 2                      ' 空ペアは記号として残し、先へ進む
+        ElseIf Left$(inner, 1) = "【" And Right$(inner, 1) = "】" Then
+            t = Left$(t, a - 1) & inner & Mid$(t, b + 2)
+            pos = a + Len(inner)
+        Else
+            t = Left$(t, a - 1) & "【" & inner & "】" & Mid$(t, b + 2)
+            pos = a + Len(inner) + 2
+        End If
         guard = guard + 1
     Loop
     ConvertBoldMarks = t

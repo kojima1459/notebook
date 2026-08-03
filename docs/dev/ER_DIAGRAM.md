@@ -106,7 +106,7 @@ erDiagram
 
 | プレフィックス/パターン | 意味 | 書込元 |
 |---|---|---|
-| `ask_quick_total` / `ask_deep_total` | 質問回数 | `modAsk` |
+| `ask_quick_total` / `ask_deep_total` / `ask_thorough_total` | 質問回数(モード別。合計は `modStats.AskTotalAll`) | `modAsk` |
 | `selfsolve_total` / `hint_total` / `fail_total` | フィードバック集計 | `modAsk` |
 | `thanks_received_total` | **感謝受領数(称号・スキン解放の唯一の源泉)** | `modP2P.CollectThanks` |
 | `sv:d:yyyymmdd` / `sv:m:yyyymm` / `sv:y:yyyy` | 節約時間(日/月/年キー。**日付が変われば自動的に別キー=リセット不要**) | `modAsk.FeedbackGreen` |

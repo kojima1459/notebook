@@ -68,7 +68,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
             modConfig.GetString("expand_effort", "low"), _
             modConfig.GetString("expand_verbosity", "low"), exModel, exLat)
 
-        If Not modAsk.IsErrorResponse(exResp) Then
+        If Not modRagParse.IsErrorResponse(exResp) Then
             modRagParse.ParseExpand exResp, standalone, subs, hyde
         End If
     End If
@@ -118,7 +118,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
             modMode.RerankEffort(mdMode, modConfig.GetString("rerank_effort", "low"), _
                                  modConfig.GetString("rerank_effort_thorough", "medium")), _
             modConfig.GetString("rerank_verbosity", "low"), rkModel, rkLat)
-        If Not modAsk.IsErrorResponse(rkResp) Then
+        If Not modRagParse.IsErrorResponse(rkResp) Then
             orderN = modRagParse.ParseRankOrder(rkResp, poolN, rankOrder)
         End If
     End If

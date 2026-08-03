@@ -208,12 +208,13 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
         ElseIf mdMode = MODE_THOROUGH Then
-            ' R14-8a: 入念だけ専用の5段(modAskThorough)。
+            ' R14-8a: 入念だけ専用の6段(modAskThorough)。
             result = modAskThorough.RunThoroughFlow(q, hits, nHits, ok, HistoryBlock(), prevU, prevA)
             If ok Then
-                result = DecorateWithFollowups(result)
+                ' 検証段の注記は整形の【後】(deepと同型。履歴と共有へ混ぜない)。
+                result = DecorateWithFollowups(result) & modAskThorough.VerifyNote()
             Else
-                result = BuildErrorAnswer(result)
+                result = modRagParse.BuildErrorAnswer(result)
             End If
         ElseIf modMode.UseVerify(mdMode) Then
             result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
@@ -414,13 +415,28 @@ End Function
 ' NoteGeneralAnswered - 一般アシスタントの回答を「直近の回答」として記録する
 '   (R14-1b / RC2)。nHits=0・本文空が modMode.ShouldEmitInsight の
 '   「発信しない」根拠(mLastHits は残るが nHits=0 では誰も走査しない)。
-Public Sub NoteGeneralAnswered(ByVal q As String)
+'   a=その回答本文(前のRAG回答が残ると訂正共有が誤爆する。R14-G1)。
+Public Sub NoteGeneralAnswered(ByVal q As String, ByVal a As String)
     mLastQuestion = q
+    mLastAnswer = a
     mLastMode = "general"
     mLastCleanAnswer = ""
     mLastNHits = 0
     mFeedbackDone = False
 End Sub
+
+' NoteAnswerFailed - 回答を作れなかったターン(R14-G2)。感想ボタンは
+'   「まず質問して回答を受け取ってから」で断る=残留状態で撃たせない。
+Public Sub NoteAnswerFailed()
+    mLastQuestion = ""
+    mFeedbackDone = True
+End Sub
+
+' CanShareInsight - 直近回答を部内へ発信してよいか(真理表は
+'   modMode.ShouldEmitInsight)。UI層(modAppAct)の訂正共有も同じ門を通す。
+Public Function CanShareInsight() As Boolean
+    CanShareInsight = modMode.ShouldEmitInsight(mLastMode, mLastNHits)
+End Function
 
 Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
@@ -448,16 +464,15 @@ Public Sub FeedbackGreen()
 
     ' 部内への発信は「本棚の資料を根拠に答えたターン」だけ(理由と真理表は
     ' modMode.ShouldEmitInsight)。R14-1bの一般モード解禁もM-4の誤爆も同型。
+    ' R14-G2: 本文が空=生成に失敗したターン。従来は感謝状だけが飛び、使われて
+    ' いない資料の作者へ嘘が届いていた。共有と同じ条件へ揃える(憲章§3-3)。
     Dim mayEmit As Boolean
-    mayEmit = modMode.ShouldEmitInsight(mLastMode, mLastNHits)
+    mayEmit = CanShareInsight() And (LenB(Trim$(mLastCleanAnswer)) > 0)
     On Error Resume Next
     If mayEmit Then
         modP2P.EmitThanksForLastAnswer   ' 他者の共有ナレッジ由来なら作者へ感謝状(自作/出所不明は送らない)
         ' 共有知フライホイール: 人が正しいと確認したQ&Aは組織の一次情報になる。
-        ' 回答本文は成功ターンでしか更新されないので、中身が空なら送らない。
-        If LenB(Trim$(mLastCleanAnswer)) > 0 Then
-            modInsightIo.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
-        End If
+        modInsightIo.EmitVerifiedQA mLastQuestion, mLastCleanAnswer, LastTopSource()
     End If
     On Error GoTo 0
 
@@ -486,9 +501,10 @@ Public Sub FeedbackRed()
     modStats.Bump "fail_total"
     modLog.LogUsage "feedback_red", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     ' 共有知フライホイール: 答えられなかった質問は「組織に文書が無い領域」の
-    ' 一次情報。資料を書ける人の画面へ自動で流す。
+    ' 一次情報。資料を書ける人の画面へ自動で流す。発信は緑と同じ門を通す
+    ' (一般モードの雑談まで「資料が足りない領域」として流さない)。
     On Error Resume Next
-    modInsightIo.EmitGap mLastQuestion, "wrong"
+    If CanShareInsight() Then modInsightIo.EmitGap mLastQuestion, "wrong"
     On Error GoTo 0
     MsgBox "教えていただきありがとうございます。" & vbCrLf & _
            "この質問は「まだ答えを用意できていない質問」として記録し、" & vbCrLf & _
@@ -502,7 +518,7 @@ Public Sub FeedbackUnsure()
     modStats.Bump "unsure_total"
     modLog.LogUsage "feedback_unsure", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
     On Error Resume Next
-    modInsightIo.EmitGap mLastQuestion, "low_conf"
+    If CanShareInsight() Then modInsightIo.EmitGap mLastQuestion, "low_conf"
     On Error GoTo 0
     MsgBox "ありがとうございます。" & vbCrLf & _
            "「判断がつかない」も立派な情報です。この質問は資料が不足している" & vbCrLf & _
@@ -526,7 +542,7 @@ Private Function FeedbackAccepted() As Boolean
     FeedbackAccepted = True
 End Function
 
-' 内部ヘルパー(すべてPrivate: modAskの公開契約は上記7本のみ)
+' 内部ヘルパー(公開契約の一覧は vba_lint.py の CONTRACT が単一情報源)
 
 
 ' answer_tags時: <answer>抽出+タグ外FOLLOWUP救出+thinkingデバッグ記録。
@@ -576,9 +592,9 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
     Dim resp As String
     resp = modGateway.CallLLM(prompt, "quick_draft", eff, vrb, mdl, latency, prevU, prevA)
 
-    If IsErrorResponse(resp) Then
+    If modRagParse.IsErrorResponse(resp) Then
         ok = False
-        RunQuickFlow = BuildErrorAnswer(resp)
+        RunQuickFlow = modRagParse.BuildErrorAnswer(resp)
     Else
         ok = True
         RunQuickFlow = DecorateWithFollowups(ApplyAnswerTags(resp))
@@ -604,9 +620,9 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     Dim draft As String
     draft = modGateway.CallLLM(draftPrompt, "deep_draft", dEff, dVrb, mdl, latency, prevU, prevA)
 
-    If IsErrorResponse(draft) Then
+    If modRagParse.IsErrorResponse(draft) Then
         ok = False
-        RunDeepFlow = BuildErrorAnswer(draft)
+        RunDeepFlow = modRagParse.BuildErrorAnswer(draft)
         Exit Function
     End If
 
@@ -625,7 +641,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     verified = modGateway.CallLLM(verifyPrompt, "deep_verify", vEff, vVrb, mdl, latency)
 
     ok = True
-    If IsErrorResponse(verified) Then
+    If modRagParse.IsErrorResponse(verified) Then
         RunDeepFlow = DecorateWithFollowups(draftBody) & vbLf & vbLf & _
             "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
     Else
@@ -642,32 +658,6 @@ Private Function TopKFor(ByVal mdMode As String) As Long
     TopKFor = modMode.TopK(mdMode, modConfig.GetLong("topk_quick", 6), _
                            modConfig.GetLong("topk_deep", 12), _
                            modConfig.GetLong("topk_thorough", 16))
-End Function
-
-' modAskRetrieve からも使う(#ERR: 応答を検索の途中で捨てる判定)。
-Public Function IsErrorResponse(ByVal s As String) As Boolean
-    IsErrorResponse = (Left$(s, 5) = "#ERR:")
-End Function
-
-Private Function BuildErrorAnswer(ByVal errResp As String) As String
-    Dim code As String
-    code = ExtractErrorCode(errResp)
-    If LenB(code) = 0 Then code = "E0202"
-    BuildErrorAnswer = modLog.FriendlyMessage(code) & vbLf & "(コード: " & code & ")"
-End Function
-
-' "#ERR:E0202:説明..." -> "E0202"
-Private Function ExtractErrorCode(ByVal s As String) As String
-    If Left$(s, 5) <> "#ERR:" Then Exit Function
-    Dim rest As String
-    rest = Mid$(s, 6)
-    Dim p As Long
-    p = InStr(rest, ":")
-    If p = 0 Then
-        ExtractErrorCode = rest
-    Else
-        ExtractErrorCode = Left$(rest, p - 1)
-    End If
 End Function
 
 ' 定義済み名前(Excel Name)"mb_question"経由でホームの質問セルを読む

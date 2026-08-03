@@ -68,11 +68,18 @@ Private Sub RestoreLastConversation()
     If UBound(aas) < n Then n = UBound(aas)
 
     ' 保存は新しい順なので、古い方から描く(チャットは下が最新)
+    ' R14-G12: 復元したAI回答も、その場で生成した回答と同じ整形を通す
+    ' (modLive.AnswerParagraphs=記法の保険変換+vbCr段落)。通さないと、
+    ' 前回の会話だけが "## " や "**" の生記号・1段落ベタ組みで表示され、
+    ' 起動直後の画面が一番壊れて見える(実機第3報 RC9と同じ見え方)。
     Dim i As Long
     For i = n To 0 Step -1
         If LenB(Trim$(us(i))) > 0 Then
             modUI.AddChatBubble "user", us(i)
-            modUI.AddChatBubble "ai", ChrW(&HD83D) & ChrW(&HDCDC) & "(前回の回答) " & aas(i)
+            Dim bn As String
+            bn = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCDC) & "(前回の回答) " & _
+                modLive.AnswerParagraphs(aas(i)))
+            modLive.StyleAnswerParas bn   ' ■見出しの太字も生成時と同じにする
         End If
     Next i
     On Error GoTo 0

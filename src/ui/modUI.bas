@@ -337,19 +337,22 @@ End Sub
 ' ToggleTheme - ライト/ダーク反転+全体再彩色
 ' R14-6b(実機第3報 RC5-B/C):
 '   (B) 解放済みの特別スキン(sakura/ocean/gold等)使用中に太陽/月トグルを
-'       押すと無警告でdarkへ上書きしていた。light/dark以外のときは上書き
-'       せず、着せ替え(🎨)へ誘導するトーストで案内して抜ける(保存もしない)。
-'   (C) ApplyTheme直後にBeautifyAllを呼んでいなかったため、グラデーション
-'       (ApplyHeaderDepth等)がベタ塗りへ退行していた。InitUI/Repaintと
-'       同じ並びに揃える。
+'       押すと無警告でdarkへ上書きしていた。light/dark以外は上書きせず、
+'       着せ替え(🎨)へ誘導するトーストで抜ける(保存もしない)。
+'   (C) ApplyTheme直後のBeautifyAll漏れでグラデがベタ塗りへ退行していた。
+'       InitUI/Repaintと同じ並びに揃える。
+' R14-G7: 入口の関所を modHub.OnThemeToggle と同型に(取込中の入れ子実行と
+'   連打を止める)。後始末は Leave 1点へ集約。
 Public Sub ToggleTheme()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo ThemeFail
+
     Dim cur As String: cur = modSkin.CurrentTheme()
     If cur <> "light" And cur <> "dark" Then
-        On Error Resume Next
         modSkin.ShowToast "特別スキン使用中です。" & ChrW(&HD83C) & ChrW(&HDFA8) & _
             "着せ替えボタンで変更できます", "info"
-        On Error GoTo 0
-        Exit Sub
+        GoTo ThemeDone
     End If
 
     If cur = "dark" Then
@@ -360,14 +363,17 @@ Public Sub ToggleTheme()
 
     Dim ws As Worksheet
     Set ws = GetNexusSheet()
-    If ws Is Nothing Then Exit Sub
+    If ws Is Nothing Then GoTo ThemeDone
 
     Application.ScreenUpdating = False
     On Error Resume Next   ' 再彩色が中断しても必ず暗転解除へ到達させる
     modSkin.ApplyTheme ws
     modSkin.BeautifyAll ws   ' R14-6b: InitUI/Repaintと同じ並び(グラデ退行の再発防止)
-    On Error GoTo 0
-    Application.ScreenUpdating = True
+    GoTo ThemeDone
+ThemeFail:
+    Resume ThemeDone     ' 後始末前にハンドラを抜ける(2026-07-30 err#462)
+ThemeDone:
+    modUiLock.Leave      ' 暗転解除(ScreenUpdating=True)もLeaveが行う
 End Sub
 
 ' RestoreExcelUI - ネイティブUI復元
@@ -557,21 +563,28 @@ Private Sub DisableUndoRedo()
 End Sub
 
 ' Shape選択解除+アクティブセルpark(スクロール崩壊防止)。
+' R14-G7: 暗転の後は必ずTrueへ戻す(Repaint同型のResume-cleanup)。
 Public Sub ParkFocus()
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub   ' 別ブックの選択状態を汚さない
     Dim ws As Worksheet
     Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
+
     Application.ScreenUpdating = False
+    On Error GoTo ParkFail
     If ws.Name = NEXUS_SHEET Then
         ' 入力セル(nx_input)へpark=Shape解除+次の入力に即備える
         ws.Range("C" & modUINexusDraw.INPUT_ROW).Select
     Else
         ws.Range("A1").Select   ' マイ本棚/Dashboard等は左上(固定領域)へpark
     End If
+    GoTo ParkDone
+ParkFail:
+    Resume ParkDone
+ParkDone:
+    On Error Resume Next
     Application.ScreenUpdating = True
-    On Error GoTo 0
 End Sub
 
 ' 会話履歴を消さずにNexus画面を再描画(手動リフレッシュ用)。

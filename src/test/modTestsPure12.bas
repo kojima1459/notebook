@@ -212,6 +212,50 @@ Private Sub TestAnnotateCitations()
         (r = "[本棚:規約集 p.12]" And mism = 0), "実際=" & r
 End Sub
 
+' ----------------------------------------------------------------------------
+' R14-G3: 資料名に "]" を含むファイル名(report[1].pdf 等。ブラウザやメールの
+'   重複ダウンロードが普通に作る)。タグの抽出は最初の "]" で切るため、
+'   突合表と一致せず【全件が不一致】になり、しかも付記がタグの途中へ入って
+'   本文に ".pdf p.3]" が取り残されていた。次の "]" まで伸ばして再照合する。
+' ----------------------------------------------------------------------------
+Private Sub TestCiteTagWithBracketName()
+    ' 突合表は CiteIndexFrom が作る形(NormalizeCiteTag 済み=空白は落ちている)。
+    Dim idx As String
+    idx = "|[本棚:report[1].pdfp.3]||[パック(山田):月報[2].docx]||[本棚:規約集p.12]|"
+    Dim mism As Long
+    Dim r As String
+
+    ' 伸ばせば一致する: 付記なし・不一致0件・本文が欠けない。
+    r = modAskThorough.AnnotateCitations("結論です。[本棚:report[1].pdf p.3]以上。", idx, mism)
+    modTestRunner.Check "角括弧名_伸ばして一致すれば付記しない", _
+        (InStr(r, modAskThorough.UNVERIFIED_MARK) = 0), "実際=" & r
+    modTestRunner.Check "角括弧名_不一致は0件", (mism = 0), "実際=" & mism
+    modTestRunner.Check "角括弧名_本文は原文のまま", _
+        (r = "結論です。[本棚:report[1].pdf p.3]以上。"), "実際=" & r
+
+    ' パック形式("(" と "]" の両方が混じる形)でも同じ。
+    r = modAskThorough.AnnotateCitations("A[パック(山田):月報[2].docx]B", idx, mism)
+    modTestRunner.Check "角括弧名_パック形式も一致", (mism = 0), "実際=" & r
+
+    ' 伸ばしても知らない資料は不一致。付記は【本当のタグ末尾】の直後へ入る
+    ' (途中へ入れると ".pdf p.9]" が本文に取り残されて読めなくなる)。
+    r = modAskThorough.AnnotateCitations("根拠[本棚:報告[9].pdf p.9]です", idx, mism)
+    modTestRunner.Check "角括弧名_知らない資料は不一致1件", (mism = 1), "実際=" & mism
+    modTestRunner.Check "角括弧名_付記は最初の閉じ括弧の直後(伸ばさない)", _
+        (InStr(r, "[本棚:報告[9]" & modAskThorough.UNVERIFIED_MARK) > 0), "実際=" & r
+
+    ' 伸ばす回数には上限がある(壊れた応答で延々と伸ばさない)。
+    r = modAskThorough.AnnotateCitations("[本棚:a]b]c]d]e] p.1]", idx, mism)
+    modTestRunner.Check "角括弧名_伸ばす上限を超えても止まる", (mism = 1), "実際=" & mism
+
+    ' 正しいタグと角括弧名タグが混在しても、正しい側は触らない。
+    r = modAskThorough.AnnotateCitations( _
+        "X[本棚:規約集 p.12]Y[本棚:report[1].pdf p.3]Z", idx, mism)
+    modTestRunner.Check "角括弧名_混在でも不一致0件", (mism = 0), "実際=" & r
+    modTestRunner.Check "角括弧名_混在でも本文は欠けない", _
+        (InStr(r, "X") > 0 And InStr(r, "Y") > 0 And InStr(r, "Z") > 0), "実際=" & r
+End Sub
+
 ' 検索結果から作る突合表が、LLMへ指示しているタグの形と同じであること。
 ' ここが別実装になると、検査は全件一致か全件不一致へ静かに退化する。
 Private Sub TestCiteIndexFromHits()
@@ -267,10 +311,30 @@ Private Sub TestNormalizeAnswerText()
     modTestRunner.Check "可読性_ハイフン箇条書きは・へ", (NA("- 項目") = "・項目"), "実際=" & NA("- 項目")
     modTestRunner.Check "可読性_アスタリスク箇条書きは・へ", (NA("* 項目") = "・項目"), "実際=" & NA("* 項目")
 
-    ' 空行3つ以上は体裁の事故。1つへ畳む。
+    ' R14-G9: 空行が2つ以上続くのは体裁の事故。1つへ畳む(閾値が「3つ以上」
+    ' だったため、一番よく出る「空行2つ」だけが素通りしていた)。
     Dim many As String: many = "本文1" & vbLf & vbLf & vbLf & vbLf & "本文2"
     modTestRunner.Check "可読性_空行3つ以上は1つへ", _
         (NA(many) = "本文1" & vbLf & vbLf & "本文2"), "実際=" & Replace(NA(many), vbLf, "<LF>")
+    Dim two As String: two = "本文1" & vbLf & vbLf & vbLf & "本文2"
+    modTestRunner.Check "可読性_空行2つも1つへ", _
+        (NA(two) = "本文1" & vbLf & vbLf & "本文2"), "実際=" & Replace(NA(two), vbLf, "<LF>")
+    ' 空行1つ(=段落の正しい区切り)は畳まない。
+    Dim one As String: one = "本文1" & vbLf & vbLf & "本文2"
+    modTestRunner.Check "可読性_空行1つはそのまま", _
+        (NA(one) = "本文1" & vbLf & vbLf & "本文2"), "実際=" & Replace(NA(one), vbLf, "<LF>")
+
+    ' R14-G10: 中身が空の "** **" で走査を打ち切らない(打ち切ると、それ以降の
+    ' 正しい強調が全部 "**" の生記号のまま画面に出る)。
+    modTestRunner.Check "可読性_空の強調記号の後も変換を続ける", _
+        (NA("** **と**重要**") = "** **と【重要】"), "実際=" & NA("** **と**重要**")
+    modTestRunner.Check "可読性_空の強調記号だけなら素通り", _
+        (NA("****") = "****"), "実際=" & NA("****")
+    ' 既に【】で囲まれている中身は二重に囲まない(【【重要】】は読みにくい)。
+    modTestRunner.Check "可読性_既に【】なら二重にしない", _
+        (NA("**【重要】**です") = "【重要】です"), "実際=" & NA("**【重要】**です")
+    modTestRunner.Check "可読性_二重防止の後も次の強調を変換", _
+        (NA("**【A】**と**B**") = "【A】と【B】"), "実際=" & NA("**【A】**と**B**")
 
     ' 見出しの前は必ず1行空ける(直前の本文とくっつくと見出しに見えない)。
     Dim h1 As String: h1 = "本文" & vbLf & "## 次の話"
@@ -297,6 +361,23 @@ End Sub
 Private Function NA(ByVal s As String) As String
     NA = modLive.NormalizeAnswerText(s)
 End Function
+
+' R14-G5: 質問例は "|" 区切りで1本の文字列に畳んでボタンへ配る。質問文
+'   そのものに "|" が入っていると1問が2つのボタンへ割れ、後半は文の途中から
+'   始まる意味不明なボタンになる。区切りに使う以上、要素側からは必ず落とす。
+Private Sub TestQuestionLinePipeStrip()
+    Dim r As String
+    r = modRagParse.ParseQuestionLines("A|B は何ですか" & vbLf & "次の質問", 5)
+    modTestRunner.Check "質問パース_本文の縦棒は区切りにしない", _
+        (r = "A" & ChrW(&HFF0F) & "B は何ですか|次の質問"), "実際=" & r
+    modTestRunner.Check "質問パース_縦棒を含んでも2件のまま", _
+        (UBound(Split(r, "|")) = 1), "実際=" & r
+
+    ' 縦棒だけの行は捨てずに全角へ置換して残る(空行判定と混同しない)。
+    r = modRagParse.ParseQuestionLines("|" & vbLf & "質問1", 5)
+    modTestRunner.Check "質問パース_縦棒だけの行も1件として扱う", _
+        (UBound(Split(r, "|")) = 1), "実際=" & r
+End Sub
 
 Private Sub TestHumanizeKeepsStageNumber()
     Dim r As String
@@ -367,10 +448,12 @@ NextCite:
     On Error GoTo CiteFail
     TestCiteTagParsing
     TestAnnotateCitations
+    TestCiteTagWithBracketName
     TestCiteIndexFromHits
 NextRead:
     On Error GoTo ReadFail
     TestNormalizeAnswerText
+    TestQuestionLinePipeStrip
     TestHumanizeKeepsStageNumber
 NextRemainWait:
     On Error GoTo RemainWaitFail

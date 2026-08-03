@@ -44,7 +44,11 @@ Private mGalleryMaxPage As Long
 ' ギャラリーを表示(SPA遷移)。検索語はシートのD3セル(検索バー)から読む。
 ' uiStep: modUIShelf.EnsureLayoutと同型(2026-07-31 R10-1)。Activate失敗の
 ' 無言スキップ(ギャラリー無反応の原因)を解消し、E0801を必ず1行残す。
-Public Sub ShowVaultGallery()
+' 戻り値(2026-08-03 R14-G8): 描き直しに成功したかどうか。呼び出し元
+'   (modKnowledge.OnGoGallery)が「表示を更新しました」を出してよいのは成功時
+'   だけで、失敗時のトースト(下のE0801経路)を上書きしてはならない。
+'   Subのままだと呼び出し元からは成功も失敗も見分けが付かない。
+Public Function ShowVaultGallery() As Boolean
     Dim ws As Worksheet
     Set ws = GetOrCreateGallerySheet()
     If ws Is Nothing Then
@@ -56,7 +60,7 @@ Public Sub ShowVaultGallery()
         On Error Resume Next
         modSkin.ShowToast "一覧を描き直せませんでした。もう一度お試しください。", "error"
         On Error GoTo 0
-        Exit Sub
+        Exit Function
     End If
 
     Dim uiStep As String
@@ -100,8 +104,9 @@ FinishCleanup4:
         modLog.LogError "E0801", "modVaultGallery.ShowVaultGallery", "[" & uiStep & "] " & gErrDesc, gErrNum
     End If
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
+    ShowVaultGallery = (gErrNum = 0)
     On Error GoTo 0
-End Sub
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 検索・ページ送りの3ハンドラ(2026-07-31 R11-F2)。

@@ -105,7 +105,14 @@ Private Sub RecordCorrection(ByVal fixText As String)
         modStats.AddExp "correction"
         modStats.EvaluateBadges
         ' 修正内容も部内へ共有する。1人の訂正が全員の訂正になる。
-        modInsightIo.EmitCorrection modAsk.LastAnswerText(), fixText
+        ' ただし発信してよいのは「本棚の資料を根拠に答えたターン」だけ
+        ' (真理表は modMode.ShouldEmitInsight、窓口は modAsk.CanShareInsight)。
+        ' 一般アシスタントで答えた直後にここを撃つと、【前のRAG質問の回答】が
+        ' 「訂正の対象になった回答」として部内へ配られる(実機第3報 RC2 と
+        ' 同型の誤爆)。修正ナレッジの個人保存・EXPは判定と無関係に必ず行う。
+        If modAsk.CanShareInsight() Then
+            modInsightIo.EmitCorrection modAsk.LastAnswerText(), fixText
+        End If
         modSkin.ShowToast "ありがとうございます。次に同じ質問をした人から、この内容で答えます。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
