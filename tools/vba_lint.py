@@ -173,8 +173,24 @@ CONTRACT: dict[str, dict] = {
         # modTestsPure6 が境界を固定する。R2によりコア層からoptOcrCoreを呼べず、
         # ページ数の数え方が optOcrCore.GsPageCount と2箇所に分かれているので、
         # 両者の突き合わせもそちらのテストで担保している。
+        # PageArrayCount: 2026-08-03 Phase 0(modExtractorPdf分割)。未初期化/空
+        # 配列でも実行時エラー9を出さずに0件と数える唯一の実装。分割後は
+        # modExtractorPdf.DropGarbledPages も同じ数え方を必要とするため、
+        # 2箇所に同じ実装を置かない目的で公開した(憲章§4-5)。
         "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen",
-                     "GarbledRouteCode", "BuildPagesFromGsText"],
+                     "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount"],
+    },
+    # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractor が28,000字のWARN帯に
+    # 達したための分割先。PDFの3経路フォールバック(GS→Word→Acrobat)、
+    # ローカル一時コピー(共有読み)、文字化けページの除去を持つ。
+    # TempBaseNameFor(R13-2): 一時コピー名 "mbtmp_<FNV-1a 64bit 16桁>.<元拡張子>"
+    # の導出だけを切り出した純ロジック。元ファイル名をそのまま連結する旧方式は
+    # CP932非対応文字(NFD分解濁点 U+3099 等)でディスク上の実名とGhostscriptへ
+    # 渡す文字列が食い違う事故を起こしたため、境界を modTestsPure9 が固定する。
+    "modExtractorPdf": {
+        "closed": True,
+        "required": ["ExtractPdfWithFallback", "CopyToLocalTemp",
+                     "DropGarbledPages", "TempBaseNameFor"],
     },
     "modMode": {
         "closed": True,

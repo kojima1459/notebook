@@ -101,6 +101,13 @@
       "wave": "2-B"
     },
     {
+      "name": "modExtractorPdf",
+      "path": "src/ingest/modExtractorPdf.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R13-Phase0"
+    },
+    {
       "name": "modExtractorWord",
       "path": "src/ingest/modExtractorWord.bas",
       "role": "core",

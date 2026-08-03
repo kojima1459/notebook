@@ -22,6 +22,8 @@ Option Explicit
 '   ・modBitwiseOpt.ShouldPrefilter: binary_rag_auto の真理値表。
 '   ・modSparse.MatchDocText: my_knowledge.norm_text(取込時の前計算)と
 '     検索時のその場計算が1文字も違わないこと。
+'   ・modExtractorPdf.TempBaseNameFor(2026-08-03 R13-2): 一時コピー名が
+'     ASCIIだけで出来ていること・拡張子を落とさないこと・決定的であること。
 ' ============================================================================
 
 ' テスト用の my_vectors 相当(chunk_id, vector_csv)の2列配列を作る。
@@ -219,6 +221,87 @@ Private Sub TestMatchDocTextEquivalence()
         (InStr(precomputed, " ") = 0), "空白が残っている"
 End Sub
 
+' ----------------------------------------------------------------------------
+' modExtractorPdf.TempBaseNameFor - 一時コピー名の導出(R13-2)
+' ----------------------------------------------------------------------------
+' 実機第2報 RC4: 元ファイル名をそのまま連結した mbtmp_ 名は、Mac由来のNFD分解
+' 濁点(U+3099)のようなCP932に無い文字を含むと、クラシックOpen(ANSI経路)が
+' 実際に作るファイル名とGhostscriptへ渡す文字列が食い違い /undefinedfilename に
+' なる。名前がASCIIだけで出来ていること・拡張子を落とさないこと・同じパスなら
+' 必ず同じ名前になることを固定する(ここが崩れると取込が黙って失敗する)。
+Private Sub TestTempBaseNameFor()
+    ' "か"(U+304B)+結合濁点(U+3099) = Mac(NFD)が作る「が」。CP932に無い文字。
+    Dim nfd As String
+    nfd = "C:\Users\eigyo\" & ChrW(&H304B&) & ChrW(&H3099&) & "いよう.PDF"
+
+    Dim nm As String: nm = modExtractorPdf.TempBaseNameFor(nfd)
+    modTestRunner.Check "TempBaseNameFor_NFD結合文字_ASCIIのみ", _
+        IsAsciiOnly(nm), "nm=" & nm
+    modTestRunner.Check "TempBaseNameFor_NFD結合文字_書式(mbtmp_+16桁+拡張子)", _
+        (Left$(nm, 6) = "mbtmp_") And (Len(nm) = 26) And _
+        IsHex16Lower(Mid$(nm, 7, 16)) And (Right$(nm, 4) = ".pdf"), "nm=" & nm
+    modTestRunner.Check "TempBaseNameFor_決定性(同じパスは同じ名前)", _
+        (modExtractorPdf.TempBaseNameFor(nfd) = nm), "nm=" & nm
+
+    ' 既存のFNV実装(modUtil.Fnv1a64Hex・ゴールデン値固定済み)をそのまま使う。
+    ' 別のハッシュへ差し替えると既存の tmp が全部別名になるので機械で止める。
+    modTestRunner.Check "TempBaseNameFor_ハッシュ入力はフルパスそのもの", _
+        (Mid$(nm, 7, 16) = modUtil.Fnv1a64Hex(nfd)), "nm=" & nm
+
+    ' NFD(か+濁点)とNFC(が)は別のパス。ディスク上も別ファイルなので別名になる。
+    Dim nfc As String
+    nfc = "C:\Users\eigyo\" & ChrW(&H304C&) & "いよう.PDF"
+    modTestRunner.Check "TempBaseNameFor_NFDとNFCは別名", _
+        (modExtractorPdf.TempBaseNameFor(nfc) <> nm), "nm=" & nm
+
+    ' 空白入りパス: コマンドラインへ渡す際の引用符崩れを名前側から無くす。
+    Dim spaced As String: spaced = "\\pgiofs01\share\E2T\第 3 部\ご 案内 資料.pdf"
+    Dim nmSp As String: nmSp = modExtractorPdf.TempBaseNameFor(spaced)
+    modTestRunner.Check "TempBaseNameFor_空白入りパス_名前に空白が残らない", _
+        IsAsciiOnly(nmSp) And (InStr(nmSp, " ") = 0), "nmSp=" & nmSp
+
+    ' 長いパス: 元の長さに関係なく名前は「mbtmp_+16桁+拡張子」だけ
+    ' (%TEMP%側でMAX_PATHを超えないための要)。
+    Dim longPath As String
+    longPath = "C:\" & String$(300, "a") & "\" & String$(120, ChrW(&H3042&)) & ".docx"
+    Dim nmLong As String: nmLong = modExtractorPdf.TempBaseNameFor(longPath)
+    modTestRunner.Check "TempBaseNameFor_長パスでも名前の長さは元に依存しない", _
+        (Len(nmLong) = 27) And (Right$(nmLong, 5) = ".docx") And IsAsciiOnly(nmLong), _
+        "len=" & Len(nmLong) & " nmLong=" & nmLong
+
+    ' 拡張子は抽出の振り分けに使うので必ず残す(小文字化される)。
+    Dim nmNoExt As String: nmNoExt = modExtractorPdf.TempBaseNameFor("C:\tmp\README")
+    modTestRunner.Check "TempBaseNameFor_拡張子なしパスは点を付けない", _
+        (InStr(nmNoExt, ".") = 0) And (Len(nmNoExt) = 22), "nmNoExt=" & nmNoExt
+
+    ' 衝突時の連番(既存方式の維持)。全て "mbtmp_" 始まりなので掃除の
+    ' パターンは mbtmp_* のままでよい。
+    Dim nm1 As String: nm1 = modExtractorPdf.TempBaseNameFor(nfd, 1)
+    modTestRunner.Check "TempBaseNameFor_連番_別名かつmbtmp_始まり", _
+        (nm1 <> nm) And (Left$(nm1, 6) = "mbtmp_") And (Right$(nm1, 4) = ".pdf") And _
+        IsAsciiOnly(nm1), "nm1=" & nm1
+End Sub
+
+' 名前がASCII印字可能文字だけで出来ているか(CP932変換で1文字も化けない条件)。
+Private Function IsAsciiOnly(ByVal s As String) As Boolean
+    If Len(s) = 0 Then Exit Function
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim c As Long: c = AscW(Mid$(s, i, 1))
+        If c < 32 Or c > 126 Then Exit Function
+    Next i
+    IsAsciiOnly = True
+End Function
+
+Private Function IsHex16Lower(ByVal s As String) As Boolean
+    If Len(s) <> 16 Then Exit Function
+    Dim i As Long
+    For i = 1 To 16
+        If InStr(1, "0123456789abcdef", Mid$(s, i, 1), vbBinaryCompare) = 0 Then Exit Function
+    Next i
+    IsHex16Lower = True
+End Function
+
 Public Sub RunAll9()
     On Error GoTo VecEquivFail
     TestVecCacheScoreEquivalence
@@ -234,6 +317,9 @@ NextPrefilterAuto:
 NextNormText:
     On Error GoTo NormTextFail
     TestMatchDocTextEquivalence
+NextTempName:
+    On Error GoTo TempNameFail
+    TestTempBaseNameFor
 NextDone9:
     On Error GoTo 0
     Exit Sub
@@ -256,6 +342,10 @@ PrefilterAutoFail:
     Resume NextNormText
 NormTextFail:
     modTestRunner.Check "TestMatchDocTextEquivalence(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextTempName
+TempNameFail:
+    modTestRunner.Check "TestTempBaseNameFor(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone9
 End Sub

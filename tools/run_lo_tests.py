@@ -154,6 +154,15 @@ PURE_ALLOWLIST = [
     #     注入しないと同じく実行時エラー12になり分割先のテストが
     #     「実行されないまま」になる(modTestsPure2追加時と同型の理由)。
     "modExtractor", "modTestsPure3",
+    # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractorの分割先。
+    #   TempBaseNameFor(一時コピー名の導出)が純ロジックで、これを
+    #   modTestsPure9 から呼ぶには本モジュール自体をこの一時ライブラリへ
+    #   注入する必要がある(未注入だと実行時エラー12)。ファイルI/OやCOMを
+    #   使う他の関数はテストから呼ばないので未解決のままでよい(techメモ4)。
+    #   modExtractor 側の PageArrayCount / BuildPagesFromGsText /
+    #   SharedCopyNextChunkLen を参照するが、modExtractor も同じ一時ライブラリに
+    #   入っているため解決できる。
+    "modExtractorPdf",
     # modUtilText(2026-07-31 R11-F2): ページ分割の添字計算 GsPageBounds /
     #   CleanTextLen / BlendPerItemMs / ElapsedMsSince を1本化した共通部品。
     #   optOcrCore.GsPageCount と modExtractor.BuildPagesFromGsText の両方が
