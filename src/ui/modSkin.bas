@@ -499,6 +499,11 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
     End With
     On Error GoTo 0
 
+    ' R14-6c(実機第3報 RC5-E): ここに一括OERNが無かったため、1個のShapeで
+    ' 例外(壊れた参照・保護シートでの書込不可等)が出るとループ全体が
+    ' 止まり、残りのShapeが旧テーマ色のまま取り残されていた。モジュール
+    ' 冒頭の方針(影プロパティはOERN配下)を、色のFill/Line代入にも広げる。
+    On Error Resume Next
     Dim shp As Shape
     For Each shp In ws.Shapes
         Dim nm As String: nm = shp.Name
@@ -529,12 +534,45 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
             PaintBubble shp, False
         ElseIf Left$(nm, 7) = "nx_thk_" Then
             SetShapeTextColor shp, ThemeColor("muted")
+        ElseIf nm = "nx_fchip" Then
+            ' R14-6c(RC5-D): modAppAct.DrawFollowupChipの生成色(accent塗り+
+            ' 枠無し+白文字)と揃える。無いと着せ替え後もチップだけ旧色で残る。
+            shp.Fill.ForeColor.RGB = ThemeColor("accent")
+            shp.Line.Visible = 0
+            SetShapeTextColor shp, RGB(255, 255, 255)
+        ElseIf Left$(nm, 8) = "nx_help_" Then
+            RecolorHelpShape shp, nm
         End If
 NextShp:
     Next shp
+    On Error GoTo 0
+End Sub
+
+' R14-6c(RC5-D): nx_help_*(modHelp.ShowHelpCard生成)の再彩色。生成時の
+' 配色をそのまま踏襲する(modHelp側の配色を変えたらここも合わせること)。
+Private Sub RecolorHelpShape(ByVal shp As Shape, ByVal nm As String)
+    Select Case nm
+        Case "nx_help_card"
+            shp.Fill.ForeColor.RGB = ThemeColor("surface")
+            shp.Line.ForeColor.RGB = ThemeColor("primary")
+            SetShapeTextColor shp, ThemeColor("text")
+        Case "nx_help_manual"
+            shp.Fill.ForeColor.RGB = ThemeColor("primary")
+            SetShapeTextColor shp, RGB(255, 255, 255)
+        Case "nx_help_tour", "nx_help_fb"
+            shp.Fill.ForeColor.RGB = ThemeColor("surface")
+            shp.Line.ForeColor.RGB = ThemeColor("accent")
+            SetShapeTextColor shp, ThemeColor("accent")
+        Case Else
+            ' cfg/skin/migout/migin/diag(AddHelpActionの共通配色)。
+            shp.Fill.ForeColor.RGB = ThemeColor("surface")
+            shp.Line.ForeColor.RGB = ThemeColor("border")
+            SetShapeTextColor shp, ThemeColor("text")
+    End Select
 End Sub
 
 Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
+    On Error Resume Next   ' R14-6c: Fill/Line代入もOERN配下(モジュール方針)
     If isUser Then
         shp.Fill.ForeColor.RGB = ThemeColor("userBubble")
         shp.Line.Visible = 0
@@ -551,10 +589,12 @@ Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
         shp.Line.ForeColor.RGB = ThemeColor("border")
         shp.Line.Weight = 0.75
     End If
+    On Error GoTo 0
     SetShapeTextColor shp, ThemeColor("text")
 End Sub
 
 Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
+    On Error Resume Next   ' R14-6c: Fill/Line代入もOERN配下(モジュール方針)
     shp.Fill.ForeColor.RGB = ThemeColor("surface")
     shp.Line.Visible = -1
     shp.Line.Weight = 0.75
@@ -588,6 +628,7 @@ Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
             shp.Line.ForeColor.RGB = ThemeColor("border")
             SetShapeTextColor shp, ThemeColor("text")
     End Select
+    On Error GoTo 0
 End Sub
 
 Public Sub SetShapeTextColor(ByVal shp As Shape, ByVal rgbVal As Long)

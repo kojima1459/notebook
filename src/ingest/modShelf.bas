@@ -176,10 +176,15 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     uiStep = "本文のチャンク分割"
     Dim chunks() As ShelfChunk
     Dim chunkN As Long
+    ' R14-5a(実機第3報 RC7): 拡張子別の粒度設定(PDF/Word)がここまで
+    ' 届いていなかったため、Excelの行長とスライディング境界の偶然の一致で
+    ' しか細かく割れていなかった。ChunkParamForが「拡張子別 → グローバル →
+    ' 既定」の2段フォールバックを1箇所で行う(chunk_modeはグローバルのまま)。
+    Dim chunkExt As String: chunkExt = modUtil.ExtOf(path)
     chunkN = modChunker.ChunkPagesEx(pages, _
-        modConfig.GetLong("chunk_target_chars", CHUNK_TARGET_CHARS), _
-        modConfig.GetLong("chunk_overlap_chars", CHUNK_OVERLAP_CHARS), _
-        modConfig.GetLong("chunk_max_chars", 1800), _
+        ChunkParamFor("chunk_target_chars", chunkExt, CHUNK_TARGET_CHARS), _
+        ChunkParamFor("chunk_overlap_chars", chunkExt, CHUNK_OVERLAP_CHARS), _
+        ChunkParamFor("chunk_max_chars", chunkExt, 1800), _
         modConfig.GetString("chunk_mode", "structure"), chunks)
 
     ' 2026-07-29: 分割は1ページの失敗でファイル全体を捨てないようにした。
@@ -575,6 +580,31 @@ Public Function IsBusy() As Boolean
     On Error Resume Next
     IsBusy = (DateDiff("n", mIngestingSince, Now) < GUARD_EXPIRY_MIN)
     On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' ChunkKeyOrder - 拡張子別チャンク設定キーの名前を組み立てる(純ロジック)。
+' ----------------------------------------------------------------------------
+' 2026-08-03(R14-5a/5c): ChunkParamFor自体はmodConfig.GetLong(configシート)へ
+' 依存するためExcelなしでは検証できない。「拡張子別キーが baseKey より先に
+' 見られる」というフォールバック順序は、キー名の組み立てだけを切り出せば
+' Excel無しで固定できる(modTestsPure11)。extは modUtil.ExtOf の戻り値
+' (常に小文字)を渡す想定だが、ここでも念のため小文字化する(二重の安全)。
+Public Function ChunkKeyOrder(ByVal baseKey As String, ByVal ext As String) As String
+    ChunkKeyOrder = baseKey & "_" & LCase$(Trim$(ext))
+End Function
+
+' ----------------------------------------------------------------------------
+' ChunkParamFor - 拡張子別2段フォールバック(R14-5a・実機第3報 RC7)。
+'   1) baseKey_ext (例: chunk_target_chars_pdf)
+'   2) baseKey     (グローバル既定。例: chunk_target_chars)
+'   3) fallbackDefault(configすら読めないときの最終値)
+'   chunk_mode は拡張子別分岐の対象外(仕様どおりグローバルのまま)。
+' ----------------------------------------------------------------------------
+Private Function ChunkParamFor(ByVal baseKey As String, ByVal ext As String, _
+                               ByVal fallbackDefault As Long) As Long
+    ChunkParamFor = modConfig.GetLong(ChunkKeyOrder(baseKey, ext), _
+                                      modConfig.GetLong(baseKey, fallbackDefault))
 End Function
 
 ' ---- 内部ヘルパー ----

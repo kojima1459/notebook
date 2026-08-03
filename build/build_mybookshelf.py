@@ -336,9 +336,24 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("azure_embed_key", obfuscate_secret(os.environ.get(AZURE_EMBED_KEY_ENV, "")),
          "direct時のAPIキー(注意: ブック配布=キー配布になる)。ビルド時の環境変数 " + AZURE_EMBED_KEY_ENV + " から注入し、configシートには平文で置かず軽い難読化(OBF1:接頭辞)を施す(modUtil.DeobfuscateSecretで復元。VBAプロジェクトへアクセスできる人には無意味な軽量対策)"),
         ("chunk_mode", "structure", "チャンク化方式: legacy=700字機械分割 / structure=見出し・条文の構造認識(推奨)"),
-        ("chunk_target_chars", 700, "チャンクの目安文字数"),
-        ("chunk_overlap_chars", 150, "チャンクのオーバーラップ文字数"),
-        ("chunk_max_chars", 1800, "条文を分割せず1チャンクに収める上限(構造認識時)"),
+        ("chunk_target_chars", 700, "チャンクの目安文字数(グローバル既定)"),
+        ("chunk_overlap_chars", 150, "チャンクのオーバーラップ文字数(グローバル既定)"),
+        ("chunk_max_chars", 1800, "条文を分割せず1チャンクに収める上限(構造認識時・グローバル既定)"),
+        # R14-5b(実機第3報 RC7・チャンク粒度改善): PDF/Wordはchunk_max_charsの
+        # 支配で粒度が粗くなりやすい(Excelの細かさは行長との偶然の一致)。
+        # modShelf.ChunkParamForの拡張子別キー(baseKey_ext)がこの3種だけを
+        # PDF/Word専用値へ倒す。グローバル既定(上の3行)とxlsx等の他拡張子は
+        # 従来どおり不変(拡張子別キーが無ければグローバル既定へ2段フォール
+        # バックする)。
+        ("chunk_target_chars_pdf", 450, "PDFのチャンク目安文字数(グローバル既定700より細かく。RC7対応)"),
+        ("chunk_overlap_chars_pdf", 100, "PDFのチャンクオーバーラップ文字数(RC7対応)"),
+        ("chunk_max_chars_pdf", 900, "PDFの1チャンク上限文字数(グローバル既定1800より細かく。RC7対応)"),
+        ("chunk_target_chars_docx", 450, "Word(docx)のチャンク目安文字数(RC7対応。PDFと同値)"),
+        ("chunk_overlap_chars_docx", 100, "Word(docx)のチャンクオーバーラップ文字数(RC7対応)"),
+        ("chunk_max_chars_docx", 900, "Word(docx)の1チャンク上限文字数(RC7対応)"),
+        ("chunk_target_chars_doc", 450, "Word(旧doc)のチャンク目安文字数(RC7対応。docxと同値)"),
+        ("chunk_overlap_chars_doc", 100, "Word(旧doc)のチャンクオーバーラップ文字数(RC7対応)"),
+        ("chunk_max_chars_doc", 900, "Word(旧doc)の1チャンク上限文字数(RC7対応)"),
         ("embed_prefix_breadcrumb", True, "TRUE=チャンク先頭に【資料名>章>条】を前置して文脈付きで保存・検索する"),
         ("retrieve_mode", "multi", "検索方式: single=単段 / multi=多段RAG(拡張→マルチクエリ→再ランク)"),
         ("expand_enabled", True, "TRUE=質問をAIで検索用に拡張(独立質問化+サブクエリ+仮回答)"),

@@ -47,7 +47,17 @@ Private mGalleryMaxPage As Long
 Public Sub ShowVaultGallery()
     Dim ws As Worksheet
     Set ws = GetOrCreateGallerySheet()
-    If ws Is Nothing Then Exit Sub
+    If ws Is Nothing Then
+        ' R14-2b(実機第3報 RC10): 従来は無言Exitで、押しても何も起きない
+        ' ように見えていた(憲章§3-1違反)。RedrawGalleryの失敗時の
+        ' 案内と同型にする(E0801+利用者向けトースト)。
+        modLog.LogError "E0801", "modVaultGallery.ShowVaultGallery", _
+            "「マイ本棚」シートを取得/作成できませんでした"
+        On Error Resume Next
+        modSkin.ShowToast "一覧を描き直せませんでした。もう一度お試しください。", "error"
+        On Error GoTo 0
+        Exit Sub
+    End If
 
     Dim uiStep As String
     Dim gErrNum As Long, gErrDesc As String

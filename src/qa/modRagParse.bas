@@ -160,6 +160,54 @@ Private Function TagInnerFrom(ByVal s As String, ByVal tagName As String, ByVal 
 End Function
 
 ' ----------------------------------------------------------------------------
+' ParseQuestionLines - 質問例オンデマンド生成(2026-08-03 R14-7a)の応答パーサ。
+'   1行1問想定のLLM応答をTrim・空行除去・先頭の番号/箇条書き記号の除去の
+'   うえ、先頭maxN件だけ拾い"|"区切りへ畳む(modStarter.Drawが読む形式は
+'   modSeed.SeedQuestionsと同じ"|"区切りのため、描画路を1本に保てる)。
+' ----------------------------------------------------------------------------
+Public Function ParseQuestionLines(ByVal resp As String, ByVal maxN As Long) As String
+    If maxN < 1 Then Exit Function
+
+    Dim lines() As String
+    lines = Split(Replace(resp, vbCr, vbLf), vbLf)
+
+    Dim sb As String
+    Dim cnt As Long: cnt = 0
+    Dim i As Long
+    For i = LBound(lines) To UBound(lines)
+        If cnt >= maxN Then Exit For
+        Dim q As String: q = StripQuestionNumbering(Trim$(lines(i)))
+        If LenB(q) > 0 Then
+            sb = sb & IIf(LenB(sb) > 0, "|", "") & q
+            cnt = cnt + 1
+        End If
+    Next i
+    ParseQuestionLines = sb
+End Function
+
+' 行頭の箇条書き記号("・""-""*")と連番("1.""1)""1、"等)を1回だけ剥がす。
+Private Function StripQuestionNumbering(ByVal s As String) As String
+    Dim t As String: t = s
+    Dim lead As String: lead = Left$(t, 1)
+    If lead = ChrW(&H30FB) Or lead = "-" Or lead = "*" Then
+        t = Trim$(Mid$(t, 2))
+    End If
+
+    Dim i As Long: i = 1
+    Do While i <= Len(t) And Mid$(t, i, 1) >= "0" And Mid$(t, i, 1) <= "9"
+        i = i + 1
+    Loop
+    If i > 1 And i <= Len(t) Then
+        Dim sep As String: sep = Mid$(t, i, 1)
+        If sep = "." Or sep = ")" Or sep = " " Or sep = ChrW(&H3001) _
+           Or sep = ChrW(&HFF0E) Or sep = ChrW(&HFF09) Then
+            t = Trim$(Mid$(t, i + 1))
+        End If
+    End If
+    StripQuestionNumbering = t
+End Function
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 

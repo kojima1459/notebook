@@ -579,6 +579,10 @@ Public Sub OnLangCycle()
 End Sub
 
 ' CycleSkin自身がmodUiLockを取るため非再入で素通し(先取りすると変色しない)。
+' R14-6a(実機第3報 RC5-A): EnsureHubLayoutはHub/Nexusシートしか再彩色せず、
+' ナレッジ画面やダッシュボードを表示中に押しても「押した画面」自体は
+' 変わらないまま(「わからない」の実体)。ActiveSheetで分岐し、その画面
+' 自身も描き直す(押した画面が必ず変わる。憲章§3-1)。
 Public Sub OnThemeToggle()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If modUiLock.IsBusy() Then
@@ -590,6 +594,14 @@ Public Sub OnThemeToggle()
     On Error Resume Next
     modSkin.CycleSkin
     EnsureHubLayout
+    Dim activeName As String
+    If Not ActiveSheet Is Nothing Then activeName = ActiveSheet.Name
+    Select Case activeName
+        Case modAppDef.SH_SHELF
+            modKnowledge.RefreshCurrent
+        Case modAppDef.SH_NEXUS_DASH
+            modDash.ShowDashboard
+    End Select
     On Error GoTo 0
 End Sub
 

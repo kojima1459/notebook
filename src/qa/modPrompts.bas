@@ -299,7 +299,29 @@ Public Function BuildEnrichPrompt(ByVal batchText As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
-' 内部ヘルパー(すべてPrivate: modPromptsの公開契約はBuild*4関数のみ)
+' BuildQuestionsPrompt - 質問例のオンデマンド生成(2026-08-03 R14-7a)
+' ----------------------------------------------------------------------------
+' シード資料が無い端末でも「押すだけで聞ける質問」を出すための1回きりの
+' 生成。呼び出し元(modStarter)が「資料名: 冒頭の抜粋」を1行ずつまとめた
+' 文字列を渡す(BuildEnrichPromptと同型)。出力は1行1問・番号無しの
+' プレーンテキストで、modRagParse.ParseQuestionLinesが解析する。
+Public Function BuildQuestionsPrompt(ByVal sourceDigest As String) As String
+    Dim lang As String
+    lang = SafeAnswerLanguage()
+
+    Dim sb As String
+    sb = "以下は社内資料の一覧(資料名と冒頭の抜粋)です。それぞれの資料の内容" & _
+         "だけで答えられる、実用的な質問を" & lang & "で5件作ってください。" & vbLf
+    sb = sb & "・1行に1問だけ書くこと(番号・記号・箇条書き記号を付けない)。" & vbLf
+    sb = sb & "・抜粋に書かれていないことを聞く質問は作らないこと。" & vbLf
+    sb = sb & "・質問文以外(前置き・見出し・総括)は一切書かないこと。" & vbLf
+    sb = sb & "・1問は40字程度までの短い質問文にすること。" & vbLf & vbLf
+    sb = sb & "## 資料一覧" & vbLf & sourceDigest
+    BuildQuestionsPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' 内部ヘルパー(すべてPrivate: modPromptsの公開契約はBuild*関数群のみ)
 ' ----------------------------------------------------------------------------
 
 ' SafeAnswerLanguage/SafeMaxContextChars:

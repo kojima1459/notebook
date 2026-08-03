@@ -281,8 +281,12 @@ CONTRACT: dict[str, dict] = {
         # 画面遷移側(modUiLock.BlockIfIngesting)が受け流すための取込中フラグ。
         # AddFilesViaDialog / AddFilesResult は 2026-07-31 R10d で modShelfBatch へ
         # 移設した(modShelfが30,000字上限まで残り440字になったため)。
+        # ChunkKeyOrder(2026-08-03 R14-5a/5c・実機第3報 RC7): 拡張子別チャンク
+        # 設定キーの組み立て(純ロジック)。ChunkParamFor自体はmodConfig.GetLong
+        # へ依存しExcel無しでは検証できないため、フォールバック順序の判定材料
+        # (キー名)だけを公開してmodTestsPure11から固定する。
         "required": ["IngestFile", "DeleteSource",
-                     "SourceList", "TotalChunks", "IsBusy"],
+                     "SourceList", "TotalChunks", "IsBusy", "ChunkKeyOrder"],
     },
     # modShelfBatch(2026-07-31 R10d): modShelfから切り出した一括取込の
     # オーケストレーション。AddFilesResult: 2026-07-30 R2要件E。
@@ -366,13 +370,19 @@ CONTRACT: dict[str, dict] = {
         # SourceTag(同): 出典タグの形の単一情報源。LLMへ指示する形と
         #   modAskThorough が突合に使う形が別実装になると、検査が全件一致か
         #   全件不一致のどちらかへ静かに退化する(憲章§4-5)。
+        # BuildQuestionsPrompt(2026-08-03 R14-7a): 質問例のオンデマンド生成。
+        #   シード0でも資料があれば、資料名+冒頭抜粋から短い質問を5件作らせる。
         "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt",
-                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag"],
+                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag", "BuildQuestionsPrompt"],
     },
     "modRagParse": {
         "closed": True,
         # 多段RAGのLLM応答パーサ(設計書§C/§D/§G-T7)。全て寛容退化の純関数。
-        "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries"],
+        # ParseQuestionLines(2026-08-03 R14-7a): 質問例オンデマンド生成の応答
+        #   パーサ(1行1問・番号無しへ寛容退化)。RAG本体とは無関係だが、
+        #   「LLM応答をパースする純関数」という性質はここと同じなので同居させる。
+        "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
+                     "ParseQuestionLines"],
     },
     "modAsk": {
         "closed": True,
@@ -722,10 +732,15 @@ CONTRACT: dict[str, dict] = {
         ],
     },
     # R11-F1: modKnowledge から分離したツールバー(BAR_H は DrawChrome が行3の高さに使うため Public)。
+    # ToolbarContentRight(2026-08-03 R14-2a・実機第3報 RC10): Shapeを作らず
+    # DrawToolbarと同じ算数(ToolbarSpec+FlowLeft)だけを走らせ、ツールバーの
+    # 実際の右端を返す。modKnowledge.DrawChromeが右肩ピルのアンカーに使う
+    # (ピルがFlowRightで帯の右端へ密着する一方、ツールバーはFlowLeftで
+    # 左詰めのため、ボタンが少ない端末で両者の右端が食い違って見えていた)。
     "modKnowledgeBar": {
         "closed": True,
         "required": [
-            "BAR_H", "DrawToolbar",
+            "BAR_H", "DrawToolbar", "ToolbarContentRight",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。

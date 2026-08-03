@@ -277,6 +277,20 @@ PURE_ALLOWLIST = [
     #   modTestsPure11.RunAll11 の末尾が RunAll12 を呼ぶため、未注入だと
     #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
     "modTestsPure11", "modAskThorough", "modLive", "modTestsPure12",
+    # modKnowledgeBar(2026-08-03 R14-2a): ToolbarContentRightはShapeを一切
+    #   生成しない配置算数だけの関数(ToolbarSpec+modChrome.FlowLeft)。
+    #   ToolbarSpecが呼ぶmodPublish.CanPublish/modFeatures.FeatureEnabledは
+    #   On Error Resume Next配下のため、両モジュール未注入でも実行時エラー12が
+    #   その場で握りつぶされ既定値(False)へ倒れるだけで、テストは壊れない
+    #   (techメモ4と同型: 実行に到達した未解決識別子は実行時エラーとして
+    #   遅延解決される)。DrawToolbar/ToolButton等Excelに触れる他の関数は
+    #   テストから呼ばないので未解決のままでよい。
+    # modShelf(2026-08-03 R14-5c): ChunkKeyOrderは文字列結合のみの純関数
+    #   (baseKey & "_" & LCase(ext))。IngestFile等Excelに触れる他の関数は
+    #   テストから呼ばない。未注入だと modShelf.ChunkKeyOrder 呼び出しが
+    #   実行時エラー12になり、拡張子別チャンク設定のフォールバック順序の
+    #   回帰テストが「実行されないまま」になる。
+    "modKnowledgeBar", "modShelf",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -335,8 +335,24 @@ Private Sub CapBubbles(ByVal ws As Worksheet)
 End Sub
 
 ' ToggleTheme - ライト/ダーク反転+全体再彩色
+' R14-6b(実機第3報 RC5-B/C):
+'   (B) 解放済みの特別スキン(sakura/ocean/gold等)使用中に太陽/月トグルを
+'       押すと無警告でdarkへ上書きしていた。light/dark以外のときは上書き
+'       せず、着せ替え(🎨)へ誘導するトーストで案内して抜ける(保存もしない)。
+'   (C) ApplyTheme直後にBeautifyAllを呼んでいなかったため、グラデーション
+'       (ApplyHeaderDepth等)がベタ塗りへ退行していた。InitUI/Repaintと
+'       同じ並びに揃える。
 Public Sub ToggleTheme()
-    If modSkin.CurrentTheme() = "dark" Then
+    Dim cur As String: cur = modSkin.CurrentTheme()
+    If cur <> "light" And cur <> "dark" Then
+        On Error Resume Next
+        modSkin.ShowToast "特別スキン使用中です。" & ChrW(&HD83C) & ChrW(&HDFA8) & _
+            "着せ替えボタンで変更できます", "info"
+        On Error GoTo 0
+        Exit Sub
+    End If
+
+    If cur = "dark" Then
         modSkin.SaveTheme "light"
     Else
         modSkin.SaveTheme "dark"
@@ -349,6 +365,7 @@ Public Sub ToggleTheme()
     Application.ScreenUpdating = False
     On Error Resume Next   ' 再彩色が中断しても必ず暗転解除へ到達させる
     modSkin.ApplyTheme ws
+    modSkin.BeautifyAll ws   ' R14-6b: InitUI/Repaintと同じ並び(グラデ退行の再発防止)
     On Error GoTo 0
     Application.ScreenUpdating = True
 End Sub
@@ -580,11 +597,25 @@ Public Sub Repaint()
     End If
     On Error GoTo 0
 
+    ' R14-6c(実機第3報 RC5-E): ここから先が無保護だったため、再彩色が
+    ' 例外を出すと ScreenUpdating=False のまま呼び出し元へ飛び、画面が
+    ' 暗転固定されていた(ShowVaultGallery/ShowDashboardと同型の教訓)。
+    ' 必ずScreenUpdating=Trueへ到達する構造にする(Resume-cleanup方式)。
+    Dim rpErrNum As Long, rpErrDesc As String
+    On Error GoTo RepaintFail
     modSkin.ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
     FreezeShapePlacement ws  ' 絶対配置に再固定
     BringFixedToFront ws     ' 固定UIを最前面へ
     modSkin.BeautifyAll ws   ' フォント統一+固定クロムに柔らかい影
+    GoTo RepaintCleanup
+RepaintFail:
+    rpErrNum = Err.Number: rpErrDesc = Err.Description
+    Resume RepaintCleanup
+RepaintCleanup:
+    On Error Resume Next
     Application.ScreenUpdating = True
+    If rpErrNum <> 0 Then modLog.LogError "E0801", "modUI.Repaint", rpErrDesc, rpErrNum
+    On Error GoTo 0
     ParkFocus
 End Sub
 

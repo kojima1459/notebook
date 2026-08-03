@@ -78,9 +78,21 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     Dim isShared As Boolean: isShared = (md = "shared")
     PillSpec md, isTable, isShared, pcaps, pnames, pacts, pactive, pwid
 
+    ' R14-2a(実機第3報 RC10): ピルは帯の右端(L+W-8)へ密着させていたが、
+    ' ツールバーはボタン数が減ると帯の右端まで届かず、両者の右端が
+    ' 食い違って見えていた。ツールバーの実際の右端へピルの右アンカーを
+    ' 合わせる(異常値=帯の右端付近まで届いていないときはL+W-8へ戻す。
+    ' 200pt未満は「計算が壊れた」とみなせる下限)。isTable/isSharedは
+    ' 下のDrawToolbar呼び出しと同じ値(このSub内で唯一の判定)。
+    Dim tbRight As Double
+    On Error Resume Next
+    tbRight = modKnowledgeBar.ToolbarContentRight(isTable, isShared, L, W)
+    On Error GoTo Fail
+    If tbRight < L + 200 Then tbRight = L + W - 8
+
     Dim pxs() As Double, prows() As Long, pws() As Double
     Dim pillRowN As Long
-    pillRowN = modChrome.FlowRight(pwid, PILL_N, L + W - 8, _
+    pillRowN = modChrome.FlowRight(pwid, PILL_N, tbRight, _
                                    L + modChrome.TitleReserve(W, 160), L + 8, 6, _
                                    pxs, prows, pws)
     If pillRowN < 1 Then pillRowN = 1
@@ -360,8 +372,14 @@ End Sub
 Public Sub OnGoGallery()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
+    ' R14-2b: 既にギャラリー表示中の再押下は無反応に見えていた(押しても
+    ' 見た目が変わらない=憲章§3-1違反)。押下前のモードを CurrentMode()
+    ' (右肩ピルのactives()判定と同じ唯一の情報源)で控えておき、既に
+    ' ギャラリーだった場合だけ再描画後にトーストで「効いた」ことを伝える。
+    Dim wasGallery As Boolean: wasGallery = (CurrentMode() = "gallery")
     On Error Resume Next
     modVaultGallery.ShowVaultGallery
+    If wasGallery Then modSkin.ShowToast "表示を更新しました", "info", True
     On Error GoTo 0
     modUiLock.Leave
 End Sub

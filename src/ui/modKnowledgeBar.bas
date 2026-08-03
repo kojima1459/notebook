@@ -31,16 +31,11 @@ Public Function DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
                              ByVal isShared As Boolean, ByVal L As Double, _
                              ByVal W As Double, ByVal barTop As Double) As Double
     Dim caps() As String, acts() As String, kinds() As String
-    Dim widths() As Double
     Dim n As Long
-    ToolbarSpec isTable, isShared, caps, acts, kinds, widths, n
-    If n < 1 Then Exit Function
-
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
-    rowN = modChrome.FlowLeft(widths, n, L + TB_PAD, L + W - TB_PAD, TB_GAP, _
-                              xs, rws, useW)
-    If rowN < 1 Then rowN = 1
+    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, n, xs, rws, useW, rowN
+    If n < 1 Then Exit Function
 
     Dim i As Long
     For i = 0 To n - 1
@@ -52,6 +47,59 @@ Public Function DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     ' 下の検索欄・カード領域は段数に応じて自動で下がる。
     DrawToolbar = rowN * (BAR_H + 2)
 End Function
+
+' ----------------------------------------------------------------------------
+' ToolbarContentRight - ツールバーの実際の右端X(pt)。Shapeを一切生成せず、
+'   DrawToolbarと同じ算数(ToolbarSpec+modChrome.FlowLeft)だけを走らせる。
+' ----------------------------------------------------------------------------
+' なぜ必要か(実機第3報 RC10「ヘッダー右ズレ」):
+'   modKnowledge.DrawChrome の右肩ピルは modChrome.FlowRight で帯の右端
+'   (L+W-8)へ密着させていたが、ツールバー自体は modChrome.FlowLeft で
+'   左詰めに流し込むだけなので、ボタン数が少ない端末(発行キー未設定・
+'   画像解析無効等でボタンが減る)ではツールバーの実際の右端が帯の右端まで
+'   届かない。ピルだけが右端に密着し、ツールバー本体はそれより手前で
+'   終わっているように見える非対称が実機の「ヘッダーがズレて見える」の
+'   正体。ここでツールバーの「実際に使っている右端」を先に計算し、
+'   DrawChrome側がピルの右アンカーをそこへ合わせる。
+' 戻り値: 全段のうち最も右まで到達したボタンの右端X(pt)。ボタンが0個の
+'   ときは0を返す(呼び出し側がL+200未満をフォールバック判定に使う)。
+Public Function ToolbarContentRight(ByVal isTable As Boolean, ByVal isShared As Boolean, _
+                                    ByVal L As Double, ByVal W As Double) As Double
+    Dim caps() As String, acts() As String, kinds() As String
+    Dim n As Long
+    Dim xs() As Double, rws() As Long, useW() As Double
+    Dim rowN As Long
+    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, n, xs, rws, useW, rowN
+    If n < 1 Then Exit Function
+
+    Dim rightMost As Double
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim edge As Double: edge = xs(i) + useW(i)
+        If edge > rightMost Then rightMost = edge
+    Next i
+    ToolbarContentRight = rightMost
+End Function
+
+' DrawToolbar/ToolbarContentRight共有の配置算数(ToolbarSpec+FlowLeftの1本化)。
+' 2つが将来ズレて「描画とテストで別の右端を答える」事故を起こさないための
+' 唯一の計算経路。
+Private Sub ComputeToolbarLayout(ByVal isTable As Boolean, ByVal isShared As Boolean, _
+                                 ByVal L As Double, ByVal W As Double, _
+                                 ByRef caps() As String, ByRef acts() As String, _
+                                 ByRef kinds() As String, ByRef n As Long, _
+                                 ByRef xs() As Double, ByRef rws() As Long, _
+                                 ByRef useW() As Double, ByRef rowN As Long)
+    Dim widths() As Double
+    ToolbarSpec isTable, isShared, caps, acts, kinds, widths, n
+    If n < 1 Then
+        rowN = 0
+        Exit Sub
+    End If
+    rowN = modChrome.FlowLeft(widths, n, L + TB_PAD, L + W - TB_PAD, TB_GAP, _
+                              xs, rws, useW)
+    If rowN < 1 Then rowN = 1
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' ToolbarSpec - モードと端末の権限に応じたボタンの並びを1本の配列で組み立てる。

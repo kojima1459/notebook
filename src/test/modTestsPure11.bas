@@ -297,6 +297,118 @@ Private Sub TestShouldEmitInsight()
         (modMode.ShouldEmitInsight("  general  ", 3) = False)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R14-2a: ツールバーの実際の右端(実機第3報 RC10「ヘッダー右ズレ」)。
+'   Shapeを一切作らずToolbarSpec+FlowLeftの算数だけを走らせる。ToolbarSpecが
+'   呼ぶ modPublish.CanPublish/modFeatures.FeatureEnabled は On Error Resume
+'   Next配下のため、両モジュール未注入でもFalseへ倒れるだけで数値は決め打ち
+'   できる(発行キー未設定・画像解析無効の環境と同じボタン構成になる)。
+' ----------------------------------------------------------------------------
+Private Sub TestToolbarContentRight()
+    Dim L As Double: L = 10
+
+    ' 帯を広げるほど右端は後退しない(段が減って詰まるだけ)。
+    Dim rTable50 As Double: rTable50 = modKnowledgeBar.ToolbarContentRight(True, False, L, 50)
+    Dim rTable200 As Double: rTable200 = modKnowledgeBar.ToolbarContentRight(True, False, L, 200)
+    Dim rTable600 As Double: rTable600 = modKnowledgeBar.ToolbarContentRight(True, False, L, 600)
+    Dim rTable900 As Double: rTable900 = modKnowledgeBar.ToolbarContentRight(True, False, L, 900)
+    Dim rTable2000 As Double: rTable2000 = modKnowledgeBar.ToolbarContentRight(True, False, L, 2000)
+    modTestRunner.Check "ツールバー右端_単調非減少(50→200)", (rTable200 >= rTable50), _
+        "50=" & rTable50 & " 200=" & rTable200
+    modTestRunner.Check "ツールバー右端_単調非減少(200→600)", (rTable600 >= rTable200), _
+        "200=" & rTable200 & " 600=" & rTable600
+    modTestRunner.Check "ツールバー右端_単調非減少(600→900)", (rTable900 >= rTable600), _
+        "600=" & rTable600 & " 900=" & rTable900
+    ' 全ボタンが1段に収まる幅を超えたら、帯を広げても右端は増えない
+    ' (ボタンが伸びるわけではないため=頭打ち)。
+    modTestRunner.Check "ツールバー右端_1段に収まったら頭打ち", (rTable2000 = rTable900), _
+        "900=" & rTable900 & " 2000=" & rTable2000
+
+    ' フォールバック境界(modKnowledge.DrawChromeがL+200未満でL+W-8へ戻す)。
+    Dim rShared50 As Double: rShared50 = modKnowledgeBar.ToolbarContentRight(False, True, L, 50)
+    modTestRunner.Check "ツールバー右端_狭い帯はフォールバック域", _
+        (rShared50 > 0 And rShared50 < L + 200), "実際=" & rShared50
+    Dim rShared900 As Double: rShared900 = modKnowledgeBar.ToolbarContentRight(False, True, L, 900)
+    modTestRunner.Check "ツールバー右端_広い帯は通常域", _
+        (rShared900 >= L + 200), "実際=" & rShared900
+
+    ' ギャラリー(検索ボタンが増える分、一覧表より右端が広がる)。
+    Dim rGallery2000 As Double: rGallery2000 = modKnowledgeBar.ToolbarContentRight(False, False, L, 2000)
+    modTestRunner.Check "ツールバー右端_ギャラリーは一覧表より広い", _
+        (rGallery2000 > rTable2000), "gallery=" & rGallery2000 & " table=" & rTable2000
+
+    ' 帯幅0でも例外にならない(FlowLeft側の下限クランプが効く)。
+    modTestRunner.Check "ツールバー右端_帯幅0でも例外にならない", _
+        (modKnowledgeBar.ToolbarContentRight(True, False, L, 0) >= 0), ""
+End Sub
+
+' ----------------------------------------------------------------------------
+' R14-5a/5c: 拡張子別チャンク設定のキー名(実機第3報 RC7「チャンク粗さ」)。
+' ----------------------------------------------------------------------------
+Private Sub TestChunkKeyOrder()
+    modTestRunner.Check "チャンクキー_PDF拡張子で専用キー名", _
+        (modShelf.ChunkKeyOrder("chunk_target_chars", "pdf") = "chunk_target_chars_pdf")
+    modTestRunner.Check "チャンクキー_docx拡張子で専用キー名", _
+        (modShelf.ChunkKeyOrder("chunk_max_chars", "docx") = "chunk_max_chars_docx")
+    ' modUtil.ExtOfは常に小文字だが、ChunkKeyOrder自身も念のため小文字化する
+    ' (呼び出し元がExtOfを経由し忘れても壊れない二重の安全)。
+    modTestRunner.Check "チャンクキー_大文字拡張子も小文字化", _
+        (modShelf.ChunkKeyOrder("chunk_overlap_chars", "PDF") = "chunk_overlap_chars_pdf")
+    modTestRunner.Check "チャンクキー_前後空白を無視", _
+        (modShelf.ChunkKeyOrder("chunk_max_chars", "  pdf  ") = "chunk_max_chars_pdf")
+
+    ' modUtil.ExtOf(実際にIngestFileが渡す形)と組み合わせても一致すること。
+    modTestRunner.Check "チャンクキー_ExtOfの戻り値と組み合う", _
+        (modShelf.ChunkKeyOrder("chunk_target_chars", modUtil.ExtOf("C:\書類\規約.PDF")) _
+         = "chunk_target_chars_pdf")
+    modTestRunner.Check "チャンクキー_拡張子なしパスは末尾アンダースコアのみ", _
+        (modShelf.ChunkKeyOrder("chunk_target_chars", modUtil.ExtOf("C:\書類\readme")) _
+         = "chunk_target_chars_")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R14-7a: 質問例オンデマンド生成の応答パーサ(modRagParse.ParseQuestionLines)。
+' ----------------------------------------------------------------------------
+Private Sub TestParseQuestionLines()
+    Dim r1 As String
+    r1 = modRagParse.ParseQuestionLines( _
+        "休業補償の対象は?" & vbLf & "免責期間は何日?" & vbLf & "更新手続きの締切は?", 5)
+    modTestRunner.Check "質問パース_3行を3件へ", (UBound(Split(r1, "|")) = 2), "実際=" & r1
+    modTestRunner.Check "質問パース_1件目がそのまま入る", _
+        (Split(r1, "|")(0) = "休業補償の対象は?"), "実際=" & r1
+
+    ' 番号・箇条書き記号は剥がす。空行は捨てる。
+    Dim r2 As String
+    r2 = modRagParse.ParseQuestionLines( _
+        "1. 保険金の請求方法は?" & vbLf & vbLf & "2) 免責金額はいくら?" & vbLf & _
+        ChrW(&H30FB) & "解約の手続きは?" & vbLf & "- 更新は自動?", 5)
+    modTestRunner.Check "質問パース_番号を剥がす(ピリオド)", _
+        (InStr(r2, "保険金の請求方法は?") > 0 And InStr(r2, "1.") = 0), "実際=" & r2
+    modTestRunner.Check "質問パース_番号を剥がす(括弧)", _
+        (InStr(r2, "免責金額はいくら?") > 0 And InStr(r2, "2)") = 0), "実際=" & r2
+    modTestRunner.Check "質問パース_箇条書き記号(・)を剥がす", _
+        (InStr(r2, ChrW(&H30FB) & "解約") = 0 And InStr(r2, "解約の手続きは?") > 0), "実際=" & r2
+    modTestRunner.Check "質問パース_箇条書き記号(-)を剥がす", _
+        (InStr(r2, "- 更新") = 0 And InStr(r2, "更新は自動?") > 0), "実際=" & r2
+    modTestRunner.Check "質問パース_空行は数えない", (UBound(Split(r2, "|")) = 3), "実際=" & r2
+
+    ' 上限件数(5件目までで打ち切り)。
+    Dim many As String
+    many = "Q1" & vbLf & "Q2" & vbLf & "Q3" & vbLf & "Q4" & vbLf & "Q5" & vbLf & "Q6" & vbLf & "Q7"
+    Dim r3 As String: r3 = modRagParse.ParseQuestionLines(many, 5)
+    modTestRunner.Check "質問パース_maxNで打ち切る", (UBound(Split(r3, "|")) = 4), "実際=" & r3
+    modTestRunner.Check "質問パース_6件目は含まれない", (InStr(r3, "Q6") = 0), "実際=" & r3
+
+    ' CRLF/CRも同じ結果になること(LLM応答の改行コードは保証されない)。
+    Dim r4 As String: r4 = modRagParse.ParseQuestionLines("A" & vbCrLf & "B" & vbCr & "C", 5)
+    modTestRunner.Check "質問パース_CRLF/CRもLF同様に分割", (r4 = "A|B|C"), "実際=" & r4
+
+    ' 空文字・maxN<1は空文字(壊れた応答/設定で例外を出さない)。
+    modTestRunner.Check "質問パース_空応答は空文字", (LenB(modRagParse.ParseQuestionLines("", 5)) = 0)
+    modTestRunner.Check "質問パース_maxN0は空文字", _
+        (LenB(modRagParse.ParseQuestionLines("A" & vbLf & "B", 0)) = 0)
+End Sub
+
 Public Sub RunAll11()
     On Error GoTo CopyReasonFail
     TestCopyFailReason
@@ -315,6 +427,15 @@ NextBanner:
 NextEmit:
     On Error GoTo EmitFail
     TestShouldEmitInsight
+NextToolbarRight:
+    On Error GoTo ToolbarRightFail
+    TestToolbarContentRight
+NextChunkKey:
+    On Error GoTo ChunkKeyFail
+    TestChunkKeyOrder
+NextQParse:
+    On Error GoTo QParseFail
+    TestParseQuestionLines
 NextPure12:
     ' R14-8(入念モードの本格強化+回答可読性)のテストは modTestsPure12 へ
     ' 分割した(本モジュールが28,000字のWARN帯へ入ったため。憲章§4-6)。
@@ -347,6 +468,18 @@ BannerFail:
     Resume NextEmit
 EmitFail:
     modTestRunner.Check "TestShouldEmitInsight(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextToolbarRight
+ToolbarRightFail:
+    modTestRunner.Check "TestToolbarContentRight(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChunkKey
+ChunkKeyFail:
+    modTestRunner.Check "TestChunkKeyOrder(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextQParse
+QParseFail:
+    modTestRunner.Check "TestParseQuestionLines(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextPure12
 Pure12Fail:
