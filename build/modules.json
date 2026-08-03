@@ -637,6 +637,14 @@
       "note": "テキストPDFのCOM無し抽出(Ghostscriptのtxtwriteデバイス)。PDF本文抽出の第1選択で、失敗時のみWord→Acrobatへ落ちる。入口はmodFeatures.InvokeFeature(\"vision\",\"ExtractPdfTextNoOcr\")でoptVisionの薄い受け口から転送される。GS起動・完了待ち・一時フォルダはoptVisionのPublic化した道具を共用するため、optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
+      "name": "optGsProc",
+      "path": "src/opt/optGsProc.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R13-F2",
+      "note": "Ghostscriptプロセスの起動(WMI優先・失敗時はWScript.Shellへ退避)と、真のハング時の停止(PIDの本人確認つきtaskkill /T /F)。optGsTxtとoptVisionの両GS経路から呼ばれる。optGsTxtが28,000字のWARN帯に達したための分割で、optGsTxt/optVisionを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
       "name": "optMarkdown",
       "path": "src/opt/optMarkdown.bas",
       "role": "opt",

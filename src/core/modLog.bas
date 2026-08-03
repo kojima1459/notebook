@@ -207,7 +207,8 @@ End Function
 ' 決め方は2段:
 '   (1) errDetail に行動可能な案内が入っていれば、それを優先して採用する。
 '       生のCOM説明文(英語や「型が一致しません」)は採用しない。目印は
-'       DescribeComError が必ず書く導入句(「この端末では」「この環境では」)。
+'       DescribeComError が必ず書く導入句(「この端末では」「この環境では」)
+'       と、462の案内だけが持つ「<アプリ名>を操作できませんでした」(R13-F11)。
 '   (2) 無ければコード表の汎用文言。ただしE0302だけは拡張子で分岐し、
 '       docx/doc には Ghostscript の話を一切しない。
 ' 純粋な文字列処理なので modTestsPure9 が分岐を固定する。
@@ -247,6 +248,14 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     Dim p As Long: p = InStr(errDetail, "この端末では")
     Dim q As Long: q = InStr(errDetail, "この環境では")
     If p = 0 Or (q > 0 And q < p) Then p = q
+
+    ' R13-F11: 462(相手のCOMサーバが居ない/セキュリティ製品に止められた)の
+    ' 案内文だけは導入句を持たず「<アプリ名>を操作できませんでした。」で始まる。
+    ' 導入句だけを目印にしていたため、実機で最も多いブロックの案内
+    ' (手で起動できるか確かめる/セキュリティ製品の可能性)が汎用文言に
+    ' 潰されていた。アプリ名の先頭まで戻って、そこを開始点として拾う。
+    Dim r As Long: r = HintStartOfOperateFail(errDetail)
+    If p = 0 Or (r > 0 And r < p) Then p = r
     If p = 0 Then Exit Function
 
     Dim d As String: d = Mid$(errDetail, p)
@@ -254,6 +263,27 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     d = CutBefore(d, " [")
     d = CutBefore(d, " / ")
     ActionableHint = Trim$(d)
+End Function
+
+' 「<アプリ名>を操作できませんでした」の【アプリ名の先頭】の位置を返す
+' (見つからなければ 0)。アプリ名は "Word"/"Excel"/"Acrobat"/"Office" の
+' ような半角英字なので、その並びだけを手前へ遡る(R13-F11)。
+' 遡りすぎて診断情報を巻き込まないよう、英字以外に当たったら即やめる。
+Private Function HintStartOfOperateFail(ByVal errDetail As String) As Long
+    Dim r As Long: r = InStr(errDetail, "を操作できませんでした")
+    If r = 0 Then Exit Function
+
+    Dim i As Long: i = r
+    Do While i > 1
+        Dim c As Long: c = AscW(Mid$(errDetail, i - 1, 1))
+        If (c >= 65 And c <= 90) Or (c >= 97 And c <= 122) Then
+            i = i - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If i = r Then Exit Function      ' アプリ名が無い=別文脈。拾わない
+    HintStartOfOperateFail = i
 End Function
 
 ' marker が見つかったらその手前まで(見つからなければそのまま)。

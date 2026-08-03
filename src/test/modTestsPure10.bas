@@ -23,6 +23,14 @@ Option Explicit
 '     読んでも、次の列(送信時刻)をteamと誤読しないこと(R13-7cの本旨=
 '     「旧読み手は新形式の余分な列を無視する/新読み手は列数で分岐する」の
 '     後半を固定する)。
+'   ・optOcrCore.GsTotalPagesFromLog を読ませる【窓の大きさ】(R13-F1):
+'     起動バナーと xref 修復警告で "Processing pages" が先頭300字から押し
+'     出される実機相当のログを作り、300字窓では gsfail、4000字窓では image
+'     と分類が入れ替わることを固定する。
+'   ・modLog.FriendlyFailMsg の462分岐(R13-F11): 導入句を持たない
+'     「<アプリ名>を操作できませんでした」の案内も汎用文言より優先すること。
+'   ・modExtractorPdf.IsThinExtract の拡張子足切り(R13-F7): 薄い抽出の関門は
+'     PDF専用で、docx/xlsxには当てない(閾値の真理表は modTestsPure9)。
 ' ============================================================================
 
 Private Sub TestTeamCodeOf()
@@ -100,6 +108,133 @@ Private Sub TestBeaconTeamRoundTrip()
     modTestRunner.Check "Beacon_新形式_列数は10(idx0-9)", UBound(fNew) = 9
 End Sub
 
+' ----------------------------------------------------------------------------
+' R13-F1: gs_out.log から総ページ数を読む窓の大きさ。
+'   Ghostscriptは処理の頭に起動バナー(版名・著作権・利用条件)を約210バイト
+'   出し、壊れかけのPDFではそのあとに xref 修復の警告が数行続く。従来の
+'   「先頭300字」ではその時点で窓が尽き、"Processing pages 1 through 44." が
+'   窓の外へ押し出されて「ページ処理の証拠なし」と読めてしまう。
+'   そうなると空出力のスキャンPDFが image ではなく gsfail に分類され、
+'   Word経路のゴミ本文で「登録成功」になる実機第2報RC1が再発する。
+'   ここでは同じ文字列を300字窓と4000字窓で読ませ、窓の大きさだけが
+'   分類を変える事実を固定する(判定関数そのものは変えていない)。
+' ----------------------------------------------------------------------------
+Private Sub TestGsLogHeadWindow()
+    ' 実機のログを模す: 起動バナー + xref修復の警告 + Processing行。
+    Dim banner As String
+    banner = "GPL Ghostscript 10.02.1 (2023-11-01) " & _
+             "Copyright (C) 2023 Artifex Software, Inc.  All rights reserved. " & _
+             "This software is supplied under the GNU AGPLv3 and comes with " & _
+             "NO WARRANTY: see the file COPYING for details. "
+    Dim warn As String
+    warn = "**** Error: An error occurred while reading an XREF table. " & _
+           "**** The file has been damaged.  This may have been caused " & _
+           "**** by a problem while converting or transfering the file. " & _
+           "**** Ghostscript will attempt to recover the data. "
+    Dim logText As String
+    logText = banner & warn & "Processing pages 1 through 44. Page 1 Page 2 "
+
+    ' 前置きが300字を超えていること自体を明示しておく(前提が崩れたら気付く)。
+    modTestRunner.Check "GsLog窓_前置きが300字を超える実機相当", _
+        Len(banner & warn) > 300, "実際=" & Len(banner & warn)
+
+    ' 旧実装の窓(先頭300字)では総ページ数を読めない=退行の再現。
+    modTestRunner.Check "GsLog窓_300字では総ページ数を読めない", _
+        optOcrCore.GsTotalPagesFromLog(Left$(logText, 300)) = 0, _
+        "実際=" & optOcrCore.GsTotalPagesFromLog(Left$(logText, 300))
+
+    ' 新実装の窓(先頭4000字)なら読める。
+    modTestRunner.Check "GsLog窓_4000字なら総ページ数を読める", _
+        optOcrCore.GsTotalPagesFromLog(Left$(logText, 4000)) = 44, _
+        "実際=" & optOcrCore.GsTotalPagesFromLog(Left$(logText, 4000))
+
+    ' 分類への影響まで通しで固定する。証拠が見えるかどうかだけで
+    ' image(→OCR)と gsfail(→Word経路)が入れ替わる。
+    Dim seen300 As Boolean
+    seen300 = (optOcrCore.GsTotalPagesFromLog(Left$(logText, 300)) > 0)
+    Dim seen4000 As Boolean
+    seen4000 = (optOcrCore.GsTotalPagesFromLog(Left$(logText, 4000)) > 0)
+    modTestRunner.Check "GsLog窓_300字だとgsfailへ落ちる(退行の姿)", _
+        optOcrCore.ClassifyGsTextResult(0, 0, seen300) = "gsfail", _
+        "実際=" & optOcrCore.ClassifyGsTextResult(0, 0, seen300)
+    modTestRunner.Check "GsLog窓_4000字ならimage(OCRへ)", _
+        optOcrCore.ClassifyGsTextResult(0, 0, seen4000) = "image", _
+        "実際=" & optOcrCore.ClassifyGsTextResult(0, 0, seen4000)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R13-F11: 462(相手のCOMサーバが居ない/セキュリティ製品に止められた)の
+'   案内文は「<アプリ名>を操作できませんでした。」で始まり、他の分岐が持つ
+'   導入句(「この端末では」「この環境では」)を持たない。modLog.ActionableHint
+'   が導入句だけを目印にしていたため、実機で最も多いブロックの案内が汎用文言
+'   (E0302=Ghostscript前提)に潰されて利用者に届いていなかった。
+'   検体は modUtil.DescribeComError の実出力から組み立てる(文言を写経すると
+'   本体を変えたときにテストだけが古いまま通ってしまうため)。
+' ----------------------------------------------------------------------------
+Private Sub TestActionableHint462()
+    Dim raw As String
+    raw = modUtil.DescribeComError(462, "オートメーション エラーです。", "Word")
+
+    ' 前提: 462の案内は導入句を持たない(持ち始めたらこのテストの意味が変わる)。
+    modTestRunner.Check "Hint462_案内は導入句を持たない", _
+        (InStr(raw, "この端末では") = 0) And (InStr(raw, "この環境では") = 0), _
+        "実際=" & raw
+
+    ' 実機の err_log と同じく、前後に診断情報が付いた形で渡す。
+    Dim detail As String
+    detail = "[Word起動/開き方1] " & raw & " [localcopy=ok]"
+    Dim msg As String: msg = modLog.FriendlyFailMsg("E0302", detail, "docx")
+
+    modTestRunner.Check "Hint462_案内文を優先採用する", _
+        InStr(msg, "Wordを操作できませんでした") > 0, "実際=" & msg
+    modTestRunner.Check "Hint462_セキュリティ製品の可能性まで残す", _
+        InStr(msg, "セキュリティ製品") > 0, "実際=" & msg
+    modTestRunner.Check "Hint462_技術情報を混ぜない", _
+        (InStr(msg, "(詳細:") = 0) And (InStr(msg, "localcopy") = 0) And _
+        (InStr(msg, "開き方1") = 0), "実際=" & msg
+    modTestRunner.Check "Hint462_コードを添える", _
+        InStr(msg, "(コード: E0302)") > 0, "実際=" & msg
+
+    ' 導入句つきの案内(429・相乗り)と同時に出ても、先に現れた方を採る。
+    Dim both As String
+    both = "GS: 応答なし / この端末ではExcelからWordを起動できません / " & raw
+    modTestRunner.Check "Hint462_先に現れた案内を採る", _
+        InStr(modLog.FriendlyFailMsg("E0302", both, "pdf"), "この端末では") > 0, _
+        "実際=" & modLog.FriendlyFailMsg("E0302", both, "pdf")
+
+    ' 「操作できませんでした」の手前にアプリ名が無い文は拾わない
+    ' (診断文を巻き込んで意味の通らない案内を出さないための歯止め)。
+    Dim noApp As String: noApp = "[取込] を操作できませんでした。 [localcopy=ok]"
+    modTestRunner.Check "Hint462_アプリ名が無ければ拾わない", _
+        InStr(modLog.FriendlyFailMsg("E0302", noApp, "pdf"), "Ghostscript") > 0, _
+        "実際=" & modLog.FriendlyFailMsg("E0302", noApp, "pdf")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R13-F7: 薄い抽出の関門(modExtractorPdf.IsThinExtract)はPDF専用。
+'   閾値そのものの真理表は modTestsPure9.TestIsThinExtract が持ち、ここは
+'   「拡張子による足切り」だけを固定する(modTestsPure9 は30,000字上限まで
+'   残りが少ないため置き場を分けた。憲章§4-6)。
+'   docxの「ページ」もxlsxの「シート」も同じ ExtractedPage 配列に入るので、
+'   拡張子を見ないとスライド資料や表計算まで partial(=本文を取り出せて
+'   いない可能性があります/OCRを試します)と言われてしまう。
+' ----------------------------------------------------------------------------
+Private Sub TestThinExtractExt()
+    ' 同じ数字でも、PDFなら薄い/PDF以外は薄くない。
+    modTestRunner.Check "ThinExt_pdfは薄いと判定する", _
+        modExtractorPdf.IsThinExtract("pdf", 44, 1, 30000), "Falseになった"
+    modTestRunner.Check "ThinExt_docxは同じ数字でも薄くない", _
+        Not modExtractorPdf.IsThinExtract("docx", 44, 1, 30000), "Trueになった"
+    modTestRunner.Check "ThinExt_xlsxは同じ数字でも薄くない", _
+        Not modExtractorPdf.IsThinExtract("xlsx", 40, 2, 99999), "Trueになった"
+    modTestRunner.Check "ThinExt_拡張子が空なら薄くない", _
+        Not modExtractorPdf.IsThinExtract("", 44, 1, 0), "Trueになった"
+
+    ' 大文字・前後の空白で取りこぼさない(呼び出し元の渡し方に依存しない)。
+    modTestRunner.Check "ThinExt_PDF大文字でも判定する", _
+        modExtractorPdf.IsThinExtract(" PDF ", 44, 1, 30000), "Falseになった"
+End Sub
+
 Public Sub RunAll10()
     On Error GoTo TeamCodeFail
     TestTeamCodeOf
@@ -109,6 +244,15 @@ NextDeptOf:
 NextBeaconRoundTrip:
     On Error GoTo BeaconRoundTripFail
     TestBeaconTeamRoundTrip
+NextGsLogWindow:
+    On Error GoTo GsLogWindowFail
+    TestGsLogHeadWindow
+NextHint462:
+    On Error GoTo Hint462Fail
+    TestActionableHint462
+NextThinExt:
+    On Error GoTo ThinExtFail
+    TestThinExtractExt
 NextDone10:
     On Error GoTo 0
     Exit Sub
@@ -123,6 +267,18 @@ DeptOfFail:
     Resume NextBeaconRoundTrip
 BeaconRoundTripFail:
     modTestRunner.Check "TestBeaconTeamRoundTrip(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsLogWindow
+GsLogWindowFail:
+    modTestRunner.Check "TestGsLogHeadWindow(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextHint462
+Hint462Fail:
+    modTestRunner.Check "TestActionableHint462(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextThinExt
+ThinExtFail:
+    modTestRunner.Check "TestThinExtractExt(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone10
 End Sub

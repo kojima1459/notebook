@@ -312,13 +312,21 @@ End Function
 '   「入っているのに中身が無い」を done と言い切るのは憲章§3-3/§4-1に反する。
 '
 '   条件(仕様R13-3aの値から動かさないこと):
-'     pageCount >= 10 かつ (chunkN <= pageCount\20 または 総文字数 < pageCount*60)
+'     ext = "pdf" かつ pageCount >= 10 かつ
+'     (chunkN <= pageCount\20 または 総文字数 < pageCount*60)
 '   10ページ未満を見ないのは、表紙+ポンチ絵のような正当に薄い資料を
 '   partial と呼ばないため。整数除算(\)なのは「20ページで1チャンク以下」
 '   という意味をそのまま式にしたもの。
+'   R13-F7: PDF以外には当てない。docxの「ページ」もxlsxの「シート」も同じ
+'   ExtractedPage配列に入るため、この関門はスライド資料や表計算にも当たって
+'   いた。文言(画像中心のPDF・自動でOCR)がそもそも噛み合わないうえ、
+'   1シートに要約表が1枚あるだけの正当なブックまで partial にしてしまう。
+'   守りたい事故(RC1)はPDF経路でしか起きないので、判定ごとPDFに限定する。
 ' ----------------------------------------------------------------------------
-Public Function IsThinExtract(ByVal pageCount As Long, ByVal chunkN As Long, _
+Public Function IsThinExtract(ByVal ext As String, ByVal pageCount As Long, _
+                              ByVal chunkN As Long, _
                               ByVal totalChars As Long) As Boolean
+    If LCase$(Trim$(ext)) <> "pdf" Then Exit Function
     If pageCount < 10 Then Exit Function
     If chunkN <= (pageCount \ 20) Then
         IsThinExtract = True
@@ -333,9 +341,12 @@ End Function
 '   数える所からメモの文言までをここへ寄せる(modShelf は呼び出し1行で済む)。
 '   文言は「何が起きたか+次に何が起きるか」の2点だけを言い、利用者に
 '   操作を求めない(自動でOCRを試すのはこちらの仕事だから)。
+'   ext(R13-F7): 呼び出し元が知っている拡張子。PDF以外は常に ""(判定しない)。
 ' ----------------------------------------------------------------------------
 Public Function ThinExtractMemoFor(ByRef pages() As ExtractedPage, _
-                                   ByVal chunkN As Long) As String
+                                   ByVal chunkN As Long, _
+                                   ByVal ext As String) As String
+    If LCase$(Trim$(ext)) <> "pdf" Then Exit Function
     Dim n As Long: n = modExtractor.PageArrayCount(pages)
     If n = 0 Then Exit Function
 
@@ -346,7 +357,7 @@ Public Function ThinExtractMemoFor(ByRef pages() As ExtractedPage, _
         total = total + Len(pages(lo + i).Text)
     Next i
 
-    If Not IsThinExtract(n, chunkN, total) Then Exit Function
+    If Not IsThinExtract(ext, n, chunkN, total) Then Exit Function
     ThinExtractMemoFor = "本文を十分に取り出せていない可能性があります" & _
         "(画像中心のPDFの場合は自動でOCRを試します)"
 End Function

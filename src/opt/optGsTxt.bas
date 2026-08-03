@@ -10,9 +10,10 @@ Option Explicit
 '       を渡し、PDFに埋まっている文字をそのまま書き出させて読む。COM
 '       (Word/Acrobat)を一切使わないので、CreateObjectがポリシーで塞がれた
 '       管理端末でも動く。入口は ExtractPdfTextNoOcr。
-'   (2) Ghostscriptを動かすための共通道具(一時フォルダ・非同期起動・完了
-'       待ち・後始末)の置き場。txtwrite経路と、optVisionの画像PDF OCR経路
-'       (jpeg化)の両方がここを使う(R10-3bでoptVisionから移設)。
+'   (2) Ghostscriptを動かすための共通道具(一時フォルダ・完了待ち・出力の
+'       読み取り・後始末)の置き場。txtwrite経路と、optVisionの画像PDF OCR
+'       経路(jpeg化)の両方がここを使う(R10-3bでoptVisionから移設)。
+'       プロセスの起動と停止だけは optGsProc(R13-F2で容量のため分離)。
 '
 ' なぜ第1選択なのか(2026-07-31 実機報告):
 '   ・会社の管理端末では Word・Acrobat の CreateObject が塞がれており、
@@ -75,16 +76,18 @@ Private Const TOKEN_SPARSE As String = "#ERR:E0302:GS_SPARSE:"
 ' 100ms x 20 = 最大2秒だけ粘る。実機第2報の "rc=? flag=[]" はこのTOCTOU。
 Private Const FLAG_RETRY_N As Long = 20
 
-' R13-1c: 生存監視の刻み。待ちループは100msごとに回り、2秒ごとに進捗
+' R13-1c: 生存監視の刻み。待ちループは1秒ごとに回り(R13-M2)、2秒ごとに進捗
 '(gs_out.log の "Page N" と gstext.txt のサイズ)を見て、1秒ごとにバナーを
 ' 更新する。数字を3箇所に散らさないためここに置く。
 Private Const POLL_SEC As Double = 2#
 Private Const BANNER_SEC As Double = 1#
 
-' R13-1e: WMI起動が使えずPIDを取れなかったことを1セッション1回だけ記録する
-' ためのフラグ(EDR等でWMIが塞がれている端末では毎回失敗するので、
-' 記録が usage_log を埋め尽くさないようにする)。
-Private mKillUnavailableLogged As Boolean
+' R13-F1: gs_out.log から "Processing pages 1 through N" を探す窓の大きさ。
+' 300字では足りない。GSの起動バナー(版名・著作権・警告)だけで約210バイト
+' あり、xref修復の警告が数行出ると Processing 行は窓の外へ押し出される。
+' そうなると「ページ処理あり」の証拠を見失い、スキャンPDFが image ではなく
+' gsfail に落ちてWord経路へ流れる(実機第2報 RC1 の再発)。
+Private Const LOG_HEAD_CHARS As Long = 4000
 
 Public Function Ping() As Boolean
     Ping = True
@@ -161,7 +164,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     modUIMain.SetStage "PDFの文字を取り出しています…"
 
     Dim gsPid As Long: gsPid = 0
-    If Not RunGsAsync(runCmd, gsErrNum, gsErrDesc, gsPid) Then
+    If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc, gsPid) Then
         modUIMain.SetStage ""
         CleanupTxtFolder folderPath, outTxt
         ' WScript.Shell自体がポリシーで塞がれている端末をここで切り分ける。
@@ -325,9 +328,10 @@ End Function
 ' gs_out.log の先頭に "Processing pages 1 through N" があったか(R13-1b)。
 ' 「GSがPDFを開いてページ処理まで進んだ」ことの唯一の証拠で、これが無いのに
 ' 出力が空なら文字層の有無ではなく実行そのものの失敗(EDRブロック等)。
+' 読む窓は LOG_HEAD_CHARS(300字では足りない。理由は定数のコメント参照)。
 Private Function GsOutHasPages(ByVal folderPath As String) As Boolean
     GsOutHasPages = (optOcrCore.GsTotalPagesFromLog( _
-        ReadTextHead(optOcrCore.GsLogFor(folderPath), 300)) > 0)
+        ReadTextHead(optOcrCore.GsLogFor(folderPath), LOG_HEAD_CHARS)) > 0)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -355,6 +359,9 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
     Dim tBanner As Double: tBanner = t0
     Dim lastSize As Double: lastSize = -1#
 
+    ' R13-F13b: どの生存信号が実機で本当に効いたかの計数(最後に1回だけ記録)。
+    Dim pageAdv As Long, sizeAdv As Long, noneAdv As Long
+
     rcOut = -1
     pagesSeen = 0
     totalPages = 0
@@ -363,11 +370,11 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
         If optVision.PathExists(flagPath) Then
             rcOut = ReadFlagRcRetry(flagPath)
             WaitGsTextDone = True
-            Exit Function
+            Exit Do
         End If
 
         DoEvents
-        SleepTick
+        SleepOneSec
 
         Dim nowT As Double: nowT = Timer
         ' 日跨ぎでTimerが0へ戻ったら、全ての起点を今へ寄せて待ち続ける
@@ -379,14 +386,23 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
         If (nowT - tPoll) >= POLL_SEC Then
             tPoll = nowT
             If totalPages <= 0 Then
-                totalPages = optOcrCore.GsTotalPagesFromLog(ReadTextHead(logPath, 300))
+                ' R13-F1: ここも300字では起動バナーに押し出される(定数参照)。
+                totalPages = optOcrCore.GsTotalPagesFromLog(ReadTextHead(logPath, LOG_HEAD_CHARS))
             End If
             Dim newPages As Long: newPages = optOcrCore.GsPagesFromLog(ReadTextTail(logPath, 500))
-            Dim newSize As Double: newSize = FileSizeOf(outTxt)
+            Dim newSize As Double: newSize = FileSizeOf(outTxt, lastSize)
             If newPages > pagesSeen Or newSize > lastSize Then
-                If newPages > pagesSeen Then pagesSeen = newPages
-                If newSize > lastSize Then lastSize = newSize
+                If newPages > pagesSeen Then
+                    pagesSeen = newPages
+                    pageAdv = pageAdv + 1
+                End If
+                If newSize > lastSize Then
+                    lastSize = newSize
+                    sizeAdv = sizeAdv + 1
+                End If
                 tIdle = nowT
+            Else
+                noneAdv = noneAdv + 1
             End If
         End If
 
@@ -403,7 +419,16 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
         If (nowT - t0) >= absSec Then Exit Do
     Loop
 
-    KillGsTree pid
+    ' R13-F13b: 成功・タイムアウトのどちらでも1回だけ、どの信号が生きていたかを
+    ' 残す。cmd のブロックバッファリングで gs_out.log が遅れる端末、開いたまま
+    ' のファイルで FileLen が固まる端末では、どちらか(最悪は両方)が none に
+    ' 倒れる。次の実機テストで「効いた信号」を事実として拾うための計測。
+    On Error Resume Next
+    modLog.LogUsage "gs_progress_signal", "", "page=" & pageAdv & _
+        ";size=" & sizeAdv & ";none=" & noneAdv
+    On Error GoTo 0
+
+    If Not WaitGsTextDone Then optGsProc.KillGsTree pid
 End Function
 
 ' 完了フラグの中身(終了コード)を最大2秒粘って読む(R13-1a)。
@@ -434,12 +459,58 @@ Private Sub SleepTick()
     On Error GoTo 0
 End Sub
 
-' 書きかけファイルのサイズ(読めなければ -1)。観測用なので絶対に落とさない。
-Private Function FileSizeOf(ByVal filePath As String) As Double
-    FileSizeOf = -1#
+' 完了待ちループ1周ぶんの休止(約1秒。R13-M2)。
+' Now は秒単位までしか持たないため Now + 0.1/86400# は【過去】を指し、
+' Application.Wait は一切眠らずに返っていた。結果、待ちループは最悪20分間
+' 全速で Dir$ を叩き続ける(EDR配下では特に高くつく)。TimeSerial で必ず
+' 1秒進める。Application.Wait が使えない環境では従来どおり空回りする。
+Private Sub SleepOneSec()
     On Error Resume Next
-    FileSizeOf = CDbl(FileLen(filePath))
+    Application.Wait Now + TimeSerial(0, 0, 1)
     On Error GoTo 0
+End Sub
+
+' 書きかけファイルのサイズ(読めなければ -1)。観測用なので絶対に落とさない。
+' R13-F13a: 開いたままのファイルに対して FileLen はディレクトリ項目の古い
+' サイズ(しばしば0)を返し続けることがある。それだけを生存信号にすると
+' 「進んでいるのに無進捗」と誤判定するため、0または前回から動いていない
+' ときだけ、実際に開いて LOF で測り直す(GSのfopenは読み共有を拒まない)。
+Private Function FileSizeOf(ByVal filePath As String, ByVal knownSize As Double) As Double
+    Dim n As Double: n = -1#
+    On Error Resume Next
+    n = CDbl(FileLen(filePath))
+    On Error GoTo 0
+
+    If n > 0# And n > knownSize Then
+        FileSizeOf = n
+        Exit Function
+    End If
+
+    Dim m As Double: m = LofSizeOf(filePath)
+    If m > n Then n = m
+    FileSizeOf = n
+End Function
+
+' ファイルを開いて LOF で測る(読めなければ -1)。ハンドラを Resume で
+' 抜けてから閉じる本モジュール共通の作法に従う。
+' 実在確認を先に行うのは必須。Open ... For Binary は無ければ【作ってしまう】
+' ので、まだGSが作っていない出力txtを空ファイルで先回りして作りかねない。
+Private Function LofSizeOf(ByVal filePath As String) As Double
+    Dim fn As Long: fn = 0
+    LofSizeOf = -1#
+    On Error GoTo NoLof
+    If LenB(Dir$(filePath)) = 0 Then Exit Function
+    fn = FreeFile
+    Open filePath For Binary Access Read As #fn
+    LofSizeOf = CDbl(LOF(fn))
+    Close #fn
+    fn = 0
+    Exit Function
+NoLof:
+    Resume LofCleanup
+LofCleanup:
+    CloseFileNumberSafely fn
+    LofSizeOf = -1#
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -447,7 +518,7 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 元は optVision の内部ヘルパーだったが、R10-3でtxtwrite経路からも使うように
 ' なり、optVisionが30,000字上限まで残り15字という状態になった。GS実行の
-' 道具一式(一時フォルダ・非同期起動・完了待ち・後始末)はどちらの経路
+' 道具一式(一時フォルダ・完了待ち・後始末)はどちらの経路
 ' (txtwrite / OCRのjpeg化)からも同じ形で使うものなので、ここへまとめて
 ' 置き、optVision 側は optGsTxt.〜 で呼ぶ。中身は移設前と1文字も変えていない。
 
@@ -470,127 +541,13 @@ Public Function MakeOcrFolder() As String
     If FolderExists(folderPath) Then MakeOcrFolder = folderPath
 End Function
 
-' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
-' R10-2: 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値は
-' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
-' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
-' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
-' R13-1e: まずWMI(Win32_Process.Create)で起動してPIDを控える。PIDが無いと
-' 真のハングを止める手段が無く、GS/cmd.exe がログオン中ずっと残る(RC3)。
-' WMIはEDR/ポリシーで塞がれる端末があるので、失敗したら【必ず】従来の
-' WScript.Shell へ退避する(取込が動かなくなる方が害が大きい)。退避した
-' セッションではkillできないことを1回だけ usage_log へ残す。
-' pidOut: 取れたPID(0=不明。省略可なので既存の3引数呼び出しはそのまま動く)。
-Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
-                            ByRef errDesc As String, _
-                            Optional ByRef pidOut As Long = 0) As Boolean
-    pidOut = 0
-    If RunGsViaWmi(runCmd, pidOut) Then
-        RunGsAsync = True
-        Exit Function
-    End If
-    NoteKillUnavailable
-
-    Dim wsh As Object
-    On Error GoTo NoRun
-    Set wsh = CreateObject("WScript.Shell")
-    wsh.Run runCmd, 0, False
-    Set wsh = Nothing
-    RunGsAsync = True
-    Exit Function
-NoRun:
-    errNum = Err.Number
-    errDesc = Err.Description
-    RunGsAsync = False
-End Function
-
-' WMI経由の非表示起動。成功でTrue+PID、どこかで失敗したらFalse(呼び出し元が
-' 従来経路へ退避)。GetObject/Get/SpawnInstance_/Create のどれもポリシーで
-' 落ちうるので1本のハンドラで受け、Resumeでハンドラを抜けてからCOM参照を
-' 必ず解放する(本モジュール共通の作法。ハンドラ稼働中はOERNが効かない)。
-Private Function RunGsViaWmi(ByVal runCmd As String, ByRef pidOut As Long) As Boolean
-    Dim svc As Object
-    Dim startCls As Object
-    Dim cfg As Object
-    Dim proc As Object
-    Dim newPid As Variant
-    Dim rc As Long
-
-    On Error GoTo WmiFail
-    Set svc = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
-    Set startCls = svc.Get("Win32_ProcessStartup")
-    Set cfg = startCls.SpawnInstance_()
-    cfg.ShowWindow = 0                 ' 0=SW_HIDE(従来のwsh.Run(...,0,False)と同じ)
-    Set proc = svc.Get("Win32_Process")
-    rc = proc.Create(runCmd, Null, cfg, newPid)
-
-    Set proc = Nothing
-    Set cfg = Nothing
-    Set startCls = Nothing
-    Set svc = Nothing
-    On Error GoTo 0
-
-    If rc <> 0 Then Exit Function
-    If Not IsNumeric(newPid) Then Exit Function
-    If CLng(newPid) <= 0 Then Exit Function
-
-    pidOut = CLng(newPid)
-    RunGsViaWmi = True
-    Exit Function
-
-WmiFail:
-    Resume WmiCleanup
-WmiCleanup:
-    On Error Resume Next
-    Set proc = Nothing
-    Set cfg = Nothing
-    Set startCls = Nothing
-    Set svc = Nothing
-    On Error GoTo 0
-    RunGsViaWmi = False
-End Function
-
-' PIDが取れなかったことの記録(1セッション1回)。「なぜ止められなかったのか」
-' が後から分かるようにする(憲章§4-1 無言の失敗禁止)。
-Private Sub NoteKillUnavailable()
-    If mKillUnavailableLogged Then Exit Sub
-    mKillUnavailableLogged = True
-    On Error Resume Next
-    modLog.LogUsage "gs_kill_unavailable", "", _
-        "WMI起動が使えずWScript.Shellへ退避(PID未取得のためハング時に停止できません)"
-    On Error GoTo 0
-End Sub
-
-' 真のハング(アイドル上限超過)でGSを系統ごと止める(R13-1e)。
-' /T で子プロセス(cmd.exe が起動した gswin32c.exe)まで、/F で強制終了。
-' PIDが無い(WScript.Shell退避)ときは何もしない。
-Private Sub KillGsTree(ByVal pid As Long)
-    If pid <= 0 Then Exit Sub
-
-    Dim wsh As Object
-    On Error GoTo KillFail
-    Set wsh = CreateObject("WScript.Shell")
-    wsh.Run "taskkill /T /F /PID " & CStr(pid), 0, False
-    Set wsh = Nothing
-    On Error GoTo 0
-    On Error Resume Next
-    modLog.LogUsage "gs_killed_on_hang", "", "pid=" & pid
-    On Error GoTo 0
-    Exit Sub
-KillFail:
-    Resume KillCleanup
-KillCleanup:
-    On Error Resume Next
-    Set wsh = Nothing
-    modLog.LogUsage "gs_kill_failed", "", "pid=" & pid
-    On Error GoTo 0
-End Sub
-
 ' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
 ' 2026-07-31(R7 B-2ついで): このループは DoEvents 専業で、Ghostscript が
 ' ページ画像を書いている数分のあいだCPUを1コア回し切っていた(R6の報告)。
 ' 待っているのはファイルの出現であって、詰めても早くは終わらない。
-' 1周ごとに約100ms止めて間引く(挙動は不変。判定間隔が0.1秒になるだけ)。
+' 2026-08-03(R13-M2): 間引きは【1秒】。従来の Now + 0.1/86400# は過去を
+' 指すため実際には眠らず、CPUを回し切る問題が直っていなかった。完了検知が
+' 最大1秒遅れるが、後続はGSの出力を読むだけなので体感は変わらない。
 ' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
 ' 2026-08-03(R13-1a): フラグの「存在」だけで完了とみなすのをやめた。
 ' 存在を見た後、中身が終了コードとして読めるまで最大2秒粘る(ReadFlagRcRetry)。
@@ -605,7 +562,7 @@ Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Lo
             Exit Function
         End If
         DoEvents
-        SleepTick
+        SleepOneSec
         If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
     Loop While (Timer - t0) < timeoutSec
 End Function

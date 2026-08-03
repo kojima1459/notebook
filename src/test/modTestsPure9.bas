@@ -29,7 +29,7 @@ Option Explicit
 '     実機第2報 RC1(スキャンPDFがWordのゴミ本文で「登録成功」)の再発防止。
 '   ・optOcrCore.GsTotalPagesFromLog / GsPagesFromLog / GsWaitBanner
 '     (2026-08-03 R13-1c/1d): gs_out.log から進捗を読む目と、その見せ方。
-'   ・modExtractorPdf.IsThinExtract(2026-08-03 R13-3a): 「取り込めてはいるが
+'   ・modExtractorPdf.IsThinExtract("pdf", 2026-08-03 R13-3a): 「取り込めてはいるが
 '     本文が薄すぎる」の閾値。RC1(44頁の約款が chunks=1 で登録成功)の
 '     二段目の防衛で、閾値は仕様から動かさない約束をここで固定する。
 '   ・modLog.FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗の文言の選び方。
@@ -418,7 +418,7 @@ Private Sub TestGsWaitBanner()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' modExtractorPdf.IsThinExtract(2026-08-03 R13-3a): 薄い抽出の検出。
+' modExtractorPdf.IsThinExtract("pdf", 2026-08-03 R13-3a): 薄い抽出の検出。
 '   実機第2報 RC1 では44ページの約款が chunks=1 / status=done で
 '   「登録成功」になっていた。閾値は仕様R13-3aから動かさない約束なので、
 '   ここで境界を固定して「正当に薄い資料まで partial にする」改変も止める。
@@ -426,29 +426,32 @@ End Sub
 Private Sub TestIsThinExtract()
     ' 実機の事故そのもの: 44ページ / 1チャンク。
     modTestRunner.Check "Thin_44頁1チャンクは薄い", _
-        modExtractorPdf.IsThinExtract(44, 1, 30000), "Falseになった"
+        modExtractorPdf.IsThinExtract("pdf", 44, 1, 30000), "Falseになった"
 
     ' 9ページ以下は見ない(表紙+ポンチ絵のような正当に薄い資料を守る)。
     modTestRunner.Check "Thin_9頁は判定しない", _
-        Not modExtractorPdf.IsThinExtract(9, 0, 0), "Trueになった"
+        Not modExtractorPdf.IsThinExtract("pdf", 9, 0, 0), "Trueになった"
 
     ' 境界: 10ページ・チャンク0件は薄い(10\20=0 なので 0<=0)。
     modTestRunner.Check "Thin_10頁0チャンクは薄い", _
-        modExtractorPdf.IsThinExtract(10, 0, 99999), "Falseになった"
+        modExtractorPdf.IsThinExtract("pdf", 10, 0, 99999), "Falseになった"
 
     ' 境界: 40ページで2チャンクは薄い(40\20=2)、3チャンクなら文字数次第。
     modTestRunner.Check "Thin_40頁2チャンクは薄い", _
-        modExtractorPdf.IsThinExtract(40, 2, 99999), "Falseになった"
+        modExtractorPdf.IsThinExtract("pdf", 40, 2, 99999), "Falseになった"
     modTestRunner.Check "Thin_40頁3チャンク_文字十分なら薄くない", _
-        Not modExtractorPdf.IsThinExtract(40, 3, 2400), "Trueになった"
+        Not modExtractorPdf.IsThinExtract("pdf", 40, 3, 2400), "Trueになった"
 
     ' 文字数側の条件: ページ数x60 未満なら薄い(40x60=2400 が境界)。
     modTestRunner.Check "Thin_文字数が頁x60未満なら薄い", _
-        modExtractorPdf.IsThinExtract(40, 3, 2399), "Falseになった"
+        modExtractorPdf.IsThinExtract("pdf", 40, 3, 2399), "Falseになった"
 
     ' 正常な資料(44ページ・88チャンク・十分な文字数)は薄くない。
     modTestRunner.Check "Thin_正常な資料は薄くない", _
-        Not modExtractorPdf.IsThinExtract(44, 88, 61600), "Trueになった"
+        Not modExtractorPdf.IsThinExtract("pdf", 44, 88, 61600), "Trueになった"
+
+    ' 拡張子による足切り(R13-F7)は modTestsPure10.TestThinExtractExt が持つ
+    ' (このモジュールは30,000字上限まで残りが少ないため。憲章§4-6)。
 End Sub
 
 ' ----------------------------------------------------------------------------

@@ -155,7 +155,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
             ' R13-4e: 429(ActiveXを作れない)/70(権限が無い)は、この端末では
             ' Excelから Word を起動できないという【環境の事実】。以後のファイルで
             ' 同じ失敗を繰り返さないよう印を立てる。
-            If failedNum = 429 Or failedNum = 70 Then
+            If IsCreateBlockedNum(failedNum) Then
                 If Not mCreateBlocked Then
                     mCreateBlocked = True
                     On Error Resume Next
@@ -202,6 +202,21 @@ Private Sub StageForOpenMode(ByVal mode As Long)
     End If
     On Error GoTo 0
 End Sub
+
+' 「この端末ではExcelからWordを起動できない」と断じてよいエラー番号か
+' (R13-F10)。従来は 429(ActiveXを作れない)と 70(権限が無い)だけを見て
+' いたが、実機でポリシー/EDRに止められたときは次の番号でも出る:
+'   462          … 相手のCOMサーバが居ない/即座に落とされた
+'   -2147467259  … E_FAIL(オートメーションエラー。ブロック時の定番)
+'   -2147024891  … E_ACCESSDENIED(アクセスが拒否されました)
+' ここを取りこぼすと mCreateBlocked が立たず、1ファイルごとに開き方1-3で
+' 4回失敗する無駄(RC6)が再発し、相乗り経路への直行も効かない。
+Private Function IsCreateBlockedNum(ByVal n As Long) As Boolean
+    Select Case n
+    Case 429, 70, 462, -2147467259, -2147024891
+        IsCreateBlockedNum = True
+    End Select
+End Function
 
 ' R13-4e: word_doc_count_unknown は1ファイル1行にまとめる。従来は
 ' 開き方×再試行の回数だけ同じ文が並び、usage_log がこの1文で埋まって

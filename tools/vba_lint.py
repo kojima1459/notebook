@@ -503,9 +503,17 @@ CONTRACT: dict[str, dict] = {
     # 中身(GSの終了コード)と gs_out.log の先頭を読み、err_log の detail に
     # そのまま入れられる1本の文字列にする。optVision(OCR経路)からも呼ぶ。
     "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
-                                              "MakeOcrFolder", "RunGsAsync",
+                                              "MakeOcrFolder",
                                               "WaitForDoneFlag", "CleanupOcrFolder",
                                               "GsFailureDetail", "GsExitCode"]},
+    # optGsProc(2026-08-03 R13-F2): Ghostscriptプロセスの起動と停止だけを
+    # optGsTxt から切り出したもの。PID再利用よけの本人確認(WMI Win32_Process
+    # の名前照合)と rc=0/PID不明の扱いを足した結果 optGsTxt が28,000字の
+    # WARN帯へ入ったための容量分割(憲章§4-6)。RunGsAsync は optGsTxt と
+    # optVision の両方から、KillGsTree は optGsTxt の待ちループから呼ばれる。
+    # 純ロジックではない(WMI・Shell起動・ログ)ので PURE_LOGIC_MODULES には
+    # 載せない。opt層に置く以上、他のoptと同様に Ping を持たせる。
+    "optGsProc": {"closed": True, "required": ["Ping", "RunGsAsync", "KillGsTree"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",

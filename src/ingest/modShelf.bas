@@ -340,9 +340,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     ' modExtractorPdf.ThinExtractMemoFor が持つ(ここは呼び出し1行)。
     ' 44ページの約款が chunks=1 で「登録成功」になる形(実機第2報 RC1)を、
     ' 上流の分類が漏れたときでも done と言わせないための最後の関所。
+    ' R13-F7: 拡張子を渡す。docxの「ページ」やxlsxの「シート」まで同じ関門に
+    ' かけると、PDF/OCR前提の文言で正当に薄い資料を partial にしてしまう。
     Dim thinMemo As String: thinMemo = ""
     On Error Resume Next
-    thinMemo = modExtractorPdf.ThinExtractMemoFor(pages, chunkN)
+    thinMemo = modExtractorPdf.ThinExtractMemoFor(pages, chunkN, modUtil.ExtOf(path))
     On Error GoTo Failed
 
     If pagesTruncated Or stillPending Or LenB(thinMemo) > 0 Then

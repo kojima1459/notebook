@@ -258,7 +258,7 @@ End Function
 '
 '   ・GSの起動はブロッキング待ちにしない(壊れたPDF1つでExcelが永久に固まる
 '     ことを避けるため)。完了フラグファイルの出現をDoEventsつきで監視し、
-'     config vision_pdf_timeout_sec(既定120秒)を超えたら失敗として返す。
+'     config gs_abs_timeout_sec(既定1200秒)を超えたら失敗として返す(R13-F4)。
 '     GSプロセスのkillはしない(こちらが壊す方が危ない)。
 '   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末は
 '     R6規約に従って別Sub(optGsTxt.CleanupOcrFolder)へ切り出してある
@@ -320,7 +320,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
 
     Dim maxPages As Long: maxPages = modConfig.GetLong("vision_pdf_max_pages", 20)
     Dim dpi As Long: dpi = modConfig.GetLong("vision_pdf_dpi", 150)
-    Dim waitSec As Long: waitSec = modConfig.GetLong("vision_pdf_timeout_sec", 120)
+    Dim waitSec As Long: waitSec = modConfig.GetLong("gs_abs_timeout_sec", 1200)
     If waitSec < 10 Then waitSec = 10
 
     Dim renderCap As Long: renderCap = optOcrCore.RenderCapFor(maxPages)
@@ -334,7 +334,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
 
     Dim gsErrNum As Long: gsErrNum = 0
     Dim gsErrDesc As String: gsErrDesc = ""
-    If Not optGsTxt.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
+    If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
         modUIMain.SetStage ""
         optGsTxt.CleanupOcrFolder folderPath
         ' R10-2: 従来はパスのみで原因が残らなかった。WScript.Shellがポリシーで
@@ -379,7 +379,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
         Else
             ExtractPdfOcrPagedText = "#ERR:E0303:PDFの画像変換が" & waitSec & "秒以内に" & _
                 "終わりませんでした。ページ数の少ないPDFに分けるか、config の " & _
-                "vision_pdf_timeout_sec を大きくしてからお試しください。"
+                "gs_abs_timeout_sec を大きくしてからお試しください。"
         End If
         Exit Function
     End If
@@ -653,7 +653,7 @@ Private Function CountRenderedPages(ByVal folderPath As String, ByVal renderCap 
     CountRenderedPages = i - 1
 End Function
 
-' R10-3bで optGsTxt へ移設したGS実行の道具(MakeOcrFolder/RunGsAsync/
+' R10-3bで optGsTxt へ移設したGS実行の道具(MakeOcrFolder/
 ' WaitForDoneFlag/CleanupOcrFolder)からも使うためPublic。
 Public Function PathExists(ByVal p As String) As Boolean
     On Error Resume Next
