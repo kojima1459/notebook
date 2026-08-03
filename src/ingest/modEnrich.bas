@@ -133,6 +133,11 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
         modUIMain.SetStage ChrW(&HD83C) & ChrW(&HDFF7) & ChrW(&HFE0F) & " 富化中 " & _
             modUtil.ProgressText(batchStart + batchSize, limit, _
                                  modUtil.EtaText(limit - batchStart, msPerItem)) & " …"
+        ' R13-4a: SetStageの出力先(状態行/StatusBar/チャットバブル)は
+        ' マイ本棚側の画面では見えない。取込の一段としてバナーへも流す
+        ' (バナーが既に出ているときだけ更新=silentは無表示のまま)。
+        modShelfBatch.StageBanner "AI整理中… " & _
+            modUtil.ProgressText(batchStart + batchSize, limit, "")
         On Error GoTo 0
 
         batchT0 = Timer

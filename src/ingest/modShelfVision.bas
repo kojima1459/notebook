@@ -60,6 +60,8 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
                                   ByRef outNote As String, _
                                   Optional ByVal silent As Boolean = False) As Boolean
     outNote = ""
+    Dim tmpCopy As String: tmpCopy = ""
+    Dim okRet As Boolean: okRet = False
 
     Dim isImageFile As Boolean: isImageFile = IsImageFileExt(path)
     If errCode <> "E0303" And Not (errCode = "E0301" And isImageFile) Then Exit Function
@@ -77,6 +79,24 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         Exit Function
     End If
 
+    On Error GoTo VisionFailed
+
+    ' ------------------------------------------------------------------
+    ' 2026-08-03(R13-3d): OCR/画像経路だけが安全な一時コピーを通っていなかった。
+    ' modExtractor は Office系を必ず modExtractorPdf.CopyToLocalTemp 経由で
+    ' 開く(R13-2でASCII安全名になった)のに、抽出に失敗してここへ落ちてくると
+    ' modShelf は【元のパス】を渡してくる。その結果、Mac由来のNFD分解濁点
+    ' (U+3099)等を含むファイル名がそのまま Ghostscript へ渡り、
+    ' /undefinedfilename になっていた(実機第2報 RC4と同じ穴のOCR側)。
+    ' ここでも安全なコピーを作り、抽出にはそれを使う。元のパスは
+    ' 表示・ログ・メタデータ側でだけ使い続ける(利用者に見えるのは元の名前)。
+    ' コピーできなければ従来どおり元パスで続行する(悪化させない)。
+    ' 作ったコピーは【全ての出口】で消す(下の Finish が一手に引き受ける)。
+    ' ------------------------------------------------------------------
+    Dim workPath As String: workPath = path
+    tmpCopy = modExtractorPdf.CopyToLocalTemp(path)
+    If LenB(tmpCopy) > 0 Then workPath = tmpCopy
+
     ' OCR経路(ExtractPdfOcrPagedText)だけは silent を渡す。Ghostscript が
     ' 見つからないときに opt 側が案内カード(モーダル)を出すのはこの経路
     ' だけで、無人の同期からそれが出ると同期がそこで止まる(R11-A C4)。
@@ -84,10 +104,10 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
     Dim callArgs As Variant
     If isImageFile Then
         procName = "ExtractImagePdfText"
-        callArgs = path
+        callArgs = workPath
     Else
         procName = "ExtractPdfOcrPagedText"
-        callArgs = Array(path, silent)
+        callArgs = Array(workPath, silent)
     End If
 
     Dim raw As String
@@ -97,20 +117,46 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         outNote = FailureNote(raw, errCode)
         modLog.LogError errCode, "modShelfVision.TryVisionFallback", _
             procName & " 失敗 " & modUtil.SafeLeft(path, 200) & " : " & modUtil.SafeLeft(raw, 300)
-        Exit Function
+        GoTo Finish
     End If
 
     ' ページ付きで返ってきたら復号する。そうでなければ全文1ページとして扱う。
     If modUtil.SplitPagedText(raw, pages, truncated) Then
-        TryVisionFallback = True
-        Exit Function
+        okRet = True
+        GoTo Finish
     End If
 
     truncated = False
     ReDim pages(0 To 0)
     pages(0).page = 1
     pages(0).Text = raw
-    TryVisionFallback = True
+    okRet = True
+    GoTo Finish
+
+VisionFailed:
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きたエラーは
+    ' 呼び出し元へ飛んで本来の原因を上書きする。後始末の前に Resume で
+    ' ハンドラを抜ける(modShelf.IngestFile と同じ作法)。
+    Resume VisionCleanup
+VisionCleanup:
+    On Error Resume Next
+    modLog.LogError errCode, "modShelfVision.TryVisionFallback", _
+        "err#" & failNum & ": " & failDesc & " " & modUtil.SafeLeft(path, 200)
+    If LenB(outNote) = 0 Then _
+        outNote = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+    On Error GoTo 0
+    okRet = False
+    ' Finish へ落ちる(一時コピーの後始末は1箇所だけに持つ)。
+
+Finish:
+    If LenB(tmpCopy) > 0 Then
+        On Error Resume Next
+        Kill tmpCopy
+        On Error GoTo 0
+    End If
+    TryVisionFallback = okRet
 End Function
 
 ' ----------------------------------------------------------------------------

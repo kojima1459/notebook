@@ -80,6 +80,7 @@ End Sub
 
 ' OnSend - 送信ボタン。入力セル(nx_input)を読み、モードに応じて回答生成。
 Public Sub OnSend()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R13-4c: 取込中は質問を受けない
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
     modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
@@ -248,6 +249,7 @@ End Function
 ' Peek View(出典ポップアップ): 出典チップ/ポップアップのクリック受け。
 ' 出典チップ(nx_cite_<i>)のクリック → そのチャンク本文をポップアップ表示。
 Public Sub OnPeek()
+    If modUiLock.BlockIfIngesting() Then Exit Sub   ' R13-4c: 取込中は出典を開かない
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     Dim caller As String
@@ -631,8 +633,9 @@ End Sub
 
 ' 保存して(このファイルだけ)閉じる(実機要望: 安全な終了方法が分からない)。
 Public Sub OnSaveAndExit()
-    ' R11-A C1: 取込中は閉じない(閉じると取込中の資料がまるごと消える)。
-    If modUiLock.BlockIfIngesting() Then Exit Sub
+    ' R11-A C1 / R13-4d: 取込中は「無反応」でも「黙って終了」でもなく、
+    ' 何が起きているかを伝えて選ばせる(いいえ=終了中止)。
+    If Not modUiLock.ConfirmCloseDuringIngest() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     Dim resp As VbMsgBoxResult
     resp = MsgBox("保存してこのファイルを閉じますか?" & vbCrLf & vbCrLf & _

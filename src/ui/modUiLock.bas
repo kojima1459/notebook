@@ -38,6 +38,13 @@ Private mBusy As Boolean
 Private mBusySince As Date
 Private Const LOCK_EXPIRY_MIN As Long = 10
 
+' R13-4d: 直近に「はい(中断して終了)」と答えた時刻。開発構成では終了ボタン
+' (modApp.OnSaveAndExit)が ThisWorkbook.Close を呼ぶと Workbook_BeforeClose が
+' 続けて発火するため、同じ問いが二度出る。二度目は既定が「いいえ」なので、
+' 一度承諾した終了がそこで止まって見える。承諾は短時間だけ憶えておく。
+Private mCloseOkSince As Date
+Private Const CLOSE_OK_SEC As Long = 60
+
 ' ----------------------------------------------------------------------------
 ' Enter - ロック取得を試みる。取得できたらTrue(処理続行可)、既に処理中ならFalse
 '         (呼び出し側は即Exitすること)。取得時は砂時計+ステータスバーを表示。
@@ -127,6 +134,60 @@ Public Function BlockIfIngesting() As Boolean
     ' (取込中に連打されるのがまさにこの関所)。待ちゼロのバナーへ置換する。
     ' バナーは取込側の次のShowProgress更新かHideProgressで上書き/消去される。
     modUIMain.ShowProgress "取り込み処理が終わるまでお待ちください…"
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' ConfirmCloseDuringIngest - 取込中の終了を、利用者に一度だけ確かめる(R13-4d)。
+' ----------------------------------------------------------------------------
+' 戻り値 True=閉じてよい / False=閉じてはいけない(呼び出し元は終了を中止)。
+'
+' R11-A C1 では取込中の終了を【問答無用で拒否】していた。データ保全としては
+' 正しいが、GSの本文抽出やOCRは数分かかることがあり、その間は終了ボタンも
+' ウィンドウの×も無反応にしか見えない(憲章§3-1「無反応は故障と同義」)。
+' 何が起きているかを伝えたうえで、中断して終わる道も残す。既定は「いいえ」
+' (vbDefaultButton2)にして、Enterの流し打ちで取込が飛ばないようにする。
+'
+' busy 判定は BlockIfIngesting と同じ2つ(取込・フォルダ同期)。判定を
+' 2箇所で違えないよう、参照する関数はここでも同じものだけを使う。
+' 例外は外へ出さない(判断に失敗したら閉じてよい側=利用者の操作を
+' 妨げない側へ倒す。ロックが焼き付いてブックを閉じられなくなる方が害が大きい)。
+Public Function ConfirmCloseDuringIngest() As Boolean
+    ConfirmCloseDuringIngest = True
+
+    Dim busyNow As Boolean
+    On Error Resume Next
+    busyNow = modShelf.IsBusy()
+    If Not busyNow Then busyNow = modShelfSync.IsBusy()
+    On Error GoTo 0
+    If Not busyNow Then Exit Function
+
+    ' 同じ終了操作の中で二度聞かない(終了ボタン→BeforeClose の連鎖)。
+    On Error Resume Next
+    If mCloseOkSince <> 0 Then
+        If DateDiff("s", mCloseOkSince, Now) < CLOSE_OK_SEC Then Exit Function
+    End If
+    On Error GoTo 0
+
+    Dim resp As VbMsgBoxResult
+    resp = vbNo
+    On Error Resume Next
+    resp = MsgBox("資料の取込中です。中断して終了しますか?" & vbLf & vbLf & _
+        "  [はい] 取込を中断して終了します(取込中の資料は入りません)" & vbLf & _
+        "  [いいえ] 終了せず、取込の完了を待ちます", _
+        vbYesNo + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME)
+    On Error GoTo 0
+
+    ConfirmCloseDuringIngest = (resp = vbYes)
+    On Error Resume Next
+    If ConfirmCloseDuringIngest Then
+        mCloseOkSince = Now
+        modLog.LogUsage "close_confirmed_ingesting", "", _
+            "取込中の終了を利用者が承諾しました(取込中の資料は入りません)"
+    Else
+        modLog.LogUsage "close_canceled_ingesting", "", _
+            "取込中の終了要求を利用者の選択で中止しました"
+    End If
     On Error GoTo 0
 End Function
 

@@ -235,6 +235,14 @@ PURE_ALLOWLIST = [
     #   modTestsPure8.RunAll8 の末尾が RunAll9 を呼ぶため、未注入だと実行時
     #   エラー12になり分割先のテストが「実行されないまま」になる。
     "modTestsPure9",
+    # modLog(2026-08-03 R13-3b): FriendlyMessage / FriendlyFailMsg は
+    #   Select Case と文字列結合だけの純ロジック(シートを触るのは
+    #   LogError/LogUsage/TrimLog だけで、テストからは呼ばない)。
+    #   modShelfSync/modPack/modVecCache と同じ「モジュール全体がR4準拠では
+    #   ないが、テストで呼ぶ関数自体はExcelに触れない」型。未注入のまま
+    #   modTestsPure9 から呼ぶと実行時エラー12(Variable not defined)になり、
+    #   RC6(案内文の上書き)の回帰テストが走らないまま全部PASSに見える。
+    "modLog",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

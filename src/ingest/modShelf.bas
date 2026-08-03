@@ -155,7 +155,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                 If InStr(errDetail, "ファイルが大きすぎます") > 0 Then
                     failMsg = Split(errDetail, " [")(0)
                 Else
-                    failMsg = modLog.FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+                    ' 2026-08-03(R13-3b): 文言の決定は modLog.FriendlyFailMsg に
+                    ' 一本化した。errDetail に行動可能な案内(Wordを開いたままに
+                    ' …)があればそれを優先し、docx/doc に Ghostscript の話を
+                    ' しない(実機第2報 RC6)。
+                    failMsg = modLog.FriendlyFailMsg(errCode, errDetail, modUtil.ExtOf(path))
                 End If
             End If
             If isSelf Then
@@ -332,7 +336,16 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         End If
     End If
 
-    If pagesTruncated Or stillPending Then
+    ' 2026-08-03(R13-3a): 薄い抽出の検出(二段目の防衛)。判定と文言は
+    ' modExtractorPdf.ThinExtractMemoFor が持つ(ここは呼び出し1行)。
+    ' 44ページの約款が chunks=1 で「登録成功」になる形(実機第2報 RC1)を、
+    ' 上流の分類が漏れたときでも done と言わせないための最後の関所。
+    Dim thinMemo As String: thinMemo = ""
+    On Error Resume Next
+    thinMemo = modExtractorPdf.ThinExtractMemoFor(pages, chunkN)
+    On Error GoTo Failed
+
+    If pagesTruncated Or stillPending Or LenB(thinMemo) > 0 Then
         resultStatus = "partial"
     Else
         resultStatus = "done"
@@ -340,7 +353,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 
     If isSelf Then
         modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), acceptedCount, _
-            resultStatus, "", origin
+            resultStatus, thinMemo, origin
     End If
 
     If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then

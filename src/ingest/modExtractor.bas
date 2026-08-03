@@ -267,9 +267,12 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' 画像PDF検知(PDFのみ・§7.2): 抽出総文字数 < ページ数×10
     If ext = "pdf" Then
         If totalChars < pageCount * 10 Then
+            ' R13-3c: E0303は3箇所から同じコードで発報される。detailの先頭に
+            ' 発報点を書き、診断者が「GSの即断」と取り違えないようにする。
             errCode = "E0303"
-            errDetail = "画像PDFの可能性(総文字数=" & totalChars & " ページ数=" & pageCount & ")"
-            modLog.LogError "E0303", "modExtractor.ExtractFile", modUtil.SafeLeft(path, 500)
+            errDetail = "thin: 画像PDFの可能性(総文字数=" & totalChars & " ページ数=" & pageCount & ")"
+            modLog.LogError "E0303", "modExtractor.ExtractFile", _
+                modUtil.SafeLeft("thin: " & path, 500)
             ExtractFile = False
             Exit Function
         End If

@@ -138,6 +138,10 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' 集計値の宣言はハンドラより前に置く(途中で落ちても集計を返すため)。
     Dim okCount As Long: okCount = 0
     Dim ngCount As Long: ngCount = 0
+    ' R13-3a: status="partial" で入った件数(打ち切り・埋め込み未了・薄い抽出)。
+    ' 「成功」に混ぜたまま黙っていると、本文が薄いまま入った資料に誰も
+    ' 気付けない(実機第2報 RC1)。完了トーストで件数だけは必ず言う。
+    Dim warnN As Long: warnN = 0
     Dim cappedN As Long: cappedN = 0
     Dim chunksAdded As Long: chunksAdded = 0
     ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
@@ -201,9 +205,15 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         End If
         ' R10c(M5): 表示系は modEmbed/modShelfSync と同形にOERNで挟む
         ' (バナー描画の失敗で AddFailed へ飛ばし取込を止めてはならない)。
+        ' R13-4b: ETAが出せない最初の1件(1件だけの取込では最後まで)は、
+        ' 従来「1/1件 <ファイル名>」で止まって見えた。段階バナー(コピー中/
+        ' 本文抽出中/…)が引き継ぐまでの間を「処理中…」で埋め、
+        ' 「動いているのか止まっているのか分からない」を作らない(憲章§3-2)。
+        Dim tailPart As String: tailPart = ""
+        If LenB(etaPart) = 0 Then tailPart = " 処理中…"
         On Error Resume Next
         modUIMain.ShowProgress modUtil.ProgressText(i, fd.SelectedItems.count, etaPart) & " " & _
-            modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40)
+            modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40) & tailPart
         On Error GoTo AddFailed
 
         ' 2026-07-31(§7裁定3件目 採用1): 手動「資料を追加」でこのブック自身
@@ -237,6 +247,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             chunksAdded = chunksAdded + (modShelf.TotalChunks() - beforeChunks)
             If st = "done" Or st = "partial" Then
                 okCount = okCount + 1
+                If st = "partial" Then warnN = warnN + 1
             Else
                 ngCount = ngCount + 1
                 Dim reasonKey As String
@@ -257,9 +268,12 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' R10c(M4): 「バナーを閉じる → トースト」の順にする。逆順だと1.1秒のあいだ
     ' 2枚がならび、どちらが今の状態なのか読み手に判断できない(バナーには
     ' 最後のファイル名が残っている)。modShelfSync も同じ順序。
+    Dim warnPart As String: warnPart = ""
+    If warnN > 0 Then warnPart = "/注意" & warnN & "件"
     On Error Resume Next
     modUIMain.HideProgress
-    modSkin.ShowToast "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件)", "info"
+    modSkin.ShowToast "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
+        warnPart & ")", "info"
     On Error GoTo AddFailed
 
     ' silent にしたぶん1件ごとの再描画も走らない(IngestFileのFinishは
@@ -275,6 +289,12 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     End If
     ' E0504はper-fileモーダルをやめた(4-A)ので、ここで必ず件数を伝える。
     ' 伝えないと「入れたはずの資料が無い」理由がどこにも出ない。
+    If warnN > 0 Then
+        ' R13-3a: 「成功」の中に partial が混ざっていることを黙らない。
+        ' 何がどう足りないのかは資料ごとに違うので、行き先(メモ)だけ示す。
+        msg = msg & vbLf & "うち" & warnN & "件は一部だけの取込です" & _
+            "(マイ本棚の一覧で、そのカードのメモをご確認ください)。"
+    End If
     Dim dupN As Long
     dupN = ReasonCountOf(reasonKeys, reasonCounts, reasonN, "E0504")
     If dupN > 0 Then

@@ -195,6 +195,77 @@ Public Function FriendlyMessage(ByVal code As String) As String
     End Select
 End Function
 
+' ============================================================================
+' FriendlyFailMsg - 取込失敗を利用者へ伝える1文を選ぶ(2026-08-03 R13-3b)。
+' ----------------------------------------------------------------------------
+' 実機第2報 RC6: modUtil.DescribeComError が作った
+' 「Wordを開いたままにして、もう一度お試しください」という【その場で打てる
+' 次の一手】が、modShelf でE0302の汎用文言(Ghostscript前提)に上書きされ、
+' 利用者には一度も届いていなかった。しかもその汎用文言は .docx の失敗にも
+' 出るため、Wordの話をしているのにGhostscriptの確認を求めていた。
+'
+' 決め方は2段:
+'   (1) errDetail に行動可能な案内が入っていれば、それを優先して採用する。
+'       生のCOM説明文(英語や「型が一致しません」)は採用しない。目印は
+'       DescribeComError が必ず書く導入句(「この端末では」「この環境では」)。
+'   (2) 無ければコード表の汎用文言。ただしE0302だけは拡張子で分岐し、
+'       docx/doc には Ghostscript の話を一切しない。
+' 純粋な文字列処理なので modTestsPure9 が分岐を固定する。
+' ============================================================================
+Public Function FriendlyFailMsg(ByVal errCode As String, ByVal errDetail As String, _
+                                ByVal ext As String) As String
+    Dim hint As String: hint = ActionableHint(errDetail)
+    If LenB(hint) > 0 Then
+        FriendlyFailMsg = hint & "(コード: " & errCode & ")"
+        Exit Function
+    End If
+
+    If UCase$(Trim$(errCode)) = "E0302" Then
+        Dim e As String: e = LCase$(Trim$(ext))
+        If e = "docx" Or e = "doc" Then
+            FriendlyFailMsg = "Wordの文書を読み取れませんでした" & _
+                "(他のアプリで開いている、または権限がない可能性があります)。" & _
+                "そのファイルを閉じてから、もう一度お試しください。" & _
+                "それでも取り込めない場合は、Wordを起動したままにしてお試しください" & _
+                "(この端末ではWordが開いていると取り込めることがあります)。" & _
+                "(コード: " & errCode & ")"
+            Exit Function
+        End If
+    End If
+
+    FriendlyFailMsg = FriendlyMessage(errCode) & "(コード: " & errCode & ")"
+End Function
+
+' errDetail から「利用者がその場で打てる次の一手」を含む文だけを取り出す。
+' 取り出せなければ ""(=汎用文言へ落とす)。
+' errDetail は経路によって「[段階/開き方N] 本文 (詳細: …) [localcopy=ok]」や
+' 「GS: … / Word: … / Acrobat: …」のように前後へ診断情報が付く。導入句から
+' 始め、技術情報が始まる所で切ることで、利用者に見せてよい部分だけを残す。
+Private Function ActionableHint(ByVal errDetail As String) As String
+    If LenB(errDetail) = 0 Then Exit Function
+
+    Dim p As Long: p = InStr(errDetail, "この端末では")
+    Dim q As Long: q = InStr(errDetail, "この環境では")
+    If p = 0 Or (q > 0 And q < p) Then p = q
+    If p = 0 Then Exit Function
+
+    Dim d As String: d = Mid$(errDetail, p)
+    d = CutBefore(d, "(詳細:")
+    d = CutBefore(d, " [")
+    d = CutBefore(d, " / ")
+    ActionableHint = Trim$(d)
+End Function
+
+' marker が見つかったらその手前まで(見つからなければそのまま)。
+Private Function CutBefore(ByVal s As String, ByVal marker As String) As String
+    Dim p As Long: p = InStr(s, marker)
+    If p > 0 Then
+        CutBefore = Left$(s, p - 1)
+    Else
+        CutBefore = s
+    End If
+End Function
+
 ' 実機報告(2026-07-21): ここのChrW絵文字がMsgBox上で「??」表示になっていた。
 ' Nexus画面のShape文字(TextFrame2)では正しく描画されるが、ネイティブMsgBox
 ' (Win32 MessageBox)は既定フォントの絵文字グリフ対応が弱く、Excel側の描画

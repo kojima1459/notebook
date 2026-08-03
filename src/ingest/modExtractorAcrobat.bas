@@ -37,6 +37,12 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
 
     Dim app As Object, doc As Object
 
+    ' R13-4a: Acrobatの起動と全ページ走査は無言だと数十秒の空白になる。
+    ' 段階を1行で言う(バナーが既に出ているときだけ更新される)。
+    On Error Resume Next
+    modShelfBatch.StageBanner "Acrobatで変換中…"
+    On Error GoTo 0
+
     On Error GoTo Failed
     Set app = CreateObject("AcroExch.App")
     ' 2026-07-31 R11-D(監査3 M-2): 生成直後に必ず隠す。AcroExch.App は既定で

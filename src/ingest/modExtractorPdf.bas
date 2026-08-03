@@ -73,8 +73,10 @@ Public Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As L
     ElseIf Left$(gsText, 11) = "#ERR:E0303:" Then
         ' 文字層が1文字も無いPDF=スキャン確定。Wordに渡しても必ず空振りする
         ' (しかも遅い)ので、ここで即OCR経路へ回す。
+        ' R13-3c: E0303は3箇所から同じコードで発報される。どこが出したのかを
+        ' detailの先頭1語で言い切る(診断者の取り違えを消す。実機第2報 RC10)。
         outCode = "E0303"
-        errDetail = modUtil.SafeLeft("GS: " & gsText, 600)
+        errDetail = modUtil.SafeLeft("gs_image: GS: " & gsText, 600)
         ExtractPdfWithFallback = False
         Exit Function
     Else
@@ -95,9 +97,15 @@ Public Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As L
         Exit Function
     End If
 
-    If sparseSeen Then outCode = "E0303"
+    ' R13-3c: 3経路が全滅し、なおかつGSが「薄すぎる」と言っていた場合のE0303。
+    ' 上の gs_image(GSの即断)とは判断の根拠がまるで違うので、detailで区別する。
+    Dim detailHead As String
+    If sparseSeen Then
+        outCode = "E0303"
+        detailHead = "allfail: "
+    End If
 
-    errDetail = modUtil.SafeLeft("GS: " & gsErr & " / Word: " & wordErr & _
+    errDetail = modUtil.SafeLeft(detailHead & "GS: " & gsErr & " / Word: " & wordErr & _
         " / Acrobat: " & acroErr, 600)
     ExtractPdfWithFallback = False
 End Function
@@ -144,6 +152,11 @@ End Function
 ' の意図が無い限りかからない)ため、これへ置き換える。
 Public Function CopyToLocalTemp(ByVal path As String) As String
     On Error GoTo Fail
+
+    ' R13-4a: 数百MBのPDFでは共有読みコピーだけで十数秒かかる。ここが無言だと
+    ' 利用者には「押した直後から何も起きない」ようにしか見えない(憲章§3-2)。
+    ' バナーが既に出ているときだけ更新される(silentは silent のまま)。
+    modShelfBatch.StageBanner "コピー中…"
 
     Dim tempDir As String: tempDir = Environ$("TEMP")
     If LenB(tempDir) = 0 Then tempDir = Environ$("TMP")
@@ -289,6 +302,53 @@ Public Function DropGarbledPages(ByRef pages() As ExtractedPage, _
     pages = kept
 
     DropGarbledPages = garbledCount
+End Function
+
+' ----------------------------------------------------------------------------
+' IsThinExtract - 「取り込めてはいるが、本文が薄すぎる」の判定(純ロジック)。
+'   2026-08-03 R13-3a(二段目の防衛)。実機第2報 RC1 では、44ページの約款が
+'   chunks=1 / status=done で「登録成功」になっていた。上流(R13-1b)で
+'   文字層なしPDFはOCRへ回るようになったので、ここへ落ちるのは希少ケースだが、
+'   「入っているのに中身が無い」を done と言い切るのは憲章§3-3/§4-1に反する。
+'
+'   条件(仕様R13-3aの値から動かさないこと):
+'     pageCount >= 10 かつ (chunkN <= pageCount\20 または 総文字数 < pageCount*60)
+'   10ページ未満を見ないのは、表紙+ポンチ絵のような正当に薄い資料を
+'   partial と呼ばないため。整数除算(\)なのは「20ページで1チャンク以下」
+'   という意味をそのまま式にしたもの。
+' ----------------------------------------------------------------------------
+Public Function IsThinExtract(ByVal pageCount As Long, ByVal chunkN As Long, _
+                              ByVal totalChars As Long) As Boolean
+    If pageCount < 10 Then Exit Function
+    If chunkN <= (pageCount \ 20) Then
+        IsThinExtract = True
+        Exit Function
+    End If
+    IsThinExtract = (totalChars < pageCount * 60)
+End Function
+
+' ----------------------------------------------------------------------------
+' ThinExtractMemoFor - 薄い抽出なら本棚カードに出すメモを、そうでなければ ""。
+'   modShelf.IngestFile は「ページ数と総文字数を数える」処理を持たないので、
+'   数える所からメモの文言までをここへ寄せる(modShelf は呼び出し1行で済む)。
+'   文言は「何が起きたか+次に何が起きるか」の2点だけを言い、利用者に
+'   操作を求めない(自動でOCRを試すのはこちらの仕事だから)。
+' ----------------------------------------------------------------------------
+Public Function ThinExtractMemoFor(ByRef pages() As ExtractedPage, _
+                                   ByVal chunkN As Long) As String
+    Dim n As Long: n = modExtractor.PageArrayCount(pages)
+    If n = 0 Then Exit Function
+
+    Dim lo As Long: lo = LBound(pages)
+    Dim total As Long
+    Dim i As Long
+    For i = 0 To n - 1
+        total = total + Len(pages(lo + i).Text)
+    Next i
+
+    If Not IsThinExtract(n, chunkN, total) Then Exit Function
+    ThinExtractMemoFor = "本文を十分に取り出せていない可能性があります" & _
+        "(画像中心のPDFの場合は自動でOCRを試します)"
 End Function
 
 ' 化け文字の比率(0.0～1.0)。空白は数えない。

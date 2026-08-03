@@ -11,6 +11,14 @@ Option Explicit
 ' 実際の振る舞いは 4 と同じになる(違いは Documents.Open の引数だけ)。
 ' 実機で通った開き方をセッション中おぼえておく(0=未確定)。
 Private mPreferredMode As Long
+' R13-4e(実機第2報 RC6): この端末では CreateObject("Word.Application") が
+' 組織ポリシーで塞がれている、と分かった印(STEP_CREATE が err429/70 で失敗)。
+' 立っている間は開き方1-3(自分で起動)を丸ごと飛ばして開き方4(相乗り)だけを
+' 試す。塞がれた端末では1ファイルあたり4回の無駄な起動試行と800msの待ちが
+' 積み上がり、100件の同期でそれが100回繰り返されていた。
+Private mCreateBlocked As Boolean
+' Cleanup が「文書数を確認できなかった」件数(1ファイル1行に集約するため)。
+Private mDocCountUnknown As Long
 Private Const OPEN_MODE_MAX As Long = 4
 Private Const MODE_ATTACH As Long = 4
 ' DisplayAlerts の元値を控えられなかった印(WdAlertLevel に無い値を使う。
@@ -103,19 +111,28 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String, _
                         Optional ByVal origPath As String = "") As Boolean
+    mDocCountUnknown = 0
+
     Dim startMode As Long
     startMode = mPreferredMode
     If startMode < 1 Or startMode > OPEN_MODE_MAX Then startMode = 1
+    ' R13-4e: 起動が塞がれていると分かっている端末では、開き方1-3は必ず失敗する。
+    If mCreateBlocked Then startMode = MODE_ATTACH
 
     ' どのCOM呼び出しで落ちたかを errDetail の先頭に付け、err_log へ残す。
     ' 実機でしか出ない失敗を、次から推測ではなく事実で追えるようにするため。
     Dim failedStep As String
+    Dim failedNum As Long
     Dim mode As Long
     mode = startMode
     Do While mode <= OPEN_MODE_MAX
         Dim attempt As Long
         For attempt = 1 To 2
-            If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, failedStep, origPath) Then
+            ' R13-4a: Word変換は数十秒かかることがあり、その間バナーは
+            ' 前のまま=固まって見える。段階を1行で言う(見えている時だけ)。
+            StageForOpenMode mode
+            If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, _
+                              failedStep, failedNum, origPath) Then
                 If mPreferredMode <> mode Then
                     mPreferredMode = mode
                     On Error Resume Next
@@ -123,11 +140,32 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         "この端末では開き方" & mode & "(" & OpenModeName(mode) & ")で成功しました"
                     On Error GoTo 0
                 End If
+                FlushDocCountUnknown
                 Extract = True
                 Exit Function
             End If
-            If attempt = 1 Then WaitBriefly 800
+            If attempt = 1 Then
+                ' R13-4e: 相乗りしか道が無い端末での相乗り失敗(=Wordが1つも
+                ' 開いていない)は、800ms待っても変わらない。案内文を持って即戻る。
+                If mCreateBlocked And mode >= MODE_ATTACH Then Exit For
+                WaitBriefly 800
+            End If
         Next attempt
+        If failedStep = STEP_CREATE Then
+            ' R13-4e: 429(ActiveXを作れない)/70(権限が無い)は、この端末では
+            ' Excelから Word を起動できないという【環境の事実】。以後のファイルで
+            ' 同じ失敗を繰り返さないよう印を立てる。
+            If failedNum = 429 Or failedNum = 70 Then
+                If Not mCreateBlocked Then
+                    mCreateBlocked = True
+                    On Error Resume Next
+                    modLog.LogUsage "word_create_blocked", "", _
+                        "この端末ではExcelからWordを起動できません(err#" & failedNum & _
+                        ")。以後は起動中のWordへの相乗りだけを試します"
+                    On Error GoTo 0
+                End If
+            End If
+        End If
         If failedStep = STEP_CREATE And mode < MODE_ATTACH Then
             ' Word を起動できないなら、開き方(表示・引数)を変えても届かない。
             ' 起動方法そのものが違う「相乗り」へ直行する(待ち時間の節約)。
@@ -143,11 +181,40 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
         "開き方" & startMode & "から" & OPEN_MODE_MAX & "まで試して失敗(最後に落ちた段階: " & failedStep & ")"
     On Error GoTo 0
 
+    FlushDocCountUnknown
+
     ' 一度おぼえた開き方でも駄目だったなら、環境が変わった可能性がある。
     ' 次回は1から試し直す。
-    mPreferredMode = 0
+    ' R13-4e: ただし起動が塞がれていると分かっている端末では戻さない。
+    ' 戻すと次のファイルでまた開き方1から4回失敗する(RC6の無駄の再発)。
+    If Not mCreateBlocked Then mPreferredMode = 0
     Extract = False
 End Function
+
+' R13-4a: 開き方ごとの段階バナー。開き方3だけはWordのウィンドウが実際に
+' 画面へ出るので、驚かせないよう入る直前に予告する(憲章§3-4)。
+' 表示の失敗が取込を壊してはならない(§4-4)ので全体をOERNで包む。
+Private Sub StageForOpenMode(ByVal mode As Long)
+    On Error Resume Next
+    modShelfBatch.StageBanner "Wordで変換中…"
+    If mode = 3 Then
+        modShelfBatch.StageBanner "Wordの画面が一時的に開くことがあります(自動で戻ります)"
+    End If
+    On Error GoTo 0
+End Sub
+
+' R13-4e: word_doc_count_unknown は1ファイル1行にまとめる。従来は
+' 開き方×再試行の回数だけ同じ文が並び、usage_log がこの1文で埋まって
+' 他の手掛かりが押し流されていた(実機第2報 RC6)。件数を detail に入れる。
+Private Sub FlushDocCountUnknown()
+    If mDocCountUnknown <= 0 Then Exit Sub
+    On Error Resume Next
+    modLog.LogUsage "word_doc_count_unknown", "", _
+        "Wordの文書数を確認できなかったため終了を見送りました" & _
+        "(利用者の文書を巻き込まないため)。表示と設定を復元しました。回数=" & mDocCountUnknown
+    On Error GoTo 0
+    mDocCountUnknown = 0
+End Sub
 
 ' 開き方の名前(ログ用)。
 Private Function OpenModeName(ByVal mode As Long) As String
@@ -162,9 +229,10 @@ End Function
 Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
                                 ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                                 ByRef errDetail As String, ByVal openMode As Long, _
-                                ByRef failedStep As String, _
+                                ByRef failedStep As String, ByRef failedNum As Long, _
                                 Optional ByVal origPath As String = "") As Boolean
     truncated = False
+    failedNum = 0
 
     Dim word As Object
     Dim doc As Object
@@ -361,6 +429,10 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 
 Failed:
     failedStep = stepName
+    ' R13-4e: 「どの段階で」に加えて「どのエラー番号で」も呼び出し元へ返す。
+    ' 429/70 は開き方を変えても届かない=環境の事実なので、呼び出し元が
+    ' セッション中おぼえて以後のファイルで無駄な試行を止める。
+    failedNum = Err.Number
     errDetail = "[" & stepName & "/開き方" & openMode & "] " & _
                 modUtil.DescribeComError(Err.Number, Err.Description, "Word", _
                                          (openMode >= MODE_ATTACH))
@@ -455,9 +527,9 @@ Private Sub Cleanup(ByRef doc As Object, ByRef app As Object, _
                         "Wordに文書が" & remain & "件残っているため終了しませんでした" & _
                         "(利用者が使用中の可能性)。表示と設定を復元しました"
                 Else
-                    modLog.LogUsage "word_doc_count_unknown", "", _
-                        "Wordの文書数を確認できなかったため、終了を見送りました" & _
-                        "(利用者の文書を巻き込まないため)。表示と設定を復元しました"
+                    ' R13-4e: ここでは数えるだけ。1ファイル分をまとめて
+                    ' FlushDocCountUnknown が1行で記録する(同じ文の連投を止める)。
+                    mDocCountUnknown = mDocCountUnknown + 1
                 End If
             Else
                 ' 空だと確認できたときだけ閉じる。閉じる前でも設定は戻す

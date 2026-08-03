@@ -29,6 +29,12 @@ Option Explicit
 '     実機第2報 RC1(スキャンPDFがWordのゴミ本文で「登録成功」)の再発防止。
 '   ・optOcrCore.GsTotalPagesFromLog / GsPagesFromLog / GsWaitBanner
 '     (2026-08-03 R13-1c/1d): gs_out.log から進捗を読む目と、その見せ方。
+'   ・modExtractorPdf.IsThinExtract(2026-08-03 R13-3a): 「取り込めてはいるが
+'     本文が薄すぎる」の閾値。RC1(44頁の約款が chunks=1 で登録成功)の
+'     二段目の防衛で、閾値は仕様から動かさない約束をここで固定する。
+'   ・modLog.FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗の文言の選び方。
+'     RC6(「Wordを開いたままに…」という正確な案内が汎用文言で上書きされ、
+'     しかも docx に Ghostscript の確認を求めていた)の再発防止。
 ' ============================================================================
 
 ' テスト用の my_vectors 相当(chunk_id, vector_csv)の2列配列を作る。
@@ -411,6 +417,92 @@ Private Sub TestGsWaitBanner()
         (InStr(b4, "44/44ページ") > 0) And (InStr(b4, "経過 0秒") > 0), "実際=" & b4
 End Sub
 
+' ----------------------------------------------------------------------------
+' modExtractorPdf.IsThinExtract(2026-08-03 R13-3a): 薄い抽出の検出。
+'   実機第2報 RC1 では44ページの約款が chunks=1 / status=done で
+'   「登録成功」になっていた。閾値は仕様R13-3aから動かさない約束なので、
+'   ここで境界を固定して「正当に薄い資料まで partial にする」改変も止める。
+' ----------------------------------------------------------------------------
+Private Sub TestIsThinExtract()
+    ' 実機の事故そのもの: 44ページ / 1チャンク。
+    modTestRunner.Check "Thin_44頁1チャンクは薄い", _
+        modExtractorPdf.IsThinExtract(44, 1, 30000), "Falseになった"
+
+    ' 9ページ以下は見ない(表紙+ポンチ絵のような正当に薄い資料を守る)。
+    modTestRunner.Check "Thin_9頁は判定しない", _
+        Not modExtractorPdf.IsThinExtract(9, 0, 0), "Trueになった"
+
+    ' 境界: 10ページ・チャンク0件は薄い(10\20=0 なので 0<=0)。
+    modTestRunner.Check "Thin_10頁0チャンクは薄い", _
+        modExtractorPdf.IsThinExtract(10, 0, 99999), "Falseになった"
+
+    ' 境界: 40ページで2チャンクは薄い(40\20=2)、3チャンクなら文字数次第。
+    modTestRunner.Check "Thin_40頁2チャンクは薄い", _
+        modExtractorPdf.IsThinExtract(40, 2, 99999), "Falseになった"
+    modTestRunner.Check "Thin_40頁3チャンク_文字十分なら薄くない", _
+        Not modExtractorPdf.IsThinExtract(40, 3, 2400), "Trueになった"
+
+    ' 文字数側の条件: ページ数x60 未満なら薄い(40x60=2400 が境界)。
+    modTestRunner.Check "Thin_文字数が頁x60未満なら薄い", _
+        modExtractorPdf.IsThinExtract(40, 3, 2399), "Falseになった"
+
+    ' 正常な資料(44ページ・88チャンク・十分な文字数)は薄くない。
+    modTestRunner.Check "Thin_正常な資料は薄くない", _
+        Not modExtractorPdf.IsThinExtract(44, 88, 61600), "Trueになった"
+End Sub
+
+' ----------------------------------------------------------------------------
+' modLog.FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗の文言の選び方。
+'   実機第2報 RC6: DescribeComError が作った「Wordを開いたままにして…」という
+'   正確な案内が、E0302の汎用文言(Ghostscript前提)で上書きされて届いて
+'   いなかった。しかもその汎用文言は .docx の失敗にも出ていた。
+'   ここで固定するのは3点: 案内文の優先採用 / 技術情報を混ぜないこと /
+'   docx・doc に Ghostscript の話をしないこと。
+' ----------------------------------------------------------------------------
+Private Sub TestFriendlyFailMsg()
+    ' (1) 行動可能な案内(429・相乗りモード)がある場合は、それを採用する。
+    Dim d1 As String
+    d1 = "[Word起動/開き方4] この端末ではExcelからWordを起動できないため、" & _
+         "すでに開いているWordを使おうとしましたが、Wordが開いていませんでした。" & _
+         "Wordを開いたままにして、もう一度お試しください。" & _
+         "(詳細: ActiveX component can't create object) [localcopy=ok]"
+    Dim m1 As String: m1 = modLog.FriendlyFailMsg("E0302", d1, "docx")
+    modTestRunner.Check "FailMsg_案内文を優先採用する", _
+        InStr(m1, "Wordを開いたままにして") > 0, "実際=" & m1
+    modTestRunner.Check "FailMsg_案内文に技術情報を混ぜない", _
+        (InStr(m1, "(詳細:") = 0) And (InStr(m1, "localcopy") = 0), "実際=" & m1
+    modTestRunner.Check "FailMsg_案内文にコードを添える", _
+        InStr(m1, "(コード: E0302)") > 0, "実際=" & m1
+
+    ' (2) 生のCOM説明文しか無い .docx は、Wordの話だけをする。
+    Dim d2 As String: d2 = "[本文取り出し/開き方1] 型が一致しません。 [localcopy=ok]"
+    Dim m2 As String: m2 = modLog.FriendlyFailMsg("E0302", d2, "docx")
+    modTestRunner.Check "FailMsg_docxにGhostscriptの話をしない", _
+        InStr(m2, "Ghostscript") = 0, "実際=" & m2
+    modTestRunner.Check "FailMsg_docxはWordを開いて再試行を案内する", _
+        (InStr(m2, "Word") > 0) And (InStr(m2, "もう一度お試しください") > 0), "実際=" & m2
+    modTestRunner.Check "FailMsg_docxで生のCOM文言を見せない", _
+        InStr(m2, "型が一致しません") = 0, "実際=" & m2
+
+    ' .doc も同じ扱い(拡張子だけが違う同じ経路)。
+    modTestRunner.Check "FailMsg_docもGhostscriptの話をしない", _
+        InStr(modLog.FriendlyFailMsg("E0302", d2, "doc"), "Ghostscript") = 0, "docで混入"
+
+    ' (3) PDFは従来どおり(GhostscriptもWordも試したうえでの結果)。
+    Dim m3 As String: m3 = modLog.FriendlyFailMsg("E0302", "GS: 応答なし / Word: x", "pdf")
+    modTestRunner.Check "FailMsg_pdfは従来の汎用文言のまま", _
+        InStr(m3, "Ghostscript") > 0, "実際=" & m3
+
+    ' (4) 未知のコードでも必ずコード付きの2文で返す(無言にしない)。
+    Dim m4 As String: m4 = modLog.FriendlyFailMsg("E9999", "", "txt")
+    modTestRunner.Check "FailMsg_未知コードでもコードを添える", _
+        (LenB(m4) > 0) And (InStr(m4, "(コード: E9999)") > 0), "実際=" & m4
+
+    ' (5) errDetail が空でも落ちない。
+    modTestRunner.Check "FailMsg_errDetail空でも文言を返す", _
+        LenB(modLog.FriendlyFailMsg("E0302", "", "pdf")) > 0, "空文字が返った"
+End Sub
+
 ' 名前がASCII印字可能文字だけで出来ているか(CP932変換で1文字も化けない条件)。
 Private Function IsAsciiOnly(ByVal s As String) As Boolean
     If Len(s) = 0 Then Exit Function
@@ -458,6 +550,12 @@ NextGsLogParse:
 NextGsBanner:
     On Error GoTo GsBannerFail
     TestGsWaitBanner
+NextThin:
+    On Error GoTo ThinFail
+    TestIsThinExtract
+NextFailMsg:
+    On Error GoTo FailMsgFail
+    TestFriendlyFailMsg
 NextDone9:
     On Error GoTo 0
     Exit Sub
@@ -496,6 +594,14 @@ GsLogParseFail:
     Resume NextGsBanner
 GsBannerFail:
     modTestRunner.Check "TestGsWaitBanner(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextThin
+ThinFail:
+    modTestRunner.Check "TestIsThinExtract(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextFailMsg
+FailMsgFail:
+    modTestRunner.Check "TestFriendlyFailMsg(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone9
 End Sub

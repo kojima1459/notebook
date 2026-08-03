@@ -97,9 +97,16 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["EnsureLoaded", "GetString", "GetLong", "GetDouble", "GetBool", "SetValue"],
     },
+    # FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗を利用者へ伝える1文の決定を
+    # 1箇所に集めたもの。errDetail に「Wordを開いたままに…」等の行動可能な
+    # 案内があればそれを優先し、E0302の汎用文言は拡張子で分岐して docx/doc に
+    # Ghostscript の話をしない(実機第2報 RC6: 正確な案内が汎用文言で
+    # 上書きされ、利用者に一度も届いていなかった)。純粋な文字列処理なので
+    # modTestsPure9 が分岐を固定する。
     "modLog": {
         "closed": True,
-        "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError"],
+        "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
+                     "FriendlyFailMsg"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
@@ -187,10 +194,16 @@ CONTRACT: dict[str, dict] = {
     # の導出だけを切り出した純ロジック。元ファイル名をそのまま連結する旧方式は
     # CP932非対応文字(NFD分解濁点 U+3099 等)でディスク上の実名とGhostscriptへ
     # 渡す文字列が食い違う事故を起こしたため、境界を modTestsPure9 が固定する。
+    # IsThinExtract / ThinExtractMemoFor(R13-3a): 「取り込めてはいるが本文が
+    # 薄すぎる」の判定と、本棚カードへ出すメモ。実機第2報 RC1(44ページの約款が
+    # chunks=1 / status=done で登録成功になった)への二段目の防衛で、判定式を
+    # modShelf 側に散らさないためここへ置く。IsThinExtract は純ロジックなので
+    # modTestsPure9 が閾値を固定する(閾値は仕様R13-3aから動かさないこと)。
     "modExtractorPdf": {
         "closed": True,
         "required": ["ExtractPdfWithFallback", "CopyToLocalTemp",
-                     "DropGarbledPages", "TempBaseNameFor"],
+                     "DropGarbledPages", "TempBaseNameFor",
+                     "IsThinExtract", "ThinExtractMemoFor"],
     },
     "modMode": {
         "closed": True,
@@ -674,9 +687,14 @@ CONTRACT: dict[str, dict] = {
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。
+    # ConfirmCloseDuringIngest(2026-08-03 R13-4d): 取込中の終了要求を
+    # 「無反応で拒否」から「事情を伝えて選ばせる」へ変えた確認口。
+    # 呼び出し元は modApp.OnSaveAndExit と ThisWorkbook.Workbook_BeforeClose
+    # (開発構成のみ。本番はThisWorkbookを自己インストーラが占有する)。
     "modUiLock": {
         "closed": True,
-        "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting"],
+        "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting",
+                     "ConfirmCloseDuringIngest"],
     },
     # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
     "modAppState": {

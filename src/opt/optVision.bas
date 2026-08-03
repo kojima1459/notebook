@@ -453,6 +453,9 @@ Private Function OcrRenderedPages(ByVal folderPath As String, ByVal keepN As Lon
     Dim i As Long
     For i = 1 To keepN
         modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " OCR中… " & i & "/" & keepN & " ページ"
+        ' R13-4a: SetStageの出力先はNexus画面では実質不可視。同じ内容を
+        ' 進捗バナーへも流す(出ている時だけ更新される。silentは無表示)。
+        modShelfBatch.StageBanner "OCR中… " & i & "/" & keepN & "ページ"
 
         Dim jpgPath As String
         jpgPath = folderPath & "\" & optOcrCore.PageJpgName(i)

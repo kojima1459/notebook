@@ -33,5 +33,13 @@ Private Sub Workbook_Open()
 End Sub
 
 Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    ' R13-4d: 取込中の×クリックは、確認してからにする(いいえ=閉じない)。
+    ' 本番ビルドのThisWorkbookストリームは自己インストーラが占有していて
+    ' このイベント自体を持たないため、これは開発構成でだけ効く経路。
+    ' 終了ボタン(modApp.OnSaveAndExit)側にも同じ確認が入っている。
+    If Not modUiLock.ConfirmCloseDuringIngest() Then
+        Cancel = True
+        Exit Sub
+    End If
     modBoot.Auto_Close
 End Sub
