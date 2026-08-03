@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R13完了時点）
+# 再開手順（セッション中断対策・最終更新: R14完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,12 +6,14 @@
 
 ## 1. 現在地
 
-**R13完了(実機第2報→調査6班→R13仕様→A1/A2/A3/B/C実装→敵対的レビュー2面→Fix1/Fix2全裁定消化)。実機配布可。**
-R1〜R13まで全ラウンド完了・検収済み・push済み。テスト818件・lint ERROR 0/WARN 3(全てテスト系)・
-モジュール105本(実装側WARNゼロ)。仕様は docs/dev/spec_20260803_R13_実機第2報.md(根本原因RC1〜RC10)。
-残: 利用者の実機テスト(docs/45スモーク14項目+docs/44 P2P)。
-容量の分割必須ライン(次に触る波は先に分割裁定):
-**modShelfSync(残5字・従来どおり接触禁止) / modRetrieve(残259字) / optVision(残84字) / modTestsPure9(残578字)**。
+**R14完了(実機第3報→調査8班→R14仕様→A/B/C実装→敵対的レビュー2面→FixA/FixB全裁定消化)。実機配布可。**
+R1〜R14まで全ラウンド完了・検収済み・push済み。テスト1,036件・lint ERROR 0/WARN 3(全てテスト系)・
+モジュール109本(実装側WARNゼロ)。仕様は docs/dev/spec_20260803_R14_実機第3報.md(根本原因RC1〜RC10)。
+残: 利用者の実機テスト(docs/45スモーク全18項目+docs/44 P2P)。
+容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
+**modShelfSync(接触禁止) / modUI(残35字) / optOcrCore(残68字) / modAsk(残105字) /
+modTestsPure11(残112字) / modRetrieve(残259字) / modBoot(残332字) / modTestsPure9(残578字) /
+modUIMain(残626字)**。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -44,6 +46,11 @@ R1〜R13まで全ラウンド完了・検収済み・push済み。テスト818�
 | R13-C | Sonnet | Hub「みんな」意味化+未接続/未設定表示+部別集計(ビーコンteam列)+係数config化+チャット導線前方化 | edb91ce | 完了 |
 | R13-Fix1 | Opus | レビュー裁定: GS判定窓4000字/kill前PID本人確認/OCR上限是正/生存監視の実効化/optGsProc分割 | 16c5d50 | 完了 |
 | R13-Fix2 | Opus | レビュー裁定: armed漏れ止め/終了承諾取消/未設定表示/段ログ集約(ask_steps)/スコープ時prefilter回避 | bdae2b2 | 完了 |
+| R14-A | Opus | コピー根治(Stream+サイズ突合)+OCR20頁バッチ全量化(optOcrPage新設・上限100頁・正直メモ) | d2a8ba8 | 完了 |
+| R14-B | Opus | 質問カウンタ3箇所+一般モードfeedback解禁(誤共有ゲート)+入念モード6段(modAskThorough新設)+可読性 | df5f535 | 完了 |
+| R14-C | Sonnet | ヘッダー整列+ギャラリー可視化+着せ替え5件+質問例オンデマンド生成+チャンク拡張子別設定 | 83387a4 | 完了 |
+| R14-FixA | Opus | レビュー裁定: GS起動失敗の切り分け/バッチ中断の可視化/共有読みコピー復活+理由4分岐/PID kill/上限メモ正直化 | 6e6a4db | 完了 |
+| R14-FixB | Opus | レビュー裁定: 発信の関所(修正/gap/感謝状)/出典タグ]対応/質問例後始末+メモリ/着せ替えガード/docs追随 | 282f183 | 完了 |
 
 ### R12-4 で増えたもの(次に触る人が最初に知るべき3点)
 
@@ -95,6 +102,40 @@ R1〜R13まで全ラウンド完了・検収済み・push済み。テスト818�
    SanitizeId経由)。user_department は規約(英大数4-6字)に合う時だけ採用。
    共有パス既定は空文字になった(未設定=「未設定」表示、設定済み到達不能=
    「未接続」表示。ダミーパス出荷は廃止)。
+
+### R14 で増えたもの(次に触る人が最初に知るべき7点)
+
+1. **新モジュール `optOcrPage`** = OCRのバッチ制御(GSを20頁ずつ複数回起動、バッチごとに
+   JPEG逐次削除、頁間DoEvents、PID捕捉+タイムアウト時KillGsTree)。上限は
+   vision_pdf_max_pages(既定100)。RenderBatch は3値(完了/起動失敗/タイムアウト)で、
+   起動失敗は ghostscript_path 案内、途中中断は truncated=True+中断メモ+partial
+   (「頁が黙って欠ける」経路は全て塞いだ)。gs_abs_timeout_sec は資料単位の絶対予算
+   (バッチ間で残額を配分)。
+2. **コピーは2段構え** = Dir$でANSI可視なら旧来の1MB分割・共有読み(ロック中でも読める・
+   メモリ一定)、不可視(NFD等)や空読み時のみ ADODB.Stream。サイズ突合必須。失敗理由は
+   src_empty/locked/too_big/name_busy/特殊文字 の5系統で文言が分かれる
+   (modLog.CopyFailMsgOf が一元管理)。0バイトコピーがGSへ届く経路は消滅。
+3. **新モジュール `modAskThorough`** = 入念モード専用6段(再ランク強化→資料要約→下書き→
+   自己批判→批判反映検証→機械的出典突合)。deep/quickは不変。出典タグ照合は
+   modPrompts.SourceTag が唯一の書式源。検証段エラー注記は Decorate 後に付く
+   (履歴/共有に混入しない)。
+4. **発信の関所** = 部内への発信(EmitVerifiedQA/EmitThanks/EmitGap/EmitCorrection)は
+   全て modAsk.CanShareInsight()(=ShouldEmitInsight(mLastMode, mLastNHits))を通る。
+   一般モード・生成失敗ターン・検索0件残留からの誤共有は構造的に不可能になった。
+   一般モードの「解決した」はカウント/節約時間のみ加算(共有なし)。
+5. **回答の可読性** = modLive.NormalizeAnswerText(markdown混入の保険変換)+vbCr段落化+
+   ■見出し段落の太字化(StyleAnswerParas)。バブル本文はvbCr、外へ出す時は
+   TargetText がvbLfへ戻す(コピーはCRLF)。復元バブルも同経路。
+6. **質問例のオンデマンド生成** = modStarter がシード無しでも my_knowledge から
+   1回のLLM呼び出しで生成しmodStateへキャッシュ(指紋=manifest件数+日付シリアル)。
+   プレビュー読みは対象8行のみ(全列一括読み禁止)。
+7. **チャンクは拡張子別** = chunk_*_chars_{pdf,docx,doc}(target450/overlap100/max900)。
+   グローバル既定とExcelは不変。既存資料は再取込しない限り不変(入れ直す場合は先に削除)。
+
+R14で受容した次期課題: ADODB.Stream共有モードの実機検証(開いたままのxlsx/pdf取込=
+docs/45項目15で確認)/全角コロン等の異形出典タグは検査対象外(偽陽性なし)/
+OCR中断時のJPEG削除は実行される(OCR済みのため実害なし)/一般モードのno_hit gapは
+RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書かない)。
 
 配布方法: GitHubの「Code → Download ZIP」→解凍→ dist/MyBookshelf.xlsm を開く
 (dist/Ghostscript が隣にあるのでOCRも追加作業なし)。
@@ -156,6 +197,8 @@ R1〜R13まで全ラウンド完了・検収済み・push済み。テスト818�
     LOモード1のPASSは669件、WARNは3本(modTestsPure/2/5)のまま。
   ※R13完了時点: 105本(modExtractorPdf/optGsProc/modTestsPure10を追加)、
     LOモード1のPASSは818件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
+  ※R14完了時点: 109本(optOcrPage/modAskThorough/modTestsPure11/modTestsPure12を追加)、
+    LOモード1のPASSは1,036件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。
