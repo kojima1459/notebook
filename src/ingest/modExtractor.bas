@@ -106,10 +106,11 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     Dim workPath As String: workPath = path
     Dim tmpCopy As String: tmpCopy = ""
     Dim triedLocalCopy As Boolean: triedLocalCopy = False
+    Dim copyReason As String: copyReason = ""
     Select Case ext
         Case "xlsx", "xls", "xlsm"
             triedLocalCopy = True
-            tmpCopy = modExtractorPdf.CopyToLocalTemp(path)
+            tmpCopy = modExtractorPdf.CopyToLocalTemp(path, copyReason)
             If LenB(tmpCopy) > 0 Then
                 workPath = tmpCopy
             Else
@@ -125,15 +126,29 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
                 errDetail = "ファイルを一時フォルダへコピーできませんでした。" & _
                     "そのファイルを開いている場合は閉じてから、もう一度お試しください"
                 modLog.LogError "E0302", "modExtractor.ExtractFile", _
-                    modUtil.SafeLeft(path & " : localcopy=failed(原本フォールバックは行わない)", 500)
+                    modUtil.SafeLeft(path & " : localcopy=failed:" & copyReason & _
+                    "(原本フォールバックは行わない)", 500)
                 ExtractFile = False
                 Exit Function
             End If
         Case "pdf", "docx", "doc"
             triedLocalCopy = True
-            tmpCopy = modExtractorPdf.CopyToLocalTemp(path)
+            tmpCopy = modExtractorPdf.CopyToLocalTemp(path, copyReason)
             If LenB(tmpCopy) > 0 Then
                 workPath = tmpCopy
+            ElseIf ext = "pdf" And modExtractorPdf.IsUnreadableCopyReason(copyReason) Then
+                ' 2026-08-03(R14-3b・実機第3報 RC3): コピーが「元を読めていない」
+                ' 形で失敗したPDFを、元パスのままGhostscriptへ渡してはならない。
+                ' NFD分解濁点等を含む共有上の名前はGSに /undefinedfilename で
+                ' 拒否され、結果は「描画0枚」だけ。利用者には理由が1文字も
+                ' 残らず、しかも localcopy=ok と嘘が記録されていた。
+                ' ここで正直に止め、その場で打てる一手(名前を変える)を伝える。
+                errCode = "E0302"
+                errDetail = modExtractorPdf.CopyFailMsgFor(copyReason)
+                modLog.LogError "E0302", "modExtractor.ExtractFile", _
+                    modUtil.SafeLeft(path & " : localcopy=failed:" & copyReason, 500)
+                ExtractFile = False
+                Exit Function
             Else
                 ' 2026-07-30(要件D): Word COMはReadOnlyで開くだけで、Excelと
                 ' 違って利用者の編集セッションに触れる経路が無い(既存インス
@@ -146,7 +161,8 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
                 workPath = path
                 On Error Resume Next
                 modLog.LogUsage "extract_localcopy_fallback", "", _
-                    modUtil.SafeLeft(path & " : localcopy=failed(原本で続行)", 500)
+                    modUtil.SafeLeft(path & " : localcopy=failed:" & copyReason & _
+                    "(原本で続行)", 500)
                 On Error GoTo ExtractFailed
             End If
     End Select
@@ -154,12 +170,14 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' 診断用: ローカル一時コピーの成否を憶えておく(失敗時のerrDetailへ含め、
     ' 「コピー自体が失敗してUNCパスのままWordへ渡った」のか「コピーは成功
     ' したのにローカルコピーでも失敗した」のかを次回のログで切り分ける)。
+    ' R14-3a: 成功は【サイズ突合まで通った】ことを意味する(verified)。
+    ' 旧実装は0バイトの嘘コピーでも localcopy=ok と書いていた(RC3)。
     Dim copyNote As String
     If triedLocalCopy Then
         If LenB(tmpCopy) > 0 Then
-            copyNote = "localcopy=ok"
+            copyNote = "localcopy=ok(verified)"
         Else
-            copyNote = "localcopy=failed(UNCパスのまま処理)"
+            copyNote = "localcopy=failed:" & copyReason
         End If
     Else
         copyNote = "localcopy=n/a"

@@ -14,6 +14,12 @@ Option Explicit
 ' (SharedCopyNextChunkLen)は modExtractor 側に残してある(既存の契約と
 ' 純ロジックテストの参照先を動かさないため)。
 '
+' R14-3a(2026-08-03): コピーの実体を ADODB.Stream(Type=1)へ置き換え、
+' 「元サイズとコピー先サイズの突合」を必須にした。旧実装のクラシック
+' Open(ANSI経路)は、CP932で表せない名前のときに存在しない別名の0バイト
+' ファイルを【作って】掴み、それを「0バイトの正当なコピー」として True で
+' 返していた(実機第3報 RC3)。詳細は CopySharedRead のコメント。
+'
 ' R13-2(2026-08-03): 一時コピー名を「mbtmp_<FNV-1a 64bit 16進16桁>.<元拡張子>」
 ' へ変更した。元のファイル名を連結する旧方式では、Mac由来のNFD分解濁点
 ' (U+3099)等のCP932非対応文字がクラシックOpen(ANSI経路)で別の字に化け、
@@ -139,28 +145,33 @@ Public Function TempBaseNameFor(ByVal srcPath As String, Optional ByVal seq As L
 End Function
 
 ' path を %TEMP% 配下へコピーし、そのコピー先パスを返す(成功時)。
-' コピーできなければ空文字列を返す(呼び出し側は元パスのまま処理を続ける)。
+' コピーできなければ空文字列を返し、outReason に理由の1語を入れる。
 ' 拡張子は必ず元と同じにする(抽出は拡張子で振り分けるため)。
 ' Word/Excelの保護ビュー(ネットワーク/クラウド上のファイルで発動)を避け、
 ' かつ抽出中の元ファイルロック・ネットワーク瞬断の影響を受けないようにする。
 '
-' 2026-07-30(要件C): 従来はFileCopy(排他オープン)を使っており、Word/Excel/
-' Acrobatで開いているファイルはコピーに失敗していた(実機ログ: 悪天候の
-' 定義.docx : localcopy=failed。Desktopのファイル。「Wordを開いたまま使う」
-' 運用のため頻発)。共有読み(Open ... For Binary Access Read Shared)は、
-' 他プロセスが開いていても読み出しだけなら成立する(排他ロックは書き込み側
-' の意図が無い限りかからない)ため、これへ置き換える。
-Public Function CopyToLocalTemp(ByVal path As String) As String
+' outReason(2026-08-03 R14-3a): "src_empty" / "size_mismatch …" /
+'   "load_fail err#N" / "no_temp" / "name_busy"。呼び出し元はこれを見て
+'   「元パスのまま続行してよいか」を決める(IsUnreadableCopyReason)。
+'   従来 localcopy_fail の usage_log は【例外が飛んだときだけ】書かれており、
+'   「Falseで静かに帰ってきた」失敗は1行も残っていなかった(観測性ゼロ)。
+'   ここでBoolean失敗も必ず1行残す(憲章§4-1)。
+Public Function CopyToLocalTemp(ByVal path As String, _
+                                Optional ByRef outReason As String) As String
+    outReason = ""
     On Error GoTo Fail
 
-    ' R13-4a: 数百MBのPDFでは共有読みコピーだけで十数秒かかる。ここが無言だと
+    ' R13-4a: 数百MBのPDFではコピーだけで十数秒かかる。ここが無言だと
     ' 利用者には「押した直後から何も起きない」ようにしか見えない(憲章§3-2)。
     ' バナーが既に出ているときだけ更新される(silentは silent のまま)。
     modShelfBatch.StageBanner "コピー中…"
 
     Dim tempDir As String: tempDir = Environ$("TEMP")
     If LenB(tempDir) = 0 Then tempDir = Environ$("TMP")
-    If LenB(tempDir) = 0 Then Exit Function
+    If LenB(tempDir) = 0 Then
+        outReason = "no_temp"
+        Exit Function
+    End If
     If Right$(tempDir, 1) <> "\" Then tempDir = tempDir & "\"
 
     ' R13-2: 名前は元ファイル名ではなくフルパスのハッシュから作る(TempBaseNameFor)。
@@ -171,80 +182,156 @@ Public Function CopyToLocalTemp(ByVal path As String) As String
         dest = tempDir & TempBaseNameFor(path, n)
         If LenB(Dir$(dest)) = 0 Then Exit Do
         n = n + 1
-        If n > 500 Then Exit Function   ' 異常時の暴走防止
+        If n > 500 Then
+            outReason = "name_busy"
+            Exit Function
+        End If
     Loop
 
-    If Not CopySharedRead(path, dest) Then Exit Function
+    Dim reason As String
+    If Not CopySharedRead(path, dest, reason) Then
+        outReason = reason
+        On Error Resume Next
+        modLog.LogUsage "localcopy_fail", "", modUtil.SafeLeft(path, 300) & _
+            " : " & reason & " len=" & Len(path)
+        On Error GoTo Fail
+        Exit Function
+    End If
+
     CopyToLocalTemp = dest
     Exit Function
 
 Fail:
     ' R11-D(監査3 M-6): 従来ここは完全な無言だった。MAX_PATH超過・権限・
     ' 容量を切り分けるためErr情報とパス長を残す(LogUsageは自前で失敗を握る)。
-    modLog.LogUsage "localcopy_fail", "", "err#" & Err.Number & " " & _
-        modUtil.SafeLeft(Err.Description, 120) & " len=" & Len(path)
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かない。Resumeで抜けてから記録する。
+    Resume CopyFailCleanup
+CopyFailCleanup:
+    On Error Resume Next
+    outReason = "load_fail err#" & failNum
+    modLog.LogUsage "localcopy_fail", "", "err#" & failNum & " " & _
+        modUtil.SafeLeft(failDesc, 120) & " len=" & Len(path)
+    On Error GoTo 0
     CopyToLocalTemp = ""
 End Function
 
-' 共有読み(Shared)でsrcPathをdestPathへバイナリコピーする。
-' 0バイトファイルはGet/Putを一度も行わず、空ファイルのままコピー成立とする
-' (要件C: 0バイトファイルの扱いに注意)。
-Private Function CopySharedRead(ByVal srcPath As String, ByVal destPath As String) As Boolean
-    Dim srcNum As Long: srcNum = 0
-    Dim dstNum As Long: dstNum = 0
+' ----------------------------------------------------------------------------
+' CopySharedRead - srcPath を destPath へバイナリコピーする(R14-3a)。
+'   2026-08-03(実機第3報 RC3): 従来はクラシックの
+'   「Open srcPath For Binary Access Read Shared」で元を開いていた。
+'   クラシックOpenはANSI(CP932)経路で、Mac由来のNFD分解濁点(U+3099)等の
+'   CP932非対応文字を含む共有上のファイル名は【別の名前】として解釈される。
+'   しかも Open For Binary は「無ければ作る」ので、存在しない名前の0バイト
+'   ファイルを掴んで LOF=0 → 旧仕様の「0バイトは空のままコピー成立」で
+'   dest 0バイト + True(localcopy=ok)という嘘の成功になっていた。
+'   ADODB.Stream の LoadFromFile はパスをBSTR(COM)で渡すためUnicodeのまま
+'   届き、実体が無ければその場で失敗する(ファイルを作らない)。
+'   後始末の作法(Resumeでハンドラを抜けてからClose/解放)は
+'   modUtilText.ReadTextFileUtf8 と同型。
+'
+'   検証を必須にした点(同 RC3):
+'     ・元が0バイト → "src_empty"。空のPDFは取り込める中身が無い。
+'       「0バイトのコピーは成功」という旧仕様は事故の一部なので廃止する。
+'     ・コピー後のサイズが元と一致しない → "size_mismatch"。destは
+'       ASCII安全名(mbtmp_…)なので FileLen(クラシック)で正しく測れる。
+'   失敗時は書きかけのdestを必ず消す(%TEMP%に壊れた実体を残さない。
+'   残すと次回の連番探索がその残骸を避けて番号を消費し続ける)。
+' ----------------------------------------------------------------------------
+Private Function CopySharedRead(ByVal srcPath As String, ByVal destPath As String, _
+                                ByRef outReason As String) As Boolean
+    Dim st As Object
+    Dim srcSize As Double
+    Dim destSize As Double
+
+    outReason = ""
+
     On Error GoTo Failed
+    Set st = CreateObject("ADODB.Stream")
+    st.Type = 1                 ' adTypeBinary
+    st.Open
+    st.LoadFromFile srcPath     ' 実体が無ければここで失敗する(作らない)
+    srcSize = CDbl(st.Size)
+    If srcSize > 0 Then st.SaveToFile destPath, 2   ' adSaveCreateOverWrite
+    st.Close
+    Set st = Nothing            ' COM解放(正常パス)
 
-    srcNum = FreeFile
-    Open srcPath For Binary Access Read Shared As #srcNum
+    If srcSize <= 0 Then
+        outReason = "src_empty"
+        Exit Function
+    End If
 
-    ' R11-D(監査3 M-7): 2GB超はLongに収まらず代入自体がerr#6になる。
-    ' Doubleで受けて範囲外は明示的に失敗させ、壊れた中途半端なコピーを作らない。
-    Dim totalLenD As Double: totalLenD = LOF(srcNum)
-    If totalLenD > 2147483647# Then Err.Raise 6
-    Dim totalLen As Long: totalLen = CLng(totalLenD)
+    destSize = CopiedFileSize(destPath)
+    If destSize <> srcSize Then
+        outReason = "size_mismatch src=" & CStr(srcSize) & " dest=" & CStr(destSize)
+        KillCopyDest destPath
+        Exit Function
+    End If
 
-    dstNum = FreeFile
-    Open destPath For Binary Access Write As #dstNum
-
-    Const CHUNK_BYTES As Long = 1048576   ' 1MB単位。巨大PDFでも一括Getせず段階的に読む
-    Dim pos As Long: pos = 1
-    Do While pos <= totalLen
-        Dim thisLen As Long: thisLen = modExtractor.SharedCopyNextChunkLen(pos, totalLen, CHUNK_BYTES)
-        If thisLen < 1 Then Exit Do
-        Dim buf() As Byte: ReDim buf(1 To thisLen)
-        Get #srcNum, pos, buf
-        Put #dstNum, pos, buf
-        pos = pos + thisLen
-    Loop
-
-    Close #dstNum
-    Close #srcNum
     CopySharedRead = True
     Exit Function
 
 Failed:
-    ' ハンドラ稼働中はOn Error Resume Nextが効かないため、後始末は
-    ' 別Subへ切り出す(R6)。開きかけたファイル番号を確実に閉じる。
-    CloseCopyFileNumbers srcNum, dstNum, destPath
+    ' Err は Resume でクリアされるので先に控える。ハンドラ稼働中は
+    ' On Error Resume Next が効かないため、後始末はハンドラを抜けてから行う。
+    Dim failNum As Long: failNum = Err.Number
+    Resume CopyCleanup
+CopyCleanup:
+    On Error Resume Next
+    If Not st Is Nothing Then st.Close
+    Set st = Nothing            ' COM解放(異常パス=半開きも確実に解放)
+    On Error GoTo 0
+    outReason = "load_fail err#" & failNum
+    KillCopyDest destPath
     CopySharedRead = False
 End Function
 
-' CopySharedRead失敗時の後始末専用(R6: 稼働中ハンドラの中では
-' On Error Resume Nextが効かないため、新しいエラー文脈を持つ別Subへ切り出す)。
-' 2026-07-30(レビュー4-E): 書きかけのコピー先も消す。途中まで書けた
-' ファイルを残すと、%TEMP%に壊れたファイルが溜まるだけでなく、
-' 次回の連番探索(mbtmp_<hash>/mbtmp_<hash>_1/...)がその残骸を避けて
-' 番号を消費し続ける。
-Private Sub CloseCopyFileNumbers(ByVal n1 As Long, ByVal n2 As Long, _
-                                 ByVal destPath As String)
+' コピー先の実サイズ(取れなければ -1 = 不一致として扱われる)。
+' FileLen は実体が無いと実行時エラー53を出すので、検証専用に握る。
+Private Function CopiedFileSize(ByVal p As String) As Double
     On Error Resume Next
-    If n1 <> 0 Then Close #n1
-    If n2 <> 0 Then Close #n2
+    CopiedFileSize = -1
+    CopiedFileSize = CDbl(FileLen(p))
+    On Error GoTo 0
+End Function
+
+' 書きかけ・検証に落ちたコピー先を消す(失敗しても無視)。
+Private Sub KillCopyDest(ByVal destPath As String)
+    On Error Resume Next
     If LenB(destPath) > 0 Then
         If LenB(Dir$(destPath)) > 0 Then Kill destPath
     End If
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' IsUnreadableCopyReason / CopyFailMsgFor - コピー失敗の理由が「元ファイルを
+'   読めていない」ことを意味するか、と、そのときの利用者向けの1文
+'   (2026-08-03 R14-3b・いずれも純ロジック)。
+'   読めていないのに元パスのまま処理を続けると、NFD分解名がそのまま
+'   Ghostscriptへ渡って /undefinedfilename になり、利用者には「描画0枚」
+'   としか残らない(RC3の本体)。そうなる前に正直に止めるための判定。
+'   文言の一次情報は modLog.SharedReadFailMsg(取込経路とOCR経路の両方から
+'   同じ文を出す必要があり、opt層はコア基盤層しか参照できないため)。
+' ----------------------------------------------------------------------------
+Public Function IsUnreadableCopyReason(ByVal reason As String) As Boolean
+    Dim r As String: r = LCase$(Trim$(reason))
+    If LenB(r) = 0 Then Exit Function
+
+    If Left$(r, Len("size_mismatch")) = "size_mismatch" Then
+        IsUnreadableCopyReason = True
+    ElseIf Left$(r, Len("src_empty")) = "src_empty" Then
+        IsUnreadableCopyReason = True
+    ElseIf Left$(r, Len("load_fail")) = "load_fail" Then
+        IsUnreadableCopyReason = True
+    End If
+End Function
+
+Public Function CopyFailMsgFor(ByVal reason As String) As String
+    If Not IsUnreadableCopyReason(reason) Then Exit Function
+    CopyFailMsgFor = modLog.SharedReadFailMsg() & " [" & Trim$(reason) & "]"
+End Function
 
 ' ----------------------------------------------------------------------------
 ' DropGarbledPages - 文字化けしたページを配列から取り除いて詰める

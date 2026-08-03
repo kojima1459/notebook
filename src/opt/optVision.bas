@@ -40,8 +40,8 @@ Option Explicit
 '     唯一の穴を、公式配布物の再利用で塞ぐ。入口は ExtractPdfOcrPagedText。
 '     コマンド文字列の組み立ては optOcrCore(純ロジック)に切り出してある。
 '     GSを動かす道具(一時フォルダ・非同期起動・完了待ち・後始末)は
-'     optGsTxt へ移設済み(R10-3b)で、ここは「何ページ描いて何をOCRするか」
-'     という段取りだけを持つ。
+'     optGsTxt へ移設済み(R10-3b)、「何ページ描いて何をOCRするか」の段取りは
+'     optOcrPage へ移設済み(R14-4a)で、ここは入口と前後処理だけを持つ。
 '   ・Ghostscriptの配布・自動検出(2026-07-31 R9): dist/Ghostscript を常置
 '     配布物に同梱する方針(要件書R9)に伴い、ResolveGsExeの解決順を
 '     「config ghostscript_path → 同梱(ThisWorkbook.Path\Ghostscript\
@@ -260,9 +260,14 @@ End Function
 '     ことを避けるため)。完了フラグファイルの出現をDoEventsつきで監視し、
 '     config gs_abs_timeout_sec(既定1200秒)を超えたら失敗として返す(R13-F4)。
 '     GSプロセスのkillはしない(こちらが壊す方が危ない)。
+'   ・2026-08-03(R14-4a): 描画とOCRの本体は optOcrPage へ移した。GSは20ページ
+'     ずつ複数回起動し、そのバッチのOCRが終わったら即座に画像を消す。ここは
+'     GS解決・一時フォルダ・後始末という「前後」だけを持つ。
 '   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末は
 '     R6規約に従って別Sub(optGsTxt.CleanupOcrFolder)へ切り出してある
 '     (稼働中のエラーハンドラの中では On Error Resume Next が効かないため)。
+'     ただしタイムアウトで1枚も描けなかったときだけは、書きかけの gs_out.log を
+'     残すために消さない(optOcrPage が keepWork=True で知らせる。R11-D H-1)。
 '   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、複数枚を
 '     まとめて渡すとページ境界が崩れて出典ページ番号が信用できなくなるため
 '     v1では使わない。ページ番号を保ったまま束ねる方法が確立できたら再検討する。
@@ -318,89 +323,24 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
         Exit Function
     End If
 
-    Dim maxPages As Long: maxPages = modConfig.GetLong("vision_pdf_max_pages", 20)
+    Dim maxPages As Long: maxPages = modConfig.GetLong("vision_pdf_max_pages", 100)
     Dim dpi As Long: dpi = modConfig.GetLong("vision_pdf_dpi", 150)
     Dim waitSec As Long: waitSec = modConfig.GetLong("gs_abs_timeout_sec", 1200)
     If waitSec < 10 Then waitSec = 10
 
-    Dim renderCap As Long: renderCap = optOcrCore.RenderCapFor(maxPages)
-    Dim flagPath As String: flagPath = optOcrCore.DoneFlagFor(folderPath)
-    Dim runCmd As String
-    runCmd = optOcrCore.BuildRunCommand( _
-        optOcrCore.BuildGsCommand(gsExe, path, optOcrCore.OutPatternFor(folderPath), dpi, renderCap), _
-        flagPath, optOcrCore.GsLogFor(folderPath))
-
-    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
-
-    Dim gsErrNum As Long: gsErrNum = 0
-    Dim gsErrDesc As String: gsErrDesc = ""
-    If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
-        modUIMain.SetStage ""
-        optGsTxt.CleanupOcrFolder folderPath
-        ' R10-2: 従来はパスのみで原因が残らなかった。WScript.Shellがポリシーで
-        ' ブロックされる端末の切り分けに、CreateObject/Run失敗時のErr情報が必須。
-        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
-            "GS起動失敗 err#" & gsErrNum & ": " & gsErrDesc & " " & path, 2000)
-        ExtractPdfOcrPagedText = "#ERR:E0303:PDFを画像に変換する処理を開始できませんでした。" & _
-            "config の ghostscript_path が正しいかご確認ください。"
-        Exit Function
-    End If
-
-    Dim finished As Boolean: finished = optGsTxt.WaitForDoneFlag(flagPath, waitSec)
-    Dim foundN As Long: foundN = CountRenderedPages(folderPath, renderCap)
-
-    ' タイムアウトした場合、最後の1枚はGSが書いている途中の可能性がある。
-    ' 途中のJPEGを読ませても意味が無いので使わない(2枚以上あるときだけ)。
-    If Not finished And foundN > 1 Then foundN = foundN - 1
-
-    ' R11-D(監査3 H-2): 終了コードとGS出力ログは【後始末の前】に読む。
-    ' MOTW/AppLocker/EDRにブロックされたときの "アクセスが拒否されました" は
-    ' gs_out.log にしか出ず、従来はそれを捨ててから記録していた。
-    Dim gsRc As Long: gsRc = optGsTxt.GsExitCode(folderPath)
-
-    If foundN = 0 Then
-        modUIMain.SetStage ""
-        ' R11-D(監査3 H-1): タイムアウトのときは作業フォルダを残す。
-        ' 書きかけの出力とログが原因究明の唯一の材料で、消すと二度と調べ
-        ' られない。残骸は次回起動時のGC(modBoot)が24時間後に片付ける。
-        Dim gsDetail As String: gsDetail = optGsTxt.GsFailureDetail(folderPath)
-        Dim workNote As String: workNote = ""
-        If finished Then
-            optGsTxt.CleanupOcrFolder folderPath
-        Else
-            workNote = " work=" & folderPath
-        End If
-        modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", modUtil.SafeLeft( _
-            "描画0枚 finished=" & finished & " " & gsDetail & workNote & " " & _
-            modUtil.SafeLeft(path, 200), 2000)
-        If finished Then
-            ExtractPdfOcrPagedText = "#ERR:E0303:このPDFからページ画像を作れませんでした。" & _
-                "ファイルが壊れているか、パスワードで保護されている可能性があります。"
-        Else
-            ExtractPdfOcrPagedText = "#ERR:E0303:PDFの画像変換が" & waitSec & "秒以内に" & _
-                "終わりませんでした。ページ数の少ないPDFに分けるか、config の " & _
-                "gs_abs_timeout_sec を大きくしてからお試しください。"
-        End If
-        Exit Function
-    End If
-
-    ' 画像は出来ているが終了コードが非0(GSは軽微な警告でも非0を返す)。
-    ' 取込は続けるが、事実は次の調査の手がかりとして必ず残す(R11-D)。
-    If gsRc > 0 Then
-        modLog.LogUsage "gs_ocr_rc_nonzero", "", modUtil.SafeLeft( _
-            optGsTxt.GsFailureDetail(folderPath), 500)
-    End If
-
-    Dim truncated As Boolean: truncated = optOcrCore.IsTruncatedCount(foundN, maxPages)
-    Dim keepN As Long: keepN = optOcrCore.KeepPageCount(foundN, maxPages)
-
+    ' R14-4a: 「何ページ描いて、どれをOCRして、いつ画像を捨てるか」は
+    ' optOcrPage が持つ(20ページずつのバッチ制御・ページ間DoEvents・
+    ' バッチ完了ごとのJPEG削除)。ここは前後(GS解決・一時フォルダ・後始末)
+    ' だけを持つ。keepWork=True で返ったらフォルダを消さない(R11-D H-1)。
+    Dim keepWork As Boolean: keepWork = False
     Dim ocrText As String
-    ocrText = OcrRenderedPages(folderPath, keepN, truncated)
+    ocrText = optOcrPage.OcrPdfByBatch(gsExe, path, folderPath, dpi, maxPages, _
+                                       waitSec, VISION_PROMPT, keepWork)
 
     modUIMain.SetStage ""
-    optGsTxt.CleanupOcrFolder folderPath
+    If Not keepWork Then optGsTxt.CleanupOcrFolder folderPath
 
-    ' 全ページ失敗のときだけ "#ERR:..." が返る(OcrRenderedPages内で判定済み)。
+    ' 1枚も描けなかった/全ページ読めなかったときだけ "#ERR:..." が返る。
     ExtractPdfOcrPagedText = ocrText
     Exit Function
 
@@ -439,57 +379,21 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
-' 内部ヘルパー(GS実行まわりの5本のみoptGsTxt用にPublic・R10-3)
+' OcrCapMemo - OCRが上限ページで打ち切られたときに本棚カードへ出す正直な
+'   メモ(R14-4c)。文言と算数は optOcrCore.OcrCapMemoFor(純ロジック)が
+'   持ち、ここは modFeatures.InvokeFeature("vision","OcrCapMemo",…) から
+'   呼べるようにするための受け口。コア層は opt モジュール名を書けない(R2)
+'   ので、この1本が「打ち切りの説明」をコアへ渡す唯一の経路になる。
+'   truncated=False なら空文字列。
 ' ----------------------------------------------------------------------------
-
-' ページ画像を1枚ずつOCRして1本のページ付きテキストにする。
-' 1ページの失敗で資料全体を捨てない(読めたページだけを返す)。
-Private Function OcrRenderedPages(ByVal folderPath As String, ByVal keepN As Long, _
-                                  ByVal truncated As Boolean) As String
-    Dim pages() As ExtractedPage
-    ReDim pages(0 To keepN - 1)
-    Dim okN As Long: okN = 0
-
-    Dim i As Long
-    For i = 1 To keepN
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " OCR中… " & i & "/" & keepN & " ページ"
-        ' R13-4a: SetStageの出力先はNexus画面では実質不可視。同じ内容を
-        ' 進捗バナーへも流す(出ている時だけ更新される。silentは無表示)。
-        modShelfBatch.StageBanner "OCR中… " & i & "/" & keepN & "ページ"
-
-        Dim jpgPath As String
-        jpgPath = folderPath & "\" & optOcrCore.PageJpgName(i)
-
-        Dim b64 As String
-        b64 = SafeResultToString(modGateway.TryRibbonRun(BASE64_FUNC_NAME, Array(jpgPath)))
-
-        If LenB(Trim$(b64)) > 0 And Left$(b64, 5) <> "#ERR:" Then
-            Dim s As String
-            s = SafeResultToString(modGateway.TryRibbonRun(RIBBON_FUNC_NAME, _
-                Array(VISION_PROMPT, b64, "", VISION_RESOLUTION, VISION_TOOL_NAME)))
-            If Not IsVisionError(s) Then
-                pages(okN).page = i
-                pages(okN).Text = s
-                okN = okN + 1
-            Else
-                modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
-                    "p" & i & " 読取失敗: " & modUtil.SafeLeft(s, 200)
-            End If
-        Else
-            modLog.LogError "E0303", "optVision.ExtractPdfOcrPagedText", _
-                "p" & i & " Base64失敗: " & modUtil.SafeLeft(b64, 200)
-        End If
-    Next i
-
-    If okN = 0 Then
-        OcrRenderedPages = "#ERR:E0303:ページ画像は作れましたが、文字を読み取れませんでした。" & _
-            "しばらく時間を置いてからもう一度お試しください。"
-        Exit Function
-    End If
-
-    If okN < keepN Then ReDim Preserve pages(0 To okN - 1)
-    OcrRenderedPages = modUtil.JoinPagedText(pages, truncated)
+Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
+                           ByVal totalN As Long) As String
+    OcrCapMemo = optOcrCore.OcrCapMemoFor(truncated, keptN, totalN)
 End Function
+
+' ----------------------------------------------------------------------------
+' 内部ヘルパー(GS実行まわりのみoptGsTxt/optOcrPage用にPublic・R10-3/R14-4a)
+' ----------------------------------------------------------------------------
 
 ' ----------------------------------------------------------------------------
 ' ResolveGsExe - Ghostscript実行ファイルを解決する(R9: 4段階)。
@@ -644,15 +548,6 @@ NoDialog:
     PickGsFolder = ""
 End Function
 
-' page_001.jpgから連番で何枚できているかを数える(Dirの列挙状態に依存しない)。
-Private Function CountRenderedPages(ByVal folderPath As String, ByVal renderCap As Long) As Long
-    Dim i As Long
-    For i = 1 To renderCap
-        If Not PathExists(folderPath & "\" & optOcrCore.PageJpgName(i)) Then Exit For
-    Next i
-    CountRenderedPages = i - 1
-End Function
-
 ' R10-3bで optGsTxt へ移設したGS実行の道具(MakeOcrFolder/
 ' WaitForDoneFlag/CleanupOcrFolder)からも使うためPublic。
 Public Function PathExists(ByVal p As String) As Boolean
@@ -668,7 +563,9 @@ End Function
 ' 失敗判定(確定仕様準拠: ラッパーはエラーも文字列で返す。台帳§0)。
 '   "#ERR:" 始まり = TryRibbonRun側の失敗 / 空・"error" = リボン側の失敗 /
 '   上限系メッセージ = E0204の可能性(LooksLikeLimitError)。
-Private Function IsVisionError(ByVal s As String) As Boolean
+' R14-4a: ページOCRのループを optOcrPage へ移したので、同じ判定を2箇所に
+' 持たないようPublicにしてある(憲章§4-5)。opt層内の参照なのでR2に触れない。
+Public Function IsVisionError(ByVal s As String) As Boolean
     If LenB(Trim$(s)) = 0 Then
         IsVisionError = True
     ElseIf Left$(s, 5) = "#ERR:" Then
@@ -680,7 +577,8 @@ Private Function IsVisionError(ByVal s As String) As Boolean
     End If
 End Function
 
-Private Function SafeResultToString(ByVal result As Variant) As String
+' R14-4a: optOcrPage(ページOCRのループ)からも使うのでPublic。
+Public Function SafeResultToString(ByVal result As Variant) As String
     On Error GoTo Empty0
     If IsError(result) Then Exit Function
     SafeResultToString = CStr(result)

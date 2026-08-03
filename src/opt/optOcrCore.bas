@@ -82,23 +82,31 @@ End Function
 '   outPattern : 出力パターン(例 C:\Temp\nxocr_x\page_%03d.jpg)
 '   dpi        : 解像度(範囲外は既定150へ丸める)
 '   lastPage   : 描画する最終ページ(1未満は1へ丸める)
+'   firstPage  : 描画する先頭ページ(省略時1。R14-4aのバッチ描画で使う)
 '   戻り値の形(パスは全て二重引用符で囲む):
 '     "<gs>" -dSAFER -dNOPAUSE -dBATCH -sDEVICE=jpeg -r150
 '     -dTextAlphaBits=4 -dGraphicsAlphaBits=4 -dFirstPage=1 -dLastPage=21
 '     -sOutputFile="<out>" "<pdf>"
+'   2026-08-03(R14-4a): 100ページを一度に描かせると、画像が全部できるまで
+'   OCRが1文字も始まらず、途中経過も出せない。20ページずつ複数回起動する
+'   ため firstPage を足した(省略時の字面は従来と1文字も変えない=
+'   modTestsPure4 のゴールデンテストがそのまま生きる)。
 ' ----------------------------------------------------------------------------
 Public Function BuildGsCommand(ByVal gsExe As String, ByVal pdfPath As String, _
                                ByVal outPattern As String, ByVal dpi As Long, _
-                               ByVal lastPage As Long) As String
+                               ByVal lastPage As Long, _
+                               Optional ByVal firstPage As Long = 1) As String
     Dim r As Long: r = SafeDpi(dpi)
+    Dim firstN As Long: firstN = firstPage
+    If firstN < 1 Then firstN = 1
     Dim lastN As Long: lastN = lastPage
-    If lastN < 1 Then lastN = 1
+    If lastN < firstN Then lastN = firstN
 
     BuildGsCommand = Quoted(gsExe) & _
         " -dSAFER -dNOPAUSE -dBATCH" & _
         " -sDEVICE=jpeg -r" & CStr(r) & _
         " -dTextAlphaBits=4 -dGraphicsAlphaBits=4" & _
-        " -dFirstPage=1 -dLastPage=" & CStr(lastN) & _
+        " -dFirstPage=" & CStr(firstN) & " -dLastPage=" & CStr(lastN) & _
         " -sOutputFile=" & Quoted(outPattern) & _
         " " & Quoted(pdfPath)
 End Function
@@ -268,10 +276,25 @@ End Function
 '   「登録成功」になった。分類の順序こそが事故の本体なので、副作用ゼロの
 '   関数にして真理表をLOテストで固定する(憲章§4-5)。
 ' ----------------------------------------------------------------------------
+'     "emptyinput" 渡されたPDFそのものが0バイトだった(2026-08-03 R14-3c)。
+'                 GSは空の入力を「空のPS」として rc=0/バナーだけで即終了する
+'                 ため、rcとログだけを見ると image と見分けがつかない。
+'                 実機第3報 RC3(0バイトコピー)では、これが「画像PDF」として
+'                 OCRへ回り、描画0枚だけが記録されて原因が消えていた。
+'                 材料(入力サイズ)があるときは他のどの分岐よりも先に言い切る。
+'   gsInputBytes  : GSへ渡した入力ファイルの実バイト数(-1=不明・既定)。
+' ----------------------------------------------------------------------------
 Public Function ClassifyGsTextResult(ByVal rc As Long, ByVal txtLen As Long, _
-                                     ByVal gsOutHasPages As Boolean) As String
+                                     ByVal gsOutHasPages As Boolean, _
+                                     Optional ByVal gsInputBytes As Long = -1) As String
     If txtLen > 0 Then
         ClassifyGsTextResult = "ok"
+        Exit Function
+    End If
+
+    ' 入力が0バイトなら、rcもログも見る意味が無い(GSは何も読んでいない)。
+    If gsInputBytes = 0 Then
+        ClassifyGsTextResult = "emptyinput"
         Exit Function
     End If
 
@@ -426,6 +449,91 @@ Public Function KeepPageCount(ByVal foundCount As Long, ByVal maxPages As Long) 
         KeepPageCount = cap
     Else
         KeepPageCount = foundCount
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' BatchCountFor / BatchBoundsFor - ページ描画を何回に分けるか(R14-4a)。
+'   totalPages : 描画したい総ページ数(=RenderCapFor の戻り値)
+'   batchSize  : 1回のGS起動で描かせるページ数(20)
+'   batchIdx   : 1始まりのバッチ番号
+'   BatchBoundsFor の戻り値: "<先頭ページ>|<最終ページ>"(範囲外なら "")。
+'   配列を返せない(LibreOffice Basicが As String() の宣言でハングする既知の
+'   制約。GsCandidatePaths と同じ回避策)ので "|" 区切りの1本にしている。
+'   なぜ分けるのか(実機第3報 RC4): 100ページを1回で描かせると全部できるまで
+'   OCRが始まらず、%TEMP% にも100枚が同時に載る。20ページずつなら最初の20枚は
+'   数十秒で読み始められ、一時領域も20枚ぶんで頭打ちになる。
+' ----------------------------------------------------------------------------
+Public Function BatchCountFor(ByVal totalPages As Long, ByVal batchSize As Long) As Long
+    If totalPages < 1 Or batchSize < 1 Then Exit Function
+    BatchCountFor = ((totalPages + batchSize - 1) \ batchSize)
+End Function
+
+Public Function BatchBoundsFor(ByVal totalPages As Long, ByVal batchSize As Long, _
+                               ByVal batchIdx As Long) As String
+    If totalPages < 1 Or batchSize < 1 Or batchIdx < 1 Then Exit Function
+
+    Dim firstP As Long: firstP = (batchIdx - 1) * batchSize + 1
+    If firstP > totalPages Then Exit Function
+
+    Dim lastP As Long: lastP = firstP + batchSize - 1
+    If lastP > totalPages Then lastP = totalPages
+
+    BatchBoundsFor = CStr(firstP) & "|" & CStr(lastP)
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrPageBanner - OCR中の進捗バナーの文面(R14-4a)。GsWaitBanner と同じ
+'   考え方の表示専用の純関数。「OCR中… 3/100頁 (バッチ 1/5) 残り約2910秒」
+'   ・残り時間は avgMsPerPage の実測が入ってから(呼び出し元は2頁測るまで0を
+'     渡す)。1頁目だけの実績で出すと表示が跳ね回り、かえって不安を生む。
+'   ・総頁が現在頁より小さい壊れた値なら分母を現在頁へ寄せる(嘘を出さない)。
+' ----------------------------------------------------------------------------
+Public Function OcrPageBanner(ByVal pageNo As Long, ByVal totalPages As Long, _
+                              ByVal batchIdx As Long, ByVal batchCount As Long, _
+                              ByVal avgMsPerPage As Double) As String
+    Dim p As Long: p = pageNo
+    If p < 1 Then p = 1
+    Dim n As Long: n = totalPages
+    If n < p Then n = p
+
+    Dim s As String
+    s = "OCR中… " & p & "/" & n & "頁 (バッチ " & batchIdx & "/" & batchCount & ")"
+
+    If avgMsPerPage > 0 And n > p Then
+        Dim remSec As Long
+        remSec = CLng(Int((CDbl(n - p) * avgMsPerPage) / 1000# + 0.5))
+        If remSec < 1 Then remSec = 1
+        s = s & " 残り約" & remSec & "秒"
+    End If
+
+    OcrPageBanner = s
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrCapMemoFor - 上限ページで打ち切ったときに本棚カードへ出す正直なメモ
+'   (2026-08-03 R14-4c)。打ち切っていなければ ""。
+'   truncated : 上限で打ち切ったか(IsTruncatedCount の結果)
+'   keptN     : 実際に取り込めたページ数
+'   totalN    : 資料の総ページ数。0以下やkeptN以下は【不明】として扱う。
+'   総ページ数が不明になり得るのは、GSに -dLastPage で上限+1ページまでしか
+'   描かせておらず、その先が何ページあるかを知る手段がこちらに無いため。
+'   分からない数字を言うのは嘘なので、そのときは「先頭Nページのみ」とだけ言う
+'   (RC4の「同期を押すと続きから再開します」は再開ロジックが無いのに再開
+'   できると言っていた=同じ種類の嘘)。
+' ----------------------------------------------------------------------------
+Public Function OcrCapMemoFor(ByVal truncated As Boolean, ByVal keptN As Long, _
+                              ByVal totalN As Long) As String
+    If Not truncated Then Exit Function
+    Dim k As Long: k = keptN
+    If k < 0 Then k = 0
+
+    If totalN > k Then
+        OcrCapMemoFor = "上限" & k & "ページのため、" & totalN & "ページ中" & k & _
+            "ページのみ取り込みました(設定 vision_pdf_max_pages で変更できます)"
+    Else
+        OcrCapMemoFor = "上限" & k & "ページのため、先頭" & k & _
+            "ページのみ取り込みました(設定 vision_pdf_max_pages で変更できます)"
     End If
 End Function
 

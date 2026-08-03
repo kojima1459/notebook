@@ -428,6 +428,12 @@ NextStepBuf:
 NextPrefilterScoped:
     On Error GoTo PrefilterScopedFail
     TestShouldPrefilterScoped
+NextRun11:
+    ' 2026-08-03(R14-3): 容量のための分割先(modTestsPure11)。ここが唯一の
+    ' 導線で、消すとコピー失敗判定・OCRバッチ境界・上限メモのテストが
+    ' 「実行されないまま」全部PASSに見える。
+    On Error GoTo Run11Fail
+    modTestsPure11.RunAll11
 NextDone10:
     On Error GoTo 0
     Exit Sub
@@ -470,6 +476,10 @@ StepBufFail:
     Resume NextPrefilterScoped
 PrefilterScopedFail:
     modTestRunner.Check "TestShouldPrefilterScoped(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun11
+Run11Fail:
+    modTestRunner.Check "modTestsPure11.RunAll11(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone10
 End Sub

@@ -229,7 +229,17 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     ' いた。空のときは終了コードとGS出力から本当の理由を分類する。
     If LenB(txt) = 0 Then
         Dim cls As String
-        cls = optOcrCore.ClassifyGsTextResult(gsRc, 0, hasPages)
+        ' R14-3c: 入力サイズも材料に渡す。0バイトのPDFはGSが「空のPS」として
+        ' rc=0+バナーだけで即終了するため、rcとログだけでは image と見分けが
+        ' つかず、スキャンPDF扱いでOCRへ回って「描画0枚」に化けていた(RC3)。
+        cls = optOcrCore.ClassifyGsTextResult(gsRc, 0, hasPages, InputFileBytes(path))
+
+        If cls = "emptyinput" Then
+            modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
+                "empty_input: 0バイトの入力 " & path & " " & gsDetail, 2000)
+            ExtractPdfTextNoOcr = ERR_302 & "empty_input:" & modLog.SharedReadFailMsg()
+            Exit Function
+        End If
 
         If cls = "image" Then
             ' GSは正常終了しページ処理も走った=文字層が無い。OCRへ回す。
@@ -608,6 +618,16 @@ End Function
 Public Function GsExitCode(ByVal folderPath As String) As Long
     GsExitCode = optOcrCore.GsExitCodeFromFlag( _
         ReadTextHead(optOcrCore.DoneFlagFor(folderPath), 80))
+End Function
+
+' GSへ渡した入力ファイルの実バイト数(取れなければ -1 = 不明。R14-3c)。
+' FileLen は実体が無いと実行時エラー53を出すので握る(観測用の材料であって、
+' ここで失敗しても本処理を止めてはならない)。
+Private Function InputFileBytes(ByVal p As String) As Long
+    On Error Resume Next
+    InputFileBytes = -1
+    InputFileBytes = FileLen(p)
+    On Error GoTo 0
 End Function
 
 ' テキストファイルの先頭 maxChars 字だけを読む(改行はスペースへ潰す)。

@@ -347,6 +347,12 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     thinMemo = modExtractorPdf.ThinExtractMemoFor(pages, chunkN, modUtil.ExtOf(path))
     On Error GoTo Failed
 
+    ' 2026-08-03(R14-4c): OCRが上限ページで打ち切られたときの正直なメモ。
+    ' modShelfVision が vision 側から受け取っている(成功時のvisionNote)。
+    ' 本棚カードの partial は、メモがあればそれを出し、無いとき(=ベクトル化
+    ' 待ち。同期で本当に続きから進む)だけ再開の案内を出す。
+    If LenB(thinMemo) = 0 Then thinMemo = visionNote
+
     If pagesTruncated Or stillPending Or LenB(thinMemo) > 0 Then
         resultStatus = "partial"
     Else

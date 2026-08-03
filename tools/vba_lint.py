@@ -103,10 +103,14 @@ CONTRACT: dict[str, dict] = {
     # Ghostscript の話をしない(実機第2報 RC6: 正確な案内が汎用文言で
     # 上書きされ、利用者に一度も届いていなかった)。純粋な文字列処理なので
     # modTestsPure9 が分岐を固定する。
+    # SharedReadFailMsg(2026-08-03 R14-3b): 共有のファイルを読み取れなかった
+    # ときの1文。取込経路(modExtractorPdf)とOCR経路(optGsTxt)の両方が
+    # 同じ文を出す必要があり、opt層はコア基盤層しか参照できない(§7.7)ため、
+    # 文言の一次情報の置き場はここが唯一の交点になる(憲章§4-5)。
     "modLog": {
         "closed": True,
         "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
-                     "FriendlyFailMsg"],
+                     "FriendlyFailMsg", "SharedReadFailMsg"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
@@ -203,11 +207,18 @@ CONTRACT: dict[str, dict] = {
     # chunks=1 / status=done で登録成功になった)への二段目の防衛で、判定式を
     # modShelf 側に散らさないためここへ置く。IsThinExtract は純ロジックなので
     # modTestsPure9 が閾値を固定する(閾値は仕様R13-3aから動かさないこと)。
+    # IsUnreadableCopyReason / CopyFailMsgFor(2026-08-03 R14-3b): 一時コピーの
+    # 失敗理由が「元ファイルを読めていない」ことを意味するかの判定と、その
+    # ときの利用者向けの1文。読めていないのに元パスのまま続行すると、NFD分解名が
+    # そのままGhostscriptへ渡って /undefinedfilename になり、利用者には
+    # 「描画0枚」しか残らない(実機第3報 RC3)。どちらも純ロジックなので
+    # modTestsPure11 が境界を固定する。
     "modExtractorPdf": {
         "closed": True,
         "required": ["ExtractPdfWithFallback", "CopyToLocalTemp",
                      "DropGarbledPages", "TempBaseNameFor",
-                     "IsThinExtract", "ThinExtractMemoFor"],
+                     "IsThinExtract", "ThinExtractMemoFor",
+                     "IsUnreadableCopyReason", "CopyFailMsgFor"],
     },
     "modMode": {
         "closed": True,
@@ -492,11 +503,27 @@ CONTRACT: dict[str, dict] = {
     # FindGsExeByCandidates/PathExists は optGsTxt へ貸すためのPublic
     # (R10-3 / R10-3b)。前者は案内カードを出さない「静かなGS解決」、後者は
     # Dir$による実在確認。コア側からは呼ばない(opt層内の参照はR2の対象外)。
+    # OcrCapMemo(2026-08-03 R14-4c): OCRが上限ページで打ち切られたことを
+    # 本棚カードのメモへ渡す唯一の経路(コア層はoptモジュール名を書けないため、
+    # modFeatures.InvokeFeature("vision","OcrCapMemo") から呼ぶ受け口が要る)。
+    # IsVisionError / SafeResultToString(R14-4a): ページOCRのループを
+    # optOcrPage へ移した際、同じ判定を2箇所に持たないためPublic化した
+    # (opt層内の参照なのでR2に触れない。憲章§4-5)。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
-                                               "ExtractPdfOcrPagedText",
+                                               "ExtractPdfOcrPagedText", "OcrCapMemo",
                                                "HasClipboardImage", "SaveClipboardImage",
                                                "ResetGsGuidance", "ExtractPdfTextNoOcr",
-                                               "FindGsExeByCandidates", "PathExists"]},
+                                               "FindGsExeByCandidates", "PathExists",
+                                               "IsVisionError", "SafeResultToString"]},
+    # optOcrPage(2026-08-03 R14-4a): 画像PDFのページ描画とOCRの実行ループ。
+    # 20ページずつGSを起動し、そのバッチをOCRし終えたら即座にJPEGを消す
+    # (上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページの
+    # TryRibbonRun の前後で DoEvents を回し、「1ページ分より長くは固まらない」
+    # 構造にする(同期Application.Runのハード中断は構造上不可能=制約)。
+    # optVision が28,000字のWARN帯に達したための容量分割でもある(憲章§4-6)。
+    # 純ロジックではない(Shell起動・待ち・ファイル削除・ログ)ので
+    # PURE_LOGIC_MODULES には載せない。opt層に置く以上 Ping を持たせる。
+    "optOcrPage": {"closed": True, "required": ["Ping", "OcrPdfByBatch"]},
     # optGsTxt(2026-07-31 R10-3 / R10-3b): Ghostscript実行の共通道具
     # (MakeOcrFolder/RunGsAsync/WaitForDoneFlag/CleanupOcrFolder。R10-3bで
     # optVisionから移設)と、txtwriteによるテキストPDF抽出(PDF本文抽出の
@@ -555,6 +582,13 @@ CONTRACT: dict[str, dict] = {
             # GsWaitBanner はその進捗の見せ方。全てLOテストで固定する。
             "ClassifyGsTextResult", "GsTotalPagesFromLog", "GsPagesFromLog",
             "GsWaitBanner",
+            # R14-4a/4c(2026-08-03 実機第3報): ページ描画をバッチへ割る算数
+            # (BatchCountFor/BatchBoundsFor)、OCR中の進捗バナーの文面
+            # (OcrPageBanner)、上限打ち切りの正直なメモ(OcrCapMemoFor)。
+            # 上限を100ページへ上げるにあたって足したものは全て副作用ゼロで、
+            # 「20ページずつ描く」「総ページ数が不明なら数字を言わない」という
+            # 判断をLOテストで固定する(RC4の嘘の案内を二度と作らないため)。
+            "BatchCountFor", "BatchBoundsFor", "OcrPageBanner", "OcrCapMemoFor",
         ],
     },
     # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
@@ -830,6 +864,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll10"],
     },
+    # modTestsPure11: 2026-08-03 R14-3/R14-4で追加。modTestsPure9が28,000字の
+    # WARN帯に触れる(残り578字)ための分割先。modTestsPure10.RunAll10の
+    # 末尾から呼ばれる入口 RunAll11 だけが契約。
+    "modTestsPure11": {
+        "closed": False,
+        "required": ["RunAll11"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -867,6 +908,10 @@ PURE_LOGIC_MODULES = {
     # modTestsPure10(2026-08-03 R13-7c): チーム/部・共有ビーコンのteam列の
     # 純ロジックテスト。modTestsPure9の容量逼迫(WARN帯)による分割先。
     "modTestsPure10",
+    # modTestsPure11(2026-08-03 R14-3/R14-4): 共有読みコピーの失敗判定、
+    # OCRのバッチ分割・上限メモの純ロジックテスト。modTestsPure9の容量逼迫に
+    # よる分割先(modTestsPure10.RunAll10の末尾から呼ばれる)。
+    "modTestsPure11",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

@@ -253,6 +253,14 @@ PURE_ALLOWLIST = [
     #   modTestsPure9.RunAll9 の末尾が RunAll10 を呼ぶため、未注入だと
     #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
     "modP2PIo", "modTestsPure10",
+    # modTestsPure11(2026-08-03 R14-3/R14-4): modTestsPure9の容量逼迫
+    #   (残り578字)による分割先。modTestsPure10.RunAll10 の末尾が RunAll11 を
+    #   呼ぶため、未注入だと実行時エラー12になり分割先のテストが
+    #   「実行されないまま」になる(modTestsPure10追加時と同型の理由)。
+    #   検証対象は modExtractorPdf(コピー失敗理由の判定)・optOcrCore
+    #   (空入力の分類/バッチ境界/上限メモ/進捗バナー)・modLog(共有読み
+    #   失敗の案内文が汎用文言に潰されないこと)で、いずれも既に注入済み。
+    "modTestsPure11",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

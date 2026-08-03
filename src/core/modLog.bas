@@ -237,6 +237,18 @@ Public Function FriendlyFailMsg(ByVal errCode As String, ByVal errDetail As Stri
     FriendlyFailMsg = FriendlyMessage(errCode) & "(コード: " & errCode & ")"
 End Function
 
+' ----------------------------------------------------------------------------
+' SharedReadFailMsg - 共有フォルダのファイルを読み取れなかったときの1文
+'   (2026-08-03 R14-3b)。取込経路(modExtractorPdf)とOCR経路(optGsTxt)の
+'   両方が同じ文を出す必要があるが、opt層はコアの基盤層しか参照できない(§7.7)
+'   ため、文言の置き場としてはここが唯一の交点になる(憲章§4-5: 同じ文を
+'   2箇所に書かない)。ActionableHint もこの文を目印として使う。
+' ----------------------------------------------------------------------------
+Public Function SharedReadFailMsg() As String
+    SharedReadFailMsg = "共有のファイルを読み取れませんでした" & _
+        "(ファイル名の特殊文字が原因の可能性)。ファイル名を変えて再度お試しください。"
+End Function
+
 ' errDetail から「利用者がその場で打てる次の一手」を含む文だけを取り出す。
 ' 取り出せなければ ""(=汎用文言へ落とす)。
 ' errDetail は経路によって「[段階/開き方N] 本文 (詳細: …) [localcopy=ok]」や
@@ -256,6 +268,12 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     ' 潰されていた。アプリ名の先頭まで戻って、そこを開始点として拾う。
     Dim r As Long: r = HintStartOfOperateFail(errDetail)
     If p = 0 Or (r > 0 And r < p) Then p = r
+
+    ' R14-3b: 共有読みの失敗(実機第3報 RC3)は導入句を持たない独自の1文。
+    ' これを拾えないと、E0302の汎用文言(Ghostscriptの話)に潰されて
+    ' 「ファイル名を変えてみる」という唯一の一手が利用者へ届かない。
+    Dim s As Long: s = InStr(errDetail, SharedReadFailMsg())
+    If p = 0 Or (s > 0 And s < p) Then p = s
     If p = 0 Then Exit Function
 
     Dim d As String: d = Mid$(errDetail, p)

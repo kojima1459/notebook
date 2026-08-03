@@ -90,12 +90,26 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
     ' /undefinedfilename になっていた(実機第2報 RC4と同じ穴のOCR側)。
     ' ここでも安全なコピーを作り、抽出にはそれを使う。元のパスは
     ' 表示・ログ・メタデータ側でだけ使い続ける(利用者に見えるのは元の名前)。
-    ' コピーできなければ従来どおり元パスで続行する(悪化させない)。
+    ' コピーできなくても「元を読めなかった」以外の理由(一時フォルダが無い等)
+    ' なら従来どおり元パスで続行する(悪化させない)。
     ' 作ったコピーは【全ての出口】で消す(下の Finish が一手に引き受ける)。
     ' ------------------------------------------------------------------
+    ' 2026-08-03(R14-3b): コピーが「元を読めていない」形で失敗したときは、
+    ' 元パスのまま続行してはならない。NFD分解名のままGSへ渡ると
+    ' /undefinedfilename で「描画0枚」になり、利用者には理由が何も残らない
+    ' (実機第3報 RC3のOCR側)。正直に止めて、その場で打てる一手を伝える。
     Dim workPath As String: workPath = path
-    tmpCopy = modExtractorPdf.CopyToLocalTemp(path)
-    If LenB(tmpCopy) > 0 Then workPath = tmpCopy
+    Dim copyReason As String: copyReason = ""
+    tmpCopy = modExtractorPdf.CopyToLocalTemp(path, copyReason)
+    If LenB(tmpCopy) > 0 Then
+        workPath = tmpCopy
+    ElseIf modExtractorPdf.IsUnreadableCopyReason(copyReason) Then
+        outNote = modLog.FriendlyFailMsg(errCode, _
+            modExtractorPdf.CopyFailMsgFor(copyReason), modUtil.ExtOf(path))
+        modLog.LogError errCode, "modShelfVision.TryVisionFallback", _
+            "localcopy=failed:" & copyReason & " " & modUtil.SafeLeft(path, 200)
+        GoTo Finish
+    End If
 
     ' OCR経路(ExtractPdfOcrPagedText)だけは silent を渡す。Ghostscript が
     ' 見つからないときに opt 側が案内カード(モーダル)を出すのはこの経路
@@ -123,6 +137,10 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
     ' ページ付きで返ってきたら復号する。そうでなければ全文1ページとして扱う。
     If modUtil.SplitPagedText(raw, pages, truncated) Then
         okRet = True
+        ' R14-4c: 上限で打ち切られたときは【何ページ入ったか】を正直に残す。
+        ' 従来この partial は本棚カードで「同期を押すと続きから再開します」に
+        ' なっていたが、OCRの続きを再開するロジックは存在しない(RC4の嘘)。
+        If truncated Then outNote = OcrCapNote(pages)
         GoTo Finish
     End If
 
@@ -162,6 +180,25 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+' ----------------------------------------------------------------------------
+' OcrCapNote - 上限ページで打ち切られたときの正直なメモ(R14-4c)。
+'   文言と算数は opt 層の純ロジック(optOcrCore.OcrCapMemoFor)が持ち、ここは
+'   modFeatures 経由で受け取るだけ(R2: コアに opt モジュール名を書かない)。
+'   総ページ数はGSに上限+1ページまでしか描かせていない以上こちらでは分からない
+'   ので 0(不明)を渡す。取り込めた枚数だけは pages から確実に分かる。
+'   取れなければ ""(メモが無い=従来どおりの partial 表示に落ちるだけ)。
+' ----------------------------------------------------------------------------
+Private Function OcrCapNote(ByRef pages() As ExtractedPage) As String
+    On Error Resume Next
+    Dim keptN As Long: keptN = modExtractor.PageArrayCount(pages)
+    Dim note As String
+    note = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrCapMemo", _
+        Array(True, keptN, 0)))
+    If Left$(note, 5) = "#ERR:" Then note = ""
+    OcrCapNote = note
+    On Error GoTo 0
+End Function
 
 ' 画像拡張子か(vision委譲判定・裁定D13)。optVisionの対応形式と揃える。
 Private Function IsImageFileExt(ByVal path As String) As Boolean

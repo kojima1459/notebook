@@ -637,6 +637,14 @@
       "note": "テキストPDFのCOM無し抽出(Ghostscriptのtxtwriteデバイス)。PDF本文抽出の第1選択で、失敗時のみWord→Acrobatへ落ちる。入口はmodFeatures.InvokeFeature(\"vision\",\"ExtractPdfTextNoOcr\")でoptVisionの薄い受け口から転送される。GS起動・完了待ち・一時フォルダはoptVisionのPublic化した道具を共用するため、optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
+      "name": "optOcrPage",
+      "path": "src/opt/optOcrPage.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R14-4a",
+      "note": "画像PDFのページ描画とOCRの実行ループ。Ghostscriptを20ページずつ起動し、そのバッチのOCRが終わったら即座にJPEGを消す(上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページのTryRibbonRunの前後でDoEventsを回し「1ページ分より長くは固まらない」構造にする(同期Application.Runのハード中断は構造上不可能)。optVisionのOcrRenderedPagesを移設したもので、optVisionが28,000字のWARN帯に達したための容量分割でもある。optVision/optGsTxt/optGsProcを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
       "name": "optGsProc",
       "path": "src/opt/optGsProc.bas",
       "role": "opt",
@@ -743,6 +751,14 @@
       "type": "std",
       "wave": "R13-7c",
       "note": "R13-7c(チーム/部・共有ビーコンのteam列)の純ロジック回帰テスト。modTestsPure9が28,000字のWARN帯に触れるため憲章§4-6に従って新設した分割先(TeamCodeOf境界/DeptOf/ビーコンteam列の新旧形式round trip)。modTestsPure9.RunAll9末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure11",
+      "path": "src/test/modTestsPure11.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R14-3",
+      "note": "R14-3/R14-4(共有読みコピーの根治とOCR全量取込)の純ロジック回帰テスト。modTestsPure9が28,000字のWARN帯に触れる(残り578字)ため憲章§4-6に従って新設した分割先(コピー失敗理由の判定/空入力の分類/バッチ境界表/上限メモ/進捗バナー)。modTestsPure10.RunAll10末尾から呼ばれる。"
     },
     {
       "name": "modTestsExcel",

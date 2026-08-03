@@ -578,7 +578,16 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
         Case "pending"
             BuildMemo = "AIが読める形に変換中です。しばらくしてから確認してください。"
         Case "partial"
-            BuildMemo = "一部だけ変換が完了していません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期」を押すと続きから再開します。"
+            ' R14-4c: メモがあるときは、それが「何が起きたか」の唯一の正確な
+            ' 説明(OCRの上限打ち切り・薄い抽出)。どちらも続きから再開する
+            ' 仕組みは無く、同期を押しても何も起きない(RC4の嘘の案内)。
+            ' 本当に再開で進むのはベクトル化待ち(メモ無し)だけなので、
+            ' 案内はそちらにだけ残す。
+            If LenB(errorNote) > 0 Then
+                BuildMemo = errorNote
+            Else
+                BuildMemo = "一部だけ変換が完了していません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期」を押すと続きから再開します。"
+            End If
         Case "image_pdf"
             BuildMemo = "画像として保存されたPDFです。Ghostscriptを置くとAIが1ページずつ読み取れます" & _
                 "(手順は「43_画像PDFのOCR取込設定」)。急ぐときは画面をコピーしてスクショ取込へ。"

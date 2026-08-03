@@ -133,7 +133,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | feature_vision / feature_markdown | TRUE | opt機能フラグ(公式仕様確定によりTRUE昇格。裁定D14) |
 | feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
 | ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
-| vision_pdf_max_pages | 20 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。超過は打ち切りpartial) |
+| vision_pdf_max_pages | 100 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。20ページずつ画像化→OCR→画像削除を繰り返す。超過は打ち切りpartial。R14-4bで20→100) |
 | vision_pdf_dpi | 150 | 画像PDFのページ画像化の解像度(公式帳票OCR版と同値。300は約2倍重い) |
 | vision_pdf_timeout_sec | 120 | GS処理の**無進捗許容秒数(アイドル上限)**。進捗が観測できる場合はページが進む限り待ち続け、進まなくなってからこの秒数で失敗にする(R13-1cで意味変更) |
 | gs_abs_timeout_sec | 1200 | GS待ちの**絶対上限**(秒)。進んでいても必ずここで打ち切り、1資料でExcelが何十分も戻らない事態を防ぐ(R13-1c)。**画像PDFのOCR経路(optVision)のGS待ちはこの絶対上限だけを使う**(進捗を見ない待ちのため。R13-F4) |
