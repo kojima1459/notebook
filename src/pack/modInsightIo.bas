@@ -145,6 +145,13 @@ Public Function CollectInsights() As Long
     ' GC(R8 F10)。my_stats 側の既読印は【全端末】が自分のブックを掃除する。
     ' 自分のシートが太るのは自分の問題なので、誰がやっても構わない。
     GcOldNonces
+    ' R13-7e: sv:d:(節約時間の日別キー)のGCも同じタイミングに相乗りする。
+    ' ここ(CollectInsights)はEnsureSheetがローカル処理のみで共有フォルダの
+    ' 設定・到達性に関係なく毎起動走る(modBoot.Boot内で無条件に呼ばれる)。
+    ' sv:d:はP2P/共有を使わない端末でも「✅解決」のたびに増えるローカル値
+    ' なので、共有I/Oを前提にした呼び出し口(modP2P.CollectThanksは
+    ' 共有パス未設定だと最初のExit Functionで素通りしてしまう)には乗せられない。
+    GcOldSavedDays
 
     ' 2026-07-31(R8b B12): 共有フォルダ側(qa/gap の実ファイル)を消すのは
     ' 【発行者端末だけ】に限定する。
@@ -373,6 +380,51 @@ Private Sub GcOldNonces()
                 End If
                 Err.Clear
             End If
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' GcOldSavedDays(2026-08-03 R13-7e): sv:d:yyyymmdd(節約時間の【日別】キー)を
+'   400日超で掃除する。sv:m:/sv:y:(月次/年次)は履歴として残す価値があるが、
+'   日別は modBoard が「今日」と「直近7日」までしか読まず、無期限に伸ばす
+'   理由が無い(HANDOFF §2「my_statsの行数が育つほどFindKeyRowの線形探索が
+'   重くなる」と同じ課題)。GcOldNonces(このモジュール上・modP2P上とも)と
+'   同じ「集めてから下から消す」作法。日付はキー側(A列)に埋め込まれている
+'   ため、値側(B列)を見るGcOldNoncesとは判定材料が異なる。
+' ----------------------------------------------------------------------------
+Private Sub GcOldSavedDays()
+    On Error Resume Next
+    Const KEEP_DAYS As Long = 400
+    Const SV_D_PREFIX As String = "sv:d:"
+
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Sub
+
+    Dim limit As Date: limit = DateAdd("d", -KEEP_DAYS, Date)
+    Dim arr As Variant
+    ' A:B の2列で読む(1行しか無いときA列単独だと配列ではなくスカラーが
+    ' 返るVBAの仕様を避けるため。GcOldNoncesと同じ回避策)。
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+
+    Dim i As Long
+    For i = UBound(arr, 1) To LBound(arr, 1) Step -1
+        Dim k As String: k = CStr(arr(i, 1))
+        If Left$(k, Len(SV_D_PREFIX)) = SV_D_PREFIX Then
+            Dim svDatePart As String: svDatePart = Mid$(k, Len(SV_D_PREFIX) + 1)
+            Dim drop As Boolean: drop = True   ' 読めない形式も掃除対象
+            If Len(svDatePart) = 8 And IsNumeric(svDatePart) Then
+                Err.Clear
+                Dim d As Date
+                d = DateSerial(CInt(Left$(svDatePart, 4)), CInt(Mid$(svDatePart, 5, 2)), CInt(Mid$(svDatePart, 7, 2)))
+                If Err.Number = 0 Then drop = (d < limit)
+                Err.Clear
+            End If
+            If drop Then ws.Rows(i + 1).Delete
         End If
     Next i
     On Error GoTo 0

@@ -556,6 +556,12 @@ NextThin:
 NextFailMsg:
     On Error GoTo FailMsgFail
     TestFriendlyFailMsg
+NextRun10:
+    ' 2026-08-03(R13-7c): 容量のための分割先(modTestsPure10)。ここが唯一の
+    ' 導線で、消すとTeamCodeOf/DeptOf/ビーコンteam列のテストが「実行されない
+    ' まま」全部PASSに見える。
+    On Error GoTo Run10Fail
+    modTestsPure10.RunAll10
 NextDone9:
     On Error GoTo 0
     Exit Sub
@@ -602,6 +608,10 @@ ThinFail:
     Resume NextFailMsg
 FailMsgFail:
     modTestRunner.Check "TestFriendlyFailMsg(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun10
+Run10Fail:
+    modTestRunner.Check "modTestsPure10.RunAll10(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone9
 End Sub

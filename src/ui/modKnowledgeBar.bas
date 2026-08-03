@@ -72,14 +72,16 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     If isShared Then
         AddTool caps, acts, kinds, widths, n, _
                 ChrW(&H2713) & " 選択を取り込む", "modShared.OnImportSelected", "accent", 112
+        ' R13-8: 「チャットへ」を末尾から前方(主要操作の直後)へ移動。
+        ' ツールバー最右端は実機で見切れていた(RC9)。
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
         AddTool caps, acts, kinds, widths, n, "すべて選ぶ", "modShared.OnSelectAll", "plain", 72
         AddTool caps, acts, kinds, widths, n, "選択を解除", "modShared.OnSelectNone", "plain", 72
         AddTool caps, acts, kinds, widths, n, ChrW(&H2190) & " 前", "modShared.OnPrevPage", "plain", 44
         AddTool caps, acts, kinds, widths, n, "次 " & ChrW(&H2192), "modShared.OnNextPage", "plain", 44
         AddTool caps, acts, kinds, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
         Exit Sub
     End If
 
@@ -93,6 +95,10 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58
+    ' R13-8: 「チャットへ」を末尾から前方(登録/追加の直後)へ移動。
+    ' 旧位置(最右端)は実機で見切れていた(実機第2報 RC9)。
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", "modKnowledge.OnPackOut", "plain", 80
     AddTool caps, acts, kinds, widths, n, _
@@ -109,8 +115,6 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", "modKnowledge.OnChannels", "plain", 96
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
 
     ' 発行ボタンは、発行キーが設定されている端末にだけ出す。
     ' 一般利用者の画面に「押してはいけないボタン」を置かない。

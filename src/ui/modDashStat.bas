@@ -11,11 +11,9 @@ Option Explicit
 ' 描画の修正で1行足すこともできなくなっていた(レビュー I-2)。
 ' ========================================
 
-' 自己解決1件あたりの節約時間(分)。modStats の換算値と同じ値
-' (向こうは Private のため複製。値を変えるときは必ず両方を直すこと)。
-' 2026-07-28: modDash からここへ切り出した際、これを向こうに置いたままにして
-' コンパイルエラーになっていた。使う側であるここが持つ。
-Private Const MINUTES_PER_SELFSOLVE As Long = 15
+' R13-7d: 自己解決1件あたりの節約時間(分)は modP2PIo.MinutesPerSelfsolve()
+' (config minutes_per_selfsolve、既定15)へ統合した。modStats/modBoardと
+' 3重複していたPrivate Constはここも削除する(憲章§4-5)。
 
 ' 2026-07-31(R7実装後の追加是正・発見事項1): 215pt×4枚+間隔だと902ptになり、
 ' 実画面幅(他画面の実測で約597〜650pt)を大幅に超えて3・4枚目が画面外に出る。
@@ -60,8 +58,9 @@ Private Const BADGE_ROWS_FALLBACK As Long = 3
 Public Function SavedTimeDeltaLabel(ByRef isUp As Boolean) As String
     Dim thisMonthCount As Long: thisMonthCount = CountUsageEvent("feedback_green", False)
     Dim lastMonthCount As Long: lastMonthCount = CountUsageEvent("feedback_green", True)
-    Dim thisMin As Long: thisMin = thisMonthCount * MINUTES_PER_SELFSOLVE
-    Dim lastMin As Long: lastMin = lastMonthCount * MINUTES_PER_SELFSOLVE
+    Dim perSolve As Long: perSolve = modP2PIo.MinutesPerSelfsolve()
+    Dim thisMin As Long: thisMin = thisMonthCount * perSolve
+    Dim lastMin As Long: lastMin = lastMonthCount * perSolve
 
     isUp = False
     If lastMin > 0 Then

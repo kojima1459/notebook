@@ -316,6 +316,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         On Error GoTo AddFailed
     End If
     If showMsgBox Then
+        ' R13-8: 取込直後は「読める状態になった」ことしか伝えておらず、次に
+        ' 何をすればよいかの導線が無かった。チャットへボタンの存在を1文添える
+        ' (このモーダルの表示先だけに足す。戻り値の集計文字列は変えない)。
+        If okCount > 0 Then
+            msg = msg & vbLf & ChrW(&HD83D) & ChrW(&HDCAC) & _
+                "「チャットへ」ボタンからそのまま質問できます。"
+        End If
         MsgBox msg, vbInformation, modAppDef.APP_NAME
     End If
 

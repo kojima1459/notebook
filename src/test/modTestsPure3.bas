@@ -188,7 +188,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Function HubTileDefaultTextForTest(ByVal idx As Long) As String
     Select Case idx
-        Case 2, 4, 5   ' 節約できた時間 / みんな(今日) / みんな(今月)
+        Case 2, 4, 5   ' 自分の節約時間 / みんなの節約(今日) / みんなの節約(今月)(R13-7a)
             HubTileDefaultTextForTest = "0分"
         Case 6         ' 連続ログイン
             HubTileDefaultTextForTest = "0日"
@@ -202,10 +202,10 @@ End Function
 Private Sub TestHubTileDefaultValue()
     modTestRunner.Check "R3タイル既定値_質問した回数は0", HubTileDefaultTextForTest(0) = "0"
     modTestRunner.Check "R3タイル既定値_自己解決は0", HubTileDefaultTextForTest(1) = "0"
-    modTestRunner.Check "R3タイル既定値_節約できた時間は0分", HubTileDefaultTextForTest(2) = "0分"
+    modTestRunner.Check "R3タイル既定値_自分の節約時間は0分", HubTileDefaultTextForTest(2) = "0分"
     modTestRunner.Check "R3タイル既定値_本棚の使用量は0%", HubTileDefaultTextForTest(3) = "0%"
-    modTestRunner.Check "R3タイル既定値_みんな今日は0分", HubTileDefaultTextForTest(4) = "0分"
-    modTestRunner.Check "R3タイル既定値_みんな今月は0分", HubTileDefaultTextForTest(5) = "0分"
+    modTestRunner.Check "R3タイル既定値_みんなの節約今日は0分", HubTileDefaultTextForTest(4) = "0分"
+    modTestRunner.Check "R3タイル既定値_みんなの節約今月は0分", HubTileDefaultTextForTest(5) = "0分"
     modTestRunner.Check "R3タイル既定値_連続ログインは0日", HubTileDefaultTextForTest(6) = "0日"
     modTestRunner.Check "R3タイル既定値_パック共有は0", HubTileDefaultTextForTest(7) = "0"
 

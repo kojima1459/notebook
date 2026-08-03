@@ -803,6 +803,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll9"],
     },
+    # modTestsPure10: 2026-08-03 R13-7cで追加。modTestsPure9が28,000字の
+    # WARN帯に触れるための分割先。modTestsPure9.RunAll9の末尾から呼ばれる
+    # 入口 RunAll10 だけが契約。
+    "modTestsPure10": {
+        "closed": False,
+        "required": ["RunAll10"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -837,6 +844,9 @@ PURE_LOGIC_MODULES = {
     # modTestsPure9(2026-08-01 R12-4): 検索スケール恒久対策の純ロジックテスト。
     # modTestsPure8の容量逼迫(WARN帯)による分割先。
     "modTestsPure9",
+    # modTestsPure10(2026-08-03 R13-7c): チーム/部・共有ビーコンのteam列の
+    # 純ロジックテスト。modTestsPure9の容量逼迫(WARN帯)による分割先。
+    "modTestsPure10",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

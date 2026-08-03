@@ -729,6 +729,14 @@
       "note": "R12-4(検索スケール恒久対策)の純ロジック回帰テスト。modTestsPure8が28,000字(WARN帯)に達したため憲章§4-6に従って新設した分割先(ベクトルキャッシュ経路と直接パース経路のスコア完全一致/世代カウンタによる無効化/次元混在の-2区別/binary_rag_autoの真理値表/norm_text前計算の等価性)。modTestsPure8.RunAll8末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure10",
+      "path": "src/test/modTestsPure10.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R13-7c",
+      "note": "R13-7c(チーム/部・共有ビーコンのteam列)の純ロジック回帰テスト。modTestsPure9が28,000字のWARN帯に触れるため憲章§4-6に従って新設した分割先(TeamCodeOf境界/DeptOf/ビーコンteam列の新旧形式round trip)。modTestsPure9.RunAll9末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

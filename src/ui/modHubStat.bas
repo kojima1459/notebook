@@ -212,7 +212,7 @@ End Function
 ' 数値整形の裏方であるこちらへ置く(modHubStat切り出しの元々の理由と同じ)。
 Public Function DefaultTileValue(ByVal idx As Long) As String
     Select Case idx
-        Case 2, 4, 5   ' 節約できた時間 / みんな(今日) / みんな(今月)
+        Case 2, 4, 5   ' 自分の節約時間 / みんなの節約(今日) / みんなの節約(今月)
             DefaultTileValue = "0分"
         Case 6         ' 連続ログイン
             DefaultTileValue = "0日"
@@ -265,8 +265,8 @@ End Function
 Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     Dim labels As Variant, vals As Variant
     labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
-                   ChrW(&H23F1) & " 節約できた時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
-                   ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんな(今月)", _
+                   ChrW(&H23F1) & " 自分の節約時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
+                   ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約(今月)", _
                    ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有")
     ' 実機報告(2026-07-27)「一部のタイルが真っ白」対策: Array()内で直接
     ' 関数を呼ぶと1つの失敗が空文字になる。1つずつ受けて必ず値を入れる。
@@ -276,8 +276,17 @@ Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     vSolve = NumText(SafeStat("selfsolve_total"))
     vSaved = FmtMin(SafeSavedMinutes())
     vUse = ChunkUsage()
-    vOrgD = OrgMin("d")
-    vOrgM = OrgMin("m")
+    ' R13-7b(正直な表示): 共有フォルダへ届いていないセッションでは「みんなの
+    ' 節約」を0分と偽らず「未接続」と出す。modShare.Reachable()は1セッション
+    ' 1回だけ実際に確かめてキャッシュする関所(2回目以降は判定コストゼロ)
+    ' なので、ここで呼んでも再描画のたびに新しい網羅プローブは増えない。
+    If modShare.Reachable() Then
+        vOrgD = OrgMin("d")
+        vOrgM = OrgMin("m")
+    Else
+        vOrgD = "未接続"
+        vOrgM = "未接続"
+    End If
     vStreak = NumText(SafeStat("streak_days")) & "日"
     vPack = NumText(SafeStat("pack_export_total"))
     vals = Array(vAsk, vSolve, vSaved, vUse, vOrgD, vOrgM, vStreak, vPack)
@@ -482,6 +491,14 @@ Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         cap = ChrW(&HD83D) & ChrW(&HDCE1) & " 部門の更新はまだ確認していません" & vbCr & _
               "押すと今すぐ確認します(起動を軽くするため、開いた直後は確認しません)"
         act = "modHub.OnCheckUpdates"
+    ElseIf Not modShare.Reachable() Then
+        ' R13-7b: 「自動で行き来しています」は共有フォルダに実際に届いている
+        ' ときだけ言ってよい嘘のない文言。Reachable()はセッション1回の
+        ' キャッシュ判定なので、ここまでの分岐(shareOk等)を通り抜けた
+        ' 時点で既に判定済み=このElseIf自体が新しい網羅プローブを増やさない。
+        cap = ChrW(&H26A0) & " 部内の共有フォルダに届いていません" & vbCr & _
+              "ネットワークまたはVPN接続をご確認ください(このセッションは自動更新を見送っています)"
+        act = "modHub.OnShareHelp"
     Else
         cap = ChrW(&HD83D) & ChrW(&HDD01) & " 部内の知恵は自動で行き来しています" & vbCr & _
               ChrW(&H2705) & "解決した を押すとその答えが、答えが無かった質問は課題として共有されます"

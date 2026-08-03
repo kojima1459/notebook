@@ -243,6 +243,16 @@ PURE_ALLOWLIST = [
     #   modTestsPure9 から呼ぶと実行時エラー12(Variable not defined)になり、
     #   RC6(案内文の上書き)の回帰テストが走らないまま全部PASSに見える。
     "modLog",
+    # modP2PIo(2026-08-03 R13-7c): TeamCodeOf/DeptOf/BeaconDataText/
+    #   BeaconTeamField は文字列処理だけの純ロジック(モジュール全体は
+    #   Dir/Kill/MkDirを持つためPURE_LOGIC_MODULES非該当だが、テストが
+    #   実際に呼ぶのはこの4関数だけで、いずれもExcel/COMに触れない。
+    #   modShelfSync/modPack/modVecCache/modLogと同じ型)。未注入のまま
+    #   modTestsPure10から呼ぶと実行時エラー12になる。
+    # modTestsPure10: modTestsPure9の容量逼迫(WARN帯)による分割先。
+    #   modTestsPure9.RunAll9 の末尾が RunAll10 を呼ぶため、未注入だと
+    #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
+    "modP2PIo", "modTestsPure10",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

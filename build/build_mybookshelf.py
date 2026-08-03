@@ -210,6 +210,10 @@ _README_TEXT = (
     "  有効化しないと、案内画面が表示されるだけで実際の機能が使えません。\n"
     "\n"
     "詳しい手順は、同梱の docs\\45_実機スモークテスト手順.md を参照してください。\n"
+    "\n"
+    "共有機能(部内でみんなの節約時間を合算する機能)を使う場合は、"
+    "ヘルプ→共有フォルダ設定で部の共有パスを入力してください"
+    "(未設定なら「みんな」の統計は動きません)。\n"
 )
 
 
@@ -356,7 +360,11 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("strict_grounding", True, "TRUE=資料のみ・出典必須・『資料からは判断できません』を強制"),
         ("quick_expand_light", True, "TRUE=すぐ聞くモードでは拡張を軽量化(速度優先)"),
         ("nexus_ui", True, "TRUE=起動時にNexus Agent(SPA風チャットUI)を表示する"),
-        ("nexus_share_path", "\\\\pgiofs01\\Nexus_Share\\", "P2Pナレッジ共有フォルダ(Phase 4。ダミーパス・要書き換え)"),
+        ("nexus_share_path", "",
+         "P2Pナレッジ共有フォルダ(Phase 4)。未設定なら共有機能は休止。"
+         "ヘルプ→共有フォルダ設定で入力(R13-7f: 実在しないダミーパスを既定に"
+         "していたため「未設定」警告が働かず、届かないまま『みんな』統計が"
+         "0のまま凍結して見えた。空文字を既定にして警告経路を正しく働かせる)"),
         ("exp_question", 5, "ゲーミフィケーション: 質問1回で得るEXP"),
         ("exp_register", 20, "ゲーミフィケーション: ナレッジ登録1件で得るEXP"),
         ("exp_thumbup", 10, "ゲーミフィケーション: 🟢自己解決(役立った)1回で得るEXP"),
@@ -364,6 +372,10 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("exp_feedback", 5, "ゲーミフィケーション: ご意見箱(フィードバック/バグ報告)1回で得るEXP(1日1回まで)"),
         ("exp_level_divisor", 100, "ゲーミフィケーション: レベル計算の除数。Lv=Int(√(EXP/除数))+1"),
         ("user_department", "", "分析用: あなたの部署名(分析CSVの部署比較フラグ列に入る。空なら未設定)"),
+        ("minutes_per_selfsolve", 15,
+         "Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分の節約とみなすか)。"
+         "R13-7d: modStats/modBoard/modDashStatに3重複していた同じ意味の定数を、"
+         "この1キーへ統合した(modP2PIo.MinutesPerSelfsolveが読む唯一の窓口)"),
         ("noise_global_threshold", 2, "ナレッジ自浄: 異なるN人からの⚠️ノイズ報告(P2P集計)でその資料を全ユーザーの検索から組織的除外する閾値"),
         ("admin_users", "", "組織的除外を解除できる管理者ADユーザー名(カンマ区切り)。空なら誰も解除不可"),
         ("shelf_max_chunks", 20500, "本棚のチャンク数上限(Plan B)。大きくするほど資料が入るがサイズと検索時間が増える"),

@@ -30,12 +30,17 @@ Option Explicit
 
 Private Const BOARD_SUBDIR As String = "board"
 Private Const WIDGET_TOP As Double = 386     ' サイドバー内の縦位置(nav6項目の末端374の下)
-Private Const MIN_PER_SOLVE As Long = 15     ' modStats.MINUTES_PER_SELFSOLVEと同値
+' R13-7d: 15分換算の重複定数はmodP2PIo.MinutesPerSelfsolve()へ統合したため、
+' ここのPrivate Const(未使用のまま放置されていた複製)は削除した。
 
 ' ビーコン集計キャッシュ(セッション内。共有フォルダ再走査はBootBoard時のみ)
 Private mOrgDay As Long, mOrgMon As Long, mOrgYear As Long
 Private mTitles As Object    ' Dictionary: id(小文字) -> thanks受領数
 Private mLoaded As Boolean
+' R13-7c: 自分の部(DeptOf)一致ビーコンだけの合算(今日/今月)と、その元の
+' 自分のチーム/部コード。myDeptが空(チーム不明)のときはポップアップへ出さない。
+Private mDeptDay As Long, mDeptMon As Long
+Private mMyDept As String
 ' BootBoard を通ったか(2026-07-30 レビュー2-C)。起動シーケンス中の
 ' Hub初期描画から共有フォルダI/Oを走らせないためのゲート。
 Private mBooted As Boolean
@@ -155,9 +160,11 @@ Public Sub OnWidgetClick()
            "【直近7日の履歴】" & vbLf & History7() & vbLf & _
            "【みんな(組織全体)】" & vbLf & _
            "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
-           "  /  今年: " & FmtMin(mOrgYear) & vbLf & vbLf & _
+           "  /  今年: " & FmtMin(mOrgYear) & DeptLineForPopup() & vbLf & vbLf & _
            "※「" & ChrW(&H2705) & "解決した」1回=15分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
-           "  組織に共有・合算されます。" & vbLf & "(クリックで閉じる)"
+           "  組織に共有・合算されます。" & vbLf & _
+           "自己解決1件=15分換算の目安。共有フォルダ経由で最大10分遅れで集計" & vbLf & _
+           "(クリックで閉じる)"
 
     ' 位置は画面の見えている範囲から中央寄せ(旧サイドバー幅を前提にした
     ' x=260の決め打ちだと、サイドバー廃止後は左に寄りすぎる)。
@@ -252,11 +259,12 @@ Public Sub PublishBeacon()
     Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
     Dim mk As String: mk = modUtilText.IsoYm(Date)
     Dim yk As String: yk = modUtilText.IsoYear(Date)
+    ' R13-7c: team列を末尾に足す(旧読み手は列数を見ないので無害、新読み手は
+    ' modP2PIo.BeaconTeamFieldがUBoundで分岐する)。組み立ては純ロジックとして
+    ' modP2PIoへ切り出してあるので、フィールド順の間違いをLOテストで固定できる。
     Dim dataText As String
-    dataText = myId & vbTab & modStats.GetStat("thanks_received_total") & vbTab & _
-               dk & vbTab & MyMin("d", dk) & vbTab & _
-               mk & vbTab & MyMin("m", mk) & vbTab & _
-               yk & vbTab & MyMin("y", yk)
+    dataText = modP2PIo.BeaconDataText(myId, modStats.GetStat("thanks_received_total"), _
+        dk, MyMin("d", dk), mk, MyMin("m", mk), yk, MyMin("y", yk), MyTeamCode())
 
     Dim ttlSec As Double
     If StrComp(dataText, mLastBeaconData, vbBinaryCompare) = 0 Then
@@ -350,12 +358,18 @@ Private Sub RefreshBoard()
 
     mAggAt = Timer
     mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
+    mDeptDay = 0: mDeptMon = 0
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
 
     Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
     Dim mk As String: mk = modUtilText.IsoYm(Date)
     Dim yk As String: yk = modUtilText.IsoYear(Date)
+
+    ' R13-7c: 自分の部(先頭3字)を先に確定させておく。config優先、無ければ
+    ' 自分のuserIdの末尾チームコードから推定(どちらも不明なら空のまま=
+    ' 部の合算行そのものをポップアップへ出さない)。
+    mMyDept = modP2PIo.DeptOf(MyTeamCode())
 
     ' collect-then-process(Dir列挙中に他のDirを呼ばない)
     Dim names() As String: ReDim names(0 To 63)
@@ -380,6 +394,19 @@ Private Sub RefreshBoard()
                     If f(2) = dk Then mOrgDay = mOrgDay + CLng(Val(f(3)))   ' 同じ日キーのみ合算
                     If f(4) = mk Then mOrgMon = mOrgMon + CLng(Val(f(5)))
                     If f(6) = yk Then mOrgYear = mOrgYear + CLng(Val(f(7)))
+
+                    ' R13-7c: 自分の部が分かっているときだけ、同じ部のビーコンを
+                    ' 追加で合算する(team列が無い旧形式ビーコンはBeaconTeamFieldが
+                    ' 空文字を返すので自然に対象外になる)。
+                    If LenB(mMyDept) > 0 Then
+                        Dim beaconTeam As String: beaconTeam = modP2PIo.BeaconTeamField(f)
+                        If LenB(beaconTeam) > 0 Then
+                            If StrComp(modP2PIo.DeptOf(beaconTeam), mMyDept, vbTextCompare) = 0 Then
+                                If f(2) = dk Then mDeptDay = mDeptDay + CLng(Val(f(3)))
+                                If f(4) = mk Then mDeptMon = mDeptMon + CLng(Val(f(5)))
+                            End If
+                        End If
+                    End If
                 End If
             End If
         End If
@@ -422,6 +449,29 @@ Private Function MyMin(ByVal kind As String, ByVal keyPart As String) As Long
     On Error Resume Next
     MyMin = modStats.GetStat("sv:" & kind & ":" & keyPart)
     On Error GoTo 0
+End Function
+
+' R13-7c: 自分のチーム/部コードの優先順位。config user_department(非空なら
+' そのまま採用)→ modP2PIo.TeamCodeOf(自分のuserId)。どちらも取れなければ
+' 空(DeptOfも空を返すので、部の合算行そのものがポップアップに出ない)。
+Private Function MyTeamCode() As String
+    On Error Resume Next
+    Dim d As String: d = Trim$(modConfig.GetString("user_department", ""))
+    If LenB(d) > 0 Then
+        MyTeamCode = d
+        Exit Function
+    End If
+    MyTeamCode = modP2PIo.TeamCodeOf(modP2P.CurrentUserId())
+    On Error GoTo 0
+End Function
+
+' 自分の部が分かっていて、かつ今月の合算が1分でもあるときだけ1行足す
+' (タイル新設はしない。R13-7c)。
+Private Function DeptLineForPopup() As String
+    If LenB(mMyDept) = 0 Then Exit Function
+    If mDeptMon <= 0 Then Exit Function
+    Dim hrs As Long: hrs = CLng(Round(mDeptMon / 60, 0))
+    DeptLineForPopup = vbLf & "  部(" & mMyDept & ")で今月 約" & hrs & "時間"
 End Function
 
 ' 直近7日の個人履歴(日付キーを7回引くだけ。0分の日は「-」)。

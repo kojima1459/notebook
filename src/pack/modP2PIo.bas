@@ -13,6 +13,79 @@ Option Explicit
 ' なり、次の修正が入らなくなっていた(レビュー I-2)。
 ' ========================================
 
+' ----------------------------------------------------------------------------
+' TeamCodeOf / DeptOf(2026-08-03 R13-7c): チーム/部の推定。
+'   ユーザーIDの末尾が "_" + 英大文字/数字4〜6桁のとき、そこをチームコードと
+'   みなす(実機で観測された「氏名_E2T22」規約)。純粋な文字列判定なので
+'   COM/Excelに一切触れず、LOの実行テストからそのまま検証できる。
+'   アンダースコアが複数含まれる名前(例: "山田_太郎_E2T22")は、InStrRevで
+'   【最後の】"_"を基準にする(末尾優先。先頭寄りの"_"に釣られない)。
+'   小文字はこの規約に無いため一致しない(全社共通の綴りゆれを増やさない)。
+' ----------------------------------------------------------------------------
+Public Function TeamCodeOf(ByVal userId As String) As String
+    Dim s As String: s = Trim$(userId)
+    If LenB(s) = 0 Then Exit Function
+    Dim p As Long: p = InStrRev(s, "_")
+    If p = 0 Then Exit Function
+    Dim suf As String: suf = Mid$(s, p + 1)
+    Dim n As Long: n = Len(suf)
+    If n < 4 Or n > 6 Then Exit Function
+    Dim i As Long
+    For i = 1 To n
+        Dim c As Long: c = AscW(Mid$(suf, i, 1))
+        If Not ((c >= 48 And c <= 57) Or (c >= 65 And c <= 90)) Then Exit Function
+    Next i
+    TeamCodeOf = suf
+End Function
+
+' 部コードはチームコードの先頭3字(例: "E2T22" -> "E2T")。空入力は空を返す。
+Public Function DeptOf(ByVal teamCode As String) As String
+    If LenB(teamCode) = 0 Then Exit Function
+    DeptOf = Left$(teamCode, 3)
+End Function
+
+' ----------------------------------------------------------------------------
+' MinutesPerSelfsolve(2026-08-03 R13-7d): 「自己解決1件=何分の節約か」の
+'   換算係数を config(既定15)から読む唯一の窓口。modStats/modBoard/
+'   modDashStat の3箇所に同じ値(15)がPrivate Constとして重複していた
+'   (憲章§4-5「同型の問題は共通部品で一度だけ解決する」違反)ものを統合する。
+'   置き場所を容量の逼迫していないここ(modP2PIo)にしたのは、3箇所のうち
+'   どの層からも「中間層(部品層)→中間層」または「UI層→中間層」の一方向
+'   参照で済み、R1(依存層順序)を壊さないため。
+' ----------------------------------------------------------------------------
+Public Function MinutesPerSelfsolve() As Long
+    On Error Resume Next
+    MinutesPerSelfsolve = modConfig.GetLong("minutes_per_selfsolve", 15)
+    On Error GoTo 0
+    If MinutesPerSelfsolve <= 0 Then MinutesPerSelfsolve = 15
+End Function
+
+' ----------------------------------------------------------------------------
+' Beacon* (2026-08-03 R13-7c): modBoard の統計ビーコン(1行タブ区切り)の
+'   組み立てとteam列の取り出し。列数で新旧形式を分岐する部分は間違えると
+'   「みんなの節約」が静かに0のままになる箇所なので、modBoard内に埋め込まず
+'   ここへ切り出してLOの実行テストで固定する。
+'   書式(旧): myId, thanksN, dk, dMin, mk, mMin, yk, yMin            (8列, idx0-7)
+'   書式(新): 旧8列 + team                                          (9列, idx0-8)
+'   WriteBeacon が末尾へ送信時刻(NowStamp)をさらに1列足すため、ファイル上の
+'   実列数は旧10列/新11列相当だが、Split後のUBoundで見るのはteam列の有無だけ。
+' ----------------------------------------------------------------------------
+Public Function BeaconDataText(ByVal myId As String, ByVal thanksN As Long, _
+        ByVal dk As String, ByVal dMin As Long, ByVal mk As String, ByVal mMin As Long, _
+        ByVal yk As String, ByVal yMin As Long, ByVal teamCode As String) As String
+    BeaconDataText = myId & vbTab & thanksN & vbTab & dk & vbTab & dMin & vbTab & _
+        mk & vbTab & mMin & vbTab & yk & vbTab & yMin & vbTab & teamCode
+End Function
+
+' 旧形式(team列なし。8フィールド+送信時刻でUBound=8)を読んでも例外に
+' ならず単に空文字を返す(新形式はteam列が増えるぶんUBound=9以上になる。
+' idx8は旧形式では送信時刻なので、team扱いしないよう境界を9で切る)。
+Public Function BeaconTeamField(ByRef fields() As String) As String
+    On Error Resume Next
+    If UBound(fields) >= 9 Then BeaconTeamField = Trim$(fields(8))
+    On Error GoTo 0
+End Function
+
 Public Function CnFromDn(ByVal dn As String) As String
     If LenB(dn) = 0 Then Exit Function
     Dim p As Long: p = InStr(1, dn, "CN=", vbTextCompare)

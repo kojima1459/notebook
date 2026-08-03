@@ -82,6 +82,22 @@ Public Sub RunDiagnostics()
     On Error GoTo 0
     r = r + 1
 
+    ' [共有フォルダ](R13-7b): 診断は実行のたびだけ実際に確かめてよい
+    ' (「診断は都度、通常描画はキャッシュを使い回す」の使い分け)。
+    ' modShare.Reachable()はこのセッションでまだ判定していなければここで
+    ' 初めて1回プローブし、以後は他モジュールもこのキャッシュを使い回す。
+    WriteLine ws, r, "[共有フォルダ]": r = r + 1
+    On Error Resume Next
+    Dim shareConfigured As Boolean: shareConfigured = (LenB(cfgSharePath) > 0)
+    Dim shareReach As Boolean: shareReach = modShare.Reachable()
+    Dim shareOk As Boolean: shareOk = (Not shareConfigured) Or shareReach
+    WriteCheck ws, r, shareOk, _
+        "  到達性: " & IIf(Not shareConfigured, "未設定(共有機能は休止中)", _
+                            IIf(shareReach, "到達できました", "到達できません")), _
+        IIf(shareConfigured And Not shareReach, "ネットワークまたはVPN接続をご確認ください", ""): r = r + 1
+    On Error GoTo 0
+    r = r + 1
+
     ' [AIリボン]
     WriteLine ws, r, "[AIリボン]": r = r + 1
     Dim mockOn As Boolean: mockOn = modConfig.GetBool("mock_llm", True)

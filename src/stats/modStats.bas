@@ -36,7 +36,9 @@ Option Explicit
 '     定義されているため、新規作成時は xlSheetHidden(=0)を使う。
 ' ============================================================================
 
-Private Const MINUTES_PER_SELFSOLVE As Long = 15   ' 自己解決1件=15分換算(§7.5)
+' R13-7d: 15分換算の係数は modP2PIo.MinutesPerSelfsolve()(config
+' minutes_per_selfsolve、既定15)へ統合した。ここのPrivate Constは削除
+' (modBoard/modDashStatと3重複していたうちの1つ。憲章§4-5)。
 
 ' ----------------------------------------------------------------------------
 ' バッジ獲得告知の遅延キュー(2026-07-31 R11-H Med3)。
@@ -277,10 +279,11 @@ Public Function BadgeEarnedOn(ByVal badgeId As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
-' SavedMinutesEstimate - 自己解決1件=15分換算(config化不要・定数で明示)
+' SavedMinutesEstimate - 自己解決1件=N分換算(config minutes_per_selfsolve。
+'   R13-7d: 既定15はmodP2PIo.MinutesPerSelfsolve()に一本化した)
 ' ----------------------------------------------------------------------------
 Public Function SavedMinutesEstimate() As Long
-    SavedMinutesEstimate = GetStat("selfsolve_total") * MINUTES_PER_SELFSOLVE
+    SavedMinutesEstimate = GetStat("selfsolve_total") * modP2PIo.MinutesPerSelfsolve()
 End Function
 
 ' ----------------------------------------------------------------------------
