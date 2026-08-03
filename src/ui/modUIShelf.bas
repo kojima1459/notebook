@@ -589,8 +589,16 @@ Private Function BuildMemo(ByVal status As String, ByVal chunkCount As String, B
                 BuildMemo = "一部だけ変換が完了していません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期」を押すと続きから再開します。"
             End If
         Case "image_pdf"
-            BuildMemo = "画像として保存されたPDFです。Ghostscriptを置くとAIが1ページずつ読み取れます" & _
-                "(手順は「43_画像PDFのOCR取込設定」)。急ぐときは画面をコピーしてスクショ取込へ。"
+            ' R14-F8: メモがあるなら、それが「何が起きたか」の唯一の正確な説明
+            ' (GS未検出・起動失敗・時間切れ・共有読みの失敗など)。固定文の
+            ' 「Ghostscriptを置くと読み取れます」は、既にGhostscriptがある端末で
+            ' 別の理由で失敗した資料にも出ていて、次の一手を誤らせていた。
+            If LenB(errorNote) > 0 Then
+                BuildMemo = errorNote
+            Else
+                BuildMemo = "画像として保存されたPDFです。Ghostscriptを置くとAIが1ページずつ読み取れます" & _
+                    "(手順は「43_画像PDFのOCR取込設定」)。急ぐときは画面をコピーしてスクショ取込へ。"
+            End If
         Case "missing"
             BuildMemo = "元のファイルが見つかりません。フォルダを確認するか、次回の同期をお待ちください。"
         Case "failed"

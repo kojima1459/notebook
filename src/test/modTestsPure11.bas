@@ -13,23 +13,26 @@ Option Explicit
 '   ここのテストは「実行されないまま」全部PASSに見える。
 '
 ' 固定する事実:
-'   ・modExtractorPdf.IsUnreadableCopyReason / CopyFailMsgFor(R14-3b):
-'     一時コピーの失敗理由のうち「元ファイルを読めていない」3種
-'     (src_empty / size_mismatch / load_fail)だけを止める判定。ここが
-'     ゆるいと、読めていない共有ファイルが元パスのままGhostscriptへ渡り
-'     /undefinedfilename → 「描画0枚」だけが残る(実機第3報 RC3の本体)。
-'     逆に厳しすぎると、単に一時フォルダが無いだけの端末で取込が止まる。
-'   ・modLog.FriendlyFailMsg(R14-3b): その1文が汎用文言(Ghostscriptの話)に
-'     潰されず、診断用の [reason] は利用者へ見せないこと。
+'   ・modExtractorPdf.IsUnreadableCopyReason / CopyReasonKind / CopyFailMsgFor
+'     (R14-3b / R14-F3・F11): 一時コピーの失敗のうち「中身を手にできて
+'     いない」6種(src_empty / size_mismatch / load_fail / locked / too_big /
+'     name_busy)を止める判定と、種類ごとの文面。ここがゆるいと、読めていない
+'     共有ファイルが元パスのままGhostscriptへ渡り /undefinedfilename →
+'     「描画0枚」だけが残る(実機第3報 RC3の本体)。逆に厳しすぎると、単に
+'     一時フォルダが無いだけの端末で取込が止まる。
+'   ・modLog.FriendlyFailMsg / CopyFailMsgOf(R14-3b / R14-F3): 種類別の1文が
+'     汎用文言(Ghostscriptの話)に潰されず、診断用の [reason] は見せないこと。
 '   ・optOcrCore.ClassifyGsTextResult の emptyinput(R14-3c): 入力0バイトは
 '     rc・ログより先に言い切る。0バイトのPDFがGSの「空のPS即終了」で
 '     画像PDF扱いになり、OCRで描画0枚に化ける経路を塞ぐ。
 '   ・optOcrCore.BatchCountFor / BatchBoundsFor(R14-4a): 20ページずつの
 '     バッチ境界。ここがズレるとページが飛ぶ(取り込めたつもりで欠ける)か、
 '     同じページを二度OCRする(コストが倍)。
-'   ・optOcrCore.OcrPageBanner(R14-4a): 進捗の文面とETAの出し方。
-'   ・optOcrCore.OcrCapMemoFor(R14-4c): 上限打ち切りの正直なメモ。
-'     総ページ数が不明(0や上限以下)のときに数字をでっち上げないこと。
+'   ・optOcrCore.OcrPageBanner(R14-4a / R14-F9): 進捗の文面とETAの出し方。
+'     総頁が確定するまで分母もバッチ総数もETAも出さないこと(嘘の分母禁止)。
+'   ・optOcrCore.OcrCapMemoFor / OcrAbortMemoFor(R14-4c / R14-F2・F7):
+'     上限は【設定の値】、取り込めた頁数は別、読めなかった頁数も別。途中で
+'     中断したときは上限の話をせず「もう一度取り込むと再試行」と言うこと。
 '   ・modMode.ShouldEmitInsight(R14-1b): 「解決した」で部内へ発信してよい
 '     回答かの真理表(実機第3報 RC2)。
 '
@@ -42,21 +45,41 @@ Option Explicit
 ' コピー失敗理由の判定と文面(R14-3b)
 ' ----------------------------------------------------------------------------
 Private Sub TestCopyFailReason()
-    ' 元を読めていない3種は必ず止める。
+    ' コピーの中身を手にできていない理由は必ず止める(R14-F3/F11で6種)。
     modTestRunner.Check "CopyReason_src_emptyは読めていない", _
         modExtractorPdf.IsUnreadableCopyReason("src_empty")
     modTestRunner.Check "CopyReason_size_mismatchは読めていない", _
         modExtractorPdf.IsUnreadableCopyReason("size_mismatch src=1234 dest=0")
     modTestRunner.Check "CopyReason_load_failは読めていない", _
         modExtractorPdf.IsUnreadableCopyReason("load_fail err#3004")
+    modTestRunner.Check "CopyReason_lockedは読めていない", _
+        modExtractorPdf.IsUnreadableCopyReason("locked err#70")
+    modTestRunner.Check "CopyReason_too_bigは読めていない", _
+        modExtractorPdf.IsUnreadableCopyReason("too_big err#7")
+    ' R14-F11: 一時名が枯渇したときもコピーは1つも作れていない。原本のまま
+    ' 進めるとNFD分解名がそのままGhostscriptへ渡る(RC3と同じ穴)ので止める。
+    modTestRunner.Check "CopyReason_name_busyも止める", _
+        modExtractorPdf.IsUnreadableCopyReason("name_busy")
 
-    ' 「読めなかった」わけではない失敗は止めない(原本での続行を妨げない)。
+    ' 一時フォルダがそもそも無いだけなら止めない(原本での続行を妨げない)。
     modTestRunner.Check "CopyReason_no_tempは止めない", _
         (modExtractorPdf.IsUnreadableCopyReason("no_temp") = False)
-    modTestRunner.Check "CopyReason_name_busyは止めない", _
-        (modExtractorPdf.IsUnreadableCopyReason("name_busy") = False)
     modTestRunner.Check "CopyReason_空は止めない", _
         (modExtractorPdf.IsUnreadableCopyReason("") = False)
+
+    ' 理由 → 文言の種類(R14-F3)。ここがズレると全部が特殊文字の話になる。
+    modTestRunner.Check "CopyKind_src_empty", _
+        (modExtractorPdf.CopyReasonKind("src_empty") = "src_empty")
+    modTestRunner.Check "CopyKind_locked", _
+        (modExtractorPdf.CopyReasonKind("locked err#3002") = "locked")
+    modTestRunner.Check "CopyKind_too_big", _
+        (modExtractorPdf.CopyReasonKind("too_big err#3004") = "too_big")
+    modTestRunner.Check "CopyKind_name_busy", _
+        (modExtractorPdf.CopyReasonKind("name_busy") = "name_busy")
+    modTestRunner.Check "CopyKind_size_mismatchは既定(特殊文字の文面)", _
+        (LenB(modExtractorPdf.CopyReasonKind("size_mismatch src=1 dest=0")) = 0)
+    modTestRunner.Check "CopyKind_load_failは既定(特殊文字の文面)", _
+        (LenB(modExtractorPdf.CopyReasonKind("load_fail err#5")) = 0)
 
     ' 文面: 止める理由のときだけ出る。診断用の理由は角括弧で末尾に付く。
     Dim m As String: m = modExtractorPdf.CopyFailMsgFor("size_mismatch src=10 dest=0")
@@ -68,6 +91,28 @@ Private Sub TestCopyFailReason()
         (InStr(m, " [size_mismatch") > 0), "実際=" & m
     modTestRunner.Check "CopyFailMsg_止めない理由では空", _
         (LenB(modExtractorPdf.CopyFailMsgFor("no_temp")) = 0)
+
+    ' R14-F3/F11: 種類ごとに「その場で打てる一手」が違う。名前を変えろと
+    ' 言ってよいのは、実体に届かなかった系(size_mismatch / load_fail)だけ。
+    Dim mEmpty As String: mEmpty = modExtractorPdf.CopyFailMsgFor("src_empty")
+    modTestRunner.Check "CopyFailMsg_空ファイルは0バイトと言う", _
+        (InStr(mEmpty, "空(0バイト)") > 0), "実際=" & mEmpty
+    modTestRunner.Check "CopyFailMsg_空ファイルに名前変更を求めない", _
+        (InStr(mEmpty, "ファイル名を変えて") = 0), "実際=" & mEmpty
+
+    Dim mLock As String: mLock = modExtractorPdf.CopyFailMsgFor("locked err#70")
+    modTestRunner.Check "CopyFailMsg_ロックは閉じてからと言う", _
+        (InStr(mLock, "他のアプリで開かれている") > 0 And _
+         InStr(mLock, "閉じてから") > 0), "実際=" & mLock
+
+    Dim mBig As String: mBig = modExtractorPdf.CopyFailMsgFor("too_big err#7")
+    modTestRunner.Check "CopyFailMsg_大きすぎるはそう言う", _
+        (InStr(mBig, "大きすぎて") > 0), "実際=" & mBig
+
+    Dim msgBusy As String: msgBusy = modExtractorPdf.CopyFailMsgFor("name_busy")
+    modTestRunner.Check "CopyFailMsg_一時名の枯渇は待つよう案内", _
+        (InStr(msgBusy, "一時ファイルが混み合っています") > 0 And _
+         InStr(msgBusy, "しばらくして") > 0), "実際=" & msgBusy
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -97,6 +142,26 @@ Private Sub TestSharedReadFriendlyMsg()
         (InStr(msg2, "ファイル名を変えて") > 0), "実際=" & msg2
     modTestRunner.Check "SharedRead_3者併記で後ろの技術情報を切る", _
         (InStr(msg2, "Word:") = 0), "実際=" & msg2
+
+    ' R14-F3/F11: 種類別の文言も同じように生き残ること。1つでも
+    ' ActionableHint の目印から漏れると、その種類だけE0302の汎用文言
+    ' (Ghostscriptの話)に潰されて次の一手が消える。
+    Dim kinds As Variant
+    kinds = Array("src_empty", "locked err#70", "too_big err#7", "name_busy")
+    Dim heads As Variant
+    heads = Array("空(0バイト)", "他のアプリで開かれている", "大きすぎて", _
+                  "一時ファイルが混み合っています")
+    Dim i As Long
+    For i = LBound(kinds) To UBound(kinds)
+        Dim d As String: d = modExtractorPdf.CopyFailMsgFor(CStr(kinds(i)))
+        Dim mk As String: mk = modLog.FriendlyFailMsg("E0302", d, "pdf")
+        modTestRunner.Check "CopyFailMsg_" & CStr(kinds(i)) & "_案内が届く", _
+            (InStr(mk, CStr(heads(i))) > 0), "実際=" & mk
+        modTestRunner.Check "CopyFailMsg_" & CStr(kinds(i)) & "_汎用文言に潰されない", _
+            (InStr(mk, "Ghostscript") = 0), "実際=" & mk
+        modTestRunner.Check "CopyFailMsg_" & CStr(kinds(i)) & "_診断用の理由は見せない", _
+            (InStr(mk, " [") = 0), "実際=" & mk
+    Next i
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -220,6 +285,19 @@ End Sub
 ' 進捗バナー(R14-4a)と上限メモ(R14-4c)。
 ' ----------------------------------------------------------------------------
 Private Sub TestOcrBannerAndCapMemo()
+    ' R14-F9: 総頁が確定してからだけ分母を出す。確定前に上限を分母として
+    ' 出していたため、44頁のPDFで「1/100頁」という嘘が最後まで残っていた。
+    Dim u0 As String: u0 = optOcrCore.OcrPageBanner(3, 0, 1, 0, 0#)
+    modTestRunner.Check "OcrBanner_総頁未確定は頁目だけを言う", _
+        (InStr(u0, "3頁目") > 0), "実際=" & u0
+    modTestRunner.Check "OcrBanner_総頁未確定は分母を出さない", _
+        (InStr(u0, "/") = 0), "実際=" & u0
+    modTestRunner.Check "OcrBanner_総頁未確定はバッチ総数を出さない", _
+        (InStr(u0, "(バッチ 1)") > 0), "実際=" & u0
+    modTestRunner.Check "OcrBanner_総頁未確定はETAを出さない", _
+        (InStr(optOcrCore.OcrPageBanner(3, 0, 1, 0, 1000#), "残り") = 0), _
+        "実際=" & optOcrCore.OcrPageBanner(3, 0, 1, 0, 1000#)
+
     ' 実測が無いうちは残り時間を出さない(跳ね回る表示を作らない)。
     Dim b0 As String: b0 = optOcrCore.OcrPageBanner(1, 100, 1, 5, 0#)
     modTestRunner.Check "OcrBanner_頁とバッチが出る", _
@@ -232,34 +310,56 @@ Private Sub TestOcrBannerAndCapMemo()
     modTestRunner.Check "OcrBanner_実測後は残り時間を出す", _
         (InStr(b1, "残り約98秒") > 0), "実際=" & b1
 
-    ' 最終頁では残りを出さない。分母が現在頁より小さい壊れた値は寄せる。
+    ' 最終頁では残りを出さない。分母が現在頁より小さい壊れた値は未確定扱い。
     Dim b2 As String: b2 = optOcrCore.OcrPageBanner(100, 100, 5, 5, 1000#)
     modTestRunner.Check "OcrBanner_最終頁は残りを出さない", _
         (InStr(b2, "残り") = 0), "実際=" & b2
     Dim b3 As String: b3 = optOcrCore.OcrPageBanner(7, 3, 1, 1, 0#)
-    modTestRunner.Check "OcrBanner_壊れた分母は現在頁へ寄せる", _
-        (InStr(b3, "7/7頁") > 0), "実際=" & b3
+    modTestRunner.Check "OcrBanner_壊れた分母は未確定として扱う", _
+        (InStr(b3, "7頁目") > 0 And InStr(b3, "/") = 0), "実際=" & b3
 
     ' 上限メモ: 打ち切っていなければ何も言わない。
     modTestRunner.Check "OcrCapMemo_打ち切りなしは空", _
-        (LenB(optOcrCore.OcrCapMemoFor(False, 30, 0)) = 0)
+        (LenB(optOcrCore.OcrCapMemoFor(False, 30, 100)) = 0)
 
-    ' 総ページ数が分からないとき(0や上限以下)は数字をでっち上げない。
-    Dim m1 As String: m1 = optOcrCore.OcrCapMemoFor(True, 100, 0)
-    modTestRunner.Check "OcrCapMemo_総頁不明は先頭Nのみと言う", _
-        (InStr(m1, "上限100ページのため、先頭100ページのみ取り込みました") > 0), "実際=" & m1
+    ' R14-F7: 上限は【設定の値】。取り込めた頁数を上限として言わない。
+    Dim m1 As String: m1 = optOcrCore.OcrCapMemoFor(True, 100, 100)
+    modTestRunner.Check "OcrCapMemo_設定上限と取込頁数を言う", _
+        (InStr(m1, "設定上限100ページのうち先頭100ページを取り込みました") > 0), "実際=" & m1
     modTestRunner.Check "OcrCapMemo_設定名を案内する", _
         (InStr(m1, "vision_pdf_max_pages") > 0), "実際=" & m1
     modTestRunner.Check "OcrCapMemo_再開できるとは言わない", _
         (InStr(m1, "再開") = 0), "実際=" & m1
-    modTestRunner.Check "OcrCapMemo_総頁が上限以下なら不明扱い", _
-        (optOcrCore.OcrCapMemoFor(True, 100, 100) = m1), _
-        "実際=" & optOcrCore.OcrCapMemoFor(True, 100, 100)
+    modTestRunner.Check "OcrCapMemo_全部読めたなら失敗頁は言わない", _
+        (InStr(m1, "読み取れませんでした") = 0), "実際=" & m1
 
-    ' 総ページ数が分かっているときは x/y で言う。
-    Dim m2 As String: m2 = optOcrCore.OcrCapMemoFor(True, 100, 240)
-    modTestRunner.Check "OcrCapMemo_総頁既知はy中xと言う", _
-        (InStr(m2, "240ページ中100ページのみ取り込みました") > 0), "実際=" & m2
+    ' 頁OCRの失敗で kept が上限に届かなかったぶんは、必ず数字で言う。
+    Dim m2 As String: m2 = optOcrCore.OcrCapMemoFor(True, 97, 100)
+    modTestRunner.Check "OcrCapMemo_上限は設定値のまま", _
+        (InStr(m2, "設定上限100ページのうち先頭97ページ") > 0), "実際=" & m2
+    modTestRunner.Check "OcrCapMemo_読めなかった頁数を言う", _
+        (InStr(m2, "3ページは読み取れませんでした") > 0), "実際=" & m2
+
+    ' 上限が不明・壊れた値(0や負)でも、取り込めた数より小さい嘘は出さない。
+    Dim m3 As String: m3 = optOcrCore.OcrCapMemoFor(True, 20, 0)
+    modTestRunner.Check "OcrCapMemo_上限不明は取込数で言い切る", _
+        (InStr(m3, "設定上限20ページのうち先頭20ページ") > 0), "実際=" & m3
+
+    ' R14-F2: 途中で中断したときは上限の話をしない(まだ先がある)。
+    Dim a1 As String: a1 = optOcrCore.OcrAbortMemoFor(37)
+    modTestRunner.Check "OcrAbortMemo_何頁で止まったかを言う", _
+        (InStr(a1, "37頁で中断しました") > 0), "実際=" & a1
+    modTestRunner.Check "OcrAbortMemo_理由の範囲を言う", _
+        (InStr(a1, "変換エラーまたは時間切れ") > 0), "実際=" & a1
+    modTestRunner.Check "OcrAbortMemo_再取込で再試行と言う", _
+        (InStr(a1, "もう一度取り込むと再試行します") > 0), "実際=" & a1
+    modTestRunner.Check "OcrAbortMemo_続きから再開とは言わない", _
+        (InStr(a1, "続きから") = 0), "実際=" & a1
+    modTestRunner.Check "OcrAbortMemo_上限の話をしない", _
+        (InStr(a1, "上限") = 0), "実際=" & a1
+    modTestRunner.Check "OcrAbortMemo_負の頁数でも壊れない", _
+        (InStr(optOcrCore.OcrAbortMemoFor(-3), "0頁で中断") > 0), _
+        "実際=" & optOcrCore.OcrAbortMemoFor(-3)
 End Sub
 
 ' ----------------------------------------------------------------------------

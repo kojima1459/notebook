@@ -362,16 +362,11 @@ Public Function GarbledRouteCode(ByVal ext As String, ByVal allGarbled As Boolea
     If LCase$(Trim$(ext)) = "pdf" Then GarbledRouteCode = "E0303"
 End Function
 
-' CopySharedReadの分割サイズ計算(純ロジック部分。要件C)。実ファイルI/Oを
-' 除いた「pos(1始まり)から次に読むべきバイト数」の決定だけを切り出し、
-' LibreOffice側の純ロジックテストで検証できるようにする(バッファ組み立て
-' の境界条件=端数処理・0バイト・pos超過を固定する)。
-Public Function SharedCopyNextChunkLen(ByVal pos As Long, ByVal totalLen As Long, ByVal chunkBytes As Long) As Long
-    If pos > totalLen Or chunkBytes < 1 Then Exit Function
-    Dim n As Long: n = chunkBytes
-    If pos + n - 1 > totalLen Then n = totalLen - pos + 1
-    SharedCopyNextChunkLen = n
-End Function
+' 2026-08-03(R14-F13): SharedCopyNextChunkLen をここから削除した。
+' R14-3a で共有読みコピーが ADODB.Stream 一本になった時点で呼び出し元が
+' 消え、契約とテストだけが残っていた。R14-F3 でクラシックの1MB分割コピーを
+' 復活させたが、分割の算数は modExtractorPdf.CopyClassicShared のループに
+' 3行で書いてある(モジュールを跨いだPublicを1つ減らす方を採った)。
 
 ' 空白類しか無いページか。Trim$ は半角スペースしか落とさないため使わない
 ' (改行だけのページを中身ありと数えると出典ページ番号が全部1つずれる)。

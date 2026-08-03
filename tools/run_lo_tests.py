@@ -140,13 +140,14 @@ PURE_ALLOWLIST = [
     # 2026-07-30 R2要件B/C対応で追加。modShelfSync/modPackと同じ考え方
     # (モジュール全体がR4準拠というわけではないが、テストで実際に呼ぶ関数
     # 自体はExcel/COMオブジェクトに触れない)。
-    #   modExtractor: SharedCopyNextChunkLen(共有読みコピーの分割サイズ計算)
-    #     だけが純ロジックだが、テストから modExtractor.SharedCopyNextChunkLen
-    #     を呼ぶには本モジュール自体をこの一時ライブラリへ注入する必要がある。
-    #     未注入のまま呼ぶと実行時エラー12(Variable not defined)になる
-    #     (「対象モジュールを1本だけ隔離してコンパイル」するモード2では
-    #     既にコンパイル成功を確認済み=Excel専用トークンは未実行なら
-    #     未解決のままで良い、というtechメモ4のとおり)。
+    #   modExtractor: GarbledRouteCode / BuildPagesFromGsText / PageArrayCount
+    #     が純ロジックで、テストからそれらを呼ぶには本モジュール自体をこの
+    #     一時ライブラリへ注入する必要がある。未注入のまま呼ぶと実行時エラー12
+    #     (Variable not defined)になる(「対象モジュールを1本だけ隔離して
+    #     コンパイル」するモード2では既にコンパイル成功を確認済み=Excel専用
+    #     トークンは未実行なら未解決のままで良い、というtechメモ4のとおり)。
+    #     2026-08-03 R14-F13: SharedCopyNextChunkLen は呼び出し元が無くなった
+    #     ため本体ごと削除した(注入が要る理由は上の3関数に引き継がれている)。
     #   modTestsPure3: modTestsPure/modTestsPure2とも30,000字上限まで残りが
     #     少なく、要件Bの新規テストを追加する場所が無かったための分割先
     #     (src/test/modTestsPure3.bas冒頭コメント参照)。modTestsPure2.RunAll2
@@ -159,9 +160,8 @@ PURE_ALLOWLIST = [
     #   modTestsPure9 から呼ぶには本モジュール自体をこの一時ライブラリへ
     #   注入する必要がある(未注入だと実行時エラー12)。ファイルI/OやCOMを
     #   使う他の関数はテストから呼ばないので未解決のままでよい(techメモ4)。
-    #   modExtractor 側の PageArrayCount / BuildPagesFromGsText /
-    #   SharedCopyNextChunkLen を参照するが、modExtractor も同じ一時ライブラリに
-    #   入っているため解決できる。
+    #   modExtractor 側の PageArrayCount / BuildPagesFromGsText を参照するが、
+    #   modExtractor も同じ一時ライブラリに入っているため解決できる。
     "modExtractorPdf",
     # modUtilText(2026-07-31 R11-F2): ページ分割の添字計算 GsPageBounds /
     #   CleanTextLen / BlendPerItemMs / ElapsedMsSince を1本化した共通部品。

@@ -249,6 +249,36 @@ Public Function SharedReadFailMsg() As String
         "(ファイル名の特殊文字が原因の可能性)。ファイル名を変えて再度お試しください。"
 End Function
 
+' ----------------------------------------------------------------------------
+' CopyFailMsgOf - 一時コピーに失敗した【種類】ごとの、利用者向けの1文
+'   (2026-08-03 R14-F3/F11)。
+'   kind: "src_empty" / "locked" / "too_big" / "name_busy" / その他
+'   R14-3b では全ての失敗に「ファイル名の特殊文字が原因の可能性」という
+'   1文を出していた。0バイトの元ファイル・他アプリのロック・巨大ファイルまで
+'   「名前を変えてください」と案内するのは、その場で打てない一手を言うのと
+'   同じで、利用者は名前を変えて何度も試すことになる(§3-3)。
+'   文言をここに置くのは SharedReadFailMsg と同じ理由(取込経路とOCR経路の
+'   両方から出す必要があり、opt層はコア基盤層しか参照できない)。
+'   ActionableHint はこの表の全文を目印にして、汎用文言への潰しを防ぐ。
+' ----------------------------------------------------------------------------
+Public Function CopyFailMsgOf(ByVal kind As String) As String
+    Select Case LCase$(Trim$(kind))
+        Case "src_empty"
+            CopyFailMsgOf = "共有上のファイルが空(0バイト)です。" & _
+                "元のファイルが正しく保存されているか確認してください。"
+        Case "locked"
+            CopyFailMsgOf = "他のアプリで開かれている可能性があります。" & _
+                "ファイルを閉じてからもう一度お試しください。"
+        Case "too_big"
+            CopyFailMsgOf = "ファイルが大きすぎて読み込めませんでした。"
+        Case "name_busy"
+            CopyFailMsgOf = "一時ファイルが混み合っています。" & _
+                "しばらくしてからもう一度お試しください。"
+        Case Else
+            CopyFailMsgOf = SharedReadFailMsg()
+    End Select
+End Function
+
 ' errDetail から「利用者がその場で打てる次の一手」を含む文だけを取り出す。
 ' 取り出せなければ ""(=汎用文言へ落とす)。
 ' errDetail は経路によって「[段階/開き方N] 本文 (詳細: …) [localcopy=ok]」や
@@ -272,7 +302,9 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     ' R14-3b: 共有読みの失敗(実機第3報 RC3)は導入句を持たない独自の1文。
     ' これを拾えないと、E0302の汎用文言(Ghostscriptの話)に潰されて
     ' 「ファイル名を変えてみる」という唯一の一手が利用者へ届かない。
-    Dim s As Long: s = InStr(errDetail, SharedReadFailMsg())
+    ' R14-F3/F11: 失敗の種類ごとに文言が分かれたので、表の全文を目印にする
+    ' (1つでも漏れると、その種類だけ汎用文言に潰されて案内が消える)。
+    Dim s As Long: s = CopyFailHintStart(errDetail)
     If p = 0 Or (s > 0 And s < p) Then p = s
     If p = 0 Then Exit Function
 
@@ -281,6 +313,20 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     d = CutBefore(d, " [")
     d = CutBefore(d, " / ")
     ActionableHint = Trim$(d)
+End Function
+
+' 一時コピー失敗の案内文(CopyFailMsgOf の表)が errDetail のどこから
+' 始まるかを返す(見つからなければ 0)。複数見つかったら最も手前を採る。
+Private Function CopyFailHintStart(ByVal errDetail As String) As Long
+    Dim kinds As Variant
+    kinds = Array("src_empty", "locked", "too_big", "name_busy", "")
+    Dim i As Long
+    For i = LBound(kinds) To UBound(kinds)
+        Dim p As Long: p = InStr(errDetail, CopyFailMsgOf(CStr(kinds(i))))
+        If p > 0 Then
+            If CopyFailHintStart = 0 Or p < CopyFailHintStart Then CopyFailHintStart = p
+        End If
+    Next i
 End Function
 
 ' 「<アプリ名>を操作できませんでした」の【アプリ名の先頭】の位置を返す

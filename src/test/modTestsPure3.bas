@@ -25,7 +25,7 @@ Option Explicit
 '   あるため、ここから呼べない。3行程度の軽量な実測プローブなので、モジュール
 '   をまたいだ複製を許容する。挙動・コメントはmodTestsPure側のオリジナルと
 '   同一にしてある。ExtractedPage()/ShelfChunk()を扱うテストグループだけを
-'   これで守る(SharedCopyNextChunkLenはLong引数のみの純関数なので対象外)。
+'   これで守る(Long引数のみの純関数のテストは対象外)。
 ' ============================================================================
 
 Private Function CanUseTypeArrays() As Boolean
@@ -131,28 +131,11 @@ Private Sub TestChunkerCompactedPageArray()
     End If
 End Sub
 
-' ----------------------------------------------------------------------------
-' 要件C: 共有読みコピーの純ロジック部分(バッファ組み立ての境界計算)
-' ----------------------------------------------------------------------------
-' CopySharedRead自体は実ファイルI/Oのため純ロジックテストの対象外だが、
-' 「pos(1始まり)から次に読むべきバイト数」を決めるSharedCopyNextChunkLenは
-' 切り出し済みの純関数なので、端数処理・0バイト・pos超過の境界を固定する。
-Private Sub TestSharedCopyNextChunkLen()
-    modTestRunner.Check "共有読みコピー: ちょうど割り切れる場合はchunkBytes全部", _
-        modExtractor.SharedCopyNextChunkLen(1, 2097152, 1048576) = 1048576, _
-        "実際=" & modExtractor.SharedCopyNextChunkLen(1, 2097152, 1048576)
-    modTestRunner.Check "共有読みコピー: 端数は残りぶんだけ", _
-        modExtractor.SharedCopyNextChunkLen(1048577, 1500000, 1048576) = 451424, _
-        "実際=" & modExtractor.SharedCopyNextChunkLen(1048577, 1500000, 1048576)
-    modTestRunner.Check "共有読みコピー: 0バイトファイルは0を返す", _
-        modExtractor.SharedCopyNextChunkLen(1, 0, 1048576) = 0, ""
-    modTestRunner.Check "共有読みコピー: posがtotalLenを超えたら0", _
-        modExtractor.SharedCopyNextChunkLen(500, 100, 1048576) = 0, ""
-    modTestRunner.Check "共有読みコピー: chunkBytesが1未満なら0", _
-        modExtractor.SharedCopyNextChunkLen(1, 100, 0) = 0, ""
-    modTestRunner.Check "共有読みコピー: 総量ちょうどでも末尾を正しく返す", _
-        modExtractor.SharedCopyNextChunkLen(100, 100, 1048576) = 1, ""
-End Sub
+' 2026-08-03(R14-F13): TestSharedCopyNextChunkLen を削除した。検証対象の
+' modExtractor.SharedCopyNextChunkLen が「呼び出し元の無い公開API」になり、
+' 本体ごと消したため(分割の算数は modExtractorPdf のコピーループへ3行で
+' 内包した)。共有読みコピーの回帰は、失敗理由の判定と文面
+' (modTestsPure11 の TestCopyFailReason)が受け持つ。
 
 ' ----------------------------------------------------------------------------
 ' R3要件C(2026-07-30): welcomeバッジがBadgeCatalog(単一情報源)に含まれ、
@@ -581,9 +564,6 @@ NextEmptyPage:
 NextCompacted:
     On Error GoTo CompactedFail
     TestChunkerCompactedPageArray
-NextCopyChunk:
-    On Error GoTo CopyChunkFail
-    TestSharedCopyNextChunkLen
 NextBadgeCatalog:
     On Error GoTo BadgeCatalogFail
     TestBadgeCatalogWelcome
@@ -624,10 +604,6 @@ EmptyPageFail:
     Resume NextCompacted
 CompactedFail:
     modTestRunner.Check "TestChunkerCompactedPageArray(グループ全体)", False, _
-        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
-    Resume NextCopyChunk
-CopyChunkFail:
-    modTestRunner.Check "TestSharedCopyNextChunkLen(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextBadgeCatalog
 BadgeCatalogFail:

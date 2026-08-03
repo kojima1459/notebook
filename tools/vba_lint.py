@@ -107,10 +107,14 @@ CONTRACT: dict[str, dict] = {
     # ときの1文。取込経路(modExtractorPdf)とOCR経路(optGsTxt)の両方が
     # 同じ文を出す必要があり、opt層はコア基盤層しか参照できない(§7.7)ため、
     # 文言の一次情報の置き場はここが唯一の交点になる(憲章§4-5)。
+    # CopyFailMsgOf(2026-08-03 R14-F3/F11): 一時コピー失敗の【種類】ごとの
+    # 利用者向けの1文(空・ロック・大きすぎる・一時名の枯渇・特殊文字)。
+    # 全ての失敗に「ファイル名を変えてください」と言っていたのを種類別に
+    # 分けたもので、置き場は SharedReadFailMsg と同じ理由でここになる。
     "modLog": {
         "closed": True,
         "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
-                     "FriendlyFailMsg", "SharedReadFailMsg"],
+                     "FriendlyFailMsg", "SharedReadFailMsg", "CopyFailMsgOf"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
@@ -175,10 +179,11 @@ CONTRACT: dict[str, dict] = {
     # MASTER_SPECが個別のPublic契約を明示していないため対象外(自由)。
     "modExtractor": {
         "closed": True,
-        # SharedCopyNextChunkLen: 2026-07-30 R2要件C(共有読みローカルコピー)の
-        # 純ロジック部分。実ファイルI/Oを含むCopySharedRead自体はテストできない
-        # ため、「次に読むべきバイト数」の境界計算だけを切り出してPublic化し、
-        # modTestsPure3から検証できるようにした。
+        # SharedCopyNextChunkLen(2026-08-03 R14-F13で削除): R14-3a で共有読み
+        # コピーが ADODB.Stream 一本になった時点で呼び出し元が消え、契約と
+        # テストだけが残っていた。R14-F3 でクラシックの1MB分割コピーを
+        # 復活させたが、分割の算数は modExtractorPdf 側のループに3行で書く
+        # (モジュールを跨いだPublicを1つ減らす)。
         # GarbledRouteCode: 2026-07-31 R6追補。「全ページ化け」のPDFをOCR経路
         # (E0303)へ回すか、従来どおり化けたまま続行するかの分岐だけを純関数に
         # 切り出したもの(modTestsPure4が検証する)。
@@ -192,7 +197,7 @@ CONTRACT: dict[str, dict] = {
         # 配列でも実行時エラー9を出さずに0件と数える唯一の実装。分割後は
         # modExtractorPdf.DropGarbledPages も同じ数え方を必要とするため、
         # 2箇所に同じ実装を置かない目的で公開した(憲章§4-5)。
-        "required": ["ExtractFile", "SupportedExts", "SharedCopyNextChunkLen",
+        "required": ["ExtractFile", "SupportedExts",
                      "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount"],
     },
     # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractor が28,000字のWARN帯に
@@ -215,10 +220,17 @@ CONTRACT: dict[str, dict] = {
     # modTestsPure11 が境界を固定する。
     "modExtractorPdf": {
         "closed": True,
+        # CopyReasonKind(2026-08-03 R14-F3/F11): 理由の1語 → 文言の種類の
+        # 対応表(純ロジック)。modLog.CopyFailMsgOf と対で使う。
+        # GcOldTempCopies(R14-F11): %TEMP%\mbtmp_* の24時間より古い残骸の
+        # 掃除。呼ぶのは modBoot の起動GCから1行だけで、本体をこちらに置くのは
+        # modBoot が28,000字のWARN帯に近いのと、一時名の規約(TempBaseNameFor)を
+        # 持つのがこのモジュールだから。
         "required": ["ExtractPdfWithFallback", "CopyToLocalTemp",
                      "DropGarbledPages", "TempBaseNameFor",
                      "IsThinExtract", "ThinExtractMemoFor",
-                     "IsUnreadableCopyReason", "CopyFailMsgFor"],
+                     "IsUnreadableCopyReason", "CopyFailMsgFor",
+                     "CopyReasonKind", "GcOldTempCopies"],
     },
     "modMode": {
         "closed": True,
@@ -581,13 +593,15 @@ CONTRACT: dict[str, dict] = {
     # 第1選択。Word/AcrobatのOLE待ち回避)。opt層に置く以上、他のoptと同様に
     # Ping を持たせる。純ロジックではない(Shell起動・ファイルI/O・ログ)ので
     # PURE_LOGIC_MODULES には載せない。
-    # GsFailureDetail / GsExitCode(2026-07-31 R11-D・監査3 H-2): 完了フラグの
-    # 中身(GSの終了コード)と gs_out.log の先頭を読み、err_log の detail に
-    # そのまま入れられる1本の文字列にする。optVision(OCR経路)からも呼ぶ。
+    # GsFailureDetail(2026-07-31 R11-D・監査3 H-2): 完了フラグの中身(GSの
+    # 終了コード)と gs_out.log の末尾を読み、err_log の detail にそのまま
+    # 入れられる1本の文字列にする。optOcrPage(OCR経路)からも呼ぶ。
+    # GsExitCode は 2026-08-03 R14-F13 で削除(終了コードは待ちループと
+    # GsFailureDetail が読んでおり、外からの呼び出しが1件も無かった)。
     "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
                                               "MakeOcrFolder",
                                               "WaitForDoneFlag", "CleanupOcrFolder",
-                                              "GsFailureDetail", "GsExitCode"]},
+                                              "GsFailureDetail"]},
     # optGsProc(2026-08-03 R13-F2): Ghostscriptプロセスの起動と停止だけを
     # optGsTxt から切り出したもの。PID再利用よけの本人確認(WMI Win32_Process
     # の名前照合)と rc=0/PID不明の扱いを足した結果 optGsTxt が28,000字の
@@ -640,6 +654,11 @@ CONTRACT: dict[str, dict] = {
             # 「20ページずつ描く」「総ページ数が不明なら数字を言わない」という
             # 判断をLOテストで固定する(RC4の嘘の案内を二度と作らないため)。
             "BatchCountFor", "BatchBoundsFor", "OcrPageBanner", "OcrCapMemoFor",
+            # R14-F2/F6/F7(2026-08-03 実機第3報の裁定): 中断したときのメモ
+            # (OcrAbortMemoFor。上限まで読んだのか途中で欠けたのかを言い分ける)と、
+            # 1資料あたりの絶対上限の残り配分(RemainingWaitSec。バッチ描画で
+            # gs_abs_timeout_sec が「1バッチあたり」の意味に化けていた)。
+            "OcrAbortMemoFor", "RemainingWaitSec",
         ],
     },
     # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、

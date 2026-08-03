@@ -423,8 +423,11 @@ Public Sub Boot()
     '      1件あたり数十MBの残骸が溜まり続けるので、掃除役をここに1箇所だけ
     '      置く。24時間より古いものだけが対象=いま動いている取込は絶対に
     '      壊さない(同時に複数のExcelが開かれていても安全)。
+    '      R14-F11: 一時コピー(%TEMP%\mbtmp_*)の残骸も同じ線(24時間)で
+    '      掃除する(本体は modExtractorPdf.GcOldTempCopies)。
     On Error Resume Next
     GcOldOcrFolders
+    modExtractorPdf.GcOldTempCopies
     On Error GoTo Failed
 
     ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても

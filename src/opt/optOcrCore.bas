@@ -26,20 +26,16 @@ Option Explicit
 '     切り詰めあり」と判定する(総ページ数を知る手段がGS抜きには無いため)。
 '     RenderCapFor / IsTruncatedCount / KeepPageCount がその算数。
 '   ・optVision からのみ呼ばれる。opt層内の参照なので依存ルール上も問題ない。
-'   ・Ghostscript実行ファイルの解決候補列挙(2026-07-31 R9): 同梱配布(dist/
-'     Ghostscript同封)・IT焼き込み(ghostscript_search_dirs)の2経路を
-'     追加するにあたり、「候補パス文字列をどの順で・どう組み立てるか」を
-'     ここへ切り出した(GsCandidatePaths / GsCandidatesForFolder)。
-'     実際のファイル存在確認(Dir$)とApplication.FileDialogは副作用そのもの
-'     なのでoptVision側の仕事のまま。戻り値は "|" 区切りの1本の文字列にした
-'     (run_lo_tests.pyの既知の制約により `As String()` という配列戻り値の
-'     関数宣言はLibreOffice Basicでコンパイルがハングするため。modUtil.
-'     SplitKeepNonEmptyと同じ理由・同じ回避策)。
+'   ・Ghostscript実行ファイルの解決候補列挙(2026-07-31 R9): 同梱配布・IT
+'     焼き込み(ghostscript_search_dirs)の候補パスを「どの順で・どう組み立てる
+'     か」だけを切り出した(GsCandidatePaths / GsCandidatesForFolder)。実在
+'     確認(Dir$)とFileDialogは副作用なのでoptVision側の仕事のまま。戻り値が
+'     "|" 区切りの1本なのは、LibreOffice Basicが `As String()` の関数宣言で
+'     コンパイルごとハングするため(modUtil.SplitKeepNonEmptyと同じ回避策)。
 '   ・テキストPDFのCOM無し抽出(2026-07-31 R10-3): Word/AcrobatのCOMが端末
-'     ポリシーで塞がれていてもテキストPDFを取り込めるよう、同じGhostscriptの
-'     txtwriteデバイスを使う経路を足した。その「コマンドの組み立て」と
-'     「抜き出せた文字数から採否を決める判定」だけをここへ置く
-'     (BuildGsTextCommand / GsTextVerdict)。実行するのは optGsTxt。
+'     ポリシーで塞がれていてもテキストPDFを取り込めるよう、txtwriteデバイスの
+'     「コマンド組み立て」と「採否判定」をここへ置いた(BuildGsTextCommand /
+'     GsTextVerdict)。実行するのは optGsTxt。
 ' ============================================================================
 
 ' 公式ツール(gazou版)と同じ規約。ページ番号3桁ゼロ埋め。
@@ -483,20 +479,27 @@ Public Function BatchBoundsFor(ByVal totalPages As Long, ByVal batchSize As Long
 End Function
 
 ' ----------------------------------------------------------------------------
-' OcrPageBanner - OCR中の進捗バナーの文面(R14-4a)。GsWaitBanner と同じ
-'   考え方の表示専用の純関数。「OCR中… 3/100頁 (バッチ 1/5) 残り約2910秒」
-'   ・残り時間は avgMsPerPage の実測が入ってから(呼び出し元は2頁測るまで0を
-'     渡す)。1頁目だけの実績で出すと表示が跳ね回り、かえって不安を生む。
-'   ・総頁が現在頁より小さい壊れた値なら分母を現在頁へ寄せる(嘘を出さない)。
+' OcrPageBanner - OCR中の進捗バナーの文面(R14-4a / R14-F9)。表示専用の純関数。
+'   総頁が【確定してから】だけ分母とETAを出す:
+'     未確定: 「OCR中… 3頁目 (バッチ 1)」    分母も総バッチ数も出さない
+'     確定後: 「OCR中… 3/44頁 (バッチ 1/3) 残り約41秒」
+'   総頁は最後のバッチに入るまで分からない(上限+1頁までしか描かせない)。
+'   それを「上限=総頁」と決め打ち、44頁のPDFに「100頁」という嘘の分母を
+'   最後まで出していた(F9)。残り時間は avgMsPerPage の実測が入ってから。
+'   totalPages が現在頁より小さい値は【未確定】として扱う。
 ' ----------------------------------------------------------------------------
 Public Function OcrPageBanner(ByVal pageNo As Long, ByVal totalPages As Long, _
                               ByVal batchIdx As Long, ByVal batchCount As Long, _
                               ByVal avgMsPerPage As Double) As String
     Dim p As Long: p = pageNo
     If p < 1 Then p = 1
-    Dim n As Long: n = totalPages
-    If n < p Then n = p
 
+    If totalPages < p Or batchCount < batchIdx Then
+        OcrPageBanner = "OCR中… " & p & "頁目 (バッチ " & batchIdx & ")"
+        Exit Function
+    End If
+
+    Dim n As Long: n = totalPages
     Dim s As String
     s = "OCR中… " & p & "/" & n & "頁 (バッチ " & batchIdx & "/" & batchCount & ")"
 
@@ -512,29 +515,54 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' OcrCapMemoFor - 上限ページで打ち切ったときに本棚カードへ出す正直なメモ
-'   (2026-08-03 R14-4c)。打ち切っていなければ ""。
-'   truncated : 上限で打ち切ったか(IsTruncatedCount の結果)
-'   keptN     : 実際に取り込めたページ数
-'   totalN    : 資料の総ページ数。0以下やkeptN以下は【不明】として扱う。
-'   総ページ数が不明になり得るのは、GSに -dLastPage で上限+1ページまでしか
-'   描かせておらず、その先が何ページあるかを知る手段がこちらに無いため。
-'   分からない数字を言うのは嘘なので、そのときは「先頭Nページのみ」とだけ言う
-'   (RC4の「同期を押すと続きから再開します」は再開ロジックが無いのに再開
-'   できると言っていた=同じ種類の嘘)。
+'   (2026-08-03 R14-4c / R14-F7)。打ち切っていなければ ""。
+'   truncated=上限で打ち切ったか / keptN=取り込めた頁数 /
+'   capN=設定の上限(config vision_pdf_max_pages)。
+'   従来は keptN をそのまま「上限」と書いていた(F7)。1頁でもOCRに失敗すると
+'   kept は上限より小さくなり config の値と食い違うため、別々に言う。
+'   総ページ数は不明なので名乗らない。
 ' ----------------------------------------------------------------------------
 Public Function OcrCapMemoFor(ByVal truncated As Boolean, ByVal keptN As Long, _
-                              ByVal totalN As Long) As String
+                              ByVal capN As Long) As String
     If Not truncated Then Exit Function
     Dim k As Long: k = keptN
     If k < 0 Then k = 0
+    Dim c As Long: c = capN
+    If c < k Then c = k          ' 上限が不明・壊れた値なら取り込めた数で言う
 
-    If totalN > k Then
-        OcrCapMemoFor = "上限" & k & "ページのため、" & totalN & "ページ中" & k & _
-            "ページのみ取り込みました(設定 vision_pdf_max_pages で変更できます)"
-    Else
-        OcrCapMemoFor = "上限" & k & "ページのため、先頭" & k & _
-            "ページのみ取り込みました(設定 vision_pdf_max_pages で変更できます)"
+    OcrCapMemoFor = "設定上限" & c & "ページのうち先頭" & k & _
+        "ページを取り込みました(設定 vision_pdf_max_pages で変更できます)"
+    If c > k Then
+        OcrCapMemoFor = OcrCapMemoFor & "。" & (c - k) & "ページは読み取れませんでした"
     End If
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrAbortMemoFor - 途中で読み取りを打ち切ったときのメモ(2026-08-03 R14-F2)。
+'   上限ではなくGSの変換失敗・時間切れで【まだ先があるのに】止めた場合。
+'   従来この経路は上限打ち切りと区別がつかず status も done で、頁が黙って
+'   欠けていた。再開ロジックは無いので「続きから再開」とは言わない(RC4)。
+' ----------------------------------------------------------------------------
+Public Function OcrAbortMemoFor(ByVal keptN As Long) As String
+    Dim k As Long: k = keptN
+    If k < 0 Then k = 0
+    OcrAbortMemoFor = "読み取りを" & k & "頁で中断しました" & _
+        "(変換エラーまたは時間切れ)。もう一度取り込むと再試行します"
+End Function
+
+' ----------------------------------------------------------------------------
+' RemainingWaitSec - 1資料あたりの絶対上限(config gs_abs_timeout_sec)の
+'   【残り】を返す(2026-08-03 R14-F6)。0=もう待てない(打ち切り)。
+'   バッチ描画で絶対上限が「1バッチあたり」の意味になっていた(20頁×6
+'   バッチなら最悪1200秒×6)。資料単位の壁へ戻す。残りが短くても10秒は
+'   待つ(1秒の待ちは必ず時間切れになるだけで得が無い)。
+' ----------------------------------------------------------------------------
+Public Function RemainingWaitSec(ByVal absSec As Long, ByVal usedSec As Long) As Long
+    If absSec < 1 Then Exit Function
+    If usedSec >= absSec Then Exit Function
+    Dim r As Long: r = absSec - usedSec
+    If r < 10 Then r = 10
+    RemainingWaitSec = r
 End Function
 
 ' configの値が壊れていても暴走しないための丸め(公開: 診断・テスト用)。

@@ -41,6 +41,14 @@ Option Explicit
 ' 「GS起動の回数」の釣り合いで決めた値(実機第3報の裁定 R14-4a)。
 Private Const BATCH_PAGES As Long = 20
 
+' RenderBatch の結果(2026-08-03 R14-F1/F2)。「起動できなかった」と
+' 「起動はしたが終わらなかった」を Boolean 1つで混ぜていたため、GSが1度も
+' 起動していない資料に対して「1200秒以内に終わりませんでした」という
+' 事実と違う案内を出していた。3値にして最後まで別の事実として扱う。
+Private Const RB_DONE As Long = 0          ' 完了フラグが出た
+Private Const RB_LAUNCH_FAIL As Long = 1   ' GSを起動できなかった
+Private Const RB_TIMEOUT As Long = 2       ' 起動したが待ち時間内に終わらなかった
+
 ' 確定済みリボン関数名(出典: RIBBON_API_CONFIRMED.md §1 #5, #8)。
 ' 呼び出しは必ず modGateway.TryRibbonRun 経由(R3)。
 Private Const RIBBON_FUNC_NAME As String = "ChatGPTV"
@@ -56,26 +64,42 @@ End Function
 ' OcrPdfByBatch - PDFを20ページずつ画像化し、そのつどOCRして1本のページ付き
 '   テキストにして返す(失敗時は "#ERR:E0303:<何が起きたか+次の一手>")。
 '   gsExe / pdfPath / folderPath : optVision が解決済みのもの
-'   dpi / maxPages / waitSec     : config 由来(丸めは optOcrCore が持つ)
+'   dpi / maxPages / absSec      : config 由来(丸めは optOcrCore が持つ)。
+'                                  absSec は gs_abs_timeout_sec で、【1資料
+'                                  あたり】の画像化待ちの絶対上限(R14-F6)。
+'                                  バッチごとに残り時間だけを次の待ちへ渡す。
 '   visionPrompt                 : optVision の VISION_PROMPT(文言の一次情報は
 '                                  あちら側のまま。ここでは持たない)
-'   outKeepWork : True で返したら【作業フォルダを消さないこと】。書きかけの
-'                 gs_out.log が唯一の手がかりになるタイムアウト時だけ立つ
-'                 (R11-D 監査3 H-1の性質をそのまま引き継ぐ)。
+'   outKeepWork : True で返したら【作業フォルダを消さないこと】。
+'                 (a) 1枚も描けずタイムアウトした(書きかけの gs_out.log が
+'                     唯一の手がかり。R11-D 監査3 H-1)
+'                 (b) 時間切れなのにGSを止められなかった(PID不明)。生きている
+'                     GSが書き込んでいるフォルダを消してはならない(R14-F5)
+'   outAborted  : True で返したら【まだ先があるのに途中で止めた】。上限まで
+'                 読み切ったのか、変換エラー/時間切れで欠けたのかを呼び出し元
+'                 (optVision)がカードのメモで言い分けるための唯一の材料
+'                 (R14-F2。従来はどちらも同じ形で返り、欠落が無言だった)。
 ' ----------------------------------------------------------------------------
 Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
                               ByVal folderPath As String, ByVal dpi As Long, _
-                              ByVal maxPages As Long, ByVal waitSec As Long, _
+                              ByVal maxPages As Long, ByVal absSec As Long, _
                               ByVal visionPrompt As String, _
-                              ByRef outKeepWork As Boolean) As String
+                              ByRef outKeepWork As Boolean, _
+                              ByRef outAborted As Boolean) As String
     Dim pages() As ExtractedPage
     Dim okN As Long: okN = 0
     Dim doneN As Long: doneN = 0          ' OCRを試した実ページ数
     Dim foundTotal As Long: foundTotal = 0 ' 描画できた総枚数(上限+1まで)
     Dim sumMs As Double: sumMs = 0#
-    Dim lastFinished As Boolean: lastFinished = True
+    Dim usedSec As Long: usedSec = 0      ' 画像化待ちに使った秒数の累計(F6)
+    Dim aborted As Boolean: aborted = False
+    Dim launchFailed As Boolean: launchFailed = False
 
     outKeepWork = False
+    outAborted = False
+
+    ' R14-F12: 予期しない実行時エラーでも契約(本文 or "#ERR:E0303:…")を守る。
+    On Error GoTo Failed
 
     Dim safeMax As Long: safeMax = optOcrCore.SafeMaxPages(maxPages)
     Dim renderCap As Long: renderCap = optOcrCore.RenderCapFor(maxPages)
@@ -83,9 +107,9 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
     If batchN < 1 Then batchN = 1
     ReDim pages(0 To safeMax - 1)
 
-    ' 総頁の見込み。短いPDFだと最後のバッチで実際の枚数が分かるので、
-    ' 分かった時点で分母を本当の値へ寄せる(嘘の分母を出し続けない)。
-    Dim estTotal As Long: estTotal = safeMax
+    ' 総頁は「終端に達した」か「上限+1枚目が出た」瞬間にしか確定しない。
+    ' 確定するまでは0のままにして、分母もバッチ総数も表示しない(R14-F9)。
+    Dim knownTotal As Long: knownTotal = 0
 
     Dim b As Long
     For b = 1 To batchN
@@ -97,23 +121,54 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         Dim lastP As Long: lastP = BoundPart(bounds, 1)
         If firstP < 1 Or lastP < firstP Then Exit For
 
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
-        modShelfBatch.StageBanner "画像化中… バッチ" & b & "/" & batchN
+        ' 1資料あたりの絶対上限の【残り】だけを次の待ちへ渡す(R14-F6)。
+        ' 使い切っていたら、そこで正直に打ち切る(=中断扱い)。
+        Dim waitSec As Long: waitSec = optOcrCore.RemainingWaitSec(absSec, usedSec)
+        If waitSec <= 0 Then
+            aborted = True
+            Exit For
+        End If
 
-        lastFinished = RenderBatch(gsExe, pdfPath, folderPath, dpi, firstP, lastP, waitSec)
+        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
+        modShelfBatch.StageBanner "画像化中… " & BatchLabel(b, knownTotal)
+
+        Dim usedThis As Long: usedThis = 0
+        Dim killed As Boolean: killed = False
+        Dim rb As Long
+        rb = RenderBatch(gsExe, pdfPath, folderPath, dpi, firstP, lastP, waitSec, _
+                         usedThis, killed)
+        usedSec = usedSec + usedThis
+
+        If rb = RB_LAUNCH_FAIL Then
+            launchFailed = True
+            Exit For
+        End If
 
         Dim baseIdx As Long: baseIdx = 1
         Dim gotN As Long
         gotN = CountBatchFiles(folderPath, firstP, lastP, baseIdx)
 
-        ' タイムアウト時の最後の1枚はGSが書いている途中の可能性がある
-        ' (2枚以上あるときだけ捨てる。旧実装と同じ考え方)。
-        If Not lastFinished And gotN > 1 Then gotN = gotN - 1
+        If rb = RB_TIMEOUT Then
+            aborted = True
+            ' 止められなかった(PID不明)なら、GSがまだ書いているフォルダを
+            ' 消してはならない(R14-F5。optGsTxtのタイムアウトと同じ扱い)。
+            If Not killed Then outKeepWork = True
+            ' 最後の1枚はGSが書いている途中の可能性がある
+            ' (2枚以上あるときだけ捨てる。旧実装と同じ考え方)。
+            If gotN > 1 Then gotN = gotN - 1
+        End If
         If gotN = 0 Then Exit For
 
         foundTotal = foundTotal + gotN
-        If gotN < (lastP - firstP + 1) Then estTotal = firstP - 1 + gotN
-        If estTotal > safeMax Then estTotal = safeMax
+
+        ' ここで初めて総頁が確定する2つの場面(R14-F9)。
+        Dim isLastBatch As Boolean: isLastBatch = (gotN < (lastP - firstP + 1))
+        If isLastBatch Then
+            knownTotal = firstP - 1 + gotN
+            If knownTotal > safeMax Then knownTotal = safeMax
+        ElseIf firstP - 1 + gotN >= renderCap Then
+            knownTotal = safeMax          ' 上限で切る=総頁は上限ぶん取り込む
+        End If
 
         ' このバッチのうち上限内に入るページだけをOCRへ回す
         ' (上限+1枚目は「まだ先がある」ことの証拠にだけ使い、読まない)。
@@ -121,8 +176,13 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         If firstP - 1 + ocrN > safeMax Then ocrN = safeMax - (firstP - 1)
         If ocrN < 0 Then ocrN = 0
 
+        Dim shownBatches As Long: shownBatches = 0
+        If knownTotal > 0 Then shownBatches = optOcrCore.BatchCountFor(knownTotal, BATCH_PAGES)
+
         Dim batchMs As Double: batchMs = 0#
         Dim maxMs As Double: maxMs = 0#
+        Dim failN As Long: failN = 0
+        Dim firstErr As String: firstErr = ""
 
         Dim i As Long
         For i = 0 To ocrN - 1
@@ -130,14 +190,15 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 
             Dim avgMs As Double: avgMs = 0#
             If doneN >= 2 Then avgMs = sumMs / CDbl(doneN)
-            modShelfBatch.StageBanner optOcrCore.OcrPageBanner(pageNo, estTotal, b, batchN, avgMs)
-            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " OCR中… " & _
-                pageNo & "/" & estTotal & " ページ"
+            Dim banner As String
+            banner = optOcrCore.OcrPageBanner(pageNo, knownTotal, b, shownBatches, avgMs)
+            modShelfBatch.StageBanner banner
+            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " " & banner
 
             ' 読めたページだけ okN が進む(1ページの失敗で資料全体を捨てない)。
             Dim t0 As Double: t0 = Timer
             OcrOnePage folderPath & "\" & optOcrCore.PageJpgName(baseIdx + i), _
-                       pageNo, visionPrompt, pages, okN
+                       pageNo, visionPrompt, pages, okN, failN, firstErr
             Dim ms As Double: ms = modUtilText.ElapsedMsSince(t0)
 
             doneN = doneN + 1
@@ -153,16 +214,29 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             On Error Resume Next
             modLog.LogUsage "vision_page_ms", "", "b=" & b & ";pages=" & ocrN & _
                 ";avg=" & CLng(batchMs / CDbl(ocrN)) & ";max=" & CLng(maxMs)
-            On Error GoTo 0
+            On Error GoTo Failed
+        End If
+
+        ' R14-F10: 頁ごとに1行ずつE0303を書くと、20頁失敗しただけで err_log が
+        ' 埋まり、直前の本当の原因が上限行数のローテで流れる。vision_page_ms と
+        ' 同じくバッチ単位で1行(件数+最初の1件)に畳む。
+        If failN > 0 Then
+            On Error Resume Next
+            modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
+                "b=" & b & " p" & firstP & "-" & (firstP + ocrN - 1) & " 読取失敗 " & _
+                failN & "/" & ocrN & "頁 first=" & firstErr, 2000)
+            On Error GoTo Failed
         End If
 
         DoEvents
-        If gotN < (lastP - firstP + 1) Then Exit For   ' 資料の終端に達した
+        If aborted Then Exit For
+        If isLastBatch Then Exit For                   ' 資料の終端に達した
         If firstP - 1 + gotN >= renderCap Then Exit For
     Next b
 
     If foundTotal = 0 Then
-        OcrPdfByBatch = NoRenderResult(folderPath, pdfPath, lastFinished, waitSec, outKeepWork)
+        OcrPdfByBatch = NoRenderResult(folderPath, pdfPath, launchFailed, aborted, _
+                                       absSec, outKeepWork)
         Exit Function
     End If
 
@@ -172,10 +246,33 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         Exit Function
     End If
 
+    ' R14-F2: 途中で止めた場合は【必ず】打ち切り扱いにする。ここをFalseで
+    ' 返していたため、20頁で中断した100頁のPDFが status=done として
+    ' 「全部入った」顔で本棚に並んでいた(欠落が無言=憲章§4-1違反)。
     Dim truncated As Boolean
     truncated = optOcrCore.IsTruncatedCount(foundTotal, maxPages)
+    If aborted Or launchFailed Then
+        truncated = True
+        outAborted = True
+    End If
     If okN < safeMax Then ReDim Preserve pages(0 To okN - 1)
     OcrPdfByBatch = modUtil.JoinPagedText(pages, truncated)
+    Exit Function
+
+Failed:
+    ' ハンドラ稼働中は On Error Resume Next が効かない。Resumeで抜けてから
+    ' 記録する(opt層GS系モジュール共通の作法)。outKeepWork は途中で立てた
+    ' 値をそのまま残す(生きているGSのフォルダを消させないため)。
+    Dim failNum As Long: failNum = Err.Number
+    Dim failDesc As String: failDesc = Err.Description
+    Resume BatchCleanup
+BatchCleanup:
+    On Error Resume Next
+    modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
+        "err#" & failNum & ": " & failDesc & " " & pdfPath, 2000)
+    On Error GoTo 0
+    OcrPdfByBatch = "#ERR:E0303:画像PDFの読み取り中に問題が発生しました" & _
+        "(err#" & failNum & ")。もう一度お試しください。"
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -185,19 +282,19 @@ End Function
 ' 1ページ分のOCR。読めたら pages へ積んで okN を1つ進める。
 ' TryRibbonRun の前後で必ず DoEvents を回す(§3-1: 押せるものは反応する。
 ' 同期呼び出しそのものは中断できないので、せめて1ページ境界では画面を返す)。
+' R14-F10: 失敗はここでは【数えるだけ】。err_log への記録は呼び出し元が
+' バッチ単位で1行にまとめる(failN / firstErr がそのための受け皿)。
 Private Sub OcrOnePage(ByVal jpgPath As String, ByVal pageNo As Long, _
                        ByVal visionPrompt As String, _
-                       ByRef pages() As ExtractedPage, ByRef okN As Long)
+                       ByRef pages() As ExtractedPage, ByRef okN As Long, _
+                       ByRef failN As Long, ByRef firstErr As String)
     DoEvents
     Dim b64 As String
     b64 = optVision.SafeResultToString(modGateway.TryRibbonRun(BASE64_FUNC_NAME, Array(jpgPath)))
     DoEvents
 
     If LenB(Trim$(b64)) = 0 Or Left$(b64, 5) = "#ERR:" Then
-        On Error Resume Next
-        modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", _
-            "p" & pageNo & " Base64失敗: " & modUtil.SafeLeft(b64, 200)
-        On Error GoTo 0
+        NotePageFail failN, firstErr, "p" & pageNo & " Base64失敗: " & modUtil.SafeLeft(b64, 200)
         Exit Sub
     End If
 
@@ -207,10 +304,7 @@ Private Sub OcrOnePage(ByVal jpgPath As String, ByVal pageNo As Long, _
     DoEvents
 
     If optVision.IsVisionError(s) Then
-        On Error Resume Next
-        modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", _
-            "p" & pageNo & " 読取失敗: " & modUtil.SafeLeft(s, 200)
-        On Error GoTo 0
+        NotePageFail failN, firstErr, "p" & pageNo & " 読取失敗: " & modUtil.SafeLeft(s, 200)
         Exit Sub
     End If
 
@@ -219,13 +313,35 @@ Private Sub OcrOnePage(ByVal jpgPath As String, ByVal pageNo As Long, _
     okN = okN + 1
 End Sub
 
-' 1バッチ分だけGSを起動して完了を待つ(Trueで完了・Falseでタイムアウト)。
+' 頁OCRの失敗を数え、最初の1件だけ理由を控える(R14-F10)。
+Private Sub NotePageFail(ByRef failN As Long, ByRef firstErr As String, ByVal note As String)
+    failN = failN + 1
+    If LenB(firstErr) = 0 Then firstErr = note
+End Sub
+
+' 進捗バナーのバッチ表示。総頁が確定するまで「/B」を出さない(R14-F9)。
+Private Function BatchLabel(ByVal batchIdx As Long, ByVal knownTotal As Long) As String
+    BatchLabel = "バッチ" & batchIdx
+    If knownTotal > 0 Then
+        BatchLabel = BatchLabel & "/" & optOcrCore.BatchCountFor(knownTotal, BATCH_PAGES)
+    End If
+End Function
+
+' 1バッチ分だけGSを起動して完了を待つ。戻り値は RB_DONE / RB_LAUNCH_FAIL /
+' RB_TIMEOUT(R14-F1: 起動できなかったことを時間切れと混ぜない)。
+' outUsedSec : この待ちに実際に使った秒数(絶対上限の残り計算用。R14-F6)
+' outKilled  : タイムアウト時にGSを止められたか(R14-F5)。止められなかった
+'              ときだけ、呼び出し元が作業フォルダを残す判断をする。
 ' 完了フラグは毎回消してから起動する(前のバッチのフラグが残っていると、
 ' 待ちループが「もう終わっている」と即座に誤判定する)。
 Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
                              ByVal folderPath As String, ByVal dpi As Long, _
                              ByVal firstP As Long, ByVal lastP As Long, _
-                             ByVal waitSec As Long) As Boolean
+                             ByVal waitSec As Long, ByRef outUsedSec As Long, _
+                             ByRef outKilled As Boolean) As Long
+    outUsedSec = 0
+    outKilled = False
+
     Dim flagPath As String: flagPath = optOcrCore.DoneFlagFor(folderPath)
     KillIfExists flagPath
 
@@ -237,17 +353,25 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 
     Dim gsErrNum As Long: gsErrNum = 0
     Dim gsErrDesc As String: gsErrDesc = ""
-    If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc) Then
+    ' R14-F5: PIDを控えて起動する(optGsTxtと同じ4引数の呼び方)。PIDが無いと
+    ' 真のハングでGS/cmd.exeがログオン中ずっと残り、書きかけのフォルダも
+    ' 消せない。WMIが塞がれている端末では0のまま返る(そのときは止めない)。
+    Dim gsPid As Long: gsPid = 0
+    If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc, gsPid) Then
         On Error Resume Next
         modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
             "GS起動失敗 p" & firstP & "-" & lastP & " err#" & gsErrNum & ": " & _
             gsErrDesc & " " & pdfPath, 2000)
         On Error GoTo 0
+        RenderBatch = RB_LAUNCH_FAIL
         Exit Function
     End If
 
+    Dim t0 As Double: t0 = Timer
     Dim gsRc As Long: gsRc = -1
-    RenderBatch = optGsTxt.WaitForDoneFlag(flagPath, waitSec, gsRc)
+    Dim finished As Boolean
+    finished = optGsTxt.WaitForDoneFlag(flagPath, waitSec, gsRc)
+    outUsedSec = CLng(modUtilText.ElapsedMsSince(t0) / 1000#)
 
     ' 画像は出来ていても終了コードが非0のことがある(GSは軽微な警告でも非0)。
     ' 取込は続けるが、事実は次の調査の手がかりとして必ず残す(R11-D)。
@@ -257,6 +381,23 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             "b(" & firstP & "-" & lastP & ") " & optGsTxt.GsFailureDetail(folderPath), 500)
         On Error GoTo 0
     End If
+
+    If finished Then Exit Function        ' RB_DONE(=0)
+
+    ' R14-F5: 掃除を決める【前】に止める。順序が逆だと、生きているGSが
+    ' 書き込んでいるフォルダを消しにいくことになる(optGsTxtと同じ順序)。
+    If gsPid > 0 Then
+        optGsProc.KillGsTree gsPid
+        outKilled = True
+    End If
+
+    On Error Resume Next
+    modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
+        "GS_TIMEOUT p" & firstP & "-" & lastP & " wait=" & waitSec & "s pid=" & gsPid & _
+        " killed=" & outKilled & " " & optGsTxt.GsFailureDetail(folderPath) & _
+        " " & modUtil.SafeLeft(pdfPath, 200), 2000)
+    On Error GoTo 0
+    RenderBatch = RB_TIMEOUT
 End Function
 
 ' このバッチで実際に何枚できたかを数える。GSの連番の起点(1始まり=その実行の
@@ -301,29 +442,47 @@ Private Function BoundPart(ByVal bounds As String, ByVal idx As Long) As Long
 End Function
 
 ' 1枚も描けなかったときの戻り値と記録(旧 optVision の「描画0枚」経路)。
-' タイムアウトのときだけ作業フォルダを残す(書きかけの gs_out.log と出力が
-' 原因究明の唯一の材料で、消すと二度と調べられない。R11-D 監査3 H-1)。
+' 3つの事実を最後まで別のものとして扱う(R14-F1):
+'   launchFailed : GSを【起動できなかった】。待ってすらいないので秒数の話を
+'                  してはならない(従来はここも「1200秒以内に終わりません
+'                  でした」と言い、config の gs_abs_timeout_sec を大きくする
+'                  よう案内していた=何度やっても直らない案内)。調べる材料も
+'                  何も出ていないので作業フォルダは残さない。
+'   aborted      : 起動はしたが時間切れ。書きかけの gs_out.log が原因究明の
+'                  唯一の材料なので作業フォルダを残す(R11-D 監査3 H-1)。
+'   それ以外     : GSは正常終了したのに1枚も出なかった(壊れ・パスワード)。
 Private Function NoRenderResult(ByVal folderPath As String, ByVal pdfPath As String, _
-                                ByVal finished As Boolean, ByVal waitSec As Long, _
-                                ByRef outKeepWork As Boolean) As String
+                                ByVal launchFailed As Boolean, ByVal aborted As Boolean, _
+                                ByVal absSec As Long, ByRef outKeepWork As Boolean) As String
+    If launchFailed Then
+        outKeepWork = False
+        On Error Resume Next
+        modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
+            "描画0枚 GS起動失敗 " & modUtil.SafeLeft(pdfPath, 200), 2000)
+        On Error GoTo 0
+        NoRenderResult = "#ERR:E0303:PDFを画像に変換する処理を開始できませんでした。" & _
+            "config の ghostscript_path が正しいかご確認ください。"
+        Exit Function
+    End If
+
     Dim workNote As String: workNote = ""
-    If Not finished Then
+    If aborted Then
         outKeepWork = True
         workNote = " work=" & folderPath
     End If
 
     On Error Resume Next
     modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
-        "描画0枚 finished=" & finished & " " & optGsTxt.GsFailureDetail(folderPath) & _
+        "描画0枚 aborted=" & aborted & " " & optGsTxt.GsFailureDetail(folderPath) & _
         workNote & " " & modUtil.SafeLeft(pdfPath, 200), 2000)
     On Error GoTo 0
 
-    If finished Then
-        NoRenderResult = "#ERR:E0303:このPDFからページ画像を作れませんでした。" & _
-            "ファイルが壊れているか、パスワードで保護されている可能性があります。"
-    Else
-        NoRenderResult = "#ERR:E0303:PDFの画像変換が" & waitSec & "秒以内に" & _
+    If aborted Then
+        NoRenderResult = "#ERR:E0303:PDFの画像変換が" & absSec & "秒以内に" & _
             "終わりませんでした。ページ数の少ないPDFに分けるか、config の " & _
             "gs_abs_timeout_sec を大きくしてからお試しください。"
+    Else
+        NoRenderResult = "#ERR:E0303:このPDFからページ画像を作れませんでした。" & _
+            "ファイルが壊れているか、パスワードで保護されている可能性があります。"
     End If
 End Function

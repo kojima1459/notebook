@@ -98,12 +98,16 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
     ' 元パスのまま続行してはならない。NFD分解名のままGSへ渡ると
     ' /undefinedfilename で「描画0枚」になり、利用者には理由が何も残らない
     ' (実機第3報 RC3のOCR側)。正直に止めて、その場で打てる一手を伝える。
+    ' R14-F4: この関門はPDF(OCR経路)だけに当てる。画像ファイル(png/jpg)は
+    ' 従来どおり、コピーできなくても元パスのまま続行する。画像1枚はGSを通さず
+    ' リボンのBase64変換へ直接渡すため、NFD分解名でも失敗するとは限らず、
+    ' 「コピーできなかった」だけを理由に取込を止めると救えるものまで落ちる。
     Dim workPath As String: workPath = path
     Dim copyReason As String: copyReason = ""
     tmpCopy = modExtractorPdf.CopyToLocalTemp(path, copyReason)
     If LenB(tmpCopy) > 0 Then
         workPath = tmpCopy
-    ElseIf modExtractorPdf.IsUnreadableCopyReason(copyReason) Then
+    ElseIf (Not isImageFile) And modExtractorPdf.IsUnreadableCopyReason(copyReason) Then
         outNote = modLog.FriendlyFailMsg(errCode, _
             modExtractorPdf.CopyFailMsgFor(copyReason), modUtil.ExtOf(path))
         modLog.LogError errCode, "modShelfVision.TryVisionFallback", _
@@ -182,11 +186,14 @@ End Function
 ' ----------------------------------------------------------------------------
 
 ' ----------------------------------------------------------------------------
-' OcrCapNote - 上限ページで打ち切られたときの正直なメモ(R14-4c)。
-'   文言と算数は opt 層の純ロジック(optOcrCore.OcrCapMemoFor)が持ち、ここは
-'   modFeatures 経由で受け取るだけ(R2: コアに opt モジュール名を書かない)。
-'   総ページ数はGSに上限+1ページまでしか描かせていない以上こちらでは分からない
-'   ので 0(不明)を渡す。取り込めた枚数だけは pages から確実に分かる。
+' OcrCapNote - 読み取りが打ち切られたときの正直なメモ(R14-4c / R14-F2/F7)。
+'   文言と算数は opt 層の純ロジックが持ち、ここは modFeatures 経由で受け取る
+'   だけ(R2: コアに opt モジュール名を書かない)。
+'   第3引数は【設定の上限】(vision_pdf_max_pages)だが、既定値を2箇所に
+'   持たないため 0(不明)を渡し、opt 側に config から解決させる。
+'   「上限まで読んだ」のか「途中で中断した」のかも opt 側だけが知っている
+'   ので、文面の選択もあちらの仕事(R14-F2)。
+'   取り込めた枚数だけは pages から確実に分かるので、それだけを渡す。
 '   取れなければ ""(メモが無い=従来どおりの partial 表示に落ちるだけ)。
 ' ----------------------------------------------------------------------------
 Private Function OcrCapNote(ByRef pages() As ExtractedPage) As String

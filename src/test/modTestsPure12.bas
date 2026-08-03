@@ -24,6 +24,10 @@ Option Explicit
 '     引用しても誰も気付けない」状態(実機第3報 RC8)へ戻る。
 '   ・modLive.NormalizeAnswerText / AnswerParagraphs / Humanize(R14-8c):
 '     混入したMarkdownの保険変換と、実況の言い換えで段数の番号を落とさないこと。
+'   ・optOcrCore.RemainingWaitSec(R14-F6): gs_abs_timeout_sec は【1資料
+'     あたり】の絶対上限。バッチ描画で「1バッチあたり」に化けていたので、
+'     何バッチ回しても合計が上限を超えないことをここで固定する
+'     (modTestsPure11 が28,000字のWARN帯に入るため置き場はこちら)。
 ' ============================================================================
 
 ' R14-8b: モード説明(押すたびにトーストで出る唯一の説明)。
@@ -315,6 +319,43 @@ Private Sub TestHumanizeKeepsStageNumber()
         (Left$(r, 1) <> "(" And InStr(r, "本棚") > 0), "実際=" & r
 End Sub
 
+' ----------------------------------------------------------------------------
+' R14-F6: gs_abs_timeout_sec は【1資料あたり】の絶対上限。バッチごとに
+'   残りだけを渡す(バッチ数×上限まで待てていたのが元の姿)。
+' ----------------------------------------------------------------------------
+Private Sub TestRemainingWaitSec()
+    modTestRunner.Check "残り待ち_未使用なら全額", _
+        (optOcrCore.RemainingWaitSec(1200, 0) = 1200), _
+        "実際=" & optOcrCore.RemainingWaitSec(1200, 0)
+    modTestRunner.Check "残り待ち_使ったぶんだけ減る", _
+        (optOcrCore.RemainingWaitSec(1200, 500) = 700), _
+        "実際=" & optOcrCore.RemainingWaitSec(1200, 500)
+    modTestRunner.Check "残り待ち_使い切ったら0(=打ち切り)", _
+        (optOcrCore.RemainingWaitSec(1200, 1200) = 0), _
+        "実際=" & optOcrCore.RemainingWaitSec(1200, 1200)
+    modTestRunner.Check "残り待ち_超過しても0", _
+        (optOcrCore.RemainingWaitSec(1200, 1500) = 0), _
+        "実際=" & optOcrCore.RemainingWaitSec(1200, 1500)
+    modTestRunner.Check "残り待ち_残りが僅かでも10秒は待つ", _
+        (optOcrCore.RemainingWaitSec(1200, 1197) = 10), _
+        "実際=" & optOcrCore.RemainingWaitSec(1200, 1197)
+    modTestRunner.Check "残り待ち_壊れた上限は0", _
+        (optOcrCore.RemainingWaitSec(0, 0) = 0)
+
+    ' 20頁バッチを6回まわしても、合計の待ちは絶対上限を超えない。
+    Dim used As Long: used = 0
+    Dim total As Long: total = 0
+    Dim k As Long
+    For k = 1 To 6
+        Dim w As Long: w = optOcrCore.RemainingWaitSec(300, used)
+        If w <= 0 Then Exit For
+        total = total + w
+        used = used + w          ' 最悪ケース(毎回待ち切る)
+    Next k
+    modTestRunner.Check "残り待ち_合計は絶対上限を超えない", (total <= 300), _
+        "合計=" & total
+End Sub
+
 Public Sub RunAll12()
     On Error GoTo ModeDescFail
     TestModeDescriptionsR14
@@ -331,6 +372,9 @@ NextRead:
     On Error GoTo ReadFail
     TestNormalizeAnswerText
     TestHumanizeKeepsStageNumber
+NextRemainWait:
+    On Error GoTo RemainWaitFail
+    TestRemainingWaitSec
 NextDone12:
     On Error GoTo 0
     Exit Sub
@@ -349,6 +393,10 @@ CiteFail:
     Resume NextRead
 ReadFail:
     modTestRunner.Check "TestNormalizeAnswerText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRemainWait
+RemainWaitFail:
+    modTestRunner.Check "TestRemainingWaitSec(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone12
 End Sub

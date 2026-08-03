@@ -104,6 +104,13 @@ Private mGsGuidanceShown As Boolean  ' 案内カード(FileDialog)はセッシ�
 Private mGsLastCands As String  ' FindGsExeByCandidatesが最後に試した候補(|区切り)
 Private mGsCardState As String  ' 案内カードの結果: ""/"cancel"/"nofind"/"saved"
 
+' R14-F2: 直近のOCRが「途中で中断した」のか「上限まで読み切った」のか。
+' コア層(modShelfVision)へ渡せるのは modFeatures.InvokeFeature の文字列1本
+' だけで、打ち切りの【理由】を運ぶ余地が無い。取込1件のあいだに
+' ExtractPdfOcrPagedText → OcrCapMemo が必ずこの順で呼ばれるので、その間だけ
+' 覚えておく(ExtractPdfOcrPagedText の入口で必ずFalseへ戻す=持ち越さない)。
+Private mLastOcrAborted As Boolean
+
 Public Function Ping() As Boolean
     Ping = True
 End Function
@@ -282,6 +289,7 @@ End Function
 Public Function ExtractPdfOcrPagedText(ByVal path As String, _
                                        Optional ByVal silent As Boolean = False) As String
     Dim folderPath As String: folderPath = ""
+    mLastOcrAborted = False        ' R14-F2: 前の資料の結果を持ち越さない
 
     On Error GoTo Fail
 
@@ -323,19 +331,24 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
         Exit Function
     End If
 
-    Dim maxPages As Long: maxPages = modConfig.GetLong("vision_pdf_max_pages", 100)
+    Dim maxPages As Long: maxPages = OcrMaxPages()
     Dim dpi As Long: dpi = modConfig.GetLong("vision_pdf_dpi", 150)
-    Dim waitSec As Long: waitSec = modConfig.GetLong("gs_abs_timeout_sec", 1200)
-    If waitSec < 10 Then waitSec = 10
+    ' R14-F6: gs_abs_timeout_sec は【1資料あたり】の画像化待ちの絶対上限。
+    ' バッチごとの残り時間の配分は optOcrPage が行う。
+    Dim absSec As Long: absSec = modConfig.GetLong("gs_abs_timeout_sec", 1200)
+    If absSec < 10 Then absSec = 10
 
     ' R14-4a: 「何ページ描いて、どれをOCRして、いつ画像を捨てるか」は
     ' optOcrPage が持つ(20ページずつのバッチ制御・ページ間DoEvents・
     ' バッチ完了ごとのJPEG削除)。ここは前後(GS解決・一時フォルダ・後始末)
-    ' だけを持つ。keepWork=True で返ったらフォルダを消さない(R11-D H-1)。
+    ' だけを持つ。keepWork=True で返ったらフォルダを消さない(R11-D H-1 /
+    ' R14-F5: 止められなかったGSが書いている最中のフォルダも消さない)。
     Dim keepWork As Boolean: keepWork = False
+    Dim aborted As Boolean: aborted = False
     Dim ocrText As String
     ocrText = optOcrPage.OcrPdfByBatch(gsExe, path, folderPath, dpi, maxPages, _
-                                       waitSec, VISION_PROMPT, keepWork)
+                                       absSec, VISION_PROMPT, keepWork, aborted)
+    mLastOcrAborted = aborted
 
     modUIMain.SetStage ""
     If Not keepWork Then optGsTxt.CleanupOcrFolder folderPath
@@ -379,16 +392,36 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
-' OcrCapMemo - OCRが上限ページで打ち切られたときに本棚カードへ出す正直な
-'   メモ(R14-4c)。文言と算数は optOcrCore.OcrCapMemoFor(純ロジック)が
-'   持ち、ここは modFeatures.InvokeFeature("vision","OcrCapMemo",…) から
-'   呼べるようにするための受け口。コア層は opt モジュール名を書けない(R2)
-'   ので、この1本が「打ち切りの説明」をコアへ渡す唯一の経路になる。
-'   truncated=False なら空文字列。
+' OcrCapMemo - OCRが打ち切られたときに本棚カードへ出す正直なメモ(R14-4c)。
+'   文言と算数は optOcrCore(純ロジック)が持ち、ここは
+'   modFeatures.InvokeFeature("vision","OcrCapMemo",…) から呼べるようにする
+'   ための受け口。コア層は opt モジュール名を書けない(R2)ので、この1本が
+'   「打ち切りの説明」をコアへ渡す唯一の経路になる。truncated=False なら空。
+'   R14-F2: 打ち切りには2種類あり、言うべきことがまるで違う。
+'     ・上限まで読んだ    → 設定を変えれば続きも読める(OcrCapMemoFor)
+'     ・途中で中断した    → もう一度取り込めば再試行される(OcrAbortMemoFor)
+'   どちらだったかは直前の ExtractPdfOcrPagedText だけが知っている
+'   (mLastOcrAborted)。
+'   R14-F7: capN は【設定の上限】(取り込めた頁数ではない)。呼び出し元は
+'   コア層で config を読めるが、既定値を2箇所に持ちたくないので 0(不明)を
+'   渡してよい。そのときはここが config から解決する。
 ' ----------------------------------------------------------------------------
 Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
-                           ByVal totalN As Long) As String
-    OcrCapMemo = optOcrCore.OcrCapMemoFor(truncated, keptN, totalN)
+                           ByVal capN As Long) As String
+    If mLastOcrAborted Then
+        If truncated Then OcrCapMemo = optOcrCore.OcrAbortMemoFor(keptN)
+        Exit Function
+    End If
+
+    Dim cap As Long: cap = capN
+    If cap <= 0 Then cap = OcrMaxPages()
+    OcrCapMemo = optOcrCore.OcrCapMemoFor(truncated, keptN, cap)
+End Function
+
+' OCRの1資料あたりページ上限(config vision_pdf_max_pages)。既定値をここ
+' 1箇所だけに持つ(R14-F7: メモに出す上限と実際に使う上限を絶対に割らない)。
+Private Function OcrMaxPages() As Long
+    OcrMaxPages = modConfig.GetLong("vision_pdf_max_pages", 100)
 End Function
 
 ' ----------------------------------------------------------------------------

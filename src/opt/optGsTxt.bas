@@ -612,13 +612,9 @@ Public Function GsFailureDetail(ByVal folderPath As String) As String
         " gs_out=[" & logText & "]"
 End Function
 
-' ----------------------------------------------------------------------------
-' GsExitCode - 完了フラグの中身から終了コードを読む(0=正常 / -1=判定不能)。
-' ----------------------------------------------------------------------------
-Public Function GsExitCode(ByVal folderPath As String) As Long
-    GsExitCode = optOcrCore.GsExitCodeFromFlag( _
-        ReadTextHead(optOcrCore.DoneFlagFor(folderPath), 80))
-End Function
+' 2026-08-03(R14-F13): GsExitCode をここから削除した。終了コードは待ちループ
+' (ReadFlagRcRetry)と GsFailureDetail が読んでおり、外からの呼び出しは
+' 1件も無かった(契約に載っているだけの公開API)。
 
 ' GSへ渡した入力ファイルの実バイト数(取れなければ -1 = 不明。R14-3c)。
 ' FileLen は実体が無いと実行時エラー53を出すので握る(観測用の材料であって、
