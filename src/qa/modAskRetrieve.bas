@@ -288,8 +288,16 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
 End Function
 
 ' 逆質問の材料: ヒットした資料名を重複除去して最大4件、| 区切りで返す。
-Public Function HitSourceList(hits() As Hit, ByVal nHits As Long) As String
+' R13 L-batch: 件数を呼び出し側で選べるようにした(既定4=従来と同一)。
+' 会話の出典メモリ(modFollowup.RememberCitedSources)だけは8件で呼ぶ。
+' 深掘りのスコープはその記憶が元になるため、4件で切ると「回答が引用した
+' 資料なのに、次の深掘りでは対象外」という不可解な穴が空く。逆質問の
+' 選択肢は多すぎると選べなくなるので4件のままにする。
+Public Function HitSourceList(hits() As Hit, ByVal nHits As Long, _
+                              Optional ByVal maxN As Long = 4) As String
     Dim sb As String, cnt As Long
+    Dim lim As Long: lim = maxN
+    If lim < 1 Then lim = 4
     Dim i As Long
     On Error Resume Next
     For i = 1 To nHits
@@ -299,7 +307,7 @@ Public Function HitSourceList(hits() As Hit, ByVal nHits As Long) As String
                 If LenB(sb) > 0 Then sb = sb & "|"
                 sb = sb & nm
                 cnt = cnt + 1
-                If cnt >= 4 Then Exit For
+                If cnt >= lim Then Exit For
             End If
         End If
     Next i

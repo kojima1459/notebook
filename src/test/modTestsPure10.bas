@@ -31,6 +31,13 @@ Option Explicit
 '     「<アプリ名>を操作できませんでした」の案内も汎用文言より優先すること。
 '   ・modExtractorPdf.IsThinExtract の拡張子足切り(R13-F7): 薄い抽出の関門は
 '     PDF専用で、docx/xlsxには当てない(閾値の真理表は modTestsPure9)。
+'   ・modP2PIo.IsTeamCode / BeaconDataText のサニタイズ(R13 F12): 自由記述の
+'     user_department(「営業部」等)をチームコードとして採用しないこと、
+'     team値へのタブ/改行注入でビーコン行の列がズレないこと。
+'   ・modUtilText.AppendStepBuf の書式(R13 F8): 段ごとの所要時間を
+'     "expand=3x900;rerank=900" の形へ畳む規則(1質問=1行にまとめるため)。
+'   ・modBitwiseOpt.ShouldPrefilterScoped(R13 F9): スコープ検索では
+'     粗選別を必ず使わない(全体上位N件とスコープの積が枯れるため)。
 ' ============================================================================
 
 Private Sub TestTeamCodeOf()
@@ -235,6 +242,162 @@ Private Sub TestThinExtractExt()
         modExtractorPdf.IsThinExtract(" PDF ", 44, 1, 30000), "Falseになった"
 End Sub
 
+' ----------------------------------------------------------------------------
+' R13 F12: チームコードとして採用してよい文字列か(modP2PIo.IsTeamCode)と、
+'   ビーコンteam列のサニタイズ(modP2PIo.BeaconDataText)。
+'   config user_department は自由記述で、実機には「営業部」のような部署名が
+'   そのまま入る。無検証で採用すると team 列に日本語が乗り、DeptOf がその
+'   先頭3字を部コードとして扱う ―― 誰も気付かないまま部別集計だけが狂う。
+'   また team 値にタブが混じるとタブ区切り行の列がまるごとズレ、他人の
+'   節約時間が team として読まれる。どちらも「1文字で集計が壊れる」ので
+'   境界をここで固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestIsTeamCode()
+    ' 規約どおり(3字部コード+2桁)は採用する。
+    modTestRunner.Check "IsTeamCode_規約どおりは採用", _
+        modP2PIo.IsTeamCode("E2T22"), "Falseになった"
+    modTestRunner.Check "IsTeamCode_長さ境界4は採用", modP2PIo.IsTeamCode("AB12")
+    modTestRunner.Check "IsTeamCode_長さ境界6は採用", modP2PIo.IsTeamCode("ABC123")
+
+    ' 自由記述の部署名(F12の本命)。日本語はそもそも規約外。
+    modTestRunner.Check "IsTeamCode_日本語の部署名は不採用", _
+        Not modP2PIo.IsTeamCode("営業部"), "Trueになった"
+    modTestRunner.Check "IsTeamCode_日本語の長い部署名は不採用", _
+        Not modP2PIo.IsTeamCode("第二技術部"), "Trueになった"
+
+    ' 英字だけ・数字だけは部署名やコード断片の混入とみなして採用しない。
+    modTestRunner.Check "IsTeamCode_英字のみは不採用", Not modP2PIo.IsTeamCode("SALES")
+    modTestRunner.Check "IsTeamCode_数字のみは不採用", Not modP2PIo.IsTeamCode("12345")
+
+    ' 長さ境界の外・小文字・空白混じり・空文字。
+    modTestRunner.Check "IsTeamCode_3字は不採用", Not modP2PIo.IsTeamCode("AB1")
+    modTestRunner.Check "IsTeamCode_7字は不採用", Not modP2PIo.IsTeamCode("ABCD123")
+    modTestRunner.Check "IsTeamCode_小文字は不採用", Not modP2PIo.IsTeamCode("e2t22")
+    modTestRunner.Check "IsTeamCode_空文字は不採用", Not modP2PIo.IsTeamCode("")
+    modTestRunner.Check "IsTeamCode_内部の空白は不採用", Not modP2PIo.IsTeamCode("AB 12")
+
+    ' 前後の空白は落としてから判定する(configの入力ゆれで落とさない)。
+    modTestRunner.Check "IsTeamCode_前後空白は無視して採用", _
+        modP2PIo.IsTeamCode("  E2T22 "), "Falseになった"
+
+    ' TeamCodeOf が返す値は、そのまま採用可能でなければ意味が通らない。
+    modTestRunner.Check "IsTeamCode_TeamCodeOfの戻り値は採用できる", _
+        modP2PIo.IsTeamCode(modP2PIo.TeamCodeOf("山田太郎_E2T22"))
+End Sub
+
+' team列へのタブ/改行注入が、行の列構成を壊さないこと。
+Private Sub TestBeaconTeamSanitize()
+    Dim evil As String: evil = "E2T22" & vbTab & "9999"
+    Dim rec As String
+    rec = modP2PIo.BeaconDataText("mallory", 0, "20260803", 0, "202608", 0, "2026", 0, evil) & _
+          vbTab & "2026-08-03 11:00:00"
+    Dim f() As String: f = Split(rec, vbTab)
+
+    ' 列数は新形式のまま(タブが1本増えていたらUBoundが10になる)。
+    modTestRunner.Check "Beacon_タブ注入でも列数は10(idx0-9)", UBound(f) = 9, _
+        "UBound=" & UBound(f)
+    ' team列にはタブが残らず、値は1本にまとまっている。
+    modTestRunner.Check "Beacon_タブ注入は無害化される", _
+        modP2PIo.BeaconTeamField(f) = "E2T22_9999", _
+        "team=[" & modP2PIo.BeaconTeamField(f) & "]"
+    ' 送信時刻の列が押し出されていない(押し出されると集計の日付がズレる)。
+    modTestRunner.Check "Beacon_タブ注入でも送信時刻の位置は不動", _
+        f(9) = "2026-08-03 11:00:00"
+
+    ' 改行注入も同じく1行のまま(行が割れると次の行が別レコードに見える)。
+    Dim rec2 As String
+    rec2 = modP2PIo.BeaconDataText("mallory", 0, "20260803", 0, "202608", 0, "2026", 0, _
+           "E2T" & vbLf & "22")
+    modTestRunner.Check "Beacon_改行注入は無害化される", _
+        InStr(rec2, vbLf) = 0, "改行が残った"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R13 F8: 段(step)ごとの所要時間バッファの書式(modUtilText.AppendStepBuf)。
+'   1段=1行で usage_log へ書くと1問で10行前後になり、2,000行ローテーションが
+'   約180問で一周して feedback_green 等の履歴を押し出す(前月比が静かに壊れる)。
+'   1問=1行にまとめるための畳み込み規則を、ここで書式ごと固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestStepBuf()
+    Dim b As String
+    b = modUtilText.AppendStepBuf("", "expand", 1200, 400)
+    modTestRunner.Check "StepBuf_初出は名前=ms", b = "expand=1200", "[" & b & "]"
+
+    b = modUtilText.AppendStepBuf(b, "rerank", 900, 400)
+    modTestRunner.Check "StepBuf_2件目は;で連結", b = "expand=1200;rerank=900", "[" & b & "]"
+
+    ' 同じ段の再登場は「回数x平均」へ畳む(1200と800 -> 2x1000)。
+    b = modUtilText.AppendStepBuf(b, "expand", 800, 400)
+    modTestRunner.Check "StepBuf_同名は回数x平均へ畳む", _
+        b = "expand=2x1000;rerank=900", "[" & b & "]"
+
+    ' 3回目も平均が正しく更新される(1200,800,700 -> 3x900)。
+    b = modUtilText.AppendStepBuf(b, "expand", 700, 400)
+    modTestRunner.Check "StepBuf_3回目の平均も正しい", _
+        b = "expand=3x900;rerank=900", "[" & b & "]"
+
+    ' 畳んでも他の段の値を壊さない。
+    modTestRunner.Check "StepBuf_畳み込みで他段を壊さない", InStr(b, "rerank=900") > 0
+
+    ' 区切り文字を含む段名は無害化する(1つの段名で行の書式が壊れないこと)。
+    Dim c As String
+    c = modUtilText.AppendStepBuf("", "a;b=c", 100, 400)
+    modTestRunner.Check "StepBuf_区切り文字を含む段名を無害化", _
+        c = "a_b_c=100", "[" & c & "]"
+
+    ' 空の段名でも壊れない(名前なしのトークンを作らない)。
+    c = modUtilText.AppendStepBuf("", "", 50, 400)
+    modTestRunner.Check "StepBuf_空の段名は既定名になる", c = "step=50", "[" & c & "]"
+
+    ' 負のmsは0として扱う(壊れた計測値で平均を汚さない)。
+    c = modUtilText.AppendStepBuf("", "x", -5, 400)
+    modTestRunner.Check "StepBuf_負のmsは0", c = "x=0", "[" & c & "]"
+
+    ' 上限に達したら【新しい段名だけ】を足さない。既出の畳み込みは続く。
+    Dim big As String: big = "aaa=1"
+    Dim i As Long
+    For i = 1 To 40
+        big = modUtilText.AppendStepBuf(big, "s" & i, 100, 60)
+    Next i
+    modTestRunner.Check "StepBuf_上限で新しい段名を足さない", Len(big) <= 80, _
+        "len=" & Len(big)
+    big = modUtilText.AppendStepBuf(big, "aaa", 3, 60)
+    modTestRunner.Check "StepBuf_上限でも既出段は畳み続ける", _
+        InStr(big, "aaa=2x2") = 1, "[" & Left$(big, 20) & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R13 F9: スコープ検索では粗選別(binary_rag)を使わない
+'   (modBitwiseOpt.ShouldPrefilterScoped)。
+'   粗選別は本棚【全体】のハミング距離上位N件を候補にする。そのあとで
+'   スコープ辞書による絞り込みが走るため、本棚が大きいほど
+'   (全体の上位N件) ∩ (スコープ内の行) がほぼ空になり、深掘りが
+'   「候補ゼロ」でスコープ無しへ落ちる(R12 High-1 と同じ構造の欠陥)。
+'   スコープ検索は辞書判定でベクトル計算の前に対象外行を捨てるので、
+'   そもそも粗選別の節約が要らない。
+' ----------------------------------------------------------------------------
+Private Sub TestShouldPrefilterScoped()
+    ' スコープなしのときは従来判定と完全に一致する(挙動を変えていない)。
+    modTestRunner.Check "PrefilterScoped_非スコープは従来どおり有効", _
+        modBitwiseOpt.ShouldPrefilterScoped(10000, 5000, False, True, False), "Falseになった"
+    modTestRunner.Check "PrefilterScoped_非スコープ_明示ONも有効", _
+        modBitwiseOpt.ShouldPrefilterScoped(10000, 5000, True, False, False)
+    modTestRunner.Check "PrefilterScoped_非スコープ_小規模は無効", _
+        Not modBitwiseOpt.ShouldPrefilterScoped(100, 5000, True, True, False)
+
+    ' スコープありなら、件数や設定に関わらず必ず粗選別を使わない。
+    modTestRunner.Check "PrefilterScoped_スコープありは常に無効", _
+        Not modBitwiseOpt.ShouldPrefilterScoped(10000, 5000, False, True, True), "Trueになった"
+    modTestRunner.Check "PrefilterScoped_スコープあり_明示ONでも無効", _
+        Not modBitwiseOpt.ShouldPrefilterScoped(1000000, 5000, True, True, True)
+    modTestRunner.Check "PrefilterScoped_スコープあり_小規模でも無効", _
+        Not modBitwiseOpt.ShouldPrefilterScoped(10, 5000, True, True, True)
+
+    ' 従来関数そのものは変わっていないことも合わせて固定する。
+    modTestRunner.Check "PrefilterScoped_従来ShouldPrefilterは不変", _
+        modBitwiseOpt.ShouldPrefilter(10000, 5000, False, True)
+End Sub
+
 Public Sub RunAll10()
     On Error GoTo TeamCodeFail
     TestTeamCodeOf
@@ -253,6 +416,18 @@ NextHint462:
 NextThinExt:
     On Error GoTo ThinExtFail
     TestThinExtractExt
+NextIsTeamCode:
+    On Error GoTo IsTeamCodeFail
+    TestIsTeamCode
+NextBeaconSanitize:
+    On Error GoTo BeaconSanitizeFail
+    TestBeaconTeamSanitize
+NextStepBuf:
+    On Error GoTo StepBufFail
+    TestStepBuf
+NextPrefilterScoped:
+    On Error GoTo PrefilterScopedFail
+    TestShouldPrefilterScoped
 NextDone10:
     On Error GoTo 0
     Exit Sub
@@ -279,6 +454,22 @@ Hint462Fail:
     Resume NextThinExt
 ThinExtFail:
     modTestRunner.Check "TestThinExtractExt(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextIsTeamCode
+IsTeamCodeFail:
+    modTestRunner.Check "TestIsTeamCode(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBeaconSanitize
+BeaconSanitizeFail:
+    modTestRunner.Check "TestBeaconTeamSanitize(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextStepBuf
+StepBufFail:
+    modTestRunner.Check "TestStepBuf(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPrefilterScoped
+PrefilterScopedFail:
+    modTestRunner.Check "TestShouldPrefilterScoped(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone10
 End Sub

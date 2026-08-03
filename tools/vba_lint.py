@@ -150,9 +150,13 @@ CONTRACT: dict[str, dict] = {
         # RibbonEmbedRange / SerializeVector: 2026-07-28 に direct 経路を
         # modGatewayDirect へ切り出した際、フォールバック先とベクトルCSV化を
         # 共有するため公開した(経路が変わってもCSVの形は変えない)。
+        # ConsumeStepBuf(2026-08-03 R13 F8): 段ごとの所要時間は1段1行で
+        # usage_log へ書くと1問10行前後になり、2,000行ローテーションが
+        # 約180問で一周して feedback_green 等の履歴を押し出す。ここに貯め、
+        # 質問の終わりに modAsk が1行(ask_steps)へまとめて書き出す。
         "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun",
                      "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch",
-                     "RibbonEmbedRange", "SerializeVector"],
+                     "RibbonEmbedRange", "SerializeVector", "ConsumeStepBuf"],
     },
     "modFeatures": {
         "closed": True,
@@ -719,8 +723,11 @@ CONTRACT: dict[str, dict] = {
     # (開発構成のみ。本番はThisWorkbookを自己インストーラが占有する)。
     "modUiLock": {
         "closed": True,
+        # CancelCloseOk(2026-08-03 R13 F5): 「中断して終了」の承諾は、
+        # 終了を取りやめた全経路で捨てる。残すと承諾から60秒のあいだ、
+        # ウィンドウの×が確認なしで閉じる窓が開く。
         "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting",
-                     "ConfirmCloseDuringIngest"],
+                     "ConfirmCloseDuringIngest", "CancelCloseOk"],
     },
     # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
     "modAppState": {
@@ -751,6 +758,11 @@ CONTRACT: dict[str, dict] = {
             # 共通化先。modChatLogの重複実装を吸収し、未信頼テキストを
             # セルへ書く全経路(modInsightIo/modPack/modChannel)から呼ぶ。
             "SanitizeForCell",
+            # 2026-08-03(R13 F8): 段ごとの所要時間を1本の短い文字列へ畳む
+            # 純ロジック(書式 "expand=1200;emb=6x830")。呼ぶのは
+            # modGateway だけだが、中身は文字列処理なのでここに置き、
+            # LOの実行テストで書式そのものを固定する。
+            "AppendStepBuf",
         ],
     },
     # ---- 7.8 テストモジュール ----

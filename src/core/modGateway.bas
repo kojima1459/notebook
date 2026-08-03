@@ -39,6 +39,15 @@ Option Explicit
 Private mRibbonChecked As Boolean
 Private mRibbonAvailable As Boolean
 
+' R13 F8: 段(step)ごとの所要時間を貯めておくバッファ。1段1行で usage_log へ
+' 書くと質問1回で10行前後が積み上がり、2,000行ローテーションを約180問で
+' 一周してしまう。そこで貯めるだけ貯めて、質問の終わりに modAsk が1行
+' (ask_steps)へまとめて書き出す。書式は STEPBUF_* を参照。
+Private mStepBuf As String
+' バッファ長の上限。usage_log の detail 1セルに収まり、かつ異常に長い
+' step_name が来ても暴走しないための安全弁。
+Private Const STEPBUF_MAX As Long = 400
+
 ' ----------------------------------------------------------------------------
 ' CallLLM - ChatGPT()の唯一の呼び出し口。
 '   成功: 応答文字列 / 失敗: "#ERR:E02xx:<説明>" で始まる文字列(例外は出さない)
@@ -128,23 +137,42 @@ ErrHandler:
 End Function
 
 ' ----------------------------------------------------------------------------
-' LogStepLatency - LLM 1段ぶんの所要時間を usage_log へ残す(2026-08-03 R13-9a)
+' LogStepLatency - LLM 1段ぶんの所要時間を段バッファへ足す(R13-9a → R13 F8)
 ' ----------------------------------------------------------------------------
 ' 実機第2報 RC10「入念114秒の内訳が計測不能(CallLLMのlatency_msを誰も記録して
 ' いない)」への対処。どの段(expand/rerank/quick_draft/deep_draft/deep_verify/
 ' enrich…)が何ミリ秒かかったかが分からないと、遅さの相談に事実で答えられない。
-' 成功・失敗・mock の全経路で1行ずつ残す(失敗した段こそ時間を知りたい)。
+' 成功・失敗・mock の全経路で必ず1件積む(失敗した段こそ時間を知りたい)。
+'
+' R13 F8: 初版はここで1段=1行を usage_log へ書いていた。ところが1問あたり
+' 10行前後になるため、2,000行で回る usage_log が約180問で一周し、
+' feedback_green など「月をまたいで比較したい履歴」を押し出していた
+' (modDashStat の前月比が静かに壊れる)。行を増やさずに事実を残すため、
+' 積むだけにして、質問の終わりに modAsk が1行へまとめて書き出す。
 ' 記録の失敗が呼び出しを壊さないよう、全体を1行スコープの保護で囲む。
 Private Sub LogStepLatency(ByVal step_name As String, ByVal ms As Long)
     On Error Resume Next
-    modLog.LogUsage "llm_step", step_name, "", ms
+    mStepBuf = modUtilText.AppendStepBuf(mStepBuf, step_name, ms, STEPBUF_MAX)
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' ConsumeStepBuf - 段バッファを返して空にする(R13 F8。呼ぶのは modAsk)。
+' ----------------------------------------------------------------------------
+' 「読んだら消す」にしてあるので、質問と質問のあいだで持ち越さない。
+' 取込だけのセッションのように誰も読みに来ない場合でも、STEPBUF_MAX で
+' 頭打ちになるだけでメモリは伸び続けない。
+Public Function ConsumeStepBuf() As String
+    ConsumeStepBuf = mStepBuf
+    mStepBuf = ""
+End Function
 
 ' 埋め込み1バッチぶんの件数と所要時間(R13-9a)。件数は detail と hit_count の
 ' 両方に入れる(表計算で足し算しやすい形と、目で読める形の両方を残す)。
 ' 呼ぶのは「実際に外へ問い合わせた層」だけ。単発GetEmbeddingのdirect経路は
 ' 内部で GetEmbeddingsBatch を通るので、そちらに任せて二重計上しない。
+' R13 F8: 取込のバッチは1バッチ=1行のままにする(何百チャンクを1行で表せる
+' ので、そもそも usage_log を圧迫しない)。畳んだのは質問側の単発だけ。
 Private Sub LogEmbedStep(ByVal cnt As Long, ByVal ms As Long)
     On Error Resume Next
     modLog.LogUsage "embed_step", "", "n=" & cnt, ms, cnt
@@ -177,7 +205,7 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
     If modConfig.GetBool("mock_llm", True) Then
         GetEmbedding = MockEmbedVector(t, dim_)
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
-        LogEmbedStep 1, latency_ms
+        LogStepLatency "emb", latency_ms
         Exit Function
     End If
 
@@ -203,12 +231,15 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
 
     GetEmbedding = GetEmbeddingRibbonOnly(t, dim_)
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
-    LogEmbedStep 1, latency_ms     ' 質問側の埋め込み(多段検索ではクエリ本数ぶん出る)
+    ' R13 F8: 質問側の埋め込みは多段検索でクエリ本数ぶん走る。1本1行だと
+    ' usage_log があっという間に埋まるので、段バッファへ "emb" として畳む
+    ' (質問1回ぶんが "emb=6x830" の1トークンにまとまる)。
+    LogStepLatency "emb", latency_ms
     Exit Function
 
 ErrHandler:
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
-    LogEmbedStep 1, latency_ms
+    LogStepLatency "emb", latency_ms
     modLog.LogError "E0203", "modGateway.GetEmbedding", "err=" & Err.Description, Err.Number
 End Function
 

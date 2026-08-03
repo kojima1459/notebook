@@ -38,6 +38,39 @@ Public Function TeamCodeOf(ByVal userId As String) As String
     TeamCodeOf = suf
 End Function
 
+' ----------------------------------------------------------------------------
+' IsTeamCode(2026-08-03 R13 F12): 文字列がチームコード規約に合うか。
+' ----------------------------------------------------------------------------
+' config user_department は自由記述で、実機には「営業部」のような部署名が
+' そのまま入る。それを無検証でチームコードとして採用すると、
+'   ・DeptOf が「営業部」の先頭3字を部コードとして扱う
+'   ・ビーコンの team 列に日本語が乗り、他端末の部別集計と噛み合わない
+' という、誰にも気付かれないまま集計だけが狂う状態になる。採用の前にここで
+' 規約(TeamCodeOf が末尾サフィックスに課すものと同じ「英大文字/数字4〜6字」)
+' を確かめる。加えて、採用の可否を決める場面では「英字だけ」「数字だけ」も
+' 弾く: 実機で観測された規約は3字の部コード+2桁の連番("E2T22")であり、
+' 英字のみ/数字のみの文字列は部署名やコード断片の混入である可能性が高く、
+' 誤って全社集計へ流し込むより採用しない方が害が小さい。
+' 純粋な文字列判定なのでCOM/Excelに触れず、LOの実行テストから直接検証できる。
+Public Function IsTeamCode(ByVal s As String) As Boolean
+    Dim t As String: t = Trim$(s)
+    Dim n As Long: n = Len(t)
+    If n < 4 Or n > 6 Then Exit Function
+    Dim hasAlpha As Boolean, hasDigit As Boolean
+    Dim i As Long
+    For i = 1 To n
+        Dim c As Long: c = AscW(Mid$(t, i, 1))
+        If c >= 48 And c <= 57 Then
+            hasDigit = True
+        ElseIf c >= 65 And c <= 90 Then
+            hasAlpha = True
+        Else
+            Exit Function
+        End If
+    Next i
+    IsTeamCode = (hasAlpha And hasDigit)
+End Function
+
 ' 部コードはチームコードの先頭3字(例: "E2T22" -> "E2T")。空入力は空を返す。
 Public Function DeptOf(ByVal teamCode As String) As String
     If LenB(teamCode) = 0 Then Exit Function
@@ -73,8 +106,12 @@ End Function
 Public Function BeaconDataText(ByVal myId As String, ByVal thanksN As Long, _
         ByVal dk As String, ByVal dMin As Long, ByVal mk As String, ByVal mMin As Long, _
         ByVal yk As String, ByVal yMin As Long, ByVal teamCode As String) As String
+    ' R13 F12: team列は必ず SanitizeId を通してから書く。この行はタブ区切りで
+    ' あり、team値にタブやCR/LFが混じると読み手側の列がまるごとズレて、
+    ' 別人の節約時間が team として解釈される(1文字で集計が壊れる)。
+    ' SanitizeId は禁止文字を "_" に置換し64字で打ち切る既存の共通部品。
     BeaconDataText = myId & vbTab & thanksN & vbTab & dk & vbTab & dMin & vbTab & _
-        mk & vbTab & mMin & vbTab & yk & vbTab & yMin & vbTab & teamCode
+        mk & vbTab & mMin & vbTab & yk & vbTab & yMin & vbTab & SanitizeId(teamCode)
 End Function
 
 ' 旧形式(team列なし。8フィールド+送信時刻でUBound=8)を読んでも例外に

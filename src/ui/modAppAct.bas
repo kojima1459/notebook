@@ -218,9 +218,16 @@ Private Sub DrawFollowupChip(ByVal ws As Worksheet)
     Dim anchor As Range: Set anchor = ws.Range("C" & r)
     If anchor Is Nothing Then Exit Sub
 
+    ' R13 L-batch(チップの幾何): チップはヒント行(入力欄の1つ下)に
+    ' ぴったり収める。従来は「行の1pt上・高さ15固定」だったが、この行の
+    ' 高さは12ptなので下へ約2pt はみ出し、直下の会話領域の最初のバブルに
+    ' 重なっていた。行の実寸から取れば、行高を変えても重なりは起きない。
+    Dim chipH As Double: chipH = ws.Rows(rowIdx).Height
+    If chipH < 10 Then chipH = 10     ' 行が極端に低いときの下限(文字が潰れない高さ)
+
     Dim chip As Shape
-    Set chip = ws.Shapes.AddShape(5, anchor.Left, ws.Rows(rowIdx).Top - 1, _
-                                  ws.Range("C" & r & ":K" & r).Width, 15)
+    Set chip = ws.Shapes.AddShape(5, anchor.Left, ws.Rows(rowIdx).Top, _
+                                  ws.Range("C" & r & ":K" & r).Width, chipH)
     If chip Is Nothing Then Exit Sub
     chip.Name = FCHIP_NAME
     chip.Placement = 3

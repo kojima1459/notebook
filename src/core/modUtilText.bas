@@ -400,3 +400,77 @@ Public Function GsPageBounds(ByVal txt As String, ByRef firstIdx As Long, _
 
     GsPageBounds = lastIdx - firstIdx + 1
 End Function
+
+' ----------------------------------------------------------------------------
+' AppendStepBuf - 段(step)ごとの所要時間バッファへ1件足す(2026-08-03 R13 F8)
+' ----------------------------------------------------------------------------
+' 質問1回のあいだに走った各段(expand/emb/rerank/draft/verify…)の所要msを、
+' 1本の短い文字列へ畳んでいくための純ロジック。呼ぶのは modGateway だけだが、
+' 中身は文字列処理しかないのでここへ置く(modGatewayは28,000字帯に近く、
+' またこの書式はLOの実行テストから直接固定したい)。
+'
+' 書式: "expand=1200;emb=6x830;rerank=900"
+'   ・初出の段は "<名前>=<ms>"。
+'   ・同じ段が再登場したら "<回数>x<平均ms>" へ畳む(段の並びではなく
+'     「何回・平均どれくらい」が読みたい情報。多段検索の emb がこれ)。
+'   ・区切り文字(";" "=")は名前から追い出し、名前は32字で打ち切る。
+'     ここを素通しにすると、段名1つで行の書式全体が壊れる。
+'   ・全体が maxChars 以上になったら【新しい段名の追加だけ】をやめる
+'     (既出の段の畳み込みは続けるので、回数と平均は最後まで正しい)。
+' ----------------------------------------------------------------------------
+Public Function AppendStepBuf(ByVal buf As String, ByVal stepName As String, _
+                              ByVal ms As Long, ByVal maxChars As Long) As String
+    Dim nm As String
+    nm = Replace(Replace(Trim$(stepName), ";", "_"), "=", "_")
+    If LenB(nm) = 0 Then nm = "step"
+    If Len(nm) > 32 Then nm = Left$(nm, 32)
+    Dim v As Long: v = ms
+    If v < 0 Then v = 0
+    Dim lim As Long: lim = maxChars
+    If lim < 32 Then lim = 32
+
+    AppendStepBuf = buf
+    Dim parts() As String
+    Dim i As Long
+    If LenB(buf) > 0 Then
+        parts = Split(buf, ";")
+        For i = LBound(parts) To UBound(parts)
+            If InStr(parts(i), nm & "=") = 1 Then
+                Dim cnt As Long, tot As Long
+                DecodeStepPart Mid$(parts(i), Len(nm) + 2), cnt, tot
+                cnt = cnt + 1
+                tot = tot + v
+                parts(i) = nm & "=" & cnt & "x" & CLng(tot / cnt)
+                AppendStepBuf = Join(parts, ";")
+                Exit Function
+            End If
+        Next i
+    End If
+
+    ' 初出。上限に達していたら足さない(既出ぶんの精度は落とさない)。
+    If Len(buf) >= lim Then Exit Function
+    If LenB(buf) = 0 Then
+        AppendStepBuf = nm & "=" & v
+    Else
+        AppendStepBuf = buf & ";" & nm & "=" & v
+    End If
+End Function
+
+' "830"(1回) / "6x830"(6回・平均830) のどちらの形も回数と合計へ戻す。
+' 読めない値は0件0msとして扱う(壊れた値で以降の平均を汚さない)。
+Private Sub DecodeStepPart(ByVal part As String, ByRef outCount As Long, ByRef outTotal As Long)
+    outCount = 0
+    outTotal = 0
+    On Error Resume Next
+    Dim p As Long: p = InStr(part, "x")
+    If p > 0 Then
+        outCount = CLng(Val(Left$(part, p - 1)))
+        outTotal = outCount * CLng(Val(Mid$(part, p + 1)))
+    Else
+        outCount = 1
+        outTotal = CLng(Val(part))
+    End If
+    If outCount < 0 Then outCount = 0
+    If outTotal < 0 Then outTotal = 0
+    On Error GoTo 0
+End Sub

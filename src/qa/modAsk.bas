@@ -259,7 +259,10 @@ Done:
         AppendFollowupPair q, mLastCleanAnswer
         ' R13-5b: この回答が根拠にした資料を「会話の出典」として覚える。
         ' 新規質問(非followup)なら覚え直す(=前の話題を引きずらない)。
-        If nHits > 0 Then modFollowup.RememberCitedSources modAskRetrieve.HitSourceList(hits, nHits), Not isFollowup
+        ' R13 L-batch: 会話の出典メモリだけは最大8件まで覚える(逆質問の
+        ' 材料は従来どおり4件)。深掘りのスコープはここが元になるので、
+        ' 4件で切ると「引用したのに次で対象外」が起きる。
+        If nHits > 0 Then modFollowup.RememberCitedSources modAskRetrieve.HitSourceList(hits, nHits, 8), Not isFollowup
     End If
 
     ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で
@@ -287,6 +290,21 @@ Done:
     logDetail = "q=" & modUtil.SafeLeft(q, 200)
     If isFollowup Then logDetail = "followup " & logDetail
     modLog.LogUsage "ask", mdMode, logDetail, elapsedMs, nHits
+
+    ' R13 F8: 段ごとの所要時間は、質問1回につき【1行】にまとめて書き出す。
+    ' 1段1行だと1問で10行前後になり、2,000行で回る usage_log が約180問で
+    ' 一周して feedback_green 等の履歴を押し出す(modDashStat の前月比が
+    ' 静かに壊れる)。Done: は成功・失敗のどちらの経路も必ず通るので、
+    ' 書き出しとバッファの掃除はこの1点だけでよい(ConsumeStepBufは
+    ' 読んだら空にするため、次の質問へ持ち越さない)。
+    On Error Resume Next
+    Dim stepBuf As String
+    stepBuf = modGateway.ConsumeStepBuf()
+    If LenB(stepBuf) > 0 Then
+        modLog.LogUsage "ask_steps", mdMode, stepBuf, elapsedMs
+    End If
+    On Error GoTo 0
+
     modStats.Bump "ask_" & mdMode & "_total"
     modStats.AddExp "question"
 
@@ -389,13 +407,18 @@ Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
     modStats.Bump "selfsolve_total"
-    ' 節約時間の日付キー蓄積(1解決=15分)。日/月/年キーなので跨げば自動リセット、
+    ' 節約時間の日付キー蓄積。日/月/年キーなので跨げば自動リセット、
     ' 過去キーがそのまま履歴になる(modBoardのウィジェット/ビーコンが読む)。
     ' 発火点はFeedbackAcceptedガードの内側=多重カウント不可。
+    ' R13 L-batch: 1解決あたりの分数は modP2PIo.MinutesPerSelfsolve()(config
+    ' minutes_per_selfsolve、既定15)へ一本化済み。ここだけ 15 の直値が残って
+    ' いたため、係数を変えた組織では「加算は15分・表示は新係数」という
+    ' 食い違いが積み上がっていた。加算側も同じ窓口から読む。
+    Dim perSolve As Long: perSolve = modP2PIo.MinutesPerSelfsolve()
     On Error Resume Next
-    modStats.Bump "sv:d:" & modUtilText.IsoDateCompact(Date), 15
-    modStats.Bump "sv:m:" & modUtilText.IsoYm(Date), 15
-    modStats.Bump "sv:y:" & modUtilText.IsoYear(Date), 15
+    modStats.Bump "sv:d:" & modUtilText.IsoDateCompact(Date), perSolve
+    modStats.Bump "sv:m:" & modUtilText.IsoYm(Date), perSolve
+    modStats.Bump "sv:y:" & modUtilText.IsoYear(Date), perSolve
     ' 2026-07-31(レビュー R8 F8): 加算した「今日の節約時間」は、この直後に
     ' 共有フォルダのビーコンへ反映する必要がある(起動時にしか発信していない
     ' ため、全員のビーコンが「今日 0分」のまま置かれていた)。

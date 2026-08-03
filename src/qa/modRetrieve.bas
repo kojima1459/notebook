@@ -171,7 +171,8 @@ Public Function Search(ByVal query As String, ByVal topK As Long, ByRef hits() A
     Dim useCand As Boolean: useCand = False
     Dim candRows As Object
     Dim binMs As Double: binMs = 0
-    If modBitwiseOpt.Enabled(nV) Then
+    ' R13 F9: スコープ指定時は粗選別を通さない(EnabledScopedが必ずFalse)。
+    If modBitwiseOpt.EnabledScoped(nV, scopeSources) Then
         Dim tB0 As Double: tB0 = modBitwiseOpt.MicroTimerMs()
         useCand = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRows)
         binMs = modBitwiseOpt.MicroTimerMs() - tB0   ' 爆速証明: バイナリ粗選別のms
@@ -441,7 +442,7 @@ Public Function SearchExpanded(queries() As String, ByVal poolK As Long, ByRef h
         ' binary_rag の既定は FALSE のままなので、既定の挙動は変わらない。
         Dim useCandQ As Boolean: useCandQ = False
         Dim candRowsQ As Object
-        If modBitwiseOpt.Enabled(nV) Then
+        If modBitwiseOpt.EnabledScoped(nV, scopeSources) Then
             useCandQ = modBitwiseOpt.Prefilter(qv, vData, modBitwiseOpt.PrefilterN(), candRowsQ)
             If useCandQ Then UnionKeyMatchRows idData, kData, idx, sparseKeys2, candRowsQ
         End If

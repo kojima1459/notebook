@@ -86,6 +86,39 @@ Public Function ShouldPrefilter(ByVal rowCount As Long, ByVal minN As Long, _
     ShouldPrefilter = (explicitOn Or autoOn)
 End Function
 
+' ----------------------------------------------------------------------------
+' EnabledScoped / ShouldPrefilterScoped - スコープ検索では粗選別を使わない
+' (2026-08-03 R13 F9)。
+' ----------------------------------------------------------------------------
+' 粗選別は【本棚全体】に対するハミング距離の上位N件を候補にする。ところが
+' 「会話で引用済みの資料だけを深掘りする」スコープ検索では、そのあとで
+' スコープ辞書による絞り込みが走るため、本棚が大きいほど
+'   (全体の上位N件) ∩ (スコープ内の行) → ほぼ空
+' になり、深掘りが「候補ゼロ」でスコープ無しへ落ちる。R12 High-1
+' (絞り込みの順序が逆で候補が枯れる)と同じ構造の欠陥である。
+'
+' スコープ検索は辞書の Exists 判定でベクトル計算の【前に】対象外行を捨てる
+' ので、そもそも粗選別の節約が要らない(残る行はもともと数十件規模)。
+' よって「スコープ指定あり=粗選別オフ」でよい。判定式そのものは
+' ShouldPrefilterScoped(純ロジック)に置き、configから切り離して固定する。
+Public Function EnabledScoped(ByVal rowCount As Long, ByVal scopeSources As Object) As Boolean
+    On Error GoTo OffScoped
+    EnabledScoped = ShouldPrefilterScoped(rowCount, modConfig.GetLong("binary_rag_min", 5000), _
+                                          modConfig.GetBool("binary_rag", False), _
+                                          modConfig.GetBool("binary_rag_auto", True), _
+                                          Not (scopeSources Is Nothing))
+    Exit Function
+OffScoped:
+    EnabledScoped = False
+End Function
+
+Public Function ShouldPrefilterScoped(ByVal rowCount As Long, ByVal minN As Long, _
+                                      ByVal explicitOn As Boolean, ByVal autoOn As Boolean, _
+                                      ByVal scoped As Boolean) As Boolean
+    If scoped Then Exit Function
+    ShouldPrefilterScoped = ShouldPrefilter(rowCount, minN, explicitOn, autoOn)
+End Function
+
 ' 粗選別で残す候補数。既定は定数TOP_K_ROUGH、config binary_rag_prefilterで実行時上書き可。
 Public Function PrefilterN() As Long
     On Error Resume Next

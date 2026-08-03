@@ -280,7 +280,21 @@ Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     ' 節約」を0分と偽らず「未接続」と出す。modShare.Reachable()は1セッション
     ' 1回だけ実際に確かめてキャッシュする関所(2回目以降は判定コストゼロ)
     ' なので、ここで呼んでも再描画のたびに新しい網羅プローブは増えない。
-    If modShare.Reachable() Then
+    '
+    ' R13 F6: ただし Reachable() は「未設定」と「設定済みだが届かない」の
+    ' 両方で False を返す。配布既定の共有パスが空になった今、そのままでは
+    ' 共有をまだ設定していない大多数の利用者に「未接続」+VPNの確認を促す
+    ' ことになり、これは事実に反する案内(そもそも繋ぎに行っていない)。
+    ' パスが空かどうかを先に見て、3状態(未設定 > 未接続 > 通常)に分ける。
+    ' 判定材料は modShare.BasePath()(到達性を見ない設定値だけの窓口)。
+    Dim shareSet As Boolean
+    On Error Resume Next
+    shareSet = (LenB(modShare.BasePath()) > 0)
+    On Error GoTo 0
+    If Not shareSet Then
+        vOrgD = "未設定"
+        vOrgM = "未設定"
+    ElseIf modShare.Reachable() Then
         vOrgD = OrgMin("d")
         vOrgM = OrgMin("m")
     Else
@@ -434,6 +448,9 @@ Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     chOver = modChannel.OverflowCount()
     On Error GoTo 0
 
+    ' R13 F6: 分岐の優先順位は【未設定 > 未接続 > 通常】。未設定の端末は
+    ' そもそも共有へ繋ぎに行っていないので、ネットワーク/VPNの確認を促すのは
+    ' 事実に反する。未設定の案内(shareOk=False)は必ずこの位置=最初に置く。
     Dim cap As String, act As String
     If Not shareOk Then
         cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _

@@ -158,13 +158,24 @@ Public Sub OnSend()
     End If
     On Error GoTo Fail
 
+    ' R13 F3(武装したフォローアップの漏れ止め): 「続きの質問」の武装は
+    ' 【モード分岐より前に】必ず1回で解決する。従来は normal 分岐が
+    ' ConsumeArmedFollowup へ到達する前に return していたため、一般アシスタント
+    ' へ1回投げるだけで武装とチップが残り、そのあとの新規のRAG質問が
+    ' 本人の知らないうちに「前回の会話の続き」として扱われていた。
+    ' 一般アシスタントには会話引き継ぎの意味論が無いので、ここでは
+    ' 「解除して普通の一般質問として進む」が唯一正しい振る舞いになる。
+    Dim isFollowup As Boolean
+    isFollowup = modAppAct.ConsumeArmedFollowup()
+    If sendMode = "normal" Then isFollowup = False
+
     Dim t0 As Double: t0 = Timer
 
     Dim ans As String
     Dim grounded As Boolean
     If sendMode = "normal" Then
         ans = modAppState.AskGeneral(q, "")
-    ElseIf modAppAct.ConsumeArmedFollowup() Then
+    ElseIf isFollowup Then
         ' R13-6a: 「続けて質問/深掘り」で武装済み。会話を引き継いで答える
         ' (エフォートは AskFollowup が送信時点のトグル値を読む=6b)。
         ' 本棚が空かどうかより先に判定する。ここを後ろに置くと、資料を
@@ -516,6 +527,12 @@ Public Sub OnToggleMode()
     End If
     modAppState.WriteUiState modAppState.MODE_KEY, newMode
     modAppState.UpdateModeButton
+    ' R13 F3: モードを跨いだら「続きの質問」の武装は捨てる。一般アシスタントには
+    ' 会話引き継ぎの意味論が無く、RAGへ戻したときに前の話題が生き返るのも
+    ' 利用者の意図ではない。切替が成功したこの位置(busyガードの後)でだけ解除する。
+    On Error Resume Next
+    modAppAct.OnFollowupChipOff
+    On Error GoTo 0
 End Sub
 
 ' すぐ聞く/しっかり調べる切替。ホームと同じui_state "mode"キーを共有。
@@ -540,6 +557,11 @@ Public Sub OnToggleSpeed()
     On Error Resume Next
     ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
     modUINexusDraw.RedrawChatHeader
+    ' R13 F3: 力の入れ方(effort)の切替では武装は保つ ―― 「チップを出したまま
+    ' モードを選んで送る」は R13-6b の設計そのもの。ただしチップに書いてある
+    ' モード名は【押した時点】の文字列なので、切り替えたら描き直さないと
+    ' 表示だけが古い名前のまま残る(実際に使われるのは送信時点の値)。
+    modAppAct.RedrawFollowupChip
     modSkin.ShowToast modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed), "info"
     On Error GoTo 0
 End Sub
@@ -646,7 +668,12 @@ Public Sub OnSaveAndExit()
     ' R11-A C1 / R13-4d: 取込中は「無反応」でも「黙って終了」でもなく、
     ' 何が起きているかを伝えて選ばせる(いいえ=終了中止)。
     If Not modUiLock.ConfirmCloseDuringIngest() Then Exit Sub
-    If Not modUiLock.Enter() Then Exit Sub
+    If Not modUiLock.Enter() Then
+        ' 承諾はしたが、別の処理中で終了に進めなかった。この承諾は使われないまま
+        ' 60秒生き残り、その間の×クリックが無確認で閉じる(R13 F5)。捨てる。
+        modUiLock.CancelCloseOk
+        Exit Sub
+    End If
     Dim resp As VbMsgBoxResult
     resp = MsgBox("保存してこのファイルを閉じますか?" & vbCrLf & vbCrLf & _
         "  [はい] 保存して閉じます" & vbCrLf & _
@@ -654,6 +681,10 @@ Public Sub OnSaveAndExit()
         "  [キャンセル] 閉じずに元の画面へ戻ります", _
         vbYesNoCancel + vbQuestion, modAppDef.APP_NAME)
     If resp = vbCancel Then
+        ' 終了は取りやめ。取込中の終了承諾も一緒に取り消す(R13 F5)。
+        ' ここを消し忘れると「やめる」と答えた直後の60秒だけ、×クリックが
+        ' 確認なしで閉じる窓が開く。
+        modUiLock.CancelCloseOk
         modUiLock.Leave
         Exit Sub
     End If

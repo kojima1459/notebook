@@ -16,7 +16,8 @@ Option Explicit
 '
 ' 設計判断:
 '   ・節約時間の実データは modStats の日付キー(sv:d:yyyymmdd / sv:m:yyyymm /
-'     sv:y:yyyy)。✅解決(modAsk.FeedbackGreen)時に1回15分をBumpする(発火点は
+'     sv:y:yyyy)。✅解決(modAsk.FeedbackGreen)時に1回ぶん(分数は
+'     modP2PIo.MinutesPerSelfsolve。config minutes_per_selfsolve、既定15)をBumpする(発火点は
 '     modAsk内=多重防止ガードの内側)。日付キー方式なので「日/月/年を跨いだら
 '     リセット」はロジック不要で自動成立し、過去キーがそのまま履歴になる。
 '   ・ビーコンには自分の dayKey/monKey/yearKey を明記し、集計側は「現在の同じ
@@ -37,9 +38,9 @@ Private Const WIDGET_TOP As Double = 386     ' サイドバー内の縦位置(na
 Private mOrgDay As Long, mOrgMon As Long, mOrgYear As Long
 Private mTitles As Object    ' Dictionary: id(小文字) -> thanks受領数
 Private mLoaded As Boolean
-' R13-7c: 自分の部(DeptOf)一致ビーコンだけの合算(今日/今月)と、その元の
+' R13-7c: 自分の部(DeptOf)一致ビーコンだけの今月合算と、その元の
 ' 自分のチーム/部コード。myDeptが空(チーム不明)のときはポップアップへ出さない。
-Private mDeptDay As Long, mDeptMon As Long
+Private mDeptMon As Long
 Private mMyDept As String
 ' BootBoard を通ったか(2026-07-30 レビュー2-C)。起動シーケンス中の
 ' Hub初期描画から共有フォルダI/Oを走らせないためのゲート。
@@ -161,9 +162,9 @@ Public Sub OnWidgetClick()
            "【みんな(組織全体)】" & vbLf & _
            "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
            "  /  今年: " & FmtMin(mOrgYear) & DeptLineForPopup() & vbLf & vbLf & _
-           "※「" & ChrW(&H2705) & "解決した」1回=15分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
-           "  組織に共有・合算されます。" & vbLf & _
-           "自己解決1件=15分換算の目安。共有フォルダ経由で最大10分遅れで集計" & vbLf & _
+           "※「" & ChrW(&H2705) & "解決した」1回=" & modP2PIo.MinutesPerSelfsolve() & _
+           "分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
+           "  組織に共有・合算されます(共有フォルダ経由なので最大10分遅れの目安)。" & vbLf & _
            "(クリックで閉じる)"
 
     ' 位置は画面の見えている範囲から中央寄せ(旧サイドバー幅を前提にした
@@ -358,7 +359,7 @@ Private Sub RefreshBoard()
 
     mAggAt = Timer
     mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
-    mDeptDay = 0: mDeptMon = 0
+    mDeptMon = 0
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
 
@@ -390,20 +391,25 @@ Private Sub RefreshBoard()
             If UBound(f) >= 8 Then
                 Dim uid As String: uid = LCase$(Trim$(f(0)))
                 If LenB(uid) > 0 Then
-                    mTitles(uid) = CLng(Val(f(1)))                      ' 称号: 感謝受領数
-                    If f(2) = dk Then mOrgDay = mOrgDay + CLng(Val(f(3)))   ' 同じ日キーのみ合算
-                    If f(4) = mk Then mOrgMon = mOrgMon + CLng(Val(f(5)))
-                    If f(6) = yk Then mOrgYear = mOrgYear + CLng(Val(f(7)))
+                    ' R13 L-batch: 数値欄は必ず SafeNum を通す。素の CLng(Val(...))
+                    ' だと壊れたビーコン1本("99999999999" 等)でオーバーフローし、
+                    ' その時点で集計ループごと中断=以降の全員ぶんが欠ける。
+                    mTitles(uid) = SafeNum(f(1))                      ' 称号: 感謝受領数
+                    If f(2) = dk Then mOrgDay = mOrgDay + SafeNum(f(3))   ' 同じ日キーのみ合算
+                    If f(4) = mk Then mOrgMon = mOrgMon + SafeNum(f(5))
+                    If f(6) = yk Then mOrgYear = mOrgYear + SafeNum(f(7))
 
                     ' R13-7c: 自分の部が分かっているときだけ、同じ部のビーコンを
                     ' 追加で合算する(team列が無い旧形式ビーコンはBeaconTeamFieldが
                     ' 空文字を返すので自然に対象外になる)。
+                    ' R13 L-batch: 日次の部合算(旧mDeptDay)は溜めるだけで
+                    ' どこにも出ていなかったので外した。出す先ができたときに
+                    ' 月次と同じ形で足せばよい(使われない状態のまま持たない)。
                     If LenB(mMyDept) > 0 Then
                         Dim beaconTeam As String: beaconTeam = modP2PIo.BeaconTeamField(f)
                         If LenB(beaconTeam) > 0 Then
                             If StrComp(modP2PIo.DeptOf(beaconTeam), mMyDept, vbTextCompare) = 0 Then
-                                If f(2) = dk Then mDeptDay = mDeptDay + CLng(Val(f(3)))
-                                If f(4) = mk Then mDeptMon = mDeptMon + CLng(Val(f(5)))
+                                If f(4) = mk Then mDeptMon = mDeptMon + SafeNum(f(5))
                             End If
                         End If
                     End If
@@ -451,13 +457,20 @@ Private Function MyMin(ByVal kind As String, ByVal keyPart As String) As Long
     On Error GoTo 0
 End Function
 
-' R13-7c: 自分のチーム/部コードの優先順位。config user_department(非空なら
-' そのまま採用)→ modP2PIo.TeamCodeOf(自分のuserId)。どちらも取れなければ
-' 空(DeptOfも空を返すので、部の合算行そのものがポップアップに出ない)。
+' R13-7c: 自分のチーム/部コードの優先順位。config user_department →
+' modP2PIo.TeamCodeOf(自分のuserId)。どちらも取れなければ空(DeptOfも空を
+' 返すので、部の合算行そのものがポップアップに出ない)。
+'
+' R13 F12: user_department は自由記述で、実機には「営業部」のような部署名が
+' 入っている。初版はそれを無検証で採用していたため、team列に日本語が乗り、
+' DeptOf がその先頭3字を部コードとして扱っていた(他端末と噛み合わず、
+' 部別集計が黙って狂う)。規約に合う文字列のときだけ採用し、合わなければ
+' 自分のuserIdからの推定へ落とす ―― 「設定されているが規約外」を
+' 「未設定」と同じに扱うのが、集計を汚さない唯一の扱い方になる。
 Private Function MyTeamCode() As String
     On Error Resume Next
     Dim d As String: d = Trim$(modConfig.GetString("user_department", ""))
-    If LenB(d) > 0 Then
+    If modP2PIo.IsTeamCode(d) Then
         MyTeamCode = d
         Exit Function
     End If
@@ -470,8 +483,31 @@ End Function
 Private Function DeptLineForPopup() As String
     If LenB(mMyDept) = 0 Then Exit Function
     If mDeptMon <= 0 Then Exit Function
-    Dim hrs As Long: hrs = CLng(Round(mDeptMon / 60, 0))
-    DeptLineForPopup = vbLf & "  部(" & mMyDept & ")で今月 約" & hrs & "時間"
+    ' R13 L-batch: 60分未満を時間へ丸めると「約0時間」になる。1分でも
+    ' 貯まっているから出している行なのに「0」と書くのは、事実としても
+    ' 労いとしても間違っている。60分未満は分のまま出す。
+    Dim amt As String
+    If mDeptMon < 60 Then
+        amt = mDeptMon & "分"
+    Else
+        amt = CLng(Round(mDeptMon / 60, 0)) & "時間"
+    End If
+    DeptLineForPopup = vbLf & "  部(" & mMyDept & ")で今月 約" & amt
+End Function
+
+' ビーコンの数値欄を安全に読む(R13 L-batch)。共有フォルダのファイルは
+' 誰でも書ける以上、壊れた値・巨大な値・負の値が来る前提で扱う。
+' Long の範囲を超える値で CLng がオーバーフローすると、集計ループが
+' その1本で止まり、以降のビーコンが【全部】欠けたまま画面に出てしまう。
+' 1億分(=約190年ぶん)を超える値と負の値は、現実の節約時間ではないので
+' 0 として捨てる。読めない文字列は Val が 0 を返すのでそのまま 0 になる。
+Private Function SafeNum(ByVal s As String) As Long
+    On Error GoTo Bad
+    Dim v As Double: v = Val(s)
+    If v < 0 Or v > 100000000# Then Exit Function
+    SafeNum = CLng(v)
+    Exit Function
+Bad:
 End Function
 
 ' 直近7日の個人履歴(日付キーを7回引くだけ。0分の日は「-」)。
