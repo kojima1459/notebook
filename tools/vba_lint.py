@@ -254,9 +254,13 @@ CONTRACT: dict[str, dict] = {
     # 表示を担えるようにする。
     # IsBatchBusy(2026-07-31 R10c H2): バッチ取込全体を覆う再入ガードの参照口。
     # modShelf.IsBusy が自分の mIngesting と OR で見るためだけに公開している。
+    # StageBanner(2026-08-03 R13-4a): 取込の段階表示を進捗バナーへ流す薄いAPI。
+    # 「バナーが既に出ているときだけ更新する」という規約を1箇所に閉じ込める
+    # ためのPublicで、silent(自動同期)経路では何も表示しない。
     "modShelfBatch": {
         "closed": True,
-        "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy"],
+        "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
+                     "StageBanner"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -506,6 +510,15 @@ CONTRACT: dict[str, dict] = {
             # (GsLogFor)と、完了フラグに書かせた終了コードの読み取り
             # (GsExitCodeFromFlag)。どちらも純粋な文字列処理。
             "GsLogFor", "GsExitCodeFromFlag",
+            # R13-1b/1c/1d(2026-08-03 実機第2報): GS待ちと失敗分類の判断材料を
+            # 副作用ゼロで切り出したもの。ClassifyGsTextResult は「完了したのに
+            # 本文が空」の本当の理由(image/gsfail/flagdelay)を決める真理表で、
+            # ここを間違えるとスキャンPDFがWordのゴミ本文で「登録成功」になる
+            # (RC1の事故そのもの)。GsTotalPagesFromLog/GsPagesFromLog は
+            # gs_out.log から総ページ数と到達ページを読む進捗監視の目、
+            # GsWaitBanner はその進捗の見せ方。全てLOテストで固定する。
+            "ClassifyGsTextResult", "GsTotalPagesFromLog", "GsPagesFromLog",
+            "GsWaitBanner",
         ],
     },
     # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
@@ -1861,6 +1874,17 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                 if target.layer == LAYER_FOUNDATION:
                     continue
                 if prefix == "modUIMain" and member == "SetStage":
+                    continue
+                # R13-1d(2026-08-03): opt層からの段階バナー更新。
+                # SetStage の出力先(状態行/StatusBar/チャットバブル)はNexus
+                # 画面では実質不可視で、GSの本文抽出を数分待つあいだ利用者には
+                # 何も見えなかった(実機第2報 RC5・憲章§3-2)。modShelfBatch.
+                # StageBanner は「進捗バナーが既に出ているときだけ更新する」
+                # 副作用の閉じた通知コールバックで、SetStage と同じ性質
+                # (実況を伝えるだけ・業務ロジックを一切呼び返さない)。
+                # 広げるときは必ずここへ足す=どのoptが画面へ触れるかが
+                # 1箇所で分かる状態を保つ。
+                if prefix == "modShelfBatch" and member == "StageBanner":
                     continue
                 if target.layer == LAYER_OPT:
                     continue

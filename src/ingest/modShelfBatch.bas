@@ -53,6 +53,53 @@ Public Function IsBatchBusy() As Boolean
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' StageBanner - 取込の【段階】を進捗バナー(nx_progress)へ流す薄いAPI
+'   (2026-08-03 R13-4a。最初の呼び手はR13-1dのGS本文抽出の待ちループ)。
+'
+' 規約はただ1つ: 【進捗バナーが今すでに出ているときだけ】更新する。
+'   ・手動の「資料を追加」や手動同期では、ループ側が先に ShowProgress を
+'     呼んでバナーを出しているので、ここからの更新は素直に届く。
+'   ・自動同期(silent)や起動時の裏処理ではバナーが出ていない。そこで
+'     ShowProgress を呼ぶと、利用者が何もしていないのに画面へ黒い帯が
+'     突然生えることになる(憲章§3-4「利用者を不安にさせない」に反する)。
+'     出ていないなら黙る、というこの1点だけで silent は silent のままになる。
+'
+' なぜフラグを配線しないのか: 呼び出し元(取込→抽出→GS待ち)は層をまたぐ
+' 長い経路で、silent かどうかを引数で運ぼうとすると modShelfSync まで
+' 波及する(本ラウンドは接触禁止)。「今バナーが出ているか」という画面の
+' 事実を1回見るだけなら、経路のどこも書き換えずに同じ判断ができる。
+'
+' 可視判定は「今のシートに nx_progress という名前のShapeがあるか」で行う。
+' 表示の実体(modSkin.PaintProgress/ClearProgress)はこのShapeを作って消して
+' いるだけなので、これが唯一の事実。modUIMain 側は状態を持っていないため
+' 問い合わせ用のPublicを足す必要が無い(容量も残り僅かなので足さない)。
+' 表示系の失敗が取込を壊してはならない(憲章§4-4)ので全体をOERNで包む。
+' ----------------------------------------------------------------------------
+Public Sub StageBanner(ByVal text As String)
+    On Error Resume Next
+    If LenB(text) = 0 Then Exit Sub
+    If Not IsProgressBannerVisible() Then Exit Sub
+    modUIMain.ShowProgress text
+    On Error GoTo 0
+End Sub
+
+' 進捗バナーが今この画面に出ているか(StageBanner専用の可視判定)。
+' 別ブックを見ている間は「出ていない」とみなす(PaintProgressの誤爆ガードと
+' 同じ考え方)。Shapesの取得はShapeが無いとエラーになるので、OERNで受けて
+' Nothing のままかどうかで判定する。
+Private Function IsProgressBannerVisible() As Boolean
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Function
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    If ws Is Nothing Then Exit Function
+    Dim shp As Object
+    Set shp = ws.Shapes("nx_progress")
+    IsProgressBannerVisible = Not (shp Is Nothing)
+    On Error GoTo 0
+End Function
+
 '
 ' AddFilesViaDialog - 複数選択FileDialog(フィルタ=SupportedExts)→各IngestFile
 '   OnAction互換の後方互換ラッパー(リボン/ボタンから直接呼ぶ用)。

@@ -247,6 +247,116 @@ Public Function GsTextVerdict(ByVal cleanLen As Long, ByVal pageCount As Long) A
 End Function
 
 ' ----------------------------------------------------------------------------
+' ClassifyGsTextResult - txtwrite が「完了したのに本文が空」だったときの
+'   本当の理由を1語に落とす(2026-08-03 R13-1b)。
+'   rc            : 完了フラグから読んだGSの終了コード(-1=不明)
+'   txtLen        : 読み出せた出力テキストの長さ(0=空)
+'   gsOutHasPages : gs_out.log に "Processing pages 1 through N" があったか
+'   戻り値の4値:
+'     "ok"        本文が取れている。分類の対象外(呼び出し元は通常経路へ)。
+'     "image"     GSは正常終了(rc=0)し、ページ処理も走ったのに文字が1字も
+'                 出なかった=文字層の無いスキャンPDF。GsTextVerdict の
+'                 "image" と同じ扱いで E0303(OCR経路)へ回す。
+'     "gsfail"    GSの実行そのものが失敗した(rc<>0)。従来どおりE0302で
+'                 Word/Acrobat連鎖へ譲る。gs_outのtailを添えて記録する。
+'     "flagdelay" 完了フラグは出たが中身(終了コード)が最後まで読めなかった。
+'                 rcが不明なので image と決めつけてはならない(誤ってOCRへ
+'                 回すと、実際にはGSが落ちていた資料が「画像PDF」として
+'                 記録され原因が消える)。E0302 + detail に flag_delayed。
+'   なぜ切り出したか(RC1): 実機第2報では「txtwrite出力を読めず」の
+'   E0302 が画像PDF判定より先に発火し、44頁の約款がWordのゴミ本文で
+'   「登録成功」になった。分類の順序こそが事故の本体なので、副作用ゼロの
+'   関数にして真理表をLOテストで固定する(憲章§4-5)。
+' ----------------------------------------------------------------------------
+Public Function ClassifyGsTextResult(ByVal rc As Long, ByVal txtLen As Long, _
+                                     ByVal gsOutHasPages As Boolean) As String
+    If txtLen > 0 Then
+        ClassifyGsTextResult = "ok"
+        Exit Function
+    End If
+
+    If rc < 0 Then
+        ClassifyGsTextResult = "flagdelay"
+        Exit Function
+    End If
+
+    If rc = 0 And gsOutHasPages Then
+        ClassifyGsTextResult = "image"
+        Exit Function
+    End If
+
+    ClassifyGsTextResult = "gsfail"
+End Function
+
+' ----------------------------------------------------------------------------
+' GsTotalPagesFromLog - gs_out.log の "Processing pages 1 through 44." から
+'   総ページ数(44)を読む(2026-08-03 R13-1c/1d)。見つからなければ 0。
+'   GSはこの行を処理の【最初】に出すので、呼び出し元はログの先頭を渡す。
+'   ログはCP932(コンソールのコードページ)の生バイトを素のOpenで読んだもので、
+'   改行はスペースへ潰されている前提。大小は区別せず探す(GSの版差の保険)。
+' ----------------------------------------------------------------------------
+Public Function GsTotalPagesFromLog(ByVal logText As String) As Long
+    Dim marker As String: marker = "through"
+    Dim p As Long: p = InStr(1, logText, marker, vbTextCompare)
+    If p = 0 Then Exit Function
+    ' "Processing pages" が前にあることまで確かめる(別の through との取り違え防止)。
+    If InStr(1, Left$(logText, p), "Processing pages", vbTextCompare) = 0 Then Exit Function
+    GsTotalPagesFromLog = FirstNumberFrom(logText, p + Len(marker))
+End Function
+
+' ----------------------------------------------------------------------------
+' GsPagesFromLog - gs_out.log に現れる "Page N" のうち最大のNを返す
+'   (2026-08-03 R13-1c)。見つからなければ 0。
+'   進捗が動いているかの唯一の観測点なので、末尾だけを渡されても
+'   (途中で切れた数字があっても)最大値だけを拾えば足りる。
+'   "Processing pages" の "pages" を拾わないよう、比較は大小を区別する
+'   (GSは進捗行を必ず "Page " と大文字で始める)。
+' ----------------------------------------------------------------------------
+Public Function GsPagesFromLog(ByVal logText As String) As Long
+    Dim marker As String: marker = "Page "
+    Dim p As Long: p = InStr(1, logText, marker, vbBinaryCompare)
+    Do While p > 0
+        Dim n As Long: n = FirstNumberFrom(logText, p + Len(marker))
+        If n > GsPagesFromLog Then GsPagesFromLog = n
+        p = InStr(p + Len(marker), logText, marker, vbBinaryCompare)
+    Loop
+End Function
+
+' ----------------------------------------------------------------------------
+' GsWaitBanner - 本文抽出の待ち時間に出す進捗バナーの文面(R13-1d)。
+'   「本文抽出中… 12/44ページ (経過 35秒) 残り約93秒」
+'   ・総ページ数が読めるまでは経過秒だけを出す(嘘の分母を出さない)。
+'   ・残り時間はページが3枚以上進んでから出す(1枚目だけの実績で出すと
+'     表示が跳ね回り、かえって「動いていない」不安を生む)。
+'   表示専用の純関数。ここで組み立てるのは文字列だけで、描くのは呼び出し元。
+' ----------------------------------------------------------------------------
+Public Function GsWaitBanner(ByVal pagesSeen As Long, ByVal totalPages As Long, _
+                             ByVal elapsedSec As Long) As String
+    Dim s As String: s = "本文抽出中… "
+    Dim el As Long: el = elapsedSec
+    If el < 0 Then el = 0
+
+    If totalPages > 0 Then
+        Dim p As Long: p = pagesSeen
+        If p < 0 Then p = 0
+        If p > totalPages Then p = totalPages
+        s = s & p & "/" & totalPages & "ページ "
+    End If
+
+    s = s & "(経過 " & el & "秒)"
+
+    If totalPages > 0 And pagesSeen >= 3 And pagesSeen < totalPages And el > 0 Then
+        Dim remain As Double
+        remain = (CDbl(totalPages - pagesSeen) * CDbl(el)) / CDbl(pagesSeen)
+        Dim remSec As Long: remSec = CLng(Int(remain + 0.5))
+        If remSec < 1 Then remSec = 1
+        s = s & " 残り約" & remSec & "秒"
+    End If
+
+    GsWaitBanner = s
+End Function
+
+' ----------------------------------------------------------------------------
 ' CleanTextLen - 空白類(半角/全角スペース・タブ・改行・改ページ)を除いた
 '   文字数(R10cで optGsTxt から移設。純ロジックなのでここが正しい置き場)。
 '   txtwriteは画像PDFに対しても改ページ文字だけは律儀に書き出すので、素のLenで
@@ -386,6 +496,30 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+' 位置 startPos 以降で最初に現れる連続した半角数字を整数として返す(無ければ0)。
+' 数字の前の空白は読み飛ばすが、数字以外の文字に当たった時点で諦める
+' (「Page abc」のような想定外の行を無理に解釈しないため)。
+' 桁あふれ防止に9桁で打ち切る(ページ数がそれを超えることはない)。
+Private Function FirstNumberFrom(ByVal s As String, ByVal startPos As Long) As Long
+    Dim i As Long: i = startPos
+    If i < 1 Then i = 1
+    Do While i <= Len(s)
+        If Mid$(s, i, 1) <> " " Then Exit Do
+        i = i + 1
+    Loop
+
+    Dim digits As String: digits = ""
+    Do While i <= Len(s)
+        Dim c As String: c = Mid$(s, i, 1)
+        If InStr("0123456789", c) = 0 Then Exit Do
+        digits = digits & c
+        If Len(digits) >= 9 Then Exit Do
+        i = i + 1
+    Loop
+
+    If LenB(digits) > 0 Then FirstNumberFrom = CLng(digits)
+End Function
 
 Private Function AppendCandidate(ByVal existing As String, ByVal newPart As String) As String
     If LenB(existing) = 0 Then

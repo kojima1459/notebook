@@ -24,6 +24,11 @@ Option Explicit
 '     検索時のその場計算が1文字も違わないこと。
 '   ・modExtractorPdf.TempBaseNameFor(2026-08-03 R13-2): 一時コピー名が
 '     ASCIIだけで出来ていること・拡張子を落とさないこと・決定的であること。
+'   ・optOcrCore.ClassifyGsTextResult(2026-08-03 R13-1b): 「GSは完了したのに
+'     本文が空」の理由を image/gsfail/flagdelay のどれに倒すかの真理表。
+'     実機第2報 RC1(スキャンPDFがWordのゴミ本文で「登録成功」)の再発防止。
+'   ・optOcrCore.GsTotalPagesFromLog / GsPagesFromLog / GsWaitBanner
+'     (2026-08-03 R13-1c/1d): gs_out.log から進捗を読む目と、その見せ方。
 ' ============================================================================
 
 ' テスト用の my_vectors 相当(chunk_id, vector_csv)の2列配列を作る。
@@ -282,6 +287,130 @@ Private Sub TestTempBaseNameFor()
         IsAsciiOnly(nm1), "nm1=" & nm1
 End Sub
 
+' ----------------------------------------------------------------------------
+' optOcrCore.ClassifyGsTextResult の真理表(2026-08-03 R13-1b)。
+'   実機第2報 RC1 の事故は「finished かつ txt空」を一律E0302にしていたこと。
+'   スキャンPDFがOCRへ回らずWord経路へ落ち、Wordのリフローが作ったゴミ本文が
+'   ザルゲートを通過して44頁の約款が chunks=1 / done で「登録成功」になった。
+'   分類の順序そのものが事故の本体なので、ここで全組み合わせを固定する。
+'   特に大事な2点:
+'     ・rc不明(-1)を image にしてはならない。実際にはGSが落ちていた資料が
+'       「画像PDF」として記録され、原因が永久に分からなくなる。
+'     ・rc=0でもページ処理の痕跡が無いなら image ではない(EDRに実行を
+'       止められた等、GSがPDFを開く前に終わった場合)。
+' ----------------------------------------------------------------------------
+Private Sub TestClassifyGsTextResult()
+    ' 本文が取れているときは分類の対象外。rcもログの中身も見ない。
+    modTestRunner.Check "Classify_本文ありはok(rc=0)", _
+        (optOcrCore.ClassifyGsTextResult(0, 1234, True) = "ok"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(0, 1234, True)
+    modTestRunner.Check "Classify_本文ありはok(rc非0でもok)", _
+        (optOcrCore.ClassifyGsTextResult(1, 1234, False) = "ok"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(1, 1234, False)
+    modTestRunner.Check "Classify_本文ありはok(rc不明でもok)", _
+        (optOcrCore.ClassifyGsTextResult(-1, 1, False) = "ok"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(-1, 1, False)
+
+    ' 空 x rc=0 x ページ処理あり = 文字層なし(スキャンPDF)。ERR_303→OCRへ。
+    modTestRunner.Check "Classify_空_rc0_ページ処理ありはimage", _
+        (optOcrCore.ClassifyGsTextResult(0, 0, True) = "image"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(0, 0, True)
+
+    ' 空 x rc=0 x ページ処理なし = GSがPDFを開く前に終わっている。imageではない。
+    modTestRunner.Check "Classify_空_rc0_ページ処理なしはgsfail", _
+        (optOcrCore.ClassifyGsTextResult(0, 0, False) = "gsfail"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(0, 0, False)
+
+    ' 空 x rc<>0 = GS実行失敗。ページ処理の有無によらず gsfail(E0302)。
+    modTestRunner.Check "Classify_空_rc1_ページ処理ありでもgsfail", _
+        (optOcrCore.ClassifyGsTextResult(1, 0, True) = "gsfail"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(1, 0, True)
+    modTestRunner.Check "Classify_空_rc1_ページ処理なしもgsfail", _
+        (optOcrCore.ClassifyGsTextResult(1, 0, False) = "gsfail"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(1, 0, False)
+    modTestRunner.Check "Classify_空_rc255(クラッシュ系)はgsfail", _
+        (optOcrCore.ClassifyGsTextResult(255, 0, True) = "gsfail"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(255, 0, True)
+
+    ' 空 x rc不明(-1) = フラグ書込み遅延。ページ処理の有無によらず flagdelay。
+    ' ここを image に倒すと「GSが落ちた資料」が画像PDF扱いで記録される。
+    modTestRunner.Check "Classify_空_rc不明_ページ処理ありはflagdelay", _
+        (optOcrCore.ClassifyGsTextResult(-1, 0, True) = "flagdelay"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(-1, 0, True)
+    modTestRunner.Check "Classify_空_rc不明_ページ処理なしもflagdelay", _
+        (optOcrCore.ClassifyGsTextResult(-1, 0, False) = "flagdelay"), _
+        "実際=" & optOcrCore.ClassifyGsTextResult(-1, 0, False)
+End Sub
+
+' ----------------------------------------------------------------------------
+' gs_out.log からの進捗読み取り(R13-1c)と待ちバナーの文面(R13-1d)。
+'   ここが0を返し続けると「進んでいるのに無進捗と判定して打ち切る」ため、
+'   実際のGS出力と同じ形(改行はスペースへ潰した後の姿)で固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestGsLogProgressParse()
+    Dim logText As String
+    logText = "Processing pages 1 through 44. Page 1 Page 2 Page 3 Page 12 "
+
+    modTestRunner.Check "GsTotalPages_Processing行から総ページ数", _
+        (optOcrCore.GsTotalPagesFromLog(logText) = 44), _
+        "実際=" & optOcrCore.GsTotalPagesFromLog(logText)
+    modTestRunner.Check "GsPages_最大のPage番号を拾う", _
+        (optOcrCore.GsPagesFromLog(logText) = 12), _
+        "実際=" & optOcrCore.GsPagesFromLog(logText)
+
+    ' "Processing pages" の pages を Page として拾ってはいけない(大小を区別)。
+    Dim headOnly As String: headOnly = "Processing pages 1 through 44. "
+    modTestRunner.Check "GsPages_Processing行だけなら0", _
+        (optOcrCore.GsPagesFromLog(headOnly) = 0), _
+        "実際=" & optOcrCore.GsPagesFromLog(headOnly)
+
+    ' 末尾500字だけを渡された場合(Processing行は切れて見えない)。
+    Dim tailOnly As String: tailOnly = "Page 41 Page 42 Page 43 Page 44 "
+    modTestRunner.Check "GsPages_末尾だけでも最大値が取れる", _
+        (optOcrCore.GsPagesFromLog(tailOnly) = 44), _
+        "実際=" & optOcrCore.GsPagesFromLog(tailOnly)
+    modTestRunner.Check "GsTotalPages_Processing行が無ければ0", _
+        (optOcrCore.GsTotalPagesFromLog(tailOnly) = 0), _
+        "実際=" & optOcrCore.GsTotalPagesFromLog(tailOnly)
+
+    ' 空・無関係な出力で誤って数字を作らないこと(EDRのエラー文言など)。
+    modTestRunner.Check "GsTotalPages_空は0", _
+        (optOcrCore.GsTotalPagesFromLog("") = 0), ""
+    modTestRunner.Check "GsPages_空は0", _
+        (optOcrCore.GsPagesFromLog("") = 0), ""
+    Dim denied As String: denied = "アクセスが拒否されました。 "
+    modTestRunner.Check "GsPages_無関係な出力は0", _
+        (optOcrCore.GsPagesFromLog(denied) = 0), _
+        "実際=" & optOcrCore.GsPagesFromLog(denied)
+End Sub
+
+Private Sub TestGsWaitBanner()
+    ' 総ページ数が読めるまでは経過秒だけ(嘘の分母を出さない)。
+    Dim b0 As String: b0 = optOcrCore.GsWaitBanner(0, 0, 3)
+    modTestRunner.Check "Banner_総頁不明なら分母を出さない", _
+        (InStr(b0, "ページ") = 0) And (InStr(b0, "経過 3秒") > 0), "実際=" & b0
+
+    ' 1-2ページでは残り時間を出さない(実績が足りず表示が跳ねるため)。
+    Dim b1 As String: b1 = optOcrCore.GsWaitBanner(2, 44, 10)
+    modTestRunner.Check "Banner_2頁では残り時間を出さない", _
+        (InStr(b1, "2/44ページ") > 0) And (InStr(b1, "残り約") = 0), "実際=" & b1
+
+    ' 3ページ以上進んだら残り時間を出す。10頁/20秒 → 残り34頁 = 68秒。
+    Dim b2 As String: b2 = optOcrCore.GsWaitBanner(10, 44, 20)
+    modTestRunner.Check "Banner_頁レートから残り秒を出す", _
+        (InStr(b2, "10/44ページ") > 0) And (InStr(b2, "残り約68秒") > 0), "実際=" & b2
+
+    ' 全ページ到達後は残り時間を出さない(0秒や負値を出さない)。
+    Dim b3 As String: b3 = optOcrCore.GsWaitBanner(44, 44, 90)
+    modTestRunner.Check "Banner_全頁到達で残り時間なし", _
+        (InStr(b3, "44/44ページ") > 0) And (InStr(b3, "残り約") = 0), "実際=" & b3
+
+    ' 異常値(負の経過秒・分母超えのページ数)でも壊れた表示を出さない。
+    Dim b4 As String: b4 = optOcrCore.GsWaitBanner(99, 44, -5)
+    modTestRunner.Check "Banner_異常値でも破綻しない", _
+        (InStr(b4, "44/44ページ") > 0) And (InStr(b4, "経過 0秒") > 0), "実際=" & b4
+End Sub
+
 ' 名前がASCII印字可能文字だけで出来ているか(CP932変換で1文字も化けない条件)。
 Private Function IsAsciiOnly(ByVal s As String) As Boolean
     If Len(s) = 0 Then Exit Function
@@ -320,6 +449,15 @@ NextNormText:
 NextTempName:
     On Error GoTo TempNameFail
     TestTempBaseNameFor
+NextClassifyGs:
+    On Error GoTo ClassifyGsFail
+    TestClassifyGsTextResult
+NextGsLogParse:
+    On Error GoTo GsLogParseFail
+    TestGsLogProgressParse
+NextGsBanner:
+    On Error GoTo GsBannerFail
+    TestGsWaitBanner
 NextDone9:
     On Error GoTo 0
     Exit Sub
@@ -346,6 +484,18 @@ NormTextFail:
     Resume NextTempName
 TempNameFail:
     modTestRunner.Check "TestTempBaseNameFor(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextClassifyGs
+ClassifyGsFail:
+    modTestRunner.Check "TestClassifyGsTextResult(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsLogParse
+GsLogParseFail:
+    modTestRunner.Check "TestGsLogProgressParse(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGsBanner
+GsBannerFail:
+    modTestRunner.Check "TestGsWaitBanner(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone9
 End Sub

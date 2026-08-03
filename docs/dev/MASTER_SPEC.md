@@ -135,7 +135,8 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
 | vision_pdf_max_pages | 20 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。超過は打ち切りpartial) |
 | vision_pdf_dpi | 150 | 画像PDFのページ画像化の解像度(公式帳票OCR版と同値。300は約2倍重い) |
-| vision_pdf_timeout_sec | 120 | ページ画像化の待ち時間上限(秒)。超過はその資料を失敗にして固まらせない |
+| vision_pdf_timeout_sec | 120 | GS処理の**無進捗許容秒数(アイドル上限)**。ページが進む限り待ち続け、進まなくなってからこの秒数で失敗にする(R13-1cで意味変更) |
+| gs_abs_timeout_sec | 1200 | GS待ちの**絶対上限**(秒)。進んでいても必ずここで打ち切り、1資料でExcelが何十分も戻らない事態を防ぐ(R13-1c) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
 | debug_mode | FALSE | ゲートウェイのプロンプト/応答ログ |
 
