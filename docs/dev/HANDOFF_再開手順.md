@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R12完了時点）
+# 再開手順（セッション中断対策・最終更新: R13完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,11 +6,12 @@
 
 ## 1. 現在地
 
-**R12完了(未踏11観点監査→R12-1〜9+H全裁定消化)。HEAD=R12-H(13fe5e3)+docs。実機配布可。**
-R1〜R12まで全ラウンド完了・検収済み・push済み。テスト672件・lint WARN 3(全てテスト系)・
-モジュール102本。敵対的レビュー(R12全差分)の差し戻し11件も消化済み。
-残: 利用者の実機テスト(docs/45スモーク13項目+docs/44 P2P)。spec §4の注意3点は
-R12-1で解消済み(最新zipでは不要)。次に modShelfSync(残5字)へ触る波は分割必須。
+**R13完了(実機第2報→調査6班→R13仕様→A1/A2/A3/B/C実装→敵対的レビュー2面→Fix1/Fix2全裁定消化)。実機配布可。**
+R1〜R13まで全ラウンド完了・検収済み・push済み。テスト818件・lint ERROR 0/WARN 3(全てテスト系)・
+モジュール105本(実装側WARNゼロ)。仕様は docs/dev/spec_20260803_R13_実機第2報.md(根本原因RC1〜RC10)。
+残: 利用者の実機テスト(docs/45スモーク14項目+docs/44 P2P)。
+容量の分割必須ライン(次に触る波は先に分割裁定):
+**modShelfSync(残5字・従来どおり接触禁止) / modRetrieve(残259字) / optVision(残84字) / modTestsPure9(残578字)**。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -35,7 +36,14 @@ R12-1で解消済み(最新zipでは不要)。次に modShelfSync(残5字)へ触
 | R11-G | Haiku | docs同期+実機スモークテスト手順書(docs/45)新規 | 7f2216a | 完了 |
 | R11-H | Opus | 敵対的レビュー裁定の最終修正8件(Word保全対称化/バッジ遅延通知ほか) | 1855097 | 完了 |
 
-| R12-4 | Opus | 検索スケール恒久対策(ベクトルキャッシュ/norm_text前計算/binary_rag自動化/進捗+DoEvents) | (本コミット) | 完了 |
+| R12-4 | Opus | 検索スケール恒久対策(ベクトルキャッシュ/norm_text前計算/binary_rag自動化/進捗+DoEvents) | 13fe5e3ほか | 完了 |
+| R13-A1 | Opus | modExtractor分割(modExtractorPdf新設)+一時コピー名ASCII化(mbtmp_fnv16.ext) | 0789a87 | 完了 |
+| R13-A2 | Opus | GS根治: フラグ内容検証/空出力の画像PDF分類/生存監視型待機/WMI起動+PID/kill/診断tail化/StageBanner | 3a89aa7 | 完了 |
+| R13-A3 | Opus | 薄い抽出の品質ゲート/FriendlyFailMsg/OCR経路の安全コピー/全段階バナー/送信・終了保護/Word試行短縮 | c5313d3 | 完了 |
+| R13-B | Opus | 深掘りのスコープ限定検索+会話出典メモリ+armed followup(チップ)+LLM段階計測・実況 | 8515d61 | 完了 |
+| R13-C | Sonnet | Hub「みんな」意味化+未接続/未設定表示+部別集計(ビーコンteam列)+係数config化+チャット導線前方化 | edb91ce | 完了 |
+| R13-Fix1 | Opus | レビュー裁定: GS判定窓4000字/kill前PID本人確認/OCR上限是正/生存監視の実効化/optGsProc分割 | 16c5d50 | 完了 |
+| R13-Fix2 | Opus | レビュー裁定: armed漏れ止め/終了承諾取消/未設定表示/段ログ集約(ask_steps)/スコープ時prefilter回避 | bdae2b2 | 完了 |
 
 ### R12-4 で増えたもの(次に触る人が最初に知るべき3点)
 
@@ -56,6 +64,37 @@ R12-1で解消済み(最新zipでは不要)。次に modShelfSync(残5字)へ触
    チャンク数 >= binary_rag_min なら粗選別を自動有効化。止めるには
    binary_rag_auto=FALSE。判定は `modBitwiseOpt.ShouldPrefilter`(純ロジック)に
    1本化してあり、真理値表は modTestsPure9 が固定している。
+
+### R13 で増えたもの(次に触る人が最初に知るべき6点)
+
+1. **新モジュール `modExtractorPdf`(src/ingest)** = PDFフォールバック連鎖+一時コピー
+   (旧modExtractorから純移設)。一時コピー名は `mbtmp_<fnv1a64hex16>.<拡張子>`
+   (TempBaseNameFor)。元ファイル名は表示/ログ専用。**NFD分解文字・CP932非対応文字
+   対策の要**なので、抽出経路を足すときは必ず CopyToLocalTemp 経由にすること
+   (OCR経路は modShelfVision が自前でコピー取得+全出口Kill)。
+2. **新モジュール `optGsProc`(src/opt)** = GSプロセスの起動(WMI優先→wsh.Run退避)と
+   停止(taskkill前に Win32_Process で本人確認)。優待機は optGsTxt.WaitGsTextDone
+   = アイドル(vision_pdf_timeout_sec)+絶対上限(gs_abs_timeout_sec 既定1200)の
+   二段で、gs_out.log のページ進行/出力サイズが進む限り待つ。どのシグナルが
+   効いたかは usage_log `gs_progress_signal`(page=..;size=..;none=..)で観測できる
+   (実機初回はこれを必ず確認。両シグナル0なら固定タイムアウト相当に退化している)。
+3. **空txtwrite出力の分類** = optOcrCore.ClassifyGsTextResult(純・真理表固定)。
+   rc=0+ページ進行あり→「画像PDF」としてERR_303→OCRへ。**「txtwrite出力を
+   読めず」でWordへ流れてゴミ登録される事故(RC1)の再発防止の要**。判定材料の
+   gs_out読み窓は4000字(300字に戻すとバナー+xref警告で再発する)。
+4. **armed followup** = 「続けて質問/深掘り」はInputBoxではなく、チップ
+   (Shape `nx_fchip`)を出して nx_input へ誘導し、OnSend が消費する方式。
+   消費はモード分岐より先(一般モードなら黙って解除)。RAG↔一般トグルで解除、
+   エフォートトグルでチップ文言更新。deepのfollowupは会話出典スコープ内
+   多段検索(modAskRetrieve.RunDeepScoped、<2件で無スコープへ自動退避)。
+   **スコープ指定時は binary_rag 粗選別をバイパスする**(EnabledScoped)。
+5. **ask_steps 1行集約** = LLM/埋め込みの段階レイテンシは usage_log に
+   毎段書かず、modGateway のバッファへ積んで modAsk が質問1回につき
+   `ask_steps` 1行で書く(usage_log 2000行ローテを圧迫しない)。
+6. **ビーコン第10列 team** = 部別集計用(modP2PIo.TeamCodeOf/IsTeamCode/
+   SanitizeId経由)。user_department は規約(英大数4-6字)に合う時だけ採用。
+   共有パス既定は空文字になった(未設定=「未設定」表示、設定済み到達不能=
+   「未接続」表示。ダミーパス出荷は廃止)。
 
 配布方法: GitHubの「Code → Download ZIP」→解凍→ dist/MyBookshelf.xlsm を開く
 (dist/Ghostscript が隣にあるのでOCRも追加作業なし)。
@@ -84,6 +123,15 @@ R12-1で解消済み(最新zipでは不要)。次に modShelfSync(残5字)へ触
    - ArchiveCurrent 初回_archive未作成時の過剰警告エッジ(次期)
    - AddFilesViaDialog の busy 早期戻りが無言(通常経路は関所が先に停止・次期)
    - modBoot 残2,244字(次の機能追加時に分割裁定)
+   - **R13で受容した次期課題**: 深掘りfollowupは retrieve_mode=single でも
+     スコープ内多段を実行(機能仕様として明記・escape hatchの例外)/
+     ReadTextTail のDBCS境界で先頭1文字化けの可能性(診断限定・受容)/
+     ナレッジ画面ツールバー総幅は未解決(チャットへは前方化で救済済み。
+     折返し or リサイズ再描画は次期)/embed_transport=direct 時の質問側
+     embed_step 行は未集約(既定ribbonでは無影響)/OCR経路のWMI起動はPID破棄
+     (kill不能はOCR側は従来どおり)/ThinExtract のページ数は maxPages
+     打ち切り後の値/OnSend弱音キーワード経路はarmed維持/本番ビルドの
+     ×ボタン終了は無防備のまま(BeforeCloseはdev構成のみ。終了ボタン側のみ保護)
    - **FindKeyRow裁定前提の更新(2026-08-01 R12-5-11)**: spec_20260731_R11
      §9「FindKeyRow線形探索(103キーでms級)」は modConfig.FindKeyRow
      (config = 103キーで固定・安定)の前提であり、modStats.FindKeyRowには
@@ -106,6 +154,8 @@ R12-1で解消済み(最新zipでは不要)。次に modShelfSync(残5字)へ触
 - モジュール数: 98本(実装)/テスト: 491件/WARN: 3本(全てテスト系)。
   ※R12-4時点: 実装90本+テスト11本=101本(modVecCache/modTestsPure9を追加)、
     LOモード1のPASSは669件、WARNは3本(modTestsPure/2/5)のまま。
+  ※R13完了時点: 105本(modExtractorPdf/optGsProc/modTestsPure10を追加)、
+    LOモード1のPASSは818件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。
