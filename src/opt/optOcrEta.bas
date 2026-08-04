@@ -184,8 +184,16 @@ Public Function OcrAbortMemoFor(ByVal keptN As Long, ByVal reason As String, _
     End If
 
     If reason = "cancel" Then
-        OcrAbortMemoFor = "利用者の操作で中断しました。ここまでの" & k & _
-            "頁を保存しました(" & again & ")"
+        ' R15-FixB(FB-14): 1頁も読めていないうちに押された中断で「ここまでの
+        ' 0頁を保存しました」と言うのは日本語として不自然なうえ、保存したもの
+        ' など何も無いのに保存を名乗る(憲章§4-1)。頁数の話ごと落として、
+        ' 次に何が起きるかだけを言う。
+        If k <= 0 Then
+            OcrAbortMemoFor = "利用者の操作で中断しました(" & again & ")"
+        Else
+            OcrAbortMemoFor = "利用者の操作で中断しました。ここまでの" & k & _
+                "頁を保存しました(" & again & ")"
+        End If
     ElseIf reason = "limit" Then
         OcrAbortMemoFor = "AI利用の上限に達した可能性があります。" & _
             "時間をおいて再度取り込んでください(ここまでの" & k & "頁を保存しました)"
@@ -322,7 +330,10 @@ End Function
 '   利用者は「フリーズした」と判断してExcelを強制終了する(実機第4報 RC7で
 '   実際に起きた)。かかる時間と、途中で止められること・続きから再開できる
 '   ことを先に伝えれば、待つか後回しにするかを利用者が選べる(憲章§3-2)。
-'   中断ボタンの見た目(■)は CP932 に無い文字を含み得るので ChrW で作る。
+'   R15-FixB(FB-12): 中断ボタンの見た目(■ U+25A0)は【CP932 にある】文字で、
+'   CP932 で書けないから ChrW にしているのではない(旧コメントの事実誤り)。
+'   ChrW で書くのは、UTF-8のソースをCP932の実行文へ変換して注入するビルドの
+'   往復で、この1文字が化けても意図が読めなくならないようにするため。
 ' ----------------------------------------------------------------------------
 Public Function OcrConfirmAskFor(ByVal totalPages As Long, ByVal estMin As Long, _
                                  ByVal minMinutes As Long) As String
@@ -355,12 +366,33 @@ End Function
 ' OcrDeclineMemoFor - 確認で「いいえ」を選んだ資料に残すメモ(R15-7b)。
 '   見送りは失敗ではないが、本棚に何も無いまま黙って消えるのが一番困る。
 '   「なぜ入っていないのか」と「どうすれば入るのか」を1文で言う。
+'   R15-FixB(FB-5): 文の【先頭】を分数に依らない固定句にする。見送りを失敗と
+'   分けて数えるには「このメモは見送りか」を機械で判定する必要があり、判定は
+'   modUtilText.IsDeclineNote(先頭一致)が1本だけ持つ。同じ文字列を2箇所に
+'   書かないため、先頭句そのものは modUtilText.DECLINE_MEMO_HEAD から借りる
+'   (opt層とコア層の両方から見えるのは基盤層だけ。文面の残りはここが一次情報)。
 ' ----------------------------------------------------------------------------
 Public Function OcrDeclineMemoFor(ByVal estMin As Long) As String
     Dim m As Long: m = estMin
     If m < 1 Then m = 1
-    OcrDeclineMemoFor = "推定約" & m & "分のため取込を見送りました。" & _
+    OcrDeclineMemoFor = modUtilText.DECLINE_MEMO_HEAD & "(推定約" & m & "分)。" & _
         "再度取り込むと実行します"
+End Function
+
+' ----------------------------------------------------------------------------
+' ClampPageMs - 1頁あたり所要ミリ秒の過去実績を、常識の範囲へ丸める
+'   (2026-08-04 R15-FixB FB-4・レビューB-M)。0以下(=実測なし)は0のまま。
+'   なぜ要るのか: この値は ui_state に永続化され、次の資料のETAの土台になる。
+'   バッチ1つでも異常な値(GSのハングを含んだ描画時間、時計の巻き戻し)が
+'   混ざると、以後ずっと「残り約3秒」や「残り約8時間」と言い続ける端末が
+'   できる。人が見て意味のある下限3秒・上限120秒(=2分/頁)で頭打ちにする。
+'   実機第4報の実測は1頁25秒前後で、この幅の内側に十分収まる。
+' ----------------------------------------------------------------------------
+Public Function ClampPageMs(ByVal ms As Double) As Double
+    If ms <= 0# Then Exit Function
+    ClampPageMs = ms
+    If ClampPageMs < 3000# Then ClampPageMs = 3000#
+    If ClampPageMs > 120000# Then ClampPageMs = 120000#
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -409,13 +441,22 @@ End Function
 ' (書式コードの解釈が環境で揺れないようにするため)。日を跨いだら折り返す。
 ' Hour() の戻り値は Integer なので、3600 を掛ける前に必ず Long へ広げる
 ' (23 * 3600 = 82800 は Integer の範囲を超えオーバーフローする)。
+' R15-FixB(FB-11): 折り返したときは「翌 」を前置する。23:50 に始めた取込の
+' 終了目安が「00:40」とだけ出ると、40分後ではなく【もう過ぎた時刻】に読める。
+' 折り返していない普通のケースでは1文字も足さない(判定はここで完結し、
+' 呼び出し元の RemainingText は今までどおり戻り値をそのまま使う)。
 Private Function EndClock(ByVal nowAt As Date, ByVal remSec As Long) As String
     Dim t As Long
     t = CLng(Hour(nowAt)) * 3600& + CLng(Minute(nowAt)) * 60& + CLng(Second(nowAt))
     t = (t + remSec) \ 60&
-    t = t - (t \ 1440&) * 1440&
-    If t < 0 Then t = t + 1440&
+    Dim dayShift As Long: dayShift = t \ 1440&
+    t = t - dayShift * 1440&
+    If t < 0 Then
+        t = t + 1440&
+        dayShift = dayShift - 1
+    End If
     EndClock = Pad2(t \ 60&) & ":" & Pad2(t - (t \ 60&) * 60&)
+    If dayShift > 0 Then EndClock = "翌 " & EndClock
 End Function
 
 Private Function Pad2(ByVal n As Long) As String

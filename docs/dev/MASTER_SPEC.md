@@ -67,7 +67,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `config` | hidden | 設定(§5) |
 | `my_knowledge` | veryHidden | チャンク本体 |
 | `my_vectors` | veryHidden | ベクトル |
-| `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|FileDateTime\|p<頁>`。opt層(optOcrCache)だけが読み書きし、取込が欠けなく完走した資料の行は即削除、孤児行は起動時GCで7日超を削除する |
+| `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。ビルドが headers-only で生成する(R15-FixB FB-2。実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|IsoDateTime(更新日時)\|p<頁>`、text は先頭に番兵1字 `t` を置いて書き読み出しで剥ぐ(数式誤解釈の防止と空頁の判別)。opt層(optOcrCache)だけが読み書きし、資料が本棚に `done` として並んだ時点で modShelf がその資料の行を削除、孤児行は起動時GCで2日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
 | `usage_log` | hidden | 利用ログ(1行=1質問/1操作) |

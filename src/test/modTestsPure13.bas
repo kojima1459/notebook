@@ -117,10 +117,26 @@ Private Sub TestOcrAbortMemoReasons()
     modTestRunner.Check "エラーメモ_3つの理由は全て別の文", _
         (c0 <> l0 And l0 <> e0 And c0 <> e0)
 
-    ' 負の頁数でも壊れない(0として扱う)。
-    modTestRunner.Check "中断メモ_負の頁数でも壊れない", _
-        (InStr(optOcrEta.OcrAbortMemoFor(-9, "cancel", False), "ここまでの0頁") > 0), _
-        "実際=" & optOcrEta.OcrAbortMemoFor(-9, "cancel", False)
+    ' R15-FixB(FB-14): 1頁も読めていない中断は【頁数の話をしない】。
+    ' 「ここまでの0頁を保存しました」は日本語として不自然なうえ、保存した
+    ' ものが何も無いのに保存を名乗る(憲章§4-1)。負の頁数も同じ扱い。
+    Dim z0 As String: z0 = optOcrEta.OcrAbortMemoFor(0, "cancel", False)
+    Dim z1 As String: z1 = optOcrEta.OcrAbortMemoFor(-9, "cancel", False)
+    modTestRunner.Check "中断メモ_0頁は0頁保存と言わない", _
+        (InStr(z0, "0頁") = 0 And InStr(z0, "保存しました") = 0), "実際=" & z0
+    modTestRunner.Check "中断メモ_0頁でも中断した事実は言う", _
+        (InStr(z0, "利用者の操作で中断しました") > 0), "実際=" & z0
+    modTestRunner.Check "中断メモ_0頁でも次の一手は言う", _
+        (InStr(z0, "最初から再試行します") > 0), "実際=" & z0
+    modTestRunner.Check "中断メモ_負の頁数は0頁と同じ扱い", (z0 = z1), "実際=" & z1
+    ' 控えが残っているなら0頁でも「続きから再開」と言える(R15-7dの成果)。
+    Dim z2 As String: z2 = optOcrEta.OcrAbortMemoFor(0, "cancel", True)
+    modTestRunner.Check "中断メモ_0頁でも控えがあれば続きから再開", _
+        (InStr(z2, "続きから再開します") > 0 And InStr(z2, "0頁") = 0), "実際=" & z2
+    ' 1頁以上ならこれまでどおり件数を言う(境界1頁で文面が切り替わる)。
+    modTestRunner.Check "中断メモ_1頁なら保存件数を言う", _
+        (InStr(optOcrEta.OcrAbortMemoFor(1, "cancel", False), "ここまでの1頁を保存しました") > 0), _
+        "実際=" & optOcrEta.OcrAbortMemoFor(1, "cancel", False)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -206,10 +222,25 @@ Private Sub TestRemainingText()
         (InStr(optOcrEta.RemainingText(240, t2), "終了目安 00:07") > 0), _
         "実際=" & optOcrEta.RemainingText(240, t2)
     ' 秒も足して繰り上がる(23:59:30 + 60秒 = 翌日00:00)。日跨ぎで折り返す。
+    ' R15-FixB(FB-11): 折り返したときは「翌 」を前置する。「終了目安 00:00」と
+    ' だけ出すと、40分後ではなく【もう過ぎた時刻】に読める。
     Dim t3 As Date: t3 = TimeSerial(23, 59, 30)
-    modTestRunner.Check "終了目安_日跨ぎで折り返す", _
-        (InStr(optOcrEta.RemainingText(60, t3), "終了目安 00:00") > 0), _
+    modTestRunner.Check "終了目安_日跨ぎは翌を前置して折り返す", _
+        (InStr(optOcrEta.RemainingText(60, t3), "終了目安 翌 00:00") > 0), _
         "実際=" & optOcrEta.RemainingText(60, t3)
+    ' 折り返していないときは1文字も足さない(普通の取込の見え方を変えない)。
+    modTestRunner.Check "終了目安_同日中なら翌を付けない", _
+        (InStr(optOcrEta.RemainingText(3600, t1), "翌") = 0), _
+        "実際=" & optOcrEta.RemainingText(3600, t1)
+    ' 23:00 + 90分 = 翌00:30(分の繰り上がりを伴う日跨ぎ)。
+    Dim t4 As Date: t4 = TimeSerial(23, 0, 0)
+    modTestRunner.Check "終了目安_日跨ぎの繰り上がりも正しい", _
+        (InStr(optOcrEta.RemainingText(5400, t4), "終了目安 翌 00:30") > 0), _
+        "実際=" & optOcrEta.RemainingText(5400, t4)
+    ' ちょうど24:00に着く場合(23:00+3600秒)も「翌 00:00」。
+    modTestRunner.Check "終了目安_ちょうど日付が変わる時刻も翌", _
+        (InStr(optOcrEta.RemainingText(3600, t4), "終了目安 翌 00:00") > 0), _
+        "実際=" & optOcrEta.RemainingText(3600, t4)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -372,9 +403,14 @@ Private Sub TestOcrConfirmEstimate()
         (InStr(ask, "取り込みますか") > 0), "実際=" & ask
 
     ' 「いいえ」を選んだ資料は、失敗ではなく【見送り】として理由を残す。
+    ' R15-FixB(FB-5): 先頭は分数に依らない固定句。ここが動くと
+    ' modUtilText.IsDeclineNote の先頭一致が外れ、見送りが失敗として数えられる。
     Dim no1 As String: no1 = optOcrEta.OcrDeclineMemoFor(106)
+    modTestRunner.Check "見送りメモ_先頭は固定句(判定の土台)", _
+        (Left$(no1, Len(modUtilText.DECLINE_MEMO_HEAD)) = modUtilText.DECLINE_MEMO_HEAD), _
+        "実際=" & no1
     modTestRunner.Check "見送りメモ_推定時間を理由として言う", _
-        (InStr(no1, "推定約106分のため取込を見送りました") > 0), "実際=" & no1
+        (InStr(no1, "推定約106分") > 0), "実際=" & no1
     modTestRunner.Check "見送りメモ_次の一手を必ず言う", _
         (InStr(no1, "再度取り込むと実行します") > 0), "実際=" & no1
 End Sub

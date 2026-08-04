@@ -631,7 +631,12 @@ CONTRACT: dict[str, dict] = {
                                                "FindGsExeByCandidates", "PathExists",
                                                "IsVisionError", "SafeResultToString",
                                                "OcrConfirmAsk", "OcrDeclineMemo",
-                                               "OcrCacheGc"]},
+                                               # OcrCachePurge(R15-FixB FB-1):
+                                               # done で確定した資料の頁控えを
+                                               # 消す受け口。コア層は opt名を
+                                               # 書けない(R2)ので、InvokeFeature
+                                               # から呼べる窓口がここに要る。
+                                               "OcrCacheGc", "OcrCachePurge"]},
     # optOcrPage(2026-08-03 R14-4a): 画像PDFのページ描画とOCRの実行ループ。
     # 20ページずつGSを起動し、そのバッチをOCRし終えたら即座にJPEGを消す
     # (上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページの
@@ -751,6 +756,10 @@ CONTRACT: dict[str, dict] = {
             #     資料の予算を全部食い潰していた。
             #   RenderWaitBanner(FA-5i): 画像化待ちの実況文(経過秒つき)。
             "ComposeOcrMemo", "BatchWaitSec", "RenderWaitBanner",
+            # ClampPageMs(2026-08-04 R15-FixB FB-4): ui_state に永続化される
+            # 1頁あたり実績を常識の幅(3〜120秒)へ丸める純関数。異常値が1度
+            # 混ざると以後ずっと嘘のETAを出し続けるので、読み出しで必ず通す。
+            "ClampPageMs",
         ],
     },
     # optOcrCache(2026-08-04 R15-7d): 画像PDF OCRの頁チェックポイント。
@@ -768,7 +777,11 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "Ping", "DocPrefixFor", "CacheKeyFor", "CacheTextFor",
             "BeginDoc", "CachedText", "SaveRange", "HasSaved",
-            "PurgeDoc", "FinishDoc", "GcOldRows",
+            # PurgeFor(2026-08-04 R15-FixB FB-1): 旧 PurgeDoc を置き換えた。
+            # 控えを消してよいのは「OCRが読み切った」ときではなく「資料が
+            # 本棚に done として並んだ」ときで、それを知っているのはコア層
+            # (modShelf)だけ。パスを受け取り、その資料の行だけを消す。
+            "PurgeFor", "FinishDoc", "GcOldRows",
             "ConfirmAskFor", "DeclineMemo",
         ],
     },
@@ -991,6 +1004,12 @@ CONTRACT: dict[str, dict] = {
             # 内訳を添える書式(実機第4報 RC1)。modShelfから1箇所だけ呼ぶが、
             # 文字列組み立てのみの純関数なのでここに置く。
             "IngestChunksDetail",
+            # 2026-08-04(R15-FixB FB-5): 事前確認で「いいえ」を選んだ資料の
+            # メモかどうか(先頭一致)。見送りは失敗ではないので一括取込の
+            # 集計から分離する必要があり、判定は opt 層(文面を作る側)と
+            # コア層(件数を数える側)の両方から呼ばれる。両方から見えるのは
+            # 基盤層だけなので、先頭句の定数と判定をここに1つ置く。
+            "DECLINE_MEMO_HEAD", "IsDeclineNote",
         ],
     },
     # ---- 7.8 テストモジュール ----

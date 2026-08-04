@@ -132,7 +132,16 @@ End Function
 ' 1回だけやり直せば、入れ子の相手はもう終わっているのが普通なので通る。
 ' 2回目も失敗したら従来どおり(戻り値をそのまま返し、Word/Acrobatへ譲る)。
 ' 成否は usage_log に1行残す(効いているのかどうかを後から数えられるように)。
+' R15-FixB(FB-9・レビューA-L3): 叩き直す前に一呼吸置く。E0202 の実体は
+' 【入れ子の Application.Run が今まさに走っている】ことなので、間を空けずに
+' 同じ呼び出しを繰り返せば同じ衝突をもう一度踏むだけ(1回きりの再試行の権利を
+' 何もせずに捨てることになる)。DoEvents で相手に進む機会を渡し、0.5秒待つ。
+' 0.5秒は「人が待たされたと感じない上限」と「入れ子の相手が終わる見込み」の
+' 釣り合いで、失敗経路でしか通らないので通常の取込は1msも遅くならない。
 Private Function RetryGsAfterE0202(ByVal path As String) As String
+    DoEvents
+    SleepMs 500
+
     Dim s As String
     s = VisionResultToText(modFeatures.InvokeFeature("vision", "ExtractPdfTextNoOcr", path))
     RetryGsAfterE0202 = s
@@ -160,6 +169,20 @@ Private Function VisionResultToText(ByVal result As Variant) As String
 NotText:
     VisionResultToText = ""
 End Function
+
+' Declareを使わないスリープ(§13: 32/64bit互換のためDeclare不使用で回避)。
+' DoEventsで応答性を保ちながらTimer基準で待つ。modEmbed に同型の Private が
+' あるが、あちらは埋め込みのスロットリング専用で公開されておらず、
+' ingest層の別モジュールから呼ぶために公開すると「待つ」という副作用が
+' モジュール契約(§7)へ増える。5行の同型実装を許す方が影響が小さい
+' (R15-FixB FB-9 の判断。共通化するなら両方を基盤層へ移すのが筋)。
+Private Sub SleepMs(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
+    Loop
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' TempBaseNameFor - 一時コピーのファイル名を決める(純ロジック・R13-2)。

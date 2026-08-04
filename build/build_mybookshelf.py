@@ -11,8 +11,9 @@ mybookshelf/ 配下へ自己完結コピーしたもの。V2側のファイル�
   1. build/template_skeleton.xlsm — 本物のExcelで作られた.xlsmのコピー。
      中の vbaProject.bin は「本物」であり、どのExcelでも文句なく開ける。
   2. openpyxl(keep_vba=True)でこのスケルトンを読み込み、MASTER_SPEC §4の
-     全13シート(使い方/ホーム/マイ本棚/ダッシュボード/config/my_knowledge/
-     my_vectors/my_manifest/my_stats/usage_log/err_log/ui_state/vba_src)を
+     全シート(使い方/ホーム/マイ本棚/ダッシュボード/config/my_knowledge/
+     my_vectors/my_manifest/my_stats/usage_log/err_log/ui_state/ocr_cache/
+     insight_inbox/seed_*/vba_src。実体は EXPECTED_SHEETS が唯一の台帳)を
      生成する。この時点では vbaProject.bin はスケルトンのバイト列のまま
      一切触れていない。
   3. vba_src シートに、modules.json に列挙された標準モジュール(*.bas)の
@@ -98,6 +99,11 @@ EXPECTED_SHEETS = {
     "usage_log": "hidden",
     "err_log": "hidden",
     "ui_state": "veryHidden",
+    # 画像PDF OCRの頁チェックポイント(R15-7d。R15-FixB FB-2 でビルド生成へ)。
+    # 実行時に optOcrCache が Worksheets.Add で作ることもできるが、Add は
+    # 追加したシートをアクティブにするため、取込の途中で画面が知らないシートへ
+    # 飛ぶ。最初から在れば、その経路は「壊れたブックの自己修復」だけになる。
+    "ocr_cache": "veryHidden",
     "insight_inbox": "hidden",
     "vba_src": "veryHidden",
 }
@@ -1457,7 +1463,8 @@ def main():
     wb = openpyxl.load_workbook(args.template, keep_vba=True)
     print(f"  初期シート: {wb.sheetnames}")
 
-    print("Stage 2: シート生成 (MASTER_SPEC §4 全13シート + 軽量マクロ無効ガード)...")
+    print(f"Stage 2: シート生成 (MASTER_SPEC §4 全{len(EXPECTED_SHEETS)}シート"
+          f" ※マクロ無効ガードを含む)...")
     _make_macro_guard(wb)
     _make_howto(wb)
     _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
@@ -1496,6 +1503,11 @@ def main():
                         "hidden", widths=[20, 10, 24, 60, 12, 12, 12],
                         text_cols=[3, 4])   # context/detail
     _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
+    # 頁チェックポイント(R15-FixB FB-2)。text 列は取り込んだ本文そのものが
+    # 入るので、他の非信頼テキスト列と同じくテキスト書式へ固定する
+    # (opt側は番兵1字を前置して書くが、書式の防御も二重に掛けておく)。
+    _make_headers_only(wb, "ocr_cache", ["key", "text", "saved_at"], "veryHidden",
+                        widths=[40, 100, 20], text_cols=[2])
     # 共有知フライホイールの受信箱(modInsight)。共有フォルダから届いた
     # 「解決済みQ&A」と「答えられなかった質問」をここに溜め、本棚への
     # 取り込みは利用者が押したときだけ行う。

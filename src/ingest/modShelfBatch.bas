@@ -13,8 +13,8 @@ Option Explicit
 '
 ' なぜ分けたか(2026-07-31 R10d):
 '   modShelf が §7.1 の「1モジュール30,000字以内」に対して残り440字となり、
-'   バグ修正1件すら入らない状態になっていた(R10cのH2=バッチ全体の再入
-'   ガードが容量不足で実装できず保留になったのが直接のきっかけ)。
+'   バグ修正1件すら入らない状態になっていた(R10cのH2=バッチ全体の再入ガードが
+'   容量不足で実装できず保留になったのが直接のきっかけ)。
 '   AddFilesViaDialog / AddFilesResult とその補助(集計文字列の組み立て・
 '   失敗理由カウンタ・FileDialogのフィルタ生成)は、modShelf の他の機能
 '   (IngestFile / DeleteSource / SourceList / TotalChunks)から
@@ -22,20 +22,19 @@ Option Explicit
 '   AddFilesViaDialog と AddFilesResult の2本だけだった。切り口として最も
 '   素直なのでここを分けた。
 '
-' 依存:
-'   ・modShelf.IngestFile / modShelf.TotalChunks(取込本体と件数)
-'   ・modExtractor.SupportedExts(FileDialogのフィルタ生成)
-'   ・表示は modUIMain.ShowProgress/HideProgress・modSkin.ShowToast・
-'     modUIShelf.RenderShelf(いずれもR1例外の通知コールバック)
-'   ・opt名は書かず modFeatures.InvokeFeature 経由(R2)
+' 依存: modShelf.IngestFile / TotalChunks(取込本体と件数)、
+'   modExtractor.SupportedExts(FileDialogのフィルタ生成)、表示は
+'   modUIMain.ShowProgress/HideProgress・modSkin.ShowToast・
+'   modUIShelf.RenderShelf(いずれもR1例外の通知コールバック)。
+'   opt名は書かず modFeatures.InvokeFeature 経由(R2)。
 ' ============================================================================
 
 ' R10c(H2): バッチ取込【全体】を覆う再入ガード。modShelf の mIngesting は
-' IngestFile 1件ぶんしか覆っておらず、ファイルとファイルの隙間(進捗バナーの
-' 更新やトーストの DoEvents 中)はガードが下りていなかった。そこで発火した
-' クリックは modUiLock.BlockIfIngesting を素通りし、取込ループの途中から
-' 画面遷移が入れ子で走り出す(実機「取込中にボタンを押すとExcelが応答なし」
-' の残り火)。modShelf.IsBusy がこのフラグも OR で見る。
+' IngestFile 1件ぶんしか覆っておらず、ファイルとファイルの隙間(バナー更新や
+' トーストの DoEvents 中)はガードが下りていなかった。そこで発火したクリックは
+' modUiLock.BlockIfIngesting を素通りし、取込ループの途中から画面遷移が入れ子で
+' 走り出す(実機「取込中にボタンを押すと応答なし」の残り火)。
+' modShelf.IsBusy がこのフラグも OR で見る。
 ' 強制停止などで焼き付いても全ボタンが永久に死なないよう、mIngesting と
 ' 同じ作法(GUARD_EXPIRY_MIN=30分)で自動失効させる。
 Private mBatchIngesting As Boolean
@@ -44,16 +43,22 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 
 ' R15-1a(実機第4報 RC5): 4本の再入ガード(modShelf/modShelfBatch/modEmbed/
 ' modShelfSync)が共有する「最後に生きていた時刻」。取込は実機で85〜127分
-' かかるのに、失効判定は「開始から30分」だったため、取込の途中で全ボタンが
-' 解放され二重取込が構造的に可能だった(憲章§3-5)。開始時刻ではなく
-' ビートから数えることで、動いている間は何時間でも守り、止まってから
-' 30分で自己回復する。ビートの置き場をここ1箇所にするのは、4本のガードが
-' 同じ「取込という1つの仕事」を別の粒度で覆っているだけで、生きている印は
-' 1つで足りるため(憲章§4-5: 答えは1つ)。
+' かかるのに失効判定が「開始から30分」だったため、取込の途中で全ボタンが解放
+' され二重取込が構造的に可能だった(憲章§3-5)。ビートから数えれば動いている
+' 間は何時間でも守り、止まってから30分で自己回復する。置き場を1箇所にするのは
+' 4本のガードが同じ仕事を別の粒度で覆っているだけだから(§4-5: 答えは1つ)。
 Private mLastBeat As Date
 
 ' R15-3a: 中間保存の失敗を利用者へ告げたかどうか(1セッション1回だけ告げる)。
 Private mSaveFailToasted As Boolean
+
+' R15-FixB(FB-7・レビューA-L1): 読み取り専用による save_fail を usage_log へ
+' 書いたか(1セッション1回だけ書く)。読み取り専用は【セッションを通じて
+' 変わらない1つの事実】なのに、20件取り込めば20行、OCRの控え保存まで数えると
+' 数百行が同じ内容で並ぶ。usage_log は行数ローテがあるので、埋もれると本当に
+' 調べたい行(取込・中断・再開)が先に流れて消える。
+Private Const RO_FAIL_DESC As String = "ReadOnly(読み取り専用で開かれているため保存しません)"
+Private mReadOnlyLogged As Boolean
 
 ' R15-FixA(FA-2): 前回の中間保存を試みた時刻。頁OCRの控え保存から呼ばれる
 ' 経路だけスロットル(120秒)をかけるための唯一の材料。0=まだ一度も無い。
@@ -96,16 +101,12 @@ End Function
 ' 再入の関所(BlockIfIngesting)は【付けない】。取込中でも必ず動かなければ
 ' 意味が無いハンドラで、vba_lint の ONACTION_GUARD_ALLOWLIST に理由つきで
 ' 登録してある。
-' 2026-08-04(R15-FixA FA-8): 2点を直した。
-'   (a) SetStage → ShowProgress。SetStage の出力先(状態行/StatusBar/チャット
-'       バブル)はNexus画面では実質不可視で、押した人には【何も起きていない
-'       ように見えていた】(押しても止まらない機能の、押した実感まで無い)。
-'       進捗バナーは全画面で見えるので、そこへ出す。skipBeat:=True で呼ぶ:
-'       中断クリックは実作業ではないので、これでガードの寿命を延ばしては
-'       ならない(FA-9で絶対上限を外す前提そのもの)。
-'   (b) TouchBusy を外す。ビートは【実作業だけ】が打つ、という一本の線に
-'       する(a のskipBeatと同じ理由)。中断ボタンが押されればすぐに実作業が
-'       止まりに向かうので、ここで生存印を足す必要も無い。
+' 2026-08-04(R15-FixA FA-8): (a) SetStage → ShowProgress。SetStage の出力先
+'   (状態行/StatusBar/チャットバブル)はNexus画面では実質不可視で、押した人に
+'   は【何も起きていないように見えていた】。進捗バナーは全画面で見えるので
+'   そこへ出す。skipBeat:=True で呼ぶ(中断クリックは実作業ではないので、
+'   ここでガードの寿命を延ばしてはならない=FA-9で絶対上限を外す前提)。
+'   (b) TouchBusy を外す。ビートは【実作業だけ】が打つ一本の線にする。
 '   文言から「頁」を外した: 中断が効くのはOCRの頁境界だけではない(画像化の
 '   待ち・ベクトル化・ファイル境界でも効く)。
 Public Sub OnCancelIngest()
@@ -136,7 +137,7 @@ Public Function CancelRequested() As Boolean
     On Error GoTo 0
 End Function
 
-' ResetCancel - 中断の印を下ろす(取込の入口・出口で必ず呼ぶ)。
+' ResetCancel - 中断の印を下ろす(取込の入口と出口で必ず呼ぶ)。
 Public Sub ResetCancel()
     mCancelRequested = False
 End Sub
@@ -148,13 +149,12 @@ End Sub
 '   同じ関数を呼ぶことで、判定が箇所ごとにズレることを構造的に防ぐ。
 ' ----------------------------------------------------------------------------
 '   absLimitMin:=0(2026-08-04 R15-FixA FA-9): 開始からの絶対上限(480分)は
-'   外す。ビートを打つのは実作業だけになった(FA-8で中断ハンドラの TouchBusy
-'   を外し、BlockIfIngesting自身の実況は波1のskipBeatで既に除外済み)ので、
-'   「押すたびに延命する」自己延命ループはもう起こらない。一方で8時間を
-'   超える取込は正当に起こり得る(254頁の資料を何件もまとめて選ぶ)。そこで
-'   ガードが解けると、動いている取込の上に二重取込を開く入口ができる
-'   ——守るべきもの(§3-5 データを失わない)と、防ぎたかったもの(焼き付き)を
-'   比べれば、無音30分の自己回復だけで足りる。
+'   外す。ビートを打つのは実作業だけになった(FA-8で中断ハンドラの TouchBusy を
+'   外し、BlockIfIngesting自身の実況は波1のskipBeatで除外済み)ので、自己延命
+'   ループはもう起こらない。一方で8時間を超える取込は正当に起こり得る(254頁の
+'   資料を何件もまとめて選ぶ)。そこでガードが解けると、動いている取込の上に
+'   二重取込を開く入口ができる——守るべきもの(§3-5)と防ぎたかったもの
+'   (焼き付き)を比べれば、無音30分の自己回復だけで足りる。
 Public Function GuardExpiredNow(ByVal startAt As Date, ByVal limitMin As Long) As Boolean
     GuardExpiredNow = modUtilText.GuardExpired(startAt, mLastBeat, Now, limitMin, 0)
 End Function
@@ -162,13 +162,13 @@ End Function
 ' ----------------------------------------------------------------------------
 ' SaveCheckpoint - 中間保存(R15-3a・実機第4報 RC9)。
 ' ----------------------------------------------------------------------------
-' 保存の機会は「自己インストーラのopen時Save」と「終了ボタン」しか無く、
+' 保存の機会は「自己インストーラのopen時Save」と「終了ボタン」だけで、
 ' セッション中に取り込んだチャンクとログは数時間メモリ上だけに置かれていた。
 ' 途中でExcelが落ちれば、127分かけた取込が丸ごと消える(憲章§3-5)。
 ' 1ファイル取り込むごと・同期の末尾ごとに保存し、失われる範囲を1件ぶんに
 ' 抑える。保存は失敗し得る(共有ロック・読み取り専用・容量)ので、失敗は
 ' 必ず1行残し(既存イベント名 save_fail)、利用者には次の一手だけ伝える。
-' 成功時は無言(毎回トーストを出すと1.1秒×件数の待ちが積み上がる)。
+' 成功時は無言(毎回トーストを出すと1.1秒×件数の待ちになる)。
 '
 ' changedN: 呼び出し元が数えた「今回変わった件数」。0のときは保存しない。
 '   何も変わっていないのに保存すると、5分ごとの自動同期のたびに数百KBの
@@ -182,15 +182,13 @@ End Function
 '
 ' トーストは1セッション1回だけ: 20件取り込めば20回失敗するので、そのたびに
 ' 1.1秒のトーストを出すと「押すほど固まる」を自分で作る(R10c M3と同じ轍)。
-' usage_log の save_fail は毎回残すので、回数は後から数えられる。
 '
-' throttleSec(2026-08-04 R15-FixA FA-2): この秒数以内に前回保存していたら
-'   黙って戻る。1ファイル取込ごと・同期末尾の呼び出し(既定0)は従来どおり
-'   毎回保存する。頁OCRの控え保存(optOcrCache.SaveRange)からは120を渡す:
-'   20頁ごと=数分に1回だが、資料によっては数十秒に1回になり、そのたびに
-'   数百KB〜のブックを書き戻すとEDR(ウイルス対策)のスキャンが取込より
-'   重くなる端末がある。「失うのは最大2分ぶん」まで縮めれば、127分の取込が
-'   丸ごと消える(RC9)という壊れ方はもう起きない。
+' throttleSec(2026-08-04 R15-FixA FA-2): この秒数以内に前回保存していたら黙って
+'   戻る。1ファイル取込ごと・同期末尾の呼び出し(既定0)は従来どおり毎回保存
+'   する。頁OCRの控え保存(optOcrCache.SaveRange)からは120を渡す: 資料に
+'   よっては数十秒に1回になり、そのたびに数百KB〜のブックを書き戻すとEDRの
+'   スキャンが取込より重くなる端末がある。「失うのは最大2分ぶん」まで縮めれば
+'   127分の取込が丸ごと消える(RC9)壊れ方はもう起きない。
 Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1, _
                           Optional ByVal throttleSec As Long = 0)
     If changedN < 1 Then Exit Sub
@@ -212,7 +210,7 @@ Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1, _
     Err.Clear
     If isReadOnly Then
         failNum = -1
-        failDesc = "ReadOnly(読み取り専用で開かれているため保存しません)"
+        failDesc = RO_FAIL_DESC
     Else
         ThisWorkbook.Save
         failNum = Err.Number
@@ -221,8 +219,17 @@ Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1, _
     End If
 
     If failNum <> 0 Then
-        modLog.LogUsage "save_fail", "", _
-            "中間保存に失敗 err#" & failNum & ": " & modUtil.SafeLeft(failDesc, 300)
+        ' R15-FixB(FB-7): 読み取り専用だけは1セッション1行に畳む(理由は上の
+        ' mReadOnlyLogged の注記)。他の失敗(共有ロック・容量)は毎回残す:
+        ' そちらは回ごとに起きたり起きなかったりする=回数が手がかりになる。
+        Dim skipLog As Boolean: skipLog = False
+        If isReadOnly Then
+            skipLog = mReadOnlyLogged
+            mReadOnlyLogged = True
+        End If
+        If Not skipLog Then _
+            modLog.LogUsage "save_fail", "", _
+                "中間保存に失敗 err#" & failNum & ": " & modUtil.SafeLeft(failDesc, 300)
         If Not mSaveFailToasted Then
             mSaveFailToasted = True
             modSkin.ShowToast modLog.SaveFailMsg(), "error"
@@ -254,15 +261,12 @@ End Function
 '     突然生えることになる(憲章§3-4「利用者を不安にさせない」に反する)。
 '     出ていないなら黙る、というこの1点だけで silent は silent のままになる。
 '
-' なぜフラグを配線しないのか: 呼び出し元(取込→抽出→GS待ち)は層をまたぐ
-' 長い経路で、silent かどうかを引数で運ぼうとすると modShelfSync まで
-' 波及する(本ラウンドは接触禁止)。「今バナーが出ているか」という画面の
-' 事実を1回見るだけなら、経路のどこも書き換えずに同じ判断ができる。
-'
-' 可視判定は「今のシートに nx_progress という名前のShapeがあるか」で行う。
-' 表示の実体(modSkin.PaintProgress/ClearProgress)はこのShapeを作って消して
-' いるだけなので、これが唯一の事実。modUIMain 側は状態を持っていないため
-' 問い合わせ用のPublicを足す必要が無い(容量も残り僅かなので足さない)。
+' なぜフラグを配線しないのか: 呼び出し元(取込→抽出→GS待ち)は層をまたぐ長い
+' 経路で、silent を引数で運ぶと modShelfSync まで波及する。「今バナーが出て
+' いるか」という画面の事実を1回見るだけなら、経路を書き換えずに同じ判断が
+' できる。可視判定は「今のシートに nx_progress のShapeがあるか」で行う。表示の
+' 実体(modSkin.PaintProgress/ClearProgress)がこのShapeを作って消しているので、
+' これが唯一の事実(modUIMain は状態を持っておらず、容量も残り僅か)。
 ' 表示系の失敗が取込を壊してはならない(憲章§4-4)ので全体をOERNで包む。
 ' ----------------------------------------------------------------------------
 Public Sub StageBanner(ByVal text As String)
@@ -282,14 +286,12 @@ End Sub
 ' modUIMain.ShowProgress と同じ2つのこと(状態行/StatusBarへの実況+画面上の
 ' バナー)をするが、バナーには「中断」ボタンを添える。
 ' なぜ分けるのか: 中断ボタンは modSkin.PaintProgress が【常に】描いていたため、
-' 質問の準備・部門更新の取込・Q&Aの読込・ナレッジ登録など、中断の仕組みが
-' 一切無い処理のバナーにも生えていた(A-M4/B-H4)。押せば取込用の印が立つが
-' 何も止まらない=「押しても何も起きないボタン」で、故障と区別が付かない。
-' 取込の入口3箇所(この下の AddFilesResult / StageBanner / modShelfSync の
-' ファイルループ)だけがここを通り、他は従来どおり modUIMain.ShowProgress を
-' 使う。ここが唯一の「中断できるバナー」の口になる。
-' modUIMain 側で分岐しないのは、あちらが30,000字上限まで残り206字で、
-' 引数1つの追加すら入らないため(憲章§4-6)。
+' 質問の準備・Q&Aの読込・ナレッジ登録など、中断の仕組みが一切無い処理の
+' バナーにも生えていた(A-M4/B-H4)。押せば取込用の印が立つが何も止まらない=
+' 「押しても何も起きないボタン」で、故障と区別が付かない。取込の入口3箇所
+' (この下の AddFilesResult / StageBanner / modShelfSync のファイルループ)
+' だけがここを通り、他は従来どおり modUIMain.ShowProgress を使う。
+' modUIMain 側で分岐しないのは、あちらが残り206字で引数1つ入らないため。
 Public Sub ShowIngestBanner(ByVal text As String)
     On Error Resume Next
     modUIMain.SetStage text          ' ShowProgress の前半(既存チャネルへの実況)
@@ -330,7 +332,7 @@ End Sub
 '
 '   戻り値: "ok=<n>;ng=<n>;capped=<n>;chunks=<n>;reasons=<code>:<count>,..."
 '   reasonsはE0504(同名衝突)/image_pdf/E0302等、失敗理由コードごとの内訳。
-'   ngにもcappedにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0;reasons= 。
+'   どれにも入らない「キャンセル」は ok=0;ng=0;capped=0;chunks=0;reasons= 。
 '   別の取込が動いていて受け付けなかったときは reasons=busy:1(R11-H Med1)。
 '
 Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As String
@@ -365,6 +367,10 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' 従来はcancelSkipNだけを見ていたため、その場合に「取り込みが完了
     ' しました」と言っていた(利用者が止めたことを、こちらが忘れた顔をする)。
     Dim cancelHit As Boolean: cancelHit = False
+    ' R15-FixB(FB-5): 事前確認で利用者が「いいえ」を選んだ件数。失敗ではない
+    ' ので ngCount には入れない(入れると「1件取り込めませんでした。状態を
+    ' ご確認ください」と、自分で見送っただけの人に不具合を疑わせる)。
+    Dim declinedN As Long: declinedN = 0
     ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
     Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
     Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
@@ -489,6 +495,11 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
                 ' 「今取り込んでいた1件」だけになる(取込0件のときは通らない
                 ' ので、何も変わっていないブックを保存しに行くことは無い)。
                 SaveCheckpoint
+            ElseIf errCd = "declined" Then
+                ' R15-FixB(FB-5): 見送りは失敗と別に数える。内訳には残すので
+                ' (reasons=declined:N)、呼び出し元も件数を説明できる。
+                declinedN = declinedN + 1
+                BumpReasonCount reasonKeys, reasonCounts, reasonN, "declined"
             Else
                 ngCount = ngCount + 1
                 Dim reasonKey As String
@@ -515,12 +526,18 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
 
     Dim warnPart As String: warnPart = ""
     If warnN > 0 Then warnPart = "/注意" & warnN & "件"
+    ' R15-FixB(FB-5): 見送りは0件なら言わない(常に「見送り0件」と出すと、
+    ' 見送りという言葉だけが毎回目に入って意味を失う)。
+    If declinedN > 0 Then warnPart = warnPart & "/見送り" & declinedN & "件"
     Dim doneToast As String
     ' R15-6c: 中断したのに「完了しました」と言わない(利用者が止めたことを
     ' こちらが忘れた顔をするのは不誠実)。トーストは1回だけ=待ちは増やさない。
     If cancelHit Then
+        ' R15-FixB(FB-5): 中断で手を付けなかった件数は「未取込」と言う。
+        ' 「見送り」は【利用者が確認で自分から見送った件数】に譲る
+        ' (同じ言葉が1つのトーストに2つ並ぶと、どちらが何なのか読めない)。
         doneToast = "中断しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
-            warnPart & "/見送り" & cancelSkipN & "件)"
+            warnPart & "/未取込" & cancelSkipN & "件)"
     Else
         doneToast = "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
             warnPart & ")"
@@ -549,7 +566,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         msg = msg & vbLf & "うち" & warnN & "件は一部だけの取込です" & _
             "(マイ本棚の一覧で、そのカードのメモをご確認ください)。"
     End If
-    ' R15-FixA(FA-7): 中断はモーダルでも必ず言う。見送り0件(最後の1件の
+    ' R15-FixB(FB-5): 見送りは失敗の文とは別の文で言う。理由(推定時間)は
+    ' カードのメモに載っているので、ここでは件数と「次はどうすれば入るか」だけ。
+    If declinedN > 0 Then
+        msg = msg & vbLf & declinedN & "件は時間がかかるため取り込みませんでした" & _
+            "(確認で「いいえ」を選んだ資料です)。もう一度選んで「はい」を選ぶと取り込めます。"
+    End If
+    ' R15-FixA(FA-7): 中断はモーダルでも必ず言う。未取込0件(最後の1件の
     ' 途中で押した)の場合も「止まったこと」と「その資料がどうなったか」を
     ' 黙らない(途中まで読めた頁は partial として本棚カードのメモに出る)。
     If cancelHit Then

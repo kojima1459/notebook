@@ -20,6 +20,11 @@ Option Explicit
 ' 1日のミリ秒。VBAのTimerは0時に0へ戻るため、経過が負になったらこれを足す。
 Private Const MS_PER_DAY As Double = 86400000#
 
+' 「見送りました」のメモの先頭句(2026-08-04 R15-FixB FB-5)。実体の説明と
+' 判定は末尾の IsDeclineNote を参照(モジュールレベル宣言は実機VBAの制約で
+' プロシージャ定義より前に置かなければならないため、宣言だけがここにある)。
+Public Const DECLINE_MEMO_HEAD As String = "取込を見送りました"
+
 ' ----------------------------------------------------------------------------
 ' ReadTextFileUtf8 - UTF-8テキストファイルを読む(ADODB.Stream)。
 '   戻り値: 成功=True。失敗時は False を返し、outErrNum/outErrDesc に理由を
@@ -544,3 +549,23 @@ Private Sub DecodeStepPart(ByVal part As String, ByRef outCount As Long, ByRef o
     If outTotal < 0 Then outTotal = 0
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' DECLINE_MEMO_HEAD / IsDeclineNote - 「見送りました」のメモかどうか
+'   (2026-08-04 R15-FixB FB-5・レビューB-M)。
+' ----------------------------------------------------------------------------
+' 事前確認(R15-7b)で利用者が「いいえ」を選んだ資料は、取込に【失敗した】
+' わけではない。それなのに一括取込の集計・トースト・モーダルでは失敗と同じ
+' 数に混ざり、「1件は取り込めませんでした。状態をご確認ください」と、
+' 自分で見送っただけの利用者に不具合を疑わせていた(憲章§4-1)。
+' 見送りを別に数えるには「このメモは見送りか」を機械で言えなければならない。
+' 判定の一次情報は先頭句のみで、文面の残り(推定分数・次の一手)は
+' optOcrEta.OcrDeclineMemoFor が持つ。同じ文字列を2箇所に書かないため、
+' 先頭句だけを【opt層とコア層の両方から見える基盤層】に1つ置く。
+' 先頭一致にするのは、分数のような可変部分が入っても判定が揺れないように
+' するため(文中の部分一致にすると、利用者が付けた説明文と衝突し得る)。
+Public Function IsDeclineNote(ByVal note As String) As Boolean
+    Dim s As String: s = LTrim$(note)
+    If LenB(s) = 0 Then Exit Function
+    IsDeclineNote = (Left$(s, Len(DECLINE_MEMO_HEAD)) = DECLINE_MEMO_HEAD)
+End Function

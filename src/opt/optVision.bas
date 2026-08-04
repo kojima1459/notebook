@@ -30,9 +30,9 @@ Option Explicit
 '   ・mock_llm=TRUE のときはリボンを呼ばない: HasClipboardImageはFalse、
 '     SaveClipboardImageは親切な "#ERR:mockモード…" 案内を返す(optMarkdownの
 '     mock時の流儀に合わせる)。
-'   ・ExtractImagePdfの失敗理由をExtractImagePdfTextへ伝えるため、
-'     モジュール内Private変数(mLastErrorMsg)に直近の失敗メッセージを
-'     保持する(VBAは単一スレッドで実行されるため競合の心配がない)。
+'   ・ExtractImagePdfの失敗理由をExtractImagePdfTextへ伝えるため、モジュール内
+'     Private変数(mLastErrorMsg)に直近の失敗メッセージを保持する(VBAは単一
+'     スレッドなので競合しない)。
 '   ・modUIMain.SetStage 以外のコア参照は行わない(基盤層のみ参照可・§7.7)。
 '   ・画像PDF(E0303)のOCR取込(2026-07-31 R6): 会社公式ツール同梱の
 '     Ghostscript でページ毎にJPEG化してから、上と同じ経路(Base64FromFile→
@@ -48,12 +48,10 @@ Option Explicit
 '     gswin32c.exe)→ config ghostscript_search_dirs(IT焼き込み用)→
 '     案内カード(1回きり・赤エラーでなく)」の4段へ拡張した。
 '     候補パスの組み立ては optOcrCore.GsCandidatePaths / GsCandidatesForFolder
-'     (純ロジック)に切り出し、実在確認(Dir$)とApplication.FileDialogは
-'     副作用なのでここに残す(§7.7契約: opt層の唯一のコア参照は
-'     modUIMain.SetStageのみ・opt層内は自由参照)。
-'     解決結果はセッション内(モジュール変数)にキャッシュし、案内カードは
-'     このブックを開いている間は1回しか出さない(見つからなくても毎回の
-'     OCR実行のたびにダイアログで割り込まない)。
+'     (純ロジック)に切り出し、実在確認(Dir$)とApplication.FileDialogは副作用
+'     なのでここに残す(§7.7契約: コア参照は modUIMain.SetStage のみ)。
+'     解決結果はセッション内にキャッシュし、案内カードはこのブックを開いて
+'     いる間は1回しか出さない(毎回ダイアログで割り込まない)。
 ' ============================================================================
 
 ' === 確定済みシグネチャ(出典: RIBBON_API_CONFIRMED.md §1 #5, #8 / 裁定D5) ===
@@ -268,26 +266,23 @@ End Function
 '   失敗: "#ERR:E0303:<何が起きたか+どうすればよいか>"
 '
 '   ・GSの起動はブロッキング待ちにしない(壊れたPDF1つでExcelが永久に固まる
-'     ことを避けるため)。完了フラグファイルの出現をDoEventsつきで監視し、
-'     config gs_abs_timeout_sec(既定1200秒)を超えたら失敗として返す(R13-F4)。
-'     GSプロセスのkillはしない(こちらが壊す方が危ない)。
+'     のを避ける)。完了フラグの出現をDoEventsつきで監視し、config
+'     gs_abs_timeout_sec(既定1200秒)を超えたら失敗として返す(R13-F4)。
 '   ・2026-08-03(R14-4a): 描画とOCRの本体は optOcrPage へ移した。GSは20ページ
 '     ずつ複数回起動し、そのバッチのOCRが終わったら即座に画像を消す。ここは
 '     GS解決・一時フォルダ・後始末という「前後」だけを持つ。
-'   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末は
-'     R6規約に従って別Sub(optGsTxt.CleanupOcrFolder)へ切り出してある
-'     (稼働中のエラーハンドラの中では On Error Resume Next が効かないため)。
-'     ただしタイムアウトで1枚も描けなかったときだけは、書きかけの gs_out.log を
-'     残すために消さない(optOcrPage が keepWork=True で知らせる。R11-D H-1)。
-'   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、複数枚を
-'     まとめて渡すとページ境界が崩れて出典ページ番号が信用できなくなるため
-'     v1では使わない。ページ番号を保ったまま束ねる方法が確立できたら再検討する。
+'   ・一時フォルダは成功・失敗どちらの経路でも必ず片付ける。後始末はR6規約に
+'     従って別Sub(optGsTxt.CleanupOcrFolder)へ切り出してある(稼働中のエラー
+'     ハンドラの中では On Error Resume Next が効かないため)。ただしタイム
+'     アウトで1枚も描けなかったときだけは、書きかけの gs_out.log を残すために
+'     消さない(optOcrPage が keepWork=True で知らせる。R11-D H-1)。
+'   ・将来課題: ChatGPTVは最大10枚のバッチ入力に対応しているが、まとめて渡すと
+'     ページ境界が崩れて出典ページ番号が信用できなくなるためv1では使わない。
 '
 '   silent(2026-07-31 R11-A C4): True=無人経路(フォルダ同期・起動時同期)。
-'     Ghostscript が見つからないときの案内カード(MsgBox+フォルダ選択)を
-'     出さず、静かな解決だけを行う。誰も見ていない画面でモーダルが開くと
-'     同期はそこで止まり、翌朝まで誰も気付けない。呼び出しは
-'     modShelfVision→modFeatures.InvokeFeature 経由(Application.Run)なので
+'     Ghostscript が見つからないときの案内カード(MsgBox+フォルダ選択)を出さず
+'     静かな解決だけを行う。誰も見ていない画面でモーダルが開くと同期はそこで
+'     止まり、翌朝まで誰も気付けない。呼び出しは InvokeFeature 経由なので
 '     省略可能な引数にしてある(省略時=従来どおり案内を出す)。
 ' ============================================================================
 '   origPath(R15-7d): 【元のファイル】のフルパス。path は一時コピー
@@ -440,12 +435,11 @@ End Function
 '   一部の頁だけ読めなかった)。理由を知っているのは optOcrPage だけなので、
 '   文面はあちらが optOcrEta の純関数で作って渡してくる(mLastOcrMemo)。
 '   R15-FixA(FA-4): mLastOcrMemo があるときは【そのまま】返す。以前はここで
-'   truncated を条件に握りつぶし、さらに上限メモと二者択一で【置換】して
-'   いたため、(a)欠けも打ち切りも無く再開だけで読み切った取込の
-'   「前回の続きから再開しました。」がカードへ一度も届かず、(b)上限で切った
-'   資料の頁欠けを言うと上限の説明が消える、という2つの穴があった。
-'   3つの事実の連結は optOcrEta.ComposeOcrMemo が1箇所で済ませてある。
-'   下の2経路は OcrPdfByBatch を通らなかったとき(旧経路・例外)の保険。
+'   truncated を条件に握りつぶし、上限メモと二者択一で【置換】していたため、
+'   (a)再開だけで読み切った取込の「前回の続きから再開しました。」がカードへ
+'   一度も届かず、(b)頁欠けを言うと上限の説明が消える、の2つの穴があった。
+'   3事実の連結は optOcrEta.ComposeOcrMemo が1箇所で済ませてある。下の2経路は
+'   OcrPdfByBatch を通らなかったとき(旧経路・例外)の保険。
 '   R15-4c: capN には必ず optOcrCore.SafeMaxPages を掛ける(config=300でも
 '   ハード上限で頭打ちになるのに生値で計算し、事実と違う数字を出していた)。
 Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
@@ -479,11 +473,18 @@ Public Function OcrDeclineMemo() As String
     OcrDeclineMemo = optOcrCache.DeclineMemo()
 End Function
 
-' 頁キャッシュの孤児行(7日超)の起動時GC(R15-7d)。modBoot の既存GC群
+' 頁キャッシュの孤児行(2日超)の起動時GC(R15-7d)。modBoot の既存GC群
 ' (nxocr_*/mbtmp_*)と同じ線で1回だけ呼ばれる。vision無効なら呼ばれないが、
 ' そのときはキャッシュ自体が1行も作られないので何も溜まらない。
 Public Function OcrCacheGc() As String
     OcrCacheGc = optOcrCache.GcOldRows()
+End Function
+
+' 本棚に done として並んだ資料の頁控えを消す受け口(R15-FixB FB-1)。
+' 呼ぶのは modShelf(status確定の直後)で、OCRを1度も通っていない資料から
+' 呼ばれても該当行が無いので何も起きない。
+Public Function OcrCachePurge(ByVal pdfPath As String) As String
+    OcrCachePurge = optOcrCache.PurgeFor(pdfPath)
 End Function
 
 ' OCRの1資料あたりページ上限(config vision_pdf_max_pages)。既定値をここ

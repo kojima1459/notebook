@@ -371,7 +371,11 @@ Private Function AddDocsMessage(ByVal res As String) As String
         Exit Function
     End If
 
-    If okN = 0 And ngN = 0 And capN = 0 Then Exit Function   ' キャンセル
+    ' R15-FixB(FB-5): 見送り(確認で「いいえ」)は ng に入らなくなったので、
+    ' ここで一緒に見ないと【1件だけ選んで見送った】ときが「キャンセル」と同じ
+    ' 無言になる。自分で見送ったことすら画面から消えるのは黙り過ぎ(§4-1)。
+    Dim decN As Long: decN = ReasonCount(reasons, "declined")
+    If okN = 0 And ngN = 0 And capN = 0 And decN = 0 Then Exit Function   ' キャンセル
 
     Dim say As String
     If okN > 0 And chunkN > 0 Then
@@ -401,6 +405,15 @@ Private Function AddDocsMessage(ByVal res As String) As String
             "Ghostscriptを置くとAIが1ページずつ読み取れます(手順は「43_画像PDFのOCR取込設定」)。" & vbLf & _
             "すぐ試すなら、その画面をコピー(Win+Shift+S)して、ナレッジ画面の「" & _
             ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込」からどうぞ。")
+    End If
+
+    ' R15-FixB(FB-5): 見送りは「読み取れませんでした」の仲間ではない。上の
+    ' image_pdf の文(Ghostscriptを置けば読める)を見送った資料にまで出すと、
+    ' 何も壊れていないのに設定作業を促すことになる。件数は declined として
+    ' 別に届くので、専用の1文で言う。
+    If decN > 0 Then
+        say = AppendBlock(say, ChrW(&H23F3) & " 時間がかかるため取り込みませんでした(" & decN & "件)。" & vbLf & _
+            "確認で「いいえ」を選んだ資料です。もう一度選んで「はい」を選ぶと取り込めます。")
     End If
 
     Dim otherN As Long

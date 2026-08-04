@@ -187,6 +187,12 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             End If
             resultStatus = failStatus
             outErrCode = errCode
+            ' 2026-08-04(R15-FixB FB-5): 事前確認で利用者が自分で「いいえ」を
+            ' 選んだ資料は【失敗していない】。status は image_pdf のまま
+            ' (カードの見え方・manifest の語彙は1つも変えない)で、理由コード
+            ' だけを差し替えて、一括取込の集計が失敗と見送りを分けて数えられる
+            ' ようにする。判定は modUtilText.IsDeclineNote(先頭一致)の1本。
+            If modUtilText.IsDeclineNote(failMsg) Then outErrCode = "declined"
             GoTo Finish
         End If
     End If
@@ -388,6 +394,17 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         resultStatus = "partial"
     Else
         resultStatus = "done"
+        ' 2026-08-04(R15-FixB FB-1・レビューA-M1/B-M): OCRの頁控えを消すのは
+        ' 【ここ】。従来は optOcrCache.FinishDoc(=OCRが読み切った瞬間)で
+        ' 消していたが、そのあとのチャンク分割・ベクトル化・保存で落ちれば
+        ' 資料は partial のまま残り、控えだけが先に消えている——次の取込は
+        ' 300頁を最初から読み直すことになり、控えの存在意義そのものを失う。
+        ' 「本棚に done として並んだ」ことを知っているのはこの1行の位置だけ。
+        ' 鍵は【元のパス】(一時コピーではない)。OCRを通っていない資料から
+        ' 呼んでも該当行が無く何も起きないので、経路で分岐しない。
+        On Error Resume Next
+        modFeatures.InvokeFeature "vision", "OcrCachePurge", path
+        On Error GoTo Failed
     End If
 
     If isSelf Then

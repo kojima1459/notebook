@@ -26,6 +26,13 @@ Option Explicit
 '     この区間は画面が完全に止まって見えるので、数字が動くことだけが
 '     「止まっていない」証拠になる(憲章§3-2)。
 '   ・optOcrEta.OcrConfirmAskFor(FA-1): 確認文は埋め込み時間にも正直に言う。
+'
+' R15-FixB(2026-08-04 レビュー裁定 Fix-B)で追加した分:
+'   ・optOcrEta.ClampPageMs(FB-4): ui_state に永続化される1頁あたり実績の
+'     丸め。異常値が1度混ざると、以後ずっと嘘のETAを出し続ける端末になる。
+'   ・modUtilText.IsDeclineNote(FB-5): 「見送り」を失敗と分けて数えるための
+'     唯一の判定。ここが外れると、自分で見送っただけの利用者に
+'     「取り込めませんでした。状態をご確認ください」と不具合を疑わせる。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -135,6 +142,65 @@ Private Sub TestBatchWaitAndBanner()
          InStr(ask, "中断") > 0 And InStr(ask, "続きから再開") > 0), "実際=" & ask
 End Sub
 
+' ----------------------------------------------------------------------------
+' FB-4(レビューB-M): 1頁あたり実績の丸め。
+'   0(=この端末でまだ1度も読んでいない)は0のまま返すことが最も大事:
+'   ここで3秒へ押し上げると、実測が1つも無い端末が「残り約3秒」と言い始める。
+' ----------------------------------------------------------------------------
+Private Sub TestClampPageMs()
+    modTestRunner.Check "レート丸め_実測なし(0)は0のまま", _
+        (optOcrEta.ClampPageMs(0#) = 0#)
+    modTestRunner.Check "レート丸め_負の値も0(壊れたui_state)", _
+        (optOcrEta.ClampPageMs(-500#) = 0#)
+    modTestRunner.Check "レート丸め_下限3秒(1ms/頁は有り得ない)", _
+        (optOcrEta.ClampPageMs(1#) = 3000#), _
+        "実際=" & optOcrEta.ClampPageMs(1#)
+    modTestRunner.Check "レート丸め_上限120秒(GSのハングを含んだ値を持ち越さない)", _
+        (optOcrEta.ClampPageMs(600000#) = 120000#), _
+        "実際=" & optOcrEta.ClampPageMs(600000#)
+    modTestRunner.Check "レート丸め_境界3000はそのまま", _
+        (optOcrEta.ClampPageMs(3000#) = 3000#)
+    modTestRunner.Check "レート丸め_境界120000はそのまま", _
+        (optOcrEta.ClampPageMs(120000#) = 120000#)
+    modTestRunner.Check "レート丸め_実機実測(25秒/頁)は素通し", _
+        (optOcrEta.ClampPageMs(25000#) = 25000#)
+    ' 丸めた値でETAが破綻しないこと(丸め→見積もりの経路をつなぐ)。
+    modTestRunner.Check "レート丸め_丸めた値で見積もりが出る(120頁×3秒=6分)", _
+        (optOcrEta.OcrEstMinutes(120, optOcrEta.ClampPageMs(1#)) = 6), _
+        "実際=" & optOcrEta.OcrEstMinutes(120, optOcrEta.ClampPageMs(1#))
+End Sub
+
+' ----------------------------------------------------------------------------
+' FB-5(レビューB-M): 見送りメモの判定。文面を作る側(optOcrEta)と数える側
+'   (modShelf/modShelfBatch)が同じ答えを出すことを、実際に作った文で固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestIsDeclineNote()
+    modTestRunner.Check "見送り判定_実際の見送りメモを見送りと判定する", _
+        (modUtilText.IsDeclineNote(optOcrEta.OcrDeclineMemoFor(106)) = True), _
+        "実際=" & optOcrEta.OcrDeclineMemoFor(106)
+    modTestRunner.Check "見送り判定_分数が変わっても判定は揺れない", _
+        (modUtilText.IsDeclineNote(optOcrEta.OcrDeclineMemoFor(1)) = True And _
+         modUtilText.IsDeclineNote(optOcrEta.OcrDeclineMemoFor(9999)) = True)
+    ' 中断・頁欠け・上限のメモは【見送りではない】(失敗として数える側へ回る)。
+    modTestRunner.Check "見送り判定_中断メモは見送りではない", _
+        (modUtilText.IsDeclineNote(optOcrEta.OcrAbortMemoFor(37, "cancel", True)) = False)
+    modTestRunner.Check "見送り判定_頁欠けメモは見送りではない", _
+        (modUtilText.IsDeclineNote(optOcrEta.OcrPartialMemoFor(197, 3, 254)) = False)
+    modTestRunner.Check "見送り判定_上限メモは見送りではない", _
+        (modUtilText.IsDeclineNote(optOcrEta.OcrCapMemoFor(True, 200, 254)) = False)
+    modTestRunner.Check "見送り判定_空文字は見送りではない", _
+        (modUtilText.IsDeclineNote("") = False)
+    modTestRunner.Check "見送り判定_無関係な失敗文は見送りではない", _
+        (modUtilText.IsDeclineNote("ファイルが大きすぎます。") = False)
+    ' 先頭の空白は無視する(manifestを経由して前後が整形されても判定を保つ)。
+    modTestRunner.Check "見送り判定_先頭の空白があっても判定できる", _
+        (modUtilText.IsDeclineNote("  " & optOcrEta.OcrDeclineMemoFor(30)) = True)
+    ' 文中に句が現れるだけの文は見送りにしない(先頭一致であることの確認)。
+    modTestRunner.Check "見送り判定_文中の一致では見送りにしない", _
+        (modUtilText.IsDeclineNote("前回の続きから再開しました。" & _
+            modUtilText.DECLINE_MEMO_HEAD) = False)
+End Sub
+
 Public Sub RunAll14()
     On Error GoTo ComposeFail14
     TestComposeOcrMemo
@@ -144,6 +210,12 @@ NextPartial14:
 NextWait14:
     On Error GoTo WaitFail14
     TestBatchWaitAndBanner
+NextClamp14:
+    On Error GoTo ClampFail14
+    TestClampPageMs
+NextDecline14:
+    On Error GoTo DeclineFail14
+    TestIsDeclineNote
 NextDone14:
     On Error GoTo 0
     Exit Sub
@@ -158,6 +230,14 @@ PartialFail14:
     Resume NextWait14
 WaitFail14:
     modTestRunner.Check "TestBatchWaitAndBanner(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextClamp14
+ClampFail14:
+    modTestRunner.Check "TestClampPageMs(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDecline14
+DeclineFail14:
+    modTestRunner.Check "TestIsDeclineNote(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone14
 End Sub

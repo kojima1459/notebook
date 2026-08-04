@@ -230,7 +230,14 @@ Public Sub WarnIfReadOnly()
     If Not isReadOnly Then Exit Sub
     modLog.LogError "E0805", "modDiag.WarnIfReadOnly", _
         "ReadOnly=True name=" & ThisWorkbook.Name
-    MsgBox modLog.ReadOnlyWarnMsg(), vbExclamation, modAppDef.APP_NAME
+    ' R15-FixB(FB-13・レビューB-L): どのファイルの話なのかを必ず添える。
+    ' 読み取り専用になる典型は「zipの中から直接開いた」「共有フォルダの原本を
+    ' 誰かが開いている」「Downloadsの保護ビュー」で、いずれも【場所を見れば
+    ' 一目で分かる】。名前しか出さないと、同名のコピーを複数持っている人は
+    ' どれを開いているのか確かめる手段がなく、案内どおりに直しようがない。
+    MsgBox modLog.ReadOnlyWarnMsg() & vbLf & vbLf & _
+        "このファイルの場所: " & ThisWorkbook.FullName, _
+        vbExclamation, modAppDef.APP_NAME
     On Error GoTo 0
 End Sub
 

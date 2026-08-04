@@ -27,16 +27,26 @@ Option Explicit
 '     更新される規程・料金表はこの製品の主対象なので、ここは絶対に譲れない。
 '     鍵に使うのは【元のパス】で、取込が実際に読む一時コピー(mbtmp_*)では
 '     ない(コピー先の名前と日時は取込のたびに変わり、二度と一致しない)。
+'   ・本文は先頭に番兵1字("t")を付けて書き、読むときに剥ぐ(R15-FixB FB-3)。
+'     本文が "=" や "+" で始まると、セルはそれを【数式】として解釈する。
+'     取り込んだ本文が数式に化ければ #NAME? が並び、読み直したときに元の
+'     文字は二度と戻らない(黙って中身が変わる=憲章§4-1の最悪形)。番兵が
+'     あれば必ず文字列として入り、剥げば完全に元へ戻る。さらに「本文が空の
+'     頁」("t"だけの行)と「まだ読んでいない頁」(行が無い)を区別できる。
 '   ・本文は modUtil.SafeLeft(text, 32000)。セルの上限は32,767字で、
 '     サロゲートペアの途中で切ると壊れた文字が残る(SafeLeftはそこも見る)。
+'     ただし【切り詰めが起きる頁は控えない】(FB-10): 途中で切れた本文を
+'     次回そのまま復元すると、読み直せば全部入るはずの頁が永久に欠ける。
 '   ・書き込みは【バッチ単位で1回】(1行ずつのFind/書込みはしない)。
 '     20頁ぶんを1つの配列にして1回のRange代入で置く(§12の一括I/O規約)。
 '   ・読み出しも1回。シート全体を配列で受け取り、当該資料の鍵で始まる行だけ
 '     をメモリへ拾う。復元した本文はメモリからすぐ捨てる(pages()に移った
 '     あとまで二重に持たない)。
-'   ・後始末は2段: 取込が完全に成功したら(打ち切りも頁欠けも無い)その資料の
-'     行を全部消す。それ以外の理由で残った孤児行は、起動時GC(modBoot)から
-'     7日で消す。放っておくとブックが太り続ける(憲章§3-5)。
+'   ・後始末は2段: 取込が【本棚に done として並んだ】ら、その資料の行を全部
+'     消す(R15-FixB FB-1: 判断できるのはコア層の modShelf だけ。OCRが読み
+'     切っても、そのあとのチャンク化・ベクトル化で落ちれば資料は partial の
+'     まま残り、控えはまだ要る)。それ以外の理由で残った孤児行は、起動時GC
+'     (modBoot)から2日で消す。放っておくとブックが太り続ける(憲章§3-5)。
 '   ・opt層でシートを触るのはこのモジュールだけ。作法(ThisWorkbookからの
 '     取得・xlSheetVeryHidden・見出し3列)は modEmbed.EnsureVectorSheet を
 '     そのまま踏襲する。opt機能を撤去するときは、このシートが残っても
@@ -49,7 +59,14 @@ Private Const SH_OCR_CACHE As String = "ocr_cache"
 Private Const TEXT_MAX As Long = 32000
 
 ' 孤児行(取込が完走しないまま残った行)を起動時GCで消すまでの日数。
-Private Const CACHE_KEEP_DAYS As Long = 7
+' R15-FixB(FB-1): 7日 → 2日。1頁32,000字×300頁で1資料あたり最大約10MBに
+' なり得るのに、7日ぶん溜め込む理由が無い。中断した取込を再開するのは
+' 「思い出したその日か翌日」で、2日あれば実利用は十分に覆える。
+Private Const CACHE_KEEP_DAYS As Long = 2
+
+' 本文セルの先頭に必ず付ける番兵1字(R15-FixB FB-3)。"=" 始まりの本文が
+' 数式として解釈されるのを防ぎ、読み出しで剥げば完全に元へ戻る。
+Private Const TEXT_SENTINEL As String = "t"
 
 ' 1頁あたり所要ミリ秒の過去実績(ui_state)。事前確認の見積もりに使う。
 ' 【optOcrPage.RATE_KEY と必ず対で直すこと】(同じキーを2箇所で読む)。
@@ -115,17 +132,24 @@ Public Function BeginDoc(ByVal pdfPath As String) As Long
 End Function
 
 ' ----------------------------------------------------------------------------
-' CachedText - この頁の本文が前回から残っているか(残っていれば本文、無ければ "")。
+' CachedText - この頁の本文が前回から残っているか。
+'   outHit : True=前回の控えがあった(本文が空でも True)。
 '   一度返した本文はメモリから手放す(呼び出し元の pages() へ移ったあとまで
 '   二重に持たない。300頁×32,000字を二重に抱えると32bit Excelでは効く)。
 '   頁番号の管理(HasPage)は残るので、そのあとの重複書込み防止は効き続ける。
+'   R15-FixB(FB-3): 戻り値だけでは「控えがあって中身が空だった頁」と
+'   「まだ読んでいない頁」を区別できず、前者を毎回読み直していた(白紙頁・
+'   Visionが1文字も返さなかった頁は、何度取り込んでも必ず読み直しになる)。
+'   在/ 不在は outHit だけが答える。
 ' ----------------------------------------------------------------------------
-Public Function CachedText(ByVal pageNo As Long) As String
+Public Function CachedText(ByVal pageNo As Long, ByRef outHit As Boolean) As String
+    outHit = False
     Dim i As Long
     For i = 0 To mN - 1
         If mPageNos(i) = pageNo Then
             CachedText = mTexts(i)
             mTexts(i) = ""
+            outHit = True
             Exit Function
         End If
     Next i
@@ -156,9 +180,7 @@ Public Sub SaveRange(ByRef pages() As ExtractedPage, ByVal fromIdx As Long, _
     Dim n As Long: n = 0
     Dim i As Long
     For i = fromIdx To toIdx
-        If pages(i).page > 0 Then
-            If Not HasPage(pages(i).page) Then n = n + 1
-        End If
+        If Savable(pages, i) Then n = n + 1
     Next i
     If n = 0 Then Exit Sub
 
@@ -167,15 +189,14 @@ Public Sub SaveRange(ByRef pages() As ExtractedPage, ByVal fromIdx As Long, _
     Dim savedAt As Date: savedAt = Now
     Dim k As Long: k = 0
     For i = fromIdx To toIdx
-        Dim p As Long: p = pages(i).page
-        If p > 0 Then
-            If Not HasPage(p) Then
-                k = k + 1
-                buf(k, COL_KEY) = mDocPrefix & "|p" & p
-                buf(k, COL_TEXT) = CacheTextFor(pages(i).Text)
-                buf(k, COL_SAVED) = savedAt
-                NotePage p, ""      ' 以後の重複書込みを防ぐ(本文は持たない)
-            End If
+        If Savable(pages, i) Then
+            Dim p As Long: p = pages(i).page
+            k = k + 1
+            buf(k, COL_KEY) = mDocPrefix & "|p" & p
+            ' R15-FixB(FB-3): 番兵つきで書く(読み出しで剥ぐ)。
+            buf(k, COL_TEXT) = TEXT_SENTINEL & CacheTextFor(pages(i).Text)
+            buf(k, COL_SAVED) = savedAt
+            NotePage p, ""      ' 以後の重複書込みを防ぐ(本文は持たない)
         End If
     Next i
 
@@ -201,6 +222,19 @@ SaveFailed:
     NoteCacheFail failDesc
 End Sub
 
+' ----------------------------------------------------------------------------
+' Savable - この頁を控えてよいか(R15-FixB FB-10)。
+'   頁番号が正で / まだ書いていなくて / セルに丸ごと収まる本文であること。
+'   32,000字を超える頁を SafeLeft で切って控えると、次の取込では【切れた
+'   ままの本文】が復元され、読み直せば全部入るはずの後半が永久に失われる。
+'   控えないでおけば次回もう一度読むだけ(遅くなるだけで、欠けない)。
+' ----------------------------------------------------------------------------
+Private Function Savable(ByRef pages() As ExtractedPage, ByVal i As Long) As Boolean
+    If pages(i).page <= 0 Then Exit Function
+    If HasPage(pages(i).page) Then Exit Function
+    Savable = (Len(pages(i).Text) <= TEXT_MAX)
+End Function
+
 ' 書込み失敗を usage_log へ1行だけ残す(資料ごとに1回。取込は止めない)。
 Private Sub NoteCacheFail(ByVal why As String)
     If mFailLogged Then Exit Sub
@@ -219,32 +253,44 @@ Public Function HasSaved() As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
-' PurgeDoc - 取込が完全に成功した資料の行を全部消す(R15-7d)。
-'   「完全に」= 打ち切りも頁欠けも中断も無い。1頁でも欠けているなら、次に
-'   取り込んだときの再試行で使うので残す。
+' PurgeFor - その資料の控えを全部消す(R15-7d。R15-FixB FB-1 で呼び時機を変更)。
+'   pdfPath : 【元のファイル】のフルパス(鍵と同じもの)。
+'   従来は OCR を読み切った時点(FinishDoc)で消していた。しかし読み切った
+'   あとにもチャンク分割・ベクトル化・保存が控えており、そこで落ちれば資料は
+'   partial のまま本棚に残る——控えだけ先に消えているので、次の取込は
+'   【最初から】300頁を読み直すことになる(控えの存在意義そのものを失う)。
+'   消してよいと言えるのは「本棚に done として並んだ」ことを知っている
+'   コア層(modShelf)だけなので、そこから呼べる口をここに置く。
+'   OCR を1度も通っていない資料(通常のテキストPDF・Word等)から呼ばれても、
+'   その鍵で始まる行が1つも無いので RewriteKeeping は1セルも触らずに戻る。
+'   戻り値は modFeatures.InvokeFeature 経由で呼ぶための契約合わせ(常に "")。
 ' ----------------------------------------------------------------------------
-Public Sub PurgeDoc()
-    If LenB(mDocPrefix) = 0 Then Exit Sub
-    RewriteKeeping mDocPrefix & "|p", 0
-    ResetDoc
-End Sub
+Public Function PurgeFor(ByVal pdfPath As String) As String
+    On Error GoTo Quiet
+    Dim pfx As String: pfx = DocPrefixNow(pdfPath)
+    If LenB(pfx) = 0 Then Exit Function
+    RewriteKeeping pfx & "|p", 0
+    ' いま取り込み終えた資料そのものなら、メモリ側の控えも捨てる
+    ' (次の資料へ持ち越さない。持ち越すと復元件数の記録がズレる)。
+    If pfx = mDocPrefix Then ResetDoc
+    Exit Function
+Quiet:
+    Exit Function          ' 掃除に失敗しても取込の結果は変えない
+End Function
 
 ' ----------------------------------------------------------------------------
-' FinishDoc - 取込1件ぶんの後始末を1本にまとめた口(R15-7d)。
+' FinishDoc - 取込1件ぶんの記録と、復元の事実のメモ付け(R15-7d)。
 '   baseMemo : 呼び出し元(optOcrPage)が組み立てた正直なメモ
-'   okAll    : 打ち切りも頁欠けも中断も無く読み切れたか(True なら控えを消す)
 '   freshN   : 今回いくつの頁を実際に読んだか(usage_log の内訳用)
 '   戻り値   : カードへ出すメモ。復元があった取込は冒頭に
 '              「前回の続きから再開しました。」が付く。
-'   なぜ呼び出し元に散らさないのか: optOcrPage は30,000字上限まで残りが
-'   少なく(憲章§4-6)、また「片付け→復元の記録」は必ずこの順で1度だけ
-'   起きるべき対の処理だから(片付けてから件数を読むと0になる)。
+'   R15-FixB(FB-1): 控えの削除(旧 okAll → PurgeDoc)はここから外した。
+'   OCRが読み切ったことと、資料が本棚に done として並ぶことは別の事実で、
+'   後者を知っているのは modShelf だけ(上の PurgeFor の注記)。
 ' ----------------------------------------------------------------------------
-Public Function FinishDoc(ByVal baseMemo As String, ByVal okAll As Boolean, _
-                          ByVal freshN As Long) As String
+Public Function FinishDoc(ByVal baseMemo As String, ByVal freshN As Long) As String
     FinishDoc = baseMemo
-    Dim cachedN As Long: cachedN = mCachedN     ' PurgeDoc で0に戻る前に控える
-    If okAll Then PurgeDoc
+    Dim cachedN As Long: cachedN = mCachedN
     If cachedN <= 0 Then Exit Function
 
     FinishDoc = optOcrEta.OcrResumeMemo(baseMemo, cachedN)
@@ -255,7 +301,7 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' GcOldRows - 孤児行の起動時GC(R15-7d)。保存から CACHE_KEEP_DAYS 日を超えた行を
-'   消す。取込が完走しなかった資料の行は PurgeDoc を通らないので、ここが
+'   消す。取込が完走しなかった資料の行は PurgeFor を通らないので、ここが
 '   唯一の回収口になる。戻り値は modFeatures.InvokeFeature 経由で呼ぶための
 '   契約合わせ(常に "")。日付として読めない行も消す(壊れた行を永久に
 '   抱え続けない。消えて困るのは「次回が少し速い」だけ)。
@@ -293,7 +339,15 @@ Public Function ConfirmAskFor(ByVal pdfPath As String, ByVal maxPages As Long) A
     Exit Function
 
 Quiet:
-    ConfirmAskFor = ""      ' 見積もれないときは黙って従来どおり取り込む
+    ' ハンドラ稼働中は On Error Resume Next が効かない(NoteCacheFail の中で
+    ' 転ぶと呼び出し元へ飛ぶ)。Resume で抜けてから記録する=この層の共通作法。
+    Resume AskQuiet
+AskQuiet:
+    ConfirmAskFor = ""      ' 見積もれないときは従来どおり黙って取り込む
+    ' R15-FixB(FB-3): 「聞かなかった」ことの理由は残す。ここが無言だと、
+    ' 2時間の取込が確認なしで始まった原因(見積もり経路の故障)がどこにも
+    ' 出ないまま、確認機能そのものが死んでいても気付けない。
+    NoteCacheFail "取込前の見積もりに失敗しました"
 End Function
 
 ' 直前の ConfirmAskFor の見積もりで作る「見送りました」のメモ(R15-7b)。
@@ -321,9 +375,14 @@ Private Sub ResetDoc()
 End Sub
 
 ' 元ファイルの実体(サイズ・更新日時)から鍵の前半を作る。読めなければ ""。
+' R15-FixB(FB-8): 更新日時は modUtilText.IsoDateTime で固定書式にする。
+' CStr(Date) はロケール・カレンダー設定(和暦)で表記が変わるため、和暦の
+' 端末では鍵が "R8/08/04..." になり、設定を切り替えた瞬間に全ての控えが
+' 別物になって二度と使われなくなる(そこまで気付ける手がかりも残らない)。
 Private Function DocPrefixNow(ByVal pdfPath As String) As String
     On Error GoTo NoKey
-    DocPrefixNow = DocPrefixFor(pdfPath, FileLen(pdfPath), CStr(FileDateTime(pdfPath)))
+    DocPrefixNow = DocPrefixFor(pdfPath, FileLen(pdfPath), _
+        modUtilText.IsoDateTime(FileDateTime(pdfPath)))
     Exit Function
 NoKey:
     DocPrefixNow = ""
@@ -347,7 +406,7 @@ Private Sub LoadDoc()
             Dim p As Long: p = CLng(Val(Mid$(rowKey, tagLen + 1)))
             If p > 0 Then
                 If Not HasPage(p) Then
-                    NotePage p, CStr(arr(i, COL_TEXT))
+                    NotePage p, BodyOf(CStr(arr(i, COL_TEXT)))
                     mCachedN = mCachedN + 1
                 End If
             End If
@@ -356,11 +415,23 @@ Private Sub LoadDoc()
     Exit Sub
 
 Quiet:
+    Resume LoadQuiet        ' ハンドラを抜けてから記録する(共通作法)
+LoadQuiet:
     ' 読めないキャッシュは【無いのと同じ】に倒す(取込は続く)。途中まで
     ' 拾えていた頁も捨てる: 復元はしたのに「復元0頁」と記録するズレを作らない。
     mN = 0
     mCachedN = 0
+    ' R15-FixB(FB-3): 従来ここは完全な無言だった。控えが読めていないのに
+    ' 何度取り込んでも毎回最初からになる理由が、利用者にも調査者にも1行も
+    ' 残らない(黙って遅いのは、黙って壊れているのと見分けが付かない)。
+    NoteCacheFail "前回の控えを読み出せませんでした"
 End Sub
+
+' 番兵を剥いだ本文(R15-FixB FB-3)。空セル(番兵ごと消えている壊れた行)は
+' 空本文として扱う=行が在ることは事実なので、復元済みの頁として数える。
+Private Function BodyOf(ByVal cellText As String) As String
+    If Len(cellText) >= 1 Then BodyOf = Mid$(cellText, 2)
+End Function
 
 ' 既知の頁か(復元できる頁+今回書いた頁)。
 Private Function HasPage(ByVal pageNo As Long) As Boolean
@@ -427,7 +498,11 @@ Private Sub RewriteKeeping(ByVal dropPrefix As String, ByVal dropOlderDays As Lo
     Exit Sub
 
 Quiet:
-    Exit Sub                ' 掃除に失敗しても取込・起動は続ける
+    Resume RewriteQuiet     ' ハンドラを抜けてから記録する(共通作法)
+RewriteQuiet:
+    ' 掃除に失敗しても取込・起動は続ける。ただし黙らない(R15-FixB FB-3):
+    ' 消せない行が溜まり続けてブックが太ることに、誰も気付けなくなる(§4-1)。
+    NoteCacheFail "控えの整理に失敗しました"
 End Sub
 
 ' この行を消すか。鍵の一致(資料単位の削除)または古すぎる(孤児のGC)。
@@ -467,9 +542,19 @@ End Function
 
 ' modEmbed.EnsureVectorSheet と同じ作法(ThisWorkbook から取り、無ければ
 ' 末尾に作って veryHidden にする)。作れなければ Nothing(呼び出し元は諦める)。
+' R15-FixB(FB-2): 通常このシートはビルドが最初から入れてあり(build の
+' headers-only 生成)、ここを通るのは配布前の古いブックだけになった。それでも
+' 経路は残す(消えていても取込が止まらない自己修復)。Worksheets.Add は
+' 【追加したシートをアクティブにする】ので、取込の途中で画面が知らない
+' シートへ飛び、進捗バナー(ActiveSheet に描く)も行き先を見失う。
+' 追加の前後でアクティブシートを退避・復元する。復元の失敗は無視してよい
+' (見えているシートが変わるだけで、控えも取込も壊れない)。
 Private Function EnsureCacheSheet() As Worksheet
     Dim ws As Worksheet: Set ws = GetSheet(SH_OCR_CACHE)
     If ws Is Nothing Then
+        Dim prevActive As Object: Set prevActive = Nothing
+        On Error Resume Next
+        Set prevActive = ActiveSheet
         On Error GoTo Fail
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
         ws.Name = SH_OCR_CACHE
@@ -478,6 +563,7 @@ Private Function EnsureCacheSheet() As Worksheet
         ws.Cells(1, COL_SAVED).Value = "saved_at"
         On Error Resume Next
         ws.Visible = 2   ' xlSheetVeryHidden
+        If Not prevActive Is Nothing Then prevActive.Activate
         On Error GoTo 0
     End If
     Set EnsureCacheSheet = ws

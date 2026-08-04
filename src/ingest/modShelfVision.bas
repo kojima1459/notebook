@@ -236,8 +236,12 @@ Private Function DeclinedByUser(ByVal path As String, ByRef outNote As String) A
     If MsgBox(ask, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then Exit Function
 
     outNote = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrDeclineMemo", Array()))
+    ' R15-FixB(FB-5): 予備の文面も【必ず】同じ先頭句で始める。ここだけ違う
+    ' 書き出しにすると、opt側の問い合わせに失敗した回だけ見送りが失敗として
+    ' 数えられる(見え方が回ごとに変わるのが一番たちが悪い)。
     If LenB(outNote) = 0 Or Left$(outNote, 5) = "#ERR:" Then _
-        outNote = "推定所要時間が長いため取込を見送りました。再度取り込むと実行します"
+        outNote = modUtilText.DECLINE_MEMO_HEAD & "(推定所要時間が長いため)。" & _
+            "再度取り込むと実行します"
     modLog.LogUsage "ocr_declined", "", modUtil.SafeLeft(modUtil.FileNameOf(path), 100)
     DeclinedByUser = True
     Exit Function

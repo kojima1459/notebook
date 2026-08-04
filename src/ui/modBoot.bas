@@ -24,13 +24,11 @@ Option Explicit
 '     絵文字を使わない」規約の厳守)。空欄のまま閉じた場合は「名称未設定」を
 '     既定値として保存し、次回以降は再度尋ねない(毎回聞かれる煩わしさを
 '     避ける。あとでconfigシートからいつでも変更できる旨を案内文に含める)。
-'   ・3画面のEnsureLayout直後に、RenderShelf/EvaluateBadges/RenderDashboard
-'     もあわせて呼ぶ。理由: このブックには各シートのActivateイベントに
-'     反応するシートクラスモジュールが割り当てられていない(担当ファイルは
-'     ThisWorkbook.clsのみ)。タブを切り替えるだけでは再描画が起きないため、
-'     非エンジニアが開いた瞬間に「空っぽの画面」を見せないよう、起動時に
-'     一度だけ実データで埋めておく(以降はmodUIMain/modUIShelf側の各操作が
-'     完了時に自分で再描画する設計に委ねる)。
+'   ・3画面のEnsureLayout直後に RenderShelf/EvaluateBadges/RenderDashboard も
+'     呼ぶ。理由: このブックにはシートのActivateイベントに反応するクラス
+'     モジュールが無く(担当は ThisWorkbook.cls のみ)、タブ切替では再描画が
+'     起きない。開いた瞬間に「空っぽの画面」を見せないよう起動時に一度だけ
+'     実データで埋める(以降は各操作が完了時に自分で再描画する)。
 '   ・本棚が空のときは、modShelf.TotalChunksを見てmodUIMain.
 '     ShowEmptyShelfHintを呼ぶ(§8.1「まず『マイ本棚』タブで資料を1つ
 '     追加してみましょう →」常設表示)。「空かどうか」の判定はここ(modBoot)
@@ -431,7 +429,7 @@ Public Sub Boot()
     '      R14-F11: 一時コピー(%TEMP%\mbtmp_*)の残骸も同じ線(24時間)で
     '      掃除する(本体は modExtractorPdf.GcOldTempCopies)。
     '      R15-7d: OCRの頁キャッシュ(隠しシート ocr_cache)の孤児行も、
-    '      同じ考え方で7日超だけ掃除する(本体はopt側。vision無効なら1行も
+    '      同じ考え方で2日超だけ掃除する(本体はopt側。vision無効なら1行も
     '      作られないので何も溜まらない)。
     On Error Resume Next
     GcOldOcrFolders
@@ -726,6 +724,7 @@ Private Sub HideInternalSheets()
     HideSheetSafely modAppDef.SH_VECTORS, VERY_HIDDEN
     HideSheetSafely modAppDef.SH_UISTATE, VERY_HIDDEN
     HideSheetSafely "vba_src", VERY_HIDDEN
+    HideSheetSafely "ocr_cache", VERY_HIDDEN   ' R15-FixB FB-2
 
     ' 到達導線が無く中身も描かなくなったので隠す(空の可視シートを残さない)。
     HideSheetSafely modAppDef.SH_DASH, HIDDEN

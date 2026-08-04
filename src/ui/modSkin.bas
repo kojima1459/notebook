@@ -6,11 +6,11 @@ Option Explicit
 ' ----------------------------------------------------------------------------
 ' 役割:
 '   ・BeautifyAll / StyleShape: 全nx_Shapeへ「Yu Gothic UI」フォントを徹底し、
-'     固定クロム(トップバー/アクションボタン/サイドバー地)にだけ柔らかい影を付与。
-'     チャットバブルはフラット(影は選択時のみ)=描画負荷のメリハリ(FPS低下防止)。
-'   ・ShowToast: MsgBoxの代替(ハイブリッド運用)。完了/情報などの非ブロッキング通知を
-'     画面上部にスッと出して自動で消すToast(細長Shape)で表示する。確認/入力/起動/
-'     エラー/別シート時は呼び出し側でMsgBoxを維持する(モーダル性の担保)。
+'     固定クロム(トップバー/アクションボタン/サイドバー地)にだけ柔らかい影を
+'     付与。チャットバブルはフラット(影は選択時のみ)=描画負荷のメリハリ。
+'   ・ShowToast: MsgBoxの代替(ハイブリッド運用)。完了/情報などの非ブロッキング
+'     通知を画面上部にスッと出して自動で消すToast(細長Shape)で表示する。確認/
+'     入力/起動/エラー/別シート時は呼び出し側でMsgBoxを維持する。
 '
 ' 設計判断:
 '   ・modUI.bas が文字数上限に近いため、ポリッシュのロジックはここへ集約し、
@@ -43,8 +43,8 @@ Public Sub BeautifyAll(ByVal ws As Worksheet)
     On Error GoTo 0
 End Sub
 
-' 1つのShapeへ: フォント統一(脱MS Pゴシック)+固定クロムにだけ影。
-' バブル(nx_msg_)や思考(nx_thk_)の影はここでは触らない(フラット維持/選択時のみ浮遊)。
+' 1つのShapeへ: フォント統一(脱MS Pゴシック)+固定クロムにだけ影。バブル
+' (nx_msg_)や思考(nx_thk_)の影は触らない(フラット維持/選択時のみ浮遊)。
 Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     On Error Resume Next
     shp.TextFrame2.TextRange.Font.Name = "Yu Gothic UI"
@@ -87,10 +87,9 @@ Public Sub ApplyGradient(ByVal shp As Shape, ByVal c1 As Long, ByVal c2 As Long)
     On Error GoTo 0
 End Sub
 
-' 2026-08-01(R12-7-2): RGBを各チャンネル一律 pct だけ暗くする(0〜1)。
-' 自分の発言バブルのグラデーション終端を userBubble の同系微差色にするための
-' 内部部品(a11y監査Med: 終端をprimaryにしていたためバブル下端の文字が
-' light 3.93/dark 2.90/ocean 2.72/gold 1.75 まで沈んでいた)。
+' 2026-08-01(R12-7-2): RGBを各チャンネル一律 pct だけ暗くする(0〜1)。自分の
+' 発言バブルのグラデーション終端を userBubble の同系微差色にする内部部品
+' (a11y監査Med: 終端をprimaryにしてバブル下端の文字が沈んでいた)。
 Private Function DarkenRgb(ByVal rgbVal As Long, ByVal pct As Double) As Long
     Dim r As Long, g As Long, b As Long
     r = rgbVal Mod 256
@@ -115,8 +114,8 @@ Public Sub ApplyLightShadow(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' MS&ADグリーンの微細な縦グラデーション(フラットの中の上質なマテリアル感)。
-' テーマ再適用(ApplyTheme)でベタ塗りに戻ることがあるが、BeautifyAll経由で再適用される。
+' MS&ADグリーンの微細な縦グラデーション(フラットの中の上質な質感)。
+' ApplyTheme でベタ塗りに戻ることがあるが BeautifyAll 経由で再適用される。
 Public Sub ApplyGreenDepth(ByVal shp As Shape)
     On Error Resume Next
     With shp.Fill
@@ -134,8 +133,8 @@ Public Sub StyleBubble(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' ふんわり柔らかいドロップシャドウ(透明度高め・ぼかし広め・ベタ塗りの黒影を避ける)。
-' 固定バー/カード/選択中バブルにだけ使う(全面に付けると描画負荷でFPSが落ちるため)。
+' ふんわり柔らかいドロップシャドウ(透明度高め・ぼかし広め)。固定バー/カード/
+' 選択中バブルにだけ使う(全面に付けると描画負荷でFPSが落ちるため)。
 Public Sub ApplySoftShadow(ByVal shp As Shape)
     On Error Resume Next
     With shp.Shadow
@@ -153,7 +152,6 @@ End Sub
 ' スキン(きせかえ): 称号と同じ「感謝受領数」ゲートのアンロック方式。light/dark
 '   は全員、sakura/oceanは感謝5件、goldは20件。解放判定は全描画の色解決点
 '   (ResolveColor)でも強制するので、隠しシートを手書きしても色は落ちる。
-'   感謝数はP2P受領のみが源泉=スキンが偽装不可の勲章になる。
 
 ' テーマ名を検証し、未解放/未知ならlightへ落とした正規名を返す。
 Public Function EffectiveSkin(ByVal themeName As String) As String
@@ -311,9 +309,8 @@ End Sub
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------
 ' waitless(2026-07-31 R11-H Med4): True のとき 1.1秒の待機と削除をせず描いたら
-' すぐ戻る。「押した瞬間に一言返すだけ」の用途は待たせること自体が害になる
-' (連打で待ちが積み上がり、押しても効かないように見える)。残ったToastは次の
-' ShowToast / PaintProgress の先頭の掃除で消える。既定は従来どおり待って消す。
+' すぐ戻る。「押した瞬間に一言返すだけ」の用途は待たせること自体が害になる。
+' 残ったToastは次の ShowToast / PaintProgress の掃除で消える。既定は待って消す。
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
     On Error Resume Next
@@ -385,13 +382,12 @@ End Sub
 '   DoEvents1回だけ挟んで再描画させる。別ブック表示中は何もしない(誤爆ガード)。
 '   直前と違うシートへ移っていたら旧シートのShapeを消してから描き直す。
 '   cancellable(2026-08-04 R15-FixA FA-6): True のときだけ「中断」ボタンを
-'   添える。従来はこのバナーを使う【全ての】処理(質問の準備・部門更新の
-'   取込・Q&A読込・ナレッジ登録)にボタンが生え、押しても何も止まらなかった
-'   =壊れたボタンと同じ(§3-1)。True を渡すのは取込経路
-'   (modShelfBatch.ShowIngestBanner)だけ。False でも【既にあるボタンは
-'   消さない】: 取込中に割り込む実況(BlockIfIngestingの「お待ちください」・
-'   ベクトル化)でボタンが消えると、待たされている本人が押したい瞬間に
-'   押せなくなる。寿命はバナーと同じで ClearProgress が対で消す。
+'   添える。従来はこのバナーを使う【全ての】処理(質問の準備・Q&A読込・
+'   ナレッジ登録)にボタンが生え、押しても何も止まらなかった=壊れたボタンと
+'   同じ(§3-1)。True を渡すのは取込経路(modShelfBatch.ShowIngestBanner)
+'   だけ。False でも【既にあるボタンは消さない】: 取込中に割り込む実況で
+'   ボタンが消えると、待たされている本人が押したい瞬間に押せなくなる。
+'   寿命はバナーと同じで ClearProgress が対で消す。
 ' ----------------------------------------------------------------------------
 Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
     On Error Resume Next
@@ -415,8 +411,8 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     Dim leftPos As Double, topPos As Double
     leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
     ' R10c(M4): トースト(nx_toast)も同じ +92 に出るため、取込完了の瞬間だけ
-    ' 2枚が完全に重なり、下になった方の文字が読めなくなっていた。バナーは
-    ' トースト(高さ34)の下へずらす。92 + 34 + 余白4 = 130。
+    ' 2枚が重なり下の文字が読めなかった。バナーはトースト(高さ34)の下へ
+    ' ずらす。92 + 34 + 余白4 = 130。
     topPos = ActiveWindow.VisibleRange.Top + 130
 
     Dim shp As Shape
@@ -430,7 +426,7 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
         shp.Fill.ForeColor.RGB = RGB(30, 41, 59)
         With shp.TextFrame2
             .WordWrap = -1
-            .MarginLeft = 16: .MarginRight = 16: .MarginTop = 4: .MarginBottom = 4
+            .MarginLeft = 16: .MarginTop = 4: .MarginBottom = 4   ' 右余白は下で
             .TextRange.Font.Name = "Yu Gothic UI"
             .TextRange.Font.Size = 10
             .TextRange.ParagraphFormat.Alignment = 2   ' 中央
@@ -442,17 +438,26 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
         shp.Left = leftPos
         shp.Top = topPos
     End If
+    ' R15-FixB(FB-6): 中断ボタンはバナーの【内側】右端へ。従来は右外
+    ' (leftPos+barW+6)で、小さな窓・低い解像度では画面外へはみ出し、止めたい
+    ' 人が押せなかった。バナーは可視領域の中央なので内側なら必ず一緒に見える。
+    ' 文字がボタンの下へ潜らないよう右余白を広げる(ボタン76+間隔=88)。毎回
+    ' 入れ直すのは cancellable が呼びごとに変わり得るため。
+    Dim marginR As Double: marginR = 16
+    If cancellable Then marginR = 88
+    shp.TextFrame2.MarginRight = marginR
     shp.TextFrame2.TextRange.Text = message
     shp.ZOrder 0   ' msoBringToFront
 
-    If cancellable Then PaintCancelButton ws, leftPos + barW + 6, topPos
+    If cancellable Then PaintCancelButton ws, leftPos + barW - 82, topPos
     DoEvents
     On Error GoTo 0
 End Sub
 
-' PaintCancelButton - 進捗バナー脇の「中断」(R15-6a・RC3)。85〜127分の取込を
-'   止める手段が無く強制終了しか無かった。押しても止まるのは今の頁の後
-'   (OnCancelIngestは印を立てるだけ)。絵文字は使わない(CP932・R13-L6)。
+' PaintCancelButton - 進捗バナー内側右端の「中断」(R15-6a・RC3。位置は
+'   R15-FixB FB-6 で外側から内側へ)。85〜127分の取込を止める手段が無く強制
+'   終了しか無かった。押しても止まるのは今の頁の後(OnCancelIngestは印を
+'   立てるだけ)。絵文字は使わない(CP932・R13-L6)。
 Private Sub PaintCancelButton(ByVal ws As Worksheet, ByVal leftPos As Double, _
                               ByVal topPos As Double)
     On Error Resume Next
@@ -492,18 +497,15 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' テーマ(配色の適用)。2026-07-31(R11-F1)に modUI から移設した。
 '   modUI が30,000字上限まで残り168字となり修正が入らない状態だったため、
-'   「配色の単一情報源」を持つ本モジュールへテーマ塊(CurrentTheme/SaveTheme/
-'   ThemeColor/ApplyTheme/PaintBubble/PaintActionButton/SetShapeTextColor/
-'   ThemeIcon)を寄せた(憲章§4-6)。modUI 側には UiColor/UiTheme/ToggleTheme
-'   の薄い委譲だけを残す(呼び出し元の書き換えを最小化するため)。
+'   「配色の単一情報源」を持つ本モジュールへテーマ塊を寄せた(憲章§4-6)。
+'   modUI 側には UiColor/UiTheme/ToggleTheme の薄い委譲だけを残す。
 ' ----------------------------------------------------------------------------
 
 ' ----------------------------------------------------------------------------
 ' CurrentTheme / SaveTheme - 現在のテーマ(スキン)名の読み書き。
-'   2026-07-31(R11-F1): ui_stateシートの走査を自前で持っていた実装
-'   (modUI.CurrentTheme/SaveTheme)を modState.LoadState/SaveState への委譲へ
-'   置き換えた。同じ "nexus_theme" キーを modSkin.CycleSkin は modState 経由、
-'   modUI は自前走査で読み書きしており、同型の処理が2つあった(憲章§4-5)。
+'   2026-07-31(R11-F1): ui_stateシートの走査を自前で持っていた実装を
+'   modState.LoadState/SaveState への委譲へ置き換えた。同じ "nexus_theme" を
+'   2通りで読み書きしており、同型の処理が2つあった(憲章§4-5)。
 '   既定は "light"。値はスキン名も入る(検証は EffectiveSkin/ResolveColor 側)。
 ' ----------------------------------------------------------------------------
 Public Function CurrentTheme() As String
