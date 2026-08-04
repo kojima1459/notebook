@@ -637,6 +637,14 @@
       "note": "画像PDFのOCR取込(R6)でoptVisionが使うGSコマンド組み立ての純ロジック。modFeatures経由では呼ばれずoptVisionからのみ参照される。optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
+      "name": "optOcrEta",
+      "path": "src/opt/optOcrEta.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R15-5b",
+      "note": "画像PDF OCRの「進捗の見せ方」と「打ち切りの言い方」だけを集めた純ロジック(進捗バナー/残り時間と終了目安/上限・中断・頁欠けのメモ/画像化待ち予算の残り)。optOcrCoreが30,000字上限まで残り2,068字となりR15-5のETAとR15-6の中断メモが入らなくなったための移設先(憲章§4-6)。現在時刻は引数で受け取り、この中でNowを呼ばない=終了目安をゴールデンテストで固定できる。optVision/optOcrPage/optOcrCoreを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
       "name": "optGsTxt",
       "path": "src/opt/optGsTxt.bas",
       "role": "opt",
@@ -775,6 +783,14 @@
       "type": "std",
       "wave": "R14-8",
       "note": "R14-8(入念モードの本格強化と回答可読性)の純ロジック回帰テスト。modTestsPure11にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(モード説明/再ランクeffort/6段の段階ナレーション/出典タグの抽出と突合/回答本文の記法正規化と実況の番号保持)。modTestsPure11.RunAll11末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure13",
+      "path": "src/test/modTestsPure13.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R15-4",
+      "note": "R15-4/R15-5/R15-6(OCRの正直さ強化・総頁早期確定とETA/終了時刻・中断ボタン)の純ロジック回帰テスト。modTestsPure11(27,888字)/modTestsPure12(27,001字)のどちらもWARN帯直前で足せないため憲章§4-6に従って新設した分割先(頁欠け・上限打ち切り・中断メモの真理表/バッチラベル/残り時間と終了目安の境界/画像化待ち予算)。modTestsPure12.RunAll12末尾から呼ばれる。"
     },
     {
       "name": "modTestsExcel",

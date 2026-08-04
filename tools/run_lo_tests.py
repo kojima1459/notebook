@@ -183,7 +183,12 @@ PURE_ALLOWLIST = [
     #     30,000字上限を超えるための分割先。modTestsPure3.RunAll3の末尾が
     #     modTestsPure4.RunAll4を呼ぶため、未注入だと実行時エラー12になり
     #     分割先のテストが「実行されないまま」になる(modTestsPure3と同型の理由)。
-    "optOcrCore", "modTestsPure4",
+    #   optOcrEta(2026-08-04 R15-5b): optOcrCore から移設した進捗バナー・
+    #     残り時間と終了目安・上限/中断/頁欠けのメモの純ロジック。現在時刻を
+    #     引数で受け取る設計にしてあるので、終了目安まで含めて1文字単位の
+    #     ゴールデンテストで固定できる(未注入だと modTestsPure11/12/13 が
+    #     実行時エラー12で丸ごと落ちる)。
+    "optOcrCore", "optOcrEta", "modTestsPure4",
     # 2026-07-31 R8(P2P/共有系の修正)で追加。
     #   modShareRule: 共有まわりの判定式だけを集めた純ロジック。感謝状の宛先
     #     解決(origin の名前空間)、到達性プローブ、端末失効、TTLキャッシュ、
@@ -276,7 +281,12 @@ PURE_ALLOWLIST = [
     # modTestsPure12(2026-08-03 R14-8): modTestsPure11の容量逼迫による分割先。
     #   modTestsPure11.RunAll11 の末尾が RunAll12 を呼ぶため、未注入だと
     #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
+    # modTestsPure13(2026-08-04 R15波2): modTestsPure11(27,888字)/
+    #   modTestsPure12(27,001字)のどちらもWARN帯直前で足せないための分割先。
+    #   modTestsPure12.RunAll12 の末尾が RunAll13 を呼ぶため、未注入だと
+    #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
     "modTestsPure11", "modAskThorough", "modLive", "modTestsPure12",
+    "modTestsPure13",
     # modKnowledgeBar(2026-08-03 R14-2a): ToolbarContentRightはShapeを一切
     #   生成しない配置算数だけの関数(ToolbarSpec+modChrome.FlowLeft)。
     #   ToolbarSpecが呼ぶmodPublish.CanPublish/modFeatures.FeatureEnabledは

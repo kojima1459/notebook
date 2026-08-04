@@ -478,92 +478,11 @@ Public Function BatchBoundsFor(ByVal totalPages As Long, ByVal batchSize As Long
     BatchBoundsFor = CStr(firstP) & "|" & CStr(lastP)
 End Function
 
-' ----------------------------------------------------------------------------
-' OcrPageBanner - OCR中の進捗バナーの文面(R14-4a / R14-F9)。表示専用の純関数。
-'   総頁が【確定してから】だけ分母とETAを出す:
-'     未確定: 「OCR中… 3頁目 (バッチ 1)」    分母も総バッチ数も出さない
-'     確定後: 「OCR中… 3/44頁 (バッチ 1/3) 残り約41秒」
-'   総頁は最後のバッチに入るまで分からない(上限+1頁までしか描かせない)。
-'   それを「上限=総頁」と決め打ち、44頁のPDFに「100頁」という嘘の分母を
-'   最後まで出していた(F9)。残り時間は avgMsPerPage の実測が入ってから。
-'   totalPages が現在頁より小さい値は【未確定】として扱う。
-' ----------------------------------------------------------------------------
-Public Function OcrPageBanner(ByVal pageNo As Long, ByVal totalPages As Long, _
-                              ByVal batchIdx As Long, ByVal batchCount As Long, _
-                              ByVal avgMsPerPage As Double) As String
-    Dim p As Long: p = pageNo
-    If p < 1 Then p = 1
-
-    If totalPages < p Or batchCount < batchIdx Then
-        OcrPageBanner = "OCR中… " & p & "頁目 (バッチ " & batchIdx & ")"
-        Exit Function
-    End If
-
-    Dim n As Long: n = totalPages
-    Dim s As String
-    s = "OCR中… " & p & "/" & n & "頁 (バッチ " & batchIdx & "/" & batchCount & ")"
-
-    If avgMsPerPage > 0 And n > p Then
-        Dim remSec As Long
-        remSec = CLng(Int((CDbl(n - p) * avgMsPerPage) / 1000# + 0.5))
-        If remSec < 1 Then remSec = 1
-        s = s & " 残り約" & remSec & "秒"
-    End If
-
-    OcrPageBanner = s
-End Function
-
-' ----------------------------------------------------------------------------
-' OcrCapMemoFor - 上限ページで打ち切ったときに本棚カードへ出す正直なメモ
-'   (2026-08-03 R14-4c / R14-F7)。打ち切っていなければ ""。
-'   truncated=上限で打ち切ったか / keptN=取り込めた頁数 /
-'   capN=設定の上限(config vision_pdf_max_pages)。
-'   従来は keptN をそのまま「上限」と書いていた(F7)。1頁でもOCRに失敗すると
-'   kept は上限より小さくなり config の値と食い違うため、別々に言う。
-'   総ページ数は不明なので名乗らない。
-' ----------------------------------------------------------------------------
-Public Function OcrCapMemoFor(ByVal truncated As Boolean, ByVal keptN As Long, _
-                              ByVal capN As Long) As String
-    If Not truncated Then Exit Function
-    Dim k As Long: k = keptN
-    If k < 0 Then k = 0
-    Dim c As Long: c = capN
-    If c < k Then c = k          ' 上限が不明・壊れた値なら取り込めた数で言う
-
-    OcrCapMemoFor = "設定上限" & c & "ページのうち先頭" & k & _
-        "ページを取り込みました(設定 vision_pdf_max_pages で変更できます)"
-    If c > k Then
-        OcrCapMemoFor = OcrCapMemoFor & "。" & (c - k) & "ページは読み取れませんでした"
-    End If
-End Function
-
-' ----------------------------------------------------------------------------
-' OcrAbortMemoFor - 途中で読み取りを打ち切ったときのメモ(2026-08-03 R14-F2)。
-'   上限ではなくGSの変換失敗・時間切れで【まだ先があるのに】止めた場合。
-'   従来この経路は上限打ち切りと区別がつかず status も done で、頁が黙って
-'   欠けていた。再開ロジックは無いので「続きから再開」とは言わない(RC4)。
-' ----------------------------------------------------------------------------
-Public Function OcrAbortMemoFor(ByVal keptN As Long) As String
-    Dim k As Long: k = keptN
-    If k < 0 Then k = 0
-    OcrAbortMemoFor = "読み取りを" & k & "頁で中断しました" & _
-        "(変換エラーまたは時間切れ)。もう一度取り込むと再試行します"
-End Function
-
-' ----------------------------------------------------------------------------
-' RemainingWaitSec - 1資料あたりの絶対上限(config gs_abs_timeout_sec)の
-'   【残り】を返す(2026-08-03 R14-F6)。0=もう待てない(打ち切り)。
-'   バッチ描画で絶対上限が「1バッチあたり」の意味になっていた(20頁×6
-'   バッチなら最悪1200秒×6)。資料単位の壁へ戻す。残りが短くても10秒は
-'   待つ(1秒の待ちは必ず時間切れになるだけで得が無い)。
-' ----------------------------------------------------------------------------
-Public Function RemainingWaitSec(ByVal absSec As Long, ByVal usedSec As Long) As Long
-    If absSec < 1 Then Exit Function
-    If usedSec >= absSec Then Exit Function
-    Dim r As Long: r = absSec - usedSec
-    If r < 10 Then r = 10
-    RemainingWaitSec = r
-End Function
+' 2026-08-04(R15-5b): OcrPageBanner / OcrCapMemoFor / OcrAbortMemoFor /
+' RemainingWaitSec は optOcrEta へ【移設】した。進捗の見せ方と打ち切りの
+' 言い方(=利用者への伝え方)は、GSコマンドの組み立てとページ上限の算数
+' (=Ghostscriptの都合)とは別の関心事で、本モジュールが30,000字上限まで
+' 残り2,068字となり追記できなくなっていたため(憲章§4-6)。ここは純減のみ。
 
 ' configの値が壊れていても暴走しないための丸め(公開: 診断・テスト用)。
 Public Function SafeDpi(ByVal dpi As Long) As Long

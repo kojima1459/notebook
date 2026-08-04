@@ -28,9 +28,9 @@ Option Explicit
 '   ・optOcrCore.BatchCountFor / BatchBoundsFor(R14-4a): 20ページずつの
 '     バッチ境界。ここがズレるとページが飛ぶ(取り込めたつもりで欠ける)か、
 '     同じページを二度OCRする(コストが倍)。
-'   ・optOcrCore.OcrPageBanner(R14-4a / R14-F9): 進捗の文面とETAの出し方。
+'   ・optOcrEta.OcrPageBanner(R14-4a / R14-F9): 進捗の文面とETAの出し方。
 '     総頁が確定するまで分母もバッチ総数もETAも出さないこと(嘘の分母禁止)。
-'   ・optOcrCore.OcrCapMemoFor / OcrAbortMemoFor(R14-4c / R14-F2・F7):
+'   ・optOcrEta.OcrCapMemoFor / OcrAbortMemoFor(R14-4c / R14-F2・F7):
 '     上限は【設定の値】、取り込めた頁数は別、読めなかった頁数も別。途中で
 '     中断したときは上限の話をせず「もう一度取り込むと再試行」と言うこと。
 '   ・modMode.ShouldEmitInsight(R14-1b): 「解決した」で部内へ発信してよい
@@ -287,7 +287,7 @@ End Sub
 Private Sub TestOcrBannerAndCapMemo()
     ' R14-F9: 総頁が確定してからだけ分母を出す。確定前に上限を分母として
     ' 出していたため、44頁のPDFで「1/100頁」という嘘が最後まで残っていた。
-    Dim u0 As String: u0 = optOcrCore.OcrPageBanner(3, 0, 1, 0, 0#)
+    Dim u0 As String: u0 = optOcrEta.OcrPageBanner(3, 0, 1, 0, 0#, 0)
     modTestRunner.Check "OcrBanner_総頁未確定は頁目だけを言う", _
         (InStr(u0, "3頁目") > 0), "実際=" & u0
     modTestRunner.Check "OcrBanner_総頁未確定は分母を出さない", _
@@ -295,35 +295,36 @@ Private Sub TestOcrBannerAndCapMemo()
     modTestRunner.Check "OcrBanner_総頁未確定はバッチ総数を出さない", _
         (InStr(u0, "(バッチ 1)") > 0), "実際=" & u0
     modTestRunner.Check "OcrBanner_総頁未確定はETAを出さない", _
-        (InStr(optOcrCore.OcrPageBanner(3, 0, 1, 0, 1000#), "残り") = 0), _
-        "実際=" & optOcrCore.OcrPageBanner(3, 0, 1, 0, 1000#)
+        (InStr(optOcrEta.OcrPageBanner(3, 0, 1, 0, 1000#, 0), "残り") = 0), _
+        "実際=" & optOcrEta.OcrPageBanner(3, 0, 1, 0, 1000#, 0)
 
     ' 実測が無いうちは残り時間を出さない(跳ね回る表示を作らない)。
-    Dim b0 As String: b0 = optOcrCore.OcrPageBanner(1, 100, 1, 5, 0#)
+    Dim b0 As String: b0 = optOcrEta.OcrPageBanner(1, 100, 1, 5, 0#, 0)
     modTestRunner.Check "OcrBanner_頁とバッチが出る", _
         (InStr(b0, "1/100頁") > 0 And InStr(b0, "(バッチ 1/5)") > 0), "実際=" & b0
     modTestRunner.Check "OcrBanner_実測前は残り時間を出さない", _
         (InStr(b0, "残り") = 0), "実際=" & b0
 
-    ' 実測が入ったら残り時間を出す(残り98頁 × 1000ms = 98秒)。
-    Dim b1 As String: b1 = optOcrCore.OcrPageBanner(2, 100, 1, 5, 1000#)
+    ' 実測が入ったら残り時間を出す(98頁 × 1000ms = 98秒 → 約2分。
+    ' 秒/分の境界は modTestsPure13。R15-5b)。
+    Dim b1 As String: b1 = optOcrEta.OcrPageBanner(2, 100, 1, 5, 1000#, 0)
     modTestRunner.Check "OcrBanner_実測後は残り時間を出す", _
-        (InStr(b1, "残り約98秒") > 0), "実際=" & b1
+        (InStr(b1, "残り約2分") > 0), "実際=" & b1
 
     ' 最終頁では残りを出さない。分母が現在頁より小さい壊れた値は未確定扱い。
-    Dim b2 As String: b2 = optOcrCore.OcrPageBanner(100, 100, 5, 5, 1000#)
+    Dim b2 As String: b2 = optOcrEta.OcrPageBanner(100, 100, 5, 5, 1000#, 0)
     modTestRunner.Check "OcrBanner_最終頁は残りを出さない", _
         (InStr(b2, "残り") = 0), "実際=" & b2
-    Dim b3 As String: b3 = optOcrCore.OcrPageBanner(7, 3, 1, 1, 0#)
+    Dim b3 As String: b3 = optOcrEta.OcrPageBanner(7, 3, 1, 1, 0#, 0)
     modTestRunner.Check "OcrBanner_壊れた分母は未確定として扱う", _
         (InStr(b3, "7頁目") > 0 And InStr(b3, "/") = 0), "実際=" & b3
 
     ' 上限メモ: 打ち切っていなければ何も言わない。
     modTestRunner.Check "OcrCapMemo_打ち切りなしは空", _
-        (LenB(optOcrCore.OcrCapMemoFor(False, 30, 100)) = 0)
+        (LenB(optOcrEta.OcrCapMemoFor(False, 30, 100)) = 0)
 
     ' R14-F7: 上限は【設定の値】。取り込めた頁数を上限として言わない。
-    Dim m1 As String: m1 = optOcrCore.OcrCapMemoFor(True, 100, 100)
+    Dim m1 As String: m1 = optOcrEta.OcrCapMemoFor(True, 100, 100)
     modTestRunner.Check "OcrCapMemo_設定上限と取込頁数を言う", _
         (InStr(m1, "設定上限100ページのうち先頭100ページを取り込みました") > 0), "実際=" & m1
     modTestRunner.Check "OcrCapMemo_設定名を案内する", _
@@ -334,19 +335,19 @@ Private Sub TestOcrBannerAndCapMemo()
         (InStr(m1, "読み取れませんでした") = 0), "実際=" & m1
 
     ' 頁OCRの失敗で kept が上限に届かなかったぶんは、必ず数字で言う。
-    Dim m2 As String: m2 = optOcrCore.OcrCapMemoFor(True, 97, 100)
+    Dim m2 As String: m2 = optOcrEta.OcrCapMemoFor(True, 97, 100)
     modTestRunner.Check "OcrCapMemo_上限は設定値のまま", _
         (InStr(m2, "設定上限100ページのうち先頭97ページ") > 0), "実際=" & m2
     modTestRunner.Check "OcrCapMemo_読めなかった頁数を言う", _
         (InStr(m2, "3ページは読み取れませんでした") > 0), "実際=" & m2
 
     ' 上限が不明・壊れた値(0や負)でも、取り込めた数より小さい嘘は出さない。
-    Dim m3 As String: m3 = optOcrCore.OcrCapMemoFor(True, 20, 0)
+    Dim m3 As String: m3 = optOcrEta.OcrCapMemoFor(True, 20, 0)
     modTestRunner.Check "OcrCapMemo_上限不明は取込数で言い切る", _
         (InStr(m3, "設定上限20ページのうち先頭20ページ") > 0), "実際=" & m3
 
     ' R14-F2: 途中で中断したときは上限の話をしない(まだ先がある)。
-    Dim a1 As String: a1 = optOcrCore.OcrAbortMemoFor(37)
+    Dim a1 As String: a1 = optOcrEta.OcrAbortMemoFor(37, "error", False)
     modTestRunner.Check "OcrAbortMemo_何頁で止まったかを言う", _
         (InStr(a1, "37頁で中断しました") > 0), "実際=" & a1
     modTestRunner.Check "OcrAbortMemo_理由の範囲を言う", _
@@ -358,8 +359,8 @@ Private Sub TestOcrBannerAndCapMemo()
     modTestRunner.Check "OcrAbortMemo_上限の話をしない", _
         (InStr(a1, "上限") = 0), "実際=" & a1
     modTestRunner.Check "OcrAbortMemo_負の頁数でも壊れない", _
-        (InStr(optOcrCore.OcrAbortMemoFor(-3), "0頁で中断") > 0), _
-        "実際=" & optOcrCore.OcrAbortMemoFor(-3)
+        (InStr(optOcrEta.OcrAbortMemoFor(-3, "error", False), "0頁で中断") > 0), _
+        "実際=" & optOcrEta.OcrAbortMemoFor(-3, "error", False)
 End Sub
 
 ' ----------------------------------------------------------------------------

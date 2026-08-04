@@ -111,6 +111,12 @@ Private mGsCardState As String  ' 案内カードの結果: ""/"cancel"/"nofind"
 ' 覚えておく(ExtractPdfOcrPagedText の入口で必ずFalseへ戻す=持ち越さない)。
 Private mLastOcrAborted As Boolean
 
+' R15-4a/4b/6b: 直近のOCRが用意した「正直なメモ」。中断の理由(利用者操作/
+' AI上限/変換エラー)と頁欠けの件数を知っているのは optOcrPage だけなので、
+' 文面はあちらで組み立ててもらい、ここは OcrCapMemo が返すまで預かるだけ。
+' "" のときだけ従来の上限メモ(OcrCapMemoFor)を組み立てる。
+Private mLastOcrMemo As String
+
 Public Function Ping() As Boolean
     Ping = True
 End Function
@@ -290,6 +296,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
                                        Optional ByVal silent As Boolean = False) As String
     Dim folderPath As String: folderPath = ""
     mLastOcrAborted = False        ' R14-F2: 前の資料の結果を持ち越さない
+    mLastOcrMemo = ""              ' R15-4a: メモも同じく持ち越さない
 
     On Error GoTo Fail
 
@@ -343,12 +350,27 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
     ' バッチ完了ごとのJPEG削除)。ここは前後(GS解決・一時フォルダ・後始末)
     ' だけを持つ。keepWork=True で返ったらフォルダを消さない(R11-D H-1 /
     ' R14-F5: 止められなかったGSが書いている最中のフォルダも消さない)。
+    ' R15-5a: 総頁数は、この資料が【OCRへ回る前に】必ず通っている txtwrite の
+    ' 分類パス(optGsTxt)がGSに出させたログから既に読めていることが多い。
+    ' 従来 knownTotal は最終バッチに入るまで0のままで、24頁中20頁が終わるまで
+    ' 分母もETAも出なかった(実機第4報 RC2)。ここで受け取って先へ渡す。
+    ' opt層内の参照なのでR2に触れない(コア層を1つも経由しない=
+    ' modFeatures.InvokeFeature の往復を1つも増やさない。RC8の火種を増やさない)。
+    ' 取れなければ0で、従来どおり最終バッチでの確定へ自然に縮退する。
+    Dim gsTotal As Long: gsTotal = 0
+    On Error Resume Next
+    gsTotal = optGsTxt.LastGsTotalPages()
+    On Error GoTo Fail
+
     Dim keepWork As Boolean: keepWork = False
     Dim aborted As Boolean: aborted = False
+    Dim ocrMemo As String: ocrMemo = ""
     Dim ocrText As String
     ocrText = optOcrPage.OcrPdfByBatch(gsExe, path, folderPath, dpi, maxPages, _
-                                       absSec, VISION_PROMPT, keepWork, aborted)
+                                       absSec, VISION_PROMPT, gsTotal, _
+                                       keepWork, aborted, ocrMemo)
     mLastOcrAborted = aborted
+    mLastOcrMemo = ocrMemo
 
     modUIMain.SetStage ""
     If Not keepWork Then optGsTxt.CleanupOcrFolder folderPath
@@ -406,16 +428,28 @@ End Function
 '   コア層で config を読めるが、既定値を2箇所に持ちたくないので 0(不明)を
 '   渡してよい。そのときはここが config から解決する。
 ' ----------------------------------------------------------------------------
+'   R15-4a/4b/6b: 打ち切りの種類はさらに増えた(利用者の中断・AI利用の上限・
+'   一部の頁だけ読めなかった)。理由を知っているのは optOcrPage だけなので、
+'   文面はあちらが optOcrEta の純関数で作って渡してくる(mLastOcrMemo)。
+'   R15-4c: capN には必ず optOcrCore.SafeMaxPages を掛ける。config に
+'   vision_pdf_max_pages=300 と書いてもハード上限200で頭打ちになるのに、
+'   メモだけが生の300で計算され「100ページは読み取れませんでした」という
+'   事実と違う数字を出していた(RC4)。上限は【実際に効く値】で言う。
 Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
                            ByVal capN As Long) As String
+    If LenB(mLastOcrMemo) > 0 Then
+        If truncated Then OcrCapMemo = mLastOcrMemo
+        Exit Function
+    End If
+
     If mLastOcrAborted Then
-        If truncated Then OcrCapMemo = optOcrCore.OcrAbortMemoFor(keptN)
+        If truncated Then OcrCapMemo = optOcrEta.OcrAbortMemoFor(keptN, "error", False)
         Exit Function
     End If
 
     Dim cap As Long: cap = capN
     If cap <= 0 Then cap = OcrMaxPages()
-    OcrCapMemo = optOcrCore.OcrCapMemoFor(truncated, keptN, cap)
+    OcrCapMemo = optOcrEta.OcrCapMemoFor(truncated, keptN, optOcrCore.SafeMaxPages(cap))
 End Function
 
 ' OCRの1資料あたりページ上限(config vision_pdf_max_pages)。既定値をここ

@@ -55,6 +55,14 @@ Private mLastBeat As Date
 ' R15-3a: 中間保存の失敗を利用者へ告げたかどうか(1セッション1回だけ告げる)。
 Private mSaveFailToasted As Boolean
 
+' R15-6a(実機第4報 RC3): 中断の申し出。進捗バナー脇の中断ボタンが立て、
+' optOcrPage(頁/バッチ境界)と下の取込ループ(ファイル境界)が読む。
+' Esc/err18 方式を採らないのは、modGateway.TryRibbonRun/CallLLM の全捕捉
+' ハンドラが Err 18 を握りつぶす構造になっており、共有コアを書き換える
+' 爆風半径が大きすぎるため(仕様書「記録のみ」の裁定)。
+Private mCancelRequested As Boolean
+Private mCancelAt As Date
+
 ' ----------------------------------------------------------------------------
 ' TouchBusy - 「まだ生きている」印を1つ進める(R15-1b)。
 '   呼び出し点は modUIMain.SetStage と本モジュールの StageBanner の2箇所だけ
@@ -69,6 +77,54 @@ End Sub
 Public Function LastBeat() As Date
     LastBeat = mLastBeat
 End Function
+
+' ----------------------------------------------------------------------------
+' OnCancelIngest - 進捗バナー脇の「中断」ボタン(2026-08-04 R15-6a)。
+' ----------------------------------------------------------------------------
+' やることは3つだけ: 印を立てる / まだ生きていることを知らせる(TouchBusy) /
+' 何が起きるのかを1行で伝える。確認ダイアログは出さない。
+'   ・取込中はモーダルを開くこと自体が事故の種で(実機第4報 RC8 の入れ子実行)、
+'     しかも「本当に中断しますか?」に答える前に次の頁が始まってしまう。
+'   ・押した瞬間には止まらない。同期の Application.Run(ChatGPTV)は VBA から
+'     中断できないので、止まるのは今の頁が終わってから。だから「中断して
+'     います…」と現在形で言い、いつ止まるのかまで書く(憲章§3-2)。
+' 2回押されても、取込していないときに押されても壊れない(印を立て直すだけ)。
+' 再入の関所(BlockIfIngesting)は【付けない】。取込中でも必ず動かなければ
+' 意味が無いハンドラで、vba_lint の ONACTION_GUARD_ALLOWLIST に理由つきで
+' 登録してある。
+Public Sub OnCancelIngest()
+    On Error Resume Next
+    mCancelRequested = True
+    mCancelAt = Now
+    TouchBusy
+    modUIMain.SetStage "中断しています… 現在の頁の処理が終わり次第停止します"
+    modLog.LogUsage "ingest_cancel", "", "利用者が中断ボタンを押しました"
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' CancelRequested - 中断が申し出られているか(R15-6a)。
+'   印は取込の外へ持ち越さない。AddFilesResult の入口と全ての出口で必ず
+'   下ろすが、それだけだと「手動同期の途中で中断した」印が次の取込まで
+'   残り得る(modShelfSync は本ラウンド接触禁止)ので、GUARD_EXPIRY_MIN と
+'   同じ30分で自然に失効させる。取込は押された直後に読むので、この失効で
+'   本来効くべき中断が取りこぼされることはない。
+' ----------------------------------------------------------------------------
+Public Function CancelRequested() As Boolean
+    If Not mCancelRequested Then Exit Function
+    On Error Resume Next
+    If DateDiff("n", mCancelAt, Now) > GUARD_EXPIRY_MIN Then
+        mCancelRequested = False
+    Else
+        CancelRequested = True
+    End If
+    On Error GoTo 0
+End Function
+
+' ResetCancel - 中断の印を下ろす(取込の入口・出口で必ず呼ぶ)。
+Public Sub ResetCancel()
+    mCancelRequested = False
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' GuardExpiredNow - 「開始時刻 startAt のガードが今もう失効しているか」。
@@ -239,6 +295,9 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     Dim warnN As Long: warnN = 0
     Dim cappedN As Long: cappedN = 0
     Dim chunksAdded As Long: chunksAdded = 0
+    ' R15-6c: 中断のため手を付けずに見送ったファイル数。黙って減らすと
+    ' 「選んだのに入っていない」資料が理由も無く生まれる(憲章§4-1)。
+    Dim cancelSkipN As Long: cancelSkipN = 0
     ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
     Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
     Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
@@ -264,6 +323,9 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' R10c(H2): ここから下はバッチ取込中。全終了経路(正常/AddFailed)で必ず解除する。
     mBatchIngesting = True
     mBatchSince = Now
+    ' R15-6c: 前回の中断の印を必ず下ろしてから始める。残っていると、押した
+    ' 覚えの無い取込が1件目の頁境界でいきなり止まる。
+    ResetCancel
 
     ' R12-4: 取込はシートを大きく書き換える。検索用のベクトルキャッシュ
     ' (32bit Excelで最大126MB)を抱えたまま取込に入ると、取込側の配列と
@@ -290,6 +352,13 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
 
     Dim i As Long
     For i = 1 To fd.SelectedItems.count
+        ' R15-6c: ファイル境界の中断確認。1件目に手を付ける前でも効く。
+        ' 残りは【手を付けずに】見送り、件数を必ず利用者へ伝える。
+        If CancelRequested() Then
+            cancelSkipN = fd.SelectedItems.count - (i - 1)
+            Exit For
+        End If
+
         Dim etaPart As String: etaPart = ""
         If i > 1 Then
             Dim elapsedSec As Double: elapsedSec = Timer - tIngStart
@@ -369,10 +438,19 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' 最後のファイル名が残っている)。modShelfSync も同じ順序。
     Dim warnPart As String: warnPart = ""
     If warnN > 0 Then warnPart = "/注意" & warnN & "件"
+    Dim doneToast As String
+    ' R15-6c: 中断したのに「完了しました」と言わない(利用者が止めたことを
+    ' こちらが忘れた顔をするのは不誠実)。トーストは1回だけ=待ちは増やさない。
+    If cancelSkipN > 0 Then
+        doneToast = "中断のため" & cancelSkipN & "件を見送りました(成功" & okCount & _
+            "件/失敗" & ngCount & "件" & warnPart & ")"
+    Else
+        doneToast = "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
+            warnPart & ")"
+    End If
     On Error Resume Next
     modUIMain.HideProgress
-    modSkin.ShowToast "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
-        warnPart & ")", "info"
+    modSkin.ShowToast doneToast, "info"
     On Error GoTo AddFailed
 
     ' silent にしたぶん1件ごとの再描画も走らない(IngestFileのFinishは
@@ -393,6 +471,10 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         ' 何がどう足りないのかは資料ごとに違うので、行き先(メモ)だけ示す。
         msg = msg & vbLf & "うち" & warnN & "件は一部だけの取込です" & _
             "(マイ本棚の一覧で、そのカードのメモをご確認ください)。"
+    End If
+    If cancelSkipN > 0 Then
+        msg = msg & vbLf & "中断のため" & cancelSkipN & "件は取り込んでいません。" & _
+            "もう一度「資料を追加」から選び直せば取り込めます。"
     End If
     Dim dupN As Long
     dupN = ReasonCountOf(reasonKeys, reasonCounts, reasonN, "E0504")
@@ -427,6 +509,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     End If
 
     mBatchIngesting = False   ' R10c(H2): 正常終了経路の解除
+    ResetCancel               ' R15-6c: 中断の印を取込の外へ持ち越さない
     AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _
         ReasonsText(reasonKeys, reasonCounts, reasonN))
     Exit Function
@@ -446,6 +529,7 @@ AddFailedCleanup:
     modUIMain.HideProgress   ' R10-5: 異常終了経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
     mBatchIngesting = False   ' R10c(H2): 異常終了経路でも必ず解除する
+    ResetCancel               ' R15-6c: 異常終了経路でも印を持ち越さない
     ' 途中で落ちても、そこまでの集計を返す。空文字で返すと呼び出し元は
     ' 「キャンセル」と区別できず、利用者には何も表示されない(レビュー4-B)。
     AddFilesResult = ComposeAddResult(okCount, ngCount, cappedN, chunksAdded, _

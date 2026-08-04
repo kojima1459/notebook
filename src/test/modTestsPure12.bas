@@ -24,7 +24,7 @@ Option Explicit
 '     引用しても誰も気付けない」状態(実機第3報 RC8)へ戻る。
 '   ・modLive.NormalizeAnswerText / AnswerParagraphs / Humanize(R14-8c):
 '     混入したMarkdownの保険変換と、実況の言い換えで段数の番号を落とさないこと。
-'   ・optOcrCore.RemainingWaitSec(R14-F6): gs_abs_timeout_sec は【1資料
+'   ・optOcrEta.RemainingWaitSec(R14-F6): gs_abs_timeout_sec は【1資料
 '     あたり】の絶対上限。バッチ描画で「1バッチあたり」に化けていたので、
 '     何バッチ回しても合計が上限を超えないことをここで固定する
 '     (modTestsPure11 が28,000字のWARN帯に入るため置き場はこちら)。
@@ -406,29 +406,29 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Sub TestRemainingWaitSec()
     modTestRunner.Check "残り待ち_未使用なら全額", _
-        (optOcrCore.RemainingWaitSec(1200, 0) = 1200), _
-        "実際=" & optOcrCore.RemainingWaitSec(1200, 0)
+        (optOcrEta.RemainingWaitSec(1200, 0) = 1200), _
+        "実際=" & optOcrEta.RemainingWaitSec(1200, 0)
     modTestRunner.Check "残り待ち_使ったぶんだけ減る", _
-        (optOcrCore.RemainingWaitSec(1200, 500) = 700), _
-        "実際=" & optOcrCore.RemainingWaitSec(1200, 500)
+        (optOcrEta.RemainingWaitSec(1200, 500) = 700), _
+        "実際=" & optOcrEta.RemainingWaitSec(1200, 500)
     modTestRunner.Check "残り待ち_使い切ったら0(=打ち切り)", _
-        (optOcrCore.RemainingWaitSec(1200, 1200) = 0), _
-        "実際=" & optOcrCore.RemainingWaitSec(1200, 1200)
+        (optOcrEta.RemainingWaitSec(1200, 1200) = 0), _
+        "実際=" & optOcrEta.RemainingWaitSec(1200, 1200)
     modTestRunner.Check "残り待ち_超過しても0", _
-        (optOcrCore.RemainingWaitSec(1200, 1500) = 0), _
-        "実際=" & optOcrCore.RemainingWaitSec(1200, 1500)
+        (optOcrEta.RemainingWaitSec(1200, 1500) = 0), _
+        "実際=" & optOcrEta.RemainingWaitSec(1200, 1500)
     modTestRunner.Check "残り待ち_残りが僅かでも10秒は待つ", _
-        (optOcrCore.RemainingWaitSec(1200, 1197) = 10), _
-        "実際=" & optOcrCore.RemainingWaitSec(1200, 1197)
+        (optOcrEta.RemainingWaitSec(1200, 1197) = 10), _
+        "実際=" & optOcrEta.RemainingWaitSec(1200, 1197)
     modTestRunner.Check "残り待ち_壊れた上限は0", _
-        (optOcrCore.RemainingWaitSec(0, 0) = 0)
+        (optOcrEta.RemainingWaitSec(0, 0) = 0)
 
     ' 20頁バッチを6回まわしても、合計の待ちは絶対上限を超えない。
     Dim used As Long: used = 0
     Dim total As Long: total = 0
     Dim k As Long
     For k = 1 To 6
-        Dim w As Long: w = optOcrCore.RemainingWaitSec(300, used)
+        Dim w As Long: w = optOcrEta.RemainingWaitSec(300, used)
         If w <= 0 Then Exit For
         total = total + w
         used = used + w          ' 最悪ケース(毎回待ち切る)
@@ -580,6 +580,11 @@ NextSaveMsg15:
     On Error GoTo SaveMsg15Fail
     TestSaveAndReadOnlyMessages
     TestE0202FriendlyMentionsOverlap
+NextPure13:
+    ' R15波2: 分割先の入口。この1行が導線の全て(消すと modTestsPure13 の
+    ' テストは「実行されないまま」全部PASSに見える)。
+    On Error GoTo Pure13Fail
+    modTestsPure13.RunAll13
 NextDone12:
     On Error GoTo 0
     Exit Sub
@@ -610,6 +615,10 @@ Guard15Fail:
     Resume NextSaveMsg15
 SaveMsg15Fail:
     modTestRunner.Check "TestSaveAndReadOnlyMessages(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPure13
+Pure13Fail:
+    modTestRunner.Check "modTestsPure13.RunAll13(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone12
 End Sub

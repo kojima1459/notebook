@@ -327,9 +327,15 @@ CONTRACT: dict[str, dict] = {
         # 開始から30分で失効させていたため、85〜127分かかる取込の途中で
         # ボタンが全面解放され二重取込が構造的に可能だった。
         # SaveCheckpoint(R15-3a・RC9): 1ファイル取込ごと/同期末尾の中間保存。
+        # OnCancelIngest / CancelRequested / ResetCancel(2026-08-04 R15-6a・
+        # RC3): 進捗バナー脇の中断ボタンと、その印の読み・下ろし。85〜127分の
+        # 取込を止める手段が1つも無く、Excelの強制終了しか無かった。
+        # 印の実体をここに置くのは、取込の入口(AddFilesResult)で必ず
+        # リセットできる場所がここだけだから。
         "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
                      "StageBanner", "TouchBusy", "LastBeat", "GuardExpiredNow",
-                     "SaveCheckpoint"],
+                     "SaveCheckpoint", "OnCancelIngest", "CancelRequested",
+                     "ResetCancel"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -630,10 +636,14 @@ CONTRACT: dict[str, dict] = {
     # 入れられる1本の文字列にする。optOcrPage(OCR経路)からも呼ぶ。
     # GsExitCode は 2026-08-03 R14-F13 で削除(終了コードは待ちループと
     # GsFailureDetail が読んでおり、外からの呼び出しが1件も無かった)。
+    # LastGsTotalPages(2026-08-04 R15-5a・実機第4報 RC2): 直近の txtwrite 実行で
+    # 判明した総ページ数。GSは最初に "Processing pages 1 through N" を出すので、
+    # OCRへ回る資料の総頁は【OCRを始める前に】既に分かっている。従来これを
+    # 誰も拾わず、OCR側は最終バッチに入るまで分母もETAも出せなかった。
     "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
                                               "MakeOcrFolder",
                                               "WaitForDoneFlag", "CleanupOcrFolder",
-                                              "GsFailureDetail"]},
+                                              "GsFailureDetail", "LastGsTotalPages"]},
     # optGsProc(2026-08-03 R13-F2): Ghostscriptプロセスの起動と停止だけを
     # optGsTxt から切り出したもの。PID再利用よけの本人確認(WMI Win32_Process
     # の名前照合)と rc=0/PID不明の扱いを足した結果 optGsTxt が28,000字の
@@ -685,12 +695,27 @@ CONTRACT: dict[str, dict] = {
             # 上限を100ページへ上げるにあたって足したものは全て副作用ゼロで、
             # 「20ページずつ描く」「総ページ数が不明なら数字を言わない」という
             # 判断をLOテストで固定する(RC4の嘘の案内を二度と作らないため)。
-            "BatchCountFor", "BatchBoundsFor", "OcrPageBanner", "OcrCapMemoFor",
-            # R14-F2/F6/F7(2026-08-03 実機第3報の裁定): 中断したときのメモ
-            # (OcrAbortMemoFor。上限まで読んだのか途中で欠けたのかを言い分ける)と、
-            # 1資料あたりの絶対上限の残り配分(RemainingWaitSec。バッチ描画で
-            # gs_abs_timeout_sec が「1バッチあたり」の意味に化けていた)。
-            "OcrAbortMemoFor", "RemainingWaitSec",
+            # 2026-08-04(R15-5b): OcrPageBanner / OcrCapMemoFor /
+            # OcrAbortMemoFor / RemainingWaitSec は optOcrEta へ移設した
+            # (本モジュールが30,000字上限まで残り2,068字となり、R15-5のETAと
+            # R15-6の中断メモが入らなくなったため。憲章§4-6)。ここは純減のみ。
+            "BatchCountFor", "BatchBoundsFor",
+        ],
+    },
+    # optOcrEta(2026-08-04 R15-5b): OCRの「進捗の見せ方」と「打ち切りの
+    # 言い方」だけを集めた純ロジック。optOcrCore からの移設先で、あちらは
+    # GSコマンドの組み立てとページ上限の算数(=Ghostscriptの都合)に専念する。
+    # ETAと終了目安(RemainingText)、中断・頁欠けの正直なメモは、間違えると
+    # 「いつ終わるか分からない」「頁が黙って欠ける」という実機第4報 RC2/RC6 の
+    # 事故そのものへ戻るので、全てLOテスト(modTestsPure13)で固定する。
+    # 現在時刻は引数(nowAt)で受け取る=この中で Now を呼ばないことが、
+    # 終了目安のゴールデンテストを成立させている唯一の条件。
+    "optOcrEta": {
+        "closed": True,
+        "required": [
+            "Ping", "BatchLabel", "OcrPageBanner", "RemainingText",
+            "OcrCapMemoFor", "OcrAbortMemoFor", "OcrPartialMemoFor",
+            "RemainingWaitSec",
         ],
     },
     # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
@@ -989,6 +1014,14 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll12"],
     },
+    # modTestsPure13: 2026-08-04 R15波2で追加。modTestsPure11/12 はどちらも
+    # 27,000字台で、R15-4/5/6 の真理表とゴールデン文字列を足すと上限を超える
+    # ための分割先。modTestsPure12.RunAll12 の末尾から呼ばれる入口
+    # RunAll13 だけが契約。
+    "modTestsPure13": {
+        "closed": False,
+        "required": ["RunAll13"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -1007,6 +1040,9 @@ PURE_LOGIC_MODULES = {
     # だけを持つ。opt層のモジュールだが副作用ゼロで、LO実行テストから直接
     # 呼べる状態を維持するために純ロジック検査の対象へ入れる。
     "optOcrCore",
+    # optOcrEta(2026-08-04 R15-5b): optOcrCore から移設した進捗バナー・ETA・
+    # 打ち切りメモの純ロジック。移設先でも副作用ゼロを機械で守る。
+    "optOcrEta",
     # modTestsPure4: optOcrCore/modUtil(ページ付きテキスト)の純ロジックテスト。
     "modTestsPure4",
     # modShareRule(2026-07-31 R8): 共有系の判定式だけの純ロジック。
@@ -1033,6 +1069,10 @@ PURE_LOGIC_MODULES = {
     # modTestsPure12(2026-08-03 R14-8): 入念モードの段数・出典突合と、回答本文の
     # 記法正規化の純ロジックテスト。modTestsPure11の容量逼迫による分割先。
     "modTestsPure12",
+    # modTestsPure13(2026-08-04 R15波2): OCRの正直さ(頁欠け・上限打ち切り)、
+    # ETAと終了目安、中断メモの純ロジックテスト。modTestsPure11/12 の
+    # 容量逼迫による分割先。
+    "modTestsPure13",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として
@@ -1471,6 +1511,12 @@ ONACTION_GUARD_ALLOWLIST = {
     # 質問例のクリック。最後に modApp.OnSend を呼び、そちらが
     # BlockIfIngesting を先頭に持っている(二重に置く意味が無い)。
     "modStarter.OnPick",
+    # --- 恒久例外: 取込中でも【必ず】動かなければ意味が無いハンドラ ---
+    # 進捗バナー脇の中断ボタン(2026-08-04 R15-6a)。取込中にしか出ない
+    # ボタンなので、BlockIfIngesting を付けたら永久に押せない。やることは
+    # モジュール変数のフラグを立てて1行案内を出すだけで、業務ロジックを
+    # 一切呼び返さない(再入の危険がそもそも無い)。
+    "modShelfBatch.OnCancelIngest",
     # 2026-08-04(R15-2b)時点で現状追認としてここに載せていた5本
     # (modVaultGallery.OnVaultBackToChat/OnVaultCardClick/OnVaultNext/
     # OnVaultPrev, modPeek.OnOpenSource)は、R15波1の敵対的自己点検で
@@ -2244,6 +2290,16 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                 # 広げるときは必ずここへ足す=どのoptが画面へ触れるかが
                 # 1箇所で分かる状態を保つ。
                 if prefix == "modShelfBatch" and member == "StageBanner":
+                    continue
+                # R15-6b(2026-08-04): opt層からの中断の問い合わせ。
+                # 進捗バナーの中断ボタンが立てる印を optOcrPage が頁境界・
+                # バッチ境界で【読むだけ】の関数で、引数も戻り値も Boolean 1つ。
+                # 業務ロジックを呼び返さず、状態を1ビットも書き換えない
+                # (StageBanner よりさらに副作用が小さい)。印の実体を
+                # 取込の入口(AddFilesResult)でリセットする都合上、置き場は
+                # ingest 層である必要がある。広げるときは必ずここへ足す
+                # =どのoptがコアへ触れるかが1箇所で分かる状態を保つ。
+                if prefix == "modShelfBatch" and member == "CancelRequested":
                     continue
                 if target.layer == LAYER_OPT:
                     continue

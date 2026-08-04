@@ -89,8 +89,27 @@ Private Const BANNER_SEC As Double = 1#
 ' gsfail に落ちてWord経路へ流れる(実機第2報 RC1 の再発)。
 Private Const LOG_HEAD_CHARS As Long = 4000
 
+' R15-5a(実機第4報 RC2): 直近の txtwrite 実行で判明した総ページ数(0=不明)。
+' GSは処理の最初に "Processing pages 1 through N" を出すので、この分類パスを
+' 通った時点で総ページ数は既に分かっている。ところが後続のOCR経路は自分で
+' 描いた枚数からしか総頁を知る手段を持たず、最終バッチに入るまで分母もETAも
+' 出せなかった(24頁中20頁・76頁中60頁が無表示)。ここへ置いておけば、
+' 同じ資料のOCRが opt層内の参照1本で受け取れる。
+Private mLastTotalPages As Long
+
 Public Function Ping() As Boolean
     Ping = True
+End Function
+
+' ----------------------------------------------------------------------------
+' LastGsTotalPages - 直近の ExtractPdfTextNoOcr で読めた総ページ数(R15-5a)。
+'   読めなかった実行のあとは0。ExtractPdfTextNoOcr は入口で必ず0へ戻すので、
+'   前の資料の値が次の資料へ持ち越されることはない(嘘の分母を出さない)。
+'   PDFがOCR経路(E0303)へ回るのは、必ずこの関数の実行を通った【あと】である
+'   (modExtractorPdf.ExtractPdfWithFallback が最初に txtwrite を試す)。
+' ----------------------------------------------------------------------------
+Public Function LastGsTotalPages() As Long
+    LastGsTotalPages = mLastTotalPages
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -124,6 +143,9 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     outTxt = ""
     gsErrNum = 0
     gsErrDesc = ""
+    ' R15-5a: 新しい実行のたびに0へ戻す。ここで戻さないと、GSが動かなかった
+    ' 資料のOCRが【前の資料の】総頁数を分母に出すことになる。
+    mLastTotalPages = 0
 
     On Error GoTo Fail
 
@@ -181,6 +203,9 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     Dim totalPages As Long: totalPages = 0
     finished = WaitGsTextDone(folderPath, outTxt, waitSec, absSec, gsPid, _
                               gsRc, pagesSeen, totalPages)
+    ' R15-5a: 総ページ数はこの1点でしか分からない。採否(ok/sparse/image)に
+    ' 関わらず控える。画像PDFと分類された資料こそOCR経路がこれを必要とする。
+    If totalPages > 0 Then mLastTotalPages = totalPages
 
     ' R10c(H1): タイムアウトは【失敗】。完了フラグが出ていない間、GSはまだ
     ' 出力txtを書いている途中なので、その時点で40字以上読めたとしても
@@ -339,9 +364,15 @@ End Function
 ' 「GSがPDFを開いてページ処理まで進んだ」ことの唯一の証拠で、これが無いのに
 ' 出力が空なら文字層の有無ではなく実行そのものの失敗(EDRブロック等)。
 ' 読む窓は LOG_HEAD_CHARS(300字では足りない。理由は定数のコメント参照)。
+' R15-5a: 読めた総ページ数はここでも控える。小さなPDFは完了フラグが2秒の
+' ポーリング周期より先に出るため、待ちループが1度も総頁を読まないまま
+' 終わることがある(そのままではOCR経路が分母を受け取れない)。
 Private Function GsOutHasPages(ByVal folderPath As String) As Boolean
-    GsOutHasPages = (optOcrCore.GsTotalPagesFromLog( _
-        ReadTextHead(optOcrCore.GsLogFor(folderPath), LOG_HEAD_CHARS)) > 0)
+    Dim n As Long
+    n = optOcrCore.GsTotalPagesFromLog( _
+        ReadTextHead(optOcrCore.GsLogFor(folderPath), LOG_HEAD_CHARS))
+    If n > mLastTotalPages Then mLastTotalPages = n
+    GsOutHasPages = (n > 0)
 End Function
 
 ' ----------------------------------------------------------------------------

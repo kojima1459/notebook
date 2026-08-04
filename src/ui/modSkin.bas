@@ -28,6 +28,9 @@ Private mProgressSheetName As String
 
 Private Const THEME_KEY As String = "nexus_theme"
 
+' R15-6a: 中断ボタンのShape名。"nx_progress" と必ず対で出し、対で消す。
+Private Const PROGRESS_CANCEL_NAME As String = "nx_progress_cancel"
+
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
 '   modUI.InitUI/Repaint、および各画面(Vault/Dashboard)の描画終端から呼ぶ。
@@ -404,6 +407,7 @@ Public Sub PaintProgress(ByVal message As String)
         Dim wsOld As Worksheet
         Set wsOld = ThisWorkbook.Worksheets(mProgressSheetName)
         If Not wsOld Is Nothing Then wsOld.Shapes("nx_progress").Delete
+        If Not wsOld Is Nothing Then wsOld.Shapes(PROGRESS_CANCEL_NAME).Delete
     End If
     mProgressSheetName = ws.Name
 
@@ -440,7 +444,36 @@ Public Sub PaintProgress(ByVal message As String)
     End If
     shp.TextFrame2.TextRange.Text = message
     shp.ZOrder 0   ' msoBringToFront
+
+    PaintCancelButton ws, leftPos + barW + 6, topPos
     DoEvents
+    On Error GoTo 0
+End Sub
+
+' PaintCancelButton - 進捗バナー脇の「中断」(R15-6a・RC3)。85〜127分の取込を
+'   止める手段が無く強制終了しか無かった。押しても止まるのは今の頁の後
+'   (OnCancelIngestは印を立てるだけ)。絵文字は使わない(CP932・R13-L6)。
+Private Sub PaintCancelButton(ByVal ws As Worksheet, ByVal leftPos As Double, _
+                              ByVal topPos As Double)
+    On Error Resume Next
+    Dim btn As Shape
+    Set btn = ws.Shapes(PROGRESS_CANCEL_NAME)
+    If btn Is Nothing Then
+        Set btn = ws.Shapes.AddShape(5, leftPos, topPos, 76, 30)
+        btn.Name = PROGRESS_CANCEL_NAME
+        btn.Adjustments(1) = 0.3: btn.Line.Visible = 0: btn.Placement = 3
+        btn.Fill.ForeColor.RGB = RGB(120, 32, 40)
+        With btn.TextFrame2
+            .TextRange.Font.Name = "Yu Gothic UI": .TextRange.Font.Size = 10
+            .TextRange.ParagraphFormat.Alignment = 2: .VerticalAnchor = 3
+        End With
+        btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 241, 242)
+        btn.TextFrame2.TextRange.Text = ChrW(&H25A0) & "中断"
+        btn.OnAction = "modShelfBatch.OnCancelIngest"
+    Else
+        btn.Left = leftPos: btn.Top = topPos
+    End If
+    btn.ZOrder 0
     On Error GoTo 0
 End Sub
 
@@ -450,6 +483,7 @@ Public Sub ClearProgress()
         Dim ws As Worksheet
         Set ws = ThisWorkbook.Worksheets(mProgressSheetName)
         If Not ws Is Nothing Then ws.Shapes("nx_progress").Delete
+        If Not ws Is Nothing Then ws.Shapes(PROGRESS_CANCEL_NAME).Delete
     End If
     mProgressSheetName = ""
     On Error GoTo 0
