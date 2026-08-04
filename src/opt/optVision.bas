@@ -105,16 +105,14 @@ Private mGsLastCands As String  ' FindGsExeByCandidatesが最後に試した候�
 Private mGsCardState As String  ' 案内カードの結果: ""/"cancel"/"nofind"/"saved"
 
 ' R14-F2: 直近のOCRが「途中で中断した」のか「上限まで読み切った」のか。
-' コア層(modShelfVision)へ渡せるのは modFeatures.InvokeFeature の文字列1本
-' だけで、打ち切りの【理由】を運ぶ余地が無い。取込1件のあいだに
-' ExtractPdfOcrPagedText → OcrCapMemo が必ずこの順で呼ばれるので、その間だけ
-' 覚えておく(ExtractPdfOcrPagedText の入口で必ずFalseへ戻す=持ち越さない)。
+' コア層へ渡せるのは InvokeFeature の文字列1本だけで理由を運ぶ余地が無い。
+' 取込1件のあいだ ExtractPdfOcrPagedText → OcrCapMemo が必ずこの順で呼ばれる
+' ので、その間だけ覚えておく(入口で必ずFalseへ戻す=持ち越さない)。
 Private mLastOcrAborted As Boolean
 
-' R15-4a/4b/6b: 直近のOCRが用意した「正直なメモ」。中断の理由(利用者操作/
-' AI上限/変換エラー)と頁欠けの件数を知っているのは optOcrPage だけなので、
-' 文面はあちらで組み立ててもらい、ここは OcrCapMemo が返すまで預かるだけ。
-' "" のときだけ従来の上限メモ(OcrCapMemoFor)を組み立てる。
+' R15-4a/4b/6b: 直近のOCRが用意した「正直なメモ」。理由(利用者操作/AI上限/
+' 変換エラー/頁欠け)を知っているのは optOcrPage だけなので、文面はあちらで
+' 組み立ててもらい、ここは OcrCapMemo が返すまで預かるだけ。
 Private mLastOcrMemo As String
 
 Public Function Ping() As Boolean
@@ -432,31 +430,34 @@ End Function
 '   modFeatures.InvokeFeature("vision","OcrCapMemo",…) から呼べるようにする
 '   ための受け口。コア層は opt モジュール名を書けない(R2)ので、この1本が
 '   「打ち切りの説明」をコアへ渡す唯一の経路になる。truncated=False なら空。
-'   R14-F2: 打ち切りには2種類あり、言うべきことがまるで違う。
-'     ・上限まで読んだ    → 設定を変えれば続きも読める(OcrCapMemoFor)
-'     ・途中で中断した    → もう一度取り込めば再試行される(OcrAbortMemoFor)
-'   どちらだったかは直前の ExtractPdfOcrPagedText だけが知っている
-'   (mLastOcrAborted)。
-'   R14-F7: capN は【設定の上限】(取り込めた頁数ではない)。呼び出し元は
-'   コア層で config を読めるが、既定値を2箇所に持ちたくないので 0(不明)を
-'   渡してよい。そのときはここが config から解決する。
+'   R14-F2: 打ち切りには2種類あり言うべきことが違う(上限まで読んだ=設定を
+'   変えれば続きも読める / 途中で中断した=再試行される)。どちらかを知って
+'   いるのは直前の ExtractPdfOcrPagedText だけ(mLastOcrAborted)。
+'   R14-F7: capN は【設定の上限】。呼び出し元は 0(不明)を渡してよく、
+'   そのときはここが config から解決する(既定値を2箇所に持たない)。
 ' ----------------------------------------------------------------------------
 '   R15-4a/4b/6b: 打ち切りの種類はさらに増えた(利用者の中断・AI利用の上限・
 '   一部の頁だけ読めなかった)。理由を知っているのは optOcrPage だけなので、
 '   文面はあちらが optOcrEta の純関数で作って渡してくる(mLastOcrMemo)。
-'   R15-4c: capN には必ず optOcrCore.SafeMaxPages を掛ける。config に
-'   vision_pdf_max_pages=300 と書いてもハード上限200で頭打ちになるのに、
-'   メモだけが生の300で計算され「100ページは読み取れませんでした」という
-'   事実と違う数字を出していた(RC4)。上限は【実際に効く値】で言う。
+'   R15-FixA(FA-4): mLastOcrMemo があるときは【そのまま】返す。以前はここで
+'   truncated を条件に握りつぶし、さらに上限メモと二者択一で【置換】して
+'   いたため、(a)欠けも打ち切りも無く再開だけで読み切った取込の
+'   「前回の続きから再開しました。」がカードへ一度も届かず、(b)上限で切った
+'   資料の頁欠けを言うと上限の説明が消える、という2つの穴があった。
+'   3つの事実の連結は optOcrEta.ComposeOcrMemo が1箇所で済ませてある。
+'   下の2経路は OcrPdfByBatch を通らなかったとき(旧経路・例外)の保険。
+'   R15-4c: capN には必ず optOcrCore.SafeMaxPages を掛ける(config=300でも
+'   ハード上限で頭打ちになるのに生値で計算し、事実と違う数字を出していた)。
 Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
                            ByVal capN As Long) As String
     If LenB(mLastOcrMemo) > 0 Then
-        If truncated Then OcrCapMemo = mLastOcrMemo
+        OcrCapMemo = mLastOcrMemo
         Exit Function
     End If
+    If Not truncated Then Exit Function
 
     If mLastOcrAborted Then
-        If truncated Then OcrCapMemo = optOcrEta.OcrAbortMemoFor(keptN, "error", False)
+        OcrCapMemo = optOcrEta.OcrAbortMemoFor(keptN, "error", False)
         Exit Function
     End If
 

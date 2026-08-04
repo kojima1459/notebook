@@ -13,13 +13,11 @@ Option Explicit
 '     エラー/別シート時は呼び出し側でMsgBoxを維持する(モーダル性の担保)。
 '
 ' 設計判断:
-'   ・modUI.bas は文字数上限(30000字)に近いため、ポリッシュのロジックはこの新モジュールに
-'     集約し、modUI側は BeautifyAll/StyleBubble/ApplySoftShadow の「呼び出し」だけを足す
-'     (regression最小化)。配色はmodUI.UiColorを唯一の窓口として参照し重複させない。
-'   ・影プロパティ(.Blur/.Transparency等)は環境・バージョン差で未対応があり得るため、
-'     すべてOn Error Resume Next配下(見た目の劣化はあってもクラッシュさせない)。
-'   ・LibreOfficeは静的コンパイルのみ(実行しない)。Shape/Windowプロパティは標準VBAの
-'     ためコンパイル可能。
+'   ・modUI.bas が文字数上限に近いため、ポリッシュのロジックはここへ集約し、
+'     modUI側は呼び出しだけを足す。配色はmodUI.UiColorを唯一の窓口とする。
+'   ・影プロパティ(.Blur/.Transparency等)は環境差で未対応があり得るため、すべて
+'     On Error Resume Next配下(見た目の劣化はあってもクラッシュさせない)。
+'   ・LibreOfficeは静的コンパイルのみ(Shape/Windowプロパティは標準VBA)。
 ' ============================================================================
 
 ' R10-5: PaintProgress/ClearProgressが進捗バナーの直前描画シート名を控える
@@ -152,13 +150,10 @@ Public Sub ApplySoftShadow(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' ----------------------------------------------------------------------------
-' スキン(きせかえ): 称号と同じ「感謝受領数」ゲートで解放されるアンロック方式。
-'   light/darkは全員。sakura/oceanは感謝5件、goldは感謝20件で解放。
-'   チート防御: 解放判定はResolveColor(全描画の色解決点)でも強制するため、
-'   隠しシートのnexus_themeを手書きで"gold"にしても色はlightに落ちる。
-'   感謝数はP2P受領のみが源泉(自己付与不可)なので、スキン自体が偽装不可の勲章になる。
-' ----------------------------------------------------------------------------
+' スキン(きせかえ): 称号と同じ「感謝受領数」ゲートのアンロック方式。light/dark
+'   は全員、sakura/oceanは感謝5件、goldは20件。解放判定は全描画の色解決点
+'   (ResolveColor)でも強制するので、隠しシートを手書きしても色は落ちる。
+'   感謝数はP2P受領のみが源泉=スキンが偽装不可の勲章になる。
 
 ' テーマ名を検証し、未解放/未知ならlightへ落とした正規名を返す。
 Public Function EffectiveSkin(ByVal themeName As String) As String
@@ -315,11 +310,10 @@ End Sub
 ' ShowToast - MsgBoxの代替(非ブロッキング通知)。画面上部中央に細長Shapeを出し、
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------
-' waitless(2026-07-31 R11-H Med4): True のとき 1.1秒の待機と削除を行わず、
-' 描いたらすぐ戻る。「押した瞬間に一言返すだけ」の用途(ページ端の案内など)は、
-' 待たせること自体が害になる(連打すると待ち時間が積み上がり、押しても
-' 効かないように見える)。残ったToastは次の ShowToast / PaintProgress が
-' 先頭の掃除で消すので、孤児にはならない。既定は従来どおり待って消す。
+' waitless(2026-07-31 R11-H Med4): True のとき 1.1秒の待機と削除をせず描いたら
+' すぐ戻る。「押した瞬間に一言返すだけ」の用途は待たせること自体が害になる
+' (連打で待ちが積み上がり、押しても効かないように見える)。残ったToastは次の
+' ShowToast / PaintProgress の先頭の掃除で消える。既定は従来どおり待って消す。
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
     On Error Resume Next
@@ -387,13 +381,19 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' PaintProgress / ClearProgress - 進捗バナー("nx_progress")の表示部(R10-5)。
-'   ShowToastと違い待機ゼロ(ToastWaitは呼ばない。ファイル数×1.1秒の純増を
-'   避けるのが要件)。更新後にDoEvents1回だけ挟んで再描画させる。
-'   別ブック表示中は何もしない(ShowToastと同じ誤爆ガード)。直前と違うシートへ
-'   移っていたら旧シートのShapeを消してから今のシートへ描き直す
-'   (mProgressSheetNameでシート名を控える)。
+'   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避けるのが要件)。更新後に
+'   DoEvents1回だけ挟んで再描画させる。別ブック表示中は何もしない(誤爆ガード)。
+'   直前と違うシートへ移っていたら旧シートのShapeを消してから描き直す。
+'   cancellable(2026-08-04 R15-FixA FA-6): True のときだけ「中断」ボタンを
+'   添える。従来はこのバナーを使う【全ての】処理(質問の準備・部門更新の
+'   取込・Q&A読込・ナレッジ登録)にボタンが生え、押しても何も止まらなかった
+'   =壊れたボタンと同じ(§3-1)。True を渡すのは取込経路
+'   (modShelfBatch.ShowIngestBanner)だけ。False でも【既にあるボタンは
+'   消さない】: 取込中に割り込む実況(BlockIfIngestingの「お待ちください」・
+'   ベクトル化)でボタンが消えると、待たされている本人が押したい瞬間に
+'   押せなくなる。寿命はバナーと同じで ClearProgress が対で消す。
 ' ----------------------------------------------------------------------------
-Public Sub PaintProgress(ByVal message As String)
+Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
@@ -445,7 +445,7 @@ Public Sub PaintProgress(ByVal message As String)
     shp.TextFrame2.TextRange.Text = message
     shp.ZOrder 0   ' msoBringToFront
 
-    PaintCancelButton ws, leftPos + barW + 6, topPos
+    If cancellable Then PaintCancelButton ws, leftPos + barW + 6, topPos
     DoEvents
     On Error GoTo 0
 End Sub

@@ -144,6 +144,12 @@ End Function
 '   limitMin  : 無音がこの分数だけ続いたら失効とみなす(既定30分)
 '   absLimitMin: 開始からの絶対上限(既定480分=8時間)。ビートがどれだけ
 '                新しくても、これを超えたら無条件で失効させる(R15波1b裁定c)。
+'                0以下は【無効】(この製品の 0=無効 の慣習。R15-FixA FA-9)。
+'                8時間を超える正当なバッチ(254頁の資料を複数まとめて取込む)
+'                でガードが解け、二重取込の入口が開くのを止めるため、
+'                呼び出し側(modShelfBatch.GuardExpiredNow)は0を渡す。
+'                ビート源が全て実作業由来になった(FA-8でTouchBusyを中断
+'                ハンドラから外した)ので、延命ループの心配はもう無い。
 '
 '   従来は「開始から30分」で自動失効させていた。OCR付きの取込は実機で
 '   85〜127分かかるため、t=30分の時点で取込中にもかかわらず全ボタンが
@@ -175,6 +181,7 @@ Public Function GuardExpired(ByVal startAt As Date, ByVal beatAt As Date, _
         GuardExpired = True
         Exit Function
     End If
+    If absLimitMin <= 0 Then Exit Function
     GuardExpired = (DateDiff("n", startAt, nowAt) >= absLimitMin)
 End Function
 

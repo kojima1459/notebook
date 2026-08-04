@@ -55,6 +55,10 @@ Private mLastBeat As Date
 ' R15-3a: 中間保存の失敗を利用者へ告げたかどうか(1セッション1回だけ告げる)。
 Private mSaveFailToasted As Boolean
 
+' R15-FixA(FA-2): 前回の中間保存を試みた時刻。頁OCRの控え保存から呼ばれる
+' 経路だけスロットル(120秒)をかけるための唯一の材料。0=まだ一度も無い。
+Private mLastSaveAt As Date
+
 ' R15-6a(実機第4報 RC3): 中断の申し出。進捗バナー脇の中断ボタンが立て、
 ' optOcrPage(頁/バッチ境界)と下の取込ループ(ファイル境界)が読む。
 ' Esc/err18 方式を採らないのは、modGateway.TryRibbonRun/CallLLM の全捕捉
@@ -92,12 +96,23 @@ End Function
 ' 再入の関所(BlockIfIngesting)は【付けない】。取込中でも必ず動かなければ
 ' 意味が無いハンドラで、vba_lint の ONACTION_GUARD_ALLOWLIST に理由つきで
 ' 登録してある。
+' 2026-08-04(R15-FixA FA-8): 2点を直した。
+'   (a) SetStage → ShowProgress。SetStage の出力先(状態行/StatusBar/チャット
+'       バブル)はNexus画面では実質不可視で、押した人には【何も起きていない
+'       ように見えていた】(押しても止まらない機能の、押した実感まで無い)。
+'       進捗バナーは全画面で見えるので、そこへ出す。skipBeat:=True で呼ぶ:
+'       中断クリックは実作業ではないので、これでガードの寿命を延ばしては
+'       ならない(FA-9で絶対上限を外す前提そのもの)。
+'   (b) TouchBusy を外す。ビートは【実作業だけ】が打つ、という一本の線に
+'       する(a のskipBeatと同じ理由)。中断ボタンが押されればすぐに実作業が
+'       止まりに向かうので、ここで生存印を足す必要も無い。
+'   文言から「頁」を外した: 中断が効くのはOCRの頁境界だけではない(画像化の
+'   待ち・ベクトル化・ファイル境界でも効く)。
 Public Sub OnCancelIngest()
     On Error Resume Next
     mCancelRequested = True
     mCancelAt = Now
-    TouchBusy
-    modUIMain.SetStage "中断しています… 現在の頁の処理が終わり次第停止します"
+    modUIMain.ShowProgress "中断しています… 現在の処理が終わり次第停止します", True
     modLog.LogUsage "ingest_cancel", "", "利用者が中断ボタンを押しました"
     On Error GoTo 0
 End Sub
@@ -132,8 +147,16 @@ End Sub
 '   ここは現在時刻と共有ビートを差し込むだけの薄い口にする。4本のガードが
 '   同じ関数を呼ぶことで、判定が箇所ごとにズレることを構造的に防ぐ。
 ' ----------------------------------------------------------------------------
+'   absLimitMin:=0(2026-08-04 R15-FixA FA-9): 開始からの絶対上限(480分)は
+'   外す。ビートを打つのは実作業だけになった(FA-8で中断ハンドラの TouchBusy
+'   を外し、BlockIfIngesting自身の実況は波1のskipBeatで既に除外済み)ので、
+'   「押すたびに延命する」自己延命ループはもう起こらない。一方で8時間を
+'   超える取込は正当に起こり得る(254頁の資料を何件もまとめて選ぶ)。そこで
+'   ガードが解けると、動いている取込の上に二重取込を開く入口ができる
+'   ——守るべきもの(§3-5 データを失わない)と、防ぎたかったもの(焼き付き)を
+'   比べれば、無音30分の自己回復だけで足りる。
 Public Function GuardExpiredNow(ByVal startAt As Date, ByVal limitMin As Long) As Boolean
-    GuardExpiredNow = modUtilText.GuardExpired(startAt, mLastBeat, Now, limitMin)
+    GuardExpiredNow = modUtilText.GuardExpired(startAt, mLastBeat, Now, limitMin, 0)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -160,8 +183,26 @@ End Function
 ' トーストは1セッション1回だけ: 20件取り込めば20回失敗するので、そのたびに
 ' 1.1秒のトーストを出すと「押すほど固まる」を自分で作る(R10c M3と同じ轍)。
 ' usage_log の save_fail は毎回残すので、回数は後から数えられる。
-Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1)
+'
+' throttleSec(2026-08-04 R15-FixA FA-2): この秒数以内に前回保存していたら
+'   黙って戻る。1ファイル取込ごと・同期末尾の呼び出し(既定0)は従来どおり
+'   毎回保存する。頁OCRの控え保存(optOcrCache.SaveRange)からは120を渡す:
+'   20頁ごと=数分に1回だが、資料によっては数十秒に1回になり、そのたびに
+'   数百KB〜のブックを書き戻すとEDR(ウイルス対策)のスキャンが取込より
+'   重くなる端末がある。「失うのは最大2分ぶん」まで縮めれば、127分の取込が
+'   丸ごと消える(RC9)という壊れ方はもう起きない。
+Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1, _
+                          Optional ByVal throttleSec As Long = 0)
     If changedN < 1 Then Exit Sub
+    If throttleSec > 0 And mLastSaveAt > 0 Then
+        On Error Resume Next
+        Dim sinceSec As Long: sinceSec = 0
+        sinceSec = DateDiff("s", mLastSaveAt, Now)
+        On Error GoTo 0
+        ' 時計が巻き戻った端末(負)は「間隔不明」なので保存する側に倒す。
+        If sinceSec >= 0 And sinceSec < throttleSec Then Exit Sub
+    End If
+    mLastSaveAt = Now
 
     On Error Resume Next
     Dim failNum As Long: failNum = 0
@@ -231,7 +272,28 @@ Public Sub StageBanner(ByVal text As String)
     On Error Resume Next
     If LenB(text) = 0 Then Exit Sub
     If Not IsProgressBannerVisible() Then Exit Sub
-    modUIMain.ShowProgress text
+    ShowIngestBanner text
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' ShowIngestBanner - 【取込経路の】進捗バナーを出す(2026-08-04 R15-FixA FA-6)。
+' ----------------------------------------------------------------------------
+' modUIMain.ShowProgress と同じ2つのこと(状態行/StatusBarへの実況+画面上の
+' バナー)をするが、バナーには「中断」ボタンを添える。
+' なぜ分けるのか: 中断ボタンは modSkin.PaintProgress が【常に】描いていたため、
+' 質問の準備・部門更新の取込・Q&Aの読込・ナレッジ登録など、中断の仕組みが
+' 一切無い処理のバナーにも生えていた(A-M4/B-H4)。押せば取込用の印が立つが
+' 何も止まらない=「押しても何も起きないボタン」で、故障と区別が付かない。
+' 取込の入口3箇所(この下の AddFilesResult / StageBanner / modShelfSync の
+' ファイルループ)だけがここを通り、他は従来どおり modUIMain.ShowProgress を
+' 使う。ここが唯一の「中断できるバナー」の口になる。
+' modUIMain 側で分岐しないのは、あちらが30,000字上限まで残り206字で、
+' 引数1つの追加すら入らないため(憲章§4-6)。
+Public Sub ShowIngestBanner(ByVal text As String)
+    On Error Resume Next
+    modUIMain.SetStage text          ' ShowProgress の前半(既存チャネルへの実況)
+    modSkin.PaintProgress text, True ' 後半(バナー)。中断ボタンつき
     On Error GoTo 0
 End Sub
 
@@ -298,6 +360,11 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' R15-6c: 中断のため手を付けずに見送ったファイル数。黙って減らすと
     ' 「選んだのに入っていない」資料が理由も無く生まれる(憲章§4-1)。
     Dim cancelSkipN As Long: cancelSkipN = 0
+    ' R15-FixA(FA-7): 中断が【あったか】。見送り件数(cancelSkipN)とは別物で、
+    ' 最後の1件の途中で押されたときは見送り0件でも中断は起きている。
+    ' 従来はcancelSkipNだけを見ていたため、その場合に「取り込みが完了
+    ' しました」と言っていた(利用者が止めたことを、こちらが忘れた顔をする)。
+    Dim cancelHit As Boolean: cancelHit = False
     ' 失敗理由の内訳(代表的なE0504/image_pdf/E0302等をコード単位で数える)。
     Dim reasonKeys() As String: ReDim reasonKeys(0 To 15)
     Dim reasonCounts() As Long: ReDim reasonCounts(0 To 15)
@@ -355,6 +422,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         ' R15-6c: ファイル境界の中断確認。1件目に手を付ける前でも効く。
         ' 残りは【手を付けずに】見送り、件数を必ず利用者へ伝える。
         If CancelRequested() Then
+            cancelHit = True
             cancelSkipN = fd.SelectedItems.count - (i - 1)
             Exit For
         End If
@@ -375,8 +443,9 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         ' 「動いているのか止まっているのか分からない」を作らない(憲章§3-2)。
         Dim tailPart As String: tailPart = ""
         If LenB(etaPart) = 0 Then tailPart = " 処理中…"
+        ' R15-FixA(FA-6): 中断できるのは取込だけ。ここは中断ボタン付きで出す。
         On Error Resume Next
-        modUIMain.ShowProgress modUtil.ProgressText(i, fd.SelectedItems.count, etaPart) & " " & _
+        ShowIngestBanner modUtil.ProgressText(i, fd.SelectedItems.count, etaPart) & " " & _
             modUtil.SafeLeft(modUtil.FileNameOf(CStr(fd.SelectedItems(i))), 40) & tailPart
         On Error GoTo AddFailed
 
@@ -405,8 +474,12 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             ' (E0504)だけが silent を見ずにモーダルを出し、選んだ件数ぶん出た
             ' 上で集計メッセージが同じことをもう一度言っていた(二重報告)。
             ' 情報は戻り値の reasons に載るので失わない。
+            ' R15-FixA(FA-1): interactive:=True。silent(1件ごとのモーダル抑止)
+            ' と、【利用者がその場にいる取込か】は別の問いで、両方を silent 1本で
+            ' 表していたために「何時間かかります」の事前確認(R15-7b)が全経路で
+            ' 死んでいた(A-H1/B-H1)。手動で選んだこの経路だけが True。
             On Error Resume Next
-            st = modShelf.IngestFile(CStr(fd.SelectedItems(i)), "self", True, errCd)
+            st = modShelf.IngestFile(CStr(fd.SelectedItems(i)), "self", True, errCd, True)
             On Error GoTo AddFailed
             chunksAdded = chunksAdded + (modShelf.TotalChunks() - beforeChunks)
             If st = "done" Or st = "partial" Then
@@ -436,14 +509,18 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     ' R10c(M4): 「バナーを閉じる → トースト」の順にする。逆順だと1.1秒のあいだ
     ' 2枚がならび、どちらが今の状態なのか読み手に判断できない(バナーには
     ' 最後のファイル名が残っている)。modShelfSync も同じ順序。
+    ' R15-FixA(FA-7): ループを抜けたあとにもう一度見る。最後の1件の途中で
+    ' 押された中断は、ループ先頭の判定を二度と通らないのでここでしか拾えない。
+    If CancelRequested() Then cancelHit = True
+
     Dim warnPart As String: warnPart = ""
     If warnN > 0 Then warnPart = "/注意" & warnN & "件"
     Dim doneToast As String
     ' R15-6c: 中断したのに「完了しました」と言わない(利用者が止めたことを
     ' こちらが忘れた顔をするのは不誠実)。トーストは1回だけ=待ちは増やさない。
-    If cancelSkipN > 0 Then
-        doneToast = "中断のため" & cancelSkipN & "件を見送りました(成功" & okCount & _
-            "件/失敗" & ngCount & "件" & warnPart & ")"
+    If cancelHit Then
+        doneToast = "中断しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
+            warnPart & "/見送り" & cancelSkipN & "件)"
     Else
         doneToast = "取り込みが完了しました(成功" & okCount & "件/失敗" & ngCount & "件" & _
             warnPart & ")"
@@ -472,9 +549,15 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         msg = msg & vbLf & "うち" & warnN & "件は一部だけの取込です" & _
             "(マイ本棚の一覧で、そのカードのメモをご確認ください)。"
     End If
-    If cancelSkipN > 0 Then
-        msg = msg & vbLf & "中断のため" & cancelSkipN & "件は取り込んでいません。" & _
-            "もう一度「資料を追加」から選び直せば取り込めます。"
+    ' R15-FixA(FA-7): 中断はモーダルでも必ず言う。見送り0件(最後の1件の
+    ' 途中で押した)の場合も「止まったこと」と「その資料がどうなったか」を
+    ' 黙らない(途中まで読めた頁は partial として本棚カードのメモに出る)。
+    If cancelHit Then
+        msg = msg & vbLf & "利用者の操作で中断しました。"
+        If cancelSkipN > 0 Then
+            msg = msg & vbLf & "うち" & cancelSkipN & "件は取り込んでいません。" & _
+                "もう一度「資料を追加」から選び直せば取り込めます。"
+        End If
     End If
     Dim dupN As Long
     dupN = ReasonCountOf(reasonKeys, reasonCounts, reasonN, "E0504")

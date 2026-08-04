@@ -439,17 +439,13 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' R15-1c(実機第4報 RC5)+R15波1b裁定c: 再入ガードの失効判定
-'   modUtilText.GuardExpired。従来は「開始から30分」で自動失効させていた
-'   ため、OCR付きの取込(実機で85〜127分)の途中で全ボタンが解放され、
-'   二重取込が構造的に起こり得た。判定を「最後のビートから30分」へ変えたので、
-'   ・開始が古くてもビートが新しければ生存
-'   ・双方が古ければ失効(=焼き付いたガードは今までどおり自己回復する)
-'   の2つを同時に満たすことをここで固定する。どちらか一方だけを満たす
-'   実装(常に生存/常に失効)はどちらも実害が大きい。
-'   波1の敵対的自己点検で、BlockIfIngesting自身の実況がビートを打つと
-'   ガードが焼き付いていても延命し続ける穴が見つかった(a対応で経路は
-'   塞いだ)。ここでは独立した最終防衛線として、ビートがどれだけ新しくても
-'   開始から絶対上限(既定480分)を超えたら失効することも合わせて固定する。
+'   modUtilText.GuardExpired。従来は「開始から30分」で自動失効させていたため、
+'   OCR付きの取込(実機で85〜127分)の途中で全ボタンが解放され二重取込が
+'   構造的に起こり得た。「最後のビートから30分」へ変えたので、(a)開始が古くても
+'   ビートが新しければ生存 (b)双方が古ければ失効(焼き付きは自己回復する)の
+'   両方を同時に満たすことを固定する。片方だけの実装(常に生存/常に失効)は
+'   どちらも実害が大きい。絶対上限(既定480分)の境界と、R15-FixA FA-9 で
+'   取込ガードが渡すようになった absLimitMin=0(=無効)も合わせて固定する。
 ' ----------------------------------------------------------------------------
 Private Sub TestGuardExpiredHeartbeat()
     Dim nowAt As Date
@@ -509,6 +505,24 @@ Private Sub TestGuardExpiredHeartbeat()
     modTestRunner.Check "ガード失効_absLimitMin指定運用でも境界どおり", _
         (modUtilText.GuardExpired(nowAt - TimeSerial(2, 1, 0), _
                                   nowAt - TimeSerial(0, 1, 0), nowAt, 30, 120) = True)
+
+    ' R15-FixA(FA-9・レビューA-M2): absLimitMin=0 は【無効】。8時間を超える
+    ' 取込は正当に起こり得る(254頁の資料を何件もまとめて選ぶ)。そこでガードが
+    ' 解けると、動いている取込の上に二重取込を開く入口ができる。ビートを打つのは
+    ' 実作業だけになった(FA-8)ので、絶対上限という最終防衛線はもう要らない。
+    ' 0 を「即失効」と解釈する実装(DateDiff >= 0 が常にTrue)になっていたら
+    ' 全てのガードが常時失効=最悪の壊れ方をするので、ここで必ず止める。
+    modTestRunner.Check "ガード失効_absLimitMin0はビート新しければ8時間超でも生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(9, 0, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30, 0) = False)
+    modTestRunner.Check "ガード失効_absLimitMin0でも無音30分は従来どおり失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(9, 0, 0), _
+                                  nowAt - TimeSerial(0, 31, 0), nowAt, 30, 0) = True)
+    modTestRunner.Check "ガード失効_absLimitMin0で開始直後は生存(常時失効ではない)", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 1, 0), 0, nowAt, 30, 0) = False)
+    modTestRunner.Check "ガード失効_absLimitMin負も0と同じく無効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(9, 0, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30, -1) = False)
 End Sub
 
 ' ----------------------------------------------------------------------------

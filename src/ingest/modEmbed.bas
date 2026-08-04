@@ -153,6 +153,17 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
 
     Dim bStart As Long
     For bStart = 0 To limit - 1 Step batchSize
+        ' R15-FixA(FA-5ii・レビューB-H3): 中断の確認。取込の最後はこのベクトル化
+        ' で、数百チャンクなら何分もかかる。ここに確認が無かったため、利用者が
+        ' ⏹中断を押しても「今のファイルのベクトル化が全部終わるまで」止まらず、
+        ' 押しても効かないように見えていた。既存のESC中断とまったく同じ
+        ' 後始末(abortReason → AfterLoop)に乗せる: 書けたぶんは embedded=1 で
+        ' 確定済み、残りは embedded=0 のまま=次の同期が続きから再開する。
+        If CancelWanted() Then
+            abortReason = "中断(利用者操作)"
+            Exit For
+        End If
+
         Dim bEnd As Long: bEnd = bStart + batchSize - 1
         If bEnd > limit - 1 Then bEnd = limit - 1
         Dim bN As Long: bN = bEnd - bStart + 1
@@ -361,6 +372,16 @@ Private Function EnsureVectorSheet() As Worksheet
     Exit Function
 Fail:
     Set EnsureVectorSheet = Nothing
+End Function
+
+' 利用者が進捗バナーの中断ボタンを押したか(R15-FixA FA-5ii)。印の実体は
+' modShelfBatch(取込の入口でリセットされる)にあり、ここは読むだけ。
+' 問い合わせが埋め込みを壊してはならないのでOERNで包む(=分からないときは
+' 「押されていない」に倒す。安全側)。
+Private Function CancelWanted() As Boolean
+    On Error Resume Next
+    CancelWanted = modShelfBatch.CancelRequested()
+    On Error GoTo 0
 End Function
 
 ' err_log最終行のdetail文字列にmodGateway.LooksLikeLimitErrorを適用する

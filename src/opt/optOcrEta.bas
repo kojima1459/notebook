@@ -203,13 +203,53 @@ End Function
 '   頁が【無言で】欠けていた(憲章§4-1違反)。何頁のうち何頁が欠けたのかを
 '   数字で言い、もう一度取り込めば再試行されることまで書く。
 ' ----------------------------------------------------------------------------
-Public Function OcrPartialMemoFor(ByVal okN As Long, ByVal failN As Long) As String
+'   totalKnown(2026-08-04 R15-FixA FA-4): 資料の総頁数が分かっているなら
+'   それを分母にする。0(不明)なら従来どおり okN+failN。上限で打ち切られた
+'   資料では okN+failN は「読もうとした頁」でしかなく、254頁の資料で
+'   「全200頁中3頁が…」と名乗ると、残り54頁の存在が消える。
+Public Function OcrPartialMemoFor(ByVal okN As Long, ByVal failN As Long, _
+                                  Optional ByVal totalKnown As Long = 0) As String
     If failN <= 0 Then Exit Function
     Dim k As Long: k = okN
     If k < 0 Then k = 0
     Dim f As Long: f = failN
-    OcrPartialMemoFor = "全" & (k + f) & "頁中" & f & _
+    Dim n As Long: n = k + f
+    If totalKnown > n Then n = totalKnown
+    OcrPartialMemoFor = "全" & n & "頁中" & f & _
         "頁が読み取れませんでした(もう一度取り込むと再試行します)"
+End Function
+
+' ----------------------------------------------------------------------------
+' ComposeOcrMemo - 本棚カードへ出すメモの組み立てを1箇所に閉じる
+'   (2026-08-04 R15-FixA FA-4・レビューA-H4/B-M)。
+'   resumeHead  : 「前回の続きから再開しました。」(復元が無ければ "")
+'   partialBody : 中断・上限・頁欠けの理由(OcrAbortMemoFor/OcrPartialMemoFor)
+'   capBody     : 設定上限で打ち切ったことの説明(OcrCapMemoFor)
+'
+'   守る契約は2つだけ:
+'     ・resumeHead は【必ず前置き】。あとから来たメモで置き換えない。
+'     ・partialBody と capBody は【両方あれば連結】する。片方が片方を
+'       消してはならない。
+'   従来はこの3つが2箇所(optOcrPage と optVision.OcrCapMemo)で別々に
+'   組み立てられ、しかも後から来たものが前のものを丸ごと【置換】していた。
+'   その結果、上限で打ち切られた資料の一部の頁が読めなかった場合、
+'   カードには「頁が欠けた」か「上限で切った」のどちらか一方しか出ず、
+'   もう一方の事実は誰にも届かないまま消えていた(憲章§4-1)。
+'   復元の事実に至っては、欠けも打ち切りも無い正常な再開取込では
+'   truncated=False のためカードへ渡す経路自体が無かった。
+' ----------------------------------------------------------------------------
+Public Function ComposeOcrMemo(ByVal resumeHead As String, ByVal partialBody As String, _
+                               ByVal capBody As String) As String
+    Dim body As String: body = Trim$(partialBody)
+    Dim cap As String: cap = Trim$(capBody)
+
+    If LenB(body) = 0 Then
+        body = cap
+    ElseIf LenB(cap) > 0 Then
+        body = body & "。" & cap
+    End If
+
+    ComposeOcrMemo = Trim$(resumeHead) & body
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -225,6 +265,31 @@ Public Function RemainingWaitSec(ByVal absSec As Long, ByVal usedSec As Long) As
     Dim r As Long: r = absSec - usedSec
     If r < 10 Then r = 10
     RemainingWaitSec = r
+End Function
+
+' ----------------------------------------------------------------------------
+' BatchWaitSec - 1バッチの画像化に待ってよい秒数(2026-08-04 R15-FixA FA-5iii)。
+'   = min(資料あたりの残り予算, 1バッチの上限 max(120, batchPages×16))
+'   0 = もう待てない(呼び出し元は打ち切る)。
+'   なぜ1バッチにも上限が要るか: 残り予算をそのまま1バッチへ渡していたため、
+'   254頁の資料(予算2032秒)の1バッチ目でGSがハングすると、そこで34分待ち
+'   続けて他の12バッチには1秒も残らない。頁数から素直に見積もれば20頁は
+'   長くても数分なので、1バッチ320秒(20×16)を超えたら、そのバッチだけを
+'   時間切れにして先へ進む方が、資料としては多くの頁が残る。
+'   下限120秒は「1頁でも描けないほど短い待ち」を作らないため。
+' ----------------------------------------------------------------------------
+Public Function BatchWaitSec(ByVal absSec As Long, ByVal usedSec As Long, _
+                             ByVal batchPages As Long) As Long
+    Dim rest As Long: rest = RemainingWaitSec(absSec, usedSec)
+    If rest <= 0 Then Exit Function
+
+    Dim capSec As Long: capSec = 120
+    If batchPages > 0 And batchPages < 100000 Then
+        If batchPages * 16& > capSec Then capSec = batchPages * 16&
+    End If
+
+    If rest > capSec Then rest = capSec
+    BatchWaitSec = rest
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -268,7 +333,22 @@ Public Function OcrConfirmAskFor(ByVal totalPages As Long, ByVal estMin As Long,
     OcrConfirmAskFor = "全" & totalPages & "頁のスキャンPDFです。" & _
         "読み取りに推定約" & estMin & "分かかります。" & vbLf & _
         "処理中も" & ChrW(&H25A0) & "中断で止められ、次回は続きから再開できます。" & vbLf & _
+        "(完了後に検索用の準備が続きます)" & vbLf & _
         vbLf & "取り込みますか?"
+End Function
+
+' ----------------------------------------------------------------------------
+' RenderWaitBanner - 画像化(GS描画)の待ちに出す実況(R15-FixA FA-5i)。
+'   「画像化中… バッチ3/13 (全254頁) 経過42秒」
+'   バッチのラベルは BatchLabel が作る(総頁が未確定なら「バッチ3」だけ)。
+'   経過秒を出すのは、この待ちがVisionの応答待ちと違って【画面が完全に
+'   止まって見える】区間だから。数字が1秒ごとに動いていれば、止まって
+'   いないことだけは分かる(憲章§3-2)。0以下の経過秒は出さない。
+' ----------------------------------------------------------------------------
+Public Function RenderWaitBanner(ByVal labelText As String, ByVal elapsedSec As Long) As String
+    RenderWaitBanner = "画像化中… " & labelText
+    If elapsedSec > 0 Then _
+        RenderWaitBanner = RenderWaitBanner & " 経過" & elapsedSec & "秒"
 End Function
 
 ' ----------------------------------------------------------------------------

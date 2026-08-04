@@ -53,12 +53,18 @@ Private Const VISION_FEATURE As String = "vision"
 '               モーダルを出すと、そこで同期が朝まで止まる(R11-A C4)。
 '               opt側へそのまま渡し、案内ダイアログを出さない解決だけを
 '               させる。手動取込(False)では従来どおり案内を出す。
+'   interactive(2026-08-04 R15-FixA FA-1): 利用者がその場にいる取込か。
+'               「何時間かかります」の事前確認を出してよい唯一の条件。
+'               従来この判定に silent を使っていたが、手動の一括取込も
+'               1件ごとのモーダルを抑止するため silent:=True で来るので、
+'               確認は【どの経路からも出なかった】(A-H1/B-H1)。
 '   戻り値    : True=pagesに本文が入った / False=救えなかった
 ' ----------------------------------------------------------------------------
 Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String, _
                                   ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                                   ByRef outNote As String, _
-                                  Optional ByVal silent As Boolean = False) As Boolean
+                                  Optional ByVal silent As Boolean = False, _
+                                  Optional ByVal interactive As Boolean = False) As Boolean
     outNote = ""
     Dim tmpCopy As String: tmpCopy = ""
     Dim okRet As Boolean: okRet = False
@@ -125,7 +131,9 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         callArgs = workPath
     Else
         ' 2026-08-04(R15-7b): 何時間もかかる資料は、始める前に一度だけ聞く。
-        If Not silent Then
+        ' R15-FixA(FA-1): 条件は silent ではなく interactive。silent は
+        ' 「1件ごとの結果モーダルを出さない」という別の意味のまま温存する。
+        If interactive Then
             If DeclinedByUser(path, outNote) Then GoTo Finish
         End If
         ' R15-7d: 頁キャッシュの鍵には【元のパス】を渡す(一時コピーの名前と
@@ -150,7 +158,11 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         ' R14-4c: 上限で打ち切られたときは【何ページ入ったか】を正直に残す。
         ' 従来この partial は本棚カードで「同期を押すと続きから再開します」に
         ' なっていたが、OCRの続きを再開するロジックは存在しない(RC4の嘘)。
-        If truncated Then outNote = OcrCapNote(pages)
+        ' R15-FixA(FA-4): 打ち切りが無くてもメモが出ることがある(前回の続きから
+        ' 再開して【欠けなく】読み切った取込)。truncated のときだけ聞いていた
+        ' ため、その事実がカードへ一度も届いていなかった。常に聞き、返ってきた
+        ' ときだけ載せる(空なら従来どおり何も出ない)。
+        outNote = OcrCapNote(pages, truncated)
         GoTo Finish
     End If
 
@@ -215,7 +227,13 @@ Private Function DeclinedByUser(ByVal path As String, ByRef outNote As String) A
     Dim ask As String
     ask = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrConfirmAsk", path))
     If LenB(ask) = 0 Or Left$(ask, 5) = "#ERR:" Then Exit Function
-    If MsgBox(ask, vbQuestion + vbYesNo, modAppDef.APP_NAME) = vbYes Then Exit Function
+    ' R15-FixA(FA-1): &H10000 = vbMsgBoxSetForeground(名前付き定数は使わない
+    ' 慣習に合わせて数値で書く)。この確認は取込の一括ループの途中で開く。
+    ' 利用者が別のアプリへ移っていると、答えるまで【他のファイルの取込も
+    ' 全部止まる】のに、ダイアログは裏に隠れて気付けない。最前面へ出して
+    ' 放置される時間を短くする(モーダルである以上、止まること自体は避け
+    ' られない=裁定「記録のみ」)。
+    If MsgBox(ask, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then Exit Function
 
     outNote = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrDeclineMemo", Array()))
     If LenB(outNote) = 0 Or Left$(outNote, 5) = "#ERR:" Then _
@@ -241,12 +259,13 @@ End Function
 '   取り込めた枚数だけは pages から確実に分かるので、それだけを渡す。
 '   取れなければ ""(メモが無い=従来どおりの partial 表示に落ちるだけ)。
 ' ----------------------------------------------------------------------------
-Private Function OcrCapNote(ByRef pages() As ExtractedPage) As String
+Private Function OcrCapNote(ByRef pages() As ExtractedPage, _
+                            ByVal truncated As Boolean) As String
     On Error Resume Next
     Dim keptN As Long: keptN = modExtractor.PageArrayCount(pages)
     Dim note As String
     note = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrCapMemo", _
-        Array(True, keptN, 0)))
+        Array(truncated, keptN, 0)))
     If Left$(note, 5) = "#ERR:" Then note = ""
     OcrCapNote = note
     On Error GoTo 0

@@ -10,34 +10,26 @@ Option Explicit
 '   後始末という「前後」だけを残し、ここへ1回呼び出すだけになった
 '   (optVision が28,000字のWARN帯に達したための分割でもある。憲章§4-6)。
 '
-' なぜバッチにするのか(実機第3報 RC4):
-'   旧実装は「上限ページ分を1回のGS起動で全部描く → 全部できてから1枚ずつ
-'   OCR」だった。上限を100ページへ上げると、
-'     ・画像が全部できるまでOCRが1文字も始まらない(体感が全部止まる)
-'     ・100枚ぶんのJPEGが %TEMP% に同時に載る
-'     ・ループ中に DoEvents が1つも無く、Excelが完全に無反応になる
-'   の3つが同時に悪化する。20ページずつ描き、そのバッチをOCRし終えたら
-'   即座に画像を消す形にすれば、最初の20ページは数十秒で読み始められ、
-'   一時領域は20枚ぶんで頭打ちになる。
+' なぜバッチにするのか(実機第3報 RC4): 旧実装は「上限ページ分を1回のGS起動で
+'   全部描く → 全部できてから1枚ずつOCR」で、上限を100ページへ上げると
+'   (a)画像が全部できるまでOCRが1文字も始まらない (b)100枚のJPEGが同時に
+'   %TEMP% に載る (c)ループ中にDoEventsが無くExcelが無反応、が同時に悪化する。
+'   20ページずつ描いて読み終えたら即座に消せば、最初の20ページは数十秒で
+'   読み始められ、一時領域も20枚ぶんで頭打ちになる。
 '
-' 正直な制約(記録):
-'   Application.Run(=AIリボンのChatGPTV)は【同期】呼び出しで、VBAからは
-'   中断できない。1ページの応答が返らない限りExcelは固まる。ここでできるのは
-'   「1ページ分より長くは固めない」ことだけで、そのために各ページの
-'   TryRibbonRun の前後で必ず DoEvents を回し、ページ間で進捗を描き直す。
-'   ハード中断(利用者がEscで1ページの途中で止める)は構造上できない。
-'   2026-08-04(R15-6b): できる範囲での中断は入れた。進捗バナーの中断ボタンが
-'   modShelfBatch のフラグを立て、ここは頁境界・バッチ境界でそれを読んで
-'   止まる(=最大で1ページ分だけ待たせる)。止めたことは黙らず、カードの
-'   メモに「利用者の操作で中断しました」と残す。
+' 正直な制約(記録): Application.Run(=ChatGPTV)は【同期】でVBAから中断でき
+'   ない。1ページの応答が返るまでExcelは固まる。できるのは「1ページ分より長く
+'   は固めない」ことだけ(TryRibbonRunの前後でDoEvents)。2026-08-04(R15-6b):
+'   進捗バナーの中断ボタンが modShelfBatch のフラグを立て、ここは頁境界・
+'   バッチ境界でそれを読んで止まる。止めたことは黙らず、カードのメモに残す。
 '
 ' 設計判断:
 '   ・GSの出力番号(page_%03d.jpg)は「その実行で出力した順」に1から振られる
 '     のが Ghostscript の挙動だが、実機で確かめられない層(憲章§4-3)なので
 '     絶対ページ番号で振られる版にも耐えるよう、両方の起点を実在確認してから
 '     読む(CountBatchFiles)。
-'   ・進捗の文面と分割の算数は optOcrCore(純ロジック)が持ち、ここは
-'     副作用(Shell起動・待ち・ファイル削除・ログ)だけを持つ。
+'   ・進捗の文面と分割の算数は optOcrCore/optOcrEta(純ロジック)が持ち、
+'     ここは副作用(Shell起動・待ち・ファイル削除・ログ)だけを持つ。
 '   ・失敗しても例外を外へ出さない。戻り値は本文か "#ERR:E0303:…"。
 ' ============================================================================
 
@@ -45,27 +37,22 @@ Option Explicit
 ' 「GS起動の回数」の釣り合いで決めた値(実機第3報の裁定 R14-4a)。
 Private Const BATCH_PAGES As Long = 20
 
-' R15-4d(実機第4報 RC10): 描画前に消す残骸のパターン。命名規約そのものは
-' optOcrCore.PageJpgName が持つが、あちらは30,000字上限まで残りが無く
-' ワイルドカード定数を足せない(憲章§4-6のWARN帯)。ここへ置くにあたり
-' 「page_%03d.jpg と必ず対で直すこと」を規約として書き残す。
+' R15-4d(RC10): 描画前に消す残骸のパターン。命名規約は optOcrCore.PageJpgName
+' が持つ(あちらは容量が無くワイルドカード定数を足せない)。必ず対で直すこと。
 Private Const PAGE_JPG_GLOB As String = "page_*.jpg"
 
-' R15-4b(実機第4報 RC6): 頁OCRの失敗理由が「AI利用の上限」らしく見えた
-' 回数がこれだけ連続したらバッチループを打ち切る(modEmbed.bas の
-' consecutiveFail と同型)。レート制限に当たった状態で残り234頁を叩き続けても
-' 全部失敗するだけで、利用者の時間とAPIの枠を捨てるだけになる。
+' R15-4b(RC6): 「AI利用の上限」らしい頁失敗がこれだけ連続したらバッチループを
+' 打ち切る(modEmbed の consecutiveFail と同型)。レート制限に当たった状態で
+' 残り234頁を叩いても全部失敗するだけで、利用者の時間とAPIの枠を捨てる。
 Private Const LIMIT_STREAK_MAX As Long = 3
 
-' R15-5c: 1頁あたりの所要ミリ秒の過去実績(ui_state)。同じ端末・同じ
-' リボン経由なら資料が変わってもレートはおおむね同じなので、当該資料の
-' 実測が2頁ぶん貯まるまではこの値でETAを出す(初回端末は従来どおり無表示)。
+' R15-5c: 1頁あたり所要ミリ秒の過去実績(ui_state)。当該資料の実測が2頁
+' 貯まるまではこの値でETAを出す(初回端末は従来どおり無表示)。
 Private Const RATE_KEY As String = "ocr_avg_page_ms"
 
-' RenderBatch の結果(2026-08-03 R14-F1/F2)。「起動できなかった」と
-' 「起動はしたが終わらなかった」を Boolean 1つで混ぜていたため、GSが1度も
-' 起動していない資料に対して「1200秒以内に終わりませんでした」という
-' 事実と違う案内を出していた。3値にして最後まで別の事実として扱う。
+' RenderBatch の結果(R14-F1/F2)。「起動できなかった」と「起動はしたが
+' 終わらなかった」を Boolean 1つで混ぜ、GSが1度も起動していない資料へ
+' 「1200秒以内に終わりませんでした」と案内していた。3値で別の事実として扱う。
 Private Const RB_DONE As Long = 0          ' 完了フラグが出た
 Private Const RB_LAUNCH_FAIL As Long = 1   ' GSを起動できなかった
 Private Const RB_TIMEOUT As Long = 2       ' 起動したが待ち時間内に終わらなかった
@@ -96,20 +83,17 @@ End Function
 '                     唯一の手がかり。R11-D 監査3 H-1)
 '                 (b) 時間切れなのにGSを止められなかった(PID不明)。生きている
 '                     GSが書き込んでいるフォルダを消してはならない(R14-F5)
-'   outAborted  : True で返したら【まだ先があるのに途中で止めた】。上限まで
-'                 読み切ったのか、変換エラー/時間切れで欠けたのかを呼び出し元
-'                 (optVision)がカードのメモで言い分けるための唯一の材料
-'                 (R14-F2。従来はどちらも同じ形で返り、欠落が無言だった)。
+'   outAborted  : True で返したら【まだ先があるのに途中で止めた】(R14-F2。
+'                 従来はどちらも同じ形で返り、欠落が無言だった)。
 '   gsTotalPages: 取込前に判明している総頁数(0=不明。R15-5a)。txtwriteの
 '                 分類パスがGSに出させた "Processing pages 1 through N" から
 '                 取れる。従来 knownTotal は最終バッチに入るまで0のままで、
 '                 24頁中20頁・76頁中60頁でETAが出ないままだった(RC2)。
 '                 0なら従来どおり最終バッチでの確定に自然縮退する。
-'   outMemo     : 本棚カードへ出す正直なメモ(R15-4a/4b/6b)。上限どおりに
-'                 読み切った通常の打ち切りでは "" を返し、呼び出し元
-'                 (optVision.OcrCapMemo)が従来の上限メモを組み立てる。
-'                 中断・上限エラー・頁欠けのときだけ、理由を知っているここが
-'                 optOcrEta の純関数で作って渡す。
+'   outMemo     : 本棚カードへ出す正直なメモ。再開の冒頭文・中断/上限/頁欠けの
+'                 理由・設定上限の説明を、ここで【1回だけ】組み立てて返す
+'                 (R15-FixA FA-4。理由を知っているのはここだけなので、
+'                 optVision.OcrCapMemo は受け取った文をそのまま渡すだけ)。
 ' ----------------------------------------------------------------------------
 Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
                               ByVal folderPath As String, ByVal dpi As Long, _
@@ -161,8 +145,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 
     Dim b As Long
     For b = 1 To batchN
-        ' R15-6b: バッチ境界での中断確認。ここで抜ければ、描き終えた頁の
-        ' OCR結果はすべて手元に残っている(partialとして正直に保存する)。
+        ' R15-6b: バッチ境界での中断確認(読めた頁は手元に残り partial になる)。
         If CancelWanted() Then
             aborted = True
             abortReason = "cancel"
@@ -178,23 +161,40 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         If firstP < 1 Or lastP < firstP Then Exit For
 
         ' 1資料あたりの絶対上限の【残り】だけを次の待ちへ渡す(R14-F6)。
+        ' R15-FixA(FA-5iii): 残り予算をそのまま1バッチへ渡すと、1バッチ目の
+        ' ハングが資料の予算を全部食い潰す。1バッチの上限も併せて掛ける。
         ' 使い切っていたら、そこで正直に打ち切る(=中断扱い)。
-        Dim waitSec As Long: waitSec = optOcrEta.RemainingWaitSec(absSec, usedSec)
+        Dim waitSec As Long
+        waitSec = optOcrEta.BatchWaitSec(absSec, usedSec, BATCH_PAGES)
         If waitSec <= 0 Then
             aborted = True
             abortReason = "error"
             Exit For
         End If
 
-        modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
-        modShelfBatch.StageBanner "画像化中… " & optOcrEta.BatchLabel(b, knownTotal, BATCH_PAGES)
+        Dim batchLbl As String
+        batchLbl = optOcrEta.BatchLabel(b, knownTotal, BATCH_PAGES)
+        ' R15-FixA(FA-8): 中断の実況(「中断しています…」)を上書きしない。
+        If Not CancelWanted() Then
+            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
+            modShelfBatch.StageBanner "画像化中… " & batchLbl
+        End If
 
         Dim usedThis As Long: usedThis = 0
         Dim killed As Boolean: killed = False
         Dim rb As Long
         rb = RenderBatch(gsExe, pdfPath, folderPath, dpi, firstP, lastP, waitSec, _
-                         usedThis, killed)
+                         usedThis, killed, batchLbl)
         usedSec = usedSec + usedThis
+
+        ' R15-FixA(FA-5i): 画像化の待ちから戻った直後に、時間切れ判定より先に
+        ' 中断を見る。順序が逆だと、利用者が押して止めた待ちが「1200秒以内に
+        ' 終わりませんでした」という無関係な時間切れとして記録・表示される。
+        If CancelWanted() Then
+            aborted = True
+            abortReason = "cancel"
+            Exit For
+        End If
 
         If rb = RB_LAUNCH_FAIL Then
             launchFailed = True
@@ -248,8 +248,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 
         Dim i As Long
         For i = 0 To ocrN - 1
-            ' R15-6b: 頁境界での中断確認。同期のリボン呼び出しそのものは
-            ' 止められないので、止まるのは「今の頁が終わってから」になる。
+            ' R15-6b: 頁境界での中断確認(止まるのは今の頁が終わってから)。
             If CancelWanted() Then
                 aborted = True
                 abortReason = "cancel"
@@ -276,8 +275,12 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             If doneN >= 2 Then avgMs = sumMs / CDbl(doneN)
             Dim banner As String
             banner = optOcrEta.OcrPageBanner(pageNo, knownTotal, b, shownBatches, avgMs, Now)
-            modShelfBatch.StageBanner banner
-            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " " & banner
+            ' R15-FixA(FA-8): 中断中は頁バナーで上書きしない(押した直後に出た
+            ' 「中断しています…」が次の頁の表示で消えると、押した実感が無い)。
+            If Not CancelWanted() Then
+                modShelfBatch.StageBanner banner
+                modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " " & banner
+            End If
 
             ' 読めたページだけ okN が進む(1ページの失敗で資料全体を捨てない)。
             Dim okBefore As Long: okBefore = okN
@@ -292,8 +295,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             batchMs = batchMs + ms
             If ms > maxMs Then maxMs = ms
 
-            ' R15-4b: 上限らしき失敗が続いたら打ち切る。連続を切るのは
-            ' 【成功したときだけ】(上限以外の失敗は数を増やしも減らしもしない)。
+            ' R15-4b: 上限らしき失敗が3連続で打ち切る(連続を切るのは成功だけ)。
             If okN > okBefore Then
                 limitStreak = 0
             ElseIf wasLimit Then
@@ -307,8 +309,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 NextPage:
         Next i
 
-        ' R15-7d: 読めた頁を画像を消す前にまとめて控える。ここから先で何が
-        ' 起きても(Visionのハング・強制終了)読めた頁はもう失われない。
+        ' R15-7d: 画像を消す前にまとめて控える(以後ハングしても失われない)。
         optOcrCache.SaveRange pages, okAtBatch, okN - 1
 
         allFailN = allFailN + failN
@@ -319,8 +320,7 @@ NextPage:
         ' このバッチのJPEGは用が済んだら即座に消す(%TEMP%を溜めない)。
         KillBatchJpgs folderPath, baseIdx, gotN
 
-        ' R15-5c: 1頁あたりのレートを過去実績へブレンドして残す(modEmbedの
-        ' msPerItem と同じ作法)。次の資料の1頁目からETAが出せるようになる。
+        ' R15-5c: レートを過去実績へブレンド(次の資料の1頁目からETAが出る)。
         If didN > 0 Then
             rateMs = modUtilText.BlendPerItemMs(rateMs, batchT0, didN)
             SavePageMs rateMs
@@ -333,9 +333,8 @@ NextPage:
             On Error GoTo Failed
         End If
 
-        ' R14-F10: 頁ごとに1行ずつE0303を書くと、20頁失敗しただけで err_log が
-        ' 埋まり、直前の本当の原因が上限行数のローテで流れる。vision_page_ms と
-        ' 同じくバッチ単位で1行(件数+最初の1件)に畳む。
+        ' R14-F10: 頁ごとに1行書くと err_log が埋まり本当の原因が流れる。
+        ' vision_page_ms と同じくバッチ単位で1行に畳む。
         If failN > 0 Then
             On Error Resume Next
             modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
@@ -353,10 +352,13 @@ NextPage:
     ' R15-6b: 1頁も読めないうちに止めた場合。ここを NoRenderResult に任せると
     ' 「1200秒以内に終わりませんでした」という、利用者が押したボタンとは何の
     ' 関係も無い時間切れの案内が出る(しかも作業フォルダを残してしまう)。
+    ' R15-FixA(FA-4): 文言は他の中断と同じ純関数から作る。従来ここだけが
+    ' 「最初から実行します」と直書きで、頁の控えが残っていても(=次は続きから
+    ' 進めるのに)最初からだと断言していた。
     If okN = 0 And abortReason = "cancel" Then
         outAborted = True
-        OcrPdfByBatch = "#ERR:E0303:利用者の操作で取り込みを中断しました" & _
-            "(まだ1頁も読み取れていません)。もう一度取り込むと最初から実行します。"
+        OcrPdfByBatch = "#ERR:E0303:" & _
+            optOcrEta.OcrAbortMemoFor(0, "cancel", optOcrCache.HasSaved())
         Exit Function
     End If
     If okN = 0 And abortReason = "limit" Then
@@ -383,6 +385,9 @@ NextPage:
     ' 「全部入った」顔で本棚に並んでいた(欠落が無言=憲章§4-1違反)。
     Dim truncated As Boolean
     truncated = optOcrCore.IsTruncatedCount(foundTotal, maxPages)
+    ' R15-FixA(FA-4): 「設定上限で切った」ことは、このあと中断や頁欠けが
+    ' 重なっても消えない別の事実。上書きされる前に控えておく。
+    Dim capTrunc As Boolean: capTrunc = truncated
     If aborted Or launchFailed Then
         truncated = True
         outAborted = True
@@ -396,13 +401,19 @@ NextPage:
         ' 従来はここが status="done" のまま通り、頁が無言で欠けていた。
         truncated = True
         outAborted = True
-        outMemo = optOcrEta.OcrPartialMemoFor(okN, allFailN)
+        outMemo = optOcrEta.OcrPartialMemoFor(okN, allFailN, knownTotal)
     End If
 
-    ' R15-7d: 欠けなく読み切れた資料の控えは片付け、1頁でも欠けているなら
-    ' 残す(次の取込がその頁だけの再試行になる)。復元があった取込は、その
-    ' 事実をメモ冒頭とusage_logへ残す。
-    outMemo = optOcrCache.FinishDoc(outMemo, Not truncated, doneN)
+    ' R15-FixA(FA-4): カードのメモはここで【1回だけ】組み立てる。
+    '   冒頭 = 前回の続きから再開した事実(FinishDoc に空を渡すと、控えの
+    '          片付けとusage_logを済ませたうえで冒頭文だけが返る)
+    '   本体 = 中断・上限エラー・頁欠けの理由(上で作った outMemo)
+    '   末尾 = 設定上限で切ったことの説明
+    ' 従来はこの3つが optOcrPage と optVision.OcrCapMemo に分かれて組み立て
+    ' られ、あとから来たものが前のものを【置換】していた(A-H4)。
+    outMemo = optOcrEta.ComposeOcrMemo( _
+        optOcrCache.FinishDoc("", Not truncated, doneN), outMemo, _
+        optOcrEta.OcrCapMemoFor(capTrunc, okN, safeMax))
 
     If okN < safeMax Then ReDim Preserve pages(0 To okN - 1)
     OcrPdfByBatch = modUtil.JoinPagedText(pages, truncated)
@@ -429,13 +440,10 @@ End Function
 ' ----------------------------------------------------------------------------
 
 ' 1ページ分のOCR。読めたら pages へ積んで okN を1つ進める。
-' TryRibbonRun の前後で必ず DoEvents を回す(§3-1: 押せるものは反応する。
-' 同期呼び出しそのものは中断できないので、せめて1ページ境界では画面を返す)。
-' R14-F10: 失敗はここでは【数えるだけ】。err_log への記録は呼び出し元が
-' バッチ単位で1行にまとめる(failN / firstErr がそのための受け皿)。
-' R15-4b: 失敗が「AI利用の上限らしいか」だけは呼び出し元へ返す(outLimit)。
-' 判定は modGateway.LooksLikeLimitError の1本だけを使う(質問側の上限判定と
-' 同じ答えを2箇所に書かない。憲章§4-5)。
+' TryRibbonRun の前後で必ず DoEvents を回す(§3-1: せめて1ページ境界では
+' 画面を返す)。R14-F10: 失敗はここでは【数えるだけ】で、err_log は呼び出し元が
+' バッチ単位で1行にまとめる。R15-4b: 「AI利用の上限らしいか」だけは
+' outLimit で返す(判定は modGateway.LooksLikeLimitError の1本だけ。§4-5)。
 Private Sub OcrOnePage(ByVal jpgPath As String, ByVal pageNo As Long, _
                        ByVal visionPrompt As String, _
                        ByRef pages() As ExtractedPage, ByRef okN As Long, _
@@ -484,29 +492,22 @@ Private Sub NotePageFail(ByRef failN As Long, ByRef firstErr As String, ByVal no
     If LenB(firstErr) = 0 Then firstErr = note
 End Sub
 
-' ----------------------------------------------------------------------------
-' CancelWanted - 利用者が進捗バナーの中断ボタンを押したか(2026-08-04 R15-6b)。
-'   同期の Application.Run(=ChatGPTV)は VBA から止められないので、止まるのは
-'   「今の頁が終わってから」。押した瞬間に止まらないことは、押した直後に出る
-'   案内(modShelfBatch.OnCancelIngest の SetStage)で先に伝えてある。
-'   フラグの実体は modShelfBatch(取込の入口でリセットされる)にあり、ここは
-'   読むだけ。表示・問い合わせが取込を壊してはならないのでOERNで包む。
-' ----------------------------------------------------------------------------
+' CancelWanted - 利用者が進捗バナーの中断ボタンを押したか(R15-6b)。
+'   ChatGPTVは同期でVBAから止められないので、止まるのは「今の頁が終わって
+'   から」(押した直後の案内で先に伝えてある)。印の実体は modShelfBatch
+'   (取込の入口でリセットされる)にあり、ここは読むだけ。問い合わせが取込を
+'   壊してはならないのでOERNで包む。
 Private Function CancelWanted() As Boolean
     On Error Resume Next
     CancelWanted = modShelfBatch.CancelRequested()
     On Error GoTo 0
 End Function
 
-' ----------------------------------------------------------------------------
-' PriorPageMs / SavePageMs - 1頁あたり所要ミリ秒の過去実績(2026-08-04 R15-5c)。
-'   実機第4報 RC2: ETAは「当該資料で2頁read終わってから」しか出せず、しかも
-'   総頁が最後まで確定しないため、24頁中20頁が終わるまで何も出なかった。
-'   同じ端末・同じリボンならレートはおおむね同じなので、前回の実績を
-'   ui_state へ残しておき、次の取込の1頁目からETAを出す。
-'   読み書きの失敗は黙って諦める(ETAは出れば嬉しい情報であって、取込を
-'   止めてよい理由にはならない。憲章§4-4)。
-' ----------------------------------------------------------------------------
+' PriorPageMs / SavePageMs - 1頁あたり所要ミリ秒の過去実績(R15-5c)。
+'   RC2: ETAは「当該資料で2頁読み終えてから」しか出せず、総頁も最後まで
+'   確定しないため24頁中20頁が終わるまで何も出なかった。同じ端末・同じリボン
+'   ならレートはほぼ同じなので、実績を ui_state に残して次の取込の1頁目から
+'   ETAを出す。読み書きの失敗は黙って諦める(憲章§4-4)。
 Private Function PriorPageMs() As Double
     On Error Resume Next
     PriorPageMs = Val(modState.LoadState(RATE_KEY, "0"))
@@ -528,22 +529,23 @@ End Sub
 '              ときだけ、呼び出し元が作業フォルダを残す判断をする。
 ' 完了フラグは毎回消してから起動する(前のバッチのフラグが残っていると、
 ' 待ちループが「もう終わっている」と即座に誤判定する)。
+' bannerLabel: 待っているあいだ1秒ごとに出す実況のラベル(R15-FixA FA-5i)。
 Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
                              ByVal folderPath As String, ByVal dpi As Long, _
                              ByVal firstP As Long, ByVal lastP As Long, _
                              ByVal waitSec As Long, ByRef outUsedSec As Long, _
-                             ByRef outKilled As Boolean) As Long
+                             ByRef outKilled As Boolean, _
+                             ByVal bannerLabel As String) As Long
     outUsedSec = 0
     outKilled = False
 
     Dim flagPath As String: flagPath = optOcrCore.DoneFlagFor(folderPath)
     KillIfExists flagPath
 
-    ' R15-4d(実機第4報 RC10): 描き始める前に前のバッチのJPEGを1枚残らず消す。
-    ' 従来は完了フラグしか消しておらず、KillBatchJpgs が EDRロック等で失敗して
-    ' 残った1枚を、次のバッチの CountBatchFiles が自分の出力として数えていた。
-    ' 数え間違えた枚数はそのまま頁番号のズレになり、出典ページが静かに1つずつ
-    ' 狂う(誰も気付けない=憲章§4-1違反)。消し切れないなら描かない。
+    ' R15-4d(RC10): 描き始める前に前のバッチのJPEGを1枚残らず消す。従来は
+    ' 完了フラグしか消さず、KillBatchJpgs がEDRロック等で失敗して残った1枚を
+    ' 次のバッチの CountBatchFiles が自分の出力として数え、その枚数のズレが
+    ' そのまま頁番号のズレ(出典ページが静かに狂う=§4-1違反)になっていた。
     If Not PurgePageJpgs(folderPath) Then
         On Error Resume Next
         modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
@@ -579,7 +581,7 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
     Dim t0 As Double: t0 = Timer
     Dim gsRc As Long: gsRc = -1
     Dim finished As Boolean
-    finished = optGsTxt.WaitForDoneFlag(flagPath, waitSec, gsRc)
+    finished = optGsTxt.WaitForDoneFlag(flagPath, waitSec, gsRc, bannerLabel)
     outUsedSec = CLng(modUtilText.ElapsedMsSince(t0) / 1000#)
 
     ' 画像は出来ていても終了コードが非0のことがある(GSは軽微な警告でも非0)。
@@ -600,13 +602,17 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         outKilled = True
     End If
 
+    RenderBatch = RB_TIMEOUT
+    ' R15-FixA(FA-5i): 利用者が止めた待ちは【時間切れではない】。GS_TIMEOUT を
+    ' err_logへ残すと、押した本人の操作と無関係な障害として調査を誤らせる。
+    If CancelWanted() Then Exit Function
+
     On Error Resume Next
     modLog.LogError "E0303", "optOcrPage.OcrPdfByBatch", modUtil.SafeLeft( _
         "GS_TIMEOUT p" & firstP & "-" & lastP & " wait=" & waitSec & "s pid=" & gsPid & _
         " killed=" & outKilled & " " & optGsTxt.GsFailureDetail(folderPath) & _
         " " & modUtil.SafeLeft(pdfPath, 200), 2000)
     On Error GoTo 0
-    RenderBatch = RB_TIMEOUT
 End Function
 
 ' このバッチで実際に何枚できたかを数える。GSの連番の起点(1始まり=その実行の
@@ -671,10 +677,8 @@ End Function
 ' 1枚も描けなかったときの戻り値と記録(旧 optVision の「描画0枚」経路)。
 ' 3つの事実を最後まで別のものとして扱う(R14-F1):
 '   launchFailed : GSを【起動できなかった】。待ってすらいないので秒数の話を
-'                  してはならない(従来はここも「1200秒以内に終わりません
-'                  でした」と言い、config の gs_abs_timeout_sec を大きくする
-'                  よう案内していた=何度やっても直らない案内)。調べる材料も
-'                  何も出ていないので作業フォルダは残さない。
+'                  してはならない(従来は時間切れと同じ案内=何度やっても
+'                  直らない案内だった)。材料も出ないので作業フォルダは残さない。
 '   aborted      : 起動はしたが時間切れ。書きかけの gs_out.log が原因究明の
 '                  唯一の材料なので作業フォルダを残す(R11-D 監査3 H-1)。
 '   それ以外     : GSは正常終了したのに1枚も出なかった(壊れ・パスワード)。

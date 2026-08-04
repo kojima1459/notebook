@@ -182,6 +182,14 @@ Public Sub SaveRange(ByRef pages() As ExtractedPage, ByVal fromIdx As Long, _
     Dim lastRow As Long: lastRow = LastRowOf(ws)
     ws.Range(ws.Cells(lastRow + 1, COL_KEY), ws.Cells(lastRow + n, COL_SAVED)).Value = buf
     mSavedN = mSavedN + n
+
+    ' R15-FixA(FA-2・レビューA-H2/B-H2): ここまでで控えは【メモリ上のブック】に
+    ' しか無い。Excelが落ちれば、あるいは強制終了されれば、シートへ書いた行ごと
+    ' 消える=「続きから再開できる」という約束(R15-7d)がその瞬間だけ嘘になる。
+    ' 実機第4報で実際に起きたのは、まさにその強制終了だった。書けた直後に
+    ' ディスクへ落とす。ただし毎バッチ保存すると数百KBの書き戻しが積み上がる
+    ' 端末があるので120秒のスロットルを掛ける(失うのは最大2分ぶん)。
+    modShelfBatch.SaveCheckpoint n, 120
     Exit Sub
 
 Fail:

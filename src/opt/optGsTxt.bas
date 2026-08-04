@@ -15,36 +15,24 @@ Option Explicit
 '       経路(jpeg化)の両方がここを使う(R10-3bでoptVisionから移設)。
 '       プロセスの起動と停止だけは optGsProc(R13-F2で容量のため分離)。
 '
-' なぜ第1選択なのか(2026-07-31 実機報告):
-'   ・会社の管理端末では Word・Acrobat の CreateObject が塞がれており、
-'     テキストPDFが1本も取り込めなかった(実機初報B・E0302)。
-'   ・塞がれていない端末でも、WordのPDF Reflowは「'Word'がOLE操作を完了する
-'     のを待っています」ダイアログを頻発させ、数分たっても終わりが見えない
-'     体験になっていた(追加報告)。
-'   GSは別プロセスで、完了フラグの監視によるタイムアウト制御が効き、
-'   テキストPDFなら数秒で返る。ここを先に通すことでOLE待ちダイアログという
-'   最大のUX問題ごと消す。GSで駄目だったときだけ Word → Acrobat の既存連鎖へ
-'   落ちる(modExtractor.ExtractPdfWithFallback)。
+' なぜ第1選択なのか(2026-07-31 実機報告): 管理端末では Word/Acrobat の
+'   CreateObject が塞がれテキストPDFが1本も入らず(実機初報B・E0302)、塞がれて
+'   いない端末でもWordのPDF Reflowが「OLE操作の完了を待っています」を頻発させて
+'   いた。GSは別プロセスで完了フラグ監視のタイムアウトが効き、数秒で返る。
+'   駄目だったときだけ Word → Acrobat の既存連鎖へ落ちる
+'   (modExtractor.ExtractPdfWithFallback)。
 '
 ' 設計判断:
-'   ・置き場所: 当初は道具一式のある optVision へ足す想定だったが、optVision
-'     は30,000字上限まで残りが無く入らなかった。R10-3で実行部を本モジュール
-'     へ分け(道具はoptVision側をPublic化して共用)、R10-3bで道具そのものを
-'     こちらへ移設して役割を整理した(optGsTxt=GS実行、optVision=Vision API
-'     +OCRオーケストレーション)。コマンド文字列の組み立てと採否判定は
-'     optOcrCore(純ロジック)。
+'   ・置き場所: optVision に容量が無く R10-3/R10-3b で分離(optGsTxt=GS実行、
+'     optVision=Vision API+OCR統括、optGsProc=プロセス起動停止、
+'     optOcrCore=コマンド組み立てと採否判定の純ロジック)。
 '   ・入口は modFeatures.InvokeFeature("vision","ExtractPdfTextNoOcr",…)。
-'     vision機能の行き先は optVision 固定(modFeatures.ModuleNameOf)なので、
-'     optVision側に同名の薄い受け口を置き、そこからここへ転送している。
-'   ・GS未検出でも案内カード(フォルダ選択ダイアログ)は出さない。ここは
-'     「全てのPDF取込で毎回通る道」なので、モーダルが出ると取込のたびに
-'     割り込むことになる。候補探索だけの静かな解決(optVision.
-'     FindGsExeByCandidates)を使い、見つからなければ黙ってWord経路へ譲る。
-'     案内カードは従来どおり画像PDFのOCR経路(ExtractPdfOcrPagedText)だけの
-'     役目のまま(そちらは利用者がOCRを期待している場面なので割り込んでよい)。
-'   ・mock_llm=TRUE でも動かす。txtwriteはLLMもAIリボンも使わないため、
-'     mockで止める理由が無い(ExtractPdfOcrPagedTextのmockガードはChatGPTVを
-'     呼ぶからであって、ここには当てはまらない)。
+'     vision の行き先は optVision 固定なので、あちらの薄い受け口から転送される。
+'   ・GS未検出でも案内カード(フォルダ選択)は出さない。ここは全PDF取込が毎回
+'     通る道で、モーダルは取込のたびに割り込む。静かな候補探索
+'     (optVision.FindGsExeByCandidates)だけを使い、無ければ黙ってWordへ譲る。
+'     カードは利用者がOCRを期待している画像PDF経路だけの役目のまま。
+'   ・mock_llm=TRUE でも動かす(txtwriteはLLMもAIリボンも使わない)。
 '   ・戻り値の規約(optVisionの各関数と同じ "#ERR:" 文字列):
 '       成功          : 抽出したテキスト(ページ区切りは改ページ文字のまま)
 '       文字層ゼロ    : "#ERR:E0303:…" スキャンPDF確定。呼び出し元は即OCRへ
@@ -52,12 +40,10 @@ Option Explicit
 '                       先に試し、両方失敗したときだけOCR(E0303)へ回す
 '       タイムアウト  : "#ERR:E0302:GS_TIMEOUT:…" 途中まで読めていても採用しない
 '       その他の失敗  : "#ERR:E0302:…" 呼び出し元は Word → Acrobat へ落ちる
-'   ・失敗を握りつぶさない。CreateObject("WScript.Shell") まで塞がれている
-'     端末があり得るので、GS起動・出力読取で拾ったErr.Number/Descriptionは
-'     必ずerr_logのdetailへ残す(切り分けの唯一の手がかりになる)。ただし
-'     「GSが置かれていないだけ」は想定内かつ全PDFで毎回起きるので、err_logは
-'     書かず戻り値の文面だけで伝える(呼び出し元がWord/Acrobatも失敗した
-'     ときに3者併記のdetailとしてまとめて記録する)。
+'   ・失敗を握りつぶさない。WScript.Shell まで塞がれた端末があり得るので、
+'     GS起動・出力読取で拾った Err.Number/Description は必ず err_log の detail
+'     へ残す。ただし「GSが置かれていないだけ」は想定内かつ全PDFで毎回起きる
+'     ので書かず、呼び出し元が3者併記のdetailでまとめて記録する。
 ' ============================================================================
 
 Private Const OUT_TXT_NAME As String = "gstext.txt"
@@ -583,29 +569,54 @@ Public Function MakeOcrFolder() As String
 End Function
 
 ' 完了フラグの出現をDoEventsつきで待つ。Trueで完了、Falseでタイムアウト。
-' 2026-07-31(R7 B-2ついで): このループは DoEvents 専業で、Ghostscript が
-' ページ画像を書いている数分のあいだCPUを1コア回し切っていた(R6の報告)。
-' 待っているのはファイルの出現であって、詰めても早くは終わらない。
-' 2026-08-03(R13-M2): 間引きは【1秒】。従来の Now + 0.1/86400# は過去を
-' 指すため実際には眠らず、CPUを回し切る問題が直っていなかった。完了検知が
-' 最大1秒遅れるが、後続はGSの出力を読むだけなので体感は変わらない。
-' Application.Wait が使えない環境でも待たずに回るだけで壊れない。
+' 2026-07-31(R7 B-2)/2026-08-03(R13-M2): 間引きは【1秒】。DoEvents専業だと
+' GSが画像を書いている数分のあいだCPUを1コア回し切る。待っているのはファイルの
+' 出現で、詰めても早くは終わらない(Application.Wait が無い環境でも壊れない)。
 ' 2026-08-03(R13-1a): フラグの「存在」だけで完了とみなすのをやめた。
 ' 存在を見た後、中身が終了コードとして読めるまで最大2秒粘る(ReadFlagRcRetry)。
 ' rcOut は省略可なので、既存の2引数呼び出し(optVisionのOCR経路)はそのまま動く。
+' 2026-08-04(R15-FixA FA-5i): この待ちは実機で数分に達するが、従来ここには
+' 中断の確認も実況も1つも無かった。利用者から見ると「⏹中断を押しても何分も
+' 何も起きない・画面も動かない」区間で、そこで強制終了されていた(B-H3)。
+'   ・中断が申し出られていたら早期に False で戻る(呼び出し元が時間切れと
+'     混同しないよう、あちらが自分でもう一度 CancelRequested を見る)。
+'   ・1秒ごとにバナーへ経過秒を流す(bannerLabel が空なら従来どおり無言)。
 Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Long, _
-                                Optional ByRef rcOut As Long = -1) As Boolean
+                                Optional ByRef rcOut As Long = -1, _
+                                Optional ByVal bannerLabel As String = "") As Boolean
     Dim t0 As Double: t0 = Timer
+    Dim tBanner As Double: tBanner = t0
     Do
         If optVision.PathExists(flagPath) Then
             rcOut = ReadFlagRcRetry(flagPath)
             WaitForDoneFlag = True
             Exit Function
         End If
+        If CancelWanted() Then Exit Function
         DoEvents
         SleepOneSec
-        If Timer < t0 Then t0 = Timer      ' 日跨ぎでTimerが0へ戻った場合の保険
+        If Timer < t0 Then                 ' 日跨ぎでTimerが0へ戻った場合の保険
+            t0 = Timer
+            tBanner = t0
+        End If
+        If LenB(bannerLabel) > 0 And (Timer - tBanner) >= BANNER_SEC Then
+            tBanner = Timer
+            ' 表示の失敗が取込を壊してはならない(憲章§4-4)。
+            On Error Resume Next
+            modShelfBatch.StageBanner optOcrEta.RenderWaitBanner( _
+                bannerLabel, CLng(Int(Timer - t0)))
+            On Error GoTo 0
+        End If
     Loop While (Timer - t0) < timeoutSec
+End Function
+
+' 利用者が進捗バナーの中断ボタンを押したか(R15-FixA FA-5i)。印の実体は
+' modShelfBatch(取込の入口でリセットされる)にあり、ここは読むだけ。
+' 問い合わせで例外が出ても待ちを壊さない=「押されていない」に倒す。
+Private Function CancelWanted() As Boolean
+    On Error Resume Next
+    CancelWanted = modShelfBatch.CancelRequested()
+    On Error GoTo 0
 End Function
 
 ' 一時フォルダの後始末(成功・失敗の両経路から呼ぶ。R6規約により別Sub)。

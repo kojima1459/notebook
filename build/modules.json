@@ -801,6 +801,14 @@
       "note": "R15-4/R15-5/R15-6(OCRの正直さ強化・総頁早期確定とETA/終了時刻・中断ボタン)の純ロジック回帰テスト。modTestsPure11(27,888字)/modTestsPure12(27,001字)のどちらもWARN帯直前で足せないため憲章§4-6に従って新設した分割先(頁欠け・上限打ち切り・中断メモの真理表/バッチラベル/残り時間と終了目安の境界/画像化待ち予算)。modTestsPure12.RunAll12末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure14",
+      "path": "src/test/modTestsPure14.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R15-FixA",
+      "note": "R15-FixA(敵対的レビュー裁定 Fix-A)の純ロジック回帰テスト。modTestsPure13にこれを足すと30,000字上限まで残り11字になるため憲章§4-6に従って新設した分割先(カードのメモ合成契約ComposeOcrMemo/頁欠けメモの分母/1バッチの画像化待ち上限BatchWaitSec/画像化実況RenderWaitBanner/確認文の埋め込み時間の正直さ)。modTestsPure13.RunAll13末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

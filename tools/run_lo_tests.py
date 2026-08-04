@@ -295,6 +295,10 @@ PURE_ALLOWLIST = [
     #   走らないまま全部PASSに見える。
     "modTestsPure11", "modAskThorough", "modLive", "modTestsPure12",
     "modTestsPure13", "optOcrCache",
+    # modTestsPure14(2026-08-04 R15-FixA): modTestsPure13 の分割先。
+    #   modTestsPure13.RunAll13 の末尾が RunAll14 を呼ぶため、未注入だと
+    #   実行時エラー12で Fix-A のテストが1件も走らない(13を足したときと同型)。
+    "modTestsPure14",
     # modKnowledgeBar(2026-08-03 R14-2a): ToolbarContentRightはShapeを一切
     #   生成しない配置算数だけの関数(ToolbarSpec+modChrome.FlowLeft)。
     #   ToolbarSpecが呼ぶmodPublish.CanPublish/modFeatures.FeatureEnabledは

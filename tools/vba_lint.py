@@ -332,8 +332,16 @@ CONTRACT: dict[str, dict] = {
         # 取込を止める手段が1つも無く、Excelの強制終了しか無かった。
         # 印の実体をここに置くのは、取込の入口(AddFilesResult)で必ず
         # リセットできる場所がここだけだから。
+        # ShowIngestBanner(2026-08-04 R15-FixA FA-6): 【取込経路の】進捗バナー。
+        # 中断ボタンは modSkin.PaintProgress が常に描いていたため、中断の仕組みが
+        # 無い処理(質問の準備・部門更新・Q&A読込・ナレッジ登録)のバナーにも
+        # 生えて「押しても何も起きないボタン」になっていた。ここを通る3経路
+        # (AddFilesResult / StageBanner / modShelfSync のファイルループ)だけが
+        # 中断できるバナーを出す。modUIMain.ShowProgress を分岐させないのは、
+        # あちらが30,000字上限まで残り206字で引数1つ足す余地も無いため。
         "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
-                     "StageBanner", "TouchBusy", "LastBeat", "GuardExpiredNow",
+                     "StageBanner", "ShowIngestBanner", "TouchBusy", "LastBeat",
+                     "GuardExpiredNow",
                      "SaveCheckpoint", "OnCancelIngest", "CancelRequested",
                      "ResetCancel"],
     },
@@ -732,6 +740,17 @@ CONTRACT: dict[str, dict] = {
             "RemainingWaitSec",
             "OcrEstMinutes", "OcrConfirmAskFor", "OcrDeclineMemoFor",
             "GsBudgetSec", "OcrResumeMemo",
+            # R15-FixA(2026-08-04 レビュー裁定 Fix-A)で追加した純ロジック:
+            #   ComposeOcrMemo(FA-4): 本棚カードのメモの組み立てを1箇所へ。
+            #     「復元の冒頭文は前置・置換禁止」「頁欠け/中断の理由と設定上限の
+            #     説明は連結」という契約をここだけが持つ。従来は optOcrPage と
+            #     optVision.OcrCapMemo が別々に組み立て、後から来たものが前を
+            #     丸ごと置換していたため、事実が片方ずつ消えていた。
+            #   BatchWaitSec(FA-5iii): 1バッチの画像化待ちの上限。資料あたりの
+            #     残り予算をそのまま1バッチへ渡していたため、1バッチ目のハングが
+            #     資料の予算を全部食い潰していた。
+            #   RenderWaitBanner(FA-5i): 画像化待ちの実況文(経過秒つき)。
+            "ComposeOcrMemo", "BatchWaitSec", "RenderWaitBanner",
         ],
     },
     # optOcrCache(2026-08-04 R15-7d): 画像PDF OCRの頁チェックポイント。
@@ -1061,6 +1080,13 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll13"],
     },
+    # modTestsPure14: 2026-08-04 R15-FixA で追加。modTestsPure13 に Fix-A の
+    # 真理表とゴールデン文字列を足すと上限まで残り11字になるための分割先。
+    # modTestsPure13.RunAll13 の末尾から呼ばれる入口 RunAll14 だけが契約。
+    "modTestsPure14": {
+        "closed": False,
+        "required": ["RunAll14"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -1164,6 +1190,14 @@ R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats"}
 # 機能層の処理がUIの都合に依存しない)として、同期モジュールにのみ許す。
 # 広げるときは必ずここへ足す=どのモジュールがUIロックを見ているかが1箇所で分かる。
 R1_UILOCK_ALLOWED_MODULES = {"modShelfSync"}
+
+# R1例外(中断ボタン付き進捗バナー。2026-08-04 R15-FixA FA-6)。
+# modSkin.PaintProgress は modUIMain.ShowProgress の後半そのもので、性質は
+# 既存例外の ShowProgress と同じ(実況を伝えるだけ)。cancellable:=True を
+# 渡せるのは取込のバナーを1本化した modShelfBatch.ShowIngestBanner だけに
+# 限る(他所へ広がったらLintで止める=押しても止まらない中断ボタンを二度と
+# 生やさない)。modShelfSync/AddFilesResult はその1本を経由して出す。
+R1_PROGRESS_ALLOWED_MODULES = {"modShelfBatch"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
@@ -2340,6 +2374,17 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                 # =どのoptがコアへ触れるかが1箇所で分かる状態を保つ。
                 if prefix == "modShelfBatch" and member == "CancelRequested":
                     continue
+                # R15-FixA FA-2(2026-08-04 レビュー裁定 A-H2/B-H2): opt層からの
+                # 中間保存。頁OCRの控え(optOcrCache)はシートへ書いた時点では
+                # まだメモリ上のブックにしか無く、強制終了で丸ごと消える
+                # =「続きから再開できる」という約束がその瞬間だけ嘘になる
+                # (実機第4報で実際に起きた壊れ方)。保存の作法(ReadOnly判定・
+                # save_fail の記録・トーストの1回きり・120秒スロットル)は
+                # modShelfBatch.SaveCheckpoint が1箇所で持っており、opt層へ
+                # ThisWorkbook.Save を書き写すのはその分散そのもの。
+                # StageBanner/CancelRequested と同じく、広げるときはここへ足す。
+                if prefix == "modShelfBatch" and member == "SaveCheckpoint":
+                    continue
                 if target.layer == LAYER_OPT:
                     continue
                 info.add(
@@ -2391,6 +2436,18 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     if (cur_layer == LAYER_MID
                             and (prefix, member) == ("modUiLock", "IsBusy")
                             and self_name in R1_UILOCK_ALLOWED_MODULES):
+                        continue
+                    # PaintProgress(2026-08-04 R15-FixA FA-6): 中断ボタン付きの
+                    # 進捗バナー。ShowProgress(=SetStage+PaintProgress)と同じ
+                    # 「実況を伝えるだけ」の通知コールバックで、違いは中断ボタンを
+                    # 添えるかどうかの1点だけ。modUIMain 側で分岐できれば
+                    # ShowProgress の既存例外で済むが、あちらは30,000字上限まで
+                    # 残り206字で引数1つ足す余地が無い(憲章§4-6)。取込の
+                    # バナーを1本化する modShelfBatch.ShowIngestBanner だけに許す
+                    # =どのモジュールが中断できるバナーを出せるかが1箇所で分かる。
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modSkin", "PaintProgress")
+                            and self_name in R1_PROGRESS_ALLOWED_MODULES):
                         continue
                     info.add(
                         "ERROR", lineno,

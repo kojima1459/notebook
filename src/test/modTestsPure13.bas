@@ -526,6 +526,9 @@ NextR158_13:
     On Error GoTo R158Fail13
     TestIngestChunksDetail
     TestParseStatsShared
+NextFixA13:
+    On Error GoTo FixAFail13
+    modTestsPure14.RunAll14
 NextDone13:
     On Error GoTo 0
     Exit Sub
@@ -568,6 +571,11 @@ BudgetFail:
     Resume NextR158_13
 R158Fail13:
     modTestRunner.Check "TestIngestChunksDetail/TestParseStatsShared(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextFixA13
+FixAFail13:
+    ' R15-FixA: 続きは modTestsPure14(本モジュールは29,989字まで埋まった)。
+    modTestRunner.Check "modTestsPure14.RunAll14(モジュール全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone13
 End Sub

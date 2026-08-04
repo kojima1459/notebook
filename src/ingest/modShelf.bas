@@ -42,9 +42,19 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 '   AddFilesResultが失敗理由の内訳(E0504/image_pdf/E0302等)を集計するための
 '   補助出口。Optionalの末尾追加なので既存の呼び出し元(modVault/modUIShelf/
 '   modShelfSync等)は無改修のまま動く。成功時は""のまま。
+'
+' interactive (2026-08-04 R15-FixA FA-1・レビューA-H1/B-H1):
+'   「利用者がその場にいる取込か」。silent(=1件ごとの結果モーダルを抑止する)
+'   とは別の問いなのに、両方を silent 1本で表していたため、R15-7bで入れた
+'   「全254頁・推定約106分かかります。取り込みますか?」の事前確認が
+'   【全経路で死んでいた】(手動の一括取込も silent:=True で呼ぶため)。
+'   True を渡すのは modShelfBatch.AddFilesResult(利用者がFileDialogで自分で
+'   選んだ直後)だけ。同期(modShelfSync)・起動時取込は従来どおり無確認で、
+'   誰も見ていない画面でモーダルが開いて朝まで止まる事故は起こらない。
 Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                            Optional ByVal silent As Boolean = False, _
-                           Optional ByRef outErrCode As String = "") As String
+                           Optional ByRef outErrCode As String = "", _
+                           Optional ByVal interactive As Boolean = False) As String
     outErrCode = ""   ' 呼び出し側が使い回した変数でも必ずここで初期化する
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
@@ -76,6 +86,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
     mIngesting = True
     mIngestingSince = Now
+    ' R15-FixA(FA-6): 中断の印はここでも必ず下ろす。AddFilesResult は入口で
+    ' 下ろしているが、modVault.RegisterKnowledgeText / modUIShelf の
+    ' スクリーンショット取込は【この関数を直接呼ぶ】ので、前回の取込で押された
+    ' 印が残っていると、押した覚えの無い取込が最初の頁境界でいきなり止まる
+    ' (幽霊中断)。一括取込・同期のループは、この関数を呼ぶ【前に】自分で
+    ' 中断を判定してから来るので、ここで下ろしても取りこぼしは起きない。
+    modShelfBatch.ResetCancel
 
     Dim uiStep As String
     On Error GoTo Failed
@@ -136,7 +153,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         ' silent をそのまま渡す(R11-A C4)。無人のフォルダ同期から
         ' Ghostscript の案内ダイアログが出ると、そこで同期が止まる。
         If modShelfVision.TryVisionFallback(path, errCode, pages, pagesTruncated, _
-                                            visionNote, silent) Then
+                                            visionNote, silent, interactive) Then
             extractOk = True
         Else
             Dim failStatus As String
@@ -358,7 +375,14 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     ' modShelfVision が vision 側から受け取っている(成功時のvisionNote)。
     ' 本棚カードの partial は、メモがあればそれを出し、無いとき(=ベクトル化
     ' 待ち。同期で本当に続きから進む)だけ再開の案内を出す。
-    If LenB(thinMemo) = 0 Then thinMemo = visionNote
+    ' 2026-08-04(R15-FixA FA-4): カードに出すメモと、partial にするかどうかを
+    ' 分ける。vision のメモは「前回の続きから再開しました。」だけのことがあり
+    ' (欠けも打ち切りも無く読み切れた再開取込)、それを partial の材料にすると
+    ' 【完全に成功した資料】が「一部だけの取込です」と名乗ることになる。
+    ' 欠けの事実は pagesTruncated が正しく運んでくるので、判定はそちらに任せ、
+    ' メモは薄い抽出(thinMemo)を優先しつつ必ずカードへ届ける。
+    Dim cardMemo As String: cardMemo = thinMemo
+    If LenB(cardMemo) = 0 Then cardMemo = visionNote
 
     If pagesTruncated Or stillPending Or LenB(thinMemo) > 0 Then
         resultStatus = "partial"
@@ -368,7 +392,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 
     If isSelf Then
         modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), acceptedCount, _
-            resultStatus, thinMemo, origin
+            resultStatus, cardMemo, origin
     End If
 
     If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then

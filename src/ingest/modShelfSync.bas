@@ -11,54 +11,36 @@ Option Explicit
 '   sync_interval_min(config)>0のときは Application.OnTime で自己再帰予約
 '   する定期自動同期にも対応する。
 '
-' 設計判断:
-'   ・同期スコープの限定: my_manifest には「＋資料を追加」ダイアログから
-'     shelf_folder外のファイルを取り込んだ行も混在しうる。SyncNowが
-'     「消失→削除」を適用してよいのは shelf_folder 配下由来の行だけであり、
-'     フォルダ外から個別に追加した資料をSyncNowが誤って削除しないよう、
-'     manifestの file_path の親ディレクトリが shelf_folder と一致する行
-'     だけを比較対象スコープとする(modShelfScan.LoadManifestScope)。
-'   ・拡張子フィルタ: フォルダ内には Thumbs.db や .ini 等、対応外の
-'     ファイルが混在しうる。AddFilesViaDialog はFileDialogのFiltersで
-'     絞り込んでいるが、Dir()走査にはその仕組みが無いため、
-'     modExtractor.SupportedExts() に含まれない拡張子は同期の対象外として
-'     最初から除外する(取込失敗の空騒ぎ・manifestの無駄な失敗行を防ぐ)。
-'   ・差分判定(新規/変更/据え置き)は純関数 DiffDecision に切り出し、
-'     モジュールのExcel依存部分と分離してテスト可能にする(MASTER_SPEC §7.8)。
-'   ・フォルダそのものが見つからない場合(削除・リネーム・OneDriveオフライン
-'     で丸ごと見えない等)は、個々のファイルの消失と区別する。誤って
-'     全資料をDeleteSourceしてしまうと復旧不能なため、E0502を表示した上で
-'     対象スコープのmanifest行を status="missing" に更新するだけに留め、
-'     実削除はしない(§13「フォルダ削除・リネーム(E0502+missing)」)。
-'     フォルダが復活すれば次回同期時に通常のkeep/replace判定に戻る。
-'   ・再入防止: mSyncRunning は「手動🔄連打」「自動同期の発火中に手動ボタン」
-'     の多重実行を防ぐ。【Wave4訂正】VBAはシングルスレッドだが、長いループ中の
-'     DoEvents でメッセージキュー上のShapeクリック(OnAction)がその場で再入
-'     発火するため、取込/埋め込み中に🔄が押される再入は実際に起こり得る。
-'     行削除・圧縮(DeleteSource等)と EmbedPending が持つ行インデックスが
-'     食い違って誤った行へ書き込む事故は、modEmbed 側で chunk_id 起点に
-'     書込み先を都度再解決して断っている(modShelfSync へ新しい相互排他
-'     フラグを足す設計変更は影響範囲が大きく見送った。modEmbed.bas冒頭参照)。
-'   ・OnTime予約: 予約時刻(mNextRunTime)をモジュール変数に保持し、
-'     CancelAutoSyncは同時刻を指定して解除する(Excel仕様・§12)。
-'     コールバック先(AutoSyncTick)はSyncNow実行後に自分自身を再度
-'     ScheduleAutoSyncする「自己再帰」で次回分を予約する。
-'     【Wave4修正】AutoSyncTickは当初「§7.2の公開契約に無い名前だから」
-'     という理由でPrivateにしていたが、これはVBAの実際の挙動と矛盾する
-'     誤った判断だった: Application.OnTimeのProcedure引数はApplication.Run
-'     と同じ遅延バインド(文字列からの実行時解決)であり、Private Subは
-'     解決できない(予約自体はOn Errorに掛からず成立してしまうが、発火時に
-'     「マクロ'AutoSyncTick'を実行できません」という素のランタイムエラーが
-'     出て自動同期が永久に機能しなくなる)。そのためAutoSyncTickはPublicに
-'     変更し、CONTRACT(tools/vba_lint.py)・MASTER_SPEC §7.2の両方を
-'     「OnTimeコールバックとして公開が必須」という契約に合わせて更新した
-'     (契約側の欠陥が原因のケースとしてMASTER_SPEC本文も修正)。
-'   ・進捗実況は他のingest層モジュール(modEmbed/modEnrich)と同じ作法で
-'     modUIMain.SetStage を1行スコープの On Error Resume Next で呼ぶ
-'     (modUIMain未実装/実行時エラーでも同期処理自体は止めない)。
-'   ・FileDialog/EnableCancelKey等のOffice名前付き定数は使わずリテラル値
-'     を使う(modShelf.bas/modLog.bas と同じ、LibreOffice互換のための
-'     V2以来の慣習)。
+' 設計判断(R15-FixA: 同量圧縮。事実は落とさず言い方だけ縮めた):
+'   ・同期スコープの限定: my_manifest には「＋資料を追加」から shelf_folder 外の
+'     ファイルを取り込んだ行も混在する。「消失→削除」を適用してよいのは
+'     shelf_folder 配下由来の行だけなので、file_path の親ディレクトリが
+'     shelf_folder と一致する行だけを比較対象にする
+'     (modShelfScan.LoadManifestScope)。フォルダ外の資料を誤って消さない。
+'   ・拡張子フィルタ: Dir()走査には FileDialog の Filters が無いので、
+'     modExtractor.SupportedExts() 外(Thumbs.db/.ini 等)は最初から除外する
+'     (取込失敗の空騒ぎ・manifestの無駄な失敗行を防ぐ)。
+'   ・差分判定(新規/変更/据え置き)は純関数 DiffDecision へ切り出しテスト可能に
+'     する(MASTER_SPEC §7.8)。
+'   ・フォルダごと見つからない場合(削除・リネーム・OneDriveオフライン)は個々の
+'     ファイルの消失と区別する。全資料の DeleteSource は復旧不能なので、E0502を
+'     出したうえで対象スコープを status="missing" にするだけに留める(§13)。
+'     フォルダが復活すれば次回同期で通常の keep/replace 判定に戻る。
+'   ・再入防止: mSyncRunning は「手動🔄連打」「自動同期の発火中に手動ボタン」を
+'     防ぐ。VBAはシングルスレッドだが、長いループ中の DoEvents でShapeクリック
+'     (OnAction)がその場で再入発火するため、この再入は実際に起こり得る。
+'     行削除・圧縮と EmbedPending の行インデックスの食い違いは、modEmbed 側で
+'     chunk_id 起点に書込み先を都度再解決して断っている(あちらの冒頭参照)。
+'   ・OnTime予約: 予約時刻(mNextRunTime)を保持し、CancelAutoSync は同時刻を
+'     指定して解除する(Excel仕様・§12)。AutoSyncTick は SyncNow のあと自分を
+'     再予約する自己再帰。AutoSyncTick が Public 必須なのは、OnTime の Procedure
+'     が Application.Run と同じ遅延バインドで Private Sub を解決できないため
+'     (予約は成立するのに発火時に「マクロを実行できません」で自動同期が永久に
+'     死ぬ)。CONTRACT と MASTER_SPEC §7.2 も同じ契約へ更新済み。
+'   ・進捗実況は modEmbed/modEnrich と同じ作法で、1行スコープの On Error Resume
+'     Next 越しに呼ぶ(表示が失敗しても同期自体は止めない)。
+'   ・FileDialog/EnableCancelKey 等の名前付き定数は使わずリテラル値を使う
+'     (LibreOffice互換のためのV2以来の慣習)。
 ' ============================================================================
 
 Private mSyncRunning As Boolean     ' 再入防止
@@ -93,14 +75,11 @@ End Sub
 ' SyncNow - Dir()走査(第1階層のみ) vs my_manifest の差分同期
 '   silent(既定False): Trueのとき、未設定/フォルダ不存在のE0502と完了サマリを
 '   MsgBoxで出さず、SetStage(状態表示行+StatusBar)だけに留める。
-'   【Wave4追加】modBoot.Boot(sync_on_open)とAutoSyncTick(定期自動同期)は
-'   ユーザー操作なしで走るバックグラウンド処理のため、対話ダイアログで
-'   フォーカスを奪うべきではない(§8 UXレビュー指摘)。特に配布直後は
-'   shelf_folderが未設定("")のままsync_on_open=TRUEで起動するため、名前を
-'   入力した直後に「フォルダが見つかりません」という警告が必ず出てしまう
-'   問題があった。手動🔄ボタン(modKnowledge.OnSync)・PickShelfFolder直後は
-'   従来どおりsilent=Falseでダイアログ表示する(ユーザー操作への応答なので
-'   フィードバックがあった方がよい)。
+'   modBoot.Boot(sync_on_open)とAutoSyncTick(定期自動同期)は利用者の操作
+'   なしで走るので、対話ダイアログでフォーカスを奪ってはならない(§8)。配布
+'   直後は shelf_folder 未設定のまま起動するため、名前を入力した直後に必ず
+'   「フォルダが見つかりません」が出ていた。手動🔄・PickShelfFolder 直後は
+'   従来どおり silent=False(操作への応答なので出した方がよい)。
 ' ----------------------------------------------------------------------------
 Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' 再入防止(連打・重複)。R15-1a: 失効は最後のビートから。
@@ -119,9 +98,14 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' 検索は重ループ内でDoEventsを回すため、割り込むと結果が欠ける。次tickへ
     ' 委ねる(手動🔄は利用者がロックを持って呼ぶので対象外=無反応にしない)。
     ' R12-4: 始める側は検索用ベクトルキャッシュを解放しピークを重ねない。
+    ' R15-FixA(FA-3iii): 判定に modShelf.IsBusy() を足す。modUiLock.IsBusy は
+    ' 「利用者がUIロックを取っているか」しか見ておらず、取込ループの最中
+    ' (ロックは取らない)に自動同期のtickが入ると、同じファイルを二重に
+    ' 取り込みに行くうえ、下の Finish: が進捗バナーを消し中断の印まで
+    ' 下ろしてしまっていた(取込中の入れ子自動同期。A-H3)。
     On Error Resume Next
     If silent Then
-        If modUiLock.IsBusy() Then
+        If modUiLock.IsBusy() Or modShelf.IsBusy() Then
             modLog.LogUsage "autosync_deferred", "sync", "他の処理中のため見送りました"
             Exit Sub
         End If
@@ -133,7 +117,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     mSyncRunningSince = Now
     ' R15波2の発見6(2026-08-04): 中断の印を同期の入口でも必ず下ろす。
     ' 残っていると、押した覚えの無い同期が最初の頁境界でいきなり止まる。
-    modShelfBatch.ResetCancel
+    ' R15-FixA(FA-3iv): ただし取込が動いているあいだは下ろさない。手動同期は
+    ' silentではないので上の見送りを通らず、取込中でもここまで来られる。
+    ' そこで印を下ろすと、利用者が押した中断が【無かったこと】にされる。
+    If Not modShelf.IsBusy() Then modShelfBatch.ResetCancel
 
     ' 大量シート書換え中のイベント連鎖を抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
     On Error Resume Next
@@ -238,15 +225,11 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         modShelfScan.MarkFolderScopeMissing folderNorm
         modLog.LogError "E0502", "modShelfSync.SyncNow", _
             "フォルダを列挙できませんでした(権限/ネットワーク/ウイルス対策の可能性): " & folderNorm
-        ' 2026-07-31 R11-D(A波発見事項2): ここは【エラーが起きていない】
-        ' 正常な打ち切り経路なので、Failed: へ飛ばしてはいけない。Failed: の
-        ' Resume はエラー未発生の状態で実行されると err#20(Resume without
-        ' error)を起こし、それが On Error GoTo Failed に捕まって2周目で
-        ' 初めて成立する。その2周目で failNum/failDesc が 20 /「Resume without
-        ' error」に上書きされるため、err_log には上のE0502ではなく自作自演の
-        ' err#20 だけが残っていた。後始末(FailedCleanup1)へ直行させる。
-        ' 挙動は不変(記録内容が実態どおりになるだけ)。modPublishUI.OnPublish
-        ' で同型を是正したのと同じ構造。
+        ' 2026-07-31 R11-D(A波発見事項2): ここは【エラーが起きていない】正常な
+        ' 打ち切りなので Failed: へ飛ばしてはいけない。あちらの Resume がエラー
+        ' 未発生で走ると err#20 を起こし、それ自体が捕まって failNum を上書きし、
+        ' err_log に上のE0502ではなく自作自演の err#20 だけが残る。後始末へ直行
+        ' させる(挙動は不変。記録が実態どおりになるだけ)。
         GoTo FailedCleanup1
     End If
 
@@ -268,15 +251,28 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim capMax As Long: capMax = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
     If capMax < 1 Then capMax = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
     Dim cappedN As Long: cappedN = 0
+    ' R15-FixA(FA-3i): 中断のため手を付けずに見送ったファイル数。
+    Dim cancelSkipN As Long: cancelSkipN = 0
 
     uiStep = "新規・更新の差分判定"
     Dim i As Long
     For i = 0 To diskCount - 1
+        ' R15-FixA(FA-3i・レビューA-H3): ファイル境界の中断確認。同期にだけ
+        ' これが無く、⏹中断を押しても残り全部が取り込まれ続けていた。しかも
+        ' 途中で止まった資料は manifest が pending/partial のまま残り、次の同期は
+        ' サイズも日時も変わっていないので "keep" と判定して二度と直さない
+        ' (=恒久汚染)。残りは【manifestに一切触れず】見送り、件数だけ言う。
+        If modShelfBatch.CancelRequested() Then
+            cancelSkipN = diskCount - i
+            Exit For
+        End If
+
         If Not diskDict.Exists(LCase$(diskNames(i))) Then diskDict.Add LCase$(diskNames(i)), True
 
         ' R10-5: SetStageはShowProgress内部で呼ぶので二重呼び出しにしない。
+        ' R15-FixA(FA-6): 中断できるのは取込・同期だけなので中断ボタン付きで出す。
         On Error Resume Next
-        modUIMain.ShowProgress "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
+        modShelfBatch.ShowIngestBanner "" & ChrW(&HD83D) & ChrW(&HDD04) & " 同期中 " & (i + 1) & "/" & diskCount & " …"
         On Error GoTo Failed
 
         ' 2026-07-31(R7 B-2): 1ファイルごとに1回だけメッセージを捌く。
@@ -309,13 +305,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         If existsInManifest Then curStatus = mStatus(mi)
         decision = ResolveDecision(decision, existsInManifest, curStatus)
 
-        ' 2026-07-28(レビュー L-11): 同期は silent:=True で取り込み、
-        ' 結果を戻り値で数える。従来は
-        '   ・同名衝突(E0504)が silent を無視してモーダルを出す
-        '     → 誰も見ていない朝の同期がそこで止まる
-        '   ・失敗も「新規/更新」の件数に足す
-        '     → サマリが「新規12件」と言うのに本棚は増えていない
-        ' という2つの嘘があった。数えるのは実際に入ったものだけにする。
+        ' 2026-07-28(レビュー L-11): 同期は silent:=True で取り込み結果を戻り値で
+        ' 数える。従来は(a)同名衝突(E0504)が silent を無視してモーダルを出し、
+        ' 誰も見ていない朝の同期がそこで止まる (b)失敗も「新規/更新」に足すので
+        ' サマリが「新規12件」でも本棚は増えない、の2つの嘘があった。
         Dim st As String
         Select Case decision
             Case "ingest"
@@ -350,13 +343,19 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Next i
 
     ' 消失検知→削除(このフォルダ配下由来の行のみが対象スコープ)
+    ' R15-FixA(FA-3i): 中断で走査を打ち切った同期では、まだ見ていないファイルが
+    ' diskDict に入っていない。そのままここを通すと「ディスクに無い=消えた」と
+    ' 誤判定して実在する資料を DeleteSource する(復旧不能)。列挙に失敗した
+    ' ときに消失判定をしないのと同じ理由で、中断時は削除判定ごと見送る。
     uiStep = "消失資料の削除判定"
-    For i = 0 To mCount - 1
-        If Not diskDict.Exists(LCase$(mNames(i))) Then
-            modShelf.DeleteSource mNames(i)
-            deletedN = deletedN + 1
-        End If
-    Next i
+    If cancelSkipN = 0 Then
+        For i = 0 To mCount - 1
+            If Not diskDict.Exists(LCase$(mNames(i))) Then
+                modShelf.DeleteSource mNames(i)
+                deletedN = deletedN + 1
+            End If
+        Next i
+    End If
 
     uiStep = "未完了の埋め込み再開"
     Dim resumedCount As Long: resumedCount = 0
@@ -373,6 +372,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     If resumeNeeded Then summaryLine = summaryLine & "・再開" & resumedCount & "件"
     If cappedN > 0 Then summaryLine = summaryLine & "・上限見送り" & cappedN & "件"
+    ' R15-FixA(FA-3i): 中断は必ず言う(黙って件数が減るのが一番困る)。
+    If cancelSkipN > 0 Then _
+        summaryLine = summaryLine & "・中断のため" & cancelSkipN & "件を見送りました"
 
     If cappedN > 0 Then
         On Error Resume Next
@@ -470,6 +472,10 @@ Finish:
     On Error GoTo 0
     ' R15-3a: 変わったものがある同期だけ保存(RC9)。
     modShelfBatch.SaveCheckpoint ingestedN + replacedN + deletedN + resumedCount + orphanDone
+    ' R15-FixA(FA-3ii): 中断の印を同期の外へ持ち越さない。取込側
+    ' (AddFilesResult)が全ての出口で下ろしているのと同じ作法。下ろさないと、
+    ' 同期の途中で押した中断が次に押した「資料を追加」まで生き残る。
+    modShelfBatch.ResetCancel
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -508,11 +514,9 @@ Public Sub ScheduleAutoSync()
     Application.OnTime EarliestTime:=nextTime, Procedure:=TickProcName()
     mNextRunTime = nextTime
     mScheduled = True
-    ' 2026-07-28(レビュー L-23): 予約時刻を ui_state にも残す。
-    ' モジュール変数だけに持っていると、VBAリセット(エラー中断・VBEでの
-    ' リセット)で消え、Auto_Close が予約を解除できなくなる。
-    ' 解除できない OnTime は「閉じたのに数分後にExcelが勝手に開き直す」
-    ' という事故になる(§9 が防ぐと明記している事故そのもの)。
+    ' 2026-07-28(レビュー L-23): 予約時刻を ui_state にも残す。モジュール変数
+    ' だけだとVBAリセットで消え、Auto_Close が予約を解除できなくなる=「閉じた
+    ' のに数分後にExcelが勝手に開き直す」事故(§9が防ぐと明記した事故)になる。
     ' R12-5-10: CStr(CDbl)の15桁精度欠落を避け、数値セルへ直書き(下のSaveSchedTime)。
     On Error Resume Next
     SaveSchedTime nextTime
@@ -632,12 +636,9 @@ Private Function TickProcName() As String
     TickProcName = "'" & ThisWorkbook.Name & "'!AutoSyncTick"
 End Function
 
-' ----------------------------------------------------------------------------
-' SCHED_KEY 保存(R12-5-10)。modState経由(CStr(CDbl)文字列化)は最大15桁の
-' 精度欠落でEarliestTime完全一致解除が壊れ得るため、ui_stateのB列へ数値を
-' 直書きする(インストーラのE1=CDbl直書きと同型)。modStateは汎用のまま残し、
-' この用途だけ直接シート操作する。
-' ----------------------------------------------------------------------------
+' SCHED_KEY 保存(R12-5-10)。modState経由(CStr(CDbl))は最大15桁の精度欠落で
+' EarliestTime完全一致解除が壊れ得るため、ui_stateのB列へ数値を直書きする
+' (インストーラのE1=CDbl直書きと同型)。この用途だけ直接シート操作する。
 Private Function FindStateRow(ByVal ws As Worksheet, ByVal keyName As String) As Long
     On Error Resume Next
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(-4162).Row
