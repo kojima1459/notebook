@@ -125,7 +125,12 @@ Public Function BlockIfIngesting() As Boolean
 
     BlockIfIngesting = True
     On Error Resume Next
-    modUIMain.SetStage "処理中です。完了までお待ちください…"
+    ' R15波1b裁定a: ここからの実況はビートを打たない(skipBeat:=True)。ここは
+    ' 「取込中に押された側」の実況で、連打のたび何度も呼ばれ得る。もしビートを
+    ' 打つと、ガードが焼き付いた状態でも利用者がクリックするたび失効が
+    ' 延び続け、永久に解けなくなる自己延命ループになる(R15波1の敵対的
+    ' 自己点検で発見)。表示自体は現状どおり出す(消さない)。
+    modUIMain.SetStage "処理中です。完了までお待ちください…", True
     ' SetStageの実況(ホームのセル/StatusBar/チャットバブル)はマイ本棚系画面
     ' からは不可視なので、どの画面でも見える進捗バナーへ出す。
     ' R10c(M3): ここは R10-1 で ShowToast にしていたが、トーストは表示に
@@ -133,7 +138,7 @@ Public Function BlockIfIngesting() As Boolean
     ' 「押しても無反応」を直すつもりが「押すほど固まる」を作っていた
     ' (取込中に連打されるのがまさにこの関所)。待ちゼロのバナーへ置換する。
     ' バナーは取込側の次のShowProgress更新かHideProgressで上書き/消去される。
-    modUIMain.ShowProgress "取り込み処理が終わるまでお待ちください…"
+    modUIMain.ShowProgress "取り込み処理が終わるまでお待ちください…", True
     On Error GoTo 0
 End Function
 

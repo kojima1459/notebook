@@ -122,6 +122,9 @@ Public Sub OnVaultSearch()
 End Sub
 
 Public Sub OnVaultPrev()
+    ' R15波1b裁定: 取込・同期中の再描画は入れ子で崩れ得る(既存40箇所超と
+    ' 同型。lint検査13で現状追認だったものを保護へ切り替え)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If mGalleryPage <= 0 Then
         ' 端で無反応にしない。「押したのに何も起きない」は故障と同じ(憲章§3-1)。
         ' waitless: 端で押しただけの案内に1.1秒待たせない(R11-H Med4)。
@@ -133,6 +136,8 @@ Public Sub OnVaultPrev()
 End Sub
 
 Public Sub OnVaultNext()
+    ' R15波1b裁定: OnVaultPrevと同型の保護(上記コメント参照)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If mGalleryPage >= mGalleryMaxPage Then
         modSkin.ShowToast "最後のページです。", "info", True
         Exit Sub
@@ -181,11 +186,17 @@ End Sub
 
 
 Public Sub OnVaultBackToChat()
+    ' R15波1b裁定: 画面遷移は取込中の入れ子実行と衝突し得る(OnVaultPrevと
+    ' 同型。lint検査13で現状追認だったものを保護へ切り替え)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     modUI.GoToNexus "modVaultGallery.OnVaultBackToChat"
 End Sub
 
 ' カードクリック: 内容の先頭を表示し、削除も選べる
 Public Sub OnVaultCardClick()
+    ' R15波1b裁定: MsgBox+削除/報告(いずれもシート状態を操作)は取込中の
+    ' 入れ子実行と衝突し得る(OnVaultPrevと同型)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     Dim callerName As String
     On Error Resume Next
     callerName = CStr(Application.Caller)

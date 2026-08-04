@@ -138,10 +138,12 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' GuardExpired - 再入ガードの失効判定(2026-08-04 R15-1a・実機第4報 RC5)。
-'   startAt : ガードを立てた時刻
-'   beatAt  : 最終ハートビート(まだ1度も打たれていなければ0でよい)
-'   nowAt   : 現在時刻
-'   limitMin: 無音がこの分数だけ続いたら失効とみなす(既定30分)
+'   startAt   : ガードを立てた時刻
+'   beatAt    : 最終ハートビート(まだ1度も打たれていなければ0でよい)
+'   nowAt     : 現在時刻
+'   limitMin  : 無音がこの分数だけ続いたら失効とみなす(既定30分)
+'   absLimitMin: 開始からの絶対上限(既定480分=8時間)。ビートがどれだけ
+'                新しくても、これを超えたら無条件で失効させる(R15波1b裁定c)。
 '
 '   従来は「開始から30分」で自動失効させていた。OCR付きの取込は実機で
 '   85〜127分かかるため、t=30分の時点で取込中にもかかわらず全ボタンが
@@ -156,13 +158,24 @@ End Function
 '   ガードで全ボタンを殺し続けるより奪い返す方が害が小さい(modUiLockと同じ)。
 '   時計が巻き戻った場合(nowAt < 基準)は DateDiff が負になり失効しない。
 '   これは変更前の式と同じ挙動で、進んだ時計が戻るまでの間だけ守りが続く。
+'
+'   絶対上限を足した理由(R15波1の敵対的自己点検): modUiLock.BlockIfIngesting
+'   自身の実況が SetStage 経由でビートを打つと、ガードが焼き付いた状態でも
+'   利用者が押すたびに失効がlimitMin分だけ延び続け、永久に解けなくなる
+'   (a対応でこの経路自体は塞いだが、他の未知の経路が同じ穴を再現しても
+'   ここで必ず止まるよう、時間で数える最終防衛線を独立に置く)。
 ' ----------------------------------------------------------------------------
 Public Function GuardExpired(ByVal startAt As Date, ByVal beatAt As Date, _
-                             ByVal nowAt As Date, ByVal limitMin As Long) As Boolean
+                             ByVal nowAt As Date, ByVal limitMin As Long, _
+                             Optional ByVal absLimitMin As Long = 480) As Boolean
     Dim baseAt As Date
     baseAt = startAt
     If beatAt > baseAt Then baseAt = beatAt
-    GuardExpired = (DateDiff("n", baseAt, nowAt) >= limitMin)
+    If DateDiff("n", baseAt, nowAt) >= limitMin Then
+        GuardExpired = True
+        Exit Function
+    End If
+    GuardExpired = (DateDiff("n", startAt, nowAt) >= absLimitMin)
 End Function
 
 ' ----------------------------------------------------------------------------

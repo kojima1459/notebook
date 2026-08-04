@@ -1457,7 +1457,7 @@ ONACTION_GUARD_LOOKAHEAD = 4
 # 増やすときは必ず理由を1行書くこと。ここが「押しても何も起きない」を
 # 生む場所になるので、黙って足せない形にしておく。
 ONACTION_GUARD_ALLOWLIST = {
-    # --- 押しても業務ロジックを一切呼ばない、印/表示だけのハンドラ ---
+    # --- 恒久例外: 押しても業務ロジックを一切呼ばない、印/表示だけのハンドラ ---
     # 深掘りチップの[×]。モジュール変数を False にして印を消すだけ。
     "modAppAct.OnFollowupChipOff",
     # 質問例の「別の質問を見る」。表示位置(mOffset)を進めて描き直すだけ。
@@ -1467,22 +1467,15 @@ ONACTION_GUARD_ALLOWLIST = {
     # 登録フォームの[キャンセル]。入力欄を消してフォームを閉じるだけ。
     # 取込中でも「閉じられない」方が利用者を困らせる(§3-1)。
     "modVault.OnVaultCancel",
-    # --- 委譲先で必ず関所を通るハンドラ ---
+    # --- 恒久例外: 委譲先で必ず関所を通るハンドラ ---
     # 質問例のクリック。最後に modApp.OnSend を呼び、そちらが
     # BlockIfIngesting を先頭に持っている(二重に置く意味が無い)。
     "modStarter.OnPick",
-    # --- 2026-08-04(R15-2b)時点の現状追認。R15-2aの裁定範囲外 ---
-    # 下の4本は画面遷移・再描画を行うため本来は関所を通すべきだが、
-    # R15 波1 の裁定対象は modHubStat.OnSyncPending と modApp.OnRefreshUI の
-    # 2本のみ。勝手に挙動を変えず、ここに載せて裁定待ちであることを残す
-    # (発見事項として実装者から報告済み)。
-    "modVaultGallery.OnVaultBackToChat",
-    "modVaultGallery.OnVaultCardClick",
-    "modVaultGallery.OnVaultNext",
-    "modVaultGallery.OnVaultPrev",
-    # 出典の「原文を開く」。外部アプリでファイルを開くだけだが、
-    # 取込中は同じファイルを掴んでいる可能性がある。上の4本と同じ扱い。
-    "modPeek.OnOpenSource",
+    # 2026-08-04(R15-2b)時点で現状追認としてここに載せていた5本
+    # (modVaultGallery.OnVaultBackToChat/OnVaultCardClick/OnVaultNext/
+    # OnVaultPrev, modPeek.OnOpenSource)は、R15波1の敵対的自己点検で
+    # 司令塔裁定「保護する」を受け、R15波1bで各ハンドラの先頭に
+    # BlockIfIngestingを追加し保護済み。登録は削除した。
 }
 
 ONACTION_GUARD_CALLS = (

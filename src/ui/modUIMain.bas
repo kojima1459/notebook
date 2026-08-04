@@ -313,10 +313,14 @@ FailCleanup0:
 End Sub
 
 ' SetStage - ステータス行+Application.StatusBar 両方
-Public Sub SetStage(ByVal msg As String)
+' skipBeat: BlockIfIngesting自身の実況専用(R15波1b裁定a)。既定Falseのままなら
+'   既存呼び出し元の挙動は変わらない。
+Public Sub SetStage(ByVal msg As String, Optional ByVal skipBeat As Boolean = False)
     ' R15-1b: 実況が1つ進んだ=処理は生きている。取込ガードの失効判定は
-    ' この印(最終ビート)から数える(実機第4報 RC5)。代入1つで失敗しない。
-    modShelfBatch.TouchBusy
+    ' この印(最終ビート)から数える(実機第4報 RC5)。ただしBlockIfIngesting
+    ' 自身の実況(skipBeat=True)は対象外: 焼き付いたガードでも利用者が押す
+    ' たびに失効が延び、永久に解けなくなる自己延命ループを断つ(R15波1b)。
+    If Not skipBeat Then modShelfBatch.TouchBusy
 
     Dim displayMsg As String
     displayMsg = msg
@@ -356,9 +360,9 @@ End Sub
 ' あり、状態行の書込みで例外が出ると呼び出し元(取込ループ)の
 ' On Error GoTo へ飛んで取込そのものを止めていた。表示は「出せたら出す」
 ' 補助であって、失敗が処理を殺してはならない。
-Public Sub ShowProgress(ByVal msg As String)
+Public Sub ShowProgress(ByVal msg As String, Optional ByVal skipBeat As Boolean = False)
     On Error Resume Next
-    SetStage msg   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
+    SetStage msg, skipBeat   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
     modSkin.PaintProgress msg
     On Error GoTo 0
 End Sub

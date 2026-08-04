@@ -296,6 +296,10 @@ End Function
 ' 見せるとき。灰色のテキストボックスで終わっていては、その場に持っていけない。
 ' file_pathは my_manifest に既にある。開くだけでよかった。
 Public Sub OnOpenSource()
+    ' R15波1b裁定: 外部アプリで原文を開く際、取込中は同じファイルを掴んでいる
+    ' 可能性がある(既存40箇所超と同型。lint検査13で現状追認だったものを
+    ' 保護へ切り替え)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     Dim caller As String
     caller = CStr(Application.Caller)

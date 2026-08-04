@@ -438,14 +438,18 @@ Private Sub TestRemainingWaitSec()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' R15-1c(実機第4報 RC5): 再入ガードの失効判定 modUtilText.GuardExpired。
-'   従来は「開始から30分」で自動失効させていたため、OCR付きの取込
-'   (実機で85〜127分)の途中で全ボタンが解放され、二重取込が構造的に
-'   起こり得た。判定を「最後のビートから30分」へ変えたので、
+' R15-1c(実機第4報 RC5)+R15波1b裁定c: 再入ガードの失効判定
+'   modUtilText.GuardExpired。従来は「開始から30分」で自動失効させていた
+'   ため、OCR付きの取込(実機で85〜127分)の途中で全ボタンが解放され、
+'   二重取込が構造的に起こり得た。判定を「最後のビートから30分」へ変えたので、
 '   ・開始が古くてもビートが新しければ生存
 '   ・双方が古ければ失効(=焼き付いたガードは今までどおり自己回復する)
 '   の2つを同時に満たすことをここで固定する。どちらか一方だけを満たす
 '   実装(常に生存/常に失効)はどちらも実害が大きい。
+'   波1の敵対的自己点検で、BlockIfIngesting自身の実況がビートを打つと
+'   ガードが焼き付いていても延命し続ける穴が見つかった(a対応で経路は
+'   塞いだ)。ここでは独立した最終防衛線として、ビートがどれだけ新しくても
+'   開始から絶対上限(既定480分)を超えたら失効することも合わせて固定する。
 ' ----------------------------------------------------------------------------
 Private Sub TestGuardExpiredHeartbeat()
     Dim nowAt As Date
@@ -486,6 +490,25 @@ Private Sub TestGuardExpiredHeartbeat()
     ' 上限値そのものは呼び出し側の定数。60分運用でも同じ式で効くこと。
     modTestRunner.Check "ガード失効_上限60分なら45分は生存", _
         (modUtilText.GuardExpired(nowAt - TimeSerial(0, 45, 0), 0, nowAt, 60) = False)
+
+    ' R15波1b(裁定c): 絶対上限480分(8時間)。BlockIfIngesting自身の実況が
+    ' ビートを打ってしまうと(a対応で塞いだが)、ビートがどれだけ新しくても
+    ' 開始からabsLimitMinを超えたら無条件で失効させる最終防衛線。
+    modTestRunner.Check "ガード失効_ビート新しくても開始8時間超は失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(8, 10, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30) = True)
+    ' 境界: ちょうど480分は失効側(既定値の境界も >= と同じ向きを保つ)。
+    modTestRunner.Check "ガード失効_ビート新しくても開始ちょうど480分は失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(8, 0, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30) = True)
+    ' 479分・ビート新しければ絶対上限にはまだ触れず生存する。
+    modTestRunner.Check "ガード失効_ビート新しく開始479分は生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(7, 59, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30) = False)
+    ' absLimitMinを明示指定した運用でも同じ式で効くこと(既定値だけの偶然でない)。
+    modTestRunner.Check "ガード失効_absLimitMin指定運用でも境界どおり", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(2, 1, 0), _
+                                  nowAt - TimeSerial(0, 1, 0), nowAt, 30, 120) = True)
 End Sub
 
 ' ----------------------------------------------------------------------------
