@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R14完了時点）
+# 再開手順（セッション中断対策・最終更新: R15完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,14 +6,23 @@
 
 ## 1. 現在地
 
-**R14完了(実機第3報→調査8班→R14仕様→A/B/C実装→敵対的レビュー2面→FixA/FixB全裁定消化)。実機配布可。**
-R1〜R14まで全ラウンド完了・検収済み・push済み。テスト1,036件・lint ERROR 0/WARN 3(全てテスト系)・
-モジュール109本(実装側WARNゼロ)。仕様は docs/dev/spec_20260803_R14_実機第3報.md(根本原因RC1〜RC10)。
-残: 利用者の実機テスト(docs/45スモーク全18項目+docs/44 P2P)。
+**R15完了(実機第4報→調査4班→R15仕様→波1〜4実装→敵対的レビュー2面→FixA/FixB全裁定消化)。実機配布可。**
+R1〜R15まで全ラウンド完了・検収済み・push済み。テスト1,228件・lint ERROR 0/WARN 4(全てテスト系)・
+モジュール114本(実装側WARNゼロ)。仕様は docs/dev/spec_20260804_R15_実機第4報.md(RC1〜RC10)と
+docs/dev/spec_20260804_R15H_レビュー裁定.md(FA-1〜9/FB-1〜14)。
+R15の骨子: OCR254頁対応(上限300)・総頁早期確定とETA/終了時刻・■中断ボタン・チェックポイント
+再開(ocr_cacheシート)・事前確認ダイアログ・再入ガードのハートビート化・中間保存・ReadOnly検知・
+E0202(自己Run競合)対策・save_fail根因対策。
+**確定した制約(実機回答済み)**: ChatGPTV に待ち秒数引数は無く同期で永久待ち。VBAから制御不能。
+被害限定はチェックポイント再開+ビートガード+中断ボタンで実装済み(バナー5分停止=ハングの目安、
+強制終了→再取込で続きから)。
+残: 利用者の実機テスト(docs/45スモーク全22項目、特に19〜22+docs/44 P2P)。
+利用者アクション: 教えてBOX xlsx の「一部のみ取り込みました」注記有無の確認(シート30万字上限)。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
-**modShelfSync(接触禁止) / modUI(残35字) / optOcrCore(残68字) / modAsk(残105字) /
-modTestsPure11(残112字) / modRetrieve(残259字) / modBoot(残332字) / modTestsPure9(残578字) /
-modUIMain(残626字)**。
+**modUI(残35字) / modAsk(残105字) / modTestsPure11(残112字) / modRetrieve(残259字) /
+modTestsPure9(残578字) / modUIMain(残626字) / modTestsPure12(WARN帯28,280字・追記禁止)**。
+2,000〜2,600字圏(小変更のみ可・コメント同量圧縮の前例あり): modShelfSync / optOcrPage /
+optVision / optGsTxt / modSkin / modBoot / modShelfBatch / modShelf / modExtractorPdf / optOcrCore。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -199,6 +208,28 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     LOモード1のPASSは818件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
   ※R14完了時点: 109本(optOcrPage/modAskThorough/modTestsPure11/modTestsPure12を追加)、
     LOモード1のPASSは1,036件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
+  ※R15完了時点: 114本(optOcrEta/optOcrCache/modTestsPure13/modTestsPure14を追加)、
+    LOモード1のPASSは1,228件、lint ERROR 0/WARN 4(modTestsPure/2/5/12。全てテスト系)。
+- **R15で記録した次期課題・確定事項**:
+  - ChatGPTV は待ち秒数引数なし・同期永久待ち(実機確認済み)。VBA側の根治は不可能。
+    リボン側に引数が追加されたら optOcrPage の呼び出し1行で反映可能。
+  - 複数の大型PDF一括取込では事前確認が1件ごとに出る(Nが抽出後にしか判明しないため
+    構造上不可避・受容)。確認ダイアログ表示中は後続ファイルも停止する(モーダルの性質)。
+  - 手動/自動同期は事前確認なしで長時間OCRが走り得る(silent設計・R11-A C4準拠。
+    自動同期は既定OFF。チェックポイントで被害限定)。
+  - modEmbed 単独実行(同期の埋め込み再開等)では中断ボタンは出ない(ESC中断は既存)。
+    OCR起点で出たボタンはベクトル化中も残り、押せば埋め込みループも止まる。
+  - modGateway 全捕捉による ESC(err18)握りつぶし(modEmbed/modEnrich のESC中断が
+    CallLLM内で失敗文字列化され得る): 共有コアのため未着手。フラグ方式が代替。
+  - SourceList の manifest/pack 同名非合算(pack利用時のみの表示問題・受容)。
+  - vba_lint が手続き内 Const を module-level と誤認する(KEEP_DAYS衝突で実測。
+    回避は改名。lint側の修正は次期)。
+  - SleepMs が modEmbed/modExtractorPdf に private 複製2箇所(共通化するなら基盤層へ)。
+  - modShelfSync の分割(現27,819字。次に本格的に触る波は先に分割裁定)。
+  - EndClock の「翌 」は2日以上先でも「翌」(現行最大ETAでは到達不能・受容)。
+  - キャッシュ復元は「そのバッチをGSが描けた」ことが前提(描画0枚バッチの頁は
+    キャッシュがあっても打ち切り。頁番号整合を優先した設計判断)。
+  - 32,000字超で切り詰めた頁はキャッシュ保存しない(次回読み直し・FB-10)。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。
