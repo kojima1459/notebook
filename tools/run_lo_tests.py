@@ -309,6 +309,13 @@ PURE_ALLOWLIST = [
     #   実行時エラー12になり、拡張子別チャンク設定のフォールバック順序の
     #   回帰テストが「実行されないまま」になる。
     "modKnowledgeBar", "modShelf",
+    # modUIShelf(2026-08-04 R15-8b): ParseStatsをPublic化してmodVaultGalleryと
+    #   共用した(単純Split(statLine,"|")の重複実装解消・実機第4報 RC1)。
+    #   これをmodTestsPure13から直接呼ぶには本モジュール自体をこの一時
+    #   ライブラリへ注入する必要がある(未注入だと実行時エラー12)。
+    #   Shape/Rangeを触る他の関数(EnsureLayout/RenderShelf等)はテストから
+    #   呼ばないので未解決のままでよい(techメモ4と同型)。
+    "modUIShelf",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

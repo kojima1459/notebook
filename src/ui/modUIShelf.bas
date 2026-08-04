@@ -621,7 +621,11 @@ End Function
 ' stats(i) = "status|ingested_at|chunk_count|error_note|origin"(modShelf.SourceList契約)。
 ' error_note自体に "|" が含まれても壊れないよう、先頭3要素+末尾のorigin+中間を
 ' 再結合したerror_noteという頑健な形でパースする。
-Private Sub ParseStats(ByVal s As String, ByRef status As String, ByRef ingestedAt As String, _
+' 2026-08-04(R15-8b・実機第4報 RC1): modVaultGallery.DrawOneCardが単純な
+' Split(statLine,"|")で同じ契約をパースする重複実装を持っていた(error_note
+' に"|"が混じると値がズレる同じ危険を2箇所に埋める形)。共用できるようPublic化
+' する(呼び出し元が増えても中身はこのまま=挙動不変)。
+Public Sub ParseStats(ByVal s As String, ByRef status As String, ByRef ingestedAt As String, _
                        ByRef chunkCount As String, ByRef errorNote As String, ByRef origin As String)
     status = "": ingestedAt = "": chunkCount = "": errorNote = "": origin = ""
 

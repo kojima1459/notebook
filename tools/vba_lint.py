@@ -968,6 +968,10 @@ CONTRACT: dict[str, dict] = {
             # modGateway だけだが、中身は文字列処理なのでここに置き、
             # LOの実行テストで書式そのものを固定する。
             "AppendStepBuf",
+            # 2026-08-04(R15-8a): usage_log "ingest" 行のdetailへ生成/重複の
+            # 内訳を添える書式(実機第4報 RC1)。modShelfから1箇所だけ呼ぶが、
+            # 文字列組み立てのみの純関数なのでここに置く。
+            "IngestChunksDetail",
         ],
     },
     # ---- 7.8 テストモジュール ----

@@ -31,6 +31,12 @@ Option Explicit
 '   ・optOcrEta.BatchLabel(R15-5a/5b): 総頁が判明した取込では画像化フェーズ
 '     でも「バッチ2/13 (全254頁)」と言い切る。判明していないときの見え方は
 '     従来と1文字も変えない(嘘の分母を出さない=憲章§4-1)。
+'   ・modUtilText.IngestChunksDetail(R15-8a/RC1): 画面の「127」とusage_logの
+'     「125」の食い違いの正体(生成chunkN vs 重複排除後accepted)をログへ
+'     残す書式。重複0のときは従来どおり"chunks=N"のみ(ログ互換優先)。
+'   ・modUIShelf.ParseStats(R15-8b/RC1): modVaultGalleryの単純Split重複実装を
+'     置換した共用パース。正常系に加え、error_note自体に"|"が混じる異常系
+'     でも ingested_at/chunk_count がズレないことを固定する。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -430,6 +436,63 @@ Private Sub TestOcrResumeAndCacheMemo()
         (InStr(c3, "もう一度取り込むと最初から再試行します") > 0), "実際=" & c3
 End Sub
 
+' ----------------------------------------------------------------------------
+' R15-8a(RC1): 取込内訳の可視化。dup(=gen-accepted)が0のときは既存ログとの
+'   互換を優先して"chunks=N"のみ。差があるときだけ内訳を添える。
+' ----------------------------------------------------------------------------
+Private Sub TestIngestChunksDetail()
+    modTestRunner.Check "取込内訳_重複0は従来どおりchunks=Nのみ", _
+        (modUtilText.IngestChunksDetail(125, 125) = "chunks=125"), _
+        "実際=" & modUtilText.IngestChunksDetail(125, 125)
+    ' 生成127・保存125=重複2件。画面の「127」と記録の「125」の食い違いの
+    ' 正体をログへ残す。
+    modTestRunner.Check "取込内訳_重複ありは内訳を添える", _
+        (modUtilText.IngestChunksDetail(125, 127) = "chunks=125 (gen=127 dup=2)"), _
+        "実際=" & modUtilText.IngestChunksDetail(125, 127)
+    modTestRunner.Check "取込内訳_全滅でも壊れない", _
+        (modUtilText.IngestChunksDetail(0, 0) = "chunks=0")
+    ' acceptedがgenを超えることは実際には起こらないが、負dupという
+    ' 意味の無い表示を出さないことだけ確かめる。
+    modTestRunner.Check "取込内訳_acceptedがgenを超えても負dupを出さない", _
+        (modUtilText.IngestChunksDetail(5, 3) = "chunks=5"), _
+        "実際=" & modUtilText.IngestChunksDetail(5, 3)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-8b(RC1): modVaultGallery.DrawOneCardが使っていた単純Split(statLine,"|")
+'   の重複実装を、modUIShelf.ParseStats(頑健パース)へ共用した。正常系に加え、
+'   error_note自体に"|"が混じる異常系でも、両モジュールが実際に使う
+'   ingested_at/chunk_count がズレないことをここで固定する(挙動不変の証拠)。
+' ----------------------------------------------------------------------------
+Private Sub TestParseStatsShared()
+    Dim status As String, ingestedAt As String, chunkCount As String
+    Dim errorNote As String, origin As String
+
+    ' 正常系: modShelf.SourceListの契約どおり5要素(status|ingested_at|
+    ' chunk_count|error_note|origin)。
+    modUIShelf.ParseStats "done|2026-08-04 09:00:00|125||self", _
+        status, ingestedAt, chunkCount, errorNote, origin
+    modTestRunner.Check "統計パース_正常系status", (status = "done")
+    modTestRunner.Check "統計パース_正常系ingestedAt", _
+        (ingestedAt = "2026-08-04 09:00:00"), "実際=" & ingestedAt
+    modTestRunner.Check "統計パース_正常系chunkCount", (chunkCount = "125")
+    modTestRunner.Check "統計パース_正常系errorNoteは空", (LenB(errorNote) = 0)
+    modTestRunner.Check "統計パース_正常系origin", (origin = "self")
+
+    ' 異常系: error_note自体に「|」が混じる(単純Splitでは中身がズレる形)。
+    modUIShelf.ParseStats _
+        "partial|2026-08-04 09:00:00|125|上限に達しました|続けて再試行してください|self", _
+        status, ingestedAt, chunkCount, errorNote, origin
+    modTestRunner.Check "統計パース_異常系でもingestedAtはズレない", _
+        (ingestedAt = "2026-08-04 09:00:00"), "実際=" & ingestedAt
+    modTestRunner.Check "統計パース_異常系でもchunkCountはズレない", _
+        (chunkCount = "125"), "実際=" & chunkCount
+    modTestRunner.Check "統計パース_異常系errorNoteはパイプごと復元", _
+        (errorNote = "上限に達しました|続けて再試行してください"), "実際=" & errorNote
+    modTestRunner.Check "統計パース_異常系originは末尾のまま", _
+        (origin = "self"), "実際=" & origin
+End Sub
+
 Public Sub RunAll13()
     On Error GoTo PartialFail
     TestOcrPartialMemo
@@ -459,6 +522,10 @@ NextBudget13:
     On Error GoTo BudgetFail
     TestGsBudgetByPages
     TestOcrResumeAndCacheMemo
+NextR158_13:
+    On Error GoTo R158Fail13
+    TestIngestChunksDetail
+    TestParseStatsShared
 NextDone13:
     On Error GoTo 0
     Exit Sub
@@ -497,6 +564,10 @@ ConfirmFail:
     Resume NextBudget13
 BudgetFail:
     modTestRunner.Check "TestGsBudgetByPages(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextR158_13
+R158Fail13:
+    modTestRunner.Check "TestIngestChunksDetail/TestParseStatsShared(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone13
 End Sub

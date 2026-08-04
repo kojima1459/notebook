@@ -498,6 +498,27 @@ Public Function AppendStepBuf(ByVal buf As String, ByVal stepName As String, _
     End If
 End Function
 
+' ----------------------------------------------------------------------------
+' IngestChunksDetail - usage_log "ingest" 行のdetailに、生成/重複の内訳を
+'   添える(2026-08-04 R15-8a・実機第4報 RC1)。
+'   画面の「127」と記録の「125」が食い違って見える主因は、生成チャンク数
+'   (gen=modChunker.ChunkPagesEx の戻り値)とハッシュ重複排除後の保存数
+'   (accepted)の乖離だが、この差分がログにもUIにも一切残らず診断できな
+'   かった。dup(=gen-accepted)が0のときは従来どおり "chunks=N" のみを返し、
+'   既存ログの書式・grep習慣との互換を優先する(内訳は差分がある時だけ)。
+' ----------------------------------------------------------------------------
+Public Function IngestChunksDetail(ByVal accepted As Long, ByVal gen As Long) As String
+    Dim dup As Long
+    dup = gen - accepted
+    If dup < 0 Then dup = 0   ' 起こり得ないが、負の重複という無意味な表示は避ける
+
+    If dup = 0 Then
+        IngestChunksDetail = "chunks=" & accepted
+    Else
+        IngestChunksDetail = "chunks=" & accepted & " (gen=" & gen & " dup=" & dup & ")"
+    End If
+End Function
+
 ' "830"(1回) / "6x830"(6回・平均830) のどちらの形も回数と合計へ戻す。
 ' 読めない値は0件0msとして扱う(壊れた値で以降の平均を汚さない)。
 Private Sub DecodeStepPart(ByVal part As String, ByRef outCount As Long, ByRef outTotal As Long)

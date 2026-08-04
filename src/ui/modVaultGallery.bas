@@ -459,11 +459,14 @@ End Sub
 ' 部分書式で表現。グループ化しない=軽量・増殖なし)
 Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Double, _
                         ByVal y As Double, ByVal srcName As String, ByVal statLine As String)
-    Dim parts() As String: parts = Split(statLine, "|")
-    Dim addedAt As String
-    If UBound(parts) >= 1 Then addedAt = parts(1)
-    Dim chunkN As String
-    If UBound(parts) >= 2 Then chunkN = parts(2)
+    ' R15-8b(実機第4報 RC1): 単純Split(statLine,"|")の重複実装をやめ、
+    ' error_note中の"|"にもズレないmodUIShelf.ParseStatsの頑健パースへ共用する
+    ' (このカードで実際に使うのは addedAt/chunkN の2値のみ=挙動不変)。
+    Dim pStatus As String, pIngestedAt As String, pChunkCount As String
+    Dim pErrorNote As String, pOrigin As String
+    modUIShelf.ParseStats statLine, pStatus, pIngestedAt, pChunkCount, pErrorNote, pOrigin
+    Dim addedAt As String: addedAt = pIngestedAt
+    Dim chunkN As String: chunkN = pChunkCount
 
     Dim titleText As String: titleText = modUtil.SafeLeft(srcName, 40)
     Dim previewText As String: previewText = modUtil.SafeLeft(PreviewOf(srcName), 90)

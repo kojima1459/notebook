@@ -377,7 +377,12 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         modStats.AddExp "register"   ' 登録EXP(自己取込のみ=フォルダ自動同期の大量取込では加算されない)
         On Error GoTo 0
         On Error Resume Next
-        modLog.LogUsage "ingest", origin, "source=" & sourceName & " chunks=" & acceptedCount & _
+        ' R15-8a(実機第4報 RC1): 画面の「127」とusage_logの「125」が食い違って
+        ' 見える原因(生成chunkN→重複排除後acceptedCountの乖離)がログにも
+        ' 出ておらず診断できなかった。dup=0(重複なし)のときは従来と同じ
+        ' "chunks=N" のまま(既存ログ・grepとの互換を優先=IngestChunksDetail参照)。
+        modLog.LogUsage "ingest", origin, "source=" & sourceName & " " & _
+            modUtilText.IngestChunksDetail(acceptedCount, chunkN) & _
             " status=" & resultStatus
         On Error GoTo 0
 
