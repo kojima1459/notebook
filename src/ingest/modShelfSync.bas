@@ -31,23 +31,14 @@ Option Explicit
 '     対象スコープのmanifest行を status="missing" に更新するだけに留め、
 '     実削除はしない(§13「フォルダ削除・リネーム(E0502+missing)」)。
 '     フォルダが復活すれば次回同期時に通常のkeep/replace判定に戻る。
-'   ・再入防止: mSyncRunning は「手動🔄同期ボタン連打」や「自動同期タイマー
-'     発火中に手動ボタンが押される」ケースの多重実行を防ぐ。
-'     【Wave4訂正】以前はここで「Excel/VBAはシングルスレッドなので、1つの
-'     マクロ実行中は他のボタンクリックはExcelが自動的に遅延させる」と
-'     説明していたが、これは不正確だった: modEmbed.EmbedPendingは
-'     ベクトル化ループの中でDoEvents/SleepMs(DoEvents呼び出し)を使って
-'     ESC中断とUI応答性を確保しており、DoEvents実行中はメッセージキュー上の
-'     Shapeクリック(OnAction)がその場で再入的に発火しうる(「現在のマクロが
-'     終わるまで待つ」わけではない)。したがって「取込/埋め込み中にユーザーが
-'     🔄同期ボタンを押す」という再入は実際に起こり得る。この場合に
-'     my_knowledge/my_vectorsの行削除・圧縮(DeleteSource等)と、
-'     EmbedPendingが保持する行インデックスが食い違って誤った行へ書き込む
-'     事故を防ぐため、modEmbed側でchunk_id起点に書込み先を都度再解決する
-'     自己防衛(re-resolve)を入れている(modEmbed.bas冒頭コメント参照)。
-'     modShelfSync自体に新しいPublicの相互排他フラグを追加する設計変更は
-'     影響範囲が大きいため見送り、実害(誤った行への書込み)を確実に断つ
-'     modEmbed側の対策で十分と判断した。
+'   ・再入防止: mSyncRunning は「手動🔄連打」「自動同期の発火中に手動ボタン」
+'     の多重実行を防ぐ。【Wave4訂正】VBAはシングルスレッドだが、長いループ中の
+'     DoEvents でメッセージキュー上のShapeクリック(OnAction)がその場で再入
+'     発火するため、取込/埋め込み中に🔄が押される再入は実際に起こり得る。
+'     行削除・圧縮(DeleteSource等)と EmbedPending が持つ行インデックスが
+'     食い違って誤った行へ書き込む事故は、modEmbed 側で chunk_id 起点に
+'     書込み先を都度再解決して断っている(modShelfSync へ新しい相互排他
+'     フラグを足す設計変更は影響範囲が大きく見送った。modEmbed.bas冒頭参照)。
 '   ・OnTime予約: 予約時刻(mNextRunTime)をモジュール変数に保持し、
 '     CancelAutoSyncは同時刻を指定して解除する(Excel仕様・§12)。
 '     コールバック先(AutoSyncTick)はSyncNow実行後に自分自身を再度
@@ -140,6 +131,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     mSyncRunning = True
     mSyncRunningSince = Now
+    ' R15波2の発見6(2026-08-04): 中断の印を同期の入口でも必ず下ろす。
+    ' 残っていると、押した覚えの無い同期が最初の頁境界でいきなり止まる。
+    modShelfBatch.ResetCancel
 
     ' 大量シート書換え中のイベント連鎖を抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
     On Error Resume Next

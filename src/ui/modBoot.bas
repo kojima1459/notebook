@@ -430,9 +430,13 @@ Public Sub Boot()
     '      壊さない(同時に複数のExcelが開かれていても安全)。
     '      R14-F11: 一時コピー(%TEMP%\mbtmp_*)の残骸も同じ線(24時間)で
     '      掃除する(本体は modExtractorPdf.GcOldTempCopies)。
+    '      R15-7d: OCRの頁キャッシュ(隠しシート ocr_cache)の孤児行も、
+    '      同じ考え方で7日超だけ掃除する(本体はopt側。vision無効なら1行も
+    '      作られないので何も溜まらない)。
     On Error Resume Next
     GcOldOcrFolders
     modExtractorPdf.GcOldTempCopies
+    modFeatures.InvokeFeature "vision", "OcrCacheGc", Array()
     On Error GoTo Failed
 
     ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても

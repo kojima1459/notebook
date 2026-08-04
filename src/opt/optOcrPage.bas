@@ -237,6 +237,8 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         Dim shownBatches As Long: shownBatches = 0
         If knownTotal > 0 Then shownBatches = optOcrCore.BatchCountFor(knownTotal, BATCH_PAGES)
 
+        ' R15-7d: このバッチで読めた頁の pages() 上の範囲(控え書込み用)。
+        Dim okAtBatch As Long: okAtBatch = okN
         Dim batchMs As Double: batchMs = 0#
         Dim maxMs As Double: maxMs = 0#
         Dim failN As Long: failN = 0
@@ -255,6 +257,18 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             End If
 
             Dim pageNo As Long: pageNo = firstP + i
+
+            ' R15-7d: 前回読めている頁は読み直さない(JPEGは描いてあるが捨てる
+            ' =描画はバッチ単位のままで CountBatchFiles の想定を崩さない)。
+            ' 復元頁は実測レートにも didN にも混ぜない(待っていない頁の分だけ
+            ' ETAが速くなるのは嘘)。
+            Dim cachedText As String: cachedText = optOcrCache.CachedText(pageNo)
+            If LenB(cachedText) > 0 Then
+                pages(okN).page = pageNo
+                pages(okN).Text = cachedText
+                okN = okN + 1
+                GoTo NextPage
+            End If
 
             ' R15-5c: 当該資料の実測が2頁貯まるまでは過去実績でETAを出す。
             ' どちらも無ければ0=残り時間そのものを出さない(従来どおり)。
@@ -290,7 +304,12 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
                     Exit For
                 End If
             End If
+NextPage:
         Next i
+
+        ' R15-7d: 読めた頁を画像を消す前にまとめて控える。ここから先で何が
+        ' 起きても(Visionのハング・強制終了)読めた頁はもう失われない。
+        optOcrCache.SaveRange pages, okAtBatch, okN - 1
 
         allFailN = allFailN + failN
         ' 中断・上限打ち切りで途中まで回ったバッチもあるので、実際に試した
@@ -368,9 +387,10 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         truncated = True
         outAborted = True
         If LenB(abortReason) = 0 Then abortReason = "error"
-        ' R15-6b: 本波では頁キャッシュがまだ無いので hasCache は常に False
-        ' (「続きから再開します」と書けるのは R15-7 のキャッシュ実装後)。
-        outMemo = optOcrEta.OcrAbortMemoFor(okN, abortReason, False)
+        ' R15-7d: 「続きから再開します」と書いてよいのは、頁キャッシュが
+        ' 【実際に1頁でも残っている】ときだけ。書込みに失敗していれば False の
+        ' まま=「最初から再試行します」と言う(嘘をつかない。憲章§4-1)。
+        outMemo = optOcrEta.OcrAbortMemoFor(okN, abortReason, optOcrCache.HasSaved())
     ElseIf allFailN > 0 Then
         ' R15-4a(RC6): 全ページ描けて一部の頁だけ読めなかった第3の出口。
         ' 従来はここが status="done" のまま通り、頁が無言で欠けていた。
@@ -378,6 +398,12 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         outAborted = True
         outMemo = optOcrEta.OcrPartialMemoFor(okN, allFailN)
     End If
+
+    ' R15-7d: 欠けなく読み切れた資料の控えは片付け、1頁でも欠けているなら
+    ' 残す(次の取込がその頁だけの再試行になる)。復元があった取込は、その
+    ' 事実をメモ冒頭とusage_logへ残す。
+    outMemo = optOcrCache.FinishDoc(outMemo, Not truncated, doneN)
+
     If okN < safeMax Then ReDim Preserve pages(0 To okN - 1)
     OcrPdfByBatch = modUtil.JoinPagedText(pages, truncated)
     Exit Function

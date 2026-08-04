@@ -67,6 +67,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `config` | hidden | 設定(§5) |
 | `my_knowledge` | veryHidden | チャンク本体 |
 | `my_vectors` | veryHidden | ベクトル |
+| `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|FileDateTime\|p<頁>`。opt層(optOcrCache)だけが読み書きし、取込が欠けなく完走した資料の行は即削除、孤児行は起動時GCで7日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
 | `usage_log` | hidden | 利用ログ(1行=1質問/1操作) |
@@ -133,10 +134,11 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | feature_vision / feature_markdown | TRUE | opt機能フラグ(公式仕様確定によりTRUE昇格。裁定D14) |
 | feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
 | ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
-| vision_pdf_max_pages | 100 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。20ページずつ画像化→OCR→画像削除を繰り返す。超過は打ち切りpartial。R14-4bで20→100) |
+| vision_pdf_max_pages | 300 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。20ページずつ画像化→OCR→画像削除を繰り返す。超過は打ち切りpartial。R14-4bで20→100、R15-7aで100→300。ハード上限 optOcrCore.PAGES_MAX も 200→300) |
+| ocr_confirm_min_minutes | 15 | 画像PDFのOCRがこの分数以上かかる見込みのとき、取込前に確認ダイアログを出す(R15-7b)。見積もり=これから読むページ数×1ページあたりの実測(modState `ocr_avg_page_ms`。無ければ25秒/ページ)。前回の続きから復元できるページは数えない。0以下=確認しない。無人経路(silent同期)では出さない |
 | vision_pdf_dpi | 150 | 画像PDFのページ画像化の解像度(公式帳票OCR版と同値。300は約2倍重い) |
 | vision_pdf_timeout_sec | 120 | GS処理の**無進捗許容秒数(アイドル上限)**。進捗が観測できる場合はページが進む限り待ち続け、進まなくなってからこの秒数で失敗にする(R13-1cで意味変更) |
-| gs_abs_timeout_sec | 1200 | GS待ちの**絶対上限**(秒)。進んでいても必ずここで打ち切り、1資料でExcelが何十分も戻らない事態を防ぐ(R13-1c)。**画像PDFのOCR経路(optOcrPage)のGS待ちはこの絶対上限だけを使い、20ページずつのバッチ全体で1資料あたりの累計として消費する**(各バッチには残り時間だけを渡し、最低10秒。使い切ったら中断としてpartialにする。R14-F6) |
+| gs_abs_timeout_sec | 1200 | GS待ちの**絶対上限**(秒)。進んでいても必ずここで打ち切り、1資料でExcelが何十分も戻らない事態を防ぐ(R13-1c)。**画像PDFのOCR経路(optOcrPage)のGS待ちはこの絶対上限だけを使い、20ページずつのバッチ全体で1資料あたりの累計として消費する**(各バッチには残り時間だけを渡し、最低10秒。使い切ったら中断としてpartialにする。R14-F6)。R15-7c: OCR経路に限り、総ページ数が判明していれば予算は `max(gs_abs_timeout_sec, 総ページ数×8秒)` へ自動で伸びる(254頁を13バッチ描くのに1200秒では後半が必ず時間切れになるため。他経路のこの設定の使い方は変えない) |
 | deep_scope_subqueries | 6 | 「続けて質問」を『しっかり調べる』で行うとき、会話で引用済みの資料の中だけを掘るために作るサブクエリ数(0以下は6扱い。R13-5c) |
 | minutes_per_selfsolve | 15 | Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分か)。modStats/modBoard/modDashStatの3重複定数をここへ統合(R13-7d) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |

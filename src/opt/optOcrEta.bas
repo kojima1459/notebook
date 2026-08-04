@@ -32,6 +32,19 @@ Option Explicit
 '     出しても人は時間の見当が付かない(実機第4報 RC2の要望)。
 ' ============================================================================
 
+' R15-7b: 1頁あたりの所要ミリ秒が1度も実測されていない端末で、事前確認の
+' 推定に使う仮のレート。実機第4報の254頁の資料は「1頁25秒前後」で進んで
+' いた(76頁で約32分)。低く見積もると「15分で終わる」と言って2時間かかる
+' ことになるので、実測が無いあいだは実機で観測できた値をそのまま使う。
+Private Const DEFAULT_PAGE_MS As Double = 25000#
+
+' R15-7c: 総頁が分かっているときに1頁あたり最低限見込むGS描画秒数。
+' 実機第4報 RC10: 254頁を20頁ずつ13バッチ描くのに、1資料あたりの絶対上限が
+' 1200秒(既定)しかなく、後半のバッチが「残り10秒」で必ず時間切れになる。
+' 描画は150dpiで1頁あたり1〜3秒だが、EDRのスキャンが挟まる端末では数倍に
+' なるため、8秒/頁を「頁数に連動して自動で確保する下限」として使う。
+Private Const GS_SEC_PER_PAGE As Long = 8
+
 Public Function Ping() As Boolean
     Ping = True
 End Function
@@ -212,6 +225,99 @@ Public Function RemainingWaitSec(ByVal absSec As Long, ByVal usedSec As Long) As
     Dim r As Long: r = absSec - usedSec
     If r < 10 Then r = 10
     RemainingWaitSec = r
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrEstMinutes - これから読む頁数から所要時間(分)を見積もる
+'   (2026-08-04 R15-7b・実機第4報 RC4/RC7)。
+'   freshPages   : 【これから実際にOCRする】頁数。前回の続きから再開できる頁
+'                  (キャッシュ済み)は数えない=待ち時間はかからない。
+'   avgMsPerPage : 1頁あたりの実測(modState "ocr_avg_page_ms")。
+'                  0以下(=この端末でまだ1度も読んでいない)なら DEFAULT_PAGE_MS。
+'   四捨五入で最低1分。0頁なら0分(=確認そのものを出さない材料になる)。
+' ----------------------------------------------------------------------------
+Public Function OcrEstMinutes(ByVal freshPages As Long, ByVal avgMsPerPage As Double) As Long
+    If freshPages <= 0 Then Exit Function
+    Dim msPer As Double: msPer = avgMsPerPage
+    If msPer <= 0# Then msPer = DEFAULT_PAGE_MS
+    Dim m As Long
+    m = CLng(Int((CDbl(freshPages) * msPer) / 60000# + 0.5))
+    If m < 1 Then m = 1
+    OcrEstMinutes = m
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrConfirmAskFor - 取り込む前に一度だけ聞く確認文(2026-08-04 R15-7b)。
+'   確認が要らないときは ""(呼び出し元はダイアログを出さない)。
+'   totalPages : 資料の総頁数(0=不明なら何も聞かない。嘘の頁数で驚かせない)
+'   estMin     : OcrEstMinutes の見積もり(分)
+'   minMinutes : config ocr_confirm_min_minutes。この分数以上かかるときだけ聞く。
+'                0以下は「確認しない」(この製品の 0=無効 の慣習に合わせる)。
+'   なぜ聞くのか: 254頁のスキャンPDFは1〜2時間かかる。何も言わずに始めると、
+'   利用者は「フリーズした」と判断してExcelを強制終了する(実機第4報 RC7で
+'   実際に起きた)。かかる時間と、途中で止められること・続きから再開できる
+'   ことを先に伝えれば、待つか後回しにするかを利用者が選べる(憲章§3-2)。
+'   中断ボタンの見た目(■)は CP932 に無い文字を含み得るので ChrW で作る。
+' ----------------------------------------------------------------------------
+Public Function OcrConfirmAskFor(ByVal totalPages As Long, ByVal estMin As Long, _
+                                 ByVal minMinutes As Long) As String
+    If totalPages <= 0 Then Exit Function
+    If minMinutes <= 0 Then Exit Function
+    If estMin < minMinutes Then Exit Function
+
+    OcrConfirmAskFor = "全" & totalPages & "頁のスキャンPDFです。" & _
+        "読み取りに推定約" & estMin & "分かかります。" & vbLf & _
+        "処理中も" & ChrW(&H25A0) & "中断で止められ、次回は続きから再開できます。" & vbLf & _
+        vbLf & "取り込みますか?"
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrDeclineMemoFor - 確認で「いいえ」を選んだ資料に残すメモ(R15-7b)。
+'   見送りは失敗ではないが、本棚に何も無いまま黙って消えるのが一番困る。
+'   「なぜ入っていないのか」と「どうすれば入るのか」を1文で言う。
+' ----------------------------------------------------------------------------
+Public Function OcrDeclineMemoFor(ByVal estMin As Long) As String
+    Dim m As Long: m = estMin
+    If m < 1 Then m = 1
+    OcrDeclineMemoFor = "推定約" & m & "分のため取込を見送りました。" & _
+        "再度取り込むと実行します"
+End Function
+
+' ----------------------------------------------------------------------------
+' GsBudgetSec - 画像化待ちの絶対上限を総頁数に連動させる(R15-7c・RC10)。
+'   = max(baseSec, totalPages × 8秒)。totalPages が不明(0以下)なら
+'   config の値(baseSec)をそのまま使う=従来動作。
+'   config の gs_abs_timeout_sec は「1資料あたり」の絶対上限で、254頁の
+'   資料でも既定1200秒しか無い。13バッチに配分すると後半は必ず残り10秒に
+'   なり、描けているのに時間切れで partial になる(利用者からは「毎回
+'   途中で止まる」としか見えない)。頁数が分かっているときだけ、頁数ぶんの
+'   予算を自動で確保する。config を大きく設定してある端末ではそちらが勝つ。
+'   Long のオーバーフロー(×8で溢れる)を避けるため、上げ幅は頭打ちにする。
+' ----------------------------------------------------------------------------
+Public Function GsBudgetSec(ByVal baseSec As Long, ByVal totalPages As Long) As Long
+    GsBudgetSec = baseSec
+    If GsBudgetSec < 0 Then GsBudgetSec = 0
+    If totalPages <= 0 Then Exit Function
+
+    Dim need As Long
+    If totalPages > 1000000 Then
+        need = 8000000
+    Else
+        need = totalPages * GS_SEC_PER_PAGE
+    End If
+    If need > GsBudgetSec Then GsBudgetSec = need
+End Function
+
+' ----------------------------------------------------------------------------
+' OcrResumeMemo - 前回の続きから再開した取込のメモに、その事実を足す
+'   (2026-08-04 R15-7d)。cachedN=0(復元なし)なら1文字も変えない。
+'   利用者から見ると「同じ資料を取り込み直したのに、前より早く終わった」の
+'   説明がここにしか無い。黙って速いのは、黙って遅いのと同じくらい不安。
+' ----------------------------------------------------------------------------
+Public Function OcrResumeMemo(ByVal baseMemo As String, ByVal cachedN As Long) As String
+    OcrResumeMemo = baseMemo
+    If cachedN <= 0 Then Exit Function
+    OcrResumeMemo = "前回の続きから再開しました。" & baseMemo
 End Function
 
 ' ----------------------------------------------------------------------------

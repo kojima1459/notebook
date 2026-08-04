@@ -285,8 +285,16 @@ PURE_ALLOWLIST = [
     #   modTestsPure12(27,001字)のどちらもWARN帯直前で足せないための分割先。
     #   modTestsPure12.RunAll12 の末尾が RunAll13 を呼ぶため、未注入だと
     #   実行時エラー12になり分割先のテストが「実行されないまま」になる。
+    # optOcrCache(2026-08-04 R15-7d): 頁チェックポイント。シートを触るのは
+    #   保存/読み出し/掃除だけで、テストが呼ぶ鍵の組み立て(DocPrefixFor/
+    #   CacheKeyFor/CacheTextFor)は modUtil の純関数しか使わない
+    #   (modShelfSync/modPack/modLog と同じ「モジュール全体はR4準拠では
+    #   ないが、テストで呼ぶ関数自体はExcelに触れない」型)。未注入のまま
+    #   modTestsPure13 から呼ぶと実行時エラー12になり、差し替え検知
+    #   (サイズ・更新日時の不一致でキャッシュを使わない)の回帰テストが
+    #   走らないまま全部PASSに見える。
     "modTestsPure11", "modAskThorough", "modLive", "modTestsPure12",
-    "modTestsPure13",
+    "modTestsPure13", "optOcrCache",
     # modKnowledgeBar(2026-08-03 R14-2a): ToolbarContentRightはShapeを一切
     #   生成しない配置算数だけの関数(ToolbarSpec+modChrome.FlowLeft)。
     #   ToolbarSpecが呼ぶmodPublish.CanPublish/modFeatures.FeatureEnabledは

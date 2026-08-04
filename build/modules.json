@@ -653,6 +653,14 @@
       "note": "テキストPDFのCOM無し抽出(Ghostscriptのtxtwriteデバイス)。PDF本文抽出の第1選択で、失敗時のみWord→Acrobatへ落ちる。入口はmodFeatures.InvokeFeature(\"vision\",\"ExtractPdfTextNoOcr\")でoptVisionの薄い受け口から転送される。GS起動・完了待ち・一時フォルダはoptVisionのPublic化した道具を共用するため、optVisionを撤去するときは本モジュールも一緒に外す。"
     },
     {
+      "name": "optOcrCache",
+      "path": "src/opt/optOcrCache.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R15-7d",
+      "note": "画像PDF OCRの頁チェックポイント。読めた頁の本文を隠しシート ocr_cache(veryHidden・key/text/saved_at)へバッチ単位で控え、次の取込では読み直さない。Vision(ChatGPTV)のハングはVBAから制御できない(待ち秒数の引数が無い)ため、被害を限定する唯一の手段が『読めた頁を失わないこと』になる(実機第4報 RC7)。鍵はハッシュ(元パス)|サイズ|更新日時|p頁で、サイズか更新日時が違えば別物として使わない(差し替え検知)。opt層でシートを触る唯一のモジュールで、作法は modEmbed.EnsureVectorSheet を踏襲。optVision/optOcrPage を撤去するときは本モジュールも一緒に外す(残ったシートを読む者はいなくなるだけでコアは無傷)。"
+    },
+    {
       "name": "optOcrPage",
       "path": "src/opt/optOcrPage.bas",
       "role": "opt",

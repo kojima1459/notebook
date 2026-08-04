@@ -182,8 +182,10 @@ Private Sub TestRenderCapAndTruncate()
         (optOcrCore.RenderCapFor(20) = 21), "実際=" & optOcrCore.RenderCapFor(20)
     modTestRunner.Check "描画上限: 0以下は1ページ扱い(=2まで描く)", _
         (optOcrCore.RenderCapFor(0) = 2), "実際=" & optOcrCore.RenderCapFor(0)
-    modTestRunner.Check "描画上限: 極端な値は200で頭打ち", _
-        (optOcrCore.RenderCapFor(99999) = 201), "実際=" & optOcrCore.RenderCapFor(99999)
+    ' R15-7a(2026-08-04): ハード上限 PAGES_MAX を 200 → 300 へ引き上げた
+    ' (254頁のスキャンPDFを分割せずに取り込むため。実機第4報 RC4)。
+    modTestRunner.Check "描画上限: 極端な値は300で頭打ち", _
+        (optOcrCore.RenderCapFor(99999) = 301), "実際=" & optOcrCore.RenderCapFor(99999)
 
     modTestRunner.Check "切り詰め判定: 21枚できたら切り詰めあり(上限20)", _
         (optOcrCore.IsTruncatedCount(21, 20) = True), ""
@@ -201,9 +203,9 @@ Private Sub TestRenderCapAndTruncate()
 
     modTestRunner.Check "dpi丸め: 範囲外は既定150", _
         (optOcrCore.SafeDpi(0) = 150 And optOcrCore.SafeDpi(9999) = 150 And optOcrCore.SafeDpi(300) = 300), ""
-    modTestRunner.Check "ページ上限丸め: 1未満は1・200超は200", _
-        (optOcrCore.SafeMaxPages(0) = 1 And optOcrCore.SafeMaxPages(500) = 200 And _
-         optOcrCore.SafeMaxPages(20) = 20), ""
+    modTestRunner.Check "ページ上限丸め: 1未満は1・300超は300", _
+        (optOcrCore.SafeMaxPages(0) = 1 And optOcrCore.SafeMaxPages(500) = 300 And _
+         optOcrCore.SafeMaxPages(300) = 300 And optOcrCore.SafeMaxPages(20) = 20), ""
 End Sub
 
 ' ----------------------------------------------------------------------------

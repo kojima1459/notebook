@@ -124,30 +124,34 @@ End Sub
 '   クランプそのものの表(SafeMaxPages)の両方を固定する。
 ' ----------------------------------------------------------------------------
 Private Sub TestOcrCapMemoClamped()
-    ' クランプ表: config が壊れていても 1..200 の外へ出ない。
-    modTestRunner.Check "上限クランプ_既定100はそのまま", _
-        (optOcrCore.SafeMaxPages(100) = 100)
-    modTestRunner.Check "上限クランプ_ハード上限200で頭打ち", _
-        (optOcrCore.SafeMaxPages(300) = 200), _
-        "実際=" & optOcrCore.SafeMaxPages(300)
+    ' クランプ表: config が壊れていても 1..300 の外へ出ない
+    ' (R15-7a でハード上限を 200 → 300 へ引き上げた。254頁の資料を分割
+    '  せずに取り込むため。既定 vision_pdf_max_pages も 100 → 300)。
+    modTestRunner.Check "上限クランプ_既定300はそのまま", _
+        (optOcrCore.SafeMaxPages(300) = 300)
+    modTestRunner.Check "上限クランプ_ハード上限300で頭打ち", _
+        (optOcrCore.SafeMaxPages(500) = 300), _
+        "実際=" & optOcrCore.SafeMaxPages(500)
     modTestRunner.Check "上限クランプ_0以下は1へ", _
         (optOcrCore.SafeMaxPages(0) = 1 And optOcrCore.SafeMaxPages(-5) = 1)
-    modTestRunner.Check "上限クランプ_境界200は通す", _
-        (optOcrCore.SafeMaxPages(200) = 200)
-    modTestRunner.Check "上限クランプ_境界201は200へ", _
-        (optOcrCore.SafeMaxPages(201) = 200)
+    modTestRunner.Check "上限クランプ_境界300は通す", _
+        (optOcrCore.SafeMaxPages(300) = 300)
+    modTestRunner.Check "上限クランプ_境界301は300へ", _
+        (optOcrCore.SafeMaxPages(301) = 300)
+    modTestRunner.Check "上限クランプ_254頁はそのまま通る", _
+        (optOcrCore.SafeMaxPages(254) = 254)
 
-    ' config=300 の端末で146頁だけ入った場合。クランプ後の200で言うので
-    ' 「54ページは読み取れませんでした」。従来は生の300で計算して
-    ' 「154ページ」という、絶対に到達できない数を出していた。
+    ' config=500 の端末で246頁だけ入った場合。クランプ後の300で言うので
+    ' 「54ページは読み取れませんでした」。従来は生の500で計算して
+    ' 「254ページ」という、絶対に到達できない数を出していた。
     Dim m As String
-    m = optOcrEta.OcrCapMemoFor(True, 146, optOcrCore.SafeMaxPages(300))
+    m = optOcrEta.OcrCapMemoFor(True, 246, optOcrCore.SafeMaxPages(500))
     modTestRunner.Check "上限メモ_クランプ後の上限で言う", _
-        (InStr(m, "設定上限200ページのうち先頭146ページ") > 0), "実際=" & m
+        (InStr(m, "設定上限300ページのうち先頭246ページ") > 0), "実際=" & m
     modTestRunner.Check "上限メモ_読めなかった頁数もクランプ後で計算する", _
         (InStr(m, "54ページは読み取れませんでした") > 0), "実際=" & m
     modTestRunner.Check "上限メモ_到達不能な数を出さない", _
-        (InStr(m, "154ページ") = 0), "実際=" & m
+        (InStr(m, "254ページ") = 0), "実際=" & m
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -280,6 +284,152 @@ Private Sub TestRemainingWaitAfterMove()
         (optOcrEta.RemainingWaitSec(1200, 1197) = 10)
 End Sub
 
+
+' ----------------------------------------------------------------------------
+' R15-7d(RC7): 頁キャッシュの鍵。ここが緩いと【中身が差し替わった資料に
+'   古い本文が混ざる】(規程・料金表が同名で更新されるのがこの製品の主対象
+'   なので、静かな取り違えは最悪の壊れ方になる)。逆に厳しすぎると毎回
+'   全頁を読み直すだけで、失うのは速さだけ。安全側は「厳しい」方。
+' ----------------------------------------------------------------------------
+Private Sub TestOcrCacheKey()
+    Dim baseKey As String
+    baseKey = optOcrCache.CacheKeyFor("C:\docs\a.pdf", 12345, "2026-08-04 10:00:00", 7)
+
+    modTestRunner.Check "鍵_同じ資料の同じ頁は同じ鍵", _
+        (baseKey = optOcrCache.CacheKeyFor("C:\docs\a.pdf", 12345, "2026-08-04 10:00:00", 7))
+    modTestRunner.Check "鍵_頁番号は末尾に |p<頁> で付く", _
+        (Right$(baseKey, 3) = "|p7"), "実際=" & baseKey
+    modTestRunner.Check "鍵_頁が違えば別の鍵", _
+        (baseKey <> optOcrCache.CacheKeyFor("C:\docs\a.pdf", 12345, "2026-08-04 10:00:00", 8))
+
+    ' 差し替え検知の3条件(どれか1つでも違えば古い本文は使わない)。
+    modTestRunner.Check "鍵_パスが違えば別の鍵", _
+        (baseKey <> optOcrCache.CacheKeyFor("C:\docs\b.pdf", 12345, "2026-08-04 10:00:00", 7))
+    modTestRunner.Check "鍵_サイズが違えば別の鍵(差し替え検知)", _
+        (baseKey <> optOcrCache.CacheKeyFor("C:\docs\a.pdf", 12346, "2026-08-04 10:00:00", 7))
+    modTestRunner.Check "鍵_更新日時が違えば別の鍵(差し替え検知)", _
+        (baseKey <> optOcrCache.CacheKeyFor("C:\docs\a.pdf", 12345, "2026-08-04 10:00:01", 7))
+
+    ' 頁より前の部分は資料1件を指す。頁の鍵はそこへ "|p" を足しただけ。
+    Dim pre As String
+    pre = optOcrCache.DocPrefixFor("C:\docs\a.pdf", 12345, "2026-08-04 10:00:00")
+    modTestRunner.Check "鍵_資料の鍵に頁を足したものが行の鍵", _
+        (baseKey = pre & "|p7"), "実際=" & baseKey
+
+    ' セルの上限は32,767字。控えは32,000字で切る(切っても取込は壊れない)。
+    Dim long1 As String: long1 = String$(33000, "a")
+    modTestRunner.Check "控え本文_32000字で切る", _
+        (Len(optOcrCache.CacheTextFor(long1)) = 32000), _
+        "実際=" & Len(optOcrCache.CacheTextFor(long1))
+    modTestRunner.Check "控え本文_短い本文はそのまま", _
+        (optOcrCache.CacheTextFor("abc") = "abc")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-7b(RC4/RC7): 何時間もかかる資料は始める前に一度だけ聞く。
+'   見積もりは【これから読む頁数】×レート。前回の続きから復元できる頁は
+'   待ち時間0なので数えない(全頁揃っていれば確認そのものが出ない)。
+' ----------------------------------------------------------------------------
+Private Sub TestOcrConfirmEstimate()
+    ' 実測レートが無い端末は 25秒/頁 と仮定する(実機第4報の観測値)。
+    modTestRunner.Check "見積_254頁は約106分(実測なし=25秒/頁)", _
+        (optOcrEta.OcrEstMinutes(254, 0) = 106), _
+        "実際=" & optOcrEta.OcrEstMinutes(254, 0)
+    modTestRunner.Check "見積_読む頁が0なら0分(全頁が前回の続きにある)", _
+        (optOcrEta.OcrEstMinutes(0, 0) = 0)
+    modTestRunner.Check "見積_1頁でも最低1分と言う(0分と言わない)", _
+        (optOcrEta.OcrEstMinutes(1, 0) = 1)
+    modTestRunner.Check "見積_実測があればそちらを使う(10秒/頁×120頁=20分)", _
+        (optOcrEta.OcrEstMinutes(120, 10000#) = 20), _
+        "実際=" & optOcrEta.OcrEstMinutes(120, 10000#)
+
+    ' ocr_confirm_min_minutes(既定15)の境界。ちょうどは【聞く】。
+    modTestRunner.Check "確認_見積14分は聞かない(15分未満)", _
+        (LenB(optOcrEta.OcrConfirmAskFor(30, 14, 15)) = 0)
+    modTestRunner.Check "確認_見積ちょうど15分は聞く", _
+        (LenB(optOcrEta.OcrConfirmAskFor(36, 15, 15)) > 0)
+    modTestRunner.Check "確認_総頁が不明(0)なら聞かない", _
+        (LenB(optOcrEta.OcrConfirmAskFor(0, 106, 15)) = 0)
+    modTestRunner.Check "確認_しきい値0以下は確認しない(0=無効の慣習)", _
+        (LenB(optOcrEta.OcrConfirmAskFor(254, 106, 0)) = 0)
+
+    Dim ask As String: ask = optOcrEta.OcrConfirmAskFor(254, 106, 15)
+    modTestRunner.Check "確認文_総頁を名乗る", _
+        (InStr(ask, "全254頁") > 0), "実際=" & ask
+    modTestRunner.Check "確認文_推定時間を分で言う", _
+        (InStr(ask, "推定約106分") > 0), "実際=" & ask
+    modTestRunner.Check "確認文_途中で止められることを言う", _
+        (InStr(ask, "中断") > 0), "実際=" & ask
+    modTestRunner.Check "確認文_続きから再開できることを言う", _
+        (InStr(ask, "続きから再開") > 0), "実際=" & ask
+    modTestRunner.Check "確認文_最後に取り込むかを聞く", _
+        (InStr(ask, "取り込みますか") > 0), "実際=" & ask
+
+    ' 「いいえ」を選んだ資料は、失敗ではなく【見送り】として理由を残す。
+    Dim no1 As String: no1 = optOcrEta.OcrDeclineMemoFor(106)
+    modTestRunner.Check "見送りメモ_推定時間を理由として言う", _
+        (InStr(no1, "推定約106分のため取込を見送りました") > 0), "実際=" & no1
+    modTestRunner.Check "見送りメモ_次の一手を必ず言う", _
+        (InStr(no1, "再度取り込むと実行します") > 0), "実際=" & no1
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-7c(RC10): 画像化待ちの絶対上限を頁数へ連動させる。
+'   既定1200秒のまま254頁を13バッチ描くと、後半は必ず「残り10秒」になり、
+'   描けているのに時間切れで partial になる。
+' ----------------------------------------------------------------------------
+Private Sub TestGsBudgetByPages()
+    modTestRunner.Check "予算_総頁が不明ならconfigの値のまま", _
+        (optOcrEta.GsBudgetSec(1200, 0) = 1200)
+    modTestRunner.Check "予算_少ない頁数ではconfigが勝つ(100頁=800秒)", _
+        (optOcrEta.GsBudgetSec(1200, 100) = 1200), _
+        "実際=" & optOcrEta.GsBudgetSec(1200, 100)
+    modTestRunner.Check "予算_境界150頁はちょうど1200秒(configと同値)", _
+        (optOcrEta.GsBudgetSec(1200, 150) = 1200)
+    modTestRunner.Check "予算_151頁から頁数が勝つ", _
+        (optOcrEta.GsBudgetSec(1200, 151) = 1208), _
+        "実際=" & optOcrEta.GsBudgetSec(1200, 151)
+    modTestRunner.Check "予算_254頁は2032秒を確保する", _
+        (optOcrEta.GsBudgetSec(1200, 254) = 2032), _
+        "実際=" & optOcrEta.GsBudgetSec(1200, 254)
+    modTestRunner.Check "予算_configを大きくしてある端末はそちらが勝つ", _
+        (optOcrEta.GsBudgetSec(9000, 254) = 9000)
+    modTestRunner.Check "予算_壊れた負のconfigでも負を返さない", _
+        (optOcrEta.GsBudgetSec(-5, 0) = 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-7d: 復元したことを黙らない/キャッシュがあるときだけ「続きから」と書く。
+' ----------------------------------------------------------------------------
+Private Sub TestOcrResumeAndCacheMemo()
+    modTestRunner.Check "再開メモ_復元0なら1文字も足さない", _
+        (optOcrEta.OcrResumeMemo("全23頁中3頁が読み取れませんでした", 0) = _
+         "全23頁中3頁が読み取れませんでした")
+
+    Dim r1 As String
+    r1 = optOcrEta.OcrResumeMemo("全23頁中3頁が読み取れませんでした", 20)
+    modTestRunner.Check "再開メモ_復元があれば冒頭に付ける", _
+        (Left$(r1, 14) = "前回の続きから再開しました。"), "実際=" & r1
+    modTestRunner.Check "再開メモ_元のメモは消さない", _
+        (InStr(r1, "全23頁中3頁が読み取れませんでした") > 0), "実際=" & r1
+    modTestRunner.Check "再開メモ_メモが空でも事実だけは残す", _
+        (optOcrEta.OcrResumeMemo("", 5) = "前回の続きから再開しました。")
+
+    ' hasCache=True の側(波2では常にFalseだった口が、本波で初めてTrueになる)。
+    Dim c1 As String: c1 = optOcrEta.OcrAbortMemoFor(120, "cancel", True)
+    modTestRunner.Check "中断メモ_控えがあるなら続きから再開すると言う", _
+        (InStr(c1, "もう一度取り込むと続きから再開します") > 0), "実際=" & c1
+    modTestRunner.Check "中断メモ_控えがあるとき最初からとは言わない", _
+        (InStr(c1, "最初から") = 0), "実際=" & c1
+    Dim c2 As String: c2 = optOcrEta.OcrAbortMemoFor(120, "error", True)
+    modTestRunner.Check "中断メモ_時間切れでも控えがあれば続きから", _
+        (InStr(c2, "続きから再開します") > 0), "実際=" & c2
+    ' 控えが無い(書込みに失敗した)ときに「続きから」と書いたら嘘になる。
+    Dim c3 As String: c3 = optOcrEta.OcrAbortMemoFor(120, "cancel", False)
+    modTestRunner.Check "中断メモ_控えが無ければ最初から再試行と言う", _
+        (InStr(c3, "もう一度取り込むと最初から再試行します") > 0), "実際=" & c3
+End Sub
+
 Public Sub RunAll13()
     On Error GoTo PartialFail
     TestOcrPartialMemo
@@ -299,6 +449,16 @@ NextBatch13:
     On Error GoTo BatchFail
     TestBatchLabel
     TestRemainingWaitAfterMove
+NextCache13:
+    On Error GoTo CacheFail
+    TestOcrCacheKey
+NextConfirm13:
+    On Error GoTo ConfirmFail
+    TestOcrConfirmEstimate
+NextBudget13:
+    On Error GoTo BudgetFail
+    TestGsBudgetByPages
+    TestOcrResumeAndCacheMemo
 NextDone13:
     On Error GoTo 0
     Exit Sub
@@ -325,6 +485,18 @@ BannerFail:
     Resume NextBatch13
 BatchFail:
     modTestRunner.Check "TestBatchLabel(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextCache13
+CacheFail:
+    modTestRunner.Check "TestOcrCacheKey(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextConfirm13
+ConfirmFail:
+    modTestRunner.Check "TestOcrConfirmEstimate(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBudget13
+BudgetFail:
+    modTestRunner.Check "TestGsBudgetByPages(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone13
 End Sub

@@ -124,8 +124,14 @@ Public Function TryVisionFallback(ByVal path As String, ByVal errCode As String,
         procName = "ExtractImagePdfText"
         callArgs = workPath
     Else
+        ' 2026-08-04(R15-7b): 何時間もかかる資料は、始める前に一度だけ聞く。
+        If Not silent Then
+            If DeclinedByUser(path, outNote) Then GoTo Finish
+        End If
+        ' R15-7d: 頁キャッシュの鍵には【元のパス】を渡す(一時コピーの名前と
+        ' 更新日時は取込のたびに変わり、続きから再開できなくなる)。
         procName = "ExtractPdfOcrPagedText"
-        callArgs = Array(workPath, silent)
+        callArgs = Array(workPath, silent, path)
     End If
 
     Dim raw As String
@@ -184,6 +190,45 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
+
+' ----------------------------------------------------------------------------
+' DeclinedByUser - 取込前の事前確認(2026-08-04 R15-7b・実機第4報 RC4/RC7)。
+'   True を返したら【利用者が「いいえ」を選んだ】=この資料は取り込まない。
+'   outNote には見送りの理由(=カードに出る正直なメモ)を入れる。
+'
+'   なぜ聞くのか: 254頁のスキャンPDFは1〜2時間かかる。何も言わずに始めると
+'   「フリーズした」と判断されてExcelごと強制終了され、そこまでの成果も
+'   一緒に消える(実機第4報で実際に起きた)。かかる時間・途中で止められる
+'   こと・続きから再開できることを先に伝えれば、待つか後回しにするかを
+'   利用者が選べる(憲章§3-2)。
+'   聞くかどうかの判断(総頁数×レート ≧ config ocr_confirm_min_minutes)と
+'   文面は opt 側の純ロジックが持つ。ここは【聞く場所】だけを持つ:
+'   コア層は opt モジュール名を書けない(R2)ので modFeatures 経由。
+'   silent(無人の同期)では呼ばれない。誰も見ていない画面でモーダルを開くと
+'   同期がそこで朝まで止まる(R11-A C4)ため、従来どおり黙って取り込む。
+'   問い合わせに失敗したときは何も聞かずに続行する(確認は「あれば親切」で
+'   あって、取込を止めてよい理由ではない)。
+' ----------------------------------------------------------------------------
+Private Function DeclinedByUser(ByVal path As String, ByRef outNote As String) As Boolean
+    On Error GoTo AskFailed
+
+    Dim ask As String
+    ask = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrConfirmAsk", path))
+    If LenB(ask) = 0 Or Left$(ask, 5) = "#ERR:" Then Exit Function
+    If MsgBox(ask, vbQuestion + vbYesNo, modAppDef.APP_NAME) = vbYes Then Exit Function
+
+    outNote = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrDeclineMemo", Array()))
+    If LenB(outNote) = 0 Or Left$(outNote, 5) = "#ERR:" Then _
+        outNote = "推定所要時間が長いため取込を見送りました。再度取り込むと実行します"
+    modLog.LogUsage "ocr_declined", "", modUtil.SafeLeft(modUtil.FileNameOf(path), 100)
+    DeclinedByUser = True
+    Exit Function
+
+AskFailed:
+    ' 「いいえ」が確定したあとの記録で転んでも、利用者の意思は覆さない
+    ' (outNote が入っているのは見送りが決まったときだけ)。
+    DeclinedByUser = (LenB(outNote) > 0)
+End Function
 
 ' ----------------------------------------------------------------------------
 ' OcrCapNote - 読み取りが打ち切られたときの正直なメモ(R14-4c / R14-F2/F7)。

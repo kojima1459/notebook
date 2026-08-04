@@ -56,7 +56,7 @@ Private Const DPI_DEFAULT As Long = 150
 
 ' 1ファイルあたりのページ上限の安全範囲(configの値が壊れていても暴走しない)。
 Private Const PAGES_MIN As Long = 1
-Private Const PAGES_MAX As Long = 200
+Private Const PAGES_MAX As Long = 300
 
 ' txtwrite救済(R10-3)の採否しきい値。空白類を除いた抽出文字数がこれ未満なら
 ' 「文字が薄すぎる」とみなす。テキストPDFなら1ページでも普通は数百字ある。

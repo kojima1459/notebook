@@ -292,8 +292,11 @@ End Function
 '     modShelfVision→modFeatures.InvokeFeature 経由(Application.Run)なので
 '     省略可能な引数にしてある(省略時=従来どおり案内を出す)。
 ' ============================================================================
+'   origPath(R15-7d): 【元のファイル】のフルパス。path は一時コピー
+'     (mbtmp_*)で名前も日時も毎回変わり、頁キャッシュの鍵にできない。
 Public Function ExtractPdfOcrPagedText(ByVal path As String, _
-                                       Optional ByVal silent As Boolean = False) As String
+                                       Optional ByVal silent As Boolean = False, _
+                                       Optional ByVal origPath As String = "") As String
     Dim folderPath As String: folderPath = ""
     mLastOcrAborted = False        ' R14-F2: 前の資料の結果を持ち越さない
     mLastOcrMemo = ""              ' R15-4a: メモも同じく持ち越さない
@@ -361,6 +364,16 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
     On Error Resume Next
     gsTotal = optGsTxt.LastGsTotalPages()
     On Error GoTo Fail
+
+    ' R15-7c(RC10): 総頁が分かっているなら画像化待ちの絶対上限も頁数へ連動
+    ' させる(既定1200秒では254頁の後半が必ず時間切れになる)。configを
+    ' 大きくしてある端末はそちらが勝つ。他経路の予算には触らない。
+    absSec = optOcrEta.GsBudgetSec(absSec, gsTotal)
+
+    ' R15-7d: 前回の続きから再開できる頁を読み込む(鍵は【元のパス】)。
+    Dim keyPath As String: keyPath = origPath
+    If LenB(keyPath) = 0 Then keyPath = path
+    optOcrCache.BeginDoc keyPath
 
     Dim keepWork As Boolean: keepWork = False
     Dim aborted As Boolean: aborted = False
@@ -452,10 +465,32 @@ Public Function OcrCapMemo(ByVal truncated As Boolean, ByVal keptN As Long, _
     OcrCapMemo = optOcrEta.OcrCapMemoFor(truncated, keptN, optOcrCore.SafeMaxPages(cap))
 End Function
 
+' 取込前の事前確認の受け口(R15-7b)。コア層は opt モジュール名を書けない
+' (R2)ので InvokeFeature("vision", …) から呼べる窓口をここに置く。
+'   OcrConfirmAsk : "" なら確認しない/文字列ならそれを見せて Yes/No を聞く
+'                   (pdfPath は【元のファイル】=キャッシュの鍵と同じもの)。
+'   OcrDeclineMemo: 直前の見積もりで作る「見送りました」のメモ。
+Public Function OcrConfirmAsk(ByVal pdfPath As String) As String
+    OcrConfirmAsk = optOcrCache.ConfirmAskFor(pdfPath, OcrMaxPages())
+End Function
+
+Public Function OcrDeclineMemo() As String
+    OcrDeclineMemo = optOcrCache.DeclineMemo()
+End Function
+
+' 頁キャッシュの孤児行(7日超)の起動時GC(R15-7d)。modBoot の既存GC群
+' (nxocr_*/mbtmp_*)と同じ線で1回だけ呼ばれる。vision無効なら呼ばれないが、
+' そのときはキャッシュ自体が1行も作られないので何も溜まらない。
+Public Function OcrCacheGc() As String
+    OcrCacheGc = optOcrCache.GcOldRows()
+End Function
+
 ' OCRの1資料あたりページ上限(config vision_pdf_max_pages)。既定値をここ
 ' 1箇所だけに持つ(R14-F7: メモに出す上限と実際に使う上限を絶対に割らない)。
+' R15-7a: 既定 100 → 300(254頁のスキャンPDFを分割せずに取り込めるように
+' する。ハード上限 optOcrCore.PAGES_MAX も 200 → 300)。
 Private Function OcrMaxPages() As Long
-    OcrMaxPages = modConfig.GetLong("vision_pdf_max_pages", 100)
+    OcrMaxPages = modConfig.GetLong("vision_pdf_max_pages", 300)
 End Function
 
 ' ----------------------------------------------------------------------------

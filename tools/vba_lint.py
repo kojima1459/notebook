@@ -610,12 +610,20 @@ CONTRACT: dict[str, dict] = {
     # IsVisionError / SafeResultToString(R14-4a): ページOCRのループを
     # optOcrPage へ移した際、同じ判定を2箇所に持たないためPublic化した
     # (opt層内の参照なのでR2に触れない。憲章§4-5)。
+    # OcrConfirmAsk / OcrDeclineMemo(2026-08-04 R15-7b): 何時間もかかる資料の
+    # 事前確認。判断(頁数×レート≧ocr_confirm_min_minutes)と文面はopt側の
+    # 純ロジックが持ち、聞く場所(MsgBox)はコア層(modShelfVision)にある。
+    # コア層はoptモジュール名を書けない(R2)ので、この2本がその窓口になる。
+    # OcrCacheGc(R15-7d): 頁キャッシュの孤児行の起動時GC。modBootの既存GC群
+    # (nxocr_*/mbtmp_*)と同じ線で1回だけ呼ばれる。
     "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
                                                "ExtractPdfOcrPagedText", "OcrCapMemo",
                                                "HasClipboardImage", "SaveClipboardImage",
                                                "ResetGsGuidance", "ExtractPdfTextNoOcr",
                                                "FindGsExeByCandidates", "PathExists",
-                                               "IsVisionError", "SafeResultToString"]},
+                                               "IsVisionError", "SafeResultToString",
+                                               "OcrConfirmAsk", "OcrDeclineMemo",
+                                               "OcrCacheGc"]},
     # optOcrPage(2026-08-03 R14-4a): 画像PDFのページ描画とOCRの実行ループ。
     # 20ページずつGSを起動し、そのバッチをOCRし終えたら即座にJPEGを消す
     # (上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページの
@@ -710,12 +718,39 @@ CONTRACT: dict[str, dict] = {
     # 事故そのものへ戻るので、全てLOテスト(modTestsPure13)で固定する。
     # 現在時刻は引数(nowAt)で受け取る=この中で Now を呼ばないことが、
     # 終了目安のゴールデンテストを成立させている唯一の条件。
+    # R15-7(2026-08-04 254頁対応)で追加した純ロジック:
+    #   OcrEstMinutes/OcrConfirmAskFor/OcrDeclineMemoFor(7b 事前確認の見積もり
+    #     と文面。これから読む頁数×レートで出し、キャッシュから復元できる頁は
+    #     数えない=全頁揃っている資料では確認そのものが出ない)
+    #   GsBudgetSec(7c 画像化待ち予算の頁数連動。max(config, 頁数×8秒))
+    #   OcrResumeMemo(7d 復元があった取込のメモ冒頭)
     "optOcrEta": {
         "closed": True,
         "required": [
             "Ping", "BatchLabel", "OcrPageBanner", "RemainingText",
             "OcrCapMemoFor", "OcrAbortMemoFor", "OcrPartialMemoFor",
             "RemainingWaitSec",
+            "OcrEstMinutes", "OcrConfirmAskFor", "OcrDeclineMemoFor",
+            "GsBudgetSec", "OcrResumeMemo",
+        ],
+    },
+    # optOcrCache(2026-08-04 R15-7d): 画像PDF OCRの頁チェックポイント。
+    # 読めた頁を隠しシート "ocr_cache" へ控え、次の取込で読み直さない。
+    # Vision(ChatGPTV)のハングはVBA側から制御できない(RIBBON_API_CONFIRMED
+    # .md:29 に待ち秒数の引数が無い)ため、被害を限定する唯一の手段が
+    # 「読めた頁を失わないこと」になる(実機第4報 RC7)。
+    # opt層でシートを触る唯一のモジュール。作法(ThisWorkbook経由・
+    # xlSheetVeryHidden)は modEmbed.EnsureVectorSheet を踏襲する。純ロジック
+    # ではない(シートI/O・ログ)ので PURE_LOGIC_MODULES には載せないが、
+    # 鍵の組み立て(DocPrefixFor/CacheKeyFor/CacheTextFor)だけは副作用ゼロで、
+    # LO実行テスト(modTestsPure13)から直接呼んで差し替え検知を固定する。
+    "optOcrCache": {
+        "closed": True,
+        "required": [
+            "Ping", "DocPrefixFor", "CacheKeyFor", "CacheTextFor",
+            "BeginDoc", "CachedText", "SaveRange", "HasSaved",
+            "PurgeDoc", "FinishDoc", "GcOldRows",
+            "ConfirmAskFor", "DeclineMemo",
         ],
     },
     # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
