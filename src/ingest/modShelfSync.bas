@@ -71,8 +71,8 @@ Option Explicit
 ' ============================================================================
 
 Private mSyncRunning As Boolean     ' 再入防止
-' ガードの自己回復(2026-07-16): modShelf.mIngestingと同じ理由(強制停止で
-' フラグが焼き付くと以降の同期が全て無言スキップになる)のタイムスタンプ。
+' ガードの自己回復(2026-07-16): 焼き付きで以降の同期が全て無言スキップに
+' なるのを防ぐ開始時刻(失効判定は R15-1a でビート基準へ)。
 Private mSyncRunningSince As Date
 Private Const GUARD_EXPIRY_MIN As Long = 30
 Private mScheduled As Boolean       ' OnTime予約中かどうか
@@ -112,12 +112,12 @@ End Sub
 '   フィードバックがあった方がよい)。
 ' ----------------------------------------------------------------------------
 Public Sub SyncNow(Optional ByVal silent As Boolean = False)
-    ' 再入防止(手動連打・自動同期との重複)。焼き付いたガードは自動解除。
+    ' 再入防止(連打・重複)。R15-1a: 失効は最後のビートから。
     If mSyncRunning Then
-        If DateDiff("n", mSyncRunningSince, Now) >= GUARD_EXPIRY_MIN Then
+        If modShelfBatch.GuardExpiredNow(mSyncRunningSince, GUARD_EXPIRY_MIN) Then
             On Error Resume Next
             modLog.LogUsage "guard_recover", "sync", _
-                "前回の同期ガードが" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
+                "無音" & GUARD_EXPIRY_MIN & "分超で自動解除"
             On Error GoTo 0
             mSyncRunning = False
         End If
@@ -474,19 +474,18 @@ Finish:
     modP2P.CollectThanks silent
     modP2P.CollectNoiseVotes silent   ' 品質報告を集計し組織的除外(gexcl)を再計算
     On Error GoTo 0
+    ' R15-3a: 変わったものがある同期だけ保存(RC9)。
+    modShelfBatch.SaveCheckpoint ingestedN + replacedN + deletedN + resumedCount + orphanDone
 End Sub
 
 ' ----------------------------------------------------------------------------
-' IsBusy - 同期が走っているか(2026-07-31 R7 B-2)。
-'   ファイルループの DoEvents で発火したクリックを、画面遷移側の入口で
-'   受け流すための判定。再入ガード mSyncRunning をそのまま公開する。
-'   焼き付いたガードで全ボタンが無反応になるのを避けるため、SyncNow と同じ
-'   期限(GUARD_EXPIRY_MIN)を過ぎたものは busy とみなさない。
+' IsBusy - 同期が走っているか(R7 B-2)。DoEventsで発火したクリックを画面遷移側
+'   の入口で受け流すための判定。R15-1a: 失効判定は SyncNow と同じ。
 ' ----------------------------------------------------------------------------
 Public Function IsBusy() As Boolean
     If Not mSyncRunning Then Exit Function
     On Error Resume Next
-    IsBusy = (DateDiff("n", mSyncRunningSince, Now) < GUARD_EXPIRY_MIN)
+    IsBusy = Not modShelfBatch.GuardExpiredNow(mSyncRunningSince, GUARD_EXPIRY_MIN)
     On Error GoTo 0
 End Function
 

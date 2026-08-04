@@ -209,6 +209,32 @@ Public Function QuickHealthCheck() As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' WarnIfReadOnly - このブックが読み取り専用で開かれていたら1度だけ知らせる
+'   (2026-08-04 R15-3b・実機第4報 RC9)。
+' ----------------------------------------------------------------------------
+' 読み取り専用でも取込も質問も普通に動く。ところが結果は1つも残らず、
+' 閉じた瞬間に数時間ぶんの取込が消える(憲章§3-5「利用者の資産を失わない」)。
+' 症状として現れるのは「昨日入れた資料が今日は無い」だけで、原因に辿り着く
+' 手がかりが1つも無い。起動時に1回だけ、目立つ形で伝える。
+' 機能は止めない(閲覧・質問はそのまま使えるため。§3-1)。
+' 置き場を modBoot ではなく診断側にしたのは、modBoot が30,000字上限まで
+' 残り僅かで1行も足せないため(判定内容も「起動時の環境チェック」で
+' QuickHealthCheck と同種)。表示・記録まで含めてここで完結させる。
+' 例外は外へ出さない(起動を止めない)。
+Public Sub WarnIfReadOnly()
+    On Error Resume Next
+    ' 判定を変数へ受けてから見る: OERN配下でIf条件の評価そのものが失敗すると
+    ' 次の文へ進んでしまい、読み取り専用でもないのに警告を出しかねない。
+    Dim isReadOnly As Boolean: isReadOnly = False
+    isReadOnly = ThisWorkbook.ReadOnly
+    If Not isReadOnly Then Exit Sub
+    modLog.LogError "E0805", "modDiag.WarnIfReadOnly", _
+        "ReadOnly=True name=" & ThisWorkbook.Name
+    MsgBox modLog.ReadOnlyWarnMsg(), vbExclamation, modAppDef.APP_NAME
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 

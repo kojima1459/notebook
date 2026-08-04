@@ -111,10 +111,15 @@ CONTRACT: dict[str, dict] = {
     # 利用者向けの1文(空・ロック・大きすぎる・一時名の枯渇・特殊文字)。
     # 全ての失敗に「ファイル名を変えてください」と言っていたのを種類別に
     # 分けたもので、置き場は SharedReadFailMsg と同じ理由でここになる。
+    # ReadOnlyWarnMsg / SaveFailMsg(2026-08-04 R15-3・実機第4報 RC9): 読み取り
+    # 専用で開かれた警告と、中間保存に失敗したときの1文。どちらも複数の
+    # 呼び出し元(modDiag起動時案内/E0805のコード表/modShelfBatchの保存失敗)が
+    # 同じ文を出す必要があるため、置き場は上の2関数と同じ理由でここになる。
     "modLog": {
         "closed": True,
         "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
-                     "FriendlyFailMsg", "SharedReadFailMsg", "CopyFailMsgOf"],
+                     "FriendlyFailMsg", "SharedReadFailMsg", "CopyFailMsgOf",
+                     "ReadOnlyWarnMsg", "SaveFailMsg"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
@@ -172,7 +177,11 @@ CONTRACT: dict[str, dict] = {
     },
     "modDiag": {
         "closed": True,
-        "required": ["RunDiagnostics", "QuickHealthCheck", "RecentErrorsForClipboard"],
+        # WarnIfReadOnly(2026-08-04 R15-3b): 起動時の読み取り専用検知。
+        # QuickHealthCheck と同じ「起動時の環境チェック」で、modBoot が
+        # 30,000字上限まで残り僅かなため表示・記録までここで完結させる。
+        "required": ["RunDiagnostics", "QuickHealthCheck", "RecentErrorsForClipboard",
+                     "WarnIfReadOnly"],
     },
     # ---- 7.2 取込層 ----
     # modExtractorWord / modExtractorExcel / modExtractorAcrobat は
@@ -313,8 +322,14 @@ CONTRACT: dict[str, dict] = {
     # ためのPublicで、silent(自動同期)経路では何も表示しない。
     "modShelfBatch": {
         "closed": True,
+        # TouchBusy / LastBeat / GuardExpiredNow(2026-08-04 R15-1a・実機第4報
+        # RC5): 4本の再入ガードが共有する「最後に生きていた時刻」の置き場。
+        # 開始から30分で失効させていたため、85〜127分かかる取込の途中で
+        # ボタンが全面解放され二重取込が構造的に可能だった。
+        # SaveCheckpoint(R15-3a・RC9): 1ファイル取込ごと/同期末尾の中間保存。
         "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
-                     "StageBanner"],
+                     "StageBanner", "TouchBusy", "LastBeat", "GuardExpiredNow",
+                     "SaveCheckpoint"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
@@ -877,6 +892,10 @@ CONTRACT: dict[str, dict] = {
             # 2026-08-01(R12-1-4): カレンダー設定(和暦)非依存の日付文字列。
             # 日付を文字列で永続化・比較する箇所はここだけを通す。
             "IsoDate", "IsoDateTime", "NormalizeIsoDate",
+            # 2026-08-04(R15-1a): 再入ガードの失効判定(最終ビート基準)。
+            # 4本のガード(modShelf/modShelfBatch/modEmbed/modShelfSync)が
+            # 同じ式を使うための純関数。時刻の算数はこのモジュールに集める。
+            "GuardExpired",
             # 2026-08-01(R12-3-10): 区切り無しの統計キー用。同じ元号防御を
             # yyyymmdd/yyyymm/yyyy でも1箇所に集める(modBoard/modAsk/modHelp)。
             "IsoDateCompact", "IsoYm", "IsoYear",
@@ -1022,6 +1041,11 @@ PURE_LOGIC_MODULES = {
     #   modFollowup  : 深掘り候補の抽出と本文からの除去。
     #   modClarify   : 聞き返し文の生成と番号選択の判定。
     "modBitwiseOpt", "modFollowup", "modClarify",
+    # modUtilText(2026-08-04 R15-1a): 日付/経過時間の算数と文字列処理だけの
+    # 共通部品。実測でExcelオブジェクトトークン0件(ADODB.Stream は
+    # CreateObject 経由でExcel依存ではない)。R15-1a の GuardExpired を
+    # ここへ置くにあたり、「ちょっとRangeを見たい」改修を機械で止める。
+    "modUtilText",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [
@@ -1400,6 +1424,135 @@ def collect_module_level_names(raw_text: str) -> set[str]:
             if m:
                 names.add(m.group(1))
     return names
+
+
+# ==============================================================================
+# OnAction配線ハンドラの再入保護(2026-08-04 R15-2b・実機第4報 RC8)
+# ------------------------------------------------------------------------------
+# Shape.OnAction に文字列で配線された Public Sub は、取込中の DoEvents で
+# 発火したクリックから【取込の途中に入れ子で】呼び出され得る。入れ子で走った
+# 画面遷移は、取込が掴んでいるシート状態やCOMオブジェクトと噛み合わずに
+# 失敗する(実機のE0202・「取込中にボタンを押すとExcelが応答なし」の正体)。
+# 保護は全ハンドラの先頭に1行入れるだけだが、40箇所超に手で入れている以上
+# 必ず抜ける。実際 modHubStat.OnSyncPending と modApp.OnRefreshUI の2本が
+# 抜けており、実機第4報まで誰も気付けなかった。機械で見張る。
+#
+# 判定は「配線先の先頭付近に modUiLock.BlockIfIngesting または
+# modUiLock.Enter の呼び出しがあること」。ERRORではなくWARNにしているのは、
+# 保護が要らない正当なハンドラ(下のALLOWLIST)が現に存在し、
+# 「取込中でも動くべき中断ハンドラ」を将来足す余地を残すため。
+#
+# 収集するのは .OnAction = "modX.Y" の【文字列リテラル代入】だけ。
+# 変数経由(btn.OnAction = action)や連結("modAppAct." & CStr(acts(i)))は
+# 静的には宛先が定まらないので対象にしない(誤検知ゼロを優先する)。
+ONACTION_LITERAL_PATTERN = re.compile(
+    r"\.OnAction\s*=\s*\"(mod[A-Za-z]\w*\.[A-Za-z_]\w*)\"\s*$", re.IGNORECASE)
+
+# ハンドラの「先頭付近」= 最初の実行文からこの本数まで。
+# 既存の全ハンドラは1〜2文目までに関所を通しており、4文あれば
+# 「Dim を数本置いてから通す」書き方(modVault.OnVaultSubmit 型)まで拾える。
+ONACTION_GUARD_LOOKAHEAD = 4
+
+# 保護を求めないハンドラの名簿(名前は "modX.Y" 形式)。
+# 増やすときは必ず理由を1行書くこと。ここが「押しても何も起きない」を
+# 生む場所になるので、黙って足せない形にしておく。
+ONACTION_GUARD_ALLOWLIST = {
+    # --- 押しても業務ロジックを一切呼ばない、印/表示だけのハンドラ ---
+    # 深掘りチップの[×]。モジュール変数を False にして印を消すだけ。
+    "modAppAct.OnFollowupChipOff",
+    # 質問例の「別の質問を見る」。表示位置(mOffset)を進めて描き直すだけ。
+    "modStarter.OnMore",
+    # 共有ダイアログのチェックボックス。選択状態を持ち替えて描き直すだけ。
+    "modShared.OnToggle",
+    # 登録フォームの[キャンセル]。入力欄を消してフォームを閉じるだけ。
+    # 取込中でも「閉じられない」方が利用者を困らせる(§3-1)。
+    "modVault.OnVaultCancel",
+    # --- 委譲先で必ず関所を通るハンドラ ---
+    # 質問例のクリック。最後に modApp.OnSend を呼び、そちらが
+    # BlockIfIngesting を先頭に持っている(二重に置く意味が無い)。
+    "modStarter.OnPick",
+    # --- 2026-08-04(R15-2b)時点の現状追認。R15-2aの裁定範囲外 ---
+    # 下の4本は画面遷移・再描画を行うため本来は関所を通すべきだが、
+    # R15 波1 の裁定対象は modHubStat.OnSyncPending と modApp.OnRefreshUI の
+    # 2本のみ。勝手に挙動を変えず、ここに載せて裁定待ちであることを残す
+    # (発見事項として実装者から報告済み)。
+    "modVaultGallery.OnVaultBackToChat",
+    "modVaultGallery.OnVaultCardClick",
+    "modVaultGallery.OnVaultNext",
+    "modVaultGallery.OnVaultPrev",
+    # 出典の「原文を開く」。外部アプリでファイルを開くだけだが、
+    # 取込中は同じファイルを掴んでいる可能性がある。上の4本と同じ扱い。
+    "modPeek.OnOpenSource",
+}
+
+ONACTION_GUARD_CALLS = (
+    re.compile(r"modUiLock\s*\.\s*BlockIfIngesting", re.IGNORECASE),
+    re.compile(r"modUiLock\s*\.\s*Enter", re.IGNORECASE),
+)
+
+
+def _proc_body_statements(info: ModuleInfo, proc_name: str) -> list:
+    """指定Publicプロシージャの本体の実行文(コメント除去済み)を順に返す。"""
+    body: list = []
+    started = False
+    head = re.compile(
+        r"^Public\s+(?:Static\s+)?(?:Sub|Function)\s+%s\b" % re.escape(proc_name),
+        re.IGNORECASE)
+    end = re.compile(r"^End\s+(?:Sub|Function)\b", re.IGNORECASE)
+    for lineno, stmt in info.statements:
+        if not started:
+            if head.match(stmt):
+                started = True
+            continue
+        if end.match(stmt):
+            break
+        body.append((lineno, stmt))
+    return body
+
+
+def check_onaction_handler_guard(infos: list[ModuleInfo]) -> None:
+    # 1) 配線先の収集(src/全体)。同じ宛先が複数箇所から配線されていてもよい。
+    wired: dict[str, tuple[str, int]] = {}
+    for info in infos:
+        for lineno, stmt in info.statements:
+            m = ONACTION_LITERAL_PATTERN.search(stmt)
+            if m:
+                wired.setdefault(m.group(1), (module_name_for_display(info), lineno))
+
+    by_name = {module_name_for_display(i): i for i in infos}
+
+    # 2) 収集した宛先ごとに、先頭付近の関所を確かめる。
+    for target in sorted(wired):
+        if target in ONACTION_GUARD_ALLOWLIST:
+            continue
+        mod_name, member = target.split(".", 1)
+        owner = by_name.get(mod_name)
+        wire_mod, wire_line = wired[target]
+        wirer = by_name.get(wire_mod)
+        if owner is None:
+            if wirer is not None:
+                wirer.add("WARN", wire_line,
+                          f"OnAction配線先のモジュールが見つかりません: {target}")
+            continue
+        if member not in owner.public_names:
+            if wirer is not None:
+                wirer.add("WARN", wire_line,
+                          f"OnAction配線先が見つかりません(Publicではない/改名?): {target}")
+            continue
+
+        body = _proc_body_statements(owner, member)
+        if not body:
+            continue
+        head = body[:ONACTION_GUARD_LOOKAHEAD]
+        if any(pat.search(stmt) for _, stmt in head for pat in ONACTION_GUARD_CALLS):
+            continue
+        owner.add(
+            "WARN", head[0][0],
+            f"OnActionで配線される {target} の先頭に再入の関所がありません"
+            f"(modUiLock.BlockIfIngesting か modUiLock.Enter を先頭へ。"
+            f"取込中でも動くべきハンドラなら vba_lint.py の "
+            f"ONACTION_GUARD_ALLOWLIST に理由つきで登録すること)",
+        )
 
 
 def check_module_level_refs(infos: list[ModuleInfo]) -> None:
@@ -2286,6 +2439,7 @@ def run_lint(src_root: Path) -> int:
     # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。
     check_module_level_refs(modules)
     check_undefined_proc_refs(modules)
+    check_onaction_handler_guard(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())

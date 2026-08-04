@@ -504,6 +504,11 @@ End Sub
 '                描くようになったので、決め打ちでギャラリーへ戻すと
 '                一覧を見ていた人の画面が勝手に変わってしまう)
 Public Sub OnRefreshUI()
+    ' R15-2a(実機第4報 RC8): 再描画は画面を丸ごと組み直す重い処理で、
+    ' 取込が掴んでいるシート状態と噛み合うと入れ子で崩れる。他のナビ系
+    ' ハンドラと同じく BlockIfIngesting を Enter の前に置く(後ろに置くと
+    ' ロックを取ったまま Exit してしまい、全ボタンが10分死ぬ)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUI.EnsureAppView          ' R7 A-2: 表示状態の自己修復を再描画にも載せる

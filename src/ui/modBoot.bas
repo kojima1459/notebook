@@ -330,6 +330,11 @@ Public Sub Boot()
         On Error GoTo Failed
     End If
 
+    ' R15-3b: 読み取り専用なら1度だけはっきり伝える(機能は止めない)。
+    On Error Resume Next
+    modDiag.WarnIfReadOnly
+    On Error GoTo Failed
+
     ' 4.5) AIリボンの利用期限確認(裁定D3の穏当運用)。True=続行不可でも
     '      アプリの起動自体は止めず、丁寧な案内メッセージだけを出す(AIへの
     '      質問など回答系を実行した際に改めて案内される)。mock_llm=TRUE・

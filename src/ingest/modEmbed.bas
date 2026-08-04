@@ -58,11 +58,13 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim doneCount As Long: doneCount = 0
 
+    ' R15-1a: 失効は「開始から」ではなく「最後のビートから」で数える
+    ' (埋め込みが長引いている最中にガードが解けるのを止める。実機第4報 RC5)。
     If mRunning Then
-        If DateDiff("n", mRunningSince, Now) >= GUARD_EXPIRY_MIN Then
+        If modShelfBatch.GuardExpiredNow(mRunningSince, GUARD_EXPIRY_MIN) Then
             On Error Resume Next
             modLog.LogUsage "guard_recover", "embed", _
-                "前回の埋め込みガードが" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
+                "埋め込みガードが無音のまま" & GUARD_EXPIRY_MIN & "分以上残留していたため自動解除"
             On Error GoTo 0
             mRunning = False
         End If

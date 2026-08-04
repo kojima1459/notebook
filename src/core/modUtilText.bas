@@ -137,6 +137,35 @@ Public Function ElapsedMsSince(ByVal t0 As Double) As Double
 End Function
 
 ' ----------------------------------------------------------------------------
+' GuardExpired - 再入ガードの失効判定(2026-08-04 R15-1a・実機第4報 RC5)。
+'   startAt : ガードを立てた時刻
+'   beatAt  : 最終ハートビート(まだ1度も打たれていなければ0でよい)
+'   nowAt   : 現在時刻
+'   limitMin: 無音がこの分数だけ続いたら失効とみなす(既定30分)
+'
+'   従来は「開始から30分」で自動失効させていた。OCR付きの取込は実機で
+'   85〜127分かかるため、t=30分の時点で取込中にもかかわらず全ボタンが
+'   解放され、二重取込が構造的に起こり得た(憲章§3-5)。かといって単純に
+'   上限を延ばすと、焼き付いたガードの自己回復がその分だけ遅れる。
+'   「最後に生きている印(ビート)から数える」ことで、動いている間は
+'   何時間でも守り、止まった瞬間から30分で自己回復するようになる。
+'
+'   基準は max(startAt, beatAt)。前回の取込で残ったビートが次の取込の開始より
+'   古い場合に「昔のビート」で判定してしまわないよう、必ず新しい方を採る。
+'   startAt が0(=時刻不明)なら基準も0となり必ず失効側へ倒れる。判断できない
+'   ガードで全ボタンを殺し続けるより奪い返す方が害が小さい(modUiLockと同じ)。
+'   時計が巻き戻った場合(nowAt < 基準)は DateDiff が負になり失効しない。
+'   これは変更前の式と同じ挙動で、進んだ時計が戻るまでの間だけ守りが続く。
+' ----------------------------------------------------------------------------
+Public Function GuardExpired(ByVal startAt As Date, ByVal beatAt As Date, _
+                             ByVal nowAt As Date, ByVal limitMin As Long) As Boolean
+    Dim baseAt As Date
+    baseAt = startAt
+    If beatAt > baseAt Then baseAt = beatAt
+    GuardExpired = (DateDiff("n", baseAt, nowAt) >= limitMin)
+End Function
+
+' ----------------------------------------------------------------------------
 ' IsoDate / IsoDateTime - カレンダー設定に左右されないグレゴリオ暦の
 '   日付文字列("yyyy-mm-dd" / "yyyy-mm-dd hh:nn:ss")を作る。
 '

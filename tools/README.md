@@ -42,6 +42,12 @@ python3 tools/vba_lint.py --path /path/to/some/src
 | 10 | R4(純ロジックモジュールでのExcelオブジェクトトークン禁止) | §3 |
 | 11 | §7公開契約との一致(過不足の両方をエラーに) | §7・§11.1 |
 | 12 | (弱い警告)full_text系セル書込みでSafeLeft未経由の疑い | §11.1・§12 |
+| 13 | (警告)`.OnAction = "modX.Y"` で配線されたPublic Subの先頭に再入の関所(`modUiLock.BlockIfIngesting` / `modUiLock.Enter`)があるか | R15-2b・実機第4報 RC8 |
+
+検査13の例外は `vba_lint.py` の `ONACTION_GUARD_ALLOWLIST`(名前のリスト)に
+理由コメントつきで登録する。取込中でも動くべきハンドラ(中断ボタン等)は
+ここへ足す。文字列リテラルで配線された宛先だけを見る(変数経由・文字列連結の
+配線は静的に宛先が定まらないため対象外)。
 
 **exit code**: 0=違反なし / 1=ERRORが1件以上。WARN/SKIPはexit codeに影響しない。
 

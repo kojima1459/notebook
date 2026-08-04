@@ -437,6 +437,98 @@ Private Sub TestRemainingWaitSec()
         "合計=" & total
 End Sub
 
+' ----------------------------------------------------------------------------
+' R15-1c(実機第4報 RC5): 再入ガードの失効判定 modUtilText.GuardExpired。
+'   従来は「開始から30分」で自動失効させていたため、OCR付きの取込
+'   (実機で85〜127分)の途中で全ボタンが解放され、二重取込が構造的に
+'   起こり得た。判定を「最後のビートから30分」へ変えたので、
+'   ・開始が古くてもビートが新しければ生存
+'   ・双方が古ければ失効(=焼き付いたガードは今までどおり自己回復する)
+'   の2つを同時に満たすことをここで固定する。どちらか一方だけを満たす
+'   実装(常に生存/常に失効)はどちらも実害が大きい。
+' ----------------------------------------------------------------------------
+Private Sub TestGuardExpiredHeartbeat()
+    Dim nowAt As Date
+    nowAt = DateSerial(2026, 8, 4) + TimeSerial(10, 0, 0)
+
+    ' 開始は90分前=旧実装なら失効。ビートが5分前なので生きている。
+    modTestRunner.Check "ガード失効_古い開始でもビートが新しければ生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(1, 30, 0), _
+                                  nowAt - TimeSerial(0, 5, 0), nowAt, 30) = False)
+    ' 双方古い(開始90分前・ビート40分前)=無音が続いた焼き付き。失効させる。
+    modTestRunner.Check "ガード失効_開始もビートも古ければ失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(1, 30, 0), _
+                                  nowAt - TimeSerial(0, 40, 0), nowAt, 30) = True)
+
+    ' ビート未打鍵(0)は開始時刻だけで判定する(取込開始直後の窓)。
+    modTestRunner.Check "ガード失効_ビート無しで10分経過は生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 10, 0), 0, nowAt, 30) = False)
+    modTestRunner.Check "ガード失効_ビート無しで31分経過は失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 31, 0), 0, nowAt, 30) = True)
+
+    ' 境界: ちょうど30分は失効側(旧実装の >= と同じ向きを保つ)。
+    modTestRunner.Check "ガード失効_ちょうど30分は失効", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 30, 0), 0, nowAt, 30) = True)
+    modTestRunner.Check "ガード失効_29分は生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 29, 0), 0, nowAt, 30) = False)
+
+    ' 前の取込が残した【古いビート】で今の判定を狂わせない(基準は新しい方)。
+    modTestRunner.Check "ガード失効_開始より古いビートは延命に使わない", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 40, 0), _
+                                  nowAt - TimeSerial(1, 40, 0), nowAt, 30) = True)
+    ' 時刻不明(0)のガードは失効扱い=奪い返す(modUiLock.LockExpiredと同じ判断)。
+    modTestRunner.Check "ガード失効_開始時刻が不明なら失効", _
+        (modUtilText.GuardExpired(0, 0, nowAt, 30) = True)
+    ' 時計が巻き戻った端末では失効させない(旧式と同じ挙動)。
+    modTestRunner.Check "ガード失効_時計巻き戻しでは失効しない", _
+        (modUtilText.GuardExpired(nowAt + TimeSerial(1, 0, 0), 0, nowAt, 30) = False)
+
+    ' 上限値そのものは呼び出し側の定数。60分運用でも同じ式で効くこと。
+    modTestRunner.Check "ガード失効_上限60分なら45分は生存", _
+        (modUtilText.GuardExpired(nowAt - TimeSerial(0, 45, 0), 0, nowAt, 60) = False)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-3c(実機第4報 RC9): 保存まわりの文言。どちらも「起きたこと」と
+'   「次に打てる一手」を必ず含む(憲章§3-1: 無反応・無説明は故障と同じ)。
+'   E0805 は今回から使い始めるコードで、コード表と起動時の案内が
+'   1つの文言関数を共有していること(二重管理にしないこと)も固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestSaveAndReadOnlyMessages()
+    Dim ro As String: ro = modLog.ReadOnlyWarnMsg()
+    modTestRunner.Check "読み取り専用文言_状態を言う", (InStr(ro, "読み取り専用") > 0), "実際=" & ro
+    modTestRunner.Check "読み取り専用文言_保存されないと言う", _
+        (InStr(ro, "保存されません") > 0), "実際=" & ro
+    modTestRunner.Check "読み取り専用文言_確かめ方を言う", _
+        (InStr(ro, "別のExcel") > 0), "実際=" & ro
+    modTestRunner.Check "読み取り専用文言_E0805のコード表と同一", _
+        (modLog.FriendlyMessage("E0805") = ro)
+    ' 未知コードの汎用文言(「予期しない問題」)へ落ちていないこと。
+    modTestRunner.Check "読み取り専用文言_汎用文言に落ちていない", _
+        (InStr(modLog.FriendlyMessage("E0805"), "予期しない問題") = 0)
+
+    Dim sf As String: sf = modLog.SaveFailMsg()
+    modTestRunner.Check "保存失敗文言_起きたことを言う", _
+        (InStr(sf, "保存に失敗しました") > 0), "実際=" & sf
+    modTestRunner.Check "保存失敗文言_次の一手を言う", _
+        (InStr(sf, "終了ボタン") > 0), "実際=" & sf
+End Sub
+
+' ----------------------------------------------------------------------------
+' R15-2d(実機第4報 RC8): E0202の案内。実体は「AI通信の不調」ではなく
+'   【実行中の処理と操作が重なったこと】であることが多い。AIの話だけで
+'   終わらせると、利用者は待っても直らない別の問題として受け取り、
+'   同じ操作を繰り返す(それがまた重なって E0202 を増やす)。
+' ----------------------------------------------------------------------------
+Private Sub TestE0202FriendlyMentionsOverlap()
+    Dim m As String: m = modLog.FriendlyMessage("E0202")
+    modTestRunner.Check "E0202文言_重なりに言及する", (InStr(m, "重なった") > 0), "実際=" & m
+    modTestRunner.Check "E0202文言_少し待つよう案内する", _
+        (InStr(m, "少し待って") > 0), "実際=" & m
+    modTestRunner.Check "E0202文言_利用者を責めない", _
+        (InStr(m, "あなたの操作に問題はありません") > 0), "実際=" & m
+End Sub
+
 Public Sub RunAll12()
     On Error GoTo ModeDescFail
     TestModeDescriptionsR14
@@ -458,6 +550,13 @@ NextRead:
 NextRemainWait:
     On Error GoTo RemainWaitFail
     TestRemainingWaitSec
+NextGuard15:
+    On Error GoTo Guard15Fail
+    TestGuardExpiredHeartbeat
+NextSaveMsg15:
+    On Error GoTo SaveMsg15Fail
+    TestSaveAndReadOnlyMessages
+    TestE0202FriendlyMentionsOverlap
 NextDone12:
     On Error GoTo 0
     Exit Sub
@@ -480,6 +579,14 @@ ReadFail:
     Resume NextRemainWait
 RemainWaitFail:
     modTestRunner.Check "TestRemainingWaitSec(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGuard15
+Guard15Fail:
+    modTestRunner.Check "TestGuardExpiredHeartbeat(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSaveMsg15
+SaveMsg15Fail:
+    modTestRunner.Check "TestSaveAndReadOnlyMessages(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone12
 End Sub

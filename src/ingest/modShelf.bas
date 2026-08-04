@@ -50,11 +50,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
     ' 1) 再入guard(E0503)。焼き付きガードは自動解除。
+    ' R15-1a: 失効は「開始から30分」ではなく「最後のビートから30分」で判定する
+    ' (長い取込の途中でガードが解けて二重取込になるのを止める。実機第4報 RC5)。
     If mIngesting Then
-        If DateDiff("n", mIngestingSince, Now) >= GUARD_EXPIRY_MIN Then
+        If modShelfBatch.GuardExpiredNow(mIngestingSince, GUARD_EXPIRY_MIN) Then
             On Error Resume Next
             modLog.LogUsage "guard_recover", "ingest", _
-                "取込ガード残留を自動解除(" & GUARD_EXPIRY_MIN & "分超)"
+                "取込ガード残留を自動解除(無音" & GUARD_EXPIRY_MIN & "分超)"
             On Error GoTo 0
             mIngesting = False
         End If
@@ -578,7 +580,7 @@ Public Function IsBusy() As Boolean
     End If
     If Not mIngesting Then Exit Function
     On Error Resume Next
-    IsBusy = (DateDiff("n", mIngestingSince, Now) < GUARD_EXPIRY_MIN)
+    IsBusy = Not modShelfBatch.GuardExpiredNow(mIngestingSince, GUARD_EXPIRY_MIN)
     On Error GoTo 0
 End Function
 

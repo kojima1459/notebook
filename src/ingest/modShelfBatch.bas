@@ -42,6 +42,98 @@ Private mBatchIngesting As Boolean
 Private mBatchSince As Date
 Private Const GUARD_EXPIRY_MIN As Long = 30
 
+' R15-1a(実機第4報 RC5): 4本の再入ガード(modShelf/modShelfBatch/modEmbed/
+' modShelfSync)が共有する「最後に生きていた時刻」。取込は実機で85〜127分
+' かかるのに、失効判定は「開始から30分」だったため、取込の途中で全ボタンが
+' 解放され二重取込が構造的に可能だった(憲章§3-5)。開始時刻ではなく
+' ビートから数えることで、動いている間は何時間でも守り、止まってから
+' 30分で自己回復する。ビートの置き場をここ1箇所にするのは、4本のガードが
+' 同じ「取込という1つの仕事」を別の粒度で覆っているだけで、生きている印は
+' 1つで足りるため(憲章§4-5: 答えは1つ)。
+Private mLastBeat As Date
+
+' R15-3a: 中間保存の失敗を利用者へ告げたかどうか(1セッション1回だけ告げる)。
+Private mSaveFailToasted As Boolean
+
+' ----------------------------------------------------------------------------
+' TouchBusy - 「まだ生きている」印を1つ進める(R15-1b)。
+'   呼び出し点は modUIMain.SetStage と本モジュールの StageBanner の2箇所だけ
+'   (長時間ループは必ずどちらかを通る)。副作用はモジュール変数の代入のみで、
+'   例外を出さない=どこから呼ばれても既存の処理を壊さない。
+' ----------------------------------------------------------------------------
+Public Sub TouchBusy()
+    mLastBeat = Now
+End Sub
+
+' LastBeat - 最終ビート(まだ1度も打たれていなければ0)。
+Public Function LastBeat() As Date
+    LastBeat = mLastBeat
+End Function
+
+' ----------------------------------------------------------------------------
+' GuardExpiredNow - 「開始時刻 startAt のガードが今もう失効しているか」。
+'   判定式そのものは純関数 modUtilText.GuardExpired(テスト済み)に持たせ、
+'   ここは現在時刻と共有ビートを差し込むだけの薄い口にする。4本のガードが
+'   同じ関数を呼ぶことで、判定が箇所ごとにズレることを構造的に防ぐ。
+' ----------------------------------------------------------------------------
+Public Function GuardExpiredNow(ByVal startAt As Date, ByVal limitMin As Long) As Boolean
+    GuardExpiredNow = modUtilText.GuardExpired(startAt, mLastBeat, Now, limitMin)
+End Function
+
+' ----------------------------------------------------------------------------
+' SaveCheckpoint - 中間保存(R15-3a・実機第4報 RC9)。
+' ----------------------------------------------------------------------------
+' 保存の機会は「自己インストーラのopen時Save」と「終了ボタン」しか無く、
+' セッション中に取り込んだチャンクとログは数時間メモリ上だけに置かれていた。
+' 途中でExcelが落ちれば、127分かけた取込が丸ごと消える(憲章§3-5)。
+' 1ファイル取り込むごと・同期の末尾ごとに保存し、失われる範囲を1件ぶんに
+' 抑える。保存は失敗し得る(共有ロック・読み取り専用・容量)ので、失敗は
+' 必ず1行残し(既存イベント名 save_fail)、利用者には次の一手だけ伝える。
+' 成功時は無言(毎回トーストを出すと1.1秒×件数の待ちが積み上がる)。
+'
+' changedN: 呼び出し元が数えた「今回変わった件数」。0のときは保存しない。
+'   何も変わっていないのに保存すると、5分ごとの自動同期のたびに数百KBの
+'   ブックを書き戻すことになる(遅いうえに、共有ドライブでは競合の種)。
+'   省略時は1=「1件入った直後」を意味する(取込ループからの呼び出し)。
+'
+' 読み取り専用のときは保存を試さない: 必ず失敗するうえ、Excelが「名前を
+' 付けて保存」のダイアログを出す余地を作らない(取込ループの途中でモーダルが
+' 立つと、そこで全部止まる)。起動時に modDiag.WarnIfReadOnly が理由を
+' 伝えているので、ここは記録だけに留める。
+'
+' トーストは1セッション1回だけ: 20件取り込めば20回失敗するので、そのたびに
+' 1.1秒のトーストを出すと「押すほど固まる」を自分で作る(R10c M3と同じ轍)。
+' usage_log の save_fail は毎回残すので、回数は後から数えられる。
+Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1)
+    If changedN < 1 Then Exit Sub
+
+    On Error Resume Next
+    Dim failNum As Long: failNum = 0
+    Dim failDesc As String: failDesc = ""
+    Dim isReadOnly As Boolean: isReadOnly = False
+    isReadOnly = ThisWorkbook.ReadOnly
+    Err.Clear
+    If isReadOnly Then
+        failNum = -1
+        failDesc = "ReadOnly(読み取り専用で開かれているため保存しません)"
+    Else
+        ThisWorkbook.Save
+        failNum = Err.Number
+        failDesc = Err.Description
+        Err.Clear
+    End If
+
+    If failNum <> 0 Then
+        modLog.LogUsage "save_fail", "", _
+            "中間保存に失敗 err#" & failNum & ": " & modUtil.SafeLeft(failDesc, 300)
+        If Not mSaveFailToasted Then
+            mSaveFailToasted = True
+            modSkin.ShowToast modLog.SaveFailMsg(), "error"
+        End If
+    End If
+    On Error GoTo 0
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' IsBatchBusy - バッチ取込の最中か(modShelf.IsBusy から OR で参照される)。
 '   期限切れのガードは busy とみなさない(modShelf.IsBusy と同じ考え方)。
@@ -49,7 +141,7 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 Public Function IsBatchBusy() As Boolean
     If Not mBatchIngesting Then Exit Function
     On Error Resume Next
-    IsBatchBusy = (DateDiff("n", mBatchSince, Now) < GUARD_EXPIRY_MIN)
+    IsBatchBusy = Not GuardExpiredNow(mBatchSince, GUARD_EXPIRY_MIN)
     On Error GoTo 0
 End Function
 
@@ -77,6 +169,9 @@ End Function
 ' 表示系の失敗が取込を壊してはならない(憲章§4-4)ので全体をOERNで包む。
 ' ----------------------------------------------------------------------------
 Public Sub StageBanner(ByVal text As String)
+    ' R15-1b: 段階が1つ進んだ=取込は生きている。バナーが見えていない
+    ' (silent同期・別ブックを見ている)ときも印だけは必ず進める。
+    TouchBusy
     On Error Resume Next
     If LenB(text) = 0 Then Exit Sub
     If Not IsProgressBannerVisible() Then Exit Sub
@@ -248,6 +343,10 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             If st = "done" Or st = "partial" Then
                 okCount = okCount + 1
                 If st = "partial" Then warnN = warnN + 1
+                ' R15-3a: 1件入るごとに保存する。ここで落ちても失うのは
+                ' 「今取り込んでいた1件」だけになる(取込0件のときは通らない
+                ' ので、何も変わっていないブックを保存しに行くことは無い)。
+                SaveCheckpoint
             Else
                 ngCount = ngCount + 1
                 Dim reasonKey As String

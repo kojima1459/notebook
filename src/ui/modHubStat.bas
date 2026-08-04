@@ -67,6 +67,12 @@ End Sub
 '   だが、これまで呼び出し元が1つも無かった(押下手段の無いバッジ)。
 ' ----------------------------------------------------------------------------
 Public Sub OnSyncPending()
+    ' R15-2a(実機第4報 RC8): 取込・同期の最中は受け付けない。ここは部門の
+    ' 再取込(modChannel.SyncSubscribed)を始めるため、取込中に押されると
+    ' 取込の途中から入れ子でもう1本の取込が走り出す(E0202の温床)。
+    ' 順序は既存40箇所超と同型: BlockIfIngesting は Enter より前に置く
+    ' (後ろに置くとロックを取ったまま Exit してUIが10分死ぬ)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
     modUIMain.ShowProgress "部門の更新を取り込んでいます…"

@@ -73,6 +73,7 @@ Public Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As L
     sparseSeen = False
 
     gsText = VisionResultToText(modFeatures.InvokeFeature("vision", "ExtractPdfTextNoOcr", path))
+    If Left$(gsText, 11) = "#ERR:E0202:" Then gsText = RetryGsAfterE0202(path)
     If LenB(gsText) > 0 And Left$(gsText, 5) <> "#ERR:" Then
         If modExtractor.BuildPagesFromGsText(gsText, maxPages, pages, truncated) Then
             ExtractPdfWithFallback = True
@@ -117,6 +118,35 @@ Public Function ExtractPdfWithFallback(ByVal path As String, ByVal maxPages As L
     errDetail = modUtil.SafeLeft(detailHead & "GS: " & gsErr & " / Word: " & wordErr & _
         " / Acrobat: " & acroErr, 600)
     ExtractPdfWithFallback = False
+End Function
+
+' ----------------------------------------------------------------------------
+' RetryGsAfterE0202 - GS本文抽出が E0202 で落ちたときだけ、その場で1回やり直す
+'   (2026-08-04 R15-2c・実機第4報 RC8)。
+' ----------------------------------------------------------------------------
+' E0202の実体はAIとの通信ではなく、Application.Run による自己呼び出し
+' (optVision.ExtractPdfTextNoOcr)の失敗である。GSの完了待ちDoEvents中に
+' 別の操作が入れ子で走ったときに起きる【一時的な】衝突で、資料の中身とは
+' 何の関係も無い。にもかかわらず従来は即座に Word/Acrobat へ譲り、そちらも
+' 塞がれている端末では取込ごと失敗して次回同期まで持ち越されていた。
+' 1回だけやり直せば、入れ子の相手はもう終わっているのが普通なので通る。
+' 2回目も失敗したら従来どおり(戻り値をそのまま返し、Word/Acrobatへ譲る)。
+' 成否は usage_log に1行残す(効いているのかどうかを後から数えられるように)。
+Private Function RetryGsAfterE0202(ByVal path As String) As String
+    Dim s As String
+    s = VisionResultToText(modFeatures.InvokeFeature("vision", "ExtractPdfTextNoOcr", path))
+    RetryGsAfterE0202 = s
+
+    On Error Resume Next
+    Dim outcome As String
+    If Left$(s, 11) = "#ERR:E0202:" Then
+        outcome = "fail"
+    Else
+        outcome = "ok"
+    End If
+    modLog.LogUsage "gs_e0202_retry", "", outcome & " " & _
+        modUtil.SafeLeft(modUtil.FileNameOf(path), 100)
+    On Error GoTo 0
 End Function
 
 ' InvokeFeatureの戻り値(Variant)を安全に文字列化する

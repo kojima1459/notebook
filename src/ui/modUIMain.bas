@@ -314,6 +314,10 @@ End Sub
 
 ' SetStage - ステータス行+Application.StatusBar 両方
 Public Sub SetStage(ByVal msg As String)
+    ' R15-1b: 実況が1つ進んだ=処理は生きている。取込ガードの失効判定は
+    ' この印(最終ビート)から数える(実機第4報 RC5)。代入1つで失敗しない。
+    modShelfBatch.TouchBusy
+
     Dim displayMsg As String
     displayMsg = msg
     If LenB(displayMsg) = 0 Then displayMsg = "準備できています"
