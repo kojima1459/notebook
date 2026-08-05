@@ -121,6 +121,10 @@ Public Function ParseDecomposeVerdict(ByVal resp As String) As String
         ParseDecomposeVerdict = "parts"
     ElseIf v = "clarify" Then
         ParseDecomposeVerdict = "clarify"
+    ElseIf v = "global" Then
+        ' R17 Phase2: 俯瞰(全体像・一覧・「全部教えて」型)。この語を知らない
+        ' 旧プロンプト・旧モデルの応答は従来どおり single へ落ちる。
+        ParseDecomposeVerdict = "global"
     End If
 End Function
 

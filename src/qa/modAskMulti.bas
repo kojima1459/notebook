@@ -129,6 +129,18 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
         Exit Function
     End If
 
+    ' R17 Phase2: 俯瞰質問(全体像・一覧・「全部教えて」型)は、点検索では
+    ' 原理的に拾えない。章の要約(doc_outline)から読むべき章を選んで答える。
+    ' 不発(graph_outline=off / doc_outline 0行 / 章が選ばれない / 生成失敗)は
+    ' False で戻るので、そのまま従来の入念フローへ落ちる=フェイルセーフの
+    ' 条件は modAskGlobal 側の1箇所に閉じてある(ここで書き写さない)。
+    If verdict = "global" Then
+        If Not modAskGlobal.TryGlobal(q, hits, nHits, ok, result) Then Exit Function
+        mHandled = True
+        TryDecomposed = True
+        Exit Function
+    End If
+
     If verdict <> "parts" Then Exit Function
     If nParts < PARTS_MIN Then Exit Function
     mParts = nParts        ' ここから先は必ず分解ターン(中断・全滅でも dec= を残す)
@@ -402,7 +414,8 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' RunDecideStage - 段0(1回だけのLLM呼び出し)。戻り値は
-'   "single" / "parts" / "clarify"。parts のときだけ parts()/nParts が埋まる。
+'   "single" / "parts" / "clarify" / "global"(R17 Phase2)。
+'   parts のときだけ parts()/nParts が埋まる。
 '   判定が読めない(#ERR・タグ崩れ)ときは single=従来フローへ寛容退化する。
 ' ----------------------------------------------------------------------------
 Private Function RunDecideStage(ByVal q As String, ByVal history As String, _

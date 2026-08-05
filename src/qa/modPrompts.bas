@@ -308,7 +308,8 @@ Public Function BuildDecomposePrompt(ByVal q As String, ByVal history As String,
          "「1つの論点か」「複数の論点を含むか」「読み方が定まらないか」を判定してください。" & vbLf
     sb = sb & "・parts = 独立して調べるべき論点が2つ以上ある(例: AとBの違い【と】Cの手続き)。" & vbLf
     sb = sb & "・clarify = 質問の読み方が複数あり、どれを調べるべきか決められない。" & vbLf
-    sb = sb & "・single = 上のどちらでもない(1つの論点として調べられる)。迷ったら single。" & vbLf
+    sb = sb & "・global = 全体像・一覧・「全部教えて」型(資料を章ごとに俯瞰する必要がある)。" & vbLf
+    sb = sb & "・single = 上のどれでもない(1つの論点として調べられる)。迷ったら single。" & vbLf
     sb = sb & "・分解するときは元の質問の言葉を使い、それ単体で資料を検索できる文にすること。" & vbLf
     sb = sb & "・論点は最大" & lim & "個まで。1つの論点を言い換えて水増ししないこと。" & vbLf
     If LenB(history) > 0 Then
@@ -316,11 +317,11 @@ Public Function BuildDecomposePrompt(ByVal q As String, ByVal history As String,
     End If
     sb = sb & vbLf & "## 利用者の質問" & vbLf & q & vbLf & vbLf
     sb = sb & "## 出力形式(この形式のみで出力。説明文・前置きは一切禁止)" & vbLf
-    sb = sb & "<verdict>single または parts または clarify</verdict>" & vbLf
+    sb = sb & "<verdict>single/parts/clarify/global のどれか1つ</verdict>" & vbLf
     sb = sb & "<parts>論点1 | 論点2 | 論点3</parts>" & vbLf
     sb = sb & "<options>読み方の候補1 | 候補2 | 候補3</options>" & vbLf
-    sb = sb & "(single のときは parts と options を空にする。parts のときは parts だけ、" & _
-         "clarify のときは options だけを埋める。)" & vbLf
+    sb = sb & "(parts のときは parts だけ、clarify のときは options だけを埋め、" & _
+         "single と global ではどちらも空にする。)" & vbLf
     BuildDecomposePrompt = sb
 End Function
 
