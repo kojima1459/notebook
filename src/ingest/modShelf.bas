@@ -28,17 +28,17 @@ Private mIngestingSince As Date
 Private Const GUARD_EXPIRY_MIN As Long = 30
 
 
-' IngestFile - MASTER_SPEC §7.2 の手順どおりに1ファイルを取込む。
+' IngestFile - MASTER_SPEC§7.2の手順どおり1ファイルを取込む。
 '   戻り値=manifest status("done"/"partial"/"failed"/"image_pdf")
-' silent (2026-07-28 レビュー L-11): 何十件もまとめて取り込む経路で1件ごとに
-'   モーダルが出ると同期が朝まで止まる。True なら記録だけ残す。
-' outErrCode (2026-07-30・要件E): AddFilesResult が失敗理由の内訳(E0504/
-'   image_pdf/E0302等)を集計する補助出口。Optional末尾追加で既存の呼び出し元
+' silent (2026-07-28 レビュー L-11): 一括取込で1件ごとにモーダルが出ると
+'   同期が朝まで止まる。True なら記録だけ残す。
+' outErrCode (2026-07-30・要件E): AddFilesResult 向け失敗理由内訳(E0504/
+'   image_pdf/E0302等)の補助出口。Optional末尾追加で既存呼び出し元
 '   (modVault/modUIShelf/modShelfSync等)は無改修。成功時は""。
 ' interactive (2026-08-04 R15-FixA FA-1・A-H1/B-H1):「利用者がその場にいる
-'   取込か」。silent(結果モーダルの抑止)とは別の問いなのに両方を silent 1本で
-'   表していたため R15-7b の事前確認が【全経路で死んでいた】。True は
-'   AddFilesResult と手動同期だけ(R18-6d)。無人同期は従来どおり無確認。
+'   取込か」。silent(結果モーダル抑止)と別問いを1本で表していたため
+'   R15-7bの事前確認が【全経路で死んでいた】。TrueはAddFilesResultと
+'   手動同期だけ(R18-6d)。無人同期は従来どおり無確認。
 Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                            Optional ByVal silent As Boolean = False, _
                            Optional ByRef outErrCode As String = "", _
@@ -47,9 +47,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim resultStatus As String: resultStatus = "failed"
     Dim isSelf As Boolean: isSelf = (StrComp(origin, "self", vbTextCompare) = 0)
 
-    ' 1) 再入guard(E0503)。焼き付きガードは自動解除。R15-1a: 失効は「開始から
-    ' 30分」ではなく「最後のビートから30分」(取込の途中でガードが解けて二重
-    ' 取込になるのを止める。実機第4報 RC5)。
+    ' 1) 再入guard(E0503)。焼き付きガードは自動解除。R15-1a: 失効は「開始から」
+    ' ではなく「最後のビートから30分」(取込途中の二重取込を防止。実機第4報RC5)。
     If mIngesting Then
         If modShelfBatch.GuardExpiredNow(mIngestingSince, GUARD_EXPIRY_MIN) Then
             On Error Resume Next
@@ -61,8 +60,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
     If mIngesting Then
         ' 2026-07-31(R7 B-2): ここは ShowError(モーダル)だった。再入のたび
-        ' ダイアログが積み上がり実機で「応答なし」に見えた。ログは残し、
-        ' 利用者へは実況行で伝える。
+        ' ダイアログが積み上がり実機で「応答なし」に見えた。ログは残し実況行で伝える。
         modLog.LogError "E0503", "modShelf.IngestFile", "path=" & modUtil.SafeLeft(path, 300)
         On Error Resume Next
         modUIMain.SetStage "処理中です。完了までお待ちください…"
@@ -73,8 +71,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
     mIngesting = True
     mIngestingSince = Now
-    ' R15-FixA(FA-6): 中断の印はここでも必ず下ろす(modVault/modUIShelf は直接
-    ' 呼ぶため、前回の印が残ると幽霊中断になる)。一括取込・同期は判定済みで来る。
+    ' R15-FixA(FA-6): 中断の印はここでも必ず下ろす(modVault/modUIShelfは直接
+    ' 呼ぶため前回の印が残ると幽霊中断になる)。一括取込・同期は判定済みで来る。
     modShelfBatch.ResetCancel
 
     Dim uiStep As String
@@ -126,8 +124,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 
     If Not extractOk Then
         ' vision フォールバック(画像の文字起こし・画像PDFのOCR)は判断ごと
-        ' modShelfVision が引き受ける(2026-07-31 R6)。上限ページで打ち切られたら
-        ' pagesTruncated が立ち partial 判定へ合流。silent はそのまま渡す
+        ' modShelfVision が引き受ける(2026-07-31 R6)。上限ページ打ち切りは
+        ' pagesTruncated が立ちpartial判定へ合流。silentはそのまま渡す
         ' (R11-A C4: 無人同期からGSの案内が出ると同期が止まる)。
         Dim visionNote As String
         If modShelfVision.TryVisionFallback(path, errCode, pages, pagesTruncated, _
@@ -143,13 +141,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             Dim failMsg As String: failMsg = visionNote
             If LenB(failMsg) = 0 Then
                 ' 2026-08-01(同梱-9): 50MBガード(txt/md/csv入力上限)だけは
-                ' errDetail の理由をそのまま使う(E0302の一般文言で上書きすると
-                ' カードのメモに「大きすぎる」が出ない)。他は生ログなので不採用。
+                ' errDetailの理由をそのまま使う(E0302の一般文言で上書きすると
+                ' 「大きすぎる」が出ない)。他は生ログなので不採用。
                 If InStr(errDetail, "ファイルが大きすぎます") > 0 Then
                     failMsg = Split(errDetail, " [")(0)
                 Else
-                    ' 2026-08-03(R13-3b): 文言の決定は modLog.FriendlyFailMsg へ
-                    ' 一本化(docx/doc に Ghostscript の話をしない。第2報 RC6)。
+                    ' 2026-08-03(R13-3b): 文言決定はmodLog.FriendlyFailMsgへ一本化
+                    ' (docx/docにGhostscriptの話をしない。第2報RC6)。
                     failMsg = modLog.FriendlyFailMsg(errCode, errDetail, modUtil.ExtOf(path))
                 End If
             End If
@@ -162,9 +160,9 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             End If
             resultStatus = failStatus
             outErrCode = errCode
-            ' 2026-08-04(R15-FixB FB-5): 事前確認で「いいえ」の資料は【失敗して
-            ' いない】。status は image_pdf のままで理由コードだけ差し替え、一括
-            ' 取込の集計が見送りを失敗と分けて数えられるようにする(先頭一致)。
+            ' 2026-08-04(R15-FixB FB-5): 事前確認「いいえ」の資料は【失敗していない】。
+            ' statusはimage_pdfのまま理由コードだけ差し替え、一括取込の集計で
+            ' 見送りを失敗と分けて数える(先頭一致)。
             If modUtilText.IsDeclineNote(failMsg) Then outErrCode = "declined"
             GoTo Finish
         End If
@@ -175,7 +173,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim chunks() As ShelfChunk
     Dim chunkN As Long
     ' R14-5a(実機第3報 RC7): 拡張子別の粒度設定(PDF/Word)がここまで届いて
-    ' いなかった。ChunkParamFor が「拡張子別→グローバル→既定」の2段
+    ' いなかった。ChunkParamForが「拡張子別→グローバル→既定」の2段
     ' フォールバックを1箇所で行う(chunk_modeはグローバルのまま)。
     Dim chunkExt As String: chunkExt = modUtil.ExtOf(path)
     chunkN = modChunker.ChunkPagesEx(pages, _
@@ -185,21 +183,21 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         modConfig.GetString("chunk_mode", "structure"), chunks)
 
     ' 2026-07-29: 1ページの失敗でファイル全体を捨てない。ただし黙って減らすと
-    ' 「88チャンク入るはずが70」に気づけないので必ず1行残す。
+    ' 「88チャンクが70」に気づけないので必ず1行残す。
     Dim skippedPages As Long: skippedPages = modChunker.SkippedPageCount()
     If skippedPages > 0 Then
         On Error Resume Next
         modLog.LogUsage "chunk_skipped_pages", "", _
             sourceName & ": " & skippedPages & "ページを処理できず飛ばしました"
-        ' On Error GoTo 0 ではなく Failed へ戻す(0 にすると Failed ハンドラごと
-        ' 解除され、以降の実行時エラーが素通りする=レビュー H-3 と同型)。
+        ' On Error GoTo 0ではなくFailedへ戻す(0にするとFailedハンドラごと
+        ' 解除され以降の実行時エラーが素通りする=レビューH-3と同型)。
         On Error GoTo Failed
     End If
 
     If chunkN = 0 Then
         modLog.LogError "E0401", "modShelf.IngestFile", "source=" & sourceName
         If isSelf Then
-            ' R18-2a: chunk_count は -1(前値保持)。旧データはまだ消していない。
+            ' R18-2a: chunk_countは-1(前値保持)。旧データはまだ消していない。
             modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), -1, _
                 "failed", modLog.FriendlyMessage("E0401") & "(コード: E0401)", origin
         End If
@@ -216,7 +214,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim existingHashes As Object
     Set existingHashes = modShelfStore.BuildExistingHashSet(wsK, sourceName)
 
-    ' 10列目 norm_text(R12-4): 照合用の正規化済みテキストをここで1回だけ作る。
+    ' 10列目norm_text(R12-4): 照合用の正規化済みテキストをここで1回だけ作る。
     Dim outRows() As Variant: ReDim outRows(1 To chunkN, 1 To 10)
     Dim acceptedCount As Long: acceptedCount = 0
     Dim lastPage As Long: lastPage = -1
@@ -252,8 +250,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             outRows(acceptedCount, COL_FULLTEXT) = modUtil.SafeLeft(bodyText, 32000)
             outRows(acceptedCount, COL_ADDED) = addedStamp
             outRows(acceptedCount, COL_EMBEDDED) = 0
-            ' 保存する本文(SafeLeft後)から作る。1セルに収まらない場合だけ空に
-            ' して検索側の遅延バックフィルへ委ねる(切り詰めるとスコアが揺れる)。
+            ' 保存本文(SafeLeft後)から作る。1セル超は空にし検索側の遅延
+            ' バックフィルへ委ねる(切り詰めるとスコアが揺れるため)。
             Dim normDoc As String
             normDoc = modSparse.MatchDocText("", "", sourceName, CStr(outRows(acceptedCount, COL_FULLTEXT)))
             If Len(normDoc) <= 32000 Then outRows(acceptedCount, modShelfStore.COL_K_NORM) = normDoc
@@ -288,12 +286,11 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
 
     ' 7.5) 旧データを消すのは【新しい行を全部書き終えてから】(R18-2e)。落ちても
-    '      旧データが無傷になる順序(§3-5。調査agent1 §3(a) の真の消失経路)。
-    '      firstNewRow はいま書いた行を消させないため(同名なので道連れになる)。
-    '      削除に失敗しても取込は続けるが、無言では済ませず err_log に1行
-    '      (§4-1)+カードも partial にする(R18H FA-6)。
-    '      R18H FA-5: 全チャンクが既存と重複(acceptedCount=0)なら削除しない。
-    '      新しい行が1行も無いのに旧行を消すと、資料が丸ごと消えて0件になる。
+    '      旧データが無傷になる順序=§3-5・調査agent1 §3(a)の真の消失経路対策。
+    '      firstNewRow は今書いた行を道連れにしないための境界(同名source)。
+    '      削除失敗時も取込は続けるが、err_log に1行(§4-1)+partial化(FA-6)。
+    '      R18H FA-5: 全チャンクが既存と重複(acceptedCount=0)なら削除しない
+    '      (新規0件で旧行を消すと資料が丸ごと0件になるため)。
     uiStep = "既存同名資料の置き換え"
     Dim rmNum As Long: rmNum = 0
     If acceptedCount > 0 Then
@@ -315,8 +312,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         firstNewRow = lastNewRow - acceptedCount + 1
         If firstNewRow < 2 Then firstNewRow = 2
     Else
-        ' R18H FA-5(A-M5): 旧行は温存したまま失敗として畳む。従来はここを
-        ' 素通りして done/0件で確定し、旧行だけが消えていた。
+        ' R18H FA-5(A-M5): 旧行は温存したまま失敗として畳む。従来は素通りして
+        ' done/0件で確定し、旧行だけが消えていた。
         On Error Resume Next
         modLog.LogUsage "ingest_all_dup", origin, "source=" & sourceName & _
             " 全" & chunkN & "件が既存と重複。旧データを保持しました"
@@ -340,8 +337,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     uiStep = "ベクトル化(埋め込み)"
     modEmbed.EmbedPending
 
-    ' 9.5) バッチ富化。config enrich_mode の既定 "off" なら EnrichPending は即0。
-    '      2026-07-28 M-15: 呼び出しが1つも無く【死に設定】だった。
+    ' 9.5) バッチ富化。config enrich_modeの既定"off"ならEnrichPendingは即0
+    '      (2026-07-28 M-15: 呼び出しが1つも無く【死に設定】だった)。
     uiStep = "要約・キーワードの付与"
     On Error Resume Next
     modEnrich.EnrichPending
@@ -367,23 +364,23 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
 
     ' 2026-08-03(R13-3a): 薄い抽出の検出(二段目の防衛)。判定と文言は
-    ' modExtractorPdf.ThinExtractMemoFor。44ページの約款が chunks=1 で「登録
-    ' 成功」になる形(第2報 RC1)を done と言わせない最後の関所。R13-F7:
-    ' 拡張子も渡す(docx/xlsx を同じ関門にかけない)。
+    ' modExtractorPdf.ThinExtractMemoFor。44ページの約款がchunks=1で
+    ' 「登録成功」になる形(第2報RC1)をdoneと言わせない最後の関所。
+    ' R13-F7: 拡張子も渡す(docx/xlsxを同じ関門にかけない)。
     Dim thinMemo As String: thinMemo = ""
     On Error Resume Next
     thinMemo = modExtractorPdf.ThinExtractMemoFor(pages, chunkN, modUtil.ExtOf(path))
     On Error GoTo Failed
 
     ' 2026-08-03(R14-4c): OCR打ち切りの正直なメモ(visionNote)。R15-FixA FA-4:
-    ' カードのメモと partial 判定は別。「前回の続きから再開しました。」だけの
-    ' ことがあり、材料にすると成功した資料が「一部だけ」と名乗る。欠けの事実は
-    ' pagesTruncated が運ぶ。
+    ' カードのメモとpartial判定は別。「前回の続きから再開しました。」だけの
+    ' ことがあり、材料にすると成功資料が「一部だけ」と名乗る。欠けの事実は
+    ' pagesTruncatedが運ぶ。
     Dim cardMemo As String: cardMemo = thinMemo
     If LenB(cardMemo) = 0 Then cardMemo = visionNote
-    ' R18H FA-6(A-M4): 旧行の削除に失敗した回は、新旧2組ぶんの行が残ったまま
-    ' 「done」と名乗っていた(検索結果が重複するのに利用者は気付けない)。
-    ' partial へ倒し、自分で直せる唯一の手(もう一度取り込む)をメモに添える。
+    ' R18H FA-6(A-M4): 旧行の削除に失敗した回は新旧2組の行が残ったまま
+    ' 「done」と名乗っていた(検索結果重複に利用者が気付けない)。partialへ
+    ' 倒し、自分で直せる唯一の手(もう一度取り込む)をメモに添える。
     If rmNum <> 0 Then cardMemo = Trim$(modShelfStore.MEMO_REPLACE_NG & " " & cardMemo)
 
     If pagesTruncated Or stillPending Or LenB(thinMemo) > 0 Or rmNum <> 0 Then
@@ -391,8 +388,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Else
         resultStatus = "done"
         ' 2026-08-04(R15-FixB FB-1・A-M1/B-M): OCRの頁控えを消すのは【ここ】。
-        ' 読み切った瞬間に消すと、その後で落ちた資料が partial のまま控えだけ
-        ' 失い300頁を読み直す。done と並んだことを知るのはこの位置だけ。
+        ' 読み切った瞬間に消すと、後で落ちた資料がpartialのまま控えだけ失い
+        ' 300頁を読み直す。doneと確定したことを知るのはこの位置だけ。
         On Error Resume Next
         modFeatures.InvokeFeature "vision", "OcrCachePurge", path
         On Error GoTo Failed
@@ -406,20 +403,20 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     If isSelf And (resultStatus = "done" Or resultStatus = "partial") Then
         On Error Resume Next
         modStats.Bump "ingest_files_total"
-        modStats.AddExp "register"   ' 登録EXP(自己取込のみ=フォルダ自動同期の大量取込では加算されない)
+        modStats.AddExp "register"   ' 登録EXP(自己取込のみ。フォルダ自動同期では加算されない)
         On Error GoTo 0
         On Error Resume Next
         ' R15-8a(実機第4報 RC1): 画面の「127」とusage_logの「125」の食い違い
         ' (生成chunkN→重複排除後acceptedCountの乖離)がログに出ていなかった。
-        ' dup=0 のときは従来と同じ "chunks=N"(既存ログ・grepとの互換優先)。
+        ' dup=0のときは従来と同じ"chunks=N"(既存ログ・grep互換優先)。
         modLog.LogUsage "ingest", origin, "source=" & sourceName & " " & _
             modUtilText.IngestChunksDetail(acceptedCount, chunkN) & _
             " status=" & resultStatus
         On Error GoTo 0
 
         ' 要件B(2026-07-30 R3): バッジ評価の入口をIngestFileへ一本化。取込の
-        ' 中核がどこからも呼んでおらず、スクショではバッジが出てナレッジ登録
-        ' では出ない体験差があった。取得済みなら即Exitなので挙動は不変。
+        ' 中核がどこからも呼んでおらず、スクショでは出てナレッジ登録では出ない
+        ' 体験差があった。取得済みなら即Exitなので挙動は不変。
         On Error Resume Next
         modStats.EvaluateBadges
         On Error GoTo 0
@@ -430,35 +427,35 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
 Failed:
     Dim failNum As Long: failNum = Err.Number
     Dim failDesc As String: failDesc = Err.Description
-    ' ハンドラ稼働中は OERN が効かず、ここで起きたエラーは呼び出し元へ飛んで
-    ' 本来の原因を上書きする。後始末の前に Resume で抜ける(実機err#462)。
+    ' ハンドラ稼働中はOERNが効かず、ここで起きたエラーが呼び出し元へ飛んで
+    ' 本来の原因を上書きする。後始末の前にResumeで抜ける(実機err#462)。
     Resume FailedCleanup1
 FailedCleanup1:
     On Error Resume Next
     modLog.LogError "E0801", "modShelf.IngestFile", _
         "[" & uiStep & "] path=" & modUtil.SafeLeft(path, 200) & " err#" & failNum & ": " & failDesc
     If isSelf Then
-        ' R18-2a: chunk_count は -1(前値保持)。どの段で落ちたかに関わらず、
-        ' 件数を数え直していないのに0と名乗ってはいけない。実データと台帳の
-        ' ずれは SourceList の突合(R18-2b)が次の描画で必ず直す。
+        ' R18-2a: chunk_countは-1(前値保持)。どの段で落ちたかに関わらず、
+        ' 数え直していないのに0と名乗ってはいけない。実データと台帳のずれは
+        ' SourceListの突合(R18-2b)が次の描画で必ず直す。
         modShelfStore.UpsertManifestRow path, sourceName, SafeFileDateTime(path), SafeFileLen(path), -1, _
             "failed", "取込に失敗[" & uiStep & "](#" & failNum & ")", origin
     End If
     resultStatus = "failed"
     outErrCode = "E0801"
-    ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 は
-    ' トラップの登録を消すだけでこの状態は消えず、そのまま Finish: の後始末へ
-    ' 落ちると、そこで起きたエラーが呼び出し元へ素通りする)。
+    ' Resumeで抜けてハンドラ実行中の状態を解除する(On Error GoTo 0はトラップ
+    ' 登録を消すだけでこの状態は消えず、そのままFinish:の後始末に落ちると
+    ' そこで起きたエラーが呼び出し元へ素通りする)。
     Resume Finish
 
 Finish:
-    ' R18-2c(実機第5報⑧): 中間保存はここ1箇所に集約。従来の呼び出しは
-    ' AddFilesResult のループだけで、スクショ・ナレッジ登録・修正・共有登録・
-    ' パック・部門チャンネルの6経路は一度も保存されなかった(調査agent1 §1-3)。
-    ' 取込の出口はこの Finish 1本なので全経路が一度に救われる。成功時のみ保存
-    ' (読み取り専用・共有ロックの後始末は SaveCheckpoint 側が持つ)。
-    ' R18H FA-7(A-M6): silent(無人の同期)は120秒のスロットルを通す。100件の
-    ' 同期で100回書き戻すとEDRのスキャンが取込より重くなる端末がある。失うのは
+    ' R18-2c(実機第5報⑧): 中間保存はここ1箇所に集約。従来はAddFilesResultの
+    ' ループだけで、スクショ・ナレッジ登録・修正・共有登録・パック・部門
+    ' チャンネルの6経路は一度も保存されなかった(調査agent1 §1-3)。取込の
+    ' 出口はFinish1本なので全経路が一度に救われる(成功時のみ保存。
+    ' 読み取り専用・共有ロックの後始末はSaveCheckpoint側が持つ)。
+    ' R18H FA-7(A-M6): silent(無人同期)は120秒のスロットルを通す。100件の
+    ' 同期で100回書き戻すとEDRスキャンが取込より重くなる端末がある。失うのは
     ' 最大2分ぶんで、同期末尾の1回(modShelfSync)は従来どおり必ず走る。
     If resultStatus = "done" Or resultStatus = "partial" Then
         Dim thrSec As Long: thrSec = 0
@@ -469,7 +466,7 @@ Finish:
     End If
 
     ' 2026-07-28(レビュー I-11): 同期中(silent)は1件ごとに再描画しない。
-    ' 全読みして最大400枚のカードを描き直すため、100件の同期では取込より重く
+    ' 全読みして最大400枚のカードを描き直すため100件の同期では取込より重く
     ' なる。完了時に呼び出し側(SyncNow)が1回だけ描き直す。
     If Not silent Then
         On Error Resume Next
@@ -481,14 +478,14 @@ Finish:
     IngestFile = resultStatus
 End Function
 
-' DeleteSource - knowledge/vectors/manifest から一括削除+再描画
+' DeleteSource - knowledge/vectors/manifestを一括削除+再描画
 Public Sub DeleteSource(ByVal sourceName As String)
     modShelfStore.RemoveKnowledgeAndVectorsForSource sourceName
     modShelfStore.RemoveManifestRowForSource sourceName
 
     On Error Resume Next
     ' R18H FA-3: 意図して減らした事実を整合性マークへ即反映(保存はしない。
-    ' ui_state はブックと一緒に保存/破棄されるので辻褄は必ず合う)。無いと
+    ' ui_stateはブックと一緒に保存/破棄されるので辻褄は必ず合う)。無いと
     ' 次の起動で「資料が消えました」の虚偽警告が出る(A-M2)。
     modIntegrity.RecordSaveMark
     modUIShelf.RenderShelf
@@ -496,9 +493,9 @@ Public Sub DeleteSource(ByVal sourceName As String)
 End Sub
 
 ' SourceList - stats(i)="status|ingested_at|chunk_count|error_note|origin"
-' R18-2b(実機第5報⑧): manifest の chunk_count と my_knowledge の実行数を突合し、
-'   食い違えば【実行数を正】として manifest を直す(取込の失敗がその列を壊すと
-'   実データが生きていても「0件」に見えた)。全読み済みなので追加コストは無い。
+' R18-2b(実機第5報⑧): manifestのchunk_countとmy_knowledgeの実行数を突合し、
+'   食い違えば【実行数を正】としてmanifestを直す(取込失敗がその列を壊すと
+'   実データが生きていても「0件」に見えた)。全読み済みなので追加コスト無し。
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long
     Dim uiStep As String
     On Error GoTo Fail
@@ -538,7 +535,7 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
         If lastK >= 2 Then
             Dim kArr As Variant: kArr = wsK.Range(wsK.Cells(2, 2), wsK.Cells(lastK, 8)).Value
-            ' kArrの列: 1=source, 2=origin, 7=added_at(2列目起点のため)
+            ' kArrの列: 1=source,2=origin,7=added_at(2列目起点のため)
             Dim packCount As Object: Set packCount = CreateObject("Scripting.Dictionary")
             Dim packOrigin As Object: Set packOrigin = CreateObject("Scripting.Dictionary")
             Dim packAdded As Object: Set packAdded = CreateObject("Scripting.Dictionary")
@@ -560,7 +557,7 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
                     End If
                 Else
                     ' R18-2b: source別の実行数。パック由来は台帳に載らないので
-                    ' 数えない。hint は【当たったときだけ】更新する(-1 に戻すと
+                    ' 数えない。hintは【当たったときだけ】更新(-1に戻すと
                     ' 台帳に無い行が続く間ずっと全走査になる)。
                     Dim mi As Long
                     mi = modIntegrity.IndexOfName(tmpNames, mfN, CStr(kArr(r, 1)), hint)
@@ -580,7 +577,7 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         End If
     End If
 
-    ' R18-2b: 突合(食い違う資料だけ manifest を直し usage_log に1行残す)。
+    ' R18-2b: 突合(食い違う資料だけmanifestを直しusage_logに1行残す)。
     uiStep = "台帳と実データの突合"
     If Not wsK Is Nothing Then
         For i = 0 To mfN - 1
@@ -608,8 +605,8 @@ Fail:
     Dim origNum As Long, origDesc As String
     origNum = Err.Number
     origDesc = Err.Description
-    ' ハンドラ稼働中は OERN が効かず、ここで起きたエラーは呼び出し元へ飛んで
-    ' 本来の原因を上書きする。後始末の前に Resume で抜ける(実機err#462)。
+    ' ハンドラ稼働中はOERNが効かず、ここで起きたエラーが呼び出し元へ飛んで
+    ' 本来の原因を上書きする。後始末の前にResumeで抜ける(実機err#462)。
     Resume FailCleanup3
 FailCleanup3:
     On Error Resume Next
@@ -629,12 +626,12 @@ Public Function TotalChunks() As Long
     TotalChunks = lastK - 1
 End Function
 
-' IsBusy - 取込が走っているか(2026-07-31 R7 B-2)。DoEvents で発火したクリック
-'   を画面遷移側の入口で受け流すための判定。焼き付きガードで全ボタンが無反応に
-'   ならないよう、IngestFile と同じ期限を過ぎたら busy 扱いにしない。
+' IsBusy - 取込が走っているか(2026-07-31 R7 B-2)。DoEventsで発火したクリックを
+'   画面遷移側の入口で受け流す判定。焼き付きガードで全ボタン無反応にならぬよう、
+'   IngestFileと同じ期限を過ぎたらbusy扱いにしない。
 Public Function IsBusy() As Boolean
-    ' R10c(H2): mIngesting は IngestFile 1件ぶんしか覆わない。ファイル間の隙間
-    ' も busy にするため一括取込のバッチガードを OR で見る。
+    ' R10c(H2): mIngestingはIngestFile1件ぶんしか覆わない。ファイル間の隙間も
+    ' busyにするため一括取込のバッチガードをORで見る。
     If modShelfBatch.IsBatchBusy() Then
         IsBusy = True
         Exit Function
@@ -646,8 +643,8 @@ Public Function IsBusy() As Boolean
 End Function
 
 ' ChunkKeyOrder - 拡張子別チャンク設定キーの名前を組み立てる(純ロジック)。
-' 2026-08-03(R14-5a/5c): ChunkParamFor は modConfig 依存で検証不能だが、
-' 「拡張子別キーが baseKey より先」の順序はキー名だけ切り出せば固定できる
+' 2026-08-03(R14-5a/5c): ChunkParamForはmodConfig依存で検証不能だが、
+' 「拡張子別キーがbaseKeyより先」の順序はキー名だけ切り出せば固定できる
 ' (modTestsPure11)。extは念のため小文字化する。
 Public Function ChunkKeyOrder(ByVal baseKey As String, ByVal ext As String) As String
     ChunkKeyOrder = baseKey & "_" & LCase$(Trim$(ext))
@@ -655,7 +652,7 @@ End Function
 
 ' ChunkParamFor - 拡張子別2段フォールバック(R14-5a・実機第3報 RC7)。
 '   1) baseKey_ext(例 chunk_target_chars_pdf)→ 2) baseKey(グローバル既定)
-'   → 3) fallbackDefault。chunk_mode は対象外(仕様どおりグローバルのまま)。
+'   → 3) fallbackDefault。chunk_modeは対象外(仕様どおりグローバルのまま)。
 Private Function ChunkParamFor(ByVal baseKey As String, ByVal ext As String, _
                                ByVal fallbackDefault As Long) As Long
     ChunkParamFor = modConfig.GetLong(ChunkKeyOrder(baseKey, ext), _
