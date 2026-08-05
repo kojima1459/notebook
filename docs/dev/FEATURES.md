@@ -83,7 +83,7 @@
 | 時間帯挨拶 | 朝/深夜で異なる労いの一言 | `modApp.TimeGreeting` |
 | 弱音への即応(関西弁) | 「疲れた」等の短文入力にAPI非通信でローカル応答 | `modApp.IsTiredWords/ComfortMessage` |
 | 関西弁モード | 言語切替の隠し味として追加 | `modApp.OnLangCycle` |
-| 週次サマリー | 週初回起動時「先週◯分取り戻しました」 | `modBoard.ShowWeeklySummary` |
+| 週次サマリー | 週初回起動時「先週◯分節約しました」 | `modBoard.ShowWeeklySummary` |
 
 ## 7. サポート・フィードバック導線
 

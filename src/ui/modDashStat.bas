@@ -50,7 +50,7 @@ Private Const BADGE_GRID_Y As Double = BADGE_HEAD_Y + 24
 Private Const BADGE_ROWS_FALLBACK As Long = 3
 
 ' ----------------------------------------------------------------------------
-' 内部: 前月比(取り戻した時間)の集計
+' 内部: 前月比(節約した時間)の集計
 ' ----------------------------------------------------------------------------
 
 ' 今月/先月の"feedback_green"件数から前月比の表示文字列を作る。
@@ -244,7 +244,7 @@ End Function
 ' ---- KPIカード4枚 ----
 
 Public Sub DrawKpiRow(ByVal ws As Worksheet)
-    ' Card0: 取り戻した時間(+前月比)
+    ' Card0: 節約した時間(+前月比)
     Dim savedMinutes As Long: savedMinutes = modDashStat.SafeSavedMinutes()
     Dim isUp As Boolean
     Dim deltaText As String: deltaText = modDashStat.SavedTimeDeltaLabel(isUp)
@@ -255,7 +255,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
         deltaColor = modUI.UiColor("muted")
     End If
     DrawKpiCard ws, 0, KPI_X0, KPI_Y0, KPI_CARD_W, KPI_CARD_H, _
-        "取り戻した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
+        "節約した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
 
     ' Card1: 登録ナレッジ数
     Dim ingestTotal As Long: ingestTotal = modDashStat.SafeGetStat("ingest_files_total")

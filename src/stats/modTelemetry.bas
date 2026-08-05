@@ -190,7 +190,7 @@ Public Function SummaryText() As String
          "  解決した: " & solved & " 件" & vbLf & _
          "  違うと報告: " & wrong & " 件" & vbLf & _
          "  正しい内容の提供: " & corr & " 件" & vbLf & _
-         "  取り戻した時間の合計: " & (savedMin \ 60) & " 時間 " & (savedMin Mod 60) & " 分" & vbLf & vbLf
+         "  節約した時間の合計: " & (savedMin \ 60) & " 時間 " & (savedMin Mod 60) & " 分" & vbLf & vbLf
     If askTotal > 0 Then
         sb = sb & "  解決率: " & CLng(solved * 100# / askTotal) & "%" & vbLf & vbLf
     End If
