@@ -1813,6 +1813,67 @@ def check_onaction_handler_guard(infos: list[ModuleInfo]) -> None:
         )
 
 
+# ==============================================================================
+# MsgBox/InputBoxへの非BMP文字流出(2026-08-05 R18-6c・実機第5報⑤)
+# ------------------------------------------------------------------------------
+# ChrW(&HD8xx)+ChrW(&HDCxx〜DFxx)で組む非BMP絵文字(🗔🩺🔄等)は、Shape/セル値
+# では正しく描けるが、ネイティブMsgBox/InputBoxではサロゲート1単位ごとに
+# 「?」化ける(EDGE_CASES.md §1.3b)。check_cp932_safeとは別問題(こちらは
+# 実行時の描画限界であり、ソース上の直書き文字ではなくChrWで組んだ文字列が
+# 対象)。
+#   (A) 同一文リテラル検出: MsgBox(...)/InputBox(...)と同じ実行文の中に
+#       ChrW(&HD8xx)が直書きされていないか(将来の直書き回帰の防止線)。
+#   (D) 「MsgBox到達関数」許可リスト方式: FriendlyMessageのように複数の
+#       消費先を持つ共通関数は、【呼ばれ方に関わらず本体全体・全Case分岐】を
+#       検査しないと(A)をすり抜ける(実機第5報⑤の実バグがこの型だった)。
+# 呼び出しグラフ追跡はしない。Application.Run/InvokeFeature等の文字列
+# ディスパッチが中核パターンのため静的な呼び出しグラフ自体が破綻する
+# (check_onaction_handler_guardと同じ誤検知ゼロ優先の設計判断)。
+# ==============================================================================
+SURROGATE_HIGH_PATTERN = re.compile(r"ChrW\s*\(\s*&H[Dd][89ABab][0-9A-Fa-f]{2}\s*\)")
+MSGBOX_CALL_PATTERN = re.compile(r"\b(?:MsgBox|InputBox)\b", re.IGNORECASE)
+
+# (D) 本体全体(全Case分岐)を非BMP ChrWで検査する対象。増やすときは理由を
+# 1行書くこと(R18-6c 初期登録分。agent6調査報告 §2.2参照)。
+MSGBOX_REACH_ALLOWLIST = (
+    "modLog.FriendlyMessage",       # E0xxxコード表→複数のMsgBoxが直接表示
+    "modLog.FriendlyFailMsg",       # 取込失敗の1文→MsgBox/E0805表に流れる
+    "modLog.ReadOnlyWarnMsg",       # 起動時案内+E0805表の両方がMsgBoxへ
+    "optOcrEta.OcrConfirmAskFor",   # OCR事前確認→modShelfVisionのMsgBoxへ
+    "optOcrCache.ConfirmAskFor",    # 同上の中継(OcrConfirmAskForを包む)
+    "optVision.OcrConfirmAsk",      # 同上の中継(InvokeFeature窓口)
+)
+
+
+def check_msgbox_nonbmp(infos: list[ModuleInfo]) -> None:
+    # (A) 同一文リテラル検出(全モジュール対象)。
+    for info in infos:
+        for lineno, stmt in info.statements:
+            if MSGBOX_CALL_PATTERN.search(stmt) and SURROGATE_HIGH_PATTERN.search(stmt):
+                info.add(
+                    "ERROR", lineno,
+                    "MsgBox/InputBoxと同じ文に非BMP絵文字(ChrWのサロゲートペア)が"
+                    "直書きされています。ダイアログでは1単位ごとに'?'化けます。"
+                    "絵文字を落として「」括弧表記等へ置き換えてください",
+                )
+
+    # (D) 許可リスト関数の本体全体(呼ばれ方に関わらず全Case分岐)。
+    by_name = {module_name_for_display(i): i for i in infos}
+    for target in MSGBOX_REACH_ALLOWLIST:
+        mod_name, member = target.split(".", 1)
+        owner = by_name.get(mod_name)
+        if owner is None or member not in owner.public_names:
+            continue
+        for lineno, stmt in _proc_body_statements(owner, member):
+            if SURROGATE_HIGH_PATTERN.search(stmt):
+                owner.add(
+                    "ERROR", lineno,
+                    f"MsgBox到達関数 {target} の本体に非BMP絵文字(ChrWのサロゲート"
+                    f"ペア)があります。呼ばれ方に関わらずMsgBoxで'?'化けるため、"
+                    f"絵文字を落として「」括弧表記等へ置き換えてください",
+                )
+
+
 def check_module_level_refs(infos: list[ModuleInfo]) -> None:
     """他モジュールのモジュールレベル定数・変数を、宣言せずに参照していないか。
 
@@ -2739,6 +2800,7 @@ def run_lint(src_root: Path) -> int:
     check_module_level_refs(modules)
     check_undefined_proc_refs(modules)
     check_onaction_handler_guard(modules)
+    check_msgbox_nonbmp(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())
