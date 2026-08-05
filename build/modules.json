@@ -189,6 +189,14 @@
       "note": "R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使うchunk_metaシートの器。EnsureChunkMetaSheetはmodShelfStore.EnsureKnowledgeSheetと同型。R17波1でWriteMetaFromRows(取込からの追記)とRemoveMetaForSource(再取込・削除時の旧行掃除)を追加し、modShelf.IngestFile/DeleteSourceから配線済み。"
     },
     {
+      "name": "modOutlineStore",
+      "path": "src/ingest/modOutlineStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: doc_outlineシート(source/section_key/summary/keywords/chunk_n)のEnsure/一括書込み/全行読み/資料単位の掃除。modChunkMetaStoreと同型。modBoot.HideInternalSheetsへ足せない(残8字)ぶん、veryHiddenはEnsureOutlineSheetが毎回冪等に自己設定する。失敗は全て握ってusage_log(outline_fail)1行に留め、取込も回答も止めない。"
+    },
+    {
       "name": "modShelfVision",
       "path": "src/ingest/modShelfVision.bas",
       "role": "core",

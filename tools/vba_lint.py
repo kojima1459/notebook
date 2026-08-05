@@ -409,6 +409,18 @@ CONTRACT: dict[str, dict] = {
         "required": ["ExtractSectionPath", "ExtractRefs", "MetaOf",
                      "PathHasLabel", "RefLabelsFor", "GraphActive"],
     },
+    # modOutlineStore(2026-08-05 R17 Phase2): doc_outlineシート(source/
+    # section_key/summary/keywords/chunk_n)のEnsure/一括書込み/全行読み/
+    # 資料単位の掃除。modChunkMetaStore と同型で、違いは source 列を自分で
+    # 持つこと=掃除に my_knowledge を引かないので、
+    # RemoveKnowledgeAndVectorsForSource との前後関係の制約が無い。
+    # veryHidden は EnsureOutlineSheet が毎回・冪等に自己設定する
+    # (modBoot.HideInternalSheets は残8字で1行も入らないため。憲章§4-6)。
+    "modOutlineStore": {
+        "closed": True,
+        "required": ["EnsureOutlineSheet", "WriteOutlineRows", "ReadOutline",
+                     "RemoveOutlineForSource"],
+    },
     # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
     # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
     # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
