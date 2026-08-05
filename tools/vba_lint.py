@@ -601,9 +601,18 @@ CONTRACT: dict[str, dict] = {
     #   純ロジックで、modTestsPure15 が真理表で固定する(run_lo_tests.py の
     #   PURE_ALLOWLIST にも登録済み。未登録だとテストが実行時エラー12で走らない)。
     #   PURE_LOGIC_MODULES には載せない(my_knowledge を直接 Range 読みするため)。
+    #   RefsExpand / ArticleEnsure(2026-08-05 R17 Phase1): 物理近傍ではなく
+    #   【意味の上で繋がっているチャンク】を足す2本。RefsExpand は根拠チャンクの
+    #   refs_out を1ホップ展開して同じ資料の中から参照先を束ね(modAskThorough /
+    #   modAskMulti の NeighborExpand 直後から1行ずつ)、ArticleEnsure は質問が
+    #   名指しした条番号のチャンクが1件も無いときだけ先頭へ入れる
+    #   (modAskRetrieve.RunMultiRetrieve から)。config graph_refs のゲートと
+    #   「chunk_meta が無ければ無操作」の判定はこの層に閉じるので、呼び出し元は
+    #   どれも1行のまま=検索の当て方は1文字も変わらない。
     "modAskFocus": {
         "closed": True,
-        "required": ["NeighborExpand", "ParseChunkKey", "NeighborIdList"],
+        "required": ["NeighborExpand", "ParseChunkKey", "NeighborIdList",
+                     "RefsExpand", "ArticleEnsure"],
     },
     "modAskThorough": {
         "closed": True,

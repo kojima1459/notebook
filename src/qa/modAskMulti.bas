@@ -217,6 +217,7 @@ PartsDone:
     ' 材料)は検索ヒットのままにする。近傍は根拠であってヒットではない。
     Dim uUse As Long: uUse = uN
     modAskFocus.NeighborExpand uHits, uUse, modConfig.GetLong("deep_neighbor", 2)
+    modAskFocus.RefsExpand uHits, uUse, 0   ' R17 Phase1: 参照先も同じ束へ(0=既定8件)
 
     Dim body As String
     body = Integrate(q, sections, uHits, uUse, nParts, total, strictG, ansTags, mdl, prevU, prevA)

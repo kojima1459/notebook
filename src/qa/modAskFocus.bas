@@ -59,6 +59,12 @@ Private Const PREVIEW_LEN As Long = 120
 ' (topK=16・radius=2 なら理屈上の最大は64個)。
 Private Const MAX_ADD As Long = 80
 
+' 参照展開(R17 Phase1)で足す既定の件数と、chunk_meta 側から候補として拾う
+' 上限。候補箱は my_knowledge の全行に対して InStr を掛ける材料になるので、
+' 大きくすると1質問あたりの走査量がそのまま伸びる(20,000行×候補箱の長さ)。
+Private Const REFS_ADD_DEFAULT As Long = 8
+Private Const REFS_MAX_CAND As Long = 120
+
 ' ----------------------------------------------------------------------------
 ' NeighborExpand - hits() の各ヒットの前後 radius チャンクを末尾へ足す。
 '   radius <= 0 / ヒット0件 / シートが読めない ときは何もしない(無操作)。
@@ -162,6 +168,299 @@ Private Sub LogZero(ByVal radius As Long, ByVal reason As String)
     modLog.LogUsage "neighbor_zero", "focus", "radius=" & radius & " why=" & reason
     On Error GoTo 0
 End Sub
+
+' ============================================================================
+' R17 Phase1: 構造グラフ(chunk_meta)への合流
+' ----------------------------------------------------------------------------
+' NeighborExpand が「物理的に隣のチャンク」を足すのに対し、ここは
+' 「意味の上で繋がっているチャンク」を足す。規程は第6条の中に答えが無く
+' 「第8条の定めによる」「別表2のとおり」と書いてあることが普通で、
+' 物理近傍だけでは何ページ離れた参照先に永久に届かない(R17設計書§1)。
+'
+' 共通の設計判断:
+'   ・chunk_meta が無い/空(=まだ再取込していない本棚)なら【完全に無操作】。
+'     判定は modChunkMeta.GraphActive 1本に集約する(条件が2箇所に割れると、
+'     片方だけ直したときに古い本棚で実行時エラーが出る)。
+'   ・config graph_refs=off でも無操作。ゲートの読みはこの層に閉じるので、
+'     呼び出し元(modAskThorough/modAskMulti/modAskRetrieve)は1行のまま。
+'   ・LLMは1回も呼ばない。増えるのはワークシート読み1〜2回だけ。
+'   ・足したチャンクの score は 0(NeighborExpand と同じ理由=信頼度バッジを
+'     水増ししない)。ただし ArticleEnsure だけは先頭ヒットと同値にする
+'     (「第5条を出せ」に応えた本命を、おまけ扱いで末尾に置けない)。
+' ============================================================================
+
+' config graph_refs(既定on)。off のときだけ切る。
+Private Function GraphGateOn() As Boolean
+    GraphGateOn = (LCase$(Trim$(modConfig.GetString("graph_refs", "on"))) <> "off")
+End Function
+
+' ----------------------------------------------------------------------------
+' RefsExpand - ヒット群が参照している条文・別表のチャンクを末尾へ足す。
+'   maxAdd <= 0 なら既定 REFS_ADD_DEFAULT(8)。nHits は足したぶんだけ増える。
+'   足す条件は「同じ資料(source)の中で、section_path に参照ラベルを含む」。
+'   資料をまたがない理由: 「第8条」は資料ごとに別の条文で、跨いだ瞬間に
+'   まったく無関係な規程の第8条が根拠として混ざる(出典タグは正しいので
+'   利用者は気付けない=一番危険な外し方)。
+' ----------------------------------------------------------------------------
+Public Sub RefsExpand(ByRef hits() As Hit, ByRef nHits As Long, ByVal maxAdd As Long)
+    If nHits < 1 Then Exit Sub
+    If Not GraphGateOn() Then Exit Sub
+
+    Dim cap As Long: cap = maxAdd
+    If cap < 1 Then cap = REFS_ADD_DEFAULT
+    If cap > MAX_ADD Then cap = MAX_ADD
+
+    On Error GoTo Quiet
+
+    Dim metaIds() As String, metaPaths() As String, metaRefs() As String
+    Dim metaN As Long: metaN = modChunkMetaStore.ReadAllMeta(metaIds, metaPaths, metaRefs)
+    If Not modChunkMeta.GraphActive(metaN, nHits) Then Exit Sub
+
+    ' 1) ヒットの chunk_id(箱)と source(箱)を作る。
+    Dim hitBox As String, srcBox As String
+    Dim i As Long
+    For i = 1 To nHits
+        hitBox = hitBox & vbLf & Trim$(hits(i).chunk_id)
+        Dim sName As String: sName = Trim$(hits(i).source)
+        If LenB(sName) > 0 Then
+            If InStr(1, srcBox, "|" & sName & "|", vbBinaryCompare) = 0 Then
+                srcBox = srcBox & "|" & sName & "|"
+            End If
+        End If
+    Next i
+    hitBox = hitBox & vbLf
+    If LenB(srcBox) = 0 Then Exit Sub
+
+    ' 2) ヒット行の refs_out から参照ラベルを集める(自分自身の条番号は除く)。
+    Dim labLine As String
+    For i = 0 To metaN - 1
+        If InStr(1, hitBox, vbLf & metaIds(i) & vbLf, vbBinaryCompare) > 0 Then
+            labLine = MergeLabels(labLine, modChunkMeta.RefLabelsFor(metaRefs(i), metaPaths(i)))
+        End If
+    Next i
+    If LenB(labLine) = 0 Then
+        LogRefsZero "no_ref"
+        Exit Sub
+    End If
+
+    ' 3) ラベルを含む section_path のチャンクを候補にする(ヒット自身は除く)。
+    Dim labs() As String: labs = Split(labLine, "|")
+    Dim candBox As String
+    Dim candN As Long
+    candN = CollectByLabel(metaIds, metaPaths, metaN, labs, hitBox, candBox)
+    If candN < 1 Then
+        LogRefsZero "no_cand"
+        Exit Sub
+    End If
+
+    ' 4) my_knowledge から候補行を引き、同じ資料のものだけ末尾へ足す。
+    Dim added As Long
+    added = AppendByIds(candBox, srcBox, cap, hits, nHits)
+    If added < 1 Then
+        LogRefsZero "no_row"
+        Exit Sub
+    End If
+
+    On Error Resume Next
+    modLog.LogUsage "refs_expand", "focus", "labels=" & labLine & " added=" & added, 0, nHits
+    On Error GoTo 0
+    Exit Sub
+
+Quiet:
+    Resume RefsDone
+RefsDone:
+    Err.Clear
+    LogRefsZero "err"
+End Sub
+
+' ----------------------------------------------------------------------------
+' ArticleEnsure - 質問が名指しした条番号のチャンクを、必ず材料に入れる。
+'   「第5条の免責は?」に対して dense+sparse が第5条を1件も返さないことは
+'   実際に起きる(条番号は短くて特徴が薄いため)。section_path という
+'   決定的なキーが手元にあるのだから、確率的な検索の後ろで1回だけ確かめる。
+'   ・既に条番号一致のチャンクがヒットに居れば【何もしない】(順位を触らない)。
+'   ・入れる場合は先頭へ最大 maxIns 件。score は先頭ヒットと同値
+'     (0にすると max_context_chars の打ち切りで真っ先に落ちる位置に置く
+'      ことになり、入れた意味が無くなる)。
+'   ・資料は跨いでよい(質問が資料を名指ししていないため。逆に RefsExpand は
+'     跨がない=既に根拠になっている資料の中の話だから)。
+' ----------------------------------------------------------------------------
+Public Sub ArticleEnsure(ByVal query As String, ByRef hits() As Hit, _
+                         ByRef nHits As Long, ByVal maxIns As Long)
+    If nHits < 1 Then Exit Sub
+    If Not GraphGateOn() Then Exit Sub
+
+    Dim cap As Long: cap = maxIns
+    If cap < 1 Then cap = 2
+
+    ' 条番号・別表・様式が1つも無い質問はここで終わり(大多数の質問)。
+    Dim labLine As String: labLine = modChunkMeta.ExtractRefs(query)
+    If LenB(labLine) = 0 Then Exit Sub
+
+    On Error GoTo Quiet2
+
+    Dim metaIds() As String, metaPaths() As String, metaRefs() As String
+    Dim metaN As Long: metaN = modChunkMetaStore.ReadAllMeta(metaIds, metaPaths, metaRefs)
+    If Not modChunkMeta.GraphActive(metaN, nHits) Then Exit Sub
+
+    Dim hitBox As String
+    Dim i As Long
+    For i = 1 To nHits
+        hitBox = hitBox & vbLf & Trim$(hits(i).chunk_id)
+    Next i
+    hitBox = hitBox & vbLf
+
+    ' 一致チャンクが既にヒットに居るか / 居なければ候補は何か、を1周で見る。
+    Dim labs() As String: labs = Split(labLine, "|")
+    Dim candBox As String
+    Dim candN As Long
+    Dim alreadyHit As Boolean
+    For i = 0 To metaN - 1
+        If LenB(metaPaths(i)) > 0 Then
+            If AnyLabelIn(metaPaths(i), labs) Then
+                If InStr(1, hitBox, vbLf & metaIds(i) & vbLf, vbBinaryCompare) > 0 Then
+                    alreadyHit = True
+                    Exit For
+                End If
+                If candN < REFS_MAX_CAND Then
+                    candBox = candBox & vbLf & metaIds(i)
+                    candN = candN + 1
+                End If
+            End If
+        End If
+    Next i
+    If alreadyHit Or candN < 1 Then Exit Sub
+    candBox = candBox & vbLf
+
+    ' 先頭ヒットのスコアを控えてから足す(足した後だと自分自身を読む)。
+    Dim topScore As Double: topScore = hits(1).score
+    Dim baseN As Long: baseN = nHits
+    Dim added As Long
+    added = AppendByIds(candBox, "", cap, hits, nHits)
+    If added < 1 Then Exit Sub
+
+    ' 末尾へ付いた added 件を先頭へ回す(順位は「本命が先」)。
+    Dim tmp() As Hit: ReDim tmp(1 To added)
+    For i = 1 To added
+        tmp(i) = hits(baseN + i)
+        tmp(i).score = topScore
+    Next i
+    For i = baseN To 1 Step -1
+        hits(i + added) = hits(i)
+    Next i
+    For i = 1 To added
+        hits(i) = tmp(i)
+    Next i
+
+    On Error Resume Next
+    modLog.LogUsage "article_ensure", "focus", "labels=" & labLine & " added=" & added, 0, nHits
+    On Error GoTo 0
+    Exit Sub
+
+Quiet2:
+    Resume ArtDone
+ArtDone:
+    Err.Clear
+    LogRefsZero "err_article"
+End Sub
+
+' 参照展開が1件も足せなかった理由を1行残す(NeighborExpand の LogZero と同じ
+' 考え方。効いていない状態が無音で続くのを防ぐ=R16H FA-1 の教訓)。
+Private Sub LogRefsZero(ByVal reason As String)
+    On Error Resume Next
+    modLog.LogUsage "refs_zero", "focus", "why=" & reason
+    On Error GoTo 0
+End Sub
+
+' "|" 区切りのラベル列を重複なしで足し合わせる。
+Private Function MergeLabels(ByVal acc As String, ByVal addLine As String) As String
+    Dim outS As String: outS = acc
+    If LenB(addLine) = 0 Then
+        MergeLabels = outS
+        Exit Function
+    End If
+    Dim arr() As String: arr = Split(addLine, "|")
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        If LenB(arr(i)) > 0 Then
+            If InStr(1, "|" & outS & "|", "|" & arr(i) & "|", vbBinaryCompare) = 0 Then
+                If LenB(outS) > 0 Then outS = outS & "|"
+                outS = outS & arr(i)
+            End If
+        End If
+    Next i
+    MergeLabels = outS
+End Function
+
+' section_path がラベル列のどれかを含むか。
+Private Function AnyLabelIn(ByVal sectionPath As String, ByRef labs() As String) As Boolean
+    Dim i As Long
+    For i = LBound(labs) To UBound(labs)
+        If modChunkMeta.PathHasLabel(sectionPath, labs(i)) Then
+            AnyLabelIn = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+' chunk_meta を1周し、ラベルに当たる chunk_id を候補箱(vbLf区切り)へ集める。
+' ヒット自身は除く(既に材料になっている)。戻り値=候補件数。
+Private Function CollectByLabel(ByRef metaIds() As String, ByRef metaPaths() As String, _
+                                ByVal metaN As Long, ByRef labs() As String, _
+                                ByVal hitBox As String, ByRef outBox As String) As Long
+    Dim n As Long
+    Dim i As Long
+    For i = 0 To metaN - 1
+        If LenB(metaPaths(i)) > 0 Then
+            If InStr(1, hitBox, vbLf & metaIds(i) & vbLf, vbBinaryCompare) = 0 Then
+                If AnyLabelIn(metaPaths(i), labs) Then
+                    outBox = outBox & vbLf & metaIds(i)
+                    n = n + 1
+                    If n >= REFS_MAX_CAND Then Exit For
+                End If
+            End If
+        End If
+    Next i
+    If n > 0 Then outBox = outBox & vbLf
+    CollectByLabel = n
+End Function
+
+' 候補箱の chunk_id を my_knowledge から引いて hits の末尾へ足す。
+' srcBox が空でなければ、その資料(source)の行だけを採る。戻り値=足した件数。
+' 読み方は NeighborExpand と同じ「chunk_id列とsource列を1回だけRange読み」。
+Private Function AppendByIds(ByVal candBox As String, ByVal srcBox As String, _
+                             ByVal cap As Long, ByRef hits() As Hit, _
+                             ByRef nHits As Long) As Long
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
+    If ws Is Nothing Then Exit Function
+
+    Dim lastK As Long
+    lastK = ws.Cells(ws.Rows.count, COL_ID).End(xlUp).row
+    If lastK < 3 Then Exit Function
+
+    Dim idData As Variant
+    idData = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastK, COL_SOURCE)).Value
+
+    Dim added As Long
+    Dim i As Long
+    For i = LBound(idData, 1) To UBound(idData, 1)
+        If added >= cap Then Exit For
+        Dim id As String: id = Trim$(CStr(idData(i, COL_ID)))
+        Dim src As String: src = Trim$(CStr(idData(i, COL_SOURCE)))
+        If LenB(id) > 0 And LenB(src) > 0 Then
+            If InStr(1, candBox, vbLf & id & vbLf, vbBinaryCompare) > 0 Then
+                If LenB(srcBox) = 0 Or InStr(1, srcBox, "|" & src & "|", vbBinaryCompare) > 0 Then
+                    ReDim Preserve hits(1 To nHits + 1)
+                    nHits = nHits + 1
+                    added = added + 1
+                    FillHitFromRow ws, i + 1, hits(nHits)   ' idData は2行目起点
+                End If
+            End If
+        End If
+    Next i
+    AppendByIds = added
+End Function
 
 ' ============================================================================
 ' 純ロジック(LibreOfficeの実行テストで固定する)

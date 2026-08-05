@@ -153,13 +153,19 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
             hits(oi) = poolHits(oi)
         End If
     Next oi
+    ' R17 Phase1: 質問が名指しした条番号(第5条/別表2 等)のチャンクが1件も
+    ' 入っていなければ、chunk_meta から引いて先頭へ入れる(最大2件)。検索の
+    ' 当て方は変えず、決定的なキーで最後に1回だけ確かめるだけ。
+    modAskFocus.ArticleEnsure q, hits, outN, 2
     RunMultiRetrieve = outN
     Exit Function
 
 FallbackSingle:
     Err.Clear
     On Error GoTo 0
-    RunMultiRetrieve = modRetrieve.Search(q, topK, hits, scopeSources)
+    outN = modRetrieve.Search(q, topK, hits, scopeSources)
+    modAskFocus.ArticleEnsure q, hits, outN, 2
+    RunMultiRetrieve = outN
 End Function
 
 ' ----------------------------------------------------------------------------

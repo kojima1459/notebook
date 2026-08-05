@@ -87,6 +87,10 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     ' ないので、検索結果の件数として数えると信頼度バッジが水増しされる。
     Dim nUse As Long: nUse = nHits
     modAskFocus.NeighborExpand hits, nUse, modConfig.GetLong("deep_neighbor", 2)
+    ' R17 Phase1: 物理近傍のあとに【参照先】も束ねる(「第6条を読むなら、6条が
+    ' 参照する第8条と別表2も同じ束で読む」)。deep_neighbor=0(精読off)でも
+    ' 効かせる=別の軸の機能で、config graph_refs でだけ切れる。
+    modAskFocus.RefsExpand hits, nUse, 0    ' 0=既定(最大8件)
 
     ' --- (2) 資料の要点整理 -------------------------------------------------
     modAskRetrieve.ShowAskStage "digest"
