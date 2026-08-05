@@ -421,6 +421,19 @@ CONTRACT: dict[str, dict] = {
         "required": ["EnsureOutlineSheet", "WriteOutlineRows", "ReadOutline",
                      "RemoveOutlineForSource"],
     },
+    # modOutlineBuild(2026-08-05 R17 Phase2): 取込時の章単位要約。
+    # BuildOutlineFor: 1資料ぶんの章要約を作って doc_outline へ保存する唯一の
+    #   入口。config graph_outline=off / chunk_meta 0行 / 章キーが取れない
+    #   なら完全に無操作(LLMも呼ばない)。中断は章の境界で拾い、そこまでの章を
+    #   保存して正常終了する。失敗章は「(要約失敗)」の行として保存し続行。
+    # ChapterKeyOf / BudgetTake: 章グルーピングキーと本文の打ち切りの純ロジック。
+    #   PURE_LOGIC_MODULES には載せない(シートI/O・CallLLM を持つため)が、
+    #   run_lo_tests の PURE_ALLOWLIST へは載せてこの2本だけ実行テストで固定する
+    #   (modAskFocus/modAskMulti と同じ型)。
+    "modOutlineBuild": {
+        "closed": True,
+        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake"],
+    },
     # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
     # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
     # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
@@ -515,10 +528,15 @@ CONTRACT: dict[str, dict] = {
         #   複合シグナル検知(？の2個以上出現/。区切りの非空節2個以上)。LLM応答の
         #   パースではないが「質問文の中身を見る文字列パターン検知」という性質は
         #   ParseChoiceNumbers等と同じで、modMode(モード名だけを見る)には置けない。
+        # ParseOutlineResp/ParseChapterPick(2026-08-05 R17 Phase2): 章単位要約の
+        #   応答パーサ。<summary>/<keywords> は取込時(章ごとに1回)、<pick> は
+        #   俯瞰質問の章選択(質問ごとに1回)。どちらも読めなければ「その章は
+        #   要約失敗」「章は選ばれなかった=従来フローへ」へ寛容退化する。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
                      "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
                      "ParseDecomposeVerdict", "ParseParts",
-                     "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal"],
+                     "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal",
+                     "ParseOutlineResp", "ParseChapterPick"],
     },
     "modAsk": {
         "closed": True,

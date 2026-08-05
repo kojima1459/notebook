@@ -589,6 +589,20 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
             ' mock で R16-3系(分解・番号選択肢)が発火しないことを、明示的に
             ' 固定しておく(docs/20 §3-1 にも1行記載)。
             MockLLMResponse = "<verdict>single</verdict>"
+        Case "chapter_summary"
+            ' R17 Phase2: 取込時の章単位要約。Case Else の汎用ダミーはタグを
+            ' 含まないため、パーサ(modRagParse.ParseOutlineResp)が読めず
+            ' 【全章が「(要約失敗)」で保存される】=mockでは doc_outline の
+            ' 中身を一度も確認できない。R16H FB-2(decompose)と同じ理由で明示する。
+            MockLLMResponse = "<summary>(モック章要約)この章の要点をここに200～300字で書きます。" & _
+                "mock_llm=TRUE のためダミーです。</summary>" & vbLf & _
+                "<keywords>キーワードA|キーワードB</keywords>"
+        Case "chapter_pick"
+            ' R17 Phase2: 俯瞰質問の章選択。空=0章選択で、modAskGlobal は
+            ' False を返して従来の入念フローへ落ちる。mock で「章をまたぐ
+            ' 回答」を作らないことを明示的に固定する(章の本文が無いまま
+            ' もっともらしい俯瞰回答が出ると、mockと実機の差が一番危ない)。
+            MockLLMResponse = "<pick></pick>"
         Case "diff"
             MockLLMResponse = "【モック差分分析】" & vbLf & _
                 "・新旧資料を比較しました [本棚:旧版.pdf p.1] → [本棚:新版.pdf p.1]" & vbLf & _

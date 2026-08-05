@@ -10,6 +10,10 @@ Option Explicit
 ' タグ照合はすべて大文字小文字無視。
 ' ============================================================================
 
+' 俯瞰質問(R17 Phase2)で選べる章数の絶対上限。ParseChapterPick が maxN を
+' この値へ丸める(理由は同関数の注記)。
+Private Const PICK_HARD_MAX As Long = 4
+
 ' ----------------------------------------------------------------------------
 ' "#ERR:…" 応答の判定と文言化(2026-08-03 R14-G1: modAsk から移設)
 ' ----------------------------------------------------------------------------
@@ -157,6 +161,96 @@ Public Function ParseOptions(ByVal resp As String, ByVal maxN As Long, _
     On Error GoTo 0
     If n < 0 Then n = 0
     ParseOptions = n
+End Function
+
+' ----------------------------------------------------------------------------
+' 章単位要約(2026-08-05 R17 Phase2)。取込時と俯瞰質問の2つの応答パーサ。
+'   出力契約(章要約): <summary>200〜300字の要約</summary>
+'                     <keywords>語1|語2|語3</keywords>
+'   出力契約(章選択): <pick>資料名::章キー|資料名::章キー</pick>
+'
+' ParseOutlineResp - 章要約の応答を summary / keywords へ。
+'   True  = summary が1字以上読めた(keywords は空でもよい)。
+'   False = "#ERR:" / <summary>タグ欠落 / 中身が空。呼び出し元
+'           (modOutlineBuild)はその章を「(要約失敗)」として保存し、次の章へ
+'           進む。1章の失敗で254頁ぶんの要約を捨てないための寛容退化で、
+'           黙って行ごと落とさないのは「聞いたのに答えが無い章」に
+'           気付けなくなるため(憲章§3-3)。
+'   keywords は "|" 区切りへ正規化する(LLMは読点やカンマで返すことがある)。
+'   検索に使うのは章の選択段だけなので、多すぎる語は落として上限8語にする。
+' ----------------------------------------------------------------------------
+Public Function ParseOutlineResp(ByVal resp As String, ByRef outSummary As String, _
+                                 ByRef outKeywords As String) As Boolean
+    outSummary = ""
+    outKeywords = ""
+    If IsErrorResponse(resp) Then Exit Function
+
+    Dim s As String: s = Trim$(TagInner(resp, "summary"))
+    If LenB(s) = 0 Then Exit Function
+
+    outSummary = s
+    outKeywords = NormalizeKeywordLine(TagInner(resp, "keywords"))
+    ParseOutlineResp = True
+End Function
+
+' "a、b, c|d" のような列を "a|b|c|d" へ寄せる(空要素除去・上限8語)。
+Private Function NormalizeKeywordLine(ByVal s As String) As String
+    Dim t As String: t = Trim$(s)
+    If LenB(t) = 0 Then Exit Function
+    t = Replace(t, ChrW(&H3001), "|")     ' 読点
+    t = Replace(t, ChrW(&HFF0C), "|")     ' 全角カンマ
+    t = Replace(t, ",", "|")
+
+    Dim arr() As String: arr = Split(t, "|")
+    Dim outS As String
+    Dim cnt As Long
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        Dim piece As String: piece = Trim$(arr(i))
+        If LenB(piece) > 0 And cnt < 8 Then
+            If LenB(outS) > 0 Then outS = outS & "|"
+            outS = outS & piece
+            cnt = cnt + 1
+        End If
+    Next i
+    NormalizeKeywordLine = outS
+End Function
+
+' ----------------------------------------------------------------------------
+' ParseChapterPick - <pick>資料名::章キー|…</pick> を選択章の配列へ。
+'   戻り値=有効件数(0=1章も選ばれなかった=俯瞰は不発→従来フローへ落ちる)。
+'   "::" を含まない要素は捨てる: 資料名か章キーのどちらかが欠けた指定は、
+'   別の資料の同じ章名に当たり得る(「第1章 総則」はどの規程にもある)。
+'   maxN は 1..PICK_HARD_MAX(4)へ丸める。4を上限にするのは、選んだ章の本文を
+'   1回のプロンプトへ全部載せるため(章が増えるほど1章あたりの取り分が減り、
+'   どの章も途中で切れた抜粋になる=俯瞰したのに何も読めていない状態になる)。
+' ----------------------------------------------------------------------------
+Public Function ParseChapterPick(ByVal resp As String, ByVal maxN As Long, _
+                                 ByRef picks() As String) As Long
+    Dim lim As Long: lim = maxN
+    If lim < 1 Then lim = PICK_HARD_MAX
+    If lim > PICK_HARD_MAX Then lim = PICK_HARD_MAX
+
+    picks = ParseSubqueries(TagInner(resp, "pick"), lim)
+
+    Dim n As Long
+    On Error Resume Next
+    n = UBound(picks) - LBound(picks) + 1
+    On Error GoTo 0
+    If n < 1 Then Exit Function
+
+    Dim lo As Long: lo = LBound(picks)
+    Dim k As Long: k = 0
+    Dim i As Long
+    For i = lo To lo + n - 1
+        Dim t As String: t = Trim$(picks(i))
+        Dim p As Long: p = InStr(t, "::")
+        If p > 1 And p + 2 <= Len(t) Then
+            picks(lo + k) = t
+            k = k + 1
+        End If
+    Next i
+    ParseChapterPick = k
 End Function
 
 ' ----------------------------------------------------------------------------

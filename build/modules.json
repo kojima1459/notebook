@@ -197,6 +197,14 @@
       "note": "R17 Phase2: doc_outlineシート(source/section_key/summary/keywords/chunk_n)のEnsure/一括書込み/全行読み/資料単位の掃除。modChunkMetaStoreと同型。modBoot.HideInternalSheetsへ足せない(残8字)ぶん、veryHiddenはEnsureOutlineSheetが毎回冪等に自己設定する。失敗は全て握ってusage_log(outline_fail)1行に留め、取込も回答も止めない。"
     },
     {
+      "name": "modOutlineBuild",
+      "path": "src/ingest/modOutlineBuild.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: 取込時の章単位要約。section_pathの第1要素(ChapterKeyOf)で章に束ね、章ごとにCallLLM(step=chapter_summary)で200〜300字要約+キーワードを作りdoc_outlineへ保存する。R15の枠組み(CancelRequested/StageBanner/BlendPerItemMsのETA/SaveCheckpoint throttle120)に乗せ、中断時は途中章まで保存して正常終了。1章の本文はmax_context_charsで打ち切り(BudgetTake)、失敗章は「(要約失敗)」の行として保存して続行。ゲート(config graph_outline)も失敗握りもこの層に閉じるので呼び出し元(modShelf.IngestFile)は1行。プロンプトはmodPrompts残386字のため本モジュールのPrivate。"
+    },
+    {
       "name": "modShelfVision",
       "path": "src/ingest/modShelfVision.bas",
       "role": "core",
