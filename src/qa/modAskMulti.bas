@@ -85,6 +85,7 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     ' clarify は本波では single と同じ扱い(逆質問の配線は R16-3B=波3)。
     If verdict <> "parts" Then Exit Function
     If nParts < PARTS_MIN Then Exit Function
+    mParts = nParts        ' ここから先は必ず分解ターン(中断・全滅でも dec= を残す)
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
@@ -101,7 +102,7 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     Dim okN As Long: okN = 0
     Dim lastErr As String
     Dim aborted As Boolean
-    Dim abortAt As Long
+    Dim missingAt As Long
     Dim bodyI As String
     Dim i As Long
 
@@ -121,7 +122,6 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
 PartFail:
     If Err.Number = 18 Then
         aborted = True
-        abortAt = i
         Err.Clear
         Resume PartsDone
     End If
@@ -152,11 +152,16 @@ PartsDone:
         Exit Function
     End If
 
+    ' 節を並べつつ、中断で節そのものが作れなかった最初の論点を控えておく。
+    ' 中断した番号(i)をそのまま使うと、節が出来た直後に中断されたときに1つずれて
+    ' 「調べてある論点を未調査と言う」ことになる。本文に出ていない論点だけを言う。
     Dim sections As String
     For i = 1 To nParts
         If LenB(sect(i)) > 0 Then
             If LenB(sections) > 0 Then sections = sections & vbLf & vbLf
             sections = sections & sect(i)
+        ElseIf missingAt = 0 Then
+            missingAt = i
         End If
     Next i
 
@@ -166,8 +171,8 @@ PartsDone:
     ' 出典突合は全論点ぶんの索引で1回だけ(理由はモジュール冒頭の設計判断)。
     body = modAskThorough.AnnotateAgainstHits(body, uHits, uN)
 
-    If aborted Then
-        body = body & vbLf & vbLf & "※中断されたため論点" & abortAt & "以降は未調査です"
+    If aborted And missingAt > 0 Then
+        body = body & vbLf & vbLf & "※中断されたため論点" & missingAt & "以降は未調査です"
     End If
 
     On Error Resume Next
@@ -179,7 +184,6 @@ PartsDone:
     nHits = uN
     result = body
     ok = True
-    mParts = nParts
     mHandled = True
     TryDecomposed = True
 End Function
@@ -330,9 +334,12 @@ Private Function OnePart(ByVal q As String, ByVal part As String, ByVal idx As L
     Dim n As Long
     n = modAskRetrieve.RunMultiRetrieve(part, MODE_THOROUGH, topKPer, pHits, Nothing, 0, True)
     If n < 1 Then
+        ' -1 = 埋め込み失敗(E0203)。全論点で同じ理由で落ちたときに E0202(API失敗)
+        ' の案内へ丸めると、直す手順が違う障害を同じ文面で案内することになる。
+        If n = -1 Then lastErr = "#ERR:E0203:埋め込みに失敗しました"
         On Error Resume Next
         modLog.LogUsage "multi_part_nohit", MODE_THOROUGH, _
-            "n=" & idx & " q=" & modUtil.SafeLeft(part, 80)
+            "n=" & idx & " ret=" & n & " q=" & modUtil.SafeLeft(part, 80)
         On Error GoTo 0
         Exit Function
     End If
