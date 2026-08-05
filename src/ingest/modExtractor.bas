@@ -218,7 +218,17 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         ' modShelfVision のOCR経路へ回す。それ以外は従来どおりE0302。
         If LenB(pdfRouteCode) > 0 Then errCode = pdfRouteCode
         errDetail = adapterErr & " [" & copyNote & "]"
-        modLog.LogError errCode, "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
+        ' R18-10(是正・実機第5報): 実機のerr_logに赤字で並んでいたのはこの
+        ' 「gs_image:」経路(GSが文字層ゼロと即断して画像PDFと分類した)で、
+        ' thin:経路と同じく【失敗ではない】(OCRフォールバックへ回すだけの
+        ' 正常な分類)。usage_logへ格下げする。3経路全滅の allfail: は
+        ' Word/Acrobatまで失敗した本物の失敗なのでerr_logのまま。
+        If Left$(adapterErr, 9) = "gs_image:" Then
+            modLog.LogUsage "image_pdf_detected", "", _
+                modUtil.SafeLeft("gs_image: " & modUtil.FileNameOf(path), 120)
+        Else
+            modLog.LogError errCode, "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
+        End If
         ExtractFile = False
         Exit Function
     End If
