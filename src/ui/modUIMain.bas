@@ -109,8 +109,7 @@ Public Sub EnsureLayout()
     ws.Cells.Clear
 
     uiStep = "既定フォント設定"
-    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
-    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeを膨張させる(agent2 §1.3)。
     ws.Range("A1:I40").Font.Name = "游ゴシック"
     ws.Range("A1:I40").Font.Size = 11
 
