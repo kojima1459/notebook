@@ -135,7 +135,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
 | ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
 | vision_pdf_max_pages | 300 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。20ページずつ画像化→OCR→画像削除を繰り返す。超過は打ち切りpartial。R14-4bで20→100、R15-7aで100→300。ハード上限 optOcrCore.PAGES_MAX も 200→300) |
-| ocr_confirm_min_minutes | 15 | 画像PDFのOCRがこの分数以上かかる見込みのとき、取込前に確認ダイアログを出す(R15-7b)。見積もり=これから読むページ数×1ページあたりの実測(modState `ocr_avg_page_ms`。無ければ25秒/ページ)。前回の続きから復元できるページは数えない。0以下=確認しない。無人経路(silent同期)では出さない |
+| ocr_confirm_min_minutes | 5 | 画像PDFのOCRがこの分数以上かかる見込みのとき、取込前に確認ダイアログを出す(R15-7b。R18-1fで15→5=24頁8〜10分級でも確認と作業用Excel導線が出るように)。「はい」の直後に2段目「先に作業用Excelを開いてから開始しますか?」を出す(R18-1f)。見積もり=これから読むページ数×1ページあたりの実測(modState `ocr_avg_page_ms`。無ければ25秒/ページ)。前回の続きから復元できるページは数えない。0以下=確認しない。無人経路(silent同期)では出さない |
 | vision_pdf_dpi | 150 | 画像PDFのページ画像化の解像度(公式帳票OCR版と同値。300は約2倍重い) |
 | vision_pdf_timeout_sec | 120 | GS処理の**無進捗許容秒数(アイドル上限)**。進捗が観測できる場合はページが進む限り待ち続け、進まなくなってからこの秒数で失敗にする(R13-1cで意味変更) |
 | gs_abs_timeout_sec | 1200 | GS待ちの**絶対上限**(秒)。進んでいても必ずここで打ち切り、1資料でExcelが何十分も戻らない事態を防ぐ(R13-1c)。**画像PDFのOCR経路(optOcrPage)のGS待ちはこの絶対上限だけを使い、20ページずつのバッチ全体で1資料あたりの累計として消費する**(各バッチには残り時間だけを渡し、最低10秒。使い切ったら中断としてpartialにする。R14-F6)。R15-7c: OCR経路に限り、総ページ数が判明していれば予算は `max(gs_abs_timeout_sec, 総ページ数×8秒)` へ自動で伸びる(254頁を13バッチ描くのに1200秒では後半が必ず時間切れになるため。他経路のこの設定の使い方は変えない) |
@@ -543,6 +543,16 @@ Public Sub Auto_Close()' CancelAutoSync(必須!)+Application.StatusBar=False
 ThisWorkbook.cls は Workbook_Open→Boot / Workbook_BeforeClose→Auto_Close の薄い転送のみ
 (ビルド版ではインストーラがThisWorkbookを占有するため、実行時はAuto_Open/Auto_Closeが本命。両方書く=V2実証済み二重化)。
 
+**重要(2026-08-05 R18-1g・調査agent0で事実確認)**: `Workbook_BeforeClose` は
+**開発構成にしか存在しない**。本番(prod)ビルドは自己インストーラが ThisWorkbook
+ストリームを占有し `Workbook_Open` しか持たない(build/build_mybookshelf.py:1002-1010、
+build/modules.json に明記)。`modBoot.Auto_Close` には Cancel 引数が無く閉鎖を止められない。
+したがって **R11 C1 / R13-4d の「取込中の終了禁止ガード」(modUiLock.ConfirmCloseDuringIngest)は
+本番では動いていない**。実機で×が効かないのはこのガードの働きではなく、
+`DisableProcessWindowsGhosting`(config freeze_keep_banner 既定on)により
+「応答なし」中の代行ウィンドウが作られないため(§本節の既知の制約)。
+本番で保護されているのは🚪終了ボタン経路だけ。恒久対策は次期(HANDOFF 次期課題)。
+
 ### 7.7 opt層(全モジュール共通契約)
 
 - 必ず `Public Function Ping() As Boolean`(True返すだけ)を持つ
@@ -692,7 +702,8 @@ modPrompts(出典形式・打ち切り)、manifest差分ロジック(modShelfSyn
 取込: 空ファイル/0字抽出/1文字/巨大(300p打切→partial表示)/画像PDF/開けない(ロック)/対応外拡張子/
 日本語・スペース・長いパス/同名ファイル再取込(置換)/別フォルダの同名別ファイル(E0504で明示エラー・削除しない。Wave4追加)/
 同一内容別名(ハッシュでスキップ)/上限5000超/
-取込中にESC/取込中にもう一度ボタン(再入guard)/embedded=0が残った状態でExcel強制終了→次回同期で再開。
+取込中にESC/取込中にもう一度ボタン(再入guard)/embedded=0が残った状態でExcel強制終了→次回同期で再開/
+取込中に×で閉じる(**本番はBeforeCloseが無いため無防備**。R18-1g・上記§7.6の注記)。
 同期: フォルダ未設定で同期ボタン/フォルダ削除・リネーム(E0502+missing)/ファイル差替え(更新日時2秒差)/
 OneDriveオフライン(プレースホルダ: Dir()で見えるがOpenで失敗→E0302でfailed記録・次回再試行)/
 自動同期中にユーザーが質問実行(guardで同期側をスキップ)。

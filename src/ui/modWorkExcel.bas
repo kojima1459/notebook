@@ -70,6 +70,21 @@ Public Sub OnOpenWorkExcel()
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' OpenWorkExcelNow - デバウンスを通さない起動口(2026-08-05 R18-1f)。
+'   取込前確認の2段目(modShelfVision.OfferWorkExcel)から呼ばれる。人が
+'   モーダルへ「はい」と答えた直後の1回きりで、連打は構造的に起きない。
+'   逆にデバウンスを通すと、直前にバナー内のボタンを押していた人だけが
+'   2秒の壁で黙って無視される(押したのに何も起きない=憲章§3-1)。
+'   失敗しても MsgBox は出さない(quietFail:=True。取込ループの直前で
+'   モーダルを重ねない)。記録は DoOpenWorkExcel 側の E0904 が残す。
+' ----------------------------------------------------------------------------
+Public Sub OpenWorkExcelNow()
+    On Error Resume Next
+    DoOpenWorkExcel True
+    On Error GoTo 0
+End Sub
+
 ' 2秒デバウンス。前回の成功呼び出しから2秒以上経っていたときだけTrueを返し、
 ' 同時に基準時刻を今に更新する。待ちループはしない(瞬時判定)。
 Private Function Debounced() As Boolean

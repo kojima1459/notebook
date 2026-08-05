@@ -197,6 +197,14 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
      (kill不能はOCR側は従来どおり)/ThinExtract のページ数は maxPages
      打ち切り後の値/OnSend弱音キーワード経路はarmed維持/本番ビルドの
      ×ボタン終了は無防備のまま(BeforeCloseはdev構成のみ。終了ボタン側のみ保護)
+   - **R18-1gで事実を確定・次期課題化(2026-08-05)**: 上記の「BeforeCloseはdev
+     構成のみ」を調査agent0がfile:lineで裏取りした(build_mybookshelf.py:1002-1010
+     が Workbook_Open だけを書き込む/Auto_Close に Cancel 引数が無い)。
+     **「取込中終了禁止ガードは開発構成のみ」**を MASTER_SPEC §7.6 に明記した。
+     実機で×・最小化が効かないのはガードではなく DisableProcessWindowsGhosting の
+     副作用。本番でも取込中の終了を守る手段(インストーラ側で BeforeClose を
+     注入する/Application.OnKey で退避する等)の設計は**次期**に回す(R18では
+     事実の記録のみ。修正はしない=仕様どおり)。
    - **FindKeyRow裁定前提の更新(2026-08-01 R12-5-11)**: spec_20260731_R11
      §9「FindKeyRow線形探索(103キーでms級)」は modConfig.FindKeyRow
      (config = 103キーで固定・安定)の前提であり、modStats.FindKeyRowには

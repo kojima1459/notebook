@@ -233,7 +233,14 @@ Private Function DeclinedByUser(ByVal path As String, ByRef outNote As String) A
     ' 全部止まる】のに、ダイアログは裏に隠れて気付けない。最前面へ出して
     ' 放置される時間を短くする(モーダルである以上、止まること自体は避け
     ' られない=裁定「記録のみ」)。
-    If MsgBox(ask, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then Exit Function
+    If MsgBox(ask, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then
+        ' R18-1f: 「はい」の直後にもう一段だけ聞く。1段目の文中で作業用Excelに
+        ' 触れてはいるが、実機第5報①の利用者は【取込が始まってから】操作
+        ' できないことに気付いており、そのときバナー内のボタンは遮蔽で押せ
+        ' なかった。取込が始まる前のこの1点だけが、確実に導線を渡せる場所。
+        OfferWorkExcel
+        Exit Function
+    End If
 
     outNote = ResultToText(modFeatures.InvokeFeature(VISION_FEATURE, "OcrDeclineMemo", Array()))
     ' R15-FixB(FB-5): 予備の文面も【必ず】同じ先頭句で始める。ここだけ違う
@@ -251,6 +258,35 @@ AskFailed:
     ' (outNote が入っているのは見送りが決まったときだけ)。
     DeclinedByUser = (LenB(outNote) > 0)
 End Function
+
+' ----------------------------------------------------------------------------
+' OfferWorkExcel - 取込を始める直前の2段目確認(2026-08-05 R18-1f)。
+' ----------------------------------------------------------------------------
+' 「はい」で作業用Excel(別プロセスの excel.exe /x)を先に開いてから取込へ入る。
+' 「いいえ」はそのまま続行する(どちらを選んでも取込は必ず始まる=この
+' ダイアログで取込が止まることはない)。文言は BMP の文字だけで書く: 非BMPの
+' 絵文字は CP932 実行文への変換で化け、ダイアログでは化けたまま利用者に届く
+' (実機第5報⑤)。ここでは「作業用Excel」と名前で呼ぶ。
+' modWorkExcel は UI層で、ここは取込層。R1(下位層→上位層の禁止)の例外として
+' tools/vba_lint.py の R1_WORKEXCEL_ALLOWED_MODULES に理由つきで登録してある
+' (起動するだけ・戻り値なし・業務ロジックを一切呼び返さない通知コールバック)。
+' デバウンスは通さない(OpenWorkExcelNow)。ここは連打の起きないモーダル直後で、
+' 直前に利用者が自分でボタンを押していた場合に2秒の壁で無視されると
+' 「はいを押したのに何も起きない」になる(憲章§3-1)。
+' 表示・起動の失敗が取込を壊してはならないので全体を OERN で包む(§4-4)。
+Private Sub OfferWorkExcel()
+    On Error Resume Next
+    Dim msg As String
+    msg = "先に作業用Excelを開いてから開始しますか?" & vbLf & _
+          "(取込中はこのExcelを操作できません)" & vbLf & vbLf & _
+          "[はい] 別のExcelを開いてから取り込みます" & vbLf & _
+          "[いいえ] このまま取り込みます"
+    If MsgBox(msg, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then
+        modWorkExcel.OpenWorkExcelNow
+        modLog.LogUsage "work_excel_preopen", "", "取込前確認から作業用Excelを起動しました"
+    End If
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' OcrCapNote - 読み取りが打ち切られたときの正直なメモ(R14-4c / R14-F2/F7)。

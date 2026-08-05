@@ -380,7 +380,9 @@ Private Sub TestOcrConfirmEstimate()
         (optOcrEta.OcrEstMinutes(120, 10000#) = 20), _
         "実際=" & optOcrEta.OcrEstMinutes(120, 10000#)
 
-    ' ocr_confirm_min_minutes(既定15)の境界。ちょうどは【聞く】。
+    ' ocr_confirm_min_minutes の境界。ちょうどは【聞く】。
+    ' 既定は5(2026-08-05 R18-1f で15→5)だが、ここは純関数の境界検査なので
+    ' しきい値は引数で15を渡す(configの既定値とは独立)。
     modTestRunner.Check "確認_見積14分は聞かない(15分未満)", _
         (LenB(optOcrEta.OcrConfirmAskFor(30, 14, 15)) = 0)
     modTestRunner.Check "確認_見積ちょうど15分は聞く", _

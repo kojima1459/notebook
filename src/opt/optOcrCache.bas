@@ -359,9 +359,11 @@ End Function
 ' 内部ヘルパー
 ' ----------------------------------------------------------------------------
 
-' config ocr_confirm_min_minutes(既定15分。0以下=確認しない)。
+' config ocr_confirm_min_minutes(既定5分。0以下=確認しない)。
+' 2026-08-05(R18-1f): 15→5。configシートに値が無い端末でも build_config_rows の
+' 既定と同じ数字になるようにする(2箇所に別の既定を置かない)。
 Private Function ConfirmMinMinutes() As Long
-    ConfirmMinMinutes = modConfig.GetLong("ocr_confirm_min_minutes", 15)
+    ConfirmMinMinutes = modConfig.GetLong("ocr_confirm_min_minutes", 5)
 End Function
 
 Private Sub ResetDoc()

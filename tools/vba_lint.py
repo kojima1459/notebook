@@ -1305,6 +1305,16 @@ R1_UILOCK_ALLOWED_MODULES = {"modShelfSync"}
 # 生やさない)。modShelfSync/AddFilesResult はその1本を経由して出す。
 R1_PROGRESS_ALLOWED_MODULES = {"modShelfBatch"}
 
+# R1例外(取込前確認からの作業用Excel起動。2026-08-05 R18-1f)。
+# modWorkExcel.OpenWorkExcelNow は WScript.Shell で別プロセスの excel.exe /x を
+# 起動するだけで、引数も戻り値も無く、業務ロジックを一切呼び返さない
+# (性質は既存例外の ShowProgress/PaintProgress と同じ「通知して終わり」)。
+# 呼べる場所は取込前確認の2段目だけに限る: この確認は「取込中このExcelは
+# 操作できない」と伝えた直後の1点で、そこ以外から取込層がUIのプロセス起動を
+# 始めてよい理由は無い。広げるときは必ずここへ足す=どのモジュールが別Excelを
+# 開けるかが1箇所で分かる状態を保つ。
+R1_WORKEXCEL_ALLOWED_MODULES = {"modShelfVision"}
+
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
 
@@ -2562,6 +2572,13 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     if (cur_layer == LAYER_MID
                             and (prefix, member) == ("modProgressBar", "PaintProgress")
                             and self_name in R1_PROGRESS_ALLOWED_MODULES):
+                        continue
+                    # OpenWorkExcelNow(2026-08-05 R18-1f): 取込前確認の2段目から
+                    # 作業用Excelを先に開く。理由は R1_WORKEXCEL_ALLOWED_MODULES の
+                    # 注記を参照。
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modWorkExcel", "OpenWorkExcelNow")
+                            and self_name in R1_WORKEXCEL_ALLOWED_MODULES):
                         continue
                     info.add(
                         "ERROR", lineno,
