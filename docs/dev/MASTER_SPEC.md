@@ -163,9 +163,26 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
   my_knowledge(keywords列)から用語候補を集め(重複排除・最大200語)、
   `CallLLM(step="name_dedup")` で表記ゆれグループを1回取得して追記する。
   出力契約は `<syn>表記>正規形|表記>正規形</syn>`(`modRagParse.ParseSynResp`)。
-  **既存termは上書き**: `ReadMapCsv` で読んだ既存分から新規termと重なる行を
-  除き、`RemoveAll` してから全件を書き直す(1つの表に追記と上書きの2つの
-  書き方を混在させない)。
+- **前提となる配線(2026-08-05 R17H FB-4 / A-M6・記録+説明)**: 名寄せは
+  【章要約の配線に相乗りしている】。`BuildSynonymsFor` の呼び出し口は
+  `BuildOutlineFor` の末尾1箇所だけで、そこへ到達するには chunk_meta が
+  非0行で、かつ章キー(`ChapterKeyOf`)が1つ以上取れる必要がある。したがって
+  **`graph_outline=off` の本棚と、章・条の見出しが取れない資料では
+  `graph_synonyms=on` でも synonyms は1行も増えない**。config の説明文
+  (`build_config_rows`)にも同じ事実を書いてある。配線の分離
+  (`modShelf.IngestFile` の Finish から直接呼ぶ)は modShelf 凍結解除後の次期。
+- **既存termは上書き**: マージ規則の唯一の持ち主は純関数
+  `modRagParse.MergeSynPairs(oldCsv, newCsv)`(2026-08-05 R17H FA-1 / A-H1)。
+  新CSVと term が重なる旧行を落とし、残った旧行を元の順序のまま先に、その
+  あとへ新行を並べる(順序安定・大小無視・同じtermは先勝ち・`">"`無しや
+  どちらかが空の要素は捨てる)。`modSynonymStore.MergeAndSave` は
+  `ReadMapCsv` → `MergeSynPairs` → `RemoveAll` → `WriteSynonymRows` と
+  流すだけの薄い層で、規則そのものは持たない(1つの表に追記と上書きの2つの
+  書き方を混在させない)。R17H 以前はここに規則があり、`ParseSynResp` が返す
+  **0始まり**の配列を 1〜n で読んでいたため、実データでは毎回「添字が範囲外」で
+  `BuildSynonymsFor` のハンドラに握り潰され、synonyms は永久に0行だった。
+  書けた行数は `usage_log("synonyms_built", detail="source=… groups=N new=M")`
+  に残す(N=シートへ書いた行数、M=AIが返したグループ数)。
 - 読み出し: `modAskRetrieve.RunMultiRetrieve` の入口で、config `graph_synonyms`
   (既定on)がonかつ synonyms が非空のとき、質問文中の語に一致した同義語を
   最大3語・半角空白区切りで質問文へ追記してから既存の検索フローへ渡す
