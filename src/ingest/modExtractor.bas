@@ -289,8 +289,13 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
             ' 発報点を書き、診断者が「GSの即断」と取り違えないようにする。
             errCode = "E0303"
             errDetail = "thin: 画像PDFの可能性(総文字数=" & totalChars & " ページ数=" & pageCount & ")"
-            modLog.LogError "E0303", "modExtractor.ExtractFile", _
-                modUtil.SafeLeft("thin: " & path, 500)
+            ' R18-10(実機第5報⑧・agent1調査): この分類は失敗ではない
+            ' (抽出自体は成功しており、OCRフォールバックへ回すだけの正常な
+            ' 判定)。err_logの赤字は「利用者のエラー一覧」に並んでしまうため、
+            ' usage_logへ格下げする。真の失敗(OCR経路のTryVisionFallback失敗
+            ' 等)は従来どおりerr_log(呼び出し元modShelfVision側で別途発報)。
+            modLog.LogUsage "image_pdf_detected", "", _
+                modUtil.SafeLeft("thin: " & modUtil.FileNameOf(path), 120)
             ExtractFile = False
             Exit Function
         End If
