@@ -13,7 +13,9 @@ Private Const PILL_H As Double = 26
 ' 右肩ピル(R7 A-5): モード3つ + 🎨着せ替え + 🚪終了 の5個。
 ' 2026-07-31(R11-F2): 「?」ヘルプを足して6個(監査1 L-3。ナレッジ画面から
 ' ヘルプへ行く手段が無く、困った人が詰む状態だった。R11-Eでは容量不足で保留)。
-Private Const PILL_N As Long = 6
+' 2026-08-05(R18-3c): 「💬 チャットへ」を下段ツールバーから移して7個
+' (実機第5報②。下段はボタン数で位置が動くため、常設の移動導線に向かない)。
+Private Const PILL_N As Long = 7
 Private Const PILL_PITCH As Double = 9
 Private Const PILL_PAD As Double = 14
 Private Const PILL_MIN As Double = 44
@@ -287,28 +289,37 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' PillSpec - 右肩に並べるものの唯一の定義(2026-07-31 R7 A-5)。
-'   右から: 🚪終了 / 🎨着せ替え / みんなの解決事例 / マイ本棚 / ギャラリー。
+'   FlowRightは配列の先頭から右詰めで置くので、画面上の並びは配列の逆順:
+'     ← Hub | 💬チャットへ | ギャラリー | マイ本棚 | みんなの解決事例 |
+'     🎨着せ替え | 🚪終了 | ❓
+'   これはダッシュボード(modDash.HeaderSpec・FlowLeftで同じ見た目の並び)と
+'   同一の順序。ナレッジ画面だけが違う並びだと「どの画面でも右上は同じ」が
+'   崩れる(2026-08-05 R18-3c。従来は❓が左端・🚪終了が右端だった)。
 '   幅はキャプションの実文字から出す(固定幅の予約と実物が食い違うと、
 '   実機で「🗑削除が『除』しか見えない」類の見切れになる。R4要件Cの教訓)。
 ' ----------------------------------------------------------------------------
 Private Sub PillSpec(ByVal md As String, ByVal isTable As Boolean, ByVal isShared As Boolean, _
                      ByRef caps() As String, ByRef nms() As String, ByRef acts() As String, _
                      ByRef actives() As Boolean, ByRef widths() As Double)
-    caps(0) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
-    nms(0) = "nxk_exit": acts(0) = "modApp.OnSaveAndExit": actives(0) = False
-    caps(1) = ChrW(&HD83C) & ChrW(&HDFA8) & " 着せ替え"
-    nms(1) = "nxk_skin": acts(1) = "modHub.OnThemeToggle": actives(1) = False
-    caps(2) = ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例"
-    nms(2) = "nxk_m_shared": acts(2) = "modKnowledge.OnGoShared": actives(2) = isShared
-    caps(3) = ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚"
-    nms(3) = "nxk_m_table": acts(3) = "modKnowledge.OnGoTable": actives(3) = isTable
-    caps(4) = ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー"
-    nms(4) = "nxk_m_gallery": acts(4) = "modKnowledge.OnGoGallery"
-    actives(4) = (Not isTable) And (Not isShared)
     ' 「?」= 使い方。ヘルプカードはチャット画面(Nexus)の上に描く作りなので、
     ' modHub.OnHelp と同じくチャットへ移ってから開く(2026-07-31 R11-F2)。
-    caps(5) = ChrW(&H2753)
-    nms(5) = "nxk_help": acts(5) = "modKnowledge.OnHelp": actives(5) = False
+    caps(0) = ChrW(&H2753)
+    nms(0) = "nxk_help": acts(0) = "modKnowledge.OnHelp": actives(0) = False
+    caps(1) = ChrW(&HD83D) & ChrW(&HDEAA) & " 終了"
+    nms(1) = "nxk_exit": acts(1) = "modApp.OnSaveAndExit": actives(1) = False
+    caps(2) = ChrW(&HD83C) & ChrW(&HDFA8) & " 着せ替え"
+    nms(2) = "nxk_skin": acts(2) = "modHub.OnThemeToggle": actives(2) = False
+    caps(3) = ChrW(&HD83C) & ChrW(&HDF81) & " みんなの解決事例"
+    nms(3) = "nxk_m_shared": acts(3) = "modKnowledge.OnGoShared": actives(3) = isShared
+    caps(4) = ChrW(&HD83D) & ChrW(&HDCCB) & " マイ本棚"
+    nms(4) = "nxk_m_table": acts(4) = "modKnowledge.OnGoTable": actives(4) = isTable
+    caps(5) = ChrW(&HD83C) & ChrW(&HDCCF) & " ギャラリー"
+    nms(5) = "nxk_m_gallery": acts(5) = "modKnowledge.OnGoGallery"
+    actives(5) = (Not isTable) And (Not isShared)
+    ' R18-3c: チャットへの導線。ハンドラは既存のOnToChatを再利用する
+    ' (下段ツールバーから移しただけで、押したときの動きは変わらない)。
+    caps(6) = ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ"
+    nms(6) = "nxk_chat": acts(6) = "modKnowledge.OnToChat": actives(6) = False
 
     Dim i As Long
     For i = 0 To PILL_N - 1

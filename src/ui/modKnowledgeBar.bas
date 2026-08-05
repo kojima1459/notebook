@@ -122,10 +122,10 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     If isShared Then
         AddTool caps, acts, kinds, widths, n, _
                 ChrW(&H2713) & " 選択を取り込む", "modShared.OnImportSelected", "accent", 112
-        ' R13-8: 「チャットへ」を末尾から前方(主要操作の直後)へ移動。
-        ' ツールバー最右端は実機で見切れていた(RC9)。
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
+        ' R18-3c: 「チャットへ」はここから上段のピル列(modKnowledge.PillSpec)へ
+        ' 移した。他画面(Hub/ダッシュボード)はチャットへの導線が常に上段に
+        ' あるのに、ナレッジ画面だけがボタン数で位置の変わる下段の帯にあり、
+        ' 「どこにあるか毎回探す」状態だった(実機第5報②)。
         AddTool caps, acts, kinds, widths, n, "すべて選ぶ", "modShared.OnSelectAll", "plain", 72
         AddTool caps, acts, kinds, widths, n, "選択を解除", "modShared.OnSelectNone", "plain", 72
         AddTool caps, acts, kinds, widths, n, ChrW(&H2190) & " 前", "modShared.OnPrevPage", "plain", 44
@@ -145,10 +145,9 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58
-    ' R13-8: 「チャットへ」を末尾から前方(登録/追加の直後)へ移動。
-    ' 旧位置(最右端)は実機で見切れていた(実機第2報 RC9)。
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCAC) & " チャットへ", "modKnowledge.OnToChat", "plain", 76
+    ' R18-3c: 「チャットへ」は上段のピル列へ移設(理由は上のisShared分岐の
+    ' コメント参照)。ここはボタン数で位置が動く帯なので、常設の移動導線に
+    ' 向かない。
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", "modKnowledge.OnPackOut", "plain", 80
     AddTool caps, acts, kinds, widths, n, _
