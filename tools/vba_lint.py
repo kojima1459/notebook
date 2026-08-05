@@ -439,9 +439,16 @@ CONTRACT: dict[str, dict] = {
         #   (段0)の応答パーサ。<verdict>single|parts|clarify</verdict> と
         #   <parts>a|b|c</parts> を読む。タグ欠落・不正な語・"#ERR:" はすべて
         #   single へ寛容退化し、呼び出し元が従来の入念フローへ無害に落ちる。
+        # ParseOptions/ParseChoiceNumbers(2026-08-05 R16-3B): 逆質問=番号選択肢。
+        #   ParseOptions は段0の <options> を選択肢配列へ(ParseParts と同型)。
+        #   ParseChoiceNumbers は「1」「1と3」「①と③」のような返事から番号を
+        #   読む唯一の場所で、数字と区切り以外の文字が1つでも混じれば空を返す
+        #   (=書き直し扱い)。ここが甘いと、利用者が打ち直した質問文が黙って
+        #   捨てられる(2026-07-28 レビュー H-12 と同型の事故)。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
                      "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
-                     "ParseDecomposeVerdict", "ParseParts"],
+                     "ParseDecomposeVerdict", "ParseParts",
+                     "ParseOptions", "ParseChoiceNumbers"],
     },
     "modAsk": {
         "closed": True,
@@ -515,12 +522,16 @@ CONTRACT: dict[str, dict] = {
     #   StepNote は usage_log の ask_steps へ足す "dec=論点数"(読んだら消える)。
     #   ShouldDecompose/PerPartTopK/BuildPartSection は発動条件・論点あたりtopK・
     #   統合入力の1節の組み立て(部分失敗の文言込み)という純ロジックで、
-    #   modTestsPure15 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST にも
+    #   modTestsPure14/15 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST にも
     #   登録済み。未登録だとテストが実行時エラー12で走らない)。
+    #   ShouldClarify/BuildClarifyAsk(2026-08-05 R16-3B): 読み方が定まらない質問へ
+    #   返す番号選択肢の逆質問。発動条件(clarify_mode と選択肢2件以上)と本文の
+    #   組み立てだけで、LLMは1回も呼ばない(段0の判定でもう材料が揃っている)。
     "modAskMulti": {
         "closed": True,
         "required": ["TryDecomposed", "VerifyNote", "StepNote",
-                     "ShouldDecompose", "PerPartTopK", "BuildPartSection"],
+                     "ShouldDecompose", "PerPartTopK", "BuildPartSection",
+                     "ShouldClarify", "BuildClarifyAsk"],
     },
     "modAskThorough": {
         "closed": True,

@@ -30,7 +30,15 @@ Option Explicit
 ' ============================================================================
 
 Private Const K_PENDING_Q As String = "clarify_q"        ' 聞き返し中の元質問
-Private Const K_PENDING_SRC As String = "clarify_src"    ' 候補資料名(|区切り)
+Private Const K_PENDING_SRC As String = "clarify_src"    ' 候補資料名 or 読み方の選択肢(|区切り)
+' 保留の種類(2026-08-05 R16-3B)。"source"=資料+意図の聞き返し(従来)、
+' "topic"=質問の読み方を番号で選ばせる逆質問。どちらも同じ3キー
+' (元質問・候補リスト・作成時刻)に載せ、後から作った方が前を上書きする
+' (2つの聞き返しが同時に生きていると、返ってきた番号がどちらの表の番号か
+'  決められない。保留は常に1つ、が唯一破綻しない持ち方)。
+Private Const K_PENDING_KIND As String = "clarify_kind"
+Private Const KIND_SOURCE As String = "source"
+Private Const KIND_TOPIC As String = "topic"
 ' 番号だけの返答とみなす最大文字数(これを超えたら文章とみなす)。
 Private Const MAX_CHOICE_CHARS As Long = 6
 Private Const K_PENDING_AT As String = "clarify_at"      ' 保留を作った時刻(有効期限判定用)
@@ -60,11 +68,7 @@ Private Const INTENT_5 As String = "金額・料率・計算方法"
 '   sources: ヒットした資料名(重複除去済み・最大MAX_SRC件)を | 区切りで渡す。
 ' ----------------------------------------------------------------------------
 Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) As String
-    On Error Resume Next
-    modState.SaveState K_PENDING_Q, q
-    modState.SaveState K_PENDING_SRC, sources
-    modState.SaveState K_PENDING_AT, modUtilText.IsoDateTime(Now)
-    On Error GoTo 0
+    SavePending q, sources, KIND_SOURCE
 
     Dim sb As String
     sb = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少しだけ教えてください。" & _
@@ -104,6 +108,27 @@ Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) A
 End Function
 
 ' ----------------------------------------------------------------------------
+' SaveTopicPending - 「読み方を番号で選んでください」の保留を作る(R16-3B)。
+'   options: 選択肢の文(| 区切り。modAskMulti が段0の <options> から作る)。
+'   逆質問の本文そのものは modAskMulti が組み立てる(あちらが提示の主体で、
+'   ここは保留状態の置き場を1つに保つ役割だけを持つ)。
+' ----------------------------------------------------------------------------
+Public Sub SaveTopicPending(ByVal q As String, ByVal optList As String)
+    SavePending q, optList, KIND_TOPIC
+End Sub
+
+' 保留3キー+種類の保存。source/topic のどちらも必ずここを通す(片方だけ
+' 種類を書き忘れると、前の種類が残って返事の解釈が入れ替わる)。
+Private Sub SavePending(ByVal q As String, ByVal listLine As String, ByVal kind As String)
+    On Error Resume Next
+    modState.SaveState K_PENDING_Q, q
+    modState.SaveState K_PENDING_SRC, listLine
+    modState.SaveState K_PENDING_KIND, kind
+    modState.SaveState K_PENDING_AT, modUtilText.IsoDateTime(Now)
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' HasPending - 聞き返しの途中かどうか。
 ' ----------------------------------------------------------------------------
 Public Function HasPending() As Boolean
@@ -135,6 +160,7 @@ Public Sub ClearPending()
     On Error Resume Next
     modState.SaveState K_PENDING_Q, ""
     modState.SaveState K_PENDING_SRC, ""
+    modState.SaveState K_PENDING_KIND, ""
     modState.SaveState K_PENDING_AT, ""
     On Error GoTo 0
 End Sub
@@ -146,16 +172,25 @@ End Sub
 '   戻り値 = 合成後の質問文。保留状態はここで必ず消す。
 ' ----------------------------------------------------------------------------
 Public Function MergeAnswer(ByVal reply As String) As String
-    Dim origQ As String, srcList As String
+    Dim origQ As String, srcList As String, kind As String
     On Error Resume Next
     origQ = modState.LoadState(K_PENDING_Q, "")
     srcList = modState.LoadState(K_PENDING_SRC, "")
+    kind = modState.LoadState(K_PENDING_KIND, "")
     On Error GoTo 0
     ClearPending
 
     Dim r As String: r = Trim$(reply)
     If LenB(origQ) = 0 Then
         MergeAnswer = r
+        Exit Function
+    End If
+
+    ' R16-3B: 読み方の逆質問(topic)は番号の意味が違う。あちらの番号は
+    ' 「調べる読み方」で複数選べるため、資料1つ+意図1つを組む下の合成には
+    ' 乗らない(乗せると2つ選んだ人の2つ目が黙って消える)。
+    If kind = KIND_TOPIC Then
+        MergeAnswer = MergeTopicAnswer(origQ, srcList, r)
         Exit Function
     End If
 
@@ -192,6 +227,48 @@ Public Function MergeAnswer(ByVal reply As String) As String
     If LenB(intentPick) > 0 Then sb = sb & vbLf & "知りたいこと: " & intentPick
     sb = sb & vbLf & "(この点に絞って、資料の記載に沿って具体的に答えてください)"
     MergeAnswer = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' MergeTopicAnswer - 読み方の逆質問(R16-3B)への返事を元質問と合成する(純関数)。
+'   optList: 提示した選択肢(| 区切り)。reply: 利用者の返事。
+'
+'   番号が1つ以上読めたら「元質問 / 選んだ読み方 / …」を返す。複数選んだ場合は
+'   そのまま並べる(次のターンの段0がこれを parts に割って論点ごとに調べる=
+'   「1と3」が『AとBを両方調べる』として素直に成立する)。
+'   番号が読めない返事は【書き直し】として扱い、打った文章を優先する。選択肢を
+'   無視して質問を書き直す自由を必ず残す(番号を強制すると、聞き方が分からない
+'   人ほど詰まる)。短すぎる返事だけは元質問へ足して捨てない。
+' ----------------------------------------------------------------------------
+Public Function MergeTopicAnswer(ByVal origQ As String, ByVal optList As String, _
+                                 ByVal reply As String) As String
+    Dim opts() As String
+    Dim n As Long
+    If LenB(optList) > 0 Then
+        opts = Split(optList, "|")
+        n = UBound(opts) - LBound(opts) + 1
+    End If
+
+    Dim picked As String
+    If n > 0 Then picked = modRagParse.ParseChoiceNumbers(reply, n)
+
+    If LenB(picked) = 0 Then
+        If Len(Trim$(reply)) >= 8 Then
+            MergeTopicAnswer = Trim$(reply)
+        Else
+            MergeTopicAnswer = Trim$(origQ & " " & reply)
+        End If
+        Exit Function
+    End If
+
+    Dim nums() As String: nums = Split(picked, ",")
+    Dim sb As String: sb = origQ
+    Dim i As Long
+    For i = LBound(nums) To UBound(nums)
+        Dim k As Long: k = CLng(Val(nums(i)))
+        If k >= 1 And k <= n Then sb = sb & " / " & Trim$(opts(LBound(opts) + k - 1))
+    Next i
+    MergeTopicAnswer = sb
 End Function
 
 ' 返事から資料番号(1..MAX_SRC)を読み取り、対応する資料名を返す。

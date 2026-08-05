@@ -22,9 +22,10 @@ Option Explicit
 '     modAskThorough.RunThoroughFlow を実行する。分解は上積みであって
 '     代替ではないので、読めない応答で分解へ倒すのは筋が悪い。
 '   ・quick / deep は1行も通らない(modAsk の thorough 分岐からしか呼ばない)。
-'   ・段0で verdict=clarify(逆質問)が返っても、本波では single と同じ扱いに
-'     する=従来フローへ落とす。逆質問の配線(R16-3B)は波3の担当で、
-'     出力契約だけ先に固定しておく(パーサを2度書かないため)。
+'   ・段0で verdict=clarify(読み方が定まらない)なら、薄い回答を作らずに
+'     「どれを調べますか?」を番号選択肢で返す(R16-3B)。LLMの追加呼び出しは
+'     0回=段0の1回だけで返るので、待たせずに主導権を利用者へ返せる。
+'     選択肢が2件未満しか読めなければ逆質問は成立しないので従来フローへ落とす。
 '   ・中断(ESC=Err18)は論点の境界だけで拾う。LLM呼び出しの内側は
 '     modGateway が Err18 を握り潰す既知の制約があり、そこは変えられない。
 '     拾ったら【完成済みの論点だけで】統合して正常返却する。調べ終わった
@@ -80,9 +81,24 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
 
     Dim parts() As String
     Dim nParts As Long
+    Dim opts() As String
+    Dim nOpts As Long
     Dim verdict As String
-    verdict = RunDecideStage(q, modAsk.HistoryBlock(), parts, nParts)
-    ' clarify は本波では single と同じ扱い(逆質問の配線は R16-3B=波3)。
+    verdict = RunDecideStage(q, modAsk.HistoryBlock(), parts, nParts, opts, nOpts)
+
+    ' R16-3B: 読み方が定まらない質問は、薄い回答を作らずに番号で選ばせる。
+    ' 選択肢が読めなかった(タグ崩れ・1件だけ)ときは逆質問が成立しないので、
+    ' 黙って従来の入念フローへ落ちる=「聞き返しに失敗して何も返らない」を作らない。
+    If verdict = "clarify" Then
+        If ShouldClarify(modConfig.GetString("clarify_mode", "auto"), nOpts) Then
+            result = AskWhichTopic(q, opts, nOpts)
+            ok = True
+            mHandled = True
+            TryDecomposed = True
+        End If
+        Exit Function
+    End If
+
     If verdict <> "parts" Then Exit Function
     If nParts < PARTS_MIN Then Exit Function
     mParts = nParts        ' ここから先は必ず分解ターン(中断・全滅でも dec= を残す)
@@ -263,6 +279,45 @@ Public Function BuildPartSection(ByVal idx As Long, ByVal part As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
+' ShouldClarify - 逆質問(番号選択肢)を出すかどうか(R16-3B・純ロジック)。
+'   off      = 出さない(機能まるごとのエスケープハッチ。従来どおり回答を作る)
+'   auto既定 = 選択肢が2件以上読めたときだけ出す
+'   知らない値は auto 扱い(config の打ち間違いで機能が黙って止まらない)。
+'
+'   1件のときに出さないのは「選べない選択肢」だからで、これは逆質問ではなく
+'   ただの足止めになる。読み方が1つに決まったのなら、そのまま調べたほうが早い。
+' ----------------------------------------------------------------------------
+Public Function ShouldClarify(ByVal modeCfg As String, ByVal nOpts As Long) As Boolean
+    If LCase$(Trim$(modeCfg)) = "off" Then Exit Function
+    ShouldClarify = (nOpts >= 2)
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildClarifyAsk - 逆質問の本文(R16-3B・純ロジック)。
+'   LLMは呼ばない(段0の1回で材料は揃っている)ので、この経路は数秒で返る。
+'   「番号で返信」と「書き直してもOK」を必ず並記する。番号だけを案内すると、
+'   選択肢がどれも違う人が行き止まりになる(modClarify.BuildClarifyPrompt と
+'   同じ約束)。例に "1と3" を出すのは、複数選べることが文面から読めないと
+'   誰も試さないため(実装があっても使われない機能になる)。
+' ----------------------------------------------------------------------------
+Public Function BuildClarifyAsk(opts() As String, ByVal nOpts As Long) As String
+    Dim sb As String
+    sb = ChrW(&HD83D) & ChrW(&HDCAD) & " ご質問はいくつかの読み方ができます。" & _
+         "どれを調べますか?" & vbLf & vbLf
+
+    Dim i As Long
+    For i = 1 To nOpts
+        Dim t As String: t = Trim$(opts(LBound(opts) + i - 1))
+        If LenB(t) = 0 Then t = "(読み方" & i & ")"
+        sb = sb & "  " & i & ") " & t & vbLf
+    Next i
+
+    sb = sb & vbLf & "番号で返信してください(例: 1 / 1と3)。" & _
+         "質問を書き直していただいてもOKです。"
+    BuildClarifyAsk = sb
+End Function
+
+' ----------------------------------------------------------------------------
 ' PerPartTopK - 論点1つあたりに渡すチャンク数。
 '   合計を論点数で割るが、下限6は割らない。論点あたり2～3件まで絞ると、
 '   その論点の根拠が1資料に依存して「資料には見当たらない」が量産される
@@ -286,9 +341,11 @@ End Function
 '   判定が読めない(#ERR・タグ崩れ)ときは single=従来フローへ寛容退化する。
 ' ----------------------------------------------------------------------------
 Private Function RunDecideStage(ByVal q As String, ByVal history As String, _
-                                ByRef parts() As String, ByRef nParts As Long) As String
+                                ByRef parts() As String, ByRef nParts As Long, _
+                                ByRef opts() As String, ByRef nOpts As Long) As String
     RunDecideStage = "single"
     nParts = 0
+    nOpts = 0
 
     Dim maxP As Long
     maxP = modConfig.GetLong("decompose_max_parts", 3)
@@ -310,8 +367,37 @@ Private Function RunDecideStage(ByVal q As String, ByVal history As String, _
     If v = "parts" Then
         nParts = modRagParse.ParseParts(resp, maxP, parts)
         If nParts < PARTS_MIN Then v = "single"      ' 1本しか割れなかった=分解の意味が無い
+    ElseIf v = "clarify" Then
+        nOpts = modRagParse.ParseOptions(resp, maxP, opts)
     End If
     RunDecideStage = v
+End Function
+
+' ----------------------------------------------------------------------------
+' AskWhichTopic - 逆質問を提示し、保留状態(元質問+選択肢)を残す(R16-3B)。
+'   保留の置き場は modClarify に一本化する(資料の聞き返しと同じ ui_state・
+'   同じTTL30分・同じ HasPending/MergeAnswer の配線に乗る)。ここで別の場所へ
+'   置くと、modApp の送信経路に2つ目の「保留の途中か?」判定が要る。
+'   このターンは ok=True で返るので会話履歴に積まれるが、次のターンで送られる
+'   合成質問は「元質問 / 選んだ読み方」という単体で完結した文なので、履歴に
+'   逆質問が1往復残っていても解釈が壊れない。
+' ----------------------------------------------------------------------------
+Private Function AskWhichTopic(ByVal q As String, opts() As String, ByVal nOpts As Long) As String
+    Dim joined As String
+    Dim i As Long
+    For i = 1 To nOpts
+        If LenB(joined) > 0 Then joined = joined & "|"
+        joined = joined & Trim$(opts(LBound(opts) + i - 1))
+    Next i
+
+    On Error Resume Next
+    modClarify.SaveTopicPending q, joined
+    modLog.LogUsage "clarify_topic", MODE_THOROUGH, _
+        "opts=" & nOpts & " q=" & modUtil.SafeLeft(q, 80)
+    modUIMain.SetStage ""
+    On Error GoTo 0
+
+    AskWhichTopic = BuildClarifyAsk(opts, nOpts)
 End Function
 
 ' 段0のモデル。拡張段と同じ選び方(判定だけの軽い段に本命モデルは要らない)。

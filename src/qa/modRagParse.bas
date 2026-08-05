@@ -132,6 +132,104 @@ Public Function ParseParts(ByVal resp As String, ByVal maxN As Long, _
 End Function
 
 ' ----------------------------------------------------------------------------
+' ParseOptions - <options>読み方1 | 読み方2 | 読み方3</options> を選択肢の配列へ。
+'   戻り値=有効件数。分割・Trim・空要素除去・maxN件での切り詰めは ParseParts と
+'   同じ流儀(同じ書式を2実装に分けない)。タグ欠落・空はすべて0件で返り、
+'   呼び出し元(modAskMulti)は逆質問を諦めて従来の入念フローへ落ちる。
+'   「選択肢が1件」も逆質問としては成立しない(選ばせる意味が無い)が、その
+'   判断は呼び出し元が持つ(ここは読めたぶんだけ正直に返す)。
+' ----------------------------------------------------------------------------
+Public Function ParseOptions(ByVal resp As String, ByVal maxN As Long, _
+                             ByRef opts() As String) As Long
+    opts = ParseSubqueries(TagInner(resp, "options"), maxN)
+
+    Dim n As Long
+    On Error Resume Next
+    n = UBound(opts) - LBound(opts) + 1
+    On Error GoTo 0
+    If n < 0 Then n = 0
+    ParseOptions = n
+End Function
+
+' ----------------------------------------------------------------------------
+' ParseChoiceNumbers - 「番号で返信」への返事から選んだ番号を読み取る(R16-3B)。
+' ----------------------------------------------------------------------------
+' 戻り値 = 有効な番号を入力順・重複なしで "," 連結した文字列(例 "1,3")。
+'   有効な番号が1つも無ければ空文字列 = 「番号ではなく質問を書き直した」扱い。
+'
+' 受ける形: "1" / "1と3" / "①と③" / "1,3" / "2、3" / "1 3" / "１ ３"
+'   ・半角0-9・全角０-９は連続した桁を1つの数として読む("13" は 13)
+'   ・丸数字①〜⑳はそれ1文字で1つの数(①③ は 1 と 3)
+'   ・区切りとして認めるのは「と」・カンマ(半/全)・読点・句点・ピリオド(半/全)・
+'     スペース(半/全)・タブ・中黒・スラッシュだけ
+'   ・それ以外の文字が1つでも混じれば【書き直し】とみなして空を返す。
+'     「1番の話」「3日以内は?」のような文を番号選択と誤読すると、利用者が
+'     打った質問が黙って捨てられる(modClarify.IsNumberChoiceOnly と同じ思想。
+'     あちらは単一選択・短文限定なので、複数選択を読むこちらを別に持つ)。
+'   ・1..maxN の範囲外は無視する(表示していない番号を選ばれても当てはめない)。
+'     範囲外しか無ければ空 = 書き直し扱いになる。
+' ----------------------------------------------------------------------------
+Public Function ParseChoiceNumbers(ByVal s As String, ByVal maxN As Long) As String
+    Dim t As String: t = Trim$(s)
+    If LenB(t) = 0 Or maxN < 1 Then Exit Function
+
+    Dim outS As String
+    Dim cur As String                ' 読みかけの数字列(半角へ正規化済み)
+    Dim i As Long
+    For i = 1 To Len(t) + 1
+        Dim cp As Long
+        If i > Len(t) Then
+            cp = 32                  ' 番兵: 末尾の読みかけを必ず確定させる
+        Else
+            cp = AscW(Mid$(t, i, 1))
+            If cp < 0 Then cp = cp + 65536       ' AscWは符号付きで返る
+        End If
+
+        If cp >= 48 And cp <= 57 Then
+            cur = cur & Chr$(cp)                          ' 0-9
+        ElseIf cp >= 65296 And cp <= 65305 Then
+            cur = cur & Chr$(cp - 65296 + 48)             ' ０-９
+        Else
+            If LenB(cur) > 0 Then
+                AppendChoice outS, CLng(Val(cur)), maxN
+                cur = ""
+            End If
+            If cp >= 9312 And cp <= 9331 Then
+                AppendChoice outS, cp - 9312 + 1, maxN    ' ①-⑳
+            ElseIf Not IsChoiceGap(cp) Then
+                Exit Function                             ' 数字でも区切りでもない=書き直し
+            End If
+        End If
+    Next i
+
+    ParseChoiceNumbers = outS
+End Function
+
+' 番号の区切りとして認める文字か(ParseChoiceNumbers 専用)。
+Private Function IsChoiceGap(ByVal cp As Long) As Boolean
+    Select Case cp
+        Case 32, 9, 12288                        ' 半角スペース / タブ / 全角スペース
+            IsChoiceGap = True
+        Case 44, 46, 47                          ' , . /
+            IsChoiceGap = True
+        Case 65292, 65294, 65295                 ' ，．／
+            IsChoiceGap = True
+        Case 12289, 12290, 12539                 ' 、。・
+            IsChoiceGap = True
+        Case 12392                               ' と
+            IsChoiceGap = True
+    End Select
+End Function
+
+' 有効範囲内の番号だけを重複なしで "," 連結する。
+Private Sub AppendChoice(ByRef outS As String, ByVal v As Long, ByVal maxN As Long)
+    If v < 1 Or v > maxN Then Exit Sub
+    If InStr(1, "," & outS & ",", "," & CStr(v) & ",") > 0 Then Exit Sub
+    If LenB(outS) > 0 Then outS = outS & ","
+    outS = outS & CStr(v)
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ParseRankOrder - <rank>3,1,7</rank> を候補番号列へ。1..nHits範囲外・重複・
 '   非数値は無視。戻り値=有効件数(0なら呼び出し側が元順を維持)。
 '   orderは0起点配列に1起点の候補番号を格納(0件時はダミー1要素で返す)。
