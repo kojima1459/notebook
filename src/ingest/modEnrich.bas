@@ -16,6 +16,13 @@ Option Explicit
 '     現段階ではどちらもEnrichPendingの通常実行として扱う(offだけを
 '     明確に区別する)。将来light/fullで対象範囲やプロンプト濃度を分ける
 '     場合はここに条件分岐を追加すればよい。
+'   ・2026-08-05(R17 Phase3): 常時ON化(configの既定値をoff→lightへ。
+'     build_mybookshelf.py側)。254頁≒500チャンク規模を取込の末尾で一括
+'     富化すると1時間級の同期実行になる(R17設計書§3 Phase3)ため、
+'     「取込直後に少しだけ・残りは後追いの巡回で追いつく」小口バッチへ
+'     転換する。実装は maxCount の既定値を -1(無制限)から30へ変えるだけ
+'     (呼び出し側=modShelf.IngestFile/modShelfSyncは無改修のまま、
+'     このモジュール内の既定値だけで1回あたりの上限が効く)。
 '   ・JSONパースは軽量自前(JsonConverter等の外部依存禁止・§7.2本文)。
 '     期待形 [{"i":1,"summary":"…","keywords":"a,b"},…] に対して、
 '     "i"キーの出現位置を走査の区切りとして使い、各オブジェクトの中から
@@ -59,8 +66,10 @@ Private mRunning As Boolean   ' 再入防止
 ' ----------------------------------------------------------------------------
 ' EnrichPending - summary空のチャンクを10件/1回のCallLLMで富化する。
 '   戻り値=今回富化できた件数。enrich_mode=offなら即0。
+'   maxCount既定30(2026-08-05 R17 Phase3): 1回の呼び出しで処理する上限。
+'   -1(無制限)を渡せば従来どおり全件処理する(現状そう呼ぶ経路は無い)。
 ' ----------------------------------------------------------------------------
-Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
+Public Function EnrichPending(Optional ByVal maxCount As Long = 30) As Long
     Dim mode As String: mode = LCase$(Trim$(modConfig.GetString("enrich_mode", "off")))
     If mode = "off" Or LenB(mode) = 0 Then
         EnrichPending = 0

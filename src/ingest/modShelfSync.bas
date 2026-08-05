@@ -366,6 +366,11 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         resumedCount = modEmbed.EmbedPending()
     End If
 
+    ' R17 Phase3: 同期のたびに少しずつAI整理(要約・キーワード)を進める小口バッチ。
+    On Error Resume Next
+    modEnrich.EnrichPending
+    On Error GoTo Failed
+
     Dim summaryLine As String
     summaryLine = "新規" & ingestedN & "件・更新" & replacedN & "件・削除" & deletedN & "件"
     If failedN > 0 Then summaryLine = summaryLine & "・失敗" & failedN & "件"

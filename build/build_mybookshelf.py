@@ -488,7 +488,15 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("shelf_folder", "", "自動同期する本棚フォルダのパス(空なら未設定)"),
         ("sync_interval_min", 0, "自動同期の間隔(分)。0でOFF"),
         ("sync_on_open", True, "TRUE=起動時に本棚フォルダと差分同期する"),
-        ("enrich_mode", "off", "off/light/full: バッチ富化(要約・キーワード付与)の強さ"),
+        # R17 Phase3: 常時ON化(off→light)。取込末尾で一括処理すると254頁規模で
+        # 1時間級になるため、EnrichPending側の既定上限(30チャンク/回)で小口化し、
+        # 取込直後に少し・残りは同期のたびに少しずつ追いつく「後追い」方式にした。
+        ("enrich_mode", "light",
+         "off/light/full: 取込後にAIが少しずつ資料を要約・キーワード付けする"
+         "「バッチ富化」の強さ。light=既定(取込直後に少量、残りは同期のたびに"
+         "少しずつ追いつく。1回の処理はEnrichPending既定30チャンクぶんだけで、"
+         "取込や同期を長時間ブロックしない)/full=現状はlightと処理内容の差は無い/"
+         "off=作らない(要約・キーワード列は空のまま。検索は本文だけで行う)"),
         ("max_pages_per_file", 300, "1ファイルあたりの抽出ページ数上限(超過分は打ち切りpartial扱い)"),
         ("followup_max_pairs", 3, "『続けて質問』で引き継ぐ会話履歴の最大ペア数。0以下で機能無効"),
         ("word_export_effort", "medium", "『Wordで開く』の文書整形に使う reasoning_effort"),
