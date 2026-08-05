@@ -152,6 +152,14 @@ LoopDone:
     modLog.LogUsage "outline_built", "ingest", _
         "source=" & sourceName & " chapters=" & doneN & "/" & nCh
     On Error GoTo 0
+
+    ' R17 Phase3: 章要約に続けて名寄せ辞書のバッチ生成を1回だけ(ゲート・失敗握り
+    ' ・usage_log("synonyms_fail")はmodSynonymStore側に閉じる。ここは1行)。
+    If Not modShelfBatch.CancelRequested() Then
+        On Error Resume Next
+        modSynonymStore.BuildSynonymsFor sourceName
+        On Error GoTo 0
+    End If
     Exit Sub
 
 Quiet:

@@ -96,6 +96,10 @@ EXPECTED_SHEETS = {
     # R17 Phase2: 章単位要約(疑似グローバル検索)の受け皿。chunk_meta と同じく
     # ビルドで器だけ焼き込む(実行時 Add は壊れたブックの自己修復専用)。
     "doc_outline": "veryHidden",
+    # R17 Phase3: 用語の表記ゆれ辞書(term, canonical)。取込末尾の名寄せバッチ
+    # (modSynonymStore.BuildSynonymsFor)が書き、質問時のクエリ展開が読む。
+    # chunk_meta/doc_outline と同じくビルドで器だけ焼き込む。
+    "synonyms": "veryHidden",
     # 初期ナレッジ(同梱シード)。ビルド時に焼き込み、初回起動で modSeed が
     # my_knowledge / my_vectors へ写す。利用者には一切見せない。
     "seed_meta": "veryHidden",
@@ -447,6 +451,18 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
          "on=既定(章の数だけAIを呼ぶので取込は長くなる。254頁の規程で+3〜8分。中断ボタンで途中まで保存)/"
          "off=作らない(取込は従来どおりの速さ。俯瞰質問は従来の検索で答える)。"
          "この設定を on にしても、資料を取り込み直すまでは従来どおりの動きになる"),
+        # R17 Phase3(名寄せ辞書): 章要約のあとに用語一覧をAIへ1回渡し、表記ゆれ
+        # (「回収」⇔「リコール」等)のグループを synonyms シートへためる。
+        # 質問時はその表を読んで質問文へ同義語を足してから検索する(語彙が違う
+        # だけでヒットしない事故を減らす)。LLM呼び出しは資料1本の取込につき
+        # 最大1回だけ増える(質問側は呼び出しを増やさない=文字列処理のみ)。
+        ("graph_synonyms", "on",
+         "取込時に用語の表記ゆれ辞書(synonyms)を作り、質問時に質問文へ同義語を足すか。"
+         "on=既定(章要約のあとAIへ用語一覧を1回だけ渡しsynonymsシートを更新する。"
+         "質問は一致した語の同義語を最大3語まで質問文に足してから検索する)/"
+         "off=辞書を作らず質問文もそのまま検索する(既に作った辞書は残るがoffの間は読まれない)。"
+         "synonymsシートは取込・同期のたびには読み直さない(1セッション1回のみ。"
+         "更新は次にブックを開いたときから反映)"),
         ("deep_scope_subqueries", 6, "「続けて質問」を『しっかり調べる』で行うときに、会話で引用済みの資料の中だけを掘るために作るサブクエリ数。狭い範囲を多角度から見るための本数(0以下は6扱い)"),
         ("rerank_model", "", "再ランク段のモデル(空=quick_modelを使用)"),
         ("rerank_effort", "low", "再ランク段のreasoning_effort"),
@@ -1578,6 +1594,10 @@ def main():
                         ["source", "section_key", "summary", "keywords", "chunk_n"],
                         "veryHidden", widths=[24, 40, 90, 40, 10],
                         text_cols=[1, 2, 3, 4])
+    # synonyms(R17 Phase3): term/canonical は自由記述の用語文字列なので、
+    # chunk_meta/doc_outline と同じく数式インジェクション対策で text_cols へ。
+    _make_headers_only(wb, "synonyms", ["term", "canonical"], "veryHidden",
+                        widths=[30, 30], text_cols=[1, 2])
     _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)
     if _sc:
         print(f"  初期ナレッジ: {_sd}資料 / {_sc}チャンク / ベクトル{_sv}件"

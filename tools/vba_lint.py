@@ -93,6 +93,8 @@ CONTRACT: dict[str, dict] = {
             # 2026-08-05(R17 Phase2): 章単位要約(doc_outline)の格納先シート名。
             # 俯瞰質問(verdict=global)が読む唯一のシート。
             "SH_DOC_OUTLINE",
+            # 2026-08-05(R17 Phase3): 用語の表記ゆれ辞書(synonyms)の格納先シート名。
+            "SH_SYNONYMS",
         ],
     },
     "modTypes": {
@@ -434,6 +436,27 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake"],
     },
+    # modSynonymStore(2026-08-05 R17 Phase3): 用語の表記ゆれ辞書(synonyms:
+    #   term/canonical)のEnsure/一括書込み/読み/全消去/名寄せバッチ。
+    # EnsureSynonymSheet: modOutlineStore.EnsureOutlineSheet と同型(冪等)。
+    # WriteSynonymRows: 末尾へ1回のRange書込みで追記するだけ(上書きの判断は
+    #   持たない=BuildSynonymsForがRemoveAll+全件書き直しで実現する)。
+    # ReadMapCsv: 質問側(modAskRetrieve)が読む唯一の窓口。全行を
+    #   "term>canonical|term>canonical" の1文字列へ畳んで返す(0行は空文字)。
+    #   modSparseと同じくPURE_LOGIC_MODULESには置けない(シートI/O)ため、
+    #   質問文への展開そのものは純関数 modRagParse.ExpandQueryBySyn へ渡す。
+    # RemoveAll: 全行消去(再構築用)。BuildSynonymsForが「既存termは上書き」を
+    #   実現するために、ReadMapCsvで読んだ既存分から新規termと重複する行を
+    #   除いた集合をRemoveAll後に丸ごと書き直す。
+    # BuildSynonymsFor: 1資料ぶんの名寄せバッチの唯一の入口。config
+    #   graph_synonyms=off / 用語候補0件 / LLM応答が空 のいずれかで完全に
+    #   無操作。ゲート・失敗握りもこの層に閉じるので呼び出し元
+    #   (modOutlineBuild.BuildOutlineFor)は1行。
+    "modSynonymStore": {
+        "closed": True,
+        "required": ["EnsureSynonymSheet", "WriteSynonymRows", "ReadMapCsv",
+                     "RemoveAll", "BuildSynonymsFor"],
+    },
     # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
     # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
     # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
@@ -532,11 +555,22 @@ CONTRACT: dict[str, dict] = {
         #   応答パーサ。<summary>/<keywords> は取込時(章ごとに1回)、<pick> は
         #   俯瞰質問の章選択(質問ごとに1回)。どちらも読めなければ「その章は
         #   要約失敗」「章は選ばれなかった=従来フローへ」へ寛容退化する。
+        # ParseSynResp(2026-08-05 R17 Phase3): 名寄せ(表記ゆれ)応答のパーサ。
+        #   出力契約 <syn>表記>正規形|表記>正規形</syn>。">"の無い/どちらか空の
+        #   ペアは1件ずつ破棄する(全滅ではなく読めた分だけ返す寛容退化)。
+        # ExpandQueryBySyn(2026-08-05 R17 Phase3): synonymsシートの内容
+        #   (modSynonymStore.ReadMapCsvが返す1文字列)を引数で受け、質問文中の
+        #   語に一致した同義語を最大maxAdd件・半角空白区切りで追記する純関数。
+        #   modSparseはPURE_LOGIC_MODULESのままシートI/Oを持てない(設計書§3
+        #   Phase3・調査agent7 §3.3)ため、シートを読む側(modAskRetrieve)が
+        #   文字列化した地図を渡す構成にした。一致判定はmodSparse.
+        #   NormalizeForSearchを両辺に通すので全角/半角の表記ゆれも吸収する。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
                      "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
                      "ParseDecomposeVerdict", "ParseParts",
                      "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal",
-                     "ParseOutlineResp", "ParseChapterPick"],
+                     "ParseOutlineResp", "ParseChapterPick",
+                     "ParseSynResp", "ExpandQueryBySyn"],
     },
     "modAsk": {
         "closed": True,

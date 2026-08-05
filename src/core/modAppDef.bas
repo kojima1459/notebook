@@ -54,3 +54,6 @@ Public Const SH_CHUNK_META As String = "chunk_meta"
 ' R17 Phase2: 章単位要約(source/section_key/summary/keywords/chunk_n)の格納先。
 ' 無い/0行なら俯瞰回答は必ず従来フローへ落ちる(modAskGlobal 側のフェイルセーフ)。
 Public Const SH_DOC_OUTLINE As String = "doc_outline"
+' R17 Phase3: 用語の表記ゆれ辞書(term, canonical)の格納先。
+' 無い/0行なら質問文への同義語追記は無操作(modAskRetrieve 側のフェイルセーフ)。
+Public Const SH_SYNONYMS As String = "synonyms"

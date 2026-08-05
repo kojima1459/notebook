@@ -202,7 +202,15 @@
       "role": "core",
       "type": "std",
       "wave": "R17-2",
-      "note": "R17 Phase2: 取込時の章単位要約。section_pathの第1要素(ChapterKeyOf)で章に束ね、章ごとにCallLLM(step=chapter_summary)で200〜300字要約+キーワードを作りdoc_outlineへ保存する。R15の枠組み(CancelRequested/StageBanner/BlendPerItemMsのETA/SaveCheckpoint throttle120)に乗せ、中断時は途中章まで保存して正常終了。1章の本文はmax_context_charsで打ち切り(BudgetTake)、失敗章は「(要約失敗)」の行として保存して続行。ゲート(config graph_outline)も失敗握りもこの層に閉じるので呼び出し元(modShelf.IngestFile)は1行。プロンプトはmodPrompts残386字のため本モジュールのPrivate。"
+      "note": "R17 Phase2: 取込時の章単位要約。section_pathの第1要素(ChapterKeyOf)で章に束ね、章ごとにCallLLM(step=chapter_summary)で200〜300字要約+キーワードを作りdoc_outlineへ保存する。R15の枠組み(CancelRequested/StageBanner/BlendPerItemMsのETA/SaveCheckpoint throttle120)に乗せ、中断時は途中章まで保存して正常終了。1章の本文はmax_context_charsで打ち切り(BudgetTake)、失敗章は「(要約失敗)」の行として保存して続行。ゲート(config graph_outline)も失敗握りもこの層に閉じるので呼び出し元(modShelf.IngestFile)は1行。プロンプトはmodPrompts残386字のため本モジュールのPrivate。末尾でmodSynonymStore.BuildSynonymsForを1行呼ぶ(R17 Phase3)。"
+    },
+    {
+      "name": "modSynonymStore",
+      "path": "src/ingest/modSynonymStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-3",
+      "note": "R17 Phase3: 用語の表記ゆれ辞書(synonyms: term/canonical)。EnsureSynonymSheet/WriteSynonymRows/ReadMapCsv/RemoveAllはmodOutlineStoreと同型のシートI/O。BuildSynonymsForが唯一の名寄せ入口で、当該資料のchunk_meta(section_path)/doc_outline(keywords)/my_knowledge(keywords列)から用語候補を集め(最大200語)、CallLLM(step=name_dedup)で表記ゆれグループを取得しsynonymsへ追記する(既存termは上書き=ReadMapCsvで読んだ既存分から重複termを除いてRemoveAll後に全件書き直し)。ゲート(config graph_synonyms)・失敗握り(usage_log synonyms_fail)もこの層に閉じるので呼び出し元(modOutlineBuild.BuildOutlineFor)は1行。質問側の読み出し窓口はReadMapCsvのみ(modAskRetrieveが1セッション1回読み、展開はmodRagParse.ExpandQueryBySynへ渡す)。"
     },
     {
       "name": "modShelfVision",

@@ -20,6 +20,12 @@ Private mStgTotal As Long
 ' R14-8a: 入念モードは要点整理・自己批判の2段が増えて最大6段になる。
 Private mStgThorough As Boolean
 
+' R17 Phase3(名寄せ): synonymsシートは質問1回の中で何度も読み直さない。
+' 1セッション1回だけ modSynonymStore.ReadMapCsv を呼び、モジュール変数へ
+' 控えて使い回す(取込・同期での更新は次セッションから反映=docs/10に明記)。
+Private mSynMapCsv As String
+Private mSynLoaded As Boolean
+
 ' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
 ' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
@@ -39,6 +45,17 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
                                   Optional ByVal subqOverride As Long = 0, _
                                   Optional ByVal skipExpand As Boolean = False) As Long
     On Error GoTo FallbackSingle
+
+    ' 0) 語彙ズレの吸収(R17 Phase3): 質問文に一致した同義語を最大3語・
+    ' 半角空白区切りで追記してから検索へ(modRetrieve/modSparseのスコアリング
+    ' 本体は無改修=質問文への同義語追記だけで表記ゆれを吸収する)。
+    If LCase$(Trim$(modConfig.GetString("graph_synonyms", "on"))) <> "off" Then
+        If Not mSynLoaded Then
+            mSynMapCsv = modSynonymStore.ReadMapCsv()
+            mSynLoaded = True
+        End If
+        If LenB(mSynMapCsv) > 0 Then q = modRagParse.ExpandQueryBySyn(q, mSynMapCsv, 3)
+    End If
 
     ' 1) クエリ拡張
     Dim queries() As String

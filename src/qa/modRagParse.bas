@@ -258,6 +258,114 @@ Public Function ParseChapterPick(ByVal resp As String, ByVal maxN As Long, _
 End Function
 
 ' ----------------------------------------------------------------------------
+' 用語の名寄せ(2026-08-05 R17 Phase3・設計書§3 Phase3)。
+'   出力契約: <syn>表記>正規形|表記>正規形</syn>
+'
+' ParseSynResp - 名寄せ応答を term/canonical の並行配列へ。戻り値=有効ペア数。
+'   ">"を含まない要素・どちらかが空の要素は1件ずつ破棄する(全滅ではなく
+'   読めた分だけ返す寛容退化。modOutlineBuild側は0件なら何も書かずに諦める)。
+'   タグ欠落・"#ERR:"はすべて0件。
+' ----------------------------------------------------------------------------
+Public Function ParseSynResp(ByVal resp As String, ByRef outTerms() As String, _
+                             ByRef outCanons() As String) As Long
+    outTerms = Split(vbNullString)
+    outCanons = Split(vbNullString)
+    If IsErrorResponse(resp) Then Exit Function
+
+    Dim inner As String: inner = Trim$(TagInner(resp, "syn"))
+    If LenB(inner) = 0 Then Exit Function
+
+    Dim raw() As String: raw = Split(inner, "|")
+    Dim tmpT() As String: ReDim tmpT(0 To UBound(raw) - LBound(raw))
+    Dim tmpC() As String: ReDim tmpC(0 To UBound(raw) - LBound(raw))
+    Dim cnt As Long
+    Dim i As Long
+    For i = LBound(raw) To UBound(raw)
+        Dim piece As String: piece = Trim$(raw(i))
+        If LenB(piece) > 0 Then
+            Dim p As Long: p = InStr(piece, ">")
+            If p > 1 And p < Len(piece) Then
+                Dim t As String: t = Trim$(Left$(piece, p - 1))
+                Dim c As String: c = Trim$(Mid$(piece, p + 1))
+                If LenB(t) > 0 And LenB(c) > 0 Then
+                    tmpT(cnt) = t
+                    tmpC(cnt) = c
+                    cnt = cnt + 1
+                End If
+            End If
+        End If
+    Next i
+
+    If cnt = 0 Then Exit Function
+    ReDim Preserve tmpT(0 To cnt - 1)
+    ReDim Preserve tmpC(0 To cnt - 1)
+    outTerms = tmpT
+    outCanons = tmpC
+    ParseSynResp = cnt
+End Function
+
+' ----------------------------------------------------------------------------
+' ExpandQueryBySyn - synonymsの地図(mapCsv="term>canonical|term>canonical"。
+'   modSynonymStore.ReadMapCsvの戻り値そのもの)を使い、質問文 q 中の語に
+'   一致した同義語を最大maxAdd件・半角空白区切りで q の末尾へ追記する。
+'   ・一致判定は modSparse.NormalizeForSearch を両辺に通してから InStr する
+'     (全角/半角・大文字/小文字の表記ゆれを吸収。取込側section_pathと同じ式)。
+'   ・双方向: 質問に term があれば canonical を、canonical があれば term を足す。
+'   ・自己一致除外: term と canonical が(正規化後)同じペアは何も足さない
+'     (足しても質問文に新しい語が増えないため)。
+'   ・質問文に既にある語・追記済みの語は二重に足さない。
+'   ・mapCsv が空(=synonymsが0行)・maxAdd<1 は無操作で q をそのまま返す。
+' ----------------------------------------------------------------------------
+Public Function ExpandQueryBySyn(ByVal q As String, ByVal mapCsv As String, _
+                                 ByVal maxAdd As Long) As String
+    ExpandQueryBySyn = q
+    If LenB(Trim$(mapCsv)) = 0 Or maxAdd < 1 Then Exit Function
+
+    Dim normQ As String: normQ = modSparse.NormalizeForSearch(q)
+    If LenB(normQ) = 0 Then Exit Function
+
+    Dim outQ As String: outQ = q
+    Dim addedBox As String: addedBox = vbLf   ' 追記済み語(正規化後)の重複防止
+    Dim cnt As Long
+
+    Dim pairs() As String: pairs = Split(mapCsv, "|")
+    Dim i As Long
+    For i = LBound(pairs) To UBound(pairs)
+        If cnt >= maxAdd Then Exit For
+        Dim p As Long: p = InStr(pairs(i), ">")
+        If p > 1 And p < Len(pairs(i)) Then
+            Dim term As String: term = Trim$(Left$(pairs(i), p - 1))
+            Dim canon As String: canon = Trim$(Mid$(pairs(i), p + 1))
+            If LenB(term) > 0 And LenB(canon) > 0 Then
+                Dim nTerm As String: nTerm = modSparse.NormalizeForSearch(term)
+                Dim nCanon As String: nCanon = modSparse.NormalizeForSearch(canon)
+                If StrComp(nTerm, nCanon, vbBinaryCompare) <> 0 Then   ' 自己一致除外
+                    If InStr(1, normQ, nTerm, vbBinaryCompare) > 0 Then
+                        AppendSynWord outQ, addedBox, cnt, canon, nCanon, normQ, maxAdd
+                    ElseIf InStr(1, normQ, nCanon, vbBinaryCompare) > 0 Then
+                        AppendSynWord outQ, addedBox, cnt, term, nTerm, normQ, maxAdd
+                    End If
+                End If
+            End If
+        End If
+    Next i
+    ExpandQueryBySyn = outQ
+End Function
+
+' word(正規化後normWord)をoutQへ半角空白区切りで追記する。質問文に既にある
+' 語・追記済みの語は足さない(ExpandQueryBySynの内部ヘルパー)。
+Private Sub AppendSynWord(ByRef outQ As String, ByRef addedBox As String, ByRef cnt As Long, _
+                          ByVal word As String, ByVal normWord As String, _
+                          ByVal normQ As String, ByVal maxAdd As Long)
+    If cnt >= maxAdd Then Exit Sub
+    If InStr(1, normQ, normWord, vbBinaryCompare) > 0 Then Exit Sub
+    If InStr(1, addedBox, vbLf & normWord & vbLf, vbBinaryCompare) > 0 Then Exit Sub
+    outQ = outQ & " " & word
+    addedBox = addedBox & normWord & vbLf
+    cnt = cnt + 1
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ParseChoiceNumbers - 「番号で返信」への返事から選んだ番号を読み取る(R16-3B)。
 ' ----------------------------------------------------------------------------
 ' 戻り値 = 有効な番号を入力順・重複なしで "," 連結した文字列(例 "1,3")。
