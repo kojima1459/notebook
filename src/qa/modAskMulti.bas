@@ -93,8 +93,18 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     mParts = 0
     mT0 = Timer                ' 経過表示の基準(FB-8)。段0の判定から数え始める
 
-    If Not ShouldDecompose(modConfig.GetString("decompose_mode", "auto"), Len(q), _
-                           modConfig.GetLong("decompose_min_chars", 25)) Then Exit Function
+    ' R18-7b(実機第5報⑦): 文字数ゲートに複合シグナルをORで足す。「免責は?
+    ' 保険料は?」(9字)のような短いが強く当たる複合質問は、文字数だけを見る
+    ' ShouldDecompose を素通りしていた(decompose_min_chars既定25未満)。
+    ' offは複合シグナルより優先(呼ばない。既存のエスケープハッチ契約を保つ)。
+    ' alwaysはShouldDecompose側で既にTrueを返すのでORの出番は無い(不変)。
+    Dim decModeCfg As String: decModeCfg = modConfig.GetString("decompose_mode", "auto")
+    Dim decGate As Boolean
+    decGate = ShouldDecompose(decModeCfg, Len(q), modConfig.GetLong("decompose_min_chars", 25))
+    If Not decGate And LCase$(Trim$(decModeCfg)) <> "off" Then
+        decGate = modRagParse.HasCompoundSignal(q)
+    End If
+    If Not decGate Then Exit Function
 
     Dim parts() As String
     Dim nParts As Long
