@@ -341,6 +341,27 @@ PURE_ALLOWLIST = [
     #   modTestsPure14.RunAll14 の末尾が RunAll15 を呼ぶため、未注入だと
     #   実行時エラー12で波3のテストが1件も走らない(14を足したときと同型)。
     "modTestsPure15",
+    # modIntegrity(2026-08-05 R18-2b/2d): データ整合性の観測点。モジュール全体は
+    #   my_knowledge/my_manifest/ui_state を読み書きするが、テストが呼ぶ5本
+    #   (IndexOfName=source別集計の位置引き / ReconcileStatText=統計文字列の
+    #    chunk_count 差し替え / DataShrunk=前回保存時からの減少判定 /
+    #    IsVolatilePath=保存が次回に残らない場所の判定 / ShrinkWarnMsg・
+    #    VolatileWarnMsg=警告文)はいずれも Excel/COM に触れない
+    #   (modShelfSync/modPack/modLog と同じ「モジュール全体はR4準拠ではないが、
+    #   テストが呼ぶ関数自体はExcelに触れない」型)。未注入のまま modTestsPure15
+    #   から呼ぶと実行時エラー12になり、⑧永続化の判定が「テストを書いても
+    #   走らない」状態になる。
+    # modProgressBar(2026-08-05 R18-1a/1b): 進捗バナー。テストが呼ぶのは
+    #   BarWidthFor(viewport幅→バナー幅の算数)1本だけで、Shape を触る
+    #   PaintProgress/ClearProgress/SweepOrphans はテストから呼ばない。
+    # modShelfScan(2026-08-05 R18-2f): EnumLooksFailed(列挙0件+台帳に資料あり
+    #   =読めなかったと見なす判定)は Long 2つの比較だけの純関数。Dir$ を使う
+    #   EnumFolderFiles 等はテストから呼ばない。
+    # modTestsPure16(2026-08-05 R18): modTestsPure15(23,011字)にR18の真理表
+    #   (約9,300字)を足すと30,000字上限を超えるための分割先。
+    #   modTestsPure15.RunAll15 の末尾が RunAll16 を呼ぶため、未注入だと実行時
+    #   エラー12でR18のテストが1件も走らない(15を足したときと同型)。
+    "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

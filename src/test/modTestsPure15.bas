@@ -8,6 +8,7 @@ Option Explicit
 '   modTestsPure14 が24,825字で、ここの真理表を足すと30,000字上限を超える。
 '   14を新設したときと同じ線で分割する。
 '   入口は modTestsPure14.RunAll14 の末尾から呼ばれる RunAll15 の1本だけ。
+'   RunAll15 の末尾は modTestsPure16.RunAll16(R18)へ連鎖する。
 '
 ' ここで固定するもの:
 '   ・modRagParse.ParseChoiceNumbers(3B): 番号選択の読み取り。「1」「1と3」
@@ -483,6 +484,11 @@ NextNeighbor15:
 NextDemote15:
     On Error GoTo DemoteFail15
     TestDemoteUsed
+NextChain16:
+    ' 2026-08-05(R18): modTestsPure15 が23,011字で R18 の真理表(約9,300字)を
+    ' 足すと上限を超えるため 16 を新設した。連鎖の入口はここ1本だけ。
+    On Error GoTo ChainFail16
+    modTestsPure16.RunAll16
 NextDone15:
     On Error GoTo 0
     Exit Sub
@@ -517,6 +523,10 @@ NeighborFail15:
     Resume NextDemote15
 DemoteFail15:
     modTestRunner.Check "TestDemoteUsed(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChain16
+ChainFail16:
+    modTestRunner.Check "modTestsPure16.RunAll16(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone15
 End Sub

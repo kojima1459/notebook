@@ -47,6 +47,13 @@ End Function
 '   と解釈され、消失判定が同期スコープの全資料を DeleteSource していた。
 '   フォルダ不存在は別途保護済みだが、存在確認を通ったあとの列挙失敗には
 '   保護が無かった。「読めなかった」と「無かった」は別物として扱う。
+'   2026-08-05(R18-2f・調査agent1 §3(c)): Err で捕まえられない列挙失敗が
+'   残っていた。UNC(\\server\share)では Dir$ が途中で切れても【エラーを
+'   返さず】短いリストや空を返すことがあり、その0件が「フォルダが空になった」
+'   として消失判定へ流れ、実在するファイルが DeleteSource されていた
+'   (復旧不能)。0件でも台帳に当該スコープの資料が残っているなら、
+'   「空になった」より「読めなかった」の方が圧倒的にありそうな説明なので、
+'   enumFailed 側へ倒す(憲章§3-5: 消える方に倒さない)。
 Public Sub EnumFolderFiles(ByVal folderNorm As String, ByRef fileNames() As String, _
                             ByRef fileCount As Long, Optional ByRef enumFailed As Boolean)
     Dim names() As String: ReDim names(0 To 63)
@@ -77,12 +84,40 @@ Public Sub EnumFolderFiles(ByVal folderNorm As String, ByRef fileNames() As Stri
 
     If cnt = 0 Then
         ReDim fileNames(0 To 0)
+        ' R18-2f: 0件かつ台帳に当該スコープの資料あり=列挙失敗とみなす。
+        If EnumLooksFailed(cnt, ManifestScopeCount(folderNorm)) Then enumFailed = True
     Else
         ReDim Preserve names(0 To cnt - 1)
         fileNames = names
     End If
     fileCount = cnt
 End Sub
+
+' ----------------------------------------------------------------------------
+' EnumLooksFailed - 列挙結果を「読めなかった」と見なすか(純ロジック・R18-2f)。
+' ----------------------------------------------------------------------------
+' diskN=0 かつ manifestN>0 のときだけ True。
+'   ・diskN>0 : 少なくとも読めている。途中で切れていても、消失判定は
+'     「台帳に有りディスクに無い」ファイル単位で行われるので、ここで倒すと
+'     正当な削除(利用者が本当に消したファイル)まで永久に反映されなくなる。
+'   ・manifestN=0: そのフォルダの資料をまだ1件も持っていない=消える資料が
+'     無いので、失敗と見なす意味が無い(初回の同期で毎回失敗扱いにしない)。
+Public Function EnumLooksFailed(ByVal diskN As Long, ByVal manifestN As Long) As Boolean
+    EnumLooksFailed = (diskN = 0 And manifestN > 0)
+End Function
+
+' folderNorm 配下の manifest スコープ件数(LoadManifestScope と同じ条件)。
+' 読めなければ0(=従来どおり消失判定へ進む。判定材料が無いのに倒さない)。
+Private Function ManifestScopeCount(ByVal folderNorm As String) As Long
+    On Error Resume Next
+    Dim wsM As Worksheet: Set wsM = GetSheet(modAppDef.SH_MANIFEST)
+    If wsM Is Nothing Then Exit Function
+    Dim mPaths() As String, mNames() As String, mModified() As Date
+    Dim mSize() As Double, mStatus() As String, mCount As Long
+    LoadManifestScope wsM, folderNorm, mPaths, mNames, mModified, mSize, mStatus, mCount
+    ManifestScopeCount = mCount
+    On Error GoTo 0
+End Function
 
 ' ----------------------------------------------------------------------------
 ' IsExcludedFile - 走査から必ず除く files(2026-07-28追加)

@@ -25,18 +25,16 @@ Option Explicit
 '     既定値として保存し、次回以降は再度尋ねない(毎回聞かれる煩わしさを
 '     避ける。あとでconfigシートからいつでも変更できる旨を案内文に含める)。
 '   ・3画面のEnsureLayout直後に RenderShelf/EvaluateBadges/RenderDashboard も
-'     呼ぶ。理由: このブックにはシートのActivateイベントに反応するクラス
-'     モジュールが無く(担当は ThisWorkbook.cls のみ)、タブ切替では再描画が
-'     起きない。開いた瞬間に「空っぽの画面」を見せないよう起動時に一度だけ
-'     実データで埋める(以降は各操作が完了時に自分で再描画する)。
+'     呼ぶ。このブックにはシートのActivateイベントに反応するクラスモジュールが
+'     無く(担当は ThisWorkbook.cls のみ)タブ切替では再描画が起きないため、
+'     起動時に一度だけ実データで埋める(以降は各操作が完了時に再描画する)。
 '   ・本棚が空のときは、modShelf.TotalChunksを見てmodUIMain.
 '     ShowEmptyShelfHintを呼ぶ(§8.1「まず『マイ本棚』タブで資料を1つ
 '     追加してみましょう →」常設表示)。「空かどうか」の判定はここ(modBoot)
 '     の責務、「どう見せるか」はmodUIMainの責務、と役割を分けている。
-'   ・sync_on_openによるSyncNowはOn Error Resume Next(1行スコープ)で
-'     保護する(同期に失敗してもブック自体は開けるようにする。§13
-'     「フォルダ削除・リネーム」等のエッジケースでBoot全体を落とさない
-'     ため)。
+'   ・sync_on_openによるSyncNowはOn Error Resume Next(1行スコープ)で保護
+'     (同期に失敗してもブックは開ける。§13「フォルダ削除・リネーム」等の
+'     エッジケースでBoot全体を落とさないため)。
 '   ・Auto_Closeは必ずmodShelfSync.CancelAutoSyncを呼ぶ(§12「OnTime予約
 '     解除はmodBoot.Auto_Closeから必ず呼ぶ(OnTime残存→勝手にExcelが
 '     再起動する事故防止)」)。StatusBarも既定に戻す(=False)。
@@ -329,8 +327,10 @@ Public Sub Boot()
     End If
 
     ' R15-3b: 読み取り専用なら1度だけはっきり伝える(機能は止めない)。
+    ' R18-2d: 併せて前回保存時との突合(資料が減った/一時フォルダで開いている)。
     On Error Resume Next
     modDiag.WarnIfReadOnly
+    modIntegrity.WarnAtStartup
     On Error GoTo Failed
 
     ' 4.5) AIリボンの利用期限確認(裁定D3の穏当運用)。True=続行不可でも
@@ -421,11 +421,10 @@ Public Sub Boot()
     RemoveOrphanDefaultSheets
 
     ' 7.5) 画像PDF/テキストPDFの作業フォルダ(%TEMP%\nxocr_*)のGC。
-    '      2026-07-31 R11-D(監査3 H-1): Ghostscriptがタイムアウトしたときは
-    '      原因究明のために作業フォルダを消さずに残す方針へ変えた。放置すると
-    '      1件あたり数十MBの残骸が溜まり続けるので、掃除役をここに1箇所だけ
-    '      置く。24時間より古いものだけが対象=いま動いている取込は絶対に
-    '      壊さない(同時に複数のExcelが開かれていても安全)。
+    '      2026-07-31 R11-D(監査3 H-1): GSがタイムアウトしたときは原因究明の
+    '      ため作業フォルダを残す方針にしたが、放置すると1件あたり数十MBの残骸が
+    '      溜まる。掃除役はここ1箇所。24時間より古いものだけが対象=いま動いて
+    '      いる取込は絶対に壊さない(複数のExcelが開かれていても安全)。
     '      R14-F11: 一時コピー(%TEMP%\mbtmp_*)の残骸も同じ線(24時間)で
     '      掃除する(本体は modExtractorPdf.GcOldTempCopies)。
     '      R15-7d: OCRの頁キャッシュ(隠しシート ocr_cache)の孤児行も、

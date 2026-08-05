@@ -4,17 +4,11 @@ Option Explicit
 ' ========================================
 ' modShelfStore - 本棚シート(my_knowledge / my_vectors / my_manifest)の行操作
 '
-' modShelf から切り出した「シートを作る・行を探す・行を消す・配列で書き戻す」層。
-' 取込の判断ロジック(modShelf)と、シートという保存先の都合(ここ)を分けることで、
-' 取込側を触るたびに行削除のコードまで読まされる状態を解消する。
-'
-' 切り出しの理由(2026-07-28): modShelf が契約上限30,000字に対し残り13字まで
-' 逼迫しており、バグ修正で1行足すこともできなくなっていた(レビュー I-2)。
-' 行操作は取込フロー以外(同期・失効ワイプ)からも呼びたい共通処理のため、
-' ここを共有の置き場にする。
-'
-' 全行の読み書きは「Range一括読み→配列でフィルタ→一括書き戻し」で行う。
-' 1行ずつ Rows().Delete すると数千行で実機が数分固まるため(MASTER_SPEC §12)。
+' modShelf から切り出した「シートを作る・行を探す・行を消す・配列で書き戻す」層
+' (2026-07-28 レビュー I-2: modShelf が上限30,000字に対し残り13字まで逼迫)。
+' 行操作は取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理。
+' 全行の読み書きは「Range一括読み→配列でフィルタ→一括書き戻し」で行う
+' (1行ずつ Rows().Delete すると数千行で実機が数分固まる。MASTER_SPEC §12)。
 ' ========================================
 
 Private Const COL_ID As Long = 1
@@ -26,33 +20,24 @@ Private Const COL_KEYWORDS As Long = 6
 Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
-' ----------------------------------------------------------------------------
 ' my_knowledge の列(1..10)。10列目 norm_text は 2026-08-01(R12-4)で追加。
-' ----------------------------------------------------------------------------
 ' 照合用の正規化済みテキスト(modSparse.MatchDocText の結果)を取込時に1回だけ
-' 作って持つ。以前は検索のたびに全チャンクを正規化し直しており、20,500件では
-' 1質問あたり1,540万文字ぶんのループになっていた(R12-4 背景)。
-' 追加の作法は R12-3 の manifest fail_count と同じ:
+' 作って持つ(以前は検索のたびに全チャンクを正規化し直し、20,500件では1質問
+' あたり1,540万文字ぶんのループだった)。作法は R12-3 の fail_count と同じ:
 '   ・見出しは EnsureKnowledgeSheet が毎回・冪等に付ける(既存ブックも移行不要)
 '   ・空欄は「未計算」とみなし、検索側がその行だけ計算して書き戻す(遅延)
 '   ・行の詰め直しは必ず全列(KNOWLEDGE_COLS)を運ぶ。9列のまま詰めると
-'     norm_text だけが別の行に残り、【別チャンクの照合テキストで採点する】
-'     という静かな事故になる。
+'     norm_text だけが別の行に残り【別チャンクの照合テキストで採点する】事故。
 Public Const COL_K_NORM As Long = 10
 Private Const KNOWLEDGE_COLS As Long = 10
 
-' ----------------------------------------------------------------------------
 ' my_manifest の列(1..10)。10列目 fail_count は 2026-08-01(R12-3-3)で追加。
-' ----------------------------------------------------------------------------
-' 恒久失敗ファイルのバックオフ:
-'   フォルダ同期は status="failed" の行を毎回 replace 判定で拾い直す
-'   (modShelfSync.ResolveDecision)。壊れたPDF・権限の無いファイルのように
-'   「何度やっても失敗するもの」は、そのぶん毎回の同期時間と err_log を
-'   食い続ける。連続失敗を数え、MAX_FAIL_STREAK 回で "failed_permanent" へ
-'   倒して同期スコープから外す。
-'   復帰の道は必ず残す: (a) 利用者が「資料を追加」で明示的に選び直したとき
-'   (ResetFailCountForPath)、(b) ファイル自体が更新されたとき(サイズ/更新
-'   日時の変化は DiffDecision が replace を返すので再試行される)。
+' 恒久失敗ファイルのバックオフ: 同期は status="failed" を毎回 replace 判定で
+' 拾い直す(modShelfSync.ResolveDecision)ため、壊れたPDF・権限の無いファイルが
+' 毎回の同期時間と err_log を食い続ける。連続失敗を数え MAX_FAIL_STREAK 回で
+' "failed_permanent" へ倒して同期スコープから外す。復帰の道は必ず残す:
+' (a) 利用者が「資料を追加」で明示的に選び直したとき(ResetFailCountForPath)、
+' (b) ファイル更新時(サイズ/更新日時の変化で DiffDecision が replace を返す)。
 Private Const COL_M_STATUS As Long = 6
 Private Const COL_M_FAILN As Long = 10
 Private Const MANIFEST_COLS As Long = 10
@@ -69,9 +54,8 @@ Private mBfVal() As String
 Private mBfN As Long
 
 ' シートを1枚取る。無ければ Nothing(呼び出し側が黙って諦められるように)。
-' 2026-07-28: modShelf からここへ切り出したとき、この関数だけ切り出し範囲の
-' 外にあり、持ってくるのを忘れていた。実機で
-' 「Sub または Function が定義されていません」となり、資料の取込が全滅した。
+' 2026-07-28: 切り出し時にこの関数だけ持ってくるのを忘れ、実機で「Sub または
+' Function が定義されていません」となり資料の取込が全滅した。
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(sheetName)
@@ -95,15 +79,15 @@ Public Function EnsureKnowledgeSheet() As Worksheet
         ws.Visible = 2   ' xlSheetVeryHidden
         On Error GoTo 0
     End If
-    ' 既存ブック(9列時代のmy_knowledge)への見出し追加も毎回・冪等に行う。
-    ' 値が空の行は「未計算」として読むので、移行処理は要らない(R12-4)。
+    ' 既存ブック(9列時代)への見出し追加も毎回・冪等に。空の行は「未計算」と
+    ' して読むので移行処理は要らない(R12-4)。
     On Error Resume Next
     If LenB(Trim$(CStr(ws.Cells(1, COL_K_NORM).Value))) = 0 Then
         ws.Cells(1, COL_K_NORM).Value = "norm_text"
     End If
     On Error GoTo 0
-    ' 数式インジェクション防御(毎回・冪等): 配布テンプレートの既存my_knowledgeでも
-    ' 効くよう If の外で適用。非信頼テキスト列を"@"書式へ固定し先頭=等の格納型数式化を防ぐ。
+    ' 数式インジェクション防御(毎回・冪等。配布テンプレートの既存シートにも
+    ' 効くよう If の外で適用): 非信頼テキスト列を"@"書式へ固定する。
     On Error Resume Next
     ws.Columns(COL_SOURCE).NumberFormat = "@"
     ws.Columns(COL_SUMMARY).NumberFormat = "@"
@@ -134,8 +118,7 @@ Public Function EnsureManifestSheet() As Worksheet
         ws.Visible = 0   ' xlSheetHidden
         On Error GoTo 0
     End If
-    ' 既存ブック(9列時代のmy_manifest)への見出し追加も毎回・冪等に行う。
-    ' 値が空の行は fail_count=0 として読むので、移行処理は要らない。
+    ' 既存ブック(9列時代)への見出し追加も毎回・冪等に。空は fail_count=0。
     On Error Resume Next
     If LenB(Trim$(CStr(ws.Cells(1, COL_M_FAILN).Value))) = 0 Then
         ws.Cells(1, COL_M_FAILN).Value = "fail_count"
@@ -147,13 +130,11 @@ Fail:
     Set EnsureManifestSheet = Nothing
 End Function
 
-' ----------------------------------------------------------------------------
-' norm_text(第10列)の供給と遅延バックフィル(2026-08-01 R12-4)
-' ----------------------------------------------------------------------------
-' 検索側(modRetrieve)は「この行の照合テキストをくれ」とだけ言えばよい。
-' 値があればそれを返し、空(旧データ・富化直後)ならその行だけ計算して返し、
-' 走査の最後にまとめてセルへ書き戻す。my_knowledge の列の都合を知っているのは
-' この行操作層だけ、という切り分けを保つ(検索側にセル書込みを置かない)。
+' norm_text(第10列)の供給と遅延バックフィル(2026-08-01 R12-4)。
+' 検索側(modRetrieve)は「この行の照合テキストをくれ」と言うだけ。値があれば
+' 返し、空(旧データ・富化直後)ならその行だけ計算して返し、走査の最後に
+' まとめてセルへ書き戻す。my_knowledge の列の都合を知るのはこの層だけ、
+' という切り分けを保つ(検索側にセル書込みを置かない)。
 Public Sub ResetNormBackfill()
     mBfN = 0
     ReDim mBfRow(0 To 63)
@@ -176,8 +157,8 @@ End Function
 
 Private Sub QueueNormBackfill(ByVal kRow As Long, ByVal s As String)
     On Error Resume Next
-    ' 1セルに収まらない長さは保存しない(切り詰めて保存すると、保存済みの行と
-    ' 未保存の行でスコアが変わってしまう=挙動等価が壊れる)。
+    ' 1セルに収まらない長さは保存しない(切り詰めると保存済みの行と未保存の行で
+    ' スコアが変わる=挙動等価が壊れる)。
     If Len(s) > 32000 Then Exit Sub
     If mBfN > UBound(mBfRow) Then
         ReDim Preserve mBfRow(0 To UBound(mBfRow) * 2 + 1)
@@ -189,8 +170,8 @@ Private Sub QueueNormBackfill(ByVal kRow As Long, ByVal s As String)
     On Error GoTo 0
 End Sub
 
-' 走査で作った norm_text をまとめて書き戻す。書けなくても検索結果は変わらない
-' (次回また計算するだけ)ので、全体を On Error Resume Next で包む。
+' 走査で作った norm_text をまとめて書き戻す。書けなくても検索結果は不変
+' (次回また計算するだけ)なので全体を OERN で包む。
 Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef kData As Variant)
     On Error Resume Next
     If mBfN < 1 Then Exit Sub
@@ -198,17 +179,15 @@ Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef 
     ' 走査中のDoEventsで行が動いていたら書かない(別の行へ書く事故を避ける)。
     If wsK.Cells(wsK.Rows.count, COL_ID).End(xlUp).row <> lastK Then Exit Sub
 
-    ' 数式インジェクション防御(R12-2と同じ作法): 先頭"="の文字列が格納型数式に
-    ' ならないよう、書く直前に列を文字列書式へ固定する(冪等)。
+    ' 数式インジェクション防御(R12-2と同じ作法): 書く直前に列を"@"へ固定。
     wsK.Columns(COL_K_NORM).NumberFormat = "@"
 
-    ' 2026-08-01(R12-H-5): 書けた件数を数える。1件も書けなかったときは
-    ' 「毎回計算し直しているのに誰も気付けない」= 恒久的に遅いまま黙って
-    ' 使い続けることになるので、必ず痕跡を残す(憲章§4-1)。
+    ' 2026-08-01(R12-H-5): 書けた件数を数える。1件も書けないと「毎回計算し
+    ' 直しているのに誰も気付けない」ので必ず痕跡を残す(憲章§4-1)。
     Dim wrote As Long: wrote = 0
     Dim i As Long
     If mBfN <= BACKFILL_CELL_MAX Then
-        ' 数行だけなら直接書く(列まるごとの書き戻しは1回でも数万セルを触る)。
+        ' 数行だけなら直接書く(列まるごとの書戻しは1回でも数万セルを触る)。
         For i = 0 To mBfN - 1
             Err.Clear
             wsK.Cells(1 + mBfRow(i), COL_K_NORM).Value = mBfVal(i)
@@ -218,9 +197,9 @@ Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef 
             End If
         Next i
     Else
-        ' 初回のような大量バックフィルは200行バッチで書く(modPack.WriteRowsBatched
-        ' と同じ作法)。数万行×長文の1回代入は実行時エラー7になり得るうえ、
-        ' 途中で失敗すると【1件も書けない】=毎回計算し直す状態が固定される。
+        ' 初回のような大量バックフィルは200行バッチで書く(modPack.
+        ' WriteRowsBatched と同じ作法)。数万行×長文の1回代入は実行時エラー7に
+        ' なり得るうえ、途中で失敗すると【1件も書けない】状態が固定される。
         Dim nRows As Long: nRows = UBound(kData, 1) - LBound(kData, 1) + 1
         Dim colArr() As Variant: ReDim colArr(1 To nRows, 1 To 1)
         For i = 1 To nRows
@@ -261,12 +240,10 @@ Public Sub FlushNormBackfill(ByVal wsK As Worksheet, ByVal lastK As Long, ByRef 
 End Sub
 
 ' 既存チャンクのハッシュ集合(重複排除用)。
-'
-' excludeSource (2026-07-28 レビュー H-6):
-'   このsource名の行をハッシュ集合に入れない。同名資料の置き換えで
-'   「先に消してから抽出する」のをやめ、「抽出が成功してから消す」順に
-'   変えるために要る。消す前に集合を作ると、入れ直すチャンクが全部
-'   自分自身との重複と判定されて1件も入らなくなる。
+' excludeSource (2026-07-28 レビュー H-6): このsource名の行を集合に入れない。
+'   同名資料の置き換えを「抽出が成功してから消す」順(R18-2eで更に「書いてから
+'   消す」)に変えたため、消す前に作る集合から自分自身を外さないと、入れ直す
+'   チャンクが全部「自分との重複」と判定されて1件も入らない。
 Public Function BuildExistingHashSet(ByVal wsK As Worksheet, _
                                      Optional ByVal excludeSource As String = "") As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
@@ -306,7 +283,14 @@ Public Sub AddHashFromId(ByVal dict As Object, ByVal chunkId As String)
 End Sub
 
 ' 指定sourceのknowledge/vector行を除去(配列読み→フィルタ→書戻し)。
-Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
+' keepFromRow (2026-08-05 R18-2e): このシート行番号【以降】の行は、source が
+'   一致していても消さない。再取込を「旧行を消してから新行を書く」から
+'   「新行を書いてから旧行を消す」へ反転したため、いま書いたばかりの新行
+'   (同じ source 名を持つ)を巻き添えで消さないための境界。
+'   0(既定)なら従来どおり全ての一致行が対象=既存の呼び出し元は無改修。
+'   arr は2行目起点なので、配列の i 行目のシート行番号は i+1。
+Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String, _
+                                              Optional ByVal keepFromRow As Long = 0)
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If wsK Is Nothing Then Exit Sub
     Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
@@ -321,7 +305,8 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
 
     Dim i As Long, c As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
-        If StrComp(CStr(arr(i, COL_SOURCE)), sourceName, vbTextCompare) = 0 Then
+        If StrComp(CStr(arr(i, COL_SOURCE)), sourceName, vbTextCompare) = 0 _
+           And (keepFromRow < 2 Or (i + 1) < keepFromRow) Then
             Dim cid As String: cid = CStr(arr(i, COL_ID))
             If LenB(cid) > 0 Then
                 If Not removedIds.Exists(cid) Then removedIds.Add cid, True
@@ -347,19 +332,13 @@ Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String)
     RemoveVectorsByIds removedIds
 End Sub
 
-' ----------------------------------------------------------------------------
 ' RemoveRowsByOrigin - origin列が originTag と一致する行を knowledge/vectors
 '   から取り除く。戻り値=消した件数。
-'
-' 2026-07-28(レビュー C-1): この「origin で消す」処理は modChannel が
-' 自前に持っており、消す側のタグ("pack:"&部門名)と書く側のタグ
-' ("pack:"&作者名)が食い違ったまま誰も気付かなかった。同じ概念の実装が
-' 2つあると片方だけ直る。書き手(modPack)と消し手(modChannel)の両方が
-' ここを呼ぶようにして、タグの取り扱いを1箇所に集める。
-'
-' 比較は StrComp(vbTextCompare)=大文字小文字を無視。部門名の表記ゆれで
-' 消し漏らすより、寄せて消せる方が事故が小さい。
-' ----------------------------------------------------------------------------
+' 2026-07-28(レビュー C-1): 同じ処理を modChannel が自前に持ち、消す側のタグ
+' ("pack:"&部門名)と書く側のタグ("pack:"&作者名)が食い違ったまま誰も
+' 気付かなかった。書き手(modPack)と消し手(modChannel)の両方がここを呼び、
+' タグの取り扱いを1箇所に集める。比較は StrComp(vbTextCompare)=大小無視
+' (部門名の表記ゆれで消し漏らすより、寄せて消せる方が事故が小さい)。
 Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
     If LenB(Trim$(originTag)) = 0 Then Exit Function
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
@@ -492,9 +471,9 @@ Public Sub RemoveVectorsByIds(ByVal removedIds As Object)
 
     If survivorCount = nRows Then Exit Sub   ' 一致無し
 
-    ' R12-4: ベクトルが1本でも消えたらセッション内キャッシュは無効。
-    ' 「消したはずのチャンクが検索に出続ける」を構造的に防ぐため、
-    ' my_vectors から行を落とす唯一の場所であるここで世代を進める。
+    ' R12-4: ベクトルが1本でも消えたらセッション内キャッシュは無効
+    ' (「消したはずのチャンクが検索に出続ける」の構造的防止)。my_vectors から
+    ' 行を落とす唯一の場所であるここで世代を進める。
     On Error Resume Next
     modVecCache.BumpGeneration
     On Error GoTo 0
@@ -518,8 +497,8 @@ Public Sub RemoveManifestRowForSource(ByVal sourceName As String)
     Dim lastM As Long: lastM = wsM.Cells(wsM.Rows.count, 1).End(xlUp).row
     If lastM < 2 Then Exit Sub
 
-    ' manifest は10列(R12-3-3 で fail_count を追加)。行を詰める処理だけは
-    ' 全列を運ばないと、削除の前後で fail_count だけが別の行に残る。
+    ' manifest は10列(R12-3-3 で fail_count 追加)。行を詰める処理は全列を
+    ' 運ばないと fail_count だけが別の行に残る。
     Dim arr As Variant: arr = wsM.Range(wsM.Cells(2, 1), wsM.Cells(lastM, MANIFEST_COLS)).Value
     Dim nRows As Long: nRows = UBound(arr, 1) - LBound(arr, 1) + 1
 
@@ -550,6 +529,17 @@ Public Sub RemoveManifestRowForSource(ByVal sourceName As String)
     wsM.Range(wsM.Cells(2 + survivorCount, 1), wsM.Cells(1 + nRows, MANIFEST_COLS)).ClearContents
 End Sub
 
+' ----------------------------------------------------------------------------
+' chunkCount が負(-1)なら「今回は数え直していない」の意味で、既存行の
+' chunk_count をそのまま残す(2026-08-05 R18-2a・実機第5報⑧)。
+' ----------------------------------------------------------------------------
+' 背景: modShelf.IngestFile の失敗3経路(抽出失敗/chunkN=0/Failedハンドラ)は
+' 実データ(my_knowledge の行)を1行も消さないのに chunk_count だけを 0 で
+' 上書きしていた。マイ本棚のカードはこの列を表示するので、中断した再取込の
+' あと「127件」が「0件」に化け、利用者には資料が消えたようにしか見えない
+' (実データは生存。実機第5報⑧の確定原因)。status とエラーメモの更新は
+' 従来どおり行う=カードは「失敗した」と正しく言いつつ、件数だけは嘘をつかない。
+' 既存行が無いとき(新規)は前値も無いので 0 になる。
 Public Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String, ByVal modifiedAt As Date, _
                               ByVal sizeBytes As Double, ByVal chunkCount As Long, ByVal status As String, _
                               ByVal errorNote As String, ByVal origin As String)
@@ -563,9 +553,11 @@ Public Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String,
         If r < 2 Then r = 2
     End If
 
-    ' R12-3-3: 連続失敗のバックオフ。ここが manifest への status 書込みの
-    ' 唯一の入口なので、数える場所もここ1箇所にする(§4-5 同型の問題は
-    ' 共通部品で一度だけ)。
+    Dim newCount As Long: newCount = chunkCount
+    If chunkCount < 0 Then newCount = ChunkCountAt(wsM, r)
+
+    ' R12-3-3: 連続失敗のバックオフ。ここが manifest への status 書込みの唯一の
+    ' 入口なので、数える場所もここ1箇所にする(§4-5)。
     Dim prevFail As Long
     prevFail = FailCountAt(wsM, r)
     Dim newFail As Long: newFail = prevFail
@@ -589,13 +581,25 @@ Public Sub UpsertManifestRow(ByVal filePath As String, ByVal fileName As String,
     wsM.Cells(r, 2).Value = fileName
     wsM.Cells(r, 3).Value = modifiedAt
     wsM.Cells(r, 4).Value = sizeBytes
-    wsM.Cells(r, 5).Value = chunkCount
+    wsM.Cells(r, 5).Value = newCount
     wsM.Cells(r, COL_M_STATUS).Value = newStatus
     wsM.Cells(r, 7).Value = modUtil.SafeLeft(errorNote, 2000)
     wsM.Cells(r, 8).Value = modUtil.NowStamp()
     wsM.Cells(r, 9).Value = origin
     wsM.Cells(r, COL_M_FAILN).Value = newFail
 End Sub
+
+' 既存行の chunk_count 読み出し(行が無い・空欄・非数値・負は0)。R18-2a。
+Private Function ChunkCountAt(ByVal wsM As Worksheet, ByVal r As Long) As Long
+    On Error Resume Next
+    If r < 2 Then Exit Function
+    Dim v As Variant: v = wsM.Cells(r, 5).Value
+    If IsError(v) Then Exit Function
+    If Not IsNumeric(v) Then Exit Function
+    ChunkCountAt = CLng(v)
+    If ChunkCountAt < 0 Then ChunkCountAt = 0
+    On Error GoTo 0
+End Function
 
 ' 連続失敗回数の読み出し(空欄・非数値は0)。
 Private Function FailCountAt(ByVal wsM As Worksheet, ByVal r As Long) As Long
@@ -609,14 +613,11 @@ Private Function FailCountAt(ByVal wsM As Worksheet, ByVal r As Long) As Long
     On Error GoTo 0
 End Function
 
-' ----------------------------------------------------------------------------
 ' ResetFailCountForPath - 恒久失敗(failed_permanent)からの復帰口(R12-3-3)。
-'   利用者が「資料を追加」で同じファイルを明示的に選び直したときに呼ぶ。
-'   連続失敗回数を0に戻し、status も "failed" へ戻すことで、通常の再取込
-'   (と、次回以降の同期)の対象へ復帰させる。
-'   自動処理からは呼ばない。「もう一度やってみる」という人の意思だけが
-'   バックオフを解除できる、というのがこの機能の約束である。
-' ----------------------------------------------------------------------------
+'   利用者が「資料を追加」で同じファイルを明示的に選び直したときに呼ぶ。連続
+'   失敗回数を0に戻し status も "failed" へ戻して再取込(と次回同期)の対象へ
+'   復帰させる。自動処理からは呼ばない=「もう一度やってみる」という人の意思
+'   だけがバックオフを解除できる、というのがこの機能の約束。
 Public Sub ResetFailCountForPath(ByVal filePath As String)
     On Error Resume Next
     If LenB(Trim$(filePath)) = 0 Then Exit Sub
@@ -673,13 +674,13 @@ Public Function FindManifestRowByPath(ByVal wsM As Worksheet, ByVal filePath As 
     Next i
 End Function
 
-' src(1 To n以上, 1 To 10)の先頭n行だけを(1 To n, 1 To 10)へ詰め直す(Range書込みは配列サイズ一致が必須)。
+' src の先頭n行だけを(1 To n, 1 To 10)へ詰め直す(Range書込みは配列サイズ一致が必須)。
 Public Function CompactRows(ByRef src As Variant, ByVal n As Long) As Variant
     CompactRows = SliceRows(src, 1, n)
 End Function
 
-' src(1 To n以上, 1 To 10)の startIdx 行目から count 行を(1 To count, 1 To 10)へ
-' 切り出す(バッチ書込み用。CompactRowsの一般化)。
+' src の startIdx 行目から count 行を(1 To count, 1 To 10)へ切り出す
+' (バッチ書込み用。CompactRowsの一般化)。
 Public Function SliceRows(ByRef src As Variant, ByVal startIdx As Long, ByVal count As Long) As Variant
     Dim outArr() As Variant: ReDim outArr(1 To count, 1 To KNOWLEDGE_COLS)
     Dim r As Long, c As Long

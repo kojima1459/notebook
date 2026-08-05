@@ -183,6 +183,25 @@ CONTRACT: dict[str, dict] = {
         "required": ["RunDiagnostics", "QuickHealthCheck", "RecentErrorsForClipboard",
                      "WarnIfReadOnly"],
     },
+    # modIntegrity(2026-08-05 R18-2b/2d・実機第5報⑧): データ整合性の観測点。
+    # 「昨日入れた資料が今日は0件」に気付く仕組みがアプリ側に1つも無かった
+    # (表示は my_manifest.chunk_count をそのまま出すだけで実データと突き合わせず、
+    # 保存が次回に残ったかを確かめる記録も無かった=調査agent1)。憲章§4-2。
+    # ReconcileChunkCount: 台帳と my_knowledge の実行数の突合+自動修復
+    #   (modShelf.SourceList から1行)。
+    # RecordSaveMark: 保存成功時に (行数, FullName) を ui_state へ控える
+    #   (modShelfBatch.SaveCheckpoint から1行)。
+    # WarnAtStartup: 起動時の突合(modBoot から1行)。
+    # ReconcileStatText / DataShrunk / IsVolatilePath / ShrinkWarnMsg /
+    #   VolatileWarnMsg: Excelに触れない純ロジック(modTestsPure15 が固定)。
+    # 置き場が基盤層なのは modBoot/modShelf/modShelfStore がいずれも30,000字上限
+    # 近くで判定本体を置けないため(modDiag.WarnIfReadOnly と同型の判断)。
+    "modIntegrity": {
+        "closed": True,
+        "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
+                     "RecordSaveMark", "DataShrunk", "IsVolatilePath",
+                     "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup"],
+    },
     # ---- 7.2 取込層 ----
     # modExtractorWord / modExtractorExcel / modExtractorAcrobat は
     # MASTER_SPECが個別のPublic契約を明示していないため対象外(自由)。

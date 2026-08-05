@@ -1,0 +1,252 @@
+Attribute VB_Name = "modTestsPure16"
+Option Explicit
+
+' ============================================================================
+' modTestsPure16 - R18-1/R18-2(実機第5報①⑧⑪)の純ロジック回帰テスト
+' ----------------------------------------------------------------------------
+' なぜ新設したか(憲章§4-6):
+'   modTestsPure15 が23,011字で、ここの真理表(約9,300字)を足すと30,000字
+'   上限を超える。15を新設したときと同じ線で分割する。
+'   入口は modTestsPure15.RunAll15 の末尾から呼ばれる RunAll16 の1本だけ。
+'
+' ここで固定するもの:
+'   ・modProgressBar.BarWidthFor(1b): 進捗バナー幅の viewport 連動。
+'   ・modIntegrity.ReconcileStatText / IndexOfName(2b): 台帳と実データの突合。
+'   ・modIntegrity.DataShrunk / IsVolatilePath / 警告文(2d): 起動時の突合。
+'   ・modShelfScan.EnumLooksFailed(2f): UNC列挙の途中切れを消失と誤判定しない。
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' R18-1b: 進捗バナーの幅(modProgressBar.BarWidthFor)。
+' ----------------------------------------------------------------------------
+' 従来は固定380ptで、本文の可視幅は 380-左16-右190 = 174pt しか無く、OCRの
+' 実況文(約363pt)が折り返して高さ30ptのピルから溢れ、地色との対比1.05:1で
+' 完全に読めなかった(実機第5報①)。viewport-16 と上限760 の小さい方にすれば
+' 本文可視幅は 760-16-190 = 554pt 以上になり、現行の文面が1行に収まる。
+' 狭い窓では viewport-16 まで縮み、■中断(右端 leftPos+barW-6)が画面外へ
+' はみ出さない。下限300は「バナーの体をなす最小」。
+Private Sub TestBarWidthFor()
+    modTestRunner.Check "バナー幅_広い窓は上限760で頭打ち", _
+        (modProgressBar.BarWidthFor(1600) = 760), _
+        "実際=" & modProgressBar.BarWidthFor(1600)
+    modTestRunner.Check "バナー幅_776でちょうど760(境界)", _
+        (modProgressBar.BarWidthFor(776) = 760)
+    modTestRunner.Check "バナー幅_775は759(上限直下はviewport連動)", _
+        (modProgressBar.BarWidthFor(775) = 759)
+    modTestRunner.Check "バナー幅_可視幅600なら584", _
+        (modProgressBar.BarWidthFor(600) = 584)
+    modTestRunner.Check "バナー幅_狭い窓(320)は304", _
+        (modProgressBar.BarWidthFor(320) = 304)
+    modTestRunner.Check "バナー幅_極端に狭くても300を割らない", _
+        (modProgressBar.BarWidthFor(100) = 300)
+    ' 本文可視幅(barW - 左余白16 - 右余白190)が554pt以上=写真の文面が1行。
+    modTestRunner.Check "バナー幅_上限時の本文可視幅は554pt", _
+        (modProgressBar.BarWidthFor(1366) - 16 - 190 = 554)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-2b: 台帳の統計文字列の chunk_count 差し替え(modIntegrity)。
+' ----------------------------------------------------------------------------
+' statText は modShelf.SourceList が組み立てた
+' "status|ingested_at|chunk_count|error_note|origin"。実行数と一致していれば
+' 【同じ文字列をそのまま返す】ことが呼び出し側の「何もしない」合図なので、
+' 一致時に素通しであることまで見る。error_note に "|" が混じる可能性が
+' あるため、6つ以上に割れる入力でも3つ目だけが変わることを固定する。
+Private Sub TestReconcileStatText()
+    modTestRunner.Check "突合_一致なら素通し", _
+        (modIntegrity.ReconcileStatText("done|2026-08-05|127||self", 127) = _
+         "done|2026-08-05|127||self")
+    modTestRunner.Check "突合_0上書きを実行数へ戻す", _
+        (modIntegrity.ReconcileStatText("image_pdf|2026-08-05|0|中断しました|self", 127) = _
+         "image_pdf|2026-08-05|127|中断しました|self")
+    modTestRunner.Check "突合_実データが減っていれば減らす", _
+        (modIntegrity.ReconcileStatText("done|2026-08-05|127||self", 0) = _
+         "done|2026-08-05|0||self")
+    modTestRunner.Check "突合_空欄のchunk_countも直す", _
+        (modIntegrity.ReconcileStatText("failed|2026-08-05|||self", 5) = _
+         "failed|2026-08-05|5||self")
+    modTestRunner.Check "突合_メモに区切り文字が混じっても他節を壊さない", _
+        (modIntegrity.ReconcileStatText("failed|t|0|a|b|self", 9) = "failed|t|9|a|b|self")
+    modTestRunner.Check "突合_節が足りない壊れた文字列は触らない", _
+        (modIntegrity.ReconcileStatText("done|2026-08-05|0", 7) = "done|2026-08-05|0")
+    modTestRunner.Check "突合_空文字は触らない", _
+        (modIntegrity.ReconcileStatText("", 3) = "")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-2b: source別集計の位置引き(modIntegrity.IndexOfName)。
+' ----------------------------------------------------------------------------
+' hint は「速さだけの助言」で、当たっても外れても結果は線形探索と同じでなければ
+' ならない(ここがズレると集計が別の資料の行数を数え始めて台帳を壊す)。
+Private Sub TestIndexOfName()
+    Dim nm(0 To 2) As String
+    nm(0) = "a.pdf": nm(1) = "b.pdf": nm(2) = "c.pdf"
+    modTestRunner.Check "位置引き_先頭", (modIntegrity.IndexOfName(nm, 3, "a.pdf", -1) = 0)
+    modTestRunner.Check "位置引き_末尾", (modIntegrity.IndexOfName(nm, 3, "c.pdf", -1) = 2)
+    modTestRunner.Check "位置引き_不在は-1", (modIntegrity.IndexOfName(nm, 3, "z.pdf", -1) = -1)
+    modTestRunner.Check "位置引き_大小無視", (modIntegrity.IndexOfName(nm, 3, "B.PDF", -1) = 1)
+    modTestRunner.Check "位置引き_hint的中", (modIntegrity.IndexOfName(nm, 3, "b.pdf", 1) = 1)
+    modTestRunner.Check "位置引き_hint外れでも正しい", _
+        (modIntegrity.IndexOfName(nm, 3, "b.pdf", 0) = 1)
+    modTestRunner.Check "位置引き_hintが範囲外でも壊れない", _
+        (modIntegrity.IndexOfName(nm, 3, "b.pdf", 99) = 1)
+    modTestRunner.Check "位置引き_空の目標は-1", (modIntegrity.IndexOfName(nm, 3, "", -1) = -1)
+    modTestRunner.Check "位置引き_件数0は-1", (modIntegrity.IndexOfName(nm, 0, "a.pdf", -1) = -1)
+    ' n はカードの件数(配列の実長ではない)。パック由来を突合しないための境界。
+    modTestRunner.Check "位置引き_nより後ろは見ない", _
+        (modIntegrity.IndexOfName(nm, 2, "c.pdf", -1) = -1)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-2d: 起動時突合の2判定(modIntegrity)。
+' ----------------------------------------------------------------------------
+' DataShrunk: 記録が無い(0以下)ときは判定しない。初回起動や旧ブックからの
+'   移行で、根拠なく「資料が消えました」と言わないための最優先の性質。
+' IsVolatilePath: zip をダブルクリックすると Windows は
+'   %TEMP% の Temp1_<zip名>.zip フォルダへ展開してそこを開く。保存は成功し
+'   ReadOnly でもないためアプリからは正常に見えるのに、次回は1件も残らない
+'   (調査agent1 §4「検知ゼロ」)。判定材料はパス文字列だけ。
+Private Sub TestIntegrityStartup()
+    modTestRunner.Check "減少_127から0は警告", (modIntegrity.DataShrunk(127, 0) = True)
+    modTestRunner.Check "減少_127から126でも警告", (modIntegrity.DataShrunk(127, 126) = True)
+    modTestRunner.Check "減少_同数は警告しない", (modIntegrity.DataShrunk(127, 127) = False)
+    modTestRunner.Check "減少_増えていれば警告しない", (modIntegrity.DataShrunk(127, 200) = False)
+    modTestRunner.Check "減少_記録なし(0)は判定しない", (modIntegrity.DataShrunk(0, 0) = False)
+    modTestRunner.Check "減少_記録が負なら判定しない", (modIntegrity.DataShrunk(-1, 0) = False)
+
+    modTestRunner.Check "一時_Temp1_zip直開き", _
+        (modIntegrity.IsVolatilePath(TmpZipPath16()) = True)
+    modTestRunner.Check "一時_Temp配下", _
+        (modIntegrity.IsVolatilePath(TmpDirPath16()) = True)
+    modTestRunner.Check "一時_大文字でも拾う", _
+        (modIntegrity.IsVolatilePath(UCase$(TmpDirPath16())) = True)
+    modTestRunner.Check "一時_デスクトップは正常", _
+        (modIntegrity.IsVolatilePath(DesktopPath16()) = False)
+    modTestRunner.Check "一時_共有フォルダは正常", _
+        (modIntegrity.IsVolatilePath(UncPath16()) = False)
+    modTestRunner.Check "一時_空パスは判定しない", (modIntegrity.IsVolatilePath("") = False)
+    ' 名前に templates を含むフォルダを誤検知しないこと(区切り込みで見るため)。
+    modTestRunner.Check "一時_templatesフォルダは誤検知しない", _
+        (modIntegrity.IsVolatilePath(TemplatesPath16()) = False)
+
+    ' 警告文はBMPの文字だけ(非BMP絵文字はCP932変換で化けてダイアログに出る)。
+    Dim m As String
+    m = modIntegrity.ShrinkWarnMsg(127, 0, "X:" & Sep16() & "a.xlsm", "Y:" & Sep16() & "b.xlsm")
+    modTestRunner.Check "警告文_前回件数を言う", (InStr(m, "127") > 0)
+    modTestRunner.Check "警告文_今の件数を言う", (InStr(m, "0 件") > 0)
+    modTestRunner.Check "警告文_前回の場所を出す", (InStr(m, "X:") > 0)
+    modTestRunner.Check "警告文_今の場所を出す", (InStr(m, "Y:") > 0)
+    modTestRunner.Check "警告文_非BMPを含まない", (HasSurrogate16(m) = False)
+    Dim v As String: v = modIntegrity.VolatileWarnMsg(TmpZipPath16())
+    modTestRunner.Check "一時警告文_次の一手を言う", (InStr(v, "すべて展開") > 0)
+    modTestRunner.Check "一時警告文_非BMPを含まない", (HasSurrogate16(v) = False)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-2f: UNC列挙の健全性(modShelfScan.EnumLooksFailed)。
+' ----------------------------------------------------------------------------
+' UNCでは Dir$ が途中で切れてもエラーを返さず短いリストや空を返すことがあり、
+' その0件が「フォルダが空になった」として消失判定へ流れ、実在するファイルを
+' DeleteSource していた(調査agent1 §3(c)・復旧不能)。
+' 「0件かつ台帳に資料あり」だけを失敗扱いにする(diskN>0 まで倒すと、利用者が
+' 本当に消したファイルの削除が永久に反映されなくなる)。
+Private Sub TestEnumLooksFailed()
+    modTestRunner.Check "列挙_0件で台帳に資料ありは失敗扱い", _
+        (modShelfScan.EnumLooksFailed(0, 12) = True)
+    modTestRunner.Check "列挙_0件で台帳も0件なら失敗扱いにしない", _
+        (modShelfScan.EnumLooksFailed(0, 0) = False)
+    modTestRunner.Check "列挙_1件でも読めていれば失敗扱いにしない", _
+        (modShelfScan.EnumLooksFailed(1, 12) = False)
+    modTestRunner.Check "列挙_台帳1件が境界", _
+        (modShelfScan.EnumLooksFailed(0, 1) = True)
+End Sub
+
+' ----------------------------------------------------------------------------
+' テスト用ヘルパー
+' ----------------------------------------------------------------------------
+' パス区切りは ChrW(&H5C) で組み立てる。リテラルの円記号を文字列の末尾に
+' 置くとLOの構文チェッカーが継続行と誤読する既知の罠があり、途中でも
+' CP932変換の往復で扱いが揺れるため、テストでは常に組み立てる
+' (EDGE_CASES §1.3 と同じ考え方)。
+Private Function Sep16() As String
+    Sep16 = ChrW(&H5C)
+End Function
+
+Private Function TmpZipPath16() As String
+    TmpZipPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "AppData" & _
+        Sep16() & "Local" & Sep16() & "Temp" & Sep16() & "Temp1_MyBookshelf.zip" & _
+        Sep16() & "MyBookshelf.xlsm"
+End Function
+
+Private Function TmpDirPath16() As String
+    TmpDirPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "AppData" & _
+        Sep16() & "Local" & Sep16() & "Temp" & Sep16() & "MyBookshelf.xlsm"
+End Function
+
+Private Function DesktopPath16() As String
+    DesktopPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "Desktop" & _
+        Sep16() & "MyBookshelf" & Sep16() & "MyBookshelf.xlsm"
+End Function
+
+Private Function UncPath16() As String
+    UncPath16 = Sep16() & Sep16() & "pgiofs01" & Sep16() & "share" & Sep16() & "MyBookshelf.xlsm"
+End Function
+
+Private Function TemplatesPath16() As String
+    TemplatesPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "templates" & _
+        Sep16() & "MyBookshelf.xlsm"
+End Function
+
+' 文字列にサロゲート(非BMP=CP932に無い絵文字)が含まれるか。
+Private Function HasSurrogate16(ByVal s As String) As Boolean
+    Dim i As Long, c As Long
+    For i = 1 To Len(s)
+        c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536
+        If c >= &HD800 And c <= &HDFFF Then
+            HasSurrogate16 = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+Public Sub RunAll16()
+    On Error GoTo BarWFail16
+    TestBarWidthFor
+NextRecon16:
+    On Error GoTo ReconFail16
+    TestReconcileStatText
+NextIdx16:
+    On Error GoTo IdxFail16
+    TestIndexOfName
+NextStart16:
+    On Error GoTo StartFail16
+    TestIntegrityStartup
+NextEnum16:
+    On Error GoTo EnumFail16
+    TestEnumLooksFailed
+NextDone16:
+    On Error GoTo 0
+    Exit Sub
+
+BarWFail16:
+    modTestRunner.Check "TestBarWidthFor(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRecon16
+ReconFail16:
+    modTestRunner.Check "TestReconcileStatText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextIdx16
+IdxFail16:
+    modTestRunner.Check "TestIndexOfName(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextStart16
+StartFail16:
+    modTestRunner.Check "TestIntegrityStartup(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextEnum16
+EnumFail16:
+    modTestRunner.Check "TestEnumLooksFailed(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDone16
+End Sub
