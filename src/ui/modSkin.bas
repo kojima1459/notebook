@@ -5,18 +5,18 @@ Option Explicit
 ' modSkin - デザインシステムの単一情報源(脱Excel/Windows95感のポリッシュ)。
 ' ----------------------------------------------------------------------------
 ' 役割:
-'   ・BeautifyAll / StyleShape: 全nx_Shapeへ「Yu Gothic UI」フォントを徹底し、
-'     固定クロム(トップバー/アクションボタン/サイドバー地)にだけ柔らかい影を
-'     付与。チャットバブルはフラット(影は選択時のみ)=描画負荷のメリハリ。
-'   ・ShowToast: MsgBoxの代替(ハイブリッド運用)。完了/情報などの非ブロッキング
-'     通知を画面上部にスッと出して自動で消すToast(細長Shape)で表示する。確認/
-'     入力/起動/エラー/別シート時は呼び出し側でMsgBoxを維持する。
+'   ・BeautifyAll/StyleShape: 全nx_Shapeへ「Yu Gothic UI」を徹底し、固定クロム
+'     (トップバー/アクションボタン/サイドバー地)にだけ柔らかい影を付与。
+'     チャットバブルはフラット(影は選択時のみ、描画負荷にメリハリ)。
+'   ・ShowToast: MsgBoxの代替(ハイブリッド)。完了/情報の非ブロッキング通知を
+'     画面上部にToast(細長Shape)で出し自動で消す。確認/入力/起動/エラー/
+'     別シート時は呼び出し側でMsgBoxを維持。
 '
 ' 設計判断:
-'   ・modUI.bas が文字数上限に近いため、ポリッシュのロジックはここへ集約し、
-'     modUI側は呼び出しだけを足す。配色はmodUI.UiColorを唯一の窓口とする。
-'   ・影プロパティ(.Blur/.Transparency等)は環境差で未対応があり得るため、すべて
-'     On Error Resume Next配下(見た目の劣化はあってもクラッシュさせない)。
+'   ・modUI.basが文字数上限に近いためポリッシュはここへ集約、modUI側は
+'     呼び出しのみ。配色はmodUI.UiColorを唯一の窓口とする。
+'   ・影プロパティ(.Blur/.Transparency等)は環境差で未対応があり得るため全て
+'     On Error Resume Next配下(劣化はあってもクラッシュさせない)。
 '   ・LibreOfficeは静的コンパイルのみ(Shape/Windowプロパティは標準VBA)。
 ' ============================================================================
 
@@ -26,8 +26,10 @@ Private mProgressSheetName As String
 
 Private Const THEME_KEY As String = "nexus_theme"
 
-' R15-6a: 中断ボタンのShape名。"nx_progress" と必ず対で出し、対で消す。
+' R15-6a: 中断ボタンのShape名("nx_progress"と対で出し対で消す)。
 Private Const PROGRESS_CANCEL_NAME As String = "nx_progress_cancel"
+' R16-2a: 作業用Excelボタンの名前。ClearProgressの削除対象へ同列で足す。
+Private Const PROGRESS_WORK_NAME As String = "nx_progress_work"
 
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
@@ -195,9 +197,8 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(255, 241, 245)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(66, 32, 44)
-                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比3.41/surface比3.74
-                ' で通常文字基準4.5未満(8pt多用のためほぼ全ペアで基準未達)。
-                ' bg比5.3/surface比5.81へ(機械計算)。
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧bg比3.41/surface比3.74は
+                ' 基準4.5未満(8pt多用でほぼ全ペア未達)。bg比5.3/surface比5.81へ(機械計算)。
                 Case "muted":         ResolveColor = RGB(130, 90, 105)
                 Case "border":        ResolveColor = RGB(248, 214, 224)
                 Case "primary":       ResolveColor = RGB(214, 51, 108)
@@ -214,8 +215,8 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(240, 247, 255)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(15, 36, 62)
-                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比3.91/surface比4.22
-                ' で通常文字基準4.5未満。bg比5.28/surface比5.7へ(機械計算)。
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧bg比3.91/surface比4.22は
+                ' 基準4.5未満。bg比5.28/surface比5.7へ(機械計算)。
                 Case "muted":         ResolveColor = RGB(80, 105, 130)
                 Case "border":        ResolveColor = RGB(208, 226, 244)
                 Case "primary":       ResolveColor = RGB(2, 102, 190)
@@ -248,9 +249,8 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "bg":            ResolveColor = RGB(243, 244, 246)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(17, 24, 39)
-                ' 2026-08-01(R12-7-6・a11y監査Med): 旧値は bg比4.39で通常文字
-                ' 基準4.5に僅かに未達(8pt多用のため基準はこちら)。
-                ' bg比5.6/surface比6.16へ(機械計算)。
+                ' 2026-08-01(R12-7-6・a11y監査Med): 旧bg比4.39は8pt多用時の
+                ' 基準4.5に僅かに未達。bg比5.6/surface比6.16へ(機械計算)。
                 Case "muted":         ResolveColor = RGB(90, 98, 110)
                 Case "border":        ResolveColor = RGB(229, 231, 235)
                 Case "primary":       ResolveColor = RGB(0, 137, 62)
@@ -308,9 +308,9 @@ End Sub
 ' ShowToast - MsgBoxの代替(非ブロッキング通知)。画面上部中央に細長Shapeを出し、
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------
-' waitless(2026-07-31 R11-H Med4): True のとき 1.1秒の待機と削除をせず描いたら
-' すぐ戻る。「押した瞬間に一言返すだけ」の用途は待たせること自体が害になる。
-' 残ったToastは次の ShowToast / PaintProgress の掃除で消える。既定は待って消す。
+' waitless(R11-H Med4): Trueなら1.1秒の待機・削除をせず描いたらすぐ戻る
+' (「一言返すだけ」の用途は待たせること自体が害)。残ったToastは次の
+' ShowToast/PaintProgressの掃除で消える。既定は待って消す。
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
     On Error Resume Next
@@ -378,16 +378,15 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' PaintProgress / ClearProgress - 進捗バナー("nx_progress")の表示部(R10-5)。
-'   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避けるのが要件)。更新後に
-'   DoEvents1回だけ挟んで再描画させる。別ブック表示中は何もしない(誤爆ガード)。
-'   直前と違うシートへ移っていたら旧シートのShapeを消してから描き直す。
-'   cancellable(2026-08-04 R15-FixA FA-6): True のときだけ「中断」ボタンを
-'   添える。従来はこのバナーを使う【全ての】処理(質問の準備・Q&A読込・
-'   ナレッジ登録)にボタンが生え、押しても何も止まらなかった=壊れたボタンと
-'   同じ(§3-1)。True を渡すのは取込経路(modShelfBatch.ShowIngestBanner)
-'   だけ。False でも【既にあるボタンは消さない】: 取込中に割り込む実況で
-'   ボタンが消えると、待たされている本人が押したい瞬間に押せなくなる。
-'   寿命はバナーと同じで ClearProgress が対で消す。
+'   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。更新後DoEvents
+'   1回で再描画。別ブック表示中は何もしない(誤爆ガード)。シート切替時は
+'   旧シートのShapeを消してから描く。
+'   cancellable(R15-FixA FA-6): Trueで「中断」ボタンを添える(従来は全処理で
+'   生え、押しても止まらず壊れたボタン同然=§3-1。今はmodShelfBatch.
+'   ShowIngestBannerだけがTrueを渡す)。Falseでも既存ボタンは消さない(実況中に
+'   消えると押したい瞬間に押せない)。R16-2a: TrueならmodWorkExcel.
+'   PaintWorkButtonが■中断の左隣に作業用Excelボタンも添える(座標・生成・
+'   削除対象登録は同モジュール側)。寿命はバナーと同じでClearProgressが消す。
 ' ----------------------------------------------------------------------------
 Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
     On Error Resume Next
@@ -410,9 +409,9 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     Dim barW As Double: barW = 380
     Dim leftPos As Double, topPos As Double
     leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
-    ' R10c(M4): トースト(nx_toast)も同じ +92 に出るため、取込完了の瞬間だけ
-    ' 2枚が重なり下の文字が読めなかった。バナーはトースト(高さ34)の下へ
-    ' ずらす。92 + 34 + 余白4 = 130。
+    ' R10c(M4): トースト(nx_toast)も同じ+92に出るため、取込完了の瞬間だけ
+    ' 2枚が重なり文字が読めなかった。バナーはトースト(高さ34)の下へずらす
+    ' (92+34+余白4=130)。
     topPos = ActiveWindow.VisibleRange.Top + 130
 
     Dim shp As Shape
@@ -438,11 +437,11 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
         shp.Left = leftPos
         shp.Top = topPos
     End If
-    ' R15-FixB(FB-6): 中断ボタンはバナーの【内側】右端へ。従来は右外
-    ' (leftPos+barW+6)で、小さな窓・低い解像度では画面外へはみ出し、止めたい
-    ' 人が押せなかった。バナーは可視領域の中央なので内側なら必ず一緒に見える。
-    ' 文字がボタンの下へ潜らないよう右余白を広げる(ボタン76+間隔=88)。毎回
-    ' 入れ直すのは cancellable が呼びごとに変わり得るため。
+    ' R15-FixB(FB-6): 中断ボタンはバナー【内側】右端へ(従来は右外
+    ' leftPos+barW+6で低解像度・小窓では画面外へはみ出し押せなかった。
+    ' 内側なら可視領域中央のバナーと必ず一緒に見える)。右余白88=ボタン76+
+    ' 間隔でボタン下に文字が潜らないようにする。毎回入れ直すのはcancellableが
+    ' 呼びごとに変わり得るため。
     Dim marginR As Double: marginR = 16
     If cancellable Then marginR = 88
     shp.TextFrame2.MarginRight = marginR
@@ -450,6 +449,7 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     shp.ZOrder 0   ' msoBringToFront
 
     If cancellable Then PaintCancelButton ws, leftPos + barW - 82, topPos
+    If cancellable Then modWorkExcel.PaintWorkButton ws, leftPos + barW - 82, topPos
     DoEvents
     On Error GoTo 0
 End Sub
@@ -489,24 +489,23 @@ Public Sub ClearProgress()
         Set ws = ThisWorkbook.Worksheets(mProgressSheetName)
         If Not ws Is Nothing Then ws.Shapes("nx_progress").Delete
         If Not ws Is Nothing Then ws.Shapes(PROGRESS_CANCEL_NAME).Delete
+        If Not ws Is Nothing Then ws.Shapes(PROGRESS_WORK_NAME).Delete
     End If
     mProgressSheetName = ""
     On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
-' テーマ(配色の適用)。2026-07-31(R11-F1)に modUI から移設した。
-'   modUI が30,000字上限まで残り168字となり修正が入らない状態だったため、
-'   「配色の単一情報源」を持つ本モジュールへテーマ塊を寄せた(憲章§4-6)。
-'   modUI 側には UiColor/UiTheme/ToggleTheme の薄い委譲だけを残す。
+' テーマ(配色の適用)。2026-07-31(R11-F1)にmodUIから移設(modUIが上限まで
+'   残り168字となり修正不能だったため、配色の単一情報源へテーマ塊を寄せた。
+'   憲章§4-6)。modUI側にはUiColor/UiTheme/ToggleThemeの薄い委譲だけを残す。
 ' ----------------------------------------------------------------------------
 
 ' ----------------------------------------------------------------------------
 ' CurrentTheme / SaveTheme - 現在のテーマ(スキン)名の読み書き。
-'   2026-07-31(R11-F1): ui_stateシートの走査を自前で持っていた実装を
-'   modState.LoadState/SaveState への委譲へ置き換えた。同じ "nexus_theme" を
-'   2通りで読み書きしており、同型の処理が2つあった(憲章§4-5)。
-'   既定は "light"。値はスキン名も入る(検証は EffectiveSkin/ResolveColor 側)。
+'   2026-07-31(R11-F1): ui_state走査の自前実装をmodState.LoadState/SaveStateへの
+'   委譲に置換(同じ"nexus_theme"を2通りで読み書きし同型処理が2つあった=憲章§4-5)。
+'   既定は"light"。値はスキン名も入る(検証はEffectiveSkin/ResolveColor側)。
 ' ----------------------------------------------------------------------------
 Public Function CurrentTheme() As String
     CurrentTheme = LCase$(Trim$(modState.LoadState(THEME_KEY, "light")))

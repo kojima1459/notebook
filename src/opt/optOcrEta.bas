@@ -45,6 +45,10 @@ Private Const DEFAULT_PAGE_MS As Double = 25000#
 ' なるため、8秒/頁を「頁数に連動して自動で確保する下限」として使う。
 Private Const GS_SEC_PER_PAGE As Long = 8
 
+' R16-2c(2026-08-05): バナー末尾に付ける「フリーズは正常」の一言。定数化して
+' OcrPageBannerの2つのreturn文で同じ文字列を重複させない(憲章§4-5)。
+Private Const FREEZE_NOTE As String = "※応答なし表示でも処理中"
+
 Public Function Ping() As Boolean
     Ping = True
 End Function
@@ -82,7 +86,7 @@ Public Function OcrPageBanner(ByVal pageNo As Long, ByVal totalPages As Long, _
     If p < 1 Then p = 1
 
     If totalPages < p Or batchCount < batchIdx Then
-        OcrPageBanner = "OCR中… " & p & "頁目 (バッチ " & batchIdx & ")"
+        OcrPageBanner = "OCR中… " & p & "頁目 (バッチ " & batchIdx & ")" & " " & FREEZE_NOTE
         Exit Function
     End If
 
@@ -97,7 +101,7 @@ Public Function OcrPageBanner(ByVal pageNo As Long, ByVal totalPages As Long, _
         s = s & " " & RemainingText(remSec, nowAt)
     End If
 
-    OcrPageBanner = s
+    OcrPageBanner = s & " " & FREEZE_NOTE
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -344,6 +348,8 @@ Public Function OcrConfirmAskFor(ByVal totalPages As Long, ByVal estMin As Long,
     OcrConfirmAskFor = "全" & totalPages & "頁のスキャンPDFです。" & _
         "読み取りに推定約" & estMin & "分かかります。" & vbLf & _
         "処理中も" & ChrW(&H25A0) & "中断で止められ、次回は続きから再開できます。" & vbLf & _
+        "処理中このExcelは操作できません。他の仕事はバナー内の" & _
+        ChrW(&HD83D) & ChrW(&HDDD4) & "作業用Excelからどうぞ。" & vbLf & _
         "(完了後に検索用の準備が続きます)" & vbLf & _
         vbLf & "取り込みますか?"
 End Function

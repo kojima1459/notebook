@@ -62,8 +62,11 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' PaintStage - 「いま何をしているか」の1行を差し替える。
 '   modUIMain.SetStage から転送されてくる(検索中/回答作成中/検証中…)。
+'   R16-2b: 取込・Q&A双方の長時間ブロック呼び出し(ChatGPT/ChatGPTV)の
+'   直前に必ず通るチョークポイントなので、ここでDWM白画面化の抑止を効かせる。
 ' ----------------------------------------------------------------------------
 Public Sub PaintStage(ByVal stageMsg As String)
+    modWorkExcel.EnsureNoGhosting
     If LenB(mBubble) = 0 Then Exit Sub
     If LenB(stageMsg) = 0 Then Exit Sub
 

@@ -24,10 +24,32 @@
 **症状**: Windows API呼び出し(`Sleep`等)は32bit/64bit Officeで宣言が
 異なり(`PtrSafe`/`LongPtr`)、片方でしか動かないコードになりがち。
 
-**対処 ✅ — そもそも該当箇所が存在しない**: 本プロダクトは`Declare`文を
-**1つも使用しない**方針を徹底している。時間待機(`WaitMs`/`MentorWait`等)は
+**対処 ✅ — 原則ゼロ、唯一の例外あり(2026-08-05更新)**: 本プロダクトは
+`Declare`文を使わない方針を徹底している。時間待機(`WaitMs`/`MentorWait`等)は
 `Timer`関数+`DoEvents`ループで実装しており、32/64bit環境依存が原理的に
 発生しない。
+
+**唯一の例外(R16-2b・`src/ui/modWorkExcel.bas`)**: 取込・入念な質問応答の
+長時間ブロック中、DWM(デスクトップウィンドウマネージャ)が約5秒で
+「応答なし」と判定し画面を白くゴースト化する現象を抑止するため、
+`user32.DisableProcessWindowsGhosting`だけを例外的に許可する。この例外は
+以下をすべて満たす場合に限る(この4条件を満たさないAPIを追加したい場合は、
+例外を広げる前に司令塔の裁定を仰ぐこと):
+- **表示系**(画面の見え方だけに影響し、データ・業務ロジックには一切触れない)。
+- **引数なし・戻り値なし**(`void DisableProcessWindowsGhosting(void)`)。
+  型のミスマッチや呼び出し規約の違いによる実機クラッシュの余地が無い。
+- **user32.dll限定**(Windows全版に存在する最古参APIの1つ。廃止・署名変更の
+  リスクが実質無い)。
+- 呼ぶと**プロセス終了まで解除不能**という公式の既知の制約があるため、
+  `config freeze_keep_banner`(既定on)でオプトアウトできるようにしている。
+
+宣言は`#If VBA7 Then / Private Declare PtrSafe Sub ... / #Else /
+Private Declare Sub ... / #End If`の32/64bit両対応形式で書く(本製品は
+32bit実機前提だが、宣言自体は64bit Officeでも構文的に安全な形にしておく)。
+2026-08-05の実験で、この宣言を含む`modWorkExcel.bas`が
+`tools/run_lo_tests.py --mode compile`(LibreOffice構文チェック)を
+通過することを確認済み(`#If VBA7 Then`分岐込みでコンパイルできることを
+本モジュールで新規に検証した)。
 
 ### 1.3 LibreOffice構文チェッカーの罠(実機Excelでは無害・LOでのみ問題)
 本番はWindows Excelのみが対象だが、CI相当の静的検証にLibreOfficeの構文

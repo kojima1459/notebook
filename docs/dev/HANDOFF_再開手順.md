@@ -173,6 +173,11 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
    - ArchiveCurrent 初回_archive未作成時の過剰警告エッジ(次期)
    - AddFilesViaDialog の busy 早期戻りが無言(通常経路は関所が先に停止・次期)
    - modBoot 残2,244字(次の機能追加時に分割裁定)
+   - modBoot.Boot(:165でApplication.EnableEvents=False)→SyncNow(:464でTrueへ
+     復帰)のEnableEvents入れ子崩れ: Boot内5)でSyncNowを呼ぶと、SyncNow自身が
+     戻り際にEnableEventsをTrueへ戻してしまうため、Boot手順6)〜8.6)が
+     Trueのまま走る(Bootが意図した「起動シーケンス全体を抑止」が5)以降
+     効かなくなる)。R16-2e(2026-08-05)で発見・記録のみ。R16では触らない。
    - **R13で受容した次期課題**: 深掘りfollowupは retrieve_mode=single でも
      スコープ内多段を実行(機能仕様として明記・escape hatchの例外)/
      ReadTextTail のDBCS境界で先頭1文字化けの可能性(診断限定・受容)/
