@@ -364,8 +364,13 @@ PURE_ALLOWLIST = [
     # modViewport(2026-08-05 R18-3b): 画面ごとのScrollArea宣言。テストが呼ぶのは
     #   ColLetter(列番号→列名の算数)1本だけで、Worksheet を触る
     #   ApplyScrollBound/BoundFor はテストから呼ばない(modProgressBarと同型)。
+    # modChunkMeta(2026-08-05 R17 Phase1): section_path/refs_out の抽出。
+    #   モジュール全体が R4 純ロジック(PURE_LOGIC_MODULES にも登録)で、
+    #   modSparse.NormalizeForSearch と modUtil.SafeLeft しか呼ばない
+    #   (どちらも注入済み)。未注入のまま modTestsPure16 から呼ぶと実行時
+    #   エラー12になり、構造抽出のゴールデンが「テストを書いても走らない」。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
-    "modViewport",
+    "modViewport", "modChunkMeta",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -386,6 +386,20 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["EnsureChunkMetaSheet", "WriteMetaRows", "ReadAllMeta"],
     },
+    # modChunkMeta(2026-08-05 R17 Phase1): チャンクの構造ラベル(section_path)と
+    #   明示参照(refs_out)の抽出。VBScript.RegExp/ScriptControlを使わず
+    #   modSparse.DistinctiveKeysと同型のInStr走査だけで書いた純ロジックで、
+    #   PURE_LOGIC_MODULES にも登録する(シートI/Oは modChunkMetaStore、
+    #   検索への合流は modAskFocus が持つ)。
+    #   MetaOf は ExtractSectionPath/ExtractRefs をまとめて呼ぶ入口で、
+    #   modShelf.IngestFile の残り字数(憲章§4-6)のために置いてある。
+    #   GraphActive は「chunk_meta が無い/空なら全機能が従来動作」という
+    #   フェイルセーフの条件を1本にしたもの(条件が2箇所に割れるのを防ぐ)。
+    "modChunkMeta": {
+        "closed": True,
+        "required": ["ExtractSectionPath", "ExtractRefs", "MetaOf",
+                     "PathHasLabel", "RefLabelsFor", "GraphActive"],
+    },
     # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
     # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
     # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
@@ -1266,6 +1280,10 @@ PURE_LOGIC_MODULES = {
     "modUtil", "modChunker", "modPii", "modTypes",
     "modTestRunner", "modTestsPure", "modTestsPure2", "modTestsPure3", "modPrompts",
     "modRagParse", "modSparse", "modMode",
+    # modChunkMeta(2026-08-05 R17 Phase1): section_path/refs_out の抽出。
+    # 副作用ゼロの文字列処理だけなので、LO実行テストから直接呼べる状態を
+    # 機械で守る(シートI/Oは modChunkMetaStore が持つ)。
+    "modChunkMeta",
     # modChrome(2026-07-30 R4): 配置計算だけを持つのでExcelオブジェクトは
     # 一切要らない。ここへ載せることで「うっかりRangeを触る」改修を機械で止める。
     "modChrome",

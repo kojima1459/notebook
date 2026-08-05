@@ -173,6 +173,14 @@
       "wave": "2-C"
     },
     {
+      "name": "modChunkMeta",
+      "path": "src/ingest/modChunkMeta.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-1",
+      "note": "R17 Phase1: チャンク先頭のbreadcrumbからsection_pathを、本文から明示参照(第N条/第N項/第N章/別表N/様式N)をInStr走査だけで抽出する純ロジック(RegExp/ScriptControl不使用)。PURE_LOGIC_MODULES登録。シートI/OはmodChunkMetaStore、検索への合流はmodAskFocus。"
+    },
+    {
       "name": "modChunkMetaStore",
       "path": "src/ingest/modChunkMetaStore.bas",
       "role": "core",
