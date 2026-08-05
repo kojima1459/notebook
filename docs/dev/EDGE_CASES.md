@@ -72,6 +72,31 @@ Private Declare Sub ... / #End If`の32/64bit両対応形式で書く(本製品�
 - 1モジュールあたり約30,000字の上限(実機VBAの制約)。✅ lintで検出、
   `docs/dev/CONTRIBUTING.md`のガイドで新規モジュール分割の目安を明記。
 
+### 1.3b MsgBox/InputBox/Application.StatusBarは非BMP文字(絵文字サロゲートペア)を描けない
+**症状**: `ChrW(&HD8xx)`+`ChrW(&HDCxx〜DFxx)`の組で作る非BMP文字(🗔🩺🔄等の
+絵文字)は、Shape(TextFrame2)・セル値では正しく描けるが、ネイティブ
+`MsgBox`/`InputBox`(Win32の旧来ダイアログ)と`Application.StatusBar`では
+サロゲート1単位ごとに「?」化ける(2文字ぶんで「??」)。VBEへのUTF-8→CP932
+注入で化ける§1.3の問題とは**別の問題**(こちらは実行時の描画限界)。
+
+**発見済みの実インスタンス(2026-08-05調査・R18-6aで修正済み)**:
+- `optOcrEta.OcrConfirmAskFor`(🗔)→`modShelfVision.bas`のMsgBox
+- `modLog.FriendlyMessage`のE0201(🩺)/E0204(🔄)/E0705(🔄・予防)→
+  `optDiffDoc.bas`のMsgBoxほか
+- `modShelfSync.SyncNow`のcapped完了サマリ(🔄)→同モジュール内のMsgBox
+
+**対処 ✅(該当5箇所は絵文字除去・「」括弧表記へ統一)/ ⚠️(StatusBar系は
+`Application.DisplayStatusBar=False`が起動直後から常時かかっており実害なしと
+判断・§4-3により将来DisplayStatusBar制御を変える際は要再点検)**:
+MsgBox/InputBoxへ**文字列リテラルで直接**絵文字を書かない(既存MASTER_SPEC
+§12のルール)だけでは不十分だった。**関数の戻り値経由**(`FriendlyMessage`
+のように複数の消費先を持つ共通関数)で絵文字が紛れ込むケースがすり抜けて
+いたため、「MsgBoxに渡りうる文字列を組み立てる関数は、その関数の本体全体
+(呼ばれ方に関わらず全Case分岐)で非BMP ChrWを禁止する」という運用ルールを
+追加した(検査15・`tools/vba_lint.py`の許可リスト方式。§2.2は誤検知ゼロ
+優先のため呼び出しグラフ追跡はしない=直書き検出+許可リスト関数の全分岐
+検査の組合せ)。
+
 ### 1.4 MAX_PATH(260文字)制限
 **症状**: 深い共有フォルダ階層(`\\host\部\課\チーム\Nexus_Share\...`)配下に
 生のユーザー名(最大64字、`SanitizeId`後)を含むファイル名を置くと、
