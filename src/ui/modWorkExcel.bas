@@ -48,6 +48,14 @@ Option Explicit
 #End If
 
 Private mLastOpenAt As Double          ' Timer値。0=未実行(2秒デバウンス用)
+' R18H FA-1(A-H1/B-H2): 2段目確認のセッション記憶。mLaunched=このセッションで
+' 別Excelを起動済み(どの入口からでも立てる)。mOfferAnswered=2段目に一度答えた。
+' 従来は取込前確認が【資料1件ごと】に2段目まで出したため、20件のスキャンPDFを
+' 選ぶと同じ質問が20回出た(1回目に「はい」で開いた人にも、「いいえ」と答えた
+' 人にも聞き続ける=憲章§3-1/§3-4)。1段目(所要時間の見積り)はファイル単位が
+' 正しいのでそのまま残し、2段目だけを1セッション1回に畳む。
+Private mLaunched As Boolean
+Private mOfferAnswered As Boolean
 ' EnsureNoGhostingの1プロセス1回ガード。onで呼んだ後だけでなく【offと判定した
 ' ことも】覚える(R16H FB-1 / A-L10)。offのままだと1ページ・1段ごとに
 ' modConfig.GetBool がconfigシートを引き直す(取込では毎ページ通る経路)。
@@ -85,6 +93,39 @@ Public Sub OpenWorkExcelNow()
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' OfferBeforeIngest - 取込を始める直前の2段目確認(R18-1f→R18H FA-1で移設)。
+' ----------------------------------------------------------------------------
+' 「はい」で作業用Excel(別プロセスの excel.exe /x)を先に開いてから取込へ入る。
+' 「いいえ」はそのまま続行する(どちらを選んでも取込は必ず始まる=この
+' ダイアログで取込が止まることはない)。文言は BMP の文字だけで書く: 非BMPの
+' 絵文字は CP932 実行文への変換で化け、ダイアログでは化けたまま利用者に届く
+' (実機第5報⑤)。ここでは「作業用Excel」と名前で呼ぶ。
+' 1セッション1回だけ(FA-1): 既に起動済み(mLaunched)なら聞かずに続行し、
+' 一度答えていれば(mOfferAnswered)二度と聞かない。呼び出し元は取込前確認の
+' 2段目1箇所だけで、置き場をUI層のここにしたのは【記憶とダイアログと起動を
+' 1モジュールに閉じる】ため(取込層に旗を置くと同じ判断が2箇所に散る=§4-5)。
+' デバウンスは通さない(DoOpenWorkExcel直呼び)。ここは連打の起きないモーダル
+' 直後で、直前に自分でボタンを押していた人が2秒の壁で無視されると
+' 「はいを押したのに何も起きない」になる(憲章§3-1)。
+' 表示・起動の失敗が取込を壊してはならないので全体を OERN で包む(§4-4)。
+Public Sub OfferBeforeIngest()
+    On Error Resume Next
+    If mLaunched Or mOfferAnswered Then Exit Sub
+    mOfferAnswered = True
+    Dim msg As String
+    msg = "先に作業用Excelを開いてから開始しますか?" & vbLf & _
+          "(取込中はこのExcelを操作できません)" & vbLf & vbLf & _
+          "[はい] 別のExcelを開いてから取り込みます" & vbLf & _
+          "[いいえ] このまま取り込みます" & vbLf & vbLf & _
+          "この確認は今回のご利用で1回だけです。"
+    If MsgBox(msg, vbQuestion + vbYesNo + &H10000, modAppDef.APP_NAME) = vbYes Then
+        DoOpenWorkExcel True
+        modLog.LogUsage "work_excel_preopen", "", "取込前確認から作業用Excelを起動しました"
+    End If
+    On Error GoTo 0
+End Sub
+
 ' 2秒デバウンス。前回の成功呼び出しから2秒以上経っていたときだけTrueを返し、
 ' 同時に基準時刻を今に更新する。待ちループはしない(瞬時判定)。
 Private Function Debounced() As Boolean
@@ -112,6 +153,9 @@ Private Sub DoOpenWorkExcel(ByVal quietFail As Boolean)
     On Error GoTo 0
 
     On Error Resume Next
+    ' R18H FA-1: どの入口(バナー内ボタン/ヘルプカード/取込前確認)から起動しても
+    ' 「もう開いてある」事実は同じ。2段目確認はこの旗を見て黙って続行する。
+    mLaunched = True
     Application.StatusBar = "作業用Excelを起動しました。そちらで仕事ができます"
     On Error GoTo 0
     Exit Sub

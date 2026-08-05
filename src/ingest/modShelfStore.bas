@@ -21,10 +21,9 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 ' my_knowledge の列(1..10)。10列目 norm_text は 2026-08-01(R12-4)で追加。
-' 照合用の正規化済みテキスト(modSparse.MatchDocText の結果)を取込時に1回だけ
-' 作って持つ(以前は検索のたびに全チャンクを正規化し直し、20,500件では1質問
-' あたり1,540万文字ぶんのループだった)。作法は R12-3 の fail_count と同じ:
-'   ・見出しは EnsureKnowledgeSheet が毎回・冪等に付ける(既存ブックも移行不要)
+' 照合用の正規化済みテキストを取込時に1回だけ作って持つ(以前は検索のたびに
+' 全チャンクを正規化し直し、20,500件では1質問あたり1,540万文字のループ)。
+'   ・見出しは EnsureKnowledgeSheet が毎回・冪等に付ける(移行不要)
 '   ・空欄は「未計算」とみなし、検索側がその行だけ計算して書き戻す(遅延)
 '   ・行の詰め直しは必ず全列(KNOWLEDGE_COLS)を運ぶ。9列のまま詰めると
 '     norm_text だけが別の行に残り【別チャンクの照合テキストで採点する】事故。
@@ -33,9 +32,8 @@ Private Const KNOWLEDGE_COLS As Long = 10
 
 ' my_manifest の列(1..10)。10列目 fail_count は 2026-08-01(R12-3-3)で追加。
 ' 恒久失敗ファイルのバックオフ: 同期は status="failed" を毎回 replace 判定で
-' 拾い直す(modShelfSync.ResolveDecision)ため、壊れたPDF・権限の無いファイルが
-' 毎回の同期時間と err_log を食い続ける。連続失敗を数え MAX_FAIL_STREAK 回で
-' "failed_permanent" へ倒して同期スコープから外す。復帰の道は必ず残す:
+' 拾い直すため、壊れたPDFが毎回の同期時間と err_log を食い続ける。連続失敗を
+' 数え MAX_FAIL_STREAK 回で "failed_permanent" へ倒す。復帰の道は必ず残す:
 ' (a) 利用者が「資料を追加」で明示的に選び直したとき(ResetFailCountForPath)、
 ' (b) ファイル更新時(サイズ/更新日時の変化で DiffDecision が replace を返す)。
 Private Const COL_M_STATUS As Long = 6
@@ -46,6 +44,18 @@ Private Const MAX_FAIL_STREAK As Long = 3
 ' 同じく素の文字列で持つ(読み手=modShelfSync.ResolveDecision・modUIShelf は
 ' LOテストの都合で本モジュールを参照できないため、既存の語彙と作法を揃える)。
 Private Const STATUS_FAILED_PERMANENT As String = "failed_permanent"
+
+' カードのメモ文言(2026-08-05 R18H FA-5/FA-6)。modShelf.IngestFile から参照
+' するので Public Const(Private Const は跨いで参照できずLOも通らない)。
+' 台帳へ書く文言は台帳を書くこの層の持ち物(§4-5)。
+'   MEMO_ALL_DUP   : 全チャンクが既存と同一ハッシュ(FA-5)。旧行を消すと資料が
+'     丸ごと0件になるので消さずに温存し、消していないことを言葉で伝える。
+'   MEMO_REPLACE_NG: 新行は書けたが旧行の削除に失敗(FA-6)。新旧2組が残り検索が
+'     重複するので、自分で直せる唯一の手(もう一度取り込む)を必ず添える。
+Public Const MEMO_ALL_DUP As String = _
+    "内容が既存資料と重複しているため、既存データを保持しました"
+Public Const MEMO_REPLACE_NG As String = _
+    "置き換えが完了していません(もう一度取り込むと解消します)"
 
 ' norm_text(第10列)の遅延バックフィル用バッファ(検索1回ぶん・R12-4)。
 Private Const BACKFILL_CELL_MAX As Long = 200   ' これ以下なら1セルずつ書く
@@ -131,10 +141,9 @@ Fail:
 End Function
 
 ' norm_text(第10列)の供給と遅延バックフィル(2026-08-01 R12-4)。
-' 検索側(modRetrieve)は「この行の照合テキストをくれ」と言うだけ。値があれば
-' 返し、空(旧データ・富化直後)ならその行だけ計算して返し、走査の最後に
-' まとめてセルへ書き戻す。my_knowledge の列の都合を知るのはこの層だけ、
-' という切り分けを保つ(検索側にセル書込みを置かない)。
+' 検索側(modRetrieve)は「この行の照合テキストをくれ」と言うだけ。空なら
+' その行だけ計算して返し、走査の最後にまとめて書き戻す(列の都合を知るのは
+' この層だけ=検索側にセル書込みを置かない)。
 Public Sub ResetNormBackfill()
     mBfN = 0
     ReDim mBfRow(0 To 63)
@@ -283,10 +292,9 @@ Public Sub AddHashFromId(ByVal dict As Object, ByVal chunkId As String)
 End Sub
 
 ' 指定sourceのknowledge/vector行を除去(配列読み→フィルタ→書戻し)。
-' keepFromRow (2026-08-05 R18-2e): このシート行番号【以降】の行は、source が
-'   一致していても消さない。再取込を「旧行を消してから新行を書く」から
-'   「新行を書いてから旧行を消す」へ反転したため、いま書いたばかりの新行
-'   (同じ source 名を持つ)を巻き添えで消さないための境界。
+' keepFromRow (2026-08-05 R18-2e): このシート行番号【以降】の行は source が
+'   一致していても消さない。再取込を「新行を書いてから旧行を消す」へ反転した
+'   ため、いま書いた新行(同じ source 名)を巻き添えにしないための境界。
 '   0(既定)なら従来どおり全ての一致行が対象=既存の呼び出し元は無改修。
 '   arr は2行目起点なので、配列の i 行目のシート行番号は i+1。
 Public Sub RemoveKnowledgeAndVectorsForSource(ByVal sourceName As String, _
@@ -334,11 +342,9 @@ End Sub
 
 ' RemoveRowsByOrigin - origin列が originTag と一致する行を knowledge/vectors
 '   から取り除く。戻り値=消した件数。
-' 2026-07-28(レビュー C-1): 同じ処理を modChannel が自前に持ち、消す側のタグ
-' ("pack:"&部門名)と書く側のタグ("pack:"&作者名)が食い違ったまま誰も
-' 気付かなかった。書き手(modPack)と消し手(modChannel)の両方がここを呼び、
-' タグの取り扱いを1箇所に集める。比較は StrComp(vbTextCompare)=大小無視
-' (部門名の表記ゆれで消し漏らすより、寄せて消せる方が事故が小さい)。
+' 2026-07-28(レビュー C-1): 同じ処理を modChannel が自前に持ち、消す側と書く側の
+' タグが食い違ったまま誰も気付かなかった。書き手(modPack)と消し手(modChannel)
+' の両方がここを呼び、タグの取り扱いを1箇所に集める。比較は大小無視。
 Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
     If LenB(Trim$(originTag)) = 0 Then Exit Function
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
@@ -378,6 +384,7 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOrigin = nRows - survivorCount
+    MarkRowsChanged
 End Function
 
 ' origin列が originTag と一致する行数を数える(消さない)。
@@ -447,7 +454,21 @@ Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOriginPrefix = nRows - survivorCount
+    MarkRowsChanged
 End Function
+
+' MarkRowsChanged - 「意図して減らした」ことを整合性マークへ反映(R18H FA-3)。
+' 起動時の減少警告(modIntegrity.WarnAtStartup)は ui_state のマークと今の行数を
+' 比べる。利用者が資料やパックを自分で削除するとマークだけが古い大きな値のまま
+' 残り、「資料が消えました」の虚偽警告になっていた(A-M2)。削除の直後に最新の
+' 行数へ更新すれば、ui_state はブックと一緒に保存/破棄されるので保存してもし
+' なくても事実と一致する(ここではブックを保存しない=削除は保存の合図ではない)。
+' modIntegrity は基盤層(core)なので ingest→core で層順は正しい。
+Private Sub MarkRowsChanged()
+    On Error Resume Next
+    modIntegrity.RecordSaveMark
+    On Error GoTo 0
+End Sub
 
 Public Sub RemoveVectorsByIds(ByVal removedIds As Object)
     Dim wsV As Worksheet: Set wsV = GetSheet(modAppDef.SH_VECTORS)
@@ -614,10 +635,9 @@ Private Function FailCountAt(ByVal wsM As Worksheet, ByVal r As Long) As Long
 End Function
 
 ' ResetFailCountForPath - 恒久失敗(failed_permanent)からの復帰口(R12-3-3)。
-'   利用者が「資料を追加」で同じファイルを明示的に選び直したときに呼ぶ。連続
-'   失敗回数を0に戻し status も "failed" へ戻して再取込(と次回同期)の対象へ
-'   復帰させる。自動処理からは呼ばない=「もう一度やってみる」という人の意思
-'   だけがバックオフを解除できる、というのがこの機能の約束。
+'   利用者が「資料を追加」で明示的に選び直したときに呼ぶ。連続失敗回数を0へ、
+'   status も "failed" へ戻して再取込の対象に復帰させる。自動処理からは呼ばない
+'   =「もう一度やってみる」という人の意思だけがバックオフを解除できる。
 Public Sub ResetFailCountForPath(ByVal filePath As String)
     On Error Resume Next
     If LenB(Trim$(filePath)) = 0 Then Exit Sub

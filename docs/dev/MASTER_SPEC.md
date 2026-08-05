@@ -89,7 +89,8 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 
 **my_vectors** 列: `chunk_id, vector_csv`(L2正規化済みDoubleのカンマ結合。次元はconfig `embed_dim`=1536)
 
-**my_manifest** 列: `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin`
+**my_manifest** 列(10列): `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin, fail_count`
+- 10列目 `fail_count` は 2026-08-01(R12-3-3)で追加した連続失敗回数。`MAX_FAIL_STREAK`(3)回で status を `failed_permanent` へ倒し自動同期のスコープから外す。復帰は「資料を追加」での明示選択(`ResetFailCountForPath`)かファイル更新のみ。行の詰め直しは必ず全10列を運ぶ(9列で詰めると fail_count だけが別の行に残る)。
 - status: `done` | `pending` | `partial`(埋め込み未了あり) | `failed` | `image_pdf` | `missing`(同期でファイル消失検知→削除待ち)
 - ダイアログ取込のfile_pathは実パス。パック由来はmanifestに載せない(my_knowledge.originで管理)。
 - **chunk_count の契約(2026-08-05 R18-2a)**: `modShelfStore.UpsertManifestRow` に
@@ -336,11 +337,21 @@ Public Function ReconcileStatText(ByVal statText As String, ByVal actualN As Lon
 Public Function ReconcileChunkCount(ByVal sourceName As String, ByVal statText As String, _
                                     ByVal actualN As Long) As String
     ' 上記+manifest の5列目も直し usage_log("manifest_fix") を1行(modShelf.SourceListから)
-Public Sub RecordSaveMark()   ' 保存成功時に (my_knowledge行数, FullName) を ui_state へ
+Public Sub RecordSaveMark()   ' (my_knowledge行数, FullName) を ui_state へ控える
+    ' 【R18H FA-3】呼ぶのは (a) ThisWorkbook.Save の【直前】(SaveCheckpoint)、
+    ' (b) 意図した削除の直後(modShelf.DeleteSource / modShelfStore.
+    ' RemoveRowsByOrigin(Prefix)。保存はしない)。(a)を保存の「後」に置くと
+    ' ディスク上のマークが常に1世代古くなり、(b)が無いと利用者自身の削除が
+    ' 次回起動で「資料が消えました」の虚偽警告になる
 Public Function DataShrunk(ByVal prevRows As Long, ByVal curRows As Long) As Boolean
     ' prevRows<=0(記録なし)は判定しない=初回起動で根拠なく警告しない
-Public Function IsVolatilePath(ByVal fullPath As String) As Boolean
-    ' "temp1_" / "\temp\" / ".zip\" のいずれかを含む(=保存が次回に残らない場所)
+Public Function IsVolatilePath(ByVal folderPath As String, _
+                               Optional ByVal tempA As String = "", _
+                               Optional ByVal tempB As String = "") As Boolean
+    ' 【R18H FA-4】判定対象は ThisWorkbook.Path(フォルダ)。"temp1_" / ".zip\" の
+    ' 部分一致か、tempA/tempB(=Environ("TEMP")/Environ("TMP") の実値)配下の
+    ' 前方一致。"\temp\" の部分一致は廃止(D:\temp\ や \\share\Temp\ の誤検知)。
+    ' 環境変数は呼び出し元(WarnAtStartup)が読む=この関数は純ロジックのまま
 Public Function ShrinkWarnMsg(...) As String / VolatileWarnMsg(...) As String  ' 警告文(BMPのみ)
 Public Sub WarnAtStartup()    ' 起動時の突合(modBootから1行)。1セッション1回まで
 ```
@@ -398,10 +409,17 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     '          書き終えた【後】。書込みがerr#7等で落ちても旧データを無傷で残すため。
     '          いま書いた行は keepFromRow で巻き添えにしない。同一sourceの新旧行が
     '          同時に存在する窓は取込中だけで、取込中は検索がUIロックで走らない)
+    '       → 【R18H FA-5】acceptedCount=0(全チャンクが既存と同一ハッシュ)なら
+    '          削除そのものをスキップし旧行を温存。status=failed / chunk_count=-1 /
+    '          メモ=modShelfStore.MEMO_ALL_DUP、usage_log("ingest_all_dup")を1行
+    '       → 【R18H FA-6】旧行削除が失敗(Err<>0)したら status=partial とし、メモ
+    '          先頭へ modShelfStore.MEMO_REPLACE_NG を付ける(E0801ログは従来どおり)
     '       → manifest upsert(status=pending)
     '       → EmbedPending → manifest status確定 → 成功時(done/partial)のみ
     '       my_stats.ingest_files_totalをBump+usage_logに"ingest"イベントを記録
-    '       → 【R18-2c】成功時(done/partial)のみ modShelfBatch.SaveCheckpoint(silent含む)。
+    '       → 【R18-2c】成功時(done/partial)のみ modShelfBatch.SaveCheckpoint(silent含む。
+    '          【R18H FA-7】silent は throttleSec:=120 を渡す=無人同期で1件ごとに
+    '          ブックを書き戻さない。同期末尾の1回(modShelfSync)は従来どおり)。
     '          中間保存の呼び出し点はこのFinish1箇所に集約する(以前は
     '          modShelfBatch.AddFilesResult のループにしか無く、スクショ取込・
     '          ナレッジ登録・修正・共有登録・パック取込・部門チャンネル取込の

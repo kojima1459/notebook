@@ -683,7 +683,12 @@ Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
     End If
     fs.Name = "nx_hub_footer"
     fs.Line.Visible = 0
-    fs.Fill.Visible = 0
+    ' R18H FA-8(A-M7): 塗り無し(Fill.Visible=0)のShapeは、Excelでは
+    ' 【文字の上だけ】がクリック領域になる。8.5ptの1行を狙って押させるのは
+    ' 憲章§3-1(押せるものは必ず反応する)に反するので、完全透明の塗りを
+    ' 敷いて帯全体を当たり判定にする(見た目は塗り無しと区別が付かない)。
+    fs.Fill.Visible = -1
+    fs.Fill.Transparency = 1
     With fs.TextFrame2
         .WordWrap = 0
         .TextRange.Text = ChrW(&HA9) & " リスクコンサルティング支援部"

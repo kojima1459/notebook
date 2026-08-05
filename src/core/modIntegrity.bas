@@ -116,7 +116,11 @@ End Function
 ' ----------------------------------------------------------------------------
 ' RecordSaveMark - 保存が成功した瞬間の事実を控える(2d)。
 ' ----------------------------------------------------------------------------
-' modShelfBatch.SaveCheckpoint が ThisWorkbook.Save に成功した直後に1行呼ぶ。
+' modShelfBatch.SaveCheckpoint が ThisWorkbook.Save の【直前】に1行呼ぶ
+' (R18H FA-3: 後に呼ぶとディスク上のマークだけが常に1世代古くなる)。
+' 加えて、意図した削除の直後にも呼ぶ(modShelf.DeleteSource /
+' modShelfStore.RemoveRowsByOrigin(Prefix)。保存はしない=削除は保存の合図では
+' ない。ui_state はブックと一緒に保存/破棄されるのでどちらでも辻褄が合う)。
 ' 控えるのは (my_knowledge の行数, ThisWorkbook.FullName) の2つだけ。
 ' 「保存した」と「次に開いたときに残っていた」は別の事実で、後者を確かめる
 ' 手段がこれまで1つも無かった(調査agent1 §4: zip直開き・一時展開コピーは
@@ -147,18 +151,49 @@ End Function
 ' 保存は成功し ReadOnly でもないので、アプリからは完全に正常に見えるが、
 ' 次に開くのは別の展開コピーで、前回の取込は1件も残っていない
 ' (調査agent1 §5 順位2「検知ゼロ」)。判定材料はパス文字列だけなので、
-' 環境に依らない InStr の素朴な一致で見る(正規表現も FileSystemObject も
-' 使わない=管理端末で塞がれても必ず動く)。
-'   ・"temp1_"       : zip 直開きの展開フォルダ名(Temp1_, Temp2_ ... と続く)
-'   ・"\temp\"       : %TEMP% 配下(AppData\Local\Temp\)
-'   ・".zip\"        : zip の中を直接開いている
+' 環境に依らない素朴な一致で見る(正規表現も FileSystemObject も使わない
+' =管理端末で塞がれても必ず動く)。
+'   ・"temp1_"  : zip 直開きの展開フォルダ名(Temp1_, Temp2_ ... と続く)
+'   ・".zip\"   : zip の中を直接開いている
+'   ・tempA/tempB(=Environ("TEMP")/Environ("TMP") の実値)配下
+'
+' 2026-08-05(R18H FA-4 / A-M3・B-M5): "\temp\" の部分一致を廃止した。
+' D:\temp\約款\ のような【正規の作業フォルダ】や \\share\Temp\ の共有を
+' 一時フォルダと誤判定し、正しく保存できている端末に「保存が次回に残らない
+' 場所です」という嘘を毎回出していた(憲章§3-3の逆・その機能はもう使われない)。
+' 判定は実際の %TEMP%/%TMP% との【前方一致】に限る。環境変数はここでは読まず
+' 引数で受け取る(呼び出し元 WarnAtStartup が読む)=この関数は純ロジックの
+' ままで、テストが端末の環境変数に左右されない。
 ' 大文字小文字は無視する(パスの表記は端末ごとに揺れる)。
-Public Function IsVolatilePath(ByVal fullPath As String) As Boolean
-    Dim p As String: p = LCase$(Trim$(fullPath))
+Public Function IsVolatilePath(ByVal folderPath As String, _
+                               Optional ByVal tempA As String = "", _
+                               Optional ByVal tempB As String = "") As Boolean
+    Dim p As String: p = LCase$(Trim$(folderPath))
     If LenB(p) = 0 Then Exit Function
     If InStr(p, "temp1_") > 0 Then IsVolatilePath = True
-    If InStr(p, "\temp\") > 0 Then IsVolatilePath = True
     If InStr(p, ".zip\") > 0 Then IsVolatilePath = True
+    If UnderDir(p, tempA) Then IsVolatilePath = True
+    If UnderDir(p, tempB) Then IsVolatilePath = True
+End Function
+
+' p(小文字化済み)が dirPath そのもの、またはその配下か(前方一致・R18H FA-4)。
+' 末尾に区切りを補ってから比べる: 補わないと "C:\Temp" が "C:\Temp2\..." にも
+' 当たる(1文字違いのフォルダを巻き込む誤検知)。
+Private Function UnderDir(ByVal p As String, ByVal dirPath As String) As Boolean
+    Dim d As String: d = LCase$(Trim$(dirPath))
+    If LenB(d) = 0 Then Exit Function
+    If Right$(d, 1) <> "\" Then d = d & "\"
+    Dim pp As String: pp = p
+    If Right$(pp, 1) <> "\" Then pp = pp & "\"
+    If Len(pp) < Len(d) Then Exit Function
+    UnderDir = (Left$(pp, Len(d)) = d)
+End Function
+
+' Environ の読み出し(失敗しても空文字で返る)。判定そのものは純ロジック側。
+Private Function SafeEnv(ByVal keyName As String) As String
+    On Error Resume Next
+    SafeEnv = Environ$(keyName)
+    On Error GoTo 0
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -192,18 +227,25 @@ End Function
 ' 件数が減っているのは当然の結果で、原因を先に伝えた方が利用者は動ける。
 ' どちらも1セッション1回まで。機能は止めない(閲覧・質問はそのまま使える)。
 ' 起動を止めないよう例外は外へ出さない。
+'
+' 2026-08-05(R18H FA-4 / A-M3・B-M5): (i) 置き場所の判定に渡すのは
+' ThisWorkbook.Path(フォルダ)。FullName を渡すと、ファイル名に "temp1_" を
+' 含むだけの資料まで一時扱いになる。(ii) 一時フォルダの警告を出しても
+' 【減少チェックは打ち切らない】。従来はここで Exit Sub していたため、
+' zip直開きの端末では「資料が減っている」という本命の異常を最後まで一度も
+' 検知できなかった(2つは別の事実で、片方が他方を隠す理由は無い)。
 Public Sub WarnAtStartup()
     On Error Resume Next
     If mWarned Then Exit Sub
     mWarned = True
 
     Dim curPath As String: curPath = ThisWorkbook.FullName
+    Dim bookDir As String: bookDir = ThisWorkbook.Path
     Dim curRows As Long: curRows = KnowledgeRowCount()
 
-    If IsVolatilePath(curPath) Then
+    If IsVolatilePath(bookDir, SafeEnv("TEMP"), SafeEnv("TMP")) Then
         modLog.LogUsage "integrity_warn", "volatile_path", modUtil.SafeLeft(curPath, 300)
         MsgBox VolatileWarnMsg(curPath), vbExclamation, modAppDef.APP_NAME
-        Exit Sub
     End If
 
     Dim prevRows As Long: prevRows = 0

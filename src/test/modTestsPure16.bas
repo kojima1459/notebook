@@ -10,7 +10,8 @@ Option Explicit
 '   入口は modTestsPure15.RunAll15 の末尾から呼ばれる RunAll16 の1本だけ。
 '
 ' ここで固定するもの:
-'   ・modProgressBar.BarWidthFor(1b): 進捗バナー幅の viewport 連動。
+'   ・modProgressBar.BarWidthFor(1b)/BarHeightFor(R18H FA-2): 進捗バナーの
+'     幅の viewport 連動と、文面が収まらないときの2行化。
 '   ・modIntegrity.ReconcileStatText / IndexOfName(2b): 台帳と実データの突合。
 '   ・modIntegrity.DataShrunk / IsVolatilePath / 警告文(2d): 起動時の突合。
 '   ・modShelfScan.EnumLooksFailed(2f): UNC列挙の途中切れを消失と誤判定しない。
@@ -47,6 +48,33 @@ Private Sub TestBarWidthFor()
     ' 本文可視幅(barW - 左余白16 - 右余白190)が554pt以上=写真の文面が1行。
     modTestRunner.Check "バナー幅_上限時の本文可視幅は554pt", _
         (modProgressBar.BarWidthFor(1366) - 16 - 190 = 554)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18H FA-2: 進捗バナーの高さ(modProgressBar.BarHeightFor)。
+' ----------------------------------------------------------------------------
+' 幅だけを viewport 連動にしても、高さが1行(30pt)固定のままだと、狭い窓で
+' 本文可視幅が縮んだ瞬間に文字が折り返してピルから溢れ、R18-1b 以前と同じ
+' 「読めない実況」に戻る(B-H1/A-L11)。文字数×係数の近似で【過大側に】
+' 見積もり、収まらないと分かった時点で2行(46pt)へ広げる。
+' 可視幅554pt = BarWidthFor(1366) - 左16 - 右190(ボタン込み)。
+Private Sub TestBarHeightFor()
+    modTestRunner.Check "バナー高さ_空文字は1行", _
+        (modProgressBar.BarHeightFor("", 554) = 30)
+    modTestRunner.Check "バナー高さ_全角52字は1行に収まる(境界)", _
+        (modProgressBar.BarHeightFor(String$(52, "あ"), 554) = 30)
+    modTestRunner.Check "バナー高さ_全角53字で2行へ(境界)", _
+        (modProgressBar.BarHeightFor(String$(53, "あ"), 554) = 46)
+    modTestRunner.Check "バナー高さ_半角は全角より狭く数える", _
+        (modProgressBar.BarHeightFor(String$(100, "a"), 554) = 30)
+    modTestRunner.Check "バナー高さ_可視幅が狭ければ短文でも2行", _
+        (modProgressBar.BarHeightFor(String$(20, "あ"), 94) = 46)
+    modTestRunner.Check "バナー高さ_可視幅0以下は1行へ倒す(退化入力の防御)", _
+        (modProgressBar.BarHeightFor(String$(20, "あ"), 0) = 30)
+    ' 実機のOCR実況文(残り時間+終了目安)が上限幅では1行に収まること。
+    modTestRunner.Check "バナー高さ_OCR実況文は上限幅で1行", _
+        (modProgressBar.BarHeightFor("OCR中 12/254頁 残り約38分(終了目安 15:42)", _
+            modProgressBar.BarWidthFor(1366) - 16 - 190) = 30)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -119,20 +147,37 @@ Private Sub TestIntegrityStartup()
     modTestRunner.Check "減少_記録なし(0)は判定しない", (modIntegrity.DataShrunk(0, 0) = False)
     modTestRunner.Check "減少_記録が負なら判定しない", (modIntegrity.DataShrunk(-1, 0) = False)
 
+    ' R18H FA-4: 判定対象は ThisWorkbook.Path(フォルダ)で、%TEMP%/%TMP% の
+    ' 実値は引数で受け取る(この関数を純ロジックのまま保つため)。
+    Dim tA As String: tA = EnvTempDir16()
     modTestRunner.Check "一時_Temp1_zip直開き", _
-        (modIntegrity.IsVolatilePath(TmpZipPath16()) = True)
-    modTestRunner.Check "一時_Temp配下", _
-        (modIntegrity.IsVolatilePath(TmpDirPath16()) = True)
+        (modIntegrity.IsVolatilePath(TmpZipPath16(), tA, "") = True)
+    modTestRunner.Check "一時_環境変数TEMPの実値配下", _
+        (modIntegrity.IsVolatilePath(TmpDirPath16(), tA, "") = True)
+    modTestRunner.Check "一時_TMP側でも拾う", _
+        (modIntegrity.IsVolatilePath(TmpDirPath16(), "", tA) = True)
     modTestRunner.Check "一時_大文字でも拾う", _
-        (modIntegrity.IsVolatilePath(UCase$(TmpDirPath16())) = True)
+        (modIntegrity.IsVolatilePath(UCase$(TmpDirPath16()), tA, "") = True)
+    modTestRunner.Check "一時_TEMPそのもの(末尾区切り無し)も拾う", _
+        (modIntegrity.IsVolatilePath(tA, tA, "") = True)
     modTestRunner.Check "一時_デスクトップは正常", _
-        (modIntegrity.IsVolatilePath(DesktopPath16()) = False)
+        (modIntegrity.IsVolatilePath(DesktopPath16(), tA, "") = False)
     modTestRunner.Check "一時_共有フォルダは正常", _
-        (modIntegrity.IsVolatilePath(UncPath16()) = False)
-    modTestRunner.Check "一時_空パスは判定しない", (modIntegrity.IsVolatilePath("") = False)
+        (modIntegrity.IsVolatilePath(UncPath16(), tA, "") = False)
+    modTestRunner.Check "一時_空パスは判定しない", (modIntegrity.IsVolatilePath("", tA, "") = False)
     ' 名前に templates を含むフォルダを誤検知しないこと(区切り込みで見るため)。
     modTestRunner.Check "一時_templatesフォルダは誤検知しない", _
-        (modIntegrity.IsVolatilePath(TemplatesPath16()) = False)
+        (modIntegrity.IsVolatilePath(TemplatesPath16(), tA, "") = False)
+    ' R18H FA-4(A-M3/B-M5): "\temp\" の部分一致を廃止した回帰。正規の作業
+    ' フォルダ D:\temp\ や共有 \\share\Temp\ を一時扱いにしてはならない
+    ' (毎回の嘘の警告は、その機能を二度と使われなくする=憲章§3-3)。
+    modTestRunner.Check "一時_D:\temp\の正規フォルダは誤検知しない", _
+        (modIntegrity.IsVolatilePath(LocalTempWorkDir16(), tA, "") = False)
+    modTestRunner.Check "一時_共有の\\share\Temp\は誤検知しない", _
+        (modIntegrity.IsVolatilePath(UncTempDir16(), tA, "") = False)
+    ' 1文字違いの隣フォルダ(...\Temp2)を前方一致で巻き込まないこと。
+    modTestRunner.Check "一時_TEMPと1文字違いのフォルダは誤検知しない", _
+        (modIntegrity.IsVolatilePath(tA & "2" & Sep16() & "a", tA, "") = False)
 
     ' 警告文はBMPの文字だけ(非BMP絵文字はCP932変換で化けてダイアログに出る)。
     Dim m As String
@@ -177,29 +222,41 @@ Private Function Sep16() As String
     Sep16 = ChrW(&H5C)
 End Function
 
+' 以下はいずれも【フォルダ】のパス(R18H FA-4 で判定対象が ThisWorkbook.Path
+' へ変わったため、ファイル名は付けない)。
+Private Function EnvTempDir16() As String
+    EnvTempDir16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "AppData" & _
+        Sep16() & "Local" & Sep16() & "Temp"
+End Function
+
 Private Function TmpZipPath16() As String
-    TmpZipPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "AppData" & _
-        Sep16() & "Local" & Sep16() & "Temp" & Sep16() & "Temp1_MyBookshelf.zip" & _
-        Sep16() & "MyBookshelf.xlsm"
+    TmpZipPath16 = EnvTempDir16() & Sep16() & "Temp1_MyBookshelf.zip"
 End Function
 
 Private Function TmpDirPath16() As String
-    TmpDirPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "AppData" & _
-        Sep16() & "Local" & Sep16() & "Temp" & Sep16() & "MyBookshelf.xlsm"
+    TmpDirPath16 = EnvTempDir16() & Sep16() & "MyBookshelf"
 End Function
 
 Private Function DesktopPath16() As String
     DesktopPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "Desktop" & _
-        Sep16() & "MyBookshelf" & Sep16() & "MyBookshelf.xlsm"
+        Sep16() & "MyBookshelf"
 End Function
 
 Private Function UncPath16() As String
-    UncPath16 = Sep16() & Sep16() & "pgiofs01" & Sep16() & "share" & Sep16() & "MyBookshelf.xlsm"
+    UncPath16 = Sep16() & Sep16() & "pgiofs01" & Sep16() & "share"
 End Function
 
 Private Function TemplatesPath16() As String
-    TemplatesPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "templates" & _
-        Sep16() & "MyBookshelf.xlsm"
+    TemplatesPath16 = "C:" & Sep16() & "Users" & Sep16() & "x" & Sep16() & "templates"
+End Function
+
+' 正規の作業フォルダ(名前がたまたま temp)。誤検知してはならない。
+Private Function LocalTempWorkDir16() As String
+    LocalTempWorkDir16 = "D:" & Sep16() & "temp" & Sep16() & "約款"
+End Function
+
+Private Function UncTempDir16() As String
+    UncTempDir16 = Sep16() & Sep16() & "share" & Sep16() & "Temp" & Sep16() & "本棚"
 End Function
 
 ' 文字列にサロゲート(非BMP=CP932に無い絵文字)が含まれるか。
@@ -315,6 +372,9 @@ End Sub
 Public Sub RunAll16()
     On Error GoTo BarWFail16
     TestBarWidthFor
+NextBarH16:
+    On Error GoTo BarHFail16
+    TestBarHeightFor
 NextRecon16:
     On Error GoTo ReconFail16
     TestReconcileStatText
@@ -345,6 +405,10 @@ NextDone16:
 
 BarWFail16:
     modTestRunner.Check "TestBarWidthFor(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBarH16
+BarHFail16:
+    modTestRunner.Check "TestBarHeightFor(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextRecon16
 ReconFail16:

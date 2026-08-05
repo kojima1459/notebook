@@ -906,7 +906,11 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": [
             "PROGRESS_CANCEL_NAME", "PROGRESS_WORK_NAME",
-            "BarWidthFor", "PaintProgress", "ClearProgress", "SweepOrphans",
+            # BarHeightFor(2026-08-05 R18H FA-2): 文面が本文可視幅に収まらない
+            # ときバナーを2行ぶんへ広げる判定。幅(BarWidthFor)と同じ流儀の
+            # 純ロジックで、modTestsPure16 が境界をゴールデンで固定する。
+            "BarWidthFor", "BarHeightFor",
+            "PaintProgress", "ClearProgress", "SweepOrphans",
         ],
     },
     # modViewport(2026-08-05 R18-3b): 各画面の「行ける範囲」の宣言(ScrollArea)。
@@ -1360,7 +1364,11 @@ R1_PROGRESS_ALLOWED_MODULES = {"modShelfBatch"}
 # 操作できない」と伝えた直後の1点で、そこ以外から取込層がUIのプロセス起動を
 # 始めてよい理由は無い。広げるときは必ずここへ足す=どのモジュールが別Excelを
 # 開けるかが1箇所で分かる状態を保つ。
+# 2026-08-05 R18H FA-1: 2段目確認の記憶(1セッション1回)・文面・起動を
+# modWorkExcel.OfferBeforeIngest へ丸ごと寄せた。取込層から見えるのは
+# 「聞く場所を1行呼ぶ」だけで、性質は OpenWorkExcelNow と変わらない。
 R1_WORKEXCEL_ALLOWED_MODULES = {"modShelfVision"}
+R1_WORKEXCEL_ALLOWED_MEMBERS = {"OpenWorkExcelNow", "OfferBeforeIngest"}
 
 # R2: opt直接トークン参照禁止(src/opt以外)
 OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
@@ -2685,7 +2693,8 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     # 作業用Excelを先に開く。理由は R1_WORKEXCEL_ALLOWED_MODULES の
                     # 注記を参照。
                     if (cur_layer == LAYER_MID
-                            and (prefix, member) == ("modWorkExcel", "OpenWorkExcelNow")
+                            and prefix == "modWorkExcel"
+                            and member in R1_WORKEXCEL_ALLOWED_MEMBERS
                             and self_name in R1_WORKEXCEL_ALLOWED_MODULES):
                         continue
                     info.add(

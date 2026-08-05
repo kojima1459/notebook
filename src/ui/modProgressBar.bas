@@ -60,6 +60,44 @@ Public Function BarWidthFor(ByVal viewportW As Double) As Double
     BarWidthFor = w
 End Function
 
+' ----------------------------------------------------------------------------
+' BarHeightFor - バナー高さ(pt)の決定。純ロジック(ゴールデンテスト対象)。
+' ----------------------------------------------------------------------------
+' 2026-08-05(R18H FA-2 / B-H1・A-L11): R18-1b で幅を viewport 連動にしたが、
+' 高さは30pt(1行)固定のままだった。1,024pt級の狭い窓では本文可視幅が
+' 800pt前後まで縮み、OCRの実況文(推定約363pt)より長い文面 ―― 例えば
+' 残り時間と終了目安を両方載せた行 ―― が入ったとたん2行に折り返して
+' 30ptのピルから溢れ、R18-1b 以前とまったく同じ「読めない実況」に戻る。
+' 幅だけを直したのは対症療法だったので、文面が入らないと分かった時点で
+' 高さを2行ぶんへ広げる(縮む方向にも追随する=次の短い文で30ptへ戻る)。
+'
+' 幅の見積りは BarWidthFor と同じ流儀の純関数(TextWidthPt)。実測せず
+' 文字数×係数で近似し、【過大側へ倒す】: 早めに2行化するのは「1行ぶん高い
+' 帯が出る」だけだが、遅れると文字が切れて読めない(憲章§3-2)。
+' bodyW は呼び出し側が barW から左右余白を引いた実際の本文可視幅。
+Public Function BarHeightFor(ByVal message As String, ByVal bodyW As Double) As Double
+    BarHeightFor = 30
+    If bodyW <= 0 Then Exit Function
+    If TextWidthPt(message) > bodyW Then BarHeightFor = 46
+End Function
+
+' 文字列の表示幅(pt)の近似。Yu Gothic UI 10pt を前提に、半角(ASCII+半角
+' カナ)を5.5pt・それ以外(全角)を10.5ptで数える。実フォントの前進幅より
+' やや大きめの係数を使うのは、上の「過大側へ倒す」判断そのもの。
+Private Function TextWidthPt(ByVal s As String) As Double
+    Dim w As Double, i As Long, c As Long
+    For i = 1 To Len(s)
+        c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536
+        If c < &H100 Or (c >= &HFF61 And c <= &HFF9F) Then
+            w = w + 5.5
+        Else
+            w = w + 10.5
+        End If
+    Next i
+    TextWidthPt = w
+End Function
+
 Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
@@ -89,10 +127,23 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     ' (92+34+余白4=130)。
     topPos = ActiveWindow.VisibleRange.Top + 130
 
+    ' R18H FA-2(ii): 右余白は cancellable ではなく【ボタンが実際に出ているか】で
+    ' 決める。cancellable=False の更新(関所・ベクトル化・検索キャッシュ)は
+    ' ボタンを消さないので、そこで16ptへ戻すと本文がボタンの下へ潜って読めなく
+    ' なっていた(ZOrderで前面へ戻しても、文字が隠れる事実は変わらない)。
+    Dim marginR As Double: marginR = MARGIN_R_PLAIN
+    If cancellable Then marginR = MARGIN_R_BUTTONS
+    If HasShape(ws, PROGRESS_CANCEL_NAME) Or HasShape(ws, PROGRESS_WORK_NAME) Then
+        marginR = MARGIN_R_BUTTONS
+    End If
+    ' R18H FA-2(i): 文面が本文可視幅に収まらなければ2行ぶんへ広げる(生成時も
+    ' 更新時も。短い文面へ戻れば30ptへ縮む)。
+    Dim barH As Double: barH = BarHeightFor(message, barW - 16 - marginR)
+
     Dim shp As Shape
     Set shp = ws.Shapes(PROGRESS_NAME)
     If shp Is Nothing Then
-        Set shp = ws.Shapes.AddShape(5, leftPos, topPos, barW, 30)   ' 5=角丸四角
+        Set shp = ws.Shapes.AddShape(5, leftPos, topPos, barW, barH)   ' 5=角丸四角
         shp.Name = PROGRESS_NAME
         shp.Adjustments(1) = 0.3
         shp.Line.Visible = 0
@@ -112,23 +163,26 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
         shp.Left = leftPos
         shp.Top = topPos
         ' R18-1b: 窓の大きさは取込の途中でも変わる。幅も毎回入れ直す
-        ' (生成時だけだと最初の1回の窓幅に焼き付く)。
+        ' (生成時だけだと最初の1回の窓幅に焼き付く)。R18H FA-2: 高さも同様。
         shp.Width = barW
+        shp.Height = barH
     End If
     ' R15-FixB(FB-6): 中断ボタンはバナー【内側】右端へ(従来は右外
     ' leftPos+barW+6で低解像度・小窓では画面外へはみ出し押せなかった。
     ' 内側なら可視領域中央のバナーと必ず一緒に見える)。右余白190=従来88+
     ' 作業用Excelボタン96+間隔6(R16H FA-5)。毎回入れ直すのは cancellable が
     ' 呼びごとに変わり得るため。
-    Dim marginR As Double: marginR = MARGIN_R_PLAIN
-    If cancellable Then marginR = MARGIN_R_BUTTONS
     shp.TextFrame2.MarginRight = marginR
     shp.TextFrame2.TextRange.Text = message
     shp.ZOrder 0   ' msoBringToFront
 
     If cancellable Then
-        PaintCancelButton ws, leftPos + barW - 82, topPos
-        modWorkExcel.PaintWorkButton ws, leftPos + barW - 82, topPos
+        ' R18H FA-2(i): ボタンのY基準は【バナーの下段】。1行(30pt)のときは
+        ' 従来と同じ topPos で、2行(46pt)へ広がったときだけ下へ寄る
+        ' (上寄せのままだと文の2行目がボタンの下に潜る)。
+        Dim btnTop As Double: btnTop = topPos + barH - 30
+        PaintCancelButton ws, leftPos + barW - 82, btnTop
+        modWorkExcel.PaintWorkButton ws, leftPos + barW - 82, btnTop
         ' R18-1d: 取込バナーが出ている間は砂時計をやめる。busy の合図は
         ' バナーが担っており、砂時計は「押しても無駄」に見えるだけで
         ' ■中断と作業用Excelという【押してほしいボタン】を殺していた。
@@ -148,6 +202,15 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     DoEvents
     On Error GoTo 0
 End Sub
+
+' 指定名のShapeが在るか(R18H FA-2(ii)。無ければ False。生成はしない)。
+Private Function HasShape(ByVal ws As Worksheet, ByVal shapeName As String) As Boolean
+    On Error Resume Next
+    Dim s As Shape
+    Set s = ws.Shapes(shapeName)
+    HasShape = Not (s Is Nothing)
+    On Error GoTo 0
+End Function
 
 ' 指定名のShapeが在れば最前面へ。無ければ何もしない(生成はしない)。
 Private Sub BringToFront(ByVal ws As Worksheet, ByVal shapeName As String)
