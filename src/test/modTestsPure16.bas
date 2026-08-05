@@ -2,7 +2,7 @@ Attribute VB_Name = "modTestsPure16"
 Option Explicit
 
 ' ============================================================================
-' modTestsPure16 - R18-1/R18-2(実機第5報①⑧⑪)の純ロジック回帰テスト
+' modTestsPure16 - R18-1/R18-2/R18-6/R18-7(実機第5報①⑤⑦⑧⑪)の純ロジック回帰
 ' ----------------------------------------------------------------------------
 ' なぜ新設したか(憲章§4-6):
 '   modTestsPure15 が23,011字で、ここの真理表(約9,300字)を足すと30,000字
@@ -14,6 +14,10 @@ Option Explicit
 '   ・modIntegrity.ReconcileStatText / IndexOfName(2b): 台帳と実データの突合。
 '   ・modIntegrity.DataShrunk / IsVolatilePath / 警告文(2d): 起動時の突合。
 '   ・modShelfScan.EnumLooksFailed(2f): UNC列挙の途中切れを消失と誤判定しない。
+'   ・MsgBox到達文言の非BMP絵文字除去(6a): OcrConfirmAskFor/FriendlyMessage
+'     (E0201/E0204/E0705)の戻り値を通しで回帰確認(vba_lint検査14の実行時側)。
+'   ・modRagParse.HasCompoundSignal(7a)と、modAskMulti.TryDecomposedの
+'     ゲート合成(ShouldDecompose OR HasCompoundSignal・7b)。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -210,6 +214,81 @@ Private Function HasSurrogate16(ByVal s As String) As Boolean
     Next i
 End Function
 
+' ----------------------------------------------------------------------------
+' R18-6a回帰: MsgBox到達文言から非BMP絵文字を除去(実機第5報⑤・
+'   EDGE_CASES.md §1.3b)。直書きではなく関数の戻り値経由で紛れ込んでいた
+'   ケースなので、実際の戻り値を通しで検証する(vba_lint検査14の静的検査を
+'   実行時の観点から補完)。
+' ----------------------------------------------------------------------------
+Private Sub TestR18_6aNonBmpDialogText()
+    Dim ask As String: ask = optOcrEta.OcrConfirmAskFor(254, 106, 15)
+    modTestRunner.Check "確認文_非BMPを含まない(6a)", (HasSurrogate16(ask) = False)
+    modTestRunner.Check "確認文_作業用Excelボタンの案内が残る(6a)", _
+        (InStr(ask, "「作業用Excel」ボタン") > 0), "実際=" & ask
+
+    Dim e0201 As String: e0201 = modLog.FriendlyMessage("E0201")
+    modTestRunner.Check "E0201_非BMPを含まない(6a)", (HasSurrogate16(e0201) = False)
+    modTestRunner.Check "E0201_診断ボタンの案内が残る(6a)", (InStr(e0201, "「診断」ボタン") > 0)
+
+    Dim e0204 As String: e0204 = modLog.FriendlyMessage("E0204")
+    modTestRunner.Check "E0204_非BMPを含まない(6a)", (HasSurrogate16(e0204) = False)
+    modTestRunner.Check "E0204_同期の案内が残る(6a)", (InStr(e0204, "「同期」") > 0)
+
+    Dim e0705 As String: e0705 = modLog.FriendlyMessage("E0705")
+    modTestRunner.Check "E0705_非BMPを含まない(6a)", (HasSurrogate16(e0705) = False)
+    modTestRunner.Check "E0705_同期の案内が残る(6a)", (InStr(e0705, "「同期」") > 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-7a: 複合質問シグナル検知(modRagParse.HasCompoundSignal)。実機第5報⑦。
+'   agent4調査報告§4の表#1〜9(#10は次のゲート合成テストで扱う)。
+' ----------------------------------------------------------------------------
+Private Sub TestHasCompoundSignal()
+    modTestRunner.Check "複合シグナル_全角?2個で検知(本件の再現ケース)", _
+        (modRagParse.HasCompoundSignal("免責は？保険料は？") = True)
+    modTestRunner.Check "複合シグナル_AとBの違いは未検知(既知のギャップ)", _
+        (modRagParse.HasCompoundSignal("AとBの違いは") = False)
+    modTestRunner.Check "複合シグナル_句点区切り3節(末尾空要素を除外)", _
+        (modRagParse.HasCompoundSignal("保険料。免責。テロ。") = True)
+    modTestRunner.Check "複合シグナル_?1個のみは未検知(真陰性)", _
+        (modRagParse.HasCompoundSignal("これって対象?") = False)
+    modTestRunner.Check "複合シグナル_空文字はFalse", (modRagParse.HasCompoundSignal("") = False)
+    modTestRunner.Check "複合シグナル_?のみ3個でもTrue", _
+        (modRagParse.HasCompoundSignal("？？？") = True)
+    modTestRunner.Check "複合シグナル_半角?2個も検知(全角半角混在)", _
+        (modRagParse.HasCompoundSignal("免責は?保険料は?") = True)
+    modTestRunner.Check "複合シグナル_単一文+末尾句点1個は過検知しない", _
+        (modRagParse.HasCompoundSignal("免責について教えてください。") = False)
+    modTestRunner.Check "複合シグナル_読点は対象外(仕様)", _
+        (modRagParse.HasCompoundSignal("免責、保険料について") = False)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R18-7b: modAskMulti.TryDecomposed のゲート合成(ShouldDecompose OR
+'   HasCompoundSignal)。TryDecomposed自体はLLM呼び出し(段0)を伴い純関数の
+'   枠外なので、実装と同じ式(modAskMulti.bas:96-107相当)を独立に組んで
+'   検証する。agent4調査報告§4の表#10〜14。
+' ----------------------------------------------------------------------------
+Private Function DecGate16(ByVal modeCfg As String, ByVal q As String) As Boolean
+    Dim g As Boolean
+    g = modAskMulti.ShouldDecompose(modeCfg, Len(q), 25)
+    If Not g And LCase$(Trim$(modeCfg)) <> "off" Then g = modRagParse.HasCompoundSignal(q)
+    DecGate16 = g
+End Function
+
+Private Sub TestDecomposeGateOr()
+    modTestRunner.Check "分解ゲート_auto/短い/複合ありは呼ぶ(修正の主眼)", _
+        (DecGate16("auto", "免責は？保険料は？") = True)
+    modTestRunner.Check "分解ゲート_auto/短い/複合なしは呼ばない(現状維持)", _
+        (DecGate16("auto", "これって対象?") = False)
+    modTestRunner.Check "分解ゲート_off/複合ありでも呼ばない(エスケープハッチ優先)", _
+        (DecGate16("off", "免責は？保険料は？") = False)
+    modTestRunner.Check "分解ゲート_always/複合なしでも呼ぶ(既存動作の非退行)", _
+        (DecGate16("always", "これって対象?") = True)
+    modTestRunner.Check "分解ゲート_25字以上は複合シグナルに関わらず呼ぶ(既存ゲート健全性)", _
+        (DecGate16("auto", String$(25, "あ")) = True)
+End Sub
+
 Public Sub RunAll16()
     On Error GoTo BarWFail16
     TestBarWidthFor
@@ -225,6 +304,15 @@ NextStart16:
 NextEnum16:
     On Error GoTo EnumFail16
     TestEnumLooksFailed
+NextNonBmp16:
+    On Error GoTo NonBmpFail16
+    TestR18_6aNonBmpDialogText
+NextHcs16:
+    On Error GoTo HcsFail16
+    TestHasCompoundSignal
+NextGate16:
+    On Error GoTo GateFail16
+    TestDecomposeGateOr
 NextDone16:
     On Error GoTo 0
     Exit Sub
@@ -247,6 +335,18 @@ StartFail16:
     Resume NextEnum16
 EnumFail16:
     modTestRunner.Check "TestEnumLooksFailed(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextNonBmp16
+NonBmpFail16:
+    modTestRunner.Check "TestR18_6aNonBmpDialogText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextHcs16
+HcsFail16:
+    modTestRunner.Check "TestHasCompoundSignal(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGate16
+GateFail16:
+    modTestRunner.Check "TestDecomposeGateOr(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone16
 End Sub
