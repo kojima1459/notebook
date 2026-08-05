@@ -582,6 +582,13 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
                 "[[FOLLOWUP: (モック)関連する規程はどれ? | (モック)適用開始日はいつから?]]"
         Case "enrich"
             MockLLMResponse = "[{""i"":1,""summary"":""(モック要約)この章の要点"",""keywords"":""キーワードA,キーワードB""}]"
+        Case "decompose"
+            ' R16H FB-2(A-L12/B-M6): 段0(複合質問の論点分け・逆質問の判定)。
+            ' Case Else の汎用ダミーはタグを含まないため、パーサは「読めない
+            ' 応答=single」へ寛容退化していた。結果は正しいが【偶然】正しい。
+            ' mock で R16-3系(分解・番号選択肢)が発火しないことを、明示的に
+            ' 固定しておく(docs/20 §3-1 にも1行記載)。
+            MockLLMResponse = "<verdict>single</verdict>"
         Case "diff"
             MockLLMResponse = "【モック差分分析】" & vbLf & _
                 "・新旧資料を比較しました [本棚:旧版.pdf p.1] → [本棚:新版.pdf p.1]" & vbLf & _

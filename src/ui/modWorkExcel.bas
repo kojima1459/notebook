@@ -48,7 +48,11 @@ Option Explicit
 #End If
 
 Private mLastOpenAt As Double          ' Timer値。0=未実行(2秒デバウンス用)
-Private mGhostingDisabled As Boolean   ' EnsureNoGhostingの1プロセス1回ガード
+' EnsureNoGhostingの1プロセス1回ガード。onで呼んだ後だけでなく【offと判定した
+' ことも】覚える(R16H FB-1 / A-L10)。offのままだと1ページ・1段ごとに
+' modConfig.GetBool がconfigシートを引き直す(取込では毎ページ通る経路)。
+' 帰結: freeze_keep_banner の変更はExcelの再起動で反映される(docs/30 §11)。
+Private mChecked As Boolean
 
 Private Const WORK_BTN_NAME As String = "nx_progress_work"
 Private Const WORK_BTN_W As Double = 96
@@ -157,15 +161,17 @@ End Sub
 '   config freeze_keep_banner(既定on)がオフなら何もしない。プロセス生存中に
 '   最大1回だけAPIを呼ぶ(呼ぶとプロセス終了まで解除不能な公式仕様のため、
 '   複数回呼んでも1回目以降は無意味。フラグで無駄な再試行そのものを避ける)。
+'   判定そのものも1回きり(mChecked)。offの人はconfigの読み直しだけが毎回
+'   残るため、設定変更はExcelの再起動で反映される仕様とする(R16H FB-1)。
 '   呼び出しチョークポイントはmodLive.PaintStage(取込・Q&A双方の長時間
 '   ブロック直前に必ず通る)。LO実行時はこの経路へ到達しない(UI層のため
 '   pure対象外)が、念のためOn Error Resume Nextで自滅しないようにする。
 ' ----------------------------------------------------------------------------
 Public Sub EnsureNoGhosting()
-    If mGhostingDisabled Then Exit Sub
+    If mChecked Then Exit Sub
+    mChecked = True
     On Error Resume Next
     If modConfig.GetBool("freeze_keep_banner", True) Then
-        mGhostingDisabled = True
         DisableProcessWindowsGhosting
     End If
     On Error GoTo 0
