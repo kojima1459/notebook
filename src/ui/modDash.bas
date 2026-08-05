@@ -220,7 +220,6 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     mDashStep = "DrawKpiRow": modDashStat.DrawKpiRow ws
     mDashStep = "DrawExpBar": modDashStat.DrawExpBar ws
     mDashStep = "DrawBadgeShelf": modDashStat.DrawBadgeShelf ws
-    mDashStep = "DrawChartPlaceholder": modDashStat.DrawChartPlaceholder ws
     mDashStep = "DrawAdminSection": DrawAdminSection ws
     mDashStep = "ApplyScrollBound": ApplyDashScrollBound ws
     mDashStep = "FreezeShapePlacement"
@@ -376,7 +375,9 @@ End Sub
 Private Sub DrawAdminSection(ByVal ws As Worksheet)
     If Not modP2P.IsAdmin() Then Exit Sub
 
-    Dim topY As Double: topY = modDashStat.ChartNoteY() + 270   ' クラスタ地図(~250pt)の下に確保
+    ' R18-4: ここは ChartNoteY() + 270(クラスタ地図~250ptぶんの確保)だった。
+    ' 地図を撤去したので跡地を詰める。+20 はバッジ棚との間の余白のみ。
+    Dim topY As Double: topY = modDashStat.ChartNoteY() + 20
 
     Dim headShp As Shape
     Set headShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY, modDashStat.ROW_WIDTH, 20)

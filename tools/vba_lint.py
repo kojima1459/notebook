@@ -1024,8 +1024,10 @@ CONTRACT: dict[str, dict] = {
             "IsThisMonthStamp", "IsLastMonthStamp", "UsageBarText", "FormatMinutes",
             "SafeGetStat", "SafeSavedMinutes", "SafeTotalChunks", "SafeShelfMax",
             "SafeLevel", "SafeExpTotal", "SafeExpFloorForLevel", "SafeLevelProgress",
+            # DrawChartPlaceholder は 2026-08-05 R18-4(実機第5報③)で削除した
+            # (ナレッジ地図の可視化を撤去。ChartNoteY はバッジ棚の下端=管理者
+            #  セクションの起点として現役なので残す)。
             "DrawKpiRow", "DrawExpBar", "ChartNoteY", "DrawBadgeShelf",
-            "DrawChartPlaceholder",
         ],
     },
     # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。

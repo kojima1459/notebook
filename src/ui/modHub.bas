@@ -406,9 +406,11 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     On Error Resume Next
     chLbl = modChannel.ActiveLabel()
     On Error GoTo 0
+    ' R18-4: 「ナレッジ地図」は撤去したので説明からも外す(画面に無いものを
+    ' 案内し続けると、探して見つからない人が必ず出る)。
     descs = Array("本棚の資料からAIが出典付きで回答 ・ " & chLbl, _
                   "資料の登録・検索・一覧 ・ 部内で配る/受け取る", _
-                  "バッジ・EXP・ナレッジ地図")
+                  "節約した時間・バッジ・EXP")
     acts = Array("modHub.OnGoChat", "modHub.OnGoVault", "modHub.OnGoDash")
 
     Dim i As Long

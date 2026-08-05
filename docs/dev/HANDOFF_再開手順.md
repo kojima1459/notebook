@@ -67,7 +67,19 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。
 | R16波3 | Opus | ③-B逆質問番号選択肢+③-C精読(modAskFocus)+③-D既出降格+裁定1〜3+docs+テスト82件 | 7251a25〜f72f12a | 完了 |
 | R16-Fix | Opus | R16H裁定FA8(精読source基準化/逆質問非回答化/降格全followup化ほか)+FB12 | e71b940/e5e8507/bbef504 | 完了 |
 
-### R18 で増えたもの(次に触る人が最初に知るべき4点)
+### R18 で増えたもの(次に触る人が最初に知るべき5点)
+
+0. **新モジュール `modViewport`(src/ui)** = 各画面の「行ける範囲」の宣言
+   (`Worksheet.ScrollArea`)。R18-3b で新設。呼び出しは Hub / マイ本棚(共通クロム
+   `modKnowledge.DrawChrome` 1箇所で3モード分)/ チャット(`modUINexusDraw.
+   DrawInputArea` 末尾。modUI に1行も入らないため)/ ダッシュボード(実測下端)/
+   ナレッジ登録フォームの5箇所だけ。範囲文字列は画面ごとに1つの定数
+   (`modHub.HUB_BOUND` / `modKnowledge.SHELF_BOUND` / `modUINexusDraw.NEXUS_BOUND`
+   / `modVault.VAULT_BOUND`)で、**書式を当てる範囲と同じもの**を指す。
+   ScrollArea を締めるときは必ず「実際に描いた最大到達点+余白」で決めること。
+   きつく締めるとボタンが境界の外に取り残され、憲章§3-1違反(見えない=押せない)
+   になる。**チャットだけは行方向を締めない**(バブルは行と無関係にpt座標で
+   下へ伸び続けるため。A1:P2000)。
 
 1. **新モジュール `modProgressBar`(src/ui)** = 進捗バナー(nx_progress)と
    ■中断 / 作業用Excel の描画・撤去。R18-1a で modSkin(残り10字)から忠実移設。
@@ -299,6 +311,19 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     テストは実データ形状=行ごと異ハッシュで書くこと)。
   - deep深掘りの精読適用は取り下げ(nHits表示契約と衝突・R16H §3C改訂)。
   - 非#ERR文字列は BuildErrorAnswer を素通しする契約(FA-2。非回答ターン=逆質問の表示経路)。
+- **R18で記録した次期課題(2026-08-05)**:
+  - **ナレッジ地図の再導入案**(R18-4で可視化は撤去。調査agent3 §1-6):
+    もし戻すなら「見るだけの絵」ではなく行動につながる形にすること。最小差分は
+    (a) 各クラスタ円に `OnAction` を付け、代表ラベルで穴埋めテンプレを作って
+    Nexus入力欄へ流し込む(`modHub.OnQuickAsk` と同型。新規ロジックほぼ不要)、
+    (b) `ingest_files_total` や総チャンク数を鍵にした再計算キャッシュを入れて
+    「開くたびにK-Means+最大約800回のCOM単発読み」をやめる、の2点。
+    (b)を入れずに戻すと撤去理由の半分がそのまま戻る。削除したコード
+    (DrawClusterMap/DrawBubbles/ClusterColor/MdsCoords/JacobiEigen/TopTwo/
+    BuildLabels/TokenizeKw/NearestSource)は 81aa2d9 の親コミットに残っている。
+  - `modCluster.LoadVectors` の my_vectors 側は今も1セルずつ読み(M-5の片割れ・
+    最大約800回)。分析CSV経路だけになったので体感は消えたが、CSV出力は遅いまま。
+  - my_stats のキーGC(調査agent5。最大25KB程度で実害なしと裁定・記録のみ)。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。

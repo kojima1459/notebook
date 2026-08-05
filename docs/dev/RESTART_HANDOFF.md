@@ -24,7 +24,7 @@ python3 build/build_mybookshelf.py --prod # prod(.xlsm)ビルド+自己検証
 - Fableはレート制限で不可 → opusが代役。
 
 ## 3. 完成済み機能（コミット順）
-- Vaultギャラリー / EXP・レベル(活動+感謝合算) / Nexusダッシュボード(KPI/バッジ/EXPバー) / K-Meansナレッジ地図(modCluster・Shape円) / 分析CSV出力(modAnalytics)
+- Vaultギャラリー / EXP・レベル(活動+感謝合算) / Nexusダッシュボード(KPI/バッジ/EXPバー) / K-Meansクラスタリング(modCluster。可視化「ナレッジ地図」は2026-08-05 R18-4で撤去し、分析CSVのクラスタID列のみ現役) / 分析CSV出力(modAnalytics)
 - **Phase4 P2P感謝状**(modP2P): ✅→作者へ感謝状、受領で感謝EXP(自己申告不可)。AD連携ID。I/Oリトライ+GC。
 - **UI鉄壁化**: FreezeShapePlacement(絶対配置), BringFixedToFront(Z-Order), CapBubbles(40件上限), DoEvents, ScreenUpdating復帰, DPI(WordWrap+Margin)
 - **記憶喪失対策**: modState(ui_state退避/復元) — 会話履歴prevU/prevA
@@ -53,13 +53,13 @@ python3 build/build_mybookshelf.py --prod # prod(.xlsm)ビルド+自己検証
 - qa: modRetrieve(ベクトル検索/除外適用), modAsk(QAオーケストレーション), modFollowup(続けて質問の純関数), modPrompts, modRagParse
 - pack: modPack(パック出力/取込・origin="pack:<作者>"), modP2P(感謝状+ノイズ集計+AD), modPii
 - stats: modStats(EXP/バッジ/ノイズ除外)
-- ui: modUI(Nexusチャット), modApp(Controller), modVault(倉庫), modDash(ダッシュボード), modCluster(地図), modAnalytics(CSV), modUIMain/modUIShelf/modUIDashboard(旧UI), modBoot(起動)
+- ui: modUI(Nexusチャット), modApp(Controller), modVault(倉庫), modDash(ダッシュボード), modCluster(クラスタリング), modAnalytics(CSV), modUIMain/modUIShelf/modUIDashboard(旧UI), modBoot(起動)
 
 ## 7. 実機テスト待ち（再開後にユーザーへ依頼）
 1. P2Pノイズ: 3台で2人が同一資料を⚠️報告 → 全台で検索除外に収束するか
 2. 管理者UI: `admin_users`該当者のダッシュボードにのみ「管理」節が出る/復帰で全員反映
 3. fail-safe: 共有を一時切断 → 除外が消えず保持されるか
-4. ダッシュボードのShape座標(実DPI)、ナレッジ地図の描画、感謝状の着弾
+4. ダッシュボードのShape座標(実DPI)、感謝状の着弾(ナレッジ地図はR18-4で撤去)
 
 ## 8. 既知の申し送り/次の候補
 - ノイズ投票台帳(noise\)は無GCで増える → 将来、解除済み/古い票のクリーンアップ検討。
