@@ -202,6 +202,14 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0901"
             FriendlyMessage = "診断で問題が見つかりました。" & _
                 "診断レポートの指示に従って対応してください。"
+        Case "E0904"
+            ' 2026-08-05(R16-2a/波3の是正): 「作業用Excelを開く」が起動に失敗した
+            ' 状態。端末ポリシーで WScript.Shell が塞がれていることが多く、利用者
+            ' 自身で今すぐ打てる代替手段(タスクバーのExcelを Alt 押しながら
+            ' クリック=新しいプロセスで起動)を必ず添える。取込中に出る文言なので
+            ' 1文を短く保つ(StatusBar は長文を切り落とす)。
+            FriendlyMessage = "作業用Excelを起動できませんでした。" & _
+                "タスクバーのExcelをAltキーを押しながらクリックしても開けます。"
         Case Else
             FriendlyMessage = "予期しない問題が発生しました(あなたの操作のせいではありません)。" & _
                 "時間を置いてもう一度お試しいただき、続くようなら右上の ? から「ご意見・不具合報告」で教えてください。"

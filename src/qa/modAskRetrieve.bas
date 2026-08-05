@@ -24,10 +24,15 @@ Private mStgThorough As Boolean
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
 ' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
 '   config/モードに関係なく拡張段を必ず通す(深掘りのスコープ内多段検索用)。
-' skipExpand(R16-3A): True なら拡張段を通さない。複合質問を論点へ分解した後の
-'   検索で使う(既に1論点まで割ってあるものを更にばらすと、論点の外の資料が
-'   混ざって「その論点だけを詰める」という分解の目的が消える)。既定Falseで
-'   従来の呼び出しは1つも挙動が変わらない。subqOverrideとは併用しない。
+' skipExpand(R16-3A/裁定1で意味を拡張): True なら【拡張段と再ランク段の両方を
+'   通さない】=副質問向けの軽量検索。複合質問を論点へ分解した後の検索で使う。
+'   拡張を切る理由: 既に1論点まで割ってあるものを更にばらすと、論点の外の資料が
+'   混ざって「その論点だけを詰める」という分解の目的が消える。
+'   再ランクも切る理由: 論点あたりのtopKは6～8と小さく、候補プールとの差が
+'   ほとんど無い(並べ替える余地が無い)。にもかかわらず論点数ぶんLLM呼び出しが
+'   増え、3論点なら合計が6+3=9回ではなく12回になる。効かない段に待ち時間だけ
+'   払う形なので、副質問では検索1本に絞る。
+'   既定Falseで従来の呼び出しは1つも挙動が変わらない。subqOverrideとは併用しない。
 Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
                                   ByVal topK As Long, ByRef hits() As Hit, _
                                   Optional ByVal scopeSources As Object, _
@@ -109,6 +114,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim useRerank As Boolean
     useRerank = modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
                                   modConfig.GetBool("quick_rerank", False))
+    If skipExpand Then useRerank = False           ' 裁定1: 副質問は軽量検索(再ランクも省く)
     If useRerank And poolN > topK Then
         ShowAskStage "rerank"
         Dim rkPrompt As String
