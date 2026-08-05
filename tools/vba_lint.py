@@ -1010,6 +1010,11 @@ CONTRACT: dict[str, dict] = {
             # コア層(件数を数える側)の両方から呼ばれる。両方から見えるのは
             # 基盤層だけなので、先頭句の定数と判定をここに1つ置く。
             "DECLINE_MEMO_HEAD", "IsDeclineNote",
+            # 2026-08-05(R16-2a): 「作業用Excelを開く」ボタン(modWorkExcel)が
+            # 起動するコマンド行の組み立て。純粋な文字列処理(""囲み+
+            # "\EXCEL.EXE"+" /x")なので基盤層に置く。modWorkExcelはこれを
+            # 呼ぶだけで、パスの正規化ロジックを持たない。
+            "BuildWorkExcelCmd",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -1609,6 +1614,13 @@ ONACTION_GUARD_ALLOWLIST = {
     # モジュール変数のフラグを立てて1行案内を出すだけで、業務ロジックを
     # 一切呼び返さない(再入の危険がそもそも無い)。
     "modShelfBatch.OnCancelIngest",
+    # 作業用Excelボタン(2026-08-05 R16-2a)。取込バナー内(■中断の左隣)と
+    # アイドル時のヘルプカードの両方から同じハンドラを指す。取込中こそ
+    # 使いたい機能(別プロセスのExcelで他の仕事をする)なので、
+    # BlockIfIngestingを付けたら本来の目的が果たせなくなる。やることは
+    # WScript.Shellで別プロセスを起動しStatusBarへ短文を出すだけで、
+    # 業務ロジック(取込・検索・回答生成)を一切呼び返さない。
+    "modWorkExcel.OnOpenWorkExcel",
     # 2026-08-04(R15-2b)時点で現状追認としてここに載せていた5本
     # (modVaultGallery.OnVaultBackToChat/OnVaultCardClick/OnVaultNext/
     # OnVaultPrev, modPeek.OnOpenSource)は、R15波1の敵対的自己点検で

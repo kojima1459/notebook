@@ -201,6 +201,48 @@ Private Sub TestIsDeclineNote()
             modUtilText.DECLINE_MEMO_HEAD) = False)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R16-2a(2026-08-05): modUtilText.BuildWorkExcelCmd の完全一致ゴールデン。
+'   空文字/末尾に区切り文字があるパス/スペース含みパス/日本語パスを網羅する。
+'   区切り文字を含む入力は、ソース中の文字列リテラル末尾へ直書きすると
+'   LO構文チェッカーが沈黙ハングするため(docs/dev/EDGE_CASES.md §1.3)、
+'   Chr$(92)との連結で作る(関数側の実装も同じ理由でChr$(92)比較にしてある)。
+' ----------------------------------------------------------------------------
+Private Sub TestBuildWorkExcelCmd()
+    Dim noTrail As String: noTrail = "C:\Program Files\Microsoft Office\root\Office16"
+    Dim withTrail As String: withTrail = noTrail & Chr$(92)
+    Dim wantNormal As String
+    wantNormal = """C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"" /x"
+
+    modTestRunner.Check "作業用Excelコマンド_通常パス", _
+        (modUtilText.BuildWorkExcelCmd(noTrail) = wantNormal), _
+        "実際=" & modUtilText.BuildWorkExcelCmd(noTrail)
+    modTestRunner.Check "作業用Excelコマンド_末尾の区切り文字を二重にしない", _
+        (modUtilText.BuildWorkExcelCmd(withTrail) = wantNormal), _
+        "実際=" & modUtilText.BuildWorkExcelCmd(withTrail)
+
+    modTestRunner.Check "作業用Excelコマンド_空文字でも壊れない", _
+        (modUtilText.BuildWorkExcelCmd("") = """\EXCEL.EXE"" /x"), _
+        "実際=" & modUtilText.BuildWorkExcelCmd("")
+
+    Dim driveRoot As String: driveRoot = "C:" & Chr$(92)
+    modTestRunner.Check "作業用Excelコマンド_ドライブ直下(区切り文字1個のみ)", _
+        (modUtilText.BuildWorkExcelCmd(driveRoot) = """C:\EXCEL.EXE"" /x"), _
+        "実際=" & modUtilText.BuildWorkExcelCmd(driveRoot)
+
+    Dim withSpace As String: withSpace = "C:\Program Files (x86)\Office"
+    modTestRunner.Check "作業用Excelコマンド_スペース含みパス", _
+        (modUtilText.BuildWorkExcelCmd(withSpace) = _
+         """C:\Program Files (x86)\Office\EXCEL.EXE"" /x"), _
+        "実際=" & modUtilText.BuildWorkExcelCmd(withSpace)
+
+    Dim withJp As String: withJp = "C:\日本語フォルダ\Office16"
+    modTestRunner.Check "作業用Excelコマンド_日本語パス", _
+        (modUtilText.BuildWorkExcelCmd(withJp) = _
+         """" & withJp & "\EXCEL.EXE"" /x"), _
+        "実際=" & modUtilText.BuildWorkExcelCmd(withJp)
+End Sub
+
 Public Sub RunAll14()
     On Error GoTo ComposeFail14
     TestComposeOcrMemo
@@ -216,6 +258,9 @@ NextClamp14:
 NextDecline14:
     On Error GoTo DeclineFail14
     TestIsDeclineNote
+NextWorkExcel14:
+    On Error GoTo WorkExcelFail14
+    TestBuildWorkExcelCmd
 NextDone14:
     On Error GoTo 0
     Exit Sub
@@ -238,6 +283,10 @@ ClampFail14:
     Resume NextDecline14
 DeclineFail14:
     modTestRunner.Check "TestIsDeclineNote(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextWorkExcel14
+WorkExcelFail14:
+    modTestRunner.Check "TestBuildWorkExcelCmd(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone14
 End Sub

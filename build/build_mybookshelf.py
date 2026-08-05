@@ -397,6 +397,12 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("strict_grounding", True, "TRUE=資料のみ・出典必須・『資料からは判断できません』を強制"),
         ("quick_expand_light", True, "TRUE=すぐ聞くモードでは拡張を軽量化(速度優先)"),
         ("nexus_ui", True, "TRUE=起動時にNexus Agent(SPA風チャットUI)を表示する"),
+        ("freeze_keep_banner", True,
+         "TRUE=取込・入念な質問応答などの長時間ブロック中、DWMの「応答なし」白画面化"
+         "(ゴースト化)をuser32.DisableProcessWindowsGhostingで抑止し、進捗バナーの"
+         "文字を最後まで見えるようにする(R16-2b)。抑止中はウィンドウの移動・"
+         "最小化・×閉じが効かなくなる(公式の既知の制約。強制終了はタスクマネー"
+         "ジャーから)。FALSEにすると従来どおり約5秒で白画面化する挙動へ戻る"),
         ("nexus_share_path", "",
          "P2Pナレッジ共有フォルダ(Phase 4)。未設定なら共有機能は休止。"
          "ヘルプ→共有フォルダ設定で入力(R13-7f: 実在しないダミーパスを既定に"

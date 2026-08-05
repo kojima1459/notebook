@@ -613,6 +613,14 @@
       "wave": "2-F"
     },
     {
+      "name": "modWorkExcel",
+      "path": "src/ui/modWorkExcel.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R16-2a",
+      "note": "取込中でも別のExcelプロセス(excel.exe /x)で作業できるようにする一式(作業用Excelボタン+DisableProcessWindowsGhostingによる白画面抑止)。modUiLock.Enter/BlockIfIngestingを意図して呼ばない唯一のUI層ハンドラ(取込中こそ使いたい機能のため)。tools/vba_lint.pyのONACTION_GUARD_ALLOWLISTに登録済み。"
+    },
+    {
       "name": "ThisWorkbook",
       "path": "src/ui/ThisWorkbook.cls",
       "role": "core",

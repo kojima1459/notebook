@@ -551,6 +551,28 @@ Private Sub DecodeStepPart(ByVal part As String, ByRef outCount As Long, ByRef o
 End Sub
 
 ' ----------------------------------------------------------------------------
+' BuildWorkExcelCmd - 「作業用Excelを開く」ボタン(R16-2a・modWorkExcel)が
+'   起動するコマンド行の組み立て(純粋な文字列処理)。appPathは
+'   Application.Path(EXCEL.EXEがあるフォルダ)を想定するが、この関数自体は
+'   ただの文字列連結でExcelには依存しない。末尾に区切り文字が付いていても
+'   (環境差で付くことがある。ドライブ直下等)全て取り除いてから
+'   "\EXCEL.EXE" を1つだけ足す(二重にしない)。全体を""で囲み、末尾に
+'   " /x"(新規プロセスで空のExcelを開くスイッチ。ドキュメント既定を開き
+'   直さない・別プロセスなのでこのブックの応答なし状態の影響を受けない)を
+'   付ける。パスの空白・日本語はそのまま素通しでよい(""で囲むため)。
+'   区切り文字はChr$(92)で比較する(ソース中に区切り文字を直書きした文字列
+'   リテラルの末尾へ置くとLO構文チェッカーが沈黙ハングするため。
+'   docs/dev/EDGE_CASES.md §1.3)。
+' ----------------------------------------------------------------------------
+Public Function BuildWorkExcelCmd(ByVal appPath As String) As String
+    Dim p As String: p = appPath
+    Do While Len(p) > 0 And Right$(p, 1) = Chr$(92)
+        p = Left$(p, Len(p) - 1)
+    Loop
+    BuildWorkExcelCmd = """" & p & "\EXCEL.EXE"" /x"
+End Function
+
+' ----------------------------------------------------------------------------
 ' DECLINE_MEMO_HEAD / IsDeclineNote - 「見送りました」のメモかどうか
 '   (2026-08-04 R15-FixB FB-5・レビューB-M)。
 ' ----------------------------------------------------------------------------
