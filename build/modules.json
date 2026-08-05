@@ -186,7 +186,7 @@
       "role": "core",
       "type": "std",
       "wave": "R17-0",
-      "note": "R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使うchunk_metaシートの器(波0)。EnsureChunkMetaSheetはmodShelfStore.EnsureKnowledgeSheetと同型。パース本体・取込フックからの呼び出しは次波(Phase1)が配線する。"
+      "note": "R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使うchunk_metaシートの器。EnsureChunkMetaSheetはmodShelfStore.EnsureKnowledgeSheetと同型。R17波1でWriteMetaFromRows(取込からの追記)とRemoveMetaForSource(再取込・削除時の旧行掃除)を追加し、modShelf.IngestFile/DeleteSourceから配線済み。"
     },
     {
       "name": "modShelfVision",

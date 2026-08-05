@@ -377,14 +377,20 @@ CONTRACT: dict[str, dict] = {
             "RemoveManifestRowForSource", "UpsertManifestRow", "SliceRows",
         ],
     },
-    # modChunkMetaStore(2026-08-05 R17波0): chunk_metaシート(chunk_id/
+    # modChunkMetaStore(2026-08-05 R17波0→波1): chunk_metaシート(chunk_id/
     # section_path/refs_out)のEnsure/バッチ書込み/全行読み層。modShelfStore.
     # EnsureKnowledgeSheetと同型(無ければ作成+ヘッダ+veryHidden、既存なら冪等)。
-    # Phase1本体(取込フックからの実呼び出し)は未着手で、波0時点では呼び出し元
-    # が無い(次波が配線する)。
+    # WriteMetaFromRows(Phase1): 取込ループが持つmy_knowledgeの行列からchunk_idを
+    #   取り出して1回で追記する入口。modShelf.IngestFileは残り字数が数百字しか
+    #   ないため、id配列の組み立てをこちらで引き受ける(憲章§4-6)。
+    # RemoveMetaForSource(Phase1): 再取込・資料削除で消えるmy_knowledge行の
+    #   chunk_idを引き、chunk_metaの同じ行を落とす。必ず
+    #   modShelfStore.RemoveKnowledgeAndVectorsForSourceの【前】に呼ぶ
+    #   (後だと消えた行のchunk_idがどこにも残っていない)。
     "modChunkMetaStore": {
         "closed": True,
-        "required": ["EnsureChunkMetaSheet", "WriteMetaRows", "ReadAllMeta"],
+        "required": ["EnsureChunkMetaSheet", "WriteMetaRows", "ReadAllMeta",
+                     "WriteMetaFromRows", "RemoveMetaForSource"],
     },
     # modChunkMeta(2026-08-05 R17 Phase1): チャンクの構造ラベル(section_path)と
     #   明示参照(refs_out)の抽出。VBScript.RegExp/ScriptControlを使わず

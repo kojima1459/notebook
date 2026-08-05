@@ -6,9 +6,15 @@ Option Explicit
 ' Ensure(自己修復)+バッチ書込み+全行読み。
 '
 ' 2026-08-05(R17波0): R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使う
-' 受け皿シートの器のみを先行整備する回。パース処理(section_path/refs_out
-' の抽出ロジック本体)と、取込フロー(modShelf.IngestFile)からの実呼び出しは
-' まだ無い(次波が配線する)。
+' 受け皿シートの器を先行整備した回。
+' 2026-08-05(R17波1 Phase1): 取込フロー(modShelf.IngestFile)から実際に
+' 呼ばれるようになり、書込みの入口 WriteMetaFromRows と、再取込で消える
+' 旧行の掃除 RemoveMetaForSource を足した。パース本体は modChunkMeta(純ロジック)。
+'
+' 失敗の扱い: このシートは検索精度の【上積み】であって、無くても本棚も回答も
+' 従来どおり動く。したがってここでの失敗は取込本体を止めず、usage_log に
+' "chunk_meta_fail" を1行だけ残して黙って諦める(憲章§4-1「無言の失敗禁止」を
+' 満たしつつ、§3-5「データ保全が最優先」を壊さないための線引き)。
 '
 ' EnsureChunkMetaSheet は modShelfStore.EnsureKnowledgeSheet と同型:
 '   ・build_mybookshelf.py が焼き込むので通常は無条件で見つかる。
@@ -89,6 +95,115 @@ Public Sub WriteMetaRows(ByRef ids() As String, ByRef paths() As String, _
 
     On Error Resume Next
     ws.Range(ws.Cells(firstRow, COL_ID), ws.Cells(firstRow + n - 1, COL_REFS)).Value = arr
+    On Error GoTo 0
+End Sub
+
+' WriteMetaFromRows - 取込ループが組み立てた my_knowledge の行列(srcRows)から
+'   chunk_id を取り出し、並行配列 paths/refs と合わせて1回で追記する。
+'   modShelf.IngestFile は残り字数が数百字しかない(憲章§4-6)ため、id配列を
+'   向こうで組み立てさせず、ここで受ける。実書込みは WriteMetaRows 1回。
+'   失敗しても取込は止めない(モジュール冒頭の設計判断)。
+Public Sub WriteMetaFromRows(ByRef srcRows() As Variant, ByVal idCol As Long, _
+                             ByRef paths() As String, ByRef refs() As String, _
+                             ByVal n As Long)
+    If n < 1 Then Exit Sub
+    On Error GoTo Failed
+
+    Dim ids() As String: ReDim ids(1 To n)
+    Dim i As Long
+    For i = 1 To n
+        ids(i) = CStr(srcRows(i, idCol))
+    Next i
+    WriteMetaRows ids, paths, refs, n
+    Exit Sub
+Failed:
+    MetaFail "write"
+End Sub
+
+' RemoveMetaForSource - 再取込で消える my_knowledge 行(同名source かつ
+'   keepFromRow より前の行)の chunk_id を集め、chunk_meta の同じ行を落とす。
+'
+'   【呼ぶ順序】modShelfStore.RemoveKnowledgeAndVectorsForSource の直前。
+'   後に呼ぶと、消えた行の chunk_id はもうどこにも残っていない(chunk_meta には
+'   source 列が無い。列を足すと配布済み本棚の移行が要るため、my_knowledge 側の
+'   事実から引く設計にした)。引数は RemoveKnowledgeAndVectorsForSource と
+'   同じ (sourceName, keepFromRow) で、選ぶ行がずれないようにしてある。
+'
+'   掃除に失敗した場合に残るのは「my_knowledge に対応する行が無い chunk_meta の
+'   行」だけで、検索側は chunk_id を引けずにその行を無視する(害は無く、
+'   次の再取込でまた掃除を試みる)。
+Public Sub RemoveMetaForSource(ByVal sourceName As String, ByVal keepFromRow As Long)
+    On Error GoTo Failed
+
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_CHUNK_META)
+    If ws Is Nothing Then Exit Sub
+    Dim lastM As Long: lastM = ws.Cells(ws.Rows.count, COL_ID).End(xlUp).row
+    If lastM < 2 Then Exit Sub
+
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Sub
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Sub
+
+    ' 1) 消える行の chunk_id を vbLf 区切りの箱にする(1列目=chunk_id・2列目=source)。
+    Dim kArr As Variant: kArr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 2)).Value
+    Dim box As String
+    Dim i As Long
+    For i = LBound(kArr, 1) To UBound(kArr, 1)
+        If StrComp(CStr(kArr(i, 2)), sourceName, vbTextCompare) = 0 Then
+            If keepFromRow < 2 Or (i + 1) < keepFromRow Then
+                box = box & vbLf & CStr(kArr(i, 1))
+            End If
+        End If
+    Next i
+    If LenB(box) = 0 Then Exit Sub
+    box = box & vbLf
+
+    ' 2) 残す行だけを詰め直して1回で書き戻す(1行ずつのDeleteは数千行で固まる)。
+    Dim mArr As Variant
+    mArr = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastM, COL_REFS)).Value
+    Dim nRows As Long: nRows = lastM - 1
+    Dim keepArr() As Variant: ReDim keepArr(1 To nRows, 1 To META_COLS)
+    Dim k As Long: k = 0
+    Dim c As Long
+    For i = 1 To nRows
+        If InStr(1, box, vbLf & CStr(mArr(i, COL_ID)) & vbLf, vbBinaryCompare) = 0 Then
+            k = k + 1
+            For c = 1 To META_COLS
+                keepArr(k, c) = mArr(i, c)
+            Next c
+        End If
+    Next i
+    If k = nRows Then Exit Sub          ' 落ちる行が1つも無い
+
+    ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastM, COL_REFS)).ClearContents
+    If k > 0 Then
+        ws.Range(ws.Cells(2, COL_ID), ws.Cells(1 + k, COL_REFS)).Value = CompactMeta(keepArr, k)
+    End If
+    Exit Sub
+Failed:
+    MetaFail "remove"
+End Sub
+
+' 先頭k行だけの配列を作る(書き戻す範囲と配列の形をぴったり合わせる)。
+Private Function CompactMeta(ByRef src() As Variant, ByVal k As Long) As Variant
+    Dim outArr() As Variant: ReDim outArr(1 To k, 1 To META_COLS)
+    Dim r As Long, c As Long
+    For r = 1 To k
+        For c = 1 To META_COLS
+            outArr(r, c) = src(r, c)
+        Next c
+    Next r
+    CompactMeta = outArr
+End Function
+
+' 失敗の記録。ハンドラ稼働中は On Error Resume Next が効かない(2026-07-30
+' 実機err#462 と同型)ため、別Subへ切り出して新しいエラー文脈で記録する。
+' Err はここへ来た時点の値をまず控える(On Error Resume Next 自体がErrを消す)。
+Private Sub MetaFail(ByVal whereAt As String)
+    Dim d As String: d = "err#" & Err.Number & " " & Err.Description
+    On Error Resume Next
+    modLog.LogUsage "chunk_meta_fail", "ingest", whereAt & " " & d
     On Error GoTo 0
 End Sub
 
