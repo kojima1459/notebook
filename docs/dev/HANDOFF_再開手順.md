@@ -8,7 +8,7 @@
 
 **R18完了(実機第5報①〜⑪→調査8班→R18仕様→波A〜C→敵対的レビュー2面→R18H裁定FA8+FB8全消化)。実機配布可。**
 R1〜R18まで完了・検収済み・push済み(R17=構造グラフPhase1〜3はGO済み・次に着手)。
-テスト1,486件・lint ERROR 0/WARN 4(全てテスト系)・モジュール121本(実装側WARNゼロ)。
+テスト1,529件・lint ERROR 0/WARN 4(全てテスト系)・モジュール123本(実装側WARNゼロ)。
 仕様: docs/dev/spec_20260805_R18_実機第5報.md + spec_20260805_R18H_レビュー裁定.md。
 R18の骨子: ①バナー可変幅/2行化+ボタン常時前面(modProgressBar新設)+砂時計廃止+2段目
 「作業用Excelを開く?」(セッション1回)/⑧manifest偽0根治(chunk_count -1保持+SourceList
@@ -26,13 +26,15 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: R17実装(docs/dev/design_20260805_R17_構造グラフ設計.md、GO済み。波割りは調査agent7=
-R17前提検証を参照。着手前提: modPrompts分割(残386字)と modShelf の先行圧縮(残5字))。
-残: 利用者の実機テスト(docs/45スモーク全31項目、特に28〜31+19〜27)。
+次: R17 Phase2(章単位要約=疑似グローバル検索)。着手前提として **modPrompts の分割**が
+必須(残386字で章要約プロンプトが1本も書けない。調査agent7 §5-4)。Phase1(構造メタ+
+参照エッジ)は R17波0/波1 で完了済み=下記「R17 で増えたもの」。
+残: 利用者の実機テスト(docs/45スモーク全32項目、特に32(R17 Phase1)+28〜31+19〜27)。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
-**optOcrPage(残3) / modShelf(残5) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
+**optOcrPage(残3) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
 modShelfBatch(残22) / optVision(残26) / modChunker(残38) / modBoot(残41) / modAsk(残43) /
 modUI(残44) / modShelfStore(残44) / optGsTxt(残45) / modUIMain(残101) / modHubStat(残164) /
+modShelf(残227・R17波1でコメント圧縮して枠を作り直した。次に触る波は先に分割裁定) /
 modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残386) /
 modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977字へ解放済み。
 
@@ -78,9 +80,49 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977�
 | R16波3 | Opus | ③-B逆質問番号選択肢+③-C精読(modAskFocus)+③-D既出降格+裁定1〜3+docs+テスト82件 | 7251a25〜f72f12a | 完了 |
 | R16-Fix | Opus | R16H裁定FA8(精読source基準化/逆質問非回答化/降格全followup化ほか)+FB12 | e71b940/e5e8507/bbef504 | 完了 |
 | R18波A | Opus | ①⑪バナー根治(modProgressBar新設)+⑧永続化(modIntegrity新設・保存一本化・置換反転) | ea6b8ed〜cceb2d6 | 完了 |
+| R17波0 | Sonnet | chunk_metaシート基盤(SH_CHUNK_META/EXPECTED_SHEETS/modChunkMetaStore)+modShelf圧縮 | 729a75f〜4746a61 | 完了 |
+| R17波1 | Opus | Phase1: 構造メタ+参照エッジ(modChunkMeta新設/取込フック/RefsExpand/ArticleEnsure/別表・様式キー/graph_refs/テスト43件) | (本波) | 完了 |
 | R18波B | Sonnet | ⑤非BMP排除+lint検査14+同期interactive+⑦HasCompoundSignal+E0303格下げ | 7d99933〜5e5b2cf | 完了 |
 | R18波C | Opus | ②範囲限定+modViewport+チャットへ上段+③地図撤去+④カード化+⑨フッター | 5b1d786〜a41bcfa | 完了 |
 | R18-Fix | Opus | R18H裁定FA8(2段目1回化/バナー2行/虚偽警告根治/全重複保護/フッター当たり判定ほか)+FB8 | 294afa4/f9664ef | 完了 |
+
+### R17 で増えたもの(Phase1 分。次に触る人が最初に知るべき5点)
+
+0. **新シート `chunk_meta`(chunk_id / section_path / refs_out)** = 規程の「章>条」と
+   本文中の明示参照(「第8条による」「別表2のとおり」)の保存先。**列を足すのではなく
+   新シートにした**のは、my_knowledge に列を増やすと配布済み本棚の移行が要るため
+   (R17設計書§3)。ビルドが headers-only で焼き込み(`EXPECTED_SHEETS` + `_make_headers_only`)、
+   実行時の `Worksheets.Add` は壊れたブックの自己修復専用。
+1. **フェイルセーフが全ての前提**: chunk_meta が0行(=まだ取り込み直していない
+   既存本棚)なら、参照展開も条番号の直接ヒット保証も**1行も足さずに戻る**。
+   その条件は `modChunkMeta.GraphActive(metaCount, nHits)` の**1本だけ**にある。
+   ここを2箇所へ書き写してはならない(片方だけ直すと古い本棚で実行時エラーになる)。
+   移行処理は書かない=既存資料は「もう一度取り込む」ことでだけ構造が付く。
+   これは設計書の明文の判断で、**版移行(modMigrate)のたびに効果を失う**という
+   運用上の摩擦もそのまま受け入れている(調査agent7 §5-1)。
+2. **新モジュール `modChunkMeta`(src/ingest・PURE_LOGIC_MODULES)** = 抽出の純ロジック。
+   `ExtractSectionPath` は breadcrumb 行から、`ExtractRefs` は本文から InStr 走査だけで
+   拾う。**VBScript.RegExp / ScriptControl は使わない**(政策ブロックのリスクと
+   LO実行テスト不能=回帰を機械で固定できない)。全角/半角の吸収は
+   `modSparse.NormalizeForSearch` に一本化してある(取込側と質問側で式が割れると
+   「第１２条」が「第12条」で外れる)。
+3. **section_path は ApplyCrumb を通す【前】の生チャンクから採る**
+   (`modShelf.IngestFile` のループ内 `modChunkMeta.MetaOf` 1行)。保存後の
+   my_knowledge から読んではいけない: config `embed_prefix_breadcrumb` が FALSE だと
+   ApplyCrumb が breadcrumb 行を丸ごと消すため、admin 設定ひとつで構造が全滅する。
+4. **旧メタ行の掃除は「消す前」に呼ぶ**。`modChunkMetaStore.RemoveMetaForSource` は
+   my_knowledge を引いて chunk_id を集めるので、`RemoveKnowledgeAndVectorsForSource`
+   の**後**に置くと何も引けない。呼び出しは `IngestFile` 手順7.5 と `DeleteSource` の
+   各1行。chunk_meta 側の失敗は全て握って `usage_log("chunk_meta_fail")` 1行に留め、
+   取込は止めない(検索精度の上積みであってデータ保全ではない)。
+5. **検索合流は modAskFocus の2本だけ**: `RefsExpand`(精読束へ参照先を1ホップ・
+   **同じ資料の中だけ**・既定8件・score=0)と `ArticleEnsure`(質問が名指しした条番号の
+   チャンクが1件も無いときだけ先頭へ最大2件・score は先頭ヒット同値)。
+   config `graph_refs`(既定on)のゲートもこの層に閉じてあるので、呼び出し元
+   (modAskThorough / modAskMulti / modAskRetrieve)はどれも1行。**LLM呼び出しは
+   1回も増えていない**。RefsExpand が資料を跨がないのは、跨いだ瞬間に無関係な規程の
+   第8条が正しい出典タグ付きで根拠に混ざるため(利用者が気付けない外し方)。
+   - modShelf は圧縮後 27,773字(残227)。次に触る波は先に分割を裁定すること。
 
 ### R18 で増えたもの(次に触る人が最初に知るべき5点)
 

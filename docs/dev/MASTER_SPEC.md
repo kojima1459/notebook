@@ -67,6 +67,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `config` | hidden | 設定(§5) |
 | `my_knowledge` | veryHidden | チャンク本体 |
 | `my_vectors` | veryHidden | ベクトル |
+| `chunk_meta` | veryHidden | チャンクの構造メタ(R17 Phase1)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `chunk_id, section_path, refs_out`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。ビルドが headers-only で生成する(R15-FixB FB-2。実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|IsoDateTime(更新日時)\|p<頁>`、text は先頭に番兵1字 `t` を置いて書き読み出しで剥ぐ(数式誤解釈の防止と空頁の判別)。opt層(optOcrCache)だけが読み書きし、資料が本棚に `done` として並んだ時点で modShelf がその資料の行を削除、孤児行は起動時GCで2日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
@@ -88,6 +89,31 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 - full_textは1セル32,000字を超えない(チャンカー保証)。
 
 **my_vectors** 列: `chunk_id, vector_csv`(L2正規化済みDoubleのカンマ結合。次元はconfig `embed_dim`=1536)
+
+**chunk_meta** 列(3列・2026-08-05 R17 Phase1): `chunk_id, section_path, refs_out`
+- 目的: 規程・約款の「章>条」という構造ラベルと、本文中の明示参照(「第8条による」
+  「別表2のとおり」)を取込時に保存し、検索が【点】ではなく【面】を組めるようにする
+  (R17設計書 `docs/dev/design_20260805_R17_構造グラフ設計.md` §3 Phase1)。
+- `section_path`: そのチャンクの見出し階層を `>` で連ねたもの(例 `第3章 総則>第12条(免責)`)。
+  資料名は含めない(資料の同一性は my_knowledge.source が持つ)。取り出し元は
+  modChunker が各チャンク先頭へ置く breadcrumb 行で、**ApplyCrumb を通す前の生チャンク**
+  から採る(config `embed_prefix_breadcrumb` が FALSE だと保存本文からこの行が消えるため)。
+  全角数字は `modSparse.NormalizeForSearch` で半角へ寄せる(質問側と同じ式=表記ゆれで外れない)。
+- `refs_out`: 本文中の明示参照を `|` 区切りにしたもの(例 `第6条|第8条|別表2`)。拾うのは
+  「第N条」「第N項」「第N章」「別表N」「様式N」で、1チャンクあたり最大24件。
+  自分自身の見出し番号も入る(落とす判断は検索側 `modChunkMeta.RefLabelsFor` が持つ)。
+- 抽出は `modChunkMeta`(純ロジック・InStr走査のみ)。**VBScript.RegExp / ScriptControl は
+  使わない**(政策ブロックのリスクとLO実行テスト不能=回帰を機械で固定できないため)。
+  書込み・掃除は `modChunkMetaStore`、検索への合流は `modAskFocus`。
+- **フェイルセーフ(この節の要点)**: chunk_meta が無い/0行(=まだ取り込み直していない
+  既存本棚)のとき、`modChunkMeta.GraphActive` が False を返し、参照展開も条番号の直接
+  ヒット保証も**1行も足さずに戻る**。回答は R16 までと完全に同じになる。既存資料の移行
+  処理は書かない(再取込で生成される)。config `graph_refs=off` でも同じく無操作。
+- 掃除: 再取込(`modShelf.IngestFile` の手順7.5)と資料削除(`DeleteSource`)で、消える
+  my_knowledge 行の chunk_id を引いて同じ行を落とす(`RemoveMetaForSource`)。
+  この呼び出しは必ず `modShelfStore.RemoveKnowledgeAndVectorsForSource` の**前**に置く
+  (後だと消えた行の chunk_id がどこにも残っていない)。書込み・掃除の失敗は取込を止めず
+  `usage_log("chunk_meta_fail")` を1行残す(検索精度の上積みであってデータ保全ではない)。
 
 **my_manifest** 列(10列): `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin, fail_count`
 - 10列目 `fail_count` は 2026-08-01(R12-3-3)で追加した連続失敗回数。`MAX_FAIL_STREAK`(3)回で status を `failed_permanent` へ倒し自動同期のスコープから外す。復帰は「資料を追加」での明示選択(`ResetFailCountForPath`)かファイル更新のみ。行の詰め直しは必ず全10列を運ぶ(9列で詰めると fail_count だけが別の行に残る)。
@@ -155,6 +181,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | decompose_min_chars | 25 | `decompose_mode=auto` のとき、この文字数以上の質問だけ段0の判定を行う。短い質問は割る論点が無く、判定の1回ぶんだけ遅くなるため |
 | clarify_mode | auto | 読み方が定まらない質問に番号の選択肢で聞き返すか(R16-3B)。auto=選択肢が2件以上作れたときだけ聞き返す(保留はTTL30分)/off=聞き返さずそのまま回答を作る |
 | deep_neighbor | 2 | 「入念に調べる」の精読半径。根拠チャンクの前後何個ぶんを一緒に読むか(0=off。R16-3C)。R16H FA-4で適用先を入念のみとし、深掘り(deep)には効かせない(戻り件数が「N件ヒット」バッジと直結するため) |
+| graph_refs | on | 条文の参照関係を回答の材料に足すか(R17 Phase1)。on=根拠チャンクの `refs_out` を1ホップ展開して**同じ資料の中**から参照先(第8条・別表2 等)を精読束へ足し、質問が名指しした条番号のチャンクが1件も無ければ chunk_meta から引いて先頭へ入れる(最大2件)/off=検索ヒットだけで答える(R16までと同じ)。LLM呼び出しは1回も増えない。**chunk_meta が無い本棚では on でも従来動作** |
 | freeze_keep_banner | TRUE | 長時間ブロック中のDWM「応答なし」白画面化を`user32.DisableProcessWindowsGhosting`で抑止する(R16-2b)。抑止中はウィンドウの移動・最小化・×閉じが効かない(公式の既知の制約)。FALSEで従来どおり白画面化。判定はプロセス中1回だけキャッシュされるため変更はExcel再起動で反映(R16H FB-1) |
 | minutes_per_selfsolve | 15 | Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分か)。modStats/modBoard/modDashStatの3重複定数をここへ統合(R13-7d) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
@@ -471,6 +498,36 @@ Public Function ResolveDecision(ByVal decision As String, ByVal existsInManifest
 '   「OnTimeコールバックとして公開が必須」の契約とし、Public Subとして実装すること。
 ```
 
+**modChunkMeta.bas**(2026-08-05 R17 Phase1) — 構造メタの抽出(純ロジック・R4準拠)
+```vba
+Public Function ExtractSectionPath(ByVal rawChunkText As String) As String
+    ' チャンク1行目の breadcrumb「【〔資料〕 > 章 > 条】」から "章>条" を作る。
+    ' 先頭要素(資料名)は必ず捨てる。breadcrumb 無し/閉じ括弧無し/中身が空は "" 。
+Public Function ExtractRefs(ByVal bodyText As String) As String
+    ' 本文の「第N条/第N項/第N章/別表N/様式N」を "|" 区切り・重複なし・最大24件で返す。
+    ' InStr走査のみ(RegExp/ScriptControl不使用)。正規化は modSparse.NormalizeForSearch。
+Public Sub MetaOf(ByVal rawChunkText As String, ByRef outPath As String, ByRef outRefs As String)
+    ' 上2本を1回で呼ぶ入口(modShelf.IngestFile の残り字数のため。憲章§4-6)。
+Public Function PathHasLabel(ByVal sectionPath As String, ByVal label As String) As Boolean
+Public Function RefLabelsFor(ByVal refsOut As String, ByVal ownPath As String) As String
+    ' 自分自身の見出し番号を落とした参照ラベル列(自己参照の無害化)。
+Public Function GraphActive(ByVal metaCount As Long, ByVal nHits As Long) As Boolean
+    ' 【フェイルセーフの単一情報源】chunk_meta 0行 or ヒット0件なら False=無操作。
+```
+
+**modChunkMetaStore.bas**(2026-08-05 R17波0→Phase1) — chunk_meta シートI/O
+```vba
+Public Function EnsureChunkMetaSheet() As Worksheet   ' EnsureKnowledgeSheetと同型(冪等)
+Public Sub WriteMetaRows(ids, paths, refs, n)         ' 末尾へ1回のRange書込みで追記
+Public Sub WriteMetaFromRows(srcRows, idCol, paths, refs, n)
+    ' 取込ループが持つ my_knowledge の行列から chunk_id を取り出して追記する入口。
+Public Function ReadAllMeta(outIds, outPaths, outRefs) As Long   ' 全行(0 To n-1)。無ければ0
+Public Sub RemoveMetaForSource(ByVal sourceName As String, ByVal keepFromRow As Long)
+    ' 消える my_knowledge 行(同名source・keepFromRowより前)の chunk_id を引いて
+    ' chunk_meta の同じ行を落とす。必ず RemoveKnowledgeAndVectorsForSource の【前】。
+' 失敗は全て握って usage_log("chunk_meta_fail") 1行。取込は止めない。
+```
+
 **modEnrich.bas** — バッチ富化(summary/keywords付与)
 ```vba
 Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
@@ -490,6 +547,26 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
 必ず進め、キャッシュと modBitwiseOpt の量子化コードの双方を無効化する
 (件数・先頭/末尾idの印だけでは再埋め込みを検知できない)。構築失敗(err7)は
 捕捉して従来経路へ自動フォールバックし、usage_log に `veccache_fallback` を残す。
+
+**modAskFocus.bas** — 精読(R16-3C)と構造グラフへの合流(R17 Phase1)
+```vba
+Public Sub NeighborExpand(hits(), nHits, ByVal radius As Long)
+    ' 【物理近傍】根拠チャンクの前後 radius 個を文書順で末尾へ足す(config deep_neighbor)。
+Public Sub RefsExpand(hits(), nHits, ByVal maxAdd As Long)
+    ' 【参照エッジ】ヒットの refs_out を1ホップ展開し、同じ資料(source)の中で
+    ' section_path にそのラベルを含むチャンクを末尾へ足す(maxAdd<=0 は既定8件)。
+    ' 資料を跨がない: 「第8条」は資料ごとに別の条文で、跨ぐと無関係な規程が
+    ' 出典タグ付きで根拠に混ざる(利用者が気付けない外し方)。score=0。
+    ' 呼び出しは modAskThorough.RunThoroughFlow と modAskMulti.TryDecomposed の
+    ' NeighborExpand 直後に各1行(deep_neighbor=0 でも効く=別軸の機能)。
+Public Sub ArticleEnsure(ByVal query As String, hits(), nHits, ByVal maxIns As Long)
+    ' 【条番号の直接ヒット保証】質問が名指しした条番号・別表・様式に一致する
+    ' section_path のチャンクが hits に1件も無いときだけ、chunk_meta から引いて
+    ' 先頭へ最大 maxIns 件入れる(score は先頭ヒットと同値。既にあれば無操作)。
+    ' 呼び出しは modAskRetrieve.RunMultiRetrieve の検索直後(単段フォールバック側も)。
+' 両方とも config graph_refs=off / chunk_meta 0行(GraphActive=False)なら無操作。
+' ゲートの読みはこの層に閉じる(呼び出し元はどれも1行のまま)。
+```
 
 **modRetrieve.bas**
 ```vba
