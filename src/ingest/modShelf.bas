@@ -274,6 +274,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim rmNum As Long: rmNum = 0
     If acceptedCount > 0 Then
         modChunkMetaStore.RemoveMetaForSource sourceName, firstNewRow   ' R17: 消す【前】に
+        modOutlineStore.RemoveOutlineForSource sourceName   ' R17 P2: 旧章要約も落とす
         On Error Resume Next
         Err.Clear
         modShelfStore.RemoveKnowledgeAndVectorsForSource sourceName, firstNewRow
@@ -380,14 +381,13 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         modStats.AddExp "register"   ' 登録EXP(自己取込のみ。フォルダ自動同期では加算されない)
         On Error GoTo 0
         On Error Resume Next
-        ' R15-8a(実機第4報 RC1): 画面の「127」とusage_logの「125」の食い違い(生成chunkN→重複排除後acceptedCountの乖離)がログに出ていなかった。
-        ' dup=0のときは従来と同じ"chunks=N"(既存ログ・grep互換優先)。
+        ' R15-8a(第4報RC1): 画面の「127」とusage_logの「125」の食い違い(生成chunkN→重複排除後acceptedCountの乖離)がログに出ていなかった。dup=0なら従来と同じ"chunks=N"(grep互換)。
         modLog.LogUsage "ingest", origin, "source=" & sourceName & " " & _
             modUtilText.IngestChunksDetail(acceptedCount, chunkN) & _
             " status=" & resultStatus
         On Error GoTo 0
 
-        ' 要件B(2026-07-30 R3): バッジ評価の入口をIngestFileへ一本化。取込の中核がどこからも呼んでおらず、スクショでは出てナレッジ登録では出ない体験差があった。取得済みなら即Exitなので挙動は不変。
+        ' 要件B(R3): バッジ評価の入口をIngestFileへ一本化(中核がどこからも呼んでおらず、スクショでは出てナレッジ登録では出ない体験差があった)。取得済みなら即Exitで挙動は不変。
         On Error Resume Next
         modStats.EvaluateBadges
         On Error GoTo 0
@@ -411,23 +411,24 @@ FailedCleanup1:
     End If
     resultStatus = "failed"
     outErrCode = "E0801"
-    ' Resumeで抜けてハンドラ実行中の状態を解除する(On Error GoTo 0はトラップ登録を消すだけでこの状態は消えず、そのままFinish:の後始末に落ちるとそこで起きたエラーが呼び出し元へ素通りする)。
+    ' Resumeで抜けてハンドラ実行中の状態を解除する(On Error GoTo 0はトラップ登録を消すだけ。そのままFinish:の後始末へ落ちると、そこで起きたエラーが呼び出し元へ素通りする)。
     Resume Finish
 
 Finish:
     ' R18-2c(実機第5報⑧): 中間保存はここ1箇所に集約。従来はAddFilesResultのループだけで、スクショ・ナレッジ登録・修正・共有登録・パック・部門
-    ' チャンネルの6経路は一度も保存されなかった(調査agent1 §1-3)。取込の出口はFinish1本なので全経路が一度に救われる(成功時のみ保存。読み取り専用・共有ロックの後始末はSaveCheckpoint側が持つ)。
-    ' R18H FA-7(A-M6): silent(無人同期)は120秒のスロットルを通す。100件の同期で100回書き戻すとEDRスキャンが取込より重くなる端末がある。失うのは
-    ' 最大2分ぶんで、同期末尾の1回(modShelfSync)は従来どおり必ず走る。
+    ' チャンネルの6経路は一度も保存されなかった(調査agent1 §1-3)。出口はFinish1本なので全経路が一度に救われる(成功時のみ。ReadOnly・共有ロックはSaveCheckpoint側)。
+    ' R18H FA-7(A-M6): silent(無人同期)は120秒のスロットル。100件で100回書き戻すとEDRスキャンが取込より重くなる端末がある。失うのは最大2分ぶん(同期末尾の1回は必ず走る)。
     If resultStatus = "done" Or resultStatus = "partial" Then
         Dim thrSec As Long: thrSec = 0
         If silent Then thrSec = 120
         On Error Resume Next
+        ' R17 Phase2: 章要約(ゲートconfig graph_outline・失敗握り・中断は向こう)。
+        modOutlineBuild.BuildOutlineFor sourceName
         modShelfBatch.SaveCheckpoint 1, thrSec
         On Error GoTo 0
     End If
 
-    ' 2026-07-28(レビュー I-11): 同期中(silent)は1件ごとに再描画しない。全読みして最大400枚のカードを描き直すため100件の同期では取込より重くなる。完了時に呼び出し側(SyncNow)が1回だけ描き直す。
+    ' レビューI-11: 同期中(silent)は1件ごとに再描画しない(全読みして最大400枚のカードを描き直すため100件の同期では取込より重くなる)。完了時にSyncNowが1回だけ描き直す。
     If Not silent Then
         On Error Resume Next
         modUIShelf.RenderShelf
@@ -441,6 +442,7 @@ End Function
 ' DeleteSource - knowledge/vectors/manifestを一括削除+再描画
 Public Sub DeleteSource(ByVal sourceName As String)
     modChunkMetaStore.RemoveMetaForSource sourceName, 0   ' R17: 消す【前】に引く
+    modOutlineStore.RemoveOutlineForSource sourceName     ' R17 P2: 章要約も消す
     modShelfStore.RemoveKnowledgeAndVectorsForSource sourceName
     modShelfStore.RemoveManifestRowForSource sourceName
 
