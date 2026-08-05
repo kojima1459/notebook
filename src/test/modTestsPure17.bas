@@ -389,6 +389,96 @@ Private Sub TestOutlineFailsafe()
          modRagParse.ParseDecomposeVerdict("#ERR:E0202:x") = "single")
 End Sub
 
+' ============================================================================
+' R17 Phase3(用語の名寄せ)
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' 名寄せ応答の解析(modRagParse.ParseSynResp)。
+'   出力契約 <syn>表記>正規形|表記>正規形</syn>。
+' ----------------------------------------------------------------------------
+Private Sub TestParseSynResp()
+    Dim terms() As String, canons() As String, n As Long
+
+    n = modRagParse.ParseSynResp("<syn>回収>リコール|解約>解約</syn>", terms, canons)
+    modTestRunner.Check "名寄せ応答_正常系は2件", (n = 2), "実際=" & n
+    modTestRunner.Check "名寄せ応答_1件目の表記と正規形", _
+        (terms(0) = "回収" And canons(0) = "リコール"), _
+        "実際=" & terms(0) & "/" & canons(0)
+    modTestRunner.Check "名寄せ応答_2件目も読める", _
+        (terms(1) = "解約" And canons(1) = "解約"), _
+        "実際=" & terms(1) & "/" & canons(1)
+
+    ' タグ欠落(<syn>が無い応答)は0件。
+    n = modRagParse.ParseSynResp("説明だけの応答です", terms, canons)
+    modTestRunner.Check "名寄せ応答_タグ欠落は0件", (n = 0), "実際=" & n
+    n = modRagParse.ParseSynResp("<syn></syn>", terms, canons)
+    modTestRunner.Check "名寄せ応答_空タグも0件", (n = 0), "実際=" & n
+
+    ' #ERR: はCallLLM失敗の応答契約。全て0件(modOutlineBuild/enrich系と同じ寛容退化)。
+    n = modRagParse.ParseSynResp("#ERR:E0201:AIリボンが見つかりません", terms, canons)
+    modTestRunner.Check "名寄せ応答_ERRは0件", (n = 0), "実際=" & n
+
+    ' 不正ペア破棄: ">"が無い/片側が空、は1件ずつ捨てて読めた分だけ残す。
+    n = modRagParse.ParseSynResp("<syn>回収リコール|解約>|>正規形|表記>正規形</syn>", terms, canons)
+    modTestRunner.Check "名寄せ応答_不正ペアを捨てて1件残る", (n = 1), "実際=" & n
+    modTestRunner.Check "名寄せ応答_残った1件の中身", _
+        (terms(0) = "表記" And canons(0) = "正規形"), _
+        "実際=" & terms(0) & "/" & canons(0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' クエリ展開(modRagParse.ExpandQueryBySyn)。
+'   mapCsv は modSynonymStore.ReadMapCsv が返す形("term>canonical|…")のまま
+'   純関数へ渡す(シートI/Oはこの関数に無いのでLOでも直接検証できる)。
+'   「同義語展開_空マップは無操作」が【ReadMapCsvの契約=0行なら空文字列】を
+'   受けたときの振る舞いをそのまま固定する(ReadMapCsv自体はシートI/Oのため
+'   ReadOutline/ReadAllMeta と同じくLO純ロジックテストの対象に出来ない)。
+' ----------------------------------------------------------------------------
+Private Sub TestExpandQueryBySyn()
+    Dim q As String
+
+    ' 一致0(その1): 空マップ=ReadMapCsvの「0行なら空文字」契約どおりの入力。
+    q = modRagParse.ExpandQueryBySyn("回収の保険は?", "", 3)
+    modTestRunner.Check "同義語展開_空マップは無操作", (q = "回収の保険は?"), "実際=" & q
+
+    ' 一致0(その2): マップは有るが質問中のどの語にも当たらない。
+    q = modRagParse.ExpandQueryBySyn("解約の手続きは?", "回収>リコール", 3)
+    modTestRunner.Check "同義語展開_不一致なら無操作", (q = "解約の手続きは?"), "実際=" & q
+
+    ' 1件一致(表記→正規形)。
+    q = modRagParse.ExpandQueryBySyn("回収の保険は?", "回収>リコール", 3)
+    modTestRunner.Check "同義語展開_1件一致で追記", (q = "回収の保険は? リコール"), "実際=" & q
+
+    ' 双方向(正規形→表記): 質問側が正規形でも、対応する表記が足される。
+    q = modRagParse.ExpandQueryBySyn("リコールの保険は?", "回収>リコール", 3)
+    modTestRunner.Check "同義語展開_逆方向でも追記", (q = "リコールの保険は? 回収"), "実際=" & q
+
+    ' 3件上限: 4件一致しても3件で打ち切る(足す語は質問文に無い字を選び、
+    ' 「について」のような助詞の中に偶然含まれて二重追記防止に弾かれないようにする)。
+    q = modRagParse.ExpandQueryBySyn("AとBとCとDの内容", "A>ア|B>イ|C>ウ|D>エ", 3)
+    modTestRunner.Check "同義語展開_上限3件で打ち切る", _
+        (q = "AとBとCとDの内容 ア イ ウ"), "実際=" & q
+
+    ' 全角/半角: 質問側が全角・マップ側が半角でもNormalizeForSearch経由で一致。
+    q = modRagParse.ExpandQueryBySyn("ＡＢＣの申請", "abc>エービーシー", 3)
+    modTestRunner.Check "同義語展開_全角半角の表記ゆれでも一致", _
+        (q = "ＡＢＣの申請 エービーシー"), "実際=" & q
+
+    ' 自己一致除外: termとcanonicalが同じ(正規化後)ペアは何も足さない。
+    q = modRagParse.ExpandQueryBySyn("回収の保険は?", "回収>回収", 3)
+    modTestRunner.Check "同義語展開_自己一致は除外", (q = "回収の保険は?"), "実際=" & q
+
+    ' 質問に両方の語が既にあれば追記しない(重複を増やさない)。
+    q = modRagParse.ExpandQueryBySyn("回収とリコールの違いは?", "回収>リコール", 3)
+    modTestRunner.Check "同義語展開_既に両方あれば追記しない", _
+        (q = "回収とリコールの違いは?"), "実際=" & q
+
+    ' maxAdd<1は無操作。
+    q = modRagParse.ExpandQueryBySyn("回収の保険は?", "回収>リコール", 0)
+    modTestRunner.Check "同義語展開_maxAdd0は無操作", (q = "回収の保険は?"), "実際=" & q
+End Sub
+
 Public Sub RunAll17()
     On Error GoTo PathFail17
     TestExtractSectionPath
@@ -422,6 +512,12 @@ NextPick17:
 NextGlobal17:
     On Error GoTo GlobalFail17
     TestOutlineFailsafe
+NextSynParse17:
+    On Error GoTo SynParseFail17
+    TestParseSynResp
+NextSynExpand17:
+    On Error GoTo SynExpandFail17
+    TestExpandQueryBySyn
 NextDone17:
     On Error GoTo 0
     Exit Sub
@@ -468,6 +564,14 @@ PickFail17:
     Resume NextGlobal17
 GlobalFail17:
     modTestRunner.Check "TestOutlineFailsafe(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSynParse17
+SynParseFail17:
+    modTestRunner.Check "TestParseSynResp(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSynExpand17
+SynExpandFail17:
+    modTestRunner.Check "TestExpandQueryBySyn(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone17
 End Sub
