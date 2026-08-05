@@ -552,8 +552,13 @@ CONTRACT: dict[str, dict] = {
     #   組み立てだけで、LLMは1回も呼ばない(段0の判定でもう材料が揃っている)。
     "modAskMulti": {
         "closed": True,
+        # DecomposeGate(2026-08-05 R18H FB-2 / A-L9): 段0を呼ぶかどうかの最終
+        #   判定(ShouldDecompose OR modRagParse.HasCompoundSignal)。実装と
+        #   modTestsPure16 が同じ1本を呼ぶために Public 化した(従来はテストが
+        #   同じ式を書き写しており、片方だけ直しても検知できなかった)。
         "required": ["TryDecomposed", "VerifyNote", "StepNote",
-                     "ShouldDecompose", "PerPartTopK", "BuildPartSection",
+                     "ShouldDecompose", "DecomposeGate",
+                     "PerPartTopK", "BuildPartSection",
                      "ShouldClarify", "BuildClarifyAsk"],
     },
     # modAskFocus(2026-08-05 R16-3C): 精読=根拠チャンクの前後を一緒に読む。
@@ -1874,6 +1879,11 @@ MSGBOX_REACH_ALLOWLIST = (
     "optOcrEta.OcrConfirmAskFor",   # OCR事前確認→modShelfVisionのMsgBoxへ
     "optOcrCache.ConfirmAskFor",    # 同上の中継(OcrConfirmAskForを包む)
     "optVision.OcrConfirmAsk",      # 同上の中継(InvokeFeature窓口)
+    # 2026-08-05 R18H FB-7(B-L7): 起動時の整合性警告。どちらも modIntegrity.
+    # WarnAtStartup の MsgBox へ直行する戻り値で、性質は FriendlyMessage と
+    # 同型(利用者が最初に見る画面なので化けた「?」の実害は最も大きい)。
+    "modIntegrity.ShrinkWarnMsg",   # 資料が減ったときの警告文→WarnAtStartupのMsgBox
+    "modIntegrity.VolatileWarnMsg",  # 一時フォルダで開いている警告文→同上
 )
 
 

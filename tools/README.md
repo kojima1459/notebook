@@ -53,6 +53,8 @@ python3 tools/vba_lint.py --path /path/to/some/src
 検査14の(D)対象は `vba_lint.py` の `MSGBOX_REACH_ALLOWLIST`(名前のリスト)に
 理由コメントつきで登録する。「MsgBoxへ渡る文字列を組み立てる関数」を足したら
 ここへ追加すること。呼び出しグラフ追跡はしない(検査13と同じ誤検知ゼロ優先)。
+2026-08-05(R18H FB-7)に `modIntegrity.ShrinkWarnMsg` /
+`modIntegrity.VolatileWarnMsg`(起動時の整合性警告)を追加した。
 
 **exit code**: 0=違反なし / 1=ERRORが1件以上。WARN/SKIPはexit codeに影響しない。
 

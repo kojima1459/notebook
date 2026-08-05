@@ -38,8 +38,8 @@ Public Function SourceClusterMap() As Object
     Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
     On Error GoTo Done
 
-    Dim vecs() As Double, kw() As String, src() As String
-    Dim nPts As Long: nPts = LoadVectors(vecs, kw, src)
+    Dim vecs() As Double, src() As String
+    Dim nPts As Long: nPts = LoadVectors(vecs, src)
     If nPts < MIN_POINTS Then GoTo Done
 
     Dim kk As Long: kk = ChooseK(nPts)
@@ -82,7 +82,11 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 1) ベクトル読込(サンプリング+切詰め+再正規化)
 ' ----------------------------------------------------------------------------
-Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef src() As String) As Long
+' 2026-08-05(R18H FB-3 / A-L10): kw()(keywords列)の読みを削除した。R18-4 で
+' 可視化(BuildLabels/TokenizeKw)を撤去した時点で消費者が1つも居なくなり、
+' my_knowledge の6列目を全行ぶん読むコストと配列だけが残っていた。
+' あわせて索引の一括読みも1〜2列で足りるようになる(2万行で4列ぶんの純減)。
+Private Function LoadVectors(ByRef vecs() As Double, ByRef src() As String) As Long
     Dim wsV As Worksheet, wsK As Worksheet
     On Error Resume Next
     Set wsV = ThisWorkbook.Worksheets(modAppDef.SH_VECTORS)
@@ -90,7 +94,7 @@ Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef
     On Error GoTo 0
     If wsV Is Nothing Then Exit Function
 
-    ' my_knowledge: chunk_id(1) -> source(2) & keywords(6) の索引を作る
+    ' my_knowledge: chunk_id(1) -> source(2) の索引を作る
     '
     ' 2026-07-28(レビュー M-5): ここは1セルずつ読んでいた。2万チャンクなら
     ' 3列×2万=6万回のCOM往復で、しかもダッシュボード表示と分析CSVで2回走る。
@@ -101,12 +105,12 @@ Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef
         Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
         If lastK >= 2 Then
             Dim arrK As Variant
-            arrK = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 6)).Value
+            arrK = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 2)).Value
             Dim r As Long
             For r = LBound(arrK, 1) To UBound(arrK, 1)
                 Dim cid As String: cid = CStr(arrK(r, 1))
                 If LenB(cid) > 0 And Not meta.Exists(cid) Then
-                    meta(cid) = CStr(arrK(r, 2)) & vbTab & CStr(arrK(r, 6))
+                    meta(cid) = CStr(arrK(r, 2))
                 End If
             Next r
         End If
@@ -121,7 +125,6 @@ Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef
     If stride < 1 Then stride = 1
 
     ReDim vecs(0 To SAMPLE_MAX - 1, 0 To CLUSTER_DIM - 1)
-    ReDim kw(0 To SAMPLE_MAX - 1)
     ReDim src(0 To SAMPLE_MAX - 1)
 
     Dim cnt As Long: cnt = 0
@@ -149,11 +152,7 @@ Private Function LoadVectors(ByRef vecs() As Double, ByRef kw() As String, ByRef
                 Next d
             End If
             Dim cidV As String: cidV = CStr(wsV.Cells(rowV, 1).Value)
-            If meta.Exists(cidV) Then
-                Dim parts() As String: parts = Split(CStr(meta(cidV)), vbTab)
-                src(cnt) = parts(0)
-                If UBound(parts) >= 1 Then kw(cnt) = parts(1)
-            End If
+            If meta.Exists(cidV) Then src(cnt) = CStr(meta(cidV))
             cnt = cnt + 1
         End If
     Next rowV

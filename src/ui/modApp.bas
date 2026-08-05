@@ -12,6 +12,11 @@ Public Const MAX_INPUT_CHARS As Long = 2000
 
 ' 連打/多重発火はmodUiLockへ一本化(Enter/Leave対で必ずLeave到達)。
 
+' R18H FB-5: 直前に「入念に調べる」を案内した質問文。同じ質問を連打しても
+' 同じ案内を毎回出さないためだけの1つ前の記憶(モジュールレベル宣言は
+' プロシージャより前に置く。実機VBAの制約)。
+Private mLastCompoundQ As String
+
 ' LaunchNexus - Nexus UIの起動(modBootから呼ばれる)
 Public Sub LaunchNexus()
     modUI.InitUI
@@ -235,6 +240,7 @@ Public Sub OnSend()
     End If
     On Error Resume Next
     modUI.SettleChat        ' 次のバブルがアクション/出典に重ならないよう下端を確定
+    OfferThoroughForCompound sendMode, sendSpeed, q
     On Error GoTo Fail
 
     ' 爆速証明(狂気案Lv.1): binary_rag_debug=TRUEのとき、直近ハイブリッド検索の所要msを
@@ -267,6 +273,30 @@ FailCleanup3:
         "もう一度お試しください。(" & failDesc & ")"
     On Error GoTo 0
     modUiLock.Leave
+End Sub
+
+' ----------------------------------------------------------------------------
+' OfferThoroughForCompound - 複合質問を入念モードへ案内する(R18H FB-5 / B-M4)。
+' ----------------------------------------------------------------------------
+' 論点ごとの分解・番号での聞き返しは【入念に調べる】だけの機能で、すぐ聞く/
+' しっかり調べるでは複合質問を1本のクエリのまま検索する。どの論点にも薄く
+' 当たった資料が上位に来て、丁寧に薄い答えが返る(R16-3A)。利用者からは
+' 「聞き方が悪かったのか、ツールが弱いのか」が区別できないので、複合の合図
+' (modRagParse.HasCompoundSignal)が立った回だけ、回答を出した【あとで】
+' 入念モードの存在を1回伝える(質問の前に説教しない=答えを先に出す)。
+' 一般アシスタント(normal)には検索も分解も無いので出さない。
+' 同じ質問を連打したときの連発は直前の質問文で抑える(ガードは1つ前だけ。
+' セッション中に一度きりにすると、別の複合質問のときに案内が届かない)。
+' 表示の失敗が回答を壊してはならないので呼び出し側の OERN 配下に置く(§4-4)。
+Private Sub OfferThoroughForCompound(ByVal sendMode As String, _
+                                     ByVal sendSpeed As String, ByVal q As String)
+    If sendMode = "normal" Then Exit Sub
+    If sendSpeed = "thorough" Then Exit Sub
+    If Not modRagParse.HasCompoundSignal(q) Then Exit Sub
+    If StrComp(q, mLastCompoundQ, vbTextCompare) = 0 Then Exit Sub
+    mLastCompoundQ = q
+    modSkin.ShowToast "複数の論点を含む質問は「入念に調べる」で論点ごとに" & _
+        "分けて回答できます", "info"
 End Sub
 
 ' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。

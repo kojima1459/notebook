@@ -224,8 +224,10 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         ' 正常な分類)。usage_logへ格下げする。3経路全滅の allfail: は
         ' Word/Acrobatまで失敗した本物の失敗なのでerr_logのまま。
         If Left$(adapterErr, 9) = "gs_image:" Then
+            ' R18H FB-1(A-L8): detail はファイル名ではなくパス全体(200字)。
+            ' 同名の資料が別フォルダに複数あると、どれの話か特定できなかった。
             modLog.LogUsage "image_pdf_detected", "", _
-                modUtil.SafeLeft("gs_image: " & modUtil.FileNameOf(path), 120)
+                "gs_image: " & modUtil.SafeLeft(path, 200)
         Else
             modLog.LogError errCode, "modExtractor.ExtractFile", modUtil.SafeLeft(path & " : " & errDetail, 500)
         End If
@@ -304,8 +306,9 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
             ' 判定)。err_logの赤字は「利用者のエラー一覧」に並んでしまうため、
             ' usage_logへ格下げする。真の失敗(OCR経路のTryVisionFallback失敗
             ' 等)は従来どおりerr_log(呼び出し元modShelfVision側で別途発報)。
+            ' R18H FB-1(A-L8): detail はパス全体(200字)。上の gs_image: と同じ。
             modLog.LogUsage "image_pdf_detected", "", _
-                modUtil.SafeLeft("thin: " & modUtil.FileNameOf(path), 120)
+                "thin: " & modUtil.SafeLeft(path, 200)
             ExtractFile = False
             Exit Function
         End If

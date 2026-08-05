@@ -323,7 +323,26 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     BuildLabels/TokenizeKw/NearestSource)は 81aa2d9 の親コミットに残っている。
   - `modCluster.LoadVectors` の my_vectors 側は今も1セルずつ読み(M-5の片割れ・
     最大約800回)。分析CSV経路だけになったので体感は消えたが、CSV出力は遅いまま。
-  - my_stats のキーGC(調査agent5。最大25KB程度で実害なしと裁定・記録のみ)。
+    なお `kw()`(keywords列)の読みは R18H FB-3 で削除済み(消費者ゼロだった)。
+- **R18H(敵対的レビュー裁定)で記録した次期課題(2026-08-05・FB-4 / B-M3)**:
+  1. **本番ビルドに `Workbook_BeforeClose` が無い**(=「取込中は終了できない」
+     ガードは**開発構成でしか効かない**)。事実は R18-1g で file:line まで裏取り
+     済み(`build_mybookshelf.py:1002-1010` が `Workbook_Open` だけを書き込む /
+     `Auto_Close` に `Cancel` 引数が無い)。実機で×・最小化が効かないのはこの
+     ガードではなく `DisableProcessWindowsGhosting` の副作用。本番でも取込中の
+     終了を守るには、インストーラ側で `BeforeClose` を注入するか
+     `Application.OnKey` で退避する等の設計が要る。R18では**事実の記録のみ**。
+     MASTER_SPEC §7.6 に「取込中終了禁止ガードは開発構成のみ」と明記済み。
+  2. **`my_stats` のキーGC**(調査agent5)。`thx:` / `ins:` の nonce 行が単調
+     増加する。最大25KB程度で実害は無いと裁定したが、`modStats.FindKeyRow` は
+     線形探索なので行数が増えるほど遅くなる(HANDOFF「FindKeyRow裁定前提の
+     更新」も参照)。GCの周期・保持日数は次期に決める。
+  3. **deep / quick 向けの軽量 clarify**。論点分解と番号での聞き返しは入念
+     モードだけの機能で、deep/quick では複合質問が1本のクエリのまま流れる。
+     R18H FB-5 で「回答後に入念モードを1回案内するトースト」を入れたのは
+     導線の応急処置であって、聞き返しそのものではない。LLM追加呼び出し1回に
+     収まる軽量版(選択肢を出さず「どちらの論点ですか?」だけ聞く等)を次期に
+     設計する。判定材料は `modRagParse.HasCompoundSignal` が既にある。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。

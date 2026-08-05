@@ -93,18 +93,11 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     mParts = 0
     mT0 = Timer                ' 経過表示の基準(FB-8)。段0の判定から数え始める
 
-    ' R18-7b(実機第5報⑦): 文字数ゲートに複合シグナルをORで足す。「免責は?
-    ' 保険料は?」(9字)のような短いが強く当たる複合質問は、文字数だけを見る
-    ' ShouldDecompose を素通りしていた(decompose_min_chars既定25未満)。
-    ' offは複合シグナルより優先(呼ばない。既存のエスケープハッチ契約を保つ)。
-    ' alwaysはShouldDecompose側で既にTrueを返すのでORの出番は無い(不変)。
-    Dim decModeCfg As String: decModeCfg = modConfig.GetString("decompose_mode", "auto")
-    Dim decGate As Boolean
-    decGate = ShouldDecompose(decModeCfg, Len(q), modConfig.GetLong("decompose_min_chars", 25))
-    If Not decGate And LCase$(Trim$(decModeCfg)) <> "off" Then
-        decGate = modRagParse.HasCompoundSignal(q)
-    End If
-    If Not decGate Then Exit Function
+    ' R18-7b(実機第5報⑦)/ R18H FB-2: 発動条件は DecomposeGate 1本に閉じる
+    ' (実装とテストが同じ式を見るため。従来はテスト側が同じ式を書き写しており、
+    ' 片方だけ直しても誰も気付けなかった=憲章§4-5)。
+    If Not DecomposeGate(modConfig.GetString("decompose_mode", "auto"), q, _
+                         modConfig.GetLong("decompose_min_chars", 25)) Then Exit Function
 
     Dim parts() As String
     Dim nParts As Long
@@ -300,6 +293,27 @@ Public Function ShouldDecompose(ByVal modeCfg As String, ByVal qLen As Long, _
     Dim lim As Long: lim = minChars
     If lim < 1 Then lim = 25
     ShouldDecompose = (qLen >= lim)
+End Function
+
+' ----------------------------------------------------------------------------
+' DecomposeGate - 段0(分解の判定)を呼ぶかどうかの最終判定(2026-08-05 R18H
+'   FB-2 / A-L9)。文字数ゲート(ShouldDecompose)に複合シグナルをORで足した1本。
+' ----------------------------------------------------------------------------
+' 「免責は?保険料は?」(9字)のような短くても強く当たる複合質問は、文字数
+' だけを見る ShouldDecompose を素通りしていた(decompose_min_chars既定25未満。
+' 実機第5報⑦)。R18-7b でORを足したが、実装は TryDecomposed の中に直書きで、
+' テスト(modTestsPure16)は同じ式を独立に書き写していた。片方だけ直せば
+' 「テストは通るのに実機では発動しない」が作れる状態=憲章§4-5。ここへ切り出し、
+' TryDecomposed とテストの双方がこの1本だけを呼ぶ。
+'   off    : 複合シグナルより優先(呼ばない=機能まるごとのエスケープハッチ)
+'   always : ShouldDecompose が既に True を返すのでORの出番は無い(不変)
+' Excel/COMには触れない純ロジック(modRagParse.HasCompoundSignal も同じ)。
+Public Function DecomposeGate(ByVal modeCfg As String, ByVal q As String, _
+                              ByVal minChars As Long) As Boolean
+    Dim g As Boolean
+    g = ShouldDecompose(modeCfg, Len(q), minChars)
+    If Not g And LCase$(Trim$(modeCfg)) <> "off" Then g = modRagParse.HasCompoundSignal(q)
+    DecomposeGate = g
 End Function
 
 ' ----------------------------------------------------------------------------

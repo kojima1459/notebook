@@ -322,16 +322,14 @@ Private Sub TestHasCompoundSignal()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' R18-7b: modAskMulti.TryDecomposed のゲート合成(ShouldDecompose OR
-'   HasCompoundSignal)。TryDecomposed自体はLLM呼び出し(段0)を伴い純関数の
-'   枠外なので、実装と同じ式(modAskMulti.bas:96-107相当)を独立に組んで
-'   検証する。agent4調査報告§4の表#10〜14。
+' R18-7b: 分解ゲート(ShouldDecompose OR HasCompoundSignal)。
 ' ----------------------------------------------------------------------------
+' 2026-08-05(R18H FB-2 / A-L9): ここは実装と同じ式を【書き写して】いた。
+' TryDecomposed 側だけを直してもテストは緑のまま、逆も同じで、二重実装が
+' そのまま検知不能の穴だった(憲章§4-5)。ゲートは modAskMulti.DecomposeGate
+' へ切り出し、実装もテストもその1本だけを呼ぶ。agent4調査報告§4の表#10〜14。
 Private Function DecGate16(ByVal modeCfg As String, ByVal q As String) As Boolean
-    Dim g As Boolean
-    g = modAskMulti.ShouldDecompose(modeCfg, Len(q), 25)
-    If Not g And LCase$(Trim$(modeCfg)) <> "off" Then g = modRagParse.HasCompoundSignal(q)
-    DecGate16 = g
+    DecGate16 = modAskMulti.DecomposeGate(modeCfg, q, 25)
 End Function
 
 Private Sub TestDecomposeGateOr()
@@ -345,6 +343,11 @@ Private Sub TestDecomposeGateOr()
         (DecGate16("always", "これって対象?") = True)
     modTestRunner.Check "分解ゲート_25字以上は複合シグナルに関わらず呼ぶ(既存ゲート健全性)", _
         (DecGate16("auto", String$(25, "あ")) = True)
+    ' R18H FB-2: minChars を明示して渡せること(config の値がそのまま効く)。
+    modTestRunner.Check "分解ゲート_minChars=5なら6字でも呼ぶ", _
+        (modAskMulti.DecomposeGate("auto", String$(6, "あ"), 5) = True)
+    modTestRunner.Check "分解ゲート_未知のmodeはauto扱い(打ち間違いで止まらない)", _
+        (modAskMulti.DecomposeGate("AUTO ", "免責は？保険料は？", 25) = True)
 End Sub
 
 ' ----------------------------------------------------------------------------
