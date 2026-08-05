@@ -13,8 +13,12 @@ Option Explicit
 '
 '   そこで入念モードにだけ段0を1回足す。質問が複数論点なら論点ごとに
 '   検索+下書きし、最後に1本へ統合してから自己点検・検証・出典突合へ回す。
-'     LLM呼び出し = 1(判定) + 論点数 + 3(統合・自己点検・検証) ≦ 7回
-'   現行入念の6回と同水準で、材料の質だけが変わる。
+'   AI呼び出しの回数は【どこまでを数えるか】で2つの数がある(R16H FB-5。
+'   数え方を書かずに数字だけ出すと、docs と実況とログで別の数が並ぶ):
+'     ・このモジュールが出す分 = 1(判定) + 論点数 + 3(統合・自己点検・検証)
+'       = 3論点で7回。実況の分母(n/7段)はこちら。
+'     ・質問全体 = 論点数 + 6回(検索の拡張・再ランク・判定込み。3論点で9回)。
+'       docs の「AI呼び出し」はこちら=現行入念6回 + 論点数、が正しい見積もり。
 '
 ' 設計判断:
 '   ・不発は必ず「従来どおり」へ落ちる。判定が #ERR・タグ崩れ・single・
@@ -54,6 +58,14 @@ Private mNote As String
 ' modAsk が読んだら消す(ConsumeStepBuf と同じ作法)。
 Private mParts As Long
 
+' このターンの開始時刻(Timer値・秒)。実況へ「経過M分S秒」を出すためだけに
+' 持つ(R16H FB-8 / B-M7)。分解した入念は数分ブロックし、その間ウィンドウは
+' 「応答なし」に見える。段番号だけでは【進んでいるのか止まっているのか】が
+' 分からず、待てる人まで強制終了してしまう。0=未計測(TryDecomposed を通って
+' いないターン。深夜0時ちょうどに始まった場合も未計測扱いになるが、実害は
+' 経過表示が1ターンぶん出ないことだけ)。
+Private mT0 As Double
+
 ' ----------------------------------------------------------------------------
 ' TryDecomposed - 入念モードの入口(modAsk の thorough 分岐から最初に呼ばれる)
 ' ----------------------------------------------------------------------------
@@ -75,6 +87,7 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     mHandled = False
     mNote = ""
     mParts = 0
+    mT0 = Timer                ' 経過表示の基準(FB-8)。段0の判定から数え始める
 
     If Not ShouldDecompose(modConfig.GetString("decompose_mode", "auto"), Len(q), _
                            modConfig.GetLong("decompose_min_chars", 25)) Then Exit Function
@@ -308,6 +321,9 @@ End Function
 '   選択肢がどれも違う人が行き止まりになる(modClarify.BuildClarifyPrompt と
 '   同じ約束)。例に "1と3" を出すのは、複数選べることが文面から読めないと
 '   誰も試さないため(実装があっても使われない機能になる)。
+'   有効期限も書く(R16H FB-6 / B-M5)。保留はブックを閉じてもTTL30分だけ生きて
+'   いて、過ぎると番号だけの返事が【普通の新しい質問】として扱われる。書いて
+'   おかないと、席へ戻って「1」と打った人には理由の分からない答えが返る。
 ' ----------------------------------------------------------------------------
 Public Function BuildClarifyAsk(opts() As String, ByVal nOpts As Long) As String
     Dim sb As String
@@ -322,7 +338,8 @@ Public Function BuildClarifyAsk(opts() As String, ByVal nOpts As Long) As String
     Next i
 
     sb = sb & vbLf & "番号で返信してください(例: 1 / 1と3)。" & _
-         "質問を書き直していただいてもOKです。"
+         "質問を書き直していただいてもOKです。" & vbLf & _
+         "(この聞き返しは30分で無効になります)"
     BuildClarifyAsk = sb
 End Function
 
@@ -420,8 +437,8 @@ End Function
 '   uHits/uN へは chunk_id で重複排除しながら足し込む(出典突合の材料)。
 '   検索は軽量(skipExpand=True=拡張段も再ランク段も通さない。裁定1)。既に1論点
 '   まで割ってあるものを更にばらすと論点の外の資料が混ざり、論点あたりtopK=6～8
-'   では再ランクの並べ替える余地も無い。この2段を省くことで、LLM合計は
-'   6+論点数(3論点で9回)に収まる。
+'   では再ランクの並べ替える余地も無い。この2段を省くことで、質問全体のAI呼び
+'   出しは 論点数+6 回(3論点で9回)に収まる。
 ' ----------------------------------------------------------------------------
 Private Function OnePart(ByVal q As String, ByVal part As String, ByVal idx As Long, _
                          ByVal topKPer As Long, ByRef uHits() As Hit, ByRef uN As Long, _
@@ -520,8 +537,14 @@ Bail:
     Err.Clear
     Resume BailOut
 BailOut:
+    ' 2026-08-05(R16H FA-8 / A-L14): 論点ごとの下書きをそのまま出すことを
+    ' 本文でも言う。ここへ落ちるのは統合段の事故(ESC=Err18を含む)で、
+    ' 黙って渡すと「■論点1/■論点2…」が並んだ回答が【統合・検証まで通った
+    ' 完成品】に見える。見た目が完成品なのに検証していない回答は、その差が
+    ' 一番危ない(憲章§3-3: 分からないことは分からないと言う)。
     LogSkip "multi_integrate_fallback", "parts=" & partN
-    Integrate = sections
+    Integrate = sections & vbLf & vbLf & _
+        "※中断のため論点別の回答をそのまま表示しています(統合・検証は未実施)"
 End Function
 
 ' 補助段が落ちたことの記録(憲章§4-1: 止めないが、必ず痕跡は残す)。
@@ -571,6 +594,9 @@ End Sub
 '   番号を出さない、は modMode.AskStageText と同じ判断)。
 '   「※応答なし表示でも処理中」は R16-2c と同じ一文。入念は数分ブロックし、
 '   その間 Windows が「応答なし」と出すのは正常だと先に言っておく。
+'   経過時間(R16H FB-8)も添える。「正常だ」と書いてあっても、動いている証拠が
+'   何も動かない画面では、待ってよい時間の見当が付かない。秒が増えていく表示は
+'   「止まっていない」ことをいちばん確実に伝える。
 ' ----------------------------------------------------------------------------
 Private Sub Stage(ByVal partN As Long, ByVal idx As Long, ByVal total As Long, _
                   ByVal label As String)
@@ -580,6 +606,21 @@ Private Sub Stage(ByVal partN As Long, ByVal idx As Long, ByVal total As Long, _
     If total > 0 And idx > 0 Then head = head & " " & idx & "/" & total & "段:"
 
     On Error Resume Next
-    modUIMain.SetStage head & " " & label & " ※応答なし表示でも処理中"
+    modUIMain.SetStage head & " " & label & ElapsedText() & " ※応答なし表示でも処理中"
     On Error GoTo 0
 End Sub
+
+' 開始からの経過。1分未満は「経過S秒」、それ以上は「経過M分S秒」。
+' 日跨ぎ(深夜0時でTimerが0へ戻る)は +86400 で補正する(modWorkExcel.Debounced
+' と同じ作法)。補正しないと負の秒数が出て、進んでいるのに戻って見える。
+Private Function ElapsedText() As String
+    If mT0 = 0 Then Exit Function
+    Dim s As Double: s = Timer - mT0
+    If s < 0 Then s = s + 86400
+    Dim n As Long: n = CLng(Int(s))
+    If n < 60 Then
+        ElapsedText = " 経過" & n & "秒"
+    Else
+        ElapsedText = " 経過" & (n \ 60) & "分" & (n Mod 60) & "秒"
+    End If
+End Function

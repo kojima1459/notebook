@@ -26,14 +26,21 @@ Option Explicit
 '     1件の強ヒット+その近傍4個で成立してしまい、信頼度バッジが嘘をつく。
 '     出典タグに使う source / page は【近傍チャンク自身の値】を使う
 '     (親のページを継ぐと、突合は通るのに原文を開くと別ページになる)。
-'   ・文書順は chunk_id "bs::ハッシュ::pN::cM" の (page, seq) 昇順で復元する。
-'     seq はページごとに振り直されるので、page を先に見ないと順序が壊れる。
-'     文書順を返す公開APIは本棚側に無く、列の追加は既存本棚の移行が要るため、
-'     ここで chunk_id を自前パースする(仕様 §3 前提事実)。
+'   ・資料の同一性は【source 列(=Hit.source)】で見る。文書順は chunk_id
+'     "bs::ハッシュ::pN::cM" の (page, seq) 昇順で復元する。seq はページごとに
+'     振り直されるので、page を先に見ないと順序が壊れる。文書順を返す公開APIは
+'     本棚側に無く、列の追加は既存本棚の移行が要るため、ここで chunk_id を
+'     自前パースする(仕様 §3 前提事実)。
+'     2026-08-05(R16H FA-1 / A-H1): ハッシュ部を資料キーにしていたのを source へ
+'     直した。あのハッシュは【チャンク本文の】ハッシュで行ごとに違う
+'     (modShelf: "bs::" & Fnv1a64Hex(本文) & "::pN::cM")。資料キーに使うと
+'     どの行も「自分ひとりの資料」になり、隣が1件も見つからない=精読が実データで
+'     恒久的に0件になっていた。テストだけが同じハッシュを共有する形で書かれて
+'     いたため、真理表は通るのに実機では一度も効かない状態だった。
 '   ・my_knowledge の読み方は modRetrieve と同じ直接 Range 読み。ただし読むのは
-'     【chunk_id 列だけ】で、本文(full_text=最大32,000字)は採用した数十行だけ
-'     セル単位で読む。全列を読み直すと、1回の質問で本棚全体の本文を2度
-'     メモリへ載せることになる(20,000件規模で数百MB)。
+'     【chunk_id 列と source 列の2列だけ】で、本文(full_text=最大32,000字)は
+'     採用した数十行だけセル単位で読む。全列を読み直すと、1回の質問で本棚全体の
+'     本文を2度メモリへ載せることになる(20,000件規模で数百MB)。
 '   ・シートが読めない・形が違うときは何もせずに戻る(無操作=従来動作)。
 '     精読は上積みであって、失敗して回答自体を止めてよい種類の処理ではない。
 ' ============================================================================
@@ -75,22 +82,31 @@ Public Sub NeighborExpand(ByRef hits() As Hit, ByRef nHits As Long, ByVal radius
 
     ' 1) 今回のヒットから「どの資料の・どのページ周辺を見ればよいか」を作る。
     Dim hitIds As String, needKeys As String, winLine As String
-    If Not BuildWindows(hits, nHits, radius, hitIds, needKeys, winLine) Then Exit Sub
+    If Not BuildWindows(hits, nHits, radius, hitIds, needKeys, winLine) Then
+        LogZero radius, "no_key"
+        Exit Sub
+    End If
 
-    ' 2) chunk_id 列だけを1回で読み、窓に入る行だけを候補に残す。
+    ' 2) chunk_id 列と source 列を1回で読み、窓に入る行だけを候補に残す。
     Dim idData As Variant
-    idData = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastK, COL_ID)).Value
+    idData = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastK, COL_SOURCE)).Value
 
-    Dim candIds As String
+    Dim candIds As String, candSrcs As String
     Dim candRow() As Long
     Dim candN As Long
-    candN = CollectCandidates(idData, needKeys, winLine, candIds, candRow)
-    If candN < 1 Then Exit Sub
+    candN = CollectCandidates(idData, needKeys, winLine, candIds, candSrcs, candRow)
+    If candN < 1 Then
+        LogZero radius, "no_cand"
+        Exit Sub
+    End If
 
     ' 3) 文書順に並べ、各ヒットの前後 radius を拾う(純ロジック)。
     Dim addLine As String
-    addLine = NeighborIdList(candIds, hitIds, radius)
-    If LenB(addLine) = 0 Then Exit Sub
+    addLine = NeighborIdList(candIds, candSrcs, hitIds, radius)
+    If LenB(addLine) = 0 Then
+        LogZero radius, "no_neighbor"
+        Exit Sub
+    End If
 
     ' 4) 採用した行だけを読み出して末尾へ足す。
     Dim adds() As String
@@ -108,6 +124,11 @@ Public Sub NeighborExpand(ByRef hits() As Hit, ByRef nHits As Long, ByVal radius
             FillHitFromRow ws, r, hits(nHits)
         End If
     Next i
+
+    If added < 1 Then
+        LogZero radius, "no_row"
+        Exit Sub
+    End If
 
     On Error Resume Next
     modLog.LogUsage "neighbor_expand", "focus", _
@@ -128,13 +149,30 @@ QuietDone:
     On Error GoTo 0
 End Sub
 
+' 近傍を1件も足せなかったことの記録(2026-08-05 R16H FA-1)。
+' 精読は失敗しても回答が返るため、効いていない状態が【無音】で続く。実際、
+' 資料キーの取り違えで実データでは恒久0件だったのに、ログにも画面にも
+' 何ひとつ出ていなかった(A-H1)。理由の語を1つ添えて必ず1行残す。
+'   no_key      = ヒットの chunk_id が1つも読めない(形式が違う)
+'   no_cand     = 窓に入る行が本棚に無い(その資料が1チャンクだけ 等)
+'   no_neighbor = 候補はあるが前後が全てヒット自身だった
+'   no_row      = 拾った chunk_id に対応する行を引けなかった
+Private Sub LogZero(ByVal radius As Long, ByVal reason As String)
+    On Error Resume Next
+    modLog.LogUsage "neighbor_zero", "focus", "radius=" & radius & " why=" & reason
+    On Error GoTo 0
+End Sub
+
 ' ============================================================================
 ' 純ロジック(LibreOfficeの実行テストで固定する)
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
 ' ParseChunkKey - chunk_id "bs::ハッシュ::pN::cM" を分解する。
-'   docKey = 末尾2要素を除いた全部(=資料を一意に決める部分)。
+'   docKey = 末尾2要素を除いた全部(="bs::チャンク本文のハッシュ")。
+'     【資料キーではない】。このハッシュは行ごとに一意なので、これで資料を
+'     まとめると全ての行が別資料になる(R16H FA-1)。資料の同一性は source 列で
+'     見ること。ここが返すのは「形式が正しいか」と (page, seq) を得るためのもの。
 '   pageNo / seqNo = pN / cM の数値。読めなければ False(呼び出し側は無視する)。
 '
 '   末尾から2つを取るのは、ハッシュ自体に "::" が入っても壊れないようにするため
@@ -175,25 +213,30 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' NeighborIdList - 候補チャンクを文書順に並べ、ヒットの前後 radius を選ぶ。
-'   orderedIds: 候補の chunk_id(vbLf区切り。並び順は問わない)
-'   hitIds    : ヒットの chunk_id(vbLf区切り)
-'   戻り値    : 足すべき chunk_id(vbLf区切り・文書順・重複なし・ヒット自身は除く)
+'   orderedIds : 候補の chunk_id(vbLf区切り。並び順は問わない)
+'   orderedSrcs: 同じ並びの source(vbLf区切り。orderedIds と1対1で対応させる)
+'   hitIds     : ヒットの chunk_id(vbLf区切り)
+'   戻り値     : 足すべき chunk_id(vbLf区切り・文書順・重複なし・ヒット自身は除く)
 '
-'   ・(docKey, page, seq) の昇順に並べてから前後を取る(ページ跨ぎでも
-'     seq のリセットに引きずられない)。
-'   ・資料の境界は越えない(別の資料の先頭が「前のチャンク」にならない)。
+'   ・(source, page, seq) の昇順に並べてから前後を取る(ページ跨ぎでも
+'     seq のリセットに引きずられない)。並びの主キーが chunk_id のハッシュ部
+'     ではなく source なのが R16H FA-1 の要点で、ハッシュは行ごとに違うため
+'     資料をまとめる役には立たない。
+'   ・資料(source)の境界は越えない(別の資料の先頭が「前のチャンク」にならない)。
 '   ・窓が重なっても結果は重複しない(印を付けてから1回だけ書き出す)。
-'   ・読めない chunk_id は並びから外す(位置が決められないものを混ぜると、
-'     その分だけ隣が1つずれる)。
+'   ・読めない chunk_id / source が無い行は並びから外す(位置が決められない
+'     ものを混ぜると、その分だけ隣が1つずれる)。
 ' ----------------------------------------------------------------------------
-Public Function NeighborIdList(ByVal orderedIds As String, ByVal hitIds As String, _
-                               ByVal radius As Long) As String
+Public Function NeighborIdList(ByVal orderedIds As String, ByVal orderedSrcs As String, _
+                               ByVal hitIds As String, ByVal radius As Long) As String
     If radius < 1 Then Exit Function
     If LenB(orderedIds) = 0 Or LenB(hitIds) = 0 Then Exit Function
 
     Dim raw() As String: raw = Split(orderedIds, vbLf)
+    Dim srcRaw() As String: srcRaw = Split(orderedSrcs, vbLf)
     Dim cap As Long: cap = UBound(raw) - LBound(raw) + 1
     If cap < 1 Then Exit Function
+    Dim srcN As Long: srcN = UBound(srcRaw) - LBound(srcRaw) + 1
 
     Dim ids() As String, dk() As String
     Dim pg() As Long, sq() As Long
@@ -206,17 +249,21 @@ Public Function NeighborIdList(ByVal orderedIds As String, ByVal hitIds As Strin
     Dim i As Long, j As Long
     For i = LBound(raw) To UBound(raw)
         Dim d As String, p As Long, s As Long
-        If ParseChunkKey(raw(i), d, p, s) Then
-            n = n + 1
-            ids(n) = Trim$(raw(i))
-            dk(n) = d
-            pg(n) = p
-            sq(n) = s
+        Dim src As String: src = ""
+        If i - LBound(raw) < srcN Then src = Trim$(srcRaw(LBound(srcRaw) + i - LBound(raw)))
+        If LenB(src) > 0 Then
+            If ParseChunkKey(raw(i), d, p, s) Then
+                n = n + 1
+                ids(n) = Trim$(raw(i))
+                dk(n) = src
+                pg(n) = p
+                sq(n) = s
+            End If
         End If
     Next i
     If n < 1 Then Exit Function
 
-    ' 挿入ソート((docKey, page, seq) 昇順)。候補はヒット周辺だけに絞って
+    ' 挿入ソート((source, page, seq) 昇順)。候補はヒット周辺だけに絞って
     ' 渡される前提なので数百件が上限で、単純な安定ソートで十分。
     For i = 2 To n
         Dim ti As String, td As String
@@ -262,7 +309,7 @@ Public Function NeighborIdList(ByVal orderedIds As String, ByVal hitIds As Strin
     NeighborIdList = outS
 End Function
 
-' (docKey, page, seq) の大小比較。a > b なら True。
+' (source, page, seq) の大小比較。a > b なら True。
 Private Function KeyGreater(ByVal ad As String, ByVal ap As Long, ByVal asq As Long, _
                             ByVal bd As String, ByVal bp As Long, ByVal bsq As Long) As Boolean
     Dim c As Long
@@ -293,36 +340,40 @@ End Function
 ' 内部ヘルパー(シート読み)
 ' ============================================================================
 
-' ヒットから「探す資料(docKey)」と「見るページ窓(docKey#page)」を作る。
+' ヒットから「探す資料(source)」と「見るページ窓(source#page)」を作る。
 ' 窓を作るのは、本棚全体の chunk_id を並べ替えないため。radius が何チャンク
 ' でも、離れるページ数は radius を超えない(1ページに最低1チャンクあるため)。
+' 資料の一致は source で見る(chunk_id のハッシュ部は行ごとに違う。R16H FA-1)。
 Private Function BuildWindows(hits() As Hit, ByVal nHits As Long, ByVal radius As Long, _
                               ByRef hitIds As String, ByRef needKeys As String, _
                               ByRef winLine As String) As Boolean
     Dim i As Long, p As Long
     For i = 1 To nHits
         Dim d As String, pg As Long, sq As Long
-        If ParseChunkKey(hits(i).chunk_id, d, pg, sq) Then
-            If LenB(hitIds) > 0 Then hitIds = hitIds & vbLf
-            hitIds = hitIds & Trim$(hits(i).chunk_id)
-            If InStr(1, needKeys, "|" & d & "|", vbBinaryCompare) = 0 Then
-                needKeys = needKeys & "|" & d & "|"
-            End If
-            For p = pg - radius To pg + radius
-                If p >= 0 Then
-                    Dim w As String: w = "|" & d & "#" & p & "|"
-                    If InStr(1, winLine, w, vbBinaryCompare) = 0 Then winLine = winLine & w
+        Dim src As String: src = Trim$(hits(i).source)
+        If LenB(src) > 0 Then
+            If ParseChunkKey(hits(i).chunk_id, d, pg, sq) Then
+                If LenB(hitIds) > 0 Then hitIds = hitIds & vbLf
+                hitIds = hitIds & Trim$(hits(i).chunk_id)
+                If InStr(1, needKeys, "|" & src & "|", vbBinaryCompare) = 0 Then
+                    needKeys = needKeys & "|" & src & "|"
                 End If
-            Next p
+                For p = pg - radius To pg + radius
+                    If p >= 0 Then
+                        Dim w As String: w = "|" & src & "#" & p & "|"
+                        If InStr(1, winLine, w, vbBinaryCompare) = 0 Then winLine = winLine & w
+                    End If
+                Next p
+            End If
         End If
     Next i
     BuildWindows = (LenB(hitIds) > 0)
 End Function
 
-' chunk_id 列を1回だけ走査し、窓に入る行の id と行番号を集める。
+' chunk_id 列と source 列を1回だけ走査し、窓に入る行の id・source・行番号を集める。
 Private Function CollectCandidates(ByVal idData As Variant, ByVal needKeys As String, _
                                    ByVal winLine As String, ByRef candIds As String, _
-                                   ByRef candRow() As Long) As Long
+                                   ByRef candSrcs As String, ByRef candRow() As Long) As Long
     Dim lo As Long: lo = LBound(idData, 1)
     Dim hi As Long: hi = UBound(idData, 1)
     ReDim candRow(1 To hi - lo + 1)
@@ -330,16 +381,19 @@ Private Function CollectCandidates(ByVal idData As Variant, ByVal needKeys As St
     Dim n As Long: n = 0
     Dim i As Long
     For i = lo To hi
-        Dim id As String: id = CStr(idData(i, 1))
-        If LenB(id) > 0 Then
+        Dim id As String: id = CStr(idData(i, COL_ID))
+        Dim src As String: src = Trim$(CStr(idData(i, COL_SOURCE)))
+        If LenB(id) > 0 And LenB(src) > 0 Then
             Dim d As String, pg As Long, sq As Long
             If ParseChunkKey(id, d, pg, sq) Then
-                If InStr(1, needKeys, "|" & d & "|", vbBinaryCompare) > 0 Then
-                    If InStr(1, winLine, "|" & d & "#" & pg & "|", vbBinaryCompare) > 0 Then
+                If InStr(1, needKeys, "|" & src & "|", vbBinaryCompare) > 0 Then
+                    If InStr(1, winLine, "|" & src & "#" & pg & "|", vbBinaryCompare) > 0 Then
                         n = n + 1
                         candRow(n) = i + 1          ' idData は2行目起点
                         If LenB(candIds) > 0 Then candIds = candIds & vbLf
                         candIds = candIds & id
+                        If LenB(candSrcs) > 0 Then candSrcs = candSrcs & vbLf
+                        candSrcs = candSrcs & src
                     End If
                 End If
             End If

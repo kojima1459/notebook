@@ -19,7 +19,9 @@ Option Explicit
 '     書き直し/範囲外。IsPendingExpired はTTL30分の境界。
 '   ・modAskFocus.ParseChunkKey / NeighborIdList(3C): chunk_id からの文書順
 '     復元と前後radiusの取り方。ページ跨ぎで seq がリセットされる並び、
-'     radius=0/1/2、窓の重なり、資料の境界、重複排除。
+'     radius=0/1/2、窓の重なり、資料の境界、重複排除。真理表は【実データ形状】
+'     =行ごとに異なるハッシュ+同一 source で書く(R16H FA-1。理由は
+'     TestNeighborIdList の冒頭)。
 '   ・modFollowup.DemoteOrder / RememberUsedIds(3D): 既出チャンク降格の規則。
 '     未出優先・安定・keepK境界・全既出でも件数が減らないこと(埋め戻し)。
 '     Hit配列そのものの入れ替え(DemoteUsed)は、別モジュールで定義した Type の
@@ -58,6 +60,33 @@ Private Sub TestParseChoiceNumbers()
         (modRagParse.ParseChoiceNumbers("13", 20) = "13")
     modTestRunner.Check "選択番号_重複は1回だけ", _
         (modRagParse.ParseChoiceNumbers("1と1と2", 3) = "1,2")
+    ' 重複の畳み込みは【出現順】を保つ(後から出た番号を前へ繰り上げない)。
+    modTestRunner.Check "選択番号_重複を畳んでも出現順", _
+        (modRagParse.ParseChoiceNumbers("3と1と3", 3) = "3,1"), _
+        "実際=" & modRagParse.ParseChoiceNumbers("3と1と3", 3)
+
+    ' R16H FA-7(A-M7/B-M4): 資料の聞き返し(modClarify)は「2-②」と打つよう
+    ' 教えている。同じ癖で「1-3」と打った人の返事を書き直し扱いで捨てないよう、
+    ' ハイフン類と括弧も区切りとして認める(範囲指定ではなく複数選択の意味)。
+    modTestRunner.Check "選択番号_半角ハイフン区切り", _
+        (modRagParse.ParseChoiceNumbers("1-3", 3) = "1,3"), _
+        "実際=" & modRagParse.ParseChoiceNumbers("1-3", 3)
+    modTestRunner.Check "選択番号_資料型の癖(2-丸2)", _
+        (modRagParse.ParseChoiceNumbers("2-" & ChrW(&H2461), 3) = "2"), _
+        "実際=" & modRagParse.ParseChoiceNumbers("2-" & ChrW(&H2461), 3)
+    modTestRunner.Check "選択番号_括弧付き", _
+        (modRagParse.ParseChoiceNumbers("(1)(3)", 3) = "1,3"), _
+        "実際=" & modRagParse.ParseChoiceNumbers("(1)(3)", 3)
+    modTestRunner.Check "選択番号_全角括弧付き", _
+        (modRagParse.ParseChoiceNumbers(ChrW(&HFF08) & "1" & ChrW(&HFF09) & _
+            ChrW(&HFF08) & "3" & ChrW(&HFF09), 3) = "1,3")
+    modTestRunner.Check "選択番号_長音での打ち間違い", _
+        (modRagParse.ParseChoiceNumbers("1" & ChrW(&H30FC) & "3", 3) = "1,3"), _
+        "実際=" & modRagParse.ParseChoiceNumbers("1" & ChrW(&H30FC) & "3", 3)
+    modTestRunner.Check "選択番号_全角ハイフン", _
+        (modRagParse.ParseChoiceNumbers("1" & ChrW(&HFF0D) & "3", 3) = "1,3")
+    modTestRunner.Check "選択番号_マイナス記号", _
+        (modRagParse.ParseChoiceNumbers("1" & ChrW(&H2212) & "3", 3) = "1,3")
 
     ' ここからが本丸。数字以外の語が混じったら【書き直し】として空を返す。
     modTestRunner.Check "選択番号_数字と語の混在は空", _
@@ -175,10 +204,18 @@ Private Sub TestClarifyAsk()
     modTestRunner.Check "逆質問文_番号付きで列挙", (InStr(s, "2) 解約金の計算") > 0), "実際=" & s
     modTestRunner.Check "逆質問文_複数選択の例を示す", (InStr(s, "1と3") > 0), "実際=" & s
     modTestRunner.Check "逆質問文_書き直しの道を残す", (InStr(s, "書き直") > 0), "実際=" & s
+    ' R16H FB-6(B-M5): 保留はTTL30分で失効し、以後の「1」は普通の新しい質問に
+    ' なる。書いておかないと、席へ戻って番号を打った人に理由の分からない答えが
+    ' 返る(TTLそのものの境界は TestMergeTopicAnswer の IsPendingExpired 側)。
+    modTestRunner.Check "逆質問文_30分で無効になると明記", _
+        (InStr(s, "30分") > 0), "実際=" & s
 End Sub
 
 ' ----------------------------------------------------------------------------
 ' R16-3C(1): chunk_id "bs::ハッシュ::pN::cM" の分解。
+'   d(docKey)は「末尾2要素を除いた部分」=チャンク本文のハッシュであって、
+'   資料キーではない(R16H FA-1)。ここで固定するのは形式の読み取りと
+'   (page, seq) の取り出しだけで、資料の同一性は source 側が持つ。
 ' ----------------------------------------------------------------------------
 Private Sub TestParseChunkKey()
     Dim d As String, p As Long, s As Long
@@ -212,64 +249,93 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' R16-3C(2): 文書順の復元と前後radiusの取り方。
 ' ----------------------------------------------------------------------------
+' 2026-08-05(R16H FA-1 / A-H1): ここの形を【実データの形】へ入れ替えた。
+'   旧テストは "bs::A::p1::c1" と "bs::A::p1::c2" のように同じ資料の行が
+'   ハッシュ部を共有する形で書かれていて、ハッシュ部を資料キーにする実装が
+'   そのまま通っていた。実データの chunk_id は
+'   "bs::" & Fnv1a64Hex(チャンク本文) & "::pN::cM"(modShelf)で、
+'   ハッシュは【行ごとに違う】。そのため実機では同じ資料の隣同士が別資料と
+'   判定され、近傍が恒久的に0件だった(真理表は通るのに実機では一度も
+'   効かない、という一番たちの悪い外し方)。
+'   以後この真理表は「行ごとに異なるハッシュ + 同一 source」で書く。
+' ----------------------------------------------------------------------------
 Private Sub TestNeighborIdList()
-    ' 資料A: p1に2チャンク、p2に2チャンク、p3に1チャンク。
-    ' わざとシート上の並びを乱して渡す(文書順は (page, seq) で作り直す)。
-    Dim ids As String
-    ids = "bs::A::p2::c2" & vbLf & "bs::A::p1::c1" & vbLf & "bs::A::p3::c1" & vbLf & _
-          "bs::A::p1::c2" & vbLf & "bs::A::p2::c1"
-    ' 文書順: A/p1c1, A/p1c2, A/p2c1, A/p2c2, A/p3c1
+    ' 資料A(約款.pdf): p1に2チャンク、p2に2チャンク、p3に1チャンク。
+    ' ハッシュは実データ同様に全行バラバラ。資料の同一性は source 側だけが持つ。
+    Const A1 As String = "bs::7c1f::p1::c1"
+    Const A2 As String = "bs::9b04::p1::c2"
+    Const A3 As String = "bs::22ae::p2::c1"
+    Const A4 As String = "bs::e5d7::p2::c2"
+    Const A5 As String = "bs::0f38::p3::c1"
+    Const SRC_A As String = "yakkan.pdf"
+
+    ' わざとシート上の並びを乱して渡す(文書順は (source, page, seq) で作り直す)。
+    Dim ids As String, srcs As String
+    ids = A4 & vbLf & A1 & vbLf & A5 & vbLf & A2 & vbLf & A3
+    srcs = SRC_A & vbLf & SRC_A & vbLf & SRC_A & vbLf & SRC_A & vbLf & SRC_A
+    ' 文書順: A1(p1c1), A2(p1c2), A3(p2c1), A4(p2c2), A5(p3c1)
 
     modTestRunner.Check "近傍_radius0は無し", _
-        (modAskFocus.NeighborIdList(ids, "bs::A::p2::c1", 0) = "")
+        (modAskFocus.NeighborIdList(ids, srcs, A3, 0) = "")
 
     ' radius=1: p2c1 の前後 = p1c2 と p2c2。文書順で返る。
-    modTestRunner.Check "近傍_radius1は前後1つずつ", _
-        (modAskFocus.NeighborIdList(ids, "bs::A::p2::c1", 1) = _
-         "bs::A::p1::c2" & vbLf & "bs::A::p2::c2"), _
-        "実際=" & Replace(modAskFocus.NeighborIdList(ids, "bs::A::p2::c1", 1), vbLf, "/")
+    ' ハッシュが全部違っても同じ資料として並ぶこと(FA-1の本丸)。
+    modTestRunner.Check "近傍_radius1は前後1つずつ(ハッシュは行ごとに別)", _
+        (modAskFocus.NeighborIdList(ids, srcs, A3, 1) = A2 & vbLf & A4), _
+        "実際=" & Replace(modAskFocus.NeighborIdList(ids, srcs, A3, 1), vbLf, "/")
 
     ' radius=2: ページ跨ぎでも seq のリセットに引きずられない。
     modTestRunner.Check "近傍_radius2はページを跨ぐ", _
-        (modAskFocus.NeighborIdList(ids, "bs::A::p2::c1", 2) = _
-         "bs::A::p1::c1" & vbLf & "bs::A::p1::c2" & vbLf & _
-         "bs::A::p2::c2" & vbLf & "bs::A::p3::c1"), _
-        "実際=" & Replace(modAskFocus.NeighborIdList(ids, "bs::A::p2::c1", 2), vbLf, "/")
+        (modAskFocus.NeighborIdList(ids, srcs, A3, 2) = _
+         A1 & vbLf & A2 & vbLf & A4 & vbLf & A5), _
+        "実際=" & Replace(modAskFocus.NeighborIdList(ids, srcs, A3, 2), vbLf, "/")
 
     ' 端は切り詰める(存在しない前後を作らない)。
     modTestRunner.Check "近傍_先頭は前が無い", _
-        (modAskFocus.NeighborIdList(ids, "bs::A::p1::c1", 1) = "bs::A::p1::c2")
+        (modAskFocus.NeighborIdList(ids, srcs, A1, 1) = A2)
     modTestRunner.Check "近傍_末尾は後ろが無い", _
-        (modAskFocus.NeighborIdList(ids, "bs::A::p3::c1", 1) = "bs::A::p2::c2")
+        (modAskFocus.NeighborIdList(ids, srcs, A5, 1) = A4)
 
     ' 窓が重なっても重複しない。ヒット自身は結果に入らない。
-    Dim two As String: two = "bs::A::p1::c2" & vbLf & "bs::A::p2::c1"
+    Dim two As String: two = A2 & vbLf & A3
     modTestRunner.Check "近傍_窓の重なりはマージされる", _
-        (modAskFocus.NeighborIdList(ids, two, 1) = _
-         "bs::A::p1::c1" & vbLf & "bs::A::p2::c2"), _
-        "実際=" & Replace(modAskFocus.NeighborIdList(ids, two, 1), vbLf, "/")
+        (modAskFocus.NeighborIdList(ids, srcs, two, 1) = A1 & vbLf & A4), _
+        "実際=" & Replace(modAskFocus.NeighborIdList(ids, srcs, two, 1), vbLf, "/")
 
     ' 資料の境界は越えない(別の資料の先頭が「前のチャンク」にならない)。
-    Dim mixed As String
-    mixed = "bs::A::p1::c1" & vbLf & "bs::A::p1::c2" & vbLf & _
-            "bs::B::p1::c1" & vbLf & "bs::B::p1::c2"
-    modTestRunner.Check "近傍_資料の境界を越えない", _
-        (modAskFocus.NeighborIdList(mixed, "bs::B::p1::c1", 1) = "bs::B::p1::c2"), _
-        "実際=" & Replace(modAskFocus.NeighborIdList(mixed, "bs::B::p1::c1", 1), vbLf, "/")
+    ' 判定は source。ページ番号もチャンク番号も同じ2資料で確かめる。
+    Dim mIds As String, mSrcs As String
+    mIds = A1 & vbLf & A2 & vbLf & "bs::4d90::p1::c1" & vbLf & "bs::1a55::p1::c2"
+    mSrcs = SRC_A & vbLf & SRC_A & vbLf & "manual.docx" & vbLf & "manual.docx"
+    modTestRunner.Check "近傍_資料の境界を越えない(sourceで切る)", _
+        (modAskFocus.NeighborIdList(mIds, mSrcs, "bs::4d90::p1::c1", 1) = "bs::1a55::p1::c2"), _
+        "実際=" & Replace(modAskFocus.NeighborIdList(mIds, mSrcs, "bs::4d90::p1::c1", 1), vbLf, "/")
 
     ' 読めない chunk_id は並びから外す(混ぜると隣が1つずれる)。
-    Dim dirty As String
-    dirty = "bs::A::p1::c1" & vbLf & "こわれた行" & vbLf & "bs::A::p1::c2"
+    Dim dIds As String, dSrcs As String
+    dIds = A1 & vbLf & "kowareta" & vbLf & A2
+    dSrcs = SRC_A & vbLf & SRC_A & vbLf & SRC_A
     modTestRunner.Check "近傍_壊れたidは無視する", _
-        (modAskFocus.NeighborIdList(dirty, "bs::A::p1::c1", 1) = "bs::A::p1::c2")
+        (modAskFocus.NeighborIdList(dIds, dSrcs, A1, 1) = A2)
+
+    ' source が無い行も並びから外す(どの資料の隣か決められない)。
+    Dim nIds As String, nSrcs As String
+    nIds = A1 & vbLf & A2 & vbLf & A3
+    nSrcs = SRC_A & vbLf & "" & vbLf & SRC_A
+    modTestRunner.Check "近傍_source空の行は並びから外す", _
+        (modAskFocus.NeighborIdList(nIds, nSrcs, A1, 1) = A3), _
+        "実際=" & Replace(modAskFocus.NeighborIdList(nIds, nSrcs, A1, 1), vbLf, "/")
+    ' source の本数が足りないときも、余ったidを無所属で混ぜない。
+    modTestRunner.Check "近傍_source不足の行は無視する", _
+        (modAskFocus.NeighborIdList(nIds, SRC_A, A1, 1) = "")
 
     ' 入力が空・ヒットが候補に無いときは何も足さない。
     modTestRunner.Check "近傍_候補が空なら何も足さない", _
-        (modAskFocus.NeighborIdList("", "bs::A::p1::c1", 1) = "")
+        (modAskFocus.NeighborIdList("", "", A1, 1) = "")
     modTestRunner.Check "近傍_ヒットが空なら何も足さない", _
-        (modAskFocus.NeighborIdList(ids, "", 1) = "")
+        (modAskFocus.NeighborIdList(ids, srcs, "", 1) = "")
     modTestRunner.Check "近傍_候補に無いヒットは無視", _
-        (modAskFocus.NeighborIdList(ids, "bs::Z::p1::c1", 1) = "")
+        (modAskFocus.NeighborIdList(ids, srcs, "bs::ffff::p1::c1", 1) = "")
 End Sub
 
 ' ----------------------------------------------------------------------------

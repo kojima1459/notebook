@@ -13,27 +13,27 @@ Option Explicit
 '     別シート時は呼び出し側でMsgBoxを維持。
 '
 ' 設計判断:
-'   ・modUI.basが文字数上限に近いためポリッシュはここへ集約、modUI側は
-'     呼び出しのみ。配色はmodUI.UiColorを唯一の窓口とする。
-'   ・影プロパティ(.Blur/.Transparency等)は環境差で未対応があり得るため全て
+'   ・modUI.basが上限に近いためポリッシュはここへ集約、modUI側は呼び出しのみ。
+'     配色はmodUI.UiColorを唯一の窓口とする。
+'   ・影プロパティ(.Blur等)は環境差で未対応があり得るため全て
 '     On Error Resume Next配下(劣化はあってもクラッシュさせない)。
 '   ・LibreOfficeは静的コンパイルのみ(Shape/Windowプロパティは標準VBA)。
 ' ============================================================================
 
 ' R10-5: PaintProgress/ClearProgressが進捗バナーの直前描画シート名を控える
-' (モジュールレベル宣言はプロシージャ定義より前に置く。実機VBAの制約)。
+' (モジュールレベル宣言はプロシージャより前に置く。実機VBAの制約)。
 Private mProgressSheetName As String
 
 Private Const THEME_KEY As String = "nexus_theme"
 
-' R15-6a: 中断ボタンのShape名("nx_progress"と対で出し対で消す)。
+' R15-6a: 中断ボタンのShape名("nx_progress"と対で出し消す)。
 Private Const PROGRESS_CANCEL_NAME As String = "nx_progress_cancel"
 ' R16-2a: 作業用Excelボタンの名前。ClearProgressの削除対象へ同列で足す。
 Private Const PROGRESS_WORK_NAME As String = "nx_progress_work"
 
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
-'   modUI.InitUI/Repaint、および各画面(Vault/Dashboard)の描画終端から呼ぶ。
+'   modUI.InitUI/Repaint、各画面(Vault/Dashboard)の描画終端から呼ぶ。
 ' ----------------------------------------------------------------------------
 Public Sub BeautifyAll(ByVal ws As Worksheet)
     On Error Resume Next
@@ -46,20 +46,20 @@ Public Sub BeautifyAll(ByVal ws As Worksheet)
 End Sub
 
 ' 1つのShapeへ: フォント統一(脱MS Pゴシック)+固定クロムにだけ影。バブル
-' (nx_msg_)や思考(nx_thk_)の影は触らない(フラット維持/選択時のみ浮遊)。
+' (nx_msg_)や思考(nx_thk_)の影は触らない(フラット維持/選択時のみ)。
 Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     On Error Resume Next
     shp.TextFrame2.TextRange.Font.Name = "Yu Gothic UI"
     ' 影は固定クロム(ヘッダーバー)と文脈アクションpillにだけ。
-    ' 2026-07-26: nx_fab_(旧・常設アクションバー)/nx_sb_(旧サイドバー)は廃止。
+    ' 2026-07-26: nx_fab_(旧・常設アクションバー)/nx_sb_(旧サイド)は廃止。
     If nm = "nx_top_bg" Or Left$(nm, 7) = "nx_act_" Then
         ApplySoftShadow shp
     End If
     ' 深み(Depth)の演出: 送信ボタンだけ同系グリーンの極微グラデーション
-    ' (明るい緑→深い緑)。多用は描画負荷になるため主役の1ボタンに限定する。
+    ' (明→深)。多用は描画負荷になるため主役の1ボタンに限定する。
     If nm = "nx_top_send" Then ApplyGreenDepth shp
     ' 仕様書§9(Apple風): 3画面のヘッダーバーは濃紺の2色グラデーション。
-    ' ApplyThemeがベタ塗りに戻すため、BeautifyAll経由でここが必ず塗り直す。
+    ' ApplyThemeがベタ塗りに戻すため、BeautifyAll経由でここが塗り直す。
     If nm = "nx_top_bg" Or nm = "nx_hub_hdr" Or nm = "nxk_hdr" Then
         ApplyHeaderDepth shp
     End If
@@ -67,7 +67,7 @@ Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
 End Sub
 
 ' ヘッダーバーの2色グラデーション(#1a365d → #1f4e78)。32bit Excelで
-' TwoColorGradientが失敗する環境ではベタ塗りのまま進む(平らに見えるだけ)。
+' TwoColorGradientが失敗する環境はベタ塗りのまま進む(平らに見えるだけ)。
 Public Sub ApplyHeaderDepth(ByVal shp As Shape)
     On Error Resume Next
     With shp.Fill
@@ -78,7 +78,7 @@ Public Sub ApplyHeaderDepth(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' 汎用の2色グラデーション(ユーザーバブル・EXPゲージ等)。
+' 汎用の2色グラデーション(バブル・EXPゲージ等)。
 Public Sub ApplyGradient(ByVal shp As Shape, ByVal c1 As Long, ByVal c2 As Long)
     On Error Resume Next
     With shp.Fill
@@ -89,9 +89,9 @@ Public Sub ApplyGradient(ByVal shp As Shape, ByVal c1 As Long, ByVal c2 As Long)
     On Error GoTo 0
 End Sub
 
-' 2026-08-01(R12-7-2): RGBを各チャンネル一律 pct だけ暗くする(0〜1)。自分の
-' 発言バブルのグラデーション終端を userBubble の同系微差色にする内部部品
-' (a11y監査Med: 終端をprimaryにしてバブル下端の文字が沈んでいた)。
+' 2026-08-01(R12-7-2): RGBを各チャンネル一律 pct 暗くする(0〜1)。自分の発言
+' バブルのグラデーション終端を userBubble の同系微差色にする内部部品
+' (a11y監査Med: 終端をprimaryにすると下端の文字が沈む)。
 Private Function DarkenRgb(ByVal rgbVal As Long, ByVal pct As Double) As Long
     Dim r As Long, g As Long, b As Long
     r = rgbVal Mod 256
@@ -101,7 +101,7 @@ Private Function DarkenRgb(ByVal rgbVal As Long, ByVal pct As Double) As Long
 End Function
 
 ' カード/ボタン用の控えめな浮遊感(§9: Blur=4, OffsetY=1.5, Transparency=0.9)。
-' ApplySoftShadowより弱く、要素が多い画面で影が重ならないようにする。
+' ApplySoftShadowより弱く、要素が多い画面で影が重ならない。
 Public Sub ApplyLightShadow(ByVal shp As Shape)
     On Error Resume Next
     With shp.Shadow
@@ -117,7 +117,7 @@ Public Sub ApplyLightShadow(ByVal shp As Shape)
 End Sub
 
 ' MS&ADグリーンの微細な縦グラデーション(フラットの中の上質な質感)。
-' ApplyTheme でベタ塗りに戻ることがあるが BeautifyAll 経由で再適用される。
+' ApplyTheme でベタ塗りに戻ることがあるが BeautifyAll が再適用する。
 Public Sub ApplyGreenDepth(ByVal shp As Shape)
     On Error Resume Next
     With shp.Fill
@@ -128,15 +128,15 @@ Public Sub ApplyGreenDepth(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' StyleBubble - 新規バブル生成直後にフォントだけ適用(BeautifyAllの軽量版)。
+' StyleBubble - 新規バブル生成直後にフォントだけ適用(BeautifyAll軽量版)。
 Public Sub StyleBubble(ByVal shp As Shape)
     On Error Resume Next
     shp.TextFrame2.TextRange.Font.Name = "Yu Gothic UI"
     On Error GoTo 0
 End Sub
 
-' ふんわり柔らかいドロップシャドウ(透明度高め・ぼかし広め)。固定バー/カード/
-' 選択中バブルにだけ使う(全面に付けると描画負荷でFPSが落ちるため)。
+' 柔らかいドロップシャドウ(透明度高め・ぼかし広め)。固定バー/カード/選択中
+' バブルにだけ使う(全面に付けると描画負荷でFPSが落ちる)。
 Public Sub ApplySoftShadow(ByVal shp As Shape)
     On Error Resume Next
     With shp.Shadow
@@ -151,9 +151,9 @@ Public Sub ApplySoftShadow(ByVal shp As Shape)
     On Error GoTo 0
 End Sub
 
-' スキン(きせかえ): 称号と同じ「感謝受領数」ゲートのアンロック方式。light/dark
-'   は全員、sakura/oceanは感謝5件、goldは20件。解放判定は全描画の色解決点
-'   (ResolveColor)でも強制するので、隠しシートを手書きしても色は落ちる。
+' スキン(きせかえ): 称号と同じ「感謝受領数」ゲート。light/darkは全員、
+'   sakura/oceanは感謝5件、goldは20件。解放判定は色解決点(ResolveColor)でも
+'   強制するので、隠しシートを手書きしても色は落ちる。
 
 ' テーマ名を検証し、未解放/未知ならlightへ落とした正規名を返す。
 Public Function EffectiveSkin(ByVal themeName As String) As String
@@ -265,8 +265,8 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
     End Select
 End Function
 
-' きせかえ切替(ヘルプの🎨ボタンから)。解放済みスキンを巡回し、未解放は
-' 「あと◯件で解放」のティザーToastを出してスキップ(欲しくなる導線)。
+' きせかえ切替(ヘルプの🎨から)。解放済みを巡回し、未解放は「あと◯件で
+' 解放」のティザーToastを出してスキップ(欲しくなる導線)。
 Public Sub CycleSkin()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
@@ -309,13 +309,13 @@ End Sub
 '   短時間表示して自動で消す。kind: "success"/"error"/"info"。
 ' ----------------------------------------------------------------------------
 ' waitless(R11-H Med4): Trueなら1.1秒の待機・削除をせず描いたらすぐ戻る
-' (「一言返すだけ」の用途は待たせること自体が害)。残ったToastは次の
+' (「一言返すだけ」は待たせること自体が害)。残ったToastは次の
 ' ShowToast/PaintProgressの掃除で消える。既定は待って消す。
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
     On Error Resume Next
-    ' 別ブック誤爆ガード: ユーザーが他の業務Excelを見ている間にToastを描くと、
-    ' 他人のブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
+    ' 別ブック誤爆ガード: 他の業務Excelを見ている間にToastを描くと、他人の
+    ' ブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
@@ -367,7 +367,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     On Error GoTo 0
 End Sub
 
-' Timer基準の短時間待機(DoEventsで応答性維持。Sleep API宣言を避けbitness非依存)。
+' Timer基準の短時間待機(DoEventsで応答性維持。Sleep宣言を避けbitness非依存)。
 Private Sub ToastWait(ByVal ms As Long)
     Dim t0 As Double: t0 = Timer
     Do While (Timer - t0) * 1000# < ms
@@ -380,13 +380,13 @@ End Sub
 ' PaintProgress / ClearProgress - 進捗バナー("nx_progress")の表示部(R10-5)。
 '   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。更新後DoEvents
 '   1回で再描画。別ブック表示中は何もしない(誤爆ガード)。シート切替時は
-'   旧シートのShapeを消してから描く。
-'   cancellable(R15-FixA FA-6): Trueで「中断」ボタンを添える(従来は全処理で
-'   生え、押しても止まらず壊れたボタン同然=§3-1。今はmodShelfBatch.
+'   旧シートのShapeを消して描く。
+'   cancellable(R15-FixA FA-6): Trueで「中断」を添える(従来は全処理で生え、
+'   押しても止まらず壊れたボタン同然=§3-1。今はmodShelfBatch.
 '   ShowIngestBannerだけがTrueを渡す)。Falseでも既存ボタンは消さない(実況中に
 '   消えると押したい瞬間に押せない)。R16-2a: TrueならmodWorkExcel.
-'   PaintWorkButtonが■中断の左隣に作業用Excelボタンも添える(座標・生成・
-'   削除対象登録は同モジュール側)。寿命はバナーと同じでClearProgressが消す。
+'   PaintWorkButtonが■中断の左隣へ作業用Excelも添える(座標・生成は同
+'   モジュール側)。寿命はバナーと同じでClearProgressが消す。
 ' ----------------------------------------------------------------------------
 Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
     On Error Resume Next
@@ -394,8 +394,8 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     Dim ws As Worksheet: Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
 
-    ' 2026-07-31(R11-H Med4): waitless で出したToastは自分では消えないので、
-    ' 進捗バナーを出すここでも掃除する(ShowToastの先頭と同じ役目)。
+    ' 2026-07-31(R11-H Med4): waitless のToastは自分では消えないので、進捗
+    ' バナーを出すここでも掃除する(ShowToastの先頭と同じ役目)。
     ws.Shapes("nx_toast").Delete
 
     If LenB(mProgressSheetName) > 0 And mProgressSheetName <> ws.Name Then
@@ -403,6 +403,8 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
         Set wsOld = ThisWorkbook.Worksheets(mProgressSheetName)
         If Not wsOld Is Nothing Then wsOld.Shapes("nx_progress").Delete
         If Not wsOld Is Nothing Then wsOld.Shapes(PROGRESS_CANCEL_NAME).Delete
+        ' R16H FA-6: 作業用Excelも対で消す(消し忘れると別シートに取り残される)。
+        If Not wsOld Is Nothing Then wsOld.Shapes(PROGRESS_WORK_NAME).Delete
     End If
     mProgressSheetName = ws.Name
 
@@ -410,7 +412,7 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     Dim leftPos As Double, topPos As Double
     leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
     ' R10c(M4): トースト(nx_toast)も同じ+92に出るため、取込完了の瞬間だけ
-    ' 2枚が重なり文字が読めなかった。バナーはトースト(高さ34)の下へずらす
+    ' 2枚が重なり文字が読めなかった。バナーはトースト(高さ34)の下へ
     ' (92+34+余白4=130)。
     topPos = ActiveWindow.VisibleRange.Top + 130
 
@@ -439,11 +441,12 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     End If
     ' R15-FixB(FB-6): 中断ボタンはバナー【内側】右端へ(従来は右外
     ' leftPos+barW+6で低解像度・小窓では画面外へはみ出し押せなかった。
-    ' 内側なら可視領域中央のバナーと必ず一緒に見える)。右余白88=ボタン76+
-    ' 間隔でボタン下に文字が潜らないようにする。毎回入れ直すのはcancellableが
-    ' 呼びごとに変わり得るため。
+    ' 内側なら可視領域中央のバナーと必ず一緒に見える)。右余白190=従来88+
+    ' 作業用Excelボタン96+間隔6(R16H FA-5: 88のままだと後から足した作業用
+    ' Excelボタンの下へ本文が潜り、長い実況文が読めなかった)。毎回入れ直す
+    ' のはcancellableが呼びごとに変わり得るため。
     Dim marginR As Double: marginR = 16
-    If cancellable Then marginR = 88
+    If cancellable Then marginR = 190
     shp.TextFrame2.MarginRight = marginR
     shp.TextFrame2.TextRange.Text = message
     shp.ZOrder 0   ' msoBringToFront
@@ -455,9 +458,9 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
 End Sub
 
 ' PaintCancelButton - 進捗バナー内側右端の「中断」(R15-6a・RC3。位置は
-'   R15-FixB FB-6 で外側から内側へ)。85〜127分の取込を止める手段が無く強制
-'   終了しか無かった。押しても止まるのは今の頁の後(OnCancelIngestは印を
-'   立てるだけ)。絵文字は使わない(CP932・R13-L6)。
+'   R15-FixB FB-6 で外側へ→内側へ)。85〜127分の取込を止める手段が無く強制
+'   終了しか無かった。止まるのは今の頁の後(OnCancelIngestは印を立てるだけ)。
+'   絵文字は使わない(CP932・R13-L6)。
 Private Sub PaintCancelButton(ByVal ws As Worksheet, ByVal leftPos As Double, _
                               ByVal topPos As Double)
     On Error Resume Next

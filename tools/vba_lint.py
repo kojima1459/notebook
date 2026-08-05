@@ -534,8 +534,9 @@ CONTRACT: dict[str, dict] = {
                      "ShouldClarify", "BuildClarifyAsk"],
     },
     # modAskFocus(2026-08-05 R16-3C): 精読=根拠チャンクの前後を一緒に読む。
-    #   NeighborExpand が唯一の入口(modAskThorough / modAskMulti / modAskRetrieve
-    #   の3箇所から、いずれも「材料が確定した直後に1回」だけ呼ばれる)。
+    #   NeighborExpand が唯一の入口(modAskThorough / modAskMulti の2箇所から、
+    #   いずれも「材料が確定した直後に1回」だけ呼ばれる。R16H FA-4 で
+    #   modAskRetrieve.FinishDeep からの呼び出しは外した=deep には効かない)。
     #   ParseChunkKey/NeighborIdList は chunk_id からの文書順復元と前後取りの
     #   純ロジックで、modTestsPure15 が真理表で固定する(run_lo_tests.py の
     #   PURE_ALLOWLIST にも登録済み。未登録だとテストが実行時エラー12で走らない)。
