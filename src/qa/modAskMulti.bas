@@ -75,9 +75,13 @@ Private mT0 As Double
 '            RememberCitedSources も ApplyLowHitWarning も出典チップも、
 '            この配列を見れば分解後の実態と一致する)。
 '   False = 何もしていない。呼び出し元は従来の RunThoroughFlow を実行する。
-'   ok=False で True を返すのは「全論点が失敗した」ときだけで、result には
-'   "#ERR:…" が入る(呼び出し元が modRagParse.BuildErrorAnswer で文言化する
-'   既存の契約に合わせる)。
+'   ok=False で True を返すのは【まだ答えていないターン】で、2種類ある:
+'     ・全論点が失敗した → result は "#ERR:…"(呼び出し元の
+'       modRagParse.BuildErrorAnswer が利用者向け文言へ直す既存の契約)
+'     ・逆質問を出した(R16H FA-2) → result は逆質問の本文。BuildErrorAnswer は
+'       #ERR以外を素通しするので、そのまま画面に出る。
+'   どちらも ok=False なので、履歴・会話出典・共有・感謝状・節約時間・
+'   低関連度警告は全て不発火になる(=答えていないものを答えたことにしない)。
 '   会話履歴は modAsk.HistoryBlock() を直接読む(modAskRetrieve が拡張段で
 '   やっているのと同じ。呼び出し元の1行を短く保つため)。
 ' ----------------------------------------------------------------------------
@@ -102,10 +106,20 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     ' R16-3B: 読み方が定まらない質問は、薄い回答を作らずに番号で選ばせる。
     ' 選択肢が読めなかった(タグ崩れ・1件だけ)ときは逆質問が成立しないので、
     ' 黙って従来の入念フローへ落ちる=「聞き返しに失敗して何も返らない」を作らない。
+    '
+    ' 2026-08-05(R16H FA-2 / A-H2): ok=False で返す。逆質問は【まだ答えていない】
+    ' ターンであって成功した回答ではない。ok=True で返していた間は、✅(解決した)を
+    ' 押すと聞き返しの文面が「解決済みQ&A」として部内へ共有され、資料の作者へ感謝状
+    ' まで飛んでいた(modAsk の共有条件は mLastCleanAnswer の有無=ok の有無)。
+    ' 併せて会話履歴・会話出典・節約時間・低関連度警告も不発火になる。
+    ' TryDecomposed は True のまま(False にすると modAsk が RunThoroughFlow を
+    ' 走らせ、聞き返したうえで薄い回答まで作ってしまう)。逆質問の本文は
+    ' modRagParse.BuildErrorAnswer の素通し(FA-2)でそのまま画面へ出る。
+    ' hits/nHits は呼び出し前の値のまま触らない(出典チップは検索結果の実態)。
     If verdict = "clarify" Then
         If ShouldClarify(modConfig.GetString("clarify_mode", "auto"), nOpts) Then
             result = AskWhichTopic(q, opts, nOpts)
-            ok = True
+            ok = False
             mHandled = True
             TryDecomposed = True
         End If
@@ -404,9 +418,9 @@ End Function
 '   保留の置き場は modClarify に一本化する(資料の聞き返しと同じ ui_state・
 '   同じTTL30分・同じ HasPending/MergeAnswer の配線に乗る)。ここで別の場所へ
 '   置くと、modApp の送信経路に2つ目の「保留の途中か?」判定が要る。
-'   このターンは ok=True で返るので会話履歴に積まれるが、次のターンで送られる
-'   合成質問は「元質問 / 選んだ読み方」という単体で完結した文なので、履歴に
-'   逆質問が1往復残っていても解釈が壊れない。
+'   このターンは ok=False(R16H FA-2)なので会話履歴には積まれない。それで
+'   困らないのは、次のターンで送られる合成質問を modClarify.MergeTopicAnswer が
+'   ui_state の保留(元質問+選択肢)だけから組み立てるため=履歴に依存しない。
 ' ----------------------------------------------------------------------------
 Private Function AskWhichTopic(ByVal q As String, opts() As String, ByVal nOpts As Long) As String
     Dim joined As String

@@ -22,7 +22,15 @@ Public Function IsErrorResponse(ByVal s As String) As Boolean
 End Function
 
 ' "#ERR:…" を利用者向けの1文へ。コードが読めないときは E0202(API失敗)。
+' 2026-08-05(R16H FA-2): 非回答テキスト(逆質問等)の素通し。#ERR以外を偽E0202に
+' しない(逆質問は「答えを作らなかった」だけで障害ではない。既存の呼び出し元は
+' すべて #ERR: 文字列を渡すため挙動は一切変わらない。空文字は従来どおりE0202)。
 Public Function BuildErrorAnswer(ByVal errResp As String) As String
+    If LenB(Trim$(errResp)) > 0 And Not IsErrorResponse(errResp) Then
+        BuildErrorAnswer = errResp
+        Exit Function
+    End If
+
     Dim code As String
     code = ExtractErrorCode(errResp)
     If LenB(code) = 0 Then code = "E0202"

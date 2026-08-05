@@ -17,6 +17,8 @@ Option Explicit
 '   ・modRagParse.ParseOptions(3B): 段0の <options> の読み取り(欠落・空・切詰)。
 '   ・modClarify.MergeTopicAnswer(3B): 選んだ読み方と元質問の合成。単一/複数/
 '     書き直し/範囲外。IsPendingExpired はTTL30分の境界。
+'   ・modRagParse.BuildErrorAnswer(R16H FA-2): #ERR: は従来の友好文へ、それ以外
+'     (逆質問などの非回答テキスト)は一字一句そのまま素通し、空は従来どおり。
 '   ・modAskFocus.ParseChunkKey / NeighborIdList(3C): chunk_id からの文書順
 '     復元と前後radiusの取り方。ページ跨ぎで seq がリセットされる並び、
 '     radius=0/1/2、窓の重なり、資料の境界、重複排除。真理表は【実データ形状】
@@ -209,6 +211,48 @@ Private Sub TestClarifyAsk()
     ' 返る(TTLそのものの境界は TestMergeTopicAnswer の IsPendingExpired 側)。
     modTestRunner.Check "逆質問文_30分で無効になると明記", _
         (InStr(s, "30分") > 0), "実際=" & s
+End Sub
+
+' ----------------------------------------------------------------------------
+' R16H FA-2: BuildErrorAnswer の素通し(逆質問を偽E0202にしない)。
+' ----------------------------------------------------------------------------
+'   入念モードの逆質問は ok=False で返る=modAsk の thorough 分岐では
+'   BuildErrorAnswer を必ず通る。ここで #ERR以外まで E0202 の定型文へ丸めると、
+'   利用者には「番号の選択肢」ではなく「うまく回答をまとめられませんでした」が
+'   出て、見えない保留に次の発言が吸収される。素通しはその一点を守る契約なので、
+'   #ERR: の従来動作と一緒に固定しておく。
+' ----------------------------------------------------------------------------
+Private Sub TestBuildErrorAnswer()
+    ' (1) #ERR: は従来どおりコードを読んで利用者向けの文言+コード表記にする。
+    Dim s As String
+    s = modRagParse.BuildErrorAnswer("#ERR:E0303:画像PDFです")
+    modTestRunner.Check "エラー回答_ERRはコードの友好文になる", _
+        (InStr(s, "(コード: E0303)") > 0), "実際=" & s
+    modTestRunner.Check "エラー回答_ERRは元の生文字列を出さない", _
+        (InStr(s, "#ERR:") = 0), "実際=" & s
+    ' コード部が読めない #ERR: は従来どおり E0202 へ丸める。
+    modTestRunner.Check "エラー回答_コード無しERRはE0202", _
+        (InStr(modRagParse.BuildErrorAnswer("#ERR:") , "(コード: E0202)") > 0), _
+        "実際=" & modRagParse.BuildErrorAnswer("#ERR:")
+
+    ' (2) #ERR以外は一字一句そのまま返る(逆質問・非回答テキストの素通し)。
+    Dim ask As String
+    ask = "ご質問はいくつかの読み方ができます。どれを調べますか?" & vbLf & _
+          "  1) 解約手続きの流れ" & vbLf & "  2) 解約金の計算"
+    modTestRunner.Check "エラー回答_非ERRは一字一句そのまま", _
+        (modRagParse.BuildErrorAnswer(ask) = ask), _
+        "実際=" & modRagParse.BuildErrorAnswer(ask)
+    ' 先頭が "#" でも "#ERR:" でなければ本文扱い(判定は前方一致だけ)。
+    modTestRunner.Check "エラー回答_ERR風の本文も素通し", _
+        (modRagParse.BuildErrorAnswer("#ERROR風の見出し") = "#ERROR風の見出し")
+
+    ' (3) 空文字・空白だけは従来どおり E0202(素通しすると無言の回答になる)。
+    modTestRunner.Check "エラー回答_空文字は従来どおりE0202", _
+        (InStr(modRagParse.BuildErrorAnswer(""), "(コード: E0202)") > 0), _
+        "実際=" & modRagParse.BuildErrorAnswer("")
+    modTestRunner.Check "エラー回答_空白だけも従来どおりE0202", _
+        (InStr(modRagParse.BuildErrorAnswer("   "), "(コード: E0202)") > 0), _
+        "実際=" & modRagParse.BuildErrorAnswer("   ")
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -427,6 +471,9 @@ NextTopic15:
 NextAsk15:
     On Error GoTo AskFail15
     TestClarifyAsk
+NextErrAns15:
+    On Error GoTo ErrAnsFail15
+    TestBuildErrorAnswer
 NextKey15:
     On Error GoTo KeyFail15
     TestParseChunkKey
@@ -454,6 +501,10 @@ TopicFail15:
     Resume NextAsk15
 AskFail15:
     modTestRunner.Check "TestClarifyAsk(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextErrAns15
+ErrAnsFail15:
+    modTestRunner.Check "TestBuildErrorAnswer(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextKey15
 KeyFail15:
