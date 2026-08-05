@@ -825,6 +825,14 @@
       "note": "R15-4/R15-5/R15-6(OCRの正直さ強化・総頁早期確定とETA/終了時刻・中断ボタン)の純ロジック回帰テスト。modTestsPure11(27,888字)/modTestsPure12(27,001字)のどちらもWARN帯直前で足せないため憲章§4-6に従って新設した分割先(頁欠け・上限打ち切り・中断メモの真理表/バッチラベル/残り時間と終了目安の境界/画像化待ち予算)。modTestsPure12.RunAll12末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure15",
+      "path": "src/test/modTestsPure15.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R16-3B/3C/3D",
+      "note": "R16波3(逆質問=番号選択肢/精読=近傍チャンク束ね/深掘りループ修正)の純ロジック回帰テスト。modTestsPure14(24,825字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(番号選択の読み取りと書き直し判定/段0のoptionsパース/読み方の合成と保留TTL/chunk_idからの文書順復元と前後radius/既出チャンク降格の安定性と埋め戻し)。modTestsPure14.RunAll14末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure14",
       "path": "src/test/modTestsPure14.bas",
       "role": "test",

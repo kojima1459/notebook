@@ -501,6 +501,8 @@ NextMerged14:
     TestMergedAnnotate
 NextDone14:
     On Error GoTo 0
+    ' R16波3: 容量逼迫による分割先(modTestsPure15)を末尾から連鎖で呼ぶ。
+    modTestsPure15.RunAll15
     Exit Sub
 
 ComposeFail14:

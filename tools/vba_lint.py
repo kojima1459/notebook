@@ -1165,6 +1165,12 @@ CONTRACT: dict[str, dict] = {
         "closed": False,
         "required": ["RunAll14"],
     },
+    # modTestsPure15(2026-08-05 R16波3): modTestsPure14 の容量逼迫による分割先。
+    #   入口は RunAll15 の1本だけで、modTestsPure14.RunAll14 の末尾から呼ばれる。
+    "modTestsPure15": {
+        "closed": False,
+        "required": ["RunAll15"],
+    },
     # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
 }
 
@@ -1216,6 +1222,11 @@ PURE_LOGIC_MODULES = {
     # ETAと終了目安、中断メモの純ロジックテスト。modTestsPure11/12 の
     # 容量逼迫による分割先。
     "modTestsPure13",
+    # modTestsPure15(2026-08-05 R16波3): 逆質問=番号選択肢のパースと合成、
+    # 精読(chunk_idからの文書順復元と前後radius)、既出チャンク降格の
+    # 純ロジックテスト。modTestsPure14(24,825字)の容量逼迫による分割先で、
+    # modTestsPure14.RunAll14 の末尾から呼ばれる。
+    "modTestsPure15",
     # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
     # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
     # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として

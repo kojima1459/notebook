@@ -337,6 +337,10 @@ PURE_ALLOWLIST = [
     #   未注入のまま modTestsPure15 から呼ぶと実行時エラー12になり、文書順復元と
     #   近傍取りが「テストを書いても走らない」状態になる。
     "modAskFocus",
+    # modTestsPure15(2026-08-05 R16波3): modTestsPure14 の分割先。
+    #   modTestsPure14.RunAll14 の末尾が RunAll15 を呼ぶため、未注入だと
+    #   実行時エラー12で波3のテストが1件も走らない(14を足したときと同型)。
+    "modTestsPure15",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
