@@ -90,6 +90,9 @@ CONTRACT: dict[str, dict] = {
             # 2026-08-05(R17波0): 構造メタデータ(section_path/refs_out)の
             # 格納先シート名。Phase1本体はまだ無い(波0は器のみ)。
             "SH_CHUNK_META",
+            # 2026-08-05(R17 Phase2): 章単位要約(doc_outline)の格納先シート名。
+            # 俯瞰質問(verdict=global)が読む唯一のシート。
+            "SH_DOC_OUTLINE",
         ],
     },
     "modTypes": {

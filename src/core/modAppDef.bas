@@ -51,3 +51,6 @@ Public Const SH_NEXUS_DASH As String = "Dashboard"   ' Nexus専用ダッシュ�
 ' R17波0: 構造メタデータ(section_path/refs_out)を格納する新シート(Phase1の
 ' 受け皿。ビルド時に焼き込み+実行時EnsureChunkMetaSheetで自己修復)。
 Public Const SH_CHUNK_META As String = "chunk_meta"
+' R17 Phase2: 章単位要約(source/section_key/summary/keywords/chunk_n)の格納先。
+' 無い/0行なら俯瞰回答は必ず従来フローへ落ちる(modAskGlobal 側のフェイルセーフ)。
+Public Const SH_DOC_OUTLINE As String = "doc_outline"

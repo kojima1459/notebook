@@ -93,6 +93,9 @@ EXPECTED_SHEETS = {
     # Phase1本体(パース・取込フック)は未着手で、波0は器のみを焼き込む
     # (R15-FixB FB-2 ocr_cache と同じ理由=実行時Addだと画面が飛ぶため)。
     "chunk_meta": "veryHidden",
+    # R17 Phase2: 章単位要約(疑似グローバル検索)の受け皿。chunk_meta と同じく
+    # ビルドで器だけ焼き込む(実行時 Add は壊れたブックの自己修復専用)。
+    "doc_outline": "veryHidden",
     # 初期ナレッジ(同梱シード)。ビルド時に焼き込み、初回起動で modSeed が
     # my_knowledge / my_vectors へ写す。利用者には一切見せない。
     "seed_meta": "veryHidden",
@@ -1550,6 +1553,13 @@ def main():
     # なので、full_text等と同じく数式インジェクション対策でtext_colsへ入れる。
     _make_headers_only(wb, "chunk_meta", ["chunk_id", "section_path", "refs_out"],
                         "veryHidden", widths=[32, 40, 60], text_cols=[2, 3])
+    # doc_outline(R17 Phase2): 章ごとの要約とキーワード。source/section_key/
+    # summary/keywords はどれもLLM出力または資料由来の自由文なので、数式
+    # インジェクション対策で text_cols へ入れる(chunk_n だけが数値列)。
+    _make_headers_only(wb, "doc_outline",
+                        ["source", "section_key", "summary", "keywords", "chunk_n"],
+                        "veryHidden", widths=[24, 40, 90, 40, 10],
+                        text_cols=[1, 2, 3, 4])
     _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)
     if _sc:
         print(f"  初期ナレッジ: {_sd}資料 / {_sc}チャンク / ベクトル{_sv}件"
