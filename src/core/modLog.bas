@@ -99,7 +99,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "管理者へご連絡ください。"
         Case "E0201"
             FriendlyMessage = "AIリボンが見つからず、AIに問い合わせできませんでした。" & _
-                "AIリボン入りのExcelで開き直すか、" & ChrW(&HD83E) & ChrW(&HDE7A) & "診断ボタンで状態を確認してください。"
+                "AIリボン入りのExcelで開き直すか、「診断」ボタンで状態を確認してください。"
         Case "E0202"
             ' 2026-08-04(R15-2d・実機第4報 RC8): E0202はAI通信の不調とは限らず、
             ' 実体は【実行中の処理と操作が重なったこと】による一時的な失敗の
@@ -115,7 +115,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
                 "時間を置いてからもう一度お試しください。続くようなら診断結果を管理者へ連絡してください。"
         Case "E0204"
             FriendlyMessage = "本日のAI利用上限に達した可能性があります。" & _
-                "今日はここまでにして、明日「" & ChrW(&HD83D) & ChrW(&HDD04) & "同期」を押せば続きから再開できます。"
+                "今日はここまでにして、明日「同期」を押せば続きから再開できます。"
         Case "E0301"
             FriendlyMessage = "対応していない種類のファイルです。" & _
                 "対応形式(txt/md/csv/pdf/docx/doc/xlsx等)のファイルをお使いください。"
@@ -167,7 +167,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0705"
             FriendlyMessage = "共有フォルダへの書き込み/読み込みに失敗しました" & _
                 "(ネットワークの瞬断・アクセス権限・セキュリティソフトのブロック等の可能性があります)。" & _
-                "この処理は自動でスキップされましたが、通常は次回の" & ChrW(&HD83D) & ChrW(&HDD04) & "同期で再試行されます。"
+                "この処理は自動でスキップされましたが、通常は次回の「同期」で再試行されます。"
         Case "E0801"
             FriendlyMessage = "画面の組み立てに失敗しました(データは失われていませんのでご安心ください)。" & _
                 "ブックを一度閉じて開き直せば、元どおり使えます。"

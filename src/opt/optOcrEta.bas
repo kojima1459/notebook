@@ -349,7 +349,7 @@ Public Function OcrConfirmAskFor(ByVal totalPages As Long, ByVal estMin As Long,
         "読み取りに推定約" & estMin & "分かかります。" & vbLf & _
         "処理中も" & ChrW(&H25A0) & "中断で止められ、次回は続きから再開できます。" & vbLf & _
         "処理中このExcelは操作できません。他の仕事はバナー内の" & _
-        ChrW(&HD83D) & ChrW(&HDDD4) & "作業用Excelからどうぞ。" & vbLf & _
+        "「作業用Excel」ボタンからどうぞ。" & vbLf & _
         "(完了後に検索用の準備が続きます)" & vbLf & _
         vbLf & "取り込みますか?"
 End Function
