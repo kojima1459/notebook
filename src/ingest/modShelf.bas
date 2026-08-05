@@ -3,7 +3,6 @@ Option Explicit
 
 ' ========================================
 ' modShelf - 本棚中核(ファイル取込・チャンク付番・重複排除・削除・一覧)
-'
 ' 抽出→チャンク化→chunk_id付番(ハッシュ重複排除)→my_knowledge追記→
 ' manifest upsert→埋め込み(MASTER_SPEC §7.2)。再入guard(E0503)=mIngesting、
 ' 出口はFinish一本化(中間保存もそこ=R18-2c)。同名source置換は「書いてから
@@ -33,16 +32,14 @@ Private Const GUARD_EXPIRY_MIN As Long = 30
 '   戻り値=manifest status("done"/"partial"/"failed"/"image_pdf")
 ' silent (2026-07-28 レビュー L-11): 何十件もまとめて取り込む経路で1件ごとに
 '   モーダルが出ると同期が止まる(同名衝突E0504は従来 silent を見ずに必ず
-'   ダイアログを出し、人がいないと朝まで止まっていた)。True なら記録だけ残し、
-'   結果は戻り値で伝える。
+'   ダイアログを出し、人がいないと朝まで止まった)。True なら記録だけ残す。
 ' outErrCode (2026-07-30・要件E): AddFilesResult が失敗理由の内訳(E0504/
-'   image_pdf/E0302等)を集計する補助出口。Optional末尾追加なので既存の
-'   呼び出し元(modVault/modUIShelf/modShelfSync等)は無改修。成功時は""。
-' interactive (2026-08-04 R15-FixA FA-1・レビューA-H1/B-H1):「利用者がその場に
-'   いる取込か」。silent(結果モーダルの抑止)とは別の問いなのに両方を silent
-'   1本で表していたため、R15-7bの事前確認が【全経路で死んでいた】(手動の
-'   一括取込も silent:=True で呼ぶため)。True は modShelfBatch.AddFilesResult
-'   (利用者がFileDialogで選んだ直後)だけ。同期・起動時取込は従来どおり無確認。
+'   image_pdf/E0302等)を集計する補助出口。Optional末尾追加で既存の呼び出し元
+'   (modVault/modUIShelf/modShelfSync等)は無改修。成功時は""。
+' interactive (2026-08-04 R15-FixA FA-1・A-H1/B-H1):「利用者がその場にいる
+'   取込か」。silent(結果モーダルの抑止)とは別の問いなのに両方を silent 1本で
+'   表していたため R15-7b の事前確認が【全経路で死んでいた】(手動の一括取込も
+'   silent:=True で呼ぶため)。True は AddFilesResult だけ。同期は従来どおり無確認。
 Public Function IngestFile(ByVal path As String, ByVal origin As String, _
                            Optional ByVal silent As Boolean = False, _
                            Optional ByRef outErrCode As String = "", _
@@ -77,9 +74,9 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
     mIngesting = True
     mIngestingSince = Now
-    ' R15-FixA(FA-6): 中断の印はここでも必ず下ろす(modVault/modUIShelf は
-    ' この関数を直接呼ぶため、前回の印が残ると押した覚えの無い取込が最初の頁
-    ' 境界で止まる=幽霊中断)。一括取込・同期は呼ぶ前に自分で判定してから来る。
+    ' R15-FixA(FA-6): 中断の印はここでも必ず下ろす(modVault/modUIShelf はこの
+    ' 関数を直接呼ぶため、前回の印が残ると押した覚えの無い取込が最初の頁境界で
+    ' 止まる=幽霊中断)。一括取込・同期は呼ぶ前に自分で判定してから来る。
     modShelfBatch.ResetCancel
 
     Dim uiStep As String
@@ -171,8 +168,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
             resultStatus = failStatus
             outErrCode = errCode
             ' 2026-08-04(R15-FixB FB-5): 事前確認で「いいえ」を選んだ資料は
-            ' 【失敗していない】。status は image_pdf のまま(カードの見え方・
-            ' manifest の語彙は変えない)で理由コードだけ差し替え、一括取込の
+            ' 【失敗していない】。status は image_pdf のまま(カードの見え方も
+            ' manifest の語彙も変えない)で理由コードだけ差し替え、一括取込の
             ' 集計が失敗と見送りを分けて数えられるようにする。判定は
             ' modUtilText.IsDeclineNote(先頭一致)の1本。
             If modUtilText.IsDeclineNote(failMsg) Then outErrCode = "declined"
@@ -300,15 +297,14 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     End If
 
     ' 7.5) 旧データを消すのは【新しい行を全部書き終えてから】(R18-2e)。
-    '      R11-H6 で「削除→書込み」を「抽出成功後に削除→書込み」へ直したが、
-    '      その間はまだ空いており、32bit Excel の Range 一括代入は err#7 を
-    '      起こし得る。落ちると Failed: が status=failed を書くだけで【消した
-    '      旧データは戻らない】(調査agent1 §3(a) の真の消失経路)。反転すれば
-    '      書込みが落ちても旧データは無傷(憲章§3-5)。firstNewRow を渡すのは
-    '      いま書いた行を消させないため(同名sourceなので素直に消すと道連れ)。
-    '      新旧が同時に存在する窓は取込中だけで、取込中は検索がUIロックで
-    '      走らない(仕様の判断済み)。削除に失敗しても取込は続けるが、
-    '      無言では済ませず既存E系の流儀で err_log に1行残す(§4-1)。
+    '      H-6 で「削除→書込み」を「抽出成功後に削除→書込み」へ直したが、その間は
+    '      まだ空いており、32bit Excel の Range 一括代入は err#7 を起こし得る。
+    '      落ちると Failed: が status=failed を書くだけで【消した旧データは
+    '      戻らない】(調査agent1 §3(a) の真の消失経路)。反転すれば書込みが
+    '      落ちても旧データは無傷(§3-5)。firstNewRow を渡すのはいま書いた行を
+    '      消させないため(同名sourceなので素直に消すと道連れ)。新旧が同時に
+    '      存在する窓は取込中だけで、取込中は検索がUIロックで走らない(判断済み)。
+    '      削除に失敗しても取込は続けるが、無言では済ませず err_log に1行(§4-1)。
     uiStep = "既存同名資料の置き換え"
     On Error Resume Next
     Err.Clear
@@ -341,9 +337,8 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     uiStep = "ベクトル化(埋め込み)"
     modEmbed.EmbedPending
 
-    ' 9.5) バッチ富化(要約・キーワード付与)。config enrich_mode の既定 "off"
-    '      なら EnrichPending は即0を返す。2026-07-28 レビュー M-15: 呼び出しが
-    '      1つも無く enrich_mode は【どこからも読まれない死に設定】だった。
+    ' 9.5) バッチ富化。config enrich_mode の既定 "off" なら EnrichPending は即0。
+    '      2026-07-28 M-15: 呼び出しが1つも無く【死に設定】だった。
     uiStep = "要約・キーワードの付与"
     On Error Resume Next
     modEnrich.EnrichPending
@@ -494,11 +489,10 @@ Public Sub DeleteSource(ByVal sourceName As String)
 End Sub
 
 ' SourceList - stats(i)="status|ingested_at|chunk_count|error_note|origin"
-' R18-2b(実機第5報⑧): manifest の chunk_count と my_knowledge の実行数を
-'   突合し、食い違えば【実行数を正】として manifest を直す(カードの件数は
-'   manifest の5列目をそのまま出す作りで、取込の失敗がその列を壊すと実データが
-'   生きていても「0件」に見えた)。既に my_knowledge を全読みしているので追加
-'   コストはほぼ無い。直すのは manifest 由来(先頭 mfN 件)だけ。
+' R18-2b(実機第5報⑧): manifest の chunk_count と my_knowledge の実行数を突合し、
+'   食い違えば【実行数を正】として manifest を直す(カードは manifest の5列目を
+'   そのまま出す作りで、取込の失敗がその列を壊すと実データが生きていても
+'   「0件」に見えた)。既に全読みしているので追加コストはほぼ無い。
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long
     Dim uiStep As String
     On Error GoTo Fail
@@ -546,9 +540,6 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
             Dim r As Long
             Dim hint As Long: hint = -1
             For r = LBound(kArr, 1) To UBound(kArr, 1)
-                ' R18-2b: source別の実行数を数える(manifest由来のカードのみ)。
-                hint = modIntegrity.IndexOfName(tmpNames, mfN, CStr(kArr(r, 1)), hint)
-                If hint >= 0 Then mfCount(hint) = mfCount(hint) + 1
                 Dim org As String: org = CStr(kArr(r, 2))
                 If LCase$(Left$(org, 5)) = "pack:" Then
                     Dim src As String: src = CStr(kArr(r, 1))
@@ -560,6 +551,17 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
                             packOrigin.Add src, org
                             packAdded.Add src, CStr(kArr(r, 7))
                         End If
+                    End If
+                Else
+                    ' R18-2b: source別の実行数。パック由来はmanifestに載らない
+                    ' ので数えない(数えると毎行が空振りの全走査になる)。hint は
+                    ' 【当たったときだけ】更新する(-1 に戻すと台帳に無い行が
+                    ' 続く間ずっと全走査になる)。
+                    Dim mi As Long
+                    mi = modIntegrity.IndexOfName(tmpNames, mfN, CStr(kArr(r, 1)), hint)
+                    If mi >= 0 Then
+                        mfCount(mi) = mfCount(mi) + 1
+                        hint = mi
                     End If
                 End If
             Next r
@@ -573,8 +575,7 @@ Public Function SourceList(ByRef names() As String, ByRef stats() As String) As 
         End If
     End If
 
-    ' R18-2b: 突合。食い違う資料だけ manifest を直し usage_log に1行残す
-    ' (直せなくてもカードは実行数を表示する)。
+    ' R18-2b: 突合(食い違う資料だけ manifest を直し usage_log に1行残す)。
     uiStep = "台帳と実データの突合"
     If Not wsK Is Nothing Then
         For i = 0 To mfN - 1
