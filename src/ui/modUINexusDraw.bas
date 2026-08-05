@@ -19,6 +19,16 @@ Option Explicit
 '     文字列注入で化ける)。BMP外はサロゲートペアで2つ繋ぐ。
 
 Private Const NEXUS_SHEET As String = "Nexus"
+
+' R18-3a/3b(実機第5報②): チャット画面が使うセル範囲。書式を当てる範囲
+' (modUI.InitUI / modSkin.ApplyTheme)と ScrollArea の唯一の情報源。
+' 列は A=左余白 / B=資料を入れる / C:K=入力欄(結合) / L=送信 / M:P=右余白。
+' 行だけは他画面と違って厳しく締めない: 会話のバブルは行と無関係にpt座標で
+' 下へ伸び続ける(modUI.AddChatBubble)ため、InitUI時点の行数で切ると、
+' 会話が長くなった後半のバブルが到達不能=読めない/押せないになる
+' (調査agent2 §2.3)。行高18pt×2000行=36,000ptぶんの余地を持たせる。
+Public Const NEXUS_BOUND As String = "A1:P2000"
+
 Public Const HDR_H As Double = 42          ' ヘッダー1段ぶんの高さ(行1の既定)
 Public Const INPUT_ROW As Long = 3         ' 入力欄の行
 Public Const ACT_H As Double = 22          ' 文脈アクションpillの高さ
@@ -528,6 +538,12 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
         .Font.Color = modUI.UiColor("muted")
         .VerticalAlignment = -4160        ' xlTop
     End With
+
+    ' R18-3b: 行ける範囲の宣言はここで行う(modUI は上限30,000字に対し残りが
+    ' 無く1行も足せないため、Nexusの幾何を持つ本モジュール側に置く)。
+    ' InitUI からは DrawInputArea → FreezePanes(A5選択)→ Protect の順に進む。
+    ' A5 も入力欄 C3 も NEXUS_BOUND の内側なので、既存の Select は影響を受けない。
+    modViewport.ApplyScrollBound ws, NEXUS_BOUND
 End Sub
 
 ' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。

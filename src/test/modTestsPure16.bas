@@ -18,6 +18,7 @@ Option Explicit
 '     (E0201/E0204/E0705)の戻り値を通しで回帰確認(vba_lint検査14の実行時側)。
 '   ・modRagParse.HasCompoundSignal(7a)と、modAskMulti.TryDecomposedの
 '     ゲート合成(ShouldDecompose OR HasCompoundSignal・7b)。
+'   ・modViewport.ColLetter(3b): ScrollAreaの範囲文字列を組む列番号→列名。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -289,6 +290,28 @@ Private Sub TestDecomposeGateOr()
         (DecGate16("auto", String$(25, "あ")) = True)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R18-3b: 列番号→列名(modViewport.ColLetter)。
+' ----------------------------------------------------------------------------
+' ScrollAreaの範囲文字列("A1:<列><行>")を組み立てる唯一の算数。ここを1つ
+' 間違えると、範囲が意図より狭くなってボタンが境界の外へ取り残される
+' (憲章§3-1「押せるものは必ず反応する」違反=見えない/押せない)。
+' 26進の繰り上がり(Z→AA)は off-by-one を作りやすいので境界を固定する。
+' 0以下は "A" に丸める(壊れた値でRangeを落とさない防御)。
+Private Sub TestColLetter()
+    modTestRunner.Check "列名_1はA", (modViewport.ColLetter(1) = "A")
+    modTestRunner.Check "列名_12はL(Hubの右端)", (modViewport.ColLetter(12) = "L")
+    modTestRunner.Check "列名_14はN(マイ本棚の右端)", (modViewport.ColLetter(14) = "N")
+    modTestRunner.Check "列名_16はP(チャットの右端)", (modViewport.ColLetter(16) = "P")
+    modTestRunner.Check "列名_20はT(ダッシュボードの右端)", (modViewport.ColLetter(20) = "T")
+    modTestRunner.Check "列名_26はZ(繰り上がり直前)", (modViewport.ColLetter(26) = "Z")
+    modTestRunner.Check "列名_27はAA(繰り上がり)", (modViewport.ColLetter(27) = "AA")
+    modTestRunner.Check "列名_52はAZ", (modViewport.ColLetter(52) = "AZ")
+    modTestRunner.Check "列名_53はBA", (modViewport.ColLetter(53) = "BA")
+    modTestRunner.Check "列名_0以下はAへ丸める", (modViewport.ColLetter(0) = "A")
+    modTestRunner.Check "列名_負値もAへ丸める", (modViewport.ColLetter(-5) = "A")
+End Sub
+
 Public Sub RunAll16()
     On Error GoTo BarWFail16
     TestBarWidthFor
@@ -313,6 +336,9 @@ NextHcs16:
 NextGate16:
     On Error GoTo GateFail16
     TestDecomposeGateOr
+NextCol16:
+    On Error GoTo ColFail16
+    TestColLetter
 NextDone16:
     On Error GoTo 0
     Exit Sub
@@ -347,6 +373,10 @@ HcsFail16:
     Resume NextGate16
 GateFail16:
     modTestRunner.Check "TestDecomposeGateOr(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextCol16
+ColFail16:
+    modTestRunner.Check "TestColLetter(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone16
 End Sub

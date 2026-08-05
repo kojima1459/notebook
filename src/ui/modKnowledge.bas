@@ -27,6 +27,13 @@ Private Const LEGACY_VAULT_SHEET As String = "Vault"
 ' 行3がツールバーの帯で、段数に応じて高さが伸びる(行数は変えない)。
 Public Const CHROME_ROWS As Long = 6
 
+' R18-3a/3b(実機第5報②): 「マイ本棚」シート(table/gallery/shared の3モードが
+' 共有)が実際に使うセル範囲。書式を当てる範囲と ScrollArea の唯一の情報源。
+' 列は3モードとも A:N、行はカードの最終行(modUIShelf.MAX_CARD_ROWS=400 の
+' 末尾=412行。gallery/sharedも 7:412 の行高を戻している)。3モジュールで
+' 同じ文字列を書くとズレるため、共通クロムを持つここに置く。
+Public Const SHELF_BOUND As String = "A1:N412"
+
 ' 直近に描いたモード("gallery"/"table"/"shared")。
 ' 3モードとも同じ「マイ本棚」シートに描くようになった(2026-07-30 R4要件A)ため、
 ' 「今どのモードか」はシート名からは分からない。ここが唯一の情報源。
@@ -157,6 +164,10 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ws.Rows(4).RowHeight = 2
     ws.Rows(5).RowHeight = 22
     ws.Rows(6).RowHeight = 8
+
+    ' R18-3b: 3モード(table/gallery/shared)とも同じシートで同じ範囲を使う。
+    ' 共通クロムを描くここが唯一の宣言点(モードごとに書くとズレる)。
+    modViewport.ApplyScrollBound ws, SHELF_BOUND
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws

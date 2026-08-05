@@ -49,6 +49,15 @@ Private Const HEADER_SUB_Y As Double = 54
 Private Const ADMIN_ROW_H As Double = 26
 Private Const ADMIN_MAX_ROWS As Long = 12
 
+' R18-3a/3b: この画面が使うセル範囲。本文はすべてpt座標のShapeで積むため
+' 行高の既定がフォント依存でぶれると「pt→行」の換算ができない。行高を
+' DASH_ROW_H に固定し、書式もこの範囲だけに当てる(全域書式の禁止)。
+' DASH_ROWS は管理者一覧(最大12行)まで出しても余る値(120行=1,800pt)。
+Private Const DASH_ROWS As Long = 120
+Private Const DASH_ROW_H As Double = 15
+' ScrollAreaの下端に足す余白(実測下端のすぐ下で切ると窮屈に見える)。
+Private Const DASH_BOTTOM_PAD As Double = 24
+
 Private mAdminExclNames() As String
 Private mAdminExclCount As Long
 Private mDashStep As String   ' DrawDashboard失敗箇所の特定用(Fail:から参照)
@@ -198,9 +207,14 @@ End Sub
 Private Sub DrawDashboard(ByVal ws As Worksheet)
     RemoveShapesByPrefix ws, "nxd_"
     ws.Cells.Clear
-    ws.Cells.Font.Name = "Yu Gothic UI"
-    ws.Cells.Interior.Color = modUI.UiColor("bg")
+    ' R18-3a(実機第5報②): 全域(ws.Cells)への書式はUsedRangeをシート最大へ
+    ' 膨らませる(この画面は行高を一切設定していないのに「下に無限へ
+    ' スクロールできる」と報告された。調査agent2 §1.3)。実使用範囲だけに
+    ' 当てる。行高も明示して幾何を確定させる(pt→行の換算をここで固定する)。
+    ws.Range("A1:T" & DASH_ROWS).Font.Name = "Yu Gothic UI"
+    ws.Range("A1:T" & DASH_ROWS).Interior.Color = modUI.UiColor("bg")
     ws.Columns("A:T").ColumnWidth = 9
+    ws.Rows("1:" & DASH_ROWS).RowHeight = DASH_ROW_H
 
     mDashStep = "DrawHeader": DrawHeader ws
     mDashStep = "DrawKpiRow": modDashStat.DrawKpiRow ws
@@ -208,9 +222,36 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     mDashStep = "DrawBadgeShelf": modDashStat.DrawBadgeShelf ws
     mDashStep = "DrawChartPlaceholder": modDashStat.DrawChartPlaceholder ws
     mDashStep = "DrawAdminSection": DrawAdminSection ws
+    mDashStep = "ApplyScrollBound": ApplyDashScrollBound ws
     mDashStep = "FreezeShapePlacement"
-    modUI.FreezeShapePlacement ws   ' 全Shape(クラスタ円含む)を絶対配置に固定
+    modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定
     modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
+End Sub
+
+' R18-3b: この画面で行ける範囲を宣言する。他画面と違って本文は全てpt座標の
+' Shapeで積まれ、内容(バッジ件数・管理者一覧の件数)で下端が変わるため、
+' 固定の行数では決められない。描き終えた実物のShapeから右下端を実測して
+' 決める(modDash.bas の「+270」決め打ちで跡地が残った教訓の反対側)。
+Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
+    Dim rightX As Double, bottomY As Double
+    On Error Resume Next
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If shp.Left + shp.Width > rightX Then rightX = shp.Left + shp.Width
+        If shp.Top + shp.Height > bottomY Then bottomY = shp.Top + shp.Height
+    Next shp
+    On Error GoTo 0
+
+    ' ヘッダー帯だけはセル全幅(A1:T1)で描くため、そのまま採ると右端が
+    ' 画面幅の倍近くになる。操作系と本文が収まる幅(ROW_WIDTH+左右余白)を
+    ' 上限にして、意味のない右余白へは行けないようにする。
+    Dim contentR As Double
+    contentR = modDashStat.KPI_X0 * 2 + modDashStat.ROW_WIDTH
+    If rightX > contentR Then rightX = contentR
+    If bottomY < 200 Then bottomY = 200
+
+    modViewport.ApplyScrollBound ws, _
+        modViewport.BoundFor(ws, rightX, bottomY + DASH_BOTTOM_PAD, 20, DASH_ROWS)
 End Sub
 
 ' ---- ヘッダー ----

@@ -553,6 +553,14 @@
       "note": "進捗バナー(nx_progress)と中断/作業用Excelボタンの描画・撤去。2026-08-05 R18-1a に modSkin(残り10字)から移設。呼び出し元は modUIMain.ShowProgress/HideProgress と modShelfBatch.ShowIngestBanner の3行、および modHub.EnsureHubLayout からの SweepOrphans。"
     },
     {
+      "name": "modViewport",
+      "path": "src/ui/modViewport.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "各画面の「行ける範囲」(Worksheet.ScrollArea)の宣言。2026-08-05 R18-3b 新設。呼び出しは Hub/マイ本棚(3モード共通クロム)/チャット/ダッシュボード/ナレッジ登録フォームの構築Sub末尾に1行ずつ。ScrollAreaはブックに保存されないセッション限定プロパティで、各画面が毎回冪等に再構築されるため再適用の配線は不要。"
+    },
+    {
       "name": "modBitwiseOpt",
       "path": "src/qa/modBitwiseOpt.bas",
       "role": "core",

@@ -24,6 +24,11 @@ Private Const NAV_COUNT As Long = 3
 ' ぶん、折返し時の2行ぶんが収まるよう高さも4pt広げる。
 Private Const CHIP_H As Double = 26
 
+' R18-3a/3b: Hub画面が実際に使うセル範囲。書式の適用範囲(全域書式の禁止)と
+' ScrollArea(スクロールできる範囲)の唯一の情報源。列幅・行高の設定と同じ
+' 幾何(A:L / 1..60行=900pt)を指す。
+Private Const HUB_BOUND As String = "A1:L60"
+
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     Dim ws As Worksheet
@@ -48,9 +53,14 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     modProgressBar.SweepOrphans
 
     ws.Cells.Clear
-    ws.Cells.Font.Name = "Yu Gothic UI"
-    ws.Cells.Font.Size = 10
-    ws.Cells.Interior.Color = modUI.UiColor("bg")
+    ' R18-3a(実機第5報②): 書式は ws.Cells(=A1:XFD1048576)ではなく実使用範囲
+    ' だけに当てる。全域へ一様な書式を置くとExcelがそこまで「使用済み」と
+    ' 見なし、UsedRange(=スクロールできる範囲)がシート最大まで膨らむ。
+    ' 「右にも下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
+    ' 範囲は直下で決める幾何(A:L / 1:60行)と同じにする。
+    ws.Range(HUB_BOUND).Font.Name = "Yu Gothic UI"
+    ws.Range(HUB_BOUND).Font.Size = 10
+    ws.Range(HUB_BOUND).Interior.Color = modUI.UiColor("bg")
 
     ' 幾何を確定させてからShapeを置く(順序が逆だと座標がズレる)。
     ' D列/G列の細い溝は「セル感」消し。タイルが隣接すると表に見えてしまう。
@@ -98,6 +108,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     End If
     DrawNavButtons ws
     DrawExtras ws
+
+    ' R18-3b: この画面で行ける範囲を宣言する(右にも下にも無限にスクロール
+    ' できる状態をやめる)。範囲は上の列幅・行高と同じ HUB_BOUND。
+    modViewport.ApplyScrollBound ws, HUB_BOUND
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws

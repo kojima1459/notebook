@@ -361,7 +361,11 @@ PURE_ALLOWLIST = [
     #   (約9,300字)を足すと30,000字上限を超えるための分割先。
     #   modTestsPure15.RunAll15 の末尾が RunAll16 を呼ぶため、未注入だと実行時
     #   エラー12でR18のテストが1件も走らない(15を足したときと同型)。
+    # modViewport(2026-08-05 R18-3b): 画面ごとのScrollArea宣言。テストが呼ぶのは
+    #   ColLetter(列番号→列名の算数)1本だけで、Worksheet を触る
+    #   ApplyScrollBound/BoundFor はテストから呼ばない(modProgressBarと同型)。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
+    "modViewport",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

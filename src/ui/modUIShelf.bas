@@ -82,8 +82,11 @@ Public Sub EnsureLayout()
     ws.Cells.Clear
 
     uiStep = "既定フォント設定"
-    ws.Cells.Font.Name = "游ゴシック"
-    ws.Cells.Font.Size = 11
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。3モードが共有するこのシートの
+    ' 実使用範囲(A:N / カード最終行412)だけに当てる。
+    ws.Range(modKnowledge.SHELF_BOUND).Font.Name = "游ゴシック"
+    ws.Range(modKnowledge.SHELF_BOUND).Font.Size = 11
 
     ' A:N を全列ぶん明示する(2026-07-30 R4要件A)。
     ' 旧実装はK列・L列だけ設定しておらず、DrawChromeが使う W=A1:N1 の幅が

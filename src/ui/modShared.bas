@@ -44,8 +44,10 @@ Public Sub Show()
 
     RemoveRowShapes ws
     ws.Cells.Clear
-    ws.Cells.Interior.Color = modUI.UiColor("bg")
-    ws.Cells.Font.Name = "Yu Gothic UI"
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ws.Range(modKnowledge.SHELF_BOUND).Interior.Color = modUI.UiColor("bg")
+    ws.Range(modKnowledge.SHELF_BOUND).Font.Name = "Yu Gothic UI"
     ' A:N を全列ぶん明示する(モードごとに前提の列幅が違うので、
     ' 前のモードの列幅が残っていると DrawChrome の W がぶれる)。
     ws.Columns("A").ColumnWidth = 2

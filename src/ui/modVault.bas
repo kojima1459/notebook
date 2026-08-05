@@ -10,6 +10,9 @@ Option Explicit
 ' ============================================================================
 
 Private Const VAULT_SHEET As String = "VaultInput"
+' R18-3a/3b: この画面が実際に使うセル範囲(列A:I・内容はC2:H18で完結)。
+' 書式の適用範囲とScrollAreaの唯一の情報源。
+Private Const VAULT_BOUND As String = "A1:I30"
 Private Const CELL_TITLE As String = "C6"
 Private Const CELL_BODY As String = "C8"
 Private Const CELL_TAGS As String = "C18"
@@ -29,13 +32,17 @@ Public Sub ShowVaultInput()
     ' 冪等再構築
     RemoveVaultShapes ws
     ws.Cells.Clear
-    ws.Cells.Font.Name = "Yu Gothic UI"
-    ws.Cells.Interior.Color = RGB(243, 244, 246)
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ws.Range(VAULT_BOUND).Font.Name = "Yu Gothic UI"
+    ws.Range(VAULT_BOUND).Interior.Color = RGB(243, 244, 246)
 
     ws.Columns("A").ColumnWidth = 4
     ws.Columns("B").ColumnWidth = 3
     ws.Columns("C:H").ColumnWidth = 14
     ws.Columns("I").ColumnWidth = 3
+    ' R18-3b: 行ける範囲を宣言(この小画面は C2:H18 で完結する)。
+    modViewport.ApplyScrollBound ws, VAULT_BOUND
 
     ' カード風の背景(白)。Shapeはセルより必ず手前に描画される(ZOrderは
     ' Shape同士の前後関係にしか効かない)ため、Shapeで背景を作るとラベル等の

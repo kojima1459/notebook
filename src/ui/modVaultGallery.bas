@@ -246,8 +246,10 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ' 書いたセル(一覧表の結合・行高・値)を必ず消してから描く。消さないと
     ' カードの裏に一覧表が透けて残る。Shapeの掃除はDrawChromeが行う。
     ws.Cells.Clear
-    ws.Cells.Interior.Color = modUI.UiColor("bg")
-    ws.Cells.Font.Name = "Yu Gothic UI"
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ws.Range(modKnowledge.SHELF_BOUND).Interior.Color = modUI.UiColor("bg")
+    ws.Range(modKnowledge.SHELF_BOUND).Font.Name = "Yu Gothic UI"
     ' A:N を全列ぶん明示する(一覧表モードがK/L未設定だったために、
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2

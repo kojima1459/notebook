@@ -84,10 +84,10 @@ Public Sub InitUI()
     ' --- キャンバス骨格 ---
     RemoveNexusShapes ws
     ws.Cells.Clear
-    ws.Cells.Font.Name = "Yu Gothic UI"
+    ' R18-3a: 全域書式はUsedRangeを膨張させる(agent2 §1.3)。実使用範囲だけ。
+    ws.Range(modUINexusDraw.NEXUS_BOUND).Font.Name = "Yu Gothic UI"
 
-    ' 幾何を先に確定させてからShapeを置く(順序が逆だと座標がズレる)。
-    ' A=左余白 / B=📎 / C:K=入力欄(結合) / L=送信 / M=右余白。
+    ' 幾何を先に確定させる(順序が逆だとShape座標がズレる)。
     ws.Columns("A").ColumnWidth = 1.5
     ws.Columns("B").ColumnWidth = 4.5
     ws.Columns("C:K").ColumnWidth = 10.5
@@ -632,8 +632,7 @@ RepaintCleanup:
     ParkFocus
 End Sub
 
-' 公開ゲッター: 他のNexus画面がテーマ一貫の配色/現在テーマを得る窓口。
-' UiColor / UiTheme - 配色とテーマ名の窓口(実体は modSkin。2026-07-31 R11-F1で
+' UiColor / UiTheme - 各Nexus画面が配色とテーマ名を得る窓口(実体は modSkin。R11-F1で
 ' テーマ塊を modSkin へ移設したあとも、呼び出し元(20モジュール超)の記述を
 ' 変えずに済むよう薄い委譲としてここに残す)。
 Public Function UiColor(ByVal key As String) As Long

@@ -399,7 +399,10 @@ End Function
 
 ' テーマ適用(背景+全nx_Shape再彩色)。
 Public Sub ApplyTheme(ByVal ws As Worksheet)
-    ws.Cells.Interior.Color = ThemeColor("bg")
+    ' R18-3a: 全域(ws.Cells)への塗りはUsedRangeをシート最大へ膨らませ、
+    ' 「右にも下にも無限にスクロールできる」状態を作る(調査agent2 §1.3)。
+    ' 呼び出し元は全てNexus(チャット)シートなので、その実使用範囲だけ塗る。
+    ws.Range(modUINexusDraw.NEXUS_BOUND).Interior.Color = ThemeColor("bg")
 
     ' 入力欄(C3:K3)は上の一括塗りで消えるため塗り直す(両端B/L列は
     ' あえて無地のまま=入力欄に見せない)。
