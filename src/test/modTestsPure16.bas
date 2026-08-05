@@ -402,6 +402,11 @@ NextGate16:
 NextCol16:
     On Error GoTo ColFail16
     TestColLetter
+NextChain17:
+    ' 2026-08-05(R17 Phase1): modTestsPure16 に構造メタの真理表(約7,000字)を
+    ' 足すと WARN帯へ入るため 17 を新設した。連鎖の入口はここ1本だけ。
+    On Error GoTo ChainFail17
+    modTestsPure17.RunAll17
 NextDone16:
     On Error GoTo 0
     Exit Sub
@@ -444,6 +449,10 @@ GateFail16:
     Resume NextCol16
 ColFail16:
     modTestRunner.Check "TestColLetter(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChain17
+ChainFail17:
+    modTestRunner.Check "modTestsPure17.RunAll17(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone16
 End Sub

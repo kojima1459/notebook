@@ -881,6 +881,14 @@
       "note": "R18(実機第5報①⑧⑪)の純ロジック回帰テスト。modTestsPure15(23,011字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(進捗バナー幅のviewport連動/台帳と実データの突合と統計文字列の差し替え/source別集計の位置引き/起動時の減少判定と一時フォルダ判定と警告文のBMP限定/UNC列挙0件の失敗判定)。modTestsPure15.RunAll15末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure17",
+      "path": "src/test/modTestsPure17.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R17-1",
+      "note": "R17 Phase1(構造メタデータ+参照エッジ)の純ロジック回帰テスト。modTestsPure16(20,739字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(breadcrumbからのsection_path抽出と形式崩れ/明示参照の抽出・重複排除・上限24件・32,000字級/自己参照の無害化/第1条が第12条に当たらないラベル照合/chunk_meta0行のフェイルセーフGraphActive/DistinctiveKeysの別表N・様式N拡張)。modTestsPure16.RunAll16末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure14",
       "path": "src/test/modTestsPure14.bas",
       "role": "test",

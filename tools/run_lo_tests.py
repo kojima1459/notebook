@@ -369,8 +369,12 @@ PURE_ALLOWLIST = [
     #   modSparse.NormalizeForSearch と modUtil.SafeLeft しか呼ばない
     #   (どちらも注入済み)。未注入のまま modTestsPure16 から呼ぶと実行時
     #   エラー12になり、構造抽出のゴールデンが「テストを書いても走らない」。
+    # modTestsPure17(2026-08-05 R17 Phase1): modTestsPure16(20,739字)に構造
+    #   メタの真理表(約7,000字)を足すとWARN帯へ入るための分割先。
+    #   modTestsPure16.RunAll16 の末尾が RunAll17 を呼ぶため、未注入だと実行時
+    #   エラー12でR17のテストが1件も走らない(16を足したときと同型)。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
-    "modViewport", "modChunkMeta",
+    "modViewport", "modChunkMeta", "modTestsPure17",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
