@@ -202,12 +202,12 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
         If subN < 1 Then subN = 6
 
         Dim n As Long
-        n = RunMultiRetrieve(q, mdMode, topK, hits, scopeD, subN)
+        n = RunMultiRetrieve(q, mdMode, WideK(topK), hits, scopeD, subN)
         If n >= 2 Then
             On Error Resume Next
             modLog.LogUsage "deep_scoped", mdMode, "scope=" & scopeD.count & " subq=" & subN, 0, n
             On Error GoTo 0
-            RunDeepScoped = n
+            RunDeepScoped = FinishDeep(hits, n, topK)
             Exit Function
         End If
         If n = -1 Then
@@ -223,7 +223,45 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
     End If
 
     ' (iv)/退化: 従来どおり本棚全体を検索する。
-    RunDeepScoped = RunUnscoped(q, mdMode, topK, hits)
+    Dim wideN As Long
+    wideN = RunUnscoped(q, mdMode, WideK(topK), hits)
+    If wideN < 1 Then
+        RunDeepScoped = wideN          ' 0件・埋め込み失敗(-1)はそのまま返す
+        Exit Function
+    End If
+    RunDeepScoped = FinishDeep(hits, wideN, topK)
+End Function
+
+' ----------------------------------------------------------------------------
+' FinishDeep - 深掘りで材料が確定したあとの後処理(2026-08-05 R16-3C)。
+'   戻り値 = 後処理後の件数。スコープ内で見つかった経路と、本棚全体へ広げ
+'   直した経路の両方が必ずここを通る(片方だけに掛けると、同じ「続けて質問」が
+'   本棚の当たり方で別の読み方をされる)。
+'
+'   精読(近傍チャンク束ね)は深掘りにも効かせる。深掘りは同じ資料の中を
+'   もう一段深く読む操作なので、当たったチャンクの前後こそが一番読みたい場所
+'   になる(表の続き・条文の但し書き)。
+' ----------------------------------------------------------------------------
+'   R16-3D: 検索は topK の2倍で取り、既出チャンク(前回までの深掘りで実際に
+'   渡したもの)を後ろへ回してから topK へ切る。除外ではなく降格なので、
+'   本棚が小さくて既出しか無いときも件数は減らない(modFollowup.DemoteUsed)。
+'   順序: 降格 → 記憶 → 精読。記憶を降格の前に置くと、いま返すチャンクを
+'   自分で既出扱いして全部後ろへ回す(1ターンで自滅する)。記憶を精読の後に
+'   置くと、近傍(おまけ)まで既出になって次の深掘りで本命が沈む。
+Private Function FinishDeep(ByRef hits() As Hit, ByVal n As Long, ByVal topK As Long) As Long
+    Dim m As Long: m = n
+    modFollowup.DemoteUsed hits, m, topK
+    modFollowup.RememberUsedChunks hits, m
+    modAskFocus.NeighborExpand hits, m, modConfig.GetLong("deep_neighbor", 2)
+    FinishDeep = m
+End Function
+
+' 深掘りの検索で取る件数(降格ぶんの余裕を持たせた広めの取り方)。
+' 2倍にするのは、topK 件すべてが既出でも「未出の候補が topK 件ある」状態を
+' 作れる最小の倍率だから(多く取るほど再ランク段の入力も伸びて遅くなる)。
+Private Function WideK(ByVal topK As Long) As Long
+    WideK = topK * 2
+    If WideK < 2 Then WideK = 2
 End Function
 
 ' 従来の検索経路(retrieve_mode に従う)。modAsk と同じ判断を2箇所に書かない。

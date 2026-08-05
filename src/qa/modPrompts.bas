@@ -48,6 +48,11 @@ Option Explicit
 ' 成否を数える側(modAskMulti)が同じ文字列を見るための単一情報源。
 Public Const PART_FAIL_TEXT As String = "資料からは確認できませんでした(検索失敗)"
 
+' 深掘り(続けて質問)のターンだけ下書き段へ足す1文(2026-08-05 R16-3D)。
+' 検索側は既出チャンクを降格して新しい材料を渡すが、材料が変わっても
+' 「前回と同じ構成でもう一度説明する」癖は指示しないと直らない。
+Private Const FOLLOWUP_DEPTH_LINE As String = "・前回の回答と重複する説明は繰り返さず、新しい詳細・根拠・例外を優先すること。"
+
 Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                                  Optional ByVal strictGrounding As Boolean = False, _
                                  Optional ByVal answerTags As Boolean = False) As String
@@ -100,6 +105,8 @@ Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHi
     sb = sb & DomainGuardInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
     If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
+    ' R16-3D: 深掘りのターンだけ「前回の繰り返しをしない」を明示する。
+    If modFollowup.IsFollowupTurn() Then sb = sb & FOLLOWUP_DEPTH_LINE & vbLf
     If LenB(history) > 0 Then
         sb = sb & vbLf & "## これまでの会話(参考。続きの質問なら踏まえて回答する)" & vbLf & history
     End If

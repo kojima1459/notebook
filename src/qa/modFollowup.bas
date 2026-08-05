@@ -21,6 +21,28 @@ Private Const CITED_MAX As Long = 8
 ' 「スコープ無し=従来動作」へ静かに戻るだけなので、保存はしない。
 Private mCited As String
 
+' ----------------------------------------------------------------------------
+' 既出チャンクメモリ(2026-08-05 R16-3D)
+' ----------------------------------------------------------------------------
+' 深掘り(続けて質問)を2回続けると、2回目が1回目とほぼ同じ回答になる。原因は
+' 検索が毎回まったく同じ上位チャンクを返すこと(資料単位のスコープはあっても、
+' チャンク単位の既出抑制はコードベースに1つも無かった=実機報告の「深掘り
+' ループ」の構造原因)。同じ材料を渡して「もっと深く」と頼んでも、モデルには
+' 前回と違うことを書く材料が無い。
+'
+' そこで直近の深掘りで【実際に渡したチャンク】を覚え、次の深掘りでは後ろへ
+' 回す。除外ではなく降格にするのは、小さな本棚では既出しか無いことが普通に
+' あるため(除外にすると2回目が0件になる)。
+' 資料名メモリ(mCited)と同じくメモリのみ・保存しない。
+Private Const USED_MAX As Long = 64
+Private mUsedChunks As String
+
+' このターンが「続けて質問(深掘り)」かどうか。modApp が送信のたびに
+' SetFollowupTurn で入れる唯一の窓口で、modPrompts(下書き指示の出し分け)と
+' 既出メモリの寿命の両方がこの1つの旗を見る。新規質問(False)で既出メモリを
+' 捨てるのは、前の話題のチャンクを新しい質問で降格させないため。
+Private mFollowupTurn As Boolean
+
 ' 応答aから [[FOLLOWUP: ...]] をパースし、body=マーカー行除去後の本文 /
 ' candidates=候補(vbLf区切り。無ければ空)に分離する。V2と同じ寛容実装:
 ' "]]"が見つからない・中身が空・「なし」の場合は候補なし扱いとし、
@@ -134,10 +156,162 @@ Public Function CitedSourcesLine() As String
     CitedSourcesLine = mCited
 End Function
 
-' 会話リセット(チャットのクリア)で消す。
+' 会話リセット(チャットのクリア)で消す。既出チャンクも同じ会話の持ち物
+' なので一緒に捨てる(片方だけ残すと、消したはずの話題の材料が降格し続ける)。
 Public Sub ClearCitedSources()
     mCited = ""
+    mUsedChunks = ""
 End Sub
+
+' ----------------------------------------------------------------------------
+' SetFollowupTurn / IsFollowupTurn - このターンが深掘りかどうか(R16-3D)。
+'   modApp.OnSend が「続けて質問」の武装を消費した直後に1回だけ入れる。
+'   False(=新規質問)を入れた時点で既出チャンクメモリを捨てる。前の話題で
+'   読んだチャンクを新しい質問で後ろへ回すと、いちばん関係のある資料が
+'   理由もなく沈む。
+' ----------------------------------------------------------------------------
+Public Sub SetFollowupTurn(ByVal b As Boolean)
+    mFollowupTurn = b
+    If Not b Then mUsedChunks = ""
+End Sub
+
+Public Function IsFollowupTurn() As Boolean
+    IsFollowupTurn = mFollowupTurn
+End Function
+
+' ----------------------------------------------------------------------------
+' RememberUsedChunks - このターンで根拠として渡したチャンクを覚える(R16-3D)。
+'   新しい順・重複なし・上限USED_MAX件(資料名メモリと同じ畳み方を共用)。
+'   chunk_id が空のヒット(旧データ・テストダブル)は覚えない=次回も降格
+'   されない。判定材料が無いものを「既出」に倒すと、二度と出てこなくなる。
+' ----------------------------------------------------------------------------
+Public Sub RememberUsedChunks(hits() As Hit, ByVal nHits As Long)
+    Dim ids As String
+    Dim i As Long
+    For i = 1 To nHits
+        Dim id As String
+        id = Trim$(hits(i).chunk_id)
+        If LenB(id) > 0 Then
+            If LenB(ids) > 0 Then ids = ids & vbLf
+            ids = ids & id
+        End If
+    Next i
+    RememberUsedIds ids
+End Sub
+
+' 上の文字列版(vbLf区切りの chunk_id 列)。実体はこちらで、Hit配列版は
+' 詰め替えて呼ぶだけ。分けてあるのは LibreOffice の実行テストが
+' 【別モジュールで定義された Type の配列】を扱えないため(modTestsPure 冒頭の
+' 既知制約)。ここが文字列で受けられるので、既出降格の規則そのものは
+' 実機を待たずに回帰テストで固定できる。
+Public Sub RememberUsedIds(ByVal idsLine As String)
+    If LenB(idsLine) = 0 Then Exit Sub
+    mUsedChunks = MergeCitedSources(mUsedChunks, idsLine, USED_MAX)
+End Sub
+
+' ----------------------------------------------------------------------------
+' DemoteUsed - 既出チャンクを後ろへ回して keepK 件へ切る(R16-3D)。
+'   呼び出し側は topK の2倍を検索してからここへ渡す。未出が十分あれば
+'   未出だけが残り、未出が足りなければ既出で埋め戻される(常に
+'   min(nHits, keepK) 件が残る=深掘りが空振りする経路を作らない)。
+'   並べ替えは安定(未出どうし・既出どうしの相対順=検索順位はそのまま)。
+'   覚えている既出が無いターンは並べ替えず、件数を keepK へ切るだけ。
+' ----------------------------------------------------------------------------
+Public Sub DemoteUsed(ByRef hits() As Hit, ByRef nHits As Long, ByVal keepK As Long)
+    If nHits < 1 Then Exit Sub
+
+    Dim ids As String
+    Dim i As Long
+    For i = 1 To nHits
+        If i > 1 Then ids = ids & vbLf
+        ids = ids & Trim$(hits(i).chunk_id)
+    Next i
+
+    Dim ordLine As String
+    ordLine = DemoteOrder(ids, keepK)
+    If LenB(ordLine) = 0 Then Exit Sub
+
+    Dim ord() As String
+    ord = Split(ordLine, ",")
+    Dim nOut As Long
+    nOut = UBound(ord) - LBound(ord) + 1
+    If nOut < 1 Or nOut > nHits Then Exit Sub
+
+    ' 元の位置 → 現在の位置。並べ替えは「決めた順に前から引き抜いて差し込む」
+    ' 挿入法で行う。作業用の Hit 配列を作らないのは、別モジュールで定義した
+    ' Type の配列が LibreOffice の実行テスト環境で扱えないため(modTestsPure
+    ' 冒頭の既知制約)。Long の配列なら両環境で問題なく使える。
+    Dim cur() As Long
+    ReDim cur(1 To nHits)
+    For i = 1 To nHits
+        cur(i) = i
+    Next i
+
+    Dim tmp As Hit
+    Dim k As Long, j As Long, orig As Long, fromIx As Long
+    For k = 1 To nOut
+        orig = CLng(Val(ord(LBound(ord) + k - 1)))
+        If orig >= 1 And orig <= nHits Then
+            fromIx = cur(orig)
+            If fromIx > k Then
+                tmp = hits(fromIx)
+                For j = fromIx To k + 1 Step -1
+                    hits(j) = hits(j - 1)
+                Next j
+                hits(k) = tmp
+                For j = 1 To nHits
+                    If cur(j) >= k And cur(j) < fromIx Then cur(j) = cur(j) + 1
+                Next j
+                cur(orig) = k
+            End If
+        End If
+    Next k
+
+    nHits = nOut
+End Sub
+
+' ----------------------------------------------------------------------------
+' DemoteOrder - 降格後に採る「元の位置」の並びを "," 連結で返す(純関数)。
+'   idsLine: いまのヒットの chunk_id を vbLf 区切りで並べたもの(空要素可)。
+'   戻り値 : 例 "2,4,1,3"(1起点・keepK 件で打ち切り)。
+'
+'   規則はこの1関数だけが持つ(DemoteUsed は決まった順に要素を入れ替える係)。
+'     ・未出(=覚えていない chunk_id)を元の順序のまま前へ
+'     ・そのあとに既出を元の順序のまま並べる(除外ではなく降格)
+'     ・先頭 keepK 件で切る → 未出が足りなければ既出で埋まる=空にならない
+'   chunk_id が空のヒットは「覚えようがない」ので常に未出として扱う。
+'   判定材料の無いものを既出へ倒すと、二度と表に出てこなくなる。
+' ----------------------------------------------------------------------------
+Public Function DemoteOrder(ByVal idsLine As String, ByVal keepK As Long) As String
+    If LenB(idsLine) = 0 Then Exit Function
+
+    Dim raw() As String
+    raw = Split(idsLine, vbLf)
+    Dim lo As Long: lo = LBound(raw)
+    Dim n As Long: n = UBound(raw) - lo + 1
+    If n < 1 Then Exit Function
+
+    Dim keep As Long
+    keep = keepK
+    If keep < 1 Or keep > n Then keep = n
+
+    Dim outS As String
+    Dim cnt As Long
+    Dim pass As Long, i As Long
+    For pass = 0 To 1
+        For i = 1 To n
+            If cnt >= keep Then Exit For
+            Dim isUsed As Boolean
+            isUsed = InCitedScope(mUsedChunks, Trim$(raw(lo + i - 1)))
+            If (pass = 0) <> isUsed Then
+                If LenB(outS) > 0 Then outS = outS & ","
+                outS = outS & CStr(i)
+                cnt = cnt + 1
+            End If
+        Next i
+    Next pass
+    DemoteOrder = outS
+End Function
 
 ' 検索へ渡す許可Dictionary。1件も覚えていなければ Nothing(=スコープ無し)。
 Public Function CitedSourcesDict() As Object

@@ -175,6 +175,9 @@ Public Sub OnSend()
     Dim isFollowup As Boolean
     isFollowup = modAppAct.ConsumeArmedFollowup()
     If sendMode = "normal" Then isFollowup = False
+    ' R16-3D: 深掘りかどうかを qa層へ1回だけ預ける(下書き指示の出し分けと
+    ' 既出チャンクメモリの寿命が、どちらもこの旗を見る)。
+    modFollowup.SetFollowupTurn isFollowup
 
     Dim t0 As Double: t0 = Timer
 
