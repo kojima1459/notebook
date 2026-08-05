@@ -603,6 +603,11 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
             ' 回答」を作らないことを明示的に固定する(章の本文が無いまま
             ' もっともらしい俯瞰回答が出ると、mockと実機の差が一番危ない)。
             MockLLMResponse = "<pick></pick>"
+        Case "name_dedup"
+            ' R17 Phase3: 用語の名寄せ。空=0グループで、modSynonymStore は
+            ' 何も書かずに諦める(R16H FB-2/chapter_summaryと同じ理由の明示。
+            ' Case Else の汎用ダミーはタグを含まないためパーサが読めない)。
+            MockLLMResponse = "<syn></syn>"
         Case "diff"
             MockLLMResponse = "【モック差分分析】" & vbLf & _
                 "・新旧資料を比較しました [本棚:旧版.pdf p.1] → [本棚:新版.pdf p.1]" & vbLf & _
