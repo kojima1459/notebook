@@ -173,6 +173,14 @@
       "wave": "2-C"
     },
     {
+      "name": "modChunkMetaStore",
+      "path": "src/ingest/modChunkMetaStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-0",
+      "note": "R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使うchunk_metaシートの器(波0)。EnsureChunkMetaSheetはmodShelfStore.EnsureKnowledgeSheetと同型。パース本体・取込フックからの呼び出しは次波(Phase1)が配線する。"
+    },
+    {
       "name": "modShelfVision",
       "path": "src/ingest/modShelfVision.bas",
       "role": "core",
