@@ -79,10 +79,19 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
     Dim lat As Long
 
+    ' --- (0) 精読: 根拠チャンクの前後を一緒に読む(2026-08-05 R16-3C) --------
+    ' 当たったチャンクだけだと、表の見出しと値・条文と但し書きのように
+    ' 意味の単位がチャンク境界をまたぐ資料で「書いてあるのに確認できない」に
+    ' なる。件数だけをローカルで増やし、引数の nHits(=呼び出し元 modAsk の
+    ' 出典チップ・信頼度の材料)は動かさない。近傍は根拠であって【ヒット】では
+    ' ないので、検索結果の件数として数えると信頼度バッジが水増しされる。
+    Dim nUse As Long: nUse = nHits
+    modAskFocus.NeighborExpand hits, nUse, modConfig.GetLong("deep_neighbor", 2)
+
     ' --- (2) 資料の要点整理 -------------------------------------------------
     modAskRetrieve.ShowAskStage "digest"
     Dim digest As String
-    digest = modGateway.CallLLM(modPrompts.BuildSourceDigestPrompt(q, hits, nHits), _
+    digest = modGateway.CallLLM(modPrompts.BuildSourceDigestPrompt(q, hits, nUse), _
         "thorough_digest", modConfig.GetString("thorough_digest_effort", "low"), _
         "medium", mdl, lat)
     If modRagParse.IsErrorResponse(digest) Then
@@ -100,7 +109,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     modAskRetrieve.ShowAskStage "draft"
     Dim draft As String
     draft = modGateway.CallLLM( _
-        modPrompts.BuildDeepDraftPrompt(q, hits, nHits, history, strictG, ansTags, digest), _
+        modPrompts.BuildDeepDraftPrompt(q, hits, nUse, history, strictG, ansTags, digest), _
         "thorough_draft", modConfig.GetString("thorough_draft_effort", "high"), _
         modConfig.GetString("thorough_draft_verbosity", "high"), mdl, lat, prevU, prevA)
     If modRagParse.IsErrorResponse(draft) Then
@@ -116,7 +125,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     Dim critique As String
     ' 冗長性は最小で固定する。この段の出力は「番号付きの指摘」だけで、
     ' 長くなるほど次の検証段が読み落とす(configで伸ばせる意味が無い)。
-    critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, draftBody, hits, nHits), _
+    critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, draftBody, hits, nUse), _
         "thorough_critique", modConfig.GetString("thorough_critique_effort", "medium"), _
         "low", mdl, lat)
     If modRagParse.IsErrorResponse(critique) Then
@@ -132,7 +141,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     modAskRetrieve.ShowAskStage "verify"
     Dim verified As String
     verified = modGateway.CallLLM( _
-        modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nHits, strictG, ansTags, critique), _
+        modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique), _
         "thorough_verify", modConfig.GetString("thorough_verify_effort", "high"), _
         modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
 
@@ -149,7 +158,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     End If
 
     ' --- (6) 出典の機械的突合 -----------------------------------------------
-    RunThoroughFlow = AnnotateAgainstHits(body, hits, nHits)
+    RunThoroughFlow = AnnotateAgainstHits(body, hits, nUse)
 End Function
 
 ' ============================================================================

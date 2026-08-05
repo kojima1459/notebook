@@ -329,6 +329,14 @@ PURE_ALLOWLIST = [
     #   未注入のまま modTestsPure14 から呼ぶと実行時エラー12になり、分解ゲートと
     #   部分失敗の文言が「テストを書いても走らない」状態になる。
     "modAskMulti",
+    # modAskFocus(2026-08-05 R16-3C): 精読(近傍チャンク束ね)。モジュール全体は
+    #   my_knowledge を直接 Range 読みするが、テストが呼ぶ2本
+    #   (ParseChunkKey=chunk_id からの (docKey, page, seq) 復元 /
+    #    NeighborIdList=文書順に並べて前後 radius を取る)は Excel/COM に触れない
+    #   (modShelfSync/modPack/modLog/modAskThorough/modAskMulti と同じ型)。
+    #   未注入のまま modTestsPure15 から呼ぶと実行時エラー12になり、文書順復元と
+    #   近傍取りが「テストを書いても走らない」状態になる。
+    "modAskFocus",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

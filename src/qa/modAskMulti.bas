@@ -181,11 +181,20 @@ PartsDone:
         End If
     Next i
 
+    ' R16-3C: 精読(根拠チャンクの前後を束ねる)は、全論点を1本にした unionHits へ
+    ' 1回だけ掛ける。論点ごとに掛けると同じ資料の同じ近傍を論点数ぶん読み直す。
+    ' 増えた件数は uUse にだけ載せ、呼び出し元へ返す nHits(出典チップ・信頼度の
+    ' 材料)は検索ヒットのままにする。近傍は根拠であってヒットではない。
+    Dim uUse As Long: uUse = uN
+    modAskFocus.NeighborExpand uHits, uUse, modConfig.GetLong("deep_neighbor", 2)
+
     Dim body As String
-    body = Integrate(q, sections, uHits, uN, nParts, total, strictG, ansTags, mdl, prevU, prevA)
+    body = Integrate(q, sections, uHits, uUse, nParts, total, strictG, ansTags, mdl, prevU, prevA)
 
     ' 出典突合は全論点ぶんの索引で1回だけ(理由はモジュール冒頭の設計判断)。
-    body = modAskThorough.AnnotateAgainstHits(body, uHits, uN)
+    ' 索引は【精読で足した近傍を含んだ】側から作る。近傍を根拠に書いた文へ
+    ' 「(出典確認できず)」が付くと、正しい引用を嘘だと言うことになる。
+    body = modAskThorough.AnnotateAgainstHits(body, uHits, uUse)
 
     If aborted And missingAt > 0 Then
         body = body & vbLf & vbLf & "※中断されたため論点" & missingAt & "以降は未調査です"
