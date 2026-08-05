@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R16完了時点）
+# 再開手順（セッション中断対策・最終更新: R18完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,10 +6,19 @@
 
 ## 1. 現在地
 
-**R16完了(要望4件→調査5班→R16仕様→波1〜3実装→敵対的レビュー2面→R16H裁定FA8+FB12全消化)。実機配布可。**
-R1〜R16まで全ラウンド完了・検収済み・push済み。テスト1,391件・lint ERROR 0/WARN 4(全てテスト系)・
-モジュール117本(実装側WARNゼロ)。仕様は docs/dev/spec_20260805_R16_要望4件.md と
-docs/dev/spec_20260805_R16H_レビュー裁定.md(§3C/3Dの読み替え改訂を含む)。
+**R18完了(実機第5報①〜⑪→調査8班→R18仕様→波A〜C→敵対的レビュー2面→R18H裁定FA8+FB8全消化)。実機配布可。**
+R1〜R18まで完了・検収済み・push済み(R17=構造グラフPhase1〜3はGO済み・次に着手)。
+テスト1,486件・lint ERROR 0/WARN 4(全てテスト系)・モジュール121本(実装側WARNゼロ)。
+仕様: docs/dev/spec_20260805_R18_実機第5報.md + spec_20260805_R18H_レビュー裁定.md。
+R18の骨子: ①バナー可変幅/2行化+ボタン常時前面(modProgressBar新設)+砂時計廃止+2段目
+「作業用Excelを開く?」(セッション1回)/⑧manifest偽0根治(chunk_count -1保持+SourceList
+実数突合自動修復+保存一本化+置換反転+modIntegrity起動時突合+Temp検知)/⑤非BMP絵文字の
+ダイアログ排除+lint検査14+手動同期のinteractive配線/⑦HasCompoundSignal(？×2・。×2)で
+短い複合質問も段0へ/E0303分類のusage_log格下げ/②全域書式の範囲限定+modViewport
+(ScrollArea)+チャットへ上段移設/③ナレッジ地図の可視化撤去(分析CSV系は温存)/
+④hubチップのカード化/⑨フッター+社内ポータル導線(E0905)。
+R16の骨子(参考): ①文言統一/②作業用Excel+白画面抑止(初Declare)/③複合質問分解(modAskMulti)
+・逆質問番号選択肢・精読(modAskFocus)・深掘り既出降格。
 R16の骨子: ①文言統一(節約した時間)/②取込中のPC作業両立(🗔作業用Excel=WScript.Shellで
 excel.exe /x・白画面抑止=リポジトリ初のDeclare(user32.DisableProcessWindowsGhosting、
 config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複合質問分解(modAskMulti、
@@ -17,13 +26,15 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-④は docs/dev/design_20260805_R17_構造グラフ設計.md(GO待ち)。
-残: 利用者の実機テスト(docs/45スモーク全27項目、特に23〜27+19〜22)+R17のGO判断。
+次: R17実装(docs/dev/design_20260805_R17_構造グラフ設計.md、GO済み。波割りは調査agent7=
+R17前提検証を参照。着手前提: modPrompts分割(残386字)と modShelf の先行圧縮(残5字))。
+残: 利用者の実機テスト(docs/45スモーク全31項目、特に28〜31+19〜27)。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
-**optOcrPage(残3) / modShelfBatch(残6) / modUtil(残8) / modTestsPure6(残9) / modSkin(残10) /
-modTestsPure11(残19) / optVision(残26) / modBoot(残32) / modUI(残35) / modChunker(残38) /
-modAsk(残43) / optGsTxt(残45) / modUIMain(残207) / modRetrieve(残259) / modPrompts(残386) /
-modTestsPure12(WARN帯28,280字・追記禁止)**。
+**optOcrPage(残3) / modShelf(残5) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
+modShelfBatch(残22) / optVision(残26) / modChunker(残38) / modBoot(残41) / modAsk(残43) /
+modUI(残44) / modShelfStore(残44) / optGsTxt(残45) / modUIMain(残101) / modHubStat(残164) /
+modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残386) /
+modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977字へ解放済み。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -66,6 +77,10 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。
 | R16波2 | Opus | ③-A複合質問の分解→統合(modAskMulti+段0判定+union出典突合+テスト57件) | d528286/37352c2/461e1d2 | 完了 |
 | R16波3 | Opus | ③-B逆質問番号選択肢+③-C精読(modAskFocus)+③-D既出降格+裁定1〜3+docs+テスト82件 | 7251a25〜f72f12a | 完了 |
 | R16-Fix | Opus | R16H裁定FA8(精読source基準化/逆質問非回答化/降格全followup化ほか)+FB12 | e71b940/e5e8507/bbef504 | 完了 |
+| R18波A | Opus | ①⑪バナー根治(modProgressBar新設)+⑧永続化(modIntegrity新設・保存一本化・置換反転) | ea6b8ed〜cceb2d6 | 完了 |
+| R18波B | Sonnet | ⑤非BMP排除+lint検査14+同期interactive+⑦HasCompoundSignal+E0303格下げ | 7d99933〜5e5b2cf | 完了 |
+| R18波C | Opus | ②範囲限定+modViewport+チャットへ上段+③地図撤去+④カード化+⑨フッター | 5b1d786〜a41bcfa | 完了 |
+| R18-Fix | Opus | R18H裁定FA8(2段目1回化/バナー2行/虚偽警告根治/全重複保護/フッター当たり判定ほか)+FB8 | 294afa4/f9664ef | 完了 |
 
 ### R18 で増えたもの(次に触る人が最初に知るべき5点)
 
@@ -272,6 +287,10 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     LOモード1のPASSは1,228件、lint ERROR 0/WARN 4(modTestsPure/2/5/12。全てテスト系)。
   ※R16完了時点: 117本(modWorkExcel/modAskMulti/modAskFocus/modTestsPure15を追加)、
     LOモード1のPASSは1,391件、lint ERROR 0/WARN 4(同上)のまま。
+  ※R18完了時点: 121本(modProgressBar/modIntegrity/modViewport/modTestsPure16を追加)、
+    LOモード1のPASSは1,486件、lint ERROR 0/WARN 4(同上)のまま。
+    R18で記録した確定事項: 全重複再取込はfail_countを進め3回でfailed_permanent(復帰口
+    あり・仕様)。ナレッジ地図の可視化コードは a41bcfa の親(75ba385^)から復活可能。
 - **R15で記録した次期課題・確定事項**:
   - ChatGPTV は待ち秒数引数なし・同期永久待ち(実機確認済み)。VBA側の根治は不可能。
     リボン側に引数が追加されたら optOcrPage の呼び出し1行で反映可能。
