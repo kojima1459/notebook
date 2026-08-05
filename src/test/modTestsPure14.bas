@@ -243,6 +243,229 @@ Private Sub TestBuildWorkExcelCmd()
         "実際=" & modUtilText.BuildWorkExcelCmd(withJp)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R16-3A(2026-08-05): 複合質問の分解→統合。
+' ----------------------------------------------------------------------------
+' 段0の応答パーサ。ここが「読めない応答で parts へ倒す」と、割れていない
+' 論点で検索と生成をN回して、遅くなったうえに薄い答えが出る。全ての異常は
+' single(=従来の入念フロー)へ落ちることを固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestParseDecomposeVerdict()
+    Dim v As String
+    ' (1) 正常3種。
+    modTestRunner.Check "分解判定_single", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>single</verdict>") = "single")
+    modTestRunner.Check "分解判定_parts", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>parts</verdict><parts>a|b</parts>") = "parts")
+    modTestRunner.Check "分解判定_clarify", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>clarify</verdict><options>x|y</options>") = "clarify")
+
+    ' (2) 大文字・前後空白のゆれ(モデルの書き方は毎回ぶれる)。
+    modTestRunner.Check "分解判定_大文字でも読む", _
+        (modRagParse.ParseDecomposeVerdict("<VERDICT> PARTS </VERDICT>") = "parts")
+
+    ' (3) タグ欠落・空・不正な語・#ERR はすべて single へ寛容退化。
+    modTestRunner.Check "分解判定_タグ欠落はsingle", _
+        (modRagParse.ParseDecomposeVerdict("分けたほうがよいと思います") = "single")
+    modTestRunner.Check "分解判定_空文字はsingle", _
+        (modRagParse.ParseDecomposeVerdict("") = "single")
+    modTestRunner.Check "分解判定_中身が空のタグはsingle", _
+        (modRagParse.ParseDecomposeVerdict("<verdict></verdict>") = "single")
+    modTestRunner.Check "分解判定_知らない語はsingle", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>maybe</verdict>") = "single")
+    v = modRagParse.ParseDecomposeVerdict("#ERR:E0202:応答が空でした")
+    modTestRunner.Check "分解判定_エラー応答はsingle", (v = "single"), "実際=" & v
+    ' 閉じタグが無い応答でも「開始タグ以降の全部」を読んで判定できる。
+    modTestRunner.Check "分解判定_閉じタグ欠落でも読む", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>parts") = "parts")
+End Sub
+
+Private Sub TestParseParts()
+    Dim p() As String
+    Dim n As Long
+
+    ' (1) 正常。区切りは "|"。前後の空白は落ちる。
+    n = modRagParse.ParseParts("<parts> A の違い | B の手続き </parts>", 3, p)
+    modTestRunner.Check "論点分割_2件", (n = 2), "実際=" & n
+    modTestRunner.Check "論点分割_前後空白は落ちる", _
+        (n = 2 And p(0) = "A の違い" And p(1) = "B の手続き"), "実際=" & p(0) & "/" & p(1)
+
+    ' (2) 上限で切り詰める(4分割→3)。増やすほどAI呼び出しが増える段なので、
+    '     ここが効かないと1質問で何回でも呼べてしまう。
+    n = modRagParse.ParseParts("<parts>a|b|c|d</parts>", 3, p)
+    modTestRunner.Check "論点分割_上限3で切り詰め", (n = 3), "実際=" & n
+    modTestRunner.Check "論点分割_切り詰めても先頭から順に残る", _
+        (n = 3 And p(0) = "a" And p(2) = "c"), "実際=" & p(0) & p(1) & p(2)
+
+    ' (3) 空要素は数えない(「a||b」を3件と数えると空の論点を1回調べる)。
+    n = modRagParse.ParseParts("<parts>a||b</parts>", 3, p)
+    modTestRunner.Check "論点分割_空要素は除去", (n = 2), "実際=" & n
+
+    ' (4) タグ欠落・空・#ERR は0件(呼び出し側が single へ落ちる)。
+    modTestRunner.Check "論点分割_タグ欠落は0件", _
+        (modRagParse.ParseParts("<verdict>parts</verdict>", 3, p) = 0)
+    modTestRunner.Check "論点分割_空タグは0件", _
+        (modRagParse.ParseParts("<parts></parts>", 3, p) = 0)
+    modTestRunner.Check "論点分割_区切りだけは0件", _
+        (modRagParse.ParseParts("<parts> | | </parts>", 3, p) = 0)
+    modTestRunner.Check "論点分割_エラー応答は0件", _
+        (modRagParse.ParseParts("#ERR:E0202:応答が空でした", 3, p) = 0)
+    modTestRunner.Check "論点分割_上限0なら0件", _
+        (modRagParse.ParseParts("<parts>a|b</parts>", 0, p) = 0)
+
+    ' (5) 1件しか割れなかった応答も「読めている」こと(切るのは呼び出し側の判断)。
+    n = modRagParse.ParseParts("<parts>ひとつだけ</parts>", 3, p)
+    modTestRunner.Check "論点分割_1件は1件として返す", (n = 1), "実際=" & n
+End Sub
+
+' 発動ゲート(off/auto/always と文字数)と、論点あたりtopKの下限。
+Private Sub TestDecomposeGate()
+    modTestRunner.Check "分解ゲート_offは呼ばない", _
+        (modAskMulti.ShouldDecompose("off", 200, 25) = False)
+    modTestRunner.Check "分解ゲート_alwaysは短くても呼ぶ", _
+        (modAskMulti.ShouldDecompose("always", 1, 25) = True)
+    modTestRunner.Check "分解ゲート_autoは既定25字未満で呼ばない", _
+        (modAskMulti.ShouldDecompose("auto", 24, 25) = False)
+    modTestRunner.Check "分解ゲート_autoは境界25字ちょうどで呼ぶ", _
+        (modAskMulti.ShouldDecompose("auto", 25, 25) = True)
+    ' config の打ち間違いで機能が黙って止まらない(未知の値は auto 扱い)。
+    modTestRunner.Check "分解ゲート_知らない値はauto扱い", _
+        (modAskMulti.ShouldDecompose("ｵﾝ", 30, 25) = True And _
+         modAskMulti.ShouldDecompose("", 10, 25) = False)
+    modTestRunner.Check "分解ゲート_大文字と前後空白を吸収", _
+        (modAskMulti.ShouldDecompose(" OFF ", 200, 25) = False)
+    ' 0以下の閾値は既定25へ倒す(configを0にして全質問で呼ばせない)。
+    modTestRunner.Check "分解ゲート_閾値0以下は既定25", _
+        (modAskMulti.ShouldDecompose("auto", 24, 0) = False And _
+         modAskMulti.ShouldDecompose("auto", 25, 0) = True)
+
+    modTestRunner.Check "論点topK_16を3論点なら下限6", _
+        (modAskMulti.PerPartTopK(16, 3) = 6), "実際=" & modAskMulti.PerPartTopK(16, 3)
+    modTestRunner.Check "論点topK_16を2論点なら8", _
+        (modAskMulti.PerPartTopK(16, 2) = 8), "実際=" & modAskMulti.PerPartTopK(16, 2)
+    modTestRunner.Check "論点topK_大きい設定はそのまま割る", _
+        (modAskMulti.PerPartTopK(30, 3) = 10)
+    modTestRunner.Check "論点topK_論点0でも下限6(0除算にしない)", _
+        (modAskMulti.PerPartTopK(16, 0) = 6)
+End Sub
+
+' ----------------------------------------------------------------------------
+' 統合段への入力(節の組み立て)。ここが崩れると、統合LLMへ渡す前の時点で
+' 出典タグが落ちたり、調べられなかった論点が黙って消えたりする。
+' ----------------------------------------------------------------------------
+Private Sub TestPartSection()
+    Dim s As String
+
+    ' (1) 出典タグは節の組み立てで一字一句そのまま通る。
+    s = modAskMulti.BuildPartSection(1, "Aの違いは?", _
+        "結論です。[本棚:規約集 p.12]と[パック(山田):承認フロー]が根拠です。")
+    Dim head1 As String: head1 = "■Aの違いは?"
+    modTestRunner.Check "統合入力_見出しは副質問", _
+        (Left$(s, Len(head1)) = head1), "実際=" & s
+    modTestRunner.Check "統合入力_本棚タグがそのまま残る", _
+        (InStr(s, "[本棚:規約集 p.12]") > 0), "実際=" & s
+    modTestRunner.Check "統合入力_パックタグがそのまま残る", _
+        (InStr(s, "[パック(山田):承認フロー]") > 0), "実際=" & s
+
+    ' (2) 部分失敗の文言は固定(統合段へ「この文言は消すな」と指示する文字列と
+    '     同じでなければ、指示と実物がずれて黙って言い換えられる)。
+    s = modAskMulti.BuildPartSection(2, "Bの手続きは?", "")
+    modTestRunner.Check "統合入力_失敗節の文言が固定", _
+        (s = "■論点2: " & modPrompts.PART_FAIL_TEXT), "実際=" & s
+    modTestRunner.Check "統合入力_失敗節は空白だけの本文でも同じ", _
+        (modAskMulti.BuildPartSection(2, "Bの手続きは?", "   ") = s), _
+        "実際=" & modAskMulti.BuildPartSection(2, "Bの手続きは?", "   ")
+
+    ' (3) 副質問が空でも見出しは必ず立つ(見出しが消えると統合段が節を融かす)。
+    modTestRunner.Check "統合入力_副質問が空なら論点nを見出しに", _
+        (Left$(modAskMulti.BuildPartSection(3, "", "本文"), 4) = "■論点3"), _
+        "実際=" & modAskMulti.BuildPartSection(3, "", "本文")
+
+    ' (4) 統合プロンプトは、渡した節をそのまま抱え、タグ保持を明示する。
+    Dim sections As String
+    sections = modAskMulti.BuildPartSection(1, "Aの違いは?", "甲です。[本棚:規約集 p.12]") & _
+        vbLf & vbLf & modAskMulti.BuildPartSection(2, "Bの手続きは?", "")
+    Dim mp As String
+    mp = modPrompts.BuildMergePrompt("AとBについて教えて", sections)
+    modTestRunner.Check "統合プロンプト_節の出典タグが本文に載る", _
+        (InStr(mp, "[本棚:規約集 p.12]") > 0), ""
+    modTestRunner.Check "統合プロンプト_一字一句残せと書いてある", _
+        (InStr(mp, "一字一句そのまま残すこと") > 0), ""
+    modTestRunner.Check "統合プロンプト_失敗節の文言を残せと書いてある", _
+        (InStr(mp, modPrompts.PART_FAIL_TEXT) > 0), ""
+    modTestRunner.Check "統合プロンプト_元の質問も載る", _
+        (InStr(mp, "AとBについて教えて") > 0), ""
+    ' 全滅(節が1つも無い)ときは、そもそも統合を呼ばずエラー回答へ倒す設計。
+    ' ここでは「空を渡しても壊れない」ことだけを固定する。
+    modTestRunner.Check "統合プロンプト_節が空でも壊れない", _
+        (Len(modPrompts.BuildMergePrompt("q", "")) > 0)
+
+    ' (5) 段0プロンプトは3タグの出力契約を必ず含む(パーサと対になる規約)。
+    Dim dp As String
+    dp = modPrompts.BuildDecomposePrompt("AとBの違いとCの手続きは?", "", 3)
+    modTestRunner.Check "分解プロンプト_verdictタグを要求", (InStr(dp, "<verdict>") > 0), ""
+    modTestRunner.Check "分解プロンプト_partsタグを要求", (InStr(dp, "<parts>") > 0), ""
+    modTestRunner.Check "分解プロンプト_optionsタグを要求", (InStr(dp, "<options>") > 0), ""
+    modTestRunner.Check "分解プロンプト_上限件数を書く", (InStr(dp, "最大3個") > 0), "実際=" & dp
+    modTestRunner.Check "分解プロンプト_上限は2から5へ丸める", _
+        (InStr(modPrompts.BuildDecomposePrompt("q", "", 99), "最大5個") > 0 And _
+         InStr(modPrompts.BuildDecomposePrompt("q", "", 0), "最大2個") > 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' 統合後テキストに対する出典突合のゴールデン(■見出し複数+複数論点のタグ+
+' 1件だけ偽タグ)。分解経路では索引を unionHits から作るので、論点2の資料を
+' 引いた文が論点1の索引に無くて「確認できず」になる、という壊れ方をしない
+' ことをここで固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestMergedAnnotate()
+    ' unionHits から作られる突合表(空白は落ちた形)。論点1=規約集、
+    ' 論点2=承認フロー(パック)+規約集p.13。
+    Dim idx As String
+    idx = "|[本棚:規約集p.12]||[本棚:規約集p.13]||[パック(山田):承認フロー]|"
+
+    Dim src As String
+    src = "【結論】AとBのどちらも手続きが要ります。" & vbLf & vbLf & _
+          "■Aの違いは?" & vbLf & _
+          "・甲は乙より優先されます。[本棚:規約集 p.12]" & vbLf & vbLf & _
+          "■Bの手続きは?" & vbLf & _
+          "・課長承認が必要です。[パック(山田):承認フロー]" & vbLf & _
+          "・提出期限は5日以内。[本棚:規約集 p.13]" & vbLf & _
+          "・例外は年度末のみ。[本棚:存在しない手引き.pdf p.9]"
+
+    Dim mism As Long
+    Dim r As String
+    r = modAskThorough.AnnotateCitations(src, idx, mism)
+
+    modTestRunner.Check "統合後突合_偽タグは1件だけ", (mism = 1), "実際=" & mism
+    modTestRunner.Check "統合後突合_偽タグの直後に付記", _
+        (InStr(r, "[本棚:存在しない手引き.pdf p.9]" & modAskThorough.UNVERIFIED_MARK) > 0), _
+        "実際=" & r
+    ' 論点をまたいだタグに付記が付かないこと(索引を論点ごとに作ると全滅する)。
+    modTestRunner.Check "統合後突合_論点1のタグは無傷", _
+        (InStr(r, "[本棚:規約集 p.12]" & modAskThorough.UNVERIFIED_MARK) = 0), "実際=" & r
+    modTestRunner.Check "統合後突合_論点2のパックタグは無傷", _
+        (InStr(r, "[パック(山田):承認フロー]" & modAskThorough.UNVERIFIED_MARK) = 0), _
+        "実際=" & r
+    modTestRunner.Check "統合後突合_論点2の本棚タグは無傷", _
+        (InStr(r, "[本棚:規約集 p.13]" & modAskThorough.UNVERIFIED_MARK) = 0), "実際=" & r
+    ' ■見出しは1つも欠けない(突合は本文を線形に写すだけで構造を壊さない)。
+    modTestRunner.Check "統合後突合_見出しが2つとも残る", _
+        (InStr(r, "■Aの違いは?") > 0 And InStr(r, "■Bの手続きは?") > 0), "実際=" & r
+    modTestRunner.Check "統合後突合_付記1件ぶんだけ長くなる", _
+        (Len(r) = Len(src) + Len(modAskThorough.UNVERIFIED_MARK)), _
+        "実際=" & Len(r) & " 元=" & Len(src)
+
+    ' 部分失敗の節が混じっていても、そこにはタグが無いので何も付かない。
+    Dim src2 As String
+    src2 = "■Aの違いは?" & vbLf & "・甲です。[本棚:規約集 p.12]" & vbLf & vbLf & _
+           "■論点2: " & modPrompts.PART_FAIL_TEXT
+    r = modAskThorough.AnnotateCitations(src2, idx, mism)
+    modTestRunner.Check "統合後突合_失敗節には何も付かない", (mism = 0), "実際=" & mism
+    modTestRunner.Check "統合後突合_失敗節の文言が残る", _
+        (InStr(r, modPrompts.PART_FAIL_TEXT) > 0), "実際=" & r
+End Sub
+
 Public Sub RunAll14()
     On Error GoTo ComposeFail14
     TestComposeOcrMemo
@@ -261,6 +484,21 @@ NextDecline14:
 NextWorkExcel14:
     On Error GoTo WorkExcelFail14
     TestBuildWorkExcelCmd
+NextVerdict14:
+    On Error GoTo VerdictFail14
+    TestParseDecomposeVerdict
+NextParts14:
+    On Error GoTo PartsFail14
+    TestParseParts
+NextGate14:
+    On Error GoTo GateFail14
+    TestDecomposeGate
+NextSection14:
+    On Error GoTo SectionFail14
+    TestPartSection
+NextMerged14:
+    On Error GoTo MergedFail14
+    TestMergedAnnotate
 NextDone14:
     On Error GoTo 0
     Exit Sub
@@ -287,6 +525,26 @@ DeclineFail14:
     Resume NextWorkExcel14
 WorkExcelFail14:
     modTestRunner.Check "TestBuildWorkExcelCmd(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextVerdict14
+VerdictFail14:
+    modTestRunner.Check "TestParseDecomposeVerdict(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextParts14
+PartsFail14:
+    modTestRunner.Check "TestParseParts(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGate14
+GateFail14:
+    modTestRunner.Check "TestDecomposeGate(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSection14
+SectionFail14:
+    modTestRunner.Check "TestPartSection(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextMerged14
+MergedFail14:
+    modTestRunner.Check "TestMergedAnnotate(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone14
 End Sub
