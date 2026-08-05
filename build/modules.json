@@ -537,6 +537,14 @@
       "wave": "NEXUS-P7"
     },
     {
+      "name": "modProgressBar",
+      "path": "src/ui/modProgressBar.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "進捗バナー(nx_progress)と中断/作業用Excelボタンの描画・撤去。2026-08-05 R18-1a に modSkin(残り10字)から移設。呼び出し元は modUIMain.ShowProgress/HideProgress と modShelfBatch.ShowIngestBanner の3行、および modHub.EnsureHubLayout からの SweepOrphans。"
+    },
+    {
       "name": "modBitwiseOpt",
       "path": "src/qa/modBitwiseOpt.bas",
       "role": "core",

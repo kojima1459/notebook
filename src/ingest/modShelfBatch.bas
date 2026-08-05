@@ -265,7 +265,7 @@ End Function
 ' 経路で、silent を引数で運ぶと modShelfSync まで波及する。「今バナーが出て
 ' いるか」という画面の事実を1回見るだけなら、経路を書き換えずに同じ判断が
 ' できる。可視判定は「今のシートに nx_progress のShapeがあるか」で行う。表示の
-' 実体(modSkin.PaintProgress/ClearProgress)がこのShapeを作って消しているので、
+' 実体(modProgressBar.PaintProgress/ClearProgress)がShapeを作って消すので、
 ' これが唯一の事実(modUIMain は状態を持っておらず、容量も残り僅か)。
 ' 表示系の失敗が取込を壊してはならない(憲章§4-4)ので全体をOERNで包む。
 ' ----------------------------------------------------------------------------
@@ -285,7 +285,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' modUIMain.ShowProgress と同じ2つのこと(状態行/StatusBarへの実況+画面上の
 ' バナー)をするが、バナーには「中断」ボタンを添える。
-' なぜ分けるのか: 中断ボタンは modSkin.PaintProgress が【常に】描いていたため、
+' なぜ分けるのか: 中断ボタンは PaintProgress が【常に】描いていたため、
 ' 質問の準備・Q&Aの読込・ナレッジ登録など、中断の仕組みが一切無い処理の
 ' バナーにも生えていた(A-M4/B-H4)。押せば取込用の印が立つが何も止まらない=
 ' 「押しても何も起きないボタン」で、故障と区別が付かない。取込の入口3箇所
@@ -295,7 +295,7 @@ End Sub
 Public Sub ShowIngestBanner(ByVal text As String)
     On Error Resume Next
     modUIMain.SetStage text          ' ShowProgress の前半(既存チャネルへの実況)
-    modSkin.PaintProgress text, True ' 後半(バナー)。中断ボタンつき
+    modProgressBar.PaintProgress text, True ' 後半(バナー)。中断ボタンつき
     On Error GoTo 0
 End Sub
 

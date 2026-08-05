@@ -866,9 +866,24 @@ CONTRACT: dict[str, dict] = {
             "BeautifyAll", "StyleShape", "ApplyHeaderDepth", "ApplyGradient",
             "ApplyLightShadow", "ApplyGreenDepth", "StyleBubble", "ApplySoftShadow",
             "EffectiveSkin", "ResolveColor", "CycleSkin", "ShowToast",
-            "PaintProgress", "ClearProgress", "CurrentTheme", "SaveTheme",
+            "CurrentTheme", "SaveTheme",
             "ThemeColor", "ApplyTheme", "PaintBubble", "PaintActionButton",
             "SetShapeTextColor", "ThemeIcon",
+        ],
+    },
+    # modProgressBar(2026-08-05 R18-1a): modSkin から移設した進捗バナー一式。
+    # modSkin が27,990字(上限まで残り10字)で、実機第5報①の修正(幅の
+    # viewport連動・ZOrder遮蔽の根治・砂時計の停止・孤児バナーの掃除)が
+    # 1行も入らなかったための分割(憲章§4-6)。
+    # PROGRESS_CANCEL_NAME / PROGRESS_WORK_NAME は Public Const:
+    # Private Const はモジュールを跨いで参照できないため(実機VBA/LOとも)。
+    # BarWidthFor は幅決定の純ロジック(modTestsPure15 が固定する)。
+    # SweepOrphans は modHub.EnsureHubLayout からの孤児掃除(取込中は何もしない)。
+    "modProgressBar": {
+        "closed": True,
+        "required": [
+            "PROGRESS_CANCEL_NAME", "PROGRESS_WORK_NAME",
+            "BarWidthFor", "PaintProgress", "ClearProgress", "SweepOrphans",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
@@ -1282,7 +1297,8 @@ R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats"}
 R1_UILOCK_ALLOWED_MODULES = {"modShelfSync"}
 
 # R1例外(中断ボタン付き進捗バナー。2026-08-04 R15-FixA FA-6)。
-# modSkin.PaintProgress は modUIMain.ShowProgress の後半そのもので、性質は
+# 2026-08-05 R18-1a: 実体は modSkin → modProgressBar へ移設した(名前だけの変更)。
+# modProgressBar.PaintProgress は modUIMain.ShowProgress の後半そのもので、性質は
 # 既存例外の ShowProgress と同じ(実況を伝えるだけ)。cancellable:=True を
 # 渡せるのは取込のバナーを1本化した modShelfBatch.ShowIngestBanner だけに
 # 限る(他所へ広がったらLintで止める=押しても止まらない中断ボタンを二度と
@@ -2534,7 +2550,8 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                             and (prefix, member) == ("modUiLock", "IsBusy")
                             and self_name in R1_UILOCK_ALLOWED_MODULES):
                         continue
-                    # PaintProgress(2026-08-04 R15-FixA FA-6): 中断ボタン付きの
+                    # PaintProgress(2026-08-04 R15-FixA FA-6 / 2026-08-05 R18-1a
+                    # で modSkin から modProgressBar へ移設): 中断ボタン付きの
                     # 進捗バナー。ShowProgress(=SetStage+PaintProgress)と同じ
                     # 「実況を伝えるだけ」の通知コールバックで、違いは中断ボタンを
                     # 添えるかどうかの1点だけ。modUIMain 側で分岐できれば
@@ -2543,7 +2560,7 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     # バナーを1本化する modShelfBatch.ShowIngestBanner だけに許す
                     # =どのモジュールが中断できるバナーを出せるかが1箇所で分かる。
                     if (cur_layer == LAYER_MID
-                            and (prefix, member) == ("modSkin", "PaintProgress")
+                            and (prefix, member) == ("modProgressBar", "PaintProgress")
                             and self_name in R1_PROGRESS_ALLOWED_MODULES):
                         continue
                     info.add(

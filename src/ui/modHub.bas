@@ -44,6 +44,8 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' 旧ホーム画面(modUIMainのbtn_/lbl_)と前回のHub Shapeを両方消す。
     ' nx_hub_だけ消すと旧ボタンが上に浮いたまま残る。
     modHubStat.RemoveHubShapes ws
+    ' R18-1e: 強制終了でブックに焼き付いた進捗バナーの孤児を掃除(取込中は何もしない)。
+    modProgressBar.SweepOrphans
 
     ws.Cells.Clear
     ws.Cells.Font.Name = "Yu Gothic UI"

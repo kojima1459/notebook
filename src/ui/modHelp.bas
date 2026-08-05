@@ -293,7 +293,7 @@ Private Sub ShowHelpCard()
                   "modHelp.OnOpenDiag"
 
     ' 6段目(2026-08-05 R16-2a): 取込中でなくても使える常設導線。取込バナー内の
-    ' ボタン(modSkin.PaintProgress経由)と同じハンドラを指す(取込中はそちらを
+    ' ボタン(modProgressBar.PaintProgress経由)と同じハンドラを指す(取込中はそちらを
     ' 使うが、アイドル時にも別プロセスで先に別の仕事を始めたい場合に使える)。
     AddHelpAction ws, "nx_help_workexcel", cardL, belowT + 170, 350, _
                   ChrW(&HD83D) & ChrW(&HDDD4) & " 作業用Excelを開く", _

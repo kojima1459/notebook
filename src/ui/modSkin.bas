@@ -20,16 +20,11 @@ Option Explicit
 '   ・LibreOfficeは静的コンパイルのみ(Shape/Windowプロパティは標準VBA)。
 ' ============================================================================
 
-' R10-5: PaintProgress/ClearProgressが進捗バナーの直前描画シート名を控える
-' (モジュールレベル宣言はプロシージャより前に置く。実機VBAの制約)。
-Private mProgressSheetName As String
+' 2026-08-05(R18-1a): 進捗バナー一式(PaintProgress/PaintCancelButton/
+' ClearProgress/mProgressSheetName/Shape名2定数)は src/ui/modProgressBar.bas へ
+' 移設した(本モジュールが上限まで残り10字で1行も直せなかったため。憲章§4-6)。
 
 Private Const THEME_KEY As String = "nexus_theme"
-
-' R15-6a: 中断ボタンのShape名("nx_progress"と対で出し消す)。
-Private Const PROGRESS_CANCEL_NAME As String = "nx_progress_cancel"
-' R16-2a: 作業用Excelボタンの名前。ClearProgressの削除対象へ同列で足す。
-Private Const PROGRESS_WORK_NAME As String = "nx_progress_work"
 
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
@@ -374,128 +369,6 @@ Private Sub ToastWait(ByVal ms As Long)
         DoEvents
         If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
     Loop
-End Sub
-
-' ----------------------------------------------------------------------------
-' PaintProgress / ClearProgress - 進捗バナー("nx_progress")の表示部(R10-5)。
-'   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。更新後DoEvents
-'   1回で再描画。別ブック表示中は何もしない(誤爆ガード)。シート切替時は
-'   旧シートのShapeを消して描く。
-'   cancellable(R15-FixA FA-6): Trueで「中断」を添える(従来は全処理で生え、
-'   押しても止まらず壊れたボタン同然=§3-1。今はmodShelfBatch.
-'   ShowIngestBannerだけがTrueを渡す)。Falseでも既存ボタンは消さない(実況中に
-'   消えると押したい瞬間に押せない)。R16-2a: TrueならmodWorkExcel.
-'   PaintWorkButtonが■中断の左隣へ作業用Excelも添える(座標・生成は同
-'   モジュール側)。寿命はバナーと同じでClearProgressが消す。
-' ----------------------------------------------------------------------------
-Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As Boolean = False)
-    On Error Resume Next
-    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
-    Dim ws As Worksheet: Set ws = ActiveSheet
-    If ws Is Nothing Then Exit Sub
-
-    ' 2026-07-31(R11-H Med4): waitless のToastは自分では消えないので、進捗
-    ' バナーを出すここでも掃除する(ShowToastの先頭と同じ役目)。
-    ws.Shapes("nx_toast").Delete
-
-    If LenB(mProgressSheetName) > 0 And mProgressSheetName <> ws.Name Then
-        Dim wsOld As Worksheet
-        Set wsOld = ThisWorkbook.Worksheets(mProgressSheetName)
-        If Not wsOld Is Nothing Then wsOld.Shapes("nx_progress").Delete
-        If Not wsOld Is Nothing Then wsOld.Shapes(PROGRESS_CANCEL_NAME).Delete
-        ' R16H FA-6: 作業用Excelも対で消す(消し忘れると別シートに取り残される)。
-        If Not wsOld Is Nothing Then wsOld.Shapes(PROGRESS_WORK_NAME).Delete
-    End If
-    mProgressSheetName = ws.Name
-
-    Dim barW As Double: barW = 380
-    Dim leftPos As Double, topPos As Double
-    leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
-    ' R10c(M4): トースト(nx_toast)も同じ+92に出るため、取込完了の瞬間だけ
-    ' 2枚が重なり文字が読めなかった。バナーはトースト(高さ34)の下へ
-    ' (92+34+余白4=130)。
-    topPos = ActiveWindow.VisibleRange.Top + 130
-
-    Dim shp As Shape
-    Set shp = ws.Shapes("nx_progress")
-    If shp Is Nothing Then
-        Set shp = ws.Shapes.AddShape(5, leftPos, topPos, barW, 30)   ' 5=角丸四角
-        shp.Name = "nx_progress"
-        shp.Adjustments(1) = 0.3
-        shp.Line.Visible = 0
-        shp.Placement = 3   ' xlFreeFloating
-        shp.Fill.ForeColor.RGB = RGB(30, 41, 59)
-        With shp.TextFrame2
-            .WordWrap = -1
-            .MarginLeft = 16: .MarginTop = 4: .MarginBottom = 4   ' 右余白は下で
-            .TextRange.Font.Name = "Yu Gothic UI"
-            .TextRange.Font.Size = 10
-            .TextRange.ParagraphFormat.Alignment = 2   ' 中央
-            .VerticalAnchor = 3
-        End With
-        shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(248, 250, 252)
-        ApplySoftShadow shp
-    Else
-        shp.Left = leftPos
-        shp.Top = topPos
-    End If
-    ' R15-FixB(FB-6): 中断ボタンはバナー【内側】右端へ(従来は右外
-    ' leftPos+barW+6で低解像度・小窓では画面外へはみ出し押せなかった。
-    ' 内側なら可視領域中央のバナーと必ず一緒に見える)。右余白190=従来88+
-    ' 作業用Excelボタン96+間隔6(R16H FA-5: 88のままだと後から足した作業用
-    ' Excelボタンの下へ本文が潜り、長い実況文が読めなかった)。毎回入れ直す
-    ' のはcancellableが呼びごとに変わり得るため。
-    Dim marginR As Double: marginR = 16
-    If cancellable Then marginR = 190
-    shp.TextFrame2.MarginRight = marginR
-    shp.TextFrame2.TextRange.Text = message
-    shp.ZOrder 0   ' msoBringToFront
-
-    If cancellable Then PaintCancelButton ws, leftPos + barW - 82, topPos
-    If cancellable Then modWorkExcel.PaintWorkButton ws, leftPos + barW - 82, topPos
-    DoEvents
-    On Error GoTo 0
-End Sub
-
-' PaintCancelButton - 進捗バナー内側右端の「中断」(R15-6a・RC3。位置は
-'   R15-FixB FB-6 で外側へ→内側へ)。85〜127分の取込を止める手段が無く強制
-'   終了しか無かった。止まるのは今の頁の後(OnCancelIngestは印を立てるだけ)。
-'   絵文字は使わない(CP932・R13-L6)。
-Private Sub PaintCancelButton(ByVal ws As Worksheet, ByVal leftPos As Double, _
-                              ByVal topPos As Double)
-    On Error Resume Next
-    Dim btn As Shape
-    Set btn = ws.Shapes(PROGRESS_CANCEL_NAME)
-    If btn Is Nothing Then
-        Set btn = ws.Shapes.AddShape(5, leftPos, topPos, 76, 30)
-        btn.Name = PROGRESS_CANCEL_NAME
-        btn.Adjustments(1) = 0.3: btn.Line.Visible = 0: btn.Placement = 3
-        btn.Fill.ForeColor.RGB = RGB(120, 32, 40)
-        With btn.TextFrame2
-            .TextRange.Font.Name = "Yu Gothic UI": .TextRange.Font.Size = 10
-            .TextRange.ParagraphFormat.Alignment = 2: .VerticalAnchor = 3
-        End With
-        btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 241, 242)
-        btn.TextFrame2.TextRange.Text = ChrW(&H25A0) & "中断"
-        btn.OnAction = "modShelfBatch.OnCancelIngest"
-    Else
-        btn.Left = leftPos: btn.Top = topPos
-    End If
-    btn.ZOrder 0
-    On Error GoTo 0
-End Sub
-
-Public Sub ClearProgress()
-    On Error Resume Next
-    If LenB(mProgressSheetName) > 0 Then
-        Dim ws As Worksheet
-        Set ws = ThisWorkbook.Worksheets(mProgressSheetName)
-        If Not ws Is Nothing Then ws.Shapes("nx_progress").Delete
-        If Not ws Is Nothing Then ws.Shapes(PROGRESS_CANCEL_NAME).Delete
-        If Not ws Is Nothing Then ws.Shapes(PROGRESS_WORK_NAME).Delete
-    End If
-    mProgressSheetName = ""
-    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------

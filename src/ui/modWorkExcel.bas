@@ -15,7 +15,7 @@ Option Explicit
 '   他ブックを編集する案内はMS公式が非推奨のため、別プロセス一本に統一する。
 '
 ' 2つの配置(どちらも同じOnAction=OnOpenWorkExcelを指す):
-'   (1) 取込バナー内、■中断の左隣(modSkin.PaintProgressのcancellable=True
+'   (1) 取込バナー内、■中断の左隣(modProgressBar.PaintProgressのcancellable=True
 '       分岐からPaintWorkButtonを1行呼ぶ)。
 '   (2) アイドル時のヘルプカード常設導線(modHelpのカードへ1行追加)。
 '
@@ -122,10 +122,10 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' PaintWorkButton - 進捗バナー内、■中断の左隣に作業用Excelボタンを添える
-'   (R16-2a)。modSkin.PaintProgressのcancellable=True分岐から1行だけ呼ばれる。
+'   (R16-2a)。modProgressBar.PaintProgressのcancellable=True分岐から呼ばれる。
 '   座標は中断ボタンの位置(cancelLeftPos/cancelTopPos)を受け取り、その左へ
 '   幅+間隔ぶんずらして自分の位置を決める(modSkin側は座標計算を持たない)。
-'   削除はmodSkin.ClearProgress側にPROGRESS_WORK_NAMEとして同列に登録済み
+'   削除はmodProgressBar.ClearProgress側にPROGRESS_WORK_NAMEとして同列に登録済み
 '   (Shape名の文字列そのものはWORK_BTN_NAMEがこちら側の一次情報)。
 ' ----------------------------------------------------------------------------
 Public Sub PaintWorkButton(ByVal ws As Worksheet, ByVal cancelLeftPos As Double, _

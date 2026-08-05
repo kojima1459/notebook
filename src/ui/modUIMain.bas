@@ -354,7 +354,7 @@ End Sub
 '   への対応。SetStageの出力先(状態行/StatusBar/チャットバブル)はNexus画面
 '   では不可視のため、画面上に常時見えるShapeバナー("nx_progress")を別途出す。
 '   ShowToastと違い待機ゼロ(ファイル数×1.1秒の純増を避ける)。表示部の実体は
-'   modSkin.PaintProgress/ClearProgress(ShowToastの隣に同型で置く)。
+'   modProgressBar.PaintProgress/ClearProgress(R18-1a で modSkin から移設)。
 ' ----------------------------------------------------------------------------
 ' R10c(M5): 本体を丸ごとOERNで包む。従来は SetStage だけがハンドラの外に
 ' あり、状態行の書込みで例外が出ると呼び出し元(取込ループ)の
@@ -363,13 +363,13 @@ End Sub
 Public Sub ShowProgress(ByVal msg As String, Optional ByVal skipBeat As Boolean = False)
     On Error Resume Next
     SetStage msg, skipBeat   ' 既存チャネル(状態行/StatusBar/チャットバブル)への記録は維持
-    modSkin.PaintProgress msg
+    modProgressBar.PaintProgress msg
     On Error GoTo 0
 End Sub
 
 Public Sub HideProgress()
     On Error Resume Next
-    modSkin.ClearProgress
+    modProgressBar.ClearProgress
     On Error GoTo 0
 End Sub
 
