@@ -7,8 +7,8 @@
 ## 1. 現在地
 
 **R18完了(実機第5報①〜⑪→調査8班→R18仕様→波A〜C→敵対的レビュー2面→R18H裁定FA8+FB8全消化)。実機配布可。**
-R1〜R18まで完了・検収済み・push済み(R17=構造グラフPhase1〜3はGO済み・次に着手)。
-テスト1,529件・lint ERROR 0/WARN 4(全てテスト系)・モジュール123本(実装側WARNゼロ)。
+R1〜R18まで完了・検収済み・push済み(R17=構造グラフはPhase1/Phase2完了・Phase3が次)。
+テスト1,572件・lint ERROR 0/WARN 4(全てテスト系)・モジュール126本(実装側WARNゼロ)。
 仕様: docs/dev/spec_20260805_R18_実機第5報.md + spec_20260805_R18H_レビュー裁定.md。
 R18の骨子: ①バナー可変幅/2行化+ボタン常時前面(modProgressBar新設)+砂時計廃止+2段目
 「作業用Excelを開く?」(セッション1回)/⑧manifest偽0根治(chunk_count -1保持+SourceList
@@ -26,15 +26,18 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: R17 Phase2(章単位要約=疑似グローバル検索)。着手前提として **modPrompts の分割**が
-必須(残386字で章要約プロンプトが1本も書けない。調査agent7 §5-4)。Phase1(構造メタ+
-参照エッジ)は R17波0/波1 で完了済み=下記「R17 で増えたもの」。
-残: 利用者の実機テスト(docs/45スモーク全32項目、特に32(R17 Phase1)+28〜31+19〜27)。
+次: R17 Phase3(エンティティ辞書+名寄せ+enrich常時ON)。Phase1(構造メタ+参照エッジ)は
+R17波0/波1、Phase2(章単位要約=疑似グローバル検索)は R17波2 で完了済み
+=下記「R17 で増えたもの」。**modPrompts の分割は Phase2 では見送った**(章要約・章選択・
+俯瞰回答の3本とも新モジュール内の Private プロンプトにしたため。調査agent7 §5-4 が
+前提にしていた分割は、Phase3 で modPrompts に手を入れるときに改めて裁定すること)。
+残: 利用者の実機テスト(docs/45スモーク全33項目、特に32(R17 Phase1)・33(R17 Phase2)
++28〜31+19〜27)。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
 **optOcrPage(残3) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
 modShelfBatch(残22) / optVision(残26) / modChunker(残38) / modBoot(残41) / modAsk(残43) /
 modUI(残44) / modShelfStore(残44) / optGsTxt(残45) / modUIMain(残101) / modHubStat(残164) /
-modShelf(残227・R17波1でコメント圧縮して枠を作り直した。次に触る波は先に分割裁定) /
+modShelf(残65・R17波1と波2で2度コメント圧縮した。**次に触る波は必ず先に分割裁定**) /
 modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残386) /
 modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977字へ解放済み。
 
@@ -82,6 +85,7 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977�
 | R18波A | Opus | ①⑪バナー根治(modProgressBar新設)+⑧永続化(modIntegrity新設・保存一本化・置換反転) | ea6b8ed〜cceb2d6 | 完了 |
 | R17波0 | Sonnet | chunk_metaシート基盤(SH_CHUNK_META/EXPECTED_SHEETS/modChunkMetaStore)+modShelf圧縮 | 729a75f〜4746a61 | 完了 |
 | R17波1 | Opus | Phase1: 構造メタ+参照エッジ(modChunkMeta新設/取込フック/RefsExpand/ArticleEnsure/別表・様式キー/graph_refs/テスト43件) | (本波) | 完了 |
+| R17波2 | Opus | Phase2: 章単位要約=疑似グローバル検索(doc_outline/modOutlineStore/modOutlineBuild/modAskGlobal/verdict=global/graph_outline/テスト43件) | (本波) | 完了 |
 | R18波B | Sonnet | ⑤非BMP排除+lint検査14+同期interactive+⑦HasCompoundSignal+E0303格下げ | 7d99933〜5e5b2cf | 完了 |
 | R18波C | Opus | ②範囲限定+modViewport+チャットへ上段+③地図撤去+④カード化+⑨フッター | 5b1d786〜a41bcfa | 完了 |
 | R18-Fix | Opus | R18H裁定FA8(2段目1回化/バナー2行/虚偽警告根治/全重複保護/フッター当たり判定ほか)+FB8 | 294afa4/f9664ef | 完了 |
@@ -123,6 +127,40 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977�
    1回も増えていない**。RefsExpand が資料を跨がないのは、跨いだ瞬間に無関係な規程の
    第8条が正しい出典タグ付きで根拠に混ざるため(利用者が気付けない外し方)。
    - modShelf は圧縮後 27,773字(残227)。次に触る波は先に分割を裁定すること。
+
+### R17 Phase2 で増えたもの(俯瞰質問。Phase1 の上に積んである)
+
+6. **新シート `doc_outline`(source / section_key / summary / keywords / chunk_n)**
+   = 章ごとの要約。取込時に章の数だけ AI を呼んで作り(254頁で+3〜8分)、
+   質問時は**要約だけ**を読んで「どの章を読むか」を選ぶ。GraphRAG のコミュニティ
+   要約を「マニュアルが既に持つ章」で代替する、という R17設計書§3 Phase2 の骨子。
+   ビルドが headers-only で焼き込む(chunk_meta と同じ)。
+   - **`modBoot.HideInternalSheets` へは足していない**(modBoot は残8字で1行も
+     入らない。憲章§4-6)。veryHidden はビルドの焼き込みと
+     `modOutlineStore.EnsureOutlineSheet` の自己設定の**二重**で守っている。
+     次に modBoot を触る波は、分割と同時にここへ `doc_outline` を足すこと。
+7. **章キーは `section_path` の第1要素をそのまま**(`modOutlineBuild.ChapterKeyOf`)。
+   追加の正規化を掛けてはいけない(section_path は取込時に
+   `modSparse.NormalizeForSearch` を通っており、別の式を足すと**保存側と照合側で
+   章キーが割れて、章を選べたのに本文が1件も引けない**=俯瞰が無音で死ぬ)。
+   章見出しの無い資料では第1要素が条になる=条単位の要約になるが、それが正しい
+   保守的動作(無い章立てを推測するより外れ方が小さい)。
+8. **フェイルセーフは `modAskGlobal.OutlineActive` の1本**。doc_outline が0行
+   (=取り込み直していない本棚)なら俯瞰は一切動かず、回答は R16 までと完全に同じ。
+   章が選ばれない・章のチャンクが引けない・回答生成が失敗も**全て False** で
+   従来の入念フローへ落ちる(2回呼んだ後の失敗でも同じ。確実に答えが出る側へ倒す)。
+   不発の理由は `usage_log("global_zero" why=…)` に必ず1行残る。
+9. **取込側の中断・保存は R15 の枠組みそのまま**: 章の境界で
+   `modShelfBatch.CancelRequested`(と Err18)を見て、**そこまでの章を保存して
+   正常終了**する。失敗章は `(要約失敗)` の行として保存して続行(行ごと落とすと
+   「その章だけ要約が無い」ことが誰にも見えない)。`SaveCheckpoint(1, 120)`。
+10. **プロンプト3本(章要約 / 章選択 / 俯瞰回答)は新モジュールの Private**。
+   modPrompts(残321字)には置けないという容量裁定で、Phase2 では
+   **modPrompts の分割はしていない**。出典タグの書式だけは
+   `modPrompts.SourceTag`(唯一の持ち主)を必ず通すこと=ここを自前で書くと
+   出典突合(`modAskThorough.CiteIndexFrom`)が全件不一致になる。
+   段0の verdict に `global` を足したのは modPrompts / modRagParse / modAskMulti の
+   各1〜3行だけで、知らない語は従来どおり single へ落ちる。
 
 ### R18 で増えたもの(次に触る人が最初に知るべき5点)
 

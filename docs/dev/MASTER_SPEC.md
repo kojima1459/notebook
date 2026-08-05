@@ -68,6 +68,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `my_knowledge` | veryHidden | チャンク本体 |
 | `my_vectors` | veryHidden | ベクトル |
 | `chunk_meta` | veryHidden | チャンクの構造メタ(R17 Phase1)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `chunk_id, section_path, refs_out`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
+| `doc_outline` | veryHidden | 章単位要約(R17 Phase2)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `source, section_key, summary, keywords, chunk_n`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。ビルドが headers-only で生成する(R15-FixB FB-2。実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|IsoDateTime(更新日時)\|p<頁>`、text は先頭に番兵1字 `t` を置いて書き読み出しで剥ぐ(数式誤解釈の防止と空頁の判別)。opt層(optOcrCache)だけが読み書きし、資料が本棚に `done` として並んだ時点で modShelf がその資料の行を削除、孤児行は起動時GCで2日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
@@ -114,6 +115,42 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
   この呼び出しは必ず `modShelfStore.RemoveKnowledgeAndVectorsForSource` の**前**に置く
   (後だと消えた行の chunk_id がどこにも残っていない)。書込み・掃除の失敗は取込を止めず
   `usage_log("chunk_meta_fail")` を1行残す(検索精度の上積みであってデータ保全ではない)。
+
+**doc_outline** 列(5列・2026-08-05 R17 Phase2): `source, section_key, summary, keywords, chunk_n`
+- 目的: 点検索(dense+sparseの上位k件)では原理的に答えられない**俯瞰質問**
+  (「〜を全部教えて」「全体像は?」「どんな種類がある?」)へ答えるための材料。
+  取込時に章ごと1回だけ要約を作っておき、質問時は**章の要約だけ**を読んで
+  「どの章を読むか」を選ぶ(R17設計書 §3 Phase2。GraphRAG のコミュニティ要約を
+  「マニュアルが既に持つ章」で代替する、という設計書の骨子そのもの)。
+- `section_key`: 章キー = `section_path` の**第1要素をそのまま**
+  (`modOutlineBuild.ChapterKeyOf`)。ここで追加の正規化はしない
+  (section_path は取込時に `modSparse.NormalizeForSearch` を通っており、
+  別の式を掛けると保存側と照合側で章キーが割れる)。**章見出しの無い資料では
+  第1要素が条になる**(=条単位の要約)。無い章立てを推測するより外れ方が小さい、
+  という保守的動作の明示的な採用。
+- `summary` 200〜300字 / `keywords` は `|` 区切り(最大8語) / `chunk_n` はその章の
+  チャンク数(人が後から見るための記録で、回答経路は読まない)。
+- 生成: `modOutlineBuild.BuildOutlineFor`(取込の出口 `modShelf.IngestFile` の
+  Finish から1行)。章ごとに `CallLLM(step="chapter_summary")` を1回=254頁の規程で
+  20〜30回・取込+3〜8分。**R15の枠組みにそのまま乗る**: 章の境界で
+  `modShelfBatch.CancelRequested` を見て中断なら**そこまでの章を保存して正常終了**、
+  `StageBanner`「章の要約中… k/N章(資料名)」+`BlendPerItemMs` のETA、
+  `SaveCheckpoint(1, 120)`。1章の本文は `max_context_chars` で打ち切り(`BudgetTake`)。
+  失敗章は `(要約失敗)` の行として保存して続行する(行ごと落とすと「その章だけ
+  要約が無い」ことが誰にも見えない)。
+- **フェイルセーフ**: doc_outline が無い/0行(=まだ取り込み直していない既存本棚、
+  `graph_outline=off` のまま使ってきた本棚)なら `modAskGlobal.OutlineActive` が
+  False を返し、俯瞰は**一切動かず**回答は R16 までと完全に同じになる。章が1つも
+  選ばれない・章のチャンクが引けない・回答生成が失敗、も同じく従来フローへ落ちる。
+  既存資料の移行処理は書かない(再取込で生成される。chunk_meta と同じ判断)。
+- 掃除: 再取込(`IngestFile` 手順7.5)・資料削除(`DeleteSource`)・章要約の作り直し
+  (`BuildOutlineFor` の書込み直前)で `RemoveOutlineForSource`。doc_outline は
+  source 列を自分で持つので、chunk_meta と違い
+  `RemoveKnowledgeAndVectorsForSource` との前後関係の制約は無い。
+  書込み・掃除の失敗は取込を止めず `usage_log("outline_fail")` を1行残す。
+- `veryHidden` はビルドの焼き込みと `EnsureOutlineSheet` の自己設定の二重で守る。
+  **`modBoot.HideInternalSheets` へは足していない**(残8字で1行も入らないため。
+  憲章§4-6。次に modBoot を触る波が分割と同時に足すこと)。
 
 **my_manifest** 列(10列): `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin, fail_count`
 - 10列目 `fail_count` は 2026-08-01(R12-3-3)で追加した連続失敗回数。`MAX_FAIL_STREAK`(3)回で status を `failed_permanent` へ倒し自動同期のスコープから外す。復帰は「資料を追加」での明示選択(`ResetFailCountForPath`)かファイル更新のみ。行の詰め直しは必ず全10列を運ぶ(9列で詰めると fail_count だけが別の行に残る)。
@@ -182,6 +219,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | clarify_mode | auto | 読み方が定まらない質問に番号の選択肢で聞き返すか(R16-3B)。auto=選択肢が2件以上作れたときだけ聞き返す(保留はTTL30分)/off=聞き返さずそのまま回答を作る |
 | deep_neighbor | 2 | 「入念に調べる」の精読半径。根拠チャンクの前後何個ぶんを一緒に読むか(0=off。R16-3C)。R16H FA-4で適用先を入念のみとし、深掘り(deep)には効かせない(戻り件数が「N件ヒット」バッジと直結するため) |
 | graph_refs | on | 条文の参照関係を回答の材料に足すか(R17 Phase1)。on=根拠チャンクの `refs_out` を1ホップ展開して**同じ資料の中**から参照先(第8条・別表2 等)を精読束へ足し、質問が名指しした条番号のチャンクが1件も無ければ chunk_meta から引いて先頭へ入れる(最大2件)/off=検索ヒットだけで答える(R16までと同じ)。LLM呼び出しは1回も増えない。**chunk_meta が無い本棚では on でも従来動作** |
+| graph_outline | on | 章単位要約(R17 Phase2)を取込時に作るか。on=章の数だけAIを呼んで doc_outline を作り(254頁の規程で+3〜8分・中断ボタンで途中まで保存)、入念モードの段0が `verdict=global` と判定した質問で章をまたいで答える(質問あたり+2回)/off=作らない・俯瞰質問も従来の検索で答える。**doc_outline が0行の本棚では on でも従来動作** |
 | freeze_keep_banner | TRUE | 長時間ブロック中のDWM「応答なし」白画面化を`user32.DisableProcessWindowsGhosting`で抑止する(R16-2b)。抑止中はウィンドウの移動・最小化・×閉じが効かない(公式の既知の制約)。FALSEで従来どおり白画面化。判定はプロセス中1回だけキャッシュされるため変更はExcel再起動で反映(R16H FB-1) |
 | minutes_per_selfsolve | 15 | Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分か)。modStats/modBoard/modDashStatの3重複定数をここへ統合(R13-7d) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
@@ -528,6 +566,33 @@ Public Sub RemoveMetaForSource(ByVal sourceName As String, ByVal keepFromRow As 
 ' 失敗は全て握って usage_log("chunk_meta_fail") 1行。取込は止めない。
 ```
 
+**modOutlineStore.bas**(2026-08-05 R17 Phase2) — doc_outline シートI/O
+```vba
+Public Function EnsureOutlineSheet() As Worksheet   ' EnsureChunkMetaSheetと同型(冪等)
+    ' veryHidden をここで毎回・冪等に自己設定する(modBoot は残8字で足せない)。
+Public Sub WriteOutlineRows(srcs, keys, sums, kws, ns, n)   ' 末尾へ1回のRange書込み
+Public Function ReadOutline(outSrcs, outKeys, outSums, outKws) As Long
+    ' 全行(0 To n-1)。シートが無い/0行なら 0(呼び出し元は必ず空配列を受け取れる)。
+Public Sub RemoveOutlineForSource(ByVal sourceName As String)
+    ' その資料の章要約を全部落とす(source列を自分で持つので前後関係の制約なし)。
+' 失敗は全て握って usage_log("outline_fail") 1行。取込は止めない。
+```
+
+**modOutlineBuild.bas**(2026-08-05 R17 Phase2) — 章単位要約の作成
+```vba
+Public Sub BuildOutlineFor(ByVal sourceName As String)
+    ' my_knowledge+chunk_meta から資料のチャンクを文書順に集め、章キーで束ね、
+    ' 章ごとに CallLLM(step="chapter_summary") で要約+キーワードを作って保存。
+    ' graph_outline=off / chunk_meta 0行 / 章キーが取れない なら完全に無操作。
+    ' 中断は章の境界(CancelRequested / Err18)で拾い、そこまでの章を保存して正常終了。
+    ' 呼び出しは modShelf.IngestFile の Finish(done/partial)から1行だけ。
+Public Function ChapterKeyOf(ByVal sectionPath As String) As String   ' 第1要素(純ロジック)
+Public Function BudgetTake(ByVal usedLen As Long, ByVal addLen As Long, ByVal cap As Long) As Long
+    ' 1章の本文の打ち切り(純ロジック)。俯瞰側(modAskGlobal)の章ごと予算にも使う。
+' プロンプトは modPrompts ではなく本モジュールの Private(modPrompts 残386字の容量裁定)。
+' 出力契約: <summary>…</summary><keywords>a|b|c</keywords>(modRagParse.ParseOutlineResp)
+```
+
 **modEnrich.bas** — バッチ富化(summary/keywords付与)
 ```vba
 Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
@@ -547,6 +612,29 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
 必ず進め、キャッシュと modBitwiseOpt の量子化コードの双方を無効化する
 (件数・先頭/末尾idの印だけでは再埋め込みを検知できない)。構築失敗(err7)は
 捕捉して従来経路へ自動フォールバックし、usage_log に `veccache_fallback` を残す。
+
+**modAskGlobal.bas** — 俯瞰質問=疑似グローバル検索(R17 Phase2)
+```vba
+Public Function TryGlobal(ByVal q As String, ByRef hits() As Hit, ByRef nHits As Long, _
+                          ByRef ok As Boolean, ByRef result As String) As Boolean
+    ' 入念モードの段0が verdict=global と判定したときだけ modAskMulti から呼ばれる。
+    ' 段1: doc_outline の章要約を1回のプロンプトへ載せ、読むべき章を最大4つ選ばせる
+    '      (step="chapter_pick"。<pick>資料名::章キー|…</pick>。行頭の文字列をそのまま
+    '       書き写させる=番号だと1つずれた瞬間に別の章を読み始めて誰も気付けない)
+    ' 段2: 選ばれた章のチャンクを my_knowledge+chunk_meta から文書順に集める
+    '      (資料と章キーの【両方】一致・章ごとに max_context_chars÷章数 の予算で打ち切り)
+    ' 段3: 章をまたいだ回答を1回で作り(step="global_answer"・出典タグ必須)、
+    '      modAskThorough.AnnotateAgainstHits で出典突合する
+    ' 追加のLLM呼び出しは1質問あたり2回。返す hits の score は 0(検索スコアで
+    ' 選んだ材料ではないので信頼度バッジを水増ししない=近傍と同じ判断)。
+    ' False = 何もしていない(呼び出し元は従来の入念フローを実行する)。
+Public Function OutlineActive(ByVal outlineN As Long) As Boolean
+    ' 【フェイルセーフの単一情報源】doc_outline 0行なら False=俯瞰は一切動かない。
+' 不発の理由は usage_log("global_zero" why=no_outline/pick_err/no_pick/no_chunk/
+' answer_err/aborted/err)へ1行。中断(Err18)は段の境界で拾い、選んだ章の
+' 【取込時に作った要約】だけをそうと明記して「※中断」つきで返す。
+' プロンプトは本モジュールの Private。出典タグの書式は modPrompts.SourceTag を通す。
+```
 
 **modAskFocus.bas** — 精読(R16-3C)と構造グラフへの合流(R17 Phase1)
 ```vba
