@@ -87,6 +87,9 @@ CONTRACT: dict[str, dict] = {
             # (modShelf/modShelfSync/modShelfBatch/modDashStat)で 20,000 と
             # 10,000 に割れていたものを1箇所へ集約した。
             "DEFAULT_SHELF_MAX_CHUNKS",
+            # 2026-08-05(R17波0): 構造メタデータ(section_path/refs_out)の
+            # 格納先シート名。Phase1本体はまだ無い(波0は器のみ)。
+            "SH_CHUNK_META",
         ],
     },
     "modTypes": {
@@ -373,6 +376,15 @@ CONTRACT: dict[str, dict] = {
             "RemoveKnowledgeAndVectorsForSource", "RemoveVectorsByIds",
             "RemoveManifestRowForSource", "UpsertManifestRow", "SliceRows",
         ],
+    },
+    # modChunkMetaStore(2026-08-05 R17波0): chunk_metaシート(chunk_id/
+    # section_path/refs_out)のEnsure/バッチ書込み/全行読み層。modShelfStore.
+    # EnsureKnowledgeSheetと同型(無ければ作成+ヘッダ+veryHidden、既存なら冪等)。
+    # Phase1本体(取込フックからの実呼び出し)は未着手で、波0時点では呼び出し元
+    # が無い(次波が配線する)。
+    "modChunkMetaStore": {
+        "closed": True,
+        "required": ["EnsureChunkMetaSheet", "WriteMetaRows", "ReadAllMeta"],
     },
     # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
     # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback

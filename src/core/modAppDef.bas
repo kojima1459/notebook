@@ -48,3 +48,6 @@ Public Const SH_USAGE As String = "usage_log"
 Public Const SH_ERRLOG As String = "err_log"
 Public Const SH_UISTATE As String = "ui_state"
 Public Const SH_NEXUS_DASH As String = "Dashboard"   ' Nexus専用ダッシュボード(旧SH_DASHとは別シート)
+' R17波0: 構造メタデータ(section_path/refs_out)を格納する新シート(Phase1の
+' 受け皿。ビルド時に焼き込み+実行時EnsureChunkMetaSheetで自己修復)。
+Public Const SH_CHUNK_META As String = "chunk_meta"

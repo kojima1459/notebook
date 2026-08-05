@@ -89,6 +89,10 @@ EXPECTED_SHEETS = {
     "config": "hidden",
     "my_knowledge": "veryHidden",
     "my_vectors": "veryHidden",
+    # R17波0: 構造メタデータ(chunk_id/section_path/refs_out)の受け皿。
+    # Phase1本体(パース・取込フック)は未着手で、波0は器のみを焼き込む
+    # (R15-FixB FB-2 ocr_cache と同じ理由=実行時Addだと画面が飛ぶため)。
+    "chunk_meta": "veryHidden",
     # 初期ナレッジ(同梱シード)。ビルド時に焼き込み、初回起動で modSeed が
     # my_knowledge / my_vectors へ写す。利用者には一切見せない。
     "seed_meta": "veryHidden",
@@ -1532,6 +1536,10 @@ def main():
                         text_cols=[2, 5, 6, 7, 10])   # source/summary/keywords/full_text/norm_text
     _make_headers_only(wb, "my_vectors", ["chunk_id", "vector_csv"], "veryHidden",
                         widths=[32, 100])
+    # chunk_meta(R17波0): section_path/refs_outは自由記述の参照ラベル文字列
+    # なので、full_text等と同じく数式インジェクション対策でtext_colsへ入れる。
+    _make_headers_only(wb, "chunk_meta", ["chunk_id", "section_path", "refs_out"],
+                        "veryHidden", widths=[32, 40, 60], text_cols=[2, 3])
     _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)
     if _sc:
         print(f"  初期ナレッジ: {_sd}資料 / {_sc}チャンク / ベクトル{_sv}件"

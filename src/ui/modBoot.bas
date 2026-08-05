@@ -722,6 +722,7 @@ Private Sub HideInternalSheets()
     HideSheetSafely modAppDef.SH_KNOWLEDGE, VERY_HIDDEN
     HideSheetSafely modAppDef.SH_VECTORS, VERY_HIDDEN
     HideSheetSafely modAppDef.SH_UISTATE, VERY_HIDDEN
+    HideSheetSafely modAppDef.SH_CHUNK_META, VERY_HIDDEN
     HideSheetSafely "vba_src", VERY_HIDDEN
     HideSheetSafely "ocr_cache", VERY_HIDDEN   ' R15-FixB FB-2
 
@@ -761,10 +762,10 @@ Private Sub RemoveOrphanDefaultSheets()
     On Error GoTo 0
 End Sub
 
-' 盲点D1(軽量マクロ無効ガード)の実行時側。起動が成功したのでマクロ有効化の
-' 案内シートを隠す(役目を終えた)。アクティブシートは隠せない仕様のため、隠す前に
-' 別の可視シートへフォーカスを移してから隠す。マクロ無効で開かれた場合はBoot自体が
-' 動かずこの経路に到達しないので、案内は表示されたまま=壊れたUIの代わりに案内が見える。
+' 盲点D1(軽量マクロ無効ガード)の実行時側。起動成功でマクロ有効化の案内シートを
+' 隠す(役目終了)。アクティブシートは隠せないため、隠す前に別の可視シートへ
+' フォーカスを移す。マクロ無効時はBoot自体が動かずこの経路に届かないため、
+' 案内は表示されたまま=壊れたUIの代わりに見える。
 Private Sub HideGuardSheet()
     On Error Resume Next
     Dim gs As Worksheet
