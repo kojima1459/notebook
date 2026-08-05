@@ -372,8 +372,21 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 段階ナレーション(R13-9b): この質問で何段通すかを先に決めてから実況する。
 ' ----------------------------------------------------------------------------
+' 2026-08-05(R17H FA-2補 / 司令塔裁定): 俯瞰の印もここで下ろす。
+' 裁定の当初位置 modAskMulti.TryDecomposed 入口は【入念モードでしか通らない】
+' ため、俯瞰で答えた次のターンを ⚡すぐ聞く / 🔍しっかり調べる で質問すると、
+' 印が1ターンぶん持ち越されて「🔭 章の要約に基づく回答(俯瞰)」のバッジと
+' 低関連度警告の抑止が、俯瞰していない回答に付いていた。この Sub は
+' modAsk.Answer の入口から【全モードで】必ず1回通るので、ここが全経路に
+' 効く唯一の場所になる(TryDecomposed 側の既存リセットは残す=二重リセットは
+' 無害。印を立てるのは TryGlobal の成功出口だけで、順序は
+' PlanAskStages → TryDecomposed → TryGlobal のため表示までは必ず生き残る)。
+' RunDeepScoped からの呼び直し(番号計画を通常構成へ戻す)もここを通るが、
+' あちらは deep 専用の経路で TryGlobal を一度も通らない=消す印が無い。
+' ----------------------------------------------------------------------------
 Public Sub PlanAskStages(ByVal mdMode As String)
     On Error Resume Next
+    modAskGlobal.ResetGlobalTurn
     Dim isMulti As Boolean
     isMulti = (LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi")
     mStgExpand = isMulti And modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
