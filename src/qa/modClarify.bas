@@ -146,14 +146,26 @@ End Function
 ' 保留を作ってから PENDING_TTL_MIN 分を過ぎたか。時刻が読めないときは
 ' 期限切れ扱いにする(判断できない保留を残す方が危ない)。
 Private Function PendingExpired() As Boolean
+    On Error Resume Next
+    PendingExpired = IsPendingExpired(modState.LoadState(K_PENDING_AT, ""), Now)
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' IsPendingExpired - 保留の失効判定(純関数。savedIso は保存した時刻の文字列)。
+'   空文字 = 旧データ(時刻なし)は従来どおり有効。読めない文字列は失効扱い
+'   (判断できない保留を生かしておくと、翌日の無関係な質問が前日の聞き返しに
+'    吸収される=レビュー H-12 の乗っ取り)。判定を純関数へ出したのは、
+'   TTLの境界(30分ちょうどは有効・31分で失効)を実行テストで固定するため。
+' ----------------------------------------------------------------------------
+Public Function IsPendingExpired(ByVal savedIso As String, ByVal nowT As Date) As Boolean
+    If LenB(Trim$(savedIso)) = 0 Then Exit Function
     On Error GoTo Expired
-    Dim s As String: s = modState.LoadState(K_PENDING_AT, "")
-    If LenB(s) = 0 Then Exit Function      ' 旧データ(時刻なし)は従来どおり有効
-    Dim t0 As Date: t0 = CDate(s)
-    PendingExpired = (DateDiff("n", t0, Now) > PENDING_TTL_MIN)
+    Dim t0 As Date: t0 = CDate(savedIso)
+    IsPendingExpired = (DateDiff("n", t0, nowT) > PENDING_TTL_MIN)
     Exit Function
 Expired:
-    PendingExpired = True
+    IsPendingExpired = True
 End Function
 
 Public Sub ClearPending()
