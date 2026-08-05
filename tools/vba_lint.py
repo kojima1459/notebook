@@ -949,6 +949,10 @@ CONTRACT: dict[str, dict] = {
     "modHub": {
         "closed": True,
         "required": [
+            # HUB_BOUND(2026-08-05 R18-3a/3b/5b): Hub画面の実使用範囲。書式の
+            # 適用範囲・ScrollArea・フッターの境界チェック(modHubStat.DrawFooter)
+            # が同じ1つの値を見るための Public Const。
+            "HUB_BOUND",
             "EnsureHubLayout", "OnGoChat", "OnGoVault", "OnGoDash", "OnQuickAsk",
             "OnLangCycle", "OnThemeToggle", "OnHelp", "OnSaveAndExit",
             "OnCheckUpdates", "OnShareHelp", "OnOwnerReport", "OnAnonFeedback",
@@ -963,7 +967,12 @@ CONTRACT: dict[str, dict] = {
             "InvalidatePending", "OnSyncPending", "PendingLabel", "RemoveHubShapes",
             "NumText", "SafeStat", "AskTotal", "SafeSavedMinutes", "SafeChunks",
             "ChunkUsage", "FmtMin", "DefaultTileValue", "OrgMin", "TilesHeight",
-            "DrawStatTiles", "DrawInbox",
+            # DrawFooter/OnFooterPortal(2026-08-05 R18-5b): Hub最下部の
+            # 「(C) リスクコンサルティング支援部」と社内ポータルへの導線。
+            # modHub が WARN帯まで残り401字だったため描画側もここへ置いた
+            # (DrawInbox を R11-F1 でここへ移したのと同じ判断)。
+            "DrawStatTiles", "DrawInbox", "DrawQuickAskCards",
+            "DrawFooter", "OnFooterPortal",
         ],
     },
     # R11-F1: ツールバーを modKnowledgeBar へ分離した残り(ヘッダー/右肩ピル/モード管理/ハンドラ)。

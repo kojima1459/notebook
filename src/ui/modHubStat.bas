@@ -9,6 +9,12 @@ Private Const TILE_GAP_Y As Double = 8
 Private Const TILE_ROWS As Long = 4
 Private Const TILE_COUNT As Long = 8
 
+' Hub最下部のフッター(2026-08-05 R18-5b)。高さと、押すと開く社内ポータルの
+' URL。URLはコード内でここ1箇所だけに持つ(2箇所に書くと必ず片方が古くなる)。
+Private Const FOOTER_H As Double = 16
+Private Const PORTAL_URL As String = _
+    "http://www.portal.s1.ms-ad-ins.co.jp/loader/hp/OpenContents/A201203280048/toppage.html"
+
 ' ----------------------------------------------------------------------------
 ' 受信箱の共有問い合わせ(2026-07-31 R8 F3)
 ' ----------------------------------------------------------------------------
@@ -420,6 +426,66 @@ Private Sub TileText(ByVal ws As Worksheet, ByVal shapeName As String, ByVal x A
 End Sub
 
 ' ----------------------------------------------------------------------------
+' 質問カード3枚(Hubの右カラム)。2026-08-05(R18-5a)に modHub から移設した。
+' ----------------------------------------------------------------------------
+' 実機第5報④: ここは「うっすら地色の平たいチップ」で、すぐ上のナビボタン
+' だけがカードに見えるちぐはぐな状態だった。押せると気づかれなければ押せない
+' のと同じ(憲章§3-1)。modHub.DrawNavButtons と同じ型へ揃える。
+' 【3枚は同色にし、区別はアイコンで付ける】: パレットの意味づけ済みの色は
+' primary/accent の2系統しかなく、3色に塗り分けると5テーマ分のコントラスト
+' 検証が要るハードコードRGBへ逆戻りする(R12-7-4のa11y監査で通した線)。
+' 幾何(L/W/topY/cardH)の持ち主はHub側。Shape名 nx_hub_qa0〜2 と OnAction は
+' modHub.OnQuickAsk のCase分岐と対。
+Public Sub DrawQuickAskCards(ByVal ws As Worksheet, ByVal L As Double, _
+                             ByVal W As Double, ByVal topY As Double, _
+                             ByVal cardH As Double)
+    ' 見出しは置かない。カードの文面自体が「こう聞けばいい」の見本になっている。
+    ' 1段目=何を聞くか(太字)、2段目=聞くとどう返るかの一言。
+    Dim caps As Variant, subs As Variant
+    caps = Array(ChrW(&HD83D) & ChrW(&HDCCC) & " 改定ポイント", _
+                 ChrW(&HD83D) & ChrW(&HDCD6) & " 用語をやさしく", _
+                 ChrW(&HD83D) & ChrW(&HDC63) & " 手続きの流れ")
+    subs = Array("何が変わった?", "この言葉の意味?", "いつ何を出す?")
+    Dim cardW As Double: cardW = (W - 12) / 3
+    Dim i As Long
+    For i = 0 To 2
+        On Error Resume Next
+        Dim card As Shape
+        Set card = ws.Shapes.AddShape(5, L + i * (cardW + 6), topY, cardW, cardH)
+        If Not card Is Nothing Then
+            card.Name = "nx_hub_qa" & i
+            card.Adjustments(1) = 0.14
+            card.Line.Visible = -1
+            card.Line.Weight = 1#
+            card.Line.ForeColor.RGB = modUI.UiColor("accent")
+            card.Fill.ForeColor.RGB = modUI.UiColor("surface")
+            modSkin.ApplyLightShadow card
+            ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
+            With card.TextFrame2
+                .WordWrap = -1
+                .TextRange.Text = CStr(caps(i)) & vbCr & CStr(subs(i))
+                .TextRange.Font.Size = 8       ' 2段目(説明)の大きさ
+                .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+                If .TextRange.Paragraphs.Count >= 1 Then
+                    With .TextRange.Paragraphs(1).Font
+                        .Size = 8.5            ' R12-7-4: 8.5pt下限(a11y監査Med)
+                        .Bold = -1
+                        .Fill.ForeColor.RGB = modUI.UiColor("text")
+                    End With
+                End If
+                .TextRange.ParagraphFormat.Alignment = 2
+                .VerticalAnchor = 3
+                .MarginLeft = 3: .MarginRight = 3: .MarginTop = 3: .MarginBottom = 3
+            End With
+            card.OnAction = "modHub.OnQuickAsk"
+        End If
+        Set card = Nothing
+        Err.Clear
+        On Error GoTo 0
+    Next i
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 受信箱(Hubの「お知らせ」1枚)。2026-07-31(R11-F1)に modHub から移設した。
 '   modHub が30,000字上限まで残り3字となり、修正が1文字も入らない状態だった
 '   (憲章§4-6)。分岐の判定材料(PendingUpdatesCached/PendingLabel/
@@ -428,8 +494,10 @@ End Sub
 ' ----------------------------------------------------------------------------
 
 ' 共有知のお知らせ。通知が無い共有機能は使われないので、件数と行き先を出す。
-Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
-                      ByVal W As Double, ByVal T As Double)
+' 戻り値(2026-08-05 R18-5b): 描いた箱の下端Y。箱の高さは文面の長さで変わる
+' ため、フッターのY決めに必要な「右カラムの実下端」はここしか知らない。
+Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
+                      ByVal W As Double, ByVal T As Double) As Double
     Dim qaN As Long, gapN As Long
     On Error Resume Next
     qaN = modInsight.PendingQACount()
@@ -544,7 +612,10 @@ Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
 
     Dim box As Shape
     Set box = ws.Shapes.AddShape(5, L, T, W, boxH)
-    If box Is Nothing Then Exit Sub
+    If box Is Nothing Then
+        DrawInbox = T
+        Exit Function
+    End If
     box.Name = "nx_hub_inbox"
     box.Adjustments(1) = 0.08
     box.Line.Visible = -1
@@ -568,4 +639,107 @@ Public Sub DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     End With
     If LenB(act) > 0 Then box.OnAction = act
     On Error GoTo 0
+    DrawInbox = T + boxH
+End Function
+
+' ----------------------------------------------------------------------------
+' Hub最下部のフッター(2026-08-05 R18-5b・実機第5報⑨)
+' ----------------------------------------------------------------------------
+' 「© リスクコンサルティング支援部」を最下部に置き、押すと社内ポータルを開く。
+' 置き場所を modHub ではなくここにした理由: modHub が27,599字(WARN 28,000まで
+' 残り401字)で、R18-5aのカード化と同じラウンドに両方は入らないため(憲章§4-6。
+' DrawInbox を R11-F1 でここへ移したのと同じ判断)。
+'
+' Y座標は【固定値にしない】。左カラム(バッジ帯)も右カラム(お知らせ)も
+' 件数・文面の長さで下端が動くため、固定Yだと内容が増えた端末でだけ本文に
+' 重なる(modDash の ChartNoteY()+270 決め打ちが実際にそうなった。R18-4で
+' 撤去した跡地)。呼び出し元(modHub)が左右の実下端の Max を渡し、ここでは
+' ScrollArea の下端(R18-3b)を超えないことだけを保証する ―― 境界の外にある
+' Shapeはスクロールで到達できない=押せない。
+Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
+                           ByVal W As Double, ByVal topY As Double) As Double
+    On Error Resume Next
+    ' ScrollArea(modHub.HUB_BOUND)の実下端。範囲文字列から実測で求めるので、
+    ' 行高や行数を変えてもここを直す必要がない。
+    Dim limitY As Double
+    Dim bound As Range
+    Set bound = ws.Range(modHub.HUB_BOUND)
+    If Not bound Is Nothing Then limitY = bound.Top + bound.Height
+    Set bound = Nothing
+
+    Dim y As Double: y = topY
+    If limitY > FOOTER_H + 8 Then
+        If y + FOOTER_H > limitY - 8 Then y = limitY - 8 - FOOTER_H
+    End If
+    If y < 0 Then y = 0
+
+    Dim fs As Shape
+    Set fs = ws.Shapes.AddShape(1, L, y, W, FOOTER_H)
+    If fs Is Nothing Then
+        DrawFooter = topY
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    fs.Name = "nx_hub_footer"
+    fs.Line.Visible = 0
+    fs.Fill.Visible = 0
+    With fs.TextFrame2
+        .WordWrap = 0
+        .TextRange.Text = ChrW(&HA9) & " リスクコンサルティング支援部"
+        .TextRange.Font.Size = 8.5      ' R12-7-4のa11y下限
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+        .TextRange.ParagraphFormat.Alignment = 2
+        .VerticalAnchor = 3
+        .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
+    End With
+    fs.OnAction = "modHubStat.OnFooterPortal"
+    fs.AlternativeText = "社内ポータルを開く"
+    DrawFooter = y + FOOTER_H
+    Set fs = Nothing
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' OnFooterPortal - フッターを押したら社内ポータルをブラウザで開く。
+' ----------------------------------------------------------------------------
+' 3段構え。どこまで落ちても「利用者が自分で辿り着ける状態」で終わらせる:
+'   1. ThisWorkbook.FollowHyperlink(既存3箇所と同じ作法。事前トースト必須=
+'      Officeの「このハイパーリンクを開きますか」を無説明で見せない)
+'   2. WScript.Shell.Run(端末ポリシー(EDR/AppLocker)で塞がれていることが
+'      多く、両方失敗する前提で設計する。modWorkExcel.DoOpenWorkExcel と同型)
+'   3. URLをクリップボードへ入れて案内(modPeek の作法)+ E0905 を err_log へ
+' 取込中は通常どおりブロックする(FollowHyperlinkでローカルを開く
+' modPeek.OnOpenSource が R15波1の自己点検で allowlist から外され通常ガードに
+' なった前例に倣う。ポータルは急がない)。
+Public Sub OnFooterPortal()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+
+    Dim opened As Boolean: opened = True
+    On Error Resume Next
+    modSkin.ShowToast "ブラウザで社内ポータルを開きます(確認画面が出たら[はい])。", "info"
+    ThisWorkbook.FollowHyperlink PORTAL_URL
+    If Err.Number <> 0 Then opened = False
+    Err.Clear
+    On Error GoTo 0
+    If opened Then Exit Sub
+
+    Dim wsh As Object
+    On Error Resume Next
+    Set wsh = CreateObject("WScript.Shell")
+    If Not wsh Is Nothing Then
+        wsh.Run PORTAL_URL, 1, False
+        If Err.Number = 0 Then opened = True
+    End If
+    Set wsh = Nothing
+    Err.Clear
+    On Error GoTo 0
+    If opened Then Exit Sub
+
+    On Error Resume Next
+    modClip.SetClipboardText PORTAL_URL
+    modLog.LogError "E0905", "modHubStat.OnFooterPortal", modUtil.SafeLeft(PORTAL_URL, 200)
+    On Error GoTo 0
+    MsgBox modLog.FriendlyMessage("E0905"), vbInformation, modAppDef.APP_NAME
 End Sub

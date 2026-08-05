@@ -20,17 +20,17 @@ Private Const CARD_H As Double = 68
 Private Const NAV_H As Double = 60
 Private Const NAV_GAP As Double = 10
 Private Const NAV_COUNT As Long = 3
-' 2026-08-01(R12-7-4・a11y監査Med): 押せる質問チップの文字を8.5ptへ広げた
-' ぶん、折返し時の2行ぶんが収まるよう高さも4pt広げる。
-' 2026-08-05(R18-5a): チップをナビボタン同型のカード(アイコン+太字+説明1行)
-' へ引き上げたため、2段ぶんの高さが要る(26→46)。この+20ptは下に続く
-' modHubStat.DrawInbox のY(DrawExtras内で CHIP_H から算出)へ自動で伝わる。
+' 2026-08-01(R12-7-4・a11y監査Med): 押せる質問チップの文字を8.5ptへ広げた。
+' 2026-08-05(R18-5a): カード化(アイコン+太字+説明1行)で2段ぶんの高さが
+' 要る(26→46)。この+20ptは下に続く modHubStat.DrawInbox のY
+' (DrawExtras内で CHIP_H から算出)へ自動で伝わる。
 Private Const CHIP_H As Double = 46
 
 ' R18-3a/3b: Hub画面が実際に使うセル範囲。書式の適用範囲(全域書式の禁止)と
-' ScrollArea(スクロールできる範囲)の唯一の情報源。列幅・行高の設定と同じ
-' 幾何(A:L / 1..60行=900pt)を指す。
-Private Const HUB_BOUND As String = "A1:L60"
+' ScrollArea の唯一の情報源。列幅・行高の設定と同じ幾何(A:L / 1..60行=900pt)。
+' Public なのは modHubStat.DrawFooter がフッターの境界チェックにこの範囲の
+' 実測(Top+Height)を使うため(R18-5b。Private Const は跨いで参照できない)。
+Public Const HUB_BOUND As String = "A1:L60"
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
@@ -56,11 +56,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     modProgressBar.SweepOrphans
 
     ws.Cells.Clear
-    ' R18-3a(実機第5報②): 書式は ws.Cells(=A1:XFD1048576)ではなく実使用範囲
-    ' だけに当てる。全域へ一様な書式を置くとExcelがそこまで「使用済み」と
-    ' 見なし、UsedRange(=スクロールできる範囲)がシート最大まで膨らむ。
-    ' 「右にも下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
-    ' 範囲は直下で決める幾何(A:L / 1:60行)と同じにする。
+    ' R18-3a(実機第5報②): 書式は ws.Cells(全域)ではなく実使用範囲だけに
+    ' 当てる。全域に一様な書式を置くとExcelがそこまで「使用済み」と見なし、
+    ' UsedRange(=スクロールできる範囲)がシート最大まで膨らむ ―― 「右にも
+    ' 下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
     ws.Range(HUB_BOUND).Font.Name = "Yu Gothic UI"
     ws.Range(HUB_BOUND).Font.Size = 10
     ws.Range(HUB_BOUND).Interior.Color = modUI.UiColor("bg")
@@ -101,19 +100,22 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' 0点のスコアボードを初見の人に見せない。全部ゼロのタイル8枚と鍵つき
     ' バッジ8個は「ここまで来た」ではなく「まだ何もしていない」としか読めない。
     ' 1問でも通してから出す(§DrawFirstStep)。
+    ' R18-5b: 左右カラムの実下端を集めてフッターのYにする(固定Y禁止)。
+    Dim botY As Double
     If HasAnyActivity() Then
         RefreshOrgTilesIfReachable
         modHubStat.DrawStatTiles ws, TilesTop()
-        DrawBadges ws
+        botY = DrawBadges(ws)
     Else
         DrawFirstStep ws
-        DrawBadges ws        ' 2-A: 初回からバッジ棚(welcome)を見せる
+        botY = DrawBadges(ws)   ' 2-A: 初回からバッジ棚(welcome)を見せる
     End If
     DrawNavButtons ws
-    DrawExtras ws
+    Dim rightBot As Double: rightBot = DrawExtras(ws)
+    If rightBot > botY Then botY = rightBot
+    modHubStat.DrawFooter ws, ws.Range("B1").Left, ws.Range("B1:K1").Width, botY + 18
 
-    ' R18-3b: この画面で行ける範囲を宣言する(右にも下にも無限にスクロール
-    ' できる状態をやめる)。範囲は上の列幅・行高と同じ HUB_BOUND。
+    ' R18-3b: この画面で行ける範囲の宣言(上の列幅・行高と同じ HUB_BOUND)。
     modViewport.ApplyScrollBound ws, HUB_BOUND
 
     On Error Resume Next
@@ -448,17 +450,12 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     Next i
 End Sub
 
-' 質問カード3枚 + お知らせ(ナビボタンの直下に続けて置く)
-' R18-5a(実機第5報④): ここは「うっすら地色の平たいチップ」で、隣の
-' ナビボタン(DrawNavButtons)だけがカードに見えるちぐはぐな状態だった。
-' 押せるものだと気づかれなければ、押せないのと同じ(憲章§3-1)。
-' ナビボタンと同じ型(アイコン+太字キャプション+説明1行+角丸+影)へ揃える。
-' 配色は modUI.UiColor() 経由のみ(ハードコードRGB禁止・modHub冒頭の方針)。
-' 3枚は同じ配色にし、区別はアイコンで付ける ―― テーマパレットには意味づけ
-' 済みの色が primary/accent の2系統しか無く、3色に塗り分けようとすると
-' 5テーマ全部でのコントラスト検証が要るハードコードRGBに逆戻りするため
-' (2026-08-01 R12-7-4のa11y監査で通した線を割らない)。
-Private Sub DrawExtras(ByVal ws As Worksheet)
+' 質問カード3枚 + お知らせ(ナビボタンの直下に続けて置く)。
+' 幾何(どこから始めるか)はHub側が持ち、カードの描画そのものは modHubStat
+' へ置く(DrawStatTiles/DrawInbox と同じ切り分け。R18-5aのカード化で
+' modHub が上限まで残り11字になったため。憲章§4-6)。
+' 戻り値(R18-5b): 右カラムの実下端Y(お知らせの箱は文面で高さが変わる)。
+Private Function DrawExtras(ByVal ws As Worksheet) As Double
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
     ' 2026-07-31(R7 A-3・タスク#27): ここは 4 * (NAV_H + NAV_GAP) だった。
@@ -467,53 +464,19 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     W = ws.Range("H3:K3").Width
     T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
 
-    ' 見出しは置かない。カードの文面自体が「こう聞けばいい」の見本になっている。
-    ' 1段目=何を聞くか(太字)、2段目=聞くとどう返るかの一言。
-    Dim caps As Variant, subs As Variant
-    caps = Array(ChrW(&HD83D) & ChrW(&HDCCC) & " 改定ポイント", _
-                 ChrW(&HD83D) & ChrW(&HDCD6) & " 用語をやさしく", _
-                 ChrW(&HD83D) & ChrW(&HDC63) & " 手続きの流れ")
-    subs = Array("何が変わった?", "この言葉の意味?", "いつ何を出す?")
-    Dim chipW As Double: chipW = (W - 12) / 3
-    Dim i As Long
-    For i = 0 To 2
-        Dim chip As Shape
-        Set chip = ws.Shapes.AddShape(5, L + i * (chipW + 6), T + 20, chipW, CHIP_H)
-        chip.Name = "nx_hub_qa" & i
-        chip.Adjustments(1) = 0.14
-        chip.Line.Visible = -1
-        chip.Line.Weight = 1#
-        chip.Line.ForeColor.RGB = modUI.UiColor("accent")
-        chip.Fill.ForeColor.RGB = modUI.UiColor("surface")
-        modSkin.ApplyLightShadow chip
-        ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
-        With chip.TextFrame2
-            .WordWrap = -1
-            .TextRange.Text = CStr(caps(i)) & vbCr & CStr(subs(i))
-            .TextRange.Font.Size = 8       ' 2段目(説明)の大きさ
-            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
-            On Error Resume Next
-            .TextRange.Paragraphs(1).Font.Size = 8.5   ' R12-7-4: 8.5pt下限(a11y)
-            .TextRange.Paragraphs(1).Font.Bold = -1
-            .TextRange.Paragraphs(1).Font.Fill.ForeColor.RGB = modUI.UiColor("text")
-            On Error GoTo 0
-            .TextRange.ParagraphFormat.Alignment = 2
-            .VerticalAnchor = 3
-            .MarginLeft = 3: .MarginRight = 3: .MarginTop = 3: .MarginBottom = 3
-        End With
-        chip.OnAction = "modHub.OnQuickAsk"
-    Next i
-
-    modHubStat.DrawInbox ws, L, W, T + 20 + CHIP_H + 14
-End Sub
+    modHubStat.DrawQuickAskCards ws, L, W, T + 20, CHIP_H
+    DrawExtras = modHubStat.DrawInbox(ws, L, W, T + 20 + CHIP_H + 14)
+End Function
 
 ' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので
 ' この帯だけが左ブロックのセル表示になる。
-Private Sub DrawBadges(ByVal ws As Worksheet)
+' 戻り値(R18-5b): 左カラムの実下端Y(バッジ件数で使う行数が変わる)。
+Private Function DrawBadges(ByVal ws As Worksheet) As Double
     ' タイルの下端が入る行を実測で探す(行高15pt固定なので割り算で足りる)。
     Dim r As Long
     r = CLng(StatTilesBottom() / 15) + 2
     If r < 10 Then r = 10
+    DrawBadges = (r + 1) * 15      ' バッジが1件も無いときの下端(見出し行のみ)
 
     With ws.Range("B" & r & ":F" & r)
         .Merge
@@ -531,7 +494,7 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
     Dim ids() As String, titles() As String, longs_() As String, conds() As String
     Dim badgeN As Long
     badgeN = modStats.BadgeCatalog(ids, longs_, titles, conds)
-    If badgeN < 1 Then Exit Sub
+    If badgeN < 1 Then Exit Function
 
     Dim sb As String
     Dim i As Long
@@ -553,7 +516,8 @@ Private Sub DrawBadges(ByVal ws As Worksheet)
         .Font.Color = modUI.UiColor("text")
         .VerticalAlignment = -4160
     End With
-End Sub
+    DrawBadges = (r + 4) * 15      ' 4行ぶんの帯の下端(行高15pt固定)
+End Function
 
 ' ---- ボタンハンドラ ----
 

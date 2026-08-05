@@ -210,6 +210,15 @@ Public Function FriendlyMessage(ByVal code As String) As String
             ' 1文を短く保つ(StatusBar は長文を切り落とす)。
             FriendlyMessage = "作業用Excelを起動できませんでした。" & _
                 "タスクバーのExcelをAltキーを押しながらクリックしても開けます。"
+        Case "E0905"
+            ' 2026-08-05(R18-5b): Hubフッターから社内ポータルを開けなかった
+            ' 状態。FollowHyperlink と WScript.Shell の両方が塞がれている
+            ' (端末ポリシー・既定ブラウザ未設定等)。呼び出し側がURLを
+            ' クリップボードへ入れてから出すので、次にやることを1文で書く。
+            ' MsgBoxへ渡る文言なので絵文字(非BMP)は使わない(検査14)。
+            FriendlyMessage = "社内ポータルをこのパソコンから開けませんでした。" & _
+                "アドレスをクリップボードにコピーしましたので、" & _
+                "ブラウザのアドレス欄に貼り付けて(Ctrl+V)開いてください。"
         Case Else
             FriendlyMessage = "予期しない問題が発生しました(あなたの操作のせいではありません)。" & _
                 "時間を置いてもう一度お試しいただき、続くようなら右上の ? から「ご意見・不具合報告」で教えてください。"
