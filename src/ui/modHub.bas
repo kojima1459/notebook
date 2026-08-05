@@ -22,7 +22,10 @@ Private Const NAV_GAP As Double = 10
 Private Const NAV_COUNT As Long = 3
 ' 2026-08-01(R12-7-4・a11y監査Med): 押せる質問チップの文字を8.5ptへ広げた
 ' ぶん、折返し時の2行ぶんが収まるよう高さも4pt広げる。
-Private Const CHIP_H As Double = 26
+' 2026-08-05(R18-5a): チップをナビボタン同型のカード(アイコン+太字+説明1行)
+' へ引き上げたため、2段ぶんの高さが要る(26→46)。この+20ptは下に続く
+' modHubStat.DrawInbox のY(DrawExtras内で CHIP_H から算出)へ自動で伝わる。
+Private Const CHIP_H As Double = 46
 
 ' R18-3a/3b: Hub画面が実際に使うセル範囲。書式の適用範囲(全域書式の禁止)と
 ' ScrollArea(スクロールできる範囲)の唯一の情報源。列幅・行高の設定と同じ
@@ -445,7 +448,16 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     Next i
 End Sub
 
-' テンプレチップ3つ + 今日のワンポイント(ナビボタンの直下に続けて置く)
+' 質問カード3枚 + お知らせ(ナビボタンの直下に続けて置く)
+' R18-5a(実機第5報④): ここは「うっすら地色の平たいチップ」で、隣の
+' ナビボタン(DrawNavButtons)だけがカードに見えるちぐはぐな状態だった。
+' 押せるものだと気づかれなければ、押せないのと同じ(憲章§3-1)。
+' ナビボタンと同じ型(アイコン+太字キャプション+説明1行+角丸+影)へ揃える。
+' 配色は modUI.UiColor() 経由のみ(ハードコードRGB禁止・modHub冒頭の方針)。
+' 3枚は同じ配色にし、区別はアイコンで付ける ―― テーマパレットには意味づけ
+' 済みの色が primary/accent の2系統しか無く、3色に塗り分けようとすると
+' 5テーマ全部でのコントラスト検証が要るハードコードRGBに逆戻りするため
+' (2026-08-01 R12-7-4のa11y監査で通した線を割らない)。
 Private Sub DrawExtras(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
@@ -455,26 +467,39 @@ Private Sub DrawExtras(ByVal ws As Worksheet)
     W = ws.Range("H3:K3").Width
     T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
 
-    ' 見出しは置かない。チップの文面自体が「こう聞けばいい」の見本になっている。
-    Dim chips As Variant
-    chips = Array("改定ポイントを教えて", "用語をやさしく解説", "手続きの流れを知りたい")
+    ' 見出しは置かない。カードの文面自体が「こう聞けばいい」の見本になっている。
+    ' 1段目=何を聞くか(太字)、2段目=聞くとどう返るかの一言。
+    Dim caps As Variant, subs As Variant
+    caps = Array(ChrW(&HD83D) & ChrW(&HDCCC) & " 改定ポイント", _
+                 ChrW(&HD83D) & ChrW(&HDCD6) & " 用語をやさしく", _
+                 ChrW(&HD83D) & ChrW(&HDC63) & " 手続きの流れ")
+    subs = Array("何が変わった?", "この言葉の意味?", "いつ何を出す?")
     Dim chipW As Double: chipW = (W - 12) / 3
     Dim i As Long
     For i = 0 To 2
         Dim chip As Shape
         Set chip = ws.Shapes.AddShape(5, L + i * (chipW + 6), T + 20, chipW, CHIP_H)
         chip.Name = "nx_hub_qa" & i
-        chip.Adjustments(1) = 0.4
-        chip.Line.Visible = 0
-        chip.Fill.ForeColor.RGB = modUI.UiColor("bg")
+        chip.Adjustments(1) = 0.14
+        chip.Line.Visible = -1
+        chip.Line.Weight = 1#
+        chip.Line.ForeColor.RGB = modUI.UiColor("accent")
+        chip.Fill.ForeColor.RGB = modUI.UiColor("surface")
+        modSkin.ApplyLightShadow chip
+        ' 段落で書式を分けるため区切りはvbCr(vbLfだとParagraphs(2)が範囲外)。
         With chip.TextFrame2
             .WordWrap = -1
-            .TextRange.Text = CStr(chips(i))
-            .TextRange.Font.Size = 8.5   ' R12-7-4: 7.5pt→8.5pt(a11y監査Med)
-            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+            .TextRange.Text = CStr(caps(i)) & vbCr & CStr(subs(i))
+            .TextRange.Font.Size = 8       ' 2段目(説明)の大きさ
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+            On Error Resume Next
+            .TextRange.Paragraphs(1).Font.Size = 8.5   ' R12-7-4: 8.5pt下限(a11y)
+            .TextRange.Paragraphs(1).Font.Bold = -1
+            .TextRange.Paragraphs(1).Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+            On Error GoTo 0
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3
-            .MarginLeft = 3: .MarginRight = 3: .MarginTop = 0: .MarginBottom = 0
+            .MarginLeft = 3: .MarginRight = 3: .MarginTop = 3: .MarginBottom = 3
         End With
         chip.OnAction = "modHub.OnQuickAsk"
     Next i
