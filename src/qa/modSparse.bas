@@ -248,6 +248,12 @@ Public Function DistinctiveKeys(ByVal query As String) As String
         p = InStr(p + 1, s, "第")
     Loop
 
+    ' 「別表N」「様式N」も条番号と同格の最優先キーにする(2026-08-05 R17 Phase1)。
+    ' 規程の答えが本文ではなく別表・様式にある質問(「別表2の料率は?」)で、
+    ' 「別表」だけが2文字ランとして残り番号が落ちていた=どの別表でも同点になる。
+    keys = keys & TableKeys(s, n, "別表", keys)
+    keys = keys & TableKeys(s, n, "様式", keys)
+
     ' 残りは長い順に採る(単純な選択ソート。最大8件なので十分)
     Dim arr() As String
     If LenB(runs) > 0 Then
@@ -274,6 +280,49 @@ Public Function DistinctiveKeys(ByVal query As String) As String
     DistinctiveKeys = keys
 End Function
 
+
+' ----------------------------------------------------------------------------
+' TableKeys - 「別表N」「様式N」を s から拾い "ラベル|" の並びで返す(R17 Phase1)。
+'   上の「第」ループと同型(起点をInStrで送りながら数字ランを読む)。違いは
+'   単位漢字が先頭側にあることと、「別表第2」のように間に「第」が入る書き方が
+'   あること。ラベルは原文どおりに組む(同じ資料の中では表記が揃っているのが
+'   普通で、勝手に「第」を落として寄せると本文側と一致しなくなる)。
+'   already には既に採ったキー列("ラベル|"の並び)を渡す=重複を作らない。
+' ----------------------------------------------------------------------------
+Private Function TableKeys(ByVal s As String, ByVal n As Long, ByVal head As String, _
+                           ByVal already As String) As String
+    Dim outS As String
+    Dim hl As Long: hl = Len(head)
+    Dim p As Long: p = InStr(s, head)
+    Do While p > 0
+        Dim j As Long: j = p + hl
+        Dim dai As String: dai = ""
+        If j <= n Then
+            If Mid$(s, j, 1) = "第" Then
+                dai = "第"
+                j = j + 1
+            End If
+        End If
+        Dim dgt As String: dgt = ""
+        Do While j <= n
+            Dim dch As String: dch = Mid$(s, j, 1)
+            If dch >= "0" And dch <= "9" Then
+                dgt = dgt & dch
+                j = j + 1
+            Else
+                Exit Do
+            End If
+        Loop
+        If LenB(dgt) > 0 Then
+            Dim lab As String: lab = head & dai & dgt
+            If InStr(1, "|" & already & outS, "|" & lab & "|", vbBinaryCompare) = 0 Then
+                outS = outS & lab & "|"
+            End If
+        End If
+        p = InStr(p + 1, s, head)
+    Loop
+    TableKeys = outS
+End Function
 
 ' ----------------------------------------------------------------------------
 ' CompactForMatch - 照合専用テキスト(正規化 + 空白を全除去)。
