@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R15完了時点）
+# 再開手順（セッション中断対策・最終更新: R16完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,23 +6,24 @@
 
 ## 1. 現在地
 
-**R15完了(実機第4報→調査4班→R15仕様→波1〜4実装→敵対的レビュー2面→FixA/FixB全裁定消化)。実機配布可。**
-R1〜R15まで全ラウンド完了・検収済み・push済み。テスト1,228件・lint ERROR 0/WARN 4(全てテスト系)・
-モジュール114本(実装側WARNゼロ)。仕様は docs/dev/spec_20260804_R15_実機第4報.md(RC1〜RC10)と
-docs/dev/spec_20260804_R15H_レビュー裁定.md(FA-1〜9/FB-1〜14)。
-R15の骨子: OCR254頁対応(上限300)・総頁早期確定とETA/終了時刻・■中断ボタン・チェックポイント
-再開(ocr_cacheシート)・事前確認ダイアログ・再入ガードのハートビート化・中間保存・ReadOnly検知・
-E0202(自己Run競合)対策・save_fail根因対策。
-**確定した制約(実機回答済み)**: ChatGPTV に待ち秒数引数は無く同期で永久待ち。VBAから制御不能。
-被害限定はチェックポイント再開+ビートガード+中断ボタンで実装済み(バナー5分停止=ハングの目安、
-強制終了→再取込で続きから)。
-残: 利用者の実機テスト(docs/45スモーク全22項目、特に19〜22+docs/44 P2P)。
-利用者アクション: 教えてBOX xlsx の「一部のみ取り込みました」注記有無の確認(シート30万字上限)。
+**R16完了(要望4件→調査5班→R16仕様→波1〜3実装→敵対的レビュー2面→R16H裁定FA8+FB12全消化)。実機配布可。**
+R1〜R16まで全ラウンド完了・検収済み・push済み。テスト1,391件・lint ERROR 0/WARN 4(全てテスト系)・
+モジュール117本(実装側WARNゼロ)。仕様は docs/dev/spec_20260805_R16_要望4件.md と
+docs/dev/spec_20260805_R16H_レビュー裁定.md(§3C/3Dの読み替え改訂を含む)。
+R16の骨子: ①文言統一(節約した時間)/②取込中のPC作業両立(🗔作業用Excel=WScript.Shellで
+excel.exe /x・白画面抑止=リポジトリ初のDeclare(user32.DisableProcessWindowsGhosting、
+config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複合質問分解(modAskMulti、
+段0判定→論点別軽量検索→統合→critique/verify→union出典突合。auto/最大3論点。質問全体で
+LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
+精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
+deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
+④は docs/dev/design_20260805_R17_構造グラフ設計.md(GO待ち)。
+残: 利用者の実機テスト(docs/45スモーク全27項目、特に23〜27+19〜22)+R17のGO判断。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
-**modUI(残35字) / modAsk(残105字) / modTestsPure11(残112字) / modRetrieve(残259字) /
-modTestsPure9(残578字) / modUIMain(残626字) / modTestsPure12(WARN帯28,280字・追記禁止)**。
-2,000〜2,600字圏(小変更のみ可・コメント同量圧縮の前例あり): modShelfSync / optOcrPage /
-optVision / optGsTxt / modSkin / modBoot / modShelfBatch / modShelf / modExtractorPdf / optOcrCore。
+**optOcrPage(残3) / modShelfBatch(残6) / modUtil(残8) / modTestsPure6(残9) / modSkin(残10) /
+modTestsPure11(残19) / optVision(残26) / modBoot(残32) / modUI(残35) / modChunker(残38) /
+modAsk(残43) / optGsTxt(残45) / modUIMain(残207) / modRetrieve(残259) / modPrompts(残386) /
+modTestsPure12(WARN帯28,280字・追記禁止)**。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -60,6 +61,11 @@ optVision / optGsTxt / modSkin / modBoot / modShelfBatch / modShelf / modExtract
 | R14-C | Sonnet | ヘッダー整列+ギャラリー可視化+着せ替え5件+質問例オンデマンド生成+チャンク拡張子別設定 | 83387a4 | 完了 |
 | R14-FixA | Opus | レビュー裁定: GS起動失敗の切り分け/バッチ中断の可視化/共有読みコピー復活+理由4分岐/PID kill/上限メモ正直化 | 6e6a4db | 完了 |
 | R14-FixB | Opus | レビュー裁定: 発信の関所(修正/gap/感謝状)/出典タグ]対応/質問例後始末+メモリ/着せ替えガード/docs追随 | 282f183 | 完了 |
+| R15波1〜4+Fix | Opus/Sonnet | OCR254頁対応(ETA/中断/再開/確認)+E0202/save_fail根治+レビュー裁定FA9/FB14 | 0ce3f7a〜f65251a | 完了 |
+| R16波1 | Sonnet | ①文言統一+②作業用Excelボタン/白画面抑止(初Declare)/案内+docs | 635cfef/24e6f18/74712a7 | 完了 |
+| R16波2 | Opus | ③-A複合質問の分解→統合(modAskMulti+段0判定+union出典突合+テスト57件) | d528286/37352c2/461e1d2 | 完了 |
+| R16波3 | Opus | ③-B逆質問番号選択肢+③-C精読(modAskFocus)+③-D既出降格+裁定1〜3+docs+テスト82件 | 7251a25〜f72f12a | 完了 |
+| R16-Fix | Opus | R16H裁定FA8(精読source基準化/逆質問非回答化/降格全followup化ほか)+FB12 | e71b940/e5e8507/bbef504 | 完了 |
 
 ### R12-4 で増えたもの(次に触る人が最初に知るべき3点)
 
@@ -219,6 +225,8 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     LOモード1のPASSは1,036件、lint ERROR 0/WARN 3(modTestsPure/2/5)のまま。
   ※R15完了時点: 114本(optOcrEta/optOcrCache/modTestsPure13/modTestsPure14を追加)、
     LOモード1のPASSは1,228件、lint ERROR 0/WARN 4(modTestsPure/2/5/12。全てテスト系)。
+  ※R16完了時点: 117本(modWorkExcel/modAskMulti/modAskFocus/modTestsPure15を追加)、
+    LOモード1のPASSは1,391件、lint ERROR 0/WARN 4(同上)のまま。
 - **R15で記録した次期課題・確定事項**:
   - ChatGPTV は待ち秒数引数なし・同期永久待ち(実機確認済み)。VBA側の根治は不可能。
     リボン側に引数が追加されたら optOcrPage の呼び出し1行で反映可能。
@@ -239,6 +247,25 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
   - キャッシュ復元は「そのバッチをGSが描けた」ことが前提(描画0枚バッチの頁は
     キャッシュがあっても打ち切り。頁番号整合を優先した設計判断)。
   - 32,000字超で切り詰めた頁はキャッシュ保存しない(次回読み直し・FB-10)。
+- **R16で記録した次期課題・確定事項**(詳細は spec_20260805_R16H_レビュー裁定.md の「記録のみ」):
+  - usage_log のリング(log_max_rows=2000)回転が新タグ(decomposed/multi_*/neighbor_*等)で
+    速まる。観測価値優先で容認。次期でタグ整理を検討(節約時間の前月比が早く欠ける)。
+  - StatusBar 通知(E0904等)はQ&A中は数秒で上書きされ実質見えない(err_logで追跡可。
+    次期でトースト化検討)。取込中は modUiLock の文言を上書きしたまま残る。
+  - source型逆質問(「2-②」教育)と topic型(「1と3」)の文言完全統一は次期
+    (入力互換は R16H FA-7 の区切り拡張で確保済み)。
+  - 逆質問TTL失効直後の番号入力への能動ガード(現状は普通の質問として流れる。
+    案内文の「30分で無効」明記のみ実施)。
+  - single-thorough/deep の経過時間表示(分解経路のみ実装済み。B-M7残)。
+  - 既存の文字列リテラル末尾区切り文字パターン2件(modHelp.bas OnShareSetup付近/
+    modTelemetry)。LO実測は通過・実害未確認(EDGE_CASES §1.3 のトリガ条件が実際は
+    狭い可能性)。新規コードは Chr$(92) 経由を徹底。
+  - mock_llm では decompose は常に single(FB-2で固定)。R16-3系のデモは実LLMのみ。
+  - 精読(NeighborExpand)の資料キーは source(表示・スコープと同じ一意基準)。
+    chunk_id のハッシュ部は「チャンク本文ハッシュ」であり資料キーではない(FA-1の教訓。
+    テストは実データ形状=行ごと異ハッシュで書くこと)。
+  - deep深掘りの精読適用は取り下げ(nHits表示契約と衝突・R16H §3C改訂)。
+  - 非#ERR文字列は BuildErrorAnswer を素通しする契約(FA-2。非回答ターン=逆質問の表示経路)。
 - R11での事実確認・修正メモ:
   - LibreOffice Private Const の参照不可: Public Const へ揃えて回避(modDashStatで実測)。
   - LogError context ラベル: Public エントリ名を指すこと(lintの参照チェックが文字列リテラル内も見る)。
