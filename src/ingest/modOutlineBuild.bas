@@ -49,6 +49,26 @@ Private Const SUMMARY_MAX As Long = 600
 Private Const KEYWORDS_MAX As Long = 200
 Private Const FAIL_TEXT As String = "(要約失敗)"
 
+' 無人実行(自動同期)中は章要約を作らない資料の章数(2026-08-05 R17H FA-7)。
+Private Const UNATTENDED_MAX_CH As Long = 12
+
+' いま走っているのが「誰も見ていない処理」か(2026-08-05 R17H FA-7 / A-M8)。
+' 自動同期(modShelfSync.SyncNow silent:=True)は OnTime で勝手に始まり、
+' 進捗バナーも中断ボタンも利用者の目の前には無い。そこで章数の多い資料の
+' 章要約(=章数ぶんのLLM呼び出し。254頁で20〜30回・数分〜十数分)を始めると、
+' 「何もしていないのにExcelが数分固まる」だけの体験になる。手動取込・手動
+' 同期(silent=False)では従来どおり全量作る。印の上げ下げは modShelfSync の
+' 入口/Finish の2行だけで、こちらからは読むだけ。
+Private mUnattended As Boolean
+
+' ----------------------------------------------------------------------------
+' SetUnattended - 無人実行(自動同期)の印を上げ下げする(R17H FA-7)。
+'   呼ぶのは modShelfSync.SyncNow の入口(silent の値)と Finish(False)だけ。
+' ----------------------------------------------------------------------------
+Public Sub SetUnattended(ByVal b As Boolean)
+    mUnattended = b
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' BuildOutlineFor - 1資料ぶんの章要約を作って doc_outline へ保存する。
 '   config graph_outline=off / chunk_meta が0行 / その資料のチャンクが無い /
@@ -82,6 +102,18 @@ Public Sub BuildOutlineFor(ByVal sourceName As String)
     Dim nCh As Long
     nCh = GroupChapters(paths, nSrc, chKeys, chCount)
     If nCh < 1 Then Exit Sub
+
+    ' 無人実行(自動同期)で章数が多い資料は、章要約を先送りする(R17H FA-7)。
+    ' 手動取込・手動同期(非silent)なら同じ資料でも全量作られる=先送りは
+    ' 「作らない」ではなく「人が見ているときに作る」。名寄せ(name_dedup)は
+    ' 1資料につき最大1回なので、無人でもそのまま続ける。
+    If mUnattended And nCh > UNATTENDED_MAX_CH Then
+        On Error Resume Next
+        modLog.LogUsage "outline_deferred", "ingest", _
+            "source=" & sourceName & " chapters=" & nCh & " (unattended)"
+        On Error GoTo 0
+        GoTo SynStep
+    End If
 
     Dim cap As Long: cap = SafeCap()
     Dim sums() As String: ReDim sums(1 To nCh)
@@ -153,8 +185,10 @@ LoopDone:
         "source=" & sourceName & " chapters=" & doneN & "/" & nCh
     On Error GoTo 0
 
+SynStep:
     ' R17 Phase3: 章要約に続けて名寄せ辞書のバッチ生成を1回だけ(ゲート・失敗握り
     ' ・usage_log("synonyms_fail")はmodSynonymStore側に閉じる。ここは1行)。
+    On Error GoTo Quiet
     If Not modShelfBatch.CancelRequested() Then
         On Error Resume Next
         modSynonymStore.BuildSynonymsFor sourceName

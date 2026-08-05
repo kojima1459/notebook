@@ -248,6 +248,19 @@ Public Sub WarnAtStartup()
         MsgBox VolatileWarnMsg(curPath), vbExclamation, modAppDef.APP_NAME
     End If
 
+    ' 2026-08-05(R17H FB-7 / B-M): 既に本棚があるのに chunk_meta が0行=R17より
+    ' 前に取り込んだ資料しか無い本棚。構造検索(条文参照・俯瞰)は「無ければ
+    ' 従来どおり」で静かに効かないだけなので、放っておくと新機能があることも、
+    ' 有効にする方法(取り込み直し)も一生伝わらない(実機第5報のレビューB)。
+    ' 起動時1回・非モーダルのトーストで1文だけ言う。モーダルにしないのは、
+    ' これが「壊れている」ではなく「もっと良くできる」の知らせだから
+    ' (WarnAtStartup 自体が1セッション1回=mWarned なので回数も1回)。
+    If curRows > 0 And ChunkMetaRowCount() = 0 Then
+        modLog.LogUsage "integrity_hint", "no_chunk_meta", "rows=" & curRows
+        modSkin.ShowToast "資料を取り込み直すと新しい構造検索(条文参照・俯瞰)が" & _
+            "有効になります", "info"
+    End If
+
     Dim prevRows As Long: prevRows = 0
     Dim prevTxt As String: prevTxt = modState.LoadState(KEY_LAST_ROWS, "")
     If IsNumeric(prevTxt) Then prevRows = CLng(Val(prevTxt))
@@ -274,6 +287,18 @@ Private Function KnowledgeRowCount() As Long
     Dim lastK As Long: lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Function
     KnowledgeRowCount = lastK - 1
+    On Error GoTo 0
+End Function
+
+' chunk_meta の行数(ヘッダ除く)。シートが無ければ0(R17H FB-7)。
+' 判定材料はシート1枚だけで、上位層は1つも呼ばない(KnowledgeRowCount と同型)。
+Private Function ChunkMetaRowCount() As Long
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_CHUNK_META)
+    If ws Is Nothing Then Exit Function
+    Dim lastM As Long: lastM = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastM < 2 Then Exit Function
+    ChunkMetaRowCount = lastM - 1
     On Error GoTo 0
 End Function
 

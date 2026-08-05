@@ -432,9 +432,15 @@ CONTRACT: dict[str, dict] = {
     #   PURE_LOGIC_MODULES には載せない(シートI/O・CallLLM を持つため)が、
     #   run_lo_tests の PURE_ALLOWLIST へは載せてこの2本だけ実行テストで固定する
     #   (modAskFocus/modAskMulti と同じ型)。
+    # SetUnattended(2026-08-05 R17H FA-7 / A-M8): 無人実行(自動同期)の印。
+    #   自動同期は OnTime で勝手に始まり、進捗バナーも中断ボタンも利用者の目の
+    #   前には無い。そこで章数の多い資料の章要約(章数ぶんのLLM呼び出し)を
+    #   始めると「何もしていないのにExcelが数分固まる」だけになる。上げ下げは
+    #   modShelfSync.SyncNow の入口/Finish の2行だけで、判断そのもの
+    #   (章数>12 なら先送りして usage_log("outline_deferred"))はこの層に閉じる。
     "modOutlineBuild": {
         "closed": True,
-        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake"],
+        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended"],
     },
     # modSynonymStore(2026-08-05 R17 Phase3): 用語の表記ゆれ辞書(synonyms:
     #   term/canonical)のEnsure/一括書込み/読み/全消去/名寄せバッチ。
@@ -565,12 +571,23 @@ CONTRACT: dict[str, dict] = {
         #   Phase3・調査agent7 §3.3)ため、シートを読む側(modAskRetrieve)が
         #   文字列化した地図を渡す構成にした。一致判定はmodSparse.
         #   NormalizeForSearchを両辺に通すので全角/半角の表記ゆれも吸収する。
+        # MergeSynPairs(2026-08-05 R17H FA-1 / A-H1): 旧synonyms CSV+新CSV→
+        #   統合CSV のマージ規則。実体は modSynonymStore.MergeAndSave にあり、
+        #   ParseSynResp が返す【0始まり】の配列を 1〜n で読んでいたため実データ
+        #   では毎回「添字が範囲外」で握り潰され、synonyms が永久に0行だった。
+        #   配列の起点に依存しない「文字列→文字列」の純関数へ切り出し、
+        #   modTestsPure17 のゴールデンで固定する(Store側は薄く呼ぶだけ)。
+        # HasGlobalSignal(2026-08-05 R17H FA-6 / A-M7・B-H2): 俯瞰(全体像・
+        #   一覧)を求める語彙シグナル。「全体像は?」のような短文が段0判定を
+        #   呼ばれず IsTooVague の聞き返しにも吸われて、俯瞰が一度も試されない
+        #   狭間を塞ぐ。HasCompoundSignal と同じ「質問文の文字列パターン検知」。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
                      "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
                      "ParseDecomposeVerdict", "ParseParts",
                      "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal",
                      "ParseOutlineResp", "ParseChapterPick",
-                     "ParseSynResp", "ExpandQueryBySyn"],
+                     "ParseSynResp", "ExpandQueryBySyn",
+                     "MergeSynPairs", "HasGlobalSignal"],
     },
     "modAsk": {
         "closed": True,
@@ -689,9 +706,16 @@ CONTRACT: dict[str, dict] = {
     #   チャンクが引けない / 回答生成の失敗)は全て False で、呼び出し元
     #   (modAskMulti)は従来の入念フローへ落ちる=フェイルセーフはこの層に閉じる。
     # OutlineActive: そのフェイルセーフの単一情報源(0行なら俯瞰は動かない)。
+    # WasGlobalTurn/ResetGlobalTurn(2026-08-05 R17H FA-2 / A-H2・B-H1):
+    #   直近ターンが俯瞰だったかの1ビット。俯瞰の hits は score=0(章の要約から
+    #   選んだもので検索スコアではない)ため、低関連度の警告と信頼度バッジが
+    #   同時に付いて【正しく答えた回答】が二重に否定されて見えていた。点数は
+    #   変えず表示だけを出自どおりに直すために、表示側(modAskRetrieve /
+    #   modUINexusDraw)へこの1ビットだけを公開する。リセットは
+    #   modAskMulti.TryDecomposed の入口1箇所(印を次のターンへ残さない)。
     "modAskGlobal": {
         "closed": True,
-        "required": ["TryGlobal", "OutlineActive"],
+        "required": ["TryGlobal", "OutlineActive", "WasGlobalTurn", "ResetGlobalTurn"],
     },
     "modAskThorough": {
         "closed": True,
@@ -2805,6 +2829,20 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                     if (cur_layer == LAYER_MID
                             and (prefix, member) == ("modSkin", "ShowToast")
                             and self_name in R1_TOAST_ALLOWED_MODULES):
+                        continue
+                    # ShowToast(2026-08-05 R17H FB-7 / B-M): 基盤層からは
+                    # modIntegrity.WarnAtStartup の1箇所だけ許す。起動時に
+                    # 「my_knowledge はあるのに chunk_meta が0行」(=R17より前に
+                    # 取り込んだ資料しか無い本棚)を1文だけ知らせるためのもので、
+                    # 裁定でモーダル禁止=MsgBox を使えない。判定材料はシート2枚
+                    # だけで上位層の状態を読まないため、向きは「基盤→UIへ通知」
+                    # の一方通行(modGatewayDirect の SetStage 例外と同性質)。
+                    # 起動時1回きり(mWarned)なので 1.1 秒の待ちも1回で済む。
+                    # 広げるときは必ずここへ足す=どのモジュールが基盤層から
+                    # トーストを出すかが1箇所で分かる状態を保つ。
+                    if (cur_layer == LAYER_FOUNDATION
+                            and (prefix, member) == ("modSkin", "ShowToast")
+                            and self_name == "modIntegrity"):
                         continue
                     if (cur_layer == LAYER_MID
                             and (prefix, member) == ("modUiLock", "IsBusy")

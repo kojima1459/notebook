@@ -58,13 +58,10 @@ Private Const STEPBUF_MAX As Long = 400
 '   Application.Run("ChatGPT", prompt, "", 0.4, 0, waitSec, model, prevU, prevA,
 '                    toolN, effort, verbosity)
 ' 第9引数toolNには "マイ本棚AI:" & step_name を渡す(裁定D1。管理側ログで
-' ツールを識別できるようにするため)。
-' 第7・8引数prevU/prevAは会話継続用の履歴(確定根拠: 台帳§1 #1のChatGPT
-' シグネチャ第7・8引数+裁定D11)。複数往復ぶんは「新しい順」に ";;;" 区切り
-' で連結した文字列を渡す(prevU=過去の質問、prevA=過去の回答。履歴の保持と
-' 連結はmodAsk側の責務)。本関数のprevU/prevAはOptional末尾追加のため、
-' 既定""=履歴なしで従来と完全に同じ呼び出しになり、既存呼び出し元
-' (modAsk/modEnrich/optDiffDoc等)は無改修で動く(後方互換)。
+' ツールを識別するため)。第7・8引数prevU/prevAは会話継続用の履歴(台帳§1 #1
+' +裁定D11)。複数往復ぶんは「新しい順」に ";;;" 区切りで連結して渡す
+' (履歴の保持と連結はmodAsk側の責務)。本関数のprevU/prevAはOptional末尾
+' 追加で、既定""=履歴なし=従来と同じ呼び出し(既存呼び出し元は無改修)。
 ' arg3(Temperature)/arg4(MaxTokens)はDouble/Long型のため ""  を渡すと型不一致
 ' エラーになる。GPT-5系モデルではこの2つは無視され、代わりにeffort/verbosity
 ' (第10・11引数)が効く設計になっている(V2の実運用で確認済み)。
@@ -144,11 +141,10 @@ End Function
 ' enrich…)が何ミリ秒かかったかが分からないと、遅さの相談に事実で答えられない。
 ' 成功・失敗・mock の全経路で必ず1件積む(失敗した段こそ時間を知りたい)。
 '
-' R13 F8: 初版はここで1段=1行を usage_log へ書いていた。ところが1問あたり
-' 10行前後になるため、2,000行で回る usage_log が約180問で一周し、
-' feedback_green など「月をまたいで比較したい履歴」を押し出していた
-' (modDashStat の前月比が静かに壊れる)。行を増やさずに事実を残すため、
-' 積むだけにして、質問の終わりに modAsk が1行へまとめて書き出す。
+' R13 F8: 初版は1段=1行を usage_log へ書いていたが、1問10行前後になり
+' 2,000行で回る usage_log が約180問で一周して、feedback_green など月をまたぐ
+' 履歴を押し出していた(modDashStat の前月比が静かに壊れる)。積むだけにして、
+' 質問の終わりに modAsk が1行へまとめて書き出す。
 ' 記録の失敗が呼び出しを壊さないよう、全体を1行スコープの保護で囲む。
 Private Sub LogStepLatency(ByVal step_name As String, ByVal ms As Long)
     On Error Resume Next
@@ -402,14 +398,11 @@ End Function
 ' RunLimitCheck - リボン公式のLimitCheck()呼び出し口(裁定D3)
 '   戻り値: True=続行不可(利用期限切れ等) / False=続行可
 ' ----------------------------------------------------------------------------
-' RIBBON_API_CONFIRMED.md §1 #13: LimitCheck() は Boolean を返し、
-' True=続行不可(内部で日初の利用同意表示も行う)。
-'   ・mock_llm=TRUE、または config limit_check=FALSE(エスケープハッチ)の
-'     ときは呼ばずに即False(続行可)。
-'   ・リボン未検出時もFalse(呼びようがない。E0201は実呼び出し時に記録)。
-'   ・Application.Run("LimitCheck")がエラーになった場合(LimitCheckを持たない
-'     古いリボン等)もFalseに倒す。誤ブロック防止のためエラー扱いにはせず
-'     usage_logへの情報記録に留める(裁定D3の穏当運用)。
+' RIBBON_API_CONFIRMED.md §1 #13: LimitCheck() は Boolean を返し True=続行不可
+' (内部で日初の利用同意表示も行う)。mock_llm=TRUE / config limit_check=FALSE
+' (エスケープハッチ)/ リボン未検出 / Application.Run が失敗(古いリボン)は
+' すべて False(続行可)へ倒す。誤ブロック防止でエラー扱いにはせず
+' usage_log への情報記録に留める(裁定D3の穏当運用)。
 ' ----------------------------------------------------------------------------
 Public Function RunLimitCheck() As Boolean
     RunLimitCheck = False
@@ -583,30 +576,37 @@ Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As Stri
         Case "enrich"
             MockLLMResponse = "[{""i"":1,""summary"":""(モック要約)この章の要点"",""keywords"":""キーワードA,キーワードB""}]"
         Case "decompose"
-            ' R16H FB-2(A-L12/B-M6): 段0(複合質問の論点分け・逆質問の判定)。
-            ' Case Else の汎用ダミーはタグを含まないため、パーサは「読めない
-            ' 応答=single」へ寛容退化していた。結果は正しいが【偶然】正しい。
-            ' mock で R16-3系(分解・番号選択肢)が発火しないことを、明示的に
-            ' 固定しておく(docs/20 §3-1 にも1行記載)。
+            ' R16H FB-2(A-L12/B-M6): 段0(論点分け・逆質問の判定)。Case Else の
+            ' 汎用ダミーはタグが無く「読めない応答=single」へ退化していた
+            ' (結果は正しいが【偶然】正しい)。mock で R16-3系が発火しない
+            ' ことを明示的に固定する(docs/20 §3-1 にも1行記載)。
             MockLLMResponse = "<verdict>single</verdict>"
         Case "chapter_summary"
-            ' R17 Phase2: 取込時の章単位要約。Case Else の汎用ダミーはタグを
-            ' 含まないため、パーサ(modRagParse.ParseOutlineResp)が読めず
-            ' 【全章が「(要約失敗)」で保存される】=mockでは doc_outline の
-            ' 中身を一度も確認できない。R16H FB-2(decompose)と同じ理由で明示する。
+            ' R17 Phase2: 取込時の章単位要約。汎用ダミーはタグが無く
+            ' ParseOutlineResp が読めないため【全章が「(要約失敗)」で保存】
+            ' =mockでは doc_outline の中身を一度も確認できない(FB-2と同じ理由)。
             MockLLMResponse = "<summary>(モック章要約)この章の要点をここに200～300字で書きます。" & _
                 "mock_llm=TRUE のためダミーです。</summary>" & vbLf & _
                 "<keywords>キーワードA|キーワードB</keywords>"
         Case "chapter_pick"
-            ' R17 Phase2: 俯瞰質問の章選択。空=0章選択で、modAskGlobal は
-            ' False を返して従来の入念フローへ落ちる。mock で「章をまたぐ
-            ' 回答」を作らないことを明示的に固定する(章の本文が無いまま
-            ' もっともらしい俯瞰回答が出ると、mockと実機の差が一番危ない)。
+            ' R17 Phase2: 俯瞰質問の章選択。空=0章選択で modAskGlobal は
+            ' False を返し従来の入念フローへ落ちる(章の本文が無いまま
+            ' もっともらしい俯瞰回答が出る状態を mock で作らない)。
             MockLLMResponse = "<pick></pick>"
+        Case "global_answer"
+            ' R17H FB-2(A-L12): 俯瞰の段3(章をまたいだ回答生成)。Case Else の
+            ' 汎用ダミーは章の■見出しも複数の出典タグも持たないため、mockでは
+            ' 出典突合(modAskThorough.AnnotateAgainstHits)が効いた形も、俯瞰
+            ' らしい回答の並びも一度も確認できない(chapter_summary と同じ理由)。
+            MockLLMResponse = "【モック回答/俯瞰】" & vbLf & _
+                "■ 第1章 総則" & vbLf & _
+                "・章をまたいだ回答がここに入ります [本棚:サンプル資料.pdf p.1]" & vbLf & _
+                "■ 第2章 手続" & vbLf & _
+                "・章ごとの違い・例外がここに入ります [本棚:サンプル資料.pdf p.3]" & vbLf & vbLf & _
+                "(mock_llm=TRUE によるダミー俯瞰回答です。)"
         Case "name_dedup"
-            ' R17 Phase3: 用語の名寄せ。空=0グループで、modSynonymStore は
-            ' 何も書かずに諦める(R16H FB-2/chapter_summaryと同じ理由の明示。
-            ' Case Else の汎用ダミーはタグを含まないためパーサが読めない)。
+            ' R17 Phase3: 用語の名寄せ。空=0グループで modSynonymStore は
+            ' 何も書かずに諦める(chapter_summary と同じ理由の明示)。
             MockLLMResponse = "<syn></syn>"
         Case "diff"
             MockLLMResponse = "【モック差分分析】" & vbLf & _

@@ -56,6 +56,18 @@ Private Const MAX_HITS As Long = 120
 ' 数十字しか渡らない状態にはしない)。
 Private Const CAP_MIN As Long = 2000
 
+' 章要約が作れなかった章に doc_outline へ入る文字列。modOutlineBuild.FAIL_TEXT と
+' 同じ値を対で持つ(Private Const はモジュールを跨げない)。片方を変えるときは
+' 必ず両方。中断時の部分回答(AbortDigest)でこの行だけ言い換える(R17H FB-8)。
+Private Const OUTLINE_FAIL As String = "(要約失敗)"
+
+' このターンが俯瞰(TryGlobal が回答を作った)だったか(2026-08-05 R17H FA-2)。
+' 立てるのは TryGlobal の成功出口だけ、下ろすのは modAskMulti.TryDecomposed の
+' 入口だけ。低関連度の警告(modAskRetrieve.ApplyLowHitWarning)と信頼度バッジ
+' (modUINexusDraw.DrawConfidence)が「この回答の出自」を知るための1ビットで、
+' score=0 のまま【表示だけ】を正しくするために使う(点数は騙さない)。
+Private mWasGlobal As Boolean
+
 ' ----------------------------------------------------------------------------
 ' TryGlobal - 俯瞰質問の入口(modAskMulti の段0が verdict=global のときだけ)。
 '   True  = この関数が回答を作った(result / ok / hits / nHits を書き換え済み)。
@@ -153,6 +165,7 @@ Aborted:
     result = body
     ok = True
     TryGlobal = True
+    mWasGlobal = True
     LogZero "aborted"
     Exit Function
 
@@ -168,7 +181,27 @@ Done:
     result = body
     ok = True
     TryGlobal = True
+    mWasGlobal = True
 End Function
+
+' ----------------------------------------------------------------------------
+' WasGlobalTurn / ResetGlobalTurn - 直近ターンが俯瞰だったかの1ビット。
+' ----------------------------------------------------------------------------
+' 2026-08-05(R17H FA-2 / A-H2・B-H1): 俯瞰の回答は章の要約から章を選んで作る
+' ので、返す hits の score は 0(モジュール冒頭の設計判断)。そのままだと
+' 「⚠ 手元の資料との関連が薄い」と「🔴 根拠が乏しい」が同時に付き、
+' 【章をまたいで正しく答えた回答】が二重に否定されて見える。点数は騙さず、
+' 表示だけを出自どおりに直すために、この1ビットを表示側へ渡す。
+' リセットは modAskMulti.TryDecomposed の入口(=入念ターンの最初)1箇所だけ。
+' そこに置くのは、俯瞰を通らなかった次のターンへ印が残らない唯一の場所だから。
+' ----------------------------------------------------------------------------
+Public Function WasGlobalTurn() As Boolean
+    WasGlobalTurn = mWasGlobal
+End Function
+
+Public Sub ResetGlobalTurn()
+    mWasGlobal = False
+End Sub
 
 ' ============================================================================
 ' 純ロジック(LibreOfficeの実行テストで固定する)
@@ -265,10 +298,12 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
     lastK = ws.Cells(ws.Rows.count, COL_ID).End(xlUp).row
     If lastK < 2 Then Exit Function
 
+    ' フェイルセーフの判定は共有の1本(R17H FB-1 / A-L11)。chunk_meta が0行の
+    ' 本棚では章に割れないので、ここで静かに諦める=回答は R16 までと同じ。
     Dim mIds() As String, mPaths() As String, mRefs() As String
     Dim metaN As Long
     metaN = modChunkMetaStore.ReadAllMeta(mIds, mPaths, mRefs)
-    If metaN < 1 Then Exit Function
+    If Not modChunkMeta.GraphActive(metaN, nPick) Then Exit Function
 
     ' 1) 選ばれた章に属する chunk_id を、章ごとの箱(vbLf区切り)へ集める。
     Dim pSrc() As String: ReDim pSrc(1 To nPick)
@@ -282,6 +317,14 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
         SplitPick picks(lo + i - 1), pSrc(i), pKey(i)
     Next i
 
+    ' 2026-08-05(R17H FA-5 / A-M5): 章キーが一致する箱へは【全部】入れる。
+    ' 最初の一致で Exit For していた頃は、同名の章キー(「第1章 総則」はどの
+    ' 規程にもある)を持つ資料が2本選ばれると、どのチャンクも1つ目の箱にしか
+    ' 入らず、2つ目の資料の章が丸ごと空になっていた。資料(source)の突き合わせは
+    ' 下の 2) で行番号ごとに行うので、ここで両方の箱へ入れておけば
+    ' 「src と 章キーの両方が一致した行だけ採る」が結果として成立する
+    ' (chunk_meta には source 列が無く、ここで引くと本棚全行×meta行の走査に
+    '  なるため、突合はシートを読む 2) 側へ置いたままにしてある)。
     For i = 0 To metaN - 1
         If LenB(mPaths(i)) > 0 Then
             Dim k As String: k = modOutlineBuild.ChapterKeyOf(mPaths(i))
@@ -290,7 +333,6 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
                     If LenB(pKey(j)) > 0 Then
                         If StrComp(k, pKey(j), vbTextCompare) = 0 Then
                             boxes(j) = boxes(j) & vbLf & mIds(i)
-                            Exit For
                         End If
                     End If
                 Next j
@@ -377,7 +419,7 @@ Private Function AbortDigest(ByRef picks() As String, ByVal nPick As Long, _
                 If StrComp(Trim$(srcs(j)), ps, vbTextCompare) = 0 Then
                     If StrComp(Trim$(keys(j)), pk, vbTextCompare) = 0 Then
                         If LenB(sb) > 0 Then sb = sb & vbLf & vbLf
-                        sb = sb & "■ " & ps & " / " & pk & vbLf & Trim$(sums(j))
+                        sb = sb & "■ " & ps & " / " & pk & vbLf & DigestLine(sums(j))
                         Exit For
                     End If
                 End If
@@ -389,6 +431,16 @@ Private Function AbortDigest(ByRef picks() As String, ByVal nPick As Long, _
     AbortDigest = "(中断されたため、関係しそうな章の【取込時に作った要約】" & _
         "だけを表示しています。原文は確認していません。)" & vbLf & vbLf & sb & vbLf & vbLf & _
         "※中断されたため章の本文は読んでいません。もう一度質問すると最初から調べ直します"
+End Function
+
+' 章の要約1行の表示。取込時に要約を作れなかった章(doc_outline に
+' OUTLINE_FAIL が入っている)は、内部の失敗語ではなく利用者に分かる言い方へ
+' 差し替える(2026-08-05 R17H FB-8 / B-L)。「(要約失敗)」だけが並ぶと、
+' 何が壊れたのか・自分は何をすればよいのかが1文字も伝わらない。
+Private Function DigestLine(ByVal summary As String) As String
+    Dim s As String: s = Trim$(summary)
+    If s = OUTLINE_FAIL Then s = "(この章の要約は未完了です)"
+    DigestLine = s
 End Function
 
 ' ----------------------------------------------------------------------------

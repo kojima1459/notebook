@@ -381,9 +381,13 @@ PURE_ALLOWLIST = [
     #   俯瞰を試みて実行時エラー」のいずれかが【無音で】起きる。
     #   テストから呼ぶには本モジュールを注入する必要がある(modAskFocus /
     #   modAskMulti と同じ型。未注入だと実行時エラー12)。
+    # modTestsPure18(2026-08-05 R17H): modTestsPure17(25,032字)に R17H の
+    #   真理表(名寄せマージ・俯瞰シグナル・段0の門)を足すと WARN帯へ入る
+    #   ための分割先。modTestsPure17.RunAll17 の末尾が RunAll18 を呼ぶため、
+    #   未注入だと実行時エラー12で R17H のテストが1件も走らない(17と同型)。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
     "modViewport", "modChunkMeta", "modTestsPure17",
-    "modOutlineBuild", "modAskGlobal",
+    "modOutlineBuild", "modAskGlobal", "modTestsPure18",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

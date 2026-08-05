@@ -314,6 +314,11 @@ Private Function TableKeys(ByVal s As String, ByVal n As Long, ByVal head As Str
             End If
         Loop
         If LenB(dgt) > 0 Then
+            ' 2026-08-05(R17H FB-3 / A-L13): MAX_KEYS の枠はここでも尊重する。
+            ' 別表・様式を無制限に足すと、DistinctiveKeys が8枠を超えて返り、
+            ' 「残りは長い順に採る」側の打ち切り(CountSep>=MAX_KEYS)が意味を
+            ' 失う=枠の意味が採る順序で変わってしまう。
+            If CountSep(already & outS) >= MAX_KEYS Then Exit Do
             Dim lab As String: lab = head & dai & dgt
             If InStr(1, "|" & already & outS, "|" & lab & "|", vbBinaryCompare) = 0 Then
                 outS = outS & lab & "|"

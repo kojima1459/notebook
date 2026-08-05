@@ -30,6 +30,33 @@ Private Const COL_SECTION As Long = 2
 Private Const COL_REFS As Long = 3
 Private Const META_COLS As Long = 3
 
+' ----------------------------------------------------------------------------
+' セッションキャッシュ(2026-08-05 R17H FA-9 / A-M10)
+' ----------------------------------------------------------------------------
+' ReadAllMeta は chunk_meta の全行を Range 一括で読む。R17 Phase1/2 で
+' 呼び出し口が増え、入念1ターンで modAskRetrieve(検索ごと)・modAskFocus
+' (RefsExpand/ArticleEnsure)・modAskGlobal(章の突合)から何度も同じ全行を
+' 読み直すようになった(2万行の本棚で1ターン数回×全行)。読む内容は取込・
+' 削除が走らない限り1文字も変わらないので、最初の1回だけ読んで控える。
+' 契約(並行配列を 0 To n-1 で返す・0行なら (0 To 0) の空)は【不変】で、
+' 呼び出し側は1行も変えない。キャッシュはこの層の内側に閉じる。
+' 無効化(=次の ReadAllMeta で読み直し)は書込み・削除の入口すべて:
+'   WriteMetaRows(追記の実体。WriteMetaFromRows もここを通る)
+'   RemoveMetaForSource(再取込で消える行の掃除)
+' これ以外に chunk_meta を書き換える経路が増えたら、必ずここへ足すこと
+' (足し忘れると「取り込み直したのに古い構造で検索される」が無音で起きる)。
+Private mCacheOk As Boolean
+Private mCacheN As Long
+Private mCacheIds() As String
+Private mCachePaths() As String
+Private mCacheRefs() As String
+
+' キャッシュ世代を捨てる(次の ReadAllMeta がシートから読み直す)。
+Private Sub InvalidateMetaCache()
+    mCacheOk = False
+    mCacheN = 0
+End Sub
+
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(sheetName)
@@ -73,6 +100,7 @@ End Function
 Public Sub WriteMetaRows(ByRef ids() As String, ByRef paths() As String, _
                          ByRef refs() As String, ByVal n As Long)
     If n < 1 Then Exit Sub
+    InvalidateMetaCache            ' R17H FA-9: 書いたら世代を捨てる
     Dim ws As Worksheet: Set ws = EnsureChunkMetaSheet()
     If ws Is Nothing Then Exit Sub
 
@@ -133,6 +161,7 @@ End Sub
 '   行」だけで、検索側は chunk_id を引けずにその行を無視する(害は無く、
 '   次の再取込でまた掃除を試みる)。
 Public Sub RemoveMetaForSource(ByVal sourceName As String, ByVal keepFromRow As Long)
+    InvalidateMetaCache            ' R17H FA-9: 消したら世代を捨てる
     On Error GoTo Failed
 
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_CHUNK_META)
@@ -210,23 +239,28 @@ End Sub
 ' ReadAllMeta - 全行をids/paths/refsの並行配列(0 To n-1)へ出力し、件数を返す。
 '   シートが無い/1行も無いときは0を返し、出力配列は(0 To 0)の空を保証する
 '   (SourceListと同じ「呼び出し側は毎回ReDimされた配列を受け取れる」規約)。
+'   2026-08-05(R17H FA-9): 1セッション中は最初の1回だけシートを読み、以降は
+'   控えた配列を複製して返す。契約も戻り値も従来と1文字も変わらない
+'   (呼び出し側が配列を書き換えても、次の呼び出しへ伝わらない=毎回コピー)。
 Public Function ReadAllMeta(ByRef outIds() As String, ByRef outPaths() As String, _
                             ByRef outRefs() As String) As Long
+    If mCacheOk Then
+        outIds = mCacheIds
+        outPaths = mCachePaths
+        outRefs = mCacheRefs
+        ReadAllMeta = mCacheN
+        Exit Function
+    End If
+
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_CHUNK_META)
     If ws Is Nothing Then
-        ReDim outIds(0 To 0)
-        ReDim outPaths(0 To 0)
-        ReDim outRefs(0 To 0)
-        ReadAllMeta = 0
+        ReadAllMeta = KeepEmpty(outIds, outPaths, outRefs)
         Exit Function
     End If
 
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, COL_ID).End(xlUp).row
     If lastR < 2 Then
-        ReDim outIds(0 To 0)
-        ReDim outPaths(0 To 0)
-        ReDim outRefs(0 To 0)
-        ReadAllMeta = 0
+        ReadAllMeta = KeepEmpty(outIds, outPaths, outRefs)
         Exit Function
     End If
 
@@ -242,5 +276,26 @@ Public Function ReadAllMeta(ByRef outIds() As String, ByRef outPaths() As String
         outPaths(i - 1) = CStr(arr(i, COL_SECTION))
         outRefs(i - 1) = CStr(arr(i, COL_REFS))
     Next i
+
+    mCacheIds = outIds
+    mCachePaths = outPaths
+    mCacheRefs = outRefs
+    mCacheN = n
+    mCacheOk = True
     ReadAllMeta = n
+End Function
+
+' 0行の答え(空配列3本+件数0)。この形も控えるので、chunk_meta が無い本棚では
+' 質問のたびにシートを探し直すことも無くなる。
+Private Function KeepEmpty(ByRef outIds() As String, ByRef outPaths() As String, _
+                           ByRef outRefs() As String) As Long
+    ReDim outIds(0 To 0)
+    ReDim outPaths(0 To 0)
+    ReDim outRefs(0 To 0)
+    mCacheIds = outIds
+    mCachePaths = outPaths
+    mCacheRefs = outRefs
+    mCacheN = 0
+    mCacheOk = True
+    KeepEmpty = 0
 End Function

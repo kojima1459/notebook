@@ -164,8 +164,13 @@ End Function
 '   1文字も変わらない。この1本を両方の入口(modAskFocus)から呼ぶことで、
 '   フェイルセーフの条件が2箇所に割れないようにする。
 ' ----------------------------------------------------------------------------
-Public Function GraphActive(ByVal metaCount As Long, ByVal nHits As Long) As Boolean
-    GraphActive = (metaCount > 0 And nHits > 0)
+'   allowZeroHits(2026-08-05 R17H FA-8 / A-M9): 検索が0件でも、質問が条文・
+'   別表・様式を名指ししているときだけ True にしてよい経路がある(直接キーで
+'   最大2件だけ材料を用意する modAskRetrieve.EnsureArticleSeed)。条件を
+'   もう1本の関数へ割らず、【意図を引数で渡す】形にして単一情報源を保つ。
+Public Function GraphActive(ByVal metaCount As Long, ByVal nHits As Long, _
+                            Optional ByVal allowZeroHits As Boolean = False) As Boolean
+    GraphActive = (metaCount > 0 And (nHits > 0 Or allowZeroHits))
 End Function
 
 ' ============================================================================

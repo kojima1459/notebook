@@ -4,31 +4,25 @@ Option Explicit
 ' ============================================================================
 ' modRagParse - 多段RAGのLLM応答パーサ(RAG_OVERHAUL_DESIGN.md §C/§D/§G-T7)
 ' ----------------------------------------------------------------------------
-' 純ロジック(R4)。全関数は「寛容退化」契約: マーカー/タグが欠落・崩壊して
-' いても例外を出さず、呼び出し側が安全に既定動作へ落ちられる値を返す
-' (mock応答・旧モデル・形式無視の応答でもアプリを壊さないため)。
-' タグ照合はすべて大文字小文字無視。
+' 純ロジック(R4)。全関数は「寛容退化」契約: タグが欠落・崩壊しても例外を出さず、
+' 呼び出し側が既定動作へ落ちられる値を返す。タグ照合は大小無視。
 ' ============================================================================
 
-' 俯瞰質問(R17 Phase2)で選べる章数の絶対上限。ParseChapterPick が maxN を
-' この値へ丸める(理由は同関数の注記)。
+' 俯瞰質問(R17 Phase2)で選べる章数の絶対上限(ParseChapterPick が丸める)。
 Private Const PICK_HARD_MAX As Long = 4
 
 ' ----------------------------------------------------------------------------
 ' "#ERR:…" 応答の判定と文言化(2026-08-03 R14-G1: modAsk から移設)
 ' ----------------------------------------------------------------------------
-' modGateway.CallLLM の失敗は "#ERR:コード:説明" という応答文字列で返る契約
-' なので、その読み取りも「LLM応答のパース」であり、ここが正しい置き場所。
-' modAsk / modAskRetrieve / modAskThorough の3モジュールが同じ判定を使う。
-' 副作用は無い(modLog.FriendlyMessage は Select Case だけの純ロジック)。
+' modGateway.CallLLM の失敗は "#ERR:コード:説明" の応答文字列で返る契約なので、
+' その読み取りも「LLM応答のパース」。3モジュールが同じ判定を使う。
 Public Function IsErrorResponse(ByVal s As String) As Boolean
     IsErrorResponse = (Left$(s, 5) = "#ERR:")
 End Function
 
 ' "#ERR:…" を利用者向けの1文へ。コードが読めないときは E0202(API失敗)。
-' 2026-08-05(R16H FA-2): 非回答テキスト(逆質問等)の素通し。#ERR以外を偽E0202に
-' しない(逆質問は「答えを作らなかった」だけで障害ではない。既存の呼び出し元は
-' すべて #ERR: 文字列を渡すため挙動は一切変わらない。空文字は従来どおりE0202)。
+' 2026-08-05(R16H FA-2): #ERR以外(逆質問等)は素通しして偽E0202にしない
+' (答えを作らなかっただけで障害ではない。空文字は従来どおりE0202)。
 Public Function BuildErrorAnswer(ByVal errResp As String) As String
     If LenB(Trim$(errResp)) > 0 And Not IsErrorResponse(errResp) Then
         BuildErrorAnswer = errResp
@@ -57,8 +51,8 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ParseExpand - クエリ拡張応答から <standalone>/<subqueries>/<hyde> を抽出。
-'   standaloneが取れたらTrue。取れなければ standalone="" でFalse
-'   (呼び出し側が元質問へ退化する)。subsは空でも必ず初期化済みで返る。
+'   standaloneが取れたらTrue(取れなければ空でFalse=呼び出し側は元質問へ退化)。
+'   subsは空でも必ず初期化済みで返る。
 ' ----------------------------------------------------------------------------
 Public Function ParseExpand(ByVal resp As String, ByRef standalone As String, _
                             ByRef subs() As String, ByRef hyde As String) As Boolean
@@ -102,14 +96,11 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' 複合質問の分解(2026-08-05 R16-3A)。段0判定の応答パーサ。
-'   出力契約: <verdict>single|parts|clarify</verdict>
-'             <parts>副質問1 | 副質問2 | 副質問3</parts>
-'             <options>読み方の候補1 | 候補2 | 候補3</options>
-'
-' ParseDecomposeVerdict - 判定を "single" / "parts" / "clarify" のいずれかへ。
+'   出力契約: <verdict>single|parts|clarify|global</verdict> /
+'             <parts>副質問1 | 副質問2</parts> / <options>候補1 | 候補2</options>
+' ParseDecomposeVerdict - 判定を "single"/"parts"/"clarify"/"global" のどれかへ。
 '   タグ欠落・空・知らない語・"#ERR:" はすべて "single"(=従来の入念フローへ
-'   無害フォールバック)。分解は「効けば速く正確になる」だけの上積みなので、
-'   読めない応答で分解へ倒すより、確実に答えが出る側へ倒すのが正しい退化。
+'   無害フォールバック)。読めない応答で分解へ倒すより確実に答えが出る側へ。
 ' ----------------------------------------------------------------------------
 Public Function ParseDecomposeVerdict(ByVal resp As String) As String
     ParseDecomposeVerdict = "single"
@@ -130,10 +121,8 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ParseParts - <parts>a | b | c</parts> を副質問の配列へ。戻り値=有効件数。
-'   分割・Trim・空要素除去・maxN件での切り詰めは ParseSubqueries と同じ流儀
-'   (区切りは "|" 1種。同じ書式を2実装に分けない)。
-'   戻り値を配列型にしないのは LibreOffice の制約(tools/run_lo_tests.py
-'   技術メモ6)。呼び出し側は ByRef の parts() で受ける。
+'   切り詰めは ParseSubqueries と同じ流儀(区切りは "|" 1種)。戻り値を配列型に
+'   しないのは LibreOffice の制約(tools/run_lo_tests.py 技術メモ6)。
 ' ----------------------------------------------------------------------------
 Public Function ParseParts(ByVal resp As String, ByVal maxN As Long, _
                            ByRef parts() As String) As Long
@@ -148,12 +137,10 @@ Public Function ParseParts(ByVal resp As String, ByVal maxN As Long, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' ParseOptions - <options>読み方1 | 読み方2 | 読み方3</options> を選択肢の配列へ。
-'   戻り値=有効件数。分割・Trim・空要素除去・maxN件での切り詰めは ParseParts と
-'   同じ流儀(同じ書式を2実装に分けない)。タグ欠落・空はすべて0件で返り、
-'   呼び出し元(modAskMulti)は逆質問を諦めて従来の入念フローへ落ちる。
-'   「選択肢が1件」も逆質問としては成立しない(選ばせる意味が無い)が、その
-'   判断は呼び出し元が持つ(ここは読めたぶんだけ正直に返す)。
+' ParseOptions - <options>読み方1 | 読み方2</options> を選択肢の配列へ。
+'   戻り値=有効件数。流儀は ParseParts と同じ。タグ欠落・空は0件で返り、
+'   呼び出し元(modAskMulti)は逆質問を諦めて従来の入念フローへ落ちる
+'   (「1件だけ」の扱いも呼び出し元が持つ。ここは読めたぶんだけ返す)。
 ' ----------------------------------------------------------------------------
 Public Function ParseOptions(ByVal resp As String, ByVal maxN As Long, _
                              ByRef opts() As String) As Long
@@ -169,19 +156,13 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' 章単位要約(2026-08-05 R17 Phase2)。取込時と俯瞰質問の2つの応答パーサ。
-'   出力契約(章要約): <summary>200〜300字の要約</summary>
-'                     <keywords>語1|語2|語3</keywords>
-'   出力契約(章選択): <pick>資料名::章キー|資料名::章キー</pick>
-'
-' ParseOutlineResp - 章要約の応答を summary / keywords へ。
-'   True  = summary が1字以上読めた(keywords は空でもよい)。
-'   False = "#ERR:" / <summary>タグ欠落 / 中身が空。呼び出し元
-'           (modOutlineBuild)はその章を「(要約失敗)」として保存し、次の章へ
-'           進む。1章の失敗で254頁ぶんの要約を捨てないための寛容退化で、
-'           黙って行ごと落とさないのは「聞いたのに答えが無い章」に
-'           気付けなくなるため(憲章§3-3)。
-'   keywords は "|" 区切りへ正規化する(LLMは読点やカンマで返すことがある)。
-'   検索に使うのは章の選択段だけなので、多すぎる語は落として上限8語にする。
+'   出力契約: <summary>要約</summary><keywords>語1|語2</keywords> と
+'             <pick>資料名::章キー|資料名::章キー</pick>
+' ParseOutlineResp - 章要約の応答を summary / keywords へ。True=summary が1字
+'   以上読めた(keywords は空でもよい)。False="#ERR:"/タグ欠落/中身が空で、
+'   呼び出し元(modOutlineBuild)はその章を「(要約失敗)」として保存し次章へ進む
+'   (1章の失敗で254頁ぶんを捨てない寛容退化。行ごと落とすと「聞いたのに答えが
+'   無い章」に気付けない=憲章§3-3)。keywords は "|" 区切りへ正規化・上限8語。
 ' ----------------------------------------------------------------------------
 Public Function ParseOutlineResp(ByVal resp As String, ByRef outSummary As String, _
                                  ByRef outKeywords As String) As Boolean
@@ -222,12 +203,10 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ParseChapterPick - <pick>資料名::章キー|…</pick> を選択章の配列へ。
-'   戻り値=有効件数(0=1章も選ばれなかった=俯瞰は不発→従来フローへ落ちる)。
-'   "::" を含まない要素は捨てる: 資料名か章キーのどちらかが欠けた指定は、
-'   別の資料の同じ章名に当たり得る(「第1章 総則」はどの規程にもある)。
-'   maxN は 1..PICK_HARD_MAX(4)へ丸める。4を上限にするのは、選んだ章の本文を
-'   1回のプロンプトへ全部載せるため(章が増えるほど1章あたりの取り分が減り、
-'   どの章も途中で切れた抜粋になる=俯瞰したのに何も読めていない状態になる)。
+'   戻り値=有効件数(0=1章も選ばれず=俯瞰は不発→従来フローへ落ちる)。
+'   "::" を含まない要素は捨てる(資料名か章キーが欠けた指定は別の資料の同じ
+'   章名に当たり得る)。maxN は 1..PICK_HARD_MAX(4)へ丸める(章が増えるほど
+'   1章あたりの取り分が減り、どの章も途中で切れた抜粋になるため)。
 ' ----------------------------------------------------------------------------
 Public Function ParseChapterPick(ByVal resp As String, ByVal maxN As Long, _
                                  ByRef picks() As String) As Long
@@ -258,13 +237,10 @@ Public Function ParseChapterPick(ByVal resp As String, ByVal maxN As Long, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' 用語の名寄せ(2026-08-05 R17 Phase3・設計書§3 Phase3)。
-'   出力契約: <syn>表記>正規形|表記>正規形</syn>
-'
-' ParseSynResp - 名寄せ応答を term/canonical の並行配列へ。戻り値=有効ペア数。
-'   ">"を含まない要素・どちらかが空の要素は1件ずつ破棄する(全滅ではなく
-'   読めた分だけ返す寛容退化。modOutlineBuild側は0件なら何も書かずに諦める)。
-'   タグ欠落・"#ERR:"はすべて0件。
+' 用語の名寄せ(R17 Phase3・設計書§3)。出力契約 <syn>表記>正規形|…</syn>。
+' ParseSynResp - 応答を term/canonical の並行配列へ。戻り値=有効ペア数。
+'   ">"無し・どちらか空の要素は1件ずつ破棄(読めた分だけ返す寛容退化)。
+'   タグ欠落・"#ERR:"はすべて0件。配列は【0始まり】で返る。
 ' ----------------------------------------------------------------------------
 Public Function ParseSynResp(ByVal resp As String, ByRef outTerms() As String, _
                              ByRef outCanons() As String) As Long
@@ -280,19 +256,12 @@ Public Function ParseSynResp(ByVal resp As String, ByRef outTerms() As String, _
     Dim tmpC() As String: ReDim tmpC(0 To UBound(raw) - LBound(raw))
     Dim cnt As Long
     Dim i As Long
+    Dim t As String, c As String
     For i = LBound(raw) To UBound(raw)
-        Dim piece As String: piece = Trim$(raw(i))
-        If LenB(piece) > 0 Then
-            Dim p As Long: p = InStr(piece, ">")
-            If p > 1 And p < Len(piece) Then
-                Dim t As String: t = Trim$(Left$(piece, p - 1))
-                Dim c As String: c = Trim$(Mid$(piece, p + 1))
-                If LenB(t) > 0 And LenB(c) > 0 Then
-                    tmpT(cnt) = t
-                    tmpC(cnt) = c
-                    cnt = cnt + 1
-                End If
-            End If
+        If SplitSynPair(raw(i), t, c) Then
+            tmpT(cnt) = t
+            tmpC(cnt) = c
+            cnt = cnt + 1
         End If
     Next i
 
@@ -305,16 +274,94 @@ Public Function ParseSynResp(ByVal resp As String, ByRef outTerms() As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' ExpandQueryBySyn - synonymsの地図(mapCsv="term>canonical|term>canonical"。
-'   modSynonymStore.ReadMapCsvの戻り値そのもの)を使い、質問文 q 中の語に
-'   一致した同義語を最大maxAdd件・半角空白区切りで q の末尾へ追記する。
-'   ・一致判定は modSparse.NormalizeForSearch を両辺に通してから InStr する
-'     (全角/半角・大文字/小文字の表記ゆれを吸収。取込側section_pathと同じ式)。
+' MergeSynPairs - 旧CSVへ新CSVを合流させた統合CSVを返す(2026-08-05 R17H FA-1)。
+'   どちらも "term>canonical|term>canonical"(=modSynonymStore.ReadMapCsv の形)。
+'   マージ規則(ゴールデンで固定): 1.新CSVと term が重なる旧行は落とす=
+'   【既存termは上書き】(大小無視) 2.残った旧行を元の順序のまま先に、その
+'   あとへ新行を順に(順序安定) 3.同じtermは先勝ちで1回だけ 4.">"無し/
+'   どちらか空の要素は捨てる 5.旧が空なら新だけ・両方空なら空文字。
+'   純関数にした理由: 実体は modSynonymStore.MergeAndSave にあり、ParseSynResp
+'   が返す【0始まり】の配列を 1〜n で読んでいたため実データでは毎回「添字が
+'   範囲外」で握り潰され、synonyms が永久に0行だった(A-H1)。
+' ----------------------------------------------------------------------------
+Public Function MergeSynPairs(ByVal oldCsv As String, ByVal newCsv As String) As String
+    Dim newT As String: newT = SynTermBox(newCsv)
+    Dim outS As String
+    Dim usedT As String: usedT = vbLf
+    Dim parts() As String
+    Dim i As Long
+    Dim t As String, c As String
+
+    If LenB(oldCsv) > 0 Then
+        parts = Split(oldCsv, "|")
+        For i = LBound(parts) To UBound(parts)
+            If SplitSynPair(parts(i), t, c) Then
+                If InStr(1, newT, vbLf & LCase$(t) & vbLf, vbBinaryCompare) = 0 Then
+                    AppendSynPair outS, usedT, t, c
+                End If
+            End If
+        Next i
+    End If
+
+    If LenB(newCsv) > 0 Then
+        parts = Split(newCsv, "|")
+        For i = LBound(parts) To UBound(parts)
+            If SplitSynPair(parts(i), t, c) Then AppendSynPair outS, usedT, t, c
+        Next i
+    End If
+    MergeSynPairs = outS
+End Function
+
+' "表記>正規形" を2つへ割る(">"無し・どちらか空は False=その要素は捨てる)。
+Private Function SplitSynPair(ByVal piece As String, ByRef outTerm As String, _
+                              ByRef outCanon As String) As Boolean
+    outTerm = ""
+    outCanon = ""
+    Dim s As String: s = Trim$(piece)
+    If LenB(s) = 0 Then Exit Function
+    Dim p As Long: p = InStr(s, ">")
+    If p < 2 Or p >= Len(s) Then Exit Function
+    outTerm = Trim$(Left$(s, p - 1))
+    outCanon = Trim$(Mid$(s, p + 1))
+    SplitSynPair = (LenB(outTerm) > 0 And LenB(outCanon) > 0)
+End Function
+
+' CSV に含まれる term の一覧(vbLf区切り・小文字)。大小違いは同じtermとして扱う。
+Private Function SynTermBox(ByVal csv As String) As String
+    Dim box As String: box = vbLf
+    SynTermBox = box
+    If LenB(csv) = 0 Then Exit Function
+    Dim arr() As String: arr = Split(csv, "|")
+    Dim i As Long
+    Dim t As String, c As String
+    For i = LBound(arr) To UBound(arr)
+        If SplitSynPair(arr(i), t, c) Then
+            If InStr(1, box, vbLf & LCase$(t) & vbLf, vbBinaryCompare) = 0 Then
+                box = box & LCase$(t) & vbLf
+            End If
+        End If
+    Next i
+    SynTermBox = box
+End Function
+
+' 統合CSVへ1組足す(同じtermは先勝ちで1回だけ)。
+Private Sub AppendSynPair(ByRef outS As String, ByRef usedT As String, _
+                          ByVal term As String, ByVal canon As String)
+    Dim k As String: k = LCase$(term)
+    If InStr(1, usedT, vbLf & k & vbLf, vbBinaryCompare) > 0 Then Exit Sub
+    usedT = usedT & k & vbLf
+    If LenB(outS) > 0 Then outS = outS & "|"
+    outS = outS & term & ">" & canon
+End Sub
+
+' ----------------------------------------------------------------------------
+' ExpandQueryBySyn - synonymsの地図(mapCsv=ReadMapCsvの戻り値そのもの)を使い、
+'   質問文 q 中の語に一致した同義語を最大maxAdd件・半角空白区切りで末尾へ追記。
+'   ・一致判定は modSparse.NormalizeForSearch を両辺に通してから InStr
+'     (全角/半角・大小の表記ゆれを吸収。取込側section_pathと同じ式)。
 '   ・双方向: 質問に term があれば canonical を、canonical があれば term を足す。
-'   ・自己一致除外: term と canonical が(正規化後)同じペアは何も足さない
-'     (足しても質問文に新しい語が増えないため)。
-'   ・質問文に既にある語・追記済みの語は二重に足さない。
-'   ・mapCsv が空(=synonymsが0行)・maxAdd<1 は無操作で q をそのまま返す。
+'   ・自己一致除外(正規化後に同じペアは何も足さない)。既にある語・追記済みの
+'     語は二重に足さない。mapCsv が空・maxAdd<1 は無操作で q をそのまま返す。
 ' ----------------------------------------------------------------------------
 Public Function ExpandQueryBySyn(ByVal q As String, ByVal mapCsv As String, _
                                  ByVal maxAdd As Long) As String
@@ -332,19 +379,15 @@ Public Function ExpandQueryBySyn(ByVal q As String, ByVal mapCsv As String, _
     Dim i As Long
     For i = LBound(pairs) To UBound(pairs)
         If cnt >= maxAdd Then Exit For
-        Dim p As Long: p = InStr(pairs(i), ">")
-        If p > 1 And p < Len(pairs(i)) Then
-            Dim term As String: term = Trim$(Left$(pairs(i), p - 1))
-            Dim canon As String: canon = Trim$(Mid$(pairs(i), p + 1))
-            If LenB(term) > 0 And LenB(canon) > 0 Then
-                Dim nTerm As String: nTerm = modSparse.NormalizeForSearch(term)
-                Dim nCanon As String: nCanon = modSparse.NormalizeForSearch(canon)
-                If StrComp(nTerm, nCanon, vbBinaryCompare) <> 0 Then   ' 自己一致除外
-                    If InStr(1, normQ, nTerm, vbBinaryCompare) > 0 Then
-                        AppendSynWord outQ, addedBox, cnt, canon, nCanon, normQ, maxAdd
-                    ElseIf InStr(1, normQ, nCanon, vbBinaryCompare) > 0 Then
-                        AppendSynWord outQ, addedBox, cnt, term, nTerm, normQ, maxAdd
-                    End If
+        Dim term As String, canon As String
+        If SplitSynPair(pairs(i), term, canon) Then
+            Dim nTerm As String: nTerm = modSparse.NormalizeForSearch(term)
+            Dim nCanon As String: nCanon = modSparse.NormalizeForSearch(canon)
+            If StrComp(nTerm, nCanon, vbBinaryCompare) <> 0 Then   ' 自己一致除外
+                If InStr(1, normQ, nTerm, vbBinaryCompare) > 0 Then
+                    AppendSynWord outQ, addedBox, cnt, canon, nCanon, normQ, maxAdd
+                ElseIf InStr(1, normQ, nCanon, vbBinaryCompare) > 0 Then
+                    AppendSynWord outQ, addedBox, cnt, term, nTerm, normQ, maxAdd
                 End If
             End If
         End If
@@ -352,8 +395,7 @@ Public Function ExpandQueryBySyn(ByVal q As String, ByVal mapCsv As String, _
     ExpandQueryBySyn = outQ
 End Function
 
-' word(正規化後normWord)をoutQへ半角空白区切りで追記する。質問文に既にある
-' 語・追記済みの語は足さない(ExpandQueryBySynの内部ヘルパー)。
+' word をoutQへ半角空白区切りで追記(既にある語・追記済みの語は足さない)。
 Private Sub AppendSynWord(ByRef outQ As String, ByRef addedBox As String, ByRef cnt As Long, _
                           ByVal word As String, ByVal normWord As String, _
                           ByVal normQ As String, ByVal maxAdd As Long)
@@ -367,23 +409,14 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' ParseChoiceNumbers - 「番号で返信」への返事から選んだ番号を読み取る(R16-3B)。
-' ----------------------------------------------------------------------------
-' 戻り値 = 有効な番号を入力順・重複なしで "," 連結した文字列(例 "1,3")。
-'   有効な番号が1つも無ければ空文字列 = 「番号ではなく質問を書き直した」扱い。
-'
+' 戻り値 = 有効な番号を入力順・重複なしで "," 連結("1,3")。1つも無ければ空
+'   文字列 = 「番号ではなく質問を書き直した」扱い。
 ' 受ける形: "1" / "1と3" / "①と③" / "1,3" / "2、3" / "1 3" / "１ ３" /
 '           "1-3" / "2-②" / "(1)(3)" / "1ー3"
-'   ・半角0-9・全角０-９は連続した桁を1つの数として読む("13" は 13)
-'   ・丸数字①〜⑳はそれ1文字で1つの数(①③ は 1 と 3)
-'   ・区切りとして認めるのは「と」・カンマ(半/全)・読点・句点・ピリオド(半/全)・
-'     スペース(半/全)・タブ・中黒・スラッシュ・ハイフン類(- － − ー)・
-'     括弧(半/全)だけ(R16H FA-7 で modClarify.IsChoiceSeparator と整合)
-'   ・それ以外の文字が1つでも混じれば【書き直し】とみなして空を返す。
-'     「1番の話」「3日以内は?」のような文を番号選択と誤読すると、利用者が
-'     打った質問が黙って捨てられる(modClarify.IsNumberChoiceOnly と同じ思想。
-'     あちらは単一選択・短文限定なので、複数選択を読むこちらを別に持つ)。
-'   ・1..maxN の範囲外は無視する(表示していない番号を選ばれても当てはめない)。
-'     範囲外しか無ければ空 = 書き直し扱いになる。
+'   ・半角0-9・全角０-９は連続桁を1つの数("13"は13)。丸数字①〜⑳は1文字1数。
+'   ・区切りとして認める文字は IsChoiceGap が唯一の持ち主。それ以外が1つでも
+'     混じれば【書き直し】とみなして空を返す(「1番の話」を番号選択と誤読
+'     すると打った質問が黙って捨てられる)。1..maxN の範囲外は無視。
 ' ----------------------------------------------------------------------------
 Public Function ParseChoiceNumbers(ByVal s As String, ByVal maxN As Long) As String
     Dim t As String: t = Trim$(s)
@@ -422,15 +455,10 @@ Public Function ParseChoiceNumbers(ByVal s As String, ByVal maxN As Long) As Str
 End Function
 
 ' 番号の区切りとして認める文字か(ParseChoiceNumbers 専用)。
-' ----------------------------------------------------------------------------
 ' 2026-08-05(R16H FA-7 / A-M7・B-M4): ハイフン類と括弧を足して
-' modClarify.IsChoiceSeparator と揃えた。資料の聞き返し(あちら)は「2-②」と
-' 打つよう教えているのに、読み方の聞き返し(こちら)は "-" を知らず、同じ癖で
-' 「1-3」と打った人の返事が【まるごと書き直し扱い】で捨てられていた。
-' 2つの聞き返しで番号の打ち方が違うのは利用者からは見分けが付かない。
-' 「1-3」は 1 と 3 の2つを選んだ意味として読む(1〜3の範囲指定ではない。
-' あちらの「資料2-意図②」と同じ読み方に揃える)。同じ番号を2度打っても
-' 番号は出現順のまま1つに畳まれる(AppendChoice の重複除去)。
+' modClarify.IsChoiceSeparator と揃えた。資料の聞き返しは「2-②」と打つよう
+' 教えているのにこちらは "-" を知らず、同じ癖で「1-3」と打った人の返事が
+' 【まるごと書き直し扱い】で捨てられていた。「1-3」は 1 と 3 の2つを選んだ意味。
 ' ----------------------------------------------------------------------------
 Private Function IsChoiceGap(ByVal cp As Long) As Boolean
     Select Case cp
@@ -461,17 +489,12 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' HasCompoundSignal - 質問文が複合質問らしいかの軽量シグナル検知(R18-7a)。
-' ----------------------------------------------------------------------------
 ' 実機第5報⑦: 「免責は?保険料は?」(9字)は decompose_min_chars(既定25)にも
-' IsTooVague(≦10字かつ低スコア)にも掛からず、段0判定(RunDecideStage)が
-' 一度も呼ばれない狭間に落ちていた(短いが強く当たる複合質問)。長さだけを
-' 論点数のproxyにしていた ShouldDecompose のゲートを、このシグナルとのORで
-' 迂回する(呼び出し側は modAskMulti.TryDecomposed)。
-' S1=？/?が2個以上 / S2=。/．区切りの非空節が2個以上、のOR。
-' 「と/や」区切りの名詞列は日本語で最頻出の助詞のため誤検知率が高く不採用
-' (agent4調査報告§3-3)。誤発動しても実害は段0のLLM呼び出し1回のみ(数秒)で、
-' 後段のShouldClarify(選択肢2件以上)とプロンプトの「迷ったらsingle」原則が
-' 過剰な逆質問の表示を別途止める。
+' IsTooVague(≦10字かつ低スコア)にも掛からず、段0判定が一度も呼ばれない狭間に
+' 落ちていた。長さだけを論点数のproxyにしていた ShouldDecompose のゲートを
+' このシグナルとのORで迂回する(呼び出し側は modAskMulti.DecomposeGate)。
+' S1=？/?が2個以上 / S2=。/．区切りの非空節が2個以上、のOR。「と/や」区切りの
+' 名詞列は最頻出の助詞で誤検知率が高く不採用(agent4調査報告§3-3)。
 ' ----------------------------------------------------------------------------
 Public Function HasCompoundSignal(ByVal q As String) As Boolean
     Dim t As String: t = Trim$(q)
@@ -490,6 +513,34 @@ Public Function HasCompoundSignal(ByVal q As String) As Boolean
         If LenB(Trim$(parts(i))) > 0 Then nSeg = nSeg + 1
     Next i
     HasCompoundSignal = (nSeg >= 2)
+End Function
+
+' ----------------------------------------------------------------------------
+' HasGlobalSignal - 質問文が俯瞰(全体像・一覧)を求めているかの語彙シグナル
+'   (2026-08-05 R17H FA-6 / A-M7・B-H2)。InStr判定だけの純関数。
+' 「全体像は?」(6字)のような俯瞰の質問は、短いというだけで段0判定
+' (modAskMulti.DecomposeGate)を呼ばれず、さらに IsTooVague の聞き返しに
+' 吸われて【俯瞰が一度も試されない】。長さは俯瞰の proxy にならない。
+' 語彙は「その語が出たら全体を求めている」と言い切れるものだけを採る
+' (「全て」のような単独で普通に使う短語は誤爆するので入れない)。誤発動の
+' 実害は段0が1回増えることと聞き返しをしないことだけ(verdict=global を
+' 出すのは後段のLLMで、ここは呼ぶかどうかの門にすぎない)。
+' ----------------------------------------------------------------------------
+Public Function HasGlobalSignal(ByVal q As String) As Boolean
+    Dim t As String: t = Trim$(q)
+    If LenB(t) = 0 Then Exit Function
+
+    Dim words As Variant
+    words = Array("全体像", "全体の流れ", "全体を通し", "全部教え", "ぜんぶ教え", _
+                  "すべて教え", "全て教え", "一覧", "まとめて", "どんなこと", _
+                  "どんな種類", "概要", "何が書いて", "どういう構成")
+    Dim i As Long
+    For i = LBound(words) To UBound(words)
+        If InStr(1, t, CStr(words(i)), vbTextCompare) > 0 Then
+            HasGlobalSignal = True
+            Exit Function
+        End If
+    Next i
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -537,19 +588,16 @@ Public Function ParseRankOrder(ByVal resp As String, ByVal nHits As Long, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' ExtractAnswer - <answer>の中身をanswerへ、<thinking>をthinkingへ。
-'   answerタグ欠落時は応答全体をanswerとしてFalse(寛容退化)。
-'   閉じタグ欠落時は開始タグ以降すべてをanswerとする。
+' ExtractAnswer - <answer>の中身をanswerへ、<thinking>をthinkingへ。タグ欠落時は
+'   応答全体をanswerとしてFalse。閉じタグ欠落時は開始タグ以降すべてをanswerへ。
 ' ----------------------------------------------------------------------------
 Public Function ExtractAnswer(ByVal resp As String, ByRef thinking As String, _
                               ByRef answer As String) As Boolean
     thinking = Trim$(TagInner(resp, "thinking"))
 
     ' 2026-07-28(レビュー M-2): <answer> は【thinking を閉じたあと】から探す。
-    ' 資料本文に "<answer>…</answer>" という文字列が含まれていて、モデルが
-    ' それを thinking の中で引用すると、先頭一致で拾ってしまい
-    ' 【資料由来の偽の回答】が表示される(資料をそのまま信じるRAGでは、
-    ' これはプロンプトインジェクションの経路そのものになる)。
+    ' 資料本文の "<answer>…</answer>" をモデルが thinking 内で引用すると、
+    ' 先頭一致で拾って【資料由来の偽の回答】が出る(RAGでのインジェクション)。
     Dim searchFrom As Long: searchFrom = 1
     Dim pEndThink As Long
     pEndThink = InStr(1, resp, "</thinking>", vbTextCompare)
@@ -598,14 +646,10 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ParseQuestionLines - 質問例オンデマンド生成(2026-08-03 R14-7a)の応答パーサ。
-'   1行1問想定のLLM応答をTrim・空行除去・先頭の番号/箇条書き記号の除去の
-'   うえ、先頭maxN件だけ拾い"|"区切りへ畳む(modStarter.Drawが読む形式は
-'   modSeed.SeedQuestionsと同じ"|"区切りのため、描画路を1本に保てる)。
-'
-' R14-G5: 質問文そのものに "|" が入っていると、区切り文字と衝突して1問が
-'   2つのボタンへ割れる(後半は文の途中から始まる意味不明なボタンになる)。
-'   区切りに使う以上、要素側からは必ず落とす。消すのではなく全角の "／" へ
-'   置換して、元が並列の列挙だったことを読めるまま残す。
+'   1行1問想定の応答をTrim・空行除去・先頭の番号/箇条書き記号の除去のうえ、
+'   先頭maxN件だけ"|"区切りへ畳む(modSeed.SeedQuestionsと同じ形式)。
+' R14-G5: 質問文中の "|" は区切りと衝突して1問が2つのボタンへ割れるので
+'   全角 "／" へ置換する(消さずに元が列挙だったことを残す)。
 ' ----------------------------------------------------------------------------
 Public Function ParseQuestionLines(ByVal resp As String, ByVal maxN As Long) As String
     If maxN < 1 Then Exit Function

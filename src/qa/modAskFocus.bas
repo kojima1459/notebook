@@ -185,8 +185,12 @@ End Sub
 '     呼び出し元(modAskThorough/modAskMulti/modAskRetrieve)は1行のまま。
 '   ・LLMは1回も呼ばない。増えるのはワークシート読み1〜2回だけ。
 '   ・足したチャンクの score は 0(NeighborExpand と同じ理由=信頼度バッジを
-'     水増ししない)。ただし ArticleEnsure だけは先頭ヒットと同値にする
-'     (「第5条を出せ」に応えた本命を、おまけ扱いで末尾に置けない)。
+'     水増ししない)。ArticleEnsure も同じ(2026-08-05 R17H FA-4 / A-M4)。
+'     以前は先頭ヒットと同値にしていたが、それは「検索で当たっていない
+'     チャンクに、当たったチャンクの点数を貸す」ことで、1件の強ヒットと
+'     その条番号一致で modAsk.LastConfidence の「強く一致」が成立してしまう。
+'     位置は先頭のまま(順位で本命だと示し、点数では騙さない)=
+'     max_context_chars の打ち切りで真っ先に落ちることも無い。
 ' ============================================================================
 
 ' config graph_refs(既定on)。off のときだけ切る。
@@ -279,15 +283,24 @@ End Sub
 '   実際に起きる(条番号は短くて特徴が薄いため)。section_path という
 '   決定的なキーが手元にあるのだから、確率的な検索の後ろで1回だけ確かめる。
 '   ・既に条番号一致のチャンクがヒットに居れば【何もしない】(順位を触らない)。
-'   ・入れる場合は先頭へ最大 maxIns 件。score は先頭ヒットと同値
-'     (0にすると max_context_chars の打ち切りで真っ先に落ちる位置に置く
-'      ことになり、入れた意味が無くなる)。
-'   ・資料は跨いでよい(質問が資料を名指ししていないため。逆に RefsExpand は
-'     跨がない=既に根拠になっている資料の中の話だから)。
+'   ・入れる場合は先頭へ最大 maxIns 件。score は 0(R17H FA-4。理由は冒頭)。
+'   ・scopeSrcBox(R17H FA-3): 空でなければ、その資料(source)の行だけを注入
+'     する。深掘りのようにスコープを絞って検索した経路で、スコープ外の資料を
+'     注ぎ足すと「会話の資料の中で何件見つかったか」の判定(RunDeepScoped の
+'     n>=2)が注入分だけで成立し、スコープの外で答えたのに内で答えたことになる。
+'     形式は AppendByIds の srcBox と同じ "|資料名|" の連結。
+'   ・allowZeroHits(R17H FA-8): True なら nHits=0 でも動く(検索が1件も
+'     当たらなかったときに、直接キーで最大 maxIns 件だけ材料を用意する経路)。
+'     既定 False = 従来どおり「ヒットが1件以上あるとき」だけ働く。
+'   ・空でない scopeSrcBox を渡さない限り資料は跨いでよい(質問が資料を名指し
+'     していないため。逆に RefsExpand は跨がない=既に根拠になっている資料の
+'     中の話だから)。
 ' ----------------------------------------------------------------------------
 Public Sub ArticleEnsure(ByVal query As String, ByRef hits() As Hit, _
-                         ByRef nHits As Long, ByVal maxIns As Long)
-    If nHits < 1 Then Exit Sub
+                         ByRef nHits As Long, ByVal maxIns As Long, _
+                         Optional ByVal scopeSrcBox As String = "", _
+                         Optional ByVal allowZeroHits As Boolean = False)
+    If nHits < 1 And Not allowZeroHits Then Exit Sub
     If Not GraphGateOn() Then Exit Sub
 
     Dim cap As Long: cap = maxIns
@@ -301,7 +314,7 @@ Public Sub ArticleEnsure(ByVal query As String, ByRef hits() As Hit, _
 
     Dim metaIds() As String, metaPaths() As String, metaRefs() As String
     Dim metaN As Long: metaN = modChunkMetaStore.ReadAllMeta(metaIds, metaPaths, metaRefs)
-    If Not modChunkMeta.GraphActive(metaN, nHits) Then Exit Sub
+    If Not modChunkMeta.GraphActive(metaN, nHits, allowZeroHits) Then Exit Sub
 
     Dim hitBox As String
     Dim i As Long
@@ -332,18 +345,16 @@ Public Sub ArticleEnsure(ByVal query As String, ByRef hits() As Hit, _
     If alreadyHit Or candN < 1 Then Exit Sub
     candBox = candBox & vbLf
 
-    ' 先頭ヒットのスコアを控えてから足す(足した後だと自分自身を読む)。
-    Dim topScore As Double: topScore = hits(1).score
     Dim baseN As Long: baseN = nHits
     Dim added As Long
-    added = AppendByIds(candBox, "", cap, hits, nHits)
+    added = AppendByIds(candBox, scopeSrcBox, cap, hits, nHits)
     If added < 1 Then Exit Sub
 
-    ' 末尾へ付いた added 件を先頭へ回す(順位は「本命が先」)。
+    ' 末尾へ付いた added 件を先頭へ回す(順位は「本命が先」。score は
+    ' AppendByIds が入れた 0 のまま=点数は騙さない。R17H FA-4)。
     Dim tmp() As Hit: ReDim tmp(1 To added)
     For i = 1 To added
         tmp(i) = hits(baseN + i)
-        tmp(i).score = topScore
     Next i
     For i = baseN To 1 Step -1
         hits(i + added) = hits(i)
@@ -353,7 +364,8 @@ Public Sub ArticleEnsure(ByVal query As String, ByRef hits() As Hit, _
     Next i
 
     On Error Resume Next
-    modLog.LogUsage "article_ensure", "focus", "labels=" & labLine & " added=" & added, 0, nHits
+    modLog.LogUsage "article_ensure", "focus", _
+        "labels=" & labLine & " added=" & added & " base=" & baseN, 0, nHits
     On Error GoTo 0
     Exit Sub
 
@@ -451,7 +463,14 @@ Private Function AppendByIds(ByVal candBox As String, ByVal srcBox As String, _
         If LenB(id) > 0 And LenB(src) > 0 Then
             If InStr(1, candBox, vbLf & id & vbLf, vbBinaryCompare) > 0 Then
                 If LenB(srcBox) = 0 Or InStr(1, srcBox, "|" & src & "|", vbBinaryCompare) > 0 Then
-                    ReDim Preserve hits(1 To nHits + 1)
+                    ' 0件から足す経路(R17H FA-8)では hits() がまだ確保されて
+                    ' いない。ReDim Preserve を掛けずに1件目を作る
+                    ' (modAskMulti.MergeHits と同じ作法)。
+                    If nHits = 0 Then
+                        ReDim hits(1 To 1)
+                    Else
+                        ReDim Preserve hits(1 To nHits + 1)
+                    End If
                     nHits = nHits + 1
                     added = added + 1
                     FillHitFromRow ws, i + 1, hits(nHits)   ' idData は2行目起点

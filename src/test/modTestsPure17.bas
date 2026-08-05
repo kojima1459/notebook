@@ -182,6 +182,17 @@ Private Sub TestGraphActive()
         (modChunkMeta.GraphActive(120, 5) = True)
     modTestRunner.Check "フェイルセーフ_1行1件の最小でも働く", _
         (modChunkMeta.GraphActive(1, 1) = True)
+
+    ' 2026-08-05(R17H FA-8 / A-M9): 0件許容版。検索が1件も当たらなくても、
+    ' 質問が条番号を名指ししているときだけ直接キーで材料を用意する経路が
+    ' この引数を True で渡す。chunk_meta が0行なら【許容しても働かない】=
+    ' 既存本棚の従来動作はこの引数では絶対に崩れない。
+    modTestRunner.Check "0件許容_ヒット0でも働く(条番号の直接キー経路)", _
+        (modChunkMeta.GraphActive(120, 0, True) = True)
+    modTestRunner.Check "0件許容でもchunk_meta0行なら働かない", _
+        (modChunkMeta.GraphActive(0, 0, True) = False)
+    modTestRunner.Check "既定(省略)は従来どおり0件を許さない", _
+        (modChunkMeta.GraphActive(120, 0) = False)
 End Sub
 
 ' MetaOf(取込ループから1行で呼ぶ入口)が個別呼びと同じ答えを返すこと。
@@ -518,6 +529,11 @@ NextSynParse17:
 NextSynExpand17:
     On Error GoTo SynExpandFail17
     TestExpandQueryBySyn
+NextChain18:
+    ' 2026-08-05(R17H): modTestsPure17 に R17H の真理表(名寄せマージ・俯瞰
+    ' シグナル)を足すと WARN帯へ入るため 18 を新設した。連鎖の入口はここ1本。
+    On Error GoTo ChainFail18
+    modTestsPure18.RunAll18
 NextDone17:
     On Error GoTo 0
     Exit Sub
@@ -572,6 +588,10 @@ SynParseFail17:
     Resume NextSynExpand17
 SynExpandFail17:
     modTestRunner.Check "TestExpandQueryBySyn(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChain18
+ChainFail18:
+    modTestRunner.Check "modTestsPure18.RunAll18(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone17
 End Sub

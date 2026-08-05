@@ -135,8 +135,12 @@ Private Sub TestBatchWaitAndBanner()
 
     ' FA-1(B-M): 読み取りが終わってもベクトル化が続くことを先に言う。
     Dim ask As String: ask = optOcrEta.OcrConfirmAskFor(254, 106, 15)
+    ' 2026-08-05(R17H FA-10 / B-H3): 「準備」だけでは何分続くのか伝わらない。
+    ' 章の要約も続くことと、数分かかり得ることを確認文の時点で言う。
     modTestRunner.Check "確認文_完了後にも準備が続くことを言う", _
-        (InStr(ask, "完了後に検索用の準備が続きます") > 0), "実際=" & ask
+        (InStr(ask, "完了後に検索用の準備と章の要約が続きます") > 0), "実際=" & ask
+    modTestRunner.Check "確認文_その準備が数分かかり得ることも言う", _
+        (InStr(ask, "数分かかることがあります") > 0), "実際=" & ask
     modTestRunner.Check "確認文_従来の要素(頁数・推定・中断・再開)も残る", _
         (InStr(ask, "全254頁") > 0 And InStr(ask, "推定約106分") > 0 And _
          InStr(ask, "中断") > 0 And InStr(ask, "続きから再開") > 0), "実際=" & ask

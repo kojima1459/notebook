@@ -921,6 +921,14 @@
       "note": "R17 Phase1(構造メタデータ+参照エッジ)の純ロジック回帰テスト。modTestsPure16(20,739字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(breadcrumbからのsection_path抽出と形式崩れ/明示参照の抽出・重複排除・上限24件・32,000字級/自己参照の無害化/第1条が第12条に当たらないラベル照合/chunk_meta0行のフェイルセーフGraphActive/DistinctiveKeysの別表N・様式N拡張)。modTestsPure16.RunAll16末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure18",
+      "path": "src/test/modTestsPure18.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R17H",
+      "note": "R17H(レビュー裁定 Fix波)の純ロジック回帰テスト。modTestsPure17(25,032字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(名寄せ辞書のマージ規則MergeSynPairsのゴールデン=新規のみ・旧のみ・既存termの上書き・先頭要素の保持・空入力・壊れた要素・大小無視・順序安定/俯瞰語彙HasGlobalSignalの拾う語と拾わない語/段0の門DecomposeGateへの俯瞰シグナルOR)。modTestsPure17.RunAll17末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure14",
       "path": "src/test/modTestsPure14.bas",
       "role": "test",

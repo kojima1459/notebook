@@ -92,6 +92,9 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     mNote = ""
     mParts = 0
     mT0 = Timer                ' 経過表示の基準(FB-8)。段0の判定から数え始める
+    ' 前のターンの俯瞰の印を下ろす(2026-08-05 R17H FA-2)。ここが入念ターンの
+    ' 最初の1行で、俯瞰を通らなかったターンへ印を持ち越さない唯一の場所。
+    modAskGlobal.ResetGlobalTurn
 
     ' R18-7b(実機第5報⑦)/ R18H FB-2: 発動条件は DecomposeGate 1本に閉じる
     ' (実装とテストが同じ式を見るため。従来はテスト側が同じ式を書き写しており、
@@ -320,12 +323,18 @@ End Function
 ' TryDecomposed とテストの双方がこの1本だけを呼ぶ。
 '   off    : 複合シグナルより優先(呼ばない=機能まるごとのエスケープハッチ)
 '   always : ShouldDecompose が既に True を返すのでORの出番は無い(不変)
-' Excel/COMには触れない純ロジック(modRagParse.HasCompoundSignal も同じ)。
+' 2026-08-05(R17H FA-6 / A-M7・B-H2): 俯瞰シグナル(HasGlobalSignal)も同じ
+' ORへ足す。「全体像は?」(6字)は複合質問ではないので HasCompoundSignal では
+' 拾えず、文字数ゲートも通らないため、段0が呼ばれず俯瞰(verdict=global)が
+' 一度も試されなかった。off優先は不変(エスケープハッチは最優先のまま)。
+' Excel/COMには触れない純ロジック(modRagParse の2本も同じ)。
 Public Function DecomposeGate(ByVal modeCfg As String, ByVal q As String, _
                               ByVal minChars As Long) As Boolean
     Dim g As Boolean
     g = ShouldDecompose(modeCfg, Len(q), minChars)
-    If Not g And LCase$(Trim$(modeCfg)) <> "off" Then g = modRagParse.HasCompoundSignal(q)
+    If Not g And LCase$(Trim$(modeCfg)) <> "off" Then
+        g = modRagParse.HasCompoundSignal(q) Or modRagParse.HasGlobalSignal(q)
+    End If
     DecomposeGate = g
 End Function
 

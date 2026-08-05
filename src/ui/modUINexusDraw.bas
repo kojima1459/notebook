@@ -637,12 +637,9 @@ End Sub
 ' DrawConfidence - 信頼度バッジ。回答バブルの直下、いちばん最初に読ませる1行。
 ' ----------------------------------------------------------------------------
 ' 「この答えを信じてよいか」を利用者が自分で判断できないことが、フィードバックが
-' 集まらない根本原因だった。検索スコアという機械側の情報を、確認すべきときだけ
-' 確認を促す一文に翻訳して先に見せる。
-'
-' Shape名を nx_conf_ にしたのは、評価ボタン(nx_act_)の掃除に巻き込まれないため。
-' 描画順が バッジ → 出典 → 評価 になったので、最後に走る ClearContextActions で
-' 消されてしまうのを構造的に防ぐ。
+' 集まらない根本原因だった。検索スコアを、確認すべきときだけ確認を促す一文に
+' 翻訳して先に見せる。Shape名が nx_conf_ なのは、評価ボタン(nx_act_)の掃除に
+' 巻き込まれないため(描画順は バッジ → 出典 → 評価)。
 Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String) As Double
     ClearConfidence ws
     If ws Is Nothing Then Exit Function
@@ -661,6 +658,8 @@ Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String
     confText = modAsk.LastConfidenceText()
     On Error GoTo 0
     If LenB(confText) = 0 Then Exit Function
+    ' 俯瞰(章の要約から答えたターン)は出自を言う(R17H FA-2)。score=0 は維持。
+    If modAskGlobal.WasGlobalTurn() Then confText = ChrW(&HD83D) & ChrW(&HDD2D) & " 章の要約に基づく回答(俯瞰)"
 
     On Error Resume Next
     Dim badge As Shape
@@ -669,8 +668,8 @@ Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String
         badge.Name = "nx_conf_badge"
         badge.Adjustments(1) = 0.45
         badge.Line.Visible = 0
-        ' 8pt・塗りなし・muted では、いちばん大事な一文がいちばん目立たない
-        ' 字になっていた。色の付いたピルにして、先に目に入るようにする。
+        ' 8pt・塗りなし・muted では一番大事な一文が一番目立たない字だった。
+        ' 色の付いたピルにして先に目に入るようにする。
         badge.Fill.Visible = -1
         badge.Fill.ForeColor.RGB = ConfidenceTint(confText)
         With badge.TextFrame2
@@ -678,12 +677,10 @@ Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String
             .TextRange.Text = confText
             .TextRange.Font.Size = 9
             .TextRange.Font.Bold = -1
-            ' 2026-08-01(R12-7-1): テーマ追従のtext色だと、dark/goldのように
-            ' 明るいtextが淡色tint(パステル)に乗ると比1.0台まで沈み、
-            ' 「いちばん大事な一文」(上コメント参照)が読めなくなる(a11y監査
-            ' High)。tintは常に淡色固定なので、文字側もテーマ非依存の
-            ' 固定濃色にする(RGB(17,24,39)。3色いずれの塗りに対しても
-            ' 比7以上を機械確認済み)。
+            ' 2026-08-01(R12-7-1): テーマ追従のtext色だと dark/gold の明るい
+            ' textが淡色tintに乗って比1.0台まで沈み、一番大事な一文が読めなく
+            ' なる(a11y監査High)。tintは常に淡色固定なので文字側もテーマ非依存の
+            ' 固定濃色にする(RGB(17,24,39)。3色とも比7以上を機械確認済み)。
             .TextRange.Font.Fill.ForeColor.RGB = RGB(17, 24, 39)
             .VerticalAnchor = 3
             .MarginLeft = 8: .MarginRight = 8: .MarginTop = 0: .MarginBottom = 0
@@ -713,8 +710,7 @@ Public Function ConfidenceBottom(ByVal ws As Worksheet) As Double
     On Error GoTo 0
 End Function
 
-' 信頼度バッジの背景色。🟢/🟡/🔴 のどれで始まるかだけで決める
-' (文言そのものは modAsk が持つ単一情報源。ここでは色だけを足す)。
+' 信頼度バッジの背景色。先頭の🟢/🟡/🔴 だけで決める(文言の持ち主は modAsk)。
 Private Function ConfidenceTint(ByVal confText As String) As Long
     Dim head As String
     head = Left$(confText, 2)

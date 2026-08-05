@@ -191,10 +191,15 @@ Public Sub BuildSynonymsFor(ByVal sourceName As String)
     newN = modRagParse.ParseSynResp(resp, newTerms, newCanons)
     If newN < 1 Then Exit Sub
 
-    MergeAndSave newTerms, newCanons, newN
+    Dim wroteN As Long
+    wroteN = MergeAndSave(newTerms, newCanons, newN)
 
+    ' 書けた件数をそのまま残す(R17H FA-1): 「AIが何グループ返したか」ではなく
+    ' 「シートに何行入ったか」を出す。旧実装は前者を出しており、保存が0行でも
+    ' groups=N が並んで【無音の失敗】に見えなかった(A-H1)。
     On Error Resume Next
-    modLog.LogUsage "synonyms_built", "ingest", "source=" & sourceName & " groups=" & newN
+    modLog.LogUsage "synonyms_built", "ingest", _
+        "source=" & sourceName & " groups=" & wroteN & " new=" & newN
     On Error GoTo 0
     Exit Sub
 
@@ -216,39 +221,43 @@ End Function
 
 ' 新規グループを既存の地図(ReadMapCsv)へ合流させ、term が重複する古い行を
 ' 落としてから全件を書き直す(=既存termは上書き)。RemoveAllを一度だけ通す
-' ことで、追記のたびにシートが増殖するのを避ける。
-Private Sub MergeAndSave(ByRef newTerms() As String, ByRef newCanons() As String, ByVal newN As Long)
-    Dim oldTerms() As String, oldCanons() As String, oldN As Long
-    oldN = modRagParse.ParseSynResp("<syn>" & ReadMapCsv() & "</syn>", oldTerms, oldCanons)
+' ことで、追記のたびにシートが増殖するのを避ける。戻り値=書いた行数。
+'
+' 2026-08-05(R17H FA-1 / A-H1): マージ規則そのものは純関数
+' modRagParse.MergeSynPairs が唯一の持ち主で、ここは「読む→渡す→書く」だけの
+' 薄い層になった。旧実装はここに規則を持ち、ParseSynResp が返す【0始まり】の
+' 配列を 1〜n で読んでいたため、実データでは毎回「添字が範囲外」で
+' BuildSynonymsFor のハンドラに握り潰され、synonyms は永久に0行だった。
+' 配列の起点に依存しない形へ移し、LO実行テストのゴールデンで固定する。
+Private Function MergeAndSave(ByRef newTerms() As String, ByRef newCanons() As String, _
+                              ByVal newN As Long) As Long
+    Dim mergedCsv As String
+    mergedCsv = modRagParse.MergeSynPairs(ReadMapCsv(), PairsToCsv(newTerms, newCanons, newN))
+    If LenB(mergedCsv) = 0 Then Exit Function
 
-    Dim finalTerms() As String: ReDim finalTerms(1 To oldN + newN)
-    Dim finalCanons() As String: ReDim finalCanons(1 To oldN + newN)
-    Dim k As Long: k = 0
-    Dim i As Long, j As Long, dup As Boolean
-
-    For i = 1 To oldN
-        dup = False
-        For j = 1 To newN
-            If StrComp(oldTerms(i), newTerms(j), vbTextCompare) = 0 Then
-                dup = True
-                Exit For
-            End If
-        Next j
-        If Not dup Then
-            k = k + 1
-            finalTerms(k) = oldTerms(i)
-            finalCanons(k) = oldCanons(i)
-        End If
-    Next i
-    For i = 1 To newN
-        k = k + 1
-        finalTerms(k) = newTerms(i)
-        finalCanons(k) = newCanons(i)
-    Next i
+    Dim terms() As String, canons() As String, n As Long
+    n = modRagParse.ParseSynResp("<syn>" & mergedCsv & "</syn>", terms, canons)
+    If n < 1 Then Exit Function
 
     RemoveAll
-    WriteSynonymRows finalTerms, finalCanons, k
-End Sub
+    WriteSynonymRows terms, canons, n      ' LBound起点で読む(0始まりでも動く)
+    MergeAndSave = n
+End Function
+
+' 並行配列(LBound起点・n件)を "term>canonical|…" の1文字列へ。
+Private Function PairsToCsv(ByRef terms() As String, ByRef canons() As String, _
+                            ByVal n As Long) As String
+    If n < 1 Then Exit Function
+    Dim bT As Long: bT = LBound(terms)
+    Dim bC As Long: bC = LBound(canons)
+    Dim sb As String
+    Dim i As Long
+    For i = 0 To n - 1
+        If LenB(sb) > 0 Then sb = sb & "|"
+        sb = sb & terms(bT + i) & ">" & canons(bC + i)
+    Next i
+    PairsToCsv = sb
+End Function
 
 ' 名寄せプロンプト(Private。modPromptsは残321字で1本も入らない=Phase2と
 ' 同じ容量裁定)。出力契約はmodRagParse.ParseSynRespが読むタグ形式。

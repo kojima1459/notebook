@@ -173,16 +173,60 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     ' R17 Phase1: 質問が名指しした条番号(第5条/別表2 等)のチャンクが1件も
     ' 入っていなければ、chunk_meta から引いて先頭へ入れる(最大2件)。検索の
     ' 当て方は変えず、決定的なキーで最後に1回だけ確かめるだけ。
-    modAskFocus.ArticleEnsure q, hits, outN, 2
-    RunMultiRetrieve = outN
+    ' R17H FA-3: スコープ指定つきの検索(深掘り)では、注入も【そのスコープの
+    ' 中だけ】に限る。スコープ外の資料を注ぎ足すと、「会話の資料の中で見つけた
+    ' 件数」を数える RunDeepScoped の n>=2 判定が、注入分だけで成立してしまう
+    ' (スコープの外で答えたのに、スコープ内で答えたことになる)。
+    modAskFocus.ArticleEnsure q, hits, outN, 2, ScopeBox(scopeSources)
+    RunMultiRetrieve = EnsureArticleSeed(q, hits, outN)
     Exit Function
 
 FallbackSingle:
     Err.Clear
     On Error GoTo 0
     outN = modRetrieve.Search(q, topK, hits, scopeSources)
-    modAskFocus.ArticleEnsure q, hits, outN, 2
-    RunMultiRetrieve = outN
+    modAskFocus.ArticleEnsure q, hits, outN, 2, ScopeBox(scopeSources)
+    RunMultiRetrieve = EnsureArticleSeed(q, hits, outN)
+End Function
+
+' ----------------------------------------------------------------------------
+' EnsureArticleSeed - 検索が0件のとき、条文/別表/様式の直接キーで最大2件だけ
+'   材料を用意する(2026-08-05 R17H FA-8 / A-M9)。戻り値=最終件数。
+' ----------------------------------------------------------------------------
+' 「第5条を見せて」に dense も sparse も1件も返さないことは実際に起きる
+' (条番号は短くて特徴が薄い)。ところが ArticleEnsure は既存ヒットが1件以上
+' あることを前提にしており、0件のときは何もしないまま「資料が見つかりません」
+' で終わっていた。決定的なキー(section_path)は手元にあるのだから、最後に1回
+' だけ引く。score は 0 のままなので低関連度の警告は付くが、それは正直な表示
+' (検索では当たらなかった、という事実がそのまま出る)。
+' n=-1(埋め込み失敗)には触らない。0件かどうかと理由が違う障害を混ぜない。
+' ----------------------------------------------------------------------------
+Private Function EnsureArticleSeed(ByVal q As String, ByRef hits() As Hit, _
+                                   ByVal n As Long) As Long
+    EnsureArticleSeed = n
+    If n <> 0 Then Exit Function
+    Dim m As Long: m = 0
+    modAskFocus.ArticleEnsure q, hits, m, 2, "", True
+    EnsureArticleSeed = m
+End Function
+
+' 許可資料名のDictionary(modRetrieve と同じ scopeSources)を、modAskFocus の
+' AppendByIds が使う srcBox 形式("|資料名|" の連結)へ畳む。Nothing は空文字
+' =スコープ無し(=従来動作)。判定そのものは modRetrieve の Exists と同型で、
+' ここは【同じ許可集合を別の入口へ渡すための翻訳】だけを行う。
+Private Function ScopeBox(ByVal scopeSources As Object) As String
+    If scopeSources Is Nothing Then Exit Function
+    Dim sb As String
+    Dim v As Variant
+    On Error Resume Next
+    For Each v In scopeSources.Keys
+        Dim nm As String: nm = Trim$(CStr(v))
+        If LenB(nm) > 0 Then
+            If InStr(1, sb, "|" & nm & "|", vbBinaryCompare) = 0 Then sb = sb & "|" & nm & "|"
+        End If
+    Next v
+    On Error GoTo 0
+    ScopeBox = sb
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -354,6 +398,12 @@ End Sub
 ' 未満なら注意書きを先頭に付ける。0以下は無効化扱い。
 Public Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal nHits As Long) As String
     ApplyLowHitWarning = result
+    ' 2026-08-05(R17H FA-2 / A-H2・B-H1): 俯瞰で答えたターンは無操作。
+    ' 俯瞰の hits は章の要約から選んだもので score=0 が正しい値(検索スコアを
+    ' 騙らない)。そこへこの警告を足すと、章をまたいで正しく答えた回答に
+    ' 「手元の資料との関連が薄い」と書くことになる=表示が事実と逆になる。
+    If modAskGlobal.WasGlobalTurn() Then Exit Function
+
     Dim threshold As Double
     threshold = modConfig.GetDouble("low_hit_warn_score", 0.3)
     If threshold <= 0 Then Exit Function
@@ -374,6 +424,10 @@ End Function
 '   聞き方の例を返す。判定は全ヒットの最高スコア(1位だけ見ると誤発動する)。
 Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long) As Boolean
     If nHits < 1 Then Exit Function
+    ' 「全体像は?」のような俯瞰の短文は聞き返さない(2026-08-05 R17H FA-6)。
+    ' 短くて低スコアなのは俯瞰質問の常態(点検索が当たらないから俯瞰なのに、
+    ' 当たらないことを理由に聞き返すと、俯瞰は永久に一度も試されない)。
+    If modRagParse.HasGlobalSignal(q) Then Exit Function
 
     Dim maxChars As Long, thr As Double
     On Error Resume Next

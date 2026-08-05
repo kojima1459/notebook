@@ -95,9 +95,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' R12-H-2a: 自動同期(silent)は他の処理中(UIロック取得中)には始めない
     ' (検索の重ループ中DoEventsに割り込むと結果が欠ける。手動🔄は対象外)。
     ' R12-4: 始める側は検索用ベクトルキャッシュを解放しピークを重ねない。
-    ' R15-FixA(FA-3iii): modShelf.IsBusy()も判定に足す。modUiLock.IsBusyだけでは
-    ' 取込ループ中(ロック非取得)の自動同期tickで二重取込+中断印の誤消去が
-    ' 起きていた(取込中の入れ子自動同期。A-H3)。
+    ' R15-FixA(FA-3iii): modShelf.IsBusy()も足す。modUiLock.IsBusyだけでは取込
+    ' ループ中(ロック非取得)の自動同期tickで二重取込+中断印の誤消去が起きた。
     On Error Resume Next
     If silent Then
         If modUiLock.IsBusy() Or modShelf.IsBusy() Then
@@ -110,11 +109,11 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     mSyncRunning = True
     mSyncRunningSince = Now
+    modOutlineBuild.SetUnattended silent   ' R17H FA-7: 無人実行の印
     ' R15波2の発見6(2026-08-04): 中断の印を同期の入口でも必ず下ろす。
     ' 残っていると、押した覚えの無い同期が最初の頁境界でいきなり止まる。
-    ' R15-FixA(FA-3iv): ただし取込が動いているあいだは下ろさない。手動同期は
-    ' silentではないので上の見送りを通らず、取込中でもここまで来られる。
-    ' そこで印を下ろすと、利用者が押した中断が【無かったこと】にされる。
+    ' R15-FixA(FA-3iv): ただし取込中は下ろさない(手動同期は上の見送りを
+    ' 通らず取込中でも来られる。下ろすと押した中断が無かったことにされる)。
     If Not modShelf.IsBusy() Then modShelfBatch.ResetCancel
 
     ' 大量シート書換え中のイベント連鎖を抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。
@@ -124,7 +123,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     ' 2026-07-16 恒久対策: どこで実行時エラーが起きても必ず Finish
     ' (mSyncRunningの解除)へ合流させる。従来は本体を覆うハンドラが無く、
-    ' 例外が出ると mSyncRunning=True のまま抜けて同期が永久に走らなくなった。
+    ' 例外で mSyncRunning=True のまま抜けて同期が永久に走らなくなった。
     Dim uiStep As String
     On Error GoTo Failed
 
@@ -467,17 +466,17 @@ Finish:
     Application.EnableEvents = True   ' 抑止したイベントを必ず復帰
     modUIMain.HideProgress   ' R10-5: 正常/異常どちらの経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
-    ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収して感謝EXPを加算する。
-    ' shelf_folder未設定でもここは通る(P2P共有はnexus_share_pathで独立)。
+    ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収し感謝EXPを加算する
+    ' (shelf_folder未設定でも通る。共有はnexus_share_pathで独立)。
     On Error Resume Next
     modP2P.CollectThanks silent
     modP2P.CollectNoiseVotes silent   ' 品質報告を集計し組織的除外(gexcl)を再計算
     On Error GoTo 0
     ' R15-3a: 変わったものがある同期だけ保存(RC9)。
+    modOutlineBuild.SetUnattended False    ' R17H FA-7: 無人実行の印を下ろす
     modShelfBatch.SaveCheckpoint ingestedN + replacedN + deletedN + resumedCount + orphanDone
-    ' R15-FixA(FA-3ii): 中断の印を同期の外へ持ち越さない。取込側
-    ' (AddFilesResult)が全ての出口で下ろしているのと同じ作法。下ろさないと、
-    ' 同期の途中で押した中断が次に押した「資料を追加」まで生き残る。
+    ' R15-FixA(FA-3ii): 中断の印を同期の外へ持ち越さない(取込側の
+    ' AddFilesResult と同じ作法)。次の「資料を追加」まで生き残るため。
     modShelfBatch.ResetCancel
 End Sub
 
