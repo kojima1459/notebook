@@ -67,6 +67,31 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。
 | R16波3 | Opus | ③-B逆質問番号選択肢+③-C精読(modAskFocus)+③-D既出降格+裁定1〜3+docs+テスト82件 | 7251a25〜f72f12a | 完了 |
 | R16-Fix | Opus | R16H裁定FA8(精読source基準化/逆質問非回答化/降格全followup化ほか)+FB12 | e71b940/e5e8507/bbef504 | 完了 |
 
+### R18 で増えたもの(次に触る人が最初に知るべき4点)
+
+1. **新モジュール `modProgressBar`(src/ui)** = 進捗バナー(nx_progress)と
+   ■中断 / 作業用Excel の描画・撤去。R18-1a で modSkin(残り10字)から忠実移設。
+   呼び出し口は `modUIMain.ShowProgress/HideProgress`、
+   `modShelfBatch.ShowIngestBanner`、`modHub.EnsureHubLayout`(SweepOrphans)の4本だけ。
+   **バナーを最前面化したら必ず両ボタンを前面へ戻す**(R18-1c)。ここを外すと
+   cancellable=False の実況が走るたびにボタンが不透明バナーの下へ埋まり、
+   クリックがバナーに吸われて完全に無反応になる(実機第5報①の主犯)。
+   幅は `BarWidthFor(modUIMain.ViewportWidth())`= min(760, viewport-16)。
+   固定幅に戻してはならない(#30恒久対策の適用漏れが本文を殺した)。
+2. **新モジュール `modIntegrity`(src/core)** = データ整合性の観測点。
+   ・`ReconcileChunkCount`: カードの件数と my_knowledge の実行数の突合+自動修復
+   (`modShelf.SourceList` から1行)。**カードは manifest の chunk_count を出す**
+   という事実がここで初めて安全になった。
+   ・`RecordSaveMark` / `WarnAtStartup`: 保存成功時に (行数, FullName) を ui_state へ
+   控え、起動時に突合する。**zip直開き・一時展開コピーは保存も成功しReadOnlyでも
+   ないため、これが唯一の検知手段**(調査agent1 §4「検知ゼロ」)。
+3. **manifest の chunk_count は -1 で「前値保持」**(R18-2a)。実データを消して
+   いない失敗経路が 0 を書くと、カードだけが「0件」に化ける。新しい失敗経路を
+   足すときは必ず -1 を渡すこと。
+4. **中間保存(SaveCheckpoint)の呼び出し点は modShelf.IngestFile の Finish 1箇所**
+   (R18-2c)。取込の入口をいくつ増やしても保存が漏れない構造にしてある。
+   AddFilesResult のループへ戻してはならない(二重保存になる)。
+
 ### R12-4 で増えたもの(次に触る人が最初に知るべき3点)
 
 1. **新モジュール `modVecCache`(src/qa)** = セッション内ベクトルキャッシュ+

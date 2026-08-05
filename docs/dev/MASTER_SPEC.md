@@ -92,6 +92,15 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 **my_manifest** 列: `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin`
 - status: `done` | `pending` | `partial`(埋め込み未了あり) | `failed` | `image_pdf` | `missing`(同期でファイル消失検知→削除待ち)
 - ダイアログ取込のfile_pathは実パス。パック由来はmanifestに載せない(my_knowledge.originで管理)。
+- **chunk_count の契約(2026-08-05 R18-2a)**: `modShelfStore.UpsertManifestRow` に
+  chunk_count として **負値(-1)を渡すと既存行の値を保持**する(新規行なら0)。
+  実データ(my_knowledge の行)を1行も消していない失敗経路は必ず -1 を渡す。
+  0で上書きするとカードだけが「0件」に化け、資料が消えたように見えるため
+  (実機第5報⑧の確定原因。`modShelf.IngestFile` の失敗3経路が該当)。
+- **表示との整合(R18-2b)**: マイ本棚/ギャラリーのカードは chunk_count を表示する。
+  `modShelf.SourceList` が毎回 my_knowledge の source別実行数と突合し、食い違えば
+  **実行数を正**として manifest を自動修復し `usage_log("manifest_fix")` を1行残す
+  (`modIntegrity.ReconcileChunkCount`)。カードは常に実データを映す。
 
 **my_stats** 列: `key, value, updated_at`(key例: `ask_quick_total`, `ask_deep_total`, `ask_thorough_total`, `selfsolve_total`, `hint_total`, `fail_total`, `ingest_files_total`, `pack_export_total`, `pack_import_total`, `streak_days`, `last_used_date`, `badge:<id>`=取得日)
 
@@ -312,7 +321,31 @@ Public Sub RunDiagnostics()   ' 「🩺診断」ボタン。diag_reportシート
     ' 本棚統計(資料数/チャンク数/未埋め込み数)、opt機能の在否、直近エラー5件、
     ' 各行に ✅/⚠️ と対処文。最後に「この画面をスクリーンショットして管理者に送ってください」
 Public Function QuickHealthCheck() As String  ' Boot時の軽量版: 問題なければ "" / あれば警告文
+Public Sub WarnIfReadOnly()   ' R15-3b: 読み取り専用なら起動時に1回だけ伝える(E0805)
 ```
+
+**modIntegrity.bas**(2026-08-05 R18-2b/2d 新設。データ整合性の観測点)
+```vba
+Public Function IndexOfName(ByRef names() As String, ByVal n As Long, _
+                            ByVal target As String, ByVal hint As Long) As Long
+    ' source別集計の位置引き(hintは速さだけの助言。正しさは線形探索が保証)
+Public Function ReconcileStatText(ByVal statText As String, ByVal actualN As Long) As String
+    ' "status|ingested_at|chunk_count|error_note|origin" の3つ目を実行数へ差し替え。
+    ' 一致していれば同じ文字列を素通し(=呼び出し側の「何もしない」合図)
+Public Function ReconcileChunkCount(ByVal sourceName As String, ByVal statText As String, _
+                                    ByVal actualN As Long) As String
+    ' 上記+manifest の5列目も直し usage_log("manifest_fix") を1行(modShelf.SourceListから)
+Public Sub RecordSaveMark()   ' 保存成功時に (my_knowledge行数, FullName) を ui_state へ
+Public Function DataShrunk(ByVal prevRows As Long, ByVal curRows As Long) As Boolean
+    ' prevRows<=0(記録なし)は判定しない=初回起動で根拠なく警告しない
+Public Function IsVolatilePath(ByVal fullPath As String) As Boolean
+    ' "temp1_" / "\temp\" / ".zip\" のいずれかを含む(=保存が次回に残らない場所)
+Public Function ShrinkWarnMsg(...) As String / VolatileWarnMsg(...) As String  ' 警告文(BMPのみ)
+Public Sub WarnAtStartup()    ' 起動時の突合(modBootから1行)。1セッション1回まで
+```
+判定材料は my_knowledge / my_manifest / ui_state のシートだけで、上位層は呼ばない(R1)。
+置き場が基盤層なのは modBoot / modShelf / modShelfStore がいずれも30,000字上限近くで
+判定本体を置けないため(modDiag.WarnIfReadOnly と同型の判断。憲章§4-6)。
 
 ### 7.2 取込層
 
@@ -357,11 +390,21 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String) As Stri
     '       みであるため、manifestに「同じfile_nameだが別のfile_path」の行が既にあれば、
     '       削除せず明示エラーで止める。誠実な失敗の方が黙ったデータ消失より安全という
     '       R5の判断。同一パスの再取込=置換はこの検査を通過する)
-    '       → 上限検査(E0501) → 既存同名sourceは置換(古いchunk/vector削除)
+    '       → 上限検査(E0501)
     '       → ExtractFile → ChunkPages → chunk_id付番(bs::hash::pN::cN, ハッシュ重複はスキップ)
-    '       → my_knowledge追記(embedded=0) → manifest upsert(status=pending)
+    '       → my_knowledge追記(embedded=0)
+    '       → 【R18-2e】既存同名sourceの旧chunk/vectorはここで削除する(新しい行を
+    '          書き終えた【後】。書込みがerr#7等で落ちても旧データを無傷で残すため。
+    '          いま書いた行は keepFromRow で巻き添えにしない。同一sourceの新旧行が
+    '          同時に存在する窓は取込中だけで、取込中は検索がUIロックで走らない)
+    '       → manifest upsert(status=pending)
     '       → EmbedPending → manifest status確定 → 成功時(done/partial)のみ
     '       my_stats.ingest_files_totalをBump+usage_logに"ingest"イベントを記録
+    '       → 【R18-2c】成功時(done/partial)のみ modShelfBatch.SaveCheckpoint(silent含む)。
+    '          中間保存の呼び出し点はこのFinish1箇所に集約する(以前は
+    '          modShelfBatch.AddFilesResult のループにしか無く、スクショ取込・
+    '          ナレッジ登録・修正・共有登録・パック取込・部門チャンネル取込の
+    '          6経路が【セッション中に一度も保存されなかった】=憲章§4-5)
     '       → カード再描画(modUIShelf.RenderShelf)
 Public Sub DeleteSource(ByVal sourceName As String)  ' knowledge/vectors/manifest から一括削除+再描画
 Public Function SourceList(ByRef names() As String, ByRef stats() As String) As Long ' カード描画用
