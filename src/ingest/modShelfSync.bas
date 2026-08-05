@@ -28,15 +28,13 @@ Option Explicit
 '     フォルダが復活すれば次回同期で通常の keep/replace 判定に戻る。
 '   ・再入防止: mSyncRunning は「手動🔄連打」「自動同期の発火中に手動ボタン」を
 '     防ぐ。VBAはシングルスレッドだが、長いループ中の DoEvents でShapeクリック
-'     (OnAction)がその場で再入発火するため、この再入は実際に起こり得る。
-'     行削除・圧縮と EmbedPending の行インデックスの食い違いは、modEmbed 側で
-'     chunk_id 起点に書込み先を都度再解決して断っている(あちらの冒頭参照)。
-'   ・OnTime予約: 予約時刻(mNextRunTime)を保持し、CancelAutoSync は同時刻を
-'     指定して解除する(Excel仕様・§12)。AutoSyncTick は SyncNow のあと自分を
-'     再予約する自己再帰。AutoSyncTick が Public 必須なのは、OnTime の Procedure
-'     が Application.Run と同じ遅延バインドで Private Sub を解決できないため
-'     (予約は成立するのに発火時に「マクロを実行できません」で自動同期が永久に
-'     死ぬ)。CONTRACT と MASTER_SPEC §7.2 も同じ契約へ更新済み。
+'     (OnAction)がその場で再入発火するため実際に起こり得る。行削除・圧縮と
+'     EmbedPending の行インデックス食い違いは modEmbed 側で解決済み(冒頭参照)。
+'   ・OnTime予約: 予約時刻(mNextRunTime)を保持し、CancelAutoSyncは同時刻を
+'     指定して解除(Excel仕様・§12)。AutoSyncTickはSyncNow後に自己再予約する
+'     自己再帰。Public必須なのはOnTimeがApplication.Runと同じ遅延バインドで
+'     Private Subを解決できないため(発火時「マクロを実行できません」で自動
+'     同期が永久に死ぬ)。CONTRACT/MASTER_SPEC §7.2 も同じ契約へ更新済み。
 '   ・進捗実況は modEmbed/modEnrich と同じ作法で、1行スコープの On Error Resume
 '     Next 越しに呼ぶ(表示が失敗しても同期自体は止めない)。
 '   ・FileDialog/EnableCancelKey 等の名前付き定数は使わずリテラル値を使う
@@ -94,15 +92,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     End If
     If mSyncRunning Then Exit Sub
 
-    ' R12-H-2a: 自動同期(silent)は他の処理中(UIロック取得中)には始めない。
-    ' 検索は重ループ内でDoEventsを回すため、割り込むと結果が欠ける。次tickへ
-    ' 委ねる(手動🔄は利用者がロックを持って呼ぶので対象外=無反応にしない)。
+    ' R12-H-2a: 自動同期(silent)は他の処理中(UIロック取得中)には始めない
+    ' (検索の重ループ中DoEventsに割り込むと結果が欠ける。手動🔄は対象外)。
     ' R12-4: 始める側は検索用ベクトルキャッシュを解放しピークを重ねない。
-    ' R15-FixA(FA-3iii): 判定に modShelf.IsBusy() を足す。modUiLock.IsBusy は
-    ' 「利用者がUIロックを取っているか」しか見ておらず、取込ループの最中
-    ' (ロックは取らない)に自動同期のtickが入ると、同じファイルを二重に
-    ' 取り込みに行くうえ、下の Finish: が進捗バナーを消し中断の印まで
-    ' 下ろしてしまっていた(取込中の入れ子自動同期。A-H3)。
+    ' R15-FixA(FA-3iii): modShelf.IsBusy()も判定に足す。modUiLock.IsBusyだけでは
+    ' 取込ループ中(ロック非取得)の自動同期tickで二重取込+中断印の誤消去が
+    ' 起きていた(取込中の入れ子自動同期。A-H3)。
     On Error Resume Next
     If silent Then
         If modUiLock.IsBusy() Or modShelf.IsBusy() Then
@@ -225,11 +220,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         modShelfScan.MarkFolderScopeMissing folderNorm
         modLog.LogError "E0502", "modShelfSync.SyncNow", _
             "フォルダを列挙できませんでした(権限/ネットワーク/ウイルス対策の可能性): " & folderNorm
-        ' 2026-07-31 R11-D(A波発見事項2): ここは【エラーが起きていない】正常な
-        ' 打ち切りなので Failed: へ飛ばしてはいけない。あちらの Resume がエラー
-        ' 未発生で走ると err#20 を起こし、それ自体が捕まって failNum を上書きし、
-        ' err_log に上のE0502ではなく自作自演の err#20 だけが残る。後始末へ直行
-        ' させる(挙動は不変。記録が実態どおりになるだけ)。
+        ' R11-D: エラー未発生のためFailed:(Resumeがerr#20を誤発生させる)へは
+        ' 飛ばさず後始末へ直行(挙動不変・記録が実態どおりになるだけ)。
         GoTo FailedCleanup1
     End If
 
@@ -241,6 +233,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
 
     Dim diskDict As Object: Set diskDict = CreateObject("Scripting.Dictionary")
     Dim ingestedN As Long, replacedN As Long, deletedN As Long, failedN As Long
+    Dim declinedN As Long: declinedN = 0   ' R18-6d: 見送り(declined)件数
     Dim resumeNeeded As Boolean: resumeNeeded = False
 
     ' 本棚上限(2026-07-16 実機対応): 大容量フォルダを同期すると、上限到達後の
@@ -310,14 +303,20 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' 誰も見ていない朝の同期がそこで止まる (b)失敗も「新規/更新」に足すので
         ' サマリが「新規12件」でも本棚は増えない、の2つの嘘があった。
         Dim st As String
+        Dim errCd As String
+        ' R18-6d: interactive:=Not silent(手動🔄/📁フォルダのみOCR事前確認対象。
+        ' 無人同期は従来どおりFalse)。errCdでdeclined(「いいえ」)をfailedNと分離。
         Select Case decision
             Case "ingest"
                 If modShelf.TotalChunks() >= capMax Then
                     cappedN = cappedN + 1
                 Else
-                    st = modShelf.IngestFile(path, "self", True)
+                    errCd = ""
+                    st = modShelf.IngestFile(path, "self", True, errCd, Not silent)
                     If st = "done" Or st = "partial" Then
                         ingestedN = ingestedN + 1
+                    ElseIf errCd = "declined" Then
+                        declinedN = declinedN + 1
                     Else
                         failedN = failedN + 1
                     End If
@@ -326,9 +325,12 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
                 If modShelf.TotalChunks() >= capMax Then
                     cappedN = cappedN + 1
                 Else
-                    st = modShelf.IngestFile(path, "self", True)
+                    errCd = ""
+                    st = modShelf.IngestFile(path, "self", True, errCd, Not silent)
                     If st = "done" Or st = "partial" Then
                         replacedN = replacedN + 1
+                    ElseIf errCd = "declined" Then
+                        declinedN = declinedN + 1
                     Else
                         failedN = failedN + 1
                     End If
@@ -342,11 +344,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         End Select
     Next i
 
-    ' 消失検知→削除(このフォルダ配下由来の行のみが対象スコープ)
-    ' R15-FixA(FA-3i): 中断で走査を打ち切った同期では、まだ見ていないファイルが
-    ' diskDict に入っていない。そのままここを通すと「ディスクに無い=消えた」と
-    ' 誤判定して実在する資料を DeleteSource する(復旧不能)。列挙に失敗した
-    ' ときに消失判定をしないのと同じ理由で、中断時は削除判定ごと見送る。
+    ' 消失検知→削除(フォルダ配下由来の行のみ対象)。R15-FixA(FA-3i): 中断で
+    ' 打ち切った同期はdiskDictが不完全なため「消えた」誤判定を避け、削除判定
+    ' ごと見送る(列挙失敗時に消失判定しないのと同じ理由)。
     uiStep = "消失資料の削除判定"
     If cancelSkipN = 0 Then
         For i = 0 To mCount - 1
@@ -369,6 +369,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim summaryLine As String
     summaryLine = "新規" & ingestedN & "件・更新" & replacedN & "件・削除" & deletedN & "件"
     If failedN > 0 Then summaryLine = summaryLine & "・失敗" & failedN & "件"
+    If declinedN > 0 Then summaryLine = summaryLine & "・見送り" & declinedN & "件"   ' R18-6d
 
     If resumeNeeded Then summaryLine = summaryLine & "・再開" & resumedCount & "件"
     If cappedN > 0 Then summaryLine = summaryLine & "・上限見送り" & cappedN & "件"
@@ -401,12 +402,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' silent時と同じくSetStageのみで知らせる(§機能6・MsgBox削減)。
         On Error Resume Next
         modUIMain.SetStage ChrW(&H2705) & " 同期が完了しました(" & summaryLine & ")"
-        ' R10-5: 手動同期(silent=False)は現行何も出ないため、トーストで1回知らせる。
-        ' kind:="success"はShowToast側が自前でChrW(&H2705)を付けるため、文言に
-        ' 重ねて絵文字を書かない。
-        ' R10c(M4): 進捗バナーを先に閉じてからトーストを出す(modShelfと同順)。
-        ' 逆順だと1.1秒のあいだ2枚がならび、どちらが今の状態か分からなくなる。
-        ' Finish: の HideProgress は異常系用に残す(二重呼び出しは無害)。
+        ' R10-5: トーストで1回知らせる(kind:="success"がChrW(&H2705)を自前で
+        ' 付けるため文言側では重ねない)。R10c(M4): バナーを先に閉じてから出す
+        ' (逆順だと1.1秒2枚並び紛らわしい)。Finish:のHideProgressは異常系用(無害)。
         modUIMain.HideProgress
         modSkin.ShowToast "同期が完了しました(" & summaryLine & ")", "success"
         On Error GoTo 0
@@ -420,7 +418,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         summary = summary & vbLf & vbLf & _
             "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
             "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
-            "もう一度「" & ChrW(&HD83D) & ChrW(&HDD04) & " フォルダと同期」を押してください。"
+            "もう一度「フォルダと同期」を押してください。"
 
         On Error Resume Next
         modUIMain.SetStage ""
