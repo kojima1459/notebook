@@ -69,6 +69,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `my_vectors` | veryHidden | ベクトル |
 | `chunk_meta` | veryHidden | チャンクの構造メタ(R17 Phase1)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `chunk_id, section_path, refs_out`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `doc_outline` | veryHidden | 章単位要約(R17 Phase2)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `source, section_key, summary, keywords, chunk_n`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
+| `synonyms` | veryHidden | 用語の表記ゆれ辞書(R17 Phase3)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `term, canonical`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。ビルドが headers-only で生成する(R15-FixB FB-2。実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|IsoDateTime(更新日時)\|p<頁>`、text は先頭に番兵1字 `t` を置いて書き読み出しで剥ぐ(数式誤解釈の防止と空頁の判別)。opt層(optOcrCache)だけが読み書きし、資料が本棚に `done` として並んだ時点で modShelf がその資料の行を削除、孤児行は起動時GCで2日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
@@ -152,6 +153,40 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
   **`modBoot.HideInternalSheets` へは足していない**(残8字で1行も入らないため。
   憲章§4-6。次に modBoot を触る波が分割と同時に足すこと)。
 
+**synonyms** 列(2列・2026-08-05 R17 Phase3): `term, canonical`
+- 目的: 用語の表記ゆれ(「回収」⇔「リコール」等)を吸収する辞書。同じ意味の
+  質問でも言葉が違うだけでヒットしないRAGの取りこぼしに対して、質問文へ
+  同義語を追記してから検索する(docs/45 項目34)。取込末尾に1回だけ生成し、
+  質問のたびには生成しない(LLM呼び出しは資料1本の取込につき最大1回)。
+- 生成: `modSynonymStore.BuildSynonymsFor`(`modOutlineBuild.BuildOutlineFor` の
+  末尾から1行)。当該資料の chunk_meta(section_path)・doc_outline(keywords)・
+  my_knowledge(keywords列)から用語候補を集め(重複排除・最大200語)、
+  `CallLLM(step="name_dedup")` で表記ゆれグループを1回取得して追記する。
+  出力契約は `<syn>表記>正規形|表記>正規形</syn>`(`modRagParse.ParseSynResp`)。
+  **既存termは上書き**: `ReadMapCsv` で読んだ既存分から新規termと重なる行を
+  除き、`RemoveAll` してから全件を書き直す(1つの表に追記と上書きの2つの
+  書き方を混在させない)。
+- 読み出し: `modAskRetrieve.RunMultiRetrieve` の入口で、config `graph_synonyms`
+  (既定on)がonかつ synonyms が非空のとき、質問文中の語に一致した同義語を
+  最大3語・半角空白区切りで質問文へ追記してから既存の検索フローへ渡す
+  (`modRetrieve`/`modSparse` のスコアリング本体は無改修)。一致判定は
+  `modSparse.NormalizeForSearch` を両辺に通してから `InStr`(全角/半角の
+  表記ゆれも吸収)。純関数 `modRagParse.ExpandQueryBySyn(q, mapCsv, maxAdd)`
+  が展開そのものを行う(mapCsv は `ReadMapCsv` の戻り値そのものを渡す設計で、
+  modSparse/modRagParse をシートI/O非依存のまま=PURE_LOGIC_MODULESに保つ)。
+  `ReadMapCsv` は**1セッション1回だけ**呼びモジュール変数へ控える
+  (取込・同期での更新は次にブックを開いたときから反映。docs/10に明記)。
+- **フェイルセーフ**: synonyms が無い/0行(=まだ取り込み直していない既存本棚、
+  `graph_synonyms=off` のまま使ってきた本棚)なら質問文は一切書き換えられず、
+  検索は R17 Phase2 までと完全に同じになる。既存資料の移行処理は書かない
+  (再取込で生成される。chunk_meta/doc_outline と同じ判断)。
+- 掃除: 資料単位の掃除はしない(synonymsは資料ではなく用語の辞書であり、
+  複数資料の候補が1つのtermへ合流し得るため)。書込み・掃除の失敗は取込を
+  止めず `usage_log("synonyms_fail")` を1行残す。
+- `veryHidden` はビルドの焼き込みと `EnsureSynonymSheet` の自己設定の二重で守る。
+  **`modBoot.HideInternalSheets` へは足していない**(doc_outlineと同じ理由。
+  次に modBoot を触る波が分割と同時に足すこと)。
+
 **my_manifest** 列(10列): `file_path, file_name, modified_at, size, chunk_count, status, error_note, ingested_at, origin, fail_count`
 - 10列目 `fail_count` は 2026-08-01(R12-3-3)で追加した連続失敗回数。`MAX_FAIL_STREAK`(3)回で status を `failed_permanent` へ倒し自動同期のスコープから外す。復帰は「資料を追加」での明示選択(`ResetFailCountForPath`)かファイル更新のみ。行の詰め直しは必ず全10列を運ぶ(9列で詰めると fail_count だけが別の行に残る)。
 - status: `done` | `pending` | `partial`(埋め込み未了あり) | `failed` | `image_pdf` | `missing`(同期でファイル消失検知→削除待ち)
@@ -197,7 +232,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | shelf_folder | (空) | 本棚フォルダパス |
 | sync_interval_min | 0 | OnTime自動同期間隔(0=off) |
 | sync_on_open | TRUE | 起動時に差分同期 |
-| enrich_mode | off | off/light/full: バッチ富化(§7.7) |
+| enrich_mode | light | off/light/full: バッチ富化(§7.7)の強さ。2026-08-05 R17 Phase3で既定off→lightへ常時ON化(取込直後は少量・残りは同期のたびに少しずつ追いつく後追い方式。1回の処理は`EnrichPending`既定30チャンクぶんだけで長時間ブロックを作らない)。light/fullは現状処理内容の差は無い |
 | max_pages_per_file | 300 | 抽出ページ上限(超過は打ち切り+partial) |
 | ribbon_addin_name | リボンちゃん | AIリボンのアドイン検出名(RibbonAvailable用。裁定D2) |
 | limit_check | TRUE | 起動時LimitCheck(期限・利用同意)。FALSEで無効化(裁定D3) |
@@ -220,6 +255,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | deep_neighbor | 2 | 「入念に調べる」の精読半径。根拠チャンクの前後何個ぶんを一緒に読むか(0=off。R16-3C)。R16H FA-4で適用先を入念のみとし、深掘り(deep)には効かせない(戻り件数が「N件ヒット」バッジと直結するため) |
 | graph_refs | on | 条文の参照関係を回答の材料に足すか(R17 Phase1)。on=根拠チャンクの `refs_out` を1ホップ展開して**同じ資料の中**から参照先(第8条・別表2 等)を精読束へ足し、質問が名指しした条番号のチャンクが1件も無ければ chunk_meta から引いて先頭へ入れる(最大2件)/off=検索ヒットだけで答える(R16までと同じ)。LLM呼び出しは1回も増えない。**chunk_meta が無い本棚では on でも従来動作** |
 | graph_outline | on | 章単位要約(R17 Phase2)を取込時に作るか。on=章の数だけAIを呼んで doc_outline を作り(254頁の規程で+3〜8分・中断ボタンで途中まで保存)、入念モードの段0が `verdict=global` と判定した質問で章をまたいで答える(質問あたり+2回)/off=作らない・俯瞰質問も従来の検索で答える。**doc_outline が0行の本棚では on でも従来動作** |
+| graph_synonyms | on | 用語の表記ゆれ辞書(R17 Phase3)を作り、質問に使うか。on=章要約のあとAIへ用語一覧を1回だけ渡し synonyms を更新(資料1本の取込につき+1回)、質問は一致した語の同義語を最大3語まで質問文に足してから検索する/off=辞書を作らず質問文もそのまま検索する(既に作った辞書は残るが読まれない)。**synonyms が0行の本棚では on でも従来動作**。synonyms は1セッション1回だけ読む(更新は次にブックを開いたときから反映) |
 | freeze_keep_banner | TRUE | 長時間ブロック中のDWM「応答なし」白画面化を`user32.DisableProcessWindowsGhosting`で抑止する(R16-2b)。抑止中はウィンドウの移動・最小化・×閉じが効かない(公式の既知の制約)。FALSEで従来どおり白画面化。判定はプロセス中1回だけキャッシュされるため変更はExcel再起動で反映(R16H FB-1) |
 | minutes_per_selfsolve | 15 | Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分か)。modStats/modBoard/modDashStatの3重複定数をここへ統合(R13-7d) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
@@ -595,10 +631,34 @@ Public Function BudgetTake(ByVal usedLen As Long, ByVal addLen As Long, ByVal ca
 
 **modEnrich.bas** — バッチ富化(summary/keywords付与)
 ```vba
-Public Function EnrichPending(Optional ByVal maxCount As Long = -1) As Long
+Public Function EnrichPending(Optional ByVal maxCount As Long = 30) As Long
     ' enrich_mode=off なら即0。summary空のチャンクを10件/1回のCallLLM(JSON配列返し)で富化。
     ' JSONパースは軽量自前(期待形: [{"i":1,"summary":"…","keywords":"a,b"},…])。
     ' パース失敗はそのバッチをスキップして続行(富化は無くても検索は動く=非致命)
+    ' maxCount既定30(2026-08-05 R17 Phase3): 常時ON化での小口バッチ上限。
+    ' 呼び出し元(modShelf.IngestFile/modShelfSync.SyncNow)は無改修=引数無しで呼ぶ。
+```
+
+**modSynonymStore.bas**(2026-08-05 R17 Phase3) — 用語の表記ゆれ辞書(synonyms)I/O+名寄せバッチ
+```vba
+Public Function EnsureSynonymSheet() As Worksheet   ' EnsureOutlineSheetと同型(冪等)
+Public Sub WriteSynonymRows(terms, canons, n)   ' 末尾へ1回のRange書込みで追記のみ(上書き判断なし)
+Public Function ReadMapCsv() As String
+    ' 全行を "term>canonical|term>canonical" の1文字列で返す(0行は空文字)。
+    ' modAskRetrieveが1セッション1回だけ呼ぶ唯一の読み出し窓口。
+Public Sub RemoveAll()   ' 全行消去(再構築用)
+Public Sub BuildSynonymsFor(ByVal sourceName As String)
+    ' 唯一の名寄せ入口。config graph_synonyms=off / 用語候補0件 / LLM応答が空
+    ' のいずれかで完全に無操作。当該資料の chunk_meta(section_path)・
+    ' doc_outline(keywords)・my_knowledge(keywords列)から用語候補を集め
+    ' (重複排除・最大200語)、CallLLM(step="name_dedup")で表記ゆれグループを
+    ' 取得しsynonymsへ追記する(既存termは上書き=ReadMapCsvの既存分から
+    ' 新規termと重なる行を除きRemoveAll後に全件書き直す)。ゲート・失敗握り
+    ' (usage_log "synonyms_fail")もこの層に閉じるので呼び出し元
+    ' (modOutlineBuild.BuildOutlineFor)は1行。CancelRequestedも確認する。
+' 出力契約: <syn>表記>正規形|表記>正規形</syn>(modRagParse.ParseSynResp)
+' 質問文への展開そのものは純関数 modRagParse.ExpandQueryBySyn が持つ
+' (modSparse/modRagParseはPURE_LOGIC_MODULESのためシートI/Oを持てない)。
 ```
 
 ### 7.3 QA層
@@ -654,6 +714,18 @@ Public Sub ArticleEnsure(ByVal query As String, hits(), nHits, ByVal maxIns As L
     ' 呼び出しは modAskRetrieve.RunMultiRetrieve の検索直後(単段フォールバック側も)。
 ' 両方とも config graph_refs=off / chunk_meta 0行(GraphActive=False)なら無操作。
 ' ゲートの読みはこの層に閉じる(呼び出し元はどれも1行のまま)。
+```
+
+**modAskRetrieve.bas** — 検索して材料を揃える層(§C多段RAG)+語彙ズレの吸収(R17 Phase3)
+```vba
+Public Function RunMultiRetrieve(q, mdMode, topK, hits(), …) As Long
+    ' 入口で config graph_synonyms=on かつ synonyms 非空のとき、質問文中の語に
+    ' 一致した同義語を最大3語・半角空白区切りで q へ追記してから既存の多段RAG
+    ' (拡張→マルチクエリ→再ランク)へ渡す。modRetrieve/modSparseのスコアリング
+    ' 本体は無改修(質問文を書き換えるだけ)。synonymsは modSynonymStore.
+    ' ReadMapCsv を1セッション1回だけ読み、モジュール変数(mSynMapCsv/
+    ' mSynLoaded)へ控えて使い回す(取込・同期での更新は次セッションから反映)。
+    ' 展開そのものは純関数 modRagParse.ExpandQueryBySyn。
 ```
 
 **modRetrieve.bas**

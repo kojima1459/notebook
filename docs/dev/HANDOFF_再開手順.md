@@ -7,8 +7,9 @@
 ## 1. 現在地
 
 **R18完了(実機第5報①〜⑪→調査8班→R18仕様→波A〜C→敵対的レビュー2面→R18H裁定FA8+FB8全消化)。実機配布可。**
-R1〜R18まで完了・検収済み・push済み(R17=構造グラフはPhase1/Phase2完了・Phase3が次)。
-テスト1,572件・lint ERROR 0/WARN 4(全てテスト系)・モジュール126本(実装側WARNゼロ)。
+R1〜R18まで完了・検収済み・push済み。R17=構造グラフはPhase1/Phase2/Phase3(波0〜3)まで
+実装・lint/LO/devビルド確認済み(**実機検証は未実施**。docs/45項目32-34が対象)。
+テスト1,589件・lint ERROR 0/WARN 4(全てテスト系)・モジュール127本(実装側WARNゼロ)。
 仕様: docs/dev/spec_20260805_R18_実機第5報.md + spec_20260805_R18H_レビュー裁定.md。
 R18の骨子: ①バナー可変幅/2行化+ボタン常時前面(modProgressBar新設)+砂時計廃止+2段目
 「作業用Excelを開く?」(セッション1回)/⑧manifest偽0根治(chunk_count -1保持+SourceList
@@ -26,20 +27,25 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: R17 Phase3(エンティティ辞書+名寄せ+enrich常時ON)。Phase1(構造メタ+参照エッジ)は
-R17波0/波1、Phase2(章単位要約=疑似グローバル検索)は R17波2 で完了済み
-=下記「R17 で増えたもの」。**modPrompts の分割は Phase2 では見送った**(章要約・章選択・
-俯瞰回答の3本とも新モジュール内の Private プロンプトにしたため。調査agent7 §5-4 が
-前提にしていた分割は、Phase3 で modPrompts に手を入れるときに改めて裁定すること)。
-残: 利用者の実機テスト(docs/45スモーク全33項目、特に32(R17 Phase1)・33(R17 Phase2)
-+28〜31+19〜27)。
+次: R17クローズ(実機検証・裁定)。Phase1(構造メタ+参照エッジ)は R17波0/波1、
+Phase2(章単位要約=疑似グローバル検索)は R17波2、Phase3(enrich常時ON+用語名寄せ辞書)は
+R17波3 で実装完了(いずれも下記「R17 で増えたもの」)。**modPrompts の分割は
+Phase2/Phase3 とも見送った**(章要約・章選択・俯瞰回答・名寄せの4本とも新モジュール内の
+Private プロンプトにしたため。調査agent7 §5-4 が前提にしていた分割は今回も不要だった。
+modPromptsは残321字のまま=Phase3でも1文字も触っていない)。
+残: 利用者の実機テスト(docs/45スモーク全34項目、特に32(R17 Phase1)・33(R17 Phase2)・
+34(R17 Phase3)+28〜31+19〜27)。
 容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
 **optOcrPage(残3) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
 modShelfBatch(残22) / optVision(残26) / modChunker(残38) / modBoot(残41) / modAsk(残43) /
 modUI(残44) / modShelfStore(残44) / optGsTxt(残45) / modUIMain(残101) / modHubStat(残164) /
 modShelf(残65・R17波1と波2で2度コメント圧縮した。**次に触る波は必ず先に分割裁定**) /
-modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残386) /
+modShelfSync(残88・R17波3でEnrichPendingの小口呼び出しを1行追加。**次に触る波は必ず先に
+分割裁定**) / modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残321) /
+modGateway(残585・R17波3でname_dedupのMock Caseを追加) /
 modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977字へ解放済み。
+modRagParse は R17波3でExpandQueryBySyn/ParseSynResp追加により残6,230→残1,582
+まで縮んだ(まだ危険域ではないが、次にmodRagParseへ機能を足す波は先に一度確認すること)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
@@ -86,6 +92,7 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977�
 | R17波0 | Sonnet | chunk_metaシート基盤(SH_CHUNK_META/EXPECTED_SHEETS/modChunkMetaStore)+modShelf圧縮 | 729a75f〜4746a61 | 完了 |
 | R17波1 | Opus | Phase1: 構造メタ+参照エッジ(modChunkMeta新設/取込フック/RefsExpand/ArticleEnsure/別表・様式キー/graph_refs/テスト43件) | (本波) | 完了 |
 | R17波2 | Opus | Phase2: 章単位要約=疑似グローバル検索(doc_outline/modOutlineStore/modOutlineBuild/modAskGlobal/verdict=global/graph_outline/テスト43件) | (本波) | 完了 |
+| R17波3 | Sonnet | Phase3: enrich常時ON(EnrichPending既定maxCount30+modShelfSync小口呼び出し)+用語名寄せ辞書(synonyms/modSynonymStore/BuildSynonymsFor/name_dedup)+クエリ展開(ExpandQueryBySyn/ParseSynResp・modAskRetrieve入口)+graph_synonyms/テスト17件 | (本波) | 完了 |
 | R18波B | Sonnet | ⑤非BMP排除+lint検査14+同期interactive+⑦HasCompoundSignal+E0303格下げ | 7d99933〜5e5b2cf | 完了 |
 | R18波C | Opus | ②範囲限定+modViewport+チャットへ上段+③地図撤去+④カード化+⑨フッター | 5b1d786〜a41bcfa | 完了 |
 | R18-Fix | Opus | R18H裁定FA8(2段目1回化/バナー2行/虚偽警告根治/全重複保護/フッター当たり判定ほか)+FB8 | 294afa4/f9664ef | 完了 |
@@ -161,6 +168,52 @@ modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977�
    出典突合(`modAskThorough.CiteIndexFrom`)が全件不一致になる。
    段0の verdict に `global` を足したのは modPrompts / modRagParse / modAskMulti の
    各1〜3行だけで、知らない語は従来どおり single へ落ちる。
+
+### R17 Phase3 で増えたもの(enrich常時ON+用語名寄せ辞書。Phase1/2 の上に積んである)
+
+11. **enrich常時ON化(config `enrich_mode` 既定 off→light)**。取込・同期のたびに
+    チャンクの要約・キーワードを少しずつ作る。254頁≒500チャンク規模を一括処理すると
+    1時間級になる(設計書§3 Phase3)ため、**取込直後の同期実行では一気にやらない**。
+    `modEnrich.EnrichPending` の `Optional maxCount` 既定値を `-1`(無制限)から
+    `30` へ変えただけで小口化を実現した(呼び出し元 `modShelf.IngestFile` は
+    既存どおり引数無しで呼ぶ=無改修)。`modShelfSync.SyncNow` にも
+    `EnrichPending` の1行を新規追加し(既存 `EmbedPending` 直後)、同期のたびに
+    少しずつ追いつく後追い巡回にした。**modShelf/modEnrich本体は無改修**
+    (司令塔裁定どおり、凍結モジュールに1文字も足していない)。
+12. **新シート `synonyms`(term, canonical)** = 用語の表記ゆれ辞書。
+    「回収」⇔「リコール」のように意味が同じでも書き方が違う語を吸収する
+    (docs/45 項目34)。chunk_meta/doc_outline と同じくビルドが headers-only で
+    焼き込む。**`modBoot.HideInternalSheets` へは足していない**(残8字で
+    1行も入らないため。次に modBoot を触る波が分割と同時に足すこと)。
+13. **新モジュール `modSynonymStore`(src/ingest)** = synonymsのシートI/O
+    (Ensure/Write/Read/RemoveAll)**と**名寄せバッチ(`BuildSynonymsFor`)の
+    両方を1本に置いた。modChunkMetaStore/modOutlineStore(シートI/Oのみ)と
+    modOutlineBuild(業務ロジック)を分けた前例とは違う構成だが、司令塔裁定で
+    Phase3の新設モジュールをこの1本だけに絞った指示どおり。当該資料の
+    chunk_meta(section_path)・doc_outline(keywords)・my_knowledge(keywords列)
+    から用語候補を集め(重複排除・最大200語)、`CallLLM(step="name_dedup")`を
+    資料1本の取込につき最大1回だけ呼ぶ。出力契約
+    `<syn>表記>正規形|表記>正規形</syn>` は `modRagParse.ParseSynResp`。
+    **既存termは上書き**: `ReadMapCsv`で読んだ既存分から新規termと重なる行を
+    除き、`RemoveAll`してから全件を書き直す(1つの表に追記と上書きの2つの
+    書き方を混在させない設計)。呼び出しは `modOutlineBuild.BuildOutlineFor`
+    の末尾に1行(config `graph_synonyms`・失敗握り・`CancelRequested`確認も
+    その1行の内側=呼び出し元は増えない)。
+14. **クエリ展開は「質問文への同義語追記」方式**。`modRetrieve`/`modSparse`の
+    スコアリング本体は無改修(司令塔裁定どおり)で、`modAskRetrieve.
+    RunMultiRetrieve`の入口が質問文 `q` を書き換えてから既存の多段RAGへ渡す
+    だけ。展開そのものは純関数 `modRagParse.ExpandQueryBySyn(q, mapCsv, maxAdd)`
+    で、`modSparse.NormalizeForSearch`を両辺に通して全角/半角の表記ゆれも
+    吸収し、双方向(表記→正規形・正規形→表記)・自己一致除外・最大3語・
+    質問文に既にある語や追記済みの語の二重追記防止を1本の関数に閉じてある。
+    `modSynonymStore.ReadMapCsv`は**1セッション1回だけ**呼び、モジュール変数
+    (`mSynMapCsv`/`mSynLoaded`)へ控える。**取込・同期でsynonymsが更新されても、
+    開いたままのセッションには次にブックを開き直すまで反映されない**
+    (docs/10・docs/30に明記した既知のトレードオフ)。
+15. **mock対応**: `modGateway.MockLLMResponse`に`Case "name_dedup"`を追加
+    (`<syn></syn>`=0グループ。R16H FB-2の decompose/chapter_summary と同じ
+    「Case Elseの汎用ダミーはタグを含まないためパーサが読めない」教訓の踏襲)。
+    `enrich`のCaseは既存(R15以前)にあったため今回の追加は不要だった。
 
 ### R18 で増えたもの(次に触る人が最初に知るべき5点)
 
