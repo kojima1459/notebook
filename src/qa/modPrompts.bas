@@ -10,12 +10,12 @@ Option Explicit
 '
 ' 設計判断:
 '   ・R4準拠(§3): Worksheets/Range(/Application./ThisWorkbook/MsgBox/
-'     ActiveSheet の各トークンはこのモジュールのソースに一切書かない。
-'     ただし modConfig.GetString/GetLong の呼び出しはR4対象外として明示
-'     許可されている(MASTER_SPEC発注時の指示: 「ExcelトークンがmodPrompts
-'     自身のソースに現れなければR4適合」)。modConfig自体はシートを読むが、
-'     それはmodConfig.basの中の話であり、modPromptsのソースには
-'     Excelオブジェクトトークンが一切現れないためLintのトークン検査は通る。
+'     ActiveSheet の各トークンはこのモジュールのソースに一切書かない。ただし
+'     modConfig.GetString/GetLong の呼び出しはR4対象外として明示許可されている
+'     (MASTER_SPEC発注時の指示:「ExcelトークンがmodPrompts自身のソースに
+'     現れなければR4適合」)。modConfig自体はシートを読むが、それはmodConfig.bas
+'     の中の話であり、modPromptsのソースにはExcelオブジェクトトークンが一切
+'     現れないためLintのトークン検査は通る。
 '   ・出典指示形式(MASTER_SPEC §7.3): 本棚由来は
 '     "[本棚:ファイル名 p.ページ番号]"、パック由来は
 '     "[パック(作成者):ファイル名]"。origin文字列が"pack:"で始まるかどうかで
@@ -27,24 +27,26 @@ Option Explicit
 '   ・本文組み込みの打ち切り: hits()の各full_text(チャンク本文全体。最大
 '     32000字)を連結し、config max_context_chars(既定40000)を超える手前で
 '     打ち切り、打ち切った場合のみ末尾に「(一部省略)」を挿入する(§7.3)。
-'   ・Wave3 PM裁定1: modTypes.Hit に full_text フィールドが追加され、
-'     modRetrieve.Searchがmy_knowledge読取時にfull_textを格納するように
-'     なったため、本モジュールは「本棚抜粋」の本文として full_text を使う
-'     (旧実装はpreview=先頭120字しか渡せず、回答生成の根拠が不十分だった)。
-'     preview は出典先出し表示(modUIMain.RenderSourcesPreview)専用として
-'     Hit型に残っており、本モジュールのプロンプト本文には使わない。ただし
-'     full_textが空(旧データ・テストダブル等で未設定)の場合はpreviewへ
-'     フォールバックする防御的実装にし、空の抜粋が本文に混じらないようにする。
+'   ・Wave3 PM裁定1: modTypes.Hit に full_text が追加され、modRetrieve.Search が
+'     my_knowledge読取時に格納するようになったため、「本棚抜粋」の本文として
+'     full_text を使う(旧実装はpreview=先頭120字しか渡せず根拠が不十分だった)。
+'     preview は出典先出し表示(modUIMain.RenderSourcesPreview)専用としてHit型に
+'     残っており、プロンプト本文には使わない。ただしfull_textが空(旧データ・
+'     テストダブル等)の場合はpreviewへフォールバックし、空の抜粋を混ぜない。
 '   ・深掘り候補(裁定D11): 利用者に実際に表示される回答を生成する
 '     BuildQuickPrompt(すぐ聞くの最終応答)とBuildDeepVerifyPrompt(しっかり
-'     調べるの最終応答)の末尾に、[[FOLLOWUP: 候補1 | 候補2]] 形式で深掘り
-'     質問候補を2つ付けさせる指示行(FollowupInstruction)を追加する。
-'     マーカーはmodAsk側でパース・除去され「深掘り候補(『続けて質問』で
-'     そのまま聞けます)」ブロックに整形されるため、利用者の目に生マーカーが
-'     触れることはない(LLMが指示を無視してマーカーを出さなくても、候補
-'     ブロックが付かないだけで壊れない)。BuildDeepDraftPromptは表示されない
-'     中間生成物(検証段の入力)のため対象外。
+'     調べるの最終応答)の末尾に、[[FOLLOWUP: 候補1 | 候補2]] 形式で深掘り質問
+'     候補を2つ付けさせる指示行(FollowupInstruction)を追加する。マーカーは
+'     modAsk側でパース・除去され「深掘り候補(『続けて質問』でそのまま聞けます)」
+'     ブロックに整形されるため、利用者の目に生マーカーは触れない(LLMが指示を
+'     無視しても候補ブロックが付かないだけで壊れない)。BuildDeepDraftPromptは
+'     表示されない中間生成物(検証段の入力)のため対象外。
 ' ============================================================================
+
+' 分解した論点のうち「資料を確認できなかった」節の文言(2026-08-05 R16-3A)。
+' 節を作る側(BuildPartSection)と、それを消させない側(BuildMergePrompt)と、
+' 成否を数える側(modAskMulti)が同じ文字列を見るための単一情報源。
+Public Const PART_FAIL_TEXT As String = "資料からは確認できませんでした(検索失敗)"
 
 Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
                                  Optional ByVal strictGrounding As Boolean = False, _
@@ -72,10 +74,10 @@ Public Function BuildQuickPrompt(ByVal q As String, hits() As Hit, ByVal nHits A
     BuildQuickPrompt = sb
 End Function
 
-' digest(2026-08-03 R14-8a): 入念モードが先に作る「資料の要点」。空なら従来と
-'   完全に同じプロンプトになる。要点を足したぶんだけ原文の枠を減らし、合計が
-'   max_context_chars を超えないようにする(減らさないと入念だけ本文が2倍に
-'   なり、上限で黙って切れて後半の資料が丸ごと消える)。
+' digest(2026-08-03 R14-8a): 入念モードが先に作る「資料の要点」。空なら従来と完全に
+'   同じプロンプトになる。要点を足したぶんだけ原文の枠を減らし、合計が
+'   max_context_chars を超えないようにする(減らさないと入念だけ本文が2倍になり、
+'   上限で黙って切れて後半の資料が丸ごと消える)。
 Public Function BuildDeepDraftPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long, ByVal history As String, _
                                      Optional ByVal strictGrounding As Boolean = False, _
                                      Optional ByVal answerTags As Boolean = False, _
@@ -131,13 +133,12 @@ Public Function BuildDeepVerifyPrompt(ByVal q As String, ByVal draft As String, 
          "本棚抜粋で裏付けられない断定や事実と異なる記載は、修正するか削除してください。" & vbLf
     sb = sb & StyleInstruction() & vbLf
     sb = sb & CitationInstruction() & vbLf
-    ' 2026-07-28(解説書 §11-9): 検証段にも DomainGuard を入れる。
-    ' 下書き段(quick/deep draft)には入っているのに検証段だけ抜けており、
-    ' 数値の厳格さと「(要確認)」の付与ルールを知らないモデルが
-    ' 最終回答を書き直していた。下書きが正しく付けた (要確認) を
-    ' 検証段が「不要な但し書き」と判断して落とすと、
-    ' 【確認が要る数字が、確認不要の顔をして残る】。
-    ' 保険の金額・期限・料率でこれが起きると実害が出る。
+    ' 2026-07-28(解説書 §11-9): 検証段にも DomainGuard を入れる。下書き段
+    ' (quick/deep draft)には入っているのに検証段だけ抜けており、数値の厳格さと
+    ' 「(要確認)」の付与ルールを知らないモデルが最終回答を書き直していた。下書きが
+    ' 正しく付けた (要確認) を検証段が「不要な但し書き」と判断して落とすと、
+    ' 【確認が要る数字が、確認不要の顔をして残る】。保険の金額・期限・料率で
+    ' これが起きると実害が出る。
     sb = sb & DomainGuardInstruction() & vbLf
     sb = sb & NotFoundInstruction() & vbLf
     If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
@@ -231,10 +232,10 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 本棚抜粋を1回のLLM呼び出しで「質問に関係する部分だけ」資料ごと2～3行へ畳む。
 ' 下書き段へは この要点 + 上位の原文 のハイブリッドを渡す(要点だけだと数値や
-' 条文が丸まり、原文だけだと件数が増えたとき中盤が読み飛ばされる)。
-' 出力の粒度をJSON等にしないのは、この結果を人ではなく次のプロンプトが読む
-' からで、素の日本語のまま下書き段へ差し込むのがいちばん壊れない
-' (BuildEnrichPromptがJSONなのは、あちらの読み手がVBAのパーサだから)。
+' 条文が丸まり、原文だけだと件数が増えたとき中盤が読み飛ばされる)。出力の粒度を
+' JSON等にしないのは、この結果を人ではなく次のプロンプトが読むからで、素の日本語
+' のまま差し込むのがいちばん壊れない(BuildEnrichPromptがJSONなのは読み手がVBAの
+' パーサだから)。
 Public Function BuildSourceDigestPrompt(ByVal q As String, hits() As Hit, ByVal nHits As Long) As String
     Dim maxChars As Long
     maxChars = SafeMaxContextChars()
@@ -256,10 +257,9 @@ End Function
 ' ----------------------------------------------------------------------------
 ' BuildCritiquePrompt - 入念モード(3)自己批判(2026-08-03 R14-8a)
 ' ----------------------------------------------------------------------------
-' 下書きの問題点【だけ】を挙げさせる。書き直しを同時に頼まないのが要点で、
-' 「指摘して直せ」と言うとモデルは自分の文章を守るために指摘を軽くする。
-' 指摘だけを吐かせ、別の呼び出し(検証段)に直させたほうが、実際に消える
-' 未検証の断定の数が多い。
+' 下書きの問題点【だけ】を挙げさせる。書き直しを同時に頼まないのが要点で、「指摘
+' して直せ」と言うとモデルは自分の文章を守るために指摘を軽くする。指摘だけを吐かせ
+' 別の呼び出し(検証段)に直させたほうが、実際に消える未検証の断定の数が多い。
 Public Function BuildCritiquePrompt(ByVal q As String, ByVal draft As String, _
                                     hits() As Hit, ByVal nHits As Long) As String
     Dim maxChars As Long
@@ -281,6 +281,107 @@ Public Function BuildCritiquePrompt(ByVal q As String, ByVal draft As String, _
     sb = sb & "## 本棚抜粋" & vbLf & BuildSourceBlock(hits, nHits, maxChars) & vbLf
     sb = sb & "## 下書き回答" & vbLf & draft & vbLf
     BuildCritiquePrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildDecomposePrompt - 複合質問の分解判定(2026-08-05 R16-3A・段0)
+' ----------------------------------------------------------------------------
+' 「AとBの違いと、Cの手続き」を1本のクエリで検索すると、全部の論点に薄く当たった
+' 資料が上位に来てどの論点も詰め切れない。先に論点へ割るための1回きりの判定。
+' 出力はパーサ(modRagParse.ParseDecomposeVerdict/ParseParts)が読む3タグで、
+' 崩れても single へ寛容退化する=この段が失敗しても従来の入念フローが動く。
+Public Function BuildDecomposePrompt(ByVal q As String, ByVal history As String, _
+                                     ByVal maxParts As Long) As String
+    Dim lim As Long: lim = maxParts
+    If lim < 2 Then lim = 2
+    If lim > 5 Then lim = 5
+
+    Dim sb As String
+    sb = "あなたは社内資料検索システムの質問アナリストです。利用者の質問が" & _
+         "「1つの論点か」「複数の論点を含むか」「読み方が定まらないか」を判定してください。" & vbLf
+    sb = sb & "・parts = 独立して調べるべき論点が2つ以上ある(例: AとBの違い【と】Cの手続き)。" & vbLf
+    sb = sb & "・clarify = 質問の読み方が複数あり、どれを調べるべきか決められない。" & vbLf
+    sb = sb & "・single = 上のどちらでもない(1つの論点として調べられる)。迷ったら single。" & vbLf
+    sb = sb & "・分解するときは元の質問の言葉を使い、それ単体で資料を検索できる文にすること。" & vbLf
+    sb = sb & "・論点は最大" & lim & "個まで。1つの論点を言い換えて水増ししないこと。" & vbLf
+    If LenB(history) > 0 Then
+        sb = sb & vbLf & "## これまでの会話(代名詞や『それ』の解決に使う)" & vbLf & history & vbLf
+    End If
+    sb = sb & vbLf & "## 利用者の質問" & vbLf & q & vbLf & vbLf
+    sb = sb & "## 出力形式(この形式のみで出力。説明文・前置きは一切禁止)" & vbLf
+    sb = sb & "<verdict>single または parts または clarify</verdict>" & vbLf
+    sb = sb & "<parts>論点1 | 論点2 | 論点3</parts>" & vbLf
+    sb = sb & "<options>読み方の候補1 | 候補2 | 候補3</options>" & vbLf
+    sb = sb & "(single のときは parts と options を空にする。parts のときは parts だけ、" & _
+         "clarify のときは options だけを埋める。)" & vbLf
+    BuildDecomposePrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildPartDraftPrompt - 分解した1論点だけの副下書き(2026-08-05 R16-3A)
+' ----------------------------------------------------------------------------
+' 「その論点だけに答えさせる」が全て。元の質問全体に答え始めると、他の論点と
+' 重複した薄い文章がN本できるだけになる。見出しを付けさせないのは統合段が
+' ■見出し=副質問 で組み直すため(2箇所で作ると二重になる)。
+Public Function BuildPartDraftPrompt(ByVal q As String, ByVal part As String, _
+                                     ByVal idx As Long, hits() As Hit, ByVal nHits As Long, _
+                                     Optional ByVal strictGrounding As Boolean = False, _
+                                     Optional ByVal answerTags As Boolean = False) As String
+    Dim lang As String
+    lang = SafeAnswerLanguage()
+    Dim ctx As String
+    ctx = BuildSourceBlock(hits, nHits, SafeMaxContextChars())
+
+    Dim sb As String
+    sb = "以下の本棚抜粋だけを根拠に、【この論点だけ】へ" & lang & "で答えてください。" & _
+         "これは1つの質問を論点ごとに分けて調べているうちの" & idx & "番目で、" & _
+         "後で他の論点の答えと統合されます。" & vbLf
+    sb = sb & "・元の質問の全体には答えないこと(他の論点は別に調べています)。" & vbLf
+    sb = sb & "・250字程度。結論を先に書き、前置き・総括・締めの挨拶は書かない。" & vbLf
+    sb = sb & "・見出し(■で始まる行)は付けないこと。統合するときに付けます。" & vbLf
+    sb = sb & CitationInstruction() & vbLf
+    sb = sb & NotFoundInstruction() & vbLf
+    sb = sb & DomainGuardInstruction() & vbLf
+    If strictGrounding Then sb = sb & GroundingInstruction() & vbLf
+    If answerTags Then sb = sb & AnswerTagsInstruction() & vbLf
+    sb = sb & vbLf
+    sb = sb & "## 元の質問(文脈の参考。答えるのは下の論点だけ)" & vbLf & q & vbLf & vbLf
+    sb = sb & "## この論点" & vbLf & part & vbLf & vbLf
+    sb = sb & "## 本棚抜粋" & vbLf & ctx & vbLf
+    BuildPartDraftPrompt = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' BuildMergePrompt - 論点ごとの下書きを1つの回答へ統合する(2026-08-05 R16-3A)
+' ----------------------------------------------------------------------------
+' 出典タグが1つでも消えると、後段の機械的突合(modAskThorough.
+' AnnotateAgainstHits)が「タグが無い回答」として何も言えなくなり、根拠の追跡が
+' 丸ごと切れる。だから最も強く書くのは文章の巧さではなく「タグを一字一句残せ」。
+' 新事実の追加禁止も同じ理由(統合は並べ替えと接続であって取材ではない)。
+' StyleInstruction を入れないのは、あちらの長さ指示(200～400字)が論点N本ぶんの
+' 本文と正面から衝突するため(記法だけをここで短く指示する)。
+Public Function BuildMergePrompt(ByVal q As String, ByVal sections As String) As String
+    Dim lang As String
+    lang = SafeAnswerLanguage()
+
+    Dim sb As String
+    sb = "以下は、1つの質問を論点ごとに分けて調べた下書きです。これを1つの回答へ" & _
+         lang & "でまとめてください。" & vbLf
+    sb = sb & "【厳守】出典タグ([本棚:ファイル名 p.ページ番号] と " & _
+         "[パック(作成者名):ファイル名])は一字一句そのまま残すこと。" & _
+         "書き換え・削除・末尾へのまとめ直しは禁止。" & vbLf
+    sb = sb & "【厳守】下書きに書かれていない事実・数値・条件を足さないこと。" & vbLf
+    sb = sb & "【厳守】「" & PART_FAIL_TEXT & "」の節は、その文言のまま残すこと" & _
+         "(調べられなかったことを消さない)。" & vbLf
+    sb = sb & "・論点ごとの見出しは「■」で始まる行として残し、順番も変えないこと。" & vbLf
+    sb = sb & "・重複する説明は1つにまとめてよい(そのとき出典タグは両方とも残す)。" & vbLf
+    sb = sb & "・最初の1～2行で、質問全体に対する結論を先に書くこと。" & vbLf
+    sb = sb & "・Markdown記号(#、**、`、表)は使わない。箇条書きは「・」、" & _
+         "最重要語だけ【 】で囲む。ブロックの間は空行1つ。" & vbLf
+    sb = sb & vbLf & "## 元の質問" & vbLf & q & vbLf
+    sb = sb & vbLf & "## 論点ごとの下書き" & vbLf & sections & vbLf
+    sb = sb & vbLf & FollowupInstruction() & vbLf
+    BuildMergePrompt = sb
 End Function
 
 Public Function BuildEnrichPrompt(ByVal batchText As String) As String
@@ -326,16 +427,14 @@ End Function
 
 ' SafeAnswerLanguage/SafeMaxContextChars:
 '   modConfig.GetString/GetLong への呼び出しを1行スコープのOn Errorで守る
-'   (R5: 直後にOn Error GoTo 0)。modConfig自体はconfigシートが無くても
-'   既定値にフォールバックする実装だが、modPromptsはR4のPure Logicモジュール
-'   群(vba_lint.py PURE_LOGIC_MODULES / run_lo_tests.py PURE_ALLOWLIST)
-'   の一員として、modConfigモジュールそのものが読み込まれていない実行環境
-'   (LibreOffice純ロジックテストの一時ライブラリ等)でも動く必要がある。
-'   その環境では "modConfig.GetString" の呼び出し自体が実行時エラー
-'   (Err=420 Invalid object reference)になることを実測で確認したため、
-'   この関数呼び出しをOn Errorで包み、失敗時は契約既定値にフォールバックする。
-'   Excel実機(modConfigが常に存在する環境)では通常どおりconfigシートの値を
-'   返す(挙動は変えない。エラー発生時のみフォールバックが働く)。
+'   (R5: 直後にOn Error GoTo 0)。modConfig自体はconfigシートが無くても既定値へ
+'   フォールバックするが、modPromptsはR4のPure Logicモジュール群(vba_lint.py
+'   PURE_LOGIC_MODULES / run_lo_tests.py PURE_ALLOWLIST)の一員として、modConfig
+'   モジュールそのものが読み込まれていない実行環境(LibreOffice純ロジックテストの
+'   一時ライブラリ等)でも動く必要がある。その環境では "modConfig.GetString" の
+'   呼び出し自体が実行時エラー(Err=420 Invalid object reference)になることを実測
+'   で確認したため、On Errorで包み失敗時は契約既定値へ倒す。Excel実機(modConfigが
+'   常に存在する環境)では通常どおりconfigシートの値を返す(エラー時のみ働く)。
 Private Function SafeAnswerLanguage() As String
     Dim v As String: v = "日本語"
     On Error Resume Next
@@ -393,11 +492,10 @@ Private Function NotFoundInstruction() As String
         "やむを得ず推測で補う場合は、それが推測であることを明示してください。"
 End Function
 
-' 金融・保険ドメインのガードレール(2026-07-26)。
-' 社内の既存RAGツールとの差は「速さ」だけでは作れない。約款・規程の
-' 条文番号や日数・金額を記憶で補って答えると、実務では致命傷になる。
-' 「どこまでが資料の裏付けで、どこからが確認が必要か」を回答自身に
-' 語らせることが、利用者が正誤を判断できる唯一の現実的な手段になる。
+' 金融・保険ドメインのガードレール(2026-07-26)。社内の既存RAGツールとの差は
+' 「速さ」だけでは作れない。約款・規程の条文番号や日数・金額を記憶で補って答えると
+' 実務では致命傷になる。「どこまでが資料の裏付けで、どこからが確認が必要か」を
+' 回答自身に語らせることが、利用者が正誤を判断できる唯一の現実的な手段になる。
 Private Function DomainGuardInstruction() As String
     DomainGuardInstruction = _
         "【数値の厳格性】条文番号・日数・金額・料率・期限は、抜粋に書かれた値だけを" & _
@@ -458,9 +556,9 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long, ByVal maxC
             Dim remain As Long
             remain = lim - used
             If remain > 0 Then
-                ' 2026-08-01(R12-1-6): 生の Left$ ではサロゲートペアの
-                ' 真ん中で切れて孤立サロゲートがプロンプトへ混入する
-                ' (R11-I で SafeLeft へ寄せた際の適用漏れ箇所)。
+                ' 2026-08-01(R12-1-6): 生の Left$ ではサロゲートペアの真ん中で
+                ' 切れて孤立サロゲートがプロンプトへ混入する(R11-I で SafeLeft へ
+                ' 寄せた際の適用漏れ箇所)。
                 sb = sb & modUtil.SafeLeft(entry, remain)
                 used = used + remain
             End If
@@ -479,9 +577,9 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long, ByVal maxC
     BuildSourceBlock = sb
 End Function
 
-' 本棚抜粋ブロックの本文: full_text(チャンク本文全体)を根拠として使う
-' (Wave3 PM裁定1)。full_textが空(旧データ・テストダブル等)の場合のみ
-' previewへフォールバックする(空の抜粋を本文に混ぜないための防御)。
+' 本棚抜粋ブロックの本文: full_text(チャンク本文全体)を根拠として使う(Wave3 PM
+' 裁定1)。full_textが空(旧データ・テストダブル等)の場合のみpreviewへ退避する
+' (空の抜粋を本文に混ぜないための防御)。
 Private Function SourceBody(ByRef h As Hit) As String
     If LenB(h.full_text) > 0 Then
         SourceBody = h.full_text
@@ -493,11 +591,10 @@ End Function
 ' origin="pack:<作成者>"なら [パック(作成者):ファイル名]、それ以外(self)は
 ' [本棚:ファイル名 p.N] の出典タグ文字列を返す(§4/§7.3)。
 '
-' 2026-08-03(R14-8a): Publicにした。入念モードの出典突合
-' (modAskThorough.CiteIndexFrom)が「回答に書かれたタグが検索結果に在るか」を
-' 機械的に照合するとき、LLMへ指示している形と検査に使う形が別々の実装だと、
-' 一致するはずのものが全件不一致になるか、その逆になる。タグの形は
-' ここが唯一の持ち主(憲章§4-5)。
+' 2026-08-03(R14-8a): Publicにした。入念モードの出典突合(modAskThorough.
+' CiteIndexFrom)が「回答に書かれたタグが検索結果に在るか」を機械的に照合するとき、
+' LLMへ指示している形と検査に使う形が別々の実装だと、一致するはずのものが全件
+' 不一致になるか、その逆になる。タグの形はここが唯一の持ち主(憲章§4-5)。
 Public Function SourceTag(ByRef h As Hit) As String
     If LCase$(Left$(h.origin, 5)) = "pack:" Then
         Dim authorName As String

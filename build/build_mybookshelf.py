@@ -389,6 +389,18 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
          "論点漏れ・憶測を指摘だけさせる段(書き直しはさせない)"),
         ("thorough_verify_effort", "high",
          "「入念に調べる」(4)検証のreasoning_effort。verbosityは deep_verify_verbosity を共用"),
+        # R16-3A(複合質問の分解): 「入念に調べる」だけ、質問を論点へ割ってから
+        # 論点ごとに調べる。off にすると段0の判定ごと呼ばない=従来動作に戻る。
+        ("decompose_mode", "auto",
+         "「入念に調べる」で複合質問を論点ごとに分けて調べるか。auto=既定"
+         "(decompose_min_chars以上の長さの質問だけ判定する)/always=長さを見ずに毎回判定/"
+         "off=分解しない(従来どおり1本の質問として調べる)"),
+        ("decompose_max_parts", 3,
+         "複合質問を分ける論点数の上限(2〜5)。1論点ごとにAI呼び出しが1回増えるため、"
+         "増やすほど正確になる代わりに待ち時間が伸びる"),
+        ("decompose_min_chars", 25,
+         "decompose_mode=auto のとき、この文字数以上の質問だけ論点分けの判定を行う。"
+         "短い質問は割る論点が無く、判定の1回ぶんだけ遅くなるため"),
         ("deep_scope_subqueries", 6, "「続けて質問」を『しっかり調べる』で行うときに、会話で引用済みの資料の中だけを掘るために作るサブクエリ数。狭い範囲を多角度から見るための本数(0以下は6扱い)"),
         ("rerank_model", "", "再ランク段のモデル(空=quick_modelを使用)"),
         ("rerank_effort", "low", "再ランク段のreasoning_effort"),

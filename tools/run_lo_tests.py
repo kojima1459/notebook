@@ -320,6 +320,15 @@ PURE_ALLOWLIST = [
     #   Shape/Rangeを触る他の関数(EnsureLayout/RenderShelf等)はテストから
     #   呼ばないので未解決のままでよい(techメモ4と同型)。
     "modUIShelf",
+    # modAskMulti(2026-08-05 R16-3A): 複合質問の分解→論点ごとの調査→統合。
+    #   モジュール全体はLLM呼び出しと実況を持つが、テストが呼ぶ3本
+    #   (ShouldDecompose=発動条件の真理表 / PerPartTopK=論点あたりtopKの下限 /
+    #   BuildPartSection=統合入力の1節と部分失敗の文言)はExcel/COMに触れない
+    #   (modShelfSync/modPack/modLog/modAskThorough と同じ型)。BuildPartSection は
+    #   modPrompts.PART_FAIL_TEXT を読むので modPrompts も要る(既に注入済み)。
+    #   未注入のまま modTestsPure14 から呼ぶと実行時エラー12になり、分解ゲートと
+    #   部分失敗の文言が「テストを書いても走らない」状態になる。
+    "modAskMulti",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

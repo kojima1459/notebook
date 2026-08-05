@@ -265,6 +265,14 @@
       "note": "「入念に調べる」専用の生成パイプライン(再ランク→要点整理→下書き→自己批判→検証→出典の機械的突合の6段)。実機第3報RC8「deep/thoroughが生成側で完全に同じ」への対処で、quick/deepの経路は一切変えていない。最後の出典突合はLLMを使わない純ロジックで、回答中の[本棚:名 p.N]/[パック(作者):名]タグを検索結果と照合し、見つからないものへ「(出典確認できず)」を付けてusage_log cite_mismatchに件数を残す。突合の基準になるタグの形はmodPrompts.SourceTagが単一情報源。"
     },
     {
+      "name": "modAskMulti",
+      "path": "src/qa/modAskMulti.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R16-3A",
+      "note": "複合質問の分解→論点ごとの調査→統合(入念モード専用)。段0の判定を1回だけ足し、verdict=partsのときに論点ごとにexpandを飛ばした検索+副下書きを回し、1本へ統合してから自己点検・検証・出典突合へ渡す。LLM合計は1+論点数+3で現行入念の6回と同水準。判定が#ERR・タグ崩れ・single・clarify・論点1本のいずれかならFalseを返し、modAskがそのまま従来のmodAskThorough.RunThoroughFlowを実行する(分解は上積みであって置き換えではない)。出典突合は全論点のヒットをchunk_idで重複排除して連結したunionHitsに1回だけ掛ける。中断(Err18)は論点の境界で拾い、完成済みの論点だけで統合して末尾に中断メモを付けて正常返却する。"
+    },
+    {
       "name": "modPii",
       "path": "src/pack/modPii.bas",
       "role": "core",

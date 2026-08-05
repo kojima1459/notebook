@@ -89,6 +89,49 @@ Public Function ParseSubqueries(ByVal s As String, ByVal maxN As Long) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' 複合質問の分解(2026-08-05 R16-3A)。段0判定の応答パーサ。
+'   出力契約: <verdict>single|parts|clarify</verdict>
+'             <parts>副質問1 | 副質問2 | 副質問3</parts>
+'             <options>読み方の候補1 | 候補2 | 候補3</options>
+'
+' ParseDecomposeVerdict - 判定を "single" / "parts" / "clarify" のいずれかへ。
+'   タグ欠落・空・知らない語・"#ERR:" はすべて "single"(=従来の入念フローへ
+'   無害フォールバック)。分解は「効けば速く正確になる」だけの上積みなので、
+'   読めない応答で分解へ倒すより、確実に答えが出る側へ倒すのが正しい退化。
+' ----------------------------------------------------------------------------
+Public Function ParseDecomposeVerdict(ByVal resp As String) As String
+    ParseDecomposeVerdict = "single"
+    If IsErrorResponse(resp) Then Exit Function
+
+    Dim v As String
+    v = LCase$(Trim$(TagInner(resp, "verdict")))
+    If v = "parts" Then
+        ParseDecomposeVerdict = "parts"
+    ElseIf v = "clarify" Then
+        ParseDecomposeVerdict = "clarify"
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' ParseParts - <parts>a | b | c</parts> を副質問の配列へ。戻り値=有効件数。
+'   分割・Trim・空要素除去・maxN件での切り詰めは ParseSubqueries と同じ流儀
+'   (区切りは "|" 1種。同じ書式を2実装に分けない)。
+'   戻り値を配列型にしないのは LibreOffice の制約(tools/run_lo_tests.py
+'   技術メモ6)。呼び出し側は ByRef の parts() で受ける。
+' ----------------------------------------------------------------------------
+Public Function ParseParts(ByVal resp As String, ByVal maxN As Long, _
+                           ByRef parts() As String) As Long
+    parts = ParseSubqueries(TagInner(resp, "parts"), maxN)
+
+    Dim n As Long
+    On Error Resume Next
+    n = UBound(parts) - LBound(parts) + 1
+    On Error GoTo 0
+    If n < 0 Then n = 0
+    ParseParts = n
+End Function
+
+' ----------------------------------------------------------------------------
 ' ParseRankOrder - <rank>3,1,7</rank> を候補番号列へ。1..nHits範囲外・重複・
 '   非数値は無視。戻り値=有効件数(0なら呼び出し側が元順を維持)。
 '   orderは0起点配列に1起点の候補番号を格納(0件時はダミー1要素で返す)。

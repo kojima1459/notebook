@@ -413,8 +413,16 @@ CONTRACT: dict[str, dict] = {
         #   全件不一致のどちらかへ静かに退化する(憲章§4-5)。
         # BuildQuestionsPrompt(2026-08-03 R14-7a): 質問例のオンデマンド生成。
         #   シード0でも資料があれば、資料名+冒頭抜粋から短い質問を5件作らせる。
+        # BuildDecomposePrompt/BuildPartDraftPrompt/BuildMergePrompt
+        #   (2026-08-05 R16-3A): 複合質問の分解(段0の判定)・論点1つぶんの副下書き・
+        #   論点ごとの下書きの統合。PART_FAIL_TEXT は「その論点は資料を確認でき
+        #   なかった」節の文言で、節を作る側(modAskMulti.BuildPartSection)と
+        #   それを消させない側(BuildMergePrompt)と成否を数える側(modAskMulti)の
+        #   単一情報源(2実装に分かれた瞬間、統合段が黙って言い換える)。
         "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt",
-                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag", "BuildQuestionsPrompt"],
+                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag", "BuildQuestionsPrompt",
+                     "BuildDecomposePrompt", "BuildPartDraftPrompt",
+                     "BuildMergePrompt", "PART_FAIL_TEXT"],
     },
     "modRagParse": {
         "closed": True,
@@ -427,8 +435,13 @@ CONTRACT: dict[str, dict] = {
         #   利用者向け文言化も「LLM応答のパース」。modAsk が30,000字上限まで残り44字に
         #   なったため(憲章§4-6)、3モジュール(modAsk/modAskRetrieve/modAskThorough)が
         #   共有していたこの3本を副作用ゼロのまま本モジュールへ移設した。
+        # ParseDecomposeVerdict/ParseParts(2026-08-05 R16-3A): 複合質問の分解
+        #   (段0)の応答パーサ。<verdict>single|parts|clarify</verdict> と
+        #   <parts>a|b|c</parts> を読む。タグ欠落・不正な語・"#ERR:" はすべて
+        #   single へ寛容退化し、呼び出し元が従来の入念フローへ無害に落ちる。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
-                     "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer"],
+                     "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
+                     "ParseDecomposeVerdict", "ParseParts"],
     },
     "modAsk": {
         "closed": True,
@@ -490,6 +503,25 @@ CONTRACT: dict[str, dict] = {
     #   modTestsPure11 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST
     #   にも登録済み。未登録だとテストが実行時エラー12で走らない)。
     #   UNVERIFIED_MARK は付記の文言で、テスト側と表示側の単一情報源。
+    # modAskMulti(2026-08-05 R16-3A): 複合質問の分解 → 論点ごとの調査 → 統合。
+    #   入念モードだけ段0(分解判定)を1回足し、verdict=parts のときに論点ごとの
+    #   検索+副下書きを回して1本へ統合してから、自己点検・検証・出典突合へ渡す。
+    #   TryDecomposed が唯一の入口(modAsk の thorough 分岐から1箇所だけ)で、
+    #   False を返したら呼び出し元は従来どおり modAskThorough.RunThoroughFlow を
+    #   実行する=分解は上積みであって置き換えではない。
+    #   VerifyNote は modAsk が検証注記を取る【唯一の窓口】。分解経路のターンは
+    #   自前の注記を、通らなかったターンは modAskThorough の注記を中継する
+    #   (窓口が2つあると、分解したターンに前回の single 経路の注記が付く)。
+    #   StepNote は usage_log の ask_steps へ足す "dec=論点数"(読んだら消える)。
+    #   ShouldDecompose/PerPartTopK/BuildPartSection は発動条件・論点あたりtopK・
+    #   統合入力の1節の組み立て(部分失敗の文言込み)という純ロジックで、
+    #   modTestsPure15 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST にも
+    #   登録済み。未登録だとテストが実行時エラー12で走らない)。
+    "modAskMulti": {
+        "closed": True,
+        "required": ["TryDecomposed", "VerifyNote", "StepNote",
+                     "ShouldDecompose", "PerPartTopK", "BuildPartSection"],
+    },
     "modAskThorough": {
         "closed": True,
         # VerifyNote(2026-08-03 R14-G11): 検証段が落ちたターンの内部注記。

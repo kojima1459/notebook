@@ -24,10 +24,15 @@ Private mStgThorough As Boolean
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
 ' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
 '   config/モードに関係なく拡張段を必ず通す(深掘りのスコープ内多段検索用)。
+' skipExpand(R16-3A): True なら拡張段を通さない。複合質問を論点へ分解した後の
+'   検索で使う(既に1論点まで割ってあるものを更にばらすと、論点の外の資料が
+'   混ざって「その論点だけを詰める」という分解の目的が消える)。既定Falseで
+'   従来の呼び出しは1つも挙動が変わらない。subqOverrideとは併用しない。
 Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
                                   ByVal topK As Long, ByRef hits() As Hit, _
                                   Optional ByVal scopeSources As Object, _
-                                  Optional ByVal subqOverride As Long = 0) As Long
+                                  Optional ByVal subqOverride As Long = 0, _
+                                  Optional ByVal skipExpand As Boolean = False) As Long
     On Error GoTo FallbackSingle
 
     ' 1) クエリ拡張
@@ -44,6 +49,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     useExpand = modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
                                   modConfig.GetBool("quick_expand", False))
     If subqOverride > 0 Then useExpand = True     ' R13-5c: スコープ内多段は必ず角度を作る
+    If skipExpand Then useExpand = False           ' R16-3A: 分解済みの論点は更にばらさない
 
     If useExpand Then
         ShowAskStage "expand"

@@ -144,8 +144,8 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
 
     If LenB(q) = 0 Then
         ' 空質問でもmLast*を必ず更新する。しないと前回のヒットが残り、空クリックが
-        ' その資料で回答したように見える(Wave4実バグ)。mLastMode=""は
-        ' 「検索も回答生成もしなかった」印でmodUIMain.RenderAnswerも使う。
+        ' その資料で回答したように見える(Wave4実バグ)。mLastMode=""は「検索も回答
+        ' 生成もしなかった」印でmodUIMain.RenderAnswerも使う。
         Dim emptyHits() As Hit
         mLastQuestion = q
         mLastAnswer = EMPTY_QUESTION_MESSAGE
@@ -163,10 +163,10 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     Dim ok As Boolean
     ok = False
 
-    ' 2026-07-28(レビュー M-4): 回答バッファを毎ターン空にする。
-    ' 設定するのは DecorateWithFollowups(成功ターンだけ)なので、
-    ' ここで消しておかないと 0件回答・聞き返しのターンでも前回の回答が
-    ' residual として残り、✅を押したときに噛み合わないQ&Aが部内へ流れる。
+    ' 2026-07-28(レビュー M-4): 回答バッファを毎ターン空にする。設定するのは
+    ' DecorateWithFollowups(成功ターンだけ)なので、ここで消さないと 0件回答・
+    ' 聞き返しのターンでも前回の回答が residual として残り、✅を押したときに
+    ' 噛み合わないQ&Aが部内へ流れる。
     mLastCleanAnswer = ""
 
     On Error Resume Next
@@ -208,11 +208,13 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
         ElseIf mdMode = MODE_THOROUGH Then
-            ' R14-8a: 入念だけ専用の6段(modAskThorough)。
-            result = modAskThorough.RunThoroughFlow(q, hits, nHits, ok, HistoryBlock(), prevU, prevA)
+            ' R14-8a: 入念だけ専用の6段。R16-3A: 先に論点分解を試し不発なら6段へ。
+            If Not modAskMulti.TryDecomposed(q, hits, nHits, ok, result, prevU, prevA) Then
+                result = modAskThorough.RunThoroughFlow(q, hits, nHits, ok, HistoryBlock(), prevU, prevA)
+            End If
             If ok Then
                 ' 検証段の注記は整形の【後】(deepと同型。履歴と共有へ混ぜない)。
-                result = DecorateWithFollowups(result) & modAskThorough.VerifyNote()
+                result = DecorateWithFollowups(result) & modAskMulti.VerifyNote()
             Else
                 result = modRagParse.BuildErrorAnswer(result)
             End If
@@ -249,8 +251,7 @@ FailCleanup4:
 
     On Error Resume Next
     modUIMain.SetStage ""
-    ' Resume で抜けてハンドラ実行中の状態を解除する(On Error GoTo 0 では
-    ' 解除されず、Done: の後始末で起きたエラーが呼び出し元へ素通りする)。
+    ' 同上。Resume で抜けないと Done: の後始末のエラーが呼び出し元へ素通りする。
     Resume Done
 
 Done:
@@ -266,16 +267,15 @@ Done:
     If ok Then
         AppendHistory q, mLastCleanAnswer
         AppendFollowupPair q, mLastCleanAnswer
-        ' R13-5b: この回答が根拠にした資料を「会話の出典」として覚える。
-        ' 新規質問(非followup)なら覚え直す(=前の話題を引きずらない)。
-        ' R13 L-batch: 会話の出典メモリだけは最大8件まで覚える(逆質問の
-        ' 材料は従来どおり4件)。深掘りのスコープはここが元になるので、
-        ' 4件で切ると「引用したのに次で対象外」が起きる。
+        ' R13-5b: この回答が根拠にした資料を「会話の出典」として覚える。新規質問
+        ' (非followup)なら覚え直す(=前の話題を引きずらない)。R13 L-batch: 会話の
+        ' 出典メモリだけは最大8件まで覚える(逆質問の材料は従来どおり4件)。深掘りの
+        ' スコープはここが元になるので、4件で切ると「引用したのに次で対象外」が起きる。
         If nHits > 0 Then modFollowup.RememberCitedSources modAskRetrieve.HitSourceList(hits, nHits, 8), Not isFollowup
     End If
 
-    ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で
-    ' 既に確定済みのため、ここでresultに警告を足しても履歴側には混入しない。
+    ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で確定
+    ' 済みのため、ここでresultに警告を足しても履歴側には混入しない。
     If ok And nHits > 0 Then
         result = modAskRetrieve.ApplyLowHitWarning(result, hits, nHits)
     End If
@@ -300,15 +300,15 @@ Done:
     If isFollowup Then logDetail = "followup " & logDetail
     modLog.LogUsage "ask", mdMode, logDetail, elapsedMs, nHits
 
-    ' R13 F8: 段ごとの所要時間は、質問1回につき【1行】にまとめて書き出す。
-    ' 1段1行だと1問で10行前後になり、2,000行で回る usage_log が約180問で
-    ' 一周して feedback_green 等の履歴を押し出す(modDashStat の前月比が
-    ' 静かに壊れる)。Done: は成功・失敗のどちらの経路も必ず通るので、
-    ' 書き出しとバッファの掃除はこの1点だけでよい(ConsumeStepBufは
-    ' 読んだら空にするため、次の質問へ持ち越さない)。
+    ' R13 F8: 段ごとの所要時間は質問1回につき【1行】にまとめて書き出す。1段
+    ' 1行だと1問で10行前後になり、2,000行で回る usage_log が約180問で一周して
+    ' feedback_green 等の履歴を押し出す(modDashStat の前月比が静かに壊れる)。
+    ' Done: は成否どちらの経路も必ず通るので、書き出しとバッファの掃除はこの
+    ' 1点だけでよい(ConsumeStepBufは読んだら空にし次の質問へ持ち越さない)。
     On Error Resume Next
     Dim stepBuf As String
     stepBuf = modGateway.ConsumeStepBuf()
+    stepBuf = stepBuf & modAskMulti.StepNote()   ' R16-3A: 分解時だけ "dec=論点数"
     If LenB(stepBuf) > 0 Then
         modLog.LogUsage "ask_steps", mdMode, stepBuf, elapsedMs
     End If
@@ -344,15 +344,13 @@ End Function
 '
 ' 2026-07-28(レビュー C-2): 公開契約は「0始まり」で、呼び出し側3箇所
 ' (modPeek.RenderCitations / modPeek.ShowPeek / modMentor.FindExpert /
-'  modLive.UniqueSourceCount)はすべて For i = 0 To n - 1 で回している。
-' しかし内部の mLastHits は ReDim(1 To n) なので、i をそのまま添字に使うと
-' i=0 で実行時エラー9(添字が範囲外)になっていた。
-' 呼び出し側は On Error でエラーを握る作りのため落ちはせず、代わりに
-'   ・出典チップが1枚も出ない(Peek View 機能が丸ごと死ぬ)
-'   ・「この分野は さんが詳しいです」という空名ボタンが出る
-' という「静かに壊れている」状態になっていた。
-' すぐ上の LastTopSource には同じ罠のコメントが残っているのに、
-' アクセサ側だけ直し漏れていた。ここで 1 始まりへ変換する。
+'  modLive.UniqueSourceCount)はすべて For i = 0 To n - 1 で回すが、内部の
+' mLastHits は ReDim(1 To n)。i をそのまま添字にすると i=0 で実行時エラー9
+' (添字が範囲外)。呼び出し側が On Error で握るため落ちず、代わりに ・出典
+' チップが1枚も出ない(Peek View が丸ごと死ぬ) ・「この分野は さんが詳しい
+' です」という空名ボタンが出る、という「静かに壊れている」状態になっていた
+' (すぐ上の LastTopSource には同じ罠のコメントが残るのにアクセサ側だけ
+' 直し漏れ)。ここで 1 始まりへ変換する。
 Public Function LastHitCount() As Long
     LastHitCount = mLastNHits
 End Function
@@ -442,30 +440,29 @@ Public Sub FeedbackGreen()
     If Not FeedbackAccepted() Then Exit Sub
     ' selfsolve_totalは個人統計のみ。感謝EXPは自己申告では付けず、P2Pで他者の感謝状を受領した時だけ(modP2P)。
     modStats.Bump "selfsolve_total"
-    ' 節約時間の日付キー蓄積。日/月/年キーなので跨げば自動リセット、
-    ' 過去キーがそのまま履歴になる(modBoardのウィジェット/ビーコンが読む)。
-    ' 発火点はFeedbackAcceptedガードの内側=多重カウント不可。
-    ' R13 L-batch: 1解決あたりの分数は modP2PIo.MinutesPerSelfsolve()(config
-    ' minutes_per_selfsolve、既定15)へ一本化済み。ここだけ 15 の直値が残って
-    ' いたため、係数を変えた組織では「加算は15分・表示は新係数」という
-    ' 食い違いが積み上がっていた。加算側も同じ窓口から読む。
+    ' 節約時間の日付キー蓄積。日/月/年キーなので跨げば自動リセット、過去キーが
+    ' そのまま履歴になる(modBoardのウィジェット/ビーコンが読む)。発火点は
+    ' FeedbackAcceptedガードの内側=多重カウント不可。R13 L-batch: 1解決の分数は
+    ' modP2PIo.MinutesPerSelfsolve()(config minutes_per_selfsolve、既定15)へ
+    ' 一本化済み。ここだけ 15 の直値が残り、係数を変えた組織では「加算は15分・
+    ' 表示は新係数」という食い違いが積み上がっていた。加算側も同じ窓口から読む。
     Dim perSolve As Long: perSolve = modP2PIo.MinutesPerSelfsolve()
     On Error Resume Next
     modStats.Bump "sv:d:" & modUtilText.IsoDateCompact(Date), perSolve
     modStats.Bump "sv:m:" & modUtilText.IsoYm(Date), perSolve
     modStats.Bump "sv:y:" & modUtilText.IsoYear(Date), perSolve
-    ' 2026-07-31(レビュー R8 F8): 加算した「今日の節約時間」は、この直後に
-    ' 共有フォルダのビーコンへ反映する必要がある(起動時にしか発信していない
-    ' ため、全員のビーコンが「今日 0分」のまま置かれていた)。
-    ' ただし modBoard は UI層で、ここ(qa層)から呼ぶと層の向きが逆になる。
-    ' 発信は UI層の呼び出し元(modAppAct.OnActResolve)が担当する。
+    ' 2026-07-31(レビュー R8 F8): 加算した「今日の節約時間」は、この直後に共有
+    ' フォルダのビーコンへ反映する必要がある(起動時にしか発信していないため、
+    ' 全員のビーコンが「今日 0分」のまま置かれていた)。ただし modBoard は UI層で、
+    ' ここ(qa層)から呼ぶと層の向きが逆になる。発信は UI層の呼び出し元
+    ' (modAppAct.OnActResolve)が担当する。
     On Error GoTo 0
     modLog.LogUsage "feedback_green", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
 
     ' 部内への発信は「本棚の資料を根拠に答えたターン」だけ(理由と真理表は
     ' modMode.ShouldEmitInsight)。R14-1bの一般モード解禁もM-4の誤爆も同型。
-    ' R14-G2: 本文が空=生成に失敗したターン。従来は感謝状だけが飛び、使われて
-    ' いない資料の作者へ嘘が届いていた。共有と同じ条件へ揃える(憲章§3-3)。
+    ' R14-G2: 本文が空=生成に失敗したターン。従来は感謝状だけが飛び、使われていない
+    ' 資料の作者へ嘘が届いた。共有と同じ条件へ揃える(憲章§3-3)。
     Dim mayEmit As Boolean
     mayEmit = CanShareInsight() And (LenB(Trim$(mLastCleanAnswer)) > 0)
     On Error Resume Next
@@ -500,9 +497,9 @@ Public Sub FeedbackRed()
     If Not FeedbackAccepted() Then Exit Sub
     modStats.Bump "fail_total"
     modLog.LogUsage "feedback_red", mLastMode, "q=" & modUtil.SafeLeft(mLastQuestion, 200)
-    ' 共有知フライホイール: 答えられなかった質問は「組織に文書が無い領域」の
-    ' 一次情報。資料を書ける人の画面へ自動で流す。発信は緑と同じ門を通す
-    ' (一般モードの雑談まで「資料が足りない領域」として流さない)。
+    ' 共有知フライホイール: 答えられなかった質問は「組織に文書が無い領域」の一次
+    ' 情報。資料を書ける人の画面へ自動で流す。発信は緑と同じ門を通す(一般モードの
+    ' 雑談まで「資料が足りない領域」として流さない)。
     On Error Resume Next
     If CanShareInsight() Then modInsightIo.EmitGap mLastQuestion, "wrong"
     On Error GoTo 0
@@ -767,9 +764,9 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     maxPairs = modConfig.GetLong("followup_max_pairs", 3)
     If maxPairs <= 0 Then
         ' 0以下=履歴を持たない(CanFollowup=Falseになる)エスケープハッチ。
-        ' 2026-07-28(レビュー L-2): メモリだけ消して ui_state を消していな
-        ' かったため、無効化したはずなのに保存済みの古い履歴が読み直され、
-        ' LLMへ送られ続けていた。保存側も空にする。
+        ' 2026-07-28(レビュー L-2): メモリだけ消して ui_state を消していなかった
+        ' ため、無効化したはずなのに保存済みの古い履歴が読み直され、LLMへ送られ
+        ' 続けていた。保存側も空にする。
         mPrevU = ""
         mPrevA = ""
         modState.SaveState "nexus_ask_prevu", ""
@@ -777,18 +774,18 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
         Exit Sub
     End If
 
-    ' 2026-07-28(レビュー L-3): 書く前に必ず読む。VBAリセット等でモジュール
-    ' 変数が消えた直後に新規質問が来ると、mPrevU が空のまま「先頭に積む」
-    ' 処理が走り、保存済みの履歴を1ターンで上書き消去していた。
-    ' CanFollowup と同じ遅延ロードをここでも通す。
+    ' 2026-07-28(レビュー L-3): 書く前に必ず読む。VBAリセット等でモジュール変数が
+    ' 消えた直後に新規質問が来ると、mPrevU が空のまま「先頭に積む」処理が走り、
+    ' 保存済みの履歴を1ターンで上書き消去していた。CanFollowup と同じ遅延ロードを
+    ' ここでも通す。
     If LenB(mPrevU) = 0 Then
         mPrevU = modState.LoadState("nexus_ask_prevu", "")
         mPrevA = modState.LoadState("nexus_ask_preva", "")
     End If
 
-    ' 回答は1500字で打ち切る(AppendHistoryと同じ判断: 履歴でトークンを
-    ' 食い過ぎない)。";;;"はリボン側の履歴区切り文字のため、本文中に現れた
-    ' 場合は";;"へ縮めて区切りの誤認を防ぐ(SanitizeForFollowupHistory)。
+    ' 回答は1500字で打ち切る(AppendHistoryと同じ判断: 履歴でトークンを食い過ぎ
+    ' ない)。";;;"はリボン側の履歴区切り文字のため、本文中に現れた場合は";;"へ
+    ' 縮めて区切りの誤認を防ぐ(SanitizeForFollowupHistory)。
     Dim qs As String
     qs = modFollowup.SanitizeForFollowupHistory(q, FOLLOWUP_PAIR_SEP)
     Dim ans As String
