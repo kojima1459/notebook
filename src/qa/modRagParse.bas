@@ -254,6 +254,39 @@ Private Sub AppendChoice(ByRef outS As String, ByVal v As Long, ByVal maxN As Lo
 End Sub
 
 ' ----------------------------------------------------------------------------
+' HasCompoundSignal - 質問文が複合質問らしいかの軽量シグナル検知(R18-7a)。
+' ----------------------------------------------------------------------------
+' 実機第5報⑦: 「免責は?保険料は?」(9字)は decompose_min_chars(既定25)にも
+' IsTooVague(≦10字かつ低スコア)にも掛からず、段0判定(RunDecideStage)が
+' 一度も呼ばれない狭間に落ちていた(短いが強く当たる複合質問)。長さだけを
+' 論点数のproxyにしていた ShouldDecompose のゲートを、このシグナルとのORで
+' 迂回する(呼び出し側は modAskMulti.TryDecomposed)。
+' S1=？/?が2個以上 / S2=。/．区切りの非空節が2個以上、のOR。
+' 「と/や」区切りの名詞列は日本語で最頻出の助詞のため誤検知率が高く不採用
+' (agent4調査報告§3-3)。誤発動しても実害は段0のLLM呼び出し1回のみ(数秒)で、
+' 後段のShouldClarify(選択肢2件以上)とプロンプトの「迷ったらsingle」原則が
+' 過剰な逆質問の表示を別途止める。
+' ----------------------------------------------------------------------------
+Public Function HasCompoundSignal(ByVal q As String) As Boolean
+    Dim t As String: t = Trim$(q)
+    If LenB(t) = 0 Then Exit Function
+
+    ' S1: ？/? の出現回数
+    Dim qMarks As Long
+    qMarks = (Len(t) - Len(Replace(t, "？", ""))) + (Len(t) - Len(Replace(t, "?", "")))
+    If qMarks >= 2 Then HasCompoundSignal = True: Exit Function
+
+    ' S2: 。/．区切りの非空セグメント数
+    Dim parts() As String
+    parts = Split(Replace(t, "．", "。"), "。")
+    Dim i As Long, nSeg As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(Trim$(parts(i))) > 0 Then nSeg = nSeg + 1
+    Next i
+    HasCompoundSignal = (nSeg >= 2)
+End Function
+
+' ----------------------------------------------------------------------------
 ' ParseRankOrder - <rank>3,1,7</rank> を候補番号列へ。1..nHits範囲外・重複・
 '   非数値は無視。戻り値=有効件数(0なら呼び出し側が元順を維持)。
 '   orderは0起点配列に1起点の候補番号を格納(0件時はダミー1要素で返す)。

@@ -464,10 +464,14 @@ CONTRACT: dict[str, dict] = {
         #   読む唯一の場所で、数字と区切り以外の文字が1つでも混じれば空を返す
         #   (=書き直し扱い)。ここが甘いと、利用者が打ち直した質問文が黙って
         #   捨てられる(2026-07-28 レビュー H-12 と同型の事故)。
+        # HasCompoundSignal(2026-08-05 R18-7a・実機第5報⑦): 質問文そのものの
+        #   複合シグナル検知(？の2個以上出現/。区切りの非空節2個以上)。LLM応答の
+        #   パースではないが「質問文の中身を見る文字列パターン検知」という性質は
+        #   ParseChoiceNumbers等と同じで、modMode(モード名だけを見る)には置けない。
         "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
                      "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
                      "ParseDecomposeVerdict", "ParseParts",
-                     "ParseOptions", "ParseChoiceNumbers"],
+                     "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal"],
     },
     "modAsk": {
         "closed": True,
