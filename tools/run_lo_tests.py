@@ -373,8 +373,17 @@ PURE_ALLOWLIST = [
     #   メタの真理表(約7,000字)を足すとWARN帯へ入るための分割先。
     #   modTestsPure16.RunAll16 の末尾が RunAll17 を呼ぶため、未注入だと実行時
     #   エラー12でR17のテストが1件も走らない(16を足したときと同型)。
+    # modOutlineBuild / modAskGlobal(2026-08-05 R17 Phase2): 章単位要約と
+    #   俯瞰質問。モジュール全体は R4 非準拠(シートI/O・CallLLM を持つ)だが、
+    #   ChapterKeyOf / BudgetTake / OutlineActive の3本は副作用ゼロの純関数で、
+    #   ここが崩れると「章が別々のキーに割れて要約が章数ぶん増える」
+    #   「本文が予算を超えて後ろの章が丸ごと落ちる」「doc_outline が0行でも
+    #   俯瞰を試みて実行時エラー」のいずれかが【無音で】起きる。
+    #   テストから呼ぶには本モジュールを注入する必要がある(modAskFocus /
+    #   modAskMulti と同じ型。未注入だと実行時エラー12)。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
     "modViewport", "modChunkMeta", "modTestsPure17",
+    "modOutlineBuild", "modAskGlobal",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

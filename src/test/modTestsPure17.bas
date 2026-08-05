@@ -233,6 +233,162 @@ Private Sub TestDistinctiveTableKeys()
         (InStr(k, "別表") = 0 And InStr(k, "様式") = 0), "実際=" & k
 End Sub
 
+' ============================================================================
+' R17 Phase2(章単位要約=疑似グローバル検索)
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' 章グルーピングキー(modOutlineBuild.ChapterKeyOf)。
+' ----------------------------------------------------------------------------
+' section_path の第1要素をそのまま使う(正規化を足さない)。ここが取込側と
+' 照合側で1文字でも違うと、doc_outline に貯めた章キーと chunk_meta の章キーが
+' 一致せず、章を選べたのに本文が1件も引けない(=俯瞰が無音で死ぬ)。
+Private Sub TestChapterKeyOf()
+    modTestRunner.Check "章キー_章>条なら章だけを採る", _
+        (modOutlineBuild.ChapterKeyOf("第3章 総則>第12条(免責)") = "第3章 総則"), _
+        "実際=" & modOutlineBuild.ChapterKeyOf("第3章 総則>第12条(免責)")
+
+    ' 章見出しの無い資料は第1要素が条になる(=条単位の要約)。これが正しい
+    ' 保守的動作で、無い章立てを推測するより外れ方が小さい(R17 Phase2 裁定)。
+    modTestRunner.Check "章キー_章が無ければ条単位になる", _
+        (modOutlineBuild.ChapterKeyOf("第12条(免責)") = "第12条(免責)")
+
+    ' 3階層以上でも先頭だけ(将来 section_path が伸びても章の粒度は変わらない)。
+    modTestRunner.Check "章キー_3階層でも先頭だけ", _
+        (modOutlineBuild.ChapterKeyOf("第1章>第2節>第3条") = "第1章")
+
+    modTestRunner.Check "章キー_空文字は空", (modOutlineBuild.ChapterKeyOf("") = "")
+    modTestRunner.Check "章キー_区切りだけは空", (modOutlineBuild.ChapterKeyOf(">") = "")
+    modTestRunner.Check "章キー_先頭が空の階層は空", (modOutlineBuild.ChapterKeyOf(">第3条") = "")
+    modTestRunner.Check "章キー_前後の空白は落とす", _
+        (modOutlineBuild.ChapterKeyOf("  第1章 目的 > 第1条 ") = "第1章 目的")
+End Sub
+
+' ----------------------------------------------------------------------------
+' 1章の本文の予算打ち切り(modOutlineBuild.BudgetTake)。
+' ----------------------------------------------------------------------------
+' 1回のLLM呼び出しに載る量は決まっている(max_context_chars)。手前で切らないと
+' LLM側で切られ、章の後半が理由も分からず消える。俯瞰(modAskGlobal)では
+' 章ごとに予算を等分するので、ここが甘いと先頭の章だけで予算を使い切り、
+' 後ろの章が丸ごと落ちた「俯瞰したのに1章しか読んでいない」回答になる。
+Private Sub TestBudgetTake()
+    modTestRunner.Check "予算_余裕があれば全部入る", (modOutlineBuild.BudgetTake(0, 100, 1000) = 100)
+    modTestRunner.Check "予算_残りぶんだけ入る", (modOutlineBuild.BudgetTake(950, 100, 1000) = 50)
+    modTestRunner.Check "予算_ちょうど使い切ったら0", (modOutlineBuild.BudgetTake(1000, 100, 1000) = 0)
+    modTestRunner.Check "予算_超過していても負にならない", _
+        (modOutlineBuild.BudgetTake(1200, 100, 1000) = 0)
+    modTestRunner.Check "予算_境界(残りと同じ長さ)は全部入る", _
+        (modOutlineBuild.BudgetTake(900, 100, 1000) = 100)
+    modTestRunner.Check "予算_上限0なら1字も入らない", (modOutlineBuild.BudgetTake(0, 100, 0) = 0)
+    modTestRunner.Check "予算_上限が負でも0", (modOutlineBuild.BudgetTake(0, 100, -5) = 0)
+    modTestRunner.Check "予算_足す長さが0なら0", (modOutlineBuild.BudgetTake(0, 0, 1000) = 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' 章要約の応答パーサ(modRagParse.ParseOutlineResp)。
+' ----------------------------------------------------------------------------
+Private Sub TestParseOutlineResp()
+    Dim sm As String, kw As String
+    Dim okFlag As Boolean
+
+    okFlag = modRagParse.ParseOutlineResp( _
+        "<summary>この章は免責事由を定める。</summary><keywords>免責|支払|例外</keywords>", sm, kw)
+    modTestRunner.Check "章要約_正常に読める", okFlag
+    modTestRunner.Check "章要約_summaryが取れる", (sm = "この章は免責事由を定める。"), "実際=" & sm
+    modTestRunner.Check "章要約_keywordsが取れる", (kw = "免責|支払|例外"), "実際=" & kw
+
+    ' 読点・カンマ区切りで返すモデルがあるので "|" へ寄せる(空要素は落とす)。
+    okFlag = modRagParse.ParseOutlineResp( _
+        "<summary>要約</summary><keywords>免責、支払, 例外|</keywords>", sm, kw)
+    modTestRunner.Check "章要約_読点とカンマは|へ寄せる", (kw = "免責|支払|例外"), "実際=" & kw
+
+    ' keywords が無くても summary が読めれば成功(キーワードは選択段の補助)。
+    okFlag = modRagParse.ParseOutlineResp("<summary>要約だけ</summary>", sm, kw)
+    modTestRunner.Check "章要約_keywords欠落でも成功", (okFlag And sm = "要約だけ" And kw = "")
+
+    ' summary が無い/空/タグ崩れ/#ERR は失敗=呼び出し元が「(要約失敗)」を書く。
+    okFlag = modRagParse.ParseOutlineResp("<keywords>a|b</keywords>", sm, kw)
+    modTestRunner.Check "章要約_summary欠落は失敗", (okFlag = False And sm = "")
+    okFlag = modRagParse.ParseOutlineResp("<summary>   </summary>", sm, kw)
+    modTestRunner.Check "章要約_中身が空白だけは失敗", (okFlag = False)
+    okFlag = modRagParse.ParseOutlineResp("この章は免責を定めます(タグ無し)", sm, kw)
+    modTestRunner.Check "章要約_タグ無しは失敗", (okFlag = False)
+    okFlag = modRagParse.ParseOutlineResp("#ERR:E0202:応答が空でした", sm, kw)
+    modTestRunner.Check "章要約_#ERRは失敗", (okFlag = False)
+    ' 失敗時は出力を必ず空へ戻す(前の章の要約が残ると別の章の要約として保存される)。
+    modTestRunner.Check "章要約_失敗時は出力が空へ戻る", (sm = "" And kw = "")
+End Sub
+
+' ----------------------------------------------------------------------------
+' 章選択の応答パーサ(modRagParse.ParseChapterPick)。
+' ----------------------------------------------------------------------------
+Private Sub TestParseChapterPick()
+    Dim picks() As String
+    Dim n As Long
+
+    n = modRagParse.ParseChapterPick( _
+        "<pick>規程.pdf::第1章 総則|規程.pdf::第3章 保険金</pick>", 4, picks)
+    modTestRunner.Check "章選択_2件読める", (n = 2), "実際=" & n
+    modTestRunner.Check "章選択_1件目が原文どおり", _
+        (picks(LBound(picks)) = "規程.pdf::第1章 総則"), "実際=" & picks(LBound(picks))
+
+    ' 空=1章も選ばれなかった(mockの<pick></pick>もここ)。俯瞰は不発で
+    ' 従来の入念フローへ落ちる=「関係ない章の本文で回答を作る」を作らない。
+    n = modRagParse.ParseChapterPick("<pick></pick>", 4, picks)
+    modTestRunner.Check "章選択_空は0件", (n = 0), "実際=" & n
+    n = modRagParse.ParseChapterPick("該当する章はありません", 4, picks)
+    modTestRunner.Check "章選択_タグ無しは0件", (n = 0), "実際=" & n
+    n = modRagParse.ParseChapterPick("#ERR:E0201:AIリボンが見つかりません", 4, picks)
+    modTestRunner.Check "章選択_#ERRは0件", (n = 0), "実際=" & n
+
+    ' "::" が無い指定は捨てる(資料名か章キーが欠けた指定は、別の資料の
+    ' 同じ章名に当たり得る。「第1章 総則」はどの規程にもある)。
+    n = modRagParse.ParseChapterPick("<pick>第1章 総則|規程.pdf::第2章</pick>", 4, picks)
+    modTestRunner.Check "章選択_資料名の無い指定は捨てる", (n = 1), "実際=" & n
+    modTestRunner.Check "章選択_残るのは正しい形の方", _
+        (picks(LBound(picks)) = "規程.pdf::第2章"), "実際=" & picks(LBound(picks))
+    n = modRagParse.ParseChapterPick("<pick>規程.pdf::|::第2章</pick>", 4, picks)
+    modTestRunner.Check "章選択_片側が空の指定は捨てる", (n = 0), "実際=" & n
+
+    ' 上限。5件返ってきても4件まで(1回のプロンプトへ全章の本文を載せるため、
+    ' 章が増えるほど1章あたりの取り分が減ってどの章も途中で切れる)。
+    n = modRagParse.ParseChapterPick( _
+        "<pick>a.pdf::1|a.pdf::2|a.pdf::3|a.pdf::4|a.pdf::5</pick>", 4, picks)
+    modTestRunner.Check "章選択_上限4件で切る", (n = 4), "実際=" & n
+    ' 呼び出し側が大きい上限を渡しても4を超えない(上限の実体はパーサ側)。
+    n = modRagParse.ParseChapterPick( _
+        "<pick>a.pdf::1|a.pdf::2|a.pdf::3|a.pdf::4|a.pdf::5</pick>", 99, picks)
+    modTestRunner.Check "章選択_上限99を渡しても4件", (n = 4), "実際=" & n
+End Sub
+
+' ----------------------------------------------------------------------------
+' 俯瞰のフェイルセーフ(modAskGlobal.OutlineActive)と verdict=global。
+' ----------------------------------------------------------------------------
+' doc_outline が0行(=章要約をまだ作っていない本棚・graph_outline=off のまま
+' 使ってきた本棚・R16以前からの本棚)なら俯瞰は一切動かず、回答は従来と
+' 1文字も変わらない。GraphActive(Phase1)と同じ「条件は1本だけ」の作法。
+Private Sub TestOutlineFailsafe()
+    modTestRunner.Check "俯瞰_doc_outline0行なら働かない", _
+        (modAskGlobal.OutlineActive(0) = False)
+    modTestRunner.Check "俯瞰_負の件数でも働かない", _
+        (modAskGlobal.OutlineActive(-1) = False)
+    modTestRunner.Check "俯瞰_1行あれば働く", (modAskGlobal.OutlineActive(1) = True)
+    modTestRunner.Check "俯瞰_多数行でも働く", (modAskGlobal.OutlineActive(320) = True)
+
+    ' 段0の判定語彙。global を知らない応答(旧プロンプト・旧モデル・タグ崩れ)は
+    ' 従来どおり single へ落ちる=俯瞰は上積みであって置き換えではない。
+    modTestRunner.Check "段0_globalを読める", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>global</verdict>") = "global")
+    modTestRunner.Check "段0_GLOBAL大文字も読める", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>GLOBAL</verdict>") = "global")
+    modTestRunner.Check "段0_知らない語はsingle", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>overview</verdict>") = "single")
+    modTestRunner.Check "段0_既存の3語は不変", _
+        (modRagParse.ParseDecomposeVerdict("<verdict>parts</verdict>") = "parts" And _
+         modRagParse.ParseDecomposeVerdict("<verdict>clarify</verdict>") = "clarify" And _
+         modRagParse.ParseDecomposeVerdict("#ERR:E0202:x") = "single")
+End Sub
+
 Public Sub RunAll17()
     On Error GoTo PathFail17
     TestExtractSectionPath
@@ -251,6 +407,21 @@ NextMetaOf17:
 NextTable17:
     On Error GoTo TableFail17
     TestDistinctiveTableKeys
+NextChapKey17:
+    On Error GoTo ChapKeyFail17
+    TestChapterKeyOf
+NextBudget17:
+    On Error GoTo BudgetFail17
+    TestBudgetTake
+NextOutline17:
+    On Error GoTo OutlineFail17
+    TestParseOutlineResp
+NextPick17:
+    On Error GoTo PickFail17
+    TestParseChapterPick
+NextGlobal17:
+    On Error GoTo GlobalFail17
+    TestOutlineFailsafe
 NextDone17:
     On Error GoTo 0
     Exit Sub
@@ -277,6 +448,26 @@ MetaOfFail17:
     Resume NextTable17
 TableFail17:
     modTestRunner.Check "TestDistinctiveTableKeys(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChapKey17
+ChapKeyFail17:
+    modTestRunner.Check "TestChapterKeyOf(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBudget17
+BudgetFail17:
+    modTestRunner.Check "TestBudgetTake(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextOutline17
+OutlineFail17:
+    modTestRunner.Check "TestParseOutlineResp(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPick17
+PickFail17:
+    modTestRunner.Check "TestParseChapterPick(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGlobal17
+GlobalFail17:
+    modTestRunner.Check "TestOutlineFailsafe(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone17
 End Sub
