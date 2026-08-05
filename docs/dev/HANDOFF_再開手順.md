@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R18完了時点）
+# 再開手順（セッション中断対策・最終更新: R17完了時点=R18より後に実施）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,10 +6,16 @@
 
 ## 1. 現在地
 
-**R18完了(実機第5報①〜⑪→調査8班→R18仕様→波A〜C→敵対的レビュー2面→R18H裁定FA8+FB8全消化)。実機配布可。**
-R1〜R18まで完了・検収済み・push済み。R17=構造グラフはPhase1/Phase2/Phase3(波0〜3)まで
-実装・lint/LO/devビルド確認済み(**実機検証は未実施**。docs/45項目32-34が対象)。
-テスト1,589件・lint ERROR 0/WARN 4(全てテスト系)・モジュール127本(実装側WARNゼロ)。
+**R17完了(構造グラフPhase1〜3=波0〜3→敵対的レビュー2面→R17H裁定FA10+FB9+FA-2補 全消化)。実機配布可。**
+R1〜R18まで全ラウンド完了・検収済み・push済み(実施順はR16→R18→R17)。
+テスト1,626件・lint ERROR 0/WARN 4(全てテスト系)・モジュール129本(実装側WARNゼロ)。
+R17の仕様: design_20260805_R17_構造グラフ設計.md + spec_20260805_R17H_レビュー裁定.md。
+**実機検証は未実施**(docs/45 項目32〜34が対象。特に33=俯瞰・34=名寄せ)。
+R17Hの骨子: 名寄せ辞書の永久0行バグ(添字)根治+MergeSynPairs純関数化/俯瞰回答の
+二重警告排除(WasGlobalTurn+🔭バッジ・全モード入口リセット)/ArticleEnsureのスコープ遵守・
+score=0化・0件時seed/同名章キー×複数資料の箱詰め修正/無人同期の章要約を12章超で先送り
+(outline_deferred)/HasGlobalSignal(俯瞰語彙14語)で短文俯瞰を発火/chunk_metaセッション
+キャッシュ/取込確認文言に章要約時間を明記/既存本棚への再取込案内トースト。
 仕様: docs/dev/spec_20260805_R18_実機第5報.md + spec_20260805_R18H_レビュー裁定.md。
 R18の骨子: ①バナー可変幅/2行化+ボタン常時前面(modProgressBar新設)+砂時計廃止+2段目
 「作業用Excelを開く?」(セッション1回)/⑧manifest偽0根治(chunk_count -1保持+SourceList
@@ -27,7 +33,10 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: R17クローズ(実機検証・裁定)。Phase1(構造メタ+参照エッジ)は R17波0/波1、
+次: 利用者の実機検証(下記)→実機第6報の受領。R17H Fix波までクローズ済み。
+R17H 記録のみ(次期): 同義語追記が DistinctiveKeys 8枠を圧迫し得る(発火後に実測評価)/
+名寄せの outline 非依存化(modShelf 凍結解除後)/既存本棚カードへの「再取込で新機能有効」
+バッジ表示。Phase1(構造メタ+参照エッジ)は R17波0/波1、
 Phase2(章単位要約=疑似グローバル検索)は R17波2、Phase3(enrich常時ON+用語名寄せ辞書)は
 R17波3 で実装完了(いずれも下記「R17 で増えたもの」)。**modPrompts の分割は
 Phase2/Phase3 とも見送った**(章要約・章選択・俯瞰回答・名寄せの4本とも新モジュール内の
@@ -49,6 +58,7 @@ modRagParse は R17波3でExpandQueryBySyn/ParseSynResp追加により残6,230�
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R17-Fix | Opus | R17H裁定FA10(名寄せ0行根治/俯瞰二重警告/スコープ遵守ほか)+FB9+FA-2補 | 28c7838/0bf73cd/0a1f7aa | 完了 |
 | R1〜R7 | Opus/Sonnet | レビュー対応/取込/統計/UI統合/OCR/UIUX修復 | 〜 | 完了 |
 | R8/R8b/R8c | Opus/Sonnet | P2P修正14件+敵対的レビュー16件+再レビュー6件。テスト272→417 | 〜 | 完了 |
 | R9 | Opus/Sonnet | Ghostscript同梱(dist常置)+検出4段階+案内カード+--zip+docs | 〜 | 完了 |
@@ -424,6 +434,9 @@ RAG限定のまま/config実キー数は約120(MASTER_SPECは固定値を書か�
     LOモード1のPASSは1,486件、lint ERROR 0/WARN 4(同上)のまま。
     R18で記録した確定事項: 全重複再取込はfail_countを進め3回でfailed_permanent(復帰口
     あり・仕様)。ナレッジ地図の可視化コードは a41bcfa の親(75ba385^)から復活可能。
+  ※R17完了時点: 129本(modChunkMeta/modChunkMetaStore/modOutlineStore/modOutlineBuild/
+    modAskGlobal/modSynonymStore/modTestsPure17/modTestsPure18を追加)、
+    LOモード1のPASSは1,626件、lint ERROR 0/WARN 4(同上)のまま。
 - **R15で記録した次期課題・確定事項**:
   - ChatGPTV は待ち秒数引数なし・同期永久待ち(実機確認済み)。VBA側の根治は不可能。
     リボン側に引数が追加されたら optOcrPage の呼び出し1行で反映可能。
