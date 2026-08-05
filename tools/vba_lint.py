@@ -647,6 +647,18 @@ CONTRACT: dict[str, dict] = {
         "required": ["NeighborExpand", "ParseChunkKey", "NeighborIdList",
                      "RefsExpand", "ArticleEnsure"],
     },
+    # modAskGlobal(2026-08-05 R17 Phase2): 俯瞰質問(疑似グローバル検索)。
+    # TryGlobal: doc_outline の章要約を1回のプロンプトへ載せて読むべき章を
+    #   選ばせ(chapter_pick)、選ばれた章の本文を文書順に集めて1回で回答を
+    #   作る(global_answer)。追加のLLM呼び出しは1質問あたり2回。
+    #   不発(graph_outline=off / doc_outline 0行 / 章が選ばれない / 章の
+    #   チャンクが引けない / 回答生成の失敗)は全て False で、呼び出し元
+    #   (modAskMulti)は従来の入念フローへ落ちる=フェイルセーフはこの層に閉じる。
+    # OutlineActive: そのフェイルセーフの単一情報源(0行なら俯瞰は動かない)。
+    "modAskGlobal": {
+        "closed": True,
+        "required": ["TryGlobal", "OutlineActive"],
+    },
     "modAskThorough": {
         "closed": True,
         # VerifyNote(2026-08-03 R14-G11): 検証段が落ちたターンの内部注記。

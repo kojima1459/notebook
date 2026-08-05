@@ -313,6 +313,14 @@
       "note": "複合質問の分解→論点ごとの調査→統合(入念モード専用)。段0の判定を1回だけ足し、verdict=partsのときに論点ごとにexpandを飛ばした検索+副下書きを回し、1本へ統合してから自己点検・検証・出典突合へ渡す。LLM合計は1+論点数+3で現行入念の6回と同水準。判定が#ERR・タグ崩れ・single・clarify・論点1本のいずれかならFalseを返し、modAskがそのまま従来のmodAskThorough.RunThoroughFlowを実行する(分解は上積みであって置き換えではない)。出典突合は全論点のヒットをchunk_idで重複排除して連結したunionHitsに1回だけ掛ける。中断(Err18)は論点の境界で拾い、完成済みの論点だけで統合して末尾に中断メモを付けて正常返却する。"
     },
     {
+      "name": "modAskGlobal",
+      "path": "src/qa/modAskGlobal.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: 俯瞰質問(疑似グローバル検索)。入念モードの段0がverdict=globalと判定したときだけ動き、doc_outlineの章要約を1回のプロンプトへ載せて読むべき章を最大4つ選ばせ(chapter_pick)、選ばれた章のチャンクをmy_knowledge+chunk_metaから文書順に章ごとの予算内で集め、1回で回答を作る(global_answer)。追加のLLM呼び出しは2回。出典突合はmodAskThorough.AnnotateAgainstHitsに合流し、出典タグの書式はmodPrompts.SourceTagを通す。graph_outline=off/doc_outline 0行/章が選ばれない/チャンクが引けない/回答生成の失敗は全てFalseで従来の入念フローへ落ちる(フェイルセーフはこの層に閉じる)。中断(Err18)は段の境界で拾い、選んだ章の要約だけを「※中断」つきで返す。返すhitsのscoreは0(検索スコアで選んだ材料ではないため信頼度バッジを水増ししない)。"
+    },
+    {
       "name": "modAskFocus",
       "path": "src/qa/modAskFocus.bas",
       "role": "core",
