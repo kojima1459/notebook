@@ -46,10 +46,9 @@ Private mLastBeat As Date
 Private mSaveFailToasted As Boolean
 
 ' R15-FixB(FB-7・レビューA-L1): 読み取り専用による save_fail を usage_log へ
-' 書いたか(1セッション1回だけ書く)。読み取り専用は【セッションを通じて
-' 変わらない1つの事実】なのに、20件取り込めば20行、OCRの控え保存まで数えると
-' 数百行が同じ内容で並ぶ。usage_log は行数ローテがあるので、埋もれると本当に
-' 調べたい行(取込・中断・再開)が先に流れて消える。
+' 書いたか(1セッション1回だけ)。読み取り専用は【セッションを通じて変わらない
+' 1つの事実】で、毎回書くと数百行が同じ内容で並び、usage_log の行数ローテで
+' 本当に調べたい行(取込・中断・再開)が先に流れて消える。
 Private Const RO_FAIL_DESC As String = "ReadOnly(読み取り専用で開かれているため保存しません)"
 Private mReadOnlyLogged As Boolean
 
@@ -94,14 +93,11 @@ End Function
 ' 再入の関所(BlockIfIngesting)は【付けない】。取込中でも必ず動かなければ
 ' 意味が無いハンドラで、vba_lint の ONACTION_GUARD_ALLOWLIST に理由つきで
 ' 登録してある。
-' 2026-08-04(R15-FixA FA-8): (a) SetStage → ShowProgress。SetStage の出力先
-'   (状態行/StatusBar/チャットバブル)はNexus画面では実質不可視で、押した人に
-'   は【何も起きていないように見えていた】。進捗バナーは全画面で見えるので
-'   そこへ出す。skipBeat:=True で呼ぶ(中断クリックは実作業ではないので、
-'   ここでガードの寿命を延ばしてはならない=FA-9で絶対上限を外す前提)。
+' 2026-08-04(R15-FixA FA-8): (a) SetStage → ShowProgress。SetStage の出力先は
+'   Nexus画面では実質不可視で、押した人には何も起きていないように見えていた。
 '   (b) TouchBusy を外す。ビートは【実作業だけ】が打つ一本の線にする。
-'   文言から「頁」を外した: 中断が効くのはOCRの頁境界だけではない(画像化の
-'   待ち・ベクトル化・ファイル境界でも効く)。
+'   文言から「頁」を外した: 中断が効くのは頁境界だけではない(画像化の待ち・
+'   ベクトル化・ファイル境界でも効く)。
 Public Sub OnCancelIngest()
     On Error Resume Next
     mCancelRequested = True
@@ -142,12 +138,10 @@ End Sub
 '   同じ関数を呼ぶことで、判定が箇所ごとにズレることを構造的に防ぐ。
 ' ----------------------------------------------------------------------------
 '   absLimitMin:=0(2026-08-04 R15-FixA FA-9): 開始からの絶対上限(480分)は
-'   外す。ビートを打つのは実作業だけになった(FA-8で中断ハンドラの TouchBusy を
-'   外し、BlockIfIngesting自身の実況は波1のskipBeatで除外済み)ので、自己延命
-'   ループはもう起こらない。一方で8時間を超える取込は正当に起こり得る(254頁の
-'   資料を何件もまとめて選ぶ)。そこでガードが解けると、動いている取込の上に
-'   二重取込を開く入口ができる——守るべきもの(§3-5)と防ぎたかったもの
-'   (焼き付き)を比べれば、無音30分の自己回復だけで足りる。
+'   外す。ビートを打つのは実作業だけになった(FA-8)ので自己延命ループは起き
+'   ない。一方で8時間超の取込は正当に起こり得(254頁の資料を何件もまとめて
+'   選ぶ)、そこでガードが解けると動いている取込の上に二重取込の入口ができる。
+'   無音30分の自己回復だけで足りる(§3-5)。
 Public Function GuardExpiredNow(ByVal startAt As Date, ByVal limitMin As Long) As Boolean
     GuardExpiredNow = modUtilText.GuardExpired(startAt, mLastBeat, Now, limitMin, 0)
 End Function
@@ -174,10 +168,9 @@ End Function
 ' トーストを出すと「押すほど固まる」を自分で作る(R10c M3と同じ轍)。
 '
 ' throttleSec(2026-08-04 R15-FixA FA-2): この秒数以内に前回保存していたら黙って
-'   戻る。頁OCRの控え保存(optOcrCache.SaveRange)と silent な同期の1件ごと
-'   (R18H FA-7)からは120を渡す: 数十秒に1回ブックを書き戻すとEDRのスキャンが
-'   取込より重くなる端末がある。「失うのは最大2分ぶん」まで縮めれば、127分の
-'   取込が丸ごと消える(RC9)壊れ方はもう起きない。既定0=毎回保存。
+'   戻る。頁OCRの控え保存と silent な同期の1件ごと(R18H FA-7)からは120を渡す:
+'   数十秒に1回書き戻すとEDRのスキャンが取込より重くなる端末がある。「失うのは
+'   最大2分ぶん」なら127分が丸ごと消える(RC9)壊れ方は起きない。既定0=毎回。
 Public Sub SaveCheckpoint(Optional ByVal changedN As Long = 1, _
                           Optional ByVal throttleSec As Long = 0)
     If changedN < 1 Then Exit Sub
@@ -257,11 +250,9 @@ End Function
 '     出ていないなら黙る、というこの1点だけで silent は silent のままになる。
 '
 ' なぜフラグを配線しないのか: 呼び出し元(取込→抽出→GS待ち)は層をまたぐ長い
-' 経路で、silent を引数で運ぶと modShelfSync まで波及する。「今バナーが出て
-' いるか」という画面の事実を1回見るだけなら、経路を書き換えずに同じ判断が
-' できる。可視判定は「今のシートに nx_progress のShapeがあるか」で行う。表示の
-' 実体(modProgressBar.PaintProgress/ClearProgress)がShapeを作って消すので、
-' これが唯一の事実(modUIMain は状態を持っておらず、容量も残り僅か)。
+' 経路で、silent を引数で運ぶと modShelfSync まで波及する。可視判定は「今の
+' シートに nx_progress のShapeがあるか」で行う。表示の実体(modProgressBar)が
+' Shapeを作って消すので、これが唯一の事実(modUIMain は状態を持っていない)。
 ' 表示系の失敗が取込を壊してはならない(憲章§4-4)ので全体をOERNで包む。
 ' ----------------------------------------------------------------------------
 Public Sub StageBanner(ByVal text As String)
@@ -386,6 +377,16 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     If fd.Show <> -1 Then
         AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons="
         Exit Function   ' キャンセル
+    End If
+
+    ' R19-5b(実機第6報⑤): 他のブックと同じプロセスに居るなら、取込を始める前に
+    ' もう一度だけ確認する(判定・文言・モーダルは modIntegrity 側。ここは
+    ' 戻り値だけを見る)。「いいえ」はキャンセルと同じ扱いにする=取込は
+    ' 1件も始まらず、mBatchIngesting も立てないので後始末も要らない。
+    ' 無人同期(modShelfSync)はこの関数を通らないので silent は silent のまま。
+    If Not modIntegrity.ConfirmIngestWhenCohabit() Then
+        AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons="
+        Exit Function
     End If
 
     ' R10c(H2): ここから下はバッチ取込中。全終了経路(正常/AddFailed)で必ず解除する。
