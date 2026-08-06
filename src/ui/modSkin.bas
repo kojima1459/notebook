@@ -66,14 +66,17 @@ Public Sub StyleShape(ByVal shp As Shape, ByVal nm As String)
     On Error GoTo 0
 End Sub
 
-' ヘッダーバーの2色グラデーション(#1a365d → #1f4e78)。32bit Excelで
-' TwoColorGradientが失敗する環境はベタ塗りのまま進む(平らに見えるだけ)。
+' ヘッダーバーの2色グラデーション。2026-08-06(R20-7a・実機第7報⑥):
+' 旧#1a365d→#1f4e78(青系)をMS&AD確定パレットへ差し替え。テーマに関わらず
+' 常設の"ブランドの色"(旧実装も着せ替えの影響を受けない固定色だった)。
+' 上段PRIMARY_LIGHT(#0B7D6E・白字コントラスト5.0:1)→下段PRIMARY_DARK
+' (#014D44・白字コントラスト9.8:1、どちらもAA合格・司令塔で計算済み)。
 Public Sub ApplyHeaderDepth(ByVal shp As Shape)
     On Error Resume Next
     With shp.Fill
         .TwoColorGradient 1, 1        ' msoGradientHorizontal, variant1
-        .ForeColor.RGB = RGB(26, 54, 93)
-        .BackColor.RGB = RGB(31, 78, 120)
+        .ForeColor.RGB = RGB(11, 125, 110)   ' PRIMARY_LIGHT #0B7D6E
+        .BackColor.RGB = RGB(1, 77, 68)      ' PRIMARY_DARK #014D44
     End With
     On Error GoTo 0
 End Sub
@@ -118,12 +121,15 @@ End Sub
 
 ' MS&ADグリーンの微細な縦グラデーション(フラットの中の上質な質感)。
 ' ApplyTheme でベタ塗りに戻ることがあるが BeautifyAll が再適用する。
+' 2026-08-06(R20-7a): ACCENT(#07A963)は白字コントラストが3.06:1でAA未達
+' (機械計算・司令塔のLINE緑不採用と同型の理由)のため、送信ボタンの白字と
+' 組む面はPRIMARY系(白字5.0/6.8:1・AA合格)に統一する。
 Public Sub ApplyGreenDepth(ByVal shp As Shape)
     On Error Resume Next
     With shp.Fill
         .TwoColorGradient 1, 1        ' msoGradientHorizontal, variant1(上→下)
-        .ForeColor.RGB = RGB(22, 163, 88)    ' わずかに明るい緑
-        .BackColor.RGB = RGB(0, 122, 55)     ' 深い緑
+        .ForeColor.RGB = RGB(11, 125, 110)   ' PRIMARY_LIGHT #0B7D6E
+        .BackColor.RGB = RGB(1, 103, 91)     ' PRIMARY #01675B
     End With
     On Error GoTo 0
 End Sub
@@ -155,14 +161,17 @@ End Sub
 '   sakura/oceanは感謝5件、goldは20件。解放判定は色解決点(ResolveColor)でも
 '   強制するので、隠しシートを手書きしても色は落ちる。
 
-' テーマ名を検証し、未解放/未知ならlightへ落とした正規名を返す。
+' テーマ名を検証し、未解放/未知なら既定(msad)へ落とした正規名を返す。
+' 2026-08-06(R20-7a): 既定を"light"→"msad"(MS&AD標準)へ。lightは着せ替えの
+' 1枚として引き続き選べる(既存ユーザーの保存値を壊さない)。
 Public Function EffectiveSkin(ByVal themeName As String) As String
     Dim t As String: t = LCase$(Trim$(themeName))
     Select Case t
         Case "dark":            EffectiveSkin = "dark"
-        Case "sakura", "ocean": EffectiveSkin = IIf(ThanksCount() >= 5, t, "light")
-        Case "gold":            EffectiveSkin = IIf(ThanksCount() >= 20, t, "light")
-        Case Else:              EffectiveSkin = "light"
+        Case "light":           EffectiveSkin = "light"
+        Case "sakura", "ocean": EffectiveSkin = IIf(ThanksCount() >= 5, t, "msad")
+        Case "gold":            EffectiveSkin = IIf(ThanksCount() >= 20, t, "msad")
+        Case Else:              EffectiveSkin = "msad"
     End Select
 End Function
 
@@ -173,6 +182,8 @@ Private Function ThanksCount() As Long
 End Function
 
 ' 全画面の配色解決点(modUI.ThemeColorから委譲される唯一の実装)。
+' userBubbleText(R20-7a追加): 自分バブルの文字色。msadは塗りが濃緑になる
+' ため白固定、他は従来どおりtextと同色(見た目を変えない)。
 Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As Long
     Dim t As String: t = EffectiveSkin(themeName)
     Select Case t
@@ -183,9 +194,11 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "text":          ResolveColor = RGB(248, 250, 252)
                 Case "muted":         ResolveColor = RGB(148, 163, 184)
                 Case "border":        ResolveColor = RGB(51, 65, 85)
-                Case "primary":       ResolveColor = RGB(52, 168, 96)
+                ' 2026-08-06(R20-7b): PRIMARY_LIGHT(#0B7D6E)を基調に(白字5.0:1・AA合格)。
+                Case "primary":       ResolveColor = RGB(11, 125, 110)
                 Case "accent":        ResolveColor = RGB(0, 168, 89)
                 Case "userBubble":    ResolveColor = RGB(51, 65, 85)
+                Case "userBubbleText": ResolveColor = RGB(248, 250, 252)
                 Case "aiBubble":      ResolveColor = RGB(30, 41, 59)
                 Case "sidebar":       ResolveColor = RGB(11, 15, 25)
                 Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
@@ -204,6 +217,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "primary":       ResolveColor = RGB(214, 51, 108)
                 Case "accent":        ResolveColor = RGB(0, 168, 89)
                 Case "userBubble":    ResolveColor = RGB(255, 228, 238)
+                Case "userBubbleText": ResolveColor = RGB(66, 32, 44)
                 Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
                 Case "sidebar":       ResolveColor = RGB(84, 32, 52)
                 Case "sidebarText":   ResolveColor = RGB(240, 210, 222)
@@ -222,6 +236,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "primary":       ResolveColor = RGB(2, 102, 190)
                 Case "accent":        ResolveColor = RGB(0, 145, 200)
                 Case "userBubble":    ResolveColor = RGB(224, 240, 255)
+                Case "userBubbleText": ResolveColor = RGB(15, 36, 62)
                 Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
                 Case "sidebar":       ResolveColor = RGB(10, 35, 66)
                 Case "sidebarText":   ResolveColor = RGB(198, 219, 240)
@@ -238,28 +253,45 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "primary":       ResolveColor = RGB(212, 175, 55)
                 Case "accent":        ResolveColor = RGB(230, 196, 80)
                 Case "userBubble":    ResolveColor = RGB(45, 42, 30)
+                Case "userBubbleText": ResolveColor = RGB(240, 234, 216)
                 Case "aiBubble":      ResolveColor = RGB(24, 24, 28)
                 Case "sidebar":       ResolveColor = RGB(6, 6, 8)
                 Case "sidebarText":   ResolveColor = RGB(212, 175, 55)
                 Case "sidebarActive": ResolveColor = RGB(38, 34, 24)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
-        Case Else       ' light = MS&ADスタンダード(従来値そのまま)
+        Case "light"    ' 旧既定。着せ替えの1枚として残す(値は従来のまま)。
             Select Case key
                 Case "bg":            ResolveColor = RGB(243, 244, 246)
                 Case "surface":       ResolveColor = RGB(255, 255, 255)
                 Case "text":          ResolveColor = RGB(17, 24, 39)
-                ' 2026-08-01(R12-7-6・a11y監査Med): 旧bg比4.39は8pt多用時の
-                ' 基準4.5に僅かに未達。bg比5.6/surface比6.16へ(機械計算)。
                 Case "muted":         ResolveColor = RGB(90, 98, 110)
                 Case "border":        ResolveColor = RGB(229, 231, 235)
                 Case "primary":       ResolveColor = RGB(0, 137, 62)
                 Case "accent":        ResolveColor = RGB(0, 168, 89)
                 Case "userBubble":    ResolveColor = RGB(239, 246, 255)
+                Case "userBubbleText": ResolveColor = RGB(17, 24, 39)
                 Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
                 Case "sidebar":       ResolveColor = RGB(17, 24, 39)
                 Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
                 Case "sidebarActive": ResolveColor = RGB(31, 41, 55)
+                Case Else:            ResolveColor = RGB(0, 0, 0)
+            End Select
+        Case Else       ' "msad" = 既定(実機第7報⑥・確定パレット)
+            Select Case key
+                Case "bg":            ResolveColor = RGB(243, 244, 246)   ' 既存の薄灰を維持
+                Case "surface":       ResolveColor = RGB(255, 255, 255)
+                Case "text":          ResolveColor = RGB(17, 24, 39)      ' 既存#1F2937系を維持
+                Case "muted":         ResolveColor = RGB(90, 98, 110)
+                Case "border":        ResolveColor = RGB(229, 231, 235)
+                Case "primary":       ResolveColor = RGB(1, 103, 91)      ' PRIMARY #01675B(白字6.8:1)
+                Case "accent":        ResolveColor = RGB(7, 169, 99)      ' ACCENT #07A963(使用は控えめに)
+                Case "userBubble":    ResolveColor = RGB(11, 125, 110)    ' PRIMARY_LIGHT(グラデ上段)
+                Case "userBubbleText": ResolveColor = RGB(255, 255, 255) ' 自分バブルは白字固定
+                Case "aiBubble":      ResolveColor = RGB(255, 255, 255)
+                Case "sidebar":       ResolveColor = RGB(1, 77, 68)       ' PRIMARY_DARK(ヘッダー系)
+                Case "sidebarText":   ResolveColor = RGB(255, 255, 255)
+                Case "sidebarActive": ResolveColor = RGB(1, 103, 91)      ' PRIMARY
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
     End Select
@@ -270,22 +302,23 @@ End Function
 Public Sub CycleSkin()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
+    ' 2026-08-06(R20-7a): 既定skinを"msad"に。旧既定"light"は着せ替えの1枚として残す。
     Dim orderList As Variant
-    orderList = Array("light", "dark", "sakura", "ocean", "gold")
+    orderList = Array("msad", "light", "dark", "sakura", "ocean", "gold")
     Dim labels As Variant
-    labels = Array("MS&AD スタンダード", "ダークモード", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
+    labels = Array("MS&AD スタンダード", "ライト(旧配色)", "ダークモード", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
 
     Dim cur As String: cur = EffectiveSkin(CurrentTheme())
     Dim curIdx As Long: curIdx = 0
     Dim i As Long
-    For i = 0 To 4
+    For i = 0 To 5
         If CStr(orderList(i)) = cur Then curIdx = i
     Next i
 
     Dim tc As Long: tc = ThanksCount()
     Dim tried As Long
-    For tried = 1 To 5
-        Dim nx As Long: nx = (curIdx + tried) Mod 5
+    For tried = 1 To 6
+        Dim nx As Long: nx = (curIdx + tried) Mod 6
         Dim cand As String: cand = CStr(orderList(nx))
         Dim needN As Long
         needN = 0
@@ -386,11 +419,12 @@ End Sub
 ' CurrentTheme / SaveTheme - 現在のテーマ(スキン)名の読み書き。
 '   2026-07-31(R11-F1): ui_state走査の自前実装をmodState.LoadState/SaveStateへの
 '   委譲に置換(同じ"nexus_theme"を2通りで読み書きし同型処理が2つあった=憲章§4-5)。
-'   既定は"light"。値はスキン名も入る(検証はEffectiveSkin/ResolveColor側)。
+'   既定は"msad"(2026-08-06 R20-7a: 実機第7報⑥でMS&AD標準へ変更)。
+'   値はスキン名も入る(検証はEffectiveSkin/ResolveColor側)。
 ' ----------------------------------------------------------------------------
 Public Function CurrentTheme() As String
-    CurrentTheme = LCase$(Trim$(modState.LoadState(THEME_KEY, "light")))
-    If LenB(CurrentTheme) = 0 Then CurrentTheme = "light"
+    CurrentTheme = LCase$(Trim$(modState.LoadState(THEME_KEY, "msad")))
+    If LenB(CurrentTheme) = 0 Then CurrentTheme = "msad"
 End Function
 
 Public Sub SaveTheme(ByVal themeName As String)
@@ -487,7 +521,9 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
                 shp.Fill.ForeColor.RGB = ThemeColor("sidebar")
                 SetShapeTextColor shp, RGB(255, 255, 255)
             ElseIf nm = "nx_top_send" Or nm = "nx_top_add" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("accent")
+                ' 2026-08-06(R20-7a): accentは白字コントラスト3.06:1でAA未達
+                ' (機械計算)のため、白文字と組む塗りはprimary(6.8:1)にする。
+                shp.Fill.ForeColor.RGB = ThemeColor("primary")
                 SetShapeTextColor shp, RGB(255, 255, 255)
             ElseIf nm = "nx_top_theme" Then
                 shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
@@ -507,9 +543,11 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
         ElseIf Left$(nm, 7) = "nx_thk_" Then
             SetShapeTextColor shp, ThemeColor("muted")
         ElseIf nm = "nx_fchip" Then
-            ' R14-6c(RC5-D): modAppAct.DrawFollowupChipの生成色(accent塗り+
-            ' 枠無し+白文字)と揃える。無いと着せ替え後もチップだけ旧色で残る。
-            shp.Fill.ForeColor.RGB = ThemeColor("accent")
+            ' R14-6c(RC5-D): modAppAct.DrawFollowupChipの生成色に揃える
+            ' (枠無し+白文字)。2026-08-06(R20-7a): 塗りはaccentではなく
+            ' primaryへ(白字3.06→6.8:1。初回描画はmodAppAct側のaccentの
+            ' ままだが、テーマ再適用のたびにここで正しい色へ揃う)。
+            shp.Fill.ForeColor.RGB = ThemeColor("primary")
             shp.Line.Visible = 0
             SetShapeTextColor shp, RGB(255, 255, 255)
         ElseIf Left$(nm, 8) = "nx_help_" Then
@@ -532,9 +570,12 @@ Private Sub RecolorHelpShape(ByVal shp As Shape, ByVal nm As String)
             shp.Fill.ForeColor.RGB = ThemeColor("primary")
             SetShapeTextColor shp, RGB(255, 255, 255)
         Case "nx_help_tour", "nx_help_fb"
+            ' 2026-08-06(R20-7a): accentは白地上の文字色としても3.06:1で
+            ' AA未達(機械計算)のためprimary(6.8:1)へ。初回描画(modHelp側)は
+            ' accentのままだが、再彩色のたびにここで正しい色へ揃う。
             shp.Fill.ForeColor.RGB = ThemeColor("surface")
-            shp.Line.ForeColor.RGB = ThemeColor("accent")
-            SetShapeTextColor shp, ThemeColor("accent")
+            shp.Line.ForeColor.RGB = ThemeColor("primary")
+            SetShapeTextColor shp, ThemeColor("primary")
         Case Else
             ' cfg/skin/migout/migin/diag(AddHelpActionの共通配色)。
             shp.Fill.ForeColor.RGB = ThemeColor("surface")
@@ -554,7 +595,16 @@ Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
         ' なり、全面に乗る text 色との対比が全テーマで3:1未満(酷いものは
         ' gold 1.75)まで落ちていた(a11y監査Med)。同系微差色なら
         ' text-on-userBubble の高い対比(9.1〜13.3、機械計算)をほぼ保てる。
-        ApplyGradient shp, ThemeColor("userBubble"), DarkenRgb(ThemeColor("userBubble"), 0.14)
+        ' 2026-08-06(R20-7a): msadは仕様書確定の2段(上PRIMARY_LIGHT→下PRIMARY)を
+        ' 固定で使う(userBubbleText=白と組んで6.8:1・AA合格)。他テーマは
+        ' 従来どおりuserBubbleの自己微暗化を保つ(着せ替えの見た目を変えない)。
+        Dim botC As Long
+        If EffectiveSkin(CurrentTheme()) = "msad" Then
+            botC = RGB(1, 103, 91)   ' PRIMARY #01675B
+        Else
+            botC = DarkenRgb(ThemeColor("userBubble"), 0.14)
+        End If
+        ApplyGradient shp, ThemeColor("userBubble"), botC
     Else
         shp.Fill.ForeColor.RGB = ThemeColor("aiBubble")
         shp.Line.Visible = -1
@@ -562,7 +612,7 @@ Public Sub PaintBubble(ByVal shp As Shape, ByVal isUser As Boolean)
         shp.Line.Weight = 0.75
     End If
     On Error GoTo 0
-    SetShapeTextColor shp, ThemeColor("text")
+    SetShapeTextColor shp, IIf(isUser, ThemeColor("userBubbleText"), ThemeColor("text"))
 End Sub
 
 Public Sub PaintActionButton(ByVal shp As Shape, ByVal kind As String)
