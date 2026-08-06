@@ -29,17 +29,28 @@ Private Const LEGACY_VAULT_SHEET As String = "Vault"
 ' 行3がツールバーの帯で、段数に応じて高さが伸びる(行数は変えない)。
 Public Const CHROME_ROWS As Long = 6
 
-' R18-3a/3b(実機第5報②): 「マイ本棚」シート(table/gallery/shared の3モードが
-' 共有)が実際に使うセル範囲。書式を当てる範囲と ScrollArea の唯一の情報源。
-' 列は3モードとも A:N、行はカードの最終行(modUIShelf.MAX_CARD_ROWS=400 の
-' 末尾=412行。gallery/sharedも 7:412 の行高を戻している)。3モジュールで
-' 同じ文字列を書くとズレるため、共通クロムを持つここに置く。
-Public Const SHELF_BOUND As String = "A1:N412"
+' R18-3a/3b → R19-1b: 「マイ本棚」シート(table/gallery/shared の3モードが
+' 共有)が使うセル範囲。列は3モードとも A:N で、余りは最終列Nが吸う。
+' 行の【上限】はカードの最終行(modUIShelf.MAX_CARD_ROWS=400 の末尾=412行)
+' だが、常に412行(約6,200pt=8画面ぶん)を塗ると「ほぼ無制限に下へ
+' スクロールできる」状態になるため、実際の範囲は描いた内容の下端から
+' ShelfBound で決める。3モジュールで同じ算数を書くとズレるので、共通クロムを
+' 持つここが単一情報源(モードごとに実下端が違うので引数で受ける)。
+Public Const SHELF_MAX_ROW As Long = 412
+Public Const SHELF_PAD_COL As String = "N"
+Public Const SHELF_BAND As String = "A1:N1"
 
 ' 直近に描いたモード("gallery"/"table"/"shared")。
 ' 3モードとも同じ「マイ本棚」シートに描くようになった(2026-07-30 R4要件A)ため、
 ' 「今どのモードか」はシート名からは分からない。ここが唯一の情報源。
 Private mMode As String
+
+' ShelfBound - マイ本棚の実使用範囲 "A1:N<行>"。塗り・ScrollArea が共有する。
+'   contentBottom: そのモードが描き切った実下端(pt)。0なら1画面ぶん。
+Public Function ShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Double) As String
+    If ws Is Nothing Then Exit Function
+    ShelfBound = modViewport.BoundAddr(ws, SHELF_PAD_COL, contentBottom, SHELF_MAX_ROW)
+End Function
 
 ' DrawChrome - ヘッダー+モードピル+ツールバーを描く(冪等)。
 '   mode: "gallery"(ナレッジ倉庫のカード) / "table"(マイ本棚の一覧)
@@ -67,7 +78,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
 
     Dim L As Double, cellW As Double, W As Double
     L = ws.Range("A1").Left
-    cellW = ws.Range("A1:N1").Width
+    ' R19-1b: 余りを最終列Nに吸わせて A:N の合計を可視幅ぴったりにする
+    ' (右の白い余白は寸法の問題で、ScrollAreaでは消せない)。帯の右端も
+    ' modViewport.ContentRight 1本から取る。
+    modViewport.FitBandToViewport ws, SHELF_BAND, SHELF_PAD_COL
+    cellW = modViewport.ContentRight(ws, SHELF_BAND, 0) - L
     ' R11-B(#30本丸): セル範囲幅(cellW)基準のクロムは本棚系で772〜882ptに
     ' なり、実可視域(約600pt)を大幅超過して右肩ピルが画面外へ出ていた。
     ' 帯の背景(下のhdr)は従来どおりcellWいっぱいのまま、操作系を置く
@@ -169,7 +184,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
 
     ' R18-3b: 3モード(table/gallery/shared)とも同じシートで同じ範囲を使う。
     ' 共通クロムを描くここが唯一の宣言点(モードごとに書くとズレる)。
-    modViewport.ApplyScrollBound ws, SHELF_BOUND
+    ' R19-1b: この時点では本文がまだ無いので「最低1画面」ぶん。本文を描き
+    ' 終えた各モードが、実下端で ApplyScrollBound を上書きする。
+    modViewport.ApplyScrollBound ws, ShelfBound(ws, 0)
+    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
+    modViewport.LogViewport "shelf"
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws

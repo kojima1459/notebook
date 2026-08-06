@@ -4,30 +4,33 @@ Option Explicit
 ' modUINexusDraw - チャット画面(Nexusシート)の骨格描画。
 '
 ' 2026-07-26 再設計(nexus-spec-v1 §2.2 / nexus-ui-final 画面5):
-'   ・サイドバーを全廃した。移動導線はHub画面(modHub)に集約し、チャット画面は
-'     「会話」だけを担う。結果、バブルの表示幅が約30%広がる。
-'   ・常時表示のフローティング・アクションバー(7個)を廃止し、最新のAI回答
-'     バブルの直下にだけ6個のアクションpillを出す「文脈表示」に変えた。
-'     質問前はボタンが0個になるので入力に集中できる。
+'   ・サイドバーを全廃。移動導線はHub画面(modHub)に集約し、チャット画面は
+'     「会話」だけを担う(バブルの表示幅が約30%広がる)。
+'   ・常時表示のアクションバー(7個)を廃止し、最新のAI回答バブルの直下にだけ
+'     6個のpillを出す「文脈表示」へ(質問前はボタン0個で入力に集中できる)。
 '   ・ヘッダーは1行(← Hub / タイトル / 速度 / モード / 言語 / テーマ / クリア)。
 '
 ' 設計の鉄則(実機で繰り返し事故った点):
-'   ・Shape座標は必ず実セル幾何(Range.Left/.Width/Rows().Top)から導く。
-'     pt決め打ちは列幅・行高・DPIの差で必ずズレる。
+'   ・Shape座標は必ず実セル幾何(Range.Left/.Width/Rows().Top)から導く
+'     (pt決め打ちは列幅・行高・DPIの差で必ずズレる)。
 '   ・配色は modUI.UiColor() を単一情報源にする。
-'   ・絵文字はChrW()で組み立てる(ソースへの直書きは自己インストーラの
-'     文字列注入で化ける)。BMP外はサロゲートペアで2つ繋ぐ。
+'   ・絵文字はChrW()で組み立てる(直書きは自己インストーラの文字列注入で
+'     化ける)。BMP外はサロゲートペアで2つ繋ぐ。
 
 Private Const NEXUS_SHEET As String = "Nexus"
 
-' R18-3a/3b(実機第5報②): チャット画面が使うセル範囲。書式を当てる範囲
-' (modUI.InitUI / modSkin.ApplyTheme)と ScrollArea の唯一の情報源。
-' 列は A=左余白 / B=資料を入れる / C:K=入力欄(結合) / L=送信 / M:P=右余白。
-' 行だけは他画面と違って厳しく締めない: 会話のバブルは行と無関係にpt座標で
-' 下へ伸び続ける(modUI.AddChatBubble)ため、InitUI時点の行数で切ると、
-' 会話が長くなった後半のバブルが到達不能=読めない/押せないになる
-' (調査agent2 §2.3)。行高18pt×2000行=36,000ptぶんの余地を持たせる。
-Public Const NEXUS_BOUND As String = "A1:P2000"
+' R18-3a/3b → R19-1b(実機第6報①): チャット画面が使うセル範囲。
+' 列は A=左余白 / B=資料を入れる / C:K=入力欄(結合。Kが余りを吸う) /
+' L=送信 / M=右余白。旧実装は M:P の4列を右余白にして帯を671ptにし、
+' さらに書式を A1:P2000(約31,000pt=40画面ぶん)へ当てていた ―― これは
+' 「制限を入れた」のではなく「無限スクロールを明文で許可した」状態で、
+' 起動のたびに32,000セルぶんのスタイルをブックへ焼き付けてもいた。
+' 帯は A:M をKで可視幅ぴったりに詰め、下端は会話の実下端(mChatBottom)から
+' 決める(NexusBound)。行の上限だけは大きく残す: バブルは行と無関係にpt座標で
+' 下へ伸び続けるので、上限が低いと後半のバブルが到達不能になる(調査agent2 §2.3)。
+Public Const NEXUS_BAND As String = "A1:M1"
+Public Const NEXUS_PAD_COL As String = "M"
+Public Const NEXUS_MAX_ROW As Long = 2000
 
 Public Const HDR_H As Double = 42          ' ヘッダー1段ぶんの高さ(行1の既定)
 Public Const INPUT_ROW As Long = 3         ' 入力欄の行
@@ -46,6 +49,15 @@ Private Const HDR_PILLS As Long = 8          ' 右端ピルの個数
 
 ' 直近に描いたヘッダーの実使用高さ(段数×HDR_H)。行1の高さに反映する。
 Private mHeaderH As Double
+
+' NexusBound - チャットの実使用範囲 "A1:M<行>"。塗り・ScrollArea・Locked が
+'   共有する単一情報源。会話が伸びれば下端も伸びる(modUI.AddChatBubble が
+'   modSkin.ExtendChatBand 経由で追随させ、ClearChat で戻る)。
+Public Function NexusBound(ByVal ws As Worksheet) As String
+    If ws Is Nothing Then Exit Function
+    NexusBound = modViewport.BoundAddr(ws, NEXUS_PAD_COL, _
+                                       modUI.ChatBottomFor(ws), NEXUS_MAX_ROW)
+End Function
 
 ' チャット領域(バブル/アクションの基準)。列幅の実測から求める。
 Public Function ChatLeft(ByVal ws As Worksheet) As Double
@@ -73,30 +85,22 @@ End Function
 '   戻り値 = 実際に使った高さ(pt)。
 ' ----------------------------------------------------------------------------
 ' 2026-07-30(R4要件D)の作り直し:
-'   実機で ⚡すぐ聞く がタイトル「💬 チャット」に重なっていた。原因は幅の
-'   決め打ちで、右端ピル8個の固定予約幅の合計は 606pt(exit30/clear62/sq74/
-'   help30/theme26/lang92/mode118/speed124 + gap6×7 + 右余白8)、対して
-'   Nexusシートのヘッダー実幅 W(A1:M1)は約597pt。**予約が実幅を超えている
-'   のに、一度も W と突き合わせずに右から積んでいた**ので、最内側に来る
-'   speed が必ずタイトルへ食い込む。「たまたま重なった」のではなく
-'   「重ならない置き方が存在しない」状態だった。
-'
-'   直し方は3段構え。どれも「固定幅の合計 vs 予算」を必ずコードで比較する。
-'     1. タイトル用に HDR_TITLE_MIN(280pt)を必ず確保し、残りを予算とする。
-'     2. 通常表記→短縮表記→アイコンのみ、と収まる中で最も情報量の多い
-'        表記を選ぶ。幅はキャプションの実文字から出す(予約と実物が
-'        食い違わないようにする)。
-'     3. それでも収まらない端末では modChrome.FlowRight が段を増やして
-'        2段目以降へ右詰めで流す(同じ濃色帯を1行ぶん足す)。
-'   3のおかげで、Wがどんな値でも「タイトル領域へ入り込む配置」は
-'   構造的に作れない(FlowRightのコメント参照)。
+'   実機で ⚡すぐ聞く がタイトルに重なっていた。右端ピル8個の固定予約幅の
+'   合計606ptが帯の実幅(約597pt)を超えているのに、一度も突き合わせずに
+'   右から積んでいたため「重ならない置き方が存在しない」状態だった。
+'   直し方は3段構えで、どれも「固定幅の合計 vs 予算」を必ずコードで比較する。
+'     1. タイトル用に HDR_TITLE_MIN(280pt)を確保し、残りを予算とする。
+'     2. 通常→短縮→アイコンのみ、と収まる中で最も情報量の多い表記を選ぶ
+'        (幅はキャプションの実文字から出す=予約と実物が食い違わない)。
+'     3. それでも収まらない端末では modChrome.FlowRight が段を増やす。
 Public Function DrawChatHeader(ByVal ws As Worksheet) As Double
     Dim L As Double, cellW As Double, W As Double
     L = ws.Range("A1").Left
-    cellW = ws.Range("A1:M1").Width
-    ' R11-B(#30恒久対策): セル範囲幅(cellW)だけでなく実可視幅も見る。
-    ' 帯の背景(下のbg)は従来どおりcellWいっぱいのまま、操作系(ピル)の
-    ' 右端だけをmodChrome.BarWidthでウィンドウ実幅へクランプする。
+    ' R19-1b: 帯の右端も操作系の右端も modViewport.ContentRight 1本から取る
+    ' (帯637.5 / ピル629.5 / 送信622.25 の3段ズレは、同じ右端を3通りに
+    ' 計算していたのが原因)。帯は余白0=可視幅いっぱい、ピルと送信ボタンは
+    ' 余白 HDR_RIGHT_PAD ぶん内側で、必ず互いに一致する。
+    cellW = modViewport.ContentRight(ws, NEXUS_BAND, 0) - L
     W = modChrome.BarWidth(cellW, modUIMain.ViewportWidth(), HDR_RIGHT_PAD)
 
     ' --- 幅予算の決定 ---------------------------------------------------
@@ -201,13 +205,10 @@ End Function
 ' ----------------------------------------------------------------------------
 ' RedrawChatHeader - ヘッダーだけを作り直す(モード/速度/言語のトグル後)。
 ' ----------------------------------------------------------------------------
-' 2026-07-30(レビュー3-A(1)): トグルの3箇所は、ピルのTextRangeへ新しい
-' キャプションを直接書き込んでいた。書き込みは幅計算(ティア選択+FlowRight)
-' を一切通らないので、
-'   ・「⚡ すぐ聞く」→「🔬 入念に調べる」のように長い語に変わった瞬間、
-'     ピルの幅は元のままで文字だけがはみ出す
-'   ・幅が変わらない以上、隣のピルもタイトルも位置を譲らないので重なる
-' という壊れ方をする。実機でヘッダーが崩れていた直接の原因がこれ。
+' 2026-07-30(レビュー3-A(1)): トグルの3箇所はピルのTextRangeへ新しい
+' キャプションを直接書き込んでいた。書き込みは幅計算(ティア選択+FlowRight)を
+' 通らないので、長い語に変わった瞬間に文字がはみ出し、幅が変わらない以上
+' 隣のピルもタイトルも位置を譲らず重なる(実機のヘッダー崩れの直接原因)。
 ' 状態が変わったらヘッダー全体を描き直す(= 必ず幅から作り直す)。
 Public Sub RedrawChatHeader()
     Dim ws As Worksheet
@@ -225,9 +226,8 @@ Public Sub RedrawChatHeader()
     On Error GoTo 0
 End Sub
 
-' ヘッダーが持つShapeだけを消す。入力欄の nx_top_add / nx_top_send は
-' 同じ接頭辞だがヘッダーの持ち物ではないので消さない(消すと📎と送信が
-' 二度と戻らない)。
+' ヘッダーが持つShapeだけを消す。入力欄の nx_top_add / nx_top_send は同じ
+' 接頭辞だがヘッダーの持ち物ではない(消すと📎と送信が二度と戻らない)。
 Private Sub ClearChatHeader(ByVal ws As Worksheet)
     Dim names() As String
     ReDim names(0 To ws.Shapes.Count)
@@ -249,12 +249,12 @@ Private Sub ClearChatHeader(ByVal ws As Worksheet)
     Next i
 End Sub
 
-' 段番号からピルのY座標(その段の中央)を出す。
+' 段番号→ピルのY座標(その段の中央)。
 Private Function PillTop(ByVal rowIdx As Long) As Double
     PillTop = rowIdx * HDR_H + (HDR_H - HDR_BTN_H) / 2
 End Function
 
-' 1段目に置かれたピルのうち最も左のX(=タイトルが使える右端)。
+' 1段目のピルのうち最も左のX(=タイトルが使える右端)。
 Private Function LeftmostRow0(ByRef xs() As Double, ByRef rws() As Long, _
                               ByVal n As Long, ByVal fallbackX As Double) As Double
     Dim edge As Double: edge = fallbackX
@@ -270,17 +270,15 @@ End Function
 ' ----------------------------------------------------------------------------
 ' PillSpec - 右端ピル8個の表記と幅を組み立てる。
 '   tier 0=通常 / 1=無状態ボタンをアイコンのみへ / 2=状態ピルも短い語へ
-'   幅はキャプションの実文字から出す(固定の予約幅が実物と食い違って
-'   いたことが重なりの原因だったため、予約という概念自体をやめる)。
+'   幅はキャプションの実文字から出す(固定の予約幅が実物と食い違ったことが
+'   重なりの原因だったため、予約という概念自体をやめる)。
 ' ----------------------------------------------------------------------------
 ' ティア方針(2026-07-30 レビュー3-A(2)):
-'   状態を持つ3つ(モード/速度/言語)は、どのティアでも短い文字ラベルを保つ。
-'   アイコンだけにすると「今どちらなのか」が画面から消え、押す前に押した
-'   結果が分からないトグルになる。実機幅(約597pt)では常に最短ティアが
-'   選ばれるため、ここを落とすと【常に状態が読めない】ことになっていた。
-'   無状態の5つ(終了/クリア/質問例/ヘルプ/テーマ)は意味がアイコンに載って
-'   いるので、先にこちらを落とす。それでも1段に入らない分は
-'   modChrome.FlowRight が2段目へ流す(重なりゼロが最優先)。
+'   状態を持つ3つ(モード/速度/言語)はどのティアでも短い文字ラベルを保つ。
+'   アイコンだけにすると「今どちらか」が画面から消える。実機幅(約597pt)では
+'   常に最短ティアが選ばれるため、落とすと【常に状態が読めない】ことになる。
+'   無状態の5つ(終了/クリア/質問例/ヘルプ/テーマ)は意味が絵柄に載っている
+'   ので先にこちらを落とす。入らない分は FlowRight が2段目へ流す。
 Private Sub PillSpec(ByVal tier As Long, ByRef caps() As String, ByRef nm() As String, _
                      ByRef acts() As String, ByRef widths() As Double)
     ReDim caps(0 To HDR_PILLS - 1)
@@ -330,7 +328,7 @@ Private Sub SetPill(ByRef caps() As String, ByRef nm() As String, ByRef acts() A
     widths(idx) = modChrome.PillWidth(capText, HDR_PILL_PITCH, HDR_PILL_PAD, HDR_PILL_MIN)
 End Sub
 
-' 短縮表記にしたピルへツールチップ(代替テキスト)で元の意味を添える。
+' 短縮表記のピルへツールチップ(代替テキスト)で元の意味を添える。
 Private Sub SetPillTip(ByVal ws As Worksheet, ByVal shapeName As String, ByVal tipText As String)
     On Error Resume Next
     ws.Shapes(shapeName).AlternativeText = tipText
@@ -464,16 +462,11 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     rowTop = ws.Rows(INPUT_ROW).Top
     rowH = ws.Rows(INPUT_ROW).Height
 
-    ' 入力欄の左は「資料を入れる」。
-    '
-    ' READMEが売っているのは「ぶちこんで、すぐ聞ける」という2つの動詞なのに、
-    ' 起動して最初に立つこの画面には、後半の「聞く」しか無かった。資料を
-    ' 入れるには Hub → ナレッジ倉庫 → 11個並んだ同じ見た目のボタンの3番目、
-    ' と3画面移動する必要がある。初めて開いた人が辿り着けるはずがない。
-    ' 送信ボタンの真向かいに置いて、2つの動詞を同じ場所に揃える。
-    '
-    ' ここにあった📎(クリップボード画像)はナレッジ画面の「📸 スクショ取込」
-    ' と同じ機能で、そちらに残っている。1等地は主役の動詞に譲る。
+    ' 入力欄の左は「資料を入れる」。READMEが売っているのは「ぶちこんで、
+    ' すぐ聞ける」の2つの動詞なのに、この画面には「聞く」しか無く、資料を
+    ' 入れるには3画面移動が要った(初めて開いた人が辿り着けない)。送信の
+    ' 真向かいに置いて2つの動詞を揃える。旧📎(クリップボード画像)は
+    ' ナレッジ画面の「📸 スクショ取込」と同じ機能なのでそちらへ譲った。
     Dim cellB As Range: Set cellB = ws.Range("B" & r)
     Dim addD As Double: addD = 28
     Dim addBtn As Shape
@@ -495,11 +488,17 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     addBtn.AlternativeText = "資料を入れる"
     On Error GoTo 0
 
+    ' R19-1b: 送信ボタンの右端をヘッダー帯・ピルと揃える(実機要望)。
+    ' 左端はL列の実セル幾何から、右端は ContentRight から取る。M列(右余白)が
+    ' 受け皿になるので、数pt はみ出しても隣の列を割らない。
     Dim cellL As Range: Set cellL = ws.Range("L" & r)
     Dim sendH As Double: sendH = 32
+    Dim sendL As Double: sendL = cellL.Left + 4
+    Dim sendW As Double
+    sendW = modViewport.ContentRight(ws, NEXUS_BAND, HDR_RIGHT_PAD) - sendL
+    If sendW < 40 Then sendW = 40
     Dim send As Shape
-    Set send = ws.Shapes.AddShape(5, _
-        cellL.Left + 4, rowTop + (rowH - sendH) / 2, cellL.Width - 8, sendH)
+    Set send = ws.Shapes.AddShape(5, sendL, rowTop + (rowH - sendH) / 2, sendW, sendH)
     send.Name = "nx_top_send"
     send.Adjustments(1) = 0.3
     send.Line.Visible = 0
@@ -514,10 +513,9 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     End With
     send.OnAction = "modApp.OnSend"
 
-    ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。
-    ' 資料が1件も無いあいだは、ショートカットの案内より先に
-    ' 「何をすれば使えるようになるか」を出す。空のときにキーボード
-    ' ショートカットを教えても、押す先が無い。
+    ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。資料が1件も無い
+    ' あいだは、ショートカットより先に「何をすれば使えるようになるか」を出す
+    ' (空のときにショートカットを教えても押す先が無い)。
     Dim hint As String
     Dim n As Long
     On Error Resume Next
@@ -542,12 +540,14 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' R18-3b: 行ける範囲の宣言はここで行う(modUI は上限30,000字に対し残りが
     ' 無く1行も足せないため、Nexusの幾何を持つ本モジュール側に置く)。
     ' InitUI からは DrawInputArea → FreezePanes(A5選択)→ Protect の順に進む。
-    ' A5 も入力欄 C3 も NEXUS_BOUND の内側なので、既存の Select は影響を受けない。
-    modViewport.ApplyScrollBound ws, NEXUS_BOUND
+    ' A5 も入力欄 C3 も境界の内側なので、既存の Select は影響を受けない。
+    modViewport.ApplyScrollBound ws, NexusBound(ws)
+    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
+    modViewport.LogViewport "chat"
 End Sub
 
-' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。
-' 新しい質問を送るたびにClearContextActionsで消えるので、古い回答の下には残らない。
+' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。新しい質問の
+' たびにClearContextActionsで消えるので、古い回答の下には残らない。
 Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     ClearContextActions ws
     If ws Is Nothing Then Exit Sub
@@ -559,11 +559,9 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     On Error GoTo 0
     If anchor Is Nothing Then Exit Sub
 
-    ' 評価ボタンは「信頼度バッジ」と「出典チップ」より必ず下に置く。
-    ' 画面の縦順は、何を先に読ませたいかの主張そのもの。根拠を見る前に
-    ' 「解決した / 違う」を押させる並びは、評価してから確かめろと言っている
-    ' に等しい。損保でAIの回答を信じてよい理由は原文確認だけなので、
-    ' 根拠のほうを先に、上に置く。
+    ' 評価ボタンは「信頼度バッジ」と「出典チップ」より必ず下に置く。根拠を
+    ' 見る前に「解決した/違う」を押させる並びは、評価してから確かめろと
+    ' 言うに等しい。損保でAIの回答を信じてよい理由は原文確認だけ。
     Dim y As Double: y = anchor.Top + anchor.Height + 6
     Dim cb As Double
     On Error Resume Next
@@ -574,13 +572,10 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     On Error GoTo 0
 
     Dim caps As Variant, kinds As Variant, acts As Variant
-    ' 評価は「解決した/微妙/違う」の3択。どれも1クリックで完結し、
-    ' 入力を強制しない(入力を求めた途端に誰も押さなくなる)。
-    '
-    ' 「本社照会」は削除した。押しても常に「準備中です」としか返らない
-    ' ボタンが、全ての回答の下に永久に並んでいた。動かないものが1つでも
-    ' 混じっていると、利用者は「他も見せかけかもしれない」と学習する。
-    ' 出せないなら出さないほうが、信用は減らない。
+    ' 評価は「解決した/微妙/違う」の3択。1クリックで完結し入力を強制しない
+    ' (入力を求めた途端に誰も押さなくなる)。「本社照会」は削除した ――
+    ' 常に「準備中です」としか返らないボタンが全回答の下に並んでいると、
+    ' 利用者は「他も見せかけかもしれない」と学習する。
     caps = Array(ChrW(&H2705) & " 解決した", _
                  ChrW(&HD83E) & ChrW(&HDD14) & " 微妙", _
                  ChrW(&H274C) & " 違う", _
@@ -636,9 +631,9 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' DrawConfidence - 信頼度バッジ。回答バブルの直下、いちばん最初に読ませる1行。
 ' ----------------------------------------------------------------------------
-' 「この答えを信じてよいか」を利用者が自分で判断できないことが、フィードバックが
-' 集まらない根本原因だった。検索スコアを、確認すべきときだけ確認を促す一文に
-' 翻訳して先に見せる。Shape名が nx_conf_ なのは、評価ボタン(nx_act_)の掃除に
+' 「この答えを信じてよいか」を自分で判断できないことがフィードバックの
+' 集まらない根本原因だった。検索スコアを、確認すべきときだけ確認を促す一文へ
+' 翻訳して先に見せる。Shape名 nx_conf_ は評価ボタン(nx_act_)の掃除に
 ' 巻き込まれないため(描画順は バッジ → 出典 → 評価)。
 Public Function DrawConfidence(ByVal ws As Worksheet, ByVal bubbleName As String) As Double
     ClearConfidence ws

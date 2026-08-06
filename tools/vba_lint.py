@@ -206,8 +206,12 @@ CONTRACT: dict[str, dict] = {
     # 近くで判定本体を置けないため(modDiag.WarnIfReadOnly と同型の判断)。
     "modIntegrity": {
         "closed": True,
+        # IsUsedRangeBloated(2026-08-06 R19-1e): 既存ブックに焼き付いた全域書式
+        # (UsedRangeが画面の4倍超)の検知。数の比較だけの純関数なので
+        # modTestsPure16 が境界をゴールデンで固定する。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "DataShrunk", "IsVolatilePath",
+                     "IsUsedRangeBloated",
                      "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup"],
     },
     # ---- 7.2 取込層 ----
@@ -1035,6 +1039,11 @@ CONTRACT: dict[str, dict] = {
     "modSkin": {
         "closed": True,
         "required": [
+            # ExtendChatBand(2026-08-06 R19-1b): チャットの塗り/ScrollAreaを
+            # 会話の実下端(mChatBottom)へ追随させる。旧実装の A1:P2000 固定
+            # (約31,000pt=40画面ぶん)を廃止した代わりで、modUI.AddChatBubble と
+            # ClearChat から呼ぶ。塗りの持ち主が modSkin なのでここに置く。
+            "ExtendChatBand",
             "BeautifyAll", "StyleShape", "ApplyHeaderDepth", "ApplyGradient",
             "ApplyLightShadow", "ApplyGreenDepth", "StyleBubble", "ApplySoftShadow",
             "EffectiveSkin", "ResolveColor", "CycleSkin", "ShowToast",
@@ -1144,10 +1153,14 @@ CONTRACT: dict[str, dict] = {
     "modKnowledge": {
         "closed": True,
         "required": [
-            # SHELF_BOUND(2026-08-05 R18-3a/3b): 「マイ本棚」シートの実使用範囲。
-            # table/gallery/shared の3モジュールが書式適用範囲とScrollAreaの
-            # 両方で参照するため、共通クロムを持つ modKnowledge が単一情報源。
-            "CHROME_ROWS", "SHELF_BOUND", "DrawChrome", "PrepareScreenView", "IsTableMode",
+            # SHELF_MAX_ROW / SHELF_PAD_COL / SHELF_BAND / ShelfBound
+            # (2026-08-05 R18-3a/3b → 2026-08-06 R19-1b): 「マイ本棚」シートの
+            # 実使用範囲。table/gallery/shared の3モジュールが書式適用範囲と
+            # ScrollArea の両方で参照するため、共通クロムを持つ modKnowledge が
+            # 単一情報源。固定文字列 "A1:N412"(約6,200pt=8画面ぶん)をやめ、
+            # 描いた内容の実下端から範囲を組む関数へ変えた(R19-1b)。
+            "CHROME_ROWS", "SHELF_MAX_ROW", "SHELF_PAD_COL", "SHELF_BAND",
+            "ShelfBound", "DrawChrome", "PrepareScreenView", "IsTableMode",
             "ContentTop", "SearchCellAddress", "OnGoGallery", "OnGoShared",
             "OnGoTable", "OnBackHub", "OnHelp", "OnToChat", "OnSearch", "OnGapBoard",
             "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",

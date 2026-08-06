@@ -26,11 +26,21 @@ Private Const NAV_COUNT As Long = 3
 ' (DrawExtras内で CHIP_H から算出)へ自動で伝わる。
 Private Const CHIP_H As Double = 46
 
-' R18-3a/3b: Hub画面が実際に使うセル範囲。書式の適用範囲(全域書式の禁止)と
-' ScrollArea の唯一の情報源。列幅・行高の設定と同じ幾何(A:L / 1..60行=900pt)。
+' R18-3a/3b: Hub画面が使えるセル範囲の【上限】(A:L / 1..60行=900pt)。
 ' Public なのは modHubStat.DrawFooter がフッターの境界チェックにこの範囲の
 ' 実測(Top+Height)を使うため(R18-5b。Private Const は跨いで参照できない)。
+' R19-1b: 実際に塗る範囲と ScrollArea は、この上限ではなくフッターの実下端
+' から modViewport.BoundAddr で求める(60行=900pt を常に使用済みにすると、
+' 内容が500〜700ptしかない画面で1画面ぶん余計にスクロールできてしまう)。
 Public Const HUB_BOUND As String = "A1:L60"
+
+' R19-1b: 帯(吸収列Lを含む列帯)と、内容が載る列(A:K)。
+' 右端の食い違い(帯625 / ピル617 / ナビ・フッター614.6)は、同じ「右端」を
+' 3通りに計算していたのが原因。帯の背景だけは可視幅いっぱい(HUB_BAND)、
+' 操作系と本文は内容列の右端(HUB_CONTENT)に揃える ―― どちらも
+' modViewport.ContentRight 1本から取る(画面ごとの別式を作らない)。
+Private Const HUB_BAND As String = "A1:L1"
+Private Const HUB_CONTENT As String = "A1:K1"
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
@@ -56,13 +66,6 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     modProgressBar.SweepOrphans
 
     ws.Cells.Clear
-    ' R18-3a(実機第5報②): 書式は ws.Cells(全域)ではなく実使用範囲だけに
-    ' 当てる。全域に一様な書式を置くとExcelがそこまで「使用済み」と見なし、
-    ' UsedRange(=スクロールできる範囲)がシート最大まで膨らむ ―― 「右にも
-    ' 下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
-    ws.Range(HUB_BOUND).Font.Name = "Yu Gothic UI"
-    ws.Range(HUB_BOUND).Font.Size = 10
-    ws.Range(HUB_BOUND).Interior.Color = modUI.UiColor("bg")
 
     ' 幾何を確定させてからShapeを置く(順序が逆だと座標がズレる)。
     ' D列/G列の細い溝は「セル感」消し。タイルが隣接すると表に見えてしまう。
@@ -74,6 +77,23 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Columns("H:K").ColumnWidth = 13
     ws.Columns("L").ColumnWidth = 1.5
     ws.Rows("1:60").RowHeight = 15
+    ' R19-1b(実機第6報①): 右の余白はスクロールではなく寸法の問題。余りを
+    ' L列に吸わせて A:L の合計を可視幅ぴったりにすると、白い余白が構造的に
+    ' 消える(ScrollAreaでは原理的に消せない)。Shape座標は全てセル幾何から
+    ' 取っているので、列幅が変わっても追従する。
+    modViewport.FitBandToViewport ws, HUB_BAND, "L"
+
+    ' R18-3a(実機第5報②): 書式は ws.Cells(全域)ではなく実使用範囲だけに
+    ' 当てる。全域に一様な書式を置くとExcelがそこまで「使用済み」と見なし、
+    ' UsedRange(=スクロールできる範囲)がシート最大まで膨らむ ―― 「右にも
+    ' 下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
+    ' R19-1b: フォントは描画前(このあとセルへ書く文字が拾うため)、塗りと
+    ' ScrollAreaは描画後に実下端から決める(EnsureHubLayout末尾)。
+    Dim baseAddr As String
+    baseAddr = modViewport.BoundAddr(ws, "L", 0, 60)
+    ws.Range(baseAddr).Font.Name = "Yu Gothic UI"
+    ws.Range(baseAddr).Font.Size = 10
+    ws.Range(baseAddr).Interior.Color = modUI.UiColor("bg")
 
     If activate Then
         If Not modUI.ActivateSheetRobust(ws, "modHub.EnsureHubLayout") Then modUI.RestoreExcelUI
@@ -113,10 +133,21 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     DrawNavButtons ws
     Dim rightBot As Double: rightBot = DrawExtras(ws)
     If rightBot > botY Then botY = rightBot
-    modHubStat.DrawFooter ws, ws.Range("B1").Left, ws.Range("B1:K1").Width, botY + 18
+    ' フッターの右端もナビ・ピルと同じ ContentRight に揃える(R19-1b)。
+    Dim footL As Double: footL = ws.Range("B1").Left
+    Dim footBot As Double
+    footBot = modHubStat.DrawFooter(ws, footL, _
+        modViewport.ContentRight(ws, HUB_CONTENT, 8) - footL, botY + 18)
 
-    ' R18-3b: この画面で行ける範囲の宣言(上の列幅・行高と同じ HUB_BOUND)。
-    modViewport.ApplyScrollBound ws, HUB_BOUND
+    ' R19-1b: 塗りと ScrollArea をフッターの実下端(+24pt、最低1画面)まで
+    ' 縮める。60行=900pt を常に塗ると、内容が500〜700ptしかない画面で
+    ' 1画面ぶん余計に「使用済み」になり、下へスクロールできてしまう。
+    Dim bnd As String
+    bnd = modViewport.BoundAddr(ws, "L", footBot, 60)
+    ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
+    modViewport.ApplyScrollBound ws, bnd
+    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
+    modViewport.LogViewport "hub"
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
@@ -132,15 +163,17 @@ End Sub
 
 ' ヘッダーバー(全幅) + 右肩のユーティリティアイコン
 ' R11-B(#30): 固定30pt×6の決め打ちをやめ、modChrome.PillWidth+FlowRightで
-' 可視幅(modUIMain.ViewportWidth)基準に並べ直す。帯の背景は従来どおり
-' セル幅いっぱい(cellW)のまま、操作系(アイコン+ラベル)の右端だけを
-' modChrome.BarWidthでクランプする。
+' 可視幅基準に並べ直す。帯の背景は可視幅いっぱい、操作系(アイコン+ラベル)の
+' 右端は内容列の右端。右端の値は modViewport.ContentRight 1本から取る(R19-1b)。
 Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim L As Double, cellW As Double
     L = ws.Range("A1").Left
-    cellW = ws.Range("A1:L1").Width
-    Dim barW As Double
-    barW = modChrome.BarWidth(cellW, modUIMain.ViewportWidth(), 8)
+    ' R19-1b: 帯の背景は可視幅いっぱい(吸収列Lまで)、操作系の右端は内容列の
+    ' 右端。どちらも modViewport.ContentRight から取る(帯625/ピル617/ナビ
+    ' 614.6 の3段ズレは、同じ右端を3通りに計算していたのが原因)。
+    cellW = modViewport.ContentRight(ws, HUB_BAND, 0) - L
+    Dim rightX As Double
+    rightX = modViewport.ContentRight(ws, HUB_CONTENT, 8)
 
     ' 右→左に置く並び(終了が最も右)。旧実装の decrement 順をそのまま
     ' 配列順にした(icons(0)が最初に置かれる=右端)。
@@ -166,7 +199,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     Next i
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
-    rowN = modChrome.FlowRight(widths, 6, L + barW - 8, L + 140, L + 8, 0, xs, rws, useW)
+    rowN = modChrome.FlowRight(widths, 6, rightX, L + 140, L + 8, 0, xs, rws, useW)
     If rowN < 1 Then rowN = 1
     Dim hdrH As Double: hdrH = rowN * HDR_H
     If hdrH > 200 Then hdrH = 200
@@ -396,7 +429,9 @@ End Function
 Private Sub DrawNavButtons(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
-    W = ws.Range("H3:K3").Width
+    ' R19-1b: ナビの右端はヘッダーピル・フッターと同じ ContentRight に揃える
+    ' (従来は K列の右端=614.6 で、ピル617・帯625 と3段にズレていた)。
+    W = modViewport.ContentRight(ws, HUB_CONTENT, 8) - L
     T = HDR_H + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
@@ -461,7 +496,7 @@ Private Function DrawExtras(ByVal ws As Worksheet) As Double
     ' 2026-07-31(R7 A-3・タスク#27): ここは 4 * (NAV_H + NAV_GAP) だった。
     ' ナビを4枚から3枚へ減らしたときの後始末漏れで、実枚数と食い違った
     ' 1枚ぶん(54pt)がそのまま右列の空白として残っていた。実枚数から出す。
-    W = ws.Range("H3:K3").Width
+    W = modViewport.ContentRight(ws, HUB_CONTENT, 8) - L
     T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
 
     modHubStat.DrawQuickAskCards ws, L, W, T + 20, CHIP_H

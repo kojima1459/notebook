@@ -26,6 +26,11 @@ Option Explicit
 
 Private Const THEME_KEY As String = "nexus_theme"
 
+' R19-1b: 直近にチャットの塗りを当てた最終行。会話が伸びたぶんだけ塗り足す
+' ための目印で、同じ範囲を毎バブル塗り直さないためだけに持つ(状態の本体は
+' modUI.mChatBottom。ここはその写像なので、ズレても塗りが1回増えるだけ)。
+Private mChatBandRow As Long
+
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
 '   modUI.InitUI/Repaint、各画面(Vault/Dashboard)の描画終端から呼ぶ。
@@ -397,12 +402,46 @@ Public Function ThemeColor(ByVal key As String) As Long
     ThemeColor = ResolveColor(key, CurrentTheme())
 End Function
 
+' ----------------------------------------------------------------------------
+' ExtendChatBand - チャットの塗りと ScrollArea を会話の実下端へ追随させる。
+' ----------------------------------------------------------------------------
+' R19-1b(実機第6報①): 旧実装は起動のたびに A1:P2000(約31,000pt=40画面ぶん・
+' 32,000セル)を塗っていた。これは制限ではなく「無限スクロールの明文許可」で、
+' 塗ったぶんだけブックにスタイルが焼き付いてもいた。会話は下へ伸び続けるので、
+' 下端は mChatBottom を単一情報源にして【バブルを足すたびに伸ばす】。
+' 固定領域(行1〜4=ヘッダー/入力欄)は ApplyTheme が別に塗るのでここでは触らない
+' (触ると入力欄の白い箱を塗り潰す)。すでに足りているときは何もしない。
+Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim addr As String: addr = modUINexusDraw.NexusBound(ws)
+    Dim lastRow As Long, fromRow As Long
+    lastRow = ws.Range(addr).Rows.Count
+    If lastRow > mChatBandRow Then
+        fromRow = mChatBandRow + 1
+        If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
+        ws.Range("A" & fromRow & ":" & _
+                 modUINexusDraw.NEXUS_PAD_COL & lastRow).Interior.Color = ThemeColor("bg")
+    End If
+    mChatBandRow = lastRow
+    modViewport.ApplyScrollBound ws, addr
+    On Error GoTo 0
+End Sub
+
 ' テーマ適用(背景+全nx_Shape再彩色)。
 Public Sub ApplyTheme(ByVal ws As Worksheet)
-    ' R18-3a: 全域(ws.Cells)への塗りはUsedRangeをシート最大へ膨らませ、
+    ' R18-3a/R19-1b: 全域(ws.Cells)への塗りはUsedRangeをシート最大へ膨らませ、
     ' 「右にも下にも無限にスクロールできる」状態を作る(調査agent2 §1.3)。
-    ' 呼び出し元は全てNexus(チャット)シートなので、その実使用範囲だけ塗る。
-    ws.Range(modUINexusDraw.NEXUS_BOUND).Interior.Color = ThemeColor("bg")
+    ' 呼び出し元は全てNexus(チャット)シートなので、会話の実下端から決まる
+    ' 実使用範囲(NexusBound)だけを塗る。フォントもここで当てる(旧 modUI.InitUI
+    ' の A1:P2000 へのFont.Nameは廃止した)。
+    Dim bandAddr As String: bandAddr = modUINexusDraw.NexusBound(ws)
+    ws.Range(bandAddr).Interior.Color = ThemeColor("bg")
+    On Error Resume Next
+    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
+    mChatBandRow = ws.Range(bandAddr).Rows.Count
+    modViewport.ApplyScrollBound ws, bandAddr
+    On Error GoTo 0
 
     ' 入力欄(C3:K3)は上の一括塗りで消えるため塗り直す(両端B/L列は
     ' あえて無地のまま=入力欄に見せない)。

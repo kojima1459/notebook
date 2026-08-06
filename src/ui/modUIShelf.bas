@@ -84,9 +84,11 @@ Public Sub EnsureLayout()
     uiStep = "既定フォント設定"
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
     ' (無限スクロールの主因・調査agent2 §1.3)。3モードが共有するこのシートの
-    ' 実使用範囲(A:N / カード最終行412)だけに当てる。
-    ws.Range(modKnowledge.SHELF_BOUND).Font.Name = "游ゴシック"
-    ws.Range(modKnowledge.SHELF_BOUND).Font.Size = 11
+    ' 実使用範囲だけに当てる。R19-1b: この時点では件数が未確定なので1画面ぶん。
+    ' カードを描き終えた RenderShelf が実下端まで当て直す。
+    Dim fontAddr As String: fontAddr = modKnowledge.ShelfBound(ws, 0)
+    ws.Range(fontAddr).Font.Name = "游ゴシック"
+    ws.Range(fontAddr).Font.Size = 11
 
     ' A:N を全列ぶん明示する(2026-07-30 R4要件A)。
     ' 旧実装はK列・L列だけ設定しておらず、DrawChromeが使う W=A1:N1 の幅が
@@ -283,6 +285,7 @@ Public Sub RenderShelf()
             .Font.Size = 10
         End With
         ws.Rows(FIRST_CARD_ROW).RowHeight = 18
+        ApplyShelfExtent ws, FIRST_CARD_ROW, True
         Application.ScreenUpdating = True
         Exit Sub
     End If
@@ -291,12 +294,21 @@ Public Sub RenderShelf()
     shown = n
     If shown > MAX_CARD_ROWS Then shown = MAX_CARD_ROWS
 
+    ' R19-1b: 一覧表は行数が資料件数で決まる唯一のモード。フォントは描く前に
+    ' 実使用範囲へ当て(後から当てるとカードの文字サイズを潰す)、境界は
+    ' 描き終えてから当て直す(メモの折り返しで行高が伸びるため)。
+    uiStep = "実使用範囲の書式"
+    ApplyShelfExtent ws, FIRST_CARD_ROW + shown - 1, True
+
     uiStep = "資料カードの描画(1件目)"
     Dim i As Long
     For i = 0 To shown - 1
         uiStep = "資料カードの描画(" & (i + 1) & "件目/" & shown & "件)"
         RenderOneCard ws, FIRST_CARD_ROW + i, names(i), stats(i)
     Next i
+
+    uiStep = "実使用範囲の確定"
+    ApplyShelfExtent ws, FIRST_CARD_ROW + shown - 1, False
 
     Application.ScreenUpdating = True
     Exit Sub
@@ -314,6 +326,25 @@ FailCleanup1:
     Application.ScreenUpdating = True
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.RenderShelf", "[" & uiStep & "] " & origDesc
+End Sub
+
+' ApplyShelfExtent - 一覧表の実使用範囲(書式と ScrollArea)を最終行から決める。
+'   lastRow : 内容が入っている最後の行。行高は行ごとに違う(メモの折り返し)ので
+'             実セル幾何(Top+Height)から下端ptを取る=行数×15の机上計算はしない。
+'   withFont: フォントも当てるか。カードを描く【前】だけTrueにする ―― 描いた
+'             後に当てると、カード側で指定した文字サイズを潰してしまう。
+Private Sub ApplyShelfExtent(ByVal ws As Worksheet, ByVal lastRow As Long, _
+                             ByVal withFont As Boolean)
+    On Error Resume Next
+    Dim bottomY As Double
+    bottomY = ws.Rows(lastRow).Top + ws.Rows(lastRow).Height
+    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
+    If withFont Then
+        ws.Range(addr).Font.Name = "游ゴシック"
+        ws.Range(addr).Font.Size = 11
+    End If
+    modViewport.ApplyScrollBound ws, addr
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------

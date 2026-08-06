@@ -15,33 +15,28 @@ Option Explicit
 '     ボタンだけをShape(msoShapeRoundedRectangle)にする。Shape名は
 '     btn_/lbl_ プレフィクス(§12)。EnsureLayoutは既存の自前Shapesを
 '     全削除してから再生成する(冪等。ユーザーが壊しても開き直せば直る)。
-'   ・質問入力セルは "mb_question" という定義済み名前(Excel Name)を
-'     A6セル(結合セルB6:H9ではなく左上のA6セルそのもの。結合セルの値は
-'     左上セルに格納されるVBAの仕様を利用)に張る。modAsk.bas側の
-'     アサンプションコメントと一致させること(Wave3で突き合わせ済み)。
-'     プレースホルダ文字列は使わない(空のまま)。理由: プレースホルダ文字列
-'     を入れると、ユーザーが消し忘れた場合にmodAsk側がそれをそのまま質問文
-'     として送ってしまう(modAskはこのモジュールのプレースホルダ規約を
-'     知らないため、二重管理を避けて「空セル=未入力」に統一した)。
+'   ・質問入力セルは "mb_question"(Excel Name)を A6セル(結合の左上セル
+'     そのもの。結合セルの値は左上に入るVBAの仕様を利用)に張る。modAsk.bas
+'     側のアサンプションコメントと一致させること(Wave3で突合済み)。
+'     プレースホルダ文字列は使わない(空のまま)。消し忘れた文字列をmodAsk側が
+'     そのまま質問文として送ってしまうため(規約の二重管理を避け「空セル=
+'     未入力」に統一)。
 '   ・SetStageは「セルへの書込み」「Application.StatusBarへの反映」を
 '     必ず両方行う(§7.6契約)。処理中(msgが空でない)ときは待ち時間豆知識
 '     ShowTipも合わせて更新し、ユーザーが手持ち無沙汰にならないようにする。
-'   ・読み上げ(TTS)ボタンは置かない(裁定D10でボタンごと撤去。音声読み上げは
-'     AIリボン本体でのみ利用可。出典: RIBBON_API_CONFIRMED.md §0/§2b D10)。
+'   ・読み上げ(TTS)ボタンは置かない(裁定D10で撤去。音声読み上げはAIリボン
+'     本体でのみ利用可。出典: RIBBON_API_CONFIRMED.md §0/§2b D10)。
 '   ・「続けて質問」ボタン(OnFollowupButton。裁定D11)は旧読み上げボタンの
 '     位置(A31:D32)に置く。深掘りの実体(会話履歴の保持・再質問)はすべて
 '     modAsk.CanFollowup/AskFollowupの責務で、押下時の武装(R13-6a)は
 '     modAppAct.ArmFollowupへ委ねる薄いラッパーに徹する。
 '   ・opt機能ボタン(Wordで開く)はmodFeatures.FeatureEnabledがTrueのときだけ
-'     EnsureLayout内で生成する(§7.7)。押下時は「どんな文書に仕上げるか」の
-'     指示文を尋ねてから(裁定D12: 対話型文書生成)、OnOpenWordButtonラッパー
-'     経由でmodFeatures.InvokeFeature("markdown","ExportAnswerAsDoc",…)を
-'     呼ぶ(opt直接参照はR2違反になるため、このモジュールにoptMarkdown等の
-'     トークンは一切書かない)。
-'   ・本棚が空のときの案内(§8.1「まず『マイ本棚』タブで資料を1つ追加して
-'     みましょう →」)はShowEmptyShelfHintとして公開し、呼び出し判断(本棚が
-'     空かどうか)はmodBoot側が行う(modUIMainはmodShelfの状態を勝手に
-'     判定しない。UIモジュールは「表示のしかた」の責務に留める)。
+'     生成する(§7.7)。押下時は指示文を尋ねてから(裁定D12)、OnOpenWordButton
+'     経由で modFeatures.InvokeFeature("markdown","ExportAnswerAsDoc",…)を
+'     呼ぶ(opt直接参照はR2違反。optMarkdown等のトークンは一切書かない)。
+'   ・本棚が空のときの案内(§8.1)はShowEmptyShelfHintとして公開し、呼び出し
+'     判断(本棚が空か)はmodBoot側が行う(UIモジュールは「表示のしかた」の
+'     責務に留め、modShelfの状態を勝手に判定しない)。
 '   ・OnAskButtonは質問実行後、EvaluateBadges/RenderDashboardの更新を
 '     On Error Resume Next(1行スコープ)で試みる。ダッシュボードの更新に
 '     失敗しても質問応答自体は成功として扱う(非致命)。
@@ -62,10 +57,9 @@ Private Const COLOR_SELECTED_FG As Long = 16777215   ' RGB(255,255,255) 白
 
 Private mLastAnswerText As String
 
-' 待ち時間の実況先は modLive が持つ。modAsk は進捗を SetStage /
+' 待ち時間の実況先は modLive が持つ。modAsk が SetStage /
 ' RenderSourcesPreview でここへ知らせる契約(§7.3・R1で許可された唯一のUI
-' コールバック)だが、その宛先だった旧ホームシートのセルは、既定UIがNexus
-' チャットになった今、利用者が一切見ていない。契約は変えずに転送先を足す。
+' コールバック)は変えず、宛先(誰も見ていない旧ホームのセル)だけ足す。
 
 ' ViewportWidth - ウィンドウの実可視幅(pt)。#30恒久対策(R11-B)の共通部品。
 '   セル範囲幅だけを見るクロム配置(modHub/modKnowledge/modDash/
@@ -283,6 +277,15 @@ Public Sub EnsureLayout()
     ApplyModeColors CurrentMode()
     uiStep = "豆知識の表示"
     ShowTip
+
+    ' R19-1b(実機第6報①): 旧ホームにも「行ける範囲」を宣言する。書式は
+    ' A1:I40(約660pt×40行)だけに当てているのに宣言が無く、ここだけ
+    ' シート最大までスクロールバーが伸びていた。
+    ' なお実運用では、この直後に modHub.EnsureHubLayout が同じ SH_HOME を
+    ' 描き替える(modBoot.bas:140/259 の並び)ので、この宣言は Hub 側の
+    ' 実測境界に上書きされる。単独で呼ばれる経路のための保険。
+    uiStep = "スクロール範囲の宣言"
+    modViewport.ApplyScrollBound ws, "A1:I40"
 
     On Error Resume Next
     If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰

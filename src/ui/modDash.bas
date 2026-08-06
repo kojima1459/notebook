@@ -51,12 +51,16 @@ Private Const ADMIN_MAX_ROWS As Long = 12
 
 ' R18-3a/3b: この画面が使うセル範囲。本文はすべてpt座標のShapeで積むため
 ' 行高の既定がフォント依存でぶれると「pt→行」の換算ができない。行高を
-' DASH_ROW_H に固定し、書式もこの範囲だけに当てる(全域書式の禁止)。
-' DASH_ROWS は管理者一覧(最大12行)まで出しても余る値(120行=1,800pt)。
+' DASH_ROW_H に固定する。DASH_ROWS は行の【上限】(120行=1,800pt)で、
+' 実際に塗る行数は内容の実下端から決める(R19-1b。従来は常に120行=1,800ptを
+' 塗っていたが内容は400〜700ptしかなく、空塗りが最大の画面だった)。
 Private Const DASH_ROWS As Long = 120
 Private Const DASH_ROW_H As Double = 15
-' ScrollAreaの下端に足す余白(実測下端のすぐ下で切ると窮屈に見える)。
-Private Const DASH_BOTTOM_PAD As Double = 24
+' R19-1b: 列は A:J(内容幅ぶん)+ 吸収列K。旧実装は A:T=約1,020pt を9ptで
+' 敷き詰めていたが、内容の実右端は590ptしかなく、右へ430ptの空塗りが
+' 残っていた(実機報告「特にダッシュボード」の正体)。
+Private Const DASH_BAND As String = "A1:K1"
+Private Const DASH_PAD_COL As String = "K"
 
 Private mAdminExclNames() As String
 Private mAdminExclCount As Long
@@ -211,10 +215,13 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' 膨らませる(この画面は行高を一切設定していないのに「下に無限へ
     ' スクロールできる」と報告された。調査agent2 §1.3)。実使用範囲だけに
     ' 当てる。行高も明示して幾何を確定させる(pt→行の換算をここで固定する)。
-    ws.Range("A1:T" & DASH_ROWS).Font.Name = "Yu Gothic UI"
-    ws.Range("A1:T" & DASH_ROWS).Interior.Color = modUI.UiColor("bg")
-    ws.Columns("A:T").ColumnWidth = 9
+    ws.Columns("A:J").ColumnWidth = 9
+    ' 余りをK列に吸わせて A:K の合計を可視幅ぴったりにする。内容の実右端
+    ' (590pt)より狭い窓では内容側を優先する(ボタンが境界の外に出ない)。
+    modViewport.FitBandToViewport ws, DASH_BAND, DASH_PAD_COL, ContentRightX()
     ws.Rows("1:" & DASH_ROWS).RowHeight = DASH_ROW_H
+    ' 書式(フォント・塗り)は描き終えてから実下端ぶんだけ当てる
+    ' (ApplyDashScrollBound)。全域・広域の書式はUsedRangeを膨らませる。
 
     mDashStep = "DrawHeader": DrawHeader ws
     mDashStep = "DrawKpiRow": modDashStat.DrawKpiRow ws
@@ -227,38 +234,44 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 End Sub
 
-' R18-3b: この画面で行ける範囲を宣言する。他画面と違って本文は全てpt座標の
-' Shapeで積まれ、内容(バッジ件数・管理者一覧の件数)で下端が変わるため、
-' 固定の行数では決められない。描き終えた実物のShapeから右下端を実測して
-' 決める(modDash.bas の「+270」決め打ちで跡地が残った教訓の反対側)。
+' 本文は全てpt座標のShapeで積まれ、内容(バッジ件数・管理者一覧の件数)で
+' 下端が変わるため、固定の行数では決められない。描き終えた実物のShapeから
+' 下端を実測し、塗り・ScrollArea をそこまで(+24pt、最低1画面)にする
+' (R18-3b → R19-1b。右端は吸収列Kで可視幅に一致しているので実測不要)。
 Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
-    Dim rightX As Double, bottomY As Double
+    Dim bottomY As Double
     On Error Resume Next
     Dim shp As Shape
     For Each shp In ws.Shapes
-        If shp.Left + shp.Width > rightX Then rightX = shp.Left + shp.Width
         If shp.Top + shp.Height > bottomY Then bottomY = shp.Top + shp.Height
     Next shp
     On Error GoTo 0
-
-    ' ヘッダー帯だけはセル全幅(A1:T1)で描くため、そのまま採ると右端が
-    ' 画面幅の倍近くになる。操作系と本文が収まる幅(ROW_WIDTH+左右余白)を
-    ' 上限にして、意味のない右余白へは行けないようにする。
-    Dim contentR As Double
-    contentR = modDashStat.KPI_X0 * 2 + modDashStat.ROW_WIDTH
-    If rightX > contentR Then rightX = contentR
     If bottomY < 200 Then bottomY = 200
 
-    modViewport.ApplyScrollBound ws, _
-        modViewport.BoundFor(ws, rightX, bottomY + DASH_BOTTOM_PAD, 20, DASH_ROWS)
+    Dim bnd As String
+    bnd = modViewport.BoundAddr(ws, DASH_PAD_COL, bottomY, DASH_ROWS)
+    On Error Resume Next
+    ws.Range(bnd).Font.Name = "Yu Gothic UI"
+    ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
+    On Error GoTo 0
+    modViewport.ApplyScrollBound ws, bnd
+    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
+    modViewport.LogViewport "dash"
 End Sub
+
+' 内容の実右端(pt)。KPIカード4枚の版面(modDashStat)が唯一の情報源。
+Private Function ContentRightX() As Double
+    ContentRightX = modDashStat.KPI_X0 * 2 + modDashStat.ROW_WIDTH
+End Function
 
 ' ---- ヘッダー ----
 
 Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim L As Double, W As Double
     L = ws.Range("A1").Left
-    W = ws.Range("A1:T1").Width                      ' 帯そのものは画面いっぱい
+    ' R19-1b: 帯は可視幅いっぱい、操作系の右端はその内側8pt。どちらも
+    ' modViewport.ContentRight 1本から取る(画面ごとの別式を作らない)。
+    W = modViewport.ContentRight(ws, DASH_BAND, 0) - L
 
     Dim caps(0 To HDR_ITEMS - 1) As String
     Dim acts(0 To HDR_ITEMS - 1) As String
@@ -267,13 +280,10 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     HeaderSpec caps, acts, nms, wds
 
     ' 配置の算数は modChrome に任せる(枠外へ描く置き方が存在しない形にする)。
-    ' R11-B(#30): 右端はセル幅(W)ではなく実可視幅でクランプする。
-    Dim barW As Double
-    barW = modChrome.BarWidth(W, modUIMain.ViewportWidth(), 8)
     Dim xs() As Double, rws() As Long, uws() As Double
     Dim rowN As Long
     rowN = modChrome.FlowLeft(wds, HDR_ITEMS, L + HDR_TITLE_RESERVE, _
-                              L + barW - 8, HDR_PILL_GAP, _
+                              modViewport.ContentRight(ws, DASH_BAND, 8), HDR_PILL_GAP, _
                               xs, rws, uws)
     If rowN < 1 Then rowN = 1
     Dim barH As Double: barH = HDR_BAR_H + (rowN - 1) * (HDR_PILL_H + 4)

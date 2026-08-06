@@ -248,8 +248,11 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ws.Cells.Clear
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
     ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
-    ws.Range(modKnowledge.SHELF_BOUND).Interior.Color = modUI.UiColor("bg")
-    ws.Range(modKnowledge.SHELF_BOUND).Font.Name = "Yu Gothic UI"
+    ' R19-1b: カードはpt座標のShapeで積むのでセルの実使用範囲は1画面ぶんで
+    ' 足りる(旧 A1:N412=約6,200pt は8画面ぶんの空塗りだった)。
+    Dim bandAddr As String: bandAddr = modKnowledge.ShelfBound(ws, 0)
+    ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
+    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
     ' A:N を全列ぶん明示する(一覧表モードがK/L未設定だったために、
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2
@@ -403,7 +406,10 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     ' ページャ。0件のときは描かない(2026-07-31 R11-F2。監査1 M-6の回収)。
     ' 「1 / 1 ページ(全0件)」と前へ/次へだけが浮いている画面は、押しても
     ' 何も起きないボタンを2つ見せることになり、Empty Stateの案内を打ち消す。
-    If fCount = 0 Then Exit Sub
+    If fCount = 0 Then
+        ApplyGalleryExtent ws
+        Exit Sub
+    End If
 
     Dim pgY As Double: pgY = cardT + 3 * (CARD_H + 14) + 6
     Dim prevBtn As Shape
@@ -455,6 +461,26 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     nextBtn.TextFrame2.MarginLeft = 10: nextBtn.TextFrame2.MarginRight = 10
     nextBtn.TextFrame2.MarginTop = 6: nextBtn.TextFrame2.MarginBottom = 6
     nextBtn.OnAction = "modVaultGallery.OnVaultNext"
+    ApplyGalleryExtent ws
+End Sub
+
+' ApplyGalleryExtent - 描いたカード/ページャの実下端まで塗りと ScrollArea を
+'   伸ばす(R19-1b)。カードはpt座標のShapeなので、下端はShapeから実測する。
+'   窓が小さい端末ではカード3段が1画面に収まらないため、ここが無いと
+'   下半分が「塗られていない白」になる(=白い断崖)。
+Private Sub ApplyGalleryExtent(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim bottomY As Double
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 4) = "nxg_" Then
+            If shp.Top + shp.Height > bottomY Then bottomY = shp.Top + shp.Height
+        End If
+    Next shp
+    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
+    ws.Range(addr).Interior.Color = modUI.UiColor("bg")
+    modViewport.ApplyScrollBound ws, addr
+    On Error GoTo 0
 End Sub
 
 ' 単一Shape=1カード(タイトル太字+プレビュー+日付を1テキストに結合し、

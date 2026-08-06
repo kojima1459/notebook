@@ -52,10 +52,9 @@ Public Sub InitUI()
     End If
     On Error GoTo 0
 
-    ' 2026-07-28(レビュー L-17): ws.Activate に失敗していた場合、ここから
-    ' 先の ActiveWindow 設定と FreezePanes は【別のシート】に適用される。
-    ' 利用者から見ると「触っていない画面の見出しが消え、変な位置で固定
-    ' された」という説明のつかない壊れ方になる。
+    ' 2026-07-28(レビュー L-17): ws.Activate に失敗すると、この先の
+    ' ActiveWindow 設定と FreezePanes が【別のシート】に適用され、「触って
+    ' いない画面の見出しが消え、変な位置で固定された」という壊れ方になる。
     ' Repaint 側には既にあるシート一致ガードを、こちらにも入れる。
     Dim isFront As Boolean
     On Error Resume Next
@@ -84,16 +83,21 @@ Public Sub InitUI()
     ' --- キャンバス骨格 ---
     RemoveNexusShapes ws
     ws.Cells.Clear
-    ' R18-3a: 全域書式はUsedRangeを膨張させる(agent2 §1.3)。実使用範囲だけ。
-    ws.Range(modUINexusDraw.NEXUS_BOUND).Font.Name = "Yu Gothic UI"
+    ' R18-3a/R19-1b: 書式(フォント・塗り)は実使用範囲だけへ。範囲は
+    ' modUINexusDraw.NexusBound が単一情報源で、当てるのは modSkin.ApplyTheme
+    ' (このSubの末尾で呼ぶ)。全域書式はUsedRangeをシート最大まで膨らませる。
 
     ' 幾何を先に確定させる(順序が逆だとShape座標がズレる)。
+    ' R19-1b: 右余白だったM:Pの4列(約49ptの死に列)をやめ、余りは入力欄の
+    ' 最終列Kに吸わせる。こうすると帯A:Mがちょうど可視幅になり、白い右余白が
+    ' 消えるうえ、入力欄が窓の広さに合わせて広がる(送信ボタンは動かない)。
     ws.Columns("A").ColumnWidth = 1.5
     ws.Columns("B").ColumnWidth = 4.5
     ws.Columns("C:K").ColumnWidth = 10.5
     ws.Columns("L").ColumnWidth = 11
-    ws.Columns("M:P").ColumnWidth = 1.5
+    ws.Columns("M").ColumnWidth = 1.5
     ws.Rows("1:400").RowHeight = 18
+    modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, "K"
     ws.Rows(1).RowHeight = modUINexusDraw.HDR_H
     ws.Rows(2).RowHeight = 8
     ws.Rows(modUINexusDraw.INPUT_ROW).RowHeight = 46
@@ -129,16 +133,16 @@ Public Sub InitUI()
     ActiveWindow.FreezePanes = True
     On Error GoTo 0
 
-    ' 入力できるセルはC3:K3だけに絞る(UserInterfaceOnly=Trueなのでマクロは自由)。
+    ' 入力できるセルはC3:K3だけ(UserInterfaceOnly=Trueなのでマクロは自由)。
     On Error Resume Next
     ws.Unprotect
-    ws.Cells.Locked = True
+    ' R19-1b: 全域(A1:XFD1048576)へのLocked書き込みをやめ実使用範囲へ。
+    ws.Range(modUINexusDraw.NexusBound(ws)).Locked = True
     ws.Range("C" & modUINexusDraw.INPUT_ROW & ":K" & modUINexusDraw.INPUT_ROW).Locked = False
     ' 2026-07-28(レビュー M-25): 図形も保護する(DrawingObjects:=True)。
-    ' False だとチャットの吹き出しをクリックすると白い選択ハンドルが付き、
-    ' Delete キーで【回答が消える】。Ctrl+Z は無効化してあるので復元できない。
-    ' バブルの OnAction 結線は廃止済みで、利用者がバブルを選択する必要は
-    ' もう無い。UserInterfaceOnly:=True なのでマクロ側の描画は従来どおり動く。
+    ' False だと吹き出しのクリックで白い選択ハンドルが付き、Deleteキーで
+    ' 【回答が消える】(Ctrl+Z は無効化済みなので復元できない)。バブルの
+    ' OnAction 結線は廃止済みで選択する必要はもう無い。
     ws.Protect DrawingObjects:=True, Contents:=True, Scenarios:=True, UserInterfaceOnly:=True
     ws.EnableSelection = 1
     On Error GoTo 0
@@ -224,6 +228,7 @@ Public Function AddChatBubble(ByVal role As String, ByVal bodyText As String, _
     modSkin.PaintBubble shp, isUser
     modSkin.StyleBubble shp  ' Yu Gothic UI(バブルはフラット=影は選択時のみ)
     mChatBottom = shp.Top + shp.Height
+    modSkin.ExtendChatBand ws, mChatBottom   ' R19-1b: 塗り/境界を会話の下端へ
 
     CapBubbles ws            ' 古い吹き出しを間引いてShape増殖(32bitクラッシュ)を防ぐ
     ScrollToBottom ws
@@ -234,17 +239,13 @@ End Function
 ' UpdateBubbleText - 既に描いたバブルの本文を差し替える。
 '
 ' なぜ必要か:
-'   回答を待つ10～20秒(しっかり調べるなら1～2分)のあいだ、画面には
-'   「考えています…」が1個あるだけだった。ところが実際には、検索は最初の
-'   1～2秒で終わっていて、どの資料に答えがあるかはその時点で分かっている。
-'   その一番おいしい情報を、利用者の見ていない旧ホームシートへ書いていた
-'   (modUIMain.RenderSourcesPreview)。
-'   ここを差し替えられるようにして、「もう見つけてある。いま文章にしている
-'   だけ」という状態を待ち時間の主役にする。待たされている時間は変わらない
-'   のに、体感はまるで別物になる。
-'
-'   AutoSizeで高さが変わるため、会話の下端(mChatBottom)は必ず取り直す。
-'   取り直さないと、次に置くバブルがこのバブルへ重なる。
+'   回答を待つ10～20秒(しっかり調べるなら1～2分)、画面には「考えています…」
+'   が1個あるだけだった。実際には検索は最初の1～2秒で終わっていて、どの資料に
+'   答えがあるかはその時点で分かっているのに、その情報を利用者の見ていない
+'   旧ホームシートへ書いていた(modUIMain.RenderSourcesPreview)。
+'   「もう見つけてある。いま文章にしているだけ」を待ち時間の主役にする。
+'   AutoSizeで高さが変わるため、会話の下端(mChatBottom)は必ず取り直す
+'   (取り直さないと次に置くバブルがこのバブルへ重なる)。
 Public Sub UpdateBubbleText(ByVal shapeName As String, ByVal newText As String)
     If LenB(shapeName) = 0 Then Exit Sub
 
@@ -336,11 +337,9 @@ End Sub
 
 ' ToggleTheme - ライト/ダーク反転+全体再彩色
 ' R14-6b(実機第3報 RC5-B/C):
-'   (B) 解放済みの特別スキン(sakura/ocean/gold等)使用中に太陽/月トグルを
-'       押すと無警告でdarkへ上書きしていた。light/dark以外は上書きせず、
-'       着せ替え(🎨)へ誘導するトーストで抜ける(保存もしない)。
+'   (B) 特別スキン(sakura/ocean/gold等)使用中に太陽/月トグルを押すと無警告で
+'       darkへ上書きしていた。light/dark以外は上書きせず着せ替え(🎨)へ誘導。
 '   (C) ApplyTheme直後のBeautifyAll漏れでグラデがベタ塗りへ退行していた。
-'       InitUI/Repaintと同じ並びに揃える。
 ' R14-G7: 入口の関所を modHub.OnThemeToggle と同型に(取込中の入れ子実行と
 '   連打を止める)。後始末は Leave 1点へ集約。
 Public Sub ToggleTheme()
@@ -388,9 +387,9 @@ Public Sub RestoreExcelUI()
     Application.DisplayFullScreen = False
     ' 2026-08-01(R12-5-9・監査1指摘7): ActiveWindowブロックだけ自ブックガード。
     ' 複数ブックを開いた状態で「Excel全体を終了」すると、他ブックがアクティブな
-    ' まま本ブックのAuto_Closeが走り得て、その他ブックの枠線/見出し/シートタブ
-    ' 設定を書き換えてしまう(EnsureAppViewと同じ作法)。Application全体設定
-    ' (リボン・数式バー等、上の行)はブックを問わない一般設定のため現状維持。
+    ' まま本ブックのAuto_Closeが走り得て、その他ブックの枠線/見出し/タブ設定を
+    ' 書き換えてしまう(EnsureAppViewと同じ作法)。上のApplication全体設定は
+    ' ブックを問わない一般設定なので現状維持。
     If ActiveWorkbook Is ThisWorkbook Then
         With ActiveWindow
             .DisplayGridlines = True
@@ -412,13 +411,12 @@ End Sub
 ' EnsureSessionResources - ホットキーと自動同期を「あるべき状態」へ戻す(冪等)。
 ' ----------------------------------------------------------------------------
 ' 2026-08-01(R12-3-8): Auto_Close はX閉じの保存確認【より前】に走るため、
-' 利用者が「キャンセル」を押すと、閉じないのに OnKey 3種と OnTime 予約だけが
-' 解除された状態が残る。表示は EnsureAppView が次の遷移で自己修復するのに、
-' ホットキーと自動同期には戻り道が無く、以降そのセッションは Ctrl+Enter 送信も
-' Ctrl+Shift+Q 召喚も無反応(=憲章§3-1「押せるものは必ず反応する」違反)。
-' 同じ遷移点(modUI.EnsureAppView)から呼び、資源も一緒に戻す。
-' 二重登録は起きない: OnKey は同じキーへの再登録が上書き、ScheduleAutoSync は
-' 予約済みなら何もしない(modShelfSync 側の冪等ガード)。
+' 「キャンセル」を押すと、閉じないのに OnKey 3種と OnTime 予約だけが解除
+' された状態が残る。表示は EnsureAppView が自己修復するのに、ホットキーと
+' 自動同期には戻り道が無く、以降そのセッションは Ctrl+Enter 送信も
+' Ctrl+Shift+Q 召喚も無反応(憲章§3-1違反)。同じ遷移点から資源も戻す。
+' 二重登録は起きない: OnKey は再登録が上書き、ScheduleAutoSync は予約済みなら
+' 何もしない(modShelfSync 側の冪等ガード)。
 '
 ' Procedure名を "'ブック名'!" で修飾する理由: OnKey/OnTime は Application 単位の
 ' 資源で、配布更新時に「MyBookshelf (1).xlsm」等の別名コピーと新旧併存する
@@ -439,9 +437,9 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' EnsureAppView - アプリ表示状態の自己修復(2026-07-31 R7 A-2)。
-'   「閉じる」→「キャンセル」等で全画面/バーが崩れたまま戻らない事故の自己修復。
-'   冪等・非破壊(既にその状態なら書かない)。Auto_Close側・ThisWorkbookは触らない。
-'   R11-B: Nexus以外は水平スクロールバーを維持(#30安全弁・回復手段ゼロ化の防止)。
+'   「閉じる」→「キャンセル」等で全画面/バーが崩れたまま戻らない事故を直す。
+'   冪等・非破壊。Auto_Close側・ThisWorkbookは触らない。
+'   R11-B: Nexus以外は水平スクロールバーを維持(#30安全弁)。
 ' ----------------------------------------------------------------------------
 Public Sub EnsureAppView()
     ' 別ブック誤爆ガード: DisplayFullScreen はExcel全体の設定なので、利用者が
@@ -563,7 +561,7 @@ Private Sub DisableUndoRedo()
 End Sub
 
 ' Shape選択解除+アクティブセルpark(スクロール崩壊防止)。
-' R14-G7: 暗転の後は必ずTrueへ戻す(Repaint同型のResume-cleanup)。
+' R14-G7: 暗転の後は必ずTrueへ戻す(Repaint同型)。
 Public Sub ParkFocus()
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub   ' 別ブックの選択状態を汚さない
@@ -632,9 +630,8 @@ RepaintCleanup:
     ParkFocus
 End Sub
 
-' UiColor / UiTheme - 各Nexus画面が配色とテーマ名を得る窓口(実体は modSkin。R11-F1で
-' テーマ塊を modSkin へ移設したあとも、呼び出し元(20モジュール超)の記述を
-' 変えずに済むよう薄い委譲としてここに残す)。
+' UiColor / UiTheme - 各Nexus画面が配色とテーマ名を得る窓口(実体は modSkin。
+' R11-F1の移設後も呼び出し元20モジュール超の記述を変えずに済む薄い委譲)。
 Public Function UiColor(ByVal key As String) As Long
     UiColor = modSkin.ThemeColor(key)
 End Function
@@ -725,9 +722,8 @@ Private Function NextSeq(ByVal ws As Worksheet) As String
     NextSeq = Format$(maxN + 1, "0000")
 End Function
 
-' 会話領域の最下端を再計算する。固定クロム(nx_top_)以外の全nx_Shapeを見るので、
-' バブルだけでなく文脈アクション(nx_act_)や出典チップ(nx_cite_)も自動で考慮され、
-' 次のバブルがそれらに重ならない。1ターン描き終わるたびに呼ぶ。
+' 会話領域の最下端を再計算する。バブルだけでなく文脈アクション(nx_act_)や
+' 出典チップ(nx_cite_)も考慮するので次のバブルが重ならない。1ターンごとに呼ぶ。
 Public Sub RecalcChatBottom(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub
     mChatBottom = modUINexusDraw.ChatTop(ws)
@@ -781,6 +777,7 @@ Public Sub ClearChat()
         ws.Shapes(names(i)).Delete
     Next i
     mChatBottom = modUINexusDraw.ChatTop(ws)
+    modSkin.ExtendChatBand ws, mChatBottom   ' R19-1b: 伸ばした塗り/境界を戻す
     On Error GoTo 0
 End Sub
 
@@ -838,9 +835,8 @@ Public Function LatestAiBubbleName() As String
     LatestAiBubbleName = bestName
 End Function
 
-' 最新バブルが見えるところまでスクロールする。Application.GoToはセル選択を
-' 伴い保護シート+EnableSelectionと衝突するため、ScrollRowだけを動かす
-' (FreezePanes下では下ペインのスクロール位置だけが変わる)。
+' 最新バブルが見えるところまでスクロールする。Application.GoToはセル選択を伴い
+' 保護シート+EnableSelectionと衝突するため、ScrollRowだけを動かす。
 Private Sub ScrollToBottom(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub
     If Not (ThisWorkbook.ActiveSheet Is ws) Then Exit Sub
