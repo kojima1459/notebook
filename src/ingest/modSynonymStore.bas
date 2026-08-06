@@ -288,7 +288,8 @@ Private Function CollectTermCandidates(ByVal sourceName As String, ByRef outTerm
     idN = CollectFromKnowledge(sourceName, ids, kwCsv)
     Dim i As Long
     For i = 1 To idN
-        AddTerms Split(kwCsv(i), ","), box, cnt
+        Dim kwParts() As String: kwParts = Split(kwCsv(i), ",")
+        AddTerms kwParts, box, cnt
     Next i
 
     ' 2) chunk_meta.section_path(この資料のチャンクだけ。">"区切り)
@@ -302,7 +303,8 @@ Private Function CollectTermCandidates(ByVal sourceName As String, ByRef outTerm
         For i = 0 To metaN - 1
             If LenB(mPaths(i)) > 0 Then
                 If InStr(1, idBox, vbLf & mIds(i) & vbLf, vbBinaryCompare) > 0 Then
-                    AddTerms Split(mPaths(i), ">"), box, cnt
+                    Dim pathParts() As String: pathParts = Split(mPaths(i), ">")
+                    AddTerms pathParts, box, cnt
                 End If
             End If
         Next i
@@ -313,7 +315,8 @@ Private Function CollectTermCandidates(ByVal sourceName As String, ByRef outTerm
     outN = modOutlineStore.ReadOutline(oSrcs, oKeys, oSums, oKws)
     For i = 0 To outN - 1
         If StrComp(Trim$(oSrcs(i)), sourceName, vbTextCompare) = 0 Then
-            AddTerms Split(oKws(i), "|"), box, cnt
+            Dim kwParts2() As String: kwParts2 = Split(oKws(i), "|")
+            AddTerms kwParts2, box, cnt
         End If
     Next i
 
