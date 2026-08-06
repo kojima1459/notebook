@@ -141,6 +141,11 @@ Public Function PadUnitsRefine(ByVal needPt As Double, _
     Dim u As Double: u = u1 + (needPt - w1) / slope
     ' 0にすると列が消え、最終列の右が灰色の非セル領域になる(PadPtNeededと同じ理由)。
     If u < 0.05 Then u = 0.05
+    ' R20-1c: ColumnWidth の上限は255(Excel仕様)。本文の最終列に余りを吸わせる
+    ' 使い方(本棚のメモ列J・登録フォームのH列)を足したので、超広い窓では
+    ' 255を超える値が出うる。超えた値の代入は1004で、On Error Resume Next 配下の
+    ' ここでは「列幅が前回のまま」という無言の失敗になる。手前で頭打ちにする。
+    If u > 255 Then u = 255
     PadUnitsRefine = u
 End Function
 
@@ -214,7 +219,13 @@ End Function
 '   再開する(会話は下へ伸びる一方なので、実際の走査は数行で終わる)。
 '   メモが今の行高と食い違っていないかは、再開の前に1回だけ実測で確かめる
 '   (EnsureLayout が行高を組み直した直後は先頭から数え直す)。
-Private Function RowAt(ByVal ws As Worksheet, ByVal y As Double, ByVal maxRow As Long) As Long
+'
+'   R20-1e: Public 化した。Hub のバッジ帯は「行高15pt固定」を前提に
+'   CLng(下端pt / 15) + 2 で行を出していたが、Hub の行1はヘッダー帯と同じ
+'   48pt(ナビが2段に折り返すと96pt)で、15pt換算では毎回2〜3行ぶん下へ
+'   ずれる。pt→行の換算を机上でやってよい場所は1つも無いので、実測を
+'   持っているここを唯一の口にする(モジュール冒頭の設計の鉄則)。
+Public Function RowAt(ByVal ws As Worksheet, ByVal y As Double, ByVal maxRow As Long) As Long
     If maxRow < 1 Then maxRow = 1
     RowAt = maxRow
     If ws Is Nothing Then Exit Function
@@ -246,7 +257,10 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ViewportHeight - ウィンドウの実可視高(pt)。ViewportWidth(modUIMain)の縦版。
 ' ----------------------------------------------------------------------------
-'   異常値でレイアウト計算全体を壊さないよう 200〜1200pt へクランプする。
+'   異常値でレイアウト計算全体を壊さないよう 200〜2000pt へクランプする
+'   (R20-1a: 上限は1200ptだった。4Kの縦置きや高さ1440pxのモニタでは実可視高が
+'    1200ptを超え、そこで頭打ちにすると BoundBottomY の「最低1画面」が
+'    画面より短くなって、下端に白い断崖が残る)。
 '
 '   R19H FB-5(A-L⑫): 他のブックが前面のときは【一切測らない】。従来は
 '   UsableHeight だけを ThisWorkbook で守り、その下の VisibleRange.Height は
@@ -265,8 +279,57 @@ Public Function ViewportHeight() As Double
     On Error GoTo 0
     If h <= 0 Then h = DEFAULT_VIEW_H
     If h < 200 Then h = 200
-    If h > 1200 Then h = 1200
+    If h > 2000 Then h = 2000
     ViewportHeight = h
+End Function
+
+' ----------------------------------------------------------------------------
+' ResetRowsBelow - 指定行より下に残った「行高カスタム」を既定へ戻す(R20-1d)。
+' ----------------------------------------------------------------------------
+' 実機第7報⑦の層2。Hub は Rows("1:60")、Dash は Rows("1:120")、本棚3モードは
+' Rows("7:412") へ毎回いっせいに行高を代入していた。行高を明示した行は
+' Excel から見れば「使用済み」なので、内容が20行しか無い画面でも常に
+' 60〜412行ぶん(最大6,200pt=8画面)の下スクロール域が残る ―― 塗りと
+' ScrollArea をいくら実下端まで縮めても、この焼き付きが消えない限り
+' ホイールは下まで転がる(ScrollArea はホイールを止めない・冒頭参照)。
+'   UseStandardHeight=True は「行高の明示を取り消す」操作で、値の代入とは
+'   逆に使用済みフラグを増やさない。既存ブックに既に焼き付いている行も
+'   ここで毎回畳む(冪等。だから救済のために毎回呼んでよい)。
+Public Sub ResetRowsBelow(ByVal ws As Worksheet, ByVal fromRow As Long, ByVal toRow As Long)
+    If ws Is Nothing Then Exit Sub
+    Dim r0 As Long: r0 = fromRow
+    If r0 < 1 Then r0 = 1
+    If toRow < r0 Then Exit Sub
+    On Error Resume Next
+    ws.Rows(r0 & ":" & toRow).UseStandardHeight = True
+    On Error GoTo 0
+End Sub
+
+' ClampD - 下限/上限で挟む(pt・幅・カード数の共通算数)。純関数。
+'   lo > hi の壊れた指定でも lo を返す(呼び出し側の防御を1つ減らす)。
+Public Function ClampD(ByVal v As Double, ByVal lo As Double, ByVal hi As Double) As Double
+    ClampD = v
+    If ClampD > hi Then ClampD = hi
+    If ClampD < lo Then ClampD = lo
+End Function
+
+' ----------------------------------------------------------------------------
+' GalleryColsFor - 幅 bandW の帯に、左端 leftX から等幅カードが何列入るか。
+' ----------------------------------------------------------------------------
+'   純関数(ゴールデン対象)。カードは左寄せのまま列数だけ増やす方式なので、
+'   最後のカードの右に GAP ぶんの余白が残る前提で数える。
+'   minCols/maxCols で挟むのは、狭い窓で0列になって画面が空になるのと、
+'   広い窓でカードが並びすぎて一覧性が落ちるのを同時に防ぐため。
+Public Function GalleryColsFor(ByVal bandW As Double, ByVal leftX As Double, _
+                               ByVal cardW As Double, ByVal gap As Double, _
+                               ByVal minCols As Long, ByVal maxCols As Long) As Long
+    GalleryColsFor = minCols
+    If cardW + gap <= 0 Then Exit Function
+    Dim n As Long
+    n = Int((bandW - leftX - gap) / (cardW + gap))
+    If n < minCols Then n = minCols
+    If n > maxCols Then n = maxCols
+    GalleryColsFor = n
 End Function
 
 ' ----------------------------------------------------------------------------

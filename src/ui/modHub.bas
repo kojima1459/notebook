@@ -80,7 +80,13 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Columns("G").ColumnWidth = 2.5
     ws.Columns("H:K").ColumnWidth = 13
     ws.Columns("L").ColumnWidth = 1.5
-    ws.Rows("1:60").RowHeight = 15
+    ' R20-1d(実機第7報⑦の層2): ここは Rows("1:60") だった。行高を明示した行は
+    ' Excelから見れば「使用済み」で、内容が500〜700ptしかないHubでも常に
+    ' 60行=900pt(=1画面半)ぶんホイールで下へ転がれる状態が残っていた
+    ' (塗りとScrollAreaを実下端まで縮めても、ScrollAreaはホイールを止めない)。
+    ' フッターの実下端+2行に収まる40行だけを明示し、それ以深は描画後に
+    ' modViewport.ResetRowsBelow で既定へ戻す(下端行の確定は描き終えてから)。
+    ws.Rows("1:40").RowHeight = 15
     ' R19-1b(実機第6報①): 右の余白はスクロールではなく寸法の問題。余りを
     ' L列に吸わせて A:L の合計を可視幅ぴったりにすると、白い余白が構造的に
     ' 消える(ScrollAreaでは原理的に消せない)。Shape座標は全てセル幾何から
@@ -140,8 +146,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' フッターの右端もナビ・ピルと同じ ContentRight(FA-4)。
     Dim footL As Double: footL = ws.Range("B1").Left
     Dim footBot As Double
+    ' R20-1e: 余白 +18 → +10。左右カラムの実下端はどちらも要素の外枠なので、
+    ' そこからさらに18pt空けるとフッターだけが1行ぶん浮いて見えた。
     footBot = modHubStat.DrawFooter(ws, footL, _
-        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + 18)
+        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + 10)
 
     ' R19-1b: 塗りと ScrollArea をフッターの実下端(+24pt、最低1画面)まで
     ' 縮める。60行=900pt を常に塗ると、内容が500〜700ptしかない画面で
@@ -150,6 +158,11 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     bnd = modViewport.BoundAddr(ws, "L", footBot, 60)
     ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
     modViewport.ApplyScrollBound ws, bnd
+    ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。
+    ' bnd は必ず A1 起点なので、行数がそのまま下端行になる。
+    On Error Resume Next
+    modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, 200
+    On Error GoTo Fail
     ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
     modViewport.LogViewport "hub"
 
@@ -497,21 +510,32 @@ Private Function DrawExtras(ByVal ws As Worksheet) As Double
     ' ナビを4枚から3枚へ減らしたときの後始末漏れで、実枚数と食い違った
     ' 1枚ぶん(54pt)がそのまま右列の空白として残っていた。実枚数から出す。
     W = modViewport.ContentRight(ws, HUB_BAND, 8) - L
-    T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
+    ' R20-1e: NAV_COUNT*(NAV_H+NAV_GAP) には最後のナビの下のGAP(10pt)が既に
+    ' 入っているのに、さらに +10 して、置くときにも +20 していた。合計40ptの
+    ' 空隙(ナビ下端260pt → カード上端300pt)が右カラムの頭に開いていた。
+    ' 二重計上をやめ、GAP 1つぶんだけ空ける。
+    T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP)
 
-    modHubStat.DrawQuickAskCards ws, L, W, T + 20, CHIP_H
-    DrawExtras = modHubStat.DrawInbox(ws, L, W, T + 20 + CHIP_H + 14)
+    modHubStat.DrawQuickAskCards ws, L, W, T, CHIP_H
+    DrawExtras = modHubStat.DrawInbox(ws, L, W, T + CHIP_H + 14)
 End Function
 
 ' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので
 ' この帯だけが左ブロックのセル表示になる。
 ' 戻り値(R18-5b): 左カラムの実下端Y(バッジ件数で使う行数が変わる)。
 Private Function DrawBadges(ByVal ws As Worksheet) As Double
-    ' タイルの下端が入る行を実測で探す(行高15pt固定なので割り算で足りる)。
+    ' R20-1e【確定バグ】: ここは r = CLng(StatTilesBottom()/15) + 2 だった。
+    ' 「行高15pt固定なので割り算で足りる」という前提が誤りで、Hubの行1は
+    ' ヘッダー帯と同じ48pt(ナビが2段に折り返せば96pt)。15pt換算では行が
+    ' 2〜3行ぶん下へずれ、統計タイルの下に約60ptの空隙が開き、しかも
+    ' 戻り値(下端pt)も同じ式で出していたためフッターが実際のバッジ帯へ
+    ' 食い込んでいた。pt→行は実測(modViewport.RowAt)だけを使う。
     Dim r As Long
-    r = CLng(StatTilesBottom() / 15) + 2
+    r = modViewport.RowAt(ws, StatTilesBottom(), 60) + 1   ' タイル下端の次の行から
     If r < 10 Then r = 10
-    DrawBadges = (r + 1) * 15      ' バッジが1件も無いときの下端(見出し行のみ)
+    If r > 52 Then r = 52          ' 見出し+4行が HUB_BOUND(60行)を割らないように
+    ' バッジが1件も無いときの下端(見出し行のみ)も実測から返す。
+    DrawBadges = ws.Rows(r).Top + ws.Rows(r).Height
 
     With ws.Range("B" & r & ":F" & r)
         .Merge
@@ -551,7 +575,10 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
         .Font.Color = modUI.UiColor("text")
         .VerticalAlignment = -4160
     End With
-    DrawBadges = (r + 4) * 15      ' 4行ぶんの帯の下端(行高15pt固定)
+    ' 4行ぶんの帯の下端。ここも (r+4)*15 の机上換算をやめて実測にする
+    ' (行1が48ptあるぶん、旧式は実際より約33pt上を返していた=フッターが
+    '  バッジ帯に重なる)。
+    DrawBadges = ws.Rows(r + 4).Top + ws.Rows(r + 4).Height
 End Function
 
 ' ---- ボタンハンドラ ----

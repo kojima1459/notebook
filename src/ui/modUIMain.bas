@@ -56,6 +56,7 @@ Private Const COLOR_SELECTED_FG As Long = 16777215   ' RGB(255,255,255) 白
 ' 配色は modUIMainShape(図形を描く側)を単一情報源にする。
 
 Private mLastAnswerText As String
+Private mLastViewW As Double   ' R20-1a: 測れなかったときに返す直近の実可視幅(pt)
 
 ' 待ち時間の実況先は modLive が持つ。modAsk が SetStage /
 ' RenderSourcesPreview でここへ知らせる契約(§7.3・R1で許可された唯一のUI
@@ -65,16 +66,23 @@ Private mLastAnswerText As String
 '   セル範囲幅だけを見るクロム配置(modHub/modKnowledge/modDash/
 '   modUINexusDraw)が実ウィンドウ幅を一度も見ていなかったのが#30の真因
 '   (本棚系は基準882pt vs 可視域約600pt)。ここが単一の取得口。
-'   ActiveWindow.UsableWidth(自ブック前面時)→取れなければVisibleRange.Width
-'   →最後に320〜1600ptへクランプ(異常値でクロム計算全体を壊さない)。
+'   R20-1a: 他ブックが前面のときは【一切測らない】(modViewport.ViewportHeight
+'   と同型。VisibleRange.Widthのフォールバックがガードの外にあり、他人の窓幅で
+'   自分の帯を決めていた)。測れないときは前回値、それも無ければ既定900pt。
+'   上限は1600→3000pt(広いモニタで帯が途中で止まるのを解消)。
 Public Function ViewportWidth() As Double
     Dim w As Double
     On Error Resume Next
-    If ActiveWorkbook Is ThisWorkbook Then w = ActiveWindow.UsableWidth
-    If w <= 0 Then w = ActiveWindow.VisibleRange.Width
+    If ActiveWorkbook Is ThisWorkbook Then
+        w = ActiveWindow.UsableWidth
+        If w <= 0 Then w = ActiveWindow.VisibleRange.Width
+    End If
     On Error GoTo 0
+    If w <= 0 Then w = mLastViewW
+    If w <= 0 Then w = 900
     If w < 320 Then w = 320
-    If w > 1600 Then w = 1600
+    If w > 3000 Then w = 3000
+    mLastViewW = w
     ViewportWidth = w
 End Function
 

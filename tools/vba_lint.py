@@ -1112,8 +1112,18 @@ CONTRACT: dict[str, dict] = {
             # 役目が終わっており、契約からも外す。
             # PadUnitsRefine(R19H FA-1 / A-H①): pt↔ColumnWidth のアフィン換算を
             # 2点の実測から補正する純関数(modTestsPure16 が両基準列で固定する)。
+            # 2026-08-06(R20-1d/1e/1f): 3つ足した。
+            #   RowAt      : pt→行の換算を実測1本にするため Public 化(Hubの
+            #                バッジ帯が「行高15pt固定」の机上換算でずれていた)。
+            #   ResetRowsBelow: 境界より下に残った行高カスタムを既定へ戻す
+            #                (行高を明示した行=使用済み=下スクロール域の根治)。
+            #   ClampD / GalleryColsFor: 幅・列数の純算数(ゴールデン対象)。
+            #   OnWindowResized / ViewportRefitTick / CancelRefit: 窓リサイズ後の
+            #                再フィット(デバウンス)。modUI は容量が無いので実体は
+            #                ここに置き、ThisWorkbook から直接呼ぶ(R20-1f)。
             "ApplyScrollBound", "FitBandToViewport", "ContentRight",
-            "BoundAddr", "ViewportHeight", "LogViewport",
+            "BoundAddr", "ViewportHeight", "LogViewport", "RowAt",
+            "ResetRowsBelow", "ClampD", "GalleryColsFor",
             "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
             "ColLetter",
         ],
