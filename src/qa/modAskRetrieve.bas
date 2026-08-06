@@ -433,8 +433,20 @@ Public Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal 
         vbLf & vbLf & result
 End Function
 
-' IsTooVague - 短すぎ かつ どの資料とも関連が薄い質問だけTrue。LLMを呼ばず
+' IsTooVague - 短すぎ かつ 資料が絞れない質問だけTrue。LLMを呼ばず
 '   聞き方の例を返す。判定は全ヒットの最高スコア(1位だけ見ると誤発動する)。
+' ----------------------------------------------------------------------------
+' 2026-08-06(R19-4b・実機第6報④): 「絞れない」に2つ目の意味を足した。
+'   (A) 低スコア: どの資料にも当たらない(従来)
+'   (B) 資料分散: 局所的には当たるのに、当たり先が複数の資料に割れている
+' 「免責は?」は(B)で、4字なので段0の分解ゲート(25字)にも掛からず、
+' best>=0.6 なので(A)にも掛からない=どちらの網もすり抜けていた(調査④班1章)。
+' 深掘りの「計算方法」も同じ経路(IsTooVague は modAsk.Answer から全モード・
+' 新規/続けて質問の別なく必ず1回通る)で、同じ理由で同じ穴に落ちていた。
+' 判定の本体は modClarify の純関数2本(HasScoreDispersion / MentionsSourceName)。
+' ここは hits() を文字列へ畳んで渡すだけ=LOでテストできない Hit() の扱いを
+' この1関数に閉じ込め、規則そのものはテストで固定できる側に置く。
+' ----------------------------------------------------------------------------
 Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long) As Boolean
     If nHits < 1 Then Exit Function
     ' 「全体像は?」のような俯瞰の短文は聞き返さない(2026-08-05 R17H FA-6)。
@@ -459,7 +471,52 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     Next i
     On Error GoTo 0
 
-    IsTooVague = (best < thr)
+    ' (A) 低スコア。こちらが立つときは分散を見ない: 2つの理由が同時に成り立つ
+    ' 場合の文面は「低スコア」用が正しい(「複数の資料に該当します」と言いながら
+    ' どれも薄い、という辻褄の合わない聞き返しになる。調査④班6.1)。
+    If best < thr Then
+        IsTooVague = True
+        Exit Function
+    End If
+
+    ' (B) 資料分散(R19-4b)。gap=0 で機能OFF(既存の閾値0と同じ思想)。
+    Dim gapX100 As Long
+    On Error Resume Next
+    gapX100 = modConfig.GetLong("ambiguous_dispersion_gap_x100", 10)
+    On Error GoTo 0
+    If gapX100 <= 0 Then Exit Function
+
+    ' R19-4d: 質問文が資料を名指ししているなら聞き返さない(誤発動対策)。
+    Dim srcList As String: srcList = HitSourceList(hits, nHits)
+    If modClarify.MentionsSourceName(q, srcList) Then Exit Function
+
+    If modClarify.HasScoreDispersion(FoldSrcScoreLines(hits, nHits), gapX100) Then
+        ' 聞き返しの1行目だけを分散用に差し替えるための印(modClarify が使ったら
+        ' その場で下ろす)。文面の本体=資料選択+意図5区分は従来のまま使う。
+        modClarify.NoteDispersion
+        IsTooVague = True
+    End If
+End Function
+
+' hits() を「資料名<TAB>スコア」の vbLf 連結へ畳む(R19-4b)。
+' Hit() を受ける唯一の場所で、ここだけはLO実行テストの対象外になる
+' (別モジュールの Public Type 配列はLOで ReDim できない既知制約)。
+' 畳んだ後の判定は modClarify.HasScoreDispersion が担い、そちらはテストで固定する。
+' スコアは Str$ で書く: CStr は端末の小数点記号(カンマ圏)に従うため、
+' Val で読み直す受け側と食い違い得る。Str$ は常に "." で書く。
+Private Function FoldSrcScoreLines(hits() As Hit, ByVal nHits As Long) As String
+    Dim sb As String
+    Dim i As Long
+    On Error Resume Next
+    For i = 1 To nHits
+        Dim nm As String: nm = Trim$(hits(i).source)
+        If LenB(nm) > 0 Then
+            If LenB(sb) > 0 Then sb = sb & vbLf
+            sb = sb & nm & vbTab & Trim$(Str$(hits(i).score))
+        End If
+    Next i
+    On Error GoTo 0
+    FoldSrcScoreLines = sb
 End Function
 
 ' 逆質問の材料: ヒットした資料名を重複除去して最大4件、| 区切りで返す。
