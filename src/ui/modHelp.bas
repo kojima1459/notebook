@@ -420,10 +420,9 @@ Public Sub OnShareSetup()
     Dim cur As String
     cur = modConfig.GetString("nexus_share_path", "")
     Dim p As String
-    p = InputBox("P2P共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
-                 "パスを入力してください。チームで同じフォルダを指定します。" & vbCrLf & _
-                 "例: \\サーバー名\共有\Nexus_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
-                 "Nexus Agent - P2P接続設定", cur)
+    ' R20-4a(実機第7報③④): InputBox直打ちをやめFolderPickerへ(既存実績:
+    ' modShelfSync.PickShelfFolder/optVision.PickGsFolderと同じリテラル4)。
+    p = PickSharePath(cur)
     p = Trim$(p)
     If LenB(p) = 0 Then GoTo Done
     If Right$(p, 1) <> "\" Then p = p & "\"
@@ -466,7 +465,9 @@ Public Sub OnShareSetup()
     reach = modShare.Reachable()
     On Error GoTo Done
     If reach Then
-        modSkin.ShowToast "接続しました。感謝状・専門家への質問・みんなの節約時間が使えます。", "success"
+        ' R20-4a: 「共有フォルダを設定しましたか?何が使えるようになったか?」を
+        ' 明示する文言へ(仕様書確定文言)。
+        modSkin.ShowToast "共有フォルダを設定しました。みんなの節約・部門資料が使えるようになります。", "success"
     Else
         modSkin.ShowToast "設定は保存しましたが、そのフォルダへ今は届きませんでした。" & _
                           "ネットワーク接続をご確認のうえ、開き直してお試しください。", "error"
@@ -478,6 +479,31 @@ Public Sub OnShareSetup()
 Done:
     modUiLock.Leave
 End Sub
+
+' PickSharePath(R20-4a) - FolderPicker(msoFileDialogFolderPicker=4、既存実績:
+'   modShelfSync.PickShelfFolder/optVision.PickGsFolderと同じリテラル4使用)。
+'   キャンセル/非対応環境は「パスを直接入力しますか?」でInputBoxへ
+'   フォールバックする(UNC直打ち救済)。戻り値は未確定なら空文字。
+Private Function PickSharePath(ByVal cur As String) As String
+    On Error GoTo Fallback
+    Dim fd As Object
+    Set fd = Application.FileDialog(4)   ' msoFileDialogFolderPicker
+    fd.Title = "P2P共有フォルダを選んでください"
+    If fd.Show = -1 Then
+        If fd.SelectedItems.Count >= 1 Then
+            PickSharePath = CStr(fd.SelectedItems(1))
+            Exit Function
+        End If
+    End If
+Fallback:
+    ' キャンセル・非対応環境のどちらもここへ来る(UNC直打ち救済)。
+    If MsgBox("パスを直接入力しますか?(UNCパスの直接指定などに)", _
+              vbYesNo + vbQuestion, "Nexus Agent - P2P接続設定") <> vbYes Then Exit Function
+    PickSharePath = InputBox("P2P共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
+                 "パスを入力してください。チームで同じフォルダを指定します。" & vbCrLf & _
+                 "例: \\サーバー名\共有\Nexus_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
+                 "Nexus Agent - P2P接続設定", cur)
+End Function
 
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
 ' 2026-07-31(R11-E H-4): 廃止済みのサイドバー/👍👎評価の記述が残っていた

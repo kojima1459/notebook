@@ -145,6 +145,23 @@ Public Sub OnWidgetClick()
     On Error GoTo Done
     HideHistory
 
+    ' R20-4c(実機第7報③④): 共有フォルダが未設定のときは「0分」の空虚な
+    ' 履歴を見せるのではなく、その場で設定できるように誘導する。
+    Dim shareSet As Boolean
+    On Error Resume Next
+    shareSet = (LenB(modShare.BasePath()) > 0)
+    On Error GoTo Done
+    If Not shareSet Then
+        modUiLock.Leave
+        If MsgBox("共有フォルダが未設定です。今設定しますか?", _
+                  vbYesNo + vbQuestion, modAppDef.APP_NAME) = vbYes Then
+            On Error Resume Next
+            modHelp.OnShareSetup
+            On Error GoTo 0
+        End If
+        Exit Sub
+    End If
+
     ' 2026-07-26: 呼び出し元がHubの統計タイル(ホームシート)へ移ったのに、
     ' ここは常にNexusシートへ描いていた。別シートに描かれるので画面上は
     ' 「押しても何も出ない」状態になる。今アクティブなシートへ描く。

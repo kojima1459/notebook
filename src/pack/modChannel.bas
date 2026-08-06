@@ -576,15 +576,31 @@ Public Function ActiveLabel() As String
     On Error Resume Next
     Dim have As Long, all As Long
     have = SubscribedCount(all)
-    If have <= 0 Then
-        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門: 未読込"
-    ElseIf have >= all Then
-        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " 全" & all & "部門"
-    Else
-        ActiveLabel = ChrW(&HD83D) & ChrW(&HDCDA) & " " & have & "/" & all & "部門"
-    End If
+    ActiveLabel = ActiveLabelText(have, all)
     On Error GoTo 0
 End Function
+
+' ActiveLabelText(R20-4c) - 表示文言の組み立てだけを分離した純関数
+'   (ゴールデン対象)。have<=0は「未読込」ではなく「未設定(クリックで設定)」
+'   とし、共有フォルダ配下の部門チャンネルが未接続であることを明示する。
+Public Function ActiveLabelText(ByVal have As Long, ByVal total As Long) As String
+    If have <= 0 Then
+        ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門資料: 未設定(クリックで設定)"
+    ElseIf have >= total Then
+        ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 全" & total & "部門"
+    Else
+        ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " " & have & "/" & total & "部門"
+    End If
+End Function
+
+' 【未配線・報告事項】(R20-4c): このラベルは現在modUINexusDraw.DrawHeaderが
+'   nx_top_bgのTextFrame2へ直接書き込む文字列で、Shapeそのものへの
+'   クリックハンドラ配線が無い。部門チャンネルは共有フォルダ配下のため
+'   設定UIはmodHelp.OnShareSetupと共通にできるはずだが、(a)配線先の
+'   modUINexusDraw.basはR20-4波の許可ファイル一覧に無く、(b)そもそも
+'   modChannel(src/pack=部品層)からはUI層(modHelp/modUiLock)を直接
+'   参照できない(R1層規約)。ハンドラ自体もUI層側に置く必要があるため、
+'   本波では文言変更のみに留め、配線は司令塔判断へ委ねる(完了報告に記載)。
 
 ' SubscribedCount - 読み込み済みの部門数(totalに発見できた総数を返す)。
 Public Function SubscribedCount(ByRef total As Long) As Long

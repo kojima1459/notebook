@@ -309,8 +309,10 @@ Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     shareSet = (LenB(modShare.BasePath()) > 0)
     On Error GoTo 0
     If Not shareSet Then
-        vOrgD = "未設定"
-        vOrgM = "未設定"
+        ' R20-4c(実機第7報③④): 「未設定」だけでは何をすればよいか分からない。
+        ' タイル自体がクリック導線(modBoard.OnWidgetClick)なので、それを示す。
+        vOrgD = "クリックで設定"
+        vOrgM = "クリックで設定"
     ElseIf modShare.Reachable() Then
         vOrgD = OrgMin("d")
         vOrgM = OrgMin("m")
@@ -532,8 +534,10 @@ Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     ' 事実に反する。未設定の案内(shareOk=False)は必ずこの位置=最初に置く。
     Dim cap As String, act As String
     If Not shareOk Then
+        ' R20-4c: 「configのnexus_share_path」という実行不能な案内をやめ、
+        ' クリックでそのまま設定UI(modHub.OnShareHelp→modHelp.OnShareSetup)へ。
         cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
-              "設定すると、みんなが解決したQ&Aが自動で届くようになります(config の nexus_share_path)"
+              "クリックして設定(フォルダを選ぶだけ)。みんなが解決したQ&Aが自動で届くようになります"
         act = "modHub.OnShareHelp"
     ElseIf LenB(modChannel.ActiveChannel()) = 0 Then
         ' まだどの部門にもつないでいない。ここを案内しないと、

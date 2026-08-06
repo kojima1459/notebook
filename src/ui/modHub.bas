@@ -322,11 +322,13 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
     ' 同じ場所に、点数の代わりにそれを置く。こちらは自慢しても角が立たない。
     ' EXP自体は内部に残す(きせかえの解放条件に使っている)。表に出さないだけ。
     ' Paragraphsで書式を分けるため区切りはvbCr(vbLfだと1段落のまま)。
+    ' R20-4b: 部門未設定は空欄のままにせず、クリックで設定できることを示す。
+    Dim deptTxt As String
+    deptTxt = IIf(LenB(dept) > 0, "  (" & dept & ")", "  (部門を設定:クリック)")
     With card.TextFrame2
         .WordWrap = -1
         .MarginLeft = 14: .MarginTop = 10: .MarginRight = 10
-        .TextRange.Text = nm & IIf(LenB(dept) > 0, "  (" & dept & ")", "") & vbCr & _
-            ContributionLine()
+        .TextRange.Text = nm & deptTxt & vbCr & ContributionLine()
         .TextRange.Font.Size = 11
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
         On Error Resume Next
@@ -342,6 +344,7 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
         End If
         On Error GoTo 0
     End With
+    If LenB(dept) = 0 Then card.OnAction = "modSetupWizard.OnDeptSetup"
 End Sub
 
 ' プロフィール2行目。点数ではなく、その人がどう役に立ったかを書く。
@@ -706,22 +709,13 @@ Public Sub OnCheckUpdates()
     On Error GoTo 0
 End Sub
 
+' R20-4c(実機第7報③④): 「config を開け」という本アプリでは実行不能な手順を
+' 案内するのをやめ、実際に動く設定UI(modHelp.OnShareSetup)へ直接つなぐ。
 Public Sub OnShareHelp()
     If modUiLock.BlockIfIngesting() Then Exit Sub
-    MsgBox "部内で知恵を共有するには、共有フォルダを1回だけ設定します。" & vbCrLf & vbCrLf & _
-        "【設定するもの】" & vbCrLf & _
-        "  config シートの nexus_share_path に、部内の誰もが読み書きできる" & vbCrLf & _
-        "  共有サーバー上のフォルダパスを入れてください。" & vbCrLf & _
-        "  例) \\サーバー名\部門共有\Nexus_Share\" & vbCrLf & vbCrLf & _
-        "【そのあと何が起きるか】" & vbCrLf & _
-        "  ・必要なサブフォルダはこのアプリが自動で作ります" & vbCrLf & _
-        "  ・誰かが「解決した」を押すと、その質問と答えがそこへ置かれます" & vbCrLf & _
-        "  ・次に各自がこのファイルを開いたとき、自動で受け取ります" & vbCrLf & _
-        "  ・受け取っただけでは本棚に入りません。必要なものを選んで取り込みます" & vbCrLf & vbCrLf & _
-        "【注意】" & vbCrLf & _
-        "  同じパスを部内の全員が設定してはじめて共有が成立します。" & vbCrLf & _
-        "  配布用ファイルにあらかじめ入れておくのがいちばん確実です。", _
-        vbInformation, modAppDef.APP_NAME
+    On Error Resume Next
+    modHelp.OnShareSetup
+    On Error GoTo 0
 End Sub
 
 ' 匿名フィードバック。名前も所属も記録しないことを画面で明示する。
