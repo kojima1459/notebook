@@ -54,6 +54,17 @@ Private mRowMemoSheet As String
 Private mRowMemoRow As Long
 Private mRowMemoTop As Double
 
+' 窓リサイズ後の再フィット(R20-1f)。詳細は最下部の OnWindowResized 一式を参照。
+' デバウンス間隔(秒)。ドラッグ中は WindowResize が毎フレーム飛ぶので、
+' 手が止まってから組み直す。0.7秒は「もう動かさない」と判断できて、かつ
+' 待たされた感じがしない値。
+Private Const REFIT_DELAY_SEC As Double = 0.7
+
+Private mRefitAt As Date        ' 予約済み OnTime の時刻(0=予約なし)
+Private mRefitArmed As Boolean  ' 予約が生きているか(mRefitAtの有効フラグ)
+Private mRefitRunning As Boolean ' 再フィット実行中(再入抑止)
+Private mRefitWaited As Boolean  ' Busyで1回だけ待ち直したか
+
 ' ----------------------------------------------------------------------------
 ' ApplyScrollBound - ws.ScrollArea を設定する。空文字なら制限を外す。
 ' ----------------------------------------------------------------------------
@@ -345,6 +356,151 @@ Public Sub LogViewport(ByVal screenName As String)
     mLoggedScreens = mLoggedScreens & "|" & screenName & "|"
     modLog.LogUsage "viewport", screenName, _
         CLng(modUIMain.ViewportWidth()) & "x" & CLng(ViewportHeight())
+    On Error GoTo 0
+End Sub
+
+' ============================================================================
+' R20-1f: 窓のリサイズ後に、今出ている画面を自動で組み直す(デバウンス付き)
+' ============================================================================
+' なぜ要るか: このアプリの幾何は全て「今の可視幅・可視高」から決まる
+' (FitBandToViewport / ContentRight / BoundAddr)。ところが再計算の機会は
+' 「画面を開いたとき」だけで、開いたあとに窓を広げても列幅もカードも
+' 動かない ―― R19 までの修正が実機で効いて見えなかった最大の理由がこれ。
+'
+' 実体をここに置く理由: 呼び口は modUI.OnWindowResized が素直だが、modUI は
+' 30,000字上限に対する余裕が乏しい。ThisWorkbook のイベントから直接
+' modViewport.OnWindowResized を呼ぶ(仕様 R20-1f)。
+'
+' 危険なのは Application.OnTime の予約が残ること。予約を残したままブックを
+' 閉じると、Excel は【時刻が来たときにそのブックを開き直して】まで実行しようと
+' する(§9・modShelfSync の自動同期で実際に踏んだ事故)。だから:
+'   (i)   Auto_Close の経路(modUI.RestoreExcelUI)から必ず CancelRefit を呼ぶ
+'   (ii)  予約名はブック名で修飾する(新旧2版が併存すると無修飾では
+'         名前解決先が決まらない。modShelfSync.TickProcName と同じ作法)
+'   (iii) 他のブックが前面のときは予約もしないし実行もしない
+'   (iv)  連続リサイズでは【必ず先に解除してから】入れ直す(多重登録ゼロ)
+' 32bit Excel でも OnTime/Window イベントの作法は同じで、必要なのは
+' 「予約時刻を覚えて完全一致で解除する」ことだけ(APIは一切使わない)。
+
+' RefitAction - 状態遷移だけを取り出した純関数(ゴールデン対象)。
+'   OnTime も ActiveWorkbook も見ないので、LibreOffice の純ロジックテストで
+'   「多重登録しない」「Busyでは1回だけ待ち直す」「他ブック前面では何もしない」
+'   「自分の再描画が起こしたリサイズは無視する」を固定できる。
+'   ev       : "resize"(窓が動いた) / "tick"(予約時刻が来た)
+'   isMine   : 自分のブックが前面か
+'   isRunning: 再フィットの実行中か(再入)
+'   isBusy   : modUiLock.IsBusy()(取込・回答生成中)
+'   waited   : Busyのために既に1回待ち直したか
+'   戻り値   : "none"(何もしない) / "schedule"(予約し直す) / "run"(組み直す)
+Public Function RefitAction(ByVal ev As String, ByVal isMine As Boolean, _
+                            ByVal isRunning As Boolean, ByVal isBusy As Boolean, _
+                            ByVal waited As Boolean) As String
+    RefitAction = "none"
+    If isRunning Then Exit Function
+    If Not isMine Then Exit Function
+    Dim e As String: e = LCase$(Trim$(ev))
+    If e = "resize" Then
+        RefitAction = "schedule"
+        Exit Function
+    End If
+    If e <> "tick" Then Exit Function
+    If isBusy Then
+        ' 待つのは1回だけ。際限なく再予約すると、長い取込の間じゅう0.7秒おきに
+        ' OnTime を張り替え続けることになる(予約1本の原則は守れても無駄が残る)。
+        If Not waited Then RefitAction = "schedule"
+        Exit Function
+    End If
+    RefitAction = "run"
+End Function
+
+' OnWindowResized - ThisWorkbook.Workbook_WindowResize から呼ばれる唯一の口。
+'   ここでは【予約するだけ】。描画は必ず OnTime 経由に落とす(イベント中に
+'   Shapeを作り直すとExcelが不安定になるため)。
+Public Sub OnWindowResized()
+    On Error Resume Next
+    Dim act As String
+    act = RefitAction("resize", (ActiveWorkbook Is ThisWorkbook), mRefitRunning, False, False)
+    If act <> "schedule" Then Exit Sub
+    mRefitWaited = False
+    ScheduleRefit
+    On Error GoTo 0
+End Sub
+
+' ScheduleRefit - 予約を1本だけ持つ(入れ直しは必ず解除してから)。
+Private Sub ScheduleRefit()
+    On Error Resume Next
+    CancelRefit
+    Dim t As Date: t = Now + REFIT_DELAY_SEC / 86400#
+    Application.OnTime EarliestTime:=t, Procedure:=RefitProcName()
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Sub                            ' 予約できないのは非致命(次回に委ねる)
+    End If
+    mRefitAt = t
+    mRefitArmed = True
+    On Error GoTo 0
+End Sub
+
+' CancelRefit - 未消化の予約を取り消す。modUI.RestoreExcelUI(=Auto_Close の
+'   経路)から必ず呼ぶ。予約が無い/既に発火済みでも安全(1004は握る)。
+Public Sub CancelRefit()
+    On Error Resume Next
+    If mRefitArmed Then
+        Application.OnTime EarliestTime:=mRefitAt, Procedure:=RefitProcName(), Schedule:=False
+        Err.Clear
+    End If
+    mRefitArmed = False
+    On Error GoTo 0
+End Sub
+
+' RefitProcName - 予約/解除で必ず同じ文字列になるように1箇所で組む。
+Private Function RefitProcName() As String
+    RefitProcName = "'" & ThisWorkbook.Name & "'!modViewport.ViewportRefitTick"
+End Function
+
+' ViewportRefitTick - OnTime のコールバック本体。Public 必須(OnTime は
+'   Application.Run と同じ遅延バインドで Private を呼べない)。
+Public Sub ViewportRefitTick()
+    On Error Resume Next
+    mRefitArmed = False
+    ' 他ブックが前面なら何もしない(他人の窓幅で自分の帯を決めない)。取込・
+    ' 回答生成の最中も組み直さない(modApp.OnRefreshUI が BlockIfIngesting を
+    ' 置いているのと同じ理由)。判断は RefitAction 1本に集約する。
+    Dim act As String
+    act = RefitAction("tick", (ActiveWorkbook Is ThisWorkbook), mRefitRunning, _
+                      modUiLock.IsBusy(), mRefitWaited)
+    If act = "schedule" Then
+        mRefitWaited = True
+        ScheduleRefit
+        Exit Sub
+    End If
+    If act <> "run" Then Exit Sub
+    mRefitWaited = False
+    mRefitRunning = True
+    RefitActiveScreen
+    mRefitRunning = False
+    On Error GoTo 0
+End Sub
+
+' RefitActiveScreen - 今前面にある画面だけを冪等に組み直す。
+'   分岐は modApp.OnRefreshUI(🔄再描画)と同じ形にする(2つ持つとズレる)。
+'   チャットは会話が伸びる設計で、幾何は modUI.Repaint が持つ。
+Private Sub RefitActiveScreen()
+    Dim nm As String
+    On Error Resume Next
+    nm = ThisWorkbook.ActiveSheet.Name
+    If LenB(nm) = 0 Then Exit Sub
+    Select Case nm
+        Case "Nexus":                  modUI.Repaint
+        Case "Dashboard":              modDash.ShowDashboard
+        Case modAppDef.SH_HOME:        modHub.EnsureHubLayout
+        Case modAppDef.SH_SHELF:       modKnowledge.RefreshCurrent
+        Case Else:                     Exit Sub   ' 素のシート(config等)は触らない
+    End Select
+    If Err.Number <> 0 Then
+        modLog.LogError "E0801", "modViewport.ViewportRefitTick", Err.Description, Err.Number
+        Err.Clear
+    End If
     On Error GoTo 0
 End Sub
 

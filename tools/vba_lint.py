@@ -1124,6 +1124,7 @@ CONTRACT: dict[str, dict] = {
             "ApplyScrollBound", "FitBandToViewport", "ContentRight",
             "BoundAddr", "ViewportHeight", "LogViewport", "RowAt",
             "ResetRowsBelow", "ClampD", "GalleryColsFor",
+            "OnWindowResized", "ViewportRefitTick", "CancelRefit", "RefitAction",
             "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
             "ColLetter",
         ],

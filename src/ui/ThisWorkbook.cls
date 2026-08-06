@@ -32,6 +32,19 @@ Private Sub Workbook_Open()
     modBoot.Boot
 End Sub
 
+' R20-1f(実機第7報⑦): 窓の大きさが変わったら、今出ている画面を組み直す。
+' このアプリの幾何は全て「今の可視幅・可視高」から決まるのに、再計算の
+' 機会が「画面を開いたとき」だけだったため、開いた後に窓を広げると
+' 右と下に空白が残り続けていた。実体(デバウンス・再入抑止・OnTimeの
+' 後始末)は modViewport 側。ここは転送だけで、失敗しても握りつぶす
+' (イベントで例外を出すとExcelがイベントを止めてしまう)。
+' 本番ビルドの ThisWorkbook ストリームは自己インストーラが占有するため、
+' そちら(build_mybookshelf.py の _INSTALLER_SRC_TEXT)にも同じ転送がある。
+Private Sub Workbook_WindowResize(ByVal Wn As Window)
+    On Error Resume Next
+    modViewport.OnWindowResized
+End Sub
+
 Private Sub Workbook_BeforeClose(Cancel As Boolean)
     ' R13-4d: 取込中の×クリックは、確認してからにする(いいえ=閉じない)。
     ' 本番ビルドのThisWorkbookストリームは自己インストーラが占有していて

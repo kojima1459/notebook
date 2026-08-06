@@ -1163,6 +1163,24 @@ def _make_vba_src(wb, present_modules, root):
 #   ・CodeModule の既存行を消してから AddFromString するのは、VBEの
 #     「変数の宣言を強制する」がONだと Option Explicit が自動挿入され、
 #     ソース側の Option Explicit と重複してコンパイルエラーになるため。
+#   ・ソース中にあった2行のコメント("f>0: half-injected. Do not Save." と
+#     "Detach Boot(1004); E1=time. R12-3-8.")は 2026-08-06(R20-1f)に
+#     ここへ退避した。意味は変わっていない:
+#       - f>0 は「一部のモジュールしか注入できなかった」状態。半端な状態を
+#         保存すると次回以降ずっと壊れたブックになるので Save しない。
+#       - Boot の切り離しは、VBE注入直後に同期で Boot を呼ぶと 1004 になる
+#         ことがあるための逃げ。予約時刻は vba_src!E1 に置き、
+#         modBoot.CancelPendingInstallerBoot / Auto_Close が取り消す(R12-3-8)。
+#   ・Workbook_WindowResize(2026-08-06 R20-1f): 窓の大きさが変わったら
+#     modViewport.OnWindowResized へ転送する。このアプリの列幅・カード幅・
+#     塗り範囲は全て「今の可視幅」から決まるのに、再計算の機会が「画面を
+#     開いたとき」だけで、開いた後に窓を広げると右と下に空白が残っていた
+#     (実機第7報⑦)。デバウンス・再入抑止・OnTimeの後始末は modViewport 側。
+#     Application.Run 経由なのは、この時点で modViewport が未注入でも
+#     コンパイルを通す必要があるため(既存の modBoot.Boot 呼びと同じ作法)。
+#     ※ Workbook_BeforeClose はここに【絶対に足さない】。インストーラは
+#       Workbook_Open で自分自身を書き換えて Save する設計で、閉じる側に
+#       手を入れると保存済みブックの整合が崩れる(§14手順6)。
 _INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
 Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
 Attribute VB_GlobalNameSpace = False
@@ -1172,6 +1190,10 @@ Attribute VB_Exposed = True
 Option Explicit
 Private Sub Workbook_Open()
   Install
+End Sub
+Private Sub Workbook_WindowResize(ByVal Wn As Window)
+  On Error Resume Next
+  Application.Run "modViewport.OnWindowResized"
 End Sub
 Public Sub Install()
   Dim p As Object, w As Worksheet, c As Object, e As Object
@@ -1204,7 +1226,6 @@ Public Sub Install()
   On Error Resume Next
   Application.Run "modBoot.RunFirstRunPromptEarly"
   Err.Clear
-  ' f>0: half-injected. Do not Save.
   If f > 0 Then
     MsgBox "Setup incomplete. Please get a fresh copy of this file.", vbCritical
     Exit Sub
@@ -1212,7 +1233,6 @@ Public Sub Install()
   ThisWorkbook.Save
   If Err.Number<>0 Then Application.Run "modLog.LogUsage","save_fail","",Err.Description
   Err.Clear
-  ' Detach Boot(1004); E1=time. R12-3-8.
   Dim bt As Date
   bt = Now + TimeSerial(0, 0, 1)
   Application.OnTime bt, "'" & ThisWorkbook.Name & "'!modBoot.Boot"

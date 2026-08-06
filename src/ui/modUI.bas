@@ -406,6 +406,10 @@ Public Sub RestoreExcelUI()
     ' 砂時計/ステータスバーも念のため既定へ。
     Application.Cursor = -4143   ' xlDefault
     Application.StatusBar = False
+    ' R20-1f: 窓リサイズの再フィット予約(OnTime)を必ず解く。残したまま閉じると
+    ' Excelが時刻到来時にこのブックを開き直す(§9・自動同期で踏んだ事故と同型)。
+    ' Auto_Close はここを必ず通るので、予約の後始末もここに置く。
+    modViewport.CancelRefit
     On Error GoTo 0
 End Sub
 
