@@ -64,15 +64,41 @@ Private Const INTENT_4 As String = "例外・特約・注意点"
 Private Const INTENT_5 As String = "金額・料率・計算方法"
 
 ' ----------------------------------------------------------------------------
+' R19-4(実機第6報④): 「資料が絞れないから聞き返す」ときの1行目の差し替え。
+' ----------------------------------------------------------------------------
+' 従来の聞き返しは「短くて、どの資料にも当たらない」質問だけを相手にしていた
+' ので、1行目は「もう少しだけ教えてください」で正しかった。分散(=複数の資料に
+' 拮抗して当たった)で聞き返すときは事情が逆で、当たってはいるが【1つに決まら
+' ない】。同じ文で出すと「ちゃんと書いたのに、また書き直せと言われた」に読める。
+' 呼び出し側(modAskRetrieve.IsTooVague)が発動した理由をここへ1つ預け、
+' BuildClarifyPrompt が使ったらすぐ下ろす(次の聞き返しへ持ち越さない)。
+' modAsk は BuildClarifyPrompt(q, sources) の2引数しか渡せず、あちらは凍結中の
+' ため、理由を引数で運ぶ道は無い。印を1つ預ける形が唯一の道になる。
+Private mDispersionHint As Boolean
+
+Public Sub NoteDispersion()
+    mDispersionHint = True
+End Sub
+
+' ----------------------------------------------------------------------------
 ' BuildClarifyPrompt - 逆質問の本文を組み立て、保留状態を保存する。
 '   sources: ヒットした資料名(重複除去済み・最大MAX_SRC件)を | 区切りで渡す。
 ' ----------------------------------------------------------------------------
 Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) As String
     SavePending q, sources, KIND_SOURCE
 
+    ' R19-4b: 分散で呼ばれたかを1回だけ受け取り、その場で下ろす。
+    Dim byDispersion As Boolean: byDispersion = mDispersionHint
+    mDispersionHint = False
+
     Dim sb As String
-    sb = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少しだけ教えてください。" & _
-         "そのほうが確実な答えを出せます。" & vbLf & vbLf
+    If byDispersion Then
+        sb = ChrW(&HD83D) & ChrW(&HDCAD) & " ご質問は複数の資料に該当します。" & _
+             "どの資料についてですか?" & vbLf & vbLf
+    Else
+        sb = ChrW(&HD83D) & ChrW(&HDCAD) & " もう少しだけ教えてください。" & _
+             "そのほうが確実な答えを出せます。" & vbLf & vbLf
+    End If
 
     Dim parts() As String
     Dim n As Long
@@ -411,6 +437,153 @@ Public Function MissingDocGuide(ByVal q As String) As String
         "資料を持っている人が見て登録すると、次からは全員がすぐ答えを得られます。"
 
     MissingDocGuide = sb
+End Function
+
+' ============================================================================
+' R19-4a(実機第6報④): 資料分散の判定 — 「第3の曖昧さ」。
+' ============================================================================
+' 現行が扱えていた曖昧さは2種類しかなかった:
+'   (A) 短くて、どの資料にも当たらない(modAskRetrieve.IsTooVague の低スコア判定)
+'   (B) 1問の中に読み方が複数ある複合質問(modAskMulti の段0)
+' 「免責は?」はどちらでもない。局所的には高スコアで当たるのに、当たり先が
+' 【複数の資料に割れている】。(A)はスコアの低さを理由に聞き返すので、判定の軸
+' そのものが逆を向いており流用できない。要るのは「資料の分散度」という別の軸
+' (調査④班2章)。
+'
+' なぜ Hit() を受けないのか: LibreOffice実行テストでは別モジュールで定義した
+' Public Type の配列(Hit())を ReDim した瞬間に実行時エラー420になる既知制約が
+' ある(src/test/modTestsPure.bas:34-52)。既存の IsTooVague にLOテストが1件も
+' 無いのはこれが理由。modFollowup が RememberUsedChunks(hits())と
+' RememberUsedIds(文字列)を分けているのと同じ作法で、判定そのものは
+' 「資料名<TAB>スコア」を vbLf で連ねた1本の文字列だけを受ける純関数にする。
+' hits() からこの文字列へ畳む処理は呼び出し側(modAskRetrieve)が持つ。
+'
+' 判定:
+'   1. 行を分解し、資料名ごとの【最高スコア】だけを残す
+'      (Scripting.Dictionary は使用禁止なので線形探索。逆質問の候補は
+'       たかだか topK 件で、二重ループでも実測に影響しない)
+'   2. 資料が2種類未満なら False(そもそも分散しようがない)
+'   3. 1位資料と2位資料の最高スコアの差が gapX100/100 未満なら True
+'   gapX100 <= 0 は機能OFF(既存の ambiguous_score_x100=0 と同じ思想)。
+' ----------------------------------------------------------------------------
+Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
+                                   ByVal gapX100 As Long) As Boolean
+    If gapX100 <= 0 Then Exit Function
+    If LenB(srcScoreLines) = 0 Then Exit Function
+
+    Dim lines() As String
+    lines = Split(srcScoreLines, vbLf)
+    Dim cap As Long: cap = UBound(lines) - LBound(lines) + 1
+    If cap < 2 Then Exit Function
+
+    Dim names() As String: ReDim names(0 To cap - 1)
+    Dim tops() As Double: ReDim tops(0 To cap - 1)
+    Dim n As Long: n = 0
+
+    Dim i As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim ln As String: ln = Trim$(lines(i))
+        Dim p As Long: p = 0
+        If LenB(ln) > 0 Then p = InStr(1, ln, vbTab)
+        If p > 1 And p < Len(ln) Then
+            Dim nm As String: nm = Trim$(Left$(ln, p - 1))
+            ' スコアは Val で読む: CDbl は端末の小数点記号(カンマ圏)に左右され、
+            ' 同じ文字列が0になり得る。Val は常に "." を小数点として読む。
+            Dim sc As Double: sc = Val(Trim$(Mid$(ln, p + 1)))
+            If LenB(nm) > 0 Then
+                Dim k As Long: k = -1
+                Dim j As Long
+                For j = 0 To n - 1
+                    If StrComp(names(j), nm, vbTextCompare) = 0 Then k = j: Exit For
+                Next j
+                If k < 0 Then
+                    names(n) = nm
+                    tops(n) = sc
+                    n = n + 1
+                ElseIf sc > tops(k) Then
+                    tops(k) = sc
+                End If
+            End If
+        End If
+    Next i
+
+    If n < 2 Then Exit Function
+
+    ' 1位と2位を1回のなめで拾う(並べ替えない=同点の扱いが順序に依存しない)。
+    Dim b1 As Double, b2 As Double
+    b1 = tops(0)
+    b2 = tops(1)
+    If b2 > b1 Then
+        b1 = tops(1)
+        b2 = tops(0)
+    End If
+    For i = 2 To n - 1
+        If tops(i) > b1 Then
+            b2 = b1
+            b1 = tops(i)
+        ElseIf tops(i) > b2 Then
+            b2 = tops(i)
+        End If
+    Next i
+
+    HasScoreDispersion = ((b1 - b2) < (CDbl(gapX100) / 100#))
+End Function
+
+' ----------------------------------------------------------------------------
+' R19-4d: 誤発動対策 — 質問文がヒット資料を名指ししているなら聞き返さない。
+' ----------------------------------------------------------------------------
+' 「就業規則の免責は?」のように資料を名指しした質問は、スコアが拮抗していても
+' 【どの資料か】はもう決まっている。ここで番号を選ばせるのは、答えを知っている
+' 相手にもう一度同じことを言わせる行為で、憲章§3-1(押しても進まない)に反する。
+' 判定は3方向で見る(資料名は端末ごとに表記が揺れ、拡張子も付いたり付かない):
+'   (1) 質問文が資料名まるごとを含む
+'   (2) 質問文が資料名の主要語(MainKeyword)を含む  … 「就業規則」を名指し
+'   (3) 資料名が質問文の主要語を含む(3字以上に限る) … 「火災保険」→火災保険約款
+' (3)を3字以上に絞るのは、「免責」「期限」「金額」のような2字の一般語が
+' たまたま資料名に含まれるだけで聞き返しを止めてしまうのを防ぐため
+' (止まると、この機能は「効かない機能」として二度と観測されない)。
+Public Function MentionsSourceName(ByVal q As String, ByVal sources As String) As Boolean
+    If LenB(q) = 0 Then Exit Function
+    If LenB(sources) = 0 Then Exit Function
+
+    Dim qKey As String: qKey = MainKeyword(q)
+    Dim parts() As String
+    parts = Split(sources, "|")
+
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim nm As String: nm = StripExt(Trim$(parts(i)))
+        If Len(nm) >= 2 Then
+            If InStr(1, q, nm, vbTextCompare) > 0 Then
+                MentionsSourceName = True
+                Exit Function
+            End If
+            Dim sKey As String: sKey = MainKeyword(nm)
+            If Len(sKey) >= 3 Then
+                If InStr(1, q, sKey, vbTextCompare) > 0 Then
+                    MentionsSourceName = True
+                    Exit Function
+                End If
+            End If
+            If Len(qKey) >= 3 Then
+                If InStr(1, nm, qKey, vbTextCompare) > 0 Then
+                    MentionsSourceName = True
+                    Exit Function
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+' 資料名の末尾の拡張子を落とす(本棚の資料名はファイル名そのままのことが多い)。
+' 落とすのは最後のドット以降が1〜5字のときだけ=「第3.2版 約款」のような
+' 名前の途中のドットで切らない。
+Private Function StripExt(ByVal nm As String) As String
+    StripExt = nm
+    Dim p As Long: p = InStrRev(nm, ".")
+    If p < 2 Then Exit Function
+    Dim extLen As Long: extLen = Len(nm) - p
+    If extLen >= 1 And extLen <= 5 Then StripExt = Left$(nm, p - 1)
 End Function
 
 ' 質問文から代表的な語を1つ取り出す(漢字・カタカナの連なりで最長のもの)。
