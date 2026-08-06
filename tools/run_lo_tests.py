@@ -419,6 +419,20 @@ PURE_ALLOWLIST = [
     #   関数自体はExcelに触れない」型)。未注入のまま modTestsPure19 から
     #   呼ぶと実行時エラー12になる。
     "modBackfill",
+    # modTestsPure20(2026-08-06 R20-4/R20-7): modTestsPure19.RunAll19の末尾が
+    #   RunAll20を呼ぶため、未注入だと実行時エラー12でR20-4/R20-7のテストが
+    #   1件も走らない(16〜19と同型)。
+    # modSetupWizard(R20-4b): テストが呼ぶのは DeptFromSelector(数値→部門名の
+    #   純関数)1本だけで、OnDeptSetup/RunFirstRunWizard(InputBox/MsgBoxを
+    #   持つ)はテストから呼ばない(modOutlineBuild/modBackfillと同型)。
+    # modSkin(R20-7a): テストが呼ぶのは ResolveColor/EffectiveSkin(配色の
+    #   Select Caseだけの純関数)で、Shape/シートI/Oを触るBeautifyAll/
+    #   ApplyTheme等はテストから呼ばない。EffectiveSkinがsakura/ocean/gold
+    #   判定でmodStats.GetStatを呼ぶ経路もあるが、テストが渡すのは
+    #   ""/"blueold"/"MSAD"/"light"/"dark"のみでその経路には到達しない
+    #   (modDashStatと同型の「モジュール全体はR4準拠ではないが呼ぶ関数は
+    #   安全」)。未注入だと実行時エラー12になる。
+    "modTestsPure20", "modSetupWizard", "modSkin",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

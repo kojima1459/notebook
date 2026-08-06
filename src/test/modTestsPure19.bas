@@ -333,6 +333,10 @@ NextBfCrumb19:
 NextBfText19:
     On Error GoTo BfTextFail19
     TestBackfillText
+NextChain20:
+    ' R20-4/R20-7(実機第7報③④⑥)の真理表は modTestsPure20 へ(波ごとの分割)。
+    On Error GoTo ChainFail20
+    modTestsPure20.RunAll20
 NextDone19:
     On Error GoTo 0
     Exit Sub
@@ -371,6 +375,10 @@ BfCrumbFail19:
     Resume NextBfText19
 BfTextFail19:
     modTestRunner.Check "TestBackfillText(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChain20
+ChainFail20:
+    modTestRunner.Check "modTestsPure20.RunAll20(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone19
 End Sub
