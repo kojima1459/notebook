@@ -261,6 +261,13 @@ Public Sub WarnAtStartup()
             "有効になります", "info"
     End If
 
+    ' R19-1e(実機第6報①): 既存ブックの UsedRange は保存するまで縮まない。
+    ' R19-1b で塗りを実使用範囲へ縮めても、それ以前に全域書式が焼き付いた
+    ' ブックでは「右にも下にも無限にスクロールできる」がそのまま残るため、
+    ' 利用者には「直っていない」としか見えない(調査①班1-e)。検知して、
+    ' 直し方(一度保存して開き直す)を1文で伝える。
+    WarnIfUsedRangeBloated
+
     Dim prevRows As Long: prevRows = 0
     Dim prevTxt As String: prevTxt = modState.LoadState(KEY_LAST_ROWS, "")
     If IsNumeric(prevTxt) Then prevRows = CLng(Val(prevTxt))
@@ -272,6 +279,58 @@ Public Sub WarnAtStartup()
         modUtil.SafeLeft(prevPath, 200)
     MsgBox ShrinkWarnMsg(prevRows, curRows, prevPath, curPath), _
         vbExclamation, modAppDef.APP_NAME
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' R19-1e: UsedRange が「画面の4倍超」なら、焼き付いた全域書式が残っている。
+' ----------------------------------------------------------------------------
+' 判定そのものは数の比較だけの純関数(modTestsPure16 が境界を固定する)。
+' 4倍は「1画面ぶんの余白(=正常な上限)の4倍」で、正常なブックでは絶対に
+' 起きない一方、旧ブック(A1:P2000=40画面ぶん / A1:T120=3画面ぶん×右430pt)は
+' 確実に引っかかる値。閾値を下げすぎると正常なブックにも出て狼少年になる。
+Public Function IsUsedRangeBloated(ByVal usedW As Double, ByVal usedH As Double, _
+                                   ByVal viewW As Double, ByVal viewH As Double) As Boolean
+    If viewW <= 0 Then Exit Function
+    If viewH <= 0 Then Exit Function
+    IsUsedRangeBloated = (usedW > viewW * 4) Or (usedH > viewH * 4)
+End Function
+
+' 画面4枚(Hub/チャット/マイ本棚/ダッシュボード)のどれかが膨らんでいたら
+' 1回だけ案内する(セッション1回=WarnAtStartup 自体が1回)。
+Private Sub WarnIfUsedRangeBloated()
+    On Error Resume Next
+    ' 可視サイズは ActiveWindow から直接取る。基盤層(src/core)からUI層の
+    ' modUIMain.ViewportWidth / modViewport.ViewportHeight は呼べない(R1)。
+    ' ここで要るのは「桁が4倍違うか」だけなので、下限クランプがあれば足りる。
+    Dim viewW As Double, viewH As Double
+    viewW = ActiveWindow.UsableWidth
+    viewH = ActiveWindow.UsableHeight
+    If viewW < 320 Then viewW = 320
+    If viewH < 200 Then viewH = 200
+
+    Dim names As Variant
+    names = Array(modAppDef.SH_HOME, "Nexus", modAppDef.SH_SHELF, modAppDef.SH_NEXUS_DASH)
+    Dim i As Long
+    For i = LBound(names) To UBound(names)
+        Dim ws As Worksheet
+        Set ws = Nothing
+        Set ws = GetSheet(CStr(names(i)))
+        If Not ws Is Nothing Then
+            Dim ur As Range
+            Set ur = Nothing
+            Set ur = ws.UsedRange
+            If Not ur Is Nothing Then
+                If IsUsedRangeBloated(ur.Left + ur.Width, ur.Top + ur.Height, viewW, viewH) Then
+                    modLog.LogUsage "integrity_hint", "usedrange_bloated", _
+                        ws.Name & " " & CLng(ur.Left + ur.Width) & "x" & CLng(ur.Top + ur.Height)
+                    modSkin.ShowToast "一度保存して開き直すと、画面のスクロール範囲が" & _
+                        "正常になります", "info"
+                    Exit Sub
+                End If
+            End If
+        End If
+    Next i
     On Error GoTo 0
 End Sub
 

@@ -22,6 +22,8 @@ Option Explicit
 '   ・modViewport.ColLetter(3b): ScrollAreaの範囲文字列を組む列番号→列名。
 '   ・modViewport.PadPtNeeded / RightEdgeAt / BoundBottomY(R19-1a): 右余白を
 '     消す吸収列の幅・右端の単一情報源・境界の下端(実機第6報①の根治)。
+'   ・modIntegrity.IsUsedRangeBloated(R19-1e): 既存ブックに焼き付いた全域書式
+'     (UsedRangeが画面の4倍超)の検知。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -429,6 +431,24 @@ Private Sub TestR19ViewportMath()
         (modViewport.BoundBottomY(576, 600, 24) = 600)
     modTestRunner.Check "下端_内容+余白が1画面を1pt超えたら内容側", _
         (modViewport.BoundBottomY(577, 600, 24) = 601)
+
+    ' --- 既存ブックの焼き付き検知(R19-1e) ---------------------------------
+    ' UsedRange は保存するまで縮まない。R19-1b で塗りを縮めても、それ以前に
+    ' 全域書式が焼き付いたブックでは無限スクロールが残るので、検知して
+    ' 「一度保存して開き直す」を案内する。旧チャット(A1:P2000=約31,200pt)は
+    ' 確実に、正常なブック(内容+1画面)は絶対に引っかからない閾値=4倍。
+    modTestRunner.Check "焼き付き_旧チャットの31,200ptは検知", _
+        (modIntegrity.IsUsedRangeBloated(671, 31200, 900, 700) = True)
+    modTestRunner.Check "焼き付き_横に伸びたブックも検知", _
+        (modIntegrity.IsUsedRangeBloated(4000, 700, 900, 700) = True)
+    modTestRunner.Check "焼き付き_正常なブックは黙る", _
+        (modIntegrity.IsUsedRangeBloated(888, 724, 900, 700) = False)
+    modTestRunner.Check "焼き付き_ちょうど4倍は黙る(境界)", _
+        (modIntegrity.IsUsedRangeBloated(900, 2800, 900, 700) = False)
+    modTestRunner.Check "焼き付き_4倍を1pt超えたら検知(境界)", _
+        (modIntegrity.IsUsedRangeBloated(900, 2801, 900, 700) = True)
+    modTestRunner.Check "焼き付き_可視サイズが取れないときは黙る", _
+        (modIntegrity.IsUsedRangeBloated(31200, 31200, 0, 0) = False)
 End Sub
 
 Public Sub RunAll16()
