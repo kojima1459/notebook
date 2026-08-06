@@ -119,6 +119,17 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     mProgressSheetName = ws.Name
 
     Dim barW As Double: barW = BarWidthFor(modUIMain.ViewportWidth())
+    ' R19-1c: R19-1a で列幅を可視幅ぴったりに詰める設計へ入ったため、
+    ' 「窓の幅」だけを見ると最終列より右(=セルの無い描画キャンバス外)へ
+    ' バナーがはみ出し得る。そこへ出た ■中断 / 作業用Excel は見えず押せず、
+    ' 憲章§3-1「押せるものは必ず反応する」に直撃する(調査①班5章(c))。
+    ' 可視列帯(VisibleRange)にも従わせる。取得できない状況では従来どおり。
+    Dim visW As Double
+    visW = ActiveWindow.VisibleRange.Width
+    If visW > 0 Then
+        If barW > visW - 16 Then barW = visW - 16
+    End If
+    If barW < 1 Then barW = 1
     Dim leftPos As Double, topPos As Double
     leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - barW) / 2
     If leftPos < ActiveWindow.VisibleRange.Left Then leftPos = ActiveWindow.VisibleRange.Left
