@@ -221,6 +221,71 @@ Public Function VolatileWarnMsg(ByVal curPath As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' R19-5(実機第6報⑤): 作業用Excelとの「同居」の検出と警告。
+' ----------------------------------------------------------------------------
+' 機序(調査⑤班2章): Excelは既定で複数ブックを1プロセスへ結合(マージ)する。
+' 本体xlsmをエクスプローラーからダブルクリックすると、生き残っていた作業用
+' Excelのプロセスへ本体が吸い込まれ、以後は本体のOCR同期呼び出しがプロセス
+' 全体のメッセージポンプを止める=作業用Excelも「■中断」も丸ごと無反応になる
+' (実機第6報⑤の「①も中断ボタンも全滅」)。DisableMergeInstance はダブル
+' クリックには効かないことが公式に明記されており(調査⑤ウェブ班3-(b))、
+' VBAだけで結合を防ぐ完全な実装解は存在しない。できるのは「検出して正直に
+' 伝え、危険な操作の前に一度止める」ことだけ(仕様 R19-5 の裁定)。
+'
+' 検出は Workbooks.Count > 1 の1点で行う。Application.Workbooks は【自分の
+' プロセス内で開いているブックだけ】を指すというSDIの仕様がそのまま
+' 「自分以外が同居しているか」の答えになる(調査⑤ウェブ班3-(c)。
+' Application.Hwnd はアクティブウィンドウしか返さないので使わない)。
+'
+' 相手のブック名は【列挙しない】: 個人情報になり得るうえ、20冊開いている人の
+' ダイアログが読めない長文になる。利用者に要る情報は「同居している」事実と
+' 「どうすればよいか」の2つだけ(憲章§3-3)。
+Public Function CohabitCount() As Long
+    On Error Resume Next
+    CohabitCount = Application.Workbooks.count
+    On Error GoTo 0
+End Function
+
+' 同居しているか(純ロジック。境界=1冊なら単独・2冊以上で同居)。
+Public Function IsCohabiting(ByVal wbCount As Long) As Boolean
+    IsCohabiting = (wbCount > 1)
+End Function
+
+' 起動時のモーダル文(BMPの文字だけ。非BMPはCP932往復で化ける=実機第5報⑤)。
+Public Function CohabitWarnMsg() As String
+    CohabitWarnMsg = "他のExcelブックと同じプロセスで開かれています。" & vbLf & _
+        "このまま取込を行うと、そのブックも一緒に固まります。" & vbLf & vbLf & _
+        "いったんこのファイルを閉じ、同梱の「MyBookshelfを起動」から" & vbLf & _
+        "開き直すことをおすすめします。"
+End Function
+
+' 取込直前の再確認文(vbYesNo)。起動時の警告を見落とした人への最後の関所。
+Public Function CohabitIngestMsg() As String
+    CohabitIngestMsg = "他のブックが同じプロセスにあります。" & vbLf & _
+        "取込中はそれらも操作できなくなります。" & vbLf & vbLf & _
+        "続行しますか?"
+End Function
+
+' ----------------------------------------------------------------------------
+' ConfirmIngestWhenCohabit - 取込入口の関所(R19-5b)。続行してよければTrue。
+' ----------------------------------------------------------------------------
+' 判定も文言もモーダルもここに置き、呼び出し側(modShelfBatch.AddFilesResult
+' 冒頭)は「戻り値がFalseなら中止」の1つだけを知っていればよい(§4-5)。
+' 同居していなければ何も出さずTrue=通常の取込は1ミリも変わらない。
+' 表示に失敗しても取込を止めない(既定はTrue=続行)。
+Public Function ConfirmIngestWhenCohabit() As Boolean
+    ConfirmIngestWhenCohabit = True
+    On Error Resume Next
+    If Not IsCohabiting(CohabitCount()) Then Exit Function
+    modLog.LogUsage "cohabit_detected", "ingest", "他ブックと同居した状態で取込が始まろうとしています"
+    If MsgBox(CohabitIngestMsg(), vbExclamation + vbYesNo + &H10000, modAppDef.APP_NAME) <> vbYes Then
+        ConfirmIngestWhenCohabit = False
+        modLog.LogUsage "cohabit_abort", "ingest", "同居の確認で「いいえ」が選ばれ取込を中止しました"
+    End If
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
 ' WarnAtStartup - 起動時の突合(2d 本体)。modBoot から1行だけ呼ばれる。
 ' ----------------------------------------------------------------------------
 ' 順番は「置き場所の警告」が先: 一時フォルダで開いていることが分かっていれば、
@@ -246,6 +311,17 @@ Public Sub WarnAtStartup()
     If IsVolatilePath(bookDir, SafeEnv("TEMP"), SafeEnv("TMP")) Then
         modLog.LogUsage "integrity_warn", "volatile_path", modUtil.SafeLeft(curPath, 300)
         MsgBox VolatileWarnMsg(curPath), vbExclamation, modAppDef.APP_NAME
+    End If
+
+    ' R19-5a(実機第6報⑤): 同居の検出。置き場所の次に伝えるのは「今このプロセスは
+    ' 自分だけのものではない」という事実で、これを知らないまま取込に入ると
+    ' 相手のブックごと固まる(上の CohabitWarnMsg の見出しコメント参照)。
+    ' モーダルは起動1回だけ(WarnAtStartup 自体が mWarned で1セッション1回)。
+    ' 相手のブック名は出さない。記録には件数だけ残す(名前はログにも書かない)。
+    Dim wbN As Long: wbN = CohabitCount()
+    If IsCohabiting(wbN) Then
+        modLog.LogUsage "cohabit_detected", "startup", "同一プロセスのブック数=" & wbN
+        MsgBox CohabitWarnMsg(), vbExclamation, modAppDef.APP_NAME
     End If
 
     ' 2026-08-05(R17H FB-7 / B-M): 既に本棚があるのに chunk_meta が0行=R17より

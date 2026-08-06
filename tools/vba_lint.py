@@ -209,9 +209,22 @@ CONTRACT: dict[str, dict] = {
         # IsUsedRangeBloated(2026-08-06 R19-1e): 既存ブックに焼き付いた全域書式
         # (UsedRangeが画面の4倍超)の検知。数の比較だけの純関数なので
         # modTestsPure16 が境界をゴールデンで固定する。
+        # 同居検出一式(2026-08-06 R19-5a/5b・実機第6報⑤): 本体xlsmが作業用Excelの
+        # プロセスへ結合(マージ)されると、本体のOCR同期呼び出しがプロセス全体の
+        # メッセージポンプを止め、相手のブックも「■中断」も丸ごと無反応になる。
+        # VBAで結合そのものは防げない(DisableMergeInstance はダブルクリックに
+        # 無効=公式)ため、検出して伝える側に寄せた。
+        #   CohabitCount    : Workbooks.Count(SDI仕様で自プロセス内のブック数)。
+        #   IsCohabiting    : 2冊以上か(純ロジック。modTestsPure18 が境界を固定)。
+        #   CohabitWarnMsg  : 起動時のモーダル文(純ロジック・BMPのみ)。
+        #   CohabitIngestMsg: 取込直前の再確認文(純ロジック・BMPのみ)。
+        #   ConfirmIngestWhenCohabit: 取込入口の関所。判定・文言・モーダルを
+        #     ここに閉じ、modShelfBatch.AddFilesResult からは戻り値だけを見る。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
+                     "CohabitCount", "IsCohabiting", "CohabitWarnMsg",
+                     "CohabitIngestMsg", "ConfirmIngestWhenCohabit",
                      "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup"],
     },
     # ---- 7.2 取込層 ----
