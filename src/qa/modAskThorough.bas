@@ -145,7 +145,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     modAskRetrieve.ShowAskStage "verify"
     Dim verified As String
     verified = modGateway.CallLLM( _
-        modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique), _
+        ThoroughVerifyPrompt(modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique)), _
         "thorough_verify", modConfig.GetString("thorough_verify_effort", "high"), _
         modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
 
@@ -163,6 +163,22 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
 
     ' --- (6) 出典の機械的突合 -----------------------------------------------
     RunThoroughFlow = AnnotateAgainstHits(body, hits, nUse)
+End Function
+
+' ----------------------------------------------------------------------------
+' ThoroughVerifyPrompt - R20-6f(入念モードの文体差別化)。
+'   modPrompts.BuildDeepVerifyPrompt(凍結)の戻り文字列に、入念モードだけの
+'   文体指示を連結する。deep/quickは1文字も変えない(呼ばれるのはこの
+'   関数だけ)。純関数なのでLibreOfficeの実行テストで固定できる。
+' ----------------------------------------------------------------------------
+Public Function ThoroughVerifyPrompt(ByVal basePrompt As String) As String
+    ThoroughVerifyPrompt = basePrompt & vbLf & vbLf & ThoroughStyleAddendum()
+End Function
+
+Private Function ThoroughStyleAddendum() As String
+    ThoroughStyleAddendum = _
+        "■見出しで構造化し、各主張の直後に出典を明記。必要なら600" & ChrW(&H301C) & _
+        "900字まで許容。断定できない点は「資料からは確認できません」と明示すること。"
 End Function
 
 ' ============================================================================

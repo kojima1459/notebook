@@ -398,6 +398,14 @@ Public Sub PlanAskStages(ByVal mdMode As String)
     On Error GoTo 0
 End Sub
 
+' R20-6a: 直近ターンで計画した段の総数(0=番号なし=すぐ聞く)。回答完了後に
+' modLive.Footer が読み、フッターへ「(N段)」を付す。mStgTotalの寿命は
+' PlanAskStages/RunDeepScoped が1ターンごとに立て直す既存の仕組みそのもの
+' なので、ここは値を外へ見せるだけの薄い読み取り専用の窓口。
+Public Function LastStageTotal() As Long
+    LastStageTotal = mStgTotal
+End Function
+
 ' kind = "expand" / "rerank" / "digest" / "draft" / "critique" / "verify" / "quick"
 Public Sub ShowAskStage(ByVal kind As String)
     On Error Resume Next
@@ -480,9 +488,17 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     End If
 
     ' (B) 資料分散(R19-4b)。gap=0 で機能OFF(既存の閾値0と同じ思想)。
+    ' R20-6d: 「入念に調べる」だけは時間より精度(modMode方針)なので、資料
+    ' 確認を優先する姿勢へ倒し、閾値を広げる(既定quick/deep=10、thorough=25)。
+    ' モードはmodAskを触らず、modAsk.ReadModeFromUiState(Private)と同型の
+    ' 直読みをここに持つ(R1: qa層からui層のmodAppStateは参照できないため。
+    ' AskFollowupが送信時点に同型の再読を行っている前提と整合)。
+    Dim curMode As String: curMode = CurrentRagSpeedForDispersion()
     Dim gapX100 As Long
     On Error Resume Next
-    gapX100 = modConfig.GetLong("ambiguous_dispersion_gap_x100", 10)
+    gapX100 = DispersionThresholdFor(curMode, _
+        modConfig.GetLong("ambiguous_dispersion_gap_x100", 10), _
+        modConfig.GetLong("thorough_dispersion_gap_x100", 25))
     On Error GoTo 0
     If gapX100 <= 0 Then Exit Function
 
@@ -497,13 +513,53 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     Dim srcN As Long
     Dim gap As Long: gap = modClarify.DispersionGapX100(FoldSrcScoreLines(hits, nHits), srcN)
     On Error Resume Next
-    modLog.LogUsage "dispersion", CStr(srcN), CStr(gap)
+    ' R20-6b: mode列に資料数(srcN)が入っていた列崩れを是正。実モード文字列を
+    ' mode列へ、資料数とgapはdetail列へ寄せる。
+    modLog.LogUsage "dispersion", curMode, "src=" & srcN & " gap=" & gap
     On Error GoTo 0
     If gap >= 0 And gap < gapX100 Then
         ' 聞き返しの1行目だけを分散用に差し替えるための印(modClarify が使ったら
         ' その場で下ろす)。文面の本体=資料選択+意図5区分は従来のまま使う。
         modClarify.NoteDispersion
         IsTooVague = True
+    End If
+End Function
+
+' R20-6d: ui_state "mode" キーの直読み(modAsk.ReadModeFromUiStateと同型)。
+' modAskは触らず(凍結)、R1(qa層からui層のmodAppStateは参照不可)を守るため、
+' 同じ形の読み取りをここに複製する(modAsk/modShelfSync/modStateと同じ
+' 「ThisWorkbook.Worksheets(SH_UISTATE)を直読みする」既存の作法)。
+Private Function CurrentRagSpeedForDispersion() As String
+    Dim v As String: v = "quick"
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_UISTATE)
+    On Error GoTo 0
+    If Not ws Is Nothing Then
+        On Error Resume Next
+        Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+        Dim i As Long
+        For i = 1 To lastRow
+            If StrComp(CStr(ws.Cells(i, 1).Value), "mode", vbTextCompare) = 0 Then
+                v = LCase$(Trim$(CStr(ws.Cells(i, 2).Value)))
+                Exit For
+            End If
+        Next i
+        On Error GoTo 0
+    End If
+    CurrentRagSpeedForDispersion = modMode.Normalize(v)
+End Function
+
+' R20-6d: 分散閾値をモード別に選ぶ純関数(LOテスト対象)。「入念に調べる」
+' だけ資料確認を優先する姿勢(=閾値を広げて聞き返しやすくする)にする。
+' モードの読み出しと config の既定値は呼び出し側(IsTooVague)が持つ。
+Public Function DispersionThresholdFor(ByVal mode As String, _
+                                       ByVal baseGapX100 As Long, _
+                                       ByVal thoroughGapX100 As Long) As Long
+    If modMode.Normalize(mode) = "thorough" Then
+        DispersionThresholdFor = thoroughGapX100
+    Else
+        DispersionThresholdFor = baseGapX100
     End If
 End Function
 

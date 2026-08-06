@@ -110,9 +110,16 @@ End Sub
 ' セルだったため、チャットを見ている利用者には一度も届いていなかった。
 ' 分母の無い「15秒」はただ遅い。「3冊・8か所を12.4秒で」は速い。
 ' 同じ待ち時間が、言い方ひとつで自慢になる。
-Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean) As String
+'
+' R20-6a(実機第7報⑧): 先頭にモード名を永続表示する。3モードが「同じことを
+' しているように見える」の最有力機序は【どのモードで生成されたか後から
+' 判別する表示が皆無】なこと。ここに出せば、入口3つ・出口1つの疑いを
+' 利用者が自分の目で確かめられる。段数(実況の最終段番号)は
+' modAskRetrieve.LastStageTotal()(quick/一般は0=非表示)。
+Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
+                       ByVal mode As String, ByVal speed As String) As String
     Dim t As String
-    t = ChrW(&H26A1) & " " & Format$(secs, "0.0") & "秒"
+    t = ModeLabel(mode, speed) & " ・ " & Format$(secs, "0.0") & "秒"
 
     If Not grounded Then
         Footer = t & " ・ 社内資料は未使用"
@@ -126,6 +133,22 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean) As Strin
         Footer = t
     Else
         Footer = t & " ・ " & srcN & "冊 / " & spotN & "か所を読みました"
+    End If
+
+    Dim stg As Long
+    On Error Resume Next
+    stg = modAskRetrieve.LastStageTotal()
+    On Error GoTo 0
+    If stg > 0 Then Footer = Footer & "(" & stg & "段)"
+End Function
+
+' モード表示名(一般アシスタントはmodApp.ModeCaptionと同じ絵文字・文言、
+' RAGの3モードはmodMode.Captionを単一情報源にする=表記が2箇所に分かれない)。
+Private Function ModeLabel(ByVal mode As String, ByVal speed As String) As String
+    If LCase$(Trim$(mode)) = "normal" Then
+        ModeLabel = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
+    Else
+        ModeLabel = modMode.Caption(speed)
     End If
 End Function
 

@@ -418,7 +418,9 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     mLastAnswerText = answerText
 
     Dim modeLabel As String
-    If LCase$(mode) = "deep" Then
+    If LCase$(mode) = "thorough" Then     ' R20-6e
+        modeLabel = ChrW(&HD83D) & ChrW(&HDD2C) & " 入念に調べる"
+    ElseIf LCase$(mode) = "deep" Then
         modeLabel = "" & ChrW(&HD83D) & ChrW(&HDD0D) & " しっかり調べる"
     Else
         modeLabel = ChrW(&H26A1) & " すぐ聞く"
@@ -675,7 +677,7 @@ Private Function CurrentMode() As String
         If StrComp(CStr(ws.Cells(i, 1).Value), "mode", vbTextCompare) = 0 Then
             Dim v As String
             v = LCase$(Trim$(CStr(ws.Cells(i, 2).Value)))
-            If v = "deep" Then CurrentMode = "deep"
+            If v = "deep" Or v = "thorough" Then CurrentMode = v   ' R20-6e
             Exit Function
         End If
     Next i

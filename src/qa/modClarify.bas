@@ -204,6 +204,16 @@ Public Sub ClearPending()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' IsSelfEcho - 返信が保留元の質問と同一(前後空白を落とし、大小・全半角を
+'   無視)かどうか(R20-6c、純関数)。MergeAnswerはorigQをExcel経由でしか
+'   読めないため、判定規則そのものをここへ出してLOテストで固定する。
+' ----------------------------------------------------------------------------
+Public Function IsSelfEcho(ByVal reply As String, ByVal origQ As String) As Boolean
+    If LenB(Trim$(origQ)) = 0 Then Exit Function
+    IsSelfEcho = (StrComp(Trim$(reply), Trim$(origQ), vbTextCompare) = 0)
+End Function
+
+' ----------------------------------------------------------------------------
 ' MergeAnswer - 聞き返しへの返事を、元の質問と合成して完全な質問文にする。
 '   reply が番号選択でないとき(利用者が自分の言葉で書き直したとき)は、
 '   その文をそのまま新しい質問として扱う(合成しない)。
@@ -220,6 +230,16 @@ Public Function MergeAnswer(ByVal reply As String) As String
 
     Dim r As String: r = Trim$(reply)
     If LenB(origQ) = 0 Then
+        MergeAnswer = r
+        Exit Function
+    End If
+
+    ' R20-6c(自己連結防御): 返信が保留元の質問そのものなら、連結せず
+    ' 「新しい質問としてそのまま再実行」扱いにする。連結すると
+    ' 「免責は? / 免責は?」のような変質した質問がAIへ渡る(聞き返しの直後に
+    ' もう一度同じ文をそのまま送る操作で起きる)。判定規則自体はIsSelfEcho
+    ' (純関数)に出し、LOテストで固定する。
+    If IsSelfEcho(r, origQ) Then
         MergeAnswer = r
         Exit Function
     End If
