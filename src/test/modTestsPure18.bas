@@ -21,6 +21,11 @@ Option Explicit
 '     足されないようにするのがこのテストの半分の目的)。
 '   ・modAskMulti.DecomposeGate(FA-6): 俯瞰シグナルのOR。短い俯瞰質問でも
 '     段0が呼ばれること、off が最優先であることの2点。
+'
+' 2026-08-06(R19-4a/4d・実機第6報④)で追記:
+'   ・modClarify.HasScoreDispersion: 資料分散の判定(「第3の曖昧さ」)。
+'   ・modClarify.MentionsSourceName: 質問文が資料を名指ししているときの除外。
+'   ・調査④班6.2のテスト表12件を、それぞれ【実際に止める側のゲート】で固定する。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -163,6 +168,148 @@ Private Sub TestDecomposeGateGlobal()
         (modAskMulti.DecomposeGate("auto", "免責は?保険料は?", 25) = True)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R19-4a/4d(実機第6報④): 資料分散の逆質問。調査④班6.2の表12件をそのまま置く。
+' ----------------------------------------------------------------------------
+' 12件のうち、分散判定そのもの(HasScoreDispersion)が答えるのは
+' #1/#2/#3/#4/#9/#10/#12。残りは【別のゲートが先に止める】ことを確かめる行で、
+' それぞれ担当する純関数で固定する:
+'   #5  俯瞰       → modRagParse.HasGlobalSignal(IsTooVague が先に除外)
+'   #6  資料名     → modClarify.MentionsSourceName(R19-4d の誤発動対策)
+'   #7  複合質問   → modAskMulti.DecomposeGate(段0の分解が先に効く)
+'   #8  資料名+突出 → MentionsSourceName と HasScoreDispersion の両方
+'   #11 長さ       → ambiguous_max_chars(既定10)の文字数ゲート
+' 「どのゲートが止めるのか」まで含めて固定しないと、片方を直したときに
+' もう片方が黙って開くため(実機第6報④はまさにその隙間で起きた)。
+' 行の形式は "資料名<TAB>スコア" を vbLf で連ねたもの(呼び出し側が畳む形)。
+Private Function DispLines(ByVal a As String, ByVal b As String, _
+                           Optional ByVal c As String = "") As String
+    DispLines = a
+    If LenB(b) > 0 Then DispLines = DispLines & vbLf & b
+    If LenB(c) > 0 Then DispLines = DispLines & vbLf & c
+End Function
+
+Private Sub TestScoreDispersion()
+    ' #1 免責は? — 3資料が拮抗。分散の本命ケース。
+    modTestRunner.Check "分散_#1_免責は?は拮抗した3資料で発動", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70", _
+                      "規程C" & vbTab & "0.68"), 10) = True)
+
+    ' #2 計算方法 — 深掘り(followup)でも同じ経路を通る。
+    modTestRunner.Check "分散_#2_計算方法(深掘り)も発動", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.75", "約款B" & vbTab & "0.71"), 10) = True)
+
+    ' #3 上位2件だけが拮抗していれば足りる(3件目が離れていても関係ない)。
+    modTestRunner.Check "分散_#3_上位2件が拮抗していれば発動", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.78", _
+                      "規程C" & vbTab & "0.55"), 10) = True)
+
+    ' #4 1位が突出。聞き返さない=いちばん大事な「黙って答える」側。
+    modTestRunner.Check "分散_#4_1位が突出なら発動しない", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), 10) = False)
+
+    ' #9 1語だけの質問でも、分散していれば対象。
+    modTestRunner.Check "分散_#9_1語の質問でも分散があれば発動", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70"), 10) = True)
+
+    ' #10 資料が1種類しかない。分散しようがない。
+    modTestRunner.Check "分散_#10_資料が1種類なら発動しない", _
+        (modClarify.HasScoreDispersion(DispLines("約款A" & vbTab & "0.85", ""), 10) = False)
+
+    ' #12 突出(0.75 vs 0.10)。
+    modTestRunner.Check "分散_#12_クーリングオフは突出なので発動しない", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.75", "約款B" & vbTab & "0.10"), 10) = False)
+
+    ' 同じ資料が複数チャンクで当たっても【1資料】として数える(最高スコアだけ残す)。
+    modTestRunner.Check "分散_同一資料の複数ヒットは1種類として数える", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.72", "約款A" & vbTab & "0.70", _
+                      "約款A" & vbTab & "0.69"), 10) = False)
+
+    ' 境界: 差ちょうど0.10 は発動しない(未満のみ)。0.09 は発動する。
+    modTestRunner.Check "分散_境界_差0.10ちょうどは発動しない", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.70"), 10) = False)
+    modTestRunner.Check "分散_境界_差0.09は発動する", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.71"), 10) = True)
+
+    ' gap=0 は機能OFF(config の ambiguous_dispersion_gap_x100=0)。
+    modTestRunner.Check "分散_gap0は機能OFF", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70"), 0) = False)
+
+    ' 壊れた入力(空・TAB無し・スコアが数値でない)で落ちない・発動しない。
+    modTestRunner.Check "分散_空文字は発動しない", _
+        (modClarify.HasScoreDispersion("", 10) = False)
+    modTestRunner.Check "分散_TAB無しの行だけなら発動しない", _
+        (modClarify.HasScoreDispersion(DispLines("約款A", "約款B"), 10) = False)
+    ' スコアが読めない行は0点扱い。0点どうしは差0=拮抗しているのが事実なので
+    ' 発動して構わない(聞き返しは害が小さい側)。ここでは落ちないことを見る。
+    modTestRunner.Check "分散_スコアが数値でなくても落ちない", _
+        (modClarify.HasScoreDispersion( _
+            DispLines("約款A" & vbTab & "xx", "約款B" & vbTab & "yy"), 10) = True)
+End Sub
+
+Private Sub TestMentionsSourceName()
+    ' #6 質問文が資料名を名指ししている(「就業規則の免責は?」)。
+    modTestRunner.Check "分散除外_#6_資料名を名指ししていれば聞き返さない", _
+        (modClarify.MentionsSourceName("就業規則の免責は?", _
+            "就業規則|自動車保険約款") = True)
+
+    ' #8 資料名の一部(火災保険)が質問文に含まれる。
+    modTestRunner.Check "分散除外_#8_資料名の主要語が質問文にあれば聞き返さない", _
+        (modClarify.MentionsSourceName("火災保険の免責金額は?", _
+            "火災保険約款|就業規則") = True)
+
+    ' #1/#2/#9: 資料を名指ししていない短文は除外されない(=分散判定へ進む)。
+    modTestRunner.Check "分散除外_免責は?は資料名を含まない", _
+        (modClarify.MentionsSourceName("免責は?", _
+            "自動車保険約款|火災保険約款|就業規則") = False)
+    modTestRunner.Check "分散除外_計算方法は資料名を含まない", _
+        (modClarify.MentionsSourceName("計算方法", _
+            "自動車保険約款|火災保険約款") = False)
+
+    ' 拡張子つきの資料名でも名指しとして拾う(本棚の名前はファイル名のまま)。
+    modTestRunner.Check "分散除外_拡張子つきの資料名でも拾う", _
+        (modClarify.MentionsSourceName("就業規則の免責は?", "就業規則.pdf") = True)
+
+    ' 2字の一般語では止めない(「免責」が資料名に含まれるだけで機能を殺さない)。
+    modTestRunner.Check "分散除外_2字の一般語では止めない", _
+        (modClarify.MentionsSourceName("期限は?", "契約期限の手引き") = False)
+
+    ' 空入力で落ちない。
+    modTestRunner.Check "分散除外_質問が空なら除外しない", _
+        (modClarify.MentionsSourceName("", "就業規則") = False)
+    modTestRunner.Check "分散除外_資料名が空なら除外しない", _
+        (modClarify.MentionsSourceName("就業規則の免責は?", "") = False)
+End Sub
+
+Private Sub TestDispersionOtherGates()
+    ' #5 俯瞰質問。IsTooVague は HasGlobalSignal を見て【分散より先に】除外する。
+    modTestRunner.Check "分散他門_#5_俯瞰質問は俯瞰ゲートが先に除外する", _
+        (modRagParse.HasGlobalSignal("全体像は?") = True)
+
+    ' #7 複合質問。段0(分解)が先に効くので、分散の聞き返しは要らない。
+    modTestRunner.Check "分散他門_#7_複合質問は段0が先に受け持つ", _
+        (modAskMulti.DecomposeGate("auto", "免責は?保険料は?", 25) = True)
+
+    ' #11 長い質問は文字数ゲート(ambiguous_max_chars 既定10)で対象外。
+    '     IsTooVague と同じ長さ制約を分散にも継承させている事実を固定する。
+    modTestRunner.Check "分散他門_#11_17字の質問は長さゲートで対象外", _
+        (Len("保険料の計算方法を教えてください") > 10)
+    modTestRunner.Check "分散他門_#1_免責は?は長さゲートを通る", _
+        (Len("免責は?") <= 10)
+    modTestRunner.Check "分散他門_#2_計算方法は長さゲートを通る", _
+        (Len("計算方法") <= 10)
+End Sub
+
 Public Sub RunAll18()
     On Error GoTo MergeFail18
     TestMergeSynPairs
@@ -172,6 +319,15 @@ NextGlobal18:
 NextGate18:
     On Error GoTo GateFail18
     TestDecomposeGateGlobal
+NextDisp18:
+    On Error GoTo DispFail18
+    TestScoreDispersion
+NextMention18:
+    On Error GoTo MentionFail18
+    TestMentionsSourceName
+NextOther18:
+    On Error GoTo OtherFail18
+    TestDispersionOtherGates
 NextDone18:
     On Error GoTo 0
     Exit Sub
@@ -186,6 +342,18 @@ GlobalFail18:
     Resume NextGate18
 GateFail18:
     modTestRunner.Check "TestDecomposeGateGlobal(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDisp18
+DispFail18:
+    modTestRunner.Check "TestScoreDispersion(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextMention18
+MentionFail18:
+    modTestRunner.Check "TestMentionsSourceName(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextOther18
+OtherFail18:
+    modTestRunner.Check "TestDispersionOtherGates(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone18
 End Sub
