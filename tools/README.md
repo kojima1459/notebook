@@ -44,6 +44,7 @@ python3 tools/vba_lint.py --path /path/to/some/src
 | 12 | (弱い警告)full_text系セル書込みでSafeLeft未経由の疑い | §11.1・§12 |
 | 13 | (警告)`.OnAction = "modX.Y"` で配線されたPublic Subの先頭に再入の関所(`modUiLock.BlockIfIngesting` / `modUiLock.Enter`)があるか | R15-2b・実機第4報 RC8 |
 | 14 | MsgBox/InputBoxへの非BMP絵文字(ChrWサロゲートペア)流出。(A)同一実行文内の直書き検出+(D)「MsgBox到達関数」許可リスト(`MSGBOX_REACH_ALLOWLIST`)の本体全体(全Case分岐)を検査 | R18-6c・実機第5報⑤・EDGE_CASES.md §1.3b |
+| 15 | `Split(`/`Filter(`/`Array(` を実引数位置に直接渡し、呼び先の該当仮引数が具体配列型(`As T()`、T≠Variant)である箇所。全モジュールのSub/Function宣言(Private含む)からシグネチャテーブルを作り、呼び出し文の実引数境界を解決した上で判定する。Variant受け(`InvokeFeature`/`TryRibbonRun`等)やシグネチャ未解決の呼び先(組込関数等)は素通し | R19-2b・実機第6報② |
 
 検査13の例外は `vba_lint.py` の `ONACTION_GUARD_ALLOWLIST`(名前のリスト)に
 理由コメントつきで登録する。取込中でも動くべきハンドラ(中断ボタン等)は
@@ -55,6 +56,17 @@ python3 tools/vba_lint.py --path /path/to/some/src
 ここへ追加すること。呼び出しグラフ追跡はしない(検査13と同じ誤検知ゼロ優先)。
 2026-08-05(R18H FB-7)に `modIntegrity.ShrinkWarnMsg` /
 `modIntegrity.VolatileWarnMsg`(起動時の整合性警告)を追加した。
+
+検査15は「実引数の全体が`Split(/Filter(/Array(`である」場合のみを対象にする
+(`Split(...)(0)`のような即時インデックス参照は対象外)。代入文(`x = Split(...)`)
+・If/For等の制御構文・宣言文はそもそも呼び出し文として扱わない。呼び先が
+`ByVal ... As Variant`(`modFeatures.InvokeFeature`/`modGateway.TryRibbonRun`等)
+と解決できた場合や、シグネチャテーブルに無い呼び先(組込関数・外部)は
+検査対象外として素通しする(許可リストは持たない。呼び先が具体配列型だと
+静的に確定できた場合だけERRORにする誤検知ゼロ優先の設計)。実Excelは
+`Split()`等が返すVariantを具体配列型の`ByRef`引数へ直渡しするとコンパイル
+拒否するが、LibreOfficeはこの型検証をしないため実機まで見逃されていた
+(2026-08-06 R19-2・実機第6報②。modSynonymStore.bas 3箇所が実例)。
 
 **exit code**: 0=違反なし / 1=ERRORが1件以上。WARN/SKIPはexit codeに影響しない。
 

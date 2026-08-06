@@ -2064,6 +2064,201 @@ def check_msgbox_nonbmp(infos: list[ModuleInfo]) -> None:
                 )
 
 
+# ==============================================================================
+# Split(/Filter(/Array( の具体配列型引数への直渡し(2026-08-06 R19-2b・実機第6報②)
+# ------------------------------------------------------------------------------
+# Split()/Filter()/Array() はコンパイラの型システム上ただの Variant を返す式。
+# ByRef arr() As String のような【具体配列型】の仮引数へ実引数位置で直渡しすると、
+# 実Excel VBAは「静的に配列型と確定できる式でなければならない」制約に違反して
+# プロジェクト全体のコンパイルを拒否する(modSynonymStore.bas 3箇所の実バグ)。
+# LibreOffice はこの型検証をしないため素通りし、compileモードも対象モジュールの
+# 中身を実行しないため二重に見逃す(調査②班報告(3)章)。
+#
+# シグネチャテーブル(全モジュールのSub/Function宣言。Private含む)を構築し、
+# 呼び出し文の実引数境界を split_top_level で解決した上で、呼び先の該当仮引数が
+# 「Variant以外の具体配列型」の場合だけERRORにする。誤検知ゼロを最優先する
+# 設計(検査13/14と同じ思想):
+#   ・対象は「実引数の【全体】が Split(/Filter(/Array( ...) である」場合のみ
+#     (Split(...)(0) のような即時インデックスは対象外)。
+#   ・代入文(x = Split(...))・If/For等の制御構文・宣言文はそもそも対象にしない
+#     (先頭が識別子の呼び出し形の文だけを見る。トップレベルの"="があれば
+#     代入とみなして除外する。":="という名前付き引数は代入と誤認しない)。
+#   ・呼び先シグネチャが解決できない場合(組込関数・シグネチャテーブルに
+#     無い呼び先)は検査せず素通しする。InvokeFeature/TryRibbonRun のような
+#     ByVal ... As Variant 受けは、解決した上で正しく「安全」と判定される
+#     (Variant型は具体配列型ではないのでERROR対象にならない)。
+# ==============================================================================
+PROC_SIG_HEAD_RE = re.compile(
+    r"^(?:Public|Private|Friend)?\s*(?:Static\s+)?(Sub|Function)\s+([A-Za-z_]\w*)\s*\(",
+    re.IGNORECASE,
+)
+ARRAY_PARAM_TYPE_RE = re.compile(r"\(\s*\)\s*As\s+([A-Za-z_]\w*)", re.IGNORECASE)
+ARRAY_ARG_CALL_HEAD_RE = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)")
+ARRAY_ARG_EXPR_RE = re.compile(r"^\s*(Split|Filter|Array)\s*\(", re.IGNORECASE)
+
+# 先頭トークンがこれらなら呼び出し文として扱わない(制御構文・宣言・代入系)。
+ARRAY_ARG_CHECK_KEYWORDS = {
+    "if", "elseif", "else", "end", "exit", "for", "each", "next", "while",
+    "wend", "do", "loop", "until", "select", "case", "dim", "redim", "const",
+    "static", "public", "private", "friend", "function", "sub", "property",
+    "type", "enum", "with", "on", "resume", "goto", "gosub", "attribute",
+    "option", "declare", "set", "let", "return", "stop", "erase",
+    "randomize", "open", "close", "print", "input", "line", "width",
+    "name", "kill", "mkdir", "rmdir", "chdir", "chdrive", "filecopy",
+    "reset", "get", "put", "lock", "unlock", "debug", "err", "beep",
+    "appactivate", "sendkeys", "wait", "implements", "event", "raiseevent",
+    "rem", "true", "false", "nothing", "null", "me", "new",
+}
+
+
+def _find_matching_paren(s: str, open_idx: int) -> int:
+    """s[open_idx] == '(' 前提。対応する ')' のインデックス(文字列リテラル考慮)。
+    見つからなければ -1。"""
+    depth = 0
+    in_str = False
+    for i in range(open_idx, len(s)):
+        c = s[i]
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+    return -1
+
+
+def _has_toplevel_assignment(stmt: str) -> bool:
+    """文字列・カッコの外にある単独の'=' (":="ではない)があれば代入とみなす。"""
+    depth = 0
+    in_str = False
+    for i, c in enumerate(stmt):
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == "=" and depth == 0:
+                if i > 0 and stmt[i - 1] == ":":
+                    continue
+                return True
+    return False
+
+
+def _is_whole_array_expr_call(arg: str):
+    """引数全体が Split(/Filter(/Array( ...) かどうか(直後の即時インデックス
+    参照 Split(...)(0) は対象外)。マッチした関数名(先頭大文字化前)を返すか、
+    該当しなければNone。"""
+    m = ARRAY_ARG_EXPR_RE.match(arg)
+    if not m:
+        return None
+    close_idx = _find_matching_paren(arg, m.end() - 1)
+    if close_idx == -1:
+        return None
+    if arg[close_idx + 1:].strip() != "":
+        return None
+    return m.group(1)
+
+
+def _build_array_arg_signatures(infos: list[ModuleInfo]) -> dict:
+    """{(モジュール表示名, プロシージャ名小文字): [仮引数ごとに具体配列型か]}。"""
+    sigs: dict = {}
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for lineno, stmt in info.statements:
+            m = PROC_SIG_HEAD_RE.match(stmt)
+            if not m:
+                continue
+            proc_name = m.group(2)
+            close_idx = _find_matching_paren(stmt, m.end() - 1)
+            if close_idx == -1:
+                continue
+            param_str = stmt[m.end():close_idx]
+            params = split_top_level(param_str, ",") if param_str.strip() else []
+            flags = []
+            for p in params:
+                pm = ARRAY_PARAM_TYPE_RE.search(p)
+                flags.append(bool(pm) and pm.group(1).strip().lower() != "variant")
+            sigs[(mod_name, proc_name.lower())] = flags
+    return sigs
+
+
+def check_array_arg_variant_mismatch(infos: list[ModuleInfo]) -> None:
+    sigs = _build_array_arg_signatures(infos)
+
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for lineno, stmt in info.statements:
+            head_m = ARRAY_ARG_CALL_HEAD_RE.match(stmt)
+            if not head_m:
+                continue
+            head = head_m.group(1)
+            if head.split(".", 1)[0].lower() in ARRAY_ARG_CHECK_KEYWORDS:
+                continue
+            if _has_toplevel_assignment(stmt):
+                continue
+
+            after = stmt[head_m.end():]
+            after_lstrip = after.lstrip()
+            if after_lstrip.startswith("("):
+                open_idx = head_m.end() + (len(after) - len(after_lstrip))
+                close_idx = _find_matching_paren(stmt, open_idx)
+                if close_idx == -1:
+                    continue
+                if stmt[close_idx + 1:].strip() != "":
+                    # Foo(...).Bar のような式の一部。呼び出し文全体ではない。
+                    continue
+                arg_str = stmt[open_idx + 1:close_idx]
+            elif after_lstrip:
+                arg_str = after_lstrip
+            else:
+                continue  # 引数無しの単独呼び出し
+
+            args = split_top_level(arg_str, ",") if arg_str.strip() else []
+            if not args:
+                continue
+
+            if "." in head:
+                target_mod, proc_name = head.split(".", 1)
+                sig = sigs.get((target_mod, proc_name.lower()))
+            else:
+                proc_name = head
+                sig = sigs.get((mod_name, head.lower()))
+                if sig is None:
+                    candidates = []
+                    for other in infos:
+                        if other is info:
+                            continue
+                        if head in other.public_names and other.public_names[head] in ("Sub", "Function"):
+                            s = sigs.get((module_name_for_display(other), head.lower()))
+                            if s is not None:
+                                candidates.append(s)
+                    if len(candidates) == 1:
+                        sig = candidates[0]
+
+            if sig is None:
+                continue  # 呼び先未解決(組込関数・外部)は素通し
+
+            for idx, arg in enumerate(args):
+                arg_s = arg.strip()
+                if not arg_s or idx >= len(sig) or not sig[idx]:
+                    continue
+                fn = _is_whole_array_expr_call(arg_s)
+                if fn is None:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"{head} の第{idx + 1}引数が具体配列型(As T())なのに、"
+                    f"Variant配列を返す {fn}() を実引数位置に直接渡しています"
+                    f"(実Excelはコンパイル拒否。いったん Dim x() As T: x = {fn}(...) "
+                    f"で受けてから渡すこと)",
+                )
+
+
 def check_module_level_refs(infos: list[ModuleInfo]) -> None:
     """他モジュールのモジュールレベル定数・変数を、宣言せずに参照していないか。
 
@@ -3006,6 +3201,7 @@ def run_lint(src_root: Path) -> int:
     check_undefined_proc_refs(modules)
     check_onaction_handler_guard(modules)
     check_msgbox_nonbmp(modules)
+    check_array_arg_variant_mismatch(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())
