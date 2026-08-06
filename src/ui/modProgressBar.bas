@@ -256,10 +256,13 @@ End Sub
 ' ワークシートを横断して消す。従来は「描いたシートを覚えている」ことが前提で、
 ' 強制終了やVBAリセットで変数が飛ぶとShapeだけがブックに保存されて残り、
 ' 次に開いたときに押しても何も起きない黒い帯として居座っていた(実機第5報⑪)。
-' 消す対象は3つのShape名だけなので、シート枚数ぶんの On Error Resume Next 削除で
+' 消す対象は4つのShape名だけなので、シート枚数ぶんの On Error Resume Next 削除で
 ' 十分に安く、覚えているかどうかに依存しない。
 ' カーソル(砂時計)はここでは触らない: 復元は modUiLock.Leave の仕事で、
 ' 表示の後始末が他機能の状態を書き換えてはならない(憲章§4-4)。
+' 2026-08-06(R19-3b): "nx_toast"(modSkin.ShowToastのトースト)も同じ焼き付き
+' バグクラスなので対象へ加えた(実機第6報③)。modSkin側はPrivate定数を持たず
+' 文字列リテラルで名付けているため、ここも同じリテラルで揃える。
 Public Sub ClearProgress()
     On Error Resume Next
     Dim ws As Worksheet
@@ -267,6 +270,7 @@ Public Sub ClearProgress()
         ws.Shapes(PROGRESS_NAME).Delete
         ws.Shapes(PROGRESS_CANCEL_NAME).Delete
         ws.Shapes(PROGRESS_WORK_NAME).Delete
+        ws.Shapes("nx_toast").Delete
     Next ws
     mProgressSheetName = ""
     On Error GoTo 0
