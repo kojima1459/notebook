@@ -212,8 +212,17 @@ _README_TEXT = (
     "\n"
     "【1. 開き方】\n"
     "  1. この zip ファイルの中身を、すべて同じフォルダへ展開(解凍)してください。\n"
-    "  2. 展開してできた MyBookshelf.xlsm (または MyBookshelf_dev.xlsm) を\n"
-    "     Excel で開いてください。\n"
+    "  2. 展開してできた「MyBookshelfを起動.bat」をダブルクリックしてください。\n"
+    "\n"
+    "  ★ 起動は必ずこのランチャー(MyBookshelfを起動.bat)から行ってください。\n"
+    "     他のExcelで仕事中でも安全に開けます。\n"
+    "     xlsm を直接ダブルクリックすると、開いたままの他のExcelの中へ\n"
+    "     取り込まれてしまい、取込中にその Excel も一緒に固まります。\n"
+    "     ランチャーは Excel を必ず別プロセスで起動するので、この巻き添えが\n"
+    "     起きません。\n"
+    "  ※ 初回だけ「WindowsによってPCが保護されました」等の警告が出ることが\n"
+    "     あります。その場合は bat ファイルを右クリック →「プロパティ」→\n"
+    "     下の方にある「許可する」にチェック →「OK」を押してから開いてください。\n"
     "\n"
     "【2. zip の中身はすべて展開してください】\n"
     "  ★ zip の中から直接開くと、取り込んだ資料が次回に残りません。\n"
@@ -238,6 +247,44 @@ _README_TEXT = (
     "ヘルプ→共有フォルダ設定で部の共有パスを入力してください"
     "(未設定なら「みんな」の統計は動きません)。\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-06 R19-5c(実機第6報⑤): 起動ランチャー「MyBookshelfを起動.bat」。
+#
+# なぜ要るのか: Excelは既定で複数ブックを1プロセスへ結合(マージ)する。本体
+# xlsm をエクスプローラーからダブルクリックすると、生き残っていた別のExcel
+# (作業用Excelなど)のプロセスへ本体が吸い込まれ、以後は本体のOCR同期呼び出しが
+# プロセス全体のメッセージポンプを止める=相手のブックも「■中断」も丸ごと
+# 無反応になる(実機第6報⑤)。DisableMergeInstance はダブルクリックには効かない
+# ことがMicrosoft公式に明記されており、HKCR の関連付け書き換えは管理者権限が
+# 要るうえOffice更新で戻る。VBAだけで結合を防ぐ実装解は存在しない。
+#
+# 唯一確実なのは「/x で開く入口を配って、そこから起動してもらう」こと。
+# excel.exe /x は「新しいインスタンス(別プロセス)を起動する」と公式に明記された
+# 正式スイッチで、この経路なら既存プロセスへのマージは起きない。
+#   ・excel.exe をフルパスで書かない: Windows の App Paths が excel.exe を
+#     解決するので、Office のインストール先(32/64bit・Click-to-Run・年度違い)を
+#     ビルド時に決め打ちせずに済む。
+#   ・start "" の空タイトルは必須: start の第1引数は【ウィンドウタイトル】で、
+#     省略して "..." のパスを書くとそれがタイトルとして食われ、Excelが起動しない。
+#   ・%~dp0 でbat自身の場所を基準にする(展開先がどこでも動く。末尾は \ 付き)。
+#   ・chcp は打たない: CP932 で書き出すので日本語コメントがそのまま読める。
+# ---------------------------------------------------------------------------
+_LAUNCHER_BAT_NAME = "MyBookshelfを起動.bat"
+
+
+def _launcher_bat_text(xlsm_name: str) -> str:
+    """ランチャーbatの中身(CRLF・CP932で書き出す)。"""
+    lines = [
+        "@echo off",
+        "rem MyBookshelf 起動ランチャー",
+        "rem 他のExcelで仕事中でも、必ず別プロセスで開くための入口です。",
+        "rem xlsm を直接ダブルクリックすると、開いたままの他のExcelに",
+        "rem 取り込まれてしまい、取込中にそのExcelも一緒に固まります。",
+        'start "" excel.exe /x "%~dp0' + xlsm_name + '"',
+    ]
+    return "\r\n".join(lines) + "\r\n"
 
 
 def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bool,
@@ -282,8 +329,17 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
     except UnicodeEncodeError as e:
         raise BuildError(f"--zip: README.txt がCP932でエンコードできません: {e}")
 
+    # R19-5c: ランチャーbatはCP932(cmd.exeの既定コードページ)で書き出す。
+    # UTF-8で書くと日本語コメント行が文字化けし、環境によっては行そのものが
+    # 壊れて起動コマンドまで巻き添えになる。
+    try:
+        launcher_bytes = _launcher_bat_text(xlsm_name).encode("cp932")
+    except UnicodeEncodeError as e:
+        raise BuildError(f"--zip: {_LAUNCHER_BAT_NAME} がCP932でエンコードできません: {e}")
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(xlsm_path, xlsm_name)
+        zf.writestr(_LAUNCHER_BAT_NAME, launcher_bytes)
         zf.writestr("README.txt", readme_bytes)
         zf.write(docs45_path, "docs/45_実機スモークテスト手順.md")
         for walk_root, _dirs, files in os.walk(gs_dir):
@@ -688,7 +744,18 @@ def _make_macro_guard(wb):
             "必ず zip を右クリック →「すべて展開」してから、"
             "展開されたフォルダの中のファイルを開いてください。",
          Font(size=11, bold=True, color="8A3B00"), 46),
-        (10, "※ 有効化しても画面が変わらない場合は、ファイルを一度閉じて開き直してください。",
+        # 2026-08-06 R19-5c(実機第6報⑤): Excelは既定で複数ブックを1プロセスへ
+        # 結合する。他のExcelを開いたまま本体をダブルクリックすると、そちらの
+        # プロセスへ吸い込まれ、取込中に相手のブックごと固まる(中断ボタンも
+        # 効かなくなる)。VBAでは結合を防げないので「正しい入口」を配るしかない。
+        # マクロ無効でも必ず見える面はこのシートだけなので、README と同じ注意を
+        # ここにも1行置く(利用者が実際に見るのは、ほぼこの1面だけ)。
+        (10, "※ 起動は必ず同梱の「MyBookshelfを起動.bat」から行ってください"
+             "(他のExcelで仕事中でも安全に開けます)。"
+             "直接ダブルクリックすると、開いたままの他のExcelに取り込まれ、"
+             "取込中にそちらも一緒に固まることがあります。",
+         Font(size=11, bold=True, color="8A3B00"), 46),
+        (12, "※ 有効化しても画面が変わらない場合は、ファイルを一度閉じて開き直してください。",
          Font(size=11, italic=True, color="52606D"), 34),
     ]
     for row, text, font, height in entries:
@@ -699,8 +766,9 @@ def _make_macro_guard(wb):
         ws.row_dimensions[row].height = height
 
     # 背景を軽く塗って独立した案内ページに見えるようにする(装飾のみ)
-    # R18-2g で行を2行ぶん増やしたので、塗る範囲も末尾(11行目)まで広げる。
-    for r in range(1, 12):
+    # R18-2g で行を2行ぶん増やし、R19-5c でさらに2行増やしたので、塗る範囲も
+    # 末尾(13行目)まで広げる。
+    for r in range(1, 14):
         for c in range(1, 7):
             ws.cell(row=r, column=c).fill = bg
 
