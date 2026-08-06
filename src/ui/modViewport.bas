@@ -382,6 +382,16 @@ End Sub
 ' 32bit Excel でも OnTime/Window イベントの作法は同じで、必要なのは
 ' 「予約時刻を覚えて完全一致で解除する」ことだけ(APIは一切使わない)。
 
+' Busy3 - tick経路がRefitActionへ渡すisBusyの組み立て(純関数・R20H FA-2の
+'   ゴールデン対象)。単純なOrだが、呼び出し側(ViewportRefitTick)が3情報源
+'   (modUiLock/modShelf/modShelfSync)のうち1つでも足し忘れると再フィットが
+'   busy中に走ってしまう契約なので、組み立てそのものを1本にまとめてここで
+'   固定する(呼び出し側は3引数をそのまま渡すだけになる)。
+Public Function Busy3(ByVal lockBusy As Boolean, ByVal shelfBusy As Boolean, _
+                      ByVal shelfSyncBusy As Boolean) As Boolean
+    Busy3 = lockBusy Or shelfBusy Or shelfSyncBusy
+End Function
+
 ' RefitAction - 状態遷移だけを取り出した純関数(ゴールデン対象)。
 '   OnTime も ActiveWorkbook も見ないので、LibreOffice の純ロジックテストで
 '   「多重登録しない」「Busyでは1回だけ待ち直す」「他ブック前面では何もしない」
@@ -389,7 +399,11 @@ End Sub
 '   ev       : "resize"(窓が動いた) / "tick"(予約時刻が来た)
 '   isMine   : 自分のブックが前面か
 '   isRunning: 再フィットの実行中か(再入)
-'   isBusy   : modUiLock.IsBusy()(取込・回答生成中)
+'   isBusy   : 取込・同期・仕上げ・回答生成のいずれかで処理中か(2026-08-06
+'              R20H FA-2: modUiLock.IsBusy()単独では取込・同期・仕上げ中の
+'              DoEventsで再入し得るTrueを取りこぼす。呼び出し側はBusy3で
+'              modUiLock/modShelf/modShelfSyncの3情報源をORして渡す。
+'              本関数自体は単一のBoolean判定のまま無変更)
 '   waited   : Busyのために既に1回待ち直したか
 '   戻り値   : "none"(何もしない) / "schedule"(予約し直す) / "run"(組み直す)
 Public Function RefitAction(ByVal ev As String, ByVal isMine As Boolean, _
@@ -464,11 +478,15 @@ Public Sub ViewportRefitTick()
     On Error Resume Next
     mRefitArmed = False
     ' 他ブックが前面なら何もしない(他人の窓幅で自分の帯を決めない)。取込・
-    ' 回答生成の最中も組み直さない(modApp.OnRefreshUI が BlockIfIngesting を
-    ' 置いているのと同じ理由)。判断は RefitAction 1本に集約する。
+    ' 同期・仕上げ・回答生成の最中も組み直さない(modApp.OnRefreshUI が
+    ' BlockIfIngesting を置いているのと同じ理由)。busy判定は modUiLock だけ
+    ' では取込中のDoEventsで漏れる(2026-08-06 R20H FA-2)ため、
+    ' modShelf.IsBusy/modShelfSync.IsBusy も併せて見る。判断は
+    ' RefitAction 1本に集約する(純関数側は無変更)。
     Dim act As String
     act = RefitAction("tick", (ActiveWorkbook Is ThisWorkbook), mRefitRunning, _
-                      modUiLock.IsBusy(), mRefitWaited)
+                      Busy3(modUiLock.IsBusy(), modShelf.IsBusy(), modShelfSync.IsBusy()), _
+                      mRefitWaited)
     If act = "schedule" Then
         mRefitWaited = True
         ScheduleRefit

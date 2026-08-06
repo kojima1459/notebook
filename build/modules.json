@@ -221,6 +221,14 @@
       "note": "取込失敗時のvisionフォールバック(E0301の画像ファイル/E0303の画像PDF OCR)の一本化。opt名は書かずmodFeatures.InvokeFeature経由(R2)。"
     },
     {
+      "name": "modBackfill",
+      "path": "src/ingest/modBackfill.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R20-3",
+      "note": "再取込ゼロの「資料の仕上げ」バックフィル。R17より前に取り込んだ資料のchunk_meta/doc_outlineを、保存済みfull_textから後追いで作る(再抽出・OCR・埋め込みの再計算なし)。呼び出し元はmodKnowledgeBar.OnBackfillClick。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
       "name": "modShelfSync",
       "path": "src/ingest/modShelfSync.bas",
       "role": "core",
@@ -701,6 +709,14 @@
       "wave": "2-F"
     },
     {
+      "name": "modSetupWizard",
+      "path": "src/ui/modSetupWizard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R20-4",
+      "note": "部門設定UI+初回セットアップウィザード。OnDeptSetup(Hubプロフィールカード等からの常設再入口)とRunFirstRunWizard(modTour.StartTourIfFirstRunから1回だけ)。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
       "name": "modWorkExcel",
       "path": "src/ui/modWorkExcel.bas",
       "role": "core",
@@ -943,6 +959,22 @@
       "type": "std",
       "wave": "R15-FixA",
       "note": "R15-FixA(敵対的レビュー裁定 Fix-A)の純ロジック回帰テスト。modTestsPure13にこれを足すと30,000字上限まで残り11字になるため憲章§4-6に従って新設した分割先(カードのメモ合成契約ComposeOcrMemo/頁欠けメモの分母/1バッチの画像化待ち上限BatchWaitSec/画像化実況RenderWaitBanner/確認文の埋め込み時間の正直さ)。modTestsPure13.RunAll13末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure20",
+      "path": "src/test/modTestsPure20.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20-4",
+      "note": "R20-4(実機第7報③④「設定の3ステップ化」)+R20-7(⑥「MS&AD配色刷新」)+追加D-1(ダッシュのセンタリング)の純ロジック回帰。入口はmodTestsPure19.RunAll19末尾から呼ばれるRunAll20の1本。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
+      "name": "modTestsPure21",
+      "path": "src/test/modTestsPure21.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20H",
+      "note": "R20H(レビュー裁定Fix波)の純ロジック回帰テスト。modTestsPure20(7,311字)は主題(R20-4/R20-7/追加D-1)がFix波と異なるため、憲章§4-6に従って新設した分割先(tick経路のbusy3情報源modViewport.Busy3/table・gallery切替をまたぐ旧行取りこぼしmodUIShelf.ClearAreaLastRow/初回ウィザードのフラグ1回性modSetupWizard.WizardShouldRun)。modTestsPure20.RunAll20末尾から呼ばれる。"
     },
     {
       "name": "modTestsExcel",

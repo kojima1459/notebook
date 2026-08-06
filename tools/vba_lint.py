@@ -1153,6 +1153,11 @@ CONTRACT: dict[str, dict] = {
             "OnWindowResized", "ViewportRefitTick", "CancelRefit", "RefitAction",
             "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
             "ColLetter",
+            # Busy3(2026-08-06 R20H FA-2): tick経路がRefitActionへ渡すisBusyの
+            # 組み立て(modUiLock/modShelf/modShelfSyncの3情報源OR)。
+            # RefitAction自体は無変更のまま、呼び出し側の契約をここへ切り出し
+            # modTestsPure21がゴールデンで固定する。
+            "Busy3",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
