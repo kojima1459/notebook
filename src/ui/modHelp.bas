@@ -281,10 +281,12 @@ Private Sub ShowHelpCard()
     ' 隠しシートではなく人が見つけられる場所に出す。
     AddHelpAction ws, "nx_help_migout", cardL, belowT + 102, 170, _
                   ChrW(&HD83D) & ChrW(&HDCE4) & " 引き継ぎファイルを作る", _
-                  "modHelp.OnExportUserData"
+                  "modHelp.OnExportUserData", _
+                  "この端末の本棚・実績・設定を1つのファイルに保存します(自分専用。他の人へ配る「パック」とは別です)。"
     AddHelpAction ws, "nx_help_migin", cardL + 170 + 10, belowT + 102, 170, _
                   ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む", _
-                  "modHelp.OnImportUserData"
+                  "modHelp.OnImportUserData", _
+                  "保存しておいた引き継ぎファイルを読み込み、この端末へ本棚・実績・設定を復元します。"
 
     ' 5段目(2026-07-31 R11-E L-4): 診断画面はNexus画面上部のボタンからしか
     ' 開けず、ヘルプカードから直接たどり着く手段が無かった(監査1 H-4/L-4)。
@@ -303,9 +305,13 @@ Private Sub ShowHelpCard()
 End Sub
 
 ' ヘルプカード内の小さなボタンを1つ作る(同じ書式を4回書かないための共通化)。
+' altText(R20-5・5b): 省略時("")は従来どおりツールチップ無し。ホバーで
+' 1行説明が読める(Shape標準のAlternativeText。マウスに乗せたときの吹き
+' 出しに使われる)。
 Private Sub AddHelpAction(ByVal ws As Worksheet, ByVal shapeName As String, _
                           ByVal x As Double, ByVal y As Double, ByVal w As Double, _
-                          ByVal caption As String, ByVal action As String)
+                          ByVal caption As String, ByVal action As String, _
+                          Optional ByVal altText As String = "")
     On Error Resume Next
     Dim btn As Shape
     Set btn = ws.Shapes.AddShape(5, x, y, w, 28)
@@ -327,6 +333,7 @@ Private Sub AddHelpAction(ByVal ws As Worksheet, ByVal shapeName As String, _
     End With
     btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
     btn.OnAction = action
+    If LenB(altText) > 0 Then btn.AlternativeText = altText
     btn.Placement = 3
     btn.ZOrder 0
     On Error GoTo 0
@@ -492,6 +499,10 @@ Private Function HelpBodyText() As String
         "直接質問を送れます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDD04) & " 画面が乱れたら: Hubのアイコン列にある「再描画」。" & vbLf & _
         ChrW(&HD83E) & ChrW(&HDE7A) & " 動きがおかしいときは、下の「診断」で状態を確認できます。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCE4) & " 引き継ぎファイル: この端末の本棚・実績・設定を丸ごと持ち運ぶ" & _
+        "自分専用バックアップです(下のボタンから)。" & vbLf & _
+        ChrW(&HD83D) & ChrW(&HDCE6) & " パック: マイ本棚の「パック出力/パック取込」で、他の人へ資料を" & _
+        "配ったり受け取ったりできます(引き継ぎファイルとは別の機能です)。" & vbLf & _
         ChrW(&H2328) & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
         "作成: リスクコンサルティング支援部 ニューリスクG 小島正豪" & vbLf & _
         "このカードはクリックで閉じます"
@@ -579,10 +590,26 @@ End Function
 '   配るたびに全員の資産が消える状態では誰も本気で資料を入れない。
 '   実処理は modMigrate(pack層)。ここは UI ロックを取って呼ぶだけ。
 ' ----------------------------------------------------------------------------
+
+' MigrateExplainText(R20-5・5a): 「引き継ぎファイル」と「パック」を混同させ
+'   ないための1枚共通説明。作成/読込どちらの確認ダイアログも同じ本文+
+'   末尾の1文(作成しますか?/読み込みますか?)だけを差し替える。
+Private Function MigrateExplainText() As String
+    MigrateExplainText = _
+        "【引き継ぎファイルとは】" & vbCrLf & _
+        "新しいパソコンや新しいバージョンのMyBookshelfへ、あなたの本棚・実績・" & _
+        "設定を丸ごと持ち運ぶための自分専用バックアップです。" & vbCrLf & _
+        "※他の人に資料を配る「パック」とは別の機能です。"
+End Function
 Public Sub OnExportUserData()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     DoHideHelp
+    ' R20-5(実機第7報⑤): 即ファイルダイアログに入らず、まず「引き継ぎ」と
+    ' 「パック」を混同させない1枚の確認を挟む(混同すると、他部門への配布
+    ' 機能だと思って個人設定ごと渡してしまう事故につながるため)。
+    If MsgBox(MigrateExplainText() & vbCrLf & vbCrLf & "作成しますか?", _
+              vbYesNo + vbQuestion, "引き継ぎファイルとは") <> vbYes Then GoTo DoneCleanup15
     modMigrate.ExportUserData
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。
@@ -602,6 +629,10 @@ Public Sub OnImportUserData()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     DoHideHelp
+    ' R20-5(実機第7報⑤): 上のOnExportUserDataと対の確認(文言はいちばん
+    ' 尋ねたい1点=作成/読込だけを差し替える)。
+    If MsgBox(MigrateExplainText() & vbCrLf & vbCrLf & "読み込みますか?", _
+              vbYesNo + vbQuestion, "引き継ぎファイルとは") <> vbYes Then GoTo DoneCleanup16
     modMigrate.ImportUserData
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。
