@@ -22,6 +22,11 @@ Option Explicit
 '   ・modAskMulti.DecomposeGate(FA-6): 俯瞰シグナルのOR。短い俯瞰質問でも
 '     段0が呼ばれること、off が最優先であることの2点。
 '
+' 2026-08-06(R19H Fix波)で追記:
+'   ・modClarify.DispersionGapX100(FB-1): gapの実値と資料数(観測の校正用)。
+'   ・modIntegrity.CohabitOtherCount / IsCohabiting(FA-3): 同居の数え方
+'     (personal.xlsb のみ同居 / 可視ブック同居 / 混在)。
+'
 ' 2026-08-06(R19-4a/4d・実機第6報④)で追記:
 '   ・modClarify.HasScoreDispersion: 資料分散の判定(「第3の曖昧さ」)。
 '   ・modClarify.MentionsSourceName: 質問文が資料を名指ししているときの除外。
@@ -310,6 +315,113 @@ Private Sub TestDispersionOtherGates()
         (Len("計算方法") <= 10)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R19H FB-1(A-M⑧): gapの実値を返す純関数。閾値との比較は呼び側が持つ。
+' ----------------------------------------------------------------------------
+' HasScoreDispersion(上の12件)と同じ走査を共有しているので、ここでは
+' 「Boolean では見えなかった値そのもの」だけを固定する。
+Private Sub TestDispersionGap()
+    Dim n As Long
+
+    ' 拮抗(0.72 vs 0.70)= gap 2。資料は3種類。
+    modTestRunner.Check "分散gap_拮抗した3資料はgap2を返す", _
+        (modClarify.DispersionGapX100( _
+            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70", _
+                      "規程C" & vbTab & "0.68"), n) = 2)
+    modTestRunner.Check "分散gap_資料数を数えて返す", (n = 3)
+
+    ' 突出(0.9 vs 0.3)= gap 60。鳴らない側こそ校正に要る値。
+    modTestRunner.Check "分散gap_突出はgap60を返す", _
+        (modClarify.DispersionGapX100( _
+            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), n) = 60)
+
+    ' 資料が1種類=判定不能。-1(0ではない)で返し、ログでも区別できるようにする。
+    modTestRunner.Check "分散gap_資料1種類は判定不能の-1", _
+        (modClarify.DispersionGapX100(DispLines("約款A" & vbTab & "0.85", ""), n) = -1)
+    modTestRunner.Check "分散gap_判定不能でも資料数は返る", (n = 1)
+
+    ' 空文字でも落ちない(-1・0件)。
+    modTestRunner.Check "分散gap_空文字は-1", _
+        (modClarify.DispersionGapX100("", n) = -1)
+    modTestRunner.Check "分散gap_空文字の資料数は0", (n = 0)
+
+    ' 同じ資料の複数ヒットは1種類(最高スコアだけ残す)=判定不能。
+    modTestRunner.Check "分散gap_同一資料の複数ヒットは1種類", _
+        (modClarify.DispersionGapX100( _
+            DispLines("約款A" & vbTab & "0.72", "約款A" & vbTab & "0.70", ""), n) = -1)
+
+    ' 境界: 差ちょうど0.10 は gap10(呼び側の「未満」で落ちる)。
+    modTestRunner.Check "分散gap_差0.10ちょうどはgap10", _
+        (modClarify.DispersionGapX100( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.70"), n) = 10)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R19H FA-3(A-H③・B-H②): 同居しているのは「可視の他ブック」だけ。
+' ----------------------------------------------------------------------------
+' PERSONAL.XLSB・アドイン・不可視ブック・自分自身を数えてしまうと、単独で
+' 開いている人にまで同居警告が出て、しかも他のExcelを全部閉じても消えない
+' =直せない警告になる(狼少年になった警告は次から読まれない)。
+' 入力は "ブック名<TAB>可視ウィンドウ数<TAB>アドインなら1" の vbLf 連結。
+Private Function BookLine(ByVal nm As String, ByVal vis As Long, _
+                          ByVal isAdd As Long) As String
+    BookLine = nm & vbTab & vis & vbTab & isAdd
+End Function
+
+Private Sub TestCohabitOtherCount()
+    Dim me_ As String: me_ = "MyBookshelf.xlsm"
+
+    ' 単独で開いている(自分の行しか無い)。
+    modTestRunner.Check "同居_自分だけなら0", _
+        (modIntegrity.CohabitOtherCount(BookLine(me_, 1, 0), me_) = 0)
+
+    ' personal.xlsb のみ同居。Excelが常に非表示で開くので可視0だが、
+    ' 可視で開いている端末でも【名前で】除く(両方を固定する)。
+    modTestRunner.Check "同居_personal.xlsbだけ(不可視)なら0", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("PERSONAL.XLSB", 0, 0), me_) = 0)
+    modTestRunner.Check "同居_personal.xlsbは可視でも名前で除く", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("personal.xlsb", 1, 0), me_) = 0)
+
+    ' 可視ブック同居(これだけが本物の同居)。
+    modTestRunner.Check "同居_可視の他ブック1冊なら1", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("見積書.xlsx", 1, 0), me_) = 1)
+
+    ' アドイン(IsAddin=True)は一緒に固まる相手ではない。
+    modTestRunner.Check "同居_アドインは数えない", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("組織配布.xlam", 1, 1), me_) = 0)
+
+    ' 可視ウィンドウを持たないブック(他マクロがVisible=Falseで開いたもの)。
+    modTestRunner.Check "同居_不可視ブックは数えない", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("裏方.xlsm", 0, 0), me_) = 0)
+
+    ' 混在: 自分+personal(不可視)+アドイン+不可視+可視2冊 = 2。
+    modTestRunner.Check "同居_混在では可視の他ブックだけ数える", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & BookLine("PERSONAL.XLSB", 0, 0) & vbLf & _
+            BookLine("組織配布.xlam", 1, 1) & vbLf & BookLine("裏方.xlsm", 0, 0) & vbLf & _
+            BookLine("見積書.xlsx", 1, 0) & vbLf & BookLine("台帳.xlsm", 2, 0), me_) = 2)
+
+    ' 自分の名前は大小無視で除く(Workbooks の表記は端末で揺れる)。
+    modTestRunner.Check "同居_自分の名前は大小無視で除く", _
+        (modIntegrity.CohabitOtherCount(BookLine("MYBOOKSHELF.XLSM", 1, 0), me_) = 0)
+
+    ' 壊れた行(TABが足りない)は数えない。出せない警告を出すより出さない側へ。
+    modTestRunner.Check "同居_壊れた行は数えない", _
+        (modIntegrity.CohabitOtherCount( _
+            BookLine(me_, 1, 0) & vbLf & "壊れた行", me_) = 0)
+    modTestRunner.Check "同居_空文字なら0", _
+        (modIntegrity.CohabitOtherCount("", me_) = 0)
+
+    ' IsCohabiting は「他ブックが1冊でもあれば同居」(境界)。
+    modTestRunner.Check "同居_境界_0冊は単独", (modIntegrity.IsCohabiting(0) = False)
+    modTestRunner.Check "同居_境界_1冊で同居", (modIntegrity.IsCohabiting(1) = True)
+End Sub
+
 Public Sub RunAll18()
     On Error GoTo MergeFail18
     TestMergeSynPairs
@@ -328,6 +440,12 @@ NextMention18:
 NextOther18:
     On Error GoTo OtherFail18
     TestDispersionOtherGates
+NextGap18:
+    On Error GoTo GapFail18
+    TestDispersionGap
+NextCohabit18:
+    On Error GoTo CohabitFail18
+    TestCohabitOtherCount
 NextDone18:
     On Error GoTo 0
     Exit Sub
@@ -354,6 +472,14 @@ MentionFail18:
     Resume NextOther18
 OtherFail18:
     modTestRunner.Check "TestDispersionOtherGates(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGap18
+GapFail18:
+    modTestRunner.Check "TestDispersionGap(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextCohabit18
+CohabitFail18:
+    modTestRunner.Check "TestCohabitOtherCount(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone18
 End Sub

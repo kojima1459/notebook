@@ -12,6 +12,9 @@ Private Const MAX_BUBBLES As Long = 40         ' 32bitメモリ保護: 吹き出
 ' チャット領域の幾何(ChatLeft/ChatWidth/ChatTop)はmodUINexusDrawが単一情報源。
 Private Const BUBBLE_RATIO As Double = 0.72  ' チャット幅に対するバブル最大幅
 Private Const BUBBLE_GAP As Double = 14
+' 帯A:Mの余りを吸わせる列(R19H FB-9)。縦の吸収列 modUINexusDraw.NEXUS_PAD_COL
+' ="M" と紛らわしいので、入力欄の最終列だと分かる名前にする。
+Private Const NEXUS_INPUT_PAD_COL As String = "K"
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
@@ -21,10 +24,10 @@ Public Sub InitUI()
     Set ws = GetOrCreateNexusSheet()
     If ws Is Nothing Then Exit Sub
 
-    ' 実機再発(2026-07-22): 保護状態(Protect)はブックの保存/再オープンをまたぐと
-    ' UserInterfaceOnly=Trueが失効し、以降のCells.Clear等のマクロ操作が
-    ' 「保護されたシート」err#1004で軒並み失敗し画面が真っ白になっていた。
-    ' 必ず最初に解除してから組み立て、末尾で改めて保護し直す。
+    ' 実機再発(2026-07-22): 保護状態は保存/再オープンをまたぐと
+    ' UserInterfaceOnly=Trueが失効し、以降のCells.Clear等が「保護されたシート」
+    ' err#1004で軒並み失敗して画面が真っ白になった。必ず最初に解除してから
+    ' 組み立て、末尾で改めて保護し直す。
     On Error Resume Next
     ws.Unprotect
     On Error GoTo 0
@@ -89,15 +92,15 @@ Public Sub InitUI()
 
     ' 幾何を先に確定させる(順序が逆だとShape座標がズレる)。
     ' R19-1b: 右余白だったM:Pの4列(約49ptの死に列)をやめ、余りは入力欄の
-    ' 最終列Kに吸わせる。こうすると帯A:Mがちょうど可視幅になり、白い右余白が
-    ' 消えるうえ、入力欄が窓の広さに合わせて広がる(送信ボタンは動かない)。
+    ' 最終列に吸わせる。帯A:Mがちょうど可視幅になり、白い右余白が消えるうえ、
+    ' 入力欄が窓の広さに追随する(送信ボタンは動かない)。
     ws.Columns("A").ColumnWidth = 1.5
     ws.Columns("B").ColumnWidth = 4.5
     ws.Columns("C:K").ColumnWidth = 10.5
     ws.Columns("L").ColumnWidth = 11
     ws.Columns("M").ColumnWidth = 1.5
     ws.Rows("1:400").RowHeight = 18
-    modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, "K"
+    modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, NEXUS_INPUT_PAD_COL
     ws.Rows(1).RowHeight = modUINexusDraw.HDR_H
     ws.Rows(2).RowHeight = 8
     ws.Rows(modUINexusDraw.INPUT_ROW).RowHeight = 46
@@ -123,10 +126,10 @@ Public Sub InitUI()
     modAppAct.RedrawFollowupChip
     On Error GoTo 0
 
-    ' 行1～4(ヘッダー+入力+ヒント)だけを固定。A5(=A列)を選ぶことで列は
-    ' 固定しない(旧D8指定だとC列までが横方向にも固定されていた)。
-    ' 保護をかける前に行う: EnableSelection=xlUnlockedCells下ではA5(ロック済み)を
-    ' Selectできず、FreezePanesが黙って失敗するため。順序が意味を持つ。
+    ' 行1～4(ヘッダー+入力+ヒント)だけを固定。A5(=A列)を選ぶと列は固定
+    ' されない(旧D8指定だとC列までが横方向にも固定されていた)。保護前に行う:
+    ' EnableSelection=xlUnlockedCells下ではA5(ロック済み)をSelectできず
+    ' FreezePanesが黙って失敗するため。順序が意味を持つ。
     On Error Resume Next
     ActiveWindow.FreezePanes = False
     ws.Range("A5").Select
@@ -239,13 +242,13 @@ End Function
 ' UpdateBubbleText - 既に描いたバブルの本文を差し替える。
 '
 ' なぜ必要か:
-'   回答を待つ10～20秒(しっかり調べるなら1～2分)、画面には「考えています…」
-'   が1個あるだけだった。実際には検索は最初の1～2秒で終わっていて、どの資料に
-'   答えがあるかはその時点で分かっているのに、その情報を利用者の見ていない
-'   旧ホームシートへ書いていた(modUIMain.RenderSourcesPreview)。
-'   「もう見つけてある。いま文章にしているだけ」を待ち時間の主役にする。
-'   AutoSizeで高さが変わるため、会話の下端(mChatBottom)は必ず取り直す
-'   (取り直さないと次に置くバブルがこのバブルへ重なる)。
+'   回答を待つ10～20秒(入念なら1～2分)、画面には「考えています…」が1個ある
+'   だけだった。検索は最初の1～2秒で終わり、どの資料に答えがあるかはその時点で
+'   分かっているのに、その情報を利用者の見ていない旧ホームシートへ書いていた
+'   (modUIMain.RenderSourcesPreview)。「もう見つけてある。いま文章にして
+'   いるだけ」を待ち時間の主役にする。
+'   AutoSizeで高さが変わるので会話の下端(mChatBottom)は必ず取り直す
+'   (取り直さないと次のバブルがこのバブルへ重なる)。
 Public Sub UpdateBubbleText(ByVal shapeName As String, ByVal newText As String)
     If LenB(shapeName) = 0 Then Exit Sub
 
@@ -386,10 +389,9 @@ Public Sub RestoreExcelUI()
     ' 2026-07-31(R10-1): 全画面のままだとタブ/リボン復元が視覚的に効かない。
     Application.DisplayFullScreen = False
     ' 2026-08-01(R12-5-9・監査1指摘7): ActiveWindowブロックだけ自ブックガード。
-    ' 複数ブックを開いた状態で「Excel全体を終了」すると、他ブックがアクティブな
-    ' まま本ブックのAuto_Closeが走り得て、その他ブックの枠線/見出し/タブ設定を
-    ' 書き換えてしまう(EnsureAppViewと同じ作法)。上のApplication全体設定は
-    ' ブックを問わない一般設定なので現状維持。
+    ' 他ブックがアクティブなまま本ブックのAuto_Closeが走ると、その他ブックの
+    ' 枠線/見出し/タブ設定を書き換えてしまう(EnsureAppViewと同じ作法)。
+    ' 上のApplication全体設定はブックを問わないので現状維持。
     If ActiveWorkbook Is ThisWorkbook Then
         With ActiveWindow
             .DisplayGridlines = True
@@ -411,16 +413,14 @@ End Sub
 ' EnsureSessionResources - ホットキーと自動同期を「あるべき状態」へ戻す(冪等)。
 ' ----------------------------------------------------------------------------
 ' 2026-08-01(R12-3-8): Auto_Close はX閉じの保存確認【より前】に走るため、
-' 「キャンセル」を押すと、閉じないのに OnKey 3種と OnTime 予約だけが解除
-' された状態が残る。表示は EnsureAppView が自己修復するのに、ホットキーと
-' 自動同期には戻り道が無く、以降そのセッションは Ctrl+Enter 送信も
-' Ctrl+Shift+Q 召喚も無反応(憲章§3-1違反)。同じ遷移点から資源も戻す。
-' 二重登録は起きない: OnKey は再登録が上書き、ScheduleAutoSync は予約済みなら
-' 何もしない(modShelfSync 側の冪等ガード)。
-'
-' Procedure名を "'ブック名'!" で修飾する理由: OnKey/OnTime は Application 単位の
-' 資源で、配布更新時に「MyBookshelf (1).xlsm」等の別名コピーと新旧併存する
-' ことが現実に起こる。無修飾だと発火時の名前解決が2ブック間で曖昧になる。
+' 「キャンセル」を押すと、閉じないのに OnKey 3種と OnTime 予約だけが解除された
+' 状態が残る。表示は EnsureAppView が自己修復するのに、ホットキーと自動同期には
+' 戻り道が無く、以降そのセッションは Ctrl+Enter も Ctrl+Shift+Q も無反応
+' (憲章§3-1違反)。同じ遷移点から資源も戻す。二重登録は起きない: OnKey は
+' 再登録が上書き、ScheduleAutoSync は予約済みなら何もしない(冪等ガード)。
+' Procedure名を "'ブック名'!" で修飾するのは、OnKey/OnTime が Application 単位の
+' 資源で、配布更新時に「MyBookshelf (1).xlsm」等の別名コピーと新旧併存し得る
+' ため(無修飾だと発火時の名前解決が2ブック間で曖昧になる)。
 Public Sub EnsureSessionResources()
     On Error Resume Next
     Dim qn As String: qn = "'" & ThisWorkbook.Name & "'!"
@@ -729,10 +729,9 @@ Public Sub RecalcChatBottom(ByVal ws As Worksheet)
     mChatBottom = modUINexusDraw.ChatTop(ws)
     Dim shp As Shape
     For Each shp In ws.Shapes
-        ' 会話の流れに属するShapeだけを数える。除外ではなく明示の許可リストに
-        ' したのは、トースト/ツアー/ヘルプ等の重ね表示(nx_toast/nx_tour_/
-        ' nx_help_/nx_peek)が画面下部に出たときに下端が引きずられ、次の
-        ' バブルが画面外へ飛ぶ事故を構造的に防ぐため。
+        ' 会話の流れに属するShapeだけを数える。除外ではなく明示の許可リストな
+        ' のは、重ね表示(nx_toast/nx_tour_/nx_help_/nx_peek)が画面下部に出た
+        ' ときに下端が引きずられ、次のバブルが画面外へ飛ぶ事故を防ぐため。
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
            Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _

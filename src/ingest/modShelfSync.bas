@@ -14,9 +14,9 @@ Option Explicit
 ' 設計判断(R15-FixA/R19H: 同量圧縮。事実は落とさず言い方だけ縮めた):
 '   ・同期スコープの限定: my_manifest には「＋資料を追加」から shelf_folder 外の
 '     ファイルを取り込んだ行も混在する。「消失→削除」を適用してよいのは
-'     shelf_folder 配下由来の行だけなので、file_path の親ディレクトリが
-'     shelf_folder と一致する行だけを比較対象にする
-'     (modShelfScan.LoadManifestScope)。フォルダ外の資料を誤って消さない。
+'     shelf_folder 配下由来の行だけなので、file_path の親が shelf_folder と
+'     一致する行だけを比較する(modShelfScan.LoadManifestScope)。フォルダ外の
+'     資料を誤って消さない。
 '   ・拡張子フィルタ: Dir()走査には FileDialog の Filters が無いので、
 '     modExtractor.SupportedExts() 外(Thumbs.db/.ini 等)は最初から除外する
 '     (取込失敗の空騒ぎ・manifestの無駄な失敗行を防ぐ)。
@@ -35,8 +35,8 @@ Option Explicit
 '     Public必須なのはOnTimeがApplication.Runと同じ遅延バインドでPrivate Subを
 '     解決できないため(発火時「マクロを実行できません」で自動同期が永久に
 '     死ぬ)。CONTRACT/MASTER_SPEC §7.2 も同じ契約へ更新済み。
-'   ・進捗実況は modEmbed/modEnrich と同じ作法で、1行スコープの On Error Resume
-'     Next 越しに呼ぶ(表示が失敗しても同期自体は止めない)。
+'   ・進捗実況は modEmbed/modEnrich と同じ作法で、1行スコープの OERN 越しに
+'     呼ぶ(表示が失敗しても同期自体は止めない)。
 '   ・FileDialog/EnableCancelKey 等の名前付き定数は使わずリテラル値を使う
 '     (LibreOffice互換のためのV2以来の慣習)。
 ' ============================================================================
@@ -96,7 +96,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' (検索の重ループ中DoEventsに割り込むと結果が欠ける。手動🔄は対象外)。
     ' R12-4: 始める側は検索用ベクトルキャッシュを解放しピークを重ねない。
     ' R15-FixA(FA-3iii): modShelf.IsBusy()も足す。modUiLock.IsBusyだけでは取込
-    ' ループ中(ロック非取得)の自動同期tickで二重取込+中断印の誤消去が起きた。
+    ' ループ中の自動同期tickで二重取込+中断印の誤消去が起きた。
     On Error Resume Next
     If silent Then
         If modUiLock.IsBusy() Or modShelf.IsBusy() Then
@@ -112,10 +112,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     mSyncRunning = True
     mSyncRunningSince = Now
     modOutlineBuild.SetUnattended silent   ' R17H FA-7: 無人実行の印
-    ' R15波2の発見6(2026-08-04): 中断の印を同期の入口でも必ず下ろす。
-    ' 残っていると、押した覚えの無い同期が最初の頁境界でいきなり止まる。
-    ' R15-FixA(FA-3iv): ただし取込中は下ろさない(手動同期は上の見送りを
-    ' 通らず取込中でも来られる。下ろすと押した中断が無かったことにされる)。
+    ' R15波2の発見6(2026-08-04): 中断の印を同期の入口でも必ず下ろす。残って
+    ' いると、押した覚えの無い同期が最初の頁境界でいきなり止まる。R15-FixA
+    ' (FA-3iv): ただし取込中は下ろさない(手動同期は上の見送りを通らず取込中でも
+    ' 来られる。下ろすと押した中断が無かったことにされる)。
     If Not modShelf.IsBusy() Then modShelfBatch.ResetCancel
 
     ' 大量シート書換え中のイベント連鎖を抑止。Finishで必ずTrueへ戻す(死の連鎖防止)。

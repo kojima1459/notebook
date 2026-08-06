@@ -466,15 +466,30 @@ End Function
 '   3. 1位資料と2位資料の最高スコアの差が gapX100/100 未満なら True
 '   gapX100 <= 0 は機能OFF(既存の ambiguous_score_x100=0 と同じ思想)。
 ' ----------------------------------------------------------------------------
-Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
-                                   ByVal gapX100 As Long) As Boolean
-    If gapX100 <= 0 Then Exit Function
+' ----------------------------------------------------------------------------
+' R19H FB-1(A-M⑧): 「発動したか」だけでなく【gapの実値】を観測できるようにする。
+' ----------------------------------------------------------------------------
+' 既定の 0.10 は机上の当て推量で、実データで校正した値ではない(憲章§4-2)。
+' 校正には「発動しなかったときの gap」こそが要る(閾値を上げるべきか下げるべきか
+' は、鳴らなかった側の分布でしか決まらない)。そこで走査の本体を
+' 「gapを返す純関数」へ切り出し、閾値との比較は呼び側(modAskRetrieve)が持つ。
+' HasScoreDispersion は同じシグネチャのまま、この関数を1回呼ぶだけの薄い層に
+' なる(判定規則が2実装に分かれない=憲章§4-5。既存のゴールデン12件も不変)。
+'   戻り値: 資料別の最高スコアの1位と2位の差 ×100(Long)。
+'           資料が2種類未満で判定できないときは -1。
+'   srcCount(out): 数えた資料の種類数(観測ログに載せる)。
+Public Function DispersionGapX100(ByVal srcScoreLines As String, _
+                                  ByRef srcCount As Long) As Long
+    srcCount = 0
+    DispersionGapX100 = -1
     If LenB(srcScoreLines) = 0 Then Exit Function
 
     Dim lines() As String
     lines = Split(srcScoreLines, vbLf)
     Dim cap As Long: cap = UBound(lines) - LBound(lines) + 1
-    If cap < 2 Then Exit Function
+    ' 1行しか無くても走査はする(R19H FB-1): 早退すると srcCount が0のままになり、
+    ' 観測ログの「資料数」が嘘になる。判定は下の n < 2 が同じように打ち切る。
+    If cap < 1 Then Exit Function
 
     Dim names() As String: ReDim names(0 To cap - 1)
     Dim tops() As Double: ReDim tops(0 To cap - 1)
@@ -507,6 +522,7 @@ Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
         End If
     Next i
 
+    srcCount = n
     If n < 2 Then Exit Function
 
     ' 1位と2位を1回のなめで拾う(並べ替えない=同点の扱いが順序に依存しない)。
@@ -526,7 +542,18 @@ Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
         End If
     Next i
 
-    HasScoreDispersion = ((b1 - b2) < (CDbl(gapX100) / 100#))
+    DispersionGapX100 = CLng((b1 - b2) * 100#)
+End Function
+
+' 資料分散の判定(R19-4a)。閾値との比較だけを持つ薄い層で、走査の本体は
+' 上の DispersionGapX100。gap=0 は機能OFF(config ambiguous_dispersion_gap_x100)。
+Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
+                                   ByVal gapX100 As Long) As Boolean
+    If gapX100 <= 0 Then Exit Function
+    Dim srcN As Long
+    Dim g As Long: g = DispersionGapX100(srcScoreLines, srcN)
+    If g < 0 Then Exit Function
+    HasScoreDispersion = (g < gapX100)
 End Function
 
 ' ----------------------------------------------------------------------------

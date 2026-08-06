@@ -22,8 +22,9 @@ Option Explicit
 '   ・modViewport.ColLetter(3b): ScrollAreaの範囲文字列を組む列番号→列名。
 '   ・modViewport.PadPtNeeded / RightEdgeAt / BoundBottomY(R19-1a): 右余白を
 '     消す吸収列の幅・右端の単一情報源・境界の下端(実機第6報①の根治)。
-'   ・modIntegrity.IsUsedRangeBloated(R19-1e): 既存ブックに焼き付いた全域書式
-'     (UsedRangeが画面の4倍超)の検知。
+'   ・modIntegrity.IsUsedRangeBloated(R19-1e→R19H FA-5ii): 既存ブックに焼き
+'     付いた全域書式の検知。倍率をやめた絶対値(横2,400/縦12,000pt)を固定する。
+'   ・modViewport.PadUnitsRefine(R19H FA-1): 吸収列のアフィン換算の1回補正。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -432,23 +433,61 @@ Private Sub TestR19ViewportMath()
     modTestRunner.Check "下端_内容+余白が1画面を1pt超えたら内容側", _
         (modViewport.BoundBottomY(577, 600, 24) = 601)
 
-    ' --- 既存ブックの焼き付き検知(R19-1e) ---------------------------------
+    ' --- 既存ブックの焼き付き検知(R19-1e → R19H FA-5(ii)) -----------------
     ' UsedRange は保存するまで縮まない。R19-1b で塗りを縮めても、それ以前に
     ' 全域書式が焼き付いたブックでは無限スクロールが残るので、検知して
-    ' 「一度保存して開き直す」を案内する。旧チャット(A1:P2000=約31,200pt)は
-    ' 確実に、正常なブック(内容+1画面)は絶対に引っかからない閾値=4倍。
+    ' 「一度保存して開き直す」を案内する。
+    ' R19H FA-5(ii): 判定を「可視の4倍」から【絶対値】へ変えた。倍率のままだと
+    ' チャットで必ず誤発動する ―― 塗りは会話の実下端まで正しく伸びるので、
+    ' 長く話した人ほど正常な画面に「保存して開き直せ」と言われ続けた。
+    ' ここが絶対値の定数(横2,400pt / 縦12,000pt)を固定する唯一の場所。
     modTestRunner.Check "焼き付き_旧チャットの31,200ptは検知", _
-        (modIntegrity.IsUsedRangeBloated(671, 31200, 900, 700) = True)
+        (modIntegrity.IsUsedRangeBloated(671, 31200) = True)
     modTestRunner.Check "焼き付き_横に伸びたブックも検知", _
-        (modIntegrity.IsUsedRangeBloated(4000, 700, 900, 700) = True)
+        (modIntegrity.IsUsedRangeBloated(4000, 700) = True)
     modTestRunner.Check "焼き付き_正常なブックは黙る", _
-        (modIntegrity.IsUsedRangeBloated(888, 724, 900, 700) = False)
-    modTestRunner.Check "焼き付き_ちょうど4倍は黙る(境界)", _
-        (modIntegrity.IsUsedRangeBloated(900, 2800, 900, 700) = False)
-    modTestRunner.Check "焼き付き_4倍を1pt超えたら検知(境界)", _
-        (modIntegrity.IsUsedRangeBloated(900, 2801, 900, 700) = True)
-    modTestRunner.Check "焼き付き_可視サイズが取れないときは黙る", _
-        (modIntegrity.IsUsedRangeBloated(31200, 31200, 0, 0) = False)
+        (modIntegrity.IsUsedRangeBloated(888, 724) = False)
+    ' FA-5(ii)の本命: 長い正常な会話(可視700ptの7画面ぶん)では鳴らない。
+    ' 旧実装(可視の4倍=2,800pt)なら誤発動していたケース。
+    modTestRunner.Check "焼き付き_長い会話の5,000ptでは誤発動しない", _
+        (modIntegrity.IsUsedRangeBloated(671, 5000) = False)
+    modTestRunner.Check "焼き付き_縦ちょうど12,000ptは黙る(境界)", _
+        (modIntegrity.IsUsedRangeBloated(900, 12000) = False)
+    modTestRunner.Check "焼き付き_縦12,000ptを1pt超えたら検知(境界)", _
+        (modIntegrity.IsUsedRangeBloated(900, 12001) = True)
+    modTestRunner.Check "焼き付き_横ちょうど2,400ptは黙る(境界)", _
+        (modIntegrity.IsUsedRangeBloated(2400, 700) = False)
+    modTestRunner.Check "焼き付き_横2,400ptを1pt超えたら検知(境界)", _
+        (modIntegrity.IsUsedRangeBloated(2401, 700) = True)
+    modTestRunner.Check "焼き付き_0は黙る(未取得でも鳴らさない)", _
+        (modIntegrity.IsUsedRangeBloated(0, 0) = False)
+
+    ' --- 吸収列のアフィン換算補正(R19H FA-1) -------------------------------
+    ' pt と ColumnWidth の関係は比例ではなくアフィン(Width = 傾き×CW + 下駄)。
+    ' 1点の実測から出した比 w/u には下駄が丸ごと乗るため、基準列が狭いほど比が
+    ' 大きく出て必要な幅を吸い切れない(Hub の L=1.5 では必要幅の約70%)。
+    ' 2点(設定前・設定後)の実測から傾きを出せば下駄が差で消え、1回の補正で
+    ' 目標へ収束する。ここでは実機の代表値(傾き5.25pt/字・下駄3.75pt)で固定。
+    ' 【狭い基準列 1.5】設定前 (1.5, 11.625) / 設定後 (22.5, 121.875)。
+    ' 目標174.375pt へは 32.5字 が正解(5.25*32.5+3.75 = 174.375)。
+    modTestRunner.Check "吸収列補正_狭い基準列1.5でも目標へ収束", _
+        (modViewport.PadUnitsRefine(174.375, 1.5, 11.625, 22.5, 121.875) = 32.5)
+    ' 【広い基準列 13】設定前 (13, 72) / 設定後 (30, 161.25)。
+    ' 目標182.25pt へは 34字(5.25*34+3.75 = 182.25)。
+    modTestRunner.Check "吸収列補正_広い基準列13でも目標へ収束", _
+        (modViewport.PadUnitsRefine(182.25, 13, 72, 30, 161.25) = 34)
+    ' 縮める方向(可視幅が狭くなった=目標が今より小さい)も同じ式で戻る。
+    modTestRunner.Check "吸収列補正_縮める方向も1回で戻る", _
+        (modViewport.PadUnitsRefine(121.875, 1.5, 11.625, 32.5, 174.375) = 22.5)
+    ' 2点が使えない(1回目で幅が動かなかった)ときは従来の実測比へ退化する。
+    modTestRunner.Check "吸収列補正_2点が同じなら実測比へ退化", _
+        (modViewport.PadUnitsRefine(112.5, 10, 56.25, 10, 56.25) = 20)
+    ' 実測が取れない端末(幅0)では何もしない=1回目の値をそのまま返す。
+    modTestRunner.Check "吸収列補正_実測が取れなければ触らない", _
+        (modViewport.PadUnitsRefine(200, 1.5, 11.625, 0, 0) = 0)
+    ' 0字にすると列が消えて最終列の右が灰色の非セル領域になる(下限で止める)。
+    modTestRunner.Check "吸収列補正_0未満へは行かない(下限0.05)", _
+        (modViewport.PadUnitsRefine(0, 1.5, 11.625, 22.5, 121.875) = 0.05)
 End Sub
 
 Public Sub RunAll16()

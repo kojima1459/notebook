@@ -2199,6 +2199,26 @@ def _has_toplevel_assignment(stmt: str) -> bool:
     return False
 
 
+def _toplevel_assign_index(stmt: str) -> int:
+    """_has_toplevel_assignment が見つける '=' の位置(無ければ -1)。
+    代入の右辺だけを切り出すために使う(R19H FB-3)。"""
+    depth = 0
+    in_str = False
+    for i, c in enumerate(stmt):
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == "=" and depth == 0:
+                if i > 0 and stmt[i - 1] == ":":
+                    continue
+                return i
+    return -1
+
+
 def _is_whole_array_expr_call(arg: str):
     """引数全体が Split(/Filter(/Array( ...) かどうか(直後の即時インデックス
     参照 Split(...)(0) は対象外)。マッチした関数名(先頭大文字化前)を返すか、
@@ -2237,26 +2257,123 @@ def _build_array_arg_signatures(infos: list[ModuleInfo]) -> dict:
     return sigs
 
 
+# ------------------------------------------------------------------------------
+# 2026-08-06(R19H FB-3 / A-L⑨): 検査15の穴を2つ塞ぐ。
+#   (a) Call 文 ―― `Call Foo(Split(...), b)` は先頭が Call なので
+#       ARRAY_ARG_CHECK_KEYWORDS で丸ごと素通ししていた。先頭の Call を剥がして
+#       同じ解析にかければよい(VBAでは Call 有無で型検証は変わらない)。
+#   (b) 代入の右辺 ―― `n = Foo(Split(...))` は _has_toplevel_assignment で
+#       丸ごと除外していた。除外の狙いは「代入文の左辺を呼び出しと誤認しない」
+#       ことであって、右辺の関数呼び出しまで見逃す理由は無い。実VBAは右辺でも
+#       同じ理由でコンパイルを拒否する。
+#   誤検知ゼロの設計は変えない: 呼び先がシグネチャテーブルで解決できたときだけ
+#   検査し、解決できない名前(組込関数・配列変数・オブジェクトのメソッド)は
+#   素通しする。文字列リテラルの中は走査前に潰す(空白へ置換して長さは保つ)。
+#   名前付き引数・単一行Ifは現リポ0件のため記録のみ(裁定 FB-3)。
+# ------------------------------------------------------------------------------
+ARRAY_ARG_CALL_IN_EXPR_RE = re.compile(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\s*\(")
+ARRAY_ARG_CALL_PREFIX_RE = re.compile(r"^Call\s+", re.IGNORECASE)
+
+
+def _blank_string_literals(s: str) -> str:
+    """文字列リテラルの中身を空白へ潰す(位置がずれないよう長さは保つ)。"""
+    out = []
+    in_str = False
+    for c in s:
+        if c == '"':
+            in_str = not in_str
+            out.append(c)
+        elif in_str:
+            out.append(" ")
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def _resolve_array_arg_sig(sigs: dict, infos: list[ModuleInfo], info: ModuleInfo,
+                           mod_name: str, head: str):
+    """呼び先の仮引数フラグ列を引く。解決できなければ None(=素通し)。"""
+    if "." in head:
+        target_mod, proc_name = head.split(".", 1)
+        return sigs.get((target_mod, proc_name.lower()))
+    sig = sigs.get((mod_name, head.lower()))
+    if sig is not None:
+        return sig
+    candidates = []
+    for other in infos:
+        if other is info:
+            continue
+        if head in other.public_names and other.public_names[head] in ("Sub", "Function"):
+            s = sigs.get((module_name_for_display(other), head.lower()))
+            if s is not None:
+                candidates.append(s)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _report_array_args(info: ModuleInfo, lineno: int, head: str,
+                       arg_str: str, sig: list) -> None:
+    args = split_top_level(arg_str, ",") if arg_str.strip() else []
+    for idx, arg in enumerate(args):
+        arg_s = arg.strip()
+        if not arg_s or idx >= len(sig) or not sig[idx]:
+            continue
+        fn = _is_whole_array_expr_call(arg_s)
+        if fn is None:
+            continue
+        info.add(
+            "ERROR", lineno,
+            f"{head} の第{idx + 1}引数が具体配列型(As T())なのに、"
+            f"Variant配列を返す {fn}() を実引数位置に直接渡しています"
+            f"(実Excelはコンパイル拒否。いったん Dim x() As T: x = {fn}(...) "
+            f"で受けてから渡すこと)",
+        )
+
+
 def check_array_arg_variant_mismatch(infos: list[ModuleInfo]) -> None:
     sigs = _build_array_arg_signatures(infos)
 
     for info in infos:
         mod_name = module_name_for_display(info)
-        for lineno, stmt in info.statements:
+        for lineno, raw_stmt in info.statements:
+            # (a) 先頭の Call を剥がす(剥がした後は通常の呼び出し文と同じ)。
+            stmt = ARRAY_ARG_CALL_PREFIX_RE.sub("", raw_stmt, count=1)
+            masked = _blank_string_literals(stmt)
+
+            if _has_toplevel_assignment(masked):
+                # (b) 代入文: 左辺は見ず、右辺の関数呼び出しだけを走査する。
+                eq = _toplevel_assign_index(masked)
+                if eq < 0:
+                    continue
+                rhs_masked = masked[eq + 1:]
+                offset = eq + 1
+                for m in ARRAY_ARG_CALL_IN_EXPR_RE.finditer(rhs_masked):
+                    head = m.group(1)
+                    if head.split(".", 1)[0].lower() in ARRAY_ARG_CHECK_KEYWORDS:
+                        continue
+                    open_idx = m.end() - 1
+                    close_idx = _find_matching_paren(rhs_masked, open_idx)
+                    if close_idx == -1:
+                        continue
+                    sig = _resolve_array_arg_sig(sigs, infos, info, mod_name, head)
+                    if sig is None:
+                        continue
+                    _report_array_args(
+                        info, lineno, head,
+                        stmt[offset + open_idx + 1:offset + close_idx], sig)
+                continue
+
             head_m = ARRAY_ARG_CALL_HEAD_RE.match(stmt)
             if not head_m:
                 continue
             head = head_m.group(1)
             if head.split(".", 1)[0].lower() in ARRAY_ARG_CHECK_KEYWORDS:
                 continue
-            if _has_toplevel_assignment(stmt):
-                continue
 
             after = stmt[head_m.end():]
             after_lstrip = after.lstrip()
             if after_lstrip.startswith("("):
                 open_idx = head_m.end() + (len(after) - len(after_lstrip))
-                close_idx = _find_matching_paren(stmt, open_idx)
+                close_idx = _find_matching_paren(masked, open_idx)
                 if close_idx == -1:
                     continue
                 if stmt[close_idx + 1:].strip() != "":
@@ -2268,45 +2385,13 @@ def check_array_arg_variant_mismatch(infos: list[ModuleInfo]) -> None:
             else:
                 continue  # 引数無しの単独呼び出し
 
-            args = split_top_level(arg_str, ",") if arg_str.strip() else []
-            if not args:
+            if not (split_top_level(arg_str, ",") if arg_str.strip() else []):
                 continue
 
-            if "." in head:
-                target_mod, proc_name = head.split(".", 1)
-                sig = sigs.get((target_mod, proc_name.lower()))
-            else:
-                proc_name = head
-                sig = sigs.get((mod_name, head.lower()))
-                if sig is None:
-                    candidates = []
-                    for other in infos:
-                        if other is info:
-                            continue
-                        if head in other.public_names and other.public_names[head] in ("Sub", "Function"):
-                            s = sigs.get((module_name_for_display(other), head.lower()))
-                            if s is not None:
-                                candidates.append(s)
-                    if len(candidates) == 1:
-                        sig = candidates[0]
-
+            sig = _resolve_array_arg_sig(sigs, infos, info, mod_name, head)
             if sig is None:
                 continue  # 呼び先未解決(組込関数・外部)は素通し
-
-            for idx, arg in enumerate(args):
-                arg_s = arg.strip()
-                if not arg_s or idx >= len(sig) or not sig[idx]:
-                    continue
-                fn = _is_whole_array_expr_call(arg_s)
-                if fn is None:
-                    continue
-                info.add(
-                    "ERROR", lineno,
-                    f"{head} の第{idx + 1}引数が具体配列型(As T())なのに、"
-                    f"Variant配列を返す {fn}() を実引数位置に直接渡しています"
-                    f"(実Excelはコンパイル拒否。いったん Dim x() As T: x = {fn}(...) "
-                    f"で受けてから渡すこと)",
-                )
+            _report_array_args(info, lineno, head, arg_str, sig)
 
 
 def check_module_level_refs(infos: list[ModuleInfo]) -> None:

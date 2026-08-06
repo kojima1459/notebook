@@ -83,6 +83,15 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ' modViewport.ContentRight 1本から取る。
     modViewport.FitBandToViewport ws, SHELF_BAND, SHELF_PAD_COL
     cellW = modViewport.ContentRight(ws, SHELF_BAND, 0) - L
+    ' R19H FB-6(A-L⑬): 帯の【塗り幅】だけは max(可視幅, 内容幅) にする。
+    ' ContentRight は可視幅で頭打ちにするのが正しい(操作系を画面外へ出さない
+    ' ため)が、本棚系は列の最小幅の制約で帯 A:N が可視幅より広くなることが
+    ' ある(狭い窓)。そのとき可視幅で切ると、横スクロールした先で帯が途中で
+    ' 終わり、右側だけ地色の白が出る=「帯が切れて見える」。塗りは内容幅まで
+    ' 伸ばしても押せるものが画面外へ出ないので、広い側へ倒して構わない
+    ' (ContentRight の返り値そのものは変えない=操作系の右端は従来どおり)。
+    Dim bandW As Double: bandW = ws.Range(SHELF_BAND).Width
+    If bandW > cellW Then cellW = bandW
     ' R11-B(#30本丸): セル範囲幅(cellW)基準のクロムは本棚系で772〜882ptに
     ' なり、実可視域(約600pt)を大幅超過して右肩ピルが画面外へ出ていた。
     ' 帯の背景(下のhdr)は従来どおりcellWいっぱいのまま、操作系を置く

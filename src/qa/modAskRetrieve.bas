@@ -490,7 +490,16 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     Dim srcList As String: srcList = HitSourceList(hits, nHits)
     If modClarify.MentionsSourceName(q, srcList) Then Exit Function
 
-    If modClarify.HasScoreDispersion(FoldSrcScoreLines(hits, nHits), gapX100) Then
+    ' R19H FB-1(A-M⑧): 判定は「gapを返す純関数+ここでの比較」に分けた。
+    ' 発動した回も【しなかった回も】gapの実値を1行残す ―― 既定0.10が高すぎるか
+    ' 低すぎるかは、鳴らなかった側の分布を見ないと決められない(憲章§4-2)。
+    ' 資料が2種類未満(gap=-1)は判定不能なので、その事実もそのまま記録する。
+    Dim srcN As Long
+    Dim gap As Long: gap = modClarify.DispersionGapX100(FoldSrcScoreLines(hits, nHits), srcN)
+    On Error Resume Next
+    modLog.LogUsage "dispersion", CStr(srcN), CStr(gap)
+    On Error GoTo 0
+    If gap >= 0 And gap < gapX100 Then
         ' 聞き返しの1行目だけを分散用に差し替えるための印(modClarify が使ったら
         ' その場で下ろす)。文面の本体=資料選択+意図5区分は従来のまま使う。
         modClarify.NoteDispersion
