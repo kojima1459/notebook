@@ -246,18 +246,19 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ' 書いたセル(一覧表の結合・行高・値)を必ず消してから描く。消さないと
     ' カードの裏に一覧表が透けて残る。Shapeの掃除はDrawChromeが行う。
     ws.Cells.Clear
-    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
-    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
-    ' R19-1b: カードはpt座標のShapeで積むのでセルの実使用範囲は1画面ぶんで
-    ' 足りる(旧 A1:N412=約6,200pt は8画面ぶんの空塗りだった)。
-    Dim bandAddr As String: bandAddr = modKnowledge.ShelfBound(ws, 0)
-    ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
-    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
     ' A:N を全列ぶん明示する(一覧表モードがK/L未設定だったために、
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B:N").ColumnWidth = 12
     ws.Rows("7:412").RowHeight = 15       ' 一覧表モードの可変行高を戻す(1-D: 最終行412まで)
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ' R19-1b: ここではまだカードが無いので1画面ぶん。カードを描き終えた
+    ' ApplyGalleryExtent が実下端まで伸ばす(旧 A1:N412 は8画面ぶんの空塗り)。
+    ' 範囲は行高を戻した【後】に決める(前モードの行高のまま数えると足りない)。
+    Dim bandAddr As String: bandAddr = modKnowledge.ShelfBound(ws, 0)
+    ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
+    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
 
     modKnowledge.DrawChrome ws, "gallery"
 

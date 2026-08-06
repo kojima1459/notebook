@@ -44,13 +44,6 @@ Public Sub Show()
 
     RemoveRowShapes ws
     ws.Cells.Clear
-    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
-    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
-    ' R19-1b: この時点では件数が未確定なので1画面ぶん。行を描き終えたところで
-    ' 実下端まで伸ばす(旧 A1:N412=約6,200pt は8画面ぶんの空塗りだった)。
-    Dim bandAddr As String: bandAddr = modKnowledge.ShelfBound(ws, 0)
-    ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
-    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
     ' A:N を全列ぶん明示する(モードごとに前提の列幅が違うので、
     ' 前のモードの列幅が残っていると DrawChrome の W がぶれる)。
     ws.Columns("A").ColumnWidth = 2
@@ -59,6 +52,13 @@ Public Sub Show()
     ws.Columns("D:J").ColumnWidth = 12   ' 質問
     ws.Columns("K:N").ColumnWidth = 10   ' 提供者/日付
     ws.Rows("7:412").RowHeight = 15      ' 前モードの可変行高を戻す(1-D: 最終行412まで)
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
+    ' R19-1b: 一覧は1ページぶん(PAGE_SIZE行)なので1画面ぶんで足りる。範囲は
+    ' 行高を戻した【後】に決める(前モードの行高のまま数えると足りなくなる)。
+    Dim bandAddr As String: bandAddr = modKnowledge.ShelfBound(ws, 0)
+    ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
+    ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
 
     modKnowledge.DrawChrome ws, "shared"
 
