@@ -929,6 +929,14 @@
       "note": "R17H(レビュー裁定 Fix波)の純ロジック回帰テスト。modTestsPure17(25,032字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(名寄せ辞書のマージ規則MergeSynPairsのゴールデン=新規のみ・旧のみ・既存termの上書き・先頭要素の保持・空入力・壊れた要素・大小無視・順序安定/俯瞰語彙HasGlobalSignalの拾う語と拾わない語/段0の門DecomposeGateへの俯瞰シグナルOR)。modTestsPure17.RunAll17末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure19",
+      "path": "src/test/modTestsPure19.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20-1",
+      "note": "R20-1(実機第7報⑦「右・下余白の3層根治」)の純ロジック回帰テスト。modTestsPure16(27,170字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(幅のクランプClampD/帯幅→KPIカード幅CardWidthFor/帯幅→ギャラリー列数GalleryColsFor/ColumnWidth上限255の頭打ち/窓リサイズ再フィットのデバウンス状態遷移RefitAction/pt→行の机上換算が行1=48ptを無視していた確定バグの数値固定)。modTestsPure18.RunAll18末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure14",
       "path": "src/test/modTestsPure14.bas",
       "role": "test",

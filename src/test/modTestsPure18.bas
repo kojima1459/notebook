@@ -446,6 +446,11 @@ NextGap18:
 NextCohabit18:
     On Error GoTo CohabitFail18
     TestCohabitOtherCount
+NextChain19:
+    ' R20-1: 実機第7報⑦(右・下余白の3層根治)の真理表は modTestsPure19 へ。
+    ' ここが28,000字のWARN帯に近いため、16→17→18 と同じ線で分割した。
+    On Error GoTo ChainFail19
+    modTestsPure19.RunAll19
 NextDone18:
     On Error GoTo 0
     Exit Sub
@@ -480,6 +485,10 @@ GapFail18:
     Resume NextCohabit18
 CohabitFail18:
     modTestRunner.Check "TestCohabitOtherCount(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChain19
+ChainFail19:
+    modTestRunner.Check "modTestsPure19.RunAll19(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone18
 End Sub

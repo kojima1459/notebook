@@ -386,9 +386,17 @@ PURE_ALLOWLIST = [
     #   真理表(名寄せマージ・俯瞰シグナル・段0の門)を足すと WARN帯へ入る
     #   ための分割先。modTestsPure17.RunAll17 の末尾が RunAll18 を呼ぶため、
     #   未注入だと実行時エラー12で R17H のテストが1件も走らない(17と同型)。
+    # modTestsPure19(2026-08-06 R20-1): modTestsPure16(27,170字)に実機第7報⑦
+    #   (右・下余白の3層根治)の真理表を足すと30,000字上限を超えるための
+    #   分割先。modTestsPure18.RunAll18 の末尾が RunAll19 を呼ぶため、未注入だと
+    #   実行時エラー12で R20-1 のテストが1件も走らない(16〜18と同型)。
+    # modDashStat(2026-08-06 R20-1b): テストが呼ぶのは CardWidthFor(帯幅→
+    #   KPIカード幅の clamp)1本だけで、Shape とシートI/Oを触る DrawKpiRow /
+    #   CountUsageEvent 等はテストから呼ばない(modProgressBar と同型)。
     "modIntegrity", "modProgressBar", "modShelfScan", "modTestsPure16",
     "modViewport", "modChunkMeta", "modTestsPure17",
     "modOutlineBuild", "modAskGlobal", "modTestsPure18",
+    "modDashStat", "modTestsPure19",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
