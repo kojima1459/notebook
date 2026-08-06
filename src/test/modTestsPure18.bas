@@ -31,6 +31,15 @@ Option Explicit
 '   ・modClarify.HasScoreDispersion: 資料分散の判定(「第3の曖昧さ」)。
 '   ・modClarify.MentionsSourceName: 質問文が資料を名指ししているときの除外。
 '   ・調査④班6.2のテスト表12件を、それぞれ【実際に止める側のゲート】で固定する。
+'
+' 2026-08-06(R20-2/R20-6・実機第7報①⑧・波B)で追記:
+'   ・modAppAct.GateUsesGeneralHistory: 「続けて質問」ゲートのnormal/rag分岐。
+'   ・modAppState.ShouldClearGeneralHistory / ClearGeneralMemory:
+'     followup_max_pairs=0の境界とOnClearChat後の一般履歴消去。
+'   ・modClarify.IsSelfEcho: 聞き返し保留の自己連結防御の境界。
+'   ・modClarify.HasScoreDispersion: thorough(閾値25)/deep・quick(閾値10)の
+'     gap20での発動有無の対。
+'   ・modAskThorough.ThoroughVerifyPrompt: 入念モード専用の文体追記。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -422,6 +431,82 @@ Private Sub TestCohabitOtherCount()
     modTestRunner.Check "同居_境界_1冊で同居", (modIntegrity.IsCohabiting(1) = True)
 End Sub
 
+' ----------------------------------------------------------------------------
+' R20-2/R20-6(実機第7報①⑧・波B): 深掘りの一般アシスタント対応と
+'   3モードの可観測性・実効差・聞き返し強化の真理表。
+' ----------------------------------------------------------------------------
+Private Sub TestFollowupGate()
+    ' (i) ゲート分岐: normal/rag × 履歴有無の全4通り(R20-2b)。
+    modTestRunner.Check "続けて質問ゲート_normalかつ一般履歴ありなら許可", _
+        (modAppAct.GateUsesGeneralHistory("normal", True, False) = True)
+    modTestRunner.Check "続けて質問ゲート_normalかつ一般履歴なしなら不許可", _
+        (modAppAct.GateUsesGeneralHistory("normal", False, True) = False)
+    modTestRunner.Check "続けて質問ゲート_ragかつRAG履歴ありなら許可", _
+        (modAppAct.GateUsesGeneralHistory("rag", True, True) = True)
+    modTestRunner.Check "続けて質問ゲート_ragかつRAG履歴なしなら不許可", _
+        (modAppAct.GateUsesGeneralHistory("rag", False, False) = False)
+End Sub
+
+Private Sub TestGeneralHistoryBoundary()
+    ' (iii) followup_max_pairs=0の境界(R20-2e)。RAG側AppendFollowupPairと
+    ' 同型のエスケープハッチ(0以下=履歴を持たない)。
+    modTestRunner.Check "一般履歴クリア境界_0は消す", _
+        (modAppState.ShouldClearGeneralHistory(0) = True)
+    modTestRunner.Check "一般履歴クリア境界_負も消す", _
+        (modAppState.ShouldClearGeneralHistory(-1) = True)
+    modTestRunner.Check "一般履歴クリア境界_1は残す", _
+        (modAppState.ShouldClearGeneralHistory(1) = False)
+    modTestRunner.Check "一般履歴クリア境界_既定3は残す", _
+        (modAppState.ShouldClearGeneralHistory(3) = False)
+
+    ' (ii) OnClearChat後(modAppState.ClearGeneralMemory)の一般履歴消去。
+    ' LO環境にはui_stateシートが無くLoadStateは常に既定値""を返すため
+    ' (modState.LoadStateの契約)、この環境で再現できる範囲は「クリア後は
+    ' HasGeneralMemoryがFalseへ戻る」こと(実機の「クリア前は履歴が読める」側は
+    ' UI層のためLO到達範囲外。modClarify.MergeAnswerと同型のLO制約)。
+    modAppState.ClearGeneralMemory
+    modTestRunner.Check "一般履歴_ClearGeneralMemory後はHasGeneralMemoryがFalse", _
+        (modAppState.HasGeneralMemory() = False)
+End Sub
+
+Private Sub TestSelfEchoGuard()
+    ' (iv) modClarify.MergeAnswer同一質問防御(R20-6c)の境界。
+    modTestRunner.Check "自己連結防御_完全一致は自己エコー", _
+        (modClarify.IsSelfEcho("免責は?", "免責は?") = True)
+    modTestRunner.Check "自己連結防御_前後空白を無視して一致", _
+        (modClarify.IsSelfEcho("  免責は?  ", "免責は?") = True)
+    modTestRunner.Check "自己連結防御_大小無視(半角英字)で一致", _
+        (modClarify.IsSelfEcho("ABC", "abc") = True)
+    modTestRunner.Check "自己連結防御_8字未満の別文言は自己エコーでない", _
+        (modClarify.IsSelfEcho("免責とは", "免責は?") = False)
+    modTestRunner.Check "自己連結防御_origQが空なら自己エコーでない", _
+        (modClarify.IsSelfEcho("免責は?", "") = False)
+End Sub
+
+Private Sub TestThoroughDispersionPair()
+    ' (v) 分散閾値: thorough(既定25)ではgap20が発動し、deep/quick(既定10)
+    ' では発動しない、の対(R20-6d)。DispLinesは上のTestScoreDispersionと
+    ' 同じヘルパー関数を共用する。
+    Dim lines20 As String
+    lines20 = DispLines("約款A" & vbTab & "0.90", "約款B" & vbTab & "0.70")
+    modTestRunner.Check "分散閾値対_thoroughはgap20で発動(閾値25)", _
+        (modClarify.HasScoreDispersion(lines20, 25) = True)
+    modTestRunner.Check "分散閾値対_deep/quickはgap20で非発動(閾値10)", _
+        (modClarify.HasScoreDispersion(lines20, 10) = False)
+End Sub
+
+Private Sub TestThoroughStyleAddendum()
+    ' 6f: BuildDeepVerifyPrompt(凍結)の戻りへ、入念モードだけの文体指示を
+    ' modAskThorough側で連結する(modPrompts本体は1文字も変えない)。
+    Dim p As String: p = modAskThorough.ThoroughVerifyPrompt("元プロンプト本体")
+    modTestRunner.Check "入念文体_元プロンプトを保持", _
+        (Left$(p, Len("元プロンプト本体")) = "元プロンプト本体")
+    modTestRunner.Check "入念文体_構造化の指示を連結", _
+        (InStr(p, "■見出しで構造化") > 0)
+    modTestRunner.Check "入念文体_断定回避の文言を連結", _
+        (InStr(p, "資料からは確認できません") > 0)
+End Sub
+
 Public Sub RunAll18()
     On Error GoTo MergeFail18
     TestMergeSynPairs
@@ -446,6 +531,21 @@ NextGap18:
 NextCohabit18:
     On Error GoTo CohabitFail18
     TestCohabitOtherCount
+NextGate20:
+    On Error GoTo GateFail20
+    TestFollowupGate
+NextHistBound20:
+    On Error GoTo HistBoundFail20
+    TestGeneralHistoryBoundary
+NextEcho20:
+    On Error GoTo EchoFail20
+    TestSelfEchoGuard
+NextDispPair20:
+    On Error GoTo DispPairFail20
+    TestThoroughDispersionPair
+NextStyle20:
+    On Error GoTo StyleFail20
+    TestThoroughStyleAddendum
 NextChain19:
     ' R20-1: 実機第7報⑦(右・下余白の3層根治)の真理表は modTestsPure19 へ。
     ' ここが28,000字のWARN帯に近いため、16→17→18 と同じ線で分割した。
@@ -485,6 +585,26 @@ GapFail18:
     Resume NextCohabit18
 CohabitFail18:
     modTestRunner.Check "TestCohabitOtherCount(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGate20
+GateFail20:
+    modTestRunner.Check "TestFollowupGate(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextHistBound20
+HistBoundFail20:
+    modTestRunner.Check "TestGeneralHistoryBoundary(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextEcho20
+EchoFail20:
+    modTestRunner.Check "TestSelfEchoGuard(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDispPair20
+DispPairFail20:
+    modTestRunner.Check "TestThoroughDispersionPair(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextStyle20
+StyleFail20:
+    modTestRunner.Check "TestThoroughStyleAddendum(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextChain19
 ChainFail19:

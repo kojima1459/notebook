@@ -657,8 +657,13 @@ CONTRACT: dict[str, dict] = {
     #   何段通すかを先に決めてから「(2/4) 資料を照合中…」を出す。
     "modAskRetrieve": {
         "closed": True,
+        # LastStageTotal(2026-08-06 R20-6a): 直近ターンで計画した段の総数を
+        #   modLive.Footer へ見せる読み取り専用の窓口(0=番号なし)。
+        # DispersionThresholdFor(2026-08-06 R20-6d): 分散閾値をモード別に選ぶ
+        #   純関数。「入念に調べる」だけ資料確認を優先する姿勢へ倒す。
         "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList",
-                     "RunDeepScoped", "RunUnscoped", "PlanAskStages", "ShowAskStage"],
+                     "RunDeepScoped", "RunUnscoped", "PlanAskStages", "ShowAskStage",
+                     "LastStageTotal", "DispersionThresholdFor"],
     },
     # modAskThorough(2026-08-03 R14-8a): 「入念に調べる」専用の生成パイプライン。
     #   実機第3報 RC8「deep と thorough が生成側で完全に同じ(下書き・検証の
@@ -746,9 +751,13 @@ CONTRACT: dict[str, dict] = {
         #   本文へ混ぜると mLastCleanAnswer(=会話履歴と「解決済みQ&A」の部内
         #   共有)にまで注記が入るため、modAsk が整形の後に足せるよう別で返す
         #   (deep の RunDeepFlow と同じ並びに揃えた)。
+        # ThoroughVerifyPrompt(2026-08-06 R20-6f): BuildDeepVerifyPrompt(凍結)の
+        #   戻り文字列へ、入念モードだけの文体指示(構造化・出典明記・断定回避)を
+        #   連結する。quick/deepは1文字も変えない。
         "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
                      "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
-                     "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote"],
+                     "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote",
+                     "ThoroughVerifyPrompt"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
@@ -1145,6 +1154,8 @@ CONTRACT: dict[str, dict] = {
     #   ArmFollowup は modUIMain.OnFollowupButton / OnActDrill の共通実体、
     #   ConsumeArmedFollowup は modApp.OnSend が1回だけ引く印、
     #   RedrawFollowupChip は再描画時の掃除、OnFollowupChipOff は Shape.OnAction。
+    # GateUsesGeneralHistory(2026-08-06 R20-2b): 「続けて質問」ゲートの
+    #   normal/rag分岐を純関数へ出す(注入した2値からの決定表。LOテスト対象)。
     "modAppAct": {
         "closed": True,
         "required": [
@@ -1152,7 +1163,7 @@ CONTRACT: dict[str, dict] = {
             "OnActBad", "OnActDrill", "OnActResolve", "OnActUnsure", "OnActWord",
             "OnActCopy",
             "ArmFollowup", "ConsumeArmedFollowup", "RedrawFollowupChip",
-            "OnFollowupChipOff",
+            "OnFollowupChipOff", "GateUsesGeneralHistory",
         ],
     },
     # R11-F1: 受信箱(DrawInbox)を modHubStat へ移設した残り。
@@ -1303,6 +1314,10 @@ CONTRACT: dict[str, dict] = {
                      "ConfirmCloseDuringIngest", "CancelCloseOk"],
     },
     # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
+    # HasGeneralMemory/ClearGeneralMemory(2026-08-06 R20-2b/2d): 一般アシスタントの
+    #   会話履歴(mGenPrevU/mGenPrevA)のゲート判定と、OnClearChat用の消去窓口。
+    # ShouldClearGeneralHistory(2026-08-06 R20-2e): followup_max_pairs<=0の境界
+    #   判定だけを純関数へ出す(LOテスト対象)。
     "modAppState": {
         "closed": True,
         "required": [
@@ -1311,6 +1326,7 @@ CONTRACT: dict[str, dict] = {
             "AskGeneral", "TrimPairs", "RagSpeed", "CurrentMode",
             "UpdateModeButton", "ReadInputCell", "RestoreInputCell",
             "ClearInputCell", "ReadUiState", "WriteUiState",
+            "HasGeneralMemory", "ClearGeneralMemory", "ShouldClearGeneralHistory",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・

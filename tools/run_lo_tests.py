@@ -397,6 +397,20 @@ PURE_ALLOWLIST = [
     "modViewport", "modChunkMeta", "modTestsPure17",
     "modOutlineBuild", "modAskGlobal", "modTestsPure18",
     "modDashStat", "modTestsPure19",
+    # modAppState / modAppAct(2026-08-06 R20-2b/2e・実機第7報①): テストが呼ぶのは
+    #   ゲート判定の決定表(modAppAct.GateUsesGeneralHistory)と履歴クリアの
+    #   境界(modAppState.ShouldClearGeneralHistory/ClearGeneralMemory/
+    #   HasGeneralMemory)で、いずれもExcel/COMに実行が到達しても安全
+    #   (modState経由でui_stateシートを読み書きするだけ。シートが無ければ
+    #   既定値へ安全に倒れる契約)。
+    # modState(同上): ClearGeneralMemory/HasGeneralMemoryが呼ぶ
+    #   LoadState/SaveStateの実体。未注入のままだと「シートが無い→既定値」の
+    #   安全側フォールバックへ到達する前に modState 自体が実行時エラー12に
+    #   なる(=呼び出し元の On Error Resume Next が拾えない種類のエラーで
+    #   グループ全体が失敗する)。modShelfSync/modPack/modLog と同じ
+    #   「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcelの
+    #   実オブジェクトに触れても落ちない」型。
+    "modAppState", "modAppAct", "modState",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
