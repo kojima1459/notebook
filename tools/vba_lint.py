@@ -1062,15 +1062,27 @@ CONTRACT: dict[str, dict] = {
             "PaintProgress", "ClearProgress", "SweepOrphans",
         ],
     },
-    # modViewport(2026-08-05 R18-3b): 各画面の「行ける範囲」の宣言(ScrollArea)。
-    # 実機第5報②「どの画面も右にも下にも無限にスクロールできる」への対処で、
-    # 5画面が同じ1行を書くことになるため共通部品として新設した(憲章§4-5)。
-    # ApplyScrollBound は ws.ScrollArea の設定、BoundFor は実測の右下端(pt)から
-    # 範囲文字列を組む(ダッシュボードのように内容で下端が変わる画面用)、
-    # ColLetter は列番号→列名の純ロジック(modTestsPure16 が固定する)。
+    # modViewport(2026-08-05 R18-3b / 2026-08-06 R19-1a で拡張): 画面の幾何を
+    # 「見える範囲」に合わせる共通部品。実機第6報①で、ScrollArea はホイールを
+    # 止めない(公式仕様=セル選択とスクロールバーの制限のみ)こと、右余白は
+    # スクロールではなく列幅の【寸法】の問題であることが確定したため、
+    # 5画面が同じ算数を書かずに済むよう共通部品を集約する(憲章§4-5)。
+    #   ApplyScrollBound : ws.ScrollArea の設定(補助手段として維持)
+    #   FitBandToViewport: 吸収列で列帯の合計幅を可視幅ぴったりに合わせる(右余白の唯一の解)
+    #   ContentRight     : 帯・ピル・主ボタンが共有する右端の単一情報源
+    #   BoundAddr        : 塗り/ScrollArea/Lockedが共有する実使用範囲の文字列
+    #   BoundFor         : 列も実測で決める旧口(吸収列方式に移せない画面用)
+    #   ViewportHeight   : 可視高(modUIMain.ViewportWidth の縦版)
+    #   LogViewport      : 実機の可視幅×可視高の観測点(1画面1セッション1回)
+    #   PadPtNeeded / RightEdgeAt / BoundBottomY / ColLetter は純ロジックで
+    #   modTestsPure16 がゴールデンで固定する。
     "modViewport": {
         "closed": True,
-        "required": ["ApplyScrollBound", "BoundFor", "ColLetter"],
+        "required": [
+            "ApplyScrollBound", "FitBandToViewport", "ContentRight",
+            "BoundAddr", "BoundFor", "ViewportHeight", "LogViewport",
+            "PadPtNeeded", "RightEdgeAt", "BoundBottomY", "ColLetter",
+        ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
     "modApp": {

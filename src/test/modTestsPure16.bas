@@ -20,6 +20,8 @@ Option Explicit
 '   ・modRagParse.HasCompoundSignal(7a)と、modAskMulti.TryDecomposedの
 '     ゲート合成(ShouldDecompose OR HasCompoundSignal・7b)。
 '   ・modViewport.ColLetter(3b): ScrollAreaの範囲文字列を組む列番号→列名。
+'   ・modViewport.PadPtNeeded / RightEdgeAt / BoundBottomY(R19-1a): 右余白を
+'     消す吸収列の幅・右端の単一情報源・境界の下端(実機第6報①の根治)。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -372,6 +374,63 @@ Private Sub TestColLetter()
     modTestRunner.Check "列名_負値もAへ丸める", (modViewport.ColLetter(-5) = "A")
 End Sub
 
+' ----------------------------------------------------------------------------
+' R19-1a: 余白を消す算数(modViewport の純関数3本)。
+' ----------------------------------------------------------------------------
+' 実機第6報①で確定した事実:「右の余白」はスクロールではなく寸法の問題で、
+' 列幅の合計が可視幅より狭ければ ScrollArea では原理的に消えない。消せるのは
+' 「余りを1列に吸わせて帯の合計幅を可視幅に一致させる」ことだけ(PadPtNeeded)。
+' 右端は1つの式(RightEdgeAt)だけを全画面が見る(帯625/ピル617/ボタン614.6の
+' 3段ズレは、同じ右端を3通りに計算していたことが原因)。下端は「内容+余白、
+' ただし最低1画面」(BoundBottomY)。この3本が崩れると、余白が残るか、逆に
+' 締めすぎてボタンが境界の外へ出る(憲章§3-1違反)。
+Private Sub TestR19ViewportMath()
+    ' --- 吸収列の幅 --------------------------------------------------------
+    ' 可視888pt(=900-スクロールバー12)に対し固定側579pt(チャットのA:J+L+M)
+    ' なら、吸収列Kは309ptになり、A:M の合計がちょうど888ptになる。
+    modTestRunner.Check "吸収列_余りをそのまま吸う", _
+        (modViewport.PadPtNeeded(888, 579, 8) = 309)
+    ' 内容のほうが可視幅より広い端末(本棚の758pt固定 vs 可視588pt)では
+    ' 負の幅を要求してしまう。列を消さず最小幅で踏みとどまる(最終列の右が
+    ' 灰色の非セル領域になると、余白の見た目はむしろ悪化する)。
+    modTestRunner.Check "吸収列_足りなくても負にせず最小幅", _
+        (modViewport.PadPtNeeded(588, 758, 8) = 8)
+    modTestRunner.Check "吸収列_ちょうど最小幅は最小幅(境界)", _
+        (modViewport.PadPtNeeded(588, 580, 8) = 8)
+    modTestRunner.Check "吸収列_最小幅+1は連動値", _
+        (modViewport.PadPtNeeded(589, 580, 8) = 9)
+
+    ' --- 右端の単一情報源 --------------------------------------------------
+    ' 帯が可視幅に収まっている通常ケース: 帯の右端-余白。
+    modTestRunner.Check "右端_帯が可視内なら帯の右端-余白", _
+        (modViewport.RightEdgeAt(0, 625, 900, 8) = 617)
+    ' 帯が可視幅を超える端末(ダッシュボードの旧A:T=1,020pt)では可視幅で
+    ' 頭打ちにする。ここが効かないとボタンが画面外に描かれる(R11-B #30の再発)。
+    modTestRunner.Check "右端_帯が可視幅を超えたら可視幅で頭打ち", _
+        (modViewport.RightEdgeAt(0, 1020, 600, 8) = 584)
+    ' 余白0は「帯の右端そのもの」。帯とピルの差は必ず rightPad ぶんだけになる
+    ' (=3段ズレが構造的に作れない)。
+    modTestRunner.Check "右端_余白0なら帯の右端そのもの", _
+        (modViewport.RightEdgeAt(0, 625, 900, 0) = 625)
+    modTestRunner.Check "右端_帯とピルの差は余白ぶんだけ", _
+        (modViewport.RightEdgeAt(0, 625, 900, 0) - modViewport.RightEdgeAt(0, 625, 900, 8) = 8)
+    ' 左端(A列のLeft)が0でない画面でもそのまま平行移動する。
+    modTestRunner.Check "右端_左端が0でなくても平行移動", _
+        (modViewport.RightEdgeAt(10, 625, 900, 8) = 627)
+
+    ' --- 境界の下端 --------------------------------------------------------
+    ' 内容が1画面に満たないときは1画面ぶん確保する。ホイールは仕様上止まらない
+    ' ので、下へ行った先が塗られていないと「白い断崖」になる。
+    modTestRunner.Check "下端_内容が浅ければ1画面ぶん", _
+        (modViewport.BoundBottomY(500, 600, 24) = 600)
+    modTestRunner.Check "下端_内容が深ければ内容+余白", _
+        (modViewport.BoundBottomY(700, 600, 24) = 724)
+    modTestRunner.Check "下端_内容+余白がちょうど1画面(境界)", _
+        (modViewport.BoundBottomY(576, 600, 24) = 600)
+    modTestRunner.Check "下端_内容+余白が1画面を1pt超えたら内容側", _
+        (modViewport.BoundBottomY(577, 600, 24) = 601)
+End Sub
+
 Public Sub RunAll16()
     On Error GoTo BarWFail16
     TestBarWidthFor
@@ -402,6 +461,9 @@ NextGate16:
 NextCol16:
     On Error GoTo ColFail16
     TestColLetter
+NextVp19:
+    On Error GoTo Vp19Fail16
+    TestR19ViewportMath
 NextChain17:
     ' 2026-08-05(R17 Phase1): modTestsPure16 に構造メタの真理表(約7,000字)を
     ' 足すと WARN帯へ入るため 17 を新設した。連鎖の入口はここ1本だけ。
@@ -449,6 +511,10 @@ GateFail16:
     Resume NextCol16
 ColFail16:
     modTestRunner.Check "TestColLetter(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextVp19
+Vp19Fail16:
+    modTestRunner.Check "TestR19ViewportMath(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextChain17
 ChainFail17:
