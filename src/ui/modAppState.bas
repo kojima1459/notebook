@@ -49,6 +49,28 @@ Public Function AnswerWithoutShelf(ByVal q As String) As String
     AnswerWithoutShelf = modLive.EmptyShelfWrap(AskGeneral(q, modLive.EmptyShelfGuard()))
 End Function
 
+' R20-2b: 一般アシスタントの「続けて質問」ゲート。modAsk.CanFollowup()と同型
+' (遅延ロード)だがRAG側のmPrevUではなくmGenPrevUを見る。深掘りボタンが
+' normalモードで常に「まず質問して…」になっていた不具合の是正。
+Public Function HasGeneralMemory() As Boolean
+    If LenB(mGenPrevU) = 0 Then
+        mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
+    End If
+    HasGeneralMemory = (LenB(mGenPrevU) > 0)
+End Function
+
+' R20-2d(新発見バグ): OnClearChatはRAG側の会話履歴は消していたが、一般
+' アシスタント側(mGenPrevU/mGenPrevA)を消し忘れていた。会話クリア後も
+' 一般アシスタントだけ前の話題を覚えている、という穴を塞ぐ。
+Public Sub ClearGeneralMemory()
+    mGenPrevU = ""
+    mGenPrevA = ""
+    On Error Resume Next
+    modState.SaveState "nexus_gen_prevu", ""
+    modState.SaveState "nexus_gen_preva", ""
+    On Error GoTo 0
+End Sub
+
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Public Function HasTarget() As Boolean
     If LenB(TargetBubbleName()) = 0 Then
@@ -84,6 +106,12 @@ Public Function SharePath() As String
     SharePath = modConfig.GetString("nexus_share_path", SHARE_PATH_DEFAULT)
 End Function
 
+' R20-2e: maxPairs<=0(機能OFFのエスケープハッチ)の境界判定だけを純関数に
+' 出す(LOテストで0/負/正の境界を固定する)。
+Public Function ShouldClearGeneralHistory(ByVal maxPairs As Long) As Boolean
+    ShouldClearGeneralHistory = (maxPairs <= 0)
+End Function
+
 ' 一般アシスタントモード: 本棚を介さずCallLLM直(会話履歴つき)。
 ' extraRules: 呼び出し文脈ごとの追加制約(空可)。本棚が空のときの
 ' 「社内固有の数字を断定させない」制約はここから注入される。
@@ -91,6 +119,20 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
     If LenB(mGenPrevU) = 0 Then
         mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
         mGenPrevA = modState.LoadState("nexus_gen_preva", "")
+    End If
+
+    ' R20-2e: followup_max_pairs<=0はRAG側AppendFollowupPairと同型の
+    ' エスケープハッチ。まだ送っていない古い履歴を握ったままではmaxPairsを
+    ' 絞った意味が無いので、このターンの送信に含める【前】に消す。
+    Dim maxPairs As Long
+    maxPairs = modConfig.GetLong("followup_max_pairs", 3)
+    If ShouldClearGeneralHistory(maxPairs) Then
+        mGenPrevU = ""
+        mGenPrevA = ""
+        On Error Resume Next
+        modState.SaveState "nexus_gen_prevu", ""
+        modState.SaveState "nexus_gen_preva", ""
+        On Error GoTo 0
     End If
 
     Dim sys As String
@@ -127,9 +169,7 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
     modChatLog.LogTurn q, resp, "general"
     On Error GoTo 0
 
-    ' 会話履歴(新しい順;;;区切り・最大followup_max_pairsペア)
-    Dim maxPairs As Long
-    maxPairs = modConfig.GetLong("followup_max_pairs", 3)
+    ' 会話履歴(新しい順;;;区切り・最大followup_max_pairsペア。maxPairsは冒頭で読済み)
     If maxPairs > 0 Then
         mGenPrevU = TrimPairs(q & IIf(LenB(mGenPrevU) > 0, ";;;" & mGenPrevU, ""), maxPairs)
         mGenPrevA = TrimPairs(modUtil.SafeLeft(resp, 2000) & IIf(LenB(mGenPrevA) > 0, ";;;" & mGenPrevA, ""), maxPairs)

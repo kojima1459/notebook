@@ -171,14 +171,14 @@ Public Sub OnSend()
     On Error GoTo Fail
 
     ' R13 F3(武装したフォローアップの漏れ止め): 「続きの質問」の武装は
-    ' 【モード分岐より前に】必ず1回で解決する。従来は normal 分岐が
-    ' ConsumeArmedFollowup へ到達する前に return していたため、一般アシスタント
-    ' へ1回投げるだけで武装とチップが残り、そのあとの新規のRAG質問が
-    ' 本人の知らないうちに「前回の会話の続き」として扱われていた。
-    ' 一般アシスタントには会話引き継ぎの意味論が無いので、ここでは
-    ' 「解除して普通の一般質問として進む」が唯一正しい振る舞いになる。
+    ' 【モード分岐より前に】必ず1回で消費する。R20-2c: 一般アシスタントは
+    ' AskGeneral自身が会話履歴(mGenPrevU/mGenPrevA)を保持しているため、
+    ' armedならそのまま続きの質問としてAskGeneralを呼べばよい(RAG専用の
+    ' isFollowup分岐/modFollowupには合流させない=握りつぶしではなく退避)。
     Dim isFollowup As Boolean
     isFollowup = modAppAct.ConsumeArmedFollowup()
+    Dim wasArmedGeneral As Boolean
+    wasArmedGeneral = (isFollowup And sendMode = "normal")
     If sendMode = "normal" Then isFollowup = False
     ' R16-3D: 深掘りかどうかを qa層へ1回だけ預ける(下書き指示の出し分けと
     ' 既出チャンクメモリの寿命が、どちらもこの旗を見る)。
@@ -189,6 +189,13 @@ Public Sub OnSend()
     Dim ans As String
     Dim grounded As Boolean
     If sendMode = "normal" Then
+        ' R20-2c: armed(=深掘り/続けて質問)だったときだけ実況で伝える
+        ' (履歴自体はAskGeneralが常に保持済みなので分岐は表示だけでよい)。
+        If wasArmedGeneral Then
+            On Error Resume Next
+            modLive.PaintStage "続きの質問として回答中…"
+            On Error GoTo Fail
+        End If
         ans = modAppState.AskGeneral(q, "")
     ElseIf isFollowup Then
         ' R13-6a: 「続けて質問/深掘り」で武装済み。会話を引き継いで答える
@@ -220,8 +227,9 @@ Public Sub OnSend()
     Dim bubbleName As String
     ' R14-8c: 本文は modLive で記法を整え、段落区切りを vbCr にしてから書く
     ' (Shape の Paragraphs は vbCr でしか分かれない。フッターの装飾も同じ前提)。
+    ' R20-6a: フッターへモード名を先頭表示(3モード同一に見える問題の可観測化)。
     bubbleName = modUI.AddChatBubble("ai", _
-        modLive.AnswerParagraphs(ans) & vbCr & modLive.Footer(secs, grounded))
+        modLive.AnswerParagraphs(ans) & vbCr & modLive.Footer(secs, grounded, sendMode, sendSpeed))
     modLive.StyleFooter bubbleName
     modLive.StyleAnswerParas bubbleName   ' ■見出しの段落だけ太字(AI回答のみ)
     modAppState.SetActiveBubble bubbleName
@@ -716,6 +724,7 @@ Public Sub OnClearChat()
     modAppAct.ClearConfidence
     modAppAct.OnFollowupChipOff   ' R13-6a: 武装したままの「続きの質問」も解除する
     modFollowup.ClearCitedSources ' R13-5b: 会話の出典メモリも消す(会話リセット)
+    modAppState.ClearGeneralMemory ' R20-2d: 一般アシスタントの会話履歴も消す(新発見バグ)
     modState.SaveState "nexus_ask_prevu", ""
     modState.SaveState "nexus_ask_preva", ""
     modState.SaveState "nexus_hist_u", ""

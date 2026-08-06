@@ -130,6 +130,14 @@ End Sub
 Public Sub OnActDrill()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
+    ' R20-2a: ゲート判定を【先消しより前】にする。従来は出典/Mentor/アクション/
+    ' 信頼度を無条件で消してからArmFollowupのゲートに落ちていたため、失敗時に
+    ' ボタン列が消えたまま何も起きない(「押したのに何も起きない」の再発)。
+    If Not CanArmFollowup() Then
+        modSkin.ShowToast "まず質問して回答を受け取ってから使ってください。", "info"
+        modUiLock.Leave
+        Exit Sub
+    End If
     modPeek.HideCitations   ' 前回の出典チップ/ポップアップを消す
     modMentor.ClearMentor   ' Mentorボタンも掃除(安全弁内蔵)
     ClearActions
@@ -176,10 +184,32 @@ End Sub
 ' 宣言(FCHIP_NAME / mArmedFollowup)はモジュール先頭にある。
 ' ============================================================================
 
+' R20-2b: ゲートのモード分岐。normalは一般アシスタントの会話履歴
+' (modAppState.HasGeneralMemory)、それ以外はRAGの履歴(modAsk.CanFollowup)を見る。
+' modAskは触らずmodAppStateへ新設した窓口を読む。判定式そのもの(どちらの
+' 真偽値を見るか)は純関数GateUsesGeneralHistoryへ出し、LOテストで
+' 「normal/rag × 履歴有無」の4通りを固定する(実際の真偽値はExcel状態を
+' 読むためLOでは再現できないが、注入した2値からの決定規則は再現できる)。
+Public Function GateUsesGeneralHistory(ByVal chatMode As String, _
+                                       ByVal hasGeneralMemory As Boolean, _
+                                       ByVal hasRagMemory As Boolean) As Boolean
+    If chatMode = "normal" Then
+        GateUsesGeneralHistory = hasGeneralMemory
+    Else
+        GateUsesGeneralHistory = hasRagMemory
+    End If
+End Function
+
+Private Function CanArmFollowup() As Boolean
+    CanArmFollowup = GateUsesGeneralHistory(modAppState.CurrentMode(), _
+        modAppState.HasGeneralMemory(), modAsk.CanFollowup())
+End Function
+
 ' 「続きの質問」を武装する(modUIMain.OnFollowupButton / OnActDrill の共通実体)。
 Public Sub ArmFollowup()
-    If Not modAsk.CanFollowup() Then
-        MsgBox "まず質問して回答を受け取ってから使ってください。", vbInformation, "Nexus Agent"
+    If Not CanArmFollowup() Then
+        ' R20-2a: MsgBoxをやめToastへ(ボタン消失の再発防止と歩調を揃える)。
+        modSkin.ShowToast "まず質問して回答を受け取ってから使ってください。", "info"
         Exit Sub
     End If
 
