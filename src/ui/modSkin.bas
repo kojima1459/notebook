@@ -414,7 +414,12 @@ End Function
 Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
-    Dim addr As String: addr = modUINexusDraw.NexusBound(ws)
+    ' 下端は呼び出し側が渡す実測値(modUI.mChatBottom)から直に組む。
+    ' modUINexusDraw.NexusBound と同じ算数だが、こちらは会話の下端が確定した
+    ' 直後に呼ばれるので、値を取りに戻る往復を省く(式の持ち主は BoundAddr 1本)。
+    Dim addr As String
+    addr = modViewport.BoundAddr(ws, modUINexusDraw.NEXUS_PAD_COL, bottomY, _
+                                 modUINexusDraw.NEXUS_MAX_ROW)
     Dim lastRow As Long, fromRow As Long
     lastRow = ws.Range(addr).Rows.Count
     If lastRow > mChatBandRow Then
@@ -435,9 +440,9 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
     ' 呼び出し元は全てNexus(チャット)シートなので、会話の実下端から決まる
     ' 実使用範囲(NexusBound)だけを塗る。フォントもここで当てる(旧 modUI.InitUI
     ' の A1:P2000 へのFont.Nameは廃止した)。
+    On Error Resume Next
     Dim bandAddr As String: bandAddr = modUINexusDraw.NexusBound(ws)
     ws.Range(bandAddr).Interior.Color = ThemeColor("bg")
-    On Error Resume Next
     ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
     mChatBandRow = ws.Range(bandAddr).Rows.Count
     modViewport.ApplyScrollBound ws, bandAddr
