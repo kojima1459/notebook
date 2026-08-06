@@ -45,6 +45,9 @@ Public Const ROW_WIDTH As Double = KPI_CARD_W * 4 + KPI_GAP * 3
 ' 直近に FitBandToViewport で確定した帯幅から決めたカード幅(pt)。
 ' 0 のあいだは最小幅(KPI_CARD_W)で描く=従来と同じ絵になる。
 Private mCardW As Double
+' 追加D-1(2026-08-06・センタリング): 版面(RowWidth)の左端X。0のあいだは
+' KPI_X0(左寄せ・従来と同じ絵)。SetBandWidthが帯幅から中央寄せの値へ更新する。
+Private mX0 As Double
 
 Private Const EXPBAR_H As Double = 12
 Private Const EXPBAR_Y As Double = KPI_Y0 + KPI_CARD_H + 18
@@ -81,8 +84,14 @@ End Function
 ' SetBandWidth - 描画の直前に、帯の【実幅】(FitBandToViewport 後)を渡す。
 '   ここより後に走る DrawKpiRow/DrawExpBar/DrawBadgeShelf と modDash の
 '   ヘッダー・管理者行が、全て同じ CardW()/RowWidth() を見る。
+' 追加D-1: 同時に版面の左端X(RowX0)も帯幅から決め直す(センタリング)。
+'   modDash.MinContentRightX() はこのSubの【前】に呼ばれるため、そちらは
+'   従来どおりKPI_X0(定数=20)のまま据え置く(mX0を参照させると前回描画の
+'   古い値を読み、狭い窓で帯を縮められなくなる=RowWidth()staleness警告と
+'   同型の回帰を招くため、意図的に触れていない)。
 Public Sub SetBandWidth(ByVal bandW As Double)
     mCardW = CardWidthFor(bandW)
+    mX0 = CenterX0(bandW, RowWidth())
 End Sub
 
 ' KpiCardW - 現在のカード幅(pt)。SetBandWidth 前は最小幅。
@@ -95,6 +104,25 @@ End Function
 ' RowWidth - 現在の版面幅(pt)。カード4枚+隙間3つ。
 Public Function RowWidth() As Double
     RowWidth = KpiCardW() * 4 + KPI_GAP * 3
+End Function
+
+' CenterX0(追加D-1) - 帯内中央寄せの左端X(純関数・ゴールデン対象)。帯幅
+'   bandWが版面幅rowWidthより広いときだけ余白を等分する(下限minX0=20pt)。
+'   bandW<=rowWidthの狭い窓ではminX0のまま(左寄せ・従来どおりの絵)。
+'   左右対称の余白は「デザイン」に見え、左だけの片寄り余白は「バグ」に
+'   見える、という趣旨(広窓でKPI行/EXPバー/バッジ群が帯内で中央に来る)。
+Public Function CenterX0(ByVal bandW As Double, ByVal rowW As Double, _
+                         Optional ByVal minX0 As Double = 20) As Double
+    Dim c As Double: c = (bandW - rowW) / 2
+    If c < minX0 Then c = minX0
+    CenterX0 = c
+End Function
+
+' RowX0 - 版面(KPI行/EXPバー/バッジ群)の左端X。SetBandWidth前・未初期化
+'   時はKPI_X0(=20・左寄せ)を返す。
+Public Function RowX0() As Double
+    RowX0 = mX0
+    If RowX0 < KPI_X0 Then RowX0 = KPI_X0
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -305,12 +333,13 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
         deltaColor = modUI.UiColor("muted")
     End If
     Dim cw As Double: cw = KpiCardW()                 ' R20-1b: 帯幅から決めた実カード幅
-    DrawKpiCard ws, 0, KPI_X0, KPI_Y0, cw, KPI_CARD_H, _
+    Dim x0 As Double: x0 = RowX0()                     ' 追加D-1: 帯内中央寄せの左端X
+    DrawKpiCard ws, 0, x0, KPI_Y0, cw, KPI_CARD_H, _
         "節約した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
 
     ' Card1: 登録ナレッジ数
     Dim ingestTotal As Long: ingestTotal = modDashStat.SafeGetStat("ingest_files_total")
-    DrawKpiCard ws, 1, KPI_X0 + (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 1, x0 + (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "登録ナレッジ数", ingestTotal & "件", "あなたが登録した資料"
 
     ' Card2: 蔵書チャンク数
@@ -322,7 +351,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Else
         ratio = 0
     End If
-    DrawKpiCard ws, 2, KPI_X0 + 2 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 2, x0 + 2 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "蔵書チャンク数", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
 
     ' Card3: レベル
@@ -330,7 +359,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Dim expTotalV As Long: expTotalV = modDashStat.SafeExpTotal()
     Dim remain As Long: remain = modDashStat.SafeExpFloorForLevel(lv + 1) - expTotalV
     If remain < 0 Then remain = 0
-    DrawKpiCard ws, 3, KPI_X0 + 3 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 3, x0 + 3 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "レベル", "Lv." & lv, "EXP " & expTotalV & " ・ 次まで" & remain & "EXP"
 End Sub
 
@@ -395,6 +424,7 @@ End Sub
 
 Public Sub DrawExpBar(ByVal ws As Worksheet)
     Dim trackW As Double: trackW = RowWidth()   ' R20-1b: 版面幅に追随
+    Dim x0 As Double: x0 = RowX0()               ' 追加D-1: 帯内中央寄せの左端X
     Dim prog As Double: prog = modDashStat.SafeLevelProgress()
     If prog < 0 Then prog = 0
     If prog > 1 Then prog = 1
@@ -403,7 +433,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
     If prog > 0 And fillW < 2 Then fillW = 2
 
     Dim bgBar As Shape
-    Set bgBar = ws.Shapes.AddShape(5, KPI_X0, EXPBAR_Y, trackW, EXPBAR_H)
+    Set bgBar = ws.Shapes.AddShape(5, x0, EXPBAR_Y, trackW, EXPBAR_H)
     bgBar.Name = "nxd_expbar_bg"
     bgBar.Adjustments(1) = 0.5
     bgBar.Fill.ForeColor.RGB = modUI.UiColor("border")
@@ -412,7 +442,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
 
     If fillW > 0 Then
         Dim fgBar As Shape
-        Set fgBar = ws.Shapes.AddShape(5, KPI_X0, EXPBAR_Y, fillW, EXPBAR_H)
+        Set fgBar = ws.Shapes.AddShape(5, x0, EXPBAR_Y, fillW, EXPBAR_H)
         fgBar.Name = "nxd_expbar_fg"
         fgBar.Adjustments(1) = 0.5
         fgBar.Fill.ForeColor.RGB = modUI.UiColor("primary")
@@ -425,7 +455,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
     If remain < 0 Then remain = 0
 
     Dim lbl As Shape
-    Set lbl = ws.Shapes.AddShape(1, KPI_X0, EXPLABEL_Y, trackW, 16)
+    Set lbl = ws.Shapes.AddShape(1, x0, EXPLABEL_Y, trackW, 16)
     lbl.Name = "nxd_exp_label"
     lbl.Line.Visible = 0
     lbl.Fill.Visible = 0
@@ -458,8 +488,9 @@ Public Function ChartNoteY() As Double
 End Function
 
 Public Sub DrawBadgeShelf(ByVal ws As Worksheet)
+    Dim x0 As Double: x0 = RowX0()   ' 追加D-1: 帯内中央寄せの左端X
     Dim headShp As Shape
-    Set headShp = ws.Shapes.AddShape(1, KPI_X0, BADGE_HEAD_Y, 300, 20)
+    Set headShp = ws.Shapes.AddShape(1, x0, BADGE_HEAD_Y, 300, 20)
     headShp.Name = "nxd_badge_head"
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
@@ -482,7 +513,7 @@ Public Sub DrawBadgeShelf(ByVal ws As Worksheet)
     For i = 0 To badgeN - 1
         Dim col As Long: col = i Mod BADGES_PER_ROW
         Dim rowN As Long: rowN = i \ BADGES_PER_ROW
-        Dim cardX As Double: cardX = KPI_X0 + col * (KpiCardW() + BADGE_GAP_X)
+        Dim cardX As Double: cardX = x0 + col * (KpiCardW() + BADGE_GAP_X)
         Dim cardY As Double: cardY = BADGE_GRID_Y + rowN * (BADGE_H + BADGE_GAP_Y)
 
         Dim dt As String: dt = modStats.BadgeEarnedOn(ids(i))

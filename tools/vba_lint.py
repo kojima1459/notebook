@@ -1283,6 +1283,9 @@ CONTRACT: dict[str, dict] = {
             # 最小版面(帯を可視幅へ合わせるときの下限)。実際の版面は RowWidth()。
             "KPI_CARD_W", "KPI_CARD_MAX_W", "KPI_GAP", "KPI_X0", "ROW_WIDTH",
             "CardWidthFor", "SetBandWidth", "KpiCardW", "RowWidth",
+            # 追加D-1(2026-08-06・ダッシュのカード群センタリング): 帯幅>版面幅の
+            # ときKPI行/EXPバー/バッジ群のX原点を帯内中央寄せにする2本。
+            "CenterX0", "RowX0",
             "SavedTimeDeltaLabel", "CountUsageEvent",
             "IsThisMonthStamp", "IsLastMonthStamp", "UsageBarText", "FormatMinutes",
             "SafeGetStat", "SafeSavedMinutes", "SafeTotalChunks", "SafeShelfMax",
