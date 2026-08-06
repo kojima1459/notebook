@@ -18,6 +18,10 @@ Private Const TB_GAP As Double = 5      ' ツールバーのボタン間隔
 Private Const TB_PAD As Double = 8      ' ツールバー帯の左右余白
 Private Const TB_MAX As Long = 20       ' ツールバーに載りうるボタンの最大数
 
+' R20-3(実機第7報②): 起動後の本棚初回表示で1回だけ「未仕上げ資料あり」を
+' 告知したかどうか(セッション内で1回きり。ブックを開き直すと再び案内する)。
+Private mBackfillToastDone As Boolean
+
 ' ----------------------------------------------------------------------------
 ' DrawToolbar - ツールバーを1本の流し込みレイアウトで描き、実使用高さを返す。
 ' ----------------------------------------------------------------------------
@@ -35,6 +39,7 @@ Public Function DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
     ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, n, xs, rws, useW, rowN
+    MaybeShowBackfillToast isShared
     If n < 1 Then Exit Function
 
     Dim i As Long
@@ -145,6 +150,11 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58
+    ' R20-3(実機第7報②): 再取込ゼロで旧形式の資料に俯瞰・条文参照・言い換え
+    ' 検索を後付けする(modBackfill.OnBackfillClick=このモジュールの薄い
+    ' ハンドラ。実体はmodBackfillへ)。
+    AddTool caps, acts, kinds, widths, n, _
+            ChrW(&H26A1) & " 仕上げ", "modKnowledgeBar.OnBackfillClick", "plain", 64
     ' R18-3c: 「チャットへ」は上段のピル列へ移設(理由は上のisShared分岐の
     ' コメント参照)。ここはボタン数で位置が動く帯なので、常設の移動導線に
     ' 向かない。
@@ -189,6 +199,53 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
         AddTool caps, acts, kinds, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot", "plain", 84
     End If
+End Sub
+
+' ----------------------------------------------------------------------------
+' OnBackfillClick - 「⚡仕上げ」ボタン(R20-3)。判定・確認ダイアログ・
+'   実処理は modBackfill(ingest層)側に閉じており、ここは取込中ガード+
+'   結果の表示(トースト)+一覧の再描画だけを持つ薄いハンドラ。
+' ----------------------------------------------------------------------------
+Public Sub OnBackfillClick()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+
+    Dim raw As String
+    raw = modBackfill.BackfillAll()
+
+    Dim p As Long: p = InStr(raw, "|")
+    Dim kind As String, msg As String
+    If p > 0 Then
+        kind = Left$(raw, p - 1)
+        msg = Mid$(raw, p + 1)
+    Else
+        kind = raw
+    End If
+    If kind = modBackfill.OUTCOME_CANCELLED Then Exit Sub
+
+    On Error Resume Next
+    If LenB(msg) > 0 Then
+        modSkin.ShowToast msg, IIf(kind = modBackfill.OUTCOME_NONE, "info", "success")
+    End If
+    modUIShelf.RenderShelf
+    On Error GoTo 0
+End Sub
+
+' 起動後、本棚ツールバーの初回描画時に1回だけ「未仕上げ資料あり」を告知する
+' (R20-3・3b)。isSharedの並び(みんなの解決事例)には⚡仕上げボタンが出ない
+' ためスキップし、通常の並びに来るまで「初回」を消費しない。
+Private Sub MaybeShowBackfillToast(ByVal isShared As Boolean)
+    If mBackfillToastDone Then Exit Sub
+    If isShared Then Exit Sub
+    mBackfillToastDone = True
+
+    On Error Resume Next
+    Dim cands As Collection: Set cands = modBackfill.DetectLegacyDocs()
+    Dim needN As Long: needN = modBackfill.CountByStatus(cands, modBackfill.STATUS_NEEDS)
+    If needN > 0 Then
+        modSkin.ShowToast "旧形式の資料が" & needN & "冊あります。ツールバーの" & _
+            ChrW(&H26A1) & "仕上げで俯瞰・条文参照が有効になります(再取込不要)。", "info"
+    End If
+    On Error GoTo 0
 End Sub
 
 ' 並びへ1個足す(TB_MAXを超えたら黙って捨てる=配列外参照で全滅させない)。

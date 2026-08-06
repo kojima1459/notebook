@@ -1243,8 +1243,11 @@ CONTRACT: dict[str, dict] = {
     # 左詰めのため、ボタンが少ない端末で両者の右端が食い違って見えていた)。
     "modKnowledgeBar": {
         "closed": True,
+        # OnBackfillClick(2026-08-06 R20-3・3b): 「⚡仕上げ」ボタンの薄い
+        #   ハンドラ(判定・確認・実処理はmodBackfill側。ここは取込中ガード+
+        #   結果表示+再描画だけ)。
         "required": [
-            "BAR_H", "DrawToolbar", "ToolbarContentRight",
+            "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。
