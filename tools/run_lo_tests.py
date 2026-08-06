@@ -411,6 +411,14 @@ PURE_ALLOWLIST = [
     #   「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcelの
     #   実オブジェクトに触れても落ちない」型。
     "modAppState", "modAppAct", "modState",
+    # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
+    #   テストが呼ぶのは副作用ゼロの4本(ClassifyDoc/LooksLikeBreadcrumbLine/
+    #   ConfirmText/ResultText)で、Worksheetsに触れるDetectLegacyDocs/
+    #   BackfillOne/BackfillAllはテストから呼ばない(modOutlineBuild/
+    #   modChunkMetaと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ
+    #   関数自体はExcelに触れない」型)。未注入のまま modTestsPure19 から
+    #   呼ぶと実行時エラー12になる。
+    "modBackfill",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

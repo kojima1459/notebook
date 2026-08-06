@@ -465,6 +465,23 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended"],
     },
+    # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
+    #   R17より前に取り込んだ資料(my_knowledge にbreadcrumb付きfull_textは
+    #   あるがchunk_meta/doc_outlineが0行)を、保存済み本文だけから後追いで
+    #   仕上げる独立入口。modShelf.IngestFileは一切触らない。
+    #   DetectLegacyDocs: 未仕上げ資料の列挙(Collection<"資料名|状態">)。
+    #   BackfillOne: 1資料ぶんPhase1(構造メタ再計算)→modOutlineBuild.
+    #     BuildOutlineFor(Phase2/3)。BackfillAll: 確認ダイアログ→全件処理→
+    #     結果文言。ClassifyDoc/LooksLikeBreadcrumbLine/ConfirmText/
+    #     ResultText/CountByStatusは副作用ゼロの純関数(modTestsPure19が固定)。
+    "modBackfill": {
+        "closed": True,
+        "required": ["STATUS_NEEDS", "STATUS_CANNOT",
+                     "OUTCOME_NONE", "OUTCOME_CANCELLED", "OUTCOME_DONE",
+                     "DetectLegacyDocs", "CountByStatus", "BackfillOne", "BackfillAll",
+                     "ClassifyDoc", "LooksLikeBreadcrumbLine",
+                     "ConfirmText", "ResultText"],
+    },
     # modSynonymStore(2026-08-05 R17 Phase3): 用語の表記ゆれ辞書(synonyms:
     #   term/canonical)のEnsure/一括書込み/読み/全消去/名寄せバッチ。
     # EnsureSynonymSheet: modOutlineStore.EnsureOutlineSheet と同型(冪等)。

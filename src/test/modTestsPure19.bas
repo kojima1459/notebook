@@ -249,6 +249,63 @@ Private Function RowTopHub(ByVal n As Long) As Double
     RowTopHub = 48 + (n - 2) * 15
 End Function
 
+' ----------------------------------------------------------------------------
+' R20-3(実機第7報②): 資料の仕上げバックフィルの純ロジック
+'   (modBackfill.ClassifyDoc/LooksLikeBreadcrumbLine/ConfirmText/ResultText)
+' ----------------------------------------------------------------------------
+Private Sub TestBackfillClassify()
+    ' 両方揃っていれば仕上げ済み(空文字=対象外。breadcrumbOkの値によらない)。
+    modTestRunner.Check "仕上げ判定_メタ有+要約有は仕上げ済み(空文字)", _
+        (modBackfill.ClassifyDoc(True, True, True) = "")
+    modTestRunner.Check "仕上げ判定_メタ有+要約有はbreadcrumb欠落でも仕上げ済み", _
+        (modBackfill.ClassifyDoc(True, True, False) = "")
+    ' メタ無し(未仕上げの主因)はbreadcrumbがあれば仕上げ対象。
+    modTestRunner.Check "仕上げ判定_メタ無+要約無+breadcrumb有は仕上げ対象", _
+        (modBackfill.ClassifyDoc(False, False, True) = modBackfill.STATUS_NEEDS)
+    modTestRunner.Check "仕上げ判定_メタ有+要約無+breadcrumb有も仕上げ対象", _
+        (modBackfill.ClassifyDoc(True, False, True) = modBackfill.STATUS_NEEDS)
+    modTestRunner.Check "仕上げ判定_メタ無+要約有+breadcrumb有も仕上げ対象", _
+        (modBackfill.ClassifyDoc(False, True, True) = modBackfill.STATUS_NEEDS)
+    ' breadcrumb欠落(かなり古い取込方式)は他の状態によらず仕上げ不可。
+    modTestRunner.Check "仕上げ判定_breadcrumb欠落は仕上げ不可(メタ無+要約無)", _
+        (modBackfill.ClassifyDoc(False, False, False) = modBackfill.STATUS_CANNOT)
+    modTestRunner.Check "仕上げ判定_breadcrumb欠落は仕上げ不可(メタ有+要約無)", _
+        (modBackfill.ClassifyDoc(True, False, False) = modBackfill.STATUS_CANNOT)
+End Sub
+
+Private Sub TestBackfillBreadcrumb()
+    modTestRunner.Check "breadcrumb判定_資料>章>条の2階層は形式あり", _
+        modBackfill.LooksLikeBreadcrumbLine("【資料名>第1章>第1条】" & vbLf & "本文…")
+    modTestRunner.Check "breadcrumb判定_空文字は形式なし", _
+        (Not modBackfill.LooksLikeBreadcrumbLine(""))
+    modTestRunner.Check "breadcrumb判定_先頭が【でない本文は形式なし", _
+        (Not modBackfill.LooksLikeBreadcrumbLine("ふつうの本文です。第5条について…"))
+    ' 「【】」だけ=閉じ括弧が2文字目(3文字目未満)なので形式なし(境界)。
+    modTestRunner.Check "breadcrumb判定_【】だけは形式なし(境界の外)", _
+        (Not modBackfill.LooksLikeBreadcrumbLine("【】" & vbLf & "本文"))
+    ' 「【a】」=閉じ括弧がちょうど3文字目なので形式あり(境界の内側)。
+    modTestRunner.Check "breadcrumb判定_【a】は形式あり(境界)", _
+        modBackfill.LooksLikeBreadcrumbLine("【a】" & vbLf & "本文")
+    modTestRunner.Check "breadcrumb判定_改行が無い1行だけでも判定できる", _
+        modBackfill.LooksLikeBreadcrumbLine("【資料名】")
+End Sub
+
+Private Sub TestBackfillText()
+    modTestRunner.Check "確認文_件数が入り再取込不要と分かる", _
+        (InStr(modBackfill.ConfirmText(3, 0), "3冊") > 0 And _
+         InStr(modBackfill.ConfirmText(3, 0), "再取込は不要") > 0)
+    modTestRunner.Check "確認文_仕上げ不可がある場合は件数を併記", _
+        (InStr(modBackfill.ConfirmText(3, 2), "2冊は形式が古いため") > 0)
+    modTestRunner.Check "確認文_仕上げ不可0件は併記しない", _
+        (InStr(modBackfill.ConfirmText(3, 0), "形式が古いため") = 0)
+    modTestRunner.Check "結果文_失敗0件は完了のみ", _
+        (modBackfill.ResultText(5, 0, 0) = "5冊の仕上げが完了しました。")
+    modTestRunner.Check "結果文_失敗があれば件数を併記", _
+        (InStr(modBackfill.ResultText(4, 1, 0), "1冊は失敗") > 0)
+    modTestRunner.Check "結果文_仕上げ不可があれば再取込が必要と併記", _
+        (InStr(modBackfill.ResultText(4, 0, 1), "再取込が必要") > 0)
+End Sub
+
 Public Sub RunAll19()
     On Error GoTo ClampFail19
     TestClampD
@@ -267,6 +324,15 @@ NextRefit19:
 NextRow19:
     On Error GoTo RowFail19
     TestRowConversion
+NextBfClassify19:
+    On Error GoTo BfClassifyFail19
+    TestBackfillClassify
+NextBfCrumb19:
+    On Error GoTo BfCrumbFail19
+    TestBackfillBreadcrumb
+NextBfText19:
+    On Error GoTo BfTextFail19
+    TestBackfillText
 NextDone19:
     On Error GoTo 0
     Exit Sub
@@ -293,6 +359,18 @@ RefitFail19:
     Resume NextRow19
 RowFail19:
     modTestRunner.Check "TestRowConversion(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBfClassify19
+BfClassifyFail19:
+    modTestRunner.Check "TestBackfillClassify(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBfCrumb19
+BfCrumbFail19:
+    modTestRunner.Check "TestBackfillBreadcrumb(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBfText19
+BfTextFail19:
+    modTestRunner.Check "TestBackfillText(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone19
 End Sub

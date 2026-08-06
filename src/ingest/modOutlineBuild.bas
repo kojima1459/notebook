@@ -73,7 +73,11 @@ End Sub
 ' BuildOutlineFor - 1資料ぶんの章要約を作って doc_outline へ保存する。
 '   config graph_outline=off / chunk_meta が0行 / その資料のチャンクが無い /
 '   章キーが1つも取れない のいずれかなら【完全に無操作】(=LLMも呼ばない)。
-'   呼び出しは modShelf.IngestFile の Finish(done/partial)から1行だけ。
+'   呼び出しは modShelf.IngestFile の Finish(done/partial)から1行、および
+'   2026-08-06(R20-3): modBackfill.BackfillOne(再取込ゼロの「資料の仕上げ」。
+'   Phase1の構造メタを保存済みfull_textから再計算した直後)から1行の計2箇所。
+'   どちらも「その資料のchunk_metaが直前に揃った」直後に呼ぶだけで、この
+'   関数自体の判断(ゲート・中断・失敗握り)は1文字も変えない。
 ' ----------------------------------------------------------------------------
 Public Sub BuildOutlineFor(ByVal sourceName As String)
     If Not GateOn() Then Exit Sub
