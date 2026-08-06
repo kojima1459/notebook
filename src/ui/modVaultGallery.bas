@@ -227,7 +227,7 @@ Public Sub OnVaultCardClick()
     answer = MsgBox("『" & srcName & "』" & vbLf & vbLf & _
                     modUtil.SafeLeft(PreviewOf(srcName), 300) & vbLf & vbLf & _
                     "[はい]=削除  /  [いいえ]=" & ChrW(&H26A0) & "ノイズ報告(品質が低いと報告)  /  [キャンセル]=閉じる", _
-                    vbYesNoCancel + vbQuestion + vbDefaultButton2, "Nexus Agent - ナレッジ詳細")
+                    vbYesNoCancel + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME & " - ナレッジ詳細")
     If answer = vbYes Then
         modShelf.DeleteSource srcName
         OnVaultSearchKeepPage
@@ -239,7 +239,7 @@ Public Sub OnVaultCardClick()
         MsgBox "『" & srcName & "』を品質報告しました。" & vbLf & vbLf & _
                "・あなたの検索からは今すぐ除外されます。" & vbLf & _
                "・異なる" & modStats.NoiseThreshold() & "人以上が報告すると、組織全体の検索から除外されます。", _
-               vbInformation, "Nexus Agent"
+               vbInformation, modAppDef.APP_NAME
         OnVaultSearchKeepPage   ' 画面を再描画(既存のプライベートSubを呼ぶ)
     End If
 End Sub

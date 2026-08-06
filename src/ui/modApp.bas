@@ -115,7 +115,7 @@ Public Sub OnSend()
         q = Left$(q, MAX_INPUT_CHARS)
         MsgBox "入力が長いため、先頭 " & MAX_INPUT_CHARS & " 文字だけを送信します。" & vbLf & _
                "長い資料は「ナレッジ倉庫」に取り込んでから質問すると、全文を対象に回答できます。", _
-               vbInformation, "Nexus Agent"
+               vbInformation, modAppDef.APP_NAME
     End If
 
     ' 遊び心: 弱音キーワードはAPIに投げず、関西弁コンシェルジュが即座に労う

@@ -133,7 +133,7 @@ Public Sub OnAskExpert()
     Dim q As String
     q = InputBox("「" & mExpert & "」さんへの質問を入力してください。" & vbCrLf & _
                  "(共有フォルダ経由で届きます。関連資料: " & modUtil.SafeLeft(mTopSource, 40) & ")", _
-                 "Nexus Agent - 専門家へ質問")
+                 modAppDef.APP_NAME & " - 専門家へ質問")
     q = Trim$(q)
     If LenB(q) = 0 Then GoTo Done
     If Len(q) > MAX_Q_CHARS Then q = Left$(q, MAX_Q_CHARS)
@@ -272,7 +272,7 @@ Public Sub OnReplyQuestion()
 
     Dim q As String
     q = InputBox("「" & mLastAsker & "」さんへの返信を入力してください。", _
-                 "Nexus Agent - 返信")
+                 modAppDef.APP_NAME & " - 返信")
     q = Trim$(q)
     If LenB(q) = 0 Then GoTo Done
     If Len(q) > MAX_Q_CHARS Then q = Left$(q, MAX_Q_CHARS)

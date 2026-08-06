@@ -84,7 +84,7 @@ Public Sub OnActBad()
         "もしお分かりでしたら、正しい内容を教えてください。" & vbCrLf & _
         "書いていただいた内容は、次から同じ質問をした人全員の答えになります。" & vbCrLf & _
         "空欄のまま閉じても、記録は済んでいます。", _
-        "Nexus Agent - 正しい内容を教える")
+        modAppDef.APP_NAME & " - 正しい内容を教える")
     If LenB(Trim$(fixText)) = 0 Then GoTo Done
 
     RecordCorrection fixText
@@ -115,7 +115,7 @@ Private Sub RecordCorrection(ByVal fixText As String)
         End If
         modSkin.ShowToast "ありがとうございます。次に同じ質問をした人から、この内容で答えます。", "success"
     Else
-        MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, "Nexus Agent"
+        MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, modAppDef.APP_NAME
     End If
     On Error GoTo 0
 End Sub
@@ -323,7 +323,7 @@ Public Sub OnActUnsure()
         "どのあたりが引っかかりましたか?(任意)" & vbCrLf & _
         "一言でも書いていただければ、同じ引っかかりを次の人が踏まずに済みます。" & vbCrLf & _
         "空欄のまま閉じても構いません。", _
-        "Nexus Agent - どこが気になりましたか")
+        modAppDef.APP_NAME & " - どこが気になりましたか")
     If LenB(Trim$(hint)) = 0 Then GoTo Done
 
     RecordCorrection hint
@@ -359,7 +359,7 @@ Public Sub OnActWord()
     If VarType(result) = vbString Then
         If Left$(CStr(result), 5) = "#ERR:" Then
             MsgBox "Word出力は現在利用できません(管理者が有効化すると使えます)。", _
-                   vbInformation, "Nexus Agent"
+                   vbInformation, modAppDef.APP_NAME
         End If
     End If
 Done:
@@ -381,7 +381,7 @@ Public Sub OnActCopy()
         modSkin.ShowToast "回答をコピーしました。Ctrl+V でどこへでも貼り付けできます。", "success"
     Else
         MsgBox "コピーに失敗しました。お使いの環境では手動での選択をお試しください。", _
-               vbExclamation, "Nexus Agent"
+               vbExclamation, modAppDef.APP_NAME
     End If
 Done:
     modUiLock.Leave

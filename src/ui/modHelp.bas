@@ -370,16 +370,16 @@ Public Sub OnFeedback()
     DoHideHelp
 
     Dim fb As String
-    fb = InputBox("Nexus Agentへのご意見・改善案・不具合(エラーの状況など)を教えてください。" & vbCrLf & _
+    fb = InputBox(modAppDef.APP_NAME & "へのご意見・改善案・不具合(エラーの状況など)を教えてください。" & vbCrLf & _
                   "いただいた内容はすべて作成者(小島)が読み、改善に活かします。", _
-                  "Nexus Agent - ご意見箱")
+                  modAppDef.APP_NAME & " - ご意見箱")
     fb = Trim$(fb)
     If LenB(fb) = 0 Then GoTo Done
 
     ' 本文(環境情報つき)をクリップボードへ。日本語のmailto本文は文字化けし得るため
     ' 「件名はmailtoで、本文はCtrl+V貼り付け」方式が最も確実。
     Dim body As String
-    body = "【Nexus Agent ご意見・不具合報告】" & vbCrLf & fb & vbCrLf & vbCrLf & _
+    body = "【" & modAppDef.APP_NAME & " ご意見・不具合報告】" & vbCrLf & fb & vbCrLf & vbCrLf & _
            "--- 環境情報(自動付記) ---" & vbCrLf & _
            "Ver: " & modAppDef.APP_VERSION & " / " & modUtil.NowStamp()
     modClip.SetClipboardText body
@@ -498,13 +498,13 @@ Private Function PickSharePath(ByVal cur As String) As String
 Fallback:
     ' キャンセル・非対応環境のどちらもここへ来る(UNC直打ち救済)。
     If MsgBox("パスを直接入力しますか?(UNCパスの直接指定などに)", _
-              vbYesNo + vbQuestion, "Nexus Agent - 共有フォルダ設定") <> vbYes Then Exit Function
+              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - 共有フォルダ設定") <> vbYes Then Exit Function
     ' R20H FA-16: 「P2P共有フォルダ」を平易化し、例示パスもNexus_Share→
     ' MyBookshelf_Shareへ(旧ブランド名の混在を防ぐ)。
     PickSharePath = InputBox("共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
                  "パスを入力してください。チームで同じフォルダを指定します。" & vbCrLf & _
                  "例: \\サーバー名\共有\MyBookshelf_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
-                 "Nexus Agent - 共有フォルダ設定", cur)
+                 modAppDef.APP_NAME & " - 共有フォルダ設定", cur)
 End Function
 
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
@@ -513,7 +513,7 @@ End Function
 ' ✅🤔❌の3択評価に合わせて全面書き直し。
 Private Function HelpBodyText() As String
     Dim s As String
-    s = ChrW(&HD83D) & ChrW(&HDCD6) & " Nexus Agent かんたんガイド" & vbLf & vbLf & _
+    s = ChrW(&HD83D) & ChrW(&HDCD6) & " " & modAppDef.APP_NAME & " かんたんガイド" & vbLf & vbLf & _
         ChrW(&HD83C) & ChrW(&HDFE0) & " 画面は5つ: Hub(ホーム)・チャット・マイ本棚(一覧/ギャラリー/みんなの解決事例)" & _
         "・ダッシュボード・診断。どこからでも左上「" & ChrW(&H2190) & " Hub」で戻れます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCAC) & " チャット: 入力欄に質問して「質問する」。モードボタンで" & _

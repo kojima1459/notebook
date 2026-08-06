@@ -78,7 +78,7 @@ Public Function HasTarget() As Boolean
         ' 案内をやめた。図形保護を掛けたので選択できないし、そもそも
         ' 選択できた頃はDeleteで回答が消える操作へ誘導していた。
         MsgBox "対象のAI回答がありません。まず質問して回答を受け取ってください。", _
-               vbInformation, "Nexus Agent"
+               vbInformation, modAppDef.APP_NAME
         Exit Function
     End If
     HasTarget = True

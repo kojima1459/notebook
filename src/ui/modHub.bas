@@ -227,7 +227,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     hdr.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
     modSkin.ApplyHeaderDepth hdr          ' §9: 濃紺の2色グラデーション
     With hdr.TextFrame2
-        .TextRange.Text = ChrW(&H26A1) & " Nexus Agent"
+        .TextRange.Text = ChrW(&H26A1) & " " & modAppDef.APP_NAME
         .TextRange.Font.Size = 14
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
@@ -807,6 +807,6 @@ Private Function FeedbackMailto() As String
     Dim addr As String
     addr = Trim$(modConfig.GetString("feedback_mail_to", ""))
     If LenB(addr) = 0 Then Exit Function
-    FeedbackMailto = "mailto:" & addr & "?subject=Nexus%20Agent%20feedback"
+    FeedbackMailto = "mailto:" & addr & "?subject=" & Replace(modAppDef.APP_NAME, " ", "%20") & "%20feedback"
     On Error GoTo 0
 End Function

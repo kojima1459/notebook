@@ -56,7 +56,7 @@ Private Function PromptDept() As String
     sel = InputBox( _
         "部門を選んでください。番号を入力してください。" & vbCrLf & _
         "1 = 商品部" & vbCrLf & "2 = リスコン部" & vbCrLf & _
-        "0 = その他(自由入力)", "Nexus Agent - 部門設定")
+        "0 = その他(自由入力)", modAppDef.APP_NAME & " - 部門設定")
     If LenB(Trim$(sel)) = 0 Then Exit Function
 
     Dim mapped As String: mapped = DeptFromSelector(sel)
@@ -67,7 +67,7 @@ Private Function PromptDept() As String
 
     If Trim$(sel) = "0" Then
         Dim free As String
-        free = Trim$(InputBox("部門名を入力してください。", "Nexus Agent - 部門設定"))
+        free = Trim$(InputBox("部門名を入力してください。", modAppDef.APP_NAME & " - 部門設定"))
         If LenB(free) > 0 Then PromptDept = free
         Exit Function
     End If
@@ -121,7 +121,7 @@ End Function
 Private Sub Step1Dept()
     On Error Resume Next
     If MsgBox("部門を設定しますか?(あとからでも設定できます)", _
-              vbYesNo + vbQuestion, "Nexus Agent - はじめに(1/2)") = vbYes Then
+              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(1/2)") = vbYes Then
         OnDeptSetup
     End If
     On Error GoTo 0
@@ -131,7 +131,7 @@ Private Sub Step2ShareFolder()
     On Error Resume Next
     If MsgBox("共有フォルダを設定しますか?(みんなの節約・部門資料が使えます)" & vbCrLf & _
               "あとからHubの案内カードやヘルプ" & ChrW(&H2699) & "でも設定できます。", _
-              vbYesNo + vbQuestion, "Nexus Agent - はじめに(2/2)") = vbYes Then
+              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(2/2)") = vbYes Then
         modHelp.OnShareSetup
     End If
     On Error GoTo 0

@@ -204,7 +204,7 @@ Public Sub OnVaultSubmit()
     tagsText = Trim$(CStr(ws.Range(CELL_TAGS).Value))
 
     If LenB(titleText) = 0 Or LenB(bodyText) = 0 Then
-        MsgBox "タイトルと本文を入力してください。", vbExclamation, "Nexus Agent"
+        MsgBox "タイトルと本文を入力してください。", vbExclamation, modAppDef.APP_NAME
         GoTo SubmitDone
     End If
 
@@ -221,7 +221,7 @@ Public Sub OnVaultSubmit()
         ClearInputs ws
         CloseVault ws
     Else
-        MsgBox "登録に失敗しました。マイ本棚の一覧で状態をご確認ください。", vbExclamation, "Nexus Agent"
+        MsgBox "登録に失敗しました。マイ本棚の一覧で状態をご確認ください。", vbExclamation, modAppDef.APP_NAME
     End If
     GoTo SubmitDone
 
@@ -236,7 +236,7 @@ SubmitCleanup:
     modLog.LogError "E0801", "modVault.OnVaultSubmit", subDesc, subNum
     MsgBox "登録に失敗しました。もう一度お試しください。" & vbLf & _
            "(繰り返す場合は、本文を短くして分けて登録してみてください)", _
-           vbExclamation, "Nexus Agent"
+           vbExclamation, modAppDef.APP_NAME
     On Error GoTo 0
 SubmitDone:
     modUiLock.Leave

@@ -64,7 +64,7 @@ Public Sub ExportAnalyticsCsv()
     csvText = BuildCsvText(ws, lastRow)
 
     Dim defaultName As String
-    defaultName = "Nexus分析ログ_" & Format$(Now, "yyyymmdd") & ".csv"
+    defaultName = "MyBookshelf分析ログ_" & Format$(Now, "yyyymmdd") & ".csv"
 
     Dim savePathVariant As Variant
     savePathVariant = Application.GetSaveAsFilename( _
