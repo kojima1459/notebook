@@ -33,7 +33,7 @@ Option Explicit
 '   ・失敗しても画面を落とさない(全て On Error Resume Next 配下)。
 '
 ' 依存: modUIMain.ViewportWidth / modChrome.BarWidth / modLog.LogUsage。
-'   純関数(PadPtNeeded / BoundBottomY / RightEdgeAt)は他モジュールを呼ばず、
+'   純関数(PadPtNeeded / PadUnitsRefine / BoundBottomY / RightEdgeAt)は他を呼ばず、
 '   LibreOffice の純ロジックテストで固定する。
 ' ============================================================================
 
@@ -43,9 +43,16 @@ Private Const SCROLLBAR_W As Double = 12
 Private Const MIN_PAD_PT As Double = 8
 ' 内容下端に足す余白(pt)。すぐ下で切ると窮屈に見える。
 Private Const BOTTOM_PAD As Double = 24
+' 自分のブックが前面でないときに ViewportHeight が返す既定値(pt)。R19H FB-5。
+Private Const DEFAULT_VIEW_H As Double = 600
 
 ' usage_log("viewport") を画面ごとに1セッション1回だけ出すためのメモ(R19-1e)。
 Private mLoggedScreens As String
+
+' RowAt の増分走査メモ(R19H FB-7)。詳細は RowAt の見出しコメント参照。
+Private mRowMemoSheet As String
+Private mRowMemoRow As Long
+Private mRowMemoTop As Double
 
 ' ----------------------------------------------------------------------------
 ' ApplyScrollBound - ws.ScrollArea を設定する。空文字なら制限を外す。
@@ -80,25 +87,62 @@ Public Sub FitBandToViewport(ByVal ws As Worksheet, ByVal bandAddr As String, _
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
 
-    Dim units As Double: units = ws.Columns(padColLetter).ColumnWidth
-    If units <= 0 Then
+    Dim u0 As Double: u0 = ws.Columns(padColLetter).ColumnWidth
+    If u0 <= 0 Then
         ws.Columns(padColLetter).ColumnWidth = 1
-        units = ws.Columns(padColLetter).ColumnWidth
+        u0 = ws.Columns(padColLetter).ColumnWidth
     End If
+    Dim w0 As Double: w0 = ws.Columns(padColLetter).Width
     Dim ptPerUnit As Double
-    If units > 0 Then ptPerUnit = ws.Columns(padColLetter).Width / units
+    If u0 > 0 Then ptPerUnit = w0 / u0
     If ptPerUnit <= 0 Then Exit Sub          ' 換算できない端末では何もしない
 
     Dim fixedW As Double
-    fixedW = ws.Range(bandAddr).Width - ws.Columns(padColLetter).Width
+    fixedW = ws.Range(bandAddr).Width - w0
 
     Dim target As Double
     target = modUIMain.ViewportWidth() - SCROLLBAR_W
     If target < minRightX Then target = minRightX
 
-    ws.Columns(padColLetter).ColumnWidth = PadPtNeeded(target, fixedW, MIN_PAD_PT) / ptPerUnit
+    ' R19H FA-1(A-H①): pt と ColumnWidth の関係は比例ではなく【アフィン】
+    ' (Width = 傾き×ColumnWidth + セルの内側余白ぶんの下駄)。1点の実測から
+    ' 出した比 w0/u0 には下駄が丸ごと乗っているため、基準列が狭いほど比が
+    ' 大きく出て、必要な幅を吸い切れない(Hub の L=1.5 では必要幅の約70%
+    ' しか吸わず、可視幅との差が50pt以上残っていた)。
+    ' そこで「1回設定 → 実測を読み直す → 目標との差分だけ足し直す」の2段にする。
+    ' 差分の換算には、2点(設定前・設定後)の実測から出した傾きを使う ――
+    ' 下駄は差を取った時点で消えるので、この1回の補正で目標へ収束する。
+    Dim need As Double: need = PadPtNeeded(target, fixedW, MIN_PAD_PT)
+    ws.Columns(padColLetter).ColumnWidth = need / ptPerUnit
+    Dim u1 As Double: u1 = ws.Columns(padColLetter).ColumnWidth   ' Excelが丸めた実値
+    Dim w1 As Double: w1 = ws.Columns(padColLetter).Width
+    ws.Columns(padColLetter).ColumnWidth = PadUnitsRefine(need, u0, w0, u1, w1)
     On Error GoTo 0
 End Sub
+
+' PadUnitsRefine - 1回目の設定結果から補正後の ColumnWidth を出す。純関数
+'   (ゴールデン対象。狭い基準列1.5と広い基準列13の両方を modTestsPure16 が固定)。
+'   needPt : 吸収列に要る幅(pt)= PadPtNeeded の戻り値
+'   u0/w0  : 設定【前】の (ColumnWidth, 実測Width)
+'   u1/w1  : 設定【後】の (ColumnWidth, 実測Width)
+'   傾き = (w1-w0)/(u1-u0)。アフィンの下駄が差で消えるので、これが唯一
+'   正しい換算係数になる。2点が使えない(1回目で幅が動かなかった端末・
+'   等しいColumnWidth)ときだけ、従来どおりの実測比 w1/u1 へ退化する
+'   (補正が効かないだけで、従来より悪くはならない)。
+Public Function PadUnitsRefine(ByVal needPt As Double, _
+                               ByVal u0 As Double, ByVal w0 As Double, _
+                               ByVal u1 As Double, ByVal w1 As Double) As Double
+    PadUnitsRefine = u1
+    If u1 <= 0 Then Exit Function
+    Dim slope As Double
+    If Abs(u1 - u0) > 0.001 Then slope = (w1 - w0) / (u1 - u0)
+    If slope <= 0 Then slope = w1 / u1
+    If slope <= 0 Then Exit Function
+    Dim u As Double: u = u1 + (needPt - w1) / slope
+    ' 0にすると列が消え、最終列の右が灰色の非セル領域になる(PadPtNeededと同じ理由)。
+    If u < 0.05 Then u = 0.05
+    PadUnitsRefine = u
+End Function
 
 ' PadPtNeeded - 吸収列に要る幅(pt)。純関数(ゴールデン対象)。
 '   帯の合計を targetW にするには吸収列を targetW-fixedW にすればよい。
@@ -158,45 +202,41 @@ Public Function BoundBottomY(ByVal contentBottom As Double, ByVal viewportH As D
     If BoundBottomY < viewportH Then BoundBottomY = viewportH
 End Function
 
-' ----------------------------------------------------------------------------
-' BoundFor - 実測の右下端(pt)を含む最小の "A1:<列><行>" を組み立てる。
-' ----------------------------------------------------------------------------
-'   吸収列方式(BoundAddr)に移行できない画面のための旧口。列も実測で決める。
-Public Function BoundFor(ByVal ws As Worksheet, ByVal rightX As Double, _
-                         ByVal bottomY As Double, ByVal maxCol As Long, _
-                         ByVal maxRow As Long) As String
-    If ws Is Nothing Then Exit Function
-    BoundFor = "A1:" & ColLetter(ColAt(ws, rightX, maxCol)) & RowAt(ws, bottomY, maxRow)
-End Function
-
-' ColAt / RowAt - pt座標を含む最小の列/行番号。上限に張り付いたら上限を返す。
-'   列幅・行高はフォントやDPIで変わり、ptから列番号を机上計算することは
-'   できない(「9文字幅=何pt」は端末依存)。実際のセル幾何(Left/Width,
-'   Top/Height)を読んで決める ―― Shape座標をセル幾何から出すのと同じ理由。
-Private Function ColAt(ByVal ws As Worksheet, ByVal x As Double, ByVal maxCol As Long) As Long
-    If maxCol < 1 Then maxCol = 1
-    ColAt = maxCol
-    If ws Is Nothing Then Exit Function
-    Dim i As Long
-    On Error Resume Next
-    For i = 1 To maxCol
-        If ws.Cells(1, i).Left + ws.Cells(1, i).Width >= x Then
-            ColAt = i
-            Exit For
-        End If
-    Next i
-    On Error GoTo 0
-End Function
-
+' RowAt - y(pt)を含む最小の行番号。上限に張り付いたら上限を返す。
+'   行高はフォントやDPIで変わり、ptから行番号を机上計算することはできない
+'   (「1行=何pt」は端末依存)。実際のセル幾何(Top/Height)を読んで決める
+'   ―― Shape座標をセル幾何から出すのと同じ理由。
+'
+'   R19H FB-7(A-L⑭): 毎回1行目から数え直していた。チャットは【バブル1個ごと】
+'   に ExtendChatBand→BoundAddr→ここ を通るので、会話が伸びるほど1発言あたり
+'   数百回のCOM往復になる(NEXUS_MAX_ROW ぶんの Cells(i,1).Top/.Height)。
+'   前回返した行を覚えておき、今回の y がその行の上端より下なら【そこから】
+'   再開する(会話は下へ伸びる一方なので、実際の走査は数行で終わる)。
+'   メモが今の行高と食い違っていないかは、再開の前に1回だけ実測で確かめる
+'   (EnsureLayout が行高を組み直した直後は先頭から数え直す)。
 Private Function RowAt(ByVal ws As Worksheet, ByVal y As Double, ByVal maxRow As Long) As Long
     If maxRow < 1 Then maxRow = 1
     RowAt = maxRow
     If ws Is Nothing Then Exit Function
-    Dim i As Long
     On Error Resume Next
-    For i = 1 To maxRow
+
+    Dim startRow As Long: startRow = 1
+    If mRowMemoRow >= 1 And mRowMemoRow <= maxRow Then
+        If StrComp(mRowMemoSheet, ws.Name, vbTextCompare) = 0 And mRowMemoTop < y Then
+            ' 「上端 < y」なら答えはメモの行以降にしか無い(それより上の行は
+            ' 下端が上端以下=y未満で、条件を満たさない)。等号を含めないのは、
+            ' ちょうど境目のときに1行手前が正解になるため。
+            If ws.Cells(mRowMemoRow, 1).Top = mRowMemoTop Then startRow = mRowMemoRow
+        End If
+    End If
+
+    Dim i As Long
+    For i = startRow To maxRow
         If ws.Cells(i, 1).Top + ws.Cells(i, 1).Height >= y Then
             RowAt = i
+            mRowMemoSheet = ws.Name
+            mRowMemoRow = i
+            mRowMemoTop = ws.Cells(i, 1).Top
             Exit For
         End If
     Next i
@@ -207,12 +247,23 @@ End Function
 ' ViewportHeight - ウィンドウの実可視高(pt)。ViewportWidth(modUIMain)の縦版。
 ' ----------------------------------------------------------------------------
 '   異常値でレイアウト計算全体を壊さないよう 200〜1200pt へクランプする。
+'
+'   R19H FB-5(A-L⑫): 他のブックが前面のときは【一切測らない】。従来は
+'   UsableHeight だけを ThisWorkbook で守り、その下の VisibleRange.Height は
+'   無条件に走っていたため、作業用Excelなど別ブックが前面のまま起動時の
+'   突合や自動同期からここへ来ると、他人の窓の高さで自分の塗り・境界を
+'   決めてしまっていた(同居時=実機第6報⑤では常態)。測れないときは既定値
+'   (DEFAULT_VIEW_H)を返す。画面は次に前面へ来たとき必ず冪等に組み直される
+'   ので、ここで嘘の実測を返すより既定値のほうが安全側。
 Public Function ViewportHeight() As Double
     Dim h As Double
     On Error Resume Next
-    If ActiveWorkbook Is ThisWorkbook Then h = ActiveWindow.UsableHeight
-    If h <= 0 Then h = ActiveWindow.VisibleRange.Height
+    If ActiveWorkbook Is ThisWorkbook Then
+        h = ActiveWindow.UsableHeight
+        If h <= 0 Then h = ActiveWindow.VisibleRange.Height
+    End If
     On Error GoTo 0
+    If h <= 0 Then h = DEFAULT_VIEW_H
     If h < 200 Then h = 200
     If h > 1200 Then h = 1200
     ViewportHeight = h

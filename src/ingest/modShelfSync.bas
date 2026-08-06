@@ -11,7 +11,7 @@ Option Explicit
 '   sync_interval_min(config)>0のときは Application.OnTime で自己再帰予約
 '   する定期自動同期にも対応する。
 '
-' 設計判断(R15-FixA: 同量圧縮。事実は落とさず言い方だけ縮めた):
+' 設計判断(R15-FixA/R19H: 同量圧縮。事実は落とさず言い方だけ縮めた):
 '   ・同期スコープの限定: my_manifest には「＋資料を追加」から shelf_folder 外の
 '     ファイルを取り込んだ行も混在する。「消失→削除」を適用してよいのは
 '     shelf_folder 配下由来の行だけなので、file_path の親ディレクトリが
@@ -24,17 +24,17 @@ Option Explicit
 '     する(MASTER_SPEC §7.8)。
 '   ・フォルダごと見つからない場合(削除・リネーム・OneDriveオフライン)は個々の
 '     ファイルの消失と区別する。全資料の DeleteSource は復旧不能なので、E0502を
-'     出したうえで対象スコープを status="missing" にするだけに留める(§13)。
-'     フォルダが復活すれば次回同期で通常の keep/replace 判定に戻る。
+'     出して対象スコープを status="missing" にするだけに留める(§13)。復活
+'     すれば次回同期で通常の keep/replace 判定に戻る。
 '   ・再入防止: mSyncRunning は「手動🔄連打」「自動同期の発火中に手動ボタン」を
-'     防ぐ。VBAはシングルスレッドだが、長いループ中の DoEvents でShapeクリック
+'     防ぐ。VBAは単スレッドだが、長いループ中の DoEvents でShapeクリック
 '     (OnAction)がその場で再入発火するため実際に起こり得る。行削除・圧縮と
-'     EmbedPending の行インデックス食い違いは modEmbed 側で解決済み(冒頭参照)。
+'     EmbedPending の行ズレは modEmbed 側で解決済み(冒頭参照)。
 '   ・OnTime予約: 予約時刻(mNextRunTime)を保持し、CancelAutoSyncは同時刻を
-'     指定して解除(Excel仕様・§12)。AutoSyncTickはSyncNow後に自己再予約する
-'     自己再帰。Public必須なのはOnTimeがApplication.Runと同じ遅延バインドで
-'     Private Subを解決できないため(発火時「マクロを実行できません」で自動
-'     同期が永久に死ぬ)。CONTRACT/MASTER_SPEC §7.2 も同じ契約へ更新済み。
+'     指定して解除(Excel仕様・§12)。AutoSyncTickはSyncNow後に自己再予約する。
+'     Public必須なのはOnTimeがApplication.Runと同じ遅延バインドでPrivate Subを
+'     解決できないため(発火時「マクロを実行できません」で自動同期が永久に
+'     死ぬ)。CONTRACT/MASTER_SPEC §7.2 も同じ契約へ更新済み。
 '   ・進捗実況は modEmbed/modEnrich と同じ作法で、1行スコープの On Error Resume
 '     Next 越しに呼ぶ(表示が失敗しても同期自体は止めない)。
 '   ・FileDialog/EnableCancelKey 等の名前付き定数は使わずリテラル値を使う
@@ -106,6 +106,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     End If
     modVecCache.ResetVecCache
     On Error GoTo 0
+    ' R19H FA-6: 手動同期も取込の関所を通す(無人同期は従来どおり出さない)。
+    If Not silent Then If Not modIntegrity.ConfirmIngestWhenCohabit() Then Exit Sub
 
     mSyncRunning = True
     mSyncRunningSince = Now
@@ -122,8 +124,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     On Error GoTo 0
 
     ' 2026-07-16 恒久対策: どこで実行時エラーが起きても必ず Finish
-    ' (mSyncRunningの解除)へ合流させる。従来は本体を覆うハンドラが無く、
-    ' 例外で mSyncRunning=True のまま抜けて同期が永久に走らなくなった。
+    ' (mSyncRunningの解除)へ合流させる。覆うハンドラが無かった頃は、例外で
+    ' mSyncRunning=True のまま抜けて同期が永久に走らなくなった。
     Dim uiStep As String
     On Error GoTo Failed
 
@@ -138,9 +140,9 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         ' shelf_folder未設定は障害ではない(初回起動直後の正常な状態)。
         ' silent時はerr_logを汚さず、手動🔄のときだけ案内する(毎起動E0502が
         ' 3件ずつ積もり本当の障害が埋もれた実機報告への対応)。
-        ' 【2026-07-16 袋小路の解消】partial資料のメモは「🔄同期で続きから
-        ' 再開」と案内するのに、フォルダ未設定だとE0502で弾かれ再開手段が
-        ' 無かった。未設定でも未完了のベクトル化(EmbedPending)だけは実行する。
+        ' 【2026-07-16 袋小路の解消】partial資料のメモは「🔄同期で続きから再開」
+        ' と案内するのに、フォルダ未設定だとE0502で弾かれ再開手段が無かった。
+        ' 未設定でも未完了のベクトル化(EmbedPending)だけは実行する。
         uiStep = "未完了ベクトル化の再開(フォルダ未設定)"
         Dim orphanPending As Long
         orphanPending = 0
@@ -297,10 +299,10 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         If existsInManifest Then curStatus = mStatus(mi)
         decision = ResolveDecision(decision, existsInManifest, curStatus)
 
-        ' 2026-07-28(レビュー L-11): 同期は silent:=True で取り込み結果を戻り値で
-        ' 数える。従来は(a)同名衝突(E0504)が silent を無視してモーダルを出し、
-        ' 誰も見ていない朝の同期がそこで止まる (b)失敗も「新規/更新」に足すので
-        ' サマリが「新規12件」でも本棚は増えない、の2つの嘘があった。
+        ' 2026-07-28(レビュー L-11): 同期は silent:=True で結果を戻り値で数える。
+        ' 従来は(a)同名衝突(E0504)が silent を無視してモーダルを出し、誰も見て
+        ' いない朝の同期がそこで止まる (b)失敗も「新規/更新」に足すのでサマリが
+        ' 「新規12件」でも本棚は増えない、の2つの嘘があった。
         Dim st As String
         Dim errCd As String
         ' R18-6d: interactive:=Not silent(手動🔄/📁フォルダのみOCR事前確認対象。
@@ -496,12 +498,11 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Sub ScheduleAutoSync()
     ' 2026-08-01(R12-3-8): 二重予約の防止。画面遷移ごとの自己修復
-    ' (modUI.EnsureSessionResources)からも呼ばれるようになったため、
-    ' 「予約が生きているなら何もしない」を関数の側で保証する。予約が2本に
-    ' なると CancelAutoSync が最後の1本しか解除できず、閉じたブックを
-    ' Excelが勝手に開き直す事故(§9)の芽になる。
-    ' AutoSyncTick は自分の発火時に mScheduled=False にしてから再予約するので、
-    ' 自己再帰は従来どおり回る。
+    ' (modUI.EnsureSessionResources)からも呼ばれるので、「予約が生きているなら
+    ' 何もしない」を関数の側で保証する。予約が2本になると CancelAutoSync が
+    ' 最後の1本しか解除できず、閉じたブックをExcelが勝手に開き直す事故(§9)の
+    ' 芽になる。AutoSyncTick は発火時に mScheduled=False にしてから再予約する
+    ' ので、自己再帰は従来どおり回る。
     If mScheduled Then Exit Sub
 
     Dim minutes As Long: minutes = modConfig.GetLong("sync_interval_min", 0)
@@ -510,16 +511,16 @@ Public Sub ScheduleAutoSync()
     Dim nextTime As Date: nextTime = Now + TimeSerial(0, minutes, 0)
 
     On Error GoTo Fail
-    ' Procedure は "'ブック名'!" 修飾(R12-3-8)。新旧2版が別名で併存したとき、
-    ' 無修飾だと発火時の名前解決がどちらのブックへ向くか決まらない。解除側
-    ' (CancelAutoSync)も同じ式で組み立てるので、文字列は必ず一致する。
+    ' Procedure は "'ブック名'!" 修飾(R12-3-8)。新旧2版が別名で併存すると、
+    ' 無修飾では発火時の名前解決先が決まらない。解除側(CancelAutoSync)も同じ
+    ' 式で組み立てるので、文字列は必ず一致する。
     Application.OnTime EarliestTime:=nextTime, Procedure:=TickProcName()
     mNextRunTime = nextTime
     mScheduled = True
     ' 2026-07-28(レビュー L-23): 予約時刻を ui_state にも残す。モジュール変数
     ' だけだとVBAリセットで消え、Auto_Close が予約を解除できなくなる=「閉じた
-    ' のに数分後にExcelが勝手に開き直す」事故(§9が防ぐと明記した事故)になる。
-    ' R12-5-10: CStr(CDbl)の15桁精度欠落を避け、数値セルへ直書き(下のSaveSchedTime)。
+    ' のに数分後にExcelが勝手に開き直す」事故(§9)になる。R12-5-10: CStr(CDbl)
+    ' の15桁精度欠落を避け数値セルへ直書き(下のSaveSchedTime)。
     On Error Resume Next
     SaveSchedTime nextTime
     On Error GoTo Fail
@@ -588,11 +589,11 @@ End Function
 '     Wave4修正: 従来はmissing行がkeepのまま固定され、フォルダが戻っても
 '     カードが「削除待ち」表示のまま・埋め込み再開も走らない不具合があった)
 '   decision="keep" かつ status="failed_permanent" -> "keep" のまま
-'     (2026-08-01 R12-3-3。連続3回失敗したファイルは自動同期の対象から外す。
-'      毎回の同期時間と err_log を食い続けるのを止めるため。ファイル自体が
-'      更新されれば DiffDecision が "replace" を返すので自動で再試行になり、
-'      利用者が「資料を追加」で選び直せば modShelfStore.ResetFailCountForPath
-'      が status を "failed" に戻して通常の再試行経路へ復帰する)
+'     (2026-08-01 R12-3-3。連続3回失敗したファイルを自動同期から外す=毎回の
+'      同期時間と err_log を食い続けるのを止める。ファイルが更新されれば
+'      DiffDecision が "replace" を返して自動で再試行になり、「資料を追加」で
+'      選び直せば modShelfStore.ResetFailCountForPath が status を "failed" へ
+'      戻して通常の再試行経路に復帰する)
 '   それ以外はdecisionをそのまま返す。
 ' ----------------------------------------------------------------------------
 Public Function ResolveDecision(ByVal decision As String, ByVal existsInManifest As Boolean, _

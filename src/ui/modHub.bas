@@ -34,13 +34,17 @@ Private Const CHIP_H As Double = 46
 ' 内容が500〜700ptしかない画面で1画面ぶん余計にスクロールできてしまう)。
 Public Const HUB_BOUND As String = "A1:L60"
 
-' R19-1b: 帯(吸収列Lを含む列帯)と、内容が載る列(A:K)。
+' R19-1b → R19H FA-4: 帯(吸収列Lを含む列帯)。右端は全てここから取る。
 ' 右端の食い違い(帯625 / ピル617 / ナビ・フッター614.6)は、同じ「右端」を
-' 3通りに計算していたのが原因。帯の背景だけは可視幅いっぱい(HUB_BAND)、
-' 操作系と本文は内容列の右端(HUB_CONTENT)に揃える ―― どちらも
-' modViewport.ContentRight 1本から取る(画面ごとの別式を作らない)。
+' 3通りに計算していたのが原因だった。R19-1b はそれを2通り(帯=A:L /
+' 操作系=内容列 A:K)まで減らしたが、それでも非対称は残った: 吸収列Lが
+' 可視幅ぶんまで伸びるのは帯だけで、ナビ・カード・フッターはK列の右端で
+' 止まる ―― 窓を広げるほど「帯だけが伸びて、操作系は画面の2/3で止まって
+' いる」画面になる(A-M④)。Nexus(チャット)は既に帯も送信ボタンも同じ
+' ContentRight を見ており、Hubだけが違っていた。基準を1本へ統一する。
+' 帯は rightPad=0(帯の右端そのもの)、操作系は rightPad=8(内側に8ptの
+' 余白)= Nexus と同じ作法。広い窓でナビ/タイルが可視幅へ追随するのが正。
 Private Const HUB_BAND As String = "A1:L1"
-Private Const HUB_CONTENT As String = "A1:K1"
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
@@ -133,11 +137,11 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     DrawNavButtons ws
     Dim rightBot As Double: rightBot = DrawExtras(ws)
     If rightBot > botY Then botY = rightBot
-    ' フッターの右端もナビ・ピルと同じ ContentRight に揃える(R19-1b)。
+    ' フッターの右端もナビ・ピルと同じ ContentRight(FA-4)。
     Dim footL As Double: footL = ws.Range("B1").Left
     Dim footBot As Double
     footBot = modHubStat.DrawFooter(ws, footL, _
-        modViewport.ContentRight(ws, HUB_CONTENT, 8) - footL, botY + 18)
+        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + 18)
 
     ' R19-1b: 塗りと ScrollArea をフッターの実下端(+24pt、最低1画面)まで
     ' 縮める。60行=900pt を常に塗ると、内容が500〜700ptしかない画面で
@@ -163,17 +167,14 @@ End Sub
 
 ' ヘッダーバー(全幅) + 右肩のユーティリティアイコン
 ' R11-B(#30): 固定30pt×6の決め打ちをやめ、modChrome.PillWidth+FlowRightで
-' 可視幅基準に並べ直す。帯の背景は可視幅いっぱい、操作系(アイコン+ラベル)の
-' 右端は内容列の右端。右端の値は modViewport.ContentRight 1本から取る(R19-1b)。
+' 可視幅基準に並べ直す。右端は HUB_BAND の ContentRight 1本(FA-4)。
 Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim L As Double, cellW As Double
     L = ws.Range("A1").Left
-    ' R19-1b: 帯の背景は可視幅いっぱい(吸収列Lまで)、操作系の右端は内容列の
-    ' 右端。どちらも modViewport.ContentRight から取る(帯625/ピル617/ナビ
-    ' 614.6 の3段ズレは、同じ右端を3通りに計算していたのが原因)。
+    ' 帯は帯の右端そのもの、操作系はその内側8pt(モジュール冒頭の HUB_BAND)。
     cellW = modViewport.ContentRight(ws, HUB_BAND, 0) - L
     Dim rightX As Double
-    rightX = modViewport.ContentRight(ws, HUB_CONTENT, 8)
+    rightX = modViewport.ContentRight(ws, HUB_BAND, 8)
 
     ' 右→左に置く並び(終了が最も右)。旧実装の decrement 順をそのまま
     ' 配列順にした(icons(0)が最初に置かれる=右端)。
@@ -429,9 +430,8 @@ End Function
 Private Sub DrawNavButtons(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("H3").Left
-    ' R19-1b: ナビの右端はヘッダーピル・フッターと同じ ContentRight に揃える
-    ' (従来は K列の右端=614.6 で、ピル617・帯625 と3段にズレていた)。
-    W = modViewport.ContentRight(ws, HUB_CONTENT, 8) - L
+    ' ナビの右端はヘッダーピル・フッターと同じ ContentRight(FA-4)。
+    W = modViewport.ContentRight(ws, HUB_BAND, 8) - L
     T = HDR_H + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
@@ -496,7 +496,7 @@ Private Function DrawExtras(ByVal ws As Worksheet) As Double
     ' 2026-07-31(R7 A-3・タスク#27): ここは 4 * (NAV_H + NAV_GAP) だった。
     ' ナビを4枚から3枚へ減らしたときの後始末漏れで、実枚数と食い違った
     ' 1枚ぶん(54pt)がそのまま右列の空白として残っていた。実枚数から出す。
-    W = modViewport.ContentRight(ws, HUB_CONTENT, 8) - L
+    W = modViewport.ContentRight(ws, HUB_BAND, 8) - L
     T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP) + 10
 
     modHubStat.DrawQuickAskCards ws, L, W, T + 20, CHIP_H

@@ -76,6 +76,9 @@ Public Sub Show()
     On Error GoTo Finish
 
     Dim baseRow As Long: baseRow = modKnowledge.CHROME_ROWS + 1
+    ' R19H FA-2(A-H②): 描き終えた実下端。塗り・境界をここから敷き直す
+    ' (末尾の FinishCleanup0 で ApplyExtent へ渡す)。
+    Dim botRow As Long: botRow = baseRow
     DrawHeaderRow ws, baseRow
 
     If n = 0 Then
@@ -96,6 +99,7 @@ Public Sub Show()
             .Font.Color = modUI.UiColor("muted")
             .VerticalAlignment = -4160
         End With
+        botRow = baseRow + 12
         ' 2026-07-30(レビュー5-A): ここは正常系(0件の案内を出しただけ)。
         ' Finish: はハンドラ本体で、先頭が Resume なのでエラーが起きていない
         ' 状態で踏むと実行時エラー20「Resume にエラーがありません」になる。
@@ -115,7 +119,8 @@ Public Sub Show()
     Next i
 
     ' 件数とページ表示
-    With ws.Range("B" & (baseRow + 2 + shown + 1) & ":N" & (baseRow + 2 + shown + 1))
+    botRow = baseRow + 2 + shown + 1
+    With ws.Range("B" & botRow & ":N" & botRow)
         .Merge
         .Value = "全 " & n & " 件中 " & (mPage * PAGE_SIZE + 1) & ChrW(&H301C) & _
                  (mPage * PAGE_SIZE + shown) & " 件を表示 ・ " & _
@@ -134,6 +139,7 @@ Finish:
     Resume FinishCleanup0
 FinishCleanup0:
     On Error Resume Next
+    ApplyExtent ws, botRow
     ' 2026-07-31(R11-B H-1): ActiveWindow系は、そのシートが実際に前面の
     ' ときだけ触る(別シートの表示状態を巻き添えで変えないため)。
     If ThisWorkbook.ActiveSheet Is ws Then
@@ -143,6 +149,28 @@ FinishCleanup0:
     End If
     modUI.FreezeShapePlacement ws
     Application.ScreenUpdating = True
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' ApplyExtent - 描き終えた実下端(件数行)から塗りと境界を敷き直す(R19H FA-2)。
+' ----------------------------------------------------------------------------
+' modUIShelf.ApplyShelfExtent と同型。Show の冒頭で敷く帯は「まだ何も描いて
+' いない時点の見積り(1画面ぶん)」で、1ページ12件の一覧+件数行がそれより
+' 下へ伸びる狭い窓では、帯の外に文字が残る ―― そこは塗られておらず
+' ScrollArea の外でもあるので、【見えているのに到達できない白い断崖】になる
+' (A-H②)。行高が確定した後に実測(Top+Height)から敷き直せば必ず届く。
+' 範囲の式は modKnowledge.ShelfBound が単一情報源(3モードで同じ算数を書かない)。
+Private Sub ApplyExtent(ByVal ws As Worksheet, ByVal lastRow As Long)
+    If ws Is Nothing Then Exit Sub
+    If lastRow < 1 Then Exit Sub
+    On Error Resume Next
+    Dim bottomY As Double
+    bottomY = ws.Rows(lastRow).Top + ws.Rows(lastRow).Height
+    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
+    If LenB(addr) = 0 Then Exit Sub
+    ws.Range(addr).Interior.Color = modUI.UiColor("bg")
+    modViewport.ApplyScrollBound ws, addr
     On Error GoTo 0
 End Sub
 

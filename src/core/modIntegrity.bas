@@ -36,6 +36,11 @@ Private Const KEY_LAST_PATH As String = "integrity_last_path"
 ' 起動時の警告は1セッション1回まで(Bootが二度走っても二度は出さない)。
 Private mWarned As Boolean
 
+' UsedRange の焼き付き判定のしきい値(pt)。R19H FA-5(ii)。根拠は
+' IsUsedRangeBloated の見出しコメント(倍率をやめて絶対値にした理由)を参照。
+Private Const BLOAT_W_PT As Double = 2400
+Private Const BLOAT_H_PT As Double = 12000
+
 ' ----------------------------------------------------------------------------
 ' ReconcileStatText - 台帳の統計文字列の chunk_count を actualN へ直す(純)。
 ' ----------------------------------------------------------------------------
@@ -232,31 +237,101 @@ End Function
 ' VBAだけで結合を防ぐ完全な実装解は存在しない。できるのは「検出して正直に
 ' 伝え、危険な操作の前に一度止める」ことだけ(仕様 R19-5 の裁定)。
 '
-' 検出は Workbooks.Count > 1 の1点で行う。Application.Workbooks は【自分の
-' プロセス内で開いているブックだけ】を指すというSDIの仕様がそのまま
-' 「自分以外が同居しているか」の答えになる(調査⑤ウェブ班3-(c)。
-' Application.Hwnd はアクティブウィンドウしか返さないので使わない)。
+' 検出の対象は Application.Workbooks。これは【自分のプロセス内で開いている
+' ブックだけ】を指すというSDIの仕様がそのまま「自分以外が同居しているか」の
+' 答えになる(調査⑤ウェブ班3-(c)。Application.Hwnd はアクティブウィンドウしか
+' 返さないので使わない)。
+'
+' 2026-08-06(R19H FA-3 / A-H③・B-H②): 旧実装は Workbooks.Count > 1 だった。
+' しかし Workbooks には【利用者から見えないブック】まで並ぶ:
+'   ・PERSONAL.XLSB(個人用マクロブック。Excelが常に非表示で開く。国内の
+'     業務端末では珍しくない)
+'   ・アドイン(IsAddin=True。参照設定・組織配布のxlam)
+'   ・可視ウィンドウを持たないブック(他マクロが Visible=False で開いたもの)
+' これらは「取込中に一緒に固まる相手」ではないので、同居の警告を出す理由が
+' 無い。PERSONAL.XLSB を使っている人は【毎回・単独で開いても】警告が出て、
+' しかも言われたとおりに他のExcelを全部閉じても消えない=直せない警告になる
+' (憲章§3-3の逆。狼少年になった警告は次から読まれない)。
+' 数える対象は「自分以外・アドインでない・可視ウィンドウを持つ」ブックだけ。
 '
 ' 相手のブック名は【列挙しない】: 個人情報になり得るうえ、20冊開いている人の
 ' ダイアログが読めない長文になる。利用者に要る情報は「同居している」事実と
 ' 「どうすればよいか」の2つだけ(憲章§3-3)。
 Public Function CohabitCount() As Long
     On Error Resume Next
-    CohabitCount = Application.Workbooks.count
+    CohabitCount = CohabitOtherCount(CollectBookLines(), ThisWorkbook.Name)
     On Error GoTo 0
 End Function
 
-' 同居しているか(純ロジック。境界=1冊なら単独・2冊以上で同居)。
-Public Function IsCohabiting(ByVal wbCount As Long) As Boolean
-    IsCohabiting = (wbCount > 1)
+' ----------------------------------------------------------------------------
+' CohabitOtherCount - 同居している「可視の他ブック」の数(純ロジック)。
+' ----------------------------------------------------------------------------
+' bookLines: 1行1冊の "ブック名<TAB>可視ウィンドウ数<TAB>アドインなら1" を
+'            vbLf で連ねた文字列(自分自身の行が含まれていてよい)。
+' selfName : 自分のブック名(ThisWorkbook.Name)。大小無視で除く。
+' Excel を1つも触らないのでテストで固定できる(modTestsPure18)。Hit() 型のような
+' 「LOで組み立てられない引数」も使わない=文字列1本で全ケースを再現できる。
+' 壊れた行(TABが足りない・数値でない)は【数えない】: 数え漏らしても出るのは
+' 「警告が出ない」だけだが、数え過ぎると出せない警告を出し続けることになる。
+Public Function CohabitOtherCount(ByVal bookLines As String, _
+                                  ByVal selfName As String) As Long
+    If LenB(bookLines) = 0 Then Exit Function
+    Dim lines() As String: lines = Split(bookLines, vbLf)
+    Dim i As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim f() As String: f = Split(lines(i), vbTab)
+        If UBound(f) - LBound(f) + 1 >= 3 Then
+            Dim nm As String: nm = Trim$(f(LBound(f)))
+            Dim vis As Long: vis = CLng(Val(f(LBound(f) + 1)))
+            Dim isAdd As Long: isAdd = CLng(Val(f(LBound(f) + 2)))
+            If LenB(nm) > 0 And vis > 0 And isAdd = 0 Then
+                If StrComp(nm, selfName, vbTextCompare) <> 0 And _
+                   StrComp(nm, "personal.xlsb", vbTextCompare) <> 0 Then
+                    CohabitOtherCount = CohabitOtherCount + 1
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+' Workbooks を「1行1冊」の文字列へ畳む。Excel に触れるのはここだけで、
+' 数える規則そのものは上の純ロジックが持つ(2箇所に分かれない=憲章§4-5)。
+Private Function CollectBookLines() As String
+    Dim sb As String
+    On Error Resume Next
+    Dim wb As Workbook
+    For Each wb In Application.Workbooks
+        Dim vis As Long: vis = 0
+        Dim k As Long
+        For k = 1 To wb.Windows.count
+            If wb.Windows(k).Visible Then vis = vis + 1
+        Next k
+        Dim isAdd As Long: isAdd = 0
+        If wb.IsAddin Then isAdd = 1
+        If LenB(sb) > 0 Then sb = sb & vbLf
+        sb = sb & wb.Name & vbTab & vis & vbTab & isAdd
+    Next wb
+    On Error GoTo 0
+    CollectBookLines = sb
+End Function
+
+' 同居しているか(純ロジック。CohabitCount は【自分以外の可視ブック】を
+' 数えるので、1冊でもあれば同居)。
+Public Function IsCohabiting(ByVal otherCount As Long) As Boolean
+    IsCohabiting = (otherCount > 0)
 End Function
 
 ' 起動時のモーダル文(BMPの文字だけ。非BMPはCP932往復で化ける=実機第5報⑤)。
+' 2026-08-06(R19H FA-7 / A-M⑦・B-M⑤): 「同梱の『MyBookshelfを起動』から
+' 開き直してください」だけだと、そのランチャーを持っていない人(旧版のzip・
+' xlsm だけを転送してもらった人・展開せず1ファイルだけ取り出した人)には
+' 【存在しないものへの誘導】になり、言われたとおりにできない=直せない警告に
+' なる。有る場合と無い場合の両方に効く1文へ揃える(ガードシート・READMEと同文)。
 Public Function CohabitWarnMsg() As String
     CohabitWarnMsg = "他のExcelブックと同じプロセスで開かれています。" & vbLf & _
         "このまま取込を行うと、そのブックも一緒に固まります。" & vbLf & vbLf & _
-        "いったんこのファイルを閉じ、同梱の「MyBookshelfを起動」から" & vbLf & _
-        "開き直すことをおすすめします。"
+        "同梱の「MyBookshelfを起動.bat」があればそれから、" & vbLf & _
+        "無ければ他のExcelを全て閉じてから開き直してください。"
 End Function
 
 ' 取込直前の再確認文(vbYesNo)。起動時の警告を見落とした人への最後の関所。
@@ -320,7 +395,7 @@ Public Sub WarnAtStartup()
     ' 相手のブック名は出さない。記録には件数だけ残す(名前はログにも書かない)。
     Dim wbN As Long: wbN = CohabitCount()
     If IsCohabiting(wbN) Then
-        modLog.LogUsage "cohabit_detected", "startup", "同一プロセスのブック数=" & wbN
+        modLog.LogUsage "cohabit_detected", "startup", "同一プロセスの可視な他ブック数=" & wbN
         MsgBox CohabitWarnMsg(), vbExclamation, modAppDef.APP_NAME
     End If
 
@@ -359,32 +434,33 @@ Public Sub WarnAtStartup()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' R19-1e: UsedRange が「画面の4倍超」なら、焼き付いた全域書式が残っている。
+' R19-1e: UsedRange が桁違いに広いなら、焼き付いた全域書式が残っている。
 ' ----------------------------------------------------------------------------
 ' 判定そのものは数の比較だけの純関数(modTestsPure16 が境界を固定する)。
-' 4倍は「1画面ぶんの余白(=正常な上限)の4倍」で、正常なブックでは絶対に
-' 起きない一方、旧ブック(A1:P2000=40画面ぶん / A1:T120=3画面ぶん×右430pt)は
-' 確実に引っかかる値。閾値を下げすぎると正常なブックにも出て狼少年になる。
-Public Function IsUsedRangeBloated(ByVal usedW As Double, ByVal usedH As Double, _
-                                   ByVal viewW As Double, ByVal viewH As Double) As Boolean
-    If viewW <= 0 Then Exit Function
-    If viewH <= 0 Then Exit Function
-    IsUsedRangeBloated = (usedW > viewW * 4) Or (usedH > viewH * 4)
+'
+' 2026-08-06(R19H FA-5(ii) / A-M⑤): 旧実装は「可視の4倍超」という【倍率】
+' だった。これはチャットで必ず誤発動する: R19-1b 以降、チャットの塗りと境界は
+' 会話の実下端まで【正しく】伸びるので、20往復も話せば縦は可視の4倍
+' (700pt×4=2,800pt)を普通に超える。つまり「長く話した人ほど、正常に動いて
+' いる画面に対して『一度保存して開き直してください』と言われ続ける」ことに
+' なる(憲章§3-3の逆で、しかも保存しても消えない=直せない案内)。
+' 焼き付いたブックは桁が違う(旧チャット A1:P2000=約31,200pt / 全域書式は
+' 1,048,576行)ので、可視サイズと無関係な【絶対値】で切る。
+'   ・縦12,000pt = 1画面700pt の約17画面ぶん。会話の長さで届く値ではない
+'     (CapBubbles がバブル数を間引くため、正常な会話の下端はこの手前で頭打ち)。
+'   ・横2,400pt = 一番広い画面(ダッシュボード約1,020pt)の倍以上、かつ
+'     ViewportWidth のクランプ上限1,600ptより広い=正常には作れない幅。
+Public Function IsUsedRangeBloated(ByVal usedW As Double, ByVal usedH As Double) As Boolean
+    IsUsedRangeBloated = (usedW > BLOAT_W_PT) Or (usedH > BLOAT_H_PT)
 End Function
 
 ' 画面4枚(Hub/チャット/マイ本棚/ダッシュボード)のどれかが膨らんでいたら
 ' 1回だけ案内する(セッション1回=WarnAtStartup 自体が1回)。
 Private Sub WarnIfUsedRangeBloated()
     On Error Resume Next
-    ' 可視サイズは ActiveWindow から直接取る。基盤層(src/core)からUI層の
-    ' modUIMain.ViewportWidth / modViewport.ViewportHeight は呼べない(R1)。
-    ' ここで要るのは「桁が4倍違うか」だけなので、下限クランプがあれば足りる。
-    Dim viewW As Double, viewH As Double
-    viewW = ActiveWindow.UsableWidth
-    viewH = ActiveWindow.UsableHeight
-    If viewW < 320 Then viewW = 320
-    If viewH < 200 Then viewH = 200
-
+    ' R19H FA-5(ii): 可視サイズはもう見ない(判定が絶対値になったため)。
+    ' ついでに ActiveWindow への依存も消えた ―― 他ブックが前面のときに
+    ' 他人の窓を測っていた経路がここからは無くなる(FB-5 と同じ筋)。
     Dim names As Variant
     names = Array(modAppDef.SH_HOME, "Nexus", modAppDef.SH_SHELF, modAppDef.SH_NEXUS_DASH)
     Dim i As Long
@@ -397,7 +473,7 @@ Private Sub WarnIfUsedRangeBloated()
             Set ur = Nothing
             Set ur = ws.UsedRange
             If Not ur Is Nothing Then
-                If IsUsedRangeBloated(ur.Left + ur.Width, ur.Top + ur.Height, viewW, viewH) Then
+                If IsUsedRangeBloated(ur.Left + ur.Width, ur.Top + ur.Height) Then
                     modLog.LogUsage "integrity_hint", "usedrange_bloated", _
                         ws.Name & " " & CLng(ur.Left + ur.Width) & "x" & CLng(ur.Top + ur.Height)
                     modSkin.ShowToast "一度保存して開き直すと、画面のスクロール範囲が" & _

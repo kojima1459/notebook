@@ -356,6 +356,9 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub OnIngestScreenshot()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    ' R19H FA-6: スクショ取込も modShelf.IngestFile へ合流する【取込】なので、
+    ' 同居の関所を通す(AddFilesResult と同じ1行。判定も文言も modIntegrity 側)。
+    If Not modIntegrity.ConfirmIngestWhenCohabit() Then Exit Sub
     On Error GoTo Fail
 
     ' 1) クリップボードに画像があるか(機能無効/mock時は#ERR文字列が返る)

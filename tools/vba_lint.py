@@ -214,8 +214,13 @@ CONTRACT: dict[str, dict] = {
         # メッセージポンプを止め、相手のブックも「■中断」も丸ごと無反応になる。
         # VBAで結合そのものは防げない(DisableMergeInstance はダブルクリックに
         # 無効=公式)ため、検出して伝える側に寄せた。
-        #   CohabitCount    : Workbooks.Count(SDI仕様で自プロセス内のブック数)。
-        #   IsCohabiting    : 2冊以上か(純ロジック。modTestsPure18 が境界を固定)。
+        #   CohabitCount    : 自プロセス内の【可視な他ブック】の数(SDI仕様で
+        #     Workbooks は自プロセス分だけ)。2026-08-06 R19H FA-3 で
+        #     PERSONAL.XLSB・アドイン・不可視ブック・自分自身を除く数え方へ。
+        #   CohabitOtherCount: その数え方だけを取り出した純ロジック(ブック名+
+        #     可視ウィンドウ数+アドイン旗の行を文字列で受ける。Excelに触れない
+        #     ので modTestsPure18 が全パターンを固定できる)。
+        #   IsCohabiting    : 他ブックが1冊でもあるか(純ロジック)。
         #   CohabitWarnMsg  : 起動時のモーダル文(純ロジック・BMPのみ)。
         #   CohabitIngestMsg: 取込直前の再確認文(純ロジック・BMPのみ)。
         #   ConfirmIngestWhenCohabit: 取込入口の関所。判定・文言・モーダルを
@@ -223,7 +228,8 @@ CONTRACT: dict[str, dict] = {
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
-                     "CohabitCount", "IsCohabiting", "CohabitWarnMsg",
+                     "CohabitCount", "CohabitOtherCount", "IsCohabiting",
+                     "CohabitWarnMsg",
                      "CohabitIngestMsg", "ConfirmIngestWhenCohabit",
                      "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup"],
     },
@@ -1101,9 +1107,15 @@ CONTRACT: dict[str, dict] = {
     "modViewport": {
         "closed": True,
         "required": [
+            # 2026-08-06(R19H FB-4 / A-L⑪): BoundFor と ColAt は呼び出し元ゼロの
+            # まま残っていた旧口。吸収列方式(BoundAddr)へ全画面が移った時点で
+            # 役目が終わっており、契約からも外す。
+            # PadUnitsRefine(R19H FA-1 / A-H①): pt↔ColumnWidth のアフィン換算を
+            # 2点の実測から補正する純関数(modTestsPure16 が両基準列で固定する)。
             "ApplyScrollBound", "FitBandToViewport", "ContentRight",
-            "BoundAddr", "BoundFor", "ViewportHeight", "LogViewport",
-            "PadPtNeeded", "RightEdgeAt", "BoundBottomY", "ColLetter",
+            "BoundAddr", "ViewportHeight", "LogViewport",
+            "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
+            "ColLetter",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

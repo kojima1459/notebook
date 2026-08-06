@@ -427,6 +427,20 @@ Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
         If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
         ws.Range("A" & fromRow & ":" & _
                  modUINexusDraw.NEXUS_PAD_COL & lastRow).Interior.Color = ThemeColor("bg")
+    ElseIf lastRow < mChatBandRow Then
+        ' R19H FA-5(i)(A-M⑤/A-L⑩): 縮む方向を戻していなかった。ClearChat は
+        ' 会話の下端を最初の位置へ戻し、ここも ScrollArea は正しく縮めるが、
+        ' 【伸ばしたぶんの塗り】はそのまま残る。結果、会話を消した直後の画面は
+        ' 「境界の外側まで背景色が続いている」状態になり、UsedRange も塗った
+        ' ぶんだけ広いまま(=保存すると焼き付く)。旧最深行までを既定へ戻す。
+        ' 固定領域(ヘッダー/入力欄)には絶対に入らないよう下限は同じ式で守る。
+        fromRow = lastRow + 1
+        If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
+        If fromRow <= mChatBandRow Then
+            ws.Range("A" & fromRow & ":" & _
+                     modUINexusDraw.NEXUS_PAD_COL & mChatBandRow) _
+                     .Interior.ColorIndex = -4142   ' xlNone(塗り無し=既定)
+        End If
     End If
     mChatBandRow = lastRow
     modViewport.ApplyScrollBound ws, addr

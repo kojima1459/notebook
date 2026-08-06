@@ -362,8 +362,9 @@ PURE_ALLOWLIST = [
     #   modTestsPure15.RunAll15 の末尾が RunAll16 を呼ぶため、未注入だと実行時
     #   エラー12でR18のテストが1件も走らない(15を足したときと同型)。
     # modViewport(2026-08-05 R18-3b): 画面ごとのScrollArea宣言。テストが呼ぶのは
-    #   ColLetter(列番号→列名の算数)1本だけで、Worksheet を触る
-    #   ApplyScrollBound/BoundFor はテストから呼ばない(modProgressBarと同型)。
+    #   純関数(ColLetter/PadPtNeeded/PadUnitsRefine/RightEdgeAt/BoundBottomY)
+    #   だけで、Worksheet を触る ApplyScrollBound/FitBandToViewport/BoundAddr は
+    #   テストから呼ばない(modProgressBarと同型)。
     # modChunkMeta(2026-08-05 R17 Phase1): section_path/refs_out の抽出。
     #   モジュール全体が R4 純ロジック(PURE_LOGIC_MODULES にも登録)で、
     #   modSparse.NormalizeForSearch と modUtil.SafeLeft しか呼ばない
