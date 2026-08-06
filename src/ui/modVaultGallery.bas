@@ -24,6 +24,13 @@ Private mPreviewRows As Long
 Private Const CARDS_PER_PAGE As Long = 9
 Private Const CARD_W As Double = 215
 Private Const CARD_H As Double = 120
+' R20-1c(実機第7報⑦の層1): カードは3列固定だった。3列=215*3+14*2=673pt で、
+' 帯だけが可視幅へ伸びる窓(1300pt/1800pt)では右に600pt以上の空白が残る。
+' 列数を帯幅から決める(カード幅は変えない=文字量と行数の見え方を保つ)。
+' 上限6列は「1ページ9枚が2段で収まる」ところ。下限3列は従来の見た目。
+Private Const CARD_GAP As Double = 14
+Private Const CARD_COLS_MIN As Long = 3
+Private Const CARD_COLS_MAX As Long = 6
 
 Private mGalleryPage As Long
 Private mGalleryNames() As String   ' 現在ページのカード順の資料名(クリック解決用)
@@ -35,7 +42,8 @@ Private mGalleryCount As Long
 Private mGalleryMaxPage As Long
 
 ' ----------------------------------------------------------------------------
-' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・3列グリッド・ページング。
+' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・可変列グリッド(3〜6列。
+' R20-1c で帯幅から決める)・ページング。
 ' Shape増殖なし=毎回同数のカードを描き直す)
 ' 宣言部(CARDS_PER_PAGE/CARD_W/CARD_H/mGallery*)はモジュール先頭に集約済み。
 ' 描画先は「マイ本棚」シート(R4要件A)。専用シートはもう作らない。
@@ -250,7 +258,9 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B:N").ColumnWidth = 12
-    ws.Rows("7:412").RowHeight = 15       ' 一覧表モードの可変行高を戻す(1-D: 最終行412まで)
+    ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る
+    ' (行高を明示した行はExcelから見れば「使用済み」=下スクロール域になる)。
+    modKnowledge.NormalizeShelfRows ws, 7
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
     ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
     ' R19-1b: ここではまだカードが無いので1画面ぶん。カードを描き終えた
@@ -289,6 +299,17 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     Dim cardL As Double: cardL = ws.Range("B1").Left
     Dim cardT As Double: cardT = modKnowledge.ContentTop(ws) + 6
     If cardT < 90 Then cardT = 90
+
+    ' R20-1c: 帯の実右端(可視幅に合わせ済み)から、この窓に入る列数を出す。
+    ' 帯・ピル・ツールバーと同じ modViewport.ContentRight が単一情報源。
+    Dim bandRight As Double: bandRight = modViewport.ContentRight(ws, modKnowledge.SHELF_BAND, 8)
+    Dim availW As Double: availW = bandRight - ws.Range("A1").Left
+    Dim cols As Long
+    cols = modViewport.GalleryColsFor(availW, cardL - ws.Range("A1").Left, _
+                                      CARD_W, CARD_GAP, CARD_COLS_MIN, CARD_COLS_MAX)
+    ' Empty State の透かし/文面もカード群と同じ幅(左端から帯の右端まで)に伸ばす。
+    Dim emptyW As Double: emptyW = bandRight - cardL
+    If emptyW < 320 Then emptyW = 320
 
     Dim keyword As String
     keyword = LCase$(Trim$(CStr(ws.Range("B5").Value)))
@@ -341,7 +362,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         On Error GoTo 0
 
         Dim icon As Shape
-        Set icon = ws.Shapes.AddShape(1, cardL, cardT + 40, 640, 60)
+        Set icon = ws.Shapes.AddShape(1, cardL, cardT + 40, emptyW, 60)
         icon.Name = "nxg_empty_icon"
         icon.Fill.Visible = 0: icon.Line.Visible = 0
         With icon.TextFrame2
@@ -353,7 +374,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         icon.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(148, 163, 184)
 
         Dim emsg As Shape
-        Set emsg = ws.Shapes.AddShape(1, cardL, cardT + 104, 640, 46)
+        Set emsg = ws.Shapes.AddShape(1, cardL, cardT + 104, emptyW, 46)
         emsg.Name = "nxg_empty_msg"
         emsg.Fill.Visible = 0: emsg.Line.Visible = 0
         With emsg.TextFrame2
@@ -371,7 +392,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         emsg.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(107, 114, 128)
 
         Dim cta As Shape
-        Set cta = ws.Shapes.AddShape(5, cardL + 250, cardT + 158, 140, 34)
+        Set cta = ws.Shapes.AddShape(5, cardL + (emptyW - 140) / 2, cardT + 158, 140, 34)
         cta.Name = "nxg_empty_cta"
         cta.Adjustments(1) = 0.3
         cta.Line.Visible = 0
@@ -395,9 +416,9 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         Dim k As Long
         For k = startIdx To endIdx
             Dim slot As Long: slot = k - startIdx
-            Dim col As Long: col = slot Mod 3
-            Dim rowN As Long: rowN = slot \ 3
-            DrawOneCard ws, slot, cardL + col * (CARD_W + 14), cardT + rowN * (CARD_H + 14), _
+            Dim col As Long: col = slot Mod cols
+            Dim rowN As Long: rowN = slot \ cols
+            DrawOneCard ws, slot, cardL + col * (CARD_W + CARD_GAP), cardT + rowN * (CARD_H + CARD_GAP), _
                         fNames(k), fStats(k)
             mGalleryNames(slot) = fNames(k)
             mGalleryCount = mGalleryCount + 1
@@ -412,7 +433,11 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
         Exit Sub
     End If
 
-    Dim pgY As Double: pgY = cardT + 3 * (CARD_H + 14) + 6
+    ' R20-1c/1d: ページャは「実際に使った段数」の下へ。列数が増えれば
+    ' 9枚が2段で収まるので、その分だけ画面が縦に詰まる(空スクロール域も減る)。
+    Dim rowsUsed As Long: rowsUsed = ((endIdx - startIdx) \ cols) + 1
+    If rowsUsed < 1 Then rowsUsed = 1
+    Dim pgY As Double: pgY = cardT + rowsUsed * (CARD_H + CARD_GAP) + 6
     Dim prevBtn As Shape
     Set prevBtn = ws.Shapes.AddShape(5, cardL, pgY, 70, 22)
     prevBtn.Name = "nxg_pg_prev"
@@ -478,9 +503,8 @@ Private Sub ApplyGalleryExtent(ByVal ws As Worksheet)
             If shp.Top + shp.Height > bottomY Then bottomY = shp.Top + shp.Height
         End If
     Next shp
-    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
-    ws.Range(addr).Interior.Color = modUI.UiColor("bg")
-    modViewport.ApplyScrollBound ws, addr
+    ' R20-1d: 塗り・ScrollArea・境界より下の行高リセットは modKnowledge へ集約。
+    modKnowledge.ApplyShelfBound ws, bottomY
     On Error GoTo 0
 End Sub
 

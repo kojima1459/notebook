@@ -77,6 +77,16 @@ Public Sub ShowDashboard()
     On Error GoTo Fail
     Application.ScreenUpdating = False
 
+    ' R20-1b(層3): 全画面化と数式バーの非表示は【描く前】に済ませる。
+    ' DisplayFullScreen/DisplayFormulaBar はどちらも ActiveWindow.UsableWidth
+    ' と UsableHeight を変える。従来はここが DrawDashboard の【後】にあったため、
+    ' 初回表示だけ「全画面になる前の狭い窓」で帯とカードの幅を決めてしまい、
+    ' 広がった後の右側がまるごと空白として残っていた(実機の「特にダッシュ
+    ' ボード」)。EnsureAppView は他ブックが前面なら自分で何もしない。
+    On Error Resume Next
+    modUI.EnsureAppView
+    On Error GoTo Fail
+
     DrawDashboard ws
 
     ws.Visible = -1   ' xlSheetVisible
@@ -87,8 +97,9 @@ Public Sub ShowDashboard()
     Else
         modUI.RestoreExcelUI
     End If
-    ' R7 A-2: 全画面/数式バー/罫線/スクロール位置/等倍をまとめて自己修復する
-    ' (「閉じる→キャンセル」で壊れた表示が、この画面を開くだけで戻る)。
+    ' R7 A-2: 罫線/スクロール位置/等倍の自己修復は、シートを前面にしてから
+    ' もう一度通す(ScrollColumn/Row/Zoom は「そのシートの」設定なので、
+    ' 描画前の1回目では今から出す画面に当たらない)。
     On Error Resume Next
     modUI.EnsureAppView
     On Error GoTo 0
@@ -217,9 +228,16 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' 当てる。行高も明示して幾何を確定させる(pt→行の換算をここで固定する)。
     ws.Columns("A:J").ColumnWidth = 9
     ' 余りをK列に吸わせて A:K の合計を可視幅ぴったりにする。内容の実右端
-    ' (590pt)より狭い窓では内容側を優先する(ボタンが境界の外に出ない)。
-    modViewport.FitBandToViewport ws, DASH_BAND, DASH_PAD_COL, ContentRightX()
-    ws.Rows("1:" & DASH_ROWS).RowHeight = DASH_ROW_H
+    ' (最小版面590pt)より狭い窓では内容側を優先する(ボタンが境界の外に出ない)。
+    modViewport.FitBandToViewport ws, DASH_BAND, DASH_PAD_COL, MinContentRightX()
+    ' R20-1b(層1): 合わせ終えた帯の【実幅】からKPI/バッジのカード幅を決め直す。
+    ' これより後に描くもの(ヘッダー・KPI・EXPバー・バッジ・管理者行)は全て
+    ' modDashStat.KpiCardW()/RowWidth() を見るので、本文がまるごと窓幅へ追随する。
+    modDashStat.SetBandWidth modViewport.ContentRight(ws, DASH_BAND, 0) - ws.Range("A1").Left
+    ' R20-1d(層2): 行高を明示する範囲は40行まで。120行(1,800pt=3画面ぶん)を
+    ' 毎回「使用済み」にしていたのが、下へ延々スクロールできる状態の正体。
+    ' 実下端が確定した ApplyDashScrollBound が、それ以深を既定へ戻す。
+    ws.Rows("1:40").RowHeight = DASH_ROW_H
     ' 書式(フォント・塗り)は描き終えてから実下端ぶんだけ当てる
     ' (ApplyDashScrollBound)。全域・広域の書式はUsedRangeを膨らませる。
 
@@ -255,13 +273,22 @@ Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
     ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
     On Error GoTo 0
     modViewport.ApplyScrollBound ws, bnd
+    ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。
+    ' bnd は必ず A1 起点なので、行数がそのまま下端行になる。
+    On Error Resume Next
+    modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, DASH_ROWS
+    On Error GoTo 0
     ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
     modViewport.LogViewport "dash"
 End Sub
 
-' 内容の実右端(pt)。KPIカード4枚の版面(modDashStat)が唯一の情報源。
-Private Function ContentRightX() As Double
-    ContentRightX = modDashStat.KPI_X0 * 2 + modDashStat.ROW_WIDTH
+' 帯を可視幅へ合わせるときの下限(pt)。KPIカードが【最小幅】130ptで4枚並ぶ
+' 版面より狭くはできない(それ以上詰めるとカードが画面外へ出る)。
+' R20-1b: 実際の版面幅は帯が決まってから modDashStat.RowWidth() が返す。
+' ここで現在値(RowWidth)を返してはいけない ―― 前回の広い窓で決めた幅が
+' 次回の狭い窓で下限として効き、帯が可視幅を超えてしまう。
+Private Function MinContentRightX() As Double
+    MinContentRightX = modDashStat.KPI_X0 * 2 + modDashStat.ROW_WIDTH
 End Function
 
 ' ---- ヘッダー ----
@@ -390,7 +417,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
     Dim topY As Double: topY = modDashStat.ChartNoteY() + 20
 
     Dim headShp As Shape
-    Set headShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY, modDashStat.ROW_WIDTH, 20)
+    Set headShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY, modDashStat.RowWidth(), 20)
     headShp.Name = "nxd_adm_head"
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
@@ -424,7 +451,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
 
     If mAdminExclCount = 0 Then
         Dim emptyShp As Shape
-        Set emptyShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY + 28, modDashStat.ROW_WIDTH, 20)
+        Set emptyShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY + 28, modDashStat.RowWidth(), 20)
         emptyShp.Name = "nxd_adm_empty"
         emptyShp.Line.Visible = 0
         emptyShp.Fill.Visible = 0
@@ -445,7 +472,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
         Dim rowY As Double: rowY = topY + 28 + i * ADMIN_ROW_H
 
         Dim lbl As Shape
-        Set lbl = ws.Shapes.AddShape(1, modDashStat.KPI_X0, rowY, modDashStat.ROW_WIDTH - 100, ADMIN_ROW_H - 4)
+        Set lbl = ws.Shapes.AddShape(1, modDashStat.KPI_X0, rowY, modDashStat.RowWidth() - 100, ADMIN_ROW_H - 4)
         lbl.Name = "nxd_adm_lbl_" & i
         lbl.Line.Visible = 0
         lbl.Fill.Visible = 0
@@ -459,7 +486,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
         End With
 
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, modDashStat.KPI_X0 + modDashStat.ROW_WIDTH - 80, rowY, 72, 22)
+        Set btn = ws.Shapes.AddShape(5, modDashStat.KPI_X0 + modDashStat.RowWidth() - 80, rowY, 72, 22)
         btn.Name = "nxd_adm_btn_" & i
         btn.Adjustments(1) = 0.3
         btn.Line.Visible = 0

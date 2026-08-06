@@ -100,8 +100,19 @@ Public Sub EnsureLayout()
     ws.Columns("B:D").ColumnWidth = 10
     ws.Columns("E").ColumnWidth = 8
     ws.Columns("F:G").ColumnWidth = 8
-    ws.Columns("H:J").ColumnWidth = 15
-    ws.Columns("K:N").ColumnWidth = 10
+    ws.Columns("H:I").ColumnWidth = 15
+    ws.Columns("J").ColumnWidth = 15
+    ' R20-1c(実機第7報⑦の層1): K/L/M はこのモードが1文字も書かない死に列
+    ' だった(10文字幅×3=約190pt)。本文 A:J は588.75pt固定で、窓を広げても
+    ' 伸びるのは吸収列Nだけ ―― 一覧の右に死に列+空の吸収列が数百pt並ぶのが
+    ' 「一覧表の右の余白」の正体。死に列を畳み、余りは本文の最終列(メモ列J)に
+    ' 吸わせて、本文の右端そのものを窓幅へ追随させる。
+    ws.Columns("K:M").ColumnWidth = 1
+    ws.Columns("N").ColumnWidth = 1
+    ' 吸収列を J にして A:N の合計を可視幅へ合わせる。この直後に DrawChrome が
+    ' 吸収列 N で同じことをするが、そのときには既に合計=可視幅なのでNは
+    ' 最小のまま動かない(=本文右端 ≒ 帯右端 − N最小幅)。
+    modViewport.FitBandToViewport ws, modKnowledge.SHELF_BAND, "J"
 
     ' 実機防衛(2026-07-21再訂正): modUIMain.EnsureLayoutと同じ理由・同じ実装
     ' (Activateあり/なし双方で同一の1004が再現したため、Activate成否を致命的
@@ -338,12 +349,13 @@ Private Sub ApplyShelfExtent(ByVal ws As Worksheet, ByVal lastRow As Long, _
     On Error Resume Next
     Dim bottomY As Double
     bottomY = ws.Rows(lastRow).Top + ws.Rows(lastRow).Height
-    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
+    ' R20-1d: 塗り・ScrollArea・境界より下の行高リセットは modKnowledge へ集約。
+    Dim addr As String: addr = modKnowledge.ApplyShelfBound(ws, bottomY, False)
+    If LenB(addr) = 0 Then Exit Sub
     If withFont Then
         ws.Range(addr).Font.Name = "游ゴシック"
         ws.Range(addr).Font.Size = 11
     End If
-    modViewport.ApplyScrollBound ws, addr
     On Error GoTo 0
 End Sub
 
@@ -518,9 +530,15 @@ Private Sub RefreshFolderInfo(ByVal ws As Worksheet)
     WriteSafe ws.Range(RNG_SYNCINFO), syncText
 End Sub
 
+' R20-1d: ここは毎回 400行(13〜412行)を UnMerge/ClearContents/RowHeight=15 で
+' 書き直していた。資料が3冊でも400行ぶんが「使用済み」になるので、下へ
+' 8画面ぶん転がれる状態が毎描画で作り直されていた(層2の再生産源)。
+' 前回どこまで使ったか(modKnowledge が3モード共有で持つ高水位)までに絞る。
 Private Sub ClearCardArea(ByVal ws As Worksheet)
     Dim lastRow As Long
-    lastRow = FIRST_CARD_ROW + MAX_CARD_ROWS - 1
+    lastRow = modKnowledge.ShelfRowHigh()
+    If lastRow > FIRST_CARD_ROW + MAX_CARD_ROWS - 1 Then lastRow = FIRST_CARD_ROW + MAX_CARD_ROWS - 1
+    If lastRow < FIRST_CARD_ROW Then lastRow = FIRST_CARD_ROW
 
     Dim rng As Range
     Set rng = ws.Range(ws.Cells(FIRST_CARD_ROW, 1), ws.Cells(lastRow, 10))

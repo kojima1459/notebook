@@ -13,6 +13,8 @@ Private Const VAULT_SHEET As String = "VaultInput"
 ' R18-3a/3b: この画面が実際に使うセル範囲(列A:I・内容はC2:H18で完結)。
 ' 書式の適用範囲とScrollAreaの唯一の情報源。
 Private Const VAULT_BOUND As String = "A1:I30"
+' R20-1g: 帯(列A〜吸収列I)の1行ぶん。列幅はここを可視幅へ合わせて決める。
+Private Const VAULT_BAND As String = "A1:I1"
 Private Const CELL_TITLE As String = "C6"
 Private Const CELL_BODY As String = "C8"
 Private Const CELL_TAGS As String = "C18"
@@ -39,8 +41,15 @@ Public Sub ShowVaultInput()
 
     ws.Columns("A").ColumnWidth = 4
     ws.Columns("B").ColumnWidth = 3
-    ws.Columns("C:H").ColumnWidth = 14
-    ws.Columns("I").ColumnWidth = 3
+    ws.Columns("C:G").ColumnWidth = 14
+    ws.Columns("H").ColumnWidth = 14
+    ws.Columns("I").ColumnWidth = 1
+    ' R20-1g(実機第7報⑦の層1): 列幅の合計527ptが固定で、窓を広げるほど
+    ' その右が丸ごと灰色の余白になっていた(常用画面なので同梱)。余りは
+    ' 本文の最終列Hに吸わせ、吸収列Iは最小のまま置く ―― こうすると
+    ' 白いカード(C2:H18)の右端そのものが窓幅へ追随する(帯だけ伸ばしても
+    ' カードは527ptで止まったままで、症状は消えない)。
+    modViewport.FitBandToViewport ws, VAULT_BAND, "H"
     ' R18-3b: 行ける範囲を宣言(この小画面は C2:H18 で完結する)。
     modViewport.ApplyScrollBound ws, VAULT_BOUND
 

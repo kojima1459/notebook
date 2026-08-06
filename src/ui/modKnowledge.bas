@@ -45,11 +45,71 @@ Public Const SHELF_BAND As String = "A1:N1"
 ' 「今どのモードか」はシート名からは分からない。ここが唯一の情報源。
 Private mMode As String
 
+' 直近に行高を明示した最終行(3モード共有。R20-1d。詳細は NormalizeShelfRows)。
+Private mShelfRowHigh As Long
+
 ' ShelfBound - マイ本棚の実使用範囲 "A1:N<行>"。塗り・ScrollArea が共有する。
 '   contentBottom: そのモードが描き切った実下端(pt)。0なら1画面ぶん。
 Public Function ShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Double) As String
     If ws Is Nothing Then Exit Function
     ShelfBound = modViewport.BoundAddr(ws, SHELF_PAD_COL, contentBottom, SHELF_MAX_ROW)
+End Function
+
+' ----------------------------------------------------------------------------
+' 行高の後始末(R20-1d・実機第7報⑦の層2)。3モードが共有する状態なのでここ。
+' ----------------------------------------------------------------------------
+' 3モードとも冒頭で Rows("7:412").RowHeight = 15 と、406行ぶんの行高を毎回
+' 書き直していた。行高を明示した行はExcelから見れば「使用済み」なので、
+' 資料が3冊しか無くても常に412行(約6,200pt=8画面ぶん)下へホイールで
+' 転がれる状態が残る ―― 塗りと ScrollArea を実下端まで縮めても消えない
+' (ScrollArea はホイールを止めない。modViewport 冒頭参照)。
+' 「前回どこまで使ったか」を覚えて、そこまでだけ均す。
+'   0 = このセッションではまだ均していない。既存ブックに焼き付いた行高を
+'   救済するため、初回だけは従来どおり最終行まで均す(セッション1回だけ)。
+'   (mShelfRowHigh の宣言は他のモジュール変数と一緒に先頭へ置いてある)
+
+' NormalizeShelfRows - 前モードが残した可変行高を15ptへ戻す(fromRow以降)。
+Public Sub NormalizeShelfRows(ByVal ws As Worksheet, ByVal fromRow As Long)
+    If ws Is Nothing Then Exit Sub
+    Dim r0 As Long: r0 = fromRow
+    If r0 < 1 Then r0 = 1
+    Dim r1 As Long: r1 = ShelfRowHigh()
+    If r1 > SHELF_MAX_ROW Then r1 = SHELF_MAX_ROW
+    If r1 < r0 Then Exit Sub
+    On Error Resume Next
+    ws.Rows(r0 & ":" & r1).RowHeight = 15
+    On Error GoTo 0
+End Sub
+
+' ShelfRowHigh - 直近に行高を明示した最終行(未初期化なら最終行=全域救済)。
+Public Function ShelfRowHigh() As Long
+    ShelfRowHigh = mShelfRowHigh
+    If ShelfRowHigh < 1 Then ShelfRowHigh = SHELF_MAX_ROW
+End Function
+
+' ApplyShelfBound - 描き終えた実下端から、塗り・ScrollArea・行高の後始末を
+'   1本で行う(3モードが同じ後始末を3通りに書かないための単一情報源)。
+'   contentBottom: そのモードが描き切った実下端(pt)
+'   paintBg      : 地色も塗り直すか。一覧表モードは False(見出し行のグレーや
+'                  カードの塗り分けを、描き終えた後の一律塗りで潰さないため)。
+'   戻り値: 実際に適用した範囲アドレス("" なら何もできなかった)。
+Public Function ApplyShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Double, _
+                                Optional ByVal paintBg As Boolean = True) As String
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim addr As String: addr = ShelfBound(ws, contentBottom)
+    If LenB(addr) = 0 Then Exit Function
+    If paintBg Then ws.Range(addr).Interior.Color = modUI.UiColor("bg")
+    modViewport.ApplyScrollBound ws, addr
+    ' 受け入れ基準(R20-1d): この境界の下端行より下に、行高カスタムを残さない。
+    ' addr は必ず A1 起点なので、行数がそのまま下端行になる。
+    Dim lastR As Long: lastR = ws.Range(addr).Rows.Count
+    If lastR > 0 Then
+        modViewport.ResetRowsBelow ws, lastR + 1, SHELF_MAX_ROW
+        mShelfRowHigh = lastR
+    End If
+    ApplyShelfBound = addr
+    On Error GoTo 0
 End Function
 
 ' DrawChrome - ヘッダー+モードピル+ツールバーを描く(冪等)。
@@ -122,9 +182,14 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ' 【この修正が一番効くはずの構成】でだけ整列しないという逆転が起きていた。
     ' 縮退=ボタン0個(ToolbarContentRightは0を返す)か、左余白(TB_PAD=8)にも
     ' 届かない値。そのときだけ従来の右端へ倒す。
+    ' R20-1c(実機第7報⑦の層1): アンカーを【帯の右端】へ移す。ツールバーは
+    ' modKnowledgeBar が左詰めで流し込む固定幅の並びで、窓を広げても伸びない。
+    ' そこへピルを揃えると、窓が広いほどピルだけが画面の左寄りで止まり、
+    ' 帯の右に何百ptもの白が残る(R14-2a は「窓が狭い」前提での整列合わせだった)。
+    ' 右端の単一情報源は modViewport.ContentRight ―― 帯・ナビ・フッターと同じ式。
     Dim tbRight As Double
     On Error Resume Next
-    tbRight = modKnowledgeBar.ToolbarContentRight(isTable, isShared, L, W)
+    tbRight = modViewport.ContentRight(ws, SHELF_BAND, 8)
     On Error GoTo Fail
     If tbRight <= L + 8 Then tbRight = L + W - 8
 

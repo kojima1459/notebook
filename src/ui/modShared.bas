@@ -49,9 +49,18 @@ Public Sub Show()
     ws.Columns("A").ColumnWidth = 2
     ws.Columns("B").ColumnWidth = 5      ' チェックボックス
     ws.Columns("C").ColumnWidth = 6      ' 件数
-    ws.Columns("D:J").ColumnWidth = 12   ' 質問
-    ws.Columns("K:N").ColumnWidth = 10   ' 提供者/日付
-    ws.Rows("7:412").RowHeight = 15      ' 前モードの可変行高を戻す(1-D: 最終行412まで)
+    ws.Columns("D:I").ColumnWidth = 12   ' 質問(J列が余りを吸う)
+    ws.Columns("J").ColumnWidth = 12
+    ws.Columns("K:L").ColumnWidth = 10   ' 提供者
+    ws.Columns("M").ColumnWidth = 12     ' 日付
+    ws.Columns("N").ColumnWidth = 1      ' 吸収列(最小のまま)
+    ' R20-1c(層1): 従来は余りが全部N列に溜まり、質問列(D:J)は12文字×7で
+    ' 固定のまま「日時(M:N)だけが窓幅まで伸びる」一覧になっていた。読ませたい
+    ' のは質問文なので、余りは質問列の最終列Jに吸わせる。この直後の DrawChrome が
+    ' 吸収列Nで同じ処理をするが、そのときには合計=可視幅なのでNは動かない。
+    modViewport.FitBandToViewport ws, modKnowledge.SHELF_BAND, "J"
+    ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る。
+    modKnowledge.NormalizeShelfRows ws, 7
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
     ' (無限スクロールの主因・調査agent2 §1.3)。実使用範囲だけに当てる。
     ' R19-1b: 一覧は1ページぶん(PAGE_SIZE行)なので1画面ぶんで足りる。範囲は
@@ -167,10 +176,8 @@ Private Sub ApplyExtent(ByVal ws As Worksheet, ByVal lastRow As Long)
     On Error Resume Next
     Dim bottomY As Double
     bottomY = ws.Rows(lastRow).Top + ws.Rows(lastRow).Height
-    Dim addr As String: addr = modKnowledge.ShelfBound(ws, bottomY)
-    If LenB(addr) = 0 Then Exit Sub
-    ws.Range(addr).Interior.Color = modUI.UiColor("bg")
-    modViewport.ApplyScrollBound ws, addr
+    ' R20-1d: 塗り・ScrollArea・境界より下の行高リセットは modKnowledge へ集約。
+    modKnowledge.ApplyShelfBound ws, bottomY
     On Error GoTo 0
 End Sub
 

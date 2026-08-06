@@ -1194,8 +1194,12 @@ CONTRACT: dict[str, dict] = {
             # ScrollArea の両方で参照するため、共通クロムを持つ modKnowledge が
             # 単一情報源。固定文字列 "A1:N412"(約6,200pt=8画面ぶん)をやめ、
             # 描いた内容の実下端から範囲を組む関数へ変えた(R19-1b)。
+            # 2026-08-06(R20-1c/1d): 3モードが共有する「行高の高水位」と、
+            # 描き終えた後の後始末(塗り+ScrollArea+境界より下の行高リセット)を
+            # ここへ集約した。3通りに書くとズレるのは ShelfBound と同じ理由。
             "CHROME_ROWS", "SHELF_MAX_ROW", "SHELF_PAD_COL", "SHELF_BAND",
-            "ShelfBound", "DrawChrome", "PrepareScreenView", "IsTableMode",
+            "ShelfBound", "NormalizeShelfRows", "ShelfRowHigh", "ApplyShelfBound",
+            "DrawChrome", "PrepareScreenView", "IsTableMode",
             "ContentTop", "SearchCellAddress", "OnGoGallery", "OnGoShared",
             "OnGoTable", "OnBackHub", "OnHelp", "OnToChat", "OnSearch", "OnGapBoard",
             "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",
@@ -1242,7 +1246,12 @@ CONTRACT: dict[str, dict] = {
     "modDashStat": {
         "closed": True,
         "required": [
-            "KPI_CARD_W", "KPI_GAP", "KPI_X0", "ROW_WIDTH", "SavedTimeDeltaLabel", "CountUsageEvent",
+            # 2026-08-06(R20-1b): KPI/バッジのカード幅を帯幅から決める4本。
+            # KPI_CARD_W は【最小】幅、KPI_CARD_MAX_W は上限、ROW_WIDTH は
+            # 最小版面(帯を可視幅へ合わせるときの下限)。実際の版面は RowWidth()。
+            "KPI_CARD_W", "KPI_CARD_MAX_W", "KPI_GAP", "KPI_X0", "ROW_WIDTH",
+            "CardWidthFor", "SetBandWidth", "KpiCardW", "RowWidth",
+            "SavedTimeDeltaLabel", "CountUsageEvent",
             "IsThisMonthStamp", "IsLastMonthStamp", "UsageBarText", "FormatMinutes",
             "SafeGetStat", "SafeSavedMinutes", "SafeTotalChunks", "SafeShelfMax",
             "SafeLevel", "SafeExpTotal", "SafeExpFloorForLevel", "SafeLevelProgress",

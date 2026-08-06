@@ -23,20 +23,37 @@ Option Explicit
 ' (LibreOffice のコンパイルは Public Const が Private Const を参照すると
 '  応答不能になる。実Excelでは私有のままでも通るが、モード2の構文チェックを
 '  通すために公開側へ揃える。2026-07-31 R11-F1で実測。)
+' 2026-08-06(R20-1b・実機第7報⑦の層1): 130pt は【最小】幅になった。R19 までは
+' 帯(セル列 A:K)だけを可視幅へ合わせていて、本文のKPIカードは4枚とも130pt
+' 固定のまま。窓を広げるほど「帯だけが伸びて、中身は左の590ptで止まっている」
+' 画面になり、右に数百ptの空塗りが残っていた(実機写真の主症状)。帯の実幅から
+' カード幅を出し直し、本文を窓幅へ追随させる。上限220ptは、1枚の数字カードが
+' それ以上広がっても情報密度が下がるだけ(4枚で920pt=一般的な窓幅の上限)という
+' 判断。KPI_CARD_W/KPI_GAP は ROW_WIDTH の定数式が参照するため Public。
 Public Const KPI_CARD_W As Double = 130
+Public Const KPI_CARD_MAX_W As Double = 220
 Private Const KPI_CARD_H As Double = 92
 Public Const KPI_GAP As Double = 10
 Public Const KPI_X0 As Double = 20
 ' 2026-07-31(R7 A-1): ヘッダー帯(48pt)+サブタイトルの下から本文を始める。
 Private Const KPI_Y0 As Double = 80
+' ROW_WIDTH は「最小版面」(=130×4+10×3=550pt。左右余白40ptを足した帯590ptが
+' 帯幅の下限)。帯を可視幅へ合わせるときの下限としてだけ使い、
+' 実際の版面幅は RowWidth() を見る(R20-1b)。
 Public Const ROW_WIDTH As Double = KPI_CARD_W * 4 + KPI_GAP * 3
+
+' 直近に FitBandToViewport で確定した帯幅から決めたカード幅(pt)。
+' 0 のあいだは最小幅(KPI_CARD_W)で描く=従来と同じ絵になる。
+Private mCardW As Double
 
 Private Const EXPBAR_H As Double = 12
 Private Const EXPBAR_Y As Double = KPI_Y0 + KPI_CARD_H + 18
 Private Const EXPLABEL_Y As Double = EXPBAR_Y + EXPBAR_H + 4
 
 ' 2026-07-31: KPIカードと同じ行幅(130*4+10*3+X0*2=590pt)に揃える。
-Private Const BADGE_W As Double = 130
+' R20-1b: 幅は KpiCardW()(帯幅から決まる可変値)へ移した。BADGE_W は
+' 「KPIカードと同じ幅に揃える」という約束を示す名前として残していたが、
+' 2箇所に数字を持つと必ずズレるので削除する(憲章§4-5)。
 Private Const BADGE_H As Double = 54
 Private Const BADGE_GAP_X As Double = 10
 Private Const BADGE_GAP_Y As Double = 10
@@ -48,6 +65,37 @@ Private Const BADGE_GRID_Y As Double = BADGE_HEAD_Y + 24
 ' 以前は「2行ぶん」と決め打ちしていたため、増えた行がチャート枠と重なる。
 ' VBAの定数式では関数を呼べないので、位置は実行時に ChartNoteY() で求める。
 Private Const BADGE_ROWS_FALLBACK As Long = 3
+
+' ----------------------------------------------------------------------------
+' 版面(KPIカード4枚+バッジカード4枚)の幅を帯幅から決める(R20-1b)
+' ----------------------------------------------------------------------------
+
+' CardWidthFor - 帯幅 bandW のときの1枚あたりのカード幅(pt)。純関数
+'   (ゴールデン対象。境界: 帯590pt未満は130で頭打ち / 950pt超は220で頭打ち)。
+'   左右の余白 KPI_X0 を2つ、カード間の隙間 KPI_GAP を3つ引いて4等分する。
+Public Function CardWidthFor(ByVal bandW As Double) As Double
+    CardWidthFor = modViewport.ClampD((bandW - 2 * KPI_X0 - 3 * KPI_GAP) / 4, _
+                                      KPI_CARD_W, KPI_CARD_MAX_W)
+End Function
+
+' SetBandWidth - 描画の直前に、帯の【実幅】(FitBandToViewport 後)を渡す。
+'   ここより後に走る DrawKpiRow/DrawExpBar/DrawBadgeShelf と modDash の
+'   ヘッダー・管理者行が、全て同じ CardW()/RowWidth() を見る。
+Public Sub SetBandWidth(ByVal bandW As Double)
+    mCardW = CardWidthFor(bandW)
+End Sub
+
+' KpiCardW - 現在のカード幅(pt)。SetBandWidth 前は最小幅。
+Public Function KpiCardW() As Double
+    KpiCardW = mCardW
+    If KpiCardW < KPI_CARD_W Then KpiCardW = KPI_CARD_W
+    If KpiCardW > KPI_CARD_MAX_W Then KpiCardW = KPI_CARD_MAX_W
+End Function
+
+' RowWidth - 現在の版面幅(pt)。カード4枚+隙間3つ。
+Public Function RowWidth() As Double
+    RowWidth = KpiCardW() * 4 + KPI_GAP * 3
+End Function
 
 ' ----------------------------------------------------------------------------
 ' 内部: 前月比(節約した時間)の集計
@@ -256,12 +304,13 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Else
         deltaColor = modUI.UiColor("muted")
     End If
-    DrawKpiCard ws, 0, KPI_X0, KPI_Y0, KPI_CARD_W, KPI_CARD_H, _
+    Dim cw As Double: cw = KpiCardW()                 ' R20-1b: 帯幅から決めた実カード幅
+    DrawKpiCard ws, 0, KPI_X0, KPI_Y0, cw, KPI_CARD_H, _
         "節約した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
 
     ' Card1: 登録ナレッジ数
     Dim ingestTotal As Long: ingestTotal = modDashStat.SafeGetStat("ingest_files_total")
-    DrawKpiCard ws, 1, KPI_X0 + (KPI_CARD_W + KPI_GAP), KPI_Y0, KPI_CARD_W, KPI_CARD_H, _
+    DrawKpiCard ws, 1, KPI_X0 + (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "登録ナレッジ数", ingestTotal & "件", "あなたが登録した資料"
 
     ' Card2: 蔵書チャンク数
@@ -273,7 +322,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Else
         ratio = 0
     End If
-    DrawKpiCard ws, 2, KPI_X0 + 2 * (KPI_CARD_W + KPI_GAP), KPI_Y0, KPI_CARD_W, KPI_CARD_H, _
+    DrawKpiCard ws, 2, KPI_X0 + 2 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "蔵書チャンク数", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
 
     ' Card3: レベル
@@ -281,7 +330,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Dim expTotalV As Long: expTotalV = modDashStat.SafeExpTotal()
     Dim remain As Long: remain = modDashStat.SafeExpFloorForLevel(lv + 1) - expTotalV
     If remain < 0 Then remain = 0
-    DrawKpiCard ws, 3, KPI_X0 + 3 * (KPI_CARD_W + KPI_GAP), KPI_Y0, KPI_CARD_W, KPI_CARD_H, _
+    DrawKpiCard ws, 3, KPI_X0 + 3 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "レベル", "Lv." & lv, "EXP " & expTotalV & " ・ 次まで" & remain & "EXP"
 End Sub
 
@@ -345,7 +394,7 @@ End Sub
 ' ---- EXP進捗バー ----
 
 Public Sub DrawExpBar(ByVal ws As Worksheet)
-    Dim trackW As Double: trackW = ROW_WIDTH
+    Dim trackW As Double: trackW = RowWidth()   ' R20-1b: 版面幅に追随
     Dim prog As Double: prog = modDashStat.SafeLevelProgress()
     If prog < 0 Then prog = 0
     If prog > 1 Then prog = 1
@@ -433,7 +482,7 @@ Public Sub DrawBadgeShelf(ByVal ws As Worksheet)
     For i = 0 To badgeN - 1
         Dim col As Long: col = i Mod BADGES_PER_ROW
         Dim rowN As Long: rowN = i \ BADGES_PER_ROW
-        Dim cardX As Double: cardX = KPI_X0 + col * (BADGE_W + BADGE_GAP_X)
+        Dim cardX As Double: cardX = KPI_X0 + col * (KpiCardW() + BADGE_GAP_X)
         Dim cardY As Double: cardY = BADGE_GRID_Y + rowN * (BADGE_H + BADGE_GAP_Y)
 
         Dim dt As String: dt = modStats.BadgeEarnedOn(ids(i))
@@ -458,7 +507,7 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
                           ByVal earned As Boolean, ByVal line1 As String, ByVal line2 As String)
     On Error Resume Next
     Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, x, y, BADGE_W, BADGE_H)
+    Set card = ws.Shapes.AddShape(5, x, y, KpiCardW(), BADGE_H)
     If card Is Nothing Then GoTo Done
     card.Name = "nxd_badge_" & idx
     card.Adjustments(1) = 0.14
