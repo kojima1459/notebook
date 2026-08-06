@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R17完了時点=R18より後に実施）
+# 再開手順（セッション中断対策・最終更新: R19完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,11 +6,25 @@
 
 ## 1. 現在地
 
-**R17完了(構造グラフPhase1〜3=波0〜3→敵対的レビュー2面→R17H裁定FA10+FB9+FA-2補 全消化)。実機配布可。**
-R1〜R18まで全ラウンド完了・検収済み・push済み(実施順はR16→R18→R17)。
-テスト1,626件・lint ERROR 0/WARN 4(全てテスト系)・モジュール129本(実装側WARNゼロ)。
-R17の仕様: design_20260805_R17_構造グラフ設計.md + spec_20260805_R17H_レビュー裁定.md。
-**実機検証は未実施**(docs/45 項目32〜34が対象。特に33=俯瞰・34=名寄せ)。
+**R19完了(実機第6報①〜⑤=波A〜C→敵対的レビュー2面→R19H裁定FA9+FB10 全消化)。実機配布可。**
+R1〜R19まで全ラウンド完了・検収済み・push済み(実施順はR16→R18→R17→R19)。
+テスト1,702件・lint ERROR 0/WARN 4(全てテスト系)・モジュール129本(実装側WARNゼロ)。
+R19の仕様: spec_20260806_R19_実機第6報.md + spec_20260806_R19H_レビュー裁定.md。
+**実機検証は未実施**(docs/45 特に項目28=余白と35系=同居/ランチャー+初回取込のコンパイル確認)。
+R19の骨子: ①余白根治=ScrollArea前提(R18)を廃し寸法で解く(modViewport:
+FitBandToViewportのアフィン2点補正で吸収列を可視幅ぴったりへ・ContentRight一本化・
+BoundAddr=内容下端+24pt・mChatBottom連動塗り。modSkinのA1:P2000全面塗り廃止)/
+②取込完了時「型が一致しません」=Split直渡し3箇所(modSynonymStore)を型付き配列受けへ
++lint検査15(配列型引数へのSplit/Filter/Array直渡し検知。LO Basicは検査しない穴を塞ぐ)/
+③「入念に調べる」バナー残留=nx_toastをClearChat+ClearProgressで掃除/
+④短文×複数資料の分散シグナル聞き返し(DispersionGapX100+発動非発動両方でusage_log
+"dispersion"・gap既定10・資料名明示なら発動せず)/⑤作業用Excel同居フリーズ根治=
+Excelの既定インスタンスマージが原因。可視他ブック検知(CohabitOtherCount:
+personal.xlsb/アドイン/不可視は除外)+取込前関所(スクショ・手動同期へも拡大)+
+ランチャー『MyBookshelfを起動.bat』(excel.exe /x=別プロセス起動)同梱+docs00/10是正+
+起動後案内はShowToast。UsedRange膨張判定は倍率→絶対値(横2,400/縦12,000pt)。
+R19H中にAPI上限で実装エージェントが死亡→WIP保全コミット(ff1f5b8)→上限回復後に
+レジュームで完走(§8の手順が実際に機能した)。
 R17Hの骨子: 名寄せ辞書の永久0行バグ(添字)根治+MergeSynPairs純関数化/俯瞰回答の
 二重警告排除(WasGlobalTurn+🔭バッジ・全モード入口リセット)/ArticleEnsureのスコープ遵守・
 score=0化・0件時seed/同名章キー×複数資料の箱詰め修正/無人同期の章要約を12章超で先送り
@@ -33,7 +47,11 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(下記)→実機第6報の受領。R17H Fix波までクローズ済み。
+次: 利用者の実機検証(下記)→実機第7報の受領。R19H Fix波までクローズ済み。
+R19H 記録のみ(次期): 分散聞き返しの意図5区分の冗長(実機フィードバック後に省略検討)/
+検査15の名前付き引数・単一行If(現リポ0件)/ViewportWidthの他ブックガード(modUIMain
+凍結解除後)/ambiguous_dispersion_gap_x100=10の校正(usage_log "dispersion"の観測待ち)/
+**cohabit_detectedの値の意味が「可視な他ブック数」へ変わった(次報のログ読み取り注意)**。
 R17H 記録のみ(次期): 同義語追記が DistinctiveKeys 8枠を圧迫し得る(発火後に実測評価)/
 名寄せの outline 非依存化(modShelf 凍結解除後)/既存本棚カードへの「再取込で新機能有効」
 バッジ表示。Phase1(構造メタ+参照エッジ)は R17波0/波1、
@@ -42,22 +60,28 @@ R17波3 で実装完了(いずれも下記「R17 で増えたもの」)。**modP
 Phase2/Phase3 とも見送った**(章要約・章選択・俯瞰回答・名寄せの4本とも新モジュール内の
 Private プロンプトにしたため。調査agent7 §5-4 が前提にしていた分割は今回も不要だった。
 modPromptsは残321字のまま=Phase3でも1文字も触っていない)。
-残: 利用者の実機テスト(docs/45スモーク全34項目、特に32(R17 Phase1)・33(R17 Phase2)・
-34(R17 Phase3)+28〜31+19〜27)。
-容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯):
-**optOcrPage(残3) / modUtil(残8) / modTestsPure6(残9) / modTestsPure11(残19) /
-modShelfBatch(残22) / optVision(残26) / modChunker(残38) / modBoot(残41) / modAsk(残43) /
-modUI(残44) / modShelfStore(残44) / optGsTxt(残45) / modUIMain(残101) / modHubStat(残164) /
-modShelf(残65・R17波1と波2で2度コメント圧縮した。**次に触る波は必ず先に分割裁定**) /
-modShelfSync(残88・R17波3でEnrichPendingの小口呼び出しを1行追加。**次に触る波は必ず先に
-分割裁定**) / modUINexusDraw(残194) / modRetrieve(残259) / modPrompts(残321) /
-modGateway(残585・R17波3でname_dedupのMock Caseを追加) /
-modTestsPure12(WARN帯28,280字・追記禁止)**。modSkin は R18 で 22,977字へ解放済み。
-modRagParse は R17波3でExpandQueryBySyn/ParseSynResp追加により残6,230→残1,582
-まで縮んだ(まだ危険域ではないが、次にmodRagParseへ機能を足す波は先に一度確認すること)。
+残: 利用者の実機テスト(docs/45スモーク、特に28=余白(狭窓の下限注記あり)・35系=
+同居関所とランチャー起動+初回取込で「型が一致しません」が出ないこと+viewport観測ログと
+usage_log "dispersion"/"cohabit_detected" の回収)。
+容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯。R19H後の実測):
+**optOcrPage(残3) / modBoot(残8) / modUtil(残8) / modTestsPure6(残9) /
+modUINexusDraw(残13) / modTestsPure11(残19) / optVision(残26) / modUIMain(残35) /
+modChunker(残38) / modAsk(残43) / modShelfStore(残44) / modShelfBatch(残45) /
+optGsTxt(残45) / modUI(残47・R19H FB-9で+11) / modShelfSync(残55・R19H FA-6で+26。
+**次に触る波は必ず先に分割裁定**) / modShelf(残65・**同**) / modRagParse(残90) /
+modHubStat(残164) / modRetrieve(残259) / modHub(残287・R19H FA-4は同量圧縮で−44) /
+modPrompts(残321) / modChannel(残380) /
+modTestsPure12(WARN帯28,280字・追記禁止)**。
+modTestsPure16(残830)はR19Hのゴールデン追加で急伸したため次に足す波は先に確認。
+modViewport(12,455字)/modIntegrity(22,376字)/modClarify(23,853字)/modSkin(25,594字)は
+余裕あり。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R19-Fix | Opus | R19H裁定FA9(アフィン2点補正/shared下端/同居誤検知除外/HUB_BAND統一/塗り巻き戻し+絶対値判定/関所拡大/文言両対応/ShowToast/docs00)+FB10 | ff1f5b8/6daffd9 | 完了 |
+| R19波C | Sonnet | ⑤同居検知+取込前関所+ランチャーbat生成/④分散シグナル聞き返し(HasScoreDispersion/config gap=10) | 9d2736e〜f457f85 | 完了 |
+| R19波B | Opus | ①modViewport新設+全画面の余白根治(吸収列/ContentRight/BoundAddr/mChatBottom連動塗り) | 177c79b〜d4b37b8 | 完了 |
+| R19波A | Opus | ②Split直渡し3箇所の型不一致根治+lint検査15(検知実証→修正→0件)/③nx_toast掃除(ClearChat+ClearProgress) | 7fdd2ba〜3d23d56 | 完了 |
 | R17-Fix | Opus | R17H裁定FA10(名寄せ0行根治/俯瞰二重警告/スコープ遵守ほか)+FB9+FA-2補 | 28c7838/0bf73cd/0a1f7aa | 完了 |
 | R1〜R7 | Opus/Sonnet | レビュー対応/取込/統計/UI統合/OCR/UIUX修復 | 〜 | 完了 |
 | R8/R8b/R8c | Opus/Sonnet | P2P修正14件+敵対的レビュー16件+再レビュー6件。テスト272→417 | 〜 | 完了 |
