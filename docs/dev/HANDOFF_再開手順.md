@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R19完了時点）
+# 再開手順（セッション中断対策・最終更新: R20完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,11 +6,28 @@
 
 ## 1. 現在地
 
-**R19完了(実機第6報①〜⑤=波A〜C→敵対的レビュー2面→R19H裁定FA9+FB10 全消化)。実機配布可。**
-R1〜R19まで全ラウンド完了・検収済み・push済み(実施順はR16→R18→R17→R19)。
-テスト1,702件・lint ERROR 0/WARN 4(全てテスト系)・モジュール129本(実装側WARNゼロ)。
-R19の仕様: spec_20260806_R19_実機第6報.md + spec_20260806_R19H_レビュー裁定.md。
-**実機検証は未実施**(docs/45 特に項目28=余白と35系=同居/ランチャー+初回取込のコンパイル確認)。
+**R20完了(実機第7報①〜⑨=調査5班→波A〜D順次→敵対的レビュー2面+おもてなし監査→R20H裁定FA16+Haiku掃除波 全消化)。実機配布可。**
+R1〜R20まで全ラウンド完了・検収済み・push済み。
+テスト1,843件・lint ERROR 0/WARN 12(容量WARNのみ)・モジュール134本。
+R20の仕様: spec_20260806_R20_実機第7報.md + spec_20260806_R20H_レビュー裁定.md。
+**実機検証は未実施**(docs/45スモーク+R20新機能: 余白の窓幅追随とリサイズ再フィット/⚡仕上げ/初回ウィザード/MS&AD配色)。
+R20の骨子: ⑦余白3層根治=帯だけでなく(層1)中身の窓幅追随(Dashカード幅130-220pt可変+
+帯内センタリング/本棚gallery3-6列可変+table J列吸収/ピルContentRight統一)・(層2)縦の
+行高明示範囲を実寸+αへ縮小(Hub60→40行/Dash120→40行/本棚412→実測。UseStandardHeightで
+既存ブックも毎回救済)・(層3)測定頑健化(ViewportWidth他ブックガード=FB-5同型/クランプ
+1600→3000pt/Dash全画面化順序)+Workbook_WindowResizeデバウンス0.7s自動再フィット
+(dev/prodインストーラ両対応・OnTimeゾンビ防止・busy3情報源=modUiLock+modShelf+modShelfSync)/
+①深掘りの一般アシスタント対応(ゲートをmGenPrevU系へ分岐・先消し順序逆転・ShowToast化・
+OnClearChatの一般履歴クリア新設)/⑧モード可観測性(回答フッターにモード名+段数+所要を永続
+表示・dispersionログのmode列正常化・自己エコー防御(全角対応)・thorough専用分散閾値
+thorough_dispersion_gap_x100=25・thorough文体差別化はmodAskThorough側追記連結)/
+②再取込ゼロの⚡仕上げ(modBackfill新設: 保存済みfull_text+breadcrumbからPhase1(AI0回)→
+BuildOutlineFor委譲でPhase2/3。本棚ツールバー⚡+初回トースト)/③④設定導線(modSetupWizard
+新設: 部門=商品部/リスコン部/自由入力・共有フォルダFolderPicker化・Hub/タイル/カードの
+到達不能config案内全廃・初回2ステップウィザード(nexus_wizard_doneで1回性))/⑤引継ぎ
+ファイル説明ダイアログ+パック表記統一/⑥MS&AD配色(msadテーマ既定: PRIMARY #01675B/
+DARK #014D44/LIGHT #0B7D6E・自分バブル緑グラデ白字(6.8:1/5.0:1 AA)・☀🌙はmsad⇄dark)/
+APP_NAME="MyBookshelf"統一(表示リテラル18箇所もHaiku波で置換)。
 R19の骨子: ①余白根治=ScrollArea前提(R18)を廃し寸法で解く(modViewport:
 FitBandToViewportのアフィン2点補正で吸収列を可視幅ぴったりへ・ContentRight一本化・
 BoundAddr=内容下端+24pt・mChatBottom連動塗り。modSkinのA1:P2000全面塗り廃止)/
@@ -47,7 +64,15 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(下記)→実機第7報の受領。R19H Fix波までクローズ済み。
+次: 利用者の実機検証(下記)→実機第8報の受領。R20H Fix波+Haiku掃除波までクローズ済み。
+R20H 記録のみ(次期): 部門ラベルのクリック配線(modUINexusDrawピル化・分割裁定とセット)/
+Hub左カラム(統計タイル/バッジ帯)の幅追随/ACCENT #07A963の白字未達箇所(既存継承)/
+darkテーマのヘッダー帯ブランド色固定/ToolbarContentRight孤児化の契約掃除/
+breadcrumb診断の複数チャンク多数決化/MaybeShowBackfillToastの全走査の重さ(2万行級)/
+OnTime予約のui_state二重化+mRefitRunning失効ガード/ブック名「'」のOnTime修飾(既存作法全体)/
+「ナレッジ」⇔「資料」全面用語統一/docs10目次の全面再構成/modBackfill残りDictionaryの
+比較方式統一/modAnalytics等のNexus残存(表示外)/診断画面の「チャンク数(my_knowledge)」は
+技術者向けとして意図的に温存。
 R19H 記録のみ(次期): 分散聞き返しの意図5区分の冗長(実機フィードバック後に省略検討)/
 検査15の名前付き引数・単一行If(現リポ0件)/ViewportWidthの他ブックガード(modUIMain
 凍結解除後)/ambiguous_dispersion_gap_x100=10の校正(usage_log "dispersion"の観測待ち)/
@@ -60,24 +85,32 @@ R17波3 で実装完了(いずれも下記「R17 で増えたもの」)。**modP
 Phase2/Phase3 とも見送った**(章要約・章選択・俯瞰回答・名寄せの4本とも新モジュール内の
 Private プロンプトにしたため。調査agent7 §5-4 が前提にしていた分割は今回も不要だった。
 modPromptsは残321字のまま=Phase3でも1文字も触っていない)。
-残: 利用者の実機テスト(docs/45スモーク、特に28=余白(狭窓の下限注記あり)・35系=
-同居関所とランチャー起動+初回取込で「型が一致しません」が出ないこと+viewport観測ログと
-usage_log "dispersion"/"cohabit_detected" の回収)。
-容量の分割必須ライン(次に触る波は先に分割裁定。1行でも足すとWARN帯。R19H後の実測):
-**optOcrPage(残3) / modBoot(残8) / modUtil(残8) / modTestsPure6(残9) /
-modUINexusDraw(残13) / modTestsPure11(残19) / optVision(残26) / modUIMain(残35) /
-modChunker(残38) / modAsk(残43) / modShelfStore(残44) / modShelfBatch(残45) /
-optGsTxt(残45) / modUI(残47・R19H FB-9で+11) / modShelfSync(残55・R19H FA-6で+26。
-**次に触る波は必ず先に分割裁定**) / modShelf(残65・**同**) / modRagParse(残90) /
-modHubStat(残164) / modRetrieve(残259) / modHub(残287・R19H FA-4は同量圧縮で−44) /
-modPrompts(残321) / modChannel(残380) /
-modTestsPure12(WARN帯28,280字・追記禁止)**。
-modTestsPure16(残830)はR19Hのゴールデン追加で急伸したため次に足す波は先に確認。
-modViewport(12,455字)/modIntegrity(22,376字)/modClarify(23,853字)/modSkin(25,594字)は
-余裕あり。
+残: 利用者の実機テスト(docs/45スモーク+R20分: 28=余白(全画面+窓リサイズ0.7s再フィット+
+本棚gallery列数追随)・⚡仕上げ(旧形式資料の検出→実行→32-34機能有効化)・初回ウィザード
+(2回目起動で出ないこと)・MS&AD配色・深掘りボタンの一般モード動作・回答フッターの
+モード名表示(3モードの体感差)+usage_log "dispersion"(mode列が実モードに変更済み)/
+"viewport"/"cohabit_detected"とask_stepsの回収→thorough_dispersion_gap_x100=25と
+ambiguous_score_x100の校正)。
+容量の分割必須ライン(次に触る波は先に分割裁定。R20H後の実測。上限30,000/WARN28,000):
+**WARN帯12本(追記は分割裁定後のみ): modTestsPure2(29,542)/modTestsPure(28,906)/
+modSkin(28,690・R20-7で急伸)/modTestsPure5(28,622)/modHub(28,620)/modKnowledge(28,566)/
+modUIShelf(28,549)/modChannel(28,476)/modHubStat(28,431)/modUIMain(28,358)/
+modUI(28,323)/modTestsPure12(28,280)**。
+WARN線まで100字未満: optOcrPage(残3)/modBoot(残8)/modUtil(残8)/modTestsPure6(残9)/
+modUINexusDraw(残13)/modTestsPure11(残19)/optVision(残26)/modChunker(残38)/
+modAsk(残43)/modShelfStore(残44)/modShelfBatch(残45)/optGsTxt(残45)/
+modShelfSync(残55・**分割裁定必須**)/modShelf(残65・**同**)/modRagParse(残90)。
+新設・余裕: modBackfill(15,841)/modSetupWizard(4,924)/modTestsPure20(7,147)/
+modTestsPure21(新)/modViewport(21,490)/modDashStat(21,409)/modClarify(24,655)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R20H2 | Haiku | "Nexus Agent"表示リテラル18箇所→APP_NAME参照+分析CSV名 | 62c10af | 完了 |
+| R20-Fix | Sonnet | R20H裁定FA16(ビルド台帳3件/busy3情報源/仕上げロック/行高高水位分離/テーマトグル/管理者行RowX0/段数リーク/ウィザード1回性/全角エコー/部門ピッカー/APP_NAME/文言・docs是正) | 86a65cc〜2ec9a5f | 完了 |
+| R20波D | Sonnet | ③④設定ウィザード(modSetupWizard/FolderPicker/導線全付替)+⑥MS&AD配色(msadテーマ)+Dashセンタリング | 74ba6a4〜f4f3cbb | 完了 |
+| R20波C | Sonnet | ②⚡仕上げバックフィル(modBackfill)+⑤引継ぎ/パック説明 | 637b28c〜0fb0754 | 完了 |
+| R20波B | Sonnet | ①深掘り一般対応+⑧モード可観測性・聞き返し強化 | 8ff2571〜2c43493 | 完了 |
+| R20波A | Opus | ⑦余白3層根治(測定頑健化/縦掃除/幅追随/Hub縦詰め/リサイズ再フィット) | f8ec173〜13232dd | 完了 |
 | R19-Fix | Opus | R19H裁定FA9(アフィン2点補正/shared下端/同居誤検知除外/HUB_BAND統一/塗り巻き戻し+絶対値判定/関所拡大/文言両対応/ShowToast/docs00)+FB10 | ff1f5b8/6daffd9 | 完了 |
 | R19波C | Sonnet | ⑤同居検知+取込前関所+ランチャーbat生成/④分散シグナル聞き返し(HasScoreDispersion/config gap=10) | 9d2736e〜f457f85 | 完了 |
 | R19波B | Opus | ①modViewport新設+全画面の余白根治(吸収列/ContentRight/BoundAddr/mChatBottom連動塗り) | 177c79b〜d4b37b8 | 完了 |
