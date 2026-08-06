@@ -756,7 +756,7 @@ Public Sub SettleChat()
     ScrollToBottom ws
 End Sub
 
-' ClearChat - 会話をクリアする(実機要望: 長い会話をリセットしたい)。
+' ClearChat - 会話をクリアする(実機要望)。
 Public Sub ClearChat()
     Dim ws As Worksheet
     Set ws = GetNexusSheet()
@@ -764,13 +764,14 @@ Public Sub ClearChat()
     On Error Resume Next
     Dim names() As String
     ReDim names(0 To ws.Shapes.Count)
-    Dim n As Long: n = 0
+    Dim n As Long
     Dim shp As Shape
     For Each shp In ws.Shapes
         Dim nm As String: nm = shp.Name
         If Left$(nm, 7) = "nx_msg_" Or Left$(nm, 7) = "nx_thk_" _
            Or Left$(nm, 7) = "nx_act_" Or Left$(nm, 8) = "nx_cite_" _
-           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 6) = "nx_sq_" Then
+           Or Left$(nm, 8) = "nx_conf_" Or Left$(nm, 6) = "nx_sq_" _
+           Or nm = "nx_toast" Then
             names(n) = nm
             n = n + 1
         End If
