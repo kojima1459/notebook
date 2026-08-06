@@ -206,7 +206,7 @@ Private Sub ShowHelpCard()
     tourBtn.Placement = 3
     tourBtn.ZOrder 0
 
-    ' 2段目: ご意見箱(EXP)+P2P接続設定
+    ' 2段目: ご意見箱(EXP)+共有フォルダ設定
     Dim fbBtn As Shape
     Set fbBtn = ws.Shapes.AddShape(5, cardL, belowT + 34, 170, 28)
     fbBtn.Name = "nx_help_fb"
@@ -240,7 +240,7 @@ Private Sub ShowHelpCard()
     cfgBtn.Line.ForeColor.RGB = modUI.UiColor("border")
     With cfgBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H2699) & " P2P接続設定(共有フォルダ)"
+        .TextRange.Text = ChrW(&H2699) & " 共有フォルダ設定"   ' R20H FA-16: 「P2P接続設定」を平易化
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .TextRange.ParagraphFormat.Alignment = 2
@@ -409,7 +409,7 @@ Done:
 End Sub
 
 ' ----------------------------------------------------------------------------
-' OnShareSetup - P2P接続設定(B-1)。隠しconfigシートを触らせずに、共有フォルダの
+' OnShareSetup - 共有フォルダ設定(B-1)。隠しconfigシートを触らせずに、共有フォルダの
 '   パスをダイアログで設定できる唯一の窓口。保存後はボードを即時再構築。
 ' ----------------------------------------------------------------------------
 Public Sub OnShareSetup()
@@ -488,7 +488,7 @@ Private Function PickSharePath(ByVal cur As String) As String
     On Error GoTo Fallback
     Dim fd As Object
     Set fd = Application.FileDialog(4)   ' msoFileDialogFolderPicker
-    fd.Title = "P2P共有フォルダを選んでください"
+    fd.Title = "共有フォルダを選んでください"   ' R20H FA-16: 「P2P共有フォルダ」を平易化
     If fd.Show = -1 Then
         If fd.SelectedItems.Count >= 1 Then
             PickSharePath = CStr(fd.SelectedItems(1))
@@ -498,11 +498,13 @@ Private Function PickSharePath(ByVal cur As String) As String
 Fallback:
     ' キャンセル・非対応環境のどちらもここへ来る(UNC直打ち救済)。
     If MsgBox("パスを直接入力しますか?(UNCパスの直接指定などに)", _
-              vbYesNo + vbQuestion, "Nexus Agent - P2P接続設定") <> vbYes Then Exit Function
-    PickSharePath = InputBox("P2P共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
+              vbYesNo + vbQuestion, "Nexus Agent - 共有フォルダ設定") <> vbYes Then Exit Function
+    ' R20H FA-16: 「P2P共有フォルダ」を平易化し、例示パスもNexus_Share→
+    ' MyBookshelf_Shareへ(旧ブランド名の混在を防ぐ)。
+    PickSharePath = InputBox("共有フォルダ(感謝状・専門家への質問・みんなの節約時間で使用)の" & vbCrLf & _
                  "パスを入力してください。チームで同じフォルダを指定します。" & vbCrLf & _
-                 "例: \\サーバー名\共有\Nexus_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
-                 "Nexus Agent - P2P接続設定", cur)
+                 "例: \\サーバー名\共有\MyBookshelf_Share\ (現在: " & IIf(LenB(cur) > 0, cur, "未設定") & ")", _
+                 "Nexus Agent - 共有フォルダ設定", cur)
 End Function
 
 ' ヘルプカードの本文(コンシェルジュ風の簡潔ガイド)。
@@ -512,7 +514,7 @@ End Function
 Private Function HelpBodyText() As String
     Dim s As String
     s = ChrW(&HD83D) & ChrW(&HDCD6) & " Nexus Agent かんたんガイド" & vbLf & vbLf & _
-        ChrW(&HD83C) & ChrW(&HDFE0) & " 画面は5つ: Hub(ホーム)・チャット・マイ本棚(登録/一覧/解決事例)" & _
+        ChrW(&HD83C) & ChrW(&HDFE0) & " 画面は5つ: Hub(ホーム)・チャット・マイ本棚(一覧/ギャラリー/みんなの解決事例)" & _
         "・ダッシュボード・診断。どこからでも左上「" & ChrW(&H2190) & " Hub」で戻れます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCAC) & " チャット: 入力欄に質問して「質問する」。モードボタンで" & _
         "「社内ナレッジ検索」(出典付き)と「一般アシスタント」を切替。" & vbLf & _

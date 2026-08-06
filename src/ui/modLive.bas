@@ -135,10 +135,18 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
         Footer = t & " ・ " & srcN & "冊 / " & spotN & "か所を読みました"
     End If
 
+    ' 2026-08-06 R20H FA-8: modAskRetrieve.LastStageTotal()はRAG3モード
+    ' (quick/deep/thorough)側の最終段番号を保持するモジュール変数で、
+    ' 一般アシスタント(mode="normal")はそもそも段の概念を持たない。
+    ' 直前の質問がRAGモードだったとき、その段数が一般アシスタントの
+    ' 回答フッターへそのまま漏れて出ていた(モード間リーク)。normalのときは
+    ' 参照自体をしない(層をここで閉じる)。
     Dim stg As Long
-    On Error Resume Next
-    stg = modAskRetrieve.LastStageTotal()
-    On Error GoTo 0
+    If LCase$(Trim$(mode)) <> "normal" Then
+        On Error Resume Next
+        stg = modAskRetrieve.LastStageTotal()
+        On Error GoTo 0
+    End If
     If stg > 0 Then Footer = Footer & "(" & stg & "段)"
 End Function
 

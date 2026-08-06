@@ -214,7 +214,10 @@ Public Sub OnVaultSubmit()
     modUIMain.HideProgress
 
     If ok Then
-        MsgBox "ナレッジデータベースに追加され、ベクトル化されました。", vbInformation, "Nexus Agent"
+        ' 2026-08-06 R20H FA-16: 「ベクトル化されました」は生ジャーゴン。
+        ' タイトルも他の全ハンドラと同じmodAppDef.APP_NAME参照へ揃える
+        ' (このMsgBoxだけ"Nexus Agent"のハードコードだった)。
+        MsgBox "ナレッジデータベースに追加され、AIが読み込みました。", vbInformation, modAppDef.APP_NAME
         ClearInputs ws
         CloseVault ws
     Else

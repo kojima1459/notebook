@@ -180,7 +180,7 @@ Public Sub OnWidgetClick()
            "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
            "  /  今年: " & FmtMin(mOrgYear) & DeptLineForPopup() & vbLf & vbLf & _
            "※「" & ChrW(&H2705) & "解決した」1回=" & modP2PIo.MinutesPerSelfsolve() & _
-           "分の節約として、他者からの感謝と同じP2P機構で" & vbLf & _
+           "分の節約として、他者からの感謝と同じしくみで" & vbLf & _
            "  組織に共有・合算されます(共有フォルダ経由なので最大10分遅れの目安)。" & vbLf & _
            "(クリックで閉じる)"
 

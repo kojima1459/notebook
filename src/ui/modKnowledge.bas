@@ -629,9 +629,11 @@ Public Sub OnChannels()
 
     If LenB(all) = 0 Then
         modUiLock.Leave
+        ' 2026-08-06 R20H FA-16: 内部のフォルダ・ファイル構造(channels\<部門名>\
+        ' pack.xlsx/version.txt)は運用担当者向けの情報で、一般利用者への
+        ' 案内としては細かすぎたため簡略化(詳細はdocs/70データ管理者向け)。
         MsgBox "部門の公式ナレッジがまだ1つも見つかりません。" & vbCrLf & vbCrLf & _
-            "各部門が正典を発行すると、自動でここに現れます。" & vbCrLf & _
-            "(共有フォルダの channels\<部門名>\ に pack.xlsx と version.txt が置かれる形です)" & vbCrLf & vbCrLf & _
+            "各部門の担当者が共有フォルダへ発行すると、自動でここに現れます。" & vbCrLf & vbCrLf & _
             "共有フォルダ自体が未設定の場合は、Hubのお知らせから設定してください。", _
             vbInformation, modAppDef.APP_NAME
         Exit Sub

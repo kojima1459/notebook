@@ -205,9 +205,15 @@ End Sub
 ' OnBackfillClick - 「⚡仕上げ」ボタン(R20-3)。判定・確認ダイアログ・
 '   実処理は modBackfill(ingest層)側に閉じており、ここは取込中ガード+
 '   結果の表示(トースト)+一覧の再描画だけを持つ薄いハンドラ。
+'   2026-08-06 R20H FA-3: modUiLock.Enter/Leaveが欠けており、連打での
+'   二重実行や他ハンドラとの入れ子実行を遮断できていなかった
+'   (modHelpの全ハンドラと同型: BlockIfIngestingをEnterの前に置く。
+'   後ろに置くとロックを取ったままExitし、全ボタンが10分死ぬ)。
 ' ----------------------------------------------------------------------------
 Public Sub OnBackfillClick()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done
 
     Dim raw As String
     raw = modBackfill.BackfillAll()
@@ -220,7 +226,7 @@ Public Sub OnBackfillClick()
     Else
         kind = raw
     End If
-    If kind = modBackfill.OUTCOME_CANCELLED Then Exit Sub
+    If kind = modBackfill.OUTCOME_CANCELLED Then GoTo Done
 
     On Error Resume Next
     If LenB(msg) > 0 Then
@@ -228,6 +234,9 @@ Public Sub OnBackfillClick()
     End If
     modUIShelf.RenderShelf
     On Error GoTo 0
+
+Done:
+    modUiLock.Leave
 End Sub
 
 ' 起動後、本棚ツールバーの初回描画時に1回だけ「未仕上げ資料あり」を告知する

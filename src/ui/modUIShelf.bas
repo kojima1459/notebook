@@ -52,6 +52,15 @@ Private Const COL_DATE As Long = 5     ' E
 Private Const COL_CHUNKS As Long = 6   ' F(F:G 結合)
 Private Const COL_MEMO As Long = 8     ' H(H:J 結合)
 
+' 2026-08-06 R20H FA-4: table(一覧表)モードが自分で最後に書いた本文行の
+' 下端。modKnowledge.ShelfRowHigh()は3モード(table/gallery/shared)共有の
+' 高水位で、gallery等が挟まると table より小さい値に上書きされ得る。その
+' 状態で ClearCardArea が共有値だけを下限にすると、gallery を経由する前に
+' table が書いた旧行がクリアされずに残る(table60冊→gallery→table絞り込み
+' で再現)。table 専用の記憶をここに持ち、Max(自モード前回行, 共有高水位)を
+' クリア範囲の下限にする(RenderShelf 末尾で更新)。
+Private mTableLastRow As Long
+
 Private Const RNG_FOLDER As String = "A7:J7"
 Private Const RNG_SYNCINFO As String = "D8:J9"
 
@@ -194,7 +203,7 @@ Public Sub EnsureLayout()
     ws.Cells(HEADER_ROW, COL_NAME).Value = "資料名"
     ws.Cells(HEADER_ROW, COL_DATE).Value = "追加日"
     ws.Range(ws.Cells(HEADER_ROW, COL_CHUNKS), ws.Cells(HEADER_ROW, COL_CHUNKS + 1)).Merge
-    ws.Cells(HEADER_ROW, COL_CHUNKS).Value = "チャンク数"
+    ws.Cells(HEADER_ROW, COL_CHUNKS).Value = "分割数"   ' R20H FA-16: 生ジャーゴン「チャンク数」を平易化
     ws.Range(ws.Cells(HEADER_ROW, COL_MEMO), ws.Cells(HEADER_ROW, COL_MEMO + 2)).Merge
     ws.Cells(HEADER_ROW, COL_MEMO).Value = "メモ"
     With ws.Range(ws.Cells(HEADER_ROW, 1), ws.Cells(HEADER_ROW, 10))
@@ -297,6 +306,7 @@ Public Sub RenderShelf()
         End With
         ws.Rows(FIRST_CARD_ROW).RowHeight = 18
         ApplyShelfExtent ws, FIRST_CARD_ROW, True
+        mTableLastRow = FIRST_CARD_ROW   ' R20H FA-4: table自身の記憶も更新
         Application.ScreenUpdating = True
         Exit Sub
     End If
@@ -320,6 +330,7 @@ Public Sub RenderShelf()
 
     uiStep = "実使用範囲の確定"
     ApplyShelfExtent ws, FIRST_CARD_ROW + shown - 1, False
+    mTableLastRow = FIRST_CARD_ROW + shown - 1   ' R20H FA-4: table自身の記憶も更新
 
     Application.ScreenUpdating = True
     Exit Sub
@@ -534,11 +545,24 @@ End Sub
 ' 書き直していた。資料が3冊でも400行ぶんが「使用済み」になるので、下へ
 ' 8画面ぶん転がれる状態が毎描画で作り直されていた(層2の再生産源)。
 ' 前回どこまで使ったか(modKnowledge が3モード共有で持つ高水位)までに絞る。
-Private Sub ClearCardArea(ByVal ws As Worksheet)
+' ClearAreaLastRow - ClearCardAreaが実際にクリアする下端行を決める純関数
+'   (R20H FA-4)。共有高水位(sharedHigh=modKnowledge.ShelfRowHigh())と
+'   table自身が前回書いた本文行(tableLastRow=mTableLastRow)のうち大きい方を
+'   採用してから、[FIRST_CARD_ROW, FIRST_CARD_ROW+MAX_CARD_ROWS-1]へ収める。
+'   gallery等の別モードが間に挟まってsharedHighをtableより小さい値へ
+'   上書きしても、table自身の記憶(tableLastRow)がある限り取りこぼさない。
+Public Function ClearAreaLastRow(ByVal sharedHigh As Long, ByVal tableLastRow As Long) As Long
     Dim lastRow As Long
-    lastRow = modKnowledge.ShelfRowHigh()
+    lastRow = sharedHigh
+    If tableLastRow > lastRow Then lastRow = tableLastRow
     If lastRow > FIRST_CARD_ROW + MAX_CARD_ROWS - 1 Then lastRow = FIRST_CARD_ROW + MAX_CARD_ROWS - 1
     If lastRow < FIRST_CARD_ROW Then lastRow = FIRST_CARD_ROW
+    ClearAreaLastRow = lastRow
+End Function
+
+Private Sub ClearCardArea(ByVal ws As Worksheet)
+    Dim lastRow As Long
+    lastRow = ClearAreaLastRow(modKnowledge.ShelfRowHigh(), mTableLastRow)
 
     Dim rng As Range
     Set rng = ws.Range(ws.Cells(FIRST_CARD_ROW, 1), ws.Cells(lastRow, 10))

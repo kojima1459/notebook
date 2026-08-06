@@ -581,11 +581,15 @@ Public Function ActiveLabel() As String
 End Function
 
 ' ActiveLabelText(R20-4c) - 表示文言の組み立てだけを分離した純関数
-'   (ゴールデン対象)。have<=0は「未読込」ではなく「未設定(クリックで設定)」
-'   とし、共有フォルダ配下の部門チャンネルが未接続であることを明示する。
+'   (ゴールデン対象)。have<=0は「未読込」ではなく「未設定」とし、共有
+'   フォルダ配下の部門チャンネルが未接続であることを明示する。
+'   2026-08-06 R20H FA-6: このラベルShapeにクリックハンドラは無い(下記
+'   【未配線・報告事項】)。「クリックで設定」は実行不能な案内だったため、
+'   実際に辿れる導線(❓ヘルプの⚙から設定)へ差し替える。
 Public Function ActiveLabelText(ByVal have As Long, ByVal total As Long) As String
     If have <= 0 Then
-        ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門資料: 未設定(クリックで設定)"
+        ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門資料: 未設定(" & _
+            ChrW(&H2753) & "ヘルプの" & ChrW(&H2699) & "から設定)"
     ElseIf have >= total Then
         ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 全" & total & "部門"
     Else

@@ -342,7 +342,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     DrawKpiCard ws, 1, x0 + (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
         "登録ナレッジ数", ingestTotal & "件", "あなたが登録した資料"
 
-    ' Card2: 蔵書チャンク数
+    ' Card2: 資料の分量(2026-08-06 R20H FA-16: 生ジャーゴン「蔵書チャンク数」を平易化)
     Dim totalChunks As Long: totalChunks = modDashStat.SafeTotalChunks()
     Dim shelfMax As Long: shelfMax = modDashStat.SafeShelfMax()
     Dim ratio As Double
@@ -352,7 +352,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
         ratio = 0
     End If
     DrawKpiCard ws, 2, x0 + 2 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
-        "蔵書チャンク数", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
+        "資料の分量", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
 
     ' Card3: レベル
     Dim lv As Long: lv = modDashStat.SafeLevel()

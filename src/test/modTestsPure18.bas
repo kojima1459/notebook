@@ -477,10 +477,20 @@ Private Sub TestSelfEchoGuard()
         (modClarify.IsSelfEcho("  免責は?  ", "免責は?") = True)
     modTestRunner.Check "自己連結防御_大小無視(半角英字)で一致", _
         (modClarify.IsSelfEcho("ABC", "abc") = True)
-    modTestRunner.Check "自己連結防御_8字未満の別文言は自己エコーでない", _
+    ' 2026-08-06 R20H FA-10: 旧名称「8字未満の別文言」は実装(文字数を一切見ない
+    ' 完全一致比較)と噛み合っていなかったため、実態に合わせて改称。
+    modTestRunner.Check "自己連結防御_文言そのものが異なれば自己エコーでない", _
         (modClarify.IsSelfEcho("免責とは", "免責は?") = False)
     modTestRunner.Check "自己連結防御_origQが空なら自己エコーでない", _
         (modClarify.IsSelfEcho("免責は?", "") = False)
+    ' R20H FA-10: 全角スペース境界(半角Trim$だけでは落とせず、正規化漏れで
+    ' 別文言と誤判定していた実バグ)。
+    modTestRunner.Check "自己連結防御_全角スペースの前後付着は正規化して一致", _
+        (modClarify.IsSelfEcho("免責は?" & ChrW(&H3000), "免責は?") = True)
+    modTestRunner.Check "自己連結防御_語間の全角スペースは半角と同一視して一致", _
+        (modClarify.IsSelfEcho("免責" & ChrW(&H3000) & "は?", "免責 は?") = True)
+    modTestRunner.Check "自己連結防御_origQが全角スペースのみなら空扱いで自己エコーでない", _
+        (modClarify.IsSelfEcho("免責は?", ChrW(&H3000) & ChrW(&H3000)) = False)
 End Sub
 
 Private Sub TestThoroughDispersionPair()

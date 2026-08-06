@@ -341,24 +341,28 @@ End Sub
 ' ToggleTheme - ライト/ダーク反転+全体再彩色
 ' R14-6b(実機第3報 RC5-B/C):
 '   (B) 特別スキン(sakura/ocean/gold等)使用中に太陽/月トグルを押すと無警告で
-'       darkへ上書きしていた。light/dark以外は上書きせず着せ替え(🎨)へ誘導。
+'       darkへ上書きしていた。特別スキン以外は上書きせず着せ替え(🎨)へ誘導。
 '   (C) ApplyTheme直後のBeautifyAll漏れでグラデがベタ塗りへ退行していた。
 ' R14-G7: 入口の関所を modHub.OnThemeToggle と同型に(取込中の入れ子実行と
 '   連打を止める)。後始末は Leave 1点へ集約。
+' R20H FA-5: msadが既定テーマになった(R20-7)のに特別スキン扱いのままで、
+'   既定利用者は☀🌙が常に無反応だった。特別スキンはsakura/ocean/gold等の
+'   🎨専用テーマに限定し、msadはlight同様ダークと行き来できる側とする。
 Public Sub ToggleTheme()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo ThemeFail
 
     Dim cur As String: cur = modSkin.CurrentTheme()
-    If cur <> "light" And cur <> "dark" Then
+    If cur <> "light" And cur <> "dark" And cur <> "msad" Then
         modSkin.ShowToast "特別スキン使用中です。" & ChrW(&HD83C) & ChrW(&HDFA8) & _
             "着せ替えボタンで変更できます", "info"
         GoTo ThemeDone
     End If
 
+    ' darkからの復帰先はmsad固定(lightから来ていても揃える。FA-5裁定)。
     If cur = "dark" Then
-        modSkin.SaveTheme "light"
+        modSkin.SaveTheme "msad"
     Else
         modSkin.SaveTheme "dark"
     End If

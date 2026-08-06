@@ -207,10 +207,17 @@ End Sub
 ' IsSelfEcho - 返信が保留元の質問と同一(前後空白を落とし、大小・全半角を
 '   無視)かどうか(R20-6c、純関数)。MergeAnswerはorigQをExcel経由でしか
 '   読めないため、判定規則そのものをここへ出してLOテストで固定する。
+'   2026-08-06 R20H FA-10: Trim$は半角スペースしか落とさず、全角スペース
+'   (ChrW(&H3000))が前後・語間に混じった同一文を「別文」と誤判定して
+'   自己エコー防御が抜けていた。全角スペースを半角へ正規化してからTrimする
+'   (Replaceは文字列全体に効くため、語間の全角スペースも半角に揃う)。
 ' ----------------------------------------------------------------------------
 Public Function IsSelfEcho(ByVal reply As String, ByVal origQ As String) As Boolean
-    If LenB(Trim$(origQ)) = 0 Then Exit Function
-    IsSelfEcho = (StrComp(Trim$(reply), Trim$(origQ), vbTextCompare) = 0)
+    Dim r As String, o As String
+    r = Trim$(Replace(reply, ChrW(&H3000), " "))
+    o = Trim$(Replace(origQ, ChrW(&H3000), " "))
+    If LenB(o) = 0 Then Exit Function
+    IsSelfEcho = (StrComp(r, o, vbTextCompare) = 0)
 End Function
 
 ' ----------------------------------------------------------------------------

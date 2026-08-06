@@ -70,16 +70,30 @@ Public Function DetectLegacyDocs() As Collection
     n = ScanKnowledge(metaSet, srcNames, chunkCount, metaCount, sample)
     If n < 1 Then Exit Function
 
+    ' 2026-08-06 R20H FA-14(波C裁定済み): graph_outline=offのときは
+    ' doc_outlineが1行も無いのが正常(Phase2そのものが切られているため)で、
+    ' 「未仕上げ」の根拠にはならない。offならhasOutlineを常に満たした
+    ' 扱いにする(ClassifyDoc自体は無変更・純関数のまま)。
+    Dim outlineGateOn As Boolean: outlineGateOn = GraphOutlineGateOn()
+
     Dim i As Long
     For i = 0 To n - 1
         If chunkCount(i) > 0 Then
             Dim hasMeta As Boolean: hasMeta = (metaCount(i) >= chunkCount(i))
             Dim hasOutline As Boolean: hasOutline = outlineSet.Exists(srcNames(i))
+            If Not outlineGateOn Then hasOutline = True
             Dim crumbOk As Boolean: crumbOk = LooksLikeBreadcrumbLine(sample(i))
             Dim status As String: status = ClassifyDoc(hasMeta, hasOutline, crumbOk)
             If LenB(status) > 0 Then outCol.Add srcNames(i) & "|" & status
         End If
     Next i
+End Function
+
+' config graph_outline(既定on)。offのときだけdoc_outline欠落を「未仕上げ」
+' の根拠から外す(modOutlineBuild.GateOnと同じ作法。各モジュールが自分の
+' 呼び出し文脈でこの1行を持つ既存の設計を踏襲)。
+Private Function GraphOutlineGateOn() As Boolean
+    GraphOutlineGateOn = (LCase$(Trim$(modConfig.GetString("graph_outline", "on"))) <> "off")
 End Function
 
 ' CountByStatus - DetectLegacyDocsの結果を状態ごとに数える(呼び出し側は
@@ -317,6 +331,11 @@ Private Function ScanKnowledge(ByRef metaSet As Object, ByRef outNames() As Stri
     arr = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastK, COL_FULLTEXT)).Value
 
     Dim idxOf As Object: Set idxOf = CreateObject("Scripting.Dictionary")
+    ' 2026-08-06 R20H FA-13: Dictionaryは既定でbinary(大小文字を区別)比較の
+    ' ため、CollectSourceChunks側のStrComp(...,vbTextCompare)と食い違って
+    ' いた(同じ資料名が大小違いだけで2件に割れ得る)。片方に統一する
+    ' (推奨どおりvbTextCompareへ揃える。設定はキー追加より前で行うこと)。
+    idxOf.CompareMode = vbTextCompare
     Dim cap As Long: cap = 32
     ReDim outNames(0 To cap - 1)
     ReDim outChunkN(0 To cap - 1)

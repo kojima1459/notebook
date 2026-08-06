@@ -40,9 +40,13 @@ End Sub
 ' R20-4c: チャット上部の部門ラベル文言分岐(modChannel.ActiveLabelText)
 ' ----------------------------------------------------------------------------
 Private Sub TestActiveLabelText()
-    modTestRunner.Check "部門ラベル_0件は未設定(クリックで設定)", _
+    ' 2026-08-06 R20H FA-6: 「クリックで設定」はハンドラ未配線のラベルに
+    ' 対する実行不能な案内だったため撤去し、実際に辿れる導線
+    ' (❓ヘルプの⚙から設定)へ差し替えた。旧文言が出ないことも併せて固定する。
+    modTestRunner.Check "部門ラベル_0件は未設定(ヘルプの設定導線を案内)", _
         (InStr(modChannel.ActiveLabelText(0, 5), "未設定") > 0 And _
-         InStr(modChannel.ActiveLabelText(0, 5), "クリックで設定") > 0), _
+         InStr(modChannel.ActiveLabelText(0, 5), "ヘルプの") > 0 And _
+         InStr(modChannel.ActiveLabelText(0, 5), "クリックで設定") = 0), _
         "実際=" & modChannel.ActiveLabelText(0, 5)
     modTestRunner.Check "部門ラベル_負数(異常値)も未設定扱い(境界)", _
         (InStr(modChannel.ActiveLabelText(-1, 5), "未設定") > 0)
@@ -134,6 +138,10 @@ NextCenter20:
 NextTheme20:
     On Error GoTo ThemeFail20
     TestMsadThemeResolve
+NextR20H20:
+    On Error GoTo R20HFail20
+    ' R20H(レビュー裁定Fix波)の回帰は modTestsPure21 へ(波ごとの分割)。
+    modTestsPure21.RunAll21
 NextDone20:
     On Error GoTo 0
     Exit Sub
@@ -152,6 +160,10 @@ CenterFail20:
     Resume NextTheme20
 ThemeFail20:
     modTestRunner.Check "TestMsadThemeResolve(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextR20H20
+R20HFail20:
+    modTestRunner.Check "modTestsPure21.RunAll21(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone20
 End Sub

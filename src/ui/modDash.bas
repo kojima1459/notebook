@@ -337,6 +337,9 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
                    (HDR_BAR_H - HDR_PILL_H) / 2 + rws(i) * (HDR_PILL_H + 4), uws(i)
     Next i
 
+    ' R20H FA-7: サブタイトルは意図して左寄せのまま据え置く(帯幅に連動して
+    ' 中央寄せするKPI行/管理者行と違い、ヘッダー直下の説明文は左端固定で
+    ' よい。ここだけKPI_X0のままにしているのは見落としではない)。
     Dim subShp As Shape
     Set subShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, barH + HEADER_SUB_Y - HDR_BAR_H, 400, 18)
     subShp.Name = "nxd_subtitle"
@@ -416,8 +419,11 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
     ' 地図を撤去したので跡地を詰める。+20 はバッジ棚との間の余白のみ。
     Dim topY As Double: topY = modDashStat.ChartNoteY() + 20
 
+    ' R20H FA-7: KPI_X0(左寄せ固定の定数)のままだと、帯を広げてKPI行/EXP
+    ' バーが中央寄せへ動いたときに管理者行だけ左端に取り残され版面が割れて
+    ' 見えていた。KPI行と同じRowX0()(帯内中央寄せの左端X)へ揃える。
     Dim headShp As Shape
-    Set headShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY, modDashStat.RowWidth(), 20)
+    Set headShp = ws.Shapes.AddShape(1, modDashStat.RowX0(), topY, modDashStat.RowWidth(), 20)
     headShp.Name = "nxd_adm_head"
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
@@ -451,7 +457,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
 
     If mAdminExclCount = 0 Then
         Dim emptyShp As Shape
-        Set emptyShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, topY + 28, modDashStat.RowWidth(), 20)
+        Set emptyShp = ws.Shapes.AddShape(1, modDashStat.RowX0(), topY + 28, modDashStat.RowWidth(), 20)
         emptyShp.Name = "nxd_adm_empty"
         emptyShp.Line.Visible = 0
         emptyShp.Fill.Visible = 0
@@ -472,7 +478,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
         Dim rowY As Double: rowY = topY + 28 + i * ADMIN_ROW_H
 
         Dim lbl As Shape
-        Set lbl = ws.Shapes.AddShape(1, modDashStat.KPI_X0, rowY, modDashStat.RowWidth() - 100, ADMIN_ROW_H - 4)
+        Set lbl = ws.Shapes.AddShape(1, modDashStat.RowX0(), rowY, modDashStat.RowWidth() - 100, ADMIN_ROW_H - 4)
         lbl.Name = "nxd_adm_lbl_" & i
         lbl.Line.Visible = 0
         lbl.Fill.Visible = 0
@@ -486,7 +492,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
         End With
 
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, modDashStat.KPI_X0 + modDashStat.RowWidth() - 80, rowY, 72, 22)
+        Set btn = ws.Shapes.AddShape(5, modDashStat.RowX0() + modDashStat.RowWidth() - 80, rowY, 72, 22)
         btn.Name = "nxd_adm_btn_" & i
         btn.Adjustments(1) = 0.3
         btn.Line.Visible = 0

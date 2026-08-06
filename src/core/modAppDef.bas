@@ -21,7 +21,11 @@ Option Explicit
 '     一切参照しないため、ここには定数を置かない。
 ' ============================================================================
 
-Public Const APP_NAME As String = "Nexus Agent"
+' 2026-08-06 R20H FA-12: "Nexus Agent"→"MyBookshelf"。変更前に全参照を
+' 走査し(grep結果は完了報告に添付)、MsgBox/InputBoxタイトル・ワークシート
+' 見出し・診断文言などの表示専用用途しか無いことを確認済み(パス・キー・
+' 識別子・OnTime修飾等の非表示用途は0件)。
+Public Const APP_NAME As String = "MyBookshelf"
 Public Const APP_VERSION As String = "0.1.0"   ' ビルド時にbuildスクリプトが検証表示
 Public Const PACK_FORMAT_VERSION As Long = 1
 
