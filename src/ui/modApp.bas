@@ -632,7 +632,14 @@ Public Sub OnToggleSpeed()
     ' モード名は【押した時点】の文字列なので、切り替えたら描き直さないと
     ' 表示だけが古い名前のまま残る(実際に使われるのは送信時点の値)。
     modAppAct.RedrawFollowupChip
-    modSkin.ShowToast modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed), "info"
+    ' R21-2 D4(実機第8報⑧): 一般アシスタント中はこの設定が使われないため注記。
+    Dim toastMsg As String
+    toastMsg = modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed)
+    If modAppState.CurrentMode() = "normal" Then
+        toastMsg = toastMsg & vbLf & _
+            "※いまは一般アシスタントのため、この設定は社内ナレッジ検索に切り替えたときに使われます"
+    End If
+    modSkin.ShowToast toastMsg, "info"
     On Error GoTo 0
 End Sub
 

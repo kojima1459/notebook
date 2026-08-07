@@ -499,7 +499,13 @@ Private Function LooksLikeRealAnswer(ByVal response As String) As Boolean
     If InStr(1, response, "[本棚:", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "[出典", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "<answer>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True
+    If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    ' R21-2 D2(実機第8報⑧): 査読(critique)「1. [観点] …」も救済(旧判定は
+    ' 短い棄却指摘を誤爆させていた。タグはmodPrompts.BuildCritiquePromptと同一)
+    If Left$(Trim$(response), 4) = "1. [" Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "[論点漏れ]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "[未検証の断定]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    If InStr(1, response, "[憶測]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True
 End Function
 
 ' ----------------------------------------------------------------------------

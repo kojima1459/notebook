@@ -451,6 +451,14 @@ PURE_ALLOWLIST = [
     #   同モジュールの EnsureViewState など Excel 依存の口は、呼ばなければ
     #   未解決のままで良い(techメモ4・modViewport と同型の理由)。
     "modTestsPure22", "modViewport2",
+    # modGateway(2026-08-07 R21-2 D1・実機第8報⑧): テストが呼ぶのは
+    #   LooksLikeLimitError(モジュール全体はHTTP/COMを持つがこの関数は
+    #   文字列比較だけ)。E0204誤爆(査読応答の誤検知)の回帰を固定するために
+    #   注入する(modShelfSync/modPack/modLog/modAskThorough と同じ「モジュール
+    #   全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型。
+    #   未実行の他関数のCreateObject/WinHttp等はtechメモ4のとおり未解決のままで
+    #   良い)。未注入のまま modTestsPure18 から呼ぶと実行時エラー12になる。
+    "modGateway",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

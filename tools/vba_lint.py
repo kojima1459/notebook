@@ -771,10 +771,14 @@ CONTRACT: dict[str, dict] = {
         # ThoroughVerifyPrompt(2026-08-06 R20-6f): BuildDeepVerifyPrompt(凍結)の
         #   戻り文字列へ、入念モードだけの文体指示(構造化・出典明記・断定回避)を
         #   連結する。quick/deepは1文字も変えない。
+        # ThoroughDigestPrompt/ThoroughDraftPrompt(2026-08-07 R21-2 D3・実機
+        #   第8報⑧): ThoroughVerifyPromptと同型の連結機構。BuildSourceDigest
+        #   Prompt/BuildDeepDraftPrompt(いずれもmodPrompts凍結)の戻りへ、
+        #   免責事由(支払わない場合)も対象に含める観点を追記する。
         "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
                      "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
                      "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote",
-                     "ThoroughVerifyPrompt"],
+                     "ThoroughVerifyPrompt", "ThoroughDigestPrompt", "ThoroughDraftPrompt"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {

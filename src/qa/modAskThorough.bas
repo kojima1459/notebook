@@ -95,7 +95,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     ' --- (2) 資料の要点整理 -------------------------------------------------
     modAskRetrieve.ShowAskStage "digest"
     Dim digest As String
-    digest = modGateway.CallLLM(modPrompts.BuildSourceDigestPrompt(q, hits, nUse), _
+    digest = modGateway.CallLLM(ThoroughDigestPrompt(modPrompts.BuildSourceDigestPrompt(q, hits, nUse)), _
         "thorough_digest", modConfig.GetString("thorough_digest_effort", "low"), _
         "medium", mdl, lat)
     If modRagParse.IsErrorResponse(digest) Then
@@ -113,7 +113,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     modAskRetrieve.ShowAskStage "draft"
     Dim draft As String
     draft = modGateway.CallLLM( _
-        modPrompts.BuildDeepDraftPrompt(q, hits, nUse, history, strictG, ansTags, digest), _
+        ThoroughDraftPrompt(modPrompts.BuildDeepDraftPrompt(q, hits, nUse, history, strictG, ansTags, digest)), _
         "thorough_draft", modConfig.GetString("thorough_draft_effort", "high"), _
         modConfig.GetString("thorough_draft_verbosity", "high"), mdl, lat, prevU, prevA)
     If modRagParse.IsErrorResponse(draft) Then
@@ -179,6 +179,26 @@ Private Function ThoroughStyleAddendum() As String
     ThoroughStyleAddendum = _
         "■見出しで構造化し、各主張の直後に出典を明記。必要なら600" & ChrW(&H301C) & _
         "900字まで許容。断定できない点は「資料からは確認できません」と明示すること。"
+End Function
+
+' ----------------------------------------------------------------------------
+' R21-2 D3(実機第8報⑧・逆質問の網羅性): 要点整理(digest)段・下書き(draft)段
+' にも「免責事由」観点を連結する。ThoroughVerifyPrompt/ThoroughStyleAddendum
+' と同型の連結機構(modPrompts本体=凍結は1文字も変えない)。deep/quickは
+' この2関数を通らないので1文字も変わらない。
+' ----------------------------------------------------------------------------
+Public Function ThoroughDigestPrompt(ByVal basePrompt As String) As String
+    ThoroughDigestPrompt = basePrompt & vbLf & vbLf & ExemptionCoverageAddendum()
+End Function
+
+Public Function ThoroughDraftPrompt(ByVal basePrompt As String) As String
+    ThoroughDraftPrompt = basePrompt & vbLf & vbLf & ExemptionCoverageAddendum()
+End Function
+
+Private Function ExemptionCoverageAddendum() As String
+    ExemptionCoverageAddendum = _
+        "■支払う場合だけでなく、支払わない場合(免責事由・除外・適用除外)も" & _
+        "対象に含め、資料にあれば必ず言及すること。"
 End Function
 
 ' ============================================================================
