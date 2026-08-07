@@ -216,15 +216,25 @@ End Function
 '   毎回スクロール余地が残る、を構造的に作っていた。
 '   収まる画面は【切り下げ】(RowAtFloor)で窓高ちょうどに止め、収まらない
 '   画面だけ従来どおり内容の実下端(+8pt)まで伸ばす。
+'   R21H F6(敵対的レビュー確定): 戻り値(ScrollArea用)は上のとおりRowAtFloor
+'   (切り下げ)でよいが、【塗り】まで同じ切り下げ値を使うと、窓高が行境界に
+'   ちょうど乗らない端末で最後の部分行(最大1行ぶん=13〜15pt)が塗り残る
+'   (darkテーマで白帯として見える)。塗りはRowAt(切り上げ)で部分行を含めて
+'   よい ―― ScrollAreaと違い、塗りが1行分広くてもホイールで到達可能な範囲は
+'   増えない。Optional paintAddr へ「塗り用(ceil)」を別途返す(戻り値=
+'   ScrollArea用は変えない。呼ばない既存呼び出し元はそのまま=後方互換)。
 Public Function BoundAddr(ByVal ws As Worksheet, ByVal padColLetter As String, _
-                          ByVal contentBottom As Double, ByVal maxRow As Long) As String
+                          ByVal contentBottom As Double, ByVal maxRow As Long, _
+                          Optional ByRef paintAddr As String) As String
     If ws Is Nothing Then Exit Function
     Dim viewH As Double: viewH = ViewportHeight()
     If FitsInView(contentBottom, viewH, BOTTOM_PAD) Then
         BoundAddr = "A1:" & padColLetter & RowAtFloor(ws, viewH, maxRow)
+        paintAddr = "A1:" & padColLetter & RowAt(ws, viewH, maxRow)
     Else
         BoundAddr = "A1:" & padColLetter & _
                     RowAt(ws, BoundBottomY(contentBottom, viewH, BOTTOM_PAD), maxRow)
+        paintAddr = BoundAddr
     End If
 End Function
 

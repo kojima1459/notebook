@@ -274,11 +274,13 @@ Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
     On Error GoTo 0
     If bottomY < 200 Then bottomY = 200
 
-    Dim bnd As String
-    bnd = modViewport.BoundAddr(ws, DASH_PAD_COL, bottomY, DASH_ROWS)
+    Dim bnd As String, paintAddr As String
+    bnd = modViewport.BoundAddr(ws, DASH_PAD_COL, bottomY, DASH_ROWS, paintAddr)
     On Error Resume Next
-    ws.Range(bnd).Font.Name = "Yu Gothic UI"
-    ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
+    ' R21H F6: 塗りはpaintAddr(切り上げ=部分行を含む)。ScrollAreaはbnd
+    ' (切り下げ)のまま=窓下端の未塗り帯(darkテーマの白帯)を防ぐ。
+    ws.Range(paintAddr).Font.Name = "Yu Gothic UI"
+    ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
     On Error GoTo 0
     modViewport.ApplyScrollBound ws, bnd
     ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。

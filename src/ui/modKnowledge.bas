@@ -97,9 +97,12 @@ Public Function ApplyShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Do
                                 Optional ByVal paintBg As Boolean = True) As String
     If ws Is Nothing Then Exit Function
     On Error Resume Next
-    Dim addr As String: addr = ShelfBound(ws, contentBottom)
+    Dim addr As String, paintAddr As String
+    addr = modViewport.BoundAddr(ws, SHELF_PAD_COL, contentBottom, SHELF_MAX_ROW, paintAddr)
     If LenB(addr) = 0 Then Exit Function
-    If paintBg Then ws.Range(addr).Interior.Color = modUI.UiColor("bg")
+    ' R21H F6: 塗りはpaintAddr(切り上げ)。ScrollAreaはaddr(切り下げ)のまま
+    ' (窓下端の未塗り帯=darkテーマの白帯を防ぐ)。
+    If paintBg Then ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
     modViewport.ApplyScrollBound ws, addr
     ' 受け入れ基準(R20-1d): この境界の下端行より下に、行高カスタムを残さない。
     ' addr は必ず A1 起点なので、行数がそのまま下端行になる。

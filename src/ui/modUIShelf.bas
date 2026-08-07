@@ -118,15 +118,6 @@ Public Sub EnsureLayout()
     uiStep = "セルのクリア"
     ws.Cells.Clear
 
-    uiStep = "既定フォント設定"
-    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
-    ' (無限スクロールの主因・調査agent2 §1.3)。3モードが共有するこのシートの
-    ' 実使用範囲だけに当てる。R19-1b: この時点では件数が未確定なので1画面ぶん。
-    ' カードを描き終えた RenderShelf が実下端まで当て直す。
-    Dim fontAddr As String: fontAddr = modKnowledge.ShelfBound(ws, 0)
-    ws.Range(fontAddr).Font.Name = "游ゴシック"
-    ws.Range(fontAddr).Font.Size = 11
-
     uiStep = "列幅の設定"
     RefitColumns ws
 
@@ -157,6 +148,21 @@ Public Sub EnsureLayout()
     ' 無い(水平スクロールバーはNexus起動時に消してある)。実機報告の
     ' 「🗑削除が『除』しか見えない」の主因はこれ。
     modKnowledge.PrepareScreenView ws
+    Dim vw0 As Double, vh0 As Double
+    modViewport2.MarkView vw0, vh0
+
+    uiStep = "既定フォント設定"
+    ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
+    ' (無限スクロールの主因・調査agent2 §1.3)。3モードが共有するこのシートの
+    ' 実使用範囲だけに当てる。R19-1b: この時点では件数が未確定なので1画面ぶん。
+    ' カードを描き終えた RenderShelf が実下端まで当て直す。
+    ' R21H F7: EnsureViewState(表示状態の確定)より前にShelfBoundを呼ぶと、
+    ' 罫線・見出し・タブ・水平スクロールバーが確定する前の窓でViewportHeight
+    ' を測ってしまう(S1の適用漏れ)。EnsureViewState/PrepareScreenViewの
+    ' 後へ動かした。
+    Dim fontAddr As String: fontAddr = modKnowledge.ShelfBound(ws, 0)
+    ws.Range(fontAddr).Font.Name = "游ゴシック"
+    ws.Range(fontAddr).Font.Size = 11
 
     ' ---- 共通クロム(ヘッダー+モード切替+ツールバー) ----------------------
     ' 2026-07-26 再設計: ナレッジ倉庫(カード)とマイ本棚(一覧)で
@@ -230,6 +236,8 @@ Public Sub EnsureLayout()
 
     uiStep = "資料一覧の再描画(RenderShelf)"
     RenderShelf
+    ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
+    modViewport2.ReflowIfMoved vw0, vh0
     Exit Sub
 
 Fail:

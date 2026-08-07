@@ -146,9 +146,39 @@ Public Function VisibleCellW() As Double
 End Function
 
 ' FitTarget - 帯(A列～吸収列)の合計幅の目標(pt)。単一情報源。
+' R21H F8(敵対的レビュー確定): ActiveWindow.VisibleRangeは右端が半分だけ
+' 見えている列も【全幅】で数えるため、SbWidthFrom(usableW,visibleW,…)の
+' 差dがその半端ぶんだけ小さく出る環境がある(d∈(0,30]の許容内に収まって
+' しまうと既定値へ倒れず、そのまま採用されてしまう)。ScrollbarWが小さく
+' 出るとVisibleCellW/FitTargetは実際より大きくなり、帯が可視幅を最大で
+' 半端列1つぶん(実測13pt級)超える。FitTargetを「VisibleRangeの完全表示
+' 部分(右端列が食み出していれば除いた幅)」で頭打ちする。
 Public Function FitTarget() As Double
     FitTarget = VisibleCellW() - SAFE_MARGIN
     If FitTarget < 1 Then FitTarget = 1
+    Dim capW As Double: capW = FullyVisibleWidth()
+    If capW > 0 Then
+        Dim capTarget As Double: capTarget = capW - SAFE_MARGIN
+        If capTarget < 1 Then capTarget = 1
+        If FitTarget > capTarget Then FitTarget = capTarget
+    End If
+End Function
+
+' FullyVisibleWidth - VisibleRangeのうち右端列が完全に収まっているところ
+'   までの幅(pt)。右端列がUsableWidthを食み出していなければVisibleRange.
+'   Widthそのまま、食み出していればその列ぶんを除いて返す(測れなければ0=
+'   FitTarget側は頭打ちを適用しない)。
+Private Function FullyVisibleWidth() As Double
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Function
+    Dim vr As Range: Set vr = ActiveWindow.VisibleRange
+    If vr Is Nothing Then Exit Function
+    Dim uw As Double: uw = ActiveWindow.UsableWidth
+    Dim w As Double: w = vr.Width
+    Dim lastCol As Range: Set lastCol = vr.Columns(vr.Columns.Count)
+    If lastCol.Left + lastCol.Width > uw Then w = w - lastCol.Width
+    FullyVisibleWidth = w
+    On Error GoTo 0
 End Function
 
 ' FitVerify - Fit の事後検証。帯の実幅が target を超えていたら、超過ぶんだけ
@@ -351,16 +381,22 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ShelfPadCol - 「マイ本棚」シートで余りを吸う列(R21-S3)。純関数。
 '   一覧表(table)は【本文の最終列】メモJが吸う=本文の右端そのものが窓幅へ
-'   追随する。カード系(gallery/shared)は本文がpt座標のShapeで別に伸びるので
-'   帯の最終列(defaultCol)が吸う。従来は一覧表だけ「EnsureLayoutでJ→
-'   DrawChromeでN」の2段階Fitで、2回目の丸めで帯が可視幅を数pt超える経路が
-'   残っていた。吸収列をモードごとに1つ選び、Fitは【1回だけ】通す。
+'   追随する。gallery(本文がpt座標のShapeで別に伸びる)は帯の最終列
+'   (defaultCol)が吸う。従来は一覧表だけ「EnsureLayoutでJ→DrawChromeでN」の
+'   2段階Fitで、2回目の丸めで帯が可視幅を数pt超える経路が残っていた。
+'   吸収列をモードごとに1つ選び、Fitは【1回だけ】通す。
+'   2026-08-07(R21H F7): sharedはgalleryと同じ「カード系」に分類していたが
+'   実際はtableと同じセル値主体の一覧(質問文はD:J列そのもの)で、Shapeで
+'   本文が別に伸びる画面ではない。modShared.Showがtableと同型の外部Fit(J)を
+'   打った上でDrawChromeが再びN側でFitし直す二段Fitになっていたので、
+'   tableと同じJへ倒し、Fitは1回だけにする。
 '   defaultCol を引数で受けるのは、帯の最終列の単一情報源
 '   (modKnowledge.SHELF_PAD_COL)を2箇所に持たないため ―― 同時に、この関数が
 '   他モジュールを呼ばない純関数になり LibreOffice のゴールデンで固定できる。
 '   実体をここに置いたのは modKnowledge の容量(WARN帯)を守るため。
 Public Function ShelfPadCol(ByVal mode As String, ByVal defaultCol As String) As String
-    If LCase$(Trim$(mode)) = "table" Then
+    Dim m As String: m = LCase$(Trim$(mode))
+    If m = "table" Or m = "shared" Then
         ShelfPadCol = "J"
     Else
         ShelfPadCol = defaultCol

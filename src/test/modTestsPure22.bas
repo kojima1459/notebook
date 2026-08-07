@@ -86,9 +86,13 @@ Private Sub TestSbWidthFrom()
         (modViewport2.SbWidthFrom(0, 1012, 12) = 12 And _
          modViewport2.SbWidthFrom(1024, 0, 12) = 12)
     ' 実機1024pt窓の帯の目標: 可視セル幅1012 − 安全余裕2 = 1010 ≤ 1012。
+    ' R21H F10是正: 旧アサートの第3項 (visW-2)<=visW は visW の値に関わらず
+    ' 常に真の恒真式(左辺は右辺から定数2を引いただけ)で、SbWidthFromが
+    ' 何を返そうと絶対に落ちない飾りだった。実体の無い項を削り、意味のある
+    ' 2項(可視セル幅そのもの/そこから安全余裕を引いた帯目標)だけを残す。
     Dim visW As Double: visW = 1024 - modViewport2.SbWidthFrom(1024, 1012, 12)
     modTestRunner.Check "帯目標_1024pt窓では1010ptで可視セル幅1012を超えない", _
-        (visW = 1012 And (visW - 2) = 1010 And (visW - 2) <= visW)
+        (visW = 1012 And (visW - 2) = 1010)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -169,9 +173,16 @@ Private Sub TestDashGap()
         (cw = 235), "実際=" & cw
     modTestRunner.Check "ダッシュ_1024pt窓の隙間は既定の10pt(余りゼロ)", _
         (gp = 10), "実際=" & gp
+    ' R21H F10是正: 旧アサートは「rightX = 1010-20」という、このテスト自身が
+    ' 計算式に使った定数(帯幅1010・右余白20)をそのまま両辺に置いただけの
+    ' 自己参照基準で、CardWidthFor/CardGapForの実装をどう壊しても
+    ' rightX = bandW-20 という定義どおりの結果しか出ない限り必ず通ってしまう
+    ' (退行検知にならない)。他画面(gallery/S3不変条件)と同じ「帯の外部基準
+    ' ContentRight(1002)との差が許容12pt以内か」で検証し直す。
     Dim rightX As Double: rightX = 20 + 4 * cw + 3 * gp
-    modTestRunner.Check "S3不変条件_ダッシュの右端は帯の内側右余白20ptに一致", _
-        (rightX = 1010 - 20), "実際の右端=" & rightX
+    modTestRunner.Check "S3不変条件_ダッシュの右端はContentRight(1002)の12pt以内", _
+        (modViewport2.RightGapExceeds(rightX, 1002, 12) = False), _
+        "実際の右端=" & rightX
 
     ' カードが上限260で頭打ちになる広い帯では、余りが隙間へ回って右端まで張る。
     Dim cw2 As Double: cw2 = modDashStat.CardWidthFor(1600)
@@ -208,42 +219,100 @@ Private Sub TestFitsInView()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' S5: 窓高適応圧縮(modViewport2.CompressFactor / HubNeedY / BadgeRowsFor)
+' S5: 窓高適応圧縮(modViewport2.CompressFactor / HubNeedYFixed・Variable / BadgeRowsFor)
 ' ----------------------------------------------------------------------------
-' Hubが s=1 で積む縦の合計は、1段ヘッダー(48pt)で 510pt:
-'   48 + 12 + 68(プロフィール) + 18 + 240(タイル4段) + 15(行境界の丸め)
-'   + 75(バッジ見出し+4行) + 10(フッター上) + 24(フッター+下余白) = 510
+' R21H F3(敵対的レビュー確定): 旧CompressFactor(viewH, need)は固定chrome込みの
+' needでavail/needを計算しており、実際に縮むのは可変要素(SY()を通るもの)
+' だけなのに分母だけ固定要素で薄まって系統的に圧縮不足だった(Hub必要19pt
+' 削減に対し実際は12.6ptしか縮まない/gallery は適用後もなお窓を超える)。
+' 新式は fixed + s*variable = avail を解いた s=(avail-fixed)/variable。
+' Hubが s=1 で積む縦の合計(1段ヘッダー48pt)は固定174+可変336=510pt:
+'   固定=48+12+15(行境界の丸め)+75(バッジ見出し+4行)+24(フッター+下余白)
+'   可変=68(プロフィール)+18+240(タイル4段)+10(フッター上)
+' 2段ヘッダー(96pt)は固定だけ+48pt=222(可変336は不変)。
 Private Sub TestCompress()
-    modTestRunner.Check "Hub必要量_1段ヘッダーで510pt", _
-        (modViewport2.HubNeedY(48, 68, 240) = 510), _
-        "実際=" & modViewport2.HubNeedY(48, 68, 240)
-    modTestRunner.Check "Hub必要量_2段ヘッダー(96pt)では558pt", _
-        (modViewport2.HubNeedY(96, 68, 240) = 558)
+    modTestRunner.Check "Hub固定量_1段ヘッダーで174pt", _
+        (modViewport2.HubNeedYFixed(48) = 174), "実際=" & modViewport2.HubNeedYFixed(48)
+    modTestRunner.Check "Hub固定量_2段ヘッダー(96pt)では222pt", _
+        (modViewport2.HubNeedYFixed(96) = 222)
+    modTestRunner.Check "Hub可変量_336pt", _
+        (modViewport2.HubNeedYVariable(68, 240) = 336)
+    modTestRunner.Check "Hub必要量_後方互換の合計は従来どおり510pt", _
+        (modViewport2.HubNeedY(48, 68, 240) = 510)
 
     modTestRunner.Check "圧縮_窓700ptには収まるので係数1(何もしない)", _
-        (modViewport2.CompressFactor(700, 510) = 1)
-    modTestRunner.Check "圧縮_窓518ptは境界ちょうど(510=510)で係数1", _
-        (modViewport2.CompressFactor(518, 510) = 1)
-    modTestRunner.Check "圧縮_実機の窓499ptでは 491/510 へ縮める", _
-        (Abs(modViewport2.CompressFactor(499, 510) - 491 / 510) < 0.000001), _
-        "実際=" & modViewport2.CompressFactor(499, 510)
-    modTestRunner.Check "圧縮_窓450ptでは 442/510 へ縮める", _
-        (Abs(modViewport2.CompressFactor(450, 510) - 442 / 510) < 0.000001)
+        (modViewport2.CompressFactor(700, 174, 336) = 1)
+    modTestRunner.Check "圧縮_窓518ptは境界ちょうど(174+336=510)で係数1", _
+        (modViewport2.CompressFactor(518, 174, 336) = 1)
     modTestRunner.Check "圧縮_極端に低い窓300ptでも下限0.78で止める", _
-        (Abs(modViewport2.CompressFactor(300, 510) - 0.78) < 0.000001)
+        (Abs(modViewport2.CompressFactor(300, 174, 336) - 0.78) < 0.000001)
     modTestRunner.Check "圧縮_必要量0や負(退化入力)は係数1", _
-        (modViewport2.CompressFactor(499, 0) = 1 And _
-         modViewport2.CompressFactor(499, -10) = 1)
+        (modViewport2.CompressFactor(499, 0, 0) = 1 And _
+         modViewport2.CompressFactor(499, -10, 0) = 1)
+
+    ' F3受け入れ基準そのもの: 「sを適用した結果(fixed+s*variable)がavailに
+    ' 収まる」をHub 1段/2段ヘッダー×窓499/450/400の6通りで固定する。
+    ' 3通り(1段@499/1段@450/2段@499)はavailにぴったり収まる。残り3通りは
+    ' MIN_SCALE(0.78)の床に当たって縮めきれない(S5が意図した仕様上の限界
+    ' であって退行ではない。旧式は床に当たる前から系統的に縮み不足だった
+    ' 点が違う=下のF3退行検知で対比する)。
+    Dim s As Double
+    s = modViewport2.CompressFactor(499, 174, 336)         ' avail=491
+    modTestRunner.Check "F3受入_Hub1段@499_sは317/336でavailに収まる", _
+        (Abs(s - 317 / 336) < 0.000001 And (174 + s * 336) <= 491.000001), "s=" & s
+    s = modViewport2.CompressFactor(450, 174, 336)         ' avail=442
+    modTestRunner.Check "F3受入_Hub1段@450_sは268/336でavailに収まる", _
+        (Abs(s - 268 / 336) < 0.000001 And (174 + s * 336) <= 442.000001), "s=" & s
+    s = modViewport2.CompressFactor(400, 174, 336)         ' avail=392
+    modTestRunner.Check "F3受入_Hub1段@400_下限0.78で頭打ち(縮めきれないのは想定内)", _
+        (Abs(s - 0.78) < 0.000001 And (174 + s * 336) > 392), "s=" & s
+    s = modViewport2.CompressFactor(499, 222, 336)         ' 2段@avail=491
+    modTestRunner.Check "F3受入_Hub2段@499_sは269/336でavailに収まる", _
+        (Abs(s - 269 / 336) < 0.000001 And (222 + s * 336) <= 491.000001), "s=" & s
+    s = modViewport2.CompressFactor(450, 222, 336)         ' 2段@avail=442
+    modTestRunner.Check "F3受入_Hub2段@450_下限0.78で頭打ち", _
+        (Abs(s - 0.78) < 0.000001)
+    s = modViewport2.CompressFactor(400, 222, 336)         ' 2段@avail=392
+    modTestRunner.Check "F3受入_Hub2段@400_下限0.78で頭打ち", _
+        (Abs(s - 0.78) < 0.000001)
+
+    ' F3退行検知: 旧式(固定chrome込みのneedでavail/needを計算)を1段@499で
+    ' 再現すると、可変要素だけがSY()を通るため実際の縮小は必要量19ptに対し
+    ' 12.6ptしか達成できず、avail(491)を6.48pt超えて不合格になる
+    ' (実機のHub右カラム欠落・gallery999.9pt超過の直接原因だった式)。
+    Dim oldS As Double: oldS = 491 / 510            ' 旧式: avail/(fixed+variable)
+    Dim oldRealized As Double: oldRealized = 174 + oldS * 336
+    modTestRunner.Check "F3退行検知_旧式は1段@499でavailを超えて不合格", _
+        (oldRealized > 491), "旧式realized=" & oldRealized
+
+    ' gallery(9枚・実機1024pt窓): cols=5(既存S3ゴールデンと同じ)→2段(rowsNeed=2)。
+    ' 可変=CARD_H(SY対象)×2段=240。固定=cardT(modKnowledge.ContentTopの実測
+    ' トレース: HDR_H40+行2の6+barH26(BAR_H24+2)+行4の2+行5の22+行6の8=104、
+    ' +6=110)+CARD_GAP(SY対象外)×2段+PAGER_H=110+28+28=166。
+    Dim gFixed As Double: gFixed = 110 + 2 * 14 + 28
+    Dim gVar As Double: gVar = 2 * 120
+    modTestRunner.Check "F3受入_gallery9枚@499_窓499ptは圧縮なしで収まる(係数1)", _
+        (modViewport2.CompressFactor(499, gFixed, gVar) = 1)
+    ' 窓を380ptまで狭めると収まらなくなり、可変(カード高)だけが縮んで
+    ' avail(372)にぴったり収まる。
+    s = modViewport2.CompressFactor(380, gFixed, gVar)
+    modTestRunner.Check "F3受入_gallery9枚@380_sを適用した結果がavailに収まる", _
+        ((gFixed + s * gVar) <= 372.000001), "s=" & s & " realized=" & (gFixed + s * gVar)
 
     ' バッジ帯はセルの行(15pt固定)なので係数では縮まない。段数を落とす。
+    ' R21H F3再校正: 新式は同じ実窓高でも旧式より小さいsを返す(上の
+    ' 1段@499は旧0.963→新0.943)ため、旧閾値0.95のままでは実機499ptでも
+    ' 行が落ちてしまう。0.92へ再校正した(BadgeRowsForのコメント参照)。
     modTestRunner.Check "バッジ段数_圧縮なし(1.0)は4行", _
         (modViewport2.BadgeRowsFor(1) = 4)
-    modTestRunner.Check "バッジ段数_0.95は4行(境界)", _
-        (modViewport2.BadgeRowsFor(0.95) = 4)
-    modTestRunner.Check "バッジ段数_0.94は3行(境界の外)", _
-        (modViewport2.BadgeRowsFor(0.94) = 3)
+    modTestRunner.Check "バッジ段数_0.92は4行(境界)", _
+        (modViewport2.BadgeRowsFor(0.92) = 4)
+    modTestRunner.Check "バッジ段数_0.91は3行(境界の外)", _
+        (modViewport2.BadgeRowsFor(0.91) = 3)
     modTestRunner.Check "バッジ段数_下限0.78でも3行(2行までは削らない)", _
         (modViewport2.BadgeRowsFor(0.78) = 3)
+    modTestRunner.Check "バッジ段数_実機の窓499pt(Hub1段・新式s=317/336)は4行のまま", _
+        (modViewport2.BadgeRowsFor(317 / 336) = 4)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -257,10 +326,76 @@ Private Sub TestShelfPadCol()
          modViewport2.ShelfPadCol(" table ", "N") = "J")
     modTestRunner.Check "吸収列_ギャラリーは帯の最終列N", _
         (modViewport2.ShelfPadCol("gallery", "N") = "N")
-    modTestRunner.Check "吸収列_みんなの解決事例も帯の最終列N", _
-        (modViewport2.ShelfPadCol("shared", "N") = "N")
+    ' R21H F7: sharedはセル値主体の一覧(tableと同型)なので、質問列の
+    ' 最終列JをtableとF3(質問列)に揃えた(旧NのままだとmodShared.Showの
+    ' 外部Fit(J)+DrawChromeのFit(N)で二段Fitになっていた)。
+    modTestRunner.Check "吸収列_みんなの解決事例はtableと同じ最終列J", _
+        (modViewport2.ShelfPadCol("shared", "N") = "J")
     modTestRunner.Check "吸収列_未描画(空文字)はNへ倒す", _
         (modViewport2.ShelfPadCol("", "N") = "N")
+End Sub
+
+' ----------------------------------------------------------------------------
+' F1: チャットヘッダーShape無限増殖の回帰防止(modViewport2.RefitChatBand)
+' ----------------------------------------------------------------------------
+' modViewport2.RefitChatBandはWorksheet/Shapesに触れる(R4の純ロジック対象外)
+' ため、ここではRefitChatBandが今後も必ず満たすべき契約「ヘッダーは毎回
+' Clear→Draw」を、Shape名の一覧を文字列(CSV)で模した薄い再実装で固定する
+' (modTestsPure23冒頭のChapterOfChunk等と同じ手法)。旧実装はClearChatHeader
+' を経ずにDrawChatHeaderだけを直呼びしていたため、Repaint/テーマ切替/
+' リサイズのたびにnx_top_bg等が同名のまま増殖した(Excelは同名Shapeの
+' 重複を許す)。
+Private Function SimulateChatHeaderRefit(ByVal shapesCsv As String) As String
+    ' 1) ClearChatHeader相当: nx_top_で始まり、add/sendを除く名前を全部落とす。
+    Dim outCsv As String
+    If LenB(shapesCsv) > 0 Then
+        Dim names() As String: names = Split(shapesCsv, "|")
+        Dim i As Long
+        For i = 0 To UBound(names)
+            Dim nm As String: nm = names(i)
+            Dim isHeader As Boolean: isHeader = (Left$(nm, 7) = "nx_top_")
+            Dim isKept As Boolean
+            isKept = (nm = "nx_top_add" Or nm = "nx_top_send")
+            If Not isHeader Or isKept Then
+                If LenB(outCsv) > 0 Then outCsv = outCsv & "|" & nm Else outCsv = nm
+            End If
+        Next i
+    End If
+    ' 2) DrawChatHeader相当: ヘッダー本体(nx_top_bg)を1個だけ足す。
+    If LenB(outCsv) > 0 Then outCsv = outCsv & "|nx_top_bg" Else outCsv = "nx_top_bg"
+    SimulateChatHeaderRefit = outCsv
+End Function
+
+Private Function CountName22(ByVal csv As String, ByVal target As String) As Long
+    Dim parts() As String: parts = Split(csv, "|")
+    Dim i As Long, c As Long
+    For i = 0 To UBound(parts)
+        If parts(i) = target Then c = c + 1
+    Next i
+    CountName22 = c
+End Function
+
+Private Sub TestChatHeaderRefitIdempotent()
+    Dim s As String
+    s = SimulateChatHeaderRefit("")             ' 初回描画
+    s = SimulateChatHeaderRefit(s)               ' 2回目のRefit(リサイズ/テーマ切替相当)
+    modTestRunner.Check "F1_2回連続RefitでnxTopBgは1個(Clear→Draw契約が効いている)", _
+        (CountName22(s, "nx_top_bg") = 1), "実際=" & CountName22(s, "nx_top_bg") & "(" & s & ")"
+
+    ' 退行検知: 旧実装(ClearChatHeaderを通さずDrawChatHeaderだけ直呼び)は
+    ' 単純追記になり、Refitのたびに同名Shapeが積み上がる。
+    Dim old As String: old = "nx_top_bg"
+    old = old & "|nx_top_bg"                     ' 2回目のRefitで1個積まれる
+    modTestRunner.Check "F1退行検知_旧実装(Clear無しの直呼び)なら2個になる", _
+        (CountName22(old, "nx_top_bg") = 2)
+
+    ' 入力欄(nx_top_add/nx_top_send)はヘッダークリアの対象外のまま残る
+    ' (消すと📎と送信ボタンの配線が戻らないため。コメント上の約束の固定)。
+    Dim s2 As String
+    s2 = SimulateChatHeaderRefit("nx_top_bg|nx_top_add|nx_top_send")
+    modTestRunner.Check "F1_add/sendはヘッダークリアの対象外のまま残る", _
+        (CountName22(s2, "nx_top_add") = 1 And CountName22(s2, "nx_top_send") = 1 And _
+         CountName22(s2, "nx_top_bg") = 1), "実際=" & s2
 End Sub
 
 Public Sub RunAll22()
@@ -287,6 +422,9 @@ NextComp22:
 NextPad22:
     On Error GoTo PadFail22
     TestShelfPadCol
+NextChatHdr22:
+    On Error GoTo ChatHdrFail22
+    TestChatHeaderRefitIdempotent
 NextRun23:
     On Error GoTo Run23Fail22
     modTestsPure23.RunAll23
@@ -324,6 +462,10 @@ CompFail22:
     Resume NextPad22
 PadFail22:
     modTestRunner.Check "TestShelfPadCol(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChatHdr22
+ChatHdrFail22:
+    modTestRunner.Check "TestChatHeaderRefitIdempotent(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextRun23
 Run23Fail22:

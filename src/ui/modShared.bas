@@ -42,6 +42,21 @@ Public Sub Show()
     On Error GoTo Finish
     Application.ScreenUpdating = False
 
+    ' R21H F7(実機第8報⑦と同型の適用漏れ): 従来は「描く→活性化→表示状態」の
+    ' 順で、罫線・見出し・タブ・水平スクロールバーの確定が描画の【後】にあり、
+    ' FitBandToViewport/DrawChromeが「タブと横バーが出たままの窓」で幾何を
+    ' 決めていた。modVaultGallery.ShowVaultGallery(波A)と同型で
+    ' 【活性化→EnsureViewState→表示の共通儀式】を描画の前へ動かす。
+    ws.Visible = -1
+    If modUI.ActivateSheetRobust(ws, "modShared.Show") Then
+        On Error Resume Next
+        modViewport2.EnsureViewState ws
+        On Error GoTo Finish
+        modKnowledge.PrepareScreenView ws
+    Else
+        modUI.RestoreExcelUI
+    End If
+
     RemoveRowShapes ws
     ws.Cells.Clear
     ' A:N を全列ぶん明示する(モードごとに前提の列幅が違うので、
@@ -54,11 +69,6 @@ Public Sub Show()
     ws.Columns("K:L").ColumnWidth = 10   ' 提供者
     ws.Columns("M").ColumnWidth = 12     ' 日付
     ws.Columns("N").ColumnWidth = 1      ' 吸収列(最小のまま)
-    ' R20-1c(層1): 従来は余りが全部N列に溜まり、質問列(D:J)は12文字×7で
-    ' 固定のまま「日時(M:N)だけが窓幅まで伸びる」一覧になっていた。読ませたい
-    ' のは質問文なので、余りは質問列の最終列Jに吸わせる。この直後の DrawChrome が
-    ' 吸収列Nで同じ処理をするが、そのときには合計=可視幅なのでNは動かない。
-    modViewport.FitBandToViewport ws, modKnowledge.SHELF_BAND, "J"
     ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る。
     modKnowledge.NormalizeShelfRows ws, 7
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる
@@ -69,14 +79,12 @@ Public Sub Show()
     ws.Range(bandAddr).Interior.Color = modUI.UiColor("bg")
     ws.Range(bandAddr).Font.Name = "Yu Gothic UI"
 
+    ' R21H F7: 質問列(D:J)に余りを吸わせる外部Fit(J)を先に打ち、直後の
+    ' DrawChromeが吸収列Nで【二重に】Fitし直していた(2回目の丸めで帯が
+    ' 可視幅を数pt超える経路)。波AのtableのFit(J)一発と同型にするため、
+    ' 外部Fitを廃止しmodViewport2.ShelfPadColを"shared"もJへ倒す
+    ' (DrawChrome内の1回のFitだけで質問列へ余りが吸われる)。
     modKnowledge.DrawChrome ws, "shared"
-
-    ws.Visible = -1
-    If Not modUI.ActivateSheetRobust(ws, "modShared.Show") Then modUI.RestoreExcelUI
-    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
-    ' PrepareScreenView自身がActiveSheet Is wsを見るため、Activate失敗時は
-    ' 後続のActiveWindow操作を自動でスキップする。
-    modKnowledge.PrepareScreenView ws
 
     Dim rows_() As Long
     Dim n As Long
