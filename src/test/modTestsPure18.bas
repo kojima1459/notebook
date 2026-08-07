@@ -203,72 +203,61 @@ Private Function DispLines(ByVal a As String, ByVal b As String, _
     If LenB(c) > 0 Then DispLines = DispLines & vbLf & c
 End Function
 
+' ----------------------------------------------------------------------------
+' R21-2 D1: 絶対gap版は参照廃止。相対gap版(HasScoreDispersionRel)へ
+' 新判定として追随させたゴールデン(旧#1/#4/#9/#10/#12相当+境界rel=15/14+
+' スケール不変性)。
 Private Sub TestScoreDispersion()
-    ' #1 免責は? — 3資料が拮抗。分散の本命ケース。
-    modTestRunner.Check "分散_#1_免責は?は拮抗した3資料で発動", _
-        (modClarify.HasScoreDispersion( _
+    ' 拮抗3資料(旧#1相当): 0.72/0.70/0.68 → rel=(0.02/0.72)*100≈2.8。既定閾値15で発動。
+    modTestRunner.Check "分散rel_拮抗3資料は既定15で発動", _
+        (modClarify.HasScoreDispersionRel( _
             DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70", _
-                      "規程C" & vbTab & "0.68"), 10) = True)
+                      "規程C" & vbTab & "0.68"), 15) = True)
 
-    ' #2 計算方法 — 深掘り(followup)でも同じ経路を通る。
-    modTestRunner.Check "分散_#2_計算方法(深掘り)も発動", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.75", "約款B" & vbTab & "0.71"), 10) = True)
+    ' 突出(旧#4/#12相当): 0.9 vs 0.3 → rel=(0.6/0.9)*100≈66.7。既定閾値15で不発。
+    modTestRunner.Check "分散rel_突出は既定15で不発", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), 15) = False)
 
-    ' #3 上位2件だけが拮抗していれば足りる(3件目が離れていても関係ない)。
-    modTestRunner.Check "分散_#3_上位2件が拮抗していれば発動", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.78", _
-                      "規程C" & vbTab & "0.55"), 10) = True)
+    ' 資料1種類(旧#10相当)は判定不能=不発。
+    modTestRunner.Check "分散rel_資料1種類は不発", _
+        (modClarify.HasScoreDispersionRel(DispLines("約款A" & vbTab & "0.85", ""), 15) = False)
 
-    ' #4 1位が突出。聞き返さない=いちばん大事な「黙って答える」側。
-    modTestRunner.Check "分散_#4_1位が突出なら発動しない", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), 10) = False)
+    ' 境界: rel=15ちょうどは不発、14は発動。
+    modTestRunner.Check "分散rel_境界_rel15ちょうどは不発", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.68"), 15) = False)
+    modTestRunner.Check "分散rel_境界_rel14は発動", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "1.00", "約款B" & vbTab & "0.86"), 15) = True)
 
-    ' #9 1語だけの質問でも、分散していれば対象。
-    modTestRunner.Check "分散_#9_1語の質問でも分散があれば発動", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70"), 10) = True)
-
-    ' #10 資料が1種類しかない。分散しようがない。
-    modTestRunner.Check "分散_#10_資料が1種類なら発動しない", _
-        (modClarify.HasScoreDispersion(DispLines("約款A" & vbTab & "0.85", ""), 10) = False)
-
-    ' #12 突出(0.75 vs 0.10)。
-    modTestRunner.Check "分散_#12_クーリングオフは突出なので発動しない", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.75", "約款B" & vbTab & "0.10"), 10) = False)
+    ' スケール不変性: 境界と同じペアを10倍しても判定が変わらない。
+    modTestRunner.Check "分散rel_スケール不変_10倍でも発動側は変わらない", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "10.00", "約款B" & vbTab & "8.60"), 15) = True)
+    modTestRunner.Check "分散rel_スケール不変_10倍でも不発側は変わらない", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "8.00", "約款B" & vbTab & "6.80"), 15) = False)
 
     ' 同じ資料が複数チャンクで当たっても【1資料】として数える(最高スコアだけ残す)。
-    modTestRunner.Check "分散_同一資料の複数ヒットは1種類として数える", _
-        (modClarify.HasScoreDispersion( _
+    modTestRunner.Check "分散rel_同一資料の複数ヒットは1種類として数える", _
+        (modClarify.HasScoreDispersionRel( _
             DispLines("約款A" & vbTab & "0.72", "約款A" & vbTab & "0.70", _
-                      "約款A" & vbTab & "0.69"), 10) = False)
+                      "約款A" & vbTab & "0.69"), 15) = False)
 
-    ' 境界: 差ちょうど0.10 は発動しない(未満のみ)。0.09 は発動する。
-    modTestRunner.Check "分散_境界_差0.10ちょうどは発動しない", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.70"), 10) = False)
-    modTestRunner.Check "分散_境界_差0.09は発動する", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.71"), 10) = True)
-
-    ' gap=0 は機能OFF(config の ambiguous_dispersion_gap_x100=0)。
-    modTestRunner.Check "分散_gap0は機能OFF", _
-        (modClarify.HasScoreDispersion( _
+    ' 閾値0は機能OFF(config の dispersion_rel_gap_x100=0)。
+    modTestRunner.Check "分散rel_閾値0は機能OFF", _
+        (modClarify.HasScoreDispersionRel( _
             DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70"), 0) = False)
 
-    ' 壊れた入力(空・TAB無し・スコアが数値でない)で落ちない・発動しない。
-    modTestRunner.Check "分散_空文字は発動しない", _
-        (modClarify.HasScoreDispersion("", 10) = False)
-    modTestRunner.Check "分散_TAB無しの行だけなら発動しない", _
-        (modClarify.HasScoreDispersion(DispLines("約款A", "約款B"), 10) = False)
-    ' スコアが読めない行は0点扱い。0点どうしは差0=拮抗しているのが事実なので
-    ' 発動して構わない(聞き返しは害が小さい側)。ここでは落ちないことを見る。
-    modTestRunner.Check "分散_スコアが数値でなくても落ちない", _
-        (modClarify.HasScoreDispersion( _
-            DispLines("約款A" & vbTab & "xx", "約款B" & vbTab & "yy"), 10) = True)
+    ' 壊れた入力で落ちない。
+    modTestRunner.Check "分散rel_空文字は発動しない", _
+        (modClarify.HasScoreDispersionRel("", 15) = False)
+    modTestRunner.Check "分散rel_TAB無しの行だけなら発動しない", _
+        (modClarify.HasScoreDispersionRel(DispLines("約款A", "約款B"), 15) = False)
+    modTestRunner.Check "分散rel_1位が0以下は判定不能で発動しない", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "0", "約款B" & vbTab & "-0.2"), 15) = False)
 End Sub
 
 Private Sub TestMentionsSourceName()
@@ -324,45 +313,50 @@ Private Sub TestDispersionOtherGates()
         (Len("計算方法") <= 10)
 End Sub
 
-' ----------------------------------------------------------------------------
-' R19H FB-1(A-M⑧): gapの実値を返す純関数。閾値との比較は呼び側が持つ。
-' ----------------------------------------------------------------------------
-' HasScoreDispersion(上の12件)と同じ走査を共有しているので、ここでは
-' 「Boolean では見えなかった値そのもの」だけを固定する。
+' R21-2 D1: DispersionRelGapX100(相対gap+b1/b2出力)の実値ゴールデン。
+' usage_logのdetail新形式(src=N b1=… b2=… rel=…)はこのb1/b2/rel/srcCountを
+' そのまま転記する(modAskRetrieve.IsTooVague)ので、ここで固定すれば足りる。
 Private Sub TestDispersionGap()
-    Dim n As Long
+    Dim n As Long, b1 As Double, b2 As Double
 
-    ' 拮抗(0.72 vs 0.70)= gap 2。資料は3種類。
-    modTestRunner.Check "分散gap_拮抗した3資料はgap2を返す", _
-        (modClarify.DispersionGapX100( _
-            DispLines("約款A" & vbTab & "0.72", "約款B" & vbTab & "0.70", _
-                      "規程C" & vbTab & "0.68"), n) = 2)
-    modTestRunner.Check "分散gap_資料数を数えて返す", (n = 3)
+    ' 拮抗3資料: 0.80/0.68/0.50 → rel=15ちょうど。b1/b2/資料数も同時に返る。
+    modTestRunner.Check "分散gaprel_rel15ちょうどを返す", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.68", _
+                      "規程C" & vbTab & "0.50"), n, b1, b2) = 15)
+    modTestRunner.Check "分散gaprel_資料数を数えて返す", (n = 3)
+    modTestRunner.Check "分散gaprel_1位2位の生スコアも返す(校正データ)", _
+        (Abs(b1 - 0.8) < 0.0001 And Abs(b2 - 0.68) < 0.0001)
 
-    ' 突出(0.9 vs 0.3)= gap 60。鳴らない側こそ校正に要る値。
-    modTestRunner.Check "分散gap_突出はgap60を返す", _
-        (modClarify.DispersionGapX100( _
-            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), n) = 60)
+    ' 突出(0.9 vs 0.3)= rel≈66.7。鳴らない側こそ校正に要る値。
+    modTestRunner.Check "分散gaprel_突出は大きいrelを返す", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "0.9", "約款B" & vbTab & "0.3"), n, b1, b2) >= 60)
 
     ' 資料が1種類=判定不能。-1(0ではない)で返し、ログでも区別できるようにする。
-    modTestRunner.Check "分散gap_資料1種類は判定不能の-1", _
-        (modClarify.DispersionGapX100(DispLines("約款A" & vbTab & "0.85", ""), n) = -1)
-    modTestRunner.Check "分散gap_判定不能でも資料数は返る", (n = 1)
+    modTestRunner.Check "分散gaprel_資料1種類は判定不能の-1", _
+        (modClarify.DispersionRelGapX100(DispLines("約款A" & vbTab & "0.85", ""), n, b1, b2) = -1)
+    modTestRunner.Check "分散gaprel_判定不能でも資料数は返る", (n = 1)
 
     ' 空文字でも落ちない(-1・0件)。
-    modTestRunner.Check "分散gap_空文字は-1", _
-        (modClarify.DispersionGapX100("", n) = -1)
-    modTestRunner.Check "分散gap_空文字の資料数は0", (n = 0)
+    modTestRunner.Check "分散gaprel_空文字は-1", _
+        (modClarify.DispersionRelGapX100("", n, b1, b2) = -1)
+    modTestRunner.Check "分散gaprel_空文字の資料数は0", (n = 0)
 
     ' 同じ資料の複数ヒットは1種類(最高スコアだけ残す)=判定不能。
-    modTestRunner.Check "分散gap_同一資料の複数ヒットは1種類", _
-        (modClarify.DispersionGapX100( _
-            DispLines("約款A" & vbTab & "0.72", "約款A" & vbTab & "0.70", ""), n) = -1)
+    modTestRunner.Check "分散gaprel_同一資料の複数ヒットは1種類", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "0.72", "約款A" & vbTab & "0.70", ""), n, b1, b2) = -1)
 
-    ' 境界: 差ちょうど0.10 は gap10(呼び側の「未満」で落ちる)。
-    modTestRunner.Check "分散gap_差0.10ちょうどはgap10", _
-        (modClarify.DispersionGapX100( _
-            DispLines("約款A" & vbTab & "0.80", "約款B" & vbTab & "0.70"), n) = 10)
+    ' 1位が0以下は相対化できない(-1で判定不能扱い)。
+    modTestRunner.Check "分散gaprel_1位が0以下は判定不能の-1", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "0", "約款B" & vbTab & "-0.2"), n, b1, b2) = -1)
+
+    ' スケール不変性: 全スコア10倍でも同じrelを返す(D1テスト要件)。
+    modTestRunner.Check "分散gaprel_スケール不変_10倍でも同じrel", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "8.00", "約款B" & vbTab & "6.80"), n, b1, b2) = 15)
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -494,15 +488,15 @@ Private Sub TestSelfEchoGuard()
 End Sub
 
 Private Sub TestThoroughDispersionPair()
-    ' (v) 分散閾値: thorough(既定25)ではgap20が発動し、deep/quick(既定10)
-    ' では発動しない、の対(R20-6d)。DispLinesは上のTestScoreDispersionと
-    ' 同じヘルパー関数を共用する。
-    Dim lines20 As String
-    lines20 = DispLines("約款A" & vbTab & "0.90", "約款B" & vbTab & "0.70")
-    modTestRunner.Check "分散閾値対_thoroughはgap20で発動(閾値25)", _
-        (modClarify.HasScoreDispersion(lines20, 25) = True)
-    modTestRunner.Check "分散閾値対_deep/quickはgap20で非発動(閾値10)", _
-        (modClarify.HasScoreDispersion(lines20, 10) = False)
+    ' (v) 分散閾値: thorough(既定20)ではrel19が発動し、deep/quick(既定15)
+    ' では発動しない、の対(R20-6d→R21-2 D1で相対gapへ移行)。DispLinesは
+    ' 上のTestScoreDispersionと同じヘルパー関数を共用する。
+    Dim lines19 As String
+    lines19 = DispLines("約款A" & vbTab & "1.00", "約款B" & vbTab & "0.81")
+    modTestRunner.Check "分散閾値対_thoroughはrel19で発動(閾値20)", _
+        (modClarify.HasScoreDispersionRel(lines19, 20) = True)
+    modTestRunner.Check "分散閾値対_deep/quickはrel19で非発動(閾値15)", _
+        (modClarify.HasScoreDispersionRel(lines19, 15) = False)
 End Sub
 
 Private Sub TestThoroughStyleAddendum()
@@ -515,6 +509,44 @@ Private Sub TestThoroughStyleAddendum()
         (InStr(p, "■見出しで構造化") > 0)
     modTestRunner.Check "入念文体_断定回避の文言を連結", _
         (InStr(p, "資料からは確認できません") > 0)
+
+    ' R21-2 D3: digest/draft段にも同じ連結機構で免責事由観点を追記する。
+    Dim pd As String: pd = modAskThorough.ThoroughDigestPrompt("元digest")
+    modTestRunner.Check "入念網羅性_digestは元プロンプトを保持", _
+        (Left$(pd, Len("元digest")) = "元digest")
+    modTestRunner.Check "入念網羅性_digestに免責事由観点を連結", _
+        (InStr(pd, "免責事由") > 0)
+    Dim pf As String: pf = modAskThorough.ThoroughDraftPrompt("元draft")
+    modTestRunner.Check "入念網羅性_draftは元プロンプトを保持", _
+        (Left$(pf, Len("元draft")) = "元draft")
+    modTestRunner.Check "入念網羅性_draftに免責事由観点を連結", _
+        (InStr(pf, "免責事由") > 0)
+End Sub
+
+' ----------------------------------------------------------------------------
+' R21-2 D2(実機第8報⑧E0204誤爆): 査読(critique)応答がLooksLikeLimitErrorで
+' 上限エラー誤爆しないこと、本物の上限応答は引き続き検知されることの対。
+' ----------------------------------------------------------------------------
+' R21-2 D2: 実機の棄却応答と同型(「1. [観点] …」・120字以下・「上限」等を含む)
+' がE0204にならないこと/本物の上限応答は引き続きE0204のままの対。
+Private Sub TestE0204CritiqueRescue()
+    modTestRunner.Check "E0204救済_論点漏れの査読は上限エラーでない", _
+        (modGateway.LooksLikeLimitError( _
+            "1. [論点漏れ] 免責事由に触れていない" & _
+            ChrW(&H2192) & "質問のうち回数の上限に関する部分に答えていない") = False)
+    modTestRunner.Check "E0204救済_未検証の断定タグも救済", _
+        (modGateway.LooksLikeLimitError( _
+            "1. [未検証の断定] 上限を超えると書いてある" & ChrW(&H2192) & "抜粋に無い") = False)
+    modTestRunner.Check "E0204救済_憶測タグも救済", _
+        (modGateway.LooksLikeLimitError("1. [憶測] 回数の上限を勝手に補っている") = False)
+
+    modTestRunner.Check "E0204維持_本物の上限応答は引き続きエラー扱い", _
+        (modGateway.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
+    modTestRunner.Check "E0204維持_英語のrate limit定型文も引き続きエラー扱い", _
+        (modGateway.LooksLikeLimitError("Sorry, you have hit the rate limit. Please retry later.") = True)
+
+    modTestRunner.Check "E0204回帰_出典タグつき短文回答は上限エラーでない", _
+        (modGateway.LooksLikeLimitError("請求回数の上限はありません。[本棚: 約款.pdf p.12]") = False)
 End Sub
 
 Public Sub RunAll18()
@@ -556,6 +588,9 @@ NextDispPair20:
 NextStyle20:
     On Error GoTo StyleFail20
     TestThoroughStyleAddendum
+NextE0204D2:
+    On Error GoTo E0204FailD2
+    TestE0204CritiqueRescue
 NextChain19:
     ' R20-1: 実機第7報⑦(右・下余白の3層根治)の真理表は modTestsPure19 へ。
     ' ここが28,000字のWARN帯に近いため、16→17→18 と同じ線で分割した。
@@ -615,6 +650,10 @@ DispPairFail20:
     Resume NextStyle20
 StyleFail20:
     modTestRunner.Check "TestThoroughStyleAddendum(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextE0204D2
+E0204FailD2:
+    modTestRunner.Check "TestE0204CritiqueRescue(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextChain19
 ChainFail19:
