@@ -31,7 +31,13 @@ Private Const COL_KEY As Long = 2
 Private Const COL_SUM As Long = 3
 Private Const COL_KW As Long = 4
 Private Const COL_N As Long = 5
-Private Const OUTLINE_COLS As Long = 5
+' logic_ver(2026-08-07 R21-3 E2): 章検出ロジックの世代キー
+' (modOutlineBuild.OUTLINE_LOGIC_VER)。既存ブック(5列時代)への見出し追加は
+' EnsureOutlineSheetが毎回・冪等に行う(modShelfStore.EnsureKnowledgeSheetの
+' norm_text追加と同じ移行手法)。旧行(この列が空)は Val("")=0 として読める
+' ので、読み手(modBackfill)は移行処理なしでそのまま「旧世代」と判定できる。
+Private Const COL_VER As Long = 6
+Private Const OUTLINE_COLS As Long = 6
 
 Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
@@ -49,12 +55,19 @@ Public Function EnsureOutlineSheet() As Worksheet
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.count))
         ws.Name = modAppDef.SH_DOC_OUTLINE
         Dim hdr As Variant
-        hdr = Array("source", "section_key", "summary", "keywords", "chunk_n")
+        hdr = Array("source", "section_key", "summary", "keywords", "chunk_n", "logic_ver")
         Dim i As Long
         For i = LBound(hdr) To UBound(hdr)
             ws.Cells(1, i + 1).Value = hdr(i)
         Next i
     End If
+    ' 既存ブック(5列時代)への見出し追加も毎回・冪等に(R21-3 E2)。空の行は
+    ' 「世代0(未記録)」として読むので移行処理は要らない(modShelfStoreと同型)。
+    On Error Resume Next
+    If LenB(Trim$(CStr(ws.Cells(1, COL_VER).Value))) = 0 Then
+        ws.Cells(1, COL_VER).Value = "logic_ver"
+    End If
+    On Error GoTo 0
     On Error Resume Next
     ws.Visible = 2   ' xlSheetVeryHidden(modBoot へ足さないぶん、ここで毎回守る)
     ws.Columns(COL_SRC).NumberFormat = "@"
@@ -72,11 +85,15 @@ End Function
 ' WriteOutlineRows - 章の要約 n 件を末尾へ1回のRange書込みで追記する。
 '   srcs/keys/sums/kws/ns は並行配列(同じLBound起点・n件ぶん)。呼び出し側の
 '   配列が0始まりでも1始まりでも動くよう LBound から相対で読む。
+'   verNum: この一括書込み全行に記録する世代キー(呼び出し元=
+'   modOutlineBuild.BuildOutlineFor が OUTLINE_LOGIC_VER を渡す。1資料の
+'   章要約は必ず同じ呼び出しで一括作成されるため、行ごとに変える必要は無い)。
 '   書けなくても取込は止めない(このシートは上積み=モジュール冒頭の判断)。
 ' ----------------------------------------------------------------------------
 Public Sub WriteOutlineRows(ByRef srcs() As String, ByRef keys() As String, _
                             ByRef sums() As String, ByRef kws() As String, _
-                            ByRef ns() As Long, ByVal n As Long)
+                            ByRef ns() As Long, ByVal n As Long, _
+                            ByVal verNum As Long)
     If n < 1 Then Exit Sub
     On Error GoTo Failed
 
@@ -97,6 +114,7 @@ Public Sub WriteOutlineRows(ByRef srcs() As String, ByRef keys() As String, _
         arr(i, COL_SUM) = sums(bM + i - 1)
         arr(i, COL_KW) = kws(bW + i - 1)
         arr(i, COL_N) = ns(bN + i - 1)
+        arr(i, COL_VER) = verNum
     Next i
 
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, COL_SRC).End(xlUp).row
@@ -104,7 +122,7 @@ Public Sub WriteOutlineRows(ByRef srcs() As String, ByRef keys() As String, _
     Dim firstRow As Long: firstRow = lastR + 1
     If firstRow < 2 Then firstRow = 2
 
-    ws.Range(ws.Cells(firstRow, COL_SRC), ws.Cells(firstRow + n - 1, COL_N)).Value = arr
+    ws.Range(ws.Cells(firstRow, COL_SRC), ws.Cells(firstRow + n - 1, COL_VER)).Value = arr
     Exit Sub
 Failed:
     OutlineFail "write"
@@ -151,6 +169,39 @@ Public Function ReadOutline(ByRef outSrcs() As String, ByRef outKeys() As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' ReadOutlineVersions - 資料名とlogic_verだけの軽量読み(R21-3 E2)。
+'   modBackfill.DetectLegacyDocsが「この資料のdoc_outlineは現行世代で
+'   仕上げ済みか」を判定するための専用窓口(ReadOutlineの4列読みを流用せず
+'   2列だけ読むのは modOutlineBuild.CollectSourceRows と同じ「本棚全体の
+'   本文までは読まない」流儀)。旧世代の行(logic_ver列が空)はVal("")=0で
+'   返る(後方互換: 旧doc_outlineを読んでもエラーにならない)。
+' ----------------------------------------------------------------------------
+Public Function ReadOutlineVersions(ByRef outSrcs() As String, ByRef outVers() As Long) As Long
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_DOC_OUTLINE)
+    Dim lastR As Long
+    If Not ws Is Nothing Then lastR = ws.Cells(ws.Rows.count, COL_SRC).End(xlUp).row
+
+    If ws Is Nothing Or lastR < 2 Then
+        ReDim outSrcs(0 To 0)
+        ReDim outVers(0 To 0)
+        ReadOutlineVersions = 0
+        Exit Function
+    End If
+
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, COL_SRC), ws.Cells(lastR, COL_VER)).Value
+    Dim n As Long: n = lastR - 1
+    ReDim outSrcs(0 To n - 1)
+    ReDim outVers(0 To n - 1)
+
+    Dim i As Long
+    For i = 1 To n
+        outSrcs(i - 1) = CStr(arr(i, COL_SRC))
+        outVers(i - 1) = CLng(Val(CStr(arr(i, COL_VER))))
+    Next i
+    ReadOutlineVersions = n
+End Function
+
+' ----------------------------------------------------------------------------
 ' RemoveOutlineForSource - その資料の章要約を全部落とす。
 '   chunk_meta の掃除(RemoveMetaForSource)と違い、doc_outline は source 列を
 '   自分で持っているので my_knowledge を引く必要が無い。したがって
@@ -169,7 +220,7 @@ Public Sub RemoveOutlineForSource(ByVal sourceName As String)
     If lastR < 2 Then Exit Sub
 
     Dim arr As Variant
-    arr = ws.Range(ws.Cells(2, COL_SRC), ws.Cells(lastR, COL_N)).Value
+    arr = ws.Range(ws.Cells(2, COL_SRC), ws.Cells(lastR, COL_VER)).Value
     Dim nRows As Long: nRows = lastR - 1
 
     Dim keepArr() As Variant: ReDim keepArr(1 To nRows, 1 To OUTLINE_COLS)
@@ -185,9 +236,9 @@ Public Sub RemoveOutlineForSource(ByVal sourceName As String)
     Next i
     If k = nRows Then Exit Sub          ' 落ちる行が1つも無い
 
-    ws.Range(ws.Cells(2, COL_SRC), ws.Cells(lastR, COL_N)).ClearContents
+    ws.Range(ws.Cells(2, COL_SRC), ws.Cells(lastR, COL_VER)).ClearContents
     If k > 0 Then
-        ws.Range(ws.Cells(2, COL_SRC), ws.Cells(1 + k, COL_N)).Value = CompactOutline(keepArr, k)
+        ws.Range(ws.Cells(2, COL_SRC), ws.Cells(1 + k, COL_VER)).Value = CompactOutline(keepArr, k)
     End If
     Exit Sub
 Failed:

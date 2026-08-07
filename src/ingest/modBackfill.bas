@@ -52,8 +52,9 @@ Private Const COL_FULLTEXT As Long = 7
 ' DetectLegacyDocs - my_knowledge をsource単位に走査し、未仕上げの資料を
 '   列挙する。戻り値は Collection<String>("資料名|状態")。状態は
 '   STATUS_NEEDS(仕上げで直せる)/STATUS_CANNOT(breadcrumb形式でなく
-'   仕上げ不可・再取込のみ)のいずれか。仕上げ済み(chunk_meta+doc_outline
-'   とも揃っている)資料は含めない。AIは1回も呼ばない(判定のみ)。
+'   仕上げ不可・再取込のみ)のいずれか。仕上げ済み(chunk_meta+doc_outlineが
+'   揃い、かつdoc_outlineが現行の章検出ロジック世代=BuildOutlineSourceSet
+'   参照。R21-3 E2)の資料は含めない。AIは1回も呼ばない(判定のみ)。
 ' ----------------------------------------------------------------------------
 Public Function DetectLegacyDocs() As Collection
     Dim outCol As New Collection
@@ -281,6 +282,10 @@ Public Function ResultText(ByVal okN As Long, ByVal ngN As Long, ByVal cannotN A
         s = okN & "冊の仕上げが完了しました(" & ngN & "冊は失敗。ログをご確認ください)。"
     End If
     If cannotN > 0 Then s = s & "(" & cannotN & "冊は再取込が必要です)"
+    ' R21-3 E2(実機第8報②): 章境界(breadcrumb)は取込時に焼き込まれるため、
+    ' ⚡仕上げ(再取込ゼロ)の射程は chunk_meta/doc_outline の再構築に限られ、
+    ' Vision側の見出し精度改善(E1)には届かない。正直な案内を1行添える。
+    If okN > 0 Then s = s & vbLf & "(OCR資料は再取込するとさらに章立てが正確になります)"
     ResultText = s
 End Function
 
@@ -302,17 +307,37 @@ Private Function BuildMetaIdSet() As Object
     Set BuildMetaIdSet = d
 End Function
 
-' doc_outline に行がある source 集合。
+' doc_outline に行があり、かつ章検出ロジックの現行世代(R21-3 E2:
+' modOutlineBuild.OUTLINE_LOGIC_VER)で仕上げ済みの source 集合。
+'   世代キーの後方互換: 旧doc_outline(logic_ver列が空/古い値)の行は
+'   Val("")=0 等となり現行世代未満なので、この集合に入らない
+'   =DetectLegacyDocsは「未仕上げ」として再提案する(移行処理は不要。
+'   ReadOutlineVersions側の後方互換読みだけで成立する)。
+'   1資料の行は WriteOutlineRows が常に同一世代で一括書込みするため
+'   世代が資料内で割れることは無い設計だが、保険として最小値で判定する。
 Private Function BuildOutlineSourceSet() As Object
     Dim d As Object: Set d = CreateObject("Scripting.Dictionary")
-    Dim srcs() As String, keys() As String, sums() As String, kws() As String
-    Dim n As Long: n = modOutlineStore.ReadOutline(srcs, keys, sums, kws)
+    d.CompareMode = vbTextCompare
+    Dim minVer As Object: Set minVer = CreateObject("Scripting.Dictionary")
+    minVer.CompareMode = vbTextCompare
+
+    Dim srcs() As String, vers() As Long
+    Dim n As Long: n = modOutlineStore.ReadOutlineVersions(srcs, vers)
     Dim i As Long
     For i = 0 To n - 1
         If LenB(srcs(i)) > 0 Then
-            If Not d.Exists(srcs(i)) Then d.Add srcs(i), True
+            If minVer.Exists(srcs(i)) Then
+                If vers(i) < minVer(srcs(i)) Then minVer(srcs(i)) = vers(i)
+            Else
+                minVer.Add srcs(i), vers(i)
+            End If
         End If
     Next i
+
+    Dim k As Variant
+    For Each k In minVer.Keys
+        If minVer(k) >= modOutlineBuild.OUTLINE_LOGIC_VER Then d.Add k, True
+    Next k
     Set BuildOutlineSourceSet = d
 End Function
 

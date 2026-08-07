@@ -301,12 +301,15 @@ Private Sub TestBackfillText()
         (InStr(modBackfill.ConfirmText(3, 2), "2冊は形式が古いため") > 0)
     modTestRunner.Check "確認文_仕上げ不可0件は併記しない", _
         (InStr(modBackfill.ConfirmText(3, 0), "形式が古いため") = 0)
-    modTestRunner.Check "結果文_失敗0件は完了のみ", _
-        (modBackfill.ResultText(5, 0, 0) = "5冊の仕上げが完了しました。")
+    modTestRunner.Check "結果文_失敗0件は完了のみ+OCR再取込案内(R21-3 E2)", _
+        (modBackfill.ResultText(5, 0, 0) = "5冊の仕上げが完了しました。" & vbLf & _
+         "(OCR資料は再取込するとさらに章立てが正確になります)")
     modTestRunner.Check "結果文_失敗があれば件数を併記", _
         (InStr(modBackfill.ResultText(4, 1, 0), "1冊は失敗") > 0)
     modTestRunner.Check "結果文_仕上げ不可があれば再取込が必要と併記", _
         (InStr(modBackfill.ResultText(4, 0, 1), "再取込が必要") > 0)
+    modTestRunner.Check "結果文_0冊完了(該当なし)ではOCR案内を付けない", _
+        (InStr(modBackfill.ResultText(0, 0, 0), "OCR資料は再取込") = 0)
 End Sub
 
 Public Sub RunAll19()

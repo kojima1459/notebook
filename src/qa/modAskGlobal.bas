@@ -325,13 +325,19 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
     ' 「src と 章キーの両方が一致した行だけ採る」が結果として成立する
     ' (chunk_meta には source 列が無く、ここで引くと本棚全行×meta行の走査に
     '  なるため、突合はシートを読む 2) 側へ置いたままにしてある)。
+    ' 2026-08-07(R21-3 E2・実機第8報②): 章キーの縮退統合(modOutlineBuild.
+    ' GroupChapters/CoalesceSmallChapters)により、pKey(j)は複数の生キーを
+    ' CHAPTER_KEY_SEP連結した代表キーのことがある。単純なStrComp完全一致だと
+    ' 統合された章のチャンクが1件も引けなくなる(=俯瞰が無音で死ぬ)ため、生キー1件が
+    ' 代表キーへ属するかを判定する唯一の照合関数ChapterKeyMatchesを通す
+    ' (単独章(非統合)は従来どおりの完全一致に等価。憲章§4-5)。
     For i = 0 To metaN - 1
         If LenB(mPaths(i)) > 0 Then
             Dim k As String: k = modOutlineBuild.ChapterKeyOf(mPaths(i))
             If LenB(k) > 0 Then
                 For j = 1 To nPick
                     If LenB(pKey(j)) > 0 Then
-                        If StrComp(k, pKey(j), vbTextCompare) = 0 Then
+                        If modOutlineBuild.ChapterKeyMatches(k, pKey(j)) Then
                             boxes(j) = boxes(j) & vbLf & mIds(i)
                         End If
                     End If

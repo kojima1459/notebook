@@ -30,6 +30,16 @@ Option Explicit
 '     (modShelf.IngestFile)は残227字しかなく、判断を1つも持てない(憲章§4-6)。
 '   ・プロンプトは modPrompts ではなくここの Private に置く(modPrompts は残386字。
 '     章要約プロンプトは1本も入らない=R17 Phase2 の容量裁定)。
+'
+' 2026-08-07(R21-3 E2・実機第8報②): 章検出の根治(⚡仕上げの射程内=既存資料も
+' 再取込なしで改善)。
+'   ・ChapterKeyOf: 目次行キー(「第3章 総則……12」)と本文見出しキー
+'     (「第3章 総則」)を末尾のリーダー記号+頁番号の除去で統合する。
+'   ・GroupChapters: MAX_CHAPTERS超過時の「先着60で無言切り捨て」を廃止し、
+'     1〜2チャンクの章を隣接章へ統合する2パス縮退へ置き換えた
+'     (CoalesceSmallChapters)。OUTLINE_LOGIC_VERはこの改善の世代キーで、
+'     doc_outlineへ記録し旧世代をmodBackfill.DetectLegacyDocsが「未仕上げ」
+'     扱いにする(ロジック改善後に⚡仕上げが再提案される)。
 ' ============================================================================
 
 ' my_knowledge の列(modShelfStore の定義と同じ並び。ここは読むだけ)。
@@ -40,6 +50,32 @@ Private Const COL_FULLTEXT As Long = 7
 ' 1資料あたりの章数の天井(=LLM呼び出し回数の天井)。254頁の規程で20〜30章。
 ' 見出しが取れない資料で条単位に割れたときの暴走(数百回の呼び出し)を止める。
 Private Const MAX_CHAPTERS As Long = 60
+
+' 章の最小サイズ(R21-3 E1後方互換ガード): これ未満のチャンク数の章は隣接
+' (文書順で次)の章へ統合する。Visionが階層指示に完全に従わない場合の
+' フォールバック(1〜2チャンクの「章」を作らせない)。
+Private Const MIN_CHAPTER_CHUNKS As Long = 3
+
+' doc_outlineの章検出ロジック世代(R21-3 E2)。GroupChapters/ChapterKeyOfの
+' 改善(縮退統合・末尾正規化・目次抑制と対)を適用して書いた行にはこの値を
+' 記録する。modBackfill.DetectLegacyDocsはこれより小さい(=未記録=0を含む)
+' 資料を「未仕上げ」として再提案する単一情報源(§4-5)。
+Public Const OUTLINE_LOGIC_VER As Long = 2
+
+' 縮退統合(CoalesceSmallChapters)が複数の生キーを1つの代表キーへ束ねる際の
+' 連結記号(R21-3 E2)。"|" にしないのは、この代表キーが doc_outline経由で
+' modAskGlobal.BuildPickPromptの一覧に出て【LLMの<pick>応答へそのまま
+' 書き写される】文字列だから: modRagParse.ParseSubqueries は複数章の選択を
+' "|" で分割する(章キー自身に"|"が入ると、LLMが正しく丸ごと書き写しても
+' 応答パース側で章キーの後半が「別の(不正な)pick」として切り離されてしまう。
+' 憲章§4-5: 単一情報源の式のつもりが、別の文脈の区切り文字と衝突していた
+' 実装ミスの是正)。全角の｜(U+FF5C)は半角"|"と字形が近いが別コードポイントで、
+' 章見出しにまず出現せず"::"/半角"|"いずれとも衝突しない。Const初期化に
+' ChrW()等の関数呼び出しは使えない(VBA仕様。実行はできてもコンパイルが
+' 通らない=LO実行テストがexit=-9でハングして発覚した)ため、リテラル文字を
+' 直接埋め込む(tools/vba_lint.py check_cp932_safeでCP932往復可能=文字化け
+' しないことを固定済み)。
+Private Const CHAPTER_KEY_SEP As String = "｜"
 
 ' 1章の本文へ載せる最低限(max_context_chars が異常に小さい設定でも、
 ' 要約の材料が数十字しか渡らない状態にはしない)。
@@ -101,11 +137,19 @@ Public Sub BuildOutlineFor(ByVal sourceName As String)
     Dim paths() As String: ReDim paths(1 To nSrc)
     MapPaths ids, nSrc, mIds, mPaths, metaN, paths
 
-    ' 4) 章キーで束ねる(出現順=文書順)。
+    ' 4) 章キーで束ねる(出現順=文書順)。上限超過時は無言切り捨てず縮退統合
+    ' する(R21-3 E2)ので、その旨をusage_logへ残す(現状は無言だった)。
     Dim chKeys() As String, chCount() As Long
-    Dim nCh As Long
-    nCh = GroupChapters(paths, nSrc, chKeys, chCount)
+    Dim nCh As Long, uniqRaw As Long, mergedN As Long, droppedN As Long
+    nCh = GroupChapters(paths, nSrc, chKeys, chCount, uniqRaw, mergedN, droppedN)
     If nCh < 1 Then Exit Sub
+    If uniqRaw > MAX_CHAPTERS Then
+        On Error Resume Next
+        modLog.LogUsage "outline_capped", "ingest", _
+            "source=" & sourceName & " uniq=" & uniqRaw & " merged=" & mergedN & _
+            " dropped=" & droppedN
+        On Error GoTo 0
+    End If
 
     ' 無人実行(自動同期)で章数が多い資料は、章要約を先送りする(R17H FA-7)。
     ' 手動取込・手動同期(非silent)なら同じ資料でも全量作られる=先送りは
@@ -181,7 +225,7 @@ LoopDone:
     ' (取込フック側でも掃除しているが、ここが唯一の書込み口なので二重に守る。
     '  同じ資料の行が2組並ぶと、章選択の段で同じ章が2回候補に出る)。
     modOutlineStore.RemoveOutlineForSource sourceName
-    modOutlineStore.WriteOutlineRows srcs, chKeys, sums, kws, chCount, doneN
+    modOutlineStore.WriteOutlineRows srcs, chKeys, sums, kws, chCount, doneN, OUTLINE_LOGIC_VER
 
     On Error Resume Next
     modUIMain.SetStage ""
@@ -217,9 +261,17 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' ChapterKeyOf - section_path("第3章 総則>第12条(免責)")から章キーを取る。
-'   戻り値 = 第1要素をそのまま("第3章 総則")。正規化はしない: section_path は
-'   取込時に modSparse.NormalizeForSearch を通っており、ここで別の式を掛けると
-'   保存側(doc_outline)と照合側(modAskGlobal)で章キーが割れる(憲章§4-5)。
+'   戻り値 = 第1要素("第3章 総則")に、末尾の「リーダー記号列+頁番号」だけを
+'   素手走査で除去した緩やか正規化を掛けたもの(R21-3 E2)。section_path は
+'   取込時に modSparse.NormalizeForSearch を通っているので、ここへ足すのは
+'   【この関数1本】に閉じた追加正規化に留める限り安全: ChapterKeyOfは
+'   GroupChapters/ChapterBody/CollectChapterHits(modAskGlobal)の全員が
+'   必ずこの関数を通してから比較するため、保存側と照合側の式は常に一致する
+'   (憲章§4-5。「別の式」を各呼び出し側へ書かないことが単一情報源の条件)。
+'   ・目次行由来のキー("第3章 総則……12")と本文見出し由来のキー
+'     ("第3章 総則")が、この正規化で同一キーへ統合される。
+'   ・リーダー記号が1字だけ(文中の句点等)/頁番号が無い末尾には触れない
+'     (誤って章名を削らないための保守的なガード)。
 '   ・章見出しが無い資料では第1要素が条になる(=条単位の要約)。それが正しい
 '     保守的動作で、無い章立てを推測するよりも外れ方が小さい。
 '   ・空/">"だけ/先頭が空の path は空文字("章が分からない"という正しい答え。
@@ -230,7 +282,42 @@ Public Function ChapterKeyOf(ByVal sectionPath As String) As String
     If LenB(t) = 0 Then Exit Function
     Dim p As Long: p = InStr(t, ">")
     If p > 0 Then t = Left$(t, p - 1)
-    ChapterKeyOf = Trim$(t)
+    ChapterKeyOf = StripTocTail(Trim$(t))
+End Function
+
+' 末尾の「リーダー記号2字以上+頁番号」を除去する(目次行キーの統合用)。
+' 除去条件を満たさなければ入力をそのまま返す(安全側)。RegExp不使用。
+Private Function StripTocTail(ByVal s As String) As String
+    StripTocTail = s
+    Dim n As Long: n = Len(s)
+    Dim i As Long: i = n
+    ' VBAのAndは短絡評価しない(i=0でもMid$(s,i,1)が評価されてErr5になる)ため、
+    ' 境界チェックと文字判定を同じDo While条件に混ぜない(ループ本体側で判定)。
+    Do While i >= 1
+        If Not IsAsciiDigit(Mid$(s, i, 1)) Then Exit Do
+        i = i - 1
+    Loop
+    If i = n Then Exit Function              ' 末尾が数字でない=頁番号なし
+    Dim leaderN As Long, j As Long: j = i
+    Do While j >= 1
+        Dim c As String: c = Mid$(s, j, 1)
+        If c = "." Or c = ChrW(&HFF0E) Or c = ChrW(&H30FB) _
+                Or c = ChrW(&H2026) Or c = ChrW(&H2025) Then
+            leaderN = leaderN + 1: j = j - 1
+        ElseIf c = " " Then
+            j = j - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If leaderN < 2 Then Exit Function          ' リーダー1字だけ=誤爆防止
+    Dim head As String: head = Trim$(Left$(s, j))
+    If LenB(head) = 0 Then Exit Function        ' 全部食うと章名が消える
+    StripTocTail = head
+End Function
+
+Private Function IsAsciiDigit(ByVal ch As String) As Boolean
+    IsAsciiDigit = (ch >= "0" And ch <= "9")
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -337,17 +424,40 @@ Private Function IndexInBox(ByVal box As String, ByVal id As String) As Long
     IndexInBox = Len(head) - Len(Replace(head, vbLf, ""))
 End Function
 
-' 章キーで束ねる(出現順)。戻り値=章数。outCount にはその章のチャンク数。
-Private Function GroupChapters(ByRef paths() As String, ByVal nSrc As Long, _
-                               ByRef outKeys() As String, ByRef outCount() As Long) As Long
+' ----------------------------------------------------------------------------
+' GroupChapters - 章キーで束ねる(文書順=出現順)。戻り値=最終的な章数。
+'   outKeys/outCount は最終(縮退統合後)の章。outUniqRaw/outMerged/outDropped
+'   は診断用(R21-3 E2・呼び出し元のusage_log用): uniqRaw=縮退前のユニーク
+'   章キー数、merged=uniqRaw-最終章数(統合で消えた章数)、dropped=0固定
+'   (統合はするが取りこぼしはしない=全チャンクが必ずどこかの章に属す。
+'    「先着60で無言切り捨て」だった旧実装からの脱却)。
+'   縮退の2段構え:
+'     (1) 常に適用する最小サイズガード(MIN_CHAPTER_CHUNKS未満の章を隣接の
+'         次の章へ統合。Visionが階層指示に従わない場合のフォールバック)。
+'     (2) それでもMAX_CHAPTERSを超えるときだけ、章数から逆算した粒度で
+'         もう一段統合する(2パス縮退。CoalesceSmallChaptersを閾値を上げて
+'         再適用。上げても収まらなければ閾値を段階的に引き上げて必ず収束
+'         させる=安全弁)。
+'   統合で複数キーが1章にまとまった場合、代表キーは全メンバーを
+'   CHAPTER_KEY_SEP区切りで連結した文字列になる(ChapterKeyMatchesが照合時に
+'   分解して見る。単一キーのままの章は従来どおりの素の文字列で、後方互換を
+'   壊さない)。"|"を使わない理由はCHAPTER_KEY_SEPの定義コメント参照。
+' ----------------------------------------------------------------------------
+Public Function GroupChapters(ByRef paths() As String, ByVal nSrc As Long, _
+                              ByRef outKeys() As String, ByRef outCount() As Long, _
+                              ByRef outUniqRaw As Long, ByRef outMerged As Long, _
+                              ByRef outDropped As Long) As Long
     ReDim outKeys(1 To nSrc)
     ReDim outCount(1 To nSrc)
+    outUniqRaw = 0: outMerged = 0: outDropped = 0
 
     Dim n As Long
+    Dim totalGrouped As Long
     Dim i As Long, j As Long
     For i = 1 To nSrc
         Dim k As String: k = ChapterKeyOf(paths(i))
         If LenB(k) > 0 Then
+            totalGrouped = totalGrouped + 1
             Dim at As Long: at = 0
             For j = 1 To n
                 If StrComp(outKeys(j), k, vbBinaryCompare) = 0 Then
@@ -357,14 +467,95 @@ Private Function GroupChapters(ByRef paths() As String, ByVal nSrc As Long, _
             Next j
             If at > 0 Then
                 outCount(at) = outCount(at) + 1
-            ElseIf n < MAX_CHAPTERS Then
+            Else
                 n = n + 1
                 outKeys(n) = k
                 outCount(n) = 1
             End If
         End If
     Next i
+    outUniqRaw = n
+
+    ' (1) 最小サイズガード(常時)
+    CoalesceSmallChapters outKeys, outCount, n, MIN_CHAPTER_CHUNKS
+
+    ' (2) それでも上限超なら、粒度を上げて再集約(無言切り捨ての廃止)
+    If n > MAX_CHAPTERS Then
+        Dim minSize2 As Long: minSize2 = CeilDivLong(totalGrouped, MAX_CHAPTERS)
+        If minSize2 <= MIN_CHAPTER_CHUNKS Then minSize2 = MIN_CHAPTER_CHUNKS + 1
+        Dim guard As Long
+        Do While n > MAX_CHAPTERS And guard < 40
+            CoalesceSmallChapters outKeys, outCount, n, minSize2
+            minSize2 = minSize2 + (minSize2 \ 2) + 1
+            guard = guard + 1
+        Loop
+    End If
+
+    outMerged = outUniqRaw - n
     GroupChapters = n
+End Function
+
+' 隣接する章(文書順)を、合計チャンク数がminSize以上になるまで束ねる。
+' 束ねた章の代表キーは、束ねたメンバー全員のキーをCHAPTER_KEY_SEP区切りで
+' 連結したもの(単独で条件を満たす章は連結されず、素のキーのまま=通常時は
+' 無変化)。
+Private Sub CoalesceSmallChapters(ByRef keys() As String, ByRef counts() As Long, _
+                                  ByRef n As Long, ByVal minSize As Long)
+    If n <= 1 Then Exit Sub
+    Dim newKeys() As String: ReDim newKeys(1 To n)
+    Dim newCounts() As Long: ReDim newCounts(1 To n)
+    Dim outN As Long
+    Dim accKey As String, accCount As Long
+    Dim i As Long
+    For i = 1 To n
+        If accCount = 0 Then
+            accKey = keys(i)
+        Else
+            accKey = accKey & CHAPTER_KEY_SEP & keys(i)
+        End If
+        accCount = accCount + counts(i)
+        If accCount >= minSize Or i = n Then
+            outN = outN + 1
+            newKeys(outN) = accKey
+            newCounts(outN) = accCount
+            accCount = 0
+            accKey = ""
+        End If
+    Next i
+    Dim r As Long
+    For r = 1 To outN
+        keys(r) = newKeys(r)
+        counts(r) = newCounts(r)
+    Next r
+    n = outN
+End Sub
+
+' 切り上げ除算(a/bの天井)。b<=0は異常値として a をそのまま返す(安全側)。
+Private Function CeilDivLong(ByVal a As Long, ByVal b As Long) As Long
+    If b <= 0 Then CeilDivLong = a: Exit Function
+    CeilDivLong = (a + b - 1) \ b
+End Function
+
+' ----------------------------------------------------------------------------
+' ChapterKeyMatches - 生の章キー(1件)が、章グループのキー(単一 or
+'   CoalesceSmallChaptersがCHAPTER_KEY_SEP連結した複数)に属するか。単一
+'   キーのグループは従来どおりの完全一致(後方互換: 旧doc_outlineの章キーも
+'   そのまま動く)。
+' ----------------------------------------------------------------------------
+Public Function ChapterKeyMatches(ByVal rawKey As String, ByVal groupKey As String) As Boolean
+    If LenB(rawKey) = 0 Or LenB(groupKey) = 0 Then Exit Function
+    If InStr(groupKey, CHAPTER_KEY_SEP) = 0 Then
+        ChapterKeyMatches = (StrComp(rawKey, groupKey, vbBinaryCompare) = 0)
+        Exit Function
+    End If
+    Dim members() As String: members = Split(groupKey, CHAPTER_KEY_SEP)
+    Dim i As Long
+    For i = LBound(members) To UBound(members)
+        If StrComp(rawKey, members(i), vbBinaryCompare) = 0 Then
+            ChapterKeyMatches = True
+            Exit Function
+        End If
+    Next i
 End Function
 
 ' 1章ぶんの本文(文書順に連結し cap で打ち切る)。本文は採用した行だけ
@@ -380,7 +571,7 @@ Private Function ChapterBody(ByRef rowIdx() As Long, ByRef paths() As String, _
     Dim used As Long
     Dim i As Long
     For i = 1 To nSrc
-        If StrComp(ChapterKeyOf(paths(i)), chKey, vbBinaryCompare) = 0 Then
+        If ChapterKeyMatches(ChapterKeyOf(paths(i)), chKey) Then
             Dim t As String
             t = CStr(ws.Cells(rowIdx(i), COL_FULLTEXT).Value)
             Dim take As Long: take = BudgetTake(used, Len(t), cap)

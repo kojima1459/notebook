@@ -337,9 +337,13 @@ CONTRACT: dict[str, dict] = {
         # SkippedPageCount: 2026-07-29 実機事故対応。1ページの実行時エラーで
         # 資料まるごとが取込失敗になっていたため、ページ単位で飛ばせるように
         # した。何ページ飛ばしたかを取込側が利用者へ伝えるためのゲッター。
+        # LooksLikeTocPage(2026-08-07 R21-3 E1・実機第8報②): ページ単位の
+        #   目次判定。ChunkAllPagesStructuredが目次ページの見出し判定を
+        #   抑制するために呼ぶ。純ロジックなのでmodTestsPureから固定できる
+        #   よう公開した。
         "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb",
                      "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine",
-                     "SkippedPageCount"],
+                     "SkippedPageCount", "LooksLikeTocPage"],
     },
     "modEmbed": {
         "closed": True,
@@ -441,10 +445,13 @@ CONTRACT: dict[str, dict] = {
     # RemoveKnowledgeAndVectorsForSource との前後関係の制約が無い。
     # veryHidden は EnsureOutlineSheet が毎回・冪等に自己設定する
     # (modBoot.HideInternalSheets は残8字で1行も入らないため。憲章§4-6)。
+    # ReadOutlineVersions(2026-08-07 R21-3 E2・実機第8報②): source/logic_ver
+    #   だけの軽量読み。modBackfill.DetectLegacyDocsが章検出ロジックの世代
+    #   キー(modOutlineBuild.OUTLINE_LOGIC_VER)による「未仕上げ」再判定に使う。
     "modOutlineStore": {
         "closed": True,
         "required": ["EnsureOutlineSheet", "WriteOutlineRows", "ReadOutline",
-                     "RemoveOutlineForSource"],
+                     "RemoveOutlineForSource", "ReadOutlineVersions"],
     },
     # modOutlineBuild(2026-08-05 R17 Phase2): 取込時の章単位要約。
     # BuildOutlineFor: 1資料ぶんの章要約を作って doc_outline へ保存する唯一の
@@ -461,9 +468,19 @@ CONTRACT: dict[str, dict] = {
     #   始めると「何もしていないのにExcelが数分固まる」だけになる。上げ下げは
     #   modShelfSync.SyncNow の入口/Finish の2行だけで、判断そのもの
     #   (章数>12 なら先送りして usage_log("outline_deferred"))はこの層に閉じる。
+    # GroupChapters/ChapterKeyMatches(2026-08-07 R21-3 E2・実機第8報②):
+    #   章キーの縮退統合(MAX_CHAPTERS超過時の「先着60で無言切り捨て」を廃止
+    #   し、小さい章を隣接章へ統合)。Worksheetに触れない純ロジックのため
+    #   Public化してmodTestsPureから直接固定する。ChapterKeyMatchesは統合で
+    #   "|"連結された章キーへの所属判定(ChapterBody/modAskGlobal.
+    #   CollectChapterHitsが共有する唯一の照合関数)。
+    # OUTLINE_LOGIC_VER: 章検出ロジックの世代キー。doc_outlineへ記録し、
+    #   modBackfill.DetectLegacyDocsが旧世代を「未仕上げ」として再提案する
+    #   ための単一情報源。
     "modOutlineBuild": {
         "closed": True,
-        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended"],
+        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended",
+                     "GroupChapters", "ChapterKeyMatches", "OUTLINE_LOGIC_VER"],
     },
     # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
     #   R17より前に取り込んだ資料(my_knowledge にbreadcrumb付きfull_textは
