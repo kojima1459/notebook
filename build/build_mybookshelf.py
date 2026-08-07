@@ -696,11 +696,22 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         # 当たり先が複数の資料へ割れる質問への聞き返し。1位資料と2位資料の
         # 最高スコアの差がこの値÷100より小さいときだけ発動する。小さめ(0.10)に
         # 取るのは、僅差のときだけに限って誤発動を抑えるため(調査④班6.1)。
-        ("ambiguous_dispersion_gap_x100", 10, "資料分散で聞き返す閾値×100。1位資料と2位資料の最高スコアの差がこの値未満なら「どの資料か」を聞き返す。0で機能OFF"),
-        # 2026-08-06 R20-6d(実機第7報⑧): 「入念に調べる」だけは時間よりも精度を
-        # 優先する方針(modMode)と揃え、資料分散の聞き返し閾値を広げて資料確認を
-        # 優先する姿勢にする。校正前の暫定値。usage_log "dispersion" 行で校正予定。
-        ("thorough_dispersion_gap_x100", 25, "「入念に調べる」専用の資料分散閾値×100(既定25。quick/deepはambiguous_dispersion_gap_x100=10のまま)。校正前の暫定値"),
+        # 2026-08-07 R21-2 D1(実機第8報⑧計器修理): 以下2キーは非推奨。
+        # SparseBoost(modRetrieve、上限なし)が資料ごとに桁違いに乗ると絶対差が
+        # 実測不能な値(実機deepモード gap=390)まで膨らみ、どこに閾値を置いても
+        # 機能しなかった。modAskRetrieve.IsTooVague からの参照は廃止し、
+        # 下の dispersion_rel_gap_x100 系(相対gap)へ完全移行した。値そのものは
+        # 校正データの参考として残す(キーは削除しない)。
+        ("ambiguous_dispersion_gap_x100", 10, "[非推奨/R21-2で参照廃止] 資料分散の絶対gap閾値×100(旧実装)。相対gap版(dispersion_rel_gap_x100)に置き換わった"),
+        ("thorough_dispersion_gap_x100", 25, "[非推奨/R21-2で参照廃止] 「入念に調べる」専用の絶対gap閾値×100(旧実装)。相対gap版(thorough_dispersion_rel_gap_x100)に置き換わった"),
+        # 2026-08-07 R21-2 D1: 相対gap = (1位資料の最高スコア - 2位資料の最高
+        # スコア) ÷ 1位資料の最高スコア × 100。全スコアを定数倍しても値が
+        # 変わらない(スケール不変)ため、SparseBoostの乗り方が資料で違っても
+        # 閾値の意味が保たれる。判定はrerank/絞り込み前のpool(候補集合)に対して
+        # 行う(modAskRetrieve.RunMultiRetrieve)。usage_log "dispersion" の
+        # detail(src/b1/b2/rel)で校正する。
+        ("dispersion_rel_gap_x100", 15, "資料分散で聞き返す閾値×100(相対gap)。1位資料と2位資料の最高スコアの差が1位に対してこの割合未満なら「どの資料か」を聞き返す。0で機能OFF"),
+        ("thorough_dispersion_rel_gap_x100", 20, "「入念に調べる」専用の資料分散閾値×100(相対gap。既定20。quick/deepはdispersion_rel_gap_x100=15のまま)"),
     ]
 
 

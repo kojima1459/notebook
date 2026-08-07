@@ -26,6 +26,25 @@ Private mStgThorough As Boolean
 Private mSynMapCsv As String
 Private mSynLoaded As Boolean
 
+' R21-2 D1(実機第8報⑧計器修理): 分散判定はrerank後の最終hits()ではなく、
+' 絞り込み前のpool(RunMultiRetrieve内・最大multi_candidates件)に対して行う
+' (rerankでtopKが1資料へ収束しても、pool側は複数資料のままなので計器が働く)。
+' RunUnscoped/RunDeepScoped(modAskからの唯一の入口)の先頭で必ずクリアし、
+' RunMultiRetrieveがSearchExpandedからpoolを得たときだけ書き込む。
+' retrieve_mode=single(modRetrieve.Search直呼び)やFallbackSingleへ落ちた回は
+' pool無し=IsTooVague側は最終hits()へそのままフォールバックする(従来どおり)。
+Private mDispPoolHits() As Hit
+Private mDispPoolN As Long
+
+Private Sub ResetDispersionPool()
+    mDispPoolN = 0
+End Sub
+
+Private Sub StashDispersionPool(ByRef srcHits() As Hit, ByVal n As Long)
+    mDispPoolHits = srcHits
+    mDispPoolN = n
+End Sub
+
 ' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
 ' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
@@ -124,6 +143,8 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim poolN As Long
     poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits, scopeSources)
     If poolN <= 0 Then GoTo FallbackSingle
+    ' R21-2 D1: rerank/topK絞り込みより前のこの時点でpoolを退避する。
+    StashDispersionPool poolHits, poolN
 
     ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
     Dim orderN As Long: orderN = 0
@@ -241,6 +262,7 @@ End Function
 ' 新規質問(非followup)の deep はこの関数を通らない=現行動作のまま。
 Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
                               ByVal topK As Long, ByRef hits() As Hit) As Long
+    ResetDispersionPool     ' R21-2 D1: この呼び出し限りの結果に合わせて必ず立て直す
     Dim scopeD As Object
     Set scopeD = modFollowup.CitedSourcesDict()
 
@@ -349,6 +371,7 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
                             ByVal topK As Long, ByRef hits() As Hit) As Long
+    ResetDispersionPool     ' R21-2 D1: この呼び出し限りの結果に合わせて必ず立て直す
     If modFollowup.IsFollowupTurn() Then
         Dim n As Long
         n = RunMultiRetrieve(q, mdMode, WideK(topK), hits)
@@ -487,37 +510,54 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
         Exit Function
     End If
 
-    ' (B) 資料分散(R19-4b)。gap=0 で機能OFF(既存の閾値0と同じ思想)。
+    ' (B) 資料分散(R19-4b→R21-2 D1で計器修理)。gap=0 で機能OFF。
     ' R20-6d: 「入念に調べる」だけは時間より精度(modMode方針)なので、資料
-    ' 確認を優先する姿勢へ倒し、閾値を広げる(既定quick/deep=10、thorough=25)。
+    ' 確認を優先する姿勢へ倒し、閾値を広げる(既定quick/deep=15、thorough=20)。
     ' モードはmodAskを触らず、modAsk.ReadModeFromUiState(Private)と同型の
     ' 直読みをここに持つ(R1: qa層からui層のmodAppStateは参照できないため。
     ' AskFollowupが送信時点に同型の再読を行っている前提と整合)。
+    '
+    ' R21-2 D1(実機第8報⑧): 従来は最終hits()(rerank後・topKへ絞り込み済み)を
+    ' 見ていたため、rerankでtopKが1資料へ収束した回は「資料が1種類→判定不能」
+    ' になり計器そのものが働いていなかった(実機thorough src=1 gap=-1)。
+    ' 絞り込み前のpool(mDispPoolHits、最大multi_candidates件)があればそちらを
+    ' 見る。pool無し(retrieve_mode=single等でRunMultiRetrieveを一度も通らな
+    ' かった回)は従来どおり最終hits()を見る。
     Dim curMode As String: curMode = CurrentRagSpeedForDispersion()
-    Dim gapX100 As Long
+    Dim relX100 As Long
     On Error Resume Next
-    gapX100 = DispersionThresholdFor(curMode, _
-        modConfig.GetLong("ambiguous_dispersion_gap_x100", 10), _
-        modConfig.GetLong("thorough_dispersion_gap_x100", 25))
+    relX100 = DispersionThresholdFor(curMode, _
+        modConfig.GetLong("dispersion_rel_gap_x100", 15), _
+        modConfig.GetLong("thorough_dispersion_rel_gap_x100", 20))
     On Error GoTo 0
-    If gapX100 <= 0 Then Exit Function
+    If relX100 <= 0 Then Exit Function
 
     ' R19-4d: 質問文が資料を名指ししているなら聞き返さない(誤発動対策)。
     Dim srcList As String: srcList = HitSourceList(hits, nHits)
     If modClarify.MentionsSourceName(q, srcList) Then Exit Function
 
-    ' R19H FB-1(A-M⑧): 判定は「gapを返す純関数+ここでの比較」に分けた。
-    ' 発動した回も【しなかった回も】gapの実値を1行残す ―― 既定0.10が高すぎるか
-    ' 低すぎるかは、鳴らなかった側の分布を見ないと決められない(憲章§4-2)。
-    ' 資料が2種類未満(gap=-1)は判定不能なので、その事実もそのまま記録する。
-    Dim srcN As Long
-    Dim gap As Long: gap = modClarify.DispersionGapX100(FoldSrcScoreLines(hits, nHits), srcN)
+    ' R21-2 D1: 分散判定用スコアは合成スコア(cos類似度+SparseBoost)のまま
+    ' 相対gap化のみへ縮退した(modRetrieve凍結下では、マルチクエリunionの
+    ' どのクエリのSparseBoostが最終スコアに勝ったか外部から特定できず、素cos
+    ' 成分だけを厳密に分離する経路が無い)。相対化(1位比)によりSparseBoost
+    ' 無上限が起こすスケール崩壊(実機deep gap=390)は解消するが、キーワード
+    ' 加点そのものの遮断は未達(要裁定・報告済み)。
+    Dim dispLines As String
+    If mDispPoolN > 0 Then
+        dispLines = FoldSrcScoreLines(mDispPoolHits, mDispPoolN)
+    Else
+        dispLines = FoldSrcScoreLines(hits, nHits)
+    End If
+
+    ' R19H FB-1(A-M⑧)を継承: 発動した回も【しなかった回も】実値を1行残す。
+    Dim srcN As Long, b1 As Double, b2 As Double
+    Dim rel As Long: rel = modClarify.DispersionRelGapX100(dispLines, srcN, b1, b2)
     On Error Resume Next
-    ' R20-6b: mode列に資料数(srcN)が入っていた列崩れを是正。実モード文字列を
-    ' mode列へ、資料数とgapはdetail列へ寄せる。
-    modLog.LogUsage "dispersion", curMode, "src=" & srcN & " gap=" & gap
+    ' R21-2 D1: detailをsrc/b1/b2/relへ拡張(校正データ収集)。
+    modLog.LogUsage "dispersion", curMode, "src=" & srcN & " b1=" & Trim$(Str$(b1)) & _
+        " b2=" & Trim$(Str$(b2)) & " rel=" & rel
     On Error GoTo 0
-    If gap >= 0 And gap < gapX100 Then
+    If rel >= 0 And rel < relX100 Then
         ' 聞き返しの1行目だけを分散用に差し替えるための印(modClarify が使ったら
         ' その場で下ろす)。文面の本体=資料選択+意図5区分は従来のまま使う。
         modClarify.NoteDispersion
@@ -553,6 +593,8 @@ End Function
 ' R20-6d: 分散閾値をモード別に選ぶ純関数(LOテスト対象)。「入念に調べる」
 ' だけ資料確認を優先する姿勢(=閾値を広げて聞き返しやすくする)にする。
 ' モードの読み出しと config の既定値は呼び出し側(IsTooVague)が持つ。
+' R21-2 D1: 選び方(thoroughだけ広い閾値)自体は絶対gap/相対gapで変わらない
+' ため、値の意味だけ切り替えて(dispersion_rel_gap_x100系)そのまま流用する。
 Public Function DispersionThresholdFor(ByVal mode As String, _
                                        ByVal baseGapX100 As Long, _
                                        ByVal thoroughGapX100 As Long) As Long

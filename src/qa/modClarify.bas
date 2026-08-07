@@ -494,28 +494,30 @@ End Function
 '   gapX100 <= 0 は機能OFF(既存の ambiguous_score_x100=0 と同じ思想)。
 ' ----------------------------------------------------------------------------
 ' ----------------------------------------------------------------------------
-' R19H FB-1(A-M⑧): 「発動したか」だけでなく【gapの実値】を観測できるようにする。
+' R21-2 D1(実機第8報⑧計器修理): 絶対gapから相対gapへ移行。
 ' ----------------------------------------------------------------------------
-' 既定の 0.10 は机上の当て推量で、実データで校正した値ではない(憲章§4-2)。
-' 校正には「発動しなかったときの gap」こそが要る(閾値を上げるべきか下げるべきか
-' は、鳴らなかった側の分布でしか決まらない)。そこで走査の本体を
-' 「gapを返す純関数」へ切り出し、閾値との比較は呼び側(modAskRetrieve)が持つ。
-' HasScoreDispersion は同じシグネチャのまま、この関数を1回呼ぶだけの薄い層に
-' なる(判定規則が2実装に分かれない=憲章§4-5。既存のゴールデン12件も不変)。
-'   戻り値: 資料別の最高スコアの1位と2位の差 ×100(Long)。
-'           資料が2種類未満で判定できないときは -1。
-'   srcCount(out): 数えた資料の種類数(観測ログに載せる)。
-Public Function DispersionGapX100(ByVal srcScoreLines As String, _
-                                  ByRef srcCount As Long) As Long
+' 旧実装(R19H FB-1)は「1位-2位」の絶対差だけを見ていた。SparseBoost
+' (modRetrieve、上限なし)が資料によって桁違いに乗ると、この絶対差は実測
+' 不能な値(実機deepモード gap=390)まで膨らみ、どこに閾値を置いても機能
+' しない計器になっていた。相対gap = (1位-2位)/1位×100 は全スコアを定数倍
+' しても値が変わらない(スケール不変)。走査の本体(資料ごとの最高スコアから
+' 1位・2位を拾う)は旧実装と同じロジックなので、ここに1本(ScanSourceTops)
+' だけ置いて新関数から呼ぶ(規則が2実装に分かれない=憲章§4-5)。
+' 呼び出し側は modAskRetrieve.IsTooVague(D1)のみで、旧絶対gap版
+' (DispersionGapX100/HasScoreDispersion)は参照ごと廃止した
+' (config の旧キー2つも非推奨化。build_mybookshelf.py参照)。
+Private Function ScanSourceTops(ByVal srcScoreLines As String, ByRef srcCount As Long, _
+                                ByRef b1 As Double, ByRef b2 As Double) As Boolean
     srcCount = 0
-    DispersionGapX100 = -1
+    b1 = 0#: b2 = 0#
+    ScanSourceTops = True
     If LenB(srcScoreLines) = 0 Then Exit Function
 
     Dim lines() As String
     lines = Split(srcScoreLines, vbLf)
     Dim cap As Long: cap = UBound(lines) - LBound(lines) + 1
-    ' 1行しか無くても走査はする(R19H FB-1): 早退すると srcCount が0のままになり、
-    ' 観測ログの「資料数」が嘘になる。判定は下の n < 2 が同じように打ち切る。
+    ' 1行しか無くても走査はする(R19H FB-1を継承): 早退すると srcCount が
+    ' 0のままになり、観測ログの「資料数」が嘘になる。
     If cap < 1 Then Exit Function
 
     Dim names() As String: ReDim names(0 To cap - 1)
@@ -530,7 +532,8 @@ Public Function DispersionGapX100(ByVal srcScoreLines As String, _
         If p > 1 And p < Len(ln) Then
             Dim nm As String: nm = Trim$(Left$(ln, p - 1))
             ' スコアは Val で読む: CDbl は端末の小数点記号(カンマ圏)に左右され、
-            ' 同じ文字列が0になり得る。Val は常に "." を小数点として読む。
+            ' 同じ文字列が0になり得る。Val は常に "." を小数点として読む
+            ' (書く側 modAskRetrieve.FoldSrcScoreLines も Str$ で "." 固定)。
             Dim sc As Double: sc = Val(Trim$(Mid$(ln, p + 1)))
             If LenB(nm) > 0 Then
                 Dim k As Long: k = -1
@@ -550,15 +553,14 @@ Public Function DispersionGapX100(ByVal srcScoreLines As String, _
     Next i
 
     srcCount = n
-    If n < 2 Then Exit Function
+    If n < 1 Then Exit Function
 
     ' 1位と2位を1回のなめで拾う(並べ替えない=同点の扱いが順序に依存しない)。
-    Dim b1 As Double, b2 As Double
     b1 = tops(0)
-    b2 = tops(1)
+    b2 = tops(0)
+    If n >= 2 Then b2 = tops(1)
     If b2 > b1 Then
-        b1 = tops(1)
-        b2 = tops(0)
+        Dim tmp As Double: tmp = b1: b1 = b2: b2 = tmp
     End If
     For i = 2 To n - 1
         If tops(i) > b1 Then
@@ -568,19 +570,33 @@ Public Function DispersionGapX100(ByVal srcScoreLines As String, _
             b2 = tops(i)
         End If
     Next i
-
-    DispersionGapX100 = CLng((b1 - b2) * 100#)
 End Function
 
-' 資料分散の判定(R19-4a)。閾値との比較だけを持つ薄い層で、走査の本体は
-' 上の DispersionGapX100。gap=0 は機能OFF(config ambiguous_dispersion_gap_x100)。
-Public Function HasScoreDispersion(ByVal srcScoreLines As String, _
-                                   ByVal gapX100 As Long) As Boolean
-    If gapX100 <= 0 Then Exit Function
-    Dim srcN As Long
-    Dim g As Long: g = DispersionGapX100(srcScoreLines, srcN)
-    If g < 0 Then Exit Function
-    HasScoreDispersion = (g < gapX100)
+' ----------------------------------------------------------------------------
+' DispersionRelGapX100 - 相対gap((1位-2位)/1位×100)を返す(Long、×100)。
+'   srcCount(out): 数えた資料の種類数。b1/b2(out): 1位・2位の生スコア
+'   (usage_logの校正データ・D1)。資料が2種類未満、または1位が0以下で
+'   相対化できないときは -1(判定不能。srcCount/b1/b2はそのまま返す=
+'   鳴らなかった側の分布もログへ残すR19H FB-1の方針を継承)。
+' ----------------------------------------------------------------------------
+Public Function DispersionRelGapX100(ByVal srcScoreLines As String, ByRef srcCount As Long, _
+                                     ByRef b1 As Double, ByRef b2 As Double) As Long
+    DispersionRelGapX100 = -1
+    ScanSourceTops srcScoreLines, srcCount, b1, b2
+    If srcCount < 2 Then Exit Function
+    If b1 <= 0# Then Exit Function
+    DispersionRelGapX100 = CLng(((b1 - b2) / b1) * 100#)
+End Function
+
+' 資料分散の判定(相対gap版)。閾値との比較だけを持つ薄い層。
+' relGapX100<=0 は機能OFF(config dispersion_rel_gap_x100)。
+Public Function HasScoreDispersionRel(ByVal srcScoreLines As String, _
+                                      ByVal relGapX100 As Long) As Boolean
+    If relGapX100 <= 0 Then Exit Function
+    Dim srcN As Long, b1 As Double, b2 As Double
+    Dim rel As Long: rel = DispersionRelGapX100(srcScoreLines, srcN, b1, b2)
+    If rel < 0 Then Exit Function
+    HasScoreDispersionRel = (rel < relGapX100)
 End Function
 
 ' ----------------------------------------------------------------------------
