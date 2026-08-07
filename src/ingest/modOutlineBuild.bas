@@ -465,31 +465,59 @@ Public Function GroupChapters(ByRef paths() As String, ByVal nSrc As Long, _
     ReDim outCount(1 To nSrc)
     outUniqRaw = 0: outMerged = 0: outDropped = 0
 
+    ' R21H F9(敵対的レビュー確定): ユニーク化がoutKeysを毎回1件ずつ線形走査
+    ' しており、章見出しの無い資料(条ごとに割れて実質nSrc件に近い)ではO(n²)
+    ' になる。既存使用例(modBoard/modVaultGallery/modCluster等)に倣い
+    ' Scripting.Dictionaryでkey→index引きをO(1)化する。ただしDictionaryは
+    ' Windows Script Runtime(COM)でLibreOfficeには無く、GroupChaptersは
+    ' modTestsPure23からLO純ロジックテストとして直接実行される(既存の
+    ' Excel専用モジュールでのDictionary利用と違い、コンパイルだけでなく
+    ' 実行までされる)。生成に失敗したら黙って旧来のO(n²)線形走査へ落とす
+    ' (結果は完全に同一。速度だけの最適化)。
     Dim n As Long
     Dim totalGrouped As Long
     Dim i As Long, j As Long
+    Dim dict As Object, useDict As Boolean
+    On Error Resume Next
+    Set dict = CreateObject("Scripting.Dictionary")
+    If Not dict Is Nothing Then dict.CompareMode = 1   ' vbTextCompare相当
+    useDict = (Not dict Is Nothing) And (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+
     For i = 1 To nSrc
         Dim k As String: k = ChapterKeyOf(paths(i))
         If LenB(k) > 0 Then
             totalGrouped = totalGrouped + 1
             Dim at As Long: at = 0
-            For j = 1 To n
-                ' R21H F5: ChapterKeyMatches側をvbTextCompareへ揃えたのに合わせ、
-                ' ここ(章のユニーク化)もvbTextCompareへ統一(大小文字/全角半角の
-                ' ゆれで同じ章が2つに割れるのを防ぐ。統一しないとGroupChaptersが
-                ' 別々に数えた章を、後段のChapterKeyMatchesは同一章として拾って
-                ' しまい、章数と実際の紐付けが食い違う)。
-                If StrComp(outKeys(j), k, vbTextCompare) = 0 Then
-                    at = j
-                    Exit For
-                End If
-            Next j
+            If useDict Then
+                On Error Resume Next
+                If dict.Exists(k) Then at = CLng(dict(k))
+                On Error GoTo 0
+            Else
+                ' ChapterKeyMatches側をvbTextCompareへ揃えたのに合わせ、ここ
+                ' (章のユニーク化)もvbTextCompareへ統一(大小文字/全角半角の
+                ' ゆれで同じ章が2つに割れるのを防ぐ。統一しないとGroupChapters
+                ' が別々に数えた章を、後段のChapterKeyMatchesは同一章として
+                ' 拾ってしまい、章数と実際の紐付けが食い違う)。
+                For j = 1 To n
+                    If StrComp(outKeys(j), k, vbTextCompare) = 0 Then
+                        at = j
+                        Exit For
+                    End If
+                Next j
+            End If
             If at > 0 Then
                 outCount(at) = outCount(at) + 1
             Else
                 n = n + 1
                 outKeys(n) = k
                 outCount(n) = 1
+                If useDict Then
+                    On Error Resume Next
+                    dict(k) = n
+                    On Error GoTo 0
+                End If
             End If
         End If
     Next i

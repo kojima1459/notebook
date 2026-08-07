@@ -60,9 +60,14 @@ Private Sub TestCardWidthFor()
         (modDashStat.CardWidthFor(1111) = 260)
     modTestRunner.Check "カード幅_広い窓(帯1800pt)でも260で頭打ち", _
         (modDashStat.CardWidthFor(1800) = 260)
-    ' 旧上限220は「頭打ちではなくなった」ことを固定する(退行検知)。
-    modTestRunner.Check "カード幅_帯950ptは220を超える(旧上限では止まらない)", _
-        (modDashStat.CardWidthFor(950) = 220)
+    ' R21H F10是正: 旧アサートは帯950ptの入力を使っていたが、(950-70)/4=220
+    ' が偶然「旧上限220」と同じ値になるため、220でハードに頭打ちする退行を
+    ' 入れても検知できなかった(名前は「旧上限では止まらない」だが実際に
+    ' 止まっても220=220で通ってしまう)。旧上限と異なる値になる帯1000pt
+    ' (=232.5、220<232.5<260)へ差し替える。
+    modTestRunner.Check "カード幅_帯1000ptは232.5(旧上限220では止まらない)", _
+        (Abs(modDashStat.CardWidthFor(1000) - 232.5) < 0.001), _
+        "実際=" & modDashStat.CardWidthFor(1000)
     ' 実機の代表値。窓900pt→帯888pt: (888-70)/4 = 204.5
     modTestRunner.Check "カード幅_帯888pt(窓900)で204.5", _
         (Abs(modDashStat.CardWidthFor(888) - 204.5) < 0.001), _
@@ -301,6 +306,21 @@ Private Sub TestBackfillText()
         (InStr(modBackfill.ConfirmText(3, 2), "2冊は形式が古いため") > 0)
     modTestRunner.Check "確認文_仕上げ不可0件は併記しない", _
         (InStr(modBackfill.ConfirmText(3, 0), "形式が古いため") = 0)
+    ' R21H F11: 世代キー導入で既存全冊が再提案されるため、AI呼び出し回数の
+    ' 概算(章数合計×1+資料数)を確認文へ明示する。
+    modTestRunner.Check "確認文_概算未指定(0)なら呼び出し回数の文言なし(後方互換)", _
+        (InStr(modBackfill.ConfirmText(3, 0), "AI呼び出しの概算") = 0)
+    modTestRunner.Check "確認文_概算指定ありは章数合計+資料数の内訳を明示", _
+        (InStr(modBackfill.ConfirmText(3, 0, 12), "AI呼び出しの概算は約15回") > 0 And _
+         InStr(modBackfill.ConfirmText(3, 0, 12), "章の要約12回") > 0 And _
+         InStr(modBackfill.ConfirmText(3, 0, 12), "名寄せ3回") > 0)
+    modTestRunner.Check "章数概算_チャンク3個で1章(下限境界)", _
+        (modBackfill.EstimateChaptersForChunks(3) = 1)
+    modTestRunner.Check "章数概算_チャンク0でも最低1章", _
+        (modBackfill.EstimateChaptersForChunks(0) = 1)
+    modTestRunner.Check "章数概算_チャンク180個で60章(上限で頭打ち)", _
+        (modBackfill.EstimateChaptersForChunks(180) = 60 And _
+         modBackfill.EstimateChaptersForChunks(9000) = 60)
     modTestRunner.Check "結果文_失敗0件は完了のみ+OCR再取込案内(R21-3 E2)", _
         (modBackfill.ResultText(5, 0, 0) = "5冊の仕上げが完了しました。" & vbLf & _
          "(OCR資料は再取込するとさらに章立てが正確になります)")

@@ -501,7 +501,10 @@ CONTRACT: dict[str, dict] = {
                      "OUTCOME_NONE", "OUTCOME_CANCELLED", "OUTCOME_DONE",
                      "DetectLegacyDocs", "CountByStatus", "BackfillOne", "BackfillAll",
                      "ClassifyDoc", "LooksLikeBreadcrumbLine",
-                     "ConfirmText", "ResultText"],
+                     "ConfirmText", "ResultText",
+                     # 2026-08-07(R21H F11): 確認文言にAI呼び出し回数の概算
+                     # (章数合計×1+資料数)を明示するための純関数。
+                     "EstimateChaptersForChunks"],
     },
     # modSynonymStore(2026-08-05 R17 Phase3): 用語の表記ゆれ辞書(synonyms:
     #   term/canonical)のEnsure/一括書込み/読み/全消去/名寄せバッチ。

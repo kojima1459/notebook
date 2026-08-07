@@ -56,9 +56,14 @@ Private Const COL_FULLTEXT As Long = 7
 '   揃い、かつdoc_outlineが現行の章検出ロジック世代=BuildOutlineSourceSet
 '   参照。R21-3 E2)の資料は含めない。AIは1回も呼ばない(判定のみ)。
 ' ----------------------------------------------------------------------------
-Public Function DetectLegacyDocs() As Collection
+' outEstChapters(R21H F11): STATUS_NEEDSと判定した資料だけのチャンク数から
+' 概算した章数の合計(⚡仕上げ確認ダイアログのAI呼び出し回数の目安に使う。
+' EstimateChaptersForChunks参照)。呼ばない既存呼び出し元はそのまま
+' (Optional・後方互換)。
+Public Function DetectLegacyDocs(Optional ByRef outEstChapters As Long) As Collection
     Dim outCol As New Collection
     Set DetectLegacyDocs = outCol
+    outEstChapters = 0
 
     On Error Resume Next
     Dim metaSet As Object: Set metaSet = BuildMetaIdSet()
@@ -85,9 +90,25 @@ Public Function DetectLegacyDocs() As Collection
             If Not outlineGateOn Then hasOutline = True
             Dim crumbOk As Boolean: crumbOk = LooksLikeBreadcrumbLine(sample(i))
             Dim status As String: status = ClassifyDoc(hasMeta, hasOutline, crumbOk)
-            If LenB(status) > 0 Then outCol.Add srcNames(i) & "|" & status
+            If LenB(status) > 0 Then
+                outCol.Add srcNames(i) & "|" & status
+                If status = STATUS_NEEDS Then
+                    outEstChapters = outEstChapters + EstimateChaptersForChunks(chunkCount(i))
+                End If
+            End If
         End If
     Next i
+End Function
+
+' EstimateChaptersForChunks - チャンク数から章数を概算する純関数(R21H F11)。
+'   modOutlineBuild.MIN_CHAPTER_CHUNKS(=3)/MAX_CHAPTERS(=60)と同じ値を
+'   確認ダイアログの目安表示のためだけに複製する(Private定数はモジュールを
+'   跨げないため。値がズレたら実際の章数と目安がズレるだけで実害は無い
+'   =表示専用の概算)。
+Public Function EstimateChaptersForChunks(ByVal chunkN As Long) As Long
+    EstimateChaptersForChunks = chunkN \ 3
+    If EstimateChaptersForChunks < 1 Then EstimateChaptersForChunks = 1
+    If EstimateChaptersForChunks > 60 Then EstimateChaptersForChunks = 60
 End Function
 
 ' config graph_outline(既定on)。offのときだけdoc_outline欠落を「未仕上げ」
@@ -171,7 +192,8 @@ End Function
 '   OUTCOME_CANCELLEDのときだけ何も表示しない。
 ' ----------------------------------------------------------------------------
 Public Function BackfillAll() As String
-    Dim cands As Collection: Set cands = DetectLegacyDocs()
+    Dim estChapters As Long
+    Dim cands As Collection: Set cands = DetectLegacyDocs(estChapters)
     Dim needN As Long: needN = CountByStatus(cands, STATUS_NEEDS)
     Dim cannotN As Long: cannotN = CountByStatus(cands, STATUS_CANNOT)
 
@@ -180,7 +202,7 @@ Public Function BackfillAll() As String
         Exit Function
     End If
 
-    If MsgBox(ConfirmText(needN, cannotN), vbYesNo + vbQuestion, "資料の仕上げ") <> vbYes Then
+    If MsgBox(ConfirmText(needN, cannotN, estChapters), vbYesNo + vbQuestion, "資料の仕上げ") <> vbYes Then
         BackfillAll = OUTCOME_CANCELLED & "|"
         Exit Function
     End If
@@ -262,11 +284,22 @@ End Function
 ' ----------------------------------------------------------------------------
 ' ConfirmText/ResultText - 確認ダイアログと完了報告の文面(純文字列組立)。
 ' ----------------------------------------------------------------------------
-Public Function ConfirmText(ByVal needN As Long, ByVal cannotN As Long) As String
+' R21H F11(敵対的レビュー確定): 章検出ロジックの世代キー(OUTLINE_LOGIC_VER)
+' 導入により、旧世代のdoc_outlineを持つ既存全冊が「未仕上げ」として毎回
+' 再提案されるようになった。AI呼び出し回数(=課金・待ち時間に直結)が
+' 見えないまま「実行しますか?」だけ聞くのは不誠実なので、概算
+' (章数合計estChapters×1回+資料数needN×1回=名寄せ)を明示する。
+Public Function ConfirmText(ByVal needN As Long, ByVal cannotN As Long, _
+                            Optional ByVal estChapters As Long = 0) As String
     Dim s As String
     s = "旧形式の資料が" & needN & "冊あります。仕上げると『全部教えて』の俯瞰・" & _
         "条文参照・言い換え検索が使えるようになります。ファイルの再取込は不要です" & _
-        "(AIが章の数だけ動きます。目安: 1冊あたり数十秒～数分)。実行しますか?"
+        "(AIが章の数だけ動きます。目安: 1冊あたり数十秒～数分)。"
+    If estChapters > 0 Then
+        s = s & "AI呼び出しの概算は約" & (estChapters + needN) & "回(章の要約" & _
+            estChapters & "回+名寄せ" & needN & "回)です。"
+    End If
+    s = s & "実行しますか?"
     If cannotN > 0 Then
         s = s & vbLf & vbLf & cannotN & "冊は形式が古いため仕上げできません" & _
             "(再取込が必要です)。"

@@ -357,6 +357,18 @@ Private Sub TestDispersionGap()
     modTestRunner.Check "分散gaprel_スケール不変_10倍でも同じrel", _
         (modClarify.DispersionRelGapX100( _
             DispLines("約款A" & vbTab & "8.00", "約款B" & vbTab & "6.80"), n, b1, b2) = 15)
+
+    ' R21H F10: rel=14.5境界。(100-85.5)/100×100は浮動小数点誤差で
+    ' 14.499999999999998(厳密な14.5よりわずかに小さい)になり、CLngは14へ
+    ' 丸める。境界の実数値そのものではなく浮動小数点表現を固定することで、
+    ' 丸め処理を素朴なInt/Roundへ変えると15になり閾値15での発動可否が
+    ' 入れ替わる退行を検知できる。
+    modTestRunner.Check "分散gaprel_rel14.5境界(浮動小数点誤差込み)は14", _
+        (modClarify.DispersionRelGapX100( _
+            DispLines("約款A" & vbTab & "100", "約款B" & vbTab & "85.5"), n, b1, b2) = 14)
+    modTestRunner.Check "分散rel_rel14.5境界(丸め後14)は閾値15で発動", _
+        (modClarify.HasScoreDispersionRel( _
+            DispLines("約款A" & vbTab & "100", "約款B" & vbTab & "85.5"), 15) = True)
 End Sub
 
 ' ----------------------------------------------------------------------------
