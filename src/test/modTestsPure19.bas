@@ -12,7 +12,7 @@ Option Explicit
 '
 ' ここで固定するもの(R20-1a〜1f):
 '   ・modViewport.ClampD           : 幅・カード数の共通クランプ(境界と逆転指定)
-'   ・modDashStat.CardWidthFor     : 帯幅→KPIカード幅(130で頭打ち/220で頭打ち)
+'   ・modDashStat.CardWidthFor     : 帯幅→KPIカード幅(130で頭打ち/260で頭打ち)
 '   ・modViewport.GalleryColsFor   : 帯幅→ギャラリーの列数(3〜6・退化入力)
 '   ・modViewport.PadUnitsRefine   : ColumnWidth上限255の頭打ち(R20-1cで追加)
 '   ・modViewport.RefitAction      : 窓リサイズ再フィットのデバウンス状態遷移
@@ -41,7 +41,7 @@ End Sub
 ' R20-1b: 帯幅 → KPIカード幅(modDashStat.CardWidthFor)
 ' ----------------------------------------------------------------------------
 ' 版面は 左右余白 KPI_X0=20 を2つ + カード間 KPI_GAP=10 を3つ + カード4枚。
-'   cardW = clamp((bandW - 40 - 30) / 4, 130, 220)
+'   cardW = clamp((bandW - 40 - 30) / 4, 130, 260)  ' R21-S3で上限220→260
 ' 従来は 130 固定で、帯だけが可視幅へ伸びていた(実機第7報⑦の層1)。
 Private Sub TestCardWidthFor()
     ' 最小版面 550pt(=130×4+10×3)+左右余白40pt=590pt が下限の境界。
@@ -53,20 +53,23 @@ Private Sub TestCardWidthFor()
         (modDashStat.CardWidthFor(591) > 130)
     modTestRunner.Check "カード幅_狭い窓(帯400pt)でも130", _
         (modDashStat.CardWidthFor(400) = 130)
-    ' 220×4+10×3+40 = 950pt が上限の境界。
-    modTestRunner.Check "カード幅_帯950ptでちょうど最大220(境界)", _
+    ' R21-S3: 上限を220→260へ上げた。260×4+10×3+40 = 1110pt が上限の境界。
+    modTestRunner.Check "カード幅_帯1110ptでちょうど最大260(境界)", _
+        (modDashStat.CardWidthFor(1110) = 260)
+    modTestRunner.Check "カード幅_帯1111ptでも260で頭打ち", _
+        (modDashStat.CardWidthFor(1111) = 260)
+    modTestRunner.Check "カード幅_広い窓(帯1800pt)でも260で頭打ち", _
+        (modDashStat.CardWidthFor(1800) = 260)
+    ' 旧上限220は「頭打ちではなくなった」ことを固定する(退行検知)。
+    modTestRunner.Check "カード幅_帯950ptは220を超える(旧上限では止まらない)", _
         (modDashStat.CardWidthFor(950) = 220)
-    modTestRunner.Check "カード幅_帯951ptでも220で頭打ち", _
-        (modDashStat.CardWidthFor(951) = 220)
-    modTestRunner.Check "カード幅_広い窓(帯1800pt)でも220で頭打ち", _
-        (modDashStat.CardWidthFor(1800) = 220)
     ' 実機の代表値。窓900pt→帯888pt: (888-70)/4 = 204.5
     modTestRunner.Check "カード幅_帯888pt(窓900)で204.5", _
         (Abs(modDashStat.CardWidthFor(888) - 204.5) < 0.001), _
         "実際=" & modDashStat.CardWidthFor(888)
-    ' 窓1300pt→帯1288pt: (1288-70)/4 = 304.5 → 220で頭打ち
-    modTestRunner.Check "カード幅_帯1288pt(窓1300)は220で頭打ち", _
-        (modDashStat.CardWidthFor(1288) = 220)
+    ' 窓1300pt→帯1288pt: (1288-70)/4 = 304.5 → 260で頭打ち
+    modTestRunner.Check "カード幅_帯1288pt(窓1300)は260で頭打ち", _
+        (modDashStat.CardWidthFor(1288) = 260)
     modTestRunner.Check "カード幅_0や負の帯幅でも130(退化入力)", _
         (modDashStat.CardWidthFor(0) = 130 And modDashStat.CardWidthFor(-100) = 130)
 End Sub

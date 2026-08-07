@@ -6,6 +6,7 @@ Option Explicit
 '   modTestsPure20(7,311字)にこれを足すと同モジュールの主題(R20-4/R20-7/
 '   追加D-1)からも外れるため、Fix波専用の分割先として新設した。入口は
 '   modTestsPure20.RunAll20 の末尾から呼ばれる RunAll21 の1本。
+'   末尾で R21-1(余白の構造完治)の modTestsPure22.RunAll22 へ繋ぐ。
 ' ----------------------------------------------------------------------------
 ' ここで固定するもの(FB-4「形だけ禁止」の指定3点):
 '   ・FA-2: modViewport.Busy3           : tick経路がRefitActionへ渡す
@@ -94,6 +95,9 @@ NextClear21:
 NextWizard21:
     On Error GoTo WizardFail21
     TestWizardShouldRun
+NextRun22:
+    On Error GoTo Run22Fail21
+    modTestsPure22.RunAll22
 NextDone21:
     On Error GoTo 0
     Exit Sub
@@ -108,6 +112,10 @@ ClearFail21:
     Resume NextWizard21
 WizardFail21:
     modTestRunner.Check "TestWizardShouldRun(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun22
+Run22Fail21:
+    modTestRunner.Check "modTestsPure22.RunAll22(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone21
 End Sub
