@@ -26,25 +26,32 @@ Private Const NAV_COUNT As Long = 3
 ' (DrawExtras内で CHIP_H から算出)へ自動で伝わる。
 Private Const CHIP_H As Double = 46
 
-' R18-3a/3b: Hub画面が使えるセル範囲の【上限】(A:L / 1..60行=900pt)。
-' Public なのは modHubStat.DrawFooter がフッターの境界チェックにこの範囲の
-' 実測(Top+Height)を使うため(R18-5b。Private Const は跨いで参照できない)。
-' R19-1b: 実際に塗る範囲と ScrollArea は、この上限ではなくフッターの実下端
-' から modViewport.BoundAddr で求める(60行=900pt を常に使用済みにすると、
-' 内容が500〜700ptしかない画面で1画面ぶん余計にスクロールできてしまう)。
+' R18-3a/3b: Hub画面が使えるセル範囲の【上限】(A:L / 1..60行=900pt)。実際に
+' 塗る範囲と ScrollArea は modViewport.BoundAddr が実下端から求める(R19-1b)。
+' R21-S4: フッターの境界チェックも modViewport.RowAtFloor(窓高)由来へ移した
+' ため、この Const の参照は契約用に残るだけになった。
 Public Const HUB_BOUND As String = "A1:L60"
 
-' R19-1b → R19H FA-4: 帯(吸収列Lを含む列帯)。右端は全てここから取る。
-' 右端の食い違い(帯625 / ピル617 / ナビ・フッター614.6)は、同じ「右端」を
-' 3通りに計算していたのが原因だった。R19-1b はそれを2通り(帯=A:L /
-' 操作系=内容列 A:K)まで減らしたが、それでも非対称は残った: 吸収列Lが
-' 可視幅ぶんまで伸びるのは帯だけで、ナビ・カード・フッターはK列の右端で
-' 止まる ―― 窓を広げるほど「帯だけが伸びて、操作系は画面の2/3で止まって
-' いる」画面になる(A-M④)。Nexus(チャット)は既に帯も送信ボタンも同じ
-' ContentRight を見ており、Hubだけが違っていた。基準を1本へ統一する。
-' 帯は rightPad=0(帯の右端そのもの)、操作系は rightPad=8(内側に8ptの
-' 余白)= Nexus と同じ作法。広い窓でナビ/タイルが可視幅へ追随するのが正。
+' R19-1b → R19H FA-4: 帯(吸収列Lを含む列帯)。右端は全てここから取る
+' (帯625 / ピル617 / ナビ・フッター614.6 の3段ズレは、同じ「右端」を3通りに
+' 計算していたのが原因。基準を1本へ統一した)。帯は rightPad=0(帯の右端
+' そのもの)、操作系は rightPad=8(内側8pt)= Nexus と同じ作法。
 Private Const HUB_BAND As String = "A1:L1"
+
+' R21-S5: 行1の実高(ピル2段で2倍)。本文の起点はここが単一情報源 ―― 定数
+' HDR_H を直に見ていたため、2段の端末ではプロフィールカードがヘッダーへ
+' 潜り込んでいた。SY()は窓高適応圧縮(実体 modViewport2.SY)。
+Private mHdrH As Double
+
+Private Function HeaderH() As Double
+    HeaderH = mHdrH
+    If HeaderH < HDR_H Then HeaderH = HDR_H
+End Function
+
+Private Function SY(ByVal v As Double) As Double
+    SY = modViewport2.SY(v)
+End Function
+
 
 ' EnsureHubLayout - Hub画面を構築(冪等)。activate:=Trueで画面遷移も行う。
 Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
@@ -81,12 +88,22 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Columns("H:K").ColumnWidth = 13
     ws.Columns("L").ColumnWidth = 1.5
     ' R20-1d(実機第7報⑦の層2): ここは Rows("1:60") だった。行高を明示した行は
-    ' Excelから見れば「使用済み」で、内容が500〜700ptしかないHubでも常に
-    ' 60行=900pt(=1画面半)ぶんホイールで下へ転がれる状態が残っていた
-    ' (塗りとScrollAreaを実下端まで縮めても、ScrollAreaはホイールを止めない)。
-    ' フッターの実下端+2行に収まる40行だけを明示し、それ以深は描画後に
-    ' modViewport.ResetRowsBelow で既定へ戻す(下端行の確定は描き終えてから)。
+    ' Excelから見れば「使用済み」=下スクロール域なので、フッターの実下端に
+    ' 収まる40行だけを明示し、それ以深は描画後に ResetRowsBelow で既定へ戻す。
     ws.Rows("1:40").RowHeight = 15
+
+    ' R21-S1: 活性化と表示状態(罫線/見出し/タブ/水平バー)を幾何を測る【前】へ
+    ' 移した。従来は Fit と BoundAddr が Activate より先に走り、初回だけ
+    ' 「前の画面の表示状態の窓」で決まっていた(水平バーぶん可視高が24pt過大)。
+    If activate Then
+        If Not modUI.ActivateSheetRobust(ws, "modHub.EnsureHubLayout") Then modUI.RestoreExcelUI
+    End If
+    modViewport2.EnsureViewState ws
+    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
+    modKnowledge.PrepareScreenView ws
+    Dim vw0 As Double, vh0 As Double
+    modViewport2.MarkView vw0, vh0
+
     ' R19-1b(実機第6報①): 右の余白はスクロールではなく寸法の問題。余りを
     ' L列に吸わせて A:L の合計を可視幅ぴったりにすると、白い余白が構造的に
     ' 消える(ScrollAreaでは原理的に消せない)。Shape座標は全てセル幾何から
@@ -105,27 +122,15 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Range(baseAddr).Font.Size = 10
     ws.Range(baseAddr).Interior.Color = modUI.UiColor("bg")
 
-    If activate Then
-        If Not modUI.ActivateSheetRobust(ws, "modHub.EnsureHubLayout") Then modUI.RestoreExcelUI
-    End If
-
-    ' ActiveWindow系はそのシートが実際に前面のときだけ触る(別シートの
-    ' 表示設定を巻き添えで変えてしまうため)。
-    On Error Resume Next
-    If ThisWorkbook.ActiveSheet Is ws Then
-        ActiveWindow.DisplayGridlines = False
-        ActiveWindow.DisplayHeadings = False
-    End If
-    On Error GoTo Fail
-
-    ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
-    modKnowledge.PrepareScreenView ws
-
     On Error Resume Next
     modTelemetry.TrackScreen "hub"
     On Error GoTo Fail
 
     DrawHeader ws
+    ' R21-S5: ヘッダーの実高が決まってから、縦が窓に収まるかを判定する。
+    ' 収まらないときだけ圧縮係数を立て、可変な縦寸法は SY() 経由で縮む。
+    modViewport2.SetScaleY modViewport2.CompressFactor(modViewport.ViewportHeight(), _
+        modViewport2.HubNeedY(HeaderH(), CARD_H, modHubStat.TilesHeight()))
     DrawProfileCard ws
     ' 0点のスコアボードを初見の人に見せない。全部ゼロのタイル8枚と鍵つき
     ' バッジ8個は「ここまで来た」ではなく「まだ何もしていない」としか読めない。
@@ -149,11 +154,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' R20-1e: 余白 +18 → +10。左右カラムの実下端はどちらも要素の外枠なので、
     ' そこからさらに18pt空けるとフッターだけが1行ぶん浮いて見えた。
     footBot = modHubStat.DrawFooter(ws, footL, _
-        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + 10)
+        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + modViewport2.SY(10))
 
-    ' R19-1b: 塗りと ScrollArea をフッターの実下端(+24pt、最低1画面)まで
-    ' 縮める。60行=900pt を常に塗ると、内容が500〜700ptしかない画面で
-    ' 1画面ぶん余計に「使用済み」になり、下へスクロールできてしまう。
+    ' R19-1b/R21-S4: 塗りと ScrollArea はフッターの実下端から決める(収まる
+    ' 画面は窓高ちょうどへ切り下げ)。60行=900ptを常に塗ると余計に転がれる。
     Dim bnd As String
     bnd = modViewport.BoundAddr(ws, "L", footBot, 60)
     ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
@@ -163,14 +167,16 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     On Error Resume Next
     modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, 200
     On Error GoTo Fail
-    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
-    modViewport.LogViewport "hub"
+    ' R21-S7: 窓幅/可視幅/帯実幅/中身右端/境界下端の5値観測点。
+    modViewport2.LogFit ws, "hub", HUB_BAND, bnd
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
     On Error GoTo 0
 
     Application.ScreenUpdating = True
+    ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
+    modViewport2.ReflowIfMoved vw0, vh0
     Exit Sub
 
 Fail:
@@ -218,6 +224,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim hdrH As Double: hdrH = rowN * HDR_H
     If hdrH > 200 Then hdrH = 200
     ws.Rows(1).RowHeight = hdrH
+    mHdrH = hdrH          ' R21-S5: 本文の起点はこの実高から出す(定数ではなく)
 
     Dim hdr As Shape
     Set hdr = ws.Shapes.AddShape(5, L, 0, cellW, hdrH)
@@ -294,10 +301,10 @@ Private Sub DrawProfileCard(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("B3").Left
     W = ws.Range("B3:F3").Width
-    T = HDR_H + 12
+    T = HeaderH() + 12
 
     Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, L, T, W, CARD_H)
+    Set card = ws.Shapes.AddShape(5, L, T, W, SY(CARD_H))
     card.Name = "nx_hub_profile"
     card.Adjustments(1) = 0.06
     card.Line.Visible = 0
@@ -381,7 +388,7 @@ End Sub
 ' 統計タイル8枚の描画本体は modHubStat へ移した(2026-07-31 R7 A-4)。
 ' ここは「どこから始めるか」だけを渡す(幾何の持ち主はHub側のまま)。
 Private Function TilesTop() As Double
-    TilesTop = HDR_H + 12 + CARD_H + 18       ' プロフィールカードの下
+    TilesTop = HeaderH() + 12 + SY(CARD_H) + SY(18)   ' プロフィールカードの下
 End Function
 
 ' まだ何も起きていない状態か。質問も取込も0のときだけ「初回」とみなす。
@@ -399,7 +406,7 @@ Private Sub DrawFirstStep(ByVal ws As Worksheet)
     Dim L As Double, W As Double, T As Double
     L = ws.Range("B1").Left
     W = ws.Range("B1:F1").Width
-    T = HDR_H + 12 + CARD_H + 18
+    T = TilesTop()          ' R21-S5: 起点の式を2つ持たない
 
     On Error Resume Next
     Dim card As Shape
@@ -439,7 +446,7 @@ End Sub
 ' 統計タイル群の下端(バッジ等をその下に置くために使う)。
 ' 高さは描いている側(modHubStat)から取る。両方に数字を持つとズレる。
 Private Function StatTilesBottom() As Double
-    StatTilesBottom = TilesTop() + modHubStat.TilesHeight()
+    StatTilesBottom = TilesTop() + SY(modHubStat.TilesHeight())
 End Function
 
 ' ナビボタン4枚(右カラムG:Jの幾何に合わせる)
@@ -448,7 +455,7 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
     L = ws.Range("H3").Left
     ' ナビの右端はヘッダーピル・フッターと同じ ContentRight(FA-4)。
     W = modViewport.ContentRight(ws, HUB_BAND, 8) - L
-    T = HDR_H + 12
+    T = HeaderH() + 12
 
     Dim caps As Variant, acts As Variant, descs As Variant
     ' 2026-07-30(R4要件F): 「ナレッジ倉庫」と「マイ本棚」を1枚に統合した。
@@ -517,7 +524,7 @@ Private Function DrawExtras(ByVal ws As Worksheet) As Double
     ' 入っているのに、さらに +10 して、置くときにも +20 していた。合計40ptの
     ' 空隙(ナビ下端260pt → カード上端300pt)が右カラムの頭に開いていた。
     ' 二重計上をやめ、GAP 1つぶんだけ空ける。
-    T = HDR_H + 12 + NAV_COUNT * (NAV_H + NAV_GAP)
+    T = HeaderH() + 12 + NAV_COUNT * (NAV_H + NAV_GAP)
 
     modHubStat.DrawQuickAskCards ws, L, W, T, CHIP_H
     DrawExtras = modHubStat.DrawInbox(ws, L, W, T + CHIP_H + 14)
@@ -570,7 +577,8 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
         sb = sb & mark & " " & CStr(titles(i)) & "   "
     Next i
 
-    With ws.Range("B" & (r + 1) & ":F" & (r + 4))
+    Dim br As Long: br = modViewport2.BadgeRowsFor(modViewport2.ScaleY())
+    With ws.Range("B" & (r + 1) & ":F" & (r + br))
         .Merge
         .WrapText = True
         .Value = sb
@@ -581,7 +589,7 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
     ' 4行ぶんの帯の下端。ここも (r+4)*15 の机上換算をやめて実測にする
     ' (行1が48ptあるぶん、旧式は実際より約33pt上を返していた=フッターが
     '  バッジ帯に重なる)。
-    DrawBadges = ws.Rows(r + 4).Top + ws.Rows(r + 4).Height
+    DrawBadges = ws.Rows(r + br).Top + ws.Rows(r + br).Height
 End Function
 
 ' ---- ボタンハンドラ ----

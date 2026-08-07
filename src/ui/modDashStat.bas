@@ -30,8 +30,13 @@ Option Explicit
 ' カード幅を出し直し、本文を窓幅へ追随させる。上限220ptは、1枚の数字カードが
 ' それ以上広がっても情報密度が下がるだけ(4枚で920pt=一般的な窓幅の上限)という
 ' 判断。KPI_CARD_W/KPI_GAP は ROW_WIDTH の定数式が参照するため Public。
+' 2026-08-07(R21-S3・実機第8報⑦): 上限220ptだと1024pt窓で「4枚とも220ptで
+' 頭打ち → 版面920pt → 帯1010ptとの差90ptが右に残る」。しかも余りを
+' センタリング(CenterX0)で左右に振り分けていたため、中身の右端が帯の右端に
+' 一度も届かず、写真で見えていた右の白帯になっていた。上限を260ptへ上げ、
+' さらに残った端数は【カード間の隙間】に配分して右端まで張る(CardGapFor)。
 Public Const KPI_CARD_W As Double = 130
-Public Const KPI_CARD_MAX_W As Double = 220
+Public Const KPI_CARD_MAX_W As Double = 260
 Private Const KPI_CARD_H As Double = 92
 Public Const KPI_GAP As Double = 10
 Public Const KPI_X0 As Double = 20
@@ -45,24 +50,30 @@ Public Const ROW_WIDTH As Double = KPI_CARD_W * 4 + KPI_GAP * 3
 ' 直近に FitBandToViewport で確定した帯幅から決めたカード幅(pt)。
 ' 0 のあいだは最小幅(KPI_CARD_W)で描く=従来と同じ絵になる。
 Private mCardW As Double
-' 追加D-1(2026-08-06・センタリング): 版面(RowWidth)の左端X。0のあいだは
-' KPI_X0(左寄せ・従来と同じ絵)。SetBandWidthが帯幅から中央寄せの値へ更新する。
+' R21-S3: 版面の左端Xは常に KPI_X0(センタリング廃止)。mX0 は「帯幅から
+' 決めた値」を持つ変数として残すが、入るのは KPI_X0 のみ。
 Private mX0 As Double
+' R21-S3: カード間の隙間(pt)。上限まで広げたカード幅で余った端数をここへ
+' 配分し、4枚目の右端を帯の右端へ一致させる。0のあいだは KPI_GAP。
+Private mGap As Double
 
 Private Const EXPBAR_H As Double = 12
-Private Const EXPBAR_Y As Double = KPI_Y0 + KPI_CARD_H + 18
-Private Const EXPLABEL_Y As Double = EXPBAR_Y + EXPBAR_H + 4
+' R21-S5: 縦の積み上げは「窓高に収まらないときだけ」圧縮する。定数式は関数を
+' 呼べないので、可変になった段(カード高・段間)は Const から関数へ移す。
+' 掛け算は modViewport2.SY() 1箇所だけで行う(係数は画面ごとに1本)。
+Private Const EXPBAR_GAP As Double = 18
+Private Const EXPLABEL_GAP As Double = 4
+Private Const BADGE_HEAD_GAP As Double = 22
+Private Const BADGE_GRID_GAP As Double = 24
+Private Const CHART_GAP As Double = 20
 
 ' 2026-07-31: KPIカードと同じ行幅(130*4+10*3+X0*2=590pt)に揃える。
 ' R20-1b: 幅は KpiCardW()(帯幅から決まる可変値)へ移した。BADGE_W は
 ' 「KPIカードと同じ幅に揃える」という約束を示す名前として残していたが、
 ' 2箇所に数字を持つと必ずズレるので削除する(憲章§4-5)。
 Private Const BADGE_H As Double = 54
-Private Const BADGE_GAP_X As Double = 10
 Private Const BADGE_GAP_Y As Double = 10
 Private Const BADGES_PER_ROW As Long = 4
-Private Const BADGE_HEAD_Y As Double = EXPLABEL_Y + 22
-Private Const BADGE_GRID_Y As Double = BADGE_HEAD_Y + 24
 
 ' 2026-07-28(解説書 §11-11): バッジが8種から12種に増えた。
 ' 以前は「2行ぶん」と決め打ちしていたため、増えた行がチャート枠と重なる。
@@ -74,7 +85,8 @@ Private Const BADGE_ROWS_FALLBACK As Long = 3
 ' ----------------------------------------------------------------------------
 
 ' CardWidthFor - 帯幅 bandW のときの1枚あたりのカード幅(pt)。純関数
-'   (ゴールデン対象。境界: 帯590pt未満は130で頭打ち / 950pt超は220で頭打ち)。
+'   (ゴールデン対象。境界: 帯590pt未満は130 / 1110pt超は260で頭打ち。R21-S3で
+'    上限220→260。それでも余る幅は CardGapFor が隙間へ配分する)。
 '   左右の余白 KPI_X0 を2つ、カード間の隙間 KPI_GAP を3つ引いて4等分する。
 Public Function CardWidthFor(ByVal bandW As Double) As Double
     CardWidthFor = modViewport.ClampD((bandW - 2 * KPI_X0 - 3 * KPI_GAP) / 4, _
@@ -83,16 +95,84 @@ End Function
 
 ' SetBandWidth - 描画の直前に、帯の【実幅】(FitBandToViewport 後)を渡す。
 '   ここより後に走る DrawKpiRow/DrawExpBar/DrawBadgeShelf と modDash の
-'   ヘッダー・管理者行が、全て同じ CardW()/RowWidth() を見る。
-' 追加D-1: 同時に版面の左端X(RowX0)も帯幅から決め直す(センタリング)。
+'   ヘッダー・サブタイトル・管理者行が、全て同じ KpiCardW()/KpiGap()/
+'   RowX0()/RowWidth() を見る(R21-S3: 右端の単一情報源)。
 '   modDash.MinContentRightX() はこのSubの【前】に呼ばれるため、そちらは
 '   従来どおりKPI_X0(定数=20)のまま据え置く(mX0を参照させると前回描画の
-'   古い値を読み、狭い窓で帯を縮められなくなる=RowWidth()staleness警告と
-'   同型の回帰を招くため、意図的に触れていない)。
+'   古い値を読み、狭い窓で帯を縮められなくなるため)。
 Public Sub SetBandWidth(ByVal bandW As Double)
     mCardW = CardWidthFor(bandW)
-    mX0 = CenterX0(bandW, RowWidth())
+    mX0 = KPI_X0
+    mGap = CardGapFor(bandW, mCardW)
 End Sub
+
+' CardGapFor - 帯幅 bandW・カード幅 cardW のときのカード間の隙間(pt)。
+'   純関数(ゴールデン対象)。カードが上限(KPI_CARD_MAX_W)で頭打ちになって
+'   なお余るとき、その端数を隙間3つへ等分して版面を帯の右端まで張る:
+'     gap = (bandW - 2*KPI_X0 - 4*cardW) / 3
+'   余りが無い(カードが上限に達していない)狭い窓では KPI_GAP のまま。
+Public Function CardGapFor(ByVal bandW As Double, ByVal cardW As Double) As Double
+    CardGapFor = (bandW - 2 * KPI_X0 - 4 * cardW) / 3
+    If CardGapFor < KPI_GAP Then CardGapFor = KPI_GAP
+End Function
+
+' KpiGap - 現在のカード間の隙間(pt)。SetBandWidth 前は既定(KPI_GAP)。
+Public Function KpiGap() As Double
+    KpiGap = mGap
+    If KpiGap < KPI_GAP Then KpiGap = KPI_GAP
+End Function
+
+' ----------------------------------------------------------------------------
+' R21-S5: 縦の段組み(圧縮係数を掛けた実座標)。旧 Const の置き換え。
+' ----------------------------------------------------------------------------
+Private Function KpiCardH() As Double
+    KpiCardH = modViewport2.SY(KPI_CARD_H)
+End Function
+
+Private Function ExpBarY() As Double
+    ExpBarY = KPI_Y0 + KpiCardH() + modViewport2.SY(EXPBAR_GAP)
+End Function
+
+Private Function ExpLabelY() As Double
+    ExpLabelY = ExpBarY() + EXPBAR_H + EXPLABEL_GAP
+End Function
+
+Private Function BadgeH() As Double
+    BadgeH = modViewport2.SY(BADGE_H)
+End Function
+
+Private Function BadgeGapY() As Double
+    BadgeGapY = modViewport2.SY(BADGE_GAP_Y)
+End Function
+
+Private Function BadgeHeadY() As Double
+    BadgeHeadY = ExpLabelY() + modViewport2.SY(BADGE_HEAD_GAP)
+End Function
+
+Private Function BadgeGridY() As Double
+    BadgeGridY = BadgeHeadY() + modViewport2.SY(BADGE_GRID_GAP)
+End Function
+
+' BadgeRowCount - バッジ棚の段数(表は modStats が唯一の持ち主)。
+Private Function BadgeRowCount() As Long
+    BadgeRowCount = BADGE_ROWS_FALLBACK
+    On Error Resume Next
+    Dim ids() As String, titles() As String, shorts() As String, conditions() As String
+    Dim n As Long: n = modStats.BadgeCatalog(ids, titles, shorts, conditions)
+    If n > 0 Then BadgeRowCount = (n + BADGES_PER_ROW - 1) \ BADGES_PER_ROW
+    Err.Clear
+    On Error GoTo 0
+    If BadgeRowCount < 1 Then BadgeRowCount = 1
+End Function
+
+' NeedY - 圧縮係数を決めるための「s=1のときに縦へ積む合計」(pt)。
+'   modDash.DrawDashboard が modViewport2.CompressFactor へ渡す。ここだけは
+'   SY() を通さない(通すと前回の係数が入って収束しない)。
+Public Function NeedY() As Double
+    NeedY = KPI_Y0 + KPI_CARD_H + EXPBAR_GAP + EXPBAR_H + EXPLABEL_GAP _
+          + BADGE_HEAD_GAP + BADGE_GRID_GAP _
+          + BadgeRowCount() * (BADGE_H + BADGE_GAP_Y) + CHART_GAP
+End Function
 
 ' KpiCardW - 現在のカード幅(pt)。SetBandWidth 前は最小幅。
 Public Function KpiCardW() As Double
@@ -101,16 +181,17 @@ Public Function KpiCardW() As Double
     If KpiCardW > KPI_CARD_MAX_W Then KpiCardW = KPI_CARD_MAX_W
 End Function
 
-' RowWidth - 現在の版面幅(pt)。カード4枚+隙間3つ。
+' RowWidth - 現在の版面幅(pt)。カード4枚+隙間3つ(隙間も帯幅から決まる)。
 Public Function RowWidth() As Double
-    RowWidth = KpiCardW() * 4 + KPI_GAP * 3
+    RowWidth = KpiCardW() * 4 + KpiGap() * 3
 End Function
 
-' CenterX0(追加D-1) - 帯内中央寄せの左端X(純関数・ゴールデン対象)。帯幅
-'   bandWが版面幅rowWidthより広いときだけ余白を等分する(下限minX0=20pt)。
-'   bandW<=rowWidthの狭い窓ではminX0のまま(左寄せ・従来どおりの絵)。
-'   左右対称の余白は「デザイン」に見え、左だけの片寄り余白は「バグ」に
-'   見える、という趣旨(広窓でKPI行/EXPバー/バッジ群が帯内で中央に来る)。
+' CenterX0 - 【非推奨】帯内中央寄せの左端X(純関数)。R21-S3 でセンタリングを
+'   廃止したため呼び出し元は無い(版面は常に左端 KPI_X0 から帯の右端まで
+'   張る)。中央寄せは「余りを左右に捨てる」設計で、中身の右端が帯の右端に
+'   一度も届かない=実機第8報⑦の白帯そのものだった。算数と境界ゴールデン
+'   (modTestsPure20)は将来の再検討のために残す。
+'   帯幅bandWが版面幅rowWidthより広いときだけ余白を等分する(下限minX0=20pt)。
 Public Function CenterX0(ByVal bandW As Double, ByVal rowW As Double, _
                          Optional ByVal minX0 As Double = 20) As Double
     Dim c As Double: c = (bandW - rowW) / 2
@@ -333,13 +414,14 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
         deltaColor = modUI.UiColor("muted")
     End If
     Dim cw As Double: cw = KpiCardW()                 ' R20-1b: 帯幅から決めた実カード幅
-    Dim x0 As Double: x0 = RowX0()                     ' 追加D-1: 帯内中央寄せの左端X
-    DrawKpiCard ws, 0, x0, KPI_Y0, cw, KPI_CARD_H, _
+    Dim gp As Double: gp = KpiGap()                    ' R21-S3: 余りを吸った隙間
+    Dim x0 As Double: x0 = RowX0()                     ' R21-S3: 版面の左端X(=KPI_X0)
+    DrawKpiCard ws, 0, x0, KPI_Y0, cw, KpiCardH(), _
         "節約した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
 
     ' Card1: 登録ナレッジ数
     Dim ingestTotal As Long: ingestTotal = modDashStat.SafeGetStat("ingest_files_total")
-    DrawKpiCard ws, 1, x0 + (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 1, x0 + (cw + gp), KPI_Y0, cw, KpiCardH(), _
         "登録ナレッジ数", ingestTotal & "件", "あなたが登録した資料"
 
     ' Card2: 資料の分量(2026-08-06 R20H FA-16: 生ジャーゴン「蔵書チャンク数」を平易化)
@@ -351,7 +433,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Else
         ratio = 0
     End If
-    DrawKpiCard ws, 2, x0 + 2 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 2, x0 + 2 * (cw + gp), KPI_Y0, cw, KpiCardH(), _
         "資料の分量", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
 
     ' Card3: レベル
@@ -359,7 +441,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Dim expTotalV As Long: expTotalV = modDashStat.SafeExpTotal()
     Dim remain As Long: remain = modDashStat.SafeExpFloorForLevel(lv + 1) - expTotalV
     If remain < 0 Then remain = 0
-    DrawKpiCard ws, 3, x0 + 3 * (cw + KPI_GAP), KPI_Y0, cw, KPI_CARD_H, _
+    DrawKpiCard ws, 3, x0 + 3 * (cw + gp), KPI_Y0, cw, KpiCardH(), _
         "レベル", "Lv." & lv, "EXP " & expTotalV & " ・ 次まで" & remain & "EXP"
 End Sub
 
@@ -433,7 +515,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
     If prog > 0 And fillW < 2 Then fillW = 2
 
     Dim bgBar As Shape
-    Set bgBar = ws.Shapes.AddShape(5, x0, EXPBAR_Y, trackW, EXPBAR_H)
+    Set bgBar = ws.Shapes.AddShape(5, x0, ExpBarY(), trackW, EXPBAR_H)
     bgBar.Name = "nxd_expbar_bg"
     bgBar.Adjustments(1) = 0.5
     bgBar.Fill.ForeColor.RGB = modUI.UiColor("border")
@@ -442,7 +524,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
 
     If fillW > 0 Then
         Dim fgBar As Shape
-        Set fgBar = ws.Shapes.AddShape(5, x0, EXPBAR_Y, fillW, EXPBAR_H)
+        Set fgBar = ws.Shapes.AddShape(5, x0, ExpBarY(), fillW, EXPBAR_H)
         fgBar.Name = "nxd_expbar_fg"
         fgBar.Adjustments(1) = 0.5
         fgBar.Fill.ForeColor.RGB = modUI.UiColor("primary")
@@ -455,7 +537,7 @@ Public Sub DrawExpBar(ByVal ws As Worksheet)
     If remain < 0 Then remain = 0
 
     Dim lbl As Shape
-    Set lbl = ws.Shapes.AddShape(1, x0, EXPLABEL_Y, trackW, 16)
+    Set lbl = ws.Shapes.AddShape(1, x0, ExpLabelY(), trackW, 16)
     lbl.Name = "nxd_exp_label"
     lbl.Line.Visible = 0
     lbl.Fill.Visible = 0
@@ -474,23 +556,14 @@ End Sub
 ' バッジ棚の下端 = チャート類の開始位置。バッジ件数から行数を出すので、
 ' バッジを増やしてもレイアウト定数を直す必要がない(解説書 §11-11)。
 Public Function ChartNoteY() As Double
-    Dim rowsN As Long: rowsN = BADGE_ROWS_FALLBACK
-    On Error Resume Next
-    Dim ids() As String, titles() As String, shorts() As String, conditions() As String
-    Dim n As Long: n = modStats.BadgeCatalog(ids, titles, shorts, conditions)
-    If n > 0 Then
-        rowsN = (n + BADGES_PER_ROW - 1) \ BADGES_PER_ROW
-    End If
-    Err.Clear
-    On Error GoTo 0
-    If rowsN < 1 Then rowsN = 1
-    ChartNoteY = BADGE_GRID_Y + rowsN * (BADGE_H + BADGE_GAP_Y) + 20
+    ' R21-S5: 段数の算出は BadgeRowCount()(NeedY と共有する唯一の口)。
+    ChartNoteY = BadgeGridY() + BadgeRowCount() * (BadgeH() + BadgeGapY()) + CHART_GAP
 End Function
 
 Public Sub DrawBadgeShelf(ByVal ws As Worksheet)
     Dim x0 As Double: x0 = RowX0()   ' 追加D-1: 帯内中央寄せの左端X
     Dim headShp As Shape
-    Set headShp = ws.Shapes.AddShape(1, x0, BADGE_HEAD_Y, 300, 20)
+    Set headShp = ws.Shapes.AddShape(1, x0, BadgeHeadY(), 300, 20)
     headShp.Name = "nxd_badge_head"
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
@@ -513,8 +586,8 @@ Public Sub DrawBadgeShelf(ByVal ws As Worksheet)
     For i = 0 To badgeN - 1
         Dim col As Long: col = i Mod BADGES_PER_ROW
         Dim rowN As Long: rowN = i \ BADGES_PER_ROW
-        Dim cardX As Double: cardX = x0 + col * (KpiCardW() + BADGE_GAP_X)
-        Dim cardY As Double: cardY = BADGE_GRID_Y + rowN * (BADGE_H + BADGE_GAP_Y)
+        Dim cardX As Double: cardX = x0 + col * (KpiCardW() + KpiGap())
+        Dim cardY As Double: cardY = BadgeGridY() + rowN * (BadgeH() + BadgeGapY())
 
         Dim dt As String: dt = modStats.BadgeEarnedOn(ids(i))
         Dim earned As Boolean: earned = (LenB(dt) > 0)
@@ -538,7 +611,7 @@ Private Sub DrawBadgeCard(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As D
                           ByVal earned As Boolean, ByVal line1 As String, ByVal line2 As String)
     On Error Resume Next
     Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, x, y, KpiCardW(), BADGE_H)
+    Set card = ws.Shapes.AddShape(5, x, y, KpiCardW(), BadgeH())
     If card Is Nothing Then GoTo Done
     card.Name = "nxd_badge_" & idx
     card.Adjustments(1) = 0.14

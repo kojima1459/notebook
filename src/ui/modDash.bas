@@ -77,34 +77,37 @@ Public Sub ShowDashboard()
     On Error GoTo Fail
     Application.ScreenUpdating = False
 
-    ' R20-1b(層3): 全画面化と数式バーの非表示は【描く前】に済ませる。
-    ' DisplayFullScreen/DisplayFormulaBar はどちらも ActiveWindow.UsableWidth
-    ' と UsableHeight を変える。従来はここが DrawDashboard の【後】にあったため、
-    ' 初回表示だけ「全画面になる前の狭い窓」で帯とカードの幅を決めてしまい、
-    ' 広がった後の右側がまるごと空白として残っていた(実機の「特にダッシュ
-    ' ボード」)。EnsureAppView は他ブックが前面なら自分で何もしない。
+    ' R21-S1(実機第8報⑦の独立欠陥その2): 「描く→活性化→表示状態」を
+    ' 【活性化→表示状態→描く】へ反転する。R20-1b で全画面化だけは前へ出した
+    ' が、タブ・罫線・見出し・水平スクロールバーは依然として描画の【後】に
+    ' 確定していた。とくに水平スクロールバーは可視高を約24pt食うため、
+    ' 描画時に測った窓高が常に24pt過大になり、境界が必ず窓を超えていた。
+    ' 測ってよいのは modViewport2.EnsureViewState を通った後だけ。
     On Error Resume Next
     modUI.EnsureAppView
     On Error GoTo Fail
 
-    DrawDashboard ws
-
     ws.Visible = -1   ' xlSheetVisible
     If modUI.ActivateSheetRobust(ws, "modDash.ShowDashboard") Then
         On Error Resume Next
-        ActiveWindow.DisplayWorkbookTabs = False
-        On Error GoTo 0
+        modViewport2.EnsureViewState ws
+        On Error GoTo Fail
     Else
         modUI.RestoreExcelUI
     End If
-    ' R7 A-2: 罫線/スクロール位置/等倍の自己修復は、シートを前面にしてから
-    ' もう一度通す(ScrollColumn/Row/Zoom は「そのシートの」設定なので、
-    ' 描画前の1回目では今から出す画面に当たらない)。
+
+    Dim vw0 As Double, vh0 As Double
+    modViewport2.MarkView vw0, vh0
+    DrawDashboard ws
+
+    ' R7 A-2: 表示状態の自己修復(他画面から引き継いだ崩れを戻す)。
     On Error Resume Next
     modUI.EnsureAppView
     On Error GoTo 0
 
     Application.ScreenUpdating = True
+    ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
+    modViewport2.ReflowIfMoved vw0, vh0
     Exit Sub
 
 Fail:
@@ -234,6 +237,10 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' これより後に描くもの(ヘッダー・KPI・EXPバー・バッジ・管理者行)は全て
     ' modDashStat.KpiCardW()/RowWidth() を見るので、本文がまるごと窓幅へ追随する。
     modDashStat.SetBandWidth modViewport.ContentRight(ws, DASH_BAND, 0) - ws.Range("A1").Left
+    ' R21-S5: 窓高に収まらないときだけ縦を圧縮する(KPIカード高・バッジ高)。
+    ' 係数は modViewport2 が1本で持ち、実際に掛けるのは modViewport2.SY() だけ。
+    modViewport2.SetScaleY modViewport2.CompressFactor( _
+        modViewport.ViewportHeight(), modDashStat.NeedY())
     ' R20-1d(層2): 行高を明示する範囲は40行まで。120行(1,800pt=3画面ぶん)を
     ' 毎回「使用済み」にしていたのが、下へ延々スクロールできる状態の正体。
     ' 実下端が確定した ApplyDashScrollBound が、それ以深を既定へ戻す。
@@ -278,8 +285,8 @@ Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
     On Error Resume Next
     modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, DASH_ROWS
     On Error GoTo 0
-    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
-    modViewport.LogViewport "dash"
+    ' R21-S7: 窓幅/可視幅/帯実幅/中身右端/境界下端の5値観測点。
+    modViewport2.LogFit ws, "dash", DASH_BAND, bnd
 End Sub
 
 ' 帯を可視幅へ合わせるときの下限(pt)。KPIカードが【最小幅】130ptで4枚並ぶ
@@ -337,11 +344,10 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
                    (HDR_BAR_H - HDR_PILL_H) / 2 + rws(i) * (HDR_PILL_H + 4), uws(i)
     Next i
 
-    ' R20H FA-7: サブタイトルは意図して左寄せのまま据え置く(帯幅に連動して
-    ' 中央寄せするKPI行/管理者行と違い、ヘッダー直下の説明文は左端固定で
-    ' よい。ここだけKPI_X0のままにしているのは見落としではない)。
+    ' R21-S3: 版面のX原点は RowX0() 1本(センタリング廃止で全要素が同じ左端に
+    ' 揃う)。ここだけ KPI_X0 の定数を直に見ていたのを他と同じ口へ寄せる。
     Dim subShp As Shape
-    Set subShp = ws.Shapes.AddShape(1, modDashStat.KPI_X0, barH + HEADER_SUB_Y - HDR_BAR_H, 400, 18)
+    Set subShp = ws.Shapes.AddShape(1, modDashStat.RowX0(), barH + HEADER_SUB_Y - HDR_BAR_H, 400, 18)
     subShp.Name = "nxd_subtitle"
     subShp.Line.Visible = 0
     subShp.Fill.Visible = 0

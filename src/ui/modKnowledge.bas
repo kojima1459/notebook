@@ -109,6 +109,8 @@ Public Function ApplyShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Do
         mShelfRowHigh = lastR
     End If
     ApplyShelfBound = addr
+    ' R21-S7: フィット直後の5値観測点(窓幅/可視幅/帯実幅/中身右端/境界下端)。
+    modViewport2.LogFit ws, "shelf-" & CurrentMode(), SHELF_BAND, addr
     On Error GoTo 0
 End Function
 
@@ -141,7 +143,8 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ' R19-1b: 余りを最終列Nに吸わせて A:N の合計を可視幅ぴったりにする
     ' (右の白い余白は寸法の問題で、ScrollAreaでは消せない)。帯の右端も
     ' modViewport.ContentRight 1本から取る。
-    modViewport.FitBandToViewport ws, SHELF_BAND, SHELF_PAD_COL
+    ' R21-S3: 吸収列はモードごとに1つだけ(2段階Fitの廃止。ShelfPadCol参照)。
+    modViewport.FitBandToViewport ws, SHELF_BAND, modViewport2.ShelfPadCol(mMode, SHELF_PAD_COL)
     cellW = modViewport.ContentRight(ws, SHELF_BAND, 0) - L
     ' R19H FB-6(A-L⑬): 帯の【塗り幅】だけは max(可視幅, 内容幅) にする。
     ' ContentRight は可視幅で頭打ちにするのが正しい(操作系を画面外へ出さない
@@ -260,9 +263,8 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     ' 共通クロムを描くここが唯一の宣言点(モードごとに書くとズレる)。
     ' R19-1b: この時点では本文がまだ無いので「最低1画面」ぶん。本文を描き
     ' 終えた各モードが、実下端で ApplyScrollBound を上書きする。
+    ' R21-S7: 観測点は本文を描き終えた ApplyShelfBound 側へ移した。
     modViewport.ApplyScrollBound ws, ShelfBound(ws, 0)
-    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
-    modViewport.LogViewport "shelf"
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws

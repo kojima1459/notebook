@@ -348,7 +348,7 @@ Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     For i = 0 To TILE_COUNT - 1
         Dim x As Double, y As Double
         x = colL + (i Mod 2) * (colW + gutter)
-        y = topY + (i \ 2) * (TILE_H + TILE_GAP_Y)
+        y = topY + (i \ 2) * modViewport2.SY(TILE_H + TILE_GAP_Y)
 
         Dim act As String
         act = ""
@@ -373,7 +373,7 @@ Private Sub DrawOneTile(ByVal ws As Worksheet, ByVal idx As Long, ByVal x As Dou
                         ByVal valueText As String, ByVal action As String)
     On Error Resume Next
     Dim tile As Shape
-    Set tile = ws.Shapes.AddShape(5, x, y, tileW, TILE_H)
+    Set tile = ws.Shapes.AddShape(5, x, y, tileW, modViewport2.SY(TILE_H))
     If Not tile Is Nothing Then
         tile.Name = "nx_hub_tile" & idx
         tile.Adjustments(1) = 0.12
@@ -663,21 +663,15 @@ End Function
 Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
                            ByVal W As Double, ByVal topY As Double) As Double
     On Error Resume Next
-    ' ScrollArea(modHub.HUB_BOUND)の実下端。範囲文字列から実測で求めるので、
-    ' 行高や行数を変えてもここを直す必要がない。
-    Dim limitY As Double
-    Dim bound As Range
-    Set bound = ws.Range(modHub.HUB_BOUND)
-    If Not bound Is Nothing Then limitY = bound.Top + bound.Height
-    Set bound = Nothing
-    ' R20-1e: HUB_BOUND(60行)の実測だけを上限にしていたが、R20-1d で行高を
-    ' 明示する範囲を40行へ縮めた結果、この値は「40行×15pt + 残り20行ぶんの
-    ' 既定行高」という端末依存の数になった。境界の下端は modViewport.BoundBottomY
-    ' と同じ「最低1画面」を下限に持つのが単一情報源なので、ここも可視高で
-    ' 底上げする(これが無いと、既定行高の狭い端末でだけフッターが上へ
-    ' 押し戻され、バッジ帯に重なる)。
+    ' R21-S4: 上限は「境界の下端」1本にする。従来は HUB_BOUND(60行)の実測と
+    ' 可視高の底上げを重ねがけしており、modViewport.BoundAddr が決める本物の
+    ' 境界とズレていた(「窓高で底上げ」が3箇所にあった)。境界と同じ
+    ' RowAtFloor(窓高) から出せば、フッターは必ず境界の内側=押せる位置に来る。
     Dim viewH As Double: viewH = modViewport.ViewportHeight()
-    If limitY < viewH Then limitY = viewH
+    Dim limitRow As Long: limitRow = modViewport.RowAtFloor(ws, viewH, 60)
+    Dim limitY As Double
+    limitY = ws.Rows(limitRow).Top + ws.Rows(limitRow).Height
+    If limitY <= 0 Then limitY = viewH
 
     Dim y As Double: y = topY
     If limitY > FOOTER_H + 8 Then

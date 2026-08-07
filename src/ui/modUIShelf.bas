@@ -65,6 +65,34 @@ Private Const RNG_FOLDER As String = "A7:J7"
 Private Const RNG_SYNCINFO As String = "D8:J9"
 
 ' ----------------------------------------------------------------------------
+' RefitColumns - 一覧表モードの列幅(A:N)を設定する。R21-S6で切り出した。
+' ----------------------------------------------------------------------------
+' A:N を全列ぶん明示する(2026-07-30 R4要件A)。旧実装はK列・L列だけ設定して
+' おらず、DrawChromeが使う W=A1:N1 の幅が機種と操作履歴に依存してぶれていた
+' (端末によってだけボタンが見切れる、という再現しにくい不具合になる)。
+' R20-1c(実機第7報⑦の層1): K/L/M はこのモードが1文字も書かない死に列
+' だった(10文字幅×3=約190pt)。死に列を畳み、余りは本文の最終列(メモ列J)へ
+' modKnowledge.DrawChrome の Fit が吸わせる(吸収列の選択は ShelfPadCol)。
+' R21-S3: ここにあった Fit(J) は削除した。DrawChrome が table では J を
+' 吸収列にして1回だけ Fit する ―― J→N の2段階Fitは2回目の丸めで帯が
+' 可視幅を数pt超える経路を残していた。
+' R21-S6: 窓リサイズの再フィット(modViewport2.RefitShelfTable)も、シートの
+' 作り直しまで戻さずにここだけを呼び直す。
+Public Sub RefitColumns(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    ws.Columns("A").ColumnWidth = 6
+    ws.Columns("B:D").ColumnWidth = 10
+    ws.Columns("E").ColumnWidth = 8
+    ws.Columns("F:G").ColumnWidth = 8
+    ws.Columns("H:I").ColumnWidth = 15
+    ws.Columns("J").ColumnWidth = 15
+    ws.Columns("K:M").ColumnWidth = 1
+    ws.Columns("N").ColumnWidth = 1
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' EnsureLayout
 ' ----------------------------------------------------------------------------
 Public Sub EnsureLayout()
@@ -99,29 +127,8 @@ Public Sub EnsureLayout()
     ws.Range(fontAddr).Font.Name = "游ゴシック"
     ws.Range(fontAddr).Font.Size = 11
 
-    ' A:N を全列ぶん明示する(2026-07-30 R4要件A)。
-    ' 旧実装はK列・L列だけ設定しておらず、DrawChromeが使う W=A1:N1 の幅が
-    ' 機種と操作履歴に依存してぶれていた。ツールバーの折り返し判定はこのWを
-    ' 基準にしているので、Wがぶれると「端末によってだけボタンが見切れる」
-    ' という再現しにくい不具合になる。3モードとも同じシートを共有する
-    ' ようになった今は、前のモードの列幅が残る経路も増えている。
-    ws.Columns("A").ColumnWidth = 6
-    ws.Columns("B:D").ColumnWidth = 10
-    ws.Columns("E").ColumnWidth = 8
-    ws.Columns("F:G").ColumnWidth = 8
-    ws.Columns("H:I").ColumnWidth = 15
-    ws.Columns("J").ColumnWidth = 15
-    ' R20-1c(実機第7報⑦の層1): K/L/M はこのモードが1文字も書かない死に列
-    ' だった(10文字幅×3=約190pt)。本文 A:J は588.75pt固定で、窓を広げても
-    ' 伸びるのは吸収列Nだけ ―― 一覧の右に死に列+空の吸収列が数百pt並ぶのが
-    ' 「一覧表の右の余白」の正体。死に列を畳み、余りは本文の最終列(メモ列J)に
-    ' 吸わせて、本文の右端そのものを窓幅へ追随させる。
-    ws.Columns("K:M").ColumnWidth = 1
-    ws.Columns("N").ColumnWidth = 1
-    ' 吸収列を J にして A:N の合計を可視幅へ合わせる。この直後に DrawChrome が
-    ' 吸収列 N で同じことをするが、そのときには既に合計=可視幅なのでNは
-    ' 最小のまま動かない(=本文右端 ≒ 帯右端 − N最小幅)。
-    modViewport.FitBandToViewport ws, modKnowledge.SHELF_BAND, "J"
+    uiStep = "列幅の設定"
+    RefitColumns ws
 
     ' 実機防衛(2026-07-21再訂正): modUIMain.EnsureLayoutと同じ理由・同じ実装
     ' (Activateあり/なし双方で同一の1004が再現したため、Activate成否を致命的
@@ -142,6 +149,9 @@ Public Sub EnsureLayout()
     On Error GoTo Fail
     Application.ScreenUpdating = False
 
+    ' R21-S1: 幾何を測ってよいのはここから先だけ。罫線・見出し・タブ・水平
+    ' スクロールバーを最終形へ置いてから DrawChrome(この中で Fit)に入る。
+    modViewport2.EnsureViewState ws
     ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
     ' 一度右へスクロールした状態が持ち越されると、この画面には戻す手段が
     ' 無い(水平スクロールバーはNexus起動時に消してある)。実機報告の

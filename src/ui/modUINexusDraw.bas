@@ -542,8 +542,8 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' InitUI からは DrawInputArea → FreezePanes(A5選択)→ Protect の順に進む。
     ' A5 も入力欄 C3 も境界の内側なので、既存の Select は影響を受けない。
     modViewport.ApplyScrollBound ws, NexusBound(ws)
-    ' R19-1e: 実機の可視幅×可視高の観測点(1画面1セッション1回)。
-    modViewport.LogViewport "chat"
+    ' R21-S7: フィット直後の5値観測点(実体は modViewport2.LogChat)。
+    modViewport2.LogChat ws
 End Sub
 
 ' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。新しい質問の

@@ -14,7 +14,8 @@ Private Const BUBBLE_RATIO As Double = 0.72  ' チャット幅に対するバブ
 Private Const BUBBLE_GAP As Double = 14
 ' 帯A:Mの余りを吸わせる列(R19H FB-9)。縦の吸収列 modUINexusDraw.NEXUS_PAD_COL
 ' ="M" と紛らわしいので、入力欄の最終列だと分かる名前にする。
-Private Const NEXUS_INPUT_PAD_COL As String = "K"
+' R21-S6: 再フィットの実体(modViewport2.RefitChatBand)も同じ列を使うためPublic。
+Public Const NEXUS_INPUT_PAD_COL As String = "K"
 
 Private mChatBottom As Double   ' 最後のバブルの下端(モジュール状態リセット時はRecalc)
 
@@ -481,7 +482,8 @@ Public Sub EnsureAppView()
     If win.ScrollColumn <> 1 Then win.ScrollColumn = 1
     If win.ScrollRow <> 1 Then win.ScrollRow = 1
     If win.Zoom <> 100 Then win.Zoom = 100
-    If ActiveSheet.Name <> NEXUS_SHEET Then win.DisplayHorizontalScrollBar = True
+    ' R21-S2: 一律ONをやめ狭窓(<625pt)の安全弁だけにする(判定はmodViewport2)。
+    If ActiveSheet.Name <> NEXUS_SHEET Then win.DisplayHorizontalScrollBar = modViewport2.WantHScroll()
     On Error GoTo 0
 End Sub
 
@@ -622,6 +624,7 @@ Public Sub Repaint()
     ' 必ずScreenUpdating=Trueへ到達する構造にする(Resume-cleanup方式)。
     Dim rpErrNum As Long, rpErrDesc As String
     On Error GoTo RepaintFail
+    modViewport2.RefitChatBand ws    ' R21-S6: 帯・ヘッダー・入力欄を今の窓幅へ
     modSkin.ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
     FreezeShapePlacement ws  ' 絶対配置に再固定
     BringFixedToFront ws     ' 固定UIを最前面へ

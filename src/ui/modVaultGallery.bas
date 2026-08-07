@@ -22,15 +22,24 @@ Private mPreviewRows As Long
 ' 「マイ本棚」と「ナレッジ倉庫」の2枚に割れていて、中身が同じデータなのに
 ' 別物に見えていたのが実機の混乱の元だったため、シートを1枚に統合する。
 Private Const CARDS_PER_PAGE As Long = 9
-Private Const CARD_W As Double = 215
 Private Const CARD_H As Double = 120
 ' R20-1c(実機第7報⑦の層1): カードは3列固定だった。3列=215*3+14*2=673pt で、
 ' 帯だけが可視幅へ伸びる窓(1300pt/1800pt)では右に600pt以上の空白が残る。
-' 列数を帯幅から決める(カード幅は変えない=文字量と行数の見え方を保つ)。
+' 列数を帯幅から決める。
+' R21-S3(実機第8報⑦): それでもカード幅が215pt固定だったため、列数が変わる
+' 境目までの端数がそのまま右の余白として残っていた(1024pt窓では4列=884pt
+' に対し中身の右端916pt・帯1004ptで、右に88ptの白)。列数【と】カード幅の
+' 両方を弾性にし、最後のカードの右端を帯の右端(ContentRight)へ一致させる。
+'   cols  = clamp(int((avail-leftX+GAP)/(CARD_W_MIN+GAP)), 3, 6)
+'   cardW = clamp((avail-leftX-GAP*(cols-1))/cols, CARD_W_MIN, CARD_W_MAX)
 ' 上限6列は「1ページ9枚が2段で収まる」ところ。下限3列は従来の見た目。
+Private Const CARD_W_MIN As Double = 170
+Private Const CARD_W_MAX As Double = 240
 Private Const CARD_GAP As Double = 14
 Private Const CARD_COLS_MIN As Long = 3
 Private Const CARD_COLS_MAX As Long = 6
+' ページャの高さ(カードの下に置く帯)。窓高適応圧縮の必要量に入れる。
+Private Const PAGER_H As Double = 28
 
 Private mGalleryPage As Long
 Private mGalleryNames() As String   ' 現在ページのカード順の資料名(クリック解決用)
@@ -45,7 +54,7 @@ Private mGalleryMaxPage As Long
 ' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・可変列グリッド(3〜6列。
 ' R20-1c で帯幅から決める)・ページング。
 ' Shape増殖なし=毎回同数のカードを描き直す)
-' 宣言部(CARDS_PER_PAGE/CARD_W/CARD_H/mGallery*)はモジュール先頭に集約済み。
+' 宣言部(CARDS_PER_PAGE/CARD_W_MIN/CARD_H/mGallery*)はモジュール先頭に集約済み。
 ' 描画先は「マイ本棚」シート(R4要件A)。専用シートはもう作らない。
 ' ----------------------------------------------------------------------------
 
@@ -73,28 +82,34 @@ Public Function ShowVaultGallery() As Boolean
 
     Dim uiStep As String
     Dim gErrNum As Long, gErrDesc As String
+    Dim vw0 As Double, vh0 As Double
     On Error GoTo Finish
     Application.ScreenUpdating = False
-    uiStep = "枠の描画(DrawGalleryFrame)"
-    DrawGalleryFrame ws
-    uiStep = "カードの描画(RenderGalleryCards)"
-    RenderGalleryCards ws
-    modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
-    modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 
+    ' R21-S1(実機第8報⑦): 「描く→活性化→表示状態」を【活性化→表示状態→
+    ' 描く】へ反転する。従来は罫線・見出し・タブ・水平スクロールバーの確定が
+    ' 描画の【後】にあり、カード列数と境界を「タブと横バーが出たままの窓」で
+    ' 決めていた(可視高が約24pt過大・可視幅も別物)。測ってよいのは
+    ' modViewport2.EnsureViewState を通った後だけ。
     ws.Visible = -1
     uiStep = "シートのアクティブ化(ActivateSheetRobust)"
     If modUI.ActivateSheetRobust(ws, "modVaultGallery.ShowVaultGallery") Then
         On Error Resume Next
-        ActiveWindow.DisplayGridlines = False
-        ActiveWindow.DisplayHeadings = False
-        ActiveWindow.DisplayWorkbookTabs = False
+        modViewport2.EnsureViewState ws
         On Error GoTo Finish
         ' 表示の共通儀式(左端へ戻す/等倍/旧Vaultシートの掃除)。R4要件B。
         uiStep = "表示の共通儀式(PrepareScreenView)"
         modKnowledge.PrepareScreenView ws
     End If
     ' Falseのときは両者をスキップ(ActiveWindowが別シートを向いたまま触らない)。
+
+    modViewport2.MarkView vw0, vh0
+    uiStep = "枠の描画(DrawGalleryFrame)"
+    DrawGalleryFrame ws
+    uiStep = "カードの描画(RenderGalleryCards)"
+    RenderGalleryCards ws
+    modUI.FreezeShapePlacement ws   ' 全Shapeを絶対配置に固定(ズレ防止)
+    modSkin.BeautifyAll ws          ' フォント統一(Yu Gothic UI)+固定クロムに柔らかい影
 
     ' 正常系はハンドラ本体(Resume)を跨いで後始末へ入る
     ' (Resume はエラーが起きていないと実行時エラー20になる)。
@@ -114,6 +129,8 @@ FinishCleanup4:
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
     ShowVaultGallery = (gErrNum = 0)
     On Error GoTo 0
+    ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
+    modViewport2.ReflowIfMoved vw0, vh0
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -300,13 +317,26 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     Dim cardT As Double: cardT = modKnowledge.ContentTop(ws) + 6
     If cardT < 90 Then cardT = 90
 
-    ' R20-1c: 帯の実右端(可視幅に合わせ済み)から、この窓に入る列数を出す。
-    ' 帯・ピル・ツールバーと同じ modViewport.ContentRight が単一情報源。
+    ' R20-1c/R21-S3: 帯の実右端(可視幅に合わせ済み)から、列数【と】カード幅を
+    ' 出す。帯・ピル・ツールバーと同じ modViewport.ContentRight が単一情報源で、
+    ' 最後のカードの右端 = cardL + cols*cardW + (cols-1)*GAP = bandRight になる。
     Dim bandRight As Double: bandRight = modViewport.ContentRight(ws, modKnowledge.SHELF_BAND, 8)
     Dim availW As Double: availW = bandRight - ws.Range("A1").Left
+    Dim leftX As Double: leftX = cardL - ws.Range("A1").Left
     Dim cols As Long
-    cols = modViewport.GalleryColsFor(availW, cardL - ws.Range("A1").Left, _
-                                      CARD_W, CARD_GAP, CARD_COLS_MIN, CARD_COLS_MAX)
+    cols = modViewport2.GridColsFor(availW, leftX, CARD_W_MIN, CARD_GAP, _
+                                    CARD_COLS_MIN, CARD_COLS_MAX)
+    Dim cardW As Double
+    cardW = modViewport2.GridCardW(availW, leftX, CARD_GAP, cols, CARD_W_MAX, CARD_W_MIN)
+    ' カード幅が上限240で頭打ちになってなお余る幅は隙間へ配分する(ダッシュの
+    ' modDashStat.CardGapFor と同型)。これが無いと広い窓でだけ右端が届かない。
+    Dim cardGap As Double
+    cardGap = modViewport2.GridGapFor(availW, leftX, cardW, cols, CARD_GAP)
+    ' R21-S5: 1ページぶんの段数が窓高に収まらないときだけカード高を詰める。
+    Dim rowsNeed As Long: rowsNeed = (CARDS_PER_PAGE + cols - 1) \ cols
+    modViewport2.SetScaleY modViewport2.CompressFactor(modViewport.ViewportHeight(), _
+                cardT + rowsNeed * (CARD_H + CARD_GAP) + PAGER_H)
+    Dim cardH As Double: cardH = modViewport2.SY(CARD_H)
     ' Empty State の透かし/文面もカード群と同じ幅(左端から帯の右端まで)に伸ばす。
     Dim emptyW As Double: emptyW = bandRight - cardL
     If emptyW < 320 Then emptyW = 320
@@ -418,8 +448,8 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
             Dim slot As Long: slot = k - startIdx
             Dim col As Long: col = slot Mod cols
             Dim rowN As Long: rowN = slot \ cols
-            DrawOneCard ws, slot, cardL + col * (CARD_W + CARD_GAP), cardT + rowN * (CARD_H + CARD_GAP), _
-                        fNames(k), fStats(k)
+            DrawOneCard ws, slot, cardL + col * (cardW + cardGap), cardT + rowN * (cardH + CARD_GAP), _
+                        cardW, cardH, fNames(k), fStats(k)
             mGalleryNames(slot) = fNames(k)
             mGalleryCount = mGalleryCount + 1
         Next k
@@ -437,7 +467,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     ' 9枚が2段で収まるので、その分だけ画面が縦に詰まる(空スクロール域も減る)。
     Dim rowsUsed As Long: rowsUsed = ((endIdx - startIdx) \ cols) + 1
     If rowsUsed < 1 Then rowsUsed = 1
-    Dim pgY As Double: pgY = cardT + rowsUsed * (CARD_H + CARD_GAP) + 6
+    Dim pgY As Double: pgY = cardT + rowsUsed * (cardH + CARD_GAP) + 6
     Dim prevBtn As Shape
     Set prevBtn = ws.Shapes.AddShape(5, cardL, pgY, 70, 22)
     prevBtn.Name = "nxg_pg_prev"
@@ -511,7 +541,8 @@ End Sub
 ' 単一Shape=1カード(タイトル太字+プレビュー+日付を1テキストに結合し、
 ' 部分書式で表現。グループ化しない=軽量・増殖なし)
 Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Double, _
-                        ByVal y As Double, ByVal srcName As String, ByVal statLine As String)
+                        ByVal y As Double, ByVal cardW As Double, ByVal cardH As Double, _
+                        ByVal srcName As String, ByVal statLine As String)
     ' R15-8b(実機第4報 RC1): 単純Split(statLine,"|")の重複実装をやめ、
     ' error_note中の"|"にもズレないmodUIShelf.ParseStatsの頑健パースへ共用する
     ' (このカードで実際に使うのは addedAt/chunkN の2値のみ=挙動不変)。
@@ -532,7 +563,7 @@ Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Do
     On Error GoTo 0
 
     Dim card As Shape
-    Set card = ws.Shapes.AddShape(5, x, y, CARD_W, CARD_H)
+    Set card = ws.Shapes.AddShape(5, x, y, cardW, cardH)
     card.Name = "nxg_card_" & slot
     card.Adjustments(1) = 0.08
     card.Line.Weight = 0.75
