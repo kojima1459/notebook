@@ -617,6 +617,14 @@
       "note": "各画面の「行ける範囲」(Worksheet.ScrollArea)の宣言。2026-08-05 R18-3b 新設。呼び出しは Hub/マイ本棚(3モード共通クロム)/チャット/ダッシュボード/ナレッジ登録フォームの構築Sub末尾に1行ずつ。ScrollAreaはブックに保存されないセッション限定プロパティで、各画面が毎回冪等に再構築されるため再適用の配線は不要。"
     },
     {
+      "name": "modViewport2",
+      "path": "src/ui/modViewport2.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R21-1",
+      "note": "R21-1(実機第8報⑦)の構造完治。modViewport(21,524字)へ全部入れると30,000字上限に届くため、憲章§4-6で分割した。持ち分は「いつ測ってよいか」と「窓に収める調整」: EnsureViewState(全画面/罫線/見出し/タブ/水平スクロールバーを最終形にしてから測る)・ScrollbarW/FitTarget(可視セル幅の校正)・FitVerify(帯≤可視幅の事後検証)・GridColsFor/GridCardW(弾性カード)・CompressFactor/SetScaleY/SY(窓高適応圧縮)・RefitShelfTable/RefitChatBand(再フィット経路の穴)・LogFit(5値観測)。原始的な幾何の算数は従来どおり modViewport。"
+    },
+    {
       "name": "modBitwiseOpt",
       "path": "src/qa/modBitwiseOpt.bas",
       "role": "core",
@@ -975,6 +983,14 @@
       "type": "std",
       "wave": "R20H",
       "note": "R20H(レビュー裁定Fix波)の純ロジック回帰テスト。modTestsPure20(7,311字)は主題(R20-4/R20-7/追加D-1)がFix波と異なるため、憲章§4-6に従って新設した分割先(tick経路のbusy3情報源modViewport.Busy3/table・gallery切替をまたぐ旧行取りこぼしmodUIShelf.ClearAreaLastRow/初回ウィザードのフラグ1回性modSetupWizard.WizardShouldRun)。modTestsPure20.RunAll20末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure22",
+      "path": "src/test/modTestsPure22.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R21-1",
+      "note": "R21-1(実機第8報⑦・余白の構造完治)の純ロジックゴールデン。modTestsPure21(6,692字)はR20Hの3点固定が主題で余白の物理とは別の話のため新設(憲章§4-6)。固定するもの: HScrollNeeded/ViewMoved(S1)・SbWidthFrom(S2)・GridColsFor/GridCardW/RightGapExceeds/CardGapFor/ShelfPadCol(S3)・FitsInView(S4)・CompressFactor/HubNeedY/BadgeRowsFor(S5)。1024×499pt窓の実測トレース(帯1010/右端1002)を「新式は一致・旧式(215pt固定の916pt)は不合格」の対で固定する。modTestsPure21.RunAll21末尾から呼ばれる。"
     },
     {
       "name": "modTestsExcel",

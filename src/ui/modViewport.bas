@@ -37,12 +37,14 @@ Option Explicit
 '   LibreOffice の純ロジックテストで固定する。
 ' ============================================================================
 
-' 縦スクロールバーが食う幅(pt)。ここを差し引かないと最終列が半分隠れる。
-Private Const SCROLLBAR_W As Double = 12
+' 縦スクロールバーが食う幅(pt)。R21-S2で決め打ちをやめ、実測から校正する
+' modViewport2.ScrollbarW() が単一情報源になった(ここは残していない)。
 ' 吸収列の最小幅(pt)。0にすると列が消えて「最終列の右は灰色」になる。
 Private Const MIN_PAD_PT As Double = 8
-' 内容下端に足す余白(pt)。すぐ下で切ると窮屈に見える。
-Private Const BOTTOM_PAD As Double = 24
+' 内容下端に足す余白(pt)。R21-S4: 24→8。24ptは「+24pt→行切り上げ→最低1画面」の
+' 三重切り上げの1段目で、内容が窓に収まっている画面でも境界を必ず窓の外へ
+' 押し出していた(実機第8報⑦の独立欠陥その3)。
+Private Const BOTTOM_PAD As Double = 8
 ' 自分のブックが前面でないときに ViewportHeight が返す既定値(pt)。R19H FB-5。
 Private Const DEFAULT_VIEW_H As Double = 600
 
@@ -111,8 +113,11 @@ Public Sub FitBandToViewport(ByVal ws As Worksheet, ByVal bandAddr As String, _
     Dim fixedW As Double
     fixedW = ws.Range(bandAddr).Width - w0
 
+    ' R21-S2: 目標は「可視セル幅 − 安全余裕2pt」。可視セル幅は決め打ちの
+    ' SCROLLBAR_W=12 ではなく、UsableWidth と VisibleRange.Width の突合から
+    ' 校正したバー幅で出す(modViewport2 が単一情報源)。
     Dim target As Double
-    target = modUIMain.ViewportWidth() - SCROLLBAR_W
+    target = modViewport2.FitTarget()
     If target < minRightX Then target = minRightX
 
     ' R19H FA-1(A-H①): pt と ColumnWidth の関係は比例ではなく【アフィン】
@@ -128,6 +133,9 @@ Public Sub FitBandToViewport(ByVal ws As Worksheet, ByVal bandAddr As String, _
     Dim u1 As Double: u1 = ws.Columns(padColLetter).ColumnWidth   ' Excelが丸めた実値
     Dim w1 As Double: w1 = ws.Columns(padColLetter).Width
     ws.Columns(padColLetter).ColumnWidth = PadUnitsRefine(need, u0, w0, u1, w1)
+    ' R21-S2: 事後検証。丸め・最小幅の都合で帯が target を超えたら差分で詰め直す
+    ' (「帯実幅 ≤ 可視幅」を出口で必ず成立させる=横スクロールが構造的に不能)。
+    modViewport2.FitVerify ws, bandAddr, padColLetter, target
     On Error GoTo 0
 End Sub
 
@@ -201,11 +209,49 @@ End Function
 '   contentBottom: 描き終えた内容の実下端(pt)
 '   maxRow       : その画面で許す最大行(行高が壊れていても暴走しない)
 '   塗り範囲・ScrollArea・Lockedの範囲は全てこの1本から取る。
+'
+'   R21-S4(実機第8報⑦の独立欠陥その3): 従来は内容が窓に収まる画面でも
+'   「+24pt → RowAt(=切り上げ) → 最低1画面」の三重切り上げを通っており、
+'   境界の下端が必ず窓高より下になっていた ―― 内容が1画面に収まっているのに
+'   毎回スクロール余地が残る、を構造的に作っていた。
+'   収まる画面は【切り下げ】(RowAtFloor)で窓高ちょうどに止め、収まらない
+'   画面だけ従来どおり内容の実下端(+8pt)まで伸ばす。
 Public Function BoundAddr(ByVal ws As Worksheet, ByVal padColLetter As String, _
                           ByVal contentBottom As Double, ByVal maxRow As Long) As String
     If ws Is Nothing Then Exit Function
-    BoundAddr = "A1:" & padColLetter & _
-                RowAt(ws, BoundBottomY(contentBottom, ViewportHeight(), BOTTOM_PAD), maxRow)
+    Dim viewH As Double: viewH = ViewportHeight()
+    If FitsInView(contentBottom, viewH, BOTTOM_PAD) Then
+        BoundAddr = "A1:" & padColLetter & RowAtFloor(ws, viewH, maxRow)
+    Else
+        BoundAddr = "A1:" & padColLetter & _
+                    RowAt(ws, BoundBottomY(contentBottom, viewH, BOTTOM_PAD), maxRow)
+    End If
+End Function
+
+' FitsInView - 内容が窓に収まっているか。純関数(ゴールデン対象)。
+'   収まっている=境界を窓高ちょうどに切り下げてよい(スクロール余地ゼロ)。
+Public Function FitsInView(ByVal contentBottom As Double, ByVal viewportH As Double, _
+                           ByVal pad As Double) As Boolean
+    FitsInView = (contentBottom <= viewportH - pad)
+End Function
+
+' RowAtFloor - 下端が y 【以下】に収まる最後の行(部分行を含まない)。
+'   RowAt(yを含む最小の行=切り上げ)の対で、こちらは切り下げ。
+'   境界を窓高に合わせるときに使う ―― 切り上げると必ず窓を1行ぶん超え、
+'   その1行があるだけで縦スクロールが生きてしまう。
+'   行高は端末依存なので、ここも RowAt と同じく実セル幾何だけを読む。
+'   1行目の下端すら y を超える(窓が極端に低い)ときは 1 を返す。
+Public Function RowAtFloor(ByVal ws As Worksheet, ByVal y As Double, ByVal maxRow As Long) As Long
+    RowAtFloor = 1
+    If maxRow < 1 Then maxRow = 1
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim i As Long
+    For i = 1 To maxRow
+        If ws.Cells(i, 1).Top + ws.Cells(i, 1).Height > y Then Exit For
+        RowAtFloor = i
+    Next i
+    On Error GoTo 0
 End Function
 
 ' BoundBottomY - 境界の下端Y(pt)。純関数(ゴールデン対象)。
@@ -327,6 +373,10 @@ End Function
 ' ----------------------------------------------------------------------------
 ' GalleryColsFor - 幅 bandW の帯に、左端 leftX から等幅カードが何列入るか。
 ' ----------------------------------------------------------------------------
+'   【非推奨】R21-S3 でギャラリーは列数とカード幅の両方を弾性にしたため
+'   (modViewport2.GridColsFor / GridCardW)、この「カード幅固定・最後の右に
+'   GAP が残る」式の呼び出し元は無い。算数と境界ゴールデン(modTestsPure19)は
+'   固定カード幅の画面が再び要るときのために残す。
 '   純関数(ゴールデン対象)。カードは左寄せのまま列数だけ増やす方式なので、
 '   最後のカードの右に GAP ぶんの余白が残る前提で数える。
 '   minCols/maxCols で挟むのは、狭い窓で0列になって画面が空になるのと、
@@ -348,14 +398,30 @@ End Function
 ' ----------------------------------------------------------------------------
 ' R19-1e: 全ての幾何判断は「実機の可視幅は600〜900pt」という推定の上に
 ' 立っているが、その推定を裏付ける実測値を一度も採っていない(憲章§4-2)。
-' 各画面の EnsureLayout から1行呼ぶだけで、次回の実機報告で境界値を校正
-' できるようにする。毎回書くとログが埋まるので画面ごとに1回だけ。
-Public Sub LogViewport(ByVal screenName As String)
+'
+' R21-S7: 記録を「窓幅×窓高」の2値から【5値】へ拡げた。余白の報告が来たとき、
+' 帯・中身・境界のどの層が破れたのかを次の1報で一意に決めるため:
+'   w   = 窓の可視幅(ViewportWidth)
+'   vis = セルを置ける可視幅(可視幅 − 縦スクロールバー幅。Fitの目標の素)
+'   band= 帯の実幅   … w/vis より大きければ S2 の破れ(横スクロールが生きる)
+'   right= 中身の右端 … band と離れていれば S3 の破れ(中身が張っていない)
+'   h/bottom = 窓高と境界の高さ … bottom>h なら S4 の破れ(縦スクロールが残る)
+' フィット直後に毎回呼んでよい。同じ5値の重複だけを抑止するので、幾何が
+' 動かない再描画ではログが増えない(1画面1セッション1回の旧方式では、
+' 窓をリサイズした後の値が二度と記録されなかった)。
+Public Sub LogViewport(ByVal screenName As String, Optional ByVal bandW As Double = 0, _
+                       Optional ByVal rightX As Double = 0, _
+                       Optional ByVal boundBottom As Double = 0)
     On Error Resume Next
-    If InStr(mLoggedScreens, "|" & screenName & "|") > 0 Then Exit Sub
-    mLoggedScreens = mLoggedScreens & "|" & screenName & "|"
-    modLog.LogUsage "viewport", screenName, _
-        CLng(modUIMain.ViewportWidth()) & "x" & CLng(ViewportHeight())
+    Dim d As String
+    d = "w=" & CLng(modUIMain.ViewportWidth()) & " vis=" & CLng(modViewport2.VisibleCellW()) & _
+        " band=" & CLng(bandW) & " right=" & CLng(rightX) & _
+        " h=" & CLng(ViewportHeight()) & " bottom=" & CLng(boundBottom)
+    Dim key As String: key = "|" & screenName & " " & d & "|"
+    If InStr(mLoggedScreens, key) > 0 Then Exit Sub
+    If Len(mLoggedScreens) > 4000 Then mLoggedScreens = ""   ' 際限なく持たない
+    mLoggedScreens = mLoggedScreens & key
+    modLog.LogUsage "viewport", screenName, d
     On Error GoTo 0
 End Sub
 
@@ -503,7 +569,12 @@ End Sub
 ' RefitActiveScreen - 今前面にある画面だけを冪等に組み直す。
 '   分岐は modApp.OnRefreshUI(🔄再描画)と同じ形にする(2つ持つとズレる)。
 '   チャットは会話が伸びる設計で、幾何は modUI.Repaint が持つ。
-Private Sub RefitActiveScreen()
+'   R21-S1: 描画末尾のワンショット再描画(modViewport2.ReflowIfMoved)からも
+'   ここへ落とすため Public 化した(組み直しの分岐を2本持たない)。
+'   R21-S6: 本棚の一覧表モードは RefreshCurrent→RenderShelf に落ちるが
+'   RenderShelf は帯を触らない(=窓を広げても右端が前の窓のまま)。
+'   列幅とクロムまでやり直す軽量経路(modViewport2.RefitShelfTable)へ回す。
+Public Sub RefitActiveScreen()
     Dim nm As String
     On Error Resume Next
     nm = ThisWorkbook.ActiveSheet.Name
@@ -512,7 +583,12 @@ Private Sub RefitActiveScreen()
         Case "Nexus":                  modUI.Repaint
         Case "Dashboard":              modDash.ShowDashboard
         Case modAppDef.SH_HOME:        modHub.EnsureHubLayout
-        Case modAppDef.SH_SHELF:       modKnowledge.RefreshCurrent
+        Case modAppDef.SH_SHELF
+            If modKnowledge.IsTableMode() Then
+                modViewport2.RefitShelfTable ThisWorkbook.ActiveSheet
+            Else
+                modKnowledge.RefreshCurrent
+            End If
         Case Else:                     Exit Sub   ' 素のシート(config等)は触らない
     End Select
     If Err.Number <> 0 Then

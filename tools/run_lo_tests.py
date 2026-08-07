@@ -442,6 +442,15 @@ PURE_ALLOWLIST = [
     #   modSetupWizard.WizardShouldRunはいずれも既存の同型注記のとおり
     #   Excel/COMに触れない純関数(各モジュールは既にこの一覧に登録済み)。
     "modTestsPure21",
+    # modTestsPure22 / modViewport2(2026-08-07 R21-1 余白の構造完治):
+    #   modTestsPure21.RunAll21 の末尾が RunAll22 を呼ぶため、未注入だと
+    #   実行時エラー12で R21-1 のゴールデンが1件も走らない(19〜21と同型)。
+    #   modViewport2 はテストが呼ぶ HScrollNeeded/SbWidthFrom/ViewMoved/
+    #   CompressFactor/HubNeedY/BadgeRowsFor/GridColsFor/GridCardW/
+    #   RightGapExceeds/ShelfPadCol がいずれも純関数(Excel/COMに触れない)。
+    #   同モジュールの EnsureViewState など Excel 依存の口は、呼ばなければ
+    #   未解決のままで良い(techメモ4・modViewport と同型の理由)。
+    "modTestsPure22", "modViewport2",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

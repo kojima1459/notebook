@@ -1,0 +1,409 @@
+Attribute VB_Name = "modViewport2"
+Option Explicit
+
+' ============================================================================
+' modViewport2 - 「測ってよいタイミング」と「窓に収める算数」(2026-08-07 R21-1)
+' ----------------------------------------------------------------------------
+' なぜ新設したか(憲章§4-6の容量分割):
+'   R21-1(実機第8報⑦)で足すロジック ―― 表示状態の単一化(EnsureViewState)・
+'   スクロールバー幅の校正・Fitの事後検証・弾性グリッド・窓高適応圧縮・
+'   再フィット経路の穴埋め ―― を全て modViewport(21,524字)へ入れると
+'   30,000字の上限に届く。幾何の【原始的な算数】は従来どおり modViewport が
+'   持ち、こちらは「いつ測ってよいか」と「窓に収めるための調整」を持つ。
+'
+' 5回目を出さないための設計の要点(調査A班の数値トレースに対応):
+'   (1) 測定の前に表示状態(全画面/罫線/見出し/タブ/水平スクロールバー)を
+'       必ず最終形へ置く。UsableWidth/UsableHeight はこれら全てで変わるため、
+'       「描いてから全画面にする」と初回だけ古い窓で幾何が決まる。
+'   (2) 帯の目標幅は「可視セル幅 − 安全余裕」。可視セル幅は
+'       UsableWidth − 縦スクロールバー幅で、バー幅は決め打ちせず実測から校正する。
+'   (3) 収まらないときだけ縦を圧縮する(係数は1本・SY()経由でのみ適用)。
+'   全て On Error Resume Next 配下(失敗しても画面を落とさない)。
+'
+' 依存: modViewport / modUIMain / modLog / modKnowledge / modUIShelf /
+'       modUINexusDraw / modUI(いずれも同じUI層)。
+' 純関数(HScrollNeeded / SbWidthFrom / ViewMoved / CompressFactor /
+'   GridColsFor / GridCardW / RightGapExceeds)は他を呼ばず、LibreOffice の
+'   純ロジックテスト(modTestsPure22)で境界を固定する。
+' ============================================================================
+
+' 水平スクロールバーを安全弁として出す窓幅の境目(pt)。これより狭い窓では
+' 帯を可視幅まで詰めても内容の最小幅に負ける(#30の安全弁)ので、横へ
+' 逃げられる手段を残す。これ以上の窓では「帯≤可視幅」が構造的に成立するので
+' 出さない(出ているだけで可視高が約24pt減り、境界計算が窓を超える原因になる)。
+Private Const NARROW_W As Double = 625
+
+' 帯の目標幅に持たせる安全余裕(pt)。ColumnWidth の丸めで1pt前後は必ず
+' ぶれるので、ぴったりを狙うと「1ptだけ超える」が常態化する。
+Private Const SAFE_MARGIN As Double = 2
+
+' 縦スクロールバー幅の既定(pt)。校正できない端末でだけ使う。
+Private Const SB_FALLBACK As Double = 12
+' 校正値として信じてよい差の上限(pt)。VisibleRange は列単位で切り上がるため、
+' これを超える差は「バー幅」ではなく「セル1個ぶんの端数」。
+Private Const SB_MAX As Double = 30
+
+' 描画の前後で可視サイズがこれ以上動いたら、1回だけ組み直す(pt)。
+Private Const VIEW_TOL As Double = 4
+
+' 窓高適応圧縮の下限。これ以上詰めると文字が箱からはみ出す。
+Private Const MIN_SCALE As Double = 0.78
+
+' 校正済みの縦スクロールバー幅(pt)。0=未校正。EnsureViewState で捨てる。
+Private mSbW As Double
+
+' 窓高適応圧縮の係数(1=圧縮なし)。SY() だけがこれを掛ける。
+Private mScaleY As Double
+
+' 描画末尾のワンショット再描画中フラグ(無限ループ禁止・S1の保険)。
+Private mReflowGuard As Boolean
+
+' ----------------------------------------------------------------------------
+' S1: 測定の単一化と順序固定
+' ----------------------------------------------------------------------------
+' EnsureViewState - 表示状態を最終形へ置く。【これを通した後だけ】測ってよい。
+'   全画面の描画エントリ(modHub/modDash/modVaultGallery/modUIShelf)が
+'   Activate の直後・幾何を決める前に1回だけ呼ぶ。冪等。
+'   自分のブックが前面でない/そのシートが前面でないときは何もしない
+'   (他人の窓の設定を書き換えない。EnsureAppView と同じ作法)。
+Public Sub EnsureViewState(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
+    If Not (ThisWorkbook.ActiveSheet Is ws) Then Exit Sub
+
+    If Not Application.DisplayFullScreen Then Application.DisplayFullScreen = True
+    If Application.DisplayFormulaBar Then Application.DisplayFormulaBar = False
+
+    Dim win As Object
+    Set win = ActiveWindow
+    If win Is Nothing Then Exit Sub
+    If win.DisplayGridlines Then win.DisplayGridlines = False
+    If win.DisplayHeadings Then win.DisplayHeadings = False
+    If win.DisplayWorkbookTabs Then win.DisplayWorkbookTabs = False
+    If win.Zoom <> 100 Then win.Zoom = 100
+    ' 水平スクロールバーは可視【高】を約24pt食う。ここで最終形にしてから
+    ' 測らないと、境界計算がその24ptぶんだけ必ず窓を超える(実機第8報⑦の
+    ' 独立欠陥その2)。狭い窓でだけ安全弁として残す。
+    Dim wantH As Boolean: wantH = HScrollNeeded(modUIMain.ViewportWidth())
+    If win.DisplayHorizontalScrollBar <> wantH Then win.DisplayHorizontalScrollBar = wantH
+    If win.ScrollColumn <> 1 Then win.ScrollColumn = 1
+    If win.ScrollRow <> 1 Then win.ScrollRow = 1
+
+    mSbW = 0            ' 表示が変わった=バー幅の校正はやり直し
+    On Error GoTo 0
+End Sub
+
+' HScrollNeeded - 水平スクロールバーを出すべきか。純関数(ゴールデン対象)。
+'   #30(操作系が画面外)の安全弁は狭い窓にだけ要る。広い窓で出しっぱなしに
+'   すると、可視高だけが減って「境界>窓高」を作り続ける。
+Public Function HScrollNeeded(ByVal viewportW As Double) As Boolean
+    HScrollNeeded = (viewportW < NARROW_W)
+End Function
+
+' WantHScroll - 今の窓幅での答え(modUI.EnsureAppView の一律ONを条件化する口)。
+Public Function WantHScroll() As Boolean
+    WantHScroll = HScrollNeeded(modUIMain.ViewportWidth())
+End Function
+
+' ----------------------------------------------------------------------------
+' S2: 帯は必ず可視幅以下(目標幅の単一情報源)
+' ----------------------------------------------------------------------------
+' SbWidthFrom - 縦スクロールバーの実幅(pt)。純関数(ゴールデン対象)。
+'   UsableWidth(バーを含む内側の幅)と VisibleRange.Width(セルとして
+'   見えている幅)の差がバー幅。ただし VisibleRange は列単位で切り上がるので、
+'   差が負や大きすぎる値になったら実測を信じずに fallback へ倒す。
+Public Function SbWidthFrom(ByVal usableW As Double, ByVal visibleW As Double, _
+                            ByVal fallback As Double) As Double
+    SbWidthFrom = fallback
+    If usableW <= 0 Then Exit Function
+    If visibleW <= 0 Then Exit Function
+    Dim d As Double: d = usableW - visibleW
+    If d < 0 Then Exit Function
+    If d > SB_MAX Then Exit Function
+    SbWidthFrom = d
+End Function
+
+' ScrollbarW - 校正済みの縦スクロールバー幅(pt)。1セッション/1表示状態に1回。
+Public Function ScrollbarW() As Double
+    ScrollbarW = mSbW
+    If ScrollbarW > 0 Then Exit Function
+    Dim uw As Double, vw As Double
+    On Error Resume Next
+    If ActiveWorkbook Is ThisWorkbook Then
+        uw = ActiveWindow.UsableWidth
+        vw = ActiveWindow.VisibleRange.Width
+    End If
+    On Error GoTo 0
+    ScrollbarW = SbWidthFrom(uw, vw, SB_FALLBACK)
+    mSbW = ScrollbarW
+End Function
+
+' VisibleCellW - セルを置ける実可視幅(pt)= 可視幅 − 縦スクロールバー幅。
+Public Function VisibleCellW() As Double
+    VisibleCellW = modUIMain.ViewportWidth() - ScrollbarW()
+    If VisibleCellW < 1 Then VisibleCellW = 1
+End Function
+
+' FitTarget - 帯(A列～吸収列)の合計幅の目標(pt)。単一情報源。
+Public Function FitTarget() As Double
+    FitTarget = VisibleCellW() - SAFE_MARGIN
+    If FitTarget < 1 Then FitTarget = 1
+End Function
+
+' FitVerify - Fit の事後検証。帯の実幅が target を超えていたら、超過ぶんだけ
+'   吸収列を詰め直す(最大2回)。換算は modViewport.PadUnitsRefine(アフィン
+'   2点補正)を流用する ―― 「1回設定して実測し直し、差分だけ足す」の縮小版。
+'   2回で収まらない場合は固定列だけで target を超えている(=内容のほうが
+'   広い正当なケース)なので、それ以上は触らない。
+Public Sub FitVerify(ByVal ws As Worksheet, ByVal bandAddr As String, _
+                     ByVal padColLetter As String, ByVal target As Double)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim i As Long
+    For i = 1 To 2
+        Dim bandW As Double: bandW = ws.Range(bandAddr).Width
+        If bandW <= target Then Exit For
+        Dim u1 As Double: u1 = ws.Columns(padColLetter).ColumnWidth
+        Dim w1 As Double: w1 = ws.Columns(padColLetter).Width
+        Dim needPt As Double: needPt = w1 - (bandW - target)
+        If needPt < 0.5 Then Exit For      ' 吸収列では吸い切れない(固定列が広い)
+        ws.Columns(padColLetter).ColumnWidth = 0.05
+        Dim u0 As Double: u0 = ws.Columns(padColLetter).ColumnWidth
+        Dim w0 As Double: w0 = ws.Columns(padColLetter).Width
+        ws.Columns(padColLetter).ColumnWidth = _
+            modViewport.PadUnitsRefine(needPt, u0, w0, u1, w1)
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' S1の保険: 描いた後に窓が動いていたら1回だけ組み直す(ワンショット)
+' ----------------------------------------------------------------------------
+' ViewMoved - 可視サイズが動いたか。純関数(ゴールデン対象)。
+Public Function ViewMoved(ByVal w0 As Double, ByVal h0 As Double, _
+                          ByVal w1 As Double, ByVal h1 As Double, _
+                          ByVal tol As Double) As Boolean
+    ViewMoved = (Abs(w1 - w0) > tol) Or (Abs(h1 - h0) > tol)
+End Function
+
+' MarkView - 描画の直前に可視サイズを控える(ByRefで2値を受け取る)。
+Public Sub MarkView(ByRef w As Double, ByRef h As Double)
+    On Error Resume Next
+    w = modUIMain.ViewportWidth()
+    h = modViewport.ViewportHeight()
+    On Error GoTo 0
+End Sub
+
+' ReflowIfMoved - 描画の末尾で再測定し、4pt超動いていたら【1回だけ】組み直す。
+'   2回目は mReflowGuard が必ず止める(無限ループ禁止)。組み直しの分岐は
+'   modViewport.RefitActiveScreen 1本に集約する(2つ持つとズレる)。
+Public Sub ReflowIfMoved(ByVal w0 As Double, ByVal h0 As Double)
+    If mReflowGuard Then Exit Sub
+    On Error Resume Next
+    If Not ViewMoved(w0, h0, modUIMain.ViewportWidth(), modViewport.ViewportHeight(), VIEW_TOL) Then
+        On Error GoTo 0
+        Exit Sub
+    End If
+    mReflowGuard = True
+    modViewport.RefitActiveScreen
+    Err.Clear
+    mReflowGuard = False
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' S5: 窓高適応圧縮(内容が収まらないときだけ縦を詰める)
+' ----------------------------------------------------------------------------
+' CompressFactor - 圧縮係数。純関数(ゴールデン対象)。
+'   need(s=1のときに縦へ積む合計)が可視高に収まるなら1(何もしない)。
+'   収まらないときだけ (viewH-8)/need を返し、MIN_SCALE で下から挟む。
+'   ※既定値 0.78 は MIN_SCALE と同値(VBAのOptional既定値は定数式のみ)。
+Public Function CompressFactor(ByVal viewH As Double, ByVal need As Double, _
+                               Optional ByVal minScale As Double = 0.78) As Double
+    CompressFactor = 1
+    If need <= 0 Then Exit Function
+    Dim avail As Double: avail = viewH - 8
+    If avail >= need Then Exit Function
+    CompressFactor = modViewport.ClampD(avail / need, minScale, 1)
+End Function
+
+' SetScaleY - その画面の圧縮係数を確定させる(描画の一番手前で1回)。
+Public Sub SetScaleY(ByVal s As Double)
+    mScaleY = modViewport.ClampD(s, MIN_SCALE, 1)
+End Sub
+
+' ScaleY - 現在の圧縮係数(未設定は1)。
+Public Function ScaleY() As Double
+    ScaleY = mScaleY
+    If ScaleY <= 0 Then ScaleY = 1
+    If ScaleY > 1 Then ScaleY = 1
+End Function
+
+' SY - 縦の可変量に係数を掛ける唯一の口。呼び出し側は定数の参照を SY(定数)へ
+'   置き換えるだけで済む(掛け算をここ1箇所に閉じる)。
+Public Function SY(ByVal v As Double) As Double
+    SY = v * ScaleY()
+End Function
+
+' HubNeedY - Hubが s=1 のときに縦へ積む合計(pt)。純関数(ゴールデン対象)。
+'   ヘッダー実高 + プロフィールカード(上余白12+高さcardH+下余白18)
+'   + 統計タイル tilesH + 行境界の丸め1行(15pt。バッジ帯はセル行なので
+'   タイル下端の次の行から始まる) + バッジ帯(見出し+4行=75pt)
+'   + フッター上余白10 + フッター16と下余白8。
+'   実体を modHub ではなくここに置いたのは容量(WARN帯)と、この式を
+'   ゴールデンで固定したいため。呼び出し側は定数を渡すだけ。
+Public Function HubNeedY(ByVal hdrH As Double, ByVal cardH As Double, _
+                         ByVal tilesH As Double) As Double
+    HubNeedY = hdrH + 12 + cardH + 18 + tilesH + 15 + 75 + 10 + 24
+End Function
+
+' BadgeRowsFor - Hubのバッジ帯に使う行数。純関数(ゴールデン対象)。
+'   バッジ帯は【セルの行】(15pt固定)なので SY() では縮まない。圧縮が
+'   かかっている画面では段数そのものを1つ落とす。
+Public Function BadgeRowsFor(ByVal scale As Double) As Long
+    BadgeRowsFor = 4
+    If scale < 0.95 Then BadgeRowsFor = 3
+End Function
+
+' ----------------------------------------------------------------------------
+' S3: 弾性グリッド(カードが右端まで張る列数とカード幅)
+' ----------------------------------------------------------------------------
+' GridColsFor - 幅 availW・左余白 leftX の領域に、最小幅 cardMinW のカードが
+'   何列入るか。純関数(ゴールデン対象)。最後のカードの右には隙間を残さない
+'   前提なので、隙間の数は (cols-1) ―― 数えるときは gap を1つ足して割る。
+'   modViewport.GalleryColsFor(固定カード幅・末尾に隙間が残る旧式)の後継。
+Public Function GridColsFor(ByVal availW As Double, ByVal leftX As Double, _
+                            ByVal cardMinW As Double, ByVal gap As Double, _
+                            ByVal minCols As Long, ByVal maxCols As Long) As Long
+    GridColsFor = minCols
+    If cardMinW + gap <= 0 Then Exit Function
+    Dim n As Long
+    n = Int((availW - leftX + gap) / (cardMinW + gap))
+    If n < minCols Then n = minCols
+    If n > maxCols Then n = maxCols
+    GridColsFor = n
+End Function
+
+' GridCardW - その列数で右端まで張るカード幅。純関数(ゴールデン対象)。
+'   上限 maxW を超える窓では上限で頭打ちにする(1枚が広がりすぎると
+'   一覧としての情報密度が落ちる)。
+Public Function GridCardW(ByVal availW As Double, ByVal leftX As Double, _
+                          ByVal gap As Double, ByVal cols As Long, _
+                          ByVal maxW As Double, ByVal minW As Double) As Double
+    GridCardW = minW
+    If cols < 1 Then Exit Function
+    GridCardW = modViewport.ClampD((availW - leftX - gap * (cols - 1)) / cols, minW, maxW)
+End Function
+
+' GridGapFor - カードが上限で頭打ちになってなお余る幅を隙間へ配分する(pt)。
+'   純関数(ゴールデン対象)。modDashStat.CardGapFor と同じ考え方で、これが
+'   無いと「カード幅の上限に達した広い窓」でだけ右端が帯に届かない
+'   (1600pt窓のギャラリーで54pt残っていた)。余りが無ければ既定 gap のまま。
+Public Function GridGapFor(ByVal availW As Double, ByVal leftX As Double, _
+                           ByVal cardW As Double, ByVal cols As Long, _
+                           ByVal gap As Double) As Double
+    GridGapFor = gap
+    If cols < 2 Then Exit Function
+    Dim g As Double: g = (availW - leftX - cols * cardW) / (cols - 1)
+    If g > gap Then GridGapFor = g
+End Function
+
+' RightGapExceeds - 本文の実右端が ContentRight から離れすぎていないか。
+'   純関数(ゴールデン対象)。S3の不変条件「本文要素の右端 == ContentRight」を
+'   机上で検算するための検出器で、12pt を超える差は設計の破れとみなす。
+Public Function RightGapExceeds(ByVal contentMaxRight As Double, _
+                                ByVal contentRight As Double, _
+                                ByVal tol As Double) As Boolean
+    RightGapExceeds = (Abs(contentRight - contentMaxRight) > tol)
+End Function
+
+' ----------------------------------------------------------------------------
+' S6: 再フィット経路の穴埋め
+' ----------------------------------------------------------------------------
+' ShelfPadCol - 「マイ本棚」シートで余りを吸う列(R21-S3)。純関数。
+'   一覧表(table)は【本文の最終列】メモJが吸う=本文の右端そのものが窓幅へ
+'   追随する。カード系(gallery/shared)は本文がpt座標のShapeで別に伸びるので
+'   帯の最終列(defaultCol)が吸う。従来は一覧表だけ「EnsureLayoutでJ→
+'   DrawChromeでN」の2段階Fitで、2回目の丸めで帯が可視幅を数pt超える経路が
+'   残っていた。吸収列をモードごとに1つ選び、Fitは【1回だけ】通す。
+'   defaultCol を引数で受けるのは、帯の最終列の単一情報源
+'   (modKnowledge.SHELF_PAD_COL)を2箇所に持たないため ―― 同時に、この関数が
+'   他モジュールを呼ばない純関数になり LibreOffice のゴールデンで固定できる。
+'   実体をここに置いたのは modKnowledge の容量(WARN帯)を守るため。
+Public Function ShelfPadCol(ByVal mode As String, ByVal defaultCol As String) As String
+    If LCase$(Trim$(mode)) = "table" Then
+        ShelfPadCol = "J"
+    Else
+        ShelfPadCol = defaultCol
+    End If
+End Function
+
+' RefitShelfTable - 一覧表モードの再フィット(R21-S6)。
+'   窓リサイズの再フィットは modKnowledge.RefreshCurrent 経由で
+'   modUIShelf.RenderShelf に落ちるが、RenderShelf は【帯(列幅)を一切
+'   触らない】ため、一覧の右端が前の窓幅のまま取り残されていた。
+'   シートの作り直し(EnsureLayout 全体)まで戻さず、「表示状態→列幅→
+'   共通クロム(この中で Fit)→本文」だけをやり直す軽量経路。
+Public Sub RefitShelfTable(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    EnsureViewState ws
+    modUIShelf.RefitColumns ws
+    modKnowledge.DrawChrome ws, "table"
+    modUIShelf.RenderShelf
+    On Error GoTo 0
+End Sub
+
+' RefitChatBand - チャット画面の帯・ヘッダー・入力欄を今の窓幅へ合わせ直す。
+'   modUI.Repaint は再彩色しかしておらず、窓を広げても列幅(帯)と入力欄の
+'   幅が前の窓のままだった(R21-S6の穴その2)。modUI に容量が無いため実体を
+'   ここに置き、Repaint からは1行呼ぶ。
+'   nx_top_add / nx_top_send は modUINexusDraw の掃除対象から外れている
+'   (ヘッダー再描画で消さない約束)ので、二重生成しないよう先に落とす。
+'   会話バブルそのものの再フロー(過去バブルの幅)は対象外(R21で次期送り)。
+Public Sub RefitChatBand(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, modUI.NEXUS_INPUT_PAD_COL
+    DropShape ws, "nx_top_add"
+    DropShape ws, "nx_top_send"
+    modUINexusDraw.DrawChatHeader ws
+    modUINexusDraw.DrawInputArea ws
+    ws.Rows(1).RowHeight = modUINexusDraw.HeaderHeight()
+    Dim bnd As String: bnd = modUINexusDraw.NexusBound(ws)
+    modViewport.ApplyScrollBound ws, bnd
+    LogFit ws, "chat", modUINexusDraw.NEXUS_BAND, bnd
+    On Error GoTo 0
+End Sub
+
+' DropShape - 名前が一致するShapeを1つ落とす(無ければ何もしない)。
+Private Sub DropShape(ByVal ws As Worksheet, ByVal shapeName As String)
+    On Error Resume Next
+    ws.Shapes(shapeName).Delete
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' S7: 可観測性(フィット直後の5値ログ)
+' ----------------------------------------------------------------------------
+' LogFit - 「窓幅/可視セル幅/帯実幅/中身右端/境界下端」を1行で残す。
+'   次の実機報告で、余白がどの層(帯・中身・境界)の破れかが一意に決まる。
+'   実体(重複抑止つき)は modViewport.LogViewport。
+Public Sub LogFit(ByVal ws As Worksheet, ByVal screenName As String, _
+                  ByVal bandAddr As String, ByVal boundAddr As String)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim bandW As Double, rightX As Double, botY As Double
+    bandW = ws.Range(bandAddr).Width
+    rightX = modViewport.ContentRight(ws, bandAddr, 8)
+    If LenB(boundAddr) > 0 Then botY = ws.Range(boundAddr).Height
+    modViewport.LogViewport screenName, bandW, rightX, botY
+    On Error GoTo 0
+End Sub
+
+' LogChat - チャットの初期描画(modUI.EnsureLayout)からの1行呼び出し。
+Public Sub LogChat(ByVal ws As Worksheet)
+    LogFit ws, "chat", modUINexusDraw.NEXUS_BAND, modUINexusDraw.NexusBound(ws)
+End Sub

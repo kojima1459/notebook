@@ -1078,6 +1078,10 @@ CONTRACT: dict[str, dict] = {
             "Repaint", "UiColor", "UiTheme", "FreezeShapePlacement",
             "RecalcChatBottom", "SettleChat", "ClearChat", "MarkActiveBubble",
             "BubbleTextOf", "LatestAiBubbleName",
+            # NEXUS_INPUT_PAD_COL(2026-08-07 R21-S6): チャット帯の吸収列。
+            # 再フィットの実体(modViewport2.RefitChatBand)も同じ列を使うため
+            # Public にした(2箇所に "K" を持つと必ず片方が古くなる)。
+            "NEXUS_INPUT_PAD_COL",
         ],
     },
     # R11-F1: modUI からテーマ塊(CurrentTheme/SaveTheme/ThemeColor/ApplyTheme/PaintBubble/PaintActionButton/SetShapeTextColor/ThemeIcon)を受け入れた。
@@ -1158,6 +1162,47 @@ CONTRACT: dict[str, dict] = {
             # RefitAction自体は無変更のまま、呼び出し側の契約をここへ切り出し
             # modTestsPure21がゴールデンで固定する。
             "Busy3",
+            # R21-1(実機第8報⑦の構造完治)で3つ足した。
+            #   RowAtFloor : 下端がy以下に収まる最後の行(RowAt=切り上げの対)。
+            #                境界を窓高へ合わせるときに使う ―― 切り上げると
+            #                必ず窓を1行ぶん超え、縦スクロールが生き残る。
+            #   FitsInView : 内容が窓に収まっているか(BoundAddrの分岐・純関数)。
+            #   RefitActiveScreen: 描画末尾のワンショット再描画(S1の保険)からも
+            #                呼ぶため Public 化。組み直しの分岐は1本だけ持つ。
+            "RowAtFloor", "FitsInView", "RefitActiveScreen",
+        ],
+    },
+    # modViewport2(2026-08-07 R21-1): 「いつ測ってよいか」と「窓に収める調整」。
+    # modViewport(21,524字)へ R21-1 のロジックを全部入れると30,000字上限に
+    # 届くため、憲章§4-6で分割した(原始的な幾何の算数は modViewport のまま)。
+    #   EnsureViewState : 全画面/罫線/見出し/タブ/水平スクロールバーを最終形へ
+    #                     置く。ここを通った後だけ測ってよい(S1)。
+    #   HScrollNeeded / WantHScroll : 水平スクロールバーは狭窓の安全弁だけ(S2)。
+    #   SbWidthFrom / ScrollbarW / VisibleCellW / FitTarget : 帯の目標幅(S2)。
+    #   FitVerify       : 帯>目標なら差分で詰め直す事後検証(S2)。
+    #   ViewMoved / MarkView / ReflowIfMoved : 描画前後で窓が動いたら1回だけ
+    #                     組み直すワンショット(S1の保険)。
+    #   CompressFactor / SetScaleY / ScaleY / SY / HubNeedY / BadgeRowsFor :
+    #                     窓高適応圧縮(S5)。掛け算は SY() 1箇所だけ。
+    #   GridColsFor / GridCardW / GridGapFor / RightGapExceeds : 弾性カードと
+    #                     右端の検算(S3)。上限で頭打ちになった余りは隙間へ。
+    #   ShelfPadCol     : モードごとの吸収列(2段階Fitの廃止・S3)。
+    #   RefitShelfTable / RefitChatBand : 再フィット経路の穴(S6)。
+    #   LogFit / LogChat: フィット直後の5値観測(S7)。
+    # 純関数(HScrollNeeded/SbWidthFrom/ViewMoved/CompressFactor/HubNeedY/
+    # BadgeRowsFor/GridColsFor/GridCardW/GridGapFor/RightGapExceeds/ShelfPadCol)は
+    # modTestsPure22 がゴールデンで固定する。
+    "modViewport2": {
+        "closed": True,
+        "required": [
+            "EnsureViewState", "HScrollNeeded", "WantHScroll",
+            "SbWidthFrom", "ScrollbarW", "VisibleCellW", "FitTarget", "FitVerify",
+            "ViewMoved", "MarkView", "ReflowIfMoved",
+            "CompressFactor", "SetScaleY", "ScaleY", "SY",
+            "HubNeedY", "BadgeRowsFor",
+            "GridColsFor", "GridCardW", "GridGapFor", "RightGapExceeds",
+            "ShelfPadCol",
+            "RefitShelfTable", "RefitChatBand", "LogFit", "LogChat",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
@@ -1299,6 +1344,11 @@ CONTRACT: dict[str, dict] = {
             # (ナレッジ地図の可視化を撤去。ChartNoteY はバッジ棚の下端=管理者
             #  セクションの起点として現役なので残す)。
             "DrawKpiRow", "DrawExpBar", "ChartNoteY", "DrawBadgeShelf",
+            # 2026-08-07(R21-S3/S5): カードが上限で頭打ちになってなお余る幅を
+            # 隙間へ配分して版面を帯の右端まで張る(CardGapFor/KpiGap)。
+            # CenterX0 は非推奨(センタリング廃止)だが算数とゴールデンは残す。
+            # NeedY は窓高適応圧縮の必要量(modDash が CompressFactor へ渡す)。
+            "CardGapFor", "KpiGap", "NeedY",
         ],
     },
     # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。
