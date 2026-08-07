@@ -661,7 +661,8 @@ End Function
 ' ScrollArea の下端(R18-3b)を超えないことだけを保証する ―― 境界の外にある
 ' Shapeはスクロールで到達できない=押せない。
 Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
-                           ByVal W As Double, ByVal topY As Double) As Double
+                           ByVal W As Double, ByVal topY As Double, _
+                           Optional ByRef trueBottom As Double) As Double
     On Error Resume Next
     ' R21-S4: 上限は「境界の下端」1本にする。従来は HUB_BOUND(60行)の実測と
     ' 可視高の底上げを重ねがけしており、modViewport.BoundAddr が決める本物の
@@ -673,11 +674,21 @@ Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
     limitY = ws.Rows(limitRow).Top + ws.Rows(limitRow).Height
     If limitY <= 0 Then limitY = viewH
 
+    ' R21H F2(a)(c): 戻り値(y+FOOTER_H)は上でクランプされ常にlimitY以下=
+    ' FitsInViewが常にTrueになり、狭窓で右カラムが境界の外に残っても検知
+    ' できなかった。trueBottomは【クランプ前】の内容下端を別途返す(呼び出し
+    ' 元がBoundAddrへ渡す用)。クランプが実際に発火した=本当は窓に収まって
+    ' いないので、FitsInViewを確実にFalseへ倒す値(viewHを超える)にする。
     Dim y As Double: y = topY
+    Dim clamped As Boolean
     If limitY > FOOTER_H + 8 Then
-        If y + FOOTER_H > limitY - 8 Then y = limitY - 8 - FOOTER_H
+        If y + FOOTER_H > limitY - 8 Then
+            y = limitY - 8 - FOOTER_H
+            clamped = True
+        End If
     End If
     If y < 0 Then y = 0
+    If clamped Then trueBottom = viewH + 1 Else trueBottom = topY + FOOTER_H
 
     Dim fs As Shape
     Set fs = ws.Shapes.AddShape(1, L, y, W, FOOTER_H)

@@ -239,8 +239,9 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     modDashStat.SetBandWidth modViewport.ContentRight(ws, DASH_BAND, 0) - ws.Range("A1").Left
     ' R21-S5: 窓高に収まらないときだけ縦を圧縮する(KPIカード高・バッジ高)。
     ' 係数は modViewport2 が1本で持ち、実際に掛けるのは modViewport2.SY() だけ。
+    ' R21H F3: needを固定/可変に分けて渡す(まとめて渡すと分母が薄まり圧縮不足になる)。
     modViewport2.SetScaleY modViewport2.CompressFactor( _
-        modViewport.ViewportHeight(), modDashStat.NeedY())
+        modViewport.ViewportHeight(), modDashStat.NeedYFixed(), modDashStat.NeedYVariable())
     ' R20-1d(層2): 行高を明示する範囲は40行まで。120行(1,800pt=3画面ぶん)を
     ' 毎回「使用済み」にしていたのが、下へ延々スクロールできる状態の正体。
     ' 実下端が確定した ApplyDashScrollBound が、それ以深を既定へ戻す。

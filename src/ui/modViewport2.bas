@@ -216,16 +216,24 @@ End Sub
 ' S5: 窓高適応圧縮(内容が収まらないときだけ縦を詰める)
 ' ----------------------------------------------------------------------------
 ' CompressFactor - 圧縮係数。純関数(ゴールデン対象)。
-'   need(s=1のときに縦へ積む合計)が可視高に収まるなら1(何もしない)。
-'   収まらないときだけ (viewH-8)/need を返し、MIN_SCALE で下から挟む。
+'   2026-08-07(R21H F3・敵対的レビュー確定): 引数を need 1本から
+'   needFixed(SY()を通らない固定要素)/needVariable(SY()で縮む可変要素)の
+'   2本へ分けた。旧実装は s=(viewH-8)/need を固定chrome込みの合計needで
+'   割っており、SY()は可変要素にしか掛からないのに分母だけ固定要素を含む
+'   ため、実際に縮む量が必要量より系統的に不足していた(Hub必要19pt削減に
+'   対し実際は12.6ptしか縮まない/gallery は適用後もなお窓を超える)。
+'   固定要素は圧縮しても縮まないので、可変要素だけで不足ぶんを吸わせる:
+'     fixed + s*variable = avail  ⇔  s = (avail - fixed) / variable
+'   need(fixed+variable)が可視高に収まるなら1(何もしない)。
 '   ※既定値 0.78 は MIN_SCALE と同値(VBAのOptional既定値は定数式のみ)。
-Public Function CompressFactor(ByVal viewH As Double, ByVal need As Double, _
+Public Function CompressFactor(ByVal viewH As Double, ByVal needFixed As Double, _
+                               ByVal needVariable As Double, _
                                Optional ByVal minScale As Double = 0.78) As Double
     CompressFactor = 1
-    If need <= 0 Then Exit Function
+    If needVariable <= 0 Then Exit Function
     Dim avail As Double: avail = viewH - 8
-    If avail >= need Then Exit Function
-    CompressFactor = modViewport.ClampD(avail / need, minScale, 1)
+    If avail >= needFixed + needVariable Then Exit Function
+    CompressFactor = modViewport.ClampD((avail - needFixed) / needVariable, minScale, 1)
 End Function
 
 ' SetScaleY - その画面の圧縮係数を確定させる(描画の一番手前で1回)。
@@ -246,24 +254,44 @@ Public Function SY(ByVal v As Double) As Double
     SY = v * ScaleY()
 End Function
 
-' HubNeedY - Hubが s=1 のときに縦へ積む合計(pt)。純関数(ゴールデン対象)。
-'   ヘッダー実高 + プロフィールカード(上余白12+高さcardH+下余白18)
-'   + 統計タイル tilesH + 行境界の丸め1行(15pt。バッジ帯はセル行なので
-'   タイル下端の次の行から始まる) + バッジ帯(見出し+4行=75pt)
-'   + フッター上余白10 + フッター16と下余白8。
+' HubNeedYFixed / HubNeedYVariable - Hubが s=1 のときに縦へ積む合計(pt)を
+'   CompressFactor(F3)の分母に合わせて固定/可変へ分解したもの。純関数(ゴールデン対象)。
+'   固定=ヘッダー実高+プロフィール上余白12+行境界の丸め1行15pt(バッジ帯は
+'   セル行なのでSY()が掛からない)+バッジ帯(見出し+4行=75pt)
+'   +フッター本体16と下余白8。
+'   可変=プロフィールカード高cardH(SY(CARD_H))+下余白18(SY(18))
+'   +統計タイルtilesH(SY(TilesHeight()))+フッター上余白10(SY(10))。
 '   実体を modHub ではなくここに置いたのは容量(WARN帯)と、この式を
 '   ゴールデンで固定したいため。呼び出し側は定数を渡すだけ。
+Public Function HubNeedYFixed(ByVal hdrH As Double) As Double
+    HubNeedYFixed = hdrH + 12 + 15 + 75 + 24
+End Function
+
+Public Function HubNeedYVariable(ByVal cardH As Double, ByVal tilesH As Double) As Double
+    HubNeedYVariable = cardH + 18 + tilesH + 10
+End Function
+
+' HubNeedY - 後方互換の合計(pt)。s=1のときにHubが縦へ積む総量そのもの
+'   (「収まるかどうか」の目視確認・旧テストとの対で残す。CompressFactorへは
+'   渡さない=固定/可変を分けずに渡すと再びF3のバグに戻るため直接使わないこと)。
 Public Function HubNeedY(ByVal hdrH As Double, ByVal cardH As Double, _
                          ByVal tilesH As Double) As Double
-    HubNeedY = hdrH + 12 + cardH + 18 + tilesH + 15 + 75 + 10 + 24
+    HubNeedY = HubNeedYFixed(hdrH) + HubNeedYVariable(cardH, tilesH)
 End Function
 
 ' BadgeRowsFor - Hubのバッジ帯に使う行数。純関数(ゴールデン対象)。
 '   バッジ帯は【セルの行】(15pt固定)なので SY() では縮まない。圧縮が
 '   かかっている画面では段数そのものを1つ落とす。
+'   2026-08-07(R21H F3再校正): 閾値0.95はCompressFactorの旧式(固定chrome込み
+'   need で割る)が返す値に合わせて選んでいた。新式は同じ実窓高でも系統的に
+'   小さい係数を返す(分母を可変要素だけに絞ったため)ので、旧式のまま流用すると
+'   実機の窓499pt(旧式0.963→新式0.943)でも行が落ちてしまい、意図せず表示が
+'   後退する。実機499ptで従来どおり4行を保つ境界として0.92へ再校正した
+'   (Hub 1段ヘッダーの新式s: 499pt→0.9435・450pt→0.7976。499ptは4行のまま・
+'   450ptは3行への実際の落差と整合する)。
 Public Function BadgeRowsFor(ByVal scale As Double) As Long
     BadgeRowsFor = 4
-    If scale < 0.95 Then BadgeRowsFor = 3
+    If scale < 0.92 Then BadgeRowsFor = 3
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -368,9 +396,12 @@ Public Sub RefitChatBand(ByVal ws As Worksheet)
     modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, modUI.NEXUS_INPUT_PAD_COL
     DropShape ws, "nx_top_add"
     DropShape ws, "nx_top_send"
-    modUINexusDraw.DrawChatHeader ws
+    ' R21H F1: DrawChatHeaderを直呼びすると同名Shape(nx_top_bg等)がClearを
+    ' 経ずに積み上がる(ExcelはShapeの同名重複を許すため、Repaint/テーマ切替/
+    ' リサイズのたびに1個ずつ増える)。RedrawChatHeaderはClearChatHeader→
+    ' DrawChatHeader→行高→前面化を1本にまとめた契約なので、必ずこちらを通す。
+    modUINexusDraw.RedrawChatHeader
     modUINexusDraw.DrawInputArea ws
-    ws.Rows(1).RowHeight = modUINexusDraw.HeaderHeight()
     Dim bnd As String: bnd = modUINexusDraw.NexusBound(ws)
     modViewport.ApplyScrollBound ws, bnd
     LogFit ws, "chat", modUINexusDraw.NEXUS_BAND, bnd

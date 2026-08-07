@@ -129,8 +129,16 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     DrawHeader ws
     ' R21-S5: ヘッダーの実高が決まってから、縦が窓に収まるかを判定する。
     ' 収まらないときだけ圧縮係数を立て、可変な縦寸法は SY() 経由で縮む。
+    ' R21H F3: needを固定/可変に分けて渡す(まとめて渡すと分母が薄まり圧縮不足になる)。
+    ' R21H F2-b: 右カラム(ナビ+チップ+お知らせ)はHubNeedYに一切算入されて
+    ' おらず、圧縮も掛かっていなかった(狭窓で右カラムだけ境界外に残る原因の
+    ' 一つ)。ナビとチップは可変、お知らせは最小44pt(modHubStat.DrawInboxの
+    ' 下限)を固定分として加える(実文面はこれより伸びうるがDrawFooter側の
+    ' クランプ検知(F2-a/c)が最終防波堤になる)。
+    Dim rightVar As Double: rightVar = NAV_COUNT * (NAV_H + NAV_GAP) + CHIP_H + 14
     modViewport2.SetScaleY modViewport2.CompressFactor(modViewport.ViewportHeight(), _
-        modViewport2.HubNeedY(HeaderH(), CARD_H, modHubStat.TilesHeight()))
+        modViewport2.HubNeedYFixed(HeaderH()) + 44, _
+        modViewport2.HubNeedYVariable(CARD_H, modHubStat.TilesHeight()) + rightVar)
     DrawProfileCard ws
     ' 0点のスコアボードを初見の人に見せない。全部ゼロのタイル8枚と鍵つき
     ' バッジ8個は「ここまで来た」ではなく「まだ何もしていない」としか読めない。
@@ -150,16 +158,18 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     If rightBot > botY Then botY = rightBot
     ' フッターの右端もナビ・ピルと同じ ContentRight(FA-4)。
     Dim footL As Double: footL = ws.Range("B1").Left
-    Dim footBot As Double
+    Dim footBot As Double, trueBot As Double
     ' R20-1e: 余白 +18 → +10。左右カラムの実下端はどちらも要素の外枠なので、
     ' そこからさらに18pt空けるとフッターだけが1行ぶん浮いて見えた。
     footBot = modHubStat.DrawFooter(ws, footL, _
-        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + modViewport2.SY(10))
+        modViewport.ContentRight(ws, HUB_BAND, 8) - footL, botY + modViewport2.SY(10), trueBot)
 
     ' R19-1b/R21-S4: 塗りと ScrollArea はフッターの実下端から決める(収まる
     ' 画面は窓高ちょうどへ切り下げ)。60行=900ptを常に塗ると余計に転がれる。
+    ' R21H F2-a: footBotはDrawFooter内でクランプ済み(常に窓高以下)なので
+    ' FitsInViewの判定にはクランプ前のtrueBotを渡す(F2-a/c)。
     Dim bnd As String
-    bnd = modViewport.BoundAddr(ws, "L", footBot, 60)
+    bnd = modViewport.BoundAddr(ws, "L", trueBot, 60)
     ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
     modViewport.ApplyScrollBound ws, bnd
     ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。
@@ -478,9 +488,11 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
 
     Dim i As Long
     For i = 0 To NAV_COUNT - 1
-        Dim navTop As Double: navTop = T + i * (NAV_H + NAV_GAP)
+        ' R21H F2-b: ナビの縦寸法もSY()で圧縮に追随させる(狭窓で右カラムだけ
+        ' 圧縮されず境界の外に取り残されていた)。
+        Dim navTop As Double: navTop = T + i * SY(NAV_H + NAV_GAP)
         Dim btn As Shape
-        Set btn = ws.Shapes.AddShape(5, L, navTop, W, NAV_H)
+        Set btn = ws.Shapes.AddShape(5, L, navTop, W, SY(NAV_H))
         btn.Name = "nx_hub_nav" & i
         btn.Adjustments(1) = 0.08
         btn.Line.Visible = -1
@@ -524,10 +536,10 @@ Private Function DrawExtras(ByVal ws As Worksheet) As Double
     ' 入っているのに、さらに +10 して、置くときにも +20 していた。合計40ptの
     ' 空隙(ナビ下端260pt → カード上端300pt)が右カラムの頭に開いていた。
     ' 二重計上をやめ、GAP 1つぶんだけ空ける。
-    T = HeaderH() + 12 + NAV_COUNT * (NAV_H + NAV_GAP)
+    T = HeaderH() + 12 + NAV_COUNT * SY(NAV_H + NAV_GAP)
 
-    modHubStat.DrawQuickAskCards ws, L, W, T, CHIP_H
-    DrawExtras = modHubStat.DrawInbox(ws, L, W, T + CHIP_H + 14)
+    modHubStat.DrawQuickAskCards ws, L, W, T, SY(CHIP_H)
+    DrawExtras = modHubStat.DrawInbox(ws, L, W, T + SY(CHIP_H) + SY(14))
 End Function
 
 ' バッジ(セル。獲得済みは🏅、未獲得は🔒)。統計タイルはShapeに変えたので

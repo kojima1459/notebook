@@ -480,7 +480,11 @@ CONTRACT: dict[str, dict] = {
     "modOutlineBuild": {
         "closed": True,
         "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended",
-                     "GroupChapters", "ChapterKeyMatches", "OUTLINE_LOGIC_VER"],
+                     "GroupChapters", "ChapterKeyMatches", "OUTLINE_LOGIC_VER",
+                     # 2026-08-07(R21H F5): 旧世代outline(StripTocTail導入前に
+                     # 保存されたキー)との照合フォールバック用。ChapterKeyOfの
+                     # 正規化(StripTocTail)を掛ける前のキーを返す。
+                     "ChapterKeyOfRaw"],
     },
     # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
     #   R17より前に取り込んだ資料(my_knowledge にbreadcrumb付きfull_textは
@@ -1220,7 +1224,10 @@ CONTRACT: dict[str, dict] = {
             "SbWidthFrom", "ScrollbarW", "VisibleCellW", "FitTarget", "FitVerify",
             "ViewMoved", "MarkView", "ReflowIfMoved",
             "CompressFactor", "SetScaleY", "ScaleY", "SY",
-            "HubNeedY", "BadgeRowsFor",
+            # 2026-08-07(R21H F3): CompressFactorの引数が固定/可変の2本へ
+            # 分かれたため、HubNeedYを分解したHubNeedYFixed/HubNeedYVariableを
+            # 追加(HubNeedYは後方互換の合計として残置。CompressFactorへは渡さない)。
+            "HubNeedY", "HubNeedYFixed", "HubNeedYVariable", "BadgeRowsFor",
             "GridColsFor", "GridCardW", "GridGapFor", "RightGapExceeds",
             "ShelfPadCol",
             "RefitShelfTable", "RefitChatBand", "LogFit", "LogChat",
@@ -1369,7 +1376,10 @@ CONTRACT: dict[str, dict] = {
             # 隙間へ配分して版面を帯の右端まで張る(CardGapFor/KpiGap)。
             # CenterX0 は非推奨(センタリング廃止)だが算数とゴールデンは残す。
             # NeedY は窓高適応圧縮の必要量(modDash が CompressFactor へ渡す)。
-            "CardGapFor", "KpiGap", "NeedY",
+            # 2026-08-07(R21H F3): CompressFactorの引数が固定/可変の2本へ
+            # 分かれたため、NeedYを分解したNeedYFixed/NeedYVariableを追加
+            # (NeedYは後方互換の合計として残置。CompressFactorへは渡さない)。
+            "CardGapFor", "KpiGap", "NeedY", "NeedYFixed", "NeedYVariable",
         ],
     },
     # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。

@@ -165,13 +165,28 @@ Private Function BadgeRowCount() As Long
     If BadgeRowCount < 1 Then BadgeRowCount = 1
 End Function
 
-' NeedY - 圧縮係数を決めるための「s=1のときに縦へ積む合計」(pt)。
-'   modDash.DrawDashboard が modViewport2.CompressFactor へ渡す。ここだけは
-'   SY() を通さない(通すと前回の係数が入って収束しない)。
+' NeedYFixed / NeedYVariable - 圧縮係数を決めるための「s=1のときに縦へ積む
+'   合計」(pt)を、modViewport2.CompressFactor(R21H F3)の分母に合わせて
+'   固定/可変へ分解したもの。ここだけは SY() を通さない(通すと前回の
+'   係数が入って収束しない)。
+'   固定=KPI_Y0(カード開始Y)+EXPBAR_H+EXPLABEL_GAP+CHART_GAP(いずれも
+'   ExpBarY/ExpLabelY/ChartNoteYでSY()を経由していない)。
+'   可変=KPI_CARD_H(KpiCardH=SY)+EXPBAR_GAP(ExpBarYでSY)
+'   +BADGE_HEAD_GAP(BadgeHeadYでSY)+BADGE_GRID_GAP(BadgeGridYでSY)
+'   +バッジ段数ぶんのBADGE_H/BADGE_GAP_Y(BadgeH/BadgeGapYでSY)。
+Public Function NeedYFixed() As Double
+    NeedYFixed = KPI_Y0 + EXPBAR_H + EXPLABEL_GAP + CHART_GAP
+End Function
+
+Public Function NeedYVariable() As Double
+    NeedYVariable = KPI_CARD_H + EXPBAR_GAP + BADGE_HEAD_GAP + BADGE_GRID_GAP _
+                  + BadgeRowCount() * (BADGE_H + BADGE_GAP_Y)
+End Function
+
+' NeedY - 後方互換の合計(pt)。modViewport2.CompressFactorへは渡さない
+'   (固定/可変を分けずに渡すと再びF3のバグに戻るため直接使わないこと)。
 Public Function NeedY() As Double
-    NeedY = KPI_Y0 + KPI_CARD_H + EXPBAR_GAP + EXPBAR_H + EXPLABEL_GAP _
-          + BADGE_HEAD_GAP + BADGE_GRID_GAP _
-          + BadgeRowCount() * (BADGE_H + BADGE_GAP_Y) + CHART_GAP
+    NeedY = NeedYFixed() + NeedYVariable()
 End Function
 
 ' KpiCardW - 現在のカード幅(pt)。SetBandWidth 前は最小幅。

@@ -285,6 +285,20 @@ Public Function ChapterKeyOf(ByVal sectionPath As String) As String
     ChapterKeyOf = StripTocTail(Trim$(t))
 End Function
 
+' ChapterKeyOfRaw - ChapterKeyOfからStripTocTail(末尾リーダー+頁番号除去)
+'   だけを外したもの(R21H F5)。OUTLINE_LOGIC_VER<2で保存された旧世代の
+'   doc_outlineの章キーはこの正規化が導入される前に作られているため、現行の
+'   ChapterKeyOfで再計算したキーとは一致しない(俯瞰が「no_chunk」で無音全滅
+'   する)。modAskGlobal.CollectChapterHitsが正規化前後の2段でこの関数と
+'   ChapterKeyOfの両方を試すためのフォールバック(⚡仕上げ実行までの橋渡し)。
+Public Function ChapterKeyOfRaw(ByVal sectionPath As String) As String
+    Dim t As String: t = Trim$(sectionPath)
+    If LenB(t) = 0 Then Exit Function
+    Dim p As Long: p = InStr(t, ">")
+    If p > 0 Then t = Left$(t, p - 1)
+    ChapterKeyOfRaw = Trim$(t)
+End Function
+
 ' 末尾の「リーダー記号2字以上+頁番号」を除去する(目次行キーの統合用)。
 ' 除去条件を満たさなければ入力をそのまま返す(安全側)。RegExp不使用。
 Private Function StripTocTail(ByVal s As String) As String
@@ -460,7 +474,12 @@ Public Function GroupChapters(ByRef paths() As String, ByVal nSrc As Long, _
             totalGrouped = totalGrouped + 1
             Dim at As Long: at = 0
             For j = 1 To n
-                If StrComp(outKeys(j), k, vbBinaryCompare) = 0 Then
+                ' R21H F5: ChapterKeyMatches側をvbTextCompareへ揃えたのに合わせ、
+                ' ここ(章のユニーク化)もvbTextCompareへ統一(大小文字/全角半角の
+                ' ゆれで同じ章が2つに割れるのを防ぐ。統一しないとGroupChaptersが
+                ' 別々に数えた章を、後段のChapterKeyMatchesは同一章として拾って
+                ' しまい、章数と実際の紐付けが食い違う)。
+                If StrComp(outKeys(j), k, vbTextCompare) = 0 Then
                     at = j
                     Exit For
                 End If
@@ -542,16 +561,20 @@ End Function
 '   キーのグループは従来どおりの完全一致(後方互換: 旧doc_outlineの章キーも
 '   そのまま動く)。
 ' ----------------------------------------------------------------------------
+' 2026-08-07(R21H F5・敵対的レビュー確定): vbBinaryCompareだと大小文字/全角
+' 半角の違いだけで同じ章が別扱いになり(暗黙の狭窄)、章のチャンクが一部
+' しか引けなかった。vbTextCompareへ統一する(GroupChaptersの束ね判定・
+' CollectChapterHits/ChapterBodyはこの関数を経由するので自動的に揃う)。
 Public Function ChapterKeyMatches(ByVal rawKey As String, ByVal groupKey As String) As Boolean
     If LenB(rawKey) = 0 Or LenB(groupKey) = 0 Then Exit Function
     If InStr(groupKey, CHAPTER_KEY_SEP) = 0 Then
-        ChapterKeyMatches = (StrComp(rawKey, groupKey, vbBinaryCompare) = 0)
+        ChapterKeyMatches = (StrComp(rawKey, groupKey, vbTextCompare) = 0)
         Exit Function
     End If
     Dim members() As String: members = Split(groupKey, CHAPTER_KEY_SEP)
     Dim i As Long
     For i = LBound(members) To UBound(members)
-        If StrComp(rawKey, members(i), vbBinaryCompare) = 0 Then
+        If StrComp(rawKey, members(i), vbTextCompare) = 0 Then
             ChapterKeyMatches = True
             Exit Function
         End If

@@ -502,9 +502,22 @@ Private Function LooksLikeRealAnswer(ByVal response As String) As Boolean
     If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     ' R21-2 D2(実機第8報⑧): 査読(critique)「1. [観点] …」も救済(旧判定は
     ' 短い棄却指摘を誤爆させていた。タグはmodPrompts.BuildCritiquePromptと同一)
-    If Left$(Trim$(response), 4) = "1. [" Then LooksLikeRealAnswer = True: Exit Function
+    ' R21H F4: 前置き判定が「1. [」の完全一致だけだったため「1.[」「1.  [」等
+    ' 空白ゆれで誤爆していた。「1.」+任意空白+「[」へ緩和する。
+    Dim t As String: t = Trim$(response)
+    If Left$(t, 2) = "1." Then
+        Dim p As Long: p = 3
+        Do While p <= Len(t) And Mid$(t, p, 1) = " "
+            p = p + 1
+        Loop
+        If Mid$(t, p, 1) = "[" Then LooksLikeRealAnswer = True: Exit Function
+    End If
     If InStr(1, response, "[論点漏れ]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "[未検証の断定]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    ' R21H F4: 「[出典:」(実回答の出典表記)はあるが「[出典不備]」(査読の
+    ' 指摘タグ)は判定漏れで、その指摘だけの棄却応答がE0204(上限超過)に
+    ' 誤爆していた。
+    If InStr(1, response, "[出典不備]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "[憶測]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True
 End Function
 

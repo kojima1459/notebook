@@ -331,13 +331,20 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
     ' 統合された章のチャンクが1件も引けなくなる(=俯瞰が無音で死ぬ)ため、生キー1件が
     ' 代表キーへ属するかを判定する唯一の照合関数ChapterKeyMatchesを通す
     ' (単独章(非統合)は従来どおりの完全一致に等価。憲章§4-5)。
+    ' 2026-08-07(R21H F5): 旧世代doc_outline(OUTLINE_LOGIC_VER<2で保存)の
+    ' 章キーはStripTocTail正規化の導入前に作られているため、現行の
+    ' ChapterKeyOfで再計算したキー(k)とは一致せず、俯瞰が無音全滅していた。
+    ' 正規化前(kRaw)後(k)の2段で照合を試す(⚡仕上げを実行すれば新世代の
+    ' キーで保存し直され、この段は自然に不要になる=橋渡しの措置)。
     For i = 0 To metaN - 1
         If LenB(mPaths(i)) > 0 Then
             Dim k As String: k = modOutlineBuild.ChapterKeyOf(mPaths(i))
+            Dim kRaw As String: kRaw = modOutlineBuild.ChapterKeyOfRaw(mPaths(i))
             If LenB(k) > 0 Then
                 For j = 1 To nPick
                     If LenB(pKey(j)) > 0 Then
-                        If modOutlineBuild.ChapterKeyMatches(k, pKey(j)) Then
+                        If modOutlineBuild.ChapterKeyMatches(k, pKey(j)) Or _
+                           (kRaw <> k And modOutlineBuild.ChapterKeyMatches(kRaw, pKey(j))) Then
                             boxes(j) = boxes(j) & vbLf & mIds(i)
                         End If
                     End If
