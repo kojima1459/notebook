@@ -264,8 +264,10 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ClassifyLine - 行の構造ラベル分類(設計書§B-1。純関数・テスト用にPublic)。
-'   0=本文 / 1=文書見出し(#・第N編/章・【…】のみの行) /
-'   2=節見出し(第N条/節・番号見出し・■●◆短行) / 3=箇条書き / 4=表行
+'   0=本文 / 1=文書見出し(単一#・第N編/章・【…】のみの行) /
+'   2=節見出し(##・第N条/節・番号見出し・■●◆短行) / 3=箇条書き / 4=表行
+'   R21-3 E1: #の個数で章(単一#)と節(##以上)を区別(optVision.VISION_PROMPT
+'   の階層指示化と対。旧「# 」無条件章扱いが目次項目まで章化していた)。
 ' ----------------------------------------------------------------------------
 Public Function ClassifyLine(ByVal lineText As String) As Long
     ClassifyLine = 0
@@ -278,12 +280,17 @@ Public Function ClassifyLine(ByVal lineText As String) As Long
         Exit Function
     End If
 
-    ' 文書見出し
-    If Left$(t, 2) = "# " Then ClassifyLine = 1: Exit Function
+    ' 文書見出し(先頭の連続#の個数で章/節を判定。1個=章、2個以上=節)
+    Dim hashN As Long
+    Do While hashN < Len(t) And Mid$(t, hashN + 1, 1) = "#"
+        hashN = hashN + 1
+    Loop
+    If hashN = 1 And Mid$(t, 2, 1) = " " Then ClassifyLine = 1: Exit Function
     If Left$(t, 1) = "【" And Right$(t, 1) = "】" And Len(t) <= 60 Then ClassifyLine = 1: Exit Function
     If MatchesDaiN(t, "編") Or MatchesDaiN(t, "章") Then ClassifyLine = 1: Exit Function
 
     ' 節見出し
+    If hashN >= 2 And Mid$(t, hashN + 1, 1) = " " Then ClassifyLine = 2: Exit Function
     If MatchesDaiN(t, "条") Or MatchesDaiN(t, "節") Then ClassifyLine = 2: Exit Function
     If IsNumberHeading(t) Then ClassifyLine = 2: Exit Function
     Dim mark As String: mark = Left$(t, 1)
@@ -295,6 +302,49 @@ Public Function ClassifyLine(ByVal lineText As String) As Long
     ' 箇条書き
     If MatchesDaiN(t, "項") Then ClassifyLine = 3: Exit Function
     If IsItemMarker(t) Then ClassifyLine = 3: Exit Function
+End Function
+
+' LooksLikeTocPage - 目次ページ判定(R21-3 E1)。リーダー記号+末尾頁番号の
+'   行(IsTocEntryLine)が半数以上のページは目次とみなす。呼び出し側は
+'   Trueのページで見出し判定を素通りさせない。RegExp不使用・純走査。
+Public Function LooksLikeTocPage(ByVal pageText As String) As Boolean
+    Dim rows() As String
+    rows = Split(Replace(Replace(pageText, vbCrLf, vbLf), vbCr, vbLf), vbLf)
+    Dim nonEmpty As Long, tocN As Long
+    Dim i As Long
+    For i = LBound(rows) To UBound(rows)
+        Dim t As String: t = Trim$(rows(i))
+        If LenB(t) > 0 Then
+            nonEmpty = nonEmpty + 1
+            If IsTocEntryLine(t) Then tocN = tocN + 1
+        End If
+    Next i
+    LooksLikeTocPage = (nonEmpty >= 3 And tocN * 2 >= nonEmpty)
+End Function
+
+' 「タイトル+リーダー記号2字以上(．．/・・/……等)+頁番号」の目次行らしいか
+' (リーダー1字だけ=文中の句点等は誤爆防止のため対象外)。
+Private Function IsTocEntryLine(ByVal t As String) As Boolean
+    Dim i As Long: i = Len(t)
+    ' Andは短絡評価しない(i=0でもMid$が評価されてErr5)ため境界チェックは分離。
+    Do While i >= 1
+        If Not IsDigitChar(Mid$(t, i, 1)) Then Exit Do
+        i = i - 1
+    Loop
+    If i = Len(t) Then Exit Function        ' 末尾が数字でない=頁番号なし
+    Dim leaderN As Long, j As Long: j = i
+    Do While j >= 1
+        Dim c As String: c = Mid$(t, j, 1)
+        If c = "." Or c = ChrW(&HFF0E) Or c = ChrW(&H30FB) _
+                Or c = ChrW(&H2026) Or c = ChrW(&H2025) Then
+            leaderN = leaderN + 1: j = j - 1
+        ElseIf c = " " Then
+            j = j - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    IsTocEntryLine = (leaderN >= 2)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -384,10 +434,12 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
         If LenB(Trim$(raw)) > 0 Then
             Dim rows() As String
             rows = Split(Replace(Replace(raw, vbCrLf, vbLf), vbCr, vbLf), vbLf)
+            Dim isToc As Boolean: isToc = LooksLikeTocPage(raw)  ' E1: 目次ページは見出し抑制
 
             Dim i As Long
             For i = LBound(rows) To UBound(rows)
-                Dim lbl As Long: lbl = ClassifyLine(rows(i))
+                Dim lbl As Long
+                If isToc Then lbl = 0 Else lbl = ClassifyLine(rows(i))
                 If lbl = 1 Or lbl = 2 Then
                     FlushBlock blockPage, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
                     If lbl = 1 Then
