@@ -459,6 +459,16 @@ PURE_ALLOWLIST = [
     #   未実行の他関数のCreateObject/WinHttp等はtechメモ4のとおり未解決のままで
     #   良い)。未注入のまま modTestsPure18 から呼ぶと実行時エラー12になる。
     "modGateway",
+    # modTestsPure23(2026-08-07 R21-3・実機第8報②): 章検出の根治(俯瞰の復旧)。
+    #   modTestsPure22.RunAll22 の末尾が RunAll23 を呼ぶため、未注入だと
+    #   実行時エラー12でR21-3のゴールデンが1件も走らない(19〜22と同型)。
+    #   テストが呼ぶのは modChunker.LooksLikeTocPage/ClassifyLine(既に注入済み
+    #   のmodChunker本体)と modOutlineBuild.ChapterKeyOf/GroupChapters/
+    #   ChapterKeyMatches/BudgetTake(既に注入済みのmodOutlineBuild本体。
+    #   いずれもWorksheetに触れない純ロジック)。BackfillOne/DetectLegacyDocs
+    #   等Worksheetに触れる関数はテストから呼ばない(modOutlineBuild/
+    #   modBackfillの既存注記と同型)。
+    "modTestsPure23",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

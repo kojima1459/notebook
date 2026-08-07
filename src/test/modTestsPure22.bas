@@ -287,6 +287,9 @@ NextComp22:
 NextPad22:
     On Error GoTo PadFail22
     TestShelfPadCol
+NextRun23:
+    On Error GoTo Run23Fail22
+    modTestsPure23.RunAll23
 NextDone22:
     On Error GoTo 0
     Exit Sub
@@ -321,6 +324,10 @@ CompFail22:
     Resume NextPad22
 PadFail22:
     modTestRunner.Check "TestShelfPadCol(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun23
+Run23Fail22:
+    modTestRunner.Check "modTestsPure23.RunAll23(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone22
 End Sub
