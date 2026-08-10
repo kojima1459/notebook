@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R21完了時点）
+# 再開手順（セッション中断対策・最終更新: R23完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,9 +6,13 @@
 
 ## 1. 現在地
 
-**R21完了(実機第8報=調査3班→波A/B/C順次→敵対的レビュー→R21H Fix波F11 全消化)。実機配布可。**
-R1〜R21まで全ラウンド完了・検収済み・push済み。
-テスト1,983件・lint ERROR 0/WARN 16(容量WARNのみ)・モジュール137本。
+**R23完了(実機第9報=調査3班→波A/B順次→敵対的レビュー→R23H Fix波 全消化)。実機配布可。**
+R1〜R21・R23まで全ラウンド完了・検収済み・push済み(R22=一般アシスタント3段化+文脈引き継ぎ構想はGO待ちで仕様化未着手)。
+テスト1,995件・lint ERROR 0/WARN 17(容量WARNのみ)・モジュール137本。
+R23の仕様: spec_20260810_R23_実機第9報.md。骨子:
+①コンパイルエラー根治=**実機第9報の「modViewport2.BadgeRowsForが見つからない」はソース起源ではなく自己インストーラの無言失敗**(ペイロードはsrcと完全一致を実測確認・BadgeRowsForを欠くmodViewport2はgit史上不存在)。原因は_INSTALLER_SRC_TEXT(build_mybookshelf.py内・ThisWorkbookストリーム外科パッチ)のOn Error Resume Next下でc.Name/AddFromString失敗がf計上されず、空モジュールのままSaveで恒久破損(R12監査指摘5が未実装だった)。対策=(1a)Err計上+LenB(s)>0なのにCountOfLines<1の実測検証(1b)f>0でMsgBox"Close WITHOUT saving, then reopen to retry"+**ThisWorkbook.Saved=True**(Excel終了時プロンプトの[保存]反射押し対策=レビューBL-1)+CountOfLines読取例外もf計上(MI-1)。圧縮後1,142B/上限1,148B(残6B・インストーラへの機能追加はもう不可能)(1c)verify_buildへペイロード本文完全一致検査(全135本・_vba_src_text共通化で二重実装なし・CRLF正規化・未指定時はerrors積み=黙殺不可)。
+②ヘッダーボタン視認性=帯(sidebar+ApplyHeaderDepthグラデ#0B7D6E→#014D44)とボタン(sidebarActive)が全テーマでコントラスト1.2〜1.4:1。対策=4画面5箇所(modHub円形/modDash・modKnowledge Pill/modUINexusDraw HeaderButton+HeaderTheme)へ白枠線0.75pt(帯に対し5.03/9.78:1)。**FA-R23-2b(塗りの明度引き上げ)は敵対的レビューで幾何的不成立(帯色域内でmsad白文字4.25:1へ退行・gold帯明端3:1割れ)と判明し全面撤回・全6テーマ旧値へ差し戻し**。テストはmsad/light/darkベタ固定+sakura/ocean/goldはThanksCountゲートのためmsadフォールバック検証(Pure環境はThisWorkbook不可のため)。
+③ホームタブ右余白=修正なし。実機はプロジェクト全体コンパイルエラー(1行も実行されない)状態の古い描画残存であり現行S2の評価材料にならないと裁定。①解消後の実機再確認で残る場合のみ次期(SbWidthFrom上限側防御が候補)。
 R21の仕様: spec_20260807_R21_実機第8報.md(裁定はFix波プロンプト+本節に記録)。
 **実機検証は未実施**(要検証: 余白の完全消滅=帯≤可視幅/境界≤窓高・⚡仕上げ再提案(世代キー2)・俯瞰の章立て・逆質問rel判定・回答フッターのモード表示)。
 R21の骨子: ⑦S1-S7構造完治=測定の単一化(EnsureViewState後のみ測定・dash/galleryの描く→活性化を反転・HSB確定後測定で24pt嘘解消)/帯≤可視幅(SCROLLBAR_W決め打ち廃止・事後検証・HSCroll条件化)/中身右端=ContentRight不変条件(dashセンタリング廃止・gallery弾性5列・table J一発Fit)/境界RowAtFloor切り下げ(塗りはRowAt切り上げで分離)/窓高適応圧縮(CompressFactor=固定・可変分離)/再フィット穴(table/chat)/5値LogFit。
@@ -69,7 +73,9 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(下記)→実機第9報の受領。R21H Fix波までクローズ済み。
+次: 利用者の実機検証(R23版で第10報)→R22(一般アシスタント3段化)のGO判断。R23H Fix波までクローズ済み。
+R23H 記録のみ(次期): 部分注入検出(AddFromStringが途中で切れた場合はCountOfLines>=1で素通り。根治はmodBoot側検証関数が必要だがmodBoot凍結+インストーラ残6Bのため見送り=MA-3)/インストーラのn=CStr()失敗時の無通知終了(Done直行・既存経路)/信頼設定エラー時のf=135無限リトライ誘導文言/MsgBox不能環境の完全無通知/ペイロード先頭"="の数式解釈リスク(現状該当0本・_make_vba_src側で弾く1行が候補)/modKnowledge Pillのactive=白塗り+白枠=枠不可視(視認性の害なしと裁定済み)。
+**R23の実機で最重要**: 開いて「Setup incomplete (N). Close WITHOUT saving...」が出た場合は保存せず閉じて開き直し(ファイルのペイロードは無傷=開き直しで全量再試行)。エラー無く開けたらコンパイルエラー消滅とヘッダーボタンの白枠線、右余白の有無を確認。
 R21H 記録のみ(次期): F6の塗り/境界分離はdash/knowledge系のみ適用(modHub残364字等の逼迫でHub/チャット/modVault/modUIMainは未展開・次期追随)/**modHub(残364)・modChunker(残72)・modUIShelf(残773)は次に触る前に分割裁定必須**/俯瞰pickの連結キー截断リスク(BudgetTakeで章キーが切れると照合不能・無言退避)/LogFitのusage_log肥大(4000字リセット後の再記録)/CoalesceSmallChaptersの最終章連結キーがUI露出/SparseBoost無上限の設計見直し(検索品質側)/無言失敗の全数監査(次ラウンド独立項目・ユーザー指示)。
 R20H 記録のみ(次期): 部門ラベルのクリック配線(modUINexusDrawピル化・分割裁定とセット)/
 Hub左カラム(統計タイル/バッジ帯)の幅追随/ACCENT #07A963の白字未達箇所(既存継承)/
@@ -110,6 +116,9 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R23H-Fix | Sonnet | レビュー裁定(Saved=True/CountOfLines例外計上/sidebarActive全戻し+テスト強化/CRLF正規化/検査スキップ黙殺防止) | 703143a〜b187bc3 | 完了 |
+| R23波B | Sonnet | ②ヘッダーボタン白枠線(4画面5箇所)+sidebarActive明度(→Fix波で撤回) | 3a521d7〜27f7e4c | 完了 |
+| R23波A | Opus | ①インストーラ失敗検出(1a/1b)+verify_buildペイロード本文一致検査(1c) | 314d725〜09ded26 | 完了 |
 | R21H-Fix | Sonnet | レビュー裁定F11(Shape増殖/FitsInView契約/圧縮分母/E0204出典不備/章キーvbText/塗り境界分離/shared・table S1/校正頭打ち/Dictionary化/テスト是正/⚡確認文言) | a27c014〜ecb7477 | 完了 |
 | R21波C | Sonnet | ②章検出根治(Vision階層+目次抑制+縮退統合+世代キー2) | c1dbbaa〜ae37768 | 完了 |
 | R21波B | Sonnet | ⑧分散判定pool+相対gap/E0204/入念網羅性/一般トグル注記 | d65baea〜ff86b32 | 完了 |
