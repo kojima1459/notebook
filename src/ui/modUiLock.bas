@@ -45,6 +45,10 @@ Private Const LOCK_EXPIRY_MIN As Long = 10
 Private mCloseOkSince As Date
 Private Const CLOSE_OK_SEC As Long = 60
 
+' AlertsOff/AlertsOn(R25-1a-1)のネスト深さと元値の控え。宣言はモジュール先頭へ集約。
+Private mAlertsDepth As Long
+Private mAlertsPrevValue As Boolean
+
 ' ----------------------------------------------------------------------------
 ' Enter - ロック取得を試みる。取得できたらTrue(処理続行可)、既に処理中ならFalse
 '         (呼び出し側は即Exitすること)。取得時は砂時計+ステータスバーを表示。
@@ -237,9 +241,6 @@ End Function
 ' まま恒久化し、ファイル削除等の確認ダイアログまで永久に出なくなる事故に
 ' つながるため、呼び出し側は全Exit経路・全エラーハンドラでの対呼び出しを
 ' 徹底すること(レビュー重点項目)。
-Private mAlertsDepth As Long
-Private mAlertsPrevValue As Boolean
-
 Public Sub AlertsOff()
     If mAlertsDepth = 0 Then
         On Error Resume Next

@@ -62,6 +62,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     If ws Is Nothing Then Exit Sub
 
     On Error GoTo Fail
+    modUiLock.AlertsOff
     Application.ScreenUpdating = False
 
     If ws.Visible <> -1 Then ws.Visible = -1
@@ -187,10 +188,12 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     Application.ScreenUpdating = True
     ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
     modViewport2.ReflowIfMoved vw0, vh0
+    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     modLog.LogError "E0801", "modHub.EnsureHubLayout", Err.Description, Err.Number
 End Sub
 
@@ -563,6 +566,7 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
     ' バッジが1件も無いときの下端(見出し行のみ)も実測から返す。
     DrawBadges = ws.Rows(r).Top + ws.Rows(r).Height
 
+    modHubStat.ClearBadgeArea ws   ' R25-1a-2: 旧領域を消してから結合
     With ws.Range("B" & r & ":F" & r)
         .Merge
         .Value = ChrW(&HD83C) & ChrW(&HDFC5) & " バッジ"

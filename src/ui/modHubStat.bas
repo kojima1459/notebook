@@ -167,6 +167,24 @@ Public Sub RemoveHubShapes(ByVal ws As Worksheet)
     Next i
 End Sub
 
+' ----------------------------------------------------------------------------
+' ClearBadgeArea - 旧バッジ表示領域(B10:F56=rの可動域全体)のUnMerge+
+'   ClearContentsを1回だけ行う(R25-1a-2)。modHub.DrawBadgesは実測r
+'   (StatTilesBottomの実下端由来)へ毎回Mergeし直すため、前回描画からrが
+'   動くと旧領域の値が新しい結合先セルに残ったまま結合され、Excel標準の
+'   「複数の値を持つセル範囲」警告(→パイプライン凍結)を招く。DrawBadgesの
+'   2つのMerge呼び出しより前に必ず1回呼ぶこと(modHubは容量逼迫のため実体を
+'   ここへ置く。docs/dev/spec_20260810_R25_実機第11報.md FA-R25-1a-2)。
+' ----------------------------------------------------------------------------
+Public Sub ClearBadgeArea(ByVal ws As Worksheet)
+    On Error Resume Next
+    With ws.Range("B10:F56")
+        .UnMerge
+        .ClearContents
+    End With
+    On Error GoTo 0
+End Sub
+
 ' 数値を必ず表示できる文字列にする(空欄にしない)。
 Public Function NumText(ByVal v As Long) As String
     NumText = CStr(v)

@@ -1284,6 +1284,7 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "AllowShareQueries", "ShareQueriesAllowed", "PendingUpdatesCached",
             "InvalidatePending", "OnSyncPending", "PendingLabel", "RemoveHubShapes",
+            "ClearBadgeArea",
             "NumText", "SafeStat", "AskTotal", "SafeSavedMinutes", "SafeChunks",
             "ChunkUsage", "FmtMin", "DefaultTileValue", "OrgMin", "TilesHeight",
             # DrawFooter/OnFooterPortal(2026-08-05 R18-5b): Hub最下部の
