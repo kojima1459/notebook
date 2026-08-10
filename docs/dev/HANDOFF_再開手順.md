@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R23b完了時点）
+# 再開手順（セッション中断対策・最終更新: R23c完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,9 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R23b版で第10報)→R22(一般アシスタント3段化)のGO判断。R23bH Fix波までクローズ済み。
+次: 利用者の実機検証(R23c版で第10報)→R22(一般アシスタント3段化)のGO判断。R23cまでクローズ済み。
+**R23c(真犯人確定・最重要教訓)**: R21以来の「modViewport2.BadgeRowsForが見つからない」コンパイルエラーの真因は**BadgeRowsForの引数名`scale`**だった。`Scale`はMS-VBAL公式仕様のreserved-name/special-form(VB伝統のグラフィック命令)で、**本物のExcel VBAパーサは識別子として拒否**(本文`If scale < 0.92`が構文エラー→関数がシンボル登録から脱落→参照側で「メソッドまたはデータメンバーが見つかりません」)。**LibreOffice Basicはこれを通す=LO検査の構造的死角**。実機プローブ(イミディエイトでの直接呼び出し失敗+Debug>コンパイルがBadgeRowsFor自身に着地+該当行の赤色表示)で確定。修正=引数`scale`→`sc`(2行)。恒久対策=vba_lintにMS-VBAL予約名検査(check_msvbal_reserved_names、公式リスト転記)を追加しERROR化。`Dim line`3箇所はリスト非該当+実機実績ありで除外。副次修正=_VBA_PROJECTストリームのMS-OVBA違反解消(Version=0xFFFF化+PerformanceCache 3,054Bゼロ埋め=どのExcelでも必ずソースから再コンパイル)+verify_build検査追加。インストーラDoEvents追加は圧縮後1,144B(pad不能差分4B)で断念。
+**R21〜R23bの誤診の記録(再発防止)**: 第9報を「インストーラの無言失敗→空モジュール」と誤診し、R23(失敗検出強化)・R23b(行数検算modInstallCheck)を実装した。これらは実際のバグとは無関係だったが、注入の無言失敗・部分注入への防御としては正しく機能する堅牢化であり残す。教訓: (1)「LOコンパイルOK」は実Excelコンパイル成功を保証しない (2)実機VBEのイミディエイト窓(CountOfLines/Lines/直接呼び出し)とDebug>コンパイルは、リモートから原因を確定できる最強の診断手段(ユーザーに依頼する価値がある) (3)コンパイルエラーのダイアログ位置(呼び出し側)は真の発生源(定義側)と別の場所を指すことがある。
 **R23b(実機第9報の再発対応)**: R23配布後もユーザー実機で同一コンパイルエラーが再報告された(旧破損ファイル開き直しか部分注入の再発かは未確定)。敵対的レビューMA-3(部分注入=AddFromString途中切れはCountOfLines>=1で素通り)を根治: modInstallCheck新設(src/core・非凍結・136本目)。ビルド時にvba_srcのD列へ期待行数(Long)を焼き込み(_expected_line_count、_make_vba_srcと_verify_vba_src_bodiesが同一関数を使用)、起動時にVI()が全モジュールのCodeModule実測行数(末尾空行トリム)とD列を突合。不一致ならモジュール名を日本語ダイアログで提示し、インストーラ側でf計上→Save絶対禁止。インストーラからは`f = f + Application.Run("modInstallCheck.VI")`の1行(Run失敗=modInstallCheck自体の注入失敗やコンパイル不能もErr経由でf計上=**事実上の全体コンパイル検問**)。インストーラ圧縮後1,137B/1,148B(残11B)。README刷新(旧xlsm削除必須・Setup NG時はダイアログ2枚→保存せず閉じて開き直し)。テスト2,012件PASS。
 R23b 記録のみ(次期): 無修飾Application.Run 4箇所目(modInstallCheck.VI)は失敗時に起動を落とす側なので昇格リスク(次回スケルトン差し替え時に一括ブック名修飾)/f>0時のマクロ無効ガードシート文言とMsgBoxの食い違い/「わざと1本壊したdevビルド」での実機スモーク推奨(Application.Runの全体コンパイル誘発効果の実証)/C列破損偽陰性はD列化で解消済み。
 **実機第10報の読み方**: (1)エラー無く開けた→根治成功 (2)「セットアップ検証NG: モジュール名」→部分注入がその機で実在する証拠。モジュール名がログ代わりになる。保存せず閉じて開き直しで自己回復 (3)R23と同じVBEコンパイルエラーがまた出た→ほぼ確実に旧破損ファイルを開いている(新版はSave前に必ず検問される構造のため)。ファイルサイズとconfig!build_stampで版を確認。
@@ -119,6 +121,7 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R23c | Opus | 真因修正(scale→sc改名)+lint予約名検査+_VBA_PROJECT無害化+verify_build検査 | 5a19ef2〜0e6e597 | 完了 |
 | R23bH-Fix | Sonnet | レビュー裁定(D列期待行数焼き込み=実行時再読込全廃/README2枚表記/テストPrivate化/先頭空行ガード) | 1599856〜8ead794 | 完了 |
 | R23b | Opus×2 | 部分注入検出modInstallCheck新設+インストーラVI呼出+テスト+README刷新(初回投入は途中死亡→検問から再開) | 8e3b058〜4420dd5 | 完了 |
 | R23H-Fix | Sonnet | レビュー裁定(Saved=True/CountOfLines例外計上/sidebarActive全戻し+テスト強化/CRLF正規化/検査スキップ黙殺防止) | 703143a〜b187bc3 | 完了 |
