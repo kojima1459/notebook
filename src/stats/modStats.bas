@@ -236,6 +236,11 @@ Public Sub EvaluateBadges()
     CheckBadge "fb50", GetStat("correction_total") >= 50, "フィードバックキング(修正50件)"
     CheckBadge "qa_share10", GetStat("qa_shared_total") >= 10, "知恵の配り手(解決済みQ&A10件を共有)"
     CheckBadge "gapfill", GetStat("gapfill_total") >= 1, "穴埋め職人(みんなの困りごとに答えた)"
+    ' 2026-08-10(R25-3b FA-R25-3b): 16枠ちょうど(ダッシュ4列×4段)を埋める新規3種。
+    ' いずれも既存の統計キーで判定できるため、加算の配線は不要(判定のみ追加)。
+    CheckBadge "thanks5", GetStat("thanks_received_total") >= 5, "感謝を集めた(感謝5件を受け取った)"
+    CheckBadge "streak30", GetStat("streak_days") >= 30, "継続は力なり(30日連続利用)"
+    CheckBadge "thorough10", GetStat("ask_thorough_total") >= 10, "入念の匠(入念に調べるを10回使った)"
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -261,14 +266,23 @@ Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
     ' 要件C(2026-07-30 R3): welcomeをEvaluateBadgesと同じく先頭に追加。
     ' 単一情報源(このBadgeCatalog)へ追加すれば、これを読むmodHub.DrawBadges/
     ' modStats.BadgeEarnedOnが自動で拾う(画面側の個別対応は不要)。
+    ' 2026-08-10(R25-3b FA-R25-3b): 16枠ちょうど(ダッシュ4列×4段)を埋める
+    ' 新規3種(thanks5/streak30/thorough10)を末尾へ追加。既存13種の並びは
+    ' 変えない(獲得日は id 単位で保存されているため、並び替えても壊れないが、
+    ' 差分を小さくするため追加のみに留めた)。
     ids = Split("welcome,first_ingest,shelf10,shelf30,first_pack_out,first_pack_in," & _
-                "solve10,solve50,streak7,fb10,fb50,qa_share10,gapfill", ",")
+                "solve10,solve50,streak7,fb10,fb50,qa_share10,gapfill," & _
+                "thanks5,streak30,thorough10", ",")
     titles = Split("はじめの一歩(名前を登録した),初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込," & _
                    "自己解決10件,自己解決50件,7日連続利用," & _
-                   "フィードバック名人,フィードバックキング,知恵の配り手,穴埋め職人", ",")
+                   "フィードバック名人,フィードバックキング,知恵の配り手,穴埋め職人," & _
+                   ChrW(&HD83D) & ChrW(&HDE4F) & " 感謝を集めた," & _
+                   ChrW(&HD83D) & ChrW(&HDD25) & " 継続は力なり," & _
+                   ChrW(&HD83E) & ChrW(&HDDE0) & " 入念の匠", ",")
     shortTitles = Split("はじめの一歩,初取込,本棚10冊,本棚30冊,初パック出力,初パック取込," & _
                         "自己解決10,自己解決50,7日連続," & _
-                        "修正10件,修正50件,Q&A共有10,穴埋め", ",")
+                        "修正10件,修正50件,Q&A共有10,穴埋め," & _
+                        "感謝5件,30日連続,入念10件", ",")
     conditions = Split( _
         "名前を登録すると獲得|" & _
         "資料を1つ本棚に追加すると獲得|" & _
@@ -282,7 +296,10 @@ Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
         "正しい内容を10回教えると獲得|" & _
         "正しい内容を50回教えると獲得|" & _
         "解決済みQ&Aを10件共有すると獲得|" & _
-        "みんなの困りごとに1件答えると獲得", "|")
+        "みんなの困りごとに1件答えると獲得|" & _
+        "感謝を5件受け取ると獲得|" & _
+        "30日連続で使うと獲得|" & _
+        "入念に調べるで10回質問すると獲得", "|")
     BadgeCatalog = UBound(ids) - LBound(ids) + 1
 End Function
 
