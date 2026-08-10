@@ -1422,8 +1422,11 @@ CONTRACT: dict[str, dict] = {
         # CancelCloseOk(2026-08-03 R13 F5): 「中断して終了」の承諾は、
         # 終了を取りやめた全経路で捨てる。残すと承諾から60秒のあいだ、
         # ウィンドウの×が確認なしで閉じる窓が開く。
+        # AlertsOff/AlertsOn(2026-08-10 R25-1a-1): 描画系.Mergeのセル結合警告
+        # ダイアログでパイプラインが無言のまま固まる事故の恒久対策(層1)。
         "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting",
-                     "ConfirmCloseDuringIngest", "CancelCloseOk"],
+                     "ConfirmCloseDuringIngest", "CancelCloseOk",
+                     "AlertsOff", "AlertsOn"],
     },
     # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
     # HasGeneralMemory/ClearGeneralMemory(2026-08-06 R20-2b/2d): 一般アシスタントの

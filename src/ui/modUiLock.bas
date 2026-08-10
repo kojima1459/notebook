@@ -223,3 +223,39 @@ Private Function LockExpired() As Boolean
 Expired:
     LockExpired = True
 End Function
+
+' ----------------------------------------------------------------------------
+' AlertsOff / AlertsOn - Application.DisplayAlertsのネスト対応ラッパー(R25-1a-1)。
+' ----------------------------------------------------------------------------
+' 描画系.Mergeが出す「複数の値を持つセル範囲への結合」警告(標準Excelダイアログ)
+' はOn Error配下でも止められず、OK待ちでパイプラインが無言のまま固まる
+' (実機第11報③④のフリーズ機序)。各画面の描画エントリの冒頭でAlertsOffを
+' 呼び、末尾の全Exit経路+エラーハンドラでAlertsOnを対で呼ぶことで、
+' 描画中のMerge警告を構造的に出さなくする(二層防御の層1)。
+' 深さカウンタで多重呼び出し(ネスト)に対応: 最初のOffだけが元の値を控え、
+' 最後のOnだけが実際に復元する。Onの呼び忘れがあるとDisplayAlertsがFalseの
+' まま恒久化し、ファイル削除等の確認ダイアログまで永久に出なくなる事故に
+' つながるため、呼び出し側は全Exit経路・全エラーハンドラでの対呼び出しを
+' 徹底すること(レビュー重点項目)。
+Private mAlertsDepth As Long
+Private mAlertsPrevValue As Boolean
+
+Public Sub AlertsOff()
+    If mAlertsDepth = 0 Then
+        On Error Resume Next
+        mAlertsPrevValue = Application.DisplayAlerts
+        On Error GoTo 0
+        Application.DisplayAlerts = False
+    End If
+    mAlertsDepth = mAlertsDepth + 1
+End Sub
+
+Public Sub AlertsOn()
+    If mAlertsDepth <= 0 Then Exit Sub   ' 対応するOffが無いOnは無視(復元事故防止)
+    mAlertsDepth = mAlertsDepth - 1
+    If mAlertsDepth = 0 Then
+        On Error Resume Next
+        Application.DisplayAlerts = mAlertsPrevValue
+        On Error GoTo 0
+    End If
+End Sub
