@@ -262,6 +262,22 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         On Error GoTo ExtractFailed
     End If
 
+    ' 2026-08-10(R27 F1-5・実機第12報③): 本文サニタイズ。
+    ' 化け判定は「ページを丸ごと捨てるか」しか決めないので、捨てられなかった
+    ' ページに混ざった制御文字はそのまま残る。残った制御文字は
+    '   ・埋め込み(embed)へ渡るテキスト
+    '   ・my_knowledge.norm_text(照合用の正規化済みテキスト)
+    '   ・プロンプト本文
+    ' の3つへ同時に流れ込む。ここで1回落とせば3つとも同時に浄化される
+    ' (下流の3箇所へ同じ処理を書き足すより、境界は1つの方が破れない)。
+    Dim strippedN As Long: strippedN = SanitizePages(pages)
+    If strippedN > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "extract_sanitized", "", _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & " 制御文字" & strippedN & "字を除去"
+        On Error GoTo ExtractFailed
+    End If
+
     ' 2026-07-31(R6追補): 全ページが化け判定になるPDFは、実機ログを見ると
     ' 「WordのリフローがゴミWord文字しか返せていない画像PDF」だった
     ' (総文字数は多いので既存のE0303判定=文字数の少なさには引っかからない)。
@@ -424,6 +440,62 @@ Public Function GarbleRatio(ByVal s As String) As Double
         End If
     Next i
     If tot > 0 Then GarbleRatio = bad / tot
+End Function
+
+' ----------------------------------------------------------------------------
+' StripControlChars - 本文から制御文字を落とす(2026-08-10 R27 F1-5)。
+' ----------------------------------------------------------------------------
+' 残すのはタブ(9)・LF(10)・CR(13)だけ。これらは行や列の区切りとして
+' チャンク分割・見出し判定が実際に読んでいるため落とせない。
+' それ以外の AscW<32 は、Wordの表セル終端 Chr(7) を筆頭に「文書構造の印」で
+' あって本文ではない。埋め込み・照合テキスト・プロンプトのどこへ出しても
+' 意味を持たず、検索では単なるノイズ、プロンプトでは文字数の浪費になる。
+' 【承知の上の副作用】表のセル終端 Chr(7) を落とすと、同じ行のセルが
+' 空白なしで連結する(「項目値」)。照合側は modSparse.CompactForMatch が
+' 空白を全除去するので影響ゼロ、プロンプト側は連結したまま出る。
+' 空白へ置換する案もあるが、R27の指示は「除去」なので除去に揃えた。
+' 戻り値=落とした文字数(0なら文字列は1文字も変わっていない)。
+Public Function StripControlChars(ByVal s As String, ByRef outText As String) As Long
+    outText = s
+    Dim n As Long: n = Len(s)
+    If n = 0 Then Exit Function
+
+    Dim buf() As String: ReDim buf(1 To n)
+    Dim removed As Long
+    Dim i As Long
+    For i = 1 To n
+        Dim ch As String: ch = Mid$(s, i, 1)
+        Dim c As Long: c = AscW(ch)
+        If c < 0 Then c = c + 65536          ' AscWの符号付き戻りを補正
+        If c >= 32 Or c = 9 Or c = 10 Or c = 13 Then
+            buf(i) = ch
+        Else
+            removed = removed + 1            ' buf(i) は空文字のまま
+        End If
+    Next i
+    If removed = 0 Then Exit Function
+
+    ' 文字列連結ではなく Join(規約§12。連結はO(n^2)になる)。
+    outText = Join(buf, "")
+    StripControlChars = removed
+End Function
+
+' 全ページへ StripControlChars を当てる(戻り値=落とした文字数の合計)。
+Private Function SanitizePages(ByRef pages() As ExtractedPage) As Long
+    Dim n As Long: n = PageArrayCount(pages)
+    If n = 0 Then Exit Function
+    Dim lo As Long: lo = LBound(pages)
+    Dim total As Long
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim cleaned As String
+        Dim k As Long: k = StripControlChars(pages(lo + i).Text, cleaned)
+        If k > 0 Then
+            pages(lo + i).Text = cleaned
+            total = total + k
+        End If
+    Next i
+    SanitizePages = total
 End Function
 
 ' Wordが本文中に置く構造制御文字か(2026-08-10 R27 F1-4)。

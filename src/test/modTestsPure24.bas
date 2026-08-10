@@ -356,6 +356,47 @@ Private Sub TestGarbleRatioHighKanjiNotGarbled24()
         "ratio=" & Format$(modExtractor.GarbleRatio(ctl), "0.0000")
 End Sub
 
+' F1-5: modExtractor.StripControlChars — 本文サニタイズ。
+'   この文字列がそのまま embed / my_knowledge.norm_text / プロンプトへ流れる。
+'   タブ・改行(9/10/13)は行と列の区切りとして下流が読むので必ず残す。
+Private Sub TestStripControlChars24()
+    Dim outS As String
+
+    ' 表のセル終端Chr(7)は落ちて本文だけが残る。
+    Dim n1 As Long
+    n1 = modExtractor.StripControlChars("項目" & Chr$(7) & "値" & Chr$(7), outS)
+    modTestRunner.Check "R27-F1-5_Chr(7)は2字とも落ちる", (n1 = 2), "removed=" & n1
+    modTestRunner.Check "R27-F1-5_落とした後の本文は『項目値』", _
+        (outS = "項目値"), "out=[" & outS & "]"
+
+    ' 9/10/13 は残す(チャンク分割と見出し判定が読んでいる)。
+    Dim keep As String: keep = "行1" & vbTab & "列2" & vbCrLf & "行3" & Chr$(10)
+    Dim n2 As Long: n2 = modExtractor.StripControlChars(keep, outS)
+    modTestRunner.Check "R27-F1-5_タブ/CR/LFは1字も落とさない", (n2 = 0), "removed=" & n2
+    modTestRunner.Check "R27-F1-5_落とすものが無ければ文字列は同一", _
+        (outS = keep), "out=[" & outS & "]"
+
+    ' F1-4で除外した12種は全部落ちる(除外=化け判定に数えないだけで、本文には残さない)。
+    Dim ctl As String
+    ctl = "本" & Chr$(1) & Chr$(2) & Chr$(5) & Chr$(7) & Chr$(11) & Chr$(12) & _
+          "文" & Chr$(14) & Chr$(19) & Chr$(20) & Chr$(21) & Chr$(30) & Chr$(31)
+    Dim n3 As Long: n3 = modExtractor.StripControlChars(ctl, outS)
+    modTestRunner.Check "R27-F1-5_Word構造制御12種は全て落ちる", (n3 = 12), "removed=" & n3
+    modTestRunner.Check "R27-F1-5_残るのは本文2字だけ", _
+        (outS = "本文"), "out=[" & outS & "]"
+
+    ' 空文字は空文字のまま(0字除去)。
+    modTestRunner.Check "R27-F1-5_空文字は0字除去で空のまま", _
+        (modExtractor.StripControlChars("", outS) = 0 And outS = ""), "out=[" & outS & "]"
+
+    ' 日本語(U+8000以降を含む)は1字も落とさない。AscWの符号補正が抜けると
+    ' 「険」「金」等が制御文字扱いで消え、本文が丸ごと壊れる。
+    Dim jp As String: jp = "保険金額の関係者へ通知する"
+    Dim n4 As Long: n4 = modExtractor.StripControlChars(jp, outS)
+    modTestRunner.Check "R27-F1-5_日本語本文は1字も落とさない", _
+        (n4 = 0 And outS = jp), "removed=" & n4 & " out=[" & outS & "]"
+End Sub
+
 Private Function Repeat24(ByVal unit As String, ByVal times As Long) As String
     Dim sb As String
     Dim i As Long
@@ -467,6 +508,9 @@ NextGarbleCyr24:
 NextGarbleKanji24:
     On Error GoTo GarbleKanjiFail24
     TestGarbleRatioHighKanjiNotGarbled24
+NextStrip24:
+    On Error GoTo StripFail24
+    TestStripControlChars24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -525,6 +569,10 @@ GarbleCyrFail24:
     Resume NextGarbleKanji24
 GarbleKanjiFail24:
     modTestRunner.Check "TestGarbleRatioHighKanjiNotGarbled24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextStrip24
+StripFail24:
+    modTestRunner.Check "TestStripControlChars24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub

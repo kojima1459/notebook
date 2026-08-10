@@ -261,9 +261,15 @@ CONTRACT: dict[str, dict] = {
         # 符号付き戻りとWord構造制御文字の是正が入らなかった)。呼び出しは
         # modExtractorPdf.DropGarbledPages 1箇所だけだが、境界(Chr(7)混じりの
         # 表テキストはOK/キリル2割はNG)を modTestsPure24 が固定するため公開する。
+        # StripControlChars: 2026-08-10 R27 F1-5。ページ本文から制御文字
+        # (Wordの表セル終端Chr(7)等)を落とす。ExtractFile から呼ぶだけなので
+        # Private でも足りるが、この文字列がそのまま embed / norm_text /
+        # プロンプトの3つへ流れる境界そのものなので、境界の規則(9/10/13は
+        # 残す・それ以外のAscW<32は落とす)を modTestsPure24 が固定できるよう
+        # 公開する。
         "required": ["ExtractFile", "SupportedExts",
                      "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount",
-                     "GarbleRatio"],
+                     "GarbleRatio", "StripControlChars"],
     },
     # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractor が28,000字のWARN帯に
     # 達したための分割先。PDFの3経路フォールバック(GS→Word→Acrobat)、
