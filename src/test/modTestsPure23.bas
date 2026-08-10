@@ -366,18 +366,29 @@ End Sub
 ' ============================================================================
 
 Private Sub TestSidebarActiveContrastR23()
+    ' msad/light/darkはEffectiveSkinの解放ゲート対象外なので、Select Case本体の
+    ' 値をResolveColor経由でそのままベタ固定できる。
     modTestRunner.Check "R23_msadのsidebarActiveは旧値RGB(1,103,91)固定", _
         (modSkin.ResolveColor("sidebarActive", "msad") = RGB(1, 103, 91))
     modTestRunner.Check "R23_lightのsidebarActiveは旧値RGB(31,41,55)固定", _
         (modSkin.ResolveColor("sidebarActive", "light") = RGB(31, 41, 55))
     modTestRunner.Check "R23_darkのsidebarActiveは旧値RGB(30,41,59)固定", _
         (modSkin.ResolveColor("sidebarActive", "dark") = RGB(30, 41, 59))
-    modTestRunner.Check "R23_sakuraのsidebarActiveは旧値RGB(112,46,72)固定", _
-        (modSkin.ResolveColor("sidebarActive", "sakura") = RGB(112, 46, 72))
-    modTestRunner.Check "R23_oceanのsidebarActiveは旧値RGB(20,56,96)固定", _
-        (modSkin.ResolveColor("sidebarActive", "ocean") = RGB(20, 56, 96))
-    modTestRunner.Check "R23_goldのsidebarActiveは旧値RGB(38,34,24)固定", _
-        (modSkin.ResolveColor("sidebarActive", "gold") = RGB(38, 34, 24))
+
+    ' sakura/ocean/goldはEffectiveSkinがThanksCount(感謝受領数)でゲートしており、
+    ' 未解放だとResolveColorはmsadへフォールバックする。modTestsPure.bas冒頭の
+    ' 設計判断(R4準拠)によりPureテストはWorksheets/ThisWorkbook等に一切触れない
+    ' 決まりのため、このテストからThanksCountを書き換えて強制解放することは
+    ' できない(既定0件=全未解放の状態でしか検証できない)。よってこの3テーマは
+    ' 「既定状態でmsadのsidebarActiveへ正しくフォールバックすること」を検証する
+    ' (Select Case内の個々のRGBリテラルそのものはExcel実機のModule検査
+    ' [FA-R23-1c、vba_src本文がsrc/と完全一致することの検査]で保護される)。
+    modTestRunner.Check "R23_sakuraのsidebarActiveは未解放時msadへフォールバック", _
+        (modSkin.ResolveColor("sidebarActive", "sakura") = modSkin.ResolveColor("sidebarActive", "msad"))
+    modTestRunner.Check "R23_oceanのsidebarActiveは未解放時msadへフォールバック", _
+        (modSkin.ResolveColor("sidebarActive", "ocean") = modSkin.ResolveColor("sidebarActive", "msad"))
+    modTestRunner.Check "R23_goldのsidebarActiveは未解放時msadへフォールバック", _
+        (modSkin.ResolveColor("sidebarActive", "gold") = modSkin.ResolveColor("sidebarActive", "msad"))
 
     Dim themes(0 To 5) As String
     themes(0) = "msad": themes(1) = "light": themes(2) = "dark"
