@@ -218,6 +218,9 @@ End Function
 Public Sub UpdateModeButton()
     On Error Resume Next
     modUINexusDraw.RedrawChatHeader
+    ' R27 F2-1c(実機第12報①): ヘッダーの行高が変わると、ptから換算した境界
+    ' (NexusBound)が指す行がずれる。描き直したら必ず貼り直す。
+    modUINexusDraw.ReapplyChatBound
     On Error GoTo 0
 End Sub
 

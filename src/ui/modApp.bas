@@ -636,6 +636,7 @@ Public Sub OnToggleSpeed()
     On Error Resume Next
     ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
     modUINexusDraw.RedrawChatHeader
+    modUINexusDraw.ReapplyChatBound   ' R27 F2-1c: 行1の高さが変わると境界がずれる
     ' R13 F3: 力の入れ方(effort)の切替では武装は保つ ―― 「チップを出したまま
     ' モードを選んで送る」は R13-6b の設計そのもの。ただしチップに書いてある
     ' モード名は【押した時点】の文字列なので、切り替えたら描き直さないと
@@ -696,6 +697,7 @@ Public Sub OnLangCycle()
     On Error Resume Next
     ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
     modUINexusDraw.RedrawChatHeader
+    modUINexusDraw.ReapplyChatBound   ' R27 F2-1c: 行1の高さが変わると境界がずれる
     On Error GoTo 0
 End Sub
 

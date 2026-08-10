@@ -226,6 +226,22 @@ Public Sub RedrawChatHeader()
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' ReapplyChatBound - チャット境界(ScrollArea)を今の幾何で貼り直す(R27 F2-1c)。
+' ----------------------------------------------------------------------------
+' RedrawChatHeader は行1の高さを HeaderHeight() で作り直す。境界はptから
+' 行番号へ換算した結果(BoundAddr)なので、行1が1段ぶん伸縮すると同じptが
+' 別の行を指し、境界が実下端とずれる。トグル3経路(速度/言語/モード)は
+' ヘッダーだけを描き直して境界を更新しないため、そのぶん会話が境界の外へ
+' はみ出していた。呼び出し側にwsを持たせないよう引数なしの窓口にする。
+Public Sub ReapplyChatBound()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(NEXUS_SHEET)
+    If Not ws Is Nothing Then modViewport.ApplyScrollBound ws, NexusBound(ws)
+    On Error GoTo 0
+End Sub
+
 ' ヘッダーが持つShapeだけを消す。入力欄の nx_top_add / nx_top_send は同じ
 ' 接頭辞だがヘッダーの持ち物ではない(消すと📎と送信が二度と戻らない)。
 Private Sub ClearChatHeader(ByVal ws As Worksheet)
