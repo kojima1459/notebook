@@ -584,6 +584,15 @@ Fail:
     On Error GoTo 0
 End Sub
 
+' ClearLastAnswerState - 「直近の回答」として持っている本文を捨てる(R27波3-6)。
+'   会話をクリアしたのに mLastAnswerText が残っていると、消したはずの回答が
+'   「Wordで開く」からそのまま出てくる(利用者から見れば消えていない)。
+'   modApp.OnClearChat から呼ぶ。将来「直近の回答」に紐づく状態が増えたら、
+'   捨てる作法をこの1本に集めること(呼び出し側を増やさない)。
+Public Sub ClearLastAnswerState()
+    mLastAnswerText = ""
+End Sub
+
 ' OnOpenWordButton - opt機能(Wordで開く)のUIラッパー(§7.7)。opt直接参照はしない。
 '   裁定D12(対話型文書生成): 押下時に「どんな文書に仕上げるか」の指示文を
 '   尋ね、直近回答テキストと合わせてmodFeatures.InvokeFeature経由で

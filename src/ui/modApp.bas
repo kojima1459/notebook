@@ -743,6 +743,15 @@ Public Sub OnClearChat()
     modAppAct.OnFollowupChipOff   ' R13-6a: 武装したままの「続きの質問」も解除する
     modFollowup.ClearCitedSources ' R13-5b: 会話の出典メモリも消す(会話リセット)
     modAppState.ClearGeneralMemory ' R20-2d: 一般アシスタントの会話履歴も消す(新発見バグ)
+    ' R27波3-6: 消したQ&Aが部内へ共有される穴を塞ぐ。🟢🔴🟡(btn_fb_*)は
+    ' 常設Shapeで OnAction が modAsk.FeedbackGreen 等へ直結しており、クリア後に
+    ' 押すと消したはずのQ&AがEmitVerifiedQAで共有フォルダへ出ていた。modAskは
+    ' 凍結だが同用途(残留状態で感想を撃たせない)のPublicが既にある。
+    ' NoteAnswerFailed が mLastQuestion を空にし mFeedbackDone を立てるので、
+    ' 以後 FeedbackAccepted が3ボタンとも断る。👎/🤔の訂正共有は対象バブルが
+    ' 消えて HasTarget=False になるため従来どおり撃てない。
+    modAsk.NoteAnswerFailed
+    modUIMain.ClearLastAnswerState  ' 「Wordで開く」が消した回答を出さないように
     modState.SaveState "nexus_ask_prevu", ""
     modState.SaveState "nexus_ask_preva", ""
     modState.SaveState "nexus_hist_u", ""
