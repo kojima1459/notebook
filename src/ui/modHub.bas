@@ -269,7 +269,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
             With btn.TextFrame2
                 .TextRange.Text = CStr(icons(i))
                 .TextRange.Font.Size = 10
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                .TextRange.Font.Fill.ForeColor.RGB = RGB(1, 77, 68)
                 .TextRange.ParagraphFormat.Alignment = 2
                 .VerticalAnchor = 3
                 .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
