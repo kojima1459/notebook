@@ -262,6 +262,24 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
         On Error GoTo ExtractFailed
     End If
 
+    ' 2026-08-10(R27 F1-6・実機第12報③): .doc/.docx が全ページ化け判定に
+    ' なったときの最後の一手。PDFと違いWord系はGhostscriptで画像化できず
+    ' OCR経路(E0303)へ回せないため、従来は「化けたまま続行」しか道が無かった。
+    ' 実機の症状は【ページ単位のRange走査(ExtractPageText)だけが崩れている】
+    ' 形だったので、doc.Content.Text で丸ごと1回だけ読み直し、それが化けて
+    ' いなければそちらを採る。失敗しても従来経路へそのまま戻る(悪化させない)。
+    If allGarbled Then
+        If ext = "doc" Or ext = "docx" Then
+            If RetryWordWholeContent(path, pages, allGarbled) Then
+                On Error Resume Next
+                modLog.LogUsage "doc_fallback_content", "", _
+                    modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
+                    " 全ページ化け判定のためdoc.Content.Textで再取得し採用しました"
+                On Error GoTo ExtractFailed
+            End If
+        End If
+    End If
+
     ' 2026-08-10(R27 F1-5・実機第12報③): 本文サニタイズ。
     ' 化け判定は「ページを丸ごと捨てるか」しか決めないので、捨てられなかった
     ' ページに混ざった制御文字はそのまま残る。残った制御文字は
@@ -440,6 +458,49 @@ Public Function GarbleRatio(ByVal s As String) As Double
         End If
     Next i
     If tot > 0 Then GarbleRatio = bad / tot
+End Function
+
+' ----------------------------------------------------------------------------
+' RetryWordWholeContent - .doc/.docx の全ページ化け判定に対する1回きりの
+'   代替抽出(2026-08-10 R27 F1-6)。採用できたときだけ True を返し、
+'   pages と outAllGarbled を書き換える。
+' ----------------------------------------------------------------------------
+' 採用条件は3つ全部。1つでも欠けたら何も触らず False(従来経路のまま)。
+'   (1) Word が開けて doc.Content.Text が取れた
+'   (2) 取れた本文が化け判定にならない(DropGarbledPages が全滅と言わない)
+'   (3) 本文が50字以上ある … 化け判定は50字未満を判定対象外にするので、
+'       ここを外すと「20字の断片が化けていない」だけで採用してしまう
+' 一時コピーは本経路と同じく作り直す(元の一時コピーは抽出直後に消えている)。
+' 作れなければ原本を開く(取り込めないよりは良い・本経路の Case "doc" と同じ方針)。
+Private Function RetryWordWholeContent(ByVal path As String, _
+                                       ByRef pages() As ExtractedPage, _
+                                       ByRef outAllGarbled As Boolean) As Boolean
+    Dim reason As String
+    Dim tmp2 As String: tmp2 = modExtractorPdf.CopyToLocalTemp(path, reason)
+    Dim wPath As String: wPath = path
+    If LenB(tmp2) > 0 Then wPath = tmp2
+
+    Dim alt() As ExtractedPage
+    Dim trunc2 As Boolean
+    Dim det2 As String
+    Dim ok2 As Boolean
+    On Error Resume Next
+    ok2 = modExtractorWord.Extract(wPath, 1, alt, trunc2, det2, path, True)
+    If Err.Number <> 0 Then ok2 = False
+    Err.Clear
+    If LenB(tmp2) > 0 Then Kill tmp2
+    Err.Clear
+    On Error GoTo 0
+    If Not ok2 Then Exit Function
+
+    Dim allG2 As Boolean
+    modExtractorPdf.DropGarbledPages alt, allG2
+    If allG2 Then Exit Function
+    If SumPageChars(alt) < 50 Then Exit Function
+
+    pages = alt
+    outAllGarbled = False
+    RetryWordWholeContent = True
 End Function
 
 ' ----------------------------------------------------------------------------

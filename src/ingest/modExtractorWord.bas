@@ -107,10 +107,16 @@ Private Const STEP_CLOSE As String = "後始末"
 ' ローカル一時コピーを開くため、path には一時コピーのパスが来る。利用者が
 ' 編集中の文書を掴んでいないかを調べるには原本のパスも要るので、呼び出し元
 ' から受け取る(省略時は path だけで判定する)。
+' wholeDoc(2026-08-10 R27 F1-6・実機第12報③): True にすると、ページ単位の
+' Range 走査(ExtractPageText)を通さず doc.Content.Text を1回で取って
+' 1ページ分として返す。.doc/.docx が「全ページ化け判定」になったときの
+' 最後の一手専用で、通常の取込は必ず False(既定)で呼ぶ。開き方の
+' フォールバック連鎖・後始末はこの引数に関係なく共通のものを使う。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String, _
-                        Optional ByVal origPath As String = "") As Boolean
+                        Optional ByVal origPath As String = "", _
+                        Optional ByVal wholeDoc As Boolean = False) As Boolean
     mDocCountUnknown = 0
 
     Dim startMode As Long
@@ -132,7 +138,7 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
             ' 前のまま=固まって見える。段階を1行で言う(見えている時だけ)。
             StageForOpenMode mode
             If TryExtractOnce(path, maxPages, pages, truncated, errDetail, mode, _
-                              failedStep, failedNum, origPath) Then
+                              failedStep, failedNum, origPath, wholeDoc) Then
                 If mPreferredMode <> mode Then
                     mPreferredMode = mode
                     On Error Resume Next
@@ -245,7 +251,8 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
                                 ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                                 ByRef errDetail As String, ByVal openMode As Long, _
                                 ByRef failedStep As String, ByRef failedNum As Long, _
-                                Optional ByVal origPath As String = "") As Boolean
+                                Optional ByVal origPath As String = "", _
+                                Optional ByVal wholeDoc As Boolean = False) As Boolean
     truncated = False
     failedNum = 0
 
@@ -410,30 +417,43 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
         On Error GoTo Failed
     End If
 
-    stepName = STEP_PAGES
-    Dim pageCount As Long
-    pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages
-    If pageCount < 1 Then pageCount = 1
-
-    Dim loopCount As Long: loopCount = pageCount
-    If loopCount > maxPages Then
-        loopCount = maxPages
-        truncated = True
-    End If
-
-    stepName = STEP_TEXT
-    Dim tmp() As ExtractedPage: ReDim tmp(0 To loopCount - 1)
-    Dim i As Long
-    For i = 1 To loopCount
-        tmp(i - 1).page = i
-        tmp(i - 1).Text = ExtractPageText(doc, i, pageCount)
-        ' 2026-07-31(R7 B-2): 1ページ分のCOMシーケンス(GoTo→範囲確定→Text)が
-        ' 完全に終わった【あと】で1回だけメッセージを捌く。ページの途中に
-        ' 置くと、Rangeを掴んだままイベントへ抜けることになり、その間に
-        ' 文書が閉じられると掴んでいる参照が無効になる。300ページの約款でも
-        ' 追加コストはページ数回のDoEventsだけ。
+    Dim tmp() As ExtractedPage
+    If wholeDoc Then
+        ' R27 F1-6: ページ単位の走査を通さず本文を1回で取る。ページ番号は
+        ' すべて1になる(出典が「何ページ」まで言えなくなるが、化けた本文を
+        ' そのまま取り込んで検索とプロンプトを汚すよりは良い、という判断)。
+        ' 打ち切り(PARTIAL_PAGES)の概念も無いので truncated は False のまま。
+        stepName = STEP_TEXT
+        ReDim tmp(0 To 0)
+        tmp(0).page = 1
+        tmp(0).Text = doc.Content.Text
         DoEvents
-    Next i
+    Else
+        stepName = STEP_PAGES
+        Dim pageCount As Long
+        pageCount = doc.ComputeStatistics(2)   ' wdStatisticPages
+        If pageCount < 1 Then pageCount = 1
+
+        Dim loopCount As Long: loopCount = pageCount
+        If loopCount > maxPages Then
+            loopCount = maxPages
+            truncated = True
+        End If
+
+        stepName = STEP_TEXT
+        ReDim tmp(0 To loopCount - 1)
+        Dim i As Long
+        For i = 1 To loopCount
+            tmp(i - 1).page = i
+            tmp(i - 1).Text = ExtractPageText(doc, i, pageCount)
+            ' 2026-07-31(R7 B-2): 1ページ分のCOMシーケンス(GoTo→範囲確定→Text)が
+            ' 完全に終わった【あと】で1回だけメッセージを捌く。ページの途中に
+            ' 置くと、Rangeを掴んだままイベントへ抜けることになり、その間に
+            ' 文書が閉じられると掴んでいる参照が無効になる。300ページの約款でも
+            ' 追加コストはページ数回のDoEventsだけ。
+            DoEvents
+        Next i
+    End If
 
     stepName = STEP_CLOSE
     Cleanup doc, word, ownsApp, prevSecurity, ownsDoc, prevAlerts
