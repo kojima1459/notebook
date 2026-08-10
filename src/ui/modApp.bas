@@ -699,11 +699,22 @@ Public Sub OnLangCycle()
         Case Else: nextLang = "日本語"
     End Select
     modConfig.SetValue "answer_language", nextLang
+    ' R27H F6(項目13裁定): 成否を見てから知らせる。SetValue は config シートを
+    ' 見つけられないと黙って何もしない(戻り値も無い)ので、書いた値を読み直して
+    ' 一致を確かめる(modConfig はキャッシュを持たない=これが実測になる)。
+    ' modHub 側の無条件「成功」トーストは撤去し、出す場所をここ1箇所にした。
+    Dim langOK As Boolean
+    langOK = (StrComp(modConfig.GetString("answer_language", ""), nextLang, vbBinaryCompare) = 0)
 
     On Error Resume Next
     ' 3-A(1): ピルへ直接書かず、幅計算を通してヘッダーごと描き直す。
     modUINexusDraw.RedrawChatHeader
     modUINexusDraw.ReapplyChatBound   ' R27 F2-1c: 行1の高さが変わると境界がずれる
+    If langOK Then
+        modSkin.ShowToast "回答言語: " & nextLang, "success"
+    Else
+        modSkin.ShowToast "回答言語を切り替えられませんでした(設定を保存できません)。", "error"
+    End If
     On Error GoTo 0
 End Sub
 

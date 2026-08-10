@@ -671,9 +671,9 @@ End Sub
 
 Public Sub OnLangCycle()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    ' トーストは modApp.OnLangCycle が出す(R27H F6)
     On Error Resume Next
     modApp.OnLangCycle
-    modSkin.ShowToast "回答言語: " & modConfig.GetString("answer_language", "日本語"), "success"
     On Error GoTo 0
 End Sub
 
