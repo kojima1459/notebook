@@ -188,9 +188,12 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     Exit Sub
 
 Fail:
+    ' F2(M-1): AlertsOnがErrをリセットするため先に退避(既存のfailNum作法)。
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number: failDesc = Err.Description
     Application.ScreenUpdating = True
     modUiLock.AlertsOn
-    modLog.LogError "E0801", "modHub.EnsureHubLayout", Err.Description, Err.Number
+    modLog.LogError "E0801", "modHub.EnsureHubLayout", failDesc, failNum
 End Sub
 
 ' ヘッダーバー(全幅) + 右肩のユーティリティアイコン

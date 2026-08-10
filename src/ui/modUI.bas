@@ -110,8 +110,10 @@ Public Sub InitUI()
     On Error Resume Next
     modUiLock.AlertsOff   ' R25-1a-1: Merge警告を出さない(対は直後のAlertsOn)
     modUINexusDraw.DrawChatHeader ws
+    ' F2(M-1): AlertsOnがErrをリセットするため、判定前に退避する。
+    Dim eN1 As Long: eN1 = Err.Number
     modUiLock.AlertsOn
-    If Err.Number <> 0 Then LogDrawStageError "DrawChatHeader", ws: Err.Clear
+    If eN1 <> 0 Then LogDrawStageError "DrawChatHeader", ws: Err.Clear
     On Error GoTo 0
 
     ' ヘッダーが右端ピルを2段目へ流した場合(極端に狭い列幅の端末)は、
@@ -124,8 +126,10 @@ Public Sub InitUI()
     On Error Resume Next
     modUiLock.AlertsOff   ' R25-1a-1: Merge警告を出さない(対は直後のAlertsOn)
     modUINexusDraw.DrawInputArea ws
+    ' F2(M-1): AlertsOnがErrをリセットするため、判定前に退避する。
+    Dim eN2 As Long: eN2 = Err.Number
     modUiLock.AlertsOn
-    If Err.Number <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
+    If eN2 <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
     ' R13-6a: 「続きの質問」チップの掃除+再掲。再描画のたびに armed 状態と
     ' 画面を一致させる(State Lossでチップだけが残る、を構造的に潰す)。
     modAppAct.RedrawFollowupChip

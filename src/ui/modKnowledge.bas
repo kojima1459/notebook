@@ -278,8 +278,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     Exit Sub
 
 Fail:
+    ' F2(M-1): AlertsOnがErrをリセットするため先に退避(既存のfailNum作法)。
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number: failDesc = Err.Description
     modUiLock.AlertsOn
-    modLog.LogError "E0801", "modKnowledge.DrawChrome", Err.Description, Err.Number
+    modLog.LogError "E0801", "modKnowledge.DrawChrome", failDesc, failNum
 End Sub
 
 ' ----------------------------------------------------------------------------
