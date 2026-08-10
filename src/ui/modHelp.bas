@@ -317,7 +317,13 @@ Private Sub ShowHelpCard()
             If hs.Top + hs.Height > hb Then hb = hs.Top + hs.Height
         End If
     Next hs
-    If hb > 0 Then modSkin.ExtendChatBand ws, hb + 12
+    ' R27H F2(M-1裁定): 開いている間の下端を床として登録する。登録しないと、
+    ' カードを開いたまま質問を送る/トグルを押した瞬間に別経路が会話の下端で
+    ' 境界を貼り直し、カードが境界の外へ落ちる(下に白い余白が出る)。
+    If hb > 0 Then
+        modSkin.SetOverlayFloor hb + 12
+        modSkin.ExtendChatBand ws, hb + 12
+    End If
 
     On Error GoTo 0
 End Sub
@@ -617,6 +623,8 @@ Private Sub DoHideHelp()
     ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(ExtendChatBandは縮む方向も
     ' 面倒を見る)。戻さないとカードを閉じたあとも境界だけが下に残り、
     ' 塗りの無い下スクロール域=白い余白として見える。
+    ' R27H F2: 床を先に下ろす(残っていると縮む方向が効かない)。
+    modSkin.ClearOverlayFloor
     modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub

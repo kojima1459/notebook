@@ -194,6 +194,9 @@ Public Sub ShowPeek(ByVal idx As Long)
     ' リスト外(重ね表示)なので境界関所を通らない。AutoSizeで伸びた実下端で
     ' 関所を通す。「原文を開く」ボタンはこの吹き出しの内側に置くので、
     ' ここが常に最深(GoTo Doneで飛んだ経路でも取りこぼさない)。
+    ' R27H F2(M-1裁定): 開いている間の下端を床として登録する(開いたまま
+    ' 質問送信/トグルが走ると、別経路が会話の下端で境界を貼り直すため)。
+    modSkin.SetOverlayFloor shp.Top + shp.Height + 12
     modSkin.ExtendChatBand ws, shp.Top + shp.Height + 12
 
     ' 「📂 原文を開く」。抜粋を読んで終わりではなく、実物の該当ページまで
@@ -257,6 +260,8 @@ Public Sub HidePeek()
     Next i
     ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(戻さないと閉じたあとも
     ' 境界だけが下に残り、白い余白として見える)。
+    ' R27H F2: 床を先に下ろす(残っていると縮む方向が効かない)。
+    modSkin.ClearOverlayFloor
     modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub

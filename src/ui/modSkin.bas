@@ -31,6 +31,21 @@ Private Const THEME_KEY As String = "nexus_theme"
 ' modUI.mChatBottom。ここはその写像なので、ズレても塗りが1回増えるだけ)。
 Private mChatBandRow As Long
 
+' R27H F2(M-1裁定): 重ね表示(ヘルプ/プレビュー/ツアー)の下端。会話の下端とは
+' 別に持ち、ExtendChatBand が下端の下限として使う。0=重ね表示なし。
+' 開いている間に別経路(質問送信・トグル)が会話の下端で境界を貼り直しても、
+' カードが境界の外へ落ちない(=下に白い余白が出ない)ようにするための床。
+Private mOverlayFloor As Double
+
+' 重ね表示を描いた側が「カード下端+12」を渡す。閉じる側は必ず Clear する。
+Public Sub SetOverlayFloor(ByVal y As Double)
+    mOverlayFloor = y
+End Sub
+
+Public Sub ClearOverlayFloor()
+    mOverlayFloor = 0
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' BeautifyAll - シート上の全nx_Shapeにフォント統一+固定クロムへ柔らかい影。
 '   modUI.InitUI/Repaint、各画面(Vault/Dashboard)の描画終端から呼ぶ。
@@ -448,6 +463,8 @@ End Function
 Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
+    ' R27H F2: 重ね表示中は、その下端より上へ境界を縮めない(境界衝突の封鎖)。
+    If mOverlayFloor > bottomY Then bottomY = mOverlayFloor
     ' 下端は呼び出し側が渡す実測値(modUI.mChatBottom)から直に組む。
     ' modUINexusDraw.NexusBound と同じ算数だが、こちらは会話の下端が確定した
     ' 直後に呼ばれるので、値を取りに戻る往復を省く(式の持ち主は BoundAddr 1本)。

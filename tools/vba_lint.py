@@ -1151,6 +1151,13 @@ CONTRACT: dict[str, dict] = {
             # (約31,000pt=40画面ぶん)を廃止した代わりで、modUI.AddChatBubble と
             # ClearChat から呼ぶ。塗りの持ち主が modSkin なのでここに置く。
             "ExtendChatBand",
+            # SetOverlayFloor / ClearOverlayFloor(2026-08-10 R27H F2): 重ね表示
+            # (modHelp.ShowHelpCard / modPeek.ShowPeek / modTour.DrawStep)が
+            # 開いている間の下端。ExtendChatBand の適用下端を max(bottomY, floor)
+            # にするための床で、開いたまま質問送信/トグルが走っても別経路が
+            # 会話の下端で境界を貼り直してカードを境界外へ落とさない。
+            # 閉じる側(modHelp/modPeek/modTour の復帰3行)が必ず0へ戻す。
+            "SetOverlayFloor", "ClearOverlayFloor",
             "BeautifyAll", "StyleShape", "ApplyHeaderDepth", "ApplyGradient",
             "ApplyLightShadow", "ApplyGreenDepth", "StyleBubble", "ApplySoftShadow",
             "EffectiveSkin", "ResolveColor", "CycleSkin", "ShowToast",

@@ -120,6 +120,8 @@ Public Sub ClearTour()
     Next i
     ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(DrawStepの先頭からも呼ばれる
     ' が、その直後にDrawStepが自分の下端で伸ばし直すので二度手間にならない)。
+    ' R27H F2: 床を先に下ろす(残っていると縮む方向が効かない)。
+    modSkin.ClearOverlayFloor
     modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub
@@ -293,6 +295,9 @@ Private Sub DrawStep(ByVal n As Long)
     ' R27 F2-1b(実機第12報①): ツアーカードも modUI.RecalcChatBottom の許可
     ' リスト外(重ね表示)なので境界関所を通らず、カードだけが境界の外へ出る。
     ' ボタンはカード内に収まるので下端はカード下端でよい。
+    ' R27H F2(M-1裁定): 表示中の下端を床として登録する(ClearTour が先に
+    ' 床を下ろしているので、段を進めるたびに新しいカードの下端で貼り直す)。
+    modSkin.SetOverlayFloor cardT + cardH + 12
     modSkin.ExtendChatBand ws, cardT + cardH + 12
 
     On Error GoTo 0
