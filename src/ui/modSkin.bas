@@ -526,13 +526,16 @@ Public Sub ApplyTheme(ByVal ws As Worksheet)
                 shp.Fill.ForeColor.RGB = ThemeColor("primary")
                 SetShapeTextColor shp, RGB(255, 255, 255)
             ElseIf nm = "nx_top_theme" Then
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, RGB(255, 255, 255)
+                ' R24-2b白地仕様へ整合(単一情報源化)。
+                shp.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                shp.Line.ForeColor.RGB = RGB(1, 77, 68)
+                SetShapeTextColor shp, RGB(1, 77, 68)
                 shp.TextFrame2.TextRange.Text = ThemeIcon()
             Else
-                ' ヘッダー上の操作pill(back/clear/lang/mode/speed)。
-                shp.Fill.ForeColor.RGB = ThemeColor("sidebarActive")
-                SetShapeTextColor shp, RGB(255, 255, 255)
+                ' ヘッダー上の操作pill(back/clear/lang/mode/speed)。R24-2b白地仕様。
+                shp.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                shp.Line.ForeColor.RGB = RGB(1, 77, 68)
+                SetShapeTextColor shp, RGB(1, 77, 68)
             End If
         ElseIf Left$(nm, 7) = "nx_act_" Then
             PaintActionButton shp, Mid$(nm, 8)
