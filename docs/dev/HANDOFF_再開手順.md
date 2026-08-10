@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R24完了時点）
+# 再開手順（セッション中断対策・最終更新: R25完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,15 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R24版で第11報)→R22(一般アシスタント3段化)のGO判断。R24H Fix波までクローズ済み。
+次: 利用者の実機検証(R25版で第12報)→**R26着手(GO受領済み・仕様書=spec_20260810_R26_知の循環_設計.md)**。R25H Fix+F5是正までクローズ済み。
+**R25(実機第11報)**: 仕様=spec_20260810_R25_実機第11報.md。
+③④RAGフリーズ根治=Excel標準のセル結合警告(複数値Merge)が原因。描画系Merge40箇所超が全て無保護だった。対策2層: modUiLock.AlertsOff/On(ネスト対応・深さカウンタ)を全描画エントリ11箇所+**RAG回答描画のWriteSafe(modUIMainShape=敵対的レビューが座標検算で特定した本丸。圧縮窓でHubバッジ結合セルが回答領域A14:H25内に入る)**へ+DrawBadges旧領域のUnMerge/Clear。パイプライン中断時の後始末(バナー消去+ロック解放+ask_abortログ)で「無言砂時計」を構造的に排除。
+①右余白=Dashラチェット(吸収列K未リセット→FitTargetのFullyVisibleWidthが前回帯幅を自己参照しSAFE_MARGIN2ptが複利)を吸収列込みリセットで根治/Hub列幅ブロックをmodChromeへ移設(容量)+M:BZ幅1(VisibleRange右端列の差し引き上限保証)/ギャラリー固定列合計815pt→411pt(Fit実効化)。shelf-table25pt下振れとFullyVisibleWidth共有ロジックは意図的に不触(チャットの完璧fit保護)。下スクロール1-2回はExcelホイール仕様限界=対応不能とユーザーへ説明済み。
+⑥バッジ16枠=死にバッジ2種修理(qa_shared_total←EmitVerifiedQA成功時/gapfill_total←EmitCorrection成功時のBump配線が存在しなかった)+新3種(thanks5/streak30/thorough10)。単一情報源(BadgeCatalog)でHub/Dash自動追随。modTestsPure24新設(16種固定+サロゲート検査。**&H8000以上の16進リテラルは&サフィックス無しでInteger負値になるVBA罠**をテスト自身が踏んでいたのを検証パスで発見・修正)。
+⑤解決事例=壊れていない(設計通り: 一般モードの解決は共有対象外・自分の投稿は自分に非表示の自作自演防止)。空状態文言に説明追記。単独PCテスト手順はspec R25末尾。
+R25H=敵対的レビューBL1+M3+m8を全消化+Fix検証パス(2周目)でF5の深さカウンタ未リセット(保護機構の恒久無効化窓)まで検出・是正。
+R25 記録のみ(次期): FullyVisibleWidthのキャップ過大(hub23pt/table25pt下振れの共通構造・実機ログuw値で再裁定)/ギャラリー最終ページのカード高(rowsNeed固定)/Hubバッジ帯16種が圧縮窓(br=3)で末尾切れ/ask_abortの早期Exit経路/AlertsOff区間内DoEventsの保存確認抑止/uw>3800pt級ウルトラワイドでのM:BZ範囲外/**modHub残4字・modKnowledge残160字=次に触る波は分割裁定必須**。
+**サブエージェント運用の教訓(R25中に確立)**: 監視信号は波の性質で選ぶ——実装波=検問コミット+ソースmtime、調査・レビュー波=トランスクリプトmtime。ただし基盤不調時はトランスクリプトファイルが更新されない偽死があり得る(検問コミットが真実)。3連続初手死亡時は司令塔が直接調査を実施した(調査・原因特定は司令塔の本務)。
 **R24(実機第10報)**: R23cで起動成功後の3件。仕様=spec_20260810_R24_実機第10報.md。
 (1)本棚ギャラリーで「引数は省略できません」=R21H F3のCompressFactor 3引数化の際にmodVaultGallery:337だけ旧式2引数のまま取り残し(LO Basicは引数数を照合しない=LO死角その2)。修正+**vba_lintに引数数照合検査を新設**(修飾呼び出し7,642件を照合・偽陽性ゼロ設計・名前付き引数6件のみスキップ)。
 (2)ボタン視認性=白枠0.75ptは実機で視認不可と判定→**白地反転**(Hub円形6個/Dash HeaderPill/Chat HeaderButton+HeaderTheme=白塗り+RGB(1,77,68)文字・枠。Knowledgeはモードタブ3個のみセグメンテッド文法=active白ベタ/inactive透明+白枠、非タブ4個は白ベタ)。
@@ -127,6 +135,10 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R25H-Fix+F5 | Sonnet | レビュー裁定9件(WriteSafe保護/Err退避/EnsureLayout保護/M:BZ/自己修復/範囲拡張/絵文字/stage/False窓)+検証パス指摘F5是正 | e45802c〜a271ff0 | 完了 |
+| R25波C | Sonnet | バッジ16枠(死に2修理+新3種)+Pure24+解決事例文言+uwログ+M:P幅1 | e3d602d〜0b87f2d | 完了 |
+| R25波B | Sonnet | 余白ラチェット根治(Dash吸収列K/Hub列幅modChrome移設/ギャラリー列幅411pt化) | 66349d7〜deee38f | 完了 |
+| R25波A | Sonnet | Merge警告フリーズ根治(AlertsOff/On層11箇所+DrawBadgesクリア+ask_abort後始末) | 1b0c265〜9424a26 | 完了 |
 | R24H-Fix | Sonnet | レビュー裁定6件(ApplyTheme上書き/クリック透過/非タブ誤適用/絵文字色/lint偽陽性2種) | 0af2a93〜eaa256b | 完了 |
 | R24波2 | Sonnet | ボタン白地化(Hub/Dash/Chat/Knowledgeタブ)+Dash下余白調査(未修正・実機ログ待ち) | e22f9dd〜2293eb0 | 完了 |
 | R24波1 | Opus | CompressFactor取り残し修正+vba_lint引数数照合検査(7,642件) | 20e0fca〜4cab916 | 完了 |
