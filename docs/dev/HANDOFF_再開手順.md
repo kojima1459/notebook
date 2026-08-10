@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R23完了時点）
+# 再開手順（セッション中断対策・最終更新: R23b完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,10 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R23版で第10報)→R22(一般アシスタント3段化)のGO判断。R23H Fix波までクローズ済み。
+次: 利用者の実機検証(R23b版で第10報)→R22(一般アシスタント3段化)のGO判断。R23bH Fix波までクローズ済み。
+**R23b(実機第9報の再発対応)**: R23配布後もユーザー実機で同一コンパイルエラーが再報告された(旧破損ファイル開き直しか部分注入の再発かは未確定)。敵対的レビューMA-3(部分注入=AddFromString途中切れはCountOfLines>=1で素通り)を根治: modInstallCheck新設(src/core・非凍結・136本目)。ビルド時にvba_srcのD列へ期待行数(Long)を焼き込み(_expected_line_count、_make_vba_srcと_verify_vba_src_bodiesが同一関数を使用)、起動時にVI()が全モジュールのCodeModule実測行数(末尾空行トリム)とD列を突合。不一致ならモジュール名を日本語ダイアログで提示し、インストーラ側でf計上→Save絶対禁止。インストーラからは`f = f + Application.Run("modInstallCheck.VI")`の1行(Run失敗=modInstallCheck自体の注入失敗やコンパイル不能もErr経由でf計上=**事実上の全体コンパイル検問**)。インストーラ圧縮後1,137B/1,148B(残11B)。README刷新(旧xlsm削除必須・Setup NG時はダイアログ2枚→保存せず閉じて開き直し)。テスト2,012件PASS。
+R23b 記録のみ(次期): 無修飾Application.Run 4箇所目(modInstallCheck.VI)は失敗時に起動を落とす側なので昇格リスク(次回スケルトン差し替え時に一括ブック名修飾)/f>0時のマクロ無効ガードシート文言とMsgBoxの食い違い/「わざと1本壊したdevビルド」での実機スモーク推奨(Application.Runの全体コンパイル誘発効果の実証)/C列破損偽陰性はD列化で解消済み。
+**実機第10報の読み方**: (1)エラー無く開けた→根治成功 (2)「セットアップ検証NG: モジュール名」→部分注入がその機で実在する証拠。モジュール名がログ代わりになる。保存せず閉じて開き直しで自己回復 (3)R23と同じVBEコンパイルエラーがまた出た→ほぼ確実に旧破損ファイルを開いている(新版はSave前に必ず検問される構造のため)。ファイルサイズとconfig!build_stampで版を確認。
 R23H 記録のみ(次期): 部分注入検出(AddFromStringが途中で切れた場合はCountOfLines>=1で素通り。根治はmodBoot側検証関数が必要だがmodBoot凍結+インストーラ残6Bのため見送り=MA-3)/インストーラのn=CStr()失敗時の無通知終了(Done直行・既存経路)/信頼設定エラー時のf=135無限リトライ誘導文言/MsgBox不能環境の完全無通知/ペイロード先頭"="の数式解釈リスク(現状該当0本・_make_vba_src側で弾く1行が候補)/modKnowledge Pillのactive=白塗り+白枠=枠不可視(視認性の害なしと裁定済み)。
 **R23の実機で最重要**: 開いて「Setup incomplete (N). Close WITHOUT saving...」が出た場合は保存せず閉じて開き直し(ファイルのペイロードは無傷=開き直しで全量再試行)。エラー無く開けたらコンパイルエラー消滅とヘッダーボタンの白枠線、右余白の有無を確認。
 R21H 記録のみ(次期): F6の塗り/境界分離はdash/knowledge系のみ適用(modHub残364字等の逼迫でHub/チャット/modVault/modUIMainは未展開・次期追随)/**modHub(残364)・modChunker(残72)・modUIShelf(残773)は次に触る前に分割裁定必須**/俯瞰pickの連結キー截断リスク(BudgetTakeで章キーが切れると照合不能・無言退避)/LogFitのusage_log肥大(4000字リセット後の再記録)/CoalesceSmallChaptersの最終章連結キーがUI露出/SparseBoost無上限の設計見直し(検索品質側)/無言失敗の全数監査(次ラウンド独立項目・ユーザー指示)。
@@ -116,6 +119,8 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R23bH-Fix | Sonnet | レビュー裁定(D列期待行数焼き込み=実行時再読込全廃/README2枚表記/テストPrivate化/先頭空行ガード) | 1599856〜8ead794 | 完了 |
+| R23b | Opus×2 | 部分注入検出modInstallCheck新設+インストーラVI呼出+テスト+README刷新(初回投入は途中死亡→検問から再開) | 8e3b058〜4420dd5 | 完了 |
 | R23H-Fix | Sonnet | レビュー裁定(Saved=True/CountOfLines例外計上/sidebarActive全戻し+テスト強化/CRLF正規化/検査スキップ黙殺防止) | 703143a〜b187bc3 | 完了 |
 | R23波B | Sonnet | ②ヘッダーボタン白枠線(4画面5箇所)+sidebarActive明度(→Fix波で撤回) | 3a521d7〜27f7e4c | 完了 |
 | R23波A | Opus | ①インストーラ失敗検出(1a/1b)+verify_buildペイロード本文一致検査(1c) | 314d725〜09ded26 | 完了 |
