@@ -83,8 +83,6 @@ Private Sub TestNewBadgeConditionsMentionThreshold()
     If idxThanks >= 0 Then
         modTestRunner.Check "R25-3_境界_thanks5条件文=『感謝を5件受け取ると獲得』", _
             (InStr(conds(idxThanks), "5") > 0), "cond=" & conds(idxThanks)
-        modTestRunner.Check "R25-3_境界_thanks5タイトルに絵文字接頭辞がある", _
-            (Left$(titles(idxThanks), 1) = ChrW(&HD83D)), "title=" & titles(idxThanks)
     End If
 
     modTestRunner.Check "R25-3_境界_streak30の条件文に閾値30が入っている", _
@@ -100,6 +98,25 @@ Private Sub TestNewBadgeConditionsMentionThreshold()
         modTestRunner.Check "R25-3_境界_thorough10条件文に『10』が入っている(9/10の境界を表す数字)", _
             (InStr(conds(idxThorough), "10") > 0), "cond=" & conds(idxThorough)
     End If
+End Sub
+
+' F7(m-5): バッジ絵文字二重の是正。旧チェックは新3種の先頭だけを見ていたが、
+' 本来固定すべきは「長い名前(titles)に絵文字を含まない」という表全体の
+' 意匠統一(modHub.DrawBadges/modDash側が既に🏅/🔒を前置するため、titles
+' 自身にも絵文字があると二重表示になる)。全16種を対象に、サロゲートペア
+' (絵文字はUTF-16で上位D800-DBFF+下位DC00-DFFFの2コードから成る)の
+' 有無で判定する。
+Private Sub TestBadgeTitlesHaveNoSurrogate24()
+    Dim ids() As String, titles() As String, shorts() As String, conds() As String
+    Dim n As Long
+    n = modStats.BadgeCatalog(ids, titles, shorts, conds)
+
+    Dim i As Long, badN As Long
+    For i = LBound(titles) To UBound(titles)
+        If ContainsSurrogate24(titles(i)) Then badN = badN + 1
+    Next i
+    modTestRunner.Check "R25-3_バッジ表_長い名前16種に絵文字(サロゲート)を含まない", _
+        (badN = 0), "badN=" & badN
 End Sub
 
 Private Function BadgeIdExists24(ByRef ids() As String, ByVal target As String) As Boolean
@@ -123,6 +140,20 @@ Private Function IndexOf24(ByRef ids() As String, ByVal target As String) As Lon
     Next i
 End Function
 
+' サロゲートペア(絵文字)の有無を判定する。AscWは符号付きLongを返すため
+' 負値(&H8000以上)を補正してから上位/下位サロゲート範囲と比較する。
+Private Function ContainsSurrogate24(ByVal s As String) As Boolean
+    Dim i As Long, c As Long
+    For i = 1 To Len(s)
+        c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536
+        If c >= &HD800 And c <= &HDFFF Then
+            ContainsSurrogate24 = True
+            Exit Function
+        End If
+    Next i
+End Function
+
 ' ============================================================================
 Public Sub RunAll24()
     On Error GoTo Count16Fail24
@@ -136,6 +167,9 @@ NextNoDup24:
 NextThreshold24:
     On Error GoTo ThresholdFail24
     TestNewBadgeConditionsMentionThreshold
+NextNoEmoji24:
+    On Error GoTo NoEmojiFail24
+    TestBadgeTitlesHaveNoSurrogate24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -154,6 +188,10 @@ NoDupFail24:
     Resume NextThreshold24
 ThresholdFail24:
     modTestRunner.Check "TestNewBadgeConditionsMentionThreshold(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextNoEmoji24
+NoEmojiFail24:
+    modTestRunner.Check "TestBadgeTitlesHaveNoSurrogate24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub

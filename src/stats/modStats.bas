@@ -273,12 +273,12 @@ Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
     ids = Split("welcome,first_ingest,shelf10,shelf30,first_pack_out,first_pack_in," & _
                 "solve10,solve50,streak7,fb10,fb50,qa_share10,gapfill," & _
                 "thanks5,streak30,thorough10", ",")
+    ' F7(m-5): 新3種の長い名前(titles)は絵文字なしにする(Dashで🏅/🔒と
+    ' 二重に絵文字が付くのを避け、既存13種と意匠を統一)。
     titles = Split("はじめの一歩(名前を登録した),初めての取込,本棚10冊,本棚30冊,初パック共有,初パック取込," & _
                    "自己解決10件,自己解決50件,7日連続利用," & _
                    "フィードバック名人,フィードバックキング,知恵の配り手,穴埋め職人," & _
-                   ChrW(&HD83D) & ChrW(&HDE4F) & " 感謝を集めた," & _
-                   ChrW(&HD83D) & ChrW(&HDD25) & " 継続は力なり," & _
-                   ChrW(&HD83E) & ChrW(&HDDE0) & " 入念の匠", ",")
+                   "感謝を集めた,継続は力なり,入念の匠", ",")
     shortTitles = Split("はじめの一歩,初取込,本棚10冊,本棚30冊,初パック出力,初パック取込," & _
                         "自己解決10,自己解決50,7日連続," & _
                         "修正10件,修正50件,Q&A共有10,穴埋め," & _
