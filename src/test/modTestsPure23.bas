@@ -4,6 +4,8 @@ Option Explicit
 ' ============================================================================
 ' modTestsPure23 - R21-3(章検出の根治と俯瞰の復旧・実機第8報②)の純ロジック
 '   ゴールデン。入口は modTestsPure22.RunAll22 の末尾から呼ばれる RunAll23。
+'   末尾で R25-3(バッジ16枠化・実機第11報⑥)の modTestsPure24.RunAll24 へ繋ぐ
+'   (2026-08-10)。
 ' ----------------------------------------------------------------------------
 ' 仕様書(docs/dev/spec_20260807_R21_実機第8報.md)§E3の題材1〜4を実装する:
 '   題材1: 目次+A/B/C章立て最小資料 → 目次行が独立章にならない/
@@ -525,6 +527,9 @@ NextSidebarActive23:
 NextInstallCheck23:
     On Error GoTo InstallCheckFail23
     TestInstallCheckLineCount
+NextRun24:
+    On Error GoTo Run24Fail23
+    modTestsPure24.RunAll24
 NextDone23:
     On Error GoTo 0
     Exit Sub
@@ -571,6 +576,10 @@ SidebarActiveFail23:
     Resume NextInstallCheck23
 InstallCheckFail23:
     modTestRunner.Check "TestInstallCheckLineCount(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun24
+Run24Fail23:
+    modTestRunner.Check "modTestsPure24.RunAll24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone23
 End Sub

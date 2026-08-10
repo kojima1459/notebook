@@ -480,6 +480,13 @@ PURE_ALLOWLIST = [
     #   検出の境界(末尾空行1本の揺れは一致・1行不足は不一致)が
     #   「テストを書いても走らない」状態になる。
     "modInstallCheck",
+    # modTestsPure24(2026-08-10 R25-3・実機第11報⑥): バッジ16枠化の
+    #   純ロジック回帰。modTestsPure23.RunAll23 の末尾が RunAll24 を呼ぶため、
+    #   未注入だと実行時エラー12でR25-3のゴールデンが1件も走らない
+    #   (19〜23と同型)。テストが呼ぶのは modStats.BadgeCatalog のみで、
+    #   modStats は既にこの一覧に登録済み(BadgeCatalog自体もWorksheetに
+    #   触れない純関数)。
+    "modTestsPure24",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

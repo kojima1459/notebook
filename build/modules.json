@@ -1009,6 +1009,14 @@
       "note": "R21-3(実機第8報②・章検出の根治と俯瞰の復旧)の純ロジックゴールデン。modTestsPure22(7,000字弱)は主題(余白の物理)がR21-3(章検出)と異なるため新設(憲章§4-6)。題材1(目次+A/B/C最小資料・目次行が独立章にならない)/題材2(小見出し過多の2パス縮退+境界60章/61章)/題材3(ChapterKeyOfの表記ゆれ正規化)/題材4(Backfill射程=MetaOfの決定論性でbreadcrumb不変を裏付け)+E1(ClassifyLineの#階層判定/LooksLikeTocPage)を固定する。modTestsPure22.RunAll22末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure24",
+      "path": "src/test/modTestsPure24.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R25-3",
+      "note": "R25-3(実機第11報⑥・バッジ16枠化)の純ロジック回帰。qa_share10/gapfillの加算配線(modInsightIo)修理と新規3種(thanks5/streak30/thorough10)追加により13+3=16(ダッシュ4x4がちょうど埋まる)。BadgeCatalog件数=16固定・新3種+修理2種のid存在・id重複なし・新3種の条件文が閾値の数字と矛盾しないことを固定する。EvaluateBadges本体はGetStat経由でWorksheetに触れるためPureテストの対象外(BadgeCatalog側の純関数だけを検証)。modTestsPure23.RunAll23末尾から呼ばれる。2026-08-06 R20H FA-1の教訓によりmodules.json登録を本追加時に行う。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",
