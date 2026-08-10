@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/user/notebook 2>/dev/null && if git status --porcelain 2>/dev/null | grep -q 'src/.*\\.bas'; then python3 tools/vba_lint.py --path src 2>&1 | tail -2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
