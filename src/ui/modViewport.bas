@@ -582,10 +582,24 @@ Public Sub ViewportRefitTick()
         Exit Sub
     End If
     If act <> "run" Then Exit Sub
+    ' 2026-08-10(R27波3-2): ここから先の組み直しは【全アクションの関所】である
+    ' modUiLock の内側で行う。mRefitRunning が止められるのは再フィット同士の
+    ' 入れ子だけで、RefitActiveScreen(=Repaint/EnsureHubLayout)の中の DoEvents
+    ' で押されたボタン(OnAction)が描画の途中から入れ子で走る窓が残っていた
+    ' (窓リサイズ起点の入れ子再描画)。Enter を取っておけば、その OnAction 側が
+    ' 先頭の Enter で弾かれる。
+    ' Enter を【判定の後】に置く理由: 手続きの先頭で取ると直上の Busy3 が
+    ' 自分自身のロックを busy と読んでしまい、再フィットが二度と走らない。
+    ' さらに busy 時の作法は「1回だけ待ち直す」(schedule)であって拒否ではなく、
+    ' そこを Enter の拒否に替えると、押してもいない拒否トーストが取込中に湧く。
+    ' ここまで来た時点で3情報源とも busy でないことは判定済みで、Enter は
+    ' 判定との隙間で誰かが取った場合の取りこぼしだけを拾う。
+    If Not modUiLock.Enter() Then Exit Sub
     mRefitWaited = False
     mRefitRunning = True
     RefitActiveScreen
     mRefitRunning = False
+    modUiLock.Leave
     On Error GoTo 0
 End Sub
 

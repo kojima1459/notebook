@@ -42,6 +42,11 @@ Option Explicit
 Private Const MIG_META As String = "mig_meta"
 Private Const MIG_FORMAT_VERSION As Long = 1
 
+' 2026-08-10(R27波3-4): 保護されたブックを掴んでもパスワード入力ダイアログを
+' 出さないためのダミー(modExtractorExcel と同型)。正しいはずがないので、
+' 保護されていれば即エラーになり Failed 経路で扱える。
+Private Const DUMMY_PASSWORD As String = "__mybookshelf_no_password__"
+
 ' 引き継がない config キー(ビルドが決める値・秘密)。
 ' 前方一致で判定するので azure_embed_key / azure_embed_url は "azure_" で拾う。
 Private Const CFG_SKIP_EXACT As String = "|mock_llm|build_stamp|publish_key|"
@@ -204,17 +209,32 @@ Public Sub ImportUserData()
     Application.Cursor = 2
     Application.StatusBar = "引き継ぎファイルを読み込んでいます..."
 
+    ' 2026-08-10(R27波3-4): 書き出し側(ExportUserData:110-132)と対称に
+    ' DisplayAlerts を退避して落とす。読み込み側はこれまで素通しで、
+    ' (a)開く時のパスワード/読み取り推奨/リンク更新のダイアログ
+    ' (b)RestoreSheet のシート差し替えで出る確認
+    ' がモーダルで出得た。引き継ぎは「新しい版を開いた直後」に行う操作なので、
+    ' ここで止まると利用者は【最初の一手で固まった】としか受け取れない。
+    Dim prevAlerts As Boolean: prevAlerts = Application.DisplayAlerts
     Dim prevScreen As Boolean: prevScreen = Application.ScreenUpdating
+    Application.DisplayAlerts = False
     Application.ScreenUpdating = False
 
+    ' ダミーPassword/IgnoreReadOnlyRecommended は modExtractorExcel:181-186 と
+    ' 同型。保護されたファイルを選ばれても入力を求めず即エラーへ倒す
+    ' (ここは他人から受け取ったファイルを開く経路なので必ず要る)。
     Dim wb As Workbook
     Set wb = Application.Workbooks.Open(Filename:=CStr(fd.SelectedItems(1)), _
-                                        ReadOnly:=True, UpdateLinks:=0)
+                                        ReadOnly:=True, UpdateLinks:=0, _
+                                        IgnoreReadOnlyRecommended:=True, AddToMru:=False, _
+                                        Password:=DUMMY_PASSWORD, _
+                                        WriteResPassword:=DUMMY_PASSWORD)
 
     Dim reason As String
     If Not ValidateMigFile(wb, reason) Then
         wb.Close SaveChanges:=False
         Set wb = Nothing
+        Application.DisplayAlerts = prevAlerts
         Application.ScreenUpdating = prevScreen
         Application.Cursor = -4143
         Application.StatusBar = False
@@ -236,6 +256,7 @@ Public Sub ImportUserData()
 
     wb.Close SaveChanges:=False
     Set wb = Nothing
+    Application.DisplayAlerts = prevAlerts
     Application.ScreenUpdating = prevScreen
     Application.Cursor = -4143
     Application.StatusBar = False
@@ -258,7 +279,13 @@ Public Sub ImportUserData()
                "画面を描き直すため、一度閉じて開き直してください。", _
                vbInformation, modAppDef.APP_NAME
     Else
-        MsgBox "一部復元できませんでした。元のファイルは残っています。" & vbCrLf & _
+        ' 2026-08-10(R27波3-12): 「元のファイル」は選んだ引き継ぎファイルの
+        ' ことなのに、「この本棚は元のまま(無事)」と読める文だった。実際は
+        ' 本棚の3シートを1枚ずつ置換していく途中で失敗しているので、この本棚は
+        ' 既に入れ替わりかけている。何が残っていて何が変わり得たかを分けて言う。
+        MsgBox "一部復元できませんでした。" & vbCrLf & _
+               "引き継ぎ元のファイルは残っています" & vbCrLf & _
+               "(この本棚の一部は入れ替わった可能性があります)。" & vbCrLf & _
                "もう一度お試しください。" & vbCrLf & vbCrLf & _
                "いま入っているのは 本棚: " & got & " 件 です。" & vbCrLf & _
                "続けて同じ結果になるときは、診断ボタンの" & vbCrLf & _
@@ -282,6 +309,7 @@ Failed:
 FailedCleanup1:
     On Error Resume Next
     If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    Application.DisplayAlerts = True
     Application.ScreenUpdating = True
     Application.Cursor = -4143
     Application.StatusBar = False

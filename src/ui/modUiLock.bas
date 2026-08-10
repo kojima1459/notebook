@@ -59,8 +59,12 @@ Public Function Enter() As Boolean
             Enter = False
             ' 押しても無反応、では利用者は壊れたと判断する。何が起きているかは
             ' 一言でも返す(StatusBar は Nexus 画面では隠れているためトースト)。
+            ' 2026-08-10(R27波3-1): 第3引数 waitless=True。ここは【拒否】の一言で
+            ' あり、待たせる意味が無いどころか害になる。既定(False)だと1.1秒
+            ' ToastWaitでDoEventsを回すため、連打すると「拒否の待ち」が重なって
+            ' 前の処理が終わっても押した数だけ固まって見える(連打→固まる連鎖)。
             On Error Resume Next
-            modSkin.ShowToast "まだ前の処理が動いています。少しお待ちください。", "info"
+            modSkin.ShowToast "まだ前の処理が動いています。少しお待ちください。", "info", True
             On Error GoTo 0
             Exit Function
         End If

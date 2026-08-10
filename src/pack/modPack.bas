@@ -27,6 +27,11 @@ Private Const COL_FULLTEXT As Long = 7
 Private Const COL_ADDED As Long = 8
 Private Const COL_EMBEDDED As Long = 9
 
+' 2026-08-10(R27波3-3): 暗号化/書き込みパスワード付きのファイルを掴んでも
+' パスワード入力ダイアログを出さないためのダミー(modExtractorExcel と同型)。
+' 正しいはずがないので、保護されていれば即エラーになり E0701 として扱える。
+Private Const DUMMY_PASSWORD As String = "__mybookshelf_no_password__"
+
 
 ' ImportPackDialog - ファイル選択→ValidatePack→重複(fnvハッシュ)スキップ
 '   しつつmy_knowledge/my_vectorsへ取込。origin="pack:"&作成者。
@@ -73,8 +78,29 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     Dim prevScreen As Boolean: prevScreen = Application.ScreenUpdating
     Application.ScreenUpdating = False
 
+    ' 2026-08-10(R27波3-3): Open の周りを DisplayAlerts=False で挟む。
+    ' ここは部門チャンネルの自動同期(起動直後・無人)からも通る経路で、
+    ' 掴んだ .xlsx がパスワード付き/読み取り推奨/リンク更新ありだと、
+    ' Excel は【モーダルダイアログ】を出して待つ。誰も見ていない起動処理が
+    ' そこで止まると、利用者には「開いた瞬間に固まった」としか見えない
+    ' (実機で踏み抜いた modExtractorExcel:181-186 と同じ機序)。
+    ' ダミーPassword/WriteResPassword と IgnoreReadOnlyRecommended で
+    ' 「入力を求めない=即エラーにして E0701 として扱う」形に揃える。
+    ' modUiLock.AlertsOff/On は UI層のため機能層からは呼べない(R1)。
+    ' 同層 modMigrate.ExportUserData(:110-132)と同じ素の退避/復元にする。
+    ' modExtractorExcel にある「引数なしでの再試行」はここでは採らない。
+    ' パックは自作の .xlsx で保護されていないのが前提であり、再試行を置くと
+    ' 保護されたファイルを掴んだときに2回目でダイアログが出る=直したはずの
+    ' 事故がそのまま戻る。開けない場合は E0701 として黙って倒す。
+    Dim prevAlerts As Boolean: prevAlerts = Application.DisplayAlerts
+    Application.DisplayAlerts = False
+
     On Error GoTo OpenFail
-    Set wb = Application.Workbooks.Open(Filename:=packPath, ReadOnly:=True, UpdateLinks:=0)
+    Set wb = Application.Workbooks.Open( _
+        Filename:=packPath, ReadOnly:=True, UpdateLinks:=0, _
+        IgnoreReadOnlyRecommended:=True, AddToMru:=False, _
+        Password:=DUMMY_PASSWORD, WriteResPassword:=DUMMY_PASSWORD)
+    Application.DisplayAlerts = prevAlerts
     On Error GoTo LoadFailed
 
     Dim reason As String
@@ -203,9 +229,13 @@ LoadFailedCleanup1:
     Exit Function
 
 OpenFail:
+    ' Err はハンドラを解いた時点で消える。後始末より先に退避する
+    ' (modMigrate/modHub と同じ作法。従来は空文字を記録していた)。
+    Dim openDesc As String: openDesc = Err.Description
     On Error GoTo 0
+    Application.DisplayAlerts = prevAlerts
     Application.ScreenUpdating = prevScreen
-    modLog.LogError "E0701", "modPack.ImportPackFile", "ファイルを開けません: " & Err.Description
+    modLog.LogError "E0701", "modPack.ImportPackFile", "ファイルを開けません: " & openDesc
     If Not silent Then
         MsgBox "パックファイルを開けませんでした。" & vbLf & _
             "壊れたファイルでないか、パスに間違いがないか確認してください。" & vbLf & "(コード: E0701)", _
