@@ -759,7 +759,8 @@ Public Sub OnFooterPortal()
 
     Dim opened As Boolean: opened = True
     On Error Resume Next
-    modSkin.ShowToast "ブラウザで社内ポータルを開きます(確認画面が出たら[はい])。", "info"
+    ' R27波3-14: waitless(直後に出る確認画面の予告。待たせる文ではない)。
+    modSkin.ShowToast "ブラウザで社内ポータルを開きます(確認画面が出たら[はい])。", "info", True
     ThisWorkbook.FollowHyperlink PORTAL_URL
     If Err.Number <> 0 Then opened = False
     Err.Clear

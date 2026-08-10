@@ -144,7 +144,7 @@ Public Sub OnAskExpert()
         modLog.LogUsage "mentor_ask", "", "to=" & mExpert & " q=" & modUtil.SafeLeft(q, 120)
         On Error GoTo Done
     Else
-        modSkin.ShowToast "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。", "error"
+        modSkin.ShowToast SendFailText(), "error"   ' R27波3-10: 原因に応じた文言
     End If
 Done:
     LogMentorFail "modMentor.OnAskExpert"
@@ -182,7 +182,12 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
         fn = Dir()
     Loop
 
-    ' 2) 読取り→nonce重複排除→バブル表示(最大3件。以降は件数のみ)→GC
+    ' 2) 読取り→nonce重複排除→バブル表示(最大3件)→表示できた分だけGC
+    ' 2026-08-10(R27波3-11): 従来は【表示しなかった4件目以降も】nonceを
+    ' 立ててファイルを消していた。同僚が送った質問が、こちらの画面に一度も
+    ' 出ないまま共有フォルダから永久に消える(送った側は届いたと思っている)。
+    ' 4件目以降は何も記録せずファイルも残し、次回の起動で改めて表示する。
+    ' 件数(newCount)は残した分も数える=「N件届いています」は嘘にならない。
     Dim newCount As Long: newCount = 0
     Dim shown As Long: shown = 0
     Dim i As Long
@@ -194,11 +199,11 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
             If UBound(f) >= 5 Then
                 If StrComp(f(2), myId, vbTextCompare) = 0 Then
                     If modStats.GetStat("mq:" & f(0)) = 0 Then
-                        modStats.Bump "mq:" & f(0)
                         newCount = newCount + 1
-                        mLastAsker = f(1)   ' 返信ボタンの宛先(最後に受けた質問の差出人)
                         If shown < 3 Then
                             shown = shown + 1
+                            modStats.Bump "mq:" & f(0)
+                            mLastAsker = f(1)   ' 返信ボタンの宛先(最後に表示した質問の差出人)
                             On Error Resume Next
                             modUI.AddChatBubble "ai", _
                                 ChrW(&HD83D) & ChrW(&HDCEE) & " " & f(1) & " さんからあなた宛の質問が届いています。" & vbLf & _
@@ -206,9 +211,11 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
                                 "(関連資料: " & modUtil.SafeLeft(f(4), 60) & " / " & f(5) & ")"
                             modLog.LogUsage "mentor_recv", "", "from=" & f(1) & " q=" & modUtil.SafeLeft(f(3), 120)
                             On Error GoTo Done
+                            KillWithRetry full   ' 表示できた分だけGC
                         End If
+                    Else
+                        KillWithRetry full   ' 既知(=過去に表示済み)はGC
                     End If
-                    KillWithRetry full   ' 処理済み(既知含む)はGC。nonceで二重表示は防止済み
                 End If
             End If
         End If
@@ -284,7 +291,7 @@ Public Sub OnReplyQuestion()
         modLog.LogUsage "mentor_reply", "", "to=" & mLastAsker
         On Error GoTo Done
     Else
-        modSkin.ShowToast "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。", "error"
+        modSkin.ShowToast SendFailText(), "error"   ' R27波3-10: 原因に応じた文言
     End If
 Done:
     LogMentorFail "modMentor.OnReplyQuestion"
@@ -379,7 +386,15 @@ Private Function SendQuestion(ByVal expert As String, ByVal q As String, _
     ' Done: へ飛んで「送信できませんでした」だけが出て、原因が何も残らない。
     On Error GoTo Fail
     Dim folderPath As String: folderPath = QuestionsDir()
-    If LenB(folderPath) = 0 Then Exit Function
+    If LenB(folderPath) = 0 Then
+        ' 2026-08-10(R27波3-10): 共有フォルダが未設定(または未到達)。ここだけは
+        ' 「失敗した理由が分かっている」唯一の分岐なのに、痕跡も残さず False を
+        ' 返していたため、呼び出し元は原因の違う「ネットワーク接続を確認して」
+        ' しか言えなかった。設定さえすれば直る人に、直せない案内を出さない。
+        LogMentorErr "modMentor(SendQuestion)", 0, _
+            "共有フォルダが未設定または未到達のため質問を送れませんでした"
+        Exit Function
+    End If
     On Error Resume Next
     If Len(Dir(folderPath, vbDirectory)) = 0 Then MkDir folderPath
     On Error GoTo 0
@@ -441,6 +456,19 @@ End Sub
 ' 到達判定とルート解決は modShare だけが行う(modShare 冒頭「唯一性の原則」)。
 Private Function QuestionsDir() As String
     QuestionsDir = modShare.SubDir(QUESTIONS_SUBDIR)
+End Function
+
+' SendFailText - 送信に失敗したときに出す一文(2026-08-10 R27波3-10)。
+'   共有フォルダが未設定・未到達なら、いくら通信を確かめても直らない。
+'   実際に辿れる導線(❓ヘルプ →「⚙ 共有フォルダ設定」)を名指しで示す。
+'   OnAskExpert/OnReplyQuestion の両方から同じ文を出す(2箇所で分岐を持たない)。
+Private Function SendFailText() As String
+    If LenB(QuestionsDir()) = 0 Then
+        SendFailText = "共有フォルダが未設定です。" & ChrW(&H2753) & _
+            "ヘルプの共有フォルダ設定から登録してください。"
+    Else
+        SendFailText = "送信できませんでした。ネットワーク接続を確認して、もう一度お試しください。"
+    End If
 End Function
 
 ' AVロック(エラー70等)に耐える書込みリトライ。modP2Pと同仕様の自前実装

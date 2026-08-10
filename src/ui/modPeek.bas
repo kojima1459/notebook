@@ -347,7 +347,11 @@ Public Sub OnOpenSource()
 
     Dim ok As Boolean: ok = True
     On Error Resume Next
-    modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
+    ' 2026-08-10(R27波3-14): waitless:=True。この一言は【この直後に出る
+    ' Officeの確認画面】の予告であって、読ませるために待たせる文ではない。
+    ' 既定のままだと 1.1 秒ぶん確認画面の到着が遅れ、その待ちの DoEvents 中に
+    ' 別のクリックが割り込む窓も開く。描いたらすぐ開きにいく。
+    modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info", True
     ThisWorkbook.FollowHyperlink target
     If Err.Number <> 0 Then ok = False
     Err.Clear

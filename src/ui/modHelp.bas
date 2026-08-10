@@ -405,7 +405,8 @@ Public Sub OnFeedback()
     On Error Resume Next
     Dim mailUrl As String: mailUrl = FeedbackMailto()
     If LenB(mailUrl) > 0 Then
-        modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
+        ' R27波3-14: waitless(直後に出る確認画面の予告。待たせる文ではない)。
+        modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info", True
         ThisWorkbook.FollowHyperlink mailUrl
     End If
     On Error GoTo Done

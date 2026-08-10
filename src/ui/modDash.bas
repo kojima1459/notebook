@@ -96,6 +96,12 @@ Public Sub ShowDashboard()
         modUI.RestoreExcelUI
     End If
 
+    ' 2026-08-10(R27波3-15): 画面表示の記録(hub/chat/knowledge と同型の1行)。
+    ' dashだけ配線が無く、利用状況の「dash=0」が恒久的に嘘をついていた。
+    On Error Resume Next
+    modTelemetry.TrackScreen "dash"
+    On Error GoTo Fail
+
     Dim vw0 As Double, vh0 As Double
     modViewport2.MarkView vw0, vh0
     modUiLock.AlertsOff   ' R25-1a-1: DrawDashboard内のMerge警告を出さない(対はAlertsOn)
