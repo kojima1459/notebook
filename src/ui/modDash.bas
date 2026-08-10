@@ -402,17 +402,18 @@ Private Sub HeaderPill(ByVal ws As Worksheet, ByVal shapeName As String, _
     If btn Is Nothing Then Exit Sub
     btn.Name = shapeName
     btn.Adjustments(1) = 0.35
+    ' R24-2b: 白枠0.75ptは視認不可と実機判定。塗り白+濃緑文字+濃緑枠へ反転。
     btn.Line.Visible = -1
-    btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+    btn.Line.ForeColor.RGB = RGB(1, 77, 68)
     btn.Line.Weight = 0.75
     btn.Shadow.Visible = 0
-    btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+    btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     With btn.TextFrame2
         .WordWrap = -1
         .TextRange.Text = caption
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(1, 77, 68)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0

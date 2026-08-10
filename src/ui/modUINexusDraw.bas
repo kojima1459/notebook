@@ -345,15 +345,16 @@ Private Sub HeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, _
     btn.Name = shapeName
     btn.Placement = 3          ' 行1の高さを後から変えてもピルは動かさない
     btn.Adjustments(1) = 0.35
+    ' R24-2b: 白枠0.75ptは視認不可と実機判定。塗り白+濃緑文字+濃緑枠へ反転。
     btn.Line.Visible = -1
-    btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+    btn.Line.ForeColor.RGB = RGB(1, 77, 68)
     btn.Line.Weight = 0.75
-    btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+    btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
     With btn.TextFrame2
         .TextRange.Text = caption
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(1, 77, 68)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
@@ -369,14 +370,15 @@ Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double, ByVal y As Dou
     If th Is Nothing Then Exit Sub
     th.Name = "nx_top_theme"
     th.Placement = 3           ' 行1の高さを後から変えても動かさない
+    ' R24-2b: 白枠0.75ptは視認不可と実機判定。塗り白+濃緑文字+濃緑枠へ反転。
     th.Line.Visible = -1
-    th.Line.ForeColor.RGB = RGB(255, 255, 255)
+    th.Line.ForeColor.RGB = RGB(1, 77, 68)
     th.Line.Weight = 0.75
-    th.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+    th.Fill.ForeColor.RGB = RGB(255, 255, 255)
     With th.TextFrame2
         .TextRange.Text = modSkin.ThemeIcon()
         .TextRange.Font.Size = 11
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(1, 77, 68)
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
