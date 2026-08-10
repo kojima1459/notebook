@@ -380,6 +380,65 @@ Public Function GarbledRouteCode(ByVal ext As String, ByVal allGarbled As Boolea
     If LCase$(Trim$(ext)) = "pdf" Then GarbledRouteCode = "E0303"
 End Function
 
+' ----------------------------------------------------------------------------
+' GarbleRatio - 化け文字の比率(0.0〜1.0)。空白は数えない。
+' ----------------------------------------------------------------------------
+' 2026-08-10(R27 F1-4・実機第12報③): modExtractorPdf から移設し、2つの
+' 誤爆を塞いだ(あちらは30,000字上限まで残りが少なく、この修正が入らない)。
+' 呼び出し元は modExtractorPdf.DropGarbledPages 1箇所だけ(全grep確認済み)。
+'
+' 誤爆(1) AscW の符号: VBAの AscW は U+8000 以降を【負値】で返す。旧実装は
+'   その負値をそのまま「c < 32 = 制御文字」の判定に掛けていたため、
+'   U+8000〜U+9FFF に住む常用漢字(険・関・金・通・者・除・認・説・語…)が
+'   まるごと化け文字として数えられていた。実測: 約款風の日本語文166字で
+'   13.3% が誤って bad に入る(閾値0.2の3分の2を、正しい日本語だけで使い
+'   切っている状態)。modSparse.NormalizeForSearch と同じ補正を入れる。
+' 誤爆(2) Word の構造制御文字: .doc/.docx の本文には、表のセル終端 Chr(7)、
+'   改行 Chr(11)、改ページ Chr(12)、段区切り Chr(14)、フィールド Chr(19)(20)(21)、
+'   図表アンカー Chr(1)、脚注参照 Chr(2)、コメント参照 Chr(5)、ハイフン
+'   Chr(30)(31) が【正常な本文として】混ざる。表が多い規程ほどこの比率が
+'   上がるため、表組みの .doc が丸ごと「化け」と判定されていた。これらは
+'   文字化けの証拠ではなく Word の構造なので、分子からも分母からも外す
+'   (分母に残すと「表が多いほど化け比率が下がる」という別の歪みが出る)。
+' 本当の化け(ギリシャ/キリルの羅列・ToUnicodeマップ無しの埋め込みフォント)は
+' 従来どおり検出する。
+Public Function GarbleRatio(ByVal s As String) As Double
+    Dim bad As Long, tot As Long
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim c As Long: c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536          ' AscWの符号付き戻りを補正
+        If c = 32 Or c = 9 Or c = 10 Or c = 13 Or c = &H3000 Then
+            ' 空白類は分母に入れない
+        ElseIf IsWordStructControl(c) Then
+            ' Wordの構造制御文字は分母にも分子にも入れない
+        Else
+            tot = tot + 1
+            If c < 32 Then
+                bad = bad + 1                        ' 制御文字
+            ElseIf c >= &H370 And c <= &H3FF Then
+                bad = bad + 1                        ' ギリシャ文字
+            ElseIf c >= &H400 And c <= &H52F Then
+                bad = bad + 1                        ' キリル文字
+            End If
+        End If
+    Next i
+    If tot > 0 Then GarbleRatio = bad / tot
+End Function
+
+' Wordが本文中に置く構造制御文字か(2026-08-10 R27 F1-4)。
+'   1=図表/埋込オブジェクトのアンカー 2=脚注・文末脚注の参照記号
+'   5=コメント参照 7=表のセル/行の終端 11=行区切り(Shift+Enter)
+'   12=改ページ 14=段区切り 19/20/21=フィールドの開始/区切り/終了
+'   30=改行しないハイフン 31=任意指定のハイフン
+' 段落記号13とタブ9は上の「空白類」で既に除いてある。
+Private Function IsWordStructControl(ByVal c As Long) As Boolean
+    Select Case c
+        Case 1, 2, 5, 7, 11, 12, 14, 19, 20, 21, 30, 31
+            IsWordStructControl = True
+    End Select
+End Function
+
 ' 2026-08-03(R14-F13): SharedCopyNextChunkLen をここから削除した。
 ' R14-3a で共有読みコピーが ADODB.Stream 一本になった時点で呼び出し元が
 ' 消え、契約とテストだけが残っていた。R14-F3 でクラシックの1MB分割コピーを

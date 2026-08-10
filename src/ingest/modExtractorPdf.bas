@@ -648,7 +648,7 @@ Public Function DropGarbledPages(ByRef pages() As ExtractedPage, _
     For i = 0 To n - 1
         Dim t As String: t = pages(lo + i).Text
         If Len(t) >= 50 Then
-            If GarbleRatio(t) > 0.2 Then
+            If modExtractor.GarbleRatio(t) > 0.2 Then
                 isGarbled(i) = True
                 garbledCount = garbledCount + 1
             End If
@@ -733,24 +733,7 @@ Public Function ThinExtractMemoFor(ByRef pages() As ExtractedPage, _
         "(画像中心のPDFの場合は自動でOCRを試します)"
 End Function
 
-' 化け文字の比率(0.0～1.0)。空白は数えない。
-Private Function GarbleRatio(ByVal s As String) As Double
-    Dim bad As Long, tot As Long
-    Dim i As Long
-    For i = 1 To Len(s)
-        Dim c As Long: c = AscW(Mid$(s, i, 1))
-        If c = 32 Or c = 9 Or c = 10 Or c = 13 Or c = &H3000 Then
-            ' 空白類は分母に入れない
-        Else
-            tot = tot + 1
-            If c < 32 Then
-                bad = bad + 1                        ' 制御文字
-            ElseIf c >= &H370 And c <= &H3FF Then
-                bad = bad + 1                        ' ギリシャ文字
-            ElseIf c >= &H400 And c <= &H52F Then
-                bad = bad + 1                        ' キリル文字
-            End If
-        End If
-    Next i
-    If tot > 0 Then GarbleRatio = bad / tot
-End Function
+' 化け文字の比率(0.0〜1.0)は 2026-08-10(R27 F1-4)で modExtractor へ移設した。
+' 本モジュールは30,000字上限まで残りが少なく、誤爆2件(AscWの符号・Word構造
+' 制御文字)の是正とその説明が入らなかったため。呼び出しは上の
+' DropGarbledPages 1箇所だけ。

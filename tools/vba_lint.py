@@ -256,8 +256,14 @@ CONTRACT: dict[str, dict] = {
         # 配列でも実行時エラー9を出さずに0件と数える唯一の実装。分割後は
         # modExtractorPdf.DropGarbledPages も同じ数え方を必要とするため、
         # 2箇所に同じ実装を置かない目的で公開した(憲章§4-5)。
+        # GarbleRatio: 2026-08-10 R27 F1-4。modExtractorPdf から移設した化け
+        # 比率の算数(あちらは30,000字上限まで残りが少なく、誤爆2件=AscWの
+        # 符号付き戻りとWord構造制御文字の是正が入らなかった)。呼び出しは
+        # modExtractorPdf.DropGarbledPages 1箇所だけだが、境界(Chr(7)混じりの
+        # 表テキストはOK/キリル2割はNG)を modTestsPure24 が固定するため公開する。
         "required": ["ExtractFile", "SupportedExts",
-                     "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount"],
+                     "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount",
+                     "GarbleRatio"],
     },
     # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractor が28,000字のWARN帯に
     # 達したための分割先。PDFの3経路フォールバック(GS→Word→Acrobat)、

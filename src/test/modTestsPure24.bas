@@ -278,6 +278,93 @@ Private Sub TestDiversityOrderBlankSource24()
         OrderIsPermutation24(ord, 3), "ord=" & JoinOrder24(ord, 3)
 End Sub
 
+' F1-4: modExtractor.GarbleRatio — 化け判定の誤爆是正。
+'   閾値は呼び出し側(DropGarbledPages)の 0.2 超で「化け」。
+'   (c-1) 表のセル終端 Chr(7) を2割含む .doc 風テキストは OK 判定のまま
+'   (c-2) キリル文字2割は従来どおり NG 判定
+Private Sub TestGarbleRatioWordControls24()
+    ' 日本語80字 + Chr(7)20個 = 全100字のうち2割がWordの表セル終端。
+    ' 構造制御文字は分母からも外すので比率は0(=OK判定)でなければならない。
+    Dim tbl As String
+    tbl = Repeat24("保険金を支払わない場合", 8)          ' 11字×8 = 88字
+    tbl = Left$(tbl, 80) & Repeat24(Chr$(7), 20)
+    Dim rTbl As Double: rTbl = modExtractor.GarbleRatio(tbl)
+    modTestRunner.Check "R27-F1-4_表のセル終端Chr(7)2割はOK判定(比率0)", _
+        (rTbl = 0#), "ratio=" & Format$(rTbl, "0.000")
+    modTestRunner.Check "R27-F1-4_表のセル終端Chr(7)2割は閾値0.2を超えない", _
+        (rTbl <= 0.2), "ratio=" & Format$(rTbl, "0.000")
+
+    ' 12種すべてを混ぜても同じ(1,2,5,7,11,12,14,19,20,21,30,31)。
+    Dim mix As String
+    mix = Left$(Repeat24("保険金を支払わない場合", 8), 80) & _
+          Chr$(1) & Chr$(2) & Chr$(5) & Chr$(7) & Chr$(11) & Chr$(12) & _
+          Chr$(14) & Chr$(19) & Chr$(20) & Chr$(21) & Chr$(30) & Chr$(31)
+    modTestRunner.Check "R27-F1-4_Word構造制御12種を混ぜてもOK判定(比率0)", _
+        (modExtractor.GarbleRatio(mix) = 0#), _
+        "ratio=" & Format$(modExtractor.GarbleRatio(mix), "0.000")
+End Sub
+
+Private Sub TestGarbleRatioCyrillicStillNg24()
+    ' 本文80字 + キリル20字 = 2割。除外対象ではないので比率0.2で、
+    ' 「0.2を超える」ではないため境界の1字ぶんを足して超えさせる。
+    Dim body As String: body = Left$(Repeat24("保険金を支払わない場合", 8), 80)
+    Dim cyr As String: cyr = Repeat24(ChrW$(&H414), 20)      ' Д
+    Dim r20 As Double: r20 = modExtractor.GarbleRatio(body & cyr)
+    modTestRunner.Check "R27-F1-4_キリル2割はちょうど0.2(境界の値そのもの)", _
+        (Abs(r20 - 0.2) < 0.000001), "ratio=" & Format$(r20, "0.0000")
+
+    Dim r21 As Double: r21 = modExtractor.GarbleRatio(body & cyr & ChrW$(&H414))
+    modTestRunner.Check "R27-F1-4_キリルが2割を超えたらNG判定(>0.2)", _
+        (r21 > 0.2), "ratio=" & Format$(r21, "0.0000")
+
+    ' ギリシャ文字も従来どおり化けとして数える。
+    Dim grk As Double
+    grk = modExtractor.GarbleRatio(Left$(body, 50) & Repeat24(ChrW$(&H3B1), 50))
+    modTestRunner.Check "R27-F1-4_ギリシャ文字5割はNG判定(>0.2)", _
+        (grk > 0.2), "ratio=" & Format$(grk, "0.0000")
+End Sub
+
+' AscW は U+8000 以降を負値で返すVBAの仕様がある(modSparse.NormalizeForSearch /
+' modChrome / modClarify 等が同じ補正を持つ既存の作法)。旧実装はその負値を
+' 「c < 32 = 制御文字」に掛けていたため、U+8000〜U+9FFF に住む常用漢字が
+' まるごと化けとして数えられていた(険・関・金・通・者・除・認・説・語…)。
+' 実測: 約款風の日本語166字のうち13.3%が誤ってbadに入る。
+' 【重要な注記】LibreOffice Basic の AscW は同じ文字を正値で返すため、
+' この符号補正の有無はLO実行テストでは差が出ない(下の3件はLO上では
+' 補正を外しても通る)。それでも置くのは、実機VBAでのみ起きるこの誤爆が
+' 再発したときに、実機のテスト実行(ブック同梱のmodTestRunner)で必ず
+' 赤くなるようにするため。LOで捕まえられるのはWord構造制御文字側
+' (TestGarbleRatioWordControls24)で、そちらは補正を外すと実際に落ちる。
+Private Sub TestGarbleRatioHighKanjiNotGarbled24()
+    Dim s As String
+    s = "保険金額の関係者への通知は説明責任の観点から適切に行う。認識の相違を除く。"
+    Dim r As Double: r = modExtractor.GarbleRatio(s)
+    modTestRunner.Check "R27-F1-4_U+8000以降の常用漢字は化けではない(比率0)", _
+        (r = 0#), "ratio=" & Format$(r, "0.0000")
+
+    ' U+9FFF側の端(關 U+95DC 相当の常用字)も単独で化けにならない。
+    modTestRunner.Check "R27-F1-4_『険』(U+967A)単独で化け判定にならない", _
+        (modExtractor.GarbleRatio(Repeat24(ChrW$(&H967A), 60)) = 0#), _
+        "ratio=" & Format$(modExtractor.GarbleRatio(Repeat24(ChrW$(&H967A), 60)), "0.0000")
+
+    ' 本物の制御文字(Wordの構造制御文字ではないもの)は従来どおり化け。
+    ' Chr(3)/Chr(4)/Chr(6) は除外リストに載っていない。
+    Dim ctl As String
+    ctl = Left$(s, 30) & Repeat24(Chr$(3), 20)
+    modTestRunner.Check "R27-F1-4_除外外の制御文字Chr(3)は従来どおり化け(>0.2)", _
+        (modExtractor.GarbleRatio(ctl) > 0.2), _
+        "ratio=" & Format$(modExtractor.GarbleRatio(ctl), "0.0000")
+End Sub
+
+Private Function Repeat24(ByVal unit As String, ByVal times As Long) As String
+    Dim sb As String
+    Dim i As Long
+    For i = 1 To times
+        sb = sb & unit
+    Next i
+    Repeat24 = sb
+End Function
+
 Private Function OrderIsPermutation24(ByRef ord() As Long, ByVal n As Long) As Boolean
     Dim seen() As Boolean: ReDim seen(1 To n)
     Dim i As Long
@@ -371,6 +458,15 @@ NextDivSingle24:
 NextDivBlank24:
     On Error GoTo DivBlankFail24
     TestDiversityOrderBlankSource24
+NextGarbleWord24:
+    On Error GoTo GarbleWordFail24
+    TestGarbleRatioWordControls24
+NextGarbleCyr24:
+    On Error GoTo GarbleCyrFail24
+    TestGarbleRatioCyrillicStillNg24
+NextGarbleKanji24:
+    On Error GoTo GarbleKanjiFail24
+    TestGarbleRatioHighKanjiNotGarbled24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -417,6 +513,18 @@ DivSingleFail24:
     Resume NextDivBlank24
 DivBlankFail24:
     modTestRunner.Check "TestDiversityOrderBlankSource24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGarbleWord24
+GarbleWordFail24:
+    modTestRunner.Check "TestGarbleRatioWordControls24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGarbleCyr24
+GarbleCyrFail24:
+    modTestRunner.Check "TestGarbleRatioCyrillicStillNg24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGarbleKanji24
+GarbleKanjiFail24:
+    modTestRunner.Check "TestGarbleRatioHighKanjiNotGarbled24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub
