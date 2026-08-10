@@ -109,6 +109,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     ' R19H FA-6: 手動同期も取込の関所を通す(無人同期は従来どおり出さない)。
     If Not silent Then If Not modIntegrity.ConfirmIngestWhenCohabit() Then Exit Sub
 
+    modShelfScan.EnsureManifestTextFormat
     mSyncRunning = True
     mSyncRunningSince = Now
     modOutlineBuild.SetUnattended silent   ' R17H FA-7: 無人実行の印

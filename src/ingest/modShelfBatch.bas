@@ -336,6 +336,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
         AddFilesResult = "ok=0;ng=0;capped=0;chunks=0;reasons=busy:1"
         Exit Function
     End If
+    modShelfScan.EnsureManifestTextFormat
     ' 集計値の宣言はハンドラより前に置く(途中で落ちても集計を返すため)。
     Dim okCount As Long: okCount = 0
     Dim ngCount As Long: ngCount = 0

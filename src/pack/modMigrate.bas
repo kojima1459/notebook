@@ -250,6 +250,12 @@ Public Sub ImportUserData()
     If Not RestoreSheet(wb, modAppDef.SH_KNOWLEDGE, rowsK) Then allOk = False
     If Not RestoreSheet(wb, modAppDef.SH_VECTORS, rowsV) Then allOk = False
     If Not RestoreSheet(wb, modAppDef.SH_MANIFEST, rowsM) Then allOk = False
+    ' 2026-08-10(R27波3-5): 台帳はシートごと差し替わるので、書式も引き継ぎ元の
+    ' ものになる。旧い版で作られた引き継ぎファイルには "@" が無く、移行した
+    ' 直後から "-"始まりの資料名で取込が落ちる。ここで張り直す(冪等)。
+    On Error Resume Next
+    modShelfScan.EnsureManifestTextFormat
+    On Error GoTo Failed
     MergeStats wb
     MergeConfig wb
     MergeInsightInbox wb

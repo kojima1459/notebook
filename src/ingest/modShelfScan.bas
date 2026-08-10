@@ -166,6 +166,45 @@ Public Function IsSupportedExtLocal(ByVal fileName As String) As Boolean
     IsSupportedExtLocal = (InStr(1, "," & supported & ",", "," & ext & ",", vbTextCompare) > 0)
 End Function
 
+' ----------------------------------------------------------------------------
+' EnsureManifestTextFormat - my_manifest の文字列列を "@"(文字列)書式へ固定。
+' ----------------------------------------------------------------------------
+' 2026-08-10(R27波3-5): file_path(1) / file_name(2) / error_note(7) /
+' origin(9) には、利用者の資料名・OSのパス・例外メッセージがそのまま入る。
+' 書式が「標準」のセルへ "-案件A_見積.pdf" や "=集計.xlsx" を .Value で書くと、
+' Excel はそれを【数式】として解釈しようとして実行時エラーになり、
+' modShelfStore.UpsertManifestRow ごと落ちる ―― つまり先頭がハイフンや
+' 等号のファイル名は、それだけで取込が台帳の1行を書けずに死ぬ。業務資料に
+' "-" 始まりの名前は珍しくない。列を "@" にしておけば必ず文字列として入る。
+'
+' 置き場の判断: 本来は modShelfStore.EnsureManifestSheet の中(同モジュールの
+' EnsureKnowledgeSheet が :100-107 でまったく同じことをしているのと対称)だが、
+' あちらは30,000字上限まで余裕が無く1行も入らない(憲章§4-6)。同じ ingest 層で
+' manifest を読む係である本モジュールへ置き、取込の入口から呼ぶ。
+' 冪等: 何度呼んでも同じ結果(EnsureKnowledgeSheet が毎回無条件に張るのと同じ
+' 作法)。NumberFormat はブックに保存されるので、一度通れば以後の全経路に効く。
+'
+' 呼び出し元(台帳へ書き込みが始まる前の入口3箇所。呼び出し側は上限まで余裕が
+' 無いモジュールが多いため、注記はこちらへ集約し、あちらは1行だけ置く):
+'   ・modShelfBatch.AddFilesResult … ボタンからの取込(利用者が名前を選ぶ経路)
+'   ・modShelfSync.SyncNow          … フォルダ同期(起動時の自動同期を含む)
+'   ・modMigrate.ImportUserData     … 引き継ぎ(台帳がシートごと差し替わる)
+' 資料1件だけを直接 IngestFile へ渡す経路(modVault のナレッジ登録・
+' modUIShelf のスクショ取込)は、ファイル名をアプリ側で組み立てており
+' 先頭が "-"/"=" になり得ないため呼んでいない。
+Public Sub EnsureManifestTextFormat()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = modShelfStore.EnsureManifestSheet()
+    If ws Is Nothing Then Exit Sub
+    ws.Columns(1).NumberFormat = "@"    ' file_path
+    ws.Columns(2).NumberFormat = "@"    ' file_name
+    ws.Columns(7).NumberFormat = "@"    ' error_note
+    ws.Columns(9).NumberFormat = "@"    ' origin
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
 ' my_manifestのうち origin=self かつ folderNorm配下の行だけを抜き出す
 ' (SyncNowの比較・消失検知スコープ)。一括読み取り→配列フィルタで
 ' ループ内Range直接アクセスを避ける(§12)。
