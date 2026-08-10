@@ -286,6 +286,9 @@ Public Sub HideCitations()
     For i = 0 To n - 1
         ws.Shapes(names(i)).Delete
     Next i
+    ' R27H F2追加: nx_peekはここでも消えるため、ShowPeekが立てた床もここで下ろす
+    ' (HidePeekと同じ理由。ClearOverlayFloorは冪等)。
+    modSkin.ClearOverlayFloor
     On Error GoTo 0
 End Sub
 

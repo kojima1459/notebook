@@ -57,7 +57,7 @@ End Sub
 '   (2) hitsの資料が1種類 … 2種類あるなら選択肢は既に出ている
 '   (3) poolに別資料がある … 無ければ差し替え先が無い
 ' 動くのは最下位1件だけ=上位の順位は動かない。規則は純関数
-' modSparse.DiversitySwapPick が持ち、modTestsPure24 が3分岐を固定する。
+' modSparse.DiversitySwapPick が持ち、modTestsPure25 が3分岐を固定する。
 ' ここは Hit() ⇄ 並行配列の変換だけ(Hit は Public Type でLOへ持ち込めない)。
 Private Sub DiversifyFinalHits(ByRef hits() As Hit, ByVal outN As Long, _
                                ByRef poolHits() As Hit, ByVal poolN As Long)
