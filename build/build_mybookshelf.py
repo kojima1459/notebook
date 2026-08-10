@@ -1196,6 +1196,18 @@ def _make_vba_src(wb, present_modules, root):
 #     ※ Workbook_BeforeClose はここに【絶対に足さない】。インストーラは
 #       Workbook_Open で自分自身を書き換えて Save する設計で、閉じる側に
 #       手を入れると保存済みブックの整合が崩れる(§14手順6)。
+#   ・失敗検出の強化(2026-08-10 R23-1a): 以前は f が増えるのは
+#     VBComponents.Add が Nothing を返したときだけで、c.Name / DeleteLines /
+#     AddFromString の失敗は On Error Resume Next 下で握り潰されていた。
+#     「名前だけ付いた空モジュール」でも f=0 のまま Save まで到達し、
+#     壊れた状態がファイルに焼き付く(実機第9報①)。今は
+#       (a) 上記3操作のいずれかで Err.Number<>0 なら f を加算、
+#       (b) 本文があるはず(LenB(s)>0)なのに注入後 CountOfLines<1 なら f を加算
+#           (Err が立たない無言破損への防御。実機第9報①がこれ)
+#     とし、f>0 のときは Save しない既存ガードで確実に止める。
+#     ペイロード(vba_src)はファイル上で無傷なので、保存せずに閉じて開き直せば
+#     全量が再試行される。MsgBox はその手順をそのまま伝える文言にした。
+#     ※ VBAの And は短絡評価しないため (b) は入れ子の If で書いている。
 _INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
 Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
 Attribute VB_GlobalNameSpace = False
@@ -1230,9 +1242,15 @@ Public Sub Install()
       If c Is Nothing Then
         f = f + 1
       Else
+        Err.Clear
         c.Name = n
         If c.CodeModule.CountOfLines > 0 Then c.CodeModule.DeleteLines 1, c.CodeModule.CountOfLines
         If LenB(s) > 0 Then c.CodeModule.AddFromString s
+        If Err.Number <> 0 Then
+          f = f + 1
+        ElseIf LenB(s) > 0 Then
+          If c.CodeModule.CountOfLines < 1 Then f = f + 1
+        End If
       End If
       Err.Clear
       On Error GoTo Done
@@ -1242,7 +1260,7 @@ Public Sub Install()
   Application.Run "modBoot.RunFirstRunPromptEarly"
   Err.Clear
   If f > 0 Then
-    MsgBox "Setup incomplete. Please get a fresh copy of this file.", vbCritical
+    MsgBox "Setup incomplete (" & f & "). Close WITHOUT saving, then reopen to retry.", vbCritical
     Exit Sub
   End If
   ThisWorkbook.Save
