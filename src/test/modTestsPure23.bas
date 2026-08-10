@@ -402,6 +402,96 @@ Private Sub TestSidebarActiveContrastR23()
 End Sub
 
 ' ============================================================================
+' R23b(2026-08-10・実機第9報①の再発対策 MA-3): 自己インストーラの
+'   【部分注入】検出。modInstallCheck.LineCountMismatch / ExpectedLineCount は
+'   「vba_srcの本文の行数」と「VBE上のCodeModuleの行数」を突き合わせる比較の芯で、
+'   ここが甘いと「モジュールは在るが中身が足りない」ブックがSaveまで到達し、
+'   実機で「modViewport2.BadgeRowsFor が見つかりません」の形で表面化する。
+'   逆に厳しすぎると(末尾空行1本の環境差で偽陽性)、二度と起動できない
+'   配布物になる。両側の境界をここで固定する。
+'   ※ VI() 自体は VBProject/Worksheets に触れるためLO純粋テストからは呼べない
+'     (modOutlineBuild.BuildOutlineFor 等の既存注記と同型)。VI() が使うのは
+'     この2本と「実測行数の末尾空行トリム」だけで、後者はCodeModule.Lines を
+'     読む1ループなのでコードレビューで担保する。
+' ============================================================================
+Public Sub TestInstallCheckLineCount()
+    Dim src3 As String
+    src3 = "Option Explicit" & vbLf & "Public Sub A()" & vbLf & "End Sub"
+
+    ' (1) 期待行数そのものを固定する(恒真化防止。以降の比較の基準)。
+    modTestRunner.Check "R23b_ExpectedLineCount(3行ソース)=3", _
+        (modInstallCheck.ExpectedLineCount(src3) = 3), _
+        "got=" & modInstallCheck.ExpectedLineCount(src3)
+
+    ' (2) 一致: 実測3行なら不一致ではない。
+    modTestRunner.Check "R23b_一致(3行/3行)は不一致でない", _
+        (modInstallCheck.LineCountMismatch(src3, 3) = False)
+
+    ' (3) 不足: 部分注入(AddFromStringが途中で切れた)は必ず捕まる。
+    modTestRunner.Check "R23b_不足(3行/実測2行)は不一致", _
+        (modInstallCheck.LineCountMismatch(src3, 2) = True)
+    modTestRunner.Check "R23b_モジュール不在(実測-1)は不一致", _
+        (modInstallCheck.LineCountMismatch(src3, -1) = True)
+
+    ' (4) 超過: 余計な行が入っているのも不一致(Option Explicitの自動挿入等)。
+    modTestRunner.Check "R23b_超過(3行/実測4行)は不一致", _
+        (modInstallCheck.LineCountMismatch(src3, 4) = True)
+
+    ' (5) 末尾空行1本の揺れは一致扱い。AddFromStringは環境によって末尾に
+    '     空行を1本足したり足さなかったりする。ここで偽陽性にすると
+    '     「絶対にセットアップが完了しない配布物」になる。
+    Dim src3nl As String
+    src3nl = src3 & vbLf
+    modTestRunner.Check "R23b_ExpectedLineCount(末尾空行1本)=3", _
+        (modInstallCheck.ExpectedLineCount(src3nl) = 3), _
+        "got=" & modInstallCheck.ExpectedLineCount(src3nl)
+    modTestRunner.Check "R23b_末尾空行1本の揺れは一致扱い", _
+        (modInstallCheck.LineCountMismatch(src3nl, 3) = False)
+
+    ' (6) ただし「末尾空行トリム後の1行差」は黙認しない(±1の甘えを入れない)。
+    modTestRunner.Check "R23b_末尾空行つきでも中身1行不足は不一致", _
+        (modInstallCheck.LineCountMismatch(src3nl, 2) = True)
+    modTestRunner.Check "R23b_末尾空行つきでも1行過剰は不一致", _
+        (modInstallCheck.LineCountMismatch(src3nl, 4) = True)
+
+    ' (7) 空文字列ソースは0行。VBE側に1行でもあれば不一致。
+    modTestRunner.Check "R23b_ExpectedLineCount(空文字列)=0", _
+        (modInstallCheck.ExpectedLineCount("") = 0), _
+        "got=" & modInstallCheck.ExpectedLineCount("")
+    modTestRunner.Check "R23b_空ソース/実測0行は一致", _
+        (modInstallCheck.LineCountMismatch("", 0) = False)
+    modTestRunner.Check "R23b_空ソース/実測1行は不一致", _
+        (modInstallCheck.LineCountMismatch("", 1) = True)
+
+    ' (8) 改行が vbCrLf でも同じ行数になる(セル由来はvbLfだが、
+    '     取り出し経路が変わっても比較が壊れないこと)。
+    Dim srcCrLf As String
+    srcCrLf = "Option Explicit" & vbCrLf & "Public Sub A()" & vbCrLf & "End Sub"
+    modTestRunner.Check "R23b_CRLFソースもLFと同じ3行", _
+        (modInstallCheck.ExpectedLineCount(srcCrLf) = 3), _
+        "got=" & modInstallCheck.ExpectedLineCount(srcCrLf)
+    modTestRunner.Check "R23b_CRLFソース/実測3行は一致", _
+        (modInstallCheck.LineCountMismatch(srcCrLf, 3) = False)
+
+    ' (9) 末尾の「空白・タブだけの行」も空行として落とす。逆に
+    '     【途中の】空行は本物の行なので数える(ここを落とすと
+    '     空行ぶんだけ実測が多く見えて全モジュールが偽陽性になる)。
+    Dim srcTail As String
+    srcTail = "A" & vbLf & "B" & vbLf & "   " & vbLf & vbTab
+    modTestRunner.Check "R23b_末尾の空白/タブ行は落とす(=2行)", _
+        (modInstallCheck.ExpectedLineCount(srcTail) = 2), _
+        "got=" & modInstallCheck.ExpectedLineCount(srcTail)
+
+    Dim srcMid As String
+    srcMid = "A" & vbLf & vbLf & "B"
+    modTestRunner.Check "R23b_途中の空行は数える(=3行)", _
+        (modInstallCheck.ExpectedLineCount(srcMid) = 3), _
+        "got=" & modInstallCheck.ExpectedLineCount(srcMid)
+    modTestRunner.Check "R23b_途中空行ソース/実測2行は不一致", _
+        (modInstallCheck.LineCountMismatch(srcMid, 2) = True)
+End Sub
+
+' ============================================================================
 Public Sub RunAll23()
     On Error GoTo TocFail23
     TestTocPageSuppression
@@ -432,6 +522,9 @@ NextTocDet23:
 NextSidebarActive23:
     On Error GoTo SidebarActiveFail23
     TestSidebarActiveContrastR23
+NextInstallCheck23:
+    On Error GoTo InstallCheckFail23
+    TestInstallCheckLineCount
 NextDone23:
     On Error GoTo 0
     Exit Sub
@@ -474,6 +567,10 @@ TocDetFail23:
     Resume NextSidebarActive23
 SidebarActiveFail23:
     modTestRunner.Check "TestSidebarActiveContrastR23(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextInstallCheck23
+InstallCheckFail23:
+    modTestRunner.Check "TestInstallCheckLineCount(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone23
 End Sub

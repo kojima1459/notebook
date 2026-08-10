@@ -469,6 +469,17 @@ PURE_ALLOWLIST = [
     #   等Worksheetに触れる関数はテストから呼ばない(modOutlineBuild/
     #   modBackfillの既存注記と同型)。
     "modTestsPure23",
+    # modInstallCheck(2026-08-10 R23b・実機第9報①のMA-3): 自己インストーラの
+    #   注入結果を行数で検算するモジュール。テストが呼ぶのは
+    #   LineCountMismatch / ExpectedLineCount の2本(文字列とLongだけの純関数)
+    #   で、VBProject/Worksheets/MsgBox に触れる VI() はテストから呼ばない
+    #   (modOutlineBuild / modBackfill と同じ「モジュール全体はR4準拠では
+    #   ないが、テストが呼ぶ関数自体はExcel/COMに触れない」型。未実行の
+    #   ThisWorkbook.VBProject 等はtechメモ4のとおり未解決のままで良い)。
+    #   未注入のまま modTestsPure23 から呼ぶと実行時エラー12になり、部分注入
+    #   検出の境界(末尾空行1本の揺れは一致・1行不足は不一致)が
+    #   「テストを書いても走らない」状態になる。
+    "modInstallCheck",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
