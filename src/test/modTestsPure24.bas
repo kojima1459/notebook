@@ -431,6 +431,61 @@ Private Sub TestMentionsSourceNameMultiHit24()
         (modClarify.MentionsSourceName("駐車場の使い方は?", "団体保険約款.pdf|団体保険特約.pdf") = False), ""
 End Sub
 
+' F2-3: modViewport2.PadRowDelta — 埋め草の差分計算と上限クランプ。
+'   境界の最終行は modViewport.RowAtFloor(切り下げ)で決まるため、その下端は
+'   必ず窓高より上に残る。差のぶんだけ最終行を高くして塗りを窓下端へ届かせる
+'   のが埋め草で、この純関数は「いくつ足すか」だけを決める。
+'   上限(48pt=1行ぶんを大きく超える差)は構造問題なので埋めない ―― 埋めると
+'   症状だけが消えて原因を観測できなくなる。仕様の境界0/10/48/49を固定する。
+Private Sub TestPadRowDeltaBoundary24()
+    Const MX As Double = 48
+
+    ' 差0: 既に窓下端へ届いている=足さない。
+    modTestRunner.Check "R27-F2-3_差0なら足さない", _
+        (modViewport2.PadRowDelta(700, 700, MX) = 0), _
+        "d=" & modViewport2.PadRowDelta(700, 700, MX)
+
+    ' 差10: そのまま10pt足す(戻り値を実数で固定=「0を返すだけ」の実装を落とす)。
+    modTestRunner.Check "R27-F2-3_差10なら10pt足す", _
+        (modViewport2.PadRowDelta(690, 700, MX) = 10), _
+        "d=" & modViewport2.PadRowDelta(690, 700, MX)
+
+    ' 差48(上限ちょうど): まだ埋める。クランプは「超えたら」なので48は含む。
+    modTestRunner.Check "R27-F2-3_差48(上限ちょうど)は埋める", _
+        (modViewport2.PadRowDelta(652, 700, MX) = 48), _
+        "d=" & modViewport2.PadRowDelta(652, 700, MX)
+
+    ' 差49(上限超): 何もしない。
+    modTestRunner.Check "R27-F2-3_差49(上限超)は何もしない", _
+        (modViewport2.PadRowDelta(651, 700, MX) = 0), _
+        "d=" & modViewport2.PadRowDelta(651, 700, MX)
+
+    ' ネガティブ: 既に窓を超えている(差が負)なら足さない。足すと境界が
+    ' 窓を1行ぶん超え、消したはずの縦スクロールが生き返る。
+    modTestRunner.Check "R27-F2-3_窓を超えていたら足さない", _
+        (modViewport2.PadRowDelta(760, 700, MX) = 0), _
+        "d=" & modViewport2.PadRowDelta(760, 700, MX)
+
+    ' 丸め未満(1pt未満)の差は触らない。触ると「足す→RowHeightの丸めで少し
+    ' 足りない→また足す」で毎描画わずかに伸び続ける。
+    modTestRunner.Check "R27-F2-3_1pt未満の差は触らない", _
+        (modViewport2.PadRowDelta(699.5, 700, MX) = 0), _
+        "d=" & modViewport2.PadRowDelta(699.5, 700, MX)
+
+    ' 恒真防止: 上の「=0」群は常に0を返す実装でも全部通ってしまう。上限を
+    ' またぐ隣り合う2点で戻り値が実際に変わることを直接確かめる。
+    modTestRunner.Check "R27-F2-3_上限の前後で戻り値が変わる(恒真でない)", _
+        (modViewport2.PadRowDelta(652, 700, MX) <> modViewport2.PadRowDelta(651, 700, MX)), _
+        "48pt=" & modViewport2.PadRowDelta(652, 700, MX) & _
+        " / 49pt=" & modViewport2.PadRowDelta(651, 700, MX)
+
+    ' 上限は引数なので、呼び出し側が別の上限を渡したらそれに従う
+    ' (定数の焼き付きではないことの確認)。
+    modTestRunner.Check "R27-F2-3_上限は引数で決まる(maxPad=8なら差10は埋めない)", _
+        (modViewport2.PadRowDelta(690, 700, 8) = 0), _
+        "d=" & modViewport2.PadRowDelta(690, 700, 8)
+End Sub
+
 Private Function Repeat24(ByVal unit As String, ByVal times As Long) As String
     Dim sb As String
     Dim i As Long
@@ -548,6 +603,9 @@ NextStrip24:
 NextMention24:
     On Error GoTo MentionFail24
     TestMentionsSourceNameMultiHit24
+NextPadRow24:
+    On Error GoTo PadRowFail24
+    TestPadRowDeltaBoundary24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -614,6 +672,10 @@ StripFail24:
     Resume NextMention24
 MentionFail24:
     modTestRunner.Check "TestMentionsSourceNameMultiHit24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPadRow24
+PadRowFail24:
+    modTestRunner.Check "TestPadRowDeltaBoundary24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub
