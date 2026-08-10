@@ -169,9 +169,13 @@ End Function
 ' 内部で GetEmbeddingsBatch を通るので、そちらに任せて二重計上しない。
 ' R13 F8: 取込のバッチは1バッチ=1行のままにする(何百チャンクを1行で表せる
 ' ので、そもそも usage_log を圧迫しない)。畳んだのは質問側の単発だけ。
-Private Sub LogEmbedStep(ByVal cnt As Long, ByVal ms As Long)
+' R27 F1-7(実機第12報④): n は【要求した件数】であって成功数ではない。
+' 取込が「全件失敗しているのに embed_step だけは毎回同じ n で並ぶ」ため、
+' ログからは埋め込みが効いているのか一度も分からなかった(観測不能)。
+' 成功数(okCount)を detail へ足す。n>ok なら差が失敗数そのもの。
+Private Sub LogEmbedStep(ByVal cnt As Long, ByVal ms As Long, ByVal okCount As Long)
     On Error Resume Next
-    modLog.LogUsage "embed_step", "", "n=" & cnt, ms, cnt
+    modLog.LogUsage "embed_step", "", "n=" & cnt & " ok=" & okCount, ms, cnt
     On Error GoTo 0
 End Sub
 
@@ -322,7 +326,7 @@ Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) 
             End If
         Next i
         GetEmbeddingsBatch = okCount
-        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
+        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0)), okCount
         Exit Function
     End If
 
@@ -339,14 +343,14 @@ Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) 
             okCount = okCount + modGatewayDirect.DirectEmbedSlice(texts, lo, bStart, bEnd, dim_, prec, outCsv)
         Next bStart
         GetEmbeddingsBatch = okCount
-        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
+        LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0)), okCount
         Exit Function
     End If
 
     ' ---- ribbon: 既存の単発GetEmbeddingをループ(現行と同挙動・安全) ----
     okCount = RibbonEmbedRange(texts, lo, 0, n - 1, prec, outCsv)
     GetEmbeddingsBatch = okCount
-    LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0))
+    LogEmbedStep n, CLng(modUtilText.ElapsedMsSince(tB0)), okCount
 End Function
 
 ' ----------------------------------------------------------------------------
