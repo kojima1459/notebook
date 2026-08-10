@@ -402,7 +402,9 @@ Private Sub HeaderPill(ByVal ws As Worksheet, ByVal shapeName As String, _
     If btn Is Nothing Then Exit Sub
     btn.Name = shapeName
     btn.Adjustments(1) = 0.35
-    btn.Line.Visible = 0
+    btn.Line.Visible = -1
+    btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+    btn.Line.Weight = 0.75
     btn.Shadow.Visible = 0
     btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With btn.TextFrame2

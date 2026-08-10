@@ -437,7 +437,9 @@ Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
     p.Name = shapeName
     p.Placement = 3          ' 行高を後から変えてもピルは動かさない
     p.Adjustments(1) = 0.35
-    p.Line.Visible = 0
+    p.Line.Visible = -1
+    p.Line.ForeColor.RGB = RGB(255, 255, 255)
+    p.Line.Weight = 0.75
     If active Then
         p.Fill.ForeColor.RGB = RGB(255, 255, 255)
     Else

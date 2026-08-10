@@ -345,7 +345,9 @@ Private Sub HeaderButton(ByVal ws As Worksheet, ByVal shapeName As String, _
     btn.Name = shapeName
     btn.Placement = 3          ' 行1の高さを後から変えてもピルは動かさない
     btn.Adjustments(1) = 0.35
-    btn.Line.Visible = 0
+    btn.Line.Visible = -1
+    btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+    btn.Line.Weight = 0.75
     btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With btn.TextFrame2
         .TextRange.Text = caption
@@ -367,7 +369,9 @@ Private Sub HeaderTheme(ByVal ws As Worksheet, ByVal x As Double, ByVal y As Dou
     If th Is Nothing Then Exit Sub
     th.Name = "nx_top_theme"
     th.Placement = 3           ' 行1の高さを後から変えても動かさない
-    th.Line.Visible = 0
+    th.Line.Visible = -1
+    th.Line.ForeColor.RGB = RGB(255, 255, 255)
+    th.Line.Weight = 0.75
     th.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
     With th.TextFrame2
         .TextRange.Text = modSkin.ThemeIcon()

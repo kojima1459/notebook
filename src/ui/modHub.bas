@@ -260,7 +260,9 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         Set btn = ws.Shapes.AddShape(9, xCenter, rowTop + (HDR_H - 26) / 2, 26, 26)
         If Not btn Is Nothing Then
             btn.Name = "nx_hub_ic" & i
-            btn.Line.Visible = 0
+            btn.Line.Visible = -1
+            btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+            btn.Line.Weight = 0.75
             btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
             With btn.TextFrame2
                 .TextRange.Text = CStr(icons(i))
