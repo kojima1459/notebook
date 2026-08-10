@@ -260,10 +260,12 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         Set btn = ws.Shapes.AddShape(9, xCenter, rowTop + (HDR_H - 26) / 2, 26, 26)
         If Not btn Is Nothing Then
             btn.Name = "nx_hub_ic" & i
+            ' R24-2a: 実機で白枠0.75ptは26pt円では視認距離で消えると判定。
+            ' 塗りを白へ反転し、枠をPRIMARY_DARKへ(白地に白枠は無意味)。
             btn.Line.Visible = -1
-            btn.Line.ForeColor.RGB = RGB(255, 255, 255)
+            btn.Line.ForeColor.RGB = RGB(1, 77, 68)
             btn.Line.Weight = 0.75
-            btn.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+            btn.Fill.ForeColor.RGB = RGB(255, 255, 255)
             With btn.TextFrame2
                 .TextRange.Text = CStr(icons(i))
                 .TextRange.Font.Size = 10
