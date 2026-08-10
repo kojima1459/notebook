@@ -51,11 +51,10 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' 実機では105チャンクある1資料が multi_candidates=40 のプールを丸ごと埋め、
 ' src=1 になっていた。逆質問(資料分散)は src>=2 が必須なので構造的に鳴らず、
-' 最終hitsも同じ1資料だけになる。並べ替えの規則そのもの(資料ごとの最高
-' スコア1件を先頭群へ引き上げ、残りは元の順)は純関数 modSparse.DiversityOrder
-' が持ち、そちらが modTestsPure24 で固定される。ここは Hit() ⇄ 並行配列の
-' 変換だけを行う(Hit は Public Type なのでLO実行テストへは持ち込めない)。
-' 途中で失敗したら並べ替えを丸ごと諦める(元のプールをそのまま使う)。
+' 最終hitsも同じ1資料だけになる。並べ替えの規則(資料ごとの最高スコア1件を
+' 先頭群へ引き上げ、残りは元の順)は純関数 modSparse.DiversityOrder が持ち、
+' modTestsPure24 が固定する。ここは Hit() ⇄ 並行配列の変換だけ(Hit は
+' Public Type でLOテストへ持ち込めない)。失敗したら並べ替えごと諦める。
 Private Sub ReorderPoolForDiversity(ByRef poolHits() As Hit, ByVal n As Long)
     If n < 2 Then Exit Sub
     On Error GoTo GiveUp
@@ -580,10 +579,13 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     ' 無上限が起こすスケール崩壊(実機deep gap=390)は解消するが、キーワード
     ' 加点そのものの遮断は未達(要裁定・報告済み)。
     Dim dispLines As String
+    Dim dispTop3 As String
     If mDispPoolN > 0 Then
         dispLines = FoldSrcScoreLines(mDispPoolHits, mDispPoolN)
+        dispTop3 = DispersionTop3(mDispPoolHits, mDispPoolN)
     Else
         dispLines = FoldSrcScoreLines(hits, nHits)
+        dispTop3 = DispersionTop3(hits, nHits)
     End If
 
     ' R19H FB-1(A-M⑧)を継承: 発動した回も【しなかった回も】実値を1行残す。
@@ -591,8 +593,10 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     Dim rel As Long: rel = modClarify.DispersionRelGapX100(dispLines, srcN, b1, b2)
     On Error Resume Next
     ' R21-2 D1: detailをsrc/b1/b2/relへ拡張(校正データ収集)。
+    ' R27 F1-8: pool内の資料名top3も足す。src=1 のとき「どの資料がpoolを
+    ' 占有したのか」が実機ログから分からず、原因へ到達できなかった。
     modLog.LogUsage "dispersion", curMode, "src=" & srcN & " b1=" & Trim$(Str$(b1)) & _
-        " b2=" & Trim$(Str$(b2)) & " rel=" & rel
+        " b2=" & Trim$(Str$(b2)) & " rel=" & rel & " top=" & dispTop3
     On Error GoTo 0
     If rel >= 0 And rel < relX100 Then
         ' 聞き返しの1行目だけを分散用に差し替えるための印(modClarify が使ったら
@@ -661,6 +665,23 @@ Private Function FoldSrcScoreLines(hits() As Hit, ByVal nHits As Long) As String
     Next i
     On Error GoTo 0
     FoldSrcScoreLines = sb
+End Function
+
+' R27 F1-8: dispersionログ用の「pool内の資料名top3」(スコア順・20字切詰め)。
+' pool は F1-3 の再配列で資料ごとの最高スコア順に先頭が揃っているので、
+' 先頭から重複を除いて3件採ればtop3になる(pool無しで最終hits()へ落ちた回も
+' hits はスコア降順なので同じ)。
+Private Function DispersionTop3(ByRef h() As Hit, ByVal nHits As Long) As String
+    Dim raw As String: raw = HitSourceList(h, nHits, 3)
+    If LenB(raw) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(raw, "|")
+    Dim sb As String
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(sb) > 0 Then sb = sb & ";"
+        sb = sb & modUtil.SafeLeft(parts(i), 20)
+    Next i
+    DispersionTop3 = sb
 End Function
 
 ' 逆質問の材料: ヒットした資料名を重複除去して最大4件、| 区切りで返す。
