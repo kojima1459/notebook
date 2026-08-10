@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R23c完了時点）
+# 再開手順（セッション中断対策・最終更新: R24完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,13 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R23c版で第10報)→R22(一般アシスタント3段化)のGO判断。R23cまでクローズ済み。
+次: 利用者の実機検証(R24版で第11報)→R22(一般アシスタント3段化)のGO判断。R24H Fix波までクローズ済み。
+**R24(実機第10報)**: R23cで起動成功後の3件。仕様=spec_20260810_R24_実機第10報.md。
+(1)本棚ギャラリーで「引数は省略できません」=R21H F3のCompressFactor 3引数化の際にmodVaultGallery:337だけ旧式2引数のまま取り残し(LO Basicは引数数を照合しない=LO死角その2)。修正+**vba_lintに引数数照合検査を新設**(修飾呼び出し7,642件を照合・偽陽性ゼロ設計・名前付き引数6件のみスキップ)。
+(2)ボタン視認性=白枠0.75ptは実機で視認不可と判定→**白地反転**(Hub円形6個/Dash HeaderPill/Chat HeaderButton+HeaderTheme=白塗り+RGB(1,77,68)文字・枠。Knowledgeはモードタブ3個のみセグメンテッド文法=active白ベタ/inactive透明+白枠、非タブ4個は白ベタ)。
+(3)Dash下余白(3画面スクロール)=**未修正**。調査で(a)ApplyDashScrollBoundは毎描画で呼ばれScrollAreaも再設定 (b)有力仮説=UsedRange焼き付き(DASH_ROWS 120×15pt=1800pt=ちょうど3画面)or ApplyDashScrollBoundのShapeループが過大bottomYを拾う、まで絞ったが一意確定不可→**実機usage_logの"viewport"(dash)5値を第11報で取り寄せて裁定**。
+R24H(敵対的レビュー6件全消化): BL-1=Knowledge inactive PillのFill.Visible=0はクリック透過(R18H FA-8の既決違反)→Visible=-1+Transparency=1へ/BL-2=**modSkin.ApplyThemeがチャットの操作pill9個の塗りをsidebarActiveへ毎回上書き**(初回描画のInitUIですら白地が消える。出荷していたらR23より悪化)→白地仕様へ統一/M-3=lintの括弧付き第1引数`modX.Proc (a+1), b`偽陽性→SKIPへ/M-4=Hub絵文字の文字色が白のまま(白地で沈む)→RGB(1,77,68)/M-5=Knowledge非タブ4個へのセグメンテッド誤適用(画面間一貫性破れ)→isTab引数で分離/MI-6=lintのコメント行末`_`が次行を飲む穴。
+R24 記録のみ(次期): ギャラリー最終ページのカード高が満ページ想定の圧縮率で不必要に低い(rowsNeed=9固定vs実rowsUsed)/lint引数数検査はWithブロック内`.Proc`と引数順序・型の変化は見えない/🌙絵文字は白地で沈み気味(🎨等への差し替え候補)/modKnowledge残373字・modHub残187字(次に触る波は分割裁定必須)。
 **R23c(真犯人確定・最重要教訓)**: R21以来の「modViewport2.BadgeRowsForが見つからない」コンパイルエラーの真因は**BadgeRowsForの引数名`scale`**だった。`Scale`はMS-VBAL公式仕様のreserved-name/special-form(VB伝統のグラフィック命令)で、**本物のExcel VBAパーサは識別子として拒否**(本文`If scale < 0.92`が構文エラー→関数がシンボル登録から脱落→参照側で「メソッドまたはデータメンバーが見つかりません」)。**LibreOffice Basicはこれを通す=LO検査の構造的死角**。実機プローブ(イミディエイトでの直接呼び出し失敗+Debug>コンパイルがBadgeRowsFor自身に着地+該当行の赤色表示)で確定。修正=引数`scale`→`sc`(2行)。恒久対策=vba_lintにMS-VBAL予約名検査(check_msvbal_reserved_names、公式リスト転記)を追加しERROR化。`Dim line`3箇所はリスト非該当+実機実績ありで除外。副次修正=_VBA_PROJECTストリームのMS-OVBA違反解消(Version=0xFFFF化+PerformanceCache 3,054Bゼロ埋め=どのExcelでも必ずソースから再コンパイル)+verify_build検査追加。インストーラDoEvents追加は圧縮後1,144B(pad不能差分4B)で断念。
 **R21〜R23bの誤診の記録(再発防止)**: 第9報を「インストーラの無言失敗→空モジュール」と誤診し、R23(失敗検出強化)・R23b(行数検算modInstallCheck)を実装した。これらは実際のバグとは無関係だったが、注入の無言失敗・部分注入への防御としては正しく機能する堅牢化であり残す。教訓: (1)「LOコンパイルOK」は実Excelコンパイル成功を保証しない (2)実機VBEのイミディエイト窓(CountOfLines/Lines/直接呼び出し)とDebug>コンパイルは、リモートから原因を確定できる最強の診断手段(ユーザーに依頼する価値がある) (3)コンパイルエラーのダイアログ位置(呼び出し側)は真の発生源(定義側)と別の場所を指すことがある。
 **R23b(実機第9報の再発対応)**: R23配布後もユーザー実機で同一コンパイルエラーが再報告された(旧破損ファイル開き直しか部分注入の再発かは未確定)。敵対的レビューMA-3(部分注入=AddFromString途中切れはCountOfLines>=1で素通り)を根治: modInstallCheck新設(src/core・非凍結・136本目)。ビルド時にvba_srcのD列へ期待行数(Long)を焼き込み(_expected_line_count、_make_vba_srcと_verify_vba_src_bodiesが同一関数を使用)、起動時にVI()が全モジュールのCodeModule実測行数(末尾空行トリム)とD列を突合。不一致ならモジュール名を日本語ダイアログで提示し、インストーラ側でf計上→Save絶対禁止。インストーラからは`f = f + Application.Run("modInstallCheck.VI")`の1行(Run失敗=modInstallCheck自体の注入失敗やコンパイル不能もErr経由でf計上=**事実上の全体コンパイル検問**)。インストーラ圧縮後1,137B/1,148B(残11B)。README刷新(旧xlsm削除必須・Setup NG時はダイアログ2枚→保存せず閉じて開き直し)。テスト2,012件PASS。
@@ -121,6 +127,9 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R24H-Fix | Sonnet | レビュー裁定6件(ApplyTheme上書き/クリック透過/非タブ誤適用/絵文字色/lint偽陽性2種) | 0af2a93〜eaa256b | 完了 |
+| R24波2 | Sonnet | ボタン白地化(Hub/Dash/Chat/Knowledgeタブ)+Dash下余白調査(未修正・実機ログ待ち) | e22f9dd〜2293eb0 | 完了 |
+| R24波1 | Opus | CompressFactor取り残し修正+vba_lint引数数照合検査(7,642件) | 20e0fca〜4cab916 | 完了 |
 | R23c | Opus | 真因修正(scale→sc改名)+lint予約名検査+_VBA_PROJECT無害化+verify_build検査 | 5a19ef2〜0e6e597 | 完了 |
 | R23bH-Fix | Sonnet | レビュー裁定(D列期待行数焼き込み=実行時再読込全廃/README2枚表記/テストPrivate化/先頭空行ガード) | 1599856〜8ead794 | 完了 |
 | R23b | Opus×2 | 部分注入検出modInstallCheck新設+インストーラVI呼出+テスト+README刷新(初回投入は途中死亡→検問から再開) | 8e3b058〜4420dd5 | 完了 |
