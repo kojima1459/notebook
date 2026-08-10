@@ -3104,6 +3104,94 @@ def check_vba_reserved_words(info: ModuleInfo) -> None:
                 )
 
 
+# ------------------------------------------------------------------------------
+# MS-VBAL <reserved-name> / <special-form> 検査 (2026-08-10 R23c-F5)
+#
+# 事故: modViewport2.BadgeRowsFor の引数名 `scale` が、実機Excel VBAでのみ
+# 構文エラーになり、当該プロシージャがコンパイル不能=「メソッドまたはデータ
+# メンバーが見つかりません」として表面化した。モジュール本文は477行完全・
+# テキスト完全一致だったため「幽霊コンパイルエラー」に見え、原因特定に
+# クリーンインストール3回を要した。
+#
+# 根拠: MS-VBAL 3.3.5.x「Reserved Identifiers and IDENTIFIER」において
+#   reserved-name = Abs / CBool / CByte / CCur / CDate / CDbl / CDec / CInt /
+#                   CLng / CLngLng / CLngPtr / CSng / CStr / CVar / CVErr /
+#                   Date / Debug / DoEvents / Fix / Int / Len / LenB / Me /
+#                   PSet / Scale / Sgn / String
+#   special-form  = Array / Circle / Input / InputB / LBound / Scale / UBound
+# と定義されており、<IDENTIFIER> は「reserved-identifier でない lex-identifier」
+# と定義される。すなわち Scale(や Circle・PSet)を識別子として宣言することは
+# 仕様上できない。VB伝統のグラフィック命令に由来する語であり、
+# LibreOffice Basic はこれらを識別子として通してしまう(=LOゲートの死角)。
+# 上記URLからの転記:
+#   https://learn.microsoft.com/en-us/openspecs/microsoft_general_purpose_
+#   programming_languages/ms-vbal/7df907cb-ab6c-40d3-aa81-272742ce00c3
+#
+# 既存の VBA_RESERVED_BLOCKLIST とは意図的に別立てにしている:
+#   - 向こうは「実機で危ないかもしれない語」の予防的ブロックリスト(超過禁止を
+#     含む)で、検出対象は Dim/Private/Public/Static/ReDim/ByVal/ByRef の
+#     「<名前> As <型>」形だけ。
+#   - こちらは公式仕様の確定リストなので、Const とプロシージャ名(Function/
+#     Sub/Property)まで検出範囲を広げてよい(誤検知の心配がない)。
+#
+# 除外の判断根拠: `line` は reserved-name / special-form のいずれにも含まれず
+# (VB6のLine命令はVBAには継承されていない)、本リポジトリでも
+# modTestRunner:72 / modAskGlobal:483 / modDiag:299 の `Dim line As String` が
+# 実機で動作した実績があるため、検査対象に含めない。
+# `Point` は上記2リストには無いが VB6 グラフィック系の同類で危険が疑われ、
+# 既存コードに宣言が1件も無いためコストゼロの保守的追加として含める。
+# ------------------------------------------------------------------------------
+MSVBAL_RESERVED_NAMES = {
+    w.lower() for w in (
+        # reserved-name (MS-VBAL より逐語転記)
+        "Abs CBool CByte CCur CDate CDbl CDec CInt CLng CLngLng CLngPtr CSng "
+        "CStr CVar CVErr Date Debug DoEvents Fix Int Len LenB Me PSet Scale "
+        "Sgn String "
+        # special-form (MS-VBAL より逐語転記)
+        "Array Circle Input InputB LBound Scale UBound "
+        # 仕様リスト外の保守的追加(上記コメント参照)
+        "Point"
+    ).split()
+}
+
+# 宣言識別子の抽出。「<名前> As <型>」形に加えて、型指定の無い Const や
+# プロシージャ名(引数リストが続く/続かない)も拾う。
+MSVBAL_DECL_PATTERNS = (
+    # Dim/Static/ReDim/Private/Public/Global + 名前 (As は任意)
+    re.compile(r"\b(?:Dim|Static|ReDim(?:\s+Preserve)?|Private|Public|Global)\s+"
+               r"([A-Za-z_]\w*)\s*(?:\(|\bAs\b|$|,)", re.IGNORECASE),
+    # Const 名前
+    re.compile(r"\bConst\s+([A-Za-z_]\w*)\b", re.IGNORECASE),
+    # 仮引数 ByVal/ByRef/Optional/ParamArray + 名前
+    re.compile(r"\b(?:ByVal|ByRef|Optional|ParamArray)\s+([A-Za-z_]\w*)\b",
+               re.IGNORECASE),
+    # プロシージャ名
+    re.compile(r"\b(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+([A-Za-z_]\w*)\b",
+               re.IGNORECASE),
+)
+
+
+def check_msvbal_reserved_names(info: ModuleInfo) -> None:
+    """宣言された識別子が MS-VBAL の <reserved-name> / <special-form> と
+    衝突していないか(2026-08-10 R23c 実機事故の恒久ガード。詳細は
+    MSVBAL_RESERVED_NAMES 直上のコメント参照)。"""
+    for lineno, stmt in info.statements:
+        hits = set()
+        for pat in MSVBAL_DECL_PATTERNS:
+            for m in pat.finditer(stmt):
+                name = m.group(1)
+                if name.lower() in MSVBAL_RESERVED_NAMES:
+                    hits.add(name)
+        for name in sorted(hits):
+            info.add(
+                "ERROR", lineno,
+                f"識別子「{name}」はMS-VBAL仕様の reserved-name / special-form で、"
+                "実機Excel VBAは識別子として拒否します"
+                "(LibreOffice Basicは通すためLOゲートでは検出不能。"
+                f"2026-08-10のscale事故と同型): 「{stmt.strip()[:80]}」",
+            )
+
+
 def module_name_for_display(info: ModuleInfo) -> str:
     return info.vb_name or info.filename_stem
 
@@ -3469,6 +3557,7 @@ def run_lint(src_root: Path) -> int:
         check_resume_on_fallthrough_label(info)
         check_reserved_identifiers(info)
         check_vba_reserved_words(info)
+        check_msvbal_reserved_names(info)
         check_pure_logic_tokens(info)
         check_opt_token_reference(info)
         check_application_run_whitelist(info)
