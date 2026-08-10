@@ -414,7 +414,7 @@ End Sub
 '     この2本と「実測行数の末尾空行トリム」だけで、後者はCodeModule.Lines を
 '     読む1ループなのでコードレビューで担保する。
 ' ============================================================================
-Public Sub TestInstallCheckLineCount()
+Private Sub TestInstallCheckLineCount()
     Dim src3 As String
     src3 = "Option Explicit" & vbLf & "Public Sub A()" & vbLf & "End Sub"
 
