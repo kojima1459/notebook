@@ -232,10 +232,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
          "modKnowledge.OnBackHub", True
 
     ' --- モード切替ピル+共通ヘッダー機能(右肩) ---
+    ' R24H-F3: index 3..5(shared/table/gallery)だけがモード切替タブ。
     Dim pi As Long
     For pi = 0 To PILL_N - 1
         Pill ws, pnames(pi), pcaps(pi), pxs(pi), pws(pi), _
-             prows(pi) * (PILL_H + 2), pacts(pi), pactive(pi)
+             prows(pi) * (PILL_H + 2), pacts(pi), pactive(pi), (pi >= 3 And pi <= 5)
     Next pi
 
     On Error Resume Next
@@ -426,10 +427,13 @@ Private Sub PillSpec(ByVal md As String, ByVal isTable As Boolean, ByVal isShare
 End Sub
 
 ' ヘッダー上のピル。active:=Trueで「今いるモード」を塗りつぶして示す。
+' isTab:=Trueの3個(table/gallery/shared)だけセグメンテッド文法。
+' それ以外(戻る/help/exit/skin/chat)は常時Dash/Chatと同じ白ベタ+PRIMARY。
 ' yOff は段送り(1段に入りきらなかったぶんを下の段へ置くための縦オフセット)。
 Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
                  ByVal caption As String, ByVal x As Double, ByVal w As Double, _
-                 ByVal yOff As Double, ByVal action As String, ByVal active As Boolean)
+                 ByVal yOff As Double, ByVal action As String, ByVal active As Boolean, _
+                 Optional ByVal isTab As Boolean = False)
     On Error Resume Next
     Dim p As Shape
     Set p = ws.Shapes.AddShape(5, x, (HDR_H - PILL_H) / 2 + yOff, w, PILL_H)
@@ -437,33 +441,37 @@ Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
     p.Name = shapeName
     p.Placement = 3          ' 行高を後から変えてもピルは動かさない
     p.Adjustments(1) = 0.35
-    ' R24-2c: セグメンテッドコントロール型へ。active=白塗り(選択中)。
-    ' inactive=帯へ透過+白枠(R23の白枠を活かす。塗りが無ければ視認できる)。
     p.Line.Visible = -1
     p.Line.Weight = 0.75
-    If active Then
+    Dim txtColor As Long
+    If Not isTab Then
+        ' R24H-F3: 非タブは常にDash/Chat同型(白ベタ+PRIMARY文字/枠)。
+        p.Line.ForeColor.RGB = RGB(1, 77, 68)
+        p.Fill.Visible = -1
+        p.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        txtColor = RGB(1, 77, 68)
+    ElseIf active Then
+        ' R24-2c: セグメンテッドコントロール型。active=白塗り(選択中)。
         p.Line.ForeColor.RGB = modUI.UiColor("sidebar")
         p.Fill.Visible = -1
         p.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        txtColor = modUI.UiColor("sidebar")
     Else
+        ' inactive=帯へ透過(R24H-F2でクリック実体を保持)+白枠。
         p.Line.ForeColor.RGB = RGB(255, 255, 255)
-        ' R24H-F2(R18H FA-8既決): Fill.Visible=0は文字の上しかクリックできない。
         p.Fill.Visible = -1
         p.Fill.Transparency = 1
+        txtColor = RGB(255, 255, 255)
     End If
     With p.TextFrame2
         .TextRange.Text = caption
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
+        .TextRange.Font.Fill.ForeColor.RGB = txtColor
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    If active Then
-        p.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
-    Else
-        p.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-    End If
     p.OnAction = action
     On Error GoTo 0
 End Sub
