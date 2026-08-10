@@ -339,4 +339,12 @@ Public Sub SetupHubColumns(ByVal ws As Worksheet)
     ws.Columns("G").ColumnWidth = 2.5
     ws.Columns("H:K").ColumnWidth = 13
     ws.Columns("L").ColumnWidth = 1.5
+    ' 2026-08-10(R25波C 司令塔追加裁定・Hub右余白の緩和): 帯(A:L)の右外
+    ' M:P は既定幅(約48pt)のまま未使用で放置されていた。modViewport2.
+    ' FullyVisibleWidth は VisibleRange の右端「部分可視列」を丸ごと差し引く
+    ' ため、帯の右外にこの既定幅の列があるとキャップが過大に差し引かれ、
+    ' 帯が可視幅より約23pt短くなっていた(実測hub band=989 vs vis=1012)。
+    ' 右外列を1へ細くすれば差し引きは最大約8ptに縮み、帯が可視幅へ近づく
+    ' (FullyVisibleWidth/FitTarget自体は共有ロジックのため一切変更しない)。
+    ws.Columns("M:P").ColumnWidth = 1
 End Sub
