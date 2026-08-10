@@ -147,7 +147,10 @@ Private Function ContainsSurrogate24(ByVal s As String) As Boolean
     For i = 1 To Len(s)
         c = AscW(Mid$(s, i, 1))
         If c < 0 Then c = c + 65536
-        If c >= &HD800 And c <= &HDFFF Then
+        ' &H8000以上の16進リテラルは"&"サフィックス無しだとIntegerの符号付き
+        ' (負値)として解釈される罠がある。上のc補正(正値0-65535)と比較が
+        ' 噛み合うよう、境界値は必ずLong強制の"&"サフィックス付きで書く。
+        If c >= &HD800& And c <= &HDFFF& Then
             ContainsSurrogate24 = True
             Exit Function
         End If
