@@ -319,9 +319,14 @@ End Function
 '   後退する。実機499ptで従来どおり4行を保つ境界として0.92へ再校正した
 '   (Hub 1段ヘッダーの新式s: 499pt→0.9435・450pt→0.7976。499ptは4行のまま・
 '   450ptは3行への実際の落差と整合する)。
-Public Function BadgeRowsFor(ByVal scale As Double) As Long
+'   2026-08-10(R23c F4): 引数名を scale から sc へ改名。Scale はMS-VBAL仕様の
+'   reserved-name かつ special-form(VB伝統のグラフィック命令)であり、本物の
+'   Excel VBAパーサは識別子として拒否する。LibreOffice Basicは通してしまうため
+'   LO検査では検出できず、実機でのみ「BadgeRowsFor が見つかりません/構文エラー」
+'   として表面化していた(再発防止は tools/vba_lint.py の予約名検査)。
+Public Function BadgeRowsFor(ByVal sc As Double) As Long
     BadgeRowsFor = 4
-    If scale < 0.92 Then BadgeRowsFor = 3
+    If sc < 0.92 Then BadgeRowsFor = 3
 End Function
 
 ' ----------------------------------------------------------------------------
