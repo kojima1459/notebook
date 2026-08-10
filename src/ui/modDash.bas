@@ -235,7 +235,13 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' 膨らませる(この画面は行高を一切設定していないのに「下に無限へ
     ' スクロールできる」と報告された。調査agent2 §1.3)。実使用範囲だけに
     ' 当てる。行高も明示して幾何を確定させる(pt→行の換算をここで固定する)。
-    ws.Columns("A:J").ColumnWidth = 9
+    ' R25-2a(FA-R25-2a): 吸収列K(DASH_PAD_COL)もここでリセットする。以前は
+    ' A:Jのみを固定していたため、K(吸収列)は前回描画で確定した幅を引き継いだ
+    ' ままFitBandToViewportへ渡り、目標が「前回の帯幅」を自己参照する形になって
+    ' いた(SAFE_MARGIN 2ptが再描画のたびに複利で効き、実測1010→988の縮小と
+    ' 一致)。K込みでリセットすることでチャット(modUI.bas:100のC:K/L)と同じ
+    ' 「固定側は毎回既知の初期値に戻す」形にし、ラチェットを断つ。
+    ws.Columns("A:K").ColumnWidth = 9
     ' 余りをK列に吸わせて A:K の合計を可視幅ぴったりにする。内容の実右端
     ' (最小版面590pt)より狭い窓では内容側を優先する(ボタンが境界の外に出ない)。
     modViewport.FitBandToViewport ws, DASH_BAND, DASH_PAD_COL, MinContentRightX()
