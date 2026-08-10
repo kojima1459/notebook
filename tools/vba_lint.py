@@ -344,10 +344,17 @@ CONTRACT: dict[str, dict] = {
         # Hit(Public Type)配列を持つためLO実行テストへ持ち込めない(別モジュールの
         # Public Type 配列はLOで ReDim できない既知制約)ので、順序の規則だけを
         # 並行配列を受ける純関数としてここへ置き、modTestsPure24 が固定する。
+        # DiversitySwapPick(2026-08-10 R27H F1): 上の DiversityOrder(pool全面
+        # 再配列)は「quick非rerank経路で上位チャンクを最大topK-1件押し出す」
+        # 「分散判定は順序非依存なので狙いのsrc>=2に効かない」と裁定され、
+        # modAskRetrieve からの呼び出しを撤去した(純関数は将来用+テスト資産
+        # として残置)。代わりの最小介入=「最終hitsが1資料へ収束した時だけ
+        # 最下位1件をpool内の次点資料の最高スコアへ替える」の添字計算。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
                      "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
                      "HasAnyKey", "MatchDocText",
-                     "CapKeyScore", "KeyLenWeight", "DiversityOrder"],
+                     "CapKeyScore", "KeyLenWeight", "DiversityOrder",
+                     "DiversitySwapPick"],
     },
     "modChunker": {
         "closed": True,

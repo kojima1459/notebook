@@ -487,6 +487,12 @@ PURE_ALLOWLIST = [
     #   modStats は既にこの一覧に登録済み(BadgeCatalog自体もWorksheetに
     #   触れない純関数)。
     "modTestsPure24",
+    # modTestsPure25(2026-08-10 R27H・敵対的レビュー裁定Fix波): 多様性差し替え
+    #   の最小介入(modSparse.DiversitySwapPick)。modTestsPure24.RunAll24 の
+    #   末尾が RunAll25 を呼ぶため、未注入だと実行時エラー12でF1のゴールデンが
+    #   1件も走らない(19〜24と同型)。テストが呼ぶのは modSparse の純関数
+    #   1本だけで、modSparse は既にこの一覧に登録済み。
+    "modTestsPure25",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

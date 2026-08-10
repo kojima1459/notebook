@@ -1017,6 +1017,14 @@
       "note": "R25-3(実機第11報⑥・バッジ16枠化)の純ロジック回帰。qa_share10/gapfillの加算配線(modInsightIo)修理と新規3種(thanks5/streak30/thorough10)追加により13+3=16(ダッシュ4x4がちょうど埋まる)。BadgeCatalog件数=16固定・新3種+修理2種のid存在・id重複なし・新3種の条件文が閾値の数字と矛盾しないことを固定する。EvaluateBadges本体はGetStat経由でWorksheetに触れるためPureテストの対象外(BadgeCatalog側の純関数だけを検証)。modTestsPure23.RunAll23末尾から呼ばれる。2026-08-06 R20H FA-1の教訓によりmodules.json登録を本追加時に行う。"
     },
     {
+      "name": "modTestsPure25",
+      "path": "src/test/modTestsPure25.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R27H",
+      "note": "R27H(敵対的レビュー裁定Fix波)の純ロジック回帰。modTestsPure24(28,068字)は30,000字上限まで残り1,932字しかなく、F3(私用領域の化け検出)とF5(行頭インデント温存)の追随でその枠を使い切るため新設した分割先(憲章§4-6。modTestsPure21がR20H Fix波用に新設されたのと同型)。F1: modSparse.DiversitySwapPickの3分岐((i)2資料混在は無介入/(ii)1資料hits+pool別資料ありは最下位1件だけ差し替え/(iii)pool別資料なしは無介入)+hits1件・空資料名の防御を固定する。modTestsPure24.RunAll24末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",

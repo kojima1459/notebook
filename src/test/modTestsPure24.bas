@@ -629,6 +629,9 @@ NextMention24:
 NextPadRow24:
     On Error GoTo PadRowFail24
     TestPadRowDeltaBoundary24
+NextRun25:
+    On Error GoTo Run25Fail24
+    modTestsPure25.RunAll25
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -699,6 +702,10 @@ MentionFail24:
     Resume NextPadRow24
 PadRowFail24:
     modTestRunner.Check "TestPadRowDeltaBoundary24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun25
+Run25Fail24:
+    modTestRunner.Check "modTestsPure25.RunAll25(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub

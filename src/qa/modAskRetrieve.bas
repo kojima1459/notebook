@@ -46,35 +46,42 @@ Private Sub StashDispersionPool(ByRef srcHits() As Hit, ByVal n As Long)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' ReorderPoolForDiversity - 候補プールを資料多様性で並べ直す
-'   (2026-08-10 R27 F1-3・実機第12報②「特約が検索から消える/逆質問不発」)。
+' DiversifyFinalHits - 最終hitsが1資料に収束したときだけ最下位1件を差し替える
+'   (2026-08-10 R27H F1・実機第12報②「特約が検索から消える」)。
 ' ----------------------------------------------------------------------------
-' 実機では105チャンクある1資料が multi_candidates=40 のプールを丸ごと埋め、
-' src=1 になっていた。逆質問(資料分散)は src>=2 が必須なので構造的に鳴らず、
-' 最終hitsも同じ1資料だけになる。並べ替えの規則(資料ごとの最高スコア1件を
-' 先頭群へ引き上げ、残りは元の順)は純関数 modSparse.DiversityOrder が持ち、
-' modTestsPure24 が固定する。ここは Hit() ⇄ 並行配列の変換だけ(Hit は
-' Public Type でLOテストへ持ち込めない)。失敗したら並べ替えごと諦める。
-Private Sub ReorderPoolForDiversity(ByRef poolHits() As Hit, ByVal n As Long)
-    If n < 2 Then Exit Sub
+' 前身(pool全面再配列)は撤去した。並べ替えると再ランクを通さない⚡すぐ聞く
+' 経路で topK 枠が各資料の代表で埋まり、上位チャンクを最大 topK-1 件押し出す。
+' しかも分散判定(modClarify)は順序を見ないので狙いの src>=2 には効かない。
+' 代わりに【最終hitsが確定した後】、3条件が全部そろった時だけ動かす:
+'   (1) hitsが2件以上 … 1件しか無いのに入れ替えると1位が消える
+'   (2) hitsの資料が1種類 … 2種類あるなら選択肢は既に出ている
+'   (3) poolに別資料がある … 無ければ差し替え先が無い
+' 動くのは最下位1件だけ=上位の順位は動かない。規則は純関数
+' modSparse.DiversitySwapPick が持ち、modTestsPure24 が3分岐を固定する。
+' ここは Hit() ⇄ 並行配列の変換だけ(Hit は Public Type でLOへ持ち込めない)。
+Private Sub DiversifyFinalHits(ByRef hits() As Hit, ByVal outN As Long, _
+                               ByRef poolHits() As Hit, ByVal poolN As Long)
+    If outN < 2 Or poolN < 1 Then Exit Sub
     On Error GoTo GiveUp
 
-    Dim src() As String: ReDim src(1 To n)
-    Dim sc() As Double: ReDim sc(1 To n)
+    Dim hs() As String: ReDim hs(1 To outN)
+    Dim ps() As String: ReDim ps(1 To poolN)
+    Dim sc() As Double: ReDim sc(1 To poolN)
     Dim i As Long
-    For i = 1 To n
-        src(i) = poolHits(i).source
+    For i = 1 To outN
+        hs(i) = hits(i).source
+    Next i
+    For i = 1 To poolN
+        ps(i) = poolHits(i).source
         sc(i) = poolHits(i).score
     Next i
 
-    Dim ord() As Long
-    If modSparse.DiversityOrder(src, sc, n, ord) <> n Then GoTo GiveUp
-
-    Dim tmp() As Hit: ReDim tmp(1 To n)
-    For i = 1 To n
-        tmp(i) = poolHits(ord(i))
-    Next i
-    poolHits = tmp
+    Dim pick As Long
+    pick = modSparse.DiversitySwapPick(hs, outN, ps, sc, poolN)
+    If pick < 1 Then GoTo GiveUp
+    hits(outN) = poolHits(pick)
+    On Error Resume Next
+    modLog.LogUsage "hits_diversify", "", modUtil.SafeLeft(poolHits(pick).source, 120)
 GiveUp:
     On Error GoTo 0
 End Sub
@@ -87,10 +94,9 @@ End Sub
 '   通さない】=副質問向けの軽量検索。複合質問を論点へ分解した後の検索で使う。
 '   拡張を切る理由: 既に1論点まで割ってあるものを更にばらすと、論点の外の資料が
 '   混ざって「その論点だけを詰める」という分解の目的が消える。
-'   再ランクも切る理由: 論点あたりのtopKは6～8と小さく、候補プールとの差が
-'   ほとんど無い(並べ替える余地が無い)。にもかかわらず論点数ぶんLLM呼び出しが
-'   増え、3論点なら合計が6+3=9回ではなく12回になる。効かない段に待ち時間だけ
-'   払う形なので、副質問では検索1本に絞る。
+'   再ランクも切る理由: 論点あたりのtopKは6～8と小さく候補プールとの差がほぼ
+'   無い(並べ替える余地が無い)のに論点数ぶんLLM呼び出しが増える(3論点なら
+'   6+3=9回ではなく12回)。効かない段に待ち時間だけ払う形なので検索1本に絞る。
 '   既定Falseで従来の呼び出しは1つも挙動が変わらない。subqOverrideとは併用しない。
 Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
                                   ByVal topK As Long, ByRef hits() As Hit, _
@@ -177,8 +183,6 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim poolN As Long
     poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits, scopeSources)
     If poolN <= 0 Then GoTo FallbackSingle
-    ' R27 F1-3: 退避より前にpoolを資料多様性で並べ直す(件数は変えない)。
-    ReorderPoolForDiversity poolHits, poolN
     ' R21-2 D1: rerank/topK絞り込みより前のこの時点でpoolを退避する。
     StashDispersionPool poolHits, poolN
 
@@ -227,6 +231,10 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
             hits(oi) = poolHits(oi)
         End If
     Next oi
+    ' R27H F1: ここが「最終hits確定」の点(rerank後のtopK切り詰めが済んだ直後)。
+    ' 下の ArticleEnsure より前に置くのは、あちらが決定的なキーで注入した条文
+    ' チャンクを、多様性の都合で押し出さないため。
+    DiversifyFinalHits hits, outN, poolHits, poolN
     ' R17 Phase1: 質問が名指しした条番号(第5条/別表2 等)のチャンクが1件も
     ' 入っていなければ、chunk_meta から引いて先頭へ入れる(最大2件)。検索の
     ' 当て方は変えず、決定的なキーで最後に1回だけ確かめるだけ。
@@ -252,11 +260,10 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 「第5条を見せて」に dense も sparse も1件も返さないことは実際に起きる
 ' (条番号は短くて特徴が薄い)。ところが ArticleEnsure は既存ヒットが1件以上
-' あることを前提にしており、0件のときは何もしないまま「資料が見つかりません」
-' で終わっていた。決定的なキー(section_path)は手元にあるのだから、最後に1回
-' だけ引く。score は 0 のままなので低関連度の警告は付くが、それは正直な表示
-' (検索では当たらなかった、という事実がそのまま出る)。
-' n=-1(埋め込み失敗)には触らない。0件かどうかと理由が違う障害を混ぜない。
+' ある前提で、0件のときは何もしないまま「資料が見つかりません」で終わって
+' いた。決定的なキー(section_path)は手元にあるのだから最後に1回だけ引く。
+' score は 0 のままなので低関連度の警告は付くが、それは正直な表示(検索では
+' 当たらなかったという事実がそのまま出る)。n=-1(埋め込み失敗)には触らない。
 ' ----------------------------------------------------------------------------
 Private Function EnsureArticleSeed(ByVal q As String, ByRef hits() As Hit, _
                                    ByVal n As Long) As Long
@@ -359,21 +366,16 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' FinishDeep - 深掘りで材料が確定したあとの後処理(2026-08-05 R16-3D)。
-'   戻り値 = 後処理後の件数(=降格後 topK)。スコープ内で見つかった経路と、
-'   本棚全体へ広げ直した経路の両方が必ずここを通る(片方だけに掛けると、同じ
-'   「続けて質問」が本棚の当たり方で別の読み方をされる)。
-'
-'   R16-3D: 検索は topK の2倍で取り、既出チャンク(前回までの深掘りで実際に
-'   渡したもの)を後ろへ回してから topK へ切る。除外ではなく降格なので、
-'   本棚が小さくて既出しか無いときも件数は減らない(modFollowup.DemoteUsed)。
-'   順序は 降格 → 記憶 の2段。記憶を降格の前に置くと、いま返すチャンクを
-'   自分で既出扱いして全部後ろへ回す(1ターンで自滅する)。
-'
+'   戻り値=後処理後の件数(=降格後 topK)。スコープ内で見つかった経路も本棚
+'   全体へ広げ直した経路も必ずここを通る(片方だけに掛けると、同じ「続けて
+'   質問」が本棚の当たり方で別の読み方をされる)。
+'   R16-3D: 検索は topK の2倍で取り、既出チャンクを後ろへ回してから topK へ
+'   切る。除外ではなく降格なので既出しか無くても件数は減らない
+'   (modFollowup.DemoteUsed)。順序は 降格 → 記憶 の2段(逆にすると、いま返す
+'   チャンクを自分で既出扱いして全部後ろへ回す=1ターンで自滅する)。
 '   2026-08-05(R16H FA-4 / A-M4): 精読(NeighborExpand)はここから外した。
-'   modAsk 凍結下では deep の戻り件数がそのまま「N件ヒット」の件数バッジと
-'   usage_log の hit_count になるため、近傍を混ぜた件数を返すと画面が嘘をつく
-'   (「12件ヒット」と出るが検索で当たったのは4件)。精読は入念(thorough)の
-'   役割とし、速度優先の deep には掛けない(仕様 §3C 改訂)。
+'   deep の戻り件数はそのまま件数バッジと usage_log の hit_count になるため、
+'   近傍を混ぜると画面が嘘をつく。精読は入念(thorough)の役割(仕様 §3C 改訂)。
 ' ----------------------------------------------------------------------------
 Private Function FinishDeep(ByRef hits() As Hit, ByVal n As Long, ByVal topK As Long) As Long
     Dim m As Long: m = n
@@ -393,17 +395,14 @@ End Function
 ' 従来の検索経路(retrieve_mode に従う)。modAsk と同じ判断を2箇所に書かない。
 ' ----------------------------------------------------------------------------
 ' 2026-08-05(R16H FA-3 / A-M3・B-H2): 「続けて質問」のとき、モードに関係なく
-'   既出チャンクの降格をここで掛ける。R16-3D は deep の RunDeepScoped だけに
-'   降格を入れたが、深掘りは deep 専用の機能ではない。入念(thorough)や
-'   すぐ聞く(quick)で「続けて質問」を押した人は RunUnscoped しか通らないため、
-'   2回目の検索が1回目と1件も違わないチャンクを返し、同じ回答が返っていた
-'   (深掘りループの残り半分)。判定は modFollowup.IsFollowupTurn() をここで読む
-'   =modAsk を1行も触らずに全モードへ同じ規則を効かせられる。
-'   精読(NeighborExpand)はここでは呼ばない。thorough の draft 直前で1回だけ
-'   掛ける設計(仕様 §3C 改訂)で、ここで足すと deep の件数バッジが嘘になる。
-'   RunDeepScoped のスコープ縮小フォールバックもここを通るため降格が2回走るが、
-'   1回目で今回のチャンクを記憶済み=2回目は「全部既出」となり順序を変えずに
-'   topK へ切るだけになる(結果は同じ。仕様どおり自動で効く側に倒す)。
+'   既出チャンクの降格をここで掛ける。R16-3D は deep だけに入れたが、深掘りは
+'   deep 専用の機能ではない。入念/すぐ聞くで「続けて質問」を押した人は
+'   RunUnscoped しか通らず、2回目の検索が1回目と1件も違わないチャンクを返して
+'   同じ回答になっていた。判定は modFollowup.IsFollowupTurn() をここで読む
+'   =modAsk を1行も触らずに全モードへ同じ規則が効く。精読はここでは呼ばない
+'   (thorough の draft 直前で1回だけ。ここで足すと件数バッジが嘘になる)。
+'   RunDeepScoped の縮小フォールバックもここを通り降格が2回走るが、1回目で
+'   記憶済み=2回目は「全部既出」で順序を変えず topK へ切るだけ(結果は同じ)。
 ' ----------------------------------------------------------------------------
 Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
                             ByVal topK As Long, ByRef hits() As Hit) As Long
@@ -431,17 +430,15 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 段階ナレーション(R13-9b): この質問で何段通すかを先に決めてから実況する。
 ' ----------------------------------------------------------------------------
-' 2026-08-05(R17H FA-2補 / 司令塔裁定): 俯瞰の印もここで下ろす。
-' 裁定の当初位置 modAskMulti.TryDecomposed 入口は【入念モードでしか通らない】
-' ため、俯瞰で答えた次のターンを ⚡すぐ聞く / 🔍しっかり調べる で質問すると、
-' 印が1ターンぶん持ち越されて「🔭 章の要約に基づく回答(俯瞰)」のバッジと
+' 2026-08-05(R17H FA-2補 / 司令塔裁定): 俯瞰の印もここで下ろす。当初位置の
+' modAskMulti.TryDecomposed 入口は【入念モードでしか通らない】ため、俯瞰で
+' 答えた次のターンを別モードで質問すると、印が1ターン持ち越されてバッジと
 ' 低関連度警告の抑止が、俯瞰していない回答に付いていた。この Sub は
-' modAsk.Answer の入口から【全モードで】必ず1回通るので、ここが全経路に
-' 効く唯一の場所になる(TryDecomposed 側の既存リセットは残す=二重リセットは
-' 無害。印を立てるのは TryGlobal の成功出口だけで、順序は
-' PlanAskStages → TryDecomposed → TryGlobal のため表示までは必ず生き残る)。
-' RunDeepScoped からの呼び直し(番号計画を通常構成へ戻す)もここを通るが、
-' あちらは deep 専用の経路で TryGlobal を一度も通らない=消す印が無い。
+' modAsk.Answer の入口から【全モードで】必ず1回通る=全経路に効く唯一の場所
+' (TryDecomposed 側の既存リセットは残す。二重リセットは無害)。印を立てるのは
+' TryGlobal の成功出口だけで、順序は PlanAskStages → TryDecomposed → TryGlobal
+' のため表示までは必ず生き残る。RunDeepScoped からの呼び直しもここを通るが、
+' あちらは TryGlobal を一度も通らない=消す印が無い。
 ' ----------------------------------------------------------------------------
 Public Sub PlanAskStages(ByVal mdMode As String)
     On Error Resume Next
@@ -508,11 +505,11 @@ End Function
 '   (B) 資料分散: 局所的には当たるのに、当たり先が複数の資料に割れている
 ' 「免責は?」は(B)で、4字なので段0の分解ゲート(25字)にも掛からず、
 ' best>=0.6 なので(A)にも掛からない=どちらの網もすり抜けていた(調査④班1章)。
-' 深掘りの「計算方法」も同じ経路(IsTooVague は modAsk.Answer から全モード・
-' 新規/続けて質問の別なく必ず1回通る)で、同じ理由で同じ穴に落ちていた。
-' 判定の本体は modClarify の純関数2本(HasScoreDispersion / MentionsSourceName)。
-' ここは hits() を文字列へ畳んで渡すだけ=LOでテストできない Hit() の扱いを
-' この1関数に閉じ込め、規則そのものはテストで固定できる側に置く。
+' 深掘りの「計算方法」も同経路(IsTooVague は modAsk.Answer から全モード・
+' 新規/続けて質問の別なく必ず1回通る)で同じ穴に落ちていた。判定の本体は
+' modClarify の純関数2本(HasScoreDispersion / MentionsSourceName)。ここは
+' hits() を文字列へ畳んで渡すだけ=LOでテストできない Hit() の扱いをこの1
+' 関数に閉じ込め、規則そのものはテストで固定できる側に置く。
 ' ----------------------------------------------------------------------------
 Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long) As Boolean
     If nHits < 1 Then Exit Function
@@ -550,15 +547,13 @@ Public Function IsTooVague(ByVal q As String, hits() As Hit, ByVal nHits As Long
     ' R20-6d: 「入念に調べる」だけは時間より精度(modMode方針)なので、資料
     ' 確認を優先する姿勢へ倒し、閾値を広げる(既定quick/deep=15、thorough=20)。
     ' モードはmodAskを触らず、modAsk.ReadModeFromUiState(Private)と同型の
-    ' 直読みをここに持つ(R1: qa層からui層のmodAppStateは参照できないため。
-    ' AskFollowupが送信時点に同型の再読を行っている前提と整合)。
+    ' 直読みをここに持つ(R1: qa層からui層のmodAppStateは参照できないため)。
     '
-    ' R21-2 D1(実機第8報⑧): 従来は最終hits()(rerank後・topKへ絞り込み済み)を
-    ' 見ていたため、rerankでtopKが1資料へ収束した回は「資料が1種類→判定不能」
-    ' になり計器そのものが働いていなかった(実機thorough src=1 gap=-1)。
-    ' 絞り込み前のpool(mDispPoolHits、最大multi_candidates件)があればそちらを
-    ' 見る。pool無し(retrieve_mode=single等でRunMultiRetrieveを一度も通らな
-    ' かった回)は従来どおり最終hits()を見る。
+    ' R21-2 D1(実機第8報⑧): 従来は最終hits()(rerank後・topK絞り込み済み)を
+    ' 見ており、rerankでtopKが1資料へ収束した回は「資料が1種類→判定不能」で
+    ' 計器そのものが働いていなかった(実機thorough src=1 gap=-1)。絞り込み前の
+    ' pool(mDispPoolHits、最大multi_candidates件)があればそちらを見る。pool
+    ' 無し(retrieve_mode=single等)の回は従来どおり最終hits()を見る。
     Dim curMode As String: curMode = CurrentRagSpeedForDispersion()
     Dim relX100 As Long
     On Error Resume Next

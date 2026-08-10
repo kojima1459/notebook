@@ -550,6 +550,52 @@ Public Function DiversityOrder(ByRef sources() As String, ByRef scores() As Doub
 End Function
 
 ' ----------------------------------------------------------------------------
+' DiversitySwapPick - 最終hitsの最下位1件と差し替えるpool側の添字を返す
+'   (2026-08-10 R27H F1)。0 = 差し替えない(=無介入)。
+' ----------------------------------------------------------------------------
+' DiversityOrder(pool全面再配列)は上位チャンクを押し出す副作用が大きく、
+' 分散判定にも効かないと裁定された。こちらは【最終hitsが1資料へ収束した時だけ】
+' 最下位1件を、pool内で最もスコアの高い"別資料"のチャンクへ替える最小介入。
+' 動かすのは1件だけなので、上位の順位も件数も変わらない。
+'   hitSources / hitN     : 最終hits(1〜hitN)の資料名
+'   poolSources / poolScores / poolN : 絞り込み前プール(1〜poolN)
+' 無介入(0)にする条件:
+'   ・hitN < 2 … 1件しか無いのに替えると全体1位が消える(押し出しの再現)
+'   ・hitsに2種類以上の資料がある … 選択肢は既に出ている
+'   ・hitsの資料名が空 … どの資料へ収束したのか決まらない
+'   ・poolに別資料が1件も無い … 差し替え先が無い
+' 資料名の比較は Trim$ + vbTextCompare(大小/全半角の揺れで別資料にしない)。
+' 同点は添字の小さい方(結果を一意にする)。
+Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Long, _
+                                  ByRef poolSources() As String, _
+                                  ByRef poolScores() As Double, _
+                                  ByVal poolN As Long) As Long
+    If hitN < 2 Or poolN < 1 Then Exit Function
+
+    Dim only As String: only = Trim$(hitSources(1))
+    If LenB(only) = 0 Then Exit Function
+    Dim i As Long
+    For i = 2 To hitN
+        If StrComp(Trim$(hitSources(i)), only, vbTextCompare) <> 0 Then Exit Function
+    Next i
+
+    Dim pick As Long
+    For i = 1 To poolN
+        Dim nm As String: nm = Trim$(poolSources(i))
+        If LenB(nm) > 0 Then
+            If StrComp(nm, only, vbTextCompare) <> 0 Then
+                If pick = 0 Then
+                    pick = i
+                ElseIf poolScores(i) > poolScores(pick) Then
+                    pick = i
+                End If
+            End If
+        End If
+    Next i
+    DiversitySwapPick = pick
+End Function
+
+' ----------------------------------------------------------------------------
 ' HasAnyKey - keys(DistinctiveKeysの結果)のどれか1つでも doc に含まれるか。
 ' ----------------------------------------------------------------------------
 ' 2026-08-01(R12-3-7): バイナリ粗選別(binary_rag)の「救済union」専用の
