@@ -179,12 +179,12 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
 
     On Error Resume Next
     modUI.FreezeShapePlacement ws
+    modUiLock.AlertsOn   ' F9: GoTo 0の前で確実に呼ぶ(恒久False窓対策)
     On Error GoTo 0
 
     Application.ScreenUpdating = True
     ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
     modViewport2.ReflowIfMoved vw0, vh0
-    modUiLock.AlertsOn
     Exit Sub
 
 Fail:

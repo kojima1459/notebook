@@ -298,9 +298,9 @@ Public Sub EnsureLayout()
 
     On Error Resume Next
     If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰
+    modUiLock.AlertsOn   ' F9: GoTo 0の前で確実に呼ぶ(恒久False窓対策)
     On Error GoTo 0
     Application.ScreenUpdating = True
-    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
