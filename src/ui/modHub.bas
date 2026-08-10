@@ -80,14 +80,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ws.Cells.Clear
 
     ' 幾何を確定させてからShapeを置く(順序が逆だと座標がズレる)。
-    ' D列/G列の細い溝は「セル感」消し。タイルが隣接すると表に見えてしまう。
-    ws.Columns("A").ColumnWidth = 1.5
-    ws.Columns("B:C").ColumnWidth = 13
-    ws.Columns("D").ColumnWidth = 1.2
-    ws.Columns("E:F").ColumnWidth = 13
-    ws.Columns("G").ColumnWidth = 2.5
-    ws.Columns("H:K").ColumnWidth = 13
-    ws.Columns("L").ColumnWidth = 1.5
+    ' 列幅リセット本体はmodChrome.SetupHubColumnsへ移設(R25-2b。modHubが
+    ' 契約上限まで残り58字しか無くこれ以上ブロックを置けず、移設先候補の
+    ' modHubStatも残541字で収まらなかったため、open契約のmodChromeへ置く)。
+    modChrome.SetupHubColumns ws
     ' R20-1d(実機第7報⑦の層2): ここは Rows("1:60") だった。行高を明示した行は
     ' Excelから見れば「使用済み」=下スクロール域なので、フッターの実下端に
     ' 収まる40行だけを明示し、それ以深は描画後に ResetRowsBelow で既定へ戻す。

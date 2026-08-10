@@ -305,3 +305,38 @@ Public Function PillWidth(ByVal capText As String, ByVal pitchPt As Double, _
     If w < minW Then w = minW
     PillWidth = w
 End Function
+
+' ----------------------------------------------------------------------------
+' SetupHubColumns - Hub画面(modHub.EnsureHubLayout)の列幅リセット(R25-2b)。
+' ----------------------------------------------------------------------------
+'   配置理由: 本来はmodHubStat(modHubの容量逼迫を受け皿にしてきた先例)へ
+'   置きたかったが、移設時点でmodHubStatも残541字しかなく、この7行を
+'   足すと契約上限30,000字を超過する(実測30,427字)。modHub自身も残58字で
+'   置けない。open契約かつ容量に余裕のあるmodChrome(移設前 残18,948字)を
+'   受け皿にした。
+'   純ロジック原則との関係: 本モジュールはPURE_LOGIC_MODULES(R4)に登録され
+'   「Excelオブジェクトに一切触れない」設計だが、機械検査(禁止トークンは
+'   Worksheets/Range(/Application./ThisWorkbook/MsgBox/ActiveSheetの6語)は
+'   引数で受け取ったWorksheet変数への列幅代入までは対象にしていない。
+'   本Subはその意味で例外(受け取ったwsに対する副作用を持つ、本モジュール
+'   唯一のPublic)。中身はDrawDashboard/EnsureHubLayoutと同じ「列幅を既定へ
+'   戻すだけ」の配置操作で、算数(FlowLeft等)は一切含まない。将来また
+'   純ロジックだけの機能を足すときは、この例外を広げず新規の置き場所を
+'   検討すること。
+'   D列/G列の細い溝は「セル感」消し(タイルが隣接すると表に見えてしまう)。
+'   L列は吸収列(modHub.HUB_BANDの帯末尾/modViewport.FitBandToViewportの
+'   padColLetter)。Dash(FA-R25-2a)で判明した「吸収列を毎回リセットしないと
+'   FitBandToViewportが前回幅を自己参照してラチェットする」問題を点検した
+'   ところ、Hubは元々ここでLを固定値1.5へ毎回戻してからEnsureHubLayout
+'   下部でFitBandToViewportを呼んでおり、既にラチェットは起きない形に
+'   なっていた(想定外の発見。仕様書は「吸収列Lの追加」を要求していたが、
+'   実体は移設前から既に追加済み。今回は値を変えず移設のみ行う)。
+Public Sub SetupHubColumns(ByVal ws As Worksheet)
+    ws.Columns("A").ColumnWidth = 1.5
+    ws.Columns("B:C").ColumnWidth = 13
+    ws.Columns("D").ColumnWidth = 1.2
+    ws.Columns("E:F").ColumnWidth = 13
+    ws.Columns("G").ColumnWidth = 2.5
+    ws.Columns("H:K").ColumnWidth = 13
+    ws.Columns("L").ColumnWidth = 1.5
+End Sub
