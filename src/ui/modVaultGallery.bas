@@ -333,9 +333,14 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     Dim cardGap As Double
     cardGap = modViewport2.GridGapFor(availW, leftX, cardW, cols, CARD_GAP)
     ' R21-S5: 1ページぶんの段数が窓高に収まらないときだけカード高を詰める。
+    ' R24-1a: F3準拠で固定/可変に分ける(旧2引数のままの取り残し=実Excelでは
+    ' 「引数は省略できません」でコンパイル不能)。段ピッチは SY(CARD_H)+CARD_GAP
+    ' (:339 cardH=SY(CARD_H)、CARD_GAPは非適用)なので、可変= rowsNeed*CARD_H、
+    ' 固定= cardT + rowsNeed*CARD_GAP + PAGER_H。modHub:139-141 と同型。
     Dim rowsNeed As Long: rowsNeed = (CARDS_PER_PAGE + cols - 1) \ cols
     modViewport2.SetScaleY modViewport2.CompressFactor(modViewport.ViewportHeight(), _
-                cardT + rowsNeed * (CARD_H + CARD_GAP) + PAGER_H)
+                cardT + rowsNeed * CARD_GAP + PAGER_H, _
+                rowsNeed * CARD_H)
     Dim cardH As Double: cardH = modViewport2.SY(CARD_H)
     ' Empty State の透かし/文面もカード群と同じ幅(左端から帯の右端まで)に伸ばす。
     Dim emptyW As Double: emptyW = bandRight - cardL
