@@ -410,8 +410,12 @@ Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Do
             Dim c As Long: c = CountOccurrences(compactDoc, k)
             If c > 0 Then
                 ' 長い語ほど希少 = IDFの安価な代用。^1.5 は実測で選んだ形。
-                Dim w As Double: w = KeyLenWeight(Len(k))
-                total = total + w * (1 + Log(CDbl(c)))
+                ' R27H F5(m-3): KeyLenWeight をここへ展開(全チャンク×最大8キーの
+                ' 最内周で1件あたり数万回の呼び出しになるため)。純関数は契約と
+                ' テストのため残置。式が割れないよう Len^1.5・KEY_LEN_CLAMP で揃える。
+                Dim L As Long: L = Len(k)
+                If L > KEY_LEN_CLAMP Then L = KEY_LEN_CLAMP
+                total = total + (L ^ 1.5) * (1 + Log(CDbl(c)))
             End If
         End If
     Next i
@@ -469,24 +473,19 @@ End Function
 ' ----------------------------------------------------------------------------
 ' DiversityOrder - 候補プールの並べ替え順(2026-08-10 R27 F1-3・実機第12報②)。
 ' ----------------------------------------------------------------------------
-' 実機で起きていたこと: 105チャンクある大きな資料1本が、multi_candidates=40 の
-' プールを丸ごと占有した。プールが1資料になると
-'   ・逆質問(資料分散)は src>=2 を必須にしているため【構造的に発火しない】
-'   ・最終hitsも同じ1資料だけになり、他の資料にある答えは二度と出てこない
-' という2つが同時に起きる。順位そのものは正しくても「候補が1種類しかない」
-' 状態は、検索としては選択肢を出していないのと同じである。
+' 実機で起きていたこと: 105チャンクある資料1本が multi_candidates=40 のプールを
+' 丸ごと占有し、逆質問(src>=2 が必須)が構造的に発火しなくなった。並べ替えだけ
+' を行う(件数もスコアも変えない): 資料ごとの最高スコア1件をスコア順に先頭へ
+' 集め、残りは元の順序のまま後ろへ詰める。
 '
-' そこで並べ替えだけを行う(件数は増減させない・スコアは書き換えない):
-'   1. 資料ごとの最高スコア1件(=その資料の代表)を集め、スコアの高い順に先頭へ
-'   2. 残りは元の順序のまま後ろへ詰める
-' 1位資料の1位チャンクは元から全体1位なので、先頭は動かない。動くのは
-' 「2番目以降の資料の代表を、同資料の2件目より前へ繰り上げる」ぶんだけ。
+' 【2026-08-10 R27H F1】modAskRetrieve からの呼び出しは撤去した。再ランクを
+' 通さない経路で上位チャンクを最大 topK-1 件押し出すうえ、分散判定は順序を
+' 見ないので狙いには効かない、と裁定されたため。現行の介入は下の
+' DiversitySwapPick。この関数は将来用+テスト資産として残置する。
 '
-'   sources / scores : 1〜n の並行配列(modAskRetrieve が Hit() から作る)
-'   outOrder(out)    : 1〜n に「元の添字」を新しい順で入れて返す
-'   戻り値           : 並べ替えた件数(=n。作れなければ0)
-' 資料名が空の要素は代表になれない(どの資料を代表するのか決まらないため)。
-' 同点の代表が並んだときは元の添字が小さい方を先に置く(結果を一意にする)。
+'   sources / scores : 1〜n の並行配列 / outOrder(out): 元の添字を新しい順で
+'   戻り値: 並べ替えた件数(=n。作れなければ0)
+' 資料名が空の要素は代表になれない。同点は元の添字が小さい方を先に置く。
 Public Function DiversityOrder(ByRef sources() As String, ByRef scores() As Double, _
                                ByVal n As Long, ByRef outOrder() As Long) As Long
     If n < 1 Then Exit Function
@@ -555,17 +554,15 @@ End Function
 ' ----------------------------------------------------------------------------
 ' DiversityOrder(pool全面再配列)は上位チャンクを押し出す副作用が大きく、
 ' 分散判定にも効かないと裁定された。こちらは【最終hitsが1資料へ収束した時だけ】
-' 最下位1件を、pool内で最もスコアの高い"別資料"のチャンクへ替える最小介入。
-' 動かすのは1件だけなので、上位の順位も件数も変わらない。
-'   hitSources / hitN     : 最終hits(1〜hitN)の資料名
-'   poolSources / poolScores / poolN : 絞り込み前プール(1〜poolN)
+' 最下位1件を、pool内で最もスコアの高い"別資料"へ替える最小介入(1件しか動か
+' ないので上位の順位も件数も変わらない)。hitSources/hitN=最終hits、
+' poolSources/poolScores/poolN=絞り込み前プール(いずれも1〜n の並行配列)。
 ' 無介入(0)にする条件:
 '   ・hitN < 2 … 1件しか無いのに替えると全体1位が消える(押し出しの再現)
 '   ・hitsに2種類以上の資料がある … 選択肢は既に出ている
 '   ・hitsの資料名が空 … どの資料へ収束したのか決まらない
 '   ・poolに別資料が1件も無い … 差し替え先が無い
-' 資料名の比較は Trim$ + vbTextCompare(大小/全半角の揺れで別資料にしない)。
-' 同点は添字の小さい方(結果を一意にする)。
+' 比較は Trim$ + vbTextCompare。同点は添字の小さい方(結果を一意にする)。
 Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Long, _
                                   ByRef poolSources() As String, _
                                   ByRef poolScores() As Double, _

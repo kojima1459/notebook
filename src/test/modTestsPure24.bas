@@ -7,17 +7,17 @@ Option Explicit
 '   (modTestsPure20〜23と同型の連鎖)。
 ' ----------------------------------------------------------------------------
 ' 背景(docs/dev/spec_20260810_R25_実機第11報.md R25-3):
-'   ・FA-R25-3a: qa_share10(qa_shared_total)/gapfill(gapfill_total)は
-'     加算箇所がリポジトリに存在せず獲得不可能だった。modInsightIo.
-'     EmitVerifiedQA/EmitCorrection の書込み成功時にBumpを配線した
-'     (加算そのものはWorksheetを書くためPureテストの対象外。ここでは
+'   ・FA-R25-3a: qa_share10/gapfill は加算箇所がリポジトリに存在せず獲得
+'     不可能だった。modInsightIo.EmitVerifiedQA/EmitCorrection の書込み成功時
+'     にBumpを配線した(加算はWorksheetを書くためPureテストの対象外。ここでは
 '     「バッジ表に載っていること」を固定する)。
 '   ・FA-R25-3b: 新規3種(thanks5/streak30/thorough10)を追加し、
 '     13+3=16(ダッシュ4列×4段がちょうど埋まる)にした。
-'   modTestsPure2.RunBadgeCatalogTests が表の一般的な整合(長さ一致・
-'   空要素なし・重複なし・旧4種の存在)を既に固定しているため、ここでは
-'   「16枠化」という今回の変更そのもの(件数=16固定・新3種の存在・
-'   閾値を表す数字が条件文に含まれること)に絞る。
+'   表の一般的な整合(長さ一致・空要素なし・重複なし・旧4種の存在)は
+'   modTestsPure2.RunBadgeCatalogTests が既に固定しているため、ここでは
+'   「16枠化」そのもの(件数=16固定・新3種の存在・閾値の数字)に絞る。
+' 2026-08-10(R27H): F1の追加ぶんは30,000字上限に入らないため modTestsPure25 へ
+'   分割した(RunAll24 の末尾から連鎖する)。
 ' ============================================================================
 
 Private Sub TestBadgeCatalogCount16()
@@ -42,8 +42,8 @@ Private Sub TestBadgeCatalogNewIdsExist()
     modTestRunner.Check "R25-3_バッジ表_thorough10を含む", BadgeIdExists24(ids, "thorough10")
 
     ' 修理した死にバッジ2種(FA-R25-3a)。modTestsPure2側でも固定済みだが、
-    ' 「16枠が旧13種+新3種で構成される」という今回の変更の前提そのものを
-    ' このテストファイル単体でも確認できるよう重ねて固定する。
+    ' 「16枠=旧13種+新3種」という前提をこのファイル単体でも確認できるよう
+    ' 重ねて固定する。
     modTestRunner.Check "R25-3_バッジ表_qa_share10を含む(修理対象)", BadgeIdExists24(ids, "qa_share10")
     modTestRunner.Check "R25-3_バッジ表_gapfillを含む(修理対象)", BadgeIdExists24(ids, "gapfill")
 End Sub
@@ -63,11 +63,10 @@ Private Sub TestBadgeCatalogNoDuplicateIds()
         (dupN = 0), "dup=" & dupN
 End Sub
 
-' 新3種の条件文(長文説明)に、閾値を表す数字が正しく入っていること
-' (コピペ改変で閾値の数字だけ取り違える事故を防ぐ)。EvaluateBadges本体は
-' GetStat経由でWorksheetに触れるためPureテストから直接は呼べない
-' (modStats冒頭・modOutlineBuild等の既存注記と同型)。ここではBadgeCatalog
-' (Worksheetに触れない純関数)側の文言が閾値と矛盾していないことだけを固定する。
+' 新3種の条件文に閾値の数字が正しく入っていること(コピペ改変で数字だけ
+' 取り違える事故を防ぐ)。EvaluateBadges本体はGetStat経由でWorksheetに触れる
+' ためPureから呼べない(modStats冒頭等の既存注記と同型)ので、BadgeCatalog
+' (純関数)側の文言が閾値と矛盾していないことだけを固定する。
 Private Sub TestNewBadgeConditionsMentionThreshold()
     Dim ids() As String, titles() As String, shorts() As String, conds() As String
     Dim n As Long
@@ -101,11 +100,9 @@ Private Sub TestNewBadgeConditionsMentionThreshold()
 End Sub
 
 ' F7(m-5): バッジ絵文字二重の是正。旧チェックは新3種の先頭だけを見ていたが、
-' 本来固定すべきは「長い名前(titles)に絵文字を含まない」という表全体の
-' 意匠統一(modHub.DrawBadges/modDash側が既に🏅/🔒を前置するため、titles
-' 自身にも絵文字があると二重表示になる)。全16種を対象に、サロゲートペア
-' (絵文字はUTF-16で上位D800-DBFF+下位DC00-DFFFの2コードから成る)の
-' 有無で判定する。
+' 固定すべきは「titlesに絵文字を含まない」という表全体の意匠統一
+' (modHub.DrawBadges/modDash側が既に🏅/🔒を前置するため二重表示になる)。
+' 全16種を対象に、サロゲートペア(上位D800-DBFF+下位DC00-DFFF)の有無で判定。
 Private Sub TestBadgeTitlesHaveNoSurrogate24()
     Dim ids() As String, titles() As String, shorts() As String, conds() As String
     Dim n As Long
@@ -122,10 +119,9 @@ End Sub
 ' ============================================================================
 ' R27 波1(実機第12報②「特約が検索から消える」の根治)の純ロジック回帰。
 ' ============================================================================
-' F1-1: modSparse.CapKeyScore — キーワード加点の頭打ち。
-'   実機ではKeyScoreが330まで伸び、SPARSE_WEIGHT 0.06 を掛けた加点20が
-'   cos類似度(-1〜1)を押し流していた。cap=10(加点0.6)でcosと同じ土俵へ戻す。
-'   cap未満/ちょうど/超過 の3点を固定する(cap+10 は「越えた分は切る」側)。
+' F1-1: modSparse.CapKeyScore — キーワード加点の頭打ち。実機ではKeyScoreが330
+'   まで伸び、SPARSE_WEIGHT 0.06 を掛けた加点20が cos類似度(-1〜1)を押し流して
+'   いた。cap=10(加点0.6)でcosと同じ土俵へ戻す。cap未満/ちょうど/超過を固定。
 Private Sub TestCapKeyScoreBoundary24()
     Dim cap As Double: cap = 10#
 
@@ -187,11 +183,10 @@ Private Sub TestKeyLenWeightClamp24()
         (w16 = w8), "w16=" & Format$(w16, "0.000")
 End Sub
 
-' F1-1 の結線確認: KeyScore 本体が cap を通っていること。
-' 9字キーが1回だけ出る短い本文の生スコアは 22.4 前後(clamp後22.627を
-' 文書長正規化1.0099で割った値)で、cap(既定10)が効いていれば10になる。
-' 既定値はビルド時 config(sparse_keyscore_cap=10)およびLO実行テスト
-' (modConfig未注入 → 既定値へフォールバック)の双方で10。
+' F1-1 の結線確認: KeyScore 本体が cap を通っていること。9字キーが1回だけ出る
+' 短い本文の生スコアは 22.4 前後(clamp後22.627÷文書長正規化1.0099)で、
+' cap(既定10)が効いていれば10になる。既定値はビルド時configとLO実行テスト
+' (modConfig未注入→既定値へフォールバック)の双方で10。
 Private Sub TestKeyScoreIsCapped24()
     Dim key As String: key = "特約条項変更届出書"          ' 9字
     Dim doc As String: doc = modSparse.CompactForMatch(key)
@@ -205,10 +200,11 @@ Private Sub TestKeyScoreIsCapped24()
 End Sub
 
 ' F1-3: modSparse.DiversityOrder — 候補プールの資料多様性。
-'   実機の形をそのまま写す: 105チャンクある「就業規則」がpoolを埋め、
-'   少数派の「興行中止保険特約」が1件だけ後方にいる。並べ替え後は
-'   少数派資料の最高スコア1件が【先頭群】へ上がっていなければならない
-'   (逆質問はsrc>=2が必須なので、ここが効かないと構造的に鳴らない)。
+'   実機の形を写す: 105チャンクある「就業規則」がpoolを埋め、少数派の
+'   「興行中止保険特約」が1件だけ後方にいる。並べ替え後は少数派資料の最高
+'   スコア1件が【先頭群】へ上がる、という順序規則そのものを固定する。
+'   (R27H F1でmodAskRetrieveからの呼び出しは撤去。純関数は残置=この3群も
+'    テスト資産として残す。差し替え側の新規則は modTestsPure25 が固定する。)
 Private Sub TestDiversityOrderMinoritySurvives24()
     ' 添字1..6。1位資料=就業規則(0.90/0.88/0.86/0.84)、少数派=特約(0.80)を5番目に。
     Dim src(1 To 6) As String
@@ -344,16 +340,13 @@ Private Sub TestGarbleRatioPuaNg24()
         (outs = 0#), "ratio=" & Format$(outs, "0.0000")
 End Sub
 
-' AscW は U+8000 以降を負値で返すVBAの仕様がある(modSparse.NormalizeForSearch /
-' modChrome / modClarify 等が同じ補正を持つ既存の作法)。旧実装はその負値を
-' 「c < 32 = 制御文字」に掛けていたため、U+8000〜U+9FFF に住む常用漢字が
-' まるごと化けとして数えられていた(険・関・金・通・者・除・認・説・語…)。
-' 実測: 約款風の日本語166字のうち13.3%が誤ってbadに入る。
-' 【重要な注記】LibreOffice の AscW は同じ文字を正値で返すため、符号補正の
-' 有無はLO実行テストでは差が出ない(下の3件はLO上では補正を外しても通る)。
-' それでも置くのは、実機VBAでのみ起きるこの誤爆が再発したときに実機のテスト
-' 実行(ブック同梱のmodTestRunner)で必ず赤くなるようにするため。LOで捕まえ
-' られるのはWord構造制御文字側(補正を外すと実際に落ちる)。
+' AscW は U+8000 以降を負値で返すVBAの仕様がある(modSparse.NormalizeForSearch
+' 等が同じ補正を持つ)。旧実装はその負値を「c<32=制御文字」に掛けていたため、
+' U+8000〜U+9FFF の常用漢字が化けとして数えられていた(険・関・金・通・者…。
+' 約款風の日本語166字のうち13.3%が誤ってbadに入る)。
+' 【注記】LibreOffice の AscW は正値で返すため符号補正の有無はLOでは差が出ない
+' (下の3件はLO上では補正を外しても通る)。それでも置くのは、実機VBAでのみ
+' 起きるこの誤爆の再発を実機のテスト実行で必ず赤くするため。
 Private Sub TestGarbleRatioHighKanjiNotGarbled24()
     Dim s As String
     s = "保険金額の関係者への通知は説明責任の観点から適切に行う。認識の相違を除く。"
@@ -410,6 +403,13 @@ Private Sub TestStripControlChars24()
     modTestRunner.Check "R27波3-16_制御文字が無ければ連続スペースは温存", _
         (modExtractor.StripControlChars("A  B", outS) = 0 And outS = "A  B"), _
         "out=[" & outS & "]"
+
+    ' R27H F5(m-1): LFの直後は行頭。ここを空白類として扱うと、次に来る字下げが
+    ' 1つ残らず消える(旧実装は下の入力を "項目 "+LF+"値" にしていた)。
+    ' 連続ぶんは従来どおり1つへ圧縮するので、字下げは1字として残る。
+    modTestRunner.Check "R27H-F5_改行直後の字下げが全滅しない", _
+        (modExtractor.StripControlChars("項目" & Chr$(7) & vbLf & "  値", outS) = 1 _
+         And outS = "項目 " & vbLf & " 値"), "out=[" & outS & "]"
 
     ' 9/10/13 は残す(チャンク分割と見出し判定が読んでいる)。
     Dim keep As String: keep = "行1" & vbTab & "列2" & vbCrLf & "行3" & Chr$(10)

@@ -530,27 +530,50 @@ End Function
 ' プロンプトもその偽の語で動き、空白を全除去する modSparse 側も救えない。
 ' 連続する空白は1つへ圧縮(Wordの表は行末に Chr(7) が並び、素直に置換すると
 ' 空白がチャンクの文字数=費用と精度を食う)。圧縮は【置換があったときだけ】
-' =制御文字の無い本文は1文字も変わらない。先頭の制御文字は空白を生まない。
-' タブ・改行は空白類として扱うが、それ自体は圧縮しない(下流が区切りに読む)。
+' =制御文字の無い本文は1文字も変わらない(R27H F5 m-2: その回は先頭の1パスで
+' 打ち切り、n要素の配列確保もJoinも行わない)。先頭の制御文字は空白を生まない。
+' タブ・CRは空白類として扱うが、それ自体は圧縮しない(下流が区切りに読む)。
+' R27H F5(m-1): LFだけは空白類として扱わない。LFの直後は行頭なので、ここを
+' 空白類にすると次に来る字下げが1つ残らず消える(表・条文の階層が潰れる)。
 ' 戻り値=置き換えた制御文字の数(0なら文字列は1文字も変わっていない)。
 Public Function StripControlChars(ByVal s As String, ByRef outText As String) As Long
     outText = s
     Dim n As Long: n = Len(s)
     If n = 0 Then Exit Function
 
+    ' R27H F5(m-2): 先に「落とすものが有るか」だけを1パスで見る。取り込む本文の
+    ' 大半は制御文字を1つも含まず、その回は下の配列確保(n要素)もJoinも丸ごと
+    ' 不要になる(戻り値0=出力は入力と同一、という契約は変わらない)。
+    Dim i As Long
+    Dim c As Long
+    Dim hasCtl As Boolean
+    For i = 1 To n
+        c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536
+        If c < 32 And c <> 9 And c <> 10 And c <> 13 Then
+            hasCtl = True
+            Exit For
+        End If
+    Next i
+    If Not hasCtl Then Exit Function
+
     Dim buf() As String: ReDim buf(1 To n)
     Dim replaced As Long
-    ' 直前に出したのが空白類(スペース/タブ/CR/LF)か。Trueで始めることで
+    ' 直前に出したのが空白類(スペース/タブ/CR)か。Trueで始めることで
     ' 先頭の制御文字がスペースを生まないようにする。
     Dim prevWs As Boolean: prevWs = True
-    Dim i As Long
     For i = 1 To n
         Dim ch As String: ch = Mid$(s, i, 1)
-        Dim c As Long: c = AscW(ch)
+        c = AscW(ch)
         If c < 0 Then c = c + 65536          ' AscWの符号付き戻りを補正
-        If c = 9 Or c = 10 Or c = 13 Then
+        If c = 9 Or c = 13 Then
             buf(i) = ch                      ' 区切りは1つも減らさない
             prevWs = True
+        ElseIf c = 10 Then
+            ' R27H F5(m-1): LFの直後は「行頭」。ここでprevWsを立てると、次に
+            ' 来る字下げの空白が1つ残らず消える(表や条文の階層が潰れる)。
+            buf(i) = ch
+            prevWs = False
         ElseIf c = 32 Then
             If Not prevWs Then buf(i) = ch   ' 連続する空白は1つに圧縮
             prevWs = True
@@ -563,8 +586,7 @@ Public Function StripControlChars(ByVal s As String, ByRef outText As String) As
             prevWs = False
         End If
     Next i
-    If replaced = 0 Then Exit Function       ' 置換が無いなら圧縮もしない
-
+    ' 上の1パスで制御文字の存在を確かめてから来ているので replaced>=1 は確定。
     ' 文字列連結ではなく Join(規約§12。連結はO(n^2)になる)。
     outText = Join(buf, "")
     StripControlChars = replaced
