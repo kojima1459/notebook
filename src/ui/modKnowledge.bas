@@ -437,13 +437,17 @@ Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
     p.Name = shapeName
     p.Placement = 3          ' 行高を後から変えてもピルは動かさない
     p.Adjustments(1) = 0.35
+    ' R24-2c: セグメンテッドコントロール型へ。active=白塗り(選択中)。
+    ' inactive=帯へ透過+白枠(R23の白枠を活かす。塗りが無ければ視認できる)。
     p.Line.Visible = -1
-    p.Line.ForeColor.RGB = RGB(255, 255, 255)
     p.Line.Weight = 0.75
     If active Then
+        p.Line.ForeColor.RGB = modUI.UiColor("sidebar")
+        p.Fill.Visible = -1
         p.Fill.ForeColor.RGB = RGB(255, 255, 255)
     Else
-        p.Fill.ForeColor.RGB = modUI.UiColor("sidebarActive")
+        p.Line.ForeColor.RGB = RGB(255, 255, 255)
+        p.Fill.Visible = 0
     End If
     With p.TextFrame2
         .TextRange.Text = caption
