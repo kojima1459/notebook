@@ -357,6 +357,25 @@ Private Sub TestLooksLikeTocPage()
 End Sub
 
 ' ============================================================================
+' 付随: R23-2b(modSkin.ResolveColorのsidebarActive明度引き上げ)の固定
+' ============================================================================
+
+Private Sub TestSidebarActiveContrastR23()
+    modTestRunner.Check "R23-2b_msadのsidebarActiveは新値RGB(14,138,123)", _
+        (modSkin.ResolveColor("sidebarActive", "msad") = RGB(14, 138, 123))
+
+    Dim themes(0 To 5) As String
+    themes(0) = "msad": themes(1) = "light": themes(2) = "dark"
+    themes(3) = "sakura": themes(4) = "ocean": themes(5) = "gold"
+    Dim i As Long
+    For i = 0 To 5
+        modTestRunner.Check "R23-2b_" & themes(i) & "はsidebarActive<>sidebar(帯とボタンが同色でない)", _
+            (modSkin.ResolveColor("sidebarActive", themes(i)) <> modSkin.ResolveColor("sidebar", themes(i))), _
+            "theme=" & themes(i)
+    Next i
+End Sub
+
+' ============================================================================
 Public Sub RunAll23()
     On Error GoTo TocFail23
     TestTocPageSuppression
@@ -384,6 +403,9 @@ NextHash23:
 NextTocDet23:
     On Error GoTo TocDetFail23
     TestLooksLikeTocPage
+NextSidebarActive23:
+    On Error GoTo SidebarActiveFail23
+    TestSidebarActiveContrastR23
 NextDone23:
     On Error GoTo 0
     Exit Sub
@@ -422,6 +444,10 @@ HashFail23:
     Resume NextTocDet23
 TocDetFail23:
     modTestRunner.Check "TestLooksLikeTocPage(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSidebarActive23
+SidebarActiveFail23:
+    modTestRunner.Check "TestSidebarActiveContrastR23(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone23
 End Sub
