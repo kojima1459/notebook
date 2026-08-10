@@ -1438,7 +1438,63 @@ def _pad_to_exact_or_die(compressed: bytes, target: int, stream_name: str) -> by
 
 
 # ---------------------------------------------------------------------------
-# vbaProject.bin 外科パッチ (ThisWorkbookストリーム差し替え + dir MOFFSET=0)
+# R23c-F1: _VBA_PROJECTストリームの無害化(幽霊コンパイルエラー根治)
+#
+# 症状: 実機(Excel 365 2502/32bit)で、注入されたモジュールが477行完全・
+# テキスト完全一致にもかかわらず modViewport2.BadgeRowsFor だけがコンパイル
+# エラーになる現象が、クリーンインストール3回で100%再現した。
+#
+# 原因: 配布xlsmの vbaProject.bin は build/template_skeleton.xlsm 由来で、
+# その _VBA_PROJECT ストリーム(3,061B)が
+#   [0:2] 0x61CC (Reserved1)
+#   [2:4] Version = 0x00DF   ← テンプレートを作ったOfficeビルドのスタンプ
+#   [4]   0x00 / [5:7] Reserved3
+#   [7:]  PerformanceCache 3,054B  ← 当時のコンパイル済み状態
+# を保持したままだった。MS-OVBA仕様は「Versionが開き手のOfficeと一致する
+# 場合、PerformanceCache がソースの代わりに使われる」「相互運用のため書き手は
+# Version=0xFFFF とし PerformanceCache を含めてはならない(MUST)」と定めて
+# いる。ユーザーのExcelビルドのスタンプが 0x00DF と一致した結果、
+# 我々がVBIDE経由で注入した新しいソースではなく古いキャッシュ側の名前解決が
+# 信用され、実在するはずのプロシージャが見つからなくなったと推定される。
+#
+# 対策(二重防御): Version を 0xFFFF へ書き換え、かつ PerformanceCache 全体を
+# ゼロ埋めする。ストリーム長は 3,061B のまま一切変えない(olefile.write_stream
+# は同サイズ書き込みしかできず、サイズを変えるとCFBのFATを組み直す必要がある。
+# ThisWorkbook差し替えと同じ制約)。Version=0xFFFF により Module1/Sheet1 等の
+# 各モジュールストリームのキャッシュも一括で無視されるため、それらは触らない。
+# ---------------------------------------------------------------------------
+_VBA_PROJECT_STREAM_SIZE = 3061      # template_skeleton.xlsm 由来の固定長
+_VBA_PROJECT_RESERVED1 = 0x61CC      # MS-OVBA 2.3.4.1 Reserved1(固定値)
+_VBA_PROJECT_VERSION_IGNORE = 0xFFFF  # 「キャッシュを使うな」の相互運用値
+_VBA_PROJECT_CACHE_OFFSET = 7        # PerformanceCache の開始オフセット
+
+
+def _neutralize_vba_project(stream: bytes) -> bytes:
+    """_VBA_PROJECTストリームを同サイズのままキャッシュ無効化する。"""
+    if len(stream) != _VBA_PROJECT_STREAM_SIZE:
+        raise BuildError(
+            f"_VBA_PROJECTストリームのサイズが想定外です: "
+            f"期待={_VBA_PROJECT_STREAM_SIZE}バイト 実際={len(stream)}バイト "
+            "(template_skeleton.xlsm が差し替わった可能性。"
+            "サイズを変えずに書き換える前提が崩れるため中断します)")
+    reserved1 = struct.unpack("<H", stream[0:2])[0]
+    if reserved1 != _VBA_PROJECT_RESERVED1:
+        raise BuildError(
+            f"_VBA_PROJECTストリームの先頭2バイトが 0x{_VBA_PROJECT_RESERVED1:04X} "
+            f"ではありません(実際=0x{reserved1:04X})。"
+            "MS-OVBA の _VBA_PROJECT ヘッダとして解釈できないため中断します。")
+
+    out = bytearray(stream)
+    struct.pack_into("<H", out, 2, _VBA_PROJECT_VERSION_IGNORE)
+    # [4] と [5:7] (Reserved2/Reserved3) は現状維持。
+    for i in range(_VBA_PROJECT_CACHE_OFFSET, len(out)):
+        out[i] = 0
+    return bytes(out)
+
+
+# ---------------------------------------------------------------------------
+# vbaProject.bin 外科パッチ (ThisWorkbookストリーム差し替え + dir MOFFSET=0
+#                            + _VBA_PROJECT のPerformanceCache無害化)
 # ovba.py の低レベル関数(圧縮/解凍/CFBReader/pad)だけを使い、
 # インストーラ文字列などプロダクト固有の中身はここに閉じ込める。
 # ---------------------------------------------------------------------------
@@ -1487,10 +1543,14 @@ def patch_installer(vba_bin: bytes, installer_src: bytes) -> bytes:
         )
     new_tw = _pad_to_exact_or_die(tw_compressed, orig_tw_size, "ThisWorkbook")
 
+    # R23c-F1: PerformanceCache無害化。同サイズ書き込みのみ(上のコメント参照)。
+    new_vbaproj = _neutralize_vba_project(skel.read("_VBA_PROJECT"))
+
     buf = io.BytesIO(vba_bin)
     ole = olefile.OleFileIO(buf, write_mode=True)
     ole.write_stream("VBA/dir", new_dir)
     ole.write_stream("VBA/ThisWorkbook", new_tw)
+    ole.write_stream("VBA/_VBA_PROJECT", new_vbaproj)
     ole.close()
     buf.seek(0)
     return buf.read()
@@ -1767,6 +1827,26 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
                 i += 6 + sz
         if not moffset_ok:
             errors.append("dirストリームのThisWorkbook.MOFFSETが0になっていない")
+
+        # R23c-F2: _VBA_PROJECT が無害化されていることの読み戻し検査。
+        # (a)サイズ不変 (b)Version==0xFFFF (c)PerformanceCache全ゼロ
+        vp = cfb.read("_VBA_PROJECT")
+        if len(vp) != _VBA_PROJECT_STREAM_SIZE:
+            errors.append(
+                f"_VBA_PROJECTストリームのサイズが変化しています: "
+                f"期待={_VBA_PROJECT_STREAM_SIZE}バイト 実際={len(vp)}バイト")
+        else:
+            ver = struct.unpack("<H", vp[2:4])[0]
+            if ver != _VBA_PROJECT_VERSION_IGNORE:
+                errors.append(
+                    f"_VBA_PROJECTのVersionが0x{_VBA_PROJECT_VERSION_IGNORE:04X}では"
+                    f"ありません(実際=0x{ver:04X})。開き手のOfficeビルドと一致すると"
+                    "PerformanceCacheがソースより優先され、幽霊コンパイルエラーの原因になります")
+            nonzero = sum(1 for b in vp[_VBA_PROJECT_CACHE_OFFSET:] if b != 0)
+            if nonzero:
+                errors.append(
+                    f"_VBA_PROJECTのPerformanceCacheがゼロ埋めされていません"
+                    f"(非ゼロ={nonzero}バイト)")
 
         # olefile側でも同一バイナリを開けることを確認(異なる実装での復元確認)。
         ole = olefile.OleFileIO(io.BytesIO(vba_bin))
@@ -2065,7 +2145,8 @@ def main():
     print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
     print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
           "vba_src本文がsrc/と完全一致 / vba_src D列(期待行数)がsrc由来の計算値と一致 / "
-          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
+          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認 / "
+          "_VBA_PROJECT無害化確認(Version=0xFFFF・PerformanceCacheゼロ埋め・3,061B不変)")
 
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")
