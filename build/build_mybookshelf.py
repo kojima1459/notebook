@@ -1159,12 +1159,36 @@ def _vba_src_text(root, m):
     return _clean("\n".join(out_lines))
 
 
+def _expected_line_count(src):
+    """ソース文字列の「末尾空行を落とした行数」を返す(純関数)。
+    src/core/modInstallCheck.bas の Public Function ExpectedLineCount と
+    完全同一の規則(CRLF/CR→LF正規化→split→末尾の空白・タブのみ行を落とす)
+    をPython側に持つ、唯一の実装(2026-08-10 R23bH-F1)。
+    _make_vba_src(D列の焼き込み)と verify_build/_verify_vba_src_bodies
+    (D列突合検査)の両方がここを呼ぶ。空文字列は0行。"""
+    s = src.replace("\r\n", "\n").replace("\r", "\n")
+    if s == "":
+        return 0
+    parts = s.split("\n")
+    n = len(parts)
+    while n > 0 and parts[n - 1].replace("\t", " ").strip() == "":
+        n -= 1
+    return n
+
+
 def _make_vba_src(wb, present_modules, root):
     """vba_src シート: 標準モジュール(*.bas)のソースを1行1モジュールで格納する。
     自己インストーラ(ThisWorkbookストリーム)がこのシートを読んで
     VBComponents.Add(1)でモジュールを注入する。
     注意: クラスモジュール(type=class, 例 ThisWorkbook.cls)は
-    VBComponents.Add(1) では追加できない(標準モジュール専用API)ため対象外。"""
+    VBComponents.Add(1) では追加できない(標準モジュール専用API)ため対象外。
+    2026-08-10(R23bH-F1): D列(row2以降)へ各モジュールの「期待行数」
+    (_expected_line_count、modInstallCheck.ExpectedLineCountと同一規則)を
+    焼き込む。modInstallCheck.VI はこれを読むだけで検算でき、実行時に
+    C列(全135本・約260万字)を再読込してReplace/Splitする必要がなくなる
+    (32bit Excelのメモリ逼迫時、検証器自身が新たな失敗点になるのを防ぐ)。
+    E1(row1,col5)はOnTime予約時刻用で不可侵のため、D列もrow2以降にしか
+    書かない(row1のD1は空のまま)。"""
     ws = wb.create_sheet("vba_src")
     for c, h in enumerate(["module_name", "type", "source"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
@@ -1192,12 +1216,14 @@ def _make_vba_src(wb, present_modules, root):
         ws.cell(row=row, column=1, value=m["name"])
         ws.cell(row=row, column=2, value="std")
         ws.cell(row=row, column=3, value=cleaned)
+        ws.cell(row=row, column=4, value=_expected_line_count(cleaned))
         injected.append(m["name"])
         row += 1
 
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 8
     ws.column_dimensions["C"].width = 80
+    ws.column_dimensions["D"].width = 10
     ws.sheet_state = "veryHidden"
     return injected
 
@@ -1568,7 +1594,11 @@ def _first_diff_pos(a, b):
 
 def _verify_vba_src_bodies(ws, got_names, present_modules, root):
     """成果物 vba_src のC列本文が src/ の対応ファイル(ビルド規則適用後)と
-    完全一致することを全モジュールで検査する(FA-R23-1c)。"""
+    完全一致することを全モジュールで検査する(FA-R23-1c)。
+    2026-08-10(R23bH-F1): あわせてD列(期待行数)が src由来の
+    _expected_line_count(C列本文)と一致することも全数突合する
+    (modInstallCheck.VI が実行時に信頼するD列の値そのものを、出荷前に
+    ビルド側で検算しておくため)。"""
     errors = []
     expected = {}
     for m in _vba_src_modules(present_modules):
@@ -1591,6 +1621,17 @@ def _verify_vba_src_bodies(ws, got_names, present_modules, root):
                 f"vba_src本文が src/ と不一致: '{nm}' "
                 f"(先頭差分位置={pos}, 期待{len(want)}字/実際{len(actual)}字, "
                 f"期待={want[pos:pos + 40]!r} 実際={actual[pos:pos + 40]!r})")
+
+        want_lines = _expected_line_count(want)
+        got_d = ws.cell(row=i + 2, column=4).value
+        # openpyxl は整数値のセルでも int/float いずれで返すかが環境依存なため、
+        # 数値型であれば int() へ正規化してから比較する(非数値/Noneはそのまま
+        # 不一致として拾う)。
+        got_d_num = int(got_d) if isinstance(got_d, (int, float)) and not isinstance(got_d, bool) else None
+        if got_d_num != want_lines:
+            errors.append(
+                f"vba_src D列(期待行数)が src由来の計算値と不一致: '{nm}' "
+                f"D列={got_d!r} 期待={want_lines}")
 
     for nm in expected:
         if nm not in seen:
@@ -2004,7 +2045,8 @@ def main():
             pass
     print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
     print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
-          "vba_src本文がsrc/と完全一致 / ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
+          "vba_src本文がsrc/と完全一致 / vba_src D列(期待行数)がsrc由来の計算値と一致 / "
+          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
 
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")

@@ -45,13 +45,30 @@ Option Explicit
 '   ・AddFromString は末尾の空行の扱いが環境で1本ぶれることが知られている。
 '     そこで【両側とも末尾の空行を落としてから】厳密一致で比較する。
 '     ±1 の黙認はしない(1行足りない部分注入を見逃す穴になるため)。
+'
+' 期待行数の出所(2026-08-10 R23bH-F1): 以前の VI は起動のたびに vba_src の
+' C列(全136本・本文合計約260万字)を読み直し、Replace/Split で期待行数を
+' その場で再計算していた。これは注入直後で32bit Excelのメモリが最も逼迫
+' しているタイミングに、検証器自身が新たな失敗点(OOM/低速化)になり得る。
+' そこで期待行数は【ビルド時】に build/build_mybookshelf.py の
+' _make_vba_src が _expected_line_count(=このモジュールの ExpectedLineCount
+' と完全同一規則)で計算し、vba_src!D列(row2以降)へ Long であらかじめ
+' 焼き込む。verify_build 側も同じ規則で全数突合するので、D列の値そのものが
+' 出荷前に検算済みである。VI はもう C列本文を読まず、D列の数値を読んで
+' 実測行数(ModuleLineCount)と比較するだけになった。
+' ExpectedLineCount/LineCountMismatch は削除していない: ビルド時の
+' _expected_line_count と実装が乖離しないことを固定する純関数テスト資産
+' (src/test/modTestsPure23.bas)としてそのまま残す。
 ' ============================================================================
 
 ' vba_src シートの名前と読む列。インストーラ本体(ThisWorkbookストリーム)と
-' 同じ約束。A列=モジュール名 / C列=ソース本文(改行は vbLf)。
+' 同じ約束。A列=モジュール名(インストーラも読む)/ D列=期待行数(Long。
+' build/build_mybookshelf.py の _make_vba_src がビルド時に焼き込む。
+' row1のD1は書かない=E1のOnTime予約時刻と同じ理由でrow2以降のみを使う)。
+' C列(ソース本文)はインストーラの注入に使うが、VI はもう読まない(F1)。
 Private Const SHEET_VBA_SRC As String = "vba_src"
 Private Const COL_NAME As Long = 1
-Private Const COL_SRC As Long = 3
+Private Const COL_EXPECTED As Long = 4
 Private Const FIRST_DATA_ROW As Long = 2
 
 ' xlUp の値。定数名で書かずに数値なのは、この関数が「まだ何も注入できて
@@ -119,6 +136,14 @@ End Function
 '
 ' 異常時(vba_src が無い・VBProject を読めない等)は 1 を返す。
 ' 「検証できなかった」を合格側へ倒すと、この仕組みそのものが無意味になる。
+'
+' 期待行数は D列の値をそのまま使う(2026-08-10 R23bH-F1。C列本文の
+' 実行時再読込・Replace/Splitはもうしない)。D列が空/非数値のときは
+' 「期待行数が読めない」こと自体を不一致として不合格側(bad+1)へ倒す。
+' IsNumeric で先に型を確かめてから CLng するのは、VBA の And が短絡評価
+' しないため「IsNumeric(v) And CLng(v)=actual」のような1行に書くと
+' 非数値のときに CLng 側で型不一致の実行時エラーになりかねないからで、
+' 素直に If を分けて保守的に倒す。
 ' ----------------------------------------------------------------------------
 Public Function VI() As Long
     Dim vbp As Object
@@ -126,7 +151,8 @@ Public Function VI() As Long
     Dim lastRow As Long
     Dim r As Long
     Dim nm As String
-    Dim src As String
+    Dim dVal As Variant
+    Dim expected As Long
     Dim actual As Long
     Dim bad As Long
     Dim listed As String
@@ -139,15 +165,25 @@ Public Function VI() As Long
 
     For r = FIRST_DATA_ROW To lastRow
         nm = CStr(ws.Cells(r, COL_NAME).Value)
-        src = CStr(ws.Cells(r, COL_SRC).Value)
         If LenB(nm) > 0 Then
             ' 見つからない/読めないモジュールは -1(必ず不一致になる)。
             actual = ModuleLineCount(vbp, nm)
-            If LineCountMismatch(src, actual) Then
+            dVal = ws.Cells(r, COL_EXPECTED).Value
+            If IsNumeric(dVal) Then
+                expected = CLng(dVal)
+                If expected <> actual Then
+                    bad = bad + 1
+                    If bad <= MAX_LISTED Then
+                        If LenB(listed) > 0 Then listed = listed & vbLf
+                        listed = listed & "  " & nm & " (" & actual & " / " & expected & " 行)"
+                    End If
+                End If
+            Else
+                ' D列が空/非数値: 期待行数そのものが読めない=保守的に不合格へ倒す。
                 bad = bad + 1
                 If bad <= MAX_LISTED Then
                     If LenB(listed) > 0 Then listed = listed & vbLf
-                    listed = listed & "  " & nm & " (" & actual & " / " & ExpectedLineCount(src) & " 行)"
+                    listed = listed & "  " & nm & " (D列不正: 実測" & actual & " 行)"
                 End If
             End If
         End If
