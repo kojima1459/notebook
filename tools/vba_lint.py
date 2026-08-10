@@ -1807,7 +1807,9 @@ def merge_continuations(raw_lines: list[str]) -> list[tuple[int, str]]:
         if acc_start is None:
             acc_start = i
         rstripped = line.rstrip()
-        cont = rstripped.endswith(" _") or rstripped == "_"
+        # コメント行末の " _" は行継続ではない(VBAの構文上もコメントは継続しない)。
+        is_comment_line = line.lstrip().startswith("'")
+        cont = (not is_comment_line) and (rstripped.endswith(" _") or rstripped == "_")
         line_wo_cont = rstripped[:-1].rstrip() if cont else line
         acc = f"{acc} {line_wo_cont}" if acc else line_wo_cont
         if not cont:
