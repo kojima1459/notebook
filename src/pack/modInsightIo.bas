@@ -54,7 +54,13 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
            Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1(q) & FIELD_SEP & Clean1(ans) & FIELD_SEP & Clean1(src)
 
-    WriteShared dirPath & MakeNonce(myId) & ".txt", body
+    ' 2026-08-10(R25-3a FA-R25-3a): qa_shared_total は「解決済みQ&Aを部内へ
+    ' 実際に送り出せた」ことの計測(=フライホイールへの実貢献)なので、
+    ' 加算は共有フォルダへの書き込みが成功したときだけに限る(失敗経路で
+    ' 加算しない。バッジ qa_share10 が獲得不可能だった不具合の修理)。
+    If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
+        modStats.Bump "qa_shared_total"
+    End If
     On Error GoTo 0
 End Sub
 
@@ -110,7 +116,16 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
            Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200)) & FIELD_SEP & _
            "correction" & FIELD_SEP & Clean1(fixText)
 
-    WriteShared dirPath & MakeNonce(myId) & ".txt", body
+    ' 2026-08-10(R25-3a FA-R25-3a): gapfill_total は「みんなの困りごと」への
+    ' 回答(=1人の訂正を全員の訂正にする、この投稿)が実際に部内へ届いた
+    ' ときだけ加算する(qa_shared_total と同じ考え方。EmitGap は困りごと
+    ' そのものの報告であって回答ではないため対象外。correction_total
+    ' (fb10/fb50)は本人のナレッジ登録成功で加算する別カウンタで、
+    ' こちらは共有フォルダへの書き込み成功が条件)。バッジ gapfill が
+    ' 獲得不可能だった不具合の修理。
+    If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
+        modStats.Bump "gapfill_total"
+    End If
     On Error GoTo 0
 End Sub
 
