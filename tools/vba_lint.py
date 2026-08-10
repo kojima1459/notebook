@@ -2542,6 +2542,240 @@ def check_array_arg_variant_mismatch(infos: list[ModuleInfo]) -> None:
             _report_array_args(info, lineno, head, arg_str, sig)
 
 
+# ==============================================================================
+# 検査(R24-1b): 修飾呼び出し `modX.Proc` の引数数照合
+# ------------------------------------------------------------------------------
+# 2026-08-10(R24-1b): R21H F3 で CompressFactor の引数を2本→3本へ変えた際、
+#   呼び出し3箇所のうち modVaultGallery:337 だけ旧式2引数で取り残され、実Excel
+#   では「引数は省略できません」でコンパイル不能だった。LibreOffice Basic は
+#   引数数をコンパイル時に照合しないため、compile検査をすり抜ける(LO死角)。
+#   そこで src/ 全体からシグネチャを集め、修飾呼び出しの実引数の個数が
+#   [必須, 最大] のレンジを外れていたら ERROR にする。
+#
+#   設計方針は【偽陽性ゼロ最優先】。以下は一切検査せず「スキップ」に落とす:
+#     - 呼び先が解決できない名前(Excelオブジェクト・組込関数・外部モジュール)
+#     - Property(Get/Let/Set で引数数が異なる。同名キーごと除外)
+#     - 引数0個のプロシージャに ( ) が付いた形(配列戻り値の添字と区別不能)
+#     - `f(...)(...)` のような連鎖・空引数・名前付き引数 `x:=1` を含む呼び出し
+#     - 単一行 If の Else 付き・トップレベル代入を含む括弧なし呼び出し
+#   スキップした件数は WARN として必ず可視化する(検査の実効範囲の申告)。
+# ------------------------------------------------------------------------------
+ARGC_SIG_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(Sub|Function)\s+"
+    r"([A-Za-z_]\w*)\s*\(",
+    re.IGNORECASE,
+)
+ARGC_PROPERTY_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?Property\s+"
+    r"(?:Get|Let|Set)\s+([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
+ARGC_DECLARE_RE = re.compile(r"^(?:Public\s+|Private\s+)?Declare\b", re.IGNORECASE)
+ARGC_QUALIFIED_RE = re.compile(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)")
+ARGC_CALL_PREFIX_RE = re.compile(r"^Call\s+", re.IGNORECASE)
+ARGC_THEN_RE = re.compile(r"\bThen\b", re.IGNORECASE)
+ARGC_ELSE_RE = re.compile(r"\bElse\b", re.IGNORECASE)
+# 括弧なし呼び出しの直後に来たら「呼び出しではない」と判断する文字。
+ARGC_NOT_ARG_START = set("=+-*/\\&<>^,)(.:;|")
+
+# スキップした呼び出しの記録(モジュールをまたいで集計し WARN 1本で申告する)。
+ARGC_SKIPPED: list[tuple[str, int, str, str]] = []
+ARGC_CHECKED = [0]
+DUMP_ARGC_SKIPS = False
+
+
+def _argc_statements(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """引数数照合用の文リスト。iter_statements と違い `:=`(名前付き引数)では
+    分割しない(分割すると引数列が壊れて数えられなくなる)。"""
+    stmts: list[tuple[int, str]] = []
+    for lineno, ltext in merge_continuations(raw_lines):
+        code = strip_comment(ltext)
+        masked = _blank_string_literals(code)
+        # トップレベルのコロンで分割。ただし ":=" は分割しない。
+        depth = 0
+        start = 0
+        for i, c in enumerate(masked):
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == ":" and depth == 0:
+                if i + 1 < len(masked) and masked[i + 1] == "=":
+                    continue
+                piece = code[start:i].strip()
+                if piece:
+                    stmts.append((lineno, piece))
+                start = i + 1
+        piece = code[start:].strip()
+        if piece:
+            stmts.append((lineno, piece))
+    return stmts
+
+
+def _argc_parse_params(param_str: str):
+    """仮引数文字列 -> (必須数, 最大数 or None=∞)。数えられなければ None。"""
+    if not param_str.strip():
+        return (0, 0)
+    params = [p.strip() for p in split_top_level(param_str, ",")]
+    if any(p == "" for p in params):
+        return None
+    required = 0
+    optional_seen = False
+    for p in params:
+        low = p.lower()
+        if low.startswith("paramarray") or low.startswith("byval paramarray"):
+            # ParamArray は必ず最後。以降は個数上限なし。
+            return (required, None)
+        if low.startswith("optional"):
+            optional_seen = True
+            continue
+        if optional_seen:
+            # Optional の後ろに非Optional は VBA では不正。解釈不能として扱う。
+            return None
+        required += 1
+    return (required, len(params))
+
+
+def _argc_build_signatures(infos: list[ModuleInfo]) -> dict:
+    """{(モジュール表示名, プロシージャ名小文字): (必須数, 最大数 or None)}"""
+    sigs: dict = {}
+    excluded: set = set()
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for _lineno, stmt in _argc_statements(info.raw_text.splitlines()):
+            if ARGC_DECLARE_RE.match(stmt):
+                pm = re.search(r"\b(?:Sub|Function)\s+([A-Za-z_]\w*)", stmt, re.IGNORECASE)
+                if pm:
+                    excluded.add((mod_name, pm.group(1).lower()))
+                continue
+            pm = ARGC_PROPERTY_RE.match(stmt)
+            if pm:
+                # Property は Get/Let/Set で引数数が違う。名前ごと検査対象外。
+                excluded.add((mod_name, pm.group(1).lower()))
+                continue
+            m = ARGC_SIG_RE.match(stmt)
+            if not m:
+                continue
+            key = (mod_name, m.group(2).lower())
+            close_idx = _find_matching_paren(_blank_string_literals(stmt), m.end() - 1)
+            if close_idx == -1:
+                excluded.add(key)
+                continue
+            parsed = _argc_parse_params(stmt[m.end():close_idx])
+            if parsed is None:
+                excluded.add(key)
+                continue
+            if key in sigs and sigs[key] != parsed:
+                # 同名多重定義(想定外)。安全側に倒して検査対象外。
+                excluded.add(key)
+                continue
+            sigs[key] = parsed
+    for key in excluded:
+        sigs.pop(key, None)
+    return sigs
+
+
+def _argc_count_args(arg_str: str):
+    """実引数文字列 -> 個数。数えられなければ None。"""
+    if not arg_str.strip():
+        return 0
+    if ":=" in arg_str:
+        return None  # 名前付き引数は個数照合の対象外
+    parts = split_top_level(arg_str, ",")
+    if any(p.strip() == "" for p in parts):
+        return None  # 省略引数 Foo(a, , c) は数え方が曖昧
+    return len(parts)
+
+
+def _argc_call_starts(masked: str) -> set:
+    """括弧なし Sub 呼び出しの頭として認めてよい開始位置の集合。"""
+    starts = {0}
+    m = ARGC_CALL_PREFIX_RE.match(masked)
+    if m:
+        starts.add(m.end())
+    # 単一行 If: `If cond Then modX.Proc a, b`(Else 付きは曖昧なので不採用)
+    if re.match(r"^\s*(?:If|ElseIf)\b", masked, re.IGNORECASE) and not ARGC_ELSE_RE.search(masked):
+        tm = None
+        for tm in ARGC_THEN_RE.finditer(masked):
+            pass
+        if tm is not None and masked[tm.end():].strip():
+            starts.add(tm.end() + (len(masked[tm.end():]) - len(masked[tm.end():].lstrip())))
+    return starts
+
+
+def check_qualified_arg_count(infos: list[ModuleInfo]) -> None:
+    """修飾呼び出し `modX.Proc(...)` / `modX.Proc a, b` の実引数の個数が、
+    宣言側の [必須, 最大] レンジに収まっているかを照合する。"""
+    ARGC_SKIPPED.clear()
+    ARGC_CHECKED[0] = 0
+    sigs = _argc_build_signatures(infos)
+
+    for info in infos:
+        rel = info.relpath.as_posix()
+        for lineno, stmt in _argc_statements(info.raw_text.splitlines()):
+            masked = _blank_string_literals(stmt)
+            starts = _argc_call_starts(masked)
+            for m in ARGC_QUALIFIED_RE.finditer(masked):
+                mod_name, proc = m.group(1), m.group(2)
+                key = (mod_name, proc.lower())
+                if key not in sigs:
+                    continue  # 呼び先未解決 = 素通し(Excelオブジェクト等)
+                required, maxargs = sigs[key]
+                tail = masked[m.end():]
+                lead = len(tail) - len(tail.lstrip())
+                nxt = tail.strip()[:1]
+
+                if nxt == "(":
+                    open_idx = m.end() + lead
+                    close_idx = _find_matching_paren(masked, open_idx)
+                    if close_idx == -1:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "括弧が閉じていない"))
+                        continue
+                    after = masked[close_idx + 1:].lstrip()
+                    if after[:1] == "(":
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "連鎖呼び出し/添字"))
+                        continue
+                    n = _argc_count_args(stmt[open_idx + 1:close_idx])
+                    if n is None:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "名前付き/省略引数"))
+                        continue
+                    if maxargs == 0 and n > 0:
+                        # 引数0個の Function の戻り値への添字 f(0) と区別できない。
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "0引数+括弧(添字と区別不能)"))
+                        continue
+                elif m.start() in starts and nxt and nxt not in ARGC_NOT_ARG_START:
+                    # 文頭が修飾名+空白+被演算子 = 括弧なしSub呼び出しで確定
+                    # (`modX.Foo = 1` の代入形は nxt が '=' なのでここへ来ない)。
+                    # 引数の中の '=' は比較演算子なので代入除外はしない。
+                    rest = stmt[m.end():]
+                    n = _argc_count_args(rest)
+                    if n is None:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "名前付き/省略引数"))
+                        continue
+                elif m.start() in starts and not nxt:
+                    n = 0  # 引数無しの単独呼び出し文 `modX.Proc`
+                else:
+                    # 式中の括弧なし参照。呼び出しか値参照か確定できない。
+                    if required > 0:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "式中の括弧なし参照"))
+                    continue
+
+                ARGC_CHECKED[0] += 1
+                if n < required or (maxargs is not None and n > maxargs):
+                    if maxargs is None:
+                        want = f"必須{required}個以上(ParamArray)"
+                    elif required == maxargs:
+                        want = f"{required}個"
+                    else:
+                        want = f"{required}〜{maxargs}個"
+                    info.add(
+                        "ERROR", lineno,
+                        f"{mod_name}.{proc} の実引数が{n}個ですが、宣言は{want}です"
+                        f"(シグネチャ変更の呼び出し側取り残し。実Excelは"
+                        f"「引数は省略できません」等でコンパイル拒否)",
+                    )
+
+
 def check_module_level_refs(infos: list[ModuleInfo]) -> None:
     """他モジュールのモジュールレベル定数・変数を、宣言せずに参照していないか。
 
@@ -3574,6 +3808,7 @@ def run_lint(src_root: Path) -> int:
     check_onaction_handler_guard(modules)
     check_msgbox_nonbmp(modules)
     check_array_arg_variant_mismatch(modules)
+    check_qualified_arg_count(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())
@@ -3602,6 +3837,21 @@ def run_lint(src_root: Path) -> int:
         for f in sorted(info.findings, key=lambda x: (x.level != "ERROR", x.level != "WARN", x.line)):
             print(f"  {f.level:<5} L{f.line}: {f.message}")
 
+    if ARGC_SKIPPED:
+        # 引数数照合の実効範囲の申告。数え切れなかった呼び出しは黙って通して
+        # いるので、件数だけは必ず表に出す(偽陽性ゼロと引き換えの検出漏れ)。
+        print("\n[引数数照合(R24-1b) — 数えられずスキップした修飾呼び出し]")
+        reasons: dict[str, int] = {}
+        for _rel, _ln, _name, why in ARGC_SKIPPED:
+            reasons[why] = reasons.get(why, 0) + 1
+        detail = " / ".join(f"{k}:{v}件" for k, v in sorted(reasons.items()))
+        print(f"  WARN  L1: 引数数照合 {ARGC_CHECKED[0]} 件を照合、"
+              f"{len(ARGC_SKIPPED)} 件をスキップしました({detail})")
+        total_warn += 1
+        if DUMP_ARGC_SKIPS:
+            for rel, ln, name, why in ARGC_SKIPPED:
+                print(f"        - {rel}:{ln} {name} ({why})")
+
     if not_yet:
         print("\n[未実装モジュール(契約はあるがファイル無し) — SKIP]")
         for nm in not_yet:
@@ -3626,7 +3876,13 @@ def main() -> int:
         "--path", type=str, default=str(DEFAULT_SRC_ROOT),
         help="検査対象ディレクトリ(既定: mybookshelf/src)",
     )
+    parser.add_argument(
+        "--dump-argcount-skips", action="store_true",
+        help="引数数照合でスキップした呼び出しを1件ずつ列挙する(調査用)",
+    )
     args = parser.parse_args()
+    global DUMP_ARGC_SKIPS
+    DUMP_ARGC_SKIPS = bool(args.dump_argcount_skips)
     src_root = Path(args.path).resolve()
     return run_lint(src_root)
 
