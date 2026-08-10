@@ -30,6 +30,7 @@ Public Sub ShowVaultInput()
 
     On Error GoTo Finish
     Application.ScreenUpdating = False
+    modUiLock.AlertsOff   ' R25-1a-1: 描画中のMerge警告を出さない(対はFinishCleanup0)
 
     ' 冪等再構築
     RemoveVaultShapes ws
@@ -172,6 +173,7 @@ Finish:
     Resume FinishCleanup0
 FinishCleanup0:
     On Error Resume Next
+    modUiLock.AlertsOn
     Application.ScreenUpdating = True   ' 例外時も必ず画面更新を戻す(暗転固定を防ぐ)
     On Error GoTo 0
 End Sub

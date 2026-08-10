@@ -98,7 +98,9 @@ Public Sub ShowDashboard()
 
     Dim vw0 As Double, vh0 As Double
     modViewport2.MarkView vw0, vh0
+    modUiLock.AlertsOff   ' R25-1a-1: DrawDashboard内のMerge警告を出さない(対はAlertsOn)
     DrawDashboard ws
+    modUiLock.AlertsOn
 
     ' R7 A-2: 表示状態の自己修復(他画面から引き継いだ崩れを戻す)。
     On Error Resume Next
@@ -119,6 +121,7 @@ Fail:
     Resume FailCleanup0
 FailCleanup0:
     On Error Resume Next
+    modUiLock.AlertsOn   ' R25-1a-1: DrawDashboard中断時もAlertsOffの対を必ず戻す
     Application.ScreenUpdating = True
     modLog.LogError "E0801", "modDash.ShowDashboard", "[" & mDashStep & "] " & failDesc, failNum
     On Error GoTo 0
@@ -162,7 +165,9 @@ Public Sub OnDashRefresh()
 
     On Error GoTo Fail
     Application.ScreenUpdating = False
+    modUiLock.AlertsOff   ' R25-1a-1: DrawDashboard内のMerge警告を出さない(対はAlertsOn)
     DrawDashboard ws
+    modUiLock.AlertsOn
     Application.ScreenUpdating = True
     Exit Sub
 
@@ -175,6 +180,7 @@ Fail:
     Resume FailCleanup2
 FailCleanup2:
     On Error Resume Next
+    modUiLock.AlertsOn   ' R25-1a-1: DrawDashboard中断時もAlertsOffの対を必ず戻す
     Application.ScreenUpdating = True
     modLog.LogError "E0801", "modDash.OnDashRefresh", "[" & mDashStep & "] " & failDesc, failNum
     On Error GoTo 0

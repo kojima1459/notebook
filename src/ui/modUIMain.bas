@@ -95,6 +95,7 @@ Public Sub EnsureLayout()
     ' uiStep: 実機エラーの発生箇所を1回の報告で特定するための進捗マーカー。
     Dim uiStep As String
     On Error GoTo Fail
+    modUiLock.AlertsOff   ' R25-1a-1(対は全Exit経路のAlertsOn)
 
     Application.ScreenUpdating = False
     If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible(非表示なら表示化)
@@ -299,6 +300,7 @@ Public Sub EnsureLayout()
     If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰
     On Error GoTo 0
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
@@ -320,6 +322,7 @@ FailCleanup0:
     modLog.LogError "E0801", "modUIMain.EnsureLayout", "[" & uiStep & "]" & diag, origNum
     If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     On Error GoTo 0
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub

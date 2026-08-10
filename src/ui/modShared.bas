@@ -41,6 +41,7 @@ Public Sub Show()
 
     On Error GoTo Finish
     Application.ScreenUpdating = False
+    modUiLock.AlertsOff   ' R25-1a-1(対はFinishCleanup0)
 
     ' R21H F7(実機第8報⑦と同型の適用漏れ): 従来は「描く→活性化→表示状態」の
     ' 順で、罫線・見出し・タブ・水平スクロールバーの確定が描画の【後】にあり、
@@ -156,6 +157,7 @@ Finish:
     Resume FinishCleanup0
 FinishCleanup0:
     On Error Resume Next
+    modUiLock.AlertsOn
     ApplyExtent ws, botRow
     ' 2026-07-31(R11-B H-1): ActiveWindow系は、そのシートが実際に前面の
     ' ときだけ触る(別シートの表示状態を巻き添えで変えないため)。

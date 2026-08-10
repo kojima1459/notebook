@@ -85,6 +85,7 @@ Public Function ShowVaultGallery() As Boolean
     Dim vw0 As Double, vh0 As Double
     On Error GoTo Finish
     Application.ScreenUpdating = False
+    modUiLock.AlertsOff   ' R25-1a-1(対はFinishCleanup4)
 
     ' R21-S1(実機第8報⑦): 「描く→活性化→表示状態」を【活性化→表示状態→
     ' 描く】へ反転する。従来は罫線・見出し・タブ・水平スクロールバーの確定が
@@ -123,6 +124,7 @@ Finish:
     Resume FinishCleanup4
 FinishCleanup4:
     On Error Resume Next
+    modUiLock.AlertsOn
     If gErrNum <> 0 Then
         modLog.LogError "E0801", "modVaultGallery.ShowVaultGallery", "[" & uiStep & "] " & gErrDesc, gErrNum
     End If
