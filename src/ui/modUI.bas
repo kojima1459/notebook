@@ -764,11 +764,17 @@ Public Sub RecalcChatBottom(ByVal ws As Worksheet)
 End Sub
 
 ' 1ターン分(バブル+アクション+出典)を描き終えたあとの締め処理。
+' R27 F2-1a(実機第12報①): 下の「余白」の正体は、境界関所(ExtendChatBand)を
+' 通らずに境界の外へ積まれた実コンテンツだった。AddChatBubble は1個ごとに
+' 関所を通るが、回答差し替え/信頼度バッジ/出典チップ/評価ボタン/専門家
+' ボタン/スターターの6経路はバブルを足さずに下端だけを伸ばすため、境界は
+' 前のターンのままだった。締めのここで実下端を関所へ通し、6穴を一括で塞ぐ。
 Public Sub SettleChat()
     Dim ws As Worksheet
     Set ws = GetNexusSheet()
     If ws Is Nothing Then Exit Sub
     RecalcChatBottom ws
+    modSkin.ExtendChatBand ws, mChatBottom
     ScrollToBottom ws
 End Sub
 
