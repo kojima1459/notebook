@@ -168,7 +168,8 @@ Public Sub RemoveHubShapes(ByVal ws As Worksheet)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' ClearBadgeArea - 旧バッジ表示領域(B10:F56=rの可動域全体)のUnMerge+
+' ClearBadgeArea - 旧バッジ表示領域(B10:F60=HUB_BOUND上限。F6/m-4で余裕
+'   ゼロだったB10:F56から拡張)のUnMerge+
 '   ClearContentsを1回だけ行う(R25-1a-2)。modHub.DrawBadgesは実測r
 '   (StatTilesBottomの実下端由来)へ毎回Mergeし直すため、前回描画からrが
 '   動くと旧領域の値が新しい結合先セルに残ったまま結合され、Excel標準の
@@ -178,7 +179,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub ClearBadgeArea(ByVal ws As Worksheet)
     On Error Resume Next
-    With ws.Range("B10:F56")
+    With ws.Range("B10:F60")
         .UnMerge
         .ClearContents
     End With
