@@ -2737,6 +2737,12 @@ def check_qualified_arg_count(infos: list[ModuleInfo]) -> None:
                     if after[:1] == "(":
                         ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "連鎖呼び出し/添字"))
                         continue
+                    if after[:1] == "," and m.start() in starts:
+                        # 括弧なし呼び出しの第1引数が `(a+1)` 等の括弧付き式
+                        # (`modX.Proc (a+1), b`)。中身は全引数ではないので
+                        # 誤って個数照合すると過小カウントになる。
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "括弧なし呼び出しの第1引数が括弧付き"))
+                        continue
                     n = _argc_count_args(stmt[open_idx + 1:close_idx])
                     if n is None:
                         ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "名前付き/省略引数"))
