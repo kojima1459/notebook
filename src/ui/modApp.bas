@@ -95,6 +95,7 @@ Public Sub OnSend()
     If modUiLock.BlockIfIngesting() Then Exit Sub   ' R13-4c: 取込中は質問を受けない
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
+    Dim stage As String: stage = "検証"   ' R25-1b: 中断時のask_abort段階名
     modPeek.HideCitations   ' 前回回答の出典チップ/ポップアップを消す(最新回答の下だけに出す)
     modMentor.ClearMentor   ' Mentorボタンも同時に掃除(内部On Error Resume Next=安全弁)
     modAppAct.ClearActions            ' 文脈アクションも消す(質問中はボタン0個=入力に集中)
@@ -184,6 +185,7 @@ Public Sub OnSend()
     ' 既出チャンクメモリの寿命が、どちらもこの旗を見る)。
     modFollowup.SetFollowupTurn isFollowup
 
+    stage = "検索/生成"
     Dim t0 As Double: t0 = Timer
 
     Dim ans As String
@@ -216,6 +218,7 @@ Public Sub OnSend()
     End If
 
     Dim secs As Double: secs = Timer - t0
+    stage = "描画/保存"
 
     On Error Resume Next
     modLive.Finish
@@ -262,7 +265,8 @@ Public Sub OnSend()
     Exit Sub
 
 Fail:
-    Dim failDesc As String: failDesc = Err.Description
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number: failDesc = Err.Description
     ' ハンドラ稼働中は On Error Resume Next が効かず、ここで起きた
     ' エラーは呼び出し元へ飛んで本来の原因を上書きする。
     ' 後始末の前に Resume でハンドラを抜ける(2026-07-30 実機err#462)。
@@ -271,7 +275,11 @@ FailCleanup3:
     Err.Clear
     On Error Resume Next
     modLive.Finish   ' 実況先を必ず手放す(次のターンへ持ち越さない)
+    ' R25-1b: 「考えています…」の仮バブルが残ったまま(=無言の砂時計)に
+    ' ならないよう、中断時もここで確実に消す(従来は成功時のみ削除していた)。
+    If LenB(phName) > 0 Then ThisWorkbook.Worksheets("Nexus").Shapes(phName).Delete
     modLog.LogError "E0602", "modApp.OnSend", failDesc
+    modLog.LogUsage "ask_abort", stage, "Err#" & failNum & ": " & failDesc   ' R25-1b: 可観測性
     ' 2026-07-28(レビュー L-22): 失敗したら入力欄へ書き戻す。
     ' 送信直後に入力欄をクリアする作りなので、長文を書いて送って落ちると
     ' 打った文章が丸ごと消えていた。「もう一度お試しください」と言われても、
