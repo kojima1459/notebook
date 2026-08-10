@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R25完了時点）
+# 再開手順（セッション中断対策・最終更新: R27完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,13 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R25版で第12報)→**R26着手(GO受領済み・仕様書=spec_20260810_R26_知の循環_設計.md)**。R25H Fix+F5是正までクローズ済み。
+次: 利用者の実機検証(R27版で第13報)→**R26着手(GO受領済み・仕様書=spec_20260810_R26_知の循環_設計.md)**。R27H Fix+検証パス2周までクローズ済み。
+**R27(実機第12報)**: 仕様=spec_20260810_R27_実機第12報.md。調査3班(A=RAG/B=余白設計/C=バグ型横展開監査)→3実装波→敵対的レビュー→Fix波→Fix検証パス(2周目)→マイクロ修正の完全プロセス。
+波1 RAG根治: **SparseBoost無上限が主因**(KeyScore≒330×0.06=b1 20.26でcos無力化・曖昧/低ヒット/確信度の安全装置3つが休眠)→sparse_keyscore_cap=10(config・0で旧挙動)+Len clamp 8。**GarbleRatioのAscW符号バグ**(U+8000以降の常用漢字が制御文字扱い=約款文の13.3%が誤bad)+Word構造制御文字(Chr(7)等)誤爆を是正、私用領域U+E000-F8FFは検出継続。制御文字は空白置換(行頭字下げ1字温存)。.doc全滅時はContent.Text一括+Chr(12)分割でページ復元・maxPages/truncated遵守。embed_stepにok=N(成功数観測)。dispersionにtop3資料名。逆質問の名指し規則(3)は2件以上で無効化。多様性は**最終hits確定後のガード付き最小介入**(全件1資料のときのみ最下位1件を次点資料代表と差し替え+hits_diversifyログ。敵対的レビューB-1裁定=pool再配列はtopK枠を代表で埋めて上位を押し出す+分散判定は順序非依存で効かないため作り直し)。
+波2 余白: **下余白の正体=境界関所を通らず境界外へ積まれた実コンテンツ(9経路・チャット8)**。SettleChat→ExtendChatBand 1行が本丸+ヘルプ/ツアー/Peekの開閉両側配線+ヘッダートグル3経路の境界再適用。右=列幅1のHub方式横展開(modChromeへSetupDash/Shelf/ChatColumns)。埋め草PadRowToWindow(dash配線のみ=Hub残4字/modKnowledge残160字のため。チャットは対象外)。重ね表示はoverlay floor(modSkin)で衝突封鎖(HideCitations経路含む=検証パス2周目で発見)。行HiddenはR19裁定維持で不採用(保存関所なし+8KB→3MB膨張実測)。
+波3 監査15/16件: Enter拒否トーストwaitless/RefitTickロック/Workbooks.Openダミーパスワード2箇所/manifest列"@"(modShelfScan経由=modShelfStore残44不触)/**OnClearChat後の🟢が消したQ&Aを部内共有する穴をNoteAnswerFailed流用で凍結不触封鎖**/作業用Excel失敗トースト化/診断ボタン無言死/Enterハンドラ3本のLeave漏れ/専門家の未表示質問ファイル削除限定/引継ぎ文言/言語トースト集約(modHub -46字)/FollowHyperlink前トーストwaitless3箇所/TrackScreen dash。
+R27 記録のみ(次期): 短文質問の聞き返し率上昇の観測(dispersionのb1/rel分布1週間→ambiguous_score_x100再校正。ロールバック=sparse_keyscore_cap=0)/PUA以外の未知化けパターン/config成功だが表示更新失敗時のトースト精度/埋め草のHub・チャット未配線/同期中に入れ子で走るEnter専用ハンドラ20本(裁定必須)/ValidateMigFile・ValidatePackの行数上限とRestoreSheetのトランザクション化/共有フォルダI/OのDoEvents+進捗/telemetry_enabledオプトアウト導線が物理的に不存在/**modHub残50字・modKnowledge残160字・modShelfStore残44字・modAskRetrieve WARN残24字=分割裁定必須**。
+実機第13報の観点: ②「個別特約は？」で特約資料がヒットし逆質問または特約からの回答が出るか(切り分け: それでも出なければmy_vectorsに特約のbs::行があるか目視/化け再取込は⚡仕上げでなく再取込が必要)/①各画面band=vis-2か・下スクロールで白でなく塗りが続くか・ヘルプ/Peek開いたままクリアで崩れないか/散発: 言語切替トースト・作業用Excel失敗時トースト・ダッシュ再描画連打。**特約2資料は本文が化けたまま保存されている可能性が高いため、修正版で再取込(削除→取込)が必要**。
 **R25(実機第11報)**: 仕様=spec_20260810_R25_実機第11報.md。
 ③④RAGフリーズ根治=Excel標準のセル結合警告(複数値Merge)が原因。描画系Merge40箇所超が全て無保護だった。対策2層: modUiLock.AlertsOff/On(ネスト対応・深さカウンタ)を全描画エントリ11箇所+**RAG回答描画のWriteSafe(modUIMainShape=敵対的レビューが座標検算で特定した本丸。圧縮窓でHubバッジ結合セルが回答領域A14:H25内に入る)**へ+DrawBadges旧領域のUnMerge/Clear。パイプライン中断時の後始末(バナー消去+ロック解放+ask_abortログ)で「無言砂時計」を構造的に排除。
 ①右余白=Dashラチェット(吸収列K未リセット→FitTargetのFullyVisibleWidthが前回帯幅を自己参照しSAFE_MARGIN2ptが複利)を吸収列込みリセットで根治/Hub列幅ブロックをmodChromeへ移設(容量)+M:BZ幅1(VisibleRange右端列の差し引き上限保証)/ギャラリー固定列合計815pt→411pt(Fit実効化)。shelf-table25pt下振れとFullyVisibleWidth共有ロジックは意図的に不触(チャットの完璧fit保護)。下スクロール1-2回はExcelホイール仕様限界=対応不能とユーザーへ説明済み。
@@ -135,6 +141,10 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R27H+検証 | Opus/Sonnet | レビュー裁定6件(多様性作り直し/overlay floor/PUA検出/Chr(12)ページ復元/サニタイズ最適化/言語トースト集約)+2周目指摘2件 | d991f3a〜79e5a21 | 完了 |
+| R27波3 | Opus | 監査15/16件(モーダル保護/無言失敗/状態漏れ/再入/化け素通し/UIUX) | b10bd44〜4aa042e | 完了 |
+| R27波2 | Opus | 余白構造完治(関所全数配線/列幅1横展開/埋め草/開閉両側復帰) | 〜87431d6他 | 完了 |
+| R27波1 | Opus | RAG根治(KeyScore cap/AscW符号バグ/GarbleRatio誤爆/サニタイズ/.doc代替/観測3種) | ac5152c〜e7c0833 | 完了 |
 | R25H-Fix+F5 | Sonnet | レビュー裁定9件(WriteSafe保護/Err退避/EnsureLayout保護/M:BZ/自己修復/範囲拡張/絵文字/stage/False窓)+検証パス指摘F5是正 | e45802c〜a271ff0 | 完了 |
 | R25波C | Sonnet | バッジ16枠(死に2修理+新3種)+Pure24+解決事例文言+uwログ+M:P幅1 | e3d602d〜0b87f2d | 完了 |
 | R25波B | Sonnet | 余白ラチェット根治(Dash吸収列K/Hub列幅modChrome移設/ギャラリー列幅411pt化) | 66349d7〜deee38f | 完了 |
