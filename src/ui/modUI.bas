@@ -108,7 +108,9 @@ Public Sub InitUI()
     ws.Rows(4).RowHeight = 12
 
     On Error Resume Next
+    modUiLock.AlertsOff   ' R25-1a-1: Merge警告を出さない(対は直後のAlertsOn)
     modUINexusDraw.DrawChatHeader ws
+    modUiLock.AlertsOn
     If Err.Number <> 0 Then LogDrawStageError "DrawChatHeader", ws: Err.Clear
     On Error GoTo 0
 
@@ -120,7 +122,9 @@ Public Sub InitUI()
     On Error GoTo 0
 
     On Error Resume Next
+    modUiLock.AlertsOff   ' R25-1a-1: Merge警告を出さない(対は直後のAlertsOn)
     modUINexusDraw.DrawInputArea ws
+    modUiLock.AlertsOn
     If Err.Number <> 0 Then LogDrawStageError "DrawInputArea", ws: Err.Clear
     ' R13-6a: 「続きの質問」チップの掃除+再掲。再描画のたびに armed 状態と
     ' 画面を一致させる(State Lossでチップだけが残る、を構造的に潰す)。
@@ -623,6 +627,7 @@ Public Sub Repaint()
     ' 暗転固定されていた(ShowVaultGallery/ShowDashboardと同型の教訓)。
     ' 必ずScreenUpdating=Trueへ到達する構造にする(Resume-cleanup方式)。
     Dim rpErrNum As Long, rpErrDesc As String
+    modUiLock.AlertsOff   ' R25-1a-1: 描画中のMerge警告を出さない(対はRepaintCleanup)
     On Error GoTo RepaintFail
     modViewport2.RefitChatBand ws    ' R21-S6: 帯・ヘッダー・入力欄を今の窓幅へ
     modSkin.ApplyTheme ws            ' 全nx_Shapeを再彩色(ゴースト=前画面の残像を塗り直す)
@@ -635,6 +640,7 @@ RepaintFail:
     Resume RepaintCleanup
 RepaintCleanup:
     On Error Resume Next
+    modUiLock.AlertsOn
     Application.ScreenUpdating = True
     If rpErrNum <> 0 Then modLog.LogError "E0801", "modUI.Repaint", rpErrDesc, rpErrNum
     On Error GoTo 0

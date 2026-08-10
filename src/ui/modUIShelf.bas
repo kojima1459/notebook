@@ -300,6 +300,7 @@ Public Sub RenderShelf()
     ' 粒度では原因ブロックまで特定できなかったため、ここでも追う)。
     Dim uiStep As String
     On Error GoTo Fail
+    modUiLock.AlertsOff   ' R25-1a-1(対は全Exit経路のAlertsOn)
 
     Application.ScreenUpdating = False
 
@@ -326,6 +327,7 @@ Public Sub RenderShelf()
         ApplyShelfExtent ws, FIRST_CARD_ROW, True
         mTableLastRow = FIRST_CARD_ROW   ' R20H FA-4: table自身の記憶も更新
         Application.ScreenUpdating = True
+        modUiLock.AlertsOn
         Exit Sub
     End If
 
@@ -351,6 +353,7 @@ Public Sub RenderShelf()
     mTableLastRow = FIRST_CARD_ROW + shown - 1   ' R20H FA-4: table自身の記憶も更新
 
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
@@ -364,6 +367,7 @@ Fail:
 FailCleanup1:
     On Error Resume Next
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.RenderShelf", "[" & uiStep & "] " & origDesc
 End Sub

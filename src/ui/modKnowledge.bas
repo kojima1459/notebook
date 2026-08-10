@@ -122,6 +122,7 @@ End Function
 Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     If ws Is Nothing Then Exit Sub
     On Error GoTo Fail
+    modUiLock.AlertsOff
 
     RemoveChrome ws
     mMode = LCase$(mode)
@@ -273,9 +274,11 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     On Error Resume Next
     modUI.FreezeShapePlacement ws
     On Error GoTo 0
+    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
+    modUiLock.AlertsOn
     modLog.LogError "E0801", "modKnowledge.DrawChrome", Err.Description, Err.Number
 End Sub
 
