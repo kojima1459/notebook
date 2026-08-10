@@ -1242,6 +1242,26 @@ def _make_vba_src(wb, present_modules, root):
 #     例外なく完了した通常経路ではこの時点でErr.Numberは0のままなので
 #     二重加算はしない(例外時は判定文自体が中断してf未加算のまま次行へ
 #     進むため、続くErr.Numberチェックが単独でfを1回だけ加算する)。
+#   ・MA-3(2026-08-10 R23b): 【部分注入】の検出。R23の(b)は「1行も入って
+#     いない」ことしか見ておらず、AddFromStringが途中で切れて1行でも入って
+#     いればCountOfLines>=1で素通りする。実機で繰り返し出ている
+#     「modViewport2.BadgeRowsFor が見つかりません」は、まさに
+#     「モジュールは在るが中身が足りない」形のコンパイルエラーである。
+#     そこで注入ループ完了後に
+#         f = f + Application.Run("modInstallCheck.VI")
+#     の1行を足し、全モジュールの行数を vba_src の期待値と突合させる
+#     (実装は src/core/modInstallCheck.bas。サイズ上限の緩い標準モジュール側に
+#     置くのは既存の「重い処理はmodBoot側へ」と同じ判断)。Application.Run
+#     自体が失敗した場合(=modInstallCheckの注入失敗/コンパイル不能)も
+#     直後のErr.Number検査でfへ計上するので、検証不能は不合格側へ倒れる。
+#     ここでもf>0のSave抑止とSaved=Trueの既存ガードへそのまま合流する。
+#   ・MsgBox文言の短縮(同R23b): 上記1行を足すとThisWorkbookストリームの
+#     圧縮後サイズ上限(1,148B)を超えたため、英字の2文言を短くした
+#     ("Setup incomplete (...)... then reopen to retry."→"Setup NG(...)...
+#     reopen."、"VBA Project trust required. See howto sheet."→
+#     "Trust VBA project. See howto sheet.")。壊れたモジュール名を含む
+#     日本語の詳細案内は modInstallCheck.VI 側のMsgBoxが担うため、
+#     インストーラ側は最小文言でよい。実測: 圧縮後1,137B(残り11B)。
 _INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
 Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
 Attribute VB_GlobalNameSpace = False
@@ -1294,8 +1314,11 @@ Public Sub Install()
   On Error Resume Next
   Application.Run "modBoot.RunFirstRunPromptEarly"
   Err.Clear
+  f = f + Application.Run("modInstallCheck.VI")
+  If Err.Number <> 0 Then f = f + 1
+  Err.Clear
   If f > 0 Then
-    MsgBox "Setup incomplete (" & f & "). Close WITHOUT saving, then reopen to retry.", vbCritical
+    MsgBox "Setup NG(" & f & "). Close WITHOUT saving, reopen.", vbCritical
     ThisWorkbook.Saved = True
     Exit Sub
   End If
@@ -1314,7 +1337,7 @@ Public Sub Install()
   End If
   Exit Sub
 Trust:
-  MsgBox "VBA Project trust required. See howto sheet.", vbCritical
+  MsgBox "Trust VBA project. See howto sheet.", vbCritical
   Exit Sub
 Done:
 End Sub
