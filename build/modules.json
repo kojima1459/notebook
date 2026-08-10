@@ -88,6 +88,14 @@
       "note": "データ整合性の観測点(2026-08-05 R18-2b/2d)。台帳(my_manifest.chunk_count)と実データ(my_knowledge)の突合・自動修復と、保存時マーク→起動時突合(行数が減った/一時フォルダで開いている)の警告。判定はシートだけを読み上位層を呼ばない(R1)。呼び出しは modShelf.SourceList / modShelfBatch.SaveCheckpoint / modBoot の各1行。"
     },
     {
+      "name": "modInstallCheck",
+      "path": "src/core/modInstallCheck.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R23b",
+      "note": "自己インストーラの注入結果を行数で検算する(2026-08-10 R23b・実機第9報①のMA-3)。vba_srcのC列本文の行数(末尾空行トリム後)とVBE上のCodeModule行数を全モジュールで突合し、不一致件数を返す。R23の空モジュール検出(CountOfLines<1)では拾えない【部分注入】を塞ぐ最後の関所。呼び出しは自己インストーラ(ThisWorkbookストリーム)の f = f + Application.Run(\"modInstallCheck.VI\") の1行のみで、他モジュールへ一切依存しない。"
+    },
+    {
       "name": "modShare",
       "path": "src/core/modShare.bas",
       "role": "core",
