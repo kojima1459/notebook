@@ -447,7 +447,9 @@ Private Sub Pill(ByVal ws As Worksheet, ByVal shapeName As String, _
         p.Fill.ForeColor.RGB = RGB(255, 255, 255)
     Else
         p.Line.ForeColor.RGB = RGB(255, 255, 255)
-        p.Fill.Visible = 0
+        ' R24H-F2(R18H FA-8既決): Fill.Visible=0は文字の上しかクリックできない。
+        p.Fill.Visible = -1
+        p.Fill.Transparency = 1
     End If
     With p.TextFrame2
         .TextRange.Text = caption
