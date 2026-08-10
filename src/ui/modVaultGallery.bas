@@ -275,8 +275,18 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ws.Cells.Clear
     ' A:N を全列ぶん明示する(一覧表モードがK/L未設定だったために、
     ' DrawChromeが使う W=A1:N1 の幅が機種・履歴依存でぶれていた)。
+    ' R25-2c: 従来はB:N(13列)を一律12にしており、実際にセル値を持つのは
+    ' 検索欄(B5:E5=SearchCellAddress)とヒント文(F5)の5列だけなのに、
+    ' 使っていないG:Mの7列まで広く確保していた。DrawChrome内部の
+    ' FitBandToViewportはbandAddr全体からN(吸収列)の幅を引いた残りを
+    ' 「固定列合計」として扱うため、この余分な7列ぶん(実測+63pt=表計算:
+    ' 5.25pt×1+3.75pt=9pt/列×7列)が可視幅を押し上げ、固定列合計(旧815pt)が
+    ' 典型的な可視幅を超えて帯Fitが機能しなくなっていた(46pt超過の実機報告と
+    ' 整合)。値を持つ列だけ広く、他は最小幅1にする(tableモードの作法に合わせる)。
     ws.Columns("A").ColumnWidth = 2
-    ws.Columns("B:N").ColumnWidth = 12
+    ws.Columns("B:F").ColumnWidth = 12    ' B:E=検索欄, F=ヒント文(値を持つ列)
+    ws.Columns("G:M").ColumnWidth = 1     ' 値を持たない列(帯Fitの固定分を圧縮)
+    ws.Columns("N").ColumnWidth = 12      ' 吸収列。直後のDrawChrome内Fitが上書きする
     ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る
     ' (行高を明示した行はExcelから見れば「使用済み」=下スクロール域になる)。
     modKnowledge.NormalizeShelfRows ws, 7
