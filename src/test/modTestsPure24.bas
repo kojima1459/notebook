@@ -204,6 +204,101 @@ Private Sub TestKeyScoreIsCapped24()
         (v > 0#), "v=" & Format$(v, "0.000")
 End Sub
 
+' F1-3: modSparse.DiversityOrder — 候補プールの資料多様性。
+'   実機の形をそのまま写す: 105チャンクある「就業規則」がpoolを埋め、
+'   少数派の「興行中止保険特約」が1件だけ後方にいる。並べ替え後は
+'   少数派資料の最高スコア1件が【先頭群】へ上がっていなければならない
+'   (逆質問はsrc>=2が必須なので、ここが効かないと構造的に鳴らない)。
+Private Sub TestDiversityOrderMinoritySurvives24()
+    ' 添字1..6。1位資料=就業規則(0.90/0.88/0.86/0.84)、少数派=特約(0.80)を5番目に。
+    Dim src(1 To 6) As String
+    Dim sc(1 To 6) As Double
+    src(1) = "就業規則.pdf": sc(1) = 0.9
+    src(2) = "就業規則.pdf": sc(2) = 0.88
+    src(3) = "就業規則.pdf": sc(3) = 0.86
+    src(4) = "就業規則.pdf": sc(4) = 0.84
+    src(5) = "興行中止保険特約.doc": sc(5) = 0.8
+    src(6) = "就業規則.pdf": sc(6) = 0.78
+
+    Dim ord() As Long
+    Dim n As Long: n = modSparse.DiversityOrder(src, sc, 6, ord)
+
+    modTestRunner.Check "R27-F1-3_件数は増減しない(6→6)", (n = 6), "n=" & n
+    If n <> 6 Then Exit Sub
+
+    ' 全体1位(就業規則の0.90)は動かない。
+    modTestRunner.Check "R27-F1-3_全体1位は先頭のまま(元添字1)", _
+        (ord(1) = 1), "ord(1)=" & ord(1)
+    ' 少数派資料の代表(元添字5)が2番目=先頭群へ繰り上がる。
+    modTestRunner.Check "R27-F1-3_少数派資料の最高1件が2番目へ繰り上がる(元添字5)", _
+        (ord(2) = 5), "ord(2)=" & ord(2)
+    ' 残りは元の順序のまま(2,3,4,6)。
+    modTestRunner.Check "R27-F1-3_残りは元順のまま(2,3,4,6)", _
+        (ord(3) = 2 And ord(4) = 3 And ord(5) = 4 And ord(6) = 6), _
+        "ord=" & ord(3) & "," & ord(4) & "," & ord(5) & "," & ord(6)
+    ' 添字の欠落・重複が無い(1..6が1回ずつ)。
+    modTestRunner.Check "R27-F1-3_元添字1..6が過不足なく1回ずつ", _
+        OrderIsPermutation24(ord, 6), "ord=" & JoinOrder24(ord, 6)
+
+    ' 上位2件だけを見ても資料が2種類ある = 逆質問(src>=2)が成立する。
+    modTestRunner.Check "R27-F1-3_上位2件で資料が2種類になる(逆質問が鳴る条件)", _
+        (StrComp(src(ord(1)), src(ord(2)), vbTextCompare) <> 0), _
+        "1=" & src(ord(1)) & " 2=" & src(ord(2))
+End Sub
+
+' 1資料しか無いプールでは順序が1つも動かないこと(副作用を作らない)。
+Private Sub TestDiversityOrderSingleSource24()
+    Dim src(1 To 3) As String
+    Dim sc(1 To 3) As Double
+    src(1) = "就業規則.pdf": sc(1) = 0.9
+    src(2) = "就業規則.pdf": sc(2) = 0.5
+    src(3) = "就業規則.pdf": sc(3) = 0.1
+
+    Dim ord() As Long
+    Dim n As Long: n = modSparse.DiversityOrder(src, sc, 3, ord)
+    modTestRunner.Check "R27-F1-3_1資料のみなら順序は不変(1,2,3)", _
+        (n = 3 And ord(1) = 1 And ord(2) = 2 And ord(3) = 3), _
+        "n=" & n & " ord=" & JoinOrder24(ord, n)
+End Sub
+
+' 資料名が空の要素は代表になれない(どの資料の代表か決まらないため)。
+' 空名だけのプールでは並べ替えが起きず、元の順序で全件返ること。
+Private Sub TestDiversityOrderBlankSource24()
+    Dim src(1 To 3) As String
+    Dim sc(1 To 3) As Double
+    src(1) = "": sc(1) = 0.9
+    src(2) = "特約.doc": sc(2) = 0.5
+    src(3) = "": sc(3) = 0.1
+
+    Dim ord() As Long
+    Dim n As Long: n = modSparse.DiversityOrder(src, sc, 3, ord)
+    modTestRunner.Check "R27-F1-3_空の資料名は代表にならない(特約が先頭へ)", _
+        (n = 3 And ord(1) = 2), "n=" & n & " ord=" & JoinOrder24(ord, n)
+    modTestRunner.Check "R27-F1-3_空名の要素も落とさず全件返す", _
+        OrderIsPermutation24(ord, 3), "ord=" & JoinOrder24(ord, 3)
+End Sub
+
+Private Function OrderIsPermutation24(ByRef ord() As Long, ByVal n As Long) As Boolean
+    Dim seen() As Boolean: ReDim seen(1 To n)
+    Dim i As Long
+    For i = 1 To n
+        If ord(i) < 1 Or ord(i) > n Then Exit Function
+        If seen(ord(i)) Then Exit Function
+        seen(ord(i)) = True
+    Next i
+    OrderIsPermutation24 = True
+End Function
+
+Private Function JoinOrder24(ByRef ord() As Long, ByVal n As Long) As String
+    Dim sb As String
+    Dim i As Long
+    For i = 1 To n
+        If LenB(sb) > 0 Then sb = sb & ","
+        sb = sb & ord(i)
+    Next i
+    JoinOrder24 = sb
+End Function
+
 Private Function BadgeIdExists24(ByRef ids() As String, ByVal target As String) As Boolean
     Dim i As Long
     For i = LBound(ids) To UBound(ids)
@@ -267,6 +362,15 @@ NextLenClamp24:
 NextKeyScoreCap24:
     On Error GoTo KeyScoreCapFail24
     TestKeyScoreIsCapped24
+NextDiv24:
+    On Error GoTo DivFail24
+    TestDiversityOrderMinoritySurvives24
+NextDivSingle24:
+    On Error GoTo DivSingleFail24
+    TestDiversityOrderSingleSource24
+NextDivBlank24:
+    On Error GoTo DivBlankFail24
+    TestDiversityOrderBlankSource24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -301,6 +405,18 @@ LenClampFail24:
     Resume NextKeyScoreCap24
 KeyScoreCapFail24:
     modTestRunner.Check "TestKeyScoreIsCapped24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDiv24
+DivFail24:
+    modTestRunner.Check "TestDiversityOrderMinoritySurvives24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDivSingle24
+DivSingleFail24:
+    modTestRunner.Check "TestDiversityOrderSingleSource24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextDivBlank24
+DivBlankFail24:
+    modTestRunner.Check "TestDiversityOrderBlankSource24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub

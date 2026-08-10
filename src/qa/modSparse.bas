@@ -467,6 +467,89 @@ Private Function EffectiveKeyScoreCap() As Double
 End Function
 
 ' ----------------------------------------------------------------------------
+' DiversityOrder - 候補プールの並べ替え順(2026-08-10 R27 F1-3・実機第12報②)。
+' ----------------------------------------------------------------------------
+' 実機で起きていたこと: 105チャンクある大きな資料1本が、multi_candidates=40 の
+' プールを丸ごと占有した。プールが1資料になると
+'   ・逆質問(資料分散)は src>=2 を必須にしているため【構造的に発火しない】
+'   ・最終hitsも同じ1資料だけになり、他の資料にある答えは二度と出てこない
+' という2つが同時に起きる。順位そのものは正しくても「候補が1種類しかない」
+' 状態は、検索としては選択肢を出していないのと同じである。
+'
+' そこで並べ替えだけを行う(件数は増減させない・スコアは書き換えない):
+'   1. 資料ごとの最高スコア1件(=その資料の代表)を集め、スコアの高い順に先頭へ
+'   2. 残りは元の順序のまま後ろへ詰める
+' 1位資料の1位チャンクは元から全体1位なので、先頭は動かない。動くのは
+' 「2番目以降の資料の代表を、同資料の2件目より前へ繰り上げる」ぶんだけ。
+'
+'   sources / scores : 1〜n の並行配列(modAskRetrieve が Hit() から作る)
+'   outOrder(out)    : 1〜n に「元の添字」を新しい順で入れて返す
+'   戻り値           : 並べ替えた件数(=n。作れなければ0)
+' 資料名が空の要素は代表になれない(どの資料を代表するのか決まらないため)。
+' 同点の代表が並んだときは元の添字が小さい方を先に置く(結果を一意にする)。
+Public Function DiversityOrder(ByRef sources() As String, ByRef scores() As Double, _
+                               ByVal n As Long, ByRef outOrder() As Long) As Long
+    If n < 1 Then Exit Function
+    ReDim outOrder(1 To n)
+    If n = 1 Then
+        outOrder(1) = 1
+        DiversityOrder = 1
+        Exit Function
+    End If
+
+    Dim isTop() As Boolean: ReDim isTop(1 To n)
+    Dim i As Long, j As Long
+    For i = 1 To n
+        Dim nm As String: nm = Trim$(sources(i))
+        Dim isBest As Boolean: isBest = (LenB(nm) > 0)
+        If isBest Then
+            For j = 1 To n
+                If j <> i Then
+                    If StrComp(Trim$(sources(j)), nm, vbTextCompare) = 0 Then
+                        If scores(j) > scores(i) Then
+                            isBest = False
+                            Exit For
+                        ElseIf scores(j) = scores(i) And j < i Then
+                            isBest = False
+                            Exit For
+                        End If
+                    End If
+                End If
+            Next j
+        End If
+        isTop(i) = isBest
+    Next i
+
+    Dim used() As Boolean: ReDim used(1 To n)
+    Dim cnt As Long
+    Dim pick As Long
+    Do
+        pick = 0
+        For i = 1 To n
+            If isTop(i) And Not used(i) Then
+                If pick = 0 Then
+                    pick = i
+                ElseIf scores(i) > scores(pick) Then
+                    pick = i
+                End If
+            End If
+        Next i
+        If pick = 0 Then Exit Do
+        cnt = cnt + 1
+        outOrder(cnt) = pick
+        used(pick) = True
+    Loop
+
+    For i = 1 To n
+        If Not used(i) Then
+            cnt = cnt + 1
+            outOrder(cnt) = i
+        End If
+    Next i
+    DiversityOrder = cnt
+End Function
+
+' ----------------------------------------------------------------------------
 ' HasAnyKey - keys(DistinctiveKeysの結果)のどれか1つでも doc に含まれるか。
 ' ----------------------------------------------------------------------------
 ' 2026-08-01(R12-3-7): バイナリ粗選別(binary_rag)の「救済union」専用の

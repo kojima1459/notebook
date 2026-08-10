@@ -45,6 +45,41 @@ Private Sub StashDispersionPool(ByRef srcHits() As Hit, ByVal n As Long)
     mDispPoolN = n
 End Sub
 
+' ----------------------------------------------------------------------------
+' ReorderPoolForDiversity - 候補プールを資料多様性で並べ直す
+'   (2026-08-10 R27 F1-3・実機第12報②「特約が検索から消える/逆質問不発」)。
+' ----------------------------------------------------------------------------
+' 実機では105チャンクある1資料が multi_candidates=40 のプールを丸ごと埋め、
+' src=1 になっていた。逆質問(資料分散)は src>=2 が必須なので構造的に鳴らず、
+' 最終hitsも同じ1資料だけになる。並べ替えの規則そのもの(資料ごとの最高
+' スコア1件を先頭群へ引き上げ、残りは元の順)は純関数 modSparse.DiversityOrder
+' が持ち、そちらが modTestsPure24 で固定される。ここは Hit() ⇄ 並行配列の
+' 変換だけを行う(Hit は Public Type なのでLO実行テストへは持ち込めない)。
+' 途中で失敗したら並べ替えを丸ごと諦める(元のプールをそのまま使う)。
+Private Sub ReorderPoolForDiversity(ByRef poolHits() As Hit, ByVal n As Long)
+    If n < 2 Then Exit Sub
+    On Error GoTo GiveUp
+
+    Dim src() As String: ReDim src(1 To n)
+    Dim sc() As Double: ReDim sc(1 To n)
+    Dim i As Long
+    For i = 1 To n
+        src(i) = poolHits(i).source
+        sc(i) = poolHits(i).score
+    Next i
+
+    Dim ord() As Long
+    If modSparse.DiversityOrder(src, sc, n, ord) <> n Then GoTo GiveUp
+
+    Dim tmp() As Hit: ReDim tmp(1 To n)
+    For i = 1 To n
+        tmp(i) = poolHits(ord(i))
+    Next i
+    poolHits = tmp
+GiveUp:
+    On Error GoTo 0
+End Sub
+
 ' 多段RAG(§C): 拡張→マルチクエリ→再ランク。失敗時は単段Searchへ退化。
 ' scopeSources(R13-5a/5c): 許可資料名のDictionary。Nothing=従来どおり本棚全体。
 ' subqOverride(R13-5c): >0 なら拡張のサブクエリ本数をこの値に固定し、
@@ -143,6 +178,8 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim poolN As Long
     poolN = modRetrieve.SearchExpanded(queries, poolK, poolHits, scopeSources)
     If poolN <= 0 Then GoTo FallbackSingle
+    ' R27 F1-3: 退避より前にpoolを資料多様性で並べ直す(件数は変えない)。
+    ReorderPoolForDiversity poolHits, poolN
     ' R21-2 D1: rerank/topK絞り込みより前のこの時点でpoolを退避する。
     StashDispersionPool poolHits, poolN
 

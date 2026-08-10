@@ -327,10 +327,15 @@ CONTRACT: dict[str, dict] = {
         # 読むためLO実行テストから境界を直接ゴールデン化できないが、この2本は
         # 引数だけで決まるので modTestsPure24 が cap-1/cap/cap+10 と
         # 7/8/9字の境界を固定する。
+        # DiversityOrder(2026-08-10 R27 F1-3): 候補プールを「資料ごとの最高
+        # スコア1件」から並べ直す順序の算数。呼び出し元 modAskRetrieve は
+        # Hit(Public Type)配列を持つためLO実行テストへ持ち込めない(別モジュールの
+        # Public Type 配列はLOで ReDim できない既知制約)ので、順序の規則だけを
+        # 並行配列を受ける純関数としてここへ置き、modTestsPure24 が固定する。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
                      "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
                      "HasAnyKey", "MatchDocText",
-                     "CapKeyScore", "KeyLenWeight"],
+                     "CapKeyScore", "KeyLenWeight", "DiversityOrder"],
     },
     "modChunker": {
         "closed": True,
