@@ -1119,10 +1119,16 @@ def _vba_src_text(root, m):
     """src/ の .bas から vba_src セルへ格納する文字列を作る(ビルド規則の唯一の実装)。
     Attribute 行を落とし、_clean() で XML に書けない制御文字を除去する。
     ※ 整形ロジックはここ1箇所に閉じる。verify_build(FA-R23-1c)はこの関数の
-      戻り値と成果物のC列を突き合わせるので、二重実装があると検査が無意味になる。"""
+      戻り値と成果物のC列を突き合わせるので、二重実装があると検査が無意味になる。
+    2026-08-10(R23H-MI-2): 改行をLFへ正規化する。core.autocrlf=trueで
+    checkoutするとsrc/*.basがCRLFになり得るが、この関数はペイロード生成
+    (_make_vba_src)と検査(_verify_vba_src_bodies/1c)の両方から呼ばれる唯一の
+    実装なので、ここで正規化すれば両方に自動で効く(改行方式の違いだけで
+    1c全135本が不一致になりビルド不能になるのを防ぐ)。"""
     path = os.path.join(root, m["path"])
     with open(path, encoding="utf-8-sig") as fp:
         txt = fp.read()
+    txt = txt.replace("\r\n", "\n").replace("\r", "\n")
     out_lines = []
     for line in txt.split("\n"):
         stripped = line.lstrip("﻿")
