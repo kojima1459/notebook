@@ -1156,7 +1156,23 @@ def _vba_src_text(root, m):
         if stripped.lstrip().startswith("Attribute "):
             continue
         out_lines.append(stripped)
-    return _clean("\n".join(out_lines))
+    cleaned = _clean("\n".join(out_lines))
+
+    # 2026-08-10(R23bH-F4): 整形後ソースの先頭行が空白のみ(空行/タブのみ)
+    # ならビルドを止める。理由: modInstallCheck.ExpectedLineCount(および
+    # ここの _expected_line_count)が落とすのは【末尾】の空行だけで、
+    # 【先頭】の空行はそのまま1行として数える(=非対称)。CodeModule側の
+    # AddFromStringも先頭の空行を1行として素直に受け入れるので、行数自体は
+    # 現状ズレない。しかし将来、先頭が空行のモジュールが増えたときに
+    # 「先頭空行トリムだけが期待/実測のどちらかにだけ紛れ込む」実装変更が
+    # 入ると、D列突合(F1)が恒久的な偽陽性になりかねない。現在該当0本なので、
+    # ここで先に塞いで将来の踏み抜きを防ぐ。
+    first_line = cleaned.split("\n", 1)[0]
+    if first_line.strip() == "":
+        raise BuildError(
+            f"{m['name']}.bas: 整形後ソースの先頭行が空白のみです"
+            "(先頭空行は期待/実測の行数計算が非対称になりうるため禁止)")
+    return cleaned
 
 
 def _expected_line_count(src):
