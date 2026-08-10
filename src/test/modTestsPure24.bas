@@ -324,17 +324,36 @@ Private Sub TestGarbleRatioCyrillicStillNg24()
         (grk > 0.2), "ratio=" & Format$(grk, "0.0000")
 End Sub
 
+' F3(R27H M-2裁定): 私用領域 U+E000-F8FF の検出。サブセット化された埋め込み
+'   フォントに ToUnicode が無いと本文がこの領域へ落ちる。PUAは LibreOffice の
+'   AscW でも正値で返るため、この群は符号補正に依存せずLOで実効的に働く。
+Private Sub TestGarbleRatioPuaNg24()
+    Dim body As String: body = Left$(Repeat24("保険金を支払わない場合", 5), 50)
+    Dim pua As Double
+    pua = modExtractor.GarbleRatio(body & Repeat24(ChrW$(&HF0A7), 50))
+    modTestRunner.Check "R27H-F3_私用領域(U+F0A7)5割はNG判定(>0.2)", _
+        (pua > 0.2), "ratio=" & Format$(pua, "0.0000")
+
+    ' 範囲の両端(E000/F8FF)は化け、外側(F900=CJK互換漢字)は巻き込まない。
+    Dim lo As Double: lo = modExtractor.GarbleRatio(Repeat24(ChrW$(&HE000&), 10))
+    Dim hi As Double: hi = modExtractor.GarbleRatio(Repeat24(ChrW$(&HF8FF&), 10))
+    Dim outs As Double: outs = modExtractor.GarbleRatio(Repeat24(ChrW$(&HF900&), 10))
+    modTestRunner.Check "R27H-F3_私用領域の両端E000/F8FFは化け(比率1)", _
+        (lo = 1# And hi = 1#), "lo=" & Format$(lo, "0.0") & " hi=" & Format$(hi, "0.0")
+    modTestRunner.Check "R27H-F3_U+F900(CJK互換漢字)は化けにしない(比率0)", _
+        (outs = 0#), "ratio=" & Format$(outs, "0.0000")
+End Sub
+
 ' AscW は U+8000 以降を負値で返すVBAの仕様がある(modSparse.NormalizeForSearch /
 ' modChrome / modClarify 等が同じ補正を持つ既存の作法)。旧実装はその負値を
 ' 「c < 32 = 制御文字」に掛けていたため、U+8000〜U+9FFF に住む常用漢字が
 ' まるごと化けとして数えられていた(険・関・金・通・者・除・認・説・語…)。
 ' 実測: 約款風の日本語166字のうち13.3%が誤ってbadに入る。
-' 【重要な注記】LibreOffice Basic の AscW は同じ文字を正値で返すため、
-' この符号補正の有無はLO実行テストでは差が出ない(下の3件はLO上では
-' 補正を外しても通る)。それでも置くのは、実機VBAでのみ起きるこの誤爆が
-' 再発したときに、実機のテスト実行(ブック同梱のmodTestRunner)で必ず
-' 赤くなるようにするため。LOで捕まえられるのはWord構造制御文字側
-' (TestGarbleRatioWordControls24)で、そちらは補正を外すと実際に落ちる。
+' 【重要な注記】LibreOffice の AscW は同じ文字を正値で返すため、符号補正の
+' 有無はLO実行テストでは差が出ない(下の3件はLO上では補正を外しても通る)。
+' それでも置くのは、実機VBAでのみ起きるこの誤爆が再発したときに実機のテスト
+' 実行(ブック同梱のmodTestRunner)で必ず赤くなるようにするため。LOで捕まえ
+' られるのはWord構造制御文字側(補正を外すと実際に落ちる)。
 Private Sub TestGarbleRatioHighKanjiNotGarbled24()
     Dim s As String
     s = "保険金額の関係者への通知は説明責任の観点から適切に行う。認識の相違を除く。"
@@ -617,6 +636,9 @@ NextGarbleWord24:
 NextGarbleCyr24:
     On Error GoTo GarbleCyrFail24
     TestGarbleRatioCyrillicStillNg24
+NextGarblePua24:
+    On Error GoTo GarblePuaFail24
+    TestGarbleRatioPuaNg24
 NextGarbleKanji24:
     On Error GoTo GarbleKanjiFail24
     TestGarbleRatioHighKanjiNotGarbled24
@@ -686,6 +708,10 @@ GarbleWordFail24:
     Resume NextGarbleCyr24
 GarbleCyrFail24:
     modTestRunner.Check "TestGarbleRatioCyrillicStillNg24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGarblePua24
+GarblePuaFail24:
+    modTestRunner.Check "TestGarbleRatioPuaNg24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextGarbleKanji24
 GarbleKanjiFail24:

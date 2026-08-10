@@ -436,6 +436,10 @@ End Function
 '   (分母に残すと「表が多いほど化け比率が下がる」という別の歪みが出る)。
 ' 本当の化け(ギリシャ/キリルの羅列・ToUnicodeマップ無しの埋め込みフォント)は
 ' 従来どおり検出する。
+' 2026-08-10(R27H F3・M-2裁定): 私用領域 U+E000-F8FF を bad に足した。
+' サブセット化された埋め込みフォント(Symbol/Wingdings系や社内書式の装飾字)は
+' ToUnicode が無いと本文がこの領域へ落ちる。ギリシャ/キリルより実機で頻度が
+' 高いのに、どの分岐にも当たらず「正常な本文」として数えられていた。
 Public Function GarbleRatio(ByVal s As String) As Double
     Dim bad As Long, tot As Long
     Dim i As Long
@@ -454,6 +458,8 @@ Public Function GarbleRatio(ByVal s As String) As Double
                 bad = bad + 1                        ' ギリシャ文字
             ElseIf c >= &H400 And c <= &H52F Then
                 bad = bad + 1                        ' キリル文字
+            ElseIf c >= &HE000& And c <= &HF8FF& Then
+                bad = bad + 1                        ' 私用領域(R27H F3)
             End If
         End If
     Next i
