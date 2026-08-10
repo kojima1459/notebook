@@ -1229,6 +1229,19 @@ def _make_vba_src(wb, present_modules, root):
 #     ペイロード(vba_src)はファイル上で無傷なので、保存せずに閉じて開き直せば
 #     全量が再試行される。MsgBox はその手順をそのまま伝える文言にした。
 #     ※ VBAの And は短絡評価しないため (b) は入れ子の If で書いている。
+#   ・BL-1(2026-08-10 R23H): f>0でExit Subした直後にThisWorkbook.Savedを
+#     Trueへ立てる。MsgBoxで「保存しないで閉じて開き直せ」と伝えても、実際に
+#     ExcelがWorkbook_Open完了後Workbook_Close時に「変更を保存しますか?」と
+#     聞いてしまうと、既定ボタン[保存]の反射押しで半端な状態がそのまま
+#     ファイルへ焼き付く(MsgBoxの案内と矛盾する)。Savedを立てて未保存扱いを
+#     解除することでこのプロンプト自体を出させない。
+#   ・MI-1(2026-08-10 R23H): (b)のCountOfLines読取自体が例外を出すケースへの
+#     防御を追加。On Error Resume Next下でCountOfLines<1判定式そのものが
+#     例外を出すと、Ifステートメントが中断されてf加算されず無言通過する
+#     穴があった。判定の直後にErr.Number<>0を見てfを加算する。判定が
+#     例外なく完了した通常経路ではこの時点でErr.Numberは0のままなので
+#     二重加算はしない(例外時は判定文自体が中断してf未加算のまま次行へ
+#     進むため、続くErr.Numberチェックが単独でfを1回だけ加算する)。
 _INSTALLER_SRC_TEXT = '''Attribute VB_Name = "ThisWorkbook"
 Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"
 Attribute VB_GlobalNameSpace = False
@@ -1271,6 +1284,7 @@ Public Sub Install()
           f = f + 1
         ElseIf LenB(s) > 0 Then
           If c.CodeModule.CountOfLines < 1 Then f = f + 1
+          If Err.Number <> 0 Then f = f + 1
         End If
       End If
       Err.Clear
@@ -1282,6 +1296,7 @@ Public Sub Install()
   Err.Clear
   If f > 0 Then
     MsgBox "Setup incomplete (" & f & "). Close WITHOUT saving, then reopen to retry.", vbCritical
+    ThisWorkbook.Saved = True
     Exit Sub
   End If
   ThisWorkbook.Save
