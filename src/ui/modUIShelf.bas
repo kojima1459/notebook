@@ -89,6 +89,7 @@ Public Sub RefitColumns(ByVal ws As Worksheet)
     ws.Columns("J").ColumnWidth = 15
     ws.Columns("K:M").ColumnWidth = 1
     ws.Columns("N").ColumnWidth = 1
+    modChrome.SetupShelfColumns ws   ' R27 F2-2: 帯(A:N)の右外も幅1へ
     On Error GoTo 0
 End Sub
 

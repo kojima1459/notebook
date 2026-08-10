@@ -287,6 +287,9 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ws.Columns("B:F").ColumnWidth = 12    ' B:E=検索欄, F=ヒント文(値を持つ列)
     ws.Columns("G:M").ColumnWidth = 1     ' 値を持たない列(帯Fitの固定分を圧縮)
     ws.Columns("N").ColumnWidth = 12      ' 吸収列。直後のDrawChrome内Fitが上書きする
+    ' R27 F2-2: 帯(A:N)の右外を幅1へ。3モードとも自分でA:Nを書き直すため、
+    ' 各モードの直後に1行ずつ置く(modKnowledgeは不触指定)。
+    modChrome.SetupShelfColumns ws
     ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る
     ' (行高を明示した行はExcelから見れば「使用済み」=下スクロール域になる)。
     modKnowledge.NormalizeShelfRows ws, 7

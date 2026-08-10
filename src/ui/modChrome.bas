@@ -351,3 +351,36 @@ Public Sub SetupHubColumns(ByVal ws As Worksheet)
     ' この帯内の幅1列になり、差し引きは9pt未満に確定する(機種非依存)。
     ws.Columns("M:BZ").ColumnWidth = 1
 End Sub
+
+' ----------------------------------------------------------------------------
+' 帯の右外を幅1にする横展開(R27 F2-2・実機第12報①)
+' ----------------------------------------------------------------------------
+'   SetupHubColumns 末尾の M:BZ と同じ手当てを、残る3画面へ広げたもの。
+'   なぜ効くか(Hubで実機実証済み。hub band=1010=可視幅-2):
+'     modViewport2.FullyVisibleWidth は VisibleRange の右端「部分可視列」を
+'     丸ごと差し引く。帯の右外が既定幅(約48pt)のままだと、窓幅によっては
+'     その1列ぶんがまるごとキャップから引かれ、帯が可視幅より短くなる
+'     ―― その差が右の白い余白として見える。帯の右外~2500pt相当を幅1に
+'     しておけば、窓幅に関わらずVisibleRangeの右端は必ず幅1の列に落ち、
+'     差し引きは9pt未満に確定する(機種非依存)。
+'   帯の内側(A:K / A:N / A:M)には一切触れない ―― 各画面が自分で毎回
+'   既知の初期値へ戻しており、ここが二重に書くとラチェットの元になる。
+'   配置理由は SetupHubColumns と同じ(受け取ったwsへの列幅代入のみを持つ
+'   本モジュール唯一の例外群。算数は含まない)。
+'
+' SetupDashColumns - ダッシュボード。帯は modDash.DASH_BAND = "A1:K1"。
+Public Sub SetupDashColumns(ByVal ws As Worksheet)
+    ws.Columns("L:BZ").ColumnWidth = 1
+End Sub
+
+' SetupShelfColumns - マイ本棚(table/gallery/shared の3モード共通)。
+'   帯は modKnowledge.SHELF_BAND = "A1:N1"。3モードとも自前で A:N を毎回
+'   書き直すので、呼び出しはその直後に3箇所へ置く(modKnowledge は不触)。
+Public Sub SetupShelfColumns(ByVal ws As Worksheet)
+    ws.Columns("O:BZ").ColumnWidth = 1
+End Sub
+
+' SetupChatColumns - チャット(Nexus)。帯は modUINexusDraw.NEXUS_BAND = "A1:M1"。
+Public Sub SetupChatColumns(ByVal ws As Worksheet)
+    ws.Columns("N:BZ").ColumnWidth = 1
+End Sub

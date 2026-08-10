@@ -242,6 +242,9 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' 一致)。K込みでリセットすることでチャット(modUI.bas:100のC:K/L)と同じ
     ' 「固定側は毎回既知の初期値に戻す」形にし、ラチェットを断つ。
     ws.Columns("A:K").ColumnWidth = 9
+    ' R27 F2-2: 帯(A:K)の右外を幅1にして、右端の部分可視列がキャップから
+    ' 丸ごと差し引かれる(=帯が可視幅より短くなる)のを断つ。Hub実証済み。
+    modChrome.SetupDashColumns ws
     ' 余りをK列に吸わせて A:K の合計を可視幅ぴったりにする。内容の実右端
     ' (最小版面590pt)より狭い窓では内容側を優先する(ボタンが境界の外に出ない)。
     modViewport.FitBandToViewport ws, DASH_BAND, DASH_PAD_COL, MinContentRightX()

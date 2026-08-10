@@ -70,6 +70,8 @@ Public Sub Show()
     ws.Columns("K:L").ColumnWidth = 10   ' 提供者
     ws.Columns("M").ColumnWidth = 12     ' 日付
     ws.Columns("N").ColumnWidth = 1      ' 吸収列(最小のまま)
+    ' R27 F2-2: 帯(A:N)の右外も幅1へ(table/galleryと同じ手当て)。
+    modChrome.SetupShelfColumns ws
     ' R20-1d: 毎回406行(7:412)を書き直すのをやめ、前回使った行までに絞る。
     modKnowledge.NormalizeShelfRows ws, 7
     ' R18-3a: 全域(ws.Cells)への書式はUsedRangeをシート最大へ膨らませる

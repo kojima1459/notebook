@@ -100,6 +100,7 @@ Public Sub InitUI()
     ws.Columns("C:K").ColumnWidth = 10.5
     ws.Columns("L").ColumnWidth = 11
     ws.Columns("M").ColumnWidth = 1.5
+    modChrome.SetupChatColumns ws   ' R27 F2-2: 帯(A:M)の右外も幅1へ
     ws.Rows("1:400").RowHeight = 18
     modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, NEXUS_INPUT_PAD_COL
     ws.Rows(1).RowHeight = modUINexusDraw.HDR_H
