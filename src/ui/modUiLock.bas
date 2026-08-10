@@ -92,6 +92,13 @@ Public Sub Leave()
     ' 暗転固定の全クラス対策: 描画ルーチンがScreenUpdating=Falseのままエラー中断しても、
     ' 全アクションの出口である本Leaveで必ず復帰させる(UIロックアウト=脱出不能の防止)。
     Application.ScreenUpdating = True
+    ' F5(m-2): DisplayAlertsの自己修復。AlertsOff/On(R25-1a-1)のOn呼び忘れ等で
+    ' mAlertsDepthが残留すると、DisplayAlerts=Falseが恒久化(確認ダイアログが
+    ' 永久に出ない事故)する窓が残る。本アプリはDisplayAlertsが常にTrueである
+    ' 前提で作られており、Falseが元値として正当なケースは存在しないため、
+    ' 全アクションの出口である本Leaveで無条件にTrueへ戻す(保険。上のScreen
+    ' Updating復帰と同じ考え方)。
+    Application.DisplayAlerts = True
     On Error GoTo 0
     On Error Resume Next
     modUI.ParkFocus                             ' Shape選択解除+アクティブセルpark(C4/A2)
