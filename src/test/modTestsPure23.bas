@@ -357,19 +357,34 @@ Private Sub TestLooksLikeTocPage()
 End Sub
 
 ' ============================================================================
-' 付随: R23-2b(modSkin.ResolveColorのsidebarActive明度引き上げ)の固定
+' 付随: R23-2b(sidebarActive明度引き上げ)は司令塔裁定で全面撤回。帯グラデ
+' (#0B7D6E→#014D44)の色域構造上、帯コントラスト改善は幾何的に成立せず、
+' msadは白文字4.25:1(4.5未満)へ退行・goldは帯明端3.15→2.38へ転落していた。
+' 視認性は白枠線(FA-R23-2a。帯に対し5.03:1/9.78:1で単独成立)に委ねることとし、
+' 塗り自体は6テーマとも旧値へ固定する(MI-4: 従来はmsad以外は
+' 「sidebarActive<>sidebar」の緩い比較のみで値そのものは無保護だった)。
 ' ============================================================================
 
 Private Sub TestSidebarActiveContrastR23()
-    modTestRunner.Check "R23-2b_msadのsidebarActiveは新値RGB(14,138,123)", _
-        (modSkin.ResolveColor("sidebarActive", "msad") = RGB(14, 138, 123))
+    modTestRunner.Check "R23_msadのsidebarActiveは旧値RGB(1,103,91)固定", _
+        (modSkin.ResolveColor("sidebarActive", "msad") = RGB(1, 103, 91))
+    modTestRunner.Check "R23_lightのsidebarActiveは旧値RGB(31,41,55)固定", _
+        (modSkin.ResolveColor("sidebarActive", "light") = RGB(31, 41, 55))
+    modTestRunner.Check "R23_darkのsidebarActiveは旧値RGB(30,41,59)固定", _
+        (modSkin.ResolveColor("sidebarActive", "dark") = RGB(30, 41, 59))
+    modTestRunner.Check "R23_sakuraのsidebarActiveは旧値RGB(112,46,72)固定", _
+        (modSkin.ResolveColor("sidebarActive", "sakura") = RGB(112, 46, 72))
+    modTestRunner.Check "R23_oceanのsidebarActiveは旧値RGB(20,56,96)固定", _
+        (modSkin.ResolveColor("sidebarActive", "ocean") = RGB(20, 56, 96))
+    modTestRunner.Check "R23_goldのsidebarActiveは旧値RGB(38,34,24)固定", _
+        (modSkin.ResolveColor("sidebarActive", "gold") = RGB(38, 34, 24))
 
     Dim themes(0 To 5) As String
     themes(0) = "msad": themes(1) = "light": themes(2) = "dark"
     themes(3) = "sakura": themes(4) = "ocean": themes(5) = "gold"
     Dim i As Long
     For i = 0 To 5
-        modTestRunner.Check "R23-2b_" & themes(i) & "はsidebarActive<>sidebar(帯とボタンが同色でない)", _
+        modTestRunner.Check "R23_" & themes(i) & "はsidebarActive<>sidebar(帯とボタンが同色でない)", _
             (modSkin.ResolveColor("sidebarActive", themes(i)) <> modSkin.ResolveColor("sidebar", themes(i))), _
             "theme=" & themes(i)
     Next i
