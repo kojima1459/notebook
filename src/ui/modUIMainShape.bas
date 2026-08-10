@@ -25,7 +25,17 @@ Public Sub WriteSafe(ByVal cell As Range, ByVal text As String)
     t = modUtil.SafeLeft(text, 32000)
     On Error Resume Next
     ' 未Mergeのまま代入すると全セルに同じ値が複製される。都度Mergeする。
-    If cell.Cells.Count > 1 Then cell.Merge
+    ' R25H F1: cell.Mergeが出す「複数の値を持つセル範囲への結合」警告は
+    ' On Error配下でも止められず、OK待ちでRAG回答描画(RenderSourcesPreview/
+    ' RenderAnswer/ShowTip→ここ)を無言のまま固める(実機③④フリーズの本丸)。
+    ' AlertsOff/AlertsOnで挟み、警告そのものを出さない(単一チョークポイント)。
+    ' 直後の行は既にOn Error Resume Next配下なので、Mergeが例外を出しても
+    ' 次の行(AlertsOn)へ進む=どちらの経路でも必ず対になる。
+    If cell.Cells.Count > 1 Then
+        modUiLock.AlertsOff
+        cell.Merge
+        modUiLock.AlertsOn
+    End If
     cell.Value = t
     On Error GoTo 0
 End Sub
