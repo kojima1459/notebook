@@ -49,6 +49,12 @@ Private Const VIEW_TOL As Double = 4
 ' 窓高適応圧縮の下限。これ以上詰めると文字が箱からはみ出す。
 Private Const MIN_SCALE As Double = 0.78
 
+' 埋め草(R27 F2-3)の上限/下限(pt)。詳細は PadRowDelta の直前を参照。
+'   MAX: 1行ぶん(既定18pt前後)を大きく超える差は構造問題なので埋めない。
+'   MIN: RowHeight の丸めで毎描画わずかに伸び続けるのを止める足切り。
+Private Const PAD_ROW_MAX As Double = 48
+Private Const PAD_ROW_MIN As Double = 1
+
 ' 校正済みの縦スクロールバー幅(pt)。0=未校正。EnsureViewState で捨てる。
 Private mSbW As Double
 
@@ -478,4 +484,47 @@ End Sub
 ' LogChat - チャットの初期描画(modUI.EnsureLayout)からの1行呼び出し。
 Public Sub LogChat(ByVal ws As Worksheet)
     LogFit ws, "chat", modUINexusDraw.NEXUS_BAND, modUINexusDraw.NexusBound(ws)
+End Sub
+
+' ----------------------------------------------------------------------------
+' F2-3(R27・実機第12報①): 埋め草 ―― 境界の最終行を窓下端まで届かせる
+' ----------------------------------------------------------------------------
+' 内容が窓に収まる画面では、境界の最終行は modViewport.RowAtFloor(切り下げ)で
+' 決まる。切り下げなので【最終行の下端は必ず窓高より上】で、その差(最大で
+' 1行ぶん)は塗りもScrollAreaも届かない帯になる ―― ホイールで転がったときに
+' bg色ではなく素の白が見える下端の余白の一部はこれ。切り上げにすると必ず窓を
+' 1行ぶん超え、その1行のぶんだけ縦スクロールが生き残る(R21-1の裁定)ので、
+' 行数は増やさず【最終行そのものを差分ぶん高くする】。
+' 上限クランプの意図: 差が1行ぶん(既定18pt前後)を大きく超えるのは、境界が
+' 実下端とずれている等の構造問題であって埋め草の出番ではない。PAD_ROW_MAX を
+' 超える差は何もせずに残す ―― 埋めてしまうと症状だけが消えて原因の観測が
+' できなくなる(定数はモジュール先頭の宣言部)。
+'
+' PadRowDelta - 最終行に足すべき高さ(pt)。純関数(modTestsPure24が固定)。
+'   boundBottomY : 境界最終行の下端Y(pt)
+'   viewportH    : 窓の可視高(pt)
+'   maxPad       : 埋めてよい差の上限(pt)。これを超えたら 0(=何もしない)
+Public Function PadRowDelta(ByVal boundBottomY As Double, ByVal viewportH As Double, _
+                            ByVal maxPad As Double) As Double
+    Dim d As Double: d = viewportH - boundBottomY
+    If d < PAD_ROW_MIN Then Exit Function   ' 既に届いている/丸め未満の差は触らない
+    If d > maxPad Then Exit Function        ' 構造問題は隠さない
+    PadRowDelta = d
+End Function
+
+' PadRowToWindow - 境界最終行の高さを足して、塗りの下端を窓下端へ届かせる。
+'   boundLastRow: 境界(A1起点)の最終行番号。呼び出し側は Range(bnd).Rows.Count。
+'   冪等: 一度届かせると次回の差は0になり、二度と足さない。
+Public Sub PadRowToWindow(ByVal ws As Worksheet, ByVal boundLastRow As Long)
+    If ws Is Nothing Then Exit Sub
+    If boundLastRow < 1 Then Exit Sub
+    On Error Resume Next
+    Dim botY As Double
+    botY = ws.Cells(boundLastRow, 1).Top + ws.Cells(boundLastRow, 1).Height
+    Dim d As Double
+    d = PadRowDelta(botY, modViewport.ViewportHeight(), PAD_ROW_MAX)
+    If d >= PAD_ROW_MIN Then
+        ws.Rows(boundLastRow).RowHeight = ws.Rows(boundLastRow).RowHeight + d
+    End If
+    On Error GoTo 0
 End Sub

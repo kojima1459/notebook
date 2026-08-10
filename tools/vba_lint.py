@@ -1257,6 +1257,14 @@ CONTRACT: dict[str, dict] = {
             "GridColsFor", "GridCardW", "GridGapFor", "RightGapExceeds",
             "ShelfPadCol",
             "RefitShelfTable", "RefitChatBand", "LogFit", "LogChat",
+            # 2026-08-10(R27 F2-3・実機第12報①): 埋め草。境界の最終行は
+            # RowAtFloor(切り下げ)で決まるため下端が必ず窓高より上に残り、
+            # そのぶん塗りもScrollAreaも届かない帯になる。行数は増やさず
+            # 最終行の高さを差分ぶん足して窓下端へ届かせる。
+            #   PadRowDelta   : 差分計算と上限クランプの純関数
+            #                   (modTestsPure24 が 0/10/48/49 の境界を固定)。
+            #   PadRowToWindow: 実際に RowHeight を足す側(冪等)。
+            "PadRowDelta", "PadRowToWindow",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

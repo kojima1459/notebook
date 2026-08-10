@@ -302,6 +302,10 @@ Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
     ' bnd は必ず A1 起点なので、行数がそのまま下端行になる。
     On Error Resume Next
     modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, DASH_ROWS
+    ' R27 F2-3(埋め草): 境界は切り下げなので最終行の下端は必ず窓高より上に
+    ' 残る。その差だけ最終行を高くして、塗りの下端を窓下端へ届かせる
+    ' (行数は増やさない=縦スクロールを生き返らせない)。
+    modViewport2.PadRowToWindow ws, ws.Range(bnd).Rows.Count
     On Error GoTo 0
     ' R21-S7: 窓幅/可視幅/帯実幅/中身右端/境界下端の5値観測点。
     modViewport2.LogFit ws, "dash", DASH_BAND, bnd
