@@ -118,6 +118,9 @@ Public Sub ClearTour()
     For i = 0 To n - 1
         ws.Shapes(names(i)).Delete
     Next i
+    ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(DrawStepの先頭からも呼ばれる
+    ' が、その直後にDrawStepが自分の下端で伸ばし直すので二度手間にならない)。
+    modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub
 
@@ -286,6 +289,11 @@ Private Sub DrawStep(ByVal n As Long)
     nextBtn.OnAction = "modTour.OnTourNext"
     nextBtn.Placement = 3
     nextBtn.ZOrder 0
+
+    ' R27 F2-1b(実機第12報①): ツアーカードも modUI.RecalcChatBottom の許可
+    ' リスト外(重ね表示)なので境界関所を通らず、カードだけが境界の外へ出る。
+    ' ボタンはカード内に収まるので下端はカード下端でよい。
+    modSkin.ExtendChatBand ws, cardT + cardH + 12
 
     On Error GoTo 0
 End Sub

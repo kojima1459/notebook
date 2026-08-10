@@ -301,6 +301,19 @@ Private Sub ShowHelpCard()
                   ChrW(&HD83D) & ChrW(&HDDD4) & " 作業用Excelを開く", _
                   "modWorkExcel.OnOpenWorkExcel"
 
+    ' R27 F2-1b(実機第12報①): ヘルプカードは modUI.RecalcChatBottom の許可
+    ' リストに入っていない(重ね表示が会話の下端を引きずるのを避けるため)ので、
+    ' 境界関所を一度も通らずに境界の外へ積まれる ―― これが「? ガイドを開くと
+    ' 下に余白が出る」の正体。描き終えた実下端で関所を通す。下端は座標の再計算
+    ' ではなく実物のShapeから測る(ボタンを足すたびに数式を直す形にしない)。
+    Dim hb As Double, hs As Shape
+    For Each hs In ws.Shapes
+        If Left$(hs.Name, 8) = "nx_help_" And hs.Name <> "nx_help_btn" Then
+            If hs.Top + hs.Height > hb Then hb = hs.Top + hs.Height
+        End If
+    Next hs
+    If hb > 0 Then modSkin.ExtendChatBand ws, hb + 12
+
     On Error GoTo 0
 End Sub
 
@@ -595,6 +608,10 @@ Private Sub DoHideHelp()
         ws.Shapes(names(i)).Delete
         Err.Clear
     Next i
+    ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(ExtendChatBandは縮む方向も
+    ' 面倒を見る)。戻さないとカードを閉じたあとも境界だけが下に残り、
+    ' 塗りの無い下スクロール域=白い余白として見える。
+    modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub
 

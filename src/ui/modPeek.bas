@@ -190,6 +190,12 @@ Public Sub ShowPeek(ByVal idx As Long)
     modSkin.ApplySoftShadow shp
     shp.ZOrder 0   ' msoBringToFront
 
+    ' R27 F2-1b(実機第12報①): プレビューは modUI.RecalcChatBottom の許可
+    ' リスト外(重ね表示)なので境界関所を通らない。AutoSizeで伸びた実下端で
+    ' 関所を通す。「原文を開く」ボタンはこの吹き出しの内側に置くので、
+    ' ここが常に最深(GoTo Doneで飛んだ経路でも取りこぼさない)。
+    modSkin.ExtendChatBand ws, shp.Top + shp.Height + 12
+
     ' 「📂 原文を開く」。抜粋を読んで終わりではなく、実物の該当ページまで
     ' 連れて行く。ここまで来て初めて、人に見せられる根拠になる。
     ' 元ファイルの記録が無い資料(パック由来・手入力)には出さない。
@@ -249,6 +255,9 @@ Public Sub HidePeek()
     For i = 0 To n - 1
         ws.Shapes(names(i)).Delete
     Next i
+    ' R27 F2-1b: 伸ばした境界を会話の下端へ戻す(戻さないと閉じたあとも
+    ' 境界だけが下に残り、白い余白として見える)。
+    modSkin.ExtendChatBand ws, modUI.ChatBottomFor(ws)
     On Error GoTo 0
 End Sub
 
