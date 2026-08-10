@@ -99,6 +99,8 @@ Public Sub Leave()
     ' 全アクションの出口である本Leaveで無条件にTrueへ戻す(保険。上のScreen
     ' Updating復帰と同じ考え方)。
     Application.DisplayAlerts = True
+    mAlertsDepth = 0   ' F5是正: Off残留時に次のAlertsOffがFalse再設定をスキップする窓を閉じる
+                       ' (Leaveは保護区間の外側からのみ呼ばれる前提。全呼び出し文脈確認済み)
     On Error GoTo 0
     On Error Resume Next
     modUI.ParkFocus                             ' Shape選択解除+アクティブセルpark(C4/A2)
