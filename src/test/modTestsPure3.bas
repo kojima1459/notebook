@@ -146,8 +146,12 @@ Private Sub TestBadgeCatalogWelcome()
     Dim n As Long
     n = modStats.BadgeCatalog(ids, titles, shorts, conds)
 
-    ' 従来12種+welcome=13種。件数がズレたらここで気づける。
-    modTestRunner.Check "R3バッジ表_件数は13", (n = 13), "n=" & n
+    ' 従来12種+welcome=13種。2026-08-10(R25-3b・実機第11報⑥)で新規3種
+    ' (thanks5/streak30/thorough10)を追加し13+3=16(ダッシュ4x4がちょうど
+    ' 埋まる)になった。16の固定そのものはmodTestsPure24が主担当なので、
+    ' ここは「welcomeが含まれ先頭にある」というR3要件C本来の検証を保ちつつ、
+    ' 件数リテラルだけ現状へ追随させる(件数がまたズレたらここで気づける)。
+    modTestRunner.Check "R3バッジ表_件数は16", (n = 16), "n=" & n
 
     Dim found As Boolean, i As Long
     For i = LBound(ids) To UBound(ids)
