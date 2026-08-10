@@ -504,41 +504,58 @@ Private Function RetryWordWholeContent(ByVal path As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' StripControlChars - 本文から制御文字を落とす(2026-08-10 R27 F1-5)。
+' StripControlChars - 本文の制御文字を半角スペースへ置き換える
+'   (2026-08-10 R27 F1-5 / 波3-16 で「除去」から「置換」へ変更)。
 ' ----------------------------------------------------------------------------
 ' 残すのはタブ(9)・LF(10)・CR(13)だけ。これらは行や列の区切りとして
 ' チャンク分割・見出し判定が実際に読んでいるため落とせない。
 ' それ以外の AscW<32 は、Wordの表セル終端 Chr(7) を筆頭に「文書構造の印」で
 ' あって本文ではない。埋め込み・照合テキスト・プロンプトのどこへ出しても
 ' 意味を持たず、検索では単なるノイズ、プロンプトでは文字数の浪費になる。
-' 【承知の上の副作用】表のセル終端 Chr(7) を落とすと、同じ行のセルが
-' 空白なしで連結する(「項目値」)。照合側は modSparse.CompactForMatch が
-' 空白を全除去するので影響ゼロ、プロンプト側は連結したまま出る。
-' 空白へ置換する案もあるが、R27の指示は「除去」なので除去に揃えた。
-' 戻り値=落とした文字数(0なら文字列は1文字も変わっていない)。
+'
+' 【波1裁定で除去→空白置換へ変更】表のセル終端 Chr(7) をただ消すと、同じ行の
+' 別々のセルが直結して原文に無い語になる(「項目」「値」→「項目値」)。埋め込みも
+' プロンプトもその偽の語で動き、空白を全除去する modSparse 側も救えない。
+' 連続する空白は1つへ圧縮(Wordの表は行末に Chr(7) が並び、素直に置換すると
+' 空白がチャンクの文字数=費用と精度を食う)。圧縮は【置換があったときだけ】
+' =制御文字の無い本文は1文字も変わらない。先頭の制御文字は空白を生まない。
+' タブ・改行は空白類として扱うが、それ自体は圧縮しない(下流が区切りに読む)。
+' 戻り値=置き換えた制御文字の数(0なら文字列は1文字も変わっていない)。
 Public Function StripControlChars(ByVal s As String, ByRef outText As String) As Long
     outText = s
     Dim n As Long: n = Len(s)
     If n = 0 Then Exit Function
 
     Dim buf() As String: ReDim buf(1 To n)
-    Dim removed As Long
+    Dim replaced As Long
+    ' 直前に出したのが空白類(スペース/タブ/CR/LF)か。Trueで始めることで
+    ' 先頭の制御文字がスペースを生まないようにする。
+    Dim prevWs As Boolean: prevWs = True
     Dim i As Long
     For i = 1 To n
         Dim ch As String: ch = Mid$(s, i, 1)
         Dim c As Long: c = AscW(ch)
         If c < 0 Then c = c + 65536          ' AscWの符号付き戻りを補正
-        If c >= 32 Or c = 9 Or c = 10 Or c = 13 Then
-            buf(i) = ch
+        If c = 9 Or c = 10 Or c = 13 Then
+            buf(i) = ch                      ' 区切りは1つも減らさない
+            prevWs = True
+        ElseIf c = 32 Then
+            If Not prevWs Then buf(i) = ch   ' 連続する空白は1つに圧縮
+            prevWs = True
+        ElseIf c < 32 Then
+            replaced = replaced + 1
+            If Not prevWs Then buf(i) = " "  ' 制御文字は半角スペースへ
+            prevWs = True
         Else
-            removed = removed + 1            ' buf(i) は空文字のまま
+            buf(i) = ch
+            prevWs = False
         End If
     Next i
-    If removed = 0 Then Exit Function
+    If replaced = 0 Then Exit Function       ' 置換が無いなら圧縮もしない
 
     ' 文字列連結ではなく Join(規約§12。連結はO(n^2)になる)。
     outText = Join(buf, "")
-    StripControlChars = removed
+    StripControlChars = replaced
 End Function
 
 ' 全ページへ StripControlChars を当てる(戻り値=落とした文字数の合計)。

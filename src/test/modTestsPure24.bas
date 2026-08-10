@@ -359,15 +359,38 @@ End Sub
 ' F1-5: modExtractor.StripControlChars — 本文サニタイズ。
 '   この文字列がそのまま embed / my_knowledge.norm_text / プロンプトへ流れる。
 '   タブ・改行(9/10/13)は行と列の区切りとして下流が読むので必ず残す。
+'   波3-16: 除去ではなく【半角スペースへ置換】(表のセルが直結して実在しない
+'   語になるのを防ぐ)。連続する空白は1つへ圧縮。
 Private Sub TestStripControlChars24()
     Dim outS As String
 
-    ' 表のセル終端Chr(7)は落ちて本文だけが残る。
+    ' 表のセル終端Chr(7)はスペースになる(セルが直結しない)。
     Dim n1 As Long
     n1 = modExtractor.StripControlChars("項目" & Chr$(7) & "値" & Chr$(7), outS)
-    modTestRunner.Check "R27-F1-5_Chr(7)は2字とも落ちる", (n1 = 2), "removed=" & n1
-    modTestRunner.Check "R27-F1-5_落とした後の本文は『項目値』", _
-        (outS = "項目値"), "out=[" & outS & "]"
+    modTestRunner.Check "R27-F1-5_Chr(7)は2字とも置換される", (n1 = 2), "replaced=" & n1
+    modTestRunner.Check "R27波3-16_セルは直結せず『項目 値 』になる", _
+        (outS = "項目 値 "), "out=[" & outS & "]"
+
+    ' 連続した制御文字はスペース1つへ(空白だけが延々と続かない)。
+    Dim n1b As Long
+    n1b = modExtractor.StripControlChars("A" & Chr$(7) & Chr$(7) & Chr$(7) & "B", outS)
+    modTestRunner.Check "R27波3-16_連続制御文字は3字とも数え空白1つへ圧縮", _
+        (n1b = 3 And outS = "A B"), "replaced=" & n1b & " out=[" & outS & "]"
+
+    ' 先頭の制御文字は行頭に無意味な空白を作らない。
+    modTestRunner.Check "R27波3-16_先頭の制御文字はスペースを生まない", _
+        (modExtractor.StripControlChars(Chr$(7) & "本文", outS) = 1 And outS = "本文"), _
+        "out=[" & outS & "]"
+
+    ' 既存スペースとの連続もまとめて1つ(置換が起きたときだけ働く)。
+    modTestRunner.Check "R27波3-16_制御文字の隣の既存スペースも1つにまとまる", _
+        (modExtractor.StripControlChars("A " & Chr$(7) & " B", outS) = 1 And outS = "A B"), _
+        "out=[" & outS & "]"
+
+    ' 制御文字が無ければ、連続スペースは1つも触らない(副作用ゼロ)。
+    modTestRunner.Check "R27波3-16_制御文字が無ければ連続スペースは温存", _
+        (modExtractor.StripControlChars("A  B", outS) = 0 And outS = "A  B"), _
+        "out=[" & outS & "]"
 
     ' 9/10/13 は残す(チャンク分割と見出し判定が読んでいる)。
     Dim keep As String: keep = "行1" & vbTab & "列2" & vbCrLf & "行3" & Chr$(10)
@@ -381,9 +404,9 @@ Private Sub TestStripControlChars24()
     ctl = "本" & Chr$(1) & Chr$(2) & Chr$(5) & Chr$(7) & Chr$(11) & Chr$(12) & _
           "文" & Chr$(14) & Chr$(19) & Chr$(20) & Chr$(21) & Chr$(30) & Chr$(31)
     Dim n3 As Long: n3 = modExtractor.StripControlChars(ctl, outS)
-    modTestRunner.Check "R27-F1-5_Word構造制御12種は全て落ちる", (n3 = 12), "removed=" & n3
-    modTestRunner.Check "R27-F1-5_残るのは本文2字だけ", _
-        (outS = "本文"), "out=[" & outS & "]"
+    modTestRunner.Check "R27-F1-5_Word構造制御12種は全て置換される", (n3 = 12), "replaced=" & n3
+    modTestRunner.Check "R27波3-16_本文2字が空白1つずつで区切られる", _
+        (outS = "本 文 "), "out=[" & outS & "]"
 
     ' 空文字は空文字のまま(0字除去)。
     modTestRunner.Check "R27-F1-5_空文字は0字除去で空のまま", _
