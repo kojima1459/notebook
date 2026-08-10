@@ -103,6 +103,7 @@ Public Sub EnsureLayout()
     ' uiStep: modUIMain.EnsureLayoutと同じ考え方(2026-07-15 実機E0801対策)。
     Dim uiStep As String
     On Error GoTo Fail
+    modUiLock.AlertsOff   ' F3(M-3・RenderShelfと同型。対は全Exit経路のAlertsOn)
 
     Application.ScreenUpdating = False
     If ws.Visible <> -1 Then ws.Visible = -1   ' xlSheetVisible(非表示なら表示化)
@@ -238,6 +239,7 @@ Public Sub EnsureLayout()
     RenderShelf
     ' R21-S1の保険: 描画中に窓が動いていたら1回だけ組み直す(ワンショット)。
     modViewport2.ReflowIfMoved vw0, vh0
+    modUiLock.AlertsOn
     Exit Sub
 
 Fail:
@@ -257,6 +259,7 @@ FailCleanup0:
     modLog.LogError "E0801", "modUIShelf.EnsureLayout", "[" & uiStep & "]" & diag, origNum
     If Not prevActive Is Nothing Then prevActive.Activate
     Application.ScreenUpdating = True
+    modUiLock.AlertsOn
     On Error GoTo 0
     Err.Raise origNum, "modUIShelf.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub
