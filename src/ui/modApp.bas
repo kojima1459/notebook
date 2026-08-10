@@ -147,6 +147,7 @@ Public Sub OnSend()
     ' 預けておけば modAsk の進捗通知(SetStage/RenderSourcesPreview)がそのまま
     ' ここへ流れ込み、「考えています…」が「もう見つけた。いま書いている」へ
     ' 変わる。待ち時間そのものは1秒も縮まないが、体感は完全に別物になる。
+    stage = "受付"   ' F8(m-8): 仮バブル生成前の段階を記録(ask_abort粒度)
     Dim phName As String
     phName = modUI.AddChatBubble("ai", ChrW(&HD83D) & ChrW(&HDCAD) & " 考えています…")
     On Error Resume Next
