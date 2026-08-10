@@ -1595,6 +1595,11 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
         if present_modules is not None and root is not None:
             errors.extend(
                 _verify_vba_src_bodies(ws, got_names, present_modules, root))
+        else:
+            # 2026-08-10(R23H-MI-3): 未指定を黙ってスキップすると検査が
+            # 実施されたかのように見えてしまう(exit 0で通過)。本文検査が
+            # 実質未実施だったことをerrorsへ明示的に積み、失格扱いにする。
+            errors.append("vba_src本文検査: 未実施(present_modules/rootが未指定)")
     else:
         errors.append("vba_src シートが存在しない")
 
