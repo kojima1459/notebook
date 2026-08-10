@@ -419,14 +419,27 @@ End Function
 ' フィット直後に毎回呼んでよい。同じ5値の重複だけを抑止するので、幾何が
 ' 動かない再描画ではログが増えない(1画面1セッション1回の旧方式では、
 ' 窓をリサイズした後の値が二度と記録されなかった)。
+' 2026-08-10(R25-4b FA-R25-4b): uw(ActiveWindow.UsableWidthの生値)を末尾へ
+' 追加。vis(=ViewportWidth−ScrollbarW)がフォールバック値(modViewport2.
+' SB_FALLBACK)で計算されたのか、実測のスクロールバー幅で計算されたのかは
+' 5値だけでは切り分けられない(実機で vis=1008/996 が混在した報告の原因が
+' 特定できなかった)。UsableWidthの生値があれば、vis側の式(SbWidthFrom)を
+' 逆算して実測/fallbackのどちらかを事後判定できる。取得できない環境
+' (ActiveWorkbookがThisWorkbookでない等)では0を記録する(modViewport2.
+' ScrollbarWと同じOn Error Resume Next+ActiveWorkbook Is ThisWorkbook guard)。
 Public Sub LogViewport(ByVal screenName As String, Optional ByVal bandW As Double = 0, _
                        Optional ByVal rightX As Double = 0, _
                        Optional ByVal boundBottom As Double = 0)
     On Error Resume Next
+    Dim uw As Double: uw = 0
+    If ActiveWorkbook Is ThisWorkbook Then uw = ActiveWindow.UsableWidth
+    If Err.Number <> 0 Then uw = 0
+    Err.Clear
     Dim d As String
     d = "w=" & CLng(modUIMain.ViewportWidth()) & " vis=" & CLng(modViewport2.VisibleCellW()) & _
         " band=" & CLng(bandW) & " right=" & CLng(rightX) & _
-        " h=" & CLng(ViewportHeight()) & " bottom=" & CLng(boundBottom)
+        " h=" & CLng(ViewportHeight()) & " bottom=" & CLng(boundBottom) & _
+        " uw=" & CLng(uw)
     Dim key As String: key = "|" & screenName & " " & d & "|"
     If InStr(mLoggedScreens, key) > 0 Then Exit Sub
     If Len(mLoggedScreens) > 4000 Then mLoggedScreens = ""   ' 際限なく持たない
