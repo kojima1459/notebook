@@ -511,7 +511,18 @@ Public Sub OnRunDiag()
     AddDiagCopyErrorsButton
     Exit Sub
 Fail:
-    Err.Clear
+    ' R27波3-8: 診断が落ちても【無記録・無言】で抜けていた。「調子が悪いので
+    ' 調べたい」人が押すボタンがそこで黙ると、利用者には手段が残らず、
+    ' 失敗した事実がエラーログにも残らないのでこちらからも追えない。
+    ' Errは退避してから、Resumeでハンドラを抜けて後始末する(周囲と同じ作法)。
+    Dim failDesc As String: failDesc = Err.Description
+    Dim failNum As Long: failNum = Err.Number
+    Resume DiagFailCleanup
+DiagFailCleanup:
+    On Error Resume Next
+    modLog.LogError "E0801", "modUIMain.OnRunDiag", "診断の実行に失敗: " & failDesc, failNum
+    modSkin.ShowToast "診断を実行できませんでした。" & _
+        "ブックを開き直してからもう一度お試しください。", "error", True
     On Error GoTo 0
 End Sub
 

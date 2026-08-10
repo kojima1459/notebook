@@ -30,8 +30,10 @@ Option Explicit
 '     しない=前回からの経過だけを見る瞬時判定。modUiLockのようなグローバル
 '     ロックは使わない(他の処理と競合する理由が無い独立機能のため)。
 '   ・失敗時はMsgBoxを出さない(取込バナー経由の呼び出しでモーダルを出すと
-'     取込全体を止めてしまう=憲章§3-1)。Application.StatusBarへの短文表示+
-'     modLog.LogError(新コードE0904)に留める。quietFail引数はこのための
+'     取込全体を止めてしまう=憲章§3-1)。modSkin.ShowToast(error・waitless)+
+'     modLog.LogError(新コードE0904)に留める(2026-08-10 R27波3-7で
+'     Application.StatusBarから移設。ステータスバーは非表示設定のため
+'     そこに書いた文字は誰にも届いていなかった)。quietFail引数はこのための
 '     分岐で、OnOpenWorkExcel(バナー内ボタンからも呼ばれる共有経路)からは
 '     常にTrueで渡す。
 '   ・DisableProcessWindowsGhosting(user32、引数なし・戻り値なし・表示系)は
@@ -190,7 +192,16 @@ NoRun:
     Resume WorkExcelFailCleanup
 WorkExcelFailCleanup:
     On Error Resume Next
-    Application.StatusBar = "作業用Excelを起動できませんでした。しばらくしてから再度お試しください。"
+    ' 2026-08-10(R27波3-7): 失敗の一言を Application.StatusBar から
+    ' modSkin.ShowToast へ移す。本アプリは起動時にステータスバー自体を
+    ' 非表示にしているので、ここに書いた文字は【誰の目にも入っていなかった】
+    ' (同じ理由で成功側の案内を R19H FA-8 でトーストへ移してある。:169-176)。
+    ' quietFail(バナー内ボタン・取込前確認からの呼び出し)でもトーストは出す。
+    ' モーダルを出さないのは取込を止めないためであって、黙るためではない
+    ' ―― 押したのに何も起きなければ利用者には故障と区別が付かない(憲章§3-1)。
+    ' waitless:=True: 取込へ入る直前に1.1秒の待ちを足さない(:172と同じ理由)。
+    modSkin.ShowToast "作業用Excelを起動できませんでした。" & _
+        "しばらくしてから再度お試しください(コード: E0904)。", "error", True
     modLog.LogError "E0904", "modWorkExcel.OnOpenWorkExcel", _
         "WScript.Shell起動失敗: " & failDesc, failNum
     If Not quietFail Then

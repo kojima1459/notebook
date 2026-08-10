@@ -535,7 +535,11 @@ End Function
 Public Sub OnNavChat()
     If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
+    ' R27波3-9: ロックを取りながらハンドラが無かった。ここで例外が出ると
+    ' Leaveに到達せず、全ボタンが自動解除(10分)まで無音で死ぬ(OnNavShelfも同型)。
+    On Error GoTo Done
     modUI.GoToNexus "modApp.OnNavChat"
+Done:
     modUiLock.Leave
 End Sub
 
@@ -551,7 +555,9 @@ End Sub
 Public Sub OnNavShelf()
     If modUiLock.BlockIfIngesting() Then Exit Sub   ' R7 B-2
     If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Done   ' R27波3-9(OnNavChatと同型)
     modUI.GoToNativeSheet modAppDef.SH_SHELF, "modApp.OnNavShelf"
+Done:
     modUiLock.Leave
 End Sub
 

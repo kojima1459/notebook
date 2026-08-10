@@ -99,7 +99,12 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub OnBackToNexus()
     If Not modUiLock.Enter() Then Exit Sub
+    ' R27波3-9: ロックを取りながらハンドラが無かった。ここで例外が出ると
+    ' Leave に到達せず、全ボタンが自動解除(10分)まで無音で死ぬ。
+    ' 同モジュールの OnRestartTour 等と同じ Done: 形に揃える。
+    On Error GoTo Done
     modUI.GoToNexus "modHelp.OnBackToNexus"
+Done:
     modUiLock.Leave
 End Sub
 
