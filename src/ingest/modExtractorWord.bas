@@ -108,10 +108,12 @@ Private Const STEP_CLOSE As String = "後始末"
 ' 編集中の文書を掴んでいないかを調べるには原本のパスも要るので、呼び出し元
 ' から受け取る(省略時は path だけで判定する)。
 ' wholeDoc(2026-08-10 R27 F1-6・実機第12報③): True にすると、ページ単位の
-' Range 走査(ExtractPageText)を通さず doc.Content.Text を1回で取って
-' 1ページ分として返す。.doc/.docx が「全ページ化け判定」になったときの
-' 最後の一手専用で、通常の取込は必ず False(既定)で呼ぶ。開き方の
-' フォールバック連鎖・後始末はこの引数に関係なく共通のものを使う。
+' Range 走査(ExtractPageText)を通さず doc.Content.Text を1回で取る。
+' .doc/.docx が「全ページ化け判定」になったときの最後の一手専用で、通常の
+' 取込は必ず False(既定)で呼ぶ。開き方のフォールバック連鎖・後始末はこの
+' 引数に関係なく共通のものを使う。R27H F4: 取った本文は改ページ Chr(12) で
+' 割ってページ配列に戻し、maxPages で切って truncated を立てる(ページ番号と
+' 上限が wholeDoc 経路でも従来どおり効く)。
 Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         ByRef pages() As ExtractedPage, ByRef truncated As Boolean, _
                         ByRef errDetail As String, _
@@ -419,14 +421,29 @@ Private Function TryExtractOnce(ByVal path As String, ByVal maxPages As Long, _
 
     Dim tmp() As ExtractedPage
     If wholeDoc Then
-        ' R27 F1-6: ページ単位の走査を通さず本文を1回で取る。ページ番号は
-        ' すべて1になる(出典が「何ページ」まで言えなくなるが、化けた本文を
-        ' そのまま取り込んで検索とプロンプトを汚すよりは良い、という判断)。
-        ' 打ち切り(PARTIAL_PAGES)の概念も無いので truncated は False のまま。
+        ' R27 F1-6: ページ単位の走査(ExtractPageText)を通さず本文を1回で取る。
+        ' R27H F4(M-3裁定): 旧実装は全文を1ページ扱いにしていたため、
+        '   ・出典が全部「1ページ」になる(何ページか言えない製品になる)
+        '   ・max_pages_per_file の打ち切りが効かない(300ページ制限の穴)
+        ' の2つを同時に落としていた。Word は改ページを本文中に Chr(12) で
+        ' 持っているので、それで割ればページ番号も上限もそのまま復活する
+        ' (自動改ページのぶんは取れないので、実ページ数以下の粗い番号になる。
+        ' 全部1ページと言うよりは正しい)。サニタイズは呼び出し元の後段で従来
+        ' どおり掛かる(この分岐は「割ってページ配列にする」だけ)。
         stepName = STEP_TEXT
-        ReDim tmp(0 To 0)
-        tmp(0).page = 1
-        tmp(0).Text = doc.Content.Text
+        Dim wp() As String
+        wp = Split(doc.Content.Text, Chr$(12))
+        Dim wn As Long: wn = UBound(wp) - LBound(wp) + 1
+        If wn > maxPages Then
+            wn = maxPages
+            truncated = True
+        End If
+        ReDim tmp(0 To wn - 1)
+        Dim wi As Long
+        For wi = 1 To wn
+            tmp(wi - 1).page = wi
+            tmp(wi - 1).Text = wp(LBound(wp) + wi - 1)
+        Next wi
         DoEvents
     Else
         stepName = STEP_PAGES

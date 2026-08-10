@@ -270,7 +270,7 @@ Public Function ExtractFile(ByVal path As String, ByRef pages() As ExtractedPage
     ' いなければそちらを採る。失敗しても従来経路へそのまま戻る(悪化させない)。
     If allGarbled Then
         If ext = "doc" Or ext = "docx" Then
-            If RetryWordWholeContent(path, pages, allGarbled) Then
+            If RetryWordWholeContent(path, maxPages, pages, allGarbled, truncated) Then
                 On Error Resume Next
                 modLog.LogUsage "doc_fallback_content", "", _
                     modUtil.SafeLeft(modUtil.FileNameOf(path), 120) & _
@@ -478,9 +478,14 @@ End Function
 '       ここを外すと「20字の断片が化けていない」だけで採用してしまう
 ' 一時コピーは本経路と同じく作り直す(元の一時コピーは抽出直後に消えている)。
 ' 作れなければ原本を開く(取り込めないよりは良い・本経路の Case "doc" と同じ方針)。
-Private Function RetryWordWholeContent(ByVal path As String, _
+' R27H F4(M-3裁定): maxPages と truncated を通す。旧実装は maxPages に 1 を
+' 直書きし、受けた truncated も捨てていた(代替抽出へ落ちた資料だけが
+' 「全部1ページ・上限なし」になっていた)。本経路と同じ上限で切り、打ち切った
+' 事実は呼び出し元の PARTIAL_PAGES 判定へそのまま渡す。
+Private Function RetryWordWholeContent(ByVal path As String, ByVal maxPages As Long, _
                                        ByRef pages() As ExtractedPage, _
-                                       ByRef outAllGarbled As Boolean) As Boolean
+                                       ByRef outAllGarbled As Boolean, _
+                                       ByRef truncated As Boolean) As Boolean
     Dim reason As String
     Dim tmp2 As String: tmp2 = modExtractorPdf.CopyToLocalTemp(path, reason)
     Dim wPath As String: wPath = path
@@ -491,7 +496,7 @@ Private Function RetryWordWholeContent(ByVal path As String, _
     Dim det2 As String
     Dim ok2 As Boolean
     On Error Resume Next
-    ok2 = modExtractorWord.Extract(wPath, 1, alt, trunc2, det2, path, True)
+    ok2 = modExtractorWord.Extract(wPath, maxPages, alt, trunc2, det2, path, True)
     If Err.Number <> 0 Then ok2 = False
     Err.Clear
     If LenB(tmp2) > 0 Then Kill tmp2
@@ -506,6 +511,7 @@ Private Function RetryWordWholeContent(ByVal path As String, _
 
     pages = alt
     outAllGarbled = False
+    If trunc2 Then truncated = True     ' 打ち切りは採用したときだけ持ち上げる
     RetryWordWholeContent = True
 End Function
 
