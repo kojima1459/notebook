@@ -612,6 +612,16 @@ End Function
 ' (3)を3字以上に絞るのは、「免責」「期限」「金額」のような2字の一般語が
 ' たまたま資料名に含まれるだけで聞き返しを止めてしまうのを防ぐため
 ' (止まると、この機能は「効かない機能」として二度と観測されない)。
+'
+' 2026-08-10(R27 F1-9・実機第12報②「逆質問が出ない」): 規則(3)を
+' 「主要語を含む資料が【1件のときだけ】名指しとみなす」へ緩めた。
+' 「団体保険の免責は?」と聞いたとき、本棚に『団体保険約款』と『団体保険特約』が
+' 並んでいれば、主要語「団体保険」は両方に含まれる。旧実装はこれを1件目で
+' 名指しと判断して聞き返しを止めていたが、利用者はどちらの資料かを一言も
+' 指定していない。むしろ【どちらか聞くべき場面そのもの】である。
+' 規則(1)(資料名まるごと)と(2)(資料名の主要語)は「利用者がその資料の名前を
+' 実際に打った」証拠なので従来どおり1件でも即座に名指し扱いのまま。
+' 変えたのは(3)=「資料名の側が質問の主要語を含む」という弱い向きだけ。
 Public Function MentionsSourceName(ByVal q As String, ByVal sources As String) As Boolean
     If LenB(q) = 0 Then Exit Function
     If LenB(sources) = 0 Then Exit Function
@@ -620,6 +630,7 @@ Public Function MentionsSourceName(ByVal q As String, ByVal sources As String) A
     Dim parts() As String
     parts = Split(sources, "|")
 
+    Dim qKeyHits As Long
     Dim i As Long
     For i = LBound(parts) To UBound(parts)
         Dim nm As String: nm = StripExt(Trim$(parts(i)))
@@ -635,14 +646,14 @@ Public Function MentionsSourceName(ByVal q As String, ByVal sources As String) A
                     Exit Function
                 End If
             End If
+            ' 規則(3)は即断せず件数だけ数える(2件以上なら名指しではない)。
             If Len(qKey) >= 3 Then
-                If InStr(1, nm, qKey, vbTextCompare) > 0 Then
-                    MentionsSourceName = True
-                    Exit Function
-                End If
+                If InStr(1, nm, qKey, vbTextCompare) > 0 Then qKeyHits = qKeyHits + 1
             End If
         End If
     Next i
+
+    MentionsSourceName = (qKeyHits = 1)
 End Function
 
 ' 資料名の末尾の拡張子を落とす(本棚の資料名はファイル名そのままのことが多い)。

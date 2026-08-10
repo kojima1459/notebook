@@ -397,6 +397,40 @@ Private Sub TestStripControlChars24()
         (n4 = 0 And outS = jp), "removed=" & n4 & " out=[" & outS & "]"
 End Sub
 
+' F1-9: modClarify.MentionsSourceName — 逆質問の名指し誤判定の緩和。
+'   規則(3)「資料名の側が質問の主要語を含む」は、該当資料が2件以上あるなら
+'   利用者はどちらの資料かを指定していない=聞き返すべき場面。
+'   規則(1)(2)(利用者が資料名を実際に打った証拠)は1件でも従来どおり名指し。
+Private Sub TestMentionsSourceNameMultiHit24()
+    ' (3)が1件だけ当たる: 従来どおり名指し扱い(聞き返さない)。
+    modTestRunner.Check "R27-F1-9_主要語を含む資料が1件なら名指し扱い(従来どおり)", _
+        modClarify.MentionsSourceName("火災保険の免責は?", "火災保険約款.pdf|自動車保険約款.pdf"), _
+        "1件でも聞き返しを止めないと、名指しした人にもう一度選ばせることになる"
+
+    ' (3)が2件当たる: 名指しではない(=逆質問を出してよい)。ここがR27の変更点。
+    modTestRunner.Check "R27-F1-9_主要語を含む資料が2件なら名指しではない", _
+        (modClarify.MentionsSourceName("団体保険の免責は?", "団体保険約款.pdf|団体保険特約.pdf") = False), _
+        "2件あるのに聞き返しを止めると、どちらの資料か永久に確認できない"
+
+    ' 3件でも同じ(2件以上は一律で名指しではない)。
+    ' 資料名は「主要語(連続する漢字/カタカナの最長列)が質問文に出てこない」
+    ' ものを選ぶ。例えば『団体保険しおり』は主要語が「団体保険」になり、
+    ' 規則(2)(資料名の主要語が質問文に含まれる)で先に名指し扱いになるため
+    ' この検証には使えない(規則(2)はR27の変更対象外)。
+    modTestRunner.Check "R27-F1-9_主要語を含む資料が3件でも名指しではない", _
+        (modClarify.MentionsSourceName("団体保険の免責は?", _
+            "団体保険約款.pdf|団体保険特約.pdf|団体保険規程.pdf") = False), ""
+
+    ' 規則(1): 質問文が資料名まるごとを含むなら、他に何件並んでいても名指し。
+    modTestRunner.Check "R27-F1-9_規則(1)資料名まるごとは2件並んでいても名指し", _
+        modClarify.MentionsSourceName("団体保険約款の免責は?", "団体保険約款.pdf|団体保険特約.pdf"), _
+        "利用者が資料名を打っている以上、聞き返す理由が無い"
+
+    ' 無関係な質問は従来どおり名指しではない。
+    modTestRunner.Check "R27-F1-9_主要語がどの資料名にも無ければ名指しではない", _
+        (modClarify.MentionsSourceName("駐車場の使い方は?", "団体保険約款.pdf|団体保険特約.pdf") = False), ""
+End Sub
+
 Private Function Repeat24(ByVal unit As String, ByVal times As Long) As String
     Dim sb As String
     Dim i As Long
@@ -511,6 +545,9 @@ NextGarbleKanji24:
 NextStrip24:
     On Error GoTo StripFail24
     TestStripControlChars24
+NextMention24:
+    On Error GoTo MentionFail24
+    TestMentionsSourceNameMultiHit24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -573,6 +610,10 @@ GarbleKanjiFail24:
     Resume NextStrip24
 StripFail24:
     modTestRunner.Check "TestStripControlChars24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextMention24
+MentionFail24:
+    modTestRunner.Check "TestMentionsSourceNameMultiHit24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub
