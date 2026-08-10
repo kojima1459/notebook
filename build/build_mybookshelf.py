@@ -1106,6 +1106,32 @@ def _make_headers_only(wb, name, headers, state, widths=None, text_cols=None):
     return ws
 
 
+def _vba_src_modules(present_modules):
+    """vba_src シートへ載せる対象モジュールだけを返す。
+    クラスモジュール(VBComponents.Add(1)で追加できない)と
+    台帳で vba_src=False にされたものは対象外。
+    _make_vba_src と verify_build(FA-R23-1c)で同じ判定を使うための共通化。"""
+    return [m for m in present_modules
+            if m.get("type") != "class" and m.get("vba_src") is not False]
+
+
+def _vba_src_text(root, m):
+    """src/ の .bas から vba_src セルへ格納する文字列を作る(ビルド規則の唯一の実装)。
+    Attribute 行を落とし、_clean() で XML に書けない制御文字を除去する。
+    ※ 整形ロジックはここ1箇所に閉じる。verify_build(FA-R23-1c)はこの関数の
+      戻り値と成果物のC列を突き合わせるので、二重実装があると検査が無意味になる。"""
+    path = os.path.join(root, m["path"])
+    with open(path, encoding="utf-8-sig") as fp:
+        txt = fp.read()
+    out_lines = []
+    for line in txt.split("\n"):
+        stripped = line.lstrip("﻿")
+        if stripped.lstrip().startswith("Attribute "):
+            continue
+        out_lines.append(stripped)
+    return _clean("\n".join(out_lines))
+
+
 def _make_vba_src(wb, present_modules, root):
     """vba_src シート: 標準モジュール(*.bas)のソースを1行1モジュールで格納する。
     自己インストーラ(ThisWorkbookストリーム)がこのシートを読んで
@@ -1124,19 +1150,8 @@ def _make_vba_src(wb, present_modules, root):
 
     injected = []
     row = 2
-    for m in present_modules:
-        if m.get("type") == "class" or m.get("vba_src") is False:
-            continue
-        path = os.path.join(root, m["path"])
-        with open(path, encoding="utf-8-sig") as fp:
-            txt = fp.read()
-        out_lines = []
-        for line in txt.split("\n"):
-            stripped = line.lstrip("﻿")
-            if stripped.lstrip().startswith("Attribute "):
-                continue
-            out_lines.append(stripped)
-        cleaned = _clean("\n".join(out_lines))
+    for m in _vba_src_modules(present_modules):
+        cleaned = _vba_src_text(root, m)
 
         if len(cleaned) > MODULE_CONTRACT_LIMIT:
             raise BuildError(
@@ -1474,9 +1489,53 @@ def detect_app_version(root):
 # ---------------------------------------------------------------------------
 # ビルド後自己検証 (MASTER_SPEC §10)
 # 再オープンして: 全シート存在 / vba_srcモジュール数一致 /
-# 各ソースセル<=32,000字 / olefileでThisWorkbookストリーム復元確認
+# 各ソースセル<=32,000字 / olefileでThisWorkbookストリーム復元確認 /
+# vba_srcのC列本文が src/ の対応ファイルと完全一致(FA-R23-1c)
 # ---------------------------------------------------------------------------
-def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expected):
+def _first_diff_pos(a, b):
+    """2つの文字列の先頭からの最初の相違位置(0始まり)を返す。"""
+    n = min(len(a), len(b))
+    for i in range(n):
+        if a[i] != b[i]:
+            return i
+    return n
+
+
+def _verify_vba_src_bodies(ws, got_names, present_modules, root):
+    """成果物 vba_src のC列本文が src/ の対応ファイル(ビルド規則適用後)と
+    完全一致することを全モジュールで検査する(FA-R23-1c)。"""
+    errors = []
+    expected = {}
+    for m in _vba_src_modules(present_modules):
+        try:
+            expected[m["name"]] = _vba_src_text(root, m)
+        except OSError as e:
+            errors.append(f"vba_src本文検査: '{m['name']}' のソースを読めません: {e}")
+
+    seen = set()
+    for i, nm in enumerate(got_names):
+        actual = ws.cell(row=i + 2, column=3).value or ""
+        seen.add(nm)
+        if nm not in expected:
+            errors.append(f"vba_src本文検査: '{nm}' に対応する src/ のモジュールがありません")
+            continue
+        want = expected[nm]
+        if actual != want:
+            pos = _first_diff_pos(want, actual)
+            errors.append(
+                f"vba_src本文が src/ と不一致: '{nm}' "
+                f"(先頭差分位置={pos}, 期待{len(want)}字/実際{len(actual)}字, "
+                f"期待={want[pos:pos + 40]!r} 実際={actual[pos:pos + 40]!r})")
+
+    for nm in expected:
+        if nm not in seen:
+            errors.append(f"vba_src本文検査: '{nm}' の行が成果物にありません")
+    return errors
+
+
+# ---------------------------------------------------------------------------
+def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expected,
+                 present_modules=None, root=None):
     errors = []
 
     try:
@@ -1522,6 +1581,14 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
             errors.append(
                 f"vba_srcモジュール集合が不一致: 期待={sorted(expected_vba_src_names)} "
                 f"実際={sorted(got_names)}")
+        # FA-R23-1c: モジュール名の集合だけでなく本文まで突き合わせる。
+        # 実機第9報①(注入されたモジュールに手続きが無い)のように、名前は
+        # 揃っているのに中身が欠けている配布物を出荷段階で止めるため。
+        # 期待値は _vba_src_text() ＝ ビルド時にC列を作ったのと同じ関数から
+        # 作り直す(整形ロジックを二重実装しない)。
+        if present_modules is not None and root is not None:
+            errors.extend(
+                _verify_vba_src_bodies(ws, got_names, present_modules, root))
     else:
         errors.append("vba_src シートが存在しない")
 
@@ -1842,7 +1909,8 @@ def main():
     print(f"  一時出力: {staging_path} ({os.path.getsize(staging_path):,} bytes)")
 
     print("\nStage 6: ビルド後自己検証...")
-    errors = verify_build(staging_path, injected, installer_src, mock_llm)
+    errors = verify_build(staging_path, injected, installer_src, mock_llm,
+                          present_modules=present, root=root)
     if errors:
         print("自己検証 失敗:")
         for e in errors:
@@ -1866,7 +1934,7 @@ def main():
             pass
     print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
     print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
-          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
+          "vba_src本文がsrc/と完全一致 / ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認")
 
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")
