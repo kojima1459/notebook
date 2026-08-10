@@ -322,9 +322,15 @@ CONTRACT: dict[str, dict] = {
         # 1本にした。取込時に my_knowledge の norm_text 列へ前計算して保存する
         # ようになったため、式が2箇所にあると保存済み行と未保存行でスコアが
         # 変わる(順位が静かに割れる)。
+        # CapKeyScore / KeyLenWeight(2026-08-10 R27 F1-1/F1-2): KeyScore の
+        # 頭打ちを純関数として切り出したもの。KeyScore 本体は config(cap)を
+        # 読むためLO実行テストから境界を直接ゴールデン化できないが、この2本は
+        # 引数だけで決まるので modTestsPure24 が cap-1/cap/cap+10 と
+        # 7/8/9字の境界を固定する。
         "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
                      "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
-                     "HasAnyKey", "MatchDocText"],
+                     "HasAnyKey", "MatchDocText",
+                     "CapKeyScore", "KeyLenWeight"],
     },
     "modChunker": {
         "closed": True,

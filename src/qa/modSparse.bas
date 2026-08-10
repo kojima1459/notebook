@@ -81,6 +81,12 @@ Private Const BM25_K1 As Double = 1.2
 Private Const BM25_B As Double = 0.75
 Private Const MAX_KEYS As Long = 8
 
+' 2026-08-10(R27 F1-1/F1-2): KeyScore の頭打ち。詳細は KeyScore の注記。
+Private Const KEY_LEN_CLAMP As Long = 8          ' 語長重みの Len 上限
+Private Const KEYSCORE_CAP_DEFAULT As Double = 10#
+Private mCapLoaded As Boolean
+Private mCapValue As Double
+
 ' ----------------------------------------------------------------------------
 ' NormalizeForSearch - 検索用の正規化。取込側・質問側の両方が必ず通す。
 '   片方だけ通すと揺れが残るので、必ず両側で同じ関数を使うこと。
@@ -374,6 +380,23 @@ End Function
 '
 '   keys       : DistinctiveKeys の結果(| 区切り)
 '   compactDoc : CompactForMatch を通した本文
+'
+' 2026-08-10(R27 F1-1/F1-2・実機第12報②「特約が検索から消える」の根治):
+'   実機ログの確定機序は【KeyScoreが無上限】だった。modRetrieve は
+'   SPARSE_WEIGHT=0.06 を掛けて cos(-1〜1)と同じ土俵へ乗せる前提で書かれて
+'   いるが、thorough の HyDE と会話履歴の独立質問化が「長い資料名」を丸ごと
+'   キーへ注入するため、KeyScore が 330 まで伸びた(0.06×330 = 20.26)。
+'   その結果 cos 成分は最終スコアの2〜5%しか占めず、実質キーワード検索に
+'   なっていた。曖昧判定(0.6)・低ヒット警告(0.3)・確信度55 という3つの
+'   安全装置は全て「スコアが 0〜1 付近」を前提にした閾値なので、同時に
+'   無力化されていた(どれも鳴らないので誰も気付けない)。
+'   ・F1-1 = 戻り値を cap で頭打ち(既定10 → 0.06×10 = 0.6 で cos と同格)。
+'   ・F1-2 = 語長重み Len^1.5 の Len を8で clamp(16字の資料名キー1本で
+'     64点入るのを止める。8^1.5 = 22.6 が上限)。
+'   頭打ちは「上限へ張り付いた同点の山」を作るが、そこへ届くのは既に
+'   決定的に強く一致したチャンクだけで、その先の順位は cos が付ける
+'   (キーワードは候補を引き上げる役、順位を決めるのはベクトル、という
+'   本来の設計に戻す)。
 Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Double
     If LenB(keys) = 0 Then Exit Function
     If LenB(compactDoc) = 0 Then Exit Function
@@ -387,7 +410,7 @@ Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Do
             Dim c As Long: c = CountOccurrences(compactDoc, k)
             If c > 0 Then
                 ' 長い語ほど希少 = IDFの安価な代用。^1.5 は実測で選んだ形。
-                Dim w As Double: w = Len(k) ^ 1.5
+                Dim w As Double: w = KeyLenWeight(Len(k))
                 total = total + w * (1 + Log(CDbl(c)))
             End If
         End If
@@ -395,7 +418,52 @@ Public Function KeyScore(ByVal keys As String, ByVal compactDoc As String) As Do
     If total <= 0 Then Exit Function
 
     ' 文書長で正規化(長いチャンクが不当に有利になるのを防ぐ)
-    KeyScore = total / (1 + Log(1 + Len(compactDoc) / 900#))
+    KeyScore = CapKeyScore(total / (1 + Log(1 + Len(compactDoc) / 900#)), _
+                           EffectiveKeyScoreCap())
+End Function
+
+' ----------------------------------------------------------------------------
+' KeyLenWeight - キー1語ぶんの語長重み(2026-08-10 R27 F1-2)。純関数。
+' ----------------------------------------------------------------------------
+' Len^1.5 は「長い語ほど希少」の安価な代用だが、上限が無いと HyDE や資料名
+' 由来の長語1本だけで全チャンクの順位が決まる。8字より長い語が更に希少に
+' なるという根拠は無い(実測の採点は2〜8字のキーで取ったもの)ので、
+' 8で寝かせる。7→8 は増え、8→9 以降は増えない、が仕様。
+Public Function KeyLenWeight(ByVal keyLen As Long) As Double
+    Dim L As Long: L = keyLen
+    If L < 0 Then L = 0
+    If L > KEY_LEN_CLAMP Then L = KEY_LEN_CLAMP
+    KeyLenWeight = L ^ 1.5
+End Function
+
+' ----------------------------------------------------------------------------
+' CapKeyScore - 生スコアを cap で頭打ちにする(2026-08-10 R27 F1-1)。純関数。
+'   cap <= 0 は「頭打ちなし」= R27以前の挙動へ戻すエスケープハッチ
+'   (config sparse_keyscore_cap に 0 を入れると旧来どおり暴れる)。
+' ----------------------------------------------------------------------------
+Public Function CapKeyScore(ByVal raw As Double, ByVal cap As Double) As Double
+    CapKeyScore = raw
+    If cap <= 0# Then Exit Function
+    If raw > cap Then CapKeyScore = cap
+End Function
+
+' cap の実効値。KeyScore は「1質問あたり全チャンク分」呼ばれる(実機9,000件)
+' のに対し modConfig はキャッシュを持たず毎回 config シートを線形走査する。
+' そのままでは毎質問 9,000×250 セル読みになるので、1セッション1回だけ読んで
+' 控える(modBitwiseOpt のセッションキャッシュと同型。config を書き換えた
+' ときはブックを開き直すと反映される)。
+' modConfig が解決できない実行環境(LO実行テスト。純ロジック一式しか注入
+' しない)では On Error Resume Next で既定値のまま走り切る。
+Private Function EffectiveKeyScoreCap() As Double
+    If Not mCapLoaded Then
+        Dim v As Double: v = KEYSCORE_CAP_DEFAULT
+        On Error Resume Next
+        v = CDbl(modConfig.GetLong("sparse_keyscore_cap", CLng(KEYSCORE_CAP_DEFAULT)))
+        On Error GoTo 0
+        mCapValue = v
+        mCapLoaded = True
+    End If
+    EffectiveKeyScoreCap = mCapValue
 End Function
 
 ' ----------------------------------------------------------------------------

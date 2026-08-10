@@ -470,6 +470,11 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("expand_effort", "low", "拡張段のreasoning_effort"),
         ("expand_verbosity", "low", "拡張段のverbosity"),
         ("multi_candidates", 40, "マルチクエリ検索の候補プール上限"),
+        # R27 F1-1(実機第12報②): キーワード加点(modSparse.KeyScore)が無上限で、
+        # 長い資料名やHyDE由来の長語キーでスコアが330まで伸びていた。
+        # 0.06(SPARSE_WEIGHT)×330=20の加点はベクトル類似度(-1〜1)を完全に
+        # 押し流し、実質キーワード検索になっていた。既定10で加点上限0.6=cosと同格。
+        ("sparse_keyscore_cap", 10, "キーワード加点(KeyScore)の上限。0.06倍してベクトル類似度へ足すので、10なら加点は最大0.6=cosと同じ土俵。大きくするほどキーワード一致が順位を支配する。0で上限なし(R27以前の挙動)"),
         ("rerank_enabled", True, "TRUE=候補チャンクをAIで再ランクしてから回答生成する"),
         ("quick_expand", False, "TRUE=「すぐ聞く」でも質問拡張を行う(AI呼び出しが1回増え数秒遅くなる)"),
         ("quick_rerank", False, "TRUE=「すぐ聞く」でも再ランクを行う(AI呼び出しが1回増え数秒遅くなる)"),

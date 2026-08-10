@@ -119,6 +119,91 @@ Private Sub TestBadgeTitlesHaveNoSurrogate24()
         (badN = 0), "badN=" & badN
 End Sub
 
+' ============================================================================
+' R27 波1(実機第12報②「特約が検索から消える」の根治)の純ロジック回帰。
+' ============================================================================
+' F1-1: modSparse.CapKeyScore — キーワード加点の頭打ち。
+'   実機ではKeyScoreが330まで伸び、SPARSE_WEIGHT 0.06 を掛けた加点20が
+'   cos類似度(-1〜1)を押し流していた。cap=10(加点0.6)でcosと同じ土俵へ戻す。
+'   cap未満/ちょうど/超過 の3点を固定する(cap+10 は「越えた分は切る」側)。
+Private Sub TestCapKeyScoreBoundary24()
+    Dim cap As Double: cap = 10#
+
+    ' cap-1: 頭打ちの手前は素通し(値が変わってはいけない)。
+    modTestRunner.Check "R27-F1-1_cap-1は素通し(9→9)", _
+        (modSparse.CapKeyScore(cap - 1#, cap) = cap - 1#), _
+        "実際=" & Format$(modSparse.CapKeyScore(cap - 1#, cap), "0.000")
+
+    ' cap ちょうど: 境界は「切らない」側(> で比較しているため)。
+    modTestRunner.Check "R27-F1-1_capちょうどは素通し(10→10)", _
+        (modSparse.CapKeyScore(cap, cap) = cap), _
+        "実際=" & Format$(modSparse.CapKeyScore(cap, cap), "0.000")
+
+    ' cap+10: 超過分は必ず落ちる(ここが効かないとR27以前へ逆戻り)。
+    modTestRunner.Check "R27-F1-1_cap+10は頭打ち(20→10)", _
+        (modSparse.CapKeyScore(cap + 10#, cap) = cap), _
+        "実際=" & Format$(modSparse.CapKeyScore(cap + 10#, cap), "0.000")
+
+    ' 実機で観測された生スコア330も同じ1本の式で10へ落ちること。
+    modTestRunner.Check "R27-F1-1_実機の暴走値330も10へ落ちる", _
+        (modSparse.CapKeyScore(330#, cap) = cap), _
+        "実際=" & Format$(modSparse.CapKeyScore(330#, cap), "0.000")
+
+    ' cap<=0 は「頭打ちなし」= 旧挙動へ戻すエスケープハッチ。
+    modTestRunner.Check "R27-F1-1_cap=0は頭打ちなし(330がそのまま返る)", _
+        (modSparse.CapKeyScore(330#, 0#) = 330#), _
+        "実際=" & Format$(modSparse.CapKeyScore(330#, 0#), "0.000")
+End Sub
+
+' F1-2: modSparse.KeyLenWeight — 語長重み Len^1.5 の Len を8でclamp。
+'   7→8 は増え、8→9 以降は増えない。9字で 9^1.5=27 が返ったら clamp が
+'   効いていない(=長い資料名キー1本で順位が決まる旧挙動)。
+Private Sub TestKeyLenWeightClamp24()
+    Dim w7 As Double, w8 As Double, w9 As Double, w16 As Double
+    w7 = modSparse.KeyLenWeight(7)
+    w8 = modSparse.KeyLenWeight(8)
+    w9 = modSparse.KeyLenWeight(9)
+    w16 = modSparse.KeyLenWeight(16)
+
+    ' clampの手前(7字)は8字より必ず軽い=「長い語ほど重い」性質は残す。
+    modTestRunner.Check "R27-F1-2_7字は8字より軽い(clamp手前は従来どおり)", _
+        (w7 < w8), "w7=" & Format$(w7, "0.000") & " w8=" & Format$(w8, "0.000")
+
+    ' 境界(8字)の値そのもの: 8^1.5 = 22.627…(恒真化を避けるため実値で固定)
+    modTestRunner.Check "R27-F1-2_8字の重みは8^1.5=22.627", _
+        (Abs(w8 - 22.6274169979695) < 0.000001), "w8=" & Format$(w8, "0.000000")
+
+    ' clamp本体: 9字は8字と同じ値へ寝る(増えない)。
+    modTestRunner.Check "R27-F1-2_9字は8字と同値(clampが効いている)", _
+        (w9 = w8), "w9=" & Format$(w9, "0.000") & " w8=" & Format$(w8, "0.000")
+
+    ' clampが無ければ 9^1.5 = 27 になる。27未満であることを別途固定する
+    ' (上の等値だけだと「両方27」でも通ってしまうため)。
+    modTestRunner.Check "R27-F1-2_9字の重みは27(=9^1.5)より小さい", _
+        (w9 < 27#), "w9=" & Format$(w9, "0.000")
+
+    ' 資料名級の長語(16字)でも8字止まり。16^1.5=64 が入るのが実機の暴走源。
+    modTestRunner.Check "R27-F1-2_16字の資料名キーも8字止まり(64点にならない)", _
+        (w16 = w8), "w16=" & Format$(w16, "0.000")
+End Sub
+
+' F1-1 の結線確認: KeyScore 本体が cap を通っていること。
+' 9字キーが1回だけ出る短い本文の生スコアは 22.4 前後(clamp後22.627を
+' 文書長正規化1.0099で割った値)で、cap(既定10)が効いていれば10になる。
+' 既定値はビルド時 config(sparse_keyscore_cap=10)およびLO実行テスト
+' (modConfig未注入 → 既定値へフォールバック)の双方で10。
+Private Sub TestKeyScoreIsCapped24()
+    Dim key As String: key = "特約条項変更届出書"          ' 9字
+    Dim doc As String: doc = modSparse.CompactForMatch(key)
+    Dim v As Double: v = modSparse.KeyScore(key, doc)
+
+    modTestRunner.Check "R27-F1-1_KeyScore本体が上限10を超えない", _
+        (v <= 10.000001), "v=" & Format$(v, "0.000")
+    ' 0点に落ちていない(頭打ちと取りこぼしを取り違えない)。
+    modTestRunner.Check "R27-F1-1_頭打ちしても加点は消えない(v>0)", _
+        (v > 0#), "v=" & Format$(v, "0.000")
+End Sub
+
 Private Function BadgeIdExists24(ByRef ids() As String, ByVal target As String) As Boolean
     Dim i As Long
     For i = LBound(ids) To UBound(ids)
@@ -173,6 +258,15 @@ NextThreshold24:
 NextNoEmoji24:
     On Error GoTo NoEmojiFail24
     TestBadgeTitlesHaveNoSurrogate24
+NextCapKey24:
+    On Error GoTo CapKeyFail24
+    TestCapKeyScoreBoundary24
+NextLenClamp24:
+    On Error GoTo LenClampFail24
+    TestKeyLenWeightClamp24
+NextKeyScoreCap24:
+    On Error GoTo KeyScoreCapFail24
+    TestKeyScoreIsCapped24
 NextDone24:
     On Error GoTo 0
     Exit Sub
@@ -195,6 +289,18 @@ ThresholdFail24:
     Resume NextNoEmoji24
 NoEmojiFail24:
     modTestRunner.Check "TestBadgeTitlesHaveNoSurrogate24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextCapKey24
+CapKeyFail24:
+    modTestRunner.Check "TestCapKeyScoreBoundary24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextLenClamp24
+LenClampFail24:
+    modTestRunner.Check "TestKeyLenWeightClamp24(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextKeyScoreCap24
+KeyScoreCapFail24:
+    modTestRunner.Check "TestKeyScoreIsCapped24(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone24
 End Sub
