@@ -235,25 +235,35 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' LastTurn - 直前1往復(質問/回答)を取り出す。凍結モジュール(modAsk)の
 '   mLast系にはPublicアクセサ経由でしか触らない。
-'   質問: モードごとの記憶キー(nexus_ask_prevu / nexus_gen_prevu)の先頭
-'         =最新1件(区切りは modConvBridge.FirstPair が単一情報源)。
-'         空なら復元用の履歴キー(nexus_hist_u。両モード共通・modApp.OnSend が
-'         毎ターン書く)へ退く=VBAリセットや再起動後の復元会話でも保存できる。
-'   回答: modAsk.LastAnswerText()(RAG・一般の両方がここへ入る。一般側は
-'         modAppState.AskGeneral が NoteGeneralAnswered で必ず入れる)。
-'         空なら画面のバブル本文(modAppState.TargetText)へ退く。
+'
+' R26H F8(m-4): 質問と回答の第一情報源を nexus_hist_u / nexus_hist_a に統一した。
+'   このキーは modApp.SaveTurnForRestore が毎ターン【対で】書く唯一のキーで、
+'   質問と回答が必ず同じターンのものになる。旧実装は質問=モード別の記憶キー・
+'   回答=modAsk.LastAnswerText() という別々の情報源から取っており、
+'   conv_bridge=off でモードを切り替えた直後などに、別ターンの質問と別ターンの
+'   回答が1枚の考察メモへ混ざりうる(本棚に入って検索・出典に出るものなので、
+'   混ざったまま残ると後から誰も気付けない)。
+'   フォールバックは従来のまま:
+'     質問: モード別の記憶キー(nexus_ask_prevu / nexus_gen_prevu)の先頭1件。
+'     回答: modAsk.LastAnswerText() → 画面のバブル本文(modAppState.TargetText)。
+'   区切りの解釈は modConvBridge.FirstPair が単一情報源。
 ' ----------------------------------------------------------------------------
 Private Function LastTurn(ByRef q As String, ByRef a As String) As Boolean
     On Error Resume Next
-    Dim keyU As String
-    If modAppState.CurrentMode() = "normal" Then
-        keyU = "nexus_gen_prevu"
-    Else
-        keyU = "nexus_ask_prevu"
+    q = modConvBridge.FirstPair(modState.LoadState("nexus_hist_u", ""))
+    a = modConvBridge.FirstPair(modState.LoadState("nexus_hist_a", ""))
+
+    If LenB(q) = 0 Then
+        Dim keyU As String
+        If modAppState.CurrentMode() = "normal" Then
+            keyU = "nexus_gen_prevu"
+        Else
+            keyU = "nexus_ask_prevu"
+        End If
+        q = modConvBridge.FirstPair(modState.LoadState(keyU, ""))
     End If
-    q = modConvBridge.FirstPair(modState.LoadState(keyU, ""))
-    If LenB(q) = 0 Then q = modConvBridge.FirstPair(modState.LoadState("nexus_hist_u", ""))
-    a = modAsk.LastAnswerText()
+
+    If LenB(a) = 0 Then a = modAsk.LastAnswerText()
     If LenB(a) = 0 Then a = modAppState.TargetText()
     On Error GoTo 0
     ' 回答が取れないなら保存する意味が無い(質問だけのメモは資料にならない)。
