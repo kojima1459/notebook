@@ -168,7 +168,7 @@ Public Sub OnSend()
     ' 必ず出す。黙って数分止まると、利用者は固まったと判断して閉じる。
     On Error Resume Next
     If sendSpeed = "thorough" Then
-        modLive.PaintStage "入念に調べます。多方向から検索して、資料と1行ずつ照合します…"
+        modLive.PaintStage modAppState.ThoroughPreNotice(sendMode)   ' R26-1同梱2
     End If
     On Error GoTo Fail
 
@@ -604,14 +604,18 @@ Public Sub OnToggleMode()
         Exit Sub
     End If
 
+    Dim oldMode As String: oldMode = modAppState.CurrentMode()
     Dim newMode As String
-    If modAppState.CurrentMode() = "normal" Then
+    If oldMode = "normal" Then
         newMode = "rag"
     Else
         newMode = "normal"
     End If
     modAppState.WriteUiState modAppState.MODE_KEY, newMode
     modAppState.UpdateModeButton
+    On Error Resume Next
+    modAppState.BridgeConvMemory oldMode, newMode   ' R26-2: 会話メモリの橋渡し
+    On Error GoTo 0
     ' R13 F3: モードを跨いだら「続きの質問」の武装は捨てる。一般アシスタントには
     ' 会話引き継ぎの意味論が無く、RAGへ戻したときに前の話題が生き返るのも
     ' 利用者の意図ではない。切替が成功したこの位置(busyガードの後)でだけ解除する。

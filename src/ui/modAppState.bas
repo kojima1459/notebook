@@ -71,6 +71,55 @@ Public Sub ClearGeneralMemory()
     On Error GoTo 0
 End Sub
 
+' R26-2: modConvBridge(qa層・計算専任)の受け口。橋渡しされた内容で
+' モジュール変数を差し替える。AskGeneralは毎回この変数を読むため、
+' ここで書けば次の一般アシスタント回答へそのまま効く(follow-up武装は不要)。
+Public Sub SetGeneralMemory(ByVal u As String, ByVal a As String)
+    mGenPrevU = u
+    mGenPrevA = a
+End Sub
+
+' R26-2: モード切替の確定点(modApp.OnToggleMode)から1行で呼ぶ。実体の
+' 計算は modConvBridge(qa層。modState/modConfigしか読まない計算専任)に
+' 置き、ここでは戻り値を使ってUI層の書き込み(モジュール変数・
+' modState.SaveState)とトースト通知だけを行う(modConvBridgeはmid層のため
+' modSkin.ShowToastを直接呼べない=R1。呼び出し元をUI層側へ寄せる設計)。
+' クリアの完全性: ここが書くキー(nexus_gen_prevu/preva・nexus_ask_prevu/
+' preva)はいずれもmodApp.OnClearChatが既存のClearGeneralMemory呼び出しと
+' 直接SaveStateで無条件に空へ戻す対象と完全に一致する(新規キーを増やして
+' いない)。橋渡し後にクリアしても前の文脈は復活しない。
+Public Sub BridgeConvMemory(ByVal fromMode As String, ByVal toMode As String)
+    On Error Resume Next
+    Dim outQ As String, outA As String
+    If Not modConvBridge.ComputeBridge(fromMode, toMode, outQ, outA) Then Exit Sub
+
+    If toMode = "normal" Then
+        SetGeneralMemory outQ, outA
+        modState.SaveState "nexus_gen_prevu", outQ
+        modState.SaveState "nexus_gen_preva", outA
+    Else
+        modState.SaveState "nexus_ask_prevu", outQ
+        modState.SaveState "nexus_ask_preva", outA
+    End If
+
+    modLog.LogUsage "memory_carry", fromMode & "->" & toMode, "chars=" & (Len(outQ) + Len(outA))
+    modSkin.ShowToast "文脈を引き継ぎました(直前の1往復)。新しく始めるなら " & _
+        ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", "info", True
+    On Error GoTo 0
+End Sub
+
+' R26-1同梱2(波A裁定): 入念モード開始前の事前案内はRAG専用の文言で固定
+' されていた(「多方向から検索して…」)。一般アシスタントは検索も出典照合も
+' 行わないため、sendMode別に出し分ける(modAppは容量残り僅かのためここへ
+' 置き、呼び出し側は1行にする)。
+Public Function ThoroughPreNotice(ByVal sendMode As String) As String
+    If sendMode = "normal" Then
+        ThoroughPreNotice = "多段の自己検証で答えを練ります。数分かかることがあります…"
+    Else
+        ThoroughPreNotice = "入念に調べます。多方向から検索して、資料と1行ずつ照合します…"
+    End If
+End Function
+
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Public Function HasTarget() As Boolean
     If LenB(TargetBubbleName()) = 0 Then
