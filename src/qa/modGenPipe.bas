@@ -155,13 +155,73 @@ Public Function ParseVerdict(ByVal resp As String, ByRef findings As String) As 
         Exit Function
     End If
 
-    If NormalizeVerdictLine(FirstLineOf(s)) = PASS_TOKEN Then
+    If IsPassLine(NormalizeVerdictLine(FirstLineOf(s))) Then
         ParseVerdict = VERDICT_PASS
         Exit Function
     End If
 
     findings = s
     ParseVerdict = VERDICT_FINDINGS
+End Function
+
+' ----------------------------------------------------------------------------
+' IsPassLine - 正規化済みの1行を「問題なし宣言」と読んでよいか(純関数)。
+' ----------------------------------------------------------------------------
+' R26H F7(m-3): 厳密一致だけだと「verdict:PASSです」「verdict:PASSでした」の
+' ように丁寧語が1語付いた日から、入念モードは永久に上限まで回る(利用者からは
+' 「ただ遅い」としか見えない)。そこで PASS_TOKEN で始まり、残りが肯定的な
+' 装飾(です・でした・だ・である・ね・よ。句読点と記号は正規化で既に落ちている)
+' 【だけ】のときも PASS と読む。
+' ただし「verdict:PASSではない」を PASS と読むのは、査読の指摘を丸ごと捨てる
+' 最悪の誤読なので、残りに否定語が1つでも混ざったら PASS にしない。否定判定を
+' 先に置くのは、"で"+"はない" のように装飾の剥がし方によっては否定形が
+' 装飾の連なりに見えうるため(短絡しない And を避け、判定を段で分ける)。
+Private Function IsPassLine(ByVal normLine As String) As Boolean
+    If normLine = PASS_TOKEN Then
+        IsPassLine = True
+        Exit Function
+    End If
+    If Left$(normLine, Len(PASS_TOKEN)) <> PASS_TOKEN Then Exit Function
+
+    Dim rest As String
+    rest = Mid$(normLine, Len(PASS_TOKEN) + 1)
+    If HasNegation(rest) Then Exit Function
+    IsPassLine = (LenB(StripAffirmative(rest)) = 0)
+End Function
+
+' 否定語(1つでもあれば PASS と読まない)。「ない」「ぬ」「不可」「否」「not」。
+Private Function HasNegation(ByVal s As String) As Boolean
+    Dim ng As Variant
+    ng = Array("ない", "無い", "なし", "ません", "ぬ", "否", "不可", "違", "not", "no")
+    Dim i As Long
+    For i = LBound(ng) To UBound(ng)
+        If InStr(1, s, CStr(ng(i)), vbTextCompare) > 0 Then
+            HasNegation = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+' 肯定的な装飾を頭から剥がす。剥がしきれた(空になった)ら装飾だけだった。
+' 各周で必ず短くなるので停止する。
+Private Function StripAffirmative(ByVal s As String) As String
+    Dim ok As Variant
+    ok = Array("でした", "である", "です", "ます", "だ", "ね", "よ", "、", "。")
+    Dim t As String: t = s
+    Dim hit As Boolean
+    Dim i As Long
+    Do
+        hit = False
+        For i = LBound(ok) To UBound(ok)
+            Dim w As String: w = CStr(ok(i))
+            If Left$(t, Len(w)) = w Then
+                t = Mid$(t, Len(w) + 1)
+                hit = True
+                Exit For
+            End If
+        Next i
+    Loop While hit And LenB(t) > 0
+    StripAffirmative = t
 End Function
 
 ' 先頭行(改行はvbLfへ寄せてある前提)。

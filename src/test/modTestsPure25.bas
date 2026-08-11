@@ -113,6 +113,23 @@ Private Sub TestGenParseVerdict25()
     modTestRunner.Check "R26-1_verdictPASSではないをPASSと読まない", (v = "FINDINGS"), "v=" & v
     modTestRunner.Check "R26-1_指摘ありのfindingsは本文を持つ", (InStr(f, "根拠がない") > 0), "f=[" & f & "]"
 
+    ' (iii-b) R26H F7: 丁寧語が1語付いただけの「verdict:PASSです」はPASSと読む。
+    '         ここが厳密一致のままだと、査読が丁寧に書いた日から入念モードは
+    '         永久に上限まで回り続ける(利用者からは「ただ遅い」)。
+    v = modGenPipe.ParseVerdict("verdict:PASSです。", f)
+    modTestRunner.Check "R26H_F7_verdictPASSですはPASS", (v = "PASS"), "v=" & v
+    modTestRunner.Check "R26H_F7_PASSです時のfindingsは空", (LenB(f) = 0), "f=[" & f & "]"
+    v = modGenPipe.ParseVerdict("verdict:PASSでした!", f)
+    modTestRunner.Check "R26H_F7_verdictPASSでしたはPASS", (v = "PASS"), "v=" & v
+    ' 反証: 否定語が続くものは1つもPASSにしない(緩和の副作用を止める境界)。
+    v = modGenPipe.ParseVerdict("verdict:passではない", f)
+    modTestRunner.Check "R26H_F7_verdictpassではないはFINDINGS", (v = "FINDINGS"), "v=" & v
+    v = modGenPipe.ParseVerdict("verdict:PASSではありません。根拠が不足している。", f)
+    modTestRunner.Check "R26H_F7_verdictPASSではありませんはFINDINGS", (v = "FINDINGS"), "v=" & v
+    ' 装飾でも否定でもない語が続くなら、判定を早まらずFINDINGSへ倒す。
+    v = modGenPipe.ParseVerdict("verdict:PASSだが第3段落は要確認", f)
+    modTestRunner.Check "R26H_F7_PASSだが以降が続くものはFINDINGS", (v = "FINDINGS"), "v=" & v
+
     ' (iv) 指摘あり(通常形)。前後の空行は落として渡す。
     v = modGenPipe.ParseVerdict(vbLf & "・免責の範囲を断定している" & vbLf & "・例外条項の見落とし" & vbLf, f)
     modTestRunner.Check "R26-1_verdict指摘ありはFINDINGS", (v = "FINDINGS"), "v=" & v
