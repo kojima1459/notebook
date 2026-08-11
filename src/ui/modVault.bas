@@ -255,9 +255,18 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' RegisterKnowledgeText - テキストナレッジを既存パイプラインで登録する共通口
 '   (modAppの👎自己学習からも使う)。成功=True(done/partial)。
+'
+' 2026-08-11(R26-3): 第4引数 docBase を追加(省略時は従来と1文字も変わらない)。
+'   本棚に並ぶ「資料名」は取り込んだファイル名そのものなので、資料名を呼び出し
+'   側が決めたいとき(考察メモの `考察メモ_題名` 固定)は一時ファイルの名前を
+'   決められる必要がある。従来の "ナレッジ_題名_yyyymmddhhnnss.txt" は
+'   毎回別名になり資料名が一意にならないため、既存呼び出しの挙動は据え置いて
+'   別名を渡せる口だけを開ける。docBase も SanitizeName(60字上限・
+'   ファイル名禁止文字を"_"へ)を必ず通す。
 ' ----------------------------------------------------------------------------
 Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText As String, _
-                                      ByVal tagsText As String) As Boolean
+                                      ByVal tagsText As String, _
+                                      Optional ByVal docBase As String = "") As Boolean
     On Error GoTo Fail
 
     Dim tempDir As String: tempDir = Environ$("TEMP")
@@ -266,8 +275,12 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
     If Right$(tempDir, 1) <> "\" Then tempDir = tempDir & "\"
 
     Dim filePath As String
-    filePath = tempDir & "ナレッジ_" & SanitizeName(titleText) & "_" & _
-               Format$(Now, "yyyymmddhhnnss") & ".txt"
+    If LenB(docBase) > 0 Then
+        filePath = tempDir & SanitizeName(docBase) & ".txt"
+    Else
+        filePath = tempDir & "ナレッジ_" & SanitizeName(titleText) & "_" & _
+                   Format$(Now, "yyyymmddhhnnss") & ".txt"
+    End If
 
     Dim content As String
     content = "【" & titleText & "】" & vbLf & bodyText
