@@ -1489,6 +1489,11 @@ CONTRACT: dict[str, dict] = {
     #   modApp.OnToggleModeから1行で呼ばれる橋渡しの実体(modApp残容量が
     #   乏しいため書き込み・トーストをここへ集約)、ThoroughPreNoticeは
     #   入念モード事前案内のsendMode別出し分け(同梱2・波A裁定)。
+    # BridgeToastText(2026-08-11 R26H F4): 橋渡し通知の文言を向き(toMode)別に
+    #   組み立てる純関数。一般→社内ナレッジ検索では「引き継ぎました」が実態と
+    #   食い違う(効くのは🔍深掘り経由だけ)ため出し分けが要る。文言そのものを
+    #   LOの純ロジックテストで固定したいので Public にする(BridgeConvMemory は
+    #   Excel/トーストに触れるためテストから呼べない)。
     "modAppState": {
         "closed": True,
         "required": [
@@ -1499,6 +1504,7 @@ CONTRACT: dict[str, dict] = {
             "ClearInputCell", "ReadUiState", "WriteUiState",
             "HasGeneralMemory", "ClearGeneralMemory", "ShouldClearGeneralHistory",
             "SetGeneralMemory", "BridgeConvMemory", "ThoroughPreNotice",
+            "BridgeToastText",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・

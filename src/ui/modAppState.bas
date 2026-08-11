@@ -108,10 +108,29 @@ Public Sub BridgeConvMemory(ByVal fromMode As String, ByVal toMode As String)
     ' chars は【差し込み後の記憶全体】の字数(R26H F3で置換→先頭差し込みに
     ' 変わったため、橋渡しした1往復だけの字数ではない)。
     modLog.LogUsage "memory_carry", fromMode & "->" & toMode, "chars=" & (Len(outQ) + Len(outA))
-    modSkin.ShowToast "文脈を引き継ぎました(直前の1往復)。新しく始めるなら " & _
-        ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", "info", True
+    modSkin.ShowToast BridgeToastText(toMode), "info", True
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' BridgeToastText - 橋渡しの通知文(向きで言えることが違う)。
+' ----------------------------------------------------------------------------
+' R26H F4(M-2 A): 一般→社内ナレッジ検索の向きでも「引き継ぎました」と出して
+' いたが、これは実態と違う。modAsk.Answer(単発質問)は毎回 prevU/prevA へ
+' 空文字を明示的に渡すため、保存した1往復が実際に効くのは🔍深掘り(続けて
+' 質問)を押して AskFollowup を通したときだけ(modConvBridge 冒頭の既知の
+' 非対称。凍結モジュール制約下の現実解)。引き継がれたと思って質問した人が
+' 「覚えていない」と感じるのは、この一文が先に嘘をついているため。
+' できることだけを言い、次の一手を名指しする。
+Public Function BridgeToastText(ByVal toMode As String) As String
+    If toMode = "rag" Then
+        BridgeToastText = "直前の1往復を保存しました。続きとして聞くには " & _
+            ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り(続けて質問)を押してください"
+    Else
+        BridgeToastText = "文脈を引き継ぎました(直前の1往復)。新しく始めるなら " & _
+            ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+    End If
+End Function
 
 ' R26-1同梱2(波A裁定): 入念モード開始前の事前案内はRAG専用の文言で固定
 ' されていた(「多方向から検索して…」)。一般アシスタントは検索も出典照合も

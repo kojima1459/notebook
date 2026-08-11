@@ -407,6 +407,19 @@ Private Sub TestConvBridgeInsert25()
     ' 2件目以降に同じ往復があっても「先頭」ではない(差し込む)。
     modTestRunner.Check "R26H_F3_2件目に同じ往復があっても先頭扱いしない", _
         (modConvBridge.AlreadyAtHead("Q", "A", "別Q;;;Q", "別A;;;A") = False), ""
+
+    ' R26H F4: 橋渡しの通知文は向きで変わる。一般→社内ナレッジ検索は
+    ' 「引き継ぎました」と言ってはならない(効くのは🔍深掘りを押したときだけ)。
+    modTestRunner.Check "R26H_F4_一般へ切替時は引き継ぎましたと言う", _
+        (InStr(modAppState.BridgeToastText("normal"), "引き継ぎました") > 0), _
+        modAppState.BridgeToastText("normal")
+    modTestRunner.Check "R26H_F4_RAGへ切替時は引き継ぎましたと言わない", _
+        (InStr(modAppState.BridgeToastText("rag"), "引き継ぎました") = 0), _
+        modAppState.BridgeToastText("rag")
+    modTestRunner.Check "R26H_F4_RAGへ切替時は保存と深掘りの案内", _
+        (InStr(modAppState.BridgeToastText("rag"), "保存しました") > 0 And _
+         InStr(modAppState.BridgeToastText("rag"), "深掘り") > 0), _
+        modAppState.BridgeToastText("rag")
 End Sub
 
 ' ----------------------------------------------------------------------------
