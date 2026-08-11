@@ -430,6 +430,8 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("gen_thorough_effort", "high", "一般アシスタント・入念に聞くの起草/改稿の reasoning_effort(多段推論なので high が効く)"),
         ("gen_thorough_verify_effort", "medium", "一般アシスタント・入念に聞くの検証(査読)の reasoning_effort"),
         ("gen_thorough_loops_max", 2, "一般アシスタント・入念に聞くの「検証→改稿」の最大周回数(verdict:PASSで早期終了。0で検証しない=しっかり相当。4を超える値を書いても4で頭打ち)"),
+        # R26-2(2026-08-11): モード切替時の会話メモリ橋渡し(modConvBridge)。
+        ("conv_bridge", True, "TRUE=モード切替時に直前1往復の会話をもう片方のモードへ橋渡しする(既定)。FALSEで従来どおり(モードごとの記憶は独立のまま)"),
         ("reasoning_tuning", True, "TRUEでeffort/verbosityを指定。FALSEにすると空送信(古いモデル互換用)"),
         ("llm_wait_sec", 1200, "ChatGPT() 呼び出しのWait秒数"),
         ("topk_quick", 6, "即答モードでLLMに渡す上位ヒット件数"),
