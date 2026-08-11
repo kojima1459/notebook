@@ -48,40 +48,62 @@ Public Function BridgeEnabled() As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
-' ComputeBridge - 切替元→切替先の橋渡し内容を計算する(副作用なし)。
+' ComputeBridge - 切替元→切替先の橋渡し内容を計算する(状態読み取りあり)。
 '   fromMode/toMode: "rag" / "normal"(modAppState.CurrentMode() と同じ語彙)。
 '   outQ/outA: 橋渡しする質問・回答(切替先のキーへ書く値)。
 '   戻り値: 橋渡しする内容があれば True(呼び出し元はこのときだけ書き込み・
 '           通知を行う)。conv_bridge=off/同一モード/未知の組合せ/
 '           切替元の記憶が空、のいずれも False。
+'   実体は ComputeBridgeCore(状態を一切読まない純関数)へ委譲する。
+'   config/modStateを読む本関数はLOのヘッドレステスト環境では固定できない
+'   ため(configシートが無い環境ではconv_bridge=offを再現できない)、
+'   conv_bridge=off等の境界はテストから ComputeBridgeCore を直接呼んで固定する。
 ' ----------------------------------------------------------------------------
 Public Function ComputeBridge(ByVal fromMode As String, ByVal toMode As String, _
                               ByRef outQ As String, ByRef outA As String) As Boolean
-    outQ = "": outA = ""
-    If fromMode = toMode Then Exit Function
-    If Not BridgeEnabled() Then Exit Function
-
-    Dim srcQ As String, srcA As String, srcName As String
+    Dim srcQ As String, srcA As String
     If fromMode = "rag" And toMode = "normal" Then
         srcQ = modState.LoadState("nexus_ask_prevu", "")
         srcA = modState.LoadState("nexus_ask_preva", "")
-        srcName = ModeDisplayName("rag")
     ElseIf fromMode = "normal" And toMode = "rag" Then
         srcQ = modState.LoadState("nexus_gen_prevu", "")
         srcA = modState.LoadState("nexus_gen_preva", "")
+    End If
+    ComputeBridge = ComputeBridgeCore(fromMode, toMode, BridgeEnabled(), srcQ, srcA, outQ, outA)
+End Function
+
+' ----------------------------------------------------------------------------
+' ComputeBridgeCore - ComputeBridgeの純関数本体(modState/modConfigを一切
+'   読まない)。enabled/srcQ/srcAを引数で受け取るだけなので、config/シートに
+'   依存せず conv_bridge=off・記憶なし等の境界をテストで固定できる
+'   (modGenPipe.ShouldRunVerifyLoop と同型の設計判断)。
+' ----------------------------------------------------------------------------
+Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As String, _
+                                  ByVal enabled As Boolean, _
+                                  ByVal srcQ As String, ByVal srcA As String, _
+                                  ByRef outQ As String, ByRef outA As String) As Boolean
+    outQ = "": outA = ""
+    If fromMode = toMode Then Exit Function
+    If Not enabled Then Exit Function
+
+    Dim srcName As String
+    If fromMode = "rag" And toMode = "normal" Then
+        srcName = ModeDisplayName("rag")
+    ElseIf fromMode = "normal" And toMode = "rag" Then
         srcName = ModeDisplayName("normal")
     Else
         Exit Function   ' 未知のモード値はフェイルセーフで何もしない
     End If
 
     ' 直前"1往復"だけ(";;;"区切りの先頭=最新の1件)。
-    srcQ = FirstPair(srcQ)
-    srcA = FirstPair(srcA)
-    If LenB(srcQ) = 0 And LenB(srcA) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
+    Dim q As String, a As String
+    q = FirstPair(srcQ)
+    a = FirstPair(srcA)
+    If LenB(q) = 0 And LenB(a) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
 
-    outQ = TruncateTail(srcQ, MAX_CARRY_CHARS)
-    outA = WithBridgeHeader(srcName, TruncateTail(srcA, MAX_CARRY_CHARS))
-    ComputeBridge = True
+    outQ = TruncateTail(q, MAX_CARRY_CHARS)
+    outA = WithBridgeHeader(srcName, TruncateTail(a, MAX_CARRY_CHARS))
+    ComputeBridgeCore = True
 End Function
 
 ' ----------------------------------------------------------------------------
