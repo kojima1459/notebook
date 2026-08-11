@@ -203,6 +203,134 @@ Private Sub TestGenPlanTable25()
         (InStr(modMode.Description("thorough"), "一般アシスタント") > 0), modMode.Description("thorough")
 End Sub
 
+' ----------------------------------------------------------------------------
+' R26-2(1): modConvBridge.TruncateTail — 4,000字境界の切り詰め(全角安全)。
+'   「超過分は先頭を落とす」=末尾側(直近の内容)を優先して残す。境界を
+'   跨いだ位置にサロゲートペア(絵文字)が来ると、ペアの片割れ(低位
+'   サロゲート)だけが残ってはならない(表示が化ける・二度と結合できない)。
+' ----------------------------------------------------------------------------
+Private Sub TestConvBridgeTruncate25()
+    ' (i) 上限ちょうど・上限未満は無介入。
+    Dim exact As String: exact = String(4000, ChrW(&H3042))   ' "あ"×4000
+    modTestRunner.Check "R26-2_切詰め_ちょうど4000字は無変化", _
+        (modConvBridge.TruncateTail(exact, 4000) = exact), "len=" & Len(modConvBridge.TruncateTail(exact, 4000))
+    Dim under As String: under = String(3999, ChrW(&H3044))   ' "い"×3999
+    modTestRunner.Check "R26-2_切詰め_上限未満は無変化", _
+        (modConvBridge.TruncateTail(under, 4000) = under), "len"
+
+    ' (ii) 超過は末尾4000字だけ残す(先頭側を落とす)。マーカーで前後を区別する。
+    Dim mixed As String
+    mixed = String(5, ChrW(&H3042)) & String(4000, ChrW(&H3044))   ' 先頭"あ"×5+末尾"い"×4000=4005字
+    Dim got As String: got = modConvBridge.TruncateTail(mixed, 4000)
+    modTestRunner.Check "R26-2_切詰め_超過分は末尾4000字だけ残す", _
+        (got = String(4000, ChrW(&H3044))), "len=" & Len(got)
+    modTestRunner.Check "R26-2_切詰め_落ちた先頭の「あ」は含まない", _
+        (InStr(got, ChrW(&H3042)) = 0), got
+
+    ' (iii) 全角安全: 境界にサロゲートペア(絵文字)が跨がると、低位サロゲート
+    '       だけの片割れを残さない(道連れでもう1字落とす)。emoji=🧩(2コード
+    '       単位)を文字列の先頭2字に置き、合計4001字にして境界をペアの
+    '       ちょうど真ん中(高位側)に当てる。
+    Dim emoji As String: emoji = ChrW(&HD83E) & ChrW(&HDDE9)   ' 🧩(U+1F9E9)
+    Dim withEmoji As String: withEmoji = emoji & String(3999, "A")   ' 2+3999=4001字
+    Dim gotE As String: gotE = modConvBridge.TruncateTail(withEmoji, 4000)
+    modTestRunner.Check "R26-2_切詰め_境界の絵文字は片割れを残さず道連れに落とす", _
+        (gotE = String(3999, "A")), "len=" & Len(gotE) & " [" & Left$(gotE, 3) & "]"
+    ' 低位サロゲート単独(&HDC00~&HDFFF)が先頭に残っていないことも直接確認する。
+    Dim c0 As Long: c0 = AscW(Left$(gotE, 1))
+    If c0 < 0 Then c0 = c0 + 65536
+    modTestRunner.Check "R26-2_切詰め_結果の先頭は低位サロゲートではない", _
+        (c0 < &HDC00& Or c0 > &HDFFF&), "code=&H" & Hex$(c0)
+
+    ' (iv) 上限0/負値は空文字列(エスケープハッチ)。
+    modTestRunner.Check "R26-2_切詰め_上限0は空文字列", _
+        (modConvBridge.TruncateTail("何か文字列", 0) = ""), "[" & modConvBridge.TruncateTail("何か文字列", 0) & "]"
+    modTestRunner.Check "R26-2_切詰め_上限が負値でも空文字列", _
+        (modConvBridge.TruncateTail("何か文字列", -3) = ""), "[" & modConvBridge.TruncateTail("何か文字列", -3) & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26-2(2): modConvBridge.WithBridgeHeader — 出所ヘッダーの付与と冪等性。
+'   モード切替を行き来しても【直前の○○での文脈】が積み重ならないこと
+'   (二重付与しない)。
+' ----------------------------------------------------------------------------
+Private Sub TestConvBridgeHeader25()
+    Dim h1 As String
+    h1 = modConvBridge.WithBridgeHeader("社内ナレッジ検索", "回答本文です")
+    modTestRunner.Check "R26-2_ヘッダー_先頭に付与される", _
+        (Left$(h1, 1) = ChrW(&H3010)), h1   ' 【
+    modTestRunner.Check "R26-2_ヘッダー_元モード名を含む", _
+        (InStr(h1, "社内ナレッジ検索") > 0), h1
+    modTestRunner.Check "R26-2_ヘッダー_本文は保たれる", _
+        (InStr(h1, "回答本文です") > 0), h1
+
+    ' 冪等性: 既にヘッダー済みの文字列へ「別モード名」で付け直そうとしても、
+    ' 二重に積み上がらない(反証: 同じ関数を2回連続で呼んでも1回分のまま)。
+    Dim h2 As String
+    h2 = modConvBridge.WithBridgeHeader("一般アシスタント", h1)
+    modTestRunner.Check "R26-2_ヘッダー_二重付与しない(冪等)", (h2 = h1), h2
+    modTestRunner.Check "R26-2_ヘッダー_冪等時もヘッダーは1個だけ", _
+        (CountOccurrences25(h2, ChrW(&H3010) & "直前の") = 1), "n=" & CountOccurrences25(h2, ChrW(&H3010) & "直前の")
+End Sub
+
+' "直前の"ヘッダーの出現回数を数える(冪等性の反証用)。
+Private Function CountOccurrences25(ByVal s As String, ByVal needle As String) As Long
+    Dim p As Long: p = 1
+    Dim n As Long
+    Do
+        p = InStr(p, s, needle)
+        If p = 0 Then Exit Do
+        n = n + 1
+        p = p + Len(needle)
+    Loop
+    CountOccurrences25 = n
+End Function
+
+' ----------------------------------------------------------------------------
+' R26-2(3): modConvBridge.ComputeBridgeCore — 橋渡しの真理表(状態非依存)。
+'   conv_bridge=off時は何もしない(off時の非動作)ことを、configシートに
+'   依存せず直接固定する(ComputeBridgeCoreはenabledを引数で受け取るだけの
+'   純関数。理由は modConvBridge.bas冒頭コメント参照)。
+' ----------------------------------------------------------------------------
+Private Sub TestConvBridgeCore25()
+    Dim oq As String, oa As String
+    Dim ok As Boolean
+
+    ' (i) conv_bridge=off: 記憶があっても一切橋渡ししない。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", False, "Q1", "A1", oq, oa)
+    modTestRunner.Check "R26-2_off時は橋渡ししない(戻り値False)", (ok = False), "ok=" & ok
+    modTestRunner.Check "R26-2_off時はoutQ/outAも空", (LenB(oq) = 0 And LenB(oa) = 0), "[" & oq & "][" & oa & "]"
+
+    ' (ii) 同一モードは何もしない(切替が起きていない)。
+    ok = modConvBridge.ComputeBridgeCore("rag", "rag", True, "Q1", "A1", oq, oa)
+    modTestRunner.Check "R26-2_同一モードは橋渡ししない", (ok = False), "ok=" & ok
+
+    ' (iii) 未知のモード値の組合せはフェイルセーフでFalse。
+    ok = modConvBridge.ComputeBridgeCore("foo", "bar", True, "Q1", "A1", oq, oa)
+    modTestRunner.Check "R26-2_未知のモード組合せは橋渡ししない", (ok = False), "ok=" & ok
+
+    ' (iv) 切替元の記憶が空なら橋渡し不要(トースト等の無駄打ちを避ける)。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "", "", oq, oa)
+    modTestRunner.Check "R26-2_切替元の記憶が空なら橋渡ししない", (ok = False), "ok=" & ok
+
+    ' (v) RAG→一般: 直前1往復だけ(多往復の履歴から先頭のみ)を引き継ぎ、
+    '     回答側だけにヘッダーを付ける(質問側には付けない)。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "Q最新;;;Q古い", "A最新;;;A古い", oq, oa)
+    modTestRunner.Check "R26-2_RAGから一般への橋渡しは成功", (ok = True), "ok=" & ok
+    modTestRunner.Check "R26-2_質問側は直前1件のみでヘッダー無し", (oq = "Q最新"), oq
+    modTestRunner.Check "R26-2_回答側は社内ナレッジ検索のヘッダー付き", _
+        (InStr(oa, "社内ナレッジ検索") > 0 And Left$(oa, 1) = ChrW(&H3010)), oa
+    modTestRunner.Check "R26-2_回答側は直前1件のみ(古い方は含まない)", _
+        (InStr(oa, "A最新") > 0 And InStr(oa, "A古い") = 0), oa
+
+    ' (vi) 一般→RAG: 逆方向はモード名が「一般アシスタント」で出ること。
+    ok = modConvBridge.ComputeBridgeCore("normal", "rag", True, "Q", "A", oq, oa)
+    modTestRunner.Check "R26-2_一般からRAGへの橋渡しは成功", (ok = True), "ok=" & ok
+    modTestRunner.Check "R26-2_回答側は一般アシスタントのヘッダー付き", _
+        (InStr(oa, "一般アシスタント") > 0), oa
+End Sub
+
 ' ============================================================================
 Public Sub RunAll25()
     On Error GoTo SwapFail25
@@ -216,6 +344,15 @@ NextLoopBound25:
 NextPlan25:
     On Error GoTo PlanFail25
     TestGenPlanTable25
+NextBridgeTrunc25:
+    On Error GoTo BridgeTruncFail25
+    TestConvBridgeTruncate25
+NextBridgeHeader25:
+    On Error GoTo BridgeHeaderFail25
+    TestConvBridgeHeader25
+NextBridgeCore25:
+    On Error GoTo BridgeCoreFail25
+    TestConvBridgeCore25
 NextDone25:
     On Error GoTo 0
     Exit Sub
@@ -234,6 +371,18 @@ LoopBoundFail25:
     Resume NextPlan25
 PlanFail25:
     modTestRunner.Check "TestGenPlanTable25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeTrunc25
+BridgeTruncFail25:
+    modTestRunner.Check "TestConvBridgeTruncate25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeHeader25
+BridgeHeaderFail25:
+    modTestRunner.Check "TestConvBridgeHeader25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeCore25
+BridgeCoreFail25:
+    modTestRunner.Check "TestConvBridgeCore25(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone25
 End Sub
