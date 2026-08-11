@@ -199,7 +199,7 @@ Public Sub OnSend()
             modLive.PaintStage "続きの質問として回答中…"
             On Error GoTo Fail
         End If
-        ans = modAppState.AskGeneral(q, "")
+        ans = modAppState.AskGeneral(q, "", sendSpeed)
     ElseIf isFollowup Then
         ' R13-6a: 「続けて質問/深掘り」で武装済み。会話を引き継いで答える
         ' (エフォートは AskFollowup が送信時点のトグル値を読む=6b)。
@@ -648,14 +648,8 @@ Public Sub OnToggleSpeed()
     ' モード名は【押した時点】の文字列なので、切り替えたら描き直さないと
     ' 表示だけが古い名前のまま残る(実際に使われるのは送信時点の値)。
     modAppAct.RedrawFollowupChip
-    ' R21-2 D4(実機第8報⑧): 一般アシスタント中はこの設定が使われないため注記。
-    Dim toastMsg As String
-    toastMsg = modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed)
-    If modAppState.CurrentMode() = "normal" Then
-        toastMsg = toastMsg & vbLf & _
-            "※いまは一般アシスタントのため、この設定は社内ナレッジ検索に切り替えたときに使われます"
-    End If
-    modSkin.ShowToast toastMsg, "info"
+    ' R26-1: 一般アシスタントも3段化したのでR21-2 D4の「使われない」注記は撤去。
+    modSkin.ShowToast modMode.Caption(newSpeed) & " ： " & modMode.Description(newSpeed), "info"
     On Error GoTo 0
 End Sub
 

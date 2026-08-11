@@ -422,6 +422,14 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("deep_draft_verbosity", "high", "精査モード・ドラフト生成の verbosity"),
         ("deep_verify_effort", "high", "精査モード・検証の reasoning_effort"),
         ("deep_verify_verbosity", "medium", "精査モード・検証の verbosity"),
+        # R26-1(2026-08-11): 一般アシスタント(本棚を使わない回答)の3段化。
+        # 上の quick_*/deep_* は社内ナレッジ検索側の設定で、一般アシスタントは
+        # これまで常に quick_* 固定だった。gen_ 接頭辞はその一般側の3段専用。
+        ("gen_deep_effort", "medium", "一般アシスタント・しっかり聞くの reasoning_effort(high と medium の差は一般タスクでは薄く、構造化指示のほうが効くため medium)"),
+        ("gen_deep_verbosity", "high", "一般アシスタント・しっかり聞くの verbosity(入念の起草・改稿でも同じ値を使う)"),
+        ("gen_thorough_effort", "high", "一般アシスタント・入念に聞くの起草/改稿の reasoning_effort(多段推論なので high が効く)"),
+        ("gen_thorough_verify_effort", "medium", "一般アシスタント・入念に聞くの検証(査読)の reasoning_effort"),
+        ("gen_thorough_loops_max", 2, "一般アシスタント・入念に聞くの「検証→改稿」の最大周回数(verdict:PASSで早期終了。0で検証しない=しっかり相当。4を超える値を書いても4で頭打ち)"),
         ("reasoning_tuning", True, "TRUEでeffort/verbosityを指定。FALSEにすると空送信(古いモデル互換用)"),
         ("llm_wait_sec", 1200, "ChatGPT() 呼び出しのWait秒数"),
         ("topk_quick", 6, "即答モードでLLMに渡す上位ヒット件数"),

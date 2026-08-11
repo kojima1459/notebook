@@ -115,7 +115,21 @@ End Function
 ' 一般アシスタントモード: 本棚を介さずCallLLM直(会話履歴つき)。
 ' extraRules: 呼び出し文脈ごとの追加制約(空可)。本棚が空のときの
 ' 「社内固有の数字を断定させない」制約はここから注入される。
-Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As String
+'
+' R26-1(2026-08-11): 第3引数 mode でヘッダーの速さトグルを受ける。
+'   quick    … 従来と1文字も変えない1回呼び出し(既定。引数を渡さない
+'              既存の呼び出し=AnswerWithoutShelf もここへ落ちる)
+'   deep     … 1回呼び出し + 構造化指示(gen_deep_effort/verbosity)
+'   thorough … modGenPipe.RunThorough(起草→検証→改稿)へ委譲
+' 分岐表そのものは modGenPipe.PlanFor が単一情報源(UI層に表を持たない)。
+Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
+                           Optional ByVal mode As String = "quick") As String
+    ' 前ターンの検証周回数を必ず捨てる。捨てないと、入念の次に出した
+    ' すぐ聞くの回答フッターへ「検証2回」が漏れる(R20H FA-8 と同型)。
+    Dim genMode As String: genMode = modMode.Normalize(mode)
+    modGenPipe.ResetTurn genMode
+    Dim t0 As Double: t0 = Timer
+
     If LenB(mGenPrevU) = 0 Then
         mGenPrevU = modState.LoadState("nexus_gen_prevu", "")
         mGenPrevA = modState.LoadState("nexus_gen_preva", "")
@@ -147,10 +161,31 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String) As Str
 
     Dim lat As Long
     Dim resp As String
-    resp = modGateway.CallLLM(sys & vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general", _
-        modConfig.GetString("quick_effort", "low"), _
-        modConfig.GetString("quick_verbosity", "low"), _
-        modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
+    Select Case modGenPipe.PlanFor(genMode)
+        Case modGenPipe.PLAN_PIPELINE
+            ' 入念: 起草→検証→改稿。段の実況も modGenPipe が出す。
+            resp = modGenPipe.RunThorough(q, sys, mGenPrevU, mGenPrevA)
+        Case modGenPipe.PLAN_SINGLE_DEEP
+            ' しっかり: 呼び出しは1回のまま、指示とeffort/verbosityだけ差し替える
+            ' (high と medium の差は一般タスクでは薄く、構造化のほうが効く)。
+            resp = modGateway.CallLLM(sys & vbLf & modGenPipe.DeepRules() & _
+                vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general_deep", _
+                modConfig.GetString("gen_deep_effort", "medium"), _
+                modConfig.GetString("gen_deep_verbosity", "high"), _
+                modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
+        Case Else
+            resp = modGateway.CallLLM(sys & vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general", _
+                modConfig.GetString("quick_effort", "low"), _
+                modConfig.GetString("quick_verbosity", "low"), _
+                modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
+    End Select
+
+    ' モードごとの実測(所要ms・検証周回数・PASS到達)は成否に関わらず毎回残す。
+    ' 「3モードが同じことをしている」という疑いは、記録が無ければ永久に晴れない。
+    On Error Resume Next
+    modLog.LogUsage "gen_mode", genMode, modGenPipe.TurnDetail(), _
+        CLng(modUtilText.ElapsedMsSince(t0)), modGenPipe.LastLoops()
+    On Error GoTo 0
 
     If Left$(resp, 5) = "#ERR:" Then
         ' R14-G2: 失敗したターンは「直近の回答」を持たない。ここで印を消さないと、

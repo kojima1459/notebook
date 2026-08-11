@@ -146,6 +146,14 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
         On Error Resume Next
         stg = modAskRetrieve.LastStageTotal()
         On Error GoTo 0
+    Else
+        ' R26-1(2026-08-11): 一般アシスタントの「入念に聞く」だけ検証周回数を
+        ' 出す。RAG側の段数(上のstg)とは別系統で、両方が同時に出ることはない
+        ' (modGenPipe は一般アシスタント以外では必ず空を返す)。ここを共通の
+        ' 追記にすると、上のFA-8で塞いだモード間リークを反対向きに作り直す。
+        On Error Resume Next
+        Footer = Footer & modGenPipe.VerifyFooterNote()
+        On Error GoTo 0
     End If
     If stg > 0 Then Footer = Footer & "(" & stg & "段)"
 End Function
