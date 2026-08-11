@@ -504,6 +504,17 @@ PURE_ALLOWLIST = [
     #   ParseVerdict が呼ぶ modRagParse.IsErrorResponse と PlanFor が呼ぶ
     #   modMode.Normalize は、どちらも既にこの一覧に登録済み。
     "modGenPipe",
+    # modConvBridge(2026-08-11 R26-2): モード切替時の会話メモリ橋渡し。
+    #   テストが呼ぶのは TruncateTail(4,000字境界・全角安全な切り詰め)/
+    #   FirstPair(";;;"区切りの先頭要素)/WithBridgeHeader(出所ヘッダーの
+    #   付与・冪等性)/BridgeEnabled(config conv_bridge)の4本で、いずれも
+    #   文字列処理と modConfig.GetBool 呼び出しだけ(Excel/COMに触れない。
+    #   modShareRule/modP2PIo/modLog と同じ「モジュール全体はR4準拠では
+    #   ないが、テストが呼ぶ関数自体はExcelに触れない」型。ComputeBridge/
+    #   ModeDisplayName はテストから直接呼ばない)。未注入のまま
+    #   modTestsPure25 から呼ぶと実行時エラー12になり、切り詰め境界と
+    #   ヘッダー冪等性のゴールデンが「テストを書いても走らない」状態になる。
+    "modConvBridge",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

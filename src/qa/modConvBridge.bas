@@ -1,0 +1,143 @@
+Attribute VB_Name = "modConvBridge"
+Option Explicit
+
+' ============================================================================
+' modConvBridge - 会話メモリの橋渡し(2026-08-11 R26-2 波B)
+' ----------------------------------------------------------------------------
+' 課題(調査確定済み・spec_20260810_R26 §2): RAG側の直前1往復は
+' nexus_ask_prevu/preva、一般アシスタント側は nexus_gen_prevu/preva に別々の
+' キーで永続化されており、モードを跨ぐと相手側からは見えない。「文脈が
+' 切れる」の正体はここで、切替時に何かを破棄しているわけではなく、
+' 単に別モードの記憶を読まないだけである。
+'
+' 方針: 切替元の直前1往復(質問+回答)だけを切替先のキーへコピーする
+' 「橋渡し」。凍結モジュール(modAsk)には一切触れず、modState のキー経由の
+' 読み書きだけで完結させる(§0設計原則: 実現可能性は調査済み)。
+'   RAG→一般: 次の AskGeneral 呼び出し(follow-upに関係なく毎回)が
+'             mGenPrevU/mGenPrevA を必ず読むため、確実に効く。
+'   一般→RAG: modAsk.Answer(単発質問)は毎回 prevU/prevA に空文字列を
+'             明示的に渡す実装のため、橋渡しした内容が効くのは
+'             「続けて質問」を武装したときの AskFollowup 経由に限られる
+'             (modAsk.CanFollowup が遅延ロードで nexus_ask_prevu/preva を
+'             読み直す条件=モジュール変数がまだ空のときだけ)。凍結制約下の
+'             現実解であり、この非対称は既知の限界として司令塔へ報告する。
+'
+' レイヤ配置: このモジュールは modState(基盤層)・modConfig(基盤層)しか
+' 読み書きしない「計算」担当に徹する。modAppState への書き込み(UI層の
+' モジュール変数 mGenPrevU/mGenPrevA)・modSkin.ShowToast(UI通知)は
+' R1(下層は上層を呼ばない)に触れるため、呼び出し元の modAppState.
+' BridgeConvMemory(UI層)側で行う。ここは ComputeBridge が計算した結果
+' (ByRef の outQ/outA)を返すだけ。
+' ============================================================================
+
+Public Const CONFIG_KEY As String = "conv_bridge"
+
+' 橋渡しする文字数の上限(既存記憶の上限作法に合わせる。超過分は先頭を
+' 落とす=直近の内容を優先して残す)。
+Private Const MAX_CARRY_CHARS As Long = 4000
+
+' 橋渡し済みの回答に付ける出所ヘッダーの接頭辞。この接頭辞で始まっていれば
+' 「既に付与済み」とみなし、二重に付け足さない(冪等性)。
+Private Const HEADER_PREFIX As String = "【直前の"
+
+' ----------------------------------------------------------------------------
+' BridgeEnabled - config conv_bridge(既定TRUE)。
+' ----------------------------------------------------------------------------
+Public Function BridgeEnabled() As Boolean
+    BridgeEnabled = modConfig.GetBool(CONFIG_KEY, True)
+End Function
+
+' ----------------------------------------------------------------------------
+' ComputeBridge - 切替元→切替先の橋渡し内容を計算する(副作用なし)。
+'   fromMode/toMode: "rag" / "normal"(modAppState.CurrentMode() と同じ語彙)。
+'   outQ/outA: 橋渡しする質問・回答(切替先のキーへ書く値)。
+'   戻り値: 橋渡しする内容があれば True(呼び出し元はこのときだけ書き込み・
+'           通知を行う)。conv_bridge=off/同一モード/未知の組合せ/
+'           切替元の記憶が空、のいずれも False。
+' ----------------------------------------------------------------------------
+Public Function ComputeBridge(ByVal fromMode As String, ByVal toMode As String, _
+                              ByRef outQ As String, ByRef outA As String) As Boolean
+    outQ = "": outA = ""
+    If fromMode = toMode Then Exit Function
+    If Not BridgeEnabled() Then Exit Function
+
+    Dim srcQ As String, srcA As String, srcName As String
+    If fromMode = "rag" And toMode = "normal" Then
+        srcQ = modState.LoadState("nexus_ask_prevu", "")
+        srcA = modState.LoadState("nexus_ask_preva", "")
+        srcName = ModeDisplayName("rag")
+    ElseIf fromMode = "normal" And toMode = "rag" Then
+        srcQ = modState.LoadState("nexus_gen_prevu", "")
+        srcA = modState.LoadState("nexus_gen_preva", "")
+        srcName = ModeDisplayName("normal")
+    Else
+        Exit Function   ' 未知のモード値はフェイルセーフで何もしない
+    End If
+
+    ' 直前"1往復"だけ(";;;"区切りの先頭=最新の1件)。
+    srcQ = FirstPair(srcQ)
+    srcA = FirstPair(srcA)
+    If LenB(srcQ) = 0 And LenB(srcA) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
+
+    outQ = TruncateTail(srcQ, MAX_CARRY_CHARS)
+    outA = WithBridgeHeader(srcName, TruncateTail(srcA, MAX_CARRY_CHARS))
+    ComputeBridge = True
+End Function
+
+' ----------------------------------------------------------------------------
+' TruncateTail - 文字列を末尾から limitChars 文字だけ残す(超過分は先頭を
+'   落とす=直近側を優先)。全角安全: 切り出した先頭が低位サロゲート
+'   (&HDC00~&HDFFF)なら対になる高位サロゲートを道連れに1字余分へ落とす
+'   (modUtil.SafeLeft の「末尾の片割れを落とす」発想を先頭側へ適用)。
+' ----------------------------------------------------------------------------
+Public Function TruncateTail(ByVal s As String, ByVal limitChars As Long) As String
+    Dim lim As Long: lim = limitChars
+    If lim < 0 Then lim = 0
+    If Len(s) <= lim Then
+        TruncateTail = s
+        Exit Function
+    End If
+    If lim = 0 Then Exit Function   ' 戻り値は既定の空文字列のまま
+
+    Dim startPos As Long: startPos = Len(s) - lim + 1
+    Dim t As String: t = Mid$(s, startPos)
+    Dim code As Long: code = AscW(Left$(t, 1))
+    If code < 0 Then code = code + 65536
+    If code >= &HDC00& And code <= &HDFFF& Then t = Mid$(t, 2)
+    TruncateTail = t
+End Function
+
+' ----------------------------------------------------------------------------
+' FirstPair - ";;;"区切り履歴の先頭要素(最新の1件)だけを取り出す。
+' ----------------------------------------------------------------------------
+Public Function FirstPair(ByVal pairsText As String) As String
+    Dim p As Long: p = InStr(pairsText, ";;;")
+    If p > 0 Then
+        FirstPair = Left$(pairsText, p - 1)
+    Else
+        FirstPair = pairsText
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' WithBridgeHeader - 回答テキストの先頭へ出所ヘッダー(【直前の○○での文脈】)
+'   を付ける。既にこの種のヘッダーで始まっていれば付け直さない(冪等性:
+'   何度橋渡ししてもヘッダーが積み重ならない)。
+' ----------------------------------------------------------------------------
+Public Function WithBridgeHeader(ByVal fromModeName As String, ByVal answerText As String) As String
+    If Left$(answerText, Len(HEADER_PREFIX)) = HEADER_PREFIX Then
+        WithBridgeHeader = answerText
+        Exit Function
+    End If
+    WithBridgeHeader = HEADER_PREFIX & fromModeName & "での文脈】" & vbLf & answerText
+End Function
+
+' モード内部値("rag"/"normal")→表示名。modApp.ModeCaption の文言(絵文字抜き)
+' と揃える(利用者がヘッダーの由来を見たとき、いつも見ている名前と一致させる)。
+Private Function ModeDisplayName(ByVal modeKey As String) As String
+    If modeKey = "normal" Then
+        ModeDisplayName = "一般アシスタント"
+    Else
+        ModeDisplayName = "社内ナレッジ検索"
+    End If
+End Function

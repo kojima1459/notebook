@@ -337,6 +337,14 @@
       "note": "一般アシスタント(本棚を使わない回答)の3段化。ヘッダーの速さトグルはこれまでRAG側にしか効かず、一般アシスタントは常にquick相当の1回呼び出しだった(modAppがsendSpeedを捨てていた)。すぐ聞く=現行のまま1回/しっかり=1回+構造化指示(gen_deep_effort=medium・gen_deep_verbosity=high)/入念=起草→検証→改稿を最大2周(CoVe型。verdict:PASSで早期終了)。検証は起草とは別の呼び出し・別ペルソナ(自己採点の楽観バイアス対策)で、判定はParseVerdictが1行目を正規化してverdict:passと厳密一致で読む。読めない/落ちたときは起草(または直前の改稿)をそのまま返しusage_log gen_verify_parse_failに残す。実況はmodUIMain.SetStage(既存の進捗表示機構)へ流すだけで新規バナー機構は作らない。純関数(ParseVerdict/ShouldRunVerifyLoop/PlanFor)はmodTestsPure25から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。"
     },
     {
+      "name": "modConvBridge",
+      "path": "src/qa/modConvBridge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-2",
+      "note": "モード切替時の会話メモリ橋渡し。RAG⇄一般アシスタントは記憶キーが別(nexus_ask_prevu/preva と nexus_gen_prevu/preva)で、切替えると相手側から見えなくなる(=文脈が切れる)。切替元の直前1往復だけを切替先のキーへコピーし、回答側の先頭へ出所ヘッダー【直前の○○での文脈】を付ける(冪等・二重付与しない)。各4,000字で先頭を落として切り詰め(全角安全)。conv_bridge=offなら何もしない(モードごとの記憶は従来どおり独立)。凍結モジュール(modAsk)には触れず、modState.LoadState/modConfig.GetBoolしか呼ばない計算専任モジュール(R1: UI層への書き込み・トーストはmodAppState.BridgeConvMemory側で行う)。"
+    },
+    {
       "name": "modAskMulti",
       "path": "src/qa/modAskMulti.bas",
       "role": "core",
