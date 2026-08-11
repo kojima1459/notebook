@@ -247,6 +247,14 @@ End Sub
 '     質問: モード別の記憶キー(nexus_ask_prevu / nexus_gen_prevu)の先頭1件。
 '     回答: modAsk.LastAnswerText() → 画面のバブル本文(modAppState.TargetText)。
 '   区切りの解釈は modConvBridge.FirstPair が単一情報源。
+'
+' R26H F8 レビューFix(提案a): nexus_hist_a を第一情報源にした副作用として、
+'   modApp.SaveTurnForRestore が保存時に回答を700字で切る(SafeLeft(ans,700))
+'   ため、考察メモの本文が700字ちょうどで無言に途切れていた。修正後は
+'   modAsk.LastAnswerText()(画面のバブル本文=フル)が hist_a を先頭部分として
+'   含む場合―つまり同一ターンの回答である場合―だけフル本文を採用する。
+'   含まない(=別ターンの回答が入っている)場合は従来どおり hist_a を採用し、
+'   別ターン混成の防止は崩さない。判定は PickFullerAnswer が単一情報源。
 ' ----------------------------------------------------------------------------
 Private Function LastTurn(ByRef q As String, ByRef a As String) As Boolean
     On Error Resume Next
@@ -263,11 +271,44 @@ Private Function LastTurn(ByRef q As String, ByRef a As String) As Boolean
         q = modConvBridge.FirstPair(modState.LoadState(keyU, ""))
     End If
 
-    If LenB(a) = 0 Then a = modAsk.LastAnswerText()
+    a = PickFullerAnswer(a, modAsk.LastAnswerText())
     If LenB(a) = 0 Then a = modAppState.TargetText()
     On Error GoTo 0
     ' 回答が取れないなら保存する意味が無い(質問だけのメモは資料にならない)。
     LastTurn = (LenB(a) > 0)
+End Function
+
+' ----------------------------------------------------------------------------
+' PickFullerAnswer - hist_a(nexus_hist_a由来。700字で切られている場合がある)と
+'   fullA(modAsk.LastAnswerText()。画面のバブル本文=フル)のどちらを採用するか
+'   を決める純関数。
+'   ・histA が空 → fullA を採用(そもそも比較できない)。
+'   ・fullA が histA を先頭部分として含む(Left$(fullA, Len(histA)) = histA)
+'     → 同一ターンの回答とみなし、長い方(=通常fullA。等しければどちらでも
+'       同じ内容)を採用する。histA が700字未満(=切られていない)なら
+'       Len(fullA) = Len(histA) の完全一致になるので、この分岐でも安全に
+'       fullA を返せる。
+'   ・含まない → 別ターンの回答が fullA に残っている(モード切替直後などの
+'     すれ違い)とみなし、hist_a を採用する(別ターン混成の防止)。
+' ----------------------------------------------------------------------------
+Public Function PickFullerAnswer(ByVal histA As String, ByVal fullA As String) As String
+    If LenB(histA) = 0 Then
+        PickFullerAnswer = fullA
+        Exit Function
+    End If
+    If LenB(fullA) = 0 Then
+        PickFullerAnswer = histA
+        Exit Function
+    End If
+    If Left$(fullA, Len(histA)) = histA Then
+        If Len(fullA) >= Len(histA) Then
+            PickFullerAnswer = fullA
+        Else
+            PickFullerAnswer = histA
+        End If
+    Else
+        PickFullerAnswer = histA
+    End If
 End Function
 
 ' 同じ資料名(=同じ題名)の考察メモが既に本棚にあるか。manifest の走査は
