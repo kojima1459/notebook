@@ -300,8 +300,15 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
     resultStatus = modShelf.IngestFile(filePath, "self")
 
     ' 一時ファイルは掃除(取込済みなので不要。失敗しても無視)
+    ' R26H F6(m-1): Kill はパスをANSI(CP932)へ落として渡すため、変換できない
+    ' 非BMP文字が "?" に化ける。考察メモの資料名は 💭 で始まる(modInsightCard.
+    ' DocNameFor)ので TEMP\?考察メモ_… となり、Kill はその "?" を1文字
+    ' ワイルドカードとして解釈する=TEMP直下の無関係な同型名まで巻き込みうる。
+    ' FileSystemObject はパスをUnicodeのまま受け取るのでこの化けが起きない。
+    ' SanitizeName が "*" "?" を "_" へ潰しているので、こちら側でワイルドカードが
+    ' 残ることも無い。On Error の作法(失敗しても無視)は従来のまま。
     On Error Resume Next
-    Kill filePath
+    CreateObject("Scripting.FileSystemObject").DeleteFile filePath, True
     On Error GoTo 0
 
     RegisterKnowledgeText = (resultStatus = "done" Or resultStatus = "partial")
