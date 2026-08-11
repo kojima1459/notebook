@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R27完了時点）
+# 再開手順（セッション中断対策・最終更新: R26完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -73,7 +73,13 @@ config freeze_keep_banner 既定on)・案内文とdocs)/③入念モードの複
 LLM論点数+6回)・逆質問=番号選択肢(clarify、ok=False非回答契約・「1と3」複数選択・TTL30分)・
 精読=近傍チャンク束ね(modAskFocus、source基準・thoroughのみ・deep_neighbor既定2)・
 deep深掘りの既出チャンク降格(modFollowup、followup全検索に適用)。
-次: 利用者の実機検証(R27版で第13報)→**R26着手(GO受領済み・仕様書=spec_20260810_R26_知の循環_設計.md)**。R27H Fix+検証パス2周までクローズ済み。
+次: 利用者の実機検証(R26版で第13報=R27の余白・RAG根治の確認と、R26の3新機能の確認を同時に)。R26H Fix+検証パス2周までクローズ済み。
+**R26(知の循環・本命セット)**: 仕様=spec_20260810_R26_知の循環_設計.md+§7追補。開発憲法CLAUDE.md/スキル3本(preflight/adversarial-review-vba/final-gates)/編集後lintフックはこのラウンド前に整備済み(コミット3c1e16d/b0f01a3)。
+①一般3段化=modGenPipe新設(起草→別ペルソナ査読→改稿・最大2周・verdict:PASS早期終了・パース失敗時は起草を返す退行)。AskGeneral第3引数(quick/deep/thorough)。config6キー(gen_deep_effort=medium等+conv_bridge)。フッター「🌐一般アシスタント・(モード名)・検証n回」(**レビューB-1: 初版は既存の早期脱出で到達不能=出荷ブロッカーだった。是正済み**)。LLM回数: すぐ1/しっかり1/入念2〜5(仕様の2〜4は誤りと裁定)。mock査読は交互応答(指摘→PASS)でdev検証可能。
+②文脈橋渡し=modConvBridge新設(切替時に直前1往復を先頭差し込み+KeepNewestPairsで丸め。**レビューM-1: 初版の置換方式は切替先の3往復を消す退行→差し込みへ是正**)。ヘッダー「【直前の○○での文脈】」冪等付与。4,000字サロゲート安全切り詰め。クリアで完全失効。**M-2裁定: 一般→RAG方向は凍結modAskの遅延ロード仕様により「切替後に🔍深掘り(続けて質問)を押したときのみ」効く非対称。トースト・docs10は実態通りに正直化済み。双方向根治はmodAsk凍結解除が必要=次ラウンドのタクシー裁定案件**。
+③洞察カード=modInsightCard新設。💾ピルを評価アクション行7個目に(境界関所の内側=構造的に安全)。取込はmodVault.RegisterKnowledgeText再利用(既存経路・新規実装ゼロ)。資料名💭考察メモ_題名(40字)+本文冒頭に汚染防止定型文。同題名は上書き確認。Q/Aはnexus_hist_u/aを第一情報源+同一ターンならフル本文優先(700字切れ回避のPickFullerAnswer)。💭非BMPファイル名は取込経路(ADODB=Unicode安全)を通ることをレビューで全数確認済み(Kill→FSO.DeleteFile化)。
+R26 記録のみ(次期): **modAsk凍結解除の裁定2件**(一般→RAG双方向化/クリア後のmPrevU亡霊がM-4=クリア→RAG回答→続けて質問の窓で復活)/mock4回経路のdev実機確認(usage_log gen_mode loops=2 pass=1)/同会話別題名の2件目がチャンク重複排除で痩せる(m-5)/RegisterKnowledgeTextのtagsText未反映(m-6・既存)/manifest行がサイズ0・日時Now(m-2・💭パスのANSI副作用)/hist_aに";;;"を含む回答の700字版採用(極小)/ParseVerdictグレーケースのテスト追加/**modApp残350・modGateway残453・modUINexusDraw残900・modTestsPure25残412=次はPure26へ・modHub残50/modKnowledge残160/modShelfStore残44は分割裁定必須**。
+実機第13報の観点: (R27分)特約2資料の削除→再取込後に「個別特約は？」で特約から回答or逆質問/各画面右端フィット/下スクロール先が塗り継続/ヘルプ・Peek開いたまま送信・クリアで崩れない。(R26分)同じ質問を一般3モードで=深さ・待ち時間・フッターの違い/RAG→一般切替で文脈が続く/一般→RAGは🔍深掘りで文脈が効く/💾保存→本棚に💭カード→検索でヒット→出典に💭表示/会話クリア→切替→前文脈が出ない。
 **R27(実機第12報)**: 仕様=spec_20260810_R27_実機第12報.md。調査3班(A=RAG/B=余白設計/C=バグ型横展開監査)→3実装波→敵対的レビュー→Fix波→Fix検証パス(2周目)→マイクロ修正の完全プロセス。
 波1 RAG根治: **SparseBoost無上限が主因**(KeyScore≒330×0.06=b1 20.26でcos無力化・曖昧/低ヒット/確信度の安全装置3つが休眠)→sparse_keyscore_cap=10(config・0で旧挙動)+Len clamp 8。**GarbleRatioのAscW符号バグ**(U+8000以降の常用漢字が制御文字扱い=約款文の13.3%が誤bad)+Word構造制御文字(Chr(7)等)誤爆を是正、私用領域U+E000-F8FFは検出継続。制御文字は空白置換(行頭字下げ1字温存)。.doc全滅時はContent.Text一括+Chr(12)分割でページ復元・maxPages/truncated遵守。embed_stepにok=N(成功数観測)。dispersionにtop3資料名。逆質問の名指し規則(3)は2件以上で無効化。多様性は**最終hits確定後のガード付き最小介入**(全件1資料のときのみ最下位1件を次点資料代表と差し替え+hits_diversifyログ。敵対的レビューB-1裁定=pool再配列はtopK枠を代表で埋めて上位を押し出す+分散判定は順序非依存で効かないため作り直し)。
 波2 余白: **下余白の正体=境界関所を通らず境界外へ積まれた実コンテンツ(9経路・チャット8)**。SettleChat→ExtendChatBand 1行が本丸+ヘルプ/ツアー/Peekの開閉両側配線+ヘッダートグル3経路の境界再適用。右=列幅1のHub方式横展開(modChromeへSetupDash/Shelf/ChatColumns)。埋め草PadRowToWindow(dash配線のみ=Hub残4字/modKnowledge残160字のため。チャットは対象外)。重ね表示はoverlay floor(modSkin)で衝突封鎖(HideCitations経路含む=検証パス2周目で発見)。行HiddenはR19裁定維持で不採用(保存関所なし+8KB→3MB膨張実測)。
@@ -141,6 +147,10 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 | R | 実装者 | 内容 | コミット | 状態 |
 |---|---|---|---|---|
+| R26H+検証 | Opus/Sonnet | レビュー裁定8件(フッター到達不能=BL/橋渡し置換退行/トースト正直化/mock交互/FSO化/verdict緩和/情報源統一+700字回避)+検証パス合格 | 96de9d7〜f238484 | 完了 |
+| R26波C | Opus | 洞察カード(modInsightCard/💾ピル/RegisterKnowledgeText再利用/汚染防止2層/docs10) | 083044c〜2a89dd6 | 完了 |
+| R26波B | Sonnet | 文脈橋渡し(modConvBridge/クリア完全性確認/mockPASS/入念案内出し分け) | 60d0720〜357872e | 完了 |
+| R26波A | Opus | 一般3段化(modGenPipe/AskGeneral3段/config5キー/フッター/mode説明) | f7e5271〜6770208 | 完了 |
 | R27H+検証 | Opus/Sonnet | レビュー裁定6件(多様性作り直し/overlay floor/PUA検出/Chr(12)ページ復元/サニタイズ最適化/言語トースト集約)+2周目指摘2件 | d991f3a〜79e5a21 | 完了 |
 | R27波3 | Opus | 監査15/16件(モーダル保護/無言失敗/状態漏れ/再入/化け素通し/UIUX) | b10bd44〜4aa042e | 完了 |
 | R27波2 | Opus | 余白構造完治(関所全数配線/列幅1横展開/埋め草/開閉両側復帰) | 〜87431d6他 | 完了 |
