@@ -44,6 +44,8 @@ Private mRibbonAvailable As Boolean
 ' 一周してしまう。そこで貯めるだけ貯めて、質問の終わりに modAsk が1行
 ' (ask_steps)へまとめて書き出す。書式は STEPBUF_* を参照。
 Private mStepBuf As String
+' R26H F5: mock査読(入念モード)の周回カウンタ。奇数回=指摘/偶数回=PASS。
+Private mMockVerifyRound As Long
 ' バッファ長の上限。usage_log の detail 1セルに収まり、かつ異常に長い
 ' step_name が来ても暴走しないための安全弁。
 Private Const STEPBUF_MAX As Long = 400
@@ -574,13 +576,21 @@ End Function
 ' 『続けて質問』のUXが、mock環境でも本物同様に一巡できるようにするため。
 ' V2 modRibbonGateway のmock検証応答と同じ流儀)。
 Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As String) As String
-    ' R26-2 同梱1(波A裁定): mockでもPASS早期終了経路を通す。査読ペルソナの
-    ' 冒頭文字列(modGenPipe.VerifyPrompt)を含むときはstep_nameに関わらず
-    ' verdict:PASSを返す。Case Elseの汎用ダミーはPASS_TOKENと一致しないため、
-    ' これが無いとmock(dev)では入念モードの検証ループが常に上限まで回り、
-    ' 早期終了(PASS)の経路が一度も動作確認できない。
+    ' R26H F5(m-3): mock査読は「1回目=指摘1件 / 2回目=verdict:PASS」の交互。
+    ' 常にPASSだと dev で起草→検証→改稿→再検証の4回経路が一度も通らず、常に
+    ' 指摘だと早期終了が通らない。交互なら1ターンで両方を必ず通る。カウンタは
+    ' 起草(=入念1ターンの開始)で0へ戻すので毎ターン同じ順で再現する。
+    ' 実体をmodGenPipe(qa層)へ置く裁定だったが、基盤層→機能層はR1違反(lintが
+    ' ERROR)のためカウンタごとここへ置いた(司令塔へ報告)。
+    If LCase$(step_name) = "gen_thorough_draft" Then mMockVerifyRound = 0
     If InStr(prompt, "あなたは起草者とは別の査読者です") > 0 Then
-        MockLLMResponse = "verdict:PASS"
+        mMockVerifyRound = mMockVerifyRound + 1
+        If (mMockVerifyRound Mod 2) = 1 Then
+            MockLLMResponse = "・(モック査読)第2段落の断定に根拠が示されていない。" & _
+                "適用条件を明示すること。"
+        Else
+            MockLLMResponse = "verdict:PASS"
+        End If
         Exit Function
     End If
     Select Case LCase$(step_name)
