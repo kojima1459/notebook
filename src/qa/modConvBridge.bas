@@ -62,14 +62,28 @@ End Function
 Public Function ComputeBridge(ByVal fromMode As String, ByVal toMode As String, _
                               ByRef outQ As String, ByRef outA As String) As Boolean
     Dim srcQ As String, srcA As String
+    Dim dstQ As String, dstA As String
     If fromMode = "rag" And toMode = "normal" Then
         srcQ = modState.LoadState("nexus_ask_prevu", "")
         srcA = modState.LoadState("nexus_ask_preva", "")
+        dstQ = modState.LoadState("nexus_gen_prevu", "")
+        dstA = modState.LoadState("nexus_gen_preva", "")
     ElseIf fromMode = "normal" And toMode = "rag" Then
         srcQ = modState.LoadState("nexus_gen_prevu", "")
         srcA = modState.LoadState("nexus_gen_preva", "")
+        dstQ = modState.LoadState("nexus_ask_prevu", "")
+        dstA = modState.LoadState("nexus_ask_preva", "")
     End If
-    ComputeBridge = ComputeBridgeCore(fromMode, toMode, BridgeEnabled(), srcQ, srcA, outQ, outA)
+    ComputeBridge = ComputeBridgeCore(fromMode, toMode, BridgeEnabled(), _
+                                      srcQ, srcA, dstQ, dstA, CarryMaxPairs(), outQ, outA)
+End Function
+
+' 切替先に残す往復数の上限(会話履歴の既存作法と同じ config を使う。
+' 橋渡しだけ別の上限を持つと「深掘りは3往復なのに切替後だけ1往復」に
+' なり、利用者から見て記憶の深さが操作で変わる)。
+' (名前が maxPairs 引数と衝突しないよう CarryMaxPairs。lintの手続き名衝突検査)
+Private Function CarryMaxPairs() As Long
+    CarryMaxPairs = modConfig.GetLong("followup_max_pairs", 3)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -78,9 +92,18 @@ End Function
 '   依存せず conv_bridge=off・記憶なし等の境界をテストで固定できる
 '   (modGenPipe.ShouldRunVerifyLoop と同型の設計判断)。
 ' ----------------------------------------------------------------------------
+' R26H F3(M-1): 旧実装は切替先の記憶を橋渡しの1往復で【置き換えて】いた。
+'   一般アシスタントで3往復話したあと社内ナレッジ検索へ寄り道して戻ると、
+'   その3往復が消えて1往復だけになる=「引き継ぎ」が実際には既存の記憶の
+'   破棄になっていた。切替先の記憶は消さず、橋渡しの1往復を【先頭へ差し込む】
+'   (dstQ/dstA が切替先の現在の記憶。maxPairs で上限まで丸める)。
+'   同じ往復が既に先頭にあるとき(切替を往復させただけ)は差し込まず False を
+'   返す=同じ内容が2件並ぶことも、そのたびにトーストが出ることも無い。
 Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As String, _
                                   ByVal enabled As Boolean, _
                                   ByVal srcQ As String, ByVal srcA As String, _
+                                  ByVal dstQ As String, ByVal dstA As String, _
+                                  ByVal maxPairs As Long, _
                                   ByRef outQ As String, ByRef outA As String) As Boolean
     outQ = "": outA = ""
     If fromMode = toMode Then Exit Function
@@ -101,9 +124,43 @@ Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As Stri
     a = FirstPair(srcA)
     If LenB(q) = 0 And LenB(a) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
 
-    outQ = TruncateTail(q, MAX_CARRY_CHARS)
-    outA = WithBridgeHeader(srcName, TruncateTail(a, MAX_CARRY_CHARS))
+    Dim carryQ As String, carryA As String
+    carryQ = TruncateTail(q, MAX_CARRY_CHARS)
+    carryA = WithBridgeHeader(srcName, TruncateTail(a, MAX_CARRY_CHARS))
+
+    If AlreadyAtHead(carryQ, carryA, dstQ, dstA) Then Exit Function
+
+    outQ = InsertAtHead(carryQ, dstQ, maxPairs)
+    outA = InsertAtHead(carryA, dstA, maxPairs)
     ComputeBridgeCore = True
+End Function
+
+' ----------------------------------------------------------------------------
+' AlreadyAtHead - 橋渡しする1往復が、切替先の記憶の先頭に既にあるか(純関数)。
+'   質問と回答の【両方】が一致したときだけ True。片方だけの一致で止めると、
+'   同じ質問を2モードで聞いたときに回答の引き継ぎだけが落ちる。
+' ----------------------------------------------------------------------------
+Public Function AlreadyAtHead(ByVal carryQ As String, ByVal carryA As String, _
+                              ByVal dstQ As String, ByVal dstA As String) As Boolean
+    If LenB(dstQ) = 0 And LenB(dstA) = 0 Then Exit Function
+    AlreadyAtHead = (FirstPair(dstQ) = carryQ) And (FirstPair(dstA) = carryA)
+End Function
+
+' ----------------------------------------------------------------------------
+' InsertAtHead - ";;;"区切り履歴の先頭へ1件差し込み、上限まで丸める(純関数)。
+'   丸めは modFollowup.KeepNewestPairs(既存の単一情報源)へ委譲する。
+'   maxPairs<=0 は「履歴を持たない」設定なので、差し込んだ1件だけを残す
+'   (橋渡しを押した本人の操作を黙って無効化しない)。
+' ----------------------------------------------------------------------------
+Public Function InsertAtHead(ByVal item As String, ByVal joined As String, _
+                             ByVal maxPairs As Long) As String
+    Dim mx As Long: mx = maxPairs
+    If mx < 1 Then mx = 1
+    If LenB(joined) = 0 Then
+        InsertAtHead = item
+        Exit Function
+    End If
+    InsertAtHead = modFollowup.KeepNewestPairs(item & ";;;" & joined, mx, ";;;")
 End Function
 
 ' ----------------------------------------------------------------------------

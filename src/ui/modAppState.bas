@@ -71,9 +71,12 @@ Public Sub ClearGeneralMemory()
     On Error GoTo 0
 End Sub
 
-' R26-2: modConvBridge(qa層・計算専任)の受け口。橋渡しされた内容で
-' モジュール変数を差し替える。AskGeneralは毎回この変数を読むため、
-' ここで書けば次の一般アシスタント回答へそのまま効く(follow-up武装は不要)。
+' R26-2: modConvBridge(qa層・計算専任)の受け口。AskGeneralは毎回この変数を
+' 読むため、ここで書けば次の一般アシスタント回答へそのまま効く
+' (follow-up武装は不要)。
+' R26H F3: 渡ってくるのは【橋渡しの1往復を先頭へ差し込んだ後の履歴全体】
+' (";;;"区切り・新しい順)であって、1往復だけではない。以前の記憶を消さない
+' のはmodConvBridge側の責務で、ここは計算済みの結果をそのまま持つだけ。
 Public Sub SetGeneralMemory(ByVal u As String, ByVal a As String)
     mGenPrevU = u
     mGenPrevA = a
@@ -102,6 +105,8 @@ Public Sub BridgeConvMemory(ByVal fromMode As String, ByVal toMode As String)
         modState.SaveState "nexus_ask_preva", outA
     End If
 
+    ' chars は【差し込み後の記憶全体】の字数(R26H F3で置換→先頭差し込みに
+    ' 変わったため、橋渡しした1往復だけの字数ではない)。
     modLog.LogUsage "memory_carry", fromMode & "->" & toMode, "chars=" & (Len(outQ) + Len(outA))
     modSkin.ShowToast "文脈を引き継ぎました(直前の1往復)。新しく始めるなら " & _
         ChrW(&HD83D) & ChrW(&HDDD1) & " クリア", "info", True

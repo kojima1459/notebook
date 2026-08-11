@@ -291,32 +291,38 @@ End Function
 '   conv_bridge=off時は何もしない(off時の非動作)ことを、configシートに
 '   依存せず直接固定する(ComputeBridgeCoreはenabledを引数で受け取るだけの
 '   純関数。理由は modConvBridge.bas冒頭コメント参照)。
+'
+'   R26H F3(M-1)で仕様が「置換」から「先頭差し込み」へ変わった。旧テストは
+'   (v)(vi)で outQ が橋渡しの1件【だけ】になることを固定しており、まさに
+'   「切替先の既存の記憶が消える」挙動を守っていた。期待値を新仕様
+'   (既存の記憶が残る・先頭に入る・上限で丸まる)へ書き換える。
 ' ----------------------------------------------------------------------------
 Private Sub TestConvBridgeCore25()
     Dim oq As String, oa As String
     Dim ok As Boolean
 
     ' (i) conv_bridge=off: 記憶があっても一切橋渡ししない。
-    ok = modConvBridge.ComputeBridgeCore("rag", "normal", False, "Q1", "A1", oq, oa)
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", False, "Q1", "A1", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_off時は橋渡ししない(戻り値False)", (ok = False), "ok=" & ok
     modTestRunner.Check "R26-2_off時はoutQ/outAも空", (LenB(oq) = 0 And LenB(oa) = 0), "[" & oq & "][" & oa & "]"
 
     ' (ii) 同一モードは何もしない(切替が起きていない)。
-    ok = modConvBridge.ComputeBridgeCore("rag", "rag", True, "Q1", "A1", oq, oa)
+    ok = modConvBridge.ComputeBridgeCore("rag", "rag", True, "Q1", "A1", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_同一モードは橋渡ししない", (ok = False), "ok=" & ok
 
     ' (iii) 未知のモード値の組合せはフェイルセーフでFalse。
-    ok = modConvBridge.ComputeBridgeCore("foo", "bar", True, "Q1", "A1", oq, oa)
+    ok = modConvBridge.ComputeBridgeCore("foo", "bar", True, "Q1", "A1", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_未知のモード組合せは橋渡ししない", (ok = False), "ok=" & ok
 
     ' (iv) 切替元の記憶が空なら橋渡し不要(トースト等の無駄打ちを避ける)。
-    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "", "", oq, oa)
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "", "", "既存Q", "既存A", 3, oq, oa)
     modTestRunner.Check "R26-2_切替元の記憶が空なら橋渡ししない", (ok = False), "ok=" & ok
 
-    ' (v) RAG→一般: 直前1往復だけ(多往復の履歴から先頭のみ)を引き継ぎ、
-    '     回答側だけにヘッダーを付ける(質問側には付けない)。
+    ' (v) RAG→一般: 引き継ぐのは直前1往復だけ(多往復の履歴から先頭のみ)で、
+    '     回答側だけにヘッダーを付ける(質問側には付けない)。切替先が空のとき
+    '     はその1件だけになる。
     ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
-        "Q最新;;;Q古い", "A最新;;;A古い", oq, oa)
+        "Q最新;;;Q古い", "A最新;;;A古い", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_RAGから一般への橋渡しは成功", (ok = True), "ok=" & ok
     modTestRunner.Check "R26-2_質問側は直前1件のみでヘッダー無し", (oq = "Q最新"), oq
     modTestRunner.Check "R26-2_回答側は社内ナレッジ検索のヘッダー付き", _
@@ -325,10 +331,82 @@ Private Sub TestConvBridgeCore25()
         (InStr(oa, "A最新") > 0 And InStr(oa, "A古い") = 0), oa
 
     ' (vi) 一般→RAG: 逆方向はモード名が「一般アシスタント」で出ること。
-    ok = modConvBridge.ComputeBridgeCore("normal", "rag", True, "Q", "A", oq, oa)
+    ok = modConvBridge.ComputeBridgeCore("normal", "rag", True, "Q", "A", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_一般からRAGへの橋渡しは成功", (ok = True), "ok=" & ok
     modTestRunner.Check "R26-2_回答側は一般アシスタントのヘッダー付き", _
         (InStr(oa, "一般アシスタント") > 0), oa
+
+    ' (vii) R26H F3: 切替先に既存の記憶があるとき、それを【消さず】に先頭へ
+    '       差し込む。ここが旧仕様(置換)との分かれ目で、反証条件は
+    '       「既存の記憶が残っているか」。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "橋Q", "橋A", "既存Q1;;;既存Q2", "既存A1;;;既存A2", 3, oq, oa)
+    modTestRunner.Check "R26H_F3_差し込みは成功する", (ok = True), "ok=" & ok
+    modTestRunner.Check "R26H_F3_質問側は橋渡し分が先頭", (Left$(oq, 5) = "橋Q;;;"), oq
+    modTestRunner.Check "R26H_F3_質問側は既存の記憶を消さない", _
+        (InStr(oq, "既存Q1") > 0 And InStr(oq, "既存Q2") > 0), oq
+    modTestRunner.Check "R26H_F3_回答側も既存の記憶を消さない", _
+        (InStr(oa, "既存A1") > 0 And InStr(oa, "既存A2") > 0), oa
+    modTestRunner.Check "R26H_F3_回答側の先頭は橋渡しのヘッダー付き1件", _
+        (Left$(oa, 1) = ChrW(&H3010) And InStr(oa, "橋A") > 0), oa
+
+    ' (viii) 上限で丸める。maxPairs=2 に既存2件へ1件差し込めば、いちばん古い
+    '        1件が落ちて2件になる(modFollowup.KeepNewestPairs へ委譲)。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "橋Q", "橋A", "既存Q1;;;既存Q2", "既存A1;;;既存A2", 2, oq, oa)
+    modTestRunner.Check "R26H_F3_上限2で3件目は落ちる", _
+        (oq = "橋Q;;;既存Q1"), oq
+    modTestRunner.Check "R26H_F3_上限で落ちるのは最も古い1件", _
+        (InStr(oq, "既存Q2") = 0), oq
+
+    ' (ix) 同じ往復が既に先頭にあるなら差し込まない(切替を往復させただけの
+    '      とき、同じ内容が2件並ばない/トーストも出ない)。反証は「2回目の
+    '      呼び出しでも oq が1回目と同じであること」ではなく【Falseを返す】こと。
+    Dim oq2 As String, oa2 As String
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "橋Q", "橋A", "", "", 3, oq2, oa2)
+    modTestRunner.Check "R26H_F3_1回目は差し込む", (ok = True), "ok=" & ok
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "橋Q", "橋A", oq2, oa2, 3, oq, oa)
+    modTestRunner.Check "R26H_F3_同じ往復が先頭なら差し込まない", (ok = False), "ok=" & ok
+    modTestRunner.Check "R26H_F3_差し込まないときのoutQ/outAは空", _
+        (LenB(oq) = 0 And LenB(oa) = 0), "[" & oq & "][" & oa & "]"
+
+    ' (x) 片方だけ一致は「同じ往復」ではない(回答が変わっていれば差し込む)。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
+        "橋Q", "別のA", oq2, oa2, 3, oq, oa)
+    modTestRunner.Check "R26H_F3_回答が違えば同じ往復と見なさない", (ok = True), "ok=" & ok
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26H F3: 差し込みの部品(InsertAtHead / AlreadyAtHead)を単体で固定する。
+'   ComputeBridgeCore 経由だけだと、上限の丸めが KeepNewestPairs 側の
+'   仕様変更で静かにずれても気付けない。
+' ----------------------------------------------------------------------------
+Private Sub TestConvBridgeInsert25()
+    modTestRunner.Check "R26H_F3_既存が空なら差し込んだ1件だけ", _
+        (modConvBridge.InsertAtHead("新", "", 3) = "新"), _
+        modConvBridge.InsertAtHead("新", "", 3)
+    modTestRunner.Check "R26H_F3_既存の先頭へ入る", _
+        (modConvBridge.InsertAtHead("新", "旧1;;;旧2", 3) = "新;;;旧1;;;旧2"), _
+        modConvBridge.InsertAtHead("新", "旧1;;;旧2", 3)
+    modTestRunner.Check "R26H_F3_上限を超えた分は末尾から落ちる", _
+        (modConvBridge.InsertAtHead("新", "旧1;;;旧2", 2) = "新;;;旧1"), _
+        modConvBridge.InsertAtHead("新", "旧1;;;旧2", 2)
+    ' maxPairs<=0(履歴を持たない設定)でも、押した操作そのものは無効にしない。
+    modTestRunner.Check "R26H_F3_上限0以下でも差し込んだ1件は残る", _
+        (modConvBridge.InsertAtHead("新", "旧1;;;旧2", 0) = "新"), _
+        modConvBridge.InsertAtHead("新", "旧1;;;旧2", 0)
+
+    modTestRunner.Check "R26H_F3_両方一致で既に先頭", _
+        (modConvBridge.AlreadyAtHead("Q", "A", "Q;;;古Q", "A;;;古A") = True), ""
+    modTestRunner.Check "R26H_F3_質問だけ一致は先頭扱いしない", _
+        (modConvBridge.AlreadyAtHead("Q", "A", "Q;;;古Q", "別A;;;古A") = False), ""
+    modTestRunner.Check "R26H_F3_切替先が空なら先頭一致ではない", _
+        (modConvBridge.AlreadyAtHead("Q", "A", "", "") = False), ""
+    ' 2件目以降に同じ往復があっても「先頭」ではない(差し込む)。
+    modTestRunner.Check "R26H_F3_2件目に同じ往復があっても先頭扱いしない", _
+        (modConvBridge.AlreadyAtHead("Q", "A", "別Q;;;Q", "別A;;;A") = False), ""
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -453,6 +531,9 @@ NextBridgeHeader25:
 NextBridgeCore25:
     On Error GoTo BridgeCoreFail25
     TestConvBridgeCore25
+NextBridgeInsert25:
+    On Error GoTo BridgeInsertFail25
+    TestConvBridgeInsert25
 NextInsightName25:
     On Error GoTo InsightNameFail25
     TestInsightDocName25
@@ -492,6 +573,10 @@ BridgeHeaderFail25:
     Resume NextBridgeCore25
 BridgeCoreFail25:
     modTestRunner.Check "TestConvBridgeCore25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeInsert25
+BridgeInsertFail25:
+    modTestRunner.Check "TestConvBridgeInsert25(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextInsightName25
 InsightNameFail25:
