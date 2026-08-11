@@ -329,6 +329,14 @@
       "note": "「入念に調べる」専用の生成パイプライン(再ランク→要点整理→下書き→自己批判→検証→出典の機械的突合の6段)。実機第3報RC8「deep/thoroughが生成側で完全に同じ」への対処で、quick/deepの経路は一切変えていない。最後の出典突合はLLMを使わない純ロジックで、回答中の[本棚:名 p.N]/[パック(作者):名]タグを検索結果と照合し、見つからないものへ「(出典確認できず)」を付けてusage_log cite_mismatchに件数を残す。突合の基準になるタグの形はmodPrompts.SourceTagが単一情報源。"
     },
     {
+      "name": "modGenPipe",
+      "path": "src/qa/modGenPipe.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-1",
+      "note": "一般アシスタント(本棚を使わない回答)の3段化。ヘッダーの速さトグルはこれまでRAG側にしか効かず、一般アシスタントは常にquick相当の1回呼び出しだった(modAppがsendSpeedを捨てていた)。すぐ聞く=現行のまま1回/しっかり=1回+構造化指示(gen_deep_effort=medium・gen_deep_verbosity=high)/入念=起草→検証→改稿を最大2周(CoVe型。verdict:PASSで早期終了)。検証は起草とは別の呼び出し・別ペルソナ(自己採点の楽観バイアス対策)で、判定はParseVerdictが1行目を正規化してverdict:passと厳密一致で読む。読めない/落ちたときは起草(または直前の改稿)をそのまま返しusage_log gen_verify_parse_failに残す。実況はmodUIMain.SetStage(既存の進捗表示機構)へ流すだけで新規バナー機構は作らない。純関数(ParseVerdict/ShouldRunVerifyLoop/PlanFor)はmodTestsPure25から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。"
+    },
+    {
       "name": "modAskMulti",
       "path": "src/qa/modAskMulti.bas",
       "role": "core",

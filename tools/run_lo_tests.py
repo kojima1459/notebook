@@ -493,6 +493,17 @@ PURE_ALLOWLIST = [
     #   1件も走らない(19〜24と同型)。テストが呼ぶのは modSparse の純関数
     #   1本だけで、modSparse は既にこの一覧に登録済み。
     "modTestsPure25",
+    # modGenPipe(2026-08-11 R26-1): 一般アシスタント3段化の生成パイプライン。
+    #   テストが呼ぶのは ParseVerdict(検証応答の判定)/ShouldRunVerifyLoop
+    #   (周回上限)/PlanFor(モード分岐表)の3本で、いずれも文字列と数値だけの
+    #   純関数(CallLLM・LogUsage・SetStage を持つ RunThorough はテストから
+    #   呼ばない=modAskThorough と同じ「モジュール全体はR4準拠ではないが、
+    #   テストが呼ぶ関数自体はExcel/COMに触れない」型)。未注入のまま
+    #   modTestsPure25 から呼ぶと実行時エラー12になり、verdict のパースと
+    #   ループ上限のゴールデンが「テストを書いても走らない」状態になる。
+    #   ParseVerdict が呼ぶ modRagParse.IsErrorResponse と PlanFor が呼ぶ
+    #   modMode.Normalize は、どちらも既にこの一覧に登録済み。
+    "modGenPipe",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
