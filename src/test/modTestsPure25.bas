@@ -21,6 +21,11 @@ Option Explicit
 '         代わりに入れたのが「最終hitsが1資料へ収束した時だけ最下位1件を、
 '         pool内の別資料の最高スコアへ替える」という1件だけの介入で、
 '         その添字計算が DiversitySwapPick。
+'   ・R26-1: modGenPipe — 一般アシスタント3段化の純関数3本。
+'         ParseVerdict(検証応答の判定)/ShouldRunVerifyLoop(周回上限)/
+'         PlanFor(モード分岐表)。ここが緩むと入念モードが「永久に上限まで
+'         回る」か「1周目で誤ってPASS扱いになる」のどちらかへ倒れ、
+'         どちらも画面上は同じ「入念に聞く」に見えるため誰も気付けない。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -78,16 +83,157 @@ Private Sub TestDiversitySwapPick25()
     modTestRunner.Check "R27H-F1_pool側の空資料名は差し替え先にしない(0)", (p6 = 0), "pick=" & p6
 End Sub
 
+' ----------------------------------------------------------------------------
+' R26-1(1): modGenPipe.ParseVerdict — 検証応答の判定。
+'   期待値は modGenPipe の公開Constではなく【文字列リテラル】で書く。
+'   Constと突き合わせると、Constごと書き換えられたときにテストも一緒に
+'   ずれて何も守らない(恒真アサートの一種)。
+' ----------------------------------------------------------------------------
+Private Sub TestGenParseVerdict25()
+    Dim f As String
+    Dim v As String
+
+    ' (i) 素直なPASS。findings は必ず空(空でないと改稿へ進んでしまう)。
+    v = modGenPipe.ParseVerdict("verdict:PASS", f)
+    modTestRunner.Check "R26-1_verdict素直なPASS", (v = "PASS"), "v=" & v
+    modTestRunner.Check "R26-1_PASS時のfindingsは空", (LenB(f) = 0), "f=[" & f & "]"
+
+    ' (ii) 前後の空白・空行・全角コロン・装飾が混ざってもPASSと読む。
+    '      ここが厳密一致だけだと、約束が1文字ぶれた日から入念は永久に
+    '      上限まで回り続ける(利用者からは「ただ遅い」としか見えない)。
+    v = modGenPipe.ParseVerdict("  " & vbCrLf & " verdict：PASS 。" & vbLf & vbLf, f)
+    modTestRunner.Check "R26-1_verdict前後空白+全角コロン+句点でもPASS", (v = "PASS"), "v=" & v
+    v = modGenPipe.ParseVerdict("**verdict: PASS**" & vbLf & "(問題ありません)", f)
+    modTestRunner.Check "R26-1_verdict装飾付きでもPASS", (v = "PASS"), "v=" & v
+
+    ' (iii) 反証: 「verdict:PASSではない」を PASS と読んではならない。
+    '       「PASSを含むか」で判定すると、査読が否定形で書いた瞬間に
+    '       指摘を丸ごと捨てて早期終了する。
+    v = modGenPipe.ParseVerdict("verdict:PASSではない。第2段落の断定に根拠がない。", f)
+    modTestRunner.Check "R26-1_verdictPASSではないをPASSと読まない", (v = "FINDINGS"), "v=" & v
+    modTestRunner.Check "R26-1_指摘ありのfindingsは本文を持つ", (InStr(f, "根拠がない") > 0), "f=[" & f & "]"
+
+    ' (iv) 指摘あり(通常形)。前後の空行は落として渡す。
+    v = modGenPipe.ParseVerdict(vbLf & "・免責の範囲を断定している" & vbLf & "・例外条項の見落とし" & vbLf, f)
+    modTestRunner.Check "R26-1_verdict指摘ありはFINDINGS", (v = "FINDINGS"), "v=" & v
+    modTestRunner.Check "R26-1_findingsの先頭に空行を残さない", (Left$(f, 1) = "・"), "f=[" & Left$(f, 4) & "]"
+
+    ' (v) 形式崩れ(空・空白のみ・#ERR)は FAIL。呼び出し側はここで周回を
+    '     やめて【いま手元にある回答】を返す(利用者を待たせて壊さない)。
+    v = modGenPipe.ParseVerdict("", f)
+    modTestRunner.Check "R26-1_verdict空応答はFAIL", (v = "FAIL"), "v=" & v
+    v = modGenPipe.ParseVerdict("  " & vbCrLf & vbTab & " ", f)
+    modTestRunner.Check "R26-1_verdict空白だけの応答はFAIL", (v = "FAIL"), "v=" & v
+    v = modGenPipe.ParseVerdict("#ERR:E0202:応答が空でした", f)
+    modTestRunner.Check "R26-1_verdictエラー応答はFAIL", (v = "FAIL"), "v=" & v
+    modTestRunner.Check "R26-1_FAIL時のfindingsは空", (LenB(f) = 0), "f=[" & f & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26-1(2): modGenPipe.ShouldRunVerifyLoop — 検証→改稿の周回上限。
+'   上限を超えて回ると「答えは出ているのに何分も待たされる」になり、
+'   0以下で回さないと入念がしっかりと同じものに退化する。両端を固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestGenVerifyLoopBound25()
+    modTestRunner.Check "R26-1_周回0/上限2は回す", _
+        (modGenPipe.ShouldRunVerifyLoop(0, 2) = True), "0/2"
+    modTestRunner.Check "R26-1_周回1/上限2は回す", _
+        (modGenPipe.ShouldRunVerifyLoop(1, 2) = True), "1/2"
+    modTestRunner.Check "R26-1_周回2/上限2で打ち切る", _
+        (modGenPipe.ShouldRunVerifyLoop(2, 2) = False), "2/2"
+
+    ' 上限0=検証しない(エスケープハッチ)。負値も同じ扱いへ倒す。
+    modTestRunner.Check "R26-1_上限0は1周も回さない", _
+        (modGenPipe.ShouldRunVerifyLoop(0, 0) = False), "0/0"
+    modTestRunner.Check "R26-1_上限が負値でも回さない", _
+        (modGenPipe.ShouldRunVerifyLoop(0, -5) = False), "0/-5"
+
+    ' configに壊れた値(999)が入っても4周で頭打ち。ここが無いと
+    ' 「設定を間違えた1回」でExcelが数十分固まる。
+    modTestRunner.Check "R26-1_上限999でも3周目までは回す", _
+        (modGenPipe.ShouldRunVerifyLoop(3, 999) = True), "3/999"
+    modTestRunner.Check "R26-1_上限999でも4周で頭打ち", _
+        (modGenPipe.ShouldRunVerifyLoop(4, 999) = False), "4/999"
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26-1(3): modGenPipe.PlanFor — 一般アシスタントのモード分岐表。
+'   読めない値は必ず「すぐ聞く相当の1回呼び出し」へ倒す(不明を多段へ
+'   倒すと、ui_stateが壊れた1回のために数分待たされる)。
+'   併せて ResetTurn がフッター用の記録を捨てることを固定する
+'   (捨て損ねると前ターンの「検証2回」が次の回答へ漏れる)。
+' ----------------------------------------------------------------------------
+Private Sub TestGenPlanTable25()
+    modTestRunner.Check "R26-1_planすぐ聞く=single", _
+        (modGenPipe.PlanFor("quick") = "single"), modGenPipe.PlanFor("quick")
+    modTestRunner.Check "R26-1_planしっかり=single_deep", _
+        (modGenPipe.PlanFor("deep") = "single_deep"), modGenPipe.PlanFor("deep")
+    modTestRunner.Check "R26-1_plan入念=pipeline", _
+        (modGenPipe.PlanFor("thorough") = "pipeline"), modGenPipe.PlanFor("thorough")
+
+    ' 大文字・前後空白は modMode.Normalize を通って吸収される。
+    modTestRunner.Check "R26-1_plan大文字と前後空白でも入念", _
+        (modGenPipe.PlanFor("  THOROUGH ") = "pipeline"), modGenPipe.PlanFor("  THOROUGH ")
+
+    ' 空・未知の値はフェイルセーフで現行動作(1回呼び出し)へ。
+    modTestRunner.Check "R26-1_plan空文字はsingleへ倒す", _
+        (modGenPipe.PlanFor("") = "single"), modGenPipe.PlanFor("")
+    modTestRunner.Check "R26-1_plan未知の値はsingleへ倒す", _
+        (modGenPipe.PlanFor("ちょうねんいり") = "single"), modGenPipe.PlanFor("ちょうねんいり")
+
+    ' ResetTurn 後は「検証n回」を出さない。入念の次にすぐ聞くを撃っても
+    ' 前の回の周回数がフッターへ残らないこと(モード間リークの防止)。
+    modGenPipe.ResetTurn "thorough"
+    modTestRunner.Check "R26-1_入念でも0周ならフッター注記は出さない", _
+        (LenB(modGenPipe.VerifyFooterNote()) = 0), "[" & modGenPipe.VerifyFooterNote() & "]"
+    modGenPipe.ResetTurn "quick"
+    modTestRunner.Check "R26-1_すぐ聞くのフッター注記は必ず空", _
+        (LenB(modGenPipe.VerifyFooterNote()) = 0), "[" & modGenPipe.VerifyFooterNote() & "]"
+    modTestRunner.Check "R26-1_ResetTurn後のusage_log detailは初期値", _
+        (modGenPipe.TurnDetail() = "loops=0 pass=0 parse_fail=0"), modGenPipe.TurnDetail()
+
+    ' モード説明は3段の【両方の画面】の差を語ること。R21-2 D4 の
+    ' 「一般アシスタントでは使われない」トースト注記を撤去した以上、
+    ' 説明が社内ナレッジ検索の話だけに戻ると、一般アシスタント側の3段化が
+    ' 利用者から見て存在しないものになる(既存のmodTestsPure8/12は
+    ' 社内ナレッジ検索側の語(会話の流れ/本棚全体/多段検証)を固定している)。
+    modTestRunner.Check "R26-1_しっかりの説明が一般アシスタントにも触れる", _
+        (InStr(modMode.Description("deep"), "一般アシスタント") > 0), modMode.Description("deep")
+    modTestRunner.Check "R26-1_入念の説明が一般アシスタントにも触れる", _
+        (InStr(modMode.Description("thorough"), "一般アシスタント") > 0), modMode.Description("thorough")
+End Sub
+
 ' ============================================================================
 Public Sub RunAll25()
     On Error GoTo SwapFail25
     TestDiversitySwapPick25
+NextVerdict25:
+    On Error GoTo VerdictFail25
+    TestGenParseVerdict25
+NextLoopBound25:
+    On Error GoTo LoopBoundFail25
+    TestGenVerifyLoopBound25
+NextPlan25:
+    On Error GoTo PlanFail25
+    TestGenPlanTable25
 NextDone25:
     On Error GoTo 0
     Exit Sub
 
 SwapFail25:
     modTestRunner.Check "TestDiversitySwapPick25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextVerdict25
+VerdictFail25:
+    modTestRunner.Check "TestGenParseVerdict25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextLoopBound25
+LoopBoundFail25:
+    modTestRunner.Check "TestGenVerifyLoopBound25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPlan25
+PlanFail25:
+    modTestRunner.Check "TestGenPlanTable25(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone25
 End Sub
