@@ -546,6 +546,14 @@
       "wave": "NEXUS-P1"
     },
     {
+      "name": "modInsightCard",
+      "path": "src/ui/modInsightCard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-3",
+      "note": "洞察カード保存(💾この会話を本棚に保存)。回答直下の文脈アクション行の7個目から呼ばれ、直前1往復(質問+回答)をmodVault.RegisterKnowledgeText(=TEMPへUTF-8 txt→modShelf.IngestFile『self』)という既存のテキスト直取込経路へ流し、チャンク分割→埋め込み→my_knowledge/manifest登録まで一本道で済ませる(新しい取込実装は書かない。modChunker/modShelf/modShelfStoreは凍結・逼迫のため不触)。汚染防止は凍結制約下(modRetrieve/modPrompts不触)で成立する出所ラベル層の2枚重ね: 資料名を『💭考察メモ_題名』に固定(検索結果・出典表示・本棚カードの全てで一次資料と一目で区別が付く)+本文冒頭に『一次資料ではない/出典として扱わない』定型文(冪等)。題名はInputBox(既定=質問の先頭24字)、キャンセル・失敗・成功をusage_log(insight_cancel/insight_save_fail/insight_saved)へ必ず記録する。同じ題名のメモが既にあるときは上書き確認を出す(黙って前のメモが消えない)。純関数(DocNameFor/TitleFromQuestion/SafeTitle/WithMemoNotice/MemoBody)はmodTestsPure25から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。"
+    },
+    {
       "name": "modAppAct",
       "path": "src/ui/modAppAct.bas",
       "role": "core",
