@@ -517,6 +517,18 @@ PURE_ALLOWLIST = [
     #   切り詰め境界とヘッダー冪等性のゴールデンが
     #   「テストを書いても走らない」状態になる。
     "modConvBridge",
+    # modInsightCard(2026-08-11 R26-3): 洞察カード保存(💾この会話を本棚に保存)。
+    #   テストが呼ぶのは DocNameFor(資料名=💭考察メモ_題名)/TitleFromQuestion
+    #   (既定題名=質問の先頭24字)/SafeTitle(ファイル名禁止文字と長さ)/
+    #   MemoNotice・WithMemoNotice(汚染防止の定型文と冪等性)/MemoBody
+    #   (本文の組み立て)の6本で、いずれも文字列処理だけ(Excel/COMに触れない。
+    #   modConvBridge/modAskThorough と同じ「モジュール全体はR4準拠ではないが、
+    #   テストが呼ぶ関数自体はExcelに触れない」型。InputBox・取込パイプライン・
+    #   Shapeに触れる SaveLastTurn はテストから呼ばない)。
+    #   TitleFromQuestion/SafeTitle が呼ぶ modUtil.SafeLeft は既に注入済み。
+    #   未注入のまま modTestsPure25 から呼ぶと実行時エラー12になり、汚染防止の
+    #   資料名と定型文のゴールデンが「テストを書いても走らない」状態になる。
+    "modInsightCard",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

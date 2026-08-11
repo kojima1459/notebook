@@ -331,6 +331,106 @@ Private Sub TestConvBridgeCore25()
         (InStr(oa, "一般アシスタント") > 0), oa
 End Sub
 
+' ----------------------------------------------------------------------------
+' R26-3(1): modInsightCard — 資料名と既定題名の生成。
+'   資料名の先頭が💭考察メモ_であることは、凍結制約下(modRetrieve/modPrompts
+'   不触)で唯一成立する汚染防止の防御層そのもの。ここが緩むと、AIとの対話から
+'   生まれた考察が一次資料と同じ顔で検索結果・出典に並ぶ。
+' ----------------------------------------------------------------------------
+Private Sub TestInsightDocName25()
+    Dim memo As String: memo = ChrW(&HD83D) & ChrW(&HDCAD) & "考察メモ_"
+    modTestRunner.Check "R26-3_資料名は考察メモ絵文字+考察メモ_題名", _
+        (modInsightCard.DocNameFor("契約の免責") = memo & "契約の免責"), _
+        modInsightCard.DocNameFor("契約の免責")
+    ' 先頭2文字(サロゲートペア)が💭であること=本棚カード・出典表示に出る印。
+    modTestRunner.Check "R26-3_資料名の先頭は考察メモ絵文字(サロゲートペア)", _
+        (Left$(modInsightCard.DocNameFor("X"), 2) = ChrW(&HD83D) & ChrW(&HDCAD)), _
+        modInsightCard.DocNameFor("X")
+    ' 資料名の生成も禁止文字処理を必ず通る(題名を素通しさせない)。
+    modTestRunner.Check "R26-3_資料名の題名も禁止文字が置換される", _
+        (modInsightCard.DocNameFor("A/B") = memo & "A_B"), _
+        modInsightCard.DocNameFor("A/B")
+
+    ' 既定題名=質問の先頭24字(spec §3)。
+    Dim q As String
+    q = "約款の免責事由について教えてください。特に地震の扱いが知りたいです。"
+    modTestRunner.Check "R26-3_既定題名は質問の先頭24字と一致", _
+        (modInsightCard.TitleFromQuestion(q) = Left$(q, 24)), _
+        modInsightCard.TitleFromQuestion(q)
+    modTestRunner.Check "R26-3_既定題名の長さは24字", _
+        (Len(modInsightCard.TitleFromQuestion(q)) = 24), _
+        "len=" & Len(modInsightCard.TitleFromQuestion(q))
+    modTestRunner.Check "R26-3_24字以下の質問はそのまま既定題名になる", _
+        (modInsightCard.TitleFromQuestion("免責とは何ですか") = "免責とは何ですか"), _
+        modInsightCard.TitleFromQuestion("免責とは何ですか")
+    ' 改行・タブは空白へ潰す(InputBoxの既定値が複数行になると編集できない)。
+    modTestRunner.Check "R26-3_既定題名の改行は空白へ潰す", _
+        (modInsightCard.TitleFromQuestion("免責とは" & vbLf & "何ですか") = "免責とは 何ですか"), _
+        modInsightCard.TitleFromQuestion("免責とは" & vbLf & "何ですか")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26-3(2): modInsightCard.SafeTitle — 題名の禁止文字処理。
+'   題名はそのまま一時ファイル名になり(modVault.RegisterKnowledgeText の
+'   docBase)、そのファイル名が本棚の資料名になる。禁止文字が1つ残るだけで
+'   書き出しが失敗し、保存が丸ごと落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestInsightSafeTitle25()
+    modTestRunner.Check "R26-3_ファイル名禁止文字は全て_へ", _
+        (modInsightCard.SafeTitle("A\B/C:D*E?F""G<H>I|J") = "A_B_C_D_E_F_G_H_I_J"), _
+        modInsightCard.SafeTitle("A\B/C:D*E?F""G<H>I|J")
+    modTestRunner.Check "R26-3_タブ・改行も_へ", _
+        (modInsightCard.SafeTitle("A" & vbTab & "B" & vbLf & "C") = "A_B_C"), _
+        modInsightCard.SafeTitle("A" & vbTab & "B" & vbLf & "C")
+    ' Windowsは末尾がドット/空白のファイルを作れない(作れても開けない)。
+    modTestRunner.Check "R26-3_末尾のドットと空白は落とす", _
+        (modInsightCard.SafeTitle("  メモ. . ") = "メモ"), _
+        "[" & modInsightCard.SafeTitle("  メモ. . ") & "]"
+    modTestRunner.Check "R26-3_ドットだけの題名は空になる(呼び出し側が断る)", _
+        (LenB(modInsightCard.SafeTitle("...")) = 0), _
+        "[" & modInsightCard.SafeTitle("...") & "]"
+    ' 40字上限(接頭辞7字を足しても modVault.SanitizeName の60字で切られない)。
+    Dim long50 As String: long50 = String$(50, "あ")
+    modTestRunner.Check "R26-3_題名は40字で切る", _
+        (Len(modInsightCard.SafeTitle(long50)) = 40), _
+        "len=" & Len(modInsightCard.SafeTitle(long50))
+    modTestRunner.Check "R26-3_40字以下の題名は切らない", _
+        (modInsightCard.SafeTitle("免責事由") = "免責事由"), _
+        modInsightCard.SafeTitle("免責事由")
+End Sub
+
+' ----------------------------------------------------------------------------
+' R26-3(3): modInsightCard — 汚染防止の定型文(冪等)と本文の組み立て。
+'   同じ会話を2回保存しても定型文が積み重ならないこと=modConvBridge の
+'   出所ヘッダーと同じ性質。積み重なると、本文の頭が注意書きで埋まって
+'   1チャンク目の中身が痩せる。
+' ----------------------------------------------------------------------------
+Private Sub TestInsightNotice25()
+    Dim notice As String: notice = modInsightCard.MemoNotice()
+    modTestRunner.Check "R26-3_定型文は一次資料ではないと明言する", _
+        (InStr(notice, "一次資料ではありません") > 0 And InStr(notice, "出典として扱わず") > 0), _
+        notice
+
+    Dim once As String: once = modInsightCard.WithMemoNotice("本文")
+    modTestRunner.Check "R26-3_定型文は本文の冒頭に付く", _
+        (Left$(once, Len(notice)) = notice And InStr(once, "本文") > 0), once
+    modTestRunner.Check "R26-3_定型文の付与は冪等(2回でも1回ぶん)", _
+        (modInsightCard.WithMemoNotice(once) = once), _
+        "len=" & Len(modInsightCard.WithMemoNotice(once)) & "/" & Len(once)
+
+    Dim body As String: body = modInsightCard.MemoBody("免責とは?", "免責は…です。")
+    modTestRunner.Check "R26-3_本文は定型文で始まる", _
+        (Left$(body, Len(notice)) = notice), Left$(body, 20)
+    modTestRunner.Check "R26-3_本文に質問と回答の両方が入る", _
+        (InStr(body, "免責とは?") > 0 And InStr(body, "免責は…です。") > 0), body
+    modTestRunner.Check "R26-3_本文の見出しは質問と回答を分ける", _
+        (InStr(body, "■ 質問") > 0 And InStr(body, "■ AIの回答") > 0), body
+    ' 二重保存でも定型文は1つ(MemoBodyの結果をもう一度包んでも増えない)。
+    modTestRunner.Check "R26-3_本文を再度包んでも定型文は増えない", _
+        (modInsightCard.WithMemoNotice(body) = body), _
+        "len=" & Len(modInsightCard.WithMemoNotice(body)) & "/" & Len(body)
+End Sub
+
 ' ============================================================================
 Public Sub RunAll25()
     On Error GoTo SwapFail25
@@ -353,6 +453,15 @@ NextBridgeHeader25:
 NextBridgeCore25:
     On Error GoTo BridgeCoreFail25
     TestConvBridgeCore25
+NextInsightName25:
+    On Error GoTo InsightNameFail25
+    TestInsightDocName25
+NextInsightTitle25:
+    On Error GoTo InsightTitleFail25
+    TestInsightSafeTitle25
+NextInsightNotice25:
+    On Error GoTo InsightNoticeFail25
+    TestInsightNotice25
 NextDone25:
     On Error GoTo 0
     Exit Sub
@@ -383,6 +492,18 @@ BridgeHeaderFail25:
     Resume NextBridgeCore25
 BridgeCoreFail25:
     modTestRunner.Check "TestConvBridgeCore25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextInsightName25
+InsightNameFail25:
+    modTestRunner.Check "TestInsightDocName25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextInsightTitle25
+InsightTitleFail25:
+    modTestRunner.Check "TestInsightSafeTitle25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextInsightNotice25
+InsightNoticeFail25:
+    modTestRunner.Check "TestInsightNotice25(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone25
 End Sub
