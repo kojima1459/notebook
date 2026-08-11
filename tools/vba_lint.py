@@ -1305,6 +1305,10 @@ CONTRACT: dict[str, dict] = {
             "DrawActions", "ClearConfidence", "DrawConfidence", "ClearActions",
             "OnActBad", "OnActDrill", "OnActResolve", "OnActUnsure", "OnActWord",
             "OnActCopy",
+            # OnActSaveInsight(2026-08-11 R26-3): 💾この会話を本棚に保存。
+            # 文脈アクション行の7個目として配線されるハンドラで、他のOnAct*と
+            # 同じ再入の関所だけを持ち、実体は modInsightCard.SaveLastTurn。
+            "OnActSaveInsight",
             "ArmFollowup", "ConsumeArmedFollowup", "RedrawFollowupChip",
             "OnFollowupChipOff", "GateUsesGeneralHistory",
         ],

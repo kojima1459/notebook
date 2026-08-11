@@ -598,22 +598,26 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
     ' (入力を求めた途端に誰も押さなくなる)。「本社照会」は削除した ――
     ' 常に「準備中です」としか返らないボタンが全回答の下に並んでいると、
     ' 利用者は「他も見せかけかもしれない」と学習する。
+    ' R26-3: 7個目に💾保存(この会話を考察メモとして本棚へ)。実体は
+    ' modInsightCard で、ここは配列に1要素足すだけ=描画・境界(SettleChatの
+    ' 内側)・掃除(nx_act_接頭辞)の全てを既存の文法にそのまま乗せる。
     caps = Array(ChrW(&H2705) & " 解決した", _
                  ChrW(&HD83E) & ChrW(&HDD14) & " 微妙", _
                  ChrW(&H274C) & " 違う", _
                  ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り", _
                  ChrW(&HD83D) & ChrW(&HDCCB) & " コピー", _
-                 ChrW(&HD83D) & ChrW(&HDCC4) & " Word")
-    kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word")
+                 ChrW(&HD83D) & ChrW(&HDCC4) & " Word", _
+                 ChrW(&HD83D) & ChrW(&HDCBE) & " 保存")
+    kinds = Array("resolve", "unsure", "bad", "drill", "copy", "word", "insight")
     acts = Array("OnActResolve", "OnActUnsure", "OnActBad", "OnActDrill", _
-                 "OnActCopy", "OnActWord")
+                 "OnActCopy", "OnActWord", "OnActSaveInsight")
 
     ' R11-B(#30): 固定幅6個の決め打ちをやめ、modChrome.PillWidth+FlowLeftで
     ' 実可視幅(modUIMain.ViewportWidth)基準に流し込む。入り切らない分は
     ' modChrome.FlowLeftが段を増やして下へ流す(画面外へ見切れない)。
-    Dim widths(0 To 5) As Double
+    Dim widths(0 To 6) As Double
     Dim i As Long
-    For i = 0 To 5
+    For i = 0 To 6
         widths(i) = modChrome.PillWidth(CStr(caps(i)), 13, 16, 40)
     Next i
     Dim maxX As Double
@@ -621,10 +625,10 @@ Public Sub DrawContextActions(ByVal ws As Worksheet, ByVal bubbleName As String)
 
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
-    rowN = modChrome.FlowLeft(widths, 6, anchor.Left, maxX, 5, xs, rws, useW)
+    rowN = modChrome.FlowLeft(widths, 7, anchor.Left, maxX, 5, xs, rws, useW)
     If rowN < 1 Then rowN = 1
 
-    For i = 0 To 5
+    For i = 0 To 6
         Dim rowY As Double: rowY = y + rws(i) * (ACT_H + 6)
         ' 1個の1004で残りを道連れにしない(実機で繰り返した描画中断の教訓)。
         On Error Resume Next

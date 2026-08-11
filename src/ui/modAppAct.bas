@@ -63,6 +63,19 @@ Public Sub ClearActions()
     On Error GoTo 0
 End Sub
 
+' 💾 保存(R26-3): この会話(直前1往復)を考察メモとして本棚へ入れる。
+' 実体は modInsightCard(取込・題名・汚染防止の定型文)。ここは他の
+' OnAct* と同じ再入の関所(取込中は断る/走っている間は二重に受けない)
+' だけを持つ入口で、本体が長時間(埋め込み生成)走るため Leave は必ず通す。
+Public Sub OnActSaveInsight()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modInsightCard.SaveLastTurn
+    On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
 ' ❌ 違う: まずシグナルだけ1クリックで確定させ、修正入力は任意で聞く。
 ' 入力を先に要求すると、面倒が勝って誰も押さなくなる(旧実装の失敗)。
 ' 書いてくれた人にはEXPとバッジで明確に報いる。
