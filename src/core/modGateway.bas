@@ -574,6 +574,15 @@ End Function
 ' 『続けて質問』のUXが、mock環境でも本物同様に一巡できるようにするため。
 ' V2 modRibbonGateway のmock検証応答と同じ流儀)。
 Private Function MockLLMResponse(ByVal prompt As String, ByVal step_name As String) As String
+    ' R26-2 同梱1(波A裁定): mockでもPASS早期終了経路を通す。査読ペルソナの
+    ' 冒頭文字列(modGenPipe.VerifyPrompt)を含むときはstep_nameに関わらず
+    ' verdict:PASSを返す。Case Elseの汎用ダミーはPASS_TOKENと一致しないため、
+    ' これが無いとmock(dev)では入念モードの検証ループが常に上限まで回り、
+    ' 早期終了(PASS)の経路が一度も動作確認できない。
+    If InStr(prompt, "あなたは起草者とは別の査読者です") > 0 Then
+        MockLLMResponse = "verdict:PASS"
+        Exit Function
+    End If
     Select Case LCase$(step_name)
         Case "quick_draft"
             MockLLMResponse = "【モック回答/すぐ聞く】" & vbLf & _
