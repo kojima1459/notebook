@@ -573,6 +573,9 @@ NextInsightTitle25:
 NextInsightNotice25:
     On Error GoTo InsightNoticeFail25
     TestInsightNotice25
+NextRun26:
+    On Error GoTo Run26Fail25
+    modTestsPure26.RunAll26
 NextDone25:
     On Error GoTo 0
     Exit Sub
@@ -619,6 +622,10 @@ InsightTitleFail25:
     Resume NextInsightNotice25
 InsightNoticeFail25:
     modTestRunner.Check "TestInsightNotice25(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun26
+Run26Fail25:
+    modTestRunner.Check "modTestsPure26.RunAll26(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone25
 End Sub

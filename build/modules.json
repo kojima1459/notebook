@@ -1049,6 +1049,14 @@
       "note": "R27H(敵対的レビュー裁定Fix波)の純ロジック回帰。modTestsPure24(28,068字)は30,000字上限まで残り1,932字しかなく、F3(私用領域の化け検出)とF5(行頭インデント温存)の追随でその枠を使い切るため新設した分割先(憲章§4-6。modTestsPure21がR20H Fix波用に新設されたのと同型)。F1: modSparse.DiversitySwapPickの3分岐((i)2資料混在は無介入/(ii)1資料hits+pool別資料ありは最下位1件だけ差し替え/(iii)pool別資料なしは無介入)+hits1件・空資料名の防御を固定する。modTestsPure24.RunAll24末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure26",
+      "path": "src/test/modTestsPure26.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R26H",
+      "note": "R26H F8レビューFix(提案a)の純ロジック回帰。modTestsPure25(残650字)には収まらないため新設した分割先(憲章§4-6と同型)。modInsightCard.PickFullerAnswer(hist_a=700字で切られている可能性のある回答/fullA=modAsk.LastAnswerText()のフル本文、のどちらを考察メモへ採用するか)の3分岐を固定する: (1)hist_aが切られていてfullAが同一ターン(先頭一致)→フル採用 (2)fullAがhist_aを含まない別ターン→hist_a採用(混成防止は維持) (3)hist_aが空→フル採用。modTestsPure25.RunAll25末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsExcel",
       "path": "src/test/modTestsExcel.bas",
       "role": "test",
