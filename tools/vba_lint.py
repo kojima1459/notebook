@@ -1479,6 +1479,12 @@ CONTRACT: dict[str, dict] = {
     #   会話履歴(mGenPrevU/mGenPrevA)のゲート判定と、OnClearChat用の消去窓口。
     # ShouldClearGeneralHistory(2026-08-06 R20-2e): followup_max_pairs<=0の境界
     #   判定だけを純関数へ出す(LOテスト対象)。
+    # SetGeneralMemory/BridgeConvMemory/ThoroughPreNotice(2026-08-11 R26-2波B):
+    #   会話メモリ橋渡し(modConvBridge)の受け口。SetGeneralMemoryは
+    #   mGenPrevU/mGenPrevAを外部から差し替える窓口、BridgeConvMemoryは
+    #   modApp.OnToggleModeから1行で呼ばれる橋渡しの実体(modApp残容量が
+    #   乏しいため書き込み・トーストをここへ集約)、ThoroughPreNoticeは
+    #   入念モード事前案内のsendMode別出し分け(同梱2・波A裁定)。
     "modAppState": {
         "closed": True,
         "required": [
@@ -1488,6 +1494,7 @@ CONTRACT: dict[str, dict] = {
             "UpdateModeButton", "ReadInputCell", "RestoreInputCell",
             "ClearInputCell", "ReadUiState", "WriteUiState",
             "HasGeneralMemory", "ClearGeneralMemory", "ShouldClearGeneralHistory",
+            "SetGeneralMemory", "BridgeConvMemory", "ThoroughPreNotice",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・
