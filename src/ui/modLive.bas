@@ -123,6 +123,18 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
 
     If Not grounded Then
         Footer = t & " ・ 社内資料は未使用"
+        ' R26H F1(出荷ブロッカー B-1): 一般アシスタントは modApp.OnSend で
+        ' grounded を一度も True にしないため、必ずこの早期脱出を通る。
+        ' 下の「検証n回」追記(R26-1)はこの先にあり、一度も実行されていなかった
+        ' =入念で検証を3回まわしても、画面上の見え方が すぐ聞く と1字も
+        ' 変わらない(3段化そのものが利用者から不可視)。抜ける前にここで足す。
+        ' RAG側で grounded=False になるのは0件回答のときで、そちらは
+        ' mode<>"normal" なので modGenPipe は必ず空を返す(表示は1字も動かない)。
+        If LCase$(Trim$(mode)) = "normal" Then
+            On Error Resume Next
+            Footer = Footer & modGenPipe.VerifyFooterNote()
+            On Error GoTo 0
+        End If
         Exit Function
     End If
 
@@ -141,18 +153,16 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
     ' 直前の質問がRAGモードだったとき、その段数が一般アシスタントの
     ' 回答フッターへそのまま漏れて出ていた(モード間リーク)。normalのときは
     ' 参照自体をしない(層をここで閉じる)。
+    '
+    ' R26H F1: ここへ到達するのは grounded=True のとき【だけ】で、それは
+    ' 社内ナレッジ検索(RAG)の経路に限られる。旧コードはこの If に Else を
+    ' 付けて「検証n回」を足していたが、その枝は到達不能なデッドコードだった
+    ' (一般アシスタントは上の早期脱出で必ず抜ける)。追記は上へ移し、
+    ' ここは RAG 側の段数だけを扱う=1つの表示を2箇所で作らない。
     Dim stg As Long
     If LCase$(Trim$(mode)) <> "normal" Then
         On Error Resume Next
         stg = modAskRetrieve.LastStageTotal()
-        On Error GoTo 0
-    Else
-        ' R26-1(2026-08-11): 一般アシスタントの「入念に聞く」だけ検証周回数を
-        ' 出す。RAG側の段数(上のstg)とは別系統で、両方が同時に出ることはない
-        ' (modGenPipe は一般アシスタント以外では必ず空を返す)。ここを共通の
-        ' 追記にすると、上のFA-8で塞いだモード間リークを反対向きに作り直す。
-        On Error Resume Next
-        Footer = Footer & modGenPipe.VerifyFooterNote()
         On Error GoTo 0
     End If
     If stg > 0 Then Footer = Footer & "(" & stg & "段)"
@@ -162,7 +172,11 @@ End Function
 ' RAGの3モードはmodMode.Captionを単一情報源にする=表記が2箇所に分かれない)。
 Private Function ModeLabel(ByVal mode As String, ByVal speed As String) As String
     If LCase$(Trim$(mode)) = "normal" Then
-        ModeLabel = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント"
+        ' R26H F1: 一般アシスタントも R26-1 で3段(すぐ聞く/しっかり/入念)に
+        ' なった。名前だけを出していた頃は「どの段で答えたか」がどこにも
+        ' 出ず、3段化そのものが利用者から見えなかった。速さ側の表記は
+        ' modMode.Caption を単一情報源にする(RAG側と表記が割れない)。
+        ModeLabel = ChrW(&HD83C) & ChrW(&HDF10) & " 一般アシスタント・" & modMode.Caption(speed)
     Else
         ModeLabel = modMode.Caption(speed)
     End If
