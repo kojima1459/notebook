@@ -318,10 +318,11 @@ Public Sub CycleSkin()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
     ' 2026-08-06(R20-7a): 既定skinを"msad"に。旧既定"light"は着せ替えの1枚として残す。
+    ' R29 W2-4: 巡回2番目を"dark"へ(1回押した時点で必ず視覚差が出るように)。
     Dim orderList As Variant
-    orderList = Array("msad", "light", "dark", "sakura", "ocean", "gold")
+    orderList = Array("msad", "dark", "light", "sakura", "ocean", "gold")
     Dim labels As Variant
-    labels = Array("MS&AD スタンダード", "ライト(旧配色)", "ダークモード", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
+    labels = Array("MS&AD スタンダード", "ダークモード", "ライト(旧配色)", "サクラ・ピンク", "オーシャン・ブルー", "エグゼクティブ・ゴールド")
 
     Dim cur As String: cur = EffectiveSkin(CurrentTheme())
     Dim curIdx As Long: curIdx = 0
