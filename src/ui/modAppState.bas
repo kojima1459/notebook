@@ -130,12 +130,17 @@ End Sub
 ' 非対称。凍結モジュール制約下の現実解)。引き継がれたと思って質問した人が
 ' 「覚えていない」と感じるのは、この一文が先に嘘をついているため。
 ' できることだけを言い、次の一手を名指しする。
+'
+' R29 W1-6: 「直前の1往復」という件数の明示をやめた。R28 で運搬は
+' followup_max_pairs 件(既定5往復)まで広がったのに、この文言だけが1往復の
+' ままで残り、利用者に「1往復しか渡らない」と読ませていた(誤表記)。件数は
+' config で動くので、文言では件数を言わない。シグネチャは不変。
 Public Function BridgeToastText(ByVal toMode As String) As String
     If toMode = "rag" Then
-        BridgeToastText = "直前の1往復を保存しました。続きとして聞くには " & _
+        BridgeToastText = "直前の会話を保存しました。続きとして聞くには " & _
             ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り(続けて質問)を押してください"
     Else
-        BridgeToastText = "文脈を引き継ぎました(直前の1往復)。新しく始めるなら " & _
+        BridgeToastText = "直前の会話を引き継ぎました。新しく始めるなら " & _
             ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
     End If
 End Function
@@ -237,7 +242,9 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
           "・Markdown記号(#、**、`、表)は使わない(この画面では装飾されない)。" & _
           "見出しは「■ 」、箇条書きは「・」、最重要語だけ【 】で囲む。1ブロック3行以内。" & vbLf & _
           "・全体はおおむね200～400字。言い換えの繰り返しや締めの挨拶は書かない。" & vbLf & _
-          "・専門用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。"
+          "・専門用語には短い補足を()で添え、初めて読む人にも一度で伝わる言葉を選ぶ。" & vbLf & _
+          "・直前の会話が示されている場合は、その続きとして答える。" & _
+          "「これ」「その」「さっきの」等の指示語は直前の会話の内容を指すものとして解釈する。"
     If LenB(extraRules) > 0 Then sys = sys & vbLf & extraRules
 
     Dim lat As Long
