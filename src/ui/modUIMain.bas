@@ -330,7 +330,7 @@ End Sub
 ' IsHomeActive - R28 W3-4: SH_HOME(Hub)が今アクティブか(幽霊文字ガード用)。
 Private Function IsHomeActive() As Boolean
     On Error Resume Next
-    IsHomeActive = (ActiveSheet.Name = modAppDef.SH_HOME)
+    IsHomeActive = (ThisWorkbook.ActiveSheet.Name = modAppDef.SH_HOME)
     On Error GoTo 0
 End Function
 
