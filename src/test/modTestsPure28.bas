@@ -235,9 +235,11 @@ Private Sub TestConvBridgeCarryFivePairs28()
         (Left$(modConvBridge.FirstPair(outA), Len("【直前の")) = "【直前の"), "outA=" & outA
 End Sub
 
-' (E-2) 運搬総量20,000字クランプ: 1往復3,500字級を6件渡すと、総量を超える
-'       最も古い1件(P6)が切り捨てられ5件になる。A側は短文のみでmaxPairs6を
-'       満たし(クランプ非発動)、Q/Aそれぞれ独立にクランプすることを確かめる。
+' (E-2) 運搬総量20,016字クランプ(R28H F9で20,000から引き上げ): 1往復3,500字級を
+'       6件渡すと総量を超える最も古い1件(P6)が切り捨てられ5件になる
+'       (5件で 3500 + 3503×4 = 17,512字。6件目は +3,503 で 21,015字 > 20,016)。
+'       A側は短文のみでmaxPairs6を満たし(クランプ非発動)、Q/Aそれぞれ独立に
+'       クランプすることを確かめる。
 Private Function PairText28(ByVal idx As Long, ByVal totalLen As Long) As String
     Dim tag As String: tag = "P" & idx & "_"
     PairText28 = tag & String(totalLen - Len(tag), "x")
@@ -265,6 +267,22 @@ Private Sub TestConvBridgeTotalClamp28()
         (InStr(outQ, "P1_") > 0), ""
     modTestRunner.Check "R28-W3-6_総量クランプ_Aはクランプ非該当で6件", _
         (PairsCount28(outA) = 6), "count=" & PairsCount28(outA)
+
+    ' R28H F9(m-5): 既定の上限いっぱい(1往復MAX_CARRY_CHARS=4,000字 × 5往復)が
+    ' 総量クランプに弾かれずに入ること。旧値20,000では必要量20,012字
+    ' (4,000×5 + 区切り3字×4)に12字足りず、5件目が黙って落ちていた。
+    Dim srcQ2 As String
+    For i = 1 To 6
+        If i > 1 Then srcQ2 = srcQ2 & ";;;"
+        srcQ2 = srcQ2 & PairText28(i, 4000)
+    Next i
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, srcQ2, "a1", "", "", 6, outQ, outA)
+    modTestRunner.Check "R28H-F9_4000字×5往復が総量クランプに落ちない", _
+        (PairsCount28(outQ) = 5), "count=" & PairsCount28(outQ)
+    modTestRunner.Check "R28H-F9_運搬総量はちょうど20012字", _
+        (Len(outQ) = 20012), "len=" & Len(outQ)
+    modTestRunner.Check "R28H-F9_20016でも6件目は入らない", _
+        (InStr(outQ, "P6_") = 0), "len=" & Len(outQ)
 End Sub
 
 ' (E-3) 二重挿入防止: 切替先の先頭に運搬内容と同じ往復が既にあれば挿入しない
