@@ -41,6 +41,8 @@ Private Const KIND_SOURCE As String = "source"
 Private Const KIND_TOPIC As String = "topic"
 ' 番号だけの返答とみなす最大文字数(これを超えたら文章とみなす)。
 Private Const MAX_CHOICE_CHARS As Long = 6
+' 意図の選択肢の数(①～⑤)。ParseClarifyReply の範囲判定が唯一の持ち主。
+Private Const MAX_INTENT As Long = 5
 Private Const K_PENDING_AT As String = "clarify_at"      ' 保留を作った時刻(有効期限判定用)
 
 ' 保留の有効期限(分)。これを過ぎた聞き返しは無かったことにする。
@@ -269,10 +271,20 @@ Public Function MergeAnswer(ByVal reply As String) As String
     '
     ' 番号選択は「番号だけを短く打った」ときに限る。それ以外は書き直しとして
     ' 打った文章をそのまま優先する。
+    ' R28 W2-1: 番号の読み取りは ParseClarifyReply 1本に統一(全角・丸数字の
+    ' 取りこぼしが「対象の資料:」の欠落を生んでいた)。ここは番号→文言の変換だけ。
     Dim srcPick As String, intentPick As String
+    Dim parts() As String
+    Dim nSrc As Long
     If IsNumberChoiceOnly(r) Then
-        srcPick = PickSource(r, srcList)
-        intentPick = PickIntent(r)
+        If LenB(srcList) > 0 Then
+            parts = Split(srcList, "|")
+            nSrc = UBound(parts) - LBound(parts) + 1
+        End If
+        Dim srcIdx As Long, intentIdx As Long
+        ParseClarifyReply r, nSrc, srcIdx, intentIdx
+        If srcIdx >= 1 And srcIdx <= nSrc Then srcPick = Trim$(parts(LBound(parts) + srcIdx - 1))
+        intentPick = IntentText(intentIdx)
     End If
 
     ' 番号がひとつも読み取れない=自分の言葉で書き直した、と解釈する。
@@ -395,43 +407,120 @@ Private Function IsChoiceSeparator(ByVal cp As Long) As Boolean
     End Select
 End Function
 
-Private Function PickSource(ByVal reply As String, ByVal srcList As String) As String
-    If LenB(srcList) = 0 Then Exit Function
-    Dim parts() As String
-    parts = Split(srcList, "|")
+' ----------------------------------------------------------------------------
+' ParseClarifyReply - 逆質問(資料+意図)への返事から番号を2つ読み取る(純関数)。
+'   reply     : 利用者の返事。「2-②」「１－①」「①」「0」「3」「2-3」等。
+'   nSrc      : 提示した資料の件数(0=資料の選択肢を出していない)。
+'   srcIdx    : (out) 資料番号 1..nSrc。読めない・範囲外・「0」のときは 0。
+'   intentIdx : (out) 意図番号 1..MAX_INTENT。読めないときは 0。
+'   戻り値    : どちらか1つでも読めたら True。
+' ----------------------------------------------------------------------------
+' 2026-08-12(R28 W2-1・実機第13報②「逆質問が断線する」): 旧 PickSource は
+' 【半角数字の出現位置】しか見ておらず、全角「２」や丸数字だけで答えた人の資料
+' 選択が丸ごと消えていた。IsNumberChoiceOnly は全角・丸数字を受理するため、
+' 「番号選択である」とは判定されるのに資料だけ拾えず、合成後の質問から
+' 「対象の資料:」の1行が黙って落ちる(番号で答えたのに絞り込まれない)。
+'
+' 正規化(全角０-９→半角・①-⑳→数値・区切りの許容範囲)は
+' modRagParse.ParseChoiceNumbers が唯一の持ち主で、ここでは写経しない
+' (規則が2実装に分かれた結果が上の断線そのもの)。ただしあちらの戻り値は
+' 「丸数字だったか」を落とし、同じ番号を2度返さない。前処理は2つだけ:
+'   (1) 丸数字を先に別枠へ抜き、本文では区切りへ置き換える=「①」1つの返事を
+'       資料番号1と読み違えない(丸数字は常に意図番号、が逆質問の表記契約)。
+'   (2) 「-」類で資料側/意図側へ割ってから別々に渡す=「2-2」が重複除去で
+'       1つに畳まれるのを防ぐ。
+Public Function ParseClarifyReply(ByVal reply As String, ByVal nSrc As Long, _
+                                  ByRef srcIdx As Long, ByRef intentIdx As Long) As Boolean
+    srcIdx = 0
+    intentIdx = 0
 
+    ' (1) 丸数字を抜き出し、本文からは区切りへ置き換える。
+    Dim plain As String, circled As Long
     Dim i As Long
-    For i = 0 To UBound(parts)
-        Dim num As String: num = CStr(i + 1)
-        ' 「2-②」「2.」「2 」等に耐える: 半角数字の出現位置だけを見る。
-        If InStr(1, reply, num) > 0 Then
-            ' ①～⑤に含まれる数字と誤認しないよう、半角数字のみを対象にする。
-            PickSource = parts(i)
-            Exit Function
+    For i = 1 To Len(reply)
+        Dim ch As String: ch = Mid$(reply, i, 1)
+        Dim cp As Long: cp = AscW(ch)
+        If cp < 0 Then cp = cp + 65536          ' AscWは符号付きで返る
+        If cp >= 9312 And cp <= 9331 Then       ' ①-⑳
+            If circled = 0 Then circled = cp - 9312 + 1
+            plain = plain & " "
+        Else
+            plain = plain & ch
         End If
+    Next i
+
+    ' (2) 「-」類で資料側/意図側へ割る。無ければ全体を資料側として読む。
+    Dim head As String, tail As String
+    Dim p As Long: p = HyphenPos(plain)
+    If p > 0 Then
+        head = Left$(plain, p - 1)
+        tail = Mid$(plain, p + 1)
+    Else
+        head = plain
+    End If
+
+    ' 上限は資料と意図の大きい方に合わせる(あちらは範囲外を黙って捨てるため、
+    ' nSrc だけにすると「2-5」の意図5が消える)。範囲の最終判定はこちらで持つ。
+    Dim maxN As Long: maxN = nSrc
+    If maxN < MAX_INTENT Then maxN = MAX_INTENT
+
+    Dim listHead As String
+    listHead = modRagParse.ParseChoiceNumbers(head, maxN)
+
+    Dim n1 As Long, n2 As Long
+    n1 = NthChoice(listHead, 1)
+    If p > 0 Then
+        n2 = NthChoice(modRagParse.ParseChoiceNumbers(tail, MAX_INTENT), 1)
+    Else
+        n2 = NthChoice(listHead, 2)     ' 「2 3」のように区切り無しで2つ打つ形
+    End If
+
+    ' 1個目=資料番号。1..nSrc の外(「0. この中にない」を含む)は採らない。
+    If n1 >= 1 And n1 <= nSrc Then srcIdx = n1
+
+    ' 意図は丸数字が最優先。無ければ2個目の数(「2-3」の 3)。
+    If circled >= 1 And circled <= MAX_INTENT Then
+        intentIdx = circled
+    ElseIf n2 >= 1 And n2 <= MAX_INTENT Then
+        intentIdx = n2
+    End If
+
+    ParseClarifyReply = (srcIdx > 0 Or intentIdx > 0)
+End Function
+
+' 資料側と意図側を割る「-」類(半角- / 全角－ / 数学記号− / 長音ー)の最初の位置。
+' 無ければ0。この4字は modRagParse.IsChoiceGap が受理する集合の部分集合。
+Private Function HyphenPos(ByVal s As String) As Long
+    Dim i As Long
+    For i = 1 To Len(s)
+        Dim cp As Long: cp = AscW(Mid$(s, i, 1))
+        If cp < 0 Then cp = cp + 65536
+        Select Case cp
+            Case 45, 65293, 8722, 12540
+                HyphenPos = i
+                Exit Function
+        End Select
     Next i
 End Function
 
-' 返事から意図番号(①～⑤ または 半角1～5の後置)を読み取る。
-Private Function PickIntent(ByVal reply As String) As String
-    If InStr(1, reply, ChrW(&H2460)) > 0 Then PickIntent = INTENT_1: Exit Function
-    If InStr(1, reply, ChrW(&H2461)) > 0 Then PickIntent = INTENT_2: Exit Function
-    If InStr(1, reply, ChrW(&H2462)) > 0 Then PickIntent = INTENT_3: Exit Function
-    If InStr(1, reply, ChrW(&H2463)) > 0 Then PickIntent = INTENT_4: Exit Function
-    If InStr(1, reply, ChrW(&H2464)) > 0 Then PickIntent = INTENT_5: Exit Function
+' ParseChoiceNumbers の戻り("1,3")の n 番目(1始まり)を数で返す。無ければ0。
+Private Function NthChoice(ByVal listS As String, ByVal n As Long) As Long
+    If LenB(listS) = 0 Or n < 1 Then Exit Function
+    Dim a() As String: a = Split(listS, ",")
+    Dim k As Long: k = LBound(a) + n - 1
+    If k > UBound(a) Then Exit Function
+    NthChoice = CLng(Val(a(k)))
+End Function
 
-    ' 全角丸数字が打てない環境向け: 「-3」「 3」のような後置の数字を拾う。
-    Dim p As Long: p = InStr(1, reply, "-")
-    If p < 1 Then p = InStr(1, reply, ChrW(&HFF0D))     ' 全角ハイフン
-    If p >= 1 And p < Len(reply) Then
-        Select Case Trim$(Mid$(reply, p + 1, 1))
-            Case "1": PickIntent = INTENT_1
-            Case "2": PickIntent = INTENT_2
-            Case "3": PickIntent = INTENT_3
-            Case "4": PickIntent = INTENT_4
-            Case "5": PickIntent = INTENT_5
-        End Select
-    End If
+' 意図番号(1..MAX_INTENT)を表示用の文言へ。範囲外は空(=選ばれていない)。
+Private Function IntentText(ByVal idx As Long) As String
+    Select Case idx
+        Case 1: IntentText = INTENT_1
+        Case 2: IntentText = INTENT_2
+        Case 3: IntentText = INTENT_3
+        Case 4: IntentText = INTENT_4
+        Case 5: IntentText = INTENT_5
+    End Select
 End Function
 
 ' ----------------------------------------------------------------------------
