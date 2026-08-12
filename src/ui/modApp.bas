@@ -615,6 +615,7 @@ Public Sub OnToggleMode()
     modAppState.UpdateModeButton
     On Error Resume Next
     modAppState.BridgeConvMemory oldMode, newMode   ' R26-2: 会話メモリの橋渡し
+    modClarify.ClearPending   ' R28H F4: モードを跨いだら逆質問は破棄
     On Error GoTo 0
     ' R13 F3: モードを跨いだら「続きの質問」の武装は捨てる。一般アシスタントには
     ' 会話引き継ぎの意味論が無く、RAGへ戻したときに前の話題が生き返るのも
