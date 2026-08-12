@@ -262,6 +262,7 @@ Public Sub OnSend()
         If LenB(perf) > 0 Then modSkin.ShowToast perf, "info"
     End If
 
+    modUINexusDraw.RedrawInputHint   ' R29 W2-2b
     modUiLock.Leave
     Exit Sub
 

@@ -539,14 +539,8 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。文言決定の実体は
     ' modAppState.InputHintText(R29 W2-2)。逆質問中(HasPending)は入力欄の
     ' 場所を示す文言を最優先で出す(毎描画ここから参照。新規状態変数なし)。
-    Dim hint As String
-    Dim n As Long
-    On Error Resume Next
-    n = modShelf.TotalChunks()
-    On Error GoTo 0
-    hint = modAppState.InputHintText(n)
     With ws.Range("C" & (INPUT_ROW + 1))
-        .Value = hint
+        .Value = CurrentInputHint()
         .Font.Size = 8
         .Font.Color = modUI.UiColor("muted")
         .VerticalAlignment = -4160        ' xlTop
@@ -559,6 +553,29 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     modViewport.ApplyScrollBound ws, NexusBound(ws)
     ' R21-S7: フィット直後の5値観測点(実体は modViewport2.LogChat)。
     modViewport2.LogChat ws
+End Sub
+
+' DrawInputArea/RedrawInputHint共有: ヒント文言の算出(DRY)。
+Private Function CurrentInputHint() As String
+    Dim n As Long
+    On Error Resume Next
+    n = modShelf.TotalChunks()
+    On Error GoTo 0
+    CurrentInputHint = modAppState.InputHintText(n)
+End Function
+
+' RedrawInputHint(R29 W2-2b): 逆質問が表示されたターン/消費されたターンに、
+' ヒント行(C4)だけをInputHintTextの最新値で軽量に再描画する。DrawInputArea
+' 全体(Shape再生成含む)は重く画面のちらつきの元になるため、値の書き換えだけに
+' 絞る。呼び出し元(modApp.OnSend)はNexus表示中しか通らない経路だが、
+' 画面がNexus以外のときに書かないガードを持つ(念のための自己防御)。
+Public Sub RedrawInputHint()
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Nexus")
+    If ws Is Nothing Then Exit Sub
+    If Not (ThisWorkbook.ActiveSheet Is ws) Then Exit Sub
+    ws.Range("C" & (INPUT_ROW + 1)).Value = CurrentInputHint()
+    On Error GoTo 0
 End Sub
 
 ' 文脈アクション: 最新のAI回答バブルの直下にだけ6個のpillを出す。新しい質問の
