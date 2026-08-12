@@ -767,6 +767,7 @@ Public Sub OnClearChat()
     ' 消えて HasTarget=False になるため従来どおり撃てない。
     modAsk.NoteAnswerFailed
     modUIMain.ClearLastAnswerState  ' 「Wordで開く」が消した回答を出さないように
+    modAsk.ResetPrevMemory   ' R28-W4: state だけでは mPrevU 亡霊が残る(M-4)
     modState.SaveState "nexus_ask_prevu", ""
     modState.SaveState "nexus_ask_preva", ""
     modState.SaveState "nexus_hist_u", ""

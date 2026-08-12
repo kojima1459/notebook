@@ -91,6 +91,8 @@ End Sub
 ' preva)はいずれもmodApp.OnClearChatが既存のClearGeneralMemory呼び出しと
 ' 直接SaveStateで無条件に空へ戻す対象と完全に一致する(新規キーを増やして
 ' いない)。橋渡し後にクリアしても前の文脈は復活しない。
+' R28-W4: RAG向きは modAsk のモジュール変数にも直接書くようになったため、
+' OnClearChat 側も modAsk.ResetPrevMemory を呼ぶ(state だけ消すと亡霊が残る)。
 Public Sub BridgeConvMemory(ByVal fromMode As String, ByVal toMode As String)
     On Error Resume Next
     Dim outQ As String, outA As String
@@ -101,6 +103,12 @@ Public Sub BridgeConvMemory(ByVal fromMode As String, ByVal toMode As String)
         modState.SaveState "nexus_gen_prevu", outQ
         modState.SaveState "nexus_gen_preva", outA
     Else
+        ' R28-W4(実機第13報⑥): SaveStateだけでは効かない。modAsk.CanFollowupの
+        ' 遅延ロードは mPrevU が空のときしか ui_state を読まないため、切替前の
+        ' RAG会話がメモリに残っていると、橋渡しした文脈ではなく古い会話が
+        ' 深掘りに使われていた。モジュール変数へ直接渡す。SaveStateは
+        ' 再起動後の復元用として維持する(消さない)。
+        modAsk.SetPrevMemory outQ, outA
         modState.SaveState "nexus_ask_prevu", outQ
         modState.SaveState "nexus_ask_preva", outA
     End If
