@@ -426,6 +426,15 @@ Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
         On Error GoTo 0
         Exit Sub
     End If
+    ' R28H F8(m-3): 黒(0)は modSkin.ResolveColor の「未知のキー」センチネル値
+    ' でもある。テーマ表が壊れた・キー名を打ち間違えた場合に 0 が返り、それを
+    ' そのまま焼くと Normal スタイル=真っ黒になる ―― スタイルは全シート・
+    ' 全セルに効き、保存すればブックへ焼き付くので、画面全体が黒いまま戻せなく
+    ' なる。地色として黒を使うテーマは無いので、0 は異常値として何もしない。
+    If want = 0 Then
+        On Error GoTo 0
+        Exit Sub
+    End If
     ' 現在色の読み出しに失敗する環境(LibreOfficeは既定スタイル名が異なる)でも
     ' 書き込みだけは試す。読めなかったときは冪等ガードを外して素通しにする。
     cur = ws.Parent.Styles("Normal").Interior.Color
