@@ -95,6 +95,9 @@ NextDiffTurn26:
 NextEmpty26:
     On Error GoTo EmptyFail26
     TestPickFullerAnswerEmptyHistA26
+NextRun28:
+    On Error GoTo Run28Fail26
+    modTestsPure28.RunAll28
 NextDone26:
     On Error GoTo 0
     Exit Sub
@@ -109,6 +112,10 @@ DiffTurnFail26:
     Resume NextEmpty26
 EmptyFail26:
     modTestRunner.Check "TestPickFullerAnswerEmptyHistA26(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun28
+Run28Fail26:
+    modTestRunner.Check "modTestsPure28.RunAll28(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone26
 End Sub

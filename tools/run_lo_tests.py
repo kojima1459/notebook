@@ -538,6 +538,17 @@ PURE_ALLOWLIST = [
     #   (19〜25と同型)。テストが呼ぶのは modInsightCard.PickFullerAnswer のみで、
     #   modInsightCard は既にこの一覧に登録済み。
     "modTestsPure26",
+    # modTestsPure28(2026-08-12 R28波2・実機第13報②): 逆質問の番号パーサ
+    #   (modClarify.ParseClarifyReply)とスコープ広げ直しの境界
+    #   (modFollowup.ScopeNeedsWiden/ClarifyScopeKept)の純ロジック回帰。
+    #   modTestsPure26.RunAll26 の末尾が RunAll28 を呼ぶため、未注入だと
+    #   実行時エラー12でW2-1/W2-2のゴールデンが1件も走らない(19〜26と同型)。
+    #   テストが呼ぶのは modClarify(ParseClarifyReply。内部で
+    #   modRagParse.ParseChoiceNumbers を使う)と modFollowup の純関数だけで、
+    #   modClarify/modRagParse/modFollowup はいずれも既にこの一覧に登録済み。
+    #   ClarifyScopeKept は Nothing 渡しの1件だけで、modState/modLog に
+    #   触れる経路(NoteClarifyPick/TakeClarifyScope)はテストから呼ばない。
+    "modTestsPure28",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

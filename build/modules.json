@@ -1049,6 +1049,14 @@
       "note": "R27H(敵対的レビュー裁定Fix波)の純ロジック回帰。modTestsPure24(28,068字)は30,000字上限まで残り1,932字しかなく、F3(私用領域の化け検出)とF5(行頭インデント温存)の追随でその枠を使い切るため新設した分割先(憲章§4-6。modTestsPure21がR20H Fix波用に新設されたのと同型)。F1: modSparse.DiversitySwapPickの3分岐((i)2資料混在は無介入/(ii)1資料hits+pool別資料ありは最下位1件だけ差し替え/(iii)pool別資料なしは無介入)+hits1件・空資料名の防御を固定する。modTestsPure24.RunAll24末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure28",
+      "path": "src/test/modTestsPure28.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R28",
+      "note": "R28波2(実機第13報②「逆質問の断線」)の純ロジック回帰。modTestsPure26(残り僅少)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26と同型)。固定するもの: (A)modClarify.ParseClarifyReply — 逆質問への返事から資料番号と意図番号を読み取る規則。旧PickSourceは半角数字の出現位置しか見ておらず、全角「２」や丸数字だけで答えた人の資料選択が丸ごと消えていた(合成後の質問から「対象の資料:」が落ちる)。半角/全角/丸数字の全組合せ(2-②/１－①/2-3/２－３/2-2/1ー3/2 3)、片方だけの形(①は常に意図・3は資料・0は選択なし)、範囲外の棄却(nSrc超過・意図6以上・2桁・nSrc=0・文章)を固定する。(B)modFollowup.ScopeNeedsWiden — 逆質問で選ばれた資料に絞った検索を採用するか本棚全体へ広げ直すかの境界(0/1件は広げる・2件で採用・-1=埋め込み失敗は広げない)+ClarifyScopeKept(Nothing)は採用しない。modTestsPure26.RunAll26末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",
