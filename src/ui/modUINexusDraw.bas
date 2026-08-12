@@ -536,23 +536,15 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     End With
     send.OnAction = "modApp.OnSend"
 
-    ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。資料が1件も無い
-    ' あいだは、ショートカットより先に「何をすれば使えるようになるか」を出す
-    ' (空のときにショートカットを教えても押す先が無い)。
+    ' 入力欄の下に小さなヒント(セル。Shapeを増やさない)。文言決定の実体は
+    ' modAppState.InputHintText(R29 W2-2)。逆質問中(HasPending)は入力欄の
+    ' 場所を示す文言を最優先で出す(毎描画ここから参照。新規状態変数なし)。
     Dim hint As String
     Dim n As Long
     On Error Resume Next
     n = modShelf.TotalChunks()
     On Error GoTo 0
-    If n = 0 Then
-        hint = ChrW(&HD83D) & ChrW(&HDCC1) & " 左の緑のボタンから約款やマニュアルを入れると、" & _
-               "出典付きで答えられるようになります(そのまま質問もできます)"
-    Else
-        ' 2026-07-28(レビュー L-19): セル編集中は OnKey が効かず1回目の
-        ' Ctrl+Enter は「確定」になる(Excelの仕様)。実挙動に合わせて書く。
-        hint = "入力後に Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し ・ " & _
-               ChrW(&HD83D) & ChrW(&HDCC1) & " で資料を追加"
-    End If
+    hint = modAppState.InputHintText(n)
     With ws.Range("C" & (INPUT_ROW + 1))
         .Value = hint
         .Font.Size = 8

@@ -157,6 +157,26 @@ Public Function ThoroughPreNotice(ByVal sendMode As String) As String
     End If
 End Function
 
+' R29 W2-2(実機第14報B班): 入力欄直下ヒントの文言決定。modUINexusDraw から
+' 毎描画呼ばれる。逆質問中(modClarify.HasPending)は他の案内より優先し、
+' 入力欄の場所そのものを示す(番号だけの返事は入力先が分からず詰まっていた)。
+' 逆質問が消えた(回答成立/クリア/TTL失効)次の描画では自然にElse側へ戻る
+' (新規の状態変数を作らず、毎回 HasPending() を参照するだけ)。
+Public Function InputHintText(ByVal chunkCount As Long) As String
+    If modClarify.HasPending() Then
+        InputHintText = ChrW(&HD83D) & ChrW(&HDC49) & _
+            " ここ（上の白い枠）に番号を入れて送信"
+    ElseIf chunkCount = 0 Then
+        InputHintText = ChrW(&HD83D) & ChrW(&HDCC1) & " 左の緑のボタンから約款やマニュアルを入れると、" & _
+               "出典付きで答えられるようになります(そのまま質問もできます)"
+    Else
+        ' 2026-07-28(レビュー L-19): セル編集中は OnKey が効かず1回目の
+        ' Ctrl+Enter は「確定」になる(Excelの仕様)。実挙動に合わせて書く。
+        InputHintText = "入力後に Ctrl+Enter で送信 ・ Ctrl+Shift+Q でどこからでも呼び出し ・ " & _
+               ChrW(&HD83D) & ChrW(&HDCC1) & " で資料を追加"
+    End If
+End Function
+
 ' 対象バブル(選択中→無ければ最新のAI回答)があるか。無ければ案内してFalse。
 Public Function HasTarget() As Boolean
     If LenB(TargetBubbleName()) = 0 Then
