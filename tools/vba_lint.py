@@ -716,8 +716,14 @@ CONTRACT: dict[str, dict] = {
                      # NoteAnswerFailed(2026-08-03 R14-G2): 回答を作れなかったターン。
                      #   これが無いと、一般モードの失敗直後の感想ボタンが【前の質問】
                      #   の状態で受理される。
+                     # SetPrevMemory/ResetPrevMemory(2026-08-12 R28-W4): モード切替の
+                     #   橋渡し(modAppState.BridgeConvMemory)と会話クリア
+                     #   (modApp.OnClearChat)からmPrevU/mPrevAを直接書く窓口。
+                     #   ui_stateへ書くだけではCanFollowupの遅延ロードがmPrevU非空時に
+                     #   再読込しないため、切替前の古い会話が深掘りに残った(実機第13報⑥)。
                      "HistoryBlock", "CanShareInsight", "NoteAnswerFailed",
-                     "NoteGeneralAnswered", "ApplyAnswerTags"],
+                     "NoteGeneralAnswered", "ApplyAnswerTags",
+                     "SetPrevMemory", "ResetPrevMemory"],
     },
     # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
     # modAskのモジュール変数を触らず、引数のhits()だけで完結する。

@@ -809,3 +809,17 @@ Private Sub AppendFollowupPair(ByVal q As String, ByVal a As String)
     modState.SaveState "nexus_ask_preva", mPrevA
 End Sub
 
+' SetPrevMemory - 会話メモリの直接受け渡し口(R28-W4)。SetGeneralMemory と
+'   対称の単純代入。橋渡しが state へ書くだけだと mPrevU 非空時に CanFollowup
+'   の遅延ロードが再読込せず、切替前の古い会話が深掘りに残る穴を塞ぐ。
+Public Sub SetPrevMemory(ByVal u As String, ByVal a As String)
+    mPrevU = u
+    mPrevA = a
+End Sub
+
+' ResetPrevMemory - 会話クリア時の亡霊(HANDOFF M-4)対策。state だけ消しても
+'   mPrevU が残ると深掘りに古い文脈が乗るため、モジュール変数も空へ戻す。
+Public Sub ResetPrevMemory()
+    mPrevU = ""
+    mPrevA = ""
+End Sub
