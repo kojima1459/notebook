@@ -407,6 +407,13 @@ End Function
 Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
                             ByVal topK As Long, ByRef hits() As Hit) As Long
     ResetDispersionPool     ' R21-2 D1: この呼び出し限りの結果に合わせて必ず立て直す
+    ' R28 W2-2: 逆質問で資料を選んだ直後の1回だけ、その資料へ絞って検索する。
+    ' 印が無ければ Nothing で、以下は1行も通らず従来の経路へ素通しする。
+    Dim clD As Object: Set clD = modFollowup.TakeClarifyScope()
+    If Not clD Is Nothing Then
+        RunUnscoped = RunMultiRetrieve(q, mdMode, topK, hits, clD)
+        If modFollowup.ClarifyScopeKept(clD, RunUnscoped) Then Exit Function
+    End If
     If modFollowup.IsFollowupTurn() Then
         Dim n As Long
         n = RunMultiRetrieve(q, mdMode, WideK(topK), hits)

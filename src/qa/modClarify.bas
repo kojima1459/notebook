@@ -198,6 +198,9 @@ End Function
 
 Public Sub ClearPending()
     On Error Resume Next
+    ' R28 W2-2: 前のターンで置き去りになった検索スコープの印も一緒に落とす
+    ' (チャットのクリアもここを通る=modApp.OnClearChat)。
+    modFollowup.NoteClarifyPick ""
     modState.SaveState K_PENDING_Q, ""
     modState.SaveState K_PENDING_SRC, ""
     modState.SaveState K_PENDING_KIND, ""
@@ -297,6 +300,10 @@ Public Function MergeAnswer(ByVal reply As String) As String
         End If
         Exit Function
     End If
+
+    ' R28 W2-2: 資料が確定したら検索スコープの印を1つ預ける(実体と寿命の規則は
+    ' modFollowup 側。読んだ瞬間に消えるので必ず1ターン限り)。
+    If LenB(srcPick) > 0 Then modFollowup.NoteClarifyPick srcPick
 
     Dim sb As String
     sb = origQ

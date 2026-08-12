@@ -34,6 +34,13 @@ Private mCited As String
 ' 回す。除外ではなく降格にするのは、小さな本棚では既出しか無いことが普通に
 ' あるため(除外にすると2回目が0件になる)。
 ' 資料名メモリ(mCited)と同じくメモリのみ・保存しない。
+' R28 W2-2(逆質問で選ばれた資料の検索スコープ。実体はモジュール末尾)。
+' キー名と「広げ直す件数」の2つだけを宣言部に置く(実機VBAはモジュール
+' レベル宣言がプロシージャより後ろにあるとコンパイルできない)。
+' 2件は RunDeepScoped(modAskRetrieve.bas:338)の既存作法と同じ値。
+Private Const K_CLARIFY_PICK As String = "clarify_pick_src"
+Private Const MIN_SCOPE_HITS As Long = 2
+
 Private Const USED_MAX As Long = 64
 Private mUsedChunks As String
 
@@ -390,4 +397,61 @@ Public Function InCitedScope(ByVal scopeLine As String, ByVal srcName As String)
     If LenB(scopeLine) = 0 Then Exit Function
     If LenB(srcName) = 0 Then Exit Function
     InCitedScope = (InStr(1, vbLf & scopeLine & vbLf, vbLf & srcName & vbLf, vbBinaryCompare) > 0)
+End Function
+
+' ============================================================================
+' 逆質問で選ばれた資料の検索スコープ(2026-08-12 R28 W2-2・実機第13報②)
+' ============================================================================
+' 逆質問で「1. 火災保険約款」を選んでも、これまで検索は本棚全体のままだった。
+' modClarify.MergeAnswer が作る「対象の資料: ○○」はクエリ文字列のヒントに
+' すぎず、modAskRetrieve.RunUnscoped は scope 引数を一度も渡していない
+' (調査B班・modAskRetrieve.bas:423-427)。番号で答えたのに絞り込まれない、が
+' 「逆質問に答えても無駄」という体験の正体で、逆質問そのものが死ぬ。
+'
+' 運び方は ui_state の1キー(clarify_pick_src)。modAsk/modApp を1行も触らずに
+' modClarify(書く側)と modAskRetrieve(読む側)を繋げる唯一の道で、橋渡し
+' (modConvBridge)が既に使っている作法と同じ。
+' 【1ターン限り】が絶対条件: TakeClarifyScope は読んだ瞬間にキーを消す。
+' 消し忘れると以後すべての質問がその1資料に閉じ込められ、本棚が壊れたように
+' 見える(利用者からは原因が絶対に分からない種類の事故)。
+'
+' このブロックだけは modState/modLog に依存する(モジュール冒頭の「他モジュール
+' へ一切依存しない」はここより上の純関数群についての記述)。スコープの構築は
+' 既存の ScopeDictFrom を使い、許可判定の意味を1つに保つ。
+' 逆質問で確定した資料名を、次の検索1回ぶんだけ預ける("" で取り消し)。
+Public Sub NoteClarifyPick(ByVal srcName As String)
+    On Error Resume Next
+    modState.SaveState K_CLARIFY_PICK, srcName
+    On Error GoTo 0
+End Sub
+
+' 預けた資料名を読み、その場でキーを消してから検索スコープを作る。
+' 印が無ければ Nothing = 呼び出し側は従来どおり本棚全体を検索する。
+Public Function TakeClarifyScope() As Object
+    Dim nm As String
+    On Error Resume Next
+    nm = modState.LoadState(K_CLARIFY_PICK, "")
+    If LenB(nm) > 0 Then modState.SaveState K_CLARIFY_PICK, ""
+    On Error GoTo 0
+    If LenB(Trim$(nm)) = 0 Then Exit Function
+    Set TakeClarifyScope = ScopeDictFrom(nm)
+End Function
+
+' スコープ内検索の結果から「本棚全体へ広げ直すか」を決める(純関数)。
+' n = -1 は埋め込み失敗で、広げ直しても同じ結果にしかならない(RunDeepScoped
+' の :345-348 と同じ判断)ので広げない。
+Public Function ScopeNeedsWiden(ByVal n As Long) As Boolean
+    If n = -1 Then Exit Function
+    ScopeNeedsWiden = (n < MIN_SCOPE_HITS)
+End Function
+
+' スコープ内検索の結果を採用してよいか。False=呼び出し側は本棚全体へ広げ直す。
+' 広げ直す回だけ usage_log に clarify_scope_widen を残す(無言の劣化はしない)。
+Public Function ClarifyScopeKept(ByVal scopeD As Object, ByVal n As Long) As Boolean
+    If scopeD Is Nothing Then Exit Function
+    If Not ScopeNeedsWiden(n) Then ClarifyScopeKept = True: Exit Function
+    On Error Resume Next
+    modLog.LogUsage "clarify_scope_widen", "", _
+        "選ばれた資料の中では" & n & "件しか見つからず、本棚全体へ広げ直しました(scope=" & scopeD.count & ")"
+    On Error GoTo 0
 End Function
