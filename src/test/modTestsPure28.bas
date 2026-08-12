@@ -126,20 +126,58 @@ Private Sub TestScopeNeedsWiden28()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' (C) modChrome.ToastHeightFor — 文字数<=30:34pt / <=70:48pt / それ以上:62pt。
+' (C) modChrome.ToastHeightFor — R28H F6 で「文字数→3段テーブル」から
+'     「推定幅→行数→高さ」の算数へ作り直した境界を固定する。
+'     幅の見積り: 全角10.5pt / 半角5.25pt(TextSpan)。可視幅348pt で割って
+'     行数を切り上げ、高さ = 切上げ(行数×15.2 + 10)、上限92ptでクランプ。
+'     1行あたりの容量は 全角33.14字 / 半角66.28字。
 ' ----------------------------------------------------------------------------
+Private Function Zen28(ByVal n As Long) As String
+    Zen28 = String(n, ChrW(&H3042))   ' 「あ」= 全角(幅10.5pt)
+End Function
+
 Private Sub TestToastHeightFor28()
-    modTestRunner.Check "R28-W3-2_0字は34pt", (modChrome.ToastHeightFor("") = 34), ""
-    modTestRunner.Check "R28-W3-2_30字は34pt(境界)", _
-        (modChrome.ToastHeightFor(String(30, "a")) = 34), ""
-    modTestRunner.Check "R28-W3-2_31字は48pt(境界+1)", _
-        (modChrome.ToastHeightFor(String(31, "a")) = 48), ""
-    modTestRunner.Check "R28-W3-2_70字は48pt(境界)", _
-        (modChrome.ToastHeightFor(String(70, "a")) = 48), ""
-    modTestRunner.Check "R28-W3-2_71字は62pt(境界+1)", _
-        (modChrome.ToastHeightFor(String(71, "a")) = 62), ""
-    modTestRunner.Check "R28-W3-2_130字は62pt(実機報告の長さ)", _
-        (modChrome.ToastHeightFor(String(130, "a")) = 62), ""
+    ' 空文字は行数0だが、1行へ丸める(高さ0の帯は描けない)。
+    modTestRunner.Check "R28H-F6_0字は1行26pt", (modChrome.ToastHeightFor("") = 26), ""
+
+    ' --- 全角のみ。348/10.5 = 33.14字で改行。
+    modTestRunner.Check "R28H-F6_全角33字は1行26pt(境界)", _
+        (modChrome.ToastHeightFor(Zen28(33)) = 26), "h=" & modChrome.ToastHeightFor(Zen28(33))
+    modTestRunner.Check "R28H-F6_全角34字は2行41pt(境界+1)", _
+        (modChrome.ToastHeightFor(Zen28(34)) = 41), "h=" & modChrome.ToastHeightFor(Zen28(34))
+    modTestRunner.Check "R28H-F6_全角66字は2行41pt(境界)", _
+        (modChrome.ToastHeightFor(Zen28(66)) = 41), "h=" & modChrome.ToastHeightFor(Zen28(66))
+    modTestRunner.Check "R28H-F6_全角67字は3行56pt(境界+1)", _
+        (modChrome.ToastHeightFor(Zen28(67)) = 56), "h=" & modChrome.ToastHeightFor(Zen28(67))
+
+    ' --- 半角のみ。全角の倍の66.28字で改行(旧テーブルはここを潰していた)。
+    modTestRunner.Check "R28H-F6_半角66字は1行26pt(境界)", _
+        (modChrome.ToastHeightFor(String(66, "a")) = 26), _
+        "h=" & modChrome.ToastHeightFor(String(66, "a"))
+    modTestRunner.Check "R28H-F6_半角67字は2行41pt(境界+1)", _
+        (modChrome.ToastHeightFor(String(67, "a")) = 41), _
+        "h=" & modChrome.ToastHeightFor(String(67, "a"))
+
+    ' --- 混在。全角30字(315pt)+半角7字(36.75pt)=351.75pt > 348 で2行。
+    modTestRunner.Check "R28H-F6_混在_全角30半角6は1行26pt", _
+        (modChrome.ToastHeightFor(Zen28(30) & String(6, "a")) = 26), _
+        "h=" & modChrome.ToastHeightFor(Zen28(30) & String(6, "a"))
+    modTestRunner.Check "R28H-F6_混在_全角30半角7は2行41pt", _
+        (modChrome.ToastHeightFor(Zen28(30) & String(7, "a")) = 41), _
+        "h=" & modChrome.ToastHeightFor(Zen28(30) & String(7, "a"))
+
+    ' --- 実機報告の文言(入念モードの切替トースト・114字相当)。
+    '     推定幅1,107.75pt → 4行 → 4×15.2+10 = 70.8 → 71pt。旧実装は62ptで切れた。
+    modTestRunner.Check "R28H-F6_全角105字相当は4行71pt(入念モードの実文言)", _
+        (modChrome.ToastHeightFor(Zen28(105)) = 71), "h=" & modChrome.ToastHeightFor(Zen28(105))
+
+    ' --- 上限クランプ。5行=86ptまでは伸び、6行ぶん以上は92ptで止まる。
+    modTestRunner.Check "R28H-F6_全角165字は5行86pt", _
+        (modChrome.ToastHeightFor(Zen28(165)) = 86), "h=" & modChrome.ToastHeightFor(Zen28(165))
+    modTestRunner.Check "R28H-F6_全角166字は6行ぶんだが92ptでクランプ", _
+        (modChrome.ToastHeightFor(Zen28(166)) = 92), "h=" & modChrome.ToastHeightFor(Zen28(166))
+    modTestRunner.Check "R28H-F6_全角1000字でも92ptを超えない", _
+        (modChrome.ToastHeightFor(Zen28(1000)) = 92), "h=" & modChrome.ToastHeightFor(Zen28(1000))
 End Sub
 
 ' ----------------------------------------------------------------------------

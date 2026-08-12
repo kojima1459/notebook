@@ -483,20 +483,47 @@ Public Sub ApplyShelfTableTextColor(ByVal ws As Worksheet, ByVal firstRow As Lon
 End Sub
 
 ' ----------------------------------------------------------------------------
-' ToastHeightFor - トースト帯の高さ(pt)の決定(R28 W3-2)。純ロジック。
-'   modProgressBar.BarHeightFor と同型の考え方(文字数→段数の近似・過大側へ
-'   倒す)だが、トースト帯は固定幅380pt(左右マージン16pt×2引き=可視幅約348pt)
-'   のため、幅を引数に取らず文字数の閾値だけで3段に丸める。
-'   入念モードのDescription約130字が1行(34pt)で切れて読めなかった実機報告
-'   (spec_20260812_R28実機第13報)への対処。
+' ToastHeightFor - トースト帯の高さ(pt)の決定。純ロジック。
+' ----------------------------------------------------------------------------
+'   R28H F6(M-5): W3-2 の初版は「文字数→34/48/62pt の3段テーブル」だった。
+'   段数テーブルは折り返しの実態(=1行に何字入るか)を持たないので、全角ばかり
+'   の文言では足りず(全角71字なら実際は3行必要なのに62ptで2.4行ぶん)、半角
+'   ばかりの文言では余る。入念モードの実文言が切れた原因はここにある。
+'   「幅を推定し、可視幅で割って行数を出す」算数へ作り直す。
+'
+'   算数の根拠(すべて ShowToast(modSkin) の実値):
+'     ・帯の幅 toastW = 380pt、左右マージン 16pt ずつ → 可視幅 348pt
+'     ・フォント 10.5pt。全角=10.5pt / 半角=5.25pt(TextSpan の CharSpan と
+'       同じ既存の見積り。AscW の負値補正 c<0 → c+65536 もあちらが持つ)
+'     ・行送り = 10.5 × 1.45 ≒ 15.2pt / 上下マージン 5pt+5pt = 10pt
+'   よって 高さ = 切上げ(行数 × 15.2 + 10)。行数も切り上げる(端数の1字が
+'   はみ出すのを許さない)。上限は 92pt でクランプする ―― 画面上端から96pt の
+'   位置に出すので、これ以上伸ばすと会話領域を覆う。
+'
+'   検算(入念モードのモード切替トースト。Caption & " : " & Description):
+'     文字数114字 → 推定幅1,107.75pt → 1107.75/348 = 3.18 → 切上げ4行
+'     → 4 × 15.2 + 10 = 70.8 → 切上げ 71pt。旧実装は62ptで4行目が切れていた。
+'   境界: 1行=26pt / 2行=41 / 3行=56 / 4行=71 / 5行=86 / 6行以上=92(クランプ)。
 ' ----------------------------------------------------------------------------
 Public Function ToastHeightFor(ByVal msg As String) As Double
-    Dim n As Long: n = Len(msg)
-    If n <= 30 Then
-        ToastHeightFor = 34    ' 1行
-    ElseIf n <= 70 Then
-        ToastHeightFor = 48    ' 2行
-    Else
-        ToastHeightFor = 62    ' 3行以上
-    End If
+    Const TOAST_PITCH As Double = 10.5    ' フォント10.5pt(全角1字ぶんの幅)
+    Const TOAST_VISIBLE_W As Double = 348 ' 380 - 左右マージン16×2
+    Const TOAST_LINE_PT As Double = 15.2  ' 行送り 10.5 × 1.45
+    Const TOAST_PAD_PT As Double = 10     ' 上下マージン 5 + 5
+    Const TOAST_MAX_PT As Double = 92     ' これ以上は会話領域を覆う
+
+    Dim nLines As Long
+    nLines = CeilPt(TextSpan(msg, TOAST_PITCH) / TOAST_VISIBLE_W)
+    If nLines < 1 Then nLines = 1
+
+    Dim h As Double
+    h = CeilPt(nLines * TOAST_LINE_PT + TOAST_PAD_PT)
+    If h > TOAST_MAX_PT Then h = TOAST_MAX_PT
+    ToastHeightFor = h
+End Function
+
+' 切り上げ。VBAには Ceiling が無いので -Int(-x) を使う(Int は負の無限大方向へ
+' 丸めるため、これが整数への切り上げになる。CLng は銀行家丸めなので使わない)。
+Private Function CeilPt(ByVal v As Double) As Double
+    CeilPt = -Int(-v)
 End Function
