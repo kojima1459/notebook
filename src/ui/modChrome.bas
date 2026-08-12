@@ -509,16 +509,24 @@ End Sub
 '   はみ出すのを許さない)。上限は 92pt でクランプする ―― 画面上端から96pt の
 '   位置に出すので、これ以上伸ばすと会話領域を覆う。
 '
+'   R28H F6b(司令塔裁定): 下限 34pt の床を置く。算数どおりだと1行のトーストが
+'   26pt になり、W3-2 以前からの見た目(1行=34pt固定)より8pt低くなる。本Fixの
+'   目的は「長い文言が切れる」ことの解消であって、既に読めている短いトーストの
+'   寸法を変えることではない。修正は【伸びる方向のみ】に限る。
+'   床(34)は上限(92)より小さいので、両クランプが競合することは無い。
+'
 '   検算(入念モードのモード切替トースト。Caption & " : " & Description):
 '     文字数114字 → 推定幅1,107.75pt → 1107.75/348 = 3.18 → 切上げ4行
 '     → 4 × 15.2 + 10 = 70.8 → 切上げ 71pt。旧実装は62ptで4行目が切れていた。
-'   境界: 1行=26pt / 2行=41 / 3行=56 / 4行=71 / 5行=86 / 6行以上=92(クランプ)。
+'   境界: 1行=34pt(床。算数上は26) / 2行=41 / 3行=56 / 4行=71 / 5行=86 /
+'         6行以上=92(上限クランプ)。
 ' ----------------------------------------------------------------------------
 Public Function ToastHeightFor(ByVal msg As String) As Double
     Const TOAST_PITCH As Double = 10.5    ' フォント10.5pt(全角1字ぶんの幅)
     Const TOAST_VISIBLE_W As Double = 348 ' 380 - 左右マージン16×2
     Const TOAST_LINE_PT As Double = 15.2  ' 行送り 10.5 × 1.45
     Const TOAST_PAD_PT As Double = 10     ' 上下マージン 5 + 5
+    Const TOAST_MIN_PT As Double = 34     ' 従来の1行ぶん(短いトーストを縮めない)
     Const TOAST_MAX_PT As Double = 92     ' これ以上は会話領域を覆う
 
     Dim nLines As Long
@@ -527,6 +535,7 @@ Public Function ToastHeightFor(ByVal msg As String) As Double
 
     Dim h As Double
     h = CeilPt(nLines * TOAST_LINE_PT + TOAST_PAD_PT)
+    If h < TOAST_MIN_PT Then h = TOAST_MIN_PT
     If h > TOAST_MAX_PT Then h = TOAST_MAX_PT
     ToastHeightFor = h
 End Function
