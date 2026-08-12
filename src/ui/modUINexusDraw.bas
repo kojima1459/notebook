@@ -468,6 +468,7 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     Dim r As String: r = CStr(INPUT_ROW)
     With ws.Range("C" & r & ":K" & r)
         .Merge
+        .NumberFormat = "@"               ' R28 W2-5: 「1-3」を日付に変えない
         .Interior.Color = RGB(255, 255, 255)
         .VerticalAlignment = -4108        ' xlCenter
         .WrapText = True
