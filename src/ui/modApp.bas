@@ -290,6 +290,7 @@ FailCleanup3:
     modUI.AddChatBubble "ai", "エラーが発生しました。入力欄に文章を戻しましたので、" & _
         "もう一度お試しください。(" & failDesc & ")"
     On Error GoTo 0
+    modUINexusDraw.RedrawInputHint   ' R29H F1
     modUiLock.Leave
 End Sub
 
@@ -617,6 +618,7 @@ Public Sub OnToggleMode()
     On Error Resume Next
     modAppState.BridgeConvMemory oldMode, newMode   ' R26-2: 会話メモリの橋渡し
     modClarify.ClearPending   ' R28H F4: モードを跨いだら逆質問は破棄
+    modUINexusDraw.RedrawInputHint   ' R29H F1
     On Error GoTo 0
     ' R13 F3: モードを跨いだら「続きの質問」の武装は捨てる。一般アシスタントには
     ' 会話引き継ぎの意味論が無く、RAGへ戻したときに前の話題が生き返るのも
@@ -748,6 +750,7 @@ Public Sub OnClearChat()
     On Error Resume Next
     modUI.ClearChat
     modClarify.ClearPending
+    modUINexusDraw.RedrawInputHint   ' R29H F1
     ' 2026-07-28(レビュー L-18): クリアで消えていなかったものを片付ける。
     '   ・出典チップ / 専門家ボタン … 消した会話の下にボタンだけ残っていた
     '   ・続けて質問の履歴 / 復元用の直近ターン … 残っていると、再起動時に
