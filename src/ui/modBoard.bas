@@ -113,7 +113,7 @@ Private Sub ShowWeeklySummary()
     Next i
     If total <= 0 Then Exit Sub   ' ゼロ週は何も言わない(空虚な自慢をしない)
 
-    modSkin.ShowToast "先週、あなたはこのツールで " & FmtMin(total) & " を節約しました。今週もいいスタートを。", "success"
+    modSkin.ShowToast "先週、あなたはこのツールで " & FmtMin(total) & " を節約しました。今週もいいスタートを。", "success", True   ' R29H F2
 End Sub
 
 ' ----------------------------------------------------------------------------

@@ -409,7 +409,7 @@ Public Sub WarnAtStartup()
     If curRows > 0 And ChunkMetaRowCount() = 0 Then
         modLog.LogUsage "integrity_hint", "no_chunk_meta", "rows=" & curRows
         modSkin.ShowToast "資料を取り込み直すと新しい構造検索(条文参照・俯瞰)が" & _
-            "有効になります", "info"
+            "有効になります", "info", True   ' R29H F2: 起動待機の波及を防ぐ(waitless)
     End If
 
     ' R19-1e(実機第6報①): 既存ブックの UsedRange は保存するまで縮まない。
@@ -477,7 +477,7 @@ Private Sub WarnIfUsedRangeBloated()
                     modLog.LogUsage "integrity_hint", "usedrange_bloated", _
                         ws.Name & " " & CLng(ur.Left + ur.Width) & "x" & CLng(ur.Top + ur.Height)
                     modSkin.ShowToast "一度保存して開き直すと、画面のスクロール範囲が" & _
-                        "正常になります", "info"
+                        "正常になります", "info", True   ' R29H F2: 起動待機の波及を防ぐ(waitless)
                     Exit Sub
                 End If
             End If
