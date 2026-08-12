@@ -1054,7 +1054,15 @@
       "role": "test",
       "type": "std",
       "wave": "R28",
-      "note": "R28波2(実機第13報②「逆質問の断線」)の純ロジック回帰。modTestsPure26(残り僅少)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26と同型)。固定するもの: (A)modClarify.ParseClarifyReply — 逆質問への返事から資料番号と意図番号を読み取る規則。旧PickSourceは半角数字の出現位置しか見ておらず、全角「２」や丸数字だけで答えた人の資料選択が丸ごと消えていた(合成後の質問から「対象の資料:」が落ちる)。半角/全角/丸数字の全組合せ(2-②/１－①/2-3/２－３/2-2/1ー3/2 3)、片方だけの形(①は常に意図・3は資料・0は選択なし)、範囲外の棄却(nSrc超過・意図6以上・2桁・nSrc=0・文章)を固定する。(B)modFollowup.ScopeNeedsWiden — 逆質問で選ばれた資料に絞った検索を採用するか本棚全体へ広げ直すかの境界(0/1件は広げる・2件で採用・-1=埋め込み失敗は広げない)+ClarifyScopeKept(Nothing)は採用しない。modTestsPure26.RunAll26末尾から呼ばれる。"
+      "note": "R28波2(実機第13報②「逆質問の断線」)の純ロジック回帰。modTestsPure26(残り僅少)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26と同型)。固定するもの: (A)modClarify.ParseClarifyReply — 逆質問への返事から資料番号と意図番号を読み取る規則。旧PickSourceは半角数字の出現位置しか見ておらず、全角「２」や丸数字だけで答えた人の資料選択が丸ごと消えていた(合成後の質問から「対象の資料:」が落ちる)。半角/全角/丸数字の全組合せ(2-②/１－①/2-3/２－３/2-2/1ー3/2 3)、片方だけの形(①は常に意図・3は資料・0は選択なし)、範囲外の棄却(nSrc超過・意図6以上・2桁・nSrc=0・文章)を固定する。(B)modFollowup.ScopeNeedsWiden — 逆質問で選ばれた資料に絞った検索を採用するか本棚全体へ広げ直すかの境界(0/1件は広げる・2件で採用・-1=埋め込み失敗は広げない)+ClarifyScopeKept(Nothing)は採用しない。modTestsPure26.RunAll26末尾から呼ばれる。R29波2ではRunAll28の末尾からmodTestsPure29.RunAll29を呼ぶよう1本追加した。"
+    },
+    {
+      "name": "modTestsPure29",
+      "path": "src/test/modTestsPure29.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R29",
+      "note": "R29波2(実機第14報・層2一括+視認性+文書訂正)の純ロジック回帰。modTestsPure28(残り僅少・26,776字/上限30,000字)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26/28と同型)。固定するもの: (A)modChrome.ToastWaitMsFor — トースト表示時間(全角15字/秒相当の読了速度換算・下限3,000ms・上限9,000ms・半角は全角の半分換算)。(B)modSparse.DiversitySwapPick — 相対スコア下限(pool側の差し替え候補スコアが現hits最下位スコアのminRatioX100%未満なら差し替えない)の69%不発火/70%発火境界、minRatioX100<=0の旧挙動(Optional省略時も同じ)、hitLowestScore<=0の0除算防御。modTestsPure28.RunAll28末尾から呼ばれる。"
     },
     {
       "name": "modTestsPure26",

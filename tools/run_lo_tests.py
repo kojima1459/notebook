@@ -571,6 +571,11 @@ PURE_ALLOWLIST = [
     #   文脈が混ざる穴(実機第13報⑥)のゴールデンが走らないまま全部PASSに見える。
     "modAsk",
     "modTestsPure28",
+    # modTestsPure29(2026-08-12 R29波2): modTestsPure28.RunAll28 の末尾が
+    #   RunAll29 を呼ぶため、未注入だと実行時エラー12になり分割先のテスト
+    #   (ToastWaitMsFor/DiversitySwapPickの相対スコア下限)が実行されない
+    #   まま全部PASSに見える(modTestsPure26→28追加時と同型の理由)。
+    "modTestsPure29",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

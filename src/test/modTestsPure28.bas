@@ -532,6 +532,9 @@ NextGenHistEmpty28:
 NextGenHistSep28:
     On Error GoTo GenHistSepFail28
     TestGenHistoryBlockSepInAnswer28
+NextRun29:
+    On Error GoTo Run29Fail28
+    modTestsPure29.RunAll29
 NextDone28:
     On Error GoTo 0
     Exit Sub
@@ -598,6 +601,10 @@ GenHistEmptyFail28:
     Resume NextGenHistSep28
 GenHistSepFail28:
     modTestRunner.Check "TestGenHistoryBlockSepInAnswer28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun29
+Run29Fail28:
+    modTestRunner.Check "modTestsPure29.RunAll29(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone28
 End Sub
