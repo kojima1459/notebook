@@ -488,9 +488,14 @@ Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
         fromRow = lastRow + 1
         If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
         If fromRow <= mChatBandRow Then
+            ' R28H F2(M-1): 旧実装は xlNone(塗り無し)へ戻していた。波1で地は
+            ' Normalスタイル=地色になったので「塗り無し=地色」のはずだが、
+            ' Normal適用が失敗する環境(LO・スタイル名差異)では白のまま残り、
+            ' darkで「会話を消した直後だけ白帯が出る」経路が生きてしまう。
+            ' 縮む側も伸ばす側(上の分岐)と同じく bg で明示的に塗り直す。
             ws.Range("A" & fromRow & ":" & _
                      modUINexusDraw.NEXUS_PAD_COL & mChatBandRow) _
-                     .Interior.ColorIndex = -4142   ' xlNone(塗り無し=既定)
+                     .Interior.Color = ThemeColor("bg")
         End If
     End If
     mChatBandRow = lastRow
