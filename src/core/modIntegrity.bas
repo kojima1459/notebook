@@ -36,10 +36,32 @@ Private Const KEY_LAST_PATH As String = "integrity_last_path"
 ' 起動時の警告は1セッション1回まで(Bootが二度走っても二度は出さない)。
 Private mWarned As Boolean
 
+' R29H F2b: WarnAtStartupはInitUI(modApp.LaunchNexus内)より前(modBoot.bas)に
+' 呼ばれるため、この時点ではAddChatBubbleが描けない。文言をここへ保留し、
+' InitUI後の既存経路(modBoard.BootBoard)からFlushPendingBubblesで1回だけ出す。
+Private mPendingBubbles As Collection
+
 ' UsedRange の焼き付き判定のしきい値(pt)。R19H FA-5(ii)。根拠は
 ' IsUsedRangeBloated の見出しコメント(倍率をやめて絶対値にした理由)を参照。
 Private Const BLOAT_W_PT As Double = 2400
 Private Const BLOAT_H_PT As Double = 12000
+
+Private Sub QueueBubble(ByVal msg As String)
+    If mPendingBubbles Is Nothing Then Set mPendingBubbles = New Collection
+    mPendingBubbles.Add msg
+End Sub
+
+' FlushPendingBubbles - InitUI後(modBoard.BootBoardの先頭)から1回だけ呼ばれる。
+Public Sub FlushPendingBubbles()
+    On Error Resume Next
+    If mPendingBubbles Is Nothing Then Exit Sub
+    Dim v As Variant
+    For Each v In mPendingBubbles
+        modUI.AddChatBubble "ai", CStr(v)
+    Next v
+    Set mPendingBubbles = Nothing
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' ReconcileStatText - 台帳の統計文字列の chunk_count を actualN へ直す(純)。
@@ -408,8 +430,8 @@ Public Sub WarnAtStartup()
     ' (WarnAtStartup 自体が1セッション1回=mWarned なので回数も1回)。
     If curRows > 0 And ChunkMetaRowCount() = 0 Then
         modLog.LogUsage "integrity_hint", "no_chunk_meta", "rows=" & curRows
-        modSkin.ShowToast "資料を取り込み直すと新しい構造検索(条文参照・俯瞰)が" & _
-            "有効になります", "info", True   ' R29H F2: 起動待機の波及を防ぐ(waitless)
+        QueueBubble "資料を取り込み直すと新しい構造検索(条文参照・俯瞰)が" & _
+            "有効になります"   ' R29H F2b: InitUI前のためバブルは保留(BootBoardでFlush)
     End If
 
     ' R19-1e(実機第6報①): 既存ブックの UsedRange は保存するまで縮まない。
@@ -476,8 +498,8 @@ Private Sub WarnIfUsedRangeBloated()
                 If IsUsedRangeBloated(ur.Left + ur.Width, ur.Top + ur.Height) Then
                     modLog.LogUsage "integrity_hint", "usedrange_bloated", _
                         ws.Name & " " & CLng(ur.Left + ur.Width) & "x" & CLng(ur.Top + ur.Height)
-                    modSkin.ShowToast "一度保存して開き直すと、画面のスクロール範囲が" & _
-                        "正常になります", "info", True   ' R29H F2: 起動待機の波及を防ぐ(waitless)
+                    QueueBubble "一度保存して開き直すと、画面のスクロール範囲が" & _
+                        "正常になります"   ' R29H F2b: InitUI前のためバブルは保留(BootBoardでFlush)
                     Exit Sub
                 End If
             End If

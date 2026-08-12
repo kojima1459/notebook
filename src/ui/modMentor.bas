@@ -222,7 +222,7 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
     Next i
 
     If newCount > 0 And Not silent Then
-        modSkin.ShowToast "あなた宛の質問が " & newCount & " 件届いています。チャット欄をご確認ください。", "success", True   ' R29H F2
+        modUI.AddChatBubble "ai", "あなた宛の質問が " & newCount & " 件届いています。チャット欄をご確認ください。"   ' R29H F2b
         DrawReplyButton   ' 往復→対話へ: 最後の質問の差出人へ返信するボタン
     End If
 Done:

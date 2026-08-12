@@ -75,9 +75,13 @@ Private Const AGG_TTL_SEC As Double = 600#
 Public Sub BootBoard()
     On Error Resume Next   ' 安全弁: 本機能の失敗を起動へ絶対に波及させない
 
+    ' R29H F2b: modIntegrity.WarnAtStartupはInitUIより前(modBoot)に走るため
+    ' 保留していた案内バブルを、InitUI後に到達する最初の地点(ここ)で出す。
+    modIntegrity.FlushPendingBubbles
+
     ' --- ここから下は共有フォルダに触らない(到達性に関係なく必ず実行する)---
     DrawWidget             ' 旧サイドバーShapeの掃除(ローカルのみ)
-    ShowWeeklySummary      ' B-5: 週の初回起動時だけ、先週の節約時間を労いToast
+    ShowWeeklySummary      ' B-5: 週の初回起動時だけ、先週の節約時間を労いバブル
 
     ' 起動シーケンスを通り抜けた印。ここから先の再描画では
     ' RefreshBoardTiles が動いてよい(レビュー2-C)。共有へ届くかどうかとは
@@ -113,7 +117,7 @@ Private Sub ShowWeeklySummary()
     Next i
     If total <= 0 Then Exit Sub   ' ゼロ週は何も言わない(空虚な自慢をしない)
 
-    modSkin.ShowToast "先週、あなたはこのツールで " & FmtMin(total) & " を節約しました。今週もいいスタートを。", "success", True   ' R29H F2
+    modUI.AddChatBubble "ai", "先週、あなたはこのツールで " & FmtMin(total) & " を節約しました。今週もいいスタートを。"   ' R29H F2b
 End Sub
 
 ' ----------------------------------------------------------------------------

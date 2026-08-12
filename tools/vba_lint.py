@@ -225,13 +225,17 @@ CONTRACT: dict[str, dict] = {
         #   CohabitIngestMsg: 取込直前の再確認文(純ロジック・BMPのみ)。
         #   ConfirmIngestWhenCohabit: 取込入口の関所。判定・文言・モーダルを
         #     ここに閉じ、modShelfBatch.AddFilesResult からは戻り値だけを見る。
+        # FlushPendingBubbles(2026-08-12 R29H F2b): WarnAtStartupはInitUIより前
+        #   (modBoot)に走るためAddChatBubbleが描けない。文言をQueueBubbleで
+        #   保留し、InitUI後の最初の地点(modBoard.BootBoard)から1回だけ呼ぶ。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
                      "CohabitCount", "CohabitOtherCount", "IsCohabiting",
                      "CohabitWarnMsg",
                      "CohabitIngestMsg", "ConfirmIngestWhenCohabit",
-                     "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup"],
+                     "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup",
+                     "FlushPendingBubbles"],
     },
     # ---- 7.2 取込層 ----
     # modExtractorWord / modExtractorExcel / modExtractorAcrobat は
@@ -3719,18 +3723,22 @@ def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo
                             and (prefix, member) == ("modSkin", "ShowToast")
                             and self_name in R1_TOAST_ALLOWED_MODULES):
                         continue
-                    # ShowToast(2026-08-05 R17H FB-7 / B-M): 基盤層からは
-                    # modIntegrity.WarnAtStartup の1箇所だけ許す。起動時に
-                    # 「my_knowledge はあるのに chunk_meta が0行」(=R17より前に
-                    # 取り込んだ資料しか無い本棚)を1文だけ知らせるためのもので、
-                    # 裁定でモーダル禁止=MsgBox を使えない。判定材料はシート2枚
-                    # だけで上位層の状態を読まないため、向きは「基盤→UIへ通知」
-                    # の一方通行(modGatewayDirect の SetStage 例外と同性質)。
-                    # 起動時1回きり(mWarned)なので 1.1 秒の待ちも1回で済む。
-                    # 広げるときは必ずここへ足す=どのモジュールが基盤層から
-                    # トーストを出すかが1箇所で分かる状態を保つ。
+                    # AddChatBubble(2026-08-12 R29H F2b。旧: 2026-08-05 R17H FB-7 /
+                    # B-M の ShowToast 例外を置き換え): 基盤層からは
+                    # modIntegrity.FlushPendingBubbles の1箇所だけ許す。起動時に
+                    # 「my_knowledge はあるのに chunk_meta が0行」/
+                    # 「UsedRangeが焼き付いている」を1文ずつ知らせるためのもので、
+                    # 裁定でトースト(waitless両極問題)からチャットバブルへ変更した。
+                    # WarnAtStartup(modBoot経由)はInitUIより前に走るため、その場では
+                    # 描けず文言をQueueBubleで保留し、InitUI後の最初の地点
+                    # (modBoard.BootBoard)からFlushPendingBubblesで1回だけ描く。
+                    # 判定材料はシート2枚だけで上位層の状態を読まないため、向きは
+                    # 「基盤→UIへ通知」の一方通行(modGatewayDirect の SetStage
+                    # 例外と同性質)。起動時1回きり(mWarned)。広げるときは必ず
+                    # ここへ足す=どのモジュールが基盤層からバブルを出すかが
+                    # 1箇所で分かる状態を保つ。
                     if (cur_layer == LAYER_FOUNDATION
-                            and (prefix, member) == ("modSkin", "ShowToast")
+                            and (prefix, member) == ("modUI", "AddChatBubble")
                             and self_name == "modIntegrity"):
                         continue
                     if (cur_layer == LAYER_MID
