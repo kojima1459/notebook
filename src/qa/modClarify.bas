@@ -127,11 +127,12 @@ Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) A
 
     ' R28 W2-4(実機第13報②): 「番号だけ送ってください」は入力先を言っていない。
     ' 実機では深掘りボタンを押して詰まった。入力先まで文面で名指しする。
+    ' R29 W2-1: 「下の入力欄」は実装(画面最上部)と矛盾していたため訂正。
     If n > 0 Then
-        sb = sb & "下の入力欄に" & ChrW(&H300E) & "2-" & ChrW(&H2461) & ChrW(&H300F) & _
+        sb = sb & "画面上部の入力欄（いちばん上の白い横長の枠）に" & ChrW(&H300E) & "2-" & ChrW(&H2461) & ChrW(&H300F) & _
              "のように番号だけ入れて送信してください。" & vbLf
     Else
-        sb = sb & "下の入力欄に" & ChrW(&H2460) & ChrW(&H301C) & ChrW(&H2464) & _
+        sb = sb & "画面上部の入力欄（いちばん上の白い横長の枠）に" & ChrW(&H2460) & ChrW(&H301C) & ChrW(&H2464) & _
              " の番号だけ入れて送信してください。" & vbLf
     End If
     sb = sb & "もちろん、ご自身の言葉で詳しく書き直していただいても構いません。"

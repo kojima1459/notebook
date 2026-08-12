@@ -148,7 +148,8 @@ Public Sub OnActDrill()
     ' 断られる=「押しても進まない」ボタンになっていた。ここで先に道を示す
     ' (何をどこへ入れるかまで言う。番号だけ言われても入力欄が分からない)。
     If modClarify.HasPending() Then
-        modSkin.ShowToast "逆質問にお答えください。下の入力欄に番号(例: 1-" & _
+        ' R29 W2-1: 「下の入力欄」は実装(画面最上部)と矛盾していたため訂正。
+        modSkin.ShowToast "逆質問にお答えください。画面上部の入力欄（いちばん上の白い横長の枠）に番号(例: 1-" & _
             ChrW(&H2460) & ")を入れて送信してください", "info"
         modUI.ParkFocus
         modUiLock.Leave
