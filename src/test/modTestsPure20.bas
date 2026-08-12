@@ -124,6 +124,21 @@ Private Sub TestMsadThemeResolve()
     ' ダーク側もPRIMARY_LIGHTを基調に(白字4.5:1以上・機械計算済み)。
     modTestRunner.Check "ダークテーマ_primaryはPRIMARY_LIGHT(#0B7D6E)基調", _
         (modSkin.ResolveColor("primary", "dark") = RGB(11, 125, 110))
+
+    ' R28波1: modChrome.ApplyNormalStyleBg が Normalスタイルへ焼き込む値そのもの。
+    ' 描画Subは純ロジックテストから呼べない(Excelオブジェクトに触る)ため、
+    ' 「どの色が全域の地になるか」をここで固定する。テーマ毎に別値であること
+    ' (=テーマ切替でNormalも塗り替わる必要があること)も同時に押さえる。
+    modTestRunner.Check "地色bg_msadは#F3F4F6(薄灰)", _
+        (modSkin.ResolveColor("bg", "msad") = RGB(243, 244, 246))
+    modTestRunner.Check "地色bg_darkは#0F172A(濃紺)", _
+        (modSkin.ResolveColor("bg", "dark") = RGB(15, 23, 42))
+    ' 未解放テーマ(感謝5件未満)は既定へ落ちる = 地色も既定のまま。
+    ' 期待値を実パレット(#FFF1F5)にすると落ちることを実測で確認済み。
+    modTestRunner.Check "地色bg_未解放sakuraは既定(msad)へ落ちる", _
+        (modSkin.ResolveColor("bg", "sakura") = modSkin.ResolveColor("bg", "msad"))
+    modTestRunner.Check "地色bg_msadとdarkは別値(切替で地も変わる)", _
+        (modSkin.ResolveColor("bg", "msad") <> modSkin.ResolveColor("bg", "dark"))
 End Sub
 
 Public Sub RunAll20()
