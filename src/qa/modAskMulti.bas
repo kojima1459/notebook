@@ -397,7 +397,10 @@ Public Function BuildClarifyAsk(opts() As String, ByVal nOpts As Long) As String
         sb = sb & "  " & i & ") " & t & vbLf
     Next i
 
-    sb = sb & vbLf & "番号で返信してください(例: 1 / 1と3)。" & _
+    ' R28 W2-4: 資料の逆質問(modClarify.BuildClarifyPrompt)と同じく、入力先を
+    ' 名指しする。同じ番号の打ち方を教える文が2つあって片方だけ場所を言わない、
+    ' という状態を作らない。
+    sb = sb & vbLf & "下の入力欄に番号を入れて送信してください(例: 1 / 1と3)。" & _
          "質問を書き直していただいてもOKです。" & vbLf & _
          "(この聞き返しは30分で無効になります)"
     BuildClarifyAsk = sb

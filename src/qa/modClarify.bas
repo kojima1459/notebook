@@ -125,10 +125,14 @@ Public Function BuildClarifyPrompt(ByVal q As String, ByVal sources As String) A
          "  " & ChrW(&H2463) & " " & INTENT_4 & vbLf & _
          "  " & ChrW(&H2464) & " " & INTENT_5 & vbLf & vbLf
 
+    ' R28 W2-4(実機第13報②): 「番号だけ送ってください」は入力先を言っていない。
+    ' 実機では深掘りボタンを押して詰まった。入力先まで文面で名指しする。
     If n > 0 Then
-        sb = sb & "「2-" & ChrW(&H2461) & "」のように番号だけ送ってください。" & vbLf
+        sb = sb & "下の入力欄に" & ChrW(&H300E) & "2-" & ChrW(&H2461) & ChrW(&H300F) & _
+             "のように番号だけ入れて送信してください。" & vbLf
     Else
-        sb = sb & ChrW(&H2460) & ChrW(&H301C) & ChrW(&H2464) & " の番号だけ送ってください。" & vbLf
+        sb = sb & "下の入力欄に" & ChrW(&H2460) & ChrW(&H301C) & ChrW(&H2464) & _
+             " の番号だけ入れて送信してください。" & vbLf
     End If
     sb = sb & "もちろん、ご自身の言葉で詳しく書き直していただいても構いません。"
 
@@ -198,8 +202,7 @@ End Function
 
 Public Sub ClearPending()
     On Error Resume Next
-    ' R28 W2-2: 前のターンで置き去りになった検索スコープの印も一緒に落とす
-    ' (チャットのクリアもここを通る=modApp.OnClearChat)。
+    ' R28 W2-2: 置き去りの検索スコープ印も落とす(modApp.OnClearChatもここを通る)。
     modFollowup.NoteClarifyPick ""
     modState.SaveState K_PENDING_Q, ""
     modState.SaveState K_PENDING_SRC, ""
@@ -301,8 +304,8 @@ Public Function MergeAnswer(ByVal reply As String) As String
         Exit Function
     End If
 
-    ' R28 W2-2: 資料が確定したら検索スコープの印を1つ預ける(実体と寿命の規則は
-    ' modFollowup 側。読んだ瞬間に消えるので必ず1ターン限り)。
+    ' R28 W2-2: 資料が確定したら検索スコープの印を預ける(実体と1ターン限りの
+    ' 寿命は modFollowup 側)。
     If LenB(srcPick) > 0 Then modFollowup.NoteClarifyPick srcPick
 
     Dim sb As String
@@ -416,24 +419,20 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ParseClarifyReply - 逆質問(資料+意図)への返事から番号を2つ読み取る(純関数)。
-'   reply     : 利用者の返事。「2-②」「１－①」「①」「0」「3」「2-3」等。
-'   nSrc      : 提示した資料の件数(0=資料の選択肢を出していない)。
-'   srcIdx    : (out) 資料番号 1..nSrc。読めない・範囲外・「0」のときは 0。
-'   intentIdx : (out) 意図番号 1..MAX_INTENT。読めないときは 0。
-'   戻り値    : どちらか1つでも読めたら True。
+'   reply=返事「2-②」「１－①」「①」「0」「3」「2-3」等 / nSrc=提示した資料の件数
+'   srcIdx(out)=資料番号1..nSrc(読めない・範囲外・「0」は0) /
+'   intentIdx(out)=意図番号1..MAX_INTENT(読めないときは0) / 戻り=どちらか読めたか
 ' ----------------------------------------------------------------------------
 ' 2026-08-12(R28 W2-1・実機第13報②「逆質問が断線する」): 旧 PickSource は
 ' 【半角数字の出現位置】しか見ておらず、全角「２」や丸数字だけで答えた人の資料
-' 選択が丸ごと消えていた。IsNumberChoiceOnly は全角・丸数字を受理するため、
-' 「番号選択である」とは判定されるのに資料だけ拾えず、合成後の質問から
+' 選択が丸ごと消えていた。IsNumberChoiceOnly は全角・丸数字を受理するので
+' 「番号選択」とは判定されるのに資料だけ拾えず、合成後の質問から
 ' 「対象の資料:」の1行が黙って落ちる(番号で答えたのに絞り込まれない)。
-'
-' 正規化(全角０-９→半角・①-⑳→数値・区切りの許容範囲)は
-' modRagParse.ParseChoiceNumbers が唯一の持ち主で、ここでは写経しない
-' (規則が2実装に分かれた結果が上の断線そのもの)。ただしあちらの戻り値は
-' 「丸数字だったか」を落とし、同じ番号を2度返さない。前処理は2つだけ:
-'   (1) 丸数字を先に別枠へ抜き、本文では区切りへ置き換える=「①」1つの返事を
-'       資料番号1と読み違えない(丸数字は常に意図番号、が逆質問の表記契約)。
+' 正規化は modRagParse.ParseChoiceNumbers が唯一の持ち主で写経しない(規則が
+' 2実装に分かれた結果が上の断線)。あちらは「丸数字だったか」を落とし同じ番号を
+' 2度返さないため、前処理を2つだけ置く:
+'   (1) 丸数字を先に別枠へ抜き、本文では区切りへ置換=「①」1つの返事を資料番号1
+'       と読み違えない(丸数字は常に意図番号、が逆質問の表記契約)。
 '   (2) 「-」類で資料側/意図側へ割ってから別々に渡す=「2-2」が重複除去で
 '       1つに畳まれるのを防ぐ。
 Public Function ParseClarifyReply(ByVal reply As String, ByVal nSrc As Long, _
@@ -466,8 +465,7 @@ Public Function ParseClarifyReply(ByVal reply As String, ByVal nSrc As Long, _
         head = plain
     End If
 
-    ' 上限は資料と意図の大きい方に合わせる(あちらは範囲外を黙って捨てるため、
-    ' nSrc だけにすると「2-5」の意図5が消える)。範囲の最終判定はこちらで持つ。
+    ' 上限は大きい方(nSrcだけにすると「2-5」の意図5があちらで捨てられる)。
     Dim maxN As Long: maxN = nSrc
     If maxN < MAX_INTENT Then maxN = MAX_INTENT
 
@@ -495,8 +493,8 @@ Public Function ParseClarifyReply(ByVal reply As String, ByVal nSrc As Long, _
     ParseClarifyReply = (srcIdx > 0 Or intentIdx > 0)
 End Function
 
-' 資料側と意図側を割る「-」類(半角- / 全角－ / 数学記号− / 長音ー)の最初の位置。
-' 無ければ0。この4字は modRagParse.IsChoiceGap が受理する集合の部分集合。
+' 資料側と意図側を割る「-」類(- － − ー)の最初の位置。無ければ0。
+' この4字は modRagParse.IsChoiceGap が受理する集合の部分集合。
 Private Function HyphenPos(ByVal s As String) As Long
     Dim i As Long
     For i = 1 To Len(s)
