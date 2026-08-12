@@ -63,7 +63,7 @@ Excel 32bit VBA 自己インストーラ型の社内ナレッジRAGアプリ。�
 
 ## VBA落とし穴チェックリスト（実装・レビュー共通）
 
-`And`/`Or`は短絡しない（境界チェックと参照を分離）／`Const`に関数不可／1行1023字まで／非BMP絵文字は識別子・Const不可／`On Error`文とExitはErrをリセットする（**ログの前にErr.Number/Descriptionを退避**）／塗り無しShapeは内部クリック透過（`Fill.Visible=-1`+`Transparency=1`）／`ScrollArea`はマウスホイールを止めない／行Hiddenは保存でファイルが数百倍に膨張（R19裁定で不採用）／`OnTime`はブック名修飾。
+`And`/`Or`は短絡しない（境界チェックと参照を分離）／`Const`に関数不可／1行1023字まで／非BMP絵文字は識別子・Const不可／`On Error`文とExitはErrをリセットする（**ログの前にErr.Number/Descriptionを退避**）／塗り無しShapeは内部クリック透過（`Fill.Visible=-1`+`Transparency=1`）／`ScrollArea`はホイールも止める（R29実機実証）。ただしFreezePanes併用シートではホイールが素通りする／行Hiddenは保存でファイルが数百倍に膨張（R19裁定で不採用）／`OnTime`はブック名修飾。
 
 ## 凍結・容量
 
