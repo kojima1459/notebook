@@ -1395,6 +1395,10 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "ShowVaultGallery", "OnVaultSearch", "OnVaultPrev", "OnVaultNext",
             "OnVaultBackToChat", "OnVaultCardClick",
+            # PageCapFor(2026-08-12 R28 W3-3): 固定9枚(CARDS_PER_PAGE)を廃し、
+            # 列数から1ページの枚数を決める純関数。modTestsPure28がゴールデンで
+            # 固定するためPublicが必要。
+            "PageCapFor",
         ],
     },
     # R11-F1: 本文の描画(KPI/経験値/バッジ/クラスタ地図)を modDashStat へ移設した残り。

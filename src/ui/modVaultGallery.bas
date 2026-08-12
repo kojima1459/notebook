@@ -21,7 +21,6 @@ Private mPreviewRows As Long
 ' 「マイ本棚」(modAppDef.SH_SHELF)へ移した。タブに出る画面が
 ' 「マイ本棚」と「ナレッジ倉庫」の2枚に割れていて、中身が同じデータなのに
 ' 別物に見えていたのが実機の混乱の元だったため、シートを1枚に統合する。
-Private Const CARDS_PER_PAGE As Long = 9
 Private Const CARD_H As Double = 120
 ' R20-1c(実機第7報⑦の層1): カードは3列固定だった。3列=215*3+14*2=673pt で、
 ' 帯だけが可視幅へ伸びる窓(1300pt/1800pt)では右に600pt以上の空白が残る。
@@ -50,11 +49,19 @@ Private mGalleryCount As Long
 ' 監査1 H-2/M-6の回収)。
 Private mGalleryMaxPage As Long
 
+' PageCapFor - R28 W3-3: 固定9枚(CARDS_PER_PAGE)を廃し、列数から1ページの
+' 枚数を決める純関数。R21裁定は縦充足のみが根拠で5列×2段=10枠と不整合
+' だった(実機第13報)。2段ぶんで揃えることで列数が変わっても常に整数段。
+Public Function PageCapFor(ByVal cols As Long) As Long
+    If cols < 1 Then cols = 1
+    PageCapFor = cols * 2
+End Function
+
 ' ----------------------------------------------------------------------------
 ' ナレッジ倉庫ギャラリー(設計: 単一Shape=1カード・可変列グリッド(3〜6列。
 ' R20-1c で帯幅から決める)・ページング。
 ' Shape増殖なし=毎回同数のカードを描き直す)
-' 宣言部(CARDS_PER_PAGE/CARD_W_MIN/CARD_H/mGallery*)はモジュール先頭に集約済み。
+' 宣言部(PageCapFor/CARD_W_MIN/CARD_H/mGallery*)はモジュール先頭に集約済み。
 ' 描画先は「マイ本棚」シート(R4要件A)。専用シートはもう作らない。
 ' ----------------------------------------------------------------------------
 
@@ -320,7 +327,7 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
 End Sub
 
 ' 検索→フィルタ→現在ページのカードだけを描く(カードShapeは毎回作り直すが
-' 最大CARDS_PER_PAGE枚で一定=増殖しない)
+' 1ページの枚数はPageCapFor(cols)=cols*2の上限で頭打ち=増殖しない)
 Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     RemoveShapesByPrefix ws, "nxg_card"
     RemoveShapesByPrefix ws, "nxg_pg_"
@@ -352,7 +359,10 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     ' 「引数は省略できません」でコンパイル不能)。段ピッチは SY(CARD_H)+CARD_GAP
     ' (:339 cardH=SY(CARD_H)、CARD_GAPは非適用)なので、可変= rowsNeed*CARD_H、
     ' 固定= cardT + rowsNeed*CARD_GAP + PAGER_H。modHub:139-141 と同型。
-    Dim rowsNeed As Long: rowsNeed = (CARDS_PER_PAGE + cols - 1) \ cols
+    ' R28 W3-3: pageCap=PageCapFor(cols)=cols*2 なので rowsNeed は常に2で
+    ' 割り切れる(列数と段数が整合し、R21裁定の不整合を解消)。
+    Dim pageCap As Long: pageCap = PageCapFor(cols)
+    Dim rowsNeed As Long: rowsNeed = (pageCap + cols - 1) \ cols
     modViewport2.SetScaleY modViewport2.CompressFactor(modViewport.ViewportHeight(), _
                 cardT + rowsNeed * CARD_GAP + PAGER_H, _
                 rowsNeed * CARD_H)
@@ -391,18 +401,18 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     If fCount = 0 Then
         maxPage = 0
     Else
-        maxPage = (fCount - 1) \ CARDS_PER_PAGE
+        maxPage = (fCount - 1) \ pageCap
     End If
     If mGalleryPage > maxPage Then mGalleryPage = maxPage
     If mGalleryPage < 0 Then mGalleryPage = 0
     mGalleryMaxPage = maxPage   ' ページ端トーストの判定材料(R11-F2)
 
-    Dim startIdx As Long: startIdx = mGalleryPage * CARDS_PER_PAGE
-    Dim endIdx As Long: endIdx = startIdx + CARDS_PER_PAGE - 1
+    Dim startIdx As Long: startIdx = mGalleryPage * pageCap
+    Dim endIdx As Long: endIdx = startIdx + pageCap - 1
     If endIdx > fCount - 1 Then endIdx = fCount - 1
 
     mGalleryCount = 0
-    ReDim mGalleryNames(0 To CARDS_PER_PAGE - 1)
+    ReDim mGalleryNames(0 To pageCap - 1)
 
     If fCount = 0 Then
         ' Empty State(空の状態): 空白で放置せず、透かしアイコン+誘導CTAを配置する。
