@@ -540,6 +540,33 @@ Public Function ToastHeightFor(ByVal msg As String) As Double
     ToastHeightFor = h
 End Function
 
+' ----------------------------------------------------------------------------
+' ToastWaitMsFor - トースト表示時間(ms)の決定。純ロジック(R29 W2-3)。
+' ----------------------------------------------------------------------------
+'   ToastHeightFor と同じ幅推定(TextSpan/CharSpan、全角=pitchPt・半角=pitchPt/2)
+'   を「全角換算字数」へ流用する: TextSpan(msg, 2) / 2 は全角1字=2、半角1字=1と
+'   数えた幅の合計を2で割るので、結果はそのまま「全角換算字数」になる
+'   (全角のみの文なら Len(s) と一致する)。
+'   読了速度=全角15字/秒相当として ms = 換算字数 / 15 × 1000 を切り上げる。
+'   短いトースト(「保存しました」等)が一瞬で消えないよう下限3,000ms、
+'   長いトースト(検索結果まとめ等)が延々残らないよう上限9,000msでクランプする。
+' ----------------------------------------------------------------------------
+Public Function ToastWaitMsFor(ByVal msg As String) As Long
+    Const ZENKAKU_UNIT As Double = 2       ' TextSpanへ渡す単位ピッチ(全角=2/半角=1)
+    Const READ_CPS As Double = 15          ' 読了速度: 全角15字/秒相当
+    Const WAIT_MIN_MS As Long = 3000
+    Const WAIT_MAX_MS As Long = 9000
+
+    Dim zenkakuEquiv As Double
+    zenkakuEquiv = TextSpan(msg, ZENKAKU_UNIT) / ZENKAKU_UNIT
+
+    Dim ms As Long
+    ms = CLng(CeilPt(zenkakuEquiv / READ_CPS * 1000))
+    If ms < WAIT_MIN_MS Then ms = WAIT_MIN_MS
+    If ms > WAIT_MAX_MS Then ms = WAIT_MAX_MS
+    ToastWaitMsFor = ms
+End Function
+
 ' 切り上げ。VBAには Ceiling が無いので -Int(-x) を使う(Int は負の無限大方向へ
 ' 丸めるため、これが整数への切り上げになる。CLng は銀行家丸めなので使わない)。
 Private Function CeilPt(ByVal v As Double) As Double

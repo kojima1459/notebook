@@ -410,7 +410,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
         On Error GoTo 0
         Exit Sub
     End If
-    ToastWait 1100
+    ToastWait modChrome.ToastWaitMsFor(message)   ' R29 W2-3: 文字量に応じ可変(3,000-9,000ms)
     ws.Shapes("nx_toast").Delete
     On Error GoTo 0
 End Sub
