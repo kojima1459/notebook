@@ -247,6 +247,53 @@ Private Sub TestConvBridgeClearedIsEmpty28()
     modTestRunner.Check "R28-W3-6_クリア後空_outAは空", (LenB(outA) = 0), "outA=" & outA
 End Sub
 
+' (E-5) 逆流(戻り)の重複除外(R28H F5/M-4)。
+'       RAGで1問 → 一般へ切替 → 一般で1問 → RAGへ戻す、という実際の使い方で
+'       切替先に既にある往復が2件目として差し込まれないことを固定する。
+'       旧実装は先頭往復(q2)だけを見ていたため [q2, q1, q1] になっていた。
+Private Function CountOccur28(ByVal hay As String, ByVal needle As String) As Long
+    If LenB(needle) = 0 Then Exit Function
+    Dim p As Long: p = InStr(1, hay, needle, vbBinaryCompare)
+    Do While p > 0
+        CountOccur28 = CountOccur28 + 1
+        p = InStr(p + Len(needle), hay, needle, vbBinaryCompare)
+    Loop
+End Function
+
+Private Sub TestConvBridgeNoBackflowDup28()
+    Dim outQ As String, outA As String
+    Dim ok As Boolean
+
+    ' (1) RAG[q1/a1] → 一般(空)。一般側は [q1] になる。
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "q1", "a1", "", "", 5, outQ, outA)
+    modTestRunner.Check "R28H-F5_往1_戻り値True", ok, ""
+    Dim genQ As String, genA As String
+    genQ = outQ: genA = outA
+
+    ' (2) 一般で1問(q2/a2)。履歴は新しい順に積む。
+    genQ = "q2;;;" & genQ
+    genA = "a2;;;" & genA
+
+    ' (3) 一般 → RAG へ戻す。RAG側は依然 [q1/a1] のまま。
+    ok = modConvBridge.ComputeBridgeCore("normal", "rag", True, genQ, genA, "q1", "a1", 5, outQ, outA)
+    modTestRunner.Check "R28H-F5_往2_戻り値True", ok, ""
+    modTestRunner.Check "R28H-F5_往2_Qは2件(q1が重複しない)", _
+        (PairsCount28(outQ) = 2), "outQ=" & outQ
+    modTestRunner.Check "R28H-F5_往2_Q先頭はq2", _
+        (modConvBridge.FirstPair(outQ) = "q2"), "outQ=" & outQ
+    modTestRunner.Check "R28H-F5_往2_q1の出現は1回だけ", _
+        (CountOccur28(outQ, "q1") = 1), "outQ=" & outQ
+
+    ' (4) 何も足さずにもう一度往復させても増えない。ここは AlreadyAtHead では
+    '     止まらない(A側にだけ出所ヘッダーが付き、先頭同士が文字列一致しない)。
+    '     Q側の除外が全件を落とし、運ぶ物が無い=Falseで止まることを固定する。
+    Dim ragQ As String, ragA As String
+    ragQ = outQ: ragA = outA
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, ragQ, ragA, genQ, genA, 5, outQ, outA)
+    modTestRunner.Check "R28H-F5_往3_足す物が無ければFalse", (ok = False), "outQ=" & outQ
+    modTestRunner.Check "R28H-F5_往3_outQは空", (LenB(outQ) = 0), "outQ=" & outQ
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' (F) modAsk.SetPrevMemory / ResetPrevMemory(R28 W4-1/W4-2)。
 '     橋渡し(一般→RAG)が ui_state へ書くだけでは、modAsk.CanFollowup の
@@ -306,6 +353,9 @@ NextBridgeDup28:
 NextBridgeClear28:
     On Error GoTo BridgeClearFail28
     TestConvBridgeClearedIsEmpty28
+NextBridgeBackflow28:
+    On Error GoTo BridgeBackflowFail28
+    TestConvBridgeNoBackflowDup28
 NextAskMem28:
     On Error GoTo AskMemFail28
     TestAskPrevMemory28
@@ -351,6 +401,10 @@ BridgeDupFail28:
     Resume NextBridgeClear28
 BridgeClearFail28:
     modTestRunner.Check "TestConvBridgeClearedIsEmpty28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeBackflow28
+BridgeBackflowFail28:
+    modTestRunner.Check "TestConvBridgeNoBackflowDup28(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextAskMem28
 AskMemFail28:

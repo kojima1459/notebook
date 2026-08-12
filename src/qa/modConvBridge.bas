@@ -131,12 +131,23 @@ Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As Stri
 
     If LenB(FirstPair(srcQ)) = 0 And LenB(FirstPair(srcA)) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
 
-    Dim carryQ As String, carryA As String
-    carryQ = BuildCarryPairs(srcQ, maxPairs, False, "")
-    carryA = BuildCarryPairs(srcA, maxPairs, True, srcName)
-    If LenB(carryQ) = 0 And LenB(carryA) = 0 Then Exit Function
+    ' R28H F5(M-4): 二重挿入防止は【除外前】の先頭往復で判定する。除外後の
+    ' 先頭で判定すると、往来を繰り返しただけの往復が毎回1件ずつ差し込まれる
+    ' (除外で先頭が入れ替わり、AlreadyAtHead が永久に一致しなくなるため)。
+    ' 渡す値は BuildCarryPairs が先頭要素に対して作るものと同じ形にそろえる。
+    If AlreadyAtHead(TruncateTail(FirstPair(srcQ), MAX_CARRY_CHARS), _
+                     WithBridgeHeader(srcName, TruncateTail(FirstPair(srcA), MAX_CARRY_CHARS)), _
+                     dstQ, dstA) Then Exit Function
 
-    If AlreadyAtHead(FirstPair(carryQ), FirstPair(carryA), dstQ, dstA) Then Exit Function
+    ' 運ぶ/運ばないの判断は往復単位で1度だけ作り、Q側とA側へ同じ印を配る
+    ' (別々に判定すると、片側だけ落ちてQとAの並びがずれる)。
+    Dim keepMask As String
+    keepMask = CarryKeepMask(srcQ, srcA, dstQ, dstA)
+
+    Dim carryQ As String, carryA As String
+    carryQ = BuildCarryPairs(srcQ, keepMask, maxPairs, False, "")
+    carryA = BuildCarryPairs(srcA, keepMask, maxPairs, True, srcName)
+    If LenB(carryQ) = 0 And LenB(carryA) = 0 Then Exit Function
 
     outQ = InsertAtHead(carryQ, dstQ, maxPairs)
     outA = InsertAtHead(carryA, dstA, maxPairs)
@@ -149,7 +160,17 @@ End Function
 '   ";;;"で結び直す(純関数)。総量超過は古い往復(配列の後方)から切り捨てる。
 '   withHeader: 回答側だけTrue(WithBridgeHeaderを各往復へ付ける)。
 ' ----------------------------------------------------------------------------
-Private Function BuildCarryPairs(ByVal src As String, ByVal maxPairs As Long, _
+' R28H F5(M-4): 逆流(戻り)の重複を除外する。keepMask はその印。
+'   実例: RAGで1問(Q1) → 一般へ切替(Q1を運搬) → 一般で1問(Q2) → RAGへ戻す。
+'   戻すときの運搬元は [Q2, Q1] で、切替先(RAG)には既に Q1 がある。旧実装は
+'   先頭往復(Q2)しか見ないので全件を差し込み、RAGの履歴が [Q2, Q1, Q1] に
+'   なっていた ―― 同じ往復が2つ並ぶと、LLMには「利用者が同じことを2度聞いた」
+'   に見える(しかも往来のたびに増える)。
+'   keepMask は "1"(運ぶ)/"0"(切替先に既に在る)を往復1件につき1文字並べた
+'   もので、CarryKeepMask が Q/A まとめて1度だけ判断する。印の文字が足りない
+'   添字は運ぶ(判断できないものを黙って捨てない)。
+Private Function BuildCarryPairs(ByVal src As String, ByVal keepMask As String, _
+                                 ByVal maxPairs As Long, _
                                  ByVal withHeader As Boolean, ByVal srcName As String) As String
     If LenB(src) = 0 Then Exit Function
 
@@ -164,18 +185,100 @@ Private Function BuildCarryPairs(ByVal src As String, ByVal maxPairs As Long, _
     Dim out As String, total As Long
     Dim i As Long
     For i = LBound(parts) To LBound(parts) + n - 1
-        Dim item As String
-        item = TruncateTail(CStr(parts(i)), MAX_CARRY_CHARS)
-        If withHeader Then item = WithBridgeHeader(srcName, item)
+        Dim pos As Long: pos = i - LBound(parts) + 1
+        Dim drop As Boolean
+        drop = False
+        If pos <= Len(keepMask) Then drop = (Mid$(keepMask, pos, 1) = "0")
 
-        Dim addLen As Long: addLen = Len(item) + IIf(LenB(out) > 0, 3, 0)
-        If LenB(out) > 0 And total + addLen > MAX_CARRY_TOTAL_CHARS Then Exit For
+        If Not drop Then
+            Dim item As String
+            item = TruncateTail(CStr(parts(i)), MAX_CARRY_CHARS)
+            If withHeader Then item = WithBridgeHeader(srcName, item)
 
-        If LenB(out) > 0 Then out = out & ";;;"
-        out = out & item
-        total = total + addLen
+            Dim addLen As Long: addLen = Len(item) + IIf(LenB(out) > 0, 3, 0)
+            If LenB(out) > 0 And total + addLen > MAX_CARRY_TOTAL_CHARS Then Exit For
+
+            If LenB(out) > 0 Then out = out & ";;;"
+            out = out & item
+            total = total + addLen
+        End If
     Next i
     BuildCarryPairs = out
+End Function
+
+' ----------------------------------------------------------------------------
+' CarryKeepMask - 運搬元の往復ごとに「運ぶ(1)/切替先に既に在るので運ばない(0)」
+'   を1文字ずつ並べた印を作る(純関数)。
+' ----------------------------------------------------------------------------
+'   判定は【質問と回答の両方】の一致。質問だけで判ると、同じことをもう一度
+'   聞いて別の答えを得た往復まで落ちる(R26H F3「回答が違えば同じ往復と
+'   見なさない」の契約を壊す)。
+'   比較の前に両側を同じ形へそろえる: (1)出所ヘッダーを外す ―― ヘッダーは
+'   A側にしか付かないので、運んだ側と運ばれた側で必ず文字列が食い違う
+'   (2)MAX_CARRY_CHARS で末尾側へ切り詰める ―― 切替先の値は運搬時に
+'   切り詰め済みなので、そろえないと長い往復が永久に一致しない。
+Private Function CarryKeepMask(ByVal srcQ As String, ByVal srcA As String, _
+                               ByVal dstQ As String, ByVal dstA As String) As String
+    If LenB(srcQ) = 0 Then Exit Function
+    If LenB(dstQ) = 0 And LenB(dstA) = 0 Then Exit Function   ' 切替先が空=落とす物が無い
+
+    Dim sq() As String: sq = Split(srcQ, ";;;")
+    Dim sa() As String: sa = Split(srcA, ";;;")
+    Dim dq() As String: dq = Split(dstQ, ";;;")
+    Dim da() As String: da = Split(dstA, ";;;")
+
+    Dim i As Long
+    For i = LBound(sq) To UBound(sq)
+        Dim aTxt As String: aTxt = ""
+        Dim ai As Long: ai = LBound(sa) + (i - LBound(sq))
+        If LenB(srcA) > 0 Then
+            If ai <= UBound(sa) Then aTxt = CStr(sa(ai))
+        End If
+        If PairIsInDst(CStr(sq(i)), aTxt, dq, da, LenB(dstA) > 0) Then
+            CarryKeepMask = CarryKeepMask & "0"
+        Else
+            CarryKeepMask = CarryKeepMask & "1"
+        End If
+    Next i
+End Function
+
+' PairIsInDst - 往復(q,a)が切替先の履歴にそのまま在るか(純関数)。
+Private Function PairIsInDst(ByVal q As String, ByVal a As String, _
+                             ByRef dq() As String, ByRef da() As String, _
+                             ByVal hasDstA As Boolean) As Boolean
+    If LenB(q) = 0 Then Exit Function
+    Dim nq As String: nq = NormPair(q)
+    Dim na As String: na = NormPair(a)
+    Dim j As Long
+    For j = LBound(dq) To UBound(dq)
+        If NormPair(CStr(dq(j))) = nq Then
+            Dim dAns As String: dAns = ""
+            Dim k As Long: k = LBound(da) + (j - LBound(dq))
+            If hasDstA Then
+                If k <= UBound(da) Then dAns = CStr(da(k))
+            End If
+            If NormPair(dAns) = na Then
+                PairIsInDst = True
+                Exit Function
+            End If
+        End If
+    Next j
+End Function
+
+' 比較用の正規化: 出所ヘッダーを外し、運搬時と同じ長さへ切り詰める。
+Private Function NormPair(ByVal s As String) As String
+    NormPair = TruncateTail(StripBridgeHeader(s), MAX_CARRY_CHARS)
+End Function
+
+' ----------------------------------------------------------------------------
+' StripBridgeHeader - WithBridgeHeader が付けた出所ヘッダー行を1行だけ外す
+'   (純関数)。接頭辞で始まらなければ何もしない=元の本文をそのまま返す。
+' ----------------------------------------------------------------------------
+Public Function StripBridgeHeader(ByVal s As String) As String
+    StripBridgeHeader = s
+    If Left$(s, Len(HEADER_PREFIX)) <> HEADER_PREFIX Then Exit Function
+    Dim p As Long: p = InStr(s, vbLf)
+    If p > 0 Then StripBridgeHeader = Mid$(s, p + 1)
 End Function
 
 ' ----------------------------------------------------------------------------
