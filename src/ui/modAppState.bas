@@ -314,9 +314,11 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
     On Error GoTo 0
 
     ' 会話履歴(新しい順;;;区切り・最大followup_max_pairsペア。maxPairsは冒頭で読済み)
+    ' R29H F3: 質問・回答の本文に区切り";;;"がそのまま混ざると往復がずれるため、
+    ' 保存直前に半角スペースへ退避する(modApp.bas:55の既存作法と同型)。
     If maxPairs > 0 Then
-        mGenPrevU = TrimPairs(q & IIf(LenB(mGenPrevU) > 0, ";;;" & mGenPrevU, ""), maxPairs)
-        mGenPrevA = TrimPairs(modUtil.SafeLeft(resp, 2000) & IIf(LenB(mGenPrevA) > 0, ";;;" & mGenPrevA, ""), maxPairs)
+        mGenPrevU = TrimPairs(Replace(q, ";;;", " ") & IIf(LenB(mGenPrevU) > 0, ";;;" & mGenPrevU, ""), maxPairs)
+        mGenPrevA = TrimPairs(Replace(modUtil.SafeLeft(resp, 2000), ";;;", " ") & IIf(LenB(mGenPrevA) > 0, ";;;" & mGenPrevA, ""), maxPairs)
     End If
     modState.SaveState "nexus_gen_prevu", mGenPrevU
     modState.SaveState "nexus_gen_preva", mGenPrevA

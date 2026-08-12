@@ -100,6 +100,50 @@ Private Sub TestDiversitySwapPick29()
         (pickZeroDenom = 2), "pick=" & pickZeroDenom
 End Sub
 
+' ----------------------------------------------------------------------------
+' (C) modAppState.AskGeneral 履歴保存のサニタイズ(R29H F3)。
+'   AskGeneral自体はLLM呼び出しを含み純関数ではないため、保存直前に使う
+'   合成式(Replace(本文,";;;"," ") & TrimPairs)そのものを、AskGeneralの
+'   :318-319と同型でここに再現して固定する。回答本文へ区切り";;;"が
+'   そのまま混ざっても、保存後の質問/回答の件数がずれない(往復ずれなし)
+'   ことを見る。
+' ----------------------------------------------------------------------------
+Private Sub TestGenHistorySaveSanitize29()
+    Dim prevU As String, prevA As String
+    prevU = "": prevA = ""
+
+    ' ターン1: 回答本文に区切り";;;"がそのまま混入したケース(実機で起こり得る)。
+    Dim q1 As String: q1 = "質問その1"
+    Dim a1 As String: a1 = "回答前半;;;回答後半"
+    prevU = modAppState.TrimPairs(Replace(q1, ";;;", " ") & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 3)
+    prevA = modAppState.TrimPairs(Replace(a1, ";;;", " ") & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 3)
+
+    ' ターン2: 通常の質問/回答。
+    Dim q2 As String: q2 = "質問その2"
+    Dim a2 As String: a2 = "回答その2"
+    prevU = modAppState.TrimPairs(Replace(q2, ";;;", " ") & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 3)
+    prevA = modAppState.TrimPairs(Replace(a2, ";;;", " ") & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 3)
+
+    ' サニタイズ後は件数が一致するはず(2ターン=2ペア)。
+    Dim uParts() As String: uParts = Split(prevU, ";;;")
+    Dim aParts() As String: aParts = Split(prevA, ";;;")
+    modTestRunner.Check "R29H-F3_保存後の件数一致(往復ずれなし)", _
+        (UBound(uParts) = UBound(aParts)), "u=" & (UBound(uParts) + 1) & " a=" & (UBound(aParts) + 1)
+
+    ' ターン1の回答は";;;"がスペースへ退避され、区切りとして誤認されない
+    ' (誤認されていれば余分な要素に割れ、aParts(1)は"回答前半"だけになる)。
+    modTestRunner.Check "R29H-F3_区切り混入は退避され1ペアのまま", _
+        (aParts(1) = "回答前半 回答後半"), "aParts(1)=[" & aParts(1) & "]"
+
+    ' GenHistoryBlockへ渡しても新しい順→古い順の並べ直しが破綻しない
+    ' (ターン1のQ/Aが対応する「会話2」として出る)。
+    Dim blk As String
+    blk = modGenPipe.GenHistoryBlock(prevU, prevA)
+    modTestRunner.Check "R29H-F3_GenHistoryBlockで往復対応が保たれる", _
+        (InStr(blk, "Q: 質問その1") > 0 And InStr(blk, "A: 回答前半 回答後半") > 0), _
+        "blk=[" & blk & "]"
+End Sub
+
 ' ============================================================================
 Public Sub RunAll29()
     On Error GoTo ToastFail29
@@ -107,6 +151,9 @@ Public Sub RunAll29()
 NextDiversity29:
     On Error GoTo DiversityFail29
     TestDiversitySwapPick29
+NextGenSave29:
+    On Error GoTo GenSaveFail29
+    TestGenHistorySaveSanitize29
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -117,6 +164,10 @@ ToastFail29:
     Resume NextDiversity29
 DiversityFail29:
     modTestRunner.Check "TestDiversitySwapPick29(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGenSave29
+GenSaveFail29:
+    modTestRunner.Check "TestGenHistorySaveSanitize29(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub
