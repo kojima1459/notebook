@@ -381,7 +381,21 @@ Private Function ThoroughDraftRules() As String
 End Function
 
 ' 入念の検証(査読者ペルソナ)。起草者とは別の呼び出しで読ませる。
-Private Function VerifyPrompt(ByVal q As String, ByVal answerText As String) As String
+' R29 W1-2/W1-3: 会話ブロックと「文脈を根拠不明扱いしない」指示を足す。
+' 追加分は履歴があるときだけ足す(履歴が空なら rule も hist も空文字=R28 と
+' 1文字も変わらないプロンプトになる)。存在しない会話を指す指示だけが残ると、
+' 査読者が「上記の会話が見当たらない」を指摘として書き始める。
+Private Function VerifyPrompt(ByVal q As String, ByVal answerText As String, _
+                              ByVal prevU As String, ByVal prevA As String) As String
+    Dim hist As String
+    hist = HistorySection(prevU, prevA)
+    Dim rule As String
+    If LenB(hist) > 0 Then
+        rule = "・利用者と起草者の間には下記「先行する会話」があり、その内容が" & _
+               "回答案に反映されている。会話に現れる情報を「根拠不明」" & _
+               "「前提が示されていない」として指摘しないこと。" & vbLf
+    End If
+
     VerifyPrompt = _
         "あなたは起草者とは別の査読者です。以下の質問と回答案を読み、" & _
         "回答案の主な主張について検証質問を3～5個つくり、それぞれに自分で答え、" & _
@@ -389,18 +403,32 @@ Private Function VerifyPrompt(ByVal q As String, ByVal answerText As String) As 
         "・列挙は「・」で始まる1行1件。どの記述についての指摘かが分かるように書く。" & vbLf & _
         "・言い回しの好みや体裁の話は書かない(内容の誤りだけを書く)。" & vbLf & _
         "・問題が無ければ、1行目に verdict:PASS とだけ書いて終わる" & _
-        "(この場合は他に何も書かない)。" & vbLf & vbLf & _
+        "(この場合は他に何も書かない)。" & vbLf & rule & vbLf & _
+        hist & _
         "## 質問" & vbLf & q & vbLf & vbLf & _
         "## 回答案" & vbLf & answerText
 End Function
 
 ' 入念の改稿(指摘を反映して書き直させる)。口調ルールは起草と同じものを渡す。
+' R29 W1-2/W1-4: 会話ブロックと「会話の情報は根拠として維持してよい」指示。
+' 査読が文脈由来の記述を落としても、改稿がここで踏みとどまれるようにする。
 Private Function RevisePrompt(ByVal sysBase As String, ByVal q As String, _
-                              ByVal answerText As String, ByVal findings As String) As String
+                              ByVal answerText As String, ByVal findings As String, _
+                              ByVal prevU As String, ByVal prevA As String) As String
+    Dim hist As String
+    hist = HistorySection(prevU, prevA)
+    Dim rule As String
+    If LenB(hist) > 0 Then
+        rule = "・下記「先行する会話」に現れる情報は根拠として維持してよい" & _
+               "(会話で共有済みの前提を、根拠不明として削らない)。" & vbLf
+    End If
+
     RevisePrompt = sysBase & vbLf & DeepRules() & vbLf & _
         "・以下の査読指摘を反映して回答を書き直す。指摘に反論できる場合は" & _
         "その根拠を1行で示し、直せない点は「確認が必要」と明示する。" & vbLf & _
-        "・査読のやり取り自体は書かない(利用者が読むのは書き直した回答だけ)。" & vbLf & vbLf & _
+        "・査読のやり取り自体は書かない(利用者が読むのは書き直した回答だけ)。" & vbLf & _
+        rule & vbLf & _
+        hist & _
         "## 質問" & vbLf & q & vbLf & vbLf & _
         "## 回答案" & vbLf & answerText & vbLf & vbLf & _
         "## 査読指摘" & vbLf & findings
@@ -411,9 +439,19 @@ End Function
 ' ----------------------------------------------------------------------------
 '   q       : 質問文
 '   sysBase : modAppState.AskGeneral が組み立てた共通の口調ルール+追加制約
-'   prevU/prevA : 一般アシスタントの会話履歴(起草にだけ渡す。検証・改稿は
-'                 目の前の回答案だけを見ればよく、履歴を混ぜると査読者が
-'                 前のターンの話題へ引きずられる)
+'   prevU/prevA : 一般アシスタントの会話履歴(;;;区切り・新しい順)
+'
+'   【R29 裁定変更】R26-1 当初は「起草にだけ渡す。検証・改稿は目の前の回答案
+'   だけを見ればよく、履歴を混ぜると査読者が前のターンの話題へ引きずられる」
+'   としていた。実機第14報で、この設計が文脈断線の直接原因と確定したため撤回する。
+'   起草は履歴を見て「さっきの件」を答えるのに、査読者はその履歴を知らないので
+'   文脈由来の記述を「根拠不明」と指摘し、改稿がそれを削って一般論へ戻していた
+'   (失敗ターンの usage_log は全て loops=2/pass=0 で機序と整合)。
+'   R29 W1-2 以降は【起草・検証・改稿の3プロンプト本文すべて】へ会話ブロックを
+'   差し込む。危惧した「前ターンへの引きずり」は、W1-3/W1-4 の指示文
+'   (会話は前提であって回答対象ではない)で抑える。
+'   なお CallLLM のリボン引数 prevU/prevA は従来どおり起草にだけ渡す(本文へ
+'   埋め込むことで、リボン側が ";;;" を往復へ割り戻すかどうかに依存しなくなる)。
 '   戻り値  : 最終回答本文、または起草が落ちたときの "#ERR:…"
 ' ============================================================================
 Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
@@ -428,7 +466,8 @@ Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
     Dim best As String
     best = modGateway.CallLLM( _
         sysBase & vbLf & DeepRules() & vbLf & ThoroughDraftRules() & _
-        vbLf & vbLf & "## 質問" & vbLf & q, _
+        vbLf & vbLf & HistorySection(prevU, prevA) & _
+        "## 質問" & vbLf & q, _
         "gen_thorough_draft", eff, vrb, mdl, lat, prevU, prevA)
     If modRagParse.IsErrorResponse(best) Then
         ' 起草が無ければ検証も改稿も意味が無い。呼び出し元(AskGeneral)の
@@ -447,7 +486,7 @@ Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
     Do While ShouldRunVerifyLoop(nLoop, loopsMax)
         ' --- (2) 検証 -------------------------------------------------------
         ShowGenStage "verify", nLoop + 1
-        vr = modGateway.CallLLM(VerifyPrompt(q, best), "gen_thorough_verify", _
+        vr = modGateway.CallLLM(VerifyPrompt(q, best, prevU, prevA), "gen_thorough_verify", _
             modConfig.GetString("gen_thorough_verify_effort", "medium"), _
             modConfig.GetString("gen_thorough_verify_verbosity", "medium"), mdl, lat)
         nLoop = nLoop + 1
@@ -470,7 +509,7 @@ Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
 
         ' --- (3) 改稿 -------------------------------------------------------
         ShowGenStage "revise", nLoop
-        rv = modGateway.CallLLM(RevisePrompt(sysBase, q, best, findings), _
+        rv = modGateway.CallLLM(RevisePrompt(sysBase, q, best, findings, prevU, prevA), _
             "gen_thorough_revise", eff, vrb, mdl, lat)
         If modRagParse.IsErrorResponse(rv) Then
             ' 改稿だけが落ちた場合は、査読前の本文で確定する(退行して答えを出す)。
