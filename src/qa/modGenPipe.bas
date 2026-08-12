@@ -63,6 +63,12 @@ Private Const PASS_TOKEN As String = "verdict:pass"
 ' 頭打ちになるので、4より上を許す意味が無い。
 Private Const LOOPS_HARD_MAX As Long = 4
 
+' prevU/prevA の往復区切り(modAppState.TrimPairs / modApp が保存に使う形と同じ)。
+Private Const HIST_SEP As String = ";;;"
+
+' 会話ブロックの見出し。プロンプト内の指示文と綴りを揃えるため定数にする。
+Private Const HIST_HEAD As String = "## 先行する会話(古い順)"
+
 ' --- 直近1ターンの記録(フッター表示と usage_log の材料) --------------------
 Private mLastMode As String       ' 正規化済みモード("" = まだ1度も答えていない)
 Private mLastLoops As Long        ' 検証を回した回数
@@ -274,6 +280,67 @@ Private Function NormalizeVerdictLine(ByVal ln As String) As String
     Loop
 
     NormalizeVerdictLine = t
+End Function
+
+' ============================================================================
+' 会話履歴のプロンプト整形(R29 W1-1)
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' GenHistoryBlock - 会話履歴(prevU/prevA)を読める塊へ整形する(純関数)。
+' ----------------------------------------------------------------------------
+' modAsk.HistoryBlock(modAsk.bas:723-735)と【同型】。あちらは modAsk が1本の
+' 文字列として持つ履歴を畳む専用で、こちらは一般アシスタントの prevU/prevA
+' (質問側・回答側が別々の ";;;" 区切り文字列)を受ける。modAsk は凍結モジュール
+' のため参照のみとし、ここへコピー実装する(共通化は凍結解除を要するので採らない)。
+'
+' 保存形式は【新しい順】。ここで【古い→新しい】へ並べ直すのは、読む側のモデルが
+' 「直前の話題」を取り違えないため(新しい順のまま渡すと、一番上=最新を会話の
+' 始まりだと読む事故が起きる)。
+'
+' prevA 側の要素数が prevU 側と食い違う場合(回答本文に ";;;" が混ざった等)は、
+' 件数を prevU 側で決め、対応が取れない位置は空のまま出す。プロンプト本文を
+' 作るだけの関数なので、落ちる・件数がずれるより「壊れずに出す」を採る。
+'
+' クランプはしない(保存側が既に1往復あたり質問3,000字級・回答2,000字で
+' 切っている。二重に切ると、どちらが効いたのか追えなくなる)。
+' ----------------------------------------------------------------------------
+Public Function GenHistoryBlock(ByVal prevU As String, ByVal prevA As String) As String
+    If LenB(prevU) = 0 Then Exit Function
+
+    Dim qArr() As String
+    Dim aArr() As String
+    qArr = Split(prevU, HIST_SEP)
+    aArr = Split(prevA, HIST_SEP)
+
+    Dim out As String
+    Dim i As Long, n As Long
+    For i = UBound(qArr) To LBound(qArr) Step -1
+        n = n + 1
+        out = out & "【会話" & n & "】" & vbLf & _
+              "Q: " & qArr(i) & vbLf & _
+              "A: " & PartAt(aArr, i) & vbLf & vbLf
+    Next i
+    GenHistoryBlock = out
+End Function
+
+' 配列の i 番目(範囲外なら空文字)。上の食い違いに対する保険。境界判定と参照を
+' 分けているのは、VBA の And が短絡しないため(1本の If に畳むと添字エラー)。
+Private Function PartAt(ByRef arr() As String, ByVal i As Long) As String
+    If i < LBound(arr) Then Exit Function
+    If i > UBound(arr) Then Exit Function
+    PartAt = arr(i)
+End Function
+
+' ----------------------------------------------------------------------------
+' HistorySection - 会話ブロックへ見出しを付けた「プロンプトへ差し込む塊」。
+'   履歴が空なら空文字を返す=差し込んでも R28 以前と1文字も変わらない。
+' ----------------------------------------------------------------------------
+Private Function HistorySection(ByVal prevU As String, ByVal prevA As String) As String
+    Dim blk As String
+    blk = GenHistoryBlock(prevU, prevA)
+    If LenB(blk) = 0 Then Exit Function
+    HistorySection = HIST_HEAD & vbLf & blk
 End Function
 
 ' ============================================================================
