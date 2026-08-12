@@ -327,6 +327,13 @@ FailCleanup0:
     Err.Raise origNum, "modUIMain.EnsureLayout", "[" & uiStep & "] " & origDesc & diag
 End Sub
 
+' IsHomeActive - R28 W3-4: SH_HOME(Hub)が今アクティブか(幽霊文字ガード用)。
+Private Function IsHomeActive() As Boolean
+    On Error Resume Next
+    IsHomeActive = (ActiveSheet.Name = modAppDef.SH_HOME)
+    On Error GoTo 0
+End Function
+
 ' SetStage - ステータス行+Application.StatusBar 両方
 ' skipBeat: BlockIfIngesting自身の実況専用(R15波1b裁定a)。既定Falseのままなら
 '   既存呼び出し元の挙動は変わらない。
@@ -346,10 +353,13 @@ Public Sub SetStage(ByVal msg As String, Optional ByVal skipBeat As Boolean = Fa
     Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
 
+    ' R28 W3-4: Hub表示中はセルへ書かない(StatusBar等は維持)。
     If Not ws Is Nothing Then
-        On Error Resume Next
-        ws.Range(RNG_STATUS).Value = "状態: " & displayMsg
-        On Error GoTo 0
+        If Not IsHomeActive() Then
+            On Error Resume Next
+            ws.Range(RNG_STATUS).Value = "状態: " & displayMsg
+            On Error GoTo 0
+        End If
     End If
 
     On Error Resume Next
@@ -460,6 +470,7 @@ Public Sub RenderSourcesPreview(hits() As Hit, ByVal nHits As Long)
     Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
+    If IsHomeActive() Then Exit Sub   ' R28 W3-4: 幽霊文字ガード
 
     Dim preview As String
     preview = "" & ChrW(&HD83D) & ChrW(&HDCC4) & " " & nHits & "件の資料がヒットしました: " & JoinSourceLabels(hits, nHits)
@@ -565,6 +576,7 @@ Public Sub ShowTip()
     Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
+    If IsHomeActive() Then Exit Sub   ' R28 W3-4: 幽霊文字ガード
 
     ' Wave6修正: Dim tips() As String に Variant配列(Array()の戻り値)を
     ' 直接代入すると、LibreOfficeでは黙って通るが実機Windows Excelでは
