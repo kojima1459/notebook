@@ -439,6 +439,50 @@ Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' ApplyShelfTableTextColor - マイ本棚(一覧表)の文字色をテーマのtextへ揃える。
+' ----------------------------------------------------------------------------
+'   R28H F1(B-1): 波1で地(Normalスタイル)だけを地色にしたため、darkテーマでは
+'   「濃紺の地に既定の黒文字」となり一覧表の文言・資料名・メモが読めなくなった。
+'   Normalスタイルは塗りしか変えていない(文字色を変えるとチャットのバブル等
+'   全画面の文字色まで巻き添えになる)ので、一覧表の描画セルにだけ text 色を
+'   当てる。dark: 地 RGB(15,23,42) 相対輝度0.00882 / text RGB(248,250,252)
+'   相対輝度0.95356 → コントラスト比 (0.95356+0.05)/(0.00882+0.05)=17.06:1(AAA)。
+'
+'   headerRow(カード見出し行)だけは除く: あの行だけは明示塗り RGB(242,242,242)
+'   をテーマに依らず維持している(modUIShelf の意図的な白地)ため、text 色を
+'   当てると dark で「明るい地に明るい文字」(比1.07:1)になりそこが読めなくなる。
+'
+'   実体をここへ置く理由: modUIShelf は残464字で、この処理を書ける余地が無い
+'   (憲章§4-6「入らなければ実体を余裕モジュールへ置いて1行呼び出し」)。
+'   R4純ロジック則で Range( は使えないため範囲は Cells().Resize() で組む
+'   (行全体への書式は UsedRange を横いっぱいに膨らませるので使わない)。
+'   呼び口は RenderShelf の2つの出口(空の本棚/カード描画後)だけ。EnsureLayout
+'   側に置かないのは、RenderShelf が単独でも呼ばれる(取込・同期の完了時)ため。
+'   カード行は ClearContents 再描画でも書式が残るので、次回以降は冪等に効く。
+'   10列(A:J)は modUIShelf が一覧表で使う全列(COL_MEMO=H の結合が J で終わる)。
+' ----------------------------------------------------------------------------
+Public Sub ApplyShelfTableTextColor(ByVal ws As Worksheet, ByVal firstRow As Long, _
+                                    ByVal headerRow As Long, ByVal lastRow As Long)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim c As Long
+    c = modUI.UiColor("text")
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Sub
+    End If
+    If headerRow > firstRow Then
+        ws.Cells(firstRow, 1).Resize(headerRow - firstRow, 10).Font.Color = c
+    End If
+    If lastRow > headerRow Then
+        ws.Cells(headerRow + 1, 1).Resize(lastRow - headerRow, 10).Font.Color = c
+    End If
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ToastHeightFor - トースト帯の高さ(pt)の決定(R28 W3-2)。純ロジック。
 '   modProgressBar.BarHeightFor と同型の考え方(文字数→段数の近似・過大側へ
 '   倒す)だが、トースト帯は固定幅380pt(左右マージン16pt×2引き=可視幅約348pt)

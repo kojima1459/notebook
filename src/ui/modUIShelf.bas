@@ -328,6 +328,7 @@ Public Sub RenderShelf()
             .Font.Size = 10
         End With
         ws.Rows(FIRST_CARD_ROW).RowHeight = 18
+        modChrome.ApplyShelfTableTextColor ws, 7, HEADER_ROW, FIRST_CARD_ROW   ' R28H F1
         ApplyShelfExtent ws, FIRST_CARD_ROW, True
         mTableLastRow = FIRST_CARD_ROW   ' R20H FA-4: table自身の記憶も更新
         Application.ScreenUpdating = True
@@ -351,6 +352,9 @@ Public Sub RenderShelf()
         uiStep = "資料カードの描画(" & (i + 1) & "件目/" & shown & "件)"
         RenderOneCard ws, FIRST_CARD_ROW + i, names(i), stats(i)
     Next i
+
+    uiStep = "文字色のテーマ追随"   ' R28H F1(B-1): 実体はmodChrome(ここは残464字)
+    modChrome.ApplyShelfTableTextColor ws, 7, HEADER_ROW, FIRST_CARD_ROW + shown - 1
 
     uiStep = "実使用範囲の確定"
     ApplyShelfExtent ws, FIRST_CARD_ROW + shown - 1, False
