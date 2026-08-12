@@ -1515,6 +1515,11 @@ CONTRACT: dict[str, dict] = {
             "HasGeneralMemory", "ClearGeneralMemory", "ShouldClearGeneralHistory",
             "SetGeneralMemory", "BridgeConvMemory", "ThoroughPreNotice",
             "BridgeToastText",
+            # R29 W2-2(実機第14報): 入力欄直下ヒントの文言決定。
+            # modUINexusDraw.DrawInputAreaから毎描画呼ばれる(実体をここへ
+            # 置き、呼び出し側は1行にする=既存のBridgeToastText/
+            # ThoroughPreNoticeと同じ置き場の考え方)。
+            "InputHintText",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・
