@@ -280,6 +280,17 @@ End Function
 ' プロンプト(日本語。modAppState が組み立てる共通の口調ルールへ継ぎ足す形)
 ' ============================================================================
 
+' すぐ聞く の起草に足す指示(R28 W3-1a)。しっかり/入念は DeepRules で共通
+' ルールを上書きしているが、すぐ聞くはこれまで共通ルールのみで専用ルールが
+' 無かった(3モード中ここだけ非対称)。速さを保ったまま「結論が最初の1文で
+' 出る」を徹底するための追加指示。
+Public Function QuickRules() As String
+    QuickRules = _
+        "・結論を最初の1文で言い切る。前置きや質問の復唱はしない。" & vbLf & _
+        "・全体は200字以内。" & vbLf & _
+        "・箇条書きを使う場合は3点まで。"
+End Function
+
 ' しっかり聞く/入念の起草に共通する「深く・構造立てて」の指示。
 ' 一般アシスタントの共通ルールは「全体はおおむね200～400字」と言っているので、
 ' ここで明示的に上書きしないと、深掘りを指示しても字数の壁で潰れる。
@@ -291,10 +302,15 @@ Public Function DeepRules() As String
         "・字数は上の200～400字ではなく600～900字程度を目安にする(この指示が優先)。"
 End Function
 
-' 入念の起草だけに足す指示(自分から反証材料を出させる)。
+' 入念の起草だけに足す指示(自分から反証材料を出させる)。R28 W3-1b: しっかり
+' (deep、600～900字目安)との差別化を明確にするため、構造(①②③④)と字数目安を
+' 明示指定する。指定が無いと DeepRules の600～900字がそのまま効いてしまい、
+' 「入念」を選ぶ意味がしっかりと区別できない。
 Private Function ThoroughDraftRules() As String
     ThoroughDraftRules = _
-        "・反対説・例外・限界条件も自ら挙げる(都合の良い前提だけで書かない)。"
+        "・反対説・例外・限界条件も自ら挙げる(都合の良い前提だけで書かない)。" & vbLf & _
+        "・構成は①前提→②本論→③実務上の注意→④次の一手、の順で書く。" & vbLf & _
+        "・字数は800～1200字程度を目安にする(しっかり聞くの600～900字より深く書く)。"
 End Function
 
 ' 入念の検証(査読者ペルソナ)。起草者とは別の呼び出しで読ませる。
@@ -365,7 +381,8 @@ Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
         ' --- (2) 検証 -------------------------------------------------------
         ShowGenStage "verify", nLoop + 1
         vr = modGateway.CallLLM(VerifyPrompt(q, best), "gen_thorough_verify", _
-            modConfig.GetString("gen_thorough_verify_effort", "medium"), "medium", mdl, lat)
+            modConfig.GetString("gen_thorough_verify_effort", "medium"), _
+            modConfig.GetString("gen_thorough_verify_verbosity", "medium"), mdl, lat)
         nLoop = nLoop + 1
         mLastLoops = nLoop
 

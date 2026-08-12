@@ -247,7 +247,8 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
                 modConfig.GetString("gen_deep_verbosity", "high"), _
                 modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)
         Case Else
-            resp = modGateway.CallLLM(sys & vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general", _
+            resp = modGateway.CallLLM(sys & vbLf & modGenPipe.QuickRules() & _
+                vbLf & vbLf & "## 質問" & vbLf & q, "nexus_general", _
                 modConfig.GetString("quick_effort", "low"), _
                 modConfig.GetString("quick_verbosity", "low"), _
                 modConfig.GetString("quick_model", "gpt-5.5"), lat, mGenPrevU, mGenPrevA)

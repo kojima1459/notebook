@@ -429,6 +429,7 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         ("gen_deep_verbosity", "high", "一般アシスタント・しっかり聞くの verbosity(入念の起草・改稿でも同じ値を使う)"),
         ("gen_thorough_effort", "high", "一般アシスタント・入念に聞くの起草/改稿の reasoning_effort(多段推論なので high が効く)"),
         ("gen_thorough_verify_effort", "medium", "一般アシスタント・入念に聞くの検証(査読)の reasoning_effort"),
+        ("gen_thorough_verify_verbosity", "medium", "一般アシスタント・入念に聞くの検証(査読)の verbosity(R28 W3-1: 従来のハードコードをconfig化)"),
         ("gen_thorough_loops_max", 2, "一般アシスタント・入念に聞くの「検証→改稿」の最大周回数(verdict:PASSで早期終了。0で検証しない=しっかり相当。4を超える値を書いても4で頭打ち)"),
         # R26-2(2026-08-11): モード切替時の会話メモリ橋渡し(modConvBridge)。
         ("conv_bridge", True, "TRUE=モード切替時に直前1往復の会話をもう片方のモードへ橋渡しする(既定)。FALSEで従来どおり(モードごとの記憶は独立のまま)"),
@@ -623,7 +624,7 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
          "取込や同期を長時間ブロックしない)/full=現状はlightと処理内容の差は無い/"
          "off=作らない(要約・キーワード列は空のまま。検索は本文だけで行う)"),
         ("max_pages_per_file", 300, "1ファイルあたりの抽出ページ数上限(超過分は打ち切りpartial扱い)"),
-        ("followup_max_pairs", 3, "『続けて質問』で引き継ぐ会話履歴の最大ペア数。0以下で機能無効"),
+        ("followup_max_pairs", 5, "『続けて質問』で引き継ぐ会話履歴の最大ペア数。0以下で機能無効"),
         ("word_export_effort", "medium", "『Wordで開く』の文書整形に使う reasoning_effort"),
         ("word_export_verbosity", "medium", "『Wordで開く』の文書整形に使う verbosity"),
         ("feature_tts", False, "opt機能フラグ: 読み上げ(AIリボン非公開機能のため提供不可。既定FALSEのまま変更しない)"),
