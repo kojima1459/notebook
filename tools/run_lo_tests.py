@@ -558,6 +558,18 @@ PURE_ALLOWLIST = [
     #   modConvBridge の純関数だけで、いずれも既にこの一覧に登録済み。
     #   ClarifyScopeKept は Nothing 渡しの1件だけで、modState/modLog に
     #   触れる経路(NoteClarifyPick/TakeClarifyScope)はテストから呼ばない。
+    #   W4で modAsk.SetPrevMemory/ResetPrevMemory/CanFollowup を追記。
+    # modAsk(2026-08-12 R28 W4-5): 会話メモリの直接受け渡し口。テストが呼ぶのは
+    #   SetPrevMemory/ResetPrevMemory(モジュール変数への代入だけ)と
+    #   CanFollowup(mPrevU が空のときだけ modState.LoadState を読む。LOでは
+    #   ui_state シートが無く既定値 "" が返るため空のまま=False)の3本で、
+    #   いずれもExcel/COMに実行到達しない。AskFromUI/Answer/AskFollowup など
+    #   Worksheet/Shape/HTTPに触れる口はテストから呼ばない(modShelf/
+    #   modGateway/modAskThorough と同じ「モジュール全体はR4準拠ではないが、
+    #   テストが呼ぶ関数自体はExcelに触れない」型)。未注入のまま
+    #   modTestsPure28 から呼ぶと実行時エラー12になり、切替後の深掘りに古い
+    #   文脈が混ざる穴(実機第13報⑥)のゴールデンが走らないまま全部PASSに見える。
+    "modAsk",
     "modTestsPure28",
 ]
 

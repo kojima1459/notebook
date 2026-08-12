@@ -21,6 +21,8 @@ Option Explicit
 '   (D) modVaultGallery.PageCapFor — 列数からページ枚数を出す算数(R28 W3-3)。
 '   (E) modConvBridge.ComputeBridgeCore — 全往復運搬・総量クランプ・
 '       二重挿入防止・クリア後空(R28 W3-6b)。
+'   (F) modAsk.SetPrevMemory / ResetPrevMemory — 橋渡しと会話クリアが
+'       modAsk の会話メモリへ直接届くこと(R28 W4-1/W4-2)。
 ' ============================================================================
 
 ' 期待値を1組ずつ確かめる小さな道具。srcIdx/intentIdx の両方を1回で見る。
@@ -245,6 +247,34 @@ Private Sub TestConvBridgeClearedIsEmpty28()
     modTestRunner.Check "R28-W3-6_クリア後空_outAは空", (LenB(outA) = 0), "outA=" & outA
 End Sub
 
+' ----------------------------------------------------------------------------
+' (F) modAsk.SetPrevMemory / ResetPrevMemory(R28 W4-1/W4-2)。
+'     橋渡し(一般→RAG)が ui_state へ書くだけでは、modAsk.CanFollowup の
+'     遅延ロードが「mPrevU が空のときしか読まない」ため効かない。直接受け渡し口
+'     を通せば CanFollowup が True になり、ResetPrevMemory で False へ戻ること
+'     (会話クリア後の亡霊=HANDOFF M-4 が消えること)を固定する。
+'     LO では modState.LoadState が ui_state シート不在で既定値("")を返すため、
+'     Reset 後の遅延ロードは空のまま=False になる(実Excelでも OnClearChat が
+'     同じ2キーを "" にしてから呼ぶので同値)。
+' ----------------------------------------------------------------------------
+Private Sub TestAskPrevMemory28()
+    modAsk.SetPrevMemory "前の質問", "前の回答"
+    modTestRunner.Check "R28-W4_SetPrevMemory後はCanFollowup=True", _
+        (modAsk.CanFollowup() = True), "CanFollowup=" & modAsk.CanFollowup()
+
+    modAsk.ResetPrevMemory
+    modTestRunner.Check "R28-W4_ResetPrevMemory後はCanFollowup=False", _
+        (modAsk.CanFollowup() = False), "CanFollowup=" & modAsk.CanFollowup()
+
+    ' 上書きできること(切替のたびに最新の橋渡し内容へ差し替わる)。
+    modAsk.SetPrevMemory "新しい質問", "新しい回答"
+    modTestRunner.Check "R28-W4_再Setで再びCanFollowup=True", _
+        (modAsk.CanFollowup() = True), "CanFollowup=" & modAsk.CanFollowup()
+
+    ' 後片付け: 以降のテストへ会話メモリを残さない。
+    modAsk.ResetPrevMemory
+End Sub
+
 ' ============================================================================
 Public Sub RunAll28()
     On Error GoTo PairsFail28
@@ -276,6 +306,9 @@ NextBridgeDup28:
 NextBridgeClear28:
     On Error GoTo BridgeClearFail28
     TestConvBridgeClearedIsEmpty28
+NextAskMem28:
+    On Error GoTo AskMemFail28
+    TestAskPrevMemory28
 NextDone28:
     On Error GoTo 0
     Exit Sub
@@ -318,6 +351,10 @@ BridgeDupFail28:
     Resume NextBridgeClear28
 BridgeClearFail28:
     modTestRunner.Check "TestConvBridgeClearedIsEmpty28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextAskMem28
+AskMemFail28:
+    modTestRunner.Check "TestAskPrevMemory28(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone28
 End Sub
