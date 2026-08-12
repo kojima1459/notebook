@@ -166,10 +166,6 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             ChrW(&HD83D) & ChrW(&HDD04) & " 同期", "modKnowledge.OnSync", "plain", 54
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", "modKnowledge.OnPickFolder", "plain", 68
-    If isTable Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "plain", 58
-    End If
     AddTool caps, acts, kinds, widths, n, _
             ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
     AddTool caps, acts, kinds, widths, n, _
@@ -198,6 +194,17 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     If hasVision Then
         AddTool caps, acts, kinds, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot", "plain", 84
+    End If
+
+    ' R29 W2-7(実機第14報・削除ボタンの視認性): 取込系(登録/追加/仕上げ/
+    ' パック出力入/同期/フォルダ等)と混じっていた🗑削除を配列の最後尾へ
+    ' 動かし、並びの右端(FlowLeftは左→右の流し込みなので最後に足した項目が
+    ' 最も右/最終段に来る)へ分離する。kind="danger"で赤系配色にし、
+    ' 「消す操作だけ色が違う」ことを見た目でも切り離す。一覧表専用は不変
+    ' (isTableのときだけ足す)。
+    If isTable Then
+        AddTool caps, acts, kinds, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "danger", 58
     End If
 End Sub
 
@@ -270,11 +277,17 @@ Private Sub AddTool(ByRef caps() As String, ByRef acts() As String, _
     n = n + 1
 End Sub
 
-' ツールバーのボタン1個。kind: "plain"(白地) / "primary"(青地) / "accent"(強調)。
+' ツールバーのボタン1個。kind: "plain"(白地) / "primary"(青地) / "accent"(強調) /
+' "danger"(赤地。R29 W2-7=削除専用。全テーマ共通の固定色 #DC2626×白文字。
+' コントラスト比4.83:1(WCAG AA 4.5:1以上)を検算済みで、テーマ配色に紐付く
+' modUI.UiColorへは委ねず本モジュール内に直書きする=どのスキンでも
+' 「消す操作だけは常に赤」という一貫した視覚合図にする)。
 Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
                        ByVal capText As String, ByVal action As String, _
                        ByVal kind As String, ByVal x As Double, ByVal y As Double, _
                        ByVal w As Double)
+    ' Constは関数を持てないため通常のDimで組む(RGB()は関数呼び出し)。
+    Dim dangerBg As Long: dangerBg = RGB(220, 38, 38)   ' #DC2626
     ' 1個の1004で残りを道連れにしない。
     On Error Resume Next
     Dim btn As Shape
@@ -285,10 +298,12 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
         ' 絶対配置にしておかないと行高の変更でボタンが伸縮する。
         btn.Placement = 3
         btn.Adjustments(1) = 0.35
-        If kind = "primary" Or kind = "accent" Then
+        If kind = "primary" Or kind = "accent" Or kind = "danger" Then
             btn.Line.Visible = 0
             If kind = "primary" Then
                 btn.Fill.ForeColor.RGB = modUI.UiColor("primary")
+            ElseIf kind = "danger" Then
+                btn.Fill.ForeColor.RGB = dangerBg
             Else
                 btn.Fill.ForeColor.RGB = modUI.UiColor("accent")
             End If
@@ -302,7 +317,7 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
             .WordWrap = -1
             .TextRange.Text = capText
             .TextRange.Font.Size = 8.5
-            If kind = "primary" Or kind = "accent" Then
+            If kind = "primary" Or kind = "accent" Or kind = "danger" Then
                 .TextRange.Font.Bold = -1
                 .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
             Else
