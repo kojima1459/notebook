@@ -572,3 +572,21 @@ End Function
 Private Function CeilPt(ByVal v As Double) As Double
     CeilPt = -Int(-v)
 End Function
+
+' ----------------------------------------------------------------------------
+' UnlockedTeaserSuffix - 感謝件数tcで見た「まだ解放していないテーマ」の案内文
+'   (全解放済みなら空文字)。R29H F2b: CycleSkinのループ内ティザートースト
+'   (未解放を1件ずつ巡回発火)を廃止し、切替成功トーストの文言末尾へ1回だけ
+'   付記する形に統合(実体はmodSkin残203字のためmodChromeへ)。
+'   閾値5(サクラ/オーシャン)・20(ゴールド)はmodSkin.CycleSkinの既定と同期。
+' ----------------------------------------------------------------------------
+Public Function UnlockedTeaserSuffix(ByVal tc As Long) As String
+    Dim parts As String
+    If tc < 5 Then parts = "さくら/海は感謝5件で解放"
+    If tc < 20 Then
+        If LenB(parts) > 0 Then parts = parts & "・"
+        parts = parts & "金は感謝20件で解放"
+    End If
+    If LenB(parts) = 0 Then Exit Function
+    UnlockedTeaserSuffix = " " & ChrW(&HD83D) & ChrW(&HDD12) & " " & parts   ' 🔒(非BMP=surrogate pair)
+End Function

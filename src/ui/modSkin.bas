@@ -343,10 +343,12 @@ Public Sub CycleSkin()
         If tc >= needN Then
             SaveTheme cand
             modUI.Repaint
-            modSkin.ShowToast "きせかえ: " & CStr(labels(nx)) & IIf(needN > 0, "(感謝" & needN & "件の限定スキン)", ""), "success"
+            ' R29H F2b: ループ内ティザートースト(未解放を1件ずつ巡回waitless発火)は
+            ' 廃止し、切替成功トースト末尾へ未解放テーマの案内を1回だけ付記する。
+            modSkin.ShowToast "きせかえ: " & CStr(labels(nx)) & _
+                IIf(needN > 0, "(感謝" & needN & "件の限定スキン)", "") & _
+                modChrome.UnlockedTeaserSuffix(tc), "success"
             GoTo Done
-        Else
-            modSkin.ShowToast CStr(labels(nx)) & " は「ありがとう」を" & needN & "件受け取ると解放されます(現在" & tc & "件)。", "info", True   ' R29H F2
         End If
     Next tried
 Done:

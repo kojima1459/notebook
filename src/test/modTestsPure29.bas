@@ -158,6 +158,39 @@ Private Sub TestGenHistorySaveSanitize29()
         "blk=[" & blk & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' (D) modChrome.UnlockedTeaserSuffix - 未解放テーマ案内の付記(R29H F2b-2)。
+'   CycleSkinのループ内ティザートースト(waitless連発)を廃止し、切替成功
+'   トースト末尾へ1回だけ付記する形に統合した実体。tcの3区間を固定する。
+' ----------------------------------------------------------------------------
+Private Sub TestUnlockedTeaserSuffix29()
+    ' tc=0: サクラ/海(5件)・金(20件)とも未解放。
+    Dim s0 As String: s0 = modChrome.UnlockedTeaserSuffix(0)
+    modTestRunner.Check "R29H-F2b-2_tc0は両方とも未解放を列挙", _
+        (InStr(s0, "さくら/海は感謝5件で解放") > 0 And InStr(s0, "金は感謝20件で解放") > 0), _
+        "s0=[" & s0 & "]"
+
+    ' tc=4: 境界未満はまだ両方未解放(5件の壁に届いていない)。
+    Dim s4 As String: s4 = modChrome.UnlockedTeaserSuffix(4)
+    modTestRunner.Check "R29H-F2b-2_tc4はまだ両方未解放(5件未満)", _
+        (InStr(s4, "さくら/海") > 0), "s4=[" & s4 & "]"
+
+    ' tc=5: サクラ/海は解放済み、金だけ残る。
+    Dim s5 As String: s5 = modChrome.UnlockedTeaserSuffix(5)
+    modTestRunner.Check "R29H-F2b-2_tc5はさくら/海が解放済み(金のみ残)", _
+        (InStr(s5, "さくら") = 0 And InStr(s5, "金は感謝20件で解放") > 0), "s5=[" & s5 & "]"
+
+    ' tc=19: 金はまだ未解放(20件の壁に届いていない)。
+    Dim s19 As String: s19 = modChrome.UnlockedTeaserSuffix(19)
+    modTestRunner.Check "R29H-F2b-2_tc19は金がまだ未解放(20件未満)", _
+        (InStr(s19, "金") > 0), "s19=[" & s19 & "]"
+
+    ' tc=20: 全解放。付記なしの空文字(トーストに余計な文言を足さない)。
+    Dim s20 As String: s20 = modChrome.UnlockedTeaserSuffix(20)
+    modTestRunner.Check "R29H-F2b-2_tc20は全解放で空文字(ネガティブ確認込み)", _
+        (LenB(s20) = 0), "s20=[" & s20 & "]"
+End Sub
+
 ' ============================================================================
 Public Sub RunAll29()
     On Error GoTo ToastFail29
@@ -168,6 +201,9 @@ NextDiversity29:
 NextGenSave29:
     On Error GoTo GenSaveFail29
     TestGenHistorySaveSanitize29
+NextTeaser29:
+    On Error GoTo TeaserFail29
+    TestUnlockedTeaserSuffix29
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -182,6 +218,10 @@ DiversityFail29:
     Resume NextGenSave29
 GenSaveFail29:
     modTestRunner.Check "TestGenHistorySaveSanitize29(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextTeaser29
+TeaserFail29:
+    modTestRunner.Check "TestUnlockedTeaserSuffix29(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub
