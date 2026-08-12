@@ -1,4 +1,4 @@
-# 再開手順（セッション中断対策・最終更新: R26完了時点）
+# 再開手順（セッション中断対策・最終更新: R28完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
@@ -6,6 +6,19 @@
 
 ## 1. 現在地
 
+**R28完了(実機第13報7件=調査4班→プリフライトGO3件→4波→敵対的レビュー→R28H Fix波→Fix検証パス2周目 全消化)。R28版配布済み・実機第14報待ち。**
+仕様=spec_20260812_R28_実機第13報.md。テスト2,286件全PASS・lint ERROR 0/WARN 26(容量WARNのみ)・モジュール145本。GO裁定: ①下余白=道1(Normalスタイル方式)/⑥modAsk=B'最小手術/②〜⑦一括GO。
+R28の骨子:
+- **波1 ①下余白の設計反転(7ラウンド続いた真相)**: R18以来の「塗りを内容下端で打ち止め」はホイール素通し(実機実証済み)の下で原理的に無力(1ノッチ目で塗りの外の白が見える)。R27の「塗り継続」実体はdash限定の埋め草13ptのみだった。反転=`Styles("Normal").Interior.Color=bg`(modChrome.ApplyNormalStyleBg・冪等・On Error保護・want=0黒焼き付きガード)をSetup*Columns4関数+modSkin.ApplyThemeの5配線で全6描画経路へ。既存塗りは二重防御で温存。**LOはNormalスタイルが空振りするため効果は実機でのみ検証可能**。副産物=一覧表モードの背景ゼロ塗り(darkで全面白)も同時解消。Fix: darkで一覧表の文字が読めないB-1(黒文字on濃紺1.17:1)→ApplyShelfTableTextColorでtext色明示(17.06:1)・ExtendChatBand縮小分岐xlNone→bg明示塗り(M-1)。
+- **波2 ②逆質問根治(2段構えの故障)**: 一次=番号パーサ2本併存(quick系PickSourceは半角のみ/thorough系ParseChoiceNumbersは全角正規化)で全角「１-①」の資料番号だけ消失→ParseClarifyReplyへ統一(丸数字=意図番号の契約・ClarifyLoneIntentで単独数の意図読み)。二次=「対象の資料:」はただの文字列で検索は本棚全体のまま→clarify_pick_src(ui_state・1ターン限り・TakeClarifyScopeで読んだ瞬間消す)でmodRetrieveの既存scope引数へ実配線(不足時は全体へ広げ直し+clarify_scope_widenログ・modAsk/modRetrieve不触)。深掘りボタンはpending中「下の入力欄に番号を」トースト誘導。入力欄NumberFormat="@"(半角1-3の日付化根絶)。Fix: モード切替でpending印が残り次の質問が1資料に閉じ込められるM-3→OnToggleModeでClearPending(=モードを跨いだら逆質問は破棄)。
+- **波3 小物+5往復**: 3モード強化(QuickRules新設/ThoroughDraftRules拡充800-1200字/gen_thorough_verify_verbosity config化)・トースト高さを段数テーブルから幅の算数へ(全角10.5pt/半角5.25pt・AscW負値補正・34pt床/92pt上限=「社内ナ」切れ根治)・ギャラリーPageCapFor=cols×2(9固定廃止=5列で10個)・幽霊文字IsHomeActiveガード5経路(SetStage/RenderSourcesPreview/ShowTip+Fix波でRenderAnswer/ShowEmptyShelfHint。StatusBarは維持)・「AI整理中(本棚全体の未処理分)」文言・**followup_max_pairs既定3→5+橋渡しを1往復→全保持往復運搬へ**(1往復4,000字/総量20,016字・CarryKeepMaskで切替往復の逆流重複を除外=Q+A両方一致で判定しR26H F3「回答が違えば別往復」契約を維持)。
+- **波4 ⑥modAsk最小手術(B'案・凍結解除は新規2関数の純追加のみ)**: SetPrevMemory/ResetPrevMemory(git diff 削除0行を証明)+BridgeConvMemory直結+OnClearChat配線。これで(i)切替後の深掘りに古いRAG文脈が混ざる実害(R28調査Dで新発見) (ii)クリア後のmPrevU亡霊(旧M-4)の両方を根治。modAsk 28,381字=**WARN超過はR28裁定で許容**(上限内)。lint CONTRACT/LOテストPURE_ALLOWLISTへ最小追記(検査は弱めていないことを2周目で確認済み)。
+- レビュー2周の実績: 1周目BLOCKER1+MAJOR5+MINOR7(うち採択10=R28H F1〜F10+F6b)、2周目(Fix検証パス)要修正0・記録のみ8。
+R28 記録のみ(次期): ToastHeightForにアイコン+空白15.75pt未算入(「しっかり調べる」が3行境界まで残4.5pt=次に文言を伸ばすと切れる)/RenderAnswerのIsHomeActiveガードがmLastAnswerText・StatusBar解除も落とす(現状到達不能・Hubに質問導線を戻すと罠)/ExtendChatBand縮小分岐の塗り解放機構喪失(裁定済みトレードオフ・上限2000行×A:M)/ClarifyLoneIntent「2-9」型で1個目を意図採用(コメントと実挙動の齟齬・実害極小)/絵文字はToastHeightForで全角1字扱い=切れる側/modUIShelf呼び口のリテラル7が2箇所/逆質問バブルに👍💾等が作用/合成後クエリが画面に出ない/橋渡しヘッダーが最大5個入るノイズ/lint迂回(ws.Parent.Styles)の例外明文化。
+**容量逼迫(R28後実測)**: modUIMain残129/modUIShelf残223/modApp残226/modClarify残309/modSkin残340/modHub残50/modKnowledge残160/modShelfStore残44=**次に触る波は分割裁定必須(特にmodUIMainは実体退避が先)**。modAsk 28,381(WARN許容)/modAskRetrieve 28,319(WARN許容)/modVaultGallery 28,356(WARN)。
+**実機第14報の観点**: ①各画面(Hub/Dash/本棚一覧/ギャラリー/チャット)でホイールを下・右へ何回転がしても地の色が続くか(1ノッチ目が勝負)。**ダークテーマで本棚一覧の文字が読めるか。ダークで会話クリア後に白い矩形が出ないか**/②「個別特約は？」→逆質問→全角「１-①」で選んだ資料(興行中止特約等)から回答が出るか。逆質問中に深掘りボタン→案内トーストが出るか。半角「1-3」が日付にならないか/③モード切替トーストが全文見えるか(社内ナ解消)/⑤ナレッジ12個でギャラリー1ページ目に10個出るか/⑦入念モード実行中にHubへ移動→幽霊文字が出ないか/文脈: RAG⇄一般を往復して話が続くか・同じ会話が二重に出ないか・クリア→切替で前の文脈が出ないか・3〜5往復前の話を踏まえるか。
+---
+(以下は過去ラウンドの記録)
 **R23完了(実機第9報=調査3班→波A/B順次→敵対的レビュー→R23H Fix波 全消化)。実機配布可。**
 R1〜R21・R23まで全ラウンド完了・検収済み・push済み(R22=一般アシスタント3段化+文脈引き継ぎ構想はGO待ちで仕様化未着手)。
 テスト1,995件・lint ERROR 0/WARN 17(容量WARNのみ)・モジュール137本。
