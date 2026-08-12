@@ -437,3 +437,22 @@ Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
     Err.Clear
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' ToastHeightFor - トースト帯の高さ(pt)の決定(R28 W3-2)。純ロジック。
+'   modProgressBar.BarHeightFor と同型の考え方(文字数→段数の近似・過大側へ
+'   倒す)だが、トースト帯は固定幅380pt(左右マージン16pt×2引き=可視幅約348pt)
+'   のため、幅を引数に取らず文字数の閾値だけで3段に丸める。
+'   入念モードのDescription約130字が1行(34pt)で切れて読めなかった実機報告
+'   (spec_20260812_R28実機第13報)への対処。
+' ----------------------------------------------------------------------------
+Public Function ToastHeightFor(ByVal msg As String) As Double
+    Dim n As Long: n = Len(msg)
+    If n <= 30 Then
+        ToastHeightFor = 34    ' 1行
+    ElseIf n <= 70 Then
+        ToastHeightFor = 48    ' 2行
+    Else
+        ToastHeightFor = 62    ' 3行以上
+    End If
+End Function

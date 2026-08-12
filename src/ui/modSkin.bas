@@ -377,7 +377,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     topPos = ActiveWindow.VisibleRange.Top + 92
 
     Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, toastW, 34)   ' 5=角丸四角
+    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, toastW, modChrome.ToastHeightFor(message))   ' 5=角丸四角
     shp.Name = "nx_toast"
     shp.Adjustments(1) = 0.35
     shp.Line.Visible = 0
