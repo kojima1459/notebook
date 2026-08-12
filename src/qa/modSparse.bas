@@ -567,13 +567,17 @@ End Function
 ' R29 W2-5(実機第14報): 相対スコア下限を追加。上の条件だけだと、pool側の
 ' "別資料"代表が実はほぼ無関係(スコアが著しく低い)でも1件差し替わってしまう
 ' (弱い分散のために強い1位を弱い他資料で薄める)。pick先のスコアが
-' hitLowestScore(現hitsの最下位=通常hits(hitN).score)の minRatioX100% 未満
-' なら差し替えない(pick=0=既存の無介入と同じ形)。
+' hitLowestScore(押し出される対象のスコア)の minRatioX100% 未満なら
+' 差し替えない(pick=0=既存の無介入と同じ形)。
 '   ・minRatioX100 <= 0 … 旧挙動(下限なし=無条件差し替え)。既定の呼び出し
 '     (Optional省略)はここに落ちるため、既存呼び出し元・既存テストは無改修で
 '     従来どおり動く。
-'   ・hitLowestScore <= 0 … 比較基準(分母)が無く比率を定義できないため、
-'     ここでは制限しない(0除算を避ける防御。実行時エラー11を起こさない)。
+'   ・hitLowestScore <= 0 … 比較基準(分母)が無く比率を定義できない異常値。
+'     R29H F4: 旧実装は「制限しない(0除算を避けるだけで無条件差し替えへ
+'     フォールバック)」だったが、分母が無い=下限判定そのものが成立しない
+'     状態なので安全側=差し替え不発火(pick=0)へ反転する(0除算は起こさない)。
+'     minRatioX100 <= 0(旧挙動オプトアウト)のときはこの分岐へ入らないため、
+'     既定の呼び出しは従来どおり無条件差し替えのまま変わらない。
 Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Long, _
                                   ByRef poolSources() As String, _
                                   ByRef poolScores() As Double, _
@@ -603,8 +607,12 @@ Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Lo
         End If
     Next i
 
-    If pick > 0 And minRatioX100 > 0 And hitLowestScore > 0 Then
-        If poolScores(pick) / hitLowestScore * 100 < minRatioX100 Then pick = 0
+    If pick > 0 And minRatioX100 > 0 Then
+        If hitLowestScore <= 0 Then
+            pick = 0   ' R29H F4: 分母が無い異常値は安全側=差し替えない
+        ElseIf poolScores(pick) / hitLowestScore * 100 < minRatioX100 Then
+            pick = 0
+        End If
     End If
 
     DiversitySwapPick = pick

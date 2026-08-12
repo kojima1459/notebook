@@ -14,11 +14,16 @@ Option Explicit
 '       上限9,000msのクランプと、全角/半角の重みの違い(半角2字=全角1字)を
 '       固定する。ここが緩むと、短いトーストが一瞬で消える/長いトーストが
 '       読み切る前に消えるのRC(実機第14報)が再発する。
-'   (B) modSparse.DiversitySwapPick — 相対スコア下限(R29 W2-5)。
+'   (B) modSparse.DiversitySwapPick — 相対スコア下限(R29 W2-5/R29H F4)。
 '       pool側の差し替え候補スコアが現hits最下位スコアのminRatioX100%未満
 '       なら差し替えない(69%不発火/70%発火)境界、minRatioX100<=0の旧挙動
-'       (無条件差し替え。Optional省略時も同じ)、hitLowestScore<=0のときの
-'       0除算防御(実行時エラー11を起こさず、制限せず差し替える)を固定する。
+'       (無条件差し替え。Optional省略時も同じ)、hitLowestScore<=0(0/負値)
+'       のときは分母が無い異常値として安全側=差し替え不発火(0除算は
+'       起こさない)を固定する。
+'   (C) modAppState.AskGeneral 履歴保存のサニタイズ(R29H F3)。
+'       保存直前に本文の区切り";;;"を半角スペースへ退避する合成式
+'       (Replace+TrimPairs)を、区切り混入→保存→GenHistoryBlock往復の
+'       形で固定する。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -91,13 +96,22 @@ Private Sub TestDiversitySwapPick29()
     modTestRunner.Check "R29-W2-5_新引数省略は旧挙動(後方互換)", _
         (pickDefault = 2), "pick=" & pickDefault
 
-    ' hitLowestScore<=0は比較基準(分母)が無いため0除算せず制限しない
-    ' (実行時エラー11を起こさず、pickはそのまま返る)。
+    ' hitLowestScore<=0は比較基準(分母)が無い異常値。R29H F4で旧挙動
+    ' (制限せず無条件差し替え)から安全側=差し替え不発火(pick=0)へ反転した
+    ' (0除算は起こさない)。
     ps(2) = "資料B": sc(2) = 5
     Dim pickZeroDenom As Long
     pickZeroDenom = modSparse.DiversitySwapPick(hs, 2, ps, sc, 2, 0, 70)
-    modTestRunner.Check "R29-W2-5_hits最下位0は除算防御(制限せず差し替え)", _
-        (pickZeroDenom = 2), "pick=" & pickZeroDenom
+    modTestRunner.Check "R29H-F4_hits最下位0は安全側で不発火", _
+        (pickZeroDenom = 0), "pick=" & pickZeroDenom
+
+    ' 負値(hitLowestScore=-0.1)も同様に安全側で不発火(実行時エラー11を
+    ' 起こさない)。
+    ps(2) = "資料B": sc(2) = 5
+    Dim pickNegDenom As Long
+    pickNegDenom = modSparse.DiversitySwapPick(hs, 2, ps, sc, 2, -0.1, 70)
+    modTestRunner.Check "R29H-F4_hits最下位が負値でも不発火", _
+        (pickNegDenom = 0), "pick=" & pickNegDenom
 End Sub
 
 ' ----------------------------------------------------------------------------
