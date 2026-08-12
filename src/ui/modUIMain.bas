@@ -406,6 +406,7 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
+    If IsHomeActive() Then Exit Sub   ' R28H F3: 幽霊文字ガード
 
     ' Wave4修正: modAsk.Answerは空質問(未入力のまま「質問する」)のとき
     ' 検索を一切行わずmode=""で早期returnする契約にした(modAsk.bas参照)。
@@ -677,6 +678,7 @@ Public Sub ShowEmptyShelfHint()
     Set ws = modUIMainShape.GetHomeSheet()
     On Error GoTo 0
     If ws Is Nothing Then Exit Sub
+    If IsHomeActive() Then Exit Sub   ' R28H F3: 幽霊文字ガード
 
     modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), _
         "まだ本棚に資料がありません。" & vbLf & _
