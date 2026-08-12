@@ -490,6 +490,11 @@ Public Function ParseClarifyReply(ByVal reply As String, ByVal nSrc As Long, _
         intentIdx = n2
     End If
 
+    ' R28H F7(m-1/m-2): 数を1つだけ打ったのに資料番号として使えないときの
+    ' 拾い直し(判定の実体はmodFollowup。ここは残518字のため)。
+    If intentIdx = 0 Then _
+        intentIdx = modFollowup.ClarifyLoneIntent(srcIdx, n1, n2, circled, MAX_INTENT)
+
     ParseClarifyReply = (srcIdx > 0 Or intentIdx > 0)
 End Function
 

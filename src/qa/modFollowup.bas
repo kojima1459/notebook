@@ -455,3 +455,31 @@ Public Function ClarifyScopeKept(ByVal scopeD As Object, ByVal n As Long) As Boo
         "選ばれた資料の中では" & n & "件しか見つからず、本棚全体へ広げ直しました(scope=" & scopeD.count & ")"
     On Error GoTo 0
 End Function
+
+' ----------------------------------------------------------------------------
+' ClarifyLoneIntent - 逆質問の返事で「数を1つだけ打ったのに資料番号として
+'   使えない」ときに、その数を意図番号(1..maxIntent)として読み直す(純関数)。
+' ----------------------------------------------------------------------------
+' R28H F7(m-1/m-2): modClarify.ParseClarifyReply は1個目の数を資料番号として
+' しか見ておらず、1..nSrc の外なら黙って捨てていた。実害は2つ:
+'   ・資料の選択肢を出していない逆質問(nSrc=0。意図だけを聞く型)へ「3」と
+'     答えると、資料番号としても意図番号としても採られず何も選ばれない。
+'   ・資料を2件しか出していないところへ「5」と答えると同じく何も選ばれない
+'     (利用者は意図の⑤を半角で打っただけ)。
+'   いずれも「番号で答えたのに、自分の言葉で書き直した」扱いへ落ちる。
+' 採る条件は4つとも必須:
+'   srcIdx=0  … 資料番号としては採れていない(採れていれば1個目は資料が正)
+'   n2=0      … 2個目の数が無い(「2-3」の形なら従来の規則が正しい)
+'   circled=0 … 丸数字も無い(丸数字は常に意図番号で、そちらが優先)
+'   1<=n1<=maxIntent … 「0」は「この中にない/わからない」の意思表示なので採らない
+' 採らないときは0を返す(呼び出し側の intentIdx を書き換えない)。
+' 実体をここへ置いたのは modClarify が残518字のため(憲章§4-6)。
+Public Function ClarifyLoneIntent(ByVal srcIdx As Long, ByVal n1 As Long, _
+                                  ByVal n2 As Long, ByVal circled As Long, _
+                                  ByVal maxIntent As Long) As Long
+    If srcIdx <> 0 Then Exit Function
+    If n2 <> 0 Then Exit Function
+    If circled <> 0 Then Exit Function
+    If n1 < 1 Or n1 > maxIntent Then Exit Function
+    ClarifyLoneIntent = n1
+End Function
