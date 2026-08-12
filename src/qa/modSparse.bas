@@ -563,10 +563,23 @@ End Function
 '   ・hitsの資料名が空 … どの資料へ収束したのか決まらない
 '   ・poolに別資料が1件も無い … 差し替え先が無い
 ' 比較は Trim$ + vbTextCompare。同点は添字の小さい方(結果を一意にする)。
+'
+' R29 W2-5(実機第14報): 相対スコア下限を追加。上の条件だけだと、pool側の
+' "別資料"代表が実はほぼ無関係(スコアが著しく低い)でも1件差し替わってしまう
+' (弱い分散のために強い1位を弱い他資料で薄める)。pick先のスコアが
+' hitLowestScore(現hitsの最下位=通常hits(hitN).score)の minRatioX100% 未満
+' なら差し替えない(pick=0=既存の無介入と同じ形)。
+'   ・minRatioX100 <= 0 … 旧挙動(下限なし=無条件差し替え)。既定の呼び出し
+'     (Optional省略)はここに落ちるため、既存呼び出し元・既存テストは無改修で
+'     従来どおり動く。
+'   ・hitLowestScore <= 0 … 比較基準(分母)が無く比率を定義できないため、
+'     ここでは制限しない(0除算を避ける防御。実行時エラー11を起こさない)。
 Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Long, _
                                   ByRef poolSources() As String, _
                                   ByRef poolScores() As Double, _
-                                  ByVal poolN As Long) As Long
+                                  ByVal poolN As Long, _
+                                  Optional ByVal hitLowestScore As Double = 0, _
+                                  Optional ByVal minRatioX100 As Long = 0) As Long
     If hitN < 2 Or poolN < 1 Then Exit Function
 
     Dim only As String: only = Trim$(hitSources(1))
@@ -589,6 +602,11 @@ Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Lo
             End If
         End If
     Next i
+
+    If pick > 0 And minRatioX100 > 0 And hitLowestScore > 0 Then
+        If poolScores(pick) / hitLowestScore * 100 < minRatioX100 Then pick = 0
+    End If
+
     DiversitySwapPick = pick
 End Function
 

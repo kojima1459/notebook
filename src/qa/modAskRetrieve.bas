@@ -76,8 +76,11 @@ Private Sub DiversifyFinalHits(ByRef hits() As Hit, ByVal outN As Long, _
         sc(i) = poolHits(i).score
     Next i
 
+    ' R29 W2-5: 相対スコア下限(既定70%)。pool側の"別資料"代表が現hitsの
+    ' 最下位より著しく弱いなら差し替えない。config既定70・0で旧挙動。
     Dim pick As Long
-    pick = modSparse.DiversitySwapPick(hs, outN, ps, sc, poolN)
+    pick = modSparse.DiversitySwapPick(hs, outN, ps, sc, poolN, _
+        hits(outN).score, modConfig.GetLong("diversify_min_ratio_x100", 70))
     If pick < 1 Then GoTo GiveUp
     hits(outN) = poolHits(pick)
     On Error Resume Next
