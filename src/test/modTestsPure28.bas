@@ -23,6 +23,9 @@ Option Explicit
 '       二重挿入防止・クリア後空(R28 W3-6b)。
 '   (F) modAsk.SetPrevMemory / ResetPrevMemory — 橋渡しと会話クリアが
 '       modAsk の会話メモリへ直接届くこと(R28 W4-1/W4-2)。
+'   (G) modGenPipe.GenHistoryBlock — 一般モードの会話履歴(prevU/prevA)を
+'       プロンプト本文へ載せる整形(R29 W1-1)。ここが空を返す/順序を誤ると、
+'       入念の査読が文脈を知らないまま「根拠不明」を撃つ状態へ戻る。
 ' ============================================================================
 
 ' 期待値を1組ずつ確かめる小さな道具。srcIdx/intentIdx の両方を1回で見る。
@@ -399,6 +402,87 @@ Private Sub TestAskPrevMemory28()
     modAsk.ResetPrevMemory
 End Sub
 
+' ----------------------------------------------------------------------------
+' (G) modGenPipe.GenHistoryBlock — 会話履歴のプロンプト整形(R29 W1-1)。
+' ----------------------------------------------------------------------------
+' 保存形式は【新しい順】(先頭が最新)。出力は【古い順】へ並べ直し、
+' 「【会話n】/Q:/A:」の3行+空行1行で1往復を表す。
+' ----------------------------------------------------------------------------
+
+' (G-1) 1往復。整形の骨格を1文字単位で固定する。
+Private Sub TestGenHistoryBlockOnePair28()
+    Dim got As String
+    got = modGenPipe.GenHistoryBlock("q1", "a1")
+    Dim want As String
+    want = "【会話1】" & vbLf & "Q: q1" & vbLf & "A: a1" & vbLf & vbLf
+    modTestRunner.Check "R29-W1-1_1往復の整形", (got = want), "got=[" & got & "]"
+End Sub
+
+' (G-2) 5往復。件数と【古い→新しい】の並べ直しを固定する。保存は新しい順なので、
+'   q5 が先頭で入って【会話5】(最後)に出るのが正しい。ここが逆だと、モデルは
+'   一番上の最新を「会話の始まり」と読む。
+Private Sub TestGenHistoryBlockFivePairs28()
+    Dim got As String
+    got = modGenPipe.GenHistoryBlock("q5;;;q4;;;q3;;;q2;;;q1", "a5;;;a4;;;a3;;;a2;;;a1")
+
+    modTestRunner.Check "R29-W1-1_5往復_会話1は最古のq1", _
+        (InStr(got, "【会話1】" & vbLf & "Q: q1" & vbLf & "A: a1") > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_5往復_会話3は真ん中のq3", _
+        (InStr(got, "【会話3】" & vbLf & "Q: q3" & vbLf & "A: a3") > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_5往復_会話5は最新のq5", _
+        (InStr(got, "【会話5】" & vbLf & "Q: q5" & vbLf & "A: a5") > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_5往復_6件目は作らない", _
+        (InStr(got, "【会話6】") = 0), "got=[" & got & "]"
+    ' 並び順そのもの(最古が最新より前に現れる)。
+    modTestRunner.Check "R29-W1-1_5往復_古いほうが先に現れる", _
+        (InStr(got, "Q: q1") < InStr(got, "Q: q5")), _
+        "p1=" & InStr(got, "Q: q1") & " p5=" & InStr(got, "Q: q5")
+    ' 区切り記号がプロンプト本文へ漏れない(利用者にもモデルにも意味の無い記号)。
+    modTestRunner.Check "R29-W1-1_5往復_区切りが本文へ漏れない", _
+        (InStr(got, ";;;") = 0), "got=[" & got & "]"
+End Sub
+
+' (G-3) 空。履歴が無いターンでは空文字=差し込んでも R28 以前と同じプロンプト。
+Private Sub TestGenHistoryBlockEmpty28()
+    modTestRunner.Check "R29-W1-1_両方空なら空文字", _
+        (LenB(modGenPipe.GenHistoryBlock("", "")) = 0), _
+        "[" & modGenPipe.GenHistoryBlock("", "") & "]"
+    ' 回答側だけ残っていても、質問が無ければ会話として出さない(片肺は載せない)。
+    modTestRunner.Check "R29-W1-1_質問側が空なら空文字", _
+        (LenB(modGenPipe.GenHistoryBlock("", "a1")) = 0), _
+        "[" & modGenPipe.GenHistoryBlock("", "a1") & "]"
+    ' 回答側だけが空(保存の途中で欠けた)なら、質問だけでも会話として出す。
+    modTestRunner.Check "R29-W1-1_回答側が空でも質問は出す", _
+        (modGenPipe.GenHistoryBlock("q1", "") = "【会話1】" & vbLf & "Q: q1" & vbLf & "A: " & vbLf & vbLf), _
+        "[" & modGenPipe.GenHistoryBlock("q1", "") & "]"
+End Sub
+
+' (G-4) 回答本文に ";;;" が混ざった場合。件数は【質問側】で決めるので、
+'   出る往復数と Q 側の対応は壊れない(A 側の割り当てはずれうるが、落ちない・
+'   件数がずれないほうを採る、というのが W1-1 の設計判断)。
+Private Sub TestGenHistoryBlockSepInAnswer28()
+    Dim got As String
+    got = modGenPipe.GenHistoryBlock("q2;;;q1", "a2;;;混入;;;a1")
+
+    modTestRunner.Check "R29-W1-1_混入_落ちずに出力する", (LenB(got) > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_混入_会話1のQは最古のq1", _
+        (InStr(got, "【会話1】" & vbLf & "Q: q1") > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_混入_会話2のQは最新のq2", _
+        (InStr(got, "【会話2】" & vbLf & "Q: q2") > 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_混入_質問側の件数で止まる", _
+        (InStr(got, "【会話3】") = 0), "got=[" & got & "]"
+    modTestRunner.Check "R29-W1-1_混入_区切りが本文へ漏れない", _
+        (InStr(got, ";;;") = 0), "got=[" & got & "]"
+
+    ' 逆向きの食い違い(回答側が足りない)でも落ちない。A は空のまま出る。
+    Dim lackA As String
+    lackA = modGenPipe.GenHistoryBlock("q3;;;q2;;;q1", "a3")
+    modTestRunner.Check "R29-W1-1_回答不足_3往復ぶん出る", _
+        (InStr(lackA, "【会話3】") > 0), "got=[" & lackA & "]"
+    modTestRunner.Check "R29-W1-1_回答不足_落ちずに出力する", _
+        (InStr(lackA, "Q: q1") > 0), "got=[" & lackA & "]"
+End Sub
+
 ' ============================================================================
 Public Sub RunAll28()
     On Error GoTo PairsFail28
@@ -436,6 +520,18 @@ NextBridgeBackflow28:
 NextAskMem28:
     On Error GoTo AskMemFail28
     TestAskPrevMemory28
+NextGenHistOne28:
+    On Error GoTo GenHistOneFail28
+    TestGenHistoryBlockOnePair28
+NextGenHistFive28:
+    On Error GoTo GenHistFiveFail28
+    TestGenHistoryBlockFivePairs28
+NextGenHistEmpty28:
+    On Error GoTo GenHistEmptyFail28
+    TestGenHistoryBlockEmpty28
+NextGenHistSep28:
+    On Error GoTo GenHistSepFail28
+    TestGenHistoryBlockSepInAnswer28
 NextDone28:
     On Error GoTo 0
     Exit Sub
@@ -486,6 +582,22 @@ BridgeBackflowFail28:
     Resume NextAskMem28
 AskMemFail28:
     modTestRunner.Check "TestAskPrevMemory28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGenHistOne28
+GenHistOneFail28:
+    modTestRunner.Check "TestGenHistoryBlockOnePair28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGenHistFive28
+GenHistFiveFail28:
+    modTestRunner.Check "TestGenHistoryBlockFivePairs28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGenHistEmpty28
+GenHistEmptyFail28:
+    modTestRunner.Check "TestGenHistoryBlockEmpty28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextGenHistSep28
+GenHistSepFail28:
+    modTestRunner.Check "TestGenHistoryBlockSepInAnswer28(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone28
 End Sub
