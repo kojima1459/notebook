@@ -335,17 +335,18 @@ Private Sub TestConvBridgeCore25()
     ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "", "", "既存Q", "既存A", 3, oq, oa)
     modTestRunner.Check "R26-2_切替元の記憶が空なら橋渡ししない", (ok = False), "ok=" & ok
 
-    ' (v) RAG→一般: 引き継ぐのは直前1往復だけ(多往復の履歴から先頭のみ)で、
-    '     回答側だけにヘッダーを付ける(質問側には付けない)。切替先が空のとき
-    '     はその1件だけになる。
+    ' (v) RAG→一般: R28 W3-6bで「直前1往復だけ」から「保持している全往復
+    '     (maxPairsまで)」の運搬へ拡張した。質問側はヘッダー無し、回答側は
+    '     各往復にヘッダーを付ける。切替先が空のときは運んだ往復がそのまま入る。
     ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, _
         "Q最新;;;Q古い", "A最新;;;A古い", "", "", 3, oq, oa)
     modTestRunner.Check "R26-2_RAGから一般への橋渡しは成功", (ok = True), "ok=" & ok
-    modTestRunner.Check "R26-2_質問側は直前1件のみでヘッダー無し", (oq = "Q最新"), oq
+    modTestRunner.Check "R28-W3-6b_質問側は全往復・ヘッダー無し", _
+        (oq = "Q最新;;;Q古い"), oq
     modTestRunner.Check "R26-2_回答側は社内ナレッジ検索のヘッダー付き", _
         (InStr(oa, "社内ナレッジ検索") > 0 And Left$(oa, 1) = ChrW(&H3010)), oa
-    modTestRunner.Check "R26-2_回答側は直前1件のみ(古い方は含まない)", _
-        (InStr(oa, "A最新") > 0 And InStr(oa, "A古い") = 0), oa
+    modTestRunner.Check "R28-W3-6b_回答側は古い方も運ばれる(全往復)", _
+        (InStr(oa, "A最新") > 0 And InStr(oa, "A古い") > 0), oa
 
     ' (vi) 一般→RAG: 逆方向はモード名が「一般アシスタント」で出ること。
     ok = modConvBridge.ComputeBridgeCore("normal", "rag", True, "Q", "A", "", "", 3, oq, oa)

@@ -2,7 +2,7 @@ Attribute VB_Name = "modTestsPure28"
 Option Explicit
 
 ' ============================================================================
-' modTestsPure28 - R28波2(実機第13報②「逆質問の断線」)の純ロジック回帰。
+' modTestsPure28 - R28波2(実機第13報②「逆質問の断線」)+波3の純ロジック回帰。
 '   modTestsPure26(残り僅少)には収まらないため新設した分割先(憲章§4-6。
 '   modTestsPure21/25/26 がそれぞれのFix波用に新設されたのと同型)。
 '   入口は modTestsPure26.RunAll26 の末尾から呼ばれる RunAll28 の1本。
@@ -17,6 +17,10 @@ Option Explicit
 '       結果を採用するか、本棚全体へ広げ直すかの境界(0/1件は広げる・2件で
 '       採用・-1=埋め込み失敗は広げない)。ここが緩むと、スコープ内で1件しか
 '       当たらない質問が「資料が見つかりません」で終わる。
+'   (C) modChrome.ToastHeightFor — トースト高さ3段の文字数境界(R28 W3-2)。
+'   (D) modVaultGallery.PageCapFor — 列数からページ枚数を出す算数(R28 W3-3)。
+'   (E) modConvBridge.ComputeBridgeCore — 全往復運搬・総量クランプ・
+'       二重挿入防止・クリア後空(R28 W3-6b)。
 ' ============================================================================
 
 ' 期待値を1組ずつ確かめる小さな道具。srcIdx/intentIdx の両方を1回で見る。
@@ -119,6 +123,128 @@ Private Sub TestScopeNeedsWiden28()
         (modFollowup.ClarifyScopeKept(Nothing, 5) = False), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' (C) modChrome.ToastHeightFor — 文字数<=30:34pt / <=70:48pt / それ以上:62pt。
+' ----------------------------------------------------------------------------
+Private Sub TestToastHeightFor28()
+    modTestRunner.Check "R28-W3-2_0字は34pt", (modChrome.ToastHeightFor("") = 34), ""
+    modTestRunner.Check "R28-W3-2_30字は34pt(境界)", _
+        (modChrome.ToastHeightFor(String(30, "a")) = 34), ""
+    modTestRunner.Check "R28-W3-2_31字は48pt(境界+1)", _
+        (modChrome.ToastHeightFor(String(31, "a")) = 48), ""
+    modTestRunner.Check "R28-W3-2_70字は48pt(境界)", _
+        (modChrome.ToastHeightFor(String(70, "a")) = 48), ""
+    modTestRunner.Check "R28-W3-2_71字は62pt(境界+1)", _
+        (modChrome.ToastHeightFor(String(71, "a")) = 62), ""
+    modTestRunner.Check "R28-W3-2_130字は62pt(実機報告の長さ)", _
+        (modChrome.ToastHeightFor(String(130, "a")) = 62), ""
+End Sub
+
+' ----------------------------------------------------------------------------
+' (D) modVaultGallery.PageCapFor — cols*2。cols<1は1へクランプしてから*2。
+' ----------------------------------------------------------------------------
+Private Sub TestPageCapFor28()
+    modTestRunner.Check "R28-W3-3_cols3は6枚", (modVaultGallery.PageCapFor(3) = 6), ""
+    modTestRunner.Check "R28-W3-3_cols4は8枚", (modVaultGallery.PageCapFor(4) = 8), ""
+    modTestRunner.Check "R28-W3-3_cols6は12枚", (modVaultGallery.PageCapFor(6) = 12), ""
+    modTestRunner.Check "R28-W3-3_cols0は1扱いで2枚", (modVaultGallery.PageCapFor(0) = 2), ""
+    modTestRunner.Check "R28-W3-3_cols負値も1扱いで2枚", (modVaultGallery.PageCapFor(-1) = 2), ""
+End Sub
+
+' ----------------------------------------------------------------------------
+' (E) modConvBridge.ComputeBridgeCore — 全往復運搬・総量クランプ・
+'     二重挿入防止・クリア後空(R28 W3-6b)。
+' ----------------------------------------------------------------------------
+Private Function PairsCount28(ByVal joined As String) As Long
+    If LenB(joined) = 0 Then
+        PairsCount28 = 0
+    Else
+        Dim p() As String: p = Split(joined, ";;;")
+        PairsCount28 = UBound(p) - LBound(p) + 1
+    End If
+End Function
+
+' (E-1) 5往復すべてが運搬される(FirstPair1件のみだった旧実装からの拡張)。
+Private Sub TestConvBridgeCarryFivePairs28()
+    Dim srcQ As String, srcA As String
+    srcQ = "q1;;;q2;;;q3;;;q4;;;q5"
+    srcA = "a1;;;a2;;;a3;;;a4;;;a5"
+    Dim outQ As String, outA As String
+    Dim ok As Boolean
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, srcQ, srcA, "", "", 5, outQ, outA)
+    modTestRunner.Check "R28-W3-6_5往復_戻り値True", ok, ""
+    modTestRunner.Check "R28-W3-6_5往復_Q件数5", (PairsCount28(outQ) = 5), "outQ=" & outQ
+    modTestRunner.Check "R28-W3-6_5往復_A件数5", (PairsCount28(outA) = 5), "outA=" & outA
+    modTestRunner.Check "R28-W3-6_5往復_Q先頭はq1", (modConvBridge.FirstPair(outQ) = "q1"), ""
+    modTestRunner.Check "R28-W3-6_5往復_Qにq5が含まれる(最古も運ばれる)", _
+        (InStr(outQ, "q5") > 0), "outQ=" & outQ
+    modTestRunner.Check "R28-W3-6_5往復_Aは出所ヘッダー付き", _
+        (Left$(modConvBridge.FirstPair(outA), Len("【直前の")) = "【直前の"), "outA=" & outA
+End Sub
+
+' (E-2) 運搬総量20,000字クランプ: 1往復3,500字級を6件渡すと、総量を超える
+'       最も古い1件(P6)が切り捨てられ5件になる。A側は短文のみでmaxPairs6を
+'       満たし(クランプ非発動)、Q/Aそれぞれ独立にクランプすることを確かめる。
+Private Function PairText28(ByVal idx As Long, ByVal totalLen As Long) As String
+    Dim tag As String: tag = "P" & idx & "_"
+    PairText28 = tag & String(totalLen - Len(tag), "x")
+End Function
+
+Private Sub TestConvBridgeTotalClamp28()
+    Dim srcQ As String
+    Dim i As Long
+    For i = 1 To 6
+        If i > 1 Then srcQ = srcQ & ";;;"
+        srcQ = srcQ & PairText28(i, 3500)
+    Next i
+    Dim srcA As String
+    srcA = "a1;;;a2;;;a3;;;a4;;;a5;;;a6"   ' 短文6件(クランプに触れない側)
+
+    Dim outQ As String, outA As String
+    Dim ok As Boolean
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, srcQ, srcA, "", "", 6, outQ, outA)
+    modTestRunner.Check "R28-W3-6_総量クランプ_戻り値True", ok, ""
+    modTestRunner.Check "R28-W3-6_総量クランプ_Qは5件に切り詰め", _
+        (PairsCount28(outQ) = 5), "count=" & PairsCount28(outQ)
+    modTestRunner.Check "R28-W3-6_総量クランプ_最古P6は含まれない", _
+        (InStr(outQ, "P6_") = 0), "outQ長さ=" & Len(outQ)
+    modTestRunner.Check "R28-W3-6_総量クランプ_新しいP1は含まれる", _
+        (InStr(outQ, "P1_") > 0), ""
+    modTestRunner.Check "R28-W3-6_総量クランプ_Aはクランプ非該当で6件", _
+        (PairsCount28(outA) = 6), "count=" & PairsCount28(outA)
+End Sub
+
+' (E-3) 二重挿入防止: 切替先の先頭に運搬内容と同じ往復が既にあれば挿入しない
+'       (往来を繰り返しただけで増殖・トースト連発しない。判定は先頭往復のみ)。
+Private Sub TestConvBridgeAlreadyAtHead28()
+    Dim srcQ As String, srcA As String
+    srcQ = "q1;;;q2"
+    srcA = "a1;;;a2"
+    Dim headA As String
+    headA = modConvBridge.WithBridgeHeader("社内ナレッジ検索", "a1")
+
+    Dim dstQ As String, dstA As String
+    dstQ = "q1;;;old_q"
+    dstA = headA & ";;;old_a"
+
+    Dim outQ As String, outA As String
+    Dim ok As Boolean
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, srcQ, srcA, dstQ, dstA, 5, outQ, outA)
+    modTestRunner.Check "R28-W3-6_二重挿入防止_戻り値False", (ok = False), ""
+    modTestRunner.Check "R28-W3-6_二重挿入防止_outQは空", (LenB(outQ) = 0), "outQ=" & outQ
+    modTestRunner.Check "R28-W3-6_二重挿入防止_outAは空", (LenB(outA) = 0), "outA=" & outA
+End Sub
+
+' (E-4) クリア後(会話履歴が空)は運搬内容が無い=Falseで何も足さない。
+Private Sub TestConvBridgeClearedIsEmpty28()
+    Dim outQ As String, outA As String
+    Dim ok As Boolean
+    ok = modConvBridge.ComputeBridgeCore("rag", "normal", True, "", "", "keep_q", "keep_a", 5, outQ, outA)
+    modTestRunner.Check "R28-W3-6_クリア後空_戻り値False", (ok = False), ""
+    modTestRunner.Check "R28-W3-6_クリア後空_outQは空", (LenB(outQ) = 0), "outQ=" & outQ
+    modTestRunner.Check "R28-W3-6_クリア後空_outAは空", (LenB(outA) = 0), "outA=" & outA
+End Sub
+
 ' ============================================================================
 Public Sub RunAll28()
     On Error GoTo PairsFail28
@@ -132,6 +258,24 @@ NextRange28:
 NextWiden28:
     On Error GoTo WidenFail28
     TestScopeNeedsWiden28
+NextToast28:
+    On Error GoTo ToastFail28
+    TestToastHeightFor28
+NextPageCap28:
+    On Error GoTo PageCapFail28
+    TestPageCapFor28
+NextBridgeFive28:
+    On Error GoTo BridgeFiveFail28
+    TestConvBridgeCarryFivePairs28
+NextBridgeClamp28:
+    On Error GoTo BridgeClampFail28
+    TestConvBridgeTotalClamp28
+NextBridgeDup28:
+    On Error GoTo BridgeDupFail28
+    TestConvBridgeAlreadyAtHead28
+NextBridgeClear28:
+    On Error GoTo BridgeClearFail28
+    TestConvBridgeClearedIsEmpty28
 NextDone28:
     On Error GoTo 0
     Exit Sub
@@ -150,6 +294,30 @@ RangeFail28:
     Resume NextWiden28
 WidenFail28:
     modTestRunner.Check "TestScopeNeedsWiden28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextToast28
+ToastFail28:
+    modTestRunner.Check "TestToastHeightFor28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextPageCap28
+PageCapFail28:
+    modTestRunner.Check "TestPageCapFor28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeFive28
+BridgeFiveFail28:
+    modTestRunner.Check "TestConvBridgeCarryFivePairs28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeClamp28
+BridgeClampFail28:
+    modTestRunner.Check "TestConvBridgeTotalClamp28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeDup28
+BridgeDupFail28:
+    modTestRunner.Check "TestConvBridgeAlreadyAtHead28(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextBridgeClear28
+BridgeClearFail28:
+    modTestRunner.Check "TestConvBridgeClearedIsEmpty28(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone28
 End Sub

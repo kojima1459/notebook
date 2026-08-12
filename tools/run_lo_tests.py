@@ -531,6 +531,14 @@ PURE_ALLOWLIST = [
     #   未注入のまま modTestsPure25 から呼ぶと実行時エラー12になり、汚染防止の
     #   資料名と定型文のゴールデンが「テストを書いても走らない」状態になる。
     "modInsightCard",
+    # modVaultGallery(2026-08-12 R28 W3-3): ナレッジ倉庫ギャラリーのページング。
+    #   テストが呼ぶのは PageCapFor(cols*2。列数からページ枚数を出す純関数)
+    #   だけで、Shape/Rangeを触る他の関数(ShowVaultGallery/RenderGalleryCards
+    #   等)はテストから呼ばない(modShelf/modUIShelf と同じ「モジュール全体は
+    #   R4準拠ではないが、テストが呼ぶ関数自体はExcelに触れない」型)。
+    #   未注入のまま modTestsPure28 から呼ぶと実行時エラー12になり、
+    #   ページ枚数算数のゴールデンが「テストを書いても走らない」状態になる。
+    "modVaultGallery",
     # modTestsPure26(2026-08-11 R26H F8レビューFix): PickFullerAnswerの3分岐
     #   (700字切れ+同一ターン→フル採用/別ターン→hist_a採用/hist_a空→フル採用)
     #   の純ロジック回帰。modTestsPure25.RunAll25 の末尾が RunAll26 を呼ぶため、
@@ -538,14 +546,16 @@ PURE_ALLOWLIST = [
     #   (19〜25と同型)。テストが呼ぶのは modInsightCard.PickFullerAnswer のみで、
     #   modInsightCard は既にこの一覧に登録済み。
     "modTestsPure26",
-    # modTestsPure28(2026-08-12 R28波2・実機第13報②): 逆質問の番号パーサ
-    #   (modClarify.ParseClarifyReply)とスコープ広げ直しの境界
-    #   (modFollowup.ScopeNeedsWiden/ClarifyScopeKept)の純ロジック回帰。
+    # modTestsPure28(2026-08-12 R28波2・実機第13報②、波3で追記): 逆質問の
+    #   番号パーサ(modClarify.ParseClarifyReply)とスコープ広げ直しの境界
+    #   (modFollowup.ScopeNeedsWiden/ClarifyScopeKept)、波3で
+    #   modChrome.ToastHeightFor/modVaultGallery.PageCapFor/
+    #   modConvBridge.ComputeBridgeCore(全往復運搬・総量クランプ・
+    #   二重挿入防止・クリア後空)を追記。
     #   modTestsPure26.RunAll26 の末尾が RunAll28 を呼ぶため、未注入だと
-    #   実行時エラー12でW2-1/W2-2のゴールデンが1件も走らない(19〜26と同型)。
-    #   テストが呼ぶのは modClarify(ParseClarifyReply。内部で
-    #   modRagParse.ParseChoiceNumbers を使う)と modFollowup の純関数だけで、
-    #   modClarify/modRagParse/modFollowup はいずれも既にこの一覧に登録済み。
+    #   実行時エラー12でこれらのゴールデンが1件も走らない(19〜26と同型)。
+    #   テストが呼ぶのは modClarify/modFollowup/modChrome/modVaultGallery/
+    #   modConvBridge の純関数だけで、いずれも既にこの一覧に登録済み。
     #   ClarifyScopeKept は Nothing 渡しの1件だけで、modState/modLog に
     #   触れる経路(NoteClarifyPick/TakeClarifyScope)はテストから呼ばない。
     "modTestsPure28",
