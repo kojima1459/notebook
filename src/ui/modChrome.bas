@@ -332,6 +332,7 @@ End Function
 '   なっていた(想定外の発見。仕様書は「吸収列Lの追加」を要求していたが、
 '   実体は移設前から既に追加済み。今回は値を変えず移設のみ行う)。
 Public Sub SetupHubColumns(ByVal ws As Worksheet)
+    ApplyNormalStyleBg ws
     ws.Columns("A").ColumnWidth = 1.5
     ws.Columns("B:C").ColumnWidth = 13
     ws.Columns("D").ColumnWidth = 1.2
@@ -370,6 +371,7 @@ End Sub
 '
 ' SetupDashColumns - ダッシュボード。帯は modDash.DASH_BAND = "A1:K1"。
 Public Sub SetupDashColumns(ByVal ws As Worksheet)
+    ApplyNormalStyleBg ws
     ws.Columns("L:BZ").ColumnWidth = 1
 End Sub
 
@@ -377,10 +379,61 @@ End Sub
 '   帯は modKnowledge.SHELF_BAND = "A1:N1"。3モードとも自前で A:N を毎回
 '   書き直すので、呼び出しはその直後に3箇所へ置く(modKnowledge は不触)。
 Public Sub SetupShelfColumns(ByVal ws As Worksheet)
+    ApplyNormalStyleBg ws
     ws.Columns("O:BZ").ColumnWidth = 1
 End Sub
 
 ' SetupChatColumns - チャット(Nexus)。帯は modUINexusDraw.NEXUS_BAND = "A1:M1"。
 Public Sub SetupChatColumns(ByVal ws As Worksheet)
+    ApplyNormalStyleBg ws
     ws.Columns("N:BZ").ColumnWidth = 1
+End Sub
+
+' ----------------------------------------------------------------------------
+' ApplyNormalStyleBg - 画面の「地」をNormalスタイルごと地色にする(R28波1)。
+' ----------------------------------------------------------------------------
+'   設計思想の反転: R27までの余白対策は「内容の下端まで塗る」設計だったが、
+'   マウスホイールは ScrollArea を素通りする(実機実証済み)ので、塗りの外へ
+'   いくらでも出られる。原理的に白帯は消せない。そこで「背景は無限に存在し、
+'   その上に内容を載せる」へ反転する。Normalスタイルの塗りはセルを1つも
+'   触らずシート全域(未使用セルを含む)へ効くため、UsedRangeを1ミリも
+'   膨らませずに下・右の白帯を根絶できる(行Hiddenのようなファイル膨張も無い)。
+'   既存の塗り・境界・埋め草は二重防御として一切外していない。
+'
+'   引数に ws を取る理由(仕様の ApplyNormalStyleBg() からの差分):
+'     本モジュールは R4 純ロジック(vba_lint.py PURE_LOGIC_MODULES)であり、
+'     ThisWorkbook は禁止トークンで lint ERROR になる。ws.Parent は
+'     呼び出し4経路(Hub/Dash/Shelf/Chat)とテーマ切替のいずれでも
+'     アプリ自身のブックなので、ThisWorkbook と同じものを指す。
+'     副作用を持つのは SetupXxxColumns 群と同じ「本モジュール唯一の例外」枠。
+'
+'   冪等ガード: 既に地色ならスタイル代入を行わない(描画のたびに呼ばれるため)。
+'   失敗しても無害(既存の塗りがそのまま残る)なので usage_log には記録しない。
+'   Err は判定に使う値を退避してから Err.Clear / On Error GoTo 0 でリセットする。
+' ----------------------------------------------------------------------------
+Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+
+    Dim want As Long
+    Dim cur As Long
+    Dim readOk As Boolean
+
+    On Error Resume Next
+    want = modUI.UiColor("bg")
+    If Err.Number <> 0 Then
+        ' 配色が引けない異常時は何もしない(既存の塗りへフォールバック)。
+        Err.Clear
+        On Error GoTo 0
+        Exit Sub
+    End If
+    ' 現在色の読み出しに失敗する環境(LibreOfficeは既定スタイル名が異なる)でも
+    ' 書き込みだけは試す。読めなかったときは冪等ガードを外して素通しにする。
+    cur = ws.Parent.Styles("Normal").Interior.Color
+    readOk = (Err.Number = 0)
+    Err.Clear
+    If (Not readOk) Or (cur <> want) Then
+        ws.Parent.Styles("Normal").Interior.Color = want
+    End If
+    Err.Clear
+    On Error GoTo 0
 End Sub
