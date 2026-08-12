@@ -500,6 +500,7 @@ End Sub
 
 ' テーマ適用(背景+全nx_Shape再彩色)。
 Public Sub ApplyTheme(ByVal ws As Worksheet)
+    modChrome.ApplyNormalStyleBg ws   ' R28波1: 地(Normalスタイル)も切替に追随
     ' R18-3a/R19-1b: 全域(ws.Cells)への塗りはUsedRangeをシート最大へ膨らませ、
     ' 「右にも下にも無限にスクロールできる」状態を作る(調査agent2 §1.3)。
     ' 呼び出し元は全てNexus(チャット)シートなので、会話の実下端から決まる
