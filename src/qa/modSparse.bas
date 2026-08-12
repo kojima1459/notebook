@@ -609,6 +609,7 @@ Public Function DiversitySwapPick(ByRef hitSources() As String, ByVal hitN As Lo
 
     If pick > 0 And minRatioX100 > 0 Then
         If hitLowestScore <= 0 Then
+            ' R29H裁定: スコア非正の局面では分散介入自体を止める(安全側)。
             pick = 0   ' R29H F4: 分母が無い異常値は安全側=差し替えない
         ElseIf poolScores(pick) / hitLowestScore * 100 < minRatioX100 Then
             pick = 0
