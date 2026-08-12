@@ -145,7 +145,7 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = 30) As Long
         ' R13-4a: SetStageの出力先(状態行/StatusBar/チャットバブル)は
         ' マイ本棚側の画面では見えない。取込の一段としてバナーへも流す
         ' (バナーが既に出ているときだけ更新=silentは無表示のまま)。
-        modShelfBatch.StageBanner "AI整理中… " & _
+        modShelfBatch.StageBanner "AI整理中(本棚全体の未処理分)… " & _
             modUtil.ProgressText(batchStart + batchSize, limit, "")
         On Error GoTo 0
 
