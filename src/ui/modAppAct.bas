@@ -143,6 +143,17 @@ End Sub
 Public Sub OnActDrill()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Fail
+    ' R28 W2-3(実機第13報②): 逆質問の途中は深掘りを受け付けない。逆質問ターンは
+    ' 履歴に積まれないため、armed followup を立てても下の CanArmFollowup で必ず
+    ' 断られる=「押しても進まない」ボタンになっていた。ここで先に道を示す
+    ' (何をどこへ入れるかまで言う。番号だけ言われても入力欄が分からない)。
+    If modClarify.HasPending() Then
+        modSkin.ShowToast "逆質問にお答えください。下の入力欄に番号(例: 1-" & _
+            ChrW(&H2460) & ")を入れて送信してください", "info"
+        modUI.ParkFocus
+        modUiLock.Leave
+        Exit Sub
+    End If
     ' R20-2a: ゲート判定を【先消しより前】にする。従来は出典/Mentor/アクション/
     ' 信頼度を無条件で消してからArmFollowupのゲートに落ちていたため、失敗時に
     ' ボタン列が消えたまま何も起きない(「押したのに何も起きない」の再発)。
