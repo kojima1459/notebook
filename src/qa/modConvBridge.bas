@@ -33,8 +33,14 @@ Option Explicit
 Public Const CONFIG_KEY As String = "conv_bridge"
 
 ' 橋渡しする文字数の上限(既存記憶の上限作法に合わせる。超過分は先頭を
-' 落とす=直近の内容を優先して残す)。
+' 落とす=直近の内容を優先して残す)。1往復あたりの上限(R28 W3-6b以前から据置)。
 Private Const MAX_CARRY_CHARS As Long = 4000
+
+' R28 W3-6b: 運搬総量(Q/Aそれぞれの合計)の新クランプ。config
+' followup_max_pairs が既定より大きく変更されても、1回の橋渡しで運ぶ量が
+' 際限なく伸びない歯止め(既定5往復×4000字=20,000字ちょうどで無害化)。
+' 超過分は古い往復(配列の後方=";;;"区切りの後ろ)から切り捨てる。
+Private Const MAX_CARRY_TOTAL_CHARS As Long = 20000
 
 ' 橋渡し済みの回答に付ける出所ヘッダーの接頭辞。この接頭辞で始まっていれば
 ' 「既に付与済み」とみなし、二重に付け足さない(冪等性)。
@@ -99,6 +105,10 @@ End Function
 '   (dstQ/dstA が切替先の現在の記憶。maxPairs で上限まで丸める)。
 '   同じ往復が既に先頭にあるとき(切替を往復させただけ)は差し込まず False を
 '   返す=同じ内容が2件並ぶことも、そのたびにトーストが出ることも無い。
+' R28 W3-6b: 直前1往復(FirstPair)だけの運搬から、保持している全往復
+'   (最大maxPairs件・BuildCarryPairs)の運搬へ拡張。二重挿入防止の判定は
+'   従来どおり「先頭往復の一致」で行い(往来を繰り返しただけでは増殖しない)、
+'   一致していなければ全往復をまとめて先頭へ差し込む。
 Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As String, _
                                   ByVal enabled As Boolean, _
                                   ByVal srcQ As String, ByVal srcA As String, _
@@ -118,17 +128,14 @@ Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As Stri
         Exit Function   ' 未知のモード値はフェイルセーフで何もしない
     End If
 
-    ' 直前"1往復"だけ(";;;"区切りの先頭=最新の1件)。
-    Dim q As String, a As String
-    q = FirstPair(srcQ)
-    a = FirstPair(srcA)
-    If LenB(q) = 0 And LenB(a) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
+    If LenB(FirstPair(srcQ)) = 0 And LenB(FirstPair(srcA)) = 0 Then Exit Function   ' 引き継ぐ記憶が無い
 
     Dim carryQ As String, carryA As String
-    carryQ = TruncateTail(q, MAX_CARRY_CHARS)
-    carryA = WithBridgeHeader(srcName, TruncateTail(a, MAX_CARRY_CHARS))
+    carryQ = BuildCarryPairs(srcQ, maxPairs, False, "")
+    carryA = BuildCarryPairs(srcA, maxPairs, True, srcName)
+    If LenB(carryQ) = 0 And LenB(carryA) = 0 Then Exit Function
 
-    If AlreadyAtHead(carryQ, carryA, dstQ, dstA) Then Exit Function
+    If AlreadyAtHead(FirstPair(carryQ), FirstPair(carryA), dstQ, dstA) Then Exit Function
 
     outQ = InsertAtHead(carryQ, dstQ, maxPairs)
     outA = InsertAtHead(carryA, dstA, maxPairs)
@@ -136,9 +143,46 @@ Public Function ComputeBridgeCore(ByVal fromMode As String, ByVal toMode As Stri
 End Function
 
 ' ----------------------------------------------------------------------------
+' BuildCarryPairs - ";;;"区切りの往復履歴から先頭(最新)maxPairs件を取り出し、
+'   1往復あたりMAX_CARRY_CHARS・運搬総量MAX_CARRY_TOTAL_CHARSの2段で切り詰めて
+'   ";;;"で結び直す(純関数)。総量超過は古い往復(配列の後方)から切り捨てる。
+'   withHeader: 回答側だけTrue(WithBridgeHeaderを各往復へ付ける)。
+' ----------------------------------------------------------------------------
+Private Function BuildCarryPairs(ByVal src As String, ByVal maxPairs As Long, _
+                                 ByVal withHeader As Boolean, ByVal srcName As String) As String
+    If LenB(src) = 0 Then Exit Function
+
+    Dim mx As Long: mx = maxPairs
+    If mx < 1 Then mx = 1
+
+    Dim parts() As String
+    parts = Split(src, ";;;")
+    Dim n As Long: n = UBound(parts) - LBound(parts) + 1
+    If n > mx Then n = mx
+
+    Dim out As String, total As Long
+    Dim i As Long
+    For i = LBound(parts) To LBound(parts) + n - 1
+        Dim item As String
+        item = TruncateTail(CStr(parts(i)), MAX_CARRY_CHARS)
+        If withHeader Then item = WithBridgeHeader(srcName, item)
+
+        Dim addLen As Long: addLen = Len(item) + IIf(LenB(out) > 0, 3, 0)
+        If LenB(out) > 0 And total + addLen > MAX_CARRY_TOTAL_CHARS Then Exit For
+
+        If LenB(out) > 0 Then out = out & ";;;"
+        out = out & item
+        total = total + addLen
+    Next i
+    BuildCarryPairs = out
+End Function
+
+' ----------------------------------------------------------------------------
 ' AlreadyAtHead - 橋渡しする1往復が、切替先の記憶の先頭に既にあるか(純関数)。
 '   質問と回答の【両方】が一致したときだけ True。片方だけの一致で止めると、
 '   同じ質問を2モードで聞いたときに回答の引き継ぎだけが落ちる。
+'   R28 W3-6b: 複数往復運搬でも判定は「先頭往復の一致」のまま
+'   (呼び出し側がcarryQ/carryAの先頭要素=FirstPairを渡す)。
 ' ----------------------------------------------------------------------------
 Public Function AlreadyAtHead(ByVal carryQ As String, ByVal carryA As String, _
                               ByVal dstQ As String, ByVal dstA As String) As Boolean
@@ -147,9 +191,11 @@ Public Function AlreadyAtHead(ByVal carryQ As String, ByVal carryA As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' InsertAtHead - ";;;"区切り履歴の先頭へ1件差し込み、上限まで丸める(純関数)。
+' InsertAtHead - ";;;"区切り履歴の先頭へ差し込み、上限まで丸める(純関数)。
+'   item は1件でも複数件(";;;"区切り)でもよい(R28 W3-6b: BuildCarryPairsが
+'   複数往復を渡すようになったため、item側の件数を問わず動く実装のまま据置)。
 '   丸めは modFollowup.KeepNewestPairs(既存の単一情報源)へ委譲する。
-'   maxPairs<=0 は「履歴を持たない」設定なので、差し込んだ1件だけを残す
+'   maxPairs<=0 は「履歴を持たない」設定なので、差し込んだ最新1件だけを残す
 '   (橋渡しを押した本人の操作を黙って無効化しない)。
 ' ----------------------------------------------------------------------------
 Public Function InsertAtHead(ByVal item As String, ByVal joined As String, _
