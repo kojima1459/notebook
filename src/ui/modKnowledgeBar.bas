@@ -34,18 +34,18 @@ Private mBackfillToastDone As Boolean
 Public Function DrawToolbar(ByVal ws As Worksheet, ByVal isTable As Boolean, _
                              ByVal isShared As Boolean, ByVal L As Double, _
                              ByVal W As Double, ByVal barTop As Double) As Double
-    Dim caps() As String, acts() As String, kinds() As String
+    Dim caps() As String, acts() As String, kinds() As String, tips() As String
     Dim n As Long
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
-    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, n, xs, rws, useW, rowN
+    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, tips, n, xs, rws, useW, rowN
     MaybeShowBackfillToast isShared
     If n < 1 Then Exit Function
 
     Dim i As Long
     For i = 0 To n - 1
         ToolButton ws, "nxk_tb" & i, caps(i), acts(i), kinds(i), _
-                   xs(i), barTop + rws(i) * (BAR_H + 2), useW(i)
+                   xs(i), barTop + rws(i) * (BAR_H + 2), useW(i), tips(i)
     Next i
 
     ' 実使用高さ。呼び出し元(DrawChrome)がこれを行3の高さに入れるので、
@@ -72,11 +72,11 @@ End Function
 '   「右端が手前にある」こと自体は異常値として扱わない)。
 Public Function ToolbarContentRight(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                                     ByVal L As Double, ByVal W As Double) As Double
-    Dim caps() As String, acts() As String, kinds() As String
+    Dim caps() As String, acts() As String, kinds() As String, tips() As String
     Dim n As Long
     Dim xs() As Double, rws() As Long, useW() As Double
     Dim rowN As Long
-    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, n, xs, rws, useW, rowN
+    ComputeToolbarLayout isTable, isShared, L, W, caps, acts, kinds, tips, n, xs, rws, useW, rowN
     If n < 1 Then Exit Function
 
     Dim rightMost As Double
@@ -94,11 +94,12 @@ End Function
 Private Sub ComputeToolbarLayout(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                                  ByVal L As Double, ByVal W As Double, _
                                  ByRef caps() As String, ByRef acts() As String, _
-                                 ByRef kinds() As String, ByRef n As Long, _
+                                 ByRef kinds() As String, ByRef tips() As String, _
+                                 ByRef n As Long, _
                                  ByRef xs() As Double, ByRef rws() As Long, _
                                  ByRef useW() As Double, ByRef rowN As Long)
     Dim widths() As Double
-    ToolbarSpec isTable, isShared, caps, acts, kinds, widths, n
+    ToolbarSpec isTable, isShared, caps, acts, kinds, tips, widths, n
     If n < 1 Then
         rowN = 0
         Exit Sub
@@ -114,62 +115,79 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                         ByRef caps() As String, ByRef acts() As String, _
-                        ByRef kinds() As String, ByRef widths() As Double, _
-                        ByRef n As Long)
+                        ByRef kinds() As String, ByRef tips() As String, _
+                        ByRef widths() As Double, ByRef n As Long)
     ReDim caps(0 To TB_MAX - 1)
     ReDim acts(0 To TB_MAX - 1)
     ReDim kinds(0 To TB_MAX - 1)
+    ReDim tips(0 To TB_MAX - 1)
     ReDim widths(0 To TB_MAX - 1)
     n = 0
 
     ' みんなの解決事例モードは操作が全く違う(選択と取り込み)。資料管理用の
     ' ボタンを並べても押しどころが分からなくなるので、専用の並びにする。
     If isShared Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&H2713) & " 選択を取り込む", "modShared.OnImportSelected", "accent", 112
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&H2713) & " 選択を取り込む", "modShared.OnImportSelected", "accent", 112, _
+                "チェックを付けた解決事例を自分の本棚に取り込みます"
         ' R18-3c: 「チャットへ」はここから上段のピル列(modKnowledge.PillSpec)へ
         ' 移した。他画面(Hub/ダッシュボード)はチャットへの導線が常に上段に
         ' あるのに、ナレッジ画面だけがボタン数で位置の変わる下段の帯にあり、
         ' 「どこにあるか毎回探す」状態だった(実機第5報②)。
-        AddTool caps, acts, kinds, widths, n, "すべて選ぶ", "modShared.OnSelectAll", "plain", 72
-        AddTool caps, acts, kinds, widths, n, "選択を解除", "modShared.OnSelectNone", "plain", 72
-        AddTool caps, acts, kinds, widths, n, ChrW(&H2190) & " 前", "modShared.OnPrevPage", "plain", 44
-        AddTool caps, acts, kinds, widths, n, "次 " & ChrW(&H2192), "modShared.OnNextPage", "plain", 44
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
+        AddTool caps, acts, kinds, tips, widths, n, "すべて選ぶ", "modShared.OnSelectAll", "plain", 72, _
+                "一覧の解決事例をすべて選びます"
+        AddTool caps, acts, kinds, tips, widths, n, "選択を解除", "modShared.OnSelectNone", "plain", 72, _
+                "選択をすべて外します"
+        AddTool caps, acts, kinds, tips, widths, n, ChrW(&H2190) & " 前", "modShared.OnPrevPage", "plain", 44, _
+                "前のページに戻ります"
+        AddTool caps, acts, kinds, tips, widths, n, "次 " & ChrW(&H2192), "modShared.OnNextPage", "plain", 44, _
+                "次のページに進みます"
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104, _
+                "回答が見つからなかった質問の一覧を見られます"
         Exit Sub
     End If
 
     ' 検索はギャラリー専用、削除は一覧表専用(押しても何も起きないボタンを
     ' 見せない=実機報告「どっちで押せばいいか分からない」への対処)。
     If Not isTable Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", "modKnowledge.OnSearch", "plain", 62
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDD0D) & " 検索", "modKnowledge.OnSearch", "plain", 62, _
+                "資料をキーワードで検索します"
     End If
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&H2795) & " 登録", "modKnowledge.OnRegister", "plain", 58, _
+            "文章を直接ここに書いてナレッジとして登録します"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCC1) & " 追加", "modKnowledge.OnAddFiles", "plain", 58, _
+            "PDFやWordなどのファイルを資料として追加します"
     ' R20-3(実機第7報②): 再取込ゼロで旧形式の資料に俯瞰・条文参照・言い換え
     ' 検索を後付けする(modBackfill.OnBackfillClick=このモジュールの薄い
     ' ハンドラ。実体はmodBackfillへ)。
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&H26A1) & " 仕上げ", "modKnowledgeBar.OnBackfillClick", "plain", 64
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&H26A1) & " 仕上げ", "modKnowledgeBar.OnBackfillClick", "plain", 64, _
+            "昔の形式の資料に章の目次と要約を後付けして、俯瞰質問や条文参照を使えるようにします"
     ' R18-3c: 「チャットへ」は上段のピル列へ移設(理由は上のisShared分岐の
     ' コメント参照)。ここはボタン数で位置が動く帯なので、常設の移動導線に
     ' 向かない。
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", "modKnowledge.OnPackOut", "plain", 80
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", "modKnowledge.OnPackIn", "plain", 80
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDD04) & " 同期", "modKnowledge.OnSync", "plain", 54
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", "modKnowledge.OnPickFolder", "plain", 68
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104
-    AddTool caps, acts, kinds, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", "modKnowledge.OnChannels", "plain", 96
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE6) & " パック出力", "modKnowledge.OnPackOut", "plain", 80, _
+            "この本棚の中身をファイルにまとめて書き出します"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE5) & " パック取込", "modKnowledge.OnPackIn", "plain", 80, _
+            "書き出しておいた本棚ファイルを読み込みます"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDD04) & " 同期", "modKnowledge.OnSync", "plain", 54, _
+            "共有フォルダの最新版と資料を同期します"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCC2) & " フォルダ", "modKnowledge.OnPickFolder", "plain", 68, _
+            "資料を自動で取り込む共有フォルダを選びます"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104, _
+            "回答が見つからなかった質問の一覧を見られます"
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDCE1) & " 部門チャンネル", "modKnowledge.OnChannels", "plain", 96, _
+            "部門ごとの共有先を設定します"
 
     ' 発行ボタンは、発行キーが設定されている端末にだけ出す。
     ' 一般利用者の画面に「押してはいけないボタン」を置かない。
@@ -178,11 +196,13 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     canPub = modPublish.CanPublish()
     On Error GoTo 0
     If canPub Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行", "modPublishUI.OnPublish", "primary", 104
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行", "modPublishUI.OnPublish", "primary", 104, _
+                "この本棚を部門の正式な資料として発行します"
         ' 運営向けの利用状況。発行者=運営なので同じ条件で出す。
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況", "modHub.OnOwnerReport", "plain", 88
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況", "modHub.OnOwnerReport", "plain", 88, _
+                "誰がどれだけ使っているかを確認します"
     End If
 
     ' 画像解析が使える環境でだけスクショ取込を出す(無効環境で「押したら
@@ -192,8 +212,9 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     hasVision = modFeatures.FeatureEnabled("vision")
     On Error GoTo 0
     If hasVision Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot", "plain", 84
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込", "modUIShelf.OnIngestScreenshot", "plain", 84, _
+                "画面のスクリーンショットを資料として取り込みます"
     End If
 
     ' R29 W2-7(実機第14報・削除ボタンの視認性): 取込系(登録/追加/仕上げ/
@@ -203,8 +224,9 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     ' 「消す操作だけ色が違う」ことを見た目でも切り離す。一覧表専用は不変
     ' (isTableのときだけ足す)。
     If isTable Then
-        AddTool caps, acts, kinds, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "danger", 58
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "danger", 58, _
+                "選んだ資料を本棚から削除します"
     End If
 End Sub
 
@@ -265,14 +287,18 @@ Private Sub MaybeShowBackfillToast(ByVal isShared As Boolean)
 End Sub
 
 ' 並びへ1個足す(TB_MAXを超えたら黙って捨てる=配列外参照で全滅させない)。
+' tipText(R30 W2-5): ホバー説明。Optional省略時は""(ツールチップ無し)。
 Private Sub AddTool(ByRef caps() As String, ByRef acts() As String, _
-                    ByRef kinds() As String, ByRef widths() As Double, _
-                    ByRef n As Long, ByVal capText As String, _
-                    ByVal actName As String, ByVal kind As String, ByVal itemW As Double)
+                    ByRef kinds() As String, ByRef tips() As String, _
+                    ByRef widths() As Double, ByRef n As Long, _
+                    ByVal capText As String, ByVal actName As String, _
+                    ByVal kind As String, ByVal itemW As Double, _
+                    Optional ByVal tipText As String = "")
     If n >= TB_MAX Then Exit Sub
     caps(n) = capText
     acts(n) = actName
     kinds(n) = kind
+    tips(n) = tipText
     widths(n) = itemW
     n = n + 1
 End Sub
@@ -282,10 +308,13 @@ End Sub
 ' コントラスト比4.83:1(WCAG AA 4.5:1以上)を検算済みで、テーマ配色に紐付く
 ' modUI.UiColorへは委ねず本モジュール内に直書きする=どのスキンでも
 ' 「消す操作だけは常に赤」という一貫した視覚合図にする)。
+' tipText(R30 W2-5): ホバー説明。実機依存(Excelのみ確認可)。クリック挙動は
+' OnActionがハイパーリンクに優先して動く既知手法(Address:=""・SubAddressは
+' 自セルなので、万一ハイパーリンクが先に反応しても遷移しない)。
 Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
                        ByVal capText As String, ByVal action As String, _
                        ByVal kind As String, ByVal x As Double, ByVal y As Double, _
-                       ByVal w As Double)
+                       ByVal w As Double, Optional ByVal tipText As String = "")
     ' Constは関数を持てないため通常のDimで組む(RGB()は関数呼び出し)。
     Dim dangerBg As Long: dangerBg = RGB(220, 38, 38)   ' #DC2626
     ' 1個の1004で残りを道連れにしない。
@@ -329,6 +358,10 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
         End With
         modSkin.ApplyLightShadow btn
         btn.OnAction = action
+        If LenB(tipText) > 0 Then
+            ws.Hyperlinks.Add Anchor:=btn, Address:="", _
+                SubAddress:=btn.TopLeftCell.Address, ScreenTip:=tipText
+        End If
     End If
     Set btn = Nothing
     Err.Clear
