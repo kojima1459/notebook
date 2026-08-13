@@ -506,6 +506,11 @@ Private Function LooksLikeRealAnswer(ByVal response As String) As Boolean
     If InStr(1, response, "[出典", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "<answer>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
+    ' R30 W2-2(実機第15報C班・3件目): 分解段(modPrompts.BuildDecomposePrompt)の
+    ' <verdict>single/parts/clarify/global</verdict> も構造タグの一種。短文の
+    ' verdict応答が「上限」「回数」を含む論点(保険約款等)に触れただけでE0204
+    ' 誤爆していた(R21 D2/R21H F4と同型の症状)。
+    If InStr(1, response, "<verdict>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
     ' R21-2 D2(実機第8報⑧): 査読(critique)「1. [観点] …」も救済(旧判定は
     ' 短い棄却指摘を誤爆させていた。タグはmodPrompts.BuildCritiquePromptと同一)
     ' R21H F4: 前置き判定が「1. [」の完全一致だけだったため「1.[」「1.  [」等
