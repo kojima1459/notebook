@@ -571,6 +571,9 @@ Public Sub FitChatRows(ByVal ws As Worksheet)
     If seedRow > modUINexusDraw.NEXUS_MAX_ROW Then seedRow = modUINexusDraw.NEXUS_MAX_ROW
     ws.Rows(firstRow & ":" & seedRow).RowHeight = 18
     ReleaseRowsBelow ws, ws.Range(modUINexusDraw.NexusBound(ws)).Rows.Count + CHAT_ROW_SLACK
+    ' R30 F8: ClearChat経路はScrollArea設定後に行削除が走るため、ここで掛け直す。
+    ' InitUI経路では後続のDrawInputAreaが再設定するので二重適用でも冪等。
+    modViewport.ApplyScrollBound ws, modUINexusDraw.NexusBound(ws)
     On Error GoTo 0
 End Sub
 
