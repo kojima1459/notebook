@@ -264,6 +264,55 @@ Private Sub TestReleaseRange30()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (D2) modViewport2.ChatSeedRow - FitChatRowsの暫定焼き範囲(R30F2-1)。
+' ----------------------------------------------------------------------------
+'   暫定焼き範囲(窓高/18)はバンド下端+CHAT_ROW_SLACKより構造的に大きく、
+'   旧実装はこれをそのまま焼いてから削除していたため、呼ぶたびにRows.Delete
+'   +usage_log書き込みが走っていた(冪等でない=敵対的レビュー2周目MAJOR裁定)。
+'   焼き範囲の下端をboundRowで頭打ちし、通常経路では焼く=残す範囲を一致させて
+'   削除が不発になることを固定する。
+Private Sub TestChatSeedRow30()
+    ' 窓高600pt→600/18=33.33…→CLng丸めで33、firstRow=5なら素の暫定値は38。
+    ' boundRow(バンド下端+3)が20など暫定値より小さいときは、boundRowで
+    ' 頭打ちされる(=旧実装ならここで焼きすぎて即削除が走っていた値)。
+    Dim seedClamped As Long
+    seedClamped = modViewport2.ChatSeedRow(5, 600, 2000, 20)
+    modTestRunner.Check "R30F2-1_boundRowより暫定値が大きいときはboundRowで頭打ち", _
+        (seedClamped = 20), "seed=" & seedClamped
+
+    ' boundRowが暫定値より大きい(会話が長く伸びている)ときは、暫定値
+    ' そのまま(bound側では頭打ちしない=長い会話の下端を削ってしまわない)。
+    Dim seedUnclamped As Long
+    seedUnclamped = modViewport2.ChatSeedRow(5, 600, 2000, 500)
+    modTestRunner.Check "R30F2-1_boundRowが暫定値より大きいときは暫定値のまま", _
+        (seedUnclamped = 38), "seed=" & seedUnclamped
+
+    ' NEXUS_MAX_ROW(maxRowCap)の頭打ちは従来どおり効く(boundRowがさらに
+    ' 大きい異常値でも、maxRowCapを超えない)。
+    Dim seedMaxCapped As Long
+    seedMaxCapped = modViewport2.ChatSeedRow(5, 999999, 2000, 5000)
+    modTestRunner.Check "R30F2-1_maxRowCapは従来どおり効く", _
+        (seedMaxCapped = 2000), "seed=" & seedMaxCapped
+
+    ' 下限クランプ: boundRowがfirstRowを下回る異常値でも、firstRowより
+    ' 小さい値は返さない(固定領域(行1〜4)を巻き込む反転範囲文字列を防ぐ)。
+    Dim seedFloor As Long
+    seedFloor = modViewport2.ChatSeedRow(5, 600, 2000, 2)
+    modTestRunner.Check "R30F2-1_boundRowがfirstRow未満でもfirstRowを割らない", _
+        (seedFloor = 5), "seed=" & seedFloor
+
+    ' ネガティブ確認込みの数値説明用の再現: FitChatRowsと同じ定数で組んだとき、
+    ' 「2回目呼び出しで削除不発」を裏付ける具体値 ―― 1回目でboundRowまで
+    ' 焼いた後(=UsedRangeの実測lastUsedがboundRowに一致する)、2回目の
+    ' ChatSeedRowもboundRowで頭打ちされ、ReleaseRangeはlastUsed=keepRowで
+    ' 削除不発(下のReleaseRangeテスト群と対で読む)。
+    Dim seedSecondCall As Long
+    seedSecondCall = modViewport2.ChatSeedRow(5, 600, 2000, 20)
+    modTestRunner.Check "R30F2-1_同じboundRowで2回呼んでも焼き範囲は同じ(冪等の前提)", _
+        (seedSecondCall = seedClamped), "seed=" & seedSecondCall
+End Sub
+
+' ----------------------------------------------------------------------------
 ' (E) modGateway.LooksLikeLimitError - <verdict>タグ救済(R30 W2-2・3件目)。
 ' ----------------------------------------------------------------------------
 '   分解段(modPrompts.BuildDecomposePrompt)の <verdict>...</verdict> 応答が
@@ -331,6 +380,9 @@ NextTeaser29:
 NextRelease30:
     On Error GoTo ReleaseFail30
     TestReleaseRange30
+NextChatSeed30:
+    On Error GoTo ChatSeedFail30
+    TestChatSeedRow30
 NextE0204D30:
     On Error GoTo E0204Fail30
     TestE0204DecomposeVerdictRescue30
@@ -359,6 +411,10 @@ TeaserFail29:
     Resume NextRelease30
 ReleaseFail30:
     modTestRunner.Check "TestReleaseRange30(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextChatSeed30
+ChatSeedFail30:
+    modTestRunner.Check "TestChatSeedRow30(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextE0204D30
 E0204Fail30:

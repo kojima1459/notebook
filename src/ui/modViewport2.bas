@@ -563,19 +563,47 @@ End Sub
 '   ことになり、バンドの実下端が窓とずれる。
 '   暫定行数 窓高/18 は「18pt行だけで窓を覆うのに要る行数」の上界
 '   (行1〜4が108pt前後を占めるぶん必ず余る)。
+'   2026-08-13(R30 F2-1・敵対的レビュー2周目MAJOR裁定): 暫定行数(窓高/18)は
+'   バンド下端+CHAT_ROW_SLACKより構造的に大きい(窓を覆うための上界であり、
+'   実内容の下端とは無関係)。旧実装はこれをそのまま焼いてから解放していたため、
+'   「焼いた分をすぐ削除する」が【毎回】起き、Rows.Delete+usage_log書き込みが
+'   冪等にならなかった。ChatSeedRowで焼き範囲の下端をバンド下端+SLACKへ
+'   クランプし、通常経路では「焼く=残す範囲」を一致させて削除を不発にする
+'   (旧ブックの過去の焼き付け掃除は ReleaseRowsBelow が ws.UsedRange の実測値
+'   から独立に判定するため、クランプの影響を受けず引き続き機能する)。
 Public Sub FitChatRows(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
     Dim firstRow As Long: firstRow = modUINexusDraw.INPUT_ROW + 2
-    Dim seedRow As Long: seedRow = firstRow + CLng(modViewport.ViewportHeight() / 18)
-    If seedRow > modUINexusDraw.NEXUS_MAX_ROW Then seedRow = modUINexusDraw.NEXUS_MAX_ROW
+    Dim boundRow As Long: boundRow = ws.Range(modUINexusDraw.NexusBound(ws)).Rows.Count + CHAT_ROW_SLACK
+    Dim seedRow As Long
+    seedRow = ChatSeedRow(firstRow, modViewport.ViewportHeight(), _
+                          modUINexusDraw.NEXUS_MAX_ROW, boundRow)
     ws.Rows(firstRow & ":" & seedRow).RowHeight = 18
-    ReleaseRowsBelow ws, ws.Range(modUINexusDraw.NexusBound(ws)).Rows.Count + CHAT_ROW_SLACK
+    ReleaseRowsBelow ws, boundRow
     ' R30 F8: ClearChat経路はScrollArea設定後に行削除が走るため、ここで掛け直す。
     ' InitUI経路では後続のDrawInputAreaが再設定するので二重適用でも冪等。
     modViewport.ApplyScrollBound ws, modUINexusDraw.NexusBound(ws)
     On Error GoTo 0
 End Sub
+
+' ChatSeedRow - FitChatRowsの暫定焼き範囲の下端行。純関数(modTestsPure29が固定)。
+'   firstRow  : 焼き範囲の上端(固定領域の直下)。
+'   viewportH : 窓の可視高(pt)。/18 が「18pt行だけで窓を覆う行数」の上界。
+'   maxRowCap : NEXUS_MAX_ROW。旧来からの絶対上限(取り残し防止)。
+'   boundRow  : バンド下端+CHAT_ROW_SLACK。R30 F2-1の頭打ち先 ―― これを
+'               超えて焼くと、その分がそのまま ReleaseRowsBelow で削除される
+'               (焼く=残す範囲を一致させて冪等にする)。
+'   下限もfirstRowでクランプする: boundRowがfirstRowを下回る異常値でも
+'   Rows("5:3")のような反転範囲文字列(行3〜4=固定領域まで巻き込む)を
+'   作らないため。
+Public Function ChatSeedRow(ByVal firstRow As Long, ByVal viewportH As Double, _
+                            ByVal maxRowCap As Long, ByVal boundRow As Long) As Long
+    ChatSeedRow = firstRow + CLng(viewportH / 18)
+    If ChatSeedRow > maxRowCap Then ChatSeedRow = maxRowCap
+    If ChatSeedRow > boundRow Then ChatSeedRow = boundRow
+    If ChatSeedRow < firstRow Then ChatSeedRow = firstRow
+End Function
 
 ' ReleaseRowsBelow - boundRow より下の「使用済み行」を解放する(冪等)。
 '   Rows.Delete が唯一の即時解放手段(ClearFormats も保存も効かない)。

@@ -1308,6 +1308,11 @@ CONTRACT: dict[str, dict] = {
             #   ReleaseRange     : 解放範囲の行番号計算(純関数。行1〜4を守る
             #                      下限クランプと冪等条件。modTestsPure29が固定)。
             "FitChatRows", "ReleaseRowsBelow", "ReleaseRange",
+            # 2026-08-13(R30F2-1・敵対的レビュー2周目MAJOR裁定): FitChatRowsの
+            # 暫定焼き範囲がバンド下端+SLACKを構造的に超えるため、呼ばれるたびに
+            # 「焼く→即削除」が起きて冪等でなかった。焼き範囲の下端計算を
+            # 純関数化してテストで境界を固定する(modTestsPure29)。
+            "ChatSeedRow",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
