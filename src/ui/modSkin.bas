@@ -479,27 +479,18 @@ Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
     If lastRow > mChatBandRow Then
         fromRow = mChatBandRow + 1
         If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
+        ' R30W1-3: 新たにバンドへ入る行を18ptにしてから塗る(バンド内全行18pt
+        ' の不変式。modUI.ScrollToBottom の18pt換算がこれに依存する)。
+        ws.Rows(fromRow & ":" & lastRow).RowHeight = 18
         ws.Range("A" & fromRow & ":" & _
                  modUINexusDraw.NEXUS_PAD_COL & lastRow).Interior.Color = ThemeColor("bg")
     ElseIf lastRow < mChatBandRow Then
-        ' R19H FA-5(i)(A-M⑤/A-L⑩): 縮む方向を戻していなかった。ClearChat は
-        ' 会話の下端を最初の位置へ戻し、ここも ScrollArea は正しく縮めるが、
-        ' 【伸ばしたぶんの塗り】はそのまま残る。結果、会話を消した直後の画面は
-        ' 「境界の外側まで背景色が続いている」状態になり、UsedRange も塗った
-        ' ぶんだけ広いまま(=保存すると焼き付く)。旧最深行までを既定へ戻す。
-        ' 固定領域(ヘッダー/入力欄)には絶対に入らないよう下限は同じ式で守る。
-        fromRow = lastRow + 1
-        If fromRow < modUINexusDraw.INPUT_ROW + 2 Then fromRow = modUINexusDraw.INPUT_ROW + 2
-        If fromRow <= mChatBandRow Then
-            ' R28H F2(M-1): 旧実装は xlNone(塗り無し)へ戻していた。波1で地は
-            ' Normalスタイル=地色になったので「塗り無し=地色」のはずだが、
-            ' Normal適用が失敗する環境(LO・スタイル名差異)では白のまま残り、
-            ' darkで「会話を消した直後だけ白帯が出る」経路が生きてしまう。
-            ' 縮む側も伸ばす側(上の分岐)と同じく bg で明示的に塗り直す。
-            ws.Range("A" & fromRow & ":" & _
-                     modUINexusDraw.NEXUS_PAD_COL & mChatBandRow) _
-                     .Interior.Color = ThemeColor("bg")
-        End If
+        ' R19H FA-5(i) → R28H F2(M-1) → R30W1-4。縮んだぶんを「塗り直す」のを
+        ' やめ、【行ごと解放する】。行が残っている限り塗り直しても内部使用範囲は
+        ' 縮まず、FreezePanes併用のホイールはそこまで転がれる(実機第15報の真因)。
+        ' 行を消せば地は modChrome.ApplyNormalStyleBg のNormalスタイル地色に
+        ' なるので、バンド外に塗りは要らない。行1〜4は解放側が下限で守る。
+        modViewport2.ReleaseRowsBelow ws, lastRow
     End If
     mChatBandRow = lastRow
     modViewport.ApplyScrollBound ws, addr

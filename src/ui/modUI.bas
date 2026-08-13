@@ -815,6 +815,7 @@ Public Sub ClearChat()
     Next i
     mChatBottom = modUINexusDraw.ChatTop(ws)
     modSkin.ExtendChatBand ws, mChatBottom   ' R19-1b: 伸ばした塗り/境界を戻す
+    modViewport2.FitChatRows ws              ' R30W1-4: 伸びた行そのものを解放
     On Error GoTo 0
 End Sub
 
