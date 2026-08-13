@@ -1289,6 +1289,20 @@ CONTRACT: dict[str, dict] = {
             #                   (modTestsPure24 が 0/10/48/49 の境界を固定)。
             #   PadRowToWindow: 実際に RowHeight を足す側(冪等)。
             "PadRowDelta", "PadRowToWindow",
+            # 2026-08-13(R30波1・実機第15報): 余白の根治。行高の明示設定は
+            # その行をExcelの内部使用範囲へ焼き付け、ClearFormats でも保存でも
+            # 消えない(Rows.Delete だけが即時に解放できる=実機実証)。
+            # 旧 modUI.InitUI の Rows("1:400").RowHeight=18 が「約10画面ぶんの
+            # 下余白」の正体だったため、18pt行を必要範囲だけに限定し、外は
+            # 削除で解放する。実体をここへ置くのは modUI 残716字 /
+            # modSkin 残163字に入らないため(憲章§4-6)。
+            #   FitChatRows      : 18pt行を「バンド下端+3行」までへ確定させる
+            #                      (暫定→実測の二段構え・冪等)。
+            #   ReleaseRowsBelow : boundRow より下の使用済み行を Rows.Delete で
+            #                      解放し、UsedRange を1回参照して再計算させる。
+            #   ReleaseRange     : 解放範囲の行番号計算(純関数。行1〜4を守る
+            #                      下限クランプと冪等条件。modTestsPure29が固定)。
+            "FitChatRows", "ReleaseRowsBelow", "ReleaseRange",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

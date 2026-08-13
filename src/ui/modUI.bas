@@ -101,7 +101,10 @@ Public Sub InitUI()
     ws.Columns("L").ColumnWidth = 11
     ws.Columns("M").ColumnWidth = 1.5
     modChrome.SetupChatColumns ws   ' R27 F2-2: 帯(A:M)の右外も幅1へ
-    ws.Rows("1:400").RowHeight = 18
+    ' R30W1-1: 旧 Rows("1:400").RowHeight=18 を廃止。行高の明示設定は行を
+    ' Excelの内部使用範囲へ焼き付け、FreezePanes併用のホイールはそこまで
+    ' 転がる(=約10画面ぶんの下余白の正体)。18ptは行5以降へ、必要な範囲
+    ' だけを modViewport2.FitChatRows が下で確定させる。
     modViewport.FitBandToViewport ws, modUINexusDraw.NEXUS_BAND, NEXUS_INPUT_PAD_COL
     ws.Rows(1).RowHeight = modUINexusDraw.HDR_H
     ws.Rows(2).RowHeight = 8
@@ -123,6 +126,13 @@ Public Sub InitUI()
     On Error Resume Next
     ws.Rows(1).RowHeight = modUINexusDraw.HeaderHeight()
     On Error GoTo 0
+
+    ' R30W1-1/W1-2: 行1〜4の高さが確定したここで、18pt行を「バンド下端+3行」
+    ' までへ確定させ、旧版が焼き付けた行(1:400)を解放する(冪等。毎起動実行)。
+    ' 会話は消えた直後なので下端はChatTop。この順序でないと直後のLocked/塗り
+    ' (NexusBound基準)が旧い下端で走り、また焼き付ける。
+    mChatBottom = modUINexusDraw.ChatTop(ws)
+    modViewport2.FitChatRows ws
 
     On Error Resume Next
     modUiLock.AlertsOff   ' R25-1a-1: Merge警告を出さない(対は直後のAlertsOn)

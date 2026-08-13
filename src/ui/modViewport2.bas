@@ -55,6 +55,11 @@ Private Const MIN_SCALE As Double = 0.78
 Private Const PAD_ROW_MAX As Double = 48
 Private Const PAD_ROW_MIN As Double = 1
 
+' チャットのバンド下端の下に残す余裕行(R30 W1)。0にすると境界ちょうどで行が
+' 終わり、ホイールの1刻みで必ず「行の無い所」へ出る。3行=54ptはホイール
+' 1〜2刻みぶんの遊び。詳細は FitChatRows の直前の見出しコメント参照。
+Private Const CHAT_ROW_SLACK As Long = 3
+
 ' 校正済みの縦スクロールバー幅(pt)。0=未校正。EnsureViewState で捨てる。
 Private mSbW As Double
 
@@ -528,3 +533,80 @@ Public Sub PadRowToWindow(ByVal ws As Worksheet, ByVal boundLastRow As Long)
     End If
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' W1(R30・実機第15報): チャットの行高と「使用済み行」の解放
+' ----------------------------------------------------------------------------
+' 行高の明示設定(RowHeight=18)は、その行をExcelの内部使用範囲へ焼き付ける。
+' 焼き付いた行は ClearFormats でも保存でも消えず、Rows.Delete だけが即時に
+' 解放できる(R30実機実証)。Nexus は FreezePanes 併用でホイールが ScrollArea
+' を素通りするため、焼き付いた行の末尾までいくらでも転がれる ―― 旧
+' modUI.InitUI の Rows("1:400").RowHeight=18 が「約10画面ぶんの下余白」の正体。
+'
+' 以降のW1実装が共有する不変式:
+'   行1〜4  : 固定領域(ヘッダー/入力欄/ヒント)。高さは modUI.InitUI が個別に持つ。
+'   行5〜B  : バンド。全行18pt(modUI.ScrollToBottom の18pt換算はこれに依存)。
+'   行B+1〜 : 存在しない(解放済み)。地は modChrome.ApplyNormalStyleBg の
+'             Normalスタイル地色で見えるので、塗る必要は無い。
+'   B = バンド下端 + CHAT_ROW_SLACK。
+' 実体をここへ置く理由: modUI 残716字 / modSkin 残163字では入らない(憲章§4-6)。
+
+' FitChatRows - チャットの18pt行を「必要な範囲だけ」に確定させる(冪等)。
+'   二段構え: (1) 窓を必ず覆う暫定範囲を18ptにしてから、(2) 実測で確定した
+'   バンド下端+CHAT_ROW_SLACK までを残して下を解放する。順序が逆だと、
+'   既定行高(端末依存で15pt〜18.75pt)のまま測ったバンドへ後から18ptを当てる
+'   ことになり、バンドの実下端が窓とずれる。
+'   暫定行数 窓高/18 は「18pt行だけで窓を覆うのに要る行数」の上界
+'   (行1〜4が108pt前後を占めるぶん必ず余る)。
+Public Sub FitChatRows(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim firstRow As Long: firstRow = modUINexusDraw.INPUT_ROW + 2
+    Dim seedRow As Long: seedRow = firstRow + CLng(modViewport.ViewportHeight() / 18)
+    If seedRow > modUINexusDraw.NEXUS_MAX_ROW Then seedRow = modUINexusDraw.NEXUS_MAX_ROW
+    ws.Rows(firstRow & ":" & seedRow).RowHeight = 18
+    ReleaseRowsBelow ws, ws.Range(modUINexusDraw.NexusBound(ws)).Rows.Count + CHAT_ROW_SLACK
+    On Error GoTo 0
+End Sub
+
+' ReleaseRowsBelow - boundRow より下の「使用済み行」を解放する(冪等)。
+'   Rows.Delete が唯一の即時解放手段(ClearFormats も保存も効かない)。
+'   バブルは Placement=3(絶対配置)なので行削除で位置がずれることは無い。
+'   Rows.Delete はモーダルを出さないので modUiLock.AlertsOff/On は要らない。
+'   ScrollArea は常に boundRow 以内なので、削除範囲と重ならない
+'   (呼び出し側が削除後に ApplyScrollBound を掛け直す必要も無い)。
+Public Sub ReleaseRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim lastUsed As Long
+    lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    Dim fromRow As Long, toRow As Long
+    If ReleaseRange(boundRow, lastUsed, modUINexusDraw.INPUT_ROW + 2, _
+                    modUINexusDraw.NEXUS_MAX_ROW, fromRow, toRow) Then
+        ws.Rows(fromRow & ":" & toRow).Delete
+        ' 削除だけでは内部使用範囲(xlCellTypeLastCell)が縮まらない端末がある。
+        ' UsedRange を1回参照して再計算させる(戻り値は捨てる)。
+        lastUsed = ws.UsedRange.Rows.Count
+    End If
+    On Error GoTo 0
+End Sub
+
+' ReleaseRange - 解放する行範囲を決める。純関数(modTestsPure29が固定)。
+'   boundRow : 残す下端行(バンド下端+余裕)
+'   lastUsed : 現在の使用済み最終行(ws.UsedRange の下端)
+'   minRow   : 固定領域の直下。boundRow がこれを下回っても必ずここまでは残す
+'              ―― 行1〜4を消すと FreezePanes ごと画面が壊れる
+'   maxRow   : 旧版が焼き得た上限(NEXUS_MAX_ROW)。使用済みがそこまで届いて
+'              いなくても、この行までは消す(旧版の焼き付けの取りこぼし防止)
+'   戻り値   : True=削除が要る(fromRow/toRow に範囲を返す)。
+'              False のとき fromRow/toRow の値は意味を持たない。
+Public Function ReleaseRange(ByVal boundRow As Long, ByVal lastUsed As Long, _
+                             ByVal minRow As Long, ByVal maxRow As Long, _
+                             ByRef fromRow As Long, ByRef toRow As Long) As Boolean
+    Dim keepRow As Long: keepRow = boundRow
+    If keepRow < minRow Then keepRow = minRow
+    fromRow = keepRow + 1
+    toRow = lastUsed
+    If toRow < maxRow Then toRow = maxRow
+    ReleaseRange = (lastUsed > keepRow)
+End Function
