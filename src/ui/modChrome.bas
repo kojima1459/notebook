@@ -612,6 +612,11 @@ Public Sub FitToastHeight(ByVal shp As Shape)
     shp.TextFrame2.AutoSize = 1        ' msoAutoSizeShapeToFitText
     Dim h As Double: h = shp.Height
     shp.TextFrame2.AutoSize = 0        ' msoAutoSizeNone(以降の操作でサイズが暴れないよう解除)
+    ' R30 F6: AutoSizeが効かない環境ではhが初期値34pt(=AddShapeの既定高さ)の
+    ' ままになり、長文が1行ぶんに切られる退行を招く。フィット後もなお下限の
+    ' ままなら、実際に描いた文字列全体(icon込み)でToastHeightForの見積り
+    ' 算数へフォールバックする。
+    If h <= TOAST_MIN_PT Then h = ToastHeightFor(shp.TextFrame2.TextRange.Text)
     If h < TOAST_MIN_PT Then h = TOAST_MIN_PT
     If h > TOAST_MAX_PT Then h = TOAST_MAX_PT
     shp.Height = h
