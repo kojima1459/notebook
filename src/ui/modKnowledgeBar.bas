@@ -358,7 +358,10 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
         End With
         modSkin.ApplyLightShadow btn
         btn.OnAction = action
-        If LenB(tipText) > 0 Then
+        ' R30 F3: danger(削除)ボタンにはツールチップを付けない。OnDeleteSourceが
+        ' ActiveCell.Row依存で、Hyperlinks.Addの自セル選択("SubAddress"にホバーで
+        ' 反応する端末がある)が起きると削除が恒久不能になるリスクがあるため。
+        If LenB(tipText) > 0 And kind <> "danger" Then
             ws.Hyperlinks.Add Anchor:=btn, Address:="", _
                 SubAddress:=btn.TopLeftCell.Address, ScreenTip:=tipText
         End If
