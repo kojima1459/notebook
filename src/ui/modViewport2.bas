@@ -592,6 +592,11 @@ Public Sub ReleaseRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long)
     If ReleaseRange(boundRow, lastUsed, modUINexusDraw.INPUT_ROW + 2, _
                     modUINexusDraw.NEXUS_MAX_ROW, fromRow, toRow) Then
         ws.Rows(fromRow & ":" & toRow).Delete
+        ' R30 F9: 削除実行時のみの観測ログ(On Error Resume Next配下で無言だった
+        ' 中核修正を可視化する。通常起動では冪等でここへ来ないためスパムにならない)。
+        modLog.LogUsage "row_release", "chat", "from=" & fromRow & " to=" & toRow & _
+            " lastUsed=" & lastUsed & " ok=" & (Err.Number = 0)
+        Err.Clear
         ' 削除だけでは内部使用範囲(xlCellTypeLastCell)が縮まらない端末がある。
         ' UsedRange を1回参照して再計算させる(戻り値は捨てる)。
         lastUsed = ws.UsedRange.Rows.Count
