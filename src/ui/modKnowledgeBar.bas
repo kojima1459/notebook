@@ -217,6 +217,12 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                 "画面のスクリーンショットを資料として取り込みます"
     End If
 
+    ' R31 W1-2(実機第16報F-A): ツールチップ(Hyperlinks.Add)を撤去した代わりに、
+    ' ❓を押すと全ボタンの説明を一括表示するカードを出す(OnToolbarLegend)。
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&H2753), "modKnowledgeBar.OnToolbarLegend", "plain", 44, _
+            "各ボタンの説明をまとめて表示します"
+
     ' R29 W2-7(実機第14報・削除ボタンの視認性): 取込系(登録/追加/仕上げ/
     ' パック出力入/同期/フォルダ等)と混じっていた🗑削除を配列の最後尾へ
     ' 動かし、並びの右端(FlowLeftは左→右の流し込みなので最後に足した項目が
