@@ -254,6 +254,13 @@ Private Sub TestReleaseRange30()
     hit = modViewport2.ReleaseRange(0, 5, 5, 2000, fromRow, toRow)
     modTestRunner.Check "R30-W1_使用済み=minRowなら削除しない(クランプ後の冪等)", _
         (hit = False), "hit=" & hit
+
+    ' 上限クランプ(R30 F1): 旧世代ブックのUsedRangeが病的に大きい(例:
+    ' Excel全行1048576)場合、maxRow(2000)の4倍=8000で頭打ちする ―― さもなくば
+    ' Rows("64:1048576").Delete が走り32bitで凍結し得る。
+    hit = modViewport2.ReleaseRange(63, 1048576, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-F1_使用済みが病的に大きくても8000で頭打ち", _
+        (hit = True) And (toRow = 8000), "to=" & toRow
 End Sub
 
 ' ----------------------------------------------------------------------------

@@ -608,5 +608,9 @@ Public Function ReleaseRange(ByVal boundRow As Long, ByVal lastUsed As Long, _
     fromRow = keepRow + 1
     toRow = lastUsed
     If toRow < maxRow Then toRow = maxRow
+    ' 旧世代ブックのUsedRangeが病的に大きい場合(例: 破損・外部貼付けの取りこぼし)、
+    ' Rows.Delete が数十万行に及び32bitで凍結し得る(R30 F1)。maxRow(NEXUS_MAX_ROW)の
+    ' 4倍を上限に頭打ちする ―― 通常経路では届かない余裕を持たせつつ、病的値だけ抑える。
+    If toRow > maxRow * 4 Then toRow = maxRow * 4
     ReleaseRange = (lastUsed > keepRow)
 End Function
