@@ -148,7 +148,10 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
         End If
 
         Dim exPrompt As String
-        exPrompt = modPrompts.BuildExpandPrompt(q, modAsk.HistoryBlock(), subN, lightMode)
+        ' R30 W2-6: 表記揺れ(他言語/別表記)の言い換えヒントを1行連結
+        ' (modPromptsは凍結のため不触。実体はmodAskThorough=余裕モジュール)。
+        exPrompt = modAskThorough.ExpandPromptWithSynonymHint( _
+            modPrompts.BuildExpandPrompt(q, modAsk.HistoryBlock(), subN, lightMode))
 
         Dim exModel As String: exModel = modConfig.GetString("expand_model", "")
         If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.5")

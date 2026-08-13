@@ -283,6 +283,31 @@ Private Sub TestE0204DecomposeVerdictRescue30()
         (modGateway.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
 End Sub
 
+' ----------------------------------------------------------------------------
+' (F) modAskThorough.ExpandPromptWithSynonymHint - 表記揺れ道1(R30 W2-6)。
+' ----------------------------------------------------------------------------
+'   modPromptsは凍結のため不触。呼び出し側(modAskRetrieve)でBuildExpand
+'   Promptの戻り値へ表記揺れヒントを連結する実体を固定する。連結される
+'   こと・空でないこと・ネガティブ(元プロンプトが空文字でも例外にならない
+'   こと)を見る。
+Private Sub TestExpandPromptWithSynonymHint30()
+    Dim basePr As String: basePr = "元のexpandプロンプト"
+    Dim merged As String: merged = modAskThorough.ExpandPromptWithSynonymHint(basePr)
+
+    modTestRunner.Check "R30-W2-6_連結後も元プロンプトを保持", _
+        (Left$(merged, Len(basePr)) = basePr), "merged=[" & merged & "]"
+    modTestRunner.Check "R30-W2-6_連結後に言い換え観点の文言を含む", _
+        (InStr(merged, "言い換え") > 0), "merged=[" & merged & "]"
+    modTestRunner.Check "R30-W2-6_連結後は元より長い(空の追記になっていない)", _
+        (Len(merged) > Len(basePr)), "len=" & Len(merged)
+
+    ' ネガティブ確認: 元プロンプトが空文字でも例外にならず、追記文だけが付く。
+    Dim mergedEmpty As String: mergedEmpty = modAskThorough.ExpandPromptWithSynonymHint("")
+    modTestRunner.Check "R30-W2-6_元が空文字でも例外にならず追記文が付く", _
+        (LenB(mergedEmpty) > 0 And InStr(mergedEmpty, "言い換え") > 0), _
+        "mergedEmpty=[" & mergedEmpty & "]"
+End Sub
+
 ' ============================================================================
 Public Sub RunAll29()
     On Error GoTo ToastFail29
@@ -302,6 +327,9 @@ NextRelease30:
 NextE0204D30:
     On Error GoTo E0204Fail30
     TestE0204DecomposeVerdictRescue30
+NextSynHint30:
+    On Error GoTo SynHintFail30
+    TestExpandPromptWithSynonymHint30
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -328,6 +356,10 @@ ReleaseFail30:
     Resume NextE0204D30
 E0204Fail30:
     modTestRunner.Check "TestE0204DecomposeVerdictRescue30(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSynHint30
+SynHintFail30:
+    modTestRunner.Check "TestExpandPromptWithSynonymHint30(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub

@@ -201,6 +201,23 @@ Private Function ExemptionCoverageAddendum() As String
         "対象に含め、資料にあれば必ず言及すること。"
 End Function
 
+' ----------------------------------------------------------------------------
+' R30 W2-6(実機第15報D班・表記揺れ道1): 検索前クエリ拡張(modAskRetrieveの
+' expand段)の指示文へ「他言語・別表記の言い換えも含めること」を追記する。
+' modPromptsは凍結のため不触。ThoroughVerifyPrompt等と同型の連結機構だが、
+' expand段は全モード共通(thorough限定ではない)ため接頭辞をThoroughにしない。
+' quick/light系はそもそもexpand段自体が既定オフなので対象外(記録のみ)。
+' ----------------------------------------------------------------------------
+Public Function ExpandPromptWithSynonymHint(ByVal basePrompt As String) As String
+    ExpandPromptWithSynonymHint = basePrompt & vbLf & vbLf & SynonymHintAddendum()
+End Function
+
+Private Function SynonymHintAddendum() As String
+    SynonymHintAddendum = _
+        "■言い換え候補には、他言語(英語等)・別表記(カナ/かな/ローマ字/漢字)の" & _
+        "言い換えを1" & ChrW(&H301C) & "2語含めること。"
+End Function
+
 ' ============================================================================
 ' (6) 出典突合 ― ここから下は純ロジック(LibreOfficeの実行テストで固定する)
 ' ============================================================================

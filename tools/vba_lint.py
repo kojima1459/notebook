@@ -839,10 +839,15 @@ CONTRACT: dict[str, dict] = {
         #   第8報⑧): ThoroughVerifyPromptと同型の連結機構。BuildSourceDigest
         #   Prompt/BuildDeepDraftPrompt(いずれもmodPrompts凍結)の戻りへ、
         #   免責事由(支払わない場合)も対象に含める観点を追記する。
+        # ExpandPromptWithSynonymHint(2026-08-13 R30 W2-6・実機第15報D班):
+        #   上記と同型の連結機構だが、expand段は全モード共通(thorough限定
+        #   ではない)。modAskRetrieveがBuildExpandPrompt(凍結)の戻りへ
+        #   呼ぶ1行連結の実体(余裕モジュールへ置く容量裁定)。
         "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
                      "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
                      "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote",
-                     "ThoroughVerifyPrompt", "ThoroughDigestPrompt", "ThoroughDraftPrompt"],
+                     "ThoroughVerifyPrompt", "ThoroughDigestPrompt", "ThoroughDraftPrompt",
+                     "ExpandPromptWithSynonymHint"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {
