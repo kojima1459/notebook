@@ -24,6 +24,11 @@ Option Explicit
 '       保存直前に本文の区切り";;;"を半角スペースへ退避する合成式
 '       (Replace+TrimPairs)を、区切り混入→保存→GenHistoryBlock往復の
 '       形で固定する。
+'   (D) modViewport2.ReleaseRange — 解放する行範囲の計算(R30 W1・実機第15報)。
+'       行高18ptの明示設定が行をExcelの内部使用範囲へ焼き付け、FreezePanes
+'       併用のホイールがそこまで転がれるのが下余白の真因だった。唯一の即時
+'       解放手段 Rows.Delete の範囲計算を、固定領域(行1〜4)の防衛・冪等条件・
+'       上限を超えた使用済みの3方向で固定する。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -191,6 +196,66 @@ Private Sub TestUnlockedTeaserSuffix29()
         (LenB(s20) = 0), "s20=[" & s20 & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' (D) modViewport2.ReleaseRange - 解放する行範囲の計算(R30 W1-2/W1-4)。
+' ----------------------------------------------------------------------------
+'   余白の真因は「行高18ptの明示設定が行をExcelの内部使用範囲へ焼き付け、
+'   FreezePanes併用のホイールがそこまで転がれる」ことだった。唯一の即時解放
+'   手段が Rows.Delete なので、その範囲計算が緩むと (a) 固定領域(行1〜4)まで
+'   消して画面が壊れる (b) 消し足りずに余白が残る (c) 消すものが無いのに毎回
+'   削除して描画が重くなる、のいずれかが起きる。境界を1件ずつ固定する。
+Private Sub TestReleaseRange30()
+    Dim fromRow As Long, toRow As Long
+    Dim hit As Boolean
+
+    ' 旧版の焼き付け(1〜400行)からの移行掃除。バンド下端60+余裕3=63を残し、
+    ' 64行目から NEXUS_MAX_ROW(2000)まで消す ―― 使用済みが400までしか無くても
+    ' 2000まで消すのは、旧 ExtendChatBand が2000行まで塗り得たため。
+    hit = modViewport2.ReleaseRange(63, 400, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_移行掃除は64:2000を削除", _
+        (hit = True) And (fromRow = 64) And (toRow = 2000), _
+        "hit=" & hit & " from=" & fromRow & " to=" & toRow
+
+    ' 冪等: 掃除済み(使用済み下端=残す下端)なら削除しない。ここが True に
+    ' なると、バブル1個ごとに1900行の Rows.Delete が走って描画が固まる。
+    hit = modViewport2.ReleaseRange(63, 63, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_使用済み=下端なら削除しない(冪等)", _
+        (hit = False), "hit=" & hit
+
+    ' 使用済みが残す下端より上(バンドが窓より広い)ときも削除しない。
+    hit = modViewport2.ReleaseRange(63, 20, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_使用済みが下端より上なら削除しない", _
+        (hit = False), "hit=" & hit
+
+    ' 1行だけはみ出した=削除する(冪等条件の境界。63/64の1行差)。
+    hit = modViewport2.ReleaseRange(63, 64, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_1行超過でも削除する(境界)", _
+        (hit = True) And (fromRow = 64), _
+        "hit=" & hit & " from=" & fromRow
+
+    ' 使用済みが上限を超えている(旧版の塗りが2000行より下まで届いた)場合は
+    ' そこまで消す ―― 上限で頭打ちにすると余白が残る。
+    hit = modViewport2.ReleaseRange(63, 5000, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_使用済みが上限超なら使用済みまで消す", _
+        (hit = True) And (toRow = 5000), "to=" & toRow
+
+    ' 固定領域の防衛。boundRow が異常に小さくても行1〜4(ヘッダー/入力欄/
+    ' ヒント)は絶対に消さない ―― 消すと FreezePanes ごと画面が壊れる。
+    hit = modViewport2.ReleaseRange(0, 400, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_boundRow=0でも行1-4は守る(from=6)", _
+        (hit = True) And (fromRow = 6), "from=" & fromRow
+
+    ' 負値(状態が壊れた場合の防衛)も同じ下限へ丸める。
+    hit = modViewport2.ReleaseRange(-100, 400, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_boundRow負値でも行1-4は守る(from=6)", _
+        (hit = True) And (fromRow = 6), "from=" & fromRow
+
+    ' 下限クランプは冪等条件にも効く: 使用済みが minRow 以下なら削除しない。
+    hit = modViewport2.ReleaseRange(0, 5, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30-W1_使用済み=minRowなら削除しない(クランプ後の冪等)", _
+        (hit = False), "hit=" & hit
+End Sub
+
 ' ============================================================================
 Public Sub RunAll29()
     On Error GoTo ToastFail29
@@ -204,6 +269,9 @@ NextGenSave29:
 NextTeaser29:
     On Error GoTo TeaserFail29
     TestUnlockedTeaserSuffix29
+NextRelease30:
+    On Error GoTo ReleaseFail30
+    TestReleaseRange30
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -222,6 +290,10 @@ GenSaveFail29:
     Resume NextTeaser29
 TeaserFail29:
     modTestRunner.Check "TestUnlockedTeaserSuffix29(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRelease30
+ReleaseFail30:
+    modTestRunner.Check "TestReleaseRange30(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub
