@@ -343,7 +343,13 @@ Public Sub OnNextPage()
 End Sub
 
 Public Sub OnPrevPage()
-    If mPage > 0 Then mPage = mPage - 1
+    If mPage <= 0 Then
+        ' R30 W2-4(おもてなし): modVaultGallery.OnVaultPrevと同型。端で無反応に
+        ' しない(waitless: 端の案内に1.1秒待たせない。R11-H Med4)。
+        modSkin.ShowToast "最初のページです。", "info", True
+        Exit Sub
+    End If
+    mPage = mPage - 1
     Show
 End Sub
 

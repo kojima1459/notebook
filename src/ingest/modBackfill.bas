@@ -198,7 +198,12 @@ Public Function BackfillAll() As String
     Dim cannotN As Long: cannotN = CountByStatus(cands, STATUS_CANNOT)
 
     If needN < 1 Then
-        BackfillAll = OUTCOME_NONE & "|" & "すべての資料は仕上げ済みです。"
+        ' R30 W2-4(おもてなし): 0件トーストへ機能説明を常時付記する(「仕上げ」が
+        ' 何なのか知らない利用者には空の結果報告に見えていた)。長文はW2-1の
+        ' AutoSizeトーストが吸収する。
+        BackfillAll = OUTCOME_NONE & "|" & "すべての資料は仕上げ済みです。" & _
+            "仕上げ=昔の形式の資料に章の目次と要約を後付けして、" & _
+            "「全部教えて」のような俯瞰質問や条文参照を使えるようにする処理です。"
         Exit Function
     End If
 
