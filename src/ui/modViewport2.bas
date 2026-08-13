@@ -454,6 +454,9 @@ Public Sub RefitChatBand(ByVal ws As Worksheet)
     ' DrawChatHeader→行高→前面化を1本にまとめた契約なので、必ずこちらを通す。
     modUINexusDraw.RedrawChatHeader
     modUINexusDraw.DrawInputArea ws
+    ' R30 F2: ApplyThemeはmChatBandRowだけ先へ進め、新規bound内行のRowHeight=18を
+    ' 誰も設定しないままにする(ScrollToBottomの18pt換算がずれる)。ここで回復する。
+    FitChatRows ws
     Dim bnd As String: bnd = modUINexusDraw.NexusBound(ws)
     modViewport.ApplyScrollBound ws, bnd
     LogFit ws, "chat", modUINexusDraw.NEXUS_BAND, bnd

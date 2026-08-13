@@ -395,6 +395,7 @@ Public Sub ToggleTheme()
     On Error Resume Next   ' 再彩色が中断しても必ず暗転解除へ到達させる
     modSkin.ApplyTheme ws
     modSkin.BeautifyAll ws   ' R14-6b: InitUI/Repaintと同じ並び(グラデ退行の再発防止)
+    modViewport2.FitChatRows ws   ' R30 F2: バンド行高不変式の回復
     GoTo ThemeDone
 ThemeFail:
     Resume ThemeDone     ' 後始末前にハンドラを抜ける(2026-07-30 err#462)
