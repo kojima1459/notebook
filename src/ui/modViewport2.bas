@@ -653,5 +653,13 @@ Public Function ReleaseRange(ByVal boundRow As Long, ByVal lastUsed As Long, _
     ' Rows.Delete が数十万行に及び32bitで凍結し得る(R30 F1)。maxRow(NEXUS_MAX_ROW)の
     ' 4倍を上限に頭打ちする ―― 通常経路では届かない余裕を持たせつつ、病的値だけ抑える。
     If toRow > maxRow * 4 Then toRow = maxRow * 4
+    ' R30 F2-2(敵対的レビュー2周目MINOR裁定): F1のmaxRow*4クランプ導入で、
+    ' boundRow(ひいてはkeepRow)がmaxRow*4を上回る異常値のとき、頭打ち後の
+    ' toRowがfromRow(keepRow+1)より小さい逆転範囲が理論上作れる状態になった
+    ' (現状の呼び出し経路では到達不能だが、不変式として保護する)。
+    If toRow < fromRow Then
+        ReleaseRange = False
+        Exit Function
+    End If
     ReleaseRange = (lastUsed > keepRow)
 End Function

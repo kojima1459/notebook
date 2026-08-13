@@ -261,6 +261,22 @@ Private Sub TestReleaseRange30()
     hit = modViewport2.ReleaseRange(63, 1048576, 5, 2000, fromRow, toRow)
     modTestRunner.Check "R30-F1_使用済みが病的に大きくても8000で頭打ち", _
         (hit = True) And (toRow = 8000), "to=" & toRow
+
+    ' R30F2-2(敵対的レビュー2周目MINOR裁定): boundRow自体がmaxRow*4(8000)以上の
+    ' 異常値だと、F1の頭打ち(toRow=maxRow*4)がfromRow(keepRow+1)より小さい
+    ' 逆転範囲を作れる状態になっていた(現状到達不能だが不変式として保護)。
+    ' keepRow=8000→fromRow=8001、toRowは8000で頭打ちされ8001>8000で逆転する。
+    ' クランプ直後のガードで安全側(削除しない)へ倒すことを固定する。
+    hit = modViewport2.ReleaseRange(8000, 9000, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30F2-2_boundRowが頭打ち値以上だと逆転範囲を削除しない", _
+        (hit = False), "hit=" & hit & " from=" & fromRow & " to=" & toRow
+
+    ' 境界: 頭打ちちょうど手前(boundRow=7999)ではfromRow=toRow=8000で逆転せず、
+    ' 従来どおり削除する(ガードが過剰に効いていないことの確認)。
+    hit = modViewport2.ReleaseRange(7999, 9000, 5, 2000, fromRow, toRow)
+    modTestRunner.Check "R30F2-2_頭打ち境界の1手前は逆転せず削除する", _
+        (hit = True) And (fromRow = 8000) And (toRow = 8000), _
+        "hit=" & hit & " from=" & fromRow & " to=" & toRow
 End Sub
 
 ' ----------------------------------------------------------------------------
