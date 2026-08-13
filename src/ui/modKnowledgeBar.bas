@@ -308,9 +308,11 @@ End Sub
 ' コントラスト比4.83:1(WCAG AA 4.5:1以上)を検算済みで、テーマ配色に紐付く
 ' modUI.UiColorへは委ねず本モジュール内に直書きする=どのスキンでも
 ' 「消す操作だけは常に赤」という一貫した視覚合図にする)。
-' tipText(R30 W2-5): ホバー説明。実機依存(Excelのみ確認可)。クリック挙動は
-' OnActionがハイパーリンクに優先して動く既知手法(Address:=""・SubAddressは
-' 自セルなので、万一ハイパーリンクが先に反応しても遷移しない)。
+' tipText(R30 W2-5→R31 W1-1): 各ボタンの説明文。R30はws.Hyperlinks.Addの
+' ScreenTipとして出していたが、Hyperlink付きShapeはOnActionが死ぬ
+' (R31実機第16報F-A確定・LO検出不能の新種死角)。ホバー方式は撤去し、
+' AlternativeTextへ退避するだけにする(❓凡例カード=OnToolbarLegendが
+' 読み出す文言源。クリック挙動には一切関与しない)。
 Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
                        ByVal capText As String, ByVal action As String, _
                        ByVal kind As String, ByVal x As Double, ByVal y As Double, _
@@ -358,13 +360,12 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
         End With
         modSkin.ApplyLightShadow btn
         btn.OnAction = action
-        ' R30 F3: danger(削除)ボタンにはツールチップを付けない。OnDeleteSourceが
-        ' ActiveCell.Row依存で、Hyperlinks.Addの自セル選択("SubAddress"にホバーで
-        ' 反応する端末がある)が起きると削除が恒久不能になるリスクがあるため。
-        If LenB(tipText) > 0 And kind <> "danger" Then
-            ws.Hyperlinks.Add Anchor:=btn, Address:="", _
-                SubAddress:=btn.TopLeftCell.Address, ScreenTip:=tipText
-        End If
+        ' R31 W1-1: Hyperlinks.Addは撤去(全ボタンのクリックを壊すため)。
+        ' tipTextはAlternativeTextへ格納するだけにする(表示にもクリックにも
+        ' 影響しない静的プロパティ)。R30 F3のdanger除外は、除外理由だった
+        ' Hyperlink併用リスクが無くなったので廃止し、削除ボタンの説明も
+        ' 他と同様に❓凡例へ載せる(R31 W1-4)。
+        btn.AlternativeText = tipText
     End If
     Set btn = Nothing
     Err.Clear
