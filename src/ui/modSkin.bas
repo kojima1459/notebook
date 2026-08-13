@@ -218,6 +218,8 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(11, 15, 25)
                 Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
                 Case "sidebarActive": ResolveColor = RGB(30, 41, 59)
+                ' R30 W2-3: 逆質問番号ヒントの赤太字用(暗bg比6.45:1・機械計算)。
+                Case "danger":        ResolveColor = RGB(248, 113, 113)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
         Case "sakura"   ' 感謝5件で解放: 少し華やかな春色
@@ -237,6 +239,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(84, 32, 52)
                 Case "sidebarText":   ResolveColor = RGB(240, 210, 222)
                 Case "sidebarActive": ResolveColor = RGB(112, 46, 72)
+                Case "danger":        ResolveColor = RGB(185, 28, 28)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
         Case "ocean"    ' 感謝5件で解放: 集中の青
@@ -256,6 +259,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(10, 35, 66)
                 Case "sidebarText":   ResolveColor = RGB(198, 219, 240)
                 Case "sidebarActive": ResolveColor = RGB(20, 56, 96)
+                Case "danger":        ResolveColor = RGB(185, 28, 28)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
         Case "gold"     ' 感謝20件で解放: 黒×金のエグゼクティブ
@@ -273,6 +277,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(6, 6, 8)
                 Case "sidebarText":   ResolveColor = RGB(212, 175, 55)
                 Case "sidebarActive": ResolveColor = RGB(38, 34, 24)
+                Case "danger":        ResolveColor = RGB(248, 113, 113)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
         Case "light"    ' 旧既定。着せ替えの1枚として残す(値は従来のまま)。
@@ -290,6 +295,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(17, 24, 39)
                 Case "sidebarText":   ResolveColor = RGB(209, 213, 219)
                 Case "sidebarActive": ResolveColor = RGB(31, 41, 55)
+                Case "danger":        ResolveColor = RGB(185, 28, 28)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
         Case Else       ' "msad" = 既定(実機第7報⑥・確定パレット)
@@ -307,6 +313,7 @@ Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As 
                 Case "sidebar":       ResolveColor = RGB(1, 77, 68)       ' PRIMARY_DARK(ヘッダー系)
                 Case "sidebarText":   ResolveColor = RGB(255, 255, 255)
                 Case "sidebarActive": ResolveColor = RGB(1, 103, 91)      ' PRIMARY
+                Case "danger":        ResolveColor = RGB(185, 28, 28)
                 Case Else:            ResolveColor = RGB(0, 0, 0)
             End Select
     End Select

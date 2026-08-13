@@ -542,9 +542,9 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     With ws.Range("C" & (INPUT_ROW + 1))
         .Value = CurrentInputHint()
         .Font.Size = 8
-        .Font.Color = modUI.UiColor("muted")
         .VerticalAlignment = -4160        ' xlTop
     End With
+    StyleHintCell ws.Range("C" & (INPUT_ROW + 1))
 
     ' R18-3b: 行ける範囲の宣言はここで行う(modUI は上限30,000字に対し残りが
     ' 無く1行も足せないため、Nexusの幾何を持つ本モジュール側に置く)。
@@ -564,6 +564,19 @@ Private Function CurrentInputHint() As String
     CurrentInputHint = modAppState.InputHintText(n)
 End Function
 
+' R30 W2-3: 👉番号ヒント(逆質問中)を赤太字化して視認性を上げる。通常時は
+' 従来のmuted・非太字へ戻す(RedrawInputHintでもこれを通し、消えた直後の
+' 描画で赤太字が残らないようにする)。
+Private Sub StyleHintCell(ByVal rng As Range)
+    If modClarify.HasPending() Then
+        rng.Font.Color = modUI.UiColor("danger")
+        rng.Font.Bold = True
+    Else
+        rng.Font.Color = modUI.UiColor("muted")
+        rng.Font.Bold = False
+    End If
+End Sub
+
 ' RedrawInputHint(R29 W2-2b): 逆質問が表示されたターン/消費されたターンに、
 ' ヒント行(C4)だけをInputHintTextの最新値で軽量に再描画する。DrawInputArea
 ' 全体(Shape再生成含む)は重く画面のちらつきの元になるため、値の書き換えだけに
@@ -574,7 +587,9 @@ Public Sub RedrawInputHint()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub
     If Not (ThisWorkbook.ActiveSheet Is ws) Then Exit Sub
-    ws.Range("C" & (INPUT_ROW + 1)).Value = CurrentInputHint()
+    Dim hintCell As Range: Set hintCell = ws.Range("C" & (INPUT_ROW + 1))
+    hintCell.Value = CurrentInputHint()
+    StyleHintCell hintCell
     On Error GoTo 0
 End Sub
 

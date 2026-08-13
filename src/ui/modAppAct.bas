@@ -149,7 +149,7 @@ Public Sub OnActDrill()
     ' (何をどこへ入れるかまで言う。番号だけ言われても入力欄が分からない)。
     If modClarify.HasPending() Then
         ' R29 W2-1: 「下の入力欄」は実装(画面最上部)と矛盾していたため訂正。
-        modSkin.ShowToast "逆質問にお答えください。画面上部の入力欄（いちばん上の白い横長の枠）に番号(例: 1-" & _
+        modSkin.ShowToast "逆質問にお答えください。チャット入力欄（画面いちばん上の白い枠）に番号(例: 1-" & _
             ChrW(&H2460) & ")を入れて送信してください", "info"
         modUI.ParkFocus
         modUiLock.Leave
