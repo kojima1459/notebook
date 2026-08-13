@@ -590,3 +590,30 @@ Public Function UnlockedTeaserSuffix(ByVal tc As Long) As String
     If LenB(parts) = 0 Then Exit Function
     UnlockedTeaserSuffix = " " & ChrW(&HD83D) & ChrW(&HDD12) & " " & parts   ' 🔒(非BMP=surrogate pair)
 End Function
+
+' ----------------------------------------------------------------------------
+' FitToastHeight - トーストの高さをTextFrame2のAutoSizeで実測し確定する。
+' ----------------------------------------------------------------------------
+'   R30 W2-1: 従来の ToastHeightFor(幅からの見積り算数)は「実際に描く
+'   icon & " " & message」を計測対象に含め忘れる余地があり(B班確定の計測
+'   漏れ)、modInsightCard等の行数ズレの温床にもなっていた。modUI.AddChatBubble
+'   / modHelp.ShowHelpCard / modPeek.ShowPeek と同型の実測方式(AutoSizeで
+'   一度伸ばして高さを読み取り、AutoSizeを解除する)へ転換する。
+'   呼び出し前提: shp.TextFrame2 へ最終テキストを設定済みであること
+'   (WordWrap=-1のため、AutoSize中は幅は固定のまま高さだけが変化する)。
+'   R28H F6bの「修正は伸びる方向のみ」の教訓を踏襲し、下限34pt(従来の
+'   1行ぶん)は維持する。上限92ptは画面上端から96ptの位置に出すため、
+'   これ以上伸ばすと会話領域を覆う(ToastHeightForと同じ根拠)。
+Public Sub FitToastHeight(ByVal shp As Shape)
+    Const TOAST_MIN_PT As Double = 34
+    Const TOAST_MAX_PT As Double = 92
+    If shp Is Nothing Then Exit Sub
+    On Error Resume Next
+    shp.TextFrame2.AutoSize = 1        ' msoAutoSizeShapeToFitText
+    Dim h As Double: h = shp.Height
+    shp.TextFrame2.AutoSize = 0        ' msoAutoSizeNone(以降の操作でサイズが暴れないよう解除)
+    If h < TOAST_MIN_PT Then h = TOAST_MIN_PT
+    If h > TOAST_MAX_PT Then h = TOAST_MAX_PT
+    shp.Height = h
+    On Error GoTo 0
+End Sub

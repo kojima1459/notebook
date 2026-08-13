@@ -380,7 +380,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     topPos = ActiveWindow.VisibleRange.Top + 92
 
     Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, toastW, modChrome.ToastHeightFor(message))   ' 5=角丸四角
+    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, toastW, 34)   ' 5=角丸四角(高さはFitToastHeightで確定)
     shp.Name = "nx_toast"
     shp.Adjustments(1) = 0.35
     shp.Line.Visible = 0
@@ -405,6 +405,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
         .VerticalAnchor = 3
     End With
     shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = fg
+    modChrome.FitToastHeight shp   ' R30 W2-1: 実測AutoSizeへ転換(icon込み計測)
 
     ApplySoftShadow shp
     shp.ZOrder 0   ' msoBringToFront
