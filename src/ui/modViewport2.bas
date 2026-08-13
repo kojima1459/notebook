@@ -59,6 +59,8 @@ Private Const PAD_ROW_MIN As Double = 1
 ' 終わり、ホイールの1刻みで必ず「行の無い所」へ出る。3行=54ptはホイール
 ' 1〜2刻みぶんの遊び。詳細は FitChatRows の直前の見出しコメント参照。
 Private Const CHAT_ROW_SLACK As Long = 3
+' R30 F7: modSkin.ExtendChatBandの縮小分岐は容量都合でこの定数を参照できず、
+' リテラル3(CHAT_ROW_SLACKと同値)を直書きしている。値を変えるときは両方直す。
 
 ' 校正済みの縦スクロールバー幅(pt)。0=未校正。EnsureViewState で捨てる。
 Private mSbW As Double

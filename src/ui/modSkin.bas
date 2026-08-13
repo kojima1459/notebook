@@ -498,7 +498,7 @@ Public Sub ExtendChatBand(ByVal ws As Worksheet, ByVal bottomY As Double)
         ' 縮まず、FreezePanes併用のホイールはそこまで転がれる(実機第15報の真因)。
         ' 行を消せば地は modChrome.ApplyNormalStyleBg のNormalスタイル地色に
         ' なるので、バンド外に塗りは要らない。行1〜4は解放側が下限で守る。
-        modViewport2.ReleaseRowsBelow ws, lastRow
+        modViewport2.ReleaseRowsBelow ws, lastRow + 3
     End If
     mChatBandRow = lastRow
     modViewport.ApplyScrollBound ws, addr
