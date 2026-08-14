@@ -84,10 +84,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' 契約上限まで残り58字しか無くこれ以上ブロックを置けず、移設先候補の
     ' modHubStatも残541字で収まらなかったため、open契約のmodChromeへ置く)。
     modChrome.SetupHubColumns ws
-    ' R20-1d(実機第7報⑦の層2): ここは Rows("1:60") だった。行高を明示した行は
-    ' Excelから見れば「使用済み」=下スクロール域なので、フッターの実下端に
-    ' 収まる40行だけを明示し、それ以深は描画後に ResetRowsBelow で既定へ戻す。
-    modViewport2.SeedBurn ws, 200
+    ' R20-1d→R31 F10: 焼く行数はSeedRowCap(窓ぶん/使用済みの大きい方)が
+    ' 動的に決める。上限はBoundAddrの60行(HUB_BOUND)と一致させた(旧200は
+    ' 境界とズレ、frac≥.5の窓で毎描画Rows.Deleteが発生していた)。
+    modViewport2.SeedBurn ws, 60
 
     ' R21-S1: 活性化と表示状態(罫線/見出し/タブ/水平バー)を幾何を測る【前】へ
     ' 移した。従来は Fit と BoundAddr が Activate より先に走り、初回だけ
@@ -113,11 +113,8 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' 下にも無限にスクロールできる」の主因(調査agent2 §1.3)。
     ' R19-1b: フォントは描画前(このあとセルへ書く文字が拾うため)、塗りと
     ' ScrollAreaは描画後に実下端から決める(EnsureHubLayout末尾)。
-    Dim baseAddr As String
-    baseAddr = modViewport.BoundAddr(ws, "L", 0, 60)
-    ws.Range(baseAddr).Font.Name = "Yu Gothic UI"
-    ws.Range(baseAddr).Font.Size = 10
-    ws.Range(baseAddr).Interior.Color = modUI.UiColor("bg")
+    ' R31 F11: 実体はmodViewport2.PrimePaintへ(modHub容量逼迫のため)。
+    modViewport2.PrimePaint ws, "L", 60, HeaderH()
 
     On Error Resume Next
     modTelemetry.TrackScreen "hub"

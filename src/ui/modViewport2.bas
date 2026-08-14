@@ -626,12 +626,18 @@ End Sub
 '   lastUsed  : 現在の使用済み最終行。旧ブックの救済のため、これが窓ぶん
 '               より大きければそちらを採る。
 '   maxRowCap : 絶対上限(SHELF_MAX_ROW)。
+'   R31 F10(Fix検証パス2周目): CLng(四捨五入)をInt(切り下げ)へ変更。
+'   境界側 modViewport.RowAtFloor は実セル幾何の累積を y 以下で切り下げる
+'   ―― rowHが一定なら floor(viewportH/rowH) と同値。CLngは frac≥0.5 で
+'   1行余分に切り上げ、焼く行(=UsedRangeの下端)が境界の切り下げ値を
+'   毎回1〜2行上回って、冪等なはずの2回目描画でもRows.Deleteが発生していた
+'   (Hub/Dashで実証。R30 F2-1と同型)。
 Public Function SeedRowCap(ByVal firstRow As Long, ByVal viewportH As Double, _
                            ByVal rowH As Double, ByVal lastUsed As Long, _
                            ByVal maxRowCap As Long) As Long
     Dim h As Double: h = rowH
     If h < 1 Then h = 15
-    SeedRowCap = firstRow + CLng(viewportH / h)
+    SeedRowCap = firstRow + Int(viewportH / h)
     If lastUsed > SeedRowCap Then SeedRowCap = lastUsed
     If SeedRowCap > maxRowCap Then SeedRowCap = maxRowCap
     If SeedRowCap < firstRow Then SeedRowCap = firstRow
@@ -661,6 +667,29 @@ Public Sub SeedBurn(ByVal ws As Worksheet, ByVal maxRowCap As Long)
     Dim seed As Long
     seed = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
     ws.Rows("1:" & seed).RowHeight = 15
+End Sub
+
+' PrimePaint - Hub/Dashの「描画前の先行塗り」を実境界に一致させる(R31 F11)。
+'   DrawHeader前は行1がSeedBurnの均し高(15pt)のままで、実際のヘッダー高
+'   (hdrH。48pt等)より低い ―― この状態でBoundAddrを引くと境界を切り下げ
+'   すぎ、後段の本描画(行1=hdrH確定後)より深く塗ってしまい、UsedRangeが
+'   最終境界を毎回上回って冪等性が壊れていた(F2-2)。先に行1をhdrHへ
+'   合わせてから塗り境界を引く(hdrHは前回描画のキャッシュ値。初回は
+'   既定にフォールバックする呼び出し側と同じ値)。
+'   塗りはBoundAddrのpaintAddr(RowAt=切り上げ)を使い、塗り下端が常に
+'   RowAtFloor(viewH)以上になることを保証する(切り下げ側では窓下端に
+'   未塗り帯=darkテーマの白帯が出るため)。
+Public Sub PrimePaint(ByVal ws As Worksheet, ByVal padCol As String, _
+                      ByVal maxRow As Long, ByVal hdrH As Double)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    If hdrH > 0 Then ws.Rows(1).RowHeight = hdrH
+    Dim addr As String, paintAddr As String
+    addr = modViewport.BoundAddr(ws, padCol, 0, maxRow, paintAddr)
+    ws.Range(paintAddr).Font.Name = "Yu Gothic UI"
+    ws.Range(paintAddr).Font.Size = 10
+    ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
+    On Error GoTo 0
 End Sub
 
 ' ReleaseRange - 解放する行範囲を決める。純関数(modTestsPure29が固定)。

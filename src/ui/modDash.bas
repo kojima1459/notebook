@@ -263,9 +263,9 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' R21H F3: needを固定/可変に分けて渡す(まとめて渡すと分母が薄まり圧縮不足になる)。
     modViewport2.SetScaleY modViewport2.CompressFactor( _
         modViewport.ViewportHeight(), modDashStat.NeedYFixed(), modDashStat.NeedYVariable())
-    ' R20-1d(層2): 行高を明示する範囲は40行まで。120行(1,800pt=3画面ぶん)を
-    ' 毎回「使用済み」にしていたのが、下へ延々スクロールできる状態の正体。
-    ' 実下端が確定した ApplyDashScrollBound が、それ以深を既定へ戻す。
+    ' R20-1d→R31 F10: 焼く行数はSeedRowCap(窓ぶん/使用済みの大きい方)が
+    ' 動的に決める。上限はApplyDashScrollBoundのBoundAddrと同じDASH_ROWS
+    ' (120=3画面ぶん)に一致させてあり、それ以深は描画後に既定へ戻す。
     modViewport2.SeedBurn ws, DASH_ROWS
     ' 書式(フォント・塗り)は描き終えてから実下端ぶんだけ当てる
     ' (ApplyDashScrollBound)。全域・広域の書式はUsedRangeを膨らませる。

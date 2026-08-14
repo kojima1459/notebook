@@ -1334,6 +1334,12 @@ CONTRACT: dict[str, dict] = {
             #             実際にRowHeightを設定する(モジュール実測の都合で
             #             modHub/modDashではなくここへ実体を置く)。
             "SeedBurn",
+            # 2026-08-14(R31 Fix波F11・Fix検証パス2周目): Hubの描画前先行塗り
+            # (行1がSeedBurnの均し高のまま=実ヘッダー高より低い状態で境界を
+            # 引いていた)を実境界と一致させる。行1を実ヘッダー高(前回描画の
+            # キャッシュ)へ仮合わせしてからBoundAddrのpaintAddr(切り上げ)で
+            # 塗る(modHub残158字のため実体はこちら)。
+            "PrimePaint",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
