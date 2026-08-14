@@ -459,7 +459,7 @@ End Sub
 
 ' insight_inbox は「未取込(consumed<>1)の行だけ」を別途持ち出す(2026-08-01
 ' R12-5-12)。取込済み行は本棚へ既に反映済みで運ぶ理由が無く、
-' modInsightIo.TrimConsumedRows(R12-3-5)と同じ「取込前の共有知は消さない」
+' modInsightIo.TrimInboxRows(R12-3-5)と同じ「取込前の共有知は消さない」
 ' 判断に合わせる。列構成は insight_inbox 実シートと同じ(先頭行=ヘッダー)。
 Private Sub CopyInsightInboxInto(ByVal destWb As Workbook)
     On Error Resume Next
@@ -478,7 +478,7 @@ Private Sub CopyInsightInboxInto(ByVal destWb As Workbook)
     If lastR < 2 Then Exit Sub
 
     ' 列I(9列目)=consumed。一括読み→フィルタ→書出しで行数に依らず軽く保つ
-    ' (TrimConsumedRowsと同じ作法。受信箱は最大500行=R12-3-5のため実質軽い)。
+    ' (TrimInboxRowsと同じ作法。受信箱は最大500行=R12-3-5のため実質軽い)。
     Dim arr As Variant: arr = src.Range(src.Cells(2, 1), src.Cells(lastR, lastC)).Value
     Dim outR As Long: outR = 2
     Dim i As Long, c As Long

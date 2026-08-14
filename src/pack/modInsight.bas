@@ -362,6 +362,28 @@ Public Function InboxNonceSet() As Object
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' GapAged - 保持期間を過ぎた困りごと/訂正の行か(純関数・2026-08-14 R32 W1-4)。
+'   gap 行に consumed=1 が立つ経路は【1つも無い】。TrimInboxRows は
+'   consumed=1 しか落とさず、INBOX_MAX_ROWS=500 の超過掃除も同様なので、
+'   「みんなの困りごと」の件数は永久に減らない = Hubのバッジが単調増加する
+'   (R20H H-13 と同型の壊れ方)。手で「解決済みにする」操作UIは容量が
+'   許さないため、保持期間(config gap_keep_days・既定30日)で落とす。
+'   訂正(correction)も同じ扱いにする ―― W1-1でフォルダを分けた結果、訂正行は
+'   kind="correction" になり、gap の保持期間から外れて【二度と減らない行】に
+'   なるため(consumed が立つ経路はこちらにも無い)。
+'   日付はISO文字列の辞書順で比較する(CDateを通さない。R12-1-4と同じ理由)。
+'   created_at が空の行は落とさない(判定材料が無いものを消さない)。
+' ----------------------------------------------------------------------------
+Public Function GapAged(ByVal kind As String, ByVal createdAt As String, _
+                        ByVal cutoff As String) As Boolean
+    If kind <> "gap" And kind <> "correction" Then Exit Function
+    If LenB(cutoff) = 0 Then Exit Function
+    Dim t As String: t = Trim$(createdAt)
+    If LenB(t) = 0 Then Exit Function
+    GapAged = (Left$(modUtilText.NormalizeIsoDate(t), 10) < cutoff)
+End Function
+
 ' nonce重複ガードの判定(純関数・W1-2)。集合そのものを作れない環境
 ' (Scripting.Dictionary が使えない等)では False=従来どおり足す へ倒す。
 ' 「速くするための仕組みが無いと機能そのものが止まる」を作らない(IsSeen と

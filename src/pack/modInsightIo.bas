@@ -153,7 +153,7 @@ Public Function CollectInsights() As Long
     ' 収集の前に受信箱を掃除する(R12-3-5)。ここが「行番号を握っている
     ' 利用者操作が1つも走っていない」と言える唯一の場所(起動時の収集)で、
     ' 取り込みループの最中に行を消すと outRow の指す先がずれる。
-    TrimConsumedRows ws
+    TrimInboxRows ws
 
     ' 2026-07-31(レビュー R8 F10): 既読印(my_stats の "ins:" 行)を
     ' 【1回の一括読み】で集合(Dictionary)にしてから照合する。
@@ -216,14 +216,17 @@ Public Function CollectInsights() As Long
 End Function
 
 ' ----------------------------------------------------------------------------
-' TrimConsumedRows - 取り込み済み(consumed=1)の行を古い側から片付ける。
-'   条件は「60日より古い」または「全体が500行を超えたぶんの超過分」。
-'   未取込の行(consumed<>1)は何行あっても消さない。届いた知恵を、読む前に
-'   こちらの都合で捨てないため。
+' TrimInboxRows - 受信箱の古い行を片付ける(2026-08-14 R32 W1-4で改称・拡張)。
+'   ・取り込み済み(consumed=1): 「60日より古い」または「500行を超えた超過分」。
+'     未取込のQ&Aは何行あっても消さない。届いた知恵を、読む前にこちらの
+'     都合で捨てないため。
+'   ・困りごと(gap)と訂正(correction): consumed が立つ経路が存在しないため、
+'     上の条件では永久に残る。保持期間(config gap_keep_days・既定30日)で
+'     落とす(判定は modInsight.GapAged。理由はそちらのコメント)。
 '   行の詰め直しは modShelfStore と同じ「一括読み→配列でフィルタ→一括書戻し」
 '   (1行ずつ Rows().Delete すると数千行で実機が固まる。MASTER_SPEC §12)。
 ' ----------------------------------------------------------------------------
-Private Sub TrimConsumedRows(ByVal ws As Worksheet)
+Private Sub TrimInboxRows(ByVal ws As Worksheet)
     On Error Resume Next
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastR < 3 Then Exit Sub                      ' データ1行以下なら触らない
@@ -236,6 +239,11 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
     ' 和暦カレンダー端末でも壊れない。R12-1-4と同じ理由でCDateを通さない)。
     Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - INBOX_KEEP_DAYS)
 
+    ' R32 W1-4: 困りごと/訂正の保持期間。0以下で無効(=従来どおり残す)。
+    Dim gapCut As String
+    Dim gapDays As Long: gapDays = modConfig.GetLong("gap_keep_days", 30)
+    If gapDays > 0 Then gapCut = modUtilText.IsoDate(Date - gapDays)
+
     Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, INBOX_COLS)).Value
     Dim keep() As Variant: ReDim keep(1 To nRows, 1 To INBOX_COLS)
     Dim keepN As Long, dropped As Long
@@ -243,7 +251,7 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
     ' 従来は1つの dropped を「超過何件目か」の判定にも使っていたため、
     ' 期限切れの行を1件消すたびに超過枠が1つ埋まったことになり、
     ' 【上限500行を超えたぶんを掃除しきれない】(次回も超過が残る)状態だった。
-    Dim overN As Long, agedN As Long
+    Dim overN As Long, agedN As Long, gapN As Long
     Dim i As Long, c As Long
     For i = 1 To nRows
         Dim drop As Boolean: drop = False
@@ -255,6 +263,10 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
                 drop = (Left$(modUtilText.NormalizeIsoDate(CStr(arr(i, 5))), 10) < cutoff)
                 If drop Then agedN = agedN + 1
             End If
+        Else
+            ' R32 W1-4: 未取込でも gap/correction は保持期間で落とす。
+            drop = modInsight.GapAged(CStr(arr(i, 2)), CStr(arr(i, 5)), gapCut)
+            If drop Then gapN = gapN + 1
         End If
         If drop Then
             dropped = dropped + 1
@@ -280,9 +292,10 @@ Private Sub TrimConsumedRows(ByVal ws As Worksheet)
     ws.Range(ws.Cells(2 + keepN, 1), ws.Cells(1 + nRows, INBOX_COLS)).ClearContents
 
     modLog.LogUsage "insight_inbox_trim", "", _
-        "取込済みの古い行を" & dropped & "件片付けました(上限超過" & overN & _
-        "件/期限切れ" & agedN & "件。残り" & keepN & "行。" & _
-        "上限" & INBOX_MAX_ROWS & "行/" & INBOX_KEEP_DAYS & "日)"
+        "受信箱の古い行を" & dropped & "件片付けました(上限超過" & overN & _
+        "件/取込済みの期限切れ" & agedN & "件/困りごと・訂正の期限切れ" & gapN & _
+        "件。残り" & keepN & "行。上限" & INBOX_MAX_ROWS & "行/" & _
+        INBOX_KEEP_DAYS & "日/困りごと" & gapDays & "日)"
     On Error GoTo 0
 End Sub
 
