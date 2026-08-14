@@ -553,6 +553,9 @@ NextSeedCap31:
 NextShelfRel31:
     On Error GoTo ShelfRelFail31
     TestShelfReleaseIdempotent31
+NextRun30:
+    On Error GoTo Run30Fail29
+    modTestsPure30.RunAll30
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -599,6 +602,10 @@ SeedCapFail31:
     Resume NextShelfRel31
 ShelfRelFail31:
     modTestRunner.Check "TestShelfReleaseIdempotent31(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextRun30
+Run30Fail29:
+    modTestRunner.Check "modTestsPure30.RunAll30(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub

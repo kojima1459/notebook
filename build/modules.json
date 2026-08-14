@@ -1065,6 +1065,14 @@
       "note": "R29波2(実機第14報・層2一括+視認性+文書訂正)の純ロジック回帰。modTestsPure28(残り僅少・26,776字/上限30,000字)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26/28と同型)。固定するもの: (A)modChrome.ToastWaitMsFor — トースト表示時間(全角15字/秒相当の読了速度換算・下限3,000ms・上限9,000ms・半角は全角の半分換算)。(B)modSparse.DiversitySwapPick — 相対スコア下限(pool側の差し替え候補スコアが現hits最下位スコアのminRatioX100%未満なら差し替えない)の69%不発火/70%発火境界、minRatioX100<=0の旧挙動(Optional省略時も同じ)、hitLowestScore<=0の0除算防御。modTestsPure28.RunAll28末尾から呼ばれる。"
     },
     {
+      "name": "modTestsPure30",
+      "path": "src/test/modTestsPure30.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R31",
+      "note": "R31波3(実機第16報F-C・案C「伸縮両端揃え」)の純ロジック回帰。modTestsPure29(残3,669字)には新テストを載せる余地が足りないため新設した分割先(憲章§4-6。modTestsPure21/25/26/28/29と同型)。modKnowledgeBar.StretchToolbarRows(段ごとの比例配分伸縮。Worksheet非依存の純関数)を固定する: (a)1段構成は唯一の段が伸縮しΔが伸び率上限+25%の内側なら目標右端に一致 (b)Δが上限を超えると各ボタンの増分はwidths(i)*0.25で頭打ちになり目標には届かない (c)段が2つ以上のとき最終段は伸縮しない(最終段以外は伸縮する) (d)Δ<=0では縮めない。modTestsPure29.RunAll29末尾から呼ばれる。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",

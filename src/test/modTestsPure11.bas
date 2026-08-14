@@ -405,25 +405,36 @@ End Sub
 '   Next配下のため、両モジュール未注入でもFalseへ倒れるだけで数値は決め打ち
 '   できる(発行キー未設定・画像解析無効の環境と同じボタン構成になる)。
 ' ----------------------------------------------------------------------------
+' R31 W3-4(案C「伸縮両端揃え」): FlowLeft後に段ごと比例配分伸縮
+'   (StretchToolbarRows)が入り、旧仕様「1段なら頭打ち(=900)」は不成立。
+'   900はΔが伸び率+25%上限の内側で目標(L+W-8)へ届くが、2000はΔ過大で
+'   上限に届いて頭打ち(=目標に届かない)になるため期待値を書き換える。
 Private Sub TestToolbarContentRight()
     Dim L As Double: L = 10
 
-    ' 帯を広げるほど右端は後退しない(段が減って詰まるだけ)。
     Dim rTable50 As Double: rTable50 = modKnowledgeBar.ToolbarContentRight(True, False, L, 50)
     Dim rTable200 As Double: rTable200 = modKnowledgeBar.ToolbarContentRight(True, False, L, 200)
     Dim rTable600 As Double: rTable600 = modKnowledgeBar.ToolbarContentRight(True, False, L, 600)
     Dim rTable900 As Double: rTable900 = modKnowledgeBar.ToolbarContentRight(True, False, L, 900)
     Dim rTable2000 As Double: rTable2000 = modKnowledgeBar.ToolbarContentRight(True, False, L, 2000)
+    Dim rTable5000 As Double: rTable5000 = modKnowledgeBar.ToolbarContentRight(True, False, L, 5000)
     modTestRunner.Check "ツールバー右端_単調非減少(50→200)", (rTable200 >= rTable50), _
         "50=" & rTable50 & " 200=" & rTable200
     modTestRunner.Check "ツールバー右端_単調非減少(200→600)", (rTable600 >= rTable200), _
         "200=" & rTable200 & " 600=" & rTable600
     modTestRunner.Check "ツールバー右端_単調非減少(600→900)", (rTable900 >= rTable600), _
         "600=" & rTable600 & " 900=" & rTable900
-    ' 全ボタンが1段に収まる幅を超えたら、帯を広げても右端は増えない
-    ' (ボタンが伸びるわけではないため=頭打ち)。
-    modTestRunner.Check "ツールバー右端_1段に収まったら頭打ち", (rTable2000 = rTable900), _
+    modTestRunner.Check "ツールバー右端_単調非減少(900→2000)", (rTable2000 >= rTable900), _
         "900=" & rTable900 & " 2000=" & rTable2000
+
+    ' 上限内(900)は目標右端(L+W-8=DrawChromeのtbRightと同一式)に一致。
+    modTestRunner.Check "ツールバー右端_上限内は目標右端に一致(900)", _
+        (Abs(rTable900 - (L + 900 - 8)) < 0.01), "実際=" & rTable900 & " 目標=" & (L + 900 - 8)
+    ' 上限超過(2000)は目標に届かず、さらに広げても(5000)増えない=真の頭打ち。
+    modTestRunner.Check "ツールバー右端_広い帯では目標に届かない(2000)", _
+        (rTable2000 < L + 2000 - 8), "実際=" & rTable2000 & " 目標=" & (L + 2000 - 8)
+    modTestRunner.Check "ツールバー右端_上限頭打ちは帯幅に依存しない(2000=5000)", _
+        (Abs(rTable2000 - rTable5000) < 0.01), "2000=" & rTable2000 & " 5000=" & rTable5000
 
     ' フォールバック境界(modKnowledge.DrawChromeがL+200未満でL+W-8へ戻す)。
     Dim rShared50 As Double: rShared50 = modKnowledgeBar.ToolbarContentRight(False, True, L, 50)
@@ -433,7 +444,8 @@ Private Sub TestToolbarContentRight()
     modTestRunner.Check "ツールバー右端_広い帯は通常域", _
         (rShared900 >= L + 200), "実際=" & rShared900
 
-    ' ギャラリー(検索ボタンが増える分、一覧表より右端が広がる)。
+    ' ギャラリー(検索ボタンが増える分、一覧表より右端が広がる)。上限頭打ち
+    ' 同士の比較でも成立する(帯を広げ続けた先でもギャラリーの方が広い)。
     Dim rGallery2000 As Double: rGallery2000 = modKnowledgeBar.ToolbarContentRight(False, False, L, 2000)
     modTestRunner.Check "ツールバー右端_ギャラリーは一覧表より広い", _
         (rGallery2000 > rTable2000), "gallery=" & rGallery2000 & " table=" & rTable2000

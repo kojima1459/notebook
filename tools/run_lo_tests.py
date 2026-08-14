@@ -587,6 +587,11 @@ PURE_ALLOWLIST = [
     #   modTestsPure29 から呼ぶと実行時エラー12になり、❓凡例ボタンの
     #   有無を固定するゴールデンが「テストを書いても走らない」状態になる。
     "modKnowledgeBar",
+    # modTestsPure30(2026-08-13 R31波3): modTestsPure29.RunAll29 の末尾が
+    #   RunAll30 を呼ぶため、未注入だと実行時エラー12になり分割先のテスト
+    #   (StretchToolbarRowsの比例配分/伸び率上限/最終段不変/Δ<=0)が
+    #   実行されないまま全部PASSに見える(modTestsPure28→29追加時と同型)。
+    "modTestsPure30",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
