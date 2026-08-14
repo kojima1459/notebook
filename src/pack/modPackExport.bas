@@ -94,9 +94,9 @@ End Sub
 '   ときは痕跡としてusage_logへ1行残す(何も起きなかったのではなく、
 '   「チェックをスキップした」という事実を追えるようにするため)。
 '   【注意】共有フォルダへ自動発信される「みんなの困りごと」側のPII走査
-'   (modInsight.PiiBlocked)は、この設定の影響を受けず常時走る(R32 W1-8)。
+'   (modInsightGate.PiiBlocked)は、この設定の影響を受けず常時走る(R32 W1-8)。
 '   あちらは自動発火かつ他人の目に触れる経路のため、このスイッチとは
-'   独立に扱う(modInsight.bas PiiBlocked のコメント参照)。
+'   独立に扱う(modInsightGate.bas PiiBlocked のコメント参照)。
 ' ----------------------------------------------------------------------------
 Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As String, _
                                  ByVal silent As Boolean, ByRef outCount As Long, _

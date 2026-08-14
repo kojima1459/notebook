@@ -733,7 +733,7 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         # 止まる実害を止める)。関所は modPackExport.ExportPackToFile の
         # ScanChunksForPii呼び出し手前1箇所のみ(src/pack/modPackExport.bas)。
         # 【注意】共有フォルダへ自動発信される「みんなの困りごと」側のPII走査
-        # (modInsight.PiiBlocked)はこのキーの影響を受けず常時走る(R32 W1-8)。
+        # (modInsightGate.PiiBlocked)はこのキーの影響を受けず常時走る(R32 W1-8)。
         ("pii_scan_enabled", False,
          "TRUE=パック書き出し(📦パック出力・📤正典発行)の前に個人情報っぽい文字列が"
          "無いか走査し、見つかったら書き出しを中止する。FALSEで走査自体を行わない"
@@ -1579,7 +1579,7 @@ def _make_admin_guide(wb):
     # R32 Fix波 F15: 「余分な空白にも注意して」は事実に反する。照合する
     # modPublish.VerifyKey は入力・設定値の両方に Trim$ を掛けるため、
     # 前後の空白は無視される(区別されるのは大文字・小文字と半角/全角)。
-    kv("合言葉が違うと言われる", "発行キーは大文字・小文字を区別した完全一致で照合されます。前後の空白は\n"
+    kv("合言葉が違うと言われる", "発行キーは大文字・小文字を区別した完全一致で照合されます。前後の半角空白は\n"
        "自動で取り除かれますが、半角/全角の違いは別の文字として扱われます。\n"
        "落ち着いてもう一度入力してください。", 1)
     kv("発行したのに他の人に届かない", "自動では配られません。購読側がHubに出る「(部門)に更新があります」の\n"
