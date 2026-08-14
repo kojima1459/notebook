@@ -647,6 +647,22 @@ Public Function ShelfSeedRow(ByVal ws As Worksheet, ByVal maxRowCap As Long) As 
     ShelfSeedRow = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
 End Function
 
+' SeedBurn - Hub/Dashの「毎描画40行焼き→即削除」往復の解消(R31 Fix波F2)。
+'   ShelfSeedRowと同じ思想(窓ぶん/使用済み下端の大きい方へ頭打ち)を
+'   Hub/Dashにも適用し、焼く範囲=解放しない範囲に一致させて冪等にする。
+'   呼び出し順に注意: ヘッダー行など後段で個別のRowHeightを設定している
+'   画面では、本Subを先に呼ぶこと(後段の個別設定が最終的に上書きするので
+'   既存の見た目は変わらない)。
+Public Sub SeedBurn(ByVal ws As Worksheet, ByVal maxRowCap As Long)
+    Dim lastUsed As Long
+    On Error Resume Next
+    If Not ws Is Nothing Then lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    On Error GoTo 0
+    Dim seed As Long
+    seed = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
+    ws.Rows("1:" & seed).RowHeight = 15
+End Sub
+
 ' ReleaseRange - 解放する行範囲を決める。純関数(modTestsPure29が固定)。
 '   boundRow : 残す下端行(バンド下端+余裕)
 '   lastUsed : 現在の使用済み最終行(ws.UsedRange の下端)

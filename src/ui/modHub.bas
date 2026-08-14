@@ -87,7 +87,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' R20-1d(実機第7報⑦の層2): ここは Rows("1:60") だった。行高を明示した行は
     ' Excelから見れば「使用済み」=下スクロール域なので、フッターの実下端に
     ' 収まる40行だけを明示し、それ以深は描画後に ResetRowsBelow で既定へ戻す。
-    ws.Rows("1:40").RowHeight = 15
+    modViewport2.SeedBurn ws, 200
 
     ' R21-S1: 活性化と表示状態(罫線/見出し/タブ/水平バー)を幾何を測る【前】へ
     ' 移した。従来は Fit と BoundAddr が Activate より先に走り、初回だけ

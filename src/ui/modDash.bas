@@ -266,7 +266,7 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' R20-1d(層2): 行高を明示する範囲は40行まで。120行(1,800pt=3画面ぶん)を
     ' 毎回「使用済み」にしていたのが、下へ延々スクロールできる状態の正体。
     ' 実下端が確定した ApplyDashScrollBound が、それ以深を既定へ戻す。
-    ws.Rows("1:40").RowHeight = DASH_ROW_H
+    modViewport2.SeedBurn ws, DASH_ROWS
     ' 書式(フォント・塗り)は描き終えてから実下端ぶんだけ当てる
     ' (ApplyDashScrollBound)。全域・広域の書式はUsedRangeを膨らませる。
 

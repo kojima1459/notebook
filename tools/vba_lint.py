@@ -1328,6 +1328,12 @@ CONTRACT: dict[str, dict] = {
             #   ShelfSeedRow : 窓高と ws.UsedRange を測って SeedRowCap へ渡す口
             #                  (modKnowledge 残160字のため実体はこちら)。
             "SeedRowCap", "ShelfSeedRow",
+            # 2026-08-14(R31 Fix波F2): Hub/Dashの「毎描画40行焼き→即削除」往復
+            # (窓高600pt未満で2回目描画時にRows.Deleteが走っていた)を解消する。
+            #   SeedBurn: ShelfSeedRowと同じSeedRowCapの頭打ちで焼く範囲を決め、
+            #             実際にRowHeightを設定する(モジュール実測の都合で
+            #             modHub/modDashではなくここへ実体を置く)。
+            "SeedBurn",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

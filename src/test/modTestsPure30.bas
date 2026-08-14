@@ -122,11 +122,54 @@ Private Sub TestStretchToolbarRows30_ThreeRows()
         (Abs(right1 - target) < 0.001), "right1=" & right1 & " target=" & target
 End Sub
 
+' ----------------------------------------------------------------------------
+' R31 Fix波 F2: Hub/Dashの「毎描画40行焼き→即削除」往復の解消。
+'   modViewport2.SeedBurn(Worksheet依存の薄い口)の中身は SeedRowCap(既存の
+'   本棚用頭打ち純関数)そのままなので、ここでは SeedRowCap×ReleaseRange の
+'   組み合わせで「窓高600pt未満でも2回目描画ではReleaseRangeがFalse(削除0)
+'   になる」ことを固定する(実Worksheetを使わない純関数の対)。
+'   content の実下端(boundRow)は SetScaleY の圧縮により viewportHeight に
+'   ほぼ一致するため、boundRow=seed とみなせる ―― 定常状態では
+'   「焼く行=残る行」が一致し、ReleaseRangeは働かない。
+' ----------------------------------------------------------------------------
+Private Sub TestHubDashSeedBurnIdempotent_F2()
+    Dim windowH As Double: windowH = 400   ' 600pt未満の狭い窓
+    Dim maxRow As Long: maxRow = 200       ' modHub.SeedBurnの呼び出し値(F2)
+
+    ' 初回(旧ブック/前状態不明)のseed: 窓ぶん(400/15≒27行)で決まる。
+    Dim seed As Long
+    seed = modViewport2.SeedRowCap(1, windowH, 15, 0, maxRow)
+    modTestRunner.Check "R31-Fix-F2_窓400ptのseedは窓ぶん(28行)", _
+        (seed = 28), "seed=" & seed
+
+    ' 1回目描画: 旧コード(固定40行)や旧セッションの焼き付き(200行)が
+    ' 残っている状態からの移行直後は、まだ削除が要る(1回だけの後始末)。
+    Dim fromRow As Long, toRow As Long
+    Dim hit As Boolean
+    hit = modViewport2.ReleaseRange(seed, 200, 4, maxRow, fromRow, toRow)
+    modTestRunner.Check "R31-Fix-F2_移行直後の1回目は削除が要る", _
+        (hit = True) And (fromRow = seed + 1) And (toRow = 200), _
+        "hit=" & hit & " from=" & fromRow & " to=" & toRow
+
+    ' 定常状態(2回目描画): SeedBurnは lastUsed=seed を渡されても
+    ' 同じseedを返す(窓ぶんの頭打ちが変わらない=冪等)。contentの実下端も
+    ' 同じseedに一致するため、ReleaseRangeは削除0(False)になる。
+    Dim seed2 As Long
+    seed2 = modViewport2.SeedRowCap(1, windowH, 15, seed, maxRow)
+    modTestRunner.Check "R31-Fix-F2_2回目のseedは1回目と同じ(冪等)", _
+        (seed2 = seed), "seed2=" & seed2
+
+    hit = modViewport2.ReleaseRange(seed2, seed2, 4, maxRow, fromRow, toRow)
+    modTestRunner.Check "R31-Fix-F2_窓高600pt未満でも2回目描画は削除0", _
+        (hit = False), "hit=" & hit
+End Sub
+
 ' ============================================================================
 Public Sub RunAll30()
     On Error GoTo StretchFail30
     TestStretchToolbarRows30
     TestStretchToolbarRows30_ThreeRows
+    TestHubDashSeedBurnIdempotent_F2
 NextDone30:
     On Error GoTo 0
     Exit Sub
