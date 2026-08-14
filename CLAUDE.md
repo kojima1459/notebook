@@ -60,6 +60,7 @@ Excel 32bit VBA 自己インストーラ型の社内ナレッジRAGアプリ。�
 - `AscW` はU+8000以降を負値で返す（`If c < 0 Then c = c + 65536` が確立作法）
 - `&H8000`以上の16進リテラルは `&` サフィックス無しでInteger負値
 - `Workbooks.Open` は破損・保護ファイルでモーダルを出す（DisplayAlerts退避+ダミーPassword作法）
+- Shapeに `Hyperlinks.Add`（ScreenTip目的でも）を付けると**クリックはHyperlinkに食われOnActionが死ぬ**（R31実機確定。LOはScreenTip描画もクリック競合も検証しない）
 
 ## VBA落とし穴チェックリスト（実装・レビュー共通）
 
