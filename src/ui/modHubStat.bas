@@ -693,19 +693,14 @@ Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
     limitY = ws.Rows(limitRow).Top + ws.Rows(limitRow).Height
     If limitY <= 0 Then limitY = viewH
 
-    ' R21H F2(a)(c): 戻り値(y+FOOTER_H)は上でクランプされ常にlimitY以下=
+    ' R21H F2(a)(c): 戻り値(y+FOOTER_H)は当時クランプされ常にlimitY以下=
     ' FitsInViewが常にTrueになり、狭窓で右カラムが境界の外に残っても検知
     ' できなかった。trueBottomは【クランプ前】の内容下端を別途返す(呼び出し
     ' 元がBoundAddrへ渡す用)。クランプが実際に発火した=本当は窓に収まって
     ' いないので、FitsInViewを確実にFalseへ倒す値(viewHを超える)にする。
     Dim y As Double: y = topY
     Dim clamped As Boolean
-    If limitY > FOOTER_H + 8 Then
-        If y + FOOTER_H > limitY - 8 Then
-            y = limitY - 8 - FOOTER_H
-            clamped = True
-        End If
-    End If
+    If limitY > FOOTER_H + 8 Then clamped = (y + FOOTER_H > limitY - 8)
     If y < 0 Then y = 0
     ' R32 W4-3【確定バグ・R31 W2-2の副作用】: クランプ時は viewH+1 だけを返して
     ' いた。FitsInViewをFalseへ倒す番兵のつもりが、値としては実内容より【上】で、
@@ -717,8 +712,11 @@ Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
         If trueBottom < viewH + 1 Then trueBottom = viewH + 1
     End If
 
+    ' R32 F12: クランプした狭窓では【描かない】(上で位置も押し上げない)。
+    ' 帯全体が当たり判定(下記)なので、境界外へ出たバッジ帯と重なると
+    ' 押したものと違うもの=社内ポータルが反応する。置けないなら出さない。
     Dim fs As Shape
-    Set fs = ws.Shapes.AddShape(1, L, y, W, FOOTER_H)
+    If Not clamped Then Set fs = ws.Shapes.AddShape(1, L, y, W, FOOTER_H)
     If fs Is Nothing Then
         DrawFooter = topY
         Err.Clear

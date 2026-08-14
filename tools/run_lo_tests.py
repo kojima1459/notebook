@@ -618,18 +618,21 @@ PURE_ALLOWLIST = [
     #   のため、LO環境にconfigシートが無くても未実行到達エラーにならない
     #   (modShelfSync/modPack/modLogと同じ「モジュール全体はR4準拠ではないが、
     #   テストが呼ぶ関数自体はExcel未到達でも安全」型。SetValue/EnsureLoaded
-    #   はテストから呼ばない)。未注入のまま modTestsPure31 から呼ぶと
-    #   実行時エラー420(modTestsPure.bas冒頭コメントに記録済みの既知の型と
-    #   同じ)になり、pii_scan_enabled/gap_keep_days/gap_dup_hoursの既定値
-    #   固定テストが走らないまま「全部PASS」に見える。
+    #   はテストから呼ばない)。2026-08-14(R32 Fix波 F6): この3キーの既定値
+    #   テストは【恒真】だったので build 側へ移し、modTestsPure31 からは
+    #   modConfig を直接呼ばなくなった。それでも注入は続ける ―― 同じくここへ
+    #   注入している modInsight / modInsightGate が GetLong/GetBool を参照して
+    #   おり、外すとテストが呼ぶ関数の内部で実行時エラー420になるため。
     "modConfig",
-    # modTestsPure31(2026-08-14 R32波2 W2-1): ⑦PIIオフスイッチの純ロジック
-    #   回帰テスト。modTestsPure30はR32波1が直したばかりで触らない方針
-    #   (CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→
-    #   modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接
-    #   呼ばれる独立の分割先にした。未注入だと実行時エラー12になり、
-    #   pii_scan_enabled/gap_keep_days/gap_dup_hoursの既定値固定テストが
-    #   実行されないまま全部PASSに見える。
+    # modTestsPure31(2026-08-14 R32 Fix波 F6で中身を入れ替え): 既存チェーン
+    #   (modTestsPure→…→modTestsPure30)には繋がず、
+    #   modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先。
+    #   旧: config既定値3件の固定 ―― LO環境にconfigシートが無くGetBool/GetLongが
+    #   必ずFallbackを返すため【恒真】だった(実装を壊しても落ちない)。
+    #   その検査はbuild_mybookshelf.pyの自己検証(_verify_r32_config_defaults)
+    #   へ移し、ここは保持日数の不等式(F1)・PII前処理(F4)・匿名ID(F2)という
+    #   VBAでしか書けない検査へ入れ替えた。未注入だと実行時エラー12になり、
+    #   それらが実行されないまま全部PASSに見える。
     "modTestsPure31",
     # modBackdrop(2026-08-14 R32波4 W4-5): 画面の地(背景)。テストが呼ぶのは
     #   BmpHex(1×1・24bit BMPの58バイトを16進で組む)/ MemoKey / MemoPut の

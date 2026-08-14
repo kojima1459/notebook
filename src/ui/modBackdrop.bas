@@ -17,7 +17,7 @@ Option Explicit
 '   ・LogStyleFailOnce      … 標準スタイル方式の失敗を1セッション1回ログへ
 '                             (W4-4。無言失敗の根絶)
 '   ・Apply / BmpHex / MemoKey / MemoPut
-'                           … 背景画像方式(W4-5)。テーマの地色で1×1のBMPを
+'                           … 背景画像方式(W4-5)。テーマの地色で8×8のBMPを
 '                             一時フォルダへ生成し SetBackgroundPicture で
 '                             敷く。セルを1つも使わないので使用済み範囲
 '                             (=ホイールの停止線の素)が増えない。
@@ -43,6 +43,13 @@ Private mBackdropFailLogged As Boolean
 ' どのシートへどの色の背景画像を敷いたか。"|シート名=色|…" の1本の文字列
 ' (MemoKey/MemoPut がこの形の唯一の持ち主)。W4-5。
 Private mApplied As String
+' 失敗した回数(2026-08-14 R32 Fix波 F7 m-3)。従来は失敗してもメモを進めて
+' いたため、一過性の失敗(一時フォルダが一瞬ロックされていた・別プロセスが
+' 掴んでいた等)が【そのセッションの恒久失敗】になっていた。3回までは
+' 敷き直しを試し、それでも駄目なら諦める(描画のたびにファイルI/Oを
+' 繰り返さない、という元の意図はこの上限で守る)。
+Private mFailCount As Long
+Private Const MAX_APPLY_RETRY As Long = 3
 
 ' ----------------------------------------------------------------------------
 ' RestoreShelfHeaderBg - 一覧表のカード見出し行だけ、明示塗りを戻す。
@@ -138,40 +145,52 @@ End Sub
 '   1行も増やさない ―― B が増えないので、転がる距離も伸びない。
 '
 ' 実装方針:
-'   テーマの bg 色で 1×1 ピクセルの 24bit BMP を一時フォルダへ動的生成し、
-'   SetBackgroundPicture で敷く。1×1 がタイルされるので、どんな窓サイズでも
-'   全面がその1色になる。PNGと違い BMP は圧縮が無く、ヘッダ+画素を素直に
-'   並べるだけで作れる(=VBAから外部ライブラリ無しで生成できる)。
+'   テーマの bg 色で 8×8 ピクセルの 24bit BMP を一時フォルダへ動的生成し、
+'   SetBackgroundPicture で敷く。全画素が同じ色のタイルなので、どんな窓
+'   サイズでも全面がその1色になる。PNGと違い BMP は圧縮が無く、ヘッダ+画素を
+'   素直に並べるだけで作れる(=VBAから外部ライブラリ無しで生成できる)。
 '
 ' ★ BMPバイト列の検算(BmpHex の中身。ここが唯一の技術リスクなので明記する)
-'   全長58バイト = ファイルヘッダ14 + 情報ヘッダ40 + 画素4。
+'   2026-08-14(R32 Fix波 F13・予防): 1×1 → 8×8 へ拡大した。1×1だとタイルの
+'   敷き詰め回数が画素数ぶん必要になり、32bit Excelでの描画コストが未検証
+'   (実機で「背景を敷いた瞬間に重い」が出たら原因の切り分けが難しい)。
+'   8×8にすればタイル回数は 1/64 になり、ファイルは 58 → 246バイトで済む。
+'
+'   全長246バイト = ファイルヘッダ14 + 情報ヘッダ40 + 画素192。
 '   [ファイルヘッダ BITMAPFILEHEADER 14バイト]
 '     +0  'B''M'            = 42 4D
-'     +2  bfSize      = 58  = 3A 00 00 00   (リトルエンディアン)
+'     +2  bfSize      = 246 = F6 00 00 00   (リトルエンディアン。246=&HF6)
 '     +6  bfReserved1 = 0   = 00 00
 '     +8  bfReserved2 = 0   = 00 00
 '     +10 bfOffBits   = 54  = 36 00 00 00   (14+40=54。画素データの開始位置)
 '   [情報ヘッダ BITMAPINFOHEADER 40バイト]
 '     +14 biSize          = 40 = 28 00 00 00
-'     +18 biWidth         = 1  = 01 00 00 00
-'     +22 biHeight        = 1  = 01 00 00 00 (正=ボトムアップ。1行なので同じ)
+'     +18 biWidth         = 8  = 08 00 00 00
+'     +22 biHeight        = 8  = 08 00 00 00 (正=ボトムアップ。全行同色なので
+'                                             上下の向きは結果に影響しない)
 '     +26 biPlanes        = 1  = 01 00       (2バイト)
 '     +28 biBitCount      = 24 = 18 00       (2バイト。24bit=BGR各1バイト)
 '     +30 biCompression   = 0  = 00 00 00 00 (BI_RGB=無圧縮)
-'     +34 biSizeImage     = 4  = 04 00 00 00 (下の行サイズと一致させる)
+'     +34 biSizeImage     = 192 = C0 00 00 00 (下の行サイズ×高さと一致させる)
 '     +38 biXPelsPerMeter = 2835 = 13 0B 00 00 (72dpi。2835=&H0B13)
 '     +42 biYPelsPerMeter = 2835 = 13 0B 00 00
 '     +46 biClrUsed       = 0  = 00 00 00 00
 '     +50 biClrImportant  = 0  = 00 00 00 00
-'   [画素データ 4バイト]
+'   [画素データ 192バイト]
 '     行サイズ = ((biWidth * biBitCount + 31) \ 32) * 4
-'              = ((1 * 24 + 31) \ 32) * 4 = (55 \ 32) * 4 = 1 * 4 = 4
-'     → 画素3バイト(B, G, R の順。RGBではない)+ 4バイト境界へのパディング1。
+'              = ((8 * 24 + 31) \ 32) * 4 = (223 \ 32) * 4 = 6 * 4 = 24
+'     8画素 × 3バイト = 24 ちょうどなので【パディングは0バイト】
+'       (1×1のときは 3バイト+パディング1バイト だった。ここが変更点)
+'     画素データ = 24バイトの行 × 8行 = 192バイト
+'     bfSize = 54 + 192 = 246 / biSizeImage = 192 ―― 上の2値と一致すること。
 '   検算例(darkテーマの地 RGB(15,23,42) = VBAのLong 2758415):
-'     B=42=2A / G=23=17 / R=15=0F → 末尾4バイトは 2A 17 0F 00。
-'     全体 = 424D3A0000000000000036000000 28000000 01000000 01000000 0100 1800
-'            00000000 04000000 130B0000 130B0000 00000000 00000000 2A170F00
-'     (modTestsPure32 がこの116字をゴールデンとして固定する)
+'     B=42=2A / G=23=17 / R=15=0F → 1画素は 2A 17 0F(B,G,Rの順。RGBではない)
+'     1行 = 2A170F × 8 / 全体 = その行 × 8 = 2A170F の 64回くり返し。
+'     ヘッダ = 424D F6000000 00000000 36000000 28000000 08000000 08000000
+'              0100 1800 00000000 C0000000 130B0000 130B0000 00000000 00000000
+'              (=108字=54バイト)
+'     全体の16進は 108 + 384 = 492字(=246バイト)。
+'     (modTestsPure32 がこの492字をゴールデンとして固定する)
 '
 ' 適用範囲:
 '   ホーム(Hub)/ Dashboard / マイ本棚 の3枚だけ。チャット(Nexus)は保護シート
@@ -185,24 +204,29 @@ End Sub
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
-' BmpHex - 1×1・24bit BMP ファイル全体(58バイト)を16進文字列で返す【純関数】。
+' BmpHex - 8×8・24bit BMP ファイル全体(246バイト)を16進文字列で返す【純関数】。
 ' ----------------------------------------------------------------------------
 '   bgColor: VBAのLong色(RGB(r,g,b) = r + g*256 + b*65536)
-'   戻り値 : 116字(58バイト×2)の大文字16進。Excel/ファイルI/Oに一切触れない
+'   戻り値 : 492字(246バイト×2)の大文字16進。Excel/ファイルI/Oに一切触れない
 '            ので LibreOffice の純ロジックテストからそのまま固定できる
 '            (SetBackgroundPicture 自体はLOで検証できないため、
 '             「敷く中身が正しいか」だけはここで機械的に守る)。
+'   8×8 の1行は 8画素×3バイト = 24バイトちょうどで、4バイト境界への
+'   パディングが要らない(1×1 のときだけ必要だった。冒頭の検算表を参照)。
 ' ----------------------------------------------------------------------------
 Public Function BmpHex(ByVal bgColor As Long) As String
     Dim r As Long, g As Long, b As Long
     r = bgColor And &HFF&
     g = (bgColor \ 256) And &HFF&
     b = (bgColor \ 65536) And &HFF&
-    BmpHex = "424D" & Hex32(58) & "00000000" & Hex32(54) & _
-             Hex32(40) & Hex32(1) & Hex32(1) & "0100" & "1800" & _
-             Hex32(0) & Hex32(4) & Hex32(2835) & Hex32(2835) & _
+    Dim px As String: px = Hex8(b) & Hex8(g) & Hex8(r)      ' 1画素=BGR順
+    Dim ln As String                                        ' 1行=8画素=24バイト
+    ln = px & px & px & px & px & px & px & px
+    BmpHex = "424D" & Hex32(246) & "00000000" & Hex32(54) & _
+             Hex32(40) & Hex32(8) & Hex32(8) & "0100" & "1800" & _
+             Hex32(0) & Hex32(192) & Hex32(2835) & Hex32(2835) & _
              Hex32(0) & Hex32(0) & _
-             Hex8(b) & Hex8(g) & Hex8(r) & "00"
+             ln & ln & ln & ln & ln & ln & ln & ln          ' 8行=192バイト
 End Function
 
 ' Hex8  - 1バイトを2字の16進へ(0〜255。範囲外は下位8bitだけ見る)。純関数。
@@ -257,6 +281,12 @@ End Function
 Public Sub Apply(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
+    ' R32 Fix波 F7 m-2: On Error Resume Next の直後に Err.Clear が無く、
+    ' 上流(呼び出し元の On Error Resume Next 配下)で起きた残留エラーを
+    ' 自分のものと誤読して、この関数が【一度も何もせずに】無言で撤退する
+    ' 経路があった。しかも下の GoTo CleanExit はログも残さないので、
+    ' 「背景が敷かれない」という症状だけが残り原因が追えない。
+    Err.Clear
 
     Dim nm As String
     nm = ws.Name
@@ -264,6 +294,7 @@ Public Sub Apply(ByVal ws As Worksheet)
     If Not TargetSheet(nm) Then GoTo CleanExit
 
     Dim c As Long
+    Err.Clear
     c = modUI.UiColor("bg")
     If Err.Number <> 0 Then GoTo CleanExit
     ' 0 は modSkin.ResolveColor の「未知のキー」センチネル値でもある
@@ -274,10 +305,15 @@ Public Sub Apply(ByVal ws As Worksheet)
     Dim p As String
     p = BmpPath(c)
     If LenB(p) = 0 Then GoTo CleanExit
-    Err.Clear
-    If Not WriteBmpFile(p, c) Then
-        LogBackdropFailOnce nm, "bmp_write", Err.Number, Err.Description
-        GoTo CleanExit
+
+    ' R32 Fix波 F7 m-1: 失敗の理由は WriteBmpFile に【ByRefで返させる】。
+    ' 従来はあちらが最後に Err.Clear してから戻るため、呼び出し側で読む
+    ' Err.Number は必ず 0 で、ログに "err=0 " とだけ書かれていた
+    ' (=無言失敗を潰したはずのログが、何も語らないログになっていた)。
+    Dim wNum As Long, wDesc As String
+    If Not WriteBmpFile(p, c, wNum, wDesc) Then
+        LogBackdropFailOnce nm, "bmp_write", wNum, wDesc
+        GoTo Failed
     End If
 
     Err.Clear
@@ -285,14 +321,21 @@ Public Sub Apply(ByVal ws As Worksheet)
     Dim bpNum As Long, bpDesc As String
     bpNum = Err.Number: bpDesc = Err.Description
     Err.Clear
-    ' 成否に関わらずメモは進める。失敗する環境で描画のたびにファイルI/Oを
-    ' 繰り返さないため(失敗の事実はログに1行残る)。
-    mApplied = MemoPut(mApplied, nm, c)
     If bpNum <> 0 Then
         LogBackdropFailOnce nm, "set_background", bpNum, bpDesc
-    Else
-        SweepOldBmp p
+        GoTo Failed
     End If
+
+    ' 成功したときだけメモを進める(F7 m-3)。
+    mApplied = MemoPut(mApplied, nm, c)
+    SweepOldBmp p
+    GoTo CleanExit
+
+Failed:
+    ' R32 Fix波 F7 m-3: 失敗はメモへ進めない。ただし無制限に再試行すると
+    ' 描画のたびにファイルI/Oが走るので、3回で打ち切る。
+    mFailCount = mFailCount + 1
+    If mFailCount >= MAX_APPLY_RETRY Then mApplied = MemoPut(mApplied, nm, c)
 
 CleanExit:
     Err.Clear
@@ -312,7 +355,7 @@ End Function
 '       変わらない可能性を排除できない(実機で検証できないので安全側)。
 '   (b) 直前のファイルが何らかの理由でロックされていても、新しい名前なら
 '       書き込みが必ず成功する。
-' 残骸は SweepOldBmp が掃除する(色は最大6テーマ=58バイト×6で実害は無い)。
+' 残骸は SweepOldBmp が掃除する(色は最大6テーマ=246バイト×6で実害は無い)。
 Private Function BmpPath(ByVal bgColor As Long) As String
     Dim d As String
     d = Environ$("TEMP")
@@ -328,14 +371,32 @@ Private Function BmpFileName(ByVal bgColor As Long) As String
 End Function
 
 ' BmpHex の16進をバイト列へ戻してファイルへ書く。既に正しいサイズで在るなら
-' 書き直さない(58バイト固定なのでサイズ一致で十分)。
-Private Function WriteBmpFile(ByVal filePath As String, ByVal bgColor As Long) As Boolean
+' 書き直さない(246バイト固定なのでサイズ一致で十分)。
+'
+' R32 Fix波 F7 m-1: 失敗した理由を outNum/outDesc で【呼び出し側へ返す】。
+'   従来は最後に Err.Clear してから戻っていたため、呼び出し側が読む Err は
+'   常に 0 で、ログに "err=0" としか残らなかった。
+' R32 Fix波 F8: 存在確認から Dir$ を外した。VBAの Dir はプロセス全体で
+'   【状態を1つしか持たない】ので、外側で列挙中に別の Dir$ を始めると
+'   その列挙が壊れる。ここは描画経路(Setup*Columns 経由)から呼ばれるため、
+'   将来どこかの列挙の内側に入り込む可能性を先に潰しておく。
+'   存在確認は FileLen(無ければ実行時エラー53=Err.Numberで判る)で足りる。
+Private Function WriteBmpFile(ByVal filePath As String, ByVal bgColor As Long, _
+                              ByRef outNum As Long, ByRef outDesc As String) As Boolean
     On Error Resume Next
+    Err.Clear
+    outNum = 0
+    outDesc = ""
     Dim hx As String: hx = BmpHex(bgColor)
     Dim n As Long: n = Len(hx) \ 2
 
-    If LenB(Dir$(filePath)) > 0 Then
-        If FileLen(filePath) = n And Err.Number = 0 Then
+    ' 既存ファイルの長さを見る。無ければ FileLen がエラーになるので、
+    ' そのときは「無い」として書きに行く(Dir$ を使わない理由は上の注記)。
+    Dim curLen As Long
+    Err.Clear
+    curLen = FileLen(filePath)
+    If Err.Number = 0 Then
+        If curLen = n Then
             WriteBmpFile = True
             Err.Clear
             Exit Function
@@ -352,34 +413,73 @@ Private Function WriteBmpFile(ByVal filePath As String, ByVal bgColor As Long) A
     For i = 1 To n
         bytes(i) = CByte(CLng("&H" & Mid$(hx, i * 2 - 1, 2)))
     Next i
-    If Err.Number <> 0 Then Exit Function
+    If Err.Number <> 0 Then
+        outNum = Err.Number: outDesc = Err.Description
+        Err.Clear
+        Exit Function
+    End If
 
     Dim fn As Long: fn = FreeFile
     Open filePath For Binary Access Write As #fn
-    If Err.Number <> 0 Then Exit Function
+    If Err.Number <> 0 Then
+        outNum = Err.Number: outDesc = Err.Description
+        Err.Clear
+        Exit Function
+    End If
     Put #fn, 1, bytes
+    ' Put の失敗を先に退避してから Close する(Close は成功して Err を
+    ' 0 に戻すため、順番を逆にすると書き込み失敗が消える)。
+    outNum = Err.Number: outDesc = Err.Description
+    Err.Clear
     Close #fn
-    WriteBmpFile = (Err.Number = 0)
+    If outNum = 0 Then
+        outNum = Err.Number: outDesc = Err.Description
+    End If
+    WriteBmpFile = (outNum = 0)
     Err.Clear
     On Error GoTo 0
 End Function
 
 ' 今使っているBMP以外の MyBookshelf_bg_*.bmp を消す(失敗は握って続行)。
-' Dir$ の列挙中に Kill すると列挙状態が壊れるため、名前を集めてから消す。
+'
+' R32 Fix波 F8: Dir$ の列挙をやめ Scripting.FileSystemObject へ寄せた。
+'   VBAの Dir はプロセスに列挙状態を1つしか持たないため、ここで列挙を始めると
+'   【呼び出し元の外側で回っている Dir 列挙】を壊す。この関数は描画経路から
+'   呼ばれるので、いつどんな列挙の内側に入るか保証できない。
+'   FSO を作れない端末(スクリプト実行が組織ポリシーで塞がれている等)では
+'   掃除を【スキップする】 ―― 残骸は色ごとに246バイト×最大6テーマで実害が
+'   無く、掃除のために描画経路の安全性を下げる理由が無い
+'   (modInsight の Dictionary フォールバックと同じ「無くても機能は止めない」)。
+'   列挙中に Kill しない作法は FSO でも維持する(名前を集めてから消す)。
 Private Sub SweepOldBmp(ByVal keepPath As String)
     On Error Resume Next
+    Err.Clear
     Dim sep As Long: sep = InStrRev(keepPath, "\")
     If sep < 1 Then Exit Sub
     Dim dir_ As String: dir_ = Left$(keepPath, sep)
     Dim keepName As String: keepName = Mid$(keepPath, sep + 1)
 
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Err.Clear
+    If fso Is Nothing Then Exit Sub
+
+    Dim fld As Object
+    Set fld = fso.GetFolder(Left$(dir_, Len(dir_) - 1))
+    Err.Clear
+    If fld Is Nothing Then Exit Sub
+
     Dim victims As String
-    Dim f As String
-    f = Dir$(dir_ & "MyBookshelf_bg_*.bmp")
-    Do While LenB(f) > 0
-        If StrComp(f, keepName, vbTextCompare) <> 0 Then victims = victims & f & vbTab
-        f = Dir$()
-    Loop
+    Dim f As Object
+    For Each f In fld.Files
+        Dim nm As String: nm = f.Name
+        If Left$(nm, 15) = "MyBookshelf_bg_" And Right$(LCase$(nm), 4) = ".bmp" Then
+            If StrComp(nm, keepName, vbTextCompare) <> 0 Then victims = victims & nm & vbTab
+        End If
+    Next f
+    Set f = Nothing
+    Set fld = Nothing
+    Set fso = Nothing
     Err.Clear
 
     Dim parts() As String

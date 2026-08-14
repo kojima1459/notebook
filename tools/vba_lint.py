@@ -1876,6 +1876,11 @@ PURE_LOGIC_MODULES = {
     # 呼ぶのは modBackdrop の BmpHex/MemoKey/MemoPut(文字列と算術だけ)なので、
     # 「ちょっとWorksheetを見たい」改修を機械で止める。
     "modTestsPure32",
+    # modTestsPure31(2026-08-14 R32 Fix波 F14): 32だけ登録されていて31が
+    # 抜けていた不揃いを解消する。中身をFix波の検査(保持日数の不等式・
+    # PII前処理・匿名ID)へ入れ替えた結果、呼ぶのは modInsightGate と modPii の
+    # 純関数だけになり、32と同じ条件を満たす。
+    "modTestsPure31",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

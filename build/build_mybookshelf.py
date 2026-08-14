@@ -2359,6 +2359,49 @@ def _verify_vba_src_bodies(ws, got_names, present_modules, root):
 
 
 # ---------------------------------------------------------------------------
+# R32波2で足した3キーの【値そのもの】を出荷物で検算する(2026-08-14 R32 Fix波 F6)。
+#
+# もともとこの3件は modTestsPure31 のVBAテストが見ていたが、あれは【恒真】だった:
+# LibreOffice の純ロジック実行環境には config シートが存在せず、
+# modConfig.GetBool/GetLong はどのキーでも必ず Fallback(=呼び出し側が渡した
+# 既定値)を返す。つまり `GetBool("pii_scan_enabled", False) = False` は
+# 「False = False」を比べているだけで、config 行を消しても値を書き換えても
+# 落ちない。守っているように見えて何も守っていない検査だった。
+#
+# 本当に守りたいのは「出荷する xlsm の config シートに、コード側の既定値と
+# 同じ値の行が実在すること」。それは Python 側でしか確かめられない
+# (再オープンして B列を読む)。ここが唯一の検査点になる。
+#   pii_scan_enabled : FALSE  … 誤検知で発行が止まる実害を止めるための既定オフ
+#                               (関所は modPackExport.ExportPackToFile)
+#   gap_keep_days    : 30     … modInsight.TrimInboxRows の GetLong 既定値と一致
+#   gap_dup_hours    : 24     … modInsightGate.GapDupBlocked の GetLong 既定値と一致
+# 片方だけ変えるとズレる。VBA側の既定値を変えたら必ずここも同時に変えること。
+R32_CONFIG_EXPECTED = {
+    "pii_scan_enabled": False,
+    "gap_keep_days": 30,
+    "gap_dup_hours": 24,
+}
+
+
+def _verify_r32_config_defaults(got_values):
+    errors = []
+    for key, want in R32_CONFIG_EXPECTED.items():
+        if key not in got_values:
+            errors.append(f"config に '{key}' の行がありません(R32の既定値検算)")
+            continue
+        got = got_values[key]
+        if isinstance(want, bool):
+            ok = isinstance(got, bool) and got == want
+        else:
+            ok = isinstance(got, int) and not isinstance(got, bool) and got == want
+        if not ok:
+            errors.append(
+                f"config!{key} が期待値と不一致: 期待={want!r} 実際={got!r}"
+                f"(VBA側のGetBool/GetLong既定値と揃っている必要がある)")
+    return errors
+
+
+# ---------------------------------------------------------------------------
 def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expected,
                  present_modules=None, root=None):
     errors = []
@@ -2425,15 +2468,19 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
     if "config" in wb2.sheetnames:
         ws = wb2["config"]
         r, got_mock, n_keys = 2, None, 0
+        got_values = {}
         while ws.cell(row=r, column=1).value:
-            if ws.cell(row=r, column=1).value == "mock_llm":
+            key = ws.cell(row=r, column=1).value
+            if key == "mock_llm":
                 got_mock = ws.cell(row=r, column=2).value
+            got_values[key] = ws.cell(row=r, column=2).value
             n_keys += 1
             r += 1
         if bool(got_mock) != mock_llm_expected:
             errors.append(f"config!mock_llm が期待値と不一致: 期待={mock_llm_expected} 実際={got_mock}")
         if n_keys != len(build_config_rows(mock_llm_expected)):
             errors.append(f"config のキー数が期待({len(build_config_rows(mock_llm_expected))})と不一致: {n_keys}")
+        errors.extend(_verify_r32_config_defaults(got_values))
 
     try:
         with zipfile.ZipFile(out_path) as z:

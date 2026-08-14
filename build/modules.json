@@ -1094,7 +1094,7 @@
       "role": "test",
       "type": "std",
       "wave": "R32",
-      "note": "R32波2(⑦PIIオフスイッチ)の純ロジック回帰。modTestsPure30はR32波1が直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した。config pii_scan_enabledの既定FALSE、gap_keep_days=30/gap_dup_hours=24(modInsightIo.bas/modInsight.basのGetLong呼び出しの既定値と一致)を固定する。LO実行テストにはconfigシートが無いためmodConfig.GetBool/GetLongは常にFallback経路を通ることをモジュール冒頭に明記。"
+      "note": "R32 Fix波の純ロジック回帰(2026-08-14 F6で中身を入れ替え)。既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先。旧内容(config既定値3件の固定)はLO環境にconfigシートが無くGetBool/GetLongが必ずFallbackを返すため恒真で、実装を壊しても落ちなかった。その検査はbuild_mybookshelf.pyの自己検証(_verify_r32_config_defaults=出荷物のconfigシートのB列を実際に読む)へ移し、ここはVBAでしか書けない3件へ入れ替えた: (1)F1 modInsightGate.NonceKeepDays/InboxKeepDaysの不等式(既読印GC<受信箱保持。境界0/1と極端値で検算) (2)F4 modInsightGate.StripDateLike+modPii.ScanTextで、ISOタイムスタンプ等の日付・時刻を誤検知せず本物の電話番号/メールは止めること (3)F2 modInsightGate.AnonIdが実名を出さず・同一人物で不変・別人で相異なること。"
     },
     {
       "name": "modTestsPure32",
@@ -1102,7 +1102,7 @@
       "role": "test",
       "type": "std",
       "wave": "R32",
-      "note": "R32波4 W4-5(背景画像方式)の純ロジック回帰。modTestsPure30(波1)/modTestsPure31(波2)は直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31と同型)。固定するもの: (A)modBackdrop.BmpHex — 1×1・24bit BMPの全58バイト(116字)。dark RGB(15,23,42)/白/黒のゴールデンと、画素がBGR順であること(RGB(1,2,3)→030201)を単独で撃つ。RGB/BGRの取り違えはコンパイルもLOも素通りし、実機では「青いテーマなのに赤い背景」という形でしか現れないため。(B)modBackdrop.MemoKey/MemoPut — 描画のたびに呼ばれるApplyが同じシートへ同じ色を敷き直さないための冪等メモ(別シートは追加/同一シートは古い1件を落として再登録/色の前方一致で誤ヒットしない)。Worksheet.SetBackgroundPicture自体はExcel固有APIでLOでは検証できず、--mode compileが通ることだけを確認する(実機確認はユーザー)。"
+      "note": "R32波4 W4-5(背景画像方式)の純ロジック回帰。modTestsPure30(波1)/modTestsPure31(波2)は直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31と同型)。固定するもの: (A)modBackdrop.BmpHex — 8×8・24bit BMPの全246バイト(492字。2026-08-14 R32 Fix波 F13で1×1から拡大。タイル回数1/64)。dark RGB(15,23,42)/白/黒のゴールデンと、画素がBGR順であること(RGB(1,2,3)→030201)、1行24バイト=パディング0で画素データが192バイトになることを単独で撃つ。RGB/BGRの取り違えはコンパイルもLOも素通りし、実機では「青いテーマなのに赤い背景」という形でしか現れないため。(B)modBackdrop.MemoKey/MemoPut — 描画のたびに呼ばれるApplyが同じシートへ同じ色を敷き直さないための冪等メモ(別シートは追加/同一シートは古い1件を落として再登録/色の前方一致で誤ヒットしない)。Worksheet.SetBackgroundPicture自体はExcel固有APIでLOでは検証できず、--mode compileが通ることだけを確認する(実機確認はユーザー)。"
     },
     {
       "name": "modTestsPure26",
