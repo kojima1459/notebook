@@ -310,7 +310,10 @@ Private Sub BumpKey(ByVal d As Object, ByVal key As String)
     End If
 End Sub
 
-Private Function NormKey(ByVal s As String) As String
+' 質問の照合キー(記号と空白を落とした先頭40字)。2026-08-14(R32 W1-6)で
+' Public化 ―― 同じ質問の連投抑止(modInsightIo.EmitGap)が発信側でも同じ
+' 正規化を使う必要があるため。2箇所に書き写せば必ずズレる。
+Public Function NormKey(ByVal s As String) As String
     Dim t As String: t = s
     t = Replace(t, " ", ""): t = Replace(t, ChrW(&H3000), "")
     t = Replace(t, ChrW(&H3001), ""): t = Replace(t, ChrW(&H3002), "")
@@ -367,42 +370,124 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function GapListText() As String
     On Error Resume Next
-    Dim ws As Worksheet: Set ws = GetSheet()
-    If ws Is Nothing Then
-        GapListText = "(まだ届いていません)"
+    Dim n As Long
+    Dim arr As Variant: arr = InboxArray(n)
+    If n = 0 Then
+        GapListText = GapEmptyText()
         Exit Function
     End If
 
-    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    Dim sb As String, n As Long
-    Dim r As Long
-    For r = lastR To 2 Step -1
-        If CStr(ws.Cells(r, 2).Value) = "gap" Then
-            n = n + 1
-            If n > 20 Then Exit For
-            Dim who As String: who = CStr(ws.Cells(r, 4).Value)
-            Dim dept As String: dept = CStr(ws.Cells(r, 8).Value)
-            If LenB(dept) > 0 Then who = who & "/" & dept
-            sb = sb & n & ". " & CStr(ws.Cells(r, 6).Value) & vbLf & _
-                 "     (" & who & " ・ " & CStr(ws.Cells(r, 5).Value) & _
-                 " ・ " & ReasonText(CStr(ws.Cells(r, 7).Value)) & ")" & vbLf
+    ' 板に出す行だけを4列(0=質問 1=部署 2=created_at 3=reason)へ写してから
+    ' 純関数へ渡す。氏名(D列)は読まない ―― W1-8で発信側が氏名を送らなく
+    ' なったのに合わせ、旧データが持っている氏名もここで表示しない。
+    Dim g() As String: ReDim g(0 To 3, 0 To n - 1)
+    Dim cnt As Long, i As Long
+    For i = 1 To n
+        If IsGapRow(CStr(arr(i, 2)), CStr(arr(i, 7)), CStr(arr(i, 9))) Then
+            g(0, cnt) = CStr(arr(i, 6))
+            g(1, cnt) = CStr(arr(i, 8))
+            g(2, cnt) = CStr(arr(i, 5))
+            g(3, cnt) = CStr(arr(i, 7))
+            cnt = cnt + 1
         End If
-    Next r
+    Next i
 
-    If n = 0 Then
-        GapListText = "まだ届いていません。" & vbLf & _
-            "誰かが質問して本棚に答えが無かったとき、その質問がここに自動で並びます。"
+    If cnt = 0 Then
+        GapListText = GapEmptyText()
     Else
-        GapListText = sb
+        GapListText = GapListBuild(g, cnt)
     End If
     On Error GoTo 0
 End Function
 
-Private Function ReasonText(ByVal code As String) As String
-    Select Case code
-        Case "no_hit":   ReasonText = "本棚に該当資料なし"
-        Case "low_conf": ReasonText = "根拠が薄い"
-        Case "wrong":    ReasonText = "回答が違うと報告"
-        Case Else:       ReasonText = code
+Private Function GapEmptyText() As String
+    GapEmptyText = "まだ届いていません。" & vbLf & _
+        "誰かが質問して本棚に答えが無かったとき、その質問がここに自動で並びます。"
+End Function
+
+' ----------------------------------------------------------------------------
+' GapListBuild - 板の本文を組み立てる(純関数・2026-08-14 R32 W1-3/W1-7)。
+'   g(0..3, 0..cnt-1): 0=質問 1=部署 2=created_at 3=reason
+'
+'   MsgBox の本文は実機で約1,024字を超えると【無言で切り落とされる】。従来は
+'   最大20件×1件あたり最長2,000字を素で流し込んでいたため、超過分だけでなく
+'   本文の後ろに置いた「今すぐ登録しますか?」の一文まで消え、何を聞かれて
+'   いるのか分からないYes/Noダイアログになっていた(M1)。ここで合計900字に
+'   収める(1,024との差は、呼び出し側が前後に足す案内文のぶんの余裕)。
+'     ・1件の質問文は先頭100字まで(SafeLeft=サロゲートペアを割らない)
+'     ・部署も40字で切る(共有フォルダの他人のファイル由来=長さは信用しない)
+'     ・入りきらない件数は捨てずに「…ほか N 件」として残す
+'     ・並びは created_at の降順(M5: 従来は受信順=Dir()の列挙順=ユーザーID順
+'       なのに「新しい順」と名乗っていた)
+'   1件目だけは字数に関わらず必ず入れる(全部消えて空の板になるのを避ける。
+'   上の切り詰めにより1件あたりは高々200字程度で、900字を割ることはない)。
+' ----------------------------------------------------------------------------
+Public Function GapListBuild(ByRef g() As String, ByVal cnt As Long) As String
+    Const MAX_ITEMS As Long = 20
+    Const MAX_CHARS As Long = 900
+    Const TAIL_ROOM As Long = 24        ' 「…ほか N 件」の予約枠
+    Const Q_CHARS As Long = 100
+    Const DEPT_CHARS As Long = 40
+    If cnt <= 0 Then Exit Function
+
+    Dim lim As Long: lim = cnt
+    If lim > MAX_ITEMS Then lim = MAX_ITEMS
+    SortGapDesc g, cnt, lim
+
+    Dim sb As String, shown As Long, i As Long
+    For i = 0 To lim - 1
+        Dim who As String: who = modUtil.SafeLeft(Trim$(g(1, i)), DEPT_CHARS)
+        If LenB(who) = 0 Then who = "部署の記録なし"
+        Dim entry As String
+        entry = (shown + 1) & ". " & modUtil.SafeLeft(g(0, i), Q_CHARS) & vbLf & _
+                "     (" & who & " ・ " & g(2, i) & " ・ " & ReasonText(g(3, i)) & ")" & vbLf
+        If shown > 0 Then
+            If Len(sb) + Len(entry) > MAX_CHARS - TAIL_ROOM Then Exit For
+        End If
+        sb = sb & entry
+        shown = shown + 1
+    Next i
+
+    If cnt > shown Then sb = sb & ChrW(&H2026) & "ほか " & (cnt - shown) & " 件" & vbLf
+    GapListBuild = sb
+End Function
+
+' ----------------------------------------------------------------------------
+' SortGapDesc - created_at の降順(新しい順)に並べ替える(純関数・W1-7)。
+'   上位 topK 件だけを確定させる部分選択ソート。受信箱は最大500行あり、
+'   表示は最大20件なので、全体を泡立てると12万回の比較を毎回捨てることになる。
+'   ISO文字列は辞書順=時系列順なので CDate を通さない(和暦カレンダー端末でも
+'   壊れない。R12-1-4 と同じ理由)。
+' ----------------------------------------------------------------------------
+Public Sub SortGapDesc(ByRef g() As String, ByVal cnt As Long, ByVal topK As Long)
+    If cnt < 2 Then Exit Sub
+    Dim k As Long: k = topK
+    If k > cnt - 1 Then k = cnt - 1
+    Dim i As Long, j As Long, best As Long, c As Long
+    For i = 0 To k - 1
+        best = i
+        For j = i + 1 To cnt - 1
+            If g(2, j) > g(2, best) Then best = j
+        Next j
+        If best <> i Then
+            For c = 0 To 3
+                Dim t As String
+                t = g(c, i): g(c, i) = g(c, best): g(c, best) = t
+            Next c
+        End If
+    Next i
+End Sub
+
+' 理由コードの日本語訳(2026-08-14 R32 m4)。未知コードをそのまま出すと、
+' 板に生の英語("correction" 等)が並ぶ ―― 実際に訂正投稿の混入(B2)で
+' 起きていた。既知の4種以外も必ず日本語の器に入れて出す。
+Public Function ReasonText(ByVal code As String) As String
+    Select Case LCase$(Trim$(code))
+        Case "no_hit":     ReasonText = "本棚に該当資料なし"
+        Case "low_conf":   ReasonText = "根拠が薄い"
+        Case "wrong":      ReasonText = "回答が違うと報告"
+        Case "correction": ReasonText = "回答への訂正"
+        Case "":           ReasonText = "理由の記録なし"
+        Case Else:         ReasonText = "その他(" & modUtil.SafeLeft(Trim$(code), 20) & ")"
     End Select
 End Function

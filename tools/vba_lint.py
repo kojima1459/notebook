@@ -1527,7 +1527,7 @@ CONTRACT: dict[str, dict] = {
             # 重複ガードを Worksheet 非依存の形へ切り出し、modTestsPure30 から
             # 直接呼んで固定する(この機能は1人テストでは板が常に空になり、
             # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
-            "IsGapRow",
+            "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
