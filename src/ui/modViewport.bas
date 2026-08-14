@@ -358,7 +358,8 @@ End Function
 ' R20-1d の ResetRowsBelow(UseStandardHeight=True)はここに在ったが、R30の
 ' 実機実証で「行高の明示を取り消しても焼き付きは解放されない」ことが確定した
 ' ため撤去した。解放できるのは Rows.Delete だけ(冒頭の見出し参照)。
-' 実体をここへ置く理由: modViewport2 は残1,330字で入らない(憲章§4-6)。
+' 実体をここへ置く理由: 本体を modViewport2 へ入れると同モジュールが
+' 28,000字の警告線を越える(憲章§4-6。純関数のSeedRowCapだけ向こうに置いた)。
 ' 呼び出し側(modHub/modDash/modKnowledge)は1行で呼ぶ。
 
 ' ReleaseSheetRowsBelow - boundRow より下の使用済み行を Rows.Delete で解放(冪等)。
@@ -367,12 +368,11 @@ End Function
 '   maxRow    : 旧版が焼き得た上限(Hub=200 / Dash=DASH_ROWS / 本棚=412 /
 '               チャット=NEXUS_MAX_ROW)。使用済みがそこまで届いていなくても
 '               この行までは消す(旧版の焼き付けの取りこぼし救済)。
-'   scrollAddr : 空でなければ削除の後に ScrollArea を掛け直す(R30 F8の作法。
+'   scrollAddr: 空でなければ削除の後に ScrollArea を掛け直す(R30 F8の作法。
 '               行削除が ScrollArea 設定の【後】に走る経路のため)。
 '   logTag    : usage_log の区分。空ならシート名(どの画面かをログで識別する)。
 '   minRow    : これより上は何があっても消さない(既定=MIN_KEEP_ROW)。
 '   Rows.Delete はモーダルを出さないので modUiLock.AlertsOff/On は要らない。
-'   Shape は削除範囲(境界の下)と重ならないので位置はずれない。
 Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, _
                                  ByVal maxRow As Long, Optional ByVal scrollAddr As String = "", _
                                  Optional ByVal logTag As String = "", _
@@ -383,6 +383,10 @@ Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, 
     lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
     Dim fromRow As Long, toRow As Long
     If modViewport2.ReleaseRange(boundRow, lastUsed, minRow, maxRow, fromRow, toRow) Then
+        ' 削除範囲に掛かるShapeが「移動/サイズ変更する」設定のままだと、行削除で
+        ' 縮む・消える。描画側のFreezeShapePlacementは削除より後に走る経路
+        ' (Hub/Dash/gallery)があるので、ここで先に絶対配置へ固定する(冪等)。
+        modUI.FreezeShapePlacement ws
         ws.Rows(fromRow & ":" & toRow).Delete
         ' R30 F9: 削除実行時のみの観測ログ(冪等な通常起動では出ない)。
         Dim tg As String: tg = logTag

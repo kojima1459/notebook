@@ -329,6 +329,95 @@ Private Sub TestChatSeedRow30()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (H) modViewport2.SeedRowCap - 本棚の高水位フォールバックの頭打ち(R31 W2-4)。
+' ----------------------------------------------------------------------------
+'   本棚は mShelfRowHigh が毎セッション0へ戻り、そのフォールバックが
+'   SHELF_MAX_ROW=412(約8画面)固定だったため、セッション初回に必ず412行を
+'   均し・クリア=焼き付けてから、直後の ReleaseSheetRowsBelow で削除していた
+'   (R30 F2-1と同型の非冪等な往復)。窓ぶんの行数と使用済み下端の大きい方へ
+'   頭打ちして、通常経路では「焼く=残す」を一致させる。
+Private Sub TestSeedRowCap31()
+    ' 窓600pt・行高15pt → 600/15=40 行で窓を覆える。使用済みが小さい
+    ' (=前回セッションが削除解放済み=20行の)ブックでは41行(1+40)止まり。
+    ' 412固定だったころに毎回焼いていた約8画面ぶんが、ここで1画面ぶんになる。
+    Dim capNormal As Long
+    capNormal = modViewport2.SeedRowCap(1, 600, 15, 20, 412)
+    modTestRunner.Check "R31W2-4_窓ぶん(41行)で頭打ちする", _
+        (capNormal = 41), "cap=" & capNormal
+
+    ' 旧ブックの救済: 使用済み下端が窓ぶんより大きければそちらを採る
+    ' (ここを窓ぶんで切ると、旧版が焼いた200行目の行高が均されず残る)。
+    Dim capRescue As Long
+    capRescue = modViewport2.SeedRowCap(1, 600, 15, 200, 412)
+    modTestRunner.Check "R31W2-4_使用済み下端が大きければ救済側を採る", _
+        (capRescue = 200), "cap=" & capRescue
+
+    ' 絶対上限(SHELF_MAX_ROW=412)は従来どおり効く。旧ブックの使用済みが
+    ' 病的に大きくても、均し・クリアの範囲は412を超えない。
+    Dim capMax As Long
+    capMax = modViewport2.SeedRowCap(1, 600, 15, 100000, 412)
+    modTestRunner.Check "R31W2-4_絶対上限412で頭打ちする", _
+        (capMax = 412), "cap=" & capMax
+
+    ' 行高が測れない(0以下)端末では15ptとみなす(0除算でクラッシュしない)。
+    Dim capZeroH As Long
+    capZeroH = modViewport2.SeedRowCap(1, 600, 0, 0, 412)
+    modTestRunner.Check "R31W2-4_行高0でも15pt換算で41行", _
+        (capZeroH = 41), "cap=" & capZeroH
+
+    ' 下限クランプ: 窓高も使用済みも0の異常値でも firstRow を割らない
+    ' (Rows("7:1")のような反転範囲文字列を作らせないため)。
+    Dim capFloor As Long
+    capFloor = modViewport2.SeedRowCap(7, 0, 15, 0, 412)
+    modTestRunner.Check "R31W2-4_異常値でもfirstRowを割らない", _
+        (capFloor = 7), "cap=" & capFloor
+
+    ' maxRowCap が firstRow より小さい壊れた指定でも firstRow を返す
+    ' (上限クランプの後に下限クランプを置く順序の固定)。
+    Dim capBroken As Long
+    capBroken = modViewport2.SeedRowCap(7, 600, 15, 0, 3)
+    modTestRunner.Check "R31W2-4_maxRowCap<firstRowでもfirstRowを返す", _
+        (capBroken = 7), "cap=" & capBroken
+End Sub
+
+' ----------------------------------------------------------------------------
+' (I) 本棚の行解放が冪等であること(R31 W2-4・SeedRowCap×ReleaseRange の対)。
+' ----------------------------------------------------------------------------
+'   ReleaseSheetRowsBelow は Hub/Dash/本棚/チャット共通の実体になったので、
+'   本棚の定数(SHELF_MAX_ROW=412・境界+1行)でも「1回目は削除・2回目は
+'   削除しない」が成立することを固定する。ここが崩れると、描画のたびに
+'   400行超の Rows.Delete と usage_log 書き込みが走って画面が固まる。
+Private Sub TestShelfReleaseIdempotent31()
+    Dim fromRow As Long, toRow As Long
+    Dim hit As Boolean
+
+    ' 1回目: 旧ブックが412行まで焼いている状態。境界の下端行50+余裕1=51を
+    ' 残し、52行目から412行目まで削除する。
+    hit = modViewport2.ReleaseRange(51, 412, 12, 412, fromRow, toRow)
+    modTestRunner.Check "R31W2-4_本棚1回目は52:412を削除", _
+        (hit = True) And (fromRow = 52) And (toRow = 412), _
+        "hit=" & hit & " from=" & fromRow & " to=" & toRow
+
+    ' 2回目: 削除後の使用済み下端は残した51行。同じ境界で呼んでも削除0
+    ' (冪等)。ここが True だと毎描画で400行削除の往復が起きる。
+    hit = modViewport2.ReleaseRange(51, 51, 12, 412, fromRow, toRow)
+    modTestRunner.Check "R31W2-4_本棚2回目は削除0(冪等)", _
+        (hit = False), "hit=" & hit
+
+    ' 逆転範囲ガード(本棚の定数でも効く): boundRow が上限クランプ値
+    ' (412*4=1648)以上の異常値なら削除しない。
+    hit = modViewport2.ReleaseRange(1648, 2000, 12, 412, fromRow, toRow)
+    modTestRunner.Check "R31W2-4_本棚も逆転範囲は削除しない", _
+        (hit = False), "hit=" & hit & " from=" & fromRow & " to=" & toRow
+
+    ' 固定領域の防衛: boundRow=0(状態が壊れた場合)でも、ヘッダー・
+    ' ツールバーが載る行1〜12は消さない(MIN_KEEP_ROW=12と対)。
+    hit = modViewport2.ReleaseRange(0, 412, 12, 412, fromRow, toRow)
+    modTestRunner.Check "R31W2-4_boundRow=0でも行1-12は守る(from=13)", _
+        (hit = True) And (fromRow = 13), "from=" & fromRow
+End Sub
+
+' ----------------------------------------------------------------------------
 ' (E) modGateway.LooksLikeLimitError - <verdict>タグ救済(R30 W2-2・3件目)。
 ' ----------------------------------------------------------------------------
 '   分解段(modPrompts.BuildDecomposePrompt)の <verdict>...</verdict> 応答が
@@ -458,6 +547,12 @@ NextSynHint30:
 NextLegend31:
     On Error GoTo LegendFail31
     TestToolbarLegendButton31
+NextSeedCap31:
+    On Error GoTo SeedCapFail31
+    TestSeedRowCap31
+NextShelfRel31:
+    On Error GoTo ShelfRelFail31
+    TestShelfReleaseIdempotent31
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -496,6 +591,14 @@ SynHintFail30:
     Resume NextLegend31
 LegendFail31:
     modTestRunner.Check "TestToolbarLegendButton31(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextSeedCap31
+SeedCapFail31:
+    modTestRunner.Check "TestSeedRowCap31(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextShelfRel31
+ShelfRelFail31:
+    modTestRunner.Check "TestShelfReleaseIdempotent31(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub
