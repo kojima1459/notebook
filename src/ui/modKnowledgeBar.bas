@@ -242,6 +242,11 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCA1) & " みんなの困りごと", "modKnowledge.OnGapBoard", "plain", 104, _
                 "回答が見つからなかった質問の一覧を見られます"
+        ' R31 Fix波F7: 早期ExitがToolbarSpec末尾の❓説明より前にあるため、
+        ' shared画面(みんなの解決事例)だけ説明手段が無かった。ここにも足す。
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&H2753) & "説明", "modKnowledgeBar.OnToolbarLegend", "plain", 58, _
+                "各ボタンの説明をまとめて表示します"
         Exit Sub
     End If
 
@@ -315,9 +320,11 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     End If
 
     ' R31 W1-2(実機第16報F-A): ツールチップ(Hyperlinks.Add)を撤去した代わりに、
-    ' ❓を押すと全ボタンの説明を一括表示するカードを出す(OnToolbarLegend)。
+    ' ❓説明を押すと全ボタンの説明を一括表示するカードを出す(OnToolbarLegend)。
+    ' R31 Fix波F3: 右肩ピルの既存❓(使い方ヘルプ・チャット画面へ遷移)と
+    ' 同字形・別動作で並んでいたため、captionを「❓説明」へ変えて区別する。
     AddTool caps, acts, kinds, tips, widths, n, _
-            ChrW(&H2753), "modKnowledgeBar.OnToolbarLegend", "plain", 44, _
+            ChrW(&H2753) & "説明", "modKnowledgeBar.OnToolbarLegend", "plain", 58, _
             "各ボタンの説明をまとめて表示します"
 
     ' R29 W2-7(実機第14報・削除ボタンの視認性): 取込系(登録/追加/仕上げ/
@@ -381,6 +388,9 @@ End Sub
 '   読み直せば、常に「今見えているボタン」と凡例が一致する)。
 ' ----------------------------------------------------------------------------
 Public Sub OnToolbarLegend()
+    ' R31 Fix波F8: 他のツールバーハンドラ(modHub.OnHelp/modKnowledge.OnHelp等)
+    ' と同じ取込中ガードが欠けていた(敵対的レビュー1周目MINOR裁定)。
+    If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
@@ -395,10 +405,14 @@ Public Sub OnToolbarLegend()
     If LenB(body) = 0 Then Exit Sub
 
     Dim leftPos As Double, topPos As Double
+    Dim visW As Double, visTop As Double, visBottom As Double
+    visW = ActiveWindow.VisibleRange.Width
+    visTop = ActiveWindow.VisibleRange.Top
+    visBottom = visTop + ActiveWindow.VisibleRange.Height
     leftPos = ActiveWindow.VisibleRange.Left + 20
-    topPos = ActiveWindow.VisibleRange.Top + 40
+    topPos = visTop + 40
     modChrome.ShowLegendCard ws, leftPos, topPos, _
-        ChrW(&H2753) & " ボタンの説明(クリックで閉じます)", body
+        ChrW(&H2753) & " ボタンの説明(クリックで閉じます)", body, visW, visTop, visBottom
     Err.Clear
     On Error GoTo 0
 End Sub

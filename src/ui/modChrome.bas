@@ -662,13 +662,27 @@ End Function
 '   オブジェクトだけを操作する設計)。
 '   塗り必須(Fill.Visible=-1): 塗り無しShapeは内部クリック透過するため、
 '   自分自身のクリックで閉じる動きが利かなくなる既知の落とし穴を踏まない。
+' R31 Fix波F6: 狭い窓ではカードが可視域からはみ出し、波2のScrollArea+行削除で
+'   スクロールして読みに行けなくなっていた。呼び出し側からVisibleRangeの
+'   幅・上端・下端を渡してもらい、幅はカード分だけ縮め、縦位置は可視域の
+'   内側へクランプする(折返しが増えて高さが伸びても、そのAutoSize実測の
+'   後で最終クランプするので既存の実測ロジックはそのまま機能する)。
 Public Sub ShowLegendCard(ByVal ws As Worksheet, ByVal leftPos As Double, _
                           ByVal topPos As Double, ByVal title As String, _
-                          ByVal body As String)
-    Const CARD_W As Double = 460
+                          ByVal body As String, _
+                          Optional ByVal visW As Double = 0, _
+                          Optional ByVal visTop As Double = 0, _
+                          Optional ByVal visBottom As Double = 0)
+    Const LEGEND_W_MAX As Double = 460
+    Const LEGEND_W_MIN As Double = 200
     Const CARD_MIN_H As Double = 100
     Const CARD_MAX_H As Double = 480
     If ws Is Nothing Then Exit Sub
+
+    Dim CARD_W As Double: CARD_W = LEGEND_W_MAX
+    If visW > 0 And (visW - 40) < CARD_W Then CARD_W = visW - 40
+    If CARD_W < LEGEND_W_MIN Then CARD_W = LEGEND_W_MIN
+
     On Error Resume Next
     ws.Shapes("nxk_legend").Delete   ' 再表示時の増殖防止(同名Shapeを先に消す)
 
@@ -700,6 +714,18 @@ Public Sub ShowLegendCard(ByVal ws As Worksheet, ByVal leftPos As Double, _
     If h < CARD_MIN_H Then h = CARD_MIN_H
     If h > CARD_MAX_H Then h = CARD_MAX_H
     shp.Height = h
+
+    ' 縦位置クランプ: 可視下端(visBottom)からカード高を引いた位置を上限、
+    ' 可視上端(visTop)+8ptを下限にする。visBottom/visTopが未指定(0)の
+    ' ときは従来どおりtopPosそのまま(呼び出し側が渡さない旧経路の保険)。
+    If visBottom > 0 Then
+        Dim finalTop As Double: finalTop = topPos
+        Dim maxTop As Double: maxTop = visBottom - h
+        Dim minTop As Double: minTop = visTop + 8
+        If finalTop > maxTop Then finalTop = maxTop
+        If finalTop < minTop Then finalTop = minTop
+        shp.Top = finalTop
+    End If
 
     modSkin.ApplyLightShadow shp
     shp.OnAction = "modKnowledgeBar.OnToolbarLegendClose"

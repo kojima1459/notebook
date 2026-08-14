@@ -485,11 +485,14 @@ Private Sub TestToolbarLegendButton31()
     modTestRunner.Check "R31-W1-2_一覧表の並びに" & ChrW(&H2753) & "が含まれる", _
         (InStr(capsTable, ChrW(&H2753)) > 0), "caps=[" & capsTable & "]"
 
-    ' 仕様書の記載範囲どおり、みんなの解決事例(isShared)には出さない。
+    ' R31 Fix波F7: isSharedの早期ExitがToolbarSpec末尾の❓説明追加より先に
+    ' あり、みんなの解決事例(shared)画面だけ説明手段が無かった(敵対的
+    ' レビュー1周目MINOR裁定)。isSharedの並びにも❓説明を追加したので、
+    ' 「出さない」から「含まれる」へ期待値を反転する。
     Dim capsShared As String
     capsShared = modKnowledgeBar.ToolbarButtonCaptions(False, True)
-    modTestRunner.Check "R31-W1-2_みんなの解決事例には" & ChrW(&H2753) & "を出さない(仕様どおり)", _
-        (InStr(capsShared, ChrW(&H2753)) = 0), "caps=[" & capsShared & "]"
+    modTestRunner.Check "R31-Fix-F7_みんなの解決事例にも" & ChrW(&H2753) & "が含まれる", _
+        (InStr(capsShared, ChrW(&H2753)) > 0), "caps=[" & capsShared & "]"
 
     ' (b) 凡例整形関数: 全ボタン名を含む・空文字にならない。
     Dim caps(0 To 2) As String, tips(0 To 2) As String
