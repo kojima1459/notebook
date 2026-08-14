@@ -1434,9 +1434,14 @@ CONTRACT: dict[str, dict] = {
         # ToolbarButtonCaptions(2026-08-13 R31 W1-5): Private ToolbarSpecの
         #   中身を純ロジックテストから検算するための窓口(Shape/Worksheet
         #   非生成)。modTestsPure29が❓ボタンの有無を固定する。
+        # StretchToolbarRows(2026-08-13 R31 W3-1): 案C「伸縮両端揃え」の
+        #   段ごと比例配分伸縮を担う純関数(Worksheet非依存)。
+        #   ComputeToolbarLayoutが内部で呼ぶほか、純ロジックテストからも
+        #   直接検算できるようPublicにしている。
         "required": [
             "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
             "OnToolbarLegend", "OnToolbarLegendClose", "ToolbarButtonCaptions",
+            "StretchToolbarRows",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。

@@ -55,17 +55,19 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' ToolbarContentRight - ツールバーの実際の右端X(pt)。Shapeを一切生成せず、
-'   DrawToolbarと同じ算数(ToolbarSpec+modChrome.FlowLeft)だけを走らせる。
+'   DrawToolbarと同じ算数(ToolbarSpec+modChrome.FlowLeft+段ごと伸縮)だけを
+'   走らせる。
 ' ----------------------------------------------------------------------------
-' なぜ必要か(実機第3報 RC10「ヘッダー右ズレ」):
-'   modKnowledge.DrawChrome の右肩ピルは modChrome.FlowRight で帯の右端
-'   (L+W-8)へ密着させていたが、ツールバー自体は modChrome.FlowLeft で
-'   左詰めに流し込むだけなので、ボタン数が少ない端末(発行キー未設定・
-'   画像解析無効等でボタンが減る)ではツールバーの実際の右端が帯の右端まで
-'   届かない。ピルだけが右端に密着し、ツールバー本体はそれより手前で
-'   終わっているように見える非対称が実機の「ヘッダーがズレて見える」の
-'   正体。ここでツールバーの「実際に使っている右端」を先に計算し、
-'   DrawChrome側がピルの右アンカーをそこへ合わせる。
+' R31 W3-1(実機第16報F-C・案C「伸縮両端揃え」): かつては左詰め固定幅の
+'   ツールバーとFlowRight密着のヘッダーピルが構造非対称で、ボタン数が
+'   少ない端末ほど右端がΔ=13〜360pt超もズレて見えていた。今は
+'   ComputeToolbarLayout内でFlowLeftの直後に段ごとの比例配分伸縮
+'   (StretchToolbarRows)を掛けており、最終段以外(1段構成なら唯一の段)は
+'   目標右端(L+W-8=modKnowledge.DrawChromeのtbRightと同一式)まで
+'   伸びる(伸び率上限+25%到達時は届かないところで頭打ち=許容)。
+'   本関数は今は「テストからこの右端を検算する窓口」としてのみ使われる
+'   (実描画=DrawToolbarは同じComputeToolbarLayoutを直接呼ぶので実体は
+'   この関数を経由しない)。
 ' 戻り値: 全段のうち最も右まで到達したボタンの右端X(pt)。ボタンが0個の
 '   ときは0を返す(R14-G13: 呼び出し側は「L+TB_PAD以下=縮退」だけを
 '   フォールバック条件にする。少ボタン構成でも整列の恩恵を受けられるよう、
@@ -107,6 +109,78 @@ Private Sub ComputeToolbarLayout(ByVal isTable As Boolean, ByVal isShared As Boo
     rowN = modChrome.FlowLeft(widths, n, L + TB_PAD, L + W - TB_PAD, TB_GAP, _
                               xs, rws, useW)
     If rowN < 1 Then rowN = 1
+    StretchToolbarRows widths, rws, n, rowN, L + TB_PAD, L + W - TB_PAD, TB_GAP, xs, useW
+End Sub
+
+' ----------------------------------------------------------------------------
+' StretchToolbarRows - R31 W3-1(案C「伸縮両端揃え」)。FlowLeftが左詰めで
+'   計算した段ごとの並びに対し、各段の右端を目標右端(L+W-8)へ比例配分で
+'   伸ばす。Worksheet非依存の純関数(引数=幅配列/段割当/目標右端等のみ)。
+' ----------------------------------------------------------------------------
+' 対象段: 段が2つ以上あるときは【最終段を除く】全段(少数ボタンだけが残る
+'   最終段を伸ばすと1〜2個のボタンが異常に太る)。段が1つしかないときは
+'   その唯一の段を伸ばす(除外は「2段以上のときの最終段」限定)。
+' 伸び率上限: 段内の各ボタンについて、配分後の増分がwidths(i)*0.25を
+'   超えないようクランプする。比例配分は同一段内で全ボタン共通の比率
+'   (delta/Σwidths)を掛けるだけなので、上限に触れるボタンは同じ段の
+'   全ボタンが同時に触れる(段全体が一律に頭打ちになる。特定のボタンだけ
+'   飛び出て伸びる、は起きない)。頭打ちで配りきれない残りは無理に配らない
+'   =その段の右端が目標に届かないのは許容(A-2)。
+' 縮小はしない: delta<=0(既に目標へ届いている・帯が極端に狭い等)のときは
+'   その段を素通りする(FlowLeftの丸め済み幅を壊さない)。
+Public Sub StretchToolbarRows(ByRef widths() As Double, ByRef rws() As Long, _
+                              ByVal n As Long, ByVal rowN As Long, _
+                              ByVal x0 As Double, ByVal targetRight As Double, _
+                              ByVal gap As Double, _
+                              ByRef xs() As Double, ByRef useW() As Double)
+    If n < 1 Or rowN < 1 Then Exit Sub
+
+    Dim lastEligibleRow As Long
+    If rowN <= 1 Then
+        lastEligibleRow = rowN - 1     ' 1段構成: 唯一の段を伸縮する
+    Else
+        lastEligibleRow = rowN - 2     ' 2段以上: 最終段(rowN-1)は除外
+    End If
+    If lastEligibleRow < 0 Then Exit Sub
+
+    Dim r As Long
+    For r = 0 To lastEligibleRow
+        Dim sumW As Double, rowRight As Double
+        Dim lastI As Long: lastI = -1
+        sumW = 0
+        Dim i As Long
+        For i = 0 To n - 1
+            If rws(i) = r Then
+                sumW = sumW + widths(i)
+                Dim edge As Double: edge = xs(i) + useW(i)
+                If edge > rowRight Then rowRight = edge
+                lastI = i
+            End If
+        Next i
+        If lastI < 0 Or sumW <= 0 Then GoTo NextRow
+
+        Dim delta As Double: delta = targetRight - rowRight
+        If delta <= 0 Then GoTo NextRow      ' 既に目標超過・帯が狭い→縮めない
+
+        For i = 0 To n - 1
+            If rws(i) = r Then
+                Dim addW As Double: addW = delta * widths(i) / sumW
+                Dim capW As Double: capW = widths(i) * 0.25
+                If addW > capW Then addW = capW
+                If addW > 0 Then useW(i) = useW(i) + addW
+            End If
+        Next i
+
+        ' 段内を左からgap5で累積再計算(左端はx0のまま)。
+        Dim x As Double: x = x0
+        For i = 0 To n - 1
+            If rws(i) = r Then
+                xs(i) = x
+                x = x + useW(i) + gap
+            End If
+        Next i
+NextRow:
+    Next r
 End Sub
 
 ' ----------------------------------------------------------------------------
