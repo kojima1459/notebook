@@ -1349,9 +1349,15 @@ CONTRACT: dict[str, dict] = {
     # 作る必要があった。
     #   RestoreShelfHeaderBg: 一覧表の地色塗り直し(W4-2)で一律に消える
     #                         カード見出し行のグレーを即座に戻す復元点。
+    #   LogStyleFailOnce    : modChrome.ApplyNormalStyleBg の失敗を1セッション
+    #                         1回だけ usage_log へ残す(W4-4)。標準スタイル方式は
+    #                         実機で 1004 と確定し、R28以来ずっと空振りしていたが
+    #                         On Error Resume Next で無言だった。この無言こそが
+    #                         余白問題を8ラウンド見誤らせた構造的原因なので、
+    #                         「効かない実装を黙って残さない」ことを契約にする。
     "modBackdrop": {
         "closed": True,
-        "required": ["RestoreShelfHeaderBg"],
+        "required": ["RestoreShelfHeaderBg", "LogStyleFailOnce"],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
     "modApp": {

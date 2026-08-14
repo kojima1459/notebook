@@ -14,6 +14,8 @@ Option Explicit
 ' 持ち分は「セルの文字・Shapeではなく、その【背後】に何を敷くか」だけ:
 '   ・RestoreShelfHeaderBg  … 一覧表の一律塗りで消える見出し行のグレーを戻す
 '                             (W4-2。塗る順序を変えて解くための復元点)
+'   ・LogStyleFailOnce      … 標準スタイル方式の失敗を1セッション1回ログへ
+'                             (W4-4。無言失敗の根絶)
 '   ・(W4-5で背景画像方式をここへ追加する)
 '
 ' 【この画面の余白問題についての確定事実】(R32実機プローブ。ここに集約する)
@@ -28,6 +30,10 @@ Option Explicit
 '      実機では使用不能(modChrome.ApplyNormalStyleBg はR28以来一度も
 '      機能していなかった。R32 W4-4で失敗をログに残すよう是正)。
 ' ============================================================================
+
+' ---- モジュールレベル宣言(実機VBAでは宣言部が必ず全プロシージャより先) ----
+' 標準スタイル方式の失敗を1セッション1回だけログに残したか(W4-4)。
+Private mStyleFailLogged As Boolean
 
 ' ----------------------------------------------------------------------------
 ' RestoreShelfHeaderBg - 一覧表のカード見出し行だけ、明示塗りを戻す。
@@ -64,6 +70,47 @@ Public Sub RestoreShelfHeaderBg(ByVal ws As Worksheet, ByVal headerRow As Long)
     If headerRow < 1 Then Exit Sub
     On Error Resume Next
     ws.Cells(headerRow, 1).Resize(1, 10).Interior.Color = 15921906
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ============================================================================
+' W4-4: 無言失敗の根絶
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' LogStyleFailOnce - modChrome.ApplyNormalStyleBg の失敗を1行残す。
+' ----------------------------------------------------------------------------
+'   R32 W4-4【是正・8ラウンド気づけなかった構造的原因】:
+'   modChrome.ApplyNormalStyleBg(R28波1)は
+'   `ws.Parent.Styles("Normal").Interior.Color = 地色` で画面の地を一括で
+'   塗るはずだったが、R32の実機プローブで
+'     ・Styles("Normal") → 実行時エラー1004
+'     ・Styles("標準")   → 実行時エラー1004
+'     ・無保護のホームシートを Activate してから叩いても両方1004
+'   が確定した。つまりこの関数はR28以降【一度も機能していない】。
+'   にもかかわらず `On Error Resume Next` で握り潰され、usage_log にも
+'   err_log にも1行も出ていなかったため、余白問題の調査は「地はNormal
+'   スタイルで塗れている」という誤った前提の上を8ラウンド走り続けた。
+'
+'   よって関数自体は残す(将来のExcel/環境で使える可能性があり、削除すると
+'   「試したが駄目だった」という事実まで消える)が、【黙って失敗しない】。
+'   errNum<>0 のときだけ、1セッションに1回 usage_log へ残す:
+'     event=normal_style_bg_failed / mode=シート名 / detail=err番号と説明
+'   1回に絞る理由は、この関数が画面を描くたびに4経路から呼ばれるため
+'   (毎描画で書くと usage_log が実用にならないほど膨らむ)。
+'   ログ自体が失敗しても画面は落とさない(全体を On Error Resume Next 配下)。
+' ----------------------------------------------------------------------------
+Public Sub LogStyleFailOnce(ByVal ws As Worksheet, ByVal errNum As Long, _
+                            ByVal errDesc As String)
+    If errNum = 0 Then Exit Sub
+    If mStyleFailLogged Then Exit Sub
+    mStyleFailLogged = True          ' 先に立てる(ログ側で落ちても再入しない)
+    On Error Resume Next
+    Dim nm As String
+    If Not ws Is Nothing Then nm = ws.Name
+    modLog.LogUsage "normal_style_bg_failed", nm, _
+        "Styles(Normal)への地色代入が失敗 err=" & errNum & " " & errDesc
     Err.Clear
     On Error GoTo 0
 End Sub

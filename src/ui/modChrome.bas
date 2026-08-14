@@ -443,8 +443,14 @@ Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
     If (Not readOk) Or (cur <> want) Then
         ws.Parent.Styles("Normal").Interior.Color = want
     End If
+    ' R32 W4-4: 実機では Styles("Normal") も Styles("標準") も 1004 で、この関数は
+    ' R28以来一度も効いていなかった(On Error Resume Next の無言が8ラウンド
+    ' 気づけなかった構造的原因)。Errは On Error 文で消えるので先に退避する。
+    Dim nsbNum As Long, nsbDesc As String
+    nsbNum = Err.Number: nsbDesc = Err.Description
     Err.Clear
     On Error GoTo 0
+    modBackdrop.LogStyleFailOnce ws, nsbNum, nsbDesc
 End Sub
 
 ' ----------------------------------------------------------------------------
