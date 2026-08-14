@@ -603,6 +603,15 @@ PURE_ALLOWLIST = [
     #   呼ぶと実行時エラー12になり、唯一の検証手段が丸ごと走らないまま
     #   「全部PASS」に見える。
     "modInsight",
+    # modInsightGate(2026-08-14 R32 Fix波): 発信側の関所。テストが呼ぶ
+    #   AnonId / StripDateLike / NonceKeepDays / InboxKeepDays は文字列と算術
+    #   だけで完結する純関数(modInsight と同じ「モジュール全体はR4準拠では
+    #   ないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。
+    #   PiiBlocked / GapDupBlocked / MarkGapEmitted / GcGapDupKeys / NotifySkip
+    #   はテストから呼ばない(my_stats シート・modSkin.ShowToast へ到達する)。
+    #   未注入のまま modTestsPure31 から呼ぶと実行時エラー12になり、日付誤検知の
+    #   前処理と保持日数の不等式を撃つ唯一の検査が走らないまま全部PASSに見える。
+    "modInsightGate",
     # modConfig(2026-08-14 R32波2 W2-1): configシートの読み書き。テストが
     #   呼ぶ GetBool/GetLong は、シートが無い/キーが無い場合は例外を投げず
     #   defaultValueへフォールバックする設計(modConfig.bas冒頭コメント参照)

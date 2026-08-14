@@ -42,11 +42,106 @@ Private Const SHEET_NAME As String = "insight_inbox"
 '             G=answer_or_reason H=source_or_dept I=consumed J=selected
 Private Const INBOX_COLS As Long = 10
 
-' 連投抑止キー(my_stats)の接頭辞。modP2P の "thx:" / 本機能の "ins:" と同作法。
-' 2026-08-14(R32 W1-6)。実体の説明は下の「発信側の関所」節。
-Private Const GAPQ_PREFIX As String = "gapq:"
-' 抑止キーそのものの保持日数(抑止期間を過ぎたキーを my_stats に残す理由は無い)。
-Private Const GAPQ_KEEP_DAYS As Long = 7
+' 受信箱(insight_inbox)のトリム条件(2026-08-01 R12-3-5)。
+' 取り込み済み(consumed=1)の行は、本棚に入った時点で役目を終えている。
+' 消さないと、共有知が回るほど受信箱が一方的に伸び、起動時の収集も
+' 「みんなの困りごと」の描画も毎回そのぶん重くなる(chat_logの100件
+' ローテと同じ考え方。ただしこちらは【未取込の行は絶対に消さない】)。
+Private Const INBOX_MAX_ROWS As Long = 500
+' 保持日数は固定値をやめ、既読印GCと同じ config thanks_gc_days から導く
+' (2026-08-14 R32 F1)。「既読印GC日数 < 受信箱保持日数」の不等式そのものは
+' modInsightGate.NonceKeepDays / InboxKeepDays が持つ(理由と検算はそちら)。
+
+' ----------------------------------------------------------------------------
+' TrimInboxRows - 受信箱の古い行を片付ける(2026-08-14 R32 W1-4で改称・拡張)。
+'   2026-08-14(R32 Fix波): modInsightIo から本モジュールへ移設した。
+'   modInsightIo が30,000字上限を超えたための移設だが、置き場所としても
+'   こちらが正しい ―― 本モジュールの持ち分は「受信箱シートの参照・選択・
+'   取り込み済み管理」(modInsightIo 冒頭の分割方針)で、受信箱の行を
+'   落とす掃除はまさにそれに当たる(呼び出しは CollectInsights の1箇所)。
+'   ・取り込み済み(consumed=1): 「保持日数より古い」または「500行を超えた超過分」。
+'     未取込のQ&Aは何行あっても消さない。届いた知恵を、読む前にこちらの
+'     都合で捨てないため。
+'   ・困りごと(gap)と訂正(correction): consumed が立つ経路が存在しないため、
+'     上の条件では永久に残る。保持期間(config gap_keep_days・既定30日)で
+'     落とす(判定は下の GapAged。理由はそちらのコメント)。
+'   行の詰め直しは modShelfStore と同じ「一括読み→配列でフィルタ→一括書戻し」
+'   (1行ずつ Rows().Delete すると数千行で実機が固まる。MASTER_SPEC §12)。
+' ----------------------------------------------------------------------------
+Public Sub TrimInboxRows(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 3 Then Exit Sub                      ' データ1行以下なら触らない
+
+    Dim nRows As Long: nRows = lastR - 1
+    Dim excessN As Long: excessN = nRows - INBOX_MAX_ROWS
+    If excessN < 0 Then excessN = 0
+
+    ' 期限の境界は文字列比較で判定する(ISO日付は辞書順=時系列順。
+    ' 和暦カレンダー端末でも壊れない。R12-1-4と同じ理由でCDateを通さない)。
+    Dim keepDays As Long
+    keepDays = modInsightGate.InboxKeepDays(modConfig.GetLong("thanks_gc_days", 60))
+    Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - keepDays)
+
+    ' R32 W1-4: 困りごと/訂正の保持期間。0以下で無効(=従来どおり残す)。
+    Dim gapCut As String
+    Dim gapDays As Long: gapDays = modConfig.GetLong("gap_keep_days", 30)
+    If gapDays > 0 Then gapCut = modUtilText.IsoDate(Date - gapDays)
+
+    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, INBOX_COLS)).Value
+    Dim keep() As Variant: ReDim keep(1 To nRows, 1 To INBOX_COLS)
+    Dim keepN As Long, dropped As Long
+    ' 2026-08-01(R12-H-8): 上限超過ぶんと期限切れぶんのカウンタを分ける。
+    ' 従来は1つの dropped を「超過何件目か」の判定にも使っていたため、
+    ' 期限切れの行を1件消すたびに超過枠が1つ埋まったことになり、
+    ' 【上限500行を超えたぶんを掃除しきれない】(次回も超過が残る)状態だった。
+    Dim overN As Long, agedN As Long, gapN As Long
+    Dim i As Long, c As Long
+    For i = 1 To nRows
+        Dim drop As Boolean: drop = False
+        If CStr(arr(i, 9)) = "1" Then                      ' consumed
+            If overN < excessN Then
+                drop = True                                ' 上限超過分(古い順)
+                overN = overN + 1
+            ElseIf LenB(Trim$(CStr(arr(i, 5)))) > 0 Then   ' created_at
+                drop = (Left$(modUtilText.NormalizeIsoDate(CStr(arr(i, 5))), 10) < cutoff)
+                If drop Then agedN = agedN + 1
+            End If
+        Else
+            ' R32 W1-4: 未取込でも gap/correction は保持期間で落とす。
+            drop = GapAged(CStr(arr(i, 2)), CStr(arr(i, 5)), gapCut)
+            If drop Then gapN = gapN + 1
+        End If
+        If drop Then
+            dropped = dropped + 1
+        Else
+            keepN = keepN + 1
+            For c = 1 To INBOX_COLS
+                keep(keepN, c) = arr(i, c)
+            Next c
+        End If
+    Next i
+    If dropped = 0 Then Exit Sub
+
+    If keepN > 0 Then
+        Dim outArr() As Variant: ReDim outArr(1 To keepN, 1 To INBOX_COLS)
+        Dim k As Long
+        For k = 1 To keepN
+            For c = 1 To INBOX_COLS
+                outArr(k, c) = keep(k, c)
+            Next c
+        Next k
+        ws.Range(ws.Cells(2, 1), ws.Cells(1 + keepN, INBOX_COLS)).Value = outArr
+    End If
+    ws.Range(ws.Cells(2 + keepN, 1), ws.Cells(1 + nRows, INBOX_COLS)).ClearContents
+
+    modLog.LogUsage "insight_inbox_trim", "", _
+        "受信箱の古い行を" & dropped & "件片付けました(上限超過" & overN & _
+        "件/取込済みの期限切れ" & agedN & "件/困りごと・訂正の期限切れ" & gapN & _
+        "件。残り" & keepN & "行。上限" & INBOX_MAX_ROWS & "行/" & _
+        keepDays & "日/困りごと" & gapDays & "日)"
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' InboxArray - 受信箱を【一括Range読み1回】で配列にする(2026-08-14 R32 W1-5)。
@@ -369,37 +464,6 @@ Public Function InboxNonceSet() As Object
 End Function
 
 ' ----------------------------------------------------------------------------
-' NonceKeepDays / InboxKeepDays - 既読印と受信箱の保持日数(純関数・R32 F1)。
-' ----------------------------------------------------------------------------
-'   【BLOCKER だったこと】受信箱の行は INBOX_KEEP_DAYS=60日 の固定値で消えるのに、
-'   既読印("ins:")は thanks_gc_days+7=67日 まで残る作りだった。61〜67日目は
-'   「行は無いが既読印はある」で守られるが、68日目には【どちらも無い】瞬間が来る。
-'   共有フォルダのファイルが残っていれば(発行担当が不在の組織では永久に残る)、
-'   その日に全端末が過去分を一斉に再受信する。W1-2で入れた nonce 冪等化は
-'   【受信箱にその行が在ること】を根拠にしているので、行が先に消える限り空振りし、
-'   取り込み済みだったQ&Aが「未取込」に戻って本棚へ二重登録される。
-'
-'   直し方は「受信箱を既読印より長く持つ」の一点。既読印が切れて再読みされた
-'   瞬間に行がまだ在れば、NonceIsKnown が重複を止め、そのついでに既読印が
-'   書き直されて延命する(CollectFrom は AppendRow が True を返したら必ず
-'   既読印を書く)。
-'
-'   【不変条件】任意の gcDays について
-'       InboxKeepDays(gcDays) > NonceKeepDays(gcDays)
-'   +7 / +14 という差の付け方は、config thanks_gc_days をいくつに変えても
-'   この不等式が自動的に保たれるようにするため(片方だけ固定値にすると、
-'   設定を変えた組織でだけ穴が開く)。定数をいじって不等式を壊す改修を
-'   機械で止めるため、modTestsPure31 が境界値でこの不等式そのものを検算する。
-' ----------------------------------------------------------------------------
-Public Function NonceKeepDays(ByVal gcDays As Long) As Long
-    NonceKeepDays = gcDays + 7
-End Function
-
-Public Function InboxKeepDays(ByVal gcDays As Long) As Long
-    InboxKeepDays = gcDays + 14
-End Function
-
-' ----------------------------------------------------------------------------
 ' GapAged - 保持期間を過ぎた困りごと/訂正の行か(純関数・2026-08-14 R32 W1-4)。
 '   gap 行に consumed=1 が立つ経路は【1つも無い】。TrimInboxRows は
 '   consumed=1 しか落とさず、INBOX_MAX_ROWS=500 の超過掃除も同様なので、
@@ -420,102 +484,6 @@ Public Function GapAged(ByVal kind As String, ByVal createdAt As String, _
     If LenB(t) = 0 Then Exit Function
     GapAged = (Left$(modUtilText.NormalizeIsoDate(t), 10) < cutoff)
 End Function
-
-' ============================================================================
-' 発信側の関所(2026-08-14 R32 W1-6/W1-8)
-' ----------------------------------------------------------------------------
-' 置き場所の理由: 判定の実体は modInsightIo(発信の持ち主)に置きたいが、
-'   あちらは30,000字上限まで残り1,800字を切っており1件も入らない。憲章§4-6に
-'   従い、余裕のある本モジュールへ実体を置き、modInsightIo からは1行で呼ぶ。
-'   連投抑止キーの接頭辞・読み書き・GCを1モジュールに集めておくことで、
-'   キー名が2箇所に書き写されてズレる事故も同時に防いでいる。
-' ============================================================================
-
-' ----------------------------------------------------------------------------
-' PiiBlocked - 共有フォルダへ出す前の個人情報走査(R32 W1-8(b) M7)。
-'   True を返したら【送らない】。
-'   困りごとの投稿は質問の全文がそのまま部内へ出ていく経路で、しかも
-'   no_hit は利用者の操作を介さず自動で発火する(押した覚えのないまま
-'   「取引先の田中様の携帯 090-xxxx-xxxx は…」が部内に配られる)。
-'   共有フォルダに一度書いたものは取り消せないため、ここは検知したら黙って
-'   見送る(利用者の作業は止めない。痕跡は usage_log に1行残す)。
-'
-'   【重要】この走査は、パック発行側の個人情報チェックのオフスイッチ
-'   (config pii_scan_enabled・R32 波2)の影響を受けない。あちらは自分で
-'   選んで自分の資料を出す操作で、利用者が中身を分かって押している。
-'   こちらは自動発火かつ他人の目に触れる経路なので、常に走らせる。
-' ----------------------------------------------------------------------------
-Public Function PiiBlocked(ByVal s As String, ByVal what As String) As Boolean
-    On Error Resume Next
-    Dim hit As String
-    hit = modPii.ScanText(s)
-    If LenB(hit) = 0 Then Exit Function
-    PiiBlocked = True
-    modLog.LogUsage "insight_pii_skip", what, _
-        "個人情報を含む可能性があるため部内共有を見送りました(" & hit & ")"
-    On Error GoTo 0
-End Function
-
-' ----------------------------------------------------------------------------
-' GapDupBlocked - 同じ趣旨の質問を短時間に連投していないか(R32 W1-6 M4)。
-'   EmitGap には重複抑止が無く、しかも no_hit 経路は感想ボタンを通らないので
-'   「1ターン1回」のガードすら掛からない。言い換えて3回聞けば3件投稿され、
-'   板が1人の質問で埋まる(見る側からは同じ質問が3行並ぶ)。
-'   照合は解決済みQ&A側の SameQuestionCount と同じ NormKey(記号と空白を
-'   落とした先頭40字)。思想を揃えておかないと、片方で「同じ」もう片方で
-'   「別」という食い違いが必ず出る。
-'   抑止時間は config gap_dup_hours(既定24時間)。0以下で無効。
-' ----------------------------------------------------------------------------
-Public Function GapDupBlocked(ByVal qText As String) As Boolean
-    On Error Resume Next
-    Dim hours As Long: hours = modConfig.GetLong("gap_dup_hours", 24)
-    If hours <= 0 Then Exit Function
-    Dim k As String: k = NormKey(qText)
-    If LenB(k) = 0 Then Exit Function
-    GapDupBlocked = WithinWindow(modStats.GetStatText(GAPQ_PREFIX & k), _
-                                 modUtilText.IsoDateTime(DateAdd("h", -hours, Now)))
-    On Error GoTo 0
-End Function
-
-' 発信できたことを記録する(次の GapDupBlocked がこれを見る)。
-Public Sub MarkGapEmitted(ByVal qText As String)
-    On Error Resume Next
-    Dim k As String: k = NormKey(qText)
-    If LenB(k) = 0 Then Exit Sub
-    modStats.SetStatText GAPQ_PREFIX & k, modUtilText.IsoDateTime(Now)
-    On Error GoTo 0
-End Sub
-
-' ----------------------------------------------------------------------------
-' GcGapDupKeys - 抑止期間を過ぎた連投抑止キーを my_stats から取り除く。
-'   modInsightIo.GcOldNonces と同じ「下から消す」作法。掃除しないと、質問の
-'   種類ぶんだけ my_stats が伸び、FindKeyRow の線形探索が重くなる
-'   (HANDOFF §2 の既知課題・R32 r5 と同型)。
-' ----------------------------------------------------------------------------
-Public Sub GcGapDupKeys()
-    On Error Resume Next
-    Dim ws As Worksheet
-    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
-    If ws Is Nothing Then Exit Sub
-    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    If lastR < 2 Then Exit Sub
-
-    Dim limit As String
-    limit = modUtilText.IsoDateTime(DateAdd("d", -GAPQ_KEEP_DAYS, Now))
-    ' A:B の2列で読む(1行しか無いときA列単独だと配列ではなくスカラーが返る
-    ' VBAの仕様を避けるため。GcOldNonces と同じ回避策)。
-    Dim arr As Variant
-    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
-
-    Dim i As Long
-    For i = UBound(arr, 1) To LBound(arr, 1) Step -1
-        Dim k As String: k = CStr(arr(i, 1))
-        If Left$(k, Len(GAPQ_PREFIX)) = GAPQ_PREFIX Then
-            If Not WithinWindow(CStr(arr(i, 2)), limit) Then ws.Rows(i + 1).Delete
-        End If
-    Next i
-    On Error GoTo 0
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' WithinWindow - 記録した時刻が期間の内側か(純関数・R32 W1-6)。

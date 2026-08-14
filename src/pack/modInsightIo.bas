@@ -36,15 +36,6 @@ Private Const FIELD_SEP As String = vbTab
 ' 既読印(my_stats)の接頭辞。modP2P の "thx:" と同じ作法(R8 F10)。
 Private Const INS_PREFIX As String = "ins:"
 
-' 受信箱(insight_inbox)のトリム条件(2026-08-01 R12-3-5)。
-' 取り込み済み(consumed=1)の行は、本棚に入った時点で役目を終えている。
-' 消さないと、共有知が回るほど受信箱が一方的に伸び、起動時の収集も
-' 「みんなの困りごと」の描画も毎回そのぶん重くなる(chat_logの100件
-' ローテと同じ考え方。ただしこちらは【未取込の行は絶対に消さない】)。
-Private Const INBOX_MAX_ROWS As Long = 500
-' 保持日数は固定値をやめ、既読印GCと同じ config thanks_gc_days から導く
-' (2026-08-14 R32 F1)。「既読印GC日数 < 受信箱保持日数」の不等式そのものは
-' modInsight.NonceKeepDays / InboxKeepDays が持つ(理由と検算はそちら)。
 Private Const INBOX_COLS As Long = 10       ' A..J(J=選択状態)
 
 ' ----------------------------------------------------------------------------
@@ -91,16 +82,18 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     If LenB(Trim$(q)) = 0 Then Exit Sub
     ' R32 W1-8(b): 個人情報を含む可能性があるなら部内へ出さない。
     ' このゲートは波2の pii_scan_enabled(パック発行側のオフスイッチ)の
-    ' 影響を受けず【常に走る】。理由は modInsight.PiiBlocked のコメント。
-    If modInsight.PiiBlocked(q, "gap") Then Exit Sub
+    ' 影響を受けず【常に走る】。理由は modInsightGate.PiiBlocked のコメント。
+    ' R32 F4: 走査するのは【実際に送る文字列】= Clean1(q)。
+    If modInsightGate.PiiBlocked(Clean1(q), "gap") Then Exit Sub
     ' R32 W1-6(M4): 同じ趣旨の質問の連投を止める(判定は modInsight 側)。
-    If modInsight.GapDupBlocked(q) Then Exit Sub
+    If modInsightGate.GapDupBlocked(q) Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
     If LenB(dirPath) = 0 Then Exit Sub
     EnsureDir dirPath
 
-    Dim myId As String: myId = SafeUserId()
+    ' R32 F2: 名乗るのはハッシュ化した匿名ID(ファイル名にもこれが載る)。
+    Dim myId As String: myId = AnonUserId()
     If LenB(myId) = 0 Then Exit Sub
 
     ' R32 W1-8(a): 氏名は送らない(部署だけ)。困りごとの板は「誰が困ったか」
@@ -115,7 +108,9 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     ' 書けなかった投稿まで「もう送った」ことにすると、その質問は24時間
     ' 誰にも届かない)。qa_shared_total / gapfill_total と同じ考え方。
     If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
-        modInsight.MarkGapEmitted q
+        modInsightGate.MarkGapEmitted q
+    Else
+        modInsightGate.NotifySkip "write"   ' R32 F5: 書けなかったことを黙らない
     End If
     On Error GoTo 0
 End Sub
@@ -133,21 +128,27 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     If LenB(Trim$(fixText)) = 0 Then Exit Sub
     ' R32 W1-8: 訂正も同じ扱い(実名を出さない・PII検知で見送る)。訂正本文は
     ' 利用者が自由に書ける欄なので、質問文よりむしろ個人情報が入りやすい。
-    If modInsight.PiiBlocked(answerText & " " & fixText, "correction") Then Exit Sub
+    ' R32 F4: 走査は【実際に送る2本の文字列そのもの】を【別々に】行う。
+    ' 連結すると片方の末尾の数字ともう片方の先頭の数字が繋がって偽の長い
+    ' 数字列になり(半角スペースは modPii がランの継続として数える)、
+    ' しかも走査だけ全文・送信は先頭200字という食い違いもあった。
+    Dim qField As String: qField = Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200))
+    Dim fField As String: fField = Clean1(fixText)
+    If modInsightGate.PiiBlocked(qField, "correction") Then Exit Sub
+    If modInsightGate.PiiBlocked(fField, "correction") Then Exit Sub
 
     ' R32 W1-1: 困りごとの板に混ざらないよう専用フォルダへ出す。
     Dim dirPath As String: dirPath = SubDir(CORR_SUBDIR)
     If LenB(dirPath) = 0 Then Exit Sub
     EnsureDir dirPath
 
-    Dim myId As String: myId = SafeUserId()
+    Dim myId As String: myId = AnonUserId()      ' R32 F2(訂正も匿名IDで出す)
     If LenB(myId) = 0 Then Exit Sub
 
     Dim body As String
     body = "v1" & FIELD_SEP & myId & FIELD_SEP & ANON_AUTHOR & FIELD_SEP & _
            Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
-           Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200)) & FIELD_SEP & _
-           "correction" & FIELD_SEP & Clean1(fixText)
+           qField & FIELD_SEP & "correction" & FIELD_SEP & fField
 
     ' 2026-08-10(R25-3a FA-R25-3a): gapfill_total は「みんなの困りごと」への
     ' 回答(=1人の訂正を全員の訂正にする、この投稿)が実際に部内へ届いた
@@ -158,6 +159,8 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     ' 獲得不可能だった不具合の修理。
     If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
         modStats.Bump "gapfill_total"
+    Else
+        modInsightGate.NotifySkip "write"   ' R32 F5: 書けなかったことを黙らない
     End If
     On Error GoTo 0
 End Sub
@@ -174,7 +177,7 @@ Public Function CollectInsights() As Long
     ' 収集の前に受信箱を掃除する(R12-3-5)。ここが「行番号を握っている
     ' 利用者操作が1つも走っていない」と言える唯一の場所(起動時の収集)で、
     ' 取り込みループの最中に行を消すと outRow の指す先がずれる。
-    TrimInboxRows ws
+    modInsight.TrimInboxRows ws
 
     ' 2026-07-31(レビュー R8 F10): 既読印(my_stats の "ins:" 行)を
     ' 【1回の一括読み】で集合(Dictionary)にしてから照合する。
@@ -207,7 +210,7 @@ Public Function CollectInsights() As Long
     GcOldSavedDays
     ' R32 W1-6: 連投抑止キー(gapq:)のGCも同じタイミングで。実体は
     ' modInsight 側(キー名・書き込み・掃除を1モジュールに集める)。
-    modInsight.GcGapDupKeys
+    modInsightGate.GcGapDupKeys
 
     ' 2026-07-31(R8b B12): 共有フォルダ側(qa/gap の実ファイル)を消すのは
     ' 【発行者端末だけ】に限定する。
@@ -238,92 +241,6 @@ Public Function CollectInsights() As Long
     End If
     On Error GoTo 0
 End Function
-
-' ----------------------------------------------------------------------------
-' TrimInboxRows - 受信箱の古い行を片付ける(2026-08-14 R32 W1-4で改称・拡張)。
-'   ・取り込み済み(consumed=1): 「保持日数より古い」または「500行を超えた超過分」。
-'     未取込のQ&Aは何行あっても消さない。届いた知恵を、読む前にこちらの
-'     都合で捨てないため。
-'   ・困りごと(gap)と訂正(correction): consumed が立つ経路が存在しないため、
-'     上の条件では永久に残る。保持期間(config gap_keep_days・既定30日)で
-'     落とす(判定は modInsight.GapAged。理由はそちらのコメント)。
-'   行の詰め直しは modShelfStore と同じ「一括読み→配列でフィルタ→一括書戻し」
-'   (1行ずつ Rows().Delete すると数千行で実機が固まる。MASTER_SPEC §12)。
-' ----------------------------------------------------------------------------
-Private Sub TrimInboxRows(ByVal ws As Worksheet)
-    On Error Resume Next
-    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    If lastR < 3 Then Exit Sub                      ' データ1行以下なら触らない
-
-    Dim nRows As Long: nRows = lastR - 1
-    Dim excessN As Long: excessN = nRows - INBOX_MAX_ROWS
-    If excessN < 0 Then excessN = 0
-
-    ' 期限の境界は文字列比較で判定する(ISO日付は辞書順=時系列順。
-    ' 和暦カレンダー端末でも壊れない。R12-1-4と同じ理由でCDateを通さない)。
-    Dim keepDays As Long
-    keepDays = modInsight.InboxKeepDays(modConfig.GetLong("thanks_gc_days", 60))
-    Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - keepDays)
-
-    ' R32 W1-4: 困りごと/訂正の保持期間。0以下で無効(=従来どおり残す)。
-    Dim gapCut As String
-    Dim gapDays As Long: gapDays = modConfig.GetLong("gap_keep_days", 30)
-    If gapDays > 0 Then gapCut = modUtilText.IsoDate(Date - gapDays)
-
-    Dim arr As Variant: arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, INBOX_COLS)).Value
-    Dim keep() As Variant: ReDim keep(1 To nRows, 1 To INBOX_COLS)
-    Dim keepN As Long, dropped As Long
-    ' 2026-08-01(R12-H-8): 上限超過ぶんと期限切れぶんのカウンタを分ける。
-    ' 従来は1つの dropped を「超過何件目か」の判定にも使っていたため、
-    ' 期限切れの行を1件消すたびに超過枠が1つ埋まったことになり、
-    ' 【上限500行を超えたぶんを掃除しきれない】(次回も超過が残る)状態だった。
-    Dim overN As Long, agedN As Long, gapN As Long
-    Dim i As Long, c As Long
-    For i = 1 To nRows
-        Dim drop As Boolean: drop = False
-        If CStr(arr(i, 9)) = "1" Then                      ' consumed
-            If overN < excessN Then
-                drop = True                                ' 上限超過分(古い順)
-                overN = overN + 1
-            ElseIf LenB(Trim$(CStr(arr(i, 5)))) > 0 Then   ' created_at
-                drop = (Left$(modUtilText.NormalizeIsoDate(CStr(arr(i, 5))), 10) < cutoff)
-                If drop Then agedN = agedN + 1
-            End If
-        Else
-            ' R32 W1-4: 未取込でも gap/correction は保持期間で落とす。
-            drop = modInsight.GapAged(CStr(arr(i, 2)), CStr(arr(i, 5)), gapCut)
-            If drop Then gapN = gapN + 1
-        End If
-        If drop Then
-            dropped = dropped + 1
-        Else
-            keepN = keepN + 1
-            For c = 1 To INBOX_COLS
-                keep(keepN, c) = arr(i, c)
-            Next c
-        End If
-    Next i
-    If dropped = 0 Then Exit Sub
-
-    If keepN > 0 Then
-        Dim outArr() As Variant: ReDim outArr(1 To keepN, 1 To INBOX_COLS)
-        Dim k As Long
-        For k = 1 To keepN
-            For c = 1 To INBOX_COLS
-                outArr(k, c) = keep(k, c)
-            Next c
-        Next k
-        ws.Range(ws.Cells(2, 1), ws.Cells(1 + keepN, INBOX_COLS)).Value = outArr
-    End If
-    ws.Range(ws.Cells(2 + keepN, 1), ws.Cells(1 + nRows, INBOX_COLS)).ClearContents
-
-    modLog.LogUsage "insight_inbox_trim", "", _
-        "受信箱の古い行を" & dropped & "件片付けました(上限超過" & overN & _
-        "件/取込済みの期限切れ" & agedN & "件/困りごと・訂正の期限切れ" & gapN & _
-        "件。残り" & keepN & "行。上限" & INBOX_MAX_ROWS & "行/" & _
-        keepDays & "日/困りごと" & gapDays & "日)"
-    On Error GoTo 0
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' LoadSeenSet - my_stats の "ins:" 行を1回で読んで既読集合にする(R8 F10)。
@@ -403,7 +320,7 @@ End Function
 ' GcOldNonces - 期限を過ぎた "ins:" 行を my_stats から取り除く(R8 F10)。
 '   modP2P.GcOldNonces と同じ作法。共有側のファイルを N日で消す以上、
 '   既読印だけ永久に残すと my_stats が無限に伸びる(=起動が重くなる)。
-'   保持は共有側+7日(modInsight.NonceKeepDays)。受信箱側(InboxKeepDays)は
+'   保持は共有側+7日(modInsightGate.NonceKeepDays)。受信箱側(InboxKeepDays)は
 '   必ずこれより長い ―― 両方が同時に消える日を作らないため(R32 F1)。
 '
 '   旧い端末の既読印は Bump で書かれた数値("1")で、日付として読めない。
@@ -415,7 +332,7 @@ End Function
 Private Sub GcOldNonces()
     On Error Resume Next
     Dim keepDays As Long
-    keepDays = modInsight.NonceKeepDays(modConfig.GetLong("thanks_gc_days", 60))
+    keepDays = modInsightGate.NonceKeepDays(modConfig.GetLong("thanks_gc_days", 60))
     If keepDays < 1 Then Exit Sub
 
     Dim ws As Worksheet
@@ -513,6 +430,10 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
     If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
 
     Dim myId As String: myId = SafeUserId()
+    ' R32 F2: 自分発の判定は【生ID】と【匿名ID】の両方で行う。新しい困りごと・
+    ' 訂正はハッシュ名で出るが、解決済みQ&Aは従来どおり生ID名で出るうえ、
+    ' 共有フォルダには移行前に出した旧ファイル(生ID名)も残っているため。
+    Dim myHash As String: myHash = AnonUserId()
 
     ' 1) まずファイル名を全部集める。Dir()は列挙状態を1つしか持たないので、
     '    ループの中で読み書きをすると列挙が壊れる(他モジュールと同じ2段方式)。
@@ -545,7 +466,7 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
     For i = 0 To nFiles - 1
         If processed >= MAX_COLLECT Then Exit For
         Dim nc As String: nc = Left$(names(i), Len(names(i)) - 4)
-        If Not IsMine(nc, myId) Then
+        If Not (IsMine(nc, myId) Or IsMine(nc, myHash)) Then
             ' 既読判定は一括読みした集合で行う(R8 F10)。my_stats を
             ' ファイル1件ごとに走査しない。
             If Not IsSeen(seen, nc) Then
@@ -728,6 +649,12 @@ Private Function SafeUserId() As String
     On Error Resume Next
     SafeUserId = modP2P.CurrentUserId()
     On Error GoTo 0
+End Function
+
+' R32 F2: 困りごと・訂正を出すときに名乗るID。実体と旧データ互換の考え方は
+' modInsightGate.AnonId(ハッシュ化する理由・IsMineが成立する理由をそこに集約)。
+Private Function AnonUserId() As String
+    AnonUserId = modInsightGate.AnonId(SafeUserId())
 End Function
 
 Private Function AuthorName() As String

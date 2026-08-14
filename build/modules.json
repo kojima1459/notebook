@@ -433,6 +433,14 @@
       "note": "部内の知恵の発信(共有フォルダへ書く)/収集(拾ってinsight_inboxへ)/GC(古い残骸と既読印の掃除)と低水準ファイルI/O。modInsightが30,000字上限まで残り363字となったための分割先(憲章§4-6)。受信箱シートの参照・選択はmodInsightのまま。"
     },
     {
+      "name": "modInsightGate",
+      "path": "src/pack/modInsightGate.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R32-FIX",
+      "note": "「部内へ出してよいか」を決める発信側の関所。R32波1では実体をmodInsightへ間借りさせていた(発信の持ち主modInsightIoが30,000字上限まで残り1,800字を切っていたため)が、Fix波でF2(発信者IDの匿名化=Fnv1a64Hex)・F4(PII走査へ渡す前に日付/時刻の並びを潰す前処理。modPii本体は波2の対象なので触らない)・F5(見送ったことを利用者へ伝えるトースト)を足した時点でmodInsightも30,000字を超えたため独立させた(憲章§4-6)。持ち分: AnonId / PiiBlocked / StripDateLike / GapDupBlocked / MarkGapEmitted / GcGapDupKeys / NotifySkip / NonceKeepDays / InboxKeepDays。呼ぶのはmodInsightIoの発信3経路とCollectInsightsのGCのみ。"
+    },
+    {
       "name": "modPublish",
       "path": "src/pack/modPublish.bas",
       "role": "core",

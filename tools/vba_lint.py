@@ -1556,17 +1556,30 @@ CONTRACT: dict[str, dict] = {
             # 直接呼んで固定する(この機能は1人テストでは板が常に空になり、
             # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
             "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
-            "InboxNonceSet", "NonceIsKnown", "GapAged",
-            "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys", "WithinWindow",
-            "PiiBlocked", "NonceKey",
-            # 2026-08-14(R32 Fix波): 敵対的レビュー1周目の裁定で追加した純関数。
-            # NonceKeepDays/InboxKeepDays(F1): 既読印GCと受信箱保持の不等式。
-            # NonceIsKnownIn(F11): nonce重複ガードの文字列版(陽性経路の固定)。
-            # StripDateLike(F4): PII走査へ渡す前に日付・時刻の並びを潰す前処理。
-            # AnonId(F2): 発信者IDの匿名化(ハッシュ化)。
-            # NotifySkip(F5): 共有を見送ったことを利用者へ知らせるトースト。
-            "NonceKeepDays", "InboxKeepDays", "NonceIsKnownIn",
-            "StripDateLike", "AnonId", "NotifySkip",
+            "InboxNonceSet", "NonceIsKnown", "GapAged", "WithinWindow",
+            "NonceKey",
+            # 2026-08-14(R32 Fix波): 敵対的レビュー1周目の裁定で追加/移設。
+            # TrimInboxRows: 受信箱の掃除。modInsightIo が30,000字上限を超えた
+            #   ため移設したが、置き場所としてもこちらが正しい(受信箱シートの
+            #   管理が本モジュールの持ち分)。呼ぶのは CollectInsights の1箇所。
+            # 発信側の関所(PiiBlocked/GapDupBlocked/MarkGapEmitted/
+            #   GcGapDupKeys)は modInsightGate へ移設した(下の契約)。
+            "TrimInboxRows",
+        ],
+    },
+    # modInsightGate(2026-08-14 R32 Fix波): 「部内へ出してよいか」を決める
+    #   発信側の関所。R32波1では modInsight へ間借りしていたが、Fix波の
+    #   F2(匿名ID)/F4(日付誤検知の前処理)/F5(見送りの通知)を足した時点で
+    #   あちらも30,000字を超えたため独立させた(憲章§4-6)。
+    #   AnonId/StripDateLike/NonceKeepDays/InboxKeepDays は副作用ゼロの純関数で
+    #   modTestsPure31 が固定する(PURE_LOGIC_MODULES には載せない ――
+    #   MarkGapEmitted/GcGapDupKeys が my_stats シートを触るため)。
+    "modInsightGate": {
+        "closed": True,
+        "required": [
+            "AnonId", "PiiBlocked", "StripDateLike", "NotifySkip",
+            "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys",
+            "NonceKeepDays", "InboxKeepDays",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
@@ -1886,7 +1899,16 @@ RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
 # 起きても稀)なので追加する。MsgBoxのままだと起動シーケンスの途中で
 # モーダルが割り込み、利用者が「まだ動いているのか」判断できなくなる
 # (憲章§3-4)。
-R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats"}
+# 2026-08-14(R32 Fix波 F5): modInsightGate を追加する。modAsk の
+# 「だめだった/微妙」は押した直後に「資料を作れる担当者の画面に届きます」と
+# 断言するMsgBoxを出すが、EmitGap は (1)PII検知 (2)24時間の連投抑止
+# (3)共有フォルダへ書けない の3経路で無言のまま落ちる。modAsk は凍結
+# モジュール(CLAUDE.md)で文言に触れないため、【見送ったときだけ】発信側から
+# 事実を1回伝える。性質は上の3モジュールと同じ「一度きりの告知・業務ロジックの
+# 継続に影響しない」で、しかも waitless:=True(1.1秒のブロッキング待ちすら
+# 発生しない)。呼び口は modInsightGate.NotifySkip の1本だけ。
+R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats",
+                            "modInsightGate"}
 
 # R1例外(UIロックの状態問い合わせ。2026-08-01 R12-H-2a 裁定)。
 # modUiLock.IsBusy は副作用ゼロの読み取り専用ゲッターで、UIを操作しない。
