@@ -1522,6 +1522,12 @@ CONTRACT: dict[str, dict] = {
             "ToggleSelected", "SelectAllPending", "SelectedCount",
             "PendingRowsRanked", "RowField", "MarkQAConsumed", "SameQuestionCount",
             "QABodyText", "EnsureSheet", "GapListText",
+            # 2026-08-14(R32 波1): 「みんなの困りごと」の全面修正で追加した
+            # 純関数群。板の判定・組み立て・並び・保持期間・連投抑止・nonce
+            # 重複ガードを Worksheet 非依存の形へ切り出し、modTestsPure30 から
+            # 直接呼んで固定する(この機能は1人テストでは板が常に空になり、
+            # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
+            "IsGapRow",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
