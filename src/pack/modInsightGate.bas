@@ -17,7 +17,8 @@ Option Explicit
 ' 持ち分:
 '   AnonId          … 発信者IDの匿名化(ハッシュ化)。F2
 '   PiiBlocked      … 個人情報らしき文字列を含むなら出さない。W1-8(b)/F4
-'   StripDateLike   … PII走査へ渡す前に日付・時刻の並びを潰す前処理。F4
+'   StripDateLike   … PII走査へ渡す前に日付・時刻の並びを潰す前処理。F4/F16
+'   ScanClean       … PII走査へ渡す前に改行等をカンマへ潰す前処理。F17
 '   GapDupBlocked / MarkGapEmitted / GcGapDupKeys
 '                   … 同じ趣旨の質問の連投抑止(既定24時間)とそのGC。W1-6
 '   NotifySkip      … 見送ったことを利用者へ伝えるトースト。F5
@@ -143,6 +144,20 @@ End Function
 '   時刻: 1〜2桁 + ":" + 2桁 [+ ":" + 2桁]                     例 10:00:00
 ' 直前が数字なら開始しない ―― 長い数字列(20260814100000)の途中を日付と
 ' 見なして切ってしまうと、本物の長い数字列を見逃す。
+'
+' R32 マイクロ修正波 F16[MAJOR]: 直後が数字のときも同じ理由で日付と見なさない。
+'   【退行していたこと】市外局番4桁の固定電話(0463-12-3456 等)は
+'   "4桁+区切り+1〜2桁+区切り+1〜2桁" の日付パターンにそのまま一致する
+'   (0463-12-34 が「日付」、残る "56" は素通り)。潰すと "," に化けて
+'   数字ランが切れ、本物のPII(10桁の電話番号)が検知されなくなっていた
+'   (F4前は検知・F4後は不検知の退行)。
+'   直し方: 一致した並びの直後がまだ数字なら、それは日付ではなく長い数字列の
+'   一部という判断に倒す(直前を見る既存のガードと対称)。日付/時刻の後ろに
+'   さらに数字が続く実例は無く(西暦の前・秒の後に数字が続く自然な日本語は
+'   考えにくい)、既存の13ケース(2周目で実測検証済み)はいずれも直後が
+'   非数字(空白・全角文字・文字列末尾)なので影響しない。
+'   日付側の分岐は途中で Exit Function するため、判定はその出口と関数末尾
+'   (時刻側)の両方に置く。
 Private Function DateLikeLen(ByVal s As String, ByVal i As Long) As Long
     If i > 1 Then
         If IsDigitAt(s, i - 1) Then Exit Function
@@ -163,7 +178,10 @@ Private Function DateLikeLen(ByVal s As String, ByVal i As Long) As Long
             End If
         End If
     End If
-    If DateLikeLen > 0 Then Exit Function
+    If DateLikeLen > 0 Then
+        If IsDigitAt(s, i + DateLikeLen) Then DateLikeLen = 0   ' R32 F16
+        Exit Function
+    End If
 
     Dim h As Long: h = DigitRun(s, i, 2)
     If h < 1 Then Exit Function
@@ -173,6 +191,7 @@ Private Function DateLikeLen(ByVal s As String, ByVal i As Long) As Long
     If Mid$(s, i + DateLikeLen, 1) = ":" Then
         If DigitRun(s, i + DateLikeLen + 1, 2) = 2 Then DateLikeLen = DateLikeLen + 3
     End If
+    If IsDigitAt(s, i + DateLikeLen) Then DateLikeLen = 0        ' R32 F16
 End Function
 
 ' i文字目から続く数字の個数(最大maxN)。純関数。
@@ -190,6 +209,37 @@ Private Function IsDigitAt(ByVal s As String, ByVal i As Long) As Boolean
     If i < 1 Or i > Len(s) Then Exit Function
     Dim c As String: c = Mid$(s, i, 1)
     IsDigitAt = (c >= "0" And c <= "9")
+End Function
+
+' ----------------------------------------------------------------------------
+' ScanClean - 走査専用の改行つぶし(純関数・R32 マイクロ修正波 F17[MAJOR])。
+' ----------------------------------------------------------------------------
+'   【新たな偽陽性だったこと】送信本文を作る modInsightIo.Clean1 は、電文の
+'   フィールド区切り(FIELD_SEP=タブ)と衝突しないよう vbLf/vbCr/vbTab を
+'   【半角スペース】へ均す。ところが modPii.HasLongDigitRun は半角スペースを
+'   「数字ランの継続」として数えるため、本来は改行で切れていた別々の数字列
+'   (例: 1行目末尾の "12345" と2行目冒頭の "67890")が Clean1 を通した瞬間に
+'   1本の10桁ランへ繋がり、無関係な数字の並びが個人情報として誤検知される
+'   (例:"伝票番号を教えてください\n12345\n67890" が F4前=不検知→F4後=検知)。
+'   PiiBlocked は「実際に送る内容」を走査する設計(F4)なので、走査対象は
+'   送信本文と【同じ文面】であるべきだが、Clean1 が選んだ「半角スペースへ
+'   均す」という【送信フォーマット上の都合】まで走査に持ち込む必要は無い。
+'
+'   直し方: 走査の直前だけもう1段整形を分ける。改行・タブは modPii の継続
+'   文字("-"・半角スペース・U+2010)に含まれない "," へ落とす ―― これで
+'   「行が変わる=数字列が別物」という事実を走査側に残したまま、"," の前後の
+'   数字は独立に数えられるので本物のPII(1行の中に長い数字列)は従来どおり
+'   検知できる。送信本文(Clean1)は【一切変えない】 ―― 電文はFIELD_SEPが
+'   タブなので、本文中の改行をそのまま送るとフィールドがずれる。
+'   modPii 本体には一切触れない(理由は StripDateLike のコメント参照)。
+' ----------------------------------------------------------------------------
+Public Function ScanClean(ByVal s As String) As String
+    Dim t As String: t = s
+    t = Replace(t, vbCrLf, ",")
+    t = Replace(t, vbCr, ",")
+    t = Replace(t, vbLf, ",")
+    t = Replace(t, vbTab, ",")
+    ScanClean = t
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -303,6 +353,17 @@ End Sub
 '   瞬間に行がまだ在れば、NonceIsKnownIn が重複を止め、そのついでに既読印が
 '   書き直されて延命する(CollectFrom は AppendRow が True を返したら必ず
 '   既読印を書く)。
+'
+'   【R32マイクロ修正波 F21訂正: これは「穴が消えた」のではない】延命される
+'   のは既読印(この端末の収集時刻が起点)だけで、行の created_at(発信者側の
+'   絶対時刻)は最初の1回から動かない。行は必ずいずれ消える ――延命は
+'   その消える瞬間を「1周ぶん遠のける」だけで、恒久に閉じるわけではない。
+'   延命後に既読印が次に切れる日が来れば(=行はとうに消えている)、また
+'   「どちらも無い」瞬間に戻る。既定(thanks_gc_days=60)では実測で約day134に
+'   再び穴が開き、thanks_gc_days<=0(例:0)なら約day15に前倒しになる。
+'   B1の症状(移設直後の即時再来)を防ぐという当初の目的は満たすが、「穴を
+'   永久に塞ぐ」設計はこのFix波の範囲外(必要ならnonceの延命ではなく
+'   行そのものの生存期間を延ばす別設計が要る)。
 '
 '   【不変条件】任意の gcDays について
 '       InboxKeepDays(gcDays) > NonceKeepDays(gcDays)
