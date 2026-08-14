@@ -1529,6 +1529,7 @@ CONTRACT: dict[str, dict] = {
             # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
             "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
             "InboxNonceSet", "NonceIsKnown", "GapAged",
+            "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys", "WithinWindow",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。

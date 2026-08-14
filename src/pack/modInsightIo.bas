@@ -85,6 +85,8 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     ' このゲートが最も効く経路(既定TRUE。docs/30 §9-1参照)。
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Then Exit Sub
+    ' R32 W1-6(M4): 同じ趣旨の質問の連投を止める(判定は modInsight 側)。
+    If modInsight.GapDupBlocked(q) Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
     If LenB(dirPath) = 0 Then Exit Sub
@@ -98,7 +100,12 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
            Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1(q) & FIELD_SEP & reason & FIELD_SEP & DeptName()
 
-    WriteShared dirPath & MakeNonce(myId) & ".txt", body
+    ' 抑止キーを記録するのは【実際に部内へ出せたとき】だけ(共有フォルダへ
+    ' 書けなかった投稿まで「もう送った」ことにすると、その質問は24時間
+    ' 誰にも届かない)。qa_shared_total / gapfill_total と同じ考え方。
+    If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
+        modInsight.MarkGapEmitted q
+    End If
     On Error GoTo 0
 End Sub
 
@@ -184,6 +191,9 @@ Public Function CollectInsights() As Long
     ' なので、共有I/Oを前提にした呼び出し口(modP2P.CollectThanksは
     ' 共有パス未設定だと最初のExit Functionで素通りしてしまう)には乗せられない。
     GcOldSavedDays
+    ' R32 W1-6: 連投抑止キー(gapq:)のGCも同じタイミングで。実体は
+    ' modInsight 側(キー名・書き込み・掃除を1モジュールに集める)。
+    modInsight.GcGapDupKeys
 
     ' 2026-07-31(R8b B12): 共有フォルダ側(qa/gap の実ファイル)を消すのは
     ' 【発行者端末だけ】に限定する。

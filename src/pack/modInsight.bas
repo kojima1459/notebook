@@ -42,6 +42,12 @@ Private Const SHEET_NAME As String = "insight_inbox"
 '             G=answer_or_reason H=source_or_dept I=consumed J=selected
 Private Const INBOX_COLS As Long = 10
 
+' 連投抑止キー(my_stats)の接頭辞。modP2P の "thx:" / 本機能の "ins:" と同作法。
+' 2026-08-14(R32 W1-6)。実体の説明は下の「発信側の関所」節。
+Private Const GAPQ_PREFIX As String = "gapq:"
+' 抑止キーそのものの保持日数(抑止期間を過ぎたキーを my_stats に残す理由は無い)。
+Private Const GAPQ_KEEP_DAYS As Long = 7
+
 ' ----------------------------------------------------------------------------
 ' InboxArray - 受信箱を【一括Range読み1回】で配列にする(2026-08-14 R32 W1-5)。
 '   件数カード(GapCount/PendingQACount)は Hub を描くたびに走るのに、1セルずつ
@@ -382,6 +388,92 @@ Public Function GapAged(ByVal kind As String, ByVal createdAt As String, _
     Dim t As String: t = Trim$(createdAt)
     If LenB(t) = 0 Then Exit Function
     GapAged = (Left$(modUtilText.NormalizeIsoDate(t), 10) < cutoff)
+End Function
+
+' ============================================================================
+' 発信側の関所(2026-08-14 R32 W1-6/W1-8)
+' ----------------------------------------------------------------------------
+' 置き場所の理由: 判定の実体は modInsightIo(発信の持ち主)に置きたいが、
+'   あちらは30,000字上限まで残り1,800字を切っており1件も入らない。憲章§4-6に
+'   従い、余裕のある本モジュールへ実体を置き、modInsightIo からは1行で呼ぶ。
+'   連投抑止キーの接頭辞・読み書き・GCを1モジュールに集めておくことで、
+'   キー名が2箇所に書き写されてズレる事故も同時に防いでいる。
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' GapDupBlocked - 同じ趣旨の質問を短時間に連投していないか(R32 W1-6 M4)。
+'   EmitGap には重複抑止が無く、しかも no_hit 経路は感想ボタンを通らないので
+'   「1ターン1回」のガードすら掛からない。言い換えて3回聞けば3件投稿され、
+'   板が1人の質問で埋まる(見る側からは同じ質問が3行並ぶ)。
+'   照合は解決済みQ&A側の SameQuestionCount と同じ NormKey(記号と空白を
+'   落とした先頭40字)。思想を揃えておかないと、片方で「同じ」もう片方で
+'   「別」という食い違いが必ず出る。
+'   抑止時間は config gap_dup_hours(既定24時間)。0以下で無効。
+' ----------------------------------------------------------------------------
+Public Function GapDupBlocked(ByVal qText As String) As Boolean
+    On Error Resume Next
+    Dim hours As Long: hours = modConfig.GetLong("gap_dup_hours", 24)
+    If hours <= 0 Then Exit Function
+    Dim k As String: k = NormKey(qText)
+    If LenB(k) = 0 Then Exit Function
+    GapDupBlocked = WithinWindow(modStats.GetStatText(GAPQ_PREFIX & k), _
+                                 modUtilText.IsoDateTime(DateAdd("h", -hours, Now)))
+    On Error GoTo 0
+End Function
+
+' 発信できたことを記録する(次の GapDupBlocked がこれを見る)。
+Public Sub MarkGapEmitted(ByVal qText As String)
+    On Error Resume Next
+    Dim k As String: k = NormKey(qText)
+    If LenB(k) = 0 Then Exit Sub
+    modStats.SetStatText GAPQ_PREFIX & k, modUtilText.IsoDateTime(Now)
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' GcGapDupKeys - 抑止期間を過ぎた連投抑止キーを my_stats から取り除く。
+'   modInsightIo.GcOldNonces と同じ「下から消す」作法。掃除しないと、質問の
+'   種類ぶんだけ my_stats が伸び、FindKeyRow の線形探索が重くなる
+'   (HANDOFF §2 の既知課題・R32 r5 と同型)。
+' ----------------------------------------------------------------------------
+Public Sub GcGapDupKeys()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_STATS)
+    If ws Is Nothing Then Exit Sub
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Sub
+
+    Dim limit As String
+    limit = modUtilText.IsoDateTime(DateAdd("d", -GAPQ_KEEP_DAYS, Now))
+    ' A:B の2列で読む(1行しか無いときA列単独だと配列ではなくスカラーが返る
+    ' VBAの仕様を避けるため。GcOldNonces と同じ回避策)。
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastR, 2)).Value
+
+    Dim i As Long
+    For i = UBound(arr, 1) To LBound(arr, 1) Step -1
+        Dim k As String: k = CStr(arr(i, 1))
+        If Left$(k, Len(GAPQ_PREFIX)) = GAPQ_PREFIX Then
+            If Not WithinWindow(CStr(arr(i, 2)), limit) Then ws.Rows(i + 1).Delete
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' WithinWindow - 記録した時刻が期間の内側か(純関数・R32 W1-6)。
+'   ISO文字列("yyyy-mm-dd hh:nn:ss")は辞書順=時系列順なので、CDate を通さず
+'   文字列比較だけで判定する(和暦カレンダー端末でも壊れない。R12-1-4と同じ
+'   理由。GcOldNonces が CDate を使っているのはそれ以前の作法)。
+'   読めない値(旧形式の "1"・空)は False=「期間の外」へ倒す。抑止側では
+'   「送ってよい」に、GC側では「掃除する」に倒れる ―― どちらも安全側。
+' ----------------------------------------------------------------------------
+Public Function WithinWindow(ByVal stampText As String, ByVal limitText As String) As Boolean
+    Dim t As String: t = Trim$(stampText)
+    If Len(t) < 10 Then Exit Function
+    If LenB(limitText) = 0 Then Exit Function
+    WithinWindow = (t > limitText)
 End Function
 
 ' nonce重複ガードの判定(純関数・W1-2)。集合そのものを作れない環境
