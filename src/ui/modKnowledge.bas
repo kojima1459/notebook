@@ -58,22 +58,21 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 行高の後始末(R20-1d・実機第7報⑦の層2)。3モードが共有する状態なのでここ。
 ' ----------------------------------------------------------------------------
-' 3モードとも冒頭で Rows("7:412").RowHeight = 15 と、406行ぶんの行高を毎回
-' 書き直していた。行高を明示した行はExcelから見れば「使用済み」なので、
-' 資料が3冊しか無くても常に412行(約6,200pt=8画面ぶん)下へホイールで
-' 転がれる状態が残る ―― 塗りと ScrollArea を実下端まで縮めても消えない
-' (ScrollArea はホイールを止めない。modViewport 冒頭参照)。
-' 「前回どこまで使ったか」を覚えて、そこまでだけ均す。
-'   0 = このセッションではまだ均していない。既存ブックに焼き付いた行高を
-'   救済するため、初回だけは従来どおり最終行まで均す(セッション1回だけ)。
-'   (mShelfRowHigh の宣言は他のモジュール変数と一緒に先頭へ置いてある)
+' 3モードとも Rows("7:412").RowHeight = 15 と406行ぶんを毎回書き直していた。
+' 行高を明示した行は「使用済み」=ホイールの停止線(焼き付きUsedRangeの末尾)
+' なので、資料が3冊でも常に412行(約6,200pt=8画面)下へ転がれた。
+' 「前回どこまで使ったか」(mShelfRowHigh)を覚えて、そこまでだけ均す。
+' R31 W2-4: 未初期化(=セッション初回)のフォールバックは 412 ではなく
+' modViewport2.ShelfSeedRow ―― 窓ぶんと使用済み下端の大きい方。412固定だと
+' 毎セッション初回に8画面ぶん焼いて直後に削除する非冪等な往復になる
+' (R30 F2-1と同型)。旧ブックの焼き付け救済は使用済み下端の側が担う。
 
 ' NormalizeShelfRows - 前モードが残した可変行高を15ptへ戻す(fromRow以降)。
 Public Sub NormalizeShelfRows(ByVal ws As Worksheet, ByVal fromRow As Long)
     If ws Is Nothing Then Exit Sub
     Dim r0 As Long: r0 = fromRow
     If r0 < 1 Then r0 = 1
-    Dim r1 As Long: r1 = ShelfRowHigh()
+    Dim r1 As Long: r1 = ShelfRowHigh(ws)
     If r1 > SHELF_MAX_ROW Then r1 = SHELF_MAX_ROW
     If r1 < r0 Then Exit Sub
     On Error Resume Next
@@ -81,10 +80,10 @@ Public Sub NormalizeShelfRows(ByVal ws As Worksheet, ByVal fromRow As Long)
     On Error GoTo 0
 End Sub
 
-' ShelfRowHigh - 直近に行高を明示した最終行(未初期化なら最終行=全域救済)。
-Public Function ShelfRowHigh() As Long
+' ShelfRowHigh - 直近に行高を明示した最終行(未初期化なら窓ぶん/使用済み下端)。
+Public Function ShelfRowHigh(ByVal ws As Worksheet) As Long
     ShelfRowHigh = mShelfRowHigh
-    If ShelfRowHigh < 1 Then ShelfRowHigh = SHELF_MAX_ROW
+    If ShelfRowHigh < 1 Then ShelfRowHigh = modViewport2.ShelfSeedRow(ws, SHELF_MAX_ROW)
 End Function
 
 ' ApplyShelfBound - 描き終えた実下端から、塗り・ScrollArea・行高の後始末を
@@ -104,11 +103,10 @@ Public Function ApplyShelfBound(ByVal ws As Worksheet, ByVal contentBottom As Do
     ' (窓下端の未塗り帯=darkテーマの白帯を防ぐ)。
     If paintBg Then ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
     modViewport.ApplyScrollBound ws, addr
-    ' 受け入れ基準(R20-1d): この境界の下端行より下に、行高カスタムを残さない。
-    ' addr は必ず A1 起点なので、行数がそのまま下端行になる。
+    ' R31 W2-4: 境界+1行より下は削除で解放(addr は A1 起点=行数が下端行)。
     Dim lastR As Long: lastR = ws.Range(addr).Rows.Count
     If lastR > 0 Then
-        modViewport.ResetRowsBelow ws, lastR + 1, SHELF_MAX_ROW
+        modViewport.ReleaseSheetRowsBelow ws, lastR + 1, SHELF_MAX_ROW, addr
         mShelfRowHigh = lastR
     End If
     ApplyShelfBound = addr

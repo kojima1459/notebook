@@ -615,10 +615,10 @@ Public Sub ReleaseRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long)
 End Sub
 
 ' SeedRowCap - 「セッション初回の高水位フォールバック」の行。純関数
-'   (modTestsPure29 が固定)。R31 W2-4: 本棚は mShelfRowHigh がセッション毎に
-'   0へ戻るため、初回だけ SHELF_MAX_ROW=412(約8画面)を均し・クリアの範囲に
-'   していた。焼いてすぐ削除する非冪等な往復(R30 F2-1と同型)になるので、
-'   「窓を覆う行数」と「実際の使用済み下端」の大きい方へ頭打ちする。
+'   (modTestsPure29 が固定)。R31 W2-4: 本棚は mShelfRowHigh が毎セッション
+'   0へ戻り、初回だけ SHELF_MAX_ROW=412(約8画面)を均し・クリアしていた。
+'   焼いて即削除の非冪等な往復(R30 F2-1と同型)になるので、「窓を覆う
+'   行数」と「実際の使用済み下端」の大きい方へ頭打ちする。
 '   firstRow  : 範囲の上端行。戻り値はここを下回らない。
 '   viewportH : 窓の可視高(pt)。/rowH が「窓を覆う行数」の上界。
 '   rowH      : 均した後の行高(pt)。0以下なら15ptとみなす。
@@ -636,8 +636,8 @@ Public Function SeedRowCap(ByVal firstRow As Long, ByVal viewportH As Double, _
     If SeedRowCap < firstRow Then SeedRowCap = firstRow
 End Function
 
-' ShelfSeedRow - 本棚の高水位フォールバック(セッション初回)。SeedRowCap に
-'   窓高と ws.UsedRange の実測を与えるだけの薄い口(modKnowledge 残160字対策)。
+' ShelfSeedRow - 本棚の高水位フォールバック(セッション初回)。窓高と
+'   ws.UsedRange の実測を SeedRowCap へ渡すだけの薄い口。
 Public Function ShelfSeedRow(ByVal ws As Worksheet, ByVal maxRowCap As Long) As Long
     Dim lastUsed As Long
     On Error Resume Next

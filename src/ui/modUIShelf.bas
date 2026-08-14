@@ -53,7 +53,7 @@ Private Const COL_CHUNKS As Long = 6   ' F(F:G 結合)
 Private Const COL_MEMO As Long = 8     ' H(H:J 結合)
 
 ' 2026-08-06 R20H FA-4: table(一覧表)モードが自分で最後に書いた本文行の
-' 下端。modKnowledge.ShelfRowHigh()は3モード(table/gallery/shared)共有の
+' 下端。modKnowledge.ShelfRowHigh(ws)は3モード(table/gallery/shared)共有の
 ' 高水位で、gallery等が挟まると table より小さい値に上書きされ得る。その
 ' 状態で ClearCardArea が共有値だけを下限にすると、gallery を経由する前に
 ' table が書いた旧行がクリアされずに残る(table60冊→gallery→table絞り込み
@@ -576,7 +576,7 @@ End Sub
 ' 8画面ぶん転がれる状態が毎描画で作り直されていた(層2の再生産源)。
 ' 前回どこまで使ったか(modKnowledge が3モード共有で持つ高水位)までに絞る。
 ' ClearAreaLastRow - ClearCardAreaが実際にクリアする下端行を決める純関数
-'   (R20H FA-4)。共有高水位(sharedHigh=modKnowledge.ShelfRowHigh())と
+'   (R20H FA-4)。共有高水位(sharedHigh=modKnowledge.ShelfRowHigh(ws))と
 '   table自身が前回書いた本文行(tableLastRow=mTableLastRow)のうち大きい方を
 '   採用してから、[FIRST_CARD_ROW, FIRST_CARD_ROW+MAX_CARD_ROWS-1]へ収める。
 '   gallery等の別モードが間に挟まってsharedHighをtableより小さい値へ
@@ -592,7 +592,7 @@ End Function
 
 Private Sub ClearCardArea(ByVal ws As Worksheet)
     Dim lastRow As Long
-    lastRow = ClearAreaLastRow(modKnowledge.ShelfRowHigh(), mTableLastRow)
+    lastRow = ClearAreaLastRow(modKnowledge.ShelfRowHigh(ws), mTableLastRow)
 
     Dim rng As Range
     Set rng = ws.Range(ws.Cells(FIRST_CARD_ROW, 1), ws.Cells(lastRow, 10))
