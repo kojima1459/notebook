@@ -438,6 +438,54 @@ Done:
     modUiLock.Leave
 End Sub
 
+' ============================================================================
+' 💡 みんなの困りごと: 組織で答えが見つからなかった質問の一覧。
+'   資料を書ける人(商品部)がここを見て、その場でナレッジを書けるようにする。
+'   営業の「分からない」が、商品部の「書くべきこと」に直結する一番短い経路。
+' ----------------------------------------------------------------------------
+' 2026-08-14(R32 r1): 実体を modKnowledge.OnGapBoard からここへ移した。
+'   移設理由は容量(modKnowledge は残り146字で1行も入らない)だが、置き場所
+'   として本モジュールを選んだのは、「みんなのQ&A」と困りごと板が共有知
+'   フライホイールの表と裏(届いた答え/足りない答え)で、読む先も
+'   modInsight の同じ受信箱シートだから。
+'   移設のついでに、旧実装が持っていた「Yesを選んだ経路で modUiLock.Leave を
+'   2回通りうる」構造(Leave の直後に Exit Sub を置き、他方は Done: ラベルへ
+'   落ちる書き方)を、Leave が1箇所しかない形へ組み直した。
+' ============================================================================
+Public Sub ShowGapBoard()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+
+    Dim body As String, n As Long
+    On Error Resume Next
+    body = modInsight.GapListText()
+    n = modInsight.GapCount()
+    On Error GoTo 0
+
+    Dim goRegister As Boolean
+    If n = 0 Then
+        ' R32 m1: 0件のときに「今すぐ登録しますか?」のYes/Noを出さない。
+        ' 自分の投稿は自分の板に出ない(IsMine)ので、1人で試している間
+        ' 【必ずこの画面になる】。ここで答えようのないYes/Noを出すことが、
+        ' この機能の第一印象そのものを壊していた。
+        MsgBox body, vbInformation, _
+               modAppDef.APP_NAME & " - みんなの困りごと (0件)"
+    Else
+        goRegister = (MsgBox( _
+            "みんなが質問して、本棚に答えが無かった質問です(新しい順・最大20件)。" & vbCrLf & _
+            "ここに並ぶ質問に答える資料を用意すると、部内の全員がすぐ答えを得られます。" & vbCrLf & vbCrLf & _
+            body & vbCrLf & _
+            "この内容に答える資料を、今すぐ登録しますか?" & vbCrLf & _
+            "(「はい」で登録画面が開きます。上の一覧から答えられるものを1つ選び、" & vbCrLf & _
+            " その質問への答えとして書いてください)", _
+            vbYesNo + vbInformation, _
+            modAppDef.APP_NAME & " - みんなの困りごと (" & n & "件)") = vbYes)
+    End If
+
+    modUiLock.Leave
+    If goRegister Then modVault.ShowVaultInput
+End Sub
+
 Private Sub RemoveRowShapes(ByVal ws As Worksheet)
     Dim names() As String
     ReDim names(0 To ws.Shapes.Count)

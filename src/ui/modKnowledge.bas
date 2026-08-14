@@ -603,36 +603,12 @@ End Sub
 '   資料を書ける人(商品部)がここを見て、その場でナレッジを書けるようにする。
 '   営業の「分からない」が、商品部の「書くべきこと」に直結する一番短い経路。
 ' ----------------------------------------------------------------------------
+'   実体は modShared.ShowGapBoard(2026-08-14 R32 r1)。本モジュールは
+'   30,000字上限まで残り146字で1行も入らないため、憲章§4-6に従って中身を
+'   「みんなのQ&A」画面と同じ共有知のUIモジュールへ移した。ボタンの
+'   OnAction("modKnowledge.OnGapBoard")は配線ごと変えずに済む。
 Public Sub OnGapBoard()
-    If modUiLock.BlockIfIngesting() Then Exit Sub
-    If Not modUiLock.Enter() Then Exit Sub
-    On Error GoTo Done
-
-    Dim body As String
-    On Error Resume Next
-    body = modInsight.GapListText()
-    On Error GoTo Done
-
-    Dim n As Long
-    On Error Resume Next
-    n = modInsight.GapCount()
-    On Error GoTo Done
-
-    Dim resp As VbMsgBoxResult
-    resp = MsgBox( _
-        "みんなが質問して、本棚に答えが無かった質問です(新しい順・最大20件)。" & vbCrLf & _
-        "ここに並ぶ質問に答える資料を用意すると、部内の全員がすぐ答えを得られます。" & vbCrLf & vbCrLf & _
-        body & vbCrLf & _
-        "この内容に答える資料を、今すぐ登録しますか?", _
-        vbYesNo + vbInformation, modAppDef.APP_NAME & " - みんなの困りごと (" & n & "件)")
-
-    If resp = vbYes Then
-        modUiLock.Leave
-        modVault.ShowVaultInput
-        Exit Sub
-    End If
-Done:
-    modUiLock.Leave
+    modShared.ShowGapBoard
 End Sub
 
 
