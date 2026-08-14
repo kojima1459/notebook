@@ -707,7 +707,15 @@ Public Function DrawFooter(ByVal ws As Worksheet, ByVal L As Double, _
         End If
     End If
     If y < 0 Then y = 0
-    If clamped Then trueBottom = viewH + 1 Else trueBottom = topY + FOOTER_H
+    ' R32 W4-3【確定バグ・R31 W2-2の副作用】: クランプ時は viewH+1 だけを返して
+    ' いた。FitsInViewをFalseへ倒す番兵のつもりが、値としては実内容より【上】で、
+    ' 境界を決めるBoundAddrがそこで切る。Hubのバッジ帯(Merge)が境界外に出て
+    ' Rows.Deleteに巻き込まれ結合が縮んでいた(実機 lastUsed=34>境界32)。
+    ' 番兵は【下限】として掛け、実内容の下端は常に含める。
+    trueBottom = topY + FOOTER_H
+    If clamped Then
+        If trueBottom < viewH + 1 Then trueBottom = viewH + 1
+    End If
 
     Dim fs As Shape
     Set fs = ws.Shapes.AddShape(1, L, y, W, FOOTER_H)
