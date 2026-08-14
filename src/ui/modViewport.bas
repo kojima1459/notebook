@@ -5,28 +5,18 @@ Option Explicit
 ' modViewport - 画面の「見える範囲」に幾何を合わせる共通部品
 '               (2026-08-05 R18-3b → 2026-08-06 R19-1a/1d で全面改訂)。
 ' ----------------------------------------------------------------------------
-' ScrollArea の効能(R29実機第14報・実機第6報①以来の記述をさらに訂正):
-'   R19-1d は「ScrollAreaはセル選択とスクロールバー移動しか止めず、
-'   マウスホイールは仕様上そのまま素通りする」と結論していたが、これも
-'   裏取り不足だった。R29でユーザー実機(Excel 365 32bit)により、
-'   Hub/Dashboard/本棚では ScrollArea がマウスホイールも止めることを確認
-'   済み。転がっていたのはチャット(Nexus)だけで、原因は Nexus が
-'   FreezePanes(行1-4の上部固定)を併用しているシートに限り、その1点で
-'   ホイールが ScrollArea を素通りするという Excel 側の挙動だった
-'   (FreezePanes非併用のHub/Dashboard/本棚は完治)。R19時点の「素通りする」
-'   という記述は Microsoft Learn の定義文からの外挿(ウェブ伝聞)で、実機
-'   実証済みへ格上げされていた引用ロンダリングだったと判明している。
+' ホイールの停止線は何で決まるか(R31 F-B・(d)説で確定。R19/R29の記述を訂正):
+'   停止線は【焼き付いた UsedRange の末尾】。行高を明示した行・塗った行は
+'   Excel から見れば「使用済み」で、そこまではホイールで転がれる。
+'   ScrollArea がホイールを止めるかは未実証(R29の「止める」は誤帰属)。
+'   焼き付きを解放できるのは Rows.Delete だけ(ClearFormats も保存も
+'   UseStandardHeight も効かない=R30実機実証)。だから下の余白の根治は
+'   「内容の実下端+1行より下の行を削除する」―― ReleaseSheetRowsBelow。
+'   ScrollArea は引き続き掛ける(セル選択とスクロールバーは確実に止まる)。
 '
-' では余白は何が消すのか:
-'   右の余白はスクロールの問題ではなく【寸法】の問題。列幅の合計が
-'   ウィンドウの可視幅より狭ければ、その差は必ず白く残る(ScrollArea では
-'   原理的に一切消えない)。消せるのは列幅を可視幅に合わせることだけで、
-'   それを行うのが FitBandToViewport。下の余白も同じで、塗り/行高の下端を
-'   内容の実下端(+1画面)まで縮めるのが正攻法(BoundAddr)。
-'   ScrollArea は FreezePanes非併用シートではホイールも止める主力(上記)。
-'   Nexus のように FreezePanes を併用するシートではホイールが素通りする
-'   ため、そちらは会話画面としてスクロールが必要という前提のもと、余白の
-'   完治は引き続き寸法(FitBandToViewport/BoundAddr)で担保する。
+' 右の余白は寸法の問題:
+'   列幅の合計がウィンドウの可視幅より狭ければ、その差は必ず白く残る。
+'   消せるのは列幅を可視幅に合わせることだけ(FitBandToViewport)。
 '
 ' 設計の鉄則:
 '   ・右端の値は ContentRight 1本を単一情報源にする。画面ごとに別の式を
@@ -54,6 +44,11 @@ Private Const MIN_PAD_PT As Double = 8
 Private Const BOTTOM_PAD As Double = 8
 ' 自分のブックが前面でないときに ViewportHeight が返す既定値(pt)。R19H FB-5。
 Private Const DEFAULT_VIEW_H As Double = 600
+
+' 行解放が何があっても残す最上部の行数。どの画面もヘッダー/ツールバーが
+' 行1〜12に載るので、boundRow が異常値(0や負)で降ってきてもここから上は
+' 絶対に消さない(ReleaseRange の minRow へ渡す下限)。
+Private Const MIN_KEEP_ROW As Long = 12
 
 ' usage_log("viewport") を画面ごとに1セッション1回だけ出すためのメモ(R19-1e)。
 Private mLoggedScreens As String
@@ -358,24 +353,48 @@ Public Function ViewportHeight() As Double
 End Function
 
 ' ----------------------------------------------------------------------------
-' ResetRowsBelow - 指定行より下に残った「行高カスタム」を既定へ戻す(R20-1d)。
+' R31 W2-1: 境界より下の「使用済み行」を解放する(Hub/Dash/本棚/チャット共通)
 ' ----------------------------------------------------------------------------
-' 実機第7報⑦の層2。Hub は Rows("1:60")、Dash は Rows("1:120")、本棚3モードは
-' Rows("7:412") へ毎回いっせいに行高を代入していた。行高を明示した行は
-' Excel から見れば「使用済み」なので、内容が20行しか無い画面でも常に
-' 60〜412行ぶん(最大6,200pt=8画面)の下スクロール域が残る ―― 塗りと
-' ScrollArea をいくら実下端まで縮めても、この焼き付きが消えない限り
-' ホイールは下まで転がる(ScrollArea はホイールを止めない・冒頭参照)。
-'   UseStandardHeight=True は「行高の明示を取り消す」操作で、値の代入とは
-'   逆に使用済みフラグを増やさない。既存ブックに既に焼き付いている行も
-'   ここで毎回畳む(冪等。だから救済のために毎回呼んでよい)。
-Public Sub ResetRowsBelow(ByVal ws As Worksheet, ByVal fromRow As Long, ByVal toRow As Long)
+' R20-1d の ResetRowsBelow(UseStandardHeight=True)はここに在ったが、R30の
+' 実機実証で「行高の明示を取り消しても焼き付きは解放されない」ことが確定した
+' ため撤去した。解放できるのは Rows.Delete だけ(冒頭の見出し参照)。
+' 実体をここへ置く理由: modViewport2 は残1,330字で入らない(憲章§4-6)。
+' 呼び出し側(modHub/modDash/modKnowledge)は1行で呼ぶ。
+
+' ReleaseSheetRowsBelow - boundRow より下の使用済み行を Rows.Delete で解放(冪等)。
+'   ws        : 対象シート
+'   boundRow  : 残す下端行(境界の最終行+余裕1行)。これより下を消す。
+'   maxRow    : 旧版が焼き得た上限(Hub=200 / Dash=DASH_ROWS / 本棚=412 /
+'               チャット=NEXUS_MAX_ROW)。使用済みがそこまで届いていなくても
+'               この行までは消す(旧版の焼き付けの取りこぼし救済)。
+'   scrollAddr : 空でなければ削除の後に ScrollArea を掛け直す(R30 F8の作法。
+'               行削除が ScrollArea 設定の【後】に走る経路のため)。
+'   logTag    : usage_log の区分。空ならシート名(どの画面かをログで識別する)。
+'   minRow    : これより上は何があっても消さない(既定=MIN_KEEP_ROW)。
+'   Rows.Delete はモーダルを出さないので modUiLock.AlertsOff/On は要らない。
+'   Shape は削除範囲(境界の下)と重ならないので位置はずれない。
+Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, _
+                                 ByVal maxRow As Long, Optional ByVal scrollAddr As String = "", _
+                                 Optional ByVal logTag As String = "", _
+                                 Optional ByVal minRow As Long = MIN_KEEP_ROW)
     If ws Is Nothing Then Exit Sub
-    Dim r0 As Long: r0 = fromRow
-    If r0 < 1 Then r0 = 1
-    If toRow < r0 Then Exit Sub
     On Error Resume Next
-    ws.Rows(r0 & ":" & toRow).UseStandardHeight = True
+    Dim lastUsed As Long
+    lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    Dim fromRow As Long, toRow As Long
+    If modViewport2.ReleaseRange(boundRow, lastUsed, minRow, maxRow, fromRow, toRow) Then
+        ws.Rows(fromRow & ":" & toRow).Delete
+        ' R30 F9: 削除実行時のみの観測ログ(冪等な通常起動では出ない)。
+        Dim tg As String: tg = logTag
+        If LenB(tg) = 0 Then tg = ws.Name
+        modLog.LogUsage "row_release", tg, "from=" & fromRow & " to=" & toRow & _
+            " lastUsed=" & lastUsed & " ok=" & (Err.Number = 0)
+        Err.Clear
+        ' 削除だけでは内部使用範囲(xlCellTypeLastCell)が縮まらない端末がある。
+        ' UsedRange を1回参照して再計算させる(戻り値は捨てる)。
+        lastUsed = ws.UsedRange.Rows.Count
+        If LenB(scrollAddr) > 0 Then ApplyScrollBound ws, scrollAddr
+    End If
     On Error GoTo 0
 End Sub
 

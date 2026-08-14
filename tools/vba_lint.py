@@ -1231,9 +1231,16 @@ CONTRACT: dict[str, dict] = {
             #   OnWindowResized / ViewportRefitTick / CancelRefit: 窓リサイズ後の
             #                再フィット(デバウンス)。modUI は容量が無いので実体は
             #                ここに置き、ThisWorkbook から直接呼ぶ(R20-1f)。
+            # 2026-08-13(R31 W2-1・実機第16報F-B): ResetRowsBelow を契約から
+            # 外し、ReleaseSheetRowsBelow へ置き換えた。UseStandardHeight=True は
+            # 焼き付いた行を解放しない(R30実機実証)ため、ホイールの停止線
+            # (=焼き付きUsedRangeの末尾)を下げる効果がゼロだったため。
+            #   ReleaseSheetRowsBelow: 境界+1行より下を Rows.Delete で解放する
+            #                (Hub/Dash/本棚/チャット共通。冪等・逆転ガード・
+            #                 上限クランプ・削除時のみ usage_log "row_release")。
             "ApplyScrollBound", "FitBandToViewport", "ContentRight",
             "BoundAddr", "ViewportHeight", "LogViewport", "RowAt",
-            "ResetRowsBelow", "ClampD", "GalleryColsFor",
+            "ReleaseSheetRowsBelow", "ClampD", "GalleryColsFor",
             "OnWindowResized", "ViewportRefitTick", "CancelRefit", "RefitAction",
             "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
             "ColLetter",
@@ -1313,6 +1320,14 @@ CONTRACT: dict[str, dict] = {
             # 「焼く→即削除」が起きて冪等でなかった。焼き範囲の下端計算を
             # 純関数化してテストで境界を固定する(modTestsPure29)。
             "ChatSeedRow",
+            # 2026-08-13(R31 W2-4・実機第16報F-B): 本棚の高水位(mShelfRowHigh)は
+            # セッション毎に0へ戻り、フォールバックの SHELF_MAX_ROW=412(約8画面)
+            # を毎セッション初回に均し・クリアしていた=焼いて即削除の非冪等往復
+            # (R30 F2-1と同型)。フォールバックを窓ぶん/使用済み下端へ頭打ちする。
+            #   SeedRowCap   : その頭打ちの純関数(modTestsPure29が固定)。
+            #   ShelfSeedRow : 窓高と ws.UsedRange を測って SeedRowCap へ渡す口
+            #                  (modKnowledge 残160字のため実体はこちら)。
+            "SeedRowCap", "ShelfSeedRow",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

@@ -605,32 +605,46 @@ Public Function ChatSeedRow(ByVal firstRow As Long, ByVal viewportH As Double, _
     If ChatSeedRow < firstRow Then ChatSeedRow = firstRow
 End Function
 
-' ReleaseRowsBelow - boundRow より下の「使用済み行」を解放する(冪等)。
-'   Rows.Delete が唯一の即時解放手段(ClearFormats も保存も効かない)。
-'   バブルは Placement=3(絶対配置)なので行削除で位置がずれることは無い。
-'   Rows.Delete はモーダルを出さないので modUiLock.AlertsOff/On は要らない。
-'   ScrollArea は常に boundRow 以内なので、削除範囲と重ならない
-'   (呼び出し側が削除後に ApplyScrollBound を掛け直す必要も無い)。
+' ReleaseRowsBelow - チャット(Nexus)の使用済み行を解放する(冪等)。
+'   R31 W2-1: 中身は汎用の ReleaseSheetRowsBelow へ移した(Nexus定数の直書きを
+'   引数へ出しただけで挙動は同一。ログのラベルも "chat" のまま)。
+'   ScrollArea は常に boundRow 以内なので掛け直しは不要(boundAddr は空)。
 Public Sub ReleaseRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long)
-    If ws Is Nothing Then Exit Sub
-    On Error Resume Next
-    Dim lastUsed As Long
-    lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
-    Dim fromRow As Long, toRow As Long
-    If ReleaseRange(boundRow, lastUsed, modUINexusDraw.INPUT_ROW + 2, _
-                    modUINexusDraw.NEXUS_MAX_ROW, fromRow, toRow) Then
-        ws.Rows(fromRow & ":" & toRow).Delete
-        ' R30 F9: 削除実行時のみの観測ログ(On Error Resume Next配下で無言だった
-        ' 中核修正を可視化する。通常起動では冪等でここへ来ないためスパムにならない)。
-        modLog.LogUsage "row_release", "chat", "from=" & fromRow & " to=" & toRow & _
-            " lastUsed=" & lastUsed & " ok=" & (Err.Number = 0)
-        Err.Clear
-        ' 削除だけでは内部使用範囲(xlCellTypeLastCell)が縮まらない端末がある。
-        ' UsedRange を1回参照して再計算させる(戻り値は捨てる)。
-        lastUsed = ws.UsedRange.Rows.Count
-    End If
-    On Error GoTo 0
+    modViewport.ReleaseSheetRowsBelow ws, boundRow, modUINexusDraw.NEXUS_MAX_ROW, "", _
+                          "chat", modUINexusDraw.INPUT_ROW + 2
 End Sub
+
+' SeedRowCap - 「セッション初回の高水位フォールバック」の行。純関数
+'   (modTestsPure29 が固定)。R31 W2-4: 本棚は mShelfRowHigh がセッション毎に
+'   0へ戻るため、初回だけ SHELF_MAX_ROW=412(約8画面)を均し・クリアの範囲に
+'   していた。焼いてすぐ削除する非冪等な往復(R30 F2-1と同型)になるので、
+'   「窓を覆う行数」と「実際の使用済み下端」の大きい方へ頭打ちする。
+'   firstRow  : 範囲の上端行。戻り値はここを下回らない。
+'   viewportH : 窓の可視高(pt)。/rowH が「窓を覆う行数」の上界。
+'   rowH      : 均した後の行高(pt)。0以下なら15ptとみなす。
+'   lastUsed  : 現在の使用済み最終行。旧ブックの焼き付け救済のため、これが
+'               窓ぶんより大きければそちらを採る。
+'   maxRowCap : 絶対上限(SHELF_MAX_ROW)。
+Public Function SeedRowCap(ByVal firstRow As Long, ByVal viewportH As Double, _
+                           ByVal rowH As Double, ByVal lastUsed As Long, _
+                           ByVal maxRowCap As Long) As Long
+    Dim h As Double: h = rowH
+    If h < 1 Then h = 15
+    SeedRowCap = firstRow + CLng(viewportH / h)
+    If lastUsed > SeedRowCap Then SeedRowCap = lastUsed
+    If SeedRowCap > maxRowCap Then SeedRowCap = maxRowCap
+    If SeedRowCap < firstRow Then SeedRowCap = firstRow
+End Function
+
+' ShelfSeedRow - 本棚の高水位フォールバック(セッション初回)。SeedRowCap に
+'   窓高と ws.UsedRange の実測を与えるだけの薄い口(modKnowledge 残160字対策)。
+Public Function ShelfSeedRow(ByVal ws As Worksheet, ByVal maxRowCap As Long) As Long
+    Dim lastUsed As Long
+    On Error Resume Next
+    If Not ws Is Nothing Then lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    On Error GoTo 0
+    ShelfSeedRow = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
+End Function
 
 ' ReleaseRange - 解放する行範囲を決める。純関数(modTestsPure29が固定)。
 '   boundRow : 残す下端行(バンド下端+余裕)
