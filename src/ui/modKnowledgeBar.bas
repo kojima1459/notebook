@@ -147,7 +147,7 @@ Public Sub StretchToolbarRows(ByRef widths() As Double, ByRef rws() As Long, _
     For r = 0 To lastEligibleRow
         Dim sumW As Double, rowRight As Double
         Dim lastI As Long: lastI = -1
-        sumW = 0
+        sumW = 0: rowRight = 0
         Dim i As Long
         For i = 0 To n - 1
             If rws(i) = r Then

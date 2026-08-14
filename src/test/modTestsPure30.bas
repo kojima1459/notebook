@@ -82,10 +82,51 @@ Private Sub TestStretchToolbarRows30()
     modTestRunner.Check "R31-W3-1_Δ<=0では縮めない", (uw4(0) = 50), "useW(0)=" & uw4(0)
 End Sub
 
+' R31 Fix波 F1: rowN=3(段0/段1/段2)構成でのネガティブ回帰。
+'   StretchToolbarRowsのDimはPrologue専用(手続きスコープ)のため、段ループ内で
+'   rowRightをsumWと一緒に0リセットしないと、段0のrowRightが段1の計算に
+'   持ち越り、段1(2段目以降)の伸縮量が過小になる(「不発」)。
+'   本テストは段0(natural右端280)・段1(natural右端250)・段2(除外)の3段で、
+'   段0のnatural右端(280)が段1のnatural右端(250)より大きい構成を用いる。
+'   リセット漏れがあると、段1のdeltaが「target-段0のnatural右端(280)」=20
+'   と誤計算され(正しくは target-250=50)、段1の右端はtarget未達のまま
+'   (250+20=270≠300)になる。
+Private Sub TestStretchToolbarRows30_ThreeRows()
+    Dim x0 As Double: x0 = 18
+    Dim gap As Double: gap = 5
+    Dim target As Double: target = 300
+
+    Dim w(0 To 4) As Double
+    w(0) = 130: w(1) = 127          ' 段0: natural右端=280
+    w(2) = 113: w(3) = 114          ' 段1: natural右端=250(段0より小さい)
+    w(4) = 50                       ' 段2(最終段・除外): 内容は無関係
+
+    Dim rws(0 To 4) As Long
+    rws(0) = 0: rws(1) = 0: rws(2) = 1: rws(3) = 1: rws(4) = 2
+
+    Dim xs(0 To 4) As Double, uw(0 To 4) As Double
+    xs(0) = x0: uw(0) = w(0)
+    xs(1) = x0 + w(0) + gap: uw(1) = w(1)
+    xs(2) = x0: uw(2) = w(2)
+    xs(3) = x0 + w(2) + gap: uw(3) = w(3)
+    xs(4) = x0: uw(4) = w(4)
+
+    modKnowledgeBar.StretchToolbarRows w, rws, 5, 3, x0, target, gap, xs, uw
+
+    Dim right0 As Double: right0 = xs(1) + uw(1)
+    Dim right1 As Double: right1 = xs(3) + uw(3)
+
+    modTestRunner.Check "R31-Fix-F1_rowN3_段0の右端が目標に一致する", _
+        (Abs(right0 - target) < 0.001), "right0=" & right0 & " target=" & target
+    modTestRunner.Check "R31-Fix-F1_rowN3_段1(2段目)の右端が目標に一致する", _
+        (Abs(right1 - target) < 0.001), "right1=" & right1 & " target=" & target
+End Sub
+
 ' ============================================================================
 Public Sub RunAll30()
     On Error GoTo StretchFail30
     TestStretchToolbarRows30
+    TestStretchToolbarRows30_ThreeRows
 NextDone30:
     On Error GoTo 0
     Exit Sub
