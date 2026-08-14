@@ -84,6 +84,12 @@ GUARD_SHEET_NAME = "はじめにお読みください"
 EXPECTED_SHEETS = {
     GUARD_SHEET_NAME: "visible",
     "使い方": "visible",
+    # 管理者向け(R31波3・実機第16報F-C④): 正典発行担当だけが読む説明。
+    # 一般利用者の画面からは導線が張られないが(発行ボタン自体が
+    # 発行キーを持つ端末にしか出ない)、シートは常時visibleで置く
+    # (使い方ページ末尾の「🔑発行を担当する方はこちら→」から誰でも
+    # たどり着けるようにするため。隠すと導線が死ぬ)。
+    "管理者向け": "visible",
     "ホーム": "visible",
     "マイ本棚": "visible",
     "ダッシュボード": "visible",
@@ -120,12 +126,15 @@ EXPECTED_SHEETS = {
     "vba_src": "veryHidden",
 }
 
-# 可視4シートのタブ色 (MASTER_SPEC §14 手順6): 使い方=緑, ホーム=青, マイ本棚=オレンジ, ダッシュボード=紫
+# 可視シートのタブ色 (MASTER_SPEC §10 ビルド仕様): 使い方=緑, ホーム=青, マイ本棚=オレンジ,
+# ダッシュボード=紫, 管理者向け=灰(R31波3: 一般利用者の4色系とは別系統にして
+# 「発行担当だけが用がある特別なタブ」と一目で分かるようにする)。
 TAB_COLORS = {
     "使い方": "00B050",
     "ホーム": "0070C0",
     "マイ本棚": "ED7D31",
     "ダッシュボード": "7030A0",
+    "管理者向け": "6B7280",
 }
 
 _ILLEGAL_XML = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
@@ -1157,6 +1166,17 @@ def _make_howto(wb):
     section("このシートについて")
     note("このシートだけは、マクロが無効な状態でも読めるようにしてあります\n(マクロ有効化の案内は、ここでしか出せないためです)。\nマクロを有効にして開き直すと、実際の操作画面が使えるようになります。")
 
+    # R31波3(実機第16報F-C④・B-3): 正典発行の担当者向けページへの導線。
+    # 目次には足さない(TOC_N不変で安全)。末尾章のさらに後ろへ1行だけ足す。
+    r = row[0]
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+    c = ws.cell(row=r, column=2, value="\U0001F511 発行を担当する方はこちら →")
+    c.font = link_font
+    c.alignment = Alignment(vertical="center", indent=1)
+    c.hyperlink = Hyperlink(ref="", location="'管理者向け'!A1", tooltip="部門の正典を発行する担当者向けの説明を開きます")
+    ws.row_dimensions[r].height = 20
+    row[0] = r + 2
+
     # ---- 目次の書き戻し(全章の行番号が確定したのでここでハイパーリンク化) ----
     ws.merge_cells(start_row=toc_header_row, start_column=1, end_row=toc_header_row, end_column=3)
     hc = ws.cell(row=toc_header_row, column=1, value="目次(クリックすると各章へ移動します)")
@@ -1191,6 +1211,227 @@ def _make_howto(wb):
         ws.row_dimensions[r].height = 20
 
     ws.sheet_properties.tabColor = TAB_COLORS["使い方"]
+    ws.sheet_view.showGridLines = False
+    return ws
+
+
+def _make_admin_guide(wb):
+    """管理者向けシート: 正典(部門の公式ナレッジ)を発行する担当者むけの説明。
+
+    R31波3(実機第16報F-C④): 発行担当は非エンジニアの現場社員であり、
+    「発行」「巻き戻し」の実際の挙動(何が起きるか・何を確認すればよいか)を
+    知らないまま使うと事故になる。_make_howto と同型の2パス目次
+    (TOC予約→章書き→Hyperlink書き戻し)を踏襲し、体裁(見出し色・ステップ・
+    早見表・注記)も使い方ページのヘルパーをそのまま流用する。
+
+    内容の一次資料は docs/70_データ管理者向け_置き場所と運用.md §B と、
+    src/ui/modPublishUI.OnPublish / src/pack/modPublish.bas / modPackExport.bas /
+    modChannel.bas の実装コメント・ダイアログ文言。合言葉(publish_key)の
+    実際の値・環境変数名(MYBOOKSHELF_PUBLISH_KEY)はこのページに一切書かない
+    (このシートは一般配布物にも同梱されるため)。
+    """
+    ws = wb.create_sheet("管理者向け")
+    ws.column_dimensions["A"].width = 4
+    ws.column_dimensions["B"].width = 26
+    ws.column_dimensions["C"].width = 78
+
+    _banner(ws, f"{APP_TITLE} — 管理者向け(正典発行の手引き)")
+
+    head_font = Font(bold=True, size=12, color="FFFFFF")
+    key_font = Font(bold=True, size=10, color="1F4E78")
+    body_font = Font(size=10)
+    step_font = Font(bold=True, size=10, color="FFFFFF")
+    step_fill = PatternFill("solid", fgColor="7F9DB9")
+    warn_fill = PatternFill("solid", fgColor="FFF4D6")
+    zebra_fill = PatternFill("solid", fgColor="F4F6FB")
+    thin = Side(style="thin", color="D9E1EC")
+    link_font = Font(bold=True, size=10.5, color="1155CC", underline="single")
+    back_font = Font(size=9, bold=True, color="1155CC", underline="single")
+
+    row = [3]
+
+    def _anchor(cell, target_row, tip, sheet="管理者向け"):
+        cell.hyperlink = Hyperlink(ref="", location=f"'{sheet}'!A{target_row}", tooltip=tip)
+
+    def section(title, fill="1F4E78"):
+        if row[0] > 3:
+            row[0] += 1
+        r = row[0]
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=1, value=title)
+        c.font = head_font
+        c.fill = PatternFill("solid", fgColor=fill)
+        c.alignment = Alignment(vertical="center", indent=1)
+        ws.row_dimensions[r].height = 24
+        row[0] = r + 2
+        return r
+
+    def back_to_toc(target_row):
+        r = row[0]
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value="▲ 目次へ戻る")
+        c.font = back_font
+        c.alignment = Alignment(vertical="center", indent=1)
+        _anchor(c, target_row, "クリックで目次に戻ります")
+        ws.row_dimensions[r].height = 18
+        row[0] = r + 2
+
+    def step(n, text, warn=False):
+        r = row[0]
+        c0 = ws.cell(row=r, column=1, value=n)
+        c0.font = step_font
+        c0.fill = step_fill
+        c0.alignment = Alignment(horizontal="center", vertical="center")
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value=text)
+        c.font = body_font
+        c.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        if warn:
+            c.fill = warn_fill
+        ws.row_dimensions[r].height = max(20, 15 * (text.count("\n") + 1) + 6)
+        row[0] = r + 1
+
+    def kv(k, v, i=0):
+        r = row[0]
+        ck = ws.cell(row=r, column=2, value=k)
+        ck.font = key_font
+        ck.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        cv = ws.cell(row=r, column=3, value=v)
+        cv.font = body_font
+        cv.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        if i % 2 == 1:
+            ck.fill = zebra_fill
+            cv.fill = zebra_fill
+        for c in (ck, cv):
+            c.border = Border(bottom=thin)
+        ws.row_dimensions[r].height = max(20, 15 * (v.count("\n") + 1) + 5)
+        row[0] = r + 1
+
+    def note(text):
+        r = row[0]
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value=text)
+        c.font = Font(size=9, italic=True, color="6B7280")
+        c.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        ws.row_dimensions[r].height = max(18, 14 * (text.count("\n") + 1) + 5)
+        row[0] = r + 2
+
+    # ---- 目次(予約のみ・書き戻しは全章を書き終えたあと) --------------------
+    TOC_N = 6
+    toc_header_row = row[0]
+    row[0] = toc_header_row + 2
+    toc_first_row = row[0]
+    row[0] += TOC_N
+    row[0] += 1
+
+    # ==== ① 正典ナレッジとは ================================================
+    ch1_row = section("① 正典ナレッジとは")
+    kv("正典って何?", "部門で確認済みの知識を1つだけ発行し、部門の全員がそれを受け取る仕組みです。", 0)
+    kv("なぜ必要?", "全員が自分の本棚にバラバラに資料を集めると、同じことを何度も調べたり、\n"
+                    "古い情報のまま止まっている人が出たりします。正典を1つ発行すれば、\n"
+                    "開いた初日から全員が同じ答えにたどり着けます。", 1)
+    kv("誰が発行する?", "部門で決めた発行担当だけです(このページを開いているあなたです)。", 0)
+    note("一般の利用者にはこのページも「📤正典を発行」ボタンも表示されません。発行できる端末は限られています。")
+    back_to_toc(toc_header_row)
+
+    # ==== ② 発行のしかた ====================================================
+    ch2_row = section("② 発行のしかた")
+    step("1", "「📚 マイ本棚」の一覧表(📋)で、発行したい資料を「確認済み」の状態にしておく。")
+    step("2", "ツールバーの「📤 正典を発行」ボタンを押す。")
+    step("3", "発行する部門名を入力する(例: 商品部)。\n更新のときも必ず前と同じ名前を入れる。")
+    step("4", "発行キー(合言葉)を入力する。分からないときは管理担当に確認する。", warn=True)
+    step("5", "画面に出る「発行する件数」を確認してから「はい」を押す。")
+    kv("発行されるのは?", "自分の本棚の中で「確認済み」にした分だけです。他の部門から受け取った正典や、\n"
+                          "未確認の資料は混ざりません。", 0)
+    kv("個人情報のチェック", "発行の直前に自動で走ります。個人情報らしき内容が見つかると、\n"
+                            "発行そのものが自動で中止されます(気付かず配ってしまうことはありません)。", 1)
+    kv("同時発行の順番待ち", "同じ部門を2人が同時に発行しようとすると、あとの人は自動で待たされます\n"
+                            "(内容と版番号がずれた正典が配られないための安全策です)。", 0)
+    note("発行は数十秒かかります。進捗はステータスバーに表示され、終わると「発行しました」の画面が出ます。")
+    back_to_toc(toc_header_row)
+
+    # ==== ③ 間違えたときの巻き戻し ==========================================
+    ch3_row = section("③ 間違えたときの巻き戻し")
+    step("1", "もう一度「📤 正典を発行」を押し、部門名を入力して確認画面まで進む。")
+    step("2", "確認画面で「いいえ」を選ぶ(「このまま発行しますか?」の問いに対して)。")
+    step("3", "戻す版が表示されるので、間違いなければ「OK」を押す。")
+    note("巻き戻しは数十秒で終わります。戻したことも、発行と同じように部内の全員へ次回起動時に自動で配信されます\n"
+         "(間違った内容は各PCから自動で消えます)。")
+    back_to_toc(toc_header_row)
+
+    # ==== ④ 注意点 ===========================================================
+    ch4_row = section("④ 注意点", "B45F06")
+    kv("原文を丸ごと正典にしない", "確認済みのQ&Aや要点だけを発行してください。分厚い資料をまるごと\n"
+                                  "正典にすると、1部門でチャンク数を大量に消費して全体が破綻します。\n"
+                                  "原文がそのまま必要な人は、各自の本棚に個別で追加してもらってください。", 0)
+    kv("共有フォルダへ手で置かない", "正典の実体(pack.xlsx・version.txt)は「📤正典を発行」ボタンだけが作ります。\n"
+                                    "共有フォルダへ手作業でファイルを置いたり書き換えたりしないでください。", 1)
+    kv("合言葉とファイルの管理", "発行キー(合言葉)と、発行に使うこのファイルは発行担当だけが持ってください。\n"
+                                "他の人に渡ると、その人も部門の正典を書き換えられる状態になります。", 0)
+    kv("発行者名の設定", "初回起動でお名前(pack_author)を入力しておいてください。空欄のままだと\n"
+                        "発行物に「不明」という名前で記録されます。", 1)
+    back_to_toc(toc_header_row)
+
+    # ==== ⑤ 運用のコツ =======================================================
+    ch5_row = section("⑤ 運用のコツ")
+    kv("💡 みんなの困りごと", "答えが見つからなかった質問の一覧です。ここに並ぶ内容に答える資料を\n"
+                             "本棚に登録し、確認済みにしてから発行すると、部門の正典がどんどん育ちます。", 0)
+    kv("📊 利用状況", "発行キーを持つ端末だけで開ける、運営向けの画面です。使われ方の集計と、\n"
+                     "名前の記録されない匿名の声を確認できます。", 1)
+    note("2つとも「📚マイ本棚」画面のツールバーから開けます(発行キーが設定されている端末にのみ表示されます)。")
+    back_to_toc(toc_header_row)
+
+    # ==== ⑥ 困ったとき =======================================================
+    ch6_row = section("⑥ 困ったとき", "9C1F1F")
+    kv("「📤正典を発行」ボタンが出ない", "発行キーが設定されていない端末です。発行担当用に配られたファイルを\n"
+                                        "使っているか確認してください。", 0)
+    kv("合言葉が違うと言われる", "発行キーの入力を間違えている可能性があります。管理担当に確認のうえ、\n"
+                                "もう一度落ち着いて入力してください。", 1)
+    kv("発行が終わらない・進まない", "共有フォルダへの書き込み権限、社内ネットワーク(VPN)への接続を\n"
+                                    "確認してください。同時に別の人が同じ部門を発行中の場合は、\n"
+                                    "数分待ってからもう一度お試しください。", 0)
+    note("解決しない場合は、ヘルプ「❓」→「診断」の画面をスクリーンショットで撮って、開発担当へ送ってください。")
+    back_to_toc(toc_header_row)
+
+    # ---- 目次の書き戻し ----
+    ws.merge_cells(start_row=toc_header_row, start_column=1, end_row=toc_header_row, end_column=3)
+    hc = ws.cell(row=toc_header_row, column=1, value="目次(クリックすると各章へ移動します)")
+    hc.font = head_font
+    hc.fill = PatternFill("solid", fgColor="1F4E78")
+    hc.alignment = Alignment(vertical="center", indent=1)
+    ws.row_dimensions[toc_header_row].height = 24
+
+    toc_entries = [
+        (ch1_row, "① 正典ナレッジとは"),
+        (ch2_row, "② 発行のしかた"),
+        (ch3_row, "③ 間違えたときの巻き戻し"),
+        (ch4_row, "④ 注意点"),
+        (ch5_row, "⑤ 運用のコツ"),
+        (ch6_row, "⑥ 困ったとき"),
+    ]
+    if len(toc_entries) != TOC_N:
+        raise BuildError(
+            f"_make_admin_guide: 目次の予約行数({TOC_N})と実際の章数({len(toc_entries)})が不一致です")
+    for i, (target_row, title) in enumerate(toc_entries):
+        r = toc_first_row + i
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(row=r, column=2, value=title)
+        c.font = link_font
+        c.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        if i % 2 == 1:
+            c.fill = zebra_fill
+        _anchor(c, target_row, "クリックでこの章へ移動します")
+        ws.row_dimensions[r].height = 20
+
+    # ---- 使い方ページへ戻る導線(先頭付近) ----
+    home_r = toc_header_row - 1 if toc_header_row > 3 else 2
+    hb = ws.cell(row=home_r, column=1, value="◀ 使い方ページへ戻る")
+    hb.font = back_font
+    hb.alignment = Alignment(vertical="center", indent=1)
+    _anchor(hb, 1, "クリックで使い方ページへ移動します", sheet="使い方")
+    ws.row_dimensions[home_r].height = 18
+
+    ws.sheet_properties.tabColor = TAB_COLORS["管理者向け"]
     ws.sheet_view.showGridLines = False
     return ws
 
@@ -2170,6 +2411,7 @@ def main():
           f" ※マクロ無効ガードを含む)...")
     _make_macro_guard(wb)
     _make_howto(wb)
+    _make_admin_guide(wb)
     _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "ダッシュボード", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
