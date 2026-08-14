@@ -388,11 +388,16 @@ Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, 
         ' (Hub/Dash/gallery)があるので、ここで先に絶対配置へ固定する(冪等)。
         modUI.FreezeShapePlacement ws
         ws.Rows(fromRow & ":" & toRow).Delete
+        ' R31 Fix波F9: ok=の判定をErr.Numberの直接参照からRows.Delete直後の
+        ' 退避へ変更(CLAUDE.mdの「ログの前にErr退避」作法)。従来は
+        ' FreezeShapePlacementの内部On Errorが先にErrをクリアするという
+        ' 他関数の実装詳細に依存していた(敵対的レビュー1周目MINOR裁定)。
+        Dim delOk As Boolean: delOk = (Err.Number = 0)
         ' R30 F9: 削除実行時のみの観測ログ(冪等な通常起動では出ない)。
         Dim tg As String: tg = logTag
         If LenB(tg) = 0 Then tg = ws.Name
         modLog.LogUsage "row_release", tg, "from=" & fromRow & " to=" & toRow & _
-            " lastUsed=" & lastUsed & " ok=" & (Err.Number = 0)
+            " lastUsed=" & lastUsed & " ok=" & delOk
         Err.Clear
         ' 削除だけでは内部使用範囲(xlCellTypeLastCell)が縮まらない端末がある。
         ' UsedRange を1回参照して再計算させる(戻り値は捨てる)。
