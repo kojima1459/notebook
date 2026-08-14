@@ -623,8 +623,8 @@ End Sub
 '   firstRow  : 範囲の上端行。戻り値はここを下回らない。
 '   viewportH : 窓の可視高(pt)。/rowH が「窓を覆う行数」の上界。
 '   rowH      : 均した後の行高(pt)。0以下なら15ptとみなす。
-'   lastUsed  : 現在の使用済み最終行。旧ブックの焼き付け救済のため、これが
-'               窓ぶんより大きければそちらを採る。
+'   lastUsed  : 現在の使用済み最終行。旧ブックの救済のため、これが窓ぶん
+'               より大きければそちらを採る。
 '   maxRowCap : 絶対上限(SHELF_MAX_ROW)。
 Public Function SeedRowCap(ByVal firstRow As Long, ByVal viewportH As Double, _
                            ByVal rowH As Double, ByVal lastUsed As Long, _
