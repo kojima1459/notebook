@@ -442,15 +442,30 @@ End Function
 
 ' 今使っているBMP以外の MyBookshelf_bg_*.bmp を消す(失敗は握って続行)。
 '
-' R32 Fix波 F8: Dir$ の列挙をやめ Scripting.FileSystemObject へ寄せた。
-'   VBAの Dir はプロセスに列挙状態を1つしか持たないため、ここで列挙を始めると
-'   【呼び出し元の外側で回っている Dir 列挙】を壊す。この関数は描画経路から
-'   呼ばれるので、いつどんな列挙の内側に入るか保証できない。
-'   FSO を作れない端末(スクリプト実行が組織ポリシーで塞がれている等)では
-'   掃除を【スキップする】 ―― 残骸は色ごとに246バイト×最大6テーマで実害が
-'   無く、掃除のために描画経路の安全性を下げる理由が無い
-'   (modInsight の Dictionary フォールバックと同じ「無くても機能は止めない」)。
-'   列挙中に Kill しない作法は FSO でも維持する(名前を集めてから消す)。
+' R32マイクロ修正波 F18: %TEMP%全体を列挙するのをやめ、列挙ゼロにした。
+'   【F8で直したはずが列挙が残っていたこと】F8は「VBAのDir$はプロセスに
+'   状態を1つしか持たないので、外側のDir$列挙を壊す」問題を、
+'   Scripting.FileSystemObjectでの列挙(fld.Files)へ置き換えて直した。だが
+'   これは「壊さない列挙」であって「列挙しない」ではない。長期運用PCの
+'   %TEMP%は数千〜数万件が普通で、この関数は描画経路(ScreenUpdating=False
+'   中・テーマ切替時)から呼ばれるため、%TEMP%全件ぶんのCOMオブジェクト
+'   (f.Nameアクセスのたび)を毎回生成するコストがそこに乗っていた。しかも
+'   消す対象は色ごと最大6テーマ×246バイトで、コメント(旧BmpPathの注記)
+'   自身が「残骸は実害が無い」と自認している ―― 実害の無い掃除のために
+'   描画経路を数千〜数万件ぶん重くする理由が無い。
+'
+'   直し方: BmpFileName(色)が色から一意に決まる【決定的な名前】である
+'   性質を使う。「今どのファイルが在るか」を尋ねる(列挙する)必要は無く、
+'   「在り得る名前を先に数え上げて、使っていなければ消してみる」だけで足りる
+'   (無ければ Kill が失敗するだけで実害は無い。On Error Resume Nextで握る)。
+'   6テーマの bg 色は modSkin.ResolveColor(Public関数)から取る ―― 色の
+'   一次情報を modBackdrop 側へ複製すると、将来 modSkin 側で配色が変わった
+'   ときにここだけ古いままになる(RGB値の二重管理を避ける。modSkinは
+'   残27字で編集不可のため、呼ぶだけで実体は増やさない)。テーマ名6件の
+'   並びは modSkin.CycleSkin の orderList / modTestsPure23 と同じ固定リスト
+'   (新テーマが増えたらこの配列に1件足すだけでよい)。
+'   light/msadは実際は同色(RGB(243,244,246))だが、そのぶんBmpFileNameが
+'   同じ名前になるだけで、2回目のKillは「無い」失敗として握られるだけ。
 Private Sub SweepOldBmp(ByVal keepPath As String)
     On Error Resume Next
     Err.Clear
@@ -459,37 +474,22 @@ Private Sub SweepOldBmp(ByVal keepPath As String)
     Dim dir_ As String: dir_ = Left$(keepPath, sep)
     Dim keepName As String: keepName = Mid$(keepPath, sep + 1)
 
-    Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
-    Err.Clear
-    If fso Is Nothing Then Exit Sub
+    Dim themes As Variant
+    themes = Array("msad", "dark", "light", "sakura", "ocean", "gold")
 
-    Dim fld As Object
-    Set fld = fso.GetFolder(Left$(dir_, Len(dir_) - 1))
-    Err.Clear
-    If fld Is Nothing Then Exit Sub
-
-    Dim victims As String
-    Dim f As Object
-    For Each f In fld.Files
-        Dim nm As String: nm = f.Name
-        If Left$(nm, 15) = "MyBookshelf_bg_" And Right$(LCase$(nm), 4) = ".bmp" Then
-            If StrComp(nm, keepName, vbTextCompare) <> 0 Then victims = victims & nm & vbTab
-        End If
-    Next f
-    Set f = Nothing
-    Set fld = Nothing
-    Set fso = Nothing
-    Err.Clear
-
-    Dim parts() As String
-    parts = Split(victims, vbTab)
     Dim i As Long
-    For i = LBound(parts) To UBound(parts)
-        If LenB(parts(i)) > 0 Then
-            Kill dir_ & parts(i)
-            Err.Clear
+    For i = LBound(themes) To UBound(themes)
+        Dim c As Long
+        Err.Clear
+        c = modSkin.ResolveColor("bg", CStr(themes(i)))
+        If Err.Number = 0 Then
+            Dim candName As String: candName = BmpFileName(c)
+            If StrComp(candName, keepName, vbTextCompare) <> 0 Then
+                Kill dir_ & candName
+                Err.Clear
+            End If
         End If
+        Err.Clear
     Next i
     On Error GoTo 0
 End Sub
