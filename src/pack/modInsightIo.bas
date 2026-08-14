@@ -163,13 +163,16 @@ Public Function CollectInsights() As Long
     ' 際限なく行を足す(下の GcOldNonces まで掃除する仕組みが無かった)。
     ' 使うほど起動が重くなる形だった。
     Dim seen As Object: Set seen = LoadSeenSet()
+    ' R32 W1-2(B1): 既読印とは別に、受信箱に在る nonce そのものを突き合わせる。
+    ' 理由は modInsight.InboxNonceSet の説明。
+    Dim known As Object: Set known = modInsight.InboxNonceSet()
 
     Dim qaDir As String: qaDir = SubDir(QA_SUBDIR)
     Dim gapDir As String: gapDir = SubDir(GAP_SUBDIR)
     Dim corrDir As String: corrDir = SubDir(CORR_SUBDIR)
-    CollectInsights = CollectFrom(ws, qaDir, "qa", seen) + _
-                      CollectFrom(ws, gapDir, "gap", seen) + _
-                      CollectFrom(ws, corrDir, "correction", seen)
+    CollectInsights = CollectFrom(ws, qaDir, "qa", seen, known) + _
+                      CollectFrom(ws, gapDir, "gap", seen, known) + _
+                      CollectFrom(ws, corrDir, "correction", seen, known)
 
     ' GC(R8 F10)。my_stats 側の既読印は【全端末】が自分のブックを掃除する。
     ' 自分のシートが太るのは自分の問題なので、誰がやっても構わない。
@@ -463,7 +466,8 @@ End Sub
 ' 内部: 共有フォルダ→シート
 ' ----------------------------------------------------------------------------
 Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
-                             ByVal kind As String, ByVal seen As Object) As Long
+                             ByVal kind As String, ByVal seen As Object, _
+                             ByVal known As Object) As Long
     If LenB(dirPath) = 0 Then Exit Function
     On Error Resume Next
     If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
@@ -508,11 +512,21 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
                 processed = processed + 1
                 Dim raw As String
                 If ReadShared(dirPath & names(i), raw) Then
-                    If AppendRow(ws, kind, nc, raw) Then CollectFrom = CollectFrom + 1
-                    ' 読めたときだけ既読にする。値は日付にしておく
-                    ' (GcOldNonces が期限を判定できるようにするため。R8 F10)。
-                    modStats.SetStatText INS_PREFIX & nc, modUtilText.IsoDate(Date)
-                    If Not seen Is Nothing Then seen(LCase$(nc)) = 1
+                    ' 2026-08-14(R32 W1-9 M8): 既読にしてよいのは「受信箱に
+                    ' その行が確実に在る」ときだけ。従来は ReadShared が
+                    ' 成功しさえすれば AppendRow の成否に関わらず印を書いて
+                    ' いたため、【書き込み途中の(=フィールドが足りない)
+                    ' ファイルを読んだ瞬間】にその投稿はこの端末から永久に
+                    ' 消えていた(次回は既読なので二度と読まない)。
+                    ' 既に受信箱に在る nonce(重複)も True=印を書いてよい。
+                    Dim added As Boolean
+                    If AppendRow(ws, kind, nc, raw, known, added) Then
+                        If added Then CollectFrom = CollectFrom + 1
+                        ' 値は日付にしておく(GcOldNonces が期限を判定できる
+                        ' ようにするため。R8 F10)。
+                        modStats.SetStatText INS_PREFIX & nc, modUtilText.IsoDate(Date)
+                        If Not seen Is Nothing Then seen(LCase$(nc)) = 1
+                    End If
                 End If
             End If
         End If
@@ -544,11 +558,23 @@ End Function
 
 ' insight_inbox の列: nonce / kind / user_id / author / created_at /
 '                     question / answer / source / consumed
+' 戻り値 = 「この nonce の行が受信箱に確実に在る」(=既読印を書いてよい)。
+'          新規に足したときだけ outAdded=True(件数はこちらで数える)。
+' 2026-08-14(R32 W1-2/W1-9): 「足せたか」と「既読にしてよいか」は別の問い
+' なので分けた。壊れたファイル(フィールド不足)は両方False=次回また読む。
 Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
-                           ByVal nc As String, ByVal raw As String) As Boolean
+                           ByVal nc As String, ByVal raw As String, _
+                           ByVal known As Object, ByRef outAdded As Boolean) As Boolean
+    outAdded = False
     Dim f() As String
     f = Split(raw, FIELD_SEP)
-    If UBound(f) < 5 Then Exit Function
+    If UBound(f) < 5 Then Exit Function     ' 書き込み途中・壊れたファイル
+
+    ' R32 W1-2(B1): 同じ nonce の行が既に在るなら足さない(冪等化)。
+    If modInsight.NonceIsKnown(known, nc) Then
+        AppendRow = True                    ' 受信箱には在る=既読にしてよい
+        Exit Function
+    End If
 
     Dim r As Long: r = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
     If r < 2 Then r = 2
@@ -574,6 +600,8 @@ Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
         If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     End If
     ws.Cells(r, 9).Value = ""
+    If Not known Is Nothing Then known(LCase$(Trim$(nc))) = 1
+    outAdded = True
     AppendRow = True
 End Function
 

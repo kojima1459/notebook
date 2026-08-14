@@ -333,6 +333,47 @@ Public Function QABodyText(ByVal author As String, ByVal qText As String, _
     QABodyText = body
 End Function
 
+' ----------------------------------------------------------------------------
+' InboxNonceSet - 受信箱に既に在る nonce の集合(2026-08-14 R32 W1-2 B1)。
+'   共有フォルダの実ファイルを消すのは【発行者端末だけ】(R8b B12)なのに、
+'   既読印 "ins:" は【全端末】が自分で67日で消す(GcOldNonces)。この非対称の
+'   ため、発行担当が居ない・久しく起動していない組織では、67日目に全端末が
+'   過去の投稿を丸ごと再受信する。AppendRow に重複ガードが無いと受信箱が
+'   二重化し、取り込み済みだったQ&Aが「未取込」に戻り、
+'   RegisterKnowledgeText の一時ファイル名に時刻が入る(=別ファイル扱い)
+'   ため【本棚に同じQ&Aが二重登録される】。
+'   既読印だけでは止まらないので、受信箱そのものを突き合わせの真実にする。
+'   照合はDictionaryのO(1)。my_stats を1件ずつ引く形(R8 F10で捨てた形)へは
+'   戻さない。
+' ----------------------------------------------------------------------------
+Public Function InboxNonceSet() As Object
+    Dim d As Object
+    On Error Resume Next
+    Set d = CreateObject("Scripting.Dictionary")
+    Set InboxNonceSet = d
+    If d Is Nothing Then Exit Function
+    Dim n As Long
+    Dim arr As Variant: arr = InboxArray(n)
+    Dim i As Long
+    For i = 1 To n
+        Dim k As String: k = LCase$(Trim$(CStr(arr(i, 1))))
+        If LenB(k) > 0 Then d(k) = 1
+    Next i
+    On Error GoTo 0
+End Function
+
+' nonce重複ガードの判定(純関数・W1-2)。集合そのものを作れない環境
+' (Scripting.Dictionary が使えない等)では False=従来どおり足す へ倒す。
+' 「速くするための仕組みが無いと機能そのものが止まる」を作らない(IsSeen と
+' 同じ考え方)。二重取り込みは受信箱側の実害だが、取りこぼしは共有知の
+' 断絶で、後者のほうが重い。
+Public Function NonceIsKnown(ByVal known As Object, ByVal nc As String) As Boolean
+    If known Is Nothing Then Exit Function
+    Dim k As String: k = LCase$(Trim$(nc))
+    If LenB(k) = 0 Then Exit Function
+    NonceIsKnown = known.Exists(k)
+End Function
+
 Private Function GetSheet() As Worksheet
     On Error Resume Next
     Set GetSheet = ThisWorkbook.Worksheets(SHEET_NAME)
