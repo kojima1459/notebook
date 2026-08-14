@@ -713,6 +713,15 @@ Public Sub ShowLegendCard(ByVal ws As Worksheet, ByVal leftPos As Double, _
     shp.TextFrame2.AutoSize = 0        ' msoAutoSizeNone(以降のサイズ操作が暴れないよう解除)
     If h < CARD_MIN_H Then h = CARD_MIN_H
     If h > CARD_MAX_H Then h = CARD_MAX_H
+    ' R31 Fix波F13: 480頭打ちだけでは狭い窓(可視高<488pt)でカードが
+    ' 可視域からはみ出し、テキストが枠外に描かれ続ける+下のmaxTop<minTopの
+    ' 縮退で下端もはみ出た。可視高からも頭打ちする(自然高/可視高-16/480の
+    ' 最小)。visBottom未指定(0)の旧経路は従来どおり480頭打ちのみ。
+    If visBottom > 0 And visTop >= 0 Then
+        Dim capH As Double: capH = visBottom - visTop - 16
+        If capH < CARD_MIN_H Then capH = CARD_MIN_H
+        If h > capH Then h = capH
+    End If
     shp.Height = h
 
     ' 縦位置クランプ: 可視下端(visBottom)からカード高を引いた位置を上限、
