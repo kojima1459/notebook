@@ -1530,6 +1530,7 @@ CONTRACT: dict[str, dict] = {
             "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
             "InboxNonceSet", "NonceIsKnown", "GapAged",
             "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys", "WithinWindow",
+            "PiiBlocked",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。

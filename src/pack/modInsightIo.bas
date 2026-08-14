@@ -28,6 +28,14 @@ Private Const GAP_SUBDIR As String = "gap"
 ' 出す場所を分けるのが根治で、既に届いてしまった旧データは受信側の
 ' reason 列ガード(modInsight.IsGapRow)で救済する。
 Private Const CORR_SUBDIR As String = "correction"
+
+' 2026-08-14(R32 W1-8(a) M7): 困りごと・訂正の発信に氏名を載せない。
+' 【ユーザー裁定=匿名化して続ける】。部署(DeptName)は残す ―― 資料を書ける
+' 人が「どの部署で足りていないか」を掴むための最小限で、個人は特定されない。
+' 解決済みQ&A(EmitVerifiedQA)は【本人が✅解決したを押して共有すると分かって
+' いる】経路なので従来どおり AuthorName を載せる(取り込んだ側の本文にも
+' 「◯◯さんが実務で確認した」と出す設計。QABodyText)。
+Private Const ANON_AUTHOR As String = "(匿名)"
 Private Const MAX_COLLECT As Long = 60      ' 1回の起動で読むファイル数の上限
 Private Const FIELD_SEP As String = vbTab
 
@@ -85,6 +93,10 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     ' このゲートが最も効く経路(既定TRUE。docs/30 §9-1参照)。
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Then Exit Sub
+    ' R32 W1-8(b): 個人情報を含む可能性があるなら部内へ出さない。
+    ' このゲートは波2の pii_scan_enabled(パック発行側のオフスイッチ)の
+    ' 影響を受けず【常に走る】。理由は modInsight.PiiBlocked のコメント。
+    If modInsight.PiiBlocked(q, "gap") Then Exit Sub
     ' R32 W1-6(M4): 同じ趣旨の質問の連投を止める(判定は modInsight 側)。
     If modInsight.GapDupBlocked(q) Then Exit Sub
 
@@ -95,8 +107,11 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     Dim myId As String: myId = SafeUserId()
     If LenB(myId) = 0 Then Exit Sub
 
+    ' R32 W1-8(a): 氏名は送らない(部署だけ)。困りごとの板は「誰が困ったか」
+    ' ではなく「何の資料が足りないか」を見る場所で、氏名は要らないうえ、
+    ' 部内の全員に「この人はこれを知らない」と配ることになる。
     Dim body As String
-    body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
+    body = "v1" & FIELD_SEP & myId & FIELD_SEP & ANON_AUTHOR & FIELD_SEP & _
            Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1(q) & FIELD_SEP & reason & FIELD_SEP & DeptName()
 
@@ -120,6 +135,9 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     ' 2026-08-01(R12-2-2): Emit系入口共通のゲート(既定TRUE。docs/30 §9-1参照)。
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(fixText)) = 0 Then Exit Sub
+    ' R32 W1-8: 訂正も同じ扱い(実名を出さない・PII検知で見送る)。訂正本文は
+    ' 利用者が自由に書ける欄なので、質問文よりむしろ個人情報が入りやすい。
+    If modInsight.PiiBlocked(answerText & " " & fixText, "correction") Then Exit Sub
 
     ' R32 W1-1: 困りごとの板に混ざらないよう専用フォルダへ出す。
     Dim dirPath As String: dirPath = SubDir(CORR_SUBDIR)
@@ -130,7 +148,7 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     If LenB(myId) = 0 Then Exit Sub
 
     Dim body As String
-    body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _
+    body = "v1" & FIELD_SEP & myId & FIELD_SEP & ANON_AUTHOR & FIELD_SEP & _
            Left$(modUtilText.IsoDateTime(Now), 16) & FIELD_SEP & _
            Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200)) & FIELD_SEP & _
            "correction" & FIELD_SEP & Clean1(fixText)
