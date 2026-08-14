@@ -274,6 +274,69 @@ Done:
     modUiLock.Leave
 End Sub
 
+' ----------------------------------------------------------------------------
+' OnToolbarLegend - ❓ボタンのハンドラ(R31 W1-2/W1-3)。今シートに描かれている
+'   ツールバーボタン(nxk_tb0..)のcapText/AlternativeTextを読み出し、
+'   modChrome.FormatLegendBodyで整形してmodChrome.ShowLegendCardへ渡すだけの
+'   薄いハンドラ。isTable/isShared等のモード判定を自前で持たない
+'   (ComputeToolbarLayoutを再度呼ぶ設計にすると、モード判定がここと
+'   modKnowledge.CurrentModeの2箇所に割れる。実際に画面へ描かれているShapeを
+'   読み直せば、常に「今見えているボタン」と凡例が一致する)。
+' ----------------------------------------------------------------------------
+Public Sub OnToolbarLegend()
+    On Error Resume Next
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    If ws Is Nothing Then Exit Sub
+
+    Dim caps() As String, tips() As String, n As Long
+    CollectLegendSource ws, caps, tips, n
+    If n < 1 Then Exit Sub
+
+    Dim body As String
+    body = modChrome.FormatLegendBody(caps, tips, n)
+    If LenB(body) = 0 Then Exit Sub
+
+    Dim leftPos As Double, topPos As Double
+    leftPos = ActiveWindow.VisibleRange.Left + 20
+    topPos = ActiveWindow.VisibleRange.Top + 40
+    modChrome.ShowLegendCard ws, leftPos, topPos, _
+        ChrW(&H2753) & " ボタンの説明(クリックで閉じます)", body
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' 凡例カード自身のOnAction。押されたら自分自身を消すだけ(modChrome.
+' ShowLegendCardが固定でこのハンドラ名を割り当てる)。
+Public Sub OnToolbarLegendClose()
+    On Error Resume Next
+    ActiveSheet.Shapes("nxk_legend").Delete
+    On Error GoTo 0
+End Sub
+
+' 今シートに描かれているツールバーボタン(nxk_tb0..)を先頭から読み、
+' capText(ボタンの表示文字列)とtipText(AlternativeTextへ退避した説明)を
+' 集める。連番が途切れた時点で終了(ToolButtonはi=0からn-1まで隙間なく
+' 描くため、途切れる=それ以上ボタンが無いことと同義)。
+Private Sub CollectLegendSource(ByVal ws As Worksheet, ByRef caps() As String, _
+                                ByRef tips() As String, ByRef n As Long)
+    ReDim caps(0 To TB_MAX - 1)
+    ReDim tips(0 To TB_MAX - 1)
+    n = 0
+    Dim i As Long
+    For i = 0 To TB_MAX - 1
+        Dim shp As Shape
+        Set shp = Nothing
+        On Error Resume Next
+        Set shp = ws.Shapes("nxk_tb" & i)
+        On Error GoTo 0
+        If shp Is Nothing Then Exit For
+        caps(n) = shp.TextFrame2.TextRange.Text
+        tips(n) = shp.AlternativeText
+        n = n + 1
+    Next i
+End Sub
+
 ' 起動後、本棚ツールバーの初回描画時に1回だけ「未仕上げ資料あり」を告知する
 ' (R20-3・3b)。isSharedの並び(みんなの解決事例)には⚡仕上げボタンが出ない
 ' ためスキップし、通常の並びに来るまで「初回」を消費しない。

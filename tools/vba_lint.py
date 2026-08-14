@@ -1411,8 +1411,14 @@ CONTRACT: dict[str, dict] = {
         # OnBackfillClick(2026-08-06 R20-3・3b): 「⚡仕上げ」ボタンの薄い
         #   ハンドラ(判定・確認・実処理はmodBackfill側。ここは取込中ガード+
         #   結果表示+再描画だけ)。
+        # OnToolbarLegend/OnToolbarLegendClose(2026-08-13 R31 W1-2/W1-3):
+        #   ❓凡例ボタンのハンドラと、凡例カード自身のOnAction(閉じる)。
+        #   ツールチップ(Hyperlinks.Add)がShapeのOnActionを殺す(R31実機
+        #   第16報F-A確定)ため撤去し、代わりに全ボタンの説明を1枚のカードで
+        #   まとめて出す方式へ転換した。
         "required": [
             "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
+            "OnToolbarLegend", "OnToolbarLegendClose",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。
@@ -2213,6 +2219,10 @@ ONACTION_GUARD_ALLOWLIST = {
     # 登録フォームの[キャンセル]。入力欄を消してフォームを閉じるだけ。
     # 取込中でも「閉じられない」方が利用者を困らせる(§3-1)。
     "modVault.OnVaultCancel",
+    # ❓凡例カード自身のクリック(2026-08-13 R31 W1-3)。自分のShapeを
+    # Deleteするだけで業務ロジックを一切呼び返さない。取込中でも
+    # 「閉じられない」方が利用者を困らせる(上のOnVaultCancelと同型)。
+    "modKnowledgeBar.OnToolbarLegendClose",
     # --- 恒久例外: 委譲先で必ず関所を通るハンドラ ---
     # 質問例のクリック。最後に modApp.OnSend を呼び、そちらが
     # BlockIfIngesting を先頭に持っている(二重に置く意味が無い)。

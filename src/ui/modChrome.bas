@@ -622,3 +622,87 @@ Public Sub FitToastHeight(ByVal shp As Shape)
     shp.Height = h
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' FormatLegendBody - ❓凡例カードの本文整形(R31 W1-3/W1-4)。純関数。
+' ----------------------------------------------------------------------------
+'   caps(i)はボタンの表示文字列(絵文字+ボタン名。AddTool時点で既に絵文字を
+'   含んでいるため、ここで別途絵文字を足す必要は無い)。tips(i)は説明文
+'   (R30まではws.Hyperlinks.AddのScreenTipだったが、R31 W1-1で撤去し
+'   btn.AlternativeTextへ退避したものを呼び出し側が読み出して渡す)。
+'   空のcapTextは行を作らない(TB_MAXの未使用スロット対策)。tipTextが
+'   空の項目はボタン名だけの行にする(説明が無くても存在は分かる)。
+Public Function FormatLegendBody(ByRef caps() As String, ByRef tips() As String, _
+                                 ByVal n As Long) As String
+    Dim out As String
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim capText As String: capText = Trim$(caps(i))
+        If LenB(capText) > 0 Then
+            Dim line As String: line = capText
+            Dim tipText As String: tipText = Trim$(tips(i))
+            If LenB(tipText) > 0 Then line = line & ": " & tipText
+            If LenB(out) > 0 Then out = out & vbLf
+            out = out & line
+        End If
+    Next i
+    FormatLegendBody = out
+End Function
+
+' ----------------------------------------------------------------------------
+' ShowLegendCard - ❓凡例カードの描画(R31 W1-3)。ShowToast(modSkin)と同型の
+'   使い捨てShapeだが、①自動で消えず②クリックで自分自身を消す(呼び出し側の
+'   OnActionハンドラ名を渡す設計にはせず、固定で"modKnowledgeBar.
+'   OnToolbarLegendClose"を割り当てる。凡例カードの出し先はナレッジ画面の
+'   ツールバーだけのため、汎用化せず呼び出し元を決め打つ)。
+' ----------------------------------------------------------------------------
+'   位置(leftPos/topPos)は呼び出し側(modKnowledgeBar)がActiveWindow基準で
+'   計算して渡す。本関数自体はws以外のExcelグローバル状態(ActiveSheet/
+'   ActiveWindow/ThisWorkbook)を参照しない(FitToastHeightと同じ、渡された
+'   オブジェクトだけを操作する設計)。
+'   塗り必須(Fill.Visible=-1): 塗り無しShapeは内部クリック透過するため、
+'   自分自身のクリックで閉じる動きが利かなくなる既知の落とし穴を踏まない。
+Public Sub ShowLegendCard(ByVal ws As Worksheet, ByVal leftPos As Double, _
+                          ByVal topPos As Double, ByVal title As String, _
+                          ByVal body As String)
+    Const CARD_W As Double = 460
+    Const CARD_MIN_H As Double = 100
+    Const CARD_MAX_H As Double = 480
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    ws.Shapes("nxk_legend").Delete   ' 再表示時の増殖防止(同名Shapeを先に消す)
+
+    Dim shp As Shape
+    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, CARD_W, 40)   ' 5=角丸四角。高さは下でAutoSize実測。
+    If shp Is Nothing Then Exit Sub
+    shp.Name = "nxk_legend"
+    shp.Placement = 3   ' xlFreeFloating
+    shp.Adjustments(1) = 0.04
+    shp.Line.Weight = 0.75
+    shp.Line.ForeColor.RGB = modUI.UiColor("border")
+    shp.Fill.Visible = -1
+    shp.Fill.ForeColor.RGB = modUI.UiColor("surface")
+
+    With shp.TextFrame2
+        .WordWrap = -1
+        .MarginLeft = 14: .MarginRight = 14: .MarginTop = 10: .MarginBottom = 10
+        .TextRange.Text = title & vbLf & vbLf & body
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 9
+        .TextRange.ParagraphFormat.Alignment = 1   ' 左揃え
+        .VerticalAnchor = 1   ' 上詰め
+    End With
+    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+
+    shp.TextFrame2.AutoSize = 1        ' msoAutoSizeShapeToFitText
+    Dim h As Double: h = shp.Height
+    shp.TextFrame2.AutoSize = 0        ' msoAutoSizeNone(以降のサイズ操作が暴れないよう解除)
+    If h < CARD_MIN_H Then h = CARD_MIN_H
+    If h > CARD_MAX_H Then h = CARD_MAX_H
+    shp.Height = h
+
+    modSkin.ApplyLightShadow shp
+    shp.OnAction = "modKnowledgeBar.OnToolbarLegendClose"
+    shp.ZOrder 0   ' msoBringToFront
+    On Error GoTo 0
+End Sub
