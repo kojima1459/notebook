@@ -1342,6 +1342,17 @@ CONTRACT: dict[str, dict] = {
             "SeedBurn",
         ],
     },
+    # modBackdrop(2026-08-14 R32波4): 画面の「地(背景)」だけを持つ新設モジュール。
+    # 新設理由は容量。受け皿になり得るUI側が軒並み上限30,000字に張り付いており
+    # (modSkin残27/modHub残159/modUIShelf残217/modHubStat残450/modChrome残837)、
+    # 憲章§4-6の「余裕モジュールへ実体を置いて1行呼び出し」の置き場所そのものを
+    # 作る必要があった。
+    #   RestoreShelfHeaderBg: 一覧表の地色塗り直し(W4-2)で一律に消える
+    #                         カード見出し行のグレーを即座に戻す復元点。
+    "modBackdrop": {
+        "closed": True,
+        "required": ["RestoreShelfHeaderBg"],
+    },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
     "modApp": {
         "closed": True,

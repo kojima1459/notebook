@@ -385,15 +385,18 @@ End Sub
 '             実セル幾何(Top+Height)から下端ptを取る=行数×15の机上計算はしない。
 '   withFont: フォントも当てるか。カードを描く【前】だけTrueにする ―― 描いた
 '             後に当てると、カード側で指定した文字サイズを潰してしまう。
+'   R32 W4-2: 地色もこの withFont=True(=カードを描く前)側でだけ塗り直す。
+'     詳細は modBackdrop.RestoreShelfHeaderBg の見出し。
 Private Sub ApplyShelfExtent(ByVal ws As Worksheet, ByVal lastRow As Long, _
                              ByVal withFont As Boolean)
     On Error Resume Next
     Dim bottomY As Double
     bottomY = ws.Rows(lastRow).Top + ws.Rows(lastRow).Height
     ' R20-1d: 塗り・ScrollArea・境界より下の行高リセットは modKnowledge へ集約。
-    Dim addr As String: addr = modKnowledge.ApplyShelfBound(ws, bottomY, False)
+    Dim addr As String: addr = modKnowledge.ApplyShelfBound(ws, bottomY, withFont)
     If LenB(addr) = 0 Then Exit Sub
     If withFont Then
+        modBackdrop.RestoreShelfHeaderBg ws, HEADER_ROW
         ws.Range(addr).Font.Name = "游ゴシック"
         ws.Range(addr).Font.Size = 11
     End If

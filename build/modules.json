@@ -657,6 +657,14 @@
       "note": "R21-1(実機第8報⑦)の構造完治。modViewport(21,524字)へ全部入れると30,000字上限に届くため、憲章§4-6で分割した。持ち分は「いつ測ってよいか」と「窓に収める調整」: EnsureViewState(全画面/罫線/見出し/タブ/水平スクロールバーを最終形にしてから測る)・ScrollbarW/FitTarget(可視セル幅の校正)・FitVerify(帯≤可視幅の事後検証)・GridColsFor/GridCardW(弾性カード)・CompressFactor/SetScaleY/SY(窓高適応圧縮)・RefitShelfTable/RefitChatBand(再フィット経路の穴)・LogFit(5値観測)。原始的な幾何の算数は従来どおり modViewport。"
     },
     {
+      "name": "modBackdrop",
+      "path": "src/ui/modBackdrop.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R32",
+      "note": "R32波4(実機第17報②の余白・地色)。画面の「地(背景)」だけを凝集させた新設モジュール。新設した理由は容量: 受け皿になり得るUI側モジュールが軒並み上限30,000字に張り付いていた(modSkin残27/modHub残159/modUIShelf残217/modHubStat残450/modChrome残837/modViewport残1,038)ため、憲章§4-6の「余裕モジュールへ実体を置いて1行呼び出し」の置き場所そのものを作った。持ち分: RestoreShelfHeaderBg(一覧表の一律塗りで消える見出し行のグレーの復元。W4-2)と、背景画像方式(SetBackgroundPicture用の1×1・24bit BMPを一時フォルダへ動的生成して敷く。W4-5)。R32実機プローブの確定事実(ScrollAreaはホイールを止めない/塗り深さでは原理的に解けない/標準スタイル方式は実機で1004)はこのモジュール冒頭に集約した。"
+    },
+    {
       "name": "modBitwiseOpt",
       "path": "src/qa/modBitwiseOpt.bas",
       "role": "core",
