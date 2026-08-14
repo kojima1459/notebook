@@ -235,7 +235,12 @@ Public Sub EvaluateBadges()
     CheckBadge "fb10", GetStat("correction_total") >= 10, "フィードバック名人(修正10件)"
     CheckBadge "fb50", GetStat("correction_total") >= 50, "フィードバックキング(修正50件)"
     CheckBadge "qa_share10", GetStat("qa_shared_total") >= 10, "知恵の配り手(解決済みQ&A10件を共有)"
-    CheckBadge "gapfill", GetStat("gapfill_total") >= 1, "穴埋め職人(みんなの困りごとに答えた)"
+    ' 2026-08-14(R32 m2): 文言を実装に合わせた。gapfill_total を加算するのは
+    ' modInsightIo.EmitCorrection の成功時【だけ】=「回答の誤りを訂正して
+    ' 部内へ共有した」行為で、「みんなの困りごと」の板から資料を書く経路には
+    ' 加算が1つも配線されていない。取れないバッジの説明を出し続けるより、
+    ' 実際に取れる行為を正しく書くほうが先(配線を足すのは次期の判断)。
+    CheckBadge "gapfill", GetStat("gapfill_total") >= 1, "穴埋め職人(回答の誤りを訂正して部内へ共有した)"
     ' 2026-08-10(R25-3b FA-R25-3b): 16枠ちょうど(ダッシュ4列×4段)を埋める新規3種。
     ' いずれも既存の統計キーで判定できるため、加算の配線は不要(判定のみ追加)。
     CheckBadge "thanks5", GetStat("thanks_received_total") >= 5, "感謝を集めた(感謝5件を受け取った)"
@@ -296,7 +301,7 @@ Public Function BadgeCatalog(ByRef ids() As String, ByRef titles() As String, _
         "正しい内容を10回教えると獲得|" & _
         "正しい内容を50回教えると獲得|" & _
         "解決済みQ&Aを10件共有すると獲得|" & _
-        "みんなの困りごとに1件答えると獲得|" & _
+        "回答の誤りを訂正して部内へ共有すると獲得|" & _
         "感謝を5件受け取ると獲得|" & _
         "30日連続で使うと獲得|" & _
         "入念に調べるで10回質問すると獲得", "|")
