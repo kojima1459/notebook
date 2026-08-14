@@ -110,6 +110,29 @@ Private Sub ComputeToolbarLayout(ByVal isTable As Boolean, ByVal isShared As Boo
 End Sub
 
 ' ----------------------------------------------------------------------------
+' ToolbarButtonCaptions - テスト用の窓口(R31 W1-5)。ToolbarSpecはPrivateで
+'   「どのボタンを出すか」の唯一の場所を保っているが、純ロジックテストから
+'   その中身(❓が含まれているか等)を検算できないと回帰を守れない。
+'   ToolbarSpec自体はExcelオブジェクトへ一切触れない(canPub/hasVisionの
+'   判定はOn Error Resume Nextで包まれた他モジュール呼び出しのみで、
+'   未解決でも既定値へ落ちるだけ)ため、この窓口もShape/Worksheetを
+'   一切生成しない。区切り文字"|"はどのcapTextにも含まれない記号。
+' ----------------------------------------------------------------------------
+Public Function ToolbarButtonCaptions(ByVal isTable As Boolean, ByVal isShared As Boolean) As String
+    Dim caps() As String, acts() As String, kinds() As String, tips() As String
+    Dim widths() As Double, n As Long
+    ToolbarSpec isTable, isShared, caps, acts, kinds, tips, widths, n
+    If n < 1 Then Exit Function
+    Dim out() As String
+    ReDim out(0 To n - 1)
+    Dim i As Long
+    For i = 0 To n - 1
+        out(i) = caps(i)
+    Next i
+    ToolbarButtonCaptions = Join(out, "|")
+End Function
+
+' ----------------------------------------------------------------------------
 ' ToolbarSpec - モードと端末の権限に応じたボタンの並びを1本の配列で組み立てる。
 '   ここが「何を出すか」の唯一の場所。配置(どこへ置くか)は一切決めない。
 ' ----------------------------------------------------------------------------

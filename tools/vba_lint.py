@@ -1416,9 +1416,12 @@ CONTRACT: dict[str, dict] = {
         #   ツールチップ(Hyperlinks.Add)がShapeのOnActionを殺す(R31実機
         #   第16報F-A確定)ため撤去し、代わりに全ボタンの説明を1枚のカードで
         #   まとめて出す方式へ転換した。
+        # ToolbarButtonCaptions(2026-08-13 R31 W1-5): Private ToolbarSpecの
+        #   中身を純ロジックテストから検算するための窓口(Shape/Worksheet
+        #   非生成)。modTestsPure29が❓ボタンの有無を固定する。
         "required": [
             "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
-            "OnToolbarLegend", "OnToolbarLegendClose",
+            "OnToolbarLegend", "OnToolbarLegendClose", "ToolbarButtonCaptions",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。

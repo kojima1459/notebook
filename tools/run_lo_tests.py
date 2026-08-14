@@ -576,6 +576,17 @@ PURE_ALLOWLIST = [
     #   (ToastWaitMsFor/DiversitySwapPickの相対スコア下限)が実行されない
     #   まま全部PASSに見える(modTestsPure26→28追加時と同型の理由)。
     "modTestsPure29",
+    # modKnowledgeBar(2026-08-13 R31 W1-5): テストが呼ぶのは
+    #   ToolbarButtonCaptions(Private ToolbarSpecの結果を返す窓口)だけで、
+    #   ToolbarSpec自体はExcelオブジェクトに触れない(canPub/hasVisionの
+    #   判定はOn Error Resume Nextで包まれたmodPublish/modFeatures呼び出し
+    #   のみで、未注入で失敗しても既定値へ落ちるだけ)。Shape/Worksheetに
+    #   触れる DrawToolbar/ToolButton/OnToolbarLegend 等はテストから呼ばない
+    #   (modShelfSync/modPack/modVaultGallery と同じ「モジュール全体はR4準拠
+    #   ではないが、テストが呼ぶ関数自体はExcelに触れない」型)。未注入のまま
+    #   modTestsPure29 から呼ぶと実行時エラー12になり、❓凡例ボタンの
+    #   有無を固定するゴールデンが「テストを書いても走らない」状態になる。
+    "modKnowledgeBar",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

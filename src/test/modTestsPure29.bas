@@ -380,6 +380,56 @@ Private Sub TestExpandPromptWithSynonymHint30()
         "mergedEmpty=[" & mergedEmpty & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' (E) modKnowledgeBar.ToolbarButtonCaptions / modChrome.FormatLegendBody
+'     (R31 W1-2/W1-3/W1-4): ❓凡例ボタンの純ロジック回帰。
+' ----------------------------------------------------------------------------
+Private Sub TestToolbarLegendButton31()
+    ' (a) ToolbarSpecに❓ボタンが含まれる(ギャラリー/一覧表の両方)。
+    Dim capsGallery As String
+    capsGallery = modKnowledgeBar.ToolbarButtonCaptions(False, False)
+    modTestRunner.Check "R31-W1-2_ギャラリーの並びに" & ChrW(&H2753) & "が含まれる", _
+        (InStr(capsGallery, ChrW(&H2753)) > 0), "caps=[" & capsGallery & "]"
+
+    Dim capsTable As String
+    capsTable = modKnowledgeBar.ToolbarButtonCaptions(True, False)
+    modTestRunner.Check "R31-W1-2_一覧表の並びに" & ChrW(&H2753) & "が含まれる", _
+        (InStr(capsTable, ChrW(&H2753)) > 0), "caps=[" & capsTable & "]"
+
+    ' 仕様書の記載範囲どおり、みんなの解決事例(isShared)には出さない。
+    Dim capsShared As String
+    capsShared = modKnowledgeBar.ToolbarButtonCaptions(False, True)
+    modTestRunner.Check "R31-W1-2_みんなの解決事例には" & ChrW(&H2753) & "を出さない(仕様どおり)", _
+        (InStr(capsShared, ChrW(&H2753)) = 0), "caps=[" & capsShared & "]"
+
+    ' (b) 凡例整形関数: 全ボタン名を含む・空文字にならない。
+    Dim caps(0 To 2) As String, tips(0 To 2) As String
+    caps(0) = ChrW(&H2795) & " 登録"
+    tips(0) = "文章を直接ここに書いてナレッジとして登録します"
+    caps(1) = ChrW(&HD83D) & ChrW(&HDDD1) & " 削除"
+    tips(1) = "選んだ資料を本棚から削除します"
+    caps(2) = ChrW(&H2753)
+    tips(2) = "各ボタンの説明をまとめて表示します"
+
+    Dim body As String
+    body = modChrome.FormatLegendBody(caps, tips, 3)
+    modTestRunner.Check "R31-W1-3_凡例本文は空文字にならない", (LenB(body) > 0), "body=[" & body & "]"
+    modTestRunner.Check "R31-W1-3_凡例本文に全ボタン名を含む(登録)", _
+        (InStr(body, caps(0)) > 0), "body=[" & body & "]"
+    modTestRunner.Check "R31-W1-3_凡例本文に全ボタン名を含む(削除)", _
+        (InStr(body, caps(1)) > 0), "body=[" & body & "]"
+    modTestRunner.Check "R31-W1-3_凡例本文に全ボタン名を含む(" & ChrW(&H2753) & "自身)", _
+        (InStr(body, caps(2)) > 0), "body=[" & body & "]"
+    modTestRunner.Check "R31-W1-4_削除の説明も凡例に載る(R30F3非対称の解消)", _
+        (InStr(body, tips(1)) > 0), "body=[" & body & "]"
+
+    ' n=0のときは空文字を返す(配列外参照を起こさない)。
+    Dim emptyBody As String
+    emptyBody = modChrome.FormatLegendBody(caps, tips, 0)
+    modTestRunner.Check "R31-W1-3_n=0なら空文字(配列外参照なし)", _
+        (LenB(emptyBody) = 0), "emptyBody=[" & emptyBody & "]"
+End Sub
+
 ' ============================================================================
 Public Sub RunAll29()
     On Error GoTo ToastFail29
@@ -405,6 +455,9 @@ NextE0204D30:
 NextSynHint30:
     On Error GoTo SynHintFail30
     TestExpandPromptWithSynonymHint30
+NextLegend31:
+    On Error GoTo LegendFail31
+    TestToolbarLegendButton31
 NextDone29:
     On Error GoTo 0
     Exit Sub
@@ -439,6 +492,10 @@ E0204Fail30:
     Resume NextSynHint30
 SynHintFail30:
     modTestRunner.Check "TestExpandPromptWithSynonymHint30(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume NextLegend31
+LegendFail31:
+    modTestRunner.Check "TestToolbarLegendButton31(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone29
 End Sub
