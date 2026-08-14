@@ -17,24 +17,18 @@ Option Explicit
 Private Const INSIGHT_SUBDIR As String = "insight"
 Private Const QA_SUBDIR As String = "qa"
 Private Const GAP_SUBDIR As String = "gap"
-' 2026-08-14(R32 W1-1 B2): 訂正(correction)専用のサブフォルダ。
-' 従来は訂正も GAP_SUBDIR へ書いており、受信側の CollectFrom は
-' 【フォルダ単位で kind を決める】ため、訂正がそのまま kind="gap" として
-' 受信箱に入っていた。その結果、
-'   ・訂正本文(最長2,000字)が8列目=source_or_dept へ入り、板が
-'     「部署」として 著者名/訂正本文2,000字 を連結表示する
-'   ・理由コードが生英語の "correction" のまま並ぶ
-' という形で「みんなの困りごと」の表示そのものを壊していた。
-' 出す場所を分けるのが根治で、既に届いてしまった旧データは受信側の
-' reason 列ガード(modInsight.IsGapRow)で救済する。
+' 2026-08-14(R32 W1-1 B2): 訂正(correction)専用のサブフォルダ。従来は訂正も
+' GAP_SUBDIR へ書いており、CollectFrom は【フォルダ単位で kind を決める】ため
+' 訂正が kind="gap" として受信箱に入り、訂正本文(最長2,000字)が8列目
+' =source_or_dept へ落ちて板の表示そのものを壊していた(理由も生英語で露出)。
+' 出す場所を分けるのが根治。既に届いた旧データは modInsight.IsGapRow が救済。
 Private Const CORR_SUBDIR As String = "correction"
 
-' 2026-08-14(R32 W1-8(a) M7): 困りごと・訂正の発信に氏名を載せない。
-' 【ユーザー裁定=匿名化して続ける】。部署(DeptName)は残す ―― 資料を書ける
-' 人が「どの部署で足りていないか」を掴むための最小限で、個人は特定されない。
-' 解決済みQ&A(EmitVerifiedQA)は【本人が✅解決したを押して共有すると分かって
-' いる】経路なので従来どおり AuthorName を載せる(取り込んだ側の本文にも
-' 「◯◯さんが実務で確認した」と出す設計。QABodyText)。
+' 2026-08-14(R32 W1-8(a) M7): 困りごと・訂正の発信に氏名を載せない
+' 【ユーザー裁定=匿名化して続ける】。部署(DeptName)は残す ―― 資料を書ける人が
+' 「どの部署で足りていないか」を掴む最小限で、個人は特定されない。解決済みQ&A
+' (EmitVerifiedQA)は本人が✅解決したを押して共有すると分かっている経路なので
+' 従来どおり氏名を載せる(取り込み本文にも出す設計。QABodyText)。
 Private Const ANON_AUTHOR As String = "(匿名)"
 Private Const MAX_COLLECT As Long = 60      ' 1回の起動で読むファイル数の上限
 Private Const FIELD_SEP As String = vbTab
@@ -554,12 +548,9 @@ Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
                 Dim raw As String
                 If ReadShared(dirPath & names(i), raw) Then
                     ' 2026-08-14(R32 W1-9 M8): 既読にしてよいのは「受信箱に
-                    ' その行が確実に在る」ときだけ。従来は ReadShared が
-                    ' 成功しさえすれば AppendRow の成否に関わらず印を書いて
-                    ' いたため、【書き込み途中の(=フィールドが足りない)
-                    ' ファイルを読んだ瞬間】にその投稿はこの端末から永久に
-                    ' 消えていた(次回は既読なので二度と読まない)。
-                    ' 既に受信箱に在る nonce(重複)も True=印を書いてよい。
+                    ' その行が確実に在る」ときだけ。従来は ReadShared 成功だけで
+                    ' 印を書いており、書き込み途中(=フィールド不足)のファイルを
+                    ' 読んだ瞬間にその投稿はこの端末から永久消失していた。
                     Dim added As Boolean
                     If AppendRow(ws, kind, nc, raw, known, added) Then
                         If added Then CollectFrom = CollectFrom + 1
