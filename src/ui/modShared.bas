@@ -464,6 +464,7 @@ Public Sub ShowGapBoard()
 
     Dim body As String, n As Long
     Dim goRegister As Boolean
+    Dim errNum As Long, errDesc As String
     On Error GoTo Failed
     body = modInsight.GapListText()
     n = modInsight.GapCount()
@@ -494,11 +495,25 @@ Public Sub ShowGapBoard()
 
 Done:
     On Error GoTo 0
+    ' R32マイクロ修正波 F19[MINOR]: Failedからここへ落ちたときだけ、
+    ' 押しても無反応だった穴を埋める(旧実装は On Error Resume Next で
+    ' 空のMsgBoxだけは出ていたが、Resume Done一本化(R32 F9)でそれも消えた)。
+    ' errNum はFailed:で退避済みの値(On Error GoTo 0はErrをリセットするため、
+    ' ここで読み直すと0になる。CLAUDE.mdのErr退避作法どおり先に読む)。
+    If errNum <> 0 Then
+        On Error Resume Next
+        modLog.LogError "E0801", "modShared.ShowGapBoard", _
+            "GapListText/GapCountの取得に失敗しました err=" & errDesc, errNum
+        modSkin.ShowToast "みんなの困りごとの表示に失敗しました。もう一度お試しください。", "error"
+        On Error GoTo 0
+    End If
     modUiLock.Leave
     If goRegister Then modVault.ShowVaultInput
     Exit Sub
 
 Failed:
+    errNum = Err.Number
+    errDesc = Err.Description
     ' Resume でハンドラを抜けてから後始末へ落ちる(ハンドラ稼働中は
     ' 同一プロシージャで次のエラーを捕まえられないため。vba_lint が検査)。
     Resume Done
