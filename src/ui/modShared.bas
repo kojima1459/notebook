@@ -452,17 +452,22 @@ End Sub
 '   2回通りうる」構造(Leave の直後に Exit Sub を置き、他方は Done: ラベルへ
 '   落ちる書き方)を、Leave が1箇所しかない形へ組み直した。
 ' ============================================================================
+'   2026-08-14(R32 F9): Enter のあとは【必ず】Leave を通る形へ組み直した。
+'   移設時、GapListText/GapCount だけを On Error Resume Next で包み、その後の
+'   MsgBox 2本と Leave を素で並べていたため、そこで例外が出るとUIロックを
+'   掴んだまま抜け、以後この画面もHubのボタンも一切反応しなくなる
+'   (旧 OnGapBoard は全体を包んでいたので、移設で後退していた)。
+'   Leave が1箇所という R32 r1 の形はそのまま保つ(Done: ラベルへ一本化)。
 Public Sub ShowGapBoard()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
 
     Dim body As String, n As Long
-    On Error Resume Next
+    Dim goRegister As Boolean
+    On Error GoTo Failed
     body = modInsight.GapListText()
     n = modInsight.GapCount()
-    On Error GoTo 0
 
-    Dim goRegister As Boolean
     If n = 0 Then
         ' R32 m1: 0件のときに「今すぐ登録しますか?」のYes/Noを出さない。
         ' 自分の投稿は自分の板に出ない(IsMine)ので、1人で試している間
@@ -471,6 +476,11 @@ Public Sub ShowGapBoard()
         MsgBox body, vbInformation, _
                modAppDef.APP_NAME & " - みんなの困りごと (0件)"
     Else
+        ' 【注意】この前後の案内文は【実測162字】(前79字+後83字)で、
+        ' modInsight.GapListBuild の上限820字はここから逆算している
+        ' (1,024 − 162 = 862 が本文の上限)。文言を増やすときは、あちらの
+        ' MAX_CHARS も同じだけ下げること。増やしたまま放置すると、末尾の
+        ' 「今すぐ登録しますか?」がMsgBoxから無言で消える(R32 F3)。
         goRegister = (MsgBox( _
             "みんなが質問して、本棚に答えが無かった質問です(新しい順・最大20件)。" & vbCrLf & _
             "ここに並ぶ質問に答える資料を用意すると、部内の全員がすぐ答えを得られます。" & vbCrLf & vbCrLf & _
@@ -482,8 +492,16 @@ Public Sub ShowGapBoard()
             modAppDef.APP_NAME & " - みんなの困りごと (" & n & "件)") = vbYes)
     End If
 
+Done:
+    On Error GoTo 0
     modUiLock.Leave
     If goRegister Then modVault.ShowVaultInput
+    Exit Sub
+
+Failed:
+    ' Resume でハンドラを抜けてから後始末へ落ちる(ハンドラ稼働中は
+    ' 同一プロシージャで次のエラーを捕まえられないため。vba_lint が検査)。
+    Resume Done
 End Sub
 
 Private Sub RemoveRowShapes(ByVal ws As Worksheet)

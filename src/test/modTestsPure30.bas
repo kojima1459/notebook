@@ -202,7 +202,7 @@ End Sub
 ' 自分の板に出ないため、1人で試している限り板は常に空で、実機では確かめ
 ' ようがない。守る自動テストも1件も無かった。ここの網羅性がそのまま品質になる。
 ' 固定するもの(いずれも modInsight の純関数):
-'   GapListBuild(件数上限20/合計900字/「…ほか N 件」/1件100字クランプ)
+'   GapListBuild(件数上限20/合計820字/「…ほか N 件」/1件100字クランプ)
 '   SortGapDesc(created_at降順・4列が同じ行のまま動く・部分ソート)
 '   ReasonText(全コード+未知コード+空)/ NormKey / IsGapRow / GapAged /
 '   WithinWindow(連投抑止)/ NonceKey・NonceIsKnown(重複ガード)
@@ -238,13 +238,16 @@ Private Sub TestGapListBuild32_ItemCap()
         (InStr(s, "20. ") > 0 And InStr(s, "21. ") = 0), "len=" & Len(s)
     modTestRunner.Check "R32-W1-3_件数上限で切った残りは「ほか N 件」で残す", _
         (InStr(s, "ほか 10 件") > 0), "len=" & Len(s)
-    modTestRunner.Check "R32-W1-3_合計900字以内(MsgBoxの無言欠落を作らない)", _
-        (Len(s) <= 900), "len=" & Len(s)
+    modTestRunner.Check "R32-F3_合計820字以内(MsgBoxの無言欠落を作らない)", _
+        (Len(s) <= 820), "len=" & Len(s)
     modTestRunner.Check "R32-W1-8_部署が空でも氏名は出さず「部署の記録なし」と書く", _
         (InStr(s, "部署の記録なし") > 0), "len=" & Len(s)
 End Sub
 
-' (2) 合計900字クランプ。長文が届いても字数で打ち切り、残数は文言で残す。
+' (2) 合計820字クランプ。長文が届いても字数で打ち切り、残数は文言で残す。
+'   2026-08-14(R32 F3): 上限を900→820へ下げた(呼び出し側の案内文が実測162字で、
+'   1,024−162=862 が本文に使える上限だったため)。打ち切り位置が6件目→5件目へ
+'   下がるのが正しい追随で、ここの期待値もそれに合わせてある。
 Private Sub TestGapListBuild32_CharCap()
     Dim g() As String: ReDim g(0 To 3, 0 To 9)
     Dim longQ As String: longQ = Rep32("あ", 500)
@@ -253,12 +256,12 @@ Private Sub TestGapListBuild32_CharCap()
         SetGap32 g, i, longQ, "営業部", "2026-08-01 10:00", "no_hit"
     Next i
     Dim s As String: s = modInsight.GapListBuild(g, 10)
-    modTestRunner.Check "R32-W1-3_1件500字が10件来ても900字以内に収める", _
-        (Len(s) <= 900), "len=" & Len(s)
+    modTestRunner.Check "R32-F3_1件500字が10件来ても820字以内に収める", _
+        (Len(s) <= 820), "len=" & Len(s)
     modTestRunner.Check "R32-W1-3_字数で打ち切った残りも「ほか N 件」で残す", _
-        (InStr(s, "ほか 4 件") > 0), "len=" & Len(s)
-    modTestRunner.Check "R32-W1-3_打ち切りは6件目まで(7件目は出さない)", _
-        (InStr(s, vbLf & "6. ") > 0 And InStr(s, vbLf & "7. ") = 0), "len=" & Len(s)
+        (InStr(s, "ほか 5 件") > 0), "len=" & Len(s)
+    modTestRunner.Check "R32-F3_打ち切りは5件目まで(6件目は出さない)", _
+        (InStr(s, vbLf & "5. ") > 0 And InStr(s, vbLf & "6. ") = 0), "len=" & Len(s)
     modTestRunner.Check "R32-W1-3_1件の質問文は100字で切る", _
         (InStr(s, Rep32("あ", 100)) > 0 And InStr(s, Rep32("あ", 101)) = 0), "len=" & Len(s)
 End Sub
@@ -417,8 +420,39 @@ Private Sub TestNonceGuard32()
         modInsight.NonceKey("  User-20260814-00001  ")
     modTestRunner.Check "R32-W1-2_空のnonceはキーにならない(重複扱いにしない)", _
         (LenB(modInsight.NonceKey("   ")) = 0), "[" & modInsight.NonceKey("   ") & "]"
-    modTestRunner.Check "R32-W1-2_集合が作れない環境では従来どおり足す(取りこぼしを作らない)", _
-        (Not modInsight.NonceIsKnown(Nothing, "user-20260814-00001"))
+    ' 2026-08-14(R32 F11): ここは以前「集合が作れない環境(known=Nothing)なら
+    ' False」しか撃っておらず、B1の核心である【集合に在るときTrueを返して
+    ' 二重登録を止める】陽性経路が一度も検証されていなかった。判定を
+    ' 文字列版(NonceMemoAdd / NonceIsKnownIn)へ移したので、両方を固定する。
+    Dim memo As String
+    modTestRunner.Check "R32-F11_空のメモには何も当たらない(初回は必ず足す)", _
+        (Not modInsight.NonceIsKnownIn(memo, "user-20260814-00001")), "[" & memo & "]"
+
+    memo = modInsight.NonceMemoAdd(memo, "User-20260814-00001")
+    modTestRunner.Check "R32-F11_足した直後は【当たる】(陽性経路=二重登録を止める本体)", _
+        (modInsight.NonceIsKnownIn(memo, "user-20260814-00001")), "[" & memo & "]"
+    modTestRunner.Check "R32-F11_大文字小文字と前後空白が違っても当たる", _
+        (modInsight.NonceIsKnownIn(memo, "  USER-20260814-00001 ")), "[" & memo & "]"
+    modTestRunner.Check "R32-F11_別のnonceには当たらない(取りこぼしを作らない)", _
+        (Not modInsight.NonceIsKnownIn(memo, "user-20260814-00002")), "[" & memo & "]"
+
+    memo = modInsight.NonceMemoAdd(memo, "user-20260814-00002")
+    modTestRunner.Check "R32-F11_2件目も当たり、1件目も残る", _
+        (modInsight.NonceIsKnownIn(memo, "user-20260814-00001") And _
+         modInsight.NonceIsKnownIn(memo, "user-20260814-00002")), "[" & memo & "]"
+    ' 前方一致の取り違え防止: "user-20260814-0000" は "…-00001" に当たらない
+    ' (キーの両端を "|" で挟んでいることの確認。modBackdrop.MemoKey と同型)。
+    modTestRunner.Check "R32-F11_前方一致では誤ヒットしない", _
+        (Not modInsight.NonceIsKnownIn(memo, "user-20260814-0000")), "[" & memo & "]"
+    ' 同じnonceを二度足してもメモは太らない(受信箱に同じ行が2つあっても同じ)。
+    Dim before As Long: before = Len(memo)
+    memo = modInsight.NonceMemoAdd(memo, "USER-20260814-00001")
+    modTestRunner.Check "R32-F11_同じnonceを足してもメモは伸びない", _
+        (Len(memo) = before), "before=" & before & " after=" & Len(memo)
+    ' 空のnonceはメモを壊さない(空キーが入ると以後の判定が全部当たる)。
+    memo = modInsight.NonceMemoAdd(memo, "   ")
+    modTestRunner.Check "R32-F11_空のnonceはメモに入れない", _
+        (Len(memo) = before And Not modInsight.NonceIsKnownIn(memo, "")), "[" & memo & "]"
 End Sub
 
 ' ============================================================================

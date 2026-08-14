@@ -435,7 +435,7 @@ Public Function QABodyText(ByVal author As String, ByVal qText As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' InboxNonceSet - 受信箱に既に在る nonce の集合(2026-08-14 R32 W1-2 B1)。
+' InboxNonceMemo - 受信箱に既に在る nonce の集合(2026-08-14 R32 W1-2 B1)。
 '   共有フォルダの実ファイルを消すのは【発行者端末だけ】(R8b B12)なのに、
 '   既読印 "ins:" は【全端末】が自分で67日で消す(GcOldNonces)。この非対称の
 '   ため、発行担当が居ない・久しく起動していない組織では、67日目に全端末が
@@ -444,23 +444,42 @@ End Function
 '   RegisterKnowledgeText の一時ファイル名に時刻が入る(=別ファイル扱い)
 '   ため【本棚に同じQ&Aが二重登録される】。
 '   既読印だけでは止まらないので、受信箱そのものを突き合わせの真実にする。
-'   照合はDictionaryのO(1)。my_stats を1件ずつ引く形(R8 F10で捨てた形)へは
-'   戻さない。
+'
+'   2026-08-14(R32 F11): 集合の器を Scripting.Dictionary から
+'   【1本の文字列 "|nonce|nonce|…"】へ変えた。理由は2つ:
+'     (1) Dictionary版は LibreOffice の純ロジックテストから作れないため、
+'         「集合に在るとき True を返す」という B1 の【核心】を一度も検証
+'         できていなかった(known=Nothing の陰性経路しか撃てず、実装を壊しても
+'         全部PASSのまま出荷できる状態だった)。
+'     (2) Dictionary が使えない端末では集合が Nothing になり、二重登録ガードが
+'         【丸ごと効かない】まま静かに素通りしていた。文字列なら必ず作れる。
+'   照合コストは InStr の線形走査だが、受信箱は最大500行=メモは約2万字で、
+'   1回の起動で引くのは高々 MAX_COLLECT(60)回。my_stats を1件ずつ引く形
+'   (R8 F10で捨てた形。共有ファイル数×my_stats行数)へ戻すわけではない。
+'   メモの形は modBackdrop.MemoKey と同じ「両端を "|" で挟む」= 前方一致の
+'   取り違え("abc" が "abcd" に当たる)が起きない。
 ' ----------------------------------------------------------------------------
-Public Function InboxNonceSet() As Object
-    Dim d As Object
+Public Function InboxNonceMemo() As String
     On Error Resume Next
-    Set d = CreateObject("Scripting.Dictionary")
-    Set InboxNonceSet = d
-    If d Is Nothing Then Exit Function
     Dim n As Long
     Dim arr As Variant: arr = InboxArray(n)
-    Dim i As Long
+    Dim memo As String, i As Long
     For i = 1 To n
-        Dim k As String: k = NonceKey(CStr(arr(i, 1)))
-        If LenB(k) > 0 Then d(k) = 1
+        memo = NonceMemoAdd(memo, CStr(arr(i, 1)))
     Next i
+    InboxNonceMemo = memo
     On Error GoTo 0
+End Function
+
+' メモへ1件足す(純関数・R32 F11)。空メモには先頭の "|" から作る。
+' 既に在るものは足さない(同じ nonce の行が2つある受信箱でもメモは太らない)。
+Public Function NonceMemoAdd(ByVal memo As String, ByVal nc As String) As String
+    NonceMemoAdd = memo
+    Dim k As String: k = NonceKey(nc)
+    If LenB(k) = 0 Then Exit Function
+    If NonceIsKnownIn(memo, nc) Then Exit Function
+    If LenB(memo) = 0 Then NonceMemoAdd = "|"
+    NonceMemoAdd = NonceMemoAdd & k & "|"
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -500,21 +519,31 @@ Public Function WithinWindow(ByVal stampText As String, ByVal limitText As Strin
     WithinWindow = (t > limitText)
 End Function
 
-' nonce重複ガードの判定(純関数・W1-2)。集合そのものを作れない環境
-' (Scripting.Dictionary が使えない等)では False=従来どおり足す へ倒す。
-' 「速くするための仕組みが無いと機能そのものが止まる」を作らない(IsSeen と
-' 同じ考え方)。二重取り込みは受信箱側の実害だが、取りこぼしは共有知の
-' 断絶で、後者のほうが重い。
-Public Function NonceIsKnown(ByVal known As Object, ByVal nc As String) As Boolean
-    If known Is Nothing Then Exit Function
+' ----------------------------------------------------------------------------
+' NonceIsKnownIn - 重複ガードの判定を【文字列の集合】で行う版(純関数・R32 F11)。
+' ----------------------------------------------------------------------------
+'   なぜ切り出したのか: 元の判定は Scripting.Dictionary を受け取る形で、
+'   Dictionary が使えない LibreOffice の純ロジックテストからは
+'   「known が Nothing のとき False」しか撃てなかった。W1-2(B1)の核心は
+'   【集合に在るときに True を返して二重登録を止める】ほうであり、そこが
+'   一度もテストされていなかった(壊しても全部PASSのまま出荷できた)。
+'   そこで判定そのものを「メモ文字列に在るか」の形へ切り出し、陽性・陰性の
+'   両方を固定できるようにする。メモの形は modBackdrop.MemoKey と同じ
+'   "|キー|キー|" ―― 両端を "|" で挟むので、前方一致("abc" が "abcd" に
+'   当たる)の取り違えが起きない。
+'   nonce の正規化は NonceKey 1本に通す(作る側・引く側で表記がズレると
+'   ガードが素通りする)。
+' ----------------------------------------------------------------------------
+Public Function NonceIsKnownIn(ByVal memo As String, ByVal nc As String) As Boolean
     Dim k As String: k = NonceKey(nc)
     If LenB(k) = 0 Then Exit Function
-    NonceIsKnown = known.Exists(k)
+    If LenB(memo) = 0 Then Exit Function
+    NonceIsKnownIn = (InStr(1, memo, "|" & k & "|", vbBinaryCompare) > 0)
 End Function
 
 ' 集合に入れる/引くときの nonce の正規化(純関数)。Windowsのファイル名は
 ' 大文字小文字を区別しないので、集合を作った側と引く側で表記が違うだけで
-' 重複ガードが素通りする。作る側(InboxNonceSet)・引く側(NonceIsKnown)・
+' 重複ガードが素通りする。作る側(InboxNonceMemo/NonceMemoAdd)・引く側(NonceIsKnownIn)・
 ' 足した直後に自分で登録する側(modInsightIo.AppendRow)の3箇所が必ず
 ' この1本を通る。
 Public Function NonceKey(ByVal nc As String) As String
@@ -600,22 +629,34 @@ End Function
 '   MsgBox の本文は実機で約1,024字を超えると【無言で切り落とされる】。従来は
 '   最大20件×1件あたり最長2,000字を素で流し込んでいたため、超過分だけでなく
 '   本文の後ろに置いた「今すぐ登録しますか?」の一文まで消え、何を聞かれて
-'   いるのか分からないYes/Noダイアログになっていた(M1)。ここで合計900字に
-'   収める(1,024との差は、呼び出し側が前後に足す案内文のぶんの余裕)。
+'   いるのか分からないYes/Noダイアログになっていた(M1)。
+'
+'   【上限の逆算】(2026-08-14 R32 F3。W1-3の見込み124字は実測と38字ずれていた)
+'   呼び出し側 modShared.ShowGapBoard が本文の前後に足す案内文は【実測162字】:
+'       前 36 + 2 + 37 + 2 + 2 = 79字
+'       後  2 + 22 + 2 + 35 + 2 + 20 = 83字   (2 は vbCrLf)
+'   1,024 − 162 = 862 が本文に使える上限。ここを 900 にしていたので、
+'   最悪ケースで 1,062字 = 上限超過(=末尾の「今すぐ登録しますか?」が
+'   また消える)だった。余裕を42字とって【820】へ下げる。
+'   案内文を書き換えるときは、この逆算をやり直すこと。
 '     ・1件の質問文は先頭100字まで(SafeLeft=サロゲートペアを割らない)
 '     ・部署も40字で切る(共有フォルダの他人のファイル由来=長さは信用しない)
+'     ・created_at も20字で切る(F10。他人のファイル由来なので長さを信用しない。
+'       ここだけクランプが無く、壊れた1行で本文全体を押し流せる状態だった)
 '     ・入りきらない件数は捨てずに「…ほか N 件」として残す
 '     ・並びは created_at の降順(M5: 従来は受信順=Dir()の列挙順=ユーザーID順
 '       なのに「新しい順」と名乗っていた)
 '   1件目だけは字数に関わらず必ず入れる(全部消えて空の板になるのを避ける。
-'   上の切り詰めにより1件あたりは高々200字程度で、900字を割ることはない)。
+'   上の切り詰めにより1件は高々 3+100+1+6+40+3+20+3+25+1+1 = 203字で、
+'   820字を割ることはない)。
 ' ----------------------------------------------------------------------------
 Public Function GapListBuild(ByRef g() As String, ByVal cnt As Long) As String
     Const MAX_ITEMS As Long = 20
-    Const MAX_CHARS As Long = 900
+    Const MAX_CHARS As Long = 820       ' 1024 − 案内文162 − 余裕42
     Const TAIL_ROOM As Long = 24        ' 「…ほか N 件」の予約枠
     Const Q_CHARS As Long = 100
     Const DEPT_CHARS As Long = 40
+    Const DATE_CHARS As Long = 20       ' F10: created_at のクランプ
     If cnt <= 0 Then Exit Function
 
     Dim lim As Long: lim = cnt
@@ -628,7 +669,8 @@ Public Function GapListBuild(ByRef g() As String, ByVal cnt As Long) As String
         If LenB(who) = 0 Then who = "部署の記録なし"
         Dim entry As String
         entry = (shown + 1) & ". " & modUtil.SafeLeft(g(0, i), Q_CHARS) & vbLf & _
-                "     (" & who & " ・ " & g(2, i) & " ・ " & ReasonText(g(3, i)) & ")" & vbLf
+                "     (" & who & " ・ " & modUtil.SafeLeft(g(2, i), DATE_CHARS) & _
+                " ・ " & ReasonText(g(3, i)) & ")" & vbLf
         If shown > 0 Then
             If Len(sb) + Len(entry) > MAX_CHARS - TAIL_ROOM Then Exit For
         End If

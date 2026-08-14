@@ -188,8 +188,8 @@ Public Function CollectInsights() As Long
     ' 使うほど起動が重くなる形だった。
     Dim seen As Object: Set seen = LoadSeenSet()
     ' R32 W1-2(B1): 既読印とは別に、受信箱に在る nonce そのものを突き合わせる。
-    ' 理由は modInsight.InboxNonceSet の説明。
-    Dim known As Object: Set known = modInsight.InboxNonceSet()
+    ' 理由は modInsight.InboxNonceMemo の説明。
+    Dim known As String: known = modInsight.InboxNonceMemo()
 
     Dim qaDir As String: qaDir = SubDir(QA_SUBDIR)
     Dim gapDir As String: gapDir = SubDir(GAP_SUBDIR)
@@ -424,7 +424,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Function CollectFrom(ByVal ws As Worksheet, ByVal dirPath As String, _
                              ByVal kind As String, ByVal seen As Object, _
-                             ByVal known As Object) As Long
+                             ByRef known As String) As Long
     If LenB(dirPath) = 0 Then Exit Function
     On Error Resume Next
     If Len(Dir(dirPath, vbDirectory)) = 0 Then Exit Function
@@ -522,14 +522,14 @@ End Function
 ' なので分けた。壊れたファイル(フィールド不足)は両方False=次回また読む。
 Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
                            ByVal nc As String, ByVal raw As String, _
-                           ByVal known As Object, ByRef outAdded As Boolean) As Boolean
+                           ByRef known As String, ByRef outAdded As Boolean) As Boolean
     outAdded = False
     Dim f() As String
     f = Split(raw, FIELD_SEP)
     If UBound(f) < 5 Then Exit Function     ' 書き込み途中・壊れたファイル
 
     ' R32 W1-2(B1): 同じ nonce の行が既に在るなら足さない(冪等化)。
-    If modInsight.NonceIsKnown(known, nc) Then
+    If modInsight.NonceIsKnownIn(known, nc) Then
         AppendRow = True                    ' 受信箱には在る=既読にしてよい
         Exit Function
     End If
@@ -558,7 +558,7 @@ Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
         If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     End If
     ws.Cells(r, 9).Value = ""
-    If Not known Is Nothing Then known(modInsight.NonceKey(nc)) = 1
+    known = modInsight.NonceMemoAdd(known, nc)
     outAdded = True
     AppendRow = True
 End Function

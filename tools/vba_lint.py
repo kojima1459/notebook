@@ -1556,15 +1556,21 @@ CONTRACT: dict[str, dict] = {
             # 直接呼んで固定する(この機能は1人テストでは板が常に空になり、
             # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
             "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
-            "InboxNonceSet", "NonceIsKnown", "GapAged", "WithinWindow",
+            "InboxNonceMemo", "NonceMemoAdd", "GapAged", "WithinWindow",
             "NonceKey",
             # 2026-08-14(R32 Fix波): 敵対的レビュー1周目の裁定で追加/移設。
+            # NonceIsKnownIn / NonceMemoAdd(F11): nonce重複ガードを
+            #   Scripting.Dictionary から「|nonce|nonce|」の1本の文字列へ
+            #   置き換えた(旧 InboxNonceSet/NonceIsKnown を差し替え)。
+            #   Dictionary版はLOから陽性経路を撃てず、B1の核である
+            #   「集合に在るときTrue」が一度もテストできていなかったうえ、
+            #   Dictionaryが使えない端末ではガードが丸ごと素通りしていた。
             # TrimInboxRows: 受信箱の掃除。modInsightIo が30,000字上限を超えた
             #   ため移設したが、置き場所としてもこちらが正しい(受信箱シートの
             #   管理が本モジュールの持ち分)。呼ぶのは CollectInsights の1箇所。
             # 発信側の関所(PiiBlocked/GapDupBlocked/MarkGapEmitted/
             #   GcGapDupKeys)は modInsightGate へ移設した(下の契約)。
-            "TrimInboxRows",
+            "NonceIsKnownIn", "TrimInboxRows",
         ],
     },
     # modInsightGate(2026-08-14 R32 Fix波): 「部内へ出してよいか」を決める
