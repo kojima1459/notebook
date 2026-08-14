@@ -1586,6 +1586,10 @@ CONTRACT: dict[str, dict] = {
             "AnonId", "PiiBlocked", "StripDateLike", "NotifySkip",
             "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys",
             "NonceKeepDays", "InboxKeepDays",
+            # R32マイクロ修正波 F17: 走査専用の改行つぶし(改行等をmodPiiの
+            # 継続文字でない","へ落とす)。modInsightIo.EmitGap/EmitCorrection
+            # がPII走査の直前に呼ぶ。送信本文(Clean1)には使わない。
+            "ScanClean",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
