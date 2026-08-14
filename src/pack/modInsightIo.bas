@@ -83,9 +83,14 @@ Public Sub EmitGap(ByVal q As String, ByVal reason As String)
     ' R32 W1-8(b): 個人情報を含む可能性があるなら部内へ出さない。
     ' このゲートは波2の pii_scan_enabled(パック発行側のオフスイッチ)の
     ' 影響を受けず【常に走る】。理由は modInsightGate.PiiBlocked のコメント。
-    ' R32 F4: 走査するのは【実際に送る文字列】= Clean1(q)。
-    If modInsightGate.PiiBlocked(Clean1(q), "gap") Then Exit Sub
-    ' R32 W1-6(M4): 同じ趣旨の質問の連投を止める(判定は modInsight 側)。
+    ' R32 F4: 走査するのは【実際に送る文字列と同じ内容】。
+    ' R32 マイクロ修正波 F17[MAJOR]: ただし Clean1 済みの文字列をそのまま
+    ' 渡すと、改行が半角スペースへ均されて別々の数字列が繋がり誤検知する
+    ' (詳細は modInsightGate.ScanClean のコメント参照)。走査だけは
+    ' ScanClean(改行等を modPii の継続文字でない "," へ落とす)を通した q を
+    ' 使い、送信本文(下の body)は現状どおり Clean1(q) のまま変えない。
+    If modInsightGate.PiiBlocked(modInsightGate.ScanClean(q), "gap") Then Exit Sub
+    ' R32 W1-6(M4): 同じ趣旨の質問の連投を止める(判定は modInsightGate 側)。
     If modInsightGate.GapDupBlocked(q) Then Exit Sub
 
     Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
@@ -128,14 +133,19 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     If LenB(Trim$(fixText)) = 0 Then Exit Sub
     ' R32 W1-8: 訂正も同じ扱い(実名を出さない・PII検知で見送る)。訂正本文は
     ' 利用者が自由に書ける欄なので、質問文よりむしろ個人情報が入りやすい。
-    ' R32 F4: 走査は【実際に送る2本の文字列そのもの】を【別々に】行う。
+    ' R32 F4: 走査は【実際に送る2本の文字列と同じ内容】を【別々に】行う。
     ' 連結すると片方の末尾の数字ともう片方の先頭の数字が繋がって偽の長い
     ' 数字列になり(半角スペースは modPii がランの継続として数える)、
     ' しかも走査だけ全文・送信は先頭200字という食い違いもあった。
-    Dim qField As String: qField = Clean1("【訂正】" & modUtil.SafeLeft(answerText, 200))
+    ' R32 マイクロ修正波 F17[MAJOR]: 走査に Clean1 済みの文字列を渡すと、
+    ' 改行が半角スペースへ均されて同じ理由で誤検知する(gap側F17と同じ
+    ' 真因)。走査だけ modInsightGate.ScanClean を通した「素の文字列」を使い、
+    ' 送信本文の qField/fField は Clean1 のまま変えない。
+    Dim qRaw As String: qRaw = "【訂正】" & modUtil.SafeLeft(answerText, 200)
+    Dim qField As String: qField = Clean1(qRaw)
     Dim fField As String: fField = Clean1(fixText)
-    If modInsightGate.PiiBlocked(qField, "correction") Then Exit Sub
-    If modInsightGate.PiiBlocked(fField, "correction") Then Exit Sub
+    If modInsightGate.PiiBlocked(modInsightGate.ScanClean(qRaw), "correction") Then Exit Sub
+    If modInsightGate.PiiBlocked(modInsightGate.ScanClean(fixText), "correction") Then Exit Sub
 
     ' R32 W1-1: 困りごとの板に混ざらないよう専用フォルダへ出す。
     Dim dirPath As String: dirPath = SubDir(CORR_SUBDIR)
@@ -209,7 +219,7 @@ Public Function CollectInsights() As Long
     ' 共有パス未設定だと最初のExit Functionで素通りしてしまう)には乗せられない。
     GcOldSavedDays
     ' R32 W1-6: 連投抑止キー(gapq:)のGCも同じタイミングで。実体は
-    ' modInsight 側(キー名・書き込み・掃除を1モジュールに集める)。
+    ' modInsightGate 側(キー名・書き込み・掃除を1モジュールに集める)。
     modInsightGate.GcGapDupKeys
 
     ' 2026-07-31(R8b B12): 共有フォルダ側(qa/gap の実ファイル)を消すのは
