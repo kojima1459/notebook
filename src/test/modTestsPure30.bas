@@ -123,45 +123,76 @@ Private Sub TestStretchToolbarRows30_ThreeRows()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' R31 Fix波 F2: Hub/Dashの「毎描画40行焼き→即削除」往復の解消。
-'   modViewport2.SeedBurn(Worksheet依存の薄い口)の中身は SeedRowCap(既存の
-'   本棚用頭打ち純関数)そのままなので、ここでは SeedRowCap×ReleaseRange の
-'   組み合わせで「窓高600pt未満でも2回目描画ではReleaseRangeがFalse(削除0)
-'   になる」ことを固定する(実Worksheetを使わない純関数の対)。
-'   content の実下端(boundRow)は SetScaleY の圧縮により viewportHeight に
-'   ほぼ一致するため、boundRow=seed とみなせる ―― 定常状態では
-'   「焼く行=残る行」が一致し、ReleaseRangeは働かない。
+' R31 Fix検証パスF12: Hub/DashのSeedBurn×境界(RowAtFloor相当)往復ゼロを
+'   「実装を通る」形で固定する。旧F2テストはSeedBurnを経由せずReleaseRangeへ
+'   手で選んだ一致値を渡すだけで、実装を旧コード(CLng丸め/maxRowCap不一致/
+'   hdrH無視)へ戻しても落ちない恒真に近いテストだった。
+'   ここではModelRowAtFloorでmodViewport.RowAtFloorの実アルゴリズム(行1〜N
+'   の累積Top+Heightをyで切り下げ)をWorksheet非依存に再現し、SeedRowCapが
+'   実際に呼ばれる形(modViewport2.SeedBurnの内部呼び出しと同じ引数の組み方)
+'   で出す値と、独立に計算した「実境界(ModelRowAtFloor)+1」が一致することを
+'   確認する ―― SeedRowCapとModelRowAtFloorは別実装なので、丸め方式や
+'   maxRowCapの受け渡しがズレれば必ず不一致で落ちる。
 ' ----------------------------------------------------------------------------
-Private Sub TestHubDashSeedBurnIdempotent_F2()
-    Dim windowH As Double: windowH = 400   ' 600pt未満の狭い窓
-    Dim maxRow As Long: maxRow = 200       ' modHub.SeedBurnの呼び出し値(F2)
+Private Function ModelRowAtFloor(ByVal hdrH As Double, ByVal rowH As Double, _
+                                 ByVal y As Double, ByVal maxRow As Long) As Long
+    Dim result As Long: result = 1
+    Dim acc As Double: acc = 0
+    Dim i As Long, h As Double
+    For i = 1 To maxRow
+        If i = 1 Then h = hdrH Else h = rowH
+        If acc + h > y Then Exit For
+        acc = acc + h
+        result = i
+    Next i
+    ModelRowAtFloor = result
+End Function
 
-    ' 初回(旧ブック/前状態不明)のseed: 窓ぶん(400/15≒27行)で決まる。
-    Dim seed As Long
-    seed = modViewport2.SeedRowCap(1, windowH, 15, 0, maxRow)
-    modTestRunner.Check "R31-Fix-F2_窓400ptのseedは窓ぶん(28行)", _
-        (seed = 28), "seed=" & seed
+Private Sub TestHubDashSeedBurnIdempotent_F12()
+    ' (a) 縦に高い窓(Dash相当・行1もrowHの一様モデル・hdrH=rowH)。
+    '     viewH=1000/rowH=15/maxRowCap=120(DASH_ROWS)は余裕を持って
+    '     頭打ちに掛からない ―― 焼く行(seed)は実境界+1(keepRow)に一致し、
+    '     ReleaseRangeは削除0(往復ゼロ)。
+    Dim keepA As Long: keepA = ModelRowAtFloor(15, 15, 1000, 120) + 1
+    Dim seedA As Long: seedA = modViewport2.SeedRowCap(1, 1000, 15, 0, 120)
+    modTestRunner.Check "R31-F12a_縦に高い窓(1000pt)でseed=実境界+1に一致", _
+        (seedA = keepA), "seed=" & seedA & " keep=" & keepA
+    Dim fromA As Long, toA As Long, hitA As Boolean
+    hitA = modViewport2.ReleaseRange(keepA, seedA, 4, 120, fromA, toA)
+    modTestRunner.Check "R31-F12a_縦に高い窓は焼き≦残しで削除0", _
+        (hitA = False), "hit=" & hitA
 
-    ' 1回目描画: 旧コード(固定40行)や旧セッションの焼き付き(200行)が
-    ' 残っている状態からの移行直後は、まだ削除が要る(1回だけの後始末)。
-    Dim fromRow As Long, toRow As Long
-    Dim hit As Boolean
-    hit = modViewport2.ReleaseRange(seed, 200, 4, maxRow, fromRow, toRow)
-    modTestRunner.Check "R31-Fix-F2_移行直後の1回目は削除が要る", _
-        (hit = True) And (fromRow = seed + 1) And (toRow = 200), _
-        "hit=" & hit & " from=" & fromRow & " to=" & toRow
+    ' (b) Hub相当(行1=ヘッダー48pt・行2以降15pt)。窓588pt(48+15*36の
+    '     割り切れる境界)で塗り下端(RowAt=ModelRowAtFloorが割り切れる場合は
+    '     ceilもfloorと同値)=keepRow-1になることを固定しつつ、レビューの
+    '     実測値である窓600pt(割り切れない・keepRow=38)でも往復ゼロを取る。
+    Dim keepB1 As Long: keepB1 = ModelRowAtFloor(48, 15, 588, 60) + 1
+    Dim seedB1 As Long: seedB1 = modViewport2.SeedRowCap(2, 588 - 48, 15, 0, 60)
+    modTestRunner.Check "R31-F12b_窓588pt(割り切れる)でseed=keepRowに一致(37行)", _
+        (keepB1 = 38) And (seedB1 = keepB1), _
+        "keep=" & keepB1 & " seed=" & seedB1
+    modTestRunner.Check "R31-F12b_窓588ptの塗り下端はkeepRow-1(37行)", _
+        (ModelRowAtFloor(48, 15, 588, 60) = keepB1 - 1), _
+        "floor=" & ModelRowAtFloor(48, 15, 588, 60)
 
-    ' 定常状態(2回目描画): SeedBurnは lastUsed=seed を渡されても
-    ' 同じseedを返す(窓ぶんの頭打ちが変わらない=冪等)。contentの実下端も
-    ' 同じseedに一致するため、ReleaseRangeは削除0(False)になる。
-    Dim seed2 As Long
-    seed2 = modViewport2.SeedRowCap(1, windowH, 15, seed, maxRow)
-    modTestRunner.Check "R31-Fix-F2_2回目のseedは1回目と同じ(冪等)", _
-        (seed2 = seed), "seed2=" & seed2
+    Dim keepB2 As Long: keepB2 = ModelRowAtFloor(48, 15, 600, 60) + 1
+    Dim seedB2 As Long: seedB2 = modViewport2.SeedRowCap(2, 600 - 48, 15, 0, 60)
+    modTestRunner.Check "R31-F12b_窓600pt(実機第16報の実測値・keepRow=38)でseed一致", _
+        (keepB2 = 38) And (seedB2 = keepB2), _
+        "keep=" & keepB2 & " seed=" & seedB2
+    Dim fromB As Long, toB As Long, hitB As Boolean
+    hitB = modViewport2.ReleaseRange(keepB2, seedB2, 4, 60, fromB, toB)
+    modTestRunner.Check "R31-F12b_窓600pt(Hub相当)は往復ゼロ(削除0)", _
+        (hitB = False), "hit=" & hitB
 
-    hit = modViewport2.ReleaseRange(seed2, seed2, 4, maxRow, fromRow, toRow)
-    modTestRunner.Check "R31-Fix-F2_窓高600pt未満でも2回目描画は削除0", _
-        (hit = False), "hit=" & hit
+    ' (c) maxRowCap頭打ち: 窓が絶対上限(60)を超えて要求しても、焼く行は
+    '     60を超えない(旧セッションの焼き付き救済がmaxRowCapを破らない)。
+    Dim seedC As Long: seedC = modViewport2.SeedRowCap(2, 5000, 15, 0, 60)
+    modTestRunner.Check "R31-F12c_巨大な窓でもmaxRowCap(60)で頭打ちする", _
+        (seedC = 60), "seed=" & seedC
+    Dim seedC2 As Long: seedC2 = modViewport2.SeedRowCap(2, 5000, 15, 9999, 60)
+    modTestRunner.Check "R31-F12c_使用済み下端の救済もmaxRowCapを破らない", _
+        (seedC2 = 60), "seed=" & seedC2
 End Sub
 
 ' ============================================================================
@@ -169,7 +200,7 @@ Public Sub RunAll30()
     On Error GoTo StretchFail30
     TestStretchToolbarRows30
     TestStretchToolbarRows30_ThreeRows
-    TestHubDashSeedBurnIdempotent_F2
+    TestHubDashSeedBurnIdempotent_F12
 NextDone30:
     On Error GoTo 0
     Exit Sub
