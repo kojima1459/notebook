@@ -169,10 +169,10 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     bnd = modViewport.BoundAddr(ws, "L", trueBot, 60)
     ws.Range(bnd).Interior.Color = modUI.UiColor("bg")
     modViewport.ApplyScrollBound ws, bnd
-    ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。
-    ' bnd は必ず A1 起点なので、行数がそのまま下端行になる。
+    ' R31 W2-2: 境界+1行より下は削除で解放(停止線=焼き付きUsedRangeの
+    ' 末尾。bnd は A1 起点なので行数=下端行)。
     On Error Resume Next
-    modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, 200
+    modViewport.ReleaseSheetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, 200, bnd
     On Error GoTo Fail
     ' R21-S7: 窓幅/可視幅/帯実幅/中身右端/境界下端の5値観測点。
     modViewport2.LogFit ws, "hub", HUB_BAND, bnd
