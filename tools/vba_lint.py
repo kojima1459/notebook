@@ -1559,6 +1559,14 @@ CONTRACT: dict[str, dict] = {
             "InboxNonceSet", "NonceIsKnown", "GapAged",
             "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys", "WithinWindow",
             "PiiBlocked", "NonceKey",
+            # 2026-08-14(R32 Fix波): 敵対的レビュー1周目の裁定で追加した純関数。
+            # NonceKeepDays/InboxKeepDays(F1): 既読印GCと受信箱保持の不等式。
+            # NonceIsKnownIn(F11): nonce重複ガードの文字列版(陽性経路の固定)。
+            # StripDateLike(F4): PII走査へ渡す前に日付・時刻の並びを潰す前処理。
+            # AnonId(F2): 発信者IDの匿名化(ハッシュ化)。
+            # NotifySkip(F5): 共有を見送ったことを利用者へ知らせるトースト。
+            "NonceKeepDays", "InboxKeepDays", "NonceIsKnownIn",
+            "StripDateLike", "AnonId", "NotifySkip",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。

@@ -42,7 +42,9 @@ Private Const INS_PREFIX As String = "ins:"
 ' 「みんなの困りごと」の描画も毎回そのぶん重くなる(chat_logの100件
 ' ローテと同じ考え方。ただしこちらは【未取込の行は絶対に消さない】)。
 Private Const INBOX_MAX_ROWS As Long = 500
-Private Const INBOX_KEEP_DAYS As Long = 60
+' 保持日数は固定値をやめ、既読印GCと同じ config thanks_gc_days から導く
+' (2026-08-14 R32 F1)。「既読印GC日数 < 受信箱保持日数」の不等式そのものは
+' modInsight.NonceKeepDays / InboxKeepDays が持つ(理由と検算はそちら)。
 Private Const INBOX_COLS As Long = 10       ' A..J(J=選択状態)
 
 ' ----------------------------------------------------------------------------
@@ -239,7 +241,7 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' TrimInboxRows - 受信箱の古い行を片付ける(2026-08-14 R32 W1-4で改称・拡張)。
-'   ・取り込み済み(consumed=1): 「60日より古い」または「500行を超えた超過分」。
+'   ・取り込み済み(consumed=1): 「保持日数より古い」または「500行を超えた超過分」。
 '     未取込のQ&Aは何行あっても消さない。届いた知恵を、読む前にこちらの
 '     都合で捨てないため。
 '   ・困りごと(gap)と訂正(correction): consumed が立つ経路が存在しないため、
@@ -259,7 +261,9 @@ Private Sub TrimInboxRows(ByVal ws As Worksheet)
 
     ' 期限の境界は文字列比較で判定する(ISO日付は辞書順=時系列順。
     ' 和暦カレンダー端末でも壊れない。R12-1-4と同じ理由でCDateを通さない)。
-    Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - INBOX_KEEP_DAYS)
+    Dim keepDays As Long
+    keepDays = modInsight.InboxKeepDays(modConfig.GetLong("thanks_gc_days", 60))
+    Dim cutoff As String: cutoff = modUtilText.IsoDate(Date - keepDays)
 
     ' R32 W1-4: 困りごと/訂正の保持期間。0以下で無効(=従来どおり残す)。
     Dim gapCut As String
@@ -317,7 +321,7 @@ Private Sub TrimInboxRows(ByVal ws As Worksheet)
         "受信箱の古い行を" & dropped & "件片付けました(上限超過" & overN & _
         "件/取込済みの期限切れ" & agedN & "件/困りごと・訂正の期限切れ" & gapN & _
         "件。残り" & keepN & "行。上限" & INBOX_MAX_ROWS & "行/" & _
-        INBOX_KEEP_DAYS & "日/困りごと" & gapDays & "日)"
+        keepDays & "日/困りごと" & gapDays & "日)"
     On Error GoTo 0
 End Sub
 
@@ -399,7 +403,8 @@ End Function
 ' GcOldNonces - 期限を過ぎた "ins:" 行を my_stats から取り除く(R8 F10)。
 '   modP2P.GcOldNonces と同じ作法。共有側のファイルを N日で消す以上、
 '   既読印だけ永久に残すと my_stats が無限に伸びる(=起動が重くなる)。
-'   保持は共有側+7日。
+'   保持は共有側+7日(modInsight.NonceKeepDays)。受信箱側(InboxKeepDays)は
+'   必ずこれより長い ―― 両方が同時に消える日を作らないため(R32 F1)。
 '
 '   旧い端末の既読印は Bump で書かれた数値("1")で、日付として読めない。
 '   modP2P は読めない値を掃除対象にしているが、ここで同じことをすると
@@ -410,7 +415,7 @@ End Function
 Private Sub GcOldNonces()
     On Error Resume Next
     Dim keepDays As Long
-    keepDays = modConfig.GetLong("thanks_gc_days", 60) + 7
+    keepDays = modInsight.NonceKeepDays(modConfig.GetLong("thanks_gc_days", 60))
     If keepDays < 1 Then Exit Sub
 
     Dim ws As Worksheet

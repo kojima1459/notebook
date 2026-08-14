@@ -369,6 +369,37 @@ Public Function InboxNonceSet() As Object
 End Function
 
 ' ----------------------------------------------------------------------------
+' NonceKeepDays / InboxKeepDays - 既読印と受信箱の保持日数(純関数・R32 F1)。
+' ----------------------------------------------------------------------------
+'   【BLOCKER だったこと】受信箱の行は INBOX_KEEP_DAYS=60日 の固定値で消えるのに、
+'   既読印("ins:")は thanks_gc_days+7=67日 まで残る作りだった。61〜67日目は
+'   「行は無いが既読印はある」で守られるが、68日目には【どちらも無い】瞬間が来る。
+'   共有フォルダのファイルが残っていれば(発行担当が不在の組織では永久に残る)、
+'   その日に全端末が過去分を一斉に再受信する。W1-2で入れた nonce 冪等化は
+'   【受信箱にその行が在ること】を根拠にしているので、行が先に消える限り空振りし、
+'   取り込み済みだったQ&Aが「未取込」に戻って本棚へ二重登録される。
+'
+'   直し方は「受信箱を既読印より長く持つ」の一点。既読印が切れて再読みされた
+'   瞬間に行がまだ在れば、NonceIsKnown が重複を止め、そのついでに既読印が
+'   書き直されて延命する(CollectFrom は AppendRow が True を返したら必ず
+'   既読印を書く)。
+'
+'   【不変条件】任意の gcDays について
+'       InboxKeepDays(gcDays) > NonceKeepDays(gcDays)
+'   +7 / +14 という差の付け方は、config thanks_gc_days をいくつに変えても
+'   この不等式が自動的に保たれるようにするため(片方だけ固定値にすると、
+'   設定を変えた組織でだけ穴が開く)。定数をいじって不等式を壊す改修を
+'   機械で止めるため、modTestsPure31 が境界値でこの不等式そのものを検算する。
+' ----------------------------------------------------------------------------
+Public Function NonceKeepDays(ByVal gcDays As Long) As Long
+    NonceKeepDays = gcDays + 7
+End Function
+
+Public Function InboxKeepDays(ByVal gcDays As Long) As Long
+    InboxKeepDays = gcDays + 14
+End Function
+
+' ----------------------------------------------------------------------------
 ' GapAged - 保持期間を過ぎた困りごと/訂正の行か(純関数・2026-08-14 R32 W1-4)。
 '   gap 行に consumed=1 が立つ経路は【1つも無い】。TrimInboxRows は
 '   consumed=1 しか落とさず、INBOX_MAX_ROWS=500 の超過掃除も同様なので、
