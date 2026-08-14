@@ -373,14 +373,30 @@ Public Sub OnOpenDiag()
     On Error GoTo 0
 End Sub
 
-' きせかえボタン(ヘルプカードを閉じてからmodSkin.CycleSkinへ。CycleSkin自身が
-' modUiLockを取るため、ここではロックを取らず閉じ処理のみ行う)。
+' ----------------------------------------------------------------------------
+' きせかえボタン(ヘルプカード内の🎨)。
+' ----------------------------------------------------------------------------
+'   R32 W4-1【確定バグ・実機第17報「ライトに戻しても黒いまま」の直接原因】:
+'   ここは modSkin.CycleSkin を直呼びしていた。CycleSkin が確実に描き直すのは
+'   チャット(modUI.Repaint→modSkin.ApplyTheme)だけで、Hub・マイ本棚・
+'   ダッシュボードは前のテーマの地色を塗ったセルを抱えたまま残る
+'   ―― ダークで黒く塗ったセルが、ライトへ戻しても黒いまま見える。
+'   一方 modHub.OnThemeToggle は CycleSkin のあとに EnsureHubLayout と
+'   「今見ている画面(本棚/ダッシュボード)の描き直し」まで通す(R14-6a)。
+'   同じ「きせかえ」に入口が2本あり、片方だけが再描画を持っていたのが原因。
+'   よって【着せ替えの入口は modHub.OnThemeToggle 1本に一本化する】。
+'   共通実体を別モジュールへ切り出さず委譲にした理由: modHub は残159字で
+'   受け皿になれず、逆に実体を余裕モジュールへ移すと modHub 側にも1行呼び
+'   出しが要る(=正味の削減にならない)。委譲なら呼び出し側1行で済み、
+'   再描画の手順が1箇所にしか無い状態も同時に満たせる(憲章§4-6)。
+'   ロックは OnThemeToggle 側が取る(BlockIfIngesting/IsBusy)ので、ここでは
+'   カードを閉じるだけ。二重の BlockIfIngesting は無害(取込中なら閉じない)。
 Public Sub OnCycleSkin()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     On Error Resume Next
     DoHideHelp
     On Error GoTo 0
-    modSkin.CycleSkin
+    modHub.OnThemeToggle
 End Sub
 
 ' ----------------------------------------------------------------------------
