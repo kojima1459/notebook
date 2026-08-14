@@ -104,13 +104,24 @@ Public Sub OnPublish()
     Dim log_ As String: log_ = modPublish.RecentLog(chName)
     On Error GoTo Done
 
+    ' 2026-08-14(R32 W2-1): PII走査はconfig pii_scan_enabled(既定FALSE)で
+    ' 有効化したときだけ動く。オフのまま「自動で中止します」とだけ案内すると
+    ' 実際には動いていないチェックを期待させてしまうため、オフ時は現在の
+    ' 状態が分かる一文へ出し分ける。
+    Dim piiLine As String
+    If modConfig.GetBool("pii_scan_enabled", False) Then
+        piiLine = "  ・個人情報が見つかった場合は自動で中止します"
+    Else
+        piiLine = "  ・(個人情報の自動チェックは現在オフです)"
+    End If
+
     Dim msg As String
     msg = "【" & chName & "】として発行します。" & vbCrLf & vbCrLf & _
           "  発行する件数: " & total & " チャンク(自分で入れた資料のみ)" & vbCrLf & _
           "  配置先: " & dest & vbCrLf & vbCrLf & _
           "【発行前の確認】" & vbCrLf & _
           "  ・正典には『確認済みQ&A・要点』を入れてください" & vbCrLf & _
-          "  ・個人情報が見つかった場合は自動で中止します" & vbCrLf & vbCrLf
+          piiLine & vbCrLf & vbCrLf
     If LenB(log_) > 0 Then msg = msg & "【この部門の発行履歴】" & vbCrLf & log_ & vbCrLf
     msg = msg & "このまま発行しますか?" & vbCrLf & _
           "(「いいえ」= 直前の版に戻す操作に進みます)"
@@ -194,8 +205,9 @@ Public Sub OnPublish()
 
     Dim wrote As Long
     Dim ok As Boolean
+    Dim piiAborted As Boolean
     On Error Resume Next
-    ok = modPackExport.ExportPackToFile(stage, "", True, wrote, "self")
+    ok = modPackExport.ExportPackToFile(stage, "", True, wrote, "self", piiAborted)
     Application.Cursor = -4143
     Application.StatusBar = False
     On Error GoTo Done
@@ -230,6 +242,12 @@ Public Sub OnPublish()
         mLockedChannel = ""
         On Error GoTo 0
         modUiLock.Leave
+        ' 2026-08-14(R32 W2-2): PII検知による中止は、原因も対処も
+        ' modPackExport.ExportPackToFile側のMsgBox(E0703)で既に案内済み。
+        ' ここで続けて「共有フォルダへの書込権限/パスをご確認ください」を
+        ' 出すと、原因確定済みの中止に対して見当違いの案内を重ねることになる
+        ' (実機で原因確定済みの不具合)。PII由来のときは無言で退出する。
+        If piiAborted Then Exit Sub
         MsgBox "発行できませんでした。" & vbCrLf & vbCrLf & _
                "・共有フォルダに書き込む権限があるか" & vbCrLf & _
                "・パスが正しいか(" & dest & ")" & vbCrLf & _

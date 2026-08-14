@@ -6,6 +6,10 @@ dist/*_配布.zip
 # (2026-08-01 R12-H-7。混入すると「壊れた配布物がリポジトリに居る」状態になる)。
 dist/*.building.xlsm
 dist/*.failed.xlsm
+# 発行者用ビルド(R32波2 W2-4): config publish_key に合言葉が焼き込まれる。
+# --publisher の動作検証でローカルに生成されることがあるが、合言葉入りの
+# ブックをリポジトリへ誤って混ぜないよう常にignoreする(配布zipにも同梱しない)。
+dist/MyBookshelf_発行者用*.xlsm
 *.log
 *.swp
 .DS_Store

@@ -78,15 +78,31 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' ExportPackToFile - パスを直接指定してパックを書き出す(部門正典の発行から使う)。
 '   ダイアログを一切出さずに完了できるので、発行を1操作にまとめられる。
-'   silent:=True でも【PII走査だけは必ず通す】。個人情報入りの資料を無言で
-'   全社配布する経路は作らない(検出したら中止してFalseを返す)。
+'   silent:=True でも、走査が有効なとき(config pii_scan_enabled)は
+'   【PII走査だけは必ず通す】。個人情報入りの資料を無言で全社配布する経路は
+'   作らない(検出したら中止してFalseを返す)。
 '   戻り値 True=保存成功。outCount に書き出した件数を返す。
 '   originFilter: 書き出す行の origin を絞る(レビュー H-4)。部門正典の
 '   発行は "self" を渡す。詳細は LoadChunksForExport のコメント参照。
+'   outPiiAborted: True=PII検知が原因で中止した(R32 W2-2)。呼び出し側が
+'   「共有フォルダへの書込権限」等の見当違いの案内を続けて出さないための
+'   区別に使う。Optionalなので既存の呼び出し元は無改修で動く。
+'
+'   2026-08-14(R32 W2-1・ユーザー裁定=config切替+既定オフ): PII走査は
+'   config pii_scan_enabled(既定FALSE)で有効化したときだけ走る。関所は
+'   ここ1箇所だけ(他に走査を挟む場所を増やさない)。オフのまま書き出した
+'   ときは痕跡としてusage_logへ1行残す(何も起きなかったのではなく、
+'   「チェックをスキップした」という事実を追えるようにするため)。
+'   【注意】共有フォルダへ自動発信される「みんなの困りごと」側のPII走査
+'   (modInsight.PiiBlocked)は、この設定の影響を受けず常時走る(R32 W1-8)。
+'   あちらは自動発火かつ他人の目に触れる経路のため、このスイッチとは
+'   独立に扱う(modInsight.bas PiiBlocked のコメント参照)。
 ' ----------------------------------------------------------------------------
 Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As String, _
                                  ByVal silent As Boolean, ByRef outCount As Long, _
-                                 Optional ByVal originFilter As String = "") As Boolean
+                                 Optional ByVal originFilter As String = "", _
+                                 Optional ByRef outPiiAborted As Boolean) As Boolean
+    outPiiAborted = False
     Dim ids() As String, sources() As String, pages() As Long
     Dim summaries() As String, keywords() As String, fullTexts() As String
     Dim n As Long
@@ -100,17 +116,25 @@ Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As
         Exit Function
     End If
 
-    Dim piiCount As Long, piiExamples As String
-    ScanChunksForPii sources, fullTexts, n, piiCount, piiExamples
-    If piiCount > 0 Then
-        modLog.LogError "E0703", "modPackExport.ExportPackToFile", _
-            "件数=" & piiCount & " 例=" & piiExamples
-        MsgBox modLog.FriendlyMessage("E0703") & vbLf & vbLf & _
-            "件数: " & piiCount & "件" & vbLf & "例: " & piiExamples & vbLf & vbLf & _
-            "個人情報が含まれる可能性があるため、書き出しを中止しました。" & vbLf & _
-            "該当の資料を本棚から外してから、もう一度お試しください。" & vbLf & _
-            "(コード: E0703)", vbExclamation, modAppDef.APP_NAME
-        Exit Function
+    If modConfig.GetBool("pii_scan_enabled", False) Then
+        Dim piiCount As Long, piiExamples As String
+        ScanChunksForPii sources, fullTexts, n, piiCount, piiExamples
+        If piiCount > 0 Then
+            outPiiAborted = True
+            modLog.LogError "E0703", "modPackExport.ExportPackToFile", _
+                "件数=" & piiCount & " 例=" & piiExamples
+            ' 2026-08-14(R32 W2-3): FriendlyMessage側が既に「中止しました。
+            ' 本棚から外すか修正してください」まで言い切るため、ここでの重複文言
+            ' (旧: 「個人情報が含まれる可能性があるため、書き出しを中止しました。」等)
+            ' は足さない。件数・例・コードだけを付け足す。
+            MsgBox modLog.FriendlyMessage("E0703") & vbLf & vbLf & _
+                "件数: " & piiCount & "件" & vbLf & "例: " & piiExamples & vbLf & vbLf & _
+                "(コード: E0703)", vbExclamation, modAppDef.APP_NAME
+            Exit Function
+        End If
+    Else
+        modLog.LogUsage "pii_scan_skipped", "modPackExport.ExportPackToFile", _
+            "pii_scan_enabled=FALSE(既定)のためPII走査を行わずに書き出しました"
     End If
 
     Dim authorName As String: authorName = Trim$(modConfig.GetString("pack_author", ""))
