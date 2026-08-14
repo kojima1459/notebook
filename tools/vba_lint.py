@@ -1355,9 +1355,20 @@ CONTRACT: dict[str, dict] = {
     #                         On Error Resume Next で無言だった。この無言こそが
     #                         余白問題を8ラウンド見誤らせた構造的原因なので、
     #                         「効かない実装を黙って残さない」ことを契約にする。
+    #   Apply               : シートの背後にテーマ地色の背景画像を敷く(W4-5)。
+    #                         ホイールの停止線 S=B+k の B(使用済み末尾)を
+    #                         1行も増やさずに地を色づけられる唯一の手段。
+    #                         入口は modChrome.ApplyNormalStyleBg の先頭1行。
+    #   BmpHex              : 1×1・24bit BMP(58バイト)の全バイト列を16進で
+    #                         返す純関数。SetBackgroundPicture 自体はLOで検証
+    #                         できないので、「敷く中身」だけはここを固定して
+    #                         守る(modTestsPure32 がゴールデンで固定)。
+    #   MemoKey / MemoPut   : 「どのシートにどの色を敷いたか」の純関数メモ。
+    #                         描画のたびに呼ばれるため冪等判定に使う。
     "modBackdrop": {
         "closed": True,
-        "required": ["RestoreShelfHeaderBg", "LogStyleFailOnce"],
+        "required": ["RestoreShelfHeaderBg", "LogStyleFailOnce",
+                     "Apply", "BmpHex", "MemoKey", "MemoPut"],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
     "modApp": {
@@ -1834,6 +1845,10 @@ PURE_LOGIC_MODULES = {
     # CreateObject 経由でExcel依存ではない)。R15-1a の GuardExpired を
     # ここへ置くにあたり、「ちょっとRangeを見たい」改修を機械で止める。
     "modUtilText",
+    # modTestsPure32(2026-08-14 R32波4 W4-5): 背景画像方式の純ロジックテスト。
+    # 呼ぶのは modBackdrop の BmpHex/MemoKey/MemoPut(文字列と算術だけ)なので、
+    # 「ちょっとWorksheetを見たい」改修を機械で止める。
+    "modTestsPure32",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

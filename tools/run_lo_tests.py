@@ -622,6 +622,24 @@ PURE_ALLOWLIST = [
     #   pii_scan_enabled/gap_keep_days/gap_dup_hoursの既定値固定テストが
     #   実行されないまま全部PASSに見える。
     "modTestsPure31",
+    # modBackdrop(2026-08-14 R32波4 W4-5): 画面の地(背景)。テストが呼ぶのは
+    #   BmpHex(1×1・24bit BMPの58バイトを16進で組む)/ MemoKey / MemoPut の
+    #   3本だけで、いずれも文字列と算術だけで完結しExcel/COM/ファイルI/Oに
+    #   実行到達しない(modShelfSync/modPack/modLog と同じ「モジュール全体は
+    #   R4準拠ではないが、テストが呼ぶ関数自体はExcelに触れない」型)。
+    #   Apply / WriteBmpFile / SweepOldBmp(Worksheet.SetBackgroundPicture・
+    #   Open For Binary・Kill)はテストから呼ばない ―― SetBackgroundPicture は
+    #   Excel固有APIで、LOでは --mode compile が通ることしか確認できない。
+    #   未注入のまま modTestsPure32 から呼ぶと実行時エラー12になり、
+    #   BMPバイト列のゴールデン(RGB/BGRの取り違えを撃つ唯一の検査)が
+    #   走らないまま「全部PASS」に見える。
+    "modBackdrop",
+    # modTestsPure32(2026-08-14 R32波4 W4-5): 背景画像方式の純ロジック回帰。
+    #   modTestsPure30(波1)/31(波2)は直したばかりで触らない方針のため、
+    #   既存チェーンへは繋がず modTestRunner.RunAllPureTests から直接呼ばれる
+    #   独立の分割先にした(modTestsPure31と同型の理由)。未注入だと
+    #   実行時エラー12になり、テストが実行されないまま全部PASSに見える。
+    "modTestsPure32",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

@@ -1089,6 +1089,14 @@
       "note": "R32波2(⑦PIIオフスイッチ)の純ロジック回帰。modTestsPure30はR32波1が直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した。config pii_scan_enabledの既定FALSE、gap_keep_days=30/gap_dup_hours=24(modInsightIo.bas/modInsight.basのGetLong呼び出しの既定値と一致)を固定する。LO実行テストにはconfigシートが無いためmodConfig.GetBool/GetLongは常にFallback経路を通ることをモジュール冒頭に明記。"
     },
     {
+      "name": "modTestsPure32",
+      "path": "src/test/modTestsPure32.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R32",
+      "note": "R32波4 W4-5(背景画像方式)の純ロジック回帰。modTestsPure30(波1)/modTestsPure31(波2)は直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31と同型)。固定するもの: (A)modBackdrop.BmpHex — 1×1・24bit BMPの全58バイト(116字)。dark RGB(15,23,42)/白/黒のゴールデンと、画素がBGR順であること(RGB(1,2,3)→030201)を単独で撃つ。RGB/BGRの取り違えはコンパイルもLOも素通りし、実機では「青いテーマなのに赤い背景」という形でしか現れないため。(B)modBackdrop.MemoKey/MemoPut — 描画のたびに呼ばれるApplyが同じシートへ同じ色を敷き直さないための冪等メモ(別シートは追加/同一シートは古い1件を落として再登録/色の前方一致で誤ヒットしない)。Worksheet.SetBackgroundPicture自体はExcel固有APIでLOでは検証できず、--mode compileが通ることだけを確認する(実機確認はユーザー)。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",

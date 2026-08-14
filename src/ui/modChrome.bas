@@ -413,6 +413,10 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub ApplyNormalStyleBg(ByVal ws As Worksheet)
     If ws Is Nothing Then Exit Sub
+    ' R32 W4-5: 標準スタイル方式が実機で使えない以上、地を「セルを使わずに」
+    ' 色づける唯一の手段が背景画像。ここは4画面のSetup*Columnsとテーマ切替が
+    ' 必ず通る合流点なので、背景画像もここから起こす(詳細はmodBackdrop冒頭)。
+    modBackdrop.Apply ws
 
     Dim want As Long
     Dim cur As Long

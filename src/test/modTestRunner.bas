@@ -137,4 +137,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-14(R32波4 W4-5): modTestsPure32 も同じ理由(modTestsPure30/31は
+    ' 波1・波2が直したばかりで触らない方針)で、既存チェーンへは繋がず
+    ' ここから直接呼ぶ別枝にする。固定するのは背景画像方式の純関数
+    ' (BMPバイト列の生成と、敷き直しを弾く冪等メモ)。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure32.RunAll32
+    If Err.Number <> 0 Then
+        Check "modTestsPure32.RunAll32", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
