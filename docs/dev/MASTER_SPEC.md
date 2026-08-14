@@ -305,7 +305,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | E0602 | 回答生成失敗 | 再実行案内 |
 | E0701 | パック形式不正/バージョン不一致 | 相手に再書き出しを依頼 |
 | E0702 | ベクトル次元不一致 | リボンの版が違う可能性。管理者へ |
-| E0703 | PII検知(書き出し中断可) | 内容確認を促す(警告であり停止ではない) |
+| E0703 | PII検知(書き出し無条件中止) | 検知したら即中止(Yes/No選択肢は無い)。config `pii_scan_enabled`(既定FALSE)で有効化した場合のみ動作 |
 | E0705 | 共有フォルダI/O失敗 | ネットワーク再接続・権限確認を案内。通常は次回同期で再試行 |
 | E0801 | UI再構築失敗 | ブックを開き直す |
 | E0805 | 読み取り専用で開かれている(取込結果が保存されない) | 別のExcelで開いていないか確認を案内。機能は止めない(R15-3b) |
@@ -799,7 +799,8 @@ prevU/prevA(新しい順;;;区切り)へ渡す。履歴に積むのは深掘り�
 Public Sub ExportPackDialog()
     ' 本棚全体 or アクティブ行の資料1件を選択(vbYesNoCancel)→保存先ダイアログ
     ' → 新規Workbook(.xlsx マクロ無し)に pack_meta/pack_chunks/pack_vectors を書いて保存
-    ' → 書き出し前に modPii.ScanText を全チャンクに実行、検知時は件数+例を出して続行確認(E0703)
+    ' → config pii_scan_enabled(既定FALSE)が有効な場合のみ、書き出し前に
+    '   modPii.ScanTextを全チャンクに実行。検知時は件数+例を出して無条件中止(E0703)
 Public Sub ImportPackDialog()
     ' ファイル選択→ValidatePack→重複(fnvハッシュ)スキップしつつmy_knowledge/my_vectorsへ
     ' origin="pack:"&作成者。取込サマリ表示(「32件取込 / 8件は既にありました」)
