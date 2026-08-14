@@ -304,10 +304,12 @@ Private Sub ApplyDashScrollBound(ByVal ws As Worksheet)
     ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
     On Error GoTo 0
     modViewport.ApplyScrollBound ws, bnd
-    ' R20-1d: 境界の【下】に行高カスタムを1行も残さない(受け入れ基準)。
+    ' R31 W2-3: 境界+1行より下の行は削除して解放する(ホイールの停止線=
+    ' 焼き付きUsedRangeの末尾で、行高の明示取り消しでは解放されない)。
     ' bnd は必ず A1 起点なので、行数がそのまま下端行になる。
+    ' 埋め草(PadRowToWindow)は【削除の後】。順序が逆だと足した高さごと消える。
     On Error Resume Next
-    modViewport.ResetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, DASH_ROWS
+    modViewport.ReleaseSheetRowsBelow ws, ws.Range(bnd).Rows.Count + 1, DASH_ROWS, bnd
     ' R27 F2-3(埋め草): 境界は切り下げなので最終行の下端は必ず窓高より上に
     ' 残る。その差だけ最終行を高くして、塗りの下端を窓下端へ届かせる
     ' (行数は増やさない=縦スクロールを生き返らせない)。
