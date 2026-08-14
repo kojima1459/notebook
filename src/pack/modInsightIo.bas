@@ -17,6 +17,17 @@ Option Explicit
 Private Const INSIGHT_SUBDIR As String = "insight"
 Private Const QA_SUBDIR As String = "qa"
 Private Const GAP_SUBDIR As String = "gap"
+' 2026-08-14(R32 W1-1 B2): 訂正(correction)専用のサブフォルダ。
+' 従来は訂正も GAP_SUBDIR へ書いており、受信側の CollectFrom は
+' 【フォルダ単位で kind を決める】ため、訂正がそのまま kind="gap" として
+' 受信箱に入っていた。その結果、
+'   ・訂正本文(最長2,000字)が8列目=source_or_dept へ入り、板が
+'     「部署」として 著者名/訂正本文2,000字 を連結表示する
+'   ・理由コードが生英語の "correction" のまま並ぶ
+' という形で「みんなの困りごと」の表示そのものを壊していた。
+' 出す場所を分けるのが根治で、既に届いてしまった旧データは受信側の
+' reason 列ガード(modInsight.IsGapRow)で救済する。
+Private Const CORR_SUBDIR As String = "correction"
 Private Const MAX_COLLECT As Long = 60      ' 1回の起動で読むファイル数の上限
 Private Const FIELD_SEP As String = vbTab
 
@@ -103,7 +114,8 @@ Public Sub EmitCorrection(ByVal answerText As String, ByVal fixText As String)
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(fixText)) = 0 Then Exit Sub
 
-    Dim dirPath As String: dirPath = SubDir(GAP_SUBDIR)
+    ' R32 W1-1: 困りごとの板に混ざらないよう専用フォルダへ出す。
+    Dim dirPath As String: dirPath = SubDir(CORR_SUBDIR)
     If LenB(dirPath) = 0 Then Exit Sub
     EnsureDir dirPath
 
@@ -154,8 +166,10 @@ Public Function CollectInsights() As Long
 
     Dim qaDir As String: qaDir = SubDir(QA_SUBDIR)
     Dim gapDir As String: gapDir = SubDir(GAP_SUBDIR)
+    Dim corrDir As String: corrDir = SubDir(CORR_SUBDIR)
     CollectInsights = CollectFrom(ws, qaDir, "qa", seen) + _
-                      CollectFrom(ws, gapDir, "gap", seen)
+                      CollectFrom(ws, gapDir, "gap", seen) + _
+                      CollectFrom(ws, corrDir, "correction", seen)
 
     ' GC(R8 F10)。my_stats 側の既読印は【全端末】が自分のブックを掃除する。
     ' 自分のシートが太るのは自分の問題なので、誰がやっても構わない。
@@ -187,7 +201,7 @@ Public Function CollectInsights() As Long
     If Not isPublisher Then Exit Function
 
     Dim killedN As Long
-    killedN = GcOldInsights(qaDir) + GcOldInsights(gapDir)
+    killedN = GcOldInsights(qaDir) + GcOldInsights(gapDir) + GcOldInsights(corrDir)
     If killedN > 0 Then
         On Error Resume Next
         modLog.LogUsage "insight_gc", "", _
@@ -551,8 +565,13 @@ Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
         ws.Cells(r, 7).Value = modUtilText.SanitizeForCell(f(5))
         If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     Else
-        ws.Cells(r, 7).Value = modUtilText.SanitizeForCell(f(5))                       ' reason
-        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))   ' 部署
+        ' kind="gap":        f(5)=reason / f(6)=部署
+        ' kind="correction": f(5)="correction" / f(6)=訂正本文(R32 W1-1で
+        '   フォルダを分けたので、この行が困りごとの板へ出ることはもう無い。
+        '   電文の並びは旧版と互換のまま置く=旧gapフォルダに残っている訂正も
+        '   同じ列に落ち、reason列ガード(modInsight.IsGapRow)1本で弾ける)。
+        ws.Cells(r, 7).Value = modUtilText.SanitizeForCell(f(5))
+        If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     End If
     ws.Cells(r, 9).Value = ""
     AppendRow = True
