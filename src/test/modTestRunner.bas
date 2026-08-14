@@ -123,4 +123,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-14(R32波2 W2-1): modTestsPure31は、modTestsPure.RunAllが辿る
+    ' 既存チェーン(→modTestsPure2→…→modTestsPure30)には繋がない別枝として
+    ' ここから直接呼ぶ。modTestsPure30はR32波1が直したばかりで触らない方針
+    ' (CLAUDE.md「禁止」)のため、末尾へ1行足す形の分割ができなかった。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure31.RunAll31
+    If Err.Number <> 0 Then
+        Check "modTestsPure31.RunAll31", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
