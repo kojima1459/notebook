@@ -87,7 +87,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' R20-1d→R31 F10: 焼く行数はSeedRowCap(窓ぶん/使用済みの大きい方)が
     ' 動的に決める。上限はBoundAddrの60行(HUB_BOUND)と一致させた(旧200は
     ' 境界とズレ、frac≥.5の窓で毎描画Rows.Deleteが発生していた)。
-    modViewport2.SeedBurn ws, 60
+    modViewport2.SeedBurn ws, 60, HeaderH()
 
     ' R21-S1: 活性化と表示状態(罫線/見出し/タブ/水平バー)を幾何を測る【前】へ
     ' 移した。従来は Fit と BoundAddr が Activate より先に走り、初回だけ
@@ -114,7 +114,7 @@ Public Sub EnsureHubLayout(Optional ByVal activate As Boolean = False)
     ' R19-1b: フォントは描画前(このあとセルへ書く文字が拾うため)、塗りと
     ' ScrollAreaは描画後に実下端から決める(EnsureHubLayout末尾)。
     ' R31 F11: 実体はmodViewport2.PrimePaintへ(modHub容量逼迫のため)。
-    modViewport2.PrimePaint ws, "L", 60, HeaderH()
+    modViewport.PrimePaint ws, "L", 60
 
     On Error Resume Next
     modTelemetry.TrackScreen "hub"

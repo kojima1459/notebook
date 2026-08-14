@@ -1257,6 +1257,12 @@ CONTRACT: dict[str, dict] = {
             #   RefitActiveScreen: 描画末尾のワンショット再描画(S1の保険)からも
             #                呼ぶため Public 化。組み直しの分岐は1本だけ持つ。
             "RowAtFloor", "FitsInView", "RefitActiveScreen",
+            # 2026-08-14(R31 Fix波F11・Fix検証パス2周目): Hubの描画前先行塗り
+            # (行1がSeedBurnの均し高のまま=実ヘッダー高より低い状態で境界を
+            # 引き、UsedRangeが最終境界を毎回上回っていた)をBoundAddrの
+            # paintAddr(切り上げ)一致へ揃える。modViewport2/modHubが容量逼迫
+            # のため実体はこちら(BoundAddrの隣)。
+            "PrimePaint",
         ],
     },
     # modViewport2(2026-08-07 R21-1): 「いつ測ってよいか」と「窓に収める調整」。
@@ -1334,12 +1340,6 @@ CONTRACT: dict[str, dict] = {
             #             実際にRowHeightを設定する(モジュール実測の都合で
             #             modHub/modDashではなくここへ実体を置く)。
             "SeedBurn",
-            # 2026-08-14(R31 Fix波F11・Fix検証パス2周目): Hubの描画前先行塗り
-            # (行1がSeedBurnの均し高のまま=実ヘッダー高より低い状態で境界を
-            # 引いていた)を実境界と一致させる。行1を実ヘッダー高(前回描画の
-            # キャッシュ)へ仮合わせしてからBoundAddrのpaintAddr(切り上げ)で
-            # 塗る(modHub残158字のため実体はこちら)。
-            "PrimePaint",
         ],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。

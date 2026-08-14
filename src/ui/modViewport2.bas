@@ -626,12 +626,9 @@ End Sub
 '   lastUsed  : 現在の使用済み最終行。旧ブックの救済のため、これが窓ぶん
 '               より大きければそちらを採る。
 '   maxRowCap : 絶対上限(SHELF_MAX_ROW)。
-'   R31 F10(Fix検証パス2周目): CLng(四捨五入)をInt(切り下げ)へ変更。
-'   境界側 modViewport.RowAtFloor は実セル幾何の累積を y 以下で切り下げる
-'   ―― rowHが一定なら floor(viewportH/rowH) と同値。CLngは frac≥0.5 で
-'   1行余分に切り上げ、焼く行(=UsedRangeの下端)が境界の切り下げ値を
-'   毎回1〜2行上回って、冪等なはずの2回目描画でもRows.Deleteが発生していた
-'   (Hub/Dashで実証。R30 F2-1と同型)。
+'   R31 F10: CLng(四捨五入)をInt(切り下げ)へ。RowAtFloorは実セル幾何を
+'   切り下げでfloor(viewportH/rowH)と同値。CLngはfrac≥0.5で1行余分に
+'   切り上がり、冪等な2回目描画でもRows.Deleteが発生していた(F2-1)。
 Public Function SeedRowCap(ByVal firstRow As Long, ByVal viewportH As Double, _
                            ByVal rowH As Double, ByVal lastUsed As Long, _
                            ByVal maxRowCap As Long) As Long
@@ -656,40 +653,30 @@ End Function
 ' SeedBurn - Hub/Dashの「毎描画40行焼き→即削除」往復の解消(R31 Fix波F2)。
 '   ShelfSeedRowと同じ思想(窓ぶん/使用済み下端の大きい方へ頭打ち)を
 '   Hub/Dashにも適用し、焼く範囲=解放しない範囲に一致させて冪等にする。
-'   呼び出し順に注意: ヘッダー行など後段で個別のRowHeightを設定している
-'   画面では、本Subを先に呼ぶこと(後段の個別設定が最終的に上書きするので
-'   既存の見た目は変わらない)。
-Public Sub SeedBurn(ByVal ws As Worksheet, ByVal maxRowCap As Long)
+'   後段で個別RowHeightを設定する画面では本Subを先に呼ぶこと。
+'   hdrH(R31 F11・Optional): Hubは行1がヘッダー(15pt均しより高い)。省略時
+'   (Dash等)は行1含め一様15pt均し。渡すと行1をhdrHへ設定し行2以降だけ
+'   残りの窓高を15pt均しする(行1を15pt扱いで見積もると焼く範囲が実境界
+'   より広くなりF2-2=毎描画Deleteを再発。実測: 600pt/hdrH48ptで一致)。
+Public Sub SeedBurn(ByVal ws As Worksheet, ByVal maxRowCap As Long, _
+                    Optional ByVal hdrH As Double = 0)
     Dim lastUsed As Long
     On Error Resume Next
     If Not ws Is Nothing Then lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
     On Error GoTo 0
     Dim seed As Long
-    seed = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
-    ws.Rows("1:" & seed).RowHeight = 15
-End Sub
-
-' PrimePaint - Hub/Dashの「描画前の先行塗り」を実境界に一致させる(R31 F11)。
-'   DrawHeader前は行1がSeedBurnの均し高(15pt)のままで、実際のヘッダー高
-'   (hdrH。48pt等)より低い ―― この状態でBoundAddrを引くと境界を切り下げ
-'   すぎ、後段の本描画(行1=hdrH確定後)より深く塗ってしまい、UsedRangeが
-'   最終境界を毎回上回って冪等性が壊れていた(F2-2)。先に行1をhdrHへ
-'   合わせてから塗り境界を引く(hdrHは前回描画のキャッシュ値。初回は
-'   既定にフォールバックする呼び出し側と同じ値)。
-'   塗りはBoundAddrのpaintAddr(RowAt=切り上げ)を使い、塗り下端が常に
-'   RowAtFloor(viewH)以上になることを保証する(切り下げ側では窓下端に
-'   未塗り帯=darkテーマの白帯が出るため)。
-Public Sub PrimePaint(ByVal ws As Worksheet, ByVal padCol As String, _
-                      ByVal maxRow As Long, ByVal hdrH As Double)
-    If ws Is Nothing Then Exit Sub
-    On Error Resume Next
-    If hdrH > 0 Then ws.Rows(1).RowHeight = hdrH
-    Dim addr As String, paintAddr As String
-    addr = modViewport.BoundAddr(ws, padCol, 0, maxRow, paintAddr)
-    ws.Range(paintAddr).Font.Name = "Yu Gothic UI"
-    ws.Range(paintAddr).Font.Size = 10
-    ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
-    On Error GoTo 0
+    If hdrH > 15 Then
+        On Error Resume Next
+        ws.Rows(1).RowHeight = hdrH
+        On Error GoTo 0
+        Dim remH As Double: remH = modViewport.ViewportHeight() - hdrH
+        If remH < 0 Then remH = 0
+        seed = SeedRowCap(2, remH, 15, lastUsed, maxRowCap)
+        ws.Rows("2:" & seed).RowHeight = 15
+    Else
+        seed = SeedRowCap(1, modViewport.ViewportHeight(), 15, lastUsed, maxRowCap)
+        ws.Rows("1:" & seed).RowHeight = 15
+    End If
 End Sub
 
 ' ReleaseRange - 解放する行範囲を決める。純関数(modTestsPure29が固定)。

@@ -240,6 +240,23 @@ Public Function BoundAddr(ByVal ws As Worksheet, ByVal padColLetter As String, _
     End If
 End Function
 
+' PrimePaint - Hub描画前の先行塗り(R31 F11)。modViewport2.SeedBurn(hdrH渡し)
+'   が行1をヘッダー実高へ合わせ済みの前提で呼ぶこと(呼ぶ前が15pt均しの
+'   ままだと境界を切り下げすぎ、本描画後の実境界より深く塗ってUsedRangeが
+'   毎描画で最終境界を上回るF2-2を再発する)。塗りはBoundAddrのpaintAddr
+'   (切り上げ)を使い、塗り下端が常にRowAtFloor(viewH)以上になることを
+'   式で保証する(切り下げだと窓下端に未塗り帯=darkテーマの白帯が出る)。
+Public Sub PrimePaint(ByVal ws As Worksheet, ByVal padCol As String, ByVal maxRow As Long)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    Dim addr As String, paintAddr As String
+    addr = BoundAddr(ws, padCol, 0, maxRow, paintAddr)
+    ws.Range(paintAddr).Font.Name = "Yu Gothic UI"
+    ws.Range(paintAddr).Font.Size = 10
+    ws.Range(paintAddr).Interior.Color = modUI.UiColor("bg")
+    On Error GoTo 0
+End Sub
+
 ' FitsInView - 内容が窓に収まっているか。純関数(ゴールデン対象)。
 '   収まっている=境界を窓高ちょうどに切り下げてよい(スクロール余地ゼロ)。
 Public Function FitsInView(ByVal contentBottom As Double, ByVal viewportH As Double, _
