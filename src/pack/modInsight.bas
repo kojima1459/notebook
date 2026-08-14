@@ -362,7 +362,7 @@ Public Function InboxNonceSet() As Object
     Dim arr As Variant: arr = InboxArray(n)
     Dim i As Long
     For i = 1 To n
-        Dim k As String: k = LCase$(Trim$(CStr(arr(i, 1))))
+        Dim k As String: k = NonceKey(CStr(arr(i, 1)))
         If LenB(k) > 0 Then d(k) = 1
     Next i
     On Error GoTo 0
@@ -508,9 +508,18 @@ End Function
 ' 断絶で、後者のほうが重い。
 Public Function NonceIsKnown(ByVal known As Object, ByVal nc As String) As Boolean
     If known Is Nothing Then Exit Function
-    Dim k As String: k = LCase$(Trim$(nc))
+    Dim k As String: k = NonceKey(nc)
     If LenB(k) = 0 Then Exit Function
     NonceIsKnown = known.Exists(k)
+End Function
+
+' 集合に入れる/引くときの nonce の正規化(純関数)。Windowsのファイル名は
+' 大文字小文字を区別しないので、集合を作った側と引く側で表記が違うだけで
+' 重複ガードが素通りする。作る側(InboxNonceSet)・引く側(NonceIsKnown)・
+' 足した直後に自分で登録する側(modInsightIo.AppendRow)の3箇所が必ず
+' この1本を通る。
+Public Function NonceKey(ByVal nc As String) As String
+    NonceKey = LCase$(Trim$(nc))
 End Function
 
 Private Function GetSheet() As Worksheet

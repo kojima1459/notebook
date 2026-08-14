@@ -592,6 +592,17 @@ PURE_ALLOWLIST = [
     #   (StretchToolbarRowsの比例配分/伸び率上限/最終段不変/Δ<=0)が
     #   実行されないまま全部PASSに見える(modTestsPure28→29追加時と同型)。
     "modTestsPure30",
+    # modInsight(2026-08-14 R32波1): 「みんなの困りごと」の板。シートを触るのは
+    #   InboxArray 経由の集計・選択・受信箱アクセスだけで、テストが呼ぶ
+    #   GapListBuild / SortGapDesc / ReasonText / NormKey / IsGapRow / GapAged /
+    #   WithinWindow / NonceKey / NonceIsKnown はいずれも配列と文字列だけで
+    #   完結する(modShelfSync/modPack/modLog と同じ「モジュール全体がR4準拠
+    #   ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。
+    #   この機能は IsMine により自分の投稿が自分の板に出ず、1人テストでは板が
+    #   常に空=実機で通しの確認ができない。未注入のまま modTestsPure30 から
+    #   呼ぶと実行時エラー12になり、唯一の検証手段が丸ごと走らないまま
+    #   「全部PASS」に見える。
+    "modInsight",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

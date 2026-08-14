@@ -632,7 +632,7 @@ Private Function AppendRow(ByVal ws As Worksheet, ByVal kind As String, _
         If UBound(f) >= 6 Then ws.Cells(r, 8).Value = modUtilText.SanitizeForCell(f(6))
     End If
     ws.Cells(r, 9).Value = ""
-    If Not known Is Nothing Then known(LCase$(Trim$(nc))) = 1
+    If Not known Is Nothing Then known(modInsight.NonceKey(nc)) = 1
     outAdded = True
     AppendRow = True
 End Function
