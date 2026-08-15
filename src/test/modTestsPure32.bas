@@ -131,16 +131,25 @@ Private Sub TestBackdropMemo32()
 End Sub
 
 ' ============================================================================
+' RunAll32 — 2026-08-15(R33波1 W1-3・同型): 単一ハンドラだと1本目が落ちた
+'   ときに2本目が無言で消えるため、群ごとにハンドラを張り替える。
+' ============================================================================
 Public Sub RunAll32()
-    On Error GoTo Fail32
+    On Error GoTo G01Fail32
     TestBmpHexDark32
+G02Next32:
+    On Error GoTo G02Fail32
     TestBackdropMemo32
 NextDone32:
     On Error GoTo 0
     Exit Sub
 
-Fail32:
-    modTestRunner.Check "TestBmpHexDark32/TestBackdropMemo32(グループ全体)", False, _
+G01Fail32:
+    modTestRunner.Check "TestBmpHexDark32(グループ全体)", False, _
+        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume G02Next32
+G02Fail32:
+    modTestRunner.Check "TestBackdropMemo32(グループ全体)", False, _
         "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume NextDone32
 End Sub

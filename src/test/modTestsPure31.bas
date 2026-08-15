@@ -228,19 +228,45 @@ Private Sub CheckBlockScan31(ByVal label As String, ByVal s As String)
         (LenB(hit) > 0), "走査整形後=[" & cleaned & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' GroupFail31: RunAll30 と同じ理由(容量)でハンドラ本体を寄せた記録用。
+'   Err はハンドラを抜けると消えるので、呼び出し側で実引数として渡し切る。
+' ----------------------------------------------------------------------------
+Private Sub GroupFail31(ByVal nm As String, ByVal errNo As Long, ByVal errText As String)
+    modTestRunner.Check nm & "(グループ全体)", False, _
+        "実行時エラー: " & errText & " (Err=" & errNo & ")"
+End Sub
+
+' ============================================================================
+' RunAll31 — 2026-08-15(R33波1 W1-3・同型): RunAll30 と同じ単一ハンドラ構造
+'   だったため、1本目が落ちると後続3本が無言で消えていた。群ごとに張り替える。
 ' ============================================================================
 Public Sub RunAll31()
-    On Error GoTo Fail31
+    On Error GoTo G01Fail31
     TestKeepDaysInequality31
+G02Next31:
+    On Error GoTo G02Fail31
     TestStripDateLike31
+G03Next31:
+    On Error GoTo G03Fail31
     TestAnonId31
+G04Next31:
+    On Error GoTo G04Fail31
     TestScanClean31
 NextDone31:
     On Error GoTo 0
     Exit Sub
 
-Fail31:
-    modTestRunner.Check "TestKeepDaysInequality31/TestStripDateLike31/TestAnonId31/TestScanClean31(グループ全体)", False, _
-        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+G01Fail31:
+    GroupFail31 "TestKeepDaysInequality31", Err.Number, Err.Description
+    Resume G02Next31
+G02Fail31:
+    GroupFail31 "TestStripDateLike31", Err.Number, Err.Description
+    Resume G03Next31
+G03Fail31:
+    GroupFail31 "TestAnonId31", Err.Number, Err.Description
+    Resume G04Next31
+G04Fail31:
+    GroupFail31 "TestScanClean31", Err.Number, Err.Description
     Resume NextDone31
 End Sub

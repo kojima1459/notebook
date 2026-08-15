@@ -455,28 +455,107 @@ Private Sub TestNonceGuard32()
         (Len(memo) = before And Not modInsight.NonceIsKnownIn(memo, "")), "[" & memo & "]"
 End Sub
 
+' ----------------------------------------------------------------------------
+' GroupFail30: グループ単位の実行時エラーを1件の失敗として記録する。
+'   Err はハンドラを抜けると消えるため、呼び出し側で Err.Number/Err.Description
+'   を実引数として渡し切ってから記録する(CLAUDE.md「ログの前にErrを退避」)。
+'   ハンドラ本体をここへ寄せているのは容量のため(ラベルだけ増やす方式)。
+' ----------------------------------------------------------------------------
+Private Sub GroupFail30(ByVal nm As String, ByVal errNo As Long, ByVal errText As String)
+    modTestRunner.Check nm & "(グループ全体)", False, _
+        "実行時エラー: " & errText & " (Err=" & errNo & ")"
+End Sub
+
+' ============================================================================
+' RunAll30 — 2026-08-15(R33波1 W1-3): 群ごとにハンドラを張り替える。
+'   旧実装は先頭の1本(On Error GoTo StretchFail30)で13群すべてを包んでおり、
+'   n本目で実行時エラーが起きると Resume NextDone30 で末尾へ飛ぶため
+'   n+1本目以降が1件も実行されず、PASSにもFAILにも数えられずに総数が
+'   黙って減っていた。実測(2026-08-15): 先頭の1群を落とすと後続12群の
+'   75アサートが消え、報告は PASS 2421/FAIL 1 になった(健全時は PASS 2497)。
+'   さらに失敗名が固定文字列で、どの群で落ちても先頭Subの名を騙っていた。
+'   RunAll19/RunAll22 と同じ「群ごとに On Error GoTo → Next ラベル」へ戻す。
 ' ============================================================================
 Public Sub RunAll30()
-    On Error GoTo StretchFail30
+    On Error GoTo G01Fail30
     TestStretchToolbarRows30
+G02Next30:
+    On Error GoTo G02Fail30
     TestStretchToolbarRows30_ThreeRows
+G03Next30:
+    On Error GoTo G03Fail30
     TestHubDashSeedBurnIdempotent_F12
+G04Next30:
+    On Error GoTo G04Fail30
     TestGapListBuild32_ItemCap
+G05Next30:
+    On Error GoTo G05Fail30
     TestGapListBuild32_CharCap
+G06Next30:
+    On Error GoTo G06Fail30
     TestGapListBuild32_SortOrder
+G07Next30:
+    On Error GoTo G07Fail30
     TestSortGapDesc32
+G08Next30:
+    On Error GoTo G08Fail30
     TestReasonText32
+G09Next30:
+    On Error GoTo G09Fail30
     TestNormKey32
+G10Next30:
+    On Error GoTo G10Fail30
     TestIsGapRow32
+G11Next30:
+    On Error GoTo G11Fail30
     TestGapAged32
+G12Next30:
+    On Error GoTo G12Fail30
     TestWithinWindow32
+G13Next30:
+    On Error GoTo G13Fail30
     TestNonceGuard32
 NextDone30:
     On Error GoTo 0
     Exit Sub
 
-StretchFail30:
-    modTestRunner.Check "TestStretchToolbarRows30(グループ全体)", False, _
-        "実行時エラー: " & Err.Description & " (Err=" & Err.Number & ")"
+G01Fail30:
+    GroupFail30 "TestStretchToolbarRows30", Err.Number, Err.Description
+    Resume G02Next30
+G02Fail30:
+    GroupFail30 "TestStretchToolbarRows30_ThreeRows", Err.Number, Err.Description
+    Resume G03Next30
+G03Fail30:
+    GroupFail30 "TestHubDashSeedBurnIdempotent_F12", Err.Number, Err.Description
+    Resume G04Next30
+G04Fail30:
+    GroupFail30 "TestGapListBuild32_ItemCap", Err.Number, Err.Description
+    Resume G05Next30
+G05Fail30:
+    GroupFail30 "TestGapListBuild32_CharCap", Err.Number, Err.Description
+    Resume G06Next30
+G06Fail30:
+    GroupFail30 "TestGapListBuild32_SortOrder", Err.Number, Err.Description
+    Resume G07Next30
+G07Fail30:
+    GroupFail30 "TestSortGapDesc32", Err.Number, Err.Description
+    Resume G08Next30
+G08Fail30:
+    GroupFail30 "TestReasonText32", Err.Number, Err.Description
+    Resume G09Next30
+G09Fail30:
+    GroupFail30 "TestNormKey32", Err.Number, Err.Description
+    Resume G10Next30
+G10Fail30:
+    GroupFail30 "TestIsGapRow32", Err.Number, Err.Description
+    Resume G11Next30
+G11Fail30:
+    GroupFail30 "TestGapAged32", Err.Number, Err.Description
+    Resume G12Next30
+G12Fail30:
+    GroupFail30 "TestWithinWindow32", Err.Number, Err.Description
+    Resume G13Next30
+G13Fail30:
+    GroupFail30 "TestNonceGuard32", Err.Number, Err.Description
     Resume NextDone30
 End Sub
