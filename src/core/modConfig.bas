@@ -107,12 +107,87 @@ Public Function GetBool(ByVal key As String, ByVal defaultValue As Boolean) As B
     ElseIf IsNumeric(v) Then
         GetBool = (CLng(v) <> 0)
     Else
-        Dim s As String: s = LCase$(Trim$(CStr(v)))
-        GetBool = (s = "true" Or s = "1" Or s = "yes" Or s = "on")
+        GetBool = ParseBoolText(CStr(v), defaultValue)
     End If
     Exit Function
 Fallback:
     GetBool = defaultValue
+End Function
+
+' ----------------------------------------------------------------------------
+' ParseBoolText - configのB列に入っていた【文字列】を真偽へ解釈する純関数。
+' ----------------------------------------------------------------------------
+'   【直したこと】(2026-08-16 R33 W4-1)
+'   兄弟の GetLong / GetDouble は「解釈できない値は defaultValue へ落とす」
+'   分岐(`ElseIf Not IsNumeric(v)`)を持ち、本ファイル45行の契約も
+'   「『既定値へ落ちる』という契約を、どんな入力でも守り切る」と宣言して
+'   いるのに、GetBool だけがその分岐を持たず
+'   `GetBool = (s = "true" Or s = "1" Or …)` と書かれていた。つまり
+'   【非空で解釈できない文字列】は defaultValue を無視して必ず False に
+'   なっていた。configは非エンジニアが直接編集する設計なので、
+'     ・値を消すつもりでスペースキーを押した(v=" ")
+'     ・日本語IMEを全角のまま「ＴＲＵＥ」と打って確定した
+'   のどちらも「TRUEに見える/空に見える」まま無条件 False になり、
+'   既定TRUEのキー(insight_share_enabled / sync_on_open / conv_bridge 等)が
+'   無言で全部オフに倒れる。エラーもログも出ず、modDiag はキーの【存在】
+'   しか見ないので診断でも気付けない。同じ「空に見えるセル」でも Delete
+'   なら既定値・スペース1個なら False と結果が反転するのは設計として
+'   弁護できないため、取り残しと判断して3分岐へ揃えた。
+'
+'   【3分岐の意味】
+'     真トークン("true"/"1"/"yes"/"on")   -> True
+'     偽トークン("false"/"0"/"no"/"off")  -> False   ← 明示的なFALSEは尊重する
+'     それ以外(空文字・空白のみ・誤記)    -> defaultValue(読めなかった)
+'   偽トークンを独立させているのは、「FALSEと書いた」意図を既定TRUEの
+'   キーで握り潰さないため。ここを2分岐(真トークン以外は既定値)にすると、
+'   運用保守ガイドが指示する insight_share_enabled=FALSE の手入力が効かなく
+'   なる。両方向のゴールデンを modTestsPure34 が固定している。
+'
+'   【Public である理由】VBA の Private プロシージャは他モジュールから
+'   呼べず、modTestsPure34 からゴールデン固定できないため(§7契約表に登録)。
+'   GetString / GetLong / GetDouble はこの関数を通らないので挙動は不変。
+' ----------------------------------------------------------------------------
+Public Function ParseBoolText(ByVal raw As String, ByVal defaultValue As Boolean) As Boolean
+    Dim s As String
+    s = LCase$(Trim$(NarrowAscii(raw)))
+    Select Case s
+        Case "true", "1", "yes", "on"
+            ParseBoolText = True
+        Case "false", "0", "no", "off"
+            ParseBoolText = False
+        Case Else
+            ParseBoolText = defaultValue
+    End Select
+End Function
+
+' ----------------------------------------------------------------------------
+' NarrowAscii - 全角の英数字と全角スペースだけを半角へ均す(純関数)。
+' ----------------------------------------------------------------------------
+'   StrConv(s, vbNarrow) は日本語ロケールでしか意図どおり動かない(他ロケール
+'   では変換されない/半角カナまで巻き込む)ので使わない。判定に要る文字は
+'   トークン8種を構成する英数字だけなので、Replace の小さな表で足りる。
+'   全角スペース(U+3000)を半角へ均すのは、Trim$ が U+3000 を落とさず
+'   「全角スペースだけのセル」が解釈不能扱いから漏れるのを防ぐため。
+'   非ASCIIは必ず ChrW で組む(CP932 へ潰れる文字をソースに直接置かない)。
+'   modPii.NormalizeWidth と役割は似ているが、modPii は中間層(src/pack)で
+'   基盤層(src/core)からは参照できない(lintの層依存検査でERROR)ため、
+'   共有せずここに閉じている。あちらは PII 走査用にハイフン類・＠・
+'   ピリオドまで均す別物で、統合すると片方の都合が他方を壊す。
+' ----------------------------------------------------------------------------
+Private Function NarrowAscii(ByVal s As String) As String
+    Dim t As String
+    t = Replace(s, ChrW(&H3000&), " ")
+
+    Dim i As Long
+    For i = 0 To 9
+        t = Replace(t, ChrW(&HFF10& + i), Chr$(48 + i))
+    Next i
+    For i = 0 To 25
+        t = Replace(t, ChrW(&HFF21& + i), Chr$(65 + i))
+        t = Replace(t, ChrW(&HFF41& + i), Chr$(97 + i))
+    Next i
+
+    NarrowAscii = t
 End Function
 
 Public Sub SetValue(ByVal key As String, ByVal value As Variant)

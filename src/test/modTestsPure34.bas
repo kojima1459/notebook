@@ -15,6 +15,9 @@ Option Explicit
 '   W3-11: 暗号化された Office 文書を、開く前に先頭バイトで見分けること。
 '     modShelfScan.EncryptedByHeader が「暗号化」「非暗号化」「判別不能」を
 '     取り違えないこと。とくに .xls/.doc/PDF を暗号化と断じないこと。
+'   W4-1: config の真偽値が、読めないときに既定値へ落ちること。
+'     modConfig.ParseBoolText が「真トークン/偽トークン/解釈不能」を
+'     取り違えないこと。全角で書かれた TRUE/FALSE も取りこぼさないこと。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -164,6 +167,102 @@ Private Sub CheckHdr34(ByVal label As String, ByVal ext As String, _
 End Sub
 
 ' ----------------------------------------------------------------------------
+' W4-1: config の真偽値は、読めなければ既定値へ落ちる。
+' ----------------------------------------------------------------------------
+'   configは非エンジニアが直接編集する設計なので、「値を消すつもりで
+'   スペースキーを押した」「日本語IMEを全角のまま ＴＲＵＥ と打った」は
+'   現実に起きる。従来の GetBool はこれらを無条件 False にしており、
+'   既定TRUEのキー(insight_share_enabled / sync_on_open / conv_bridge 等)が
+'   無言で全部オフに倒れていた。
+'
+'   【discriminate の作り】3群それぞれが別の壊し方を捕まえる:
+'   ・真トークン群は既定 False で呼ぶ → 「常に既定値」に壊すと落ちる。
+'   ・偽トークン群は既定 True で呼ぶ  → 「真トークン以外は既定値」の
+'     2分岐に縮めると落ちる(明示的な FALSE が効かなくなる事故)。
+'   ・解釈不能群は既定 True / False の両方で呼ぶ → 修正前の実装
+'     (「真トークンでなければ False」)に戻すと既定 True 側が全部落ちる。
+'   ・全角群を消すと、全角入力だけが解釈不能群へ落ちて期待と食い違う。
+' ----------------------------------------------------------------------------
+Private Sub TestParseBoolText34()
+    ' --- 真トークン(既定 False で呼ぶ: 既定値では説明できない True) --------
+    CheckBoolT34 "true", "true"
+    CheckBoolT34 "大文字TRUE", "TRUE"
+    CheckBoolT34 "先頭大文字True", "True"
+    CheckBoolT34 "前後に空白", "  true  "
+    CheckBoolT34 "1", "1"
+    CheckBoolT34 "yes", "yes"
+    CheckBoolT34 "on", "ON"
+
+    ' --- 偽トークン(既定 True で呼ぶ: 明示的なFALSEが既定に勝つこと) ------
+    '   運用保守ガイドが指示する insight_share_enabled=FALSE の手入力は、
+    '   ここが効かないと無効になる。
+    CheckBoolF34 "false", "false"
+    CheckBoolF34 "大文字FALSE", "FALSE"
+    CheckBoolF34 "0", "0"
+    CheckBoolF34 "no", "no"
+    CheckBoolF34 "off", "OFF"
+    CheckBoolF34 "前後に空白のFALSE", " FALSE "
+
+    ' --- 全角で書かれた設定値(日本語IMEの取りこぼし) ----------------------
+    CheckBoolT34 "全角ＴＲＵＥ", "ＴＲＵＥ"
+    CheckBoolT34 "全角小文字ｔｒｕｅ", "ｔｒｕｅ"
+    CheckBoolT34 "全角ＹＥＳ", "ＹＥＳ"
+    CheckBoolT34 "全角ＯＮ", "ＯＮ"
+    CheckBoolT34 "全角の１", "１"
+    CheckBoolF34 "全角ＦＡＬＳＥ", "ＦＡＬＳＥ"
+    CheckBoolF34 "全角小文字ｆａｌｓｅ", "ｆａｌｓｅ"
+    CheckBoolF34 "全角ＮＯ", "ＮＯ"
+    CheckBoolF34 "全角ＯＦＦ", "ＯＦＦ"
+    CheckBoolF34 "全角の０", "０"
+    '   全角スペースで囲まれていても読めること(Trim$ は U+3000 を落とさない
+    '   ので、幅を均してから Trim する順序でないと解釈不能へ落ちる)。
+    CheckBoolT34 "全角スペースで囲まれたＴＲＵＥ", _
+        ChrW(&H3000&) & "ＴＲＵＥ" & ChrW(&H3000&)
+
+    ' --- 解釈不能(既定値へ落ちる。両方向で確かめる) -----------------------
+    '   セルが空に見える2種。Delete(=Empty)は GetBool 側の分岐で既定値に
+    '   なるが、スペースキーで消したセルはここへ来る。
+    CheckBoolDef34 "空文字", ""
+    CheckBoolDef34 "半角スペース1個", " "
+    CheckBoolDef34 "全角スペース1個", ChrW(&H3000&)
+    CheckBoolDef34 "タブのみ", vbTab
+    '   日本語で書いた/打ち間違えた設定値。
+    CheckBoolDef34 "はい", "はい"
+    CheckBoolDef34 "いいえ", "いいえ"
+    CheckBoolDef34 "オン", "オン"
+    CheckBoolDef34 "打ち間違いtru", "tru"
+    CheckBoolDef34 "打ち間違いonn", "onn"
+    CheckBoolDef34 "余計な語を伴うyes", "yes please"
+    CheckBoolDef34 "トークンでない数値2", "2"
+    CheckBoolDef34 "トークンでない数値-1", "-1"
+    CheckBoolDef34 "trueを含むだけの文", "it is true"
+End Sub
+
+'   真トークン: 既定 False で True になること(既定値では説明できない)。
+Private Sub CheckBoolT34(ByVal label As String, ByVal raw As String)
+    modTestRunner.Check "R33-W4-1_真トークン: " & label, _
+        (modConfig.ParseBoolText(raw, False) = True), _
+        "入力=[" & raw & "] 実際=" & modConfig.ParseBoolText(raw, False) & " 期待=True"
+End Sub
+
+'   偽トークン: 既定 True で False になること(明示的なFALSEが既定に勝つ)。
+Private Sub CheckBoolF34(ByVal label As String, ByVal raw As String)
+    modTestRunner.Check "R33-W4-1_偽トークン: " & label, _
+        (modConfig.ParseBoolText(raw, True) = False), _
+        "入力=[" & raw & "] 実際=" & modConfig.ParseBoolText(raw, True) & " 期待=False"
+End Sub
+
+'   解釈不能: 既定値がそのまま返ること(True/False の両方向で確認)。
+Private Sub CheckBoolDef34(ByVal label As String, ByVal raw As String)
+    modTestRunner.Check "R33-W4-1_既定へ落ちる(既定True): " & label, _
+        (modConfig.ParseBoolText(raw, True) = True), _
+        "入力=[" & raw & "] 実際=" & modConfig.ParseBoolText(raw, True) & " 期待=True"
+    modTestRunner.Check "R33-W4-1_既定へ落ちる(既定False): " & label, _
+        (modConfig.ParseBoolText(raw, False) = False), _
+        "入力=[" & raw & "] 実際=" & modConfig.ParseBoolText(raw, False) & " 期待=False"
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -173,6 +272,9 @@ Public Sub RunAll34()
 H02Next34:
     On Error GoTo H02Fail34
     TestEncryptedByHeader34
+H03Next34:
+    On Error GoTo H03Fail34
+    TestParseBoolText34
 H01Done34:
     On Error GoTo 0
     Exit Sub
@@ -183,6 +285,10 @@ H01Fail34:
     Resume H02Next34
 H02Fail34:
     modTestRunner.Check "TestEncryptedByHeader34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H03Next34
+H03Fail34:
+    modTestRunner.Check "TestParseBoolText34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub

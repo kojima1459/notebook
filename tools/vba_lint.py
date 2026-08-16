@@ -103,7 +103,19 @@ CONTRACT: dict[str, dict] = {
     },
     "modConfig": {
         "closed": True,
-        "required": ["EnsureLoaded", "GetString", "GetLong", "GetDouble", "GetBool", "SetValue"],
+        # ParseBoolText(2026-08-16 R33 W4-1): GetBool の文字列解釈部を切り出した
+        # 純関数。「真トークン/偽トークン/解釈不能は既定値」の3分岐を
+        # modTestsPure34 がゴールデン固定するために Public にしてある
+        # (VBA の Private プロシージャは他モジュールから呼べない)。
+        "required": [
+            "EnsureLoaded",
+            "GetString",
+            "GetLong",
+            "GetDouble",
+            "GetBool",
+            "ParseBoolText",
+            "SetValue",
+        ],
     },
     # FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗を利用者へ伝える1文の決定を
     # 1箇所に集めたもの。errDetail に「Wordを開いたままに…」等の行動可能な
