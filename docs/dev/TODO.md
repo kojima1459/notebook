@@ -82,3 +82,19 @@ regressionリスクに見合わない。将来「設定画面」ができた際�
 - [ ] `docs/00_はじめての方へ.md`等の非エンジニア向けガイド4本は本セッション
       では更新していない(内容が古い可能性あり。次回、実機テスト後の
       UI変更を反映して見直すことを推奨)。
+
+## F. R33からの持ち越し
+
+- [ ] **`feature_diffdoc`(約款差分)は同梱されているのに動かない**(R33 W4-4)。
+      `optDiffDoc.bas` は配布に含まれ注入もされるが、`InvokeFeature("diffdoc",…)`
+      も `FeatureEnabled("diffdoc")` も src 全体で0件＝利用者から起動する導線が
+      無い。一方 config の `feature_diffdoc` は既定TRUEなので、診断画面には
+      「モジュールあり/設定有効」と出て、管理者は「有効なのに使えない」と読む。
+      次ラウンドで二択の裁定が要る:
+      (A) 導線を1本足す(=機能追加。マイ本棚かヘルプにボタン)。
+      (B) 未提供と確定させる(config 既定を FALSE にし、`build/modules.json` から
+          外して注入本数とブック容量を返す。`optTts` と同じ扱い)。
+      **R33波4では実装していない**。裁定「既定を FALSE にする」の唯一の変更点が
+      `build/build_mybookshelf.py:651` の1行で、波4はビルドスクリプトを
+      W4-8(ui_state の text_cols)以外触らない取り決めだったため、司令塔へ差し戻した。
+      VBA 側(`modFeatures.FeatureEnabled`)の既定は元から FALSE で、変更は不要。

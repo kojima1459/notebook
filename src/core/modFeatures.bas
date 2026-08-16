@@ -106,7 +106,17 @@ Private Function ModuleNameOf(ByVal featureId As String) As String
         Case "tts": ModuleNameOf = "optTts"   ' 実体なし(feature_tts=False固定)
         Case "vision": ModuleNameOf = "optVision"
         Case "markdown": ModuleNameOf = "optMarkdown"
-        Case "diffdoc": ModuleNameOf = "optDiffDoc"
+        ' 2026-08-16(R33 W4-4): diffdoc は【同梱されているのに動かない】。
+        ' optDiffDoc.bas はビルド対象(build/modules.json)に載っていて
+        ' 注入もされ、config の feature_diffdoc が有効なら診断画面にも
+        ' 「モジュールあり/設定有効」と出る。しかし src 全体を探しても
+        ' InvokeFeature("diffdoc", …) も FeatureEnabled("diffdoc") も
+        ' 呼び出しが0件で、利用者から起動する導線がどの画面にも無い
+        ' (modUIShelf.bas:37-43 が「仕様に明記の無いUI追加はしない」と
+        ' 判断してボタンを置かず、config キー側だけが残った)。
+        ' 導線を足すのは機能追加なので今ラウンドの範囲外。宿題は
+        ' docs/dev/TODO.md「F. R33からの持ち越し」に記録してある。
+        Case "diffdoc": ModuleNameOf = "optDiffDoc"   ' 呼び出し口0件(導線なし)
         Case Else: ModuleNameOf = ""
     End Select
 End Function
