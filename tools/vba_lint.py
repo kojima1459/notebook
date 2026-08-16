@@ -1712,6 +1712,14 @@ CONTRACT: dict[str, dict] = {
             # BoardNum(2026-08-16 R33H F17): 数値欄の共通ガード。modBoard 側の
             #   同値の複製(SafeNum)を消してこちらへ寄せたので Public にする。
             "BoardNum",
+            # R33H F18(ビーコン走査の恒久除外を消す): 打ち切りの起点を日ごとに
+            #   ずらす純関数 BoardScanStart と、それを使って今回開く名前だけを
+            #   返す BoardListBeacons、前回の称号行を引き継ぐ BoardCarryTitles、
+            #   Hubタイルの「(概算)」へ母数を入れる BoardApproxSuffix。
+            #   BoardDeptLine は modBoard の容量のため実体をこちらへ移した
+            #   ポップアップ1行の純関数。
+            "BoardScanStart", "BoardListBeacons", "BoardCarryTitles",
+            "BoardApproxSuffix", "BoardDeptLine",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。

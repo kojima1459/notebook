@@ -60,6 +60,8 @@ Public Const BOARD_SUMMARY_NAME As String = "summary.txt"
 ' 終端行の印(2026-08-16 R33H F15)。最終行は必ず "E<TAB>データ行数"。
 ' 詳細は BoardEndCount の見出しコメント。
 Public Const BOARD_END_TAG As String = "E"
+' ビーコン名の列挙の上限(R33H F18。ファイルは開かないのでメモリの安全弁)。
+Private Const BOARD_ENUM_CAP As Long = 50000
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -235,22 +237,26 @@ End Function
 '   純関数なので modTestsPure34 からゴールデン固定できる(modBoard 本体は
 '   Excel を触るのでテストへ載せられない)。
 '
-' 1行目(ヘッダ)はタブ区切り10列:
+' 1行目(ヘッダ)はタブ区切り11列:
 '   0 種別印 BOARD_HEAD_TAG / 1 作成時刻(ISO "yyyy-mm-dd hh:nn:ss") /
 '   2 日キー / 3 今日の分 / 4 月キー / 5 今月の分 / 6 年キー / 7 今年の分 /
-'   8 集計に入れた人数 / 9 打ち切り("1"=上限で切った概算)
-' 2行目以降は "D<TAB>部コード<TAB>今月の分" / "T<TAB>利用者id<TAB>感謝受領数"。
+'   8 集計に入れた人数 / 9 打ち切り("1"=上限で切った概算) /
+'   10 在ったビーコンの本数(=母数。R33H F18。旧10列の版は空で読まれる)
+' 2行目以降は "D<TAB>部コード<TAB>今月の分" / "T<TAB>利用者id<TAB>感謝受領数"、
+' 最終行は終端行 "E<TAB>データ行数"(R33H F15)。
 ' 種別印 BOARD_HEAD_TAG はモジュール先頭の宣言部にある(VBAはモジュール
 ' レベル宣言をプロシージャより後に置けない)。
 ' ============================================================================
 
+' totalN は Optional(既定0)。既存の9引数呼び出しは1文字も挙動が変わらない。
 Public Function BoardHeadText(ByVal stampText As String, ByVal dk As String, _
         ByVal dMin As Long, ByVal mk As String, ByVal mMin As Long, _
         ByVal yk As String, ByVal yMin As Long, ByVal userN As Long, _
-        ByVal capped As Boolean) As String
+        ByVal capped As Boolean, Optional ByVal totalN As Long = 0) As String
     BoardHeadText = BOARD_HEAD_TAG & vbTab & stampText & vbTab & _
         dk & vbTab & dMin & vbTab & mk & vbTab & mMin & vbTab & _
-        yk & vbTab & yMin & vbTab & userN & vbTab & IIf(capped, "1", "0")
+        yk & vbTab & yMin & vbTab & userN & vbTab & IIf(capped, "1", "0") & _
+        vbTab & totalN
 End Function
 
 ' ヘッダの1フィールドを取り出す(範囲外・壊れた行は空文字)。
@@ -378,6 +384,120 @@ Public Function BoardEndCount(ByVal fileText As String) As Long
     If declared <> n Then Exit Function
     BoardEndCount = n
 Bad:
+End Function
+
+' ============================================================================
+' ビーコンの走査範囲と称号の引き継ぎ(2026-08-16 R33H F18)
+' ----------------------------------------------------------------------------
+' 直したこと【この波でいちばん人に関わる欠陥】:
+'   ビーコンのファイル名は stats_<不変ハッシュ>.txt で、NTFS は名前順に返す。
+'   よって「先頭から SCAN_CAP 本で打ち切る」旧実装では、打ち切られる501人目
+'   以降が【毎回まったく同じ顔ぶれ】になる。その人たちは組織合計に一生入らず、
+'   感謝を20件集めても称号が誰の画面にも付かない ―― 「感謝ベースの称号は
+'   偽装不能」という設計の売りが、ハッシュのくじ引きに化けていた。
+'
+' 直し方(2つ組で「恒久除外」を消す):
+'   (1) 走査の起点を日ごとにずらす(BoardScanStart)。窓は capN 本ぶんで、
+'       起点も1日 capN 本ずつ進むので、窓は輪をきれいに敷き詰める ――
+'       ceil(本数/capN) 日で【全員が必ず1回は読まれる】(12,000人・500本なら
+'       24日)。名前の列挙(ファイルを開かない)は全件やるので、母数も正確。
+'   (2) 称号行は前回のスナップショットから引き継ぐ(BoardCarryTitles)。
+'       (1)だけだと、その日の窓に入らなかった人の称号が1日ごとに点いたり
+'       消えたりする。感謝の受領数は減らない量なので、引き継いで上書きして
+'       いく形が事実に合う。結果、一巡すれば全員の称号が載り、以後は消えない。
+' 残る限界(記録): 名前の列挙そのものは BOARD_ENUM_CAP 本で止める(メモリの
+'   安全弁)。設計目標の12,000人に対して4倍の余裕を取ってあるが、これを
+'   超える規模では再び末尾が落ちる。そこまで行ったら部署ごとに集計を割る。
+' ============================================================================
+
+' ----------------------------------------------------------------------------
+' BoardScanStart - 今回の走査を何番目から始めるか【純関数】。
+'   nFiles=在るビーコンの本数 / capN=1回に開く上限 / daySerial=CLng(Date)。
+'   nFiles <= capN なら常に0(全部読むので回す意味が無い=従来と同じ答え)。
+'   超えるときだけ、1日につき capN 本ぶん起点を進める(mod で輪にする)。
+' ----------------------------------------------------------------------------
+Public Function BoardScanStart(ByVal nFiles As Long, ByVal capN As Long, _
+                               ByVal daySerial As Long) As Long
+    If nFiles <= 0 Then Exit Function
+    If capN <= 0 Then Exit Function
+    If nFiles <= capN Then Exit Function
+    Dim d As Long: d = daySerial
+    If d < 0 Then d = -d
+    BoardScanStart = ((d Mod nFiles) * capN) Mod nFiles
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardListBeacons - 今回開くビーコンのファイル名を vbLf 区切りで返す。
+'   folderPath=board フォルダ / capN=1回に開く上限 / outTotal=在った本数(母数)。
+'   collect-then-process(Dir の列挙中に他の Dir を呼ばない)。呼び出し側は
+'   この関数を呼ぶ【前】に BoardCarryTitles を済ませること(あちらも Dir を
+'   使うため。VBA の Dir はプロセス全体で状態を1つしか持たない)。
+' ----------------------------------------------------------------------------
+Public Function BoardListBeacons(ByVal folderPath As String, ByVal capN As Long, _
+                                 ByRef outTotal As Long) As String
+    outTotal = 0
+    If LenB(folderPath) = 0 Then Exit Function
+    On Error GoTo Bad
+    Dim all() As String: ReDim all(0 To 63)
+    Dim n As Long
+    Dim fn As String: fn = Dir(folderPath & "stats_*.txt")
+    Do While LenB(fn) > 0
+        If n > UBound(all) Then ReDim Preserve all(0 To (UBound(all) + 1) * 2 - 1)
+        all(n) = fn
+        n = n + 1
+        If n >= BOARD_ENUM_CAP Then Exit Do
+        fn = Dir()
+    Loop
+    outTotal = n
+    If n = 0 Then Exit Function
+
+    Dim take As Long: take = capN
+    If take <= 0 Or take > n Then take = n
+    Dim st As Long: st = BoardScanStart(n, capN, CLng(Date))
+    Dim sb As String
+    Dim i As Long
+    For i = 0 To take - 1
+        If i > 0 Then sb = sb & vbLf
+        sb = sb & all((st + i) Mod n)
+    Next i
+    BoardListBeacons = sb
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardCarryTitles - 前回のスナップショットの称号行を titlesOut へ引き継ぐ。
+'   戻り値は引き継いだ件数(引き継げなければ0)。完全な(終端行のある)
+'   スナップショットだけを材料にする ―― 半端なファイルから称号を拾うと、
+'   欠けた人の称号を「無かったこと」にして書き戻してしまう。
+' ----------------------------------------------------------------------------
+Public Function BoardCarryTitles(ByVal folderPath As String, ByRef titlesOut As Object) As Long
+    If titlesOut Is Nothing Then Exit Function
+    If LenB(folderPath) = 0 Then Exit Function
+    On Error GoTo Bad
+    Dim p As String: p = folderPath & BOARD_SUMMARY_NAME
+    If LenB(Dir(p)) = 0 Then Exit Function
+    Dim rec As String
+    If Not modUtilText.ReadTextFileUtf8(p, rec) Then Exit Function
+    If BoardEndCount(rec) < 0 Then Exit Function
+    Dim ignored As Long
+    ignored = BoardReadRows(rec, "", titlesOut)
+    BoardCarryTitles = titlesOut.Count
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardApproxSuffix - Hubの「みんなの節約」タイルに付ける概算の断り(R33H F18)。
+'   打ち切っているのに「(概算)」としか言わないと、どれだけの人数ぶんなのかが
+'   画面から分からない。母数が取れるときは「概算500/12000名」と出す。
+' ----------------------------------------------------------------------------
+Public Function BoardApproxSuffix(ByVal userN As Long, ByVal totalN As Long, _
+                                  ByVal approx As Boolean) As String
+    If Not approx Then Exit Function
+    If totalN > userN And userN > 0 Then
+        BoardApproxSuffix = "(概算" & userN & "/" & totalN & "名)"
+    Else
+        BoardApproxSuffix = "(概算)"
+    End If
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -574,6 +694,27 @@ Private Function BoardStampNote(ByVal stampText As String, ByVal userN As Long, 
                                ByVal approx As Boolean, ByVal capN As Long) As String
     BoardStampNote = "  (集計時点: " & stampText & " / " & userN & "名ぶん" & _
         IIf(approx, " / 上限" & capN & "件までの概算", "") & ")"
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardDeptLine - ポップアップの「部(○○)で今月 約N」1行【純関数】。
+'   自分の部が分かっていて、かつ今月の合算が1分でもあるときだけ足す
+'   (タイル新設はしない。R13-7c)。R13 L-batch: 60分未満を時間へ丸めると
+'   「約0時間」になる ―― 1分でも貯まっているから出している行なのに「0」と
+'   書くのは、事実としても労いとしても間違っている。60分未満は分のまま出す。
+'   R33H F18: 容量(modBoard 残173字)のため modBoard.DeptLineForPopup の実体を
+'   こちらへ移した。純関数になったので文言と丸めをテストで固定できる。
+' ----------------------------------------------------------------------------
+Public Function BoardDeptLine(ByVal deptCode As String, ByVal monMin As Long) As String
+    If LenB(deptCode) = 0 Then Exit Function
+    If monMin <= 0 Then Exit Function
+    Dim amt As String
+    If monMin < 60 Then
+        amt = monMin & "分"
+    Else
+        amt = CLng(Round(monMin / 60, 0)) & "時間"
+    End If
+    BoardDeptLine = vbLf & "  部(" & deptCode & ")で今月 約" & amt
 End Function
 
 Public Function BoardStateText(ByVal stateText As String, ByVal maxAgeHours As Long) As String

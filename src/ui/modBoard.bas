@@ -35,8 +35,9 @@ Option Explicit
 '     SUMMARY_MAX_AGE_HOURS を過ぎたら数字ではなく「集計はまだありません」を
 '     出す(古い数字を今日の数字として出し続けない)。運用では発行者用ブックを
 '     日常的に開く端末へ1台置くこと。
-'   ・組織合計に入るのは SCAN_CAP 件まで=全社規模では概算(画面とログに明示)。
-'     全件を正確に足すには部署ごとに集計を割る別設計が要る。
+'   ・1回に読むのは SCAN_CAP 本まで=全社規模では概算(画面とログに母数つきで
+'     明示)。ただし窓は日ごとに移動し称号は引き継ぐので、誰も恒久的には
+'     外れない(R33H F18。仕組みは modShare.BoardScanStart 直上の節)。
 ' ============================================================================
 
 Private Const BOARD_SUBDIR As String = "board"
@@ -69,10 +70,9 @@ Private Const BEACON_FRESH_SEC As Double = 60#    ' 中身が変わったとき�
 Private Const AGG_TTL_SEC As Double = 600#
 
 ' 集約スナップショット(2026-08-16 R33 W6-1)。SCAN_CAP=発行者端末が1回に開く
-' ビーコンの上限(modTelemetry.SummaryText の guard<500 と同型の安全弁)。
-' SUMMARY_MAX_AGE_HOURS=これより古い集計は数字として使わない。FORCE_MIN_SEC=
-' 「更新」ボタンの下限間隔。TITLE_MIN=称号が付く最小の感謝受領数
-' (TitleForの下段と同じ値。スナップショットへはこれ以上の人だけ載せる)。
+' ビーコンの上限。SUMMARY_MAX_AGE_HOURS=これより古い集計は数字として使わない。
+' FORCE_MIN_SEC=「更新」ボタンの下限間隔。TITLE_MIN=称号が付く最小の感謝
+' 受領数(TitleForの下段と同じ値。スナップショットへはこれ以上の人だけ載せる)。
 Private Const SCAN_CAP As Long = 500
 Private Const SUMMARY_MAX_AGE_HOURS As Long = 24
 Private Const FORCE_MIN_SEC As Double = 60#
@@ -86,6 +86,7 @@ Private mForceAt As Double
 Private mAggState As String
 Private mAggStamp As String     ' スナップショットの作成時刻(ISO)
 Private mAggUsers As Long       ' 集計に入った人数
+Private mAggTotal As Long       ' 在ったビーコンの本数(=母数。R33H F18)
 Private mAggApprox As Boolean   ' SCAN_CAPで打ち切った概算か
 Private mLoggedState As String  ' usage_logへ同じ状態を毎回積まないための印
 
@@ -433,9 +434,10 @@ Private Sub RefreshBoard()
     End If
 End Sub
 
-' BuildSnapshot - 発行者端末だけが通る道。全ビーコンを1回読んで組織合計を出し、
-'   結果を summary.txt へ1本書く。開くのは SCAN_CAP 本まで(超えた分は読まずに
-'   打ち切り、打ち切り列を立てて全端末の画面へ「概算」と明示する)。
+' BuildSnapshot - 発行者端末だけが通る道。ビーコンを読んで組織合計を出し、
+'   結果を summary.txt へ1本書く。1回に開くのは SCAN_CAP 本までで、超える
+'   ときは【日ごとに窓をずらして】全員が順に入る(R33H F18。恒久除外を作らない
+'   ことが最低条件。仕組みと根拠は modShare.BoardScanStart 直上の節)。
 '   500本ぶんの待ちを払うのは発行者1台だけで、他の全端末は1本読みで済む。
 Private Sub BuildSnapshot(ByVal folderPath As String)
     Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
@@ -443,23 +445,22 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
     Dim yk As String: yk = modUtilText.IsoYear(Date)
     mMyDept = modP2PIo.DeptOf(MyTeamCode())   ' R13-7c: config優先→userIdから推定
 
-    ' collect-then-process(Dir列挙中に他のDirを呼ばない)
-    Dim names() As String: ReDim names(0 To 63)
-    Dim nFiles As Long: nFiles = 0
-    Dim fn As String: fn = Dir(folderPath & "stats_*.txt")
-    Do While LenB(fn) > 0 And nFiles < SCAN_CAP
-        If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
-        names(nFiles) = fn
-        nFiles = nFiles + 1
-        fn = Dir()
-    Loop
-    ' 打ち切ったか = 上限で抜けたときだけ fn に次の1件が残っている。
-    Dim capped As Boolean: capped = (LenB(fn) > 0)
-
     Dim orgD As Long, orgM As Long, orgY As Long
     Dim usersN As Long   ' 実際に読めて合算できた人数(開いた本数ではない)
     Dim deptAgg As Object: Set deptAgg = CreateObject("Scripting.Dictionary")
     Dim titleAgg As Object: Set titleAgg = CreateObject("Scripting.Dictionary")
+
+    ' R33H F18: 称号は前回のぶんを引き継いでから今回ぶんで上書きする。窓に
+    ' 入らなかった日に称号が消えないため(受領数は減らない量なので上書きで
+    ' 事実に合う)。Dir を使うのでビーコンの列挙より【前】に済ませる。
+    Dim carried As Long: carried = modShare.BoardCarryTitles(folderPath, titleAgg)
+
+    Dim totalN As Long
+    Dim names() As String
+    names = Split(modShare.BoardListBeacons(folderPath, SCAN_CAP, totalN), vbLf)
+    Dim nFiles As Long
+    If LenB(names(0)) > 0 Then nFiles = UBound(names) + 1
+    Dim capped As Boolean: capped = (totalN > nFiles)
 
     Dim i As Long
     For i = 0 To nFiles - 1
@@ -468,13 +469,13 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
             Dim f() As String: f = Split(rec, vbTab)
             If UBound(f) >= 8 Then
                 ' 書き出す行のキーになるので SanitizeId を通す(タブ・改行が
-                ' 混じると読む側の列が丸ごとズレる)。数値欄は必ず SafeNum。
+                ' 混じると読む側の列が丸ごとズレる)。数値欄は BoardNum を通す。
                 Dim uid As String: uid = LCase$(modP2PIo.SanitizeId(f(0)))
                 If LenB(uid) > 0 Then
                     usersN = usersN + 1
                     ' 称号は TITLE_MIN 未満を載せない(行数が称号持ちの人数で
-                    ' 頭打ちになる。読む側の判定は5件/20件のままなので、
-                    ' 落とした人の見え方は1文字も変わらない)。
+                    ' 頭打ちになる。読む側の判定は5件/20件のままなので見え方は
+                    ' 変わらない)。
                     Dim thN As Long: thN = modShare.BoardNum(f(1))
                     If thN >= TITLE_MIN Then titleAgg(uid) = thN
                     If f(2) = dk Then orgD = orgD + modShare.BoardNum(f(3))   ' 同じ日キーのみ合算
@@ -509,13 +510,14 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
     End If
     mAggStamp = modUtil.NowStamp()
     mAggUsers = usersN
+    mAggTotal = totalN
     mAggApprox = capped
     mAggState = "ok"
 
     Dim body As String
     body = modShare.BoardBodyText( _
-        modShare.BoardHeadText(mAggStamp, dk, orgD, mk, orgM, yk, orgY, usersN, capped), _
-        deptAgg, titleAgg)
+        modShare.BoardHeadText(mAggStamp, dk, orgD, mk, orgM, yk, orgY, usersN, _
+                               capped, totalN), deptAgg, titleAgg)
 
     ' 置き換えの実体(一時ファイル経由の差し替え)は modShare 側。
     Dim myHash As String
@@ -528,7 +530,8 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
     modLog.LogUsage "board_summary", "write", _
         "組織集計のスナップショットを" & IIf(wroteOk, "更新しました", "書けませんでした") & _
         "(この端末は発行者用ブックなので集計を書く側です): " & usersN & "名ぶん" & _
-        IIf(capped, "・上限" & SCAN_CAP & "件で打ち切り(概算)", "")
+        "/在" & totalN & "本・称号引継" & carried & "件" & _
+        IIf(capped, "・1回" & SCAN_CAP & "本の窓(日ごとに移動)", "")
     On Error GoTo 0
 End Sub
 
@@ -565,6 +568,7 @@ Private Sub LoadSnapshot(ByVal folderPath As String)
     mOrgYear = modShare.BoardHeadMin(head, "y", modUtilText.IsoYear(Date))
     mAggStamp = modShare.BoardHeadField(head, 1)
     mAggUsers = modShare.BoardNum(modShare.BoardHeadField(head, 8))
+    mAggTotal = modShare.BoardNum(modShare.BoardHeadField(head, 10))
     mAggApprox = (modShare.BoardHeadField(head, 9) = "1")
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
@@ -585,6 +589,7 @@ Private Sub ClearAggregate(ByVal stateText As String)
     mLoaded = False
     mAggStamp = ""
     mAggUsers = 0
+    mAggTotal = 0
     mAggApprox = False
     mAggState = stateText
     LogAggState stateText, modShare.BoardStateText(stateText, SUMMARY_MAX_AGE_HOURS)
@@ -600,16 +605,12 @@ Private Sub LogAggState(ByVal stateText As String, ByVal detail As String)
 End Sub
 
 ' ----------------------------------------------------------------------------
-' サイドバーウィジェット描画(nx_sb_stat* = 既存Z-Order/テーマループ管轄)。
-' 実機報告(2026-07-22)「今日の節約時間が0分のまま」対策: 起動時に1度しか
-' 呼ばれておらず、その後「解決した」を押してもウィジェットが再描画されず
-' 表示が固まっていた。Publicにして加算直後にも呼べるようにする。
+' 旧サイドバーウィジェット(nx_sb_stat*)の掃除だけを行う後方互換スタブ。
+' 2026-07-26 再設計でチャット画面のサイドバーを全廃したため置き場所そのものが
+' 無くなった。集計値は Hub の統計タイル(みんな今日/今月)へ移し、詳細は
+' OnWidgetClick(タイル上の透明Shape)から出す。既存ブックに残る旧Shapeを
+' 消すためだけに残す(Public契約と呼び出し元を壊さないため)。
 ' ----------------------------------------------------------------------------
-' 2026-07-26 再設計: チャット画面のサイドバーを全廃したため、このウィジェットの
-' 置き場所そのものが無くなった。集計値は Hub の統計タイル(みんな今日/今月)へ
-' 移し、詳細ランキングは modBoard.OnWidgetClick(Hubのタイル上の透明Shape)から
-' 出す。既存ブックに残っている旧Shapeを掃除するだけの後方互換スタブとして残す
-' (Public契約と呼び出し元を壊さないため)。
 Public Sub DrawWidget()
     Dim ws As Worksheet
     On Error Resume Next
@@ -621,6 +622,11 @@ Public Sub DrawWidget()
     ws.Shapes("nx_sb_stat_hist").Delete
     On Error GoTo 0
 End Sub
+
+' Hubタイルの値へ付ける概算の断り(R33H F18。文言は modShare 側)。
+Public Function OrgApproxSuffix() As String
+    OrgApproxSuffix = modShare.BoardApproxSuffix(mAggUsers, mAggTotal, mAggApprox)
+End Function
 
 ' Hub の「みんなの節約」タイルから呼ぶための公開集計値。
 Public Function OrgSummaryText() As String
@@ -635,7 +641,8 @@ End Function
 ' ポップアップの組織ブロック(文面の組み立ては modShare.BoardOrgBlock)。
 Private Function OrgBlockForPopup() As String
     OrgBlockForPopup = modShare.BoardOrgBlock(mAggState, FmtMin(mOrgDay), FmtMin(mOrgMon), _
-        FmtMin(mOrgYear), DeptLineForPopup(), mAggStamp, mAggUsers, mAggApprox, _
+        FmtMin(mOrgYear), modShare.BoardDeptLine(mMyDept, mDeptMon), _
+        mAggStamp, mAggUsers, mAggApprox, _
         SCAN_CAP, SUMMARY_MAX_AGE_HOURS)
 End Function
 
@@ -667,23 +674,6 @@ Private Function MyTeamCode() As String
     End If
     MyTeamCode = modP2PIo.TeamCodeOf(modP2P.CurrentUserId())
     On Error GoTo 0
-End Function
-
-' 自分の部が分かっていて、かつ今月の合算が1分でもあるときだけ1行足す
-' (タイル新設はしない。R13-7c)。
-Private Function DeptLineForPopup() As String
-    If LenB(mMyDept) = 0 Then Exit Function
-    If mDeptMon <= 0 Then Exit Function
-    ' R13 L-batch: 60分未満を時間へ丸めると「約0時間」になる。1分でも
-    ' 貯まっているから出している行なのに「0」と書くのは、事実としても
-    ' 労いとしても間違っている。60分未満は分のまま出す。
-    Dim amt As String
-    If mDeptMon < 60 Then
-        amt = mDeptMon & "分"
-    Else
-        amt = CLng(Round(mDeptMon / 60, 0)) & "時間"
-    End If
-    DeptLineForPopup = vbLf & "  部(" & mMyDept & ")で今月 約" & amt
 End Function
 
 ' 直近7日の個人履歴(日付キーを7回引くだけ。0分の日は「-」)。

@@ -400,6 +400,68 @@ Private Sub TestBoardEnd35()
         modShare.BoardHeadStatus(modShare.BoardHeadLine(h), "2026-08-15 09:00:00"), "ok"
 End Sub
 
+' ----------------------------------------------------------------------------
+' R33H F18: 走査の打ち切りに「恒久除外」を作らない
+' ----------------------------------------------------------------------------
+'   ビーコン名は stats_<不変ハッシュ>.txt で NTFS は名前順に返すため、先頭から
+'   上限本で切る旧実装では【打ち切られる顔ぶれが毎回同じ】になり、その人たちは
+'   感謝を20件集めても称号が誰の画面にも付かなかった。起点を日ごとにずらす。
+'   discriminate の作り: 最後の2本が対になっている ―― 回す実装なら
+'   ceil(本数/窓)日で全員が入り(miss=0)、旧実装(起点固定)なら4人が
+'   永久に外れる(miss=4)。「常に0を返す」実装は前者で落ち、「常にずらす」
+'   実装は「本数が上限以下なら0」の3本で落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestScanRotate35()
+    ChkLong35b "F18_本数が上限以下なら回さない", modShare.BoardScanStart(500, 500, 12345), 0
+    ChkLong35b "F18_本数0なら0", modShare.BoardScanStart(0, 500, 12345), 0
+    ChkLong35b "F18_上限0なら0(壊れた指定)", modShare.BoardScanStart(700, 0, 12345), 0
+
+    ChkLong35b "F18_1日ごとに窓ぶん進む(1日目)", modShare.BoardScanStart(7, 3, 1), 3
+    ChkLong35b "F18_1日ごとに窓ぶん進む(2日目)", modShare.BoardScanStart(7, 3, 2), 6
+    ChkLong35b "F18_輪になって戻る(3日目=9 mod 7)", modShare.BoardScanStart(7, 3, 3), 2
+
+    Dim hit(0 To 6) As Boolean
+    Dim fixedHit(0 To 6) As Boolean
+    Dim d As Long, i As Long, idx As Long
+    For d = 0 To 2                        ' ceil(7/3)=3日ぶん
+        Dim st As Long: st = modShare.BoardScanStart(7, 3, d)
+        For i = 0 To 2
+            idx = (st + i) Mod 7
+            hit(idx) = True
+            fixedHit((0 + i) Mod 7) = True    ' 旧実装=起点が常に0
+        Next i
+    Next d
+    Dim miss As Long, missFixed As Long
+    For i = 0 To 6
+        If Not hit(i) Then miss = miss + 1
+        If Not fixedHit(i) Then missFixed = missFixed + 1
+    Next i
+    ChkLong35b "F18_3日で全員が窓に入る(恒久除外なし)", miss, 0
+    ChkLong35b "F18_起点を固定すると4人が恒久的に外れる(旧実装の再現)", missFixed, 4
+End Sub
+
+' ----------------------------------------------------------------------------
+' R33H F18/F17: 画面へ出す文字列(概算の母数・部の行)
+' ----------------------------------------------------------------------------
+'   「(概算)」としか出ないと、何名ぶんの数字なのかが画面から分からない。
+'   部の行は60分未満を時間へ丸めると「約0時間」になる(R13 L-batch)。
+' ----------------------------------------------------------------------------
+Private Sub TestBoardTexts35()
+    ChkStr35 "F18_概算でなければ何も付けない", _
+        modShare.BoardApproxSuffix(500, 12000, False), ""
+    ChkStr35 "F18_概算なら母数を入れる", _
+        modShare.BoardApproxSuffix(500, 12000, True), "(概算500/12000名)"
+    ChkStr35 "F18_母数が取れない旧版は概算だけ", _
+        modShare.BoardApproxSuffix(500, 0, True), "(概算)"
+
+    ChkStr35 "F18_部が不明なら行を出さない", modShare.BoardDeptLine("", 300), ""
+    ChkStr35 "F18_0分なら行を出さない", modShare.BoardDeptLine("営業", 0), ""
+    ChkStr35 "F18_60分未満は分のまま", modShare.BoardDeptLine("営業", 59), _
+        vbLf & "  部(営業)で今月 約59分"
+    ChkStr35 "F18_60分以上は時間", modShare.BoardDeptLine("営業", 120), _
+        vbLf & "  部(営業)で今月 約2時間"
+End Sub
+
 Private Sub ChkLong35b(ByVal label As String, ByVal got As Long, ByVal want As Long)
     modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
@@ -441,6 +503,12 @@ H08Next35:
 H09Next35:
     On Error GoTo H09Fail35
     TestBoardEnd35
+H10Next35:
+    On Error GoTo H10Fail35
+    TestScanRotate35
+H11Next35:
+    On Error GoTo H11Fail35
+    TestBoardTexts35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -479,6 +547,14 @@ H08Fail35:
     Resume H09Next35
 H09Fail35:
     modTestRunner.Check "TestBoardEnd35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H10Next35
+H10Fail35:
+    modTestRunner.Check "TestScanRotate35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H11Next35
+H11Fail35:
+    modTestRunner.Check "TestBoardTexts35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

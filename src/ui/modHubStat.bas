@@ -267,8 +267,8 @@ Public Function OrgMin(ByVal period As String) As String
     Else
         v = modBoard.OrgMinutesMon()
     End If
+    OrgMin = FmtMin(v) & modBoard.OrgApproxSuffix()   ' R33H F18: 母数つきの概算
     On Error GoTo 0
-    OrgMin = FmtMin(v)
 End Function
 
 ' タイル群が占める高さ。Hubのバッジ帯はこの下に置く。
