@@ -50,6 +50,20 @@ Private mApplied As String
 ' 繰り返さない、という元の意図はこの上限で守る)。
 Private mFailCount As Long
 Private Const MAX_APPLY_RETRY As Long = 3
+' 上の mFailCount が今どの (シート,色) 組を数えているか(R33波5a W5-3)。
+' MemoKey と同じ書式の文字列。組が変わったら mFailCount を0に戻す。
+Private mFailKey As String
+
+' ---- 条件付き書式方式(W5-1)の宣言。設計の根拠は下の「W5-1」節 ----
+Private mCfOff As Boolean        ' 検算に落ちた=この端末では不成立。以後張らない
+Private mCfOkLogged As Boolean   ' 「効いている」を1セッション1回だけログしたか
+Private mCfFailLogged As Boolean ' 不首尾を1セッション1回だけログしたか
+' ルールの目印。数式に埋めて、掃除のとき【自分が張った1本だけ】を見分ける。
+Private Const CF_MARK As String = "MBSBG"
+' XlFormatConditionType.xlExpression(定数名は実機Excelにしか無いので数値)。
+Private Const CF_TYPE_EXPRESSION As Long = 2
+Public Const CF_DEPTH_ROWS As Long = 400      ' 張る深さ(行)。根拠はW5-1節
+Public Const CF_MAX_ROW As Long = 1048576     ' Excel 2007以降のシート最終行
 
 ' ----------------------------------------------------------------------------
 ' RestoreShelfHeaderBg - 一覧表のカード見出し行だけ、明示塗りを戻す。
@@ -253,8 +267,13 @@ Public Function MemoKey(ByVal sheetName As String, ByVal bgColor As Long) As Str
     MemoKey = "|" & sheetName & "=" & CStr(bgColor) & "|"
 End Function
 
-Public Function MemoPut(ByVal memo As String, ByVal sheetName As String, _
-                        ByVal bgColor As Long) As String
+' MemoDrop - メモから当該シートの1件だけを落とす【純関数】。
+'   R33波5a W5-2 で切り出した。従来 MemoPut の前半に埋まっていた「古い1件を
+'   落とす」処理そのもので、失敗時に背景画像を剥がしたとき(=もう敷いていない)
+'   に「敷いてある」という嘘のメモを消すために、単独で呼べる必要が出た。
+'   1件も無いメモ・空メモを渡しても落ちない。全部落ちたら "" を返す
+'   (呼び出し側の InStr は "" に対して 0 を返すので、そのまま扱える)。
+Public Function MemoDrop(ByVal memo As String, ByVal sheetName As String) As String
     Dim head As String: head = "|" & sheetName & "="
     Dim s As String: s = memo
     Dim p As Long: p = InStr(1, s, head, vbBinaryCompare)
@@ -266,6 +285,12 @@ Public Function MemoPut(ByVal memo As String, ByVal sheetName As String, _
             s = Left$(s, p - 1) & Mid$(s, q)
         End If
     End If
+    MemoDrop = s
+End Function
+
+Public Function MemoPut(ByVal memo As String, ByVal sheetName As String, _
+                        ByVal bgColor As Long) As String
+    Dim s As String: s = MemoDrop(memo, sheetName)
     If LenB(s) = 0 Then s = "|"
     MemoPut = s & sheetName & "=" & CStr(bgColor) & "|"
 End Function
@@ -332,8 +357,34 @@ Public Sub Apply(ByVal ws As Worksheet)
     GoTo CleanExit
 
 Failed:
+    ' R33波5a W5-2【R32配布物のリスク・実コードで確認済み】: 失敗経路に
+    ' 「既に貼ってある背景画像を剥がす」処理が無かった。背景画像は成功させるか
+    ' "" で明示解除するまで残り続けるので、旧テーマ色で敷けている状態から
+    ' 敷き直しに失敗すると 境界内=新テーマ色 / 下=旧テーマ色 が確定する ――
+    ' 「白い余白」より目立つ「明るいテーマなのに下半分だけ濃紺」になる。
+    ' ここで剥がせば最悪でも従来どおり白。
+    Err.Clear
+    ws.SetBackgroundPicture ""
+    Err.Clear
+    ' 剥がした以上「敷いてある」というメモも嘘になる。落としておかないと、
+    ' テーマを元の色へ戻したときにメモが一致して敷き直しごと弾かれ、
+    ' そのシートだけ白いまま戻らなくなる。
+    mApplied = MemoDrop(mApplied, nm)
+
     ' R32 Fix波 F7 m-3: 失敗はメモへ進めない。ただし無制限に再試行すると
     ' 描画のたびにファイルI/Oが走るので、3回で打ち切る。
+    '
+    ' R33波5a W5-3: その3回は【(シート,色)の組ごと】に数える。従来はモジュール
+    ' 共有の1本だったため、最初の組で3回使い切ると以後ずっと3以上のままで、
+    ' 2組目以降(3シート×6テーマ=最大18組)は【初回の失敗で即座に】諦めていた
+    ' ―― F7 m-3 が潰したはずの欠陥が2組目以降に残っていた。直前の組の鍵だけ
+    ' 持ち、組が変わったら数え直す。
+    Dim fkey As String
+    fkey = MemoKey(nm, c)
+    If StrComp(fkey, mFailKey, vbBinaryCompare) <> 0 Then
+        mFailKey = fkey
+        mFailCount = 0
+    End If
     mFailCount = mFailCount + 1
     If mFailCount >= MAX_APPLY_RETRY Then mApplied = MemoPut(mApplied, nm, c)
 
@@ -491,6 +542,206 @@ Private Sub SweepOldBmp(ByVal keepPath As String)
         End If
         Err.Clear
     Next i
+    On Error GoTo 0
+End Sub
+
+' ============================================================================
+' W5-1: 条件付き書式方式(2026-08-16 R33波5a)。背景画像との【二重防御】。
+' ============================================================================
+' なぜ第2案が要るのか: :137 の「SetBackgroundPicture が最後の1本」は誤り
+'   だった。条件付き書式は8ラウンド一度も検討されていない(src/ を grep して
+'   利用は0件。唯一の言及は tools/README §4 の「LO では検証できない」)。
+'   背景画像は %TEMP% へのファイル生成に依存し、書込不可・ディスク満杯・
+'   ウイルス対策の隔離・Environ 空 のどれか1つで不発になる。条件付き書式は
+'   そのどれにも依存しない。排他にせず両方を掛ける。
+'
+' 機構: 条件付き書式は「セルごとの書式レコード」を作らず、シート単位に
+'   「適用範囲(sqref)1件+ルール1件」として保持され、ルール側の Interior が
+'   地を上書き描画する。本当なら B を1行も増やさずに下の地を色づけられる。
+'
+' ★成立条件はただ1つ:【張っても UsedRange が伸びないこと】。伸びれば B が
+'   下がり停止線 S=B+k も同じだけ下がるので元の木阿弥(R18〜R27を溶かした壁)。
+'   これは LO では検証できない(tools/README §4)ので【実行時に自分で検算する】:
+'   張る直前と直後の使用済み末尾を測り、伸びていたら剥がし、伸びたぶんの行を
+'   Rows.Delete で戻し(解放できるのはこれだけ=R30実機実証)、以後張らない。
+'   成否どちらでも usage_log に1行残す(無言failで8ラウンド溶かしている)。
+'
+' 深さ(仕様との差分・報告済み): 仕様は Rows(B+1:1048576) だが CF_DEPTH_ROWS
+'   行に留めた。(a)要る深さは k(=1画面。窓高750pt/行高18ptで約42行)までで、
+'   400行は行高換算7,200pt=最大窓高の約10倍。(b)全域(約17億セル)の描画コスト
+'   が未検証で、最も重い苦情「フリーズ」を新たに作りかねない。
+'
+' 対象: Apply と同じ TargetSheet の3枚。チャット(Nexus)は modUI.bas:169 が
+'   UserInterfaceOnly:=True で Protect されており設定自体は通るはずだが実機
+'   未検証。背景画像と同じくこの波では対象外(範囲を広げない)。
+'
+' 呼び口: modViewport.ReleaseSheetRowsBelow の末尾。境界が確定した【直後】に
+'   走る必要があり(Setup*Columns 経由の ApplyNormalStyleBg は描画前で B が
+'   未確定)、かつ4画面が必ず通る唯一の合流点。呼び出し側4本は容量が無い。
+' ============================================================================
+
+' CfFormula - 常に真になる数式【純関数】。ISTEXT("MBSBG") は引数が文字列
+'   リテラルなのでどのセルで評価されても必ずTRUE。セル参照が無いので相対参照
+'   のズレも起きない。数式に目印(CF_MARK)が残るのでClearOwnCFが自分のルールを
+'   見分けられる。関数名はVBAから設定する限り常に英語(日本語Excelでも同じ)。
+Public Function CfFormula() As String
+    CfFormula = "=ISTEXT(""" & CF_MARK & """)"
+End Function
+
+' CfStartRow - 張り始める行【純関数】。boundRow=解放の下端行 / usedLast=解放
+'   【後】に実測した使用済み末尾行。使用済みの行に絶対に被せない(被せると本文が
+'   ルールの地色で潰れ、カードや見出しの塗り分けが消える)ので大きい方を採る。
+'   行1に掛かる指定・最終行超えは 0(=張らない)。
+Public Function CfStartRow(ByVal boundRow As Long, ByVal usedLast As Long) As Long
+    Dim s As Long
+    s = boundRow
+    If usedLast + 1 > s Then s = usedLast + 1
+    If s < 2 Then Exit Function
+    If s > CF_MAX_ROW Then Exit Function
+    CfStartRow = s
+End Function
+
+' CfRowsAddr - "開始行:終了行" の行アドレス【純関数】。depth 行ぶん下まで
+'   (最終行でクランプ)。異常な指定(行1以下・深さ0以下)は空文字=何もしない。
+Public Function CfRowsAddr(ByVal startRow As Long, ByVal depth As Long) As String
+    If startRow < 2 Then Exit Function
+    If startRow > CF_MAX_ROW Then Exit Function
+    If depth < 1 Then Exit Function
+    Dim e As Long
+    e = startRow + depth - 1
+    If e > CF_MAX_ROW Then e = CF_MAX_ROW
+    If e < startRow Then Exit Function
+    CfRowsAddr = CStr(startRow) & ":" & CStr(e)
+End Function
+
+' ApplyCF - 境界より下の地を条件付き書式1本でテーマ色にする(冪等)。
+'   ws=対象シート(TargetSheet 以外は何もしない) / boundRow=解放の下端行。
+'   冪等化は Delete→Add の張り替え。消すのは自分が張った1本だけ(ClearOwnCF)。
+Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
+    If ws Is Nothing Then Exit Sub
+    If mCfOff Then Exit Sub
+    On Error Resume Next
+    ' Apply と同じ理由(F7 m-2)で、上流の残留エラーを自分のものと誤読しない。
+    Err.Clear
+
+    Dim nm As String
+    nm = ws.Name
+    If Err.Number <> 0 Then GoTo CfExit
+    If Not TargetSheet(nm) Then GoTo CfExit
+
+    Dim c As Long
+    Err.Clear
+    c = modUI.UiColor("bg")
+    If Err.Number <> 0 Then GoTo CfExit
+    ' 0 は modSkin.ResolveColor の「未知のキー」センチネル(Apply と同じ扱い)。
+    If c = 0 Then GoTo CfExit
+
+    ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。
+    Dim usedLast As Long
+    Err.Clear
+    usedLast = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    If Err.Number <> 0 Then GoTo CfExit
+
+    Dim addr As String
+    addr = CfRowsAddr(CfStartRow(boundRow, usedLast), CF_DEPTH_ROWS)
+    If LenB(addr) = 0 Then GoTo CfExit
+
+    ClearOwnCF ws
+
+    Err.Clear
+    Dim fc As Object
+    Set fc = ws.Rows(addr).FormatConditions.Add(CF_TYPE_EXPRESSION, , CfFormula())
+    Dim aNum As Long, aDesc As String
+    aNum = Err.Number: aDesc = Err.Description
+    Err.Clear
+    If aNum <> 0 Then
+        LogCfOnce nm, "cf_add", aNum, aDesc
+        GoTo CfExit
+    End If
+
+    fc.Interior.Color = c
+    aNum = Err.Number: aDesc = Err.Description
+    Err.Clear
+    If aNum <> 0 Then
+        LogCfOnce nm, "cf_interior", aNum, aDesc
+        ClearOwnCF ws
+        GoTo CfExit
+    End If
+
+    ' ★必須検算。ここが成否を分ける唯一の点(この波の主題)。
+    Dim after As Long
+    Err.Clear
+    after = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    If Err.Number = 0 Then
+        If after > usedLast Then
+            ' 伸びた=この端末では条件付き書式もセルを使う。剥がして、伸びた
+            ' ぶんの行を消して元の B に戻し、以後このセッションでは張らない。
+            ClearOwnCF ws
+            Err.Clear
+            ws.Rows((usedLast + 1) & ":" & after).Delete
+            Err.Clear
+            mCfOff = True
+            LogCfOnce nm, "usedrange_grew", after - usedLast, _
+                "before=" & usedLast & " after=" & after & " range=" & addr
+            GoTo CfExit
+        End If
+    End If
+    Err.Clear
+
+    ' 成立した。1セッション1回だけ「効いている」ことも残す ―― 実機で
+    ' 「本当に張れたのか」を後から1行で確かめられるようにするため。
+    If Not mCfOkLogged Then
+        mCfOkLogged = True
+        modLog.LogUsage "backdrop_cf", nm, _
+            "range=" & addr & " color=" & c & " used=" & usedLast
+        Err.Clear
+    End If
+
+CfExit:
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ClearOwnCF - 自分が張ったルールだけ落とす。ws.Cells.FormatConditions.Delete
+'   は【全ての】条件付き書式を消すので使わない(src全体の利用は現時点で本
+'   モジュールだけ=R33波5a実測。将来他機能を巻き込む作りにしない)。
+'   目印はCF_MARK。後ろから回す(添字ズレ回避)。
+Private Sub ClearOwnCF(ByVal ws As Worksheet)
+    On Error Resume Next
+    Err.Clear
+    Dim fcs As Object
+    Set fcs = ws.Cells.FormatConditions
+    If Err.Number <> 0 Then GoTo ClearDone
+    Dim n As Long
+    n = fcs.Count
+    If Err.Number <> 0 Then GoTo ClearDone
+    Dim i As Long
+    For i = n To 1 Step -1
+        Dim f As String
+        Err.Clear
+        f = fcs.Item(i).Formula1
+        If Err.Number = 0 Then
+            If InStr(1, f, CF_MARK, vbTextCompare) > 0 Then
+                fcs.Item(i).Delete
+            End If
+        End If
+        Err.Clear
+    Next i
+ClearDone:
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' 条件付き書式まわりの不首尾を1セッション1回だけ usage_log へ。検算に落ちた
+'   ("usedrange_grew")場合もここを通る(成立しなかったことこそ残す)。
+Private Sub LogCfOnce(ByVal sheetName As String, ByVal stage As String, _
+                      ByVal errNum As Long, ByVal errDesc As String)
+    If mCfFailLogged Then Exit Sub
+    mCfFailLogged = True
+    On Error Resume Next
+    modLog.LogUsage "backdrop_cf_failed", sheetName, _
+        "stage=" & stage & " n=" & errNum & " " & errDesc
+    Err.Clear
     On Error GoTo 0
 End Sub
 

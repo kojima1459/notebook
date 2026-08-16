@@ -21,6 +21,13 @@ Option Explicit
 '   W4-6: 届かない共有へ OS のタイムアウトを2回払わないこと。
 '     modShareRule.ShouldRetryProbe が「即座に失敗した(構文起因)」と
 '     「時間をかけて失敗した(到達性)」を取り違えないこと。
+'   W5-2: 背景画像の敷設に失敗したとき、メモの後始末が抜けないこと。
+'     modBackdrop.MemoDrop が該当シートの1件だけを落とすこと(他シートを
+'     巻き込まない・前方一致の別名を巻き込まない)。
+'   W5-1: 条件付き書式を【使用済みの行に絶対に被せない】こと。
+'     modBackdrop.CfStartRow / CfRowsAddr / CfFormula の算数と目印。
+'     ※ FormatConditions が実際に通るか・UsedRange が伸びないかは LO では
+'       検証できない(tools/README §4)。恒真アサートで代替しない。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -314,6 +321,117 @@ Private Sub CheckRetry34(ByVal label As String, ByVal errNo As Long, _
 End Sub
 
 ' ----------------------------------------------------------------------------
+' W5-2: 背景画像の敷設に失敗したら、貼ってある画像を剥がしてメモも落とす。
+' ----------------------------------------------------------------------------
+'   剥がす1行(ws.SetBackgroundPicture "")は Excel 依存なので LO では実行
+'   できない。ここで固定できるのは【メモ側の後始末】=MemoDrop の契約だけ。
+'   なぜメモを落とす必要があるのか(このテストが守っている不変式):
+'     mApplied は「どのシートにどの色を敷いたか」の唯一の記録で、Apply は
+'     一致したら敷き直しを丸ごと弾く。失敗して画像を剥がしたのに記録が
+'     「敷いてある」のままだと、テーマを元の色へ戻したときに弾かれて
+'     そのシートだけ白いまま二度と戻らない。
+'   discriminate の作り: 「常に空文字を返す」実装にすると他シートの分まで
+'   消えるので2件が落ち、「常に元の文字列を返す」実装にすると3件が落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestMemoDrop34()
+    modTestRunner.Check "R33-W5-2_該当シートの1件だけ落ちる", _
+        (modBackdrop.MemoDrop("|ホーム=1|Dashboard=2|", "ホーム") = "|Dashboard=2|"), _
+        "実際=" & modBackdrop.MemoDrop("|ホーム=1|Dashboard=2|", "ホーム")
+
+    modTestRunner.Check "R33-W5-2_他シートの分は残す", _
+        (modBackdrop.MemoDrop("|ホーム=1|Dashboard=2|", "Dashboard") = "|ホーム=1|"), _
+        "実際=" & modBackdrop.MemoDrop("|ホーム=1|Dashboard=2|", "Dashboard")
+
+    ' 前方一致で巻き込まないこと("ホーム" が "ホーム2" を巻き込むと、
+    ' 別シートの記録まで消えて無駄な敷き直しが走る)。
+    modTestRunner.Check "R33-W5-2_前方一致の別名を巻き込まない", _
+        (modBackdrop.MemoDrop("|ホーム2=9|ホーム=1|", "ホーム") = "|ホーム2=9|"), _
+        "実際=" & modBackdrop.MemoDrop("|ホーム2=9|ホーム=1|", "ホーム")
+
+    modTestRunner.Check "R33-W5-2_無い名前を渡しても壊さない", _
+        (modBackdrop.MemoDrop("|Dashboard=2|", "ホーム") = "|Dashboard=2|"), _
+        "実際=" & modBackdrop.MemoDrop("|Dashboard=2|", "ホーム")
+
+    ' 落とした直後は Apply の照合(InStr)が必ず外れる=次の描画で敷き直す。
+    Dim m As String
+    m = modBackdrop.MemoPut("", "ホーム", 2758415)
+    modTestRunner.Check "R33-W5-2_落とすとMemoKeyの照合が外れる", _
+        (InStr(1, modBackdrop.MemoDrop(m, "ホーム"), _
+               modBackdrop.MemoKey("ホーム", 2758415), vbBinaryCompare) = 0), _
+        "実際=" & modBackdrop.MemoDrop(m, "ホーム")
+
+    ' 既存の MemoPut 契約(R32 W4-5)が MemoDrop 切り出しで変わっていないこと。
+    modTestRunner.Check "R33-W5-2_MemoPutの上書き契約は不変", _
+        (modBackdrop.MemoPut("|ホーム=1|", "ホーム", 7) = "|ホーム=7|"), _
+        "実際=" & modBackdrop.MemoPut("|ホーム=1|", "ホーム", 7)
+End Sub
+
+' ----------------------------------------------------------------------------
+' W5-1: 条件付き書式を張る範囲の算数(純関数だけ)。
+' ----------------------------------------------------------------------------
+'   【LOで守れること / 守れないこと】
+'   守れる : どの行からどの行まで張るか(CfStartRow / CfRowsAddr)、
+'            数式が常に真で目印を含むこと(CfFormula)。
+'   守れない: FormatConditions.Add が通るか、UsedRange が伸びないか、
+'            ルールの Interior が実際に見えるか。これは LO headless では
+'            原理的に検証できない(tools/README §4)ので、実装側が
+'            【実行時に自分で検算して、伸びたら剥がす】形にしてある。
+'            ここで恒真アサートを作って「守っているふり」をしない。
+'
+'   このテストが守っている不変式は1つ:【使用済みの行に絶対に被せない】。
+'   被せると本文がルールの地色で塗り潰され、カードや見出しが消える。
+' ----------------------------------------------------------------------------
+Private Sub TestCfRange34()
+    ' 数式のゴールデン。目印が消えると ClearOwnCF が自分のルールを
+    ' 見分けられなくなり、張り替えのたびにルールが積み上がる。
+    modTestRunner.Check "R33-W5-1_数式は常に真かつ目印入り", _
+        (modBackdrop.CfFormula() = "=ISTEXT(""MBSBG"")"), _
+        "実際=" & modBackdrop.CfFormula()
+
+    ' 境界と使用済みが一致していれば、その次の行から。
+    CheckCfStart34 "境界=使用済み+1なら境界から", 31, 30, 31
+    ' 解放しきれず使用済みが境界より下に残っている場合は、そちらを優先する
+    ' (境界から張ると 31〜45 の実コンテンツが地色で潰れる)。
+    CheckCfStart34 "使用済みが境界より下なら使用済みの次から", 31, 45, 46
+    ' 行1は必ずヘッダーなので、そこへ掛かる指定は張らない。
+    CheckCfStart34 "行1に掛かる指定は張らない", 1, 0, 0
+    CheckCfStart34 "行2からは張ってよい", 2, 0, 2
+    CheckCfStart34 "0行の異常指定は張らない", 0, 0, 0
+
+    CheckCfAddr34 "通常は開始行から深さぶん", 31, 400, "31:430"
+    CheckCfAddr34 "最終行を超えたらクランプ", 1048500, 400, "1048500:1048576"
+    CheckCfAddr34 "開始行0は空(何もしない)", 0, 400, ""
+    CheckCfAddr34 "行1は空(何もしない)", 1, 400, ""
+    CheckCfAddr34 "深さ0は空(何もしない)", 31, 0, ""
+    CheckCfAddr34 "深さ1でも1行だけ張る", 31, 1, "31:31"
+
+    ' 深さの設計不変式: 停止線 S=B+k の k(=1画面ぶんの行数)より十分深いこと。
+    ' 実機窓高の上限は約750pt、既定行高18pt換算で k は約42行。100行を下回る
+    ' 設定に変えたら、深さ不足で下端に未塗り帯が残りうる。
+    modTestRunner.Check "R33-W5-1_深さは1画面(約42行)より十分深い", _
+        (modBackdrop.CF_DEPTH_ROWS >= 100), _
+        "実際=" & modBackdrop.CF_DEPTH_ROWS
+
+    modTestRunner.Check "R33-W5-1_最終行はExcel2007以降の1048576", _
+        (modBackdrop.CF_MAX_ROW = 1048576), _
+        "実際=" & modBackdrop.CF_MAX_ROW
+End Sub
+
+Private Sub CheckCfStart34(ByVal label As String, ByVal boundRow As Long, _
+                           ByVal usedLast As Long, ByVal want As Long)
+    Dim got As Long: got = modBackdrop.CfStartRow(boundRow, usedLast)
+    modTestRunner.Check "R33-W5-1_" & label, (got = want), _
+        "bound=" & boundRow & " used=" & usedLast & " 実際=" & got & " 期待=" & want
+End Sub
+
+Private Sub CheckCfAddr34(ByVal label As String, ByVal startRow As Long, _
+                          ByVal depth As Long, ByVal want As String)
+    Dim got As String: got = modBackdrop.CfRowsAddr(startRow, depth)
+    modTestRunner.Check "R33-W5-1_" & label, (got = want), _
+        "start=" & startRow & " depth=" & depth & " 実際=[" & got & "] 期待=[" & want & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -329,6 +447,12 @@ H03Next34:
 H04Next34:
     On Error GoTo H04Fail34
     TestShouldRetryProbe34
+H05Next34:
+    On Error GoTo H05Fail34
+    TestMemoDrop34
+H06Next34:
+    On Error GoTo H06Fail34
+    TestCfRange34
 H01Done34:
     On Error GoTo 0
     Exit Sub
@@ -347,6 +471,14 @@ H03Fail34:
     Resume H04Next34
 H04Fail34:
     modTestRunner.Check "TestShouldRetryProbe34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H05Next34
+H05Fail34:
+    modTestRunner.Check "TestMemoDrop34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H06Next34
+H06Fail34:
+    modTestRunner.Check "TestCfRange34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub

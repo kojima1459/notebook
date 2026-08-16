@@ -1403,7 +1403,26 @@ CONTRACT: dict[str, dict] = {
     "modBackdrop": {
         "closed": True,
         "required": ["RestoreShelfHeaderBg", "LogStyleFailOnce",
-                     "Apply", "BmpHex", "MemoKey", "MemoPut"],
+                     "Apply", "BmpHex", "MemoKey", "MemoPut",
+                     # MemoDrop(2026-08-16 R33波5a W5-2): メモから1件だけ落とす
+                     #   純関数。敷設に失敗して背景画像を剥がしたときに
+                     #   「敷いてある」という嘘のメモを消すために単独で要る
+                     #   (MemoPut の前半を切り出したもの。MemoPut はこれを使う)。
+                     "MemoDrop",
+                     # 条件付き書式方式(2026-08-16 R33波5a W5-1)。背景画像と
+                     #   併用する二重防御。背景画像は %TEMP% へのファイル生成に
+                     #   依存するが、こちらはファイルI/O・Environ に一切依存
+                     #   しない。呼び口は modViewport.ReleaseSheetRowsBelow の
+                     #   末尾(境界が確定した直後・4画面の唯一の合流点)。
+                     #   ApplyCF   : 境界より下へルール1本を張り替える(冪等)。
+                     #               ★張った直後に UsedRange が伸びていないかを
+                     #               自分で検算し、伸びたら剥がして行を戻し、
+                     #               以後張らない(伸びたら停止線も下がるため)。
+                     #   CfFormula / CfStartRow / CfRowsAddr: 数式・開始行・
+                     #               行アドレスの純関数(modTestsPure34 が固定)。
+                     #   CF_DEPTH_ROWS / CF_MAX_ROW: 深さと最終行(テストが参照)。
+                     "ApplyCF", "CfFormula", "CfStartRow", "CfRowsAddr",
+                     "CF_DEPTH_ROWS", "CF_MAX_ROW"],
     },
     # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
     "modApp": {
