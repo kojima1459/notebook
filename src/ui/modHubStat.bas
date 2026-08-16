@@ -786,8 +786,7 @@ Public Sub OnFooterPortal()
     If opened Then Exit Sub
 
     On Error Resume Next
-    modClip.SetClipboardText PORTAL_URL
     modLog.LogError "E0905", "modHubStat.OnFooterPortal", modUtil.SafeLeft(PORTAL_URL, 200)
     On Error GoTo 0
-    MsgBox modLog.FriendlyMessage("E0905"), vbInformation, modAppDef.APP_NAME
+    MsgBox modClip.CopyOrGuide(PORTAL_URL, modLog.FriendlyMessage("E0905")), vbInformation, modAppDef.APP_NAME
 End Sub

@@ -367,11 +367,13 @@ Public Sub OnOpenSource()
 
     If Not ok Then
         On Error Resume Next
-        modClip.SetClipboardText path
+        ' R33 W4-7: コピーの成否を見ずに「コピーしました」と言わない。
+        ' 失敗時は CopyOrGuide が手で控えるための案内へ差し替える。
+        Dim clipMsg As String
+        clipMsg = modClip.CopyOrGuide(path, "場所をクリップボードにコピーしました:" & vbCrLf & path)
         On Error GoTo 0
         MsgBox "元ファイルを開けませんでした(移動または削除された可能性があります)。" & vbCrLf & _
-               "場所をクリップボードにコピーしました:" & vbCrLf & path, _
-               vbExclamation, modAppDef.APP_NAME
+               clipMsg, vbExclamation, modAppDef.APP_NAME
     End If
 End Sub
 

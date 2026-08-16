@@ -794,7 +794,8 @@ Public Sub OnAnonFeedback()
     Else
         ' 共有フォルダに書けない環境ではメール経路へ逃がす(黙って捨てない)。
         On Error Resume Next
-        modClip.SetClipboardText fb
+        Dim cbMsg As String
+        cbMsg = modClip.CopyOrGuide(fb, "本文はクリップボードに入っています(Ctrl+V で貼り付けてください)。")
         Dim mailUrl As String: mailUrl = FeedbackMailto()
         If LenB(mailUrl) > 0 Then
             modSkin.ShowToast "Officeの確認画面が出たら[はい]を押してください。", "info"
@@ -803,12 +804,10 @@ Public Sub OnAnonFeedback()
         On Error GoTo 0
         If LenB(mailUrl) > 0 Then
             MsgBox "共有フォルダへ送れなかったため、メールの下書きを開きました。" & vbCrLf & _
-                   "本文はクリップボードに入っています(Ctrl+V で貼り付けてください)。", _
-                   vbInformation, modAppDef.APP_NAME
+                   cbMsg, vbInformation, modAppDef.APP_NAME
         Else
-            MsgBox "共有フォルダへ送れませんでした。" & vbCrLf & _
-                   "本文はクリップボードに入っています(Ctrl+V で貼り付けて、" & vbCrLf & _
-                   "管理者へお送りください)。", vbInformation, modAppDef.APP_NAME
+            MsgBox "共有フォルダへ送れませんでした。管理者へお送りください。" & vbCrLf & _
+                   cbMsg, vbInformation, modAppDef.APP_NAME
         End If
     End If
 End Sub

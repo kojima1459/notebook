@@ -422,7 +422,19 @@ Public Sub OnFeedback()
     body = "【" & modAppDef.APP_NAME & " ご意見・不具合報告】" & vbCrLf & fb & vbCrLf & vbCrLf & _
            "--- 環境情報(自動付記) ---" & vbCrLf & _
            "Ver: " & modAppDef.APP_VERSION & " / " & modUtil.NowStamp()
-    modClip.SetClipboardText body
+    ' R33 W4-7: 成否を見ずに「Ctrl+V で貼り付けて送信してください」と言わない。
+    ' クリップボードは他プロセス(RDP同期・履歴ツール)に掴まれると実際に
+    ' 失敗し、案内どおり貼ると【その前にあった別の内容】が本文になる。
+    ' 利用者は送ったつもりのまま、書いたご意見は完全に失われる。
+    Dim clipOk As Boolean: clipOk = modClip.SetClipboardText(body)
+    Dim tipMsg As String, tipKind As String
+    If clipOk Then
+        tipMsg = "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。"
+        tipKind = "success"
+    Else
+        tipMsg = "クリップボードへ入れられませんでした。メール本文へ直接お書きください。"
+        tipKind = "error"
+    End If
 
     On Error Resume Next
     Dim mailUrl As String: mailUrl = FeedbackMailto()
@@ -433,14 +445,22 @@ Public Sub OnFeedback()
     End If
     On Error GoTo Done
 
+    ' コピーできなかったときだけ、書いた本文を復元できる形で見せる
+    ' (トーストは短い文しか読めないので、本文はここで出す)。
+    If Not clipOk Then
+        MsgBox "クリップボードへ入れられませんでした(他のアプリが使用中の可能性があります)。" & vbCrLf & _
+               "お手数ですが、次の本文をメールへ写してください。" & vbCrLf & vbCrLf & _
+               modUtil.SafeLeft(body, 400), vbExclamation, modAppDef.APP_NAME
+    End If
+
     ' バグバウンティEXP(1日1回まで=空メール連打での稼ぎを防止)
     Dim dayKey As String: dayKey = "fb:" & modUtilText.IsoDateCompact(Date)
     If modStats.GetStat(dayKey) = 0 Then
         modStats.Bump dayKey
         modStats.AddExp "feedback"
-        modSkin.ShowToast "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
+        modSkin.ShowToast tipMsg, tipKind
     Else
-        modSkin.ShowToast "ありがとうございます。メールが開くので Ctrl+V で本文を貼り付けて送信してください。", "success"
+        modSkin.ShowToast tipMsg, tipKind
     End If
     On Error Resume Next
     modLog.LogUsage "feedback_box", "", modUtil.SafeLeft(fb, 120)
