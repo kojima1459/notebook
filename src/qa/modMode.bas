@@ -327,6 +327,34 @@ Public Function GroundingAllowed() As Boolean
     GroundingAllowed = mGrounded
 End Function
 
+' ----------------------------------------------------------------------------
+' 旧UI(modUIMain.RenderAnswer)の出典欄と状態セルの文言(2026-08-16 R33H M1)
+' ----------------------------------------------------------------------------
+' Nexus側は3本(modAppAct/modPeek/modMentor)とも GroundingAllowed の門を
+' くぐるようになったが、旧3画面(nexus_ui=FALSE)には門が1つも無く、API失敗
+' (#ERR)・聞き返しのターンが【通常回答の枝】へ流れていた ―― 「AIとの通信に
+' 失敗しました」の直下に「📖 この回答のもと: …」と「状態: 回答ができました。
+' 出典もあわせてご確認ください。」が並ぶ(W5-21 以前より悪い)。
+' 実体をここへ置くのは modUIMain が残150字で分岐を書けないため(憲章§4-6)。
+' 門は引数で受け取る純関数にする(モジュール状態を読むと、この2本を固定する
+' ゴールデンが「直前にどのテストが走ったか」に依存してしまう)。
+'   allowed: 直近ターンで根拠表示を出してよいか(modMode.GroundingAllowed)。
+Public Function AnswerSourcesText(ByVal allowed As Boolean, ByVal labels As String) As String
+    If Not allowed Then Exit Function
+    If LenB(Trim$(labels)) = 0 Then Exit Function
+    AnswerSourcesText = ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: " & labels
+End Function
+
+' 不成立ターンの状態セル。API失敗と聞き返しの両方に当てはまる言い方にする
+' (「回答を作れませんでした」は聞き返しのターンでは嘘になる)。
+Public Function AnswerStatusText(ByVal allowed As Boolean) As String
+    If allowed Then
+        AnswerStatusText = "状態: 回答ができました。出典もあわせてご確認ください。"
+    Else
+        AnswerStatusText = "状態: 上のメッセージをご確認ください。"
+    End If
+End Function
+
 Public Function ShouldEmitInsight(ByVal mode As String, ByVal nHits As Long) As Boolean
     Dim m As String: m = LCase$(Trim$(mode))
     If LenB(m) = 0 Then Exit Function

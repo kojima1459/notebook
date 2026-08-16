@@ -369,10 +369,16 @@ CONTRACT: dict[str, dict] = {
         #   して先に使っており、API失敗と逆質問がそこへ流れ込むと状態セルが
         #   「準備できています」になり「Wordで開く」が前のターンの回答を出した。
         #   modAsk は凍結なので実体はここに置き、modAsk の変更は Done: の1行だけ。
+        # AnswerSourcesText / AnswerStatusText(2026-08-16 R33H M1): 旧UIの
+        #   出典欄と状態セルの文言。F7 の門(GroundingAllowed)を旧3画面へも
+        #   通すための実体で、modUIMain(残150字)からは1行で呼ぶ。門は引数で
+        #   受ける純関数にしてある(モジュール状態を読むとゴールデンが直前に
+        #   走ったテストに依存するため)。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
                      "SubQueryCount", "ShouldEmitInsight", "RerankEffort",
                      "NoteAnswered", "GroundingAllowed",
+                     "AnswerSourcesText", "AnswerStatusText",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
     },
     "modSparse": {

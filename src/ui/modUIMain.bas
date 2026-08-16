@@ -444,10 +444,12 @@ Public Sub RenderAnswer(ByVal answerText As String, hits() As Hit, ByVal nHits A
     footer = vbLf & vbLf & "（" & modeLabel & " ・ 所要 " & modUtil.HumanSeconds(CDbl(seconds)) & "）"
 
     modUIMainShape.WriteSafe ws.Range(RNG_ANSWER), answerText & footer
-    modUIMainShape.WriteSafe ws.Range(RNG_SOURCES), "" & ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: " & JoinSourceLabels(hits, nHits)
+    ' R33H M1: 門と文言は modMode。
+    modUIMainShape.WriteSafe ws.Range(RNG_SOURCES), _
+        modMode.AnswerSourcesText(modMode.GroundingAllowed(), JoinSourceLabels(hits, nHits))
 
     On Error Resume Next
-    ws.Range(RNG_STATUS).Value = "状態: 回答ができました。出典もあわせてご確認ください。"
+    ws.Range(RNG_STATUS).Value = modMode.AnswerStatusText(modMode.GroundingAllowed())
     On Error GoTo 0
 
     On Error Resume Next

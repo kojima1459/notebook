@@ -338,6 +338,27 @@ Private Sub TestNoteAnswered35()
     ' 空質問ターンの印は従来どおり mLastMode="" が持つ(R33H Fix波3: その印を
     ' 返していた modMode.AnsweredMode は呼び出し元0件になったため撤去した)。
 
+    ' ---- R33H M1: 旧UI(modUIMain.RenderAnswer)の出典欄と状態セルの文言 ----
+    '   F7 の門は Nexus側3本にしか無く、旧3画面では API失敗・聞き返しのターンが
+    '   通常回答の枝へ流れて「📖 この回答のもと」と「回答ができました」が出ていた。
+    '   discriminate(両方向): allowed の判定を外すと「不成立ターンでは出典を
+    '   出さない」が落ち、状態を1本の文言へ戻すと「成功宣言をしない」が落ちる。
+    ChkStr35 "M1_成立ターンは出典を出す", _
+        modMode.AnswerSourcesText(True, "手順書.docx"), _
+        ChrW(&HD83D) & ChrW(&HDCD6) & " この回答のもと: 手順書.docx"
+    ChkStr35 "M1_不成立ターンでは出典を1文字も出さない", _
+        modMode.AnswerSourcesText(False, "手順書.docx"), ""
+    ChkStr35 "M1_出典が空なら見出しだけを残さない", _
+        modMode.AnswerSourcesText(True, "  "), ""
+    ChkStr35 "M1_成立ターンの状態は従来どおり", _
+        modMode.AnswerStatusText(True), "状態: 回答ができました。出典もあわせてご確認ください。"
+    ChkBool35 "M1_不成立ターンの状態は成功を宣言しない", _
+        (InStr(1, modMode.AnswerStatusText(False), "回答ができました", vbBinaryCompare) > 0), False
+    ChkBool35 "M1_不成立ターンの状態は出典を案内しない", _
+        (InStr(1, modMode.AnswerStatusText(False), "出典", vbBinaryCompare) > 0), False
+    ChkBool35 "M1_不成立でも状態セルは空にしない", _
+        (LenB(modMode.AnswerStatusText(False)) > 0), True
+
     ' 後始末: 次のテスト群へ状態を持ち越さない。
     ChkStr35 "F7_閉じ直せる", modMode.NoteAnswered(False, ""), ""
 End Sub
