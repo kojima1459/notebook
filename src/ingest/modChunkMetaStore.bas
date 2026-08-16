@@ -102,7 +102,13 @@ Public Sub WriteMetaRows(ByRef ids() As String, ByRef paths() As String, _
     If n < 1 Then Exit Sub
     InvalidateMetaCache            ' R17H FA-9: 書いたら世代を捨てる
     Dim ws As Worksheet: Set ws = EnsureChunkMetaSheet()
-    If ws Is Nothing Then Exit Sub
+    If ws Is Nothing Then
+        ' 2026-08-16(R33波3 W3-7): ここも無言だった。シートを用意できなければ
+        ' その資料の chunk_meta は1行も入らない(=参照展開・条番号ヒット・章要約が
+        ' 効かない)のに、痕跡がどこにも残らない。
+        MetaFailAt "write_nosheet", 0, "chunk_meta シートを用意できませんでした"
+        Exit Sub
+    End If
 
     Dim baseId As Long: baseId = LBound(ids)
     Dim baseP As Long: baseP = LBound(paths)
@@ -121,9 +127,22 @@ Public Sub WriteMetaRows(ByRef ids() As String, ByRef paths() As String, _
     Dim firstRow As Long: firstRow = lastR + 1
     If firstRow < 2 Then firstRow = 2
 
+    ' 2026-08-16(R33波3 W3-7): 唯一の実書込みを On Error Resume Next で挟んだ
+    ' まま Err を一度も見ずに捨てていた。そのため呼び出し元 WriteMetaFromRows の
+    ' On Error GoTo Failed → MetaFail "write" には【構造上決して到達せず】、
+    ' モジュール冒頭が宣言している「usage_log に chunk_meta_fail を1行だけ
+    ' 残して黙って諦める」が主経路で成立していなかった。数千チャンクの資料で
+    ' 一括書込みが err#7 等で落ちると、取込は「完了」で終わり、その資料だけ
+    ' 参照展開・条番号ヒット・章要約が働かないのに手掛かりがゼロになる。
+    ' Err は On Error GoTo 0 でもリセットされるので、判定より先に退避する。
     On Error Resume Next
+    Err.Clear
     ws.Range(ws.Cells(firstRow, COL_ID), ws.Cells(firstRow + n - 1, COL_REFS)).Value = arr
+    Dim wErr As Long: wErr = Err.Number
+    Dim wDesc As String: wDesc = Err.Description
+    Err.Clear
     On Error GoTo 0
+    If wErr <> 0 Then MetaFailAt "write", wErr, wDesc
 End Sub
 
 ' WriteMetaFromRows - 取込ループが組み立てた my_knowledge の行列(srcRows)から
@@ -229,8 +248,16 @@ End Function
 ' 失敗の記録。ハンドラ稼働中は On Error Resume Next が効かない(2026-07-30
 ' 実機err#462 と同型)ため、別Subへ切り出して新しいエラー文脈で記録する。
 ' Err はここへ来た時点の値をまず控える(On Error Resume Next 自体がErrを消す)。
+' エラーハンドラから呼ぶ入口(Err がまだ生きている前提)。
 Private Sub MetaFail(ByVal whereAt As String)
-    Dim d As String: d = "err#" & Err.Number & " " & Err.Description
+    MetaFailAt whereAt, Err.Number, Err.Description
+End Sub
+
+' 退避済みの番号・説明で1行残す。On Error Resume Next で拾った失敗はこちら
+' (Err は On Error GoTo 0 や Exit でリセットされるため、呼ぶ側が先に退避する)。
+Private Sub MetaFailAt(ByVal whereAt As String, ByVal errNum As Long, _
+                       ByVal errDesc As String)
+    Dim d As String: d = "err#" & errNum & " " & errDesc
     On Error Resume Next
     modLog.LogUsage "chunk_meta_fail", "ingest", whereAt & " " & d
     On Error GoTo 0
