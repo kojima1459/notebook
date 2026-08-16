@@ -596,6 +596,10 @@ End Function
 '     失敗したら .bak を宛先名へ戻す(旧版を失わない)。読み手が宛先を掴んで
 '     いて退避に失敗した場合は、宛先が在るので次の改名も失敗し、この回は
 '     何も壊さずに False で帰る(次の集計で書き直す)。
+'   ・差し替え1回ぶんの実体は modIntegrity.SwapFileWithBackup(R33H M6 で
+'     不変条件を「dst が無い間は bak を消さない」の1本に整理して移設。
+'     旧実装は再試行の先頭で無条件に bak を消し、退避まで済んで力尽きた
+'     ときの【唯一の旧版】を自分で消していた)。
 '   ・置き換えの1発勝負をやめた理由(F16): 宛先は業務時間中ほぼ常に誰かが
 '     読んでおり、落とすと次の機会は TTL の10分後、24時間過ぎれば全端末が
 '     「更新されていません」に倒れる。
@@ -618,7 +622,7 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
     If Not wroteOk Then Exit Function
 
     For attempt = 1 To 3
-        If BoardSwap(tmpPath, dstPath, bakPath) Then
+        If modIntegrity.SwapFileWithBackup(tmpPath, dstPath, bakPath) Then
             BoardWriteSummary = True
             Exit Function
         End If
@@ -631,33 +635,6 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
     Kill tmpPath
     Err.Clear
     On Error GoTo 0
-End Function
-
-' BoardSwap - tmp を dst へ差し替える1回ぶん(R33H F15)。手順と根拠は
-'   BoardWriteSummary の見出しコメント。壊さないことを最優先に、失敗したら
-'   旧版を必ず戻す。
-Private Function BoardSwap(ByVal tmpPath As String, ByVal dstPath As String, _
-                           ByVal bakPath As String) As Boolean
-    On Error Resume Next
-    Err.Clear
-    Kill bakPath              ' 前回の失敗で残った退避があれば捨てる
-    Err.Clear
-    Name dstPath As bakPath   ' 宛先が無ければ 53 で失敗するだけ(初回)
-    Dim hadOld As Boolean: hadOld = (Err.Number = 0)
-    Err.Clear
-    Name tmpPath As dstPath
-    Dim swapErr As Long: swapErr = Err.Number
-    Err.Clear
-    If swapErr <> 0 Then
-        If hadOld Then Name bakPath As dstPath   ' 旧版を戻す(消したままにしない)
-        Err.Clear
-        On Error GoTo 0
-        Exit Function
-    End If
-    If hadOld Then Kill bakPath
-    Err.Clear
-    On Error GoTo 0
-    BoardSwap = True
 End Function
 
 ' 置き換えの再試行のあいだだけ待つ(modBoard.BoardWait と同じ作り。

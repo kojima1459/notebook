@@ -266,12 +266,19 @@ CONTRACT: dict[str, dict] = {
         #   末尾ClearContents」の順で、代入の途中で落ちると生存行が二重に残った。
         #   置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
         #   (このモジュールの冒頭にある置き場の理由と同じ)。
+        # SwapFileWithBackup(2026-08-16 R33H M6): 出来上がった一時ファイルを
+        #   本番の名前へ差し替える1回ぶん(呼び口は modShare.BoardWriteSummary)。
+        #   不変条件は「dst が存在しない間は bak を絶対に消さない」の1本。
+        #   F15/F16 の実装は再試行の先頭で無条件に bak を消しており、退避まで
+        #   済んで力尽きた回の【唯一の旧版】を自分で消していた(3回失敗で
+        #   summary.txt が完全消滅=称号の累積状態も同時に消える)。
+        #   置き場が基盤層なのは modShare が残509字で分岐を書けないため。
         # UsedLastRow(2026-08-16 R33H M5): 使用済み範囲の最終行の実測。捨て読み
         #   での再計算と「UsedRange を1回だけ参照する」の2作法を畳んだ1本。
         #   modBackdrop.ApplyCF の自己検算が使う(あちらは残155字)。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "RewriteRowsAfterPurge",
-                     "UsedLastRow",
+                     "SwapFileWithBackup", "UsedLastRow",
                      "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
                      "CohabitCount", "CohabitOtherCount", "IsCohabiting",

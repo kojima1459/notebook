@@ -533,6 +533,52 @@ Public Function IsUsedRangeBloated(ByVal usedW As Double, ByVal usedH As Double)
 End Function
 
 ' ----------------------------------------------------------------------------
+' SwapFileWithBackup - 出来上がった tmp を dst へ差し替える1回ぶん(R33H M6)
+' ----------------------------------------------------------------------------
+' 呼び口は modShare.BoardWriteSummary(集約スナップショットの置き換え)。
+' 置き場が基盤層なのは modShare が残509字で分岐を書けないため(憲章§4-6)。
+' 「壊れた中身を読ませない・旧版を失わない」がこのモジュールの主題そのもの。
+'
+' 【不変条件は1本だけ】: dst が存在しない間は bak を絶対に消さない。
+'   Windows の Name は宛先が既に在ると失敗するので、手順は
+'   「dst を bak へ退避 → tmp を dst へ改名 → 成功したら bak を捨てる」。
+'   1回目に (a)退避は成功 (b)改名は失敗 (c)復旧の改名も失敗、で抜けると
+'   【旧版は bak にしか無い】。R33H F15/F16 の実装はこの状態で再試行の先頭に
+'   無条件の Kill bakPath があり、唯一のコピーを自分で消していた ―― 3回とも
+'   失敗すれば summary.txt が完全に消える(その日の集計だけでなく、称号の
+'   累積状態も消える。累積は置き換え対象のファイルにしか無いため)。
+'   なので先に dst の在否を見て、無ければ bak を宛先へ戻してから始める。
+' 戻り値: 差し替えられたら True。
+Public Function SwapFileWithBackup(ByVal tmpPath As String, ByVal dstPath As String, _
+                                   ByVal bakPath As String) As Boolean
+    On Error Resume Next
+    Err.Clear
+    If LenB(Dir(dstPath)) > 0 Then
+        Kill bakPath            ' dst が在る=bak は前回の残骸。捨ててよい
+    ElseIf LenB(Dir(bakPath)) > 0 Then
+        Name bakPath As dstPath ' dst が無く bak が在る=まず旧版を戻す
+    End If
+    Err.Clear
+    Name dstPath As bakPath     ' 宛先が無ければ 53 で失敗するだけ(初回)
+    Dim hadOld As Boolean: hadOld = (Err.Number = 0)
+    Err.Clear
+    Name tmpPath As dstPath
+    Dim swapErr As Long: swapErr = Err.Number
+    Err.Clear
+    If swapErr <> 0 Then
+        ' 旧版を戻す。ここも失敗したら bak に残す(次回の先頭で戻す)。
+        If hadOld Then Name bakPath As dstPath
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    If hadOld Then Kill bakPath
+    Err.Clear
+    On Error GoTo 0
+    SwapFileWithBackup = True
+End Function
+
+' ----------------------------------------------------------------------------
 ' UsedLastRow - 使用済み範囲の最終行を測る(2026-08-16 R33H M5)。
 ' ----------------------------------------------------------------------------
 ' 測り方に2つの作法を畳んである。どちらも実測由来で、抜けると【無言で
