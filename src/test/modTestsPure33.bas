@@ -88,6 +88,73 @@ Private Sub CheckNone33(ByVal label As String, ByVal s As String)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (3) W2-7: 共有発信側の関所で、全角の日付を誤検知しない。
+' ----------------------------------------------------------------------------
+'   W2-1(ScanText の内側で幅を均す)が作った退行を止める群。
+'   modInsightGate.PiiBlocked の前処理は「幅を均す→StripDateLike→ScanText」で、
+'   StripDateLike は半角数字専用。均しを ScanText の内側だけに置くと、
+'   全角の日付が日付潰しを素通りしたまま内側で半角化され、4+2+2+2+2=12桁の
+'   ランとして検知される ―― R32 F4 が半角側で潰した誤検知の全角版で、
+'   質問が【無言で】共有見送りになる。
+'
+'   【PiiBlocked を直接叩く群と、前処理の並びを写す群を分けている理由】
+'   PiiBlocked は「検知しなかった」経路では 92行目の
+'   `If LenB(hit) = 0 Then Exit Function` で即抜けるので副作用がゼロ
+'   (ログもトーストも通らない)。よって【見送られないこと】の検査は
+'   実物を直接叩ける ―― 前処理の並びが将来また入れ替わってもここが落ちる。
+'   一方【止まること】の検査で実物を叩くと NotifySkip → modSkin.ShowToast
+'   (Shape描画)まで走ってしまうため、そちらは modTestsPure31 の
+'   CheckPass31/CheckBlock31 と同じ作法で前処理の並びを写して検査する。
+' ----------------------------------------------------------------------------
+Private Sub TestGateWideDate33()
+    ' --- 実物を叩く: 全角の日付を含む質問は見送られない -------------------
+    modTestRunner.Check "R33-W2-7_全角日付の質問は見送られない(実物)", _
+        (modInsightGate.PiiBlocked("２０２６" & ChrW(&HFF0D&) & "０８" & ChrW(&HFF0D&) & _
+            "１４ １０:００ の締切について教えてください", "gap") = False), _
+        "PiiBlocked が True を返した(=共有が無言で見送られる)"
+    modTestRunner.Check "R33-W2-7_全角スラッシュ無し日付も見送られない(実物)", _
+        (modInsightGate.PiiBlocked("２０２６年０８月１４日 １０時の議事録は?", "gap") = False), _
+        "PiiBlocked が True を返した"
+    ' 半角の日付(R32 F4 が守っている側)が巻き添えで壊れていないこと。
+    modTestRunner.Check "R33-W2-7_半角日付も従来どおり見送られない(実物)", _
+        (modInsightGate.PiiBlocked("2026-08-14 10:00 の締切について教えてください", "gap") = False), _
+        "PiiBlocked が True を返した"
+
+    ' --- 前処理の並びを写す: 本物の全角電話番号は従来どおり止まる ---------
+    '   日付潰しが電話番号まで食べていたら、ここが落ちる。
+    CheckGateBlock33 "全角の携帯番号", _
+        "田中様の携帯 ０９０" & ChrW(&HFF0D&) & "１２３４" & ChrW(&HFF0D&) & "５６７８ に折り返す"
+    CheckGateBlock33 "全角の固定電話(市外局番4桁)", _
+        "０１２０" & ChrW(&HFF0D&) & "１２３" & ChrW(&HFF0D&) & "４５６７ へ連絡"
+    CheckGateBlock33 "全角＠のメール", "連絡は taro＠example.co.jp まで"
+
+    ' --- 冪等性: 二重に均しても結果は同じ ---------------------------------
+    '   PiiBlocked は入口で1回、ScanText の内側でもう1回通す。ここが冪等で
+    '   ないと「1回目と2回目で答えが変わる」ため、内側の均しを残せない。
+    CheckIdem33 "全角電話番号", _
+        "０９０" & ChrW(&HFF0D&) & "１２３４" & ChrW(&H2212&) & "５６７８"
+    CheckIdem33 "全角日付", "２０２６" & ChrW(&HFF0D&) & "０８" & ChrW(&HFF0D&) & "１４ １０:００"
+    CheckIdem33 "全角＠と長音符", "taro＠ex.com サーバー障害"
+    CheckIdem33 "半角のみ", "090-1234-5678 / a@b.com"
+End Sub
+
+Private Sub CheckGateBlock33(ByVal label As String, ByVal s As String)
+    ' modInsightGate.PiiBlocked の前処理と同じ並び(実物は副作用があるため写す)。
+    Dim hit As String
+    hit = modPii.ScanText(modInsightGate.StripDateLike(modPii.NormalizeWidth(s)))
+    modTestRunner.Check "R33-W2-7_関所で止まる: " & label, _
+        (LenB(hit) > 0), _
+        "前処理後=[" & modInsightGate.StripDateLike(modPii.NormalizeWidth(s)) & "]"
+End Sub
+
+Private Sub CheckIdem33(ByVal label As String, ByVal s As String)
+    Dim once_ As String: once_ = modPii.NormalizeWidth(s)
+    Dim twice_ As String: twice_ = modPii.NormalizeWidth(once_)
+    modTestRunner.Check "R33-W2-7_NormalizeWidthは冪等: " & label, _
+        (once_ = twice_), "1回=[" & once_ & "] 2回=[" & twice_ & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
 ' (2) W2-2: 今つながっている端末は消さない(不変条件4)。
 '   実機で起きていた事故そのものを1本目に置く ―― 管理者が
 '   knowledge_expire_days=30 を設定 / 利用者が26日目に社外で予告を受け
@@ -182,6 +249,9 @@ Public Sub RunAll33()
 G02Next33:
     On Error GoTo G02Fail33
     TestExpiryReachable33
+G03Next33:
+    On Error GoTo G03Fail33
+    TestGateWideDate33
 NextDone33:
     On Error GoTo 0
     Exit Sub
@@ -191,6 +261,9 @@ G01Fail33:
     Resume G02Next33
 G02Fail33:
     GroupFail33 "TestExpiryReachable33", Err.Number, Err.Description
+    Resume G03Next33
+G03Fail33:
+    GroupFail33 "TestGateWideDate33", Err.Number, Err.Description
     Resume NextDone33
 End Sub
 

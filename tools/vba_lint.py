@@ -852,7 +852,10 @@ CONTRACT: dict[str, dict] = {
     # ---- 7.4 パック層 ----
     "modPii": {
         "closed": True,
-        "required": ["ScanText"],
+        # NormalizeWidth(2026-08-16 R33 W2-7): 走査前の幅正規化。共有発信側の
+        # 関所(modInsightGate.PiiBlocked)が StripDateLike の【前】に通す必要が
+        # あるため Public。ScanText 内側の均しは残す(冪等なので二重でも同値)。
+        "required": ["ScanText", "NormalizeWidth"],
     },
     "modPack": {
         # §7.8 が「ValidatePackの列検査部を純関数に切り出してテスト可能に

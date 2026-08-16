@@ -89,8 +89,15 @@ End Function
 Public Function PiiBlocked(ByVal s As String, ByVal what As String) As Boolean
     On Error Resume Next
     Dim hit As String
+    ' R33 W2-7: 前処理の【いちばん先頭】で幅を均す。StripDateLike は半角数字
+    ' 専用なので、幅を均すのを ScanText の内側だけに置くと、全角で書かれた
+    ' 日付("２０２６－０８－１４ １０:００")が日付潰しを素通りしたまま
+    ' ScanText の内側で半角化され、12桁ランとして検知されてしまう
+    ' ―― R32 F4 が半角側で潰した誤検知の全角版で、質問が無言で共有見送りに
+    ' なる。均しは冪等(出力に全角は残らない)なので、ScanText 内側の均しと
+    ' 二重に通っても結果は変わらない。
     ' R32 F4(b): 走査の前に日付・時刻の並びを潰す(理由は StripDateLike)。
-    hit = modPii.ScanText(StripDateLike(s))
+    hit = modPii.ScanText(StripDateLike(modPii.NormalizeWidth(s)))
     If LenB(hit) = 0 Then Exit Function
     PiiBlocked = True
     modLog.LogUsage "insight_pii_skip", what, _

@@ -98,8 +98,20 @@ End Function
 '
 '   非ASCIIは必ず ChrW で組む(CP932 では U+FF0D と U+2212 が同じバイトへ
 '   潰れうるため、ソースへ生の文字を置くと注入後にどちらか一方が消える)。
+'
+'   【Public である理由】(2026-08-16 R33 W2-7)
+'   共有発信側の関所 modInsightGate.PiiBlocked は
+'   「幅を均す → StripDateLike → ScanText」の順で呼ぶ。StripDateLike は
+'   半角数字専用なので、ScanText の【内側】でだけ均していると、全角で
+'   書かれた日付が日付潰しを素通りしたまま12桁ランとして検知され、
+'   その質問が無言で共有見送りになる(R32 F4 が半角側で潰した誤検知の
+'   全角版)。幅の正規化は関所の【入口に1回】置くのが正しい位置なので、
+'   前処理の並びの先頭から呼べるよう Public にしてある(§7契約表にも登録)。
+'   ScanText 内側の均しは残す ―― 本関数は冪等(出力に全角は残らない)なので
+'   二重に通しても結果は変わらず、modPii を直接叩く他の経路
+'   (modPackExport.ScanChunksForPii)を守り続けられる。
 ' ----------------------------------------------------------------------------
-Private Function NormalizeWidth(ByVal s As String) As String
+Public Function NormalizeWidth(ByVal s As String) As String
     Dim t As String: t = s
 
     Dim d As Long
