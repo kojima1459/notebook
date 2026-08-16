@@ -320,10 +320,12 @@ Private Function KnowledgeSignature() As String
     ' 読めなくても件数だけの指紋は返す(空文字にしない=キャッシュは効く)。
     KnowledgeSignature = (lastM - 1) & "_0"
 
-    ' 列8(処理時刻)だけを一括読み(1列でも複数行なので2次元配列。
-    ' 単一セル範囲のスカラー化を避けるため lastM>=2 を先に確かめてある)。
+    ' 列8(処理時刻)だけを一括読み。
+    ' R33 W5-13: 旧コメントは「lastM>=2 を先に確かめてあるからスカラー化しない」
+    ' と書いていたが、lastM=2 はまさに単一セル範囲(2行目から2行目)で、.Value は
+    ' スカラーを返す。LoadFirstChunkPreviews と同じ包みを通して正す。
     Dim arr As Variant
-    arr = wsM.Range(wsM.Cells(2, 8), wsM.Cells(lastM, 8)).Value
+    arr = modVecCache.AsColumnArray(wsM.Range(wsM.Cells(2, 8), wsM.Cells(lastM, 8)).Value)
     If IsEmpty(arr) Then Exit Function
 
     Dim maxStamp As Double
@@ -394,8 +396,15 @@ Private Sub LoadFirstChunkPreviews(ByRef srcNames() As String, ByVal n As Long, 
     Dim lastK As Long: lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Sub
 
+    ' R33 W5-13: lastK=2(データ行が1行だけ)のとき、この範囲は単一セルになり
+    ' .Value は2次元配列ではなく【スカラー】を返す。空セルではないので
+    ' IsEmpty を素通りし、直後の LBound(srcs, 1) が実行時エラー13で
+    ' PreviewFail へ落ちる。結果 outPreviews が全て空 → digest が空文字 →
+    ' ShowQuestionsFromKnowledge が LLM 呼び出しごと諦め、資料が入っているのに
+    ' 「資料を取り込むと、ここに質問例が並びます」と事実と違う案内が出ていた。
+    ' modVecCache.AsColumnArray がまさにこの罠のために既にある部品なので通す。
     Dim srcs As Variant
-    srcs = ws.Range(ws.Cells(2, 2), ws.Cells(lastK, 2)).Value   ' 列2=source のみ
+    srcs = modVecCache.AsColumnArray(ws.Range(ws.Cells(2, 2), ws.Cells(lastK, 2)).Value)
     If IsEmpty(srcs) Then Exit Sub
 
     Dim rowOf() As Long: ReDim rowOf(0 To n - 1)
