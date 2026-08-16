@@ -62,6 +62,8 @@ Public Const BOARD_SUMMARY_NAME As String = "summary.txt"
 Public Const BOARD_END_TAG As String = "E"
 ' ビーコン名の列挙の上限(R33H F18。ファイルは開かないのでメモリの安全弁)。
 Private Const BOARD_ENUM_CAP As Long = 50000
+' ビーコン走査の窓を回す連番の ui_state キー(R33H M11。「実際に走った回数」)。
+Private Const KEY_SCAN_RUNS As String = "board_scan_runs"
 ' 直近の称号引き継ぎが「在るのに読めなかった」で終わったか(R33H M7)。
 ' 立っている間は集約スナップショットを書かない(0件で全社の称号を消さない)。
 Private mCarrySkip As Boolean
@@ -425,16 +427,18 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' BoardScanStart - 今回の走査を何番目から始めるか【純関数】。
-'   nFiles=在るビーコンの本数 / capN=1回に開く上限 / daySerial=CLng(Date)。
+'   nFiles=在るビーコンの本数 / capN=1回に開く上限 /
+'   runSerial=この走査が何回目か(R33H M11。以前はカレンダー日 CLng(Date))。
 '   nFiles <= capN なら常に0(全部読むので回す意味が無い=従来と同じ答え)。
-'   超えるときだけ、1日につき capN 本ぶん起点を進める(mod で輪にする)。
+'   超えるときだけ、1回につき capN 本ぶん起点を進める(mod で輪にする)。
+'   連番が1ずつ進む限り ceil(本数/capN) 回で全員が必ず1回は読まれる。
 ' ----------------------------------------------------------------------------
 Public Function BoardScanStart(ByVal nFiles As Long, ByVal capN As Long, _
-                               ByVal daySerial As Long) As Long
+                               ByVal runSerial As Long) As Long
     If nFiles <= 0 Then Exit Function
     If capN <= 0 Then Exit Function
     If nFiles <= capN Then Exit Function
-    Dim d As Long: d = daySerial
+    Dim d As Long: d = runSerial
     If d < 0 Then d = -d
     BoardScanStart = ((d Mod nFiles) * capN) Mod nFiles
 End Function
@@ -466,7 +470,9 @@ Public Function BoardListBeacons(ByVal folderPath As String, ByVal capN As Long,
 
     Dim take As Long: take = capN
     If take <= 0 Or take > n Then take = n
-    Dim st As Long: st = BoardScanStart(n, capN, CLng(Date))
+    ' R33H M11: 歩幅は日付ではなく【実際に走った回数】(飛びも本数の変動も
+    ' 原理的に消える。日付だと平日運用で d が飛び恒久除外が復活する)。
+    Dim st As Long: st = BoardScanStart(n, capN, modState.NextSerial(KEY_SCAN_RUNS))
     Dim sb As String
     Dim i As Long
     For i = 0 To take - 1

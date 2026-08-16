@@ -45,6 +45,27 @@ Public Function LoadState(ByVal keyName As String, ByVal defaultVal As String) A
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' NextSerial - keyName に控えた連番を1つ進めて返す(2026-08-16 R33H M11)。
+' ----------------------------------------------------------------------------
+' 「日付」ではなく「実際に走った回数」で回すものがあるため(初出は組織集計の
+' ビーコン走査窓 modShare.BoardListBeacons)。日付を歩幅にすると、その端末が
+' 毎日起動されない限り日番号が飛び、飛び方と本数の組み合わせ次第で
+' 恒久的に読まれない人が復活する(例: 平日だけ開くと d mod 7 が {1..5} しか
+' 取らず、本数が 3500 の倍数のとき窓が同じ位置を巡る)。回数なら定義上
+' 1ずつしか進まないので、飛びも本数の変動も原理的に消える。
+' 戻り値は1以上(初回は1)。壊れた値・負値・上限超は0から数え直す。
+' 書けなかった場合(ui_state が無い等)は毎回1が返るが、そのときは
+' そもそも状態を持てない端末なので従来の「常に先頭から」と同じ振る舞い。
+Public Function NextSerial(ByVal keyName As String) As Long
+    On Error Resume Next
+    Dim v As Double: v = Val(LoadState(keyName, "0"))
+    If v < 0 Or v > 2000000000# Then v = 0
+    NextSerial = CLng(v) + 1
+    SaveState keyName, CStr(NextSerial)
+    On Error GoTo 0
+End Function
+
 ' SaveState - keyNameの行を検索し(無ければ末尾に追加)、valTextを書き込む
 ' (upsert)。値は大小文字を保持したまま保存する(履歴は大小文字区別あり)。
 ' シートが存在しない場合は何もしない。
