@@ -140,11 +140,41 @@ Public Function ReadTextFileAuto(ByVal filePath As String, ByRef outText As Stri
     ReadTextFileAuto = True
 
     Dim r1 As Double: r1 = ReplacementRatio(outText)
-    If r1 <= FFFD_LIMIT Then Exit Function
+    If Not AutoNeedsRetry(r1) Then Exit Function
 
     Dim alt As String, e2 As Long, d2 As String
-    If Not ReadWithCharset(filePath, "shift_jis", alt, e2, d2) Then Exit Function
-    If ReplacementRatio(alt) < r1 Then outText = alt
+    Dim altOk As Boolean
+    altOk = ReadWithCharset(filePath, "shift_jis", alt, e2, d2)
+    Dim r2 As Double
+    If altOk Then r2 = ReplacementRatio(alt)
+    If AutoTextPick(r1, altOk, r2) = "cp932" Then outText = alt
+End Function
+
+' ----------------------------------------------------------------------------
+' AutoNeedsRetry / AutoTextPick - ReadTextFileAuto の採否判断【純関数】
+'                                 (2026-08-16 R33H F31)
+' ----------------------------------------------------------------------------
+' なぜ切り出すか: W3-3 の「判定を1本にした」の【判断】は ADODB.Stream と同じ
+'   関数の中にあり LO の実行テストが一度も撃てなかった(閾値も不等号も無検査
+'   なのに、テストの見出しは守られていると読める)。引数だけで決まる形へ出す。
+'   判断そのものは上の仕様どおりで変更なし。境界の意味だけ書き残す:
+'   ・2%ちょうどは読み直さない側 ―― 本物の U+FFFD が数文字混ざる UTF-8 を
+'     CP932 だと言い出さないための線。
+'   ・同率は採らない。それは「CP932 と分かった」ではなく「判定できなかった」
+'     なので答えを動かさない(化けは呼び出し側の化け検知が拾う)。
+' ----------------------------------------------------------------------------
+Public Function AutoNeedsRetry(ByVal utf8Ratio As Double) As Boolean
+    AutoNeedsRetry = (utf8Ratio > FFFD_LIMIT)
+End Function
+
+' 戻り値は採用する読み方の名前: "utf8" / "cp932"。
+'   altOk=False のとき altRatio は見ない(読めていない値に意味は無い)。
+Public Function AutoTextPick(ByVal utf8Ratio As Double, ByVal altOk As Boolean, _
+                             ByVal altRatio As Double) As String
+    AutoTextPick = "utf8"
+    If Not AutoNeedsRetry(utf8Ratio) Then Exit Function
+    If Not altOk Then Exit Function
+    If altRatio < utf8Ratio Then AutoTextPick = "cp932"
 End Function
 
 ' ----------------------------------------------------------------------------

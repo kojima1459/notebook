@@ -1825,7 +1825,16 @@ CONTRACT: dict[str, dict] = {
             # 中身は全滅」が残るため、判定は必ずこの1本に集約する。
             # ReplacementRatio はその判定の算数で、LOの実行テストで固定する
             # ためだけに Public(ADODB.Stream は LO で動かせない)。
+            # 2026-08-16(R33H F31): その「採否の判断」だけを引数で決まる形へ
+            # 出した2本。W3-3 の見出しコメントは「判定を1本にした」と書いて
+            # いたが、判断は ADODB.Stream と同じ関数の中にあり LO の実行
+            # テストが一度も撃てなかった(閾値も不等号も無検査)。
+            # AutoNeedsRetry=読み直す価値があるか(2%ちょうどは読み直さない)。
+            # AutoTextPick=UTF-8とCP932のどちらを採るか("utf8"/"cp932")。
+            # 同率は採らない=「判定できなかった」であって「CP932と分かった」
+            # ではない、という線を modTestsPure36 がゴールデンで固定する。
             "ReadTextFileAuto", "ReplacementRatio",
+            "AutoNeedsRetry", "AutoTextPick",
         ],
     },
     # ---- 7.8 テストモジュール ----
