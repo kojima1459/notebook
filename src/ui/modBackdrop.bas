@@ -678,6 +678,10 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
             ' ぶんの行を消して元の B に戻し、以後このセッションでは張らない。
             ClearOwnCF ws
             Err.Clear
+            ' 削除範囲に掛かるShapeが縮む・消えるのを防ぐ(ReleaseSheetRowsBelow
+            ' と同じ作法。Shapeは使用済み範囲を作らないので境界より下にも在り得る)。
+            modUI.FreezeShapePlacement ws
+            Err.Clear
             ws.Rows((usedLast + 1) & ":" & after).Delete
             Err.Clear
             mCfOff = True
