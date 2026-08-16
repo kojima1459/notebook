@@ -189,10 +189,15 @@ End Sub
 ' 委譲するのは【マイ本棚シートが既に前面のとき】だけにする。前面でないときは
 ' 描かない ―― 描画は冪等なので、次にその画面を開いた時点で必ず追いつく。
 ' 実体をここに置くのは modUIShelf が残84字で分岐を書けないため(R33容量裁定)。
+' R33H F5: 主語は ThisWorkbook。Application.ActiveSheet は【アクティブブック】の
+' シートを返すため、取込が内部で開く別ブック(modExtractorExcel の
+' Workbooks.Open、作業用Excel)が前面のまま完了すると名前が一致せず再描画が
+' 飛び、取り込んだ資料が本棚に出ないまま残っていた。src の他の全箇所は
+' ThisWorkbook.ActiveSheet を使っており、ここだけ主語が違った。
 Public Sub RedrawCurrentIfFront()
     On Error Resume Next
     Dim activeName As String
-    activeName = Application.ActiveSheet.Name
+    activeName = ThisWorkbook.ActiveSheet.Name
     If activeName = modAppDef.SH_SHELF Then modKnowledge.RefreshCurrent
     On Error GoTo 0
 End Sub
