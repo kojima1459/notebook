@@ -224,6 +224,12 @@ PURE_ALLOWLIST = [
     #     allowlistが未登録だった。bit31境界(符号ビット)とマーカー
     #     パース/履歴縮約ループの停止性を実行テストで固定する。
     "modRagParse", "modBitwiseOpt", "modFollowup",
+    # modStarter(2026-08-16 R33 W5-12): 質問例ボタンの表示件数を決める
+    # ShownCountFor は純関数で、ここが緩いと「同じ質問が2〜3回並ぶ」という
+    # 初手体験の中心が壊れる(シード0ビルドは生成上限5件=既定経路)。
+    # 本モジュール自体はShape描画を持つが、テストで呼ぶのはこの1本だけで
+    # Excel/COMには一切触れない(modUIShelf/modVaultGallery と同じ扱い)。
+    "modStarter",
     # modVecCache(2026-08-01 R12-4): セッション内ベクトルキャッシュ。
     #   シートを読むのは PrepareVectors 1本だけで、キャッシュ構築(BuildFrom)・
     #   世代判定(IsStale/StampOf)・内積(DotAt)はいずれも配列だけで完結する

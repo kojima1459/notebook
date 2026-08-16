@@ -435,6 +435,149 @@ End Sub
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
+' ============================================================================
+' R33波5b(本棚・ギャラリー・Hub/Dash の縫い目+小物)の純ロジック回帰。
+' ----------------------------------------------------------------------------
+' ここに載るのは「Excelオブジェクトに触れずに答えが決まる」ものだけ。
+' W5-5/6/7/8/9/10/11/13/14/16/19 は Shape・Range・共有フォルダ・直近RAGヒット
+' が要るため LO では撃てない(恒真アサートで代替しない。実機確認へ回す)。
+' ============================================================================
+
+' ---- W5-12: 質問例は件数ぶんだけ描く(6個固定で巻き戻さない) ----------------
+'   discriminate: 常に pageSize を返す実装は total=5 の行で落ち、
+'   常に total を返す実装は total=7 の行で落ちる。両方向を対で置いてある。
+Private Sub TestShownCount34()
+    ChkLong34 "W5-12_プールが少ないと件数ぶん(5<6)", modStarter.ShownCountFor(5, 6), 5
+    ChkLong34 "W5-12_LLM生成の上限5件でも重複しない", modStarter.ShownCountFor(3, 6), 3
+    ChkLong34 "W5-12_ちょうどなら満杯", modStarter.ShownCountFor(6, 6), 6
+    ChkLong34 "W5-12_多いときは1画面ぶんで打ち切る", modStarter.ShownCountFor(7, 6), 6
+    ChkLong34 "W5-12_0件は0", modStarter.ShownCountFor(0, 6), 0
+    ChkLong34 "W5-12_ページ幅0は0(ゼロ除算・負ループを作らない)", _
+        modStarter.ShownCountFor(5, 0), 0
+End Sub
+
+' ---- W5-15: 半角カナは半角幅(5.5pt)で数える -------------------------------
+'   16進リテラルに & が無いと &HFF61/&HFF9F が Integer 負値になり、条件が
+'   恒偽の死に枝になる。半角カナ10文字は 55pt(=収まる)のはずが 105pt
+'   (=収まらない)と見積もられ、進捗バーが不要に2行へ伸びていた。
+'   discriminate: 全角10文字は【直しても直さなくても】105pt で伸びる側に
+'   落ちるので、閾値そのものが効いていることを同時に固定できる。
+Private Sub TestKanaWidth34()
+    Dim kana As String, ascii34 As String, zen As String
+    Dim i As Long
+    For i = 1 To 10
+        kana = kana & ChrW(&HFF71&)      ' ｱ 半角カナ(U+FF71)
+        ascii34 = ascii34 & "a"
+        zen = zen & ChrW(&H3042&)        ' あ 全角
+    Next i
+    ChkTrue34 "W5-15_半角カナ10字は1行に収まる(55pt<=80pt)", _
+        (modProgressBar.BarHeightFor(kana, 80) = 30), _
+        "実際=" & modProgressBar.BarHeightFor(kana, 80)
+    ChkTrue34 "W5-15_ASCII10字も1行(既存の枝を壊していない)", _
+        (modProgressBar.BarHeightFor(ascii34, 80) = 30), _
+        "実際=" & modProgressBar.BarHeightFor(ascii34, 80)
+    ChkTrue34 "W5-15_全角10字は2行へ伸びる(閾値が効いている)", _
+        (modProgressBar.BarHeightFor(zen, 80) = 46), _
+        "実際=" & modProgressBar.BarHeightFor(zen, 80)
+End Sub
+
+' ---- W5-17: 本棚の使用率は1つの分母・0..100クランプ -----------------------
+'   Hub は chunk_limit、Dash は shelf_max_chunks を分母にしていて、取込の
+'   ハード上限は後者。Hub だけが 100% を超えられた。
+'   discriminate: クランプを外すと 146% の行が落ち、警告のしきい値を
+'   「表示のパーセント>=80」から導くと 25000/20000 の行が落ちる。
+Private Sub TestUsagePercent34()
+    ChkLong34 "W5-17_ちょうど半分", modShareRule.UsagePercentOf(10250, 20500), 50
+    ChkLong34 "W5-17_上限を広げた組織でも実比率", modShareRule.UsagePercentOf(24000, 40000), 60
+    ChkLong34 "W5-17_100%超はクランプ", modShareRule.UsagePercentOf(30000, 20500), 100
+    ChkLong34 "W5-17_分母0は0(ゼロ除算しない)", modShareRule.UsagePercentOf(100, 0), 0
+    ChkLong34 "W5-17_0件は0", modShareRule.UsagePercentOf(0, 20500), 0
+    ChkTrue34 "W5-17_警告線は chunk_limit の8割ちょうどで立つ", _
+        modShareRule.IsBudgetTightAt(16000, 20000), ""
+    ChkTrue34 "W5-17_8割に1件足りなければ立たない", _
+        (modShareRule.IsBudgetTightAt(15999, 20000) = False), ""
+    ChkTrue34 "W5-17_上限を広げても警告は消えない(表示%から導かない)", _
+        modShareRule.IsBudgetTightAt(25000, 20000), ""
+    ChkTrue34 "W5-17_しきい値0は立たない", _
+        (modShareRule.IsBudgetTightAt(100, 0) = False), ""
+End Sub
+
+' ---- W5-18: 本文の起点はヘッダー帯の実高から出す -------------------------
+'   サブタイトルは帯の下端+6pt に高さ18ptで置かれるので、下端は barH+24。
+'   本文(KPIカード)の開始Yがそれ以上でなければ、後から描かれる不透明な
+'   カードがサブタイトルを覆う。定数80固定だと barH=78 のとき 80 < 102 で
+'   必ず覆っていた。3通りの帯高で不等式を固定する。
+'   discriminate: BodyY0 を定数80へ戻すと barH=78/108 の2行が落ちる。
+Private Sub TestDashBodyY34()
+    modDashStat.SetHeaderH 48
+    ChkTrue34 "W5-18_帯が最小(48)なら従来と同じ80", (modDashStat.BodyY0() = 80), _
+        "実際=" & modDashStat.BodyY0()
+    ChkTrue34 "W5-18_帯48でサブタイトル下端(72)を割らない", _
+        (modDashStat.BodyY0() >= 48 + 24), "実際=" & modDashStat.BodyY0()
+
+    modDashStat.SetHeaderH 78          ' ピル2段(可視幅590〜618ptの窓)
+    ChkTrue34 "W5-18_帯78でサブタイトル下端(102)を割らない", _
+        (modDashStat.BodyY0() >= 78 + 24), "実際=" & modDashStat.BodyY0()
+
+    modDashStat.SetHeaderH 108         ' 3段
+    ChkTrue34 "W5-18_帯108でサブタイトル下端(132)を割らない", _
+        (modDashStat.BodyY0() >= 108 + 24), "実際=" & modDashStat.BodyY0()
+
+    modDashStat.SetHeaderH 0           ' 未測定でも下限48で守る
+    ChkTrue34 "W5-18_未測定なら最小帯として扱う", (modDashStat.BodyY0() = 80), _
+        "実際=" & modDashStat.BodyY0()
+    modDashStat.SetHeaderH 48          ' 後続テストへ状態を持ち越さない
+End Sub
+
+' ---- W5-20: 実況の言い換えで経過秒と段番号を捨てない ----------------------
+'   入念(分解経路)の実況は先頭がサロゲートなので旧実装の head 抽出が発火せず、
+'   本文まるごとが固定文へ差し替えられていた。
+'   discriminate: 「当たったら全文置換」へ戻すと段番号・経過秒・注記の3行が
+'   落ち、逆に「言い換えを一切しない」実装にすると点検の行が落ちる。
+Private Sub TestHumanizeKeepsTail34()
+    Dim src As String, r As String
+    src = ChrW(&HD83E) & ChrW(&HDDEC) & " 入念(3論点) 6/7段: " & _
+          "統合した回答を自己点検中… 経過2分13秒 ※応答なし表示でも処理中"
+    r = modLive.Humanize(src)
+    ChkTrue34 "W5-20_段番号が残る", (InStr(r, "6/7段") > 0), "実際=" & r
+    ChkTrue34 "W5-20_論点数が残る", (InStr(r, "3論点") > 0), "実際=" & r
+    ChkTrue34 "W5-20_経過秒が残る", (InStr(r, "経過2分13秒") > 0), "実際=" & r
+    ChkTrue34 "W5-20_応答なし注記が残る", (InStr(r, "応答なし表示でも処理中") > 0), "実際=" & r
+    ChkTrue34 "W5-20_ラベル本体は言い換わる", (InStr(r, "点検") > 0), "実際=" & r
+    ChkTrue34 "W5-20_生ラベルは残らない(素通しではない)", _
+        (InStr(r, "統合した回答を自己点検中") = 0), "実際=" & r
+
+    ' 単段経路(既存の形)を壊していないこと。
+    r = modLive.Humanize("(4/6) 検証中…")
+    ChkTrue34 "W5-20_単段の番号は従来どおり", (Left$(r, 6) = "(4/6) "), "実際=" & r
+    ChkTrue34 "W5-20_単段も言い換わる", (InStr(r, "突き合わせ") > 0), "実際=" & r
+End Sub
+
+' ---- W5-21: 回答が成立しなかったターンはモードを覚えない ------------------
+'   信頼度バッジ(modUINexusDraw)も出典チップ(modPeek)も、この1式が返す
+'   モード名が空かどうかを最終的な門にしている。
+'   discriminate: ok を無視して modeName をそのまま返す実装(=旧コード)は
+'   下2行が落ちる。常に空を返す実装は上2行が落ちる。
+Private Sub TestAnsweredMode34()
+    ChkTrue34 "W5-21_成立したターンはモードを返す", _
+        (modMode.AnsweredMode(True, "deep") = "deep"), ""
+    ChkTrue34 "W5-21_成立ターンは発信の門も開く", _
+        modMode.ShouldEmitInsight(modMode.AnsweredMode(True, "deep"), 3), ""
+    ChkTrue34 "W5-21_API失敗・逆質問のターンは空", _
+        (modMode.AnsweredMode(False, "deep") = ""), _
+        "実際=" & modMode.AnsweredMode(False, "deep")
+    ChkTrue34 "W5-21_不成立ターンは発信の門も閉じる", _
+        (modMode.ShouldEmitInsight(modMode.AnsweredMode(False, "deep"), 3) = False), ""
+End Sub
+
+Private Sub ChkLong34(ByVal label As String, ByVal got As Long, ByVal want As Long)
+    modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
+End Sub
+
+Private Sub ChkTrue34(ByVal label As String, ByVal cond As Boolean, ByVal detail As String)
+    modTestRunner.Check "R33-" & label, cond, detail
+End Sub
+
 Public Sub RunAll34()
     On Error GoTo H01Fail34
     TestFeatureErrMessage34
@@ -453,6 +596,24 @@ H05Next34:
 H06Next34:
     On Error GoTo H06Fail34
     TestCfRange34
+H07Next34:
+    On Error GoTo H07Fail34
+    TestShownCount34
+H08Next34:
+    On Error GoTo H08Fail34
+    TestKanaWidth34
+H09Next34:
+    On Error GoTo H09Fail34
+    TestUsagePercent34
+H10Next34:
+    On Error GoTo H10Fail34
+    TestDashBodyY34
+H11Next34:
+    On Error GoTo H11Fail34
+    TestHumanizeKeepsTail34
+H12Next34:
+    On Error GoTo H12Fail34
+    TestAnsweredMode34
 H01Done34:
     On Error GoTo 0
     Exit Sub
@@ -479,6 +640,30 @@ H05Fail34:
     Resume H06Next34
 H06Fail34:
     modTestRunner.Check "TestCfRange34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next34
+H07Fail34:
+    modTestRunner.Check "TestShownCount34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H08Next34
+H08Fail34:
+    modTestRunner.Check "TestKanaWidth34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H09Next34
+H09Fail34:
+    modTestRunner.Check "TestUsagePercent34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H10Next34
+H10Fail34:
+    modTestRunner.Check "TestDashBodyY34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H11Next34
+H11Fail34:
+    modTestRunner.Check "TestHumanizeKeepsTail34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H12Next34
+H12Fail34:
+    modTestRunner.Check "TestAnsweredMode34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub
