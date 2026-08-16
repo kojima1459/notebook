@@ -732,9 +732,17 @@ Public Sub OnOwnerReport()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
-    If Not modPublish.VerifyKey(InputBox( _
-            "運営用の画面です。発行キーを入力してください。", _
-            modAppDef.APP_NAME & " - 利用状況")) Then GoTo Done
+    ' R33 W5-25: 閲覧の関門を publish_key から admin_users(modP2P.IsAdmin)へ
+    ' 寄せた。発行(publish_key=正典を書ける人)と閲覧(admin_users=組織管理者)は
+    ' 別の権限で、ここは【匿名を約束して集めた投書の全文】を出す画面。
+    ' 合言葉を知っている人なら誰でも読める状態にしておくべきではない。
+    ' 判定はダッシュボードの管理者セクション(modDash.DrawAdminSection)と同じ。
+    If Not modP2P.IsAdmin() Then
+        MsgBox "この画面は組織管理者だけが開けます。" & vbCrLf & vbCrLf & _
+               "必要なときは管理担当にご相談ください。", _
+               vbInformation, modAppDef.APP_NAME & " - 利用状況"
+        GoTo Done
+    End If
 
     Dim body As String, fb As String
     On Error Resume Next

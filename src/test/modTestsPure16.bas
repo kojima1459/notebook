@@ -265,12 +265,20 @@ Private Function UncTempDir16() As String
 End Function
 
 ' 文字列にサロゲート(非BMP=CP932に無い絵文字)が含まれるか。
+' 2026-08-16(R33波5c C-3): `&HD800` / `&HDFFF` に `&` サフィックスが無く、
+' VBA では16bit Integer リテラル(= -10240 / -8193)として解釈されていた。
+' 直前の `If c < 0 Then c = c + 65536` で c は 0〜65535 の非負に正規化済み
+' なので、`c >= -10240 And c <= -8193` は【どんな文字でも常に False】。
+' つまりこの関数は常に False を返し、これを使う TestR18_6aNonBmpDialogText の
+' 「非BMPを含まない」アサートは全て恒真だった(非BMP絵文字が混入しても
+' 検知できない)。modChrome.CharSpan(:203)と同じ `&HD800&` 表記へ揃える。
+' CLAUDE.md「&H8000以上の16進リテラルは & サフィックス無しでInteger負値」。
 Private Function HasSurrogate16(ByVal s As String) As Boolean
     Dim i As Long, c As Long
     For i = 1 To Len(s)
         c = AscW(Mid$(s, i, 1))
         If c < 0 Then c = c + 65536
-        If c >= &HD800 And c <= &HDFFF Then
+        If c >= &HD800& And c <= &HDFFF& Then
             HasSurrogate16 = True
             Exit Function
         End If
@@ -284,6 +292,16 @@ End Function
 '   実行時の観点から補完)。
 ' ----------------------------------------------------------------------------
 Private Sub TestR18_6aNonBmpDialogText()
+    ' R33波5c C-3: 検知器そのものを先に固定する。ここが無いと、以下の
+    ' 「非BMPを含まない」は全て恒真アサートに戻れてしまう(実際そうだった)。
+    ' 📚(U+1F4DA)はサロゲートペアで表され、AscW は &HD83D / &HDCDA を返す。
+    modTestRunner.Check "検知器_非BMP絵文字をTrueと判定する(6a)", _
+        (HasSurrogate16("本棚" & ChrW(&HD83D) & ChrW(&HDCDA) & "です") = True), _
+        "Falseなら16進リテラルの&サフィックス欠落(常時False)に戻っている"
+    modTestRunner.Check "検知器_BMPのみの文字列はFalse(6a)", _
+        (HasSurrogate16("本棚です Shelf 123 " & ChrW(&H2753)) = False), ""
+    modTestRunner.Check "検知器_空文字はFalse(6a)", (HasSurrogate16("") = False), ""
+
     Dim ask As String: ask = optOcrEta.OcrConfirmAskFor(254, 106, 15)
     modTestRunner.Check "確認文_非BMPを含まない(6a)", (HasSurrogate16(ask) = False)
     modTestRunner.Check "確認文_作業用Excelボタンの案内が残る(6a)", _

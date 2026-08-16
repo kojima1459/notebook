@@ -152,8 +152,13 @@ Public Sub RunDiagnostics()
     ' [config必須キー]
     WriteLine ws, r, "[設定(config)]": r = r + 1
     Dim reqKeys() As String
+    ' 2026-08-16(R33波5c C-2): nexus_ui を必須キーに追加。R33波4(W4-2)で
+    ' Python側TRUE / VBA側FALSE の既定値不一致を揃えたが、キー自体が
+    ' config から欠けている端末では既定値に落ちて画面が旧UIになる。
+    ' その欠落が診断画面のどこにも出ていなかった(=「見た目が違う」を
+    ' 診断票から切り分けられない)ため、ここへ載せる。
     reqKeys = Split("mock_llm|recommended_model|quick_model|embed_dim|shelf_max_chunks|" & _
-                     "topk_quick|topk_deep|answer_language|pack_author", "|")
+                     "topk_quick|topk_deep|answer_language|pack_author|nexus_ui", "|")
     Dim cfgExists As Boolean: cfgExists = SheetExists(modAppDef.SH_CONFIG)
     For i = LBound(reqKeys) To UBound(reqKeys)
         Dim k As String: k = reqKeys(i)
