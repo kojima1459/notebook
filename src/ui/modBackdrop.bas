@@ -619,7 +619,6 @@ End Function
 '   冪等化は Delete→Add の張り替え。消すのは自分が張った1本だけ(ClearOwnCF)。
 Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     If ws Is Nothing Then Exit Sub
-    If mCfOff Then Exit Sub
     On Error Resume Next
     ' Apply と同じ理由(F7 m-2)で、上流の残留エラーを自分のものと誤読しない。
     Err.Clear
@@ -628,6 +627,18 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     nm = ws.Name
     If Err.Number <> 0 Then GoTo CfExit
     If Not TargetSheet(nm) Then GoTo CfExit
+
+    ' R33H F9: mCfOff で【即 Exit しない】。この関数は「張る」担当であると
+    ' 同時に【剥がす唯一の経路】でもある。先頭で抜けると、検算に落ちた
+    ' 端末の他のシート(検算はシート1枚で落ちるがフラグはモジュール共有)に
+    ' 張り済みのルールが二度と剥がされず、テーマを切り替えても旧テーマ色の
+    ' まま固定される ―― W5-2 が背景画像経路で潰した「明るいテーマなのに
+    ' 画面の下半分だけ濃紺」を、条件付き書式経路で作り直すことになる。
+    ' Add はしない/ClearOwnCF は必ず通す、に分ける。
+    If mCfOff Then
+        ClearOwnCF ws
+        GoTo CfExit
+    End If
 
     Dim c As Long
     Err.Clear
