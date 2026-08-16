@@ -133,18 +133,26 @@ Public Function ProbePath(ByVal p As String) As Boolean
 
     On Error Resume Next
     Err.Clear
+    Dim t0 As Double: t0 = Timer
     Dim attrVal As Long
     attrVal = GetAttr(modShareRule.ProbeTargetPath(target))  ' OSのタイムアウトはここで払う
     Dim probeErr As Long: probeErr = Err.Number
+    ' 1回目にかかった時間を測る(2026-08-16 R33 W4-6)。この値だけが
+    ' 「構文で即座に弾かれた」と「死んだホストのタイムアウトを払った」を
+    ' 区別できる。測らずに再試行すると、届かない共有へフルのタイムアウトを
+    ' 2回払い、起動の無反応が倍(20〜60秒)になる。
+    Dim firstMs As Long: firstMs = CLng(modUtilText.ElapsedMsSince(t0))
     Err.Clear
 
     If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
-        Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(target)
-        If LenB(retryPath) > 0 Then
-            Err.Clear
-            attrVal = GetAttr(retryPath)
-            probeErr = Err.Number
-            Err.Clear
+        If modShareRule.ShouldRetryProbe(probeErr, firstMs) Then
+            Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(target)
+            If LenB(retryPath) > 0 Then
+                Err.Clear
+                attrVal = GetAttr(retryPath)
+                probeErr = Err.Number
+                Err.Clear
+            End If
         End If
     End If
     On Error GoTo 0

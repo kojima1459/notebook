@@ -21,6 +21,13 @@ Option Explicit
 ' 同値だが、純ロジックとして値を明示しておく(処理系差の影響を受けない)。
 Public Const ATTR_DIRECTORY As Long = 16
 
+' 到達性プローブの1回目が「構文起因で即座に弾かれた」と言える上限(ミリ秒)。
+' 構文拒否はネットワークを1往復もしないので実測は0〜十数ms。一方、
+' 名前解決/SMBのタイムアウトは秒単位。1秒に置けば構文拒否には桁違いの
+' 余裕があり、二重タイムアウト(10〜30秒級)は確実に切り落とせる。
+' 詳細は ShouldRetryProbe のコメント(R33 W4-6)。
+Public Const PROBE_FAST_FAIL_MS As Long = 1000
+
 ' ----------------------------------------------------------------------------
 ' origin の名前空間(レビュー C-1 で "pack:" と "channel:" に分離済み)
 ' ----------------------------------------------------------------------------
@@ -144,6 +151,41 @@ Public Function ProbeRetryPath(ByVal basePath As String) As String
     If Right$(p, 1) <> "\" Then Exit Function        ' 落としていない = 再試行しない
     If StrComp(ProbeTargetPath(p), p, vbBinaryCompare) = 0 Then Exit Function
     ProbeRetryPath = p
+End Function
+
+' ShouldRetryProbe - 1回目の失敗が「構文起因」なら再試行してよい、の判定。
+'
+' なぜ必要か(2026-08-16 R33 W4-6):
+'   ProbeRetryPath の判定材料は【パスの形】だけで、失敗の【理由】を見ない。
+'   BasePath() は必ず末尾に "\" を付けて返す(modShare.bas:63)ので、UNC の
+'   共有ルート "\\srv\share\" は常に「落とした形と元が違う」を満たす。
+'   つまり1回目が失敗すれば必ず2回目が走る。B10 が救いたいのは
+'   「末尾 "\" を落とすと構文的に受け付けられず 52/76 が【即座に】返る」
+'   ケースなのに、ホスト停止・VPN未接続で1回目が長いタイムアウトの末に
+'   失敗した場合も同じ経路へ入り、死んだホストへもう一度フルの
+'   タイムアウトを払っていた。共有が落ちている日の起動が
+'   10〜30秒ではなく20〜60秒の無反応になる ―― modShare 冒頭が
+'   「解決する問題」に挙げた症状そのものを、救済コードが倍化していた。
+'
+' 判定:
+'   構文起因の拒否はネットワークを1往復もしないので即座に返る。到達性の
+'   問題は名前解決/SMBのタイムアウトを払うので秒単位になる。両者を分ける
+'   のは【経過時間】であってエラー番号ではない(76 はどちらでも返りうる)。
+'   よって「1回目が PROBE_FAST_FAIL_MS 以内に失敗した」ときだけ再試行する。
+'   閾値は1秒 ―― 構文拒否には桁違いに余裕があり、かつ二重タイムアウト
+'   (10〜30秒級)は確実に切り落とせる幅。
+'   errNo は見ない。GetAttr が成功しても属性がディレクトリでなければ
+'   ProbeIsReachable は偽になるが(同名ファイル)、その失敗も即座に返る
+'   ので再試行のコストは無視できる。ここで errNo を絞ると、環境差で
+'   別の番号が返る端末で B10 の救済が丸ごと効かなくなる方が怖い。
+'   ElapsedMsSince は日跨ぎを補正して必ず0以上を返すので、負値は来ない。
+Public Function ShouldRetryProbe(ByVal probeErrNo As Long, ByVal elapsedMs As Long) As Boolean
+    ' probeErrNo は判定に使わない(理由は上のコメント)。エラー番号での
+    ' 絞り込みを足したくなったときの受け口として引数だけ持っている。
+    ' 「番号が違っても答えは経過時間だけで決まる」ことは
+    ' modTestsPure34 が対で固定している。
+    If elapsedMs > PROBE_FAST_FAIL_MS Then Exit Function
+    ShouldRetryProbe = True
 End Function
 
 ' 共有ルート直下に必ず在ってほしい標準サブフォルダ(R8 F6)。

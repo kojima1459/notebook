@@ -18,6 +18,9 @@ Option Explicit
 '   W4-1: config の真偽値が、読めないときに既定値へ落ちること。
 '     modConfig.ParseBoolText が「真トークン/偽トークン/解釈不能」を
 '     取り違えないこと。全角で書かれた TRUE/FALSE も取りこぼさないこと。
+'   W4-6: 届かない共有へ OS のタイムアウトを2回払わないこと。
+'     modShareRule.ShouldRetryProbe が「即座に失敗した(構文起因)」と
+'     「時間をかけて失敗した(到達性)」を取り違えないこと。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -263,6 +266,54 @@ Private Sub CheckBoolDef34(ByVal label As String, ByVal raw As String)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' W4-6: 到達不能な共有へ、OSのタイムアウトを2回払わない。
+' ----------------------------------------------------------------------------
+'   ProbeRetryPath の判定材料は【パスの形】だけで、失敗の【理由】を見ない。
+'   BasePath() は必ず末尾 "\" を付けるので UNC 共有ルートは常に再試行条件を
+'   満たし、ホスト停止・VPN未接続で1回目が長いタイムアウトの末に失敗しても
+'   同じ死んだホストへもう一度フルのタイムアウトを払っていた(起動の無反応が
+'   10〜30秒→20〜60秒)。ShouldRetryProbe が「1回目が即座に失敗したか」だけを
+'   見て、構文起因の救済(R8b B10)は残したまま二重待ちを切る。
+'
+'   【discriminate の作り】
+'   ・「常に再試行」に戻すと、遅い失敗群(2件以上)が落ちる。
+'   ・「再試行しない」に倒すと、即失敗群が落ちる=B10の救済が死ぬ。
+'   ・エラー番号で絞り込む実装(例: 52/76 のときだけ再試行)を足すと、
+'     errNo=0/53 の即失敗ケースが落ちる。
+'   閾値は境界の前後(999/1000/1001)を直値で固定しているので、定数を
+'   黙って動かすとここが落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestShouldRetryProbe34()
+    ' --- 即座に失敗した=構文起因。B10の救済を残す ------------------------
+    CheckRetry34 "0msで失敗(52)", 52, 0, True
+    CheckRetry34 "0msで失敗(76)", 76, 0, True
+    CheckRetry34 "数msで失敗", 76, 5, True
+    CheckRetry34 "境界の1つ手前(999ms)", 76, 999, True
+    CheckRetry34 "境界ちょうど(1000ms)", 76, 1000, True
+
+    ' --- 時間がかかった=到達性の問題。2回目は払わない --------------------
+    CheckRetry34 "境界の1つ先(1001ms)", 76, 1001, False
+    CheckRetry34 "3秒かかって失敗", 76, 3000, False
+    CheckRetry34 "名前解決のタイムアウト(15秒)", 53, 15000, False
+    CheckRetry34 "SMBのタイムアウト(30秒)", 76, 30000, False
+
+    ' --- 答えを決めるのは経過時間だけで、エラー番号ではない ---------------
+    '   76 は「構文で弾かれた」ときにも「ホストが死んでいる」ときにも返る。
+    '   番号で絞ると、別の番号を返す端末で B10 の救済が丸ごと効かなくなる。
+    CheckRetry34 "errNo=0(同名ファイル)でも即失敗なら再試行", 0, 0, True
+    CheckRetry34 "errNo=53でも即失敗なら再試行", 53, 10, True
+    CheckRetry34 "errNo=52でも遅ければ再試行しない", 52, 20000, False
+    CheckRetry34 "errNo=0でも遅ければ再試行しない", 0, 20000, False
+End Sub
+
+Private Sub CheckRetry34(ByVal label As String, ByVal errNo As Long, _
+                         ByVal ms As Long, ByVal want As Boolean)
+    Dim got As Boolean: got = modShareRule.ShouldRetryProbe(errNo, ms)
+    modTestRunner.Check "R33-W4-6_" & label, (got = want), _
+        "errNo=" & errNo & " 経過=" & ms & "ms 実際=" & got & " 期待=" & want
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -275,6 +326,9 @@ H02Next34:
 H03Next34:
     On Error GoTo H03Fail34
     TestParseBoolText34
+H04Next34:
+    On Error GoTo H04Fail34
+    TestShouldRetryProbe34
 H01Done34:
     On Error GoTo 0
     Exit Sub
@@ -289,6 +343,10 @@ H02Fail34:
     Resume H03Next34
 H03Fail34:
     modTestRunner.Check "TestParseBoolText34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H04Next34
+H04Fail34:
+    modTestRunner.Check "TestShouldRetryProbe34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub
