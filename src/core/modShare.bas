@@ -425,8 +425,17 @@ Public Function BoardReadRows(ByVal fileText As String, ByVal myDept As String, 
     Next i
 End Function
 
-' 数値欄の共通ガード(modBoard.SafeNum と同じ上限。1億分=約190年ぶん)。
-Private Function BoardNum(ByVal s As String) As Long
+' ----------------------------------------------------------------------------
+' BoardNum - 数値欄の共通ガード。共有フォルダのファイルは誰でも書ける以上、
+'   壊れた値・巨大な値・負の値が来る前提で扱う。Long の範囲を超える値で CLng が
+'   オーバーフローすると集計ループがその1本で止まり、以降のビーコンが【全部】
+'   欠けたまま画面に出る。1億分(=約190年ぶん)超と負値は現実の節約時間では
+'   ないので0として捨てる。読めない文字列は Val が0を返すのでそのまま0。
+'   R33H F17: modBoard.SafeNum が同じ判定の複製だった(コメント自身が同値だと
+'   認めていた)ため、こちらへ寄せて modBoard 側を消した ―― 同じ「壊れた値の
+'   線引き」が2箇所にあると、いつか必ず片方だけが更新される。
+' ----------------------------------------------------------------------------
+Public Function BoardNum(ByVal s As String) As Long
     On Error GoTo Bad
     Dim v As Double: v = Val(s)
     If v < 0 Or v > 100000000# Then Exit Function

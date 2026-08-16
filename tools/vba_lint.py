@@ -1709,6 +1709,9 @@ CONTRACT: dict[str, dict] = {
             #   1組。ヘッダだけ揃った半端な集計を "ok" と判定して部の合算0・
             #   称号全滅のまま自信を持って表示していた欠陥への対処。
             "BOARD_END_TAG", "BoardEndCount", "BoardTextStatus",
+            # BoardNum(2026-08-16 R33H F17): 数値欄の共通ガード。modBoard 側の
+            #   同値の複製(SafeNum)を消してこちらへ寄せたので Public にする。
+            "BoardNum",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。

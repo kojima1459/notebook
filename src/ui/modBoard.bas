@@ -475,12 +475,12 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
                     ' 称号は TITLE_MIN 未満を載せない(行数が称号持ちの人数で
                     ' 頭打ちになる。読む側の判定は5件/20件のままなので、
                     ' 落とした人の見え方は1文字も変わらない)。
-                    Dim thN As Long: thN = SafeNum(f(1))
+                    Dim thN As Long: thN = modShare.BoardNum(f(1))
                     If thN >= TITLE_MIN Then titleAgg(uid) = thN
-                    If f(2) = dk Then orgD = orgD + SafeNum(f(3))   ' 同じ日キーのみ合算
-                    If f(6) = yk Then orgY = orgY + SafeNum(f(7))
+                    If f(2) = dk Then orgD = orgD + modShare.BoardNum(f(3))   ' 同じ日キーのみ合算
+                    If f(6) = yk Then orgY = orgY + modShare.BoardNum(f(7))
                     If f(4) = mk Then
-                        orgM = orgM + SafeNum(f(5))
+                        orgM = orgM + modShare.BoardNum(f(5))
                         ' 部別の今月合計。旧実装は自分の部だけを数えていたが、
                         ' この1本は他の端末も読むので全部署ぶんを持つ(行数は
                         ' 部の数だけ)。team列の無い旧形式は空が返り対象外。
@@ -488,9 +488,9 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
                         dept = modP2PIo.DeptOf(modP2PIo.SanitizeId(modP2PIo.BeaconTeamField(f)))
                         If LenB(dept) > 0 Then
                             If deptAgg.Exists(dept) Then
-                                deptAgg(dept) = CLng(deptAgg(dept)) + SafeNum(f(5))
+                                deptAgg(dept) = CLng(deptAgg(dept)) + modShare.BoardNum(f(5))
                             Else
-                                deptAgg(dept) = SafeNum(f(5))
+                                deptAgg(dept) = modShare.BoardNum(f(5))
                             End If
                         End If
                     End If
@@ -536,6 +536,14 @@ End Sub
 '   壊れている/古すぎるときは数字を捨てる(ClearAggregate)。全件走査への
 '   フォールバックは【禁止】: それでは12,000オープンが復活する。
 Private Sub LoadSnapshot(ByVal folderPath As String)
+    ' R33H F17: 先に在るかだけ見る。ReadBeacon の3回×150/300/450ms は
+    ' 「他人の書きかけ」を待つための待ちで、【無いことが定常状態になりうる】
+    ' summary.txt に払う筋合いは無い(導入直後・発行者不在の全端末が起動時と
+    ' TTL満了ごとに900ms払っていた)。
+    If LenB(Dir(folderPath & modShare.BOARD_SUMMARY_NAME)) = 0 Then
+        ClearAggregate "none"
+        Exit Sub
+    End If
     Dim rec As String
     If Not ReadBeacon(folderPath & modShare.BOARD_SUMMARY_NAME, rec) Then
         ClearAggregate "none"
@@ -556,7 +564,7 @@ Private Sub LoadSnapshot(ByVal folderPath As String)
     mOrgMon = modShare.BoardHeadMin(head, "m", modUtilText.IsoYm(Date))
     mOrgYear = modShare.BoardHeadMin(head, "y", modUtilText.IsoYear(Date))
     mAggStamp = modShare.BoardHeadField(head, 1)
-    mAggUsers = SafeNum(modShare.BoardHeadField(head, 8))
+    mAggUsers = modShare.BoardNum(modShare.BoardHeadField(head, 8))
     mAggApprox = (modShare.BoardHeadField(head, 9) = "1")
     Set mTitles = CreateObject("Scripting.Dictionary")
     mLoaded = True
@@ -676,21 +684,6 @@ Private Function DeptLineForPopup() As String
         amt = CLng(Round(mDeptMon / 60, 0)) & "時間"
     End If
     DeptLineForPopup = vbLf & "  部(" & mMyDept & ")で今月 約" & amt
-End Function
-
-' ビーコンの数値欄を安全に読む(R13 L-batch)。共有フォルダのファイルは
-' 誰でも書ける以上、壊れた値・巨大な値・負の値が来る前提で扱う。
-' Long の範囲を超える値で CLng がオーバーフローすると、集計ループが
-' その1本で止まり、以降のビーコンが【全部】欠けたまま画面に出てしまう。
-' 1億分(=約190年ぶん)を超える値と負の値は、現実の節約時間ではないので
-' 0 として捨てる。読めない文字列は Val が 0 を返すのでそのまま 0 になる。
-Private Function SafeNum(ByVal s As String) As Long
-    On Error GoTo Bad
-    Dim v As Double: v = Val(s)
-    If v < 0 Or v > 100000000# Then Exit Function
-    SafeNum = CLng(v)
-    Exit Function
-Bad:
 End Function
 
 ' 直近7日の個人履歴(日付キーを7回引くだけ。0分の日は「-」)。
