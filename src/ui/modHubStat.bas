@@ -585,8 +585,8 @@ Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
               "このツールの管理担当者にご連絡ください(部門数の上限を超えています)"
         act = "modKnowledge.OnChannels"
     ElseIf modChannel.IsBudgetTight() Then
-        cap = ChrW(&H26A0) & " 本棚の使用量が " & modChannel.ChunkUsagePercent() & "% です" & vbCr & _
-              "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
+        ' R33H F6: 警告文からパーセントを外す(文言は modShareRule が単一情報源)。
+        cap = modShareRule.BudgetWarnCaption(modChannel.ChunkLimit())
         act = "modKnowledge.OnChannels"
     ElseIf qaN > 0 Then
         cap = ChrW(&HD83C) & ChrW(&HDF81) & " みんなが解決したQ&A " & qaN & "件が届いています" & vbCr & _

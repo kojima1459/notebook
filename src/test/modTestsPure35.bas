@@ -279,6 +279,36 @@ Private Sub TestUnsubList35()
         modShareRule.UnsubListHas("Sales", "sales"), True
 End Sub
 
+' ---- R33H F6: 本棚の警告に「78%です」と出さない ---------------------------
+'   W5-17 で表示の分母は shelf_max_chunks へ統一されたが、警告の判定は
+'   chunk_limit の8割のまま。文面が表示用のパーセントを読んでいたので、
+'   既定のまま16,000件で「本棚の使用量が 78% です」と出ていた。
+'   discriminate:
+'   ・文面へパーセントを戻すと「%を含まない」の2本が落ちる。
+'   ・目安の件数を出さない(固定文にする)と、20,000/40,000で同じ文字列に
+'     なって「組織ごとの目安が出る」が落ちる。
+'   ・判定 IsBudgetTightAt は【変えない】ことを同時に固定する
+'     (modTestsPure34 の W5-17 と対になる)。
+Private Sub TestBudgetWarn35()
+    ChkStr35 "F6_警告文は目安の件数で語る(既定20,000)", _
+        modShareRule.BudgetWarnCaption(20000), _
+        ChrW(&H26A0) & " 棚卸しの目安(20,000件)の8割を超えました" & vbCr & _
+        "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
+    ChkStr35 "F6_目安を広げた組織はその件数が出る", _
+        modShareRule.BudgetWarnCaption(40000), _
+        ChrW(&H26A0) & " 棚卸しの目安(40,000件)の8割を超えました" & vbCr & _
+        "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
+    ChkBool35 "F6_警告文にパーセントは出さない(既定)", _
+        (InStr(1, modShareRule.BudgetWarnCaption(20000), "%", vbBinaryCompare) > 0), False
+    ChkBool35 "F6_警告文にパーセントは出さない(拡張時)", _
+        (InStr(1, modShareRule.BudgetWarnCaption(40000), "%", vbBinaryCompare) > 0), False
+    ' 判定ロジックは変えない(表示だけを変えた裁定であることの確認)。
+    ChkBool35 "F6_警告線は従来どおり目安の8割ちょうどで立つ", _
+        modShareRule.IsBudgetTightAt(16000, 20000), True
+    ChkBool35 "F6_8割の1件手前では立たない", _
+        modShareRule.IsBudgetTightAt(15999, 20000), False
+End Sub
+
 Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R33-" & label, (got = want), _
         "実際=" & got & " 期待=" & want
@@ -307,6 +337,9 @@ H05Next35:
 H06Next35:
     On Error GoTo H06Fail35
     TestUnsubList35
+H07Next35:
+    On Error GoTo H07Fail35
+    TestBudgetWarn35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -333,6 +366,10 @@ H05Fail35:
     Resume H06Next35
 H06Fail35:
     modTestRunner.Check "TestUnsubList35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next35
+H07Fail35:
+    modTestRunner.Check "TestBudgetWarn35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

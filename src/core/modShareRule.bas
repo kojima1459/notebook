@@ -229,6 +229,20 @@ Public Function IsBudgetTightAt(ByVal used As Long, ByVal warnLimit As Long) As 
     IsBudgetTightAt = (CDbl(used) >= CDbl(warnLimit) * 0.8)
 End Function
 
+' BudgetWarnCaption - 棚卸しを促す警告の文言(R33H F6)。
+' W5-17 は表示の分母を shelf_max_chunks(既定20,500)へ統一したが、警告の判定
+' だけは chunk_limit(既定20,000)の8割に残した。ところが警告【文】は表示用の
+' パーセントを読んでいたため、既定のまま16,000件で「⚠ 本棚の使用量が 78% です」
+' と出る。shelf_max_chunks を40,000にした組織では「63% です」。「なぜ8割でも
+' 63%でも警告なのか」を非エンジニアに説明する言葉が無く、故障にしか見えない。
+' 裁定: 判定ロジックは変えない(テストが意図として固定済み)。警告文からは
+' パーセントを外し、警告固有の言い方 ―― 何件を目安にしているか ―― にする。
+Public Function BudgetWarnCaption(ByVal warnLimit As Long) As String
+    BudgetWarnCaption = ChrW(&H26A0) & " 棚卸しの目安(" & Format$(warnLimit, "#,##0") & _
+        "件)の8割を超えました" & vbCr & _
+        "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
+End Function
+
 ' ----------------------------------------------------------------------------
 ' 到達性プローブ(R8 F6)
 ' ----------------------------------------------------------------------------
