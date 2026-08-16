@@ -461,7 +461,7 @@ Private Sub TestGsTextPageSplit()
     CheckPageSplit "空白だけの入力", " " & vbCrLf, 0
 
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "R10c: BuildPagesFromGsTextはLO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] R10c: BuildPagesFromGsTextはLO環境の既知の制限によりスキップ", True, _
             "ExtractedPage()のReDimがLibreOfficeで実行時エラー420になる" & _
             "(modTestsPure冒頭コメント/CanUseTypeArrays参照)。ページ分割の規約は" & _
             "同一規約の純文字列版 optOcrCore.GsPageCount で固定済み。" & _

@@ -215,7 +215,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Sub TestPagedTextRoundTrip()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "ページ付きテキスト: 実行環境の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] ページ付きテキスト: 実行環境の制限によりスキップ", True, _
             "Public Type配列(ExtractedPage())のReDimが使えない環境。Excel実機受入で確認すること。"
         Exit Sub
     End If
@@ -284,7 +284,7 @@ End Sub
 ' 「落ちない・消えない」ことを固定しておく。
 Private Sub TestPagedTextMarkerLikeBody()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "マーカー風の本文: 実行環境の制限によりスキップ", True, ""
+        modTestRunner.Check "[SKIP] マーカー風の本文: 実行環境の制限によりスキップ", True, ""
         Exit Sub
     End If
 

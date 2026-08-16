@@ -81,7 +81,7 @@ End Function
 
 Private Sub TestTocPageSuppression()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "題材1: LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] 題材1: LO環境の既知の制限によりスキップ", True, _
             "modTypesのPublic Type配列(ExtractedPage()/ShelfChunk())のReDimが" & _
             "使えない環境。Excel実機受入で確認すること(modTestsPure冒頭コメント参照)。"
         Exit Sub

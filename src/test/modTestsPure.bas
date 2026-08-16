@@ -516,7 +516,7 @@ End Sub
 ' ============================================================================
 Private Sub TestModChunker()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "modChunker: LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] modChunker: LO環境の既知の制限によりスキップ", True, _
             "LibreOffice実行環境ではmodTypesのPublic Type配列(ExtractedPage()/" & _
             "ShelfChunk())をReDimすると実行時エラー420になることを確認済み" & _
             "(本モジュール冒頭コメント参照。tools/run_lo_tests.pyは担当外のため変更不可)。" & _

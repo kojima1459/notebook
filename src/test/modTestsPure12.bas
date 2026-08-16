@@ -260,7 +260,7 @@ End Sub
 ' ここが別実装になると、検査は全件一致か全件不一致へ静かに退化する。
 Private Sub TestCiteIndexFromHits()
     If Not CanUseTypeArrays11() Then
-        modTestRunner.Check "出典突合表(Hit配列): LO環境の既知の制限によりスキップ", True, ""
+        modTestRunner.Check "[SKIP] 出典突合表(Hit配列): LO環境の既知の制限によりスキップ", True, ""
         Exit Sub
     End If
 

@@ -305,7 +305,7 @@ Private Sub TestModPrompts()
     TestBuildEnrichPrompt
 
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "modPrompts(Hit配列を使う3関数): LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] modPrompts(Hit配列を使う3関数): LO環境の既知の制限によりスキップ", True, _
             "BuildQuickPrompt/BuildDeepDraftPrompt/BuildDeepVerifyPromptはHit()配列を" & _
             "引数に取るため、LibreOffice実行環境のPublic Type配列制限(モジュールのbasファイル" & _
             "冒頭コメント参照)の影響を受ける。出典形式([本棚:.. p.N] / [パック(作成者):..])・" & _

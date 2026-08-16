@@ -67,7 +67,7 @@ End Sub
 
 Private Sub TestChunkerEmptyPageDefense()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "modChunker(空ページ防御): LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] modChunker(空ページ防御): LO環境の既知の制限によりスキップ", True, _
             "LibreOffice実行環境ではmodTypesのPublic Type配列(ExtractedPage()/" & _
             "ShelfChunk())をReDimすると実行時エラー420になることを確認済み" & _
             "(modTestsPure冒頭コメント参照。tools/run_lo_tests.pyは担当外のため変更不可)。" & _
@@ -107,7 +107,7 @@ End Sub
 ' 組み立ててmodChunker側の挙動を検証する)。
 Private Sub TestChunkerCompactedPageArray()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "modChunker(圧縮配列): LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] modChunker(圧縮配列): LO環境の既知の制限によりスキップ", True, _
             "LibreOffice実行環境ではmodTypesのPublic Type配列(ExtractedPage()/" & _
             "ShelfChunk())をReDimすると実行時エラー420になることを確認済み" & _
             "(modTestsPure冒頭コメント参照。tools/run_lo_tests.pyは担当外のため変更不可)。" & _

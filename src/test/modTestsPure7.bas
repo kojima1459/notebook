@@ -74,7 +74,7 @@ Private Sub TestGsPhysicalPageNumber()
         "first=" & f4 & " last=" & l4
 
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "R12-3-6: BuildPagesFromGsTextはLO環境の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] R12-3-6: BuildPagesFromGsTextはLO環境の制限によりスキップ", True, _
             "ExtractedPage()のReDimが420になる環境。番号規約は上のGsPageBoundsで固定済み。"
         Exit Sub
     End If
@@ -167,7 +167,7 @@ Private Sub TestChunkJoinUnchanged()
         "実際=[" & modChunker.JoinSplitNumbers("第 1 条 と 第 2 回") & "]"
 
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "R12-3-9: 大入力の同一性検査はLO環境の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] R12-3-9: 大入力の同一性検査はLO環境の制限によりスキップ", True, _
             "ExtractedPage()のReDimが420になる環境。"
         Exit Sub
     End If

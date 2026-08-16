@@ -80,7 +80,7 @@ Public Sub RunExcelE2ESmokeTest()
     If SetUiStateMode("quick") Then
         modTestRunner.Check "E2E_ui_state初期化_mode_quick", True
     Else
-        modTestRunner.Check "E2E_ui_state初期化: シート未検出のためスキップ", True, _
+        modTestRunner.Check "[SKIP] E2E_ui_state初期化: シート未検出のためスキップ", True, _
             "ui_stateシートが見つからないため、mode設定はスキップした" & _
             "(modAsk の Answer は質問文とモードを直接引数で受け取るので、この検証には影響しない)"
     End If

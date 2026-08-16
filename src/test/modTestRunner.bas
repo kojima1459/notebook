@@ -34,10 +34,28 @@ Option Explicit
 '     (詳細は tools/README.md)。
 ' ============================================================================
 
-Private mTotalCount As Long     ' これまでのCheck呼び出し総数
+' ----------------------------------------------------------------------------
+' SKIP集計(2026-08-15 R33波1 W1-1)
+'   実行環境の制限で本体を1行も実行できないテスト群が、これまで
+'   `Check "…スキップ", True` として【PASSに計上】されていた。レポートには
+'   「実行されなかった」という情報が一切残らず、PASS件数が水増しされていた
+'   (実測: LibreOffice では CanUseTypeArrays()=False が確定しており、
+'    modChunker/modPrompts などの群が丸ごと未実行のままPASSになっていた)。
+'   本モジュールは §7 契約が closed=True で、Public を1本も増やせないため、
+'   新しいエントリポイントを足さずに Check の【テスト名の接頭辞】で振り分ける。
+'   呼び出し側は  Check "[SKIP] modChunker: …", True, "理由"  と書く。
+'   接頭辞つき かつ cond=True のものは PASS にも総数にも数えず、SKIP として
+'   別に数えて ReportText の1行目と末尾の一覧に出す。
+' ----------------------------------------------------------------------------
+Private Const SKIP_PREFIX As String = "[SKIP]"
+
+Private mTotalCount As Long     ' これまでのCheck呼び出し総数(SKIPは含めない)
 Private mFailCount As Long      ' 失敗数
 Private mFailLines() As String  ' 失敗の詳細(1件1行)
 Private mFailCap As Long        ' mFailLinesの現在容量
+Private mSkipCount As Long      ' 未実行(SKIP)数
+Private mSkipLines() As String  ' 未実行の一覧(1件1行)
+Private mSkipCap As Long        ' mSkipLinesの現在容量
 Private mStarted As Boolean     ' ResetTests済みかどうか(未Reset時の誤集計防止)
 
 ' ----------------------------------------------------------------------------
@@ -48,6 +66,9 @@ Public Sub ResetTests()
     mFailCount = 0
     mFailCap = 16
     ReDim mFailLines(1 To mFailCap)
+    mSkipCount = 0
+    mSkipCap = 16
+    ReDim mSkipLines(1 To mSkipCap)
     mStarted = True
 End Sub
 
@@ -59,6 +80,21 @@ End Sub
 ' ----------------------------------------------------------------------------
 Public Sub Check(ByVal testName As String, ByVal cond As Boolean, Optional ByVal detail As String = "")
     If Not mStarted Then ResetTests
+
+    ' 未実行の申告([SKIP]接頭辞)は PASS にも総数にも数えない。
+    ' cond=False で来た場合だけは本物の失敗として下へ流す(接頭辞を付けた
+    ' まま落ちるテストを黙って隠さないため)。
+    If cond Then
+        If Left(testName, Len(SKIP_PREFIX)) = SKIP_PREFIX Then
+            mSkipCount = mSkipCount + 1
+            If mSkipCount > mSkipCap Then
+                mSkipCap = mSkipCap * 2
+                ReDim Preserve mSkipLines(1 To mSkipCap)
+            End If
+            mSkipLines(mSkipCount) = "SKIP: " & Trim(Mid(testName, Len(SKIP_PREFIX) + 1))
+            Exit Sub
+        End If
+    End If
 
     mTotalCount = mTotalCount + 1
 
@@ -84,10 +120,13 @@ Public Function Failures() As Long
 End Function
 
 ' ----------------------------------------------------------------------------
-' ReportText: "PASS n / FAIL m" に続けて失敗一覧(1行1件)を返す
+' ReportText: "PASS n / FAIL m / SKIP k" に続けて失敗一覧・未実行一覧を返す
 '   例:
-'     PASS 41 / FAIL 1
+'     PASS 41 / FAIL 1 / SKIP 12
 '     NG: Fnv1a64Hex_決定性 -- 同じ文字列で異なるhexが出た
+'     SKIP: modChunker: LO環境の既知の制限により未実行
+'   SKIP は「テストが1行も走っていない」という事実の可視化であり、合否では
+'   ない。k>0 のときに何が守られていないかを司令塔が毎回見るための行。
 ' ----------------------------------------------------------------------------
 Public Function ReportText() As String
     If Not mStarted Then ResetTests
@@ -96,12 +135,15 @@ Public Function ReportText() As String
     passCount = mTotalCount - mFailCount
 
     Dim parts() As String
-    ReDim parts(0 To mFailCount)
-    parts(0) = "PASS " & passCount & " / FAIL " & mFailCount
+    ReDim parts(0 To mFailCount + mSkipCount)
+    parts(0) = "PASS " & passCount & " / FAIL " & mFailCount & " / SKIP " & mSkipCount
 
     Dim i As Long
     For i = 1 To mFailCount
         parts(i) = mFailLines(i)
+    Next i
+    For i = 1 To mSkipCount
+        parts(mFailCount + i) = mSkipLines(i)
     Next i
 
     ReportText = Join(parts, vbLf)

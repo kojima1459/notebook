@@ -323,7 +323,7 @@ End Sub
 ' ----------------------------------------------------------------------------
 Private Sub TestRerankPromptRoundTrip()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "BuildRerankPrompt<->ParseRankOrder往復はLO環境の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] BuildRerankPrompt<->ParseRankOrder往復はLO環境の制限によりスキップ", True, _
             "Hit()配列のReDimがエラーになる環境。番号規約はParseRankOrder単体側で固定済み。"
         Exit Sub
     End If
