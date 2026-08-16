@@ -62,6 +62,9 @@ Public Const BOARD_SUMMARY_NAME As String = "summary.txt"
 Public Const BOARD_END_TAG As String = "E"
 ' ビーコン名の列挙の上限(R33H F18。ファイルは開かないのでメモリの安全弁)。
 Private Const BOARD_ENUM_CAP As Long = 50000
+' 直近の称号引き継ぎが「在るのに読めなかった」で終わったか(R33H M7)。
+' 立っている間は集約スナップショットを書かない(0件で全社の称号を消さない)。
+Private mCarrySkip As Boolean
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -479,20 +482,40 @@ End Function
 '   戻り値は引き継いだ件数(引き継げなければ0)。完全な(終端行のある)
 '   スナップショットだけを材料にする ―― 半端なファイルから称号を拾うと、
 '   欠けた人の称号を「無かったこと」にして書き戻してしまう。
+'
+' 2026-08-16(R33H M7): 読みを3回試し、読めなかった回は【書き込みごと見送る】。
+'   称号は累積方式で、累積状態はこのファイルにしかない。ここだけが一発勝負で、
+'   1回外すと carried=0 のまま書き戻され、全社の称号が最大 ceil(本数/窓) 日
+'   (12,000名・500本なら24日)消える。他の共有読みは全部 ReadBeacon の
+'   3回×150/300/450ms を通っている(「40人いれば5件くらい続けて読めない日は
+'   珍しくない」= あちらのコメント)。見送りの印は mCarrySkip。
+'   ファイルがそもそも無い初回は見送らない(見送ると1本目が永久に書けない)。
 ' ----------------------------------------------------------------------------
 Public Function BoardCarryTitles(ByVal folderPath As String, ByRef titlesOut As Object) As Long
+    mCarrySkip = False
     If titlesOut Is Nothing Then Exit Function
     If LenB(folderPath) = 0 Then Exit Function
     On Error GoTo Bad
     Dim p As String: p = folderPath & BOARD_SUMMARY_NAME
     If LenB(Dir(p)) = 0 Then Exit Function
     Dim rec As String
-    If Not modUtilText.ReadTextFileUtf8(p, rec) Then Exit Function
-    If BoardEndCount(rec) < 0 Then Exit Function
-    Dim ignored As Long
-    ignored = BoardReadRows(rec, "", titlesOut)
-    BoardCarryTitles = titlesOut.Count
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If modUtilText.ReadTextFileUtf8(p, rec) Then
+            If BoardEndCount(rec) >= 0 Then
+                Dim ignored As Long
+                ignored = BoardReadRows(rec, "", titlesOut)
+                BoardCarryTitles = titlesOut.Count
+                Exit Function
+            End If
+        End If
+        BoardPause 150 * attempt
+    Next attempt
+    mCarrySkip = True
+    Exit Function
 Bad:
+    ' 例外で抜けた=読めたとは言えない。0件で上書きしない側へ倒す。
+    mCarrySkip = True
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -591,15 +614,10 @@ End Function
 '     操作で、読み手が半端な内容を見る瞬間が存在しない ―― 見えるのは
 '     「旧版」「新版」「(一瞬だけ)ファイルが無い」の3つだけで、無いときは
 '     読む側が "none"(集計はまだありません)へ倒れる。これが原子性の根拠。
-'   ・Windows の Name は【宛先が既に在ると失敗する】ので、先に宛先を .bak へ
-'     退避してから tmp を宛先名へ改名し、成功したら .bak を捨てる。改名に
-'     失敗したら .bak を宛先名へ戻す(旧版を失わない)。読み手が宛先を掴んで
-'     いて退避に失敗した場合は、宛先が在るので次の改名も失敗し、この回は
-'     何も壊さずに False で帰る(次の集計で書き直す)。
-'   ・差し替え1回ぶんの実体は modIntegrity.SwapFileWithBackup(R33H M6 で
-'     不変条件を「dst が無い間は bak を消さない」の1本に整理して移設。
-'     旧実装は再試行の先頭で無条件に bak を消し、退避まで済んで力尽きた
-'     ときの【唯一の旧版】を自分で消していた)。
+'   ・差し替え1回ぶん(退避→改名→復旧)の実体と、その不変条件
+'     「dst が無い間は bak を消さない」は modIntegrity.SwapFileWithBackup。
+'     R33H M6 でそこへ移設した(modShare の残字と、壊さない置き換えという
+'     主題の両方から)。Name の挙動と復旧手順の根拠は向こうの見出しにある。
 '   ・置き換えの1発勝負をやめた理由(F16): 宛先は業務時間中ほぼ常に誰かが
 '     読んでおり、落とすと次の機会は TTL の10分後、24時間過ぎれば全端末が
 '     「更新されていません」に倒れる。
@@ -607,6 +625,9 @@ End Function
 Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As String, _
                                   ByVal content As String) As Boolean
     If LenB(folderPath) = 0 Or LenB(myHash) = 0 Then Exit Function
+    ' R33H M7: 引き継ぎ元が在るのに読めなかった回は書かない(称号の累積状態を
+    ' 0件で上書きしない)。理由と復帰にかかる日数は BoardCarryTitles の見出し。
+    If mCarrySkip Then Exit Function
     Dim tmpPath As String: tmpPath = folderPath & "summary_" & myHash & ".tmp"
     Dim dstPath As String: dstPath = folderPath & BOARD_SUMMARY_NAME
     Dim bakPath As String: bakPath = folderPath & "summary_" & myHash & ".bak"
