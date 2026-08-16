@@ -462,6 +462,52 @@ Private Sub TestBoardTexts35()
         vbLf & "  部(営業)で今月 約2時間"
 End Sub
 
+' ----------------------------------------------------------------------------
+' R33H F21: 冷えたVPN復帰を「到達不能」で確定させない(第3引数の追加分)
+' ----------------------------------------------------------------------------
+'   W4-6 の1秒閾値は「構文起因なら即座に返る」を根拠にしているが、その裏返し
+'   (即座でないなら到達性の問題)は成り立たない ―― SMBセッション未確立では
+'   1回目の GetAttr が数秒かけて失敗する。その1回で共有機能がセッション丸ごと
+'   死に、W2-2 の reachableNow=False 経由で知識の消去にまで連鎖する。
+'   既存の2引数の答え(modTestsPure34 が999/1000/1001で固定)は1つも変えず、
+'   「取り違えの代償が大きい呼び口」だけ 1秒〜PROBE_COLD_FAIL_MS の窓を開ける。
+'   discriminate(両方向の対):
+'   ・第3引数を無視する実装に戻すと「冷えたSMB」の2本が落ちる。
+'   ・第3引数で無条件に再試行する実装にすると「タイムアウト級」の2本が落ちる。
+'   ・1秒の側を動かすと modTestsPure34 の境界3本(999/1000/1001)が落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestRetryProbe35()
+    ' --- 既定(第3引数なし)は W4-6 のまま ---------------------------------
+    ChkBool35 "F21_既定は1秒以内だけ再試行", _
+        modShareRule.ShouldRetryProbe(76, 1000), True
+    ChkBool35 "F21_既定は1秒を超えたら再試行しない", _
+        modShareRule.ShouldRetryProbe(76, 1001), False
+    ChkBool35 "F21_既定は3秒でも再試行しない(冷えたVPNを撃ち抜いていた)", _
+        modShareRule.ShouldRetryProbe(76, 3000), False
+
+    ' --- 代償の大きい呼び口では、冷えたSMBの幅まで許す ---------------------
+    ChkBool35 "F21_代償が大きい経路は3秒でも再試行する", _
+        modShareRule.ShouldRetryProbe(76, 3000, True), True
+    ChkBool35 "F21_境界ちょうど(5秒)は再試行する", _
+        modShareRule.ShouldRetryProbe(76, modShareRule.PROBE_COLD_FAIL_MS, True), True
+
+    ' --- タイムアウト級は、どちらの経路でも二度払わない --------------------
+    ChkBool35 "F21_境界の1つ先(5001ms)は再試行しない", _
+        modShareRule.ShouldRetryProbe(76, modShareRule.PROBE_COLD_FAIL_MS + 1, True), False
+    ChkBool35 "F21_名前解決のタイムアウト(15秒)は再試行しない", _
+        modShareRule.ShouldRetryProbe(53, 15000, True), False
+    ChkBool35 "F21_SMBのタイムアウト(30秒)は再試行しない", _
+        modShareRule.ShouldRetryProbe(76, 30000, True), False
+
+    ' --- 答えを決めるのは経過時間と呼び口だけで、エラー番号ではない --------
+    ChkBool35 "F21_番号が違っても即失敗なら再試行", _
+        modShareRule.ShouldRetryProbe(0, 10, False), True
+    ChkBool35 "F21_番号が違っても遅ければ代償の大きい経路のみ", _
+        modShareRule.ShouldRetryProbe(52, 2000, True), True
+    ChkBool35 "F21_同じ材料で既定なら再試行しない", _
+        modShareRule.ShouldRetryProbe(52, 2000, False), False
+End Sub
+
 Private Sub ChkLong35b(ByVal label As String, ByVal got As Long, ByVal want As Long)
     modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
@@ -509,6 +555,9 @@ H10Next35:
 H11Next35:
     On Error GoTo H11Fail35
     TestBoardTexts35
+H12Next35:
+    On Error GoTo H12Fail35
+    TestRetryProbe35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -555,6 +604,10 @@ H10Fail35:
     Resume H11Next35
 H11Fail35:
     modTestRunner.Check "TestBoardTexts35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H12Next35
+H12Fail35:
+    modTestRunner.Check "TestRetryProbe35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

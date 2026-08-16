@@ -28,6 +28,10 @@ Public Const ATTR_DIRECTORY As Long = 16
 ' 詳細は ShouldRetryProbe のコメント(R33 W4-6)。
 Public Const PROBE_FAST_FAIL_MS As Long = 1000
 
+' 冷えたSMBセッション(VPN直後・スリープ復帰)を救うための第2の上限(ミリ秒)。
+' 詳細は ShouldRetryProbe の後半(R33H F21)。
+Public Const PROBE_COLD_FAIL_MS As Long = 5000
+
 ' 購読しない部門の一覧(config unsubscribed_channels)の区切り(R33H F4)。
 ' Windows のフォルダ名に使えない文字であることが選定理由(カンマは使える)。
 Public Const UNSUB_SEP As String = "|"
@@ -349,13 +353,37 @@ End Function
 '   ので再試行のコストは無視できる。ここで errNo を絞ると、環境差で
 '   別の番号が返る端末で B10 の救済が丸ごと効かなくなる方が怖い。
 '   ElapsedMsSince は日跨ぎを補正して必ず0以上を返すので、負値は来ない。
-Public Function ShouldRetryProbe(ByVal probeErrNo As Long, ByVal elapsedMs As Long) As Boolean
+' 2026-08-16(R33H F21・データ喪失に連鎖する): 1秒の閾値は【冷えたVPN復帰】を
+'   撃ち抜いていた。W4-6 の前提「構文起因だから即座に返る」は正しいが、その
+'   裏返し(即座に返らなかったのだから到達性の問題だ)は成り立たない ――
+'   SMB セッション未確立(VPN直後・スリープ復帰・省電力からのNIC復帰)では
+'   1回目の GetAttr が数秒かけて失敗し、その1回で「到達不能」が確定する。
+'   共有機能がそのセッション丸ごと死ぬうえ、W2-2 の reachableNow=False へ
+'   連鎖して ExpiryDecision が "wipe" を返しうる(知識の全消去)。
+'
+'   閾値を秒単位へ一律に広げる案は採れない: 環境によっては到達不能が数秒で
+'   返ることもあり、【偽陰性の代償が小さい経路】でまで二重待ちを許すと W4-6
+'   が潰した「起動が20〜60秒無反応」へ戻りかねない。そこで【時間と、その1回を
+'   外したときの代償】で決める:
+'     ・allowSlowRetry=呼び出し側が「ここで取り違えると被害が大きい」と
+'       分かっている経路(起動時の到達判定・知識を消す直前の再確認)だけ True。
+'       設定画面の入力検査(利用者が目の前で待って打ち直せる)は False のまま。
+'   検算: 構文拒否=0〜十数ms / 冷えたSMBの確立=1〜数秒 / 死んだホストの
+'   タイムアウト=10〜30秒。5秒は冷えたSMBの上側に余裕があり、タイムアウト級
+'   (>5秒)には届かないので、死んだホストへ二重に払う形にはならない。
+'   最悪でも 5秒+1回ぶんで、W4-6 前(20〜60秒)より短い。
+'   既存の2引数呼び出しは1文字も挙動が変わらない(既定 False)。
+Public Function ShouldRetryProbe(ByVal probeErrNo As Long, ByVal elapsedMs As Long, _
+                                 Optional ByVal allowSlowRetry As Boolean = False) As Boolean
     ' probeErrNo は判定に使わない(理由は上のコメント)。エラー番号での
     ' 絞り込みを足したくなったときの受け口として引数だけ持っている。
     ' 「番号が違っても答えは経過時間だけで決まる」ことは
     ' modTestsPure34 が対で固定している。
-    If elapsedMs > PROBE_FAST_FAIL_MS Then Exit Function
-    ShouldRetryProbe = True
+    If elapsedMs <= PROBE_FAST_FAIL_MS Then
+        ShouldRetryProbe = True
+        Exit Function
+    End If
+    If allowSlowRetry And elapsedMs <= PROBE_COLD_FAIL_MS Then ShouldRetryProbe = True
 End Function
 
 ' 共有ルート直下に必ず在ってほしい標準サブフォルダ(R8 F6)。

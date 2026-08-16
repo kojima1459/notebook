@@ -95,7 +95,7 @@ Public Function Reachable() As Boolean
         Exit Function
     End If
 
-    If ProbePath(p) Then
+    If ProbePath(p, True) Then
         mState = ST_OK
         mFailStreak = 0
         Reachable = True
@@ -139,7 +139,15 @@ End Function
 '   判定式が2箇所にあると、いつか必ず片方だけが更新される。
 '   関数を1本にして「2箇所で違う答えを出さない」を構造で保証する。
 ' ----------------------------------------------------------------------------
-Public Function ProbePath(ByVal p As String) As Boolean
+' allowSlowRetry(2026-08-16 R33H F21): 冷えたVPN・スリープ復帰では1回目の
+'   GetAttr が数秒かけて失敗しうる。その1回を「到達不能」で確定させると
+'   共有機能がセッション丸ごと死に、W2-2 の reachableNow=False 経由で知識の
+'   消去にまで連鎖する。取り違えの代償が大きい呼び口(起動時の Reachable と
+'   modGuard の消去直前の再確認)だけ True を渡し、少し長めの1回目まで
+'   再試行を許す。設定画面の入力検査は False のまま(利用者が目の前で
+'   待っているので、速く「見つかりません」と返す方がよい)。
+Public Function ProbePath(ByVal p As String, _
+                          Optional ByVal allowSlowRetry As Boolean = False) As Boolean
     Dim target As String: target = Trim$(p)
     If LenB(target) = 0 Then Exit Function
 
@@ -157,7 +165,7 @@ Public Function ProbePath(ByVal p As String) As Boolean
     Err.Clear
 
     If Not modShareRule.ProbeIsReachable(probeErr, attrVal) Then
-        If modShareRule.ShouldRetryProbe(probeErr, firstMs) Then
+        If modShareRule.ShouldRetryProbe(probeErr, firstMs, allowSlowRetry) Then
             Dim retryPath As String: retryPath = modShareRule.ProbeRetryPath(target)
             If LenB(retryPath) > 0 Then
                 Err.Clear
