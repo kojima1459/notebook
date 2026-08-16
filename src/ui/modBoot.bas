@@ -438,7 +438,7 @@ Public Sub Boot()
 
     ' 8) Nexus UI(config nexus_ui=TRUEのとき新SPA UIを起動。失敗しても
     '    旧3画面は生きているため、起動自体は続行する)
-    If modConfig.GetBool("nexus_ui", False) Then
+    If modConfig.GetBool("nexus_ui", True) Then
         bootStage = "Nexus画面の起動"
         On Error Resume Next
         modApp.LaunchNexus
