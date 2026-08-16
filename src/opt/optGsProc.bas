@@ -143,8 +143,19 @@ End Sub
 ' 抜きの taskkill /T /F は無関係なプロセス(最悪は業務アプリ)を巻き添えに
 ' する。名前が cmd.exe / gswin32c.exe のときだけ実行し、確認できなければ
 ' 「止めなかった」ことを記録して黙って帰る(誤爆より取りこぼしを選ぶ)。
-Public Sub KillGsTree(ByVal pid As Long)
-    If pid <= 0 Then Exit Sub
+'
+' 2026-08-16(R33波3 W3-8): Sub から Boolean を返す Function へ変えた。
+' 止めなかった経路が3本(pid<=0 / 名前照合に外れた / WScript.Shell が
+' ポリシーで落ちた)あるのに、呼び出し元 optOcrPage.RenderBatch は
+' 「PIDがあれば必ず killed=True」と記録していた。この killed は
+' optOcrPage の `If Not killed Then outKeepWork = True` ―― 生きているGSが
+' 書いているフォルダを消さないための唯一のガード ―― を左右するので、
+' 止められなかった3経路すべてでガードが原理的に発火しなかった。
+' 併せて err_log には killed=True、usage_log には gs_kill_failed という
+' 矛盾した2行が残り、次の実機調査を存在しない現象へ誘導していた。
+' True を返すのは taskkill を撃った経路だけ。
+Public Function KillGsTree(ByVal pid As Long) As Boolean
+    If pid <= 0 Then Exit Function
 
     Dim nm As String: nm = ProcNameOf(pid)
     Dim low As String: low = LCase$(Trim$(nm))
@@ -152,7 +163,7 @@ Public Sub KillGsTree(ByVal pid As Long)
         On Error Resume Next
         modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " name=[" & nm & "]"
         On Error GoTo 0
-        Exit Sub
+        Exit Function
     End If
 
     Dim wsh As Object
@@ -161,10 +172,11 @@ Public Sub KillGsTree(ByVal pid As Long)
     wsh.Run "taskkill /T /F /PID " & CStr(pid), 0, False
     Set wsh = Nothing
     On Error GoTo 0
+    KillGsTree = True
     On Error Resume Next
     modLog.LogUsage "gs_killed_on_hang", "", "pid=" & pid
     On Error GoTo 0
-    Exit Sub
+    Exit Function
 KillFail:
     Resume KillCleanup
 KillCleanup:
@@ -172,7 +184,8 @@ KillCleanup:
     Set wsh = Nothing
     modLog.LogUsage "gs_kill_failed", "", "pid=" & pid
     On Error GoTo 0
-End Sub
+    KillGsTree = False
+End Function
 
 ' PIDに今ぶら下がっているプロセス名をWMIで引く(R13-F2)。
 ' 見つからない(すでに終了している)ときは ""、WMIそのものが使えない/

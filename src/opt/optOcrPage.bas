@@ -595,10 +595,7 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
 
     ' R14-F5: 掃除を決める【前】に止める。順序が逆だと、生きているGSが
     ' 書き込んでいるフォルダを消しにいくことになる(optGsTxtと同じ順序)。
-    If gsPid > 0 Then
-        optGsProc.KillGsTree gsPid
-        outKilled = True
-    End If
+    If gsPid > 0 Then outKilled = optGsProc.KillGsTree(gsPid)
 
     RenderBatch = RB_TIMEOUT
     ' R15-FixA(FA-5i): 利用者が止めた待ちは【時間切れではない】。GS_TIMEOUT を

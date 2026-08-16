@@ -455,6 +455,7 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
         ";size=" & sizeAdv & ";none=" & noneAdv
     On Error GoTo 0
 
+    ' W3-8でFunction化。ここは戻り値不要(元々消さない設計)。
     If Not WaitGsTextDone Then optGsProc.KillGsTree pid
 End Function
 
