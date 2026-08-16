@@ -135,6 +135,20 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = 30) As Long
     Dim batchT0 As Double
 
     Do While batchStart < limit
+        ' 2026-08-16(R33波3 W3-6): 中断の印をバッチの境界で読む。長時間ループを
+        ' 持つ他の全モジュール(modEmbed/optOcrPage/optGsTxt/modOutlineBuild/
+        ' modSynonymStore/modShelfBatch/modShelfSync/modBackfill)が同じ1行を
+        ' 持っているのに、ここだけ持っていなかった。そのため⏹中断を押しても
+        ' BATCH_SIZE×3=最大30件のAI呼び出しが最後まで走り、進捗バナーの
+        ' 「現在の処理が終わり次第停止します」という約束と食い違っていた
+        ' (利用者からは「中断が効かない/固まった」に見え、その間の料金も出る)。
+        ' doneCount までの成果(summary/keywords が埋まった行)は保存済みなので、
+        ' 次回の EnrichPending が summary 空の行から自然に再開する。
+        If modShelfBatch.CancelRequested() Then
+            abortReason = "中断"
+            Exit Do
+        End If
+
         Dim batchSize As Long: batchSize = BATCH_SIZE
         If batchStart + batchSize > limit Then batchSize = limit - batchStart
 
