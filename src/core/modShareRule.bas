@@ -29,6 +29,42 @@ Public Const ATTR_DIRECTORY As Long = 16
 Public Const PROBE_FAST_FAIL_MS As Long = 1000
 
 ' ----------------------------------------------------------------------------
+' origin タグの一致判定(R33H F1 / BLOCKER)
+' ----------------------------------------------------------------------------
+' 日本語ロケールの VBA では vbTextCompare が【全角/半角・ひらがな/カタカナ】
+' まで同一視する。origin は機械が組み立てた内部タグ(ChannelOriginTag)であって
+' 人が打つ検索語ではないのに、削除の一致判定がこれを使っていた。そのため
+' 「営業1課」と「営業１課」が同居する組織で片方を消すと両方消える。しかも
+' 版の記録(my_stats の "ch:" キー)は LCase$ しか通しておらず全半角を畳まない
+' ので、巻き添えで消えた側は「取り込み済みの版」の記録だけが残る。
+' PendingUpdates はそれを見て「最新です」と判定するため、巻き添え側の資料は
+' 【永久に戻らない】(再取込の導線が1つも無い)。
+'
+' 畳んでよいのは ASCII と全角英字の大小だけ:
+'   ・部門名は Windows のフォルダ名で、NTFS は大小を区別しない
+'     (= "Sales" と "sales" は同居できないので畳んで安全。フォルダを
+'       大小だけ改名しても既存の origin 行を消し損ねない)。
+'   ・全角/半角・ひらがな/カタカナは別々のフォルダとして同居できる
+'     (= 畳むと別部門を巻き添えにする)。
+' 削除の一致判定 / 購読の除外リスト / my_stats のキーの3つが必ずこの1本を
+' 通ることで、「消した部門」と「記録を消した部門」が必ず一致する。
+' LO も vba_lint もこの差を検出しないため、modTestsPure35 でゴールデン固定。
+Public Function OriginKeyNorm(ByVal s As String) As String
+    OriginKeyNorm = LCase$(Trim$(s))
+End Function
+
+' OriginMatches - origin タグ同士の一致。vbBinaryCompare(上記の理由)。
+Public Function OriginMatches(ByVal a As String, ByVal b As String) As Boolean
+    OriginMatches = (StrComp(OriginKeyNorm(a), OriginKeyNorm(b), vbBinaryCompare) = 0)
+End Function
+
+' ChannelStatKey - 部門の「取り込み済みの版」を控える my_stats のキー。
+'   削除の一致判定と同じ正規化を通すことがこの関数の存在理由。
+Public Function ChannelStatKey(ByVal chName As String) As String
+    ChannelStatKey = "ch:" & OriginKeyNorm(chName)
+End Function
+
+' ----------------------------------------------------------------------------
 ' origin の名前空間(レビュー C-1 で "pack:" と "channel:" に分離済み)
 ' ----------------------------------------------------------------------------
 ' OriginKind - origin 文字列の種別。"pack" / "channel" / ""(自作・不明)。
@@ -489,11 +525,14 @@ Public Function OriginCountsText(ByVal joinedOrigins As String, _
         ' Len(o) > pl = 前置きの後ろに部門名が1文字以上あること。
         ' "channel:" だけの行は部門名が無いので数えない。
         If Len(o) > pl Then
-            If StrComp(Left$(o, pl), prefixTag, vbTextCompare) = 0 Then
+            ' R33H F1: 一致は OriginMatches(vbBinaryCompare)。vbTextCompare だと
+            ' 「営業1課」と「営業１課」が1行にまとまり、削除の対象と表示件数が
+            ' 食い違う(消えるのは片方だけ、数えたのは両方)。
+            If OriginMatches(Left$(o, pl), prefixTag) Then
                 Dim nm As String: nm = Mid$(o, pl + 1)
                 hit = -1
                 For j = 0 To n - 1
-                    If StrComp(names(j), nm, vbTextCompare) = 0 Then
+                    If OriginMatches(names(j), nm) Then
                         hit = j
                         Exit For
                     End If

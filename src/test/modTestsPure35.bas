@@ -150,6 +150,68 @@ Private Sub TestCanViewUsage35()
         modShareRule.CanViewUsage(False, True, False), True
 End Sub
 
+' ---- R33H F1(BLOCKER): 削除の一致判定は全角/半角・かな/カナを畳まない -----
+'   日本語ロケールの VBA では vbTextCompare が全角/半角・ひらがな/カタカナを
+'   同一視する。「営業1課」を消すと「営業１課」まで消え、しかも版の記録
+'   (my_stats "ch:")は LCase$ しか通さないので巻き添え側だけ記録が残り、
+'   PendingUpdates が「最新です」と言って【永久に戻らない】。
+'   LO も vba_lint もこの差を検出しないので、ここで固定する。
+'   discriminate(両方向を対で置く):
+'   ・OriginMatches を vbTextCompare へ戻すと「全角/半角」「かな/カナ」
+'     「半角カナ/全角カナ」の3本が True になって落ちる。
+'   ・OriginKeyNorm から LCase$ を外すと「ASCIIの大小は畳む」2本が落ちる。
+'   ・ChannelStatKey を "ch:" & chName(正規化なし)へ戻すと大小の1本が落ちる。
+Private Sub TestOriginMatches35()
+    ChkBool35 "F1_同じタグは一致する", _
+        modShareRule.OriginMatches("channel:営業1課", "channel:営業1課"), True
+    ChkBool35 "F1_全角数字の部門は別物(巻き添え禁止)", _
+        modShareRule.OriginMatches("channel:営業1課", "channel:営業１課"), False
+    ChkBool35 "F1_ひらがなとカタカナは別物", _
+        modShareRule.OriginMatches("channel:さくら課", "channel:サクラ課"), False
+    ChkBool35 "F1_半角カナと全角カナは別物", _
+        modShareRule.OriginMatches("channel:ｻｸﾗ課", "channel:サクラ課"), False
+    ChkBool35 "F1_全角英字と半角英字は別物", _
+        modShareRule.OriginMatches("channel:ＡＢ課", "channel:AB課"), False
+    ChkBool35 "F1_ASCIIの大小だけは畳む(NTFSは大小を区別しない)", _
+        modShareRule.OriginMatches("channel:Sales", "channel:sales"), True
+    ChkBool35 "F1_前後の空白は畳む(セル書式の空白)", _
+        modShareRule.OriginMatches("  channel:商品部  ", "channel:商品部"), True
+    ChkBool35 "F1_別部門は一致しない", _
+        modShareRule.OriginMatches("channel:商品部", "channel:人事部"), False
+    ChkBool35 "F1_前方一致では一致しない(完全一致)", _
+        modShareRule.OriginMatches("channel:商品部第2", "channel:商品部"), False
+    ChkBool35 "F1_名前空間が違えば一致しない", _
+        modShareRule.OriginMatches("pack:商品部", "channel:商品部"), False
+
+    ' 削除の一致判定と my_stats のキーが【同じ正規化】を通ること。
+    ChkStr35 "F1_版の記録キーは同じ正規化を通る", _
+        modShareRule.ChannelStatKey("営業1課"), "ch:営業1課"
+    ChkStr35 "F1_全角の部門は別のキーになる", _
+        modShareRule.ChannelStatKey("営業１課"), "ch:営業１課"
+    ChkStr35 "F1_ASCIIの大小はキーでも畳む", _
+        modShareRule.ChannelStatKey("Sales"), "ch:sales"
+    ChkStr35 "F1_前後の空白はキーでも落とす", _
+        modShareRule.ChannelStatKey("  商品部 "), "ch:商品部"
+    ' 一致判定とキーの同値関係が一致すること(= 消した部門と記録を消す部門が
+    ' 必ず同じになる)。ここがずれると永久復旧不能が再発する。
+    ChkBool35 "F1_一致するタグ同士は同じ版キーを持つ", _
+        (modShareRule.ChannelStatKey("Sales") = modShareRule.ChannelStatKey("sales")), True
+    ChkBool35 "F1_一致しないタグ同士は別の版キーを持つ", _
+        (modShareRule.ChannelStatKey("営業1課") = modShareRule.ChannelStatKey("営業１課")), False
+
+    ' 集計(表示件数)側も同じ線引きであること。ここが vbTextCompare のままだと
+    ' 「3件消します」と言って1件しか消えない(または別部門を巻き込む)。
+    ChkStr35 "F1_全角と半角の同名部門は別行として数える", _
+        modShareRule.OriginCountsText( _
+            "channel:営業1課" & vbLf & "channel:営業１課" & vbLf & "channel:営業1課", _
+            "channel:"), _
+        "営業1課" & vbTab & "2|営業１課" & vbTab & "1"
+    ChkStr35 "F1_ASCII大小違いは1つの部門にまとめる(表示は初出の綴り)", _
+        modShareRule.OriginCountsText( _
+            "channel:Sales" & vbLf & "channel:sales", "channel:"), _
+        "Sales" & vbTab & "2"
+End Sub
+
 Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R33-" & label, (got = want), _
         "実際=" & got & " 期待=" & want
@@ -172,6 +234,9 @@ H03Next35:
 H04Next35:
     On Error GoTo H04Fail35
     TestCanViewUsage35
+H05Next35:
+    On Error GoTo H05Fail35
+    TestOriginMatches35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -190,6 +255,10 @@ H03Fail35:
     Resume H04Next35
 H04Fail35:
     modTestRunner.Check "TestCanViewUsage35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H05Next35
+H05Fail35:
+    modTestRunner.Check "TestOriginMatches35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

@@ -190,7 +190,7 @@ End Function
 ' 自分が取り込み済みの版(my_stats に記録)。
 Public Function LocalVersion(ByVal chName As String) As String
     On Error Resume Next
-    LocalVersion = modStats.GetStatText("ch:" & LCase$(chName))
+    LocalVersion = modStats.GetStatText(modShareRule.ChannelStatKey(chName))
     On Error GoTo 0
 End Function
 
@@ -305,14 +305,14 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
         ' 不変条件を保つ(PendingUpdates と SwitchTo の両方がこれに依存する)。
         If LenB(leavingChannel) > 0 Then
             If StrComp(leavingChannel, chName, vbTextCompare) <> 0 Then
-                modStats.SetStatText "ch:" & LCase$(leavingChannel), ""
+                modStats.SetStatText modShareRule.ChannelStatKey(leavingChannel), ""
             End If
         End If
         ' 2026-08-01(R12-2-1): remote は共有フォルダの version.txt から読んだ
         ' 未信頼テキスト。my_stats のセルへ書く前に数式インジェクション対策を
         ' 通す(セキュリティ監査3。modStats.SetStatValue自体は汎用関数のため
         ' この呼出元で適用する)。
-        modStats.SetStatText "ch:" & LCase$(chName), modUtilText.SanitizeForCell(remote)
+        modStats.SetStatText modShareRule.ChannelStatKey(chName), modUtilText.SanitizeForCell(remote)
         modLog.LogUsage "channel_sync", chName, "version=" & remote & " chunks=" & got
         outOk = True
     Else
@@ -670,7 +670,7 @@ Public Function MigrateOriginNamespace() As Long
     If usedChannels Then
         MigrateOriginNamespace = PurgeLegacyPackChunks()
         For i = LBound(parts) To UBound(parts)
-            modStats.SetStatText "ch:" & LCase$(parts(i)), ""
+            modStats.SetStatText modShareRule.ChannelStatKey(parts(i)), ""
         Next i
         modLog.LogUsage "channel_origin_migration", "", _
             "removed=" & MigrateOriginNamespace & " channels=" & UBound(parts) - LBound(parts) + 1

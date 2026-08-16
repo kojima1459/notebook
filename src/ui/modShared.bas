@@ -644,7 +644,7 @@ Public Sub OnPurgeChannel()
     End If
 
     removed = modChannel.PurgeChannelChunks(chName)
-    modStats.SetStatText "ch:" & LCase$(chName), ""
+    modStats.SetStatText modShareRule.ChannelStatKey(chName), ""
     redraw = True
 
     ' R33 W5-28: 削除だけでは購読は続くので、次に「部門チャンネル」を押すと

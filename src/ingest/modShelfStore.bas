@@ -344,7 +344,10 @@ End Sub
 '   から取り除く。戻り値=消した件数。
 ' 2026-07-28(レビュー C-1): 同じ処理を modChannel が自前に持ち、消す側と書く側の
 ' タグが食い違ったまま誰も気付かなかった。書き手(modPack)と消し手(modChannel)
-' の両方がここを呼び、タグの取り扱いを1箇所に集める。比較は大小無視。
+' の両方がここを呼び、タグの取り扱いを1箇所に集める。
+' 2026-08-16(R33H F1 BLOCKER): 一致判定は modShareRule.OriginMatches に統一。
+' vbTextCompare は日本語ロケールで全角/半角・ひらがな/カタカナまで同一視し、
+' 「営業1課」を消すと「営業１課」まで消えた(理由は modShareRule 側に詳述)。
 Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
     If LenB(Trim$(originTag)) = 0 Then Exit Function
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
@@ -361,7 +364,7 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
 
     Dim i As Long, c As Long
     For i = LBound(arr, 1) To UBound(arr, 1)
-        If StrComp(Trim$(CStr(arr(i, COL_ORIGIN))), originTag, vbTextCompare) = 0 Then
+        If modShareRule.OriginMatches(CStr(arr(i, COL_ORIGIN)), originTag) Then
             Dim cid As String: cid = CStr(arr(i, COL_ID))
             If LenB(cid) > 0 Then
                 If Not removedIds.Exists(cid) Then removedIds.Add cid, True
