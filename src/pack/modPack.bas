@@ -180,13 +180,23 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     ' ここまででパックの検証もチャンクの読み出しも終わり、ブックも閉じてある。
     ' 「旧版を消す」のはこの位置。これより前で消すと、読み込みに失敗した時に
     ' 旧版も新版も無いという最悪の状態が残る(レビュー H-14)。
+    ' R33H M3: 削除の成否を必ず受け取る。F2 は失敗の形を「消し損ね(重複)」から
+    ' 【欠落】へ反転させたのに、最頻経路(📡部門チャンネル→SyncChannel→ここ)
+    ' だけが outOk を受け取らず、他部門や自分で登録した資料まで消えたあとで
+    ' 「N件取込」の成功ダイアログを出していた。self(自分で登録した資料)には
+    ' 再取込の導線が1つも無く「取り返しがつく側に倒した」という前提が
+    ' 成立しないので、1つでも失敗したらこの取込は失敗として返す。
     Dim purgedCount As Long
+    Dim purgeOk As Boolean: purgeOk = True
     If LenB(purgeOrigins) > 0 Then
         Dim tags() As String: tags = Split(purgeOrigins, "|")
         Dim ti As Long
+        Dim rmOk As Boolean
         For ti = LBound(tags) To UBound(tags)
             If LenB(Trim$(tags(ti))) > 0 Then
-                purgedCount = purgedCount + modShelfStore.RemoveRowsByOrigin(Trim$(tags(ti)))
+                rmOk = True
+                purgedCount = purgedCount + modShelfStore.RemoveRowsByOrigin(Trim$(tags(ti)), rmOk)
+                If Not rmOk Then purgeOk = False
             End If
         Next ti
     End If
@@ -198,6 +208,23 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     modStats.Bump "pack_import_total"
     modLog.LogUsage "pack_import", "", "imported=" & importedCount & " skipped=" & skippedCount & _
         " purged=" & purgedCount & " author=" & authorName
+
+    ' R33H M3: 旧版の削除に失敗していたら、取り込めた件数にかかわらず失敗を
+    ' 返す(0件=呼び出し元 modChannel.SyncChannel の失敗側。版数を記録しないので
+    ' 次に押したときに取り込み直せる)。取り込み自体は上で済ませてある ――
+    ' 消えた行を1件でも埋め戻せる方が、何もしないより取り返しがつく。
+    If Not purgeOk Then
+        modLog.LogError "E0701", "modPack.ImportPackFile", _
+            "旧版の削除に失敗(欠落の可能性): imported=" & importedCount & _
+            " purged=" & purgedCount & " origins=" & purgeOrigins
+        If Not silent Then
+            MsgBox "本棚の書き換えに失敗しました。" & vbCrLf & vbCrLf & _
+                "ほかの部門や、ご自分で登録した資料まで消えている可能性があります。" & vbCrLf & _
+                "マイ本棚を開いてご確認ください(このツールの管理担当にもご連絡ください)。", _
+                vbExclamation, modAppDef.APP_NAME
+        End If
+        Exit Function
+    End If
 
     ImportPackFile = importedCount
     If Not silent Then

@@ -389,7 +389,10 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String, _
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOrigin = nRows - survivorCount
-    MarkRowsChanged
+    ' R33H M4: 失敗時は保存マークを更新しない。行数を上書きすると
+    ' modIntegrity.WarnAtStartup(最後の網)が欠けた後の行数を基準にしてしまい、
+    ' F2 が新設した欠落を F2 が通る関数自身が隠す。
+    If outOk Then MarkRowsChanged
 End Function
 
 ' origin列が originTag と一致する行数を数える(消さない)。
