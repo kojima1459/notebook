@@ -370,21 +370,24 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' ForceRefreshBoard - TTLを無視して集計をやり直す(2026-07-31 R8 F9)。
-'   ダッシュボードの「更新」ボタンだけがこれを呼ぶ。利用者が明示的に
-'   更新を押したときに「10分経っていないので前の値です」と返すのは、
-'   ボタンが壊れているのと区別が付かない。
-'
-'   2026-08-16(R33 W6-1): ただし下限間隔(FORCE_MIN_SEC=60秒)を設ける。
-'   ここはTTLを無効化する唯一の口で、連打1回ごとに共有フォルダへの往復が
-'   増える(発行者端末では全ビーコン走査そのものが走り直す)。集計は分単位
-'   なので、60秒の間に数字が変わることは事実上無い ―― 60秒以内の2回目は
-'   前回の値をそのまま出す(押しても何も壊れないが、共有も叩かない)。
+'   ダッシュボードの「更新」ボタンだけがこれを呼ぶ。R8 F9 の裁定は
+'   「押しても値が変わらないのは、ボタンが壊れているのと区別が付かない」。
+'   R33 W6-1 で下限間隔(FORCE_MIN_SEC=60秒)を足したが、その中で【黙って
+'   Exit する】形にしたため、その裁定を真下で破っていた(R33H F19)。
+'   直し方は2つ:
+'   (a) 60秒以内なら理由を1行トーストで返す(何も起きない、を無くす)。
+'   (b) 下限の起点は【実際に集計をやり直したとき】だけ進める。共有が
+'       瞬断していた1回で下限を使い切ると、復帰しても60秒押せなかった。
 ' ----------------------------------------------------------------------------
 Public Sub ForceRefreshBoard()
-    If modShareRule.CacheIsFresh(mForceAt, Timer, FORCE_MIN_SEC) Then Exit Sub
-    mForceAt = Timer
+    If modShareRule.CacheIsFresh(mForceAt, Timer, FORCE_MIN_SEC) Then
+        On Error Resume Next
+        modSkin.ShowToast modShare.BoardForceWaitText(CLng(FORCE_MIN_SEC)), "info", True
+        On Error GoTo 0
+        Exit Sub
+    End If
     mAggAt = 0
-    RefreshBoard
+    If RefreshBoard() Then mForceAt = Timer
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -404,9 +407,11 @@ End Sub
 '   TTLとの関係: AGG_TTL_SEC=共有へ【触りに行く間隔】/ SUMMARY_MAX_AGE_*=
 '   読めた【中身を信じてよいか】。軸が違うので条件が絡まない。
 ' ----------------------------------------------------------------------------
-Private Sub RefreshBoard()
+'   戻り値(R33H F19): 実際に集計をやり直したか。「更新」ボタンの下限間隔の
+'   起点を、走ってもいない回で進めないために要る。
+Private Function RefreshBoard() As Boolean
     ' TTL内なら前回の集計値をそのまま使う(mOrgDay等は消さない)。
-    If modShareRule.CacheIsFresh(mAggAt, Timer, AGG_TTL_SEC) Then Exit Sub
+    If modShareRule.CacheIsFresh(mAggAt, Timer, AGG_TTL_SEC) Then Exit Function
 
     ' 2026-07-31(R8b B8): ゼロ化・TTLの起点更新は【集計に入れると決めてから】。
     ' 従来はここより前で mOrgDay 等を0にし mAggAt も進めていたため、
@@ -417,10 +422,11 @@ Private Sub RefreshBoard()
     ' 固定された。共有はすぐ復帰しているのに画面だけが壊れて見える。
     ' 集計できないときは、古い値を出し続ける方がずっとましなので何も触らない。
     Dim folderPath As String: folderPath = BoardDir()
-    If LenB(folderPath) = 0 Then Exit Sub
-    If LenB(Dir(folderPath, vbDirectory)) = 0 Then Exit Sub
+    If LenB(folderPath) = 0 Then Exit Function
+    If LenB(Dir(folderPath, vbDirectory)) = 0 Then Exit Function
 
     mAggAt = Timer
+    RefreshBoard = True
 
     Dim isPub As Boolean
     On Error Resume Next
@@ -432,7 +438,7 @@ Private Sub RefreshBoard()
     Else
         LoadSnapshot folderPath
     End If
-End Sub
+End Function
 
 ' BuildSnapshot - 発行者端末だけが通る道。ビーコンを読んで組織合計を出し、
 '   結果を summary.txt へ1本書く。1回に開くのは SCAN_CAP 本までで、超える

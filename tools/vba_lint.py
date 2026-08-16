@@ -1720,6 +1720,9 @@ CONTRACT: dict[str, dict] = {
             #   ポップアップ1行の純関数。
             "BoardScanStart", "BoardListBeacons", "BoardCarryTitles",
             "BoardApproxSuffix", "BoardDeptLine",
+            # BoardForceWaitText(R33H F19): 「更新」を下限間隔の中で押したとき
+            #   に出す1行。黙って Exit すると壊れたボタンと区別が付かない。
+            "BoardForceWaitText",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。

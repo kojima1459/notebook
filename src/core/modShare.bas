@@ -696,6 +696,13 @@ Private Function BoardStampNote(ByVal stampText As String, ByVal userN As Long, 
         IIf(approx, " / 上限" & capN & "件までの概算", "") & ")"
 End Function
 
+' BoardForceWaitText - 「更新」を下限間隔の中で押したときの1行(R33H F19)。
+'   何も起きずに帰ると、ボタンが壊れているのと区別が付かない(R8 F9 の裁定)。
+Public Function BoardForceWaitText(ByVal minSec As Long) As String
+    BoardForceWaitText = "組織の集計は最短" & minSec & _
+        "秒おきに取り直します。いまは前回の数字を表示しています。"
+End Function
+
 ' ----------------------------------------------------------------------------
 ' BoardDeptLine - ポップアップの「部(○○)で今月 約N」1行【純関数】。
 '   自分の部が分かっていて、かつ今月の合算が1分でもあるときだけ足す
