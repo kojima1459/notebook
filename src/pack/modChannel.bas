@@ -288,10 +288,12 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
     ' 消す対象のタグを組み立てる。実際の削除は ImportPackFile の中、
     ' 「パックを読み終えて書き込む直前」に行われる(同居時間ゼロのまま、
     ' 読み込み失敗で旧版まで失う窓を無くす)。
+    ' R33H M9: 同一判定は OriginMatches へ(F1 の1本化に届いていなかった2箇所)。
+    ' 「営業1課」→「営業１課」の切替で旧部門のチャンクと版記録が残っていた。
     Dim purgeTags As String
     purgeTags = ChannelOriginTag(chName)
     If LenB(leavingChannel) > 0 Then
-        If StrComp(leavingChannel, chName, vbTextCompare) <> 0 Then
+        If Not modShareRule.OriginMatches(leavingChannel, chName) Then
             purgeTags = purgeTags & "|" & ChannelOriginTag(leavingChannel)
         End If
     End If
@@ -306,7 +308,7 @@ Public Function SyncChannel(ByVal chName As String, Optional ByVal leavingChanne
         ' 離れた部門の版数は空へ。「アクティブな部門だけが版数を持つ」という
         ' 不変条件を保つ(PendingUpdates と SwitchTo の両方がこれに依存する)。
         If LenB(leavingChannel) > 0 Then
-            If StrComp(leavingChannel, chName, vbTextCompare) <> 0 Then
+            If Not modShareRule.OriginMatches(leavingChannel, chName) Then   ' R33H M9
                 modStats.SetStatText modShareRule.ChannelStatKey(leavingChannel), ""
             End If
         End If
