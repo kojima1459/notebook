@@ -206,8 +206,10 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         If rb = RB_TIMEOUT Then
             aborted = True
             If LenB(abortReason) = 0 Then abortReason = "error"
-            ' 止められなかった(PID不明)なら、GSがまだ書いているフォルダを
-            ' 消してはならない(R14-F5。optGsTxtのタイムアウトと同じ扱い)。
+            ' 止まっていると言い切れない(PID不明・WMIが答えない)なら、GSが
+            ' まだ書いているフォルダを消してはならない(R14-F5。optGsTxtの
+            ' タイムアウトと同じ扱い)。既に終了していた場合は killed=True
+            ' なので、ここは立たない(R33H F20)。
             If Not killed Then outKeepWork = True
             ' 最後の1枚は書きかけの可能性がある(2枚以上あるときだけ捨てる)。
             If gotN > 1 Then gotN = gotN - 1
@@ -523,8 +525,11 @@ End Sub
 ' 1バッチ分だけGSを起動して完了を待つ。戻り値は RB_DONE / RB_LAUNCH_FAIL /
 ' RB_TIMEOUT(R14-F1: 起動できなかったことを時間切れと混ぜない)。
 ' outUsedSec : この待ちに実際に使った秒数(絶対上限の残り計算用。R14-F6)
-' outKilled  : タイムアウト時にGSを止められたか(R14-F5)。止められなかった
-'              ときだけ、呼び出し元が作業フォルダを残す判断をする。
+' outKilled  : タイムアウト時に【GSがもう動いていないと言い切れるか】
+'              (R14-F5 / R33H F20で意味を明確化)。止めた場合と、そもそも
+'              既に終了していて止める必要が無かった場合の両方が True。
+'              False のとき(生きているか分からない)だけ、呼び出し元が
+'              作業フォルダを残す判断をする。
 ' 完了フラグは毎回消してから起動する(前のフラグが残っていると、待ちループが
 ' 「もう終わっている」と即座に誤判定する)。
 ' bannerLabel: 待っているあいだ1秒ごとに出す実況のラベル(R15-FixA FA-5i)。

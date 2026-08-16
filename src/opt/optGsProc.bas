@@ -153,12 +153,30 @@ End Sub
 ' 止められなかった3経路すべてでガードが原理的に発火しなかった。
 ' 併せて err_log には killed=True、usage_log には gs_kill_failed という
 ' 矛盾した2行が残り、次の実機調査を存在しない現象へ誘導していた。
-' True を返すのは taskkill を撃った経路だけ。
+'
+' 2026-08-16(R33H F20): 戻り値の意味を「taskkill を撃った」から
+' 【もうGSは動いていないと言い切れる】へ直した。呼び出し元がこの値で決めて
+' いるのは「作業フォルダを消してよいか」の1点で、"止める必要が無かった"は
+' 消してよい側だからである。ProcNameOf は終了済みプロセスに "" を返す ――
+' つまりGSが自分で終わっている一般的なケースが名前照合に外れて False になり、
+' outKeepWork=True が立って %TEMP%\nxocr_* が毎回まるごと残っていた
+' (1回あたり数十MB。この修正前は消えていた)。
+'   "" (もう居ない)          → True(止める必要が無かった=成功側)
+'   "?" (WMIが答えられない)  → False(生きているか分からないので残す側)
+'   別名 (PIDが再利用された) → False(誤爆より取りこぼしを選ぶ)
 Public Function KillGsTree(ByVal pid As Long) As Boolean
     If pid <= 0 Then Exit Function
 
     Dim nm As String: nm = ProcNameOf(pid)
     Dim low As String: low = LCase$(Trim$(nm))
+    If LenB(low) = 0 Then
+        ' 既に終了している。止めるものが無い=止まっている、が事実。
+        On Error Resume Next
+        modLog.LogUsage "gs_kill_not_needed", "", "pid=" & pid & " (既に終了)"
+        On Error GoTo 0
+        KillGsTree = True
+        Exit Function
+    End If
     If low <> "cmd.exe" And low <> "gswin32c.exe" Then
         On Error Resume Next
         modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " name=[" & nm & "]"
@@ -189,7 +207,9 @@ End Function
 
 ' PIDに今ぶら下がっているプロセス名をWMIで引く(R13-F2)。
 ' 見つからない(すでに終了している)ときは ""、WMIそのものが使えない/
-' 問い合わせに失敗したときは "?" を返す。どちらも呼び出し元はkillしない。
+' 問い合わせに失敗したときは "?" を返す。どちらも kill はしないが、扱いは
+' 別(R33H F20): "" は「止める必要が無かった」= 成功側 /
+' "?" は「生きているか分からない」= 作業フォルダを残す側。
 ' PIDはWMIのCreateで得たものなので、この端末でWMIが通ること自体は既知。
 Private Function ProcNameOf(ByVal pid As Long) As String
     Dim svc As Object
