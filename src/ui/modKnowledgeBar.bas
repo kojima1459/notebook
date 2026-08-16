@@ -350,14 +350,21 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     ' 続ける問題に対する、利用者側の出口(実体は modShared.OnPurgeChannel)。
     ' 一覧表・ギャラリーの両モードで出す(🗑削除が一覧表専用なのは「アクティブ
     ' セルの行」を対象にするからで、こちらは行選択に依存しない)。
+    ' R33H F29: 赤い🗑が2つ並ぶのに、片方は「部門ぶん一括(数十〜数百件)」、
+    ' もう片方は「いま選んでいる1件」で、破壊の規模に2桁の差がある。字形は
+    ' 同じ🗑・色も同じ danger なので、見た目からは桁の差が一切読めなかった。
+    ' 取り消せない操作を隣り合わせで置く以上、規模は【語】で書く。
+    ' 1件側は幅を58のまま据え置く ―― こちらは一覧表モードにしか出ないので、
+    ' 幅を広げると modTestsPure11「ギャラリーは一覧表より広い」が反転する
+    ' (実測で反転させて確認した)。規模差はキャプションの語だけで示す。
     AddTool caps, acts, kinds, tips, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDDD1) & " 部門の資料", "modShared.OnPurgeChannel", "danger", 96, _
-            "選んだ部門から取り込んだ資料だけを、まとめて本棚から削除します"
+            ChrW(&HD83D) & ChrW(&HDDD1) & " 部門ぶん一括", "modShared.OnPurgeChannel", "danger", 121, _
+            "選んだ部門から取り込んだ資料を、まとめて本棚から削除します(取り消せません)"
 
     If isTable Then
         AddTool caps, acts, kinds, tips, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "danger", 58, _
-                "選んだ資料を本棚から削除します"
+                ChrW(&HD83D) & ChrW(&HDDD1) & " 1件", "modKnowledge.OnDelete", "danger", 58, _
+                "いま選んでいる1件だけを本棚から削除します"
     End If
 End Sub
 
