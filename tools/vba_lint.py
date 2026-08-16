@@ -1594,6 +1594,12 @@ CONTRACT: dict[str, dict] = {
             # 分かれたため、NeedYを分解したNeedYFixed/NeedYVariableを追加
             # (NeedYは後方互換の合計として残置。CompressFactorへは渡さない)。
             "CardGapFor", "KpiGap", "NeedY", "NeedYFixed", "NeedYVariable",
+            # 2026-08-16(R33 W5-18): 本文の起点をヘッダー帯の実高から出す3本。
+            # ピルが2段になった窓(帯48pt→78pt)で、サブタイトルが KPIカードの
+            # 下に潜って一度も見えなくなっていた(本文の起点が定数80固定で、
+            # 帯だけが伸びるため)。Hub が R21-S5 で mHdrH/HeaderH() 化したのと
+            # 同じ形。modDash.DrawHeader/圧縮係数の算出前が SetHeaderH を呼ぶ。
+            "SetHeaderH", "HeaderH", "BodyY0",
         ],
     },
     # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。

@@ -261,6 +261,10 @@ Private Sub DrawDashboard(ByVal ws As Worksheet)
     ' R21-S5: 窓高に収まらないときだけ縦を圧縮する(KPIカード高・バッジ高)。
     ' 係数は modViewport2 が1本で持ち、実際に掛けるのは modViewport2.SY() だけ。
     ' R21H F3: needを固定/可変に分けて渡す(まとめて渡すと分母が薄まり圧縮不足になる)。
+    ' R33 W5-18: NeedYFixed は本文の起点(=ヘッダー帯の実高+サブタイトル1行)を
+    ' 含むので、係数を決める前に帯高を測って渡しておく。測らないとピル2段の窓で
+    ' 30pt ぶん甘い係数になり、本文が想定より下へはみ出す。
+    modDashStat.SetHeaderH MeasuredHeaderH(ws)
     modViewport2.SetScaleY modViewport2.CompressFactor( _
         modViewport.ViewportHeight(), modDashStat.NeedYFixed(), modDashStat.NeedYVariable())
     ' R20-1d→R31 F10: 焼く行数はSeedRowCap(窓ぶん/使用済みの大きい方)が
@@ -330,6 +334,32 @@ End Function
 
 ' ---- ヘッダー ----
 
+' MeasuredHeaderH - ヘッダー帯の実高(pt)。R33 W5-18。
+'   ピルは FlowLeft が段を増やして受けるので、帯高は 48 固定ではなく
+'   HDR_BAR_H + (段数-1)*(HDR_PILL_H+4) で伸びる。可視幅が約618pt未満だと
+'   「?」が2段目へ落ちて 78pt になる(下限は MinContentRightX の590ptなので、
+'   可視幅590〜618ptの窓ではこの状態が確定する = 珍しい形ではない)。
+'   圧縮係数(SetScaleY)は本文を描く【前】に決まるため、そこでも同じ実高が
+'   要る。算数は FlowLeft だけで副作用が無いので、DrawHeader が改めて
+'   同じ計算をしても必ず同じ値になる(二重計算しても矛盾しない)。
+Private Function MeasuredHeaderH(ByVal ws As Worksheet) As Double
+    MeasuredHeaderH = HDR_BAR_H
+    On Error Resume Next
+    Dim caps(0 To HDR_ITEMS - 1) As String
+    Dim acts(0 To HDR_ITEMS - 1) As String
+    Dim nms(0 To HDR_ITEMS - 1) As String
+    Dim wds(0 To HDR_ITEMS - 1) As Double
+    HeaderSpec caps, acts, nms, wds
+    Dim xs() As Double, rws() As Long, uws() As Double
+    Dim rowN As Long
+    rowN = modChrome.FlowLeft(wds, HDR_ITEMS, ws.Range("A1").Left + HDR_TITLE_RESERVE, _
+                              modViewport.ContentRight(ws, DASH_BAND, 8), HDR_PILL_GAP, _
+                              xs, rws, uws)
+    If rowN < 1 Then rowN = 1
+    MeasuredHeaderH = HDR_BAR_H + (rowN - 1) * (HDR_PILL_H + 4)
+    On Error GoTo 0
+End Function
+
 Private Sub DrawHeader(ByVal ws As Worksheet)
     Dim L As Double, W As Double
     L = ws.Range("A1").Left
@@ -351,6 +381,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
                               xs, rws, uws)
     If rowN < 1 Then rowN = 1
     Dim barH As Double: barH = HDR_BAR_H + (rowN - 1) * (HDR_PILL_H + 4)
+    modDashStat.SetHeaderH barH   ' R33 W5-18: 本文の起点はこの実高から出す
 
     Dim hdr As Shape
     Set hdr = ws.Shapes.AddShape(5, L, 0, W, barH)

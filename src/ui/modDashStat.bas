@@ -41,7 +41,20 @@ Private Const KPI_CARD_H As Double = 92
 Public Const KPI_GAP As Double = 10
 Public Const KPI_X0 As Double = 20
 ' 2026-07-31(R7 A-1): ヘッダー帯(48pt)+サブタイトルの下から本文を始める。
+' R33 W5-18: 定数 80 のままだと、ヘッダーのピルが2段になった窓(帯78pt)で
+' サブタイトル(y=84..102)が KPIカード(y=80から・不透明)の下に潜り、一度も
+' 見えなくなる。Shapes.AddShape は後から追加した方が手前に来るので、
+' DrawHeader より後に走る DrawKpiRow が必ず勝つ。帯の実高から出す。
+' KPI_Y0 は「帯が最小(48pt)のときの本文開始Y」= 48 + SUB_BAND_H という
+' 意味に読み替え、実際に参照するのは BodyY0() 1本にする(Hub が R21-S5 で
+' mHdrH/HeaderH() 化したのと同じ形。Dashだけ定数のまま取り残されていた)。
 Private Const KPI_Y0 As Double = 80
+Private Const HDR_BAR_H_MIN As Double = 48        ' modDash.HDR_BAR_H と同値
+Private Const SUB_BAND_H As Double = KPI_Y0 - HDR_BAR_H_MIN   ' サブタイトル1行ぶん(32pt)
+
+' 直近の DrawHeader が実測したヘッダー帯の高さ(pt)。実体の関数は
+' 「R21-S5: 縦の段組み」の節に置く(宣言部にプロシージャを混ぜない)。
+Private mHdrH As Double
 ' ROW_WIDTH は「最小版面」(=130×4+10×3=550pt。左右余白40ptを足した帯590ptが
 ' 帯幅の下限)。帯を可視幅へ合わせるときの下限としてだけ使い、
 ' 実際の版面幅は RowWidth() を見る(R20-1b)。
@@ -125,12 +138,27 @@ End Function
 ' ----------------------------------------------------------------------------
 ' R21-S5: 縦の段組み(圧縮係数を掛けた実座標)。旧 Const の置き換え。
 ' ----------------------------------------------------------------------------
+' SetHeaderH - modDash が実測した帯高を預ける(本文の起点の単一情報源)。R33 W5-18。
+Public Sub SetHeaderH(ByVal h As Double)
+    mHdrH = h
+End Sub
+
+Public Function HeaderH() As Double
+    HeaderH = mHdrH
+    If HeaderH < HDR_BAR_H_MIN Then HeaderH = HDR_BAR_H_MIN
+End Function
+
+' BodyY0 - 本文(KPIカード行)の開始Y。帯が48ptのときは従来どおり 80 になる。
+Public Function BodyY0() As Double
+    BodyY0 = HeaderH() + SUB_BAND_H
+End Function
+
 Private Function KpiCardH() As Double
     KpiCardH = modViewport2.SY(KPI_CARD_H)
 End Function
 
 Private Function ExpBarY() As Double
-    ExpBarY = KPI_Y0 + KpiCardH() + modViewport2.SY(EXPBAR_GAP)
+    ExpBarY = BodyY0() + KpiCardH() + modViewport2.SY(EXPBAR_GAP)
 End Function
 
 Private Function ExpLabelY() As Double
@@ -169,13 +197,14 @@ End Function
 '   合計」(pt)を、modViewport2.CompressFactor(R21H F3)の分母に合わせて
 '   固定/可変へ分解したもの。ここだけは SY() を通さない(通すと前回の
 '   係数が入って収束しない)。
-'   固定=KPI_Y0(カード開始Y)+EXPBAR_H+EXPLABEL_GAP+CHART_GAP(いずれも
+'   固定=BodyY0()(カード開始Y。R33 W5-18でヘッダー帯の実高から出す)
+'   +EXPBAR_H+EXPLABEL_GAP+CHART_GAP(いずれも
 '   ExpBarY/ExpLabelY/ChartNoteYでSY()を経由していない)。
 '   可変=KPI_CARD_H(KpiCardH=SY)+EXPBAR_GAP(ExpBarYでSY)
 '   +BADGE_HEAD_GAP(BadgeHeadYでSY)+BADGE_GRID_GAP(BadgeGridYでSY)
 '   +バッジ段数ぶんのBADGE_H/BADGE_GAP_Y(BadgeH/BadgeGapYでSY)。
 Public Function NeedYFixed() As Double
-    NeedYFixed = KPI_Y0 + EXPBAR_H + EXPLABEL_GAP + CHART_GAP
+    NeedYFixed = BodyY0() + EXPBAR_H + EXPLABEL_GAP + CHART_GAP
 End Function
 
 Public Function NeedYVariable() As Double
@@ -433,12 +462,12 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Dim cw As Double: cw = KpiCardW()                 ' R20-1b: 帯幅から決めた実カード幅
     Dim gp As Double: gp = KpiGap()                    ' R21-S3: 余りを吸った隙間
     Dim x0 As Double: x0 = RowX0()                     ' R21-S3: 版面の左端X(=KPI_X0)
-    DrawKpiCard ws, 0, x0, KPI_Y0, cw, KpiCardH(), _
+    DrawKpiCard ws, 0, x0, BodyY0(), cw, KpiCardH(), _
         "節約した時間", modDashStat.FormatMinutes(savedMinutes), deltaText, deltaColor
 
     ' Card1: 登録ナレッジ数
     Dim ingestTotal As Long: ingestTotal = modDashStat.SafeGetStat("ingest_files_total")
-    DrawKpiCard ws, 1, x0 + (cw + gp), KPI_Y0, cw, KpiCardH(), _
+    DrawKpiCard ws, 1, x0 + (cw + gp), BodyY0(), cw, KpiCardH(), _
         "登録ナレッジ数", ingestTotal & "件", "あなたが登録した資料"
 
     ' Card2: 資料の分量(2026-08-06 R20H FA-16: 生ジャーゴン「蔵書チャンク数」を平易化)
@@ -450,7 +479,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Else
         ratio = 0
     End If
-    DrawKpiCard ws, 2, x0 + 2 * (cw + gp), KPI_Y0, cw, KpiCardH(), _
+    DrawKpiCard ws, 2, x0 + 2 * (cw + gp), BodyY0(), cw, KpiCardH(), _
         "資料の分量", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
 
     ' Card3: レベル
@@ -458,7 +487,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
     Dim expTotalV As Long: expTotalV = modDashStat.SafeExpTotal()
     Dim remain As Long: remain = modDashStat.SafeExpFloorForLevel(lv + 1) - expTotalV
     If remain < 0 Then remain = 0
-    DrawKpiCard ws, 3, x0 + 3 * (cw + gp), KPI_Y0, cw, KpiCardH(), _
+    DrawKpiCard ws, 3, x0 + 3 * (cw + gp), BodyY0(), cw, KpiCardH(), _
         "レベル", "Lv." & lv, "EXP " & expTotalV & " ・ 次まで" & remain & "EXP"
 End Sub
 
