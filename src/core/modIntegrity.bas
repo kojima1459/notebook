@@ -532,6 +532,37 @@ Public Function IsUsedRangeBloated(ByVal usedW As Double, ByVal usedH As Double)
     IsUsedRangeBloated = (usedW > BLOAT_W_PT) Or (usedH > BLOAT_H_PT)
 End Function
 
+' ----------------------------------------------------------------------------
+' UsedLastRow - 使用済み範囲の最終行を測る(2026-08-16 R33H M5)。
+' ----------------------------------------------------------------------------
+' 測り方に2つの作法を畳んである。どちらも実測由来で、抜けると【無言で
+' 間違った値】が返る種類のもの:
+'   (1) 捨て読み: 行削除や条件付き書式の剥がしだけでは内部の使用済み範囲
+'       (xlCellTypeLastCell)が縮まない端末がある。UsedRange を1回参照して
+'       再計算させてから測る(戻り値は捨てる。modViewport.ReleaseSheetRowsBelow
+'       に同じ1行がある ―― R33H M5 はその1行が新経路に無かった件)。
+'   (2) 参照は1回に畳む: 「ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1」は
+'       同一式の中で UsedRange を2回読む。評価順は保証されないので、伸び縮み
+'       の途中で読むと存在しない行番号が出る。
+' 置き場が基盤層なのは modBackdrop が残155字で分岐を書けないため(憲章§4-6)。
+' 自己検算そのものが「台帳(測った値)と実データの突合」なので主題も合う。
+' 失敗時は0(呼び出し側は0を「測れなかった」として扱う)。
+Public Function UsedLastRow(ByVal ws As Worksheet) As Long
+    If ws Is Nothing Then Exit Function
+    On Error Resume Next
+    Err.Clear
+    Dim discard As Long
+    discard = ws.UsedRange.Rows.Count
+    Err.Clear
+    Dim ur As Range
+    Set ur = ws.UsedRange
+    If Err.Number = 0 Then
+        If Not ur Is Nothing Then UsedLastRow = ur.Row + ur.Rows.Count - 1
+    End If
+    Err.Clear
+    On Error GoTo 0
+End Function
+
 ' 画面4枚(Hub/チャット/マイ本棚/ダッシュボード)のどれかが膨らんでいたら
 ' 1回だけ案内する(セッション1回=WarnAtStartup 自体が1回)。
 Private Sub WarnIfUsedRangeBloated()

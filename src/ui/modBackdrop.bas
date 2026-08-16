@@ -644,13 +644,13 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
     ' R33H F10: 【剥がしてから測る】。旧順序(測る→剥がす→張る→測る)では
     ' 2回目以降の usedLast に前回の膨らんだ値が入り、検算が永久に無罪放免に
     ' なったうえ開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進していた。
+    ' R33H M5: 剥がした直後は捨て読みが要る(作法は modIntegrity.UsedLastRow)。
     ClearOwnCF ws
 
-    ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。
+    ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。0=測れなかった。
     Dim usedLast As Long
-    Err.Clear
-    usedLast = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
-    If Err.Number <> 0 Then GoTo CfExit
+    usedLast = modIntegrity.UsedLastRow(ws)
+    If usedLast < 1 Then GoTo CfExit
 
     Dim addr As String
     addr = CfRowsAddr(CfStartRow(boundRow, usedLast), CF_DEPTH_ROWS)
@@ -677,19 +677,16 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
     End If
 
     ' ★必須検算。ここが成否を分ける唯一の点(この波の主題)。
-    Dim after As Long
-    Err.Clear
-    after = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
-    Dim vNum As Long, vDesc As String
-    vNum = Err.Number: vDesc = Err.Description
-    Err.Clear
     ' R33H F12: 【検算できなかった=合格ではない】。旧実装は読み取り失敗を
     ' If Err.Number = 0 で包み、検算ごと飛ばして成功ログへ到達していた。
     ' 伸びていても気づけないので剥がす。mCfOff は立てない(剥がしてあるので
     ' 行進は起きず、次の描画で測り直せる)。
-    If vNum <> 0 Then
+    ' R33H M5: 測定側が Err を畳むので、失敗は戻り値0で見分ける。
+    Dim after As Long
+    after = modIntegrity.UsedLastRow(ws)
+    If after < 1 Then
         ClearOwnCF ws
-        LogCfOnce nm, "verify_read", vNum, vDesc
+        LogCfOnce nm, "verify_read", 0, "UsedRangeを測れなかった"
         GoTo CfExit
     End If
 

@@ -266,8 +266,12 @@ CONTRACT: dict[str, dict] = {
         #   末尾ClearContents」の順で、代入の途中で落ちると生存行が二重に残った。
         #   置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
         #   (このモジュールの冒頭にある置き場の理由と同じ)。
+        # UsedLastRow(2026-08-16 R33H M5): 使用済み範囲の最終行の実測。捨て読み
+        #   での再計算と「UsedRange を1回だけ参照する」の2作法を畳んだ1本。
+        #   modBackdrop.ApplyCF の自己検算が使う(あちらは残155字)。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "RewriteRowsAfterPurge",
+                     "UsedLastRow",
                      "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
                      "CohabitCount", "CohabitOtherCount", "IsCohabiting",
