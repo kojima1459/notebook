@@ -356,6 +356,11 @@ CONTRACT: dict[str, dict] = {
         # ShouldEmitInsight(2026-08-03 R14-1b): 「解決した」で部内へ発信して
         #   よい回答かの判定(モード×出典件数の真理表)。一般モードの解禁と
         #   残留状態による誤爆(実機第3報 RC2)を1つの式で塞ぐ。
+        # EmitInsightAllowed(2026-08-16 R33H M2): 上の真理表に F7 の門
+        #   (GroundingAllowed)を畳んだ発信の窓口。聞き返し・API失敗のターンの
+        #   遮断は W5-21 の mLastMode="" に依存していて F7 の復元で外れており、
+        #   🔴/🤔 がその質問を部内へ発信していた。modAsk(凍結)の変更を
+        #   CanShareInsight の1行に留めるため、真理表ではなくこちらへ畳む。
         # RerankEffort(2026-08-03 R14-8a): 入念モードだけ再ランクの effort を
         #   別設定(rerank_effort_thorough)にする分岐。
         # AnsweredMode(R33 W5-21)は R33H F7 の NoteAnswered / GroundingAllowed
@@ -376,7 +381,8 @@ CONTRACT: dict[str, dict] = {
         #   走ったテストに依存するため)。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
-                     "SubQueryCount", "ShouldEmitInsight", "RerankEffort",
+                     "SubQueryCount", "ShouldEmitInsight", "EmitInsightAllowed",
+                     "RerankEffort",
                      "NoteAnswered", "GroundingAllowed",
                      "AnswerSourcesText", "AnswerStatusText",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],

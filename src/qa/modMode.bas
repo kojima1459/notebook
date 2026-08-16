@@ -300,10 +300,21 @@ End Function
 '   ・直前まで残っていた別の質問の出典へ、無関係な感謝状が飛ぶ
 ' という取り返しのつかない誤爆になる(実機第3報 RC2 の危険)。
 '
-' 判定材料はモードと出典件数の2つだけ:
-'   ・mode="" … 検索も回答生成もしなかったターン(空質問・0件・聞き返し)
+' 判定材料はモードと出典件数、そして直近ターンが成立したかの3つ:
+'   ・mode="" … 検索も回答生成もしなかったターン(空質問)
 '   ・mode="general" … 一般アシスタント(本棚を通っていない)
 '   ・nHits=0 … 根拠となる資料が1件も無い
+'   ・GroundingAllowed=False … 資料は引いたが回答が成立しなかったターン
+'     (API失敗・聞き返し)。2026-08-16 R33H M2。
+' 【この4つ目が要る理由】ここの契約は元々「聞き返しは mode="" で入って
+' くる」と書いていたが、その遮断は W5-21 が mLastMode="" に頼っていたもので、
+' F7 がモード名を戻した時点で外れた。以後 nHits>0 の聞き返し・API失敗ターンは
+' 真理表を素通りし、🔴/🤔(modAsk:504/518)がその質問を部内へ発信していた
+' (緑だけは mLastCleanAnswer 非空の併記があって助かっていた)。
+' 窓口(modAsk.CanShareInsight)が呼ぶのは下の EmitInsightAllowed で、
+' 真理表 ShouldEmitInsight そのものは【モードと件数だけの純関数】のまま残す
+' ―― 状態を混ぜると、この関数を固定しているゴールデン(modTestsPure11)が
+' 「直前にどのテストが走ったか」で答えを変えるようになるため。
 ' いずれか1つでも当てはまれば発信しない。個人統計(selfsolve_total・
 ' 節約時間・usage_log)は「解決した」という事実そのものなので、この判定とは
 ' 無関係に必ず加算する(呼び出し側の責任)。
@@ -360,6 +371,15 @@ Public Function ShouldEmitInsight(ByVal mode As String, ByVal nHits As Long) As 
     If LenB(m) = 0 Then Exit Function
     If m = "general" Then Exit Function
     ShouldEmitInsight = (nHits > 0)
+End Function
+
+' EmitInsightAllowed - 発信してよいかの【窓口】(2026-08-16 R33H M2)。
+'   真理表に F7 の門を畳んだもの。modAsk.CanShareInsight はこの1本だけを
+'   呼ぶ(凍結モジュール側の変更を1行に留め、以後この門を動かすときに
+'   modAsk を開けなくて済む形にする)。理由は上の見出しコメント。
+Public Function EmitInsightAllowed(ByVal mode As String, ByVal nHits As Long) As Boolean
+    If Not GroundingAllowed() Then Exit Function
+    EmitInsightAllowed = ShouldEmitInsight(mode, nHits)
 End Function
 
 ' サブクエリ数。入念は角度の数がそのまま精度になる(実測 R@10 90%→97%)。

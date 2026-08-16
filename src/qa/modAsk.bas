@@ -430,10 +430,10 @@ Public Sub NoteAnswerFailed()
     mFeedbackDone = True
 End Sub
 
-' CanShareInsight - 直近回答を部内へ発信してよいか(真理表は
-'   modMode.ShouldEmitInsight)。UI層(modAppAct)の訂正共有も同じ門を通す。
+' CanShareInsight - 直近回答を部内へ発信してよいか(真理表と門は
+'   modMode.EmitInsightAllowed)。UI層(modAppAct)の訂正共有も同じ窓口を通す。
 Public Function CanShareInsight() As Boolean
-    CanShareInsight = modMode.ShouldEmitInsight(mLastMode, mLastNHits)
+    CanShareInsight = modMode.EmitInsightAllowed(mLastMode, mLastNHits)
 End Function
 
 Public Sub FeedbackGreen()

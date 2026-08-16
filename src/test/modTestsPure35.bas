@@ -359,6 +359,26 @@ Private Sub TestNoteAnswered35()
     ChkBool35 "M1_不成立でも状態セルは空にしない", _
         (LenB(modMode.AnswerStatusText(False)) > 0), True
 
+    ' ---- R33H M2: 発信の窓口(EmitInsightAllowed)にも同じ門を畳む ----
+    '   真理表(ShouldEmitInsight)は「モードと件数」しか見ないので、資料は
+    '   引けた(nHits>0)が回答が成立しなかったターン ―― 聞き返し・API失敗 ――
+    '   がそのまま素通りし、🔴/🤔 がその質問を部内へ発信していた。
+    '   discriminate(両方向): 門を外すと「不成立ターンは発信しない」が落ち、
+    '   常に False を返す実装にすると「成立ターンは従来どおり発信する」が落ちる。
+    ChkStr35 "M2_成立ターンを作る", modMode.NoteAnswered(True, "deep"), "deep"
+    ChkBool35 "M2_成立ターンは従来どおり発信する", _
+        modMode.EmitInsightAllowed("deep", 3), True
+    ChkBool35 "M2_成立でも一般モードは発信しない", _
+        modMode.EmitInsightAllowed("general", 3), False
+    ChkBool35 "M2_成立でも0件は発信しない", _
+        modMode.EmitInsightAllowed("deep", 0), False
+    ChkStr35 "M2_不成立ターンを作る", modMode.NoteAnswered(False, "deep"), "deep"
+    ChkBool35 "M2_聞き返し・API失敗のターンは件数があっても発信しない", _
+        modMode.EmitInsightAllowed("deep", 3), False
+    ' 真理表そのものは状態を持たない(modTestsPure11 のゴールデンが動かない)。
+    ChkBool35 "M2_真理表は不成立ターンでも件数だけで答える", _
+        modMode.ShouldEmitInsight("deep", 3), True
+
     ' 後始末: 次のテスト群へ状態を持ち越さない。
     ChkStr35 "F7_閉じ直せる", modMode.NoteAnswered(False, ""), ""
 End Sub
