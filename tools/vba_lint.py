@@ -1672,9 +1672,16 @@ CONTRACT: dict[str, dict] = {
     # modShare: 共有フォルダのベースパス解決と到達性プローブ(唯一の窓口)。
     "modShare": {
         "closed": True,
+        # BOARD_HEAD_* / BoardHead*(2026-08-16 R33 W6-1): 集約スナップショット
+        # (board\summary.txt)の書式と鮮度判定の純関数。書く側(発行者端末)と
+        # 読む側(全端末)が同じ答えを出さなければ組織集計が黙って狂うため、
+        # 共有まわりの唯一の窓口であるこのモジュールへ置き、modTestsPure34 から
+        # ゴールデン固定できるよう Public にしてある。
         "required": [
             "BasePath", "Reachable", "ProbePath", "ReportFailure",
             "ReportSuccess", "SubDir", "ResetProbe",
+            "BOARD_HEAD_TAG", "BoardHeadText", "BoardHeadField",
+            "BoardHeadStatus", "BoardHeadMin",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。

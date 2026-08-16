@@ -51,6 +51,10 @@ Private Const FAIL_TO_NG As Long = 5
 ' 標準サブフォルダの初期化を1セッションに1回だけ行うための印。
 Private mDirsEnsured As Boolean
 
+' 集約スナップショット(board\summary.txt)1行目の種別印(2026-08-16 R33 W6-1)。
+' 書式の詳細はモジュール末尾の BoardHeadText 直上を参照。
+Public Const BOARD_HEAD_TAG As String = "nxboard1"
+
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
 '   到達性は見ない(設定されているかどうかだけ)。
@@ -213,6 +217,100 @@ Public Function SubDir(ByVal leaf As String) As String
     Dim p As String: p = BasePath()
     If LenB(p) = 0 Then Exit Function
     SubDir = p & leaf & "\"
+End Function
+
+' ============================================================================
+' 集約スナップショット(board\summary.txt)の書式と鮮度判定(2026-08-16 R33 W6-1)
+' ----------------------------------------------------------------------------
+' なぜ modShare に置くか:
+'   実体は「共有フォルダに置く1本のファイルの取り決め」で、書く側(発行者
+'   端末)と読む側(全端末)が【同じ答え】を出さなければ集計が黙って狂う。
+'   共有まわりの取り決めを1箇所へ寄せるのが冒頭「唯一性の原則」。
+'   純関数なので modTestsPure34 からゴールデン固定できる(modBoard 本体は
+'   Excel を触るのでテストへ載せられない)。
+'
+' 1行目(ヘッダ)はタブ区切り10列:
+'   0 種別印 BOARD_HEAD_TAG / 1 作成時刻(ISO "yyyy-mm-dd hh:nn:ss") /
+'   2 日キー / 3 今日の分 / 4 月キー / 5 今月の分 / 6 年キー / 7 今年の分 /
+'   8 集計に入れた人数 / 9 打ち切り("1"=上限で切った概算)
+' 2行目以降は "D<TAB>部コード<TAB>今月の分" / "T<TAB>利用者id<TAB>感謝受領数"。
+' 種別印 BOARD_HEAD_TAG はモジュール先頭の宣言部にある(VBAはモジュール
+' レベル宣言をプロシージャより後に置けない)。
+' ============================================================================
+
+Public Function BoardHeadText(ByVal stampText As String, ByVal dk As String, _
+        ByVal dMin As Long, ByVal mk As String, ByVal mMin As Long, _
+        ByVal yk As String, ByVal yMin As Long, ByVal userN As Long, _
+        ByVal capped As Boolean) As String
+    BoardHeadText = BOARD_HEAD_TAG & vbTab & stampText & vbTab & _
+        dk & vbTab & dMin & vbTab & mk & vbTab & mMin & vbTab & _
+        yk & vbTab & yMin & vbTab & userN & vbTab & IIf(capped, "1", "0")
+End Function
+
+' ヘッダの1フィールドを取り出す(範囲外・壊れた行は空文字)。
+Public Function BoardHeadField(ByVal headLine As String, ByVal idx As Long) As String
+    On Error GoTo Bad
+    If idx < 0 Then Exit Function
+    Dim f() As String: f = Split(headLine, vbTab)
+    If idx > UBound(f) Then Exit Function
+    BoardHeadField = Trim$(f(idx))
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardHeadStatus - このスナップショットを数字として画面に出してよいか。
+'   "ok" / "stale"(古すぎる) / "broken"(読めない・書きかけ)。
+'
+'   時刻はISO文字列のまま辞書順で比べる(CDateを通さない。和暦カレンダー
+'   端末で年が化けるため。modInsight.WithinWindow と同じ作法)。
+'   書きかけのファイルを読むと列が足りないので、列数と種別印の両方を見て
+'   "broken" へ倒す ―― 壊れた集計を「0分」として出すと、共有が動いて
+'   いないのか本当に0分なのかを利用者が区別できない。
+'   書き手の時計が進んでいる場合は cutoff より後になるので "ok" 側へ倒れる
+'   (時計のずれで集計を消さない)。
+' ----------------------------------------------------------------------------
+Public Function BoardHeadStatus(ByVal headLine As String, ByVal cutoffStamp As String) As String
+    BoardHeadStatus = "broken"
+    On Error GoTo Bad
+    Dim f() As String: f = Split(headLine, vbTab)
+    If UBound(f) < 9 Then Exit Function
+    If StrComp(Trim$(f(0)), BOARD_HEAD_TAG, vbBinaryCompare) <> 0 Then Exit Function
+    Dim st As String: st = Trim$(f(1))
+    If Len(st) < 10 Then Exit Function
+    If LenB(cutoffStamp) > 0 Then
+        If st < cutoffStamp Then
+            BoardHeadStatus = "stale"
+            Exit Function
+        End If
+    End If
+    BoardHeadStatus = "ok"
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardHeadMin - 日/月/年の合計。スナップショットのキーと今のキーが一致する
+'   ときだけ返す(昨日書かれた集計の「今日の分」を今日の数字として出さない。
+'   ビーコン側と同じ日付キー方式)。壊れた値・巨大な値は0へ捨てる
+'   (modBoard.SafeNum と同じ上限。1億分=約190年ぶんは現実の値ではない)。
+' ----------------------------------------------------------------------------
+Public Function BoardHeadMin(ByVal headLine As String, ByVal kindText As String, _
+        ByVal curKey As String) As Long
+    On Error GoTo Bad
+    If LenB(curKey) = 0 Then Exit Function
+    Dim f() As String: f = Split(headLine, vbTab)
+    If UBound(f) < 9 Then Exit Function
+    Dim ki As Long
+    Select Case kindText
+        Case "d": ki = 2
+        Case "m": ki = 4
+        Case "y": ki = 6
+        Case Else: Exit Function
+    End Select
+    If StrComp(Trim$(f(ki)), curKey, vbBinaryCompare) <> 0 Then Exit Function
+    Dim v As Double: v = Val(f(ki + 1))
+    If v < 0 Or v > 100000000# Then Exit Function
+    BoardHeadMin = CLng(v)
+Bad:
 End Function
 
 ' ----------------------------------------------------------------------------
