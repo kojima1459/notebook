@@ -233,4 +233,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-16(R33H Fix波3): modTestsPure34 が残45字になったための分割先。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは (F22)組織集計の1行を組む/読む
+    ' 往復と称号行の解析経路 (F31)文字コードの採否判断 (F27)先頭バイトを
+    ' 読む価値がある拡張子 (F30)宛先ハッシュ・称号キーの単一情報源。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure36.RunAll36
+    If Err.Number <> 0 Then
+        Check "modTestsPure36.RunAll36", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

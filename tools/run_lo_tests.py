@@ -123,9 +123,10 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #   2026-08-16 R33H Fix波3 着手時: PASS 2861 / SKIP 12
 #   2026-08-16 R33H Fix波3: modMode.AnsweredMode 撤去に伴いテスト6件を削除
 #     (modTestsPure34 の4件 + modTestsPure35 の2件)→ PASS 2855。
-#     さらに F22/F31 のゴールデンを modTestsPure36 で追加 → 下記の値。
+#     そのうえで F22/F27/F30/F31 のゴールデン64件を modTestsPure36 で追加
+#     → PASS 2919(SKIP は 12 のまま)。
 EXPECTED_SKIP_MAX = 12
-EXPECTED_PASS_MIN = 2855
+EXPECTED_PASS_MIN = 2919
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -744,6 +745,11 @@ PURE_ALLOWLIST = [
     #   未注入だと実行時エラー12になり、「部門ごとの削除が self / pack: を
     #   巻き込まない」ことの唯一の自動検査が走らないまま全PASSに見える。
     "modTestsPure35",
+    # modTestsPure36(2026-08-16 R33H Fix波3): modTestsPure34(残45字)からの
+    #   分割先。ここへ注入しないと modTestRunner.RunAllPureTests が
+    #   modTestsPure36.RunAll36 を呼べず(Variable not defined)、F22/F27/F31/F30
+    #   の新テストが【実行されないまま「全部PASS」に見える】。
+    "modTestsPure36",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

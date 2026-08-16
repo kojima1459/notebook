@@ -1840,6 +1840,17 @@ CONTRACT: dict[str, dict] = {
             # ではない、という線を modTestsPure36 がゴールデンで固定する。
             "ReadTextFileAuto", "ReplacementRatio",
             "AutoNeedsRetry", "AutoTextPick",
+            # 2026-08-16(R33H F22): 組織集計スナップショット本文の1行を
+            # 組む/読む純関数の対。称号行("T")の解析は modShare.BoardReadRows
+            # の中で Dictionary への書き込みと同居していたため一度も撃たれて
+            # いなかった ―― LibreOffice には Scripting.Dictionary が無く
+            # (CreateObject で Err=323)実辞書を渡すテストが組めないからで、
+            # 「テストがある」ように見えて称号行の経路は完全な無検査だった。
+            # 読み分けだけを辞書に触らない形へ出し、書く側(BoardBodyText)と
+            # 読む側(BoardReadRows)の両方をこの1対へ通して往復を固定する。
+            # 置き場が modShare でないのは容量(残684字で入らない)。中身は
+            # 文字列処理だけなので AppendStepBuf / GsPageBounds と同じ扱い。
+            "BoardRowText", "BoardRowParse",
         ],
     },
     # ---- 7.8 テストモジュール ----
@@ -2033,6 +2044,14 @@ PURE_LOGIC_MODULES = {
     # なったための分割先。呼ぶのは modLog.FeatureErrMessage / FriendlyMessage
     # の純関数だけなので、31/32/33 と同じ条件を満たす。
     "modTestsPure34",
+    # modTestsPure36(2026-08-16 R33H Fix波3): modTestsPure34 が残45字に
+    # なったための分割先。呼ぶのは modUtilText.BoardRowText/BoardRowParse/
+    # AutoNeedsRetry/AutoTextPick、modShare.Board*(文字列だけ)、
+    # modShelfScan.HeaderCheckable、modP2PIo.IdKey/IdHash の純関数だけなので、
+    # 31/32/33/34 と同じ条件を満たす。
+    # ※ modTestsPure35 はこの一覧に載っていない(R33波5c の登録漏れ)。
+    #   直すかどうかは司令塔の裁定待ちのため、ここでは触らない。
+    "modTestsPure36",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [

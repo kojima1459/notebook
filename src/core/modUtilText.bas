@@ -760,3 +760,27 @@ Public Function IsDeclineNote(ByVal note As String) As Boolean
     If LenB(s) = 0 Then Exit Function
     IsDeclineNote = (Left$(s, Len(DECLINE_MEMO_HEAD)) = DECLINE_MEMO_HEAD)
 End Function
+
+' BoardRowText / BoardRowParse - 組織集計スナップショット本文の1行を組む/読む
+'   純関数の対(R33H F22)。称号行("T")の解析が modShare.BoardReadRows 内で
+'   辞書への書き込みと同居し一度も撃てなかったため(LO に Scripting.Dictionary
+'   が無く Err=323)、読み分けだけを辞書に触らない形へ出した。置き場は容量
+'   (modShare 残684字)と層(文字列処理)の両面からここ。詳しい理由と往復
+'   ゴールデンは modTestsPure36 の見出しを参照。
+' 書式 "<種別><TAB><キー><TAB><数値>"。"D"=部の今月合計 / "T"=称号。
+'   Parse は同書式で返しキーだけ正規化(両種別 Trim・称号は LCase も=読む側の
+'   modP2PIo.IdKey と揃える)。列不足・未知の種別は ""。数値ガード
+'   (modShare.BoardNum)は基盤層から呼び返さないため呼び出し側が通す。
+Public Function BoardRowText(ByVal kindTag As String, ByVal keyText As String, _
+                             ByVal numText As String) As String
+    BoardRowText = kindTag & vbTab & keyText & vbTab & numText
+End Function
+
+Public Function BoardRowParse(ByVal rowText As String) As String
+    Dim c() As String: c = Split(rowText, vbTab)
+    If UBound(c) < 2 Then Exit Function
+    If c(0) <> "T" And c(0) <> "D" Then Exit Function
+    Dim k As String: k = Trim$(c(1))
+    If c(0) = "T" Then k = LCase$(k)
+    BoardRowParse = BoardRowText(c(0), k, c(2))
+End Function

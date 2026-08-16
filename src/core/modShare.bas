@@ -342,15 +342,17 @@ Public Function BoardBodyText(ByVal headLine As String, ByRef deptAgg As Object,
     Dim s As String: s = headLine
     Dim n As Long
     Dim k As Variant
+    ' R33H F22: 行の組み立ても modUtilText.BoardRowText へ寄せた(読む側の
+    '   BoardRowParse と対。書式が2箇所に分かれると往復が壊れても気付けない)。
     If Not deptAgg Is Nothing Then
         For Each k In deptAgg.Keys
-            s = s & vbLf & "D" & vbTab & k & vbTab & CLng(deptAgg(k))
+            s = s & vbLf & modUtilText.BoardRowText("D", CStr(k), CStr(CLng(deptAgg(k))))
             n = n + 1
         Next k
     End If
     If Not titleAgg Is Nothing Then
         For Each k In titleAgg.Keys
-            s = s & vbLf & "T" & vbTab & k & vbTab & CLng(titleAgg(k))
+            s = s & vbLf & modUtilText.BoardRowText("T", CStr(k), CStr(CLng(titleAgg(k))))
             n = n + 1
         Next k
     End If
@@ -535,19 +537,18 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function BoardReadRows(ByVal fileText As String, ByVal myDept As String, _
                               ByRef titlesOut As Object) As Long
+    ' R33H F22: 行の読み分けは modUtilText.BoardRowParse(純関数)へ出した。
+    '   ここに残るのは「辞書へ入れる/自部署なら返す」の振り分けだけ。
     Dim rows() As String: rows = Split(Replace$(fileText, vbCrLf, vbLf), vbLf)
     Dim i As Long
     For i = 1 To UBound(rows)
-        Dim c() As String: c = Split(rows(i), vbTab)
-        If UBound(c) >= 2 Then
+        Dim p As String: p = modUtilText.BoardRowParse(rows(i))
+        If LenB(p) > 0 Then
+            Dim c() As String: c = Split(p, vbTab)
             If c(0) = "T" Then
-                If Not titlesOut Is Nothing Then titlesOut(LCase$(Trim$(c(1)))) = BoardNum(c(2))
-            ElseIf c(0) = "D" Then
-                If LenB(myDept) > 0 Then
-                    If StrComp(Trim$(c(1)), myDept, vbTextCompare) = 0 Then
-                        BoardReadRows = BoardNum(c(2))
-                    End If
-                End If
+                If Not titlesOut Is Nothing Then titlesOut(c(1)) = BoardNum(c(2))
+            ElseIf LenB(myDept) > 0 Then
+                If StrComp(c(1), myDept, vbTextCompare) = 0 Then BoardReadRows = BoardNum(c(2))
             End If
         End If
     Next i
