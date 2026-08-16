@@ -647,6 +647,15 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     ' 0 は modSkin.ResolveColor の「未知のキー」センチネル(Apply と同じ扱い)。
     If c = 0 Then GoTo CfExit
 
+    ' R33H F10: 【剥がしてから測る】。順序がこの1点で成否が決まる。
+    ' 旧実装は「測る→剥がす→張る→測る」で、UsedRange が伸びる端末では
+    ' 2回目以降の usedLast に【前回張ったぶんで膨らんだ値】が入っていた。
+    ' すると (a) after > usedLast が成立しなくなり検算が永久に無罪放免になり
+    ' (b) 開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進する。8ラウンド溶かした
+    ' のとまったく同じ無言失敗なので、基準値は必ず「自分の前回ぶんを剥がした
+    ' 後」の素の値で測る。
+    ClearOwnCF ws
+
     ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。
     Dim usedLast As Long
     Err.Clear
@@ -656,8 +665,6 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     Dim addr As String
     addr = CfRowsAddr(CfStartRow(boundRow, usedLast), CF_DEPTH_ROWS)
     If LenB(addr) = 0 Then GoTo CfExit
-
-    ClearOwnCF ws
 
     Err.Clear
     Dim fc As Object
