@@ -697,6 +697,13 @@ PURE_ALLOWLIST = [
     #   modLog は既にこの一覧に載っている)。未注入だと実行時エラー12になり、
     #   テストが実行されないまま全部PASSに見える。
     "modTestsPure34",
+    # modTestsPure35(2026-08-16 R33波5c W5-23): modTestsPure34(残1,676字)からの
+    #   分割先で、modTestRunner.RunAllPureTests から直接呼ばれる別枝。叩くのは
+    #   modShareRule.OriginCountsText / PurgeMenuText / PurgeMenuPick(いずれも
+    #   文字列と配列だけの純関数で、modShareRule は既にこの一覧に載っている)。
+    #   未注入だと実行時エラー12になり、「部門ごとの削除が self / pack: を
+    #   巻き込まない」ことの唯一の自動検査が走らないまま全PASSに見える。
+    "modTestsPure35",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

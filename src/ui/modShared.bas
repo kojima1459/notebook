@@ -565,3 +565,112 @@ Private Sub RemoveRowShapes(ByVal ws As Worksheet)
         On Error GoTo 0
     Next i
 End Sub
+
+' ============================================================================
+' OnPurgeChannel - 🗑部門の資料(R33 W5-23。ナレッジ画面のツールバー)
+' ----------------------------------------------------------------------------
+' なぜ必要か:
+'   部門の購読をやめても、その部門の資料は本棚に残り続けていた。消す関数
+'   (modChannel.PurgeChannelChunks)は前から在ったのに呼び出し元が0件で、
+'   実際の解除手段も config の手編集しか無かった(R33波2の差し戻し根拠)。
+'   「解除経路から消す」を結線しても死にコードに死にコードを繋ぐだけなので、
+'   利用者が自分で消せる入口を画面側に作る、というのが今回の裁定。
+'
+' 何を消して、何を消さないか(この線引きが本機能の全て):
+'   消す   … origin が "channel:<選んだ部門名>" と【完全一致】する行だけ
+'   消さない … 他部門(channel:<別名>) / 自作(self) / 手渡しパック(pack:…)
+'   一致判定の実体は modShelfStore.RemoveRowsByOrigin(前置き一致ではなく
+'   完全一致)で、前置き一括削除の RemoveRowsByOriginPrefix は使わない。
+'
+' 作法:
+'   ・押しただけでは消さない。件数を見せ、「取り消せません」を明示した
+'     Yes/No を挟む(既定はNo側=vbDefaultButton2)。
+'   ・削除後の再描画は最後に1回だけ(波5b W5-19 と同じ。1件ごとに描かない)。
+'   ・消した/消さなかったに関わらず usage_log へ1行残す(無言で消さない)。
+'   ・my_stats の取込済み版(ch:<部門名>)も空へ戻す。中身を消したのに
+'     「この部門の版Xを持っている」と記録が残ると、部門チャンネルを押しても
+'     「最新です」と判定されて二度と戻せなくなる(SubscribeAllAvailable は
+'     RemoteVersion<>LocalVersion のときだけ取り込む)。
+' ============================================================================
+Public Sub OnPurgeChannel()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+
+    Dim counts As String, pick As String, ans As String
+    Dim chName As String, shown As Long, removed As Long
+    Dim errNum As Long, errDesc As String
+    Dim redraw As Boolean
+    Dim title As String
+    On Error GoTo Failed
+    title = modAppDef.APP_NAME & " - 部門の資料を削除"
+
+    counts = modShelfStore.OriginCountsByPrefix("channel:")
+    If LenB(counts) = 0 Then
+        MsgBox "部門から取り込んだ資料は、いま本棚にありません。" & vbCrLf & vbCrLf & _
+               "(ここで消せるのは部門の公式ナレッジだけです。ご自分で登録・追加した" & vbCrLf & _
+               " 資料と、パックで受け取った資料は対象になりません)", _
+               vbInformation, title
+        GoTo Done
+    End If
+
+    ans = Trim$(InputBox( _
+        "本棚に入っている部門の資料です。削除したい部門の番号を入力してください。" & vbCrLf & vbCrLf & _
+        modShareRule.PurgeMenuText(counts) & vbCrLf & vbCrLf & _
+        "消えるのは選んだ部門の資料だけです。" & vbCrLf & _
+        "ご自分で登録・追加した資料、パックで受け取った資料、ほかの部門の資料は残ります。", _
+        title))
+    If LenB(ans) = 0 Then GoTo Done
+
+    pick = ""
+    If IsNumeric(ans) Then pick = modShareRule.PurgeMenuPick(counts, CLng(Val(ans)))
+    If LenB(pick) = 0 Then
+        MsgBox "一覧に無い番号です。もう一度、一覧の番号を入力してください。", _
+               vbInformation, title
+        GoTo Done
+    End If
+
+    Dim kv() As String: kv = Split(pick, vbTab)
+    chName = kv(0)
+    If UBound(kv) >= 1 Then shown = CLng(Val(kv(1)))
+
+    If MsgBox("「" & chName & "」の資料 " & shown & "件を本棚から削除します。" & vbCrLf & vbCrLf & _
+              "この操作は取り消せません。" & vbCrLf & _
+              "(もう一度必要になったときは、上のツールバーの「部門チャンネル」" & vbCrLf & _
+              " から読み込み直せます)", _
+              vbYesNo + vbExclamation + vbDefaultButton2, title) <> vbYes Then
+        modLog.LogUsage "channel_purge_cancel", "knowledge", _
+                        "channel=" & chName & " shown=" & shown
+        GoTo Done
+    End If
+
+    removed = modChannel.PurgeChannelChunks(chName)
+    modStats.SetStatText "ch:" & LCase$(chName), ""
+    modLog.LogUsage "channel_purge_ui", "knowledge", _
+                    "channel=" & chName & " shown=" & shown & " removed=" & removed
+    redraw = True
+    MsgBox "「" & chName & "」の資料を " & removed & "件 削除しました。" & vbCrLf & vbCrLf & _
+           "本棚の使用量: " & modChannel.ChunkUsagePercent() & "%", _
+           vbInformation, title
+
+Done:
+    On Error GoTo 0
+    If errNum <> 0 Then
+        On Error Resume Next
+        modLog.LogError "E0801", "modShared.OnPurgeChannel", errDesc, errNum
+        modSkin.ShowToast "部門の資料の削除に失敗しました。もう一度お試しください。", "error"
+        On Error GoTo 0
+    End If
+    modUiLock.Leave
+    ' 再描画はロックを離してから1回だけ(RenderShelf も Enter を取るため)。
+    If redraw Then
+        On Error Resume Next
+        modKnowledge.RefreshCurrent
+        On Error GoTo 0
+    End If
+    Exit Sub
+
+Failed:
+    errNum = Err.Number
+    errDesc = Err.Description
+    Resume Done
+End Sub

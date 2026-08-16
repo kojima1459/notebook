@@ -220,4 +220,17 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-16(R33波5c): modTestsPure34 が残1,676字になったための分割先。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは「部門ごとの削除」が消してよい
+    ' ものだけを数えること(W5-23。self / pack: を巻き込まない線引き)。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure35.RunAll35
+    If Err.Number <> 0 Then
+        Check "modTestsPure35.RunAll35", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

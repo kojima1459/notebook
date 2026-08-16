@@ -1121,6 +1121,14 @@
       "note": "R33波3(取込・データ整合)の純ロジック回帰・その2。modTestsPure33が残997字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31/32/33と同型)。固定するもの: W3-9 modLog.FeatureErrMessage — opt機能が返す \"#ERR:…\" を利用者向けの1文へ変える判定の単一情報源。(a)\"#ERR:FEATURE_UNAVAILABLE\"/理由が空のときだけ従来の固定文言(「管理者が有効化すると使えます」)を出すこと (b)mockモードの案内など理由付きの#ERRは理由をそのまま届け、固定文言を出さないこと (c)\"#ERR:E0204:…\"のようにコード部があるときはmodLog.FriendlyMessage(コード)の本文へ委譲し、コードを添えること (d)\"ABCDE:\"や\"E02:\"のようにコードに見えるだけの文字列をコード扱いせず、FriendlyMessageのCase Else(「予期しない問題」)へ化けさせないこと。この群は両方向で意味を持つ(「常に固定文言」でも「常に中身そのまま」でも落ちる)。modUIMainは残129字で判定を1文字も置けないため、実体はmodLog側に置き両UIからは1行呼び出しにしている。"
     },
     {
+      "name": "modTestsPure35",
+      "path": "src/test/modTestsPure35.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33波5c(部門ごとの削除・W5-23)の純ロジック回帰。modTestsPure34が残1,676字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31/32/33/34と同型)。固定するもの: ナレッジ画面の「🗑 部門の資料」が消してよいものだけを数える線引き。(a)modShareRule.OriginCountsText — origin列の並びから前置きが完全一致する行だけを名前ごとに数え、self(自作)/pack:(手渡しパック)/空/前置きだけの行を1件も数えないこと。前方一致を部分一致へ緩めるとpack:商品部を拾って落ちる。(b)modShareRule.PurgeMenuPick — 番号(1始まり)と部門名の対応が0/1/最終/最終+1の境界でずれないこと。ここがずれると「商品部を消すつもりで人事部を消す」という取り消し不能な事故になる。(c)modShareRule.PurgeMenuText — 選択肢の見出しが番号付きで並び、MsgBox/InputBoxの1,024字制限を超える部門数のときは残数を明示すること(隠れた番号も直接入力なら選べる)。実際の行削除(modShelfStore.RemoveRowsByOrigin=完全一致)はWorksheetを触るためLOでは検証できず、恒真アサートで代替しない。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",

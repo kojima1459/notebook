@@ -301,7 +301,19 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCE4) & " 正典を発行", "modPublishUI.OnPublish", "primary", 104, _
                 "この本棚を部門の正式な資料として発行します"
-        ' 運営向けの利用状況。発行者=運営なので同じ条件で出す。
+    End If
+
+    ' R33 W5-25: 📊利用状況は「発行者=運営」ではなく組織管理者(config
+    ' admin_users に自分のADユーザー名が載っている端末)にだけ出す。
+    ' この画面は匿名を約束して集めた投書の全文を表示するので、発行の
+    ' 合言葉(publish_key)とは別の権限で守る。判定は modDash の管理者
+    ' セクションと同じ modP2P.IsAdmin。admin_users が空の既定構成では
+    ' 誰にも出ない(=誰も読めない)のが正しい状態。
+    Dim isAdm As Boolean
+    On Error Resume Next
+    isAdm = modP2P.IsAdmin()
+    On Error GoTo 0
+    If isAdm Then
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCCA) & " 利用状況", "modHub.OnOwnerReport", "plain", 88, _
                 "誰がどれだけ使っているかを確認します"
@@ -333,6 +345,14 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     ' 最も右/最終段に来る)へ分離する。kind="danger"で赤系配色にし、
     ' 「消す操作だけ色が違う」ことを見た目でも切り離す。一覧表専用は不変
     ' (isTableのときだけ足す)。
+    ' R33 W5-23: 部門ごとの一括削除。部門の購読をやめても資料が本棚に残り
+    ' 続ける問題に対する、利用者側の出口(実体は modShared.OnPurgeChannel)。
+    ' 一覧表・ギャラリーの両モードで出す(🗑削除が一覧表専用なのは「アクティブ
+    ' セルの行」を対象にするからで、こちらは行選択に依存しない)。
+    AddTool caps, acts, kinds, tips, widths, n, _
+            ChrW(&HD83D) & ChrW(&HDDD1) & " 部門の資料", "modShared.OnPurgeChannel", "danger", 96, _
+            "選んだ部門から取り込んだ資料だけを、まとめて本棚から削除します"
+
     If isTable Then
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDDD1) & " 削除", "modKnowledge.OnDelete", "danger", 58, _

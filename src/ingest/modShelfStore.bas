@@ -412,6 +412,35 @@ Public Function CountRowsByOrigin(ByVal originTag As String) As Long
     On Error GoTo 0
 End Function
 
+' R33 W5-23: origin列が "<prefix>" で始まる行を名前ごとに数える。
+' 戻り値は "名前<TAB>件数|…"(出現順)。数え方は modShareRule.OriginCountsText
+' (純関数・テストで固定)が唯一の情報源で、ここは列を読むだけに徹する。
+Public Function OriginCountsByPrefix(ByVal prefixTag As String) As String
+    On Error Resume Next
+    If LenB(Trim$(prefixTag)) = 0 Then Exit Function
+    Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
+    If wsK Is Nothing Then Exit Function
+    Dim lastK As Long: lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim arr As Variant: arr = wsK.Range(wsK.Cells(2, COL_ORIGIN), wsK.Cells(lastK, COL_ORIGIN)).Value
+    If Not IsArray(arr) Then
+        OriginCountsByPrefix = modShareRule.OriginCountsText(Trim$(CStr(arr)), prefixTag)
+        Exit Function
+    End If
+
+    ' ReDim は実件数ちょうどで1回だけ行い、全要素を必ず埋める(条件付きの
+    ' ReDim Preserve は LO で Join が空を返す。R33波3実測)。
+    Dim n As Long: n = UBound(arr, 1) - LBound(arr, 1) + 1
+    Dim buf() As String: ReDim buf(0 To n - 1)
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        buf(i - LBound(arr, 1)) = Trim$(CStr(arr(i, 1)))
+    Next i
+    OriginCountsByPrefix = modShareRule.OriginCountsText(Join(buf, vbLf), prefixTag)
+    On Error GoTo 0
+End Function
+
 ' origin列が "<prefix>" で始まる行を全部消す(移行用。戻り値=消した件数)。
 ' 例: PrefixTag="pack:" で、旧仕様のチャンネル残骸をまとめて掃除する。
 Public Function RemoveRowsByOriginPrefix(ByVal prefixTag As String) As Long

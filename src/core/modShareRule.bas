@@ -458,3 +458,106 @@ Public Function PublishLockAction(ByVal hasLock As Boolean, ByVal ageMinutes As 
     End If
     PublishLockAction = "wait"
 End Function
+
+' ----------------------------------------------------------------------------
+' R33 W5-23: 部門ごとの削除(ナレッジ画面)で使う純ロジック3本。
+'   本棚の origin 列は "channel:<部門名>" / "self" / "pack:<名前>" が混在する。
+'   削除の対象は【前置きが完全一致する origin だけ】であり、自作(self)と
+'   手渡しパック(pack:)は絶対に巻き込まない。その線引きをここ1箇所に閉じ、
+'   シートを触らない形にしてテストで固定する(UI側は文言と確認だけを持つ)。
+' ----------------------------------------------------------------------------
+
+' OriginCountsText - origin 値の並び(改行区切り)から、指定の前置きを持つ
+'   ものだけを部門名ごとに数える。戻り値は "部門名<TAB>件数|部門名<TAB>件数"
+'   の出現順。前置きに一致しない行(self / pack: / 空)は1件も数えない。
+Public Function OriginCountsText(ByVal joinedOrigins As String, _
+                                 ByVal prefixTag As String) As String
+    If LenB(joinedOrigins) = 0 Then Exit Function
+    If LenB(prefixTag) = 0 Then Exit Function
+
+    Dim lines() As String: lines = Split(joinedOrigins, vbLf)
+    Dim cap As Long: cap = UBound(lines) - LBound(lines) + 1
+    Dim names() As String, cnts() As Long
+    ReDim names(0 To cap)
+    ReDim cnts(0 To cap)
+    Dim n As Long: n = 0
+    Dim pl As Long: pl = Len(prefixTag)
+
+    Dim i As Long, j As Long, hit As Long
+    For i = LBound(lines) To UBound(lines)
+        Dim o As String: o = Trim$(lines(i))
+        ' Len(o) > pl = 前置きの後ろに部門名が1文字以上あること。
+        ' "channel:" だけの行は部門名が無いので数えない。
+        If Len(o) > pl Then
+            If StrComp(Left$(o, pl), prefixTag, vbTextCompare) = 0 Then
+                Dim nm As String: nm = Mid$(o, pl + 1)
+                hit = -1
+                For j = 0 To n - 1
+                    If StrComp(names(j), nm, vbTextCompare) = 0 Then
+                        hit = j
+                        Exit For
+                    End If
+                Next j
+                If hit < 0 Then
+                    names(n) = nm
+                    cnts(n) = 1
+                    n = n + 1
+                Else
+                    cnts(hit) = cnts(hit) + 1
+                End If
+            End If
+        End If
+    Next i
+
+    If n < 1 Then Exit Function
+    Dim sb As String
+    For j = 0 To n - 1
+        If LenB(sb) > 0 Then sb = sb & "|"
+        sb = sb & names(j) & vbTab & cnts(j)
+    Next j
+    OriginCountsText = sb
+End Function
+
+' PurgeMenuText - OriginCountsText の戻り値を、番号付きの選択肢に整える。
+'   利用者が番号を打つだけで選べるようにするための表示専用の文字列。
+'   maxItems: 一度に並べる上限。InputBox/MsgBox のプロンプトは 1,024 字までで、
+'   部門は最大40(modChannel.MAX_CHANNELS)まで有りうるため、全部並べると
+'   末尾が無言で切れる。上限を超えたぶんは件数だけ添えて「番号を直接
+'   入力すれば選べる」ことを明示する(選べなくはしない)。
+Public Function PurgeMenuText(ByVal countsText As String, _
+                              Optional ByVal maxItems As Long = 20) As String
+    If LenB(countsText) = 0 Then Exit Function
+    Dim items() As String: items = Split(countsText, "|")
+    Dim total As Long: total = UBound(items) - LBound(items) + 1
+    Dim lim As Long: lim = maxItems
+    If lim < 1 Then lim = total
+    If lim > total Then lim = total
+
+    Dim sb As String
+    Dim i As Long
+    For i = LBound(items) To LBound(items) + lim - 1
+        Dim kv() As String: kv = Split(items(i), vbTab)
+        If UBound(kv) >= 1 Then
+            If LenB(sb) > 0 Then sb = sb & vbLf
+            sb = sb & "  " & (i - LBound(items) + 1) & ") " & kv(0) & _
+                 "  (" & kv(1) & "件)"
+        End If
+    Next i
+    If total > lim Then
+        sb = sb & vbLf & "  …ほか " & (total - lim) & _
+             " 部門(番号を直接入力すると選べます)"
+    End If
+    PurgeMenuText = sb
+End Function
+
+' PurgeMenuPick - 番号(1始まり)から "部門名<TAB>件数" を取り出す。
+'   範囲外・数字でない入力は空文字を返す(呼び出し側は何もしない)。
+Public Function PurgeMenuPick(ByVal countsText As String, _
+                              ByVal choice As Long) As String
+    If LenB(countsText) = 0 Then Exit Function
+    If choice < 1 Then Exit Function
+    Dim items() As String: items = Split(countsText, "|")
+    Dim n As Long: n = UBound(items) - LBound(items) + 1
+    If choice > n Then Exit Function
+    PurgeMenuPick = items(LBound(items) + choice - 1)
+End Function
