@@ -199,6 +199,15 @@ PURE_ALLOWLIST = [
     #     の末尾が modTestsPure5.RunAll5 を呼ぶため、未注入だと実行時エラー12に
     #     なり分割先のテストが「実行されないまま」になる(modTestsPure4と同型)。
     "modShareRule", "modTestsPure5",
+    # modShare(2026-08-16 R33 W6-1): 組織集計を「発行者端末だけが summary.txt を
+    #   1本書き、他端末はそれだけ読む」集約スナップショット方式へ切り替えた際、
+    #   共有フォルダ上のファイル形式(ヘッダ/部別行/称号行の組み立てと解析、
+    #   鮮度判定、打ち切りの表示)の純関数を modShare へ集約した。modBoard 側は
+    #   残り173字で置けないため、ここが唯一の情報源になっている。未注入だと
+    #   modTestsPure34.TestBoardSnap34 が実行時エラー12で丸ごと落ちる。
+    #   コード側依存は modConfig / modLog / modShareRule / modUtil / modUtilText の
+    #   5本のみで、いずれも既にこの一覧へ載っている(副作用なし)。
+    "modShare",
     # modTestsPure6(2026-07-31 R8b): modTestsPure5(30,000字上限まで残り僅か)の
     #   分割先。敵対的レビューで見つかった「起きたら取り返しがつかないが実機では
     #   報告として上がりにくい」穴(B1 失効判定の戻り値/B7b 時計ズレ/B10 UNC共有
