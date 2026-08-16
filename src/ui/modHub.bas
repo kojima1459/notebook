@@ -283,29 +283,11 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         ' Excelの図形はマウスを乗せても代替テキストがツールチップとして
         ' 出ない。アイコンだけでは何のボタンか分からないという実機報告に
         ' 対し、真下に小さな文字ラベルを必ず添える(幅はスロット幅=useWに揃える)。
-        On Error Resume Next
-        Dim cap As Shape
-        ' 2026-08-01(R12-7-3・a11y監査Med): 6pt(実表示≒8px)は高齢の営業所員に
-        ' は判読不能。8.5ptへ拡大し、収容できる高さも10→12へ広げる
-        ' (Zoom=100固定で拡大による自衛ができないため)。
-        Set cap = ws.Shapes.AddShape(1, xs(i), rowTop + HDR_H - 12, useW(i), 12)
-        If Not cap Is Nothing Then
-            cap.Name = "nx_hub_icl" & i
-            cap.Line.Visible = 0
-            cap.Fill.Visible = 0
-            With cap.TextFrame2
-                .WordWrap = 0
-                .TextRange.Text = CStr(labels(i))
-                .TextRange.Font.Size = 8.5
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(190, 210, 235)
-                .TextRange.ParagraphFormat.Alignment = 2
-                .VerticalAnchor = 3
-                .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
-            End With
-        End If
-        Set cap = Nothing
-        Err.Clear
-        On Error GoTo 0
+        ' R33 W5-16: ラベルにもアイコンと同じ行き先を与え、帯全体を当たり判定に
+        ' する(従来は押しても無反応で、白い選択ハンドルだけが残っていた)。
+        ' 実体は modUIMainShape.HubIconLabel(ここは残206字。理由と幾何は向こう)。
+        modUIMainShape.HubIconLabel ws, "nx_hub_icl" & i, xs(i), _
+            rowTop + HDR_H - 12, useW(i), CStr(labels(i)), CStr(acts(i))
     Next i
 End Sub
 

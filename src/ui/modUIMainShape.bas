@@ -134,6 +134,45 @@ Retry:
     Set SafeRoundedRect = ws.Shapes.AddShape(5, L, T, W, H)
 End Function
 
+' HubIconLabel - Hub(SH_HOME)ヘッダーのアイコン下ラベルを1枚置く。R33 W5-16。
+'   実体をここへ置く理由: modHub は残206字で分岐を書き足せない(R33容量裁定)。
+'   幾何: HDR_H=48 のとき、アイコン(26pt円)は y∈[rowTop+11, rowTop+37]、この
+'   ラベルは y∈[rowTop+36, rowTop+48]。重なりは1ptだけで、ラベルは実質
+'   アイコンの【外】にある ―― つまり押してもアイコンには当たらない。
+'   従来はここに OnAction が無く、しかも塗り無し(Fill.Visible=0)だったため、
+'     ・文字グリフの上を押す → ラベルShapeが選択されるだけで何も起きない
+'     ・文字の外(帯の余白)を押す → 下のセルへ透過して、やはり何も起きない
+'   の2通りしかなかった。SH_HOME は DrawingObjects 保護が無い(EnsureHubLayout
+'   が Unprotect 後に Protect し直さない)ので、白い選択ハンドルだけが残る。
+'   アイコンと同じ行き先を与え、帯全体を当たり判定にする
+'   (Fill.Visible=-1 + Transparency=1 は modHubStat の nx_hub_footer と同型)。
+Public Sub HubIconLabel(ByVal ws As Worksheet, ByVal shapeName As String, _
+                        ByVal x As Double, ByVal y As Double, ByVal w As Double, _
+                        ByVal labelText As String, ByVal action As String)
+    On Error Resume Next
+    Dim cap As Shape
+    Set cap = ws.Shapes.AddShape(1, x, y, w, 12)
+    If Not cap Is Nothing Then
+        cap.Name = shapeName
+        cap.Line.Visible = 0
+        cap.Fill.Visible = -1
+        cap.Fill.Transparency = 1
+        With cap.TextFrame2
+            .WordWrap = 0
+            .TextRange.Text = labelText
+            .TextRange.Font.Size = 8.5      ' R12-7-3(a11y): 6ptは判読不能
+            .TextRange.Font.Fill.ForeColor.RGB = RGB(190, 210, 235)
+            .TextRange.ParagraphFormat.Alignment = 2
+            .VerticalAnchor = 3
+            .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
+        End With
+        If LenB(action) > 0 Then cap.OnAction = action
+    End If
+    Set cap = Nothing
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
 Public Sub RemoveManagedShapes(ByVal ws As Worksheet)
     Dim names() As String
     ReDim names(0 To ws.Shapes.Count)
