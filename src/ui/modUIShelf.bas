@@ -233,7 +233,7 @@ Public Sub EnsureLayout()
 
     On Error Resume Next
     If Not prevActive Is Nothing Then prevActive.Activate   ' 元のアクティブシートへ復帰
-    On Error GoTo 0
+    On Error GoTo Fail
     Application.ScreenUpdating = True
 
     uiStep = "資料一覧の再描画(RenderShelf)"
@@ -281,12 +281,10 @@ Public Sub RenderShelf()
     isTable = modKnowledge.IsTableMode()
     On Error GoTo 0
     If Not isTable Then
-        ' 2026-07-30(レビュー1-B): 空振り(no-op)だと、ギャラリー/解決事例を
-        ' 見ている最中に取り込んだ資料が【画面のどこにも出ない】。利用者から
-        ' 見れば「押したのに何も起きない」で、取り込めたかどうかも分からない。
-        ' 表示中のモードを描き直す方へ委譲する。
-        ' 再帰しない: RefreshCurrent の table 分岐はここを呼ぶが、その分岐へ
-        ' 入るのは IsTableMode()=True のときだけで、そのときこの委譲は起きない。
+        ' 2026-07-30(レビュー1-B): 空振り(no-op)だと、ギャラリー/解決事例を見て
+        ' いる最中に取り込んだ資料が【画面のどこにも出ない】ので委譲する。再帰は
+        ' しない(RefreshCurrentのtable分岐へ入るのはIsTableMode()=Trueのときだけ)。
+        ' 委譲が画面遷移に化ける件と前面判定の理由はmodShared側の注記を参照。
         modShared.RedrawCurrentIfFront   ' R33 W5-5(実体はmodShared)
         Exit Sub
     End If
@@ -319,6 +317,7 @@ Public Sub RenderShelf()
 
     If n = 0 Then
         uiStep = "空の本棚の案内表示"
+        ApplyShelfExtent ws, FIRST_CARD_ROW, True   ' R33 W5-6(描く前)
         With ws.Range(ws.Cells(FIRST_CARD_ROW, COL_NAME), ws.Cells(FIRST_CARD_ROW, 10))
             .Merge
             .Value = "まだ資料がありません。上のツールバーの「" & ChrW(&HD83D) & ChrW(&HDCC1) & " 追加」から始めましょう。"
@@ -327,7 +326,7 @@ Public Sub RenderShelf()
         End With
         ws.Rows(FIRST_CARD_ROW).RowHeight = 18
         modChrome.ApplyShelfTableTextColor ws, 7, HEADER_ROW, FIRST_CARD_ROW   ' R28H F1
-        ApplyShelfExtent ws, FIRST_CARD_ROW, True
+        ApplyShelfExtent ws, FIRST_CARD_ROW, False   ' 行高確定後に境界を再確定
         mTableLastRow = FIRST_CARD_ROW   ' R20H FA-4: table自身の記憶も更新
         Application.ScreenUpdating = True
         modUiLock.AlertsOn
