@@ -329,7 +329,7 @@ flowchart TD
 |---|---|
 | `self` | 自分でファイルから取り込んだ資料。**チャンネル切替でも消えない**。正典の発行対象もこれだけ |
 | `pack:<作者名>` | **手渡しパック**（`ImportPackDialog`）由来 |
-| `channel:<部門名>` | **部門チャンネル**由来。切替・更新時に `PurgeChannelChunks` で一括削除される |
+| `channel:<部門名>` | **部門チャンネル**由来。版の更新時は `SyncChannel` → `ImportPackFile(purgeTags)` が旧版だけを入れ替える。利用者が明示的に消したいときはナレッジ画面の「🗑 部門の資料」（R33 W5-23）から `PurgeChannelChunks` で部門ごと一括削除できる |
 
 この 1 列だけで「部門の正典は入れ替え、個人の資料は温存する」を実現している。チャンネルの現在版数は my_stats に `ch:<部門名小文字>` として保持。
 
@@ -517,7 +517,7 @@ bs::<fnv1a64hex>::p<ページ番号>::c<ページ内連番>
 |---|---|---|
 | chunk_id | `bs::hash::pN::cN` | 上記 |
 | source | ファイル名 | 拡張子込み。**検索スコアに効く**（§13.2-A） |
-| origin | `self` / `pack:<作者>` | チャンネル切替時の purge 対象を決める |
+| origin | `self` / `pack:<作者>` / `channel:<部門名>` | 削除・入れ替えの対象を決める。`self`=自分で登録/追加、`pack:`=手渡しパック、`channel:`=部門チャンネルから受け取った正典 |
 | page | ページ番号 | 出典表示 `p.N` に使う |
 | summary | **空** | `enrich_mode=off`（既定）のため埋まらない |
 | keywords | **空** | 同上 |
@@ -570,7 +570,8 @@ bs::<fnv1a64hex>::p<ページ番号>::c<ページ内連番>
 | 類似度 | 全ベクトルが L2 正規化済みのため**内積 = コサイン類似度** |
 | 上位K件の選出 | 全件ソートせず、最小値を追跡する**ストリーミング top-k** → 最後に選択ソート（K が6〜12と小さいため） |
 | 削除 | 資料単位（`RemoveVectorsByIds`）。配列読込 → フィルタ → 書き戻しで**行を物理削除**する。断片化は残らない |
-| チャンネル切替時 | `PurgeChannelChunks` が `origin="pack:<部門名>"` の行を my_knowledge / my_vectors から削除 |
+| 部門チャンネルの版の入れ替え | `SyncChannel` が自分のタグを `purgeTags` として `modPack.ImportPackFile` へ渡し、`modShelfStore.RemoveRowsByOrigin` が旧版の行を削除してから新版を入れる（`PurgeChannelChunks` は通らない） |
+| 部門ごとの削除（R33 W5-23・ナレッジ画面の「🗑 部門の資料」） | `modChannel.PurgeChannelChunks` が `origin="channel:<部門名>"` に**完全一致**する行だけを my_knowledge / my_vectors から削除。`self`（自作）・`pack:<作者>`（手渡しパック）・他部門は対象外 |
 | 容量上限 | `chunk_limit` / `shelf_max_chunks`（既定 20,000 チャンク）。超過時は `E0501` |
 | 次元の整合性 | 検索時に query との次元不一致を検出したら **`E0702` を1回だけ記録してその行をスキップ**（`embed_dim` 変更後の残骸が無言で0点になる不具合への対処） |
 | 再ベクトル化 | `MarkAllForReembed` が全行の `embedded` を 0 に戻す（200行バッチ）。`embed_dim` / `vector_precision` 変更後の移行導線 |
@@ -1001,11 +1002,11 @@ flowchart TB
 
 **受信側の保存先（`modChannel.SyncChannel`）**
 
-共有フォルダの `pack.xlsx` を直接開かず、`%TEMP%\nexus_ch_<部門名>_<hhnnss>.xlsx` へコピーしてから取り込む（共有ファイルをロックしないため）。取り込まれた中身は自端末の `my_knowledge` / `my_vectors` に `origin="pack:<部門名>"` として格納される。共有フォルダ上の `pack.xlsx` は残る。
+共有フォルダの `pack.xlsx` を直接開かず、`%TEMP%\nexus_ch_<部門名>_<hhnnss>.xlsx` へコピーしてから取り込む（共有ファイルをロックしないため）。取り込まれた中身は自端末の `my_knowledge` / `my_vectors` に **`origin="channel:<部門名>"`**（`modChannel.ChannelOriginTag`）として格納される。共有フォルダ上の `pack.xlsx` は残る。
 
 **その他の要点**
 - **承認フローを入れない**代わりに、`Rollback` で誰でも即座に巻き戻せる。巻き戻しても `version.txt` は**新しい番号**を振る（古い番号に戻すと購読側が更新を検知できないため）。
-- アクティブなチャンネルは常に **1つだけ**（`active_channel`）。切替時に前チャンネルのチャンクを purge し、`self` 由来は残す。
+- **複数の部門を同時に購読できる**（`SubscribeAllAvailable`）。`active_channel` は「1つでも入っている」ことを示す目印として先頭の部門名を保持するだけで、単一常駐の意味は持たない。版の更新では該当部門の旧版だけが入れ替わり、`self` 由来と他部門は残る。
 - チャンク上限 `chunk_limit=20000`。使用率 80% 超で警告し、購読解除を促す。
 
 ### 6.4 P2P（共有フォルダによる端末間通信）
@@ -1516,7 +1517,7 @@ config `admin_users`（カンマ区切りの AD ユーザー名）に自分が�
 | 5 | **個人情報・機密情報を含む資料を本棚に入れない／パックに出さない** | PII 検知は簡易ヒューリスティック（メール形式・10桁以上の数字列）で、**氏名・住所は検知できない**（`modPii`） |
 | 6 | 自分の資料は誰にも共有されない。ただし🟢解決を押すと**質問と回答が部内に共有される** | `modInsight.EmitVerifiedQA`。押す前に内容を確認するよう案内する |
 | 7 | 質問文は共有フォルダへ**先頭40字まで**送信される（統計目的） | `modTelemetry`。ローカルの usage_log には全文が残る |
-| 8 | 部門チャンネルを切り替えると前の部門の内容は本棚から外れる。**自分で入れた資料は消えない** | `PurgeChannelChunks` は `pack:<部門名>` のみ削除 |
+| 8 | 部門の資料はナレッジ画面の「🗑 部門の資料」で部門ごとに削除できる。**自分で入れた資料と手渡しパックは消えない** | `PurgeChannelChunks` → `RemoveRowsByOrigin` が `origin="channel:<部門名>"` に完全一致する行だけを削除（`self` / `pack:` は対象外） |
 | 9 | 画面がずれたら Hub の「🔄再描画」を押す | Shape レイアウトは冪等に再構築される |
 | 10 | 処理中はボタンを連打しない（砂時計が出ている間は受け付けない） | `modUiLock` が弾くが、待ち時間の理解を促す |
 
