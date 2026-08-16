@@ -264,9 +264,17 @@ End Sub
 '   別名を渡せる口だけを開ける。docBase も SanitizeName(60字上限・
 '   ファイル名禁止文字を"_"へ)を必ず通す。
 ' ----------------------------------------------------------------------------
+' 2026-08-16(R33 W5-19): 第5引数 silent を追加(省略時は従来どおり False で
+'   1文字も挙動が変わらない)。一括取込の呼び出し元が「1件ごとの再描画」を
+'   止められるようにするためのもの。modShelf.IngestFile は silent=False だと
+'   1件ごとに modUIShelf.RenderShelf を呼ぶので、共有モードで回すと
+'   Shape全削除→Cells.Clear→クロム再生成→ScreenUpdating復帰までが件数ぶん
+'   繰り返され、画面が激しく明滅する。同型の一括経路(modShelfSync/
+'   modShelfBatch)は既に silent:=True + 末尾で1回描く形へ手当済みだった。
 Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText As String, _
                                       ByVal tagsText As String, _
-                                      Optional ByVal docBase As String = "") As Boolean
+                                      Optional ByVal docBase As String = "", _
+                                      Optional ByVal silent As Boolean = False) As Boolean
     On Error GoTo Fail
 
     Dim tempDir As String: tempDir = Environ$("TEMP")
@@ -297,7 +305,7 @@ Public Function RegisterKnowledgeText(ByVal titleText As String, ByVal bodyText 
     End If
 
     Dim resultStatus As String
-    resultStatus = modShelf.IngestFile(filePath, "self")
+    resultStatus = modShelf.IngestFile(filePath, "self", silent)
 
     ' 一時ファイルは掃除(取込済みなので不要。失敗しても無視)
     ' R26H F6(m-1): Kill はパスをANSI(CP932)へ落として渡すため、変換できない

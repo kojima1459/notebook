@@ -428,13 +428,19 @@ Public Sub OnImportSelected()
                 etaPart = modUtil.EtaText(total - doneN, elapsedMs / doneN)
             End If
             modUIMain.ShowProgress modUtil.ProgressText(doneN + 1, total, etaPart) & " Q&Aを取り込み中…"
+            ' R33 W5-19: silent:=True。ここは共有モードの画面を表示したまま
+            ' 回すループなので、1件ごとの自動再描画を許すと【この画面自身】が
+            ' Shape全削除→Cells.Clear→クロム再生成→ScreenUpdating復帰まで
+            ' 丸ごと作り直され、件数ぶん画面が明滅して行が抜けたり増えたりする。
+            ' ループを抜けた後の Show(:454)が1回だけ描き直す。
+            ' modShelfSync/modShelfBatch が既に採っている形へ揃える。
             If modVault.RegisterKnowledgeText( _
                    "解決済みQ&A: " & modUtil.SafeLeft(modInsight.RowField(rr, 6), 40), _
                    modInsight.QABodyText(modInsight.RowField(rr, 4), _
                                          modInsight.RowField(rr, 6), _
                                          modInsight.RowField(rr, 7), _
                                          modInsight.RowField(rr, 8)), _
-                   "解決済みQ&A," & modInsight.RowField(rr, 4)) Then
+                   "解決済みQ&A," & modInsight.RowField(rr, 4), "", True) Then
                 modInsight.MarkQAConsumed rr
                 okN = okN + 1
             End If
