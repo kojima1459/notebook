@@ -442,7 +442,7 @@ Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, 
     ' R33波5a W5-1: 境界が確定した【直後】に、条件付き書式で境界より下の地を
     ' テーマ色にする(背景画像=modBackdrop.Apply との二重防御。どちらかが
     ' 不発でも他方が効く)。ここに置く理由と検算はmodBackdrop.ApplyCFの注記。
-    modBackdrop.ApplyCF ws, boundRow
+    modBackdrop.ApplyCF ws, boundRow, scrollAddr
     Err.Clear
     On Error GoTo 0
 End Sub

@@ -64,6 +64,9 @@ Private Const CF_MARK As String = "MBSBG"
 Private Const CF_TYPE_EXPRESSION As Long = 2
 Public Const CF_DEPTH_ROWS As Long = 400      ' 張る深さ(行)。根拠はW5-1節
 Public Const CF_MAX_ROW As Long = 1048576     ' Excel 2007以降のシート最終行
+' 巻き戻しの Rows.Delete が何があっても消さない最上部(R33H F11)。値の由来は
+' modViewport.MIN_KEEP_ROW(どの画面もヘッダー/ツールバーが行1〜12に載る)。
+Private Const CF_MIN_ROW As Long = 12
 
 ' ----------------------------------------------------------------------------
 ' RestoreShelfHeaderBg - 一覧表のカード見出し行だけ、明示塗りを戻す。
@@ -615,9 +618,13 @@ Public Function CfRowsAddr(ByVal startRow As Long, ByVal depth As Long) As Strin
 End Function
 
 ' ApplyCF - 境界より下の地を条件付き書式1本でテーマ色にする(冪等)。
-'   ws=対象シート(TargetSheet 以外は何もしない) / boundRow=解放の下端行。
+'   ws=対象シート(TargetSheet 以外は何もしない) / boundRow=解放の下端行 /
+'   scrollAddr=呼び出し元の ScrollArea アドレス(R33H F11。巻き戻しの
+'   Rows.Delete が ScrollArea を落とすので掛け直す材料。空なら掛け直さない。
+'   渡すのは modViewport.ReleaseSheetRowsBelow 1箇所だけ)。
 '   冪等化は Delete→Add の張り替え。消すのは自分が張った1本だけ(ClearOwnCF)。
-Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
+Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
+                   Optional ByVal scrollAddr As String = "")
     If ws Is Nothing Then Exit Sub
     On Error Resume Next
     ' Apply と同じ理由(F7 m-2)で、上流の残留エラーを自分のものと誤読しない。
@@ -628,13 +635,10 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     If Err.Number <> 0 Then GoTo CfExit
     If Not TargetSheet(nm) Then GoTo CfExit
 
-    ' R33H F9: mCfOff で【即 Exit しない】。この関数は「張る」担当であると
-    ' 同時に【剥がす唯一の経路】でもある。先頭で抜けると、検算に落ちた
-    ' 端末の他のシート(検算はシート1枚で落ちるがフラグはモジュール共有)に
-    ' 張り済みのルールが二度と剥がされず、テーマを切り替えても旧テーマ色の
-    ' まま固定される ―― W5-2 が背景画像経路で潰した「明るいテーマなのに
-    ' 画面の下半分だけ濃紺」を、条件付き書式経路で作り直すことになる。
-    ' Add はしない/ClearOwnCF は必ず通す、に分ける。
+    ' R33H F9: mCfOff でも即 Exit しない。ここは【剥がす唯一の経路】でもあり、
+    ' 先頭で抜けると張り済みのルールが二度と剥がされず、テーマ切替後も
+    ' 「明るいテーマなのに下半分だけ濃紺」で固定される(W5-2 と同型)。
+    ' Add はしない / ClearOwnCF は必ず通す、に分ける。
     If mCfOff Then
         ClearOwnCF ws
         GoTo CfExit
@@ -647,13 +651,10 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
     ' 0 は modSkin.ResolveColor の「未知のキー」センチネル(Apply と同じ扱い)。
     If c = 0 Then GoTo CfExit
 
-    ' R33H F10: 【剥がしてから測る】。順序がこの1点で成否が決まる。
-    ' 旧実装は「測る→剥がす→張る→測る」で、UsedRange が伸びる端末では
-    ' 2回目以降の usedLast に【前回張ったぶんで膨らんだ値】が入っていた。
-    ' すると (a) after > usedLast が成立しなくなり検算が永久に無罪放免になり
-    ' (b) 開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進する。8ラウンド溶かした
-    ' のとまったく同じ無言失敗なので、基準値は必ず「自分の前回ぶんを剥がした
-    ' 後」の素の値で測る。
+    ' R33H F10: 【剥がしてから測る】。旧実装は「測る→剥がす→張る→測る」で、
+    ' 2回目以降の usedLast に前回張ったぶんで膨らんだ値が入り、(a)検算が永久に
+    ' 無罪放免になり (b)開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進していた。
+    ' 基準値は必ず「自分の前回ぶんを剥がした後」の素の値で測る。
     ClearOwnCF ws
 
     ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。
@@ -700,7 +701,13 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long)
             ' と同じ作法。Shapeは使用済み範囲を作らないので境界より下にも在り得る)。
             modUI.FreezeShapePlacement ws
             Err.Clear
-            ws.Rows((usedLast + 1) & ":" & after).Delete
+            ' R33H F11: 他の全 Rows.Delete が持つ下限保護がこの経路だけ無く、
+            ' usedLast が異常値ならヘッダー帯ごと消し得た。
+            If usedLast + 1 >= CF_MIN_ROW Then ws.Rows((usedLast + 1) & ":" & after).Delete
+            Err.Clear
+            ' R33H F11: 行削除は ScrollArea を落とす。R30 F8 の「削除の直後に
+            ' 掛け直す」作法をこの新経路だけが破っていた。
+            If LenB(scrollAddr) > 0 Then modViewport.ApplyScrollBound ws, scrollAddr
             Err.Clear
             mCfOff = True
             LogCfOnce nm, "usedrange_grew", after - usedLast, _
