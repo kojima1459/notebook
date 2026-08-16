@@ -643,9 +643,27 @@ Public Sub OnPurgeChannel()
         GoTo Done
     End If
 
-    removed = modChannel.PurgeChannelChunks(chName)
-    modStats.SetStatText modShareRule.ChannelStatKey(chName), ""
+    ' R33H F2(c): 再描画の予約は削除の【前】に立てる。旧実装は削除の後ろに
+    ' あったため、途中で例外が飛ぶと Failed: へ抜けて再描画すら走らず、
+    ' 消したはずの資料が画面に残り続けた(「消えていない」ようにしか見えない)。
     redraw = True
+    Dim purgeOk As Boolean: purgeOk = True
+    removed = modChannel.PurgeChannelChunks(chName, purgeOk)
+    modStats.SetStatText modShareRule.ChannelStatKey(chName), ""
+
+    ' R33H F2(d): 書き戻しに失敗したまま「削除しました」と言わない。
+    ' 購読解除の確認も出さない(失敗したのに「今後届きません」まで言うと、
+    ' 資料は残ったまま供給だけ止まる=いちばん悪い状態になる)。
+    If Not purgeOk Then
+        modLog.LogUsage "channel_purge_ui", "knowledge", _
+                        "channel=" & chName & " shown=" & shown & _
+                        " removed=" & removed & " purge_ok=no"
+        MsgBox "「" & chName & "」の資料の削除に失敗した可能性があります。" & vbCrLf & vbCrLf & _
+               "マイ本棚を開いて、資料が減っているかご確認ください。" & vbCrLf & _
+               "残っているときは、もう一度この操作をやり直してください。", _
+               vbExclamation, title
+        GoTo Done
+    End If
 
     ' R33 W5-28: 削除だけでは購読は続くので、次に「部門チャンネル」を押すと
     ' 同じ部門がまた入ってくる。「今回だけ片付けたい」と「もう要らない」を

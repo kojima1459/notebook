@@ -254,8 +254,14 @@ CONTRACT: dict[str, dict] = {
         # FlushPendingBubbles(2026-08-12 R29H F2b): WarnAtStartupはInitUIより前
         #   (modBoot)に走るためAddChatBubbleが描けない。文言をQueueBubbleで
         #   保留し、InitUI後の最初の地点(modBoard.BootBoard)から1回だけ呼ぶ。
+        # RewriteRowsAfterPurge(2026-08-16 R33H F2): 一括削除の後始末で生存行を
+        #   「先に消してから200行バッチで書く」書き戻し。旧実装は「詰めて代入→
+        #   末尾ClearContents」の順で、代入の途中で落ちると生存行が二重に残った。
+        #   置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
+        #   (このモジュールの冒頭にある置き場の理由と同じ)。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
-                     "RecordSaveMark", "DataShrunk", "IsVolatilePath",
+                     "RecordSaveMark", "RewriteRowsAfterPurge",
+                     "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
                      "CohabitCount", "CohabitOtherCount", "IsCohabiting",
                      "CohabitWarnMsg",

@@ -467,8 +467,12 @@ End Function
 ' 実処理は modShelfStore.RemoveRowsByOrigin へ寄せ、ここはタグの決定と
 ' 画面更新の抑止だけを持つ。
 ' ----------------------------------------------------------------------------
-Public Function PurgeChannelChunks(ByVal chName As String) As Long
+' outOk: 書き戻しが全行成功したか(R33H F2)。False なら呼び出し元は
+'   「削除しました」と言ってはいけない(旧実装は失敗を握り潰していた)。
+Public Function PurgeChannelChunks(ByVal chName As String, _
+                                   Optional ByRef outOk As Boolean = True) As Long
     On Error Resume Next
+    outOk = True
     Dim tag As String: tag = ChannelOriginTag(chName)
     If LenB(tag) = 0 Then Exit Function
 
@@ -477,7 +481,7 @@ Public Function PurgeChannelChunks(ByVal chName As String) As Long
     Application.Calculation = -4135          ' xlCalculationManual
 
     Dim n As Long
-    n = modShelfStore.RemoveRowsByOrigin(tag)
+    n = modShelfStore.RemoveRowsByOrigin(tag, outOk)
 
     Application.Calculation = prevCalc
     Application.ScreenUpdating = True

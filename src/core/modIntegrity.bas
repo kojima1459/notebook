@@ -161,6 +161,62 @@ Public Sub RecordSaveMark()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' RewriteRowsAfterPurge - 一括削除の後始末: 生存行だけを書き戻す(R33H F2)
+' ----------------------------------------------------------------------------
+' 旧実装(modShelfStore.RemoveRowsByOrigin)は「生存行を上へ詰めて一括代入 →
+' 末尾を ClearContents」の順だった。代入の途中で落ちると【生存行が二重に
+' 存在】したまま残る ―― 重複は件数にも画面にも出ないので誰も気付けず、
+' 検索結果だけが静かに汚れる(このモジュールが観測しようとしている
+' 「台帳と実データの食い違い」を、削除側が自分で作っていた)。
+' 先に消してから書けば、途中で落ちても残るのは「消えすぎ」側になり、
+' 部門チャンネルから取り込み直せば戻る=取り返しがつく側へ倒す。
+' 書き込みは200行バッチ(数千行×長文の1回代入は実行時エラー7になり得る。
+' modPack.WriteRowsBatched・modShelfStore.FlushNormBackfill と同じ作法)。
+'   ws       : 対象シート。1行目は見出しなのでデータは2行目から。
+'   colCount : 運ぶ列数(全列を運ばないと別チャンクの列が混ざる)。
+'   survivors: (1 To n以上, 1 To colCount以上) の2次元配列。
+'   n        : 生存行数。oldRows: 消す前のデータ行数。
+' 戻り値: 全行を書けたら True。1行でも書けなければ False(呼び出し元が
+'   「削除に失敗した可能性があります」と言うための材料。旧実装は失敗を
+'   握り潰し「0件 削除しました」と表示する余地があった)。
+' 置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
+'   (このモジュールの冒頭に書いた理由と同じ。憲章§4-6)。
+Public Function RewriteRowsAfterPurge(ByVal ws As Worksheet, ByVal colCount As Long, _
+                                      ByRef survivors As Variant, ByVal n As Long, _
+                                      ByVal oldRows As Long) As Boolean
+    Const PURGE_BATCH_ROWS As Long = 200
+    If ws Is Nothing Then Exit Function
+    If colCount < 1 Then Exit Function
+    If n < 0 Then Exit Function
+    If oldRows < n Then Exit Function
+
+    On Error Resume Next
+    Err.Clear
+    ws.Range(ws.Cells(2, 1), ws.Cells(1 + oldRows, colCount)).ClearContents
+    If Err.Number <> 0 Then
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Dim st As Long, k As Long, wrote As Long, r As Long, c As Long
+    For st = 1 To n Step PURGE_BATCH_ROWS
+        k = n - st + 1
+        If k > PURGE_BATCH_ROWS Then k = PURGE_BATCH_ROWS
+        Dim buf() As Variant: ReDim buf(1 To k, 1 To colCount)
+        For r = 1 To k
+            For c = 1 To colCount
+                buf(r, c) = survivors(st + r - 1, c)
+            Next c
+        Next r
+        Err.Clear
+        ws.Range(ws.Cells(1 + st, 1), ws.Cells(st + k, colCount)).Value = buf
+        If Err.Number = 0 Then wrote = wrote + k
+    Next st
+    RewriteRowsAfterPurge = (wrote = n)
+    On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
 ' DataShrunk - 「前回保存した時より資料が減ったか」(純ロジック)。
 ' ----------------------------------------------------------------------------
 ' prevRows <= 0(記録が無い・壊れている)は判定しない=初回起動や旧ブックから

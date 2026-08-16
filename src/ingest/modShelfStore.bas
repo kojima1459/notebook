@@ -348,7 +348,9 @@ End Sub
 ' 2026-08-16(R33H F1 BLOCKER): 一致判定は modShareRule.OriginMatches に統一。
 ' vbTextCompare は日本語ロケールで全角/半角・ひらがな/カタカナまで同一視し、
 ' 「営業1課」を消すと「営業１課」まで消えた(理由は modShareRule 側に詳述)。
-Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
+' outOk: 書き戻しが全行成功したか(R33H F2)。省略時は呼び出し元に影響しない。
+Public Function RemoveRowsByOrigin(ByVal originTag As String, _
+                                   Optional ByRef outOk As Boolean = True) As Long
     If LenB(Trim$(originTag)) = 0 Then Exit Function
     Dim wsK As Worksheet: Set wsK = GetSheet(modAppDef.SH_KNOWLEDGE)
     If wsK Is Nothing Then Exit Function
@@ -379,11 +381,11 @@ Public Function RemoveRowsByOrigin(ByVal originTag As String) As Long
 
     If survivorCount = nRows Then Exit Function   ' 一致無し
 
-    If survivorCount > 0 Then
-        Dim writeArr As Variant: writeArr = CompactRows(survivors, survivorCount)
-        wsK.Range(wsK.Cells(2, 1), wsK.Cells(1 + survivorCount, KNOWLEDGE_COLS)).Value = writeArr
-    End If
-    wsK.Range(wsK.Cells(2 + survivorCount, 1), wsK.Cells(1 + nRows, KNOWLEDGE_COLS)).ClearContents
+    ' R33H F2: 書き戻しは「先に全部消してから200行バッチで書く」順序へ寄せる
+    ' (途中で落ちたとき【重複】ではなく【欠落】に倒す)。実体は modIntegrity
+    ' 側 ―― 本モジュールは残819字で分岐を書けない(憲章§4-6)。
+    outOk = modIntegrity.RewriteRowsAfterPurge(wsK, KNOWLEDGE_COLS, _
+                                               survivors, survivorCount, nRows)
 
     RemoveVectorsByIds removedIds
     RemoveRowsByOrigin = nRows - survivorCount
