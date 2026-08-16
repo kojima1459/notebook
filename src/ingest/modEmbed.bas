@@ -204,9 +204,20 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
                     ' もう1本できていた。単段検索は my_vectors を素直に
                     ' 走査するので、同じチャンクが topK の枠を2つ占める。
                     ' 既存行があれば上書きする(無ければ末尾へ追記)。
+                    ' 2026-08-16(R33波3 W3-5): LookIn/SearchOrder/MatchByte を
+                    ' 明示する。Range.Find はこの3つを省略すると【そのExcel
+                    ' セッションで最後に使われた値】を引き継ぐ仕様で、利用者が
+                    ' 別ブックで Ctrl+F の「検索対象=コメント」を一度使うだけで、
+                    ' セル値と一致していても Nothing が返るようになる。ここが
+                    ' Nothing になると upsert が常に追記へ倒れ、同じ chunk_id の
+                    ' ベクトル行が二重化して topK の枠を2つ占める(2026-07-28 M-3
+                    ' で潰したはずの症状)。LibreOffice の Find にはこの持ち越しが
+                    ' 無いため、LO実行テストでは再現しない型の事故。
                     Dim vRow As Long
                     Dim vFound As Range
-                    Set vFound = wsV.Columns(1).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+                    Set vFound = wsV.Columns(1).Find(What:=chunkId, LookAt:=1, _
+                        MatchCase:=True, LookIn:=xlValues, SearchOrder:=xlByRows, _
+                        MatchByte:=False)
                     If vFound Is Nothing Then
                         vRow = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row + 1
                         If vRow < 2 Then vRow = 2
