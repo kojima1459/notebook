@@ -221,25 +221,29 @@ End Sub
 '   なお modViewport2.SeedRowCap は行高一様モデルで h1 を持たないため、
 '   Hub の行1=48pt という本テストの主題を代替できない(modTestsPure30 の
 '   F12 が既にその一様モデル側を実装と突き合わせている)。
+'   【[MODEL] 接頭辞の意味】(2026-08-16 R33H F25): 上のとおりこの6件は
+'   本ファイル内のヘルパ(模型)しか通らず、実装を改変しても落ちない。
+'   テスト名の頭に [MODEL] を付けて「これは模擬であって回帰検知ではない」を
+'   一覧上でも明示する。回収先は docs/dev/TODO.md へ宿題として記録した。
 Private Sub TestRowConversion()
     Dim tilesBottom As Double: tilesBottom = 386      ' TilesTop(146)+TilesHeight(240)
-    modTestRunner.Check "行換算_実測なら下端386ptを含む最小行は24", _
+    modTestRunner.Check "[MODEL] 行換算_実測なら下端386ptを含む最小行は24", _
         (RowAtHub(tilesBottom) = 24), "実際=" & RowAtHub(tilesBottom)
-    modTestRunner.Check "行換算_バッジ見出しはその次の行25", _
+    modTestRunner.Check "[MODEL] 行換算_バッジ見出しはその次の行25", _
         (RowAtHub(tilesBottom) + 1 = 25)
     ' 旧式が返す行28の上端は438pt。タイル下端386ptとの差=52ptが空隙の正体。
-    modTestRunner.Check "行換算_実測なら空隙は7pt以内", _
+    modTestRunner.Check "[MODEL] 行換算_実測なら空隙は7pt以内", _
         (RowTopHub(25) - tilesBottom = 7), "実際=" & (RowTopHub(25) - tilesBottom)
     ' 戻り値(バッジ帯の下端)も同じ誤差を持っていた。
     ' 旧: (r+4)*15 = 32*15 = 480pt / 実測: 行29の下端 = 48+27*15+15 = 468pt。
     ' 旧式は【行28起点】なので実際の下端は行32の下端=513pt。つまり返り値480は
     ' 実物より33pt上で、フッターがバッジ帯へ食い込んでいた。
-    modTestRunner.Check "行換算_旧式起点の実下端は513pt(戻り値より33pt下)", _
+    modTestRunner.Check "[MODEL] 行換算_旧式起点の実下端は513pt(戻り値より33pt下)", _
         (RowTopHub(32) + 15 = 513), "実際=" & (RowTopHub(32) + 15)
-    modTestRunner.Check "行換算_実測起点の実下端は468pt(食い込みなし)", _
+    modTestRunner.Check "[MODEL] 行換算_実測起点の実下端は468pt(食い込みなし)", _
         (RowTopHub(29) + 15 = 468), "実際=" & (RowTopHub(29) + 15)
     ' 行1が2段(96pt)へ伸びる狭い窓では、旧式のズレはさらに広がる。
-    modTestRunner.Check "行換算_ヘッダー2段(96pt)なら実測行は21", _
+    modTestRunner.Check "[MODEL] 行換算_ヘッダー2段(96pt)なら実測行は21", _
         (RowAtGeneric(tilesBottom, 96, 15) = 21), _
         "実際=" & RowAtGeneric(tilesBottom, 96, 15)
 End Sub

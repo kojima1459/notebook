@@ -103,3 +103,22 @@ regressionリスクに見合わない。将来「設定画面」ができた際�
       実態の乖離は止まる。**残りの宿題**: (A) 導線を1本足すのか、(B) 完全に未提供と
       確定させて `build/modules.json` から `optDiffDoc` を外し注入本数とブック容量を
       返すのか、は未裁定。モジュールは今も同梱・注入されている。
+
+## G. R33H Fix波3 からの持ち越し(テスト品質)
+
+- [ ] **`[MODEL]` 接頭辞の付いたテスト8件は「模擬」であって回帰検知ではない**
+      (2026-08-16 R33H F25)。テスト名の頭に `[MODEL]` があるものは、実装では
+      なくテストファイル内のヘルパ(模型)を撃っている。**実装をどう改変しても
+      落ちない**ので、レビュー時に「回帰テストがある」と数えてはならない。
+      - `src/test/modTestsPure22.bas` **2件**(`TestChatHeaderRefitIdempotent`)。
+        撃っているのは同ファイル内の `SimulateChatHeaderRefit`。実装を呼ぶ形に
+        するには、ヘッダーの Clear→Draw 契約を Shape コレクション非依存の
+        純関数へ切り出す必要がある(= 新しい設計判断。未裁定)。
+      - `src/test/modTestsPure19.bas` **6件**(`TestRowConversion`)。撃っている
+        のは同ファイル内の `RowAtHub` / `RowAtGeneric` / `RowTopHub`。実装側の
+        `modViewport.RowAt` / `RowAtFloor` はいずれも Worksheet を要求するため、
+        行1高さ h1・行高 h・y だけを受ける純関数(`RowAtFrom` 相当)を
+        `src/ui/modViewport.bas` へ切り出さないと実装を呼べない。
+        **`modViewport` は残118字**なので、切り出し先は余裕モジュール側になる。
+      - どちらも「恒真アサートへ置き換える」ことはしない(R33 の主題そのもの)。
+        次に触る人は **実装を呼ぶ形にするか、テストごと消すか**の二択で裁定する。

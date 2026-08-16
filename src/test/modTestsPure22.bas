@@ -388,11 +388,21 @@ Private Function CountName22(ByVal csv As String, ByVal target As String) As Lon
     CountName22 = c
 End Function
 
+' ----------------------------------------------------------------------------
+' 【[MODEL] 接頭辞の意味】(2026-08-16 R33H F25)
+'   この群が撃っているのは本ファイル内の SimulateChatHeaderRefit ―― 実装の
+'   Clear→Draw 契約を写した【模型】であって、modUI/modUINexusDraw そのもの
+'   ではない。したがって実装をどう改変してもここは落ちない(回帰検知ではなく
+'   「契約はこうあるべき」の記述)。テスト名の頭に [MODEL] を付けて、
+'   一覧を眺めた人が「F1 の回帰テストがある」と誤解しないようにする。
+'   実装を呼ぶ形にするには Shape コレクション非依存の純関数へ切り出す必要が
+'   あり、それは新しい設計判断なので docs/dev/TODO.md に宿題として残した。
+' ----------------------------------------------------------------------------
 Private Sub TestChatHeaderRefitIdempotent()
     Dim s As String
     s = SimulateChatHeaderRefit("")             ' 初回描画
     s = SimulateChatHeaderRefit(s)               ' 2回目のRefit(リサイズ/テーマ切替相当)
-    modTestRunner.Check "F1_2回連続RefitでnxTopBgは1個(Clear→Draw契約が効いている)", _
+    modTestRunner.Check "[MODEL] F1_2回連続RefitでnxTopBgは1個(Clear→Draw契約が効いている)", _
         (CountName22(s, "nx_top_bg") = 1), "実際=" & CountName22(s, "nx_top_bg") & "(" & s & ")"
 
     ' 2026-08-15(R33波1 W1-2): 「F1退行検知_旧実装(Clear無しの直呼び)なら
@@ -407,7 +417,7 @@ Private Sub TestChatHeaderRefitIdempotent()
     ' (消すと📎と送信ボタンの配線が戻らないため。コメント上の約束の固定)。
     Dim s2 As String
     s2 = SimulateChatHeaderRefit("nx_top_bg|nx_top_add|nx_top_send")
-    modTestRunner.Check "F1_add/sendはヘッダークリアの対象外のまま残る", _
+    modTestRunner.Check "[MODEL] F1_add/sendはヘッダークリアの対象外のまま残る", _
         (CountName22(s2, "nx_top_add") = 1 And CountName22(s2, "nx_top_send") = 1 And _
          CountName22(s2, "nx_top_bg") = 1), "実際=" & s2
 End Sub
