@@ -43,7 +43,7 @@ Public Sub RunDiagnostics()
     On Error GoTo 0
 
     On Error Resume Next
-    Dim cfgMockOn As Boolean: cfgMockOn = modConfig.GetBool("mock_llm", True)
+    Dim cfgMockOn As Boolean: cfgMockOn = modConfig.GetBool("mock_llm", False)
     WriteCheck ws, r, True, "  mock_llm: " & IIf(cfgMockOn, "TRUE", "FALSE"), _
                IIf(cfgMockOn, "本番前にFALSEへ", ""): r = r + 1
     On Error GoTo 0
@@ -100,7 +100,7 @@ Public Sub RunDiagnostics()
 
     ' [AIリボン]
     WriteLine ws, r, "[AIリボン]": r = r + 1
-    Dim mockOn As Boolean: mockOn = modConfig.GetBool("mock_llm", True)
+    Dim mockOn As Boolean: mockOn = modConfig.GetBool("mock_llm", False)
     If mockOn Then
         WriteCheck ws, r, True, _
             "mock_llm=TRUE のため、リボン呼び出しは行わずダミー応答で動作しています。", _

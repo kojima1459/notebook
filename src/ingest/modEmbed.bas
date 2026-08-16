@@ -122,7 +122,7 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     ' ②実機(リボン)でも既定を0へ引き下げる(必要ならconfigの
     ' embed_sleep_msで各自調整。レート制限は3連続失敗検知・LimitCheckで別途保護)。
     Dim throttleMs As Long
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         throttleMs = 0
     Else
         throttleMs = modConfig.GetLong("embed_sleep_ms", 0)

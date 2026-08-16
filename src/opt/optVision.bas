@@ -132,7 +132,7 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function HasClipboardImage() As Boolean
     HasClipboardImage = False
-    If modConfig.GetBool("mock_llm", True) Then Exit Function
+    If modConfig.GetBool("mock_llm", False) Then Exit Function
     Dim res As Variant
     res = modGateway.TryRibbonRun("IsImageInCB", Array())
     If VarType(res) = vbBoolean Then HasClipboardImage = CBool(res)
@@ -145,7 +145,7 @@ End Function
 '   成功: jpgのフルパス / 失敗: "#ERR:..."(例外は出さない)。
 ' ----------------------------------------------------------------------------
 Public Function SaveClipboardImage() As String
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         SaveClipboardImage = "#ERR:mockモード(mock_llm=TRUE)ではクリップボード取込を利用できません。" & _
             "config の mock_llm を FALSE にすると実際に取り込めるようになります。"
         Exit Function
@@ -309,7 +309,7 @@ Public Function ExtractPdfOcrPagedText(ByVal path As String, _
         Exit Function
     End If
 
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         ExtractPdfOcrPagedText = "#ERR:E0303:mockモード(mock_llm=TRUE)では画像PDFの" & _
             "OCR取込を利用できません。config の mock_llm を FALSE にすると実際に" & _
             "読み取れるようになります。"

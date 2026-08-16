@@ -77,7 +77,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     Dim t0 As Double: t0 = Timer
     On Error GoTo ErrHandler
 
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         CallLLM = MockLLMResponse(prompt, step_name)
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         LogStepLatency step_name, latency_ms
@@ -204,7 +204,7 @@ Public Function GetEmbedding(ByVal Text As String, Optional ByRef latency_ms As 
         Exit Function   ' 空配列を返す
     End If
 
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         GetEmbedding = MockEmbedVector(t, dim_)
         latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
         LogStepLatency "emb", latency_ms
@@ -317,7 +317,7 @@ Public Function GetEmbeddingsBatch(texts() As String, ByRef outCsv() As String) 
     Dim i As Long
 
     ' ---- mock: 決定的擬似ベクトル(LO/開発ビルド) ----
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         For i = 0 To n - 1
             Dim mt As String: mt = modUtil.NormalizeForHash(texts(lo + i))
             If LenB(mt) > 0 Then
@@ -413,7 +413,7 @@ End Function
 Public Function RunLimitCheck() As Boolean
     RunLimitCheck = False
 
-    If modConfig.GetBool("mock_llm", True) Then Exit Function
+    If modConfig.GetBool("mock_llm", False) Then Exit Function
     If Not modConfig.GetBool("limit_check", True) Then Exit Function
     If Not RibbonAvailable() Then Exit Function
 

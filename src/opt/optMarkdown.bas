@@ -96,7 +96,7 @@ Public Function RenderMarkdownAt(ByVal sheetName As String, ByVal cellAddr As St
 
     ' mock_llm=TRUE のときはリボンを呼ばず、テキスト書き込みのみで成功扱い
     ' (装飾はスキップ。実リボン不在環境でもE2Eが回るようにするため)。
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         modUIMain.SetStage ""
         RenderMarkdownAt = ""
         Exit Function
@@ -146,7 +146,7 @@ Public Function OpenAnswerInWord(ByVal md As String) As String
 
     ' mock_llm=TRUE のときはリボンを呼ばず、親切メッセージで案内する
     ' (Word連携には代替表示が無いため。他のmock時挙動と同じくリボン非接触)。
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         OpenAnswerInWord = "#ERR:mockモード(mock_llm=TRUE)ではWord連携を利用できません。" & _
             "config の mock_llm を FALSE にすると実際にWordで開けるようになります。"
         Exit Function
@@ -211,7 +211,7 @@ Public Function ExportAnswerAsDoc(ByVal answerText As String, ByVal instruction 
     ' mock_llm=TRUE のときはLLMを呼ぶ前に案内する(OpenAnswerInWordと同じ
     ' 親切#ERR規約。mockのLLM整形だけ成功させても最後のWord連携が成立
     ' しないため、経路の入口で止める)。
-    If modConfig.GetBool("mock_llm", True) Then
+    If modConfig.GetBool("mock_llm", False) Then
         ExportAnswerAsDoc = "#ERR:mockモード(mock_llm=TRUE)ではWord連携を利用できません。" & _
             "config の mock_llm を FALSE にすると実際にWordで開けるようになります。"
         Exit Function
