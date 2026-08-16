@@ -191,6 +191,27 @@ Public Sub RunDiagnostics()
     Next i
     r = r + 1
 
+    ' ------------------------------------------------------------------
+    ' [余白の敷き詰め] 2026-08-16(R33H F24)
+    '   R33 DoD 第8項「条件付き書式が UsedRange を膨らませないことをテストで
+    '   固定する」は、実装が【実行時の自己検算】(modBackdrop.ApplyCF が張った
+    '   直後に UsedRange を測り、膨らんでいたら剥がして巻き戻す)へ置き換わった
+    '   ため、自動テストでは達成できない(FormatConditions は LO では検証不能)。
+    '   その代わりに、非エンジニアが「どちらの手が効いたのか」を1画面で
+    '   判定できるようにする ―― 成立したら backdrop_cf が、不首尾なら
+    '   backdrop_cf_failed が usage_log に1行だけ残る設計なので、その直近1行を
+    '   そのまま見せる。実機スモークの確認項目はこの2行を読むだけで済む。
+    WriteLine ws, r, "[余白の敷き詰め(条件付き書式)]": r = r + 1
+    Dim cfOk As String: cfOk = LastUsageLine("backdrop_cf")
+    Dim cfNg As String: cfNg = LastUsageLine("backdrop_cf_failed")
+    WriteCheck ws, r, (LenB(cfOk) > 0), _
+        "  成立(backdrop_cf): " & IIf(LenB(cfOk) > 0, cfOk, "記録なし"), "": r = r + 1
+    WriteCheck ws, r, (LenB(cfNg) = 0), _
+        "  不首尾(backdrop_cf_failed): " & IIf(LenB(cfNg) > 0, cfNg, "記録なし"), _
+        IIf(LenB(cfNg) > 0, "この端末では条件付き書式が使えていません。" & _
+            "背景画像の方(backdrop_failed が無ければ成功)で余白が塗られます。", ""): r = r + 1
+    r = r + 1
+
     ' [直近のエラー]
     WriteLine ws, r, "[直近のエラー(最大5件)]": r = r + 1
     Dim errLines() As String
@@ -391,6 +412,31 @@ Done:
 End Sub
 
 ' err_logシート末尾から最大5件を新しい順に取り出す。
+' ----------------------------------------------------------------------------
+' LastUsageLine - usage_log の直近1行を "時刻 詳細" で返す(2026-08-16 R33H F24)。
+'   event_name(B列)が一致する【最も新しい】1行だけを見る。見つからなければ ""。
+'   下から上へ走るのは、usage_log が数千行になっても数行しか読まないため。
+'   例外は外へ出さない(診断画面が1項目のせいで丸ごと出ないことを防ぐ)。
+' ----------------------------------------------------------------------------
+Private Function LastUsageLine(ByVal eventName As String) As String
+    If Not SheetExists(modAppDef.SH_USAGE) Then Exit Function
+    On Error GoTo UsgFail
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(modAppDef.SH_USAGE)
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastR < 2 Then Exit Function
+    Dim i As Long
+    For i = lastR To 2 Step -1
+        If StrComp(CStr(ws.Cells(i, 2).Value), eventName, vbBinaryCompare) = 0 Then
+            LastUsageLine = CStr(ws.Cells(i, 1).Value) & "  " & _
+                            modUtil.SafeLeft(CStr(ws.Cells(i, 4).Value), 160)
+            Exit Function
+        End If
+    Next i
+    Exit Function
+UsgFail:
+    LastUsageLine = ""
+End Function
+
 Private Function RecentErrors(ByRef lines() As String) As Long
     ReDim lines(0 To 4)
     If Not SheetExists(modAppDef.SH_ERRLOG) Then
