@@ -131,10 +131,15 @@ Private Sub TestGateWideDate33()
         (modInsightGate.PiiBlocked("２０２６" & ChrW(&HFF0D&) & "０８" & ChrW(&HFF0D&) & _
             "１４ １０:００ の締切について教えてください", "gap") = False), _
         "PiiBlocked が True を返した(=共有が無言で見送られる)"
-    modTestRunner.Check "R33-W2-7_全角スラッシュ無し日付も見送られない(実物)", _
-        (modInsightGate.PiiBlocked("２０２６年０８月１４日 １０時の議事録は?", "gap") = False), _
+    ' 区切りが U+2212(MINUS SIGN)でも同じこと(日付潰しの手前で均されている)。
+    modTestRunner.Check "R33-W2-7_全角日付(U+2212区切り)も見送られない(実物)", _
+        (modInsightGate.PiiBlocked("２０２６" & ChrW(&H2212&) & "０８" & ChrW(&H2212&) & _
+            "１４ ０９:３０ の議事録はありますか", "gap") = False), _
         "PiiBlocked が True を返した"
     ' 半角の日付(R32 F4 が守っている側)が巻き添えで壊れていないこと。
+    '   この1本は W2-7 の均しを外しても通る ―― 半角側は元から
+    '   StripDateLike が拾えるため。W2-7 を discriminate する検査ではなく、
+    '   「全角対応の巻き添えで半角側を壊していないこと」を見る番人。
     modTestRunner.Check "R33-W2-7_半角日付も従来どおり見送られない(実物)", _
         (modInsightGate.PiiBlocked("2026-08-14 10:00 の締切について教えてください", "gap") = False), _
         "PiiBlocked が True を返した"
@@ -260,6 +265,51 @@ Private Sub TestExpiryReachable33()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (4) W2-9: 部門名でフォルダの外へ逃げられないこと。
+' ----------------------------------------------------------------------------
+'   W2-5 で単独の "\" を弾いたが ".." 単体はまだ通り、
+'   <共有>\channels\..\ = 共有ルートへ正典一式を書き出せた。同じ「発行先を
+'   共有ルートへ逃がされる」穴なので、片方だけでは意味が無い。
+'   先頭・末尾の空白/ピリオドは、Windowsが黙って落とすことによる
+'   「別名のつもりで既存部門を上書き発行」を止めるための検査。
+' ----------------------------------------------------------------------------
+Private Sub TestChannelNameEscape33()
+    ' --- 弾くべき名前 ------------------------------------------------------
+    CheckEscBad33 "..単体", ".."
+    CheckEscBad33 "..を含む(前)", "..\商品部"
+    CheckEscBad33 "..を含む(後ろ)", "商品部..仮"
+    CheckEscBad33 "先頭ピリオド", ".商品部"
+    CheckEscBad33 "末尾ピリオド", "商品部."
+    CheckEscBad33 "単独ピリオド", "."
+    CheckEscBad33 "先頭が全角空白", ChrW(&H3000&) & "商品部"
+    CheckEscBad33 "末尾が全角空白", "商品部" & ChrW(&H3000&)
+    CheckEscBad33 "先頭が半角空白", " 商品部"
+    CheckEscBad33 "末尾が半角空白", "商品部 "
+    CheckEscBad33 "末尾がタブ", "商品部" & vbTab
+
+    ' --- 通すべき名前(正当な部門名を巻き添えにしない) ---------------------
+    CheckEscOk33 "ふつうの部門名", "商品部"
+    CheckEscOk33 "課まで入った名前", "商品部商品1課"
+    CheckEscOk33 "中黒や括弧を含む名前", "商品部(第2)"
+    CheckEscOk33 "英字と数字の名前", "Sales2026"
+    CheckEscOk33 "途中のピリオド1個", "商品部.仮"
+    CheckEscOk33 "途中の空白", "商品 部"
+    CheckEscOk33 "空文字は他の検査の担当", ""
+End Sub
+
+Private Sub CheckEscBad33(ByVal label As String, ByVal s As String)
+    Dim r As String: r = modShareRule.ChannelPathEscapeReason(s)
+    modTestRunner.Check "R33-W2-9_弾く: " & label, _
+        (LenB(r) > 0), "理由が空だった(=この名前で発行できてしまう)"
+End Sub
+
+Private Sub CheckEscOk33(ByVal label As String, ByVal s As String)
+    Dim r As String: r = modShareRule.ChannelPathEscapeReason(s)
+    modTestRunner.Check "R33-W2-9_通す: " & label, _
+        (LenB(r) = 0), "理由=[" & r & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -272,6 +322,9 @@ G02Next33:
 G03Next33:
     On Error GoTo G03Fail33
     TestGateWideDate33
+G04Next33:
+    On Error GoTo G04Fail33
+    TestChannelNameEscape33
 NextDone33:
     On Error GoTo 0
     Exit Sub
@@ -284,6 +337,9 @@ G02Fail33:
     Resume G03Next33
 G03Fail33:
     GroupFail33 "TestGateWideDate33", Err.Number, Err.Description
+    Resume G04Next33
+G04Fail33:
+    GroupFail33 "TestChannelNameEscape33", Err.Number, Err.Description
     Resume NextDone33
 End Sub
 

@@ -153,6 +153,57 @@ Public Function StandardSubDirs() As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' 部門名のパス脱出検査(R33 W2-9)
+' ----------------------------------------------------------------------------
+' ChannelPathEscapeReason - 部門名が「フォルダの外」を指していないか。
+'   使えない理由(利用者へそのまま見せる文)を返す。問題なければ空文字。
+'
+'   なぜ要るか: 部門名は共有フォルダの中で【部門ごとのフォルダ名】として
+'   そのまま連結される(modPublish.PrepareDir が baseDir & chName & "\")。
+'   W2-5 で単独の "\" を弾いたので "..\thanks" のような名前は止まるように
+'   なったが、**".." 単体はまだ通る** ―― <共有>\channels\..\ は共有ルートに
+'   解決するため、pack.xlsx / version.txt / publish_log.txt / publish.lock が
+'   channels\ の外へ書き出される。どのチャンネル一覧にも現れないゴミが
+'   共有ルートに残り、以後誰も掃除できない。
+'
+'   先頭・末尾の空白とピリオドも弾く: Windows はフォルダ名の先頭・末尾の
+'   空白とピリオドを【黙って落とす】ので、"商品部." は "商品部" として
+'   作られる。別名を入れたつもりの発行者が、気付かないまま既存部門の正典を
+'   上書き発行することになる。
+'
+'   VBA の Trim$ は半角空白しか落とさないため、日本語IMEが出す全角空白
+'   (U+3000)とタブは自分で見る。非ASCIIは ChrW で組む(CP932 の往復事故を
+'   避けるための本ラウンド共通の作法)。
+'
+'   純関数として modShareRule に置くのは、判定をテストで固定するため
+'   (ExpiryDecision を modGuard から切り出したのと同じ理由)。呼び出し側は
+'   modPublishUI.OnPublish の入力検証1箇所。
+' ----------------------------------------------------------------------------
+Public Function ChannelPathEscapeReason(ByVal s As String) As String
+    If LenB(s) = 0 Then Exit Function
+
+    If InStr(1, s, "..") > 0 Then
+        ChannelPathEscapeReason = "「..」は1つ上のフォルダを指す記号なので使えません"
+        Exit Function
+    End If
+
+    If IsEdgeJunkChar(Left$(s, 1)) Then
+        ChannelPathEscapeReason = "先頭の空白・タブ・ピリオドは使えません"
+        Exit Function
+    End If
+
+    If IsEdgeJunkChar(Right$(s, 1)) Then
+        ChannelPathEscapeReason = "末尾の空白・タブ・ピリオドは使えません"
+    End If
+End Function
+
+' フォルダ名の端に置けない文字か(半角空白/全角空白/タブ/ピリオド)。
+Private Function IsEdgeJunkChar(ByVal ch As String) As Boolean
+    If LenB(ch) = 0 Then Exit Function
+    IsEdgeJunkChar = (ch = " " Or ch = "." Or ch = vbTab Or ch = ChrW(&H3000&))
+End Function
+
+' ----------------------------------------------------------------------------
 ' 端末失効(R8 F4)
 ' ----------------------------------------------------------------------------
 ' ExpiryDecision - 失効タイマーが今回とるべき行動を決める。

@@ -75,6 +75,26 @@ Public Sub OnPublish()
         Exit Sub
     End If
 
+    ' 2026-08-16(R33 W2-9): 使えない【文字】が無くても、名前そのものが
+    ' フォルダの外を指していることがある。W2-5 で単独の "\" を弾いたことで
+    ' "..\部門" は止まるようになったが、".." 単体はまだ通り、
+    ' <共有>\channels\..\ = 共有ルートへ正典一式が書き出されていた。
+    ' 先頭・末尾の空白/ピリオドも弾く(Windowsが黙って落とすため、別名の
+    ' つもりで既存部門を上書き発行してしまう)。判定は純関数へ切り出し済み。
+    Dim escapeReason As String
+    escapeReason = modShareRule.ChannelPathEscapeReason(chName)
+    If LenB(escapeReason) > 0 Then
+        modUiLock.Leave
+        MsgBox "その部門名は使えません: " & escapeReason & vbCrLf & vbCrLf & _
+               "部門名は共有フォルダの中で、部門ごとのフォルダ名に" & vbCrLf & _
+               "そのまま使われます。上のフォルダを指す名前や、" & vbCrLf & _
+               "先頭・末尾に空白やピリオドが付いた名前を使うと、" & vbCrLf & _
+               "正典が意図しない場所へ書き出されてしまいます。" & vbCrLf & vbCrLf & _
+               "別の名前でもう一度お試しください(例: 商品部)。", _
+               vbExclamation, modAppDef.APP_NAME
+        Exit Sub
+    End If
+
     Dim dest As String
     On Error Resume Next
     dest = modPublish.PackDestPath(chName)
