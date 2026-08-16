@@ -67,7 +67,9 @@ Public Sub Draw()
 
     Dim shown As Long
     Dim i As Long
-    For i = 0 To PAGE_SIZE - 1
+    ' R33 W5-12: ループ回数をプールの件数でも切る(下の ShownCountFor 参照)。
+    ' 剰余(Mod total)は「別の質問」で巡回させるために必要なので残す。
+    For i = 0 To ShownCountFor(total, PAGE_SIZE) - 1
         Dim idx As Long: idx = (mOffset + i) Mod total
         Dim q As String: q = Trim$(qs(idx))
         If LenB(q) > 0 Then
@@ -111,7 +113,13 @@ Public Sub Draw()
             more.Name = PREFIX & "more"
             more.Adjustments(1) = 0.45
             more.Line.Visible = 0
-            more.Fill.Visible = 0
+            ' R33 W5-14: 塗り無し(Fill.Visible=0)のShapeは、実Excelでは【文字の
+            ' 上だけ】がクリック領域になり、矩形の内側は下のセルへ透過する。
+            ' このボタンは Nexus の素のセルの上にあり、下敷きも救済も無いので、
+            ' 150×22pt のうち 8.5pt の文字を外すと完全な無反応になる
+            ' (modHubStat.bas の nx_hub_footer と同じ確立作法へ揃える)。
+            more.Fill.Visible = -1
+            more.Fill.Transparency = 1
             With more.TextFrame2
                 .TextRange.Text = ChrW(&HD83D) & ChrW(&HDD04) & " 別の質問を見る（全" & total & "件）"
                 .TextRange.Font.Name = "Yu Gothic UI"
@@ -130,6 +138,24 @@ Public Sub Draw()
     modUI.SettleChat
     On Error GoTo 0
 End Sub
+
+' ShownCountFor - 1画面に並べる質問ボタンの数(純関数)。
+'   R33 W5-12: 従来は常に PAGE_SIZE(6)個描き、表示位置を idx=(mOffset+i) Mod
+'   total で決めていた。ループを total で打ち切るガードがどこにも無いため、
+'   質問が6件未満だと idx が 0 へ巻き戻り、同じ質問が2回目・3回目と並ぶ
+'   (3件なら 0,1,2,0,1,2 の2巡)。しかもShape名は PREFIX & idx なので、
+'   巻き戻ったぶんは既存の "nx_sq_0" と同名のShapeが追加生成される。
+'   これは例外ではなく既定経路である: シード0ビルドの質問例は LLM 生成で、
+'   上限は QGEN_MAX_Q = 5 件。つまり生成経路では total は必ず5以下になる。
+Public Function ShownCountFor(ByVal total As Long, ByVal pageSize As Long) As Long
+    If total <= 0 Then Exit Function
+    If pageSize <= 0 Then Exit Function
+    If total < pageSize Then
+        ShownCountFor = total
+    Else
+        ShownCountFor = pageSize
+    End If
+End Function
 
 ' ----------------------------------------------------------------------------
 ' OnPick - 質問ボタンのクリック。入力欄へ入れて、そのまま送信する。
