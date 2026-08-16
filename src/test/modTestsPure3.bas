@@ -167,58 +167,52 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' R3要件D(2026-07-30): Hubタイルの既定値ロジック(空文字を絶対に返さない)。
-' 実体はmodHubStat.DefaultTileValue(UI層・Shape/Worksheet依存の濃い
-' modHub/modHubStatはPURE_ALLOWLISTへ注入できない)にあるため、ここでは
-' 同じ選択規則を複製して固定する(modTestsPure/2でのCanUseTypeArrays複製と
-' 同じ考え方。modHubStat.DefaultTileValueの実装を変えたらこちらも
-' 合わせて直すこと)。
 '
-' 【2026-08-15 R33波1 W1-5・司令塔へ申し送り】
-'   上の「注入できない」という前提は【誤り】であることを実測で確かめた。
-'   modHubStat.bas だけを LibreOffice の一時ライブラリへ入れて
-'   DefaultTileValue(0)〜(7) を呼ぶと、他モジュール(modBoard等)を
-'   注入しなくても正常に 0 / 0 / 0分 / 0% / 0分 / 0分 / 0日 / 0 を返す
-'   ―― DefaultTileValue は Select Case と文字列リテラルだけの純関数で、
-'   Worksheet にも他モジュールにも触らないため。したがって本来の直し方は
-'   tools/run_lo_tests.py の PURE_ALLOWLIST へ "modHubStat" を1行足し、
-'   下のテストから HubTileDefaultTextForTest ではなく
-'   modHubStat.DefaultTileValue を直接叩くことである。
-'   それは今回の担当範囲(src/test/ のみ)の外なので実装していない。裁定を仰ぐ。
-'
-'   それまでの間、下の9件は【写しだけ】を見ていることをテスト名で明示する。
-'   modHubStat.bas の Select Case から Case Else を落とす/Case 3 の "0%" を
-'   "" にする、といった実機で空欄を招く改変をしても、この9件は全PASSのまま
-'   である ―― 「実装はテストで守られている」と読まれないための表示。
+' 【2026-08-16 R33波1 W1-6】実物を叩く形へ昇格した。
+'   R33の全体監査まで、ここは modHubStat.DefaultTileValue の Select Case を
+'   ごと複製したテスト内コピー(HubTileDefaultTextForTest)を検証していた。
+'   実装側の Case Else を落としても Case 3 の "0%" を空文字にしても9件は
+'   全PASSのままで、R3で一度直した「Hub統計が空表示」の再発を自動テストが
+'   まったく検知できなかった(監査の指摘そのもの)。
+'   根拠にしていた前提「modHub/modHubStat は PURE_ALLOWLIST へ注入できない」
+'   は誤りで、DefaultTileValue は Select Case と文字列リテラルだけの純関数
+'   (Worksheet にも他モジュールにも触らない)。tools/run_lo_tests.py の
+'   PURE_ALLOWLIST へ "modHubStat" を1行足し、写しを捨てて実物を直接叩く。
+'   idx は DrawStatTiles 内の labels/vals と同じ並び(0始まり・8枚固定)。
+'   ここが落ちたときに直すのは【実装side(src/ui/modHubStat.bas)】であって、
+'   期待値をコードへ合わせに行かないこと(写しへ退行させないための杭)。
 ' ----------------------------------------------------------------------------
-Private Function HubTileDefaultTextForTest(ByVal idx As Long) As String
-    Select Case idx
-        Case 2, 4, 5   ' 自分の節約時間 / みんなの節約(今日) / みんなの節約(今月)(R13-7a)
-            HubTileDefaultTextForTest = "0分"
-        Case 6         ' 連続ログイン
-            HubTileDefaultTextForTest = "0日"
-        Case 3         ' 本棚の使用量
-            HubTileDefaultTextForTest = "0%"
-        Case Else      ' 質問した回数 / 自己解決 / パック共有
-            HubTileDefaultTextForTest = "0"
-    End Select
-End Function
-
 Private Sub TestHubTileDefaultValue()
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_質問した回数は0", HubTileDefaultTextForTest(0) = "0"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_自己解決は0", HubTileDefaultTextForTest(1) = "0"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_自分の節約時間は0分", HubTileDefaultTextForTest(2) = "0分"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_本棚の使用量は0%", HubTileDefaultTextForTest(3) = "0%"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_みんなの節約今日は0分", HubTileDefaultTextForTest(4) = "0分"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_みんなの節約今月は0分", HubTileDefaultTextForTest(5) = "0分"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_連続ログインは0日", HubTileDefaultTextForTest(6) = "0日"
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_パック共有は0", HubTileDefaultTextForTest(7) = "0"
+    modTestRunner.Check "R3タイル既定値_質問した回数は0", _
+        (modHubStat.DefaultTileValue(0) = "0"), "実際=" & modHubStat.DefaultTileValue(0)
+    modTestRunner.Check "R3タイル既定値_自己解決は0", _
+        (modHubStat.DefaultTileValue(1) = "0"), "実際=" & modHubStat.DefaultTileValue(1)
+    modTestRunner.Check "R3タイル既定値_自分の節約時間は0分", _
+        (modHubStat.DefaultTileValue(2) = "0分"), "実際=" & modHubStat.DefaultTileValue(2)
+    modTestRunner.Check "R3タイル既定値_本棚の使用量は0%", _
+        (modHubStat.DefaultTileValue(3) = "0%"), "実際=" & modHubStat.DefaultTileValue(3)
+    modTestRunner.Check "R3タイル既定値_みんなの節約今日は0分", _
+        (modHubStat.DefaultTileValue(4) = "0分"), "実際=" & modHubStat.DefaultTileValue(4)
+    modTestRunner.Check "R3タイル既定値_みんなの節約今月は0分", _
+        (modHubStat.DefaultTileValue(5) = "0分"), "実際=" & modHubStat.DefaultTileValue(5)
+    modTestRunner.Check "R3タイル既定値_連続ログインは0日", _
+        (modHubStat.DefaultTileValue(6) = "0日"), "実際=" & modHubStat.DefaultTileValue(6)
+    modTestRunner.Check "R3タイル既定値_パック共有は0", _
+        (modHubStat.DefaultTileValue(7) = "0"), "実際=" & modHubStat.DefaultTileValue(7)
 
     ' どのindexでも空文字を返さない(仕様上の絶対条件そのもの)。
     Dim i As Long, emptyN As Long
     For i = 0 To 7
-        If LenB(HubTileDefaultTextForTest(i)) = 0 Then emptyN = emptyN + 1
+        If LenB(modHubStat.DefaultTileValue(i)) = 0 Then emptyN = emptyN + 1
     Next i
-    modTestRunner.Check "R3タイル既定値(写しのみ・実装は未検証)_どのタイルも空文字を返さない", (emptyN = 0), "empty=" & emptyN
+    modTestRunner.Check "R3タイル既定値_どのタイルも空文字を返さない", (emptyN = 0), "empty=" & emptyN
+
+    ' 想定外のidx(タイルが増減した過渡期・呼び出し側のオフバイワン)でも
+    ' 空文字を返さない = Case Else が生きていること。Case Else を落とすと
+    ' 実機ではタイルが空欄で描かれる(R3の症状そのもの)。
+    modTestRunner.Check "R3タイル既定値_範囲外のidxでもCase Elseが空文字を返さない", _
+        (LenB(modHubStat.DefaultTileValue(-1)) > 0 And LenB(modHubStat.DefaultTileValue(8)) > 0), _
+        "-1=[" & modHubStat.DefaultTileValue(-1) & "] 8=[" & modHubStat.DefaultTileValue(8) & "]"
 End Sub
 
 ' ----------------------------------------------------------------------------

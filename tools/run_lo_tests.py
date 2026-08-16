@@ -652,6 +652,19 @@ PURE_ALLOWLIST = [
     #   独立の分割先にした(modTestsPure31と同型の理由)。未注入だと
     #   実行時エラー12になり、テストが実行されないまま全部PASSに見える。
     "modTestsPure32",
+    # modHubStat(2026-08-16 R33波1 W1-6): テストが呼ぶのは DefaultTileValue
+    #   (Hubタイルの既定文字列)1本だけで、Select Case と文字列リテラル
+    #   しか持たない純関数(Worksheet にも他モジュールにも触らない)。
+    #   modDashStat / modProgressBar と同型の「モジュール全体はR4準拠では
+    #   ないが、テストが呼ぶ関数自体はExcelに触れない」型で、Shape とシート
+    #   I/Oを触る DrawStatTiles / OrgMin / TilesHeight 等はテストから呼ばない。
+    #   R33の全体監査で、modTestsPure3 の「Hubタイル既定値」9件が実装ではなく
+    #   同ファイル内の【写し】(HubTileDefaultTextForTest)を検証しており、
+    #   modHubStat 側の Case Else を落としても Case 3 の "0%" を空文字にしても
+    #   全PASSのまま=R3で一度直した「Hub統計が空表示」の再発を自動テストが
+    #   検知できない状態だと判明した。ここへ載せることで実物を直接叩ける
+    #   ようにする(注入せずに呼ぶと実行時エラー12で9件が丸ごと死ぬ)。
+    "modHubStat",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
