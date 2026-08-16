@@ -176,6 +176,28 @@ FinishCleanup0:
 End Sub
 
 ' ----------------------------------------------------------------------------
+' RedrawCurrentIfFront - R33 W5-5: 「描き直し」が「画面遷移」に化けるのを止める。
+' ----------------------------------------------------------------------------
+' modUIShelf.RenderShelf は一覧表モード以外だと modKnowledge.RefreshCurrent へ
+' 委譲する。ところが3モードの再描画実体は対称ではない ―― table(RenderShelf 本体)
+' はセルを書くだけなのに、gallery(modVaultGallery.ShowVaultGallery:102-104)と
+' shared(modShared.Show:51-52)は無条件に ws.Visible=-1 + ActivateSheetRobust を
+' 実行する「必ず前面へ出す」経路である。そのため、チャットで作業している最中の
+' 取込(👎修正の登録・洞察カードの保存)や自動同期タイマーが、利用者が何も押して
+' いないのに画面を本棚へ引きずり出していた(mMode は Hub の📚から入ると gallery
+' のまま残るので、既定の入り方をした端末では常に起きる)。
+' 委譲するのは【マイ本棚シートが既に前面のとき】だけにする。前面でないときは
+' 描かない ―― 描画は冪等なので、次にその画面を開いた時点で必ず追いつく。
+' 実体をここに置くのは modUIShelf が残84字で分岐を書けないため(R33容量裁定)。
+Public Sub RedrawCurrentIfFront()
+    On Error Resume Next
+    Dim activeName As String
+    activeName = Application.ActiveSheet.Name
+    If activeName = modAppDef.SH_SHELF Then modKnowledge.RefreshCurrent
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ApplyExtent - 描き終えた実下端(件数行)から塗りと境界を敷き直す(R19H FA-2)。
 ' ----------------------------------------------------------------------------
 ' modUIShelf.ApplyShelfExtent と同型。Show の冒頭で敷く帯は「まだ何も描いて

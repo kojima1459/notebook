@@ -287,9 +287,7 @@ Public Sub RenderShelf()
         ' 表示中のモードを描き直す方へ委譲する。
         ' 再帰しない: RefreshCurrent の table 分岐はここを呼ぶが、その分岐へ
         ' 入るのは IsTableMode()=True のときだけで、そのときこの委譲は起きない。
-        On Error Resume Next
-        modKnowledge.RefreshCurrent
-        On Error GoTo 0
+        modShared.RedrawCurrentIfFront   ' R33 W5-5(実体はmodShared)
         Exit Sub
     End If
 
