@@ -72,13 +72,37 @@ End Function
 '   利用者は自分が書いた文章を復元できない(MsgBox の1024字制限と
 '   読みやすさのため 400字で切る)。
 ' ----------------------------------------------------------------------------
-Public Function CopyOrGuide(ByVal text As String, ByVal okMsg As String) As String
+'
+'   【2026-08-16 R33H F32: 主因の説明まで一緒に消していた】
+'   okMsg には「何が起きたか」と「だからこうしてください」が1本に混ざって
+'   いることがある(modHubStat は FriendlyMessage("E0905")=「社内ポータルを
+'   このパソコンから開けませんでした。アドレスをコピーしましたので…」を
+'   渡す)。コピーに失敗すると okMsg ごと差し替わるので、【ポータルが開けな
+'   かったという主因そのもの】が画面から消え、利用者には「クリップボードに
+'   入れられませんでした」だけが出る ―― 押したボタンと無関係な話に見える。
+'   主因の1文は failLead として別に受け取り、失敗文の【前置き】に必ず残す。
+'   省略可能にしてあるのは、主因が案内文と分けられない残り3箇所(ご意見箱・
+'   共有失敗の逃がし・パス案内)の呼び方を変えないため。
+' ----------------------------------------------------------------------------
+Public Function CopyOrGuide(ByVal text As String, ByVal okMsg As String, _
+                            Optional ByVal failLead As String = "") As String
     If SetClipboardText(text) Then
         CopyOrGuide = okMsg
         Exit Function
     End If
-    CopyOrGuide = "クリップボードに入れられませんでした" & _
+    Dim lead As String
+    If LenB(Trim$(failLead)) > 0 Then lead = Trim$(failLead) & vbCrLf & vbCrLf
+    CopyOrGuide = lead & "クリップボードに入れられませんでした" & _
                   "(他のアプリが使用中の可能性があります)。" & vbCrLf & _
                   "お手数ですが、次の内容を手で控えてください。" & vbCrLf & vbCrLf & _
                   modUtil.SafeLeft(text, 400)
 End Function
+
+' CopyOrGuideBox - 上の結果をそのまま MsgBox で見せるだけの薄い包み。
+'   呼び出し元(modHubStat)は残72字しか無く、引数を1本増やすと入らない。
+'   憲法の「残り300字未満は実体を余裕モジュールへ置き、1行呼び出しに留める」
+'   に従い、MsgBox の型(vbInformation とタイトル)ごとこちらへ持ってきた。
+Public Sub CopyOrGuideBox(ByVal text As String, ByVal okMsg As String, _
+                          Optional ByVal failLead As String = "")
+    MsgBox CopyOrGuide(text, okMsg, failLead), vbInformation, modAppDef.APP_NAME
+End Sub

@@ -153,7 +153,14 @@ CONTRACT: dict[str, dict] = {
                      # 目印にする(目印にしないと E0302 の汎用文言に潰されて
                      # 「パスワードが原因」が利用者へ届かない)。置き場が
                      # SharedReadFailMsg と同じ理由でここになる。
-                     "EncryptedFileMsg"],
+                     "EncryptedFileMsg",
+                     # PORTAL_FAIL_LEAD(2026-08-16 R33H F32): E0905 の主因の
+                     # 1文だけを取り出せる形にした Const。FriendlyMessage は
+                     # 「主因 + コピーしたので貼ってください」の2文だが、その
+                     # コピー自体に失敗すると modClip.CopyOrGuide が案内文を
+                     # 丸ごと差し替えるため、主因まで消えていた。失敗時の
+                     # 前置きに同じ1文を渡すので、文言の情報源を1箇所に保つ。
+                     "PORTAL_FAIL_LEAD"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
