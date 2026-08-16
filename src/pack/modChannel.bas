@@ -133,10 +133,14 @@ End Function
 ' 購読中か。既定は「全部購読」なので、判定は除外リスト(config
 ' unsubscribed_channels)に載っていないこと。新しい部門が正典を発行したら
 ' 誰も操作しなくても自動的に届く。これが v3 の要。
+' 2026-08-16(R33H F4): 区切りはカンマから "|" へ。Windows のフォルダ名に
+' カンマは使えるため、「品質保証,監査」を解除すると「品質保証」と「監査」の
+' 両方が届かなくなっていた。読み書きと旧形式からの移行は modShareRule 側
+' (純ロジック=modTestsPure35 が境界を固定する)。
 Public Function IsSubscribed(ByVal chName As String) As Boolean
     On Error Resume Next
-    Dim ex As String: ex = "," & modConfig.GetString("unsubscribed_channels", "") & ","
-    IsSubscribed = (InStr(1, ex, "," & chName & ",", vbTextCompare) = 0)
+    IsSubscribed = Not modShareRule.UnsubListHas( _
+        modConfig.GetString("unsubscribed_channels", ""), chName)
     On Error GoTo 0
 End Function
 
@@ -148,18 +152,8 @@ End Function
 ' 書き換える手段が無くなる)。
 Public Sub Subscribe(ByVal chName As String)
     On Error Resume Next
-    Dim ex As String: ex = modConfig.GetString("unsubscribed_channels", "")
-    Dim parts() As String: parts = Split(ex, ",")
-    Dim sb As String
-    Dim i As Long
-    For i = LBound(parts) To UBound(parts)
-        Dim one As String: one = Trim$(parts(i))
-        If LenB(one) > 0 And StrComp(one, chName, vbTextCompare) <> 0 Then
-            If LenB(sb) > 0 Then sb = sb & ","
-            sb = sb & one
-        End If
-    Next i
-    modConfig.SetValue "unsubscribed_channels", sb
+    modConfig.SetValue "unsubscribed_channels", modShareRule.UnsubListRemove( _
+        modConfig.GetString("unsubscribed_channels", ""), chName)
     On Error GoTo 0
 End Sub
 
@@ -167,9 +161,8 @@ End Sub
 Public Sub Unsubscribe(ByVal chName As String)
     On Error Resume Next
     If Not IsSubscribed(chName) Then Exit Sub
-    Dim ex As String: ex = Trim$(modConfig.GetString("unsubscribed_channels", ""))
-    If LenB(ex) > 0 Then ex = ex & ","
-    modConfig.SetValue "unsubscribed_channels", ex & chName
+    modConfig.SetValue "unsubscribed_channels", modShareRule.UnsubListAdd( _
+        modConfig.GetString("unsubscribed_channels", ""), chName)
     On Error GoTo 0
 End Sub
 

@@ -28,6 +28,10 @@ Public Const ATTR_DIRECTORY As Long = 16
 ' 詳細は ShouldRetryProbe のコメント(R33 W4-6)。
 Public Const PROBE_FAST_FAIL_MS As Long = 1000
 
+' 購読しない部門の一覧(config unsubscribed_channels)の区切り(R33H F4)。
+' Windows のフォルダ名に使えない文字であることが選定理由(カンマは使える)。
+Public Const UNSUB_SEP As String = "|"
+
 ' ----------------------------------------------------------------------------
 ' origin タグの一致判定(R33H F1 / BLOCKER)
 ' ----------------------------------------------------------------------------
@@ -62,6 +66,88 @@ End Function
 '   削除の一致判定と同じ正規化を通すことがこの関数の存在理由。
 Public Function ChannelStatKey(ByVal chName As String) As String
     ChannelStatKey = "ch:" & OriginKeyNorm(chName)
+End Function
+
+' ----------------------------------------------------------------------------
+' 購読しない部門の一覧(config unsubscribed_channels)の読み書き(R33H F4)
+' ----------------------------------------------------------------------------
+' 区切りがカンマ1本だった。ところが Windows のフォルダ名にカンマは【使える】
+' ので、「品質保証,監査」という1部門を解除すると「品質保証」と「監査」の
+' 両方が届かなくなる。区切りをフォルダ名に使えない "|" へ変える
+' (modChannel.ListChannels に前例あり)。
+'
+' 【旧カンマ形式からの移行】: 解除する唯一の手段が config の手編集だったため、
+' 既にカンマ形式で設定した端末がある。"|" を1つも含まない値は旧形式と見なし、
+' カンマで分けて読む。一度でも新形式で書き戻せば以後カンマは区切りにならない
+' (= カンマを含む部門名も正しく1件として扱えるようになる)。
+' 旧形式にカンマ入りの部門名を書いていた端末は、その部門が「届く」側へ戻る。
+' 届きすぎ(もう一度解除すればよい)と届かなすぎ(気付けない・戻せない)なら、
+' 前者へ倒す ―― この項目そのものが後者で刺さった欠陥だからである。
+'
+' 名前の突き合わせは OriginKeyNorm(F1)と同じ正規化を通す。ここで vbTextCompare
+' を使うと「営業1課」を解除したつもりが「営業１課」まで届かなくなる。
+' 正規化済みの形は【必ず先頭にも区切りが付く】("|商品部|人事部")。
+' これが「新形式である」ことの印を兼ねる ―― 印が無いと、部門が
+' 「品質保証,監査」1件だけのとき保存値が "品質保証,監査" になり、次に読んだ
+' 時に旧形式(=2部門)と見分けが付かず、F4 で直したはずの巻き添えが復活する。
+' 空要素は落とし、重複は1つにまとめる。
+Public Function UnsubListNorm(ByVal raw As String) As String
+    Dim s As String: s = Trim$(raw)
+    If LenB(s) = 0 Then Exit Function
+    Dim parts() As String
+    If InStr(1, s, UNSUB_SEP, vbBinaryCompare) > 0 Then
+        parts = Split(s, UNSUB_SEP)
+    Else
+        parts = Split(s, ",")          ' 旧形式(移行)
+    End If
+    Dim sb As String
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim one As String: one = Trim$(parts(i))
+        If LenB(one) > 0 Then
+            If Not HasInUnsubNorm(sb, one) Then sb = sb & UNSUB_SEP & one
+        End If
+    Next i
+    UnsubListNorm = sb
+End Function
+
+' 正規化済みリストに含まれるか(内部用。UnsubListNorm を呼ばない=再帰しない)。
+Private Function HasInUnsubNorm(ByVal normList As String, ByVal chName As String) As Boolean
+    If LenB(normList) = 0 Then Exit Function
+    Dim nm As String: nm = OriginKeyNorm(chName)
+    If LenB(nm) = 0 Then Exit Function
+    HasInUnsubNorm = (InStr(1, OriginKeyNorm(normList) & UNSUB_SEP, _
+                            UNSUB_SEP & nm & UNSUB_SEP, vbBinaryCompare) > 0)
+End Function
+
+' 除外リストに載っているか(raw は config の生の値)。
+Public Function UnsubListHas(ByVal raw As String, ByVal chName As String) As Boolean
+    UnsubListHas = HasInUnsubNorm(UnsubListNorm(raw), chName)
+End Function
+
+' 除外リストへ足した結果(既に載っていれば正規化するだけ)。
+Public Function UnsubListAdd(ByVal raw As String, ByVal chName As String) As String
+    Dim s As String: s = UnsubListNorm(raw)
+    UnsubListAdd = s
+    Dim nm As String: nm = Trim$(chName)
+    If LenB(nm) = 0 Then Exit Function
+    If HasInUnsubNorm(s, nm) Then Exit Function
+    UnsubListAdd = s & UNSUB_SEP & nm
+End Function
+
+' 除外リストから外した結果(載っていなければ正規化するだけ)。
+Public Function UnsubListRemove(ByVal raw As String, ByVal chName As String) As String
+    Dim s As String: s = UnsubListNorm(raw)
+    If LenB(s) = 0 Then Exit Function
+    Dim parts() As String: parts = Split(s, UNSUB_SEP)   ' 先頭は必ず空要素
+    Dim sb As String
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        If LenB(parts(i)) > 0 Then
+            If Not OriginMatches(parts(i), chName) Then sb = sb & UNSUB_SEP & parts(i)
+        End If
+    Next i
+    UnsubListRemove = sb
 End Function
 
 ' ----------------------------------------------------------------------------

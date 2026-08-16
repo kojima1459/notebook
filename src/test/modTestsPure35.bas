@@ -212,6 +212,73 @@ Private Sub TestOriginMatches35()
         "Sales" & vbTab & "2"
 End Sub
 
+' ---- R33H F4: 購読しない部門の一覧はカンマではなく "|" で区切る ------------
+'   Windows のフォルダ名にカンマは使えるので、カンマ区切りだと
+'   「品質保証,監査」を解除したときに「品質保証」と「監査」の両方が届かなく
+'   なる。区切りをフォルダ名に使えない "|" へ変え、旧カンマ形式は移行して読む。
+'   discriminate(両方向を対で置く):
+'   ・区切りをカンマへ戻すと「カンマ入りの部門名を1件として扱う」3本が落ちる。
+'   ・旧形式の移行を外す(常に "|" で分ける)と「旧形式の端末が壊れない」
+'     4本が落ちる。
+'   ・突き合わせを vbTextCompare へ戻すと「全角の同名部門は別扱い」が落ちる。
+Private Sub TestUnsubList35()
+    ' (1) 新形式(| 区切り)
+    ChkStr35 "F4_空は空", modShareRule.UnsubListNorm(""), ""
+    ChkStr35 "F4_正規形は先頭にも区切りが付く(新形式である印)", _
+        modShareRule.UnsubListNorm("商品部|人事部"), "|商品部|人事部"
+    ChkStr35 "F4_正規化は冪等", _
+        modShareRule.UnsubListNorm("|商品部|人事部"), "|商品部|人事部"
+    ChkStr35 "F4_空要素と前後空白は落とす", _
+        modShareRule.UnsubListNorm(" 商品部 ||  人事部|"), "|商品部|人事部"
+    ChkStr35 "F4_重複は1つにまとめる", _
+        modShareRule.UnsubListNorm("商品部|商品部"), "|商品部"
+
+    ' (2) 旧カンマ形式からの移行(手編集で設定済みの端末が壊れない)
+    ChkStr35 "F4_旧カンマ形式は移行して読む", _
+        modShareRule.UnsubListNorm("商品部,人事部"), "|商品部|人事部"
+    ChkBool35 "F4_旧形式で解除した部門は解除のまま", _
+        modShareRule.UnsubListHas("商品部,人事部", "人事部"), True
+    ChkBool35 "F4_旧形式で1件だけ書いた端末も解除のまま", _
+        modShareRule.UnsubListHas("商品部", "商品部"), True
+    ChkBool35 "F4_旧形式に無い部門は届く", _
+        modShareRule.UnsubListHas("商品部,人事部", "システム部"), False
+    ' 新形式が1つでも混ざっていれば以後カンマは区切りにしない
+    ' (= カンマを含む部門名を1件として扱えるようになる)。
+    ChkStr35 "F4_新形式が混ざればカンマは名前の一部", _
+        modShareRule.UnsubListNorm("品質保証,監査|商品部"), "|品質保証,監査|商品部"
+
+    ' (3) F4 の本題: カンマ入りの部門名が他部門を巻き込まない
+    Dim after As String
+    after = modShareRule.UnsubListAdd("", "品質保証,監査")
+    ChkStr35 "F4_カンマ入りの部門名は1件として入る", after, "|品質保証,監査"
+    ChkBool35 "F4_カンマ入りの部門は解除されている", _
+        modShareRule.UnsubListHas(after, "品質保証,監査"), True
+    ChkBool35 "F4_巻き添えにされない(品質保証は届く)", _
+        modShareRule.UnsubListHas(after, "品質保証"), False
+    ChkBool35 "F4_巻き添えにされない(監査は届く)", _
+        modShareRule.UnsubListHas(after, "監査"), False
+
+    ' (4) 足す・外すの往復
+    ChkStr35 "F4_足す", modShareRule.UnsubListAdd("商品部", "人事部"), "|商品部|人事部"
+    ChkStr35 "F4_既に載っていれば増やさない", _
+        modShareRule.UnsubListAdd("商品部|人事部", "商品部"), "|商品部|人事部"
+    ChkStr35 "F4_空名は足さない", modShareRule.UnsubListAdd("商品部", "  "), "|商品部"
+    ChkStr35 "F4_外す", modShareRule.UnsubListRemove("商品部|人事部", "商品部"), "|人事部"
+    ChkStr35 "F4_最後の1件を外すと空", _
+        modShareRule.UnsubListRemove("商品部", "商品部"), ""
+    ChkStr35 "F4_載っていない部門を外しても変わらない", _
+        modShareRule.UnsubListRemove("商品部|人事部", "システム部"), "|商品部|人事部"
+    ChkBool35 "F4_足して外せば元に戻る", _
+        (modShareRule.UnsubListRemove( _
+            modShareRule.UnsubListAdd("商品部", "人事部"), "人事部") = "|商品部"), True
+
+    ' (5) 突き合わせは F1 と同じ正規化(全角/半角を畳まない・ASCII大小は畳む)
+    ChkBool35 "F4_全角の同名部門は別部門として届く", _
+        modShareRule.UnsubListHas("営業1課", "営業１課"), False
+    ChkBool35 "F4_ASCIIの大小は同じ部門とみなす", _
+        modShareRule.UnsubListHas("Sales", "sales"), True
+End Sub
+
 Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R33-" & label, (got = want), _
         "実際=" & got & " 期待=" & want
@@ -237,6 +304,9 @@ H04Next35:
 H05Next35:
     On Error GoTo H05Fail35
     TestOriginMatches35
+H06Next35:
+    On Error GoTo H06Fail35
+    TestUnsubList35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -259,6 +329,10 @@ H04Fail35:
     Resume H05Next35
 H05Fail35:
     modTestRunner.Check "TestOriginMatches35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H06Next35
+H06Fail35:
+    modTestRunner.Check "TestUnsubList35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub
