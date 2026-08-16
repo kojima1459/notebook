@@ -1105,6 +1105,14 @@
       "note": "R32波4 W4-5(背景画像方式)の純ロジック回帰。modTestsPure30(波1)/modTestsPure31(波2)は直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31と同型)。固定するもの: (A)modBackdrop.BmpHex — 8×8・24bit BMPの全246バイト(492字。2026-08-14 R32 Fix波 F13で1×1から拡大。タイル回数1/64)。dark RGB(15,23,42)/白/黒のゴールデンと、画素がBGR順であること(RGB(1,2,3)→030201)、1行24バイト=パディング0で画素データが192バイトになることを単独で撃つ。RGB/BGRの取り違えはコンパイルもLOも素通りし、実機では「青いテーマなのに赤い背景」という形でしか現れないため。(B)modBackdrop.MemoKey/MemoPut — 描画のたびに呼ばれるApplyが同じシートへ同じ色を敷き直さないための冪等メモ(別シートは追加/同一シートは古い1件を落として再登録/色の前方一致で誤ヒットしない)。Worksheet.SetBackgroundPicture自体はExcel固有APIでLOでは検証できず、--mode compileが通ることだけを確認する(実機確認はユーザー)。"
     },
     {
+      "name": "modTestsPure33",
+      "path": "src/test/modTestsPure33.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33波2(個人情報・共有の関所)の純ロジック回帰。modTestsPure(残1,087字)には入らず、modTestsPure30/31/32は直近の波が触ったばかりのため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31/32と同型)。固定するもの: (A)W2-1 modPii.ScanText の全角ゴールデン — 全角数字の電話番号(区切りはU+FF0D/U+2212/U+30FC/U+FF5Eの4種すべて)・区切り無しの全角10桁・全角と半角の混在・全角＠のメールが検知されること。負例として全角9桁が非検知であること(判定閾値10桁を触っていない証明)と、半角入力の答えが従来と1つも変わらないこと。区切り文字はChrWで組む — U+2212はCP932でU+FF0Dと同じバイト0x817Cへ潰れるため、生の文字を置くと注入後に同じ文字を2回検査する嘘のテストになる。(B)W2-2 modShareRule.ExpiryDecision の不変条件(4) — reachableNow=Trueなら何があっても\"none\"(wipeもwarnもwarn_firstも返さない。L=1..60×d=0..200の総当たり)。同時に逆向きの検算として、到達不能・期限超過・予告済み・未消去の4条件が揃えば従来どおり必ず\"wipe\"(L=1..60×d=L..L+60の総当たり)。この2つは対で意味を持つ(片方だけだと「何も消さない」実装でも「常に消す」実装でも通ってしまう)。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",
