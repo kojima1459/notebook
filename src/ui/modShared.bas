@@ -653,6 +653,7 @@ Public Sub OnPurgeChannel()
     ' 消したはずの資料が画面に残り続けた(「消えていない」ようにしか見えない)。
     redraw = True
     Dim purgeOk As Boolean: purgeOk = True
+    modIntegrity.ResetPurgeMark      ' R33H M8: 失敗の向きを見る印を落としてから
     removed = modChannel.PurgeChannelChunks(chName, purgeOk)
     modStats.SetStatText modShareRule.ChannelStatKey(chName), ""
 
@@ -660,13 +661,29 @@ Public Sub OnPurgeChannel()
     ' 購読解除の確認も出さない(失敗したのに「今後届きません」まで言うと、
     ' 資料は残ったまま供給だけ止まる=いちばん悪い状態になる)。
     If Not purgeOk Then
+        ' R33H M8: 失敗の【向き】で案内を分ける。F2 は失敗の形を「消し損ね」から
+        ' 【欠落】へ反転させたのに、文面は旧実装のまま「残っているときはやり直して
+        ' ください」と案内していた ―― 実際に起きているのは他部門・自作の資料まで
+        ' 消えている状態で、やり直しても戻らない。1行も消せていない(未着手)なら
+        ' 資料は無事で、やり直しが正しい案内になる。
+        Dim partialLost As Boolean: partialLost = modIntegrity.PurgePartial()
         modLog.LogUsage "channel_purge_ui", "knowledge", _
                         "channel=" & chName & " shown=" & shown & _
-                        " removed=" & removed & " purge_ok=no"
-        MsgBox "「" & chName & "」の資料の削除に失敗した可能性があります。" & vbCrLf & vbCrLf & _
-               "マイ本棚を開いて、資料が減っているかご確認ください。" & vbCrLf & _
-               "残っているときは、もう一度この操作をやり直してください。", _
-               vbExclamation, title
+                        " removed=" & removed & " purge_ok=no" & _
+                        " partial=" & IIf(partialLost, "yes", "no")
+        If partialLost Then
+            MsgBox "本棚の書き換えに失敗しました。" & vbCrLf & vbCrLf & _
+                   "「" & chName & "」以外の資料 ―― ほかの部門や、ご自分で登録した" & vbCrLf & _
+                   "資料まで消えている可能性があります。マイ本棚を開いてご確認ください。" & vbCrLf & _
+                   "この操作をやり直しても消えた資料は戻りません。" & vbCrLf & _
+                   "このツールの管理担当にご連絡ください。", _
+                   vbExclamation, title
+        Else
+            MsgBox "「" & chName & "」の資料を削除できませんでした。" & vbCrLf & vbCrLf & _
+                   "本棚の資料はそのまま残っています。" & vbCrLf & _
+                   "しばらく待ってから、もう一度この操作をやり直してください。", _
+                   vbExclamation, title
+        End If
         GoTo Done
     End If
 

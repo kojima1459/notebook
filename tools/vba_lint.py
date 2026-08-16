@@ -266,6 +266,11 @@ CONTRACT: dict[str, dict] = {
         #   末尾ClearContents」の順で、代入の途中で落ちると生存行が二重に残った。
         #   置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
         #   (このモジュールの冒頭にある置き場の理由と同じ)。
+        # PurgePartial / ResetPurgeMark(2026-08-16 R33H M8): 上の書き戻しが
+        #   「1行も消していない(未着手)」で失敗したのか「消してから書けなかった
+        #   (欠落)」で失敗したのかの印。同じ失敗でも案内が正反対になる
+        #   (やり直せば直る / やり直しても戻らない)ので、向きを呼び出し元
+        #   (modShared の削除UI)へ渡す。印は操作の単位で ResetPurgeMark。
         # SwapFileWithBackup(2026-08-16 R33H M6): 出来上がった一時ファイルを
         #   本番の名前へ差し替える1回ぶん(呼び口は modShare.BoardWriteSummary)。
         #   不変条件は「dst が存在しない間は bak を絶対に消さない」の1本。
@@ -279,6 +284,7 @@ CONTRACT: dict[str, dict] = {
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "RewriteRowsAfterPurge",
                      "SwapFileWithBackup", "UsedLastRow",
+                     "PurgePartial", "ResetPurgeMark",
                      "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
                      "CohabitCount", "CohabitOtherCount", "IsCohabiting",

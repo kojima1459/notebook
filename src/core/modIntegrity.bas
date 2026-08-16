@@ -36,6 +36,10 @@ Private Const KEY_LAST_PATH As String = "integrity_last_path"
 ' 起動時の警告は1セッション1回まで(Bootが二度走っても二度は出さない)。
 Private mWarned As Boolean
 
+' 直近の一括削除が「消してから書けなかった」(=行が欠けた)側で失敗したか。
+' R33H M8。ResetPurgeMark で落とし、PurgePartial で読む。
+Private mPurgePartial As Boolean
+
 ' R29H F2b: WarnAtStartupはInitUI(modApp.LaunchNexus内)より前(modBoot.bas)に
 ' 呼ばれるため、この時点ではAddChatBubbleが描けない。文言をここへ保留し、
 ' InitUI後の既存経路(modBoard.BootBoard)からFlushPendingBubblesで1回だけ出す。
@@ -181,6 +185,12 @@ End Sub
 '   握り潰し「0件 削除しました」と表示する余地があった)。
 ' 置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
 '   (このモジュールの冒頭に書いた理由と同じ。憲章§4-6)。
+' 2026-08-16(R33H M8): 失敗の【向き】を呼び出し元へ残す。ClearContents に失敗
+'   したなら1行も消していない(未着手=資料はそのまま。やり直せば直る)が、
+'   消してから書けなかったなら行が欠けている(やり直しても戻らない)。同じ
+'   「失敗」でも利用者への案内が正反対になるので、後者だけ印を立てる。
+'   一連の削除操作の前に ResetPurgeMark を呼ぶこと(複数タグを回す経路が
+'   あるため、印は操作の単位でクリアする)。
 Public Function RewriteRowsAfterPurge(ByVal ws As Worksheet, ByVal colCount As Long, _
                                       ByRef survivors As Variant, ByVal n As Long, _
                                       ByVal oldRows As Long) As Boolean
@@ -213,8 +223,20 @@ Public Function RewriteRowsAfterPurge(ByVal ws As Worksheet, ByVal colCount As L
         If Err.Number = 0 Then wrote = wrote + k
     Next st
     RewriteRowsAfterPurge = (wrote = n)
+    If wrote <> n Then mPurgePartial = True   ' 消した後で書けなかった=欠落側
     On Error GoTo 0
 End Function
+
+' PurgePartial - 直近の一括削除が【欠落】側で失敗したか(R33H M8)。
+'   False は「1行も消していない(未着手)」= やり直せば戻る側。
+Public Function PurgePartial() As Boolean
+    PurgePartial = mPurgePartial
+End Function
+
+' ResetPurgeMark - 一括削除の一連の操作を始める前に印を落とす(R33H M8)。
+Public Sub ResetPurgeMark()
+    mPurgePartial = False
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' DataShrunk - 「前回保存した時より資料が減ったか」(純ロジック)。
