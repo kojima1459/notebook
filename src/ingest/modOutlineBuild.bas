@@ -221,11 +221,24 @@ LoopDone:
     On Error GoTo Quiet
     If doneN < 1 Then Exit Sub
 
+    ' 2026-08-16(R33波3 W3-4): 世代キーを刻むのは【完走したときだけ】。
+    ' このループは中断(Exit For)・ESC(Resume LoopDone)・章単位の想定外エラー
+    ' (Resume Next で sums(i)=FAIL_TEXT のまま)でも doneN>=1 なら書き込む。
+    ' そこへ現行世代を刻むと、読み手(modBackfill.BuildOutlineSourceSet)は
+    ' 「1章でも現行世代で書けていれば仕上げ済み」と見なすので、60章のうち
+    ' 数章しか無い資料が【永久に】⚡資料の仕上げの候補から外れる。
+    ' 俯瞰質問はその数章ぶんしか見ないまま固定され、欠落は誰にも見えない。
+    Dim failN As Long
+    For i = 1 To doneN
+        If sums(i) = FAIL_TEXT Then failN = failN + 1
+    Next i
+
     ' 作り直し: 同じ資料の古い章要約を落としてから今回ぶんを1回で書く
     ' (取込フック側でも掃除しているが、ここが唯一の書込み口なので二重に守る。
     '  同じ資料の行が2組並ぶと、章選択の段で同じ章が2回候補に出る)。
     modOutlineStore.RemoveOutlineForSource sourceName
-    modOutlineStore.WriteOutlineRows srcs, chKeys, sums, kws, chCount, doneN, OUTLINE_LOGIC_VER
+    modOutlineStore.WriteOutlineRows srcs, chKeys, sums, kws, chCount, doneN, _
+        OutlineVerFor(doneN, nCh, failN)
 
     On Error Resume Next
     modUIMain.SetStage ""
@@ -276,6 +289,25 @@ End Sub
 '     保守的動作で、無い章立てを推測するよりも外れ方が小さい。
 '   ・空/">"だけ/先頭が空の path は空文字("章が分からない"という正しい答え。
 '     呼び出し元はその行を束ねの対象から外す)。
+' ----------------------------------------------------------------------------
+' OutlineVerFor - doc_outline へ刻む世代キー(純ロジック)。
+'   2026-08-16(R33波3 W3-4): 世代キーは「どのロジックで作ったか」しか表せない
+'   のに、読み手(modBackfill.BuildOutlineSourceSet)は「仕上がっているか」の
+'   判定に使う。したがって【完走していない章要約に現行世代を刻んではならない】。
+'   0 を返すと、読み手の後方互換読み(Val("")=0)と同じ「未仕上げ」扱いになり、
+'   ⚡資料の仕上げの候補として正しく再提案される(移行処理は不要)。
+'   未完走とみなす条件は2つ:
+'     ・doneN < nCh …… 中断・ESCで章の途中で抜けた
+'     ・failN > 0   …… 章単位の想定外エラーで "(要約失敗)" のまま残った章がある
+' ----------------------------------------------------------------------------
+Public Function OutlineVerFor(ByVal doneN As Long, ByVal nCh As Long, _
+                              ByVal failN As Long) As Long
+    If doneN < 1 Then Exit Function
+    If doneN < nCh Then Exit Function
+    If failN > 0 Then Exit Function
+    OutlineVerFor = OUTLINE_LOGIC_VER
+End Function
+
 ' ----------------------------------------------------------------------------
 Public Function ChapterKeyOf(ByVal sectionPath As String) As String
     Dim t As String: t = Trim$(sectionPath)

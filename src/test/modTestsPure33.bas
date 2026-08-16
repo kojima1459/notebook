@@ -555,6 +555,60 @@ Private Function Rep33(ByVal s As String, ByVal n As Long) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' (8) W3-4: 中断・失敗した部分的な章要約に現行世代を刻まない。
+' ----------------------------------------------------------------------------
+'   世代キーは「どのロジックで作ったか」しか表せないのに、読み手
+'   (modBackfill.BuildOutlineSourceSet)は「仕上がっているか」の判定に使う。
+'   60章の規程を10章目で中断すると、旧実装は10行に現行世代を刻み、その資料は
+'   ⚡資料の仕上げの候補から【永久に】外れていた(俯瞰質問は10章ぶんしか
+'   見ないまま固定され、欠落が誰にも見えない)。
+'
+'   【discriminate の作り】
+'   ・「常に現行世代」に戻すと中断・失敗の3件が落ちる。
+'   ・「常に0」にすると完走の1件が落ちる(=仕上げ済みを永久に再提案する
+'     反対向きの事故)。両方を対で置いているので片側だけの実装は通らない。
+' ----------------------------------------------------------------------------
+Private Sub TestOutlineVer33()
+    ' 現行世代の【値】は modOutlineBuild の Public Const だが、他モジュールの
+    ' モジュールレベル宣言を参照するのは実機VBAで事故る書き方なので(vba_lint
+    ' が ERROR で止める)、値そのものではなく「正の値であること」と
+    ' 「完走同士で一致すること」で固定する。
+    Dim cur As Long: cur = modOutlineBuild.OutlineVerFor(60, 60, 0)
+
+    ' --- 完走(60章すべて成功)だけが現行世代 -----------------------------
+    modTestRunner.Check "R33-W3-4_完走したら世代を刻む(正の値)", _
+        (cur > 0), "実際=" & cur
+    modTestRunner.Check "R33-W3-4_1章の資料でも完走なら同じ世代", _
+        (modOutlineBuild.OutlineVerFor(1, 1, 0) = cur), _
+        "実際=" & modOutlineBuild.OutlineVerFor(1, 1, 0) & " 期待=" & cur
+
+    ' --- 事故の再現: 60章を10章目で中断 -----------------------------------
+    modTestRunner.Check "R33-W3-4_中断したら世代を刻まない(0)", _
+        (modOutlineBuild.OutlineVerFor(10, 60, 0) = 0), _
+        "実際=" & modOutlineBuild.OutlineVerFor(10, 60, 0)
+    modTestRunner.Check "R33-W3-4_最後の1章手前で中断でも0", _
+        (modOutlineBuild.OutlineVerFor(59, 60, 0) = 0), _
+        "実際=" & modOutlineBuild.OutlineVerFor(59, 60, 0)
+
+    ' --- 完走しても「(要約失敗)」が残っていれば未完走 ---------------------
+    modTestRunner.Check "R33-W3-4_要約失敗の章が1つでもあれば0", _
+        (modOutlineBuild.OutlineVerFor(60, 60, 1) = 0), _
+        "実際=" & modOutlineBuild.OutlineVerFor(60, 60, 1)
+
+    ' --- 書くものが無い(呼び出し元は Exit Sub する)------------------------
+    modTestRunner.Check "R33-W3-4_0章なら0", _
+        (modOutlineBuild.OutlineVerFor(0, 60, 0) = 0), _
+        "実際=" & modOutlineBuild.OutlineVerFor(0, 60, 0)
+
+    ' --- 未完走の 0 は「仕上げ済み」の線より必ず小さいこと -----------------
+    '   modBackfill は `minVer >= OUTLINE_LOGIC_VER` で仕上げ済みを判定する。
+    '   世代キーを 0 始まりにする将来の変更が入ると、未完走が「仕上げ済み」に
+    '   化けてこの修正が無効化される。そこをここで止める。
+    modTestRunner.Check "R33-W3-4_未完走の0は仕上げ済みの線より小さい", _
+        (0 < cur), "完走時の世代=" & cur
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -579,6 +633,9 @@ G06Next33:
 G07Next33:
     On Error GoTo G07Fail33
     TestGarbleFffd33
+G08Next33:
+    On Error GoTo G08Fail33
+    TestOutlineVer33
 NextDone33:
     On Error GoTo 0
     Exit Sub
@@ -603,6 +660,9 @@ G06Fail33:
     Resume G07Next33
 G07Fail33:
     GroupFail33 "TestGarbleFffd33", Err.Number, Err.Description
+    Resume G08Next33
+G08Fail33:
+    GroupFail33 "TestOutlineVer33", Err.Number, Err.Description
     Resume NextDone33
 End Sub
 

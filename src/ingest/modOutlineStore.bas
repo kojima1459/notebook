@@ -86,8 +86,13 @@ End Function
 '   srcs/keys/sums/kws/ns は並行配列(同じLBound起点・n件ぶん)。呼び出し側の
 '   配列が0始まりでも1始まりでも動くよう LBound から相対で読む。
 '   verNum: この一括書込み全行に記録する世代キー(呼び出し元=
-'   modOutlineBuild.BuildOutlineFor が OUTLINE_LOGIC_VER を渡す。1資料の
+'   modOutlineBuild.BuildOutlineFor が OutlineVerFor の結果を渡す。1資料の
 '   章要約は必ず同じ呼び出しで一括作成されるため、行ごとに変える必要は無い)。
+'   2026-08-16(R33波3 W3-4): 完走しなかった呼び出しは verNum=0 で来る。
+'   0 は読み手(modBackfill)の後方互換読み Val("")=0 と同じ「未仕上げ」で、
+'   その資料は⚡資料の仕上げの候補として再提案される。ここは渡された値を
+'   そのまま刻むだけ=完走かどうかの判断は呼び出し元の責務(この層は
+'   「どのロジックか」しか知らない)。
 '   書けなくても取込は止めない(このシートは上積み=モジュール冒頭の判断)。
 ' ----------------------------------------------------------------------------
 Public Sub WriteOutlineRows(ByRef srcs() As String, ByRef keys() As String, _

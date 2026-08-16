@@ -518,7 +518,13 @@ CONTRACT: dict[str, dict] = {
                      # 2026-08-07(R21H F5): 旧世代outline(StripTocTail導入前に
                      # 保存されたキー)との照合フォールバック用。ChapterKeyOfの
                      # 正規化(StripTocTail)を掛ける前のキーを返す。
-                     "ChapterKeyOfRaw"],
+                     "ChapterKeyOfRaw",
+                     # 2026-08-16(R33波3 W3-4): doc_outline へ刻む世代キーの
+                     # 決定(完走したときだけ現行世代/それ以外は0)。中断・
+                     # 章単位の失敗で書かれた部分的な章要約に現行世代が付くと、
+                     # その資料は⚡資料の仕上げの候補から永久に外れる。
+                     # 判定だけを純関数として切り出し、LOの実行テストで固定する。
+                     "OutlineVerFor"],
     },
     # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
     #   R17より前に取り込んだ資料(my_knowledge にbreadcrumb付きfull_textは
