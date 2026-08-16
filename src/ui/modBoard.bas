@@ -523,7 +523,7 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
     mAggState = "ok"
 
     Dim body As String
-    body = modShare.BoardBodyText( _
+    body = modTelemetry.BoardBodyCarry( _
         modShare.BoardHeadText(mAggStamp, dk, orgD, mk, orgM, yk, orgY, usersN, _
                                capped, totalN), deptAgg, titleAgg)
 
@@ -649,7 +649,7 @@ End Function
 ' ポップアップの組織ブロック(文面の組み立ては modShare.BoardOrgBlock)。
 Private Function OrgBlockForPopup() As String
     OrgBlockForPopup = modShare.BoardOrgBlock(mAggState, FmtMin(mOrgDay), FmtMin(mOrgMon), _
-        FmtMin(mOrgYear), modShare.BoardDeptLine(mMyDept, mDeptMon), _
+        FmtMin(mOrgYear), modShare.BoardDeptLine(mMyDept, mDeptMon, mAggApprox), _
         mAggStamp, mAggUsers, mAggApprox, _
         SCAN_CAP, SUMMARY_MAX_AGE_HOURS)
 End Function

@@ -600,6 +600,17 @@ Public Function SwapFileWithBackup(ByVal tmpPath As String, ByVal dstPath As Str
     SwapFileWithBackup = True
 End Function
 
+' PauseMs - 共有I/Oの再試行のあいだだけ待つ(R33H M12 で modShare から移設。
+'   置き場の理由は SwapFileWithBackup と同じ=modShare が残9字。作りは
+'   modBoard.BoardWait と同型で、Timer が日跨ぎで0へ戻ったら即抜ける)。
+Public Sub PauseMs(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do
+    Loop
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' UsedLastRow - 使用済み範囲の最終行を測る(2026-08-16 R33H M5)。
 ' ----------------------------------------------------------------------------

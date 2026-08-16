@@ -278,12 +278,15 @@ CONTRACT: dict[str, dict] = {
         #   済んで力尽きた回の【唯一の旧版】を自分で消していた(3回失敗で
         #   summary.txt が完全消滅=称号の累積状態も同時に消える)。
         #   置き場が基盤層なのは modShare が残509字で分岐を書けないため。
+        # PauseMs(2026-08-16 R33H M12): 共有I/Oの再試行のあいだ待つ小さな
+        #   ループ。上の差し替えと同じ呼び口(modShare.BoardWriteSummary /
+        #   BoardCarryTitles)で使うので、置き場も同じにした(modShare の残字)。
         # UsedLastRow(2026-08-16 R33H M5): 使用済み範囲の最終行の実測。捨て読み
         #   での再計算と「UsedRange を1回だけ参照する」の2作法を畳んだ1本。
         #   modBackdrop.ApplyCF の自己検算が使う(あちらは残155字)。
         "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
                      "RecordSaveMark", "RewriteRowsAfterPurge",
-                     "SwapFileWithBackup", "UsedLastRow",
+                     "SwapFileWithBackup", "UsedLastRow", "PauseMs",
                      "PurgePartial", "ResetPurgeMark",
                      "DataShrunk", "IsVolatilePath",
                      "IsUsedRangeBloated",
@@ -1757,6 +1760,11 @@ CONTRACT: dict[str, dict] = {
             # BoardForceWaitText(R33H F19): 「更新」を下限間隔の中で押したとき
             #   に出す1行。黙って Exit すると壊れたボタンと区別が付かない。
             "BoardForceWaitText",
+            # CarryText(2026-08-16 R33H M12): 直近に【読めた】前回スナップ
+            #   ショットの全文。組織合計と部別を引き継いで単調増加を守る材料で、
+            #   読むのは modTelemetry.BoardBodyCarry の1箇所。読めなかった回は
+            #   空を返す(M7 の見送りと整合し、0件で上書きする経路を作らない)。
+            "CarryText",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。

@@ -281,6 +281,95 @@ Private Sub TestIdKeyHash36()
                  vbBinaryCompare) <> 0), True
 End Sub
 
+' ----------------------------------------------------------------------------
+' R33H M12: 組織合計の引き継ぎ(単調増加を守る / キーが変われば0から積み直す)
+' ----------------------------------------------------------------------------
+'   F18 で走査窓を回した結果、スナップショットはその回の窓に入った人だけの
+'   合計になり、「今月 約1,200時間」が翌日「約780時間」へ【減る】。前回の値と
+'   大きい方を採って月内は減らないようにする(ユーザー裁定)。
+'   ただしキーが変われば1つも引き継がない ―― ここを外すと月が替わっても
+'   先月の値が max で生き残り【今月が永久に減らない】= 元より重い壊れ方。
+'   discriminate(両方向を対で置く):
+'   ・max をやめる(常に今回の値)と「同日内の再実行」「日替わり」が落ちる。
+'   ・キー判定を外す(常に max)と「月替わり」「年替わり」「年末」が落ちる。
+'   ・日/月/年を1つのフラグでまとめると、年末(3つ同時に替わる)か
+'     日替わり(今日だけ替わる)のどちらかが必ず落ちる。
+' ----------------------------------------------------------------------------
+Private Sub TestBoardCarry36()
+    ' (1) 引き継ぎの1マス
+    ChkLong36 "M12_同じキーなら大きい方(前回が大)", _
+        modTelemetry.BoardCarryNum("202608", "202608", 1200, 780), 1200
+    ChkLong36 "M12_同じキーなら大きい方(今回が大)", _
+        modTelemetry.BoardCarryNum("202608", "202608", 780, 1200), 1200
+    ChkLong36 "M12_キーが違えば引き継がない", _
+        modTelemetry.BoardCarryNum("202607", "202608", 1200, 80), 80
+    ChkLong36 "M12_今のキーが空なら引き継がない", _
+        modTelemetry.BoardCarryNum("202608", "", 1200, 80), 80
+
+    ' (2) ヘッダ全体。日・月・年をそれぞれ独立に判定する。
+    Dim cur As String
+    cur = modShare.BoardHeadText("2026-08-16 09:10:00", "20260816", 80, _
+        "202608", 780, "2026", 4000, 500, True, 12000)
+
+    ' 同じ日にもう一度走った: 3つとも減らない。
+    ChkStr36 "M12_同日内の再実行は3つとも減らない", _
+        modTelemetry.BoardCarriedHead(modShare.BoardHeadText("2026-08-16 09:00:00", _
+            "20260816", 100, "202608", 1200, "2026", 5000, 500, True, 12000), cur), _
+        modShare.BoardHeadText("2026-08-16 09:10:00", "20260816", 100, _
+            "202608", 1200, "2026", 5000, 500, True, 12000)
+
+    ' 日が替わった(同じ月): 今日は0から、今月と今年は引き継ぐ。
+    ChkStr36 "M12_日替わりは今日だけ0から", _
+        modTelemetry.BoardCarriedHead(modShare.BoardHeadText("2026-08-15 09:00:00", _
+            "20260815", 100, "202608", 1200, "2026", 5000, 500, True, 12000), cur), _
+        modShare.BoardHeadText("2026-08-16 09:10:00", "20260816", 80, _
+            "202608", 1200, "2026", 5000, 500, True, 12000)
+
+    ' 月が替わった(同じ年): 今日と今月は0から、今年だけ引き継ぐ。
+    ChkStr36 "M12_月替わりは今日と今月が0から", _
+        modTelemetry.BoardCarriedHead(modShare.BoardHeadText("2026-07-31 09:00:00", _
+            "20260731", 100, "202607", 1200, "2026", 5000, 500, True, 12000), cur), _
+        modShare.BoardHeadText("2026-08-16 09:10:00", "20260816", 80, _
+            "202608", 780, "2026", 5000, 500, True, 12000)
+
+    ' 年末→年始(日・月・年が同時に替わる): 3つとも0から。
+    Dim newYear As String
+    newYear = modShare.BoardHeadText("2027-01-01 09:10:00", "20270101", 80, _
+        "202701", 780, "2027", 4000, 500, True, 12000)
+    ChkStr36 "M12_年末をまたぐと3つとも0から", _
+        modTelemetry.BoardCarriedHead(modShare.BoardHeadText("2026-12-31 09:00:00", _
+            "20261231", 100, "202612", 1200, "2026", 5000, 500, True, 12000), newYear), _
+        newYear
+
+    ' 年だけ替わって月キーが同じという入力は現実には無いが、独立判定なので
+    ' 「今年だけ0から」に倒れる(1つのフラグでまとめた実装はここで落ちる)。
+    ChkStr36 "M12_年だけ替われば今年だけ0から", _
+        modTelemetry.BoardCarriedHead(modShare.BoardHeadText("2026-08-16 09:00:00", _
+            "20260816", 100, "202608", 1200, "2025", 5000, 500, True, 12000), cur), _
+        modShare.BoardHeadText("2026-08-16 09:10:00", "20260816", 100, _
+            "202608", 1200, "2026", 4000, 500, True, 12000)
+
+    ' 壊れた引き継ぎ元(ヘッダが空)からは何も引き継がない。
+    ChkStr36 "M12_引き継ぎ元が空なら今回の値のまま", _
+        modTelemetry.BoardCarriedHead("", cur), cur
+
+    ' (3) 部別(D行)は月キーで一括判定する。
+    ChkBool36 "M12_同じ月なら部別も引き継ぐ", _
+        modTelemetry.BoardCarryDeptOk(modShare.BoardHeadText("2026-08-15 09:00:00", _
+            "20260815", 100, "202608", 1200, "2026", 5000, 500, True, 12000), cur), True
+    ChkBool36 "M12_月が替われば部別は1行も引き継がない", _
+        modTelemetry.BoardCarryDeptOk(modShare.BoardHeadText("2026-07-31 09:00:00", _
+            "20260731", 100, "202607", 1200, "2026", 5000, 500, True, 12000), cur), False
+    ChkBool36 "M12_引き継ぎ元が空なら部別も引き継がない", _
+        modTelemetry.BoardCarryDeptOk("", cur), False
+
+    ' (4) 部の行にも概算の断りを出す(母数はヘッダ側の BoardApproxSuffix)。
+    ChkStr36 "M12_概算のときは部の行にも断りを付ける", _
+        modShare.BoardDeptLine("営業", 120, True), vbLf & "  部(営業)で今月 約2時間(概算)"
+    ChkStr36 "M12_概算でなければ従来どおり", _
+        modShare.BoardDeptLine("営業", 120, False), vbLf & "  部(営業)で今月 約2時間"
+End Sub
+
 Private Sub ChkLong36(ByVal label As String, ByVal got As Long, ByVal want As Long)
     modTestRunner.Check "R33H-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
@@ -312,6 +401,9 @@ H05Next36:
 H06Next36:
     On Error GoTo H06Fail36
     TestIdKeyHash36
+H07Next36:
+    On Error GoTo H07Fail36
+    TestBoardCarry36
 H01Done36:
     On Error GoTo 0
     Exit Sub
@@ -338,6 +430,10 @@ H05Fail36:
     Resume H06Next36
 H06Fail36:
     modTestRunner.Check "TestIdKeyHash36(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next36
+H07Fail36:
+    modTestRunner.Check "TestBoardCarry36(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done36
 End Sub

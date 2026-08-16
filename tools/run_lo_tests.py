@@ -126,7 +126,7 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #     そのうえで F22/F27/F30/F31 のゴールデン64件を modTestsPure36 で追加
 #     → PASS 2919(SKIP は 12 のまま)。
 EXPECTED_SKIP_MAX = 12
-EXPECTED_PASS_MIN = 2919
+EXPECTED_PASS_MIN = 2956
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -745,6 +745,17 @@ PURE_ALLOWLIST = [
     #   未注入だと実行時エラー12になり、「部門ごとの削除が self / pack: を
     #   巻き込まない」ことの唯一の自動検査が走らないまま全PASSに見える。
     "modTestsPure35",
+    # modTelemetry(2026-08-16 R33H M12): テストが呼ぶのは組織集計の引き継ぎ
+    #   3本(BoardCarryNum / BoardCarriedHead / BoardCarryDeptOk)だけで、
+    #   いずれも文字列と Long しか触らない純関数(内部で呼ぶのも modShare の
+    #   ヘッダ純関数で、modShare はこの一覧に載っている)。Publish /
+    #   SendAnonymousFeedback など共有I/Oを行う口はテストから呼ばない
+    #   (modPack / modShelfSync / modExtractorExcel と同じ「モジュール全体は
+    #   R4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。
+    #   未注入だと実行時エラー12になり、「月が替わったら今月を0から積み直す」
+    #   ―― 外すと今月の数字が永久に減らなくなる ―― の唯一の自動検査が
+    #   走らないまま「全部PASS」に見える。
+    "modTelemetry",
     # modTestsPure36(2026-08-16 R33H Fix波3): modTestsPure34(残45字)からの
     #   分割先。ここへ注入しないと modTestRunner.RunAllPureTests が
     #   modTestsPure36.RunAll36 を呼べず(Variable not defined)、F22/F27/F31/F30

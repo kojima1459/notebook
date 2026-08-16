@@ -352,3 +352,127 @@ Private Sub Wait_(ByVal ms As Long)
         If Timer < t0 Then Exit Do
     Loop
 End Sub
+
+' ============================================================================
+' 組織集計スナップショットの引き継ぎ(2026-08-16 R33H M12)
+' ----------------------------------------------------------------------------
+' 【症状】F18 で走査窓を回すようにした結果、スナップショットに載るのは
+'   その回の窓に入った人だけの合計になった。称号(累積)は引き継いだが、
+'   組織合計(今日/今月/今年)と部別(D行)は引き継いでいないため、
+'   「今月 約1,200時間」が翌日「約780時間」へ【減る】。月間累計として
+'   ありえない動きを全端末が見る。
+'
+' 【規則】(ユーザー裁定: 前回の値を引き継いで大きい方を残す)
+'   ・前回の値と今回の値の大きい方を採る(称号と同じ考え方=単調増加)。
+'   ・ただし引き継ぎ元のキーが今のキーと違えば【1つも引き継がない】。
+'     日・月・年をそれぞれ独立に判定する。日が替われば今日だけ0から、
+'     月が替われば今日と今月が0から、年が替われば3つとも0から。
+'     12/31→1/1 では3つが同時に替わるが、独立判定なので取りこぼしが無い。
+'     ここを1つのフラグでまとめると、月が替わっても先月の値が max で
+'     生き残り【今月が永久に減らない】= 元の症状より重い壊れ方になる。
+'   ・D行(部別)はヘッダに自分のキーを持たないが、中身は「今月ぶんの合算」
+'     (modBoard.BuildSnapshot が f(4)=月キーに一致する行の f(5) だけを
+'     足している)。したがって月キーで一括して判定してよい ―― 月が替われば
+'     部別も1行も引き継がない。
+'   ・引き継ぎ元は「読めた回」だけ(M7 の見送りと整合)。読めなければ
+'     modShare.CarryText() が空を返し、この経路は素通しになる。
+'   ・利用者の操作は一切要らない(発行者端末が集計を作るたびに自動で効く)。
+'
+' 【なぜこのモジュールに在るのか】容量(憲章§4-6)。書式の持ち主 modShare は
+'   残207字、呼び口の modBoard は残36字で1文字も入らない。集計値の意味づけを
+'   扱うこのモジュールが統計層で最も主題が近く、modBoard 側は呼び先の
+'   モジュール名1語の差し替えだけで届く。
+' ============================================================================
+
+' BoardCarryNum - 引き継ぎの1マス【純関数】。
+'   prevKey/curKey が違えば引き継がない(今回の値をそのまま返す)。
+'   同じなら大きい方を返す。curKey が空(壊れた入力)なら引き継がない。
+Public Function BoardCarryNum(ByVal prevKey As String, ByVal curKey As String, _
+                              ByVal prevVal As Long, ByVal curVal As Long) As Long
+    BoardCarryNum = curVal
+    If LenB(curKey) = 0 Then Exit Function
+    If StrComp(prevKey, curKey, vbBinaryCompare) <> 0 Then Exit Function
+    If prevVal > curVal Then BoardCarryNum = prevVal
+End Function
+
+' BoardBodyCarry - 前回ぶんを引き継いでから本文を組み立てる(modBoard の
+'   BuildSnapshot が modShare.BoardBodyText の代わりに呼ぶ唯一の入口)。
+Public Function BoardBodyCarry(ByVal headLine As String, ByRef deptAgg As Object, _
+                               ByRef titleAgg As Object) As String
+    Dim prevText As String
+    On Error Resume Next
+    prevText = modShare.CarryText()
+    On Error GoTo 0
+    If LenB(prevText) = 0 Then
+        BoardBodyCarry = modShare.BoardBodyText(headLine, deptAgg, titleAgg)
+        Exit Function
+    End If
+    Dim prevHead As String: prevHead = modShare.BoardHeadLine(prevText)
+    CarryDeptRows prevText, prevHead, headLine, deptAgg
+    BoardBodyCarry = modShare.BoardBodyText(BoardCarriedHead(prevHead, headLine), _
+                                            deptAgg, titleAgg)
+End Function
+
+' BoardCarriedHead - ヘッダの今日/今月/今年を引き継いだ形へ組み直す。
+'   列番号は modShare.BoardHeadText の見出しにある11列の定義。
+Public Function BoardCarriedHead(ByVal prevHead As String, ByVal headLine As String) As String
+    BoardCarriedHead = headLine
+    On Error GoTo Bad
+    Dim dk As String: dk = modShare.BoardHeadField(headLine, 2)
+    Dim mk As String: mk = modShare.BoardHeadField(headLine, 4)
+    Dim yk As String: yk = modShare.BoardHeadField(headLine, 6)
+    If LenB(dk) = 0 Or LenB(mk) = 0 Or LenB(yk) = 0 Then Exit Function
+    Dim d As Long, m As Long, y As Long
+    d = BoardCarryNum(modShare.BoardHeadField(prevHead, 2), dk, _
+        modShare.BoardNum(modShare.BoardHeadField(prevHead, 3)), _
+        modShare.BoardNum(modShare.BoardHeadField(headLine, 3)))
+    m = BoardCarryNum(modShare.BoardHeadField(prevHead, 4), mk, _
+        modShare.BoardNum(modShare.BoardHeadField(prevHead, 5)), _
+        modShare.BoardNum(modShare.BoardHeadField(headLine, 5)))
+    y = BoardCarryNum(modShare.BoardHeadField(prevHead, 6), yk, _
+        modShare.BoardNum(modShare.BoardHeadField(prevHead, 7)), _
+        modShare.BoardNum(modShare.BoardHeadField(headLine, 7)))
+    BoardCarriedHead = modShare.BoardHeadText(modShare.BoardHeadField(headLine, 1), _
+        dk, d, mk, m, yk, y, _
+        modShare.BoardNum(modShare.BoardHeadField(headLine, 8)), _
+        (modShare.BoardHeadField(headLine, 9) = "1"), _
+        modShare.BoardNum(modShare.BoardHeadField(headLine, 10)))
+Bad:
+End Function
+
+' BoardCarryDeptOk - D行(部別)を引き継いでよいか【純関数】。D行はヘッダに
+'   自分のキーを持たないが、中身は「今月ぶんの合算」(modBoard.BuildSnapshot が
+'   f(4)=月キーに一致する行の f(5) だけを足す)なので、月キーで一括判定できる。
+Public Function BoardCarryDeptOk(ByVal prevHead As String, ByVal headLine As String) As Boolean
+    Dim mk As String: mk = modShare.BoardHeadField(headLine, 4)
+    If LenB(mk) = 0 Then Exit Function
+    BoardCarryDeptOk = (StrComp(modShare.BoardHeadField(prevHead, 4), mk, vbBinaryCompare) = 0)
+End Function
+
+' CarryDeptRows - 前回の D行(部別=今月ぶん)を deptAgg へ引き継ぐ。
+'   月キーが違えば1行も引き継がない(月が替われば部別も0から積み直す)。
+Private Sub CarryDeptRows(ByVal prevText As String, ByVal prevHead As String, _
+                          ByVal headLine As String, ByRef deptAgg As Object)
+    If deptAgg Is Nothing Then Exit Sub
+    If Not BoardCarryDeptOk(prevHead, headLine) Then Exit Sub
+    On Error GoTo Bad
+    Dim rows() As String: rows = Split(Replace$(prevText, vbCrLf, vbLf), vbLf)
+    Dim i As Long
+    For i = 1 To UBound(rows)
+        Dim c() As String: c = Split(rows(i), vbTab)
+        If UBound(c) >= 2 Then
+            If c(0) = "D" Then
+                Dim k As String: k = Trim$(c(1))
+                Dim v As Long: v = modShare.BoardNum(c(2))
+                If LenB(k) > 0 Then
+                    If deptAgg.Exists(k) Then
+                        If v > CLng(deptAgg(k)) Then deptAgg(k) = v
+                    Else
+                        deptAgg(k) = v
+                    End If
+                End If
+            End If
+        End If
+    Next i
+Bad:
+End Sub

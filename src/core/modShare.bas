@@ -67,6 +67,8 @@ Private Const KEY_SCAN_RUNS As String = "board_scan_runs"
 ' 直近の称号引き継ぎが「在るのに読めなかった」で終わったか(R33H M7)。
 ' 立っている間は集約スナップショットを書かない(0件で全社の称号を消さない)。
 Private mCarrySkip As Boolean
+' 前回スナップショットの全文(R33H M12。引き継ぎの材料)。
+Private mCarryText As String
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -412,17 +414,16 @@ End Function
 '   偽装不能」という設計の売りが、ハッシュのくじ引きに化けていた。
 '
 ' 直し方(2つ組で「恒久除外」を消す):
-'   (1) 走査の起点を日ごとにずらす(BoardScanStart)。窓は capN 本ぶんで、
-'       起点も1日 capN 本ずつ進むので、窓は輪をきれいに敷き詰める ――
-'       ceil(本数/capN) 日で【全員が必ず1回は読まれる】(12,000人・500本なら
-'       24日)。名前の列挙(ファイルを開かない)は全件やるので、母数も正確。
-'   (2) 称号行は前回のスナップショットから引き継ぐ(BoardCarryTitles)。
-'       (1)だけだと、その日の窓に入らなかった人の称号が1日ごとに点いたり
-'       消えたりする。感謝の受領数は減らない量なので、引き継いで上書きして
-'       いく形が事実に合う。結果、一巡すれば全員の称号が載り、以後は消えない。
-' 残る限界(記録): 名前の列挙そのものは BOARD_ENUM_CAP 本で止める(メモリの
-'   安全弁)。設計目標の12,000人に対して4倍の余裕を取ってあるが、これを
-'   超える規模では再び末尾が落ちる。そこまで行ったら部署ごとに集計を割る。
+'   (1) 走査の起点をずらす(BoardScanStart)。窓は capN 本ぶんで起点も capN 本
+'       ずつ進むので窓が輪を敷き詰め、ceil(本数/capN) 回で【全員が必ず1回は
+'       読まれる】(12,000人・500本なら24回)。歩幅は R33H M11 で「実際に
+'       走った回数」へ(日付だと飛ぶ)。名前の列挙は全件やるので母数も正確。
+'   (2) 窓に入らなかった人の値は前回のスナップショットから引き継ぐ。称号は
+'       BoardCarryTitles、組織合計と部別は R33H M12(単調増加を守る)。
+'       どちらも「減らない量」なので引き継いで上書きする形が事実に合う。
+' 残る限界(記録): 名前の列挙は BOARD_ENUM_CAP 本で止める(メモリの安全弁)。
+'   設計目標12,000人の4倍の余裕だが、超える規模では再び末尾が落ちる
+'   (そこまで行ったら部署ごとに集計を割る)。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -490,15 +491,14 @@ End Function
 '   欠けた人の称号を「無かったこと」にして書き戻してしまう。
 '
 ' 2026-08-16(R33H M7): 読みを3回試し、読めなかった回は【書き込みごと見送る】。
-'   称号は累積方式で、累積状態はこのファイルにしかない。ここだけが一発勝負で、
-'   1回外すと carried=0 のまま書き戻され、全社の称号が最大 ceil(本数/窓) 日
-'   (12,000名・500本なら24日)消える。他の共有読みは全部 ReadBeacon の
-'   3回×150/300/450ms を通っている(「40人いれば5件くらい続けて読めない日は
-'   珍しくない」= あちらのコメント)。見送りの印は mCarrySkip。
-'   ファイルがそもそも無い初回は見送らない(見送ると1本目が永久に書けない)。
+'   累積状態はこのファイルにしかないのに、ここだけが一発勝負だった。1回外すと
+'   carried=0 で書き戻され、全社の称号が最大 ceil(本数/窓) 回(12,000名・500本
+'   なら24回)消える。他の共有読みは全部 ReadBeacon の3回×150/300/450ms 経由。
+'   見送りの印は mCarrySkip。ファイルが無い初回は見送らない(1本目が書けない)。
 ' ----------------------------------------------------------------------------
 Public Function BoardCarryTitles(ByVal folderPath As String, ByRef titlesOut As Object) As Long
     mCarrySkip = False
+    mCarryText = ""      ' R33H M12: 読めた回だけ引き継ぐ
     If titlesOut Is Nothing Then Exit Function
     If LenB(folderPath) = 0 Then Exit Function
     On Error GoTo Bad
@@ -510,18 +510,24 @@ Public Function BoardCarryTitles(ByVal folderPath As String, ByRef titlesOut As 
         If modUtilText.ReadTextFileUtf8(p, rec) Then
             If BoardEndCount(rec) >= 0 Then
                 Dim ignored As Long
+                mCarryText = rec
                 ignored = BoardReadRows(rec, "", titlesOut)
                 BoardCarryTitles = titlesOut.Count
                 Exit Function
             End If
         End If
-        BoardPause 150 * attempt
+        modIntegrity.PauseMs 150 * attempt
     Next attempt
     mCarrySkip = True
     Exit Function
 Bad:
     ' 例外で抜けた=読めたとは言えない。0件で上書きしない側へ倒す。
     mCarrySkip = True
+End Function
+
+' CarryText - 前回スナップショットの全文(R33H M12)。空=引き継がない。
+Public Function CarryText() As String
+    CarryText = mCarryText
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -604,22 +610,18 @@ End Function
 ' ----------------------------------------------------------------------------
 ' BoardWriteSummary - 集約スナップショットを置き換える(2026-08-16 R33 W6-1)。
 '   書きかけを他端末に読ませないため、いったん自分専用の一時ファイル
-'   (summary_<自分hash>.tmp)へ書いてから上書きコピーする ―― 共有への
-'   配布物を一時ファイル経由で置く modPublish と同じ作法。一時ファイル名に
-'   hashが入るので複数の発行者端末が同時に書いても一時ファイルは衝突せず、
-'   最後のコピーが競合しても失敗するだけで既存の summary.txt は壊れない
-'   (次の集計でどちらかが書き直す)。
-'   書き込み自体は AV ロックに備えて3回だけ試す(modBoard のビーコン I/O と
-'   同じ考え方)。
+'   (summary_<自分hash>.tmp)へ書いてから差し替える ―― 共有への配布物を
+'   一時ファイル経由で置く modPublish と同じ作法。名前に hash が入るので
+'   発行者が複数台でも一時ファイルは衝突せず、差し替えが競合しても失敗する
+'   だけで既存の summary.txt は壊れない。書き込みは AV ロックに備えて3回試す。
 '
 '   2026-08-16(R33H F15/F16): 置き換えを FileCopy から【rename 方式】へ変え、
 '   置き換えも3回試すようにした。
 '   ・FileCopy は宛先を切り詰めてから先頭へ書くので、読み手が「ヘッダだけ
-'     揃った壊れた集計」を掴み得た(それを "ok" と誤判定していた。BoardEndCount
-'     の見出し参照)。rename は【中身の完全な1本を、その名前へ差し替える】
-'     操作で、読み手が半端な内容を見る瞬間が存在しない ―― 見えるのは
-'     「旧版」「新版」「(一瞬だけ)ファイルが無い」の3つだけで、無いときは
-'     読む側が "none"(集計はまだありません)へ倒れる。これが原子性の根拠。
+'     揃った壊れた集計」を掴み得た(BoardEndCount の見出し参照)。rename は
+'     完全な1本をその名前へ差し替える操作で、読み手に見えるのは「旧版」
+'     「新版」「(一瞬)無い」の3つだけ(無ければ読む側は "none" へ倒れる)。
+'     これが原子性の根拠。
 '   ・差し替え1回ぶん(退避→改名→復旧)の実体と、その不変条件
 '     「dst が無い間は bak を消さない」は modIntegrity.SwapFileWithBackup。
 '     R33H M6 でそこへ移設した(modShare の残字と、壊さない置き換えという
@@ -653,7 +655,7 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
             BoardWriteSummary = True
             Exit Function
         End If
-        BoardPause 200 * attempt
+        modIntegrity.PauseMs 200 * attempt
     Next attempt
 
     ' 3回とも差し替えられなかった。一時ファイルを残すと共有に増え続けるので
@@ -663,16 +665,6 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
     Err.Clear
     On Error GoTo 0
 End Function
-
-' 置き換えの再試行のあいだだけ待つ(modBoard.BoardWait と同じ作り。
-' Timer は日跨ぎで0へ戻るのでその場合は即抜ける)。
-Private Sub BoardPause(ByVal ms As Long)
-    Dim t0 As Double: t0 = Timer
-    Do While (Timer - t0) * 1000# < ms
-        DoEvents
-        If Timer < t0 Then Exit Do
-    Loop
-End Sub
 
 ' ----------------------------------------------------------------------------
 ' BoardStateText - 集計を数字として出せないときに、その理由を利用者の言葉で
@@ -725,7 +717,9 @@ End Function
 '   R33H F18: 容量(modBoard 残173字)のため modBoard.DeptLineForPopup の実体を
 '   こちらへ移した。純関数になったので文言と丸めをテストで固定できる。
 ' ----------------------------------------------------------------------------
-Public Function BoardDeptLine(ByVal deptCode As String, ByVal monMin As Long) As String
+' approx(R33H M12): 部の行にも概算の断りを1語足す(母数はヘッダ側で出す)。
+Public Function BoardDeptLine(ByVal deptCode As String, ByVal monMin As Long, _
+                              Optional ByVal approx As Boolean = False) As String
     If LenB(deptCode) = 0 Then Exit Function
     If monMin <= 0 Then Exit Function
     Dim amt As String
@@ -734,7 +728,8 @@ Public Function BoardDeptLine(ByVal deptCode As String, ByVal monMin As Long) As
     Else
         amt = CLng(Round(monMin / 60, 0)) & "時間"
     End If
-    BoardDeptLine = vbLf & "  部(" & deptCode & ")で今月 約" & amt
+    BoardDeptLine = vbLf & "  部(" & deptCode & ")で今月 約" & amt & _
+        IIf(approx, "(概算)", "")
 End Function
 
 Public Function BoardStateText(ByVal stateText As String, ByVal maxAgeHours As Long) As String
