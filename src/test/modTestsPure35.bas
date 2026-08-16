@@ -546,6 +546,38 @@ Private Sub TestRetryProbe35()
         modShareRule.ShouldRetryProbe(52, 2000, False), False
 End Sub
 
+' ---- R33H M10: 背景画像の失敗回数メモ(modBackdrop.MemoNum)の往復 ----
+'   F14 が新設した唯一の読み出し口。壊れると【上限が効かなくなり、描画の
+'   たびにファイルI/Oが走る】という静かな劣化で、F14 が直したのと同じ壊れ方
+'   (3画面を行き来すると上限が無効化される)へ戻る。画面には何も出ない。
+'   discriminate(両方向を対で置く):
+'   ・head から先頭の "|" を外すと「隣の鍵を前方一致で拾わない」が落ちる。
+'   ・head から "=" を外すと「鍵の前方一致で隣を拾わない」が落ちる。
+'   ・終端 "|" の走査(q=0 の枝)を「終わりまで読む」に変えると
+'     「終端の | が無いメモは0」が落ちる。
+'   ・MemoPut との往復を1本入れてあるので、どちらか片方の書式だけを
+'     変えた実装も必ず落ちる。
+Private Sub TestMemoNum35()
+    ChkLong35b "M10_無い鍵は0", modBackdrop.MemoNum("|ホーム#16777215=2|", "Dashboard#1"), 0
+    ChkLong35b "M10_空メモは0", modBackdrop.MemoNum("", "ホーム#1"), 0
+    ' 隣の鍵の【末尾】に一致する鍵で引いても拾わない(先頭の "|" が効いている)。
+    ChkLong35b "M10_後方一致で隣の鍵を拾わない", _
+        modBackdrop.MemoNum("|ホーム#123=2|", "ム#123"), 0
+    ' 隣の鍵の【前方】に一致する鍵で引いても拾わない("=" が効いている)。
+    ChkLong35b "M10_前方一致で隣の鍵を拾わない", _
+        modBackdrop.MemoNum("|ホーム#123=2|", "ホーム#12"), 0
+    ' MemoPut で入れた値がそのまま引ける(2件入れても混ざらない)。
+    Dim memo As String
+    memo = modBackdrop.MemoPut(modBackdrop.MemoPut("", "ホーム#1", 1), "Dashboard#2", 3)
+    ChkLong35b "M10_MemoPutで入れた値を引ける(1件目)", modBackdrop.MemoNum(memo, "ホーム#1"), 1
+    ChkLong35b "M10_MemoPutで入れた値を引ける(2件目)", modBackdrop.MemoNum(memo, "Dashboard#2"), 3
+    ' 上書きすると新しい値になる(古い1件が残らない=MemoDrop を通っている)。
+    ChkLong35b "M10_同じ鍵は上書きされる", _
+        modBackdrop.MemoNum(modBackdrop.MemoPut(memo, "ホーム#1", 2), "ホーム#1"), 2
+    ' 書きかけ(終端の "|" が無い)は0。数字だけ拾って上限を誤らせない。
+    ChkLong35b "M10_終端の縦棒が無いメモは0", modBackdrop.MemoNum("|ホーム#1=2", "ホーム#1"), 0
+End Sub
+
 Private Sub ChkLong35b(ByVal label As String, ByVal got As Long, ByVal want As Long)
     modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
@@ -596,6 +628,9 @@ H11Next35:
 H12Next35:
     On Error GoTo H12Fail35
     TestRetryProbe35
+H13Next35:
+    On Error GoTo H13Fail35
+    TestMemoNum35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -646,6 +681,10 @@ H11Fail35:
     Resume H12Next35
 H12Fail35:
     modTestRunner.Check "TestRetryProbe35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H13Next35
+H13Fail35:
+    modTestRunner.Check "TestMemoNum35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub
