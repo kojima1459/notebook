@@ -645,12 +645,36 @@ Public Sub OnPurgeChannel()
 
     removed = modChannel.PurgeChannelChunks(chName)
     modStats.SetStatText "ch:" & LCase$(chName), ""
-    modLog.LogUsage "channel_purge_ui", "knowledge", _
-                    "channel=" & chName & " shown=" & shown & " removed=" & removed
     redraw = True
-    MsgBox "「" & chName & "」の資料を " & removed & "件 削除しました。" & vbCrLf & vbCrLf & _
-           "本棚の使用量: " & modChannel.ChunkUsagePercent() & "%", _
-           vbInformation, title
+
+    ' R33 W5-28: 削除だけでは購読は続くので、次に「部門チャンネル」を押すと
+    ' 同じ部門がまた入ってくる。「今回だけ片付けたい」と「もう要らない」を
+    ' 使い分けられるよう、成功した直後にここで1回だけ聞く(既定はいいえ)。
+    ' 「はい」でだけ modChannel.Unsubscribe を呼ぶ ―― この関数は今まで
+    ' src 全体で呼び出し元0件で、ここが初の実呼び出しになる。
+    ' 【再購読の導線は無い】: SubscribeAllAvailable は IsSubscribed が偽の
+    ' 部門を飛ばし、対になる modChannel.Subscribe も呼び出し元0件のため、
+    ' 📡部門チャンネルを押しても戻らない。戻す手段は設定の変更だけなので、
+    ' そのことを聞く前に必ず書く(「元に戻せます」と嘘をつかない)。
+    Dim stopSub As Boolean
+    stopSub = (MsgBox("「" & chName & "」の資料を " & removed & "件 削除しました。" & vbCrLf & _
+              "本棚の使用量: " & modChannel.ChunkUsagePercent() & "%" & vbCrLf & vbCrLf & _
+              "今後この部門の資料を受け取らないようにしますか?" & vbCrLf & vbCrLf & _
+              "「いいえ」… 購読は続きます。次に「部門チャンネル」を押したときに、" & vbCrLf & _
+              "     この部門の最新版がまた入ります(片付けだけしたいときはこちら)。" & vbCrLf & _
+              "「はい」… 以後この部門の資料は届かなくなります。元に戻すには、" & vbCrLf & _
+              "     このツールの管理担当に設定の変更をご依頼ください" & vbCrLf & _
+              "     (この画面からは戻せません)。", _
+              vbYesNo + vbQuestion + vbDefaultButton2, title) = vbYes)
+
+    If stopSub Then
+        modChannel.Unsubscribe chName
+        modSkin.ShowToast "今後「" & chName & "」の資料は届きません。", "info"
+    End If
+
+    modLog.LogUsage "channel_purge_ui", "knowledge", _
+                    "channel=" & chName & " shown=" & shown & " removed=" & removed & _
+                    " unsubscribed=" & IIf(stopSub, "yes", "no")
 
 Done:
     On Error GoTo 0
