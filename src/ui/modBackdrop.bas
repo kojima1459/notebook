@@ -4,12 +4,10 @@ Option Explicit
 ' ============================================================================
 ' modBackdrop - 画面の「地(背景)」だけを受け持つモジュール(2026-08-14 R32波4)
 ' ----------------------------------------------------------------------------
-' なぜ新設したのか(容量と主題の両方):
-'   R32の実機第17報②で、余白まわりの受け皿になり得るモジュールが軒並み
-'   上限30,000字に張り付いていた(実測: modSkin残27 / modHub残159 /
-'   modUIShelf残217 / modHubStat残450 / modChrome残837 / modViewport残1,038)。
-'   憲章§4-6「入らなければ実体を余裕モジュールへ置いて1行呼び出し」の
-'   受け皿がもう無い状態で、地色の話だけを凝集させた新しい置き場所を作る。
+' なぜ新設したのか: R32の実機第17報②の時点で、余白まわりの受け皿になり得る
+'   モジュールが軒並み上限30,000字に張り付いていた(modSkin残27 / modHub残159
+'   / modUIShelf残217 / modHubStat残450 / modChrome残837 / modViewport残1,038)。
+'   憲章§4-6の受け皿がもう無い状態で、地色の話だけを凝集させた置き場所を作る。
 '
 ' 持ち分は「セルの文字・Shapeではなく、その【背後】に何を敷くか」だけ:
 '   ・RestoreShelfHeaderBg  … 一覧表の一律塗りで消える見出し行のグレーを戻す
@@ -43,16 +41,14 @@ Private mBackdropFailLogged As Boolean
 ' どのシートへどの色の背景画像を敷いたか。"|シート名=色|…" の1本の文字列
 ' (MemoKey/MemoPut がこの形の唯一の持ち主)。W4-5。
 Private mApplied As String
-' 失敗した回数(2026-08-14 R32 Fix波 F7 m-3)。従来は失敗してもメモを進めて
-' いたため、一過性の失敗(一時フォルダが一瞬ロックされていた・別プロセスが
-' 掴んでいた等)が【そのセッションの恒久失敗】になっていた。3回までは
-' 敷き直しを試し、それでも駄目なら諦める(描画のたびにファイルI/Oを
-' 繰り返さない、という元の意図はこの上限で守る)。
-Private mFailCount As Long
+' (シート,色)の組ごとの失敗回数メモ(R33H F14。旧 mFailCount/mFailKey の後継)。
+' 一過性の失敗を恒久失敗にしないため3回までは敷き直す(R32 F7 m-3)が、その
+' 3回は組ごとに数える(W5-3)。旧実装は直前1組の鍵しか持たず、3画面を行き来
+' すると鍵が毎回変わってカウンタが0へ戻り、上限が実質無効化されていた ――
+' 失敗原因(TEMP書込不可・AV隔離)は端末全体に効くので3枚とも必ず失敗する。
+' mApplied と同じ "|鍵=値|" 形式で鍵→回数の対を複数持つ(MemoPut/MemoNum)。
+Private mFailMemo As String
 Private Const MAX_APPLY_RETRY As Long = 3
-' 上の mFailCount が今どの (シート,色) 組を数えているか(R33波5a W5-3)。
-' MemoKey と同じ書式の文字列。組が変わったら mFailCount を0に戻す。
-Private mFailKey As String
 
 ' ---- 条件付き書式方式(W5-1)の宣言。設計の根拠は下の「W5-1」節 ----
 Private mCfOff As Boolean        ' 検算に落ちた=この端末では不成立。以後張らない
@@ -115,16 +111,13 @@ End Sub
 ' LogStyleFailOnce - modChrome.ApplyNormalStyleBg の失敗を1行残す。
 ' ----------------------------------------------------------------------------
 '   R32 W4-4【是正・8ラウンド気づけなかった構造的原因】:
-'   modChrome.ApplyNormalStyleBg(R28波1)は
-'   `ws.Parent.Styles("Normal").Interior.Color = 地色` で画面の地を一括で
-'   塗るはずだったが、R32の実機プローブで
-'     ・Styles("Normal") → 実行時エラー1004
-'     ・Styles("標準")   → 実行時エラー1004
-'     ・無保護のホームシートを Activate してから叩いても両方1004
-'   が確定した。つまりこの関数はR28以降【一度も機能していない】。
-'   にもかかわらず `On Error Resume Next` で握り潰され、usage_log にも
-'   err_log にも1行も出ていなかったため、余白問題の調査は「地はNormal
-'   スタイルで塗れている」という誤った前提の上を8ラウンド走り続けた。
+'   modChrome.ApplyNormalStyleBg(R28波1)の
+'   `ws.Parent.Styles("Normal").Interior.Color = 地色` は、R32の実機プローブで
+'   Styles("Normal")/("標準") とも実行時エラー1004(無保護のホームシートを
+'   Activate してからでも同じ)と確定した。つまりR28以降【一度も機能して
+'   いない】。にもかかわらず `On Error Resume Next` で握り潰され usage_log
+'   にも err_log にも1行も出ず、余白問題の調査は「地はNormalスタイルで
+'   塗れている」という誤った前提の上を8ラウンド走り続けた。
 '
 '   よって関数自体は残す(将来のExcel/環境で使える可能性があり、削除すると
 '   「試したが駄目だった」という事実まで消える)が、【黙って失敗しない】。
@@ -298,6 +291,19 @@ Public Function MemoPut(ByVal memo As String, ByVal sheetName As String, _
     MemoPut = s & sheetName & "=" & CStr(bgColor) & "|"
 End Function
 
+' MemoNum - MemoPut で入れた数値を鍵で引く【純関数】。無ければ0(R33H F14)。
+'   鍵に "|" と "=" を含めないことがこの形式の唯一の約束(失敗回数メモの鍵は
+'   "シート名#色"。本アプリの3枚のシート名はどちらも含まない)。
+Public Function MemoNum(ByVal memo As String, ByVal keyName As String) As Long
+    Dim head As String: head = "|" & keyName & "="
+    Dim p As Long: p = InStr(1, memo, head, vbBinaryCompare)
+    If p = 0 Then Exit Function
+    Dim s As Long: s = p + Len(head)
+    Dim q As Long: q = InStr(s, memo, "|")
+    If q = 0 Then Exit Function
+    MemoNum = Val(Mid$(memo, s, q - s))
+End Function
+
 ' ----------------------------------------------------------------------------
 ' Apply - このシートの背後にテーマの地色を敷く(冪等)。
 ' ----------------------------------------------------------------------------
@@ -334,10 +340,8 @@ Public Sub Apply(ByVal ws As Worksheet)
     p = BmpPath(c)
     If LenB(p) = 0 Then GoTo CleanExit
 
-    ' R32 Fix波 F7 m-1: 失敗の理由は WriteBmpFile に【ByRefで返させる】。
-    ' 従来はあちらが最後に Err.Clear してから戻るため、呼び出し側で読む
-    ' Err.Number は必ず 0 で、ログに "err=0 " とだけ書かれていた
-    ' (=無言失敗を潰したはずのログが、何も語らないログになっていた)。
+    ' R32 Fix波 F7 m-1: 失敗の理由は WriteBmpFile に【ByRefで返させる】
+    ' (あちらは最後に Err.Clear して戻るので、呼び出し側の Err は必ず0)。
     Dim wNum As Long, wDesc As String
     If Not WriteBmpFile(p, c, wNum, wDesc) Then
         LogBackdropFailOnce nm, "bmp_write", wNum, wDesc
@@ -374,22 +378,14 @@ Failed:
     ' そのシートだけ白いまま戻らなくなる。
     mApplied = MemoDrop(mApplied, nm)
 
-    ' R32 Fix波 F7 m-3: 失敗はメモへ進めない。ただし無制限に再試行すると
-    ' 描画のたびにファイルI/Oが走るので、3回で打ち切る。
-    '
-    ' R33波5a W5-3: その3回は【(シート,色)の組ごと】に数える。従来はモジュール
-    ' 共有の1本だったため、最初の組で3回使い切ると以後ずっと3以上のままで、
-    ' 2組目以降(3シート×6テーマ=最大18組)は【初回の失敗で即座に】諦めていた
-    ' ―― F7 m-3 が潰したはずの欠陥が2組目以降に残っていた。直前の組の鍵だけ
-    ' 持ち、組が変わったら数え直す。
+    ' 失敗はメモへ進めない(F7 m-3)。3回で打ち切り、その3回は (シート,色) の
+    ' 組ごとに数える(R33H F14。鍵と形式は mFailMemo の宣言部を参照)。
     Dim fkey As String
-    fkey = MemoKey(nm, c)
-    If StrComp(fkey, mFailKey, vbBinaryCompare) <> 0 Then
-        mFailKey = fkey
-        mFailCount = 0
-    End If
-    mFailCount = mFailCount + 1
-    If mFailCount >= MAX_APPLY_RETRY Then mApplied = MemoPut(mApplied, nm, c)
+    fkey = nm & "#" & CStr(c)
+    Dim fcnt As Long
+    fcnt = MemoNum(mFailMemo, fkey) + 1
+    mFailMemo = MemoPut(mFailMemo, fkey, fcnt)
+    If fcnt >= MAX_APPLY_RETRY Then mApplied = MemoPut(mApplied, nm, c)
 
 CleanExit:
     Err.Clear
@@ -497,16 +493,14 @@ End Function
 ' 今使っているBMP以外の MyBookshelf_bg_*.bmp を消す(失敗は握って続行)。
 '
 ' R32マイクロ修正波 F18: %TEMP%全体を列挙するのをやめ、列挙ゼロにした。
-'   【F8で直したはずが列挙が残っていたこと】F8は「VBAのDir$はプロセスに
-'   状態を1つしか持たないので、外側のDir$列挙を壊す」問題を、
-'   Scripting.FileSystemObjectでの列挙(fld.Files)へ置き換えて直した。だが
-'   これは「壊さない列挙」であって「列挙しない」ではない。長期運用PCの
-'   %TEMP%は数千〜数万件が普通で、この関数は描画経路(ScreenUpdating=False
-'   中・テーマ切替時)から呼ばれるため、%TEMP%全件ぶんのCOMオブジェクト
-'   (f.Nameアクセスのたび)を毎回生成するコストがそこに乗っていた。しかも
-'   消す対象は色ごと最大6テーマ×246バイトで、コメント(旧BmpPathの注記)
-'   自身が「残骸は実害が無い」と自認している ―― 実害の無い掃除のために
-'   描画経路を数千〜数万件ぶん重くする理由が無い。
+'   F8は「VBAのDir$はプロセスに状態を1つしか持たず外側の列挙を壊す」問題を
+'   FileSystemObjectの列挙(fld.Files)へ置き換えて直したが、それは
+'   「壊さない列挙」であって「列挙しない」ではない。長期運用PCの%TEMP%は
+'   数千〜数万件が普通で、この関数は描画経路(ScreenUpdating=False中・
+'   テーマ切替時)から呼ばれるため、全件ぶんのCOMオブジェクト生成コストが
+'   毎回そこに乗っていた。消す対象は色ごと最大6テーマ×246バイトで、旧
+'   BmpPathの注記自身が「残骸は実害が無い」と自認している ―― 実害の無い
+'   掃除のために描画経路を重くする理由が無い。
 '
 '   直し方: BmpFileName(色)が色から一意に決まる【決定的な名前】である
 '   性質を使う。「今どのファイルが在るか」を尋ねる(列挙する)必要は無く、
@@ -552,11 +546,10 @@ End Sub
 ' W5-1: 条件付き書式方式(2026-08-16 R33波5a)。背景画像との【二重防御】。
 ' ============================================================================
 ' なぜ第2案が要るのか: :137 の「SetBackgroundPicture が最後の1本」は誤り
-'   だった。条件付き書式は8ラウンド一度も検討されていない(src/ を grep して
-'   利用は0件。唯一の言及は tools/README §4 の「LO では検証できない」)。
-'   背景画像は %TEMP% へのファイル生成に依存し、書込不可・ディスク満杯・
+'   だった。背景画像は %TEMP% へのファイル生成に依存し、書込不可・満杯・
 '   ウイルス対策の隔離・Environ 空 のどれか1つで不発になる。条件付き書式は
-'   そのどれにも依存しない。排他にせず両方を掛ける。
+'   そのどれにも依存しない(8ラウンド一度も検討されていない。src の利用0件)。
+'   排他にせず両方を掛ける。
 '
 ' 機構: 条件付き書式は「セルごとの書式レコード」を作らず、シート単位に
 '   「適用範囲(sqref)1件+ルール1件」として保持され、ルール側の Interior が
@@ -565,19 +558,16 @@ End Sub
 ' ★成立条件はただ1つ:【張っても UsedRange が伸びないこと】。伸びれば B が
 '   下がり停止線 S=B+k も同じだけ下がるので元の木阿弥(R18〜R27を溶かした壁)。
 '   これは LO では検証できない(tools/README §4)ので【実行時に自分で検算する】:
-'   張る直前と直後の使用済み末尾を測り、伸びていたら剥がし、伸びたぶんの行を
-'   Rows.Delete で戻し(解放できるのはこれだけ=R30実機実証)、以後張らない。
-'   成否どちらでも usage_log に1行残す(無言failで8ラウンド溶かしている)。
+'   剥がした後の使用済み末尾と張った直後を測り(順序はR33H F10)、伸びていたら
+'   剥がして伸びたぶんの行を Rows.Delete で戻し(解放できるのはこれだけ=
+'   R30実機実証)、以後張らない。成否どちらでも usage_log に1行残す。
 '
 ' 深さ(仕様との差分・報告済み): 仕様は Rows(B+1:1048576) だが CF_DEPTH_ROWS
 '   行に留めた。(a)要る深さは k(=1画面。窓高750pt/行高18ptで約42行)までで、
 '   400行は行高換算7,200pt=最大窓高の約10倍。(b)全域(約17億セル)の描画コスト
 '   が未検証で、最も重い苦情「フリーズ」を新たに作りかねない。
 '
-' 対象: Apply と同じ TargetSheet の3枚。チャット(Nexus)は modUI.bas:169 が
-'   UserInterfaceOnly:=True で Protect されており設定自体は通るはずだが実機
-'   未検証。背景画像と同じくこの波では対象外(範囲を広げない)。
-'
+' 対象: Apply と同じ TargetSheet の3枚(チャットは保護シートで実機未検証)。
 ' 呼び口: modViewport.ReleaseSheetRowsBelow の末尾。境界が確定した【直後】に
 '   走る必要があり(Setup*Columns 経由の ApplyNormalStyleBg は描画前で B が
 '   未確定)、かつ4画面が必ず通る唯一の合流点。呼び出し側4本は容量が無い。
@@ -651,10 +641,9 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
     ' 0 は modSkin.ResolveColor の「未知のキー」センチネル(Apply と同じ扱い)。
     If c = 0 Then GoTo CfExit
 
-    ' R33H F10: 【剥がしてから測る】。旧実装は「測る→剥がす→張る→測る」で、
-    ' 2回目以降の usedLast に前回張ったぶんで膨らんだ値が入り、(a)検算が永久に
-    ' 無罪放免になり (b)開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進していた。
-    ' 基準値は必ず「自分の前回ぶんを剥がした後」の素の値で測る。
+    ' R33H F10: 【剥がしてから測る】。旧順序(測る→剥がす→張る→測る)では
+    ' 2回目以降の usedLast に前回の膨らんだ値が入り、検算が永久に無罪放免に
+    ' なったうえ開始行が毎描画 CF_DEPTH_ROWS 行ずつ下へ行進していた。
     ClearOwnCF ws
 
     ' 行解放の【後】の実測値。ここが停止線 S = B + k の B。
@@ -695,10 +684,9 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
     vNum = Err.Number: vDesc = Err.Description
     Err.Clear
     ' R33H F12: 【検算できなかった=合格ではない】。旧実装は読み取り失敗を
-    ' If Err.Number = 0 で包んでいたため、検算ごと飛ばして下の成功ログへ
-    ' 到達していた。1回しか出ないログが嘘だと調査が丸ごと迷走する。
-    ' 張ったままにすると伸びていても気づけないので剥がす。mCfOff は立てない
-    ' (剥がしてあるので行進は起きず、次の描画で測り直せる)。
+    ' If Err.Number = 0 で包み、検算ごと飛ばして成功ログへ到達していた。
+    ' 伸びていても気づけないので剥がす。mCfOff は立てない(剥がしてあるので
+    ' 行進は起きず、次の描画で測り直せる)。
     If vNum <> 0 Then
         ClearOwnCF ws
         LogCfOnce nm, "verify_read", vNum, vDesc
@@ -730,9 +718,10 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
         If LenB(scrollAddr) > 0 Then modViewport.ApplyScrollBound ws, scrollAddr
         Err.Clear
         mCfOff = True
+        ' R33H F13: 末尾の True=共用フラグを無視して必ず出す。
         LogCfOnce nm, "usedrange_grew", after - usedLast, _
             "before=" & usedLast & " after=" & after & " range=" & addr & _
-            " del=" & dNum
+            " del=" & dNum, True
         GoTo CfExit
     End If
 
@@ -782,9 +771,14 @@ End Sub
 
 ' 条件付き書式まわりの不首尾を1セッション1回だけ usage_log へ。検算に落ちた
 '   ("usedrange_grew")場合もここを通る(成立しなかったことこそ残す)。
+'   R33H F13: always=True の呼び出しだけは共用フラグ(mCfFailLogged)を無視して
+'   必ず1行出す。この波の答えそのものである usedrange_grew が、先に別の stage
+'   が1回出ただけで一切残らなかった。同時に mCfOff が立つので、無視しても
+'   出るのはそのセッションで1行だけ。
 Private Sub LogCfOnce(ByVal sheetName As String, ByVal stage As String, _
-                      ByVal errNum As Long, ByVal errDesc As String)
-    If mCfFailLogged Then Exit Sub
+                      ByVal errNum As Long, ByVal errDesc As String, _
+                      Optional ByVal always As Boolean = False)
+    If mCfFailLogged And Not always Then Exit Sub
     mCfFailLogged = True
     On Error Resume Next
     modLog.LogUsage "backdrop_cf_failed", sheetName, _
