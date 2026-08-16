@@ -74,6 +74,40 @@ Public Function NeedsResolvedId(ByVal origin As String) As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
+' 本棚の使用率(R33 W5-17)
+' ----------------------------------------------------------------------------
+' 同じ「本棚がどれだけ埋まっているか」を、Hubとダッシュボードが別の分母で
+' 計算していた。Hub は config chunk_limit(既定20,000)、Dash は
+' config shelf_max_chunks(既定20,500)。取込側の実ハード上限は
+' shelf_max_chunks(modShelf.bas:95)なので、TotalChunks は chunk_limit を
+' 超えられる。しかも Hub 側にはクランプが無く、
+'   ・既定のまま 20,400 チャンク → Hub「102%」/ Dash「100%」
+'   ・shelf_max_chunks だけ 40,000 へ広げて 25,000 → Hub「125%」/ Dash「63%」
+' という食い違いが出ていた。上限を上げた組織ほど Hub だけが満杯と言い続け、
+' まだ余裕があるのに資料を消させる誘導になる。
+' 裁定: 分母は shelf_max_chunks(ハード上限)に一本化し、chunk_limit は
+'   「棚卸しを促す警告のしきい値」としてだけ使う(意味を分ける)。
+'
+' UsagePercentOf - 使用率(%)。0..100 にクランプする(表示用の単一情報源)。
+Public Function UsagePercentOf(ByVal used As Long, ByVal maxChunks As Long) As Long
+    If maxChunks < 1 Then Exit Function
+    If used <= 0 Then Exit Function
+    Dim p As Long
+    p = CLng(used * 100# / maxChunks)
+    If p > 100 Then p = 100
+    UsagePercentOf = p
+End Function
+
+' IsBudgetTightAt - 棚卸しを促す線。意味は従来どおり「chunk_limit の8割に
+'   達したか」で、表示の分母(shelf_max_chunks)とは切り離す。ここを表示の
+'   パーセントから導くと、分母を広げた組織で警告が出なくなってしまう。
+Public Function IsBudgetTightAt(ByVal used As Long, ByVal warnLimit As Long) As Boolean
+    If warnLimit < 1 Then Exit Function
+    If used <= 0 Then Exit Function
+    IsBudgetTightAt = (CDbl(used) >= CDbl(warnLimit) * 0.8)
+End Function
+
+' ----------------------------------------------------------------------------
 ' 到達性プローブ(R8 F6)
 ' ----------------------------------------------------------------------------
 ' ProbeTargetPath - GetAttr へ渡す形へ整える。GetAttr は末尾に "\" が付いた

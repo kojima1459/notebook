@@ -368,9 +368,11 @@ Public Function SafeTotalChunks() As Long
     On Error GoTo 0
 End Function
 
+' R33 W5-17: 分母は modChannel.ShelfMaxChunks が単一情報源(Hubと同じ値)。
+' ここで config を直接読み直すと、また2画面で別の分母に分かれる。
 Public Function SafeShelfMax() As Long
     On Error Resume Next
-    SafeShelfMax = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
+    SafeShelfMax = modChannel.ShelfMaxChunks()
     On Error GoTo 0
     If SafeShelfMax <= 0 Then SafeShelfMax = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
 End Function

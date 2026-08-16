@@ -427,20 +427,33 @@ Public Function ChunkLimit() As Long
     If ChunkLimit < 1000 Then ChunkLimit = 20000
 End Function
 
+' R33 W5-17: 使用率の分母(ハード上限)。取込の実上限は shelf_max_chunks なので、
+' 見せる分母もこれに揃える(Hubとダッシュボードで同じ数字になる唯一の情報源)。
+Public Function ShelfMaxChunks() As Long
+    On Error Resume Next
+    ShelfMaxChunks = modConfig.GetLong("shelf_max_chunks", modAppDef.DEFAULT_SHELF_MAX_CHUNKS)
+    On Error GoTo 0
+    If ShelfMaxChunks <= 0 Then ShelfMaxChunks = modAppDef.DEFAULT_SHELF_MAX_CHUNKS
+End Function
+
 Public Function ChunkUsagePercent() As Long
     Dim used As Long
     On Error Resume Next
     used = modShelf.TotalChunks()
     On Error GoTo 0
-    If ChunkLimit() < 1 Then Exit Function
-    ChunkUsagePercent = CLng(used * 100# / ChunkLimit())
+    ' 算数と 0..100 クランプは modShareRule(純ロジック)が単一情報源。R33 W5-17。
+    ChunkUsagePercent = modShareRule.UsagePercentOf(used, ShelfMaxChunks())
 End Function
 
-' 上限に近いか(8割超)。Hubの警告表示とツールバーの棚卸し導線に使う。
+' 上限に近いか(chunk_limit の8割超)。Hubの警告表示とツールバーの棚卸し導線に使う。
+' R33 W5-17: 表示のパーセント(分母=shelf_max_chunks)からは導かない。導くと
+' shelf_max_chunks だけ広げた組織で警告が永久に出なくなる。
 Public Function IsBudgetTight() As Boolean
+    Dim used As Long
     On Error Resume Next
-    IsBudgetTight = (ChunkUsagePercent() >= 80)
+    used = modShelf.TotalChunks()
     On Error GoTo 0
+    IsBudgetTight = modShareRule.IsBudgetTightAt(used, ChunkLimit())
 End Function
 
 ' ----------------------------------------------------------------------------
