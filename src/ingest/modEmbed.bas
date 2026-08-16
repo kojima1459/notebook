@@ -194,7 +194,14 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
 
             If LenB(outCsv(n)) > 0 Then
                 Dim targetCell As Range
-                Set targetCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+                ' 2026-08-16(R33波3 W3-10): 下の my_vectors 側と同じ理由で明示する。
+                ' こちらの方が実害は重い ―― Nothing になると GetEmbeddingsBatch で
+                ' 取得済みのベクトルを捨てて【何も書かずに黙って飛ばし】、embedded も
+                ' 立たず consecutiveFail も増えないので3連続失敗の安全装置が鳴らない
+                ' (=APIを消費するのに1件も進まず、err_log にも痕跡が残らない)。
+                Set targetCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, _
+                    MatchCase:=True, LookIn:=xlValues, SearchOrder:=xlByRows, _
+                    MatchByte:=False)
                 If targetCell Is Nothing Then
                     ' 直前に削除されたチャンク(再入DeleteSource等)はスキップ。
                 Else

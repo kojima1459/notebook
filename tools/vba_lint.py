@@ -3983,6 +3983,79 @@ def check_contract(info: ModuleInfo) -> None:
             )
 
 
+ptn_find_call = re.compile(r"\.Find\s*\(", re.IGNORECASE)
+ptn_find_lookin = re.compile(r"\bLookIn\s*:=", re.IGNORECASE)
+
+
+def _paren_args(s: str, open_idx: int):
+    """s[open_idx] が '(' のとき、対応する ')' までの中身を返す。閉じなければ None。
+
+    呼び出し側は _blank_string_literals 済みの文字列を渡すこと(文字列リテラル中の
+    カッコを数えてしまわないため)。
+    """
+    depth = 0
+    for i in range(open_idx, len(s)):
+        c = s[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return s[open_idx + 1:i]
+    return None
+
+
+def check_find_lookin(info: ModuleInfo) -> None:
+    """`.Find(` で LookIn を省略していたらERRORにする(2026-08-16 R33波3 W3-10)。
+
+    Range.Find は LookIn / SearchOrder / MatchByte を省略すると「そのExcel
+    セッションで最後に使われた値」を引き継ぐ(利用者がCtrl+Fの検索ダイアログで
+    「検索対象=コメント」に切り替えるだけで更新される)。素の起動状態では
+    xlFormulas なので通るが、一度切り替えられると What がセル値と一致していても
+    Nothing が返る。実害はR33の監査で3件確認済み:
+      ・modEmbed:197 取得済みベクトルを捨てて無言スキップ(安全装置も鳴らない)
+      ・modEmbed:218 upsert が追記へ倒れてベクトル行が二重化
+      ・modEnrich:416 富化結果の書き戻し先を見失う
+    しかも LibreOffice の Find にはこの設定持ち越しが無いため、run_lo_tests では
+    原理的に再現しない(=CLAUDE.md「LO検査の死角」の型)。機械で止めるしかない。
+
+    【判定の範囲と、検出できない書き方(意図的に見ない)】
+    ・行連結(`_`)で複数行にまたがる呼び出しは iter_statements が1文へ畳むので
+      検出できる。文字列リテラル中の ".Find(" は _blank_string_literals で潰す。
+    ・カッコを付けない Sub 形式の呼び出し(`rng.Find What:=…`)は見ない。
+      Range.Find は Range を返す Function で、戻り値を使わない呼び方に意味が
+      無いため src には存在しない。
+    ・遅延バインド(CallByName / Application.Run 経由)も見ない。静的には
+      「その .Find が Range のものか」を決められない。
+    ・逆に、Range 以外の `.Find(`(将来 Dictionary 風の自作 Find を足した場合)も
+      同じERRORになる。偽陽性でビルドを止めないことを優先し、抜け道(許可
+      マーカー)は用意していない ―― そのときはこのルールを拡張すること。
+    """
+    for lineno, stmt in info.statements:
+        masked = _blank_string_literals(stmt)
+        for m in ptn_find_call.finditer(masked):
+            args = _paren_args(masked, m.end() - 1)
+            if args is None:
+                info.add(
+                    "ERROR", lineno,
+                    "`.Find(` の引数リストの閉じカッコを読み取れませんでした"
+                    "(1つの文へ収まる書き方にしてください): "
+                    f"「{stmt.strip()[:80]}」",
+                )
+                continue
+            if ptn_find_lookin.search(args):
+                continue
+            info.add(
+                "ERROR", lineno,
+                "`.Find(` で LookIn を省略しています。Range.Find は省略すると"
+                "『そのExcelセッションで最後に使われた値』を引き継ぐため、利用者の"
+                "直前のCtrl+F操作次第で一致するはずのセルにNothingが返ります"
+                "(LibreOffice では再現しないためテストで検知できません)。"
+                "`LookIn:=xlValues, SearchOrder:=xlByRows, MatchByte:=False` を"
+                f"明示してください: 「{stmt.strip()[:80]}」",
+            )
+
+
 def check_safeleft_warning(info: ModuleInfo) -> None:
     for lineno, stmt in info.statements:
         if not FULLTEXT_ASSIGN_PATTERN.search(stmt):
@@ -4085,6 +4158,7 @@ def run_lint(src_root: Path) -> int:
         check_contract(info)
         check_safeleft_warning(info)
         check_raw_activate(info)
+        check_find_lookin(info)
 
     # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
     # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。

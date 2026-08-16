@@ -413,7 +413,16 @@ Private Function ResolveRowByChunkId(ByVal wsK As Worksheet, ByVal chunkId As St
         End If
     End If
     Dim found As Range
-    Set found = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, MatchCase:=True)
+    ' 2026-08-16(R33波3 W3-10): modEmbed の2箇所と同じ理由で LookIn 等を明示する。
+    ' 省略すると「そのExcelセッションで最後に使われた値」を引き継ぐため、利用者が
+    ' 別ブックで Ctrl+F の「検索対象=コメント」を一度使うだけで Nothing が返る。
+    ' ここが 0 を返すと富化した summary/keywords の書き戻し先を見失う。
+    ' chunk_id は "bs::<16桁hex>::pN::cN" のASCIIのみなので、MatchByte:=False は
+    ' 全半角の同一視を有効にするだけで一致判定に影響しない(MatchCase:=True の
+    ' 大小区別・LookAt:=1 の完全一致とも独立した軸)。3箇所を同一の指定に揃える。
+    Set found = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, _
+        MatchCase:=True, LookIn:=xlValues, SearchOrder:=xlByRows, _
+        MatchByte:=False)
     If Not found Is Nothing Then ResolveRowByChunkId = found.row
     On Error GoTo 0
 End Function
