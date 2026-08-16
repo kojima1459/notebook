@@ -232,6 +232,62 @@ Public Function FriendlyMessage(ByVal code As String) As String
 End Function
 
 ' ============================================================================
+' FeatureErrMessage - opt機能の "#ERR:…" を、理由を捨てずに1文へ変える。
+' ----------------------------------------------------------------------------
+' 2026-08-16(R33波3 W3-9): opt側は失敗理由ごとに違う "#ERR:" を返す設計で、
+' modFeatures.InvokeFeature も 2026-07-31(R6要件9)にわざわざ「#ERR: を一律
+' FEATURE_UNAVAILABLE へ潰すのをやめ、元の文字列をそのまま返す」よう直された。
+' ところが最終利用者に見せる2箇所(modUIMain / modAppAct)は接頭辞の有無だけを
+' 見て中身を捨て、どちらも「管理者が有効化すると使えます」の固定文言に
+' 差し替えていた。feature_markdown は dev/prod とも既定TRUEで、ホームの
+' ボタン自体が FeatureEnabled が真のときしか描かれないので、この案内が
+' 正しい状況は構造的に存在しない。利用者は管理者に有効化を頼み、管理者は
+' 既に有効なフラグを見る、という堂々巡りになる。R6要件9の修正は最後の
+' 1ホップで無効化されていた。
+'
+' 変換規則(判定の単一情報源。呼び出し側は MsgBox に流すだけ):
+'   "#ERR:FEATURE_UNAVAILABLE" / "#ERR:" だけ → 従来の固定文言(本当に無効)
+'   "#ERR:E0204:説明"                        → FriendlyMessage("E0204") + コード
+'   "#ERR:説明"                              → 説明をそのまま
+'   "#ERR:" で始まらない                     → 受け取った文字列そのまま
+' ============================================================================
+Public Function FeatureErrMessage(ByVal errText As String) As String
+    Dim s As String: s = Trim$(errText)
+    If Left$(s, 5) <> "#ERR:" Then
+        FeatureErrMessage = s
+        Exit Function
+    End If
+
+    Dim rest As String: rest = Trim$(Mid$(s, 6))
+    If LenB(rest) = 0 Or UCase$(rest) = "FEATURE_UNAVAILABLE" Then
+        FeatureErrMessage = "この機能は現在利用できません(管理者が有効化すると使えます)。"
+        Exit Function
+    End If
+
+    Dim code As String: code = LeadingErrCode(rest)
+    If LenB(code) > 0 Then
+        FeatureErrMessage = FriendlyMessage(code) & vbLf & "(コード: " & code & ")"
+    Else
+        FeatureErrMessage = rest
+    End If
+End Function
+
+' 先頭が "Ennnn:" ならそのコードを返す。違えば ""(=説明文をそのまま見せる)。
+Private Function LeadingErrCode(ByVal rest As String) As String
+    Dim p As Long: p = InStr(rest, ":")
+    If p <> 6 Then Exit Function
+    Dim c As String: c = UCase$(Left$(rest, 5))
+    If Left$(c, 1) <> "E" Then Exit Function
+    Dim i As Long
+    For i = 2 To 5
+        Dim ch As String: ch = Mid$(c, i, 1)
+        If ch < "0" Then Exit Function
+        If ch > "9" Then Exit Function
+    Next i
+    LeadingErrCode = c
+End Function
+
+' ============================================================================
 ' FriendlyFailMsg - 取込失敗を利用者へ伝える1文を選ぶ(2026-08-03 R13-3b)。
 ' ----------------------------------------------------------------------------
 ' 実機第2報 RC6: modUtil.DescribeComError が作った

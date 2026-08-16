@@ -381,9 +381,15 @@ Public Sub OnActWord()
 
     Dim result As Variant
     result = modFeatures.InvokeFeature("markdown", "ExportAnswerAsDoc", Array(answerBody, instruction))
+    ' 2026-08-16(R33波3 W3-9): "#ERR:" の中身を捨てて固定文言へ差し替えるのを
+    ' やめる。mockモードの案内(config の mock_llm を FALSE に)も、AI利用上限の
+    ' E0204 も、ここまでは理由付きで届いているのに「管理者が有効化すると
+    ' 使えます」1種類に潰れていた。feature_markdown は既定TRUEなので、その
+    ' 案内が正しい状況は構造的に存在しない(=必ず的外れになる)。判定と文面は
+    ' modLog.FeatureErrMessage に1本化し、両方の呼び出し元が同じ答えを出す。
     If VarType(result) = vbString Then
         If Left$(CStr(result), 5) = "#ERR:" Then
-            MsgBox "Word出力は現在利用できません(管理者が有効化すると使えます)。", _
+            MsgBox modLog.FeatureErrMessage(CStr(result)), _
                    vbInformation, modAppDef.APP_NAME
         End If
     End If

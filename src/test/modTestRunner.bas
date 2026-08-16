@@ -207,4 +207,17 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-16(R33波3): modTestsPure33 が残997字になったための分割先。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは opt機能の "#ERR:" の理由を
+    ' UIが握り潰さないこと(W3-9)。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure34.RunAll34
+    If Err.Number <> 0 Then
+        Check "modTestsPure34.RunAll34", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

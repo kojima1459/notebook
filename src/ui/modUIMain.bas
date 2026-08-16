@@ -664,10 +664,8 @@ Public Sub OnOpenWordButton()
         If Left$(CStr(result), 5) = "#ERR:" Then isErr = True
     End If
 
-    If isErr Then
-        MsgBox "この機能は現在利用できません(管理者が有効化すると使えます)。", _
-               vbInformation, modAppDef.APP_NAME
-    End If
+    If isErr Then MsgBox modLog.FeatureErrMessage(CStr(result)), _
+        vbInformation, modAppDef.APP_NAME
 End Sub
 
 ' ShowEmptyShelfHint - 本棚が空のとき、回答エリアに常設案内を表示する。

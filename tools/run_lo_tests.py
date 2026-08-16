@@ -685,6 +685,12 @@ PURE_ALLOWLIST = [
     #   ずれる」= 表の値が別の見出しの値として取り込まれる事故の唯一の
     #   自動検査が走らないまま「全部PASS」に見える。
     "modExtractorExcel",
+    # modTestsPure34(2026-08-16 R33波3 W3-9): modTestsPure33(残997字)からの
+    #   分割先で、modTestRunner.RunAllPureTests から直接呼ばれる別枝。叩くのは
+    #   modLog.FeatureErrMessage / FriendlyMessage(どちらも文字列だけの純関数で、
+    #   modLog は既にこの一覧に載っている)。未注入だと実行時エラー12になり、
+    #   テストが実行されないまま全部PASSに見える。
+    "modTestsPure34",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

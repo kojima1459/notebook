@@ -127,7 +127,13 @@ CONTRACT: dict[str, dict] = {
         "closed": True,
         "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
                      "FriendlyFailMsg", "SharedReadFailMsg", "CopyFailMsgOf",
-                     "ReadOnlyWarnMsg", "SaveFailMsg"],
+                     "ReadOnlyWarnMsg", "SaveFailMsg",
+                     # FeatureErrMessage(2026-08-16 R33波3 W3-9): opt機能が
+                     # 返す "#ERR:…" を、理由を捨てずに利用者向けの1文へ
+                     # 変える純関数。modUIMain と modAppAct の2箇所が同じ答えを
+                     # 出す必要があり、置き場は FriendlyMessage の隣が自然
+                     # (コード部があればそちらへ委譲するため)。
+                     "FeatureErrMessage"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
@@ -1908,6 +1914,10 @@ PURE_LOGIC_MODULES = {
     # modPii.ScanText と modShareRule.ExpiryDecision の純関数だけなので、
     # 31/32 と同じ条件を満たす。
     "modTestsPure33",
+    # modTestsPure34(2026-08-16 R33波3 W3-9): modTestsPure33 が残997字に
+    # なったための分割先。呼ぶのは modLog.FeatureErrMessage / FriendlyMessage
+    # の純関数だけなので、31/32/33 と同じ条件を満たす。
+    "modTestsPure34",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [
