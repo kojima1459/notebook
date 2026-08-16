@@ -57,6 +57,9 @@ Public Const BOARD_HEAD_TAG As String = "nxboard1"
 ' 集約スナップショットのファイル名。書く側(modShare)と読む側(modBoard)で
 ' 名前が割れないよう、共有フォルダ側の取り決めはここが唯一の情報源。
 Public Const BOARD_SUMMARY_NAME As String = "summary.txt"
+' 終端行の印(2026-08-16 R33H F15)。最終行は必ず "E<TAB>データ行数"。
+' 詳細は BoardEndCount の見出しコメント。
+Public Const BOARD_END_TAG As String = "E"
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -316,23 +319,79 @@ Public Function BoardHeadMin(ByVal headLine As String, ByVal kindText As String,
 Bad:
 End Function
 
-' 本文(ヘッダ+部別行+称号行)の組み立て。辞書の値は Long 前提(呼び出し側が
-' SafeNum を通してから入れる)。キーは SanitizeId 済み=タブ・改行を含まない。
+' 本文(ヘッダ+部別行+称号行+終端行)の組み立て。辞書の値は Long 前提
+' (呼び出し側が SafeNum を通してから入れる)。キーは SanitizeId 済み=
+' タブ・改行を含まない。
+' R33H F15: 最後に必ず終端行 "E<TAB>データ行数" を足す。理由は BoardEndCount。
 Public Function BoardBodyText(ByVal headLine As String, ByRef deptAgg As Object, _
                               ByRef titleAgg As Object) As String
     Dim s As String: s = headLine
+    Dim n As Long
     Dim k As Variant
     If Not deptAgg Is Nothing Then
         For Each k In deptAgg.Keys
             s = s & vbLf & "D" & vbTab & k & vbTab & CLng(deptAgg(k))
+            n = n + 1
         Next k
     End If
     If Not titleAgg Is Nothing Then
         For Each k In titleAgg.Keys
             s = s & vbLf & "T" & vbTab & k & vbTab & CLng(titleAgg(k))
+            n = n + 1
         Next k
     End If
-    BoardBodyText = s
+    BoardBodyText = s & vbLf & BOARD_END_TAG & vbTab & CStr(n)
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardEndCount - 終端行まで揃った完全なスナップショットか(2026-08-16 R33H F15)。
+'   戻り値: データ行数(0以上)= 完全 / -1 = 途中までしか無い(broken)。
+'
+' なぜ要るか【この波の主題の1つ】:
+'   置き換えに FileCopy を使っていた頃は、宛先をいったん切り詰めてから先頭
+'   へ書くため、読み手は「ヘッダだけ揃った状態」を掴み得た。ヘッダは80〜100
+'   バイトしかないので【部分読みの大多数はヘッダが完全】になり、列数と種別印
+'   しか見ない BoardHeadStatus はそれを "ok" と判定する。結果、部の合算が0・
+'   他人の称号が全滅したまま「集計時点/N名ぶん」と自信を持って表示し、
+'   TTL(600秒)のあいだそれが続いた ―― 数字が嘘であることを誰も知らせない。
+'   置き換え自体は rename 方式(BoardSwap)へ変えたが、共有フォルダのファイルは
+'   誰にでも触れるので、読む側にも「最後まで揃っているか」の検査を必ず置く。
+'   行数まで突き合わせるのは、途中の行が欠けた形も同時に弾けるため。
+'   終端行より後ろは読まない(旧版の残骸が末尾に残っても影響を受けない)。
+' ----------------------------------------------------------------------------
+Public Function BoardEndCount(ByVal fileText As String) As Long
+    BoardEndCount = -1
+    On Error GoTo Bad
+    Dim rows() As String: rows = Split(Replace$(fileText, vbCrLf, vbLf), vbLf)
+    Dim i As Long, n As Long
+    Dim declared As Long: declared = -1
+    For i = 1 To UBound(rows)
+        Dim c() As String: c = Split(rows(i), vbTab)
+        If c(0) = BOARD_END_TAG Then
+            If UBound(c) >= 1 Then declared = CLng(Val(c(1)))
+            Exit For
+        ElseIf UBound(c) >= 2 Then
+            If c(0) = "D" Or c(0) = "T" Then n = n + 1
+        End If
+    Next i
+    If declared < 0 Then Exit Function
+    If declared <> n Then Exit Function
+    BoardEndCount = n
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardTextStatus - 読む側の唯一の入口(2026-08-16 R33H F15)。ファイル全文を
+'   受け取り、(1)終端行まで揃っているか (2)ヘッダが使えるか の順で判定する。
+'   終端行が無ければ、ヘッダがどれだけ綺麗でも "broken"(合格側へ倒さない)。
+'   BoardHeadStatus は「ヘッダ1行だけ」の判定として従来どおり残す(呼ぶのは
+'   ここと既存テスト)。modBoard.LoadSnapshot はこの関数だけを見て、"ok" 以外
+'   なら BoardReadRows へ進まないので、壊れた本文が読まれる経路は無くなる。
+' ----------------------------------------------------------------------------
+Public Function BoardTextStatus(ByVal fileText As String, ByVal cutoffStamp As String) As String
+    BoardTextStatus = "broken"
+    If BoardEndCount(fileText) < 0 Then Exit Function
+    BoardTextStatus = BoardHeadStatus(BoardHeadLine(fileText), cutoffStamp)
 End Function
 
 ' 1行目(ヘッダ)だけを取り出す。CRLF/LFのどちらで書かれていても同じ答え。
@@ -384,12 +443,31 @@ End Function
 '   最後のコピーが競合しても失敗するだけで既存の summary.txt は壊れない
 '   (次の集計でどちらかが書き直す)。
 '   書き込み自体は AV ロックに備えて3回だけ試す(modBoard のビーコン I/O と
-'   同じ考え方。ここでは待ちを入れず、失敗すれば次の集計へ回す)。
+'   同じ考え方)。
+'
+'   2026-08-16(R33H F15/F16): 置き換えを FileCopy から【rename 方式】へ変え、
+'   置き換えも3回試すようにした。
+'   ・FileCopy は宛先を切り詰めてから先頭へ書くので、読み手が「ヘッダだけ
+'     揃った壊れた集計」を掴み得た(それを "ok" と誤判定していた。BoardEndCount
+'     の見出し参照)。rename は【中身の完全な1本を、その名前へ差し替える】
+'     操作で、読み手が半端な内容を見る瞬間が存在しない ―― 見えるのは
+'     「旧版」「新版」「(一瞬だけ)ファイルが無い」の3つだけで、無いときは
+'     読む側が "none"(集計はまだありません)へ倒れる。これが原子性の根拠。
+'   ・Windows の Name は【宛先が既に在ると失敗する】ので、先に宛先を .bak へ
+'     退避してから tmp を宛先名へ改名し、成功したら .bak を捨てる。改名に
+'     失敗したら .bak を宛先名へ戻す(旧版を失わない)。読み手が宛先を掴んで
+'     いて退避に失敗した場合は、宛先が在るので次の改名も失敗し、この回は
+'     何も壊さずに False で帰る(次の集計で書き直す)。
+'   ・置き換えの1発勝負をやめた理由(F16): 宛先は業務時間中ほぼ常に誰かが
+'     読んでおり、落とすと次の機会は TTL の10分後、24時間過ぎれば全端末が
+'     「更新されていません」に倒れる。
 ' ----------------------------------------------------------------------------
 Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As String, _
                                   ByVal content As String) As Boolean
     If LenB(folderPath) = 0 Or LenB(myHash) = 0 Then Exit Function
     Dim tmpPath As String: tmpPath = folderPath & "summary_" & myHash & ".tmp"
+    Dim dstPath As String: dstPath = folderPath & BOARD_SUMMARY_NAME
+    Dim bakPath As String: bakPath = folderPath & "summary_" & myHash & ".bak"
 
     Dim wroteOk As Boolean
     Dim attempt As Long
@@ -401,17 +479,58 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
     Next attempt
     If Not wroteOk Then Exit Function
 
+    For attempt = 1 To 3
+        If BoardSwap(tmpPath, dstPath, bakPath) Then
+            BoardWriteSummary = True
+            Exit Function
+        End If
+        BoardPause 200 * attempt
+    Next attempt
+
+    ' 3回とも差し替えられなかった。一時ファイルを残すと共有に増え続けるので
+    ' 消す(中身は次の集計で作り直せる)。宛先は旧版のまま無傷。
     On Error Resume Next
-    Err.Clear
-    FileCopy tmpPath, folderPath & BOARD_SUMMARY_NAME
-    ' Err は次の文で消えるので、判定材料はここで退避する。
-    Dim copyErr As Long: copyErr = Err.Number
-    Err.Clear
     Kill tmpPath
     Err.Clear
     On Error GoTo 0
-    BoardWriteSummary = (copyErr = 0)
 End Function
+
+' BoardSwap - tmp を dst へ差し替える1回ぶん(R33H F15)。手順と根拠は
+'   BoardWriteSummary の見出しコメント。壊さないことを最優先に、失敗したら
+'   旧版を必ず戻す。
+Private Function BoardSwap(ByVal tmpPath As String, ByVal dstPath As String, _
+                           ByVal bakPath As String) As Boolean
+    On Error Resume Next
+    Err.Clear
+    Kill bakPath              ' 前回の失敗で残った退避があれば捨てる
+    Err.Clear
+    Name dstPath As bakPath   ' 宛先が無ければ 53 で失敗するだけ(初回)
+    Dim hadOld As Boolean: hadOld = (Err.Number = 0)
+    Err.Clear
+    Name tmpPath As dstPath
+    Dim swapErr As Long: swapErr = Err.Number
+    Err.Clear
+    If swapErr <> 0 Then
+        If hadOld Then Name bakPath As dstPath   ' 旧版を戻す(消したままにしない)
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    If hadOld Then Kill bakPath
+    Err.Clear
+    On Error GoTo 0
+    BoardSwap = True
+End Function
+
+' 置き換えの再試行のあいだだけ待つ(modBoard.BoardWait と同じ作り。
+' Timer は日跨ぎで0へ戻るのでその場合は即抜ける)。
+Private Sub BoardPause(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do
+    Loop
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' BoardStateText - 集計を数字として出せないときに、その理由を利用者の言葉で

@@ -345,6 +345,65 @@ Private Sub TestNoteAnswered35()
     ChkStr35 "F7_閉じ直せる", modMode.NoteAnswered(False, ""), ""
 End Sub
 
+' ----------------------------------------------------------------------------
+' R33H F15: 集約スナップショットの終端行(半端なファイルを "ok" と言わない)
+' ----------------------------------------------------------------------------
+'   置き換えが FileCopy だった頃、読み手は「ヘッダだけ揃った状態」を掴み得た。
+'   ヘッダは80〜100バイトしかないので部分読みの大多数はヘッダが完全になり、
+'   列数と種別印しか見ない BoardHeadStatus はそれを "ok" と判定する ――
+'   部の合算0・他人の称号が全滅したまま「集計時点/N名ぶん」と表示し、
+'   TTL(600秒)のあいだそれが続いた。
+'   discriminate の作り:
+'   ・「常に -1(broken)」実装にすると、完全な本文の ok/行数2 が落ちる。
+'   ・「常に 0以上」実装にすると、ヘッダだけ・行数改ざんの3件が落ちる。
+'   ・終端行の【行数の突き合わせ】を外すと「行が1本欠けた本文」が落ちる。
+'   ・最後の1本(旧入口はokと言う)が、この検査が実際に何かを変えている
+'     ことの証拠になる(恒真アサートでないことの対)。
+' ----------------------------------------------------------------------------
+'   ※ Scripting.Dictionary は LibreOffice に存在しない(CreateObject で群ごと
+'     Err=323 になる)。したがって BoardBodyText へ実辞書を渡す形は LO では
+'     組めないので、辞書ゼロ件(Nothing)の1本だけを本物の BoardBodyText で
+'     撃ち、行が在る形は同じ書式の文字列を手で組んで撃つ。
+Private Sub TestBoardEnd35()
+    Dim h As String
+    h = modShare.BoardHeadText("2026-08-16 09:00:00", "20260816", 120, _
+        "202608", 900, "2026", 5000, 42, False)
+    Dim body As String
+    body = h & vbLf & "D" & vbTab & "営業部" & vbTab & "300" & _
+           vbLf & "T" & vbTab & "u1" & vbTab & "7" & _
+           vbLf & modShare.BOARD_END_TAG & vbTab & "2"
+
+    ChkStr35 "F15_終端行はデータ行数を宣言する", _
+        Right$(modShare.BoardBodyText(h, Nothing, Nothing), _
+               Len(modShare.BOARD_END_TAG) + 2), modShare.BOARD_END_TAG & vbTab & "0"
+    ChkLong35b "F15_完全な本文は行数を返す", modShare.BoardEndCount(body), 2
+    ChkLong35b "F15_ヘッダだけ(書きかけ)は-1", modShare.BoardEndCount(h), -1
+    ChkLong35b "F15_終端行が無い本文は-1", _
+        modShare.BoardEndCount(h & vbLf & "D" & vbTab & "営業部" & vbTab & "300"), -1
+    ChkLong35b "F15_宣言と実数が食い違えば-1", _
+        modShare.BoardEndCount(h & vbLf & "D" & vbTab & "営業部" & vbTab & "300" & _
+        vbLf & modShare.BOARD_END_TAG & vbTab & "5"), -1
+    ChkLong35b "F15_行が欠けても宣言と合わなければ-1", _
+        modShare.BoardEndCount(h & vbLf & modShare.BOARD_END_TAG & vbTab & "2"), -1
+    ChkLong35b "F15_データ0件でも終端行があれば0", _
+        modShare.BoardEndCount(modShare.BoardBodyText(h, Nothing, Nothing)), 0
+
+    ChkStr35 "F15_入口: 完全で新しければok", _
+        modShare.BoardTextStatus(body, "2026-08-15 09:00:00"), "ok"
+    ChkStr35 "F15_入口: 完全でも古ければstale", _
+        modShare.BoardTextStatus(body, "2026-08-16 09:00:01"), "stale"
+    ChkStr35 "F15_入口: ヘッダだけならbroken", _
+        modShare.BoardTextStatus(h, "2026-08-15 09:00:00"), "broken"
+    ' ★この1本が「検査が実際に何かを変えている」ことの証拠。旧入口
+    '   (ヘッダ1行だけを見る BoardHeadStatus)は同じ入力を ok と言う。
+    ChkStr35 "F15_旧入口は同じ半端な入力をokと言っていた", _
+        modShare.BoardHeadStatus(modShare.BoardHeadLine(h), "2026-08-15 09:00:00"), "ok"
+End Sub
+
+Private Sub ChkLong35b(ByVal label As String, ByVal got As Long, ByVal want As Long)
+    modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
+End Sub
+
 Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R33-" & label, (got = want), _
         "実際=" & got & " 期待=" & want
@@ -379,6 +438,9 @@ H07Next35:
 H08Next35:
     On Error GoTo H08Fail35
     TestNoteAnswered35
+H09Next35:
+    On Error GoTo H09Fail35
+    TestBoardEnd35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -413,6 +475,10 @@ H07Fail35:
     Resume H08Next35
 H08Fail35:
     modTestRunner.Check "TestNoteAnswered35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H09Next35
+H09Fail35:
+    modTestRunner.Check "TestBoardEnd35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

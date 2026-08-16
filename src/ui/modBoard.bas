@@ -542,9 +542,10 @@ Private Sub LoadSnapshot(ByVal folderPath As String)
         Exit Sub
     End If
 
+    ' R33H F15: 入口は BoardTextStatus(終端行が無ければヘッダが綺麗でもbroken)。
     Dim head As String: head = modShare.BoardHeadLine(rec)
     Dim st As String
-    st = modShare.BoardHeadStatus(head, modUtilText.IsoDateTime(Now - SUMMARY_MAX_AGE_HOURS / 24#))
+    st = modShare.BoardTextStatus(rec, modUtilText.IsoDateTime(Now - SUMMARY_MAX_AGE_HOURS / 24#))
     If StrComp(st, "ok", vbBinaryCompare) <> 0 Then
         ClearAggregate st
         Exit Sub

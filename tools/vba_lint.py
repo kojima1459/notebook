@@ -1703,6 +1703,12 @@ CONTRACT: dict[str, dict] = {
             "BoardHeadMin", "BoardHeadLine", "BoardBodyText",
             "BoardReadRows", "BoardWriteSummary",
             "BoardOrgBlock", "BoardStateText",
+            # BOARD_END_TAG / BoardEndCount / BoardTextStatus
+            #   (2026-08-16 R33H F15): スナップショットに終端行を付け、読む側の
+            #   入口で「終端行が無い=途中までしか無い」を broken へ倒すための
+            #   1組。ヘッダだけ揃った半端な集計を "ok" と判定して部の合算0・
+            #   称号全滅のまま自信を持って表示していた欠陥への対処。
+            "BOARD_END_TAG", "BoardEndCount", "BoardTextStatus",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。
