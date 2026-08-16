@@ -56,6 +56,16 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     On Error Resume Next   ' 安全弁: 本機能の失敗を絶対にメインへ波及させない
     ClearMentor
 
+    ' R33H F8: 回答が成立しなかったターン(API失敗の #ERR・逆質問)には出さない。
+    ' 信頼度バッジ(modAppAct.DrawConfidence)と出典チップ(modPeek.RenderCitations)
+    ' は W5-21/F7 の門をくぐったのに、ここだけ LastHitCount しか見ていなかった。
+    ' そのため「AIとの通信に失敗しました」の直下に
+    ' 「この分野は○○さんが詳しいです[質問を送る]」だけが残り、答えが出ていない
+    ' のに人を呼ぶ導線だけが立つ。門は modApp 側ではなくここに置く ――
+    ' modApp は残36字で1行も足せず、ここに置けば全ての呼び出し元に効く。
+    ' ClearMentor の【後】に置くのは、前のターンのボタンを必ず消すため。
+    If Not modMode.GroundingAllowed() Then Exit Sub
+
     Dim expert As String, topSource As String
     Dim kind As String, targetId As String
     If Not FindExpert(expert, topSource, kind, targetId) Then GoTo Done
