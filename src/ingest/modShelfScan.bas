@@ -57,13 +57,36 @@ End Function
 '   "plain" … 暗号化されていない(素の ZIP)
 '   ""      … 判別不能(従来どおりの経路へ流す)
 ' ----------------------------------------------------------------------------
-Public Function EncryptedByHeader(ByVal ext As String, ByVal headHex As String) As String
+'
+' 2026-08-16(R33H F27)【この関数は「読んだ後」にしか効かない】:
+'   VBA は引数を先に評価するので EncryptedByHeader(ext, FileHeadHex(path)) と
+'   書くと、拡張子が対象外でも FileHeadHex が必ず先に走る。判定の入口を
+'   EncryptedFileKind へ移し、拡張子の門(HeaderCheckable)を【読む前】に置く。
+' ----------------------------------------------------------------------------
+' HeaderCheckable - 先頭バイトで暗号化を見分けられる拡張子か【純関数】。
+'   ここに載っている拡張子だけがファイルを読む価値がある。載っていない
+'   (.pdf / .xls / .doc / .txt …)は何バイト読んでも "" にしかならないので、
+'   1バイトも読まない。
+Public Function HeaderCheckable(ByVal ext As String) As Boolean
     Select Case LCase$(Trim$(ext))
     Case "xlsx", "xlsm", "xltx", "xltm", "docx", "docm", "dotx", "dotm", "pptx", "pptm"
-        ' OOXML(ZIPコンテナ)の拡張子だけが判定対象。
-    Case Else
-        Exit Function                      ' "" = 判別不能
+        HeaderCheckable = True             ' OOXML(ZIPコンテナ)だけが判定対象
     End Select
+End Function
+
+' ----------------------------------------------------------------------------
+' EncryptedFileKind - 取込側が呼ぶ唯一の入口。拡張子の門を先に通し、対象の
+'   ときだけ先頭4バイトを読む。戻り値は EncryptedByHeader と同じ3種。
+'   これで PDF 取込経路(modExtractorPdf → modExtractorWord.Extract に PDF の
+'   パスが渡る)が数百MBのファイルを1バイトも読まなくなる。
+' ----------------------------------------------------------------------------
+Public Function EncryptedFileKind(ByVal path As String) As String
+    If Not HeaderCheckable(modUtil.ExtOf(path)) Then Exit Function
+    EncryptedFileKind = EncryptedByHeader(modUtil.ExtOf(path), FileHeadHex(path))
+End Function
+
+Public Function EncryptedByHeader(ByVal ext As String, ByVal headHex As String) As String
+    If Not HeaderCheckable(ext) Then Exit Function   ' "" = 判別不能
 
     Dim h As String: h = UCase$(Trim$(headHex))
     ' 4バイト読めていないファイル(空/途中で切れている)は判定しない。
@@ -81,30 +104,34 @@ End Function
 
 ' ファイル先頭4バイトを大文字16進8字で返す。読めなければ ""(判別不能扱い)。
 ' 例外は外へ出さない ―― 見分けに失敗しても取込そのものは従来どおり続ける。
+'
+' 2026-08-16(R33H F27)【4バイトのために全体を読んでいた】:
+'   旧実装は ADODB.Stream.LoadFromFile を使っていたが、これは名前のとおり
+'   【ファイル全体をメモリへ読み込む】。4バイトしか要らないのに数百MBの PDF を
+'   まるごと確保するので、32bit Excel(ユーザ空間2GB・実効はもっと少ない)では
+'   取込中に「メモリが不足しています」で落ちる域に入る。
+'   Open For Binary + Get の部分読みへ置き換えた(modBackdrop.WriteBmpFile が
+'   同じ作法で書き込み側をやっている)。読むのは常に 4 バイトちょうど。
+'   FileLen を先に見るのは、4バイト未満のファイルで Get が エラー62
+'   (入力が末尾を越えた)になるため ―― 空/途中で切れたファイルは
+'   「判別不能」に倒す(旧実装の 0バイト時の扱いと同じ答え)。
 Public Function FileHeadHex(ByVal path As String) As String
-    Dim st As Object
-    Dim b As Variant
-    Dim n As Long: n = -1
-
+    Dim fn As Long: fn = 0
     On Error GoTo HeadFail
-    Set st = CreateObject("ADODB.Stream")
-    st.Type = 1          ' adTypeBinary
-    st.Open
-    st.LoadFromFile path
-    b = st.Read(4)
-    st.Close
-    Set st = Nothing
 
-    ' 0バイトのファイルでは Read が配列を返さない。UBound がそこで落ちても
-    ' n = -1 のまま=空文字を返す(判別不能)。
-    On Error Resume Next
-    n = UBound(b)
-    Err.Clear
-    On Error GoTo HeadFail
+    Dim total As Long: total = FileLen(path)
+    If total < 4 Then Exit Function        ' "" = 判別不能(旧実装と同じ答え)
+
+    Dim b(1 To 4) As Byte
+    fn = FreeFile
+    Open path For Binary Access Read As #fn
+    Get #fn, 1, b
+    Close #fn
+    fn = 0
 
     Dim s As String
     Dim i As Long
-    For i = 0 To n
+    For i = 1 To 4
         s = s & Right$("0" & Hex$(b(i)), 2)
     Next i
     FileHeadHex = UCase$(s)
@@ -114,8 +141,7 @@ HeadFail:
     Resume HeadCleanup
 HeadCleanup:
     On Error Resume Next
-    If Not st Is Nothing Then st.Close
-    Set st = Nothing
+    If fn <> 0 Then Close #fn
     On Error GoTo 0
     FileHeadHex = ""
 End Function

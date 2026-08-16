@@ -84,8 +84,9 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     ' 再試行自体は 2026-07-29 の実機事故(Password 引数を付けると Open が
     ' 失敗する端末)への保険なので残し、暗号化と【判別できたものだけ】を
     ' ここで落とす。判別不能(.xls 等)は従来どおり OpenForExtract へ流す。
-    If modShelfScan.EncryptedByHeader(modUtil.ExtOf(path), _
-            modShelfScan.FileHeadHex(path)) = "enc" Then
+    ' R33H F27: 拡張子の門を【読む前】に通す EncryptedFileKind へ寄せた
+    ' (旧い書き方では .xls 等の対象外拡張子でもファイル全体が読まれていた)。
+    If modShelfScan.EncryptedFileKind(path) = "enc" Then
         errDetail = modLog.EncryptedFileMsg()
         On Error Resume Next
         modLog.LogUsage "ingest_encrypted", "ingest", _

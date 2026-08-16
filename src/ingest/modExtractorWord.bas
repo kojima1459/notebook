@@ -127,8 +127,11 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
     ' .doc は暗号化の有無に関わらず OLE、PDF は暗号化でも "%PDF" のままなので
     ' どちらも判別不能=従来経路へ流す(この関数は modExtractorPdf からPDFで
     ' 呼ばれる。ここを弾くとPDF取込が全滅する)。
-    If modShelfScan.EncryptedByHeader(modUtil.ExtOf(path), _
-            modShelfScan.FileHeadHex(path)) = "enc" Then
+    ' R33H F27: 判定の入口を EncryptedFileKind に一本化した。VBA は引数を先に
+    ' 評価するので、旧い書き方(EncryptedByHeader(ext, FileHeadHex(path)))では
+    ' 【PDF でも必ずファイル全体が読まれていた】。この関数は modExtractorPdf から
+    ' PDF のパスで呼ばれるので、そこが 32bit Excel の OOM 直行便になっていた。
+    If modShelfScan.EncryptedFileKind(path) = "enc" Then
         errDetail = modLog.EncryptedFileMsg()
         On Error Resume Next
         modLog.LogUsage "ingest_encrypted", "ingest", _
