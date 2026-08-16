@@ -345,9 +345,17 @@ CONTRACT: dict[str, dict] = {
         #   残留状態による誤爆(実機第3報 RC2)を1つの式で塞ぐ。
         # RerankEffort(2026-08-03 R14-8a): 入念モードだけ再ランクの effort を
         #   別設定(rerank_effort_thorough)にする分岐。
+        # AnsweredMode(2026-08-16 R33 W5-21): 回答が成立したターンだけモード名を
+        #   返す1式。modAsk の Done: は ok を見ずに直近モードを覚えていたため、
+        #   生成が失敗したターン(#ERR)や逆質問のターンにも緑の信頼度バッジと
+        #   出典チップが付いていた(届いていない答えに根拠の保証が付く)。
+        #   仕様は modChrome を指名していたが、modChrome は src/ui にあり
+        #   src/qa からの参照は R1(層)違反になるため、性質が同じ
+        #   ShouldEmitInsight と同居させる。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
                      "SubQueryCount", "ShouldEmitInsight", "RerankEffort",
+                     "AnsweredMode",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
     },
     "modSparse": {

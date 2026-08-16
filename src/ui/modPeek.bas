@@ -43,6 +43,14 @@ Public Sub RenderCitations(ByVal bubbleName As String)
 
     HideCitations   ' 前回のチップ/ポップアップを消す(最新回答の下だけに出す)
 
+    ' R33 W5-21: 回答が成立しなかったターン(API失敗の #ERR・逆質問)では
+    ' 出典チップも出さない。modAsk は成立したターンだけモードを覚えるように
+    ' なったので、そのモードから作られる信頼度文が空かどうかで判る
+    ' (信頼度バッジ側の抑止条件 modUINexusDraw.DrawConfidence と同じ門)。
+    ' 「AIとの通信に失敗しました」の下に出典が並び、押すと実文が開く ――
+    ' 根拠は揃っているのに答えが出ないのか、答えが出ているのかを取り違える。
+    If LenB(modAsk.LastConfidenceText()) = 0 Then Exit Sub
+
     Dim n As Long: n = modAsk.LastHitCount()
     If n <= 0 Then Exit Sub
 

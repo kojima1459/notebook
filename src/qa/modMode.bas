@@ -287,6 +287,21 @@ End Function
 ' いずれか1つでも当てはまれば発信しない。個人統計(selfsolve_total・
 ' 節約時間・usage_log)は「解決した」という事実そのものなので、この判定とは
 ' 無関係に必ず加算する(呼び出し側の責任)。
+' AnsweredMode - R33 W5-21(純関数)。回答が成立したターンだけモード名を返す。
+'   modAsk の Done: は ok を一切見ずに直近モードを覚えていたため、
+'   検索は通ったが生成が失敗したターン(#ERR→BuildErrorAnswer)や逆質問の
+'   ターンでも「直近モードあり」になり、『本棚の資料と強く一致(N件)』の緑
+'   バッジと出典チップが「AIとの通信に失敗しました」「もう少しだけ教えて
+'   ください」の下に並んでいた。回答が存在しない表示に根拠の保証が付く。
+'   空質問ターンが mLastMode="" で同じ抑止を実現している既存の作法へ揃える。
+'   置き場所: 仕様は modChrome を指名していたが、modChrome は src/ui にあり
+'   src/qa からの参照は lint の R1(層)違反になる(実測)。判定の性質は
+'   直下の ShouldEmitInsight(「このターンは数えてよいか」の真理表)と同じ
+'   なので、同じ層・同じモジュールへ置く。modAsk 側は1行呼び出しのまま。
+Public Function AnsweredMode(ByVal okFlag As Boolean, ByVal modeName As String) As String
+    If okFlag Then AnsweredMode = modeName
+End Function
+
 Public Function ShouldEmitInsight(ByVal mode As String, ByVal nHits As Long) As Boolean
     Dim m As String: m = LCase$(Trim$(mode))
     If LenB(m) = 0 Then Exit Function
