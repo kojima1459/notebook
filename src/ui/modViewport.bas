@@ -24,9 +24,13 @@ Option Explicit
 '     (1) B を小さくする=内容の実下端+1行より下を削除(解放できるのは
 '         Rows.Delete だけ。ClearFormats も保存も UseStandardHeight も効かない
 '         =R30実機実証)―― ReleaseSheetRowsBelow
-'     (2) セルを1つも使わずに地を色づける=背景画像(modBackdrop。R32 W4-5)。
-'         使用済み範囲を増やさないので B が増えない。
+'     (2) セルを1つも使わずに地を色づける=背景画像(modBackdrop。R32 W4-5)と
+'         条件付き書式(modBackdrop.ApplyCF。R33 W5-1。併用の二重防御)。
+'         どちらも使用済み範囲を増やさないので B が増えない。
 '   ThisWorkbook.Styles("Normal")/("標準") 方式は実機で 1004(使用不能)。
+'   (3)最終行を窓高まで太らせる案は Excel の行高上限 409.5pt < 実機窓高
+'      (約500〜750pt)で成立しない。太らせても窓に未塗り帯が必ず残り、
+'      B+1以降も太らせると使用済みが増えて B が下がるだけ(R33監査が数値で棄却)。
 '
 ' 右の余白は寸法の問題:
 '   列幅の合計がウィンドウの可視幅より狭ければ、その差は必ず白く残る。
@@ -435,6 +439,11 @@ Public Sub ReleaseSheetRowsBelow(ByVal ws As Worksheet, ByVal boundRow As Long, 
         lastUsed = ws.UsedRange.Rows.Count
         If LenB(scrollAddr) > 0 Then ApplyScrollBound ws, scrollAddr
     End If
+    ' R33波5a W5-1: 境界が確定した【直後】に、条件付き書式で境界より下の地を
+    ' テーマ色にする(背景画像=modBackdrop.Apply との二重防御。どちらかが
+    ' 不発でも他方が効く)。ここに置く理由と検算はmodBackdrop.ApplyCFの注記。
+    modBackdrop.ApplyCF ws, boundRow
+    Err.Clear
     On Error GoTo 0
 End Sub
 
