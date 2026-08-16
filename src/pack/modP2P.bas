@@ -176,7 +176,10 @@ End Sub
 '                      (代用不可。裁定 R8 F1: 旧い正典は静かに感謝なし)
 ' キーの綴りは modShareRule.AuthorStatKey が唯一の決定者。書く側(modPack)と
 ' 読む側(ここ)でずれると感謝が永久に届かないため、必ず同じ関数を通す。
-Private Function ResolveAuthorId(ByVal origin As String, ByVal authorName As String) As String
+' R33 W5-11: 専門家召喚(modMentor)も同じ解決を通す必要があるため Public 化した。
+' 表示名のまま宛先にすると、受信側は ID で照合するので誰にも届かない
+' (感謝状が H-5 で踏んだのとまったく同じ罠)。宛先解決の情報源は1本に保つ。
+Public Function ResolveAuthorId(ByVal origin As String, ByVal authorName As String) As String
     Dim key As String: key = modShareRule.AuthorStatKey(origin)
     If LenB(key) = 0 Then Exit Function
 

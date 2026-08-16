@@ -20,12 +20,17 @@ Option Explicit
 '      回答バブル表示という中核機能へ絶対に波及させない。
 '   3. グローバル汚染ゼロ: 既存のUI状態・RAGスコア変数には一切書き込まない。
 '      読むのは modAsk.LastHit*(読み取り専用アクセサ)と modP2P.CurrentUserId、
-'      modConfig のみ。自前状態は本モジュールPrivate(mExpert/mTopSource)に完結。
+'      modShareRule.OriginKind/OriginName、modP2P.ResolveAuthorId(いずれも
+'      読み取り専用)、modConfig のみ。自前状態は本モジュールPrivate
+'      (mExpert/mExpertId/mExpertKind/mTopSource)に完結。
 '   4. サニタイズ徹底: 専門家名・質問者名はSanitizeId(modP2Pと同一仕様の複製)で
 '      禁止文字を除去し、さらにファイル名にはFnv1a64Hex(16桁)のみを使う
 '      (MAX_PATH対策も同時達成。payload側に生のsanitize済IDを保持)。
 '   ・送信I/OはmodMentor内に自前カプセル化(ADODB.Stream+リトライ+Set=Nothing)。
-'     modP2PのPrivate関数には依存しない=modP2Pも1バイトも変更しない。
+'     R33 W5-11 で1点だけ例外を作った: 宛先IDの解決だけは modP2P.ResolveAuthorId
+'     (このとき Private → Public 化)を通す。表示名を宛先にすると受信側の照合
+'     キー(ユーザID)と一致せず誰にも届かないため、宛先解決の情報源は感謝状と
+'     1本に揃える必要がある。I/O は従来どおり自前カプセル化のまま。
 '   ・共有フォルダ書式: <nexus_share_path>\questions\q_<宛先hash>_<nonce>.txt
 '     内容はTSV(nonce/from/to/質問/出典/時刻)。将来の受信機能(CollectQuestions)が
 '     感謝状と同じcollect-then-process方式で読める形式にしてある。
@@ -36,7 +41,9 @@ Private Const BTN_NAME As String = "nx_mentor_btn"
 Private Const MAX_Q_CHARS As Long = 1000       ' 質問文の上限(Shape/ファイル肥大防止)
 
 ' 本モジュール内で完結する状態(防衛条項3: 既存グローバルには一切触れない)
-Private mExpert As String      ' 直近OfferMentorで特定した専門家(生sanitize済ID)
+Private mExpert As String      ' 直近OfferMentorで特定した専門家の【表示名】
+Private mExpertId As String    ' R33 W5-11: その解決済み【宛先ID】(送信に使うのは必ずこちら)
+Private mExpertKind As String  ' R33 W5-10: 出所の種別("pack" / "channel")
 Private mTopSource As String   ' その専門家の代表ソース名(質問の文脈として同送)
 Private mLastAsker As String   ' 直近に受信した質問の差出人(返信ボタンの宛先)
 
@@ -50,7 +57,13 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     ClearMentor
 
     Dim expert As String, topSource As String
-    If Not FindExpert(expert, topSource) Then GoTo Done
+    Dim kind As String, targetId As String
+    If Not FindExpert(expert, topSource, kind, targetId) Then GoTo Done
+    ' R33 W5-11: 宛先IDが解決できないヒットは FindExpert が候補にしないが、
+    ' 冒頭の On Error Resume Next で途中の例外が握り潰される可能性があるため、
+    ' ここでも最終防衛線を張る。届けられない相手に「送りました」と言わない。
+    targetId = Trim$(targetId)
+    If LenB(targetId) = 0 Then GoTo Done
     ' 2026-07-28(レビュー C-2): 冒頭の On Error Resume Next のせいで、
     ' FindExpert 内で例外が起きても「見つかった」扱いのまま空文字で先へ進み、
     ' 「この分野は さんが詳しいです」という宛先の無いボタンが出ていた。
@@ -86,11 +99,20 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
     ' 称号(偽装不可): 感謝受領数ベースの絶対評価(💡5+/🌟20+)を名前の頭に自動付与。
     ' (本Subは冒頭のOn Error Resume Nextが活性のためTitleFor失敗時はhonor=""のまま)
+    ' R33 W5-11: 称号は【解決済みID】で引く(mTitles も CurrentUserId 系のIDが
+    ' キーなので、表示名で引いていた従来は常に空だった)。
     Dim honor As String
-    honor = modBoard.TitleFor(expert)
+    Dim who As String
+    If StrComp(kind, "channel", vbTextCompare) = 0 Then
+        ' 部門名は人ではないので「〇〇さん」とは呼ばない(R33 W5-10)。
+        who = "「" & expert & "」の発行者が詳しいです"
+    Else
+        honor = modBoard.TitleFor(targetId)
+        who = honor & expert & " さんが詳しいです"
+    End If
     With btn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCA1) & " この分野は " & honor & expert & " さんが詳しいです [質問を送る]"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCA1) & " この分野は " & who & " [質問を送る]"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1
@@ -104,6 +126,8 @@ Public Sub OfferMentor(ByVal bubbleName As String)
     modSkin.ApplySoftShadow btn
 
     mExpert = expert
+    mExpertId = targetId
+    mExpertKind = kind
     mTopSource = topSource
 Done:
     ' 2026-07-31 R11-D(監査2 指摘3): 冒頭の On Error Resume Next で本機能の
@@ -117,6 +141,11 @@ Public Sub ClearMentor()
     On Error Resume Next   ' 安全弁
     ThisWorkbook.Worksheets("Nexus").Shapes(BTN_NAME).Delete
     ThisWorkbook.Worksheets("Nexus").Shapes("nx_mentor_reply").Delete
+    ' R33 W5-11: ボタンを消したら宛先も捨てる(前のターンの宛先が残ったまま
+    ' 次のターンのボタンに使い回されることが無いようにする)。
+    mExpert = ""
+    mExpertId = ""
+    mExpertKind = ""
     On Error GoTo 0
 End Sub
 
@@ -129,19 +158,28 @@ Public Sub OnAskExpert()
     On Error GoTo Done
 
     If LenB(mExpert) = 0 Then GoTo Done
+    ' R33 W5-11: 宛先IDが無いまま送ると、受信側は q_<Fnv1a64Hex(自分のID)>_*.txt
+    ' しか列挙しないので誰にも届かない。届かないと分かっているなら送らず、
+    ' その旨を伝える(「送りました」とだけ言って沈黙するのが最悪の壊れ方)。
+    If LenB(mExpertId) = 0 Then
+        modSkin.ShowToast "この資料の発行者を特定できないため、質問を送れません。" & _
+                          "資料を配った方へ直接ご連絡ください。", "error"
+        GoTo Done
+    End If
 
+    Dim toWhom As String: toWhom = ExpertLabel()
     Dim q As String
-    q = InputBox("「" & mExpert & "」さんへの質問を入力してください。" & vbCrLf & _
+    q = InputBox(toWhom & "への質問を入力してください。" & vbCrLf & _
                  "(共有フォルダ経由で届きます。関連資料: " & modUtil.SafeLeft(mTopSource, 40) & ")", _
                  modAppDef.APP_NAME & " - 専門家へ質問")
     q = Trim$(q)
     If LenB(q) = 0 Then GoTo Done
     If Len(q) > MAX_Q_CHARS Then q = Left$(q, MAX_Q_CHARS)
 
-    If SendQuestion(mExpert, q, mTopSource) Then
-        modSkin.ShowToast mExpert & " さんへ質問を送りました。回答をお待ちください。", "success"
+    If SendQuestion(mExpertId, q, mTopSource) Then
+        modSkin.ShowToast toWhom & "へ質問を送りました。回答をお待ちください。", "success"
         On Error Resume Next
-        modLog.LogUsage "mentor_ask", "", "to=" & mExpert & " q=" & modUtil.SafeLeft(q, 120)
+        modLog.LogUsage "mentor_ask", "", "to=" & mExpertId & " q=" & modUtil.SafeLeft(q, 120)
         On Error GoTo Done
     Else
         modSkin.ShowToast SendFailText(), "error"   ' R27波3-10: 原因に応じた文言
@@ -347,8 +385,31 @@ End Function
 ' 内部: 専門家の特定(スコア上位の出典から順に、pack作者を探す)
 ' ----------------------------------------------------------------------------
 ' 直近回答のヒットはスコア降順(modRetrieveがソート済み)なので、先頭から走査し
-' 最初に見つかった「自分以外・不明以外のpack作者」を専門家とする。
-Private Function FindExpert(ByRef outExpert As String, ByRef outSource As String) As Boolean
+' 最初に見つかった「自分以外・不明以外」の出所を専門家とする。
+'
+' R33 W5-10(到達条件): 従来は origin が "pack:" で始まるヒットだけを候補に
+'   していた。ところが origin に入りうる値は "self"(自力取込)/"channel:<部門名>"
+'   (部門チャンネル同期)/"pack:<作者>"(手渡しパックを自分でファイル選択して
+'   取り込んだときだけ)の3種類しかない。DESIGN_v3 が「既定は全チャンネル購読。
+'   誰も操作しなくても自動的に届く」と定める主配布路を通った知識には "pack:" が
+'   絶対に付かないので、標準的な運用の端末ではこの機能が原理的に一度も出ない
+'   (出ないだけでエラーにならないため実機報告にも上がらない)。
+'   modShareRule.OriginKind を通し、channel 由来も候補にする。
+'
+' R33 W5-11(宛先): 従来は origin から表示名を切り出しただけの文字列を宛先に
+'   していた。受信側 CollectQuestions は q_<Fnv1a64Hex(CurrentUserId())>_*.txt
+'   しか列挙しないため、表示名(初回起動で本人が打つ pack_author)とユーザID
+'   (AD の CN / %USERNAME%)が偶然一致しない限り、書込みには成功するのに
+'   誰にも届かず「送りました」とだけ表示されていた。感謝状(modP2P.EmitThanks)が
+'   H-5/R8 F1 で既に確立した解決 ―― my_stats の pkauth:/chauth: を引く
+'   modP2P.ResolveAuthorId ―― を必ず通し、解決できないときは候補にしない
+'   (=ボタンを出さない。届かないものを「届いた」と言わないため)。
+'   自己除外も、表示名どうしではなく解決済みIDどうしで比較する。
+'   outExpert   : 画面に出す表示名(パック=作者名 / チャンネル=部門名)
+'   outKind     : "pack" / "channel"(呼び方の出し分けに使う)
+'   outTargetId : 実際の送信先ID(解決済み・サニタイズ済み)
+Private Function FindExpert(ByRef outExpert As String, ByRef outSource As String, _
+                            ByRef outKind As String, ByRef outTargetId As String) As Boolean
     Dim n As Long: n = modAsk.LastHitCount()
     If n <= 0 Then Exit Function
 
@@ -360,20 +421,40 @@ Private Function FindExpert(ByRef outExpert As String, ByRef outSource As String
     Dim i As Long
     For i = 0 To n - 1
         Dim origin As String: origin = modAsk.LastHitOrigin(i)
-        If LCase$(Left$(origin, 5)) = "pack:" Then
-            Dim author As String: author = SanitizeId(Trim$(Mid$(origin, 6)))
-            If LenB(author) > 0 Then
-                If StrComp(author, "不明", vbTextCompare) <> 0 Then
-                    If StrComp(author, myId, vbTextCompare) <> 0 Then
-                        outExpert = author
-                        outSource = modAsk.LastHitSource(i)
-                        FindExpert = True
-                        Exit Function
+        Dim kind As String: kind = modShareRule.OriginKind(origin)
+        If LenB(kind) > 0 Then
+            Dim shown As String: shown = Trim$(modShareRule.OriginName(origin))
+            If LenB(shown) > 0 Then
+                If StrComp(shown, "不明", vbTextCompare) <> 0 Then
+                    Dim targetId As String
+                    targetId = ""
+                    On Error Resume Next
+                    targetId = SanitizeId(Trim$(modP2P.ResolveAuthorId(origin, shown)))
+                    On Error GoTo 0
+                    If LenB(targetId) > 0 Then
+                        If StrComp(targetId, myId, vbTextCompare) <> 0 Then
+                            outExpert = SanitizeId(shown)
+                            outKind = kind
+                            outTargetId = targetId
+                            outSource = modAsk.LastHitSource(i)
+                            FindExpert = True
+                            Exit Function
+                        End If
                     End If
                 End If
             End If
         End If
     Next i
+End Function
+
+' ExpertLabel - 宛先の呼び方。パックは人名なので「〇〇 さん」、チャンネルは
+'   部門名(人ではない)なので「「営業部」の発行者」と出す。R33 W5-10。
+Private Function ExpertLabel() As String
+    If StrComp(mExpertKind, "channel", vbTextCompare) = 0 Then
+        ExpertLabel = "「" & mExpert & "」の発行者"
+    Else
+        ExpertLabel = mExpert & " さん"
+    End If
 End Function
 
 ' ----------------------------------------------------------------------------
