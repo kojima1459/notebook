@@ -1704,6 +1704,15 @@ CONTRACT: dict[str, dict] = {
             # "\EXCEL.EXE"+" /x")なので基盤層に置く。modWorkExcelはこれを
             # 呼ぶだけで、パスの正規化ロジックを持たない。
             "BuildWorkExcelCmd",
+            # 2026-08-16(R33波3 W3-3): txt/md/csv の文字コード判定。
+            # ReadTextFileAuto は BOM を見て UTF-8 / UTF-16 を確定し、BOM が
+            # 無ければ UTF-8 で読んで置換文字(U+FFFD)の比率が高いときだけ
+            # CP932 で読み直す。取込本体(modExtractor)と約款差分(optDiffDoc)の
+            # 2箇所から呼ぶ ―― 片方だけ直すともう片方に同じ「読み込み成功・
+            # 中身は全滅」が残るため、判定は必ずこの1本に集約する。
+            # ReplacementRatio はその判定の算数で、LOの実行テストで固定する
+            # ためだけに Public(ADODB.Stream は LO で動かせない)。
+            "ReadTextFileAuto", "ReplacementRatio",
         ],
     },
     # ---- 7.8 テストモジュール ----

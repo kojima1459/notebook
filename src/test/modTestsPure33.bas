@@ -485,6 +485,76 @@ Private Sub TestExcelRowAlign33()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (7) W3-3: CP932の資料を「読み込み成功・中身は全滅」で取り込まない。
+' ----------------------------------------------------------------------------
+'   ADODB.Stream の UTF-8 デコードは不正バイト列で例外を投げず U+FFFD(置換
+'   文字)へ落とす。よって「読めた/読めない」だけを見ている呼び出し側からは
+'   化けが見えない。判定を1本にした modUtilText.ReadTextFileAuto は、この
+'   U+FFFD の比率を根拠に CP932 での読み直しへ切り替える。
+'   最後の関門である modExtractor.GarbleRatio も U+FFFD を数える。
+'
+'   【discriminate の作り】
+'   ・ReplacementRatio: U+FFFD を数えない実装(=直す前の世界)にすると
+'     「CP932をUTF-8で読んだ本文」の比率が 0 になり、下の 0.02 超の検査が
+'     落ちる。同時に「正しいUTF-8は 0」の検査があるので、常に 1 を返す
+'     実装でも通らない。
+'   ・GarbleRatio: U+FFFD の枝を外すと 0.2 超の検査が落ちる。日本語本文が
+'     0 のままであることを対で見るので、常に化け扱いにする実装も通らない。
+'   ADODB.Stream 自体は LO で動かせないため、ここで固定するのは
+'   【判定の算数】だけ(ファイルI/Oは実機スモークの担当)。
+' ----------------------------------------------------------------------------
+Private Sub TestGarbleFffd33()
+    Dim fffd As String: fffd = ChrW(&HFFFD&)
+
+    ' --- CP932の日本語をUTF-8で読んだときの姿(ほぼ全部が置換文字) --------
+    Dim broken As String: broken = Rep33(fffd, 40) & "ABC"
+    Dim rBroken As Double: rBroken = modUtilText.ReplacementRatio(broken)
+    modTestRunner.Check "R33-W3-3_置換文字だらけの本文は読み直しの線(2%)を超える", _
+        (rBroken > 0.02), "ratio=" & Format$(rBroken, "0.0000")
+
+    ' --- 正しい日本語(UTF-8)は 0 ------------------------------------------
+    modTestRunner.Check "R33-W3-3_正しい日本語の本文は置換文字ゼロ", _
+        (modUtilText.ReplacementRatio("本日の会議は10時から会議室Aで行います。") = 0#), _
+        "ratio=" & Format$(modUtilText.ReplacementRatio("本日の会議は10時から会議室Aで行います。"), "0.0000")
+
+    ' --- 本物のU+FFFDが数文字混ざるだけのUTF-8は読み直さない(誤爆防止) ---
+    '   1000字の本文に1字だけ混ざっても 0.001 で、2%の線を超えない。
+    Dim rare As String: rare = Rep33("あ", 999) & fffd
+    modTestRunner.Check "R33-W3-3_置換文字が1字だけなら読み直さない", _
+        (modUtilText.ReplacementRatio(rare) <= 0.02), _
+        "ratio=" & Format$(modUtilText.ReplacementRatio(rare), "0.0000")
+
+    ' --- 空白類は分母に入れない(GarbleRatio と同じ数え方) ----------------
+    modTestRunner.Check "R33-W3-3_空白だけの本文は0(0除算にしない)", _
+        (modUtilText.ReplacementRatio("   " & vbTab & vbLf) = 0#), _
+        "ratio=" & Format$(modUtilText.ReplacementRatio("   " & vbTab & vbLf), "0.0000")
+    '   空白を分母に入れていたら、下の比率は 20/40 = 0.5 まで落ちる。
+    Dim padded As String: padded = Rep33(fffd & " ", 20)
+    modTestRunner.Check "R33-W3-3_空白は分母に入れない", _
+        (modUtilText.ReplacementRatio(padded) = 1#), _
+        "ratio=" & Format$(modUtilText.ReplacementRatio(padded), "0.0000")
+
+    ' --- 最後の関門: 化け検知が置換文字を数える --------------------------
+    '   呼び出し側(modExtractorPdf.DropGarbledPages)の閾値は 0.2 超。
+    modTestRunner.Check "R33-W3-3_化け検知は置換文字を化けとして数える", _
+        (modExtractor.GarbleRatio(Rep33("あ", 60) & Rep33(fffd, 40)) > 0.2), _
+        "ratio=" & Format$(modExtractor.GarbleRatio(Rep33("あ", 60) & Rep33(fffd, 40)), "0.0000")
+    ' 対の番人: 日本語本文は従来どおり 0(置換文字を足した巻き添えが無い)。
+    modTestRunner.Check "R33-W3-3_日本語本文は従来どおり化け0", _
+        (modExtractor.GarbleRatio(Rep33("本日の会議は10時から", 10)) = 0#), _
+        "ratio=" & Format$(modExtractor.GarbleRatio(Rep33("本日の会議は10時から", 10)), "0.0000")
+End Sub
+
+Private Function Rep33(ByVal s As String, ByVal n As Long) As String
+    Dim sb As String
+    Dim i As Long
+    For i = 1 To n
+        sb = sb & s
+    Next i
+    Rep33 = sb
+End Function
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -506,6 +576,9 @@ G05Next33:
 G06Next33:
     On Error GoTo G06Fail33
     TestExcelRowAlign33
+G07Next33:
+    On Error GoTo G07Fail33
+    TestGarbleFffd33
 NextDone33:
     On Error GoTo 0
     Exit Sub
@@ -527,6 +600,9 @@ G05Fail33:
     Resume G06Next33
 G06Fail33:
     GroupFail33 "TestExcelRowAlign33", Err.Number, Err.Description
+    Resume G07Next33
+G07Fail33:
+    GroupFail33 "TestGarbleFffd33", Err.Number, Err.Description
     Resume NextDone33
 End Sub
 

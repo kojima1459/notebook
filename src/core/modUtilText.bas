@@ -25,6 +25,19 @@ Private Const MS_PER_DAY As Double = 86400000#
 ' プロシージャ定義より前に置かなければならないため、宣言だけがここにある)。
 Public Const DECLINE_MEMO_HEAD As String = "取込を見送りました"
 
+' 文字コード自動判定(ReadTextFileAuto)のしきい値。実体の説明はその関数の
+' 直前を参照(モジュールレベル宣言は実機VBAの制約でプロシージャ定義より前に
+' 置かなければならないため、宣言だけがここにある)。
+'   FFFD_LIMIT: 置換文字(U+FFFD)の比率がこれを超えたら「UTF-8として読めて
+'     いない」とみなして CP932 で読み直す。CP932 の日本語を UTF-8 で読むと
+'     本文のほぼ全部が U+FFFD になる一方、正しい UTF-8 に本物の U+FFFD が
+'     混ざるのは数文字なので、2% の線がこの2つを余裕をもって分ける。
+'   FFFD_SAMPLE: 比率を測る先頭文字数。文字コードの取り違えは【ファイル全体
+'     の性質】なので先頭だけ見れば足りる(上限50MBの本文を1文字ずつ回すと
+'     実用にならない)。
+Private Const FFFD_LIMIT As Double = 0.02
+Private Const FFFD_SAMPLE As Long = 20000
+
 ' ----------------------------------------------------------------------------
 ' ReadTextFileUtf8 - UTF-8テキストファイルを読む(ADODB.Stream)。
 '   戻り値: 成功=True。失敗時は False を返し、outErrNum/outErrDesc に理由を
@@ -41,6 +54,16 @@ Public Const DECLINE_MEMO_HEAD As String = "取込を見送りました"
 Public Function ReadTextFileUtf8(ByVal filePath As String, ByRef outText As String, _
                                  Optional ByRef outErrNum As Long, _
                                  Optional ByRef outErrDesc As String) As Boolean
+    ReadTextFileUtf8 = ReadWithCharset(filePath, "utf-8", outText, outErrNum, outErrDesc)
+End Function
+
+' ----------------------------------------------------------------------------
+' ReadWithCharset - 文字コードを指定してテキストファイルを読む(実体)。
+'   ReadTextFileUtf8 / ReadTextFileAuto の共通の下回り。例外は外へ出さない。
+' ----------------------------------------------------------------------------
+Private Function ReadWithCharset(ByVal filePath As String, ByVal charsetName As String, _
+                                 ByRef outText As String, ByRef outErrNum As Long, _
+                                 ByRef outErrDesc As String) As Boolean
     Dim st As Object
     Dim txt As String
 
@@ -51,7 +74,7 @@ Public Function ReadTextFileUtf8(ByVal filePath As String, ByRef outText As Stri
     On Error GoTo Fail
     Set st = CreateObject("ADODB.Stream")
     st.Type = 2          ' adTypeText
-    st.Charset = "utf-8"
+    st.Charset = charsetName
     st.Open
     st.LoadFromFile filePath
     txt = CStr(st.ReadText(-1))   ' -1 = adReadAll
@@ -62,7 +85,7 @@ Public Function ReadTextFileUtf8(ByVal filePath As String, ByRef outText As Stri
         If Left$(txt, 1) = ChrW(&HFEFF) Then txt = Mid$(txt, 2)
     End If
     outText = txt
-    ReadTextFileUtf8 = True
+    ReadWithCharset = True
     Exit Function
 
 Fail:
@@ -79,7 +102,123 @@ ReadCleanup:
     Set st = Nothing     ' COM解放(異常パス=半開きも確実に解放)
     On Error GoTo 0
     outText = ""
-    ReadTextFileUtf8 = False
+    ReadWithCharset = False
+End Function
+
+' ----------------------------------------------------------------------------
+' ReadTextFileAuto - 文字コードを見分けてテキストファイルを読む。
+'   2026-08-16(R33波3 W3-3): txt/md/csv を UTF-8 固定で読んでいたため、
+'   CP932(Shift_JIS)で保存された社内資料が【読み込み成功・中身は全滅】に
+'   なっていた。ADODB.Stream の UTF-8 デコードは不正バイト列で例外を投げず
+'   U+FFFD(置換文字)へ落とすので、呼び出し側は失敗に気付けない。
+'   さらに化け検知(modExtractor.GarbleRatio)は U+FFFD を数えていなかったため
+'   どの関門も止めず、意味を失った本文がそのまま索引に入っていた。
+'
+'   判定の順番(BOM が最優先。BOM があるものを内容から推測し直さない):
+'     1. 先頭バイトの BOM …… UTF-8 / UTF-16LE / UTF-16BE をそのまま採用
+'     2. BOM 無し …… まず UTF-8 で読む。置換文字の比率が FFFD_LIMIT を
+'        超えたら CP932 で読み直し、置換文字が【減ったときだけ】採用する
+'        (減らないなら UTF-8 の結果を残す=推測で悪化させない)
+'   どちらでも決め切れなかった本文は U+FFFD を含んだまま返る。呼び出し側の
+'   化け検知が U+FFFD を数えるので、そこで拾われる(仕様「判定不能時は
+'   化け検知に必ずかける」)。
+' ----------------------------------------------------------------------------
+Public Function ReadTextFileAuto(ByVal filePath As String, ByRef outText As String, _
+                                 Optional ByRef outErrNum As Long, _
+                                 Optional ByRef outErrDesc As String) As Boolean
+    outText = ""
+    outErrNum = 0
+    outErrDesc = ""
+
+    Dim bom As String: bom = BomCharset(filePath)
+    If LenB(bom) > 0 Then
+        ReadTextFileAuto = ReadWithCharset(filePath, bom, outText, outErrNum, outErrDesc)
+        Exit Function
+    End If
+
+    If Not ReadWithCharset(filePath, "utf-8", outText, outErrNum, outErrDesc) Then Exit Function
+    ReadTextFileAuto = True
+
+    Dim r1 As Double: r1 = ReplacementRatio(outText)
+    If r1 <= FFFD_LIMIT Then Exit Function
+
+    Dim alt As String, e2 As Long, d2 As String
+    If Not ReadWithCharset(filePath, "shift_jis", alt, e2, d2) Then Exit Function
+    If ReplacementRatio(alt) < r1 Then outText = alt
+End Function
+
+' ----------------------------------------------------------------------------
+' BomCharset - 先頭バイトのBOMから ADODB.Stream の Charset 名を返す。
+'   BOMが無い/読めないときは ""(呼び出し側は内容から推測する)。
+'   "unicode"=UTF-16LE / "unicodeFFFE"=UTF-16BE は ADODB の登録名。
+' ----------------------------------------------------------------------------
+Private Function BomCharset(ByVal filePath As String) As String
+    Dim st As Object
+    Dim b As Variant
+    Dim n As Long: n = -1
+
+    On Error GoTo BomFail
+    Set st = CreateObject("ADODB.Stream")
+    st.Type = 1          ' adTypeBinary
+    st.Open
+    st.LoadFromFile filePath
+    b = st.Read(3)
+    st.Close
+    Set st = Nothing
+
+    On Error Resume Next
+    n = UBound(b)
+    Err.Clear
+    On Error GoTo BomFail
+
+    If n >= 2 Then
+        If b(0) = &HEF And b(1) = &HBB And b(2) = &HBF Then
+            BomCharset = "utf-8"
+            Exit Function
+        End If
+    End If
+    If n >= 1 Then
+        ' And は短絡しないので、要素の参照は境界チェックと分けている。
+        If b(0) = &HFF Then
+            If b(1) = &HFE Then BomCharset = "unicode"
+        ElseIf b(0) = &HFE Then
+            If b(1) = &HFF Then BomCharset = "unicodeFFFE"
+        End If
+    End If
+    Exit Function
+
+BomFail:
+    Resume BomCleanup
+BomCleanup:
+    On Error Resume Next
+    If Not st Is Nothing Then st.Close
+    Set st = Nothing
+    On Error GoTo 0
+    BomCharset = ""
+End Function
+
+' ----------------------------------------------------------------------------
+' ReplacementRatio - 先頭 FFFD_SAMPLE 文字に占める U+FFFD の割合(0.0〜1.0)。
+'   空白類は分母に入れない(modExtractor.GarbleRatio と同じ数え方)。
+' ----------------------------------------------------------------------------
+Public Function ReplacementRatio(ByVal s As String) As Double
+    Dim n As Long: n = Len(s)
+    If n > FFFD_SAMPLE Then n = FFFD_SAMPLE
+    If n < 1 Then Exit Function
+
+    Dim bad As Long, tot As Long
+    Dim i As Long
+    For i = 1 To n
+        Dim c As Long: c = AscW(Mid$(s, i, 1))
+        If c < 0 Then c = c + 65536          ' AscWの符号付き戻りを補正
+        If c = 32 Or c = 9 Or c = 10 Or c = 13 Or c = &H3000 Then
+            ' 空白類は分母に入れない
+        Else
+            tot = tot + 1
+            If c = &HFFFD& Then bad = bad + 1
+        End If
+    Next i
+    If tot > 0 Then ReplacementRatio = bad / tot
 End Function
 
 ' ----------------------------------------------------------------------------

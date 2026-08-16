@@ -169,9 +169,13 @@ Private Function ExtractPlainText(ByVal path As String, ByRef outText As String,
         Exit Function
     End If
 
-    ' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
+    ' 読み取りの実体は modUtilText.ReadTextFileAuto(2026-08-16 R33波3 W3-3)。
+    ' 従来は UTF-8 固定だったため、CP932(Shift_JIS)の約款を読ませると
+    ' 「読み込み成功・中身は全滅」になり、そのまま差分の材料になっていた。
+    ' 判定は modExtractor 側の取込経路と【同じ1本の共通関数】に集約している
+    ' (片方だけ直すともう片方に同じ事故が残るため)。
     ' 失敗時の文言は従来どおりここで固定する=挙動は変えない。
-    If Not modUtilText.ReadTextFileUtf8(path, outText) Then
+    If Not modUtilText.ReadTextFileAuto(path, outText) Then
         outText = ""
         errDetail = "ファイルを開けませんでした(他のアプリで開いている、または権限がない可能性があります)。"
         Exit Function

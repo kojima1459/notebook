@@ -460,6 +460,8 @@ Public Function GarbleRatio(ByVal s As String) As Double
                 bad = bad + 1                        ' キリル文字
             ElseIf c >= &HE000& And c <= &HF8FF& Then
                 bad = bad + 1                        ' 私用領域(R27H F3)
+            ElseIf c = &HFFFD& Then
+                bad = bad + 1                        ' 置換文字(R33 W3-3)
             End If
         End If
     Next i
@@ -711,10 +713,9 @@ Private Function ExtractPlainText(ByVal path As String, ByRef pages() As Extract
         Exit Function
     End If
 
-    ' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2で
-    ' 10箇所の同型実装を1本化)。失敗時の利用者向け文言(DescribeComError)は
-    ' ここが従来どおり組み立てる=挙動は変えない。
-    If Not modUtilText.ReadTextFileUtf8(path, txt, readErrNum, readErrDesc) Then
+    ' 読み取りの実体は modUtilText.ReadTextFileAuto(R33波3 W3-3。BOM/文字コード
+    ' 判定を1本化し、CP932もそのまま読む)。失敗時の文言は従来どおりここで組む。
+    If Not modUtilText.ReadTextFileAuto(path, txt, readErrNum, readErrDesc) Then
         errDetail = modUtil.DescribeComError(readErrNum, readErrDesc, "Office")
         Exit Function
     End If
