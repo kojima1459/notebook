@@ -32,6 +32,26 @@ Option Explicit
 ' R4準拠(純ロジック): Excelオブジェクトに触れないので LibreOffice でテスト可能。
 ' ============================================================================
 
+' ----------------------------------------------------------------------------
+' 直近ターンで根拠表示(信頼度バッジ・出典チップ)を出してよいか(R33H F7)
+' ----------------------------------------------------------------------------
+' W5-21 は「回答が成立しなかったターンにバッジと出典を出さない」ために
+' modAsk の mLastMode へ "" を入れた。ところが mLastMode="" は
+' modUIMain.RenderAnswer が【空質問ターン専用】の目印として先に使っている印で、
+' そこへ API失敗(#ERR)と逆質問が流れ込むと、
+'   (a) 通信失敗の直後に状態セルが「状態: 準備できています」になる
+'   (b) mLastAnswerText に到達せず、「Wordで開く」が【前のターンの回答】を出す
+' という別の嘘が生まれた(nexus_ui=FALSE の端末は modDiag の必須キーで、
+' 旧3画面は死んでいない)。
+' 「検索も生成もしなかった」(空質問)と「生成が成立しなかった」(API失敗・
+' 逆質問)は別の事実なので、別の印で表す。mLastMode は従来どおりモード名を
+' 入れ、根拠表示の抑止だけをこの1ビットで行う。
+' 置き場が modMode なのは modAsk が凍結モジュールだから(W5-21 と同じ理由。
+' modAsk 側の変更は Done: の1行だけ)。作法は modAskGlobal.mWasGlobal と同型
+' ―― 「このターンが何だったか」を1ビットだけ持ち、表示側が読む。
+' 判定関数(Normalize / ShouldEmitInsight など)は従来どおり副作用ゼロのまま。
+Private mGrounded As Boolean
+
 ' モード識別子。文字列はui_state/configと共有するので変更しないこと。
 Private Const MODE_QUICK As String = "quick"
 Private Const MODE_DEEP As String = "deep"
@@ -300,6 +320,20 @@ End Function
 '   なので、同じ層・同じモジュールへ置く。modAsk 側は1行呼び出しのまま。
 Public Function AnsweredMode(ByVal okFlag As Boolean, ByVal modeName As String) As String
     If okFlag Then AnsweredMode = modeName
+End Function
+
+' NoteAnswered - R33H F7。直近ターンの成否を控えて、モード名をそのまま返す。
+'   modAsk の Done: から1行で呼ぶための形(戻り値を mLastMode へ入れるので、
+'   凍結モジュール側は代入1行のまま=W5-21 の手術跡の上に重ねる)。
+Public Function NoteAnswered(ByVal okFlag As Boolean, ByVal modeName As String) As String
+    mGrounded = okFlag
+    NoteAnswered = modeName
+End Function
+
+' GroundingAllowed - 直近ターンで根拠表示を出してよいか。
+'   表示側(modAppAct.DrawConfidence / modPeek.RenderCitations)がこれを見る。
+Public Function GroundingAllowed() As Boolean
+    GroundingAllowed = mGrounded
 End Function
 
 Public Function ShouldEmitInsight(ByVal mode As String, ByVal nHits As Long) As Boolean

@@ -43,12 +43,15 @@ Public Sub RenderCitations(ByVal bubbleName As String)
 
     HideCitations   ' 前回のチップ/ポップアップを消す(最新回答の下だけに出す)
 
-    ' R33 W5-21: 回答が成立しなかったターン(API失敗の #ERR・逆質問)では
-    ' 出典チップも出さない。modAsk は成立したターンだけモードを覚えるように
-    ' なったので、そのモードから作られる信頼度文が空かどうかで判る
-    ' (信頼度バッジ側の抑止条件 modUINexusDraw.DrawConfidence と同じ門)。
-    ' 「AIとの通信に失敗しました」の下に出典が並び、押すと実文が開く ――
-    ' 根拠は揃っているのに答えが出ないのか、答えが出ているのかを取り違える。
+    ' R33 W5-21 / R33H F7: 回答が成立しなかったターン(API失敗の #ERR・逆質問)
+    ' では出典チップも出さない。「AIとの通信に失敗しました」の下に出典が並び、
+    ' 押すと実文が開く ―― 根拠は揃っているのに答えが出ないのか、答えが出て
+    ' いるのかを取り違える。
+    ' F7: 判定は modMode.GroundingAllowed(信頼度バッジ側 modAppAct.DrawConfidence
+    ' と同じ門)。W5-21 はこれを mLastMode="" で兼ねていたが、その印は
+    ' modUIMain.RenderAnswer の【空質問ターン専用】分岐と衝突していた。
+    ' LastConfidenceText の空判定は空質問ターン(mLastMode="")の抑止として残す。
+    If Not modMode.GroundingAllowed() Then Exit Sub
     If LenB(modAsk.LastConfidenceText()) = 0 Then Exit Sub
 
     Dim n As Long: n = modAsk.LastHitCount()

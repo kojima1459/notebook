@@ -358,10 +358,16 @@ CONTRACT: dict[str, dict] = {
         #   仕様は modChrome を指名していたが、modChrome は src/ui にあり
         #   src/qa からの参照は R1(層)違反になるため、性質が同じ
         #   ShouldEmitInsight と同居させる。
+        # NoteAnswered / GroundingAllowed(2026-08-16 R33H F7): W5-21 が
+        #   mLastMode="" で兼ねていた「根拠表示の抑止」を別の1ビットへ分ける。
+        #   mLastMode="" は modUIMain.RenderAnswer が【空質問ターン専用】の印と
+        #   して先に使っており、API失敗と逆質問がそこへ流れ込むと状態セルが
+        #   「準備できています」になり「Wordで開く」が前のターンの回答を出した。
+        #   modAsk は凍結なので実体はここに置き、modAsk の変更は Done: の1行だけ。
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
                      "SubQueryCount", "ShouldEmitInsight", "RerankEffort",
-                     "AnsweredMode",
+                     "AnsweredMode", "NoteAnswered", "GroundingAllowed",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
     },
     "modSparse": {

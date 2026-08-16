@@ -289,7 +289,7 @@ Done:
 
     mLastQuestion = q
     mLastAnswer = result
-    mLastMode = modMode.AnsweredMode(ok, mdMode)   ' R33 W5-21(判定の実体はmodMode)
+    mLastMode = modMode.NoteAnswered(ok, mdMode)   ' R33H F7(抑止の実体はmodMode)
     mLastHits = hits
     mLastNHits = nHits
     mLastSeconds = elapsedSec

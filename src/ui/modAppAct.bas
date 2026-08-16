@@ -45,8 +45,14 @@ Public Sub ClearConfidence()
     On Error GoTo 0
 End Sub
 
+' R33H F7: 回答が成立しなかったターン(API失敗の #ERR・逆質問)には信頼度
+' バッジを出さない。W5-21 はこの抑止を modAsk の mLastMode="" で兼ねていたが、
+' その印は modUIMain.RenderAnswer の【空質問ターン専用】分岐と衝突していた
+' (状態セルが「準備できています」になり、「Wordで開く」が前のターンの回答を
+' 出す)。抑止だけを別の1ビット(modMode.GroundingAllowed)へ分けた。
 Public Sub DrawConfidence(ByVal bubbleName As String)
     On Error Resume Next
+    If Not modMode.GroundingAllowed() Then Exit Sub
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets("Nexus")
     If ws Is Nothing Then Exit Sub

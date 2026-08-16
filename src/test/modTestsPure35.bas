@@ -309,6 +309,42 @@ Private Sub TestBudgetWarn35()
         modShareRule.IsBudgetTightAt(15999, 20000), False
 End Sub
 
+' ---- R33H F7: 「検索も生成もしなかった」と「生成が成立しなかった」を分ける ----
+'   W5-21 は後者の抑止に mLastMode="" を使ったが、その印は
+'   modUIMain.RenderAnswer が【空質問ターン専用】として先に使っており、
+'   API失敗と逆質問がそこへ流れ込むと (a)通信失敗の直後に状態セルが
+'   「準備できています」になり (b)「Wordで開く」が前のターンの回答を出した。
+'   mLastMode には従来どおりモード名を入れ、根拠表示(信頼度バッジ・出典
+'   チップ)の抑止だけを別の1ビットで行う。
+'   discriminate(両方向を対で置く):
+'   ・NoteAnswered を AnsweredMode と同じ実装(失敗時に "" を返す)へ戻すと
+'     「不成立ターンでもモード名は空にしない」が落ちる。
+'   ・mGrounded を常に True にすると「不成立ターンは根拠表示を止める」が落ちる。
+'   ・空質問の印(AnsweredMode が "" を返すこと)も対で固定しているので、
+'     2つの印を1つに戻す実装は必ずどちらかで落ちる。
+Private Sub TestNoteAnswered35()
+    ChkStr35 "F7_成立ターンはモード名をそのまま返す", _
+        modMode.NoteAnswered(True, "deep"), "deep"
+    ChkBool35 "F7_成立ターンは根拠表示を許す", modMode.GroundingAllowed(), True
+
+    ChkStr35 "F7_不成立ターンでもモード名は空にしない", _
+        modMode.NoteAnswered(False, "deep"), "deep"
+    ChkBool35 "F7_不成立ターンは根拠表示を止める", modMode.GroundingAllowed(), False
+
+    ChkStr35 "F7_モード名は素通しする(quick)", _
+        modMode.NoteAnswered(True, "quick"), "quick"
+    ChkBool35 "F7_見るのは直近の1ターンだけ", modMode.GroundingAllowed(), True
+
+    ' 空質問ターンの印は従来どおり別の関数(mLastMode="")が持つ。
+    ChkStr35 "F7_空質問の印は別物(検索も生成もしなかった)", _
+        modMode.AnsweredMode(False, "deep"), ""
+    ChkStr35 "F7_成立ターンの印は従来どおり", _
+        modMode.AnsweredMode(True, "deep"), "deep"
+
+    ' 後始末: 次のテスト群へ状態を持ち越さない。
+    ChkStr35 "F7_閉じ直せる", modMode.NoteAnswered(False, ""), ""
+End Sub
+
 Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R33-" & label, (got = want), _
         "実際=" & got & " 期待=" & want
@@ -340,6 +376,9 @@ H06Next35:
 H07Next35:
     On Error GoTo H07Fail35
     TestBudgetWarn35
+H08Next35:
+    On Error GoTo H08Fail35
+    TestNoteAnswered35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -370,6 +409,10 @@ H06Fail35:
     Resume H07Next35
 H07Fail35:
     modTestRunner.Check "TestBudgetWarn35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H08Next35
+H08Fail35:
+    modTestRunner.Check "TestNoteAnswered35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub
