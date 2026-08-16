@@ -78,6 +78,24 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
         Exit Function
     End If
 
+    ' 2026-08-16(R33波3 W3-11): 暗号化ブックは【Workbooks.Open を1回も呼ばずに】
+    ' 失敗させる。OpenForExtract の「引数なしでの再試行」はパスワード入力
+    ' モーダルを出す呼び方そのもので、無人の自動同期はそこで永久に止まる。
+    ' 再試行自体は 2026-07-29 の実機事故(Password 引数を付けると Open が
+    ' 失敗する端末)への保険なので残し、暗号化と【判別できたものだけ】を
+    ' ここで落とす。判別不能(.xls 等)は従来どおり OpenForExtract へ流す。
+    If modShelfScan.EncryptedByHeader(modUtil.ExtOf(path), _
+            modShelfScan.FileHeadHex(path)) = "enc" Then
+        errDetail = modLog.EncryptedFileMsg()
+        On Error Resume Next
+        modLog.LogUsage "ingest_encrypted", "ingest", _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120)
+        On Error GoTo 0
+        Application.ScreenUpdating = restoreScreen
+        Extract = False
+        Exit Function
+    End If
+
     ' 取り込むブックのマクロ(Auto_Open/Workbook_Open)を走らせない。
     ' 3 = msoAutomationSecurityForceDisable。イベントも止める。
     ' どちらも必ず元の値へ戻す(Failed 経路を含む)。

@@ -20,6 +20,106 @@ Private Function GetSheet(ByVal sheetName As String) As Worksheet
     On Error GoTo 0
 End Function
 
+' ----------------------------------------------------------------------------
+' FileHeadHex / EncryptedByHeader - 開く【前】に、パスワードで暗号化された
+'   Office文書かどうかを先頭バイトから見分ける(2026-08-16 R33波3 W3-11)。
+' ----------------------------------------------------------------------------
+' なぜ要るのか(実機で踏み抜いた事故):
+'   暗号化ブックに対して Workbooks.Open / Documents.Open を「パスワード引数
+'   なし」で呼ぶと、Excel/Word は【パスワード入力モーダル】を出して待つ。
+'   無人の自動同期では誰も押さないので、そこで永久に止まる(利用者には
+'   「開いた瞬間に固まった」としか見えない)。DisplayAlerts=False では
+'   このプロンプトは抑止できない ―― modExtractorWord は既に
+'   wdAlertsNone を設定済みなのに同じプロンプトが出る、が実証。
+'   一方で「引数なしでの再試行」自体は 2026-07-29 の実機事故(Password 引数を
+'   付けると Open 自体が失敗する端末があった)への保険なので消せない。
+'   そこで【開く前に判別し、暗号化と分かったものだけ再試行に到達させない】。
+'
+' 見分けの根拠(推測ではなく確認済み):
+'   ・.xlsx/.xlsm/.docx などの OOXML は ZIP コンテナ。先頭は "PK" = 50 4B。
+'     (openpyxl で作った .xlsx / zipfile で作った .docx の実測がともに
+'      50 4B 03 04 14 00 00 00)
+'   ・ECMA-376 の暗号化文書は、中身の ZIP を丸ごと OLE 複合ドキュメントへ
+'     包んだもの(EncryptionInfo / EncryptedPackage ストリーム)。したがって
+'     先頭は OLE の署名 D0 CF 11 E0 A1 B1 1A E1 になる
+'     (olefile.MAGIC と msoffcrypto の判別ロジックで確認)。
+'   ・したがって「拡張子は OOXML なのに中身が OLE」= 暗号化、と断じてよい。
+'
+' 【判別できないものを「暗号化ではない」と言わない】
+'   .xls / .doc(旧バイナリ形式)は暗号化の有無にかかわらず常に OLE なので、
+'   この方法では区別できない。PDF も暗号化されていても先頭は "%PDF" のまま。
+'   これらは "" (=判別不能)を返し、従来どおりの経路(引数なし再試行を含む)
+'   へ流す。ここを「OLE だから暗号化」と倒すと、正常な .xls / .doc が
+'   1本残らず取り込めなくなる。安全側は【従来どおり】であって【弾く】ではない。
+'
+' 戻り値は文字列3種:
+'   "enc"   … パスワードで暗号化されている(開かずに失敗させてよい)
+'   "plain" … 暗号化されていない(素の ZIP)
+'   ""      … 判別不能(従来どおりの経路へ流す)
+' ----------------------------------------------------------------------------
+Public Function EncryptedByHeader(ByVal ext As String, ByVal headHex As String) As String
+    Select Case LCase$(Trim$(ext))
+    Case "xlsx", "xlsm", "xltx", "xltm", "docx", "docm", "dotx", "dotm", "pptx", "pptm"
+        ' OOXML(ZIPコンテナ)の拡張子だけが判定対象。
+    Case Else
+        Exit Function                      ' "" = 判別不能
+    End Select
+
+    Dim h As String: h = UCase$(Trim$(headHex))
+    ' 4バイト読めていないファイル(空/途中で切れている)は判定しない。
+    If Len(h) < 8 Then Exit Function
+
+    If Left$(h, 4) = "504B" Then
+        ' "PK" で始まる = ZIP。Office が作る文書は必ず 50 4B 03 04 だが、
+        ' 空アーカイブ(50 4B 05 06)等も ZIP なので2バイトで見る。
+        EncryptedByHeader = "plain"
+    ElseIf Left$(h, 8) = "D0CF11E0" Then
+        EncryptedByHeader = "enc"
+    End If
+    ' どちらでもない(PDFを .xlsx に改名した等)は "" のまま=判別不能。
+End Function
+
+' ファイル先頭4バイトを大文字16進8字で返す。読めなければ ""(判別不能扱い)。
+' 例外は外へ出さない ―― 見分けに失敗しても取込そのものは従来どおり続ける。
+Public Function FileHeadHex(ByVal path As String) As String
+    Dim st As Object
+    Dim b As Variant
+    Dim n As Long: n = -1
+
+    On Error GoTo HeadFail
+    Set st = CreateObject("ADODB.Stream")
+    st.Type = 1          ' adTypeBinary
+    st.Open
+    st.LoadFromFile path
+    b = st.Read(4)
+    st.Close
+    Set st = Nothing
+
+    ' 0バイトのファイルでは Read が配列を返さない。UBound がそこで落ちても
+    ' n = -1 のまま=空文字を返す(判別不能)。
+    On Error Resume Next
+    n = UBound(b)
+    Err.Clear
+    On Error GoTo HeadFail
+
+    Dim s As String
+    Dim i As Long
+    For i = 0 To n
+        s = s & Right$("0" & Hex$(b(i)), 2)
+    Next i
+    FileHeadHex = UCase$(s)
+    Exit Function
+
+HeadFail:
+    Resume HeadCleanup
+HeadCleanup:
+    On Error Resume Next
+    If Not st Is Nothing Then st.Close
+    Set st = Nothing
+    On Error GoTo 0
+    FileHeadHex = ""
+End Function
+
 Public Function EnsureTrailingSlash(ByVal path As String) As String
     Dim p As String: p = path
     If Len(p) = 0 Then Exit Function

@@ -133,7 +133,15 @@ CONTRACT: dict[str, dict] = {
                      # 変える純関数。modUIMain と modAppAct の2箇所が同じ答えを
                      # 出す必要があり、置き場は FriendlyMessage の隣が自然
                      # (コード部があればそちらへ委譲するため)。
-                     "FeatureErrMessage"],
+                     "FeatureErrMessage",
+                     # EncryptedFileMsg(2026-08-16 R33波3 W3-11): パスワードで
+                     # 暗号化された文書を開かずに落とすときの1文。Excel経路
+                     # (modExtractorExcel)とWord経路(modExtractorWord)の両方が
+                     # 同じ文を出す必要があり、かつ ActionableHint がこの文を
+                     # 目印にする(目印にしないと E0302 の汎用文言に潰されて
+                     # 「パスワードが原因」が利用者へ届かない)。置き場が
+                     # SharedReadFailMsg と同じ理由でここになる。
+                     "EncryptedFileMsg"],
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。

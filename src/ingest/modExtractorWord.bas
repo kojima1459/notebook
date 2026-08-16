@@ -121,6 +121,23 @@ Public Function Extract(ByVal path As String, ByVal maxPages As Long, _
                         Optional ByVal wholeDoc As Boolean = False) As Boolean
     mDocCountUnknown = 0
 
+    ' W3-11: 暗号化文書は Documents.Open を1回も呼ばずに落とす。開き方2以降は
+    ' PasswordDocument を外すので、暗号化 .docx でパスワード入力モーダルが出て
+    ' 無人同期が止まる(Excel側と同じ機序)。判別できるのは OOXML(.docx等)だけで、
+    ' .doc は暗号化の有無に関わらず OLE、PDF は暗号化でも "%PDF" のままなので
+    ' どちらも判別不能=従来経路へ流す(この関数は modExtractorPdf からPDFで
+    ' 呼ばれる。ここを弾くとPDF取込が全滅する)。
+    If modShelfScan.EncryptedByHeader(modUtil.ExtOf(path), _
+            modShelfScan.FileHeadHex(path)) = "enc" Then
+        errDetail = modLog.EncryptedFileMsg()
+        On Error Resume Next
+        modLog.LogUsage "ingest_encrypted", "ingest", _
+            modUtil.SafeLeft(modUtil.FileNameOf(path), 120)
+        On Error GoTo 0
+        Extract = False
+        Exit Function
+    End If
+
     Dim startMode As Long
     startMode = mPreferredMode
     If startMode < 1 Or startMode > OPEN_MODE_MAX Then startMode = 1

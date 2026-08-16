@@ -12,6 +12,9 @@ Option Explicit
 '   W3-9: opt機能が返す "#ERR:…" の理由を、UIが握り潰さないこと。
 '     modLog.FeatureErrMessage が「本当に機能が無効なとき」だけ固定文言を出し、
 '     それ以外は理由(またはエラーコードに対応する案内)を返す。
+'   W3-11: 暗号化された Office 文書を、開く前に先頭バイトで見分けること。
+'     modShelfScan.EncryptedByHeader が「暗号化」「非暗号化」「判別不能」を
+'     取り違えないこと。とくに .xls/.doc/PDF を暗号化と断じないこと。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -32,6 +35,12 @@ Option Explicit
 '   両方向を対で置いているので、片側だけの実装は通らない。
 ' ----------------------------------------------------------------------------
 Private Const FIXED34 As String = "管理者が有効化すると使えます"
+
+' W3-11 のゴールデンで使う実測した先頭バイト(推測ではない):
+'   openpyxl で作った .xlsx / zipfile で作った .docx = 50 4B 03 04 14 00 00 00
+'   OLE複合ドキュメントの署名(olefile.MAGIC)      = D0 CF 11 E0 A1 B1 1A E1
+Private Const ZIP34 As String = "504B030414000000"
+Private Const OLE34 As String = "D0CF11E0A1B11AE1"
 
 Private Sub TestFeatureErrMessage34()
     ' --- 本当に機能が無効なときだけ従来の固定文言 -------------------------
@@ -88,18 +97,92 @@ Private Sub CheckNot34(ByVal label As String, ByVal errText As String, ByVal ng 
 End Sub
 
 ' ----------------------------------------------------------------------------
+' W3-11: 暗号化ブック/文書を、開く前に先頭バイトで見分ける。
+' ----------------------------------------------------------------------------
+'   暗号化ファイルへ「パスワード引数なしの Open」を投げるとモーダルが出て、
+'   無人の自動同期がそこで永久に止まる。一方その再試行は 2026-07-29 の実機
+'   事故(Password 引数を付けると Open 自体が失敗する端末)への保険なので
+'   消せない。そこで【開く前に判別し、暗号化と分かったものだけ】を落とす。
+'
+'   ここで固定するのは判定の算数だけ(ADODB.Stream の実読みは LO で動かない)。
+'
+'   【最重要】判別できないものを「暗号化ではない」と言わないこと。
+'   .xls / .doc は暗号化の有無に関わらず常に OLE、PDF は暗号化でも "%PDF" の
+'   ままで、どれも区別できない。ここが "enc" に倒れると正常な .xls / .doc /
+'   PDF が1本残らず取り込めなくなる(PDF経路は modExtractorPdf が
+'   modExtractorWord.Extract を PDF のパスで呼ぶため直撃する)。
+'
+'   【discriminate の作り】
+'   ・「常に enc」に壊すと、判別不能群と plain 群が落ちる。
+'   ・「常に ""(判別不能)」に壊すと、enc 群が落ちる。
+'   両方向を対で置いているので、片側だけの実装は通らない。
+' ----------------------------------------------------------------------------
+Private Sub TestEncryptedByHeader34()
+    ' --- 暗号化(拡張子はOOXMLなのに中身がOLE)-----------------------------
+    CheckHdr34 "暗号化xlsx", "xlsx", OLE34, "enc"
+    CheckHdr34 "暗号化xlsm", "xlsm", OLE34, "enc"
+    CheckHdr34 "暗号化docx", "docx", OLE34, "enc"
+    CheckHdr34 "暗号化docm", "docm", OLE34, "enc"
+    '   拡張子・16進の大小は揃えない書き方でも同じ答えになること。
+    CheckHdr34 "大文字拡張子と小文字16進", "XLSX", "d0cf11e0a1b11ae1", "enc"
+
+    ' --- 通常のOOXML(ZIP)は従来どおり開く経路へ ---------------------------
+    CheckHdr34 "通常xlsx", "xlsx", ZIP34, "plain"
+    CheckHdr34 "通常docx", "docx", ZIP34, "plain"
+    '   空アーカイブ(50 4B 05 06)も ZIP。ZIPと分かれば暗号化ではない。
+    CheckHdr34 "空アーカイブのZIP", "xlsx", "504B0506" & "00000000", "plain"
+
+    ' --- 【最重要】旧形式は判別不能。従来経路へ流す -----------------------
+    '   .xls / .doc は暗号化の有無に関わらず常に OLE。ここが "enc" に倒れると
+    '   正常な旧形式ファイルが1本残らず取り込めなくなる。
+    CheckHdr34 "xlsは判別不能(暗号化と断じない)", "xls", OLE34, ""
+    CheckHdr34 "docは判別不能(暗号化と断じない)", "doc", OLE34, ""
+    '   PDF は暗号化されていても先頭は "%PDF"(25 50 44 46)のまま。
+    '   modExtractorPdf は PDF のパスで modExtractorWord.Extract を呼ぶので、
+    '   ここが判別不能でないと PDF 取込が全滅する。
+    CheckHdr34 "pdfは判別不能", "pdf", "255044462D312E37", ""
+    '   平文の txt/md/csv もこの判定の対象外。
+    CheckHdr34 "txtは判別不能", "txt", "E38182E38184", ""
+    CheckHdr34 "拡張子なしは判別不能", "", OLE34, ""
+
+    ' --- 壊れた入力で落ちない ----------------------------------------------
+    CheckHdr34 "空ファイル(先頭が読めない)", "xlsx", "", ""
+    CheckHdr34 "2バイトしか無いファイル", "xlsx", "504B", ""
+    CheckHdr34 "3バイトしか無いファイル", "xlsx", "504B03", ""
+    '   ちょうど4バイト読めれば判定できる。
+    CheckHdr34 "ちょうど4バイトのZIP", "xlsx", "504B0304", "plain"
+    CheckHdr34 "ちょうど4バイトのOLE", "xlsx", "D0CF11E0", "enc"
+    '   OOXMLの拡張子だが中身がどちらでもない(PDFを改名した等)。
+    CheckHdr34 "中身がZIPでもOLEでもない", "xlsx", "255044462D312E37", ""
+End Sub
+
+Private Sub CheckHdr34(ByVal label As String, ByVal ext As String, _
+                       ByVal headHex As String, ByVal want As String)
+    Dim r As String: r = modShelfScan.EncryptedByHeader(ext, headHex)
+    modTestRunner.Check "R33-W3-11_" & label, _
+        (r = want), "実際=[" & r & "] 期待=[" & want & "]"
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
 Public Sub RunAll34()
     On Error GoTo H01Fail34
     TestFeatureErrMessage34
+H02Next34:
+    On Error GoTo H02Fail34
+    TestEncryptedByHeader34
 H01Done34:
     On Error GoTo 0
     Exit Sub
 
 H01Fail34:
     modTestRunner.Check "TestFeatureErrMessage34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H02Next34
+H02Fail34:
+    modTestRunner.Check "TestEncryptedByHeader34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub

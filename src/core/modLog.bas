@@ -342,6 +342,20 @@ Public Function SharedReadFailMsg() As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' EncryptedFileMsg - パスワードで暗号化された Office 文書を、開かずに取込
+'   失敗とするときの1文(2026-08-16 R33波3 W3-11)。
+'   Excel経路(modExtractorExcel)とWord経路(modExtractorWord)の両方が同じ文を
+'   出す必要があるため、文言の一次情報はここに1つだけ置く(SharedReadFailMsg と
+'   同じ理由)。ActionableHint もこの文を目印として使う ―― 目印にしないと
+'   E0302 の汎用文言(Ghostscriptの話/Wordの話)に潰されて、利用者には
+'   「パスワードが原因」という唯一の手掛かりが届かない(R14-3b と同型の穴)。
+' ----------------------------------------------------------------------------
+Public Function EncryptedFileMsg() As String
+    EncryptedFileMsg = "このファイルはパスワードで保護されているため取り込めません。" & _
+        "保護を外した写しを用意して、そちらを取り込んでください。"
+End Function
+
+' ----------------------------------------------------------------------------
 ' ReadOnlyWarnMsg - このブックが読み取り専用で開かれているときの1文
 '   (2026-08-04 R15-3b・実機第4報 RC9)。
 '   起動時の案内(modBoot)とコード表(E0805)の両方が同じ文を出す必要があり、
@@ -423,6 +437,13 @@ Private Function ActionableHint(ByVal errDetail As String) As String
     ' (1つでも漏れると、その種類だけ汎用文言に潰されて案内が消える)。
     Dim s As Long: s = CopyFailHintStart(errDetail)
     If p = 0 Or (s > 0 And s < p) Then p = s
+
+    ' R33波3 W3-11: 暗号化ファイルの案内も導入句を持たない独自の1文。
+    ' 拾えないと E0302 の汎用文言に潰され、「パスワードが原因」という
+    ' 唯一の手掛かりが利用者に届かない。
+    Dim t As Long: t = InStr(errDetail, EncryptedFileMsg())
+    If p = 0 Or (t > 0 And t < p) Then p = t
+
     If p = 0 Then Exit Function
 
     Dim d As String: d = Mid$(errDetail, p)
