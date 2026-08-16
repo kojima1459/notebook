@@ -2730,7 +2730,12 @@ def main():
                         ["timestamp", "code", "context", "detail", "version", "err_number", "http_status"],
                         "hidden", widths=[20, 10, 24, 60, 12, 12, 12],
                         text_cols=[3, 4])   # context/detail
-    _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40])
+    # value 列(B)は利用者の生の質問文・保留中の元質問が入る(modState.SaveState)。
+    # 先頭 "=" の質問が数式として解釈されると、不正なら1004で保存が無言で失敗し、
+    # 有効なら計算結果や #NAME? として読み出される(R33 W4-8)。他シートと同じく
+    # テキスト書式へ固定する(実行時は modState.SaveState 側でも張る=二重化)。
+    _make_headers_only(wb, "ui_state", ["key", "value"], "veryHidden", widths=[24, 40],
+                        text_cols=[2])
     # 頁チェックポイント(R15-FixB FB-2)。text 列は取り込んだ本文そのものが
     # 入るので、他の非信頼テキスト列と同じくテキスト書式へ固定する
     # (opt側は番兵1字を前置して書くが、書式の防御も二重に掛けておく)。
