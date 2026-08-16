@@ -75,6 +75,10 @@ run_lo_tests.py — LibreOffice headlessによるVBA実行テスト(MASTER_SPEC.
     python3 tools/run_lo_tests.py --mode compile    # モード2のみ
     python3 tools/run_lo_tests.py --keep-profile    # 一時プロファイルを残す(デバッグ用)
     exit code: 0 = 全テストPASS+全モジュールコンパイル成功 / 1 = いずれか失敗
+    ※ モード1は FAIL 0 だけでなく、SKIP の上限(EXPECTED_SKIP_MAX)と
+      PASS の下限(EXPECTED_PASS_MIN)も照合する(2026-08-16 R33H F23)。
+      [SKIP] を貼ればテストは PASS にも FAIL にも現れないため、件数そのものを
+      見張らないと「水増しを消去へ置き換えただけ」になる。
 ================================================================================
 """
 
@@ -95,6 +99,33 @@ MYBOOKSHELF_ROOT = TOOLS_DIR.parent
 DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
 
 SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
+
+# ==============================================================================
+# 実行件数のベースライン(2026-08-16 R33H F23)
+# ==============================================================================
+# なぜ要るか【R33の主題そのもの】:
+#   R33波1は「未実行なのにPASSへ計上」を止めるため [SKIP] 印を導入した。
+#   ところが本スクリプトは長らく FAIL の件数しか見ておらず、[SKIP] を貼った
+#   テストは PASS にも FAIL にも現れない ―― つまり **落ちるテストの頭に
+#   [SKIP] を貼れば exit 0 に戻せる**。旧来の水増し(恒真アサート)は件数が
+#   増えるので目視で気付けたが、新方式は件数が「減るだけ」なので機械は
+#   何も言わない。水増しを消去へ置き換えただけになる余地をここで塞ぐ。
+#
+# 2本のラチェット:
+#   EXPECTED_SKIP_MAX … SKIP がこの数を超えたら FAIL。増やすときは
+#     「なぜ LO で実行できないのか」を必ずテスト側のコメントに書いてから、
+#     この数字を上げる(=人が1回考えたことの証跡になる)。
+#   EXPECTED_PASS_MIN … PASS がこの数を下回ったら FAIL。テストを消して
+#     静かにするのを止める。**テストを意図的に撤去したときは、撤去の理由を
+#     コミットに書いたうえでこの数字を下げる**(下げること自体は正当な操作)。
+#
+# 更新履歴:
+#   2026-08-16 R33H Fix波3 着手時: PASS 2861 / SKIP 12
+#   2026-08-16 R33H Fix波3: modMode.AnsweredMode 撤去に伴いテスト6件を削除
+#     (modTestsPure34 の4件 + modTestsPure35 の2件)→ PASS 2855。
+#     さらに F22/F31 のゴールデンを modTestsPure36 で追加 → 下記の値。
+EXPECTED_SKIP_MAX = 12
+EXPECTED_PASS_MIN = 2855
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -953,11 +984,47 @@ def run_pure_mode(soffice: str, template: Path, all_modules: dict[str, Path],
     report = out_path.read_text(encoding="utf-8", errors="replace").strip()
     print(report if report else "(空の結果)")
 
-    m = re.search(r"FAIL\s+(\d+)", report)
-    fail_count = int(m.group(1)) if m else None
+    m = re.search(r"PASS\s+(\d+)\s*/\s*FAIL\s+(\d+)\s*/\s*SKIP\s+(\d+)", report)
+    if m:
+        pass_count: int | None = int(m.group(1))
+        fail_count: int | None = int(m.group(2))
+        skip_count: int | None = int(m.group(3))
+    else:
+        # 見出し行が読めない = 集計そのものが壊れている。合格側へ倒さない。
+        pass_count = fail_count = skip_count = None
     has_runner_error = "RUNNER_ERROR" in report
 
     ok = (fail_count == 0) and not has_runner_error
+
+    # ---- R33H F23: SKIP の天井と PASS の下限ラチェット --------------------
+    # FAIL だけを見ていると、[SKIP] を貼るだけで exit 0 に戻せてしまう
+    # (PASS にも FAIL にも現れないため)。件数そのものを見張る。
+    if pass_count is None or skip_count is None:
+        print("  FAIL: 集計行(PASS n / FAIL m / SKIP k)を読み取れませんでした。")
+        ok = False
+    else:
+        if skip_count > EXPECTED_SKIP_MAX:
+            print(f"  FAIL: 未実行(SKIP)が {skip_count} 件で、ベースライン "
+                  f"{EXPECTED_SKIP_MAX} 件を超えました。")
+            print("        [SKIP] を貼るとテストは PASS にも FAIL にも現れません。")
+            print("        増やしてよいのは『LOでは原理的に実行できない』と確認できた"
+                  "ときだけです。")
+            print("        理由をテスト側のコメントに書いたうえで、"
+                  "tools/run_lo_tests.py の EXPECTED_SKIP_MAX を更新してください。")
+            ok = False
+        if pass_count < EXPECTED_PASS_MIN:
+            print(f"  FAIL: 実行されたテストが {pass_count} 件で、ベースライン "
+                  f"{EXPECTED_PASS_MIN} 件を下回りました。")
+            print("        テストが静かに消えていないか確認してください。")
+            print("        意図してテストを撤去したのなら、撤去の理由をコミットに"
+                  "書いたうえで")
+            print("        tools/run_lo_tests.py の EXPECTED_PASS_MIN を"
+                  "下げてください。")
+            ok = False
+        if ok:
+            print(f"  ベースライン照合 OK: PASS {pass_count} >= {EXPECTED_PASS_MIN} / "
+                  f"SKIP {skip_count} <= {EXPECTED_SKIP_MAX}")
+
     return ok, report
 
 
