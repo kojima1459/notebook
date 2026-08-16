@@ -49,6 +49,12 @@ Private mGalleryCount As Long
 ' 監査1 H-2/M-6の回収)。
 Private mGalleryMaxPage As Long
 
+' R33 W5-9: 絞り込み語の控え。持ち主が検索欄セル(B5)だけだったため、枠から
+' 作り直す経路(カード削除・追加・同期・パック取込・仕上げ)の ws.Cells.Clear で
+' 無言解除されていた。ページ番号は残るので「1冊消したら別の資料群が出てきた」に
+' 見える。RenderGalleryCards が読んだ値を控え、枠の作り直し時に書き戻す。
+Private mGalleryKeyword As String
+
 ' PageCapFor - R28 W3-3: 固定9枚(CARDS_PER_PAGE)を廃し、列数から1ページの
 ' 枚数を決める純関数。R21裁定は縦充足のみが根拠で5列×2段=10枠と不整合
 ' だった(実機第13報)。2段ぶんで揃えることで列数が変わっても常に整数段。
@@ -314,6 +320,11 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     ' 検索バー(セル)。位置は modKnowledge のクロム行(1..6)のうち行5。
     ws.Range(modKnowledge.SearchCellAddress()).Merge
     PaintSearchBox ws
+    ' R33 W5-9: Cells.Clear で消えた絞り込み語を書き戻す(カード削除・追加・
+    ' 同期・仕上げは枠から作り直すため、ここが無いと毎回無言で解除される)。
+    If LenB(mGalleryKeyword) > 0 Then
+        ws.Range(modKnowledge.SearchCellAddress()).Value = mGalleryKeyword
+    End If
     With ws.Range("F5")
         .Value = ChrW(&H2190) & " ここにキーワードを入れて「検索」を押す(例: 約款, 保険金)"
         .Font.Size = 9
@@ -367,7 +378,10 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     If emptyW < 320 Then emptyW = 320
 
     Dim keyword As String
-    keyword = LCase$(Trim$(CStr(ws.Range("B5").Value)))
+    Dim rawKeyword As String
+    rawKeyword = Trim$(CStr(ws.Range("B5").Value))
+    mGalleryKeyword = rawKeyword   ' R33 W5-9: 枠を作り直すときに書き戻す控え
+    keyword = LCase$(rawKeyword)
 
     Dim names() As String, stats() As String
     Dim total As Long
