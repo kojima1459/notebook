@@ -665,6 +665,14 @@ PURE_ALLOWLIST = [
     #   検知できない状態だと判明した。ここへ載せることで実物を直接叩ける
     #   ようにする(注入せずに呼ぶと実行時エラー12で9件が丸ごと死ぬ)。
     "modHubStat",
+    # modTestsPure33(2026-08-16 R33波2): 個人情報と共有の関所の純ロジック回帰。
+    #   modTestsPure30(R33波1)/31/32 は触らない方針のため、既存チェーンへは
+    #   繋がず modTestRunner.RunAllPureTests から直接呼ばれる独立の分割先。
+    #   叩くのは modPii.ScanText(全角ゴールデン)と
+    #   modShareRule.ExpiryDecision(「つながっていれば消さない」不変条件)で、
+    #   どちらも既にこの一覧に載っている。未注入だと実行時エラー12になり、
+    #   テストが実行されないまま全部PASSに見える。
+    "modTestsPure33",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

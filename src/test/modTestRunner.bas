@@ -193,4 +193,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-16(R33波2): modTestsPure33 も同じ別枝。既存チェーンの末尾
+    ' (modTestsPure30)はR33波1が直したばかりで触らない方針。固定するのは
+    ' PII検知の全角ゴールデン(W2-1)と、失効判定の「つながっていれば消さない」
+    ' 不変条件(W2-2)の2群。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure33.RunAll33
+    If Err.Number <> 0 Then
+        Check "modTestsPure33.RunAll33", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

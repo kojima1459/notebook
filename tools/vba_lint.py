@@ -1885,6 +1885,11 @@ PURE_LOGIC_MODULES = {
     # PII前処理・匿名ID)へ入れ替えた結果、呼ぶのは modInsightGate と modPii の
     # 純関数だけになり、32と同じ条件を満たす。
     "modTestsPure31",
+    # modTestsPure33(2026-08-16 R33波2): PII検知の全角ゴールデン(W2-1)と
+    # 失効判定の「つながっていれば消さない」不変条件(W2-2)。呼ぶのは
+    # modPii.ScanText と modShareRule.ExpiryDecision の純関数だけなので、
+    # 31/32 と同じ条件を満たす。
+    "modTestsPure33",
     }
 
 FORBIDDEN_TOKEN_PATTERNS = [
