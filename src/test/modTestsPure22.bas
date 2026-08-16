@@ -345,6 +345,19 @@ End Sub
 ' を経ずにDrawChatHeaderだけを直呼びしていたため、Repaint/テーマ切替/
 ' リサイズのたびにnx_top_bg等が同名のまま増殖した(Excelは同名Shapeの
 ' 重複を許す)。
+'
+' 【2026-08-15 R33波1 W1-2 の限界・司令塔へ申し送り】
+'   以下2件は SimulateChatHeaderRefit(このファイル内の模擬)しか通らない。
+'   本番の modViewport2.RefitChatBand は Worksheet を、
+'   modUINexusDraw.ClearChatHeader は Shapes を引数/対象に取るうえ、
+'   ClearChatHeader は Private で、modUINexusDraw は
+'   tools/run_lo_tests.py の PURE_ALLOWLIST に載っていない。
+'   したがって「実装を呼ぶ形へ書き換える」は src/test/ の中だけでは
+'   実現できない(src/ui と tools の両方を触る必要がある)。
+'   守りたい契約『RefitChatBand は DrawChatHeader を直呼びしない』は、
+'   本来 vba_lint の呼び出し規約チェック(modViewport2/modUI 系から
+'   modUINexusDraw.DrawChatHeader を直接呼んだら ERROR、通してよいのは
+'   RedrawChatHeader だけ)で固定するのが正しい。裁定を仰ぐ。
 Private Function SimulateChatHeaderRefit(ByVal shapesCsv As String) As String
     ' 1) ClearChatHeader相当: nx_top_で始まり、add/sendを除く名前を全部落とす。
     Dim outCsv As String
@@ -382,12 +395,13 @@ Private Sub TestChatHeaderRefitIdempotent()
     modTestRunner.Check "F1_2回連続RefitでnxTopBgは1個(Clear→Draw契約が効いている)", _
         (CountName22(s, "nx_top_bg") = 1), "実際=" & CountName22(s, "nx_top_bg") & "(" & s & ")"
 
-    ' 退行検知: 旧実装(ClearChatHeaderを通さずDrawChatHeaderだけ直呼び)は
-    ' 単純追記になり、Refitのたびに同名Shapeが積み上がる。
-    Dim old As String: old = "nx_top_bg"
-    old = old & "|nx_top_bg"                     ' 2回目のRefitで1個積まれる
-    modTestRunner.Check "F1退行検知_旧実装(Clear無しの直呼び)なら2個になる", _
-        (CountName22(old, "nx_top_bg") = 2)
+    ' 2026-08-15(R33波1 W1-2): 「F1退行検知_旧実装(Clear無しの直呼び)なら
+    ' 2個になる」を削除した。あのアサートは直前の2行でテスト自身が
+    ' "nx_top_bg" を2回連結して作った文字列を数えて =2 と比べているだけで、
+    ' 被験体が存在しない ―― 本番コードをどう書き換えても真になる恒真式
+    ' だった(R21H F10 で同型を是正した記録が本ファイル176〜181行にある)。
+    ' 「あることが害」(レビュアに『F1の回帰テストがある』と見える)ため、
+    ' 別の恒真へ置き換えず削除する。
 
     ' 入力欄(nx_top_add/nx_top_send)はヘッダークリアの対象外のまま残る
     ' (消すと📎と送信ボタンの配線が戻らないため。コメント上の約束の固定)。
