@@ -8,7 +8,9 @@ Option Explicit
 '   1) statsビーコン: 自分の統計(感謝受領数/節約時間 日・月・年)を共有フォルダ
 '      <nexus_share_path>\board\stats_<自分hash>.txt へ発信する(1人1ファイル上書き
 '      =書込競合ゼロ。noise投票と同じ実証済みパターン)。
-'   2) 集計: 全員のビーコンを読み、組織全体の「今日/今月/今年の節約時間」を算出。
+'   2) 集計: 組織全体の「今日/今月/今年の節約時間」。2026-08-16(R33 W6-1)から
+'      【集約スナップショット方式】= 発行者端末だけが全ビーコンを読んで
+'      <share>\board\summary.txt を1本書き、他の全端末はそれを1本読むだけ。
 '   3) サイドバー常設ウィジェット: 「🌍 みんなの節約」+月間目標プログレスバー。
 '      クリックで履歴ポップアップ(個人の直近7日+月/年、組織合計)。
 '   4) 称号: 感謝受領数に応じた絶対的な称号(💡5件以上/🌟20件以上)。自己申告不可の
@@ -27,6 +29,14 @@ Option Explicit
 '   ・Shape名は nx_sb_stat*(サイドバー系prefix)= 既存のZ-Order維持/テーマ再彩色
 '     ループが追加コード無しで面倒を見てくれる。modUIは1バイトも変更しない。
 '   ・I/OヘルパーはmodMentorと同仕様の軽量複製(モジュール完全隔離の意図的重複)。
+'
+' 残っている制約(R33 W6-1。旧「本格展開時の設計課題」の後継として正直に残す):
+'   ・書けるのは発行者用ブックの端末だけ。発行者が長期不在だと集計は更新されず、
+'     SUMMARY_MAX_AGE_HOURS を過ぎたら数字ではなく「集計はまだありません」を
+'     出す(古い数字を今日の数字として出し続けない)。運用では発行者用ブックを
+'     日常的に開く端末へ1台置くこと。
+'   ・組織合計に入るのは SCAN_CAP 件まで=全社規模では概算(画面とログに明示)。
+'     全件を正確に足すには部署ごとに集計を割る別設計が要る。
 ' ============================================================================
 
 Private Const BOARD_SUBDIR As String = "board"
@@ -57,6 +67,27 @@ Private mLastBeaconData As String
 Private Const BEACON_IDLE_SEC As Double = 600#    ' 中身が同じときの最短間隔
 Private Const BEACON_FRESH_SEC As Double = 60#    ' 中身が変わったときの最短間隔
 Private Const AGG_TTL_SEC As Double = 600#
+
+' 集約スナップショット(2026-08-16 R33 W6-1)。SCAN_CAP=発行者端末が1回に開く
+' ビーコンの上限(modTelemetry.SummaryText の guard<500 と同型の安全弁)。
+' SUMMARY_MAX_AGE_HOURS=これより古い集計は数字として使わない。FORCE_MIN_SEC=
+' 「更新」ボタンの下限間隔。TITLE_MIN=称号が付く最小の感謝受領数
+' (TitleForの下段と同じ値。スナップショットへはこれ以上の人だけ載せる)。
+Private Const SCAN_CAP As Long = 500
+Private Const SUMMARY_MAX_AGE_HOURS As Long = 24
+Private Const FORCE_MIN_SEC As Double = 60#
+Private Const TITLE_MIN As Long = 5
+
+' 「更新」ボタンの下限間隔の起点(Timer)。
+Private mForceAt As Double
+' いま画面に出している集計の状態。"ok"(使える)/"stale"(古すぎる)/
+' "broken"(読めない)/"none"(まだ誰も書いていない)/""(未取得)。
+' 数字を画面へ出してよいのは "ok" のときだけ。
+Private mAggState As String
+Private mAggStamp As String     ' スナップショットの作成時刻(ISO)
+Private mAggUsers As Long       ' 集計に入った人数
+Private mAggApprox As Boolean   ' SCAN_CAPで打ち切った概算か
+Private mLoggedState As String  ' usage_logへ同じ状態を毎回積まないための印
 
 ' ----------------------------------------------------------------------------
 ' BootBoard - エントリポイント(LaunchNexus末尾から1行フック)。
@@ -135,7 +166,7 @@ Public Function TitleFor(ByVal userId As String) As String
     End If
     If n >= 20 Then
         TitleFor = ChrW(&HD83C) & ChrW(&HDF1F) & " "        ' U+1F31F 星
-    ElseIf n >= 5 Then
+    ElseIf n >= TITLE_MIN Then
         TitleFor = ChrW(&HD83D) & ChrW(&HDCA1) & " "        ' U+1F4A1 電球
     End If
     On Error GoTo 0
@@ -180,12 +211,11 @@ Public Sub OnWidgetClick()
            "  /  今月: " & FmtMin(MyMin("m", modUtilText.IsoYm(Date))) & _
            "  /  今年: " & FmtMin(MyMin("y", modUtilText.IsoYear(Date))) & vbLf & vbLf & _
            "【直近7日の履歴】" & vbLf & History7() & vbLf & _
-           "【みんな(組織全体)】" & vbLf & _
-           "  今日: " & FmtMin(mOrgDay) & "  /  今月: " & FmtMin(mOrgMon) & _
-           "  /  今年: " & FmtMin(mOrgYear) & DeptLineForPopup() & vbLf & vbLf & _
+           "【みんな(組織全体)】" & vbLf & OrgBlockForPopup() & vbLf & vbLf & _
            "※「" & ChrW(&H2705) & "解決した」1回=" & modP2PIo.MinutesPerSelfsolve() & _
            "分の節約として、他者からの感謝と同じしくみで" & vbLf & _
-           "  組織に共有・合算されます(共有フォルダ経由なので最大10分遅れの目安)。" & vbLf & _
+           "  組織に共有・合算されます(集計は発行者用ブックの端末が作るので" & vbLf & _
+           "  数十分から半日ほど遅れることがあります)。" & vbLf & _
            "(クリックで閉じる)"
 
     ' 位置は画面の見えている範囲から中央寄せ(旧サイドバー幅を前提にした
@@ -342,25 +372,36 @@ End Sub
 '   ダッシュボードの「更新」ボタンだけがこれを呼ぶ。利用者が明示的に
 '   更新を押したときに「10分経っていないので前の値です」と返すのは、
 '   ボタンが壊れているのと区別が付かない。
+'
+'   2026-08-16(R33 W6-1): ただし下限間隔(FORCE_MIN_SEC=60秒)を設ける。
+'   ここはTTLを無効化する唯一の口で、連打1回ごとに共有フォルダへの往復が
+'   増える(発行者端末では全ビーコン走査そのものが走り直す)。集計は分単位
+'   なので、60秒の間に数字が変わることは事実上無い ―― 60秒以内の2回目は
+'   前回の値をそのまま出す(押しても何も壊れないが、共有も叩かない)。
 ' ----------------------------------------------------------------------------
 Public Sub ForceRefreshBoard()
+    If modShareRule.CacheIsFresh(mForceAt, Timer, FORCE_MIN_SEC) Then Exit Sub
+    mForceAt = Timer
     mAggAt = 0
     RefreshBoard
 End Sub
 
 ' ----------------------------------------------------------------------------
-' RefreshBoard - 全員のビーコンを読んで組織合計を出し直す。
+' RefreshBoard - 組織合計を出し直す(集約スナップショット方式)。
 '
-' 2026-07-31(レビュー R8 F9): 10分のTTLを付けた。
-'   ここは board\stats_*.txt を【人数ぶん】開いて読む。Hubは画面を戻る
-'   たびに描き直されるので、TTLが無いと「1人が画面を行き来した回数 ×
-'   部内の人数」がそのままファイルサーバへの往復になる。数十人のPoCでも
-'   午前中に数千回になり得る。値は分単位の集計で、10分古くても実害は無い。
+' 2026-07-31(レビュー R8 F9): 10分のTTLを付けた。Hubは画面を戻るたびに
+'   描き直されるので、TTLが無いと「画面を行き来した回数 × 人数」が
+'   そのままファイルサーバへの往復になる。値は分単位なので10分古くてよい。
 '
-'   本来は「誰か1人が集計スナップショットを書き、他は1ファイル読むだけ」に
-'   すべきで、1,000人を超える規模ではTTLでは足りない。ただしそれは
-'   「誰が書くか」「壊れたスナップショットをどう検出するか」という別設計を
-'   伴うため、PoC(数十人)ではTTLで足りると判断した。本格展開時の設計課題。
+' 2026-08-16(R33 W6-1・全社12,000人の前提条件): 全員が全員のビーコンを開く
+'   形をやめた。旧実装はファイル数=利用者数(消す処理が無く退職者ぶんも増える)
+'   を1本ずつ開いており、12,000人なら1回の集計で12,000オープンが走る。
+'   発行者端末(modPublish.CanPublish。共有の寿命管理を任せている modInsightIo
+'   と同じ区別)だけが全ビーコンを読み summary.txt を1本書き(BuildSnapshot)、
+'   他の全端末はそれを1本読む(LoadSnapshot)。無い/壊れている/古すぎるときも
+'   【全件走査へは戻さない】(戻せば消した当のコストが復活する)。
+'   TTLとの関係: AGG_TTL_SEC=共有へ【触りに行く間隔】/ SUMMARY_MAX_AGE_*=
+'   読めた【中身を信じてよいか】。軸が違うので条件が絡まない。
 ' ----------------------------------------------------------------------------
 Private Sub RefreshBoard()
     ' TTL内なら前回の集計値をそのまま使う(mOrgDay等は消さない)。
@@ -379,30 +420,46 @@ Private Sub RefreshBoard()
     If LenB(Dir(folderPath, vbDirectory)) = 0 Then Exit Sub
 
     mAggAt = Timer
-    mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
-    mDeptMon = 0
-    Set mTitles = CreateObject("Scripting.Dictionary")
-    mLoaded = True
 
+    Dim isPub As Boolean
+    On Error Resume Next
+    isPub = modPublish.CanPublish()
+    On Error GoTo 0
+
+    If isPub Then
+        BuildSnapshot folderPath
+    Else
+        LoadSnapshot folderPath
+    End If
+End Sub
+
+' BuildSnapshot - 発行者端末だけが通る道。全ビーコンを1回読んで組織合計を出し、
+'   結果を summary.txt へ1本書く。開くのは SCAN_CAP 本まで(超えた分は読まずに
+'   打ち切り、打ち切り列を立てて全端末の画面へ「概算」と明示する)。
+'   500本ぶんの待ちを払うのは発行者1台だけで、他の全端末は1本読みで済む。
+Private Sub BuildSnapshot(ByVal folderPath As String)
     Dim dk As String: dk = modUtilText.IsoDateCompact(Date)
     Dim mk As String: mk = modUtilText.IsoYm(Date)
     Dim yk As String: yk = modUtilText.IsoYear(Date)
-
-    ' R13-7c: 自分の部(先頭3字)を先に確定させておく。config優先、無ければ
-    ' 自分のuserIdの末尾チームコードから推定(どちらも不明なら空のまま=
-    ' 部の合算行そのものをポップアップへ出さない)。
-    mMyDept = modP2PIo.DeptOf(MyTeamCode())
+    mMyDept = modP2PIo.DeptOf(MyTeamCode())   ' R13-7c: config優先→userIdから推定
 
     ' collect-then-process(Dir列挙中に他のDirを呼ばない)
     Dim names() As String: ReDim names(0 To 63)
     Dim nFiles As Long: nFiles = 0
     Dim fn As String: fn = Dir(folderPath & "stats_*.txt")
-    Do While LenB(fn) > 0
+    Do While LenB(fn) > 0 And nFiles < SCAN_CAP
         If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
         names(nFiles) = fn
         nFiles = nFiles + 1
         fn = Dir()
     Loop
+    ' 打ち切ったか = 上限で抜けたときだけ fn に次の1件が残っている。
+    Dim capped As Boolean: capped = (LenB(fn) > 0)
+
+    Dim orgD As Long, orgM As Long, orgY As Long
+    Dim usersN As Long   ' 実際に読めて合算できた人数(開いた本数ではない)
+    Dim deptAgg As Object: Set deptAgg = CreateObject("Scripting.Dictionary")
+    Dim titleAgg As Object: Set titleAgg = CreateObject("Scripting.Dictionary")
 
     Dim i As Long
     For i = 0 To nFiles - 1
@@ -410,27 +467,30 @@ Private Sub RefreshBoard()
         If ReadBeacon(folderPath & names(i), rec) Then
             Dim f() As String: f = Split(rec, vbTab)
             If UBound(f) >= 8 Then
-                Dim uid As String: uid = LCase$(Trim$(f(0)))
+                ' 書き出す行のキーになるので SanitizeId を通す(タブ・改行が
+                ' 混じると読む側の列が丸ごとズレる)。数値欄は必ず SafeNum。
+                Dim uid As String: uid = LCase$(modP2PIo.SanitizeId(f(0)))
                 If LenB(uid) > 0 Then
-                    ' R13 L-batch: 数値欄は必ず SafeNum を通す。素の CLng(Val(...))
-                    ' だと壊れたビーコン1本("99999999999" 等)でオーバーフローし、
-                    ' その時点で集計ループごと中断=以降の全員ぶんが欠ける。
-                    mTitles(uid) = SafeNum(f(1))                      ' 称号: 感謝受領数
-                    If f(2) = dk Then mOrgDay = mOrgDay + SafeNum(f(3))   ' 同じ日キーのみ合算
-                    If f(4) = mk Then mOrgMon = mOrgMon + SafeNum(f(5))
-                    If f(6) = yk Then mOrgYear = mOrgYear + SafeNum(f(7))
-
-                    ' R13-7c: 自分の部が分かっているときだけ、同じ部のビーコンを
-                    ' 追加で合算する(team列が無い旧形式ビーコンはBeaconTeamFieldが
-                    ' 空文字を返すので自然に対象外になる)。
-                    ' R13 L-batch: 日次の部合算(旧mDeptDay)は溜めるだけで
-                    ' どこにも出ていなかったので外した。出す先ができたときに
-                    ' 月次と同じ形で足せばよい(使われない状態のまま持たない)。
-                    If LenB(mMyDept) > 0 Then
-                        Dim beaconTeam As String: beaconTeam = modP2PIo.BeaconTeamField(f)
-                        If LenB(beaconTeam) > 0 Then
-                            If StrComp(modP2PIo.DeptOf(beaconTeam), mMyDept, vbTextCompare) = 0 Then
-                                If f(4) = mk Then mDeptMon = mDeptMon + SafeNum(f(5))
+                    usersN = usersN + 1
+                    ' 称号は TITLE_MIN 未満を載せない(行数が称号持ちの人数で
+                    ' 頭打ちになる。読む側の判定は5件/20件のままなので、
+                    ' 落とした人の見え方は1文字も変わらない)。
+                    Dim thN As Long: thN = SafeNum(f(1))
+                    If thN >= TITLE_MIN Then titleAgg(uid) = thN
+                    If f(2) = dk Then orgD = orgD + SafeNum(f(3))   ' 同じ日キーのみ合算
+                    If f(6) = yk Then orgY = orgY + SafeNum(f(7))
+                    If f(4) = mk Then
+                        orgM = orgM + SafeNum(f(5))
+                        ' 部別の今月合計。旧実装は自分の部だけを数えていたが、
+                        ' この1本は他の端末も読むので全部署ぶんを持つ(行数は
+                        ' 部の数だけ)。team列の無い旧形式は空が返り対象外。
+                        Dim dept As String
+                        dept = modP2PIo.DeptOf(modP2PIo.SanitizeId(modP2PIo.BeaconTeamField(f)))
+                        If LenB(dept) > 0 Then
+                            If deptAgg.Exists(dept) Then
+                                deptAgg(dept) = CLng(deptAgg(dept)) + SafeNum(f(5))
+                            Else
+                                deptAgg(dept) = SafeNum(f(5))
                             End If
                         End If
                     End If
@@ -438,6 +498,96 @@ Private Sub RefreshBoard()
             End If
         End If
     Next i
+
+    ' 発行者自身の画面にも同じ数字を出す(自分だけ別経路にしない)。
+    mOrgDay = orgD: mOrgMon = orgM: mOrgYear = orgY
+    Set mTitles = titleAgg
+    mLoaded = True
+    mDeptMon = 0
+    If LenB(mMyDept) > 0 Then
+        If deptAgg.Exists(mMyDept) Then mDeptMon = CLng(deptAgg(mMyDept))
+    End If
+    mAggStamp = modUtil.NowStamp()
+    mAggUsers = usersN
+    mAggApprox = capped
+    mAggState = "ok"
+
+    Dim body As String
+    body = modShare.BoardBodyText( _
+        modShare.BoardHeadText(mAggStamp, dk, orgD, mk, orgM, yk, orgY, usersN, capped), _
+        deptAgg, titleAgg)
+
+    ' 置き換えの実体(一時ファイル経由の差し替え)は modShare 側。
+    Dim myHash As String
+    On Error Resume Next
+    myHash = modUtil.Fnv1a64Hex(modP2P.CurrentUserId())
+    On Error GoTo 0
+    Dim wroteOk As Boolean
+    If LenB(myHash) > 0 Then wroteOk = modShare.BoardWriteSummary(folderPath, myHash, body)
+    On Error Resume Next
+    modLog.LogUsage "board_summary", "write", _
+        "組織集計のスナップショットを" & IIf(wroteOk, "更新しました", "書けませんでした") & _
+        "(この端末は発行者用ブックなので集計を書く側です): " & usersN & "名ぶん" & _
+        IIf(capped, "・上限" & SCAN_CAP & "件で打ち切り(概算)", "")
+    On Error GoTo 0
+End Sub
+
+' LoadSnapshot - 発行者以外の全端末が通る道。summary.txt を1本だけ読む。
+'   壊れている/古すぎるときは数字を捨てる(ClearAggregate)。全件走査への
+'   フォールバックは【禁止】: それでは12,000オープンが復活する。
+Private Sub LoadSnapshot(ByVal folderPath As String)
+    Dim rec As String
+    If Not ReadBeacon(folderPath & modShare.BOARD_SUMMARY_NAME, rec) Then
+        ClearAggregate "none"
+        Exit Sub
+    End If
+
+    Dim head As String: head = modShare.BoardHeadLine(rec)
+    Dim st As String
+    st = modShare.BoardHeadStatus(head, modUtilText.IsoDateTime(Now - SUMMARY_MAX_AGE_HOURS / 24#))
+    If StrComp(st, "ok", vbBinaryCompare) <> 0 Then
+        ClearAggregate st
+        Exit Sub
+    End If
+
+    mMyDept = modP2PIo.DeptOf(MyTeamCode())
+    mOrgDay = modShare.BoardHeadMin(head, "d", modUtilText.IsoDateCompact(Date))
+    mOrgMon = modShare.BoardHeadMin(head, "m", modUtilText.IsoYm(Date))
+    mOrgYear = modShare.BoardHeadMin(head, "y", modUtilText.IsoYear(Date))
+    mAggStamp = modShare.BoardHeadField(head, 1)
+    mAggUsers = SafeNum(modShare.BoardHeadField(head, 8))
+    mAggApprox = (modShare.BoardHeadField(head, 9) = "1")
+    Set mTitles = CreateObject("Scripting.Dictionary")
+    mLoaded = True
+    mDeptMon = modShare.BoardReadRows(rec, mMyDept, mTitles)
+    mAggState = "ok"
+    LogAggState "read", "組織集計を summary.txt 1本から読みました(" & mAggUsers & "名ぶん" & _
+        IIf(mAggApprox, "・概算", "") & " / 集計時点 " & mAggStamp & ")。"
+End Sub
+
+' ClearAggregate - 使える集計が無いときの見せ方。数字は0にし理由を残す。
+'   古い数字を出し続けない ―― いつの数字か分からない数字がいちばん困る。
+'   称号(mTitles)も同時に空にする(中途半端に前回ぶんが残ると、人によって
+'   称号が付いたり付かなかったりする理由を誰も説明できない)。
+Private Sub ClearAggregate(ByVal stateText As String)
+    mOrgDay = 0: mOrgMon = 0: mOrgYear = 0
+    mDeptMon = 0
+    Set mTitles = CreateObject("Scripting.Dictionary")
+    mLoaded = False
+    mAggStamp = ""
+    mAggUsers = 0
+    mAggApprox = False
+    mAggState = stateText
+    LogAggState stateText, modShare.BoardStateText(stateText, SUMMARY_MAX_AGE_HOURS)
+End Sub
+
+' 状態が変わったときだけ usage_log へ1行(10分ごとに同じ行を積まない)。
+Private Sub LogAggState(ByVal stateText As String, ByVal detail As String)
+    If StrComp(stateText, mLoggedState, vbBinaryCompare) = 0 Then Exit Sub
+    mLoggedState = stateText
+    On Error Resume Next
+    modLog.LogUsage "board_summary", stateText, detail
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -465,8 +615,19 @@ End Sub
 
 ' Hub の「みんなの節約」タイルから呼ぶための公開集計値。
 Public Function OrgSummaryText() As String
+    If StrComp(mAggState, "ok", vbBinaryCompare) <> 0 Then
+        OrgSummaryText = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間: 集計はまだありません"
+        Exit Function
+    End If
     OrgSummaryText = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間: 今日 " & _
-        FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon)
+        FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon) & IIf(mAggApprox, "(概算)", "")
+End Function
+
+' ポップアップの組織ブロック(文面の組み立ては modShare.BoardOrgBlock)。
+Private Function OrgBlockForPopup() As String
+    OrgBlockForPopup = modShare.BoardOrgBlock(mAggState, FmtMin(mOrgDay), FmtMin(mOrgMon), _
+        FmtMin(mOrgYear), DeptLineForPopup(), mAggStamp, mAggUsers, mAggApprox, _
+        SCAN_CAP, SUMMARY_MAX_AGE_HOURS)
 End Function
 
 ' ----------------------------------------------------------------------------

@@ -54,6 +54,9 @@ Private mDirsEnsured As Boolean
 ' 集約スナップショット(board\summary.txt)1行目の種別印(2026-08-16 R33 W6-1)。
 ' 書式の詳細はモジュール末尾の BoardHeadText 直上を参照。
 Public Const BOARD_HEAD_TAG As String = "nxboard1"
+' 集約スナップショットのファイル名。書く側(modShare)と読む側(modBoard)で
+' 名前が割れないよう、共有フォルダ側の取り決めはここが唯一の情報源。
+Public Const BOARD_SUMMARY_NAME As String = "summary.txt"
 
 ' ----------------------------------------------------------------------------
 ' BasePath - nexus_share_path を末尾"\"付きで返す。未設定なら空。
@@ -311,6 +314,150 @@ Public Function BoardHeadMin(ByVal headLine As String, ByVal kindText As String,
     If v < 0 Or v > 100000000# Then Exit Function
     BoardHeadMin = CLng(v)
 Bad:
+End Function
+
+' 本文(ヘッダ+部別行+称号行)の組み立て。辞書の値は Long 前提(呼び出し側が
+' SafeNum を通してから入れる)。キーは SanitizeId 済み=タブ・改行を含まない。
+Public Function BoardBodyText(ByVal headLine As String, ByRef deptAgg As Object, _
+                              ByRef titleAgg As Object) As String
+    Dim s As String: s = headLine
+    Dim k As Variant
+    If Not deptAgg Is Nothing Then
+        For Each k In deptAgg.Keys
+            s = s & vbLf & "D" & vbTab & k & vbTab & CLng(deptAgg(k))
+        Next k
+    End If
+    If Not titleAgg Is Nothing Then
+        For Each k In titleAgg.Keys
+            s = s & vbLf & "T" & vbTab & k & vbTab & CLng(titleAgg(k))
+        Next k
+    End If
+    BoardBodyText = s
+End Function
+
+' 1行目(ヘッダ)だけを取り出す。CRLF/LFのどちらで書かれていても同じ答え。
+Public Function BoardHeadLine(ByVal fileText As String) As String
+    Dim rows() As String: rows = Split(Replace$(fileText, vbCrLf, vbLf), vbLf)
+    BoardHeadLine = rows(0)
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardReadRows - 2行目以降を読む。称号行("T")は titlesOut(Dictionary)へ入れ、
+'   戻り値は myDept の今月合計("D"行)。myDept が空なら0(部の行を出さない)。
+'   数値は上限で弾く(壊れた1行で桁が跳ねない)。
+' ----------------------------------------------------------------------------
+Public Function BoardReadRows(ByVal fileText As String, ByVal myDept As String, _
+                              ByRef titlesOut As Object) As Long
+    Dim rows() As String: rows = Split(Replace$(fileText, vbCrLf, vbLf), vbLf)
+    Dim i As Long
+    For i = 1 To UBound(rows)
+        Dim c() As String: c = Split(rows(i), vbTab)
+        If UBound(c) >= 2 Then
+            If c(0) = "T" Then
+                If Not titlesOut Is Nothing Then titlesOut(LCase$(Trim$(c(1)))) = BoardNum(c(2))
+            ElseIf c(0) = "D" Then
+                If LenB(myDept) > 0 Then
+                    If StrComp(Trim$(c(1)), myDept, vbTextCompare) = 0 Then
+                        BoardReadRows = BoardNum(c(2))
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+' 数値欄の共通ガード(modBoard.SafeNum と同じ上限。1億分=約190年ぶん)。
+Private Function BoardNum(ByVal s As String) As Long
+    On Error GoTo Bad
+    Dim v As Double: v = Val(s)
+    If v < 0 Or v > 100000000# Then Exit Function
+    BoardNum = CLng(v)
+Bad:
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardWriteSummary - 集約スナップショットを置き換える(2026-08-16 R33 W6-1)。
+'   書きかけを他端末に読ませないため、いったん自分専用の一時ファイル
+'   (summary_<自分hash>.tmp)へ書いてから上書きコピーする ―― 共有への
+'   配布物を一時ファイル経由で置く modPublish と同じ作法。一時ファイル名に
+'   hashが入るので複数の発行者端末が同時に書いても一時ファイルは衝突せず、
+'   最後のコピーが競合しても失敗するだけで既存の summary.txt は壊れない
+'   (次の集計でどちらかが書き直す)。
+'   書き込み自体は AV ロックに備えて3回だけ試す(modBoard のビーコン I/O と
+'   同じ考え方。ここでは待ちを入れず、失敗すれば次の集計へ回す)。
+' ----------------------------------------------------------------------------
+Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As String, _
+                                  ByVal content As String) As Boolean
+    If LenB(folderPath) = 0 Or LenB(myHash) = 0 Then Exit Function
+    Dim tmpPath As String: tmpPath = folderPath & "summary_" & myHash & ".tmp"
+
+    Dim wroteOk As Boolean
+    Dim attempt As Long
+    For attempt = 1 To 3
+        If modUtilText.WriteTextFileUtf8(tmpPath, content) Then
+            wroteOk = True
+            Exit For
+        End If
+    Next attempt
+    If Not wroteOk Then Exit Function
+
+    On Error Resume Next
+    Err.Clear
+    FileCopy tmpPath, folderPath & BOARD_SUMMARY_NAME
+    ' Err は次の文で消えるので、判定材料はここで退避する。
+    Dim copyErr As Long: copyErr = Err.Number
+    Err.Clear
+    Kill tmpPath
+    Err.Clear
+    On Error GoTo 0
+    BoardWriteSummary = (copyErr = 0)
+End Function
+
+' ----------------------------------------------------------------------------
+' BoardStateText - 集計を数字として出せないときに、その理由を利用者の言葉で
+'   1文にする(BoardHeadStatus の戻り値+"none"に対応)。usage_log と画面の
+'   ポップアップが【同じ文言】を使うための単一情報源: 利用者が「集計が出ない」
+'   と言ってきたとき、画面に出ている文とログの文が同じでなければ、どの端末の
+'   どの状態の話なのかを突き合わせられない。
+' ----------------------------------------------------------------------------
+' ----------------------------------------------------------------------------
+' BoardOrgBlock - 「みんな(組織全体)」ブロックの本文(2026-08-16 R33 W6-1)。
+'   使える集計が無いときは「0分」を並べず理由を出す ―― 共有が動いていない
+'   のか本当に0分なのかを、利用者が区別できるようにするため。
+'   "ok" のときは必ず「いつの・何名ぶんの・概算かどうか」を1行添える
+'   (数字だけ見せて出どころを言わないのは、古い集計を黙って出すのと同罪)。
+'   純関数なので modTestsPure34 が全状態を固定できる。
+' ----------------------------------------------------------------------------
+Public Function BoardOrgBlock(ByVal stateText As String, ByVal dayText As String, _
+        ByVal monText As String, ByVal yearText As String, ByVal deptLine As String, _
+        ByVal stampText As String, ByVal userN As Long, ByVal approx As Boolean, _
+        ByVal capN As Long, ByVal maxAgeHours As Long) As String
+    If StrComp(stateText, "ok", vbBinaryCompare) <> 0 Then
+        BoardOrgBlock = "  " & BoardStateText(stateText, maxAgeHours)
+        Exit Function
+    End If
+    BoardOrgBlock = "  今日: " & dayText & "  /  今月: " & monText & _
+        "  /  今年: " & yearText & deptLine & vbLf & _
+        BoardStampNote(stampText, userN, approx, capN)
+End Function
+
+' 集計の出どころの1行(BoardOrgBlock専用)。
+Private Function BoardStampNote(ByVal stampText As String, ByVal userN As Long, _
+                               ByVal approx As Boolean, ByVal capN As Long) As String
+    BoardStampNote = "  (集計時点: " & stampText & " / " & userN & "名ぶん" & _
+        IIf(approx, " / 上限" & capN & "件までの概算", "") & ")"
+End Function
+
+Public Function BoardStateText(ByVal stateText As String, ByVal maxAgeHours As Long) As String
+    Select Case stateText
+        Case "stale"
+            BoardStateText = "組織の集計が" & maxAgeHours & _
+                "時間以上更新されていないため表示していません(発行者用ブックの端末を1度起動すると作り直されます)。"
+        Case "broken"
+            BoardStateText = "組織の集計ファイルが読める形になっていません(書き込み中の可能性。次の更新で回復します)。"
+        Case Else
+            BoardStateText = "組織の集計はまだありません(発行者用ブックの端末が起動すると作られます)。"
+    End Select
 End Function
 
 ' ----------------------------------------------------------------------------

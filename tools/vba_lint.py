@@ -1680,8 +1680,11 @@ CONTRACT: dict[str, dict] = {
         "required": [
             "BasePath", "Reachable", "ProbePath", "ReportFailure",
             "ReportSuccess", "SubDir", "ResetProbe",
-            "BOARD_HEAD_TAG", "BoardHeadText", "BoardHeadField",
-            "BoardHeadStatus", "BoardHeadMin",
+            "BOARD_HEAD_TAG", "BOARD_SUMMARY_NAME",
+            "BoardHeadText", "BoardHeadField", "BoardHeadStatus",
+            "BoardHeadMin", "BoardHeadLine", "BoardBodyText",
+            "BoardReadRows", "BoardWriteSummary",
+            "BoardOrgBlock", "BoardStateText",
         ],
     },
     # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。
