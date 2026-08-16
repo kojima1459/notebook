@@ -312,13 +312,8 @@ Private Sub DrawGalleryFrame(ByVal ws As Worksheet)
     modKnowledge.DrawChrome ws, "gallery"
 
     ' 検索バー(セル)。位置は modKnowledge のクロム行(1..6)のうち行5。
-    With ws.Range(modKnowledge.SearchCellAddress())
-        .Merge
-        .Interior.Color = RGB(255, 255, 255)
-        .Borders.LineStyle = 1
-        .Borders.Color = modUI.UiColor("border")
-        .IndentLevel = 1
-    End With
+    ws.Range(modKnowledge.SearchCellAddress()).Merge
+    PaintSearchBox ws
     With ws.Range("F5")
         .Value = ChrW(&H2190) & " ここにキーワードを入れて「検索」を押す(例: 約款, 保険金)"
         .Font.Size = 9
@@ -565,6 +560,30 @@ Private Sub ApplyGalleryExtent(ByVal ws As Worksheet)
     Next shp
     ' R20-1d: 塗り・ScrollArea・境界より下の行高リセットは modKnowledge へ集約。
     modKnowledge.ApplyShelfBound ws, bottomY
+    PaintSearchBox ws   ' R33 W5-8: 一律塗りで潰れた検索欄を必ず戻す
+    On Error GoTo 0
+End Sub
+
+' PaintSearchBox - R33 W5-8: 検索欄の「白い箱」を敷き直す(冪等)。
+'   modKnowledge.ApplyShelfBound の paintAddr は modViewport.BoundAddr のとおり
+'   両分岐とも "A1:" 起点なので、クロム行(1〜6)の中にある検索欄の行5を必ず
+'   含む。つまり DrawGalleryFrame が塗った白は、同じ描画の後段 ―― さらに
+'   検索・ページ送りのたびに走る RenderGalleryCards → ApplyGalleryExtent で
+'   毎回テーマ地色に潰されていた。dark/gold では黒地に黒文字となり、打った
+'   キーワードが見えない(=「検索欄に字が入らない」の実体)。
+'   一覧表モードが見出し行のグレーを modBackdrop.RestoreShelfHeaderBg で、
+'   チャットが入力欄を modSkin.ExtendChatBand で戻しているのと同じ作法。
+'   文字色も明示する: 箱は常に白なので、地色に追随させると白文字が消える。
+Private Sub PaintSearchBox(ByVal ws As Worksheet)
+    If ws Is Nothing Then Exit Sub
+    On Error Resume Next
+    With ws.Range(modKnowledge.SearchCellAddress())
+        .Interior.Color = RGB(255, 255, 255)
+        .Borders.LineStyle = 1
+        .Borders.Color = modUI.UiColor("border")
+        .IndentLevel = 1
+        .Font.Color = RGB(31, 41, 55)
+    End With
     On Error GoTo 0
 End Sub
 
