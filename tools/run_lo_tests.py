@@ -673,6 +673,18 @@ PURE_ALLOWLIST = [
     #   どちらも既にこの一覧に載っている。未注入だと実行時エラー12になり、
     #   テストが実行されないまま全部PASSに見える。
     "modTestsPure33",
+    # modExtractorExcel(2026-08-16 R33波3 W3-1): テストが呼ぶのは
+    #   RowTextFrom(1行ぶんのVariant配列 → タブ区切り1行テキスト)1本だけで、
+    #   配列と文字列しか触らない純関数(Worksheet/Workbook/Application に
+    #   実行到達しない)。Extract / OpenForExtract / ExtractSheetText など
+    #   Excel の実オブジェクトを掴む口はテストから呼ばない(modPack /
+    #   modShelfSync と同じ「モジュール全体はR4準拠ではないが、テストが
+    #   呼ぶ関数自体はExcel/COMに触れない」型。modTypes.ExtractedPage を
+    #   参照するが modTypes は本一覧の先頭に載っている)。
+    #   ここが未注入だと実行時エラー12になり、「行内の空セルを詰めて列が
+    #   ずれる」= 表の値が別の見出しの値として取り込まれる事故の唯一の
+    #   自動検査が走らないまま「全部PASS」に見える。
+    "modExtractorExcel",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

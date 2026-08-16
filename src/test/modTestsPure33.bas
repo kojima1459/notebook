@@ -358,6 +358,133 @@ Private Sub TestEmailUnitPrice33()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' (6) W3-1: Excel取込で、行内の空セルを詰めない(列位置=タブ位置を保つ)。
+' ----------------------------------------------------------------------------
+'   旧実装は「値のあったセル」だけを先頭から詰めて Join していたため、
+'   見出し行「氏名/部署/内線」に対しデータ行「山田/(空)/1234」が
+'   `山田<TAB>1234` になり、内線番号が【部署の位置】へ入っていた。
+'   取込は成功扱いでログにも残らないので、検索が静かに嘘をつく。
+'
+'   【この群が discriminate であることの根拠】
+'   旧実装ではデータ行のタブ数が見出し行より少なくなる。よって
+'   「タブ数が揃うこと」と「k列目の値が Split の添字 k-1 に来ること」の
+'   両方が旧実装で必ず落ちる(恒真ではない)。逆に「常に cols-1 個のタブを
+'   吐く」だけの実装で通らないよう、末尾の空欄を落とす検査も対で置く。
+' ----------------------------------------------------------------------------
+Private Sub TestExcelRowAlign33()
+    Dim arr(1 To 6, 1 To 3) As Variant
+    ' 1行目=見出し(全列に値)
+    arr(1, 1) = "氏名": arr(1, 2) = "部署": arr(1, 3) = "内線"
+    ' 2行目=事故の再現(真ん中が空)
+    arr(2, 1) = "山田": arr(2, 3) = "1234"
+    ' 3行目=行頭が空
+    arr(3, 2) = "総務": arr(3, 3) = "5678"
+    ' 4行目=末尾が空(尻尾のタブは落とす)
+    arr(4, 1) = "佐藤"
+    ' 5行目=丸ごと空(行ごと捨てる)
+    ' 6行目=数式ブランク("")だけ。値としては存在するので行は残る。
+    arr(6, 2) = ""
+
+    Dim has As Boolean
+    Dim head As String: head = modExtractorExcel.RowTextFrom(arr, 1, 3, has)
+    Dim r2 As String: r2 = modExtractorExcel.RowTextFrom(arr, 2, 3, has)
+    Dim r3 As String: r3 = modExtractorExcel.RowTextFrom(arr, 3, 3, has)
+
+    Dim hp() As String: hp = Split(head, vbTab)
+    Dim p2() As String: p2 = Split(r2, vbTab)
+    Dim p3() As String: p3 = Split(r3, vbTab)
+
+    ' --- 本命: 見出しとデータのタブ数が揃う ------------------------------
+    '   見出し側が3列であること自体も見る(両方とも空文字なら「揃っている」
+    '   ことになってしまい、恒真化するため)。
+    Dim okTabs As Boolean: okTabs = (UBound(hp) = 2)
+    If okTabs Then okTabs = (UBound(p2) = 2)
+    modTestRunner.Check "R33-W3-1_空セルの行でもタブ数が見出しと揃う", okTabs, _
+        "見出し=[" & head & "](" & UBound(hp) & ") データ=[" & r2 & "](" & UBound(p2) & ")"
+
+    ' --- 本命: 3列目の値が3列目の位置に来る(旧実装では2列目に来ていた) ---
+    '   旧実装では UBound(p2)=1 なので、添字2の参照そのものが落ちる。
+    '   よって UBound を先に見てから中身を見る(短絡しない And を避ける)。
+    Dim okCol3 As Boolean: okCol3 = False
+    Dim okCol2 As Boolean: okCol2 = False
+    Dim okCol1 As Boolean: okCol1 = False
+    If UBound(p2) = 2 Then
+        okCol3 = (p2(2) = "1234")
+        okCol2 = (LenB(p2(1)) = 0)
+        okCol1 = (p2(0) = "山田")
+    End If
+    modTestRunner.Check "R33-W3-1_内線が内線の位置に来る", okCol3, "データ=[" & r2 & "]"
+    modTestRunner.Check "R33-W3-1_空けた2列目は空文字のまま", okCol2, "データ=[" & r2 & "]"
+    modTestRunner.Check "R33-W3-1_1列目は動かない", okCol1, "データ=[" & r2 & "]"
+
+    ' --- 行頭が空でも後続がずり上がらない --------------------------------
+    Dim okHead As Boolean: okHead = False
+    If UBound(p3) = 2 Then
+        okHead = (LenB(p3(0)) = 0)
+        If okHead Then okHead = (p3(1) = "総務")
+        If okHead Then okHead = (p3(2) = "5678")
+    End If
+    modTestRunner.Check "R33-W3-1_行頭が空でも列位置を保つ", okHead, "データ=[" & r3 & "]"
+
+    ' --- 逆向きの検算: 末尾の空欄はタブごと落とす ------------------------
+    '   (これが無いと「常に cols-1 個のタブを吐く」だけの実装でも上が通る)
+    Dim r4 As String: r4 = modExtractorExcel.RowTextFrom(arr, 4, 3, has)
+    modTestRunner.Check "R33-W3-1_末尾の空欄は尻尾のタブごと落とす", _
+        (r4 = "佐藤"), "データ=[" & r4 & "]"
+
+    ' --- 丸ごと空の行は行ごと捨てる(従来の cellCount>0 と同じ判定) -------
+    Dim r5 As String: r5 = modExtractorExcel.RowTextFrom(arr, 5, 3, has)
+    Dim okDrop As Boolean: okDrop = (has = False)
+    If okDrop Then okDrop = (LenB(r5) = 0)
+    modTestRunner.Check "R33-W3-1_丸ごと空の行は捨てる", okDrop, _
+        "has=" & has & " データ=[" & r5 & "]"
+
+    ' --- 数式ブランク("")は「値のあるセル」として行を残す ----------------
+    '   IsEmpty ではないので従来も行は残っていた。ここが False になると
+    '   =IF(...,"",...) だらけのシートで行数が静かに減る。
+    Dim r6 As String: r6 = modExtractorExcel.RowTextFrom(arr, 6, 3, has)
+    modTestRunner.Check "R33-W3-1_数式ブランクの行は残す", _
+        (has = True), "has=" & has & " データ=[" & r6 & "]"
+
+    ' --- 総当たり: 最終列に値がある限り、全行のタブ数は必ず cols-1 -------
+    '   空セルの並び方(2^4=16通り)を全部撃つ。1つでも詰めたら落ちる。
+    Dim g(1 To 16, 1 To 5) As Variant
+    Dim bit_(1 To 4) As Long
+    bit_(1) = 1: bit_(2) = 2: bit_(3) = 4: bit_(4) = 8
+    Dim mask As Long, col As Long
+    For mask = 0 To 15
+        For col = 1 To 4
+            If (mask And bit_(col)) <> 0 Then g(mask + 1, col) = "v" & col
+        Next col
+        g(mask + 1, 5) = "END"
+    Next mask
+    Dim badMask As String
+    Dim line_ As String
+    Dim parts_() As String
+    Dim want_ As String
+    For mask = 0 To 15
+        line_ = modExtractorExcel.RowTextFrom(g, mask + 1, 5, has)
+        parts_ = Split(line_, vbTab)
+        If UBound(parts_) <> 4 Then
+            If LenB(badMask) = 0 Then badMask = "mask=" & mask & " タブ数=" & UBound(parts_)
+        ElseIf parts_(4) <> "END" Then
+            If LenB(badMask) = 0 Then badMask = "mask=" & mask & " 最終列=[" & parts_(4) & "]"
+        Else
+            For col = 1 To 4
+                If (mask And bit_(col)) <> 0 Then want_ = "v" & col Else want_ = ""
+                If parts_(col - 1) <> want_ Then
+                    If LenB(badMask) = 0 Then _
+                        badMask = "mask=" & mask & " " & col & "列目=[" & parts_(col - 1) & _
+                                  "] 期待=[" & want_ & "]"
+                End If
+            Next col
+        End If
+    Next mask
+    modTestRunner.Check "R33-W3-1_空セルの並び16通りで列位置が保たれる", _
+        (LenB(badMask) = 0), "初回の違反: " & badMask
+End Sub
+
+' ----------------------------------------------------------------------------
 ' 入口。群ごとにハンドラを分ける(1本のハンドラだと最初の群で落ちた時点で
 ' 残りが無言で消える。R33波1 W1-3 で実害が出た型)。
 ' ----------------------------------------------------------------------------
@@ -376,6 +503,9 @@ G04Next33:
 G05Next33:
     On Error GoTo G05Fail33
     TestEmailUnitPrice33
+G06Next33:
+    On Error GoTo G06Fail33
+    TestExcelRowAlign33
 NextDone33:
     On Error GoTo 0
     Exit Sub
@@ -394,6 +524,9 @@ G04Fail33:
     Resume G05Next33
 G05Fail33:
     GroupFail33 "TestEmailUnitPrice33", Err.Number, Err.Description
+    Resume G06Next33
+G06Fail33:
+    GroupFail33 "TestExcelRowAlign33", Err.Number, Err.Description
     Resume NextDone33
 End Sub
 

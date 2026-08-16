@@ -363,34 +363,72 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
         Exit Function
     End If
 
-    Dim r As Long, c As Long
+    Dim r As Long
     For r = 1 To blkRows
-        Dim cellParts() As String: ReDim cellParts(0 To cols - 1)
-        Dim cellCount As Long: cellCount = 0
-        For c = 1 To cols
-            Dim v As Variant: v = arr(r, c)
-            ' 2026-07-28(レビュー H-10): エラー値(#N/A/#REF!/#DIV/0! 等)は
-            ' Variant の型が vbError で、CStr() が型の不一致(13)を投げる。
-            ' 従来はそれで抽出済みシートまで破棄して E0302 で全体失敗して
-            ' いた。VLOOKUP の #N/A を含む一覧表は実務で頻出なので、
-            ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
-            ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
-            ' (空にすると列がずれて表の意味が変わるため、残す)。
-            If IsError(v) Then
-                cellParts(cellCount) = ErrorCellText(v)
-                cellCount = cellCount + 1
-            ElseIf Not IsEmpty(v) Then
-                cellParts(cellCount) = CStr(v)
-                cellCount = cellCount + 1
-            End If
-        Next c
-        If cellCount > 0 Then
-            ReDim Preserve cellParts(0 To cellCount - 1)
-            lineParts(lineCount) = Join(cellParts, vbTab)
-            added = added + Len(lineParts(lineCount)) + 1
+        Dim hasCell As Boolean
+        Dim rowText As String: rowText = RowTextFrom(arr, r, cols, hasCell)
+        If hasCell Then
+            lineParts(lineCount) = rowText
+            added = added + Len(rowText) + 1
             lineCount = lineCount + 1
         End If
     Next r
     AppendBlockLines = added
+End Function
+
+' 1行ぶんのセルを、タブ区切りの1行テキストにする。
+' 戻り値は行テキスト。outHasCell は「この行に値のあるセルが1個でもあったか」
+' (False なら呼び出し元は行ごと捨てる=従来の cellCount>0 と同じ判定)。
+'
+' 2026-08-16(R33波3 W3-1): 空セルは【詰めない】。
+'   従来は値のあったセルだけを先頭から順に積んでいたため、行の途中に空セルが
+'   あると後続の値が左へずれ、Join のタブ位置が元の列位置と一致しなくなって
+'   いた。見出し行「氏名/部署/内線」に対しデータ行「山田/(空)/1234」は
+'   `山田<TAB>1234` になり、内線番号が【部署の位置】に入る。表形式の業務
+'   シート(空欄の多い一覧表は実務で多数派)で値と見出しの対応が静かに壊れ、
+'   検索は「山田さんの部署は?」に「1234」と答える。取込は成功扱いなので
+'   ログにも残らず、利用者は誤りに気付けない。
+'   すぐ下のエラー値の注記(2026-07-28 H-10)が『空にすると列がずれて表の
+'   意味が変わるため、残す』と書いているのとまったく同じ理屈が、空セルには
+'   適用されていなかった(意図的な圧縮ではなく、H-10 の適用漏れ)。
+'   よって添字は cellCount ではなく c-1(=元の列位置)を使い、末尾の空欄
+'   だけを lastUsed で落とす。結合セルは Excel の仕様上どのみち左上にしか
+'   値が無いので、列位置さえ保てば見出しとデータのタブ数が揃う。
+Public Function RowTextFrom(ByRef arr As Variant, ByVal r As Long, ByVal cols As Long, _
+                            ByRef outHasCell As Boolean) As String
+    outHasCell = False
+    If cols < 1 Then Exit Function
+
+    Dim cellParts() As String
+    ReDim cellParts(0 To cols - 1)
+    Dim lastUsed As Long: lastUsed = 0
+    Dim c As Long
+    For c = 1 To cols
+        Dim v As Variant: v = arr(r, c)
+        ' 2026-07-28(レビュー H-10): エラー値(#N/A/#REF!/#DIV/0! 等)は
+        ' Variant の型が vbError で、CStr() が型の不一致(13)を投げる。
+        ' 従来はそれで抽出済みシートまで破棄して E0302 で全体失敗して
+        ' いた。VLOOKUP の #N/A を含む一覧表は実務で頻出なので、
+        ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
+        ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
+        ' (空にすると列がずれて表の意味が変わるため、残す)。
+        If IsError(v) Then
+            cellParts(c - 1) = ErrorCellText(v)
+            lastUsed = c
+        ElseIf Not IsEmpty(v) Then
+            cellParts(c - 1) = CStr(v)
+            lastUsed = c
+        End If
+    Next c
+
+    If lastUsed = 0 Then Exit Function
+    outHasCell = True
+    ' 末尾の空欄はタブだけの尻尾になるので落とす(行頭・行中は保つ)。
+    ' lastUsed = cols のときも ReDim Preserve を【必ず通す】。VBAでは同寸への
+    ' 縮小なので無操作だが、LibreOffice の Basic では ReDim Preserve を一度も
+    ' 通していない配列に対する Join が空文字を返す(R33波3で実測。この1行を
+    ' If で飛ばすと、全列に値がある行だけが丸ごと消える)。
+    ReDim Preserve cellParts(0 To lastUsed - 1)
+    RowTextFrom = Join(cellParts, vbTab)
 End Function
 
