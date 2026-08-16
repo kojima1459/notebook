@@ -320,8 +320,8 @@ End Sub
 '   ・NoteAnswered を AnsweredMode と同じ実装(失敗時に "" を返す)へ戻すと
 '     「不成立ターンでもモード名は空にしない」が落ちる。
 '   ・mGrounded を常に True にすると「不成立ターンは根拠表示を止める」が落ちる。
-'   ・空質問の印(AnsweredMode が "" を返すこと)も対で固定しているので、
-'     2つの印を1つに戻す実装は必ずどちらかで落ちる。
+'   ・成立/不成立を続けて撃ち、その間で GroundingAllowed の答えが反転する
+'     ことまで見るので、「印を1つに戻す(モード名で兼ねる)」実装は必ず落ちる。
 Private Sub TestNoteAnswered35()
     ChkStr35 "F7_成立ターンはモード名をそのまま返す", _
         modMode.NoteAnswered(True, "deep"), "deep"
@@ -335,11 +335,8 @@ Private Sub TestNoteAnswered35()
         modMode.NoteAnswered(True, "quick"), "quick"
     ChkBool35 "F7_見るのは直近の1ターンだけ", modMode.GroundingAllowed(), True
 
-    ' 空質問ターンの印は従来どおり別の関数(mLastMode="")が持つ。
-    ChkStr35 "F7_空質問の印は別物(検索も生成もしなかった)", _
-        modMode.AnsweredMode(False, "deep"), ""
-    ChkStr35 "F7_成立ターンの印は従来どおり", _
-        modMode.AnsweredMode(True, "deep"), "deep"
+    ' 空質問ターンの印は従来どおり mLastMode="" が持つ(R33H Fix波3: その印を
+    ' 返していた modMode.AnsweredMode は呼び出し元0件になったため撤去した)。
 
     ' 後始末: 次のテスト群へ状態を持ち越さない。
     ChkStr35 "F7_閉じ直せる", modMode.NoteAnswered(False, ""), ""

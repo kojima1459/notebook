@@ -546,22 +546,12 @@ Private Sub TestHumanizeKeepsTail34()
     ChkTrue34 "W5-20_単段も言い換わる", (InStr(r, "突き合わせ") > 0), "実際=" & r
 End Sub
 
-' ---- W5-21: 回答が成立しなかったターンはモードを覚えない ------------------
-'   信頼度バッジ(modUINexusDraw)も出典チップ(modPeek)も、この1式が返す
-'   モード名が空かどうかを最終的な門にしている。
-'   discriminate: ok を無視して modeName をそのまま返す実装(=旧コード)は
-'   下2行が落ちる。常に空を返す実装は上2行が落ちる。
-Private Sub TestAnsweredMode34()
-    ChkTrue34 "W5-21_成立したターンはモードを返す", _
-        (modMode.AnsweredMode(True, "deep") = "deep"), ""
-    ChkTrue34 "W5-21_成立ターンは発信の門も開く", _
-        modMode.ShouldEmitInsight(modMode.AnsweredMode(True, "deep"), 3), ""
-    ChkTrue34 "W5-21_API失敗・逆質問のターンは空", _
-        (modMode.AnsweredMode(False, "deep") = ""), _
-        "実際=" & modMode.AnsweredMode(False, "deep")
-    ChkTrue34 "W5-21_不成立ターンは発信の門も閉じる", _
-        (modMode.ShouldEmitInsight(modMode.AnsweredMode(False, "deep"), 3) = False), ""
-End Sub
+' ---- W5-21 の AnsweredMode 群は R33H Fix波3 で撤去 ------------------------
+'   F7 が modMode.AnsweredMode を NoteAnswered / GroundingAllowed へ置き換えた
+'   結果、AnsweredMode は src からの呼び出し元が0件になった。呼ばれない関数を
+'   固定するテストは「回帰テストがある」という見た目だけを残すので、対象ごと
+'   消す(期待値の書き換えではない)。同じターンの門の検査は modTestsPure35 の
+'   TestNoteAnswered35 が持っている。
 
 Private Sub ChkLong34(ByVal label As String, ByVal got As Long, ByVal want As Long)
     modTestRunner.Check "R33-" & label, (got = want), "実際=" & got & " 期待=" & want
@@ -629,9 +619,6 @@ H11Next34:
     TestHumanizeKeepsTail34
 H12Next34:
     On Error GoTo H12Fail34
-    TestAnsweredMode34
-H13Next34:
-    On Error GoTo H13Fail34
     TestBoardSnap34
 H01Done34:
     On Error GoTo 0
@@ -682,10 +669,6 @@ H11Fail34:
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H12Next34
 H12Fail34:
-    modTestRunner.Check "TestAnsweredMode34(グループ全体)", False, _
-        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
-    Resume H13Next34
-H13Fail34:
     modTestRunner.Check "TestBoardSnap34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
