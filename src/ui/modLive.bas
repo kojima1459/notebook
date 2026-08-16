@@ -528,21 +528,63 @@ End Function
 ' 入念モードが数分かかることの唯一の説明になっている。言い換えのときに
 ' 番号ごと捨てていたため、チャット画面では何段目かが一度も見えていなかった。
 ' 番号は切り離して保ち、言い換えるのは本体だけにする。
+' 2026-08-16(R33 W5-20): 段番号を保つ仕掛けが「先頭が半角 ( のときだけ」で、
+' modMode.AskStageText の "(4/6) 検証中…"(単段経路)にしか当たっていなかった。
+' 入念の分解経路 modAskMulti.Stage は
+'   "🧬 入念(3論点) 6/7段: 統合した回答を自己点検中… 経過2分13秒 ※応答なし表示でも処理中"
+' という形で、先頭がサロゲート(ChrW(&HD83E))なので head 抽出が発火せず、
+' body = 全文になる。HumanizeBody は当たった時点で body 【全体】を固定文へ
+' 差し替えるため、段番号・論点数・経過秒・「※応答なし表示でも処理中」が
+' まとめて捨てられていた。この2段(自己点検/検証)は統合済み全文をLLMへ渡す
+' 最長の段で数分ブロックするうえ、直前の段までは経過秒が出ていたのに急に
+' 消えて表示が【後退】するので、フリーズと誤認して強制終了する導線になる
+' (経過秒と注記は、まさにそれを防ぐために R16-2c / R16H FB-8 で入れたもの)。
+' 直し方: 言い換えてよいのは【ラベル本体だけ】という契約を形式に依存しない
+' 形で担保する。(1) 末尾の装飾(経過秒・注記)を先に退避して後で付け直す
+' (2) 先頭の段表示は ": " を優先で切り出し(無ければ従来の ") ")、
+' 「(3論点) 」のような途中の閉じ括弧で切ってしまわないようにする。
 Public Function Humanize(ByVal msg As String) As String
     Dim head As String
     Dim body As String
+    Dim tail As String
     body = msg
 
-    If Left$(msg, 1) = "(" Then
-        Dim p As Long
-        p = InStr(msg, ") ")
+    Dim t As Long
+    t = TailPos(body)
+    If t > 1 Then
+        tail = Mid$(body, t)
+        body = Left$(body, t - 1)
+    End If
+
+    Dim p As Long
+    p = InStr(body, ": ")
+    If p > 1 Then
+        head = Left$(body, p + 1)
+        body = Mid$(body, p + 2)
+    ElseIf Left$(body, 1) = "(" Then
+        p = InStr(body, ") ")
         If p > 1 Then
-            head = Left$(msg, p + 1)
-            body = Mid$(msg, p + 2)
+            head = Left$(body, p + 1)
+            body = Mid$(body, p + 2)
         End If
     End If
 
-    Humanize = head & HumanizeBody(body)
+    Humanize = head & HumanizeBody(body) & tail
+End Function
+
+' TailPos - 実況の末尾に付く装飾(" 経過…秒" / " ※応答なし表示でも処理中")の
+'   開始位置。無ければ0。どちらも modAskMulti.Stage が必ず付ける「待ってよい
+'   ことの根拠」なので、言い換えで消してはならない。
+Private Function TailPos(ByVal s As String) As Long
+    Dim a As Long: a = InStr(s, " 経過")
+    Dim b As Long: b = InStr(s, " ※")
+    TailPos = a
+    If TailPos = 0 Then TailPos = b
+    If a > 0 Then
+        If b > 0 Then
+            If b < a Then TailPos = b
+        End If
+    End If
 End Function
 
 Private Function HumanizeBody(ByVal msg As String) As String
