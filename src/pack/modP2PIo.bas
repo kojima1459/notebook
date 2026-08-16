@@ -144,6 +144,34 @@ Public Function SanitizeId(ByVal s As String) As String
     SanitizeId = modUtil.SafeLeft(Trim$(t), 64)
 End Function
 
+' ----------------------------------------------------------------------------
+' IdHash / IdKey - 人のIDを「照合に使う形」へ均す唯一の場所(2026-08-16 R33H F30)
+' ----------------------------------------------------------------------------
+' なぜ要るか:
+'   専門家召喚は送信側だけが SanitizeId を通し、受信側は生の CurrentUserId()
+'   をそのままハッシュしていた。ADSystemInfo の CN は "CN=山田\, 太郎,OU=.."
+'   のようにカンマをバックスラッシュで逃がした形で返ることがあり、
+'   CnFromDn はその `\` を落とさない。SanitizeId は `\` と `,` を "_" に替え、
+'   64字で打ち切る ―― つまり片側だけ通すと【送り先のファイル名と、受け手が
+'   探すファイル名が別物になる】。画面には「送りました」と出るのに、質問は
+'   誰の受信箱にも現れない(誰も気付けない種類の失敗)。
+'   称号キー(modBoard)も同型で、書く側は SanitizeId+LCase、読む側(TitleFor)は
+'   LCase だけだった ―― 同じ人の称号が誰の画面にも出ない。
+'
+' 使い分け:
+'   IdKey  … 突き合わせ用の文字列キー(称号の辞書キー等)。大小同一視する。
+'   IdHash … ファイル名に埋める16桁。**LCase は通さない**。ここで大小を潰すと
+'            既に共有フォルダに置かれている送信済みファイルの名前が変わり、
+'            受け取られないまま孤立するため(挙動の変更は最小に留める)。
+' ----------------------------------------------------------------------------
+Public Function IdKey(ByVal id As String) As String
+    IdKey = LCase$(SanitizeId(id))
+End Function
+
+Public Function IdHash(ByVal id As String) As String
+    IdHash = modUtil.Fnv1a64Hex(SanitizeId(id))
+End Function
+
 Public Sub EnsureDir(ByVal folderPath As String)
     On Error Resume Next
     If Len(Dir(folderPath, vbDirectory)) = 0 Then MkDir folderPath

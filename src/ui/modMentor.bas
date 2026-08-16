@@ -23,9 +23,10 @@ Option Explicit
 '      modShareRule.OriginKind/OriginName、modP2P.ResolveAuthorId(いずれも
 '      読み取り専用)、modConfig のみ。自前状態は本モジュールPrivate
 '      (mExpert/mExpertId/mExpertKind/mTopSource)に完結。
-'   4. サニタイズ徹底: 専門家名・質問者名はSanitizeId(modP2Pと同一仕様の複製)で
-'      禁止文字を除去し、さらにファイル名にはFnv1a64Hex(16桁)のみを使う
+'   4. サニタイズ徹底: 専門家名・質問者名は modP2PIo.SanitizeId で禁止文字を
+'      除去し、さらにファイル名には modP2PIo.IdHash(16桁)のみを使う
 '      (MAX_PATH対策も同時達成。payload側に生のsanitize済IDを保持)。
+'      R33H F30: 送信側だけが均していた複製をやめ、送受信とも IdHash を通す。
 '   ・送信I/OはmodMentor内に自前カプセル化(ADODB.Stream+リトライ+Set=Nothing)。
 '     R33 W5-11 で1点だけ例外を作った: 宛先IDの解決だけは modP2P.ResolveAuthorId
 '     (このとき Private → Public 化)を通す。表示名を宛先にすると受信側の照合
@@ -222,7 +223,10 @@ Public Sub CollectQuestions(Optional ByVal silent As Boolean = False)
     ' 1) 宛先=自分のファイル名を全部集める(Dir列挙中にKillしない=列挙破壊防止)
     Dim names() As String: ReDim names(0 To 31)
     Dim nFiles As Long: nFiles = 0
-    Dim fn As String: fn = Dir(folderPath & "q_" & modUtil.Fnv1a64Hex(myId) & "_*.txt")
+    ' R33H F30: 送信側と同じ modP2PIo.IdHash を通す。従来は受信側だけが生の
+    ' CurrentUserId() をハッシュしており、CN のエスケープ(`\`)や64字超で
+    ' 送信側(SanitizeId 済み)と別のファイル名になっていた。
+    Dim fn As String: fn = Dir(folderPath & "q_" & modP2PIo.IdHash(myId) & "_*.txt")
     Do While LenB(fn) > 0
         If nFiles > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 32)
         names(nFiles) = fn
@@ -498,14 +502,14 @@ Private Function SendQuestion(ByVal expert As String, ByVal q As String, _
 
     ' ファイル名はハッシュのみ(サニタイズ+MAX_PATH二重達成)。payloadに生IDを保持。
     Dim nonce As String
-    nonce = modUtil.Fnv1a64Hex(myId) & "-" & Format$(Now, "yyyymmddhhnnss") & "-" & _
+    nonce = modP2PIo.IdHash(myId) & "-" & Format$(Now, "yyyymmddhhnnss") & "-" & _
             Format$(Int(Timer * 1000) Mod 100000, "00000")
     Dim rowText As String
     rowText = nonce & vbTab & myId & vbTab & expert & vbTab & _
               SanitizeField(q) & vbTab & SanitizeField(topSource) & vbTab & modUtil.NowStamp()
 
     SendQuestion = WriteUtf8WithRetry( _
-        folderPath & "q_" & modUtil.Fnv1a64Hex(expert) & "_" & nonce & ".txt", rowText)
+        folderPath & "q_" & modP2PIo.IdHash(expert) & "_" & nonce & ".txt", rowText)
     If Not SendQuestion Then
         LogMentorErr "modMentor(SendQuestion)", 0, _
             "共有フォルダへ質問ファイルを書けませんでした(3回リトライ後)"
@@ -588,17 +592,12 @@ Private Sub MentorWait(ByVal ms As Long)
     Loop
 End Sub
 
-' Windowsファイル名禁止文字の除去(modP2P.SanitizeIdと同一仕様の複製。Private依存を
-' 避けるための意図的な軽量重複)。最大64字。
+' R33H F30: 「意図的な軽量重複」だった Private の複製を消し、modP2PIo.SanitizeId
+' へ寄せた。ID の均し方が2箇所にあると、いつか必ず片方だけが更新される ――
+' 実際、送信側だけがこれを通し受信側は生 ID をハッシュしていたため、CN の
+' エスケープ(`\`)や64字超で「送りました」が嘘になっていた。
 Private Function SanitizeId(ByVal s As String) As String
-    Dim bad As Variant
-    bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|", ",", vbTab, vbCr, vbLf)
-    Dim t As String: t = s
-    Dim i As Long
-    For i = LBound(bad) To UBound(bad)
-        t = Replace(t, CStr(bad(i)), "_")
-    Next i
-    SanitizeId = modUtil.SafeLeft(Trim$(t), 64)
+    SanitizeId = modP2PIo.SanitizeId(s)
 End Function
 
 ' TSVフィールド安全化(タブ/改行→空白。modP2P.SanitizeFieldと同一仕様の複製)。

@@ -163,7 +163,9 @@ Public Function TitleFor(ByVal userId As String) As String
     If StrComp(userId, myId, vbTextCompare) = 0 Then
         n = modStats.GetStat("thanks_received_total")
     ElseIf mLoaded Then
-        If mTitles.Exists(LCase$(userId)) Then n = CLng(mTitles(LCase$(userId)))
+        ' R33H F30: 書く側と同じ IdKey で引く(LCase だけでは一致しない)。
+        Dim k As String: k = modP2PIo.IdKey(userId)
+        If mTitles.Exists(k) Then n = CLng(mTitles(k))
     End If
     If n >= 20 Then
         TitleFor = ChrW(&HD83C) & ChrW(&HDF1F) & " "        ' U+1F31F 星
@@ -476,7 +478,7 @@ Private Sub BuildSnapshot(ByVal folderPath As String)
             If UBound(f) >= 8 Then
                 ' 書き出す行のキーになるので SanitizeId を通す(タブ・改行が
                 ' 混じると読む側の列が丸ごとズレる)。数値欄は BoardNum を通す。
-                Dim uid As String: uid = LCase$(modP2PIo.SanitizeId(f(0)))
+                Dim uid As String: uid = modP2PIo.IdKey(f(0))
                 If LenB(uid) > 0 Then
                     usersN = usersN + 1
                     ' 称号は TITLE_MIN 未満を載せない(行数が称号持ちの人数で
