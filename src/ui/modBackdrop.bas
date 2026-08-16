@@ -691,31 +691,50 @@ Public Sub ApplyCF(ByVal ws As Worksheet, ByVal boundRow As Long, _
     Dim after As Long
     Err.Clear
     after = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
-    If Err.Number = 0 Then
-        If after > usedLast Then
-            ' 伸びた=この端末では条件付き書式もセルを使う。剥がして、伸びた
-            ' ぶんの行を消して元の B に戻し、以後このセッションでは張らない。
-            ClearOwnCF ws
-            Err.Clear
-            ' 削除範囲に掛かるShapeが縮む・消えるのを防ぐ(ReleaseSheetRowsBelow
-            ' と同じ作法。Shapeは使用済み範囲を作らないので境界より下にも在り得る)。
-            modUI.FreezeShapePlacement ws
-            Err.Clear
-            ' R33H F11: 他の全 Rows.Delete が持つ下限保護がこの経路だけ無く、
-            ' usedLast が異常値ならヘッダー帯ごと消し得た。
-            If usedLast + 1 >= CF_MIN_ROW Then ws.Rows((usedLast + 1) & ":" & after).Delete
-            Err.Clear
-            ' R33H F11: 行削除は ScrollArea を落とす。R30 F8 の「削除の直後に
-            ' 掛け直す」作法をこの新経路だけが破っていた。
-            If LenB(scrollAddr) > 0 Then modViewport.ApplyScrollBound ws, scrollAddr
-            Err.Clear
-            mCfOff = True
-            LogCfOnce nm, "usedrange_grew", after - usedLast, _
-                "before=" & usedLast & " after=" & after & " range=" & addr
-            GoTo CfExit
-        End If
-    End If
+    Dim vNum As Long, vDesc As String
+    vNum = Err.Number: vDesc = Err.Description
     Err.Clear
+    ' R33H F12: 【検算できなかった=合格ではない】。旧実装は読み取り失敗を
+    ' If Err.Number = 0 で包んでいたため、検算ごと飛ばして下の成功ログへ
+    ' 到達していた。1回しか出ないログが嘘だと調査が丸ごと迷走する。
+    ' 張ったままにすると伸びていても気づけないので剥がす。mCfOff は立てない
+    ' (剥がしてあるので行進は起きず、次の描画で測り直せる)。
+    If vNum <> 0 Then
+        ClearOwnCF ws
+        LogCfOnce nm, "verify_read", vNum, vDesc
+        GoTo CfExit
+    End If
+
+    If after > usedLast Then
+        ' 伸びた=この端末では条件付き書式もセルを使う。剥がして、伸びた
+        ' ぶんの行を消して元の B に戻し、以後このセッションでは張らない。
+        ClearOwnCF ws
+        Err.Clear
+        ' 削除範囲に掛かるShapeが縮む・消えるのを防ぐ(ReleaseSheetRowsBelow
+        ' と同じ作法。Shapeは使用済み範囲を作らないので境界より下にも在り得る)。
+        modUI.FreezeShapePlacement ws
+        Err.Clear
+        ' R33H F11: 他の全 Rows.Delete が持つ下限保護がこの経路だけ無く、
+        ' usedLast が異常値ならヘッダー帯ごと消し得た。
+        ' R33H F12: 巻き戻せたかは delOk と同型で退避してログへ載せる
+        ' (-1=下限保護で消さなかった)。ここが失敗すると B が戻らない。
+        Dim dNum As Long
+        dNum = -1
+        If usedLast + 1 >= CF_MIN_ROW Then
+            ws.Rows((usedLast + 1) & ":" & after).Delete
+            dNum = Err.Number
+        End If
+        Err.Clear
+        ' R33H F11: 行削除は ScrollArea を落とす。R30 F8 の「削除の直後に
+        ' 掛け直す」作法をこの新経路だけが破っていた。
+        If LenB(scrollAddr) > 0 Then modViewport.ApplyScrollBound ws, scrollAddr
+        Err.Clear
+        mCfOff = True
+        LogCfOnce nm, "usedrange_grew", after - usedLast, _
+            "before=" & usedLast & " after=" & after & " range=" & addr & _
+            " del=" & dNum
+        GoTo CfExit
+    End If
 
     ' 成立した。1セッション1回だけ「効いている」ことも残す ―― 実機で
     ' 「本当に張れたのか」を後から1行で確かめられるようにするため。
