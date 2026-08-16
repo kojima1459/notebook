@@ -200,24 +200,40 @@ End Sub
 ' バッジ見出しはその次の行25(上端393pt)から始まる。
 ' RowAt は Worksheet を要るのでここでは回せないが、【旧式が誤りである】
 ' ことと、正しい行番号がいくつかは純粋な算数として固定できる。
+'
+' 【2026-08-15 R33波1 W1-4】恒真アサート3件を削除した:
+'   ・「旧式(15pt割り算)は行28を返す」  = CLng(386/15)+2 = 28
+'   ・「旧式の空隙は52pt」              = RowTopHub(28)-386 = 52
+'   ・「旧式の戻り値は480pt」           = (28+4)*15 = 480
+'   いずれも被験体が存在しない ―― 最後の1件は両辺が数値リテラルだけで
+'   構成されており、本番コードが1バイトも関与しない完全な恒真式だった。
+'   残りは【旧式が誤りである】ことの記録であって回帰検知ではないため、
+'   別の恒真へ置き換えず削除し、数値の由来は上のコメントに残す。
+'
+' 【残る6件の限界・司令塔へ申し送り】
+'   以下は今も RowAtHub/RowAtGeneric/RowTopHub(このファイル内のテスト専用
+'   ヘルパ)しか通らず、modViewport.RowAt / RowAtFloor の丸め方向や行1高さの
+'   扱いをどう改変しても落ちない。実装側は RowAt(ws, y, maxRow) /
+'   RowAtFloor(ws, y, maxRow) がいずれも Worksheet を要求し、Worksheet 非依存
+'   の行換算(行1高さ h1・行高 h・y を受ける RowAtFrom のような純関数)が
+'   存在しないため、「実装を呼ぶ形」にするには src/ui/modViewport.bas への
+'   切り出しが要る(今回の担当範囲=src/test/ の外)。裁定を仰ぐ。
+'   なお modViewport2.SeedRowCap は行高一様モデルで h1 を持たないため、
+'   Hub の行1=48pt という本テストの主題を代替できない(modTestsPure30 の
+'   F12 が既にその一様モデル側を実装と突き合わせている)。
 Private Sub TestRowConversion()
     Dim tilesBottom As Double: tilesBottom = 386      ' TilesTop(146)+TilesHeight(240)
-    modTestRunner.Check "行換算_旧式(15pt割り算)は行28を返す", _
-        (CLng(tilesBottom / 15) + 2 = 28), "実際=" & (CLng(tilesBottom / 15) + 2)
     modTestRunner.Check "行換算_実測なら下端386ptを含む最小行は24", _
         (RowAtHub(tilesBottom) = 24), "実際=" & RowAtHub(tilesBottom)
     modTestRunner.Check "行換算_バッジ見出しはその次の行25", _
         (RowAtHub(tilesBottom) + 1 = 25)
     ' 旧式が返す行28の上端は438pt。タイル下端386ptとの差=52ptが空隙の正体。
-    modTestRunner.Check "行換算_旧式の空隙は52pt", (RowTopHub(28) - tilesBottom = 52), _
-        "実際=" & (RowTopHub(28) - tilesBottom)
     modTestRunner.Check "行換算_実測なら空隙は7pt以内", _
         (RowTopHub(25) - tilesBottom = 7), "実際=" & (RowTopHub(25) - tilesBottom)
     ' 戻り値(バッジ帯の下端)も同じ誤差を持っていた。
     ' 旧: (r+4)*15 = 32*15 = 480pt / 実測: 行29の下端 = 48+27*15+15 = 468pt。
     ' 旧式は【行28起点】なので実際の下端は行32の下端=513pt。つまり返り値480は
     ' 実物より33pt上で、フッターがバッジ帯へ食い込んでいた。
-    modTestRunner.Check "行換算_旧式の戻り値は480pt", ((28 + 4) * 15 = 480)
     modTestRunner.Check "行換算_旧式起点の実下端は513pt(戻り値より33pt下)", _
         (RowTopHub(32) + 15 = 513), "実際=" & (RowTopHub(32) + 15)
     modTestRunner.Check "行換算_実測起点の実下端は468pt(食い込みなし)", _
