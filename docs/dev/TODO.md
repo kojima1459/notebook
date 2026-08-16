@@ -98,3 +98,8 @@ regressionリスクに見合わない。将来「設定画面」ができた際�
       `build/build_mybookshelf.py:651` の1行で、波4はビルドスクリプトを
       W4-8(ui_state の text_cols)以外触らない取り決めだったため、司令塔へ差し戻した。
       VBA 側(`modFeatures.FeatureEnabled`)の既定は元から FALSE で、変更は不要。
+      **→ R33波5c で (B) の前半だけを実施し、`build/build_mybookshelf.py` の
+      config 既定を FALSE にした**(dev/prod 共通)。これで診断画面の「設定有効」と
+      実態の乖離は止まる。**残りの宿題**: (A) 導線を1本足すのか、(B) 完全に未提供と
+      確定させて `build/modules.json` から `optDiffDoc` を外し注入本数とブック容量を
+      返すのか、は未裁定。モジュールは今も同梱・注入されている。
