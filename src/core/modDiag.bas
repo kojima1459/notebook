@@ -82,14 +82,32 @@ Public Sub RunDiagnostics()
     On Error GoTo 0
     r = r + 1
 
-    ' [共有フォルダ](R13-7b): 診断は実行のたびだけ実際に確かめてよい
-    ' (「診断は都度、通常描画はキャッシュを使い回す」の使い分け)。
-    ' modShare.Reachable()はこのセッションでまだ判定していなければここで
-    ' 初めて1回プローブし、以後は他モジュールもこのキャッシュを使い回す。
+    ' [共有フォルダ](R13-7b / R33 W4-4改め W4-5): 診断は実行のたびに実際に
+    ' 確かめる(「診断は都度、通常描画はキャッシュを使い回す」の使い分け)。
+    '
+    ' 【なぜ Reachable() ではなく ProbePath() を呼ぶのか】(2026-08-16 R33 W4-5)
+    ' modShare.Reachable は mState が確定していれば即座に前回値を返す
+    ' (modShare.bas:71-76。NG→OK の昇格経路も TTL も無い)。そして mState は
+    ' 起動シーケンスで必ず解決される(modBoot:279→modHub の
+    ' RefreshOrgTilesIfReachable、modBoot:406 の modGuard.TouchReach)。
+    ' つまり利用者が🩺診断を押す時点で判定は例外なく確定済みで、ここは
+    ' 一度もプローブせずキャッシュを読むだけだった。結果、
+    '   「VPN未接続で開く → VPNを繋ぐ → 診断を押す」= 何度押しても
+    '   『到達できません → VPN接続をご確認ください』
+    ' となり、原因を直した利用者が解決済みのネットワークを疑い続ける。
+    ' この画面は「スクリーンショットして管理者に送ってください」と案内する
+    ' 画面なので、古い結論がそのまま管理者側の一次情報になっていた。
+    '
+    ' ProbePath はキャッシュを持たない(modShare.bas:130)ので都度実測になり、
+    ' 判定式は設定画面(modHelp.OnShareSetup)と共用の1本のままで増えない。
+    ' ResetProbe は呼ばない ―― 呼ぶと診断の副作用で他モジュールが使う
+    ' セッションキャッシュまで捨ててしまう(セッションキャッシュの方針は
+    ' 変えない、が R13-7b の裁定)。BasePath() が空(=未設定)のときは
+    ' ProbePath が即 False を返し、従来どおり「未設定」表示になる。
     WriteLine ws, r, "[共有フォルダ]": r = r + 1
     On Error Resume Next
     Dim shareConfigured As Boolean: shareConfigured = (LenB(cfgSharePath) > 0)
-    Dim shareReach As Boolean: shareReach = modShare.Reachable()
+    Dim shareReach As Boolean: shareReach = modShare.ProbePath(modShare.BasePath())
     Dim shareOk As Boolean: shareOk = (Not shareConfigured) Or shareReach
     WriteCheck ws, r, shareOk, _
         "  到達性: " & IIf(Not shareConfigured, "未設定(共有機能は休止中)", _
