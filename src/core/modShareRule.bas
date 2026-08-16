@@ -182,9 +182,29 @@ End Function
 '         (limitDays がいくつでも、最低1日は予告のためだけの猶予が残る)
 '     (3) wipe は「daysSince >= limitDays かつ 予告済み」のときだけ。
 '         予告済みフラグが古くても daysSince < limitDays なら消さない
+'
+'   2026-08-16(R33 W2-2・データ喪失): 不変条件を4つ目まで増やした。
+'     (4) reachableNow=True(=今この瞬間、共有フォルダへ実際に届いている)なら
+'         【何があっても "none"】。warn も warn_first も wipe も返さない。
+'   なぜ要るか: 旧実装が受け取る「つながっているか」の材料は daysSince
+'   (guard_last_reach からの経過日数=前回セッションまでの記録)だけで、
+'   『今この瞬間届いているか』は入力に存在しなかった。呼び出し側の順序が
+'   その穴を実害にしていた ―― 消去を実行する modGuard.EnforceExpiry は
+'   Boot の前半で走るのに、今日の到達を記録する TouchReach は Boot の後半で
+'   しか呼ばれない。結果、期限日以降に社内ネットワークへ復帰して開いた端末は
+'   「届いているのに、届いていないことになっている」状態で判定され、
+'   予告文が唯一の解除手段として案内した操作(社内NWに接続して一度開く)を
+'   実行したその瞬間に本棚を消される、という裏切りが起きていた。
+'   本体の修正は呼び出し側(modGuard が判定より先に到達性を確かめ、
+'   届いていれば TouchReach を打つ)だが、判定式にも同じ不変条件を焼き、
+'   将来また順序が入れ替わっても「つながっているのに消える」が原理的に
+'   起こらないようにする(二重防御)。
+'   引数は Optional。既存の5引数呼び出しは【1文字も挙動が変わらない】
+'   (省略時 False = 従来どおり daysSince だけで判定する)。
 Public Function ExpiryDecision(ByVal lastReachRaw As String, ByVal daysSince As Long, _
                                ByVal limitDays As Long, ByVal warnedRaw As String, _
-                               ByVal wipedRaw As String) As String
+                               ByVal wipedRaw As String, _
+                               Optional ByVal reachableNow As Boolean = False) As String
     If limitDays <= 0 Then
         ExpiryDecision = "off"
         Exit Function
@@ -195,6 +215,10 @@ Public Function ExpiryDecision(ByVal lastReachRaw As String, ByVal daysSince As 
     End If
 
     ExpiryDecision = "none"
+
+    ' (4) 今まさに共有へ届いている端末には何もしない(R33 W2-2)。
+    '     予告済み・消去済みの印がどう残っていても、ここで必ず止まる。
+    If reachableNow Then Exit Function
 
     ' (1) 今日(あるいは未来の日付)に到達している端末には何もしない。
     '     ここを通す限り「つながっているのに消えた」は起こり得ない。

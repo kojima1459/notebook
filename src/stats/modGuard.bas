@@ -202,13 +202,56 @@ Public Function EnforceExpiry() As Boolean
     '      → 一度消したら記録し、二度目からは黙って通す(もう消すものが無い)。
     '  (c) 端末の時計が前へ飛ぶと、予告を一度も出さずにいきなり消えていた
     '      → 予告を出した記録が無ければ、まず予告だけ出して1回見送る。
+    ' ------------------------------------------------------------------------
+    ' 2026-08-16(R33 W2-2・データ喪失): 【消去を判定する前に、今つながって
+    ' いるかを確かめる】。
+    '
+    ' ここに到達性の確認が無かったせいで、次の事故が成立していた:
+    '   期限日以降に社内ネットワークへ復帰して開いた端末が、共有フォルダへ
+    '   実際に届いているのに本棚を全消去される。判定材料の guard_last_reach を
+    '   今日へ更新する TouchReach は Boot の【後半】でしか呼ばれず、この関数が
+    '   走る時点の記録は「前回セッション=社外にいたとき」のままだったため。
+    '   予告文(下の warn/warn_first)が唯一の解除手段として案内しているのが
+    '   「社内ネットワークに接続して一度開く」ことなので、案内どおりに操作した
+    '   利用者が、その操作の瞬間に資産を失う形になっていた(憲章§3-5違反)。
+    '
+    ' 直し方は順序の入れ替え1本: 判定より先に到達性を見て、届いていれば
+    ' 先に TouchReach を打つ(guard_last_reach=今日 / 予告・消去の印もリセット)。
+    ' その後で読む lastReach / d は「今日・0日」になるので、判定は自然に
+    ' "none" へ落ちる。判定式側にも同じ不変条件を入れてある(二重防御。
+    ' modShareRule.ExpiryDecision の不変条件(4))。
+    '
+    ' 【本来消すべきケースは従来どおり消える】: Reachable() が False の端末
+    ' (本当に届かない=社外のまま期限超過)では reachableNow=False となり、
+    ' TouchReach も打たれないので、材料も判定も従来と1ビットも変わらない。
+    ' Reachable() は1セッション1回のキャッシュ(modShare.mState)なので、
+    ' Boot 後半の呼び出しと合わせてもプローブは1回のまま増えない。
+    ' なお、この関数は nexus_share_path が空なら既に Exit しているので、
+    ' 共有を使っていない端末がここでプローブの待ち時間を払うことは無い。
+    ' ------------------------------------------------------------------------
+    Err.Clear
+    Dim reachableNow As Boolean
+    reachableNow = modShare.Reachable()
+    If Err.Number <> 0 Then
+        Dim probeErrNum As Long: probeErrNum = Err.Number
+        Dim probeErrDesc As String: probeErrDesc = Err.Description
+        Err.Clear
+        reachableNow = False
+        modLog.LogUsage "guard_reach_probe_fail", "", _
+            "失効判定の前に共有到達性を確認できませんでした(err#" & probeErrNum & _
+            " " & probeErrDesc & ")。到達性は未確認として判定します。"
+        Err.Clear
+    End If
+    If reachableNow Then TouchReach
+
     Dim lastReach As String: lastReach = LastReachRaw()
     Dim d As Long: d = DaysSinceReach()
     Err.Clear
     Dim act As String
     act = modShareRule.ExpiryDecision(lastReach, d, limitDays, _
                                       modStats.GetStatText(WARNED_KEY), _
-                                      modStats.GetStatText(WIPED_KEY))
+                                      modStats.GetStatText(WIPED_KEY), _
+                                      reachableNow)
     ' 2026-07-31(R11-A): 判定材料(config・my_stats・判定式)の取得が失敗しても、
     ' この関数は冒頭の On Error Resume Next で黙って先へ進む。act は空のまま
     ' になり、下のホワイトリスト(act<>"wipe" なら何もしない)で消去は
