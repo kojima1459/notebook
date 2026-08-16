@@ -8,26 +8,19 @@ Option Explicit
 '   modTestRunner.RunAllPureTests から直接呼ばれる RunAll34 の1本が入口
 '   (modTestsPure31 / 32 / 33 と同型の別枝)。
 ' ----------------------------------------------------------------------------
-' 【このモジュールが何を守るのか】
-'   W3-9: opt機能が返す "#ERR:…" の理由を、UIが握り潰さないこと。
-'     modLog.FeatureErrMessage が「本当に機能が無効なとき」だけ固定文言を出し、
-'     それ以外は理由(またはエラーコードに対応する案内)を返す。
-'   W3-11: 暗号化された Office 文書を、開く前に先頭バイトで見分けること。
-'     modShelfScan.EncryptedByHeader が「暗号化」「非暗号化」「判別不能」を
-'     取り違えないこと。とくに .xls/.doc/PDF を暗号化と断じないこと。
-'   W4-1: config の真偽値が、読めないときに既定値へ落ちること。
-'     modConfig.ParseBoolText が「真トークン/偽トークン/解釈不能」を
-'     取り違えないこと。全角で書かれた TRUE/FALSE も取りこぼさないこと。
-'   W4-6: 届かない共有へ OS のタイムアウトを2回払わないこと。
-'     modShareRule.ShouldRetryProbe が「即座に失敗した(構文起因)」と
-'     「時間をかけて失敗した(到達性)」を取り違えないこと。
-'   W5-2: 背景画像の敷設に失敗したとき、メモの後始末が抜けないこと。
-'     modBackdrop.MemoDrop が該当シートの1件だけを落とすこと(他シートを
-'     巻き込まない・前方一致の別名を巻き込まない)。
-'   W5-1: 条件付き書式を【使用済みの行に絶対に被せない】こと。
-'     modBackdrop.CfStartRow / CfRowsAddr / CfFormula の算数と目印。
-'     ※ FormatConditions が実際に通るか・UsedRange が伸びないかは LO では
-'       検証できない(tools/README §4)。恒真アサートで代替しない。
+' 【このモジュールが何を守るのか】(詳細は各テストの直上コメント)
+'   W3-9  modLog.FeatureErrMessage: 「機能が無効なとき」だけ固定文言を出し、
+'         理由付きの #ERR は理由(またはコードの案内)をそのまま届けること。
+'   W3-11 modShelfScan.EncryptedByHeader: 暗号化/非暗号化/判別不能を取り違えず、
+'         .xls/.doc/PDF を暗号化と断じないこと。
+'   W4-1  modConfig.ParseBoolText: 真/偽/解釈不能(=既定値)の3分岐。全角も。
+'   W4-6  modShareRule.ShouldRetryProbe: 届かない共有へタイムアウトを2回払わない。
+'   W5-2  modBackdrop.MemoDrop: 該当シートの1件だけ落とす(前方一致で巻き込まない)。
+'   W5-1  modBackdrop.CfStartRow / CfRowsAddr / CfFormula: 条件付き書式を使用済みの
+'         行に被せない算数。※実際にFormatConditionsが通るかはLOでは検証不能
+'         (tools/README §4)。恒真アサートで代替しない。
+'   W6-1  modShare.BoardHead* / BoardReadRows / BoardOrgBlock: 組織集計の
+'         集約スナップショットの書式・鮮度・打ち切り(TestBoardSnap34)。
 ' ============================================================================
 
 ' ----------------------------------------------------------------------------
@@ -578,6 +571,29 @@ Private Sub ChkTrue34(ByVal label As String, ByVal cond As Boolean, ByVal detail
     modTestRunner.Check "R33-" & label, cond, detail
 End Sub
 
+' W6-1(冒頭の一覧参照): 壊れた/古い集計を数字にしない・日付キーが変われば今日の
+'   値として使わない・概算が読む側へ伝わる。全件走査へ戻さない経路自体は共有I/O。
+Private Sub TestBoardSnap34()
+    Dim h As String, b As String, g As String, td As Object
+    h = modShare.BoardHeadText("2026-08-16 09:00:00", "20260816", 120, _
+        "202608", 900, "2026", 5000, 42, True)
+    b = h & vbLf & "D" & vbTab & "営業部" & vbTab & "300" & vbLf & "T" & vbTab & "u1" & vbTab & "7"
+    g = modShare.BoardOrgBlock("ok", "9分", "8分", "7分", "", "s", 42, True, 500, 24)
+    ChkTrue34 "W6-1 新しければok", modShare.BoardHeadStatus(h, "2026-08-15 09:00:00") = "ok", h
+    ChkTrue34 "W6-1 古ければstale", modShare.BoardHeadStatus(h, "2026-08-16 09:00:01") = "stale", h
+    ChkTrue34 "W6-1 印違い/列不足はbroken", modShare.BoardHeadStatus("zz" & Mid$(h, 9), "") = "broken" _
+        And modShare.BoardHeadStatus(modShare.BOARD_HEAD_TAG & vbTab & "2026-08-16", "") = "broken", ""
+    ChkTrue34 "W6-1 ヘッダの値", modShare.BoardHeadMin(h, "d", "20260816") = 120 And _
+        modShare.BoardHeadMin(h, "m", "202608") = 900 And modShare.BoardHeadMin(h, "y", "2026") = 5000 _
+        And modShare.BoardHeadField(h, 8) = "42" And modShare.BoardHeadField(h, 9) = "1", h
+    ChkTrue34 "W6-1 日が変われば今日は0", modShare.BoardHeadMin(h, "d", "20260817") = 0, h
+    ChkTrue34 "W6-1 自部署の行だけ", modShare.BoardReadRows(b, "営業部", td) = 300 And _
+        modShare.BoardReadRows(b, "総務部", td) = 0, b
+    ChkTrue34 "W6-1 集計無しは数字を出さず/okは出どころ付き", InStr(g, "9分") > 0 And _
+        InStr(g, "42名ぶん") > 0 And InStr(g, "概算") > 0 And _
+        InStr(modShare.BoardOrgBlock("none", "9分", "", "", "", "", 0, False, 500, 24), "9分") = 0, g
+End Sub
+
 Public Sub RunAll34()
     On Error GoTo H01Fail34
     TestFeatureErrMessage34
@@ -614,6 +630,9 @@ H11Next34:
 H12Next34:
     On Error GoTo H12Fail34
     TestAnsweredMode34
+H13Next34:
+    On Error GoTo H13Fail34
+    TestBoardSnap34
 H01Done34:
     On Error GoTo 0
     Exit Sub
@@ -664,6 +683,10 @@ H11Fail34:
     Resume H12Next34
 H12Fail34:
     modTestRunner.Check "TestAnsweredMode34(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H13Next34
+H13Fail34:
+    modTestRunner.Check "TestBoardSnap34(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done34
 End Sub
