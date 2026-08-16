@@ -375,6 +375,40 @@ Private Sub DoRollback(ByVal chName As String)
         GoTo RollbackDone
     End If
 
+    ' ------------------------------------------------------------------------
+    ' 2026-08-16(R33 W2-4・データ破壊): 巻き戻しを2回続けて押すと、1回目が
+    ' 取り下げた【誤った版】が復活し、しかも「戻しました」としか出ない。
+    '
+    ' 機構: modPublish.Rollback は巻き戻す【前】に今の版を _archive へ退避する
+    ' (巻き戻し自体を取り消せるように)。退避名は pack_<時刻>.xlsx で、
+    ' ArchiveList は名前の降順=時刻の降順に並べる。つまり1回目の巻き戻しが
+    ' 作った退避(=いま消したい誤った版)が、次の瞬間から「最新の退避」になる。
+    ' ここが無条件に parts(0) を選ぶため、2回目は必然的に誤った版を復元し、
+    ' version.txt も必ず新しい値で書かれるので購読者全員が取り込み直す。
+    ' 画面は時刻だけのファイル名を見せるので、発行担当は中身を判別できない。
+    ' modPublish 冒頭が「承認は入れず、代わりに誰でも即座に巻き戻せることに
+    ' 全振りしている」と宣言している、その安全装置が反転する経路。
+    '
+    ' 直し方(spec W2-4 の「2回目を抑止する」を採る): 直前の操作が巻き戻し
+    ' だったら、ここで止める。判定材料は共有フォルダの publish_log.txt なので、
+    ' ファイルを開き直しても、別の担当者の端末から押されても効く
+    ' (セッション内の変数で覚える方式だと、そのどちらも抜ける)。
+    ' 巻き戻しの後に正しい版を発行し直せば履歴の先頭は「発行」に戻るので、
+    ' 次の事故のときの巻き戻しは従来どおり1回目として通る。
+    ' ------------------------------------------------------------------------
+    If LastOpWasRollback(chName) Then
+        MsgBox "【" & chName & "】は直前に巻き戻しを実行済みです。" & vbCrLf & vbCrLf & _
+               "いま一番新しい控えは、その巻き戻しで【取り下げた版】です。" & vbCrLf & _
+               "ここでもう一度戻すと、取り下げたはずの版が全員へ" & vbCrLf & _
+               "配信し直されてしまうため、この操作は行いません。" & vbCrLf & vbCrLf & _
+               "・戻した内容で問題なければ、このまま何もしないでください" & vbCrLf & _
+               "・さらに前の版に戻したい場合は、正しい資料で発行し直すか、" & vbCrLf & _
+               "  共有フォルダの _archive フォルダから管理担当者に" & vbCrLf & _
+               "  選んでもらってください", _
+               vbExclamation, modAppDef.APP_NAME
+        GoTo RollbackDone
+    End If
+
     Dim parts() As String: parts = Split(list_, "|")
     Dim newest As String: newest = parts(0)
 
@@ -408,6 +442,31 @@ Private Sub DoRollback(ByVal chName As String)
 RollbackDone:
     modUiLock.Leave
 End Sub
+
+' 直前の操作が巻き戻しだったか(発行履歴 publish_log.txt の最新1行で判定)。
+'   行の形は「<日時>タブ<発行者>タブ<操作>タブ…」。操作欄が "巻き戻し" の
+'   ときだけ True。RecentLog は新しい順に返すので、最初の非空行が最新。
+'   履歴が読めない/空のときは False ―― 判らないことを理由に、事故を止める
+'   最終手段(巻き戻し)そのものを塞いでしまう方が害が大きい(R33 W2-4)。
+Private Function LastOpWasRollback(ByVal chName As String) As Boolean
+    On Error Resume Next
+    Dim log_ As String: log_ = modPublish.RecentLog(chName)
+    If LenB(log_) = 0 Then Exit Function
+
+    Dim lines_() As String: lines_ = Split(Replace(log_, vbCrLf, vbLf), vbLf)
+    Dim i As Long
+    Dim fields_() As String
+    For i = LBound(lines_) To UBound(lines_)
+        If LenB(Trim$(lines_(i))) > 0 Then
+            fields_ = Split(lines_(i), vbTab)
+            If UBound(fields_) >= 2 Then
+                LastOpWasRollback = (Trim$(fields_(2)) = "巻き戻し")
+            End If
+            Exit Function
+        End If
+    Next i
+    On Error GoTo 0
+End Function
 
 ' 部門名に含まれる、Windowsのフォルダ名として使えない最初の文字を返す。
 ' 無ければ空文字(レビュー L-13)。
