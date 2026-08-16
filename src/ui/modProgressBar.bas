@@ -89,7 +89,12 @@ Private Function TextWidthPt(ByVal s As String) As Double
     For i = 1 To Len(s)
         c = AscW(Mid$(s, i, 1))
         If c < 0 Then c = c + 65536
-        If c < &H100 Or (c >= &HFF61 And c <= &HFF9F) Then
+        ' R33 W5-15: 16進リテラルは既定で Integer なので、&H8000 以上は【負値】に
+        ' なる(&HFF61=-159 / &HFF9F=-97)。& サフィックスが無かったため
+        ' 「c >= -159」は恒真・「c <= -97」は恒偽で、AND 全体が恒偽の死に枝だった。
+        ' 半角カナ(U+FF61〜FF9F)は上の 84-85 行が宣言する 5.5pt 契約に反して
+        ' 全角扱い(10.5pt)で数えられ、幅が過大に出ていた。作法は &HD800& と同じ。
+        If c < &H100& Or (c >= &HFF61& And c <= &HFF9F&) Then
             w = w + 5.5
         Else
             w = w + 10.5
