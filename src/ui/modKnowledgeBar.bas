@@ -303,15 +303,16 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
                 "この本棚を部門の正式な資料として発行します"
     End If
 
-    ' R33 W5-25: 📊利用状況は「発行者=運営」ではなく組織管理者(config
-    ' admin_users に自分のADユーザー名が載っている端末)にだけ出す。
-    ' この画面は匿名を約束して集めた投書の全文を表示するので、発行の
-    ' 合言葉(publish_key)とは別の権限で守る。判定は modDash の管理者
-    ' セクションと同じ modP2P.IsAdmin。admin_users が空の既定構成では
-    ' 誰にも出ない(=誰も読めない)のが正しい状態。
+    ' R33 W5-25/W5-27: 📊利用状況は「発行者=運営」ではなく組織管理者(config
+    ' admin_users)側の権限で守る。この画面は匿名を約束して集めた投書の全文を
+    ' 表示するので、発行の合言葉(publish_key)とは別の関門にする。
+    ' ただし admin_users の既定は空で、そのままでは誰にも出ない(=発行者も
+    ' 運営状況を見られない)。W5-27 の裁定により【未設定のときに限り】発行者へ
+    ' 開放する。名簿が設定されていれば名簿だけを見る(設定した人の意図を
+    ' publish_key で上書きしない)。真理表は modShareRule.CanViewUsage。
     Dim isAdm As Boolean
     On Error Resume Next
-    isAdm = modP2P.IsAdmin()
+    isAdm = modP2P.CanViewUsageReport()
     On Error GoTo 0
     If isAdm Then
         AddTool caps, acts, kinds, tips, widths, n, _

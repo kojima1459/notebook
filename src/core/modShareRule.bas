@@ -561,3 +561,28 @@ Public Function PurgeMenuPick(ByVal countsText As String, _
     If choice > n Then Exit Function
     PurgeMenuPick = items(LBound(items) + choice - 1)
 End Function
+
+' ----------------------------------------------------------------------------
+' R33 W5-27: 📊利用状況(匿名の投書の全文を含む運営画面)を開けるかの判定。
+'   W5-25 で関門を publish_key から admin_users へ寄せたが、admin_users の
+'   既定は空なので、そのままでは【発行者本人を含め誰にも見えない】。
+'   ユーザー裁定は「admin_users が未設定のときに限り発行者には見せる」。
+'
+'   adminListSet=True(誰かが admin_users を設定した) … その名簿だけを見る。
+'     設定した人の意図を publish_key の有無で上書きしない。発行者であっても
+'     名簿に載っていなければ開けない。
+'   adminListSet=False(未設定) … 名簿による制限が存在しないので、運営に
+'     いちばん近い発行者(canPublish)に開放する。
+'
+'   ここを純関数にしてあるのは、真理表を modTestsPure35 で固定するため。
+'   「常にフォールバックする」実装も「フォールバックしない」実装も落ちる。
+' ----------------------------------------------------------------------------
+Public Function CanViewUsage(ByVal adminListSet As Boolean, _
+                             ByVal isAdmin As Boolean, _
+                             ByVal canPublish As Boolean) As Boolean
+    If adminListSet Then
+        CanViewUsage = isAdmin
+        Exit Function
+    End If
+    CanViewUsage = (isAdmin Or canPublish)
+End Function

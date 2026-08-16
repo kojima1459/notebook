@@ -732,12 +732,13 @@ Public Sub OnOwnerReport()
     If Not modUiLock.Enter() Then Exit Sub
     On Error GoTo Done
 
-    ' R33 W5-25: 閲覧の関門を publish_key から admin_users(modP2P.IsAdmin)へ
-    ' 寄せた。発行(publish_key=正典を書ける人)と閲覧(admin_users=組織管理者)は
-    ' 別の権限で、ここは【匿名を約束して集めた投書の全文】を出す画面。
-    ' 合言葉を知っている人なら誰でも読める状態にしておくべきではない。
-    ' 判定はダッシュボードの管理者セクション(modDash.DrawAdminSection)と同じ。
-    If Not modP2P.IsAdmin() Then
+    ' R33 W5-25/W5-27: 閲覧の関門を publish_key から admin_users 側へ寄せた。
+    ' ここは【匿名を約束して集めた投書の全文】を出す画面なので、合言葉を
+    ' 知っている人なら誰でも読める状態にしておくべきではない。ただし
+    ' admin_users が未設定の組織では誰も開けなくなるため、そのときに限り
+    ' 発行者へ開放する(W5-27)。判定の実体は modP2P.CanViewUsageReport →
+    ' modShareRule.CanViewUsage(真理表を modTestsPure35 で固定)。
+    If Not modP2P.CanViewUsageReport() Then
         MsgBox "この画面は組織管理者だけが開けます。" & vbCrLf & vbCrLf & _
                "必要なときは管理担当にご相談ください。", _
                vbInformation, modAppDef.APP_NAME & " - 利用状況"

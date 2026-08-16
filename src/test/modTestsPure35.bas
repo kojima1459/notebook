@@ -122,6 +122,39 @@ Private Sub TestPurgeMenuText35()
     ChkStr35 "W5-23_一覧が空なら見出しも空", modShareRule.PurgeMenuText("", 20), ""
 End Sub
 
+' ---- W5-27: 📊利用状況を開けるかの真理表 ----------------------------------
+'   admin_users を設定した組織では名簿だけを見る。未設定のときに限り
+'   発行者(publish_key あり)へ開放する。
+'   discriminate(両方向を対で置く):
+'   ・フォールバックを常時有効(= isAdmin Or canPublish を無条件)に壊すと、
+'     「名簿あり×名簿外×発行者」が True になって落ちる。
+'   ・フォールバックを削る(= 常に isAdmin だけ)と、
+'     「名簿なし×発行者」が False になって落ちる。
+Private Sub TestCanViewUsage35()
+    ' (1) admin_users 設定あり … 名簿だけを見る(発行者フラグで上書きしない)
+    ChkBool35 "W5-27_名簿あり×名簿に載っている → 開ける", _
+        modShareRule.CanViewUsage(True, True, False), True
+    ChkBool35 "W5-27_名簿あり×名簿に載っている×発行者でもある → 開ける", _
+        modShareRule.CanViewUsage(True, True, True), True
+    ChkBool35 "W5-27_名簿あり×名簿外×発行者 → 開けない(意図を上書きしない)", _
+        modShareRule.CanViewUsage(True, False, True), False
+    ChkBool35 "W5-27_名簿あり×名簿外×一般 → 開けない", _
+        modShareRule.CanViewUsage(True, False, False), False
+
+    ' (2) admin_users 未設定 … 名簿による制限が存在しないので発行者へ開放
+    ChkBool35 "W5-27_名簿なし×発行者 → 開ける(フォールバック)", _
+        modShareRule.CanViewUsage(False, False, True), True
+    ChkBool35 "W5-27_名簿なし×一般 → 開けない", _
+        modShareRule.CanViewUsage(False, False, False), False
+    ChkBool35 "W5-27_名簿なし×発行者でない管理者判定 → 開ける", _
+        modShareRule.CanViewUsage(False, True, False), True
+End Sub
+
+Private Sub ChkBool35(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
+    modTestRunner.Check "R33-" & label, (got = want), _
+        "実際=" & got & " 期待=" & want
+End Sub
+
 Private Sub ChkStr35(ByVal label As String, ByVal got As String, ByVal want As String)
     modTestRunner.Check "R33-" & label, (StrComp(got, want, vbBinaryCompare) = 0), _
         "実際=[" & got & "] 期待=[" & want & "]"
@@ -136,6 +169,9 @@ H02Next35:
 H03Next35:
     On Error GoTo H03Fail35
     TestPurgeMenuText35
+H04Next35:
+    On Error GoTo H04Fail35
+    TestCanViewUsage35
 H01Done35:
     On Error GoTo 0
     Exit Sub
@@ -150,6 +186,10 @@ H02Fail35:
     Resume H03Next35
 H03Fail35:
     modTestRunner.Check "TestPurgeMenuText35(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H04Next35
+H04Fail35:
+    modTestRunner.Check "TestCanViewUsage35(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done35
 End Sub

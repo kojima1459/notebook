@@ -589,6 +589,27 @@ Public Function IsAdmin() As Boolean
     IsAdmin = IsAdminId(CurrentUserId())
 End Function
 
+' HasAdminList - config "admin_users" に1人でも名前が入っているか(R33 W5-27)。
+' 「名簿が空」と「名簿に自分が居ない」は意味が違う。前者は制限が存在しない
+' 状態で、後者は誰かが明示的に絞り込んだ状態。混同すると、管理者を設定した
+' 組織でも発行者が運営画面を開けてしまう。
+Public Function HasAdminList() As Boolean
+    On Error Resume Next
+    HasAdminList = (LenB(Trim$(modConfig.GetString("admin_users", ""))) > 0)
+    On Error GoTo 0
+End Function
+
+' CanViewUsageReport - 📊利用状況を開けるか(R33 W5-27)。
+' 判定の算数は modShareRule.CanViewUsage(純関数・真理表をテストで固定)が
+' 唯一の情報源で、ここは config と端末の状態を集めて渡すだけ。
+' 呼び出し側(ツールバーの描画/ハンドラの入口)で同じ式を二度書かない。
+Public Function CanViewUsageReport() As Boolean
+    On Error Resume Next
+    CanViewUsageReport = modShareRule.CanViewUsage(HasAdminList(), IsAdmin(), _
+                                                   modPublish.CanPublish())
+    On Error GoTo 0
+End Function
+
 Private Function IsAdminId(ByVal candidate As String) As Boolean
     On Error GoTo Done
     Dim list As String: list = modConfig.GetString("admin_users", "")
