@@ -4,6 +4,21 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
+## 0. R33H 容量実測(2026-08-16 R33H Fix波3・F26。python の `len` 基準)
+
+**R33 の容量裁定表から最逼迫3本が漏れていた件(F26)の是正。以後はこの節が最新。**
+`wc -m` は当環境のロケールでバイト数を返す(日本語で約3倍)ので**必ず python の `len` で測る**。
+上限30,000字／WARN28,000字／**残り300字未満は分割裁定必須**。
+
+- **実質凍結(残100字未満・1行も入らない)**: `modSkin`27 / `modApp`36 / **`modBoard`36** / `modUINexusDraw`37 / `modChunker`72 / **`modHubStat`77** / `modUIShelf`85
+- **逼迫(残300字未満=分割裁定必須)**: `modViewport`118 / `modGateway`125 / `modUIMain`150 / **`modBackdrop`155** / `modUI`167 / `modClarify`233 / `modVaultGallery`286
+- **準逼迫(残1,000字未満)**: `modTestsPure24`347 / `modChrome`**350** / `modTestsPure25`365 / `modExtractor`377 / `modTestsPure18`402 / **`modHub`449** / `modTestsPure2`451 / `modChannel`509 / **`modShare`509** / `modShelfStore`576 / **`modUtilText`584** / `modViewport2`688 / `modTestsPure34`705 / `modKnowledge`708 / `modSparse`953 / `modTestsPure33`997
+- **その他の要注意**: `modShareRule`1,238 / `modAskRetrieve`1,343
+- **受け皿(残り多い順)**: `modTypes`28,831 / `modAppDef`27,268 / `modState`26,645 / `optTts`25,907 / `modChatLog`25,621 / `modClip`25,603 / `modSetupWizard`24,999 / `modFeatures`24,307 / `modExtractorAcrobat`24,291 / `modUIMainShape`22,799 / `modGatewayDirect`22,314 / `modConfig`21,980 / `modInstallCheck`20,946 / `modProgressBar`17,542 / `modTelemetry`17,381 / `modInsightGate`14,668 / `modExtractorExcel`14,347 / `modStarter`13,389 / `modPublishUI`10,536 / `modGuard`9,342 / `modDiag`8,097 / `modDash`5,879 / `modShared`3,448
+
+**注意: `modChrome` はもう受け皿ではない**(残350字)。R32 の HANDOFF/CLAUDE.md にあった「実体は modChrome(open契約)へ」という記述は**失効**しているので、そのつもりで割り当てないこと。
+**R33H Fix波3 で減った主なもの**: `modBoard` 104→36(F30の称号キー) / `modShare` 684→509(F22) / `modUtilText` 2,964→584(F31+F22) / `modShareRule` 1,238(不変) / `modHubStat` 72→77(F32でむしろ回復)。
+
 ## 1. 現在地
 
 **R32完了(実機第17報8件=調査4班→4波→敵対的レビュー1周目(B1+M5+m12)→Fix波15件→Fix検証パス2周目(MAJOR3+MINOR5)→マイクロ修正7件 全消化)。R32版配布済み+発行者用xlsm個別送付済み・実機第18報待ち。**
@@ -16,7 +31,7 @@ R32の骨子:
 - **波4 余白+確定バグ(Opus)**: 着せ替え入口の一本化(`modHelp.OnCycleSkin`が3画面を塗り直さない=「ライトに戻しても黒いまま」の直接原因)/本棚一覧表の古い地色/Hubバッジ帯の下2行が毎描画削除(R31 W2-2の副作用)/無言failのログ化+法則訂正/背景画像方式。
 - **レビュー2周+マイクロ修正**: 1周目BLOCKER1(nonce冪等化が保持期間の非対称60日<67日で空振り)+MAJOR5(匿名化がファイル名とuser_idに実名残存/900字クランプでも1046字>MsgBox上限/PII走査がISOタイムスタンプで必ず誤検知し無言停止/「届きます」と出るのに3経路で無言ドロップ/波2の新設テスト3件が恒真)→Fix波F1-F15。2周目がMAJOR3(**日付除外が市外局番4桁の固定電話`0463-12-3456`を丸ごと消し本物のPIIが素通り**=F4の退行/走査対象をClean1に寄せたため改行が空白化し新たな偽陽性/SweepOldBmpが%TEMP%全列挙)+MINOR5→マイクロ修正F16-F22。
 R32 記録のみ(次期): **F1の穴は消えたのでなく1周ぶん遠のいた**(行の期限=発信者のcreated_at基準、既読印=自端末の収集時刻基準で延命→既定約day134に再来。`thanks_gc_days<=0`ならday15。根治は(a)保持期間より古いcreated_atを最初から拾わない(新任者が古い投稿を受け取れない副作用)(b)既読印の無期限化(my_stats肥大)のタクシー提示が要る)/F5のトーストとmodAskのMsgBoxが同時表示(modAsk凍結のため限界)/狭窓クランプ時にフッターを描かない=**社内ポータルへの唯一の導線が消える**(窓を広げれば復帰)/Python側config検査はVBA側の既定値リテラルまで見張れない/modBackdropの再試行カウンタはモジュール全体で成功リセット無し(実効1〜3回・安全側)/**匿名IDは同一人物→常に同一ハッシュ=名寄せ可能**(誰かは分からないが投稿群は束ねられる。仕様として許容)/gap手動「解決済み」UIと自己投稿の確認・取消UI/MAX_COLLECT=60/非BMP絵文字の豆腐化/`modUIMain.bas:116-117`の`A1:I40` Font焼き付け/管理者⑧と⑨の軽微な重複/`build_mybookshelf.py:721-722`の古い相互参照コメント。
-**容量逼迫(R32後実測)**: **modSkin残27・modUIShelf残84・modHubStat残103・modHub残159=1行も入らない**/modChrome残350/modViewport残534/modKnowledge残708/modInsightIo残2,983。受け皿: **modInsightGate残14,990(新設)/modBackdrop残10,377(新設)/modShared残11,147/modDash残7,255**。次にこの逼迫帯を触る波は分割裁定必須。
+**容量逼迫(R32後実測。R33H Fix波3で全モジュール再実測したので下記は失効。最新は本ファイル冒頭の「R33H 容量実測」節と CLAUDE.md「凍結・容量」を見ること)**: modSkin残27・modUIShelf残84・modHubStat残103・modHub残159/modChrome残350/modViewport残534/modKnowledge残708/modInsightIo残2,983。受け皿: modInsightGate残14,990(新設)/modBackdrop残10,377(新設)/modShared残11,147/modDash残7,255。
 **実機第18報の観点**: ①**背景画像(最重要・未検証)**: ダークにしてホームで下まで思い切りスクロール→**転がった先まで全部濃紺なら成功**、途中から真っ白な帯が出たら不発。Dashboard・マイ本棚も同様(チャットは対象外で白くて正常)。不発なら📥ログに`backdrop_failed`(stage/err番号)が出るので送付。②きせかえ: ダーク→ライトで**3画面とも地色が戻るか**(以前は黒いまま)。本棚はギャラリー→一覧表に切り替えてからきせかえ→見出し行のグレーは残るか。③バッジ名が途中で切れていないか。④正典発行: **発行者用ファイル**で「📤正典を発行」が出るか・部門名/合言葉→発行できるか。⑤管理者ページ: 使い方末尾リンク→②発行者になるには・⑥ファイルの置き場所・⑧FAQが読めるか。⑥困りごと: **2台以上**でA端末が0件ヒット質問→B端末を再起動→板に出るか(1台では原理的に検証不能)。⑦パック出力/発行が個人情報で止まらなくなったか。⑧`normal_style_bg_failed`(err=1004)が📥ログに1行出るのは**想定どおり**。⑨**余白の敷き詰め(R33H F24でDoD8から移送)**: 🩺診断の**[余白の敷き詰め(条件付き書式)]**の2行を読む。`backdrop_cf`に記録あり＋`backdrop_cf_failed`が「記録なし」なら条件付き書式が効いている。`backdrop_cf_failed`に`stage=usedrange_grew`が出ていたら、この端末では条件付き書式が使えず(自己検算が自動で巻き戻した)背景画像側が塗っている ―― **どちらでも正常**。両方とも記録なし＋`backdrop_failed`もあるなら余白は塗られていないので、その画面のスクショと📥ログを送付。
 ---
 **R31完了(実機第16報6件=調査3班→3波→敵対的レビュー1周目(M5+m6)→Fix波9件→Fix検証パス2周目(F2の縫い目2件検出)→マイクロ修正5件 全消化)。R31版配布済み・実機第17報待ち。**

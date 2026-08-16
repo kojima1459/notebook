@@ -73,8 +73,13 @@ Excel 32bit VBA 自己インストーラ型の社内ナレッジRAGアプリ。�
 ## 凍結・容量
 
 - 凍結（絶対不触）: modAsk / modBoot / modShelf / modRetrieve / modPrompts
-- 実質凍結（残数十字）: modChunker / modShelfStore。逼迫中: modHub / modKnowledge / modAskRetrieve（最新実測はHANDOFF）。触る前に必ず実測し、入らなければ実体を余裕モジュール（modChrome=open契約等）へ置いて1行呼び出し。
-- `tools/run_lo_tests.py` は絶対に並列実行しない。
+- **容量は必ず python の `len` で実測する**（`wc -m` は当環境のロケールではバイト数を返し、日本語で約3倍になる）。上限30,000字／WARN28,000字。**残り300字未満は分割裁定必須**＝実体を余裕モジュールへ置き、当該モジュールからは1行呼び出しに留める。
+- **実質凍結（残100字未満・2026-08-16 R33H Fix波3 実測）**: `modSkin`27 / `modApp`36 / **`modBoard`36** / `modUINexusDraw`37 / `modChunker`72 / **`modHubStat`77** / `modUIShelf`85。**1行も入らない**。
+- **逼迫（残300字未満＝分割裁定必須）**: `modViewport`118 / `modGateway`125 / `modUIMain`150 / **`modBackdrop`155** / `modUI`167 / `modClarify`233 / `modVaultGallery`286。
+- **準逼迫（残1,000字未満・次に触るときは要注意）**: `modChrome`350 / `modExtractor`377 / **`modHub`449** / `modChannel`509 / **`modShare`509** / `modShelfStore`576 / **`modUtilText`584** / `modViewport2`688 / `modKnowledge`708 / `modSparse`953 / **`modShareRule`1,238** / `modAskRetrieve`1,343。テスト側は `modTestsPure24`347 / `modTestsPure25`365 / `modTestsPure18`402 / `modTestsPure2`451 / `modTestsPure34`705。
+- **受け皿（実測残り）**: `modTypes`28,831 / `modAppDef`27,268 / `modState`26,645 / `modChatLog`25,621 / `modClip`25,603 / `modFeatures`24,307 / `modGatewayDirect`22,314 / `modConfig`21,980 / `modInstallCheck`20,946 / `modProgressBar`17,542 / `modTelemetry`17,381 / `modInsightGate`14,668 / `modExtractorExcel`14,347 / `modStarter`13,389 / `modPublishUI`10,536 / `modGuard`9,342 / `modDiag`8,097 / `modDash`5,879 / `modShared`3,448。
+  **`modChrome` はもう受け皿ではない**（残350字。R32時点の「modChrome＝open契約の置き場」という記述は失効している）。
+- `tools/run_lo_tests.py` は絶対に並列実行しない。**モード1は FAIL 0 だけでなく SKIP の上限と PASS の下限も照合する**（`EXPECTED_SKIP_MAX` / `EXPECTED_PASS_MIN`）。テストを消して静かにすることも、`[SKIP]` を貼って集計から消すこともできない。
 
 ## 上流原則
 
