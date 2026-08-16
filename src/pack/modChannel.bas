@@ -157,14 +157,23 @@ Public Sub Subscribe(ByVal chName As String)
     On Error GoTo 0
 End Sub
 
-' 購読をやめる(除外リストへ追加)。
-Public Sub Unsubscribe(ByVal chName As String)
+' 購読をやめる(除外リストへ追加)。戻り値=以後この部門が届かない状態か。
+' 2026-08-16(R33H F3): Sub のままだと modConfig.SetValue の失敗(読み取り専用・
+' シート保護)が呼び出し元へ伝わらず、無条件に「今後届きません」と断言して
+' usage_log にも unsubscribed=yes を残していた。書いたあとに IsSubscribed を
+' 読み直して検算した結果を返す(W3-8 KillGsTree と同型の手術)。
+Public Function Unsubscribe(ByVal chName As String) As Boolean
     On Error Resume Next
-    If Not IsSubscribed(chName) Then Exit Sub
+    If LenB(Trim$(chName)) = 0 Then Exit Function
+    If Not IsSubscribed(chName) Then
+        Unsubscribe = True          ' 既に届かない=求められた状態には既にある
+        Exit Function
+    End If
     modConfig.SetValue "unsubscribed_channels", modShareRule.UnsubListAdd( _
         modConfig.GetString("unsubscribed_channels", ""), chName)
+    Unsubscribe = Not IsSubscribed(chName)
     On Error GoTo 0
-End Sub
+End Function
 
 ' チャンネルの現在の版(共有フォルダ側)。"版番号|発行日|発行者" 形式。
 Public Function RemoteVersion(ByVal chName As String) As String

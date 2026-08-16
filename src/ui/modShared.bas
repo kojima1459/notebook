@@ -685,9 +685,16 @@ Public Sub OnPurgeChannel()
               "     (この画面からは戻せません)。", _
               vbYesNo + vbQuestion + vbDefaultButton2, title) = vbYes)
 
+    ' R33H F3: 書けたことを検算してから言う。読み取り専用・シート保護で黙って
+    ' 失敗しても「今後届きません」と断言し、usage_log にも unsubscribed=yes を
+    ' 残していた(次に部門チャンネルを押すとまた入ってくる)。
     If stopSub Then
-        modChannel.Unsubscribe chName
-        modSkin.ShowToast "今後「" & chName & "」の資料は届きません。", "info"
+        If modChannel.Unsubscribe(chName) Then
+            modSkin.ShowToast "今後「" & chName & "」の資料は届きません。", "info"
+        Else
+            stopSub = False        ' 記録も事実に合わせる
+            modSkin.ShowToast "設定を書き込めませんでした。管理担当にご連絡ください。", "error"
+        End If
     End If
 
     modLog.LogUsage "channel_purge_ui", "knowledge", _
