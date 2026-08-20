@@ -13,14 +13,30 @@ Option Explicit
 '       quick/deep の幻覚出典が素通りする。
 '     ・modMode.CiteTagFrom … 突合表に積むタグの書式。**modPrompts.SourceTag
 '       と一字一句同じ**でなければ、正しい出典まで全件「確認できず」になる
-'       (最も危険な壊れ方=正しい回答が全部疑わしく見える)。本棚形・パック形の
-'       両方を、SourceTag の実際の戻り値と直接比較して固定する。
+'       (最も危険な壊れ方=正しい回答が全部疑わしく見える)。書式そのものは
+'       リテラルで、SourceTag との同形性は実際の戻り値との直接比較で固定する
+'       (後者は Hit 型を通るため LO では SKIP。下の「LO の死角」を参照)。
 '     ・modMode.CiteIndexAdd … 突合表の積み方(正規化・重複排除)。
 '     ・上の3本を組んで modAskThorough.AnnotateCitations へ通したときの
 '       ふるまい(実在タグ→無加工 / 幻覚タグ→注記 / ヒット0件→無加工)。
 '   B3 前後チャンク結合のゲート:
 '     ・modMode.UseNeighborExpand … deep だけ True。thorough で True を返すと
 '       modAskThorough/modAskMulti の自前呼び出しと合わせて二重結合になる。
+'
+' 【LO の死角 = SKIP になる2群(2026-08-20 R34波2 Fix・実測)】
+'   LibreOffice は別モジュールで定義した Public Type(ここでは Hit)を関数の
+'   引数として受け渡せない。初版はこれを踏まず、
+'     TestCiteTagFormat38 → Err=91(Object variable not set)
+'     TestRerankExcerpt38 → Err=420(Invalid object reference)
+'   で【群まるごと】NG になった。既存の同型前例(modTestsPure2「modPrompts
+'   (Hit配列を使う3関数)」/ modTestsPure8「BuildRerankPrompt<->ParseRankOrder
+'   往復」/ modTestsPure12「出典突合表(Hit配列)」)と同じ作法で、Hit に触る
+'   アサートだけを CanUseTypeArrays38 のガードへ分離した。
+'   ・書式そのもの(CiteTagFrom のリテラル4本)は Hit を使わないので LO でも走る。
+'     SourceTag との突合だけが SKIP になる ―― 守れる範囲を減らしていない。
+'   ・B2 の抜粋700字は Hit 抜きで観測する手段が無いため群ごと SKIP。恒真
+'     アサートで見た目のPASS数を水増ししない。
+'   Excel 実機ではどちらも走る(§11.3 の受入チェックで必ず確認すること)。
 '
 ' 【守れないもの(正直に書く。恒真アサートで埋めない)】
 '   ・modMode.AnnotateIfNeeded 本体。modAsk のモジュール状態(直近ヒット)を
@@ -34,7 +50,8 @@ Option Explicit
 '     (使うのは同居する TrimPairs と modUtil/modState のみ)。
 '   ・B2(再ランク抜粋 300→700字)は modPrompts.BuildRerankPrompt の数値1個で、
 '     TestRerankExcerpt38 が「700字の本文が途中で切られずに載ること」と
-'     「lim を超えたら (以下省略) で打ち切られること」の両方を固定する。
+'     「lim を超えたら (以下省略) で打ち切られること」の両方を固定する
+'     (ただし LO では下記の Hit 制限により群ごと SKIP。実機でのみ走る)。
 '   ・C(max_context_chars 既定 60,000)はビルド時のconfig既定値なので、
 '     ビルド自己検証の担当(テスト対象外)。
 ' ============================================================================
@@ -60,50 +77,81 @@ Private Sub TestShouldAnnotate38()
     ChkBool38 "B1_前後の空白があっても同じ", modMode.ShouldAnnotate("  quick "), True
 End Sub
 
-' ---- B1(2): タグ書式が modPrompts.SourceTag と一字一句同じであること -------
-'   ここが本丸。CiteTagFrom を1文字でも変えると(全角コロン・p.の省略・
-'   空白の増減)、正しい出典まで citeIndex と一致しなくなり全件へ
-'   「(出典確認できず)」が付く。期待値は文字列リテラルではなく
-'   modPrompts.SourceTag の【実際の戻り値】と突き合わせる(片方だけ直しても
-'   気付けるように、両側を同時に見る)。
+' ---- B1(2): タグ書式そのもの(Hit型を使わない=LOでも必ず走る) ---------------
+'   CiteTagFrom を1文字でも変えると(全角コロン・p.の省略・空白の増減)、
+'   正しい出典まで citeIndex と一致しなくなり全件へ「(出典確認できず)」が付く。
+'   CiteTagFrom は素の3値を取る純文字列関数なので、ここは Hit 型に一切触れず
+'   リテラルで固定できる。**LO の Public Type 制限に左右されない側**。
 Private Sub TestCiteTagFormat38()
+    ChkStr38 "B1_本棚形の実物", _
+        modMode.CiteTagFrom("就業規則.pdf", 12, "shelf"), "[本棚:就業規則.pdf p.12]"
+    ChkStr38 "B1_パック形の実物(ページ番号は入らない)", _
+        modMode.CiteTagFrom("経費規程.docx", 3, "pack:山田太郎"), _
+        "[パック(山田太郎):経費規程.docx]"
+    ' origin の大小はどちらの実装も LCase で見る(PACK: でもパック形)。
+    ChkStr38 "B1_originの大文字PACK:もパック形", _
+        modMode.CiteTagFrom("手順書.xlsx", 1, "PACK:Sales"), "[パック(Sales):手順書.xlsx]"
+    ' origin が空(旧データ)なら本棚形。ここが pack 側へ倒れると
+    ' ページ番号が落ちて既存の突合まで壊れる。
+    ChkStr38 "B1_origin空は本棚形", _
+        modMode.CiteTagFrom("議事録.txt", 0, ""), "[本棚:議事録.txt p.0]"
+End Sub
+
+' ---- B1(3): 上の書式が modPrompts.SourceTag と一字一句同じであること --------
+'   ここが本丸。上の群がリテラルを固定しても、**modPrompts.SourceTag 側だけを
+'   変えられたら気付けない**(両方が同じ形であることに意味がある)ので、
+'   期待値をリテラルではなく SourceTag の【実際の戻り値】に取って両側を同時に
+'   見張る。ただし SourceTag は Hit 型を引数に取るため、LibreOffice の
+'   Public Type 制限(別モジュールで定義した Type の受け渡しが Err=91/420 に
+'   なる)にかかる。同じ理由の SKIP は modTestsPure2 / 8 / 12 に前例がある。
+Private Sub TestCiteTagVsSourceTag38()
+    If Not CanUseTypeArrays38() Then
+        modTestRunner.Check _
+            "[SKIP] 出典タグのSourceTag突合(Hit型): LO環境の既知の制限によりスキップ", True, _
+            "modPrompts.SourceTag は Hit 型を引数に取るため、別モジュール定義の " & _
+            "Public Type を渡せない環境(LibreOffice)では呼べない。書式そのものは " & _
+            "TestCiteTagFormat38 がリテラルで固定済みで、両者が同形であることは " & _
+            "コードレビューで確認済み(modPrompts の SourceTag 606-614行 と " & _
+            "modMode の CiteTagFrom)。" & _
+            "Excel実機受入チェック(§11.3)で必ず再確認すること。"
+        Exit Sub
+    End If
+
     Dim h As Hit
-    h.source = "就業規則.pdf"
-    h.page = 12
-    h.origin = "shelf"
+    h.source = "就業規則.pdf": h.page = 12: h.origin = "shelf"
     ChkStr38 "B1_本棚形がSourceTagと一致", _
         modMode.CiteTagFrom(h.source, h.page, h.origin), modPrompts.SourceTag(h)
-    ChkStr38 "B1_本棚形の実物", _
-        modMode.CiteTagFrom(h.source, h.page, h.origin), "[本棚:就業規則.pdf p.12]"
 
     Dim p As Hit
-    p.source = "経費規程.docx"
-    p.page = 3
-    p.origin = "pack:山田太郎"
+    p.source = "経費規程.docx": p.page = 3: p.origin = "pack:山田太郎"
     ChkStr38 "B1_パック形がSourceTagと一致", _
         modMode.CiteTagFrom(p.source, p.page, p.origin), modPrompts.SourceTag(p)
-    ChkStr38 "B1_パック形の実物(ページ番号は入らない)", _
-        modMode.CiteTagFrom(p.source, p.page, p.origin), "[パック(山田太郎):経費規程.docx]"
 
-    ' origin の大小はどちらの実装も LCase で見る(PACK: でもパック形)。
     Dim u As Hit
-    u.source = "手順書.xlsx"
-    u.page = 1
-    u.origin = "PACK:Sales"
+    u.source = "手順書.xlsx": u.page = 1: u.origin = "PACK:Sales"
     ChkStr38 "B1_originの大文字PACK:もSourceTagと一致", _
         modMode.CiteTagFrom(u.source, u.page, u.origin), modPrompts.SourceTag(u)
 
-    ' origin が空(旧データ)なら本棚形。ここが pack 側へ倒れると
-    ' ページ番号が落ちて既存の突合まで壊れる。
-    Dim e As Hit
-    e.source = "議事録.txt"
-    e.page = 0
-    e.origin = ""
+    Dim z As Hit
+    z.source = "議事録.txt": z.page = 0: z.origin = ""
     ChkStr38 "B1_origin空は本棚形でSourceTagと一致", _
-        modMode.CiteTagFrom(e.source, e.page, e.origin), modPrompts.SourceTag(e)
+        modMode.CiteTagFrom(z.source, z.page, z.origin), modPrompts.SourceTag(z)
 End Sub
 
-' ---- B1(3): 突合表の積み方(正規化・重複排除) ------------------------------
+' modTestsPure2.CanUseTypeArrays / modTestsPure12.CanUseTypeArrays11 と同じ
+' 実測プローブ(別モジュールの Private は呼べないため。テスト限定の軽微な
+' 重複で、公開契約を増やすより実害が小さい ―― modTestsPure12 の判断を踏襲)。
+Private Function CanUseTypeArrays38() As Boolean
+    On Error Resume Next
+    Err.Clear
+    Dim probe() As ShelfChunk
+    ReDim probe(0 To 0)
+    CanUseTypeArrays38 = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+' ---- B1(4): 突合表の積み方(正規化・重複排除) ------------------------------
 Private Sub TestCiteIndexAdd38()
     ' 積むときに NormalizeCiteTag を通すので、表の中では空白が落ちた形になる
     ' (照合する側=TagIsKnown も同じ正規化を通るので、この非対称は正しい)。
@@ -125,7 +173,7 @@ Private Sub TestCiteIndexAdd38()
         modMode.CiteIndexAdd("", "[本棚: C.pdf p. 9]"), "|[本棚:C.pdfp.9]|"
 End Sub
 
-' ---- B1(4): 3本を組んで AnnotateCitations へ通したときのふるまい ------------
+' ---- B1(5): 3本を組んで AnnotateCitations へ通したときのふるまい ------------
 '   AnnotateIfNeeded 本体と同じ順序(CiteTagFrom → CiteIndexAdd →
 '   AnnotateCitations)で組み直す。ここが quick/deep の実際の効き目。
 Private Sub TestAnnotatePipeline38()
@@ -194,6 +242,22 @@ End Sub
 '   効いていないと、抜粋を厚くした瞬間にプロンプトが max_context_chars を
 '   超える(B2 の安全弁そのもの)。
 Private Sub TestRerankExcerpt38()
+    ' BuildRerankPrompt は hits() As Hit を取るため、LibreOffice の Public Type
+    ' 制限にかかる(modTestsPure8.TestRerankPromptRoundTrip と同じ理由・同じ作法)。
+    ' 抜粋長は SafeLeft の第2引数1個で、Hit を経由せずに外から観測する手段が
+    ' 無い(SourceBody が Private・プロンプト組み立てが唯一の出口)ため、
+    ' この群は丸ごとガードする。恒真アサートでの水増しはしない。
+    If Not CanUseTypeArrays38() Then
+        modTestRunner.Check _
+            "[SKIP] 再ランク抜粋700字(Hit配列): LO環境の既知の制限によりスキップ", True, _
+            "modPrompts.BuildRerankPrompt は Hit() 配列を引数に取るため、別モジュール" & _
+            "定義の Public Type を渡せない環境(LibreOffice)では呼べない。R34 B2 の" & _
+            "変更は modPrompts の BuildRerankPrompt 内 SafeLeft 第2引数 300→700 の" & _
+            "1箇所のみ(223行)で、lim による残量管理(225-230行)は無改修。" & _
+            "Excel実機受入チェック(§11.3)で必ず再確認すること。"
+        Exit Sub
+    End If
+
     Dim hits(1 To 1) As Hit
     hits(1).source = "規程.pdf"
     hits(1).page = 5
@@ -232,6 +296,9 @@ Private Sub ChkStr38(ByVal label As String, ByVal got As String, ByVal want As S
         "実際=[" & got & "] 期待=[" & want & "]"
 End Sub
 
+' 群ごとに独立のハンドラを持たせるのは R33 の教訓(単一の巨大ハンドラだと
+' 1群の例外で以降が丸ごと無言で消える)。Hit 型に触る2群は群の【先頭】で
+' CanUseTypeArrays38 のガードを通し、例外ではなく SKIP として集計へ載せる。
 Public Sub RunAll38()
     On Error GoTo H01Fail38
     TestShouldAnnotate38
@@ -240,15 +307,18 @@ H02Next38:
     TestCiteTagFormat38
 H03Next38:
     On Error GoTo H03Fail38
-    TestCiteIndexAdd38
+    TestCiteTagVsSourceTag38
 H04Next38:
     On Error GoTo H04Fail38
-    TestAnnotatePipeline38
+    TestCiteIndexAdd38
 H05Next38:
     On Error GoTo H05Fail38
-    TestUseNeighborExpand38
+    TestAnnotatePipeline38
 H06Next38:
     On Error GoTo H06Fail38
+    TestUseNeighborExpand38
+H07Next38:
+    On Error GoTo H07Fail38
     TestRerankExcerpt38
 H01Done38:
     On Error GoTo 0
@@ -263,18 +333,22 @@ H02Fail38:
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H03Next38
 H03Fail38:
-    modTestRunner.Check "TestCiteIndexAdd38(グループ全体)", False, _
+    modTestRunner.Check "TestCiteTagVsSourceTag38(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H04Next38
 H04Fail38:
-    modTestRunner.Check "TestAnnotatePipeline38(グループ全体)", False, _
+    modTestRunner.Check "TestCiteIndexAdd38(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H05Next38
 H05Fail38:
-    modTestRunner.Check "TestUseNeighborExpand38(グループ全体)", False, _
+    modTestRunner.Check "TestAnnotatePipeline38(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H06Next38
 H06Fail38:
+    modTestRunner.Check "TestUseNeighborExpand38(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next38
+H07Fail38:
     modTestRunner.Check "TestRerankExcerpt38(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done38
