@@ -346,6 +346,23 @@ Public Function TrimPairs(ByVal s As String, ByVal maxN As Long) As String
     TrimPairs = Join(keep, ";;;")
 End Function
 
+' ④会話の記憶: 直近2往復をui_stateへ保存し、次回起動時に薄く復元する。
+' 区切りはAskGeneral履歴と同じ";;;"(質問/回答に含まれる場合は改行1個に置換して保護)。
+' R34 B0: modApp(残36字)から実体をここへ移設。呼び出しは modApp.OnSend の1箇所で、
+' 回答の注釈付与(modMode.AnnotateIfNeeded)より【後】に呼ばれる順序を維持すること
+' (保存されるのは出典注記込みの最終本文)。私有状態への依存は無く、TrimPairs は同居。
+Public Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
+    On Error Resume Next
+    Dim u As String, a As String
+    u = Replace(modUtil.SafeLeft(q, 300), ";;;", " ")
+    a = Replace(modUtil.SafeLeft(ans, 700), ";;;", " ")
+    Dim prevU As String: prevU = modState.LoadState("nexus_hist_u", "")
+    Dim prevA As String: prevA = modState.LoadState("nexus_hist_a", "")
+    modState.SaveState "nexus_hist_u", TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
+    modState.SaveState "nexus_hist_a", TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
+    On Error GoTo 0
+End Sub
+
 ' RAGモードの速度(既存ui_stateのquick/deep設定を流用。既定quick)。
 Public Function RagSpeed() As String
     ' 3モードの正規化は modMode が単一情報源(quick/deep/thorough)。

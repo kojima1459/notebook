@@ -47,19 +47,8 @@ End Sub
 ' 2026-07-26 再設計: 質問テンプレチップ/ナレッジガチャはサイドバー廃止に伴い
 ' Hub画面(modHub.DrawExtras)へ移した。チャット画面は会話だけを担う。
 
-' ④会話の記憶: 直近2往復をui_stateへ保存し、次回起動時に薄く復元する。
-' 区切りはAskGeneral履歴と同じ";;;"(質問/回答に含まれる場合は改行1個に置換して保護)。
-Private Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
-    On Error Resume Next
-    Dim u As String, a As String
-    u = Replace(modUtil.SafeLeft(q, 300), ";;;", " ")
-    a = Replace(modUtil.SafeLeft(ans, 700), ";;;", " ")
-    Dim prevU As String: prevU = modState.LoadState("nexus_hist_u", "")
-    Dim prevA As String: prevA = modState.LoadState("nexus_hist_a", "")
-    modState.SaveState "nexus_hist_u", modAppState.TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
-    modState.SaveState "nexus_hist_a", modAppState.TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
-    On Error GoTo 0
-End Sub
+' R34 B0: ④会話の記憶(SaveTurnForRestore)の実体は modAppState へ移設した
+' (modApp 残36字で B1 の配線1行が入らなかったため)。呼び出しは241行目の1箇所のみ。
 
 Private Sub RestoreLastConversation()
     On Error Resume Next
@@ -238,7 +227,7 @@ Public Sub OnSend()
     modLive.StyleAnswerParas bubbleName   ' ■見出しの段落だけ太字(AI回答のみ)
     modAppState.SetActiveBubble bubbleName
     modUI.MarkActiveBubble bubbleName
-    SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の「前回の続き」復元用に保存
+    modAppState.SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の復元用
 
     ' 積む順は 回答 → 信頼度 → 出典 → 評価。根拠を見る前に評価させない。
     ' (一般アシスタントは出典が無いので信頼度・出典は出さない=誤表示も防ぐ)

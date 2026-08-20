@@ -1815,6 +1815,10 @@ CONTRACT: dict[str, dict] = {
             # 置き、呼び出し側は1行にする=既存のBridgeToastText/
             # ThoroughPreNoticeと同じ置き場の考え方)。
             "InputHintText",
+            # R34 B0: modApp(残36字)から④会話の記憶の実体を移設。
+            # 呼び出しは modApp.OnSend の1箇所のみで、ui_state(nexus_hist_u/a)を
+            # 書く=状態の窓口であるここが本来の持ち主。
+            "SaveTurnForRestore",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・
