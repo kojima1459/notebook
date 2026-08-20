@@ -247,4 +247,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-20(R34波1): 外部レビュー裁定(層2の3件)の回帰テスト。同じ別枝の
+    ' 作法で直接呼ぶ。固定するのは (A1)ParseVerdictのPASS+trailing可視化
+    ' (A2)modTelemetry.BakIsStaleの24時間境界。A3は既存SafeLeftテストで足りる
+    ' 旨をmodTestsPure37の見出しに記録(詳細はR34最終報告)。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure37.RunAll37
+    If Err.Number <> 0 Then
+        Check "modTestsPure37.RunAll37", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
