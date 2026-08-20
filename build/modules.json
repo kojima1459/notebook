@@ -1137,6 +1137,14 @@
       "note": "R33H Fix波3(テスト・文言・記録)の純ロジック回帰。modTestsPure34が残45字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先(modTestsPure31/32/33/34/35と同型)。固定するもの: (A)F22 modUtilText.BoardRowText/BoardRowParse — 組織集計スナップショット本文の1行を組む/読む純関数の対の往復ゴールデン。称号行(\"T\")の解析はmodShare.BoardReadRowsの中でDictionaryへの書き込みと同居していたため一度も撃たれていなかった(LibreOfficeにScripting.Dictionaryが無くCreateObjectでErr=323になる=裁定書の「実Dictionaryを渡す」方式は成立しない)。読み分けだけを辞書に触らない形へ出し、書く側(BoardBodyText)と読む側(BoardReadRows)の両方をこの1対へ通した。称号キーのTrim+LCase、部の行は大小を残すこと、列不足・未知種別・空行を落とすこと、BoardNumの負値/1億分超ガード、BoardBodyText/BoardHeadLine/BoardStateText(F22が「一度も呼ばれていない」と指摘した3本)を固定する。**辞書への書き込みそのもの(titlesOut(key)=value)とdeptAgg.Keysの走査はLOでは撃てないため実機スモークの担当**とモジュール見出しに明記した(恒真アサートで代替しない)。(B)F31 modUtilText.AutoNeedsRetry/AutoTextPick — 文字コードの採否判断(BOM優先→UTF-8→2%超ならCP932で読み直し→比率が真に減ったときだけ採用)。2%ちょうどは読み直さない側、同率は採らない(「判定できなかった」であって「CP932と分かった」ではない)という境界をゴールデン固定する。(C)F27 modShelfScan.HeaderCheckable — 先頭バイトを読む価値がある拡張子か。ここがFalseなら1バイトも読まない(旧実装はADODB.Stream.LoadFromFileがファイル全体をメモリへ載せており、PDF取込経路が32bit ExcelでOOM域だった)。(D)F30 modP2PIo.IdKey/IdHash — 生IDとSanitizeId済みIDのハッシュが一致すること(送信側だけがSanitizeIdを通していたため「送りました」が嘘になっていた)、キーは小文字へ揃えるがハッシュは大小を潰さないこと(潰すと共有フォルダの送信済みファイルが孤立する)。"
     },
     {
+      "name": "modTestsPure37",
+      "path": "src/test/modTestsPure37.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R34",
+      "note": "R34波1(外部レビュー裁定・層2の3件)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜36と同型)。固定するもの: (A1)modGenPipe.ParseVerdict — 1行目がPASSでも2行目以降(trailing)を無言で捨てない挙動。101字以上の懸念文はVERDICT_FINDINGSへ昇格しfindingsに全文が入ること、ちょうど100字の境界はPASSのまま据え置かれること、短い装飾文(既存R26-1の9字ケースの回帰含む)はPASSを維持しつつfindingsへその装飾文自体を載せて可観測にすること、PASSのみ(2行目が無い)はfindings空のままであること。(A2)modChatLog.BakIsStale — summary_*.bakを消してよいかの24時間(86400秒)境界の純関数。ちょうど24時間前は消さない(境界は「超えた」であって「以上」ではない)/24時間+1秒前は消す/24時間-1秒前は消さない/差0は消さない/30日前は消す、の5ケース。実体は当初modTelemetry(統計層)に置いたが、唯一の呼び口modShare.BoardWriteSummary(基盤層)から統計層を呼ぶとR1違反になるため、司令塔裁定でmodChatLog(基盤層・ファイルI/Oを既に持つモジュール)へ移設した。BoardSweepStaleBak本体(Dir列挙+Kill)はファイルI/OのためLO対象外(実機観点として記録)。(A3)modChunker.bas:606の生Left$→modUtil.SafeLeftへの置換は、置換対象のAppendStructChunkがPrivateかつ呼び出し元2箇所がいずれも渡すbody長を事前にroom以下へクランプしているため公開API(ChunkPagesEx)からは実質到達しない防御的分岐と判明し、専用テストは追加せず既存のmodUtil.SafeLeft境界テスト(modTestsPure4.bas TestSafeLeftSurrogate)で足りるとモジュール見出しに記録した。"
+    },
+    {
       "name": "modTestsPure38",
       "path": "src/test/modTestsPure38.bas",
       "role": "test",
