@@ -603,7 +603,7 @@ End Sub
 Private Sub AppendStructChunk(ByVal pageNum As Long, ByVal crumb As String, ByVal body As String, _
                               ByVal room As Long, ByRef outArr() As ShelfChunk, ByRef outCount As Long)
     Dim b As String: b = body
-    If Len(b) > room Then b = Left$(b, room)
+    If Len(b) > room Then b = modUtil.SafeLeft(b, room)
     Dim ck As ShelfChunk
     ck.page = pageNum
     ck.full_text = crumb & b
