@@ -436,6 +436,18 @@ Public Function AnnotateIfNeeded(ByVal ans As String) As String
 End Function
 
 ' ----------------------------------------------------------------------------
+' UseNeighborExpand - 前後チャンク結合(modAskFocus.NeighborExpand)を検索の
+'   最後に掛けてよいモードか(R34 B3)。
+' ----------------------------------------------------------------------------
+' 入念は modAskThorough / modAskMulti が生成の内側で自前に呼ぶので、ここが
+' True を返すと同じチャンクが二度足される。すぐ聞くは速さが目的なので対象外
+' (GOの範囲外)。したがって deep だけ。Normalize を通すので、未知の文字列や
+' 空文字は quick へ丸まって False になる。
+Public Function UseNeighborExpand(ByVal mode As String) As Boolean
+    UseNeighborExpand = (Normalize(mode) = MODE_DEEP)
+End Function
+
+' ----------------------------------------------------------------------------
 ' 旧UI(modUIMain.RenderAnswer)の出典欄と状態セルの文言(2026-08-16 R33H M1)
 ' ----------------------------------------------------------------------------
 ' Nexus側は3本(modAppAct/modPeek/modMentor)とも GroundingAllowed の門を

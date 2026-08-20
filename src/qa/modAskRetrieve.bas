@@ -249,7 +249,9 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     ' 件数」を数える RunDeepScoped の n>=2 判定が、注入分だけで成立してしまう
     ' (スコープの外で答えたのに、スコープ内で答えたことになる)。
     modAskFocus.ArticleEnsure q, hits, outN, 2, ScopeBox(scopeSources)
-    RunMultiRetrieve = EnsureArticleSeed(q, hits, outN)
+    outN = EnsureArticleSeed(q, hits, outN)
+    ExpandNeighborsIfDeep mdMode, hits, outN
+    RunMultiRetrieve = outN
     Exit Function
 
 FallbackSingle:
@@ -257,8 +259,28 @@ FallbackSingle:
     On Error GoTo 0
     outN = modRetrieve.Search(q, topK, hits, scopeSources)
     modAskFocus.ArticleEnsure q, hits, outN, 2, ScopeBox(scopeSources)
-    RunMultiRetrieve = EnsureArticleSeed(q, hits, outN)
+    outN = EnsureArticleSeed(q, hits, outN)
+    ExpandNeighborsIfDeep mdMode, hits, outN
+    RunMultiRetrieve = outN
 End Function
+
+' ----------------------------------------------------------------------------
+' ExpandNeighborsIfDeep - 🔍しっかり調べる のときだけ前後チャンクを結合する
+'   (2026-08-20 R34 B3)。最終hitsが確定した後に1回だけ通す。
+' ----------------------------------------------------------------------------
+' 入念モードは modAskThorough / modAskMulti が生成の内側で同じ NeighborExpand を
+' 自前に呼ぶため、ゲート(modMode.UseNeighborExpand)を外すと同じチャンクが二度
+' 足される。すぐ聞くは速さが目的なので対象外。件数は deep_neighbor(既定2)。
+' 増えたぶんは本棚抜粋の組み立て(modPrompts.BuildSourceBlock)が
+' max_context_chars の残量で自然に打ち切るので、ここで上限は掛けない。
+Private Sub ExpandNeighborsIfDeep(ByVal mdMode As String, ByRef hits() As Hit, _
+                                  ByRef nHits As Long)
+    If nHits < 1 Then Exit Sub
+    If Not modMode.UseNeighborExpand(mdMode) Then Exit Sub
+    On Error Resume Next
+    modAskFocus.NeighborExpand hits, nHits, modConfig.GetLong("deep_neighbor", 2)
+    On Error GoTo 0
+End Sub
 
 ' ----------------------------------------------------------------------------
 ' EnsureArticleSeed - 検索が0件のとき、条文/別表/様式の直接キーで最大2件だけ

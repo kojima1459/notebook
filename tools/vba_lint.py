@@ -415,7 +415,11 @@ CONTRACT: dict[str, dict] = {
                      #   AnnotateIfNeeded だけが modAsk の直近ヒットを読む窓口。
                      #   AnsweredModeName は NoteAnswered が控えたモード名の可観測化。
                      "ShouldAnnotate", "CiteTagFrom", "CiteIndexAdd",
-                     "AnnotateIfNeeded", "AnsweredModeName"],
+                     "AnnotateIfNeeded", "AnsweredModeName",
+                     # R34 B3: 前後チャンク結合(modAskFocus.NeighborExpand)を
+                     #   検索の最後へ掛けてよいモードかの純ゲート。入念は生成の
+                     #   内側で自前に呼ぶため二重結合になる=deep だけ True。
+                     "UseNeighborExpand"],
     },
     "modSparse": {
         "closed": True,
