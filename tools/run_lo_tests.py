@@ -125,8 +125,13 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #     (modTestsPure34 の4件 + modTestsPure35 の2件)→ PASS 2855。
 #     そのうえで F22/F27/F30/F31 のゴールデン64件を modTestsPure36 で追加
 #     → PASS 2919(SKIP は 12 のまま)。
-EXPECTED_SKIP_MAX = 12
-EXPECTED_PASS_MIN = 2956
+#   2026-08-20 R34: modTestsPure37(A1/A2)+modTestsPure38(B1/B2/B3)を追加
+#     → PASS 3003。SKIP は 12→14(+2 は modTestsPure38 の Hit型2群:
+#     SourceTag突合と再ランク抜粋700字。Hit配列はLOでモジュール間受け渡し
+#     不可という既知の死角。理由はmodTestsPure38.basヘッダーに記載、
+#     実機側は modTestsExcel 系で確認)。
+EXPECTED_SKIP_MAX = 14
+EXPECTED_PASS_MIN = 3003
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -761,6 +766,16 @@ PURE_ALLOWLIST = [
     #   modTestsPure36.RunAll36 を呼べず(Variable not defined)、F22/F27/F31/F30
     #   の新テストが【実行されないまま「全部PASS」に見える】。
     "modTestsPure36",
+    # modTestsPure37(2026-08-20 R34波1): A1 ParseVerdict trailing境界 /
+    #   A2 BakIsStale 24h境界(実体はmodChatLog)。注入しないと RunAll37 が
+    #   Variable not defined で呼べず、新テストが実行されないままPASSに見える。
+    "modTestsPure37",
+    # modTestsPure38(2026-08-20 R34波2): B1 出典突合の純部分(CiteTagFrom等) /
+    #   B2 再ランク抜粋700字 / B3 deep限定ゲート。同上の理由で注入必須。
+    "modTestsPure38",
+    # modChatLog(2026-08-20 R34波1 A2): BakIsStale の実体の置き場。未注入だと
+    #   modTestsPure37 の 24h境界テストが実行時エラーで丸ごと落ちる。
+    "modChatLog",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
