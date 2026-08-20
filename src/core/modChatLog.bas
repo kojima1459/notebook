@@ -134,17 +134,46 @@ Public Function BakIsStale(ByVal fileTime As Date, ByVal nowTime As Date) As Boo
 End Function
 
 ' BoardSweepStaleBak - folderPath配下のsummary_*.bakのうち24時間より古いものを
-'   1件ずつ握って消す(自分のhashのぶんも含めてよい=書く直前に呼ぶ設計)。
+'   消す(自分のhashのぶんも含めてよい=書く直前に呼ぶ設計)。
+' ----------------------------------------------------------------------------
+' R34 F1レビュー(MAJOR-1)の根治: 【集めてから消す】の2周構成にする。
+' 初版は Dir の列挙中に Kill を挟み、さらに Err.Clear の位置の都合で
+'   ・列挙の途中でディレクトリを書き換える(Dirの列挙状態が壊れる)
+'   ・Dir() が失敗すると leaf が更新されず Do While を抜けられない
+' という2つの穴があった。作法は modInsightIo.GcOldInsights:294-320 を踏襲:
+'   1周目 = 名前だけを配列へ集めて Dir を閉じる
+'   2周目 = Err.Clear → FileDateTime → Err.Number=0 を確認 → BakIsStale → Kill
+' FileDateTime が落ちた(消えた・権限が無い)ファイルは触らずに次へ進む
+' ―― 判定できなかったものを消すのは、古いから消すのとは別のことなので。
+' 純関数 BakIsStale は不変。
 Public Sub BoardSweepStaleBak(ByVal folderPath As String)
     If LenB(folderPath) = 0 Then Exit Sub
-    Dim nowTime As Date: nowTime = Now
     On Error Resume Next
+
+    ' --- 1周目: 名前を集めきる(この間ディレクトリは書き換えない) ---
+    Dim names() As String: ReDim names(0 To 63)
+    Dim n As Long
     Dim leaf As String: leaf = Dir(folderPath & "summary_*.bak")
     Do While LenB(leaf) > 0
-        Dim full As String: full = folderPath & leaf
-        If BakIsStale(FileDateTime(full), nowTime) Then Kill full
-        Err.Clear
+        If n > UBound(names) Then ReDim Preserve names(0 To UBound(names) + 64)
+        names(n) = leaf
+        n = n + 1
         leaf = Dir()
+        If Err.Number <> 0 Then Exit Do   ' Dir()が落ちたら列挙を打ち切る(無限ループ防止)
     Loop
+
+    ' --- 2周目: 集めた名前だけを見る(Dirの列挙状態にもう依存しない) ---
+    Dim nowTime As Date: nowTime = Now
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim full As String: full = folderPath & names(i)
+        Dim stamp As Date
+        Err.Clear
+        stamp = FileDateTime(full)
+        If Err.Number = 0 Then
+            If BakIsStale(stamp, nowTime) Then Kill full
+        End If
+        Err.Clear
+    Next i
     On Error GoTo 0
 End Sub
