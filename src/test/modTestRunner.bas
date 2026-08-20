@@ -261,4 +261,19 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-08-20(R34波2): 外部レビュー裁定(層1の5件)の回帰テスト。同じ別枝の
+    ' 作法で直接呼ぶ。固定するのは (B1)出典突合を quick/deep へ広げる純部分
+    ' ―― とくに modMode.CiteTagFrom が modPrompts.SourceTag と一字一句同じ形を
+    ' 返すこと(ズレると正しい出典まで全件「確認できず」になる) ――
+    ' (B2)再ランク抜粋700字と lim 打ち切り (B3)前後結合が deep でだけ効くゲート。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure38.RunAll38
+    If Err.Number <> 0 Then
+        Check "modTestsPure38.RunAll38", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

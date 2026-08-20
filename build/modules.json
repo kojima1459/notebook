@@ -1137,6 +1137,14 @@
       "note": "R33H Fix波3(テスト・文言・記録)の純ロジック回帰。modTestsPure34が残45字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先(modTestsPure31/32/33/34/35と同型)。固定するもの: (A)F22 modUtilText.BoardRowText/BoardRowParse — 組織集計スナップショット本文の1行を組む/読む純関数の対の往復ゴールデン。称号行(\"T\")の解析はmodShare.BoardReadRowsの中でDictionaryへの書き込みと同居していたため一度も撃たれていなかった(LibreOfficeにScripting.Dictionaryが無くCreateObjectでErr=323になる=裁定書の「実Dictionaryを渡す」方式は成立しない)。読み分けだけを辞書に触らない形へ出し、書く側(BoardBodyText)と読む側(BoardReadRows)の両方をこの1対へ通した。称号キーのTrim+LCase、部の行は大小を残すこと、列不足・未知種別・空行を落とすこと、BoardNumの負値/1億分超ガード、BoardBodyText/BoardHeadLine/BoardStateText(F22が「一度も呼ばれていない」と指摘した3本)を固定する。**辞書への書き込みそのもの(titlesOut(key)=value)とdeptAgg.Keysの走査はLOでは撃てないため実機スモークの担当**とモジュール見出しに明記した(恒真アサートで代替しない)。(B)F31 modUtilText.AutoNeedsRetry/AutoTextPick — 文字コードの採否判断(BOM優先→UTF-8→2%超ならCP932で読み直し→比率が真に減ったときだけ採用)。2%ちょうどは読み直さない側、同率は採らない(「判定できなかった」であって「CP932と分かった」ではない)という境界をゴールデン固定する。(C)F27 modShelfScan.HeaderCheckable — 先頭バイトを読む価値がある拡張子か。ここがFalseなら1バイトも読まない(旧実装はADODB.Stream.LoadFromFileがファイル全体をメモリへ載せており、PDF取込経路が32bit ExcelでOOM域だった)。(D)F30 modP2PIo.IdKey/IdHash — 生IDとSanitizeId済みIDのハッシュが一致すること(送信側だけがSanitizeIdを通していたため「送りました」が嘘になっていた)、キーは小文字へ揃えるがハッシュは大小を潰さないこと(潰すと共有フォルダの送信済みファイルが孤立する)。"
     },
     {
+      "name": "modTestsPure38",
+      "path": "src/test/modTestsPure38.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R34",
+      "note": "R34波2(外部レビュー裁定・層1の5件)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜37と同型)。固定するもの: (B1)出典突合を⚡すぐ聞く/🔍しっかり調べるへも広げる純部分 — modMode.ShouldAnnotate(quick/deepだけTrue。thoroughをTrueにすると生成の内側の突合と二重付与になる)、modMode.CiteTagFrom(**modPrompts.SourceTagと一字一句同じ書式**であることを、リテラルではなくSourceTagの実際の戻り値と直接比較して固定する。ここが1文字でもズレると正しい出典まで全件『(出典確認できず)』になる)、modMode.CiteIndexAdd(NormalizeCiteTag経由の正規化と重複排除)、およびこの3本をmodAskThorough.AnnotateCitationsへAnnotateIfNeededと同じ順序で組み直したときのふるまい(実在タグ→無加工/幻覚タグ・ページ違い→注記/突合表が空→無加工/タグ無しの回答→無加工)。(B2)modPrompts.BuildRerankPromptの抜粋が700字まで載ること(300のままなら落ちる)とlimを超える候補を(以下省略)で打ち切ること。(B3)modMode.UseNeighborExpandがdeepでだけTrueを返すこと。**modMode.AnnotateIfNeeded本体はmodAskのモジュール状態(直近ヒット)を読むためLOからは入力を作れず対象外**(合成そのものはTestAnnotatePipeline38が同じ順序で組み直して固定。残るのはmodAskのアクセサが0始まりであることの1点で実機観点)。B0(SaveTurnForRestoreのmodAppStateへの移設)とC(max_context_chars既定60,000)はそれぞれmodStateへの書き込み・ビルド時config既定値のため純テスト対象外。"
+    },
+    {
       "name": "modTestsPure26",
       "path": "src/test/modTestsPure26.bas",
       "role": "test",
