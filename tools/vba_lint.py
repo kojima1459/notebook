@@ -164,9 +164,11 @@ CONTRACT: dict[str, dict] = {
     },
     # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
     # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
+    # BakIsStale/BoardSweepStaleBak(2026-08-20 R34 A2): summary_*.bak掃除。
+    # modUtil/modTelemetryでは容量・層の都合でNGのため司令塔裁定でここへ移設。
     "modChatLog": {
         "closed": True,
-        "required": ["LogTurn"],
+        "required": ["LogTurn", "BakIsStale", "BoardSweepStaleBak"],
     },
     "modUtil": {
         "closed": True,

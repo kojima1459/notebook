@@ -11,7 +11,7 @@ Option Explicit
 '   A1 modGenPipe.ParseVerdict: 1行目がPASSでも2行目以降(trailing)を無言で
 '     捨てない。101字以上の懸念文はFINDINGSへ昇格、それ未満でも findings へ
 '     載せて可観測にする(R34裁定)。
-'   A2 modTelemetry.BakIsStale: summary_*.bak を消してよいか(24時間境界)を
+'   A2 modChatLog.BakIsStale: summary_*.bak を消してよいか(24時間境界)を
 '     決める純関数。ファイルI/O本体(BoardSweepStaleBak)はLO対象外のため
 '     ここでは境界判定だけを固定する(実機観点として記録)。
 '   A3 modChunker.bas:606 の Left$→SafeLeft 置換: AppendStructChunk は
@@ -78,23 +78,23 @@ Private Sub TestBakIsStale37()
 
     ' (1) ちょうど24時間前=消さない(境界は「超えたら」であって「以上」ではない)。
     ChkBool37 "A2_ちょうど24時間前は消さない", _
-        modTelemetry.BakIsStale(baseNow - 1, baseNow), False
+        modChatLog.BakIsStale(baseNow - 1, baseNow), False
 
     ' (2) 24時間+1秒前=消す。
     ChkBool37 "A2_24時間と1秒前は消す", _
-        modTelemetry.BakIsStale(baseNow - (1 + 1 / 86400#), baseNow), True
+        modChatLog.BakIsStale(baseNow - (1 + 1 / 86400#), baseNow), True
 
     ' (3) 24時間-1秒前=消さない。
     ChkBool37 "A2_24時間より1秒新しいと消さない", _
-        modTelemetry.BakIsStale(baseNow - (1 - 1 / 86400#), baseNow), False
+        modChatLog.BakIsStale(baseNow - (1 - 1 / 86400#), baseNow), False
 
     ' (4) 作られたばかり(差0)=消さない。
     ChkBool37 "A2_作られたばかりは消さない", _
-        modTelemetry.BakIsStale(baseNow, baseNow), False
+        modChatLog.BakIsStale(baseNow, baseNow), False
 
     ' (5) 極端に古い(30日前)=消す。
     ChkBool37 "A2_30日前は消す", _
-        modTelemetry.BakIsStale(baseNow - 30, baseNow), True
+        modChatLog.BakIsStale(baseNow - 30, baseNow), True
 End Sub
 
 Private Sub ChkBool37(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)

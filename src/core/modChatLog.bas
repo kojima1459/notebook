@@ -122,3 +122,29 @@ Private Sub TrimToMaxRows(ByVal ws As Worksheet)
         ws.Range(ws.Cells(MAX_ROWS + 2, 1), ws.Cells(lastRow, 1)).EntireRow.Delete
     End If
 End Sub
+
+' ----------------------------------------------------------------------------
+' R34 A2: modShare(基盤層)専用のファイルI/Oヘルパーを基盤層内で完結させる
+'   置き場所(modUtil/modTelemetryは容量都合・層都合でNG=司令塔裁定)。
+' ----------------------------------------------------------------------------
+' BakIsStale - fileTimeがnowTimeより24時間(86400秒)より古いか【純関数】。
+Public Function BakIsStale(ByVal fileTime As Date, ByVal nowTime As Date) As Boolean
+    Dim diffSec As Double: diffSec = (CDbl(nowTime) - CDbl(fileTime)) * 86400#
+    BakIsStale = (diffSec > 86400#)
+End Function
+
+' BoardSweepStaleBak - folderPath配下のsummary_*.bakのうち24時間より古いものを
+'   1件ずつ握って消す(自分のhashのぶんも含めてよい=書く直前に呼ぶ設計)。
+Public Sub BoardSweepStaleBak(ByVal folderPath As String)
+    If LenB(folderPath) = 0 Then Exit Sub
+    Dim nowTime As Date: nowTime = Now
+    On Error Resume Next
+    Dim leaf As String: leaf = Dir(folderPath & "summary_*.bak")
+    Do While LenB(leaf) > 0
+        Dim full As String: full = folderPath & leaf
+        If BakIsStale(FileDateTime(full), nowTime) Then Kill full
+        Err.Clear
+        leaf = Dir()
+    Loop
+    On Error GoTo 0
+End Sub

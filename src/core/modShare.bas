@@ -653,6 +653,7 @@ Public Function BoardWriteSummary(ByVal folderPath As String, ByVal myHash As St
     For attempt = 1 To 3
         If modIntegrity.SwapFileWithBackup(tmpPath, dstPath, bakPath) Then
             BoardWriteSummary = True
+            modChatLog.BoardSweepStaleBak folderPath ' R34 A2
             Exit Function
         End If
         modIntegrity.PauseMs 200 * attempt
