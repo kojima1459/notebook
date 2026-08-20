@@ -48,6 +48,15 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Or LenB(Trim$(ans)) = 0 Then Exit Sub
 
+    ' R34 F4: 部内へ出す本文にも出典突合の注記を通す。⚡/🔍 の注記は modApp の
+    ' 画面用 ans にだけ付き、ここへ来る mLastCleanAnswer は未注記なので、
+    ' 「画面では(出典確認できず)が付いていた回答が、知恵袋では無印で配られる」
+    ' という非対称になっていた。部内一次情報になる本文こそ印が要る。
+    ' 呼び出し元(modAsk の✅解決した)は凍結モジュールなので、共有本文の
+    ' 境界であるここで掛ける。入念は生成の内側で注記済み=ShouldAnnotate=False
+    ' で素通り(二重付与なし)。⚡/🔍 の mLastCleanAnswer は常に未注記=冪等。
+    ans = modMode.AnnotateIfNeeded(ans)
+
     Dim dirPath As String: dirPath = SubDir(QA_SUBDIR)
     If LenB(dirPath) = 0 Then Exit Sub
     EnsureDir dirPath

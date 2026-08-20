@@ -130,7 +130,10 @@ Private Sub RecordCorrection(ByVal fixText As String)
         ' 「訂正の対象になった回答」として部内へ配られる(実機第3報 RC2 と
         ' 同型の誤爆)。修正ナレッジの個人保存・EXPは判定と無関係に必ず行う。
         If modAsk.CanShareInsight() Then
-            modInsightIo.EmitCorrection modAsk.LastAnswerText(), fixText
+            ' R34 F4: 訂正の対象として配る「元の回答」にも出典突合の注記を通す
+            ' (画面には付いていた印が、部内へ配る本文だけ落ちていた非対称)。
+            ' 入念は生成の内側で注記済み=ShouldAnnotate=Falseで素通り。
+            modInsightIo.EmitCorrection modMode.AnnotateIfNeeded(modAsk.LastAnswerText()), fixText
         End If
         modSkin.ShowToast "ありがとうございます。次に同じ質問をした人から、この内容で答えます。", "success"
     Else
