@@ -271,7 +271,13 @@ Private Function LastTurn(ByRef q As String, ByRef a As String) As Boolean
         q = modConvBridge.FirstPair(modState.LoadState(keyU, ""))
     End If
 
-    a = PickFullerAnswer(a, modAsk.LastAnswerText())
+    ' R34 B1後始末: 比較の土俵を「注釈後」へ揃える。LastAnswerText は常に注釈前の
+    ' 生本文(出典突合の注記は modApp ローカルの ans にだけ適用され modAsk へは
+    ' 書き戻されない)なので、hist_a(注釈後を700字で切ったもの)と素で比べると
+    ' 幻覚出典のあった quick/deep のターンだけ先頭一致が外れ、考察メモが700字で
+    ' 無言に途切れる(R26H F8 の症状の部分的再発)。AnnotateIfNeeded は同一モード・
+    ' 同一ヒットに対して決定的なので、ここで通せば回答時と同一の変換が再現される。
+    a = PickFullerAnswer(a, modMode.AnnotateIfNeeded(modAsk.LastAnswerText()))
     If LenB(a) = 0 Then a = modAppState.TargetText()
     On Error GoTo 0
     ' 回答が取れないなら保存する意味が無い(質問だけのメモは資料にならない)。
