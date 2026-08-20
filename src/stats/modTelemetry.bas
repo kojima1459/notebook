@@ -476,3 +476,34 @@ Private Sub CarryDeptRows(ByVal prevText As String, ByVal prevHead As String, _
     Next i
 Bad:
 End Sub
+
+' ============================================================================
+' R34 A2: 古い summary_*.bak の掃除。
+'   BoardWriteSummary(modShare)の差し替えは.bakへ旧版を退避する。端末hash付き
+'   専用名なので通常は次の再集計(10分後)で自己修復するが、競合に敗れた発行者
+'   端末がその後二度と書かない場合だけ1個残り続ける(外部レビューA2の指摘)。
+'   書く直前に自分のフォルダを掃くことで、書く端末がいる限り放置されない。
+' ============================================================================
+
+' BakIsStale - fileTimeがnowTimeより24時間(86400秒)より古いか【純関数】。
+Public Function BakIsStale(ByVal fileTime As Date, ByVal nowTime As Date) As Boolean
+    Dim diffSec As Double: diffSec = (CDbl(nowTime) - CDbl(fileTime)) * 86400#
+    BakIsStale = (diffSec > 86400#)
+End Function
+
+' BoardSweepStaleBak - folderPath配下のsummary_*.bakのうち24時間より古いものを
+'   消す(自分のhashのぶんも含めてよい=書く直前に呼ぶ設計)。1件ずつ握って
+'   1件の失敗が隣の掃除を止めない。
+Public Sub BoardSweepStaleBak(ByVal folderPath As String)
+    If LenB(folderPath) = 0 Then Exit Sub
+    Dim nowTime As Date: nowTime = Now
+    On Error Resume Next
+    Dim leaf As String: leaf = Dir(folderPath & "summary_*.bak")
+    Do While LenB(leaf) > 0
+        Dim full As String: full = folderPath & leaf
+        If BakIsStale(FileDateTime(full), nowTime) Then Kill full
+        Err.Clear
+        leaf = Dir()
+    Loop
+    On Error GoTo 0
+End Sub
