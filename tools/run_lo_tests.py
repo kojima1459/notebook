@@ -130,8 +130,10 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #     SourceTag突合と再ランク抜粋700字。Hit配列はLOでモジュール間受け渡し
 #     不可という既知の死角。理由はmodTestsPure38.basヘッダーに記載、
 #     実機側は modTestsExcel 系で確認)。
+#   2026-08-20 R34H Fix波: F3(findings=trailing化)で Pure37 のアサートが
+#     1本→2本になり PASS 3003→3004(SKIP は 14 のまま)。
 EXPECTED_SKIP_MAX = 14
-EXPECTED_PASS_MIN = 3003
+EXPECTED_PASS_MIN = 3004
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
