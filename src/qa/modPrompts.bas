@@ -218,8 +218,9 @@ Public Function BuildRerankPrompt(ByVal q As String, hits() As Hit, ByVal nHits 
     Dim i As Long
     For i = 1 To nHits
         Dim entry As String
+        ' R34 B2(裁定・司令塔承認済みの凍結モジュール最小手術): 抜粋300→700字。
         entry = "[" & i & "] " & SourceTag(hits(i)) & " " & _
-                Replace(modUtil.SafeLeft(SourceBody(hits(i)), 300), vbLf, " ") & vbLf
+                Replace(modUtil.SafeLeft(SourceBody(hits(i)), 700), vbLf, " ") & vbLf
         If used + Len(entry) > lim Then
             sb = sb & "(以下省略)" & vbLf
             Exit For
