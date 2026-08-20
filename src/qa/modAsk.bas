@@ -429,6 +429,7 @@ Public Sub NoteGeneralAnswered(ByVal q As String, ByVal a As String)
     mLastMode = "general"
     mLastCleanAnswer = ""
     mLastNHits = 0
+    mLastGenN = 0                         ' 一般回答後に前ターンの出典チップ導線(ShowPeek/OnOpenSource)が生き返るのを断つ(R34H)
     mFeedbackDone = False
 End Sub
 
