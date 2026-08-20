@@ -31,17 +31,21 @@ Option Explicit
 '     出ないが、本モジュールの100字ちょうどケースがFINDINGSへ倒れて落ちる。
 '   ・閾値を101以上(例:102)にすると、本モジュールの101字ケースがPASS側へ
 '     倒れて落ちる。
-'   ・PASSのときfindingsへ全文(s)を詰める実装にすると、(b)(c)のfindings
+'   ・findingsへ全文(s)を詰める実装にすると、(a)の2本と(b)(c)のfindings
 '     一致チェックが落ちる(findings=trailingであってsではない)。
+'   R34 F3(レビューMINOR-1): 昇格経路の findings も verdict 行込みの全文(s)
+'     ではなく trailing だけにした。改稿プロンプトの「指摘事項:」の先頭へ
+'     "verdict:PASS" が刺さると、書き直す側が「問題なしと言われた」と読める。
 Private Sub TestParseVerdictTrailing37()
     Dim v As String, f As String
 
-    ' (a) PASS+101字の懸念文→FINDINGSへ昇格。findingsは全文(s)。
+    ' (a) PASS+101字の懸念文→FINDINGSへ昇格。findingsは【指摘だけ】(R34 F3)。
     Dim long101 As String: long101 = String$(101, ChrW(&H3042)) ' "あ"×101
     Dim resp101 As String: resp101 = "verdict:PASS" & vbLf & long101
     v = modGenPipe.ParseVerdict(resp101, f)
     ChkStr37 "A1_PASS+101字はFINDINGSへ昇格", v, modGenPipe.VERDICT_FINDINGS
-    ChkBool37 "A1_101字昇格時のfindingsは全文", (InStr(f, "verdict:PASS") > 0 And InStr(f, long101) > 0), True
+    ChkStr37 "A1_101字昇格時のfindingsは指摘のみ", f, long101
+    ChkBool37 "A1_101字昇格時のfindingsにverdict行を混ぜない", (InStr(f, "verdict") = 0), True
 
     ' 境界: ちょうど100字はPASSのまま(閾値の根拠="100を超えたら")。
     Dim exact100 As String: exact100 = String$(100, ChrW(&H3042))

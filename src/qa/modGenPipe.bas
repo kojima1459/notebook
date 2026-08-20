@@ -168,7 +168,11 @@ Public Function ParseVerdict(ByVal resp As String, ByRef findings As String) As 
         Dim trailing As String
         trailing = TrimWs(TrailingOf(s))
         If Len(trailing) > 100 Then
-            findings = s
+            ' R34 F3: findings は【指摘そのもの】だけにする。ここで verdict 行
+            ' 込みの全文(s)を返していたため、改稿プロンプトの「指摘事項:」に
+            ' "verdict:PASS" が先頭で刺さり、書き直す側が「問題なしと言われた」
+            ' と読める材料を渡していた。両方の経路で trailing に揃える。
+            findings = trailing
             ParseVerdict = VERDICT_FINDINGS
             Exit Function
         End If
