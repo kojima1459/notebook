@@ -405,7 +405,17 @@ CONTRACT: dict[str, dict] = {
                      "RerankEffort",
                      "NoteAnswered", "GroundingAllowed",
                      "AnswerSourcesText", "AnswerStatusText",
-                     "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText"],
+                     "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText",
+                     # R34 B1: 機械的出典突合を ⚡すぐ聞く / 🔍しっかり調べる へも
+                     #   広げる。入念モードだけが通っていた門(modAskThorough.
+                     #   AnnotateAgainstHits)を、modApp の合流点から1行で通せる形に
+                     #   したもの。ShouldAnnotate / CiteTagFrom / CiteIndexAdd は
+                     #   純関数で modTestsPure38 が固定し(CiteTagFrom は
+                     #   modPrompts.SourceTag との一字一句の一致まで)、
+                     #   AnnotateIfNeeded だけが modAsk の直近ヒットを読む窓口。
+                     #   AnsweredModeName は NoteAnswered が控えたモード名の可観測化。
+                     "ShouldAnnotate", "CiteTagFrom", "CiteIndexAdd",
+                     "AnnotateIfNeeded", "AnsweredModeName"],
     },
     "modSparse": {
         "closed": True,

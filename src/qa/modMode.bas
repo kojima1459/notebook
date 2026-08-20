@@ -52,6 +52,14 @@ Option Explicit
 ' 判定関数(Normalize / ShouldEmitInsight など)は従来どおり副作用ゼロのまま。
 Private mGrounded As Boolean
 
+' R34 B1: 直近ターンの回答モード名(quick/deep/thorough。正規化済みの生値)。
+' NoteAnswered が控える。mGrounded と同じ「このターンが何だったか」の1ビット系で、
+' 出典突合の後付け(AnnotateIfNeeded)がモードを見分けるためだけに使う。
+' 一般アシスタント(modAsk.NoteGeneralAnswered)と空質問ターンはここを通らないため
+' 前ターンの値が残るが、どちらも modApp 側の grounded ガードと
+' modAsk.LastHitCount()=0 の二重で弾かれる(注釈は走らない)。
+Private mLastAnsweredMode As String
+
 ' モード識別子。文字列はui_state/configと共有するので変更しないこと。
 Private Const MODE_QUICK As String = "quick"
 Private Const MODE_DEEP As String = "deep"
@@ -329,13 +337,102 @@ End Function
 '   凍結モジュール側は代入1行のまま=W5-21 の手術跡の上に重ねる)。
 Public Function NoteAnswered(ByVal okFlag As Boolean, ByVal modeName As String) As String
     mGrounded = okFlag
+    mLastAnsweredMode = modeName   ' R34 B1: 出典突合の後付けがモードを見分ける材料
     NoteAnswered = modeName
+End Function
+
+' AnsweredModeName - 直近ターンの回答モード名(R34 B1)。表示には使わない
+'   (表示側の単一情報源は従来どおり modAsk.mLastMode)。テストからの可観測化用。
+Public Function AnsweredModeName() As String
+    AnsweredModeName = mLastAnsweredMode
 End Function
 
 ' GroundingAllowed - 直近ターンで根拠表示を出してよいか。
 '   表示側(modAppAct.DrawConfidence / modPeek.RenderCitations)がこれを見る。
 Public Function GroundingAllowed() As Boolean
     GroundingAllowed = mGrounded
+End Function
+
+' ============================================================================
+' R34 B1: 機械的出典突合を ⚡すぐ聞く / 🔍しっかり調べる にも効かせる
+' ============================================================================
+' 出典タグの照合(回答本文に書かれた [本棚:…] が実際の検索結果に在るか)は
+' 入念モードだけが通っていた(modAskThorough.AnnotateAgainstHits)。
+' 幻覚の出典は「資料に書いてある」と読ませてしまうため、回答そのものより重い。
+' quick/deep も同じ門をくぐらせる。
+'
+' 二重付与の禁止: thorough は modAskThorough/modAskMulti/modAskGlobal が
+' 生成の内側で既に注記済みなので、ここでは絶対に走らせない(走らせると
+' 「(出典確認できず)」が2つ並ぶ)。general/空質問は呼び出し側(modApp の
+' grounded ガード)で来ないうえ、LastHitCount()=0 でも止まる。
+'
+' 置き場が modMode なのは modApp が容量逼迫(R34 B0 で作った余地は配線1行ぶん)
+' で、かつ「このターンが何のモードだったか」を既に持っているのがここだから。
+Public Function ShouldAnnotate(ByVal modeName As String) As Boolean
+    ' Normalize は使わない("" や "general" まで quick へ丸めてしまうため)。
+    Dim m As String: m = LCase$(Trim$(modeName))
+    ShouldAnnotate = (m = MODE_QUICK Or m = MODE_DEEP)
+End Function
+
+' CiteTagFrom - 出典タグ1件を組み立てる。書式は modPrompts.SourceTag と同一
+'   ([本棚:資料名 p.N] / [パック(作成者名):資料名])。Hit 型ではなく素の3値から
+'   作るのは、modAsk の読み取り専用アクセサ(LastHitSource/LastHitPage/
+'   LastHitOrigin)が返すのがこの3つだけのため。書式を変えるときは
+'   modPrompts.SourceTag と必ず同時に直す(modTestsPure38 が一致を固定する)。
+Public Function CiteTagFrom(ByVal srcName As String, ByVal pageNo As Long, _
+                            ByVal originTag As String) As String
+    If LCase$(Left$(originTag, 5)) = "pack:" Then
+        CiteTagFrom = "[パック(" & Mid$(originTag, 6) & "):" & srcName & "]"
+    Else
+        CiteTagFrom = "[本棚:" & srcName & " p." & CStr(pageNo) & "]"
+    End If
+End Function
+
+' CiteIndexAdd - 突合表("|タグ||タグ|" の連結)へ1件足す。重複は入れない。
+'   modAskThorough.CiteIndexFrom の hits() 無し版(1件ずつ積む形)。正規化も
+'   あちらと同じ modAskThorough.NormalizeCiteTag を通す(両側が同じ処理を
+'   通らないと空白の有無だけで全件不一致になる)。
+Public Function CiteIndexAdd(ByVal idx As String, ByVal citeTag As String) As String
+    CiteIndexAdd = idx
+    Dim k As String
+    k = modAskThorough.NormalizeCiteTag(citeTag)
+    If LenB(k) = 0 Then Exit Function
+    If InStr(1, idx, "|" & k & "|", vbTextCompare) > 0 Then Exit Function
+    CiteIndexAdd = idx & "|" & k & "|"
+End Function
+
+' AnnotateIfNeeded - 直近ターンが quick/deep のときだけ、回答本文の出典タグを
+'   modAsk が持つ実際のヒットと突合して「(出典確認できず)」を付ける。
+'   それ以外のモード・ヒット0件・タグ0件では ans をそのまま返す(無加工)。
+'   mismatchN は戻り値の注記そのものが結果なので呼び出し側では使わない。
+Public Function AnnotateIfNeeded(ByVal ans As String) As String
+    AnnotateIfNeeded = ans
+    If LenB(ans) = 0 Then Exit Function
+    If Not ShouldAnnotate(mLastAnsweredMode) Then Exit Function
+
+    Dim n As Long
+    On Error Resume Next
+    n = modAsk.LastHitCount()
+    On Error GoTo 0
+    If n < 1 Then Exit Function
+
+    ' アクセサは0始まり(modAsk のコメント参照)。
+    Dim idx As String
+    Dim i As Long
+    On Error Resume Next
+    For i = 0 To n - 1
+        idx = CiteIndexAdd(idx, CiteTagFrom(modAsk.LastHitSource(i), _
+                                            modAsk.LastHitPage(i), _
+                                            modAsk.LastHitOrigin(i)))
+    Next i
+    On Error GoTo 0
+    If LenB(idx) = 0 Then Exit Function
+
+    Dim mismatchN As Long
+    Dim outS As String
+    outS = modAskThorough.AnnotateCitations(ans, idx, mismatchN)
+    If LenB(outS) = 0 Then Exit Function   ' 想定外の空戻りで本文を消さない
+    AnnotateIfNeeded = outS
 End Function
 
 ' ----------------------------------------------------------------------------

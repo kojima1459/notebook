@@ -206,6 +206,9 @@ Public Sub OnSend()
         ans = modAsk.Answer(q, sendSpeed)
         grounded = True
     End If
+    ' R34 B1: 両経路の合流点で出典突合を1回だけ通す(quick/deepのみ。実体は
+    ' modMode。thoroughは生成の内側で突合済みなので中で弾かれる=二重付与なし)。
+    If grounded Then ans = modMode.AnnotateIfNeeded(ans)
 
     Dim secs As Double: secs = Timer - t0
     stage = "描画/保存"
