@@ -162,6 +162,17 @@ Public Function ParseVerdict(ByVal resp As String, ByRef findings As String) As 
     End If
 
     If IsPassLine(NormalizeVerdictLine(FirstLineOf(s))) Then
+        ' R34 A1: 1行目がPASSでも2行目以降(trailing)を無言で捨てない。
+        ' 101字以上の懸念文はFINDINGSへ昇格し、それ未満(空・短い装飾)は
+        ' 従来通りPASSだが、trailingが非空ならfindingsへ載せて可観測にする。
+        Dim trailing As String
+        trailing = TrimWs(TrailingOf(s))
+        If Len(trailing) > 100 Then
+            findings = s
+            ParseVerdict = VERDICT_FINDINGS
+            Exit Function
+        End If
+        findings = trailing
         ParseVerdict = VERDICT_PASS
         Exit Function
     End If
@@ -237,6 +248,16 @@ Private Function FirstLineOf(ByVal s As String) As String
         FirstLineOf = Left$(s, p - 1)
     Else
         FirstLineOf = s
+    End If
+End Function
+
+' 2行目以降(先頭行を除いた残り。先頭行しか無ければ空文字)。R34 A1。
+Private Function TrailingOf(ByVal s As String) As String
+    Dim p As Long: p = InStr(s, vbLf)
+    If p > 0 Then
+        TrailingOf = Mid$(s, p + 1)
+    Else
+        TrailingOf = ""
     End If
 End Function
 
@@ -507,6 +528,13 @@ Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
         End If
         If verdictKind = VERDICT_PASS Then
             mLastPass = True
+            If LenB(findings) > 0 Then
+                ' R34 A1: PASSでもtrailingが残っていた(無言消失にしない可観測化)。
+                On Error Resume Next
+                modLog.LogUsage "gen_verify_pass_trailing", MODE_THOROUGH, _
+                    "loop=" & nLoop & " trailing=" & modUtil.SafeLeft(findings, 120)
+                On Error GoTo 0
+            End If
             Exit Do
         End If
 
