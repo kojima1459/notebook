@@ -19,7 +19,8 @@ Option Explicit
 '     ・modMode.CiteIndexAdd … 突合表の積み方(正規化・重複排除)。
 '     ・上の3本を組んで modAskThorough.AnnotateCitations へ通したときの
 '       ふるまい(実在タグ→無加工 / 幻覚タグ→注記 / ヒット0件→無加工)。
-'   B3 前後チャンク結合のゲート:
+'   B3 前後チャンク結合のゲート(R34 F1 で発火点が modAsk.RunDeepFlow へ移った
+'   あとも、ゲートそのものはこの関数のまま=テストは無改修で有効):
 '     ・modMode.UseNeighborExpand … deep だけ True。thorough で True を返すと
 '       modAskThorough/modAskMulti の自前呼び出しと合わせて二重結合になる。
 '

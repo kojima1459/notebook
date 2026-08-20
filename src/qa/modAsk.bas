@@ -43,6 +43,8 @@ Private mLastMode As String
 Private mFeedbackDone As Boolean
 Private mLastHits() As Hit
 Private mLastNHits As Long
+' R34 F1: 生成に渡した件数(契約は LastGenHitCount の見出し)。
+Private mLastGenN As Long
 Private mLastSeconds As Long
 
 ' AskFromUI - ホームの質問セル+モード(ui_state)を読み、Answer実行→
@@ -141,6 +143,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
     Dim mdMode As String
     mdMode = NormalizeMode(mode)
     modAskRetrieve.PlanAskStages mdMode   ' R13-9b: 何段通すかを先に決めてから実況する
+    mLastGenN = 0                         ' R34 F1
 
     If LenB(q) = 0 Then
         ' 空質問でもmLast*を必ず更新する。しないと前回のヒットが残り、空クリックが
@@ -219,7 +222,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
                 result = modRagParse.BuildErrorAnswer(result)
             End If
         ElseIf modMode.UseVerify(mdMode) Then
-            result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA)
+            result = RunDeepFlow(q, hits, nHits, ok, prevU, prevA, mdMode)
         Else
             result = RunQuickFlow(q, hits, nHits, ok, prevU, prevA)
         End If
@@ -292,6 +295,7 @@ Done:
     mLastMode = modMode.NoteAnswered(ok, mdMode)   ' R33H F7(抑止の実体はmodMode)
     mLastHits = hits
     mLastNHits = nHits
+    If mLastGenN < nHits Then mLastGenN = nHits   ' R34 F1
     mLastSeconds = elapsedSec
     mFeedbackDone = False   ' 新しい回答に対する感想を受付可能にする
 
@@ -354,17 +358,22 @@ End Function
 Public Function LastHitCount() As Long
     LastHitCount = mLastNHits
 End Function
+' R34 F1: 生成に渡した件数(deepの近傍込み)。読んでよいのは出典突合(modMode)だけ。
+Public Function LastGenHitCount() As Long
+    LastGenHitCount = mLastGenN
+    If LastGenHitCount < mLastNHits Then LastGenHitCount = mLastNHits
+End Function
 Public Function LastHitSource(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitSource = mLastHits(i + 1).source
+    If i >= 0 And i < LastGenHitCount() Then LastHitSource = mLastHits(i + 1).source
 End Function
 Public Function LastHitPage(ByVal i As Long) As Long
-    If i >= 0 And i < mLastNHits Then LastHitPage = mLastHits(i + 1).page
+    If i >= 0 And i < LastGenHitCount() Then LastHitPage = mLastHits(i + 1).page
 End Function
 Public Function LastHitOrigin(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitOrigin = mLastHits(i + 1).origin
+    If i >= 0 And i < LastGenHitCount() Then LastHitOrigin = mLastHits(i + 1).origin
 End Function
 Public Function LastHitPeek(ByVal i As Long) As String
-    If i >= 0 And i < mLastNHits Then LastHitPeek = mLastHits(i + 1).full_text
+    If i >= 0 And i < LastGenHitCount() Then LastHitPeek = mLastHits(i + 1).full_text
 End Function
 
 ' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。検索スコアを人間に見える形に
@@ -598,15 +607,22 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
     End If
 End Function
 
+' R34 F1: 精読は入念(modAskThorough:82-93)と同型。増やすのは nUse だけ。
 Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Long, _
-                             ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String) As String
+                             ByRef ok As Boolean, ByVal prevU As String, ByVal prevA As String, _
+                             ByVal mdMode As String) As String
     modAskRetrieve.ShowAskStage "draft"
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
 
+    Dim nUse As Long: nUse = nHits
+    If modMode.UseNeighborExpand(mdMode) Then _
+        modAskFocus.NeighborExpand hits, nUse, modConfig.GetLong("deep_neighbor", 2)
+    mLastGenN = nUse
+
     Dim draftPrompt As String
-    draftPrompt = modPrompts.BuildDeepDraftPrompt(q, hits, nHits, HistoryBlock(), strictG, ansTags)
+    draftPrompt = modPrompts.BuildDeepDraftPrompt(q, hits, nUse, HistoryBlock(), strictG, ansTags)
 
     Dim dEff As String: dEff = modConfig.GetString("deep_draft_effort", "medium")
     Dim dVrb As String: dVrb = modConfig.GetString("deep_draft_verbosity", "high")
@@ -629,7 +645,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
     draftBody = ApplyAnswerTags(draft)
 
     Dim verifyPrompt As String
-    verifyPrompt = modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nHits, strictG, ansTags)
+    verifyPrompt = modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags)
 
     Dim vEff As String: vEff = modConfig.GetString("deep_verify_effort", "high")
     Dim vVrb As String: vVrb = modConfig.GetString("deep_verify_verbosity", "medium")

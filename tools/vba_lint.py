@@ -807,6 +807,12 @@ CONTRACT: dict[str, dict] = {
                      "FeedbackUnsure", "CanFollowup", "AskFollowup", "LastAnswerText",
                      "LastTopSource", "LastConfidence", "LastConfidenceText",
                      "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek",
+                     # LastGenHitCount(2026-08-20 R34 F1): 直近ターンで【生成に
+                     #   渡した】件数(deep の精読で足した近傍を含む)。表示系は
+                     #   従来どおり LastHitCount までしか見ず、ここまで見てよいのは
+                     #   出典突合(modMode.AnnotateIfNeeded)だけ ―― 近傍のページを
+                     #   引いた正当な出典を「(出典確認できず)」と誤判定させない。
+                     "LastGenHitCount",
                      # 2026-07-28: modAskRetrieve への切り出し(レビューI-2)に伴い公開。
                      # HistoryBlock=拡張プロンプトに載せる直近履歴、
                      # IsErrorResponse=#ERR:応答を検索途中で捨てる判定。

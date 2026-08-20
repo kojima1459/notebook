@@ -416,11 +416,23 @@ Public Function AnnotateIfNeeded(ByVal ans As String) As String
     On Error GoTo 0
     If n < 1 Then Exit Function
 
+    ' R34 F1: 突合表を作るときだけ【生成に渡した件数】まで回す。deep の精読
+    ' (modAsk.RunDeepFlow が足す前後チャンク)は回答の根拠として実際に読ませて
+    ' いるので、そのページを引いた出典は正当。実ヒットだけで表を作ると、
+    ' 正しい引用へ「(出典確認できず)」を付けてしまう。入念モードも拡張後の
+    ' 集合で突合している(modAskThorough:165)ので意味論は揃っている。
+    ' 入口の門は LastHitCount のまま(一般モード・空質問ターンの残留を通さない)。
+    Dim genN As Long
+    On Error Resume Next
+    genN = modAsk.LastGenHitCount()
+    On Error GoTo 0
+    If genN < n Then genN = n
+
     ' アクセサは0始まり(modAsk のコメント参照)。
     Dim idx As String
     Dim i As Long
     On Error Resume Next
-    For i = 0 To n - 1
+    For i = 0 To genN - 1
         idx = CiteIndexAdd(idx, CiteTagFrom(modAsk.LastHitSource(i), _
                                             modAsk.LastHitPage(i), _
                                             modAsk.LastHitOrigin(i)))
