@@ -1,8 +1,54 @@
-# 再開手順（セッション中断対策・最終更新: R33完了時点）
+# 再開手順（セッション中断対策・最終更新: R34完了時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
+
+## 0R34. R34（外部レビュー裁定と検索精度強化・2026-08-20完了）
+
+**起点**: ユーザーが Gemini 3.1 Pro に依頼した外部レビュー（バグ指摘5件+RAG/UI改善提案）の裁定依頼。
+仕様と全裁定 = `spec_20260820_R34_外部レビュー裁定.md`（検証5班の結果・採用/却下理由・レビュー2周の裁定まで全部ここ）。
+
+**検証結果**: バグ指摘5件中、完全成立0件（棄却3・一部確定2）。前提の事実誤認多数
+（モデルは gpt-5.5・チャットは社内リボン`ChatGPT()`経由でAPI直叩きではない・UI提案4件は既存実装済み）。
+**外部レビューは必ず実コードで反証してから採用すること（R33の46/102と同じ教訓）。**
+
+**実装したもの**:
+- A1: modGenPipe.ParseVerdict の「PASS+後続文」無言消失を可視化（trailing>100字で改稿へ昇格・findingsは指摘本文のみ）
+- A2: 古い `summary_*.bak`（24時間超）の掃除。**実体は modChatLog**（core層都合。BakIsStale/BoardSweepStaleBak。
+  「集めてから消す」2周構成 = modInsightIo.GcOldInsights と同作法。列挙中Killは禁止）。呼び出しは modShare:657 の1行
+- A3: modChunker:606 の生 Left$ → SafeLeft（src全体で唯一残っていた非全角安全の切り詰め）
+- B0: **modApp 分割手術**（SaveTurnForRestore の実体を modAppState へ。modApp 残36→488）
+- B1: **機械的出典突合を ⚡すぐ聞く/🔍しっかり にも適用**。実体は modMode.AnnotateIfNeeded
+  （modAsk の LastHit* アクセサから突合表を再構築。書式は modPrompts.SourceTag と一字一句一致をテストで固定）。
+  配線は modApp:219 の1行 + 共有境界（modInsightIo.EmitVerifiedQA 入口 / modAppAct の訂正共有）
+- B2: 再ランク抜粋 300→700字（凍結 modPrompts の数値1個の最小手術・検算29,550字<60,000）
+- B3: 🔍に前後チャンク結合。**1周目レビューでBLOCKER3件**（RunMultiRetrieve内で件数を増やした=
+  件数バッジ水増し/スコープ広げ直しゲート恒真化/DemoteUsedで実ヒット押し出し）→ Fix波F1で
+  **凍結 modAsk.RunDeepFlow への最小手術**（入念の nUse と同型「近傍は根拠でありヒットではない」）へ位置替え。
+  `mLastGenN`/`LastGenHitCount()` 新設 = 突合表だけ生成に使った件数まで読む（近傍出典の誤判定防止）
+- C: max_context_chars 既定 40,000→60,000（VBA側フォールバック40,000は意図的に据え置き）+ 管理者ページに戻し方/上げ方手引き
+
+**重要な不変条件（R34で新設・壊すな）**:
+- 件数バッジ・実況・usage_log・スコープゲート・DemoteUsed は**実ヒット数**(mLastNHits)。
+  プロンプトと出典突合表だけが**生成に使った件数**(mLastGenN/LastGenHitCount)を読む
+- AnnotateCitations は**冪等ではない**。AnnotateIfNeeded を同一文字列に二度通す経路を作らないこと
+  （現状: modAppローカルansに1回 / 共有境界は未注記のmLastCleanAnswerに1回 / thoroughはShouldAnnotate=Falseで素通り）
+- 凍結 modAsk は R34 で modAskFocus への依存を獲得（残732字=WARN帯。次に手術するなら分割が先）
+
+**テスト**: PASS 3,004 + SKIP 14（modTestsPure37/38 新設。SKIP+2は Pure38 のHit型2群=LOの既知制限、実機で走る）。
+**レビュー2周**: 1周目 BLOCKER3/MAJOR1/MINOR4 → Fix波F1〜F5 → 2周目 BLOCKER0/MAJOR0/MINOR2 → マイクロ修正1件。
+
+**R34 記録のみ（次期）**: 訂正共有は先頭200字切りのため注記がほぼ届かない（次ラウンドで注記件数の末尾1行を検討）/
+multi_candidates を80超へ上げると再ランクの土俵に載らない候補が出る（既定40は安全）/
+bak の mtime は Name で引き継がれる=「24時間」は中身の鮮度/旧UI(nexus_ui=FALSE)は画面に注記が出ず共有本文にだけ付く（安全側の非対称）/
+Gemini提案のうち次期候補: 訂正共有の注記・Ctrl+K・Ctrl+Shift+C（容量解消後）。
+
+**実機第19報で見るべき観点（R34分）**:
+1. ⚡/🔍で存在しない資料名を出典に挙げたとき「(出典確認できず)」が付くか
+2. 🔍の回答が表の但し書き・前後の文脈を拾えるようになったか（B2+B3の効果）
+3. 🔍・🧠の応答時間が体感で悪化していないか（max_context 60,000の影響。悪化したら管理者ページの手順で40,000へ）
+4. 入念の一般アシスタントで、まれに回答が1段丁寧になる（A1の改稿昇格）ことがあるが誤動作ではない
 
 ## 0. R33H 容量実測(2026-08-16 R33H Fix波3・F26。python の `len` 基準)
 
