@@ -10,6 +10,16 @@ dist/*.failed.xlsm
 # --publisher の動作検証でローカルに生成されることがあるが、合言葉入りの
 # ブックをリポジトリへ誤って混ぜないよう常にignoreする(配布zipにも同梱しない)。
 dist/MyBookshelf_発行者用*.xlsm
+# 配布用ビルド本体。config シートの azure_embed_key に API キーが
+# OBF1: 形式(XOR+16進)で焼き込まれる。難読化の鍵は build/build_mybookshelf.py
+# と src/core/modUtil.bas にソース定数として入っているため復元可能であり、
+# 「難読化されているから載せてよい」は成り立たない。
+# 発行者用と配布zipだけを除外していて、この2ファイルに穴が空いていた
+# (2026-08-28)。ビルド成果物は SendUserFile 等で直接渡し、Git には載せない。
+# ルールを変えたら必ず次で効果を確認すること(無出力なら効いていない):
+#   git check-ignore -v dist/MyBookshelf.xlsm
+dist/MyBookshelf.xlsm
+dist/MyBookshelf_dev.xlsm
 *.log
 *.swp
 .DS_Store
