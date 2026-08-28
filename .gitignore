@@ -20,6 +20,12 @@ dist/MyBookshelf_発行者用*.xlsm
 #   git check-ignore -v dist/MyBookshelf.xlsm
 dist/MyBookshelf.xlsm
 dist/MyBookshelf_dev.xlsm
+# 上の個別指定では二度穴が空いた(配布zip・本体xlsm)ので、dist/ 配下は
+# 既定で全部除外する。ここに置かれるのは全てビルド成果物であり、いずれも
+# 再生成できる。新しい成果物が増えても自動で守られる。
+# 例外は Ghostscript(PDF変換に使う同梱バイナリ。秘密を含まない)のみ。
+dist/*
+!dist/Ghostscript/
 *.log
 *.swp
 .DS_Store
