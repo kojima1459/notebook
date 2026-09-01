@@ -280,12 +280,37 @@ _README_TEXT = (
     "     もう一度試し、それでも直らなければ配布元へ連絡してください\n"
     "     (画面に出ていたモジュール名をそのまま伝えていただけると助かります)。\n"
     "\n"
-    "詳しい手順は、同梱の docs\\45_実機スモークテスト手順.md を参照してください。\n"
+    "{doc_guide}"
     "\n"
     "共有機能(部内でみんなの節約時間を合算する機能)を使う場合は、"
     "ヘルプ→共有フォルダ設定で部の共有パスを入力してください"
     "(未設定なら「みんな」の統計は動きません)。\n"
 )
+
+# 同梱した手順書への案内。役割で中身が変わる(発行者用zipにだけ 46 が入る)
+# ため、zip を作るときに差し込む。README を2本に分けると片方だけ直す事故が
+# 起きるので、変わるのはこの数行だけに閉じ込める。
+_README_DOCS_GENERAL = (
+    "【同梱の手順書】\n"
+    "  docs\\00_はじめての方へ.md            … 開いて最初の質問をするまで(5分)\n"
+    "  docs\\41_実機テスト依頼手順_同僚向け.md … 実機テストで見ていただきたい点\n"
+    "  docs\\45_実機スモークテスト手順.md     … 短時間の動作確認\n"
+)
+_README_DOCS_PUBLISHER = _README_DOCS_GENERAL + (
+    "  docs\\46_正典発行ガイド_発行担当者向け.md\n"
+    "                                        … ★このファイル(発行者用)を\n"
+    "                                          受け取った方は、まずこれを\n"
+    "                                          お読みください\n"
+    "\n"
+    "★ このファイルは【発行者用】です。部門の正典を上書きできます。\n"
+    "   そのまま部門の方へ配らないでください(配る用は MyBookshelf.xlsm)。\n"
+)
+
+
+def _readme_text(is_publisher: bool) -> str:
+    return _README_TEXT.format(
+        doc_guide=_README_DOCS_PUBLISHER if is_publisher else _README_DOCS_GENERAL
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -360,11 +385,28 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
     zip_path = os.path.join(dist_dir, zip_name)
     xlsm_name = os.path.basename(xlsm_path)
 
-    docs45_path = os.path.join(root, "docs", "45_実機スモークテスト手順.md")
-    if not os.path.exists(docs45_path):
-        raise BuildError(f"--zip: 同梱すべき手順書が見つかりません: {docs45_path}")
+    # 同梱する手順書。受け取った人が「zipを開いた時点で自分のやることが分かる」
+    # 状態にするため、役割ごとに必要な文書だけを入れる。
+    #   全員   : 45(スモークテスト) / 00(はじめての方へ) / 41(実機テスト手順)
+    #   発行者 : + 46(正典発行ガイド) … 発行者用ブックにしか出ないボタンの説明書。
+    #            一般配布zipに入れると「押せないボタンの手順書」を配ることになる。
+    # 欠落は BuildError にする(手順書の無いzipが無警告で完成すると、受領者側では
+    # 「何をすればいいか分からない」としてしか現れず、原因に辿り着けない)。
+    doc_names = [
+        "45_実機スモークテスト手順.md",
+        "00_はじめての方へ.md",
+        "41_実機テスト依頼手順_同僚向け.md",
+    ]
+    if is_publisher:
+        doc_names.append("46_正典発行ガイド_発行担当者向け.md")
+    doc_paths = []
+    for dn in doc_names:
+        dp = os.path.join(root, "docs", dn)
+        if not os.path.exists(dp):
+            raise BuildError(f"--zip: 同梱すべき手順書が見つかりません: {dp}")
+        doc_paths.append((dp, "docs/" + dn))
     try:
-        readme_bytes = _README_TEXT.encode("cp932")
+        readme_bytes = _readme_text(is_publisher).encode("cp932")
     except UnicodeEncodeError as e:
         raise BuildError(f"--zip: README.txt がCP932でエンコードできません: {e}")
 
@@ -380,7 +422,8 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
         zf.write(xlsm_path, xlsm_name)
         zf.writestr(_LAUNCHER_BAT_NAME, launcher_bytes)
         zf.writestr("README.txt", readme_bytes)
-        zf.write(docs45_path, "docs/45_実機スモークテスト手順.md")
+        for dp, arc in doc_paths:
+            zf.write(dp, arc)
         for walk_root, _dirs, files in os.walk(gs_dir):
             for fn in files:
                 fp = os.path.join(walk_root, fn)
