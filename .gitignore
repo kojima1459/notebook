@@ -29,7 +29,17 @@ dist/*
 *.log
 *.swp
 .DS_Store
-.claude/
+# .claude/ は【無視しない】。ここにはスキル(.claude/skills/)とフック
+# (.claude/settings.json)という開発の作法そのものが入っており、無視すると
+# 新しく足したスキルが git add されず、次のクローンで消える。
+# 2026-09-02: 実際に `.claude/` を丸ごと無視していた。既存4ファイルは
+# ルール追加前に追跡済みだったので生き残っていただけで、
+# 【この先に足すスキル・フックは全て無言で失われる】状態だった。
+# ルールを変えたら必ず次で効果を確認すること(無出力=追跡される=正しい):
+#   git check-ignore -v .claude/skills/新スキル/SKILL.md
+# 個人設定だけを外す(共有するのは settings.json とスキル本体)。
+.claude/settings.local.json
+.claude/*.local.json
 __pycache__/
 *.pyc
 
