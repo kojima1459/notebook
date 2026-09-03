@@ -2530,7 +2530,8 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
 # (WScript.Shell/new:{ の撤去は機能設計を伴うためR36送り。spec §2-8末尾)。
 # **この表の唯一の実装**。tools/bin_roundtrip.py がこれをimportして使う
 # (二重実装禁止)。
-FORBIDDEN_BIN_STRINGS = ("VBProject", "AddFromString", "ExecuteExcel4Macro")
+FORBIDDEN_BIN_STRINGS = ("VBProject", "AddFromString", "ExecuteExcel4Macro",
+                          "VBComponents", "CodeModule")
 REPORT_BIN_STRINGS = ("WScript.Shell", "new:{")
 
 
