@@ -35,9 +35,7 @@ Public Sub InitUI()
 
     Application.ScreenUpdating = False
 
-    On Error Resume Next
-    Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",False)"
-    On Error GoTo 0
+    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
     On Error Resume Next
     Application.DisplayFormulaBar = False
     On Error GoTo 0
@@ -405,9 +403,7 @@ End Sub
 
 ' RestoreExcelUI - ネイティブUI復元
 Public Sub RestoreExcelUI()
-    On Error Resume Next
-    Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",True)"
-    On Error GoTo 0
+    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
     On Error Resume Next
     Application.DisplayFormulaBar = True
     Application.DisplayStatusBar = True
@@ -623,7 +619,7 @@ Public Sub Repaint()
 
     Application.ScreenUpdating = False
     On Error Resume Next
-    Application.ExecuteExcel4Macro "SHOW.TOOLBAR(""Ribbon"",False)"
+    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
     Application.DisplayFormulaBar = False
     Application.DisplayStatusBar = False
     ActiveWorkbook.AutoSaveOn = False
