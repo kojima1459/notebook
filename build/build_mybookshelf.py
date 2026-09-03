@@ -1928,12 +1928,14 @@ def _vba_src_text(root, m):
     txt = txt.replace("\r\n", "\n").replace("\r", "\n")
     out_lines = []
     # R35 波1: .cls のクラスヘッダ(VERSION 1.0 CLASS / BEGIN ... END)は VBE の
-    # エクスポート形式であってソースではない。配布方式B(build_baked_vba_project)
-    # はクラスモジュールも焼き込むため、Attribute 行と同じくここで落とす
-    # (riskconsulting の _vba_src_text と同じ規則:**先頭の連続ヘッダだけ**を
-    # 対象にし、本文の "End Sub"/"END" 等を巻き込まない)。
-    # installer モードの vba_src は非クラスのみが対象(_vba_src_modules)なので、
-    # .bas には VERSION/BEGIN/END の先頭ヘッダが無く、この分岐は素通り=本文不変。
+    # エクスポート形式であってソースではない(riskconsulting の _vba_src_text と
+    # 同じ規則:**先頭の連続ヘッダだけ**を対象にし、本文の "End Sub"/"END" 等を
+    # 巻き込まない)。09-03 敵対的レビュー班A m-4: 現状 build_baked_vba_project は
+    # _vba_src_modules(type=="class"を除外)しか回さないため、この分岐自体は
+    # 到達しない。.cls を焼く経路ができたときのために残す。
+    # BEGIN があって END が無い入力は、下の body_started が一度も真にならず
+    # 全行が飲み込まれ「先頭行が空白のみ」という原因の読めないBuildErrorに
+    # なるため、専用のBuildErrorをここで先に出す。
     in_cls_header = False
     body_started = False
     for line in txt.split("\n"):
@@ -1954,6 +1956,11 @@ def _vba_src_text(root, m):
         if stripped.lstrip().startswith("Attribute "):
             continue
         out_lines.append(stripped)
+    if in_cls_header:
+        raise BuildError(
+            f"{m['name']}: .clsヘッダの END が見つかりません"
+            "(BEGIN はあるが END が無い入力。ヘッダ除去がファイル全体を"
+            "飲み込んでしまうため中断します)")
     cleaned = _clean("\n".join(out_lines))
 
     # 2026-08-10(R23bH-F4): 整形後ソースの先頭行が空白のみ(空行/タブのみ)
