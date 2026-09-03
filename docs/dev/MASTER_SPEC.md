@@ -863,7 +863,7 @@ Public Sub Auto_Open() ' Boot呼び(ガード付き)
 Public Sub Auto_Close()' CancelAutoSync(必須!)+Application.StatusBar=False
 ```
 ThisWorkbook.cls は Workbook_Open→Boot / Workbook_BeforeClose→Auto_Close の薄い転送のみ
-(ビルド版ではインストーラがThisWorkbookを占有するため、実行時はAuto_Open/Auto_Closeが本命。両方書く=V2実証済み二重化)。
+(開発構成のみ。本番ビルドの ThisWorkbook は下記のとおり `Workbook_WindowResize` 転送だけで、起動は `Auto_Open` が担う)。
 
 **重要(2026-08-05 R18-1g・調査agent0で事実確認)**: `Workbook_BeforeClose` は
 **開発構成にしか存在しない**。本番(prod)ビルドの ThisWorkbook は `build_baked_thisworkbook()` 
