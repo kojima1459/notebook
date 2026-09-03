@@ -4,6 +4,16 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
+## 0R35. R35（配布方式の転換: 自己インストーラ → 完成品 vbaProject.bin・2026-09-03 起草・**GO待ち**）
+
+**起点**: 09-02 事務局の VBOM 異議 + Excel 落ち報告 / 09-02 AMSI 検知（受付番号 202609020376）/ 09-03 D: シャットダウン消滅の実測 / 09-03 姉妹PJ riskconsulting から `build/ovba_write.py` 提供。
+**裁定と実測のすべて** = `spec_20260903_R35_配布方式転換.md`（実装波はそれだけ読めば着手できる）。
+
+**状態（2026-09-03）**: 仕様書起草済み・実装未着手。riskconsulting のライターで MyBookshelf 155本の完成品 bin を作り、
+第三者実装（oletools.olevba）と別Office実装（LibreOffice 24.2.7 + libreoffice-calc）の両方で 155/155・157/157 を確認済み。
+**実Excel は未検証**。検証用ファイル（クリーン `--prod` + 方式B bin。キー無し）はセッションの scratchpad にあり、ユーザーの GO で渡す。
+**未回答の質問6件**は spec §8。**riskconsulting は一時公開中 → private に戻す必要あり。**
+
 ## 0R34. R34（外部レビュー裁定と検索精度強化・2026-08-20完了）
 
 **起点**: ユーザーが Gemini 3.1 Pro に依頼した外部レビュー（バグ指摘5件+RAG/UI改善提案）の裁定依頼。
