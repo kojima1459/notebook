@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ovba.py — MS-OVBA (VBAプロジェクト格納バイナリ) の圧縮/解凍と、
+ovba.py -- MS-OVBA (VBAプロジェクト格納バイナリ) の圧縮/解凍と、
           CFB (OLE Compound File Binary = vbaProject.bin の入れ物形式) の
           最小限リーダー。
 
@@ -48,9 +48,99 @@ MINI_SECTOR = 64
 
 
 # ---------------------------------------------------------------------------
-# MS-OVBA 圧縮 (2.4節) — Excel が内部で使う解凍アルゴリズムと対称。
+# MS-OVBA 圧縮 (2.4節) -- Excel が内部で使う解凍アルゴリズムと対称。
 # oletools.olevba.decompress_stream と往復可能なことを確認済み(V2実証済み)。
 # ---------------------------------------------------------------------------
+def _ovba_compress_chunk_fast(data: bytes) -> bytes:
+    """_ovba_compress_chunk と同じ形式を出す、3バイトハッシュ表つきの高速版。
+
+    なぜ要るか(裁定書27 W9-A):
+        自己インストーラ方式では圧縮対象が ThisWorkbook(約1KB)と dir だけ
+        だったので素朴な全窓走査で足りていた。配布方式Bは**全モジュール
+        (約1.5MB)**を圧縮するため、位置ごとに窓(最大4,096B)を舐める
+        O(n^2) では実用時間に収まらない。
+        そこで「3バイト一致の候補位置」だけをハッシュ表から引く。
+        候補が無い位置(=VBAソースでは大多数)が O(1) で片付く。
+
+    素朴版と出力バイト列が一致するとは限らない(同じ長さの一致が複数ある
+    とき、どの位置を選ぶかが違いうる)。**解凍結果は必ず一致する**ので
+    データとしては等価だが、`pad_to_exact` は「圧縮後サイズがちょうど
+    目標値に届くか」に依存するため、外科パッチ経路(installer)は素朴版の
+    ままにしてある(ovba_compress(fast=False) が既定)。
+    """
+    assert 1 <= len(data) <= 4096
+    pos = 0
+    out = bytearray()
+    table: dict[bytes, list[int]] = {}
+    n = len(data)
+    MAX_CANDIDATES = 96          # 直近から見る候補数の上限(速度と圧縮率の折衷)
+    while pos < n:
+        flag_pos = len(out)
+        out.append(0)
+        flag = 0
+        for bit in range(8):
+            if pos >= n:
+                break
+            if pos <= 16:
+                lbits, obits = 12, 4
+            elif pos <= 32:
+                lbits, obits = 11, 5
+            elif pos <= 64:
+                lbits, obits = 10, 6
+            elif pos <= 128:
+                lbits, obits = 9, 7
+            elif pos <= 256:
+                lbits, obits = 8, 8
+            elif pos <= 512:
+                lbits, obits = 7, 9
+            elif pos <= 1024:
+                lbits, obits = 6, 10
+            elif pos <= 2048:
+                lbits, obits = 5, 11
+            else:
+                lbits, obits = 4, 12
+
+            max_len = (1 << lbits) - 1 + 3
+            best_len = 0
+            best_off = 0
+            window_start = max(0, pos - (1 << obits))
+            if pos > 0 and (n - pos) >= 3:
+                cands = table.get(data[pos:pos + 3])
+                if cands:
+                    for k in range(len(cands) - 1, -1, -1):
+                        j = cands[k]
+                        if j < window_start:
+                            break
+                        if len(cands) - k > MAX_CANDIDATES:
+                            break
+                        m = 0
+                        while (m < max_len and pos + m < n
+                               and data[j + m] == data[pos + m]):
+                            m += 1
+                        if m > best_len:
+                            best_len = m
+                            best_off = j
+                            if m >= max_len:
+                                break
+
+            if best_len >= 3:
+                flag |= (1 << bit)
+                off_val = pos - best_off - 1
+                len_val = best_len - 3
+                out += struct.pack('<H', (off_val << lbits) | len_val)
+                for q in range(pos, pos + best_len):
+                    if q + 3 <= n:
+                        table.setdefault(data[q:q + 3], []).append(q)
+                pos += best_len
+            else:
+                if pos + 3 <= n:
+                    table.setdefault(data[pos:pos + 3], []).append(pos)
+                out.append(data[pos])
+                pos += 1
+        out[flag_pos] = flag
+    return bytes(out)
+
+
 def _ovba_compress_chunk(data: bytes) -> bytes:
     assert 1 <= len(data) <= 4096
     pos = 0
@@ -109,14 +199,20 @@ def _ovba_compress_chunk(data: bytes) -> bytes:
     return bytes(out)
 
 
-def ovba_compress(data: bytes) -> bytes:
-    """バイト列を OVBA CompressedContainer に圧縮する。"""
+def ovba_compress(data: bytes, fast: bool = False) -> bytes:
+    """バイト列を OVBA CompressedContainer に圧縮する。
+
+    fast=True で3バイトハッシュ表つきの高速版を使う(配布方式Bの全モジュール
+    圧縮用。解凍結果は同一だが圧縮後のバイト列は素朴版と一致しない)。
+    外科パッチ経路(pad_to_exact で目標長へ寄せる)は既定の素朴版を使う。
+    """
+    chunk_fn = _ovba_compress_chunk_fast if fast else _ovba_compress_chunk
     result = bytearray()
     result.append(0x01)  # SignatureByte
     offset = 0
     while offset < len(data):
         chunk = data[offset:offset + 4096]
-        compressed = _ovba_compress_chunk(chunk)
+        compressed = chunk_fn(chunk)
         if len(chunk) == 4096 and len(compressed) >= 4096:
             # 圧縮しても縮まらない場合は非圧縮チャンクを使う
             # (signature=0b011, flag=0, size field = 4095)。
@@ -190,7 +286,7 @@ def ovba_decompress(data: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# 空チャンク pad ヘルパー — In-place ストリーム置換(olefile.write_stream)は
+# 空チャンク pad ヘルパー -- In-place ストリーム置換(olefile.write_stream)は
 # バイト長が完全一致しないと使えないため、3バイト/5バイトの「解凍すると
 # ゼロバイトになる」空チャンクで圧縮後サイズをちょうど目標長に合わせる。
 # ---------------------------------------------------------------------------
@@ -213,7 +309,7 @@ def pad_to_exact(compressed: bytes, target: int) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# スケルトン CFB リーダー — vbaProject.bin から必要なストリームだけを
+# スケルトン CFB リーダー -- vbaProject.bin から必要なストリームだけを
 # 読み出す最小限の実装(書き込みは olefile に任せる。読み出し専用)。
 # ---------------------------------------------------------------------------
 class CFBReader:
@@ -231,10 +327,28 @@ class CFBReader:
         self.minifat_count = struct.unpack('<I', data[64:68])[0]
         self.fat_first = struct.unpack('<I', data[76:80])[0]
         self.dir_start = struct.unpack('<I', data[48:52])[0]
+        self.num_fat_sectors = struct.unpack('<I', data[44:48])[0]
+        self.difat_first = struct.unpack('<I', data[68:72])[0]
 
-        # FAT (スケルトンサイズを前提に単一セクタと仮定)。
-        fat_off = (self.fat_first + 1) * SECTOR_SIZE
-        self.fat = list(struct.unpack('<128I', data[fat_off:fat_off + SECTOR_SIZE]))
+        # FAT。DIFAT(ヘッダ内109本 + DIFATセクタ連鎖)を辿って全FATセクタを繋ぐ。
+        # 旧実装は「FATは単一セクタ」を前提にしていたが、配布方式B(裁定書27 W9-A)
+        # の完成品binは1MBを超えFATが数十セクタになるため、ここを一般化した。
+        difat = [struct.unpack('<I', data[76 + 4 * k:80 + 4 * k])[0]
+                 for k in range(109)]
+        sec = self.difat_first
+        per = SECTOR_SIZE // 4
+        while sec not in (ENDOFCHAIN, FREESECT) and (sec + 2) * SECTOR_SIZE <= len(data):
+            off = (sec + 1) * SECTOR_SIZE
+            block = list(struct.unpack('<%dI' % per, data[off:off + SECTOR_SIZE]))
+            difat.extend(block[:-1])
+            sec = block[-1]
+        self.fat = []
+        for fs in difat[:max(self.num_fat_sectors, 1)]:
+            if fs in (ENDOFCHAIN, FREESECT) or (fs + 2) * SECTOR_SIZE > len(data):
+                continue
+            off = (fs + 1) * SECTOR_SIZE
+            self.fat += list(struct.unpack('<%dI' % per,
+                                           data[off:off + SECTOR_SIZE]))
 
         # Mini FAT。
         self.minifat = []
