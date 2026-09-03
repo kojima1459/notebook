@@ -3193,6 +3193,26 @@ def verify_build(out_path, vba_mode, expected_vba_src_names, installer_src, mock
 # ---------------------------------------------------------------------------
 # メイン
 # ---------------------------------------------------------------------------
+def _default_out_fname(is_dev: bool, publisher: bool) -> str:
+    """既定の出力ファイル名(正規配布名)を1箇所から返す。installerモードの
+    正規名ガード(main内)と既定出力名の生成が別々の定義に分かれてズレる
+    (R35波2周目レビュー班C BLOCKER)のを防ぐため、双方がこの関数を使う。"""
+    if publisher:
+        return "MyBookshelf_発行者用_dev.xlsm" if is_dev else "MyBookshelf_発行者用.xlsm"
+    return "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
+
+
+def _canonical_out_paths(root: str) -> set:
+    """正規4名(dev/prod × 利用者用/発行者用)の絶対パス集合を返す。
+    _default_out_fname と同じ組み合わせを列挙するだけの薄いラッパ。"""
+    names = {
+        _default_out_fname(is_dev, publisher)
+        for is_dev in (False, True)
+        for publisher in (False, True)
+    }
+    return {os.path.abspath(os.path.join(root, "dist", n)) for n in names}
+
+
 def _sweep_build_leftovers(dist_dir: str) -> None:
     """dist/ に残った *.building.xlsm / *.failed.xlsm を消す(R12-H-7)。
     消せなくてもビルドは続ける(掃除の失敗で配布物を作れなくしない)。"""
@@ -3257,19 +3277,25 @@ def main():
             "です。配布物が要るときは既定の --vba-mode baked を使ってください。"
         )
 
-    # 09-03 敵対的レビュー班A M-2: installer は開発用フォールバックであり、
-    # 正規配布名(dist/MyBookshelf*.xlsm)を書けてしまうと「dist/ に baked と
-    # installer のどちらが出荷物か分からないファイルが並ぶ」事故になる。
-    # --out を明示しない(=既定の正規配布名へ書く)installer 呼び出しは止める。
-    if args.vba_mode == "installer" and not args.out:
+    root = os.path.abspath(args.root)
+    is_dev = bool(args.dev)
+    mock_llm = is_dev
+
+    if args.out:
+        out_path = os.path.abspath(args.out)
+    else:
+        out_path = os.path.join(root, "dist", _default_out_fname(is_dev, args.publisher))
+
+    # 09-03 敵対的レビュー班A M-2 / 班C BLOCKER(2周目): installer は開発用
+    # フォールバックであり、正規配布名(dist/MyBookshelf*.xlsm)を書けてしまうと
+    # 「dist/ に baked と installer のどちらが出荷物か分からないファイルが
+    # 並ぶ」事故になる。--out の「有無」ではなく出力先の「値」で判定する
+    # (--out で正規名そのものを指定しても素通りしていた抜け穴を塞ぐ)。
+    if args.vba_mode == "installer" and out_path in _canonical_out_paths(root):
         sys.exit(
             "ERROR(BuildError): installer モードの成果物は正規配布名で書けません。"
             "--out で別名を指定してください。"
         )
-
-    root = os.path.abspath(args.root)
-    is_dev = bool(args.dev)
-    mock_llm = is_dev
 
     # 2026-07-28(レビュー H-17): 配布ビルドにAzureキーを焼き込ませない。
     # このブックは全社員へ配る前提で、難読化はXOR+16進の可逆変換、鍵も
@@ -3304,14 +3330,7 @@ def main():
         print(f"注意: {PUBLISH_KEY_ENV} が設定されていますが、--publisher が無いため"
               "焼き込みません(利用者用ビルドとして作ります)。")
 
-    if args.out:
-        out_path = os.path.abspath(args.out)
-    else:
-        if args.publisher:
-            fname = "MyBookshelf_発行者用_dev.xlsm" if is_dev else "MyBookshelf_発行者用.xlsm"
-        else:
-            fname = "MyBookshelf_dev.xlsm" if is_dev else "MyBookshelf.xlsm"
-        out_path = os.path.join(root, "dist", fname)
+    # out_path は上(installerモードの正規名ガード)で既に確定済み。
 
     # 2026-08-01(R12-H-7): 前回の中断・失敗で残った中間生成物を先に片付ける。
     # *.building は Stage5→6 の途中経過、*.failed は自己検証に落ちた不良品。
