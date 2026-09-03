@@ -411,7 +411,7 @@ End Sub
 '   実機で「modViewport2.BadgeRowsFor が見つかりません」の形で表面化する。
 '   逆に厳しすぎると(末尾空行1本の環境差で偽陽性)、二度と起動できない
 '   配布物になる。両側の境界をここで固定する。
-'   ※ VI() 自体は VBProject/Worksheets に触れるためLO純粋テストからは呼べない
+'   ※ VI() 自体は VBAプロジェクト/Worksheets に触れるためLO純粋テストからは呼べない
 '     (modOutlineBuild.BuildOutlineFor 等の既存注記と同型)。VI() が使うのは
 '     この2本と「実測行数の末尾空行トリム」だけで、後者はCodeModule.Lines を
 '     読む1ループなのでコードレビューで担保する。
@@ -429,7 +429,7 @@ Private Sub TestInstallCheckLineCount()
     modTestRunner.Check "R23b_一致(3行/3行)は不一致でない", _
         (modInstallCheck.LineCountMismatch(src3, 3) = False)
 
-    ' (3) 不足: 部分注入(AddFromStringが途中で切れた)は必ず捕まる。
+    ' (3) 不足: 部分注入(旧文字列注入APIが途中で切れた)は必ず捕まる。
     modTestRunner.Check "R23b_不足(3行/実測2行)は不一致", _
         (modInstallCheck.LineCountMismatch(src3, 2) = True)
     modTestRunner.Check "R23b_モジュール不在(実測-1)は不一致", _
@@ -439,7 +439,7 @@ Private Sub TestInstallCheckLineCount()
     modTestRunner.Check "R23b_超過(3行/実測4行)は不一致", _
         (modInstallCheck.LineCountMismatch(src3, 4) = True)
 
-    ' (5) 末尾空行1本の揺れは一致扱い。AddFromStringは環境によって末尾に
+    ' (5) 末尾空行1本の揺れは一致扱い。旧文字列注入APIは環境によって末尾に
     '     空行を1本足したり足さなかったりする。ここで偽陽性にすると
     '     「絶対にセットアップが完了しない配布物」になる。
     Dim src3nl As String

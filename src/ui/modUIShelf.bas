@@ -661,7 +661,7 @@ End Function
 Private Function StatusIcon(ByVal status As String) As String
     ' 実機報告(2026-07-22)「状態列が全部？になる」対策: ここだけVBEソースに
     ' 絵文字を直書きしたままで、他所で確定・修正済みの文字化けバグ(自己
-    ' インストーラのAddFromString往復でリテラル絵文字が壊れる)を踏んでいた。
+    ' インストーラの注入往復でリテラル絵文字が壊れる)を踏んでいた。
     ' ChrWのコードポイント指定に統一する。
     Select Case LCase$(status)
         Case "done"
