@@ -176,6 +176,25 @@ def check_book(book: Path) -> list[str]:
     if extra:
         errors.append(f"{book.name}: 台帳に無いモジュールが載っています: {extra}")
 
+    # --- [7] ThisWorkbook に Workbook_Open が無いこと(spec §2-2・班B MAJOR-2。
+    # ThisWorkbook は WindowResize 転送のみで、起動は modBoot.Auto_Open が担う。
+    # Workbook_Open を置くと Auto_Open と合わせて Boot が2回走るため fail-closed
+    # で検査する。build_mybookshelf.build_baked_thisworkbook() 側の同条件と対)
+    tw_info = bin_mods.get("ThisWorkbook")
+    if tw_info is None:
+        errors.append(f"{book.name}: ThisWorkbook モジュールが配布binにありません")
+    else:
+        tw_src = tw_info["source"]
+        tw_text = tw_src.decode("cp932", errors="replace") \
+            if isinstance(tw_src, bytes) else tw_src
+        has_open = "Workbook_Open" in tw_text
+        print(f"[7] ThisWorkbook の Workbook_Open: "
+              f"{'あり(失格)' if has_open else 'なし'}")
+        if has_open:
+            errors.append(
+                f"{book.name}: ThisWorkbook に Workbook_Open が含まれています"
+                "(spec §2-2: Auto_Open との二重Boot実行を避けるため禁止)")
+
     # --- [2] モジュール数と集合 ----------------------------------------------
     print(f"[2] モジュール集合: 台帳{len(want)}本 / bin(document除く){len(std_got)}本"
           f" / document module {sorted(doc_names)}")

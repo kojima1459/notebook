@@ -2292,16 +2292,17 @@ def _neutralize_vba_project(stream: bytes) -> bytes:
 # フォールバック)は下の patch_installer 以下に従来どおり残る。
 # ===========================================================================
 
-# spec §2-2: baked モードの ThisWorkbook(document module)本文そのもの。
-# Application.Run ではなく modBoot.Boot を直接呼ぶ(§2-2 の理由: 全モジュールが
-# 最初から入っているので遅延結合が要らず、コンパイル不能ならここで見える方が
-# 良い。src/ui/ThisWorkbook.cls と同じ形)。Workbook_BeforeClose は入れない
-# (modBoot.Auto_Close との二重実行を避けるため。§2-2 参照)。
+# spec §2-2(09-03 レビュー班B MAJOR-2 裁定変更): baked モードの ThisWorkbook
+# (document module)本文そのもの。Workbook_Open は持たない。起動は旧方式と
+# 同じく Excel が自動実行する modBoot.Auto_Open(標準モジュール)が担う。
+# ThisWorkbook に Workbook_Open を置くと Auto_Open と合わせて Boot が2回走る
+# (2周目は gBootDone 分岐で3画面を再描画し共有フォルダへ実I/Oを打つ。R8 F3
+# の「起動中に共有I/Oを走らせない」設計を破る)。旧方式(installer)でも実際の
+# 起動経路は Auto_Open で、インストーラの OnTime 予約は Auto_Open→Boot の
+# CancelPendingInstallerBoot が取り消していた=新しい前提ではない。
+# Workbook_BeforeClose も入れない(modBoot.Auto_Close との二重実行を避ける)。
 _BAKED_THISWORKBOOK_BODY = (
     "Option Explicit\n"
-    "Private Sub Workbook_Open()\n"
-    "    modBoot.Boot\n"
-    "End Sub\n"
     "Private Sub Workbook_WindowResize(ByVal Wn As Window)\n"
     "    On Error Resume Next\n"
     "    modViewport.OnWindowResized\n"
@@ -2312,11 +2313,17 @@ _BAKED_THISWORKBOOK_BODY = (
 def build_baked_thisworkbook() -> str:
     """spec §2-2 の固定文字列を返す(ASCII限定を自己検証する)。
     document module の属性行(Attribute VB_Base 等)はここでは付けない
-    (ovba_write.module_stream_source(..., "document") が付ける)。"""
+    (ovba_write.module_stream_source(..., "document") が付ける)。
+    Workbook_Open を含まないことも明示検査する(班B MAJOR-2。将来誰かが
+    足したらここで赤にする=起動時Boot二重実行の再発を機械的に止める)。"""
     try:
         _BAKED_THISWORKBOOK_BODY.encode("ascii")
     except UnicodeEncodeError as e:
         raise BuildError(f"build_baked_thisworkbook はASCII限定です(spec §2-2): {e}")
+    if "Workbook_Open" in _BAKED_THISWORKBOOK_BODY:
+        raise BuildError(
+            "build_baked_thisworkbook に Workbook_Open が含まれています"
+            "(spec §2-2: Auto_Open との二重Boot実行を避けるため禁止)")
     return _BAKED_THISWORKBOOK_BODY
 
 
