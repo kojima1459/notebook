@@ -6,8 +6,8 @@ ovba_write.py -- MS-OVBA 準拠の vbaProject.bin **ライター**(裁定書27 W
 出典(移植元・R35 波1 で取り込み):
     姉妹PJ riskconsulting のリポジトリ
       ブランチ: claude/ai-risk-consulting-spec-review-91o5y5
-      コミット: cf628c1
-    build/ovba_write.py(595行)をそのまま取り込んだもの。**本体には手を
+      コミット: 759e41b
+    build/ovba_write.py(639行)をそのまま取り込んだもの。**本体には手を
     入れない**(向こうが vbaexport.cxx / MS-OVBA ABNF 突合で修正版を出す
     可能性があり、来たら差し替えるだけで済むようにするため)。MyBookshelf
     固有の呼び出し(ThisWorkbook 本文・CP932 replace 等)は呼び出し側
@@ -183,6 +183,8 @@ def build_modules_section(modules, cookie: bytes, codepage: str = "cp932") -> by
 # ===========================================================================
 # PROJECT ストリームから「写す」行(MS-OVBA 2.3.1)。ここに無い行
 # (Document=/Module=/Class=/[Workspace])はモジュール台帳から生成する。
+# CMG/DPB/GC はプロジェクトの保護状態・パスワード・可視性の暗号化値であり、
+# モジュール数とは無関係(モジュール構成を変えても再計算不要でそのまま写せる)。
 PROJECT_COPY_KEYS = (
     "ID", "Name", "HelpContextID", "Description", "VersionCompatible32",
     "CMG", "DPB", "GC",
@@ -255,7 +257,25 @@ def build_projectwm(modules, codepage: str = "cp932") -> bytes:
 # 3. CFB ライター
 # ===========================================================================
 def _cfb_sort_key(name: str):
-    """MS-CFB のディレクトリ兄弟順(名前長 → 大文字化して比較)。"""
+    """MS-CFB のディレクトリ兄弟順(名前長 → 大文字化して比較)。
+
+    [MS-CFB] 2.6.4 は比較に先立って UTF-16 コードポイントを特定の大文字化
+    テーブルで変換すると規定しており、Python の str.upper()(Unicode既定の
+    大文字化)と ASCII の範囲では一致するが、非ASCII文字では一致する保証が
+    ない。本ライターが焼くストリーム名(モジュール名・"dir"・"PROJECT" 等の
+    固定名)はすべて ASCII のはずであり、非ASCIIが来た場合は
+    Python の大文字化で兄弟順を誤り、[MS-CFB] 非準拠のCFBを書き出す恐れが
+    ある(Excel/LOでの読み込み失敗や兄弟順不一致に繋がりうる)。安全側に倒し
+    fail-closed で止める。
+    """
+    try:
+        name.encode("ascii")
+    except UnicodeEncodeError as e:
+        raise OvbaWriteError(
+            "CFB エントリ名に非ASCII文字があります: %r。[MS-CFB] 2.6.4 の大文字化"
+            "規則は非ASCII文字について Python の str.upper() と一致する保証が無く、"
+            "兄弟順(ディレクトリ木)を誤って書き出す恐れがあるため fail-closed で"
+            "停止します: %s" % (name, e))
     return (len(name), name.upper())
 
 
@@ -473,9 +493,19 @@ _ATTR_CLASS = (
     'Attribute VB_PredeclaredId = False\r\n'
     'Attribute VB_Exposed = False\r\n'
 )
+# document module の VB_Base は「そのドキュメントのCOMクラスのGUID」であり、
+# ブック本体(Workbook)とワークシート(Worksheet)とで異なる([MS-OVBA] は
+# VB_Base をホストが解釈する不透明な文字列としてのみ規定するが、Excel が
+# 実際に埋め込む値はホストのタイプライブラリのGUIDに一致する)。
+# 現状 build_baked_vba_project が焼くのは ThisWorkbook(Workbook)だけだが、
+# 将来シートモジュールを焼く経路が増えても正しいGUIDを選べるよう分岐できる
+# ようにしておく。
+_VB_BASE_WORKBOOK = "00020819"   # Excel.Workbook
+_VB_BASE_WORKSHEET = "00020820"  # Excel.Worksheet
+
 _ATTR_DOCUMENT = (
     'Attribute VB_Name = "%s"\r\n'
-    'Attribute VB_Base = "0{00020819-0000-0000-C000-000000000046}"\r\n'
+    'Attribute VB_Base = "0{%s-0000-0000-C000-000000000046}"\r\n'
     'Attribute VB_GlobalNameSpace = False\r\n'
     'Attribute VB_Creatable = False\r\n'
     'Attribute VB_PredeclaredId = True\r\n'
@@ -486,16 +516,20 @@ _ATTR_DOCUMENT = (
 
 
 def module_stream_source(name: str, body: str, module_type: str,
-                         attributes: str | None = None) -> bytes:
+                         attributes: str | None = None,
+                         doc_base_guid: str = _VB_BASE_WORKBOOK) -> bytes:
     """モジュールストリームへ入れるソース(属性行 + 本文)を CP932/CRLF で作る。
 
     attributes を与えた場合はそれを使う(.cls の元ヘッダを保つとき用)。
+    doc_base_guid は module_type="document" のときだけ使う VB_Base のGUIDで、
+    ブック(既定・_VB_BASE_WORKBOOK)かシート(_VB_BASE_WORKSHEET)かを呼び出し側
+    が選ぶ。現行の呼び出しは ThisWorkbook のみなので既定のままでよい。
     """
     if attributes is None:
         if module_type == "class":
             attributes = _ATTR_CLASS % name
         elif module_type == "document":
-            attributes = _ATTR_DOCUMENT % name
+            attributes = _ATTR_DOCUMENT % (name, doc_base_guid)
         else:
             attributes = _ATTR_STD % name
     text = body.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")

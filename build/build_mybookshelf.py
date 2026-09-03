@@ -62,8 +62,10 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 import olefile
 
 # ovba.py は同ディレクトリの自己完結モジュール(OVBA圧縮/解凍・CFBリーダー)。
+# ovba_write.py は配布方式B(R35)の vbaProject.bin ライター(riskconsulting 移植)。
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ovba
+import ovba_write
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROOT = os.path.dirname(SCRIPT_DIR)                      # mybookshelf/
