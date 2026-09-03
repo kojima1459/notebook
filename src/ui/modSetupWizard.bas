@@ -107,6 +107,10 @@ Public Sub RunFirstRunWizard()
     Step1Dept
     Step2ShareFolder
     modState.SaveState WIZARD_DONE_KEY, "1"
+    ' R35: 方式Bでは Install の Save が無くなり、初回の pack_author/部門/
+    ' 共有パス/この印が「保存しない」で失われる。初回ウィザードが走った回
+    ' だけここで1回保存する(読み取り専用なら無言で従来どおり)。
+    ThisWorkbook.Save
     On Error GoTo 0
 End Sub
 
