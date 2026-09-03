@@ -2466,6 +2466,11 @@ def document_module_sanity_errors(name: str, source: bytes,
     return errors
 
 
+# 09-03 敵対的レビュー班A m-1: vbaProjectストレージ直下の固定ストリーム名
+# (大小文字を区別しない。空文字列はストレージ自身を指すため同様に禁止)。
+_RESERVED_STREAM_NAMES = frozenset({"dir", "_vba_project", "project", "projectwm", ""})
+
+
 def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
     """spec §2-11・§4波1-4: 完成品 vbaProject.bin を組み立てる。
 
@@ -2516,6 +2521,17 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
         encoded, replaced = _baked_std_module_bytes(m["name"], body)
         replaced_total += replaced
         vmods.append(ovba_write.VbaModule(m["name"], encoded, "std"))
+
+    # 09-03 敵対的レビュー班A m-1: モジュール名がCFBの固定ストリーム名
+    # (dir/_VBA_PROJECT/PROJECT/PROJECTwm)と衝突すると、ovba_write.py本体を
+    # 通さずとも書き出したbinが壊れる(該当ストリームを上書きしてしまう)。
+    # ovba_write.py本体には手を入れず、こちら側で先に fail-closed で止める。
+    for vm in vmods:
+        if vm.name.lower() in _RESERVED_STREAM_NAMES:
+            raise BuildError(
+                f"モジュール名'{vm.name}'がCFBの固定ストリーム名と衝突します"
+                f"(予約名: {sorted(_RESERVED_STREAM_NAMES)})。"
+                "vbaProject.binの該当ストリームを上書きしてしまうため中断します。")
 
     vba_project_stream = _neutralize_vba_project(
         ovba.CFBReader(template_bin).read("_VBA_PROJECT"))
