@@ -77,7 +77,6 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `usage_log` | hidden | 利用ログ(1行=1質問/1操作) |
 | `err_log` | hidden | エラーログ |
 | `ui_state` | veryHidden | UI内部状態(モード選択等) |
-| `vba_src` | veryHidden | 自己インストーラ用ソース格納(ビルド時生成) |
 
 **my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded, norm_text`
 - norm_text(10列目・2026-08-01 R12-4追加): 照合用の正規化済みテキスト
@@ -972,19 +971,20 @@ modPrompts(出典形式・打ち切り)、manifest差分ロジック(modShelfSyn
 
 ## 10. ビルド仕様(build_mybookshelf.py)
 
-- `build/build_chatbot_v2.py` の実証機構(template_skeleton.xlsm + openpyxlシート生成 + vbaProject.bin の
-  ThisWorkbook/dirストリーム外科パッチ + vba_src自己インストーラ)を **mybookshelf/build/ にコピーして独立させる**
-  (make_xlsm.pyの圧縮関数含む。元ファイルは変更しない)。template_skeleton.xlsm もコピー。
-- インストーラは `modBoot.Boot` を起動(cp932エンコード制約により installer 内文字列はASCIIのみ)。
+- R35(方式B)によりビルドが完成品 vbaProject.bin を生成する(`build/ovba_write.py`・`--vba-mode baked` 既定)。
+  `build/build_chatbot_v2.py` の実証機構を **mybookshelf/build/ にコピーして独立させ**、
+  R35で riskconsulting の `ovba_write.py` を追加移植(出典コミット記載)。
+  template_skeleton.xlsm もコピー。
 - モジュールリストはマニフェスト(`build/modules.json`)で管理: `{"name","path","role":"core|opt|test"}`。
-  **opt機能の撤去=このJSONから1行削除+configフラグFALSEでビルド**、を保証。
+  **opt機能の撤去=このJSONから1行削除でビルド**、を保証。
 - `--dev`(mock_llm=TRUE, テストモジュール同梱)/`--prod`(mock_llm=FALSE, テスト同梱は維持=診断用)。
-- シート生成: §4の全シート+ヘッダ+config初期値(C列に日本語説明)+使い方シート本文+管理者向けシート本文(R31波3)。
+  `--vba-mode installer`は1リリース限りの開発用フォールバック。次ラウンド削除予定。
+- シート生成: §4の全22シート(vba_src除外)+ヘッダ+config初期値(C列に日本語説明)+使い方シート本文+管理者向けシート本文(R31波3)。
 - 可視シートのタブ色は `build_mybookshelf.py` の `TAB_COLORS` が唯一の台帳(使い方=緑/ホーム=青/マイ本棚=オレンジ/
   ダッシュボード=紫/管理者向け=灰。管理者向けだけ一般利用者の4色系と別系統にして「発行担当専用タブ」と
   一目で分かるようにしている)。
-- ビルド後自己検証(同スクリプト内): 再オープンして全シート存在・vba_srcモジュール数一致・
-  各ソースセル≤32,000字・olefileでThisWorkbookストリーム復元確認。検証失敗はexit 1。
+- ビルド後自己検証(同スクリプト内): 再オープンして全シート存在・モジュール集合一致・各本文がバイト一致・
+  ThisWorkbook仕様準拠・全MODULEOFFSET=0・_VBA_PROJECT無害化・Sheet1 codeName確認。検証失敗はexit 1。
 
 ## 11. テスト計画(3層)
 
