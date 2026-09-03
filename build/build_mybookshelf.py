@@ -2685,6 +2685,51 @@ def _verify_baked_build(out_path, present_modules, root):
     except Exception as e:
         errors.append(f"baked: 禁止文字列検査中に例外: {e}")
 
+    # ⑦ ThisWorkbook本文が参照する modX.Proc の綴りが実在すること(班A M-3)。
+    # ThisWorkbookはdocument moduleでありLOの隔離コンパイル(run_lo_tests)に
+    # 載らないため、これが唯一の綴り検査になる。
+    errors.extend(_thisworkbook_reference_errors(root))
+
+    return errors
+
+
+_THISWORKBOOK_REF_RE = re.compile(r"\b(mod[A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _thisworkbook_reference_errors(root: str) -> list:
+    """spec波2追加(班A M-3): build_baked_thisworkbook()の本文に出てくる
+    modX.Proc形の参照(現状はmodViewport.OnWindowResizedのみ)について、
+    src/**/modX.bas に 'Public Sub Proc' または 'Public Function Proc' が
+    実在することを確認する。無ければリストへ理由を追加して返す(空なら合格)。
+    ThisWorkbookはLOの隔離コンパイルに載らないので、これが唯一の綴り検査。"""
+    errors = []
+    body = build_baked_thisworkbook()
+    seen = set()
+    for mod_name, proc_name in _THISWORKBOOK_REF_RE.findall(body):
+        key = (mod_name, proc_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        import glob as _glob
+        hits = _glob.glob(os.path.join(root, "src", "**", mod_name + ".bas"), recursive=True)
+        if not hits:
+            errors.append(
+                f"baked: ThisWorkbookが参照する'{mod_name}.{proc_name}'の"
+                f"モジュールファイル'{mod_name}.bas'がsrc配下に見つかりません")
+            continue
+        try:
+            with open(hits[0], encoding="utf-8") as fp:
+                src_text = fp.read()
+        except Exception as e:
+            errors.append(f"baked: '{hits[0]}' の読み込みに失敗: {e}")
+            continue
+        proc_re = re.compile(
+            r"(?im)^\s*Public\s+(Sub|Function)\s+" + re.escape(proc_name) + r"\b")
+        if not proc_re.search(src_text):
+            errors.append(
+                f"baked: ThisWorkbookが参照する'{mod_name}.{proc_name}'が"
+                f"'{os.path.relpath(hits[0], root)}'にPublic Sub/Functionとして"
+                "見つかりません(綴り誤りの可能性)")
     return errors
 
 
