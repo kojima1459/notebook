@@ -17,9 +17,9 @@ Option Explicit
 '   への転送だけを行う。ロジックは一切ここに置かない。
 '
 ' 設計判断:
-'   ・ビルド版ではインストーラ(vba_src自己インストーラ)がThisWorkbookを
-'     占有するため、実行時はmodBoot.Auto_Open / modBoot.Auto_Closeが本命
-'     という二重化設計になっている(§7.6末尾)。このイベントハンドラは
+'   ・R35で本番のThisWorkbookはWorkbook_Openを持たなくなった(§2-2)
+'     ため、実行時はmodBoot.Auto_Open / modBoot.Auto_Closeが本命という
+'     二重化設計になっている(§7.6末尾)。このイベントハンドラは
 '     「Workbook_Openが正常に動く環境」での保険的な経路として残す。
 '   ・§7の公開契約(vba_lint CONTRACT)により、ThisWorkbookはPublicメンバー
 '     0件が正(closed契約)。Workbook_Open/Workbook_BeforeCloseは必ず
@@ -38,8 +38,8 @@ End Sub
 ' 右と下に空白が残り続けていた。実体(デバウンス・再入抑止・OnTimeの
 ' 後始末)は modViewport 側。ここは転送だけで、失敗しても握りつぶす
 ' (イベントで例外を出すとExcelがイベントを止めてしまう)。
-' 本番ビルドの ThisWorkbook ストリームは自己インストーラが占有するため、
-' そちら(build_mybookshelf.py の _INSTALLER_SRC_TEXT)にも同じ転送がある。
+' 本番ビルド(baked)は _BAKED_THISWORKBOOK_BODY をそのまま焼き込むため、
+' そちら(build_mybookshelf.py)にも同じ転送がある。
 Private Sub Workbook_WindowResize(ByVal Wn As Window)
     On Error Resume Next
     modViewport.OnWindowResized
@@ -47,8 +47,8 @@ End Sub
 
 Private Sub Workbook_BeforeClose(Cancel As Boolean)
     ' R13-4d: 取込中の×クリックは、確認してからにする(いいえ=閉じない)。
-    ' 本番ビルドのThisWorkbookストリームは自己インストーラが占有していて
-    ' このイベント自体を持たないため、これは開発構成でだけ効く経路。
+    ' 本番のThisWorkbookはこのイベントを持たない設計(§2-2)のため、
+    ' これは開発構成でだけ効く経路。
     ' 終了ボタン(modApp.OnSaveAndExit)側にも同じ確認が入っている。
     If Not modUiLock.ConfirmCloseDuringIngest() Then
         Cancel = True

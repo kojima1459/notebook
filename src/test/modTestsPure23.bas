@@ -383,8 +383,9 @@ Private Sub TestSidebarActiveContrastR23()
     ' 決まりのため、このテストからThanksCountを書き換えて強制解放することは
     ' できない(既定0件=全未解放の状態でしか検証できない)。よってこの3テーマは
     ' 「既定状態でmsadのsidebarActiveへ正しくフォールバックすること」を検証する
-    ' (Select Case内の個々のRGBリテラルそのものはExcel実機のModule検査
-    ' [FA-R23-1c、vba_src本文がsrc/と完全一致することの検査]で保護される)。
+    ' (Select Case内の個々のRGBリテラルそのものはビルド時のモジュール本文
+    ' バイト比較[R35: Stage6の自己検証・tools/bin_roundtrip.py]で保護される。
+    ' 旧FA-R23-1cが見ていたvba_src本文比較は方式B転換でこの経路に替わった)。
     modTestRunner.Check "R23_sakuraのsidebarActiveは未解放時msadへフォールバック", _
         (modSkin.ResolveColor("sidebarActive", "sakura") = modSkin.ResolveColor("sidebarActive", "msad"))
     modTestRunner.Check "R23_oceanのsidebarActiveは未解放時msadへフォールバック", _
@@ -411,10 +412,11 @@ End Sub
 '   実機で「modViewport2.BadgeRowsFor が見つかりません」の形で表面化する。
 '   逆に厳しすぎると(末尾空行1本の環境差で偽陽性)、二度と起動できない
 '   配布物になる。両側の境界をここで固定する。
-'   ※ VI() 自体は VBAプロジェクト/Worksheets に触れるためLO純粋テストからは呼べない
-'     (modOutlineBuild.BuildOutlineFor 等の既存注記と同型)。VI() が使うのは
-'     この2本と「実測行数の末尾空行トリム」だけで、後者はVBEモジュール本文取得API を
-'     読む1ループなのでコードレビューで担保する。
+'   ※ VI() 自体は R35 で方式Bへ転換した際に削除済み(旧: VBAプロジェクト/
+'     Worksheetsに触れるためLO純粋テストからは呼べなかった。modOutlineBuild.
+'     BuildOutlineFor 等の既存注記と同型)。VI() が使っていたのはこの2本と
+'     「実測行数の末尾空行トリム」だけで、後者はVBEモジュール本文取得APIを
+'     読む1ループだったのでコードレビューで担保していた。
 ' ============================================================================
 Private Sub TestInstallCheckLineCount()
     Dim src3 As String

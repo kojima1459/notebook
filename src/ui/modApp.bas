@@ -675,8 +675,8 @@ Public Sub OnLangCycle()
     cur = modConfig.GetString("answer_language", "日本語")
 
     ' 2026-07-28(レビュー H-16): "Tiếng Việt" をリテラルで書けない。
-    ' このブックは起動のたび vba_src のソースを VBE へ注入するが、VBE は
-    ' コードを CP932 で保持するため、CP932 に無い ế/ệ はリテラル "?" として
+    ' R35(方式B)以降、ビルドがモジュール本文を CP932 で
+    ' vbaProject.bin へ焼き込むため、CP932 に無い ế/ệ はリテラル "?" として
     ' 保存される。結果、ボタン表示も config に保存される値も "Ti?ng Vi?t" に
     ' なり、LLM への言語指定まで壊れていた(vbaProject.bin の実バイトで確認済み)。
     ' ChrW で組み立てれば、ソースは ASCII のまま実行時に正しい文字になる。
@@ -802,7 +802,7 @@ Public Sub OnSaveAndExit()
     modUiLock.Leave
 
     ' 2026-08-01(R12-1-2): 終了時の後始末を明示的に実行してから閉じる。
-    ' 本番ビルドの ThisWorkbook ストリームは自己インストーラが占有していて
+    ' 本番のThisWorkbookはWindowResize転送のみ(R35)で
     ' Workbook_BeforeClose を持たず、かつ Excel は「VBAから呼んだ Close」では
     ' Auto_Close マクロを実行しない。つまりこの終了ボタン経由で閉じると
     ' 後始末が一切走らず、
