@@ -62,7 +62,8 @@ qa層やpack層のロジックから呼ぶことは禁止(`tools/vba_lint.py` �
 Excelのセル/数式バー/グリッド線を全て隠し(`modUI.InitUI`)、1枚のワーク
 シート(`Nexus`)上にShape(図形)だけでチャットUIを組む。ボタンは
 `Shape.OnAction`にVBAプロシージャ名を文字列で紐付ける(ハイパーリンク方式は
-自己インストーラ配布と両立しないため不採用)。
+不採用＝R31実機でOnActionが死ぬため。R35以前は「自己インストーラ配布と両立しない」
+という判断だったが、方式Bへ転換しても同理由で不採用のまま)。
 
 ### 3.2 画面構成
 - サイドバー(`nx_sb_*`): ナビ(チャット/倉庫/ダッシュボード/再描画)、
@@ -231,16 +232,13 @@ flowchart LR
 
 ## 8. ビルド・配布アーキテクチャ
 
-- `build/build_mybookshelf.py --dev|--prod` が `src/**/*.bas` 全モジュールを
-  `vba_src`シート(veryHidden)へ文字列として埋め込んだテンプレート`.xlsm`を
-  生成する。
-- 実行時、自己インストーラ(`ThisWorkbook`の`Workbook_Open`/`Auto_Open`)が
-  `vba_src`シートを読んで`VBComponents.Add`で標準モジュールを動的注入する
-  (Excel保護ビュー・信頼設定の制約下でも、ファイルコピーだけで配布できる
-  ようにするための設計)。
+- **R35（2026-09-03）で方式B へ転換**。`build/build_mybookshelf.py --dev|--prod`（既定`--vba-mode baked`）が
+  `build/ovba_write.py` を呼んで完成品 `vbaProject.bin` を生成。155本モジュール
+  +ThisWorkbook+Sheet1 を焼き込み、配布物は即座に動作する（実行時注入なし）。
+- `--vba-mode installer`（開発用フォールバック）は1リリース限りの残置。方式A の
+  自己インストーラ配布が必要なら使用。次ラウンドで削除予定。
 - 新規`.bas`を追加したら必ず `build/modules.json` に登録すること
-  (登録漏れは`vba_src`に埋め込まれず、実行時に「モジュールが見つからない」
-  エラーになる)。
+  (登録漏れはビルド段階で検出・エラーになる)。
 - closed契約モジュール(`modStats`/`modAsk`/`modAppDef`/`modConfig`/
   `modUtil`等)へPublicメンバーを追加する場合は、`tools/vba_lint.py`の
   `CONTRACT`辞書も同時更新が必須(でないと lint が「契約違反」でエラーにする)。

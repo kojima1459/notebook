@@ -20,7 +20,6 @@
 | `usage_log` | hidden | ビルド時固定 | 操作ログ(1行=1イベント) |
 | `err_log` | hidden | ビルド時固定 | エラーログ |
 | `ui_state` | veryHidden | ビルド時固定 | UI内部状態(モード・テーマ・会話復元・ツアー完了フラグ) |
-| `vba_src` | veryHidden | ビルド時固定 | 自己インストーラ用ソース格納 |
 | `Nexus` | visible | **実行時動的生成** | Nexus SPAのキャンバス(`modUI.GetOrCreateNexusSheet`) |
 | `Dashboard` | visible | **実行時動的生成** | Nexus専用ダッシュボード(`modDash`) |
 
