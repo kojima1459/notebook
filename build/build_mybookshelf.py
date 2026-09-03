@@ -1930,8 +1930,30 @@ def _vba_src_text(root, m):
         txt = fp.read()
     txt = txt.replace("\r\n", "\n").replace("\r", "\n")
     out_lines = []
+    # R35 波1: .cls のクラスヘッダ(VERSION 1.0 CLASS / BEGIN ... END)は VBE の
+    # エクスポート形式であってソースではない。配布方式B(build_baked_vba_project)
+    # はクラスモジュールも焼き込むため、Attribute 行と同じくここで落とす
+    # (riskconsulting の _vba_src_text と同じ規則:**先頭の連続ヘッダだけ**を
+    # 対象にし、本文の "End Sub"/"END" 等を巻き込まない)。
+    # installer モードの vba_src は非クラスのみが対象(_vba_src_modules)なので、
+    # .bas には VERSION/BEGIN/END の先頭ヘッダが無く、この分岐は素通り=本文不変。
+    in_cls_header = False
+    body_started = False
     for line in txt.split("\n"):
         stripped = line.lstrip("﻿")
+        if not body_started:
+            bare = stripped.strip()
+            if in_cls_header:
+                if bare == "END":
+                    in_cls_header = False
+                continue
+            if bare.startswith("VERSION ") and bare.endswith("CLASS"):
+                continue
+            if bare == "BEGIN":
+                in_cls_header = True
+                continue
+            if bare != "" and not bare.startswith("Attribute "):
+                body_started = True
         if stripped.lstrip().startswith("Attribute "):
             continue
         out_lines.append(stripped)
