@@ -861,9 +861,9 @@ ThisWorkbook.cls は Workbook_Open→Boot / Workbook_BeforeClose→Auto_Close �
 (ビルド版ではインストーラがThisWorkbookを占有するため、実行時はAuto_Open/Auto_Closeが本命。両方書く=V2実証済み二重化)。
 
 **重要(2026-08-05 R18-1g・調査agent0で事実確認)**: `Workbook_BeforeClose` は
-**開発構成にしか存在しない**。本番(prod)ビルドは自己インストーラが ThisWorkbook
-ストリームを占有し `Workbook_Open` しか持たない(build/build_mybookshelf.py:1002-1010、
-build/modules.json に明記)。`modBoot.Auto_Close` には Cancel 引数が無く閉鎖を止められない。
+**開発構成にしか存在しない**。本番(prod)ビルドの ThisWorkbook は `build_baked_thisworkbook()` 
+の固定文字列で、`Workbook_WindowResize` の転送のみ。`Workbook_Open` は持たず、起動は 
+`modBoot.Auto_Open` が担う。`modBoot.Auto_Close` には Cancel 引数が無く閉鎖を止められない。
 したがって **R11 C1 / R13-4d の「取込中の終了禁止ガード」(modUiLock.ConfirmCloseDuringIngest)は
 本番では動いていない**。実機で×が効かないのはこのガードの働きではなく、
 `DisableProcessWindowsGhosting`(config freeze_keep_banner 既定on)により
