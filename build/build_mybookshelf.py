@@ -5,6 +5,13 @@ build_mybookshelf.py — 「マイ本棚AI」ビルドスクリプト。
 mybookshelf/dist/MyBookshelf.xlsm (または MyBookshelf_dev.xlsm) を生成する。
 
 --------------------------------------------------------------------------
+R35(spec_20260903_R35_配布方式転換.md): 既定の --vba-mode は baked(方式B・
+完成品 vbaProject.bin を build_baked_vba_project が書く)。以下1〜6の
+「自己インストーラ外科パッチ」の説明は --vba-mode installer(1リリース
+限りの開発用フォールバック)にのみ当てはまる。baked モードの説明は
+build_baked_thisworkbook / build_baked_vba_project / build/ovba_write.py
+の docstring を参照。
+
 アーキテクチャ(V2 = /home/user/notebook/build/build_chatbot_v2.py で実証済みの機構を
 mybookshelf/ 配下へ自己完結コピーしたもの。V2側のファイルは一切 import/変更しない):
 
@@ -83,6 +90,9 @@ MODULE_CONTRACT_LIMIT = 30000   # MASTER_SPEC §7 の契約上限(1モジュー�
 GUARD_SHEET_NAME = "はじめにお読みください"
 
 # MASTER_SPEC §4 のシート定義(名前 -> 可視性)。ビルド完了判定・自己検証の両方で使う。
+# R35 波1(spec §2-3・§3): vba_src は installer モード専用のシートなので、
+# ここ(グローバル定数)には含めない。モードによる分岐は expected_sheets() が
+# 関数として持つ(「グローバル定数の書換で分岐しない」という繋ぎ目の指示)。
 EXPECTED_SHEETS = {
     GUARD_SHEET_NAME: "visible",
     "使い方": "visible",
@@ -125,8 +135,17 @@ EXPECTED_SHEETS = {
     # 飛ぶ。最初から在れば、その経路は「壊れたブックの自己修復」だけになる。
     "ocr_cache": "veryHidden",
     "insight_inbox": "hidden",
-    "vba_src": "veryHidden",
 }
+
+
+def expected_sheets(vba_mode: str) -> dict:
+    """モード別の期待シート集合を返す(名前 -> 可視性)。
+    R35 波1: baked(既定・配布方式B)は vba_src シートを持たない。
+    installer(開発用フォールバック・spec §2-1)は従来どおり vba_src を足す。"""
+    sheets = dict(EXPECTED_SHEETS)
+    if vba_mode == "installer":
+        sheets["vba_src"] = "veryHidden"
+    return sheets
 
 # 可視シートのタブ色 (MASTER_SPEC §10 ビルド仕様): 使い方=緑, ホーム=青, マイ本棚=オレンジ,
 # ダッシュボード=紫, 管理者向け=灰(R31波3: 一般利用者の4色系とは別系統にして
@@ -261,26 +280,6 @@ _README_TEXT = (
     "  開いた直後、画面の上に黄色い帯で「セキュリティの警告」と出たら、\n"
     "  その中の「コンテンツの有効化」ボタンを押してください。\n"
     "  有効化しないと、案内画面が表示されるだけで実際の機能が使えません。\n"
-    "\n"
-    "【4. 「Setup NG」と出たときは】\n"
-    "  このファイルは、開くたびに自分自身を組み立て直してから起動します。\n"
-    "  組み立てが最後まで終わらなかったときだけ、赤い x 印の小さな画面が\n"
-    "  出ます。日本語の「セットアップ検証NG」の OK を押した直後に、続けて\n"
-    "  英字の「Setup NG(数字)」が出ることがあります(小さな画面が続けて\n"
-    "  2枚出ることがあります。1枚だけのこともあります)。\n"
-    "  ★ そのときは【保存しないで】閉じて、もう一度開いてください。\n"
-    "     1. 出てきた画面の「OK」を押します(2枚続けて出た場合は、\n"
-    "        どちらも「OK」を押してください)。\n"
-    "     2. 右上の x でファイルを閉じます。\n"
-    "        (「保存しますか」と聞かれたら必ず「保存しない」を選んでください)\n"
-    "     3. もう一度「MyBookshelfを起動.bat」から開きます。\n"
-    "  組み立ての材料はファイルの中に丸ごと残っているので、開き直すだけで\n"
-    "  自動的に最初からやり直します。多くの場合これで直ります。\n"
-    "  ※ 保存してしまうと、組み立て途中の状態がファイルに焼き付いて、\n"
-    "     次から毎回同じ画面が出るようになります。必ず保存せずに閉じてください。\n"
-    "  ※ 何度開き直しても同じ画面が出る場合は、他のExcelをすべて閉じてから\n"
-    "     もう一度試し、それでも直らなければ配布元へ連絡してください\n"
-    "     (画面に出ていたモジュール名をそのまま伝えていただけると助かります)。\n"
     "\n"
     "{doc_guide}"
     "\n"
@@ -1085,14 +1084,10 @@ def _make_howto(wb):
     kv("入れられる資料", "PDF / Word / Excel / テキスト / 画面のスクリーンショット", 0)
     note("※ 契約者名・電話番号などの個人情報を含む資料は入れないでください。")
 
-    section("はじめに 1回だけやること(ここで9割の人がつまずきます)", "B45F06")
+    section("はじめに 1回だけやること", "B45F06")
     step("1", "このファイルをExcelで開く。")
     step("2", "画面の上に黄色い帯で「セキュリティの警告」と出たら、その中の\n「コンテンツの有効化」ボタンを押す。", warn=True)
-    step("3", "[ファイル] → [オプション] → [トラストセンター] →\n[トラストセンターの設定] → [マクロの設定] と進む。")
-    step("4", "「VBAプロジェクトオブジェクトモデルへのアクセスを信頼する」に\nチェックを入れて [OK]。", warn=True)
-    step("5", "Excelをいったん全部閉じて、もう一度このファイルを開く。")
-    step("6", "数秒待つと画面が自動で組み上がります。これで準備完了です。")
-    note("英語で「VBA Project trust required」と出たときは、手順3〜4がまだ終わっていない合図です。\nこのファイルは初回に自分で画面を組み立てる作りなので、この許可が必要です。")
+    step("3", "数秒待つと画面が自動で組み上がります。これで準備完了です。")
     back_to_toc(toc_header_row)
 
     # ==== ② 画面の説明 ======================================================
@@ -2292,9 +2287,225 @@ def _neutralize_vba_project(stream: bytes) -> bytes:
     return bytes(out)
 
 
+# ===========================================================================
+# R35 波1: 配布方式B(裁定書27 W9-A・spec_20260903_R35_配布方式転換.md)
+# 完成品 vbaProject.bin をビルド時に書く(build/ovba_write.py 移植を使う)。
+# --vba-mode baked(既定)側の実装。installer(1リリース限りの開発用
+# フォールバック)は下の patch_installer 以下に従来どおり残る。
+# ===========================================================================
+
+# spec §2-2: baked モードの ThisWorkbook(document module)本文そのもの。
+# Application.Run ではなく modBoot.Boot を直接呼ぶ(§2-2 の理由: 全モジュールが
+# 最初から入っているので遅延結合が要らず、コンパイル不能ならここで見える方が
+# 良い。src/ui/ThisWorkbook.cls と同じ形)。Workbook_BeforeClose は入れない
+# (modBoot.Auto_Close との二重実行を避けるため。§2-2 参照)。
+_BAKED_THISWORKBOOK_BODY = (
+    "Option Explicit\n"
+    "Private Sub Workbook_Open()\n"
+    "    modBoot.Boot\n"
+    "End Sub\n"
+    "Private Sub Workbook_WindowResize(ByVal Wn As Window)\n"
+    "    On Error Resume Next\n"
+    "    modViewport.OnWindowResized\n"
+    "End Sub\n"
+)
+
+
+def build_baked_thisworkbook() -> str:
+    """spec §2-2 の固定文字列を返す(ASCII限定を自己検証する)。
+    document module の属性行(Attribute VB_Base 等)はここでは付けない
+    (ovba_write.module_stream_source(..., "document") が付ける)。"""
+    try:
+        _BAKED_THISWORKBOOK_BODY.encode("ascii")
+    except UnicodeEncodeError as e:
+        raise BuildError(f"build_baked_thisworkbook はASCII限定です(spec §2-2): {e}")
+    return _BAKED_THISWORKBOOK_BODY
+
+
+def _cp932_encode_replace(text: str):
+    """text を CP932 へエンコードする。1文字ずつ試み、表現できない文字は
+    '?' へ置換して数える(§2-5: 置換した文字数を自己検証で報告するため、
+    Python標準の errors="replace" に頼らず自前でカウントする)。
+    戻り値: (encoded: bytes, replaced_count: int)"""
+    out = bytearray()
+    replaced = 0
+    for ch in text:
+        try:
+            out += ch.encode("cp932")
+        except UnicodeEncodeError:
+            out += b"?"
+            replaced += 1
+    return bytes(out), replaced
+
+
+def _baked_std_module_bytes(name: str, body: str):
+    """標準モジュール1本のモジュールストリーム本文(Attribute行+CRLF本文)を
+    CP932(置換あり)で作る。ovba_write.module_stream_source と同じ正規化を
+    行うが、置換ができないと本体側は例外を投げる(strict encode)ため、
+    ここでは呼ばずに同じ変換を自前で行う(§2-5の裁定はコメントの?置換を
+    許すが、それは呼び出し側の裁量であって ovba_write.py 本体には無い)。"""
+    text = body.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+    if text and not text.endswith("\r\n"):
+        text += "\r\n"
+    full = (ovba_write._ATTR_STD % name) + text
+    return _cp932_encode_replace(full)
+
+
+def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
+    """spec §2-11・§4波1-4: 完成品 vbaProject.bin を組み立てる。
+
+    - ThisWorkbook: build_baked_thisworkbook() の固定文字列(document module。
+      VB_Base はブックのGUID=既定)。
+    - Sheet1: template_bin の document module のうち ThisWorkbook 以外
+      (=Sheet1。09-03追記の裁定: MyBookshelfはriskconsultingと違いSheet1を
+      残す)を read_modules() で取り出し、ソースをそのまま(Attribute行込み・
+      Excelが書いたVB_Base込み)写す。
+    - 標準モジュール(_vba_src_modules と同じ判定=155本。class型のThisWorkbook
+      とvba_src=Falseは除く): _vba_src_text → CRLF化 → Attribute VB_Name行 →
+      CP932(§2-5: コード行はlint ERRORで塞がれているため置換はコメントにしか
+      起きない。置換文字数を合算して返す)。
+    - _VBA_PROJECT は _neutralize_vba_project 済みの版を渡す(installerパッチと
+      同じPerformanceCache無害化。R23c-F1)。
+
+    戻り値: (vba_bin: bytes, replaced_chars: int)
+    """
+    tw_body = build_baked_thisworkbook()
+    tw_src = ovba_write.module_stream_source("ThisWorkbook", tw_body, "document")
+    vmods = [ovba_write.VbaModule("ThisWorkbook", tw_src, "document")]
+
+    tmpl_modules = ovba_write.read_modules(template_bin)
+    other_docs = [(nm, info) for nm, info in tmpl_modules.items()
+                  if info["type"] == "document" and nm != "ThisWorkbook"]
+    if len(other_docs) != 1 or other_docs[0][0] != "Sheet1":
+        raise BuildError(
+            "template_skeleton.xlsm の document module 構成が想定外です"
+            "(baked モードは ThisWorkbook + Sheet1 の2本を前提にしている。"
+            f"実際に見つかった document module: "
+            f"{['ThisWorkbook'] + [n for n, _ in other_docs]})")
+    sheet1_name, sheet1_info = other_docs[0]
+    vmods.append(ovba_write.VbaModule(sheet1_name, sheet1_info["source"], "document"))
+
+    replaced_total = 0
+    for m in _vba_src_modules(shipped_modules):
+        body = _vba_src_text(root, m)
+        encoded, replaced = _baked_std_module_bytes(m["name"], body)
+        replaced_total += replaced
+        vmods.append(ovba_write.VbaModule(m["name"], encoded, "std"))
+
+    vba_project_stream = _neutralize_vba_project(
+        ovba.CFBReader(template_bin).read("_VBA_PROJECT"))
+    vba_bin = ovba_write.build_vba_project(
+        template_bin, vmods, vba_project_stream=vba_project_stream)
+    return vba_bin, replaced_total
+
+
+def _verify_baked_build(out_path, present_modules, root):
+    """spec §2-7: baked モードの読み戻し検査。
+    ①モジュール集合=台帳 ②各本文が_vba_src_textの結果とバイト一致
+    ③ThisWorkbookが§2-2と一致 ④全MODULEOFFSET=0
+    ⑤_VBA_PROJECT Version=0xFFFF・PerformanceCacheゼロ埋め
+    + 成果物のいずれかのワークシートXMLが codeName="Sheet1" を持つこと
+    (Sheet1 document module が孤児でない証跡)。"""
+    errors = []
+
+    try:
+        with zipfile.ZipFile(out_path) as z:
+            vba_bin = z.read("xl/vbaProject.bin")
+            sheet1_codename_found = any(
+                b'codeName="Sheet1"' in z.read(n)
+                for n in z.namelist()
+                if n.startswith("xl/worksheets/") and n.endswith(".xml")
+            )
+    except Exception as e:
+        return [f"baked bin: 成果物zipの読み出しに失敗: {e}"]
+
+    if not sheet1_codename_found:
+        errors.append(
+            "成果物のどのワークシートXMLにも codeName=\"Sheet1\" がありません"
+            "(Sheet1 document module が孤児化している可能性。spec §2-11 09-03追記)")
+
+    try:
+        got = ovba_write.read_modules(vba_bin)
+    except Exception as e:
+        return errors + [f"baked bin: ovba_write.read_modulesでの読み戻しに失敗: {e}"]
+
+    # ① モジュール集合=台帳(155本の標準モジュール + ThisWorkbook + Sheet1)
+    expected_names = {m["name"] for m in present_modules} | {"Sheet1"}
+    got_names = set(got.keys())
+    if got_names != expected_names:
+        errors.append(
+            f"baked: モジュール集合が台帳と不一致: "
+            f"台帳のみ={sorted(expected_names - got_names)} "
+            f"成果物のみ={sorted(got_names - expected_names)}")
+
+    # ② 各標準モジュールの本文が _vba_src_text の結果とバイト一致
+    for m in _vba_src_modules(present_modules):
+        nm = m["name"]
+        if nm not in got:
+            errors.append(f"baked: 標準モジュール'{nm}'が成果物にありません")
+            continue
+        want, _ = _baked_std_module_bytes(nm, _vba_src_text(root, m))
+        if got[nm]["source"] != want:
+            pos = _first_diff_pos(want, got[nm]["source"])
+            errors.append(
+                f"baked: '{nm}'の本文が_vba_src_textの結果とバイト不一致 "
+                f"(先頭差分位置={pos}バイト目, 期待{len(want)}B/実際{len(got[nm]['source'])}B)")
+
+    # ③ ThisWorkbook が spec §2-2 と一致
+    if "ThisWorkbook" not in got:
+        errors.append("baked: ThisWorkbook モジュールが成果物にありません")
+    else:
+        want_tw = ovba_write.module_stream_source(
+            "ThisWorkbook", build_baked_thisworkbook(), "document")
+        if got["ThisWorkbook"]["source"] != want_tw:
+            errors.append("baked: ThisWorkbookの本文がspec §2-2の固定文字列と不一致")
+
+    # ④ 全 MODULEOFFSET=0(dirストリームを直接なめる。ovba_write.iter_dir_records
+    #    を使い、本体には手を入れずに検査だけこちらで行う)。
+    try:
+        dir_dec = ovba.ovba_decompress(ovba.CFBReader(vba_bin).read("dir"))
+        bad_offsets = []
+        cur_name = None
+        for _off, rid, _size, body in ovba_write.iter_dir_records(dir_dec):
+            if rid == ovba_write.REC_MODULENAME:
+                cur_name = body.decode("cp932", errors="replace")
+            elif rid == ovba_write.REC_MODULEOFFSET:
+                val = struct.unpack("<I", body)[0]
+                if val != 0:
+                    bad_offsets.append((cur_name, val))
+        if bad_offsets:
+            errors.append(f"baked: MODULEOFFSETが0でないモジュールがあります: {bad_offsets}")
+    except Exception as e:
+        errors.append(f"baked: dirストリームのMODULEOFFSET検査中に例外: {e}")
+
+    # ⑤ _VBA_PROJECT Version=0xFFFF・PerformanceCacheゼロ埋め(R23c-F2と同じ検査)
+    try:
+        vp = ovba.CFBReader(vba_bin).read("_VBA_PROJECT")
+        if len(vp) != _VBA_PROJECT_STREAM_SIZE:
+            errors.append(
+                f"baked: _VBA_PROJECTストリームのサイズが変化しています: "
+                f"期待={_VBA_PROJECT_STREAM_SIZE}バイト 実際={len(vp)}バイト")
+        else:
+            ver = struct.unpack("<H", vp[2:4])[0]
+            if ver != _VBA_PROJECT_VERSION_IGNORE:
+                errors.append(
+                    f"baked: _VBA_PROJECTのVersionが0x{_VBA_PROJECT_VERSION_IGNORE:04X}"
+                    f"ではありません(実際=0x{ver:04X})")
+            nonzero = sum(1 for b in vp[_VBA_PROJECT_CACHE_OFFSET:] if b != 0)
+            if nonzero:
+                errors.append(
+                    f"baked: _VBA_PROJECTのPerformanceCacheがゼロ埋めされていません"
+                    f"(非ゼロ={nonzero}バイト)")
+    except Exception as e:
+        errors.append(f"baked: _VBA_PROJECT検査中に例外: {e}")
+
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # vbaProject.bin 外科パッチ (ThisWorkbookストリーム差し替え + dir MOFFSET=0
 #                            + _VBA_PROJECT のPerformanceCache無害化)
+# --vba-mode installer(1リリース限りの開発用フォールバック。spec §2-1)専用。
 # ovba.py の低レベル関数(圧縮/解凍/CFBReader/pad)だけを使い、
 # インストーラ文字列などプロダクト固有の中身はここに閉じ込める。
 # ---------------------------------------------------------------------------
@@ -2562,8 +2773,12 @@ def _verify_r32_config_defaults(got_values):
 
 
 # ---------------------------------------------------------------------------
-def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expected,
+def verify_build(out_path, vba_mode, expected_vba_src_names, installer_src, mock_llm_expected,
                  present_modules=None, root=None):
+    """ビルド後自己検証(MASTER_SPEC §10)。vba_mode で installer/baked を分岐する
+    (R35 波1・spec §3「verify_build の引数」)。installer 側の検査項目は完全に
+    従来どおり(引数の意味も不変)。baked 側は §2-7 の読み戻し5項目 +
+    Sheet1 codeName 証跡を _verify_baked_build() が担う。"""
     errors = []
 
     try:
@@ -2571,8 +2786,9 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
     except Exception as e:
         return [f"再オープン失敗: {e}"]
 
+    sheets_for_mode = expected_sheets(vba_mode)
     got_sheets = set(wb2.sheetnames)
-    want_sheets = set(EXPECTED_SHEETS.keys())
+    want_sheets = set(sheets_for_mode.keys())
     if got_sheets != want_sheets:
         errors.append(f"シート集合が不一致: 期待={sorted(want_sheets)} 実際={sorted(got_sheets)}")
 
@@ -2586,44 +2802,51 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
         errors.append(
             f"アクティブシートが'{GUARD_SHEET_NAME}'ではありません: 実際={active_title!r}")
 
-    for name, state in EXPECTED_SHEETS.items():
+    for name, state in sheets_for_mode.items():
         if name in wb2.sheetnames:
             actual = wb2[name].sheet_state
             if actual != state:
                 errors.append(f"シート'{name}'の可視性不一致: 期待={state} 実際={actual}")
 
-    if "vba_src" in wb2.sheetnames:
-        ws = wb2["vba_src"]
-        got_names = []
-        r = 2
-        while ws.cell(row=r, column=1).value:
-            nm = ws.cell(row=r, column=1).value
-            src = ws.cell(row=r, column=3).value or ""
-            got_names.append(nm)
-            if len(src) > EXCEL_CELL_LIMIT:
+    if vba_mode == "installer":
+        if "vba_src" in wb2.sheetnames:
+            ws = wb2["vba_src"]
+            got_names = []
+            r = 2
+            while ws.cell(row=r, column=1).value:
+                nm = ws.cell(row=r, column=1).value
+                src = ws.cell(row=r, column=3).value or ""
+                got_names.append(nm)
+                if len(src) > EXCEL_CELL_LIMIT:
+                    errors.append(
+                        f"vba_src '{nm}' のソースが{len(src)}字でExcelセル上限"
+                        f"({EXCEL_CELL_LIMIT})を超過")
+                r += 1
+            if sorted(got_names) != sorted(expected_vba_src_names):
                 errors.append(
-                    f"vba_src '{nm}' のソースが{len(src)}字でExcelセル上限"
-                    f"({EXCEL_CELL_LIMIT})を超過")
-            r += 1
-        if sorted(got_names) != sorted(expected_vba_src_names):
-            errors.append(
-                f"vba_srcモジュール集合が不一致: 期待={sorted(expected_vba_src_names)} "
-                f"実際={sorted(got_names)}")
-        # FA-R23-1c: モジュール名の集合だけでなく本文まで突き合わせる。
-        # 実機第9報①(注入されたモジュールに手続きが無い)のように、名前は
-        # 揃っているのに中身が欠けている配布物を出荷段階で止めるため。
-        # 期待値は _vba_src_text() ＝ ビルド時にC列を作ったのと同じ関数から
-        # 作り直す(整形ロジックを二重実装しない)。
-        if present_modules is not None and root is not None:
-            errors.extend(
-                _verify_vba_src_bodies(ws, got_names, present_modules, root))
+                    f"vba_srcモジュール集合が不一致: 期待={sorted(expected_vba_src_names)} "
+                    f"実際={sorted(got_names)}")
+            # FA-R23-1c: モジュール名の集合だけでなく本文まで突き合わせる。
+            # 実機第9報①(注入されたモジュールに手続きが無い)のように、名前は
+            # 揃っているのに中身が欠けている配布物を出荷段階で止めるため。
+            # 期待値は _vba_src_text() ＝ ビルド時にC列を作ったのと同じ関数から
+            # 作り直す(整形ロジックを二重実装しない)。
+            if present_modules is not None and root is not None:
+                errors.extend(
+                    _verify_vba_src_bodies(ws, got_names, present_modules, root))
+            else:
+                # 2026-08-10(R23H-MI-3): 未指定を黙ってスキップすると検査が
+                # 実施されたかのように見えてしまう(exit 0で通過)。本文検査が
+                # 実質未実施だったことをerrorsへ明示的に積み、失格扱いにする。
+                errors.append("vba_src本文検査: 未実施(present_modules/rootが未指定)")
         else:
-            # 2026-08-10(R23H-MI-3): 未指定を黙ってスキップすると検査が
-            # 実施されたかのように見えてしまう(exit 0で通過)。本文検査が
-            # 実質未実施だったことをerrorsへ明示的に積み、失格扱いにする。
-            errors.append("vba_src本文検査: 未実施(present_modules/rootが未指定)")
+            errors.append("vba_src シートが存在しない")
     else:
-        errors.append("vba_src シートが存在しない")
+        # R35 波1(spec §2-3・波4班B「残骸」): baked モードに vba_src が
+        # 残っていたら方式Aの痕跡が消えていない証拠なので不合格にする。
+        if "vba_src" in wb2.sheetnames:
+            errors.append("vba_src シートが baked モードの成果物に残っています"
+                           "(方式Aの痕跡。expected_sheets(baked)には含まれないはず)")
 
     if "config" in wb2.sheetnames:
         ws = wb2["config"]
@@ -2642,66 +2865,73 @@ def verify_build(out_path, expected_vba_src_names, installer_src, mock_llm_expec
             errors.append(f"config のキー数が期待({len(build_config_rows(mock_llm_expected))})と不一致: {n_keys}")
         errors.extend(_verify_r32_config_defaults(got_values))
 
-    try:
-        with zipfile.ZipFile(out_path) as z:
-            vba_bin = z.read("xl/vbaProject.bin")
-        cfb = ovba.CFBReader(vba_bin)
-        tw_dec = ovba.ovba_decompress(cfb.read("ThisWorkbook"))
-        # 空チャンクpaddingは圧縮後バイト長をぴったり揃えるためのものだが、
-        # 解凍すると末尾にNULバイトが数バイト付加される(OVBA圧縮チャンクの
-        # 性質上、5バイト変形チャンクは実際には2バイトのゼロ値に解凍される。
-        # 3バイト変形は0バイト)。VBAコンパイラは末尾のNULを無視するため実害は
-        # ないが、ここでは「先頭が完全一致し、余剰があるならNULバイトのみ」を
-        # もって復元確認とする(V2実証済み挙動)。
-        tail = tw_dec[len(installer_src):]
-        if not tw_dec.startswith(installer_src) or any(b != 0 for b in tail):
-            errors.append("ThisWorkbookストリームの復元結果が自己インストーラソースと不一致"
-                           "(先頭一致+末尾NULパディングという想定パターンから外れている)")
+    if vba_mode == "installer":
+        try:
+            with zipfile.ZipFile(out_path) as z:
+                vba_bin = z.read("xl/vbaProject.bin")
+            cfb = ovba.CFBReader(vba_bin)
+            tw_dec = ovba.ovba_decompress(cfb.read("ThisWorkbook"))
+            # 空チャンクpaddingは圧縮後バイト長をぴったり揃えるためのものだが、
+            # 解凍すると末尾にNULバイトが数バイト付加される(OVBA圧縮チャンクの
+            # 性質上、5バイト変形チャンクは実際には2バイトのゼロ値に解凍される。
+            # 3バイト変形は0バイト)。VBAコンパイラは末尾のNULを無視するため実害は
+            # ないが、ここでは「先頭が完全一致し、余剰があるならNULバイトのみ」を
+            # もって復元確認とする(V2実証済み挙動)。
+            tail = tw_dec[len(installer_src):]
+            if not tw_dec.startswith(installer_src) or any(b != 0 for b in tail):
+                errors.append("ThisWorkbookストリームの復元結果が自己インストーラソースと不一致"
+                               "(先頭一致+末尾NULパディングという想定パターンから外れている)")
 
-        dir_dec = ovba.ovba_decompress(cfb.read("dir"))
-        needle = struct.pack("<HI", 0x0019, len("ThisWorkbook")) + b"ThisWorkbook"
-        idx = dir_dec.find(needle)
-        moffset_ok = False
-        if idx >= 0:
-            i = idx
-            while i < len(dir_dec):
-                rid = struct.unpack("<H", dir_dec[i:i + 2])[0]
-                sz = struct.unpack("<I", dir_dec[i + 2:i + 6])[0]
-                if rid == 0x0031:
-                    val = struct.unpack("<I", dir_dec[i + 6:i + 10])[0]
-                    moffset_ok = (val == 0)
-                    break
-                i += 6 + sz
-        if not moffset_ok:
-            errors.append("dirストリームのThisWorkbook.MOFFSETが0になっていない")
+            dir_dec = ovba.ovba_decompress(cfb.read("dir"))
+            needle = struct.pack("<HI", 0x0019, len("ThisWorkbook")) + b"ThisWorkbook"
+            idx = dir_dec.find(needle)
+            moffset_ok = False
+            if idx >= 0:
+                i = idx
+                while i < len(dir_dec):
+                    rid = struct.unpack("<H", dir_dec[i:i + 2])[0]
+                    sz = struct.unpack("<I", dir_dec[i + 2:i + 6])[0]
+                    if rid == 0x0031:
+                        val = struct.unpack("<I", dir_dec[i + 6:i + 10])[0]
+                        moffset_ok = (val == 0)
+                        break
+                    i += 6 + sz
+            if not moffset_ok:
+                errors.append("dirストリームのThisWorkbook.MOFFSETが0になっていない")
 
-        # R23c-F2: _VBA_PROJECT が無害化されていることの読み戻し検査。
-        # (a)サイズ不変 (b)Version==0xFFFF (c)PerformanceCache全ゼロ
-        vp = cfb.read("_VBA_PROJECT")
-        if len(vp) != _VBA_PROJECT_STREAM_SIZE:
-            errors.append(
-                f"_VBA_PROJECTストリームのサイズが変化しています: "
-                f"期待={_VBA_PROJECT_STREAM_SIZE}バイト 実際={len(vp)}バイト")
+            # R23c-F2: _VBA_PROJECT が無害化されていることの読み戻し検査。
+            # (a)サイズ不変 (b)Version==0xFFFF (c)PerformanceCache全ゼロ
+            vp = cfb.read("_VBA_PROJECT")
+            if len(vp) != _VBA_PROJECT_STREAM_SIZE:
+                errors.append(
+                    f"_VBA_PROJECTストリームのサイズが変化しています: "
+                    f"期待={_VBA_PROJECT_STREAM_SIZE}バイト 実際={len(vp)}バイト")
+            else:
+                ver = struct.unpack("<H", vp[2:4])[0]
+                if ver != _VBA_PROJECT_VERSION_IGNORE:
+                    errors.append(
+                        f"_VBA_PROJECTのVersionが0x{_VBA_PROJECT_VERSION_IGNORE:04X}では"
+                        f"ありません(実際=0x{ver:04X})。開き手のOfficeビルドと一致すると"
+                        "PerformanceCacheがソースより優先され、幽霊コンパイルエラーの原因になります")
+                nonzero = sum(1 for b in vp[_VBA_PROJECT_CACHE_OFFSET:] if b != 0)
+                if nonzero:
+                    errors.append(
+                        f"_VBA_PROJECTのPerformanceCacheがゼロ埋めされていません"
+                        f"(非ゼロ={nonzero}バイト)")
+
+            # olefile側でも同一バイナリを開けることを確認(異なる実装での復元確認)。
+            ole = olefile.OleFileIO(io.BytesIO(vba_bin))
+            if not ole.exists("VBA/ThisWorkbook") or not ole.exists("VBA/dir"):
+                errors.append("olefileでVBA/ThisWorkbookまたはVBA/dirストリームが検出できない")
+            ole.close()
+        except Exception as e:
+            errors.append(f"vbaProject.bin検証中に例外: {e}")
+    else:
+        # R35 波1(spec §2-7): baked モードの読み戻し5項目 + Sheet1 codeName証跡。
+        if present_modules is None or root is None:
+            errors.append("baked bin検査: 未実施(present_modules/rootが未指定)")
         else:
-            ver = struct.unpack("<H", vp[2:4])[0]
-            if ver != _VBA_PROJECT_VERSION_IGNORE:
-                errors.append(
-                    f"_VBA_PROJECTのVersionが0x{_VBA_PROJECT_VERSION_IGNORE:04X}では"
-                    f"ありません(実際=0x{ver:04X})。開き手のOfficeビルドと一致すると"
-                    "PerformanceCacheがソースより優先され、幽霊コンパイルエラーの原因になります")
-            nonzero = sum(1 for b in vp[_VBA_PROJECT_CACHE_OFFSET:] if b != 0)
-            if nonzero:
-                errors.append(
-                    f"_VBA_PROJECTのPerformanceCacheがゼロ埋めされていません"
-                    f"(非ゼロ={nonzero}バイト)")
-
-        # olefile側でも同一バイナリを開けることを確認(異なる実装での復元確認)。
-        ole = olefile.OleFileIO(io.BytesIO(vba_bin))
-        if not ole.exists("VBA/ThisWorkbook") or not ole.exists("VBA/dir"):
-            errors.append("olefileでVBA/ThisWorkbookまたはVBA/dirストリームが検出できない")
-        ole.close()
-    except Exception as e:
-        errors.append(f"vbaProject.bin検証中に例外: {e}")
+            errors.extend(_verify_baked_build(out_path, present_modules, root))
 
     return errors
 
@@ -2752,7 +2982,26 @@ def main():
                      help="ビルド後、完成した.xlsm + dist/Ghostscript を "
                           "dist/MyBookshelf[_発行者用]_配布.zip へ梱包する"
                           "(大規模配布用。既定ビルドの挙動は変えない)")
+    ap.add_argument("--vba-mode", choices=("baked", "installer"), default="baked",
+                     dest="vba_mode",
+                     help="vbaProject.bin の作り方(R35 spec §2-1)。"
+                          "baked(既定・配布方式B)=ビルドが完成品binを書く"
+                          "(vba_srcシート・VBComponents.Add・AddFromStringが"
+                          "配布物から消える)。installer=1リリース限りの開発用"
+                          "フォールバック(従来の自己インストーラ外科パッチ。"
+                          "--zipとの併用不可)")
     args = ap.parse_args()
+
+    # R35 spec §2-1: installer(AMSI検知済みの自己インストーラ形)は開発用の
+    # フォールバックであり、配布経路(--zip)に乗せない。BuildError相当で止める。
+    if args.vba_mode == "installer" and args.zip:
+        sys.exit(
+            "ERROR(BuildError): --vba-mode installer は --zip と併用できません。\n"
+            "  installer モードは自己インストーラ外科パッチ(2026-09-02 に社内AVの"
+            "AMSIで検知され採用禁止になった形)を再生成する開発用フォールバックで、\n"
+            "  配布経路に乗せないことが裁定(spec_20260903_R35_配布方式転換.md §2-1)"
+            "です。配布物が要るときは既定の --vba-mode baked を使ってください。"
+        )
 
     root = os.path.abspath(args.root)
     is_dev = bool(args.dev)
@@ -2835,8 +3084,9 @@ def main():
     wb = openpyxl.load_workbook(args.template, keep_vba=True)
     print(f"  初期シート: {wb.sheetnames}")
 
-    print(f"Stage 2: シート生成 (MASTER_SPEC §4 全{len(EXPECTED_SHEETS)}シート"
-          f" ※マクロ無効ガードを含む)...")
+    sheets_for_mode = expected_sheets(args.vba_mode)
+    print(f"Stage 2: シート生成 (MASTER_SPEC §4 全{len(sheets_for_mode)}シート"
+          f" ※マクロ無効ガードを含む・--vba-mode {args.vba_mode})...")
     _make_macro_guard(wb)
     _make_howto(wb)
     _make_admin_guide(wb)
@@ -2911,15 +3161,21 @@ def main():
                         "hidden", widths=[34, 8, 20, 18, 18, 60, 80, 30, 10, 10],
                         text_cols=[4, 6, 7, 8])   # author/question/answer/source
 
-    try:
-        injected = _make_vba_src(wb, present, root)
-    except BuildError as e:
-        sys.exit(f"ERROR: {e}")
-    print(f"  vba_src: {len(injected)}モジュールを格納 ({injected})")
+    if args.vba_mode == "installer":
+        try:
+            injected = _make_vba_src(wb, present, root)
+        except BuildError as e:
+            sys.exit(f"ERROR: {e}")
+        print(f"  vba_src: {len(injected)}モジュールを格納 ({injected})")
+    else:
+        # R35 baked(既定): vba_src シートは作らない(方式Bは vbaProject.bin へ
+        # 直接焼き込む。§2-3)。Stage 4 が present から同じ155本を焼く。
+        injected = []
+        print("  vba_src: 生成しません(baked モード。Stage 4 で vbaProject.bin へ直接焼き込みます)")
     print(f"  シート最終構成({len(wb.sheetnames)}件): {wb.sheetnames}")
 
-    if set(wb.sheetnames) != set(EXPECTED_SHEETS):
-        sys.exit(f"ERROR: シート構成がMASTER_SPEC §4と不一致: {wb.sheetnames}")
+    if set(wb.sheetnames) != set(sheets_for_mode):
+        sys.exit(f"ERROR: シート構成がMASTER_SPEC §4と不一致(--vba-mode {args.vba_mode}): {wb.sheetnames}")
 
     print("Stage 3: openpyxl保存 (vbaProject.binはスケルトンのまま保持)...")
     # マクロ無効ガードを常に先頭・アクティブにする(マクロ無効時に最初に見える
@@ -2935,21 +3191,34 @@ def main():
     wb.save(tmp_path)
     print(f"  一時保存: {tmp_path} ({os.path.getsize(tmp_path):,} bytes)")
 
-    print("Stage 4: vbaProject.bin 外科パッチ (自己インストーラ注入)...")
-    try:
-        installer_src = build_installer_src()
-    except BuildError as e:
-        sys.exit(f"ERROR: {e}")
     with zipfile.ZipFile(tmp_path) as zin:
         parts = {n: zin.read(n) for n in zin.namelist()}
     skel_bin = parts["xl/vbaProject.bin"]
-    try:
-        patched_bin = patch_installer(skel_bin, installer_src)
-    except BuildError as e:
-        sys.exit(f"ERROR: {e}")
-    assert len(skel_bin) == len(patched_bin), "vbaProject.binのバイト長が変化した(バイナリ整合性エラー)"
-    parts["xl/vbaProject.bin"] = patched_bin
-    print(f"  vbaProject.bin: {len(skel_bin):,} bytes (不変)")
+    replaced_chars = None
+    if args.vba_mode == "installer":
+        print("Stage 4: vbaProject.bin 外科パッチ (自己インストーラ注入)...")
+        try:
+            installer_src = build_installer_src()
+        except BuildError as e:
+            sys.exit(f"ERROR: {e}")
+        try:
+            patched_bin = patch_installer(skel_bin, installer_src)
+        except BuildError as e:
+            sys.exit(f"ERROR: {e}")
+        assert len(skel_bin) == len(patched_bin), "vbaProject.binのバイト長が変化した(バイナリ整合性エラー)"
+        parts["xl/vbaProject.bin"] = patched_bin
+        print(f"  vbaProject.bin: {len(skel_bin):,} bytes (不変)")
+    else:
+        # R35 baked(既定): 完成品 vbaProject.bin を書く(spec §2-11・§4波1-4)。
+        print("Stage 4: vbaProject.bin 生成 (完成品・baked)...")
+        installer_src = None
+        try:
+            baked_bin, replaced_chars = build_baked_vba_project(skel_bin, present, root)
+        except BuildError as e:
+            sys.exit(f"ERROR: {e}")
+        parts["xl/vbaProject.bin"] = baked_bin
+        print(f"  vbaProject.bin: スケルトン{len(skel_bin):,} bytes → "
+              f"baked完成品{len(baked_bin):,} bytes (CP932置換{replaced_chars}字)")
 
     # 2026-08-01(R12-9-2): Stage5/6を原子的に確定する。従来はStage5が
     # dist/MyBookshelf.xlsm(正規配布パス。HANDOFF §1の「Code→Download ZIP→
@@ -2965,14 +3234,22 @@ def main():
     _out_base, _out_ext = os.path.splitext(out_path)
     staging_path = f"{_out_base}.building{_out_ext}"
     failed_path = f"{_out_base}.failed{_out_ext}"
+    # R35 波1(spec §2-6): openpyxl の保存結果は [Content_Types].xml が先頭に
+    # 来ない。OPCの慣例([Content_Types].xml → _rels/.rels → 残り)に並べ替える
+    # (LibreOffieはこの順でないと開けない・本日実測)。並べ替えはモードに
+    # 依存しないので installer/baked どちらでも適用する。
+    _zip_priority = ("[Content_Types].xml", "_rels/.rels")
+    ordered_names = sorted(
+        parts.keys(),
+        key=lambda n: _zip_priority.index(n) if n in _zip_priority else len(_zip_priority))
     with zipfile.ZipFile(staging_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        for n, data in parts.items():
-            zout.writestr(n, data)
+        for n in ordered_names:
+            zout.writestr(n, parts[n])
     os.unlink(tmp_path)
     print(f"  一時出力: {staging_path} ({os.path.getsize(staging_path):,} bytes)")
 
     print("\nStage 6: ビルド後自己検証...")
-    errors = verify_build(staging_path, injected, installer_src, mock_llm,
+    errors = verify_build(staging_path, args.vba_mode, injected, installer_src, mock_llm,
                           present_modules=present, root=root)
     if errors:
         print("自己検証 失敗:")
@@ -2996,10 +3273,20 @@ def main():
         except OSError:
             pass
     print(f"  出力: {out_path} ({os.path.getsize(out_path):,} bytes)")
-    print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
-          "vba_src本文がsrc/と完全一致 / vba_src D列(期待行数)がsrc由来の計算値と一致 / "
-          "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認 / "
-          "_VBA_PROJECT無害化確認(Version=0xFFFF・PerformanceCacheゼロ埋め・3,061B不変)")
+    if args.vba_mode == "installer":
+        print("自己検証 OK: 全シート存在 / vba_srcモジュール数一致 / 各ソース<=32000字 / "
+              "vba_src本文がsrc/と完全一致 / vba_src D列(期待行数)がsrc由来の計算値と一致 / "
+              "ThisWorkbookストリーム復元確認 / dir MOFFSET=0確認 / "
+              "_VBA_PROJECT無害化確認(Version=0xFFFF・PerformanceCacheゼロ埋め・3,061B不変)")
+    else:
+        n_baked_modules = len(present) + 1   # present(155本+ThisWorkbook) + Sheet1
+        print("自己検証 OK: 全シート存在(vba_srcシート無し) / "
+              f"baked vbaProject.binモジュール集合=台帳一致(計{n_baked_modules}本) / "
+              "各標準モジュール本文が_vba_src_textの結果とバイト一致 / "
+              "ThisWorkbookがspec §2-2の固定文字列と一致 / 全MODULEOFFSET=0確認 / "
+              "_VBA_PROJECT無害化確認(Version=0xFFFF・PerformanceCacheゼロ埋め) / "
+              "Sheet1 codeName証跡あり / "
+              f"CP932置換 {replaced_chars} 字")
 
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")
