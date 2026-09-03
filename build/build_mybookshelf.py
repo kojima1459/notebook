@@ -2399,6 +2399,41 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
     return vba_bin, replaced_total
 
 
+# spec §2-7・§2-8: 配布binに現れてはいけない文字列(AVが重く見る「隠しシートの
+# コードを自分に書き込むドロッパー」の形そのもの)。FORBIDDEN_BIN_STRINGS は
+# FAIL(0件でなければ出荷を止める)。REPORT_BIN_STRINGS は件数報告のみ
+# (WScript.Shell/new:{ の撤去は機能設計を伴うためR36送り。spec §2-8末尾)。
+# **この表の唯一の実装**。tools/bin_roundtrip.py がこれをimportして使う
+# (二重実装禁止)。
+FORBIDDEN_BIN_STRINGS = ("VBProject", "AddFromString", "ExecuteExcel4Macro")
+REPORT_BIN_STRINGS = ("WScript.Shell", "new:{")
+
+
+def _decompressed_bin_text(vba_bin):
+    """完成品binの全モジュールソースを解凍して1本のテキストにする。
+    禁止文字列の検査は**解凍した本文**に対して行う(圧縮バイト列をgrepしても
+    中身は見えない)。コメントも対象(静的スキャナは文字列を区別しない)。"""
+    parts = []
+    for nm, info in ovba_write.read_modules(vba_bin).items():
+        parts.append(nm)
+        parts.append(info["source"].decode("cp932", errors="replace"))
+    return "\n".join(parts)
+
+
+def forbidden_strings_in_bin(vba_bin):
+    """完成品binに現れたFAIL側の禁止文字列を返す(spec §2-7・§2-8)。
+    tools/bin_roundtrip.py もこれをimportして使う(二重実装禁止)。"""
+    low = _decompressed_bin_text(vba_bin).lower()
+    return [w for w in FORBIDDEN_BIN_STRINGS if w.lower() in low]
+
+
+def report_strings_in_bin(vba_bin):
+    """件数報告のみ(FAILにしない)の文字列の出現回数を返す(spec §2-8)。
+    {文字列: 出現回数} を返す。0件でもキー自体は残す(表示側で0件と分かるように)。"""
+    low = _decompressed_bin_text(vba_bin).lower()
+    return {w: low.count(w.lower()) for w in REPORT_BIN_STRINGS}
+
+
 def _verify_baked_build(out_path, present_modules, root):
     """spec §2-7: baked モードの読み戻し検査。
     ①モジュール集合=台帳 ②各本文が_vba_src_textの結果とバイト一致
@@ -2498,6 +2533,18 @@ def _verify_baked_build(out_path, present_modules, root):
                     f"(非ゼロ={nonzero}バイト)")
     except Exception as e:
         errors.append(f"baked: _VBA_PROJECT検査中に例外: {e}")
+
+    # ⑥ 禁止文字列(FAIL側。spec §2-7・§2-8・波2 タスク6)。解凍した本文で検査
+    # (コメント含む)。件数報告側(WScript.Shell/new:{)はここでは検査しない
+    # (Stage 4 の出力で表示のみ。R36で機能設計とあわせて撤去)。
+    try:
+        hits = forbidden_strings_in_bin(vba_bin)
+        if hits:
+            errors.append(
+                f"baked: vbaProject.binに配布禁止の文字列があります"
+                f"(spec §2-7・§2-8): {', '.join(hits)}")
+    except Exception as e:
+        errors.append(f"baked: 禁止文字列検査中に例外: {e}")
 
     return errors
 
@@ -3219,6 +3266,10 @@ def main():
         parts["xl/vbaProject.bin"] = baked_bin
         print(f"  vbaProject.bin: スケルトン{len(skel_bin):,} bytes → "
               f"baked完成品{len(baked_bin):,} bytes (CP932置換{replaced_chars}字)")
+        # spec §2-7・§2-8: 件数報告側(WScript.Shell/new:{)は表示のみ(FAILにしない)。
+        report_counts = report_strings_in_bin(baked_bin)
+        print("  件数報告(FAILにしない。R36で機能設計とあわせて撤去): "
+              + ", ".join(f"{w}={n}" for w, n in report_counts.items()))
 
     # 2026-08-01(R12-9-2): Stage5/6を原子的に確定する。従来はStage5が
     # dist/MyBookshelf.xlsm(正規配布パス。HANDOFF §1の「Code→Download ZIP→
