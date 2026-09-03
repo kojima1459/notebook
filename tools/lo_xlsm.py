@@ -213,7 +213,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="配布xlsmをLibreOfficeに開かせるVBA検問(spec_20260903_R35_配布方式転換.md §2-7)")
     ap.add_argument("--book", help="検査するブック(既定: dist/ の対象ブックを自動検出)")
-    ap.add_argument("--timeout", type=int, default=180, help="1呼び出しの上限秒")
+    ap.add_argument("--timeout", type=int, default=180,
+                    help="[1]LO起動・読み込み呼び出しの上限秒")
+    # 09-03 敵対的レビュー班A m-5: [3]のコンパイル確認は[1]と別のタイムアウトに
+    # 分ける。Enum等の予約語衝突識別子はLOがコンパイルエラーではなく120秒
+    # タイムアウトでハングすることがある(CLAUDE.md §10)。[1]と同じ180秒だと
+    # 155本×180秒に膨らみうるため、run_lo_tests.pyのモード2既定(15秒)と
+    # 揃える。
+    ap.add_argument("--compile-timeout", type=int, default=15,
+                    help="[3]コンパイル確認の1モジュールあたり上限秒"
+                         "(既定15。run_lo_tests.pyのモード2既定と同じ)")
     ap.add_argument("--skip-compile", action="store_true",
                     help="[3] コンパイル確認を省く(デバッグ用。ゲートでは使わない)")
     ap.add_argument("--verbose", action="store_true")
@@ -328,7 +337,7 @@ def main() -> int:
             soffice = R.find_soffice()
             template = R.ensure_template_profile(soffice, args.verbose)
             ok, results = R.run_compile_mode(
-                soffice, template, all_modules, work, args.timeout, args.verbose)
+                soffice, template, all_modules, work, args.compile_timeout, args.verbose)
             if not ok:
                 bad = [n for n, o, _d in results if not o]
                 failures.append(f"コンパイルに失敗したモジュール: {bad}")
