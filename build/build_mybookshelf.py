@@ -2529,14 +2529,18 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
         replaced_total += replaced
         vmods.append(ovba_write.VbaModule(m["name"], encoded, "std"))
 
-    # 09-03 敵対的レビュー班A m-1: モジュール名がCFBの固定ストリーム名
-    # (dir/_VBA_PROJECT/PROJECT/PROJECTwm)と衝突すると、ovba_write.py本体を
-    # 通さずとも書き出したbinが壊れる(該当ストリームを上書きしてしまう)。
-    # ovba_write.py本体には手を入れず、こちら側で先に fail-closed で止める。
+    # 09-03 敵対的レビュー班A m-1 / 班C MINOR(2周目): モジュール名がCFBの
+    # 固定ストリーム名(dir/_VBA_PROJECT/PROJECT/PROJECTwm)と衝突すると、
+    # ovba_write.py本体を通さずとも書き出したbinが壊れる(該当ストリームを
+    # 上書きしてしまう)。実際にCFBへ書かれるのは vm.stream_name(未指定なら
+    # name にフォールバック)なので、衝突検査は name と stream_name の両方を
+    # 見る。ovba_write.py本体には手を入れず、こちら側で先に fail-closed で止める。
     for vm in vmods:
-        if vm.name.lower() in _RESERVED_STREAM_NAMES:
+        if (vm.name.lower() in _RESERVED_STREAM_NAMES
+                or vm.stream_name.lower() in _RESERVED_STREAM_NAMES):
             raise BuildError(
-                f"モジュール名'{vm.name}'がCFBの固定ストリーム名と衝突します"
+                f"モジュール名'{vm.name}'(stream_name='{vm.stream_name}')が"
+                f"CFBの固定ストリーム名と衝突します"
                 f"(予約名: {sorted(_RESERVED_STREAM_NAMES)})。"
                 "vbaProject.binの該当ストリームを上書きしてしまうため中断します。")
 
