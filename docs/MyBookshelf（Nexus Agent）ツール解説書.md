@@ -106,24 +106,22 @@ graph TB
 
 ## 3. 実行基盤と配布形態
 
-> 💡 **この章のポイント** — このファイルは開くたびに、内部へ文字として保存されたプログラムを自分で組み立て直してから起動する「自己インストール方式」。このため通常のマクロ有効化に加えて、特別なセキュリティ設定が 1 つ必要になる（§12.2 #4）。起動処理は途中で失敗しても全体が止まらないよう、段階ごとに保護されている。
+> 💡 **この章のポイント** — このファイルの起動処理（§2-2 で R35 で方式Bへ転換）。マクロ有効化のみが利用者に必要な設定。起動処理は途中で失敗しても全体が止まらないよう、段階ごとに保護されている。
 
-### 3.1 自己インストール型ブック
+### 3.1 起動型ブック（R35 で方式B へ転換）
 
-`ThisWorkbook.Workbook_Open` は **`Install`** を呼ぶだけ。`Install` は非表示シート **`vba_src`**（`veryHidden`）に格納された全モジュールのソースコードを読み、`VBProject.VBComponents` へ **実行時に注入**する。
+`ThisWorkbook.Workbook_Open` は **`modBoot.Boot`** を直接呼ぶ（R35 で方式B へ転換）。ビルド時に `build/ovba_write.py` が全モジュール 155 本を完成品 `vbaProject.bin` へ焼き込んでいるため、実行時の注入は不要。
 
 ```
 Workbook_Open
-  └─ Install()                     ' vba_src シート → VBComponents へ全モジュール注入
-       ├─ 既存コンポーネントを Remove → Add(1) → CodeModule.AddFromString
-       ├─ modBoot.RunFirstRunPromptEarly   ' 初回の名前入力
-       ├─ ThisWorkbook.Save
-       └─ Application.OnTime (+1秒) → modBoot.Boot   ' 初期化中の1004回避のため遅延実行
-                                     ↓ 失敗時は Application.Run で同期実行にフォールバック
+  └─ modBoot.Boot                  ' 直接呼び出し（同期。全モジュール既に存在）
+       ├─ 初期化処理
+       ├─ 画面組み立て
+       └─ 待機ループ
 ```
 
-- 「VBA プロジェクトへのアクセスを信頼する」設定が必須。未設定時は `Trust:` ラベルで警告して終了。
-- 実行時の本命エントリは **`modBoot.Auto_Open` / `Auto_Close`**（インストーラが `ThisWorkbook` を占有するための二重化設計）。
+- 利用者に必要な設定はマクロの有効化のみ（§12.2 #1 参照）。「VBA プロジェクトへのアクセスを信頼する」は不要。
+- 実行時のエントリは **`modBoot.Auto_Open` / `Auto_Close`** で管理（従来と同じ）。
 
 ### 3.2 起動シーケンス（`modBoot.Boot`）
 
@@ -317,7 +315,6 @@ flowchart TD
 | `err_log` | hidden | `timestamp, code, context, detail, version, err_number, http_status` |
 | `ui_state` | **veryHidden** | `key, value` — テーマ・モード・会話復元・ツアー完了フラグ |
 | `insight_inbox` | hidden | `nonce, kind, user_id, author, created_at, question, answer_or_reason, source_or_dept, consumed` |
-| `vba_src` | **veryHidden** | 全 VBA ソースコード（自己インストーラの供給元） |
 
 ### 5.2 実行時に生成されるシート
 
@@ -1266,9 +1263,9 @@ config `admin_users`（カンマ区切りの AD ユーザー名）に自分が�
 
 このツールを引き継ぐ・レビューする・配布判断をする際に押さえておくべき点。
 
-1. **`vba_src` による自己書き換えが単一障害点**〔**未対応・設計上の前提**〕。`Workbook_Open` のたびに全モジュールを削除・再注入し `ThisWorkbook.Save` する。「VBA プロジェクトへのアクセスを信頼」が未許可の環境では一切起動しない。
+1. ~~**`vba_src` による自己書き換えが単一障害点**~~〔**R35 で方式Bへ転換し解消**〕。**R35（2026-09-03）でビルドが完成品 `vbaProject.bin` を生成する方式へ変更**。実行時の注入は不要。利用者に必要な設定はマクロの有効化のみ。
 
-    **これは配布方式そのものの選択であり、修正ではなく決定の対象**（§12.2 #4 の【要決定】）。ただし 2026-07-28 に、この方式が抱えていた実害のうち次の2点は塞いだ。
+    2026-07-28 に対応した次の2点の改善は、新方式でも有効である。
     - 注入に失敗しても無条件で `Save` していたため、**壊れた状態がファイルに固定化**されていた（次回以降「マクロを実行できません」）。1件でも失敗したら保存せず、ファイルの再入手を案内する。
     - インストーラが予約する `OnTime`（+1秒後の `Boot`）の時刻をどこにも残していなかったため解除できず、**発火前に閉じると数秒後に Excel が勝手に開き直して保存までしていた**。予約時刻を記録して確実に解除する。
 
@@ -1399,7 +1396,7 @@ config `admin_users`（カンマ区切りの AD ユーザー名）に自分が�
 | 1 | **Windows 版 Excel**（デスクトップ版） | 必須 | `modUI` ヘッダに「Windows版Excel専用」。Mac は COM 非対応で `modExtractorWord` がエラー429を返す。Excel Online / モバイルは VBA 非対応 |
 | 2 | 32bit / 64bit いずれも可 | — | Win32 API の `Declare` を意図的に1つも使っていない（`modEmbed` / `modBitwiseOpt` のコメントに「32/64bit互換のためDeclare不使用」と明記）。ビット数の縛りは無い |
 | 3 | **マクロの有効化** | 必須 | 信頼できる場所への配置、またはデジタル署名。無効時は「はじめにお読みください」シートがそのまま見える設計 |
-| 4 | **「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を有効** | 必須 | `ThisWorkbook.Install` が `VBProject.VBComponents` を操作する（§3.1）。未許可だと "VBA Project trust required" で**起動しない**。多くの組織で GPO により既定無効 → **情報システム部門との調整が最大の関門** |
+| 4 | ~~「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を有効~~ | 不要 | **不要になった（R35 で方式B へ転換）**。実行時の VBProject 操作はなし。ビルド時に完成品 `vbaProject.bin` を生成（§3.1） |
 | 5 | AI リボンアドインがインストール済み・`Installed=True` | 必須 | `modGateway.RibbonAvailable` が `Application.AddIns` を名前部分一致で走査。config `ribbon_addin_name` が実アドイン名と一致していること |
 | 6 | AI リボンの利用申請・利用同意が有効 | 必須 | 起動時に `LimitCheck()` を呼ぶ（True=制限中）。制限中でも本棚閲覧は可能だが AI 機能は使えない |
 | 7 | **Microsoft Word** | 必須 | PDF / docx 抽出の主経路（`modExtractorWord`）。Word が無いと PDF が一切取り込めない |
@@ -1409,7 +1406,7 @@ config `admin_users`（カンマ区切りの AD ユーザー名）に自分が�
 | 11 | `%TEMP%` への書き込み権限 | 必須 | ネットワーク上の資料・受信パックを一旦ローカルへコピーする |
 | 12 | Azure OpenAI エンドポイントへの HTTPS 到達 | 条件付き | `embed_transport=direct` の場合のみ。`MSXML2.ServerXMLHTTP.6.0` を使うため **プロキシは WinHTTP 設定（`netsh winhttp show proxy`）に従い、IE / Edge のプロキシ設定は参照しない**。到達不可なら ribbon 経路へ自動フォールバック |
 
-**【要決定】** 上記 #4 を全社的に有効化できるか。できない場合、本ツールは現在の自己インストーラ方式では配布不可能であり、**通常の xlsm（モジュールを直接埋め込んだビルド）へ設計変更する必要がある**。PoC 開始前に確認すべき最優先事項。
+**【解決】** 上記 #4（VBOM 信頼設定）は **R35（2026-09-03）でビルドが完成品 `vbaProject.bin` を生成する方式へ変更**したため不要に。利用者に必要なのはコンテンツの有効化のみ。情報システム部門との調整不要。
 
 ### 12.3 配布前に解決すべきブロッカー
 
