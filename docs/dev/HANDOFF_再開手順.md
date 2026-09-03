@@ -4,7 +4,12 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R35. R35（配布方式の転換: 自己インストーラ → 完成品 vbaProject.bin・2026-09-03 起草・**GO待ち**）
+## 0R35. R35（配布方式の転換: 自己インストーラ → 完成品 vbaProject.bin・2026-09-03・**検問全緑・実Excel確認待ち**）
+
+**最新状態（09-03 夜）**: 波1〜3 → 敵対的レビュー1周目（班A壊す／班B残骸）→ Fix波 F1（Sheet1 ごみ）／F2a（Auto_Open 一本化・初回 Save・禁止語・コメント・班A採択6件）／F2b（文書）→ 2周目（班C／班D）→ マイクロ修正 M1（installer 正規名ガードの値判定・`ReadOnly` ガード＋`RecordSaveMark`・MASTER_SPEC 矛盾・CLAUDE.md 容量）**まで全消化**。
+`final-gates` 実施（09-03）: lint ERROR 0／LO compile OK／pure **PASS 3,004 / SKIP 14**／`--dev`・`--prod --zip` 自己検証 PASS／`bin_roundtrip` prod・dev OK（6条件）／`lo_xlsm` 157/157・155本コンパイル OK。配布物 `dist/MyBookshelf.xlsm`（`azure_embed_key` 空・`mock_llm` FALSE・22シート・157モジュール）と `MyBookshelf_配布.zip` を生成。
+**実Excel（Windows）は確認待ち**: 09-03 に送った1本目はテンプレートの `Sheet1` を PerformanceCache のごみで焼いていた（`read_modules` の MODULEOFFSET バグ。riskconsulting へ報告済み・F1 で是正）。是正版 V1〜V4 と最終候補をユーザーへ送付済み。**テスターへの再配布は実Excel 合格後**。姉妹PJの Mac 実Excel では「標準モジュール＋ThisWorkbook は OK・クラスモジュールだけ属性8行と MODULEPRIVATE が要る」（うちはクラス無し）。
+**発行者用ブックは未再生成**（`MYBOOKSHELF_PUBLISH_KEY` が要る。ユーザー判断待ち）。R36 の本題は「消えない置き場所」（spec §7。髙橋案＝エンジンと蓄積の分離。推奨 (a) ランチャー往復 → (b) データブック分離）。
 
 **起点**: 09-02 事務局の VBOM 異議 + Excel 落ち報告 / 09-02 AMSI 検知（受付番号 202609020376）/ 09-03 D: シャットダウン消滅の実測 / 09-03 姉妹PJ riskconsulting から `build/ovba_write.py` 提供。
 **裁定と実測のすべて** = `spec_20260903_R35_配布方式転換.md`（実装波はそれだけ読めば着手できる）。
