@@ -17,7 +17,13 @@ python3 tools/run_lo_tests.py --mode compile         # OK(絶対に並列にし�
 python3 tools/run_lo_tests.py --mode pure            # PASS下限とSKIP上限も照合される
 python3 build/build_mybookshelf.py --dev             # 自己検証PASS
 python3 build/build_mybookshelf.py --prod --zip      # 配布版 + zip
+python3 tools/bin_roundtrip.py                       # R35: 第三者実装(olevba)で配布binを読み戻し(6条件)
+python3 tools/lo_xlsm.py --book dist/MyBookshelf.xlsm  # R35: LibreOfficeが配布binを読み込み・全モジュールをコンパイル(run_lo_testsと直列)
 ```
+
+R35（配布方式B）以降、`vbaProject.bin` はビルドが生成する。**上の2本は「自分の圧縮を自分の解凍で帳消し」を破る唯一の装置**なので省略しない。
+前提: `pip install oletools`／`apt install libreoffice-calc`。無ければ exit 2（環境不備）で止まる＝緑ではない。
+`bin_roundtrip.py` を引数無しで回すと `dist/` の旧方式の発行者用ブックも拾って赤になる。発行者用を作り直していないときは `--book dist/MyBookshelf.xlsm` で個別に。
 
 発行担当者へ渡すブックが要るときだけ、追加で:
 
