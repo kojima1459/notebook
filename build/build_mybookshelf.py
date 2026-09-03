@@ -2349,6 +2349,116 @@ def _baked_std_module_bytes(name: str, body: str):
     return _cp932_encode_replace(full)
 
 
+def _template_document_sources(template_bin: bytes) -> dict:
+    """template_skeleton.xlsm の vbaProject.bin から document module のソースを
+    MODULEOFFSET を尊重して取り出す(build_baked_vba_project 専用)。
+
+    **`ovba_write.read_modules` は MODULEOFFSET≠0 のストリームを正しく
+    解凍しない(2026-09-03 実Excelで発覚したBLOCKER)**。read_modules は
+        src = ovba_write.ovba.ovba_decompress(raw)[cur["offset"]:]
+    と書いているが、MODULEOFFSET は「生ストリーム内で圧縮ソースが始まる
+    位置」であって解凍後の位置ではない。正しくは
+        src = ovba.ovba_decompress(raw[cur["offset"]:])
+    である。Excel が書いたテンプレートの Sheet1(document module)は
+    MODULEOFFSET=969(先頭969バイトがPerformanceCache)なので、offset 0 から
+    解凍すると p-code キャッシュをゴミとして解凍し、それを Sheet1 の
+    「ソース」として焼いてしまう(実機で 0xFF の羅列になっていた。
+    実Excelで開くとThisWorkbookのイベント宣言行でコンパイルエラーになった)。
+    ovba_write.py 本体は移植元へバグ報告済みでここでは直さない(触ってはいけない
+    凍結対象ではないが、修正版が来たら差し替える前提)。この関数だけが
+    正しい取り出し方をする。baked方式が焼く document module はビルド後は
+    全て MODULEOFFSET=0 になる(build_vba_project が焼く側)ので、この
+    バグは「Excel製テンプレートから読む」経路(=ここ)にしか無い。
+
+    戻り値: {モジュール名: {"source": bytes, "type": "document"|"procedural"}}
+    (PROJECT ストリームの Document= 行にある名前だけを返す。read_modules と
+    同じ判定: 0x0022 だが Document= に無いものは class module なので除く)。
+    """
+    cfb = ovba.CFBReader(template_bin)
+    dir_dec = ovba.ovba_decompress(cfb.read("dir"))
+    out = {}
+    cur = None
+    for _off, rid, _size, body in ovba_write.iter_dir_records(dir_dec):
+        if rid == ovba_write.REC_MODULENAME:
+            cur = {"name": body.decode("cp932"), "offset": 0, "type": None,
+                   "stream": None}
+        elif cur is None:
+            continue
+        elif rid == ovba_write.REC_MODULESTREAMNAME:
+            cur["stream"] = body.decode("cp932")
+        elif rid == ovba_write.REC_MODULEOFFSET:
+            cur["offset"] = struct.unpack('<I', body)[0]
+        elif rid in (ovba_write.REC_MODULETYPE_PROCEDURAL,
+                     ovba_write.REC_MODULETYPE_DOCUMENT):
+            cur["type"] = ("document" if rid == ovba_write.REC_MODULETYPE_DOCUMENT
+                           else "procedural")
+        elif rid == ovba_write.REC_MODULE_TERMINATOR:
+            raw = cfb.read(cur.get("stream") or cur["name"])
+            src = ovba.ovba_decompress(raw[cur["offset"]:])   # ← ここが正しい順序
+            out[cur["name"]] = {"source": src, "type": cur["type"]}
+            cur = None
+    try:
+        proj = cfb.read("PROJECT").decode("cp932", errors="replace")
+    except KeyError:
+        proj = ""
+    doc_names = set()
+    for line in proj.splitlines():
+        if line.startswith("Document="):
+            doc_names.add(line[len("Document="):].split("/")[0].strip())
+    return {nm: info for nm, info in out.items()
+            if info["type"] == "document" and nm in doc_names}
+
+
+# document module の VB_Base に埋め込まれるホストの型ライブラリGUID。
+# baked方式が焼く document module は ThisWorkbook(Excel.Workbook)と
+# Sheet1等のワークシート(Excel.Worksheet)の2種類だけ(spec §2-11)。
+def _document_module_expected_base_guid(name: str) -> str:
+    """document moduleの名前からVB_Baseに入るべきGUIDを返す。"""
+    return (ovba_write._VB_BASE_WORKBOOK if name == "ThisWorkbook"
+            else ovba_write._VB_BASE_WORKSHEET)
+
+
+def document_module_sanity_errors(name: str, source: bytes,
+                                   expected_base_guid: str) -> list:
+    """document module のソースが本当にテキストか(p-codeのゴミではないか)を
+    確かめる fail-closed 検査。build_baked_vba_project・_verify_baked_build・
+    tools/bin_roundtrip.py の3箇所で共有する(二重実装禁止)。
+    spec_20260903_R35_配布方式転換.md §6 リスク台帳 #6 の再発防止策。
+
+    2026-09-03 実Excelで発覚したBLOCKER(_template_document_sources の
+    docstring参照)の再現形そのもの(MODULEOFFSETを無視して解凍した
+    p-codeキャッシュを「ソース」として焼いた)を機械的に検出する:
+      ① `Attribute VB_Name = "<name>"` で始まる
+      ② `Attribute VB_Base = "0{<expected_base_guid>-` を含む
+      ③ 0x00〜0x08 や 0xFF のバイトを含まない(=テキストであることの
+         直接証拠。実際に壊れたときの中身がまさにこれだった=0xFFの羅列)
+
+    注記(司令塔への報告事項): 指示書の(a)(b)は文字通り読むと
+    `Attribute VB_Base = "0{00020820-` (Excel.Worksheet)を全document
+    moduleに一律要求しているが、ThisWorkbookは実際には
+    Excel.Workbook(00020819)であり、一律適用すると常にThisWorkbookが
+    赤くなる。ここではモジュールごとの実際のGUID(expected_base_guid、
+    _document_module_expected_base_guidが決める)を検査するよう解釈した。
+    """
+    errors = []
+    want_name = ('Attribute VB_Name = "%s"' % name).encode("cp932")
+    if not source.startswith(want_name):
+        errors.append(
+            f"document module '{name}': ソース先頭が {want_name!r} では"
+            f"ありません(実際の先頭60バイト: {source[:60]!r})")
+    want_base = ('Attribute VB_Base = "0{%s-' % expected_base_guid).encode("cp932")
+    if want_base not in source:
+        errors.append(
+            f"document module '{name}': {want_base!r} が見当たりません")
+    bad_bytes = sorted({b for b in source if b <= 0x08 or b == 0xFF})
+    if bad_bytes:
+        errors.append(
+            f"document module '{name}': テキストとして不正なバイトを含みます"
+            f"(0x00〜0x08または0xFF): {[hex(b) for b in bad_bytes]}"
+            "(p-codeキャッシュ混入の疑い)")
+    return errors
+
+
 def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
     """spec §2-11・§4波1-4: 完成品 vbaProject.bin を組み立てる。
 
@@ -2371,9 +2481,9 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
     tw_src = ovba_write.module_stream_source("ThisWorkbook", tw_body, "document")
     vmods = [ovba_write.VbaModule("ThisWorkbook", tw_src, "document")]
 
-    tmpl_modules = ovba_write.read_modules(template_bin)
-    other_docs = [(nm, info) for nm, info in tmpl_modules.items()
-                  if info["type"] == "document" and nm != "ThisWorkbook"]
+    tmpl_docs = _template_document_sources(template_bin)
+    other_docs = [(nm, info) for nm, info in tmpl_docs.items()
+                  if nm != "ThisWorkbook"]
     if len(other_docs) != 1 or other_docs[0][0] != "Sheet1":
         raise BuildError(
             "template_skeleton.xlsm の document module 構成が想定外です"
@@ -2381,6 +2491,16 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
             f"実際に見つかった document module: "
             f"{['ThisWorkbook'] + [n for n, _ in other_docs]})")
     sheet1_name, sheet1_info = other_docs[0]
+    # fail-closed 検査(a): spec §6 リスク台帳 #6(2026-09-03実Excelで発覚した
+    # BLOCKERの再発防止)。写す前にソースが本物のテキストであることを確かめる。
+    sanity = document_module_sanity_errors(
+        sheet1_name, sheet1_info["source"],
+        _document_module_expected_base_guid(sheet1_name))
+    if sanity:
+        raise BuildError(
+            f"template_skeleton.xlsm から写した document module "
+            f"'{sheet1_name}' のソースが壊れています"
+            f"(spec §6 リスク台帳 #6): " + " / ".join(sanity))
     vmods.append(ovba_write.VbaModule(sheet1_name, sheet1_info["source"], "document"))
 
     replaced_total = 0
