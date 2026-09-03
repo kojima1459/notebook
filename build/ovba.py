@@ -219,6 +219,14 @@ def ovba_compress(data: bytes, fast: bool = False) -> bytes:
             result += struct.pack('<H', 0x3FFF)
             result += chunk
         else:
+            # 09-03 敵対的レビュー班A m-2: CompressedChunkSizeは12bit幅
+            # (最大4096バイト)。これを超えると 0xB000|(len(compressed)-1)
+            # が桁上がりして signature/flag ビットまで壊し、無言で不正な
+            # binになる。素朴版・fast版の両方がここを通るので1箇所で守る。
+            if len(compressed) > 4096:
+                raise ValueError(
+                    f"圧縮チャンクが4096Bを超えた。ヘッダの12bit長に収まらない"
+                    f"(len(compressed)={len(compressed)})")
             header = 0xB000 | (len(compressed) - 1)
             result += struct.pack('<H', header)
             result += compressed
