@@ -2408,7 +2408,17 @@ def _template_document_sources(template_bin: bytes) -> dict:
                            else "procedural")
         elif rid == ovba_write.REC_MODULE_TERMINATOR:
             raw = cfb.read(cur.get("stream") or cur["name"])
-            src = ovba.ovba_decompress(raw[cur["offset"]:])   # ← ここが正しい順序
+            # 09-03 敵対的レビュー班C 記録のみ(2周目): MODULEOFFSET がストリーム長を
+            # 超えていたり圧縮データ自体が壊れていると ovba_decompress が
+            # 素の ValueError を投げ、原因不明のトレースバックでビルドが落ちる。
+            # ここで捕まえて「どのモジュールで何が起きたか」を BuildError として
+            # 明示する(壊れたテンプレートを早期に fail-closed で弾く)。
+            try:
+                src = ovba.ovba_decompress(raw[cur["offset"]:])   # ← ここが正しい順序
+            except ValueError as e:
+                raise BuildError(
+                    f"{cur['name']}: MODULEOFFSET がストリーム長を超えているか"
+                    f"圧縮データが壊れています: {e}")
             out[cur["name"]] = {"source": src, "type": cur["type"]}
             cur = None
     try:
