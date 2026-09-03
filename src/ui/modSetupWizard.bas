@@ -109,8 +109,17 @@ Public Sub RunFirstRunWizard()
     modState.SaveState WIZARD_DONE_KEY, "1"
     ' R35: 方式Bでは Install の Save が無くなり、初回の pack_author/部門/
     ' 共有パス/この印が「保存しない」で失われる。初回ウィザードが走った回
-    ' だけここで1回保存する(読み取り専用なら無言で従来どおり)。
-    ThisWorkbook.Save
+    ' だけここで1回保存する。
+    ' 09-03 敵対的レビュー班D BLOCKER(2周目): 読み取り専用(zip直開き・
+    ' 共有中の原本を他人が開いている・保護ビュー)ではSaveがダイアログを
+    ' 出し、On Error Resume Next はそのダイアログを止めない。ReadOnlyの
+    ' ときは無言でスキップする(既存3箇所と同じ作法: modShelfBatch.bas:
+    ' 202-203 / modShelfStore.bas:506 / modShelf.bas:451)。マークはSaveの
+    ' 直前に書く(失敗してもメモリ上のマークが最新を指すだけで害は無い)。
+    If Not ThisWorkbook.ReadOnly Then
+        modIntegrity.RecordSaveMark
+        ThisWorkbook.Save
+    End If
     On Error GoTo 0
 End Sub
 
