@@ -60,7 +60,8 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 
 | シート | 可視性 | 役割 |
 |---|---|---|
-| `使い方` | 可視(先頭) | マクロ有効化手順+クイックスタート。マクロ無効でも読める救済ページ |
+| `はじめにお読みください` | 可視(先頭) | マクロ無効時の案内（軽量マクロガード）。起動成功時に非表示化 |
+| `使い方` | 可視 | マクロ有効化手順+クイックスタート。マクロ無効でも読める救済ページ |
 | `管理者向け` | 可視 | 部門の正典(公式ナレッジ)を発行する担当者向けの手引き(R31波3)。使い方シート末尾の「🔑発行を担当する方はこちら→」から誰でもたどり着けるが、発行できる操作自体は発行キーを持つ端末に限られる。合言葉(publish_key)の値・環境変数名は書かない |
 | `ホーム` | 可視 | 質問UI |
 | `マイ本棚` | 可視 | 本棚UI |
@@ -68,6 +69,9 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `config` | hidden | 設定(§5) |
 | `my_knowledge` | veryHidden | チャンク本体 |
 | `my_vectors` | veryHidden | ベクトル |
+| `seed_meta` | veryHidden | 同梱シードのメタデータ。ビルド時に焼き込み、初回起動時に my_knowledge へ写す |
+| `seed_chunks` | veryHidden | 同梱シードのチャンク本体。ビルド時に焼き込み、初回起動時に my_knowledge へ写す |
+| `seed_vectors` | veryHidden | 同梱シードのベクトル。ビルド時に焼き込み、初回起動時に my_vectors へ写す |
 | `chunk_meta` | veryHidden | チャンクの構造メタ(R17 Phase1)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `chunk_id, section_path, refs_out`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `doc_outline` | veryHidden | 章単位要約(R17 Phase2)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `source, section_key, summary, keywords, chunk_n`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `synonyms` | veryHidden | 用語の表記ゆれ辞書(R17 Phase3)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `term, canonical`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
@@ -76,6 +80,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |
 | `usage_log` | hidden | 利用ログ(1行=1質問/1操作) |
 | `err_log` | hidden | エラーログ |
+| `insight_inbox` | hidden | 解決済みQ&A・みんなの困りごとの受信箱 |
 | `ui_state` | veryHidden | UI内部状態(モード選択等) |
 
 **my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded, norm_text`
