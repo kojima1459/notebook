@@ -35,7 +35,7 @@ Public Sub InitUI()
 
     Application.ScreenUpdating = False
 
-    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
+    ' R35: XLM は削除。隠すのはEnsureViewState(EnsureAppViewは自己修復)
     On Error Resume Next
     Application.DisplayFormulaBar = False
     On Error GoTo 0
@@ -403,7 +403,7 @@ End Sub
 
 ' RestoreExcelUI - ネイティブUI復元
 Public Sub RestoreExcelUI()
-    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
+    ' R35: XLM は削除。隠すのはEnsureViewState(EnsureAppViewは自己修復)
     On Error Resume Next
     Application.DisplayFormulaBar = True
     Application.DisplayStatusBar = True
@@ -619,7 +619,7 @@ Public Sub Repaint()
 
     Application.ScreenUpdating = False
     On Error Resume Next
-    ' R35: XLM は削除。リボンは DisplayFullScreen(EnsureAppView)が隠す
+    ' R35: XLM は削除。隠すのはEnsureViewState(EnsureAppViewは自己修復)
     Application.DisplayFormulaBar = False
     Application.DisplayStatusBar = False
     ActiveWorkbook.AutoSaveOn = False
