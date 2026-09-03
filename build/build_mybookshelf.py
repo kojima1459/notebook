@@ -3189,6 +3189,16 @@ def main():
             "です。配布物が要るときは既定の --vba-mode baked を使ってください。"
         )
 
+    # 09-03 敵対的レビュー班A M-2: installer は開発用フォールバックであり、
+    # 正規配布名(dist/MyBookshelf*.xlsm)を書けてしまうと「dist/ に baked と
+    # installer のどちらが出荷物か分からないファイルが並ぶ」事故になる。
+    # --out を明示しない(=既定の正規配布名へ書く)installer 呼び出しは止める。
+    if args.vba_mode == "installer" and not args.out:
+        sys.exit(
+            "ERROR(BuildError): installer モードの成果物は正規配布名で書けません。"
+            "--out で別名を指定してください。"
+        )
+
     root = os.path.abspath(args.root)
     is_dev = bool(args.dev)
     mock_llm = is_dev
