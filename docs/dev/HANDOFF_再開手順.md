@@ -9,10 +9,13 @@
 **起点**: 09-02 事務局の VBOM 異議 + Excel 落ち報告 / 09-02 AMSI 検知（受付番号 202609020376）/ 09-03 D: シャットダウン消滅の実測 / 09-03 姉妹PJ riskconsulting から `build/ovba_write.py` 提供。
 **裁定と実測のすべて** = `spec_20260903_R35_配布方式転換.md`（実装波はそれだけ読めば着手できる）。
 
-**状態（2026-09-03）**: 仕様書起草済み・実装未着手。riskconsulting のライターで MyBookshelf 155本の完成品 bin を作り、
-第三者実装（oletools.olevba）と別Office実装（LibreOffice 24.2.7 + libreoffice-calc）の両方で 155/155・157/157 を確認済み。
-**実Excel は未検証**。検証用ファイル（クリーン `--prod` + 方式B bin。キー無し）はセッションの scratchpad にあり、ユーザーの GO で渡す。
-**未回答の質問6件**は spec §8。**riskconsulting は一時公開中 → private に戻す必要あり。**
+**状態（2026-09-03 夕）**: 波1（ビルド側・Opus→レート制限でSonnetへ引継）・波2（検問移植+AMSI縮小・Sonnet）・波3（文書・Haiku）**完了**。敵対的レビュー1周目（Opus 2班: 壊す／残骸と縫い目）**実行中**。
+司令塔の再検証（全部自分で再現）: lint ERROR 0／LO compile OK・pure **PASS 3,004 / SKIP 14**／`--dev`・`--prod`・`--prod --zip`・`--prod --vba-mode installer` 自己検証 PASS／`tools/bin_roundtrip.py`（olevba）prod・dev OK／`tools/lo_xlsm.py` **LO 列挙 157/157・155本コンパイル PASS**／src の `VBProject`・`AddFromString`・`ExecuteExcel4Macro` 0件／容量 modUI 残280・modUIShelf 残96。
+配布物: `dist/MyBookshelf.xlsm` 1.36MB・bin 2,148,864B・157モジュール（155+ThisWorkbook+Sheet1）・22シート（`vba_src` 無し）・CP932 置換 330 字。
+**実Excel は未検証**（検証用ファイルをユーザーへ送付済み・結果待ち）。**`dist/MyBookshelf_発行者用.xlsm` は 09-01 の旧方式のまま**（再ビルドに `MYBOOKSHELF_PUBLISH_KEY` が要る。ユーザー判断待ち）。
+記録: コミット `3a042df` は仕様書のコミットだが、前任 Opus が死ぬ直前にステージしていた `build/ovba_write.py`（759e41b 版）と `build_mybookshelf.py` の import 2行を同梱している（中身は意図どおり。履歴は書き換えない）。
+**環境の前提**: LO 検問（`lo_xlsm.py`）には `libreoffice-calc` が要る（無いと Excel 製の xlsm すらライブラリ0本）。`bin_roundtrip.py` には `oletools`（pip）が要る。どちらも無ければ exit 2（環境不備）で緑にならない。
+**riskconsulting は一時公開中 → private に戻す必要あり。**
 
 ## 0R34. R34（外部レビュー裁定と検索精度強化・2026-08-20完了）
 
