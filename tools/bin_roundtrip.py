@@ -24,6 +24,9 @@ bin_roundtrip.py - 配布 vbaProject.bin の読み戻し検問(spec_20260903_R35
           コメントも対象)。REPORT_BIN_STRINGS("WScript.Shell"/"new:{")は
           件数報告のみ(FAILにしない。R36で機能設計とあわせて撤去)
       [5] 全モジュールの MODULEOFFSET が 0(p-code キャッシュを持たない)こと
+      [6] 全 document module のソースが本物のテキストであること(spec §6
+          リスク台帳 #6・2026-09-03実Excelで発覚したBLOCKERの再発防止。
+          build_mybookshelf.document_module_sanity_errorsを(a)(b)と共有)
 
     を確かめる。読めない・数えられない・比較できないは**すべて失格**にする
     (「対象が見つからないので検査せず緑」を作らない)。
@@ -134,13 +137,31 @@ def check_book(book: Path) -> list[str]:
     print(f"[1] olevba が解凍したモジュール: {len(got)}本")
 
     want = expected_sources(str(REPO_ROOT))
-    doc_names = {n for n, info in ovba_write.read_modules(vba_bin).items()
-                 if info["type"] == "document"}
+    bin_mods = ovba_write.read_modules(vba_bin)
+    doc_names = {n for n, info in bin_mods.items() if info["type"] == "document"}
     if doc_names != EXPECTED_DOC_MODULES:
         errors.append(
             f"{book.name}: document module 集合が {sorted(EXPECTED_DOC_MODULES)} "
             f"と不一致(実際: {sorted(doc_names)})")
     std_got = {n: v for n, v in got.items() if n not in doc_names}
+
+    # --- [6] fail-closed検査(c): 全document moduleのソースが本当にテキストか
+    # (spec §6 リスク台帳 #6・2026-09-03実Excelで発覚したBLOCKERの再発防止。
+    # build_mybookshelf.document_module_sanity_errorsを(a)(b)と共有する。
+    # ここでの読み戻し(ovba_write.read_modules)は配布binの側=baked出力の
+    # 側であり、baked出力は全モジュールMODULEOFFSET=0であることを[5]の
+    # 検査が別途保証しているので、read_modulesのMODULEOFFSET≠0バグは
+    # ここには影響しない)。
+    doc_sanity_errors = []
+    for nm in sorted(doc_names):
+        info = bin_mods.get(nm)
+        if info is None:
+            continue
+        doc_sanity_errors += bm.document_module_sanity_errors(
+            nm, info["source"], bm._document_module_expected_base_guid(nm))
+    print(f"[6] document module 健全性: "
+          f"{'PASS' if not doc_sanity_errors else 'FAIL'}")
+    errors += [f"{book.name}: {e}" for e in doc_sanity_errors]
 
     for name, want_src in sorted(want.items()):
         if name not in std_got:

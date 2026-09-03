@@ -2613,6 +2613,19 @@ def _verify_baked_build(out_path, present_modules, root):
         if got["ThisWorkbook"]["source"] != want_tw:
             errors.append("baked: ThisWorkbookの本文がspec §2-2の固定文字列と不一致")
 
+    # ③-2 fail-closed検査(b): 全document module(ThisWorkbook含む)のソースが
+    # 本当にテキストか(spec §6 リスク台帳 #6・2026-09-03実Excelで発覚した
+    # BLOCKERの再発防止)。document_module_sanity_errorsを(a)(c)と共有する。
+    for nm, info in got.items():
+        if info["type"] != "document":
+            continue
+        sanity = document_module_sanity_errors(
+            nm, info["source"], _document_module_expected_base_guid(nm))
+        if sanity:
+            errors.append(
+                f"baked: document module '{nm}' の健全性検査に失敗"
+                f"(spec §6 リスク台帳 #6): " + " / ".join(sanity))
+
     # ④ 全 MODULEOFFSET=0(dirストリームを直接なめる。ovba_write.iter_dir_records
     #    を使い、本体には手を入れずに検査だけこちらで行う)。
     try:
