@@ -248,9 +248,9 @@ def main() -> int:
         for e in errors:
             print(f"  - {e}")
         return 1
-    print(f"結果: OK 検査したブック{len(books)}冊 / 5条件"
+    print(f"結果: OK 検査したブック{len(books)}冊 / 6条件"
           "(本文バイト一致・モジュール数と集合・vba_src不在・禁止文字列不在・"
-          "MODULEOFFSET=0)")
+          "MODULEOFFSET=0・document module健全性)")
     return 0
 
 
