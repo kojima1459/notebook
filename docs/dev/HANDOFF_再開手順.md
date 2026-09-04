@@ -9,6 +9,7 @@
 **最新状態（09-03 夜）**: 波1〜3 → 敵対的レビュー1周目（班A壊す／班B残骸）→ Fix波 F1（Sheet1 ごみ）／F2a（Auto_Open 一本化・初回 Save・禁止語・コメント・班A採択6件）／F2b（文書）→ 2周目（班C／班D）→ マイクロ修正 M1（installer 正規名ガードの値判定・`ReadOnly` ガード＋`RecordSaveMark`・MASTER_SPEC 矛盾・CLAUDE.md 容量）**まで全消化**。
 `final-gates` 実施（09-03）: lint ERROR 0／LO compile OK／pure **PASS 3,004 / SKIP 14**／`--dev`・`--prod --zip` 自己検証 PASS／`bin_roundtrip` prod・dev OK（6条件）／`lo_xlsm` 157/157・155本コンパイル OK。配布物 `dist/MyBookshelf.xlsm`（`azure_embed_key` 空・`mock_llm` FALSE・22シート・157モジュール）と `MyBookshelf_配布.zip` を生成。
 **実Excel（Windows）合格（2026-09-04 実機第20報）**: 最終候補 zip（build `9539809`）を D: に展開し bat から起動 → VBOM 無しで全画面が組み上がり、🩺診断は全✅（AIリボン検出・22シート）。**R35 の本題は達成。** 同報で新規不具合1件: パック出力は成功するが**パック取込が E0701**（`modPack.ImportPackFile`「'Open' メソッドは失敗しました: 'Workbooks' オブジェクト」）→ R36 の先頭で扱う（下記）。
+**R35 追補（09-04）**: F3a＝パック取込・引き継ぎ読み込みの Open 失敗を是正（開く前に先頭4バイトで暗号化判別→普通のファイルは Password 引数なしで開く。`modPack.OpenGateReason` 純関数＋Pure37 に5件。PASS 下限 3,009）。F3b＝**ランチャー往復 bat**（OneDrive 原本→D:\MyBookshelf\ 複製→30秒監視・10分ごと書き戻し→閉じたら最終書き戻し＋`_前回` 退避。D: 上に展開した運用は従来どおり起動のみ。3プロセス・最小化・失敗は通常窓）。**bat は当環境で実行不能＝実機1往復（spec §10-3 の2）を確認するまでテスターへ配らない。** spec §10 参照。
 （経過）09-03 に送った1本目はテンプレートの `Sheet1` を PerformanceCache のごみで焼いていた（`read_modules` の MODULEOFFSET バグ。riskconsulting へ報告済み・F1 で是正）。是正版 V1〜V4 と最終候補をユーザーへ送付済み。**テスターへの再配布は実Excel 合格後**。姉妹PJの Mac 実Excel では「標準モジュール＋ThisWorkbook は OK・クラスモジュールだけ属性8行と MODULEPRIVATE が要る」（うちはクラス無し）。
 **発行者用ブックは未再生成**（`MYBOOKSHELF_PUBLISH_KEY` が要る。ユーザー判断待ち）。R36 の本題は「消えない置き場所」（spec §7。髙橋案＝エンジンと蓄積の分離。推奨 (a) ランチャー往復 → (b) データブック分離）。
 
