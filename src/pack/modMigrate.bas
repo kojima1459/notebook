@@ -42,11 +42,6 @@ Option Explicit
 Private Const MIG_META As String = "mig_meta"
 Private Const MIG_FORMAT_VERSION As Long = 1
 
-' 2026-08-10(R27波3-4): 保護されたブックを掴んでもパスワード入力ダイアログを
-' 出さないためのダミー(modExtractorExcel と同型)。正しいはずがないので、
-' 保護されていれば即エラーになり Failed 経路で扱える。
-Private Const DUMMY_PASSWORD As String = "__mybookshelf_no_password__"
-
 ' 引き継がない config キー(ビルドが決める値・秘密)。
 ' 前方一致で判定するので azure_embed_key / azure_embed_url は "azure_" で拾う。
 Private Const CFG_SKIP_EXACT As String = "|mock_llm|build_stamp|publish_key|"
@@ -220,15 +215,38 @@ Public Sub ImportUserData()
     Application.DisplayAlerts = False
     Application.ScreenUpdating = False
 
-    ' ダミーPassword/IgnoreReadOnlyRecommended は modExtractorExcel:181-186 と
-    ' 同型。保護されたファイルを選ばれても入力を求めず即エラーへ倒す
-    ' (ここは他人から受け取ったファイルを開く経路なので必ず要る)。
+    ' 2026-09-04(R35 F3a・実機第20報): なぜ Password 引数を外したか。
+    ' modPack.ImportPackFile と同型の壁(この端末は Password 引数(名前付き引数)を付けると
+    ' 保護されていない普通のファイルでも Open 自体が失敗する)。ダミー
+    ' Password(旧R27波3-4)をやめ、Open の【前】に先頭4バイトで暗号化かどうか
+    ' を判別する(modShelfScan.EncryptedFileKind→modPack.OpenGateReason。
+    ' 同じ pack 配下なので層規約に反しない)。暗号化/判別不能と分かったものは
+    ' 開かずに E0801 で倒し、"plain"と分かったものだけを Password/
+    ' WriteResPassword を渡さずに開く。
+    Dim migPath As String: migPath = CStr(fd.SelectedItems(1))
+    Dim migKind As String: migKind = modShelfScan.EncryptedFileKind(migPath)
+    Dim migGate As String: migGate = modPack.OpenGateReason(migKind)
+    If migGate <> "open" Then
+        Dim gateMsg As String
+        If migGate = "enc" Then
+            gateMsg = "このファイルはパスワードで保護されています。保護を外したものを受け取ってください。"
+        Else
+            gateMsg = "ファイルを読めません。他の人が書き込み中か、Excel ブックではない可能性があります。"
+        End If
+        Application.DisplayAlerts = prevAlerts
+        Application.ScreenUpdating = prevScreen
+        Application.Cursor = -4143
+        Application.StatusBar = False
+        modLog.LogError "E0801", "modMigrate.ImportUserData", _
+            "開く前に判別して中止(kind=[" & migKind & "]): " & migPath
+        MsgBox gateMsg & vbLf & "(コード: E0801)", vbExclamation, modAppDef.APP_NAME
+        GoTo Done
+    End If
+
     Dim wb As Workbook
-    Set wb = Application.Workbooks.Open(Filename:=CStr(fd.SelectedItems(1)), _
+    Set wb = Application.Workbooks.Open(Filename:=migPath, _
                                         ReadOnly:=True, UpdateLinks:=0, _
-                                        IgnoreReadOnlyRecommended:=True, AddToMru:=False, _
-                                        Password:=DUMMY_PASSWORD, _
-                                        WriteResPassword:=DUMMY_PASSWORD)
+                                        IgnoreReadOnlyRecommended:=True, AddToMru:=False)
 
     Dim reason As String
     If Not ValidateMigFile(wb, reason) Then
