@@ -379,6 +379,7 @@ _LAUNCHER_BAT_NAME = "MyBookshelfを起動.bat"
 _LAUNCHER_DST_DIR = "D:\\MyBookshelf\\"
 _LAUNCHER_GS_DIRNAME = "Ghostscript"
 _LAUNCHER_CLOSED_MARK = ".closed"
+_LAUNCHER_LOOP_ARG = "__loop__"
 _LAUNCHER_WAIT_ARG = "__wait__"
 
 
@@ -391,12 +392,29 @@ def _launcher_backup_name(xlsm_name: str) -> str:
 def _launcher_bat_text(xlsm_name: str) -> str:
     """ランチャーbatの中身(CRLF・CP932で書き出す)。
 
-    R35 F3b: OneDrive(SRC=bat自身の場所)とD:(DST=固定の複製先)を往復する。
-    SRC/DSTが同じ・D:が無い、の2ケースは複製せず従来どおり起動だけにする。
+    R35 F3b(司令塔レビュー反映・2026-09-04): OneDrive(SRC=bat自身の場所)と
+    D:(DST=固定の複製先)を往復する。SRC/DSTが同じ・D:が無い、の2ケースは
+    複製せず従来どおり起動して即終了する(ループを作らない)。
+
+    顔は3つ:
+      1) 入口(利用者がダブルクリックした最初のプロセス)。判定だけして
+         即終了する。SRC/DSTが同じかD:が無ければここでExcelを起動して
+         終わる。それ以外は複製・監視・書き戻しの一切を最小化した
+         別プロセス(__loop__)へ渡して自分は消える。
+      2) __loop__(最小化・「閉じないでください」をタイトルに含む)。
+         複製→Excel起動(を待つ__wait__を子として起動)→30秒おきの
+         監視→10分に1回の中間書き戻し→終了検知後の最終書き戻し。
+      3) __wait__(最小化)。excel.exe /x を /wait で起動し、閉じたら
+         .closed の印を置くだけ。__loop__ と同じプロセスで /wait すると
+         監視ループが1回も回らなくなるため分離している。
+    SRC/DST/XLSM は3つのどの顔でも %~dp0 等から同じ値を再計算するだけ
+    なので、プロセス間で引数として受け渡す必要はない(自分自身を
+    "%~f0" で再起動している=同じファイルの同じ場所からの実行だから)。
     """
     dst = _LAUNCHER_DST_DIR
     gs_dir = _LAUNCHER_GS_DIRNAME
     mark = _LAUNCHER_CLOSED_MARK
+    loop_arg = _LAUNCHER_LOOP_ARG
     wait_arg = _LAUNCHER_WAIT_ARG
     backup_name = _launcher_backup_name(xlsm_name)
     lines = [
@@ -406,33 +424,43 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "rem xlsm を直接ダブルクリックすると、開いたままの他のExcelに",
         "rem 取り込まれてしまい、取込中にそのExcelも一緒に固まります。",
         "",
-        "rem このbatは2つの顔を持つ。通常の起動時と、自分自身をExcel終了",
-        "rem 待ちの別プロセスとして再び呼び出したとき(__wait__引数)の2つ。",
-        "rem 10分ごとの書き戻しループとExcel終了待ちを同じプロセスで行うと",
-        "rem 待ちの間ループが止まってしまうため、待ちだけ別プロセスに分ける。",
-        f'if "%~1"=="{wait_arg}" goto :WAIT_AND_MARK',
-        "",
         "setlocal",
         "rem SRC = このbatがある場所(OneDriveの消えないフォルダを想定)。",
         "rem DST = D:上の実行用複製先(固定)。どちらも末尾は \\ で揃っている。",
+        "rem SRC/DST/XLSMはどの顔(入口/__loop__/__wait__)でも同じ値に",
+        "rem なるので、プロセスをまたいで引数で渡す必要はない。",
         "set \"SRC=%~dp0\"",
         f'set "DST={dst}"',
         f'set "XLSM={xlsm_name}"',
         "",
+        "rem このbatは3つの顔を持つ。通常の入口/複製と監視をする__loop__/",
+        "rem Excel終了を待つ__wait__。自分自身を引数付きで再startして使い分ける。",
+        f'if "%~1"=="{loop_arg}" goto :LOOP',
+        f'if "%~1"=="{wait_arg}" goto :WAIT_AND_MARK',
+        "",
+        "rem ===== 入口(ダブルクリックした最初のプロセス。判定してすぐ消える) =====",
         "rem SRCとDSTが同じ場所(=D:に全部置く運用)なら複製も書き戻しも行わず",
-        "rem 従来どおり起動するだけにする(/iで大文字小文字を無視して比較)。",
+        "rem 従来どおり起動して即終了する(ループを作らない・/iで大文字小文字",
+        "rem を無視して比較)。",
         'if /i "%SRC%"=="%DST%" (',
         '    start "" excel.exe /x "%SRC%%XLSM%"',
         "    goto :EOF",
         ")",
         "",
         "rem D: が無い端末は複製先を作れないので、メッセージを出さずSRCから",
-        "rem 起動するだけにする(D:前提ではない端末の動作を壊さない)。",
+        "rem 起動して即終了する(D:前提ではない端末の動作を壊さない)。",
         'if not exist "D:\\" (',
         '    start "" excel.exe /x "%SRC%%XLSM%"',
         "    goto :EOF",
         ")",
         "",
+        "rem 複製・監視・書き戻しは最小化した別プロセスへ丸ごと渡し、入口は",
+        "rem すぐ終了する。タスクバーに残るのはこの後の__loop__と__wait__。",
+        f'start /min "MyBookshelf 同期中(閉じないでください)" "%~f0" {loop_arg}',
+        "goto :EOF",
+        "",
+        ":LOOP",
+        "rem ===== ここから先は最小化された別プロセス(閉じないでください) =====",
         "rem 複製先フォルダを用意する。",
         'if not exist "%DST%" mkdir "%DST%"',
         "",
@@ -451,10 +479,9 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "rem 済みと判定してしまうので、起動前に消しておく。",
         f'if exist "%DST%{mark}" del "%DST%{mark}"',
         "",
-        "rem Excelの起動と終了待ちを別プロセスに切り出す(自分自身を",
-        "rem __wait__引数付きで再度startする)。このプロセスは待たずに",
-        "rem 次の10分ループへ進む。",
-        f'start "MyBookshelf起動" "%~f0" {wait_arg} "%DST%%XLSM%" "%DST%{mark}"',
+        "rem Excelの起動と終了待ちをさらに別の最小化プロセスに切り出す。",
+        "rem このプロセスは待たずに次の監視ループへ進む。",
+        f'start /min "MyBookshelf 待機中" "%~f0" {wait_arg}',
         "",
         "rem ===== 10分ごとにD:からSRC(OneDrive)へ書き戻すループ =====",
         "rem for /l ではなくgoto巻き戻しにしているのは、%ERRORLEVEL%等の",
@@ -474,7 +501,7 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         ":RETRY_COPY",
         'copy /Y "%DST%%XLSM%" "%SRC%%XLSM%"',
         "if not errorlevel 1 goto :DONE",
-        "set /a RETRY=%RETRY%+1",
+        "set /a RETRY=RETRY+1",
         "if %RETRY% GEQ 3 goto :FAIL",
         "timeout /t 5 /nobreak >nul",
         "goto :RETRY_COPY",
@@ -489,10 +516,9 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "goto :EOF",
         "",
         ":WAIT_AND_MARK",
-        "rem %2 %3 は呼び出し側で引用符付きで渡しているので、そのまま",
-        "rem 展開すれば引用符ごと引き継がれる。",
-        "start \"\" /wait excel.exe /x %2",
-        "type nul > %3",
+        "rem ===== ここも最小化された別プロセス(閉じないでください) =====",
+        'start "" /wait excel.exe /x "%DST%%XLSM%"',
+        f'type nul > "%DST%{mark}"',
         "goto :EOF",
     ]
     return "\r\n".join(lines) + "\r\n"
