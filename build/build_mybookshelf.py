@@ -335,19 +335,155 @@ def _readme_text(is_publisher: bool) -> str:
 #     省略して "..." のパスを書くとそれがタイトルとして食われ、Excelが起動しない。
 #   ・%~dp0 でbat自身の場所を基準にする(展開先がどこでも動く。末尾は \ 付き)。
 #   ・chcp は打たない: CP932 で書き出すので日本語コメントがそのまま読める。
+#
+# 2026-09-04 R35 F3b(spec_20260903_R35_配布方式転換.md §10-2): 往復
+# (OneDrive原本 → D:複製 → 書き戻し)を追加。R36(a)の前倒し。
+# 前提(09-03/04実機確定): D:は信頼できる場所だがシャットダウンで消える/
+# OneDriveの同期フォルダは消えないが信頼できる場所ではない/組織ポリシーで
+# 信頼できる場所の追加はできない。→「動かす場所はD:、消えない置き場は
+# OneDrive」を、bat が利用者の操作なしに両立させる。VBA側は1行も変えない
+# (ThisWorkbook.Path が何であっても動くのは方式B移行時点で確認済み)。
+#   ・bat 自身の場所(%~dp0)が原本フォルダ。SRC/DSTが同じ(=D:に全部置く
+#     旧来運用)なら複製も書き戻しもせず従来どおり起動だけにする。
+#   ・D: が無い端末では複製先を作れないので、メッセージを出さず従来どおり
+#     SRCから起動するだけにする(D:前提でない端末を壊さない)。
+#   ・Excelの起動と終了待ちを別プロセス(自分自身をhiddenな__wait__引数で
+#     再起動)に切り出しているのは、10分ごとの書き戻しループと同時に
+#     走らせるため。start "" /wait をそのままここで書くとバッチ本体が
+#     Excel終了までブロックされ、ループが1回も回らなくなる。
+#   ・ループは for /l ではなく goto によるラベル巻き戻しにする。for /l は
+#     カウンタ次第で無限ループの温床になりやすく、ブロック内で読む変数は
+#     遅延展開(setlocal enabledelayedexpansion)が要る。goto方式なら行ごとに
+#     解釈されるため %ERRORLEVEL% や %RETRY% を素の書き方のまま安全に読める。
+#   ・コピーの成否判定は %ERRORLEVEL% を変数展開せず `if errorlevel N` の
+#     コマンド形で見る(遅延展開の落とし穴を踏まない)。
+#   ・ディレクトリの存在確認は末尾に \ を付けて書く(`if exist "D:\"` 等)。
+#     付けないと同名ファイルとの誤マッチが起きうる。
 # ---------------------------------------------------------------------------
 _LAUNCHER_BAT_NAME = "MyBookshelfを起動.bat"
 
+# R35 F3b: D:側の複製先フォルダ(固定)。dev/発行者用など複数の派生ファイルを
+# 同じ端末で同時にテストすると、この1フォルダを取り合って複製・書き戻しが
+# 混線しうる(通常運用では利用者は1種類のzipしか受け取らないため実害は無い
+# 想定。実機テストで複数variantを同時に置く場合は要注意=司令塔へ報告)。
+_LAUNCHER_DST_DIR = "D:\\MyBookshelf\\"
+_LAUNCHER_GS_DIRNAME = "Ghostscript"
+_LAUNCHER_CLOSED_MARK = ".closed"
+_LAUNCHER_WAIT_ARG = "__wait__"
+
+
+def _launcher_backup_name(xlsm_name: str) -> str:
+    """書き戻し失敗に備えた退避名(拡張子の直前に _前回 を挿む)。"""
+    stem, ext = os.path.splitext(xlsm_name)
+    return f"{stem}_前回{ext}"
+
 
 def _launcher_bat_text(xlsm_name: str) -> str:
-    """ランチャーbatの中身(CRLF・CP932で書き出す)。"""
+    """ランチャーbatの中身(CRLF・CP932で書き出す)。
+
+    R35 F3b: OneDrive(SRC=bat自身の場所)とD:(DST=固定の複製先)を往復する。
+    SRC/DSTが同じ・D:が無い、の2ケースは複製せず従来どおり起動だけにする。
+    """
+    dst = _LAUNCHER_DST_DIR
+    gs_dir = _LAUNCHER_GS_DIRNAME
+    mark = _LAUNCHER_CLOSED_MARK
+    wait_arg = _LAUNCHER_WAIT_ARG
+    backup_name = _launcher_backup_name(xlsm_name)
     lines = [
         "@echo off",
-        "rem MyBookshelf 起動ランチャー",
+        "rem ===== MyBookshelf 起動ランチャー(R35 F3b 往復版) =====",
         "rem 他のExcelで仕事中でも、必ず別プロセスで開くための入口です。",
         "rem xlsm を直接ダブルクリックすると、開いたままの他のExcelに",
         "rem 取り込まれてしまい、取込中にそのExcelも一緒に固まります。",
-        'start "" excel.exe /x "%~dp0' + xlsm_name + '"',
+        "",
+        "rem このbatは2つの顔を持つ。通常の起動時と、自分自身をExcel終了",
+        "rem 待ちの別プロセスとして再び呼び出したとき(__wait__引数)の2つ。",
+        "rem 10分ごとの書き戻しループとExcel終了待ちを同じプロセスで行うと",
+        "rem 待ちの間ループが止まってしまうため、待ちだけ別プロセスに分ける。",
+        f'if "%~1"=="{wait_arg}" goto :WAIT_AND_MARK',
+        "",
+        "setlocal",
+        "rem SRC = このbatがある場所(OneDriveの消えないフォルダを想定)。",
+        "rem DST = D:上の実行用複製先(固定)。どちらも末尾は \\ で揃っている。",
+        "set \"SRC=%~dp0\"",
+        f'set "DST={dst}"',
+        f'set "XLSM={xlsm_name}"',
+        "",
+        "rem SRCとDSTが同じ場所(=D:に全部置く運用)なら複製も書き戻しも行わず",
+        "rem 従来どおり起動するだけにする(/iで大文字小文字を無視して比較)。",
+        'if /i "%SRC%"=="%DST%" (',
+        '    start "" excel.exe /x "%SRC%%XLSM%"',
+        "    goto :EOF",
+        ")",
+        "",
+        "rem D: が無い端末は複製先を作れないので、メッセージを出さずSRCから",
+        "rem 起動するだけにする(D:前提ではない端末の動作を壊さない)。",
+        'if not exist "D:\\" (',
+        '    start "" excel.exe /x "%SRC%%XLSM%"',
+        "    goto :EOF",
+        ")",
+        "",
+        "rem 複製先フォルダを用意する。",
+        'if not exist "%DST%" mkdir "%DST%"',
+        "",
+        "rem 本体を新しい方で複製する。/D は「元が複製先より新しいときだけ",
+        "rem 複製」なので、前回の書き戻しに失敗してD:側の方が新しい場合は",
+        "rem 上書きしない(取込済みデータを消さない)。",
+        'xcopy "%SRC%%XLSM%" "%DST%" /D /Y /Q',
+        "",
+        "rem Ghostscript一式が複製先に無ければフォルダごと複製する",
+        "rem (初回だけ・約14MB)。",
+        f'if not exist "%DST%{gs_dir}\\gswin32c.exe" (',
+        f'    xcopy "%SRC%{gs_dir}" "%DST%{gs_dir}\\" /E /I /Y /Q',
+        ")",
+        "",
+        "rem 前回の「閉じた」印が残っていると、開いた直後に誤って書き戻し",
+        "rem 済みと判定してしまうので、起動前に消しておく。",
+        f'if exist "%DST%{mark}" del "%DST%{mark}"',
+        "",
+        "rem Excelの起動と終了待ちを別プロセスに切り出す(自分自身を",
+        "rem __wait__引数付きで再度startする)。このプロセスは待たずに",
+        "rem 次の10分ループへ進む。",
+        f'start "MyBookshelf起動" "%~f0" {wait_arg} "%DST%%XLSM%" "%DST%{mark}"',
+        "",
+        "rem ===== 10分ごとにD:からSRC(OneDrive)へ書き戻すループ =====",
+        "rem for /l ではなくgoto巻き戻しにしているのは、%ERRORLEVEL%等の",
+        "rem 遅延展開が不要な素直な形にするため。",
+        ":COPY_LOOP",
+        "timeout /t 600 /nobreak >nul",
+        f'if exist "%DST%{mark}" goto :FINAL_COPY',
+        'copy /Y "%DST%%XLSM%" "%SRC%%XLSM%" >nul',
+        "goto :COPY_LOOP",
+        "",
+        ":FINAL_COPY",
+        "rem 最終書き戻し。失敗の巻き添えを防ぐため、先にSRC側の現行を",
+        "rem 退避してから上書きする。",
+        f'if exist "%SRC%%XLSM%" copy /Y "%SRC%%XLSM%" "%SRC%{backup_name}" >nul',
+        "",
+        "set \"RETRY=0\"",
+        ":RETRY_COPY",
+        'copy /Y "%DST%%XLSM%" "%SRC%%XLSM%"',
+        "if not errorlevel 1 goto :DONE",
+        "set /a RETRY=%RETRY%+1",
+        "if %RETRY% GEQ 3 goto :FAIL",
+        "timeout /t 5 /nobreak >nul",
+        "goto :RETRY_COPY",
+        "",
+        ":FAIL",
+        "echo OneDriveへ書き戻せませんでした。",
+        'echo %DST%%XLSM% を手でOneDriveへコピーしてください。',
+        "pause",
+        "goto :EOF",
+        "",
+        ":DONE",
+        "goto :EOF",
+        "",
+        ":WAIT_AND_MARK",
+        "rem %2 %3 は呼び出し側で引用符付きで渡しているので、そのまま",
+        "rem 展開すれば引用符ごと引き継がれる。",
+        "start \"\" /wait excel.exe /x %2",
+        "type nul > %3",
+        "goto :EOF",
     ]
     return "\r\n".join(lines) + "\r\n"
 
