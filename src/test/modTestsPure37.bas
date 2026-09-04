@@ -22,6 +22,13 @@ Option Explicit
 '     専用テストは追加せず、既存の modUtil.SafeLeft サロゲート境界テスト
 '     (modTestsPure4.bas:392 TestSafeLeftSurrogate)で置換後の挙動は
 '     足りている。
+'   B1(R35 F3a・実機第20報) modPack.OpenGateReason: EncryptedFileKind の
+'     戻り値("plain"/"enc"/"")を「開いてよいか」の3値("open"/"enc"/
+'     "unreadable")へ寄せる純関数。境界は Select Case が既定(Binary比較・
+'     大文字小文字を区別)であることを固定する ―― もし Text比較に変わると
+'     "PLAIN"/"ENC" も一致してしまい、判別不能なファイルを開いてよいことに
+'     なる(パスワード保護ファイルを誤って開いてダイアログで止まる事故に
+'     直結するため、ここは厳格でなければならない)。
 ' ============================================================================
 
 ' ---- A1: ParseVerdict の PASS+trailing 可視化 ------------------------------
@@ -101,6 +108,21 @@ Private Sub TestBakIsStale37()
         modChatLog.BakIsStale(baseNow - 30, baseNow), True
 End Sub
 
+' ---- B1: modPack.OpenGateReason の3値+境界 ----------------------------------
+'   discriminate:
+'   ・"plain"→"open" 以外(例: 素通しでkindをそのまま返す)にすると1本目が落ちる。
+'   ・Case Else を書き忘れて未知の値を "" 等で返すと(3)(4)(5)が落ちる。
+'   ・Select Case が Option Compare Text(大小無視)へ変わると(4)(5)が
+'     "open"/"enc" を返してしまい落ちる(このモジュールに Option Compare Text
+'     は無いことが前提。Public関数側にも無い=モジュール既定のBinary比較)。
+Private Sub TestOpenGateReason37()
+    ChkStr37 "B1_plainはopen", modPack.OpenGateReason("plain"), "open"
+    ChkStr37 "B1_encはenc", modPack.OpenGateReason("enc"), "enc"
+    ChkStr37 "B1_空文字はunreadable", modPack.OpenGateReason(""), "unreadable"
+    ChkStr37 "B1_大文字PLAINはunreadable(大小区別)", modPack.OpenGateReason("PLAIN"), "unreadable"
+    ChkStr37 "B1_大文字ENCはunreadable(大小区別)", modPack.OpenGateReason("ENC"), "unreadable"
+End Sub
+
 Private Sub ChkBool37(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R34-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
@@ -116,6 +138,9 @@ Public Sub RunAll37()
 H02Next37:
     On Error GoTo H02Fail37
     TestBakIsStale37
+H03Next37:
+    On Error GoTo H03Fail37
+    TestOpenGateReason37
 H01Done37:
     On Error GoTo 0
     Exit Sub
@@ -126,6 +151,10 @@ H01Fail37:
     Resume H02Next37
 H02Fail37:
     modTestRunner.Check "TestBakIsStale37(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H03Next37
+H03Fail37:
+    modTestRunner.Check "TestOpenGateReason37(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done37
 End Sub

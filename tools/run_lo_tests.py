@@ -132,8 +132,11 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #     実機側は modTestsExcel 系で確認)。
 #   2026-08-20 R34H Fix波: F3(findings=trailing化)で Pure37 のアサートが
 #     1本→2本になり PASS 3003→3004(SKIP は 14 のまま)。
+#   2026-09-04 R35 F3a: modPack.OpenGateReason(実機第20報のOpen前ゲート判定)
+#     のゴールデン5件を modTestsPure37(B1)に追加 → PASS 3004→3009
+#     (SKIP は 14 のまま。ネガティブ確認済み: 1値を壊して3008/FAIL1を確認→復元)。
 EXPECTED_SKIP_MAX = 14
-EXPECTED_PASS_MIN = 3004
+EXPECTED_PASS_MIN = 3009
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
