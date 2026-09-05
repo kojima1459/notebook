@@ -2789,7 +2789,11 @@ def build_baked_vba_project(template_bin: bytes, shipped_modules, root: str):
 # (二重実装禁止)。
 FORBIDDEN_BIN_STRINGS = ("VBProject", "AddFromString", "ExecuteExcel4Macro",
                           "VBComponents", "CodeModule")
-REPORT_BIN_STRINGS = ("WScript.Shell", "new:{")
+# 2026-09-05: 姉妹PJ(riskconsulting)が配布binから ServerXMLHTTP を落とした
+# (直接API経路を開発ビルド専用に分離)。うちは modGatewayDirect の1箇所
+# (embed_transport=direct のときだけ通る経路。出荷既定は ribbon)。AV観点の
+# 懸念は同じなので、まず件数報告に載せ、R36 で WScript.Shell と一緒に扱う。
+REPORT_BIN_STRINGS = ("WScript.Shell", "new:{", "ServerXMLHTTP")
 
 
 def _decompressed_bin_text(vba_bin):
