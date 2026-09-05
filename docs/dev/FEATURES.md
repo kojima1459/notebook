@@ -17,6 +17,7 @@
 | バイナリ量子化ハイブリッド(狂気案Lv.1) | 大規模時にXORハミング距離で粗選別→Float再ランク。`binary_rag=TRUE`でオプトイン | `modBitwiseOpt` |
 | 多段RAG | クエリ拡張→マルチクエリ検索→AI再ランク | `modAsk`, `modPrompts`, `modRagParse` |
 | 2速度モード | ⚡すぐ聞く(10〜20秒) / 🔍しっかり調べる(下書き+検証の2段) | `modAsk` |
+| 🔬入念の1回読み(R38) | 入念の単発経路を「検索上位の章の本文を丸ごと1回で読んで回答」に置換(config `thorough_onepass` 既定on・本文上限 `onepass_max_chars` 既定300000字・章数 `onepass_max_chapters` 既定8)。章に割れていない本棚は前後 `onepass_neighbor`(既定6)件の近傍で代替。どの理由で失敗しても従来の4段(要点整理→下書き→自己点検→検証)へ黙って落ちる。`off` で従来どおり | `modAskOnePass`, `modAskThorough`, `modAskGlobal.CollectChapterHits` |
 | 続けて質問(深掘り) | 直前の会話を踏まえた追加質問 | `modFollowup`, `modAsk` |
 | 出典厳格化 | 資料に無いことは「見当たらない」と明言(ハルシネーション抑制) | `modPrompts.GroundingInstruction` |
 | One-Shot品質固定 | プロンプトに理想的な出力例を1つ同梱し、トーン・型・粒度を固定 | `modPrompts.StyleInstruction` |

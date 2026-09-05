@@ -270,6 +270,9 @@ CatchDone:
     Err.Clear
     On Error GoTo 0
     TryOnePass = False
+    ' 中断(ESC=Err18)だけは4段へ落とさず上へ返す(modAskGlobal.TryGlobal と同じ。
+    ' 止めたい利用者を、代わりに4段でさらに数分待たせない)。R38 レビュー 2-1。
+    If errNum = 18 Then Err.Raise 18
 End Function
 
 ' ----------------------------------------------------------------------------

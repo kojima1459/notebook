@@ -145,7 +145,10 @@ EXPECTED_SKIP_MAX = 14
 #     TopNLinks/PickLinked/ChapterOf/FilterBySim)+Pure40 追記(誤根拠の降格:
 #     BuildMemoBody 4引数/ExtractWrongSources/WrongSourceMatches) → PASS 3090→3155
 #     (SKIP 14 のまま)。ネガティブ確認: Pure42 A の期待値を壊して FAIL 1/下限割れ→復元。
-EXPECTED_PASS_MIN = 3155
+#   2026-09-06 R38: modTestsPure43(入念の1回読み: IsOn/DedupeKeys/PerChapterCap/
+#     CountLines/BuildOnePassPrompt の37件)を追加。下限 3155→3192(SKIP 14 のまま)。
+#     ネガティブ確認: Pure43 C_正常等分 の期待値を 10001 に壊して FAIL 1→復元。
+EXPECTED_PASS_MIN = 3192
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -845,6 +848,13 @@ PURE_ALLOWLIST = [
     #   同点先勝ちの唯一の自動検査が走らないまま全部PASSに見える。
     #   modXDocBuild は【載せない】: テストから1本も呼ばず、載せる理由が無い。
     "modXDoc", "modXDocStore", "modTestsPure42",
+    # modAskOnePass / modTestsPure43(2026-09-06 R38): 入念の1回読み。テストが
+    #   呼ぶのは文字列・数値だけの純関数5本(IsOn/DedupeKeys/PerChapterCap/
+    #   CountLines/BuildOnePassPrompt)。TryOnePass/SourceBlockOf は Hit 型を
+    #   跨ぐので呼ばない(注入しても実行されない)。未注入だと RunAll43 が
+    #   実行時エラー12になり、プロンプトの節順・設定の on/off 解釈の唯一の
+    #   自動検査が走らないまま全部PASSに見える(R38 波1で実際に起きた)。
+    "modAskOnePass", "modTestsPure43",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
