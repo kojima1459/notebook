@@ -39,7 +39,10 @@ Option Explicit
 
 ' 是正メモの資料名(source)の接頭辞。modAppAct と InjectHits の走査が同じ
 ' 文字列を見る単一情報源。ここを変えると過去の是正メモが拾えなくなる。
-Private Const MEMO_PREFIX As String = "是正メモ_"
+' R36 Fix A-M5/A-M8: Public。modAskRetrieve.HitSourceList(会話出典メモリの
+' 8枠から除外)と modInsightIo.EmitVerifiedQA(共有本文の資料名の伏せ字)が
+' 同じ接頭辞を見る ―― 書き写すと必ずズレる。
+Public Const MEMO_PREFIX As String = "是正メモ_"
 
 ' 本文の「質問」行。組み立て(BuildMemoBody)は "質問: "、読み取り
 ' (ExtractQuestionLine)は "質問:" で照合する(全角スペース等のゆれを拾う)。
@@ -60,6 +63,16 @@ Private Const DEFAULT_KEY_MIN As Long = 60
 ' 「関連が薄い」と警告が出ないよう cos の上限側に置く。
 Private Const SCORE_EXACT As Double = 1#
 Private Const SCORE_KEY As Double = 0.9
+
+' ----------------------------------------------------------------------------
+' IsMemoSource - この資料名は是正メモか(R36 Fix A-M5/A-M8)。純関数。
+'   接頭辞の照合を1箇所に閉じ込める。逼迫している呼び出し側
+'   (modAskRetrieve 残217字 / modInsightIo)が1行で済むようにするためでも
+'   ある ―― Left$/Len を各所へ書き写すと、接頭辞を変えたとき必ず取り残す。
+' ----------------------------------------------------------------------------
+Public Function IsMemoSource(ByVal src As String) As Boolean
+    IsMemoSource = (Left$(Trim$(src), Len(MEMO_PREFIX)) = MEMO_PREFIX)
+End Function
 
 ' ----------------------------------------------------------------------------
 ' BuildMemoBody - 是正メモの本文(R36 §2-2-1 の書式)。純関数。
@@ -115,6 +128,14 @@ End Function
 '  「?」を含む質問 ―― 日本語の質問では多数 ―― で source 名が食い違い、
 '  §2-3 が同時に要求する DeleteSource の同名判定が空振りする。実装波の
 '  判断で冪等化を選び、司令塔へ報告した。)
+' R36 Fix M2 / A-M7: 先頭24字だけでは【別の質問が同じ資料名になる】。
+' 「育児休業の申請期限について教えてください」と「育児休業の申請期限は
+'  いつまでですか」は先頭24字が同じで、後から書いた是正メモが前のものを
+' DeleteSource で消してしまう(2つ目の質問の是正が1つ目を殺す)。一方で
+' 一致判定は NormKey(先頭40字)なので、物差しが24字と40字で食い違っていた。
+' そこで末尾へ4桁の識別子を足す ―― NormKey(q) の全文字の AscW の和を
+' 10000 で割った余り。AscW は U+8000 以降を負値で返すので +65536 で補正する
+' (CLAUDE.md §10 の確立作法)。同じ質問なら必ず同じ4桁になる=冪等は維持。
 Public Function MemoDocBase(ByVal question As String) As String
     Dim t As String: t = modUtil.SafeLeft(question, DOCBASE_Q_LEN)
 
@@ -125,7 +146,23 @@ Public Function MemoDocBase(ByVal question As String) As String
         t = Replace(t, CStr(bad(i)), "_")
     Next i
 
-    MemoDocBase = MEMO_PREFIX & Trim$(t)
+    MemoDocBase = MEMO_PREFIX & Trim$(t) & "_" & QuestionTag4(question)
+End Function
+
+' 質問の4桁識別子(0000〜9999)。純関数。物差しは完全一致判定と同じ
+' modInsight.NormKey(空白・句読点・?・括弧を落として先頭40字を小文字化)に
+' 揃える ―― 「?」の有無だけが違う同じ質問で別の4桁になると、2回目の是正が
+' 1つ目を上書きできず是正メモが増え続ける。
+Public Function QuestionTag4(ByVal question As String) As String
+    Dim k As String: k = modInsight.NormKey(question)
+    Dim total As Long
+    Dim i As Long
+    For i = 1 To Len(k)
+        Dim c As Long: c = AscW(Mid$(k, i, 1))
+        If c < 0 Then c = c + 65536      ' U+8000以降は負値で返る(§10)
+        total = (total + c) Mod 10000
+    Next i
+    QuestionTag4 = Right$("000" & CStr(total), 4)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -153,17 +190,42 @@ Public Function KeyMatchPct(ByVal qNorm As String, ByVal memoQNorm As String) As
             If InStr(1, doc, k, vbBinaryCompare) > 0 Then okCnt = okCnt + 1
         End If
     Next i
-    If total = 0 Then Exit Function
+    ' R36 Fix N6: 効く語が1語しか取れない質問は、その1語が当たるだけで
+    ' 一致率100%になる ―― 「有給は?」で登録した是正が「有給の繰越は?」にも
+    ' 「有給の申請先は?」にも先頭で刺さる(誤爆の主要経路)。分母が2未満の
+    ' ときは語一致を名乗らせず 0 にし、完全一致だけに任せる。
+    If total < 2 Then Exit Function
 
     KeyMatchPct = Int((okCnt * 100#) / total)
 End Function
 
 ' ----------------------------------------------------------------------------
+' NormFull - 完全一致の物差し(R36 Fix A-M6)。純関数。
+' ----------------------------------------------------------------------------
+'   modInsight.NormKey と【同じ除去規則】(空白・全角空白・、。・半角/全角の
+'   ?・全角括弧を落として小文字化)だが、先頭40字のクランプをしない。
+'   NormKey をそのまま完全一致に使うと、41字目以降だけが違う別の質問
+'   ―― 「育児休業を延長したいのですが手続きの流れを教えてください」と
+'   「…手続きに必要な書類を教えてください」のような長い質問 ―― が同一視され、
+'   score 1.0(=最強の一致)で先頭に差し込まれる。gap の重複判定は「似た質問を
+'   まとめる」のが目的なので40字で正しいが、是正の完全一致は「同じ質問」でしか
+'   成立してはならない。物差しが違うので関数を分ける。
+'   modInsight(pack層・残2,606字)は触らず、qa層のここに置く(R36 §9-2 A-M6)。
+'   除去する文字は modInsight.bas:417-425 と同一。片方を変えたら両方直すこと。
+' ----------------------------------------------------------------------------
+Public Function NormFull(ByVal s As String) As String
+    Dim t As String: t = s
+    t = Replace(t, " ", ""): t = Replace(t, ChrW(&H3000), "")
+    t = Replace(t, ChrW(&H3001), ""): t = Replace(t, ChrW(&H3002), "")
+    t = Replace(t, "?", ""): t = Replace(t, ChrW(&HFF1F), "")
+    t = Replace(t, ChrW(&HFF08), ""): t = Replace(t, ChrW(&HFF09), "")
+    NormFull = LCase$(t)
+End Function
+
+' ----------------------------------------------------------------------------
 ' MatchLevel - 質問と是正メモの一致度。2=完全一致 / 1=語一致 / 0=不一致。
 '   qNorm は modSparse.NormalizeForSearch を通した質問。
-'   完全一致の判定は modInsight.NormKey(空白・句読点・?・括弧を落として
-'   先頭40字を小文字化。modInsight.bas:417-425)で、同じ質問の連投抑止が
-'   使っているのと同じ物差しを使う(2箇所に書き写せば必ずズレる)。
+'   完全一致の判定は NormFull(NormKey と同じ除去規則・40字クランプ無し)。
 ' ----------------------------------------------------------------------------
 Public Function MatchLevel(ByVal qNorm As String, ByVal memoText As String) As Long
     If LenB(Trim$(qNorm)) = 0 Then Exit Function
@@ -173,8 +235,8 @@ Public Function MatchLevel(ByVal qNorm As String, ByVal memoText As String) As L
 
     Dim memoNorm As String: memoNorm = modSparse.NormalizeForSearch(memoQ)
 
-    Dim kq As String: kq = modInsight.NormKey(qNorm)
-    Dim km As String: km = modInsight.NormKey(memoNorm)
+    Dim kq As String: kq = NormFull(qNorm)
+    Dim km As String: km = NormFull(memoNorm)
     If LenB(kq) = 0 Then Exit Function
     If LenB(km) = 0 Then Exit Function
     If StrComp(kq, km, vbBinaryCompare) = 0 Then
@@ -182,17 +244,24 @@ Public Function MatchLevel(ByVal qNorm As String, ByVal memoText As String) As L
         Exit Function
     End If
 
-    If KeyMatchPct(qNorm, memoNorm) >= KeyMinPct() Then MatchLevel = 1
+    ' R36 Fix A-m4: correct_key_min = 0 は「語一致を使わない(完全一致だけ)」
+    ' という意思表示。従来はここで既定60へ黙って戻していたため、0 にした人の
+    ' 設定が無視されていた(しかも 0 をそのまま閾値にすると全件一致になる)。
+    Dim kmin As Long: kmin = KeyMinPct()
+    If kmin < 1 Then Exit Function
+
+    If KeyMatchPct(qNorm, memoNorm) >= kmin Then MatchLevel = 1
 End Function
 
 ' 語一致の閾値(%)。config が読めない実行環境(LO実行テスト)では既定値のまま
 ' 走り切る ―― modSparse.EffectiveKeyScoreCap と同型。
+' 0 = 語一致を使わない(完全一致だけ)。負値だけを「壊れた設定」として既定へ戻す。
 Private Function KeyMinPct() As Long
     Dim v As Long: v = DEFAULT_KEY_MIN
     On Error Resume Next
     v = modConfig.GetLong("correct_key_min", DEFAULT_KEY_MIN)
     On Error GoTo 0
-    If v < 1 Then v = DEFAULT_KEY_MIN
+    If v < 0 Then v = DEFAULT_KEY_MIN
     If v > 100 Then v = 100
     KeyMinPct = v
 End Function
@@ -275,9 +344,13 @@ End Function
 '     ・config correct_inject = off
 '     ・是正メモが1件も一致しない
 '     ・途中で何か失敗した(サーキットブレーカー)
-'   件数は最大 nHits + 1(R36 §2-3)。topK での切り詰めはしない ―― この
-'   シグネチャには topK が渡らず、切るなら呼び出し側の責務になるため。
-Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits As Long) As Long
+'   R36 Fix N4: 件数は topK を超えない。従来は nHits + 1 のまま返していたため、
+'   topk_* が 6 の設定でも 7 件がプロンプトへ載り、設定した上限が守られて
+'   いなかった(長い資料が7件並ぶと入念モードでトークン上限に触れる)。
+'   落とすのは【末尾=最も弱いヒット】で、先頭へ入れた是正メモは必ず残る。
+'   topK < 1(呼び出し側が上限を持たない)のときだけ切り詰めない。
+Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits As Long, _
+                           ByVal topK As Long) As Long
     InjectHits = nHits
     If nHits < 0 Then Exit Function
     If LenB(Trim$(q)) = 0 Then Exit Function
@@ -318,12 +391,20 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
         If Left$(nm, Len(MEMO_PREFIX)) = MEMO_PREFIX Then
             ' srcArr の i 行目 = シートの i+1 行目(1行目は見出し)。
             Dim lv As Long: lv = MatchLevel(qNorm, CStr(ws.Cells(i + 1, 7).Value))
-            If lv > bestLv Then
+            ' R36 Fix A-m5: 同じレベルで複数当たったときは【後勝ち】(>=)。
+            ' my_knowledge は取込順に積むので、後の行=新しい是正メモ。
+            ' 従来の > は最も古い行を勝たせており、「直したのに古い答えが
+            ' 出続ける」= 是正の仕組みそのものが利用者から見て壊れていた。
+            ' lv >= 1 を先に見るのは、不一致(0)で bestRow を書かないため。
+            If lv >= 1 And lv >= bestLv Then
                 bestLv = lv
                 bestRow = i + 1
             End If
         End If
-        If bestLv >= 2 Then Exit For      ' 完全一致より強い一致は無い
+        ' R36 Fix A-m5: 「完全一致を見つけたら打ち切る」は消した。打ち切ると
+        ' 最初に見つかった=最も古い完全一致が勝ってしまい、後勝ちにならない。
+        ' 走査するのは source 列に是正メモ接頭辞を持つ行だけ(実機で数件〜
+        ' 数十件)なので、最後まで見ても質問1回あたりの負担は変わらない。
     Next i
     If bestLv < 1 Then Exit Function
     If bestRow < 2 Then Exit Function
@@ -341,10 +422,15 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
         memoHit.score = SCORE_KEY
     End If
 
-    InjectHits = PrependHit(hits, nHits, memoHit)
+    Dim outN As Long: outN = PrependHit(hits, nHits, memoHit)
+    ' R36 Fix N4: topk_* を超えたぶんは末尾(最も弱いヒット)を落とす。
+    If topK >= 1 Then
+        If outN > topK Then outN = topK
+    End If
+    InjectHits = outN
 
     On Error Resume Next
-    modLog.LogUsage "correct_inject", "", "level=" & bestLv & " src=" & memoHit.source, 0, InjectHits
+    modLog.LogUsage "correct_inject", "", "level=" & bestLv & " src=" & memoHit.source, 0, outN
     On Error GoTo 0
     Exit Function
 

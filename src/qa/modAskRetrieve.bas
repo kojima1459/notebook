@@ -315,11 +315,10 @@ End Function
 '   (iv)  スコープ内のヒットが2件未満なら、無スコープで取り直す
 '         (今日より悪くなる経路を作らない。落ちたことは usage_log に残す)
 ' 新規質問(非followup)の deep はこの関数を通らない=現行動作のまま。
-' R36 §2-3: 是正メモの注入は「返す直前」の1行。出口が5つあるので本体を
-' DeepScopedCore に残し、公開名は包み1枚にする(経路が1つに揃う)。
+' R36 §2-3: 注入は「返す直前」の1行。出口が5つあるので本体をCoreに残す。
 Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
                               ByVal topK As Long, ByRef hits() As Hit) As Long
-    RunDeepScoped = modCorrect.InjectHits(q, hits, DeepScopedCore(q, mdMode, topK, hits))
+    RunDeepScoped = modCorrect.InjectHits(q, hits, DeepScopedCore(q, mdMode, topK, hits), topK)
 End Function
 
 Private Function DeepScopedCore(ByVal q As String, ByVal mdMode As String, _
@@ -374,8 +373,9 @@ Private Function DeepScopedCore(ByVal q As String, ByVal mdMode As String, _
     End If
 
     ' (iv)/退化: 従来どおり本棚全体を検索する。
+    ' R36 Fix N5: 包みでなくCoreを呼ぶ(注入の二重化を防ぐ)。
     Dim wideN As Long
-    wideN = RunUnscoped(q, mdMode, WideK(topK), hits)
+    wideN = UnscopedCore(q, mdMode, WideK(topK), hits)
     If wideN < 1 Then
         DeepScopedCore = wideN          ' 0件・埋め込み失敗(-1)はそのまま返す
         Exit Function
@@ -423,11 +423,10 @@ End Function
 '   RunDeepScoped の縮小フォールバックもここを通り降格が2回走るが、1回目で
 '   記憶済み=2回目は「全部既出」で順序を変えず topK へ切るだけ(結果は同じ)。
 ' ----------------------------------------------------------------------------
-' R36 §2-3: 同上。DeepScopedCore が退化時にここを通ると注入が2回走るが、
-' InjectHits は同じ source を先頭へ移すだけなので件数も結果も変わらない。
+' R36 §2-3 / Fix N5: 注入は【公開包み2本だけ】(退化経路はCore直呼び)。
 Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
                             ByVal topK As Long, ByRef hits() As Hit) As Long
-    RunUnscoped = modCorrect.InjectHits(q, hits, UnscopedCore(q, mdMode, topK, hits))
+    RunUnscoped = modCorrect.InjectHits(q, hits, UnscopedCore(q, mdMode, topK, hits), topK)
 End Function
 
 Private Function UnscopedCore(ByVal q As String, ByVal mdMode As String, _
@@ -727,6 +726,7 @@ Public Function HitSourceList(hits() As Hit, ByVal nHits As Long, _
     On Error Resume Next
     For i = 1 To nHits
         Dim nm As String: nm = Trim$(hits(i).source)
+        If modCorrect.IsMemoSource(nm) Then nm = ""   ' R36 Fix A-M5(出典枠を奪わせない)
         If LenB(nm) > 0 Then
             If InStr(1, "|" & sb & "|", "|" & nm & "|", vbTextCompare) = 0 Then
                 If LenB(sb) > 0 Then sb = sb & "|"
