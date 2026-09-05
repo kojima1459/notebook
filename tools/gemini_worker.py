@@ -15,6 +15,8 @@
 
 出力: out_file に本文をそのまま書く。標準出力には model/秒数/トークン数/finishReason だけ。
 """
+from __future__ import annotations  # Python 3.9(会社Mac)でも `str | None` 注釈で落ちないため(姉妹PJ指摘 2026-09-06)
+
 import json
 import os
 import sys
