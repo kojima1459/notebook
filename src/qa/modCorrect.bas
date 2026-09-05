@@ -159,6 +159,16 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function CollectAnswerSources() As String
     Const MAX_SOURCES As Long = 4
+    ' 【R37 Fix B-m7】聞き返し(逆質問)の途中で ❌違う を押された回は空を返す。
+    '   そのターンの画面に出ているのは回答ではなく質問で、hits は「聞き返しを
+    '   組むために引いた候補」でしかない。それを「誤答の根拠」として記録すると、
+    '   悪くない資料が次から後ろへ下げられる(是正の誤爆はいちばん高くつく型)。
+    On Error Resume Next
+    Dim pending As Boolean: pending = modClarify.HasPending()
+    Err.Clear
+    On Error GoTo 0
+    If pending Then Exit Function
+
     Dim buf As String
     Dim cnt As Long
     Dim n As Long: n = modAsk.LastGenHitCount()
@@ -630,8 +640,11 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     InjectHits = outN
 
     On Error Resume Next
+    ' 【R37 Fix B-m1】src= は必ず【行末】に置く。modAnalytics.ExtractSourceName は
+    '   "src=" 以降を全部そのまま資料名として切り出す(区切りを見ない)ので、
+    '   後ろに何か足すと分析CSVの資料名が "メモ… demoted=1" に化ける。
     modLog.LogUsage "correct_inject", "", _
-        "level=" & bestLv & " src=" & memoHit.source & " demoted=" & demoted, 0, outN
+        "level=" & bestLv & " demoted=" & demoted & " src=" & memoHit.source, 0, outN
     On Error GoTo 0
     Exit Function
 
