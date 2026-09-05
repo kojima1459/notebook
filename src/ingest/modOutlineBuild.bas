@@ -253,6 +253,11 @@ SynStep:
     If Not modShelfBatch.CancelRequested() Then
         On Error Resume Next
         modSynonymStore.BuildSynonymsFor sourceName
+        ' R37 §3: 資料間リンク(章の重心。LLMは1回も呼ばない)。ゲート
+        ' (config xdoc_links)・上限・失敗握りは向こうに閉じるのでここは1行。
+        ' 埋め込み(modShelf.IngestFile 手順9 EmbedPending)はこの時点で
+        ' 済んでいるので、重心の材料になるベクトルは揃っている。
+        modXDocStore.BuildLinksFor sourceName
         On Error GoTo 0
     End If
     Exit Sub

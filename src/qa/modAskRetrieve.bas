@@ -191,6 +191,8 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     If poolN <= 0 Then GoTo FallbackSingle
     ' R21-2 D1: rerank/topK絞り込みより前のこの時点でpoolを退避する。
     StashDispersionPool poolHits, poolN
+    ' R37 §3: 同じpoolを資料間リンク側へも控える(判断は向こう。ここは1行)。
+    modXDoc.RememberPool poolHits, poolN
 
     ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
     Dim orderN As Long: orderN = 0
@@ -241,6 +243,8 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     ' 下の ArticleEnsure より前に置くのは、あちらが決定的なキーで注入した条文
     ' チャンクを、多様性の都合で押し出さないため。
     DiversifyFinalHits hits, outN, poolHits, poolN
+    ' R37 §3: 章の繋がりでpoolから最大2件を末尾へ(score 0・条件は向こう)。
+    outN = modXDoc.Expand(hits, outN, topK)
     ' R17 Phase1: 質問が名指しした条番号(第5条/別表2 等)のチャンクが1件も
     ' 入っていなければ、chunk_meta から引いて先頭へ入れる(最大2件)。検索の
     ' 当て方は変えず、決定的なキーで最後に1回だけ確かめるだけ。

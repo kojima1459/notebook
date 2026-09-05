@@ -219,6 +219,17 @@ Public Sub RemoveOutlineForSource(ByVal sourceName As String)
     On Error GoTo Failed
     If LenB(Trim$(sourceName)) = 0 Then Exit Sub
 
+    ' R37 §3: 資料間リンク(doc_centroids/doc_links)の掃除もここに相乗りする。
+    ' 【なぜ呼び出し元(modShelf)ではなくここか】doc_outline の掃除を呼ぶ3経路
+    ' (再取込 modShelf.IngestFile 手順7.5 / 資料削除 DeleteSource / 章要約の
+    ' 作り直し modOutlineBuild)は【全部この1本】を通るが、そのうち2つは
+    ' 凍結モジュール modShelf の中にあって1行も足せない。掃除の呼び出しを
+    ' この関数へ置けば、3経路すべてが漏れなく掃除される(=「同じ場所」の
+    ' 実装上の唯一の置き場)。失敗しても章要約の掃除は続ける。
+    On Error Resume Next
+    modXDocStore.RemoveFor sourceName
+    On Error GoTo Failed
+
     Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_DOC_OUTLINE)
     If ws Is Nothing Then Exit Sub
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, COL_SRC).End(xlUp).row

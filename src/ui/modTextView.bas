@@ -105,6 +105,14 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
         ChrW(&HD83D) & ChrW(&HDDD1) & " で消してから " & ChrW(&H2795) & _
         " 登録で正しい文章を登録し直してください" & _
         "(読み取った文章を直接直す機能はありません)。"
+    ' R37 §3(資料間リンク): 章の重心が近い他資料があれば1行だけ添える。
+    ' 1件も無ければ行そのものを出さない(=空の見出しを見せない)。判定と
+    ' 並べ替えは modXDocStore.LinkedLabel に閉じるので、ここは受け取るだけ。
+    Dim xdLink As String: xdLink = modXDocStore.LinkedLabel(srcName)
+    If LenB(xdLink) > 0 Then
+        r = r + 1
+        PutCell ws, r, "関連する資料: " & xdLink
+    End If
     r = r + 2
 
     If n = 0 Then
