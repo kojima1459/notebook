@@ -1214,6 +1214,30 @@
       "type": "std",
       "wave": "R36-4",
       "note": "R36 波4→Fix2(版上げ時の自動引き継ぎ)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜40と同型)。固定するもの: (D1)modMigrateFrom.PreviousBookName — <stem>_旧版<拡張子>の組み立て(拡張子無し/空文字は空を返す)。(D2)modMigrateFrom.StampText — yyyy-mm-dd hh:nn形式(1桁月日時分のゼロ埋め含む。LO死角対応のFormat$不使用版)。(D3)modMigrateFrom.OfferText — ファイル名・件数・更新日時が文面に必ず載ること。FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRun/CountManifestInBookはDir()・Workbooks.Open・シートI/Oを持つため対象外(modShelfSync/modPackと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。PickNewestはFix2で削除(候補が1個に絞られ役目を失ったため。テストも差し替え)。"
+    },
+    {
+      "name": "modXDocStore",
+      "path": "src/ingest/modXDocStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3(資料間リンク)の受け皿。doc_centroids(source, chap, vector_csv, chunk_n)とdoc_links(src_a, chap_a, src_b, chap_b, sim, built_at)のEnsure/一括読み/一括書き/資料単位の掃除と、純関数MeanNormalizedCsv・TopNLinksを持つ。設計意図: 「AとBを取り込むと資料同士の関連が分かる」を【LLM 0回】で実現するための最小の地図。エンティティ抽出・コミュニティ要約を伴うフルGraphRAGはR17設計で不可能/工数対効果が合わないと裁定済み(取込1資料あたり数百回のLLM呼び出しが増える)。章は既に人の手で資料に入っており、ベクトルも既にあるので、章ごとの重心(その章の全チャンクベクトルの平均をL2正規化したもの)どうしのコサインだけで繋がりを作る。章キーは必ずmodOutlineBuild.ChapterKeyOfを通す(doc_outlineと式が割れると照合が毎回0件になる無音の失敗になる)。ゲート(config xdoc_links)・上限(xdoc_max_chapters)・失敗握り(usage_log xdoc_fail)はこの層に閉じるので、呼び出し元(modOutlineBuild.BuildOutlineFor・modOutlineStore.RemoveOutlineForSource)は1行で済む。BuildLinksForの実体はmodXDocBuildへ置いた(シートI/Oと純ロジックだけで上限30,000字の半分を超え、同居できなかった。憲章§12の分割。契約名と呼び出し場所はR37 §3-2のまま据え置き)。引き継ぎ・パックには載せない(取込から再計算できる派生データ。modMigrate/modPackは不触=記録)。純関数(MeanNormalizedCsv/TopNLinks)はmodTestsPure42が固定する。"
+    },
+    {
+      "name": "modXDocBuild",
+      "path": "src/ingest/modXDocBuild.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3の【作る側】の実体(入口はBuildForの1本だけ。呼ぶのはmodXDocStore.BuildLinksFor)。手順は4つでLLMは1回も呼ばない: (1)当該資料の章ごとに重心を作る(chunk_meta→章キー、my_vectorsから当該資料の行だけ2段読み) (2)自分の古い重心・リンクを両側とも落として今回ぶんを書く (3)既存資料の章重心を平坦なDouble配列へ【1回だけ】展開して内積で総当たり (4)新資料側の上位3件を書き、相手側の上位3件も既存行と混ぜて作り直す。(3)でmodXDoc.CosineCsvを章ごとに呼ばないのは、CSVの再パースが支配項になるため(20章×4,000章で数百万回のSplit/Val=取込が分単位で止まる)。重心は書込み時にL2正規化済みなので内積=コサインで、等価性はmodTestsPure42のC1が固定する。章数がxdoc_max_chapters(既定4,000)を超える本棚では相手側の作り直しを省き新資料側だけ書く(R37 §7 リスク台帳。相手側はその資料を次に取り込み直したときに揃う)。出力配列の器は最悪(相手が全部別キー・全員が上位3件を作り直す)で数える ―― 小さく見積もると添字の範囲外でリンクだけが静かに消える。失敗は全部この層で握り取込を止めない。"
+    },
+    {
+      "name": "modXDoc",
+      "path": "src/qa/modXDoc.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3の【回答側】。RememberPoolがmodAskRetrieve.RunMultiRetrieveのStashDispersionPool直後にpool(rerank・topK絞り込みより前の最大40件)を控え、Expandが最終hits確定点(DiversifyFinalHitsの直後・ArticleEnsureより前)で末尾へ最大xdoc_add(既定2)件を足す。設計意図: 【新しい検索は走らせない】。足せるのは「もう取ってきた候補の中に居る」チャンクだけで、上位2件が属する章とdoc_linksでsim>=xdoc_min_sim(既定0.80)に繋がる他資料の章に属するものに限る。scoreは0で末尾(modAskFocus.NeighborExpand/RefsExpandと同じ。低関連度の警告・資料分散の判定・件数バッジを汚さない)。資料を跨ぐ危険はmodAskFocus.RefsExpandが跨がない理由(bas:204-207「まったく無関係な規程の第8条が根拠として混ざる。出典タグは正しいので利用者は気付けない」)と同じなので、章の重心の近さという条件と件数上限で絞る。使ったpoolは必ず捨てる(検索が単段へ退化した回=FallbackSingleに前の質問のpoolを掴んだままだと別の質問の候補が紛れ込む)。ゲートはmodXDocStore.GateOnの1本で、取込側と回答側が食い違わない。純関数(CosineCsv/ChapterOf/PickLinked)はmodTestsPure42が固定する。RememberPool/ExpandはHit型を跨ぐためLOでは実行できない既知の死角で、Pureテストは書かず実機受入(R37 §3-2)に委ねる。"
     }
   ]
 }

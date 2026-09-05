@@ -75,6 +75,8 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `chunk_meta` | veryHidden | チャンクの構造メタ(R17 Phase1)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `chunk_id, section_path, refs_out`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `doc_outline` | veryHidden | 章単位要約(R17 Phase2)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `source, section_key, summary, keywords, chunk_n`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
 | `synonyms` | veryHidden | 用語の表記ゆれ辞書(R17 Phase3)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `term, canonical`。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
+| `doc_centroids` | veryHidden | 章の重心(R37 §3 資料間リンク)。ビルドが headers-only で生成する(実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `source, chap, vector_csv, chunk_n`。その章に属する全チャンクのベクトルの平均をL2正規化したもので、取込のたびに当該資料ぶんだけ作り直す。**無くても全機能が従来どおり動く**フェイルセーフ前提のシート(下記) |
+| `doc_links` | veryHidden | 章どうしの近さ(R37 §3)。ビルドが headers-only で生成する。列 `src_a, chap_a, src_b, chap_b, sim, built_at`。`(src_a,chap_a)` から見た**他資料の**章を sim 降順で最大3件だけ持ち、双方向は別行。読み書きするのは modXDocStore / modXDocBuild だけで、回答側(modXDoc)は読むだけ。**取込から再計算できる派生データなので引き継ぎ・パックには載せない**(modMigrate/modPack は不触) |
 | `ocr_cache` | veryHidden | 画像PDF OCRの頁チェックポイント(R15-7d)。ビルドが headers-only で生成する(R15-FixB FB-2。実行時の `Worksheets.Add` は壊れたブックの自己修復専用)。列 `key, text, saved_at`。key=`Fnv1a64Hex(元フルパス)\|FileLen\|IsoDateTime(更新日時)\|p<頁>`、text は先頭に番兵1字 `t` を置いて書き読み出しで剥ぐ(数式誤解釈の防止と空頁の判別)。opt層(optOcrCache)だけが読み書きし、資料が本棚に `done` として並んだ時点で modShelf がその資料の行を削除、孤児行は起動時GCで2日超を削除する |
 | `my_manifest` | hidden | 同期台帳 |
 | `my_stats` | hidden | 統計カウンタ+バッジ取得日 |

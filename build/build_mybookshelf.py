@@ -119,6 +119,15 @@ EXPECTED_SHEETS = {
     # (modSynonymStore.BuildSynonymsFor)が書き、質問時のクエリ展開が読む。
     # chunk_meta/doc_outline と同じくビルドで器だけ焼き込む。
     "synonyms": "veryHidden",
+    # R37 §3(資料間リンク): 章の重心(doc_centroids)と章どうしの近さ
+    # (doc_links)。どちらも取込から再計算できる派生データで、modXDocStore /
+    # modXDocBuild だけが読み書きする。chunk_meta/doc_outline と同じく
+    # ビルドで器だけ焼き込む(実行時 Add は壊れたブックの自己修復専用)。
+    # 可視性も同じ veryHidden にする ―― 実行時の EnsureCentroidSheet /
+    # EnsureLinksSheet が毎回・冪等に veryHidden を自己設定するので、
+    # ここを hidden にすると焼き込み直後とVBAが1回走った後で食い違う。
+    "doc_centroids": "veryHidden",
+    "doc_links": "veryHidden",
     # 初期ナレッジ(同梱シード)。ビルド時に焼き込み、初回起動で modSeed が
     # my_knowledge / my_vectors へ写す。利用者には一切見せない。
     "seed_meta": "veryHidden",
@@ -1130,6 +1139,35 @@ def build_config_rows(mock_llm: bool, publish_key: str = ""):
         # なお効く語が1語しか取れない質問は、語一致では採らない(常に100%に
         # なるため。modCorrect.KeyMatchPct の total<2 → 0)。
         ("correct_key_min", 60, "是正メモを語一致で採用する最低一致率(%)。質問の「効く語」のうちこの割合以上が是正メモの質問文に含まれていれば同じ質問とみなす。既定60(完全一致は常に優先)。0=完全一致だけ(語一致を使わない)"),
+        # 2026-09-05 R37 §3(資料間リンク): 取込のたびに「章ごとの代表ベクトル
+        # (重心)」を作り、他の資料の章との近さを doc_links へ残す。AIの
+        # 呼び出しは1回も増えない(既にあるベクトルの平均と内積だけ)。
+        # 回答時は「上位の根拠が属する章」と強く繋がる章の候補を、
+        # 【既に取ってきた候補の中から】拾い直して出典の末尾へ足す。
+        # 新しい検索は走らせないので、質問1回あたりの待ち時間も増えない。
+        ("xdoc_links", "on",
+         "資料をまたいだ「章のつながり」を使うか。on=既定(取込のたびに章ごとの"
+         "代表ベクトルを作り、近い章どうしを覚えておく。質問のときは、上位の"
+         "根拠が入っている章と強くつながる【別の資料の章】の候補を、すでに"
+         "拾ってある候補の中から出典の最後へ最大2件だけ足す)/"
+         "off=作らない・足さない(R36以前とまったく同じ検索結果に戻る)。"
+         "【効くのは】「Aの言葉で聞いたが答えはBにある」型の質問だけで、"
+         "1つの資料で完結する質問では何も変わらない(そういう設計)。"
+         "AIの呼び出しは取込でも質問でも1回も増えない"),
+        ("xdoc_min_sim", 80,
+         "別の資料の章を出典の末尾へ足すときの「近さ」の下限(×100。80=0.80)。"
+         "章の代表ベクトルどうしの近さがこの値以上のときだけ足す。"
+         "上げるほど厳しく(混ざりにくく)、下げるほど拾いやすくなる。"
+         "100にすると実質どの章も通らない=offと同じ"),
+        ("xdoc_add", 2,
+         "1回の質問で、章のつながりから出典の末尾へ足す最大件数(既定2)。"
+         "足したチャンクは信頼度スコア0で必ず末尾に入るので、上位の順位も"
+         "件数バッジも動かない。0以下で足すのをやめる(取込側の計算は続く)"),
+        ("xdoc_max_chapters", 4000,
+         "章のつながりを計算するときに見にいく既存の章数の上限(既定4,000"
+         "=資料200冊×20章の想定)。これを超える本棚では、取り込んだ資料の側の"
+         "つながりだけを書き、相手側の並べ直しは省く(取込が長く止まるのを"
+         "防ぐため)。相手側は、その資料を次に取り込み直したときに揃う"),
     ]
 
 
@@ -3702,6 +3740,19 @@ def main():
     # chunk_meta/doc_outline と同じく数式インジェクション対策で text_cols へ。
     _make_headers_only(wb, "synonyms", ["term", "canonical"], "veryHidden",
                         widths=[30, 30], text_cols=[1, 2])
+    # doc_centroids(R37 §3): 章の重心。source/chap は資料名と章見出しの
+    # 自由文なので text_cols へ。vector_csv も先頭が "-" になり得る(負の成分)
+    # ため text_cols に入れる ―― 数式として解釈されると重心が丸ごと壊れる。
+    _make_headers_only(wb, "doc_centroids",
+                        ["source", "chap", "vector_csv", "chunk_n"],
+                        "veryHidden", widths=[24, 40, 100, 10],
+                        text_cols=[1, 2, 3])
+    # doc_links(R37 §3): 章どうしの近さ。sim(5列目)だけが数値で、
+    # built_at は文字列固定(日付シリアルに化けさせない)。
+    _make_headers_only(wb, "doc_links",
+                        ["src_a", "chap_a", "src_b", "chap_b", "sim", "built_at"],
+                        "veryHidden", widths=[24, 40, 24, 40, 10, 20],
+                        text_cols=[1, 2, 3, 4, 6])
     _sd, _sc, _sv = _make_seed_sheets(wb, args.seed)
     if _sc:
         print(f"  初期ナレッジ: {_sd}資料 / {_sc}チャンク / ベクトル{_sv}件"
