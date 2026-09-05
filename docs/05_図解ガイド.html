@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>マイ本棚AI 図解ガイド</title>
+<style>
+  :root{
+    --ink:#1f2937; --sub:#4b5563; --line:#d9dee5; --bg:#ffffff; --paper:#f6f7f9;
+    --accent:#1d4ed8; --accent-bg:#e8efff; --ok:#15803d; --ok-bg:#e7f6ec;
+    --warn:#b45309; --warn-bg:#fff4e0; --bad:#b91c1c; --bad-bg:#fdecec;
+    --chip:#eef1f5;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif;
+    font-size:16px;line-height:1.75;}
+  header.top{background:#0f172a;color:#fff;padding:28px 20px 22px}
+  header.top .wrap{max-width:960px;margin:0 auto}
+  header.top h1{margin:0 0 6px;font-size:28px;letter-spacing:.02em}
+  header.top p{margin:0;color:#cbd5e1;font-size:15px}
+  header.top .stamp{display:inline-block;margin-top:10px;font-size:12px;color:#94a3b8;
+    border:1px solid #334155;border-radius:999px;padding:2px 10px}
+  nav.toc{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(0,0,0,.03)}
+  nav.toc .wrap{max-width:960px;margin:0 auto;padding:8px 20px;display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
+  nav.toc a{color:var(--accent);text-decoration:none;white-space:nowrap}
+  nav.toc a:hover{text-decoration:underline}
+  main{max-width:960px;margin:0 auto;padding:12px 20px 80px}
+  section{margin-top:44px}
+  h2{font-size:22px;margin:0 0 8px;padding-left:12px;border-left:6px solid var(--accent);line-height:1.4}
+  h2 small{display:block;font-size:14px;color:var(--sub);font-weight:normal;margin-top:2px}
+  h3{font-size:17px;margin:26px 0 8px}
+  p{margin:8px 0}
+  .lead{font-size:17px}
+  .goal{background:var(--accent-bg);border-radius:10px;padding:12px 16px;margin:10px 0 16px;font-size:15px}
+  .goal b{color:var(--accent)}
+  .card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:12px 0}
+  .steps li{counter-increment:s;position:relative;padding:10px 12px 10px 56px;margin:8px 0;
+    background:var(--paper);border-radius:10px;min-height:48px}
+  .steps li::before{content:counter(s);position:absolute;left:12px;top:10px;width:32px;height:32px;
+    border-radius:50%;background:var(--accent);color:#fff;font-weight:bold;display:flex;
+    align-items:center;justify-content:center;font-size:16px}
+  .steps li b{display:block}
+  .btn{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:6px;
+    padding:0 8px;font-size:.95em;white-space:nowrap;line-height:1.6;margin:1px 0}
+  .btn.red{background:var(--bad-bg);border-color:#f3b4b4;color:var(--bad)}
+  .btn.blue{background:var(--accent-bg);border-color:#bcd0ff;color:var(--accent)}
+  .note{border-left:4px solid var(--warn);background:var(--warn-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  .ok{border-left:4px solid var(--ok);background:var(--ok-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  .stop{border-left:4px solid var(--bad);background:var(--bad-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:15px;background:#fff}
+  th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:var(--paper);white-space:nowrap}
+  .tw{overflow-x:auto}
+  figure{margin:14px 0;text-align:center}
+  figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+  figcaption{font-size:13px;color:var(--sub);margin-top:6px}
+  details{border:1px solid var(--line);border-radius:10px;padding:0 14px;margin:10px 0;background:#fff}
+  details summary{cursor:pointer;padding:10px 0;font-weight:bold;color:var(--accent)}
+  details[open] summary{border-bottom:1px dashed var(--line);margin-bottom:6px}
+  details > :last-child{margin-bottom:12px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:15px}
+  .kv dt{font-weight:bold;white-space:nowrap}
+  .kv dd{margin:0}
+  .muted{color:var(--sub);font-size:14px}
+  .tag{display:inline-block;font-size:12px;border-radius:999px;padding:0 8px;line-height:1.7;margin-left:6px;vertical-align:middle}
+  .tag.day1{background:#dcfce7;color:#166534}
+  .tag.week1{background:#dbeafe;color:#1e40af}
+  .tag.later{background:#f3e8ff;color:#6b21a8}
+  footer{max-width:960px;margin:0 auto;padding:18px 20px 40px;color:var(--sub);font-size:13px;border-top:1px solid var(--line)}
+  @media print{
+    nav.toc{position:static}
+    details{border:none;padding:0}
+    details summary{list-style:none}
+    a{color:inherit;text-decoration:none}
+    section{break-inside:avoid-page}
+  }
+  @media (max-width:600px){ body{font-size:15px} header.top h1{font-size:22px} }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>マイ本棚AI 図解ガイド</h1>
+    <p>自分で入れた資料に、AIが出典つきで答えてくれる社内ツール。この1枚を上から順に読めば使えます。</p>
+    <span class="stamp">2026年9月4日版（R35 追補）の画面と設定にもとづく</span>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#s1">1. 30秒でわかる</a>
+  <a href="#s2">2. 最初の1回だけ</a>
+  <a href="#s3">3. 画面の地図</a>
+  <a href="#s4">4. 毎日の使い方</a>
+  <a href="#s5">5. 資料を入れる・消す</a>
+  <a href="#s6">6. 「渡す」3種類の違い</a>
+  <a href="#s7">7. 答えを確かめる・直す</a>
+  <a href="#s8">8. 困ったとき</a>
+  <a href="#s9">9. 記録されること</a>
+  <a href="#s10">10. 用語</a>
+</div></nav>
+
+<main>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2>1. 30秒でわかる<small>これは何をする道具か</small></h2>
+  <p class="lead">資料（PDF・Word・Excel・テキスト・画面のスクリーンショット）を「本棚」に入れると、AIがその資料だけを根拠にして質問に答えます。答えには<b>必ず資料名とページ</b>が付き、その場で原文を確かめられます。</p>
+
+  <figure>
+    <svg viewBox="0 0 900 190" role="img" aria-label="資料を本棚に入れ、質問すると出典つきの答えが返る流れ">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="15" fill="#1f2937">
+        <rect x="10" y="40" width="190" height="110" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="105" y="72" text-anchor="middle" font-size="30">📄</text>
+        <text x="105" y="105" text-anchor="middle" font-weight="bold">あなたの資料</text>
+        <text x="105" y="128" text-anchor="middle" font-size="12" fill="#4b5563">PDF / Word / Excel / スクショ</text>
+        <line x1="205" y1="95" x2="255" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="230" y="82" text-anchor="middle" font-size="12" fill="#4b5563">📁 追加</text>
+        <rect x="260" y="40" width="190" height="110" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="355" y="72" text-anchor="middle" font-size="30">📚</text>
+        <text x="355" y="105" text-anchor="middle" font-weight="bold">マイ本棚</text>
+        <text x="355" y="128" text-anchor="middle" font-size="12" fill="#4b5563">AIが読める形に変換（✅で完了）</text>
+        <line x1="455" y1="95" x2="505" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="480" y="82" text-anchor="middle" font-size="12" fill="#4b5563">💬 質問</text>
+        <rect x="510" y="40" width="190" height="110" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="605" y="72" text-anchor="middle" font-size="30">🤖</text>
+        <text x="605" y="105" text-anchor="middle" font-weight="bold">AIが資料だけを根拠に回答</text>
+        <text x="605" y="128" text-anchor="middle" font-size="12" fill="#4b5563">資料に無いことは「判断できません」</text>
+        <line x1="705" y1="95" x2="755" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="760" y="40" width="130" height="110" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
+        <text x="825" y="72" text-anchor="middle" font-size="30">📖</text>
+        <text x="825" y="105" text-anchor="middle" font-weight="bold">出典つき</text>
+        <text x="825" y="128" text-anchor="middle" font-size="12" fill="#4b5563">資料名とページ</text>
+      </g>
+    </svg>
+    <figcaption>資料を入れる → 質問する → 出典つきの答え。この3手だけ覚えれば使えます。</figcaption>
+  </figure>
+
+  <div class="grid3">
+    <div class="card"><b>できること</b><br>資料の中身についての質問に、根拠のページ付きで答える。要点まとめ、条文の確認、「全部教えて」型の俯瞰。</div>
+    <div class="card"><b>できないこと</b><br>本棚に無いことは答えません（「社内ナレッジ検索」のとき）。一般知識で答えてほしいときは「🌐 一般アシスタント」に切り替えます。</div>
+    <div class="card"><b>入れてはいけないもの</b><br>契約者名・電話番号などの<b>個人情報を含む資料</b>。個人情報の自動チェックは<b>この版では動いていません</b>（既定オフ）。</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2>2. 最初の1回だけ<small>開けるようになるまで（5分）</small></h2>
+  <div class="goal">この章のゴール: <b>OneDrive のフォルダに展開した bat を押して、画面が組み上がる</b>ところまで。</div>
+
+  <ol class="steps">
+    <li><b>zip を「OneDrive のフォルダ」に展開する</b>zip を右クリック →「すべて展開」。展開先は <b>OneDrive の中のフォルダ</b>にしてください（会社PCの D: やデスクトップは、日をまたぐと消えます）。zip の中から直接開くと、取り込んだ資料が次回残りません。</li>
+    <li><b>「MyBookshelfを起動.bat」をダブルクリック</b>Excel 本体（MyBookshelf.xlsm）は直接ダブルクリックしないでください。bat が D: へ複製して、他の Excel と別のプロセスで開きます。初回だけ「WindowsによってPCが保護されました」と出たら、bat を右クリック →「プロパティ」→「許可する」にチェック → OK。</li>
+    <li><b>黄色い帯の「コンテンツの有効化」を押す</b>Excel の上に「セキュリティの警告」の帯が出たら、その中のボタンを押します。数秒待つと画面が自動で組み上がります。押さないと案内画面のままです。</li>
+    <li><b>名前を入れる（初回のみ）</b>「はじめまして。あなたのお名前（またはニックネーム）を教えてください」と出ます。好きな名前で OK。あとから config シートで変えられます。</li>
+    <li><b>続く案内は「いいえ」で全部飛ばして構いません</b>「部門を設定しますか?」「共有フォルダを設定しますか?」が続けて出ます（最大4回）。テスト中はすべて「いいえ」で先へ進めます。あとから Hub と ヘルプ「❓」で同じ設定に辿り着けます（→ 第6章）。</li>
+  </ol>
+
+  <h3>bat が裏でやっていること（知らなくても使えます）</h3>
+  <figure>
+    <svg viewBox="0 0 900 250" role="img" aria-label="OneDriveの原本をD:に複製して開き、閉じたらOneDriveへ書き戻す往復">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="15" fill="#1f2937">
+        <rect x="20" y="40" width="260" height="170" rx="14" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="150" y="72" text-anchor="middle" font-weight="bold" font-size="17">☁ OneDrive のフォルダ</text>
+        <text x="150" y="98" text-anchor="middle" font-size="13" fill="#4b5563">消えない置き場（原本）</text>
+        <text x="40" y="130" font-size="13">📄 MyBookshelf.xlsm</text>
+        <text x="40" y="152" font-size="13">▶ MyBookshelfを起動.bat</text>
+        <text x="40" y="174" font-size="13">📁 Ghostscript</text>
+        <text x="40" y="196" font-size="13" fill="#4b5563">📄 MyBookshelf_前回.xlsm（自動で退避）</text>
+
+        <rect x="620" y="40" width="260" height="170" rx="14" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="750" y="72" text-anchor="middle" font-weight="bold" font-size="17">💽 D:\MyBookshelf\</text>
+        <text x="750" y="98" text-anchor="middle" font-size="13" fill="#4b5563">動かす場所（日をまたぐと消える）</text>
+        <text x="640" y="130" font-size="13">📄 MyBookshelf.xlsm（複製）</text>
+        <text x="640" y="152" font-size="13">📁 Ghostscript（初回だけ複製・約14MB）</text>
+        <text x="640" y="184" font-size="13" fill="#4b5563">ここで Excel が動く</text>
+
+        <path d="M285 95 L615 95" stroke="#1d4ed8" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <text x="450" y="85" text-anchor="middle" font-size="13" fill="#1d4ed8">① bat を押す → 新しい方を複製して起動</text>
+        <path d="M615 165 L285 165" stroke="#15803d" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <text x="450" y="155" text-anchor="middle" font-size="13" fill="#15803d">② 使っている間は10分ごと・閉じたら約30秒後に書き戻す</text>
+        <text x="450" y="235" text-anchor="middle" font-size="13" fill="#4b5563">タスクバーに残る最小化の黒い窓2つ（同期中・待機中）は、閉じずに自動で消えるのを待ってください</text>
+      </g>
+    </svg>
+    <figcaption>「動かす場所は D:、消えない置き場は OneDrive」。往復は bat が全部やります。</figcaption>
+  </figure>
+
+  <div class="stop"><b>やってはいけない2つ</b><br>
+    ・黒い窓を×で閉じない（閉じると OneDrive への書き戻しが止まります）。<br>
+    ・開いたまま PC をシャットダウンしない（直前10分の作業が消えることがあります）。Excel を閉じて、黒い窓が自動で消えてからシャットダウンしてください。</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2>3. 画面の地図<small>画面は5つ。全部 Hub から行き、「← Hub」で戻る</small></h2>
+
+  <figure>
+    <svg viewBox="0 0 900 330" role="img" aria-label="Hubを中心に、チャット・マイ本棚・ダッシュボード・診断の4画面へ行き来する">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="15" fill="#1f2937">
+        <rect x="330" y="110" width="240" height="110" rx="16" fill="#e8efff" stroke="#1d4ed8" stroke-width="2"/>
+        <text x="450" y="150" text-anchor="middle" font-weight="bold" font-size="20">🏠 Hub（拠点）</text>
+        <text x="450" y="178" text-anchor="middle" font-size="13" fill="#4b5563">最初に出る画面。自分の記録と入口が並ぶ</text>
+        <text x="450" y="200" text-anchor="middle" font-size="13" fill="#4b5563">右上: ❓ 使い方 / 📮 ご意見 / 🔄 再描画</text>
+
+        <rect x="20" y="20" width="250" height="90" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="145" y="52" text-anchor="middle" font-weight="bold" font-size="17">💬 チャット</text>
+        <text x="145" y="78" text-anchor="middle" font-size="13" fill="#4b5563">質問する画面。ここだけで会話が完結</text>
+        <line x1="270" y1="80" x2="330" y2="125" stroke="#64748b" stroke-width="2"/>
+
+        <rect x="630" y="20" width="250" height="90" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="755" y="52" text-anchor="middle" font-weight="bold" font-size="17">📚 マイ本棚</text>
+        <text x="755" y="78" text-anchor="middle" font-size="13" fill="#4b5563">資料を入れる・探す・共有する</text>
+        <line x1="630" y1="80" x2="570" y2="125" stroke="#64748b" stroke-width="2"/>
+
+        <rect x="20" y="220" width="250" height="90" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="145" y="252" text-anchor="middle" font-weight="bold" font-size="17">📊 ダッシュボード</text>
+        <text x="145" y="278" text-anchor="middle" font-size="13" fill="#4b5563">節約時間・レベル・バッジ（見るだけ）</text>
+        <line x1="270" y1="250" x2="330" y2="205" stroke="#64748b" stroke-width="2"/>
+
+        <rect x="630" y="220" width="250" height="90" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="755" y="252" text-anchor="middle" font-weight="bold" font-size="17">🩺 診断</text>
+        <text x="755" y="278" text-anchor="middle" font-size="13" fill="#4b5563">おかしいときの状態確認。❓ → 🩺 診断を開く</text>
+        <line x1="630" y1="250" x2="570" y2="205" stroke="#64748b" stroke-width="2"/>
+      </g>
+    </svg>
+    <figcaption>Hub の「💬 チャットで質問する」「📚 ナレッジと本棚」「📊 ダッシュボード」を押して移動。どの画面も左上の「← Hub」で戻れます。</figcaption>
+  </figure>
+
+  <div class="note"><b>画面が崩れた・ボタンが消えたとき</b>は Hub 右上の <span class="btn">🔄</span> で描き直せます。マイ本棚の上にある3つのピル（<span class="btn">🃏 ギャラリー</span> / <span class="btn">📋 マイ本棚</span> / <span class="btn">🎁 みんなの解決事例</span>）は画面の中の表示切替で、「📋 マイ本棚」は画面名と同じ文字ですが一覧表示に切り替えるボタンです。</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2>4. 毎日の使い方<small>資料を1つ入れて、質問して、答えを確かめる</small></h2>
+  <div class="goal">この章のゴール: <b>自分の資料について質問し、出典のページを開いて確かめる</b>。</div>
+
+  <figure>
+    <svg viewBox="0 0 900 200" role="img" aria-label="追加、完了を待つ、質問、出典を確かめる、評価するの5手">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="14" fill="#1f2937">
+        <g>
+          <rect x="10" y="30" width="160" height="120" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+          <text x="90" y="62" text-anchor="middle" font-size="26">📁</text>
+          <text x="90" y="92" text-anchor="middle" font-weight="bold">追加</text>
+          <text x="90" y="114" text-anchor="middle" font-size="12" fill="#4b5563">入力欄の左の 📁</text>
+          <text x="90" y="132" text-anchor="middle" font-size="12" fill="#4b5563">でファイルを選ぶ</text>
+        </g>
+        <line x1="175" y1="90" x2="190" y2="90" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <g>
+          <rect x="192" y="30" width="160" height="120" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+          <text x="272" y="62" text-anchor="middle" font-size="26">⏳→✅</text>
+          <text x="272" y="92" text-anchor="middle" font-weight="bold">完了を待つ</text>
+          <text x="272" y="114" text-anchor="middle" font-size="12" fill="#4b5563">資料カードが ✅ になる</text>
+          <text x="272" y="132" text-anchor="middle" font-size="12" fill="#4b5563">画像PDFは時間がかかる</text>
+        </g>
+        <line x1="357" y1="90" x2="372" y2="90" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <g>
+          <rect x="374" y="30" width="160" height="120" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+          <text x="454" y="62" text-anchor="middle" font-size="26">💬</text>
+          <text x="454" y="92" text-anchor="middle" font-weight="bold">質問する</text>
+          <text x="454" y="114" text-anchor="middle" font-size="12" fill="#4b5563">白い入力欄に書いて</text>
+          <text x="454" y="132" text-anchor="middle" font-size="12" fill="#4b5563">➤ 送信（Ctrl+Enter でも）</text>
+        </g>
+        <line x1="539" y1="90" x2="554" y2="90" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <g>
+          <rect x="556" y="30" width="160" height="120" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
+          <text x="636" y="62" text-anchor="middle" font-size="26">📖</text>
+          <text x="636" y="92" text-anchor="middle" font-weight="bold">出典を確かめる</text>
+          <text x="636" y="114" text-anchor="middle" font-size="12" fill="#4b5563">答えの下の資料名ボタン</text>
+          <text x="636" y="132" text-anchor="middle" font-size="12" fill="#4b5563">→ 抜粋 → 📂 原文を開く</text>
+        </g>
+        <line x1="721" y1="90" x2="736" y2="90" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <g>
+          <rect x="738" y="30" width="152" height="120" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+          <text x="814" y="62" text-anchor="middle" font-size="26">✅🤔❌</text>
+          <text x="814" y="92" text-anchor="middle" font-weight="bold">評価する</text>
+          <text x="814" y="114" text-anchor="middle" font-size="12" fill="#4b5563">解決した / 微妙 / 違う</text>
+          <text x="814" y="132" text-anchor="middle" font-size="12" fill="#4b5563">→ 第7章</text>
+        </g>
+        <text x="450" y="185" text-anchor="middle" font-size="13" fill="#4b5563">例）契約者が亡くなったときの手続きを教えて</text>
+      </g>
+    </svg>
+    <figcaption>毎日はこの5手の繰り返しです。</figcaption>
+  </figure>
+
+  <h3>チャット画面のスイッチ（2つだけ覚える）</h3>
+  <div class="tw"><table>
+    <tr><th style="width:34%">スイッチ</th><th>どう使い分けるか</th></tr>
+    <tr><td><span class="btn">🏢 社内ナレッジ検索</span> ⇔ <span class="btn">🌐 一般アシスタント</span></td>
+        <td>押すたびに切り替わります。<b>社内ナレッジ検索</b>＝本棚の資料だけを見て出典つきで答える。<b>一般アシスタント</b>＝本棚を見ずに一般知識で答える（計算・要約・下書きに便利）。</td></tr>
+    <tr><td><span class="btn">⚡ すぐ聞く</span> / <span class="btn">🔍 しっかり調べる</span> / <span class="btn">🔬 入念に調べる</span></td>
+        <td>⚡＝10〜20秒のふだん使い。🔍＝1〜2分、下書きを検証してから返す。🔬＝実機では3〜5分。複数の論点を分けて調べ、幅の広い質問には番号つきで聞き返し、「全部教えて」型には章をまたいで俯瞰します。</td></tr>
+  </table></div>
+
+  <h3>答えの下に並ぶボタン</h3>
+  <div class="tw"><table>
+    <tr><th>ボタン</th><th>何が起きるか</th></tr>
+    <tr><td><span class="btn">✅ 解決した</span></td><td>自己解決として記録。節約時間と経験値が増え、共有フォルダが設定済みなら資料を作った人にも届きます。</td></tr>
+    <tr><td><span class="btn">🤔 微妙</span></td><td>参考にはなったが不十分だったときに記録します。</td></tr>
+    <tr><td><span class="btn red">❌ 違う</span></td><td>記録したあと「正しい内容を教えてください」と聞かれます。書くと「修正ナレッジ」として本棚に登録されます（→ 第7章。効き方に条件があります）。</td></tr>
+    <tr><td><span class="btn">🔍 深掘り</span></td><td>直前の会話をふまえて続けて質問できます。話の続きを書き直さなくて済みます。</td></tr>
+    <tr><td><span class="btn">📋 コピー</span> / <span class="btn">📄 Word</span></td><td>答えをコピー、または Word 文書として書き出します（「お客様向けの回答文書風に」など整え方を指定できます）。</td></tr>
+    <tr><td><span class="btn">💾 保存</span></td><td>いまの質問と回答の1往復を「💭考察メモ_〇〇」という名前で本棚に残します。一次資料ではない旨の断り書きが本文の先頭に入ります。</td></tr>
+    <tr><td><span class="btn">🗑 クリア</span></td><td>会話を消して最初からやり直します（資料は消えません）。</td></tr>
+  </table></div>
+
+  <h3>終わるとき</h3>
+  <p>右上の <span class="btn">🚪</span>（Hub では <span class="btn">🚪 終了</span>）を押すと「保存してこのファイルを閉じますか?」と聞かれます。<b>[はい] 保存して閉じる</b> を選んでください。[いいえ] は保存せずに閉じる（今回取り込んだ資料は消えます）です。<b>自動保存はしません</b>（取込の途中経過だけは自動で保存されます）。</p>
+
+  <details>
+    <summary>モードを切り替えたときに会話は引き継がれる？（向きで違います）</summary>
+    <p><b>🏢 社内ナレッジ検索 → 🌐 一般アシスタント</b>: 直前の会話がそのまま引き継がれます。画面に「直前の会話を引き継ぎました。新しく始めるなら 🗑 クリア」と出ます。調べた数字をそのまま計算させる、といった使い方ができます。</p>
+    <p><b>🌐 一般アシスタント → 🏢 社内ナレッジ検索</b>: 直前の会話は<b>保存されるだけ</b>です。「直前の会話を保存しました。続きとして聞くには 🔍 深掘り(続けて質問)を押してください」と出ます。<b>🔍 深掘りを押してから</b>質問すると続きになり、押さずに聞くと単発の質問として扱われます。</p>
+  </details>
+
+  <details>
+    <summary>質問の待ち時間に別の仕事をしたい（作業用Excel）</summary>
+    <p>取込中や 🔍/🔬 の質問中は、この Excel は「応答なし」に見えます（仕様です）。別の仕事は、<b>質問を送る前に</b> ヘルプ「❓」→「🗔 作業用Excelを開く」（取込中は進捗バナーの「🗔作業用Excel」）で開いた<b>別の Excel</b> でしてください。仕事のファイルはそちらで開き、MyBookshelf 本体はそこでは開かないでください。終わったら作業用 Excel は閉じます（残しておくと、次回本体を直接ダブルクリックしたときにそちらへ吸い込まれ、取込中に一緒に固まります。bat から起動していればこの巻き添えは起きません）。</p>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2>5. 資料を入れる・消す<small>入口は6つ、出口は3つ。全部「📚 マイ本棚」のツールバー</small></h2>
+
+  <h3>入れる</h3>
+  <div class="tw"><table>
+    <tr><th>ボタン</th><th>いつ使う</th><th>補足</th></tr>
+    <tr><td><span class="btn">📁 追加</span><span class="tag day1">初日</span></td><td>手元のファイルを1件以上まとめて入れる（チャット画面の入力欄左にある <span class="btn">📁</span> でも同じ）</td><td>対応形式: txt / md / csv / pdf / docx / doc / xlsx / xls / xlsm。txt/md/csv は 50MB まで。画像ファイル（png/jpg）はここからは選べません → 📸 へ</td></tr>
+    <tr><td><span class="btn">📸 スクショ取込</span><span class="tag day1">初日</span></td><td>画面のコピー（PrintScreen や Win+Shift+S）を資料にする</td><td>押すと資料名を聞かれ、AIが画像から文字を読み取って1冊として登録します。読み取った文章をその場で見る画面は<b>ありません</b>（→ 第7章の確かめ方）</td></tr>
+    <tr><td><span class="btn">➕ 登録</span><span class="tag week1">慣れたら</span></td><td>文章を直接書いてナレッジにする</td><td>入力欄「ナレッジ本文(またはAIへの修正指示)」に打ち込む</td></tr>
+    <tr><td><span class="btn">📂 フォルダ</span> + <span class="btn">🔄 同期</span><span class="tag week1">慣れたら</span></td><td>決めたフォルダに置いたファイルを自動で入れる</td><td>フォルダの<b>直下</b>だけを見ます（サブフォルダは見ない）。消せば本棚からも消えます。起動時に差分同期（既定オン）。一定間隔の自動同期は<b>この版では既定オフ</b>（config <code>sync_interval_min = 0</code>）</td></tr>
+    <tr><td><span class="btn">📥 パック取込</span><span class="tag week1">慣れたら</span></td><td>同僚から受け取った「パック」（.xlsx）を入れる</td><td>自分の本棚に無い内容だけ追加。重複は自動スキップ（→ 第6章）</td></tr>
+    <tr><td><span class="btn">📡 部門チャンネル</span><span class="tag later">部門運用が始まったら</span></td><td>部門が発行した「正典」をまとめて受け取る</td><td>共有フォルダの設定が先に必要。更新は Hub に「📡 【部門】に更新があります」と出るので、それを押す（自動では入りません）</td></tr>
+  </table></div>
+
+  <h3>資料カードの記号</h3>
+  <div class="grid3">
+    <div class="card">✅ <b>取り込み完了</b><br><span class="muted">質問に使えます</span></div>
+    <div class="card">⏳ <b>変換中</b><br><span class="muted">しばらく待つ。🔄同期で再開</span></div>
+    <div class="card">⚠️ <b>一部読めなかった</b><br><span class="muted">ページ番号がメモ欄に出ます</span></div>
+    <div class="card">🖼 <b>画像だけのPDF</b><br><span class="muted">読み取れなかった。📸 で1ページずつ</span></div>
+    <div class="card">🕒 <b>元ファイルが無い</b><br><span class="muted">移動・削除された可能性</span></div>
+  </div>
+
+  <h3>消す</h3>
+  <ol class="steps">
+    <li><b>ピルで「📋 マイ本棚」（一覧表示）に切り替える</b>🃏 ギャラリー表示には削除ボタンが出ません（押し間違い防止）。</li>
+    <li><b>消したい資料の行をクリックする</b>行を選ばずに押すと「削除したい資料の行をクリックしてから、もう一度押してください。」と出ます。</li>
+    <li><b>ツールバー右端の <span class="btn red">🗑 1件</span> を押し、「はい」</b>この操作は取り消せません。</li>
+  </ol>
+  <p class="muted">ほかの消し方: <span class="btn red">🗑 部門ぶん一括</span>＝選んだ部門から受け取った正典だけをまとめて消す（自分の資料とパックは残る）／ 🃏 ギャラリーでカードをクリック → [はい] で1件削除、[いいえ] で「⚠ ノイズ報告」（その資料を自分の検索から外す）。<b>本棚をまるごと空にするボタンはありません。</b></p>
+
+  <details>
+    <summary>量と速さの目安（大きい資料を入れる前に）</summary>
+    <ul>
+      <li>文字の入っていない画像PDF（スキャン）は1ページごとにAIが読みます。<b>20ページで約9分</b>（実機実測）。5分以上かかる見込みのときは取り込む前に確認が出ます。</li>
+      <li>1ファイルの読み取りは 300ページまで（超えた分は打ち切り）。</li>
+      <li>本棚の上限はチャンク数 20,500件（資料150〜200冊相当）。8割を超えると Hub に警告が出ます。</li>
+      <li>文字入りPDFでも、取込のあとに「章の要約」（章の数だけAIを呼ぶ）が続きます。急ぐときは ■中断 で止められ、そこまでは保存されます。</li>
+      <li>同じ名前のファイルを別の場所から追加するとエラー（E0504）。ファイル名に年度や版を入れて区別してください。</li>
+    </ul>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2>6. 「渡す」3種類の違い<small>パック／引き継ぎファイル／部門の正典。混ざりやすいので図で</small></h2>
+
+  <figure>
+    <svg viewBox="0 0 900 300" role="img" aria-label="パックは同僚へ、引き継ぎは自分の次のPCへ、正典は部門から全員へ">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="14" fill="#1f2937">
+        <!-- pack -->
+        <rect x="10" y="20" width="280" height="260" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="150" y="52" text-anchor="middle" font-weight="bold" font-size="18">📦 パック</text>
+        <text x="150" y="76" text-anchor="middle" font-size="13" fill="#4b5563">同僚に資料を配る（承認なし）</text>
+        <rect x="40" y="100" width="90" height="56" rx="10" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="85" y="134" text-anchor="middle">🙂 自分</text>
+        <line x1="135" y1="128" x2="165" y2="128" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="170" y="100" width="90" height="56" rx="10" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="215" y="134" text-anchor="middle">🙂 同僚</text>
+        <text x="150" y="190" text-anchor="middle" font-size="13">中身: 資料（本文・出典）だけ</text>
+        <text x="150" y="212" text-anchor="middle" font-size="13">出す: 📦 パック出力 → .xlsx</text>
+        <text x="150" y="234" text-anchor="middle" font-size="13">受ける: 📥 パック取込</text>
+        <text x="150" y="262" text-anchor="middle" font-size="12" fill="#4b5563">出典に「（パック: 作成者名）」が付く</text>
+        <!-- migrate -->
+        <rect x="310" y="20" width="280" height="260" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="450" y="52" text-anchor="middle" font-weight="bold" font-size="18">📤 引き継ぎファイル</text>
+        <text x="450" y="76" text-anchor="middle" font-size="13" fill="#4b5563">自分の環境を丸ごと次のPC・次の版へ</text>
+        <rect x="340" y="100" width="90" height="56" rx="10" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="385" y="134" text-anchor="middle">🙂 自分</text>
+        <line x1="435" y1="128" x2="465" y2="128" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="470" y="100" width="90" height="56" rx="10" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="515" y="134" text-anchor="middle">🙂 自分</text>
+        <text x="450" y="190" text-anchor="middle" font-size="13">中身: 本棚＋実績＋設定 一式</text>
+        <text x="450" y="212" text-anchor="middle" font-size="13">出す: ❓ → 📤 引き継ぎファイルを作る</text>
+        <text x="450" y="234" text-anchor="middle" font-size="13">受ける: ❓ → 📥 引き継ぎファイルを読む</text>
+        <text x="450" y="262" text-anchor="middle" font-size="12" fill="#b91c1c">資料本文がそのまま入る。他人へ渡さない</text>
+        <!-- canon -->
+        <rect x="610" y="20" width="280" height="260" rx="14" fill="#fff" stroke="#d9dee5"/>
+        <text x="750" y="52" text-anchor="middle" font-weight="bold" font-size="18">📡 部門の正典</text>
+        <text x="750" y="76" text-anchor="middle" font-size="13" fill="#4b5563">発行担当が1つ発行 → 部門の全員へ</text>
+        <rect x="640" y="100" width="90" height="56" rx="10" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="685" y="128" text-anchor="middle" font-size="13">🔑 発行担当</text>
+        <text x="685" y="146" text-anchor="middle" font-size="11" fill="#4b5563">発行者用ファイル</text>
+        <line x1="735" y1="128" x2="765" y2="128" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="770" y="100" width="90" height="56" rx="10" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="815" y="134" text-anchor="middle">👥 全員</text>
+        <text x="750" y="190" text-anchor="middle" font-size="13">置き場: 共有フォルダ\channels\部門名\</text>
+        <text x="750" y="212" text-anchor="middle" font-size="13">出す: 📤 正典を発行（発行担当だけに出る）</text>
+        <text x="750" y="234" text-anchor="middle" font-size="13">受ける: 📡 部門チャンネル / Hub の更新案内</text>
+        <text x="750" y="262" text-anchor="middle" font-size="12" fill="#4b5563">古い版は入れ替え時に消える</text>
+      </g>
+    </svg>
+    <figcaption>迷ったら: 「人に資料を渡す」＝パック、「自分の全部を移す」＝引き継ぎ、「部門の公式」＝正典。</figcaption>
+  </figure>
+
+  <div class="tw"><table>
+    <tr><th></th><th>📦 パック</th><th>📤 引き継ぎファイル</th><th>📡 部門の正典</th></tr>
+    <tr><th>誰が誰に</th><td>同僚どうし</td><td>自分 → 自分</td><td>発行担当 → 部門の全員</td></tr>
+    <tr><th>中身</th><td>資料（本文・出典）のみ</td><td>本棚＋バッジ・EXP＋設定</td><td>部門で確認済みの資料</td></tr>
+    <tr><th>必要な準備</th><td>なし</td><td>なし</td><td>共有フォルダの設定（❓ → ⚙ 共有フォルダ設定）と、部門の設定（Hub の名前の下）。<b>両方そろって初めて動きます</b></td></tr>
+    <tr><th>この版での状態</th><td colspan="2">2026-09-04 版で「開けない」不具合（E0701/E0801）を修正済み。実機確認中</td><td>発行者用ファイルはまだ再配布されていません（テストフライト中は部門配信なし）</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2>7. 答えを確かめる・直す<small>出典を開く／スクショの読み取りを確かめる／❌違う の効き方</small></h2>
+
+  <h3>出典を確かめる（毎回やってほしいこと）</h3>
+  <ol class="steps">
+    <li><b>答えのすぐ下の信頼度バッジを見る</b>🟢「本棚の資料と強く一致(N件)」／🟡「部分的に一致 ― 下の出典で原文をご確認ください」／🔴「本棚に十分な根拠なし ― 内容をうのみにしないでください」の3段階です。🔴 のときは答えを使わないでください。</li>
+    <li><b>「🔎 出典(クリックで原文を確認):」の資料名ボタン（📄 資料名 p.ページ）を押す</b>その資料の該当箇所の抜粋（先頭600字まで）がポップアップで出ます。出典ボタンは最大4件、同じ資料は1つにまとまります。</li>
+    <li><b>「📂 原文を開く」で元のファイルを開く</b>数字・条文はここで必ず元の資料に当たってください。</li>
+    <li><b>答えの頭に「⚠️ 手元の資料との関連が薄い可能性があります」が付いていたら疑う</b>本棚との一致が弱かった印です（既定: スコア 0.3 未満）。質問の言葉を資料と同じ表記に寄せて聞き直すのが近道です。</li>
+  </ol>
+
+  <h3>スクショ（画像）の読み取り結果を確かめるには</h3>
+  <p>📸 スクショ取込のあと、AIが読み取った文章を<b>その場で表示する画面はこの版にはありません</b>。確かめ方は次の2つです。</p>
+  <div class="grid2">
+    <div class="card"><b>方法A: 質問して出典を開く</b><br>「（資料名）に何が書いてある？」と聞く → 答えの下の資料名ボタンで抜粋（600字）を見る。抜粋は先頭からなので、長いスクショの後半は見えません。</div>
+    <div class="card"><b>方法B: ギャラリーのカード</b><br>🃏 ギャラリーのカードに先頭150字、カードをクリックすると先頭300字が出ます。読み取りが明らかにおかしければ、そのまま [はい] で削除して撮り直せます。</div>
+  </div>
+  <div class="note">読み取った文章を<b>直して保存し直す機能はありません</b>。直したいときは、その資料を 🗑 で消し、正しい文章を <span class="btn">➕ 登録</span> で登録し直してください（上書きではなく別の資料として入ります）。</div>
+
+  <h3>❌ 違う → 正しい内容を教える、はどこまで効くか</h3>
+  <figure>
+    <svg viewBox="0 0 900 170" role="img" aria-label="違うを押すと修正ナレッジが本棚に1冊増え、次回は検索で当たれば使われる">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="14" fill="#1f2937">
+        <rect x="10" y="30" width="200" height="100" rx="12" fill="#fdecec" stroke="#f3b4b4"/>
+        <text x="110" y="66" text-anchor="middle" font-weight="bold">❌ 違う</text>
+        <text x="110" y="92" text-anchor="middle" font-size="12" fill="#4b5563">「正しい内容を教えてください」</text>
+        <text x="110" y="110" text-anchor="middle" font-size="12" fill="#4b5563">に文章を書く</text>
+        <line x1="215" y1="80" x2="245" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="250" y="30" width="230" height="100" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="365" y="60" text-anchor="middle" font-weight="bold">本棚に「修正ナレッジ」が1冊増える</text>
+        <text x="365" y="86" text-anchor="middle" font-size="12" fill="#4b5563">中身: 元の回答の抜粋(400字)＋正しい内容</text>
+        <text x="365" y="106" text-anchor="middle" font-size="12" fill="#4b5563">元の間違った資料はそのまま残る</text>
+        <line x1="485" y1="80" x2="515" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <rect x="520" y="30" width="370" height="100" rx="12" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="705" y="60" text-anchor="middle" font-weight="bold">次回: 検索で当たれば答えに使われる</text>
+        <text x="705" y="86" text-anchor="middle" font-size="12" fill="#4b5563">同じ質問でも「必ず」ではない（優先扱いは無い）</text>
+        <text x="705" y="106" text-anchor="middle" font-size="12" fill="#4b5563">正しい内容に、質問で使いそうな言葉を入れておくと当たりやすい</text>
+        <text x="450" y="158" text-anchor="middle" font-size="12" fill="#4b5563">共有フォルダが設定済みなら、訂正は部内にも配られます（受け取った側で本棚に入るのは、その人が取り込んだときだけ）</text>
+      </g>
+    </svg>
+    <figcaption>画面には「次に同じ質問をした人から、この内容で答えます」と出ますが、正確には「本棚に1冊増えて、検索で当たれば使われる」です。</figcaption>
+  </figure>
+  <div class="ok"><b>効かせるコツ</b>: 「正しい内容」には結論だけでなく、<b>質問に使いそうな言葉（用語・商品名・条番号）</b>を含めて書いてください。検索はその言葉で当てにいきます。</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <h2>8. 困ったとき<small>まず 🩺 診断 → スクショ → 管理者へ。自分で設定は触らない</small></h2>
+
+  <div class="grid2">
+    <div class="card"><b>画面が崩れた・ボタンが消えた</b><br>Hub 右上の 🔄 を押して描き直す。</div>
+    <div class="card"><b>答えが途中で止まる</b><br>いったん保存して閉じ、開き直してからもう一度。</div>
+    <div class="card"><b>資料が見つからないと言われる（E0601）</b><br>その資料が ✅ になっているか確認。資料で実際に使われていそうな言葉に言い換えて聞き直す。</div>
+    <div class="card"><b>それでも直らない</b><br>ヘルプ「❓」→「🩺 診断を開く」の画面をスクリーンショットで撮って管理者へ。✅/⚠️ でどこに問題があるかが一覧で出ます。</div>
+  </div>
+
+  <h3>エラーコード早見表（案内文の末尾「(コード: E0xxx)」）</h3>
+  <div class="tw"><table>
+    <tr><th>コード</th><th>症状</th><th>原因と対処</th></tr>
+    <tr><td>E0201</td><td>AIリボンが見つからない</td><td>AIリボン入りの Excel で開き直す。🩺 診断で「AIリボン」の行を確認</td></tr>
+    <tr><td>E0204</td><td>今日はAIに問い合わせできない</td><td>本日のAI利用上限の可能性。今日はここまでにして、明日「🔄同期」で続きから</td></tr>
+    <tr><td>E0301</td><td>ファイルを追加できない</td><td>対応外の形式。txt/md/csv/pdf/docx/doc/xlsx 等を使う。画像は 📸 スクショ取込から</td></tr>
+    <tr><td>E0302</td><td>ファイルを開けない</td><td>他のアプリで開いている、または権限が無い。閉じてもう一度。PDF は同じ場所の Ghostscript フォルダも確認</td></tr>
+    <tr><td>E0303</td><td>画像PDFの文字が読めない</td><td>読み取りたいページを画面コピーして 📸 で1ページずつ</td></tr>
+    <tr><td>E0501</td><td>本棚の上限を超えている</td><td>使っていない資料を削除</td></tr>
+    <tr><td>E0503</td><td>今は操作できない</td><td>別の取込処理が実行中。完了まで待つ</td></tr>
+    <tr><td>E0504</td><td>同じ名前の資料がある</td><td>ファイル名を変えるか、先に元の資料を削除してから追加</td></tr>
+    <tr><td>E0601</td><td>資料が見つからない</td><td>資料が本棚に入っているか確認。言い換えて再検索</td></tr>
+    <tr><td>E0701</td><td>パックを取り込めない</td><td>形式が違うか版が合わない。相手に再書き出しを依頼（保護されたファイルや読めないファイルも同じコードで止まります）</td></tr>
+    <tr><td>E0801</td><td>画面の組み立てに失敗した</td><td>データは失われていません。閉じて開き直す。繰り返すときは画面を撮って管理者へ</td></tr>
+    <tr><td>E0805</td><td>結果が保存されない</td><td>読み取り専用で開かれている。別の Excel で同じファイルを開いていないか確認</td></tr>
+  </table></div>
+  <p class="muted">全コードの一覧はブック内の「使い方」シート ⑧（マクロが無効でも読めます）にあります。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+  <h2>9. 記録されること<small>何がどこに残るか（この版の既定値）</small></h2>
+  <div class="tw"><table>
+    <tr><th>残るもの</th><th>どこに</th><th>止め方</th></tr>
+    <tr><td>あなたの質問と回答の履歴（最新100件）</td><td>このファイルの「チャット履歴」シート（この端末の中だけ）</td><td>config <code>chat_log_enabled</code> を FALSE</td></tr>
+    <tr><td>利用回数・解決率などの集計値と、質問文の<b>先頭40字</b></td><td>部門の共有フォルダ（設定している場合のみ・閉じるときに送信）</td><td>config <code>telemetry_enabled</code> を FALSE</td></tr>
+    <tr><td>「✅ 解決した」を押した質問と答え／答えが見つからなかった質問／❌違う の訂正</td><td>部門の共有フォルダ（設定している場合のみ）</td><td>config <code>insight_share_enabled</code> を FALSE</td></tr>
+    <tr><td>匿名の投書（Hub 右上の 📮 ご意見）</td><td>部門の共有フォルダ。名前も所属も付きません</td><td>送らなければ残りません</td></tr>
+  </table></div>
+  <div class="note"><b>個人情報の自動チェック（config <code>pii_scan_enabled</code>）はこの版では既定オフ</b>です。パックや正典を出す前に、個人情報が入っていないかは<b>人が</b>確認してください。共有フォルダを設定していない間は、上の表の「共有フォルダ」行は何も送られません。</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s10">
+  <h2>10. 用語<small>画面に出る言葉だけ</small></h2>
+  <dl class="kv">
+    <dt>本棚 / マイ本棚</dt><dd>あなたが入れた資料の置き場。AIはここだけを根拠に答えます。</dd>
+    <dt>ベクトル化 / 変換</dt><dd>資料をAIが検索できる形に直すこと。カードが ⏳ → ✅ になるまでの処理です。</dd>
+    <dt>チャンク</dt><dd>資料を検索しやすい大きさ（数百字）に切った1切れ。本棚の上限は「チャンク数」で数えます。</dd>
+    <dt>出典 / 📖 この回答のもと</dt><dd>答えの根拠にした資料名とページ。ボタンを押すと抜粋が出て、原文を開けます。</dd>
+    <dt>仕上げ（⚡）</dt><dd>古い形式で取り込んだ資料に、章の目次と要約を後付けする処理。再取込は不要。全部済んでいれば「仕上げ済みです」と出るだけです。</dd>
+    <dt>パック</dt><dd>本棚の資料をひとまとめにした受け渡し用ファイル（.xlsx）。同僚に渡す用。</dd>
+    <dt>引き継ぎファイル</dt><dd>本棚＋実績＋設定を丸ごと1つにした、自分用のバックアップ。</dd>
+    <dt>正典 / 部門チャンネル</dt><dd>部門の発行担当が1つだけ発行し、部門の全員が受け取る公式ナレッジ。</dd>
+    <dt>共有フォルダ</dt><dd>部門の受け渡し場所（ファイルサーバ上のフォルダ）。感謝状・正典・みんなの節約はこれを設定してから動きます。</dd>
+    <dt>Hub</dt><dd>最初に出る拠点画面。どの画面からも「← Hub」で戻れます。</dd>
+    <dt>修正ナレッジ</dt><dd>❌違う のあとに書いた「正しい内容」が、本棚に1冊として入ったもの。</dd>
+    <dt>考察メモ（💭）</dt><dd>💾 保存で残した質問と回答の1往復。一次資料ではないので、根拠は原典で確認します。</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  この文書は 2026年9月4日版（R35 追補・build 20260904-044655Z+bd37af6 と同じ VBA）の config シートの実測値と、ブック内「使い方」シート・実装の文字列にもとづいて書かれています。設計上の予定ではなく、いま配られているファイルの動きです。画面の見た目（配置・色）は実機で異なることがあります。詳しい説明は同梱の docs/00_はじめての方へ.md と、ブック内の「使い方」シートを参照してください。
+</footer>
+
+</body>
+</html>
