@@ -48,15 +48,27 @@ Private mPoolN As Long
 ' ----------------------------------------------------------------------------
 ' RememberPool - 候補プール(rerank・topK絞り込みより前)を控える。
 '   呼び出しは modAskRetrieve.RunMultiRetrieve の StashDispersionPool の直後
-'   1行だけ(あちらは残り333字なので、判断はすべてこちら側に置く)。
+'   1行だけ(あちらは残り147字なので、判断はすべてこちら側に置く)。
+'   【R37 Fix B-M1(2)】続けて質問・深掘り・逆質問スコープの回は控えない。
+'     それらのターンは「前の回答の続き」を出す約束の上に立っていて、件数を
+'     増やす側の細工(deep_scope_fallback の n>=2 ゲート・DemoteUsed・
+'     ClarifyScopeKept・件数バッジ)がその件数を見ている(R34 F1 が禁じた型)。
+'     控えなければ mPoolN=0 のまま = Expand は何もしない no-op になる。
+'     スコープ付き検索そのものを外す判定は呼び出し側(modAskRetrieve の
+'     If scopeSources Is Nothing)。ここは「深掘りターンか」だけを見る。
+'   【R37 Fix A-m2】配列コピーが落ちた回に件数だけ更新すると、前の質問の
+'     プールを掴んだまま「n件ある」と言い張る状態になる。成功したときだけ。
 ' ----------------------------------------------------------------------------
 Public Sub RememberPool(ByRef hits() As Hit, ByVal n As Long)
     On Error Resume Next
     mPoolN = 0
     If n < 1 Then Exit Sub
     If Not modXDocStore.GateOn() Then Exit Sub
+    If modFollowup.IsFollowupTurn() Then Exit Sub
+    Err.Clear
     mPoolHits = hits
-    mPoolN = n
+    If Err.Number = 0 Then mPoolN = n
+    Err.Clear
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -76,6 +88,12 @@ Public Function Expand(ByRef hits() As Hit, ByVal n As Long, ByVal topK As Long)
 
     Dim maxAdd As Long: maxAdd = modConfig.GetLong("xdoc_add", 2)
     If maxAdd < 1 Then GoTo Done
+
+    ' 【R37 Fix A-m4=B-m6】リンクが1行も無いなら、ここで終わる。旧版は先に
+    '   chunk_meta を丸ごと配列へコピーしていたので、doc_links が空の本棚
+    '   (版上げ直後・パック取込だけの利用者・xdoc を使っていない人)でも
+    '   毎問その代金を払っていた。行数を見るのはセル1つぶん。
+    If modXDocStore.LinkRowCount() < 1 Then GoTo Done
 
     ' 1) 起点は「上位 SEED_N 件」。topK より後ろ(近傍・参照展開で足された
     '    score 0 のチャンク)は起点にしない。
@@ -288,10 +306,18 @@ End Function
 ' ・score は 0(modAskFocus.NeighborExpand/RefsExpand と同じ。低関連度の
 '   警告・資料分散の判定はスコアを見るので、0 のまま末尾に置くのが
 '   「材料は増やすが計器は汚さない」唯一の形)。
+' 【R37 Fix A-m1】外側のループは【候補(cands)の順】。PickLinked は sim の
+'   高い章から並べて返しているのに、旧版はプールの順に走って「候補のどれかに
+'   入っていればいい」という集合判定をしていた。最大2件しか足さないので、
+'   これは「いちばん近い章」ではなく「たまたまプールで上に居た章」を採ることに
+'   なる。順位を作った側の意図をここで捨てない。
+' プール各件の "資料|章" は先に1回だけ引く(章の解決は chunk_meta の総なめ
+'   なので、候補×プールの二重ループの内側に置くと桁が変わる)。
 Private Function AppendFromPool(ByVal candBox As String, ByRef hits() As Hit, _
                                 ByRef nHits As Long, ByVal cap As Long, _
                                 ByRef mIds() As String, ByRef mPaths() As String, _
                                 ByVal metaN As Long) As Long
+    If mPoolN < 1 Then Exit Function
     Dim cands() As String: cands = Split(candBox, vbLf)
 
     Dim have As String
@@ -301,37 +327,42 @@ Private Function AppendFromPool(ByVal candBox As String, ByRef hits() As Hit, _
     Next i
     have = have & vbLf
 
-    Dim added As Long
+    Dim poolKey() As String: ReDim poolKey(1 To mPoolN)
     For i = 1 To mPoolN
-        If added >= cap Then Exit For
-        Dim cid As String: cid = Trim$(mPoolHits(i).chunk_id)
-        If LenB(cid) > 0 Then
-            If InStr(1, have, vbLf & cid & vbLf, vbBinaryCompare) = 0 Then
-                Dim ch As String: ch = ChapterOfChunk(cid, mIds, mPaths, metaN)
-                If LenB(ch) > 0 Then
-                    If InArr(cands, Trim$(mPoolHits(i).source) & "|" & ch) Then
-                        nHits = nHits + 1
-                        ReDim Preserve hits(1 To nHits)
-                        hits(nHits) = mPoolHits(i)
-                        hits(nHits).score = 0
-                        have = have & cid & vbLf
-                        added = added + 1
-                    End If
+        Dim cid0 As String: cid0 = Trim$(mPoolHits(i).chunk_id)
+        If LenB(cid0) > 0 Then
+            If InStr(1, have, vbLf & cid0 & vbLf, vbBinaryCompare) = 0 Then
+                Dim ch0 As String: ch0 = ChapterOfChunk(cid0, mIds, mPaths, metaN)
+                If LenB(ch0) > 0 Then
+                    poolKey(i) = Trim$(mPoolHits(i).source) & "|" & ch0
                 End If
             End If
         End If
     Next i
-    AppendFromPool = added
-End Function
 
-' 文字列配列に(大小・全角半角を無視して)含まれるか。
-Private Function InArr(ByRef arr() As String, ByVal s As String) As Boolean
-    If LenB(s) = 0 Then Exit Function
-    Dim i As Long
-    For i = LBound(arr) To UBound(arr)
-        If StrComp(Trim$(arr(i)), s, vbTextCompare) = 0 Then
-            InArr = True
-            Exit Function
+    Dim added As Long
+    Dim ci As Long
+    For ci = LBound(cands) To UBound(cands)
+        If added >= cap Then Exit For
+        Dim want As String: want = Trim$(cands(ci))
+        If LenB(want) > 0 Then
+            For i = 1 To mPoolN
+                If added >= cap Then Exit For
+                If LenB(poolKey(i)) > 0 Then
+                    If StrComp(poolKey(i), want, vbTextCompare) = 0 Then
+                        Dim cid As String: cid = Trim$(mPoolHits(i).chunk_id)
+                        If InStr(1, have, vbLf & cid & vbLf, vbBinaryCompare) = 0 Then
+                            nHits = nHits + 1
+                            ReDim Preserve hits(1 To nHits)
+                            hits(nHits) = mPoolHits(i)
+                            hits(nHits).score = 0
+                            have = have & cid & vbLf
+                            added = added + 1
+                        End If
+                    End If
+                End If
+            Next i
         End If
-    Next i
+    Next ci
+    AppendFromPool = added
 End Function

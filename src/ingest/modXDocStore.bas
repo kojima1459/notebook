@@ -347,6 +347,25 @@ Public Function ReadCentroids(ByRef outSrcs() As String, ByRef outChaps() As Str
     ReadCentroids = n
 End Function
 
+' ----------------------------------------------------------------------------
+' LinkRowCount - doc_links の行数(見出しを除く)。読むのは最終行だけ。
+'   【R37 Fix A-m4=B-m6】回答のたびに走る modXDoc.Expand が「そもそも
+'   リンクが1行も無い」を1セルの値段で判定できるようにするためだけの一本。
+'   シートが無い/壊れている/0行 はすべて 0(呼び出し元は分岐を持たない)。
+' ----------------------------------------------------------------------------
+Public Function LinkRowCount() As Long
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = GetSheet(modAppDef.SH_DOC_LINKS)
+    If ws Is Nothing Then
+        Err.Clear
+        Exit Function
+    End If
+    Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, COL_L_SA).End(xlUp).row
+    Err.Clear
+    On Error GoTo 0
+    If lastR > 1 Then LinkRowCount = lastR - 1
+End Function
+
 ' ReadLinks - doc_links の全行を並行配列(0 To n-1)へ。件数を返す。
 Public Function ReadLinks(ByRef outA() As String, ByRef outCA() As String, _
                           ByRef outB() As String, ByRef outCB() As String, _
