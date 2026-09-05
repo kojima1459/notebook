@@ -136,7 +136,12 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #     のゴールデン5件を modTestsPure37(B1)に追加 → PASS 3004→3009
 #     (SKIP は 14 のまま。ネガティブ確認済み: 1値を壊して3008/FAIL1を確認→復元)。
 EXPECTED_SKIP_MAX = 14
-EXPECTED_PASS_MIN = 3009
+#   2026-09-05 R36: modTestsPure39(本文表示/画像📁)+modTestsPure40(是正メモ)+
+#     modTestsPure41(版上げ引き継ぎ)を追加、Pure11 のツールバー幅アサートを
+#     反転(一覧表>ギャラリー)+1本 → PASS 3009→3090(SKIP は 14 のまま。
+#     Hit型を跨ぐテストは書いていない)。ネガティブ確認: Pure41 StampText の
+#     期待値を1分ずらして FAIL 1/PASS 3089 を確認→復元。
+EXPECTED_PASS_MIN = 3090
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
