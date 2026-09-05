@@ -16,6 +16,8 @@ Option Explicit
 '                                起点キー不一致は無視・重複除去。
 '   E modXDoc.ChapterOf        : 章キーの取り方(第1要素・目次行の末尾正規化・
 '                                リーダー1字は触らない)。期待値は定数で書く。
+'   F modXDocStore.FilterBySim : 閾値未満は doc_links へ【書かない】
+'                                (R37 Fix A-M3=B-M2。取込側の線)。
 '
 ' 【なぜ RememberPool/Expand/BuildFor のテストが無いか】
 '   RememberPool/Expand は Hit 型(Public Type)を跨ぐため LibreOffice の
@@ -231,6 +233,45 @@ Private Sub TestChapterOf42()
     ChkStr42 "E_リーダー1字は触らない", modXDoc.ChapterOf("第3章 総則.12"), "第3章 総則.12"
 End Sub
 
+' ---- F: FilterBySim ----------------------------------------------------------
+'   R37 Fix A-M3=B-M2。「閾値未満は doc_links へ書かない」を固定する。
+'   これが無かったので、本棚に2冊しか無ければ重心がどれだけ離れていても
+'   上位3件が必ず書かれ、📖の「関連する資料」に無関係な資料が必ず出ていた。
+'   入力は modXDocStore.TopNLinks が返す行(最後のフィールドが類似度)。
+'   discriminate:
+'   ・閾値を見ない(素通しする)実装は (a) が2行返して落ちる。
+'   ・「閾値を上回ること」を求める実装(ゆとり無しの > )は (b) が空になって落ちる
+'     ―― 既定 0.80 ちょうどの1件が静かに消える型。
+'   ・1行でも残す(「全部落ちたら上位1件は書く」と親切にした)実装は (c) が
+'     空でなくなって落ちる ―― ここが「2冊だけの本棚でも出さない」の線。
+'   ・最後のフィールドではなく2番目を類似度と見る実装は (d) で落ちる。
+Private Sub TestFilterBySim42()
+    ' (a) 閾値未満の行だけが消える(残る行は原文のまま)。
+    Dim src1 As String
+    src1 = "B|第3章|0.85" & vbLf & "C|第2章|0.75"
+    ChkStr42 "F_閾値未満は書かない", modXDocStore.FilterBySim(src1, 80), "B|第3章|0.85"
+
+    ' (b) 閾値ちょうど(0.80)は残す(PickLinked の D_閾値ちょうど と同じ規則)。
+    ChkStr42 "F_閾値ちょうどは残す", modXDocStore.FilterBySim("B|第3章|0.8", 80), "B|第3章|0.8"
+
+    ' (c) 全部未満なら空文字 = 呼び出し元は【1行も書かない】。
+    Dim src2 As String
+    src2 = "B|第3章|0.51" & vbLf & "C|第2章|0.42" & vbLf & "D|第1章|0.1"
+    ChkStr42 "F_全部未満なら空", modXDocStore.FilterBySim(src2, 80), ""
+
+    ' (d) 相手側の作り直し(RebuildPeer)が渡す4フィールドの行でも、
+    '     類似度は【最後のフィールド】。
+    Dim src3 As String
+    src3 = "第1章|B|第3章|0.9" & vbLf & "第1章|C|第2章|0.3"
+    ChkStr42 "F_最後の欄を類似度と見る", modXDocStore.FilterBySim(src3, 80), "第1章|B|第3章|0.9"
+
+    ' (e) 空入力は空(TopNLinks が何も返さなかった章)。
+    ChkStr42 "F_空は空", modXDocStore.FilterBySim("", 80), ""
+
+    ' (f) 閾値0なら素通し(config xdoc_min_sim=0 = 閾値を使わない逃げ道)。
+    ChkStr42 "F_閾値0は素通し", modXDocStore.FilterBySim(src1, 0), src1
+End Sub
+
 ' ---- 判定ヘルパー -----------------------------------------------------------
 ' TopNLinks の1行 "src|chap|sim" から "src|chap" だけを取る。
 Private Function PairOf42(ByVal line0 As String) As String
@@ -279,6 +320,9 @@ H04Next42:
 H05Next42:
     On Error GoTo H05Fail42
     TestChapterOf42
+H06Next42:
+    On Error GoTo H06Fail42
+    TestFilterBySim42
 H01Done42:
     On Error GoTo 0
     Exit Sub
@@ -301,6 +345,10 @@ H04Fail42:
     Resume H05Next42
 H05Fail42:
     modTestRunner.Check "TestChapterOf42(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H06Next42
+H06Fail42:
+    modTestRunner.Check "TestFilterBySim42(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done42
 End Sub
