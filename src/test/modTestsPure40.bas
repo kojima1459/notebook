@@ -39,13 +39,21 @@ Option Explicit
 '   C7 modCorrect.MatchLevel の完全一致は40字で切らない(R36 Fix A-M6)。
 '     先頭40字が同じで41字目以降が違う別の質問が score 1.0 で先頭へ入る
 '     経路を、正例(同一質問=2)と反例(41字目違い=2ではない)の2本で挟む。
+'   C8 modCorrect.BuildMemoBody の4引数書式(R37 §2-2): 第4引数
+'     sourcesLine が非空のとき「誤答の根拠: …」行が末尾に載り
+'     ExtractWrongSources で往復できること。空なら行そのものが出ないこと
+'     (既存3引数呼び出しと同じ書式を保つ)。
+'   C9 modCorrect.ExtractWrongSources: 「誤答の根拠:」行を行単位で拾えること
+'     (有・複数・無・空の4パターン)。
+'   C10 modCorrect.WrongSourceMatches: (source,page)一致判定の純関数。
+'     資料名は大小無視・ページは数値一致・"|"区切りの2件目以降も拾えること。
 '
-' 【なぜ InjectHits / PrependHit のテストが無いか】
-'   どちらも Hit(Public Type)の配列を跨ぐ。LO ではモジュール間で UDT 配列を
+' 【なぜ InjectHits / PrependHit / DemoteWrongHits のテストが無いか】
+'   いずれも Hit(Public Type)の配列を跨ぐ。LO ではモジュール間で UDT 配列を
 '   受け渡せず、書いても [SKIP] に落ちるだけで SKIP 上限14を押し上げる
 '   (run_lo_tests.py:129-132 / modTestsPure38.bas:27 と同型の既知の死角)。
-'   注入の実挙動は R36 §6 の実機受入③(❌違う→正しい内容→同じ質問で是正メモが
-'   出典の先頭に出る)で確かめる。
+'   注入・降格の実挙動は R36 §6 の実機受入③(❌違う→正しい内容→同じ質問で
+'   是正メモが出典の先頭に出る)と R37 §2-1(誤根拠が末尾へ下がる)で確かめる。
 ' ============================================================================
 
 ' ---- C1: BuildMemoBody の書式 ----------------------------------------------
@@ -59,7 +67,7 @@ Option Explicit
 '      vbCrLf にしても通る=そこは意図した許容範囲)。
 Private Sub TestBuildMemoBody40()
     Dim body As String
-    body = modCorrect.BuildMemoBody("退職金の計算方法は?", "勤続年数×基本給×0.6です。", "退職金は一律50万円です")
+    body = modCorrect.BuildMemoBody("退職金の計算方法は?", "勤続年数×基本給×0.6です。", "退職金は一律50万円です", "")
 
     ' (a) 指示文が【本文の先頭】にある。ここが LLM への指示そのもの。
     ChkBool40 "C1_本文の先頭が是正メモの指示文", _
@@ -74,7 +82,7 @@ Private Sub TestBuildMemoBody40()
     ChkStr40 "C1_質問の往復", modCorrect.ExtractQuestionLine(body), "退職金の計算方法は?"
 
     ' (d) 空入力でも書式は壊れない(質問が空なら往復も空)。
-    Dim empt As String: empt = modCorrect.BuildMemoBody("", "", "")
+    Dim empt As String: empt = modCorrect.BuildMemoBody("", "", "", "")
     ChkBool40 "C1_空入力でも指示文は残る", _
         (InStr(1, empt, "【是正メモ】", vbBinaryCompare) = 1), True
     ChkStr40 "C1_空質問の往復は空", modCorrect.ExtractQuestionLine(empt), ""
@@ -130,7 +138,7 @@ Private Sub TestMatchLevel40()
     ' した実装だと、(d)が一致率100%になって 1 を返し、そこで落ちる。
     memo = modCorrect.BuildMemoBody("退職金の計算方法は?", _
                                     "勤続年数と基本給から算定します。育児休業の申請期限とは無関係です。", _
-                                    "退職金は一律50万円です")
+                                    "退職金は一律50万円です", "")
 
     ' (a) そのままの質問 → 完全一致。
     ChkLong40 "C3_同じ質問は完全一致2", _
@@ -250,7 +258,7 @@ Private Sub TestMatchLevel40Boundary()
     Dim qB As String: qB = head40 & "育児休業の申請期限"
 
     Dim memo As String
-    memo = modCorrect.BuildMemoBody(qA, "勤続年数×基本給×0.6です。", "誤答")
+    memo = modCorrect.BuildMemoBody(qA, "勤続年数×基本給×0.6です。", "誤答", "")
 
     ' (a) 同じ質問はもちろん完全一致。
     ChkLong40 "C7_41字目まで同じ同一質問は2", _
@@ -347,6 +355,95 @@ Private Function SanitizeLikeVault40(ByVal s As String) As String
     SanitizeLikeVault40 = modUtil.SafeLeft(Trim$(t), 60)
 End Function
 
+' ---- C8: BuildMemoBody の4引数書式(R37 §2-2「誤答の根拠」行) ----------------
+'   discriminate:
+'   ・sourcesLine を無視する実装にすると(a)(b)が落ちる。
+'   ・「誤答の根拠: 」のヘッダーを付けない/別の文字列にする実装にすると
+'     (a)の InStr 判定と(b)の ExtractWrongSources 往復の両方が落ちる。
+'   ・sourcesLine が空でも常に行を足す実装にすると(c)(d)が落ちる
+'     (「sourcesLine は空でもよい」= 空なら行そのものを出さない)。
+Private Sub TestBuildMemoBodySourcesLine40()
+    ' (a)(b) sourcesLine が非空 → 末尾に「誤答の根拠:」行が載り、往復も取れる。
+    Dim body As String
+    body = modCorrect.BuildMemoBody("退職金の計算方法は?", "勤続年数×基本給×0.6です。", _
+                                    "退職金は一律50万円です", "就業規則.txt p.3 | 給与規程.txt p.5")
+    ChkBool40 "C8_誤答の根拠行が末尾に載る", _
+        (InStr(1, body, vbLf & "誤答の根拠: 就業規則.txt p.3 | 給与規程.txt p.5", vbBinaryCompare) > 0), True
+    ChkStr40 "C8_誤答の根拠行を往復で取り出せる", _
+        modCorrect.ExtractWrongSources(body), "誤答の根拠: 就業規則.txt p.3 | 給与規程.txt p.5"
+    ' 既存の書式(質問・正しい内容)は壊れていない。
+    ChkStr40 "C8_4引数でも質問の往復は変わらない", _
+        modCorrect.ExtractQuestionLine(body), "退職金の計算方法は?"
+
+    ' (c)(d) sourcesLine が空 → 行そのものが現れない(既存3引数相当の書式)。
+    Dim bodyNoSrc As String
+    bodyNoSrc = modCorrect.BuildMemoBody("退職金の計算方法は?", "勤続年数×基本給×0.6です。", _
+                                        "退職金は一律50万円です", "")
+    ChkBool40 "C8_空なら誤答の根拠行は出ない", _
+        (InStr(1, bodyNoSrc, "誤答の根拠", vbBinaryCompare) = 0), True
+    ChkStr40 "C8_空のときExtractWrongSourcesも空", modCorrect.ExtractWrongSources(bodyNoSrc), ""
+End Sub
+
+' ---- C9: ExtractWrongSources -------------------------------------------------
+'   discriminate:
+'   ・行単位ではなく本文全体を返す実装にすると(a)(b)が余分な行を含んで落ちる。
+'   ・"誤答の根拠:" が無いときに空以外を返す実装にすると(c)(d)が落ちる。
+Private Sub TestExtractWrongSources40()
+    ' (a) 単独1件。
+    ChkStr40 "C9_単独1件", _
+        modCorrect.ExtractWrongSources("質問: x" & vbLf & "誤答の根拠: 就業規則.txt p.3"), _
+        "誤答の根拠: 就業規則.txt p.3"
+
+    ' (b) 複数件("|"区切り)。前後に他の行があっても行単位で拾える。
+    ChkStr40 "C9_複数件", _
+        modCorrect.ExtractWrongSources("質問: x" & vbLf & _
+            "誤答の根拠: A.txt p.1 | B.txt p.2 | C.txt p.9" & vbLf & "正しい内容: y"), _
+        "誤答の根拠: A.txt p.1 | B.txt p.2 | C.txt p.9"
+
+    ' (c) 行が無い本文 → 空(古い是正メモ。sourcesLine が空だったケース)。
+    ChkStr40 "C9_行が無ければ空", _
+        modCorrect.ExtractWrongSources("質問: x" & vbLf & "正しい内容: y"), ""
+
+    ' (d) 空文字 → 空。
+    ChkStr40 "C9_空文字は空", modCorrect.ExtractWrongSources(""), ""
+End Sub
+
+' ---- C10: WrongSourceMatches((source,page)一致判定) --------------------------
+'   discriminate:
+'   ・資料名を大小区別で比較する実装にすると(b)が落ちる。
+'   ・ページを文字列比較にする実装にすると、桁の異なる数値表記で(c)相当が
+'     誤って一致扱いになりうる(ここでは数値一致のみで判定することを(a)(c)で
+'     押さえる)。
+'   ・"|" 区切りの2件目以降を見ない実装にすると(e)が落ちる。
+'   ・空行/空資料名を無条件 True にする実装にすると(f)が落ちる。
+Private Sub TestWrongSourceMatches40()
+    Dim line As String: line = "誤答の根拠: 就業規則.txt p.3 | 給与規程.txt p.12"
+
+    ' (a) 資料名・ページとも一致。
+    ChkBool40 "C10_資料名とページが一致", _
+        modCorrect.WrongSourceMatches(line, "就業規則.txt", 3), True
+
+    ' (b) 資料名の大小文字の揺れは無視する。
+    ChkBool40 "C10_資料名は大小無視", _
+        modCorrect.WrongSourceMatches("誤答の根拠: RULE.TXT p.3", "rule.txt", 3), True
+
+    ' (c) ページが違えば不一致(数値一致で判定)。
+    ChkBool40 "C10_ページが違えば不一致", _
+        modCorrect.WrongSourceMatches(line, "就業規則.txt", 4), False
+
+    ' (d) 資料名が違えば不一致。
+    ChkBool40 "C10_資料名が違えば不一致", _
+        modCorrect.WrongSourceMatches(line, "無関係の資料.txt", 3), False
+
+    ' (e) "|"区切りの2件目だけに一致するケースも拾える。
+    ChkBool40 "C10_複数件のうち2件目に一致", _
+        modCorrect.WrongSourceMatches(line, "給与規程.txt", 12), True
+
+    ' (f) 行が空/資料名が空なら不一致(恒真にならないことの確認)。
+    ChkBool40 "C10_行が空なら不一致", modCorrect.WrongSourceMatches("", "就業規則.txt", 3), False
+    ChkBool40 "C10_資料名が空なら不一致", modCorrect.WrongSourceMatches(line, "", 3), False
+End Sub
+
 ' ---- 判定ヘルパー -----------------------------------------------------------
 Private Sub ChkBool40(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
     modTestRunner.Check "R36-" & label, (got = want), "実際=" & got & " 期待=" & want
@@ -382,6 +479,15 @@ H06Next40:
 H07Next40:
     On Error GoTo H07Fail40
     TestMatchLevel40Boundary
+H08Next40:
+    On Error GoTo H08Fail40
+    TestBuildMemoBodySourcesLine40
+H09Next40:
+    On Error GoTo H09Fail40
+    TestExtractWrongSources40
+H10Next40:
+    On Error GoTo H10Fail40
+    TestWrongSourceMatches40
 H01Done40:
     On Error GoTo 0
     Exit Sub
@@ -412,6 +518,18 @@ H06Fail40:
     Resume H07Next40
 H07Fail40:
     modTestRunner.Check "TestMatchLevel40Boundary(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H08Next40
+H08Fail40:
+    modTestRunner.Check "TestBuildMemoBodySourcesLine40(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H09Next40
+H09Fail40:
+    modTestRunner.Check "TestExtractWrongSources40(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H10Next40
+H10Fail40:
+    modTestRunner.Check "TestWrongSourceMatches40(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done40
 End Sub

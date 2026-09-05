@@ -163,9 +163,13 @@ Private Sub RecordCorrection(ByVal fixText As String, ByVal allowMemo As Boolean
         Exit Sub
     End If
 
+    ' R37 §2-1: そのとき出典に出ていた資料名とページ(最大4件)を本文へ残す。
+    ' modAsk の状態(LastGenHitCount等)は❌違うを押した【その場】でしか正しく
+    ' 読めないので、ここ(DeleteSource/RegisterKnowledgeTextより前)で確定させる。
     Dim body As String
     body = modCorrect.BuildMemoBody(q, fixText, _
-               modUtil.SafeLeft(modAppState.TargetText(), 200))
+               modUtil.SafeLeft(modAppState.TargetText(), 200), _
+               modCorrect.CollectAnswerSources())
 
     ' 同じ質問への2回目は上書きする。source 名は拡張子込みのファイル名
     ' (modShelf.bas:72)で、MemoDocBase は modVault.SanitizeName と同じ置換を

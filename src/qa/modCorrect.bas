@@ -31,7 +31,10 @@ Option Explicit
 '   丸ごと止められる。nHits < 0(埋め込み失敗)は触らずそのまま返す。
 '
 ' 【層】qa層。UI は呼ばない(Toast/MsgBox 禁止)。参照するのは core(modAppDef/
-'   modConfig/modState/modUtil/modTypes)と同格の modSparse/modInsight だけ。
+'   modConfig/modState/modUtil/modTypes)と同格の modSparse/modInsight、および
+'   (R37 §2-1 CollectAnswerSources のみ)凍結 modAsk の公開読み取り専用
+'   accessor(LastGenHitCount/LastHitSource/LastHitPage)。modAsk は modCorrect
+'   を参照しないので循環は無い。
 '   my_knowledge のシート直読みは同じ qa 層の既存前例に倣う
 '   (modAskFocus.bas:80 / modAskGlobal.bas:294 / modRetrieve.bas:590)。
 '   シート名は modAppDef.SH_KNOWLEDGE 経由で取る(リテラルを書かない)。
@@ -48,6 +51,12 @@ Public Const MEMO_PREFIX As String = "是正メモ_"
 ' (ExtractQuestionLine)は "質問:" で照合する(全角スペース等のゆれを拾う)。
 Private Const Q_HEAD_OUT As String = "質問: "
 Private Const Q_HEAD_IN As String = "質問:"
+
+' 本文の「誤答の根拠」行(R37 §2-1)。組み立て(BuildMemoBody)は "誤答の根拠: "、
+' 読み取り(ExtractWrongSources/WrongSourceMatches)は "誤答の根拠:" で照合する。
+' Q_HEAD_OUT/Q_HEAD_IN と同じ対の作法(片方を変えたら両方直す)。
+Private Const WRONG_HEAD_OUT As String = "誤答の根拠: "
+Private Const WRONG_HEAD_IN As String = "誤答の根拠:"
 
 ' 資料名に使う質問の先頭字数(R36 §2-2-1)。
 Private Const DOCBASE_Q_LEN As Long = 24
@@ -119,13 +128,54 @@ End Function
 '   ここが返すのは2行目以降にあたる本体。1行目の指示文は【LLMへの指示】として
 '   意図的に本文側にも置く(タイトル行はチャンク先頭の breadcrumb に埋もれる
 '   ことがあり、指示が消える経路を作らないため)。
+'   R37 §2-1: 第4引数 sourcesLine(空でもよい)が非空のとき、末尾へ
+'   「誤答の根拠: <source> p.<page> | …」行を追加する。読み取りは
+'   ExtractWrongSources。組み立てるのは modAppAct.RecordCorrection が
+'   modCorrect.CollectAnswerSources() で作った値(その質問に答えたときの
+'   出典・最大4件)。既存の3引数呼び出しは同一コミットで更新済み。
 ' ----------------------------------------------------------------------------
 Public Function BuildMemoBody(ByVal question As String, ByVal fixText As String, _
-                              ByVal answerExcerpt As String) As String
+                              ByVal answerExcerpt As String, ByVal sourcesLine As String) As String
     BuildMemoBody = "【是正メモ】この質問には、下の「正しい内容」で答えること。" & vbLf & _
                     Q_HEAD_OUT & question & vbLf & _
                     "正しい内容: " & fixText & vbLf & _
                     "(誤りだった回答の抜粋: " & answerExcerpt & ")"
+    If LenB(Trim$(sourcesLine)) > 0 Then
+        BuildMemoBody = BuildMemoBody & vbLf & WRONG_HEAD_OUT & sourcesLine
+    End If
+End Function
+
+' ----------------------------------------------------------------------------
+' CollectAnswerSources - 直近の回答が根拠にした資料名とページを最大4件、
+'   "source p.N | source p.N | …" の1行にまとめる(R37 §2-1)。純関数ではない
+'   (modAsk の状態を読む)が、書き込みは一切しない。
+'   modAsk は凍結のため、公開済みの読み取り専用 accessor
+'   (LastGenHitCount/LastHitSource/LastHitPage。いずれも0始まり)だけを使う。
+'   是正メモ自身(source が MEMO_PREFIX で始まる)は除く ―― 「誤答の根拠」が
+'   前の是正メモだった場合(前の是正が誤っていた場合)は記録しない、という
+'   R37 §2-1 の裁定をここ1箇所で満たす。
+'   呼び出しは modAppAct.RecordCorrection の是正メモ経路のみ(❌違うを押した
+'   その場で、直前の回答の hits を読む=タイミングが命)。
+' ----------------------------------------------------------------------------
+Public Function CollectAnswerSources() As String
+    Const MAX_SOURCES As Long = 4
+    Dim buf As String
+    Dim cnt As Long
+    Dim n As Long: n = modAsk.LastGenHitCount()
+
+    Dim i As Long
+    For i = 0 To n - 1
+        Dim src As String: src = Trim$(modAsk.LastHitSource(i))
+        If LenB(src) > 0 Then
+            If Not IsMemoSource(src) Then
+                If cnt > 0 Then buf = buf & " | "
+                buf = buf & src & " p." & modAsk.LastHitPage(i)
+                cnt = cnt + 1
+                If cnt >= MAX_SOURCES Then Exit For
+            End If
+        End If
+    Next i
+    CollectAnswerSources = buf
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -146,6 +196,70 @@ Public Function ExtractQuestionLine(ByVal memoText As String) As String
         If Left$(ln, Len(Q_HEAD_IN)) = Q_HEAD_IN Then
             ExtractQuestionLine = Trim$(Mid$(ln, Len(Q_HEAD_IN) + 1))
             Exit Function
+        End If
+    Next i
+End Function
+
+' ----------------------------------------------------------------------------
+' ExtractWrongSources - 是正メモ本文から「誤答の根拠:」行をそのまま取り出す。
+'   純関数。ExtractQuestionLine とは違い、返すのは行の中身(コロンの後ろ)では
+'   なく行全体(ヘッダー込み) ―― WrongSourceMatches がヘッダーの有無どちらでも
+'   受け取れるように作ってあるので、ここでは剥がさない(R37 §2-2)。
+'   見つからなければ空文字(=旧い是正メモ・sourcesLineが空だった是正メモ)。
+' ----------------------------------------------------------------------------
+Public Function ExtractWrongSources(ByVal memoText As String) As String
+    If LenB(memoText) = 0 Then Exit Function
+
+    Dim seg() As String
+    seg = Split(Replace(memoText, vbCr, ""), vbLf)
+
+    Dim i As Long
+    For i = LBound(seg) To UBound(seg)
+        Dim ln As String: ln = Trim$(seg(i))
+        If Left$(ln, Len(WRONG_HEAD_IN)) = WRONG_HEAD_IN Then
+            ExtractWrongSources = ln
+            Exit Function
+        End If
+    Next i
+End Function
+
+' ----------------------------------------------------------------------------
+' WrongSourceMatches - 「誤答の根拠:」行(ExtractWrongSources の戻り値、または
+'   ヘッダーを含まない中身のどちらでもよい)に、この(source, page)が載っている
+'   か。純関数。資料名は大小無視(vbTextCompare)・ページは数値一致。
+'   "|" で区切った各項目を末尾から " p." で切り分ける(資料名にスペースが
+'   含まれても、ページ番号は必ず項目の末尾にあるため崩れない)。
+' ----------------------------------------------------------------------------
+Public Function WrongSourceMatches(ByVal line As String, ByVal source As String, _
+                                   ByVal page As Long) As Boolean
+    If LenB(Trim$(line)) = 0 Then Exit Function
+    If LenB(Trim$(source)) = 0 Then Exit Function
+
+    Dim content As String: content = Trim$(line)
+    If Left$(content, Len(WRONG_HEAD_IN)) = WRONG_HEAD_IN Then
+        content = Trim$(Mid$(content, Len(WRONG_HEAD_IN) + 1))
+    End If
+    If LenB(content) = 0 Then Exit Function
+
+    Dim srcNorm As String: srcNorm = Trim$(source)
+    Dim parts() As String: parts = Split(content, "|")
+    Dim i As Long
+    For i = LBound(parts) To UBound(parts)
+        Dim ent As String: ent = Trim$(parts(i))
+        If LenB(ent) > 0 Then
+            Dim pPos As Long: pPos = InStrRev(ent, " p.", -1, vbTextCompare)
+            If pPos > 0 Then
+                Dim entSrc As String: entSrc = Trim$(Left$(ent, pPos - 1))
+                Dim pageStr As String: pageStr = Mid$(ent, pPos + 3)
+                If IsNumeric(pageStr) Then
+                    If StrComp(entSrc, srcNorm, vbTextCompare) = 0 Then
+                        If CLng(pageStr) = page Then
+                            WrongSourceMatches = True
+                            Exit Function
+                        End If
+                    End If
+                End If
+            End If
         End If
     Next i
 End Function
@@ -372,6 +486,46 @@ Public Function PrependHit(ByRef hits() As Hit, ByVal nHits As Long, ByRef newHi
 End Function
 
 ' ----------------------------------------------------------------------------
+' DemoteWrongHits - 是正メモの「誤答の根拠:」行に載っている(source,page)と
+'   一致する hit を末尾へ降格する(除外はしない)。先頭(=PrependHit が置いた
+'   是正メモ自身)は絶対に動かさないので i=2 から見る。
+'   PrependHit と同じ配列作法(hits はByRef・1始まり)。戻り値は降格した件数
+'   (0なら何もしていない=呼び出し側のログや将来の可観測性のため)。
+'   topK: 「これから残る枠」の外まで並べ替えても意味が無い(かつ枠外を動かすと
+'   末尾側の走査が崩れる)ので、実効範囲を min(nHits, topK) に絞る。
+'   topK < 1(上限なし)のときは nHits をそのまま使う。
+' ----------------------------------------------------------------------------
+Public Function DemoteWrongHits(ByVal memoText As String, ByRef hits() As Hit, _
+                                ByVal nHits As Long, ByVal topK As Long) As Long
+    DemoteWrongHits = 0
+    Dim effN As Long: effN = nHits
+    If topK >= 1 And topK < effN Then effN = topK
+    If effN < 2 Then Exit Function   ' 先頭(是正メモ自身)しか無ければ動かす余地が無い
+
+    Dim line As String: line = ExtractWrongSources(memoText)
+    If LenB(line) = 0 Then Exit Function
+
+    Dim demoted As Long
+    Dim i As Long: i = 2
+    Do While i <= effN - demoted
+        If WrongSourceMatches(line, hits(i).source, hits(i).page) Then
+            Dim moved As Hit: moved = hits(i)
+            Dim j As Long
+            For j = i To effN - demoted - 1
+                hits(j) = hits(j + 1)
+            Next j
+            hits(effN - demoted) = moved
+            demoted = demoted + 1
+            ' i は据え置き ―― 繰り上がってきた次の要素を同じ位置で再検査する。
+        Else
+            i = i + 1
+        End If
+    Loop
+
+    DemoteWrongHits = demoted
+End Function
+
+' ----------------------------------------------------------------------------
 ' InjectHits - 回答生成の直前に、質問が一致する是正メモを hits の先頭へ足す。
 ' ----------------------------------------------------------------------------
 '   入口は modAskRetrieve.RunDeepScoped / RunUnscoped が値を返す直前の1行だけ
@@ -462,6 +616,13 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     End If
 
     Dim outN As Long: outN = PrependHit(hits, nHits, memoHit)
+
+    ' R37 §2-1: 完全一致(bestLv=2)のときだけ、この是正メモが記録している
+    ' 「誤答の根拠」に載っている hit を末尾へ降格する。語一致(=1)では動かさない
+    ' (R36 §7 のリスク台帳「誤爆」を踏まえた裁定)。
+    Dim demoted As Long
+    If bestLv >= 2 Then demoted = DemoteWrongHits(memoHit.full_text, hits, outN, topK)
+
     ' R36 Fix N4: topk_* を超えたぶんは末尾(最も弱いヒット)を落とす。
     If topK >= 1 Then
         If outN > topK Then outN = topK
@@ -469,7 +630,8 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     InjectHits = outN
 
     On Error Resume Next
-    modLog.LogUsage "correct_inject", "", "level=" & bestLv & " src=" & memoHit.source, 0, outN
+    modLog.LogUsage "correct_inject", "", _
+        "level=" & bestLv & " src=" & memoHit.source & " demoted=" & demoted, 0, outN
     On Error GoTo 0
     Exit Function
 
