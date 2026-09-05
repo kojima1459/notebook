@@ -95,6 +95,10 @@ CONTRACT: dict[str, dict] = {
             "SH_DOC_OUTLINE",
             # 2026-08-05(R17 Phase3): 用語の表記ゆれ辞書(synonyms)の格納先シート名。
             "SH_SYNONYMS",
+            # 2026-09-05(R37 §3 資料間リンク): 章の重心(doc_centroids)と
+            # 章どうしの近さ(doc_links)の格納先シート名。どちらも取込で
+            # 作り直せる派生データで、modXDocStore だけが読み書きする。
+            "SH_DOC_CENTROIDS", "SH_DOC_LINKS",
         ],
     },
     "modTypes": {

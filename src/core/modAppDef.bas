@@ -61,3 +61,11 @@ Public Const SH_DOC_OUTLINE As String = "doc_outline"
 ' R17 Phase3: 用語の表記ゆれ辞書(term, canonical)の格納先。
 ' 無い/0行なら質問文への同義語追記は無操作(modAskRetrieve 側のフェイルセーフ)。
 Public Const SH_SYNONYMS As String = "synonyms"
+' R37 §3(資料間リンク): 章の重心(source, chap, vector_csv, chunk_n)の格納先。
+' 取込のたびに当該資料ぶんだけ作り直す派生データで、無い/0行なら
+' 資料間リンクは丸ごと無操作になる(modXDocStore/modXDoc 側のフェイルセーフ)。
+Public Const SH_DOC_CENTROIDS As String = "doc_centroids"
+' R37 §3: 章どうしの近さ(src_a, chap_a, src_b, chap_b, sim, built_at)。
+' 1つの(資料,章)から見た相手は sim 降順で最大3件。無い/0行なら回答時の
+' 末尾補充は起きない(=R36 以前とまったく同じ検索結果になる)。
+Public Const SH_DOC_LINKS As String = "doc_links"
