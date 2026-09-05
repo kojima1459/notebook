@@ -778,6 +778,18 @@ Public Sub OnDelete()
     modUiLock.Leave
 End Sub
 
+' 📖本文ボタン(R36波1 §3)。text_viewへ遷移するのでRefreshCurrentは呼ばない
+' (呼ぶと直後にマイ本棚が描き直されtext_viewが隠れてしまう)。
+Public Sub OnShowText()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error Resume Next
+    modTextView.ShowActiveRow
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnShowText", Err.Description, Err.Number
+    On Error GoTo 0
+    modUiLock.Leave
+End Sub
+
 ' 今表示しているモードだけを描き直す(モード切替をまたいで表示がズレないよう、
 ' 資料を足した/消した直後は必ずここを通す)。
 '

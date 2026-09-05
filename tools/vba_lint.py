@@ -1595,6 +1595,9 @@ CONTRACT: dict[str, dict] = {
             "OnGoTable", "OnBackHub", "OnHelp", "OnToChat", "OnSearch", "OnGapBoard",
             "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",
             "OnSync", "OnPickFolder", "OnDelete", "RefreshCurrent",
+            # OnShowText(R36波1 §3): 📖本文ボタンの薄いハンドラ。判定・描画は
+            # modTextView.ShowActiveRow側(OnDeleteと同型)。
+            "OnShowText",
         ],
     },
     # R11-F1: modKnowledge から分離したツールバー(BAR_H は DrawChrome が行3の高さに使うため Public)。

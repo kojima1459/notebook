@@ -1166,6 +1166,22 @@
       "role": "test",
       "type": "std",
       "wave": "2-X"
+    },
+    {
+      "name": "modTextView",
+      "path": "src/ui/modTextView.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-1",
+      "note": "スクショ本文表示(R36波1 §3)。1資料ぶんの全チャンクのfull_textをページ順に作業シート(text_view)へ流し込む(modDiag.RunDiagnosticsと同じDelete→Add方式)。入口はmodKnowledge.OnShowText(📖本文ボタン)とmodUIShelf.OnIngestScreenshot(📸取込直後・config screenshot_show_text)。編集→保存し直しは無い(消して➕登録し直す導線を案内するだけ)。"
+    },
+    {
+      "name": "modTestsPure39",
+      "path": "src/test/modTestsPure39.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-1",
+      "note": "R36波1(§3本文表示・§4画像📁)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれるRunAll39が入口(modTestsPure31〜38と同型の別枝)。固定するもの: modTextView.StripBreadcrumb(breadcrumb行の剥がし方。先頭が【…】の1行/無い/空/【だけの4パターン)、modTextView.SortPagesStable(page昇順の安定ソート。並列配列Long()/String()でUDTを跨がない)、modShelfVision.ImageDialogPattern(📁追加のFileDialogフィルタへ足す画像パターン文字列の内容一致)。"
     }
   ]
 }

@@ -362,6 +362,11 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
             "選んだ部門から取り込んだ資料を、まとめて本棚から削除します(取り消せません)"
 
     If isTable Then
+        ' R36波1(§3): 読み取った文章をその場で確かめるボタン。🗑1件と同じ
+        ' 「行をクリックしてから押す」型(kindは通常=plain)。1件削除の手前に置く。
+        AddTool caps, acts, kinds, tips, widths, n, _
+                ChrW(&HD83D) & ChrW(&HDCD6) & " 本文", "modKnowledge.OnShowText", "plain", 58, _
+                "いま選んでいる1件の、読み取った文章を全部表示します"
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDDD1) & " 1件", "modKnowledge.OnDelete", "danger", 58, _
                 "いま選んでいる1件だけを本棚から削除します"
