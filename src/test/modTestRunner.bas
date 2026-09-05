@@ -325,4 +325,22 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-05(R37 波B): 資料間リンク(章の重心・LLM 0回)の純ロジック回帰。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは modXDoc.CosineCsv(同一/直交/
+    ' 次元不一致/未正規化でもコサイン)・modXDocStore.MeanNormalizedCsv
+    ' (平均→L2正規化・次元違いは数に入れない)・modXDocStore.TopNLinks
+    ' (上位3件・同点先勝ち)・modXDoc.PickLinked(閾値・自資料除外・最大N)・
+    ' modXDoc.ChapterOf の5本だけ。RememberPool/Expand は Hit 型を跨ぐため
+    ' LO では実行できず(modCorrect.InjectHits と同じ死角)、BuildFor と
+    ' シートI/O は Worksheet を持つので対象外。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure42.RunAll42
+    If Err.Number <> 0 Then
+        Check "modTestsPure42.RunAll42", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

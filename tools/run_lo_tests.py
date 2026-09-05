@@ -827,6 +827,20 @@ PURE_ALLOWLIST = [
     #   走らないまま全部PASSに見える。PickNewestはFix2で候補1個化に伴い
     #   削除(名前空間の衝突をD-B1で解消したのに合わせた設計変更)。
     "modMigrateFrom", "modTestsPure41",
+    # modXDoc / modXDocStore / modTestsPure42(2026-09-05 R37波B): 資料間リンク
+    #   (章の重心・LLM 0回)。テストが呼ぶのは純関数5本だけ:
+    #     modXDoc.CosineCsv / ChapterOf / PickLinked
+    #     modXDocStore.MeanNormalizedCsv / TopNLinks
+    #   どれも modUtil(CsvToVector/DotProduct/L2Normalize/VectorToCsvPrec)と
+    #   modOutlineBuild.ChapterKeyOf しか呼ばず、どちらも既にこの一覧にある。
+    #   同じモジュールの他の手続き ―― modXDoc.RememberPool/Expand(Hit 型を
+    #   跨ぐ)・modXDocStore のシートI/O・modXDocBuild 全体(Worksheet)――
+    #   はテストから呼ばないので、注入しても実行されない(modShelfSync/
+    #   modPack/modVecCache/modCorrect と同じ型)。未注入だと
+    #   modTestsPure42.RunAll42 が実行時エラー12になり、閾値・自資料除外・
+    #   同点先勝ちの唯一の自動検査が走らないまま全部PASSに見える。
+    #   modXDocBuild は【載せない】: テストから1本も呼ばず、載せる理由が無い。
+    "modXDoc", "modXDocStore", "modTestsPure42",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
