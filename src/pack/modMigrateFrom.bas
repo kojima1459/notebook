@@ -149,7 +149,7 @@ Public Function OfferText(ByVal fileName As String, ByVal stamp As Double) As St
     OfferText = "前の版の本棚が見つかりました。" & vbCrLf & vbCrLf & _
         fileName & "(更新: " & Format$(CDate(stamp), "yyyy-mm-dd hh:nn") & ")" & vbCrLf & vbCrLf & _
         "この版へ本棚・実績・設定を引き継ぎますか?" & vbCrLf & _
-        "(「いいえ」を選ぶと、次回からは聞きません。あとから❓ヘルプの「" & _
+        "(「いいえ」を選ぶと、次回からは聞きません。あとから" & ChrW(&H2753) & "ヘルプの「" & _
         ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む」でも同じことができます)"
 End Function
 
