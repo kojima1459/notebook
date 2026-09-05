@@ -15,12 +15,14 @@ Option Explicit
 ' 設計判断:
 '   ・「入念に調べる」の単発経路(複合質問の分解・全体像の俯瞰以外)のみを置換。
 '     しっかり(deep)・すぐ聞く(quick)は1文字も変えない。
-'   ・フェイルセーフ: 章の解決失敗、LLM呼び出しエラー、例外など、どの理由で
-'     あっても静かに False を返し、呼び出し元(modAskThorough)が従来の4段へ
-'     自動退化する(modAskGlobal.TryGlobal と同等の思想。答えが出ない状態を作らない)。
+'   ・フェイルセーフ: 章も近傍も引けない・例外のときは静かに False を返し、
+'     呼び出し元(modAskThorough)が従来の4段へ自動退化する(modAskGlobal.TryGlobal
+'     と同等の思想。答えが出ない状態を作らない)。ただし LLM 呼び出し自体の
+'     エラー(ESC中断・NW断・上限)は4段へ落とさず、4段と同じくエラー文をそのまま
+'     返す(R38 Fix F3。止めたい利用者を4段でさらに数分待たせない)。
 '   ・hits は必ずローカルへ複製して扱い、呼び出し元の hits/nHits は不変に保つ
 '     (出典チップ・信頼度バッジは検索結果そのものを見せる原則)。
-'   ・モジュール変数は持たず、純粋な手続きと純関数のみで構成する。
+'   ・モジュール変数は mWasOnePass(フッターの段数表示用・R38 Fix F4)の1つだけ。
 '   ・出典タグの書式は唯一の持ち主である modPrompts.SourceTag だけを通す。
 ' ============================================================================
 
@@ -32,6 +34,10 @@ Private Const MAX_FOCUS_HITS As Long = 3
 
 ' 1回読みで集める章内チャンク件数の天井(CollectChapterHits に渡す安全弁)
 Private Const MAX_CHAPTER_CHUNKS As Long = 300
+
+' R38 Fix F4: 直近のターンが1回読みで完結したか(フッターの「(6段)」表示との
+' 食い違いを消すため。modLive.Footer が ConsumeOnePassTurn で1回だけ消費する)。
+Private mWasOnePass As Boolean
 
 ' ----------------------------------------------------------------------------
 ' Enabled - config thorough_onepass の有効判定。
@@ -46,6 +52,20 @@ Public Function Enabled() As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
+' ConsumeOnePassTurn - R38 Fix F4。直近のターンが1回読みで完結したか(True=
+' 成功・LLMエラーの2出口のいずれか)を返し、フラグを False へ戻す。
+' なぜそうするか:
+'   modLive.Footer の「(N段)」表示は modAskRetrieve.LastStageTotal() の
+'   段数(4段=要点整理→下書き→自己点検→検証+再ランク等)をそのまま出すため、
+'   1回読みに置き換わったターンでも従来のまま「(6段)」等と表示され実態と
+'   食い違っていた(A-M4)。呼び出し元が1回だけ消費して差し引く。
+' ----------------------------------------------------------------------------
+Public Function ConsumeOnePassTurn() As Boolean
+    ConsumeOnePassTurn = mWasOnePass
+    mWasOnePass = False
+End Function
+
+' ----------------------------------------------------------------------------
 ' TryOnePass - 1回読みの主処理。
 ' なぜそうするか:
 '   上位検索結果から章を特定し、章丸ごとの本文(引けなければ近傍展開)を
@@ -56,6 +76,7 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
                            ByVal history As String, ByVal prevU As String, ByVal prevA As String, _
                            ByRef outBody As String) As Boolean
     outBody = ""
+    mWasOnePass = False
     If nHits < 1 Then Exit Function
 
     Dim errNum As Long
@@ -74,6 +95,9 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     Dim seedHitsLimit As Long
     seedHitsLimit = modConfig.GetLong("onepass_seed_hits", 6)
     If seedHitsLimit < 1 Then seedHitsLimit = 1
+    ' R38 Fix F2: 章の候補にする上位件数は章数上限より小さくしない
+    ' (seed 6 だと maxChapters=8 に届かず章数上限が到達不能だったため。A-M2)。
+    If seedHitsLimit < maxChapters Then seedHitsLimit = maxChapters
 
     ' 1) 章の解決
     Dim mIds() As String, mPaths() As String, mRefs() As String
@@ -174,6 +198,45 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
         GoTo FallbackZero
     End If
 
+    ' R38 Fix F1: 章モードで、元のヒット(1..nHits)のうち ctxHits に1件も
+    ' 含まれていないものを末尾へ追加する。検索7位以降の資料が章に含まれない
+    ' 場合、章丸ごと読みでは一度もプロンプトに載らず精度が後退するため
+    ' (レビューA-M1)。近傍モードは NeighborExpand/RefsExpand が元の hits を
+    ' 既に土台にしているので対象外。
+    Dim extra As Long: extra = 0
+    If modeStr = "chapter" Then
+        Dim addN As Long: addN = 0
+        Dim toAdd() As Hit
+        Dim j As Long
+        For i = 1 To nHits
+            Dim already As Boolean: already = False
+            For j = 1 To ctxN
+                If StrComp(Trim$(ctxHits(j).chunk_id), Trim$(hits(i).chunk_id), vbBinaryCompare) = 0 Then
+                    already = True
+                    Exit For
+                End If
+            Next j
+            If Not already Then
+                addN = addN + 1
+                If addN = 1 Then
+                    ReDim toAdd(1 To 1)
+                Else
+                    ReDim Preserve toAdd(1 To addN)
+                End If
+                toAdd(addN) = hits(i)
+            End If
+        Next i
+        If addN > 0 Then
+            Dim baseN As Long: baseN = ctxN
+            ctxN = ctxN + addN
+            ReDim Preserve ctxHits(1 To ctxN)
+            For i = 1 To addN
+                ctxHits(baseN + i) = toAdd(i)
+            Next i
+            extra = addN
+        End If
+    End If
+
     ' 3) 本文ブロックと重点抜粋ブロックの構築
     Dim ctxBlock As String
     ctxBlock = SourceBlockOf(ctxHits, ctxN, maxChars)
@@ -189,11 +252,18 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     focusBlock = SourceBlockOf(fHits, focusLimit, maxChars)
 
     ' 4) 実況表示
+    ' R38 Fix F5: neighbor モードで「0章」と出ると利用者に意味が伝わらない
+    ' ため(A-m1)、モードごとに文言を分ける。
     Dim stageMsg As String
     Dim searchLensEmoji As String
     searchLensEmoji = ChrW(&HD83D) & ChrW(&HDD0E)
-    stageMsg = searchLensEmoji & " 入念(1回読み): " & CStr(nPick) & "章・" & _
-               CStr(ctxN) & "箇所を読んで回答を作成中" & ChrW(&H2026) & " ※応答なし表示でも処理中"
+    If modeStr = "neighbor" Then
+        stageMsg = searchLensEmoji & " 入念(1回読み): 当たった箇所の前後 " & CStr(ctxN) & _
+                   "箇所を読んで回答を作成中" & ChrW(&H2026) & " ※応答なし表示でも処理中"
+    Else
+        stageMsg = searchLensEmoji & " 入念(1回読み): " & CStr(nPick) & "章・" & _
+                   CStr(ctxN) & "箇所を読んで回答を作成中" & ChrW(&H2026) & " ※応答なし表示でも処理中"
+    End If
     On Error Resume Next
     modUIMain.SetStage stageMsg
     On Error GoTo CatchErr
@@ -218,9 +288,15 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
                               modelStr, latMs, prevU, prevA)
 
     If modRagParse.IsErrorResponse(resp) Then
+        ' R38 Fix F3: LLM呼び出しのエラー(ESC中断・NW断)は4段へ落とさず、
+        ' そのままエラー表示として返す(4段と同じ「エラーをそのまま表示」に
+        ' 揃える。エラーで改めて数分の4段を回さない。レビューA-M3)。
         On Error Resume Next
-        modLog.LogUsage "onepass_fallback", "thorough", "why=llm_err detail=" & modUtil.SafeLeft(resp, 120)
+        modLog.LogUsage "onepass_llm_err", "thorough", "why=llm_err detail=" & modUtil.SafeLeft(resp, 120)
         On Error GoTo 0
+        outBody = resp
+        mWasOnePass = True
+        TryOnePass = True
         Exit Function
     End If
 
@@ -240,13 +316,15 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     rawBody = modAsk.ApplyAnswerTags(resp)
 
     outBody = modAskThorough.AnnotateAgainstHits(rawBody, allHits, allN)
+    mWasOnePass = True
     TryOnePass = True
 
     ' 7) 利用ログ記録
     On Error Resume Next
     Dim logDetail As String
     logDetail = "mode=" & modeStr & " chapters=" & CStr(nPick) & _
-                " chunks=" & CStr(ctxN) & " chars=" & CStr(Len(ctxBlock))
+                " chunks=" & CStr(ctxN) & " chars=" & CStr(Len(prompt)) & _
+                " extra=" & CStr(extra)
     ' 秒数は書かない(段ごとの所要時間は CallLLM が ask_steps へ積む・R13 F8)。
     modLog.LogUsage "thorough_onepass", "thorough", logDetail, 0, ctxN
     On Error GoTo 0
@@ -270,8 +348,8 @@ CatchDone:
     Err.Clear
     On Error GoTo 0
     TryOnePass = False
-    ' 中断(ESC=Err18)だけは4段へ落とさず上へ返す(modAskGlobal.TryGlobal と同じ。
-    ' 止めたい利用者を、代わりに4段でさらに数分待たせない)。R38 レビュー 2-1。
+    ' R38 Fix F3: LLM 呼び出しの内側の ESC は modGateway が #ERR 文字列に
+    ' 変えるので F3 の枝で返る。ここへ来る 18 はシート走査中の中断だけ。
     If errNum = 18 Then Err.Raise 18
 End Function
 
@@ -289,8 +367,10 @@ Private Function SourceBlockOf(ByRef srcHits() As Hit, ByVal n As Long, ByVal ma
     Dim i As Long
 
     For i = 1 To n
+        Dim srcTag As String
+        srcTag = modPrompts.SourceTag(srcHits(i))
         Dim itemText As String
-        itemText = modPrompts.SourceTag(srcHits(i)) & vbLf & srcHits(i).full_text & vbLf & vbLf
+        itemText = srcTag & vbLf & srcHits(i).full_text & vbLf & vbLf
         Dim itemLen As Long: itemLen = Len(itemText)
         Dim takeLen As Long
         takeLen = modOutlineBuild.BudgetTake(usedLen, itemLen, maxLen)
@@ -299,6 +379,13 @@ Private Function SourceBlockOf(ByRef srcHits() As Hit, ByVal n As Long, ByVal ma
             Exit For
         End If
         If takeLen < itemLen Then
+            ' R38 Fix F8: 残量が出典タグ+αにも満たないなら、タグの途中で
+            ' 切れた文字列をモデルに見せず「(一部省略)」だけで打ち切る
+            ' (レビューA-m6)。
+            If takeLen < Len(srcTag) + 10 Then
+                sb = sb & "(一部省略)" & vbLf
+                Exit For
+            End If
             itemText = modUtil.SafeLeft(itemText, takeLen)
             sb = sb & itemText & vbLf & "(一部省略)" & vbLf
             usedLen = usedLen + takeLen
@@ -465,8 +552,11 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
 
     ' 3. 出力規則
     sb = sb & "・根拠にした箇所には必ず出典タグを文の直後に付ける（本棚の資料は [本棚:ファイル名 p.ページ番号]、受け取ったパック由来は [パック(作成者名):ファイル名]）。" & vbLf
-    sb = sb & "・■見出しで構造化し、各主張の直後に出典を明記。必要なら600" & ChrW(&H301C) & "900字まで許容。断定できない点は「資料からは確認できません」と明示すること。" & vbLf
-    sb = sb & "・支払う場合だけでなく、支払わない場合(免責事由・除外・適用除外)も対象に含め、資料にあれば必ず言及すること。" & vbLf
+    ' R38 Fix F7: 同じ文言が modAskThorough と2箇所に分裂していたため、
+    ' 単一情報源(modAskThorough.ThoroughStyleAddendum/ExemptionCoverageAddendum)
+    ' を通す(先頭の■を落として・にする=出力文字列は1字も変わらない。A-m3)。
+    sb = sb & "・" & Mid$(modAskThorough.ThoroughStyleAddendum(), 2) & vbLf
+    sb = sb & "・" & Mid$(modAskThorough.ExemptionCoverageAddendum(), 2) & vbLf
     sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
 
     If strictG Then

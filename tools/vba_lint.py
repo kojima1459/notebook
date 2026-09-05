@@ -953,10 +953,13 @@ CONTRACT: dict[str, dict] = {
     #   PerChapterCap/CountLines/BuildOnePassPromptは文字列・数値だけの
     #   純関数でmodTestsPure43が固定する。SourceBlockOfはHit型を跨ぐ内部
     #   組み立て(本文ブロック+重点抜粋)で Private(契約に載せない)。
+    #   ConsumeOnePassTurn(R38 Fix F4): 直近ターンが1回読みで完結したかを
+    #   modLive.Footer が消費するための出口。
     "modAskOnePass": {
         "closed": True,
         "required": ["Enabled", "TryOnePass", "BuildOnePassPrompt", "IsOn",
-                     "DedupeKeys", "PerChapterCap", "CountLines"],
+                     "DedupeKeys", "PerChapterCap", "CountLines",
+                     "ConsumeOnePassTurn"],
     },
     "modAskThorough": {
         "closed": True,
@@ -975,11 +978,15 @@ CONTRACT: dict[str, dict] = {
         #   上記と同型の連結機構だが、expand段は全モード共通(thorough限定
         #   ではない)。modAskRetrieveがBuildExpandPrompt(凍結)の戻りへ
         #   呼ぶ1行連結の実体(余裕モジュールへ置く容量裁定)。
+        # ThoroughStyleAddendum/ExemptionCoverageAddendum(2026-09-06 R38 Fix
+        #   F7): Private→Public化。modAskOnePass.BuildOnePassPromptが同じ
+        #   文言を単一情報源として通す(2箇所に分裂していた文言の統合)。
         "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
                      "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
                      "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote",
                      "ThoroughVerifyPrompt", "ThoroughDigestPrompt", "ThoroughDraftPrompt",
-                     "ExpandPromptWithSynonymHint"],
+                     "ExpandPromptWithSynonymHint", "ThoroughStyleAddendum",
+                     "ExemptionCoverageAddendum"],
     },
     # ---- 7.4 パック層 ----
     "modPii": {

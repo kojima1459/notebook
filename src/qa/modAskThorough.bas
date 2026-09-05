@@ -78,7 +78,11 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     If modAskOnePass.Enabled() Then
         Dim opBody As String
         If modAskOnePass.TryOnePass(q, hits, nHits, history, prevU, prevA, opBody) Then
-            ok = True
+            ' R38 Fix F3: LLMエラーのときも TryOnePass は True を返す(opBody に
+            ' エラー文字列が入る)。4段と同じ「エラーをそのまま表示」に揃える
+            ' ため、ここで ok を判定し直す(ok=False だと呼び出し元modAskが
+            ' #ERR: 応答として扱う)。
+            ok = Not modRagParse.IsErrorResponse(opBody)
             RunThoroughFlow = opBody
             Exit Function
         End If
@@ -185,7 +189,8 @@ Public Function ThoroughVerifyPrompt(ByVal basePrompt As String) As String
     ThoroughVerifyPrompt = basePrompt & vbLf & vbLf & ThoroughStyleAddendum()
 End Function
 
-Private Function ThoroughStyleAddendum() As String
+' R38 Fix F7: 1回読み(modAskOnePass)も同じ文言を使う=単一情報源。
+Public Function ThoroughStyleAddendum() As String
     ThoroughStyleAddendum = _
         "■見出しで構造化し、各主張の直後に出典を明記。必要なら600" & ChrW(&H301C) & _
         "900字まで許容。断定できない点は「資料からは確認できません」と明示すること。"
@@ -205,7 +210,8 @@ Public Function ThoroughDraftPrompt(ByVal basePrompt As String) As String
     ThoroughDraftPrompt = basePrompt & vbLf & vbLf & ExemptionCoverageAddendum()
 End Function
 
-Private Function ExemptionCoverageAddendum() As String
+' R38 Fix F7: 1回読み(modAskOnePass)も同じ文言を使う=単一情報源。
+Public Function ExemptionCoverageAddendum() As String
     ExemptionCoverageAddendum = _
         "■支払う場合だけでなく、支払わない場合(免責事由・除外・適用除外)も" & _
         "対象に含め、資料にあれば必ず言及すること。"

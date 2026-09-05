@@ -163,6 +163,11 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
     If LCase$(Trim$(mode)) <> "normal" Then
         On Error Resume Next
         stg = modAskRetrieve.LastStageTotal()
+        ' R38 Fix F4: このターンが1回読み(modAskOnePass)で完結していたら、
+        ' 4段が1回に置き換わった分(expand+rerank+1回読みの3段構成)だけ
+        ' 段数を差し引く。従来の段数表示が実態(「(6段)」等)と食い違って
+        ' いたため(A-M4)。
+        If modAskOnePass.ConsumeOnePassTurn() Then If stg > 3 Then stg = stg - 3
         On Error GoTo 0
     End If
     If stg > 0 Then Footer = Footer & "(" & stg & "段)"
