@@ -270,7 +270,7 @@ _README_TEXT = (
     "     あります。その場合は bat ファイルを右クリック →「プロパティ」→\n"
     "     下の方にある「許可する」にチェック →「OK」を押してから開いてください。\n"
     "  ★ 前の版から乗り換える場合: 前版の MyBookshelf.xlsm を\n"
-    "     「MyBookshelf_前回.xlsm」に名前を変えて同じフォルダに残しておくと、\n"
+    "     「{upgrade_name}」に名前を変えて同じフォルダに残しておくと、\n"
     "     新しい版を開いたとき「前の版の本棚を引き継ぎますか?」と聞かれます。\n"
     "     「はい」を選ぶと本棚・実績・設定が自動で引き継がれます\n"
     "     (名前の変え方は次の【2.】を参照してください)。\n"
@@ -287,7 +287,7 @@ _README_TEXT = (
     "  画像PDFの取り込みができません。1つも欠かさず、すべて同じフォルダへ\n"
     "  展開してください。\n"
     "  ★ 前のバージョンの MyBookshelf.xlsm が同じ場所にある場合は、\n"
-    "     展開する前に削除せず、ファイル名を「MyBookshelf_前回.xlsm」に\n"
+    "     展開する前に削除せず、ファイル名を「{upgrade_name}」に\n"
     "     変えて残しておいてください(上書きせず残す)。新しい版の初回起動時に\n"
     "     本棚・実績・設定を引き継げるか自動で確認します(前の【1. 開き方】参照)。\n"
     "     上書きを聞かれて「スキップ」を押すと古いファイルが残り、新しい方は\n"
@@ -327,9 +327,26 @@ _README_DOCS_PUBLISHER = _README_DOCS_GENERAL + (
 )
 
 
-def _readme_text(is_publisher: bool) -> str:
+def _upgrade_source_name(xlsm_name: str) -> str:
+    """版上げ手順で案内する「前の版」の退避名(<stem>_旧版<拡張子>)。
+
+    R36 Fix2(§9-7 D-B1/D-m1): bat の F3b 書き戻し失敗時退避
+    (_launcher_backup_name・"_前回"・毎回の終了時に作る使い捨て)とは別物。
+    こちらは利用者が版上げのときに手で改名して残す名前で、
+    modMigrateFrom.PreviousBookName(VBA側)と同じ組み立て(拡張子の直前に
+    "_旧版" を挿む)。zip の種類(一般/発行者用/dev)で xlsm_name が変わるため
+    退避名もそれに追随する(一般配布=MyBookshelf_旧版.xlsm、
+    発行者用=MyBookshelf_発行者用_旧版.xlsm。D-m1: dev・発行者用では固定名
+    案内が実態と食い違っていた)。
+    """
+    stem, ext = os.path.splitext(xlsm_name)
+    return f"{stem}_旧版{ext}"
+
+
+def _readme_text(is_publisher: bool, xlsm_name: str) -> str:
     return _README_TEXT.format(
-        doc_guide=_README_DOCS_PUBLISHER if is_publisher else _README_DOCS_GENERAL
+        doc_guide=_README_DOCS_PUBLISHER if is_publisher else _README_DOCS_GENERAL,
+        upgrade_name=_upgrade_source_name(xlsm_name),
     )
 
 
@@ -446,6 +463,7 @@ def _launcher_bat_text(xlsm_name: str) -> str:
     loop_arg = _LAUNCHER_LOOP_ARG
     wait_arg = _LAUNCHER_WAIT_ARG
     backup_name = _launcher_backup_name(xlsm_name)
+    upgrade_name = _upgrade_source_name(xlsm_name)
     lines = [
         "@echo off",
         "rem ===== MyBookshelf 起動ランチャー(R35 F3b 往復版) =====",
@@ -504,11 +522,13 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "rem 上書きしない(取込済みデータを消さない)。",
         'xcopy "%SRC%%XLSM%" "%DST%" /D /Y /Q',
         "",
-        "rem 前版(R36 §1-A: 名前を変えて残された旧バージョン)があれば、",
-        "rem 版上げ時の自動引き継ぎがD:側でも前版を見つけられるよう一緒に",
-        "rem 複製する。存在しなければ何もしない。書き戻しの対象にはしない",
-        "rem (D:側の前版は使い捨て。往復するのは%XLSM%だけ)。",
-        f'if exist "%SRC%{backup_name}" xcopy "%SRC%{backup_name}" "%DST%" /D /Y /Q',
+        "rem 前版(R36 §1-A: 利用者が名前を変えて残した旧バージョン。",
+        "rem \"_旧版\"。F3bが毎回の終了時に作る\"_前回\"退避とは別名にして衝突を",
+        "rem 避けている=Fix2 D-B1)があれば、版上げ時の自動引き継ぎがD:側でも",
+        "rem 前版を見つけられるよう一緒に複製する。存在しなければ何もしない。",
+        "rem 書き戻しの対象にはしない(D:側の前版は使い捨て。往復するのは",
+        "rem %XLSM%だけ)。",
+        f'if exist "%SRC%{upgrade_name}" xcopy "%SRC%{upgrade_name}" "%DST%" /D /Y /Q',
         "",
         "rem 複製に失敗した(=D:側にファイルが無い)ままExcelを起動しても",
         "rem 古いファイルを開くか失敗するだけなので、ここで打ち切る",
@@ -640,7 +660,7 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
             raise BuildError(f"--zip: 同梱すべき手順書が見つかりません: {dp}")
         doc_paths.append((dp, "docs/" + dn))
     try:
-        readme_bytes = _readme_text(is_publisher).encode("cp932")
+        readme_bytes = _readme_text(is_publisher, xlsm_name).encode("cp932")
     except UnicodeEncodeError as e:
         raise BuildError(f"--zip: README.txt がCP932でエンコードできません: {e}")
 
@@ -1341,7 +1361,7 @@ def _make_howto(wb):
     step("1", "このファイルをExcelで開く。")
     step("2", "画面の上に黄色い帯で「セキュリティの警告」と出たら、その中の\n「コンテンツの有効化」ボタンを押す。", warn=True)
     step("3", "数秒待つと画面が自動で組み上がります。これで準備完了です。")
-    note("前の版から乗り換えるときは、前版のファイル名を「MyBookshelf_前回.xlsm」に変えて同じフォルダに残しておくと、この初回起動で本棚を引き継ぐか聞かれます。")
+    note("前の版から乗り換えるときは、前版のファイル名を「MyBookshelf_旧版.xlsm」に変えて同じフォルダに残しておくと、この初回起動で本棚を引き継ぐか聞かれます。")
     back_to_toc(toc_header_row)
 
     # ==== ② 画面の説明 ======================================================
