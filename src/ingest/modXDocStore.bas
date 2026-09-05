@@ -77,12 +77,13 @@ End Function
 
 ' ----------------------------------------------------------------------------
 ' SimFloor / SimOk - 「近い」と言ってよい下限(config xdoc_min_sim・既定80=0.80)。
-'   【R37 Fix A-M3=B-M2】判定の式はこの1本に閉じる。閾値を見る場所は3つ
-'   (取込の MatchChapters / 📖の LinkedLabel / 回答時の modXDoc.PickLinked)
-'   あり、どこか1つでも見落とすと「2冊入れただけで無関係な資料が関連として
-'   出る」。取込側で閾値未満を doc_links へ【書かない】のが本丸で、
-'   LinkedLabel の比較は既存ブックに残った古い行への保険(二重に掛ける)。
-'   境界の丸め落ち(0.8*100=79.999…)対策の 1e-7 は modXDoc.SimPasses と同じ。
+'   【R37 Fix A-M3=B-M2】【R37 Fix2 C-m4】判定の式は SimOk の1本だけで、
+'   呼ぶ側は3つ(取込の FilterBySim 経由=MatchChapters / 📖の LinkedLabel /
+'   回答時の modXDoc.PickLinked 経由=SimPasses)とも直接・間接にこの関数へ
+'   委譲する薄皮になった(式を書き直す場所はもう無い)。取込側で閾値未満を
+'   doc_links へ【書かない】のが本丸で、LinkedLabel の比較は既存ブックに
+'   残った古い行への保険(二重に掛ける)。境界の丸め落ち(0.8*100=79.999…)
+'   対策の 1e-7 も SimOk の中の1箇所だけ。
 ' ----------------------------------------------------------------------------
 Public Function SimFloor() As Long
     Dim v As Long: v = 80
