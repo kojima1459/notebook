@@ -141,7 +141,11 @@ EXPECTED_SKIP_MAX = 14
 #     反転(一覧表>ギャラリー)+1本 → PASS 3009→3090(SKIP は 14 のまま。
 #     Hit型を跨ぐテストは書いていない)。ネガティブ確認: Pure41 StampText の
 #     期待値を1分ずらして FAIL 1/PASS 3089 を確認→復元。
-EXPECTED_PASS_MIN = 3090
+#   2026-09-05 R37: modTestsPure42(資料間リンク: CosineCsv/MeanNormalizedCsv/
+#     TopNLinks/PickLinked/ChapterOf/FilterBySim)+Pure40 追記(誤根拠の降格:
+#     BuildMemoBody 4引数/ExtractWrongSources/WrongSourceMatches) → PASS 3090→3155
+#     (SKIP 14 のまま)。ネガティブ確認: Pure42 A の期待値を壊して FAIL 1/下限割れ→復元。
+EXPECTED_PASS_MIN = 3155
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
