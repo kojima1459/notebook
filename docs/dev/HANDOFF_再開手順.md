@@ -23,7 +23,8 @@
 記録: コミット `3a042df` は仕様書のコミットだが、前任 Opus が死ぬ直前にステージしていた `build/ovba_write.py`（759e41b 版）と `build_mybookshelf.py` の import 2行を同梱している（中身は意図どおり。履歴は書き換えない）。
 **環境の前提**: LO 検問（`lo_xlsm.py`）には `libreoffice-calc` が要る（無いと Excel 製の xlsm すらライブラリ0本）。`bin_roundtrip.py` には `oletools`（pip）が要る。どちらも無ければ exit 2（環境不備）で緑にならない。
 **会社PC の環境変数（09-05 実測）**: `%OneDriveCommercial%` は未定義、`%OneDrive%` は**別利用者（win11admin）のフォルダ**を指す。環境変数で OneDrive を探す設計は不採用（spec §10-2 記録）。bat は `%~dp0`（bat を置いた場所）を原本とする現行のまま。
-**riskconsulting は一時公開中 → private に戻す必要あり。**
+riskconsulting の一時公開は **09-05 に private へ戻した**（ユーザー報告）。
+**会社PCへの持ち込み経路（09-05 実測）**: Gmail→会社メールは `.bat` も `.bat.txt` も受信時に自動削除される（xlsm は通る）。zip は Gmail 側が送信を拒否（bat/exe 入り）。**bat と Ghostscript が入った配布物は髙橋さん経由（Teams/SharePoint）でしか会社PCへ入らない。** 会社PCのローカル（D:・Documents・Downloads）は日跨ぎ/シャットダウンで消え、残るのは OneDrive・共有サーバ・デスクトップのショートカットだけ。
 
 ## 0R34. R34（外部レビュー裁定と検索精度強化・2026-08-20完了）
 
