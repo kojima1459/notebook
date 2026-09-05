@@ -332,8 +332,8 @@
   <h3>入れる</h3>
   <div class="tw"><table>
     <tr><th>ボタン</th><th>いつ使う</th><th>補足</th></tr>
-    <tr><td><span class="btn">📁 追加</span><span class="tag day1">初日</span></td><td>手元のファイルを1件以上まとめて入れる（チャット画面の入力欄左にある <span class="btn">📁</span> でも同じ）</td><td>対応形式: txt / md / csv / pdf / docx / doc / xlsx / xls / xlsm。txt/md/csv は 50MB まで。画像ファイル（png/jpg）はここからは選べません → 📸 へ</td></tr>
-    <tr><td><span class="btn">📸 スクショ取込</span><span class="tag day1">初日</span></td><td>画面のコピー（PrintScreen や Win+Shift+S）を資料にする</td><td>押すと資料名を聞かれ、AIが画像から文字を読み取って1冊として登録します。読み取った文章をその場で見る画面は<b>ありません</b>（→ 第7章の確かめ方）</td></tr>
+    <tr><td><span class="btn">📁 追加</span><span class="tag day1">初日</span></td><td>手元のファイルを1件以上まとめて入れる（チャット画面の入力欄左にある <span class="btn">📁</span> でも同じ）</td><td>対応形式: txt / md / csv / pdf / docx / doc / xlsx / xls / xlsm。txt/md/csv は 50MB まで。画像ファイル（png/jpg/jpeg）も選べます（📸 と同じ読み取り方式。画像解析が使える環境だけ）</td></tr>
+    <tr><td><span class="btn">📸 スクショ取込</span><span class="tag day1">初日</span></td><td>画面のコピー（PrintScreen や Win+Shift+S）を資料にする</td><td>押すと資料名を聞かれ、AIが画像から文字を読み取って1冊として登録します。読み取り完了後、確認画面（📖 本文）が自動で開きます（→ 第7章の確かめ方）</td></tr>
     <tr><td><span class="btn">➕ 登録</span><span class="tag week1">慣れたら</span></td><td>文章を直接書いてナレッジにする</td><td>入力欄「ナレッジ本文(またはAIへの修正指示)」に打ち込む</td></tr>
     <tr><td><span class="btn">📂 フォルダ</span> + <span class="btn">🔄 同期</span><span class="tag week1">慣れたら</span></td><td>決めたフォルダに置いたファイルを自動で入れる</td><td>フォルダの<b>直下</b>だけを見ます（サブフォルダは見ない）。消せば本棚からも消えます。起動時に差分同期（既定オン）。一定間隔の自動同期は<b>この版では既定オフ</b>（config <code>sync_interval_min = 0</code>）</td></tr>
     <tr><td><span class="btn">📥 パック取込</span><span class="tag week1">慣れたら</span></td><td>同僚から受け取った「パック」（.xlsx）を入れる</td><td>自分の本棚に無い内容だけ追加。重複は自動スキップ（→ 第6章）</td></tr>
@@ -443,12 +443,12 @@
   </ol>
 
   <h3>スクショ（画像）の読み取り結果を確かめるには</h3>
-  <p>📸 スクショ取込のあと、AIが読み取った文章を<b>その場で表示する画面はこの版にはありません</b>。確かめ方は次の2つです。</p>
+  <p>📸 スクショ取込の直後、AIが読み取った文章を<b>その場で全文表示する画面</b>（📖 本文）が自動で開きます。あとから見返したいときも、📋 マイ本棚（一覧表示）で資料の行をクリックしてから <span class="btn">📖 本文</span> を押せば、いつでも同じ画面が開きます。</p>
   <div class="grid2">
-    <div class="card"><b>方法A: 質問して出典を開く</b><br>「（資料名）に何が書いてある？」と聞く → 答えの下の資料名ボタンで抜粋（600字）を見る。抜粋は先頭からなので、長いスクショの後半は見えません。</div>
-    <div class="card"><b>方法B: ギャラリーのカード</b><br>🃏 ギャラリーのカードに先頭150字、カードをクリックすると先頭300字が出ます。読み取りが明らかにおかしければ、そのまま [はい] で削除して撮り直せます。</div>
+    <div class="card"><b>📖 本文（この版で追加）</b><br>資料名・取込日時・チャンク数と、読み取った文章の全文がページ番号（【p.1】など）つきで表示されます。左上の「← 戻る」で元の画面に戻ります。</div>
+    <div class="card"><b>使い分け</b><br>画像だけでなく PDF/Word などすべての資料で使えます。抜粋（150/300/600字）だけでは足りないとき、全文をその場で確かめられます。</div>
   </div>
-  <div class="note">読み取った文章を<b>直して保存し直す機能はありません</b>。直したいときは、その資料を 🗑 で消し、正しい文章を <span class="btn">➕ 登録</span> で登録し直してください（上書きではなく別の資料として入ります）。</div>
+  <div class="note">読み取った文章を<b>直接書き直して保存し直す機能はありません</b>（表示のみ）。内容が違うときは、その資料を 🗑 で消し、正しい文章を <span class="btn">➕ 登録</span> で登録し直してください（上書きではなく別の資料として入ります）。</div>
 
   <h3>❌ 違う → 正しい内容を教える、はどこまで効くか</h3>
   <figure>
