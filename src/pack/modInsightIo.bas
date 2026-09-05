@@ -48,6 +48,12 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
     If LenB(Trim$(q)) = 0 Or LenB(Trim$(ans)) = 0 Then Exit Sub
 
+    ' R36 Fix A-M8: 是正メモが出典の先頭に来たターンで ✅解決した を押すと、
+    ' 「もとになった資料」として "是正メモ_退職金は退職金は…_1234.txt" という
+    ' 【他人の質問文がそのまま入ったファイル名】が部内へ配られる。資料名では
+    ' なく個人の入力なので、共有本文には出さず固定文言へ置き換える。
+    If modCorrect.IsMemoSource(src) Then src = "(利用者の是正メモ)"
+
     ' R34 F4: 部内へ出す本文にも出典突合の注記を通す。⚡/🔍 の注記は modApp の
     ' 画面用 ans にだけ付き、ここへ来る mLastCleanAnswer は未注記なので、
     ' 「画面では(出典確認できず)が付いていた回答が、知恵袋では無印で配られる」
