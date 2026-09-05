@@ -96,6 +96,12 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     ' 書式に固定してから書く。
     ws.Columns("A").NumberFormat = "@"
 
+    ' R38 M1(外部レビュー裏どり済): Worksheets.Add は新シートを【表示中】にする
+    ' ので、以降の1セルずつの書き込み(大きい資料で数百回)が毎回再描画される。
+    ' 書き終えるまで描画を止め、正常・失敗のどちらの出口でも必ず戻す
+    ' (modUIShelf:109/130 と同じ Finally 型)。
+    Application.ScreenUpdating = False
+
     Dim r As Long: r = 1
     PutCell ws, r, ChrW(&HD83D) & ChrW(&HDCD6) & " 本文: " & srcName
     r = r + 1
@@ -135,6 +141,7 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
 
     ws.Columns("A").ColumnWidth = 110
     DrawBackButton ws
+    Application.ScreenUpdating = True
 
     ' R36 Fix M4: ws.Activate の素呼びは R10-1 実機 err91 の経路(モーダル/
     ' 外部COM直後は例外を返すのにシートは切り替わっている)。成否判定と記録は
@@ -149,6 +156,7 @@ Fail:
     ' On Error 文と Exit は Err をリセットするので、ログの前に退避する(§11)。
     Dim eN As Long: eN = Err.Number
     Dim eD As String: eD = Err.Description
+    Application.ScreenUpdating = True   ' 描画停止のまま抜けない(R38 M1)
     ' R36 Fix A-m1: 途中で落ちた text_view は「戻るボタンの無い書きかけ
     ' シート」として残る。掃除してから記録する(残骸を作らない)。
     CleanupSheet "modTextView.ShowForSource.Fail"
