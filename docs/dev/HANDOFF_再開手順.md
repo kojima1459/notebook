@@ -16,6 +16,7 @@
 **向こうの質問への回答（09-05）**: (1) SharePoint 経由の bat: **前版は bat 入り zip を SharePoint から各テスターがダウンロードして使えた実績あり**（ユーザー報告）。bat 単体のアップロード可否は未確認 (2) OneDrive 直接起動時の `ThisWorkbook.Path` が URL になる件: **うちは実測なし**（spec §10-2 の前提として設計で避けた） (3) `data_dir.txt` 方式は不採用。データは xlsm 内部のまま、bat が xlsm ごと `D:\MyBookshelf\` へ複製して書き戻す。保存先は bat の `%~dp0`（原本）と固定 `D:\MyBookshelf\` で完結し、VBA は OneDrive を知らない。R36 のデータブック分離で置き場所の決め方を裁定する（data_dir.txt 方式も候補）。
 **09-05 夕**: `ovba_write.py` を W9.3 版へ差し替え（spec R35 §11。差分は MSForms 参照の除去だけ・全モジュール一致）。`bin_roundtrip` OK／`lo_xlsm` 本番 157/157 OK／クラス入りスモーク S2 も LO OK。**S1/S2 をユーザーへ送付（Windows 実Excel 待ち。判定表は spec R35 §11）。** **R36 起草**: `spec_20260905_R36_是正と本文表示と置き場所.md`（§1 置き場所は 1-A 推奨で GO 待ち／§2 是正・§3 本文表示・§4 画像📁 は先行実装）。
 **R36 実装波投入（09-05 夜）**: spec `ba86e58` で契約確定。波1（Sonnet・§3 本文表示＋§4 画像📁・worktree）と波2（Opus・§2 是正・worktree）を並行投入。LO は司令塔が直列で回す取り決め。波の完了後: 司令塔がマージ→lint→LO compile/pure→`EXPECTED_PASS_MIN` 更新→build→bin_roundtrip→lo_xlsm→敵対的レビュー1周目→Fix→2周目。§1（置き場所）は 1-A/1-B の分岐でユーザー GO 待ち。
+**09-05 実機第22報**: スモーク **S1 ○／S2 ○**（Windows 実Excel・D: と共有サーバーの両方。spec R35 §11 判定結果）→ 新版 `ovba_write.py` で確定。**§1 置き場所はユーザーが 1-A（版上げ時の自動引き継ぎ）を選択（「任せる」）→ 波4 を Fix 波の後に投入。**
 **発行者用ブックは未再生成**（`MYBOOKSHELF_PUBLISH_KEY` が要る。ユーザー判断待ち）。R36 の本題は「消えない置き場所」（spec §7。髙橋案＝エンジンと蓄積の分離。推奨 (a) ランチャー往復 → (b) データブック分離）。
 
 **起点**: 09-02 事務局の VBOM 異議 + Excel 落ち報告 / 09-02 AMSI 検知（受付番号 202609020376）/ 09-03 D: シャットダウン消滅の実測 / 09-03 姉妹PJ riskconsulting から `build/ovba_write.py` 提供。
