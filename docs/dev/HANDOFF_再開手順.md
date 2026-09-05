@@ -22,6 +22,7 @@
 **実Excel は未検証**（検証用ファイルをユーザーへ送付済み・結果待ち）。**`dist/MyBookshelf_発行者用.xlsm` は 09-01 の旧方式のまま**（再ビルドに `MYBOOKSHELF_PUBLISH_KEY` が要る。ユーザー判断待ち）。
 記録: コミット `3a042df` は仕様書のコミットだが、前任 Opus が死ぬ直前にステージしていた `build/ovba_write.py`（759e41b 版）と `build_mybookshelf.py` の import 2行を同梱している（中身は意図どおり。履歴は書き換えない）。
 **環境の前提**: LO 検問（`lo_xlsm.py`）には `libreoffice-calc` が要る（無いと Excel 製の xlsm すらライブラリ0本）。`bin_roundtrip.py` には `oletools`（pip）が要る。どちらも無ければ exit 2（環境不備）で緑にならない。
+**会社PC の環境変数（09-05 実測）**: `%OneDriveCommercial%` は未定義、`%OneDrive%` は**別利用者（win11admin）のフォルダ**を指す。環境変数で OneDrive を探す設計は不採用（spec §10-2 記録）。bat は `%~dp0`（bat を置いた場所）を原本とする現行のまま。
 **riskconsulting は一時公開中 → private に戻す必要あり。**
 
 ## 0R34. R34（外部レビュー裁定と検索精度強化・2026-08-20完了）
