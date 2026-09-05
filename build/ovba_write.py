@@ -3,16 +3,6 @@
 """
 ovba_write.py -- MS-OVBA 準拠の vbaProject.bin **ライター**(裁定書27 W9-A)。
 
-出典(移植元・R35 波1 で取り込み):
-    姉妹PJ riskconsulting のリポジトリ
-      ブランチ: claude/ai-risk-consulting-spec-review-91o5y5
-      コミット: 759e41b
-    build/ovba_write.py(639行)をそのまま取り込んだもの。**本体には手を
-    入れない**(向こうが vbaexport.cxx / MS-OVBA ABNF 突合で修正版を出す
-    可能性があり、来たら差し替えるだけで済むようにするため)。MyBookshelf
-    固有の呼び出し(ThisWorkbook 本文・CP932 replace 等)は呼び出し側
-    (build/build_mybookshelf.py)で吸収する。
-
 背景(なぜ新設したか):
     従来の配布方式は template_skeleton.xlsm 由来の vbaProject.bin
     (ThisWorkbook 1本だけ)に自己インストーラを外科パッチし、隠しシート
@@ -83,6 +73,9 @@ REC_MODULEHELPCONTEXT = 0x001E
 REC_MODULECOOKIE = 0x002C
 REC_MODULETYPE_PROCEDURAL = 0x0021
 REC_MODULETYPE_DOCUMENT = 0x0022
+# [MS-OVBA] 2.3.4.2.3.2.9 MODULEPRIVATE(Id=0x0028・Size=0)。
+# **クラスモジュールにだけ**現れる(実測。下の build_modules_section の注参照)。
+REC_MODULEPRIVATE = 0x0028
 REC_MODULE_TERMINATOR = 0x002B
 REC_DIR_TERMINATOR = 0x0010
 REC_PROJECTVERSION = 0x0009
@@ -119,6 +112,84 @@ def split_template_dir(dir_dec: bytes) -> bytes:
         if rid == REC_PROJECTMODULES:
             return dir_dec[:off]
     raise OvbaWriteError("template の dir に PROJECTMODULES(0x000F)がありません")
+
+
+# --- MSForms 参照の除去(W9.2) ------------------------------------------------
+# [MS-OVBA] 2.3.4.2.2 PROJECTREFERENCES の REFERENCE レコード群のうち、
+# **MSForms(fm20.tlb)への参照だけ**を単位ごと落とす。
+#   なぜ落とすのか:
+#     (1) W9-B で DataObject の遅延バインドを撤去したので、配布物はもう
+#         MSForms を1行も使わない。使わない型ライブラリへの参照が残っていると、
+#         開き手の環境に fm20.tlb が無い/場所が違うときに「参照不可」となり、
+#         VBA はプロジェクト全体をコンパイルするため**起動直後に生ダイアログ**が
+#         出る(Mac の実機で実行時エラー5)。
+#     (2) template を作った開発者の絶対パス(/Users/...)が REFERENCECONTROL の
+#         LibidExtended に焼き込まれており、配布物に個人情報が載る。
+#   REFERENCE の単位([MS-OVBA] 2.3.4.2.2):
+#     [REFERENCENAME(0x0016 + 0x003E)] +
+#       REFERENCEORIGINAL(0x0033) + REFERENCECONTROL(0x002F)
+#         [+ NameRecordExtended(0x0016 + 0x003E)] + Reserved3(0x0030)
+#     | REFERENCEREGISTERED(0x000D) | REFERENCEPROJECT(0x000E)
+#   **1レコードだけ抜くと後続が読めなくなる**ので、必ずこの単位で落とす。
+REC_REFERENCENAME = 0x0016
+REC_REFERENCENAME_UNI = 0x003E
+REC_REFERENCEORIGINAL = 0x0033
+REC_REFERENCECONTROL = 0x002F
+REC_REFERENCECONTROL_EXT = 0x0030
+REC_REFERENCEREGISTERED = 0x000D
+REC_REFERENCEPROJECT = 0x000E
+
+MSFORMS_GUID = b"{0D452EE1-E08F-101A-852E-02608C4D0BB4}"
+MSFORMS_NAME = b"MSForms"
+
+
+def _reference_blocks(prefix: bytes):
+    """dir の先頭ブロックを (start, end, is_reference) の並びへ切り分ける。
+
+    参照でないレコード(PROJECTINFORMATION 群)は 1レコード=1ブロックで返す。
+    """
+    recs = list(iter_dir_records(prefix))
+    spans = [(off, off + 6 + len(body)) for off, _rid, _sz, body in recs]
+    ids = [rid for _off, rid, _sz, _body in recs]
+    i = 0
+    n = len(recs)
+    while i < n:
+        if ids[i] != REC_REFERENCENAME:
+            yield (spans[i][0], spans[i][1], False)
+            i += 1
+            continue
+        j = i + 1                                   # REFERENCENAME
+        if j < n and ids[j] == REC_REFERENCENAME_UNI:
+            j += 1
+        if j < n and ids[j] == REC_REFERENCEORIGINAL:
+            j += 1
+        if j < n and ids[j] == REC_REFERENCECONTROL:
+            j += 1
+            if j < n and ids[j] == REC_REFERENCENAME:
+                j += 1
+                if j < n and ids[j] == REC_REFERENCENAME_UNI:
+                    j += 1
+            if j < n and ids[j] == REC_REFERENCECONTROL_EXT:
+                j += 1
+        elif j < n and ids[j] in (REC_REFERENCEREGISTERED, REC_REFERENCEPROJECT):
+            j += 1
+        else:
+            raise OvbaWriteError(
+                "dir の REFERENCE レコードの並びが [MS-OVBA] 2.3.4.2.2 と"
+                "一致しません(id=0x%04X)" % (ids[j] if j < n else 0,))
+        yield (spans[i][0], spans[j - 1][1], True)
+        i = j
+
+
+def strip_msforms_reference(prefix: bytes) -> bytes:
+    """dir の先頭ブロックから MSForms への REFERENCE を単位ごと落として返す。"""
+    out = bytearray()
+    for start, end, is_ref in _reference_blocks(prefix):
+        blob = prefix[start:end]
+        if is_ref and (MSFORMS_GUID in blob or MSFORMS_NAME in blob):
+            continue
+        out += blob
+    return bytes(out)
 
 
 def template_project_cookie(dir_dec: bytes) -> bytes:
@@ -173,6 +244,19 @@ def build_modules_section(modules, cookie: bytes, codepage: str = "cp932") -> by
         # document と class の区別は PROJECT ストリームの Document= / Class= 行が持つ。
         out += _rec(REC_MODULETYPE_PROCEDURAL if m.module_type == "std"
                     else REC_MODULETYPE_DOCUMENT, b'')
+        # MODULEPRIVATE(0x0028・Size=0)は**クラスモジュールにだけ**続く。
+        # 突合の根拠(2026-09-03・W9.3): Mac の実Excel が保存したクラス入り
+        # サンプル(Class1 を1本足しただけのブック)の dir を解析したところ、
+        #   ThisWorkbook / Sheet1 : ... 0x0022 -> 0x002B
+        #   Module1               : ... 0x0021 -> 0x002B
+        #   Class1                : ... 0x0022 -> **0x0028(size 0)** -> 0x002B
+        # という並びだった。我々は 0x0028 を書いていなかったため、クラスを
+        # 含む bin は Excel と不一致であり、これが実機の「実行時エラー 5」
+        # (17章 Z-24)の原因だった。**属性8行と併せて修正した版(v7)が Mac の
+        # 実Excel で正常に開くことを確認済み**(2026-09-03)。
+        # document / std には 0x0028 を出さない(実測どおり)。
+        if m.module_type == "class":
+            out += _rec(REC_MODULEPRIVATE, b'')
         out += _rec(REC_MODULE_TERMINATOR, b'')
     out += _rec(REC_DIR_TERMINATOR, b'')
     return bytes(out)
@@ -455,7 +539,8 @@ class VbaModule:
     """vbaProject.bin へ焼き込む1モジュール。
 
     name        : VBE 上のモジュール名(=dir の MODULENAME)
-    source      : ソース本文(CP932・CRLF・末尾改行あり。Attribute 行は含めない)
+    source      : モジュールストリームへ入れるソース(CP932・CRLF・末尾改行あり)。
+                  **属性行を含めた完全な形**で、`module_stream_source()` が作る
     module_type : "std" | "class" | "document"
     """
 
@@ -486,12 +571,26 @@ class VbaModule:
 # vbaProject.bin のモジュールストリームには「モジュール属性 + ソース」が
 # そのまま入る(Attribute 行はソースの一部である)。
 _ATTR_STD = 'Attribute VB_Name = "%s"\r\n'
+# クラスモジュールの VB_Base(実測。Mac 実Excel 製サンプルの Class1)。
+# document module の VB_Base と同じく「そのモジュールの基底COMクラスのGUID」で
+# あり、クラスモジュールでは常にこの値になる。
+_VB_BASE_CLASS = "0{FCFB3D2A-A0FA-1068-A738-08002B3371B5}"
+
+# 突合の根拠(2026-09-03・W9.3): Mac 実Excel 製サンプルの Class1 の属性行は
+#   VB_Name / VB_Base / VB_GlobalNameSpace / VB_Creatable / VB_PredeclaredId /
+#   VB_Exposed / VB_TemplateDerived / VB_Customizable の**8行**であった
+# (旧実装は VB_Base・VB_TemplateDerived・VB_Customizable を欠く5行だった)。
+# クラス本体の `Attribute <変数名>.VB_VarHelpID = -1`(WithEvents 宣言の直後)は
+# 属性ヘッダではなく**本文の一部**なので、ここではなく本文側が持つ。
 _ATTR_CLASS = (
     'Attribute VB_Name = "%s"\r\n'
+    'Attribute VB_Base = "' + _VB_BASE_CLASS + '"\r\n'
     'Attribute VB_GlobalNameSpace = False\r\n'
     'Attribute VB_Creatable = False\r\n'
     'Attribute VB_PredeclaredId = False\r\n'
     'Attribute VB_Exposed = False\r\n'
+    'Attribute VB_TemplateDerived = False\r\n'
+    'Attribute VB_Customizable = False\r\n'
 )
 # document module の VB_Base は「そのドキュメントのCOMクラスのGUID」であり、
 # ブック本体(Workbook)とワークシート(Worksheet)とで異なる([MS-OVBA] は
@@ -524,6 +623,12 @@ def module_stream_source(name: str, body: str, module_type: str,
     doc_base_guid は module_type="document" のときだけ使う VB_Base のGUIDで、
     ブック(既定・_VB_BASE_WORKBOOK)かシート(_VB_BASE_WORKSHEET)かを呼び出し側
     が選ぶ。現行の呼び出しは ThisWorkbook のみなので既定のままでよい。
+
+    改行について(W9.3 の実測メモ): Mac の実Excel が保存したブック
+    (scratchpad/bisect/mac_class_sample.xlsm)は**全モジュールの改行が LF 単独**
+    だった(Windows 製は CRLF)。本実装は **CRLF のまま**にする(切り分けブック
+    v1_min / v3_full_noclass が CRLF で実機読み込みに成功しており、改行は
+    Err 5 の要因ではないことが確かめられているため)。事実だけ記録に残す。
     """
     if attributes is None:
         if module_type == "class":
@@ -556,6 +661,8 @@ def build_vba_project(template_bin: bytes, modules,
     skel = ovba.CFBReader(template_bin)
     tmpl_dir = ovba.ovba_decompress(skel.read("dir"))
     prefix = split_template_dir(tmpl_dir)
+    # 使わない MSForms 参照(と、そこに焼き込まれた開発者の絶対パス)を落とす。W9.2。
+    prefix = strip_msforms_reference(prefix)
     cookie = template_project_cookie(tmpl_dir)
 
     dir_dec = prefix + build_modules_section(modules, cookie)
