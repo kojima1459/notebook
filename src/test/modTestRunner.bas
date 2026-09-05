@@ -276,4 +276,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-05(R36波1): スクショ本文表示(§3)+画像📁(§4)の回帰テスト。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは modTextView.StripBreadcrumb
+    ' (breadcrumb剥がし)、modTextView.SortPagesStable(page昇順の安定ソート)、
+    ' modShelfVision.ImageDialogPattern(📁追加フィルタの画像パターン文字列)。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure39.RunAll39
+    If Err.Number <> 0 Then
+        Check "modTestsPure39.RunAll39", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

@@ -781,6 +781,21 @@ PURE_ALLOWLIST = [
     # modChatLog(2026-08-20 R34波1 A2): BakIsStale の実体の置き場。未注入だと
     #   modTestsPure37 の 24h境界テストが実行時エラーで丸ごと落ちる。
     "modChatLog",
+    # modTextView(2026-09-05 R36波1 §3): StripBreadcrumb/SortPagesStableの
+    #   置き場。未注入だと modTestsPure39.RunAll39 がこの2関数を呼べず
+    #   (Variable not defined)、新テストが実行されないまま「全部PASS」に
+    #   見える。
+    "modTextView",
+    # modShelfVision(2026-09-05 R36波1 §4): ImageDialogPattern(📁追加の
+    #   FileDialogフィルタへ足す画像パターン文字列)の置き場。同上の理由で
+    #   注入必須(モジュール本体はExcel/COMに触れる関数を多く含むが、
+    #   テストから呼ぶのはこの純関数1本だけ=modExtractor等と同型)。
+    "modShelfVision",
+    # modTestsPure39(2026-09-05 R36波1): A StripBreadcrumb / B SortPagesStable
+    #   (page昇順の安定ソート) / C ImageDialogPattern。注入しないと RunAll39
+    #   が Variable not defined で呼べず、新テストが実行されないまま
+    #   PASSに見える。
+    "modTestsPure39",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
