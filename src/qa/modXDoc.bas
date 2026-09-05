@@ -58,10 +58,18 @@ Private mPoolN As Long
 '     If scopeSources Is Nothing)。ここは「深掘りターンか」だけを見る。
 '   【R37 Fix A-m2】配列コピーが落ちた回に件数だけ更新すると、前の質問の
 '     プールを掴んだまま「n件ある」と言い張る状態になる。成功したときだけ。
+'   【R37 Fix2 C-m1】mPoolN=0 のリセットは scopeSources の有無に関係なく
+'     必ず先に通す。旧版は呼び出し側の If scopeSources Is Nothing で
+'     RememberPool 自体を呼ばないようにしていたため、スコープ付き検索が
+'     FallbackSingle(単段検索)に落ちた回だけ、前のスコープ無しターンの
+'     プールが mPoolN>0 のまま生き残り、次のスコープ付きターンで Expand に
+'     使われてしまう(見えない誤根拠)。scopeSources 判定はここへ引き取る。
 ' ----------------------------------------------------------------------------
-Public Sub RememberPool(ByRef hits() As Hit, ByVal n As Long)
+Public Sub RememberPool(ByRef hits() As Hit, ByVal n As Long, _
+                         Optional ByVal scopeSources As Object = Nothing)
     On Error Resume Next
     mPoolN = 0
+    If Not scopeSources Is Nothing Then Exit Sub
     If n < 1 Then Exit Sub
     If Not modXDocStore.GateOn() Then Exit Sub
     If modFollowup.IsFollowupTurn() Then Exit Sub
@@ -127,7 +135,7 @@ Public Function Expand(ByRef hits() As Hit, ByVal n As Long, ByVal topK As Long)
     If LenB(linksCsv) = 0 Then GoTo Done
 
     Dim cand As String
-    cand = PickLinked(seedKeys, linksCsv, modConfig.GetLong("xdoc_min_sim", 80), maxAdd)
+    cand = PickLinked(seedKeys, linksCsv, modXDocStore.SimFloor(), maxAdd)
     If LenB(cand) = 0 Then GoTo Done
 
     ' 3) プールの中から、その章に属していてまだ hits に無いものを末尾へ。
@@ -276,11 +284,10 @@ Public Function PickLinked(ByRef hitsSrcChap() As String, ByVal linksCsv As Stri
 End Function
 
 ' sim(0〜1の実数表記)×100 が minSim 以上か。
-' 0.8*100 のような二進小数の丸め落ち(79.999…)で境界の1件が静かに消えるのを
-' 防ぐため、比較にだけ極小のゆとりを足す(1e-7=小数第7位。重心CSVは6桁丸め
-' なので、この幅で別の値が紛れ込むことはない)。
+' 【R37 Fix2 C-m4】式の実体は modXDocStore.SimOk の1本だけに置く(丸め落ち
+' 対策の 1e-7 もそちら)。ここは Val() で文字列→実数に変換して渡すだけの薄皮。
 Private Function SimPasses(ByVal simText As String, ByVal minSim As Long) As Boolean
-    SimPasses = ((Val(simText) * 100#) + 0.0000001 >= CDbl(minSim))
+    SimPasses = modXDocStore.SimOk(Val(simText), minSim)
 End Function
 
 ' ============================================================================

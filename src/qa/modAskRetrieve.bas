@@ -191,8 +191,8 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     If poolN <= 0 Then GoTo FallbackSingle
     ' R21-2 D1: rerank/topK絞り込みより前のこの時点でpoolを退避する。
     StashDispersionPool poolHits, poolN
-    ' R37 §3/Fix B-M1: 同じpoolを資料間リンク側へ(スコープ無しの回だけ)。
-    If scopeSources Is Nothing Then modXDoc.RememberPool poolHits, poolN
+    ' R37 §3/Fix2 C-m1: 同じpoolを資料間リンク側へ(scope判定は呼び出し先)。
+    modXDoc.RememberPool poolHits, poolN, scopeSources
 
     ' 3) 再ランク(候補がtopKより多いときだけ意味がある)
     Dim orderN As Long: orderN = 0
