@@ -315,8 +315,15 @@ End Function
 '   (iv)  スコープ内のヒットが2件未満なら、無スコープで取り直す
 '         (今日より悪くなる経路を作らない。落ちたことは usage_log に残す)
 ' 新規質問(非followup)の deep はこの関数を通らない=現行動作のまま。
+' R36 §2-3: 是正メモの注入は「返す直前」の1行。出口が5つあるので本体を
+' DeepScopedCore に残し、公開名は包み1枚にする(経路が1つに揃う)。
 Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
                               ByVal topK As Long, ByRef hits() As Hit) As Long
+    RunDeepScoped = modCorrect.InjectHits(q, hits, DeepScopedCore(q, mdMode, topK, hits))
+End Function
+
+Private Function DeepScopedCore(ByVal q As String, ByVal mdMode As String, _
+                                ByVal topK As Long, ByRef hits() As Hit) As Long
     ResetDispersionPool     ' R21-2 D1: この呼び出し限りの結果に合わせて必ず立て直す
     Dim scopeD As Object
     Set scopeD = modFollowup.CitedSourcesDict()
@@ -329,7 +336,7 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
         Dim seedN As Long
         seedN = modRetrieve.Search(q, topK, seed)
         If seedN = -1 Then
-            RunDeepScoped = -1      ' 埋め込み失敗(E0203)。もう一度呼んでも同じなので繰り返さない
+            DeepScopedCore = -1      ' 埋め込み失敗(E0203)。もう一度呼んでも同じなので繰り返さない
             Exit Function
         End If
         If seedN > 0 Then Set scopeD = modFollowup.ScopeDictFrom(HitSourceList(seed, seedN))
@@ -351,11 +358,11 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
             On Error Resume Next
             modLog.LogUsage "deep_scoped", mdMode, "scope=" & scopeD.count & " subq=" & subN, 0, n
             On Error GoTo 0
-            RunDeepScoped = FinishDeep(hits, n, topK)
+            DeepScopedCore = FinishDeep(hits, n, topK)
             Exit Function
         End If
         If n = -1 Then
-            RunDeepScoped = -1      ' 埋め込み失敗。広げ直しても同じ結果にしかならない
+            DeepScopedCore = -1      ' 埋め込み失敗。広げ直しても同じ結果にしかならない
             Exit Function
         End If
 
@@ -370,10 +377,10 @@ Public Function RunDeepScoped(ByVal q As String, ByVal mdMode As String, _
     Dim wideN As Long
     wideN = RunUnscoped(q, mdMode, WideK(topK), hits)
     If wideN < 1 Then
-        RunDeepScoped = wideN          ' 0件・埋め込み失敗(-1)はそのまま返す
+        DeepScopedCore = wideN          ' 0件・埋め込み失敗(-1)はそのまま返す
         Exit Function
     End If
-    RunDeepScoped = FinishDeep(hits, wideN, topK)
+    DeepScopedCore = FinishDeep(hits, wideN, topK)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -416,33 +423,40 @@ End Function
 '   RunDeepScoped の縮小フォールバックもここを通り降格が2回走るが、1回目で
 '   記憶済み=2回目は「全部既出」で順序を変えず topK へ切るだけ(結果は同じ)。
 ' ----------------------------------------------------------------------------
+' R36 §2-3: 同上。DeepScopedCore が退化時にここを通ると注入が2回走るが、
+' InjectHits は同じ source を先頭へ移すだけなので件数も結果も変わらない。
 Public Function RunUnscoped(ByVal q As String, ByVal mdMode As String, _
                             ByVal topK As Long, ByRef hits() As Hit) As Long
+    RunUnscoped = modCorrect.InjectHits(q, hits, UnscopedCore(q, mdMode, topK, hits))
+End Function
+
+Private Function UnscopedCore(ByVal q As String, ByVal mdMode As String, _
+                              ByVal topK As Long, ByRef hits() As Hit) As Long
     ResetDispersionPool     ' R21-2 D1: この呼び出し限りの結果に合わせて必ず立て直す
     ' R28 W2-2: 逆質問で資料を選んだ直後の1回だけ、その資料へ絞って検索する。
     ' 印が無ければ Nothing で、以下は1行も通らず従来の経路へ素通しする。
     Dim clD As Object: Set clD = modFollowup.TakeClarifyScope()
     If Not clD Is Nothing Then
-        RunUnscoped = RunMultiRetrieve(q, mdMode, topK, hits, clD)
-        If modFollowup.ClarifyScopeKept(clD, RunUnscoped) Then Exit Function
+        UnscopedCore = RunMultiRetrieve(q, mdMode, topK, hits, clD)
+        If modFollowup.ClarifyScopeKept(clD, UnscopedCore) Then Exit Function
     End If
     If modFollowup.IsFollowupTurn() Then
         Dim n As Long
         n = RunMultiRetrieve(q, mdMode, WideK(topK), hits)
         If n < 1 Then
-            RunUnscoped = n            ' 0件・埋め込み失敗(-1)はそのまま返す
+            UnscopedCore = n            ' 0件・埋め込み失敗(-1)はそのまま返す
             Exit Function
         End If
         modFollowup.DemoteUsed hits, n, topK
         modFollowup.RememberUsedChunks hits, n
-        RunUnscoped = n
+        UnscopedCore = n
         Exit Function
     End If
 
     If LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi" Then
-        RunUnscoped = RunMultiRetrieve(q, mdMode, topK, hits)
+        UnscopedCore = RunMultiRetrieve(q, mdMode, topK, hits)
     Else
-        RunUnscoped = modRetrieve.Search(q, topK, hits)
+        UnscopedCore = modRetrieve.Search(q, topK, hits)
     End If
 End Function
 
