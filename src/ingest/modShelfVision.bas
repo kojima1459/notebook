@@ -42,6 +42,13 @@ Option Explicit
 
 Private Const VISION_FEATURE As String = "vision"
 
+' 画像拡張子の【唯一の情報源】(R36 Fix N2)。IsImageFileExt(vision へ委譲
+' するかの判定)と ImageDialogPattern(📁追加のダイアログフィルタ)が、
+' 以前はそれぞれリテラルを直書きしていた。片方だけに拡張子を足すと
+' 「ダイアログでは選べるのに取り込むと E0301」あるいはその逆になる。
+' Const に関数は書けない(§11)ので、カンマ区切りの1本を Split して使う。
+Private Const IMAGE_EXTS As String = "png,jpg,jpeg"
+
 ' ----------------------------------------------------------------------------
 ' TryVisionFallback - vision で救えるなら救う。
 '   path      : 対象ファイルのフルパス
@@ -293,15 +300,23 @@ End Function
 Private Function IsImageFileExt(ByVal path As String) As Boolean
     Dim e As String
     e = LCase$(modUtil.ExtOf(path))
-    IsImageFileExt = (e = "png" Or e = "jpg" Or e = "jpeg")
+    If LenB(e) = 0 Then Exit Function
+    IsImageFileExt = (InStr(1, "," & IMAGE_EXTS & ",", "," & e & ",", vbBinaryCompare) > 0)
 End Function
 
 ' R36波1(§4): 📁 追加のFileDialogフィルタへ足す画像パターン。
 ' modShelfBatch.BuildFilterPattern が vision 有効時だけ末尾へ連結する。
-' IsImageFileExt と同じ3種(png/jpg/jpeg)から組む純関数(SUPPORTED_EXTS/
+' IsImageFileExt と同じ IMAGE_EXTS から組む純関数(SUPPORTED_EXTS/
 ' modExtractorは不触。画像は従来どおりE0301→TryVisionFallback経路のまま)。
 Public Function ImageDialogPattern() As String
-    ImageDialogPattern = "*.png;*.jpg;*.jpeg"
+    Dim arr() As String: arr = Split(IMAGE_EXTS, ",")
+    Dim sb As String
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        If LenB(sb) > 0 Then sb = sb & ";"
+        sb = sb & "*." & arr(i)
+    Next i
+    ImageDialogPattern = sb
 End Function
 
 Private Function ResultToText(ByVal result As Variant) As String
