@@ -296,6 +296,14 @@ Private Function IsImageFileExt(ByVal path As String) As Boolean
     IsImageFileExt = (e = "png" Or e = "jpg" Or e = "jpeg")
 End Function
 
+' R36波1(§4): 📁 追加のFileDialogフィルタへ足す画像パターン。
+' modShelfBatch.BuildFilterPattern が vision 有効時だけ末尾へ連結する。
+' IsImageFileExt と同じ3種(png/jpg/jpeg)から組む純関数(SUPPORTED_EXTS/
+' modExtractorは不触。画像は従来どおりE0301→TryVisionFallback経路のまま)。
+Public Function ImageDialogPattern() As String
+    ImageDialogPattern = "*.png;*.jpg;*.jpeg"
+End Function
+
 Private Function ResultToText(ByVal result As Variant) As String
     On Error GoTo NotText
     If IsError(result) Then Exit Function

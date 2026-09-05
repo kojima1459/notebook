@@ -717,4 +717,10 @@ Private Function BuildFilterPattern() As String
         parts(i) = "*." & Trim$(exts(i))
     Next i
     BuildFilterPattern = Join(parts, ";")
+    ' R36波1(§4): vision(画像解析)が有効な端末だけ、📁 追加のフィルタへ
+    ' png/jpg/jpegを足す。SUPPORTED_EXTS自体は変えない(足すとE0301→
+    ' TryVisionFallbackの委譲条件が壊れるため。フィルタ文字列だけの追加)。
+    If modFeatures.FeatureEnabled("vision") Then
+        BuildFilterPattern = BuildFilterPattern & ";" & modShelfVision.ImageDialogPattern()
+    End If
 End Function

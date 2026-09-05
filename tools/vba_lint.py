@@ -671,7 +671,10 @@ CONTRACT: dict[str, dict] = {
     # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
     "modShelfVision": {
         "closed": True,
-        "required": ["TryVisionFallback"],
+        # ImageDialogPattern(R36波1 §4): 📁 追加のFileDialogフィルタへ足す
+        # 画像パターン("*.png;*.jpg;*.jpeg")を返す純関数。呼び出し元は
+        # modShelfBatch.BuildFilterPattern(vision有効時のみ連結)。
+        "required": ["TryVisionFallback", "ImageDialogPattern"],
     },
     "modShelfSync": {
         "closed": True,
