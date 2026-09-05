@@ -1182,6 +1182,22 @@
       "type": "std",
       "wave": "R36-1",
       "note": "R36波1(§3本文表示・§4画像📁)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれるRunAll39が入口(modTestsPure31〜38と同型の別枝)。固定するもの: modTextView.StripBreadcrumb(breadcrumb行の剥がし方。先頭が【…】の1行/無い/空/【だけの4パターン)、modTextView.SortPagesStable(page昇順の安定ソート。並列配列Long()/String()でUDTを跨がない)、modShelfVision.ImageDialogPattern(📁追加のFileDialogフィルタへ足す画像パターン文字列の内容一致)。"
+    },
+    {
+      "name": "modCorrect",
+      "path": "src/qa/modCorrect.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-2",
+      "note": "R36 §2「是正の仕組み」。❌違う→「正しい内容」で登録された是正メモを、次から同じ質問の回答で必ず使わせるための qa 層モジュール。設計意図: (1) 保存する本文へ【元の質問文】を必ず入れる(BuildMemoBody/MemoDocBase)。R35 以前は質問文がどこにも残らず、同じ質問を打ち直しても回答抜粋に偶然含まれる語でしか当たらなかった。(2) 回答生成の直前に、質問が一致する是正メモを Hit として合成し hits の先頭へ差し込む(InjectHits/PrependHit)。modAsk は hits の中身だけを使い my_knowledge を引き直さず(modAsk.bas:296-297)、modPrompts.BuildSourceBlock は hits(i).full_text を先頭から順に載せる(modPrompts.bas:560-617)ので、Hit を1件合成して先頭へ置くだけで凍結モジュール(modAsk/modPrompts/modRetrieve/modShelf/modBoot)を1文字も触らずに本文にも出典チップにも載る。入口は modAskRetrieve.RunDeepScoped/RunUnscoped が値を返す直前の1行だけ(あちらは残1,092字のため、本体を Private 化して公開名を包み1枚にする形で対応した)。一致判定は modInsight.NormKey の完全一致(score 1.0)を最優先し、外れたときだけ modSparse.DistinctiveKeys の語一致率≥config correct_key_min%(既定60・score 0.9)で拾う ―― 誤爆(似て非なる質問に古い是正が先頭へ来る)を防ぐため、照合先は是正メモの【質問行だけ】に限る(本文全体を見ると話題が近いだけの質問にも当たる)。全体が On Error のサーキットブレーカーで、失敗しても nHits をそのまま返して質問には必ず答える。config correct_inject=off で丸ごと止まる。一般アシスタント(sendMode=normal)は modAsk 自体を通らないので構造的に注入されない。MemoDocBase は modVault.SanitizeName(Private で呼べない)と同じ置換を先に済ませて冪等にしてある ―― modAppAct.RecordCorrection が「同名の既存資料を消してから登録し直す」ために source 名(=MemoDocBase+\".txt\")を自力で組み立てる必要があり、置換を後段任せにすると「?」を含む質問で名前が食い違って消し忘れ、是正メモが増え続ける。純関数(BuildMemoBody/ExtractQuestionLine/MemoDocBase/MatchLevel/KeyMatchPct)は modTestsPure40 が固定する。InjectHits/PrependHit は Hit 型を跨ぐため LO では実行できない既知の死角(run_lo_tests.py:129-132)で、Pure テストは書かず実機観点として記録する。"
+    },
+    {
+      "name": "modTestsPure40",
+      "path": "src/test/modTestsPure40.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-2",
+      "note": "R36 波2(是正の仕組み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜38と同型)。固定するもの: (C1)modCorrect.BuildMemoBody — 3行+1行の書式そのもの。1行目の指示文「【是正メモ】この質問には、下の「正しい内容」で答えること。」が本文側にも必ず載ること(これがそのまま LLM への指示として働く)、質問が「質問: 」行として入ること、ExtractQuestionLine で往復できること。(C2)ExtractQuestionLine — 取込時に焼かれる breadcrumb 行【資料名>章>条】が先頭にあっても質問行を拾えること/vbCrLf 改行/質問行の無い本文と空文字では空を返すこと(=是正メモとして扱わない)。(C3)MatchLevel — 完全一致=2(空白と「?」の有無で揺れない。判定は modInsight.NormKey と同じ物差し)、語一致=1、無関係=0、質問行の無い本文=0、空クエリ=0。(C4)KeyMatchPct — 一致率の算数を100%/0%の両端で固定し、config correct_key_min の値に依存しない形でMatchLevel の分岐根拠を可観測にする。(C5)MemoDocBase — 接頭辞と24字クランプ、および modVault.SanitizeName の置換表を先に通してある冪等性(source 名が MemoDocBase+\".txt\" と必ず一致するという RecordCorrection の前提の担保)。InjectHits/PrependHit は Hit 型(UDT)を跨ぐため LO ではモジュール間で受け渡せず(既知の死角・modTestsPure38.bas:27 と同型)、Pure テストは書かない=SKIP 上限14を増やさない。配列操作の確認は実機(modTestsExcel 系)と R36 §6 の実機受入③に委ねる。"
     }
   ]
 }
