@@ -33,6 +33,13 @@ Private mStep As Long   ' 現在のツアー段階(1～3)。モジュール状�
 ' ----------------------------------------------------------------------------
 Public Sub StartTourIfFirstRun()
     On Error Resume Next   ' 安全弁: 本機能の失敗を絶対にメインへ波及させない
+    ' 2026-09-05(R36波4・§1-3契約): 版上げ時の自動引き継ぎの起点。凍結modBoot
+    ' には触れないため、この関数(modApp.LaunchNexus末尾の1行フック)を借りる。
+    ' ツアー完了フラグに関わらず毎回呼ぶ ―― ウィザードが走らない2回目以降の
+    ' 起動でも「本棚が空・未質問・前版あり」の3条件が揃えば聞く必要がある
+    ' (条件そのものはOfferImportIfFirstRun内部の3チェックが担保するので、
+    ' 通常運用中はui_state 1回読みで即戻る=無視できるコスト)。
+    modMigrateFrom.OfferImportIfFirstRun
     If modState.LoadState("nexus_tour_done", "") = "1" Then Exit Sub
     ' R20-4d(実機第7報③④): 名前入力(modBoot.EnsureFirstRun)の直後・初回に
     ' 限り、部門/共有フォルダの2ステップ(スキップ可)を差し込む。modBootは
