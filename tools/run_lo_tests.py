@@ -796,6 +796,18 @@ PURE_ALLOWLIST = [
     #   が Variable not defined で呼べず、新テストが実行されないまま
     #   PASSに見える。
     "modTestsPure39",
+    # modCorrect / modTestsPure40(2026-09-05 R36波2): 是正の仕組み。
+    #   modCorrect: テストが呼ぶのは純関数5本(BuildMemoBody / ExtractQuestionLine /
+    #     MemoDocBase / MatchLevel / KeyMatchPct)だけで、いずれも文字列と Long しか
+    #     触らない。シートを読むのは InjectHits 1本で、そちらは Hit 型(UDT)配列を
+    #     跨ぐためLOからは呼べない=テストからも呼ばない(modShelfSync / modPack /
+    #     modVecCache と同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数
+    #     自体はExcel/COMに触れない」型)。未注入だと実行時エラー12になり、
+    #     「❌違うで書いた内容が次から必ず使われる」の唯一の自動検査が走らないまま
+    #     全部PASSに見える。
+    #   modTestsPure40: modTestRunner.RunAllPureTests から呼ばれる別枝の本体。
+    #     同上の理由で注入必須。
+    "modCorrect", "modTestsPure40",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

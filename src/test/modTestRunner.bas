@@ -286,6 +286,17 @@ Public Sub RunAllPureTests()
     modTestsPure39.RunAll39
     If Err.Number <> 0 Then
         Check "modTestsPure39.RunAll39", False, "呼び出しでエラー: " & Err.Description & _
+    ' 2026-09-05(R36波2): 是正の仕組み(❌違う→次から必ず使われる)の純ロジック
+    ' 回帰。同じ別枝の作法で直接呼ぶ。固定するのは modCorrect の純関数だけ:
+    ' (C1)BuildMemoBody の書式 (C2)ExtractQuestionLine(breadcrumb付き/CRLF/
+    ' 質問行なし) (C3)MatchLevel の3値 (C4)KeyMatchPct の両端 (C5)MemoDocBase の
+    ' 接頭辞・24字クランプ・SanitizeName 置換の冪等性。InjectHits/PrependHit は
+    ' Hit型配列を跨ぐためLOでは受け渡せない既知の死角で、Pureテストは書かない。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure40.RunAll40
+    If Err.Number <> 0 Then
+        Check "modTestsPure40.RunAll40", False, "呼び出しでエラー: " & Err.Description & _
               " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
         Err.Clear
     End If
