@@ -143,7 +143,7 @@ Fail:
     Dim eD As String: eD = Err.Description
     ' R36 Fix A-m1: 途中で落ちた text_view は「戻るボタンの無い書きかけ
     ' シート」として残る。掃除してから記録する(残骸を作らない)。
-    CleanupSheet
+    CleanupSheet "modTextView.ShowForSource.Fail"
     modLog.LogError "E0801", "modTextView.ShowForSource", eD, eN
     Err.Clear
     On Error GoTo 0
@@ -170,11 +170,10 @@ End Sub
 Public Sub OnBack()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
-    CleanupSheet
-    If Err.Number <> 0 Then modLog.LogError "E0801", "modTextView.OnBack", Err.Description, Err.Number
-    Err.Clear
-    On Error GoTo 0
+    ' R36 Fix2 C-m1: 失敗ログはCleanupSheet自身の中(Err.Clearの前)へ移した。
+    ' ここで改めてErr.Numberを見る判定は、CleanupSheetが戻る時点で必ず
+    ' Err.Clear済み=常に0という「到達不能な死んだ判定」だったため削除。
+    CleanupSheet "modTextView.OnBack"
     modUiLock.Leave
 
     Select Case mBackAction
@@ -193,11 +192,20 @@ End Sub
 '   (3)modApp.OnSaveAndExit の直前(保存物に残さない)の3箇所。
 '   凍結 modBoot.Auto_Close には触らない(§12)。
 '   DisplayAlerts の退避と復元は On Error Resume Next の中で必ず対にする。
+'   R36 Fix2 C-m1: 削除に失敗したら Err.Clear の【前】に記録する
+'   (以前は OnBack 側で CleanupSheet 呼び出し後に Err.Number を見ていたが、
+'   CleanupSheet はここで Err.Clear してから戻るため常に 0 = 到達不能な
+'   死んだ判定だった。呼び出し元(OnBack/ShowForSource の Fail:/
+'   modApp.OnSaveAndExit)には caller 名を渡させ、ログにどこからの掃除かを
+'   残す)。「まだ無い」(該当シート無し=Err9)は失敗ではないので記録しない。
 ' ----------------------------------------------------------------------------
-Public Sub CleanupSheet()
+Public Sub CleanupSheet(Optional ByVal caller As String = "")
     On Error Resume Next
     Application.DisplayAlerts = False
     ThisWorkbook.Worksheets(TEXT_VIEW_SHEET).Delete
+    If Err.Number <> 0 And Err.Number <> 9 Then
+        modLog.LogError "E0801", "modTextView.CleanupSheet(" & caller & ")", Err.Description, Err.Number
+    End If
     Application.DisplayAlerts = True
     Err.Clear
     On Error GoTo 0
@@ -338,7 +346,7 @@ End Sub
 ' 既存を再利用してClearContents」方式。戻るボタンは無い診断シートと違い、
 ' 本シートは「← 戻る」を自前で描く(DrawBackButton)。
 Private Function RecreateTextViewSheet() As Worksheet
-    CleanupSheet          ' 古い残骸を消す(DisplayAlertsの退避/復元も向こう側)
+    CleanupSheet "modTextView.ShowForSource"   ' 古い残骸を消す(DisplayAlertsの退避/復元も向こう側)
 
     Dim ws As Worksheet
     On Error GoTo Fallback

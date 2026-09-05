@@ -817,7 +817,7 @@ Public Sub OnSaveAndExit()
     ' 構成されていて冪等なので、開発構成(ThisWorkbook.cls あり)で
     ' Workbook_BeforeClose と二重に走っても害はない。
     On Error Resume Next
-    modTextView.CleanupSheet   ' R36 Fix A-r4: text_viewを保存物に残さない
+    modTextView.CleanupSheet "modApp.OnSaveAndExit"   ' R36 Fix A-r4: text_viewを保存物に残さない
     modBoot.Auto_Close
     On Error GoTo 0
 
