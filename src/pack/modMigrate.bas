@@ -261,22 +261,13 @@ Public Sub ImportUserData()
         GoTo Done
     End If
 
-    ' R12-3-1: 3シートそれぞれの成否と実測行数を受け取る。1枚でも失敗したら
-    ' 完了ダイアログの文言を切り替える(「引き継ぎました」と言わない)。
-    Dim rowsK As Long, rowsV As Long, rowsM As Long
-    Dim allOk As Boolean: allOk = True
-    If Not RestoreSheet(wb, modAppDef.SH_KNOWLEDGE, rowsK) Then allOk = False
-    If Not RestoreSheet(wb, modAppDef.SH_VECTORS, rowsV) Then allOk = False
-    If Not RestoreSheet(wb, modAppDef.SH_MANIFEST, rowsM) Then allOk = False
-    ' 2026-08-10(R27波3-5): 台帳はシートごと差し替わるので、書式も引き継ぎ元の
-    ' ものになる。旧い版で作られた引き継ぎファイルには "@" が無く、移行した
-    ' 直後から "-"始まりの資料名で取込が落ちる。ここで張り直す(冪等)。
-    On Error Resume Next
-    modShelfScan.EnsureManifestTextFormat
-    On Error GoTo Failed
-    MergeStats wb
-    MergeConfig wb
-    MergeInsightInbox wb
+    ' 2026-09-05(R36波4・1-A契約): シートを写す実体は modMigrateFrom.
+    ' CopyUserData へ移設した(旧xlsm直読み経路と共用する受け皿)。ここは
+    ' 1行呼び出しに留める。戻り値は my_knowledge へ復元できた行数。
+    ' 1枚でも復元に失敗すると -1(完了ダイアログの文言を切り替える。
+    ' 「引き継ぎました」と言わない)。
+    Dim copied As Long: copied = modMigrateFrom.CopyUserData(wb)
+    Dim allOk As Boolean: allOk = (copied >= 0)
 
     wb.Close SaveChanges:=False
     Set wb = Nothing
@@ -289,9 +280,10 @@ Public Sub ImportUserData()
     On Error Resume Next
     got = modShelf.TotalChunks()
     ' R12-3-1: 「何件戻したつもりか」ではなく、復元後のシートを数えた実測値を残す。
-    modLog.LogUsage "migrate_import", "", "chunks=" & got & _
-        " knowledge=" & rowsK & " vectors=" & rowsV & " manifest=" & rowsM & _
-        " restored_ok=" & allOk
+    ' 2026-09-05(R36波4): knowledge/vectors/manifest の内訳はCopyUserData移設に
+    ' 伴いこの関数のローカル変数では持たなくなった(戻り値は復元行数1個のみ)。
+    ' 内訳が要る調査は modLog.LogError E0801(RestoreSheet失敗時)側に残る。
+    modLog.LogUsage "migrate_import", "", "chunks=" & got & " restored_ok=" & allOk
     On Error GoTo Failed
 
     If allOk Then
@@ -522,7 +514,9 @@ End Sub
 ' / 8=source_or_dept(ビルド側 text_cols と同じ集合)。nonce・created_at・
 ' consumed・selected のような機械が作る列に "'" を足すと、突合や数値判定が
 ' 壊れるので触らない。
-Private Function InboxCellValue(ByVal v As Variant, ByVal col As Long) As Variant
+' 2026-09-05(R36波4): modMigrateFrom.MergeInsightInbox(旧xlsm直読み経路)も
+' 同じサニタイズを必要とするため Public 化した(表を複製しない=単一情報源)。
+Public Function InboxCellValue(ByVal v As Variant, ByVal col As Long) As Variant
     Select Case col
         Case 4, 6, 7, 8
             InboxCellValue = modUtilText.SanitizeForCell(CStr(v))
@@ -532,7 +526,10 @@ Private Function InboxCellValue(ByVal v As Variant, ByVal col As Long) As Varian
 End Function
 
 ' ビルドが決める値・秘密は引き継がない(§12.3 B1/B2 の再発防止)。
-Private Function IsBuildOwnedKey(ByVal k As String) As Boolean
+' 2026-09-05(R36波4): modMigrateFrom.MergeConfig(旧xlsm直読み経路)も同じ
+' 判定を必要とするため Public 化した(判定表を複製すると2つの台帳が食い違う
+' 事故=R12-3-2を再発させるため、値ではなく判定関数そのものを共用する)。
+Public Function IsBuildOwnedKey(ByVal k As String) As Boolean
     If InStr(1, CFG_SKIP_EXACT, "|" & LCase$(k) & "|", vbTextCompare) > 0 Then
         IsBuildOwnedKey = True
         Exit Function
@@ -543,203 +540,13 @@ End Function
 ' 利用者が決めた値として引き継ぐキーか(R12-3-2。判断根拠は CFG_KEEP_KEYS の上)。
 ' 書き出し側(CopyConfigInto)は従来どおり広めに持ち出す。読み込み側で絞るのは、
 ' 旧い引き継ぎファイルでも新しい判断基準がそのまま効くようにするため。
-Private Function IsUserOwnedKey(ByVal k As String) As Boolean
+' (Public化の理由は IsBuildOwnedKey と同じ。2026-09-05 R36波4)
+Public Function IsUserOwnedKey(ByVal k As String) As Boolean
     IsUserOwnedKey = (InStr(1, CFG_KEEP_KEYS, "|" & LCase$(Trim$(k)) & "|", vbTextCompare) > 0)
 End Function
 
-' 引き継ぎブックのシートで、このブックのシートを置き換える。
-'
-' 2026-08-01(R12-3-1): 戻り値 Boolean + 実測行数へ変えた。
-' 従来は関数全体が On Error Resume Next で、書き戻しの途中で失敗しても
-' 「引き継ぎました」という完了ダイアログだけが出た(憲章§4-1 無言の失敗禁止)。
-' 本棚が半分しか戻っていないのに成功と言うのは、利用者が最も気付けない形の
-' データ欠損である。失敗は E0801 で記録し、呼び出し側が文言を切り替える。
-'   outRows : 復元後に dst 側で【実際に】数えたデータ行数(見出し行を除く)。
-'             書けたつもりの件数ではなく、書けた結果を数える。
-Private Function RestoreSheet(ByVal srcWb As Workbook, ByVal sheetName As String, _
-                              ByRef outRows As Long) As Boolean
-    outRows = 0
-    On Error GoTo Fail
-
-    ' 引き継ぎファイル側にそのシートが無いのは失敗ではない(旧版の
-    ' 引き継ぎファイルには存在しないシートがあり得る)。何も置き換えない。
-    If Not SheetExistsIn(srcWb, sheetName) Then
-        RestoreSheet = True
-        Exit Function
-    End If
-
-    Dim src As Worksheet: Set src = srcWb.Worksheets(sheetName)
-    ' 置き換え先が無い(=このブックが壊れている)場合は Worksheets(...) が
-    ' 実行時エラー9を出し、下の Fail が記録する。黙って諦めない。
-    Dim dst As Worksheet: Set dst = ThisWorkbook.Worksheets(sheetName)
-
-    Dim lastR As Long: lastR = src.Cells(src.Rows.count, 1).End(xlUp).row
-    Dim lastC As Long: lastC = src.Cells(1, src.Columns.count).End(xlToLeft).Column
-    If lastC < 1 Then
-        RestoreSheet = True
-        Exit Function
-    End If
-
-    ' 既存を消してから入れる(混ぜない)。見出し行は入れ直すので全消しでよい。
-    dst.Cells.ClearContents
-    If lastR < 1 Then
-        RestoreSheet = True
-        Exit Function
-    End If
-
-    Dim rowStart As Long
-    For rowStart = 1 To lastR Step 200
-        Dim rowsN As Long
-        rowsN = lastR - rowStart + 1
-        If rowsN > 200 Then rowsN = 200
-        dst.Range(dst.Cells(rowStart, 1), dst.Cells(rowStart + rowsN - 1, lastC)).Value = _
-            src.Range(src.Cells(rowStart, 1), src.Cells(rowStart + rowsN - 1, lastC)).Value
-    Next rowStart
-
-    outRows = dst.Cells(dst.Rows.count, 1).End(xlUp).row - 1
-    If outRows < 0 Then outRows = 0
-    ' R12-H-6: 引き継ぎはシートを丸ごと入れ替える。my_vectors を入れ替えたら
-    ' セッション内キャッシュは中身ごと別物なので、解放して世代を進める
-    ' (件数も先頭/末尾idも偶然一致し得るため、印だけでは足りない)。
-    If StrComp(sheetName, modAppDef.SH_VECTORS, vbTextCompare) = 0 Then
-        On Error Resume Next
-        modVecCache.ResetVecCache
-        modVecCache.BumpGeneration
-        On Error GoTo Fail
-    End If
-    RestoreSheet = True
-    Exit Function
-
-Fail:
-    Dim failNum As Long: failNum = Err.Number
-    Dim failDesc As String: failDesc = Err.Description
-    ' ハンドラ稼働中は On Error Resume Next が効かない。記録の前に Resume で
-    ' ハンドラを抜ける(modShelf.IngestFile と同じ作法。2026-07-30 実機err#462)。
-    Resume FailCleanup
-FailCleanup:
-    On Error Resume Next
-    modLog.LogError "E0801", "modMigrate.ImportUserData", _
-        "シート復元に失敗: " & sheetName & " err#" & failNum & ": " & failDesc
-    On Error GoTo 0
-End Function
-
-' my_stats はキー単位で併合する(新版が先に書いた行を消さない)。
-Private Sub MergeStats(ByVal srcWb As Workbook)
-    On Error Resume Next
-    If Not SheetExistsIn(srcWb, modAppDef.SH_STATS) Then Exit Sub
-    Dim src As Worksheet: Set src = srcWb.Worksheets(modAppDef.SH_STATS)
-    Dim lastR As Long: lastR = src.Cells(src.Rows.count, 1).End(xlUp).row
-    If lastR < 2 Then Exit Sub
-
-    Dim arr As Variant
-    arr = src.Range(src.Cells(2, 1), src.Cells(lastR, 2)).Value
-    Dim i As Long
-    For i = LBound(arr, 1) To UBound(arr, 1)
-        Dim k As String: k = Trim$(CStr(arr(i, 1)))
-        If LenB(k) > 0 Then modStats.SetStatText k, CStr(arr(i, 2))
-    Next i
-    On Error GoTo 0
-End Sub
-
-' config は「この版に存在するキーだけ」値を引き継ぐ。
-' 新版で増えたキーは新版の既定のまま(古い設定で新機能を殺さない)。
-Private Sub MergeConfig(ByVal srcWb As Workbook)
-    On Error Resume Next
-    If Not SheetExistsIn(srcWb, "config_user") Then Exit Sub
-    Dim src As Worksheet: Set src = srcWb.Worksheets("config_user")
-    Dim lastR As Long: lastR = src.Cells(src.Rows.count, 1).End(xlUp).row
-    If lastR < 2 Then Exit Sub
-
-    Dim me_ As Worksheet: Set me_ = ThisWorkbook.Worksheets(modAppDef.SH_CONFIG)
-    If me_ Is Nothing Then Exit Sub
-    Dim myLast As Long: myLast = me_.Cells(me_.Rows.count, 1).End(xlUp).row
-    If myLast < 2 Then Exit Sub
-
-    ' この版のキー集合(存在確認用)。
-    Dim known As Object: Set known = CreateObject("Scripting.Dictionary")
-    Dim myArr As Variant: myArr = me_.Range(me_.Cells(2, 1), me_.Cells(myLast, 1)).Value
-    Dim j As Long
-    For j = LBound(myArr, 1) To UBound(myArr, 1)
-        Dim mk As String: mk = LCase$(Trim$(CStr(myArr(j, 1))))
-        If LenB(mk) > 0 Then
-            If Not known.Exists(mk) Then known.Add mk, True
-        End If
-    Next j
-
-    Dim arr As Variant: arr = src.Range(src.Cells(2, 1), src.Cells(lastR, 2)).Value
-    Dim i As Long, applied As Long, skipped As Long
-    For i = LBound(arr, 1) To UBound(arr, 1)
-        Dim k As String: k = Trim$(CStr(arr(i, 1)))
-        If LenB(k) > 0 Then
-            ' R12-3-2: ホワイトリスト方式。ビルドが決める値の除外(従来)に加え、
-            ' 「利用者が決めた値」だけを通す。新版の既定値を旧値で巻き戻さない。
-            If IsUserOwnedKey(k) And Not IsBuildOwnedKey(k) Then
-                If known.Exists(LCase$(k)) Then
-                    modConfig.SetValue k, CStr(arr(i, 2))
-                    applied = applied + 1
-                End If
-            Else
-                skipped = skipped + 1
-            End If
-        End If
-    Next i
-    modLog.LogUsage "migrate_config", "", "applied=" & applied & " kept_new_default=" & skipped
-    On Error GoTo 0
-End Sub
-
-' insight_inbox は書き出し側(CopyInsightInboxInto)と対称に「未取込の行を
-' 追記」する(2026-08-01 R12-5-12)。置換ではない: 移行先ブックが起動後に
-' 自分で受信した共有知を消さないため、既存の受信箱に合流させる。
-' nonce(A列)が既に存在する行は二重取り込みしない。
-Private Sub MergeInsightInbox(ByVal srcWb As Workbook)
-    On Error Resume Next
-    If Not SheetExistsIn(srcWb, "insight_inbox") Then Exit Sub
-    Dim src As Worksheet: Set src = srcWb.Worksheets("insight_inbox")
-    Dim srcLastR As Long: srcLastR = src.Cells(src.Rows.count, 1).End(xlUp).row
-    If srcLastR < 2 Then Exit Sub
-
-    Dim dst As Worksheet: Set dst = ThisWorkbook.Worksheets("insight_inbox")
-    If dst Is Nothing Then Exit Sub
-    Dim dstLastR As Long: dstLastR = dst.Cells(dst.Rows.count, 1).End(xlUp).row
-
-    Dim lastC As Long: lastC = src.Cells(1, src.Columns.count).End(xlToLeft).Column
-    If lastC < 1 Then lastC = 10
-
-    ' 既存nonce(A列)の集合(重複取り込み防止)。
-    Dim known As Object: Set known = CreateObject("Scripting.Dictionary")
-    If dstLastR >= 2 Then
-        Dim dstArr As Variant: dstArr = dst.Range(dst.Cells(2, 1), dst.Cells(dstLastR, 1)).Value
-        Dim j As Long
-        For j = LBound(dstArr, 1) To UBound(dstArr, 1)
-            Dim dn As String: dn = CStr(dstArr(j, 1))
-            If LenB(dn) > 0 Then
-                If Not known.Exists(dn) Then known.Add dn, True
-            End If
-        Next j
-    End If
-
-    Dim srcArr As Variant: srcArr = src.Range(src.Cells(2, 1), src.Cells(srcLastR, lastC)).Value
-    Dim outR As Long: outR = dstLastR + 1
-    Dim added As Long, dup As Long, skipped As Long
-    Dim i As Long, c As Long
-    For i = LBound(srcArr, 1) To UBound(srcArr, 1)
-        Dim nc As String: nc = CStr(srcArr(i, 1))
-        If LenB(nc) > 0 And CStr(srcArr(i, 9)) <> "1" Then   ' consumed(念のため防御的に再確認)
-            If known.Exists(nc) Then
-                dup = dup + 1
-            Else
-                For c = 1 To lastC
-                    dst.Cells(outR, c).Value = InboxCellValue(srcArr(i, c), c)   ' R12-H-4
-                Next c
-                known.Add nc, True
-                outR = outR + 1
-                added = added + 1
-            End If
-        Else
-            skipped = skipped + 1
-        End If
-    Next i
-    modLog.LogUsage "migrate_insight", "", "added=" & added & " dup_skip=" & dup & _
-        " consumed_skip=" & skipped
-    On Error GoTo 0
-End Sub
+' 2026-09-05(R36波4): 「開いたブックからシートを写す」実体(旧 RestoreSheet /
+' MergeStats / MergeConfig / MergeInsightInbox)は modMigrateFrom.CopyUserData
+' へ移設した(挙動不変)。旧xlsm直読み経路(modMigrateFrom.ImportFromBook)と
+' 共用するための受け皿で、MIG_META の検査(ValidateMigFile)だけは .xlsx
+' 引き継ぎファイル固有のためこちらに残す。

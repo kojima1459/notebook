@@ -1198,6 +1198,22 @@
       "type": "std",
       "wave": "R36-2",
       "note": "R36 波2(是正の仕組み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜38と同型)。固定するもの: (C1)modCorrect.BuildMemoBody — 3行+1行の書式そのもの。1行目の指示文「【是正メモ】この質問には、下の「正しい内容」で答えること。」が本文側にも必ず載ること(これがそのまま LLM への指示として働く)、質問が「質問: 」行として入ること、ExtractQuestionLine で往復できること。(C2)ExtractQuestionLine — 取込時に焼かれる breadcrumb 行【資料名>章>条】が先頭にあっても質問行を拾えること/vbCrLf 改行/質問行の無い本文と空文字では空を返すこと(=是正メモとして扱わない)。(C3)MatchLevel — 完全一致=2(空白と「?」の有無で揺れない。判定は modInsight.NormKey と同じ物差し)、語一致=1、無関係=0、質問行の無い本文=0、空クエリ=0。(C4)KeyMatchPct — 一致率の算数を100%/0%の両端で固定し、config correct_key_min の値に依存しない形でMatchLevel の分岐根拠を可観測にする。(C5)MemoDocBase — 接頭辞と24字クランプ、および modVault.SanitizeName の置換表を先に通してある冪等性(source 名が MemoDocBase+\".txt\" と必ず一致するという RecordCorrection の前提の担保)。InjectHits/PrependHit は Hit 型(UDT)を跨ぐため LO ではモジュール間で受け渡せず(既知の死角・modTestsPure38.bas:27 と同型)、Pure テストは書かない=SKIP 上限14を増やさない。配列操作の確認は実機(modTestsExcel 系)と R36 §6 の実機受入③に委ねる。"
+    },
+    {
+      "name": "modMigrateFrom",
+      "path": "src/pack/modMigrateFrom.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-4",
+      "note": "R36 波4(§1-A 版上げ時の自動引き継ぎ)。新版の初回起動で、同じフォルダにある前版の MyBookshelf_前回.xlsm(bat が退避する名前)を自動で見つけ、読み取り専用+EnableEvents=False(R35以前のWorkbook_Open自己インストーラを走らせないため)で開いて本棚・実績・設定を写す。入口はmodTour.StartTourIfFirstRun先頭の1行フック(凍結modBootは不触)。設計意図: 「開いたブックからシートを写す」実体(CopyUserData)はmodMigrate.ImportUserData(.xlsx引き継ぎファイル経路)からそのまま移設した(挙動不変)。旧xlsm直読み(MIG_METAシートを持たない生の製品ブック)と.xlsx引き継ぎファイルの両方が同じ「3シート+統計+config+受信箱を写す」仕事を必要とするための共用先で、MIG_METAの形式バージョン検査だけは.xlsx固有のためmodMigrate側に残した。config の引き継ぎ判定(IsUserOwnedKey/IsBuildOwnedKey)とinsight_inboxのサニタイズ(InboxCellValue)はmodMigrate側をPublic化してそのまま呼ぶ(判定表を複製すると2つの台帳が食い違う事故=R12-3-2の再発を防ぐため、値ではなく判定関数そのものを共用する)。候補選定は「Dir()走査→配列→純関数PickNewest(自分を除く・最新・同時刻は先勝ち)」の形に分離してテスト可能にした(Dir()の再入禁止はmodShelfScan.EnumFolderFilesと同じ作法)。純関数(PickNewest/OfferText)はmodTestsPure41が固定する。"
+    },
+    {
+      "name": "modTestsPure41",
+      "path": "src/test/modTestsPure41.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-4",
+      "note": "R36 波4(版上げ時の自動引き継ぎ)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜40と同型)。固定するもの: (D1)modMigrateFrom.PickNewest — 自分を除く/最新を選ぶ/同時刻は先勝ち(\">\"であって\">=\"ではない)/候補0件は-1。(D2)modMigrateFrom.OfferText — ファイル名と更新日時(yyyy-mm-dd hh:nn)が文面に必ず載ること。FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRunはDir()・Workbooks.Open・シートI/Oを持つため対象外(modShelfSync/modPackと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。"
     }
   ]
 }
