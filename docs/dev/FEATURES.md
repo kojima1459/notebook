@@ -10,6 +10,7 @@
 | マルチ形式取込 | PDF/Word/Excel/テキストをフォルダ投入 or ダイアログで取込 | `modExtractor*`, `modShelf` |
 | 構造認識チャンク化 | 見出し・条文単位での分割(`chunk_mode=structure`) | `modChunker` |
 | 画像PDFのOCR取込 | スキャンPDF(E0303)を同梱外のGhostscriptでページ毎にJPEG化し、1ページ=1回のChatGPTVで文字起こし。上限は`vision_pdf_max_pages`(既定100・20ページずつのバッチ処理)で超過分はpartial。全ページ文字化けのPDFも自動でこの経路へ回る。手順は`docs/43_画像PDFのOCR取込設定.md` | `optVision`, `optOcrCore`, `modShelfVision` |
+| 画像を📁から追加 | `📁 追加`のダイアログフィルタにpng/jpg/jpegを追加(vision有効時のみ)。読み取りは📸と同じ経路 | `modShelfVision.ImageDialogPattern`, `modShelfBatch` |
 | 自動同期 | 指定フォルダとの差分同期(`sync_interval_min`でOnTime自動化) | `modShelfSync` |
 | 同期完了表示(静かな完了) | 手動同期が正常完了(上限見送りなし)のとき、状態表示行とステータスバーに「✅ 同期が完了しました(…)」と出るだけでダイアログを出さない。上限見送りがあった場合のみ従来どおりダイアログ表示 | `modShelfSync` |
 | ハイブリッド検索(標準) | 全件Float内積スコアリング+キーワードボーナス | `modRetrieve` |
@@ -20,7 +21,9 @@
 | 出典厳格化 | 資料に無いことは「見当たらない」と明言(ハルシネーション抑制) | `modPrompts.GroundingInstruction` |
 | One-Shot品質固定 | プロンプトに理想的な出力例を1つ同梱し、トーン・型・粒度を固定 | `modPrompts.StyleInstruction` |
 | Peek View(出典ポップアップ) | 回答直下の出典チップをクリック→元チャンク本文をその場でポップアップ表示 | `modPeek` |
+| 📖本文表示 | 📸取込完了直後に自動で全文表示。一覧表で行選択→📖ボタンでもいつでも表示可能。前後で全チャンク表示(← 戻るで戻る) | `modTextView`, `modKnowledgeBar` |
 | 低関連度警告 | 検索ヒットの関連度が低い場合(config `low_hit_warn_score` 既定0.3未満)、回答の先頭に「⚠️ 手元の資料との関連が薄い可能性があります」と警告表示 | `modAsk` |
+| 是正メモ(❌違う→学習) | ❌違うで書いた「正しい内容」を質問文とセットで本棚に入れ、同じ質問なら回答の先頭に必ず差し込む。質問が完全一致/語一致(config `correct_key_min` 既定60%)で判定。資料名は`是正メモ_<質問先頭24字>_<4桁>`、同じ質問への2回目は上書き | `modCorrect`, `modAppAct`, `modAskRetrieve` |
 
 ## 2. Nexus SPA UI
 
