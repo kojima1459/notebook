@@ -24,12 +24,21 @@ Option Explicit
 '     ここを両端で押さえておくと、C3 の語一致分岐が config correct_key_min
 '     (既定60)の値に依存せず判定できる ―― 閾値をいくつにしても 100 は通り
 '     0 は通らないため、テストが config の実行環境差で揺れない。
-'   C5 modCorrect.MemoDocBase: 接頭辞と24字クランプ、そして
+'   C5 modCorrect.MemoDocBase: 接頭辞・24字クランプ・末尾4桁、そして
 '     modVault.SanitizeName の置換表を【先に】通してある冪等性。
 '     modAppAct.RecordCorrection は「同名の既存資料を消してから登録し直す」
 '     ために source 名(= MemoDocBase & ".txt")を自力で組み立てる。冪等性が
 '     崩れると「?」を含む質問で名前が食い違い、消し忘れ=是正メモが本棚に
 '     増え続ける(R36 §2 が止めようとしている当のもの)。
+'     R36 Fix M2/A-M7: 先頭24字が同じ別の質問が同名になり、後の是正が前の
+'     是正を DeleteSource で消していた。末尾4桁で分ける。
+'     R36 Fix A-r5: 冪等性の検査を「SanitizeName の置換表を再現して掛ける」
+'     形へ書き換えた(旧 (d) は出力を再投入するだけで実質恒真だった)。
+'   C6 modCorrect.QuestionTag4: 資料名の末尾4桁。手計算できる期待値で固定し、
+'     AscW の負値補正(U+8000以降)とゼロ埋めを押さえる。
+'   C7 modCorrect.MatchLevel の完全一致は40字で切らない(R36 Fix A-M6)。
+'     先頭40字が同じで41字目以降が違う別の質問が score 1.0 で先頭へ入る
+'     経路を、正例(同一質問=2)と反例(41字目違い=2ではない)の2本で挟む。
 '
 ' 【なぜ InjectHits / PrependHit のテストが無いか】
 '   どちらも Hit(Public Type)の配列を跨ぐ。LO ではモジュール間で UDT 配列を
@@ -173,9 +182,12 @@ Private Sub TestKeyMatchPct40()
         modCorrect.KeyMatchPct(modSparse.NormalizeForSearch("退職金の計算方法"), _
                                modSparse.NormalizeForSearch("退職金 の 計算方法 は")), 100
 
-    ' (c) 語が1つも重ならない → 0%。
+    ' (c) 語が1つも重ならない → 0%。効く語は2語(育児休業/申請期限)取れるので、
+    '     (f)の total<2 ルールではなく【重なりが無いこと】で 0 になる
+    '     (「育児休業 申請期限」と空白で書くと DistinctiveKeys が空白を落として
+    '      漢字ラン1本=1語になり、判別力の無いテストになる。助詞で割る)。
     ChkLong40 "C4_無関係は0", _
-        modCorrect.KeyMatchPct(modSparse.NormalizeForSearch("育児休業 申請期限"), _
+        modCorrect.KeyMatchPct(modSparse.NormalizeForSearch("育児休業の申請期限"), _
                                modSparse.NormalizeForSearch("退職金の計算方法は?")), 0
 
     ' (d) 照合先が空 → 0%(0除算も例外も起こさない)。
@@ -185,6 +197,73 @@ Private Sub TestKeyMatchPct40()
     ' (e) 質問側から効く語が1つも取れない → 0%。
     ChkLong40 "C4_効く語が無ければ0", _
         modCorrect.KeyMatchPct("", modSparse.NormalizeForSearch("退職金の計算方法は?")), 0
+
+    ' (f) R36 Fix N6: 効く語が【1語しか】取れない質問は語一致に使わない。
+    '     「有給」は漢字ラン1本=キー1語なので、従来はその1語が当たるだけで
+    '     一致率100%になり、「有給の繰越は?」にも「有給の申請先は?」にも
+    '     同じ是正メモが先頭で刺さっていた(誤爆の主要経路)。分母が2未満なら 0。
+    ChkLong40 "C4_効く語が1語なら0(N6・誤爆防止)", _
+        modCorrect.KeyMatchPct(modSparse.NormalizeForSearch("有給"), _
+                               modSparse.NormalizeForSearch("有給の繰越はいつまでですか")), 0
+
+    ' (g) (f)の対照。照合先は同じで、質問側の効く語が2語(有給/繰越)になれば
+    '     従来どおり率を返す。N6 が語一致そのものを殺していないことの確認
+    '     ―― この2本は「1語か2語か」だけが違うので、total<2 の判定を
+    '     外すと(f)が100に化けて落ち、判定を強くしすぎると(g)が0に化けて落ちる。
+    ChkLong40 "C4_効く語が2語なら従来どおり100", _
+        modCorrect.KeyMatchPct(modSparse.NormalizeForSearch("有給の繰越"), _
+                               modSparse.NormalizeForSearch("有給の繰越はいつまでですか")), 100
+End Sub
+
+' ---- C6: QuestionTag4(資料名の4桁識別子) ------------------------------------
+'   R36 Fix M2/A-M7 の要。期待値は手計算できる形で固定してある:
+'   ・"A/B:C*D" は NormKey で小文字化されるだけ(除去対象の文字を含まない)。
+'     a97 + /47 + b98 + :58 + c99 + *42 + d100 = 541 → "0541"。
+'   ・"退職金は?" は「?」が落ちて 退(U+9000=36864) + 職(U+8077=32887) +
+'     金(U+91D1=37329) + は(U+306F=12399) = 119479 → mod 10000 = 9479。
+'     退・職・金はいずれも U+8000 以降で AscW が【負値】を返すため、
+'     +65536 の補正(CLAUDE.md §10)を外すとこの1本が落ちる。
+'   discriminate:
+'   ・+65536 補正を外す → (b)が落ちる((a)は ASCII だけなので落ちない)。
+'   ・NormKey を通さず生文字列で足す → (c)が落ちる(「?」の有無で値が変わる)。
+'   ・4桁ゼロ埋めを忘れる → (d)が "0" になって落ちる。
+Private Sub TestQuestionTag4_40()
+    ChkStr40 "C6_ASCIIの和", modCorrect.QuestionTag4("A/B:C*D"), "0541"
+    ChkStr40 "C6_U+8000以降を含む和(負値補正)", modCorrect.QuestionTag4("退職金は?"), "9479"
+    ChkStr40 "C6_疑問符の有無で値が変わらない", _
+        modCorrect.QuestionTag4("退職金は"), modCorrect.QuestionTag4("退職金は?")
+    ChkStr40 "C6_空はゼロ埋め4桁", modCorrect.QuestionTag4(""), "0000"
+End Sub
+
+' ---- C7: MatchLevel の完全一致は40字で切らない(R36 Fix A-M6) ----------------
+'   従来 level 2 の物差しは modInsight.NormKey(先頭40字クランプ)だった。
+'   41字目以降だけが違う別の質問が「完全一致」と判定され、score 1.0 で
+'   出典の先頭に差し込まれる(gap の重複判定は「似た質問をまとめる」のが
+'   目的なので40字で正しいが、是正の完全一致は同じ質問でしか成立しない)。
+'   discriminate:
+'   ・NormFull を NormKey へ戻す(=40字クランプを復活させる)と(b)が 2 を
+'     返して落ちる。(a)は戻しても通るので、2本で挟んで初めて効く。
+'   ・NormFull から記号除去を落とすと(c)が落ちる。
+Private Sub TestMatchLevel40Boundary()
+    Dim head40 As String: head40 = String$(40, ChrW(&H3042))   ' 「あ」×40=クランプ長ちょうど
+    Dim qA As String: qA = head40 & "退職金の計算方法"
+    Dim qB As String: qB = head40 & "育児休業の申請期限"
+
+    Dim memo As String
+    memo = modCorrect.BuildMemoBody(qA, "勤続年数×基本給×0.6です。", "誤答")
+
+    ' (a) 同じ質問はもちろん完全一致。
+    ChkLong40 "C7_41字目まで同じ同一質問は2", _
+        modCorrect.MatchLevel(modSparse.NormalizeForSearch(qA), memo), 2
+
+    ' (b) 先頭40字が同じで、41字目以降が違う別の質問 → 完全一致ではない。
+    '     語一致も成立しない(「育児休業」「申請期限」は是正メモの質問行に無い)。
+    ChkLong40 "C7_先頭40字だけ同じ別質問は2ではない", _
+        modCorrect.MatchLevel(modSparse.NormalizeForSearch(qB), memo), 0
+
+    ' (c) 40字クランプは無くしたが、記号・空白の揺れは従来どおり吸収する。
+    ChkLong40 "C7_記号と空白の揺れは吸収したまま2", _
+        modCorrect.MatchLevel(modSparse.NormalizeForSearch(qA & "?"), memo), 2
 End Sub
 
 ' ---- C5: MemoDocBase の接頭辞・クランプ・冪等性 ------------------------------
@@ -198,26 +277,75 @@ End Sub
 '     modAppAct.RecordCorrection の DeleteSource が空振りして是正メモが
 '     本棚に増え続ける(旧「修正ナレッジ」と同じ壊れ方に戻る)。
 Private Sub TestMemoDocBase40()
-    ' (a) 接頭辞。
-    ChkStr40 "C5_接頭辞と本体", modCorrect.MemoDocBase("退職金の計算方法"), "是正メモ_退職金の計算方法"
+    ' (a) 接頭辞 + 本体 + "_" + 4桁。4桁の値そのものは C6 が固定するので、
+    '     ここは【組み立ての形】を見る(2箇所で同じ数字を書き写さない)。
+    ChkStr40 "C5_接頭辞と本体と4桁", modCorrect.MemoDocBase("退職金の計算方法"), _
+        "是正メモ_退職金の計算方法_" & modCorrect.QuestionTag4("退職金の計算方法")
+    ' 4桁は 0355(C6 と同じ手計算の物差し)。組み立てと値の両方を1本で押さえる。
+    ChkStr40 "C5_実値(退職金の計算方法)", modCorrect.MemoDocBase("退職金の計算方法"), _
+        "是正メモ_退職金の計算方法_0355"
 
-    ' (b) 24字でクランプ。"あ"×30 → 先頭24字だけ。
+    ' (b) 24字でクランプ。"あ"×30 → 本体は先頭24字だけ。4桁は【クランプ前の
+    '     質問全体】(正確には NormKey の40字)から作るので、24字を超える差も
+    '     名前へ反映される ―― これが(f)の衝突回避の仕組み。
     Dim long30 As String: long30 = String$(30, ChrW(&H3042))
-    ChkStr40 "C5_24字クランプ", modCorrect.MemoDocBase(long30), "是正メモ_" & String$(24, ChrW(&H3042))
+    ChkStr40 "C5_24字クランプ", modCorrect.MemoDocBase(long30), _
+        "是正メモ_" & String$(24, ChrW(&H3042)) & "_0620"
 
     ' (c) SanitizeName の禁止文字は【この関数の中で】潰す。日本語の質問では
     '     「?」が普通に出るので、ここが最も踏まれる経路。
-    ChkStr40 "C5_疑問符は先に潰す", modCorrect.MemoDocBase("退職金は?"), "是正メモ_退職金は_"
-    ChkStr40 "C5_パス区切りも潰す", modCorrect.MemoDocBase("A/B:C*D"), "是正メモ_A_B_C_D"
+    ChkStr40 "C5_疑問符は先に潰す", modCorrect.MemoDocBase("退職金は?"), "是正メモ_退職金は__9479"
+    ChkStr40 "C5_パス区切りも潰す", modCorrect.MemoDocBase("A/B:C*D"), "是正メモ_A_B_C_D_0541"
 
-    ' (d) 冪等性: 出力をもう一度通しても値が変わらない(= modVault.SanitizeName を
-    '     通しても変わらない、の代理検査)。ここが崩れると DeleteSource が空振りする。
-    Dim once As String: once = modCorrect.MemoDocBase("退職金は?")
-    ChkStr40 "C5_置換は冪等", modCorrect.MemoDocBase(Mid$(once, Len("是正メモ_") + 1)), once
+    ' (d) R36 Fix A-r5: 冪等性を【modVault.SanitizeName の置換表を再現して】
+    '     検査する。旧テスト(出力の本体部分をもう一度 MemoDocBase に通す)は
+    '     4桁が付いた時点で成り立たず、そもそも「SanitizeName を通しても
+    '     変わらない」を測っていなかった(実質恒真)。
+    '     ここが崩れると source 名が食い違い、modAppAct.RecordCorrection の
+    '     DeleteSource が空振りして是正メモが本棚に増え続ける。
+    '     禁止文字(? / :)を全部含む質問で見る。
+    Dim qBad As String: qBad = "有給休暇の申請は?いつまで/どこへ:提出しますか"
+    Dim baseName As String: baseName = modCorrect.MemoDocBase(qBad)
+    ChkStr40 "C5_SanitizeNameを通しても変わらない(冪等)", SanitizeLikeVault40(baseName), baseName
+    ' SanitizeName は60字で切る。切られると冪等が崩れるので、長さも押さえる
+    ' (接頭辞5 + 本体24 + "_" + 4桁 = 最大34字。上限まで26字の余裕がある)。
+    ChkBool40 "C5_資料名は60字以内(SanitizeNameのクランプに掛からない)", _
+        (Len(baseName) <= 60), True
+    ' 禁止文字が1つも残っていない(置換漏れの直接検査)。
+    ChkBool40 "C5_禁止文字が残らない", _
+        (InStr(1, baseName, "?", vbBinaryCompare) = 0 And _
+         InStr(1, baseName, "/", vbBinaryCompare) = 0 And _
+         InStr(1, baseName, ":", vbBinaryCompare) = 0), True
 
     ' (e) 空の質問でも接頭辞だけは残る(名前が空文字にならない)。
-    ChkStr40 "C5_空質問でも接頭辞は残る", modCorrect.MemoDocBase(""), "是正メモ_"
+    ChkStr40 "C5_空質問でも接頭辞は残る", modCorrect.MemoDocBase(""), "是正メモ__0000"
+
+    ' (f) R36 Fix M2/A-M7: 先頭24字が同じ【別の質問】は、別の資料名になる。
+    '     旧実装は24字だけで名前を決めていたので、後から書いた是正メモが
+    '     DeleteSource で前のものを消していた(2つ目の是正が1つ目を殺す)。
+    '     4桁を落とす/24字だけに戻すと、この1本が必ず落ちる。
+    Dim q24 As String: q24 = String$(24, ChrW(&H3042))
+    ChkStr40 "C5_先頭24字が同じ別質問A", modCorrect.MemoDocBase(q24 & "退職金"), _
+        "是正メモ_" & q24 & "_3576"
+    ChkStr40 "C5_先頭24字が同じ別質問B", modCorrect.MemoDocBase(q24 & "育児休業"), _
+        "是正メモ_" & q24 & "_7488"
+    ChkBool40 "C5_先頭24字が同じ別質問は資料名が衝突しない", _
+        (modCorrect.MemoDocBase(q24 & "退職金") <> modCorrect.MemoDocBase(q24 & "育児休業")), True
 End Sub
+
+' modVault.SanitizeName(modVault.bas:370-378)の再現。テストから Private は
+' 呼べないので、置換表と60字クランプをここに写す。片方を変えたら両方直すこと
+' ―― 写しがズレたらこのテストは「自分の写しに対して冪等」を測るだけになる。
+Private Function SanitizeLikeVault40(ByVal s As String) As String
+    Dim bad As Variant
+    bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|", vbTab, vbCr, vbLf)
+    Dim t As String: t = s
+    Dim i As Long
+    For i = LBound(bad) To UBound(bad)
+        t = Replace(t, CStr(bad(i)), "_")
+    Next i
+    SanitizeLikeVault40 = modUtil.SafeLeft(Trim$(t), 60)
+End Function
 
 ' ---- 判定ヘルパー -----------------------------------------------------------
 Private Sub ChkBool40(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
@@ -248,6 +376,12 @@ H04Next40:
 H05Next40:
     On Error GoTo H05Fail40
     TestMemoDocBase40
+H06Next40:
+    On Error GoTo H06Fail40
+    TestQuestionTag4_40
+H07Next40:
+    On Error GoTo H07Fail40
+    TestMatchLevel40Boundary
 H01Done40:
     On Error GoTo 0
     Exit Sub
@@ -270,6 +404,14 @@ H04Fail40:
     Resume H05Next40
 H05Fail40:
     modTestRunner.Check "TestMemoDocBase40(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H06Next40
+H06Fail40:
+    modTestRunner.Check "TestQuestionTag4_40(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next40
+H07Fail40:
+    modTestRunner.Check "TestMatchLevel40Boundary(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done40
 End Sub
