@@ -59,13 +59,18 @@ Public Sub BuildFor(ByVal sourceName As String)
     ' 材料が無いのに消せば、相手の📖から「関連する資料」が永久に消えるだけ
     ' になる。自分から出ている行(src_a=自分)だけ落として重心を書き、
     ' リンクは次に取り込み直したときに作り直す(R37 §10 A-M2)。
+    ' 【R37 Fix2 C-記録】WriteCentroidRows は RemoveCentroidsFor の直後・
+    '   RemoveLinksFor(Forward)の前へ置く。旧版は逆順で、RemoveLinksFor 側で
+    '   実行時エラーになると centroids は消えたまま二度と書かれず、doc_links
+    '   だけが残る歪な状態になっていた。自分の章重心は「消したら必ずすぐ
+    '   書く」を守り、リンクの作り直しはその後に回す(失敗しても重心は残る)。
     modXDocStore.RemoveCentroidsFor sourceName
+    modXDocStore.WriteCentroidRows sourceName, chaps, chCsv, chN, nCh
     If loadFailed Then
         modXDocStore.RemoveLinksForwardFor sourceName
     Else
         modXDocStore.RemoveLinksFor sourceName
     End If
-    modXDocStore.WriteCentroidRows sourceName, chaps, chCsv, chN, nCh
 
     If nEx < 1 Then GoTo LogDone
 
