@@ -121,6 +121,14 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
     Dim t As String
     t = ModeLabel(mode, speed) & " ・ " & Format$(secs, "0.0") & "秒"
 
+    ' R38 Fix2: 1回読みの印は【どの出口でも必ず1回消費】する(下の grounded=False
+    ' の早期脱出より前)。描画例外などで消費されずに残ると、次の しっかり の
+    ' ターンで 4→1 と差し引かれ「(1段)」と嘘をつく(2周目 MINOR-1)。
+    Dim wasOne As Boolean
+    On Error Resume Next
+    wasOne = modAskOnePass.ConsumeOnePassTurn()
+    On Error GoTo 0
+
     If Not grounded Then
         Footer = t & " ・ 社内資料は未使用"
         ' R26H F1(出荷ブロッカー B-1): 一般アシスタントは modApp.OnSend で
@@ -167,7 +175,7 @@ Public Function Footer(ByVal secs As Double, ByVal grounded As Boolean, _
         ' 4段が1回に置き換わった分(expand+rerank+1回読みの3段構成)だけ
         ' 段数を差し引く。従来の段数表示が実態(「(6段)」等)と食い違って
         ' いたため(A-M4)。
-        If modAskOnePass.ConsumeOnePassTurn() Then If stg > 3 Then stg = stg - 3
+        If wasOne Then If stg > 3 Then stg = stg - 3
         On Error GoTo 0
     End If
     If stg > 0 Then Footer = Footer & "(" & stg & "段)"

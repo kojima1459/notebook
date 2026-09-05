@@ -145,7 +145,11 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
         Next i
 
         Dim capPer As Long
-        capPer = PerChapterCap(maxChars, nPick, PER_CHAPTER_MIN_CAP)
+        ' R38 Fix2(2周目 MAJOR-2): 章には予算の8割だけ渡し、残り2割を F1 で足す
+        ' 元 hits のために空けておく。等分し切ると大きい規程(8章×37,500字)で
+        ' 章本文だけが上限に達し、追加分が1件も載らない(extra=N は「足した数」
+        ' であって「載った数」ではない)。
+        capPer = PerChapterCap(maxChars - (maxChars \ 5), nPick, PER_CHAPTER_MIN_CAP)
 
         ' 章は【1章ずつ順位順】に読む(CollectChapterHits はシートを1回走査して
         ' 行順に返すので、まとめて渡すと章の順が取込順になり、最も関連の強い章が
@@ -555,7 +559,10 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
     ' R38 Fix F7: 同じ文言が modAskThorough と2箇所に分裂していたため、
     ' 単一情報源(modAskThorough.ThoroughStyleAddendum/ExemptionCoverageAddendum)
     ' を通す(先頭の■を落として・にする=出力文字列は1字も変わらない。A-m3)。
-    sb = sb & "・" & Mid$(modAskThorough.ThoroughStyleAddendum(), 2) & vbLf
+    ' R38 Fix2(2周目 MAJOR-1): ■ は落とさない。表示側(modLive.StyleAnswerParas/
+    ' AnswerParagraphs)は行頭 ■ の段落だけを見出し扱いにし、同じプロンプトが
+    ' Markdown の # を禁じているので、■ を消すと見出しの指示が1つも残らない。
+    sb = sb & "・" & modAskThorough.ThoroughStyleAddendum() & vbLf
     sb = sb & "・" & Mid$(modAskThorough.ExemptionCoverageAddendum(), 2) & vbLf
     sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
 

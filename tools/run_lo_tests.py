@@ -148,7 +148,8 @@ EXPECTED_SKIP_MAX = 14
 #   2026-09-06 R38: modTestsPure43(入念の1回読み: IsOn/DedupeKeys/PerChapterCap/
 #     CountLines/BuildOnePassPrompt の37件)を追加。下限 3155→3192(SKIP 14 のまま)。
 #     ネガティブ確認: Pure43 C_正常等分 の期待値を 10001 に壊して FAIL 1→復元。
-EXPECTED_PASS_MIN = 3192
+#     Fix2 で「E_見出し記号■が残る」を1件追加 → 下限 3193。
+EXPECTED_PASS_MIN = 3193
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

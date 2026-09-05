@@ -198,6 +198,10 @@ Private Sub TestBuildOnePassPrompt43()
     endFollow = (Right$(pFull, Len("[[FOLLOWUP: 候補1 | 候補2]]")) = "[[FOLLOWUP: 候補1 | 候補2]]")
     ChkBool43 "E_FOLLOWUP末尾配置", endFollow, True
 
+    ' (j) R38 Fix2(2周目 MAJOR-1): 見出し記号 ■ が出力規則に残っていること。
+    '     表示側は行頭 ■ の段落だけを見出しにするので、■ を落とす実装は落ちる。
+    ChkBool43 "E_見出し記号■が残る", (InStr(pFull, "・■見出しで構造化") > 0), True
+
     ' (i) 質問本文が抜粋本文の後ろにあること
     Dim pCtxPos As Long: pCtxPos = InStr(pFull, "CTX_TEXT")
     Dim pQPos As Long: pQPos = InStr(pFull, "私の質問")
