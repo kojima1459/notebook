@@ -779,13 +779,11 @@ Public Sub OnDelete()
 End Sub
 
 ' 📖本文ボタン(R36波1 §3)。RefreshCurrentは呼ばない(text_view隠れ防止)。
+' R36 Fix N7: 記録は modTextView.ShowActiveRow 側(自前のFail網)へ移した。
 Public Sub OnShowText()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
-    On Error Resume Next
     modTextView.ShowActiveRow
-    If Err.Number <> 0 Then modLog.LogError "E0801", "modKnowledge.OnShowText", Err.Description, Err.Number
-    On Error GoTo 0
     modUiLock.Leave
 End Sub
 

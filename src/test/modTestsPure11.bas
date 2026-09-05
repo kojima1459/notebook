@@ -444,11 +444,20 @@ Private Sub TestToolbarContentRight()
     modTestRunner.Check "ツールバー右端_広い帯は通常域", _
         (rShared900 >= L + 200), "実際=" & rShared900
 
-    ' ギャラリー(検索ボタンが増える分、一覧表より右端が広がる)。上限頭打ち
-    ' 同士の比較でも成立する(帯を広げ続けた先でもギャラリーの方が広い)。
+    ' R36 Fix B2: 一覧表とギャラリーの広さは【R36波1で逆転した】。R33H まで
+    ' ギャラリーが広かったのは 🔍検索(62)がギャラリー限定だったため。R36波1で
+    ' 📖本文(58)を一覧表限定に足した結果、一覧表側が 📖58+🗑58 の2個、
+    ' ギャラリー側が 🔍62 の1個になり、差は約 58+58-62=54(ボタン間の余白を
+    ' 含めて実測 72.5)だけ一覧表が広い。実測 table=1274.25 / gallery=1201.75。
+    ' 「どちらが広いか」だけでなく【差の大きさ】も 40〜80 で挟む ―― 上下限を
+    ' 付けないと、一覧表限定のボタンを何個増やしても素通りするザルになる
+    ' (どちら側のボタンを1つ足しても引いても、この範囲から外れる)。
     Dim rGallery2000 As Double: rGallery2000 = modKnowledgeBar.ToolbarContentRight(False, False, L, 2000)
-    modTestRunner.Check "ツールバー右端_ギャラリーは一覧表より広い", _
-        (rGallery2000 > rTable2000), "gallery=" & rGallery2000 & " table=" & rTable2000
+    Dim dTG As Double: dTG = rTable2000 - rGallery2000
+    modTestRunner.Check "ツールバー右端_一覧表はギャラリーより広い(R36で反転)", _
+        (dTG > 40), "table=" & rTable2000 & " gallery=" & rGallery2000 & " 差=" & dTG
+    modTestRunner.Check "ツールバー右端_一覧表とギャラリーの差はボタン1個ぶん(<80)", _
+        (dTG < 80), "table=" & rTable2000 & " gallery=" & rGallery2000 & " 差=" & dTG
 
     ' 帯幅0でも例外にならない(FlowLeft側の下限クランプが効く)。
     modTestRunner.Check "ツールバー右端_帯幅0でも例外にならない", _

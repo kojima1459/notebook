@@ -464,7 +464,7 @@ Public Sub OnIngestScreenshot()
     ' スクショ取込はギャラリー/解決事例のツールバーからも押せるが、
     ' IngestFile 側の再描画は一覧表モードのときしか効かなかった。
     On Error Resume Next
-    modTextView.AfterShot destPath
+    modTextView.AfterShot destPath, ingestStatus
     On Error GoTo 0
     Exit Sub
 Fail:
