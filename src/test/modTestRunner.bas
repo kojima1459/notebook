@@ -306,4 +306,21 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-05(R36波4): 版上げ時の自動引き継ぎ(§1-A)の純ロジック回帰。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは modMigrateFrom.PickNewest
+    ' (自分を除く・最新・同時刻は先勝ち・候補0件は-1)と
+    ' modMigrateFrom.OfferText(確認ダイアログにファイル名と更新日時が
+    ' 必ず載ること)の2本だけ。FindPreviousBook/ImportFromBook/
+    ' CopyUserData/OfferImportIfFirstRunはDir()・Workbooks.Open・
+    ' シートI/Oを持つため対象外。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure41.RunAll41
+    If Err.Number <> 0 Then
+        Check "modTestsPure41.RunAll41", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

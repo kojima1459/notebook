@@ -808,6 +808,17 @@ PURE_ALLOWLIST = [
     #   modTestsPure40: modTestRunner.RunAllPureTests から呼ばれる別枝の本体。
     #     同上の理由で注入必須。
     "modCorrect", "modTestsPure40",
+    # modMigrateFrom / modTestsPure41(2026-09-05 R36波4): 版上げ時の自動
+    #   引き継ぎ(§1-A)。テストが呼ぶのは純関数2本(PickNewest=自分を除く/
+    #   最新/同時刻は先勝ちの候補選定、OfferText=確認ダイアログの文面組み
+    #   立て)だけで、Dir()・Workbooks.Open・シートI/Oを持つ
+    #   FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRun
+    #   はテストから呼ばない(modShelfSync/modPack/modVecCache と同じ
+    #   「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体は
+    #   Excel/COMに触れない」型)。未注入だと実行時エラー12になり、
+    #   「自分自身を前の版として開いてしまわないか」の唯一の自動検査が
+    #   走らないまま全部PASSに見える。
+    "modMigrateFrom", "modTestsPure41",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
