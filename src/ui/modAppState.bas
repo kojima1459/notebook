@@ -363,6 +363,32 @@ Public Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' SaveTurnKind - このターンの種類を1語で ui_state へ残す(R36 Fix M3)。
+'   "general"  = 一般アシスタント(本棚を見ないモード)
+'   "followup" = 続けて質問/深掘り(質問文が「もっと詳しく」等の短文になりうる)
+'   "rag"      = 本棚の資料を根拠に答えた通常のRAGターン
+'   読むのは modAppAct.RecordCorrection ただ1箇所で、是正メモ経路に入れるのは
+'   "rag" のときだけ ―― followup の短文がその質問として登録されると、以後
+'   その語を含む質問すべてに古い是正が先頭で刺さる(R36 §9-1 M3)。
+'   実体をここに置くのは modApp が残247字の逼迫モジュールで、あちらは
+'   1行呼び出しに留める必要があるため(CLAUDE.md §12)。呼び出しは
+'   modApp.OnSend の1箇所、SaveTurnForRestore の直前。
+' ----------------------------------------------------------------------------
+Public Sub SaveTurnKind(ByVal sendMode As String, ByVal isFollowup As Boolean)
+    On Error Resume Next
+    Dim kind As String
+    If sendMode = "normal" Then
+        kind = "general"
+    ElseIf isFollowup Then
+        kind = "followup"
+    Else
+        kind = "rag"
+    End If
+    modState.SaveState "nexus_last_kind", kind
+    On Error GoTo 0
+End Sub
+
 ' RAGモードの速度(既存ui_stateのquick/deep設定を流用。既定quick)。
 Public Function RagSpeed() As String
     ' 3モードの正規化は modMode が単一情報源(quick/deep/thorough)。

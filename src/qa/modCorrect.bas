@@ -75,6 +75,45 @@ Public Function IsMemoSource(ByVal src As String) As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
+' SourceExists - my_knowledge にこの資料名(source)の行があるか(R36 Fix M1)。
+'   modAppAct.RecordCorrection が「消す前に、消すものがあったか」を控えるため。
+'   同名の旧是正メモを DeleteSource してから登録し、その登録が失敗すると
+'   【前の是正メモだけが消えて何も残らない】(不可逆)。せめて何が起きたかを
+'   利用者へ正しく言うために、消す前の有無をここで見る。
+'   読むのは source 列だけ(1〜2列。1列だけの Range.Value はスカラーになるので
+'   2列読む ―― InjectHits と同じ理由)。失敗したら False(=控えめな文言側)。
+' ----------------------------------------------------------------------------
+Public Function SourceExists(ByVal srcName As String) As Boolean
+    Dim target As String: target = LCase$(Trim$(srcName))
+    If LenB(target) = 0 Then Exit Function
+
+    On Error GoTo Done
+
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
+    If ws Is Nothing Then Exit Function
+
+    Dim lastK As Long
+    lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+    If lastK < 2 Then Exit Function
+
+    Dim arr As Variant
+    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastK, 2)).Value
+
+    Dim i As Long
+    For i = LBound(arr, 1) To UBound(arr, 1)
+        If LCase$(Trim$(CStr(arr(i, 2)))) = target Then
+            SourceExists = True
+            Exit Function
+        End If
+    Next i
+    Exit Function
+
+Done:
+    SourceExists = False
+End Function
+
+' ----------------------------------------------------------------------------
 ' BuildMemoBody - 是正メモの本文(R36 §2-2-1 の書式)。純関数。
 '   modVault.RegisterKnowledgeText が先頭へ "【是正メモ】" & vbLf を足すので、
 '   ここが返すのは2行目以降にあたる本体。1行目の指示文は【LLMへの指示】として

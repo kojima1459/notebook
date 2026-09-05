@@ -106,7 +106,7 @@ Public Sub OnActBad()
         modAppDef.APP_NAME & " - 正しい内容を教える")
     If LenB(Trim$(fixText)) = 0 Then GoTo Done
 
-    RecordCorrection fixText
+    RecordCorrection fixText, True     ' ❌違う=是正メモの経路を許す(R36 Fix M3)
 Done:
     modUiLock.Leave
 End Sub
@@ -127,15 +127,38 @@ End Sub
 '       登録前に消してから入れ直す(下の DeleteSource)。
 ' 呼ぶのは凍結 modShelf の【既存 Public】だけで、凍結モジュールは不触。
 '
-' 【司令塔へ報告済みの縫い目・R36 波2】この Sub は ❌違う(OnActBad)だけで
-' なく 🤔(OnActUnsure :385)からも呼ばれる。🤔 が渡すのは「正しい内容」では
-' なく「どこが引っかかったか」の一言(例:「説明が分かりにくい」)で、それが
-' 是正メモとして【その質問の最優先の答え】に昇格する。R36 §2 は ❌違う の
-' 経路しか論じておらず、🤔 の扱いは裁定が無い。実装波は仕様どおり共通の
-' まま置き、分岐が要るかは司令塔の裁定を待つ。
-Private Sub RecordCorrection(ByVal fixText As String)
+' ----------------------------------------------------------------------------
+' R36 Fix M3(司令塔裁定・層1): 是正メモの経路は【本棚の資料を根拠に答えた
+'   ターンの、まとまった質問】に限る。従来は無条件だったため:
+'     ・「もっと詳しく」等の続けて質問(followup)の短文が是正メモの【質問】に
+'       なり、以後その語を含む質問すべてに古い是正が先頭で刺さった。
+'     ・一般アシスタント(general)の回答にも ❌違う が出て、本棚を見ない
+'       モードの誤りが本棚の最優先の答えとして登録された。
+'     ・🤔微妙 が渡すのは「正しい内容」ではなく「どこが引っかかったか」の
+'       一言(例:「説明が分かりにくい」)で、それが最優先の答えへ昇格していた。
+'   ゲートは3つ全部を満たしたときだけ memo 経路:
+'     (1) 呼び出し元が ❌違う (allowMemo=True。🤔 は False)
+'     (2) 直前ターンが rag (modApp.OnSend が nexus_last_kind に置く)
+'     (3) 質問が8字以上(「もっと詳しく」=6字は落ちる)
+'   満たさないときは旧経路 ―― title「修正ナレッジ」・docBase 無し・質問行
+'   無し。質問行が無い本文は modCorrect.ExtractQuestionLine が空を返すので
+'   MatchLevel が必ず 0 になり、注入されない(普通の資料として残るだけ)。
+' ----------------------------------------------------------------------------
+Private Sub RecordCorrection(ByVal fixText As String, ByVal allowMemo As Boolean)
     On Error Resume Next
     Dim q As String: q = modCorrect.LastQuestionFromState()
+
+    ' And は短絡しないので段で書く(§11)。
+    Dim useMemo As Boolean: useMemo = allowMemo
+    If useMemo Then useMemo = (LCase$(Trim$(modState.LoadState("nexus_last_kind", ""))) = "rag")
+    If useMemo Then useMemo = (Len(Trim$(q)) >= 8)
+
+    If Not useMemo Then
+        RecordPlainKnowledge fixText
+        On Error GoTo 0
+        Exit Sub
+    End If
+
     Dim body As String
     body = modCorrect.BuildMemoBody(q, fixText, _
                modUtil.SafeLeft(modAppState.TargetText(), 200))
@@ -144,7 +167,12 @@ Private Sub RecordCorrection(ByVal fixText As String)
     ' (modShelf.bas:72)で、MemoDocBase は modVault.SanitizeName と同じ置換を
     ' 済ませてあるので "<MemoDocBase>.txt" と必ず一致する。無い資料を渡しても
     ' DeleteSource は何もしないので、初回でも安全(modUIShelf.bas:529 と同じ呼び方)。
-    modShelf.DeleteSource modCorrect.MemoDocBase(q) & ".txt"
+    ' R36 Fix M1: 消す【前】に、消すものがあったかを控える。登録に失敗すると
+    ' 前の是正メモだけが消えて何も残らない(不可逆)ので、そのときは何が
+    ' 起きたかを正しく言う(下の MsgBox の出し分け)。
+    Dim memoSrc As String: memoSrc = modCorrect.MemoDocBase(q) & ".txt"
+    Dim hadOld As Boolean: hadOld = modCorrect.SourceExists(memoSrc)
+    modShelf.DeleteSource memoSrc
 
     If modVault.RegisterKnowledgeText("是正メモ", body, "", modCorrect.MemoDocBase(q)) Then
         modStats.Bump "correction_total"
@@ -165,6 +193,42 @@ Private Sub RecordCorrection(ByVal fixText As String)
         ' R36 §2-2-3: 文言を実装の実態へ合わせる(旧文は「次に同じ質問をした人
         ' から、この内容で答えます」で、質問文を保存も優先もしていなかった)。
         modSkin.ShowToast "ありがとうございます。この質問には次から、いま書いていただいた内容で答えます(是正メモとして本棚に入りました)。", "success"
+    ElseIf hadOld Then
+        ' R36 Fix M1: 直前の DeleteSource で【前の是正メモは既に消えている】。
+        ' 「保存に失敗しました」だけでは、前の内容が残っていると誤解する。
+        MsgBox "学習の保存に失敗しました。前の是正メモは失われました。" & vbCrLf & _
+               "もう一度「" & ChrW(&H274C) & " 違う」から書き直してください。", _
+               vbExclamation, modAppDef.APP_NAME
+    Else
+        MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, modAppDef.APP_NAME
+    End If
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' RecordPlainKnowledge - 旧「修正ナレッジ」経路(R36 Fix M3)。
+'   R35 までの実装そのまま: 普通の資料として1冊入るだけで、質問行が無いので
+'   是正メモとしては【注入されない】。🤔微妙 と、rag 以外のターン・短文の
+'   ❌違う がここへ来る。EXP・バッジ・部内共有は従来どおり行う(記録という
+'   行為自体の価値は経路で変わらない)。
+'   トーストは実態どおりに言う ―― 「次から必ずこの内容で答えます」は
+'   この経路では嘘になる(R36 §2-1 で止めた過大表現の再発を作らない)。
+' ----------------------------------------------------------------------------
+Private Sub RecordPlainKnowledge(ByVal fixText As String)
+    On Error Resume Next
+    Dim body As String
+    body = "【修正ナレッジ】" & vbLf & _
+           "対象の回答(抜粋): " & modUtil.SafeLeft(modAppState.TargetText(), 400) & vbLf & vbLf & _
+           "正しい内容: " & fixText
+
+    If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
+        modStats.Bump "correction_total"
+        modStats.AddExp "correction"
+        modStats.EvaluateBadges
+        If modAsk.CanShareInsight() Then
+            modInsightIo.EmitCorrection modMode.AnnotateIfNeeded(modAsk.LastAnswerText()), fixText
+        End If
+        modSkin.ShowToast "記録しました。本棚に1冊として残ります。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, modAppDef.APP_NAME
     End If
@@ -389,7 +453,7 @@ Public Sub OnActUnsure()
         modAppDef.APP_NAME & " - どこが気になりましたか")
     If LenB(Trim$(hint)) = 0 Then GoTo Done
 
-    RecordCorrection hint
+    RecordCorrection hint, False       ' 🤔微妙は旧経路(R36 Fix M3)。「正しい内容」ではないため
 Done:
     modUiLock.Leave
 End Sub

@@ -1847,6 +1847,13 @@ CONTRACT: dict[str, dict] = {
             # 呼び出しは modApp.OnSend の1箇所のみで、ui_state(nexus_hist_u/a)を
             # 書く=状態の窓口であるここが本来の持ち主。
             "SaveTurnForRestore",
+            # R36 Fix M3: このターンの種類("general"/"followup"/"rag")を
+            # ui_state へ1語で残す。読むのは modAppAct.RecordCorrection 1箇所で、
+            # 是正メモ経路に入れるのは "rag" のときだけ。実体をここに置くのは
+            # modApp が残247字の逼迫モジュールで、あちらは1行呼び出しに
+            # 留める必要があるため(CLAUDE.md §12)。SaveTurnForRestore と
+            # 同じく ui_state の書き手なので、置き場としても同居が自然。
+            "SaveTurnKind",
         ],
     },
     # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・

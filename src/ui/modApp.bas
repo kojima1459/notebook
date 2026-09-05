@@ -230,6 +230,7 @@ Public Sub OnSend()
     modLive.StyleAnswerParas bubbleName   ' ■見出しの段落だけ太字(AI回答のみ)
     modAppState.SetActiveBubble bubbleName
     modUI.MarkActiveBubble bubbleName
+    modAppState.SaveTurnKind sendMode, isFollowup   ' R36 Fix M3: 是正メモ経路のゲート
     modAppState.SaveTurnForRestore q, ans   ' ④記憶の継続: 次回起動時の復元用
 
     ' 積む順は 回答 → 信頼度 → 出典 → 評価。根拠を見る前に評価させない。
@@ -816,6 +817,7 @@ Public Sub OnSaveAndExit()
     ' 構成されていて冪等なので、開発構成(ThisWorkbook.cls あり)で
     ' Workbook_BeforeClose と二重に走っても害はない。
     On Error Resume Next
+    modTextView.CleanupSheet   ' R36 Fix A-r4: text_viewを保存物に残さない
     modBoot.Auto_Close
     On Error GoTo 0
 
