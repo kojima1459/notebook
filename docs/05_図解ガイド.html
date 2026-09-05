@@ -307,7 +307,7 @@
     <tr><th>ボタン</th><th>何が起きるか</th></tr>
     <tr><td><span class="btn">✅ 解決した</span></td><td>自己解決として記録。節約時間と経験値が増え、共有フォルダが設定済みなら資料を作った人にも届きます。</td></tr>
     <tr><td><span class="btn">🤔 微妙</span></td><td>参考にはなったが不十分だったときに記録します。</td></tr>
-    <tr><td><span class="btn red">❌ 違う</span></td><td>記録したあと「正しい内容を教えてください」と聞かれます。書くと「修正ナレッジ」として本棚に登録されます（→ 第7章。効き方に条件があります）。</td></tr>
+    <tr><td><span class="btn red">❌ 違う</span></td><td>記録したあと「正しい内容を教えてください」と聞かれます。書くと「是正メモ」として本棚に登録され、同じ質問には次から必ずこの内容が使われます（→ 第7章）。</td></tr>
     <tr><td><span class="btn">🔍 深掘り</span></td><td>直前の会話をふまえて続けて質問できます。話の続きを書き直さなくて済みます。</td></tr>
     <tr><td><span class="btn">📋 コピー</span> / <span class="btn">📄 Word</span></td><td>答えをコピー、または Word 文書として書き出します（「お客様向けの回答文書風に」など整え方を指定できます）。</td></tr>
     <tr><td><span class="btn">💾 保存</span></td><td>いまの質問と回答の1往復を「💭考察メモ_〇〇」という名前で本棚に残します。一次資料ではない旨の断り書きが本文の先頭に入ります。</td></tr>
@@ -336,7 +336,7 @@
   <h3>入れる</h3>
   <div class="tw"><table>
     <tr><th>ボタン</th><th>いつ使う</th><th>補足</th></tr>
-    <tr><td><span class="btn">📁 追加</span><span class="tag day1">初日</span></td><td>手元のファイルを1件以上まとめて入れる（チャット画面の入力欄左にある <span class="btn">📁</span> でも同じ）</td><td>対応形式: txt / md / csv / pdf / docx / doc / xlsx / xls / xlsm。txt/md/csv は 50MB まで。画像ファイル（png/jpg/jpeg）も選べます（📸 と同じ読み取り方式。画像解析が使える環境だけ）</td></tr>
+    <tr><td><span class="btn">📁 追加</span><span class="tag day1">初日</span></td><td>手元のファイルを1件以上まとめて入れる（チャット画面の入力欄左にある <span class="btn">📁</span> でも同じ）</td><td>対応形式: txt / md / csv / pdf / docx / doc / xlsx / xls / xlsm。txt/md/csv は 50MB まで。画像（png/jpg/jpeg）は 📁 追加からも選べます（📸 と同じ読み取り方式。画像解析が使える環境だけ）</td></tr>
     <tr><td><span class="btn">📸 スクショ取込</span><span class="tag day1">初日</span></td><td>画面のコピー（PrintScreen や Win+Shift+S）を資料にする</td><td>押すと資料名を聞かれ、AIが画像から文字を読み取って1冊として登録します。読み取り完了後、確認画面（📖 本文）が自動で開きます（→ 第7章の確かめ方）</td></tr>
     <tr><td><span class="btn">➕ 登録</span><span class="tag week1">慣れたら</span></td><td>文章を直接書いてナレッジにする</td><td>入力欄「ナレッジ本文(またはAIへの修正指示)」に打ち込む</td></tr>
     <tr><td><span class="btn">📂 フォルダ</span> + <span class="btn">🔄 同期</span><span class="tag week1">慣れたら</span></td><td>決めたフォルダに置いたファイルを自動で入れる</td><td>フォルダの<b>直下</b>だけを見ます（サブフォルダは見ない）。消せば本棚からも消えます。起動時に差分同期（既定オン）。一定間隔の自動同期は<b>この版では既定オフ</b>（config <code>sync_interval_min = 0</code>）</td></tr>
@@ -456,7 +456,8 @@
 
   <h3>❌ 違う → 正しい内容を教える、はどこまで効くか</h3>
   <figure>
-    <svg viewBox="0 0 900 170" role="img" aria-label="違うを押すと修正ナレッジが本棚に1冊増え、次回は検索で当たれば使われる">
+    <svg viewBox="0 0 900 170" role="img" aria-label="違うを押すと是正メモが本棚に1冊入り、同じ質問なら次から必ず使われる">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
       <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="14" fill="#1f2937">
         <rect x="10" y="30" width="200" height="100" rx="12" fill="#fdecec" stroke="#f3b4b4"/>
         <text x="110" y="66" text-anchor="middle" font-weight="bold">❌ 違う</text>
@@ -464,20 +465,20 @@
         <text x="110" y="110" text-anchor="middle" font-size="12" fill="#4b5563">に文章を書く</text>
         <line x1="215" y1="80" x2="245" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
         <rect x="250" y="30" width="230" height="100" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
-        <text x="365" y="60" text-anchor="middle" font-weight="bold">本棚に「修正ナレッジ」が1冊増える</text>
-        <text x="365" y="86" text-anchor="middle" font-size="12" fill="#4b5563">中身: 元の回答の抜粋(400字)＋正しい内容</text>
-        <text x="365" y="106" text-anchor="middle" font-size="12" fill="#4b5563">元の間違った資料はそのまま残る</text>
+        <text x="365" y="60" text-anchor="middle" font-weight="bold">本棚に是正メモが1冊入る</text>
+        <text x="365" y="86" text-anchor="middle" font-size="12" fill="#4b5563">中身: あなたの質問文＋正しい内容＋誤答の抜粋(200字)</text>
+        <text x="365" y="106" text-anchor="middle" font-size="12" fill="#4b5563">資料名は 是正メモ_〈質問の先頭24字〉_〈4桁〉。同じ質問への2回目は上書き</text>
         <line x1="485" y1="80" x2="515" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
         <rect x="520" y="30" width="370" height="100" rx="12" fill="#fff4e0" stroke="#f5d9a8"/>
-        <text x="705" y="60" text-anchor="middle" font-weight="bold">次回: 検索で当たれば答えに使われる</text>
-        <text x="705" y="86" text-anchor="middle" font-size="12" fill="#4b5563">同じ質問でも「必ず」ではない（優先扱いは無い）</text>
-        <text x="705" y="106" text-anchor="middle" font-size="12" fill="#4b5563">正しい内容に、質問で使いそうな言葉を入れておくと当たりやすい</text>
+        <text x="705" y="60" text-anchor="middle" font-weight="bold">次回: 同じ質問なら必ず出典の先頭に置かれる</text>
+        <text x="705" y="86" text-anchor="middle" font-size="12" fill="#4b5563">質問がぴたり一致すれば最優先。言い回しが違うときは効く語の6割以上が一致すれば拾う</text>
+        <text x="705" y="106" text-anchor="middle" font-size="12" fill="#4b5563">本文の1行目『この質問には、下の正しい内容で答えること』がAIへの指示になる</text>
         <text x="450" y="158" text-anchor="middle" font-size="12" fill="#4b5563">共有フォルダが設定済みなら、訂正は部内にも配られます（受け取った側で本棚に入るのは、その人が取り込んだときだけ）</text>
       </g>
     </svg>
-    <figcaption>画面には「次に同じ質問をした人から、この内容で答えます」と出ますが、正確には「本棚に1冊増えて、検索で当たれば使われる」です。</figcaption>
+    <figcaption>画面には「この質問には次から、いま書いていただいた内容で答えます（是正メモとして本棚に入りました）」と出ます。これは実装どおりです。ただし効くのは 🏢 社内ナレッジ検索で、続けて質問ではない普通の質問（8文字以上）に ❌違う を押したときだけ。🌐 一般アシスタントや 🔍深掘り の回答、🤔微妙 のあとに書いた内容は「修正ナレッジ」として本棚に残るだけで、先頭には差し込まれません。</figcaption>
   </figure>
-  <div class="ok"><b>効かせるコツ</b>: 「正しい内容」には結論だけでなく、<b>質問に使いそうな言葉（用語・商品名・条番号）</b>を含めて書いてください。検索はその言葉で当てにいきます。</div>
+  <div class="ok"><b>効かせるコツ</b>: 質問を打ち直すときは、最初に聞いたときと同じ言い回しで。是正メモは「そのとき打った質問文」にひも付いています。言い回しが大きく変わると別の質問として扱われます。</div>
 </section>
 
 <!-- ============================================================ -->
@@ -537,7 +538,7 @@
     <dt>正典 / 部門チャンネル</dt><dd>部門の発行担当が1つだけ発行し、部門の全員が受け取る公式ナレッジ。</dd>
     <dt>共有フォルダ</dt><dd>部門の受け渡し場所（ファイルサーバ上のフォルダ）。感謝状・正典・みんなの節約はこれを設定してから動きます。</dd>
     <dt>Hub</dt><dd>最初に出る拠点画面。どの画面からも「← Hub」で戻れます。</dd>
-    <dt>修正ナレッジ</dt><dd>❌違う のあとに書いた「正しい内容」が、本棚に1冊として入ったもの。</dd>
+    <dt>是正メモ（旧称: 修正ナレッジ）</dt><dd>❌違う のあとに書いた「正しい内容」が、元の質問文とセットで本棚に入ったもの。同じ質問をすると、答えのいちばん最初の根拠として必ず使われます。</dd>
     <dt>考察メモ（💭）</dt><dd>💾 保存で残した質問と回答の1往復。一次資料ではないので、根拠は原典で確認します。</dd>
   </dl>
 </section>
