@@ -40,18 +40,33 @@ Public Sub BuildFor(ByVal sourceName As String)
     nCh = BuildCentroidsFor(sourceName, chaps, chN, chCsv)
     If nCh < 1 Then Exit Sub
 
-    ' 先に消すのは、同じ資料の行が2組並ぶと相手の上位3件が自分だけで
-    ' 埋まってしまうため(doc_outline の作り直しと同じ判断)。
-    modXDocStore.RemoveCentroidsFor sourceName
-    modXDocStore.RemoveLinksFor sourceName
-    modXDocStore.WriteCentroidRows sourceName, chaps, chCsv, chN, nCh
-
+    ' 【R37 Fix A-M2】いちばん落ちやすい処理(4,000章×768次元 Double ≒24.6MB の
+    '   ReDim = 32bit で実行時エラー7)を【何かを消す前】に済ませる。旧版は
+    '   Remove の後に展開していたため、エラー7で抜けると「相手から自分への
+    '   リンクを消しただけ」の状態が残り、次にその相手を取り込み直すまで
+    '   復活しなかった。読めてから消す。
     Dim exSrcs() As String, exChaps() As String
     Dim exFlat() As Double
     Dim exDim As Long, exTotal As Long
     Dim capN As Long: capN = modXDocStore.MaxChapters()
+    Dim loadFailed As Boolean
     Dim nEx As Long
-    nEx = LoadExistingCentroids(sourceName, exSrcs, exChaps, exFlat, exDim, capN, exTotal)
+    nEx = LoadWithRetry(sourceName, exSrcs, exChaps, exFlat, exDim, capN, exTotal, loadFailed)
+
+    ' 先に消すのは、同じ資料の行が2組並ぶと相手の上位3件が自分だけで
+    ' 埋まってしまうため(doc_outline の作り直しと同じ判断)。
+    ' ただし展開に失敗した回(loadFailed)は【相手側の行を消さない】。作り直す
+    ' 材料が無いのに消せば、相手の📖から「関連する資料」が永久に消えるだけ
+    ' になる。自分から出ている行(src_a=自分)だけ落として重心を書き、
+    ' リンクは次に取り込み直したときに作り直す(R37 §10 A-M2)。
+    modXDocStore.RemoveCentroidsFor sourceName
+    If loadFailed Then
+        modXDocStore.RemoveLinksForwardFor sourceName
+    Else
+        modXDocStore.RemoveLinksFor sourceName
+    End If
+    modXDocStore.WriteCentroidRows sourceName, chaps, chCsv, chN, nCh
+
     If nEx < 1 Then GoTo LogDone
 
     Dim fwd As String
@@ -66,18 +81,57 @@ Public Sub BuildFor(ByVal sourceName As String)
 LogDone:
     On Error Resume Next
     modLog.LogUsage "xdoc_built", "ingest", _
-        "source=" & sourceName & " chapters=" & nCh & " peers=" & nEx
+        "source=" & sourceName & " chapters=" & nCh & " peers=" & nEx & _
+        " cap=" & capN & " loadfail=" & Abs(CLng(loadFailed))
     On Error GoTo 0
     Exit Sub
 
 Quiet:
     ' ハンドラ稼働中は On Error Resume Next が効かないので必ず Resume で
     ' 抜けてから記録する(2026-07-30 実機err#462 と同型の作法)。
+    ' 【R37 Fix B-m3】Err の値はここでしか読めないので控えてから渡す。
+    Dim eN0 As Long: eN0 = Err.Number
+    Dim eD0 As String: eD0 = Err.Description
     Resume BuildDone
 BuildDone:
     Err.Clear
-    modXDocStore.XDocFail "build"
+    modXDocStore.XDocFail "build", eN0, eD0
 End Sub
+
+' ----------------------------------------------------------------------------
+' LoadWithRetry - LoadExistingCentroids を1回だけやり直す包み(R37 Fix A-M2)。
+'   実行時エラー7(メモリ不足)だけは capN を半分にして1回再挑戦する
+'   ―― 4,000章×768次元の Double 配列は約24.6MB で、32bit Excel では他の
+'   アドインが載っているだけで確保できないことがある。半分(約12MB)なら
+'   通ることが多く、上位3件の相手が少し減るだけで済む。
+'   それ以外のエラーはやり直しても同じなので即あきらめる。
+'   あきらめたときは outFailed=True(呼び出し元は「相手側の行を消さない」)。
+'   capN は ByRef: 呼び出し元が「相手側の作り直しをやるか」を実際に使った
+'   上限で判定する(半分にしたのに元の上限で比べると判定が狂う)。
+' ----------------------------------------------------------------------------
+Private Function LoadWithRetry(ByVal sourceName As String, ByRef outSrcs() As String, _
+                               ByRef outChaps() As String, ByRef outFlat() As Double, _
+                               ByRef outDim As Long, ByRef capN As Long, _
+                               ByRef outTotal As Long, ByRef outFailed As Boolean) As Long
+    Dim tries As Long
+    Dim n As Long
+    For tries = 1 To 2
+        Err.Clear
+        On Error Resume Next
+        n = LoadExistingCentroids(sourceName, outSrcs, outChaps, outFlat, outDim, capN, outTotal)
+        Dim eN As Long: eN = Err.Number
+        Err.Clear
+        On Error GoTo 0
+        If eN = 0 Then
+            LoadWithRetry = n
+            Exit Function
+        End If
+        If eN <> 7 Then Exit For
+        capN = capN \ 2
+        If capN < 1 Then Exit For
+    Next tries
+    outFailed = True
+End Function
 
 ' ----------------------------------------------------------------------------
 ' BuildCentroidsFor - その資料の章ごとの重心を作る。戻り値=章数。
@@ -314,6 +368,10 @@ Private Function MatchChapters(ByRef chaps() As String, ByRef chCsv() As String,
     Dim acc() As String: ReDim acc(1 To nCh)
     Dim got As Long
 
+    ' 【R37 Fix A-M3=B-M2】上位3件でも「近くない」ものは doc_links へ書かない。
+    '   閾値を読むのは1回だけ(章ごとに config を引くと総当たりが遅くなる)。
+    Dim minS As Long: minS = modXDocStore.SimFloor()
+
     Dim nv() As Double
     Dim i As Long, j As Long, d As Long
     For i = 1 To nCh
@@ -331,6 +389,7 @@ Private Function MatchChapters(ByRef chaps() As String, ByRef chCsv() As String,
                 Next j
                 Dim topLn As String
                 topLn = modXDocStore.TopNLinks(pairs, sims, nEx, modXDocStore.KEEP_N)
+                topLn = modXDocStore.FilterBySim(topLn, minS)
                 If LenB(topLn) > 0 Then
                     got = got + 1
                     acc(got) = PrefixLines(topLn, chaps(i) & "|")
@@ -492,6 +551,8 @@ Private Function RebuildPeer(ByVal key2 As String, ByVal sourceName As String, _
 
     Dim topLn As String
     topLn = modXDocStore.TopNLinks(pairs, sims, m, modXDocStore.KEEP_N)
+    ' 相手側の行も同じ閾値で切る(R37 Fix A-M3。書く側は1つの規則で揃える)。
+    topLn = modXDocStore.FilterBySim(topLn, modXDocStore.SimFloor())
     If LenB(topLn) = 0 Then Exit Function
 
     Dim kf() As String: kf = Split(key2, "|")

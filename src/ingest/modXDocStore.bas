@@ -76,6 +76,27 @@ Public Function MaxChapters() As Long
 End Function
 
 ' ----------------------------------------------------------------------------
+' SimFloor / SimOk - 「近い」と言ってよい下限(config xdoc_min_sim・既定80=0.80)。
+'   【R37 Fix A-M3=B-M2】判定の式はこの1本に閉じる。閾値を見る場所は3つ
+'   (取込の MatchChapters / 📖の LinkedLabel / 回答時の modXDoc.PickLinked)
+'   あり、どこか1つでも見落とすと「2冊入れただけで無関係な資料が関連として
+'   出る」。取込側で閾値未満を doc_links へ【書かない】のが本丸で、
+'   LinkedLabel の比較は既存ブックに残った古い行への保険(二重に掛ける)。
+'   境界の丸め落ち(0.8*100=79.999…)対策の 1e-7 は modXDoc.SimPasses と同じ。
+' ----------------------------------------------------------------------------
+Public Function SimFloor() As Long
+    Dim v As Long: v = 80
+    On Error Resume Next
+    v = modConfig.GetLong("xdoc_min_sim", 80)
+    On Error GoTo 0
+    SimFloor = v
+End Function
+
+Public Function SimOk(ByVal sim As Double, ByVal minSim As Long) As Boolean
+    SimOk = ((sim * 100#) + 0.0000001 >= CDbl(minSim))
+End Function
+
+' ----------------------------------------------------------------------------
 ' BuildLinksFor - 取込時の唯一の入口(実体は modXDocBuild。上の容量裁定)。
 '   呼び出しは modOutlineBuild.BuildOutlineFor の末尾から1行だけ。
 ' ----------------------------------------------------------------------------
@@ -192,6 +213,45 @@ Public Function TopNLinks(ByRef pairs() As String, ByRef sims() As Double, _
     If got < 1 Then Exit Function
     ReDim Preserve outArr(0 To got - 1)
     TopNLinks = Join(outArr, vbLf)
+End Function
+
+' ----------------------------------------------------------------------------
+' FilterBySim - TopNLinks が返した行から、類似度が minSim 未満の行を落とす。
+'   【R37 Fix A-M3=B-M2】doc_links に閾値未満の行を【そもそも書かない】ための
+'   一本。旧版は上位3件を無条件に書いていたので、本棚に2冊しか無ければ
+'   どんなに無関係でも必ずリンクができ、📖の「関連する資料」に出ていた。
+'   行の最後のフィールドを類似度と見る("相手資料|章|sim" / "章|相手資料|章|sim"
+'   のどちらでも同じ)。TopNLinks は Str$ で書く=小数点は必ず "." なので
+'   Val で読んでよい(ロケール非依存。シート経由で読む側は ReadLinks の
+'   IsNumeric/CDbl が受け持つ)。
+'   数値として読めない行は落とす(壊れた行を「近い」と扱わない)。
+' ----------------------------------------------------------------------------
+Public Function FilterBySim(ByVal lines0 As String, ByVal minSim As Long) As String
+    If LenB(lines0) = 0 Then Exit Function
+
+    Dim rowsArr() As String: rowsArr = Split(lines0, vbLf)
+    Dim outArr() As String: ReDim outArr(0 To UBound(rowsArr) - LBound(rowsArr))
+    Dim got As Long
+    Dim i As Long
+    For i = LBound(rowsArr) To UBound(rowsArr)
+        Dim ln As String: ln = Trim$(rowsArr(i))
+        If LenB(ln) > 0 Then
+            Dim f() As String: f = Split(ln, "|")
+            If UBound(f) >= 1 Then
+                Dim sTxt As String: sTxt = Trim$(f(UBound(f)))
+                ' 読めない行は Val=0 になり、そのまま閾値で落ちる(IsNumeric は
+                ' ここでは使わない。小数点がカンマの環境で "0.85" を数値と
+                ' 見なさず、正しい行まで落としかねないため)。
+                If SimOk(CDbl(Val(sTxt)), minSim) Then
+                    outArr(got) = rowsArr(i)
+                    got = got + 1
+                End If
+            End If
+        End If
+    Next i
+    If got < 1 Then Exit Function
+    ReDim Preserve outArr(0 To got - 1)
+    FilterBySim = Join(outArr, vbLf)
 End Function
 
 ' ============================================================================
@@ -319,7 +379,12 @@ Public Function ReadLinks(ByRef outA() As String, ByRef outCA() As String, _
         outCA(i - 1) = CStr(arr(i, COL_L_CA))
         outB(i - 1) = CStr(arr(i, COL_L_SB))
         outCB(i - 1) = CStr(arr(i, COL_L_CB))
-        outSim(i - 1) = CDbl(Val(CStr(arr(i, COL_L_SIM))))
+        ' 【R37 Fix B-m2】Val(CStr(Double)) はロケール依存。小数点がカンマの
+        '   環境では CStr(0.8)="0,8" → Val=0 となり全リンクの sim が 0 に落ちて
+        '   閾値で全滅する。セルの値のまま IsNumeric/CDbl で受ける
+        '   (どちらも同じロケール規則なので判定と変換が食い違わない)。
+        '   数値でない行は 0 のまま = 閾値を通らない(安全側)。
+        If IsNumeric(arr(i, COL_L_SIM)) Then outSim(i - 1) = CDbl(arr(i, COL_L_SIM))
     Next i
     ReadLinks = n
 End Function
@@ -377,12 +442,16 @@ Public Function LinkedLabel(ByVal sourceName As String) As String
     Dim pairs() As String: ReDim pairs(0 To n - 1)
     Dim sims() As Double: ReDim sims(0 To n - 1)
     Dim m As Long
+    Dim minS As Long: minS = SimFloor()
     Dim i As Long
     For i = 0 To n - 1
         If StrComp(Trim$(la(i)), Trim$(sourceName), vbTextCompare) = 0 Then
-            pairs(m) = Trim$(lb(i)) & "|" & Trim$(lcb(i))
-            sims(m) = lsim(i)
-            m = m + 1
+            ' 【R37 Fix A-M3】閾値未満は出さない(古いブックに残った行への保険)。
+            If SimOk(lsim(i), minS) Then
+                pairs(m) = Trim$(lb(i)) & "|" & Trim$(lcb(i))
+                sims(m) = lsim(i)
+                m = m + 1
+            End If
         End If
     Next i
     If m < 1 Then Exit Function
@@ -436,10 +505,14 @@ Public Sub RemoveFor(ByVal sourceName As String)
     RemoveLinksFor sourceName
     Exit Sub
 Quiet:
+    ' 【R37 Fix B-m3】Err はハンドラに居るこの瞬間しか読めない。Resume も
+    '   Err.Clear も値を消すので、控えてから抜けて渡す(憲章§11・modBackfill 型)。
+    Dim eN As Long: eN = Err.Number
+    Dim eD As String: eD = Err.Description
     Resume RemoveDone
 RemoveDone:
     Err.Clear
-    XDocFail "remove"
+    XDocFail "remove", eN, eD
 End Sub
 
 ' 1行ずつの Delete は数千行で固まるので、残す行を詰め直して1回で書き戻す
@@ -451,6 +524,13 @@ End Sub
 
 Public Sub RemoveLinksFor(ByVal sourceName As String)
     RemoveRowsFor modAppDef.SH_DOC_LINKS, LINK_COLS, sourceName, COL_L_SB
+End Sub
+
+' 自分から出ている行(src_a=自分)だけ落とし、相手から自分への行は残す。
+' 使うのは1箇所だけ ―― 章重心の展開に失敗して相手側を作り直せない回
+' (modXDocBuild.BuildFor の loadFailed)。作り直せないものは消さない。
+Public Sub RemoveLinksForwardFor(ByVal sourceName As String)
+    RemoveRowsFor modAppDef.SH_DOC_LINKS, LINK_COLS, sourceName, 0
 End Sub
 
 Private Sub RemoveRowsFor(ByVal nm As String, ByVal nCols As Long, _
@@ -482,9 +562,17 @@ Private Sub RemoveRowsFor(ByVal nm As String, ByVal nCols As Long, _
     Next i
     If k = nRows Then Exit Sub
 
+    ' 【R37 Fix A-M1】書く材料を消す前に作る。Compact2D は3枚目の2次元配列
+    '   (doc_centroids は768次元CSV×数千行=数十MB規模)を確保するので、
+    '   32bit のメモリ不足はここでいちばん起きやすい。ClearContents を先に
+    '   やっていると、その失敗が「消しただけで書き戻せない」=重心の全消え
+    '   になる(呼び出し元は握り潰すので誰にも見えない)。作ってから消す。
+    Dim payload As Variant
+    If k > 0 Then payload = Compact2D(keepArr, k, nCols)
+
     ws.Range(ws.Cells(2, 1), ws.Cells(lastR, nCols)).ClearContents
     If k > 0 Then
-        ws.Range(ws.Cells(2, 1), ws.Cells(1 + k, nCols)).Value = Compact2D(keepArr, k, nCols)
+        ws.Range(ws.Cells(2, 1), ws.Cells(1 + k, nCols)).Value = payload
     End If
 End Sub
 
@@ -554,10 +642,11 @@ Public Sub WriteAllLinks(ByRef oA() As String, ByRef oCA() As String, ByRef oB()
     ws.Range(ws.Cells(2, COL_L_SA), ws.Cells(1 + nOut, COL_L_AT)).Value = arr
 End Sub
 
-' 失敗の記録。Err はここへ来た時点の値をまず控える
-' (On Error Resume Next 自体が Err を消す。憲章§11)。
-Public Sub XDocFail(ByVal whereAt As String)
-    Dim d As String: d = "err#" & Err.Number & " " & Err.Description
+' 失敗の記録。【R37 Fix B-m3】Err の値は呼び出し元のハンドラで控えて渡す
+' (Resume も Err.Clear も On Error Resume Next も Err を消すので、ここへ
+'  来た時点では必ず 0 になっていた=全部 "err#0" で原因が分からなかった)。
+Public Sub XDocFail(ByVal whereAt As String, ByVal errNum As Long, ByVal errDesc As String)
+    Dim d As String: d = "err#" & errNum & " " & errDesc
     On Error Resume Next
     modLog.LogUsage "xdoc_fail", "ingest", whereAt & " " & d
     On Error GoTo 0
