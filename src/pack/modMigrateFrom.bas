@@ -7,11 +7,20 @@ Option Explicit
 ' 解決する問題:
 '   利用者は新しい zip を旧版と同じフォルダへ展開する。README の従来手順
 '   「旧版は展開前に削除」だと、削除した瞬間に本棚(旧xlsmの中)が消える。
-'   R36裁定: 手順を「旧版の MyBookshelf.xlsm を MyBookshelf_前回.xlsm へ
+'   R36裁定: 手順を「旧版の MyBookshelf.xlsm を MyBookshelf_旧版.xlsm へ
 '   改名して残す」へ変え、新版の初回起動でその旧xlsmを自動で見つけて
 '   本棚・実績・設定を直接読み込む(modMigrate の .xlsx 引き継ぎファイル方式
 '   とは別経路。あちらはユーザーが手で書き出し/読み込む「持ち運び」用、
 '   こちらは「同じフォルダにある一つ前のバージョン」を自動で拾う版上げ専用)。
+'
+'   R36 Fix2(§9-7 D-B1・司令塔裁定・BLOCKER対応): 当初は "MyBookshelf*.xlsm"
+'   を Dir()で走査し「自分以外で最新のもの」を選んでいたが、bat の F3b 退避
+'   (_launcher_backup_name・書き戻し失敗に備えた使い捨て)が同じ
+'   "MyBookshelf_前回.xlsm" という名前を使っていたため、初回終了時に利用者が
+'   改名して残した前版を「空の新版シェル」で上書きする事故が起きた。
+'   名前を分離し、版上げ用の前版は "MyBookshelf_旧版.xlsm"
+'   (<自分のstem>_旧版<拡張子>)の1候補だけを見る形にした
+'   (dev/発行者用バリアントの取り違えも同時に消える)。
 '
 ' 起点(架け元): modTour.StartTourIfFirstRun の先頭(凍結 modBoot には触らない。
 '   ウィザードが走らない2回目以降の起動でも「本棚が空・未質問・前版あり」の
@@ -58,12 +67,21 @@ Public Function OfferImportIfFirstRun() As Boolean
     prevPath = FindPreviousBook(ThisWorkbook.Path, ThisWorkbook.Name)
     If LenB(prevPath) = 0 Then Exit Function
 
+    ' R36 Fix2(§9-4裁定): F3bは【毎回の終了時】にも前版を残しうるため、版上げ
+    ' 以外でも「本棚が空」だと同版の(中身が空の)バックアップを見つけて毎回
+    ' 聞いてしまう恐れがあった。問う【前】に前版を開いて my_manifest の件数を
+    ' 数え、0件なら黙って何もせず migfrom_asked も立てない(次回起動でまた
+    ' 見に行くだけ=記録のみのコスト。開くコストはF3aゲート+ReadOnlyで許容)。
+    Dim count As Long: count = CountManifestInBook(prevPath)
+    If count <= 0 Then Exit Function
+
     ' §1-3契約: どちらを選んでも二度と聞かない。表示中に閉じられても
-    ' 再質問し続けないよう、MsgBoxの【前】に書く(安全側)。
+    ' 再質問し続けないよう、MsgBoxの【前】に書く(安全側)。候補があって
+    ' 実際に問うたときだけここへ来る(0件では上でExit済み)。
     modState.SaveState ST_ASKED, "1"
 
     Dim stamp As Double: stamp = CDbl(FileDateTime(prevPath))
-    Dim msg As String: msg = OfferText(modUtil.FileNameOf(prevPath), stamp)
+    Dim msg As String: msg = OfferText(modUtil.FileNameOf(prevPath), count, stamp)
     If MsgBox(msg, vbYesNo + vbQuestion, modAppDef.APP_NAME) <> vbYes Then Exit Function
 
     Dim resultText As String: resultText = ImportFromBook(prevPath)
@@ -77,80 +95,75 @@ Fail:
 End Function
 
 ' ----------------------------------------------------------------------------
-' FindPreviousBook - folderPath 直下(第1階層)の "MyBookshelf*.xlsm" のうち
-'   selfName 以外で、更新日時が最新のもののフルパス。無ければ空。
-'   Dir() の再入禁止(modShelfScan.EnumFolderFiles と同じ作法)のため、
-'   列挙結果を配列へ集めてから純関数 PickNewest へ渡す。
+' PreviousBookName - selfName(拡張子込みのファイル名)から、版上げ手順で
+'   探す前版の名前を組む純関数(Excel/COMに一切触れない)。
+'   "MyBookshelf.xlsm" → "MyBookshelf_旧版.xlsm"
+'   "MyBookshelf_dev.xlsm" → "MyBookshelf_dev_旧版.xlsm"
+'   拡張子が無い/selfNameが空 → 空文字。
 ' ----------------------------------------------------------------------------
-Public Function FindPreviousBook(ByVal folderPath As String, ByVal selfName As String) As String
-    On Error Resume Next
-    Dim folder As String: folder = modShelfScan.EnsureTrailingSlash(folderPath)
-    If LenB(folder) = 0 Then Exit Function
-
-    Dim names() As String: ReDim names(0 To 15)
-    Dim stamps() As Double: ReDim stamps(0 To 15)
-    Dim cnt As Long: cnt = 0
-
-    Dim nm As String: nm = Dir$(folder & "MyBookshelf*.xlsm")
-    Do While LenB(nm) > 0
-        If cnt > UBound(names) Then
-            ReDim Preserve names(0 To (UBound(names) + 1) * 2 - 1)
-            ReDim Preserve stamps(0 To (UBound(stamps) + 1) * 2 - 1)
-        End If
-        names(cnt) = nm
-        stamps(cnt) = CDbl(FileDateTime(folder & nm))
-        cnt = cnt + 1
-        nm = Dir$()
-    Loop
-
-    ' ReDim Preserveは条件に関わらず1度は必ず通す(条件付きだと0件経路だけ
-    ' 丸ごと縮まらない罠がある。§10罠一覧)。
-    If cnt = 0 Then
-        ReDim Preserve names(0 To 0)
-        ReDim Preserve stamps(0 To 0)
-        Exit Function
-    End If
-    ReDim Preserve names(0 To cnt - 1)
-    ReDim Preserve stamps(0 To cnt - 1)
-
-    Dim idx As Long: idx = PickNewest(names, stamps, cnt, selfName)
-    If idx < 0 Then Exit Function
-    FindPreviousBook = folder & names(idx)
-    On Error GoTo 0
+Public Function PreviousBookName(ByVal selfName As String) As String
+    Dim dotPos As Long: dotPos = InStrRev(selfName, ".")
+    If dotPos <= 1 Then Exit Function   ' 拡張子が無い、またはドットが先頭
+    Dim stem As String: stem = Left$(selfName, dotPos - 1)
+    Dim ext As String: ext = Mid$(selfName, dotPos)
+    PreviousBookName = stem & "_旧版" & ext
 End Function
 
 ' ----------------------------------------------------------------------------
-' PickNewest - 候補から「自分以外・最新・同時刻は先勝ち」の1件を選ぶ純関数
-'   (Excel/COMに一切触れない)。該当なしは -1。
+' FindPreviousBook - folderPath 直下(第1階層)に PreviousBookName(selfName) が
+'   実在すればそのフルパス、無ければ空。
+'   R36 Fix2(§9-7 D-B1): 従来は "MyBookshelf*.xlsm" を Dir()で全走査していたが、
+'   bat の F3b 退避(_前回)と名前が衝突していたため、探す候補を
+'   "<自分のstem>_旧版<拡張子>" の1個だけに絞った(PickNewestは不要になり削除)。
+'   Dir() の再入禁止(modShelfScan.EnumFolderFiles と同じ作法)は、存在確認を
+'   1回のDir$呼び出しだけに閉じることで自然に満たされる。
 ' ----------------------------------------------------------------------------
-Public Function PickNewest(names() As String, stamps() As Double, ByVal n As Long, _
-                            ByVal selfName As String) As Long
-    Dim bestIdx As Long: bestIdx = -1
-    Dim bestStamp As Double
-    Dim i As Long
-    For i = 0 To n - 1
-        If StrComp(names(i), selfName, vbTextCompare) <> 0 Then
-            If bestIdx < 0 Then
-                bestIdx = i
-                bestStamp = stamps(i)
-            ElseIf stamps(i) > bestStamp Then   ' 同時刻は先勝ち(">"のみ。">="にしない)
-                bestIdx = i
-                bestStamp = stamps(i)
-            End If
-        End If
-    Next i
-    PickNewest = bestIdx
+Public Function FindPreviousBook(ByVal folderPath As String, ByVal selfName As String) As String
+    ' 変数名"name"はVBAの予約語(Nameステートメント/関数)と衝突するため
+    ' 使わない(2026-07-21事故と同型・lint検出済み)。
+    Dim prevName As String: prevName = PreviousBookName(selfName)
+    If LenB(prevName) = 0 Then Exit Function
+
+    Dim folder As String: folder = modShelfScan.EnsureTrailingSlash(folderPath)
+    If LenB(folder) = 0 Then Exit Function
+
+    On Error Resume Next
+    Dim found As String: found = Dir$(folder & prevName)
+    On Error GoTo 0
+    If LenB(found) = 0 Then Exit Function
+
+    FindPreviousBook = folder & prevName
+End Function
+
+' ----------------------------------------------------------------------------
+' StampText - 更新日時を "yyyy-mm-dd hh:nn" へ組む純関数(R36 Fix2 §9-4)。
+'   旧実装は Format$(CDate(stamp), "yyyy-mm-dd hh:nn") だったが、LibreOffice
+'   Basic の Format$ は VBA の分の書式 "n" を解釈せず、LOだけがテストで
+'   落ちた(逆向きのLO死角・CLAUDE.md §10)。Year/Month/Day/Hour/Minute と
+'   Right$("0" & x, 2) の組み立て(§10で確立済みの作法)にすれば
+'   Excel/LO両方で同じ文字列になる。
+' ----------------------------------------------------------------------------
+Public Function StampText(ByVal stamp As Double) As String
+    Dim d As Date: d = CDate(stamp)
+    StampText = CStr(Year(d)) & "-" & Right$("0" & Month(d), 2) & "-" & Right$("0" & Day(d), 2) & _
+        " " & Right$("0" & Hour(d), 2) & ":" & Right$("0" & Minute(d), 2)
 End Function
 
 ' ----------------------------------------------------------------------------
 ' OfferText - 引き継ぎ確認ダイアログの文面を組む純関数。
+'   R36 Fix2 §9-4: 件数(count)引数を追加。0件のときは呼び出し元
+'   (OfferImportIfFirstRun)が問わずに済ませるので、ここへ来るのは1件以上。
+'   末尾の案内はD-B1で誤りと判定された「❓ヘルプの📥引き継ぎファイルを読む」
+'   (それは.xlsx引き継ぎファイル専用で旧xlsm直読みとは別経路)を、
+'   実際の手順(前の版を開いて📤で書き出し→この版の📥で読む)へ直した。
 ' ----------------------------------------------------------------------------
-Public Function OfferText(ByVal fileName As String, ByVal stamp As Double) As String
+Public Function OfferText(ByVal fileName As String, ByVal count As Long, ByVal stamp As Double) As String
     OfferText = "前の版の本棚が見つかりました。" & vbCrLf & vbCrLf & _
-        fileName & "(更新: " & Format$(CDate(stamp), "yyyy-mm-dd hh:nn") & ")" & vbCrLf & vbCrLf & _
+        fileName & "(" & count & "件・更新: " & StampText(stamp) & ")" & vbCrLf & vbCrLf & _
         "この版へ本棚・実績・設定を引き継ぎますか?" & vbCrLf & _
-        "(「いいえ」を選ぶと、次回からは聞きません。あとから" & ChrW(&H2753) & "ヘルプの「" & _
-        ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む」でも同じことができます)"
+        "(「いいえ」を選ぶと、次回からは聞きません。あとで引き継ぎたいときは、前の版を開いて " & _
+        ChrW(&H2753) & "ヘルプ「" & ChrW(&HD83D) & ChrW(&HDCE4) & " 引き継ぎファイルを作る」→ " & _
+        "この版で「" & ChrW(&HD83D) & ChrW(&HDCE5) & " 引き継ぎファイルを読む」)"
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -217,8 +230,9 @@ Public Function ImportFromBook(ByVal path As String) As String
     modLog.LogUsage "migfrom_import", "", "chunks=" & got & " src=" & modUtil.FileNameOf(path)
     On Error GoTo 0
 
-    ImportFromBook = "前の版から本棚を引き継ぎました(本棚: " & got & " 件)。" & vbCrLf & _
-        "画面を描き直すため、一度閉じて開き直してください。"
+    ' R36 Fix2(§9-4/§9-7 D-記録1): 「一度閉じて開き直してください」だけでは
+    ' 実際に本棚が表示されることが伝わらないため文言を整える。
+    ImportFromBook = "引き継ぎました(" & got & "件)。いったん閉じて開き直すと本棚と記録が表示されます。"
     Exit Function
 
 OpenFail:
@@ -291,6 +305,74 @@ Private Function ManifestRowCount() As Long
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastR < 2 Then Exit Function
     ManifestRowCount = lastR - 1
+End Function
+
+' ----------------------------------------------------------------------------
+' CountManifestInBook - path を ImportFromBook と同じゲート・EnableEvents=
+'   False・ReadOnly・Passwordなしで開き、my_manifest の件数だけを数えて
+'   必ず閉じる(R36 Fix2 §9-4: 問う前の下見。0件なら黙って何もしないため)。
+'   開けない/読めないときは -1(呼び出し元は count<=0 で「問わない」側へ
+'   倒れるため、-1 と 0 を区別する必要はない)。
+' ----------------------------------------------------------------------------
+Private Function CountManifestInBook(ByVal path As String) As Long
+    CountManifestInBook = -1
+
+    Dim kind As String: kind = modShelfScan.EncryptedFileKind(path)
+    Dim gate As String: gate = modPack.OpenGateReason(kind)
+    If gate <> "open" Then Exit Function
+
+    Dim prevEvents As Boolean: prevEvents = Application.EnableEvents
+    Dim prevAlerts As Boolean: prevAlerts = Application.DisplayAlerts
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+
+    Dim wb As Workbook
+    On Error GoTo OpenFail
+    Set wb = Application.Workbooks.Open(Filename:=path, ReadOnly:=True, UpdateLinks:=0, _
+                                         IgnoreReadOnlyRecommended:=True, AddToMru:=False)
+    On Error GoTo ReadFail
+
+    Dim n As Long: n = 0
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(modAppDef.SH_MANIFEST)
+    On Error GoTo ReadFail
+    If Not ws Is Nothing Then
+        Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
+        If lastR >= 2 Then n = lastR - 1
+    End If
+
+    wb.Close SaveChanges:=False
+    Set wb = Nothing
+    Application.EnableEvents = prevEvents
+    Application.DisplayAlerts = prevAlerts
+    CountManifestInBook = n
+    Exit Function
+
+OpenFail:
+    Dim openDesc As String: openDesc = Err.Description
+    On Error GoTo 0
+    Application.EnableEvents = prevEvents
+    Application.DisplayAlerts = prevAlerts
+    ' ログの識別名はPublicの入口(OfferImportIfFirstRun)を使う(lint検査:
+    ' 文字列タグはPublic関数を指すことが前提。CountManifestInBook自身は
+    ' Privateヘルパーのため、RestoreSheetのFail:がCopyUserData名で
+    ' 記録するのと同じ作法)。
+    modLog.LogError "E0801", "modMigrateFrom.OfferImportIfFirstRun", "前の版の件数を数える下見でファイルを開けません: " & openDesc
+    Exit Function
+
+ReadFail:
+    Dim readDesc As String: readDesc = Err.Description
+    ' ハンドラ稼働中は On Error Resume Next が効かない。後始末の前に Resume で
+    ' ハンドラを抜ける(ImportFromBook と同じ作法)。
+    Resume ReadFailCleanup
+ReadFailCleanup:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEvents
+    Application.DisplayAlerts = prevAlerts
+    modLog.LogError "E0801", "modMigrateFrom.OfferImportIfFirstRun", "前の版の件数を数える下見中にエラー: " & readDesc
+    On Error GoTo 0
 End Function
 
 ' 引き継ぎ元(src)の config シートから直接1キーを読む(modMigrate/modPack の
