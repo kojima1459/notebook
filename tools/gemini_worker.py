@@ -2,7 +2,8 @@
 """gemini_worker.py - Gemini をワーカー(ジュニア)として呼ぶ司令塔専用の道具。
 
 使い方:
-  python3 tools/gemini_worker.py <prompt_file> <out_file> [--model gemini-3.8-flash]
+  python3 tools/gemini_worker.py <prompt_file> <out_file> [--model gemini-3.1-pro-preview]
+  (既定は 3.1 Pro=難易度1〜4の担当。速さ優先の雑務は --model gemini-3.8-flash)
                                  [--system system_file] [--temp 0.2] [--max-out 65536]
 
 キーの探し方(順に。見つかった最初のものを使う。値は絶対に出力しない):
@@ -78,7 +79,7 @@ def main() -> None:
         sys.exit(2)
     prompt = open(a[0], encoding="utf-8").read()
     out = a[1]
-    model = a[a.index("--model") + 1] if "--model" in a else "gemini-3.8-flash"
+    model = a[a.index("--model") + 1] if "--model" in a else "gemini-3.1-pro-preview"
     system = open(a[a.index("--system") + 1], encoding="utf-8").read() if "--system" in a else None
     temperature = float(a[a.index("--temp") + 1]) if "--temp" in a else 0.2
     max_out = int(a[a.index("--max-out") + 1]) if "--max-out" in a else 65536
