@@ -4,12 +4,15 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R38. R38（「入念に調べる」の1回読み＝章丸ごと・メガコンテキスト・2026-09-06・**検問進行中**）
+## 0R38. R38（「入念に調べる」の1回読み＝章丸ごと・メガコンテキスト・2026-09-06・**検問全緑・実機受入待ち**）
+
+**final-gates（09-06・司令塔）**: lint ERROR 0／LO compile 169/169／pure **PASS 3193 / FAIL 0 / SKIP 14**（下限 3155→3193。ネガティブ確認2回: Pure43 C_正常等分 10001→FAIL 1、Fix2 の「E_見出し記号■が残る」を反転→FAIL 1、いずれも下限割れの赤を確認して復元）／`--dev`・`--prod --zip` 自己検証 OK（**24シート・169本**）／`bin_roundtrip --book` 6条件 OK／`lo_xlsm --book` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（build `20260905-170004Z+cd61029`・14,632,175B・xlsm 1,958,224B・`mock_llm` FALSE・`azure_embed_key`/`publish_key` 空・`thorough_onepass` on・`onepass_max_chars` 300000・`onepass_max_chapters` 8・`onepass_seed_hits` 6・`onepass_neighbor` 6・`thorough_onepass_effort` high・`max_context_chars` 60000 のまま）。図解ガイドの版表記は R38（dist 実測後に更新）。**ユーザーへ送付済み。**
+**レビュー2周目（Opus・Fix 検証）→ Fix2 は司令塔自身**（ユーザー裁定「最終検問と手直しは Fable」）: ■ の消失（表示側が行頭 ■ を見出しにする）／F1 の追加分が予算切れで載らない→章の予算8割／フッターの印は Footer 冒頭で必ず消費。裁定表は spec §7-2。
 
 **起点**: 外部レビュー（Gemini）の裏どり（`review_20260905_外部レビュー裏どり_R37.md`）→ 髙橋情報「同じリボン経由で 20 万トークンまで1回で渡せる（本人検証済）」→ ユーザー GO「A（config だけ）を挟まず一気に B」。**入念＝精度／しっかり＝中間／すぐ聞く＝速度**を守り、変えたのは入念の単発経路だけ。**戻し方は config `thorough_onepass=off`**。
 **仕様と全裁定** = `spec_20260906_R38_入念1回読み.md`（§0 守るもの／§2 新モジュール `modAskOnePass`／§3 配線／§5 実機受入・§5-2 テスター手順／§7 レビュー1周目の3ストリーム裁定）。
 **体制の実験（ユーザー指示「Gemini 3.8 flash も奴隷の如く」）**: Gemini 3.8 flash を API 直叩き（`scratchpad/gemini_worker.py`・キーは scratchpad の `.gemini_key` のみ・リポジトリに入れない）でワーカーに使った。**起草（modAskOnePass＋Pure43・31秒・司令塔検収で3点修正）は有効**。**レビュー（3ストリーム目）は要注意**: git もファイル計測も実行できないのに「HEAD 3e6ecb9」「18,348字」と**推定値を事実のように書く**。所見は根拠つきのものだけ採る（採用1件=ESC、不採用1件=配列参照共有の誤警報）。文書下書き（使い方・テスター手順）は典拠照合すれば使える。配線・Fix は Sonnet、壊す班・2周目は Opus。
-**経過**: 仕様（`8b622d3`）→ 波1 Gemini 起草＋Sonnet 配線（`614701d`）→ 波2 LO 注入・ESC・文書（`da069fe`）→ 1周目3ストリーム → Fix 波 F1〜F8（`e6fcd43`）→ **2周目（Fix 検証・Opus）進行中** → final-gates（ビルド・zip・bin_roundtrip・lo_xlsm・図解ガイドの版表記を R38 へ）。
+**経過**: 仕様（`8b622d3`）→ 波1 Gemini 起草＋Sonnet 配線（`614701d`）→ 波2 LO 注入・ESC・文書（`da069fe`）→ 1周目3ストリーム → Fix 波 F1〜F8（`e6fcd43`）→ 2周目（Fix 検証・Opus）→ Fix2 司令塔（`cd61029`）→ final-gates 全緑 → 配布。
 **検問の数字（Fix 波時点）**: lint 0／LO compile OK／pure **PASS 3192 / FAIL 0 / SKIP 14**（下限 3155→3192。ネガティブ確認: Pure43 C_正常等分 を 10001 に壊して FAIL 1＋下限割れ→復元）／`--dev`・`--prod` 自己検証 OK。容量: `modAskOnePass` 約20,100／`modAskThorough` 17,271／`modLive` 23,046／`modAskGlobal` 20,927／`modXDoc` 14,543。
 **実機受入（§5-2・未）**: ①入念1問で実況「🔎 入念(1回読み)」・usage_log `thorough_onepass`（`mode=chapter|neighbor`・`chars=`＝プロンプト全長・`extra=`）・`ask_steps` の `thorough_onepass=<ms>`・フッターの段数が −3 ②`chars=` 20万超で `#ERR` にならない ③on/off で3問（表・但し書き・章またぎ。**1文で聞く**・usage_log の最新行が `thorough_onepass` であることを確認してから採点）④章に割れていない本棚で `mode=neighbor`（`chars=` が小さいのは正常・最大約100件）⑤続けて質問。**著しく遅い／精度低下 → `thorough_onepass=off`**。
 **記録のみ／R39 候補**: 章ごとの `CollectChapterHits` 呼び出し×章数のシート走査コスト（A-m5・実機秒数を見てから走査1回化）／`allHits` 複製と突合 O(n²)（A-m7）／`modXDoc` は CONTRACT 外（記録1）／しっかり（deep）への1回読み適用は実機結果後／短い章の余り予算を長い章へ回す／`UserContextBlock` は1回読みに載らない。
