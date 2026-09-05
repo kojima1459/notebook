@@ -294,36 +294,46 @@ Public Function InjectHits(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     lastK = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastK < 2 Then Exit Function
 
-    ' chunk_id(1) / source(2) / origin(3) / page(4) / … / full_text(7) を1回で読む
-    ' (modVaultGallery.EnsurePreviewIndex と同じ配列一括読み。1セルずつ触ると
-    '  9,000行で体感が変わる)。
-    Dim arr As Variant
-    arr = ws.Range(ws.Cells(2, 1), ws.Cells(lastK, 7)).Value
+    ' 【2段で読む理由】ここは質問1回ごとに必ず通る。my_knowledge は実機で
+    ' 20,500行あり、full_text は1行が最大32,000字なので、
+    ' modVaultGallery.EnsurePreviewIndex(:707)のように full_text 列まで
+    ' 丸ごと配列にすると1質問あたり数十MBを読むことになる(あちらは画面操作の
+    ' 1回きりでキャッシュも持つので成立している)。
+    ' そこで (1) source 列だけを一括で読んで是正メモの行を絞り
+    '        (2) 絞れた数行分だけ full_text を読む、の2段にする。
+    ' 是正メモは「直した質問の数」しか無い(実機で数件〜数十件)。
+    ' chunk_id(1列目)まで含めて【2列】読むのは、1列だけの Range.Value が
+    ' 1行しか無いときに配列ではなくスカラーを返し、LBound で落ちるため
+    ' (資料が1件だけの本棚で是正が丸ごと効かなくなる)。chunk_id は短いハッシュ
+    ' 文字列なので、読んでも重くならない。
+    Dim srcArr As Variant
+    srcArr = ws.Range(ws.Cells(2, 1), ws.Cells(lastK, 2)).Value
 
     Dim qNorm As String: qNorm = modSparse.NormalizeForSearch(q)
 
     Dim bestRow As Long, bestLv As Long
     Dim i As Long
-    For i = LBound(arr, 1) To UBound(arr, 1)
-        Dim nm As String: nm = Trim$(CStr(arr(i, 2)))
+    For i = LBound(srcArr, 1) To UBound(srcArr, 1)
+        Dim nm As String: nm = Trim$(CStr(srcArr(i, 2)))
         If Left$(nm, Len(MEMO_PREFIX)) = MEMO_PREFIX Then
-            Dim lv As Long: lv = MatchLevel(qNorm, CStr(arr(i, 7)))
+            ' srcArr の i 行目 = シートの i+1 行目(1行目は見出し)。
+            Dim lv As Long: lv = MatchLevel(qNorm, CStr(ws.Cells(i + 1, 7).Value))
             If lv > bestLv Then
                 bestLv = lv
-                bestRow = i
+                bestRow = i + 1
             End If
         End If
         If bestLv >= 2 Then Exit For      ' 完全一致より強い一致は無い
     Next i
     If bestLv < 1 Then Exit Function
-    If bestRow < LBound(arr, 1) Then Exit Function
+    If bestRow < 2 Then Exit Function
 
     Dim memoHit As Hit
-    memoHit.chunk_id = Trim$(CStr(arr(bestRow, 1)))
-    memoHit.source = Trim$(CStr(arr(bestRow, 2)))
+    memoHit.chunk_id = Trim$(CStr(ws.Cells(bestRow, 1).Value))
+    memoHit.source = Trim$(CStr(ws.Cells(bestRow, 2).Value))
     memoHit.origin = "self"
     memoHit.page = 1
-    memoHit.full_text = CStr(arr(bestRow, 7))
+    memoHit.full_text = CStr(ws.Cells(bestRow, 7).Value)
     memoHit.preview = modUtil.SafeLeft(Replace(StripBreadcrumbLine(memoHit.full_text), vbLf, " "), 120)
     If bestLv >= 2 Then
         memoHit.score = SCORE_EXACT
