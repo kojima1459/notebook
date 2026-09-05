@@ -164,7 +164,7 @@ Public Function TopNLinks(ByRef pairs() As String, ByRef sims() As Double, _
     Dim takeN As Long: takeN = keep
     If takeN > n Then takeN = n
 
-    Dim taken() As Boolean: ReDim taken(0 To n - 1)
+    Dim takenFlag() As Boolean: ReDim takenFlag(0 To n - 1)
     Dim outArr() As String: ReDim outArr(0 To takeN - 1)
     Dim got As Long
     Dim r As Long, i As Long
@@ -172,7 +172,7 @@ Public Function TopNLinks(ByRef pairs() As String, ByRef sims() As Double, _
         Dim best As Long: best = -1
         Dim bestV As Double: bestV = 0
         For i = 0 To n - 1
-            If Not taken(i) Then
+            If Not takenFlag(i) Then
                 If best < 0 Then
                     best = i
                     bestV = sims(ls + i)
@@ -183,7 +183,7 @@ Public Function TopNLinks(ByRef pairs() As String, ByRef sims() As Double, _
             End If
         Next i
         If best < 0 Then Exit For
-        taken(best) = True
+        takenFlag(best) = True
         If LenB(pairs(lp + best)) > 0 Then
             outArr(got) = pairs(lp + best) & "|" & Trim$(Str$(bestV))
             got = got + 1
