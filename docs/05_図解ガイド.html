@@ -456,7 +456,7 @@
 
   <h3>❌ 違う → 正しい内容を教える、はどこまで効くか</h3>
   <figure>
-    <svg viewBox="0 0 900 230" role="img" aria-label="違うを押すと是正メモが本棚に1冊入り、同じ質問なら次から必ず使われる">
+    <svg viewBox="0 0 900 250" role="img" aria-label="違うを押すと是正メモが本棚に1冊入り、同じ質問なら次から必ず使われる">
       <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="14" fill="#1f2937">
         <rect x="10" y="20" width="190" height="150" rx="12" fill="#fdecec" stroke="#f3b4b4"/>
         <text x="105" y="58" text-anchor="middle" font-weight="bold">❌ 違う</text>
@@ -476,8 +476,9 @@
         <text x="730" y="98" text-anchor="middle" font-size="12" fill="#4b5563">ときは、効く語の6割以上が一致すれば拾う</text>
         <text x="730" y="122" text-anchor="middle" font-size="12" fill="#4b5563">本文1行目「この質問には、下の正しい内容で</text>
         <text x="730" y="140" text-anchor="middle" font-size="12" fill="#4b5563">答えること」が AI への指示になる</text>
-        <text x="450" y="196" text-anchor="middle" font-size="12" fill="#b91c1c">同じ質問のとき、誤答の根拠になった資料は後ろへ下げます（消しません）</text>
-        <text x="450" y="218" text-anchor="middle" font-size="12" fill="#4b5563">共有フォルダが設定済みなら、訂正は部内にも配られます（受け取った側で本棚に入るのは、その人が取り込んだときだけ）</text>
+        <text x="450" y="194" text-anchor="middle" font-size="12" fill="#b91c1c">質問がぴたり一致したときだけ、誤答の根拠になった資料を後ろへ下げます</text>
+        <text x="450" y="212" text-anchor="middle" font-size="12" fill="#b91c1c">（語一致で拾ったときは下げません。どちらも消しません。消したいときは 🗑）</text>
+        <text x="450" y="236" text-anchor="middle" font-size="12" fill="#4b5563">共有フォルダが設定済みなら、訂正は部内にも配られます（受け取った側で本棚に入るのは、その人が取り込んだときだけ）</text>
       </g>
     </svg>
     <figcaption>画面には「この質問には次から、いま書いていただいた内容で答えます（是正メモとして本棚に入りました）」と出ます。これは実装どおりです。ただし効くのは 🏢 社内ナレッジ検索で、続けて質問ではない普通の質問（8文字以上）に ❌違う を押したときだけ。🌐 一般アシスタントや 🔍深掘り の回答、🤔微妙 のあとに書いた内容は「修正ナレッジ」として本棚に残るだけで、先頭には差し込まれません。</figcaption>
