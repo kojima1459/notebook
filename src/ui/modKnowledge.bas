@@ -778,8 +778,7 @@ Public Sub OnDelete()
     modUiLock.Leave
 End Sub
 
-' 📖本文ボタン(R36波1 §3)。text_viewへ遷移するのでRefreshCurrentは呼ばない
-' (呼ぶと直後にマイ本棚が描き直されtext_viewが隠れてしまう)。
+' 📖本文ボタン(R36波1 §3)。RefreshCurrentは呼ばない(text_view隠れ防止)。
 Public Sub OnShowText()
     If modUiLock.BlockIfIngesting() Then Exit Sub
     If Not modUiLock.Enter() Then Exit Sub
