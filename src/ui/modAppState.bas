@@ -361,6 +361,48 @@ Public Sub SaveTurnForRestore(ByVal q As String, ByVal ans As String)
     modState.SaveState "nexus_hist_u", TrimPairs(u & IIf(LenB(prevU) > 0, ";;;" & prevU, ""), 2)
     modState.SaveState "nexus_hist_a", TrimPairs(a & IIf(LenB(prevA) > 0, ";;;" & prevA, ""), 2)
     On Error GoTo 0
+    LogAskSources q   ' R37 §4: 測定の材料(ask_sources)。SaveTurnKindの隣、回答描画後。
+End Sub
+
+' ----------------------------------------------------------------------------
+' LogAskSources - R37 §4: 出典の先頭3件を usage_log の "ask_sources" 行として
+'   残す(ゴールデン質問セットの一次材料。feedback_green/red と突き合わせれば
+'   「質問・正誤・出典」のペアが機械的に取れる)。
+'   modApp は残332字の実質凍結モジュールで、あちらへ1行も足せない
+'   (CLAUDE.md §12)。そこで modApp を1文字も触らず、既存の唯一の呼び出し
+'   ―― modApp.OnSend の SaveTurnKind(sendMode, isFollowup) の直後に置かれた
+'   SaveTurnForRestore(q, ans) ―― の【中で】完結させる。
+'   ここで手に入る情報を確認した結果:
+'     ・質問文 q はこの Sub の引数そのもの(SaveTurnForRestore が元から受け取る)。
+'     ・mode は modState.LoadState("nexus_last_kind") ―― SaveTurnKind が
+'       【同じ OnSend 呼び出しの1行前】に書いたばかりの値を読み返すだけ
+'       (両者の呼び出し元は modApp.OnSend の1箇所のみで、間に他のターンが
+'       割り込む余地は無い)。modAppState.CurrentMode()/RagSpeed() を都度
+'       読み直す方式は採らない ―― それは【送信の入口】で確定させた値と
+'       ずれうる(生成の待ち時間中にモードトグルを押すと別ターンの値を拾う。
+'       modApp.bas:147-152 の既知の事故と同型)ため、ログの mode 欄まで
+'       不正確になる。
+'   出典は modAsk(凍結)の読み取り専用 accessor(LastGenHitCount/
+'   LastHitSource/LastHitPage。いずれも0始まり)から取る。一般アシスタント
+'   (mode=general)は modAsk.NoteGeneralAnswered が LastGenHitCount を0に
+'   戻すので、ここで自然に「出典なし」の行になる(個別の分岐は不要)。
+' ----------------------------------------------------------------------------
+Private Sub LogAskSources(ByVal q As String)
+    On Error Resume Next
+    Dim mode As String: mode = modState.LoadState("nexus_last_kind", "")
+
+    Dim detail As String: detail = "q=" & modUtil.SafeLeft(q, 40)
+    Dim n As Long: n = modAsk.LastGenHitCount()
+    Dim maxN As Long: maxN = 3
+    If n < maxN Then maxN = n
+
+    Dim i As Long
+    For i = 0 To maxN - 1
+        detail = detail & " | " & modAsk.LastHitSource(i) & " p." & modAsk.LastHitPage(i)
+    Next i
+
+    modLog.LogUsage "ask_sources", mode, detail
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
