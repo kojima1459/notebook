@@ -45,41 +45,61 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     Dim lastK As Long
     lastK = wsK.Cells(wsK.Rows.count, 1).End(xlUp).row
 
+    Dim hitRows() As Long
     Dim pages() As Long, texts() As String
     Dim n As Long: n = 0
     Dim addedAt As String: addedAt = ""
+    Dim i As Long
 
     If lastK >= 2 Then
-        ReDim pages(0 To lastK - 2)
-        ReDim texts(0 To lastK - 2)
-        ' source(2列目)〜added(8列目)を一括読み(modVaultGallery.EnsurePreviewIndex
-        ' と同じ配列一括読みの作法。modShelf.bas:10-18のCOL_*と同値の列位置)。
+        ' 【2段で読む理由・R36 Fix A-M1】my_knowledge は実機で2万行あり、
+        ' full_text は1行が最大32,000字。8列を丸ごと配列にすると1回の表示で
+        ' 数百MBを読み、32bit Excel ではメモリ不足で【無言で死ぬ】。
+        ' そこで modCorrect.InjectHits と同じ2段読みにする:
+        '   (1) id/source/origin/page の4列だけを一括で読んで該当行を集める
+        '   (2) ReDim は該当件数ぶん (3) 該当行だけ Cells(row,7) で full_text
+        ' 4列読むのは、1列だけの Range.Value が1行のとき配列ではなくスカラーを
+        ' 返して LBound で落ちるため(modCorrect.bas:305-308 と同じ理由)。
         Dim arr As Variant
-        arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 8)).Value
+        arr = wsK.Range(wsK.Cells(2, 1), wsK.Cells(lastK, 4)).Value
         Dim target As String: target = LCase$(Trim$(srcName))
-        Dim i As Long
+        Dim cap As Long: cap = UBound(arr, 1) - LBound(arr, 1)
+        ReDim hitRows(0 To cap)
+        ReDim pages(0 To cap)
         For i = LBound(arr, 1) To UBound(arr, 1)
             If LCase$(Trim$(CStr(arr(i, 2)))) = target Then
-                pages(n) = CLng(arr(i, 4))
-                texts(n) = CStr(arr(i, 7))
-                If LenB(addedAt) = 0 Then addedAt = CStr(arr(i, 8))
+                hitRows(n) = i + 1          ' arr の i 行目 = シートの i+1 行目(1行目は見出し)
+                ' R36 Fix N9: page 列が空/非数値でも CLng の型不一致で
+                ' 資料まるごと落とさない(Val は数字以外を 0 と読む)。
+                pages(n) = CLng(Val(CStr(arr(i, 4))))
                 n = n + 1
             End If
         Next i
-        If n > 0 Then
-            ReDim Preserve pages(0 To n - 1)
-            ReDim Preserve texts(0 To n - 1)
-            SortPagesStable pages, texts, n
-        End If
+
+        ' (3) 該当行だけ full_text(7列目)を読む。ReDim は【無条件に1回】通す
+        '     (CLAUDE.md §10 の R33波3: 条件付き ReDim Preserve の穴を作らない)。
+        ReDim texts(0 To n)
+        For i = 0 To n - 1
+            texts(i) = CStr(wsK.Cells(hitRows(i), 7).Value)
+        Next i
+        If n > 0 Then addedAt = CStr(wsK.Cells(hitRows(0), 8).Value)
+        If n > 1 Then SortPagesStable pages, texts, n
     End If
 
     Dim ws As Worksheet
     Set ws = RecreateTextViewSheet()
+    If ws Is Nothing Then Exit Sub
+
+    ' R36 Fix B3: 資料の生テキストは「=」「+」「-」「@」で始まりうる。素の
+    ' Value 代入だと Excel が数式として解釈し 1004 で落ち、戻るボタンの無い
+    ' 書きかけシートだけが残る(modState.bas:79-95 の既知の型)。A列を文字列
+    ' 書式に固定してから書く。
+    ws.Columns("A").NumberFormat = "@"
 
     Dim r As Long: r = 1
-    ws.Cells(r, 1).Value = ChrW(&HD83D) & ChrW(&HDCD6) & " 本文: " & srcName
+    PutCell ws, r, ChrW(&HD83D) & ChrW(&HDCD6) & " 本文: " & srcName
     r = r + 1
-    ws.Cells(r, 1).Value = _
+    PutCell ws, r, _
         "取込日時: " & IIf(LenB(addedAt) > 0, addedAt, "不明") & _
         " ／ チャンク数: " & n & "件 ／ 内容が違うときは、この資料を " & _
         ChrW(&HD83D) & ChrW(&HDDD1) & " で消してから " & ChrW(&H2795) & _
@@ -88,16 +108,16 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     r = r + 2
 
     If n = 0 Then
-        ws.Cells(r, 1).Value = "(この資料のチャンクが見つかりませんでした)"
+        PutCell ws, r, "(この資料のチャンクが見つかりませんでした)"
         r = r + 1
     Else
         For i = 0 To n - 1
-            ws.Cells(r, 1).Value = "【p." & pages(i) & "】"
+            PutCell ws, r, "【p." & pages(i) & "】"
             r = r + 1
             Dim body As String: body = StripBreadcrumb(texts(i))
             Dim pos As Long: pos = 1
             Do While pos <= Len(body)
-                ws.Cells(r, 1).Value = Mid$(body, pos, 500)
+                PutCell ws, r, Mid$(body, pos, 500)
                 r = r + 1
                 pos = pos + 500
             Loop
@@ -108,20 +128,34 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     ws.Columns("A").ColumnWidth = 110
     DrawBackButton ws
 
-    ' R11-C(lint許容登録)と同じ許容続行: 前面化に失敗しても内容は書き
-    ' 終えているため続行する(modDiag.RunDiagnostics:232-240と同型)。
-    On Error Resume Next
-    Err.Clear
-    ws.Activate   ' lint:allow-raw-activate(許容続行・modDiagと同じ裁定)
-    If Err.Number <> 0 Then
-        modLog.LogError "E0801", "modTextView.ShowForSource", _
-            "[許容続行] Activate失敗", Err.Number
+    ' R36 Fix M4: ws.Activate の素呼びは R10-1 実機 err91 の経路(モーダル/
+    ' 外部COM直後は例外を返すのにシートは切り替わっている)。成否判定と記録は
+    ' modUI.ActivateSheetRobust へ一本化する。失敗しても内容は書き終えている
+    ' ので続行し、脱出路だけ出す(modUI.GoToNexus:512-515 と同じ組み合わせ)。
+    If Not modUI.ActivateSheetRobust(ws, "modTextView.ShowForSource") Then
+        modUI.RestoreExcelUI
     End If
-    On Error GoTo 0
     Exit Sub
 
 Fail:
-    modLog.LogError "E0801", "modTextView.ShowForSource", Err.Description
+    ' On Error 文と Exit は Err をリセットするので、ログの前に退避する(§11)。
+    Dim eN As Long: eN = Err.Number
+    Dim eD As String: eD = Err.Description
+    ' R36 Fix A-m1: 途中で落ちた text_view は「戻るボタンの無い書きかけ
+    ' シート」として残る。掃除してから記録する(残骸を作らない)。
+    CleanupSheet
+    modLog.LogError "E0801", "modTextView.ShowForSource", eD, eN
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' 1セル単位の書き込み(R36 Fix B3)。1セルの失敗で画面全体を失わないよう、
+' 保護はセル単位に閉じる(NumberFormat="@" を掛けてもなお、極端に長い文字列や
+' 保護の掛かった環境で失敗しうる)。On Error はプロシージャ単位なので、
+' 呼び出し元の On Error GoTo Fail はこの Sub の中の指定に影響されない。
+Private Sub PutCell(ByVal ws As Worksheet, ByVal r As Long, ByVal s As String)
+    On Error Resume Next
+    ws.Cells(r, 1).Value = s
     Err.Clear
     On Error GoTo 0
 End Sub
@@ -129,14 +163,19 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' OnBack - 「← 戻る」ボタン。text_viewを削除し、開いた元の画面へ戻る。
 ' ----------------------------------------------------------------------------
+' R36 Fix A-m2: 連打で二重遷移しないよう modKnowledge.OnDelete(:770-779)と
+'   同型の Enter/Leave を掛ける。ただし遷移先の modApp.OnNavShelf は自分でも
+'   modUiLock.Enter する(modApp.bas:551)ので、【掴んだまま呼ぶと必ず断られ
+'   「押しても何も起きない」】。掃除までを錠の中で行い、Leave してから遷移する。
 Public Sub OnBack()
     If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
     On Error Resume Next
-    Application.DisplayAlerts = False
-    ThisWorkbook.Worksheets(TEXT_VIEW_SHEET).Delete
-    Application.DisplayAlerts = True
+    CleanupSheet
+    If Err.Number <> 0 Then modLog.LogError "E0801", "modTextView.OnBack", Err.Description, Err.Number
     Err.Clear
     On Error GoTo 0
+    modUiLock.Leave
 
     Select Case mBackAction
         Case "chat"
@@ -147,17 +186,39 @@ Public Sub OnBack()
 End Sub
 
 ' ----------------------------------------------------------------------------
+' CleanupSheet - text_view を消す(R36 Fix A-r4)。
+'   text_view は【可視】の作業シートなので、開いたまま保存すると全文が
+'   ブックに焼き付き、誰でも見られる状態で OneDrive へ同期される。
+'   呼ばれるのは (1)OnBack (2)ShowForSource の作り直し/失敗時
+'   (3)modApp.OnSaveAndExit の直前(保存物に残さない)の3箇所。
+'   凍結 modBoot.Auto_Close には触らない(§12)。
+'   DisplayAlerts の退避と復元は On Error Resume Next の中で必ず対にする。
+' ----------------------------------------------------------------------------
+Public Sub CleanupSheet()
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    ThisWorkbook.Worksheets(TEXT_VIEW_SHEET).Delete
+    Application.DisplayAlerts = True
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' ShowActiveRow - 📖本文ボタン(マイ本棚・一覧表モード限定)。
 '   modUIShelf.OnDeleteSourceの前半(行→資料名の判定)と同じ4段の判定を
 '   自前で持つ(modUIShelfは残96字で関数を足せないための複製。
 '   modUIShelf.bas:489-522のOnDeleteSourceと同型)。
 ' ----------------------------------------------------------------------------
+' R36 Fix N7: 例外の記録は【この関数の中】で持つ。modKnowledge は残324字の
+'   逼迫モジュールで、OnShowText は Enter/Leave と1行呼び出しだけに縮めた
+'   (§12「実体は余裕モジュールへ、逼迫側は1行呼び出し」)。
 Public Sub ShowActiveRow()
+    On Error GoTo Fail
     Dim activeName As String
     activeName = ""
     On Error Resume Next
     activeName = Application.ActiveSheet.Name
-    On Error GoTo 0
+    On Error GoTo Fail        ' 0 に戻すと下の Fail 網が外れる(§11)
 
     If activeName <> modAppDef.SH_SHELF Then
         MsgBox "本文を見たい資料の行をクリックしてから、もう一度押してください。", _
@@ -176,7 +237,7 @@ Public Sub ShowActiveRow()
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_SHELF)
-    On Error GoTo 0
+    On Error GoTo Fail
     If ws Is Nothing Then Exit Sub
 
     Dim sourceName As String
@@ -187,6 +248,15 @@ Public Sub ShowActiveRow()
     End If
 
     ShowForSource sourceName, "shelf"
+    Exit Sub
+
+Fail:
+    ' ログの前に Err を退避する(On Error 文と Exit は Err をリセットする・§11)。
+    Dim eN2 As Long: eN2 = Err.Number
+    Dim eD2 As String: eD2 = Err.Description
+    modLog.LogError "E0801", "modTextView.ShowActiveRow", eD2, eN2
+    Err.Clear
+    On Error GoTo 0
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -195,10 +265,23 @@ End Sub
 '   本棚一覧の再描画は従来どおり必ず行い、config screenshot_show_text が
 '   真のときだけ続けて読み取り結果を自動表示する(髙橋フィードバック対応)。
 ' ----------------------------------------------------------------------------
-Public Sub AfterShot(ByVal destPath As String)
+' R36 Fix M5 / A-M3: 取込が失敗したときまで本文画面を開いていた。中身は
+'   空か、直前に見ていた別資料の残骸で、利用者は「読めている」と誤解する。
+'   ingestStatus は modShelf.IngestFile の戻り値(modShelf.bas:363-365,
+'   87/99/146/184/304/412 で "done"/"partial"/"failed"/"image_pdf")。
+'   表示するのは done / partial のときだけで、それ以外は RefreshCurrent のみ
+'   ―― 失敗の理由は IngestFile 側が既にトースト/ログで伝えている。
+'   判定を modTextView 側に置くのは、modUIShelf が残93字で分岐を書けないため
+'   (あちらの変更は引数 ", ingestStatus" の13字だけ)。
+Public Sub AfterShot(ByVal destPath As String, ByVal ingestStatus As String)
     On Error Resume Next
     modKnowledge.RefreshCurrent
     On Error GoTo 0
+
+    Dim st As String: st = LCase$(Trim$(ingestStatus))
+    If st <> "done" Then
+        If st <> "partial" Then Exit Sub
+    End If
 
     If modConfig.GetBool("screenshot_show_text", True) Then
         On Error Resume Next
@@ -255,12 +338,7 @@ End Sub
 ' 既存を再利用してClearContents」方式。戻るボタンは無い診断シートと違い、
 ' 本シートは「← 戻る」を自前で描く(DrawBackButton)。
 Private Function RecreateTextViewSheet() As Worksheet
-    Application.DisplayAlerts = False
-    On Error Resume Next
-    ThisWorkbook.Worksheets(TEXT_VIEW_SHEET).Delete
-    Err.Clear
-    On Error GoTo 0
-    Application.DisplayAlerts = True
+    CleanupSheet          ' 古い残骸を消す(DisplayAlertsの退避/復元も向こう側)
 
     Dim ws As Worksheet
     On Error GoTo Fallback
@@ -290,9 +368,19 @@ End Function
 Private Sub DrawBackButton(ByVal ws As Worksheet)
     On Error Resume Next
     ws.Shapes("tv_back").Delete
+    Err.Clear                 ' 「まだ無い」の91は失敗ではない(下の判定へ持ち越さない)
 
     Dim btn As Shape
     Set btn = ws.Shapes.AddShape(5, 10, 8, 110, 26)   ' 5=角丸四角
+    ' R36 Fix A-m8: AddShape が失敗すると以降が全部素通りし、【戻れない画面】
+    ' が黙って出来上がる(シートタブでしか脱出できない)。1行でも残す。
+    If btn Is Nothing Then
+        Dim eN As Long: eN = Err.Number
+        modLog.LogError "E0801", "modTextView(DrawBackButton)", _
+            "戻るボタンのAddShapeに失敗(シートタブから戻ってください)", eN
+        Err.Clear
+        Exit Sub
+    End If
     btn.Name = "tv_back"
     btn.Adjustments(1) = 0.3
     btn.Fill.ForeColor.RGB = modUI.UiColor("primary")
