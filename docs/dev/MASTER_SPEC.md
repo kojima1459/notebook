@@ -82,6 +82,8 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `err_log` | hidden | エラーログ |
 | `insight_inbox` | hidden | 解決済みQ&A・みんなの困りごとの受信箱 |
 | `ui_state` | veryHidden | UI内部状態(モード選択等) |
+| `text_view` | veryHidden | 📖本文の表示用作業シート。←戻るで削除。保存前に自動掃除(`modApp.OnSaveAndExit`) |
+| `diag_report` | veryHidden | 🩺診断ボタンの表示用作業シート。←戻る相当で削除(実装では HideInternalSheets で隠す) |
 
 **my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded, norm_text`
 - norm_text(10列目・2026-08-01 R12-4追加): 照合用の正規化済みテキスト
