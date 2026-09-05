@@ -63,8 +63,12 @@ End Sub
 '     (4)の1始まり配列テストで先頭要素が欠落し落ちる。
 Private Sub TestSortPagesStable39()
     ' (1) ばらばらの順序 → page昇順。
-    Dim p1() As Long: p1 = Array(3, 1, 2)
-    Dim t1() As String: t1 = Array("c", "a", "b")
+    ' Array()はVariant配列を返すため、Long()/String()の型付き動的配列へは
+    ' 直接代入できない(型不一致で実行時エラー)。ReDim+要素代入で組む。
+    Dim p1() As Long: ReDim p1(0 To 2)
+    p1(0) = 3: p1(1) = 1: p1(2) = 2
+    Dim t1() As String: ReDim t1(0 To 2)
+    t1(0) = "c": t1(1) = "a": t1(2) = "b"
     modTextView.SortPagesStable p1, t1, 3
     ChkLong39 "B_昇順_page0", p1(0), 1
     ChkLong39 "B_昇順_page1", p1(1), 2
@@ -75,8 +79,10 @@ Private Sub TestSortPagesStable39()
 
     ' (2) page値が同じ要素の安定性: [2(x1), 1(y), 2(x2)] → [1(y), 2(x1), 2(x2)]
     '     (page=2の2件は元の相対順序=x1が先→x2が後 を保つ)。
-    Dim p2() As Long: p2 = Array(2, 1, 2)
-    Dim t2() As String: t2 = Array("x1", "y", "x2")
+    Dim p2() As Long: ReDim p2(0 To 2)
+    p2(0) = 2: p2(1) = 1: p2(2) = 2
+    Dim t2() As String: ReDim t2(0 To 2)
+    t2(0) = "x1": t2(1) = "y": t2(2) = "x2"
     modTextView.SortPagesStable p2, t2, 3
     ChkLong39 "B_安定性_page0", p2(0), 1
     ChkStr39 "B_安定性_text0", t2(0), "y"
@@ -86,8 +92,10 @@ Private Sub TestSortPagesStable39()
     ChkStr39 "B_安定性_同点2件目が後", t2(2), "x2"
 
     ' (3) n=0/n=1は無変更(早期return)。
-    Dim p3() As Long: p3 = Array(9)
-    Dim t3() As String: t3 = Array("z")
+    Dim p3() As Long: ReDim p3(0 To 0)
+    p3(0) = 9
+    Dim t3() As String: ReDim t3(0 To 0)
+    t3(0) = "z"
     modTextView.SortPagesStable p3, t3, 1
     ChkLong39 "B_n1は無変更", p3(0), 9
     modTextView.SortPagesStable p3, t3, 0
