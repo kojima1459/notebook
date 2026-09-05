@@ -295,7 +295,7 @@ Public Sub RunAllPureTests()
     ' 回帰。同じ別枝の作法で直接呼ぶ。固定するのは modCorrect の純関数だけ:
     ' (C1)BuildMemoBody の書式 (C2)ExtractQuestionLine(breadcrumb付き/CRLF/
     ' 質問行なし) (C3)MatchLevel の3値 (C4)KeyMatchPct の両端 (C5)MemoDocBase の
-    ' 接頭辞・24字クランプ・SanitizeName 置換の冪等性。InjectHits/PrependHit は
+    ' 接頭辞・24字クランプ・4桁ハッシュ・SanitizeName 置換の冪等性。InjectHits/PrependHit は
     ' Hit型配列を跨ぐためLOでは受け渡せない既知の死角で、Pureテストは書かない。
     On Error Resume Next
     Err.Clear
@@ -307,13 +307,15 @@ Public Sub RunAllPureTests()
     End If
     On Error GoTo 0
 
-    ' 2026-09-05(R36波4): 版上げ時の自動引き継ぎ(§1-A)の純ロジック回帰。
-    ' 同じ別枝の作法で直接呼ぶ。固定するのは modMigrateFrom.PickNewest
-    ' (自分を除く・最新・同時刻は先勝ち・候補0件は-1)と
-    ' modMigrateFrom.OfferText(確認ダイアログにファイル名と更新日時が
-    ' 必ず載ること)の2本だけ。FindPreviousBook/ImportFromBook/
-    ' CopyUserData/OfferImportIfFirstRunはDir()・Workbooks.Open・
-    ' シートI/Oを持つため対象外。
+    ' 2026-09-05(R36波4→Fix2): 版上げ時の自動引き継ぎ(§1-A)の純ロジック回帰。
+    ' 同じ別枝の作法で直接呼ぶ。固定するのは modMigrateFrom.PreviousBookName
+    ' (<stem>_旧版<拡張子>の組み立て。Fix2でPickNewestは候補1個化に伴い
+    ' 削除)・modMigrateFrom.StampText(yyyy-mm-dd hh:nnをFormat$無しで
+    ' 組み立てる。LOがVBAの分の書式"n"を解釈しない死角の回避)・
+    ' modMigrateFrom.OfferText(確認ダイアログにファイル名・件数・更新日時が
+    ' 必ず載ること)の3本だけ。FindPreviousBook/ImportFromBook/
+    ' CopyUserData/OfferImportIfFirstRun/CountManifestInBookはDir()・
+    ' Workbooks.Open・シートI/Oを持つため対象外。
     On Error Resume Next
     Err.Clear
     modTestsPure41.RunAll41
