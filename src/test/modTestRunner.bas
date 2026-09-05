@@ -286,6 +286,11 @@ Public Sub RunAllPureTests()
     modTestsPure39.RunAll39
     If Err.Number <> 0 Then
         Check "modTestsPure39.RunAll39", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
+
     ' 2026-09-05(R36波2): 是正の仕組み(❌違う→次から必ず使われる)の純ロジック
     ' 回帰。同じ別枝の作法で直接呼ぶ。固定するのは modCorrect の純関数だけ:
     ' (C1)BuildMemoBody の書式 (C2)ExtractQuestionLine(breadcrumb付き/CRLF/
