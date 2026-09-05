@@ -4,8 +4,12 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R37. R37（是正の仕上げ＝誤根拠の降格・資料間リンク（LLM 0回の軽量グラフ）・測定の材料・2026-09-05 起草・**実装中**）
+## 0R37. R37（是正の仕上げ＝誤根拠の降格・資料間リンク（LLM 0回の軽量グラフ）・測定の材料・2026-09-05・**検問全緑・実機受入待ち**）
 
+**最新状態（09-05 夜）**: 波A（Sonnet: 誤根拠の降格＋`ask_sources`）／波B（Opus: 資料間リンク＝`doc_centroids`/`doc_links`・`modXDoc`/`modXDocStore`/`modXDocBuild`）→ レビュー1周目（班A/B・Opus）→ Fix 波（Opus）→ 2周目（班C・Opus）→ Fix2（Sonnet）**まで全消化**。全裁定は `spec_20260905_R37_是正の仕上げと資料間リンク.md` §8〜§12。司令塔のマイクロ修正3件（`takeN`/`taken` 大小同名の二重宣言／`InStrRev` 4引数形／`Optional Object = Nothing`＝いずれも LO compile のタイムアウトか pure の FAIL で検出。CLAUDE.md §10 に追記）。
+**final-gates（09-05）**: lint ERROR 0／LO compile 167/167／pure **PASS 3,155 / FAIL 0 / SKIP 14**（下限 3,155。ネガティブ確認: Pure42 の期待値を壊して FAIL 1／下限割れ→復元）／`--dev`・`--prod --zip` OK（**24シート**・167本）／`bin_roundtrip` 6条件／`lo_xlsm` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（build `20260905-115417Z+8105569`・14,615,053B・`mock_llm` FALSE・キー空・`xdoc_links` on・`xdoc_min_sim` 80・`xdoc_add` 2・`log_max_rows` 4000）。**ユーザーへ送付済み。**
+**実機受入（spec §3-2・未）**: ①関連する2資料を取り込むと 📖本文 のメタ行に「関連する資料」が出る（無関係な2冊では出ない） ②A の言葉で聞いて B に答えがある質問で末尾に B が出ることがある（⚡すぐ聞くか入念の単発で。続けて質問では出ない） ③❌違う のあと同じ質問で誤答の根拠だった資料が後ろへ下がる（完全一致のときだけ） ④`usage_log` に `ask_sources`・`xdoc_built`（`cap=`/`loadfail=`）が残る ⑤取込時間の増分（章重心の総当たり。4,000章相当で Err 7 が出ないか）。**R36 の受入①〜⑥と R35 追補の実機1往復も未確認のまま。**
+**記録のみ／R38 送り**（spec §10・§12）: `IndexInBox` と `AppendFromPool` のコスト（実機で測ってから）／`CosineCsv` が本番経路で未使用／`|` 区切りの脆さ／非正規化ベクトル混入の防御なし／パック・チャンネル由来の資料は links を持たない（復旧は ⚡仕上げ）→ 全量再構築ボタン／`bench_retrieval.py` を `ask_sources`＋feedback から採点できるよう拡張／`vba_lint` に大小同名 Dim 検査（`check_dim_case_collision`）／`modAskRetrieve` 残126＝次は分割が先／`modLog` のフォールバック 2000。
 **起点**: ユーザー依頼「①是正の完成 ②NotebookLM 越えの精度（無理はしない）。動的グラフナレッジは効果があるか」。**裁定** = `spec_20260905_R37_是正の仕上げと資料間リンク.md`（§0 結論: フル GraphRAG はやらない／①の残り＝誤根拠の降格（A）／資料同士の関連は章重心の類似度で LLM 0回のリンク表（B）／精度の測定材料を残す（C））。波A（Sonnet）・波B（Opus）を並行投入 → レビュー2周 → final-gates。
 
 ## 0R36. R36（是正メモ・スクショ本文表示・画像を📁から・版上げ時の自動引き継ぎ・2026-09-05・**検問全緑・実機受入待ち**）
