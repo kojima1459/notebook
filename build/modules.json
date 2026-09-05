@@ -1205,7 +1205,7 @@
       "role": "core",
       "type": "std",
       "wave": "R36-4",
-      "note": "R36 波4(§1-A 版上げ時の自動引き継ぎ)。新版の初回起動で、同じフォルダにある前版の MyBookshelf_前回.xlsm(bat が退避する名前)を自動で見つけ、読み取り専用+EnableEvents=False(R35以前のWorkbook_Open自己インストーラを走らせないため)で開いて本棚・実績・設定を写す。入口はmodTour.StartTourIfFirstRun先頭の1行フック(凍結modBootは不触)。設計意図: 「開いたブックからシートを写す」実体(CopyUserData)はmodMigrate.ImportUserData(.xlsx引き継ぎファイル経路)からそのまま移設した(挙動不変)。旧xlsm直読み(MIG_METAシートを持たない生の製品ブック)と.xlsx引き継ぎファイルの両方が同じ「3シート+統計+config+受信箱を写す」仕事を必要とするための共用先で、MIG_METAの形式バージョン検査だけは.xlsx固有のためmodMigrate側に残した。config の引き継ぎ判定(IsUserOwnedKey/IsBuildOwnedKey)とinsight_inboxのサニタイズ(InboxCellValue)はmodMigrate側をPublic化してそのまま呼ぶ(判定表を複製すると2つの台帳が食い違う事故=R12-3-2の再発を防ぐため、値ではなく判定関数そのものを共用する)。候補選定は「Dir()走査→配列→純関数PickNewest(自分を除く・最新・同時刻は先勝ち)」の形に分離してテスト可能にした(Dir()の再入禁止はmodShelfScan.EnumFolderFilesと同じ作法)。純関数(PickNewest/OfferText)はmodTestsPure41が固定する。"
+      "note": "R36 波4→Fix2(§1-A 版上げ時の自動引き継ぎ)。新版の初回起動で、同じフォルダにある前版の MyBookshelf_旧版.xlsm(利用者が版上げ時に改名して残す名前。bat のF3b書き戻し失敗退避\"_前回\"とは別名=Fix2 D-B1でBLOCKERだった名前衝突を解消)を見つけたら、まず読み取り専用+EnableEvents=Falseで開いてmy_manifestの件数だけ数え、0件なら黙って何もしない(Fix2 §9-4)。1件以上のときだけ問い、Yesなら本棚・実績・設定を写す。入口はmodTour.StartTourIfFirstRun先頭の1行フック(凍結modBootは不触)。設計意図: 「開いたブックからシートを写す」実体(CopyUserData)はmodMigrate.ImportUserData(.xlsx引き継ぎファイル経路)からそのまま移設した(挙動不変)。旧xlsm直読み(MIG_METAシートを持たない生の製品ブック)と.xlsx引き継ぎファイルの両方が同じ「3シート+統計+config+受信箱を写す」仕事を必要とするための共用先で、MIG_METAの形式バージョン検査だけは.xlsx固有のためmodMigrate側に残した。config の引き継ぎ判定(IsUserOwnedKey/IsBuildOwnedKey)とinsight_inboxのサニタイズ(InboxCellValue)はmodMigrate側をPublic化してそのまま呼ぶ(判定表を複製すると2つの台帳が食い違う事故=R12-3-2の再発を防ぐため、値ではなく判定関数そのものを共用する)。候補選定は純関数PreviousBookName(<stem>_旧版<拡張子>を組む)+Dir$1回の存在確認に単純化した(Fix2でPickNewestは不要になり削除)。時刻表示は純関数StampText(Year/Month/Day/Hour/Minuteの組み立て。LibreOfficeのFormat$が分の書式\"n\"を解釈しない死角=Fix2 §9-4の回避)。純関数(PreviousBookName/OfferText/StampText)はmodTestsPure41が固定する。"
     },
     {
       "name": "modTestsPure41",
@@ -1213,7 +1213,7 @@
       "role": "test",
       "type": "std",
       "wave": "R36-4",
-      "note": "R36 波4(版上げ時の自動引き継ぎ)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜40と同型)。固定するもの: (D1)modMigrateFrom.PickNewest — 自分を除く/最新を選ぶ/同時刻は先勝ち(\">\"であって\">=\"ではない)/候補0件は-1。(D2)modMigrateFrom.OfferText — ファイル名と更新日時(yyyy-mm-dd hh:nn)が文面に必ず載ること。FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRunはDir()・Workbooks.Open・シートI/Oを持つため対象外(modShelfSync/modPackと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。"
+      "note": "R36 波4→Fix2(版上げ時の自動引き継ぎ)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜40と同型)。固定するもの: (D1)modMigrateFrom.PreviousBookName — <stem>_旧版<拡張子>の組み立て(拡張子無し/空文字は空を返す)。(D2)modMigrateFrom.StampText — yyyy-mm-dd hh:nn形式(1桁月日時分のゼロ埋め含む。LO死角対応のFormat$不使用版)。(D3)modMigrateFrom.OfferText — ファイル名・件数・更新日時が文面に必ず載ること。FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRun/CountManifestInBookはDir()・Workbooks.Open・シートI/Oを持つため対象外(modShelfSync/modPackと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。PickNewestはFix2で削除(候補が1個に絞られ役目を失ったため。テストも差し替え)。"
     }
   ]
 }
