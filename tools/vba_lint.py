@@ -942,7 +942,21 @@ CONTRACT: dict[str, dict] = {
     #   modAskMulti.TryDecomposed の入口1箇所(印を次のターンへ残さない)。
     "modAskGlobal": {
         "closed": True,
-        "required": ["TryGlobal", "OutlineActive", "WasGlobalTurn", "ResetGlobalTurn"],
+        # CollectChapterHits(2026-09-06 R38): 1回読み(modAskOnePass)が章ごとの
+        #   予算で章本文を引くために Public 化(Optional capTotal/maxHits=0 は従来)。
+        "required": ["TryGlobal", "OutlineActive", "WasGlobalTurn", "ResetGlobalTurn",
+                     "CollectChapterHits"],
+    },
+    # modAskOnePass(2026-09-06 R38): 入念モードの単発経路を章丸ごと読み+1回
+    #   呼び出しに置き換える。Enabled/TryOnePassが唯一の入口(modAskThorough.
+    #   RunThoroughFlowの先頭1箇所から呼ばれる)。IsOn/DedupeKeys/
+    #   PerChapterCap/CountLines/BuildOnePassPromptは文字列・数値だけの
+    #   純関数でmodTestsPure43が固定する。SourceBlockOfはHit型を跨ぐ内部
+    #   組み立て(本文ブロック+重点抜粋)で Private(契約に載せない)。
+    "modAskOnePass": {
+        "closed": True,
+        "required": ["Enabled", "TryOnePass", "BuildOnePassPrompt", "IsOn",
+                     "DedupeKeys", "PerChapterCap", "CountLines"],
     },
     "modAskThorough": {
         "closed": True,

@@ -287,9 +287,15 @@ End Sub
 '   「第1章 総則」のような、どの規程にもある章名で無関係な資料が混ざる
 '   (出典タグは正しいので利用者は気付けない=一番危険な外し方。
 '    modAskFocus.RefsExpand が資料を跨がないのと同じ理由)。
+'
+' 2026-09-06(R38): 1回読み(modAskOnePass)が章ごとに予算を渡すために
+'   Public 化・末尾へ Optional capTotal/maxHits を追加した。0 は従来どおり
+'   (SafeCap()/MAX_HITS を使う)。既存呼び出し(TryGlobal)は無改修。
 ' ----------------------------------------------------------------------------
-Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long, _
-                                    ByRef outHits() As Hit) As Long
+Public Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long, _
+                                    ByRef outHits() As Hit, _
+                                    Optional ByVal capTotal As Long = 0, _
+                                    Optional ByVal maxHits As Long = 0) As Long
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets(modAppDef.SH_KNOWLEDGE)
     If ws Is Nothing Then Exit Function
@@ -361,12 +367,25 @@ Private Function CollectChapterHits(ByRef picks() As String, ByVal nPick As Long
     Dim idData As Variant
     idData = ws.Range(ws.Cells(2, COL_ID), ws.Cells(lastK, COL_SOURCE)).Value
 
-    Dim capPer As Long: capPer = SafeCap() \ nPick
+    Dim capBase As Long
+    If capTotal > 0 Then
+        capBase = capTotal \ nPick
+    Else
+        capBase = SafeCap() \ nPick
+    End If
+    Dim capPer As Long: capPer = capBase
     If capPer < CAP_MIN Then capPer = CAP_MIN
+
+    Dim hitCap As Long
+    If maxHits > 0 Then
+        hitCap = maxHits
+    Else
+        hitCap = MAX_HITS
+    End If
 
     Dim n As Long
     For i = LBound(idData, 1) To UBound(idData, 1)
-        If n >= MAX_HITS Then Exit For
+        If n >= hitCap Then Exit For
         Dim id As String: id = Trim$(CStr(idData(i, COL_ID)))
         Dim src As String: src = Trim$(CStr(idData(i, COL_SOURCE)))
         If LenB(id) > 0 And LenB(src) > 0 Then

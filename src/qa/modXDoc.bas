@@ -295,7 +295,8 @@ End Function
 ' ============================================================================
 
 ' chunk_id から章キーを引く(chunk_meta を1周する)。無ければ空文字。
-Private Function ChapterOfChunk(ByVal cid As String, ByRef mIds() As String, _
+' R38: modAskOnePass も使う。
+Public Function ChapterOfChunk(ByVal cid As String, ByRef mIds() As String, _
                                 ByRef mPaths() As String, ByVal metaN As Long) As String
     Dim t As String: t = Trim$(cid)
     If LenB(t) = 0 Then Exit Function

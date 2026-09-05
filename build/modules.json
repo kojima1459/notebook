@@ -1246,6 +1246,22 @@
       "type": "std",
       "wave": "R37-B",
       "note": "R37 波B(資料間リンク)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜41と同型)。固定するもの: (A)modXDoc.CosineCsv — 同一=1/直交=0/次元不一致=0/ゼロベクトル=0、および未正規化の入力でも内積ではなくコサインを返すこと(ノルムで割り忘れた実装は 3 を返して落ちる)。正規化済み2本では内積=CosineCsvであることも固定する ―― modXDocBuild.MatchChapters が総当たりで内積だけを回す根拠。(B)modXDocStore.MeanNormalizedCsv — 2本の平均が長さ1になること、次元の違う行は数に入れないこと、ゼロベクトル/壊れたCSV/0本は空文字。(C)modXDocStore.TopNLinks — 上位3件がsim降順、同点は先勝ち(比較に>=を使う実装が落ちる)、keep>nは件数ぶん、keep<=0とn<=0は空文字。(D)modXDoc.PickLinked — 閾値(xdoc_min_sim。0.80ちょうどが二進小数の丸めで消えないことを含む)・自資料除外・最大N・起点キー不一致は無視・重複除去。(E)modXDoc.ChapterOf — 第1要素/目次行の末尾正規化/リーダー1字は触らない(期待値は定数で書き、modOutlineBuild.ChapterKeyOf を呼び直す恒真比較にはしない)。RememberPool/ExpandはHit型を跨ぐためLOでは実行できず(modCorrect.InjectHitsと同じ死角)、modXDocBuild全体とシートI/OはWorksheetを持つため対象外 ―― R37 §3-2 の実機受入3項目に委ねる。"
+    },
+    {
+      "name": "modAskOnePass",
+      "path": "src/qa/modAskOnePass.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R38",
+      "note": "R38(外部レビュー裏どり§4＋髙橋情報「リボン経由で20万トークンまで通る」＋ユーザーGO「Aを挟まずB」)。「入念に調べる」の単発経路(modAskMulti.TryDecomposedがFalseでmodAskThorough.RunThoroughFlowに来る回)だけを、章丸ごと読み＋1回のLLM呼び出しに置き換える(分解経路・俯瞰経路・しっかり・すぐ聞くは1文字も変えない)。入口はTryOnePass: 上位onepass_seed_hits(既定6)件の章キーをmodXDoc.ChapterOfChunk(R38でPublic化)で引き、DedupeKeysで順位順・重複なしにonepass_max_chapters(既定8)件へ絞り、1章ずつmodAskGlobal.CollectChapterHits(R38でPublic化・Optional capTotal/maxHits追加)で文書順に読む。章が1件も引けない本棚(chunk_metaが無い/⚡仕上げ未実施)ではmodAskFocus.NeighborExpand/RefsExpandによる近傍代替(mode=neighbor)へ落ちる。本文はSourceBlockOfでonepass_max_chars(既定300,000字≒20万トークン)まで詰め、Lost-in-the-middle対策として検索上位min(3,nHits)件を重点抜粋として質問の直前にも重複配置する。プロンプトはBuildOnePassPromptの1本(modAskGlobal.BuildGlobalPromptと同じ理由で凍結modPromptsへは置かない。出典タグ書式だけmodPrompts.SourceTagを通す)。失敗(章0件かつ近傍も0件・LLMエラー・想定外例外)は理由をusage_log(onepass_fallback why=…)に残してFalseを返し、呼び出し元(modAskThorough)が黙って従来の4段(要点整理→下書き→自己点検→検証)へ落ちる=答えが出ない状態を作らない(modAskGlobal.TryGlobalと同じ思想)。戻し方はconfig thorough_onepass=offの1行。Enabled/TryOnePass以外の公開関数(IsOn/DedupeKeys/PerChapterCap/CountLines/BuildOnePassPrompt)は文字列・数値だけの純関数でmodTestsPure43が固定する。TryOnePass自体とSourceBlockOfはHit型(UDT)を跨ぐためLOでは実行できず(modXDoc.RememberPool/Expandと同じ死角)、実機受入(R38 §5)に委ねる。"
+    },
+    {
+      "name": "modTestsPure43",
+      "path": "src/test/modTestsPure43.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R38",
+      "note": "R38(入念1回読み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜42と同型)。固定するもの: (A)modAskOnePass.IsOn — 空・\"on\"/\"true\"/\"1\"/\"yes\"(大小・前後空白無視)=True、\"off\"/\"false\"/\"0\"/\"no\"=False、それ以外は既定側(True)へ倒すこと。(B)DedupeKeys — vbLf区切りの入力から空行を捨て初出順で重複除去、maxN件で打ち切り(先頭・末尾にvbLfを付けない)、比較は大小無視・前後空白無視、maxN<1は空文字。(C)PerChapterCap — total\\nChapの整数除算、結果がminCap未満ならminCap、nChap<1はtotalを返す、total<1はminCapを返す。(D)CountLines — DedupeKeysの結果の行数(空文字は0)。(E)BuildOnePassPrompt — 役割/手順(ansTagsの有無)/出力規則(strictGの有無)/history/本文/重点抜粋/質問/深掘り候補の並びと、各見出し文字列がこの順で本文に含まれること(期待値は定数で書き、実装を呼び直す恒真比較にはしない)。TryOnePass/SourceBlockOfはHit型を跨ぐためLOでは実行できず(modXDoc.RememberPool/Expandと同じ死角。modTestsPure42と同じ理由でPureテストは書かない=SKIP上限14を増やさない)、実機受入(R38 §5)に委ねる。"
     }
   ]
 }

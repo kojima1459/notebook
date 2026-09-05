@@ -343,4 +343,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-06(R38): 入念1回読みの純ロジック回帰。固定するのは
+    ' modAskOnePass の IsOn/DedupeKeys/PerChapterCap/CountLines/
+    ' BuildOnePassPrompt の5本。TryOnePass/SourceBlockOf は Hit 型を
+    ' 跨ぐため LO では実行できない。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure43.RunAll43
+    If Err.Number <> 0 Then
+        Check "modTestsPure43.RunAll43", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

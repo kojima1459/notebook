@@ -74,6 +74,16 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     ok = False
     mVerifyNote = ""
 
+    ' R38 §2: 1回読み(章丸ごと)。失敗時は黙って従来の4段へ落ちる。
+    If modAskOnePass.Enabled() Then
+        Dim opBody As String
+        If modAskOnePass.TryOnePass(q, hits, nHits, history, prevU, prevA, opBody) Then
+            ok = True
+            RunThoroughFlow = opBody
+            Exit Function
+        End If
+    End If
+
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
