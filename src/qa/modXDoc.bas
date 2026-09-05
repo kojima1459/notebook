@@ -66,7 +66,7 @@ Private mPoolN As Long
 '     使われてしまう(見えない誤根拠)。scopeSources 判定はここへ引き取る。
 ' ----------------------------------------------------------------------------
 Public Sub RememberPool(ByRef hits() As Hit, ByVal n As Long, _
-                         Optional ByVal scopeSources As Object = Nothing)
+                         Optional ByVal scopeSources As Object)
     On Error Resume Next
     mPoolN = 0
     If Not scopeSources Is Nothing Then Exit Sub

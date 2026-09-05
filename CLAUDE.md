@@ -135,6 +135,7 @@ nohup bash -c 'python3 tools/run_lo_tests.py --mode compile > /tmp/lo_c.log 2>&1
 逆向きの罠（LOだけが落ちる／Excelは平気）:
 - 予約語 `Enum` と衝突する識別子（`eNum` 等）を使うと、LOは**コンパイルエラーではなく120秒タイムアウト＋結果ファイル未生成でハングする**（R33波1実測）。原因不明のテストハングを見たらまず識別子を疑う。`vba_lint` はERRORで検出するので、LOの前に必ずlintを通せば防げる。
 - **大小違いの同名変数（`takeN` と `taken`）は同一識別子の二重宣言**（VBA・LO とも大小無視）。LO は**タイムアウトでハング**、実Excel はコンパイルエラー。`vba_lint` は未検出（R37 実測・R38 で検査追加）。
+- **`Optional ByVal x As Object = Nothing` は VBA では不正（既定値は定数のみ）**。LO はタイムアウトでハング。既定値を書かずに `Optional ByVal x As Object` とする（R37 Fix2 実測）。
 - **`InStrRev` の4引数形（`Start=-1, vbTextCompare`）は LO で不一致を返す**（R37 実測）。2引数形にする。
 - **`ReDim Preserve` を一度も通していない配列への `Join` が空文字を返す**（R33波3実測）。`If 条件 Then ReDim Preserve a(...)` のように条件付きで縮めると、条件が偽の行だけ丸ごと消える。無条件に一度は `ReDim Preserve` を通す形にする。
 
