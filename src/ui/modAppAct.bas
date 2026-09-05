@@ -112,14 +112,41 @@ Done:
 End Sub
 
 ' 修正入力の共通処理(👎/🤔の両方から呼ぶ)。ナレッジ化+EXP+カウント。
+' ----------------------------------------------------------------------------
+' R36 §2: 「修正ナレッジ」を【是正メモ】へ作り替えた。旧実装は正しい内容を
+' 普通の資料として1冊増やすだけで、(a)元の質問文が本文に無い (b)優先されない
+' (c)修正のたびに増える、の3点が揃っていた。同じ質問をもう一度打っても、
+' 回答抜粋に偶然含まれる語でしか当たらない=トーストの「次から…この内容で
+' 答えます」を実装が裏付けていなかった(R36 §2-1)。
+'   (a) 本文へ元の質問文を必ず入れる … modCorrect.BuildMemoBody
+'       質問文は modAppState.SaveTurnForRestore が毎ターン ui_state へ積む
+'       "nexus_hist_u" の先頭から取る(modAsk.mLastQuestion は Private かつ
+'       modAsk は凍結で accessor を足せないため)。
+'   (b) 回答生成の直前に先頭へ差し込む … modCorrect.InjectHits(modAskRetrieve)
+'   (c) 資料名を "是正メモ_<質問先頭24字>" に固定し、同じ質問の2回目は
+'       登録前に消してから入れ直す(下の DeleteSource)。
+' 呼ぶのは凍結 modShelf の【既存 Public】だけで、凍結モジュールは不触。
+'
+' 【司令塔へ報告済みの縫い目・R36 波2】この Sub は ❌違う(OnActBad)だけで
+' なく 🤔(OnActUnsure :385)からも呼ばれる。🤔 が渡すのは「正しい内容」では
+' なく「どこが引っかかったか」の一言(例:「説明が分かりにくい」)で、それが
+' 是正メモとして【その質問の最優先の答え】に昇格する。R36 §2 は ❌違う の
+' 経路しか論じておらず、🤔 の扱いは裁定が無い。実装波は仕様どおり共通の
+' まま置き、分岐が要るかは司令塔の裁定を待つ。
 Private Sub RecordCorrection(ByVal fixText As String)
     On Error Resume Next
+    Dim q As String: q = modCorrect.LastQuestionFromState()
     Dim body As String
-    body = "【修正ナレッジ】" & vbLf & _
-           "対象の回答(抜粋): " & modUtil.SafeLeft(modAppState.TargetText(), 400) & vbLf & vbLf & _
-           "正しい内容: " & fixText
+    body = modCorrect.BuildMemoBody(q, fixText, _
+               modUtil.SafeLeft(modAppState.TargetText(), 200))
 
-    If modVault.RegisterKnowledgeText("修正ナレッジ", body, "修正,フィードバック") Then
+    ' 同じ質問への2回目は上書きする。source 名は拡張子込みのファイル名
+    ' (modShelf.bas:72)で、MemoDocBase は modVault.SanitizeName と同じ置換を
+    ' 済ませてあるので "<MemoDocBase>.txt" と必ず一致する。無い資料を渡しても
+    ' DeleteSource は何もしないので、初回でも安全(modUIShelf.bas:529 と同じ呼び方)。
+    modShelf.DeleteSource modCorrect.MemoDocBase(q) & ".txt"
+
+    If modVault.RegisterKnowledgeText("是正メモ", body, "", modCorrect.MemoDocBase(q)) Then
         modStats.Bump "correction_total"
         modStats.AddExp "correction"
         modStats.EvaluateBadges
@@ -135,7 +162,9 @@ Private Sub RecordCorrection(ByVal fixText As String)
             ' 入念は生成の内側で注記済み=ShouldAnnotate=Falseで素通り。
             modInsightIo.EmitCorrection modMode.AnnotateIfNeeded(modAsk.LastAnswerText()), fixText
         End If
-        modSkin.ShowToast "ありがとうございます。次に同じ質問をした人から、この内容で答えます。", "success"
+        ' R36 §2-2-3: 文言を実装の実態へ合わせる(旧文は「次に同じ質問をした人
+        ' から、この内容で答えます」で、質問文を保存も優先もしていなかった)。
+        modSkin.ShowToast "ありがとうございます。この質問には次から、いま書いていただいた内容で答えます(是正メモとして本棚に入りました)。", "success"
     Else
         MsgBox "学習の保存に失敗しました。マイ本棚の一覧をご確認ください。", vbExclamation, modAppDef.APP_NAME
     End If
