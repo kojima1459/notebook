@@ -1,8 +1,16 @@
-# 再開手順（セッション中断対策・最終更新: R34完了時点）
+# 再開手順（セッション中断対策・最終更新: R36 検問全緑時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
+
+## 0R36. R36（是正メモ・スクショ本文表示・画像を📁から・版上げ時の自動引き継ぎ・2026-09-05・**検問全緑・実機受入待ち**）
+
+**最新状態（09-05 夜）**: 髙橋さんフィードバックを起点に4件を実装。波1（Sonnet: §3 本文表示＋§4 画像📁）／波2（Opus: §2 是正メモ）／波4（Sonnet: §1-A 版上げ時の自動引き継ぎ）／波3（Haiku: 文書）→ 敵対的レビュー1周目（班A壊す／班B突合）→ Fix 波（Opus）→ 2周目（班C Fix検証／班D 波4。Opus 上限で Sonnet に切替）→ Fix2（Sonnet）**まで全消化**。全裁定は `spec_20260905_R36_是正と本文表示と置き場所.md` §9（9-1〜9-8）。
+**final-gates（09-05・司令塔）**: lint ERROR 0／LO compile 163/163／pure **PASS 3,090 / FAIL 0 / SKIP 14**（`EXPECTED_PASS_MIN` 3009→3090。ネガティブ確認: Pure41 の期待値を1分ずらして FAIL 1／下限割れの赤を確認→復元）／`--dev`・`--prod --zip` 自己検証 OK（163本・CP932 置換 371 字）／`bin_roundtrip` 6条件 OK／`lo_xlsm` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（build `20260905-095232Z+f27af62`・xlsm 1,894,719B・22シート・`mock_llm` FALSE・`azure_embed_key`/`publish_key` 空・`screenshot_show_text` TRUE・`correct_inject` on・`correct_key_min` 60・bat 5,333B に `_旧版` 複製行と `_前回` 退避が分離・README に `MyBookshelf_旧版.xlsm`・docs に 05_図解ガイド.html 同梱）。**ユーザーへ送付済み。**
+**実機受入（spec §6-6・未）**: ①📁 追加で png を選べて取り込める ②📸 取込直後に 📖本文 が自動で開く（← 戻る で戻る） ③❌違う→正しい内容→同じ質問で是正メモが出典の先頭に出る（🤔・深掘り・一般アシスタントでは旧経路） ④前版を `MyBookshelf_旧版.xlsm` に改名→新版の初回に「前の版の本棚が見つかりました（N件）」→はい→閉じて開き直すと本棚が戻る（0件の前版では聞かれない） ⑤pre-R35 の前版でも `Workbook_Open`/`Auto_Open` が走らない ⑥text_view を開いたまま保存→再起動で残骸が無い。**加えて R35 追補の実機1往復（OneDrive の bat → D: → 閉じる → 書き戻し・`_前回`）は依然未確認**（bat と Ghostscript は髙橋さん経由の SharePoint zip でしか会社PCへ入らない）。
+**記録のみ／R37 送り**（spec §8・§9）: 1-B 本格データブック分離（起動・終了の秒数実測後）／誤チャンクの減点／他人の correction 受信箱の取り込み／是正メモ一覧／読み取り結果の編集保存／フォルダ同期での画像取込／`WScript.Shell`×17・`new:{`×2・`ServerXMLHTTP`×2 の撤去と `--vba-mode installer` 削除（姉妹PJの「0件照合」に追随）／精度は `bench_retrieval.py` で数字を取ってから／`HitSourceList` の是正メモ除外は4呼び出し元に及ぶ（意図どおり）／新規導入期間は起動ごとに `_旧版` の存在確認1回。
+**運用メモ**: Opus のセッション上限（09-05 09:10 UTC リセット）で2周目レビューが起動直後に落ちた→ Sonnet で再投入して完走。worktree のサブエージェントは基点が古い `main` になる事故が3回続いた（各自 `git fetch && reset --hard` で復旧。**次回から指示文に「最初に HEAD を確認」を必ず入れる**）。マージ時の末尾追記衝突は「両方残す」で解決するが、共通部分が消える型（modTestRunner の `End If`・modules.json の `},{`）があるので、**解決後は必ず lint＋`--dev` ビルド＋LO compile まで回してから次へ**。
 
 ## 0R35. R35（配布方式の転換: 自己インストーラ → 完成品 vbaProject.bin・2026-09-03・**検問全緑・実Excel確認待ち**）
 
