@@ -50,3 +50,7 @@ seed/
 
 # 2026-09-05: サブエージェントの一時 worktree(実装波の作業コピー。中身は各波のブランチにコミット済み)
 .claude/worktrees/
+
+# Gemini ワーカーのキー(tools/gemini_worker.py が読む。リポジトリに入れない)
+.gemini_key
+**/.gemini_key
