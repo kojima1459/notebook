@@ -247,7 +247,7 @@ Public Function WrongSourceMatches(ByVal line As String, ByVal source As String,
     For i = LBound(parts) To UBound(parts)
         Dim ent As String: ent = Trim$(parts(i))
         If LenB(ent) > 0 Then
-            Dim pPos As Long: pPos = InStrRev(ent, " p.", -1, vbTextCompare)
+            Dim pPos As Long: pPos = InStrRev(ent, " p.")   ' LO は4引数形(Start=-1+Compare)で不一致を返す。" p." は大小無関係なので2引数形
             If pPos > 0 Then
                 Dim entSrc As String: entSrc = Trim$(Left$(ent, pPos - 1))
                 Dim pageStr As String: pageStr = Mid$(ent, pPos + 3)
