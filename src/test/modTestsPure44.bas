@@ -69,10 +69,10 @@ Private Sub TestJoinPageTexts44()
     Dim empty0() As String
     ChkStr44 "B_n0は空", optOcrCore.JoinPageTexts(empty0, 0), ""
 
-    Dim one(1 To 1) As String: one(1) = "a"
+    Dim one() As String: ReDim one(1 To 1): one(1) = "a"
     ChkStr44 "B_n1", optOcrCore.JoinPageTexts(one, 1), "a" & Chr$(12)
 
-    Dim mid3(1 To 3) As String: mid3(1) = "a": mid3(2) = "": mid3(3) = "c"
+    Dim mid3() As String: ReDim mid3(1 To 3): mid3(1) = "a": mid3(2) = "": mid3(3) = "c"
     ChkStr44 "B_n3中間空", optOcrCore.JoinPageTexts(mid3, 3), _
         "a" & Chr$(12) & "" & Chr$(12) & "c" & Chr$(12)
 
@@ -86,23 +86,23 @@ End Sub
 Private Sub TestJoinThenBounds44()
     Dim firstIdx As Long, lastIdx As Long
 
-    Dim p1(1 To 3) As String: p1(1) = "a": p1(2) = "": p1(3) = "c"
+    Dim p1() As String: ReDim p1(1 To 3): p1(1) = "a": p1(2) = "": p1(3) = "c"
     ChkLong44 "C_中間空_keptN", modUtilText.GsPageBounds( _
         optOcrCore.JoinPageTexts(p1, 3), firstIdx, lastIdx), 3
     ChkLong44 "C_中間空_firstIdx", firstIdx, 0
     ChkLong44 "C_中間空_lastIdx", lastIdx, 2
 
-    Dim p2(1 To 3) As String: p2(1) = "": p2(2) = "b": p2(3) = "c"
+    Dim p2() As String: ReDim p2(1 To 3): p2(1) = "": p2(2) = "b": p2(3) = "c"
     ChkLong44 "C_先頭空_keptN", modUtilText.GsPageBounds( _
         optOcrCore.JoinPageTexts(p2, 3), firstIdx, lastIdx), 2
     ChkLong44 "C_先頭空_firstIdx", firstIdx, 1
 
-    Dim p3(1 To 3) As String: p3(1) = "a": p3(2) = "b": p3(3) = ""
+    Dim p3() As String: ReDim p3(1 To 3): p3(1) = "a": p3(2) = "b": p3(3) = ""
     ChkLong44 "C_末尾空_keptN", modUtilText.GsPageBounds( _
         optOcrCore.JoinPageTexts(p3, 3), firstIdx, lastIdx), 2
     ChkLong44 "C_末尾空_lastIdx", lastIdx, 1
 
-    Dim p4(1 To 3) As String: p4(1) = "": p4(2) = "": p4(3) = ""
+    Dim p4() As String: ReDim p4(1 To 3): p4(1) = "": p4(2) = "": p4(3) = ""
     ChkLong44 "C_全部空_keptN", modUtilText.GsPageBounds( _
         optOcrCore.JoinPageTexts(p4, 3), firstIdx, lastIdx), 0
 End Sub

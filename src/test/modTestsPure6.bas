@@ -313,16 +313,16 @@ Private Sub TestGsRunCommandObservability()
     ' (3) フラグへ書くのは終了コード。`call` が無いと初回解析で親プロセスの
     '     0 に展開されてしまい、常に「成功」に見える。
     modTestRunner.Check "R11-D: 終了コードをcall経由でフラグへ書く", _
-        (InStr(runCmd, " & call echo %^ERRORLEVEL% >") > 0), "実際=[" & runCmd & "]"
+        (InStr(runCmd, " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >") > 0), "実際=[" & runCmd & "]"
 
     ' (4) `>` の直前に必ず空白がある。空白が無いと echo 1>… の 1 が
     '     リダイレクト先ハンドル番号として食われ、フラグが空になる。
     modTestRunner.Check "R11-D: フラグへのリダイレクト直前に空白がある", _
-        (InStr(runCmd, "% >" & Chr$(34)) > 0), "実際=[" & runCmd & "]"
+        (InStr(runCmd, ") >" & Chr$(34)) > 0 And InStr(runCmd, "echo 1)") > 0), "実際=[" & runCmd & "]"
 
     ' (5) 連結は `&`(無条件)のまま=GSが異常終了してもフラグは必ず出る。
     modTestRunner.Check "R11-D: フラグ作成の連結は無条件の&のまま(&&にしない)", _
-        (InStr(runCmd, " && ") = 0 And InStr(runCmd, " & call echo") > 0), _
+        (InStr(runCmd, " && ") = 0 And InStr(runCmd, " & (if errorlevel") > 0), _
         "実際=[" & runCmd & "]"
 
     ' (6) ログのパス規約。

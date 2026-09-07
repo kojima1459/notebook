@@ -122,6 +122,9 @@ End Sub
 ' 2026-07-31 R11-D(監査3 H-2)でゴールデンを更新した。
 ' 旧: cmd.exe /s /c "<gs> & echo done>"<flag>""
 ' 新: cmd.exe /s /c "(<gs>) 1>"<log>" 2>&1 & call echo %^ERRORLEVEL% >"<flag>""
+' 2026-09-07 R39(レビュー M1): GS 引数に "%04d"(ページ別出力)が入り % の対が
+' ずれるため、% を使わない if errorlevel の3値(0/1/255)でフラグへ書く形へ。
+'   … & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >"<flag>""
 Private Sub TestBuildRunCommandGolden()
     Dim gsCommand As String: gsCommand = Dq("C:\gs\gswin32c.exe") & " -dSAFER " & Dq("C:\a b\in.pdf")
     Dim flagPath As String: flagPath = "C:\Temp\nxocr_1\done.flag"
@@ -130,7 +133,8 @@ Private Sub TestBuildRunCommandGolden()
     Dim expected As String
     expected = "cmd.exe /s /c " & Chr$(34) & _
         "(" & gsCommand & ") 1>" & Dq(logPath) & " 2>&1" & _
-        " & call echo %^ERRORLEVEL% >" & Dq(flagPath) & Chr$(34)
+        " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >" & _
+        Dq(flagPath) & Chr$(34)
 
     Dim actual As String
     actual = optOcrCore.BuildRunCommand(gsCommand, flagPath, logPath)
@@ -138,7 +142,7 @@ Private Sub TestBuildRunCommandGolden()
     modTestRunner.Check "実行コマンド: cmd.exe /s /c ラップのゴールデン一致", _
         (actual = expected), "実際=" & actual
     modTestRunner.Check "実行コマンド: 完了フラグの作成が無条件(&)で連結されている", _
-        (InStr(actual, " & call echo ") > 0), "実際=" & actual
+        (InStr(actual, " & (if errorlevel ") > 0), "実際=" & actual
     modTestRunner.Check "実行コマンド: 全体が二重引用符で閉じている", _
         (Right$(actual, 1) = Chr$(34)), "実際=" & Right$(actual, 30)
 End Sub

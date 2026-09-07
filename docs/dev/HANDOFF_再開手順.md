@@ -4,6 +4,15 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
+## 0R39. R39（外部受入テストの指摘対応・2026-09-07・**検問進行中**）
+
+**起点**: 髙橋さんが私物 Windows（ARM64・Excel 16.0・社内リボン無し）で OpenAI Astra に R38 配布物（build `cd61029`）の受入テストを実施（実Excel で純ロジック 3,277・E2E 16・取込/起動/保存/パック/移行）。報告 zip は `scratchpad/astra/r/受入テスト_20260907`（リポジトリ外・会社資料なし）。指摘6件＋懸念1件。**全裁定** = `spec_20260907_R39_受入指摘対応.md` §0（司令塔が全件を再現して採用）。ユーザー GO（09-07）。
+**致命（F001）**: 文字 PDF のページ番号が全部 p.1（同梱 Ghostscript の txtwrite 出力に改ページ文字が無い。R10 以来）。→ GS にページ別ファイル `gstext_%04d.txt` で出させ、読み側（`optOcrCore.ReadPageFilesJoined`）が各ページ末尾に Chr$(12) を付けて連結。連結後の処理は不変。**この環境に GS が無いので実機でしか検証できない**（§4 再試験）。cmd.exe 1行の中の `%04d` と `%^ERRORLEVEL%` の対（変数展開）はコマンドライン文脈では未定義名が原文のまま残る規則に依拠＝**実機要確認**（完了フラグに数字が入るか）。
+**その他**: F002 別名同内容の重複（`modShelf` 凍結解除1行: ハッシュを見出し前の本文で）／F003 Pure8 の固定長配列（LO は通り実Excel は Err 13＝§10 に追記）／F004 E2E の質問文／F005 手順書 41・45 の10箇所（Gemini 3.1 Pro が突合→司令塔照合）／F006 zip に 10・44 同梱／C001 README に「1台1系統」。
+**検問（09-07）**: 検問1 `2610cd4`（司令塔分）／検問2 `efe2d42`（F001・Sonnet 実装＋司令塔検収で LOF 進捗監視を復元）: lint 0／LO compile OK／pure **PASS 3211 / FAIL 0 / SKIP 14**（下限 3193→3211。ネガティブ確認: Pure44 A_i1 を壊して FAIL 1→復元）。敵対的レビュー（Opus）進行中。
+**実機再試験（§4・髙橋さんの環境で可能）**: ①5ページ PDF で page 1〜5・上限2で partial ②画像表紙＋文字本文 ③途中空白ページ ④同内容別名で件数不変・E2E 16/16 ⑤Pure8 が実Excel で PASS ⑥zip に 10・44。
+**体制メモ**: Gemini 3.1 Pro は文書突合10件を正確に出した（引用が1件だけ不正確→司令塔が原文で修正）。
+
 ## 0R38. R38（「入念に調べる」の1回読み＝章丸ごと・メガコンテキスト・2026-09-06・**検問全緑・実機受入待ち**）
 
 **final-gates（09-06・司令塔）**: lint ERROR 0／LO compile 169/169／pure **PASS 3193 / FAIL 0 / SKIP 14**（下限 3155→3193。ネガティブ確認2回: Pure43 C_正常等分 10001→FAIL 1、Fix2 の「E_見出し記号■が残る」を反転→FAIL 1、いずれも下限割れの赤を確認して復元）／`--dev`・`--prod --zip` 自己検証 OK（**24シート・169本**）／`bin_roundtrip --book` 6条件 OK／`lo_xlsm --book` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（build `20260905-170004Z+cd61029`・14,632,175B・xlsm 1,958,224B・`mock_llm` FALSE・`azure_embed_key`/`publish_key` 空・`thorough_onepass` on・`onepass_max_chars` 300000・`onepass_max_chapters` 8・`onepass_seed_hits` 6・`onepass_neighbor` 6・`thorough_onepass_effort` high・`max_context_chars` 60000 のまま）。図解ガイドの版表記は R38（dist 実測後に更新）。**ユーザーへ送付済み。**

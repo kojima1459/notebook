@@ -326,6 +326,11 @@ _README_DOCS_GENERAL = (
     "  docs\\45_実機スモークテスト手順.md     … 短時間の動作確認\n"
     "  docs\\10_使い方ガイド.md              … 画面ごとの詳しい使い方\n"
     "  docs\\44_P2P実機テスト手順.md         … 共有フォルダを使う機能の確認手順\n"
+)
+# R39 C001(外部受入テストの静的懸念): 起動 bat は複製先 D:\MyBookshelf と終了
+# フラグが全展開元で共通。一般版・発行者版の両方の末尾に同じ注意を置く
+# (レビュー m2: 一覧の途中に挟むと発行者版で 46 の行が注記の後ろへ出る)。
+_README_NOTE_ONE_LAUNCHER = (
     "  ※ 起動bat は1台のPCにつき1系統だけ使ってください(複数の配布フォルダから\n"
     "     同じPCで起動すると、D:\\MyBookshelf の複製先が共通のため中身が混ざります)。\n"
 )
@@ -358,7 +363,8 @@ def _upgrade_source_name(xlsm_name: str) -> str:
 
 def _readme_text(is_publisher: bool, xlsm_name: str) -> str:
     return _README_TEXT.format(
-        doc_guide=_README_DOCS_PUBLISHER if is_publisher else _README_DOCS_GENERAL,
+        doc_guide=(_README_DOCS_PUBLISHER if is_publisher else _README_DOCS_GENERAL)
+                  + _README_NOTE_ONE_LAUNCHER,
         upgrade_name=_upgrade_source_name(xlsm_name),
     )
 

@@ -120,21 +120,22 @@ End Function
 '       AppLocker/MOTW/EDRに止められた場合の "アクセスが拒否されました" は
 '       ここにしか出ない。従来は捨てていたため実機で切り分け不能だった。
 '   (2) 完了フラグの中身を "done" 固定から【GSの終了コード】へ変える。
-'       `%^ERRORLEVEL%` と `call` の組み合わせは、コマンドラインの初回解析で
-'       展開されてしまう(常に親プロセスの0になる)のを避けるための定石で、
-'       call の二度目の解析で初めて実際の終了コードへ展開される。
-'       `%^...%` が展開できない環境でもフラグそのものは必ず作られ、中身が
-'       数値にならないだけ(GsExitCodeFromFlag が「不明」を返す)なので、
-'       「フラグは必ず出る=監視ループは必ず解ける」性質は変わらない。
+'       R11-D〜R38 は `call echo %^ERRORLEVEL%` で生の終了コードを書いていたが、
+'       R39 F001 で GS 引数に "%04d" が入り % の対がずれるため、% を使わない
+'       `if errorlevel` の3値(0/1/255)に変えた。展開に失敗した環境でもフラグ
+'       そのものは必ず作られ(GsExitCodeFromFlag が「不明」)、監視ループは解ける。
 '   (3) `echo <値> >"<flag>"` の `>` の直前には必ず空白を1つ置く。空白が
 '       無いと `echo 1>...` の 1 が【リダイレクト先ハンドル番号】として
 '       解釈され、フラグが空で作られてしまう(cmdの古典的な罠)。
 ' ----------------------------------------------------------------------------
 Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String, _
                                 ByVal logPath As String) As String
+    ' R39 M1: gsCommand の "%04d"(F001)と %^ERRORLEVEL% の % の対がずれるため、
+    ' % を使わず終了コードを 0/1/255(負=クラッシュ系)の3値でフラグへ書く。
     BuildRunCommand = "cmd.exe /s /c " & Chr$(34) & _
         "(" & gsCommand & ") 1>" & Quoted(logPath) & " 2>&1" & _
-        " & call echo %^ERRORLEVEL% >" & Quoted(doneFlagPath) & Chr$(34)
+        " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >" & _
+        Quoted(doneFlagPath) & Chr$(34)
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -415,10 +416,14 @@ End Function
 
 ' parts(1..n)を、各要素末尾にChr(12)を付けて連結(n<1は空。配列は1始まり)。
 Public Function JoinPageTexts(ByRef parts() As String, ByVal n As Long) As String
+    If n < 1 Then Exit Function
+    ' R39 M4: 逐次連結は O(n²)。先頭 n 要素だけを Join で1回に。
     Dim i As Long
+    Dim tmp() As String: ReDim tmp(1 To n)
     For i = 1 To n
-        JoinPageTexts = JoinPageTexts & parts(i) & Chr$(12)
+        tmp(i) = parts(i)
     Next i
+    JoinPageTexts = Join(tmp, Chr$(12)) & Chr$(12)
 End Function
 
 ' 実在する"gstext_*.txt"の最大番号(hintNより大きければそちら)。
@@ -435,6 +440,8 @@ Public Function MaxPageFileIndex(ByVal folderPath As String, ByVal hintN As Long
             Dim v As Long: v = FirstNumberFrom(fn, p + 7)
             If v > maxN Then maxN = v
         End If
+        ' R39 M3: Dir$() 失敗時に fn が残って無限ループしないよう先に空へ。
+        fn = ""
         On Error Resume Next
         fn = Dir$()
         On Error GoTo 0
@@ -453,6 +460,8 @@ Public Function ReadPageFilesJoined(ByVal folderPath As String, ByVal totalPages
     Dim maxFound As Long: maxFound = MaxPageFileIndex(folderPath, n)
     If maxFound > n Then n = maxFound
     If n < 1 Then Exit Function
+    ' R39 M4: ログが化けて総頁が9桁でも配列を確保しない安全弁(打切りは連結後)。
+    If n > 5000 Then n = 5000
 
     Dim parts() As String: ReDim parts(1 To n)
     Dim gotErr As Boolean
@@ -472,24 +481,31 @@ End Function
 ' 最大番号のページファイルのサイズ(無ければ0)。WaitGsTextDoneの進捗監視用
 ' (optGsTxt側はPrivateで貸せないためここでFileLenを使う)。
 Public Function LatestPageFileSize(ByVal folderPath As String) As Double
+    ' R39 M2/B2: 進捗信号は単調増加が要る(newSize > lastSize)。全ページの合計に、
+    ' 書き込み中で FileLen が更新されないぶんを最新ファイルの LOF で補う。
     Dim maxN As Long: maxN = MaxPageFileIndex(folderPath, 0)
     If maxN <= 0 Then Exit Function
-    Dim p As String: p = PageTxtName(folderPath, maxN)
-    Dim n As Double: n = 0#
-    On Error Resume Next
-    n = CDbl(FileLen(p))
-    ' 司令塔検収(R39): 旧 optGsTxt.FileSizeOf/LofSizeOf と同じく LOF も見る。GS が
-    ' 書き込み中のファイルは FileLen が更新されないことがあり、1ページが重い PDF で
-    ' 「無進捗」と誤判定して途中で止めてしまう(R13-1c の生存監視を退行させない)。
-    Dim fn As Long: fn = FreeFile
-    Open p For Binary Access Read As #fn
-    If Err.Number = 0 Then
-        If CDbl(LOF(fn)) > n Then n = CDbl(LOF(fn))
-        Close #fn
-    End If
-    Err.Clear
-    On Error GoTo 0
-    LatestPageFileSize = n
+    Dim total As Double: total = 0#
+    Dim i As Long
+    For i = 1 To maxN
+        Dim p As String: p = PageTxtName(folderPath, i)
+        Dim n As Double: n = 0#
+        On Error Resume Next
+        n = CDbl(FileLen(p))
+        Err.Clear                              ' B2: 直前の Err を持ち越さない
+        If i = maxN Then
+            Dim fn As Long: fn = FreeFile
+            Open p For Binary Access Read As #fn
+            If Err.Number = 0 Then
+                If CDbl(LOF(fn)) > n Then n = CDbl(LOF(fn))
+                Close #fn                      ' Open が成功した経路では必ず閉じる
+            End If
+            Err.Clear
+        End If
+        On Error GoTo 0
+        total = total + n
+    Next i
+    LatestPageFileSize = total
 End Function
 
 ' 一時フォルダのフルパス(例: C:\Users\x\AppData\Local\Temp\nxocr_20260731_101112_437)。

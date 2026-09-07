@@ -240,7 +240,9 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     ' 従来はここが設計済みの画像PDF判定(GsTextVerdict→E0303→OCR)より先に
     ' 発火し、スキャンPDFがWord経路へ流れてゴミ本文のまま「登録成功」になって
     ' いた。空のときは終了コードとGS出力から本当の理由を分類する。
-    If LenB(txt) = 0 Then
+    ' R39 レビュー B1: ページ別出力の連結は空ページにも Chr(12) を足すので LenB は
+    ' 0 にならない。空白類だけ(=本文なし)を CleanTextLen で見る。
+    If modUtilText.CleanTextLen(txt) = 0 Then
         Dim cls As String
         ' R14-3c: 入力サイズも材料に渡す。0バイトのPDFはGSが「空のPS」として
         ' rc=0+バナーだけで即終了するため、rcとログだけでは image と見分けが
