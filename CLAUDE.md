@@ -138,6 +138,8 @@ nohup bash -c 'python3 tools/run_lo_tests.py --mode compile > /tmp/lo_c.log 2>&1
 - **大小違いの同名変数（`takeN` と `taken`）は同一識別子の二重宣言**（VBA・LO とも大小無視）。LO は**タイムアウトでハング**、実Excel はコンパイルエラー。`vba_lint` は未検出（R37 実測・R38 で検査追加）。
 - **`Optional ByVal x As Object = Nothing` は VBA では不正（既定値は定数のみ）**。LO はタイムアウトでハング。既定値を書かずに `Optional ByVal x As Object` とする（R37 Fix2 実測）。
 - **`InStrRev` の4引数形（`Start=-1, vbTextCompare`）は LO で不一致を返す**（R37 実測）。2引数形にする。
+- **配列を丸ごと代入する関数（`vec = cut` 型）へ固定長配列を渡すと、LO は通り実Excel は Err 13**（R39・外部受入テストで実証。`modTestsPure8.TestTruncateAndRenorm` が固定長を渡していた）。テストの入力は動的配列で作る。
+- **Ghostscript txtwrite の出力に改ページ文字（0x0C）は無い**（R39・同梱 10.03.1 の生出力で実証。合成文字列の分割テストでは見つからない）。ページはファイルを分けて出させる（`-sOutputFile=…_%04d.txt`）。
 - **`ReDim Preserve` を一度も通していない配列への `Join` が空文字を返す**（R33波3実測）。`If 条件 Then ReDim Preserve a(...)` のように条件付きで縮めると、条件が偽の行だけ丸ごと消える。無条件に一度は `ReDim Preserve` を通す形にする。
 
 ## 11. VBA落とし穴チェックリスト（実装・レビュー共通）

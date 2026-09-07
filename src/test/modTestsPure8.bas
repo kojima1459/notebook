@@ -186,7 +186,11 @@ End Sub
 ' modUtil.TruncateAndRenorm / HasVector(R12-8-2続き)
 ' ----------------------------------------------------------------------------
 Private Sub TestTruncateAndRenorm()
-    Dim v1(0 To 4) As Double
+    ' R39 F003(外部受入テスト・実Excel で再現): 実装は打切り時に vec = cut と
+    ' 配列を丸ごと代入するので、固定長配列を渡すと実Excel は Err 13(型が一致
+    ' しません)。LibreOffice は通すため気付けなかった。打切りが起きる入力は
+    ' 動的配列で作る(v2〜v5 は打切りが起きず代入に到達しないので従来どおり)。
+    Dim v1() As Double: ReDim v1(0 To 4)
     v1(0) = 3#: v1(1) = 4#: v1(2) = 0#: v1(3) = 0#: v1(4) = 0#
     Dim ok1 As Boolean
     ok1 = modUtil.TruncateAndRenorm(v1, 2)

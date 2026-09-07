@@ -57,7 +57,10 @@ Private Const TEST_SOURCE_2 As String = "_mybookshelf_e2e_smoke_test_dup.txt"
 Private Const TEST_CONTENT As String = _
     "ゾウガメ工房の年次点検チェックリストについてのテスト資料です。" & vbLf & _
     "点検は毎年4月に実施し、ゾウガメ工房の担当者が立ち会います。"
-Private Const TEST_QUERY As String = "ゾウガメ工房 点検"
+' R39 F004(受入テスト再現): 9字の質問は ambiguous_max_chars(既定10)以下で、本棚に
+' 資料が複数あると聞き返し(modClarify)になり「[本棚:」を含まず FAIL した。
+' 資料名と目的を含む1文にして、通常回答の経路を通す。
+Private Const TEST_QUERY As String = "ゾウガメ工房の年次点検はいつ実施しますか"
 
 ' ----------------------------------------------------------------------------
 ' RunExcelE2ESmokeTest - 自動実行のメインエントリ(ダイアログ操作なし)。

@@ -217,8 +217,9 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
         Dim bodyText As String
         bodyText = ApplyCrumb(chunks(ci).full_text, sourceName, crumbOn)
 
+        ' R39 F002: ハッシュは見出しを付ける前の本文で(別名の同内容が重複した)。
         Dim hashHex As String
-        hashHex = modUtil.Fnv1a64Hex(modUtil.NormalizeForHash(bodyText))
+        hashHex = modUtil.Fnv1a64Hex(modUtil.NormalizeForHash(chunks(ci).full_text))
 
         If Not existingHashes.Exists(hashHex) Then
             existingHashes.Add hashHex, True

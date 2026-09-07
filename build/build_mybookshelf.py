@@ -324,6 +324,10 @@ _README_DOCS_GENERAL = (
     "  docs\\00_はじめての方へ.md            … 開いて最初の質問をするまで(5分)\n"
     "  docs\\41_実機テスト依頼手順_同僚向け.md … 実機テストで見ていただきたい点\n"
     "  docs\\45_実機スモークテスト手順.md     … 短時間の動作確認\n"
+    "  docs\\10_使い方ガイド.md              … 画面ごとの詳しい使い方\n"
+    "  docs\\44_P2P実機テスト手順.md         … 共有フォルダを使う機能の確認手順\n"
+    "  ※ 起動bat は1台のPCにつき1系統だけ使ってください(複数の配布フォルダから\n"
+    "     同じPCで起動すると、D:\\MyBookshelf の複製先が共通のため中身が混ざります)。\n"
 )
 _README_DOCS_PUBLISHER = _README_DOCS_GENERAL + (
     "  docs\\46_正典発行ガイド_発行担当者向け.md\n"
@@ -659,6 +663,10 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
         "45_実機スモークテスト手順.md",
         "00_はじめての方へ.md",
         "41_実機テスト依頼手順_同僚向け.md",
+        # R39 F006(外部受入テスト): 00 が案内する 10 と 45 が案内する 44 が
+        # zip に無く、リンクが途切れていた。
+        "10_使い方ガイド.md",
+        "44_P2P実機テスト手順.md",
     ]
     if is_publisher:
         doc_names.append("46_正典発行ガイド_発行担当者向け.md")
