@@ -215,7 +215,9 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
         Exit Function
     End If
 
-    txt = ReadUtf8Text(outTxt, gsErrNum, gsErrDesc)
+    ' 2026-09-07(R39 F001): 単一gstext.txtの読み取りから、ページ別出力
+    ' ("gstext_%04d.txt")を連結して読む形へ(BuildGsTextCommand側の変更に対応)。
+    txt = optOcrCore.ReadPageFilesJoined(folderPath, totalPages, gsErrNum, gsErrDesc)
 
     ' R11-D(監査3 H-2): 終了コードとGS出力ログは【後始末の前】に読む。
     ' フォルダを消してから読もうとしても何も残っていない。
@@ -321,20 +323,14 @@ Private Sub CleanupTxtFolder(ByVal folderPath As String, ByVal outTxt As String)
     If LenB(folderPath) = 0 Then Exit Sub
     On Error Resume Next
     If LenB(outTxt) > 0 Then Kill outTxt
+    Kill folderPath & "\gstext_*.txt"   ' R39 F001: ページ別出力の後始末
     On Error GoTo 0
     CleanupOcrFolder folderPath
 End Sub
 
-' txtwriteの出力を ADODB.Stream(Charset "utf-8")で読む
-' (modExtractor.ExtractPlainText と同じ作法)。読めなければ ""。
-' 失敗理由は呼び出し元のerr_log用にByRefで返す。
-' UTF-8読み取りの実体は modUtilText.ReadTextFileUtf8(2026-07-31 R11-F2)。
-' 先頭BOMの除去も向こうが行う(旧実装はここの呼び出し元で個別に落としていた)。
-Private Function ReadUtf8Text(ByVal txtPath As String, ByRef errNum As Long, _
-                              ByRef errDesc As String) As String
-    Dim txt As String
-    If modUtilText.ReadTextFileUtf8(txtPath, txt, errNum, errDesc) Then ReadUtf8Text = txt
-End Function
+' 2026-09-07(R39 F001): ReadUtf8Text(旧・単一gstext.txtの読み取り)は削除。
+' 読み取りは optOcrCore.ReadPageFilesJoined(内部で modUtilText.ReadTextFileUtf8
+' をページごとに呼ぶ)へ一本化した。
 
 ' 「(44ページ中12ページまで)」。総ページ数が読めていないときは分母を出さない。
 ' 何も分からないときは空文字(嘘の数字を出すくらいなら黙る)。
@@ -417,7 +413,9 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
                 totalPages = optOcrCore.GsTotalPagesFromLog(ReadTextHead(logPath, LOG_HEAD_CHARS))
             End If
             Dim newPages As Long: newPages = optOcrCore.GsPagesFromLog(ReadTextTail(logPath, 500))
-            Dim newSize As Double: newSize = FileSizeOf(outTxt, lastSize)
+            ' 2026-09-07(R39 F001): 「1本のgstext.txt」ではなく最新のページ
+            ' ファイルのサイズを見る(FileSizeOf/LofSizeOfは不要になり削除)。
+            Dim newSize As Double: newSize = optOcrCore.LatestPageFileSize(folderPath)
             If newPages > pagesSeen Or newSize > lastSize Then
                 If newPages > pagesSeen Then
                     pagesSeen = newPages
@@ -498,48 +496,8 @@ Private Sub SleepOneSec()
     On Error GoTo 0
 End Sub
 
-' 書きかけファイルのサイズ(読めなければ -1)。観測用なので絶対に落とさない。
-' R13-F13a: 開いたままのファイルに対して FileLen はディレクトリ項目の古い
-' サイズ(しばしば0)を返し続けることがある。それだけを生存信号にすると
-' 「進んでいるのに無進捗」と誤判定するため、0または前回から動いていない
-' ときだけ、実際に開いて LOF で測り直す(GSのfopenは読み共有を拒まない)。
-Private Function FileSizeOf(ByVal filePath As String, ByVal knownSize As Double) As Double
-    Dim n As Double: n = -1#
-    On Error Resume Next
-    n = CDbl(FileLen(filePath))
-    On Error GoTo 0
-
-    If n > 0# And n > knownSize Then
-        FileSizeOf = n
-        Exit Function
-    End If
-
-    Dim m As Double: m = LofSizeOf(filePath)
-    If m > n Then n = m
-    FileSizeOf = n
-End Function
-
-' ファイルを開いて LOF で測る(読めなければ -1)。ハンドラを Resume で
-' 抜けてから閉じる本モジュール共通の作法に従う。
-' 実在確認を先に行うのは必須。Open ... For Binary は無ければ【作ってしまう】
-' ので、まだGSが作っていない出力txtを空ファイルで先回りして作りかねない。
-Private Function LofSizeOf(ByVal filePath As String) As Double
-    Dim fn As Long: fn = 0
-    LofSizeOf = -1#
-    On Error GoTo NoLof
-    If LenB(Dir$(filePath)) = 0 Then Exit Function
-    fn = FreeFile
-    Open filePath For Binary Access Read As #fn
-    LofSizeOf = CDbl(LOF(fn))
-    Close #fn
-    fn = 0
-    Exit Function
-NoLof:
-    Resume LofCleanup
-LofCleanup:
-    CloseFileNumberSafely fn
-    LofSizeOf = -1#
-End Function
+' 2026-09-07(R39 F001): FileSizeOf/LofSizeOfは削除(単一gstext.txtのサイズ
+' 監視は不要になった。呼び出し元は optOcrCore.LatestPageFileSize を使う)。
 
 ' ----------------------------------------------------------------------------
 ' Ghostscript実行の共通道具(R10-3bで optVision から移設)

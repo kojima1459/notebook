@@ -259,7 +259,7 @@ Private Sub TestGsTextCommandGolden()
         (cmdText = Chr$(34) & "C:\Program Files\gs\gswin32c.exe" & Chr$(34) & _
             " -dSAFER -dNOPAUSE -dBATCH" & _
             " -sDEVICE=txtwrite" & _
-            " -sOutputFile=" & Chr$(34) & "C:\Temp\nxocr_x\gstext.txt" & Chr$(34) & _
+            " -sOutputFile=" & Chr$(34) & "C:\Temp\nxocr_x\gstext_%04d.txt" & Chr$(34) & _
             " " & Chr$(34) & "C:\My Docs\約款.pdf" & Chr$(34)), _
         "実際=[" & cmdText & "]"
 

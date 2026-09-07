@@ -1212,6 +1212,14 @@ CONTRACT: dict[str, dict] = {
             # (本モジュールが30,000字上限まで残り2,068字となり、R15-5のETAと
             # R15-6の中断メモが入らなくなったため。憲章§4-6)。ここは純減のみ。
             "BatchCountFor", "BatchBoundsFor",
+            # R39 F001(2026-09-07・受入指摘§0 F001): 同梱GSのtxtwriteが改ページ
+            # 文字を書き出さないため、ページ別出力("gstext_%04d.txt")を読んで
+            # Chr(12)で連結する側をここへ足した。PageTxtName/JoinPageTextsは
+            # modTestsPure44のゴールデンで固定。MaxPageFileIndex/
+            # ReadPageFilesJoined/LatestPageFileSizeはファイルI/Oを伴うため
+            # Pureテスト対象外(実機でのみ確認)。
+            "PageTxtName", "JoinPageTexts", "MaxPageFileIndex",
+            "ReadPageFilesJoined", "LatestPageFileSize",
         ],
     },
     # optOcrEta(2026-08-04 R15-5b): OCRの「進捗の見せ方」と「打ち切りの

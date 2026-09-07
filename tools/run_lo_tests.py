@@ -149,7 +149,11 @@ EXPECTED_SKIP_MAX = 14
 #     CountLines/BuildOnePassPrompt の37件)を追加。下限 3155→3192(SKIP 14 のまま)。
 #     ネガティブ確認: Pure43 C_正常等分 の期待値を 10001 に壊して FAIL 1→復元。
 #     Fix2 で「E_見出し記号■が残る」を1件追加 → 下限 3193。
-EXPECTED_PASS_MIN = 3193
+#   2026-09-07 R39: modTestsPure44(GS のページ別出力: PageTxtName/JoinPageTexts/
+#     GsPageBounds 境界/BuildGsTextCommand の 18件)を追加。Pure6 のゴールデンは
+#     gstext_%04d.txt へ。下限 3193→3211(SKIP 14 のまま)。
+#     ネガティブ確認: Pure44 A_i1 の期待値を "0002" に壊して FAIL 1→復元。
+EXPECTED_PASS_MIN = 3211
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -856,6 +860,15 @@ PURE_ALLOWLIST = [
     #   実行時エラー12になり、プロンプトの節順・設定の on/off 解釈の唯一の
     #   自動検査が走らないまま全部PASSに見える(R38 波1で実際に起きた)。
     "modAskOnePass", "modTestsPure43",
+    # modTestsPure44(2026-09-07 R39 F001): GSのtxtwriteページ別出力を連結する
+    #   側の回帰。テストが呼ぶのは optOcrCore.PageTxtName/JoinPageTexts/
+    #   BuildGsTextCommand(いずれも既にこの一覧の"optOcrCore")と
+    #   modUtilText.GsPageBounds(既にこの一覧)だけ。ファイルI/Oを伴う
+    #   ReadPageFilesJoined/MaxPageFileIndex/LatestPageFileSizeとHit型を跨ぐ
+    #   modExtractor.BuildPagesFromGsTextは呼ばない。未注入だと RunAll44 が
+    #   実行時エラー12になり、ページ連結の唯一の自動検査が走らないまま
+    #   全部PASSに見える。
+    "modTestsPure44",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

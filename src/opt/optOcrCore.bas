@@ -190,12 +190,16 @@ End Function
 '   文字をそのまま抜き出す」コマンドラインを組み立てる(2026-07-31 R10-3)。
 '   gsExe   : gswin32c.exe のフルパス
 '   pdfPath : 変換元のPDFのフルパス
-'   outTxt  : 書き出し先テキストファイルのフルパス
+'   outTxt  : 呼び出し側の従来の書き出し先("<folder>\gstext.txt")。
+'             フォルダ部だけを使う(2026-09-07 R39 F001)。
 '   戻り値の形(パスは全て二重引用符で囲む・BuildGsCommandと同じ規約):
 '     "<gs>" -dSAFER -dNOPAUSE -dBATCH -sDEVICE=txtwrite
-'     -sOutputFile="<out>" "<pdf>"
-'   ページ指定はしない(全ページを1本のテキストへ書き出す。txtwriteはページの
-'   区切りに改ページ文字 Chr(12) を挟むので、ページ分けは読み手の仕事)。
+'     -sOutputFile="<folder>\gstext_%04d.txt" "<pdf>"
+'   2026-09-07(R39 F001): 同梱GSのtxtwriteは改ページ文字Chr(12)を書き出さず、
+'   Split(txt,Chr(12))前提のGsPageBoundsが全ページp.1に潰れていた(受入テスト
+'   実測)。ページごとに別ファイル("%04d"はGSがページ番号で置換)へ出させ、
+'   読む側(ReadPageFilesJoined)がChr(12)を足しながら連結する形へ変えた。
+'   連結後の判定(GsPageBounds等)は不変。
 '   出力先の指定は -o ではなく -sOutputFile + -dNOPAUSE -dBATCH にした。
 '   -o は「-sOutputFile と -dBATCH -dNOPAUSE をまとめた省略形」で意味は同じだが、
 '   BuildGsCommand(jpeg側)と字面を揃えておく方が、両者を見比べたときに
@@ -204,10 +208,11 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function BuildGsTextCommand(ByVal gsExe As String, ByVal pdfPath As String, _
                                    ByVal outTxt As String) As String
+    Dim outPattern As String: outPattern = FolderOfPath(outTxt) & "\gstext_%04d.txt"
     BuildGsTextCommand = Quoted(gsExe) & _
         " -dSAFER -dNOPAUSE -dBATCH" & _
         " -sDEVICE=txtwrite" & _
-        " -sOutputFile=" & Quoted(outTxt) & _
+        " -sOutputFile=" & Quoted(outPattern) & _
         " " & Quoted(pdfPath)
 End Function
 
@@ -399,6 +404,94 @@ Public Function GsPageCount(ByVal txt As String) As Long
     GsPageCount = modUtilText.GsPageBounds(txt, firstIdx, lastIdx)
 End Function
 
+' 2026-09-07(R39 F001): ページ別出力("gstext_%04d.txt")を連結する側。無い・
+' 読めないページは空扱いで末尾にChr(12)を足す。連結後(GsPageBounds等)は不変。
+' ファイルI/Oを伴う3関数はPureテスト対象外(PageTxtName/JoinPageTextsのみ対象)。
+
+' GSの"%04d"と同じ4桁ゼロ埋め(桁あふれはそのまま桁数増)。
+Public Function PageTxtName(ByVal folderPath As String, ByVal i As Long) As String
+    PageTxtName = folderPath & "\gstext_" & Format$(i, "0000") & ".txt"
+End Function
+
+' parts(1..n)を、各要素末尾にChr(12)を付けて連結(n<1は空。配列は1始まり)。
+Public Function JoinPageTexts(ByRef parts() As String, ByVal n As Long) As String
+    Dim i As Long
+    For i = 1 To n
+        JoinPageTexts = JoinPageTexts & parts(i) & Chr$(12)
+    Next i
+End Function
+
+' 実在する"gstext_*.txt"の最大番号(hintNより大きければそちら)。
+Public Function MaxPageFileIndex(ByVal folderPath As String, ByVal hintN As Long) As Long
+    Dim maxN As Long: maxN = hintN
+    If maxN < 0 Then maxN = 0
+    Dim fn As String
+    On Error Resume Next
+    fn = Dir$(folderPath & "\gstext_*.txt")
+    On Error GoTo 0
+    Do While LenB(fn) > 0
+        Dim p As Long: p = InStr(1, fn, "gstext_", vbTextCompare)
+        If p > 0 Then
+            Dim v As Long: v = FirstNumberFrom(fn, p + 7)
+            If v > maxN Then maxN = v
+        End If
+        On Error Resume Next
+        fn = Dir$()
+        On Error GoTo 0
+    Loop
+    MaxPageFileIndex = maxN
+End Function
+
+' N=Max(totalPages,実在最大番号)まで1..Nを読み連結(N=0は空)。無い・読めない
+' ページは空扱い、最初の失敗だけerrNum/errDescへ返す。
+Public Function ReadPageFilesJoined(ByVal folderPath As String, ByVal totalPages As Long, _
+                                    ByRef errNum As Long, ByRef errDesc As String) As String
+    errNum = 0
+    errDesc = ""
+    Dim n As Long: n = totalPages
+    If n < 0 Then n = 0
+    Dim maxFound As Long: maxFound = MaxPageFileIndex(folderPath, n)
+    If maxFound > n Then n = maxFound
+    If n < 1 Then Exit Function
+
+    Dim parts() As String: ReDim parts(1 To n)
+    Dim gotErr As Boolean
+    Dim i As Long
+    For i = 1 To n
+        Dim t As String: t = ""
+        Dim en As Long, ed As String
+        If Not modUtilText.ReadTextFileUtf8(PageTxtName(folderPath, i), t, en, ed) Then
+            t = ""
+            If Not gotErr Then errNum = en: errDesc = ed: gotErr = True
+        End If
+        parts(i) = t
+    Next i
+    ReadPageFilesJoined = JoinPageTexts(parts, n)
+End Function
+
+' 最大番号のページファイルのサイズ(無ければ0)。WaitGsTextDoneの進捗監視用
+' (optGsTxt側はPrivateで貸せないためここでFileLenを使う)。
+Public Function LatestPageFileSize(ByVal folderPath As String) As Double
+    Dim maxN As Long: maxN = MaxPageFileIndex(folderPath, 0)
+    If maxN <= 0 Then Exit Function
+    Dim p As String: p = PageTxtName(folderPath, maxN)
+    Dim n As Double: n = 0#
+    On Error Resume Next
+    n = CDbl(FileLen(p))
+    ' 司令塔検収(R39): 旧 optGsTxt.FileSizeOf/LofSizeOf と同じく LOF も見る。GS が
+    ' 書き込み中のファイルは FileLen が更新されないことがあり、1ページが重い PDF で
+    ' 「無進捗」と誤判定して途中で止めてしまう(R13-1c の生存監視を退行させない)。
+    Dim fn As Long: fn = FreeFile
+    Open p For Binary Access Read As #fn
+    If Err.Number = 0 Then
+        If CDbl(LOF(fn)) > n Then n = CDbl(LOF(fn))
+        Close #fn
+    End If
+    Err.Clear
+    On Error GoTo 0
+    LatestPageFileSize = n
+End Function
+
 ' 一時フォルダのフルパス(例: C:\Users\x\AppData\Local\Temp\nxocr_20260731_101112_437)。
 Public Function TempFolderFor(ByVal tempRoot As String, ByVal uniqueName As String) As String
     TempFolderFor = TrimTrailingSep(tempRoot) & "\" & TEMP_DIR_PREFIX & uniqueName
@@ -574,6 +667,12 @@ Private Function FirstNumberFrom(ByVal s As String, ByVal startPos As Long) As L
     Loop
 
     If LenB(digits) > 0 Then FirstNumberFrom = CLng(digits)
+End Function
+
+' パスの末尾要素を除いたフォルダ部("C:\t\gstext.txt" -> "C:\t")。
+Private Function FolderOfPath(ByVal p As String) As String
+    Dim i As Long: i = InStrRev(p, "\")
+    If i > 0 Then FolderOfPath = Left$(p, i - 1) Else FolderOfPath = p
 End Function
 
 Private Function AppendCandidate(ByVal existing As String, ByVal newPart As String) As String

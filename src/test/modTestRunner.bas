@@ -357,4 +357,20 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-07(R39 F001・受入指摘§0 F001): GSのtxtwriteページ別出力を
+    ' Chr(12)で連結する側の純ロジック回帰。固定するのは optOcrCore の
+    ' PageTxtName/JoinPageTexts/BuildGsTextCommand と、JoinPageTexts結果を
+    ' modUtilText.GsPageBoundsに通したときの境界。ファイルI/Oを伴う
+    ' ReadPageFilesJoined/MaxPageFileIndex/LatestPageFileSizeはLOでは
+    ' 実行しない。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure44.RunAll44
+    If Err.Number <> 0 Then
+        Check "modTestsPure44.RunAll44", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

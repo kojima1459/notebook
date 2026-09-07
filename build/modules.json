@@ -1262,6 +1262,14 @@
       "type": "std",
       "wave": "R38",
       "note": "R38(入念1回読み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜42と同型)。固定するもの: (A)modAskOnePass.IsOn — 空・\"on\"/\"true\"/\"1\"/\"yes\"(大小・前後空白無視)=True、\"off\"/\"false\"/\"0\"/\"no\"=False、それ以外は既定側(True)へ倒すこと。(B)DedupeKeys — vbLf区切りの入力から空行を捨て初出順で重複除去、maxN件で打ち切り(先頭・末尾にvbLfを付けない)、比較は大小無視・前後空白無視、maxN<1は空文字。(C)PerChapterCap — total\\nChapの整数除算、結果がminCap未満ならminCap、nChap<1はtotalを返す、total<1はminCapを返す。(D)CountLines — DedupeKeysの結果の行数(空文字は0)。(E)BuildOnePassPrompt — 役割/手順(ansTagsの有無)/出力規則(strictGの有無)/history/本文/重点抜粋/質問/深掘り候補の並びと、各見出し文字列がこの順で本文に含まれること(期待値は定数で書き、実装を呼び直す恒真比較にはしない)。TryOnePass/SourceBlockOfはHit型を跨ぐためLOでは実行できず(modXDoc.RememberPool/Expandと同じ死角。modTestsPure42と同じ理由でPureテストは書かない=SKIP上限14を増やさない)、実機受入(R38 §5)に委ねる。"
+    },
+    {
+      "name": "modTestsPure44",
+      "path": "src/test/modTestsPure44.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R39",
+      "note": "R39 F001(受入指摘§0 F001)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜43と同型)。同梱GSのtxtwriteが改ページ文字Chr(12)を書き出さずページ番号が全ページp.1に潰れていた件の直し方(ページごとに別ファイル\"gstext_%04d.txt\"へ出させ、読む側が各ページ末尾にChr(12)を足しながら連結)を固定する。(A)optOcrCore.PageTxtName — 4桁ゼロ埋め、i=10000以上はそのまま桁数が増える。(B)optOcrCore.JoinPageTexts — n=0は空、各要素の末尾に必ずChr(12)が付く(中間の空要素も落とさない)。(C)JoinPageTextsの結果をmodUtilText.GsPageBoundsに通したときのkeptN/firstIdx/lastIdx(先頭・末尾の空ページだけ読み飛ばし中間の空ページは残る)。(D)optOcrCore.BuildGsTextCommand — \"gstext_%04d.txt\"を含み旧ファイル名\"gstext.txt\"は含まないこと(退行の直接検知)。ファイルI/Oを伴うReadPageFilesJoined/MaxPageFileIndex/LatestPageFileSizeと、ExtractedPage型(UDT)を跨ぐmodExtractor.BuildPagesFromGsTextはLOでは実行できず(modTestsPure43のTryOnePass/SourceBlockOfと同型の死角)、実機受入(仕様§4)に委ねる。"
     }
   ]
 }
