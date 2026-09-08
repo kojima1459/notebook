@@ -289,7 +289,11 @@ End Sub
 ' 別ブックを見ている間は「出ていない」とみなす(PaintProgressの誤爆ガードと
 ' 同じ考え方)。Shapesの取得はShapeが無いとエラーになるので、OERNで受けて
 ' Nothing のままかどうかで判定する。
-Private Function IsProgressBannerVisible() As Boolean
+' 2026-09-08(R41 B2): modEmbed.EmbedPendingが「ループ開始時にバナーが
+' 既に出ていたか」を控えるためPublic化(契約へ追加)。バナーの所有権
+' (出したループの最後だけが消す)の判定材料として同層(ingest→ingest)から
+' 参照する。
+Public Function IsProgressBannerVisible() As Boolean
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Function
     Dim ws As Worksheet

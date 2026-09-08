@@ -115,6 +115,13 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim limit As Long: limit = pendingN
     If maxCount >= 0 And maxCount < limit Then limit = maxCount
 
+    ' R41 B2: このループが自分でバナーを出したのか、既に出ていたバナーに
+    ' 相乗りしているのかをここで控える(AfterLoopの所有権判定に使う)。
+    Dim hadBanner As Boolean
+    On Error Resume Next
+    hadBanner = modShelfBatch.IsProgressBannerVisible()
+    On Error GoTo 0
+
     ' スロットリング待ち(ミリ秒)。2026-07-16: 実機で「取込が遅すぎる」との
     ' 報告。埋め込みは1チャンクごとに実行され、既定150msのスリープが
     ' 数百チャンクの資料では数十秒の純粋な待ち時間になっていた。
@@ -272,7 +279,11 @@ AfterLoop:
     ' 例外のいずれもAfterLoopへ合流する唯一の出口なので、ここで1回Hideすれば
     ' 全経路をカバーできる(呼び出し元側の既存Hide呼び出しは冗長になるが
     ' 二重Hideは無害なのでそのまま残す)。
-    modUIMain.HideProgress
+    ' R41 B2: ただし「同期中N/M」のようにフォルダ同期がファイルごとに出す
+    ' バナーに、この関数(1ファイルの末尾)が相乗りしているだけの場合は消さない
+    ' (消すのはバナーを出したループの最後)。hadBannerで開始時の所有権を控え、
+    ' このループ自身が出していないバナーには手を触れない。
+    If Not hadBanner Then modUIMain.HideProgress
     On Error GoTo 0
 
     If InStr(abortReason, "上限") > 0 Or InStr(abortReason, "連続失敗") > 0 Then
