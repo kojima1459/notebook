@@ -171,6 +171,11 @@ Public Function ExportPackToFile(ByVal savePath As String, ByVal sourceFilter As
     modStats.Bump "pack_export_total"
     modStats.AddExp "pack_share"
     modLog.LogUsage "pack_export", "", "n=" & n & " scope=" & IIf(LenB(sourceFilter) = 0, "all", sourceFilter)
+    ' R40 F4(実機報告): 「はじめてのパック共有」の獲得告知が、次の無関係な操作
+    ' (質問・取込・本棚再描画)まで出なかった。加算した直後に評価する(取得済みなら即Exit)。
+    On Error Resume Next
+    modStats.EvaluateBadges
+    On Error GoTo 0
 
     outCount = n
     ExportPackToFile = True

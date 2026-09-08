@@ -211,7 +211,47 @@ End Sub
 ' ----------------------------------------------------------------------------
 ' RunAll43 - modTestRunner から呼ばれる総合エントリーポイント
 ' ----------------------------------------------------------------------------
+' ---- F: R40 F2 CiteTagSpans / F3 PageLabel・CellAddressOf --------------------
+Private Sub TestR40Display43()
+    Dim st() As Long, ln() As Long
+    Dim s As String
+    ' 2つのタグ(本棚・パック)。位置は1始まり、長さは "[" から "]" まで。
+    s = "上限はない。[本棚:約款.pdf p.12] また" & vbCr & "別紙参照 [パック(山田):別紙.docx]。"
+    ChkLong43 "R40F2_2件", modLive.CiteTagSpans(s, st, ln), 2
+    ChkLong43 "R40F2_1件目開始", st(1), InStr(s, "[本棚:")
+    ChkStr43 "R40F2_1件目切り出し", Mid$(s, st(1), ln(1)), "[本棚:約款.pdf p.12]"
+    ChkStr43 "R40F2_2件目切り出し", Mid$(s, st(2), ln(2)), "[パック(山田):別紙.docx]"
+    ' 閉じ括弧が段落を跨ぐものはタグではない(次の候補は拾う)。
+    s = "[本棚:壊れ" & vbCr & "た] 本文 [本棚:a.pdf p.1]"
+    ChkLong43 "R40F2_段落跨ぎは除外", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R40F2_跨ぎ後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
+    ' タグ無し・空文字は0件。閉じ括弧が無ければ0件。
+    ChkLong43 "R40F2_無し", modLive.CiteTagSpans("出典なし [[FOLLOWUP: a | b]]", st, ln), 0
+    ChkLong43 "R40F2_空", modLive.CiteTagSpans("", st, ln), 0
+    ChkLong43 "R40F2_閉じ無し", modLive.CiteTagSpans("[本棚:a.pdf p.1", st, ln), 0
+    ' 隣接するタグも別々に拾う。
+    ChkLong43 "R40F2_隣接2件", modLive.CiteTagSpans("[本棚:a.pdf p.1][本棚:b.pdf p.2]", st, ln), 2
+
+    ' PageLabel: Excel 系はシート、それ以外は p.、0は空。
+    ChkStr43 "R40F3_pdf", modLive.PageLabel("約款.pdf", 12), " p.12"
+    ChkStr43 "R40F3_xlsx", modLive.PageLabel("売上.xlsx", 1), " シート1"
+    ChkStr43 "R40F3_XLSM大文字", modLive.PageLabel("一覧.XLSM", 3), " シート3"
+    ChkStr43 "R40F3_page0", modLive.PageLabel("売上.xlsx", 0), ""
+    ChkStr43 "R40F3_拡張子なし", modLive.PageLabel("メモ", 2), " p.2"
+
+    ' CellAddressOf / RowPrefix
+    ChkStr43 "R40F3_A1", modExtractorExcel.CellAddressOf(1, 1), "A1"
+    ChkStr43 "R40F3_Z10", modExtractorExcel.CellAddressOf(26, 10), "Z10"
+    ChkStr43 "R40F3_AA6", modExtractorExcel.CellAddressOf(27, 6), "AA6"
+    ChkStr43 "R40F3_IV", modExtractorExcel.CellAddressOf(256, 1), "IV1"
+    ChkStr43 "R40F3_範囲外", modExtractorExcel.CellAddressOf(0, 5), ""
+    ChkStr43 "R40F3_prefix", modExtractorExcel.RowPrefix(3, 6), "[C6] "
+End Sub
+
 Public Sub RunAll43()
+    On Error GoTo H00Fail43
+    TestR40Display43
+H01Next43:
     On Error GoTo H01Fail43
     TestIsOn43
 H02Next43:
@@ -230,6 +270,10 @@ H01Done43:
     On Error GoTo 0
     Exit Sub
 
+H00Fail43:
+    modTestRunner.Check "TestR40Display43(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H01Next43
 H01Fail43:
     modTestRunner.Check "TestIsOn43(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"

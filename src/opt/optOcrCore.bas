@@ -129,15 +129,10 @@ End Function
 '       解釈され、フラグが空で作られてしまう(cmdの古典的な罠)。
 ' ----------------------------------------------------------------------------
 '
-'   2026-09-08 R40 F1(実機報告: 「悪意のあるマクロが検出されました」で Office
-'   強制終了): cmd.exe ラップそのものが AMSI にマクロ型マルウェアの手口と
-'   見なされる(optGsProc 冒頭)。cmd.exe を介さず gswin32c.exe を直接起動する
-'   ため、戻り値は【GS本体のコマンドに -sstdout=<log> を足しただけ】になった。
-'   完了フラグ(doneFlagPath)は optGsProc.SyncDoneFlag が GS の終了コードで
-'   書くので、ここでは使わない(引数は呼び出し側との契約維持のため残す)。
-'   -sstdout は GS 自身の機能で標準出力をファイルへ落とす(stderr は落ちない。
-'   PostScript 系のエラーは stdout に出るので切り分けには足りる)。
-'   挿入位置は実行ファイル(先頭の引用符付きトークン)の直後=入力PDFより前。
+'   2026-09-08 R40 F1(AMSI が cmd.exe ラップをマルウェア手口と誤検知→Office
+'   強制終了。optGsProc 冒頭): cmd.exe を介さず、戻り値は GS 本体のコマンドに
+'   -sstdout=<log> を実行ファイル直後(入力PDFより前)へ挿しただけ。完了フラグ
+'   (doneFlagPath)は optGsProc.SyncDoneFlag が書くので未使用(契約維持で残す)。
 ' ----------------------------------------------------------------------------
 Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String, _
                                 ByVal logPath As String) As String

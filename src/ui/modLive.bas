@@ -238,8 +238,75 @@ Public Sub StyleAnswerParas(ByVal bubbleName As String)
             shp.TextFrame2.TextRange.Paragraphs(i).Font.Bold = True
         End If
     Next i
+    ' R40 F2(実機報告): 本文に混ざる出典タグ [本棚:資料 p.N] / [パック(名):資料]
+    ' が本文と同じ大きさ・同じ色で、回答が読みにくい(認知負荷)。タグの文字列は
+    ' 変えず(出典突合・復元・Word出力はタグの字面に依存する)、見た目だけ
+    ' 小さく・出典チップと同じ色にして「本文」と「根拠の印」を目で分ける。
+    Dim starts() As Long, lens() As Long
+    Dim nTag As Long: nTag = CiteTagSpans(shp.TextFrame2.TextRange.Text, starts, lens)
+    For i = 1 To nTag
+        With shp.TextFrame2.TextRange.Characters(starts(i), lens(i)).Font
+            .Size = 8
+            .Fill.ForeColor.RGB = modUI.UiColor("primary")
+        End With
+    Next i
     On Error GoTo 0
 End Sub
+
+' CiteTagSpans - 本文中の出典タグの位置と長さを列挙する(純関数・R40 F2)。
+'   "[本棚:" または "[パック(" で始まり、同じ段落内の最初の "]" で閉じる範囲。
+'   閉じ括弧が無い(改行を跨ぐ)ものはタグとみなさない。戻り値は件数、
+'   starts/lens は 1 始まり(TextRange.Characters と同じ数え方。段落区切りの
+'   vbCr も1字として数える=Text の位置そのまま)。
+Public Function CiteTagSpans(ByVal s As String, ByRef starts() As Long, _
+                             ByRef lens() As Long) As Long
+    Dim n As Long
+    ReDim starts(1 To 1): ReDim lens(1 To 1)
+    Dim p As Long: p = 1
+    Do
+        Dim a As Long: a = InStr(p, s, "[本棚:")
+        Dim b As Long: b = InStr(p, s, "[パック(")
+        If a = 0 And b = 0 Then Exit Do
+        Dim st As Long
+        If a = 0 Then
+            st = b
+        ElseIf b = 0 Then
+            st = a
+        ElseIf a < b Then
+            st = a
+        Else
+            st = b
+        End If
+        Dim en As Long: en = InStr(st, s, "]")
+        If en = 0 Then Exit Do
+        Dim brk As Long: brk = InStr(st, s, vbCr)
+        If brk = 0 Then brk = InStr(st, s, vbLf)
+        If brk > 0 And brk < en Then
+            p = st + 1
+        Else
+            n = n + 1
+            ReDim Preserve starts(1 To n): ReDim Preserve lens(1 To n)
+            starts(n) = st
+            lens(n) = en - st + 1
+            p = en + 1
+        End If
+    Loop
+    CiteTagSpans = n
+End Function
+
+' PageLabel - 出典表示の「p.N」部分(純関数・R40 F3)。Excel 由来の資料は
+'   ページではなくシートの通し番号なので「シートN」と書く(実機報告
+'   「Excel は全部 p.1」への答え。番地は本文側の [A6] が担う)。
+'   page<=0 は空文字(表示しない)。先頭に区切りの空白を含む。
+Public Function PageLabel(ByVal srcName As String, ByVal page As Long) As String
+    If page <= 0 Then Exit Function
+    Dim ext As String: ext = LCase$(modUtil.ExtOf(srcName))
+    If ext = "xlsx" Or ext = "xlsm" Or ext = "xls" Or ext = "xlsb" Then
+        PageLabel = " シート" & page
+    Else
+        PageLabel = " p." & page
+    End If
+End Function
 
 ' ============================================================================
 ' 回答本文の読みやすさ(2026-08-03 R14-8c / 実機第3報 RC9)
@@ -657,7 +724,7 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long) As String
                 If shown < MAX_SOURCE_LINES Then
                     Dim ln As String
                     ln = "　・" & modUtil.SafeLeft(nm, 34)
-                    If hits(i).page > 0 Then ln = ln & "  p." & hits(i).page
+                    ln = ln & " " & PageLabel(nm, hits(i).page)   ' R40 F3: Excelは「シートN」
                     lines_(shown) = ln
                     shown = shown + 1
                 End If

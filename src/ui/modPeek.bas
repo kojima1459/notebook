@@ -133,7 +133,7 @@ Private Sub DrawChip(ByVal ws As Worksheet, ByVal hitIdx As Long, ByVal x As Dou
 
     Dim cap As String
     cap = ChrW(&HD83D) & ChrW(&HDCC4) & " " & modUtil.SafeLeft(src, 16)
-    If page > 0 Then cap = cap & " p." & page
+    cap = cap & modLive.PageLabel(src, page)   ' R40 F3: Excelは「シートN」(0なら空)
     With chip.TextFrame2
         .WordWrap = -1
         .TextRange.Text = cap

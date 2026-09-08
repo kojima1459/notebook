@@ -305,6 +305,12 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
     lineParts(0) = "[シート: " & ws.Name & "]"
     lineCount = 1
 
+    ' R40 F3(実機報告「Excel の出典が全部 p.1」): 各行の先頭にその行の左端
+    ' セルの番地([A6] など)を前置する。ページ番号はシートの通し番号のままなので、
+    ' 位置は本文側が担う(AI は抜粋の番地を根拠の位置として引用できる)。
+    Dim baseRow As Long: baseRow = used.row
+    Dim baseCol As Long: baseCol = used.Column
+
     Dim r0 As Long, failCount As Long, charCount As Long
     r0 = 1
     Do While r0 <= readRows
@@ -313,7 +319,8 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
 
         Dim arr As Variant
         If ReadBlock(used, r0, blkRows, lastC, arr) Then
-            charCount = charCount + AppendBlockLines(arr, blkRows, lastC, lineParts, lineCount)
+            charCount = charCount + AppendBlockLines(arr, blkRows, lastC, lineParts, lineCount, _
+                                                    baseRow + r0 - 1, baseCol)
             If charCount >= MAX_CHARS_PER_SHEET Then
                 clipped = True
                 r0 = r0 + blkRows
@@ -364,8 +371,11 @@ End Function
 
 ' 読み込んだブロックを行テキストへ変換して lineParts に積む。
 ' 戻り値は積んだ文字数(呼び出し元の文字数上限の判定に使う)。
+' R40 F3: firstRow/firstCol は arr(1,1) に対応する【シート上の絶対番地】。
+' 各行の先頭に CellAddressOf(firstCol, firstRow+r-1) を "[A6] " の形で前置する。
 Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, ByVal cols As Long, _
-                                  ByRef lineParts() As String, ByRef lineCount As Long) As Long
+                                  ByRef lineParts() As String, ByRef lineCount As Long, _
+                                  ByVal firstRow As Long, ByVal firstCol As Long) As Long
     Dim added As Long
     If Not IsArray(arr) Then
         ' 1セルだけの範囲は Value がスカラーになる。
@@ -375,6 +385,7 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
             Else
                 lineParts(lineCount) = CStr(arr)
             End If
+            lineParts(lineCount) = RowPrefix(firstCol, firstRow) & lineParts(lineCount)
             added = Len(lineParts(lineCount))
             lineCount = lineCount + 1
         End If
@@ -387,12 +398,32 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
         Dim hasCell As Boolean
         Dim rowText As String: rowText = RowTextFrom(arr, r, cols, hasCell)
         If hasCell Then
+            rowText = RowPrefix(firstCol, firstRow + r - 1) & rowText
             lineParts(lineCount) = rowText
             added = added + Len(rowText) + 1
             lineCount = lineCount + 1
         End If
     Next r
     AppendBlockLines = added
+End Function
+
+' 行頭に付ける番地の印(純関数)。"[A6] " の形。
+Public Function RowPrefix(ByVal colIdx As Long, ByVal rowIdx As Long) As String
+    RowPrefix = "[" & CellAddressOf(colIdx, rowIdx) & "] "
+End Function
+
+' 列番号と行番号から A1 形式の番地を作る(純関数・R40 F3)。1→A, 26→Z, 27→AA。
+' 範囲外(0以下)は空文字を返す(呼び出し元が印を付けない)。
+Public Function CellAddressOf(ByVal colIdx As Long, ByVal rowIdx As Long) As String
+    If colIdx < 1 Or rowIdx < 1 Then Exit Function
+    Dim c As Long: c = colIdx
+    Dim letters As String
+    Do While c > 0
+        Dim rem_ As Long: rem_ = (c - 1) Mod 26
+        letters = Chr$(65 + rem_) & letters
+        c = (c - 1) \ 26
+    Loop
+    CellAddressOf = letters & CStr(rowIdx)
 End Function
 
 ' 1行ぶんのセルを、タブ区切りの1行テキストにする。
