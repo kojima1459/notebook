@@ -442,6 +442,15 @@ Private Sub TestWrongSourceMatches40()
     ' (f) 行が空/資料名が空なら不一致(恒真にならないことの確認)。
     ChkBool40 "C10_行が空なら不一致", modCorrect.WrongSourceMatches("", "就業規則.txt", 3), False
     ChkBool40 "C10_資料名が空なら不一致", modCorrect.WrongSourceMatches(line, "", 3), False
+
+    ' (g) R41 §1 A: Excel由来の新表記「シートN」も受ける(旧表記" p."と混在する行)。
+    Dim lineX As String: lineX = "誤答の根拠: 売上.xlsx シート2 | 就業規則.txt p.3"
+    ChkBool40 "C10_シート表記が一致", _
+        modCorrect.WrongSourceMatches(lineX, "売上.xlsx", 2), True
+    ChkBool40 "C10_シート表記はページ違いで不一致", _
+        modCorrect.WrongSourceMatches(lineX, "売上.xlsx", 3), False
+    ChkBool40 "C10_混在行の旧表記p.も一致", _
+        modCorrect.WrongSourceMatches(lineX, "就業規則.txt", 3), True
 End Sub
 
 ' ---- 判定ヘルパー -----------------------------------------------------------

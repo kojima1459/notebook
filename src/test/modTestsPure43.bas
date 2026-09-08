@@ -256,6 +256,44 @@ Private Sub TestR40Display43()
     ChkStr43 "R40F3_prefix範囲外は印無し", modExtractorExcel.RowPrefix(0, 5), ""
 End Sub
 
+' ---- G: R41 §1 A PageTagPart(単一情報源)の直接検査 --------------------------
+Private Sub TestR41PageTagPart43()
+    ChkStr43 "R41_xls小文字", modMode.PageTagPart("a.xls", 1), " シート1"
+    ChkStr43 "R41_XLSB大文字", modMode.PageTagPart("B.XLSB", 4), " シート4"
+    ChkStr43 "R41_pdfはp", modMode.PageTagPart("c.pdf", 2), " p.2"
+    ' page=0でも空にしない(PageLabelとの違い。CiteTagFrom("議事録.txt",0,"")の
+    ' 既存挙動=modTestsPure38を保つため)。
+    ChkStr43 "R41_page0でも空にしない", modMode.PageTagPart("d.xlsx", 0), " シート0"
+End Sub
+
+' ---- H: R41 §3 C2 CiteTagSpans の閉じ位置の伸長(]入りファイル名) ------------
+Private Sub TestR41CiteTagSpansExtend43()
+    Dim st() As Long, ln() As Long
+    Dim s As String
+
+    ' (a) 資料名に "]" を含む(report[1].pdf)。最初の "]" では閉じない
+    '     (直前が数字でも、その前が p./シートでない)ので伸ばして最後まで拾う。
+    s = "[本棚:report[1].pdf p.3] 本文"
+    ChkLong43 "R41C2_伸長1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R41C2_伸長後の切り出し", Mid$(s, st(1), ln(1)), "[本棚:report[1].pdf p.3]"
+
+    ' (b) シート表記でも同様に伸びる(末尾まで=trailing無し)。
+    s = "[本棚:計算[改定].xlsx シート2]"
+    ChkLong43 "R41C2_シート表記伸長1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R41C2_シート表記伸長後の切り出し", Mid$(s, st(1), ln(1)), s
+
+    ' (c) 伸ばしても該当が無ければ従来どおり最初の "]"(空振りで壊さない)。
+    s = "[本棚:x[1] 本文] 続き"
+    ChkLong43 "R41C2_該当無しは従来どおり1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R41C2_該当無しは最初の]で切る", Mid$(s, st(1), ln(1)), "[本棚:x[1]"
+
+    ' (d) 2件連続でも、それぞれ正しく切り出せる。
+    s = "[本棚:a[1].pdf p.1][本棚:b.pdf p.2]"
+    ChkLong43 "R41C2_2件連続", modLive.CiteTagSpans(s, st, ln), 2
+    ChkStr43 "R41C2_2件連続の1件目", Mid$(s, st(1), ln(1)), "[本棚:a[1].pdf p.1]"
+    ChkStr43 "R41C2_2件連続の2件目", Mid$(s, st(2), ln(2)), "[本棚:b.pdf p.2]"
+End Sub
+
 Public Sub RunAll43()
     On Error GoTo H00Fail43
     TestR40Display43
@@ -274,6 +312,12 @@ H04Next43:
 H05Next43:
     On Error GoTo H05Fail43
     TestBuildOnePassPrompt43
+H06Next43:
+    On Error GoTo H06Fail43
+    TestR41PageTagPart43
+H07Next43:
+    On Error GoTo H07Fail43
+    TestR41CiteTagSpansExtend43
 H01Done43:
     On Error GoTo 0
     Exit Sub
@@ -300,6 +344,14 @@ H04Fail43:
     Resume H05Next43
 H05Fail43:
     modTestRunner.Check "TestBuildOnePassPrompt43(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H06Next43
+H06Fail43:
+    modTestRunner.Check "TestR41PageTagPart43(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H07Next43
+H07Fail43:
+    modTestRunner.Check "TestR41CiteTagSpansExtend43(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done43
 End Sub

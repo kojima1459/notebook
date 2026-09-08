@@ -96,6 +96,9 @@ Private Sub TestCiteTagFormat38()
     ' ページ番号が落ちて既存の突合まで壊れる。
     ChkStr38 "B1_origin空は本棚形", _
         modMode.CiteTagFrom("議事録.txt", 0, ""), "[本棚:議事録.txt p.0]"
+    ' R41 §1 A: Excel由来(xlsx)は p.N ではなく シートN。
+    ChkStr38 "R41_xlsxはシートN", _
+        modMode.CiteTagFrom("売上.xlsx", 2, "shelf"), "[本棚:売上.xlsx シート2]"
 End Sub
 
 ' ---- B1(3): 上の書式が modPrompts.SourceTag と一字一句同じであること --------
@@ -137,6 +140,12 @@ Private Sub TestCiteTagVsSourceTag38()
     z.source = "議事録.txt": z.page = 0: z.origin = ""
     ChkStr38 "B1_origin空は本棚形でSourceTagと一致", _
         modMode.CiteTagFrom(z.source, z.page, z.origin), modPrompts.SourceTag(z)
+
+    ' R41 §1 A: xlsx(Excel由来)も CiteTagFrom と SourceTag が一致すること。
+    Dim x As Hit
+    x.source = "売上.xlsx": x.page = 2: x.origin = "shelf"
+    ChkStr38 "R41_xlsxがSourceTagと一致", _
+        modMode.CiteTagFrom(x.source, x.page, x.origin), modPrompts.SourceTag(x)
 End Sub
 
 ' modTestsPure2.CanUseTypeArrays / modTestsPure12.CanUseTypeArrays11 と同じ
