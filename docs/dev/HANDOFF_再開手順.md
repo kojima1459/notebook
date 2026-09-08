@@ -4,7 +4,16 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R40. R40（実機報告5件・PDF 取込の AMSI 強制終了ほか・2026-09-08・**検問全緑・実機受入待ち**）
+## 0R41. R41（Excel 出典の表記・トースト自動消去・同期中バナー・ポリッシュ3件・2026-09-08・**実装中**）
+
+**起点**: R40 実機受入（F1/F2/F4/F5 緑・**F3 赤**「出典が p.1 のまま、A6 が出ない」）＋新規報告（トーストが消えない／同期中に取込中の表示が途中で消える）。ユーザー指示「F3 直してトースト周りの修正が済んだらそのまま R41、進んで」。全裁定 = `spec_20260908_R41_出典シート表記とトースト.md`（§0 裁定表・§1 A 出典タグ・§2 B トースト/バナー・§3 C ポリッシュ・§4 実機確認）。
+**A**: Excel 由来の出典タグを `[本棚:x.xls シート1]` に（`modMode.PageTagPart` が唯一の持ち主。SourceTag／CiteTagFrom／PageLabel／Peek 見出し／本文ビュー／状態行／是正メモが同じ関数）。`CitationInstruction`（全モード共通）へ「Excel はシート番号で抜粋の形を写す」「行頭の [A6] を (A6 付近) と添える」。**凍結 modPrompts は SourceTag と CitationInstruction の2関数だけ解除**（ユーザー指示「直して」）。
+**B1**: トースト一式を `modToast`（新規）へ分割（modSkin 残27字）。waitless にも `OnTime` の自動消去（3〜9秒・予約1本・ブック名修飾・`modUI.RestoreExcelUI` で解除）。**B2**: `modEmbed` は開始時にバナーの有無を控え、出ていたら AfterLoop で消さない（同期・追加ループのバナーを道連れにしない）。
+**C**: C1 `modApp.OnSend` 描画フェーズの `ScreenUpdating=False` 1行／C2 `CiteTagSpans` の `]` 入りファイル名（閉じ候補の直前が p.N／シートN でなければ最大2回伸ばす）／C3 quick/deep の出典不一致件数を usage_log `cite_mismatch` に。
+**レビュー再検証（09-08・司令塔）**: 別セッションの Opus/Gemini レビューのうち採用は C1・C2・C3 のみ。誤りと判定: Quick に突合無し（modApp:211 で通る）／Quick に履歴無し（prevU/prevA を渡している）／45万字連結の O(n²)（連結は数十回・数十MB）／OnePass 追加ヒットの予算超過（本文ブロック前に配列へ足す）。仕様どおり: 降格と topK。
+**検問**: 着手 `a37d40c`（spec）→ docs `8fb5e47` → 実装波 A（Sonnet: modMode/modPrompts/modLive/modPeek/modTextView/modCorrect/modUIMain/OnePass/Global/Pure38/40/43）・波 B（Sonnet: modToast/modSkin/modUI/modShelfBatch/modEmbed/modApp）並列 → 司令塔検収 → lint → LO compile → pure → build → 敵対的レビュー2周 → final-gates。（数字は検問後に記入）
+
+## 0R40. R40（実機報告5件・PDF 取込の AMSI 強制終了ほか・2026-09-08・**検問全緑・実機受入 F1/F2/F4/F5 緑・F3 は R41 で再対応**）
 
 **起点**: ユーザーの実機報告（R39 build `e08bb6f`）。bat 起動（シェアポ／OneDrive）・Word／Excel／スクショ取込・本文ボタン・ページ数表示・パック／引き継ぎの出力と取込は**全部動作確認済み**。残り5件を全裁定 = `spec_20260908_R40_実機報告5件.md`（§0 裁定表・§1 F1 設計・§4 実機確認）。ユーザー指示「最優先で修正」「修正実装して」（層1 の F1 も指示済み・一本道）。
 **F1（最優先）**: PDF 取込で「悪意のあるマクロが検出されました…Office を終了します」＝ Defender AMSI が【WMI `Win32_Process.Create` → `cmd.exe /s /c "(gs) 1>log 2>&1 & (if errorlevel…) >flag"`】をマクロ型マルウェアの手口と誤検知。→ `optGsProc` を全面書き換え: `Shell()` で gswin32c を直起動＋kernel32（OpenProcess/GetExitCodeProcess/TerminateProcess）。完了フラグは VBA が終了コードで書く（新 `SyncDoneFlag`・optGsTxt の2つの待ちループ先頭）。`BuildRunCommand` は cmd ラップを捨て `-sstdout=<log>` を実行ファイル直後に挿すだけ。cmd.exe／WMI／WScript.Shell／taskkill は GS 経路から消滅。`_前回` ファイルは起動 bat の正常な退避。**この環境に Windows／Defender／GS が無いので AMSI が黙るかは実機でしか確認できない**（§4-1。再発したら保護の履歴の脅威名を聞く）。
