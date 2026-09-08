@@ -431,6 +431,7 @@ Public Sub RestoreExcelUI()
     ' Excelが時刻到来時にこのブックを開き直す(§9・自動同期で踏んだ事故と同型)。
     ' Auto_Close はここを必ず通るので、予約の後始末もここに置く。
     modViewport.CancelRefit
+    modToast.CancelSweep
     On Error GoTo 0
 End Sub
 
