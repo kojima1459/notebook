@@ -738,7 +738,7 @@ BuildQuickPrompt → CallLLM("quick_draft", effort=low, verbosity=low, quick_mod
 | 回答（deep 下書き） | gpt-5.5 / effort=medium, verbosity=high | `recommended_model` |
 | 回答（deep 検証） | gpt-5.5 / effort=high, verbosity=medium | `recommended_model` |
 
-**本棚抜粋（`BuildSourceBlock`）** は `full_text`（チャンク本文全体）を使う。出典チップ用の `preview`（先頭120字）ではない。合計 `max_context_chars`（40,000字）を超える手前で打ち切り、その場合のみ「(一部省略)」を挿入する。出典タグは `origin` で分岐 — `pack:` 始まりなら `[パック(作成者):ファイル名]`、それ以外は `[本棚:ファイル名 p.N]`。
+**本棚抜粋（`BuildSourceBlock`）** は `full_text`（チャンク本文全体）を使う。出典チップ用の `preview`（先頭120字）ではない。合計 `max_context_chars`（40,000字）を超える手前で打ち切り、その場合のみ「(一部省略)」を挿入する。出典タグは `origin` で分岐 — `pack:` 始まりなら `[パック(作成者):ファイル名]`、それ以外は `[本棚:ファイル名 p.N]`（Excel 由来＝拡張子 xlsx/xlsm/xls/xlsb は `[本棚:ファイル名 シートN]`。ページ部分の文字列は `modMode.PageTagPart` が唯一の持ち主で、表示・突合・是正メモも同じ関数を通す。R41）。
 
 #### 6.2.6 後処理
 
@@ -821,6 +821,7 @@ Markdown 禁止は好みではなく、**Excel の Shape が Markdown を描画�
 本棚に自分で入れた資料は [本棚:ファイル名 p.ページ番号] の形式、
 他の人から受け取ったパック由来の資料は [パック(作成者名):ファイル名] の形式で示してください。
 出典は情報と1対1で紐づけ、まとめて末尾に並べるだけの書き方はしないでください。
+(R41: Excel の資料は p. の代わりにシート番号で抜粋の形をそのまま写す／行頭の [A6] のセル番地を「(A6 付近)」と添える、の2文を追加。正確な文面は src/qa/modPrompts.bas CitationInstruction)
 ```
 
 **(c) `NotFoundInstruction`** — 全ての回答系プロンプトに注入。
