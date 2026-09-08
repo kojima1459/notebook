@@ -174,7 +174,9 @@ Public Sub ShowPeek(ByVal idx As Long)
 
     Dim head As String
     head = ChrW(&HD83D) & ChrW(&HDCC4) & " " & src
-    If page > 0 Then head = head & "  (p." & page & ")"
+    ' R41 §1 A: Excel は「シートN」(modMode.PageTagPart。表示と出典タグの
+    ' 単一情報源)。先頭空白を Trim$ で落として括弧の中へ入れる。
+    If page > 0 Then head = head & "  (" & Trim$(modMode.PageTagPart(src, page)) & ")"
 
     Dim shp As Shape
     Set shp = ws.Shapes.AddShape(5, leftPos, topPos, PEEK_W, 60)   ' 高さはAutoSizeで伸ばす
@@ -217,7 +219,7 @@ Public Sub ShowPeek(ByVal idx As Long)
 
     Dim openCap As String
     openCap = ChrW(&HD83D) & ChrW(&HDCC2) & " 原文を開く"
-    If page > 0 Then openCap = openCap & "（p." & page & "）"
+    If page > 0 Then openCap = openCap & "（" & Trim$(modMode.PageTagPart(src, page)) & "）"
 
     Dim btn As Shape
     On Error Resume Next
