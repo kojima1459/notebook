@@ -23,6 +23,8 @@ Option Explicit
 ' 2026-08-05(R18-1a): 進捗バナー一式(PaintProgress/PaintCancelButton/
 ' ClearProgress/mProgressSheetName/Shape名2定数)は src/ui/modProgressBar.bas へ
 ' 移設した(本モジュールが上限まで残り10字で1行も直せなかったため。憲章§4-6)。
+' 2026-09-08(R41 B1): ShowToast本体とToastWaitはsrc/ui/modToast.basへ移設した
+' (本モジュールが上限まで残り27字で1行も直せなかったため。憲章§4-6)。
 
 Private Const THEME_KEY As String = "nexus_theme"
 
@@ -363,76 +365,13 @@ Done:
 End Sub
 
 ' ----------------------------------------------------------------------------
-' ShowToast - MsgBoxの代替(非ブロッキング通知)。画面上部中央に細長Shapeを出し、
-'   短時間表示して自動で消す。kind: "success"/"error"/"info"。
+' ShowToast - MsgBoxの代替(非ブロッキング通知)。実体はmodToast.ShowToastへ
+'   移設した(2026-09-08 R41 B1)。シグネチャは不変(lint契約のR1例外は
+'   modSkin.ShowToastの名前で通っているため、mid層の呼び口は変えない)。
 ' ----------------------------------------------------------------------------
-' waitless(R11-H Med4): Trueなら1.1秒の待機・削除をせず描いたらすぐ戻る
-' (「一言返すだけ」は待たせること自体が害)。残ったToastは次の
-' ShowToast/PaintProgressの掃除で消える。既定は待って消す。
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
-    On Error Resume Next
-    ' 別ブック誤爆ガード: 他の業務Excelを見ている間にToastを描くと、他人の
-    ' ブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
-    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
-    Dim ws As Worksheet: Set ws = ActiveSheet
-    If ws Is Nothing Then Exit Sub
-
-    ws.Shapes("nx_toast").Delete   ' 前のToastが残っていれば消す(孤児防止)
-
-    Dim toastW As Double: toastW = 380
-    Dim leftPos As Double: leftPos = 280
-    Dim topPos As Double: topPos = 96
-    leftPos = ActiveWindow.VisibleRange.Left + (ActiveWindow.VisibleRange.Width - toastW) / 2
-    topPos = ActiveWindow.VisibleRange.Top + 92
-
-    Dim shp As Shape
-    Set shp = ws.Shapes.AddShape(5, leftPos, topPos, toastW, 34)   ' 5=角丸四角(高さはFitToastHeightで確定)
-    shp.Name = "nx_toast"
-    shp.Adjustments(1) = 0.35
-    shp.Line.Visible = 0
-    shp.Placement = 3   ' xlFreeFloating
-
-    ' 種別アイコン(視覚的認知スピード): 成功✅ / 注意⚠️ / 情報💡
-    Dim bg As Long, fg As Long, icon As String
-    Select Case LCase$(kind)
-        Case "success": bg = RGB(0, 168, 89):  fg = RGB(255, 255, 255): icon = ChrW(&H2705)
-        Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255): icon = ChrW(&H26A0)
-        Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252): icon = ChrW(&HD83D) & ChrW(&HDCA1)
-    End Select
-    shp.Fill.ForeColor.RGB = bg
-
-    With shp.TextFrame2
-        .WordWrap = -1
-        .MarginLeft = 16: .MarginRight = 16: .MarginTop = 5: .MarginBottom = 5
-        .TextRange.Text = icon & " " & message
-        .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 10.5
-        .TextRange.ParagraphFormat.Alignment = 2   ' 中央
-        .VerticalAnchor = 3
-    End With
-    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = fg
-    modChrome.FitToastHeight shp   ' R30 W2-1: 実測AutoSizeへ転換(icon込み計測)
-
-    ApplySoftShadow shp
-    shp.ZOrder 0   ' msoBringToFront
-    DoEvents
-    If waitless Then
-        On Error GoTo 0
-        Exit Sub
-    End If
-    ToastWait modChrome.ToastWaitMsFor(message)   ' R29 W2-3: 文字量に応じ可変(3,000-9,000ms)
-    ws.Shapes("nx_toast").Delete
-    On Error GoTo 0
-End Sub
-
-' Timer基準の短時間待機(DoEventsで応答性維持。Sleep宣言を避けbitness非依存)。
-Private Sub ToastWait(ByVal ms As Long)
-    Dim t0 As Double: t0 = Timer
-    Do While (Timer - t0) * 1000# < ms
-        DoEvents
-        If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
-    Loop
+    modToast.ShowToast message, kind, waitless
 End Sub
 
 ' ----------------------------------------------------------------------------
