@@ -126,7 +126,8 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
         r = r + 1
     Else
         For i = 0 To n - 1
-            PutCell ws, r, "【p." & pages(i) & "】"
+            ' R41 §1 A: Excel由来は「シートN」(modMode.PageTagPart。単一情報源)。
+            PutCell ws, r, "【" & Trim$(modMode.PageTagPart(srcName, pages(i))) & "】"
             r = r + 1
             Dim body As String: body = StripBreadcrumb(texts(i))
             Dim pos As Long: pos = 1
