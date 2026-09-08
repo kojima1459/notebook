@@ -556,8 +556,8 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
 
     ' 3. 出力規則
     sb = sb & "・根拠にした箇所には必ず出典タグを文の直後に付ける（本棚の資料は [本棚:ファイル名 p.ページ番号]、受け取ったパック由来は [パック(作成者名):ファイル名]）。" & vbLf
-    ' R40 F3: Excel 由来の抜粋は行頭に [A6] のような番地が付いている。
-    sb = sb & "・Excel の資料では p. はシートの通し番号。抜粋の行頭にある [A6] のようなセル番地を、根拠の文に「(A6 付近)」のように添える。" & vbLf
+    ' R40 F3 / R41 §1 A: Excel 由来の抜粋は行頭に [A6] のような番地が付いている。
+    sb = sb & "・出典タグは抜粋の形（Excel はシートN）をそのまま写す。抜粋の行頭にある [A6] のようなセル番地を、根拠の文に「(A6 付近)」のように添える。" & vbLf
     ' R38 Fix F7: 同じ文言が modAskThorough と2箇所に分裂していたため、
     ' 単一情報源(modAskThorough.ThoroughStyleAddendum/ExemptionCoverageAddendum)
     ' を通す(先頭の■を落として・にする=出力文字列は1字も変わらない。A-m3)。
