@@ -281,7 +281,11 @@ Public Function CiteTagSpans(ByVal s As String, ByRef starts() As Long, _
         If en = 0 Then Exit Do
         Dim brk As Long: brk = InStr(st, s, vbCr)
         If brk = 0 Then brk = InStr(st, s, vbLf)
-        If brk > 0 And brk < en Then
+        ' 閉じ括弧より前に次のタグが始まる=この開始は閉じていない(レビュー R40 m1)。
+        Dim nx As Long: nx = InStr(st + 1, s, "[本棚:")
+        Dim nx2 As Long: nx2 = InStr(st + 1, s, "[パック(")
+        If nx = 0 Or (nx2 > 0 And nx2 < nx) Then nx = nx2
+        If (brk > 0 And brk < en) Or (nx > 0 And nx < en) Then
             p = st + 1
         Else
             n = n + 1
@@ -724,7 +728,7 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long) As String
                 If shown < MAX_SOURCE_LINES Then
                     Dim ln As String
                     ln = "　・" & modUtil.SafeLeft(nm, 34)
-                    ln = ln & " " & PageLabel(nm, hits(i).page)   ' R40 F3: Excelは「シートN」
+                    If hits(i).page > 0 Then ln = ln & " " & PageLabel(nm, hits(i).page)   ' R40 F3: Excelは「シートN」
                     lines_(shown) = ln
                     shown = shown + 1
                 End If

@@ -108,34 +108,18 @@ Public Function BuildGsCommand(ByVal gsExe As String, ByVal pdfPath As String, _
 End Function
 
 ' ----------------------------------------------------------------------------
-' BuildRunCommand - GSコマンドを cmd.exe でラップし、終了後に完了フラグ
-'   ファイルを作らせる(非同期起動の完了検知に使う)。
-'   `/s` を付けると cmd.exe は「最初と最後の二重引用符だけを外し、残りを
-'   そのまま実行する」ので、内側のパスの引用符が壊れない。
-'   連結は `&`(無条件)なのでGSが失敗しても必ずフラグが作られ、
-'   監視ループがタイムアウトを待たずに解ける。
-'
-'   2026-07-31 R11-D(監査3 H-2): 観測性の追加。
-'   (1) GS本体を丸括弧でまとめ、標準出力と標準エラーを logPath へ落とす。
-'       AppLocker/MOTW/EDRに止められた場合の "アクセスが拒否されました" は
-'       ここにしか出ない。従来は捨てていたため実機で切り分け不能だった。
-'   (2) 完了フラグの中身を "done" 固定から【GSの終了コード】へ変える。
-'       R11-D〜R38 は `call echo %^ERRORLEVEL%` で生の終了コードを書いていたが、
-'       R39 F001 で GS 引数に "%04d" が入り % の対がずれるため、% を使わない
-'       `if errorlevel` の3値(0/1/255)に変えた。展開に失敗した環境でもフラグ
-'       そのものは必ず作られ(GsExitCodeFromFlag が「不明」)、監視ループは解ける。
-'   (3) `echo <値> >"<flag>"` の `>` の直前には必ず空白を1つ置く。空白が
-'       無いと `echo 1>...` の 1 が【リダイレクト先ハンドル番号】として
-'       解釈され、フラグが空で作られてしまう(cmdの古典的な罠)。
-' ----------------------------------------------------------------------------
-'
-'   2026-09-08 R40 F1(AMSI が cmd.exe ラップをマルウェア手口と誤検知→Office
-'   強制終了。optGsProc 冒頭): cmd.exe を介さず、戻り値は GS 本体のコマンドに
-'   -sstdout=<log> を実行ファイル直後(入力PDFより前)へ挿しただけ。完了フラグ
-'   (doneFlagPath)は optGsProc.SyncDoneFlag が書くので未使用(契約維持で残す)。
+' BuildRunCommand - 実行するコマンドライン(GS本体に標準出力のログ付けを足す)。
+'   R11-D〜R39 は cmd.exe /s /c "(gs) 1>log 2>&1 & (if errorlevel …) >flag" で
+'   ログと完了フラグを cmd に作らせていたが、2026-09-08 R40 F1 で廃止
+'   (AMSI がマクロ型マルウェアの手口と誤検知し Office が強制終了。optGsProc
+'   冒頭)。今は GS 本体のコマンドに -sstdout=<log>(GS 自身の機能)を実行
+'   ファイル直後(入力PDFより前)へ挿すだけ。stderr は落ちない(記録・R41)。
+'   完了フラグ(doneFlagPath)は optGsProc.SyncDoneFlag が GS の終了コードで
+'   書くので、ここでは使わない(引数は呼び出し側との契約維持のため残す)。
 ' ----------------------------------------------------------------------------
 Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String, _
                                 ByVal logPath As String) As String
+    gsCommand = LTrim$(gsCommand)
     Dim ins As String: ins = " -sstdout=" & Quoted(logPath)
     Dim p As Long
     If Left$(gsCommand, 1) = Chr$(34) Then

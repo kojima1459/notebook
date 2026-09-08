@@ -568,8 +568,9 @@ Private Function RenderBatch(ByVal gsExe As String, ByVal pdfPath As String, _
     Dim gsErrNum As Long: gsErrNum = 0
     Dim gsErrDesc As String: gsErrDesc = ""
     ' R14-F5: PIDを控えて起動する(optGsTxtと同じ4引数の呼び方)。PIDが無いと
-    ' 真のハングでGS/cmd.exeがログオン中ずっと残り、書きかけのフォルダも
-    ' 消せない。WMIが塞がれている端末では0のまま返る(そのときは止めない)。
+    ' 真のハングでGSがログオン中ずっと残り、書きかけのフォルダも消せない。
+    ' R40 F1: PIDは Shell 由来(起動失敗は RunGsAsync=False)。ハンドルが取れない
+    ' 端末では KillGsTree が False を返す(そのときは止めない・フォルダを残す)。
     Dim gsPid As Long: gsPid = 0
     If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc, gsPid) Then
         On Error Resume Next

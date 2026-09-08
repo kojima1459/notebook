@@ -231,6 +231,13 @@ Private Sub TestR40Display43()
     ChkLong43 "R40F2_閉じ無し", modLive.CiteTagSpans("[本棚:a.pdf p.1", st, ln), 0
     ' 隣接するタグも別々に拾う。
     ChkLong43 "R40F2_隣接2件", modLive.CiteTagSpans("[本棚:a.pdf p.1][本棚:b.pdf p.2]", st, ln), 2
+    ' 同じ段落内で閉じていない開始は、後続タグの ] に食いつかない(レビュー R40 m1)。
+    s = "参考は [本棚:規程 切れた 本文 [本棚:a.pdf p.1] 続き"
+    ChkLong43 "R40F2_未閉じは後続へ食いつかない", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R40F2_未閉じ後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
+    s = "[パック(山田):切れた [本棚:a.pdf p.1]"
+    ChkLong43 "R40F2_未閉じパック→本棚", modLive.CiteTagSpans(s, st, ln), 1
+    ChkStr43 "R40F2_未閉じパック後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
 
     ' PageLabel: Excel 系はシート、それ以外は p.、0は空。
     ChkStr43 "R40F3_pdf", modLive.PageLabel("約款.pdf", 12), " p.12"
@@ -246,6 +253,7 @@ Private Sub TestR40Display43()
     ChkStr43 "R40F3_IV", modExtractorExcel.CellAddressOf(256, 1), "IV1"
     ChkStr43 "R40F3_範囲外", modExtractorExcel.CellAddressOf(0, 5), ""
     ChkStr43 "R40F3_prefix", modExtractorExcel.RowPrefix(3, 6), "[C6] "
+    ChkStr43 "R40F3_prefix範囲外は印無し", modExtractorExcel.RowPrefix(0, 5), ""
 End Sub
 
 Public Sub RunAll43()

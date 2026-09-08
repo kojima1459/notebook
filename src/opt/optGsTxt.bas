@@ -355,6 +355,10 @@ Private Function GsOutHasPages(ByVal folderPath As String) As Boolean
     Dim n As Long
     n = optOcrCore.GsTotalPagesFromLog( _
         ReadTextHead(optOcrCore.GsLogFor(folderPath), LOG_HEAD_CHARS))
+    ' R40 F1(レビュー M2): ログは -sstdout 経由になり、環境により空でありうる。
+    ' ページ別ファイル gstext_%04d.txt が1つでも在れば GS はページを処理した
+    ' (=画像PDFの分類と総頁の分母を失わない)。
+    If n <= 0 Then n = optOcrCore.MaxPageFileIndex(folderPath, 0)
     If n > mLastTotalPages Then mLastTotalPages = n
     GsOutHasPages = (n > 0)
 End Function

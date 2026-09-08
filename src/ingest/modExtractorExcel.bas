@@ -385,8 +385,8 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
             Else
                 lineParts(lineCount) = CStr(arr)
             End If
+            added = Len(lineParts(lineCount))   ' 番地の前置ぶんは上限の勘定に入れない
             lineParts(lineCount) = RowPrefix(firstCol, firstRow) & lineParts(lineCount)
-            added = Len(lineParts(lineCount))
             lineCount = lineCount + 1
         End If
         AppendBlockLines = added
@@ -398,18 +398,18 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
         Dim hasCell As Boolean
         Dim rowText As String: rowText = RowTextFrom(arr, r, cols, hasCell)
         If hasCell Then
-            rowText = RowPrefix(firstCol, firstRow + r - 1) & rowText
-            lineParts(lineCount) = rowText
-            added = added + Len(rowText) + 1
+            added = added + Len(rowText) + 1   ' 番地の前置ぶんは上限の勘定に入れない
+            lineParts(lineCount) = RowPrefix(firstCol, firstRow + r - 1) & rowText
             lineCount = lineCount + 1
         End If
     Next r
     AppendBlockLines = added
 End Function
 
-' 行頭に付ける番地の印(純関数)。"[A6] " の形。
+' 行頭に付ける番地の印(純関数)。"[A6] " の形。番地が作れなければ空(印無し)。
 Public Function RowPrefix(ByVal colIdx As Long, ByVal rowIdx As Long) As String
-    RowPrefix = "[" & CellAddressOf(colIdx, rowIdx) & "] "
+    Dim a As String: a = CellAddressOf(colIdx, rowIdx)
+    If LenB(a) > 0 Then RowPrefix = "[" & a & "] "
 End Function
 
 ' 列番号と行番号から A1 形式の番地を作る(純関数・R40 F3)。1→A, 26→Z, 27→AA。

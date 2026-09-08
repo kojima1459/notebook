@@ -221,12 +221,6 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     modStats.Bump "pack_import_total"
     modLog.LogUsage "pack_import", "", "imported=" & importedCount & " skipped=" & skippedCount & _
         " purged=" & purgedCount & " author=" & authorName
-    ' R40 F4(実機報告): 「はじめてのパック取込」の獲得告知を加算直後に出す
-    ' (従来は次の無関係な操作まで遅れて出ていた。取得済みなら即Exit)。
-    On Error Resume Next
-    modStats.EvaluateBadges
-    On Error GoTo 0
-
     ' R33H M3: 旧版の削除に失敗していたら、取り込めた件数にかかわらず失敗を
     ' 返す(0件=呼び出し元 modChannel.SyncChannel の失敗側。版数を記録しないので
     ' 次に押したときに取り込み直せる)。取り込み自体は上で済ませてある ――
@@ -243,6 +237,13 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
         End If
         Exit Function
     End If
+
+    ' R40 F4(実機報告): 「はじめてのパック取込」の獲得告知を取込直後に出す
+    ' (従来は次の無関係な操作まで遅れて出ていた。取得済みなら即Exit)。
+    ' 旧版削除の失敗(上の E0701)より後=失敗の直前に祝わない(レビュー R40 m)。
+    On Error Resume Next
+    modStats.EvaluateBadges
+    On Error GoTo 0
 
     ImportPackFile = importedCount
     If Not silent Then

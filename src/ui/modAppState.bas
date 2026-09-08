@@ -398,7 +398,8 @@ Private Sub LogAskSources(ByVal q As String)
 
     Dim i As Long
     For i = 0 To maxN - 1
-        detail = detail & " | " & modAsk.LastHitSource(i) & " p." & modAsk.LastHitPage(i)
+        detail = detail & " | " & modAsk.LastHitSource(i) & _
+                 modLive.PageLabel(modAsk.LastHitSource(i), modAsk.LastHitPage(i))   ' R40 F3
     Next i
 
     modLog.LogUsage "ask_sources", mode, detail

@@ -151,6 +151,9 @@ Private Sub TestBuildRunCommandGolden()
     Dim bare As String: bare = optOcrCore.BuildRunCommand("gs -dSAFER in.pdf", flagPath, logPath)
     modTestRunner.Check "実行コマンド: 引用符無しの実行ファイルでも直後へ挿す", _
         (bare = "gs -sstdout=" & Dq(logPath) & " -dSAFER in.pdf"), "実際=" & bare
+    Dim padded As String: padded = optOcrCore.BuildRunCommand("  " & gsCommand, flagPath, logPath)
+    modTestRunner.Check "実行コマンド: 先頭の空白は落として実行ファイルの直後へ挿す", _
+        (padded = expected), "実際=" & padded
     Dim solo As String: solo = optOcrCore.BuildRunCommand(Dq("C:\gs\gs.exe"), flagPath, logPath)
     modTestRunner.Check "実行コマンド: 引数が無ければ末尾へ付ける", _
         (solo = Dq("C:\gs\gs.exe") & " -sstdout=" & Dq(logPath)), "実際=" & solo
