@@ -4,13 +4,14 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R40. R40（実機報告5件・PDF 取込の AMSI 強制終了ほか・2026-09-08・**検問中**）
+## 0R40. R40（実機報告5件・PDF 取込の AMSI 強制終了ほか・2026-09-08・**検問全緑・実機受入待ち**）
 
 **起点**: ユーザーの実機報告（R39 build `e08bb6f`）。bat 起動（シェアポ／OneDrive）・Word／Excel／スクショ取込・本文ボタン・ページ数表示・パック／引き継ぎの出力と取込は**全部動作確認済み**。残り5件を全裁定 = `spec_20260908_R40_実機報告5件.md`（§0 裁定表・§1 F1 設計・§4 実機確認）。ユーザー指示「最優先で修正」「修正実装して」（層1 の F1 も指示済み・一本道）。
 **F1（最優先）**: PDF 取込で「悪意のあるマクロが検出されました…Office を終了します」＝ Defender AMSI が【WMI `Win32_Process.Create` → `cmd.exe /s /c "(gs) 1>log 2>&1 & (if errorlevel…) >flag"`】をマクロ型マルウェアの手口と誤検知。→ `optGsProc` を全面書き換え: `Shell()` で gswin32c を直起動＋kernel32（OpenProcess/GetExitCodeProcess/TerminateProcess）。完了フラグは VBA が終了コードで書く（新 `SyncDoneFlag`・optGsTxt の2つの待ちループ先頭）。`BuildRunCommand` は cmd ラップを捨て `-sstdout=<log>` を実行ファイル直後に挿すだけ。cmd.exe／WMI／WScript.Shell／taskkill は GS 経路から消滅。`_前回` ファイルは起動 bat の正常な退避。**この環境に Windows／Defender／GS が無いので AMSI が黙るかは実機でしか確認できない**（§4-1。再発したら保護の履歴の脅威名を聞く）。
 **F2** 出典タグ `[本棚:…]` を 8pt・primary 色に（`modLive.CiteTagSpans` 純関数＋`StyleAnswerParas` 末尾。文字列は不変）／**F3** Excel 各行の先頭に `[A6] ` 番地（`modExtractorExcel.CellAddressOf/RowPrefix`）＋表示「シートN」（`modLive.PageLabel`・modPeek/BuildSourceBlock）＋1回読み・広域プロンプトに番地を添える1行。**既取込の Excel は削除→再取込で番地が付く**／**F4** パック出力・取込の `Bump` 直後に `EvaluateBadges`／**F5** `onepass_max_chars` 300000→**450000**（≒30万トークン。遅ければ 300000 へ）。
-**検問**: 着手 `4ebf758` → F1 `80630c4` → F2〜F5 `0092290` → 検問3 `3f30b8e`（pure 3234）→ 敵対的レビュー1周目（Opus: BLOCKER 1・MAJOR 2・MINOR 多）→ Fix `ca94471`（司令塔）→ 検問4 `1015f56`（pure **3240/0/14**・ネガティブ確認 AA6→AB6 で FAIL 1→復元）→ 2周目（Opus: H1 分類ゲートの取り残し・H2 PID 再利用の誤爆・M1 観測性・M3 上限）→ Fix2（司令塔）→ final-gates（数字は下）。
-**容量（09-08 python len）**: optGsProc 6,827／optGsTxt 27,183／**optOcrCore 29,338（残 662）**／modLive 25,617／modExtractorExcel 16,995／modAskOnePass 20,775／modAskGlobal 21,088／modPack 25,414／modPackExport 16,996／Pure4 26,383／**Pure6 28,788（残 1,212）**／Pure43 12,448。
+**検問**: 着手 `4ebf758` → F1 `80630c4` → F2〜F5 `0092290` → 検問3 `3f30b8e`（pure 3234）→ 敵対的レビュー1周目（Opus: BLOCKER 1・MAJOR 2・MINOR 多）→ Fix `ca94471`（司令塔）→ 検問4 `1015f56`（pure **3240/0/14**・ネガティブ確認 AA6→AB6 で FAIL 1→復元）→ 2周目（Opus: H1 分類ゲートの取り残し・H2 PID 再利用の誤爆・M1 観測性・M3 上限）→ Fix2 `9a0c274`（司令塔）→ **final-gates（09-08・司令塔）**: lint ERROR 0／LO compile 170/170／pure **PASS 3240 / FAIL 0 / SKIP 14**（下限 3240）／`--dev`・`--prod --zip` 自己検証 OK（24シート・170本）／`bin_roundtrip --book` 6条件／`lo_xlsm --book` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（build 20260908-044722Z+d9bc6c4・14,663,829B・xlsm 1,970,277B・docs 6本・図解ガイド R40 版表記・`mock_llm` FALSE・キー空・`onepass_max_chars` **450000**・`thorough_onepass` on）。**ユーザーへ送付済み。**
+**F1 の中核（Shell／kernel32／完了フラグ）は LO で検査できない＝実機報告だけが検証手段。** 再発したら Windows セキュリティ→保護の履歴の脅威名、usage_log の `gs_kill_unavailable`、`%TEMP%\nxocr_*\gs_out.log` と `done.flag` の中身（spec §4-1）。
+**容量（09-08 Fix2 後 python len）**: optGsProc 12,420／optGsTxt 27,482／optOcrCore 28,669（残 1,331）／modLive 25,890／modExtractorExcel 17,124／Pure6 28,788（残 1,212）／旧: optGsProc 6,827／optGsTxt 27,183／optOcrCore 29,338／modLive 25,617／modExtractorExcel 16,995／modAskOnePass 20,775／modAskGlobal 21,088／modPack 25,414／modPackExport 16,996／Pure4 26,383／**Pure6 28,788（残 1,212）**／Pure43 12,448。
 
 ## 0R39. R39（外部受入テストの指摘対応・2026-09-07・**検問全緑・実機再試験待ち**）
 
