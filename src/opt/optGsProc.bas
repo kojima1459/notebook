@@ -37,6 +37,12 @@ Option Explicit
 '          "?"(=GsExitCodeFromFlag が -1・失敗と決めつけない側)を書く。
 '     それでも開けない(PID がもう無い=起動直後に終了した等)ときは、
 '     OpenProcess の LastDllError が 87(無効な PID)なら終了とみなして "?"。
+'   ・後から開き直したハンドルは【本人確認】(QueryFullProcessImageName の実行
+'     ファイル名が gswin32c.exe)が取れたときだけ停止に使う(2周目 H2: 起動直後に
+'     GS が終わり PID が別プロセスへ再利用されると、確認無しの TerminateProcess は
+'     無関係なアプリを落とす)。確認できない・別名なら「GS はもう居ない」とみなす。
+'   ・停止権(PROCESS_TERMINATE)が無いハンドルしか取れなかったときも
+'     gs_kill_unavailable を残す(2周目 M1・無言の失敗禁止)。
 '   ・フラグは【書いてから】ハンドルを離す。書けなければ次の呼び出しで再試行。
 '   ・ハンドルは必ず CloseHandle(SyncDoneFlag/KillGsTree/次の起動時)。
 ' ============================================================================
@@ -47,12 +53,14 @@ Option Explicit
     Private Declare PtrSafe Function WaitForSingleObject Lib "kernel32" (ByVal hHandle As LongPtr, ByVal dwMilliseconds As Long) As Long
     Private Declare PtrSafe Function TerminateProcess Lib "kernel32" (ByVal hProcess As LongPtr, ByVal uExitCode As Long) As Long
     Private Declare PtrSafe Function CloseHandle Lib "kernel32" (ByVal hObject As LongPtr) As Long
+    Private Declare PtrSafe Function QueryFullProcessImageNameA Lib "kernel32" (ByVal hProcess As LongPtr, ByVal dwFlags As Long, ByVal lpExeName As String, ByRef lpdwSize As Long) As Long
 #Else
     Private Declare Function OpenProcess Lib "kernel32" (ByVal dwDesiredAccess As Long, ByVal bInheritHandle As Long, ByVal dwProcessId As Long) As Long
     Private Declare Function GetExitCodeProcess Lib "kernel32" (ByVal hProcess As Long, ByRef lpExitCode As Long) As Long
     Private Declare Function WaitForSingleObject Lib "kernel32" (ByVal hHandle As Long, ByVal dwMilliseconds As Long) As Long
     Private Declare Function TerminateProcess Lib "kernel32" (ByVal hProcess As Long, ByVal uExitCode As Long) As Long
     Private Declare Function CloseHandle Lib "kernel32" (ByVal hObject As Long) As Long
+    Private Declare Function QueryFullProcessImageNameA Lib "kernel32" (ByVal hProcess As Long, ByVal dwFlags As Long, ByVal lpExeName As String, ByRef lpdwSize As Long) As Long
 #End If
 
 Private Const PROCESS_TERMINATE As Long = &H1
@@ -73,8 +81,15 @@ Private Const FLAG_UNKNOWN As String = "?"
 Private mPid As Long
 Private mHandle As Long
 Private mSyncOnly As Boolean
+' mCanKill=True は「起動直後に取れた(本人確定)か、開き直しで実行ファイル名を
+' 確認できた」かつ停止権付き。False のハンドルは終了の観測にしか使わない。
+Private mCanKill As Boolean
+Private mHasTerminate As Boolean
 ' OpenProcess の直近の失敗理由(Err.LastDllError)。0=成功。
 Private mLastOpenErr As Long
+' 開き直しの間隔(秒)。毎秒 OpenProcess を叩き続けない(2周目 L2)。
+Private Const REOPEN_SEC As Double = 5#
+Private mNextReopen As Double
 
 ' R13-1e: 停止手段が無いことを1セッション1回だけ記録するフラグ。
 Private mKillUnavailableLogged As Boolean
@@ -104,8 +119,8 @@ Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
 
     pidOut = CLng(taskId)
     mPid = pidOut
-    TryOpenHandle
-    If mHandle = 0 Then NoteKillUnavailable
+    TryOpenHandle True
+    If Not mCanKill Then NoteKillUnavailable
     RunGsAsync = True
     Exit Function
 NoRun:
@@ -122,11 +137,19 @@ Public Function SyncDoneFlag(ByVal flagPath As String) As Boolean
     If mPid = 0 Then Exit Function
     Dim body As String
     If mHandle = 0 Then
-        ' 起動直後に開けなかった端末: 呼ばれるたびに取り直す(R40 レビュー B1)。
-        TryOpenHandle
+        ' 起動直後に開けなかった端末: 数秒おきに取り直す(R40 レビュー B1)。
+        If Timer < mNextReopen And Timer > mNextReopen - REOPEN_SEC - 1 Then Exit Function
+        mNextReopen = Timer + REOPEN_SEC
+        TryOpenHandle False
         If mHandle = 0 Then
             ' PID がもう無い(起動直後に終了)ときだけ「終わった・コード不明」。
             If mLastOpenErr <> ERROR_INVALID_PARAMETER Then Exit Function
+            body = FLAG_UNKNOWN
+        ElseIf GsNameCheck() = 0 Then
+            ' 開けたが別の実行ファイル=PID が再利用された=GS はもう居ない(2周目 H2)。
+            ' (確認できない -1 は「分からない」のまま観測を続ける)
+            ReleaseHandle
+            mPid = 0
             body = FLAG_UNKNOWN
         End If
     End If
@@ -163,10 +186,10 @@ End Function
 ' 名前照合と taskkill(cmd 経由)は不要になった。
 Public Function KillGsTree(ByVal pid As Long) As Boolean
     If pid <= 0 Then Exit Function
-    If pid = mPid And mHandle = 0 Then TryOpenHandle
-    If pid <> mPid Or mHandle = 0 Then
+    ' 2周目 H2: ここでは開き直さない(本人確認の無い PID へ撃たない)。
+    If pid <> mPid Or mHandle = 0 Or Not mCanKill Then
         On Error Resume Next
-        modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " (ハンドル無し)"
+        modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " (停止できるハンドル無し)"
         On Error GoTo 0
         Exit Function
     End If
@@ -208,13 +231,18 @@ End Function
 
 ' mPid のハンドルを取る。終了コードが読める権限を優先し、駄目なら
 ' SYNCHRONIZE だけ(mSyncOnly=True)。全部駄目なら mHandle=0 のまま。
-Private Sub TryOpenHandle()
+' justStarted=True(Shell 直後)は本人確定。False(開き直し)は実行ファイル名を
+' 確認できたときだけ停止に使う(mCanKill)。
+Private Sub TryOpenHandle(ByVal justStarted As Boolean)
     If mPid = 0 Then Exit Sub
     mSyncOnly = False
+    mCanKill = False
     mLastOpenErr = 0
     On Error Resume Next
+    mHasTerminate = False
     mHandle = CLng(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION Or PROCESS_TERMINATE, 0, mPid))
     If mHandle = 0 Then mHandle = CLng(OpenProcess(PROCESS_QUERY_INFORMATION Or PROCESS_TERMINATE, 0, mPid))
+    If mHandle <> 0 Then mHasTerminate = True
     If mHandle = 0 Then mHandle = CLng(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, mPid))
     If mHandle = 0 Then
         mHandle = CLng(OpenProcess(SYNCHRONIZE_ACCESS, 0, mPid))
@@ -222,7 +250,38 @@ Private Sub TryOpenHandle()
     End If
     If mHandle = 0 Then mLastOpenErr = Err.LastDllError
     On Error GoTo 0
+    If mHandle <> 0 And mHasTerminate Then
+        ' 停止に使えるのは本人確定(起動直後)か、開き直しで名前が確認できたときだけ。
+        If justStarted Then
+            mCanKill = True
+        ElseIf GsNameCheck() = 1 Then
+            mCanKill = True
+        End If
+    End If
 End Sub
+
+' 保持ハンドルの実行ファイル名の本人確認(2周目 H2)。
+'   1 = gswin32c/gswin64c.exe / 0 = 別の実行ファイル(PID 再利用) /
+'  -1 = 確認できない(権限・SYNCHRONIZE のみ・API 失敗)
+Private Function GsNameCheck() As Long
+    GsNameCheck = -1
+    If mHandle = 0 Or mSyncOnly Then Exit Function
+    Dim buf As String: buf = String$(1024, vbNullChar)
+    Dim n As Long: n = 1024
+    Dim ok As Long: ok = 0
+    On Error Resume Next
+    ok = QueryFullProcessImageNameA(mHandle, 0, buf, n)
+    On Error GoTo 0
+    If ok = 0 Or n <= 0 Or n > 1024 Then Exit Function
+    Dim nm As String: nm = LCase$(Left$(buf, n))
+    Dim i As Long: i = InStrRev(nm, "\")
+    If i > 0 Then nm = Mid$(nm, i + 1)
+    If nm = "gswin32c.exe" Or nm = "gswin64c.exe" Then
+        GsNameCheck = 1
+    Else
+        GsNameCheck = 0
+    End If
+End Function
 
 ' 完了フラグを書く(cmd.exe の echo の代わり)。書けたら True。
 ' Open の後に落ちてもファイル番号を必ず閉じる(R40 レビュー M3)。
@@ -253,6 +312,8 @@ Private Sub ReleaseHandle()
     mHandle = 0
     mPid = 0
     mSyncOnly = False
+    mCanKill = False
+    mHasTerminate = False
 End Sub
 
 ' 停止手段が無いことの記録(1セッション1回)。「なぜ止められなかったのか」
@@ -262,6 +323,6 @@ Private Sub NoteKillUnavailable()
     mKillUnavailableLogged = True
     On Error Resume Next
     modLog.LogUsage "gs_kill_unavailable", "", _
-        "起動直後にプロセスハンドル未取得(err=" & mLastOpenErr & "。待ちループで取り直す。取れないままなら停止できず、終了もアイドル上限で見切る)"
+        "停止できるハンドル無し(handle=" & mHandle & " err=" & mLastOpenErr & "。終了は待ちループで観測を試み、駄目ならアイドル上限で見切る)"
     On Error GoTo 0
 End Sub

@@ -225,7 +225,8 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     ' (gsRc。-1=2秒粘っても中身が空=flag_delayed)。
     Dim gsDetail As String
     Dim hasPages As Boolean: hasPages = (totalPages > 0)
-    If gsRc <> 0 Or LenB(txt) = 0 Then
+    ' R40 2周目 H1: 空ページ連結は Chr(12) だけで LenB>0 になる。245行と同じ CleanTextLen で見る。
+    If gsRc <> 0 Or modUtilText.CleanTextLen(txt) = 0 Then
         gsDetail = GsFailureDetail(folderPath)
         If Not hasPages Then hasPages = GsOutHasPages(folderPath)
     End If

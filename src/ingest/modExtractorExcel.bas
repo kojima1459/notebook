@@ -385,8 +385,8 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
             Else
                 lineParts(lineCount) = CStr(arr)
             End If
-            added = Len(lineParts(lineCount))   ' 番地の前置ぶんは上限の勘定に入れない
             lineParts(lineCount) = RowPrefix(firstCol, firstRow) & lineParts(lineCount)
+            added = Len(lineParts(lineCount))   ' 番地ぶんも上限に数える(2周目 M3: 出力量の歯止め)
             lineCount = lineCount + 1
         End If
         AppendBlockLines = added
@@ -398,8 +398,9 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
         Dim hasCell As Boolean
         Dim rowText As String: rowText = RowTextFrom(arr, r, cols, hasCell)
         If hasCell Then
-            added = added + Len(rowText) + 1   ' 番地の前置ぶんは上限の勘定に入れない
-            lineParts(lineCount) = RowPrefix(firstCol, firstRow + r - 1) & rowText
+            rowText = RowPrefix(firstCol, firstRow + r - 1) & rowText
+            lineParts(lineCount) = rowText
+            added = added + Len(rowText) + 1   ' 番地ぶんも上限に数える(2周目 M3: 出力量の歯止め)
             lineCount = lineCount + 1
         End If
     Next r
