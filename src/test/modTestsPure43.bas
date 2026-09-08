@@ -270,11 +270,13 @@ End Sub
 Private Sub TestR41SweepMs43()
     ' 短文: ToastWaitMsFor の下限 3,000 の2倍。
     ChkLong43 "R41M3_短文は6000", modToast.SweepMsFor("保存しました"), 6000
-    ' 作業用Excelの案内(全角74字換算 → ceil(74/15*1000)=4934 → ×2=9868)。
-    ChkLong43 "R41M3_作業用Excel案内は9868", modToast.SweepMsFor( _
+    ' 作業用Excelの案内: 84字=全角72+半角12("Excel"×2+"(" ")")→全角換算78
+    ' → ceil(78/15*1000)=5200 → ×2=10400(python で実測。レビューの推定
+    ' 74字/9868 は誤りだった=推定値を期待値にしない)。
+    ChkLong43 "R41M3_作業用Excel案内は10400", modToast.SweepMsFor( _
         "作業用Excelを起動しました。そちらで仕事ができます。" & _
         "仕事が終わったら作業用Excelは閉じてください" & _
-        "(開いたままだと次回、本体がそちらに吸い込まれることがあります)"), 9868
+        "(開いたままだと次回、本体がそちらに吸い込まれることがあります)"), 10400
     ' 長文: 上限 15,000 で頭打ち(ToastWaitMsFor 上限 9,000 の2倍=18,000 を超えない)。
     ChkLong43 "R41M3_長文は15000で頭打ち", modToast.SweepMsFor(String$(300, "あ")), 15000
 End Sub
