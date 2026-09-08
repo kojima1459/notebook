@@ -285,6 +285,31 @@ Public Function CiteTagSpans(ByVal s As String, ByRef starts() As Long, _
         Dim nx As Long: nx = InStr(st + 1, s, "[本棚:")
         Dim nx2 As Long: nx2 = InStr(st + 1, s, "[パック(")
         If nx = 0 Or (nx2 > 0 And nx2 < nx) Then nx = nx2
+
+        ' R41 §3 C2(レビュー両者 M4): "[本棚:" 形は資料名に "]" を含みうる
+        ' (例: report[1].pdf)。最初の "]" の直前が「数字」で、その前が
+        ' "p." または "シート" でなければ閉じ候補として認めず、同じ段落・
+        ' 次のタグ開始より前に限って次の "]" を最大2回まで試す。該当が無ければ
+        ' 従来どおり最初の "]"(空振りで本文を壊さない安全弁)。"[パック(" 形は
+        ' 従来どおり(資料名にページ接尾辞が無く判定できないため §5 記録のみ)。
+        If a > 0 And st = a Then
+            If Not TagCloseOk(s, st, en) Then
+                Dim tryFrom As Long: tryFrom = en
+                Dim tries As Long
+                For tries = 1 To 2
+                    Dim cand As Long: cand = InStr(tryFrom + 1, s, "]")
+                    If cand = 0 Then Exit For
+                    If brk > 0 And brk < cand Then Exit For
+                    If nx > 0 And nx < cand Then Exit For
+                    If TagCloseOk(s, st, cand) Then
+                        en = cand
+                        Exit For
+                    End If
+                    tryFrom = cand
+                Next tries
+            End If
+        End If
+
         If (brk > 0 And brk < en) Or (nx > 0 And nx < en) Then
             p = st + 1
         Else
@@ -298,18 +323,45 @@ Public Function CiteTagSpans(ByVal s As String, ByRef starts() As Long, _
     CiteTagSpans = n
 End Function
 
+' TagCloseOk - 位置 en の "]" が "[本棚:" 形タグの正しい閉じかどうか(純関数・
+'   R41 §3 C2)。en-1 から数字を1桁以上遡り、その直前が "p." または "シート"
+'   ならOK。資料名に含まれる "]"(例: report[1].pdf)は数字の直前がその
+'   トークンにならないのでNGになり、CiteTagSpans が次の "]" を試す。
+Private Function TagCloseOk(ByVal s As String, ByVal st As Long, ByVal en As Long) As Boolean
+    Dim i As Long: i = en - 1
+    If i < st Then Exit Function
+    Dim c As String: c = Mid$(s, i, 1)
+    If c < "0" Or c > "9" Then Exit Function   ' "]" の直前が数字でなければNG
+    Do While i > st
+        c = Mid$(s, i - 1, 1)
+        If c < "0" Or c > "9" Then Exit Do
+        i = i - 1
+    Loop
+    ' i = 数字の先頭位置。その直前2文字が "p."、または直前3文字が "シート"。
+    If i - 2 >= st Then
+        If Mid$(s, i - 2, 2) = "p." Then
+            TagCloseOk = True
+            Exit Function
+        End If
+    End If
+    If i - 3 >= st Then
+        If Mid$(s, i - 3, 3) = "シート" Then
+            TagCloseOk = True
+        End If
+    End If
+End Function
+
 ' PageLabel - 出典表示の「p.N」部分(純関数・R40 F3)。Excel 由来の資料は
 '   ページではなくシートの通し番号なので「シートN」と書く(実機報告
 '   「Excel は全部 p.1」への答え。番地は本文側の [A6] が担う)。
 '   page<=0 は空文字(表示しない)。先頭に区切りの空白を含む。
+'   R41 §1 A: 書式そのものの単一情報源は modMode.PageTagPart へ移した
+'   (modPrompts.SourceTag・modPeek・modTextView・modCorrect も同じ関数を
+'   通る=表示と出典突合が同じ文字列になる)。ここは「page<=0 は空」という
+'   表示専用の窓口だけを残す。
 Public Function PageLabel(ByVal srcName As String, ByVal page As Long) As String
     If page <= 0 Then Exit Function
-    Dim ext As String: ext = LCase$(modUtil.ExtOf(srcName))
-    If ext = "xlsx" Or ext = "xlsm" Or ext = "xls" Or ext = "xlsb" Then
-        PageLabel = " シート" & page
-    Else
-        PageLabel = " p." & page
-    End If
+    PageLabel = modMode.PageTagPart(srcName, page)
 End Function
 
 ' ============================================================================
@@ -728,7 +780,7 @@ Private Function BuildSourceBlock(hits() As Hit, ByVal nHits As Long) As String
                 If shown < MAX_SOURCE_LINES Then
                     Dim ln As String
                     ln = "　・" & modUtil.SafeLeft(nm, 34)
-                    If hits(i).page > 0 Then ln = ln & " " & PageLabel(nm, hits(i).page)   ' R40 F3: Excelは「シートN」
+                    If hits(i).page > 0 Then ln = ln & PageLabel(nm, hits(i).page)   ' R40 F3: Excelは「シートN」。R41: PageLabelが先頭空白を含むため二重空白を除去
                     lines_(shown) = ln
                     shown = shown + 1
                 End If
