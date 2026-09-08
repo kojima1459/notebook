@@ -649,6 +649,14 @@
       "note": "進捗バナー(nx_progress)と中断/作業用Excelボタンの描画・撤去。2026-08-05 R18-1a に modSkin(残り10字)から移設。呼び出し元は modUIMain.ShowProgress/HideProgress と modShelfBatch.ShowIngestBanner の3行、および modHub.EnsureHubLayout からの SweepOrphans。"
     },
     {
+      "name": "modToast",
+      "path": "src/ui/modToast.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "Toast通知(nx_toast)の描画・待機・自動消去。2026-09-08 R41 B1 に modSkin(残り27字)から移設。waitless Toastの自動消去(ArmSweep/CancelSweep/ToastSweepTick)を modViewport.ScheduleRefit/CancelRefit と同型のOnTime予約1本で実装。呼び出し元は modSkin.ShowToast の1行委譲のみ。"
+    },
+    {
       "name": "modViewport",
       "path": "src/ui/modViewport.bas",
       "role": "core",
