@@ -153,7 +153,14 @@ EXPECTED_SKIP_MAX = 14
 #     GsPageBounds 境界/BuildGsTextCommand の 18件)を追加。Pure6 のゴールデンは
 #     gstext_%04d.txt へ。下限 3193→3211(SKIP 14 のまま)。
 #     ネガティブ確認: Pure44 A_i1 の期待値を "0002" に壊して FAIL 1→復元。
-EXPECTED_PASS_MIN = 3240
+#   2026-09-08 R40: Pure43 TestR40Display43(CiteTagSpans/PageLabel/CellAddressOf)
+#     と Pure4/Pure6 の追加で 3211→3240。
+#   2026-09-08 R41: Pure38(xlsx の CiteTagFrom/SourceTag 一致 2件)・Pure40 C10
+#     (シート表記 3件)・Pure43 TestR41PageTagPart43(4件)・TestR41CiteTagSpansExtend43
+#     (8件)で 3240→3257(SKIP 14 のまま)。
+#     ネガティブ確認: Pure43 R41C2_伸長後の切り出し の期待値を p.9 に壊して
+#     FAIL 1(PASS 3256)→復元。
+EXPECTED_PASS_MIN = 3257
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
