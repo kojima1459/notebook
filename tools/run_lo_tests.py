@@ -160,7 +160,9 @@ EXPECTED_SKIP_MAX = 14
 #     (8件)で 3240→3257(SKIP 14 のまま)。
 #     ネガティブ確認: Pure43 R41C2_伸長後の切り出し の期待値を p.9 に壊して
 #     FAIL 1(PASS 3256)→復元。
-EXPECTED_PASS_MIN = 3257
+#   2026-09-08 R41 Fix(レビュー1周目): Pure40 C10(h) 持ち越し 2件・Pure43
+#     TestR41SweepMs43 3件で 3257→3262(SKIP 14 のまま)。modToast を注入一覧へ。
+EXPECTED_PASS_MIN = 3262
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -867,6 +869,13 @@ PURE_ALLOWLIST = [
     #   実行時エラー12になり、プロンプトの節順・設定の on/off 解釈の唯一の
     #   自動検査が走らないまま全部PASSに見える(R38 波1で実際に起きた)。
     "modAskOnePass", "modTestsPure43",
+    # modToast(2026-09-08 R41 Fix M3): waitless トーストの寿命 SweepMsFor
+    #   (modChrome.ToastWaitMsFor×2・上限15,000ms)の純関数1本だけをテストが
+    #   呼ぶ。Shape/OnTime を触る ShowToast/ArmSweep/ToastSweepTick は
+    #   テストから呼ばない(modProgressBar と同型)。未注入だと Pure43 の
+    #   TestR41SweepMs43 が「Variable not defined」で群ごと落ちる(R41 Fix 後の
+    #   pure で実際に起きた)。
+    "modToast",
     # modTestsPure44(2026-09-07 R39 F001): GSのtxtwriteページ別出力を連結する
     #   側の回帰。テストが呼ぶのは optOcrCore.PageTxtName/JoinPageTexts/
     #   BuildGsTextCommand(いずれも既にこの一覧の"optOcrCore")と
