@@ -374,17 +374,34 @@ Public Function ShouldAnnotate(ByVal modeName As String) As Boolean
     ShouldAnnotate = (m = MODE_QUICK Or m = MODE_DEEP)
 End Function
 
+' PageTagPart - 出典タグの「p.N」部分(単一情報源・純関数・R41 §1 A)。
+'   拡張子(modUtil.ExtOf の小文字)が xlsx/xlsm/xls/xlsb なら Excel 由来
+'   (ページではなくシートの通し番号)なので " シートN"、それ以外は " p.N"。
+'   page が 0 でも空にしない(CiteTagFrom("議事録.txt", 0, "") の既存挙動=
+'   modTestsPure38 が固定する [本棚:議事録.txt p.0] を保つ)。page<=0 を
+'   空文字にする判断は呼び出し側(modLive.PageLabel など表示専用の窓口)に
+'   任せる。
+Public Function PageTagPart(ByVal srcName As String, ByVal page As Long) As String
+    Dim ext As String: ext = LCase$(modUtil.ExtOf(srcName))
+    If ext = "xlsx" Or ext = "xlsm" Or ext = "xls" Or ext = "xlsb" Then
+        PageTagPart = " シート" & page
+    Else
+        PageTagPart = " p." & page
+    End If
+End Function
+
 ' CiteTagFrom - 出典タグ1件を組み立てる。書式は modPrompts.SourceTag と同一
 '   ([本棚:資料名 p.N] / [パック(作成者名):資料名])。Hit 型ではなく素の3値から
 '   作るのは、modAsk の読み取り専用アクセサ(LastHitSource/LastHitPage/
 '   LastHitOrigin)が返すのがこの3つだけのため。書式を変えるときは
 '   modPrompts.SourceTag と必ず同時に直す(modTestsPure38 が一致を固定する)。
+'   R41 §1 A: Excel 由来は p.N ではなく シートN(PageTagPart 経由)。
 Public Function CiteTagFrom(ByVal srcName As String, ByVal pageNo As Long, _
                             ByVal originTag As String) As String
     If LCase$(Left$(originTag, 5)) = "pack:" Then
         CiteTagFrom = "[パック(" & Mid$(originTag, 6) & "):" & srcName & "]"
     Else
-        CiteTagFrom = "[本棚:" & srcName & " p." & CStr(pageNo) & "]"
+        CiteTagFrom = "[本棚:" & srcName & PageTagPart(srcName, pageNo) & "]"
     End If
 End Function
 
@@ -445,6 +462,14 @@ Public Function AnnotateIfNeeded(ByVal ans As String) As String
     outS = modAskThorough.AnnotateCitations(ans, idx, mismatchN)
     If LenB(outS) = 0 Then Exit Function   ' 想定外の空戻りで本文を消さない
     AnnotateIfNeeded = outS
+
+    ' R41 §3 C3: 出典不一致の件数を捨てずに記録する(mismatchN>0 のときだけ)。
+    ' ログ書き込みの失敗で回答そのものを壊さないよう OERN で包む。
+    If mismatchN > 0 Then
+        On Error Resume Next
+        modLog.LogUsage "cite_mismatch", mLastAnsweredMode, "n=" & mismatchN
+        On Error GoTo 0
+    End If
 End Function
 
 ' ----------------------------------------------------------------------------

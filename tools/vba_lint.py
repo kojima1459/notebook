@@ -389,6 +389,12 @@ CONTRACT: dict[str, dict] = {
         #   CanShareInsight の1行に留めるため、真理表ではなくこちらへ畳む。
         # RerankEffort(2026-08-03 R14-8a): 入念モードだけ再ランクの effort を
         #   別設定(rerank_effort_thorough)にする分岐。
+        # PageTagPart(2026-09-08 R41 §1 A): 出典タグの「p.N」部分の単一情報源。
+        #   Excel 由来(拡張子 xlsx/xlsm/xls/xlsb)は " シートN"、それ以外は
+        #   " p.N"。modPrompts.SourceTag / CiteTagFrom / modLive.PageLabel /
+        #   modPeek/modTextView/modCorrect の表示・突合が全てここを通るため、
+        #   1文字でもズレると出典表記と出典突合の両方が壊れる
+        #   (modTestsPure43 が境界を固定)。
         # AnsweredMode(R33 W5-21)は R33H F7 の NoteAnswered / GroundingAllowed
         #   へ置き換えられ src からの呼び出し元が0件になったため、R33H Fix波3 で
         #   関数ごと撤去した(それを固定していたテスト4本も同時に削除)。
@@ -408,7 +414,7 @@ CONTRACT: dict[str, dict] = {
         "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
                      "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
                      "SubQueryCount", "ShouldEmitInsight", "EmitInsightAllowed",
-                     "RerankEffort",
+                     "RerankEffort", "PageTagPart",
                      "NoteAnswered", "GroundingAllowed",
                      "AnswerSourcesText", "AnswerStatusText",
                      "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText",
