@@ -488,10 +488,15 @@ Private Function StyleInstruction() As String
         "・提出期限は事由発生からX日以内。過ぎた場合は個別協議になります。[本棚:規約集 p.13]"
 End Function
 
+' R41 §1 A(ユーザー裁定「直して」による凍結解除の1関数。SourceTag と同時に
+'   直す): Excel の資料は p. の代わりにシート番号を写すことと、行頭のセル
+'   番地 [A6] を根拠の文へ添える書き方の2文を追加する。
 Private Function CitationInstruction() As String
     CitationInstruction = "回答の根拠として使った情報には、その文の直後に必ず出典を付けてください。" & vbLf & _
-        "本棚に自分で入れた資料は [本棚:ファイル名 p.ページ番号] の形式、" & vbLf & _
+        "本棚に自分で入れた資料は [本棚:ファイル名 p.ページ番号] の形式" & _
+        "(Excel の資料は p. の代わりにシート番号で、抜粋に書いてある形をそのまま写す)、" & vbLf & _
         "他の人から受け取ったパック由来の資料は [パック(作成者名):ファイル名] の形式で示してください。" & vbLf & _
+        "抜粋の行頭にある [A6] のようなセル番地は、根拠の文に「(A6 付近)」のように添えてください(Excel以外は不要)。" & vbLf & _
         "出典は情報と1対1で紐づけ、まとめて末尾に並べるだけの書き方はしないでください。"
 End Function
 
@@ -604,13 +609,16 @@ End Function
 ' CiteIndexFrom)が「回答に書かれたタグが検索結果に在るか」を機械的に照合するとき、
 ' LLMへ指示している形と検査に使う形が別々の実装だと、一致するはずのものが全件
 ' 不一致になるか、その逆になる。タグの形はここが唯一の持ち主(憲章§4-5)。
+' R41 §1 A: Excel 由来は p.N ではなく シートN(modMode.PageTagPart 経由・
+'   単一情報源。modMode.CiteTagFrom と必ず同時に直すこと=modTestsPure38 が
+'   一字一句の一致を固定する)。
 Public Function SourceTag(ByRef h As Hit) As String
     If LCase$(Left$(h.origin, 5)) = "pack:" Then
         Dim authorName As String
         authorName = Mid$(h.origin, 6)
         SourceTag = "[パック(" & authorName & "):" & h.source & "]"
     Else
-        SourceTag = "[本棚:" & h.source & " p." & CStr(h.page) & "]"
+        SourceTag = "[本棚:" & h.source & modMode.PageTagPart(h.source, h.page) & "]"
     End If
 End Function
 
