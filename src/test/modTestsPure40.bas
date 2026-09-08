@@ -451,6 +451,15 @@ Private Sub TestWrongSourceMatches40()
         modCorrect.WrongSourceMatches(lineX, "売上.xlsx", 3), False
     ChkBool40 "C10_混在行の旧表記p.も一致", _
         modCorrect.WrongSourceMatches(lineX, "就業規則.txt", 3), True
+
+    ' (h) R41 Fix m4: 接尾辞あり項目の【後】に接尾辞なし項目が来ても、前の
+    '     項目の切り分け位置を持ち越さない(Dim はループで再実行されない)。
+    '     持ち越すと "ab1234" が entSrc="ab"/pageStr="34" に化けて誤一致する。
+    Dim lineY As String: lineY = "誤答の根拠: x.pdf p.1 | ab1234"
+    ChkBool40 "C10_接尾辞なし項目は前の位置を持ち越さない", _
+        modCorrect.WrongSourceMatches(lineY, "ab", 34), False
+    ChkBool40 "C10_接尾辞なし項目の前の項目は一致", _
+        modCorrect.WrongSourceMatches(lineY, "x.pdf", 1), True
 End Sub
 
 ' ---- 判定ヘルパー -----------------------------------------------------------

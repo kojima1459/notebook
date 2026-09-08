@@ -266,6 +266,19 @@ Private Sub TestR41PageTagPart43()
     ChkStr43 "R41_page0でも空にしない", modMode.PageTagPart("d.xlsx", 0), " シート0"
 End Sub
 
+' ---- I: R41 Fix M3 modToast.SweepMsFor(waitless の寿命) ----------------------
+Private Sub TestR41SweepMs43()
+    ' 短文: ToastWaitMsFor の下限 3,000 の2倍。
+    ChkLong43 "R41M3_短文は6000", modToast.SweepMsFor("保存しました"), 6000
+    ' 作業用Excelの案内(全角74字換算 → ceil(74/15*1000)=4934 → ×2=9868)。
+    ChkLong43 "R41M3_作業用Excel案内は9868", modToast.SweepMsFor( _
+        "作業用Excelを起動しました。そちらで仕事ができます。" & _
+        "仕事が終わったら作業用Excelは閉じてください" & _
+        "(開いたままだと次回、本体がそちらに吸い込まれることがあります)"), 9868
+    ' 長文: 上限 15,000 で頭打ち(ToastWaitMsFor 上限 9,000 の2倍=18,000 を超えない)。
+    ChkLong43 "R41M3_長文は15000で頭打ち", modToast.SweepMsFor(String$(300, "あ")), 15000
+End Sub
+
 ' ---- H: R41 §3 C2 CiteTagSpans の閉じ位置の伸長(]入りファイル名) ------------
 Private Sub TestR41CiteTagSpansExtend43()
     Dim st() As Long, ln() As Long
@@ -318,6 +331,9 @@ H06Next43:
 H07Next43:
     On Error GoTo H07Fail43
     TestR41CiteTagSpansExtend43
+H08Next43:
+    On Error GoTo H08Fail43
+    TestR41SweepMs43
 H01Done43:
     On Error GoTo 0
     Exit Sub
@@ -352,6 +368,10 @@ H06Fail43:
     Resume H07Next43
 H07Fail43:
     modTestRunner.Check "TestR41CiteTagSpansExtend43(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H08Next43
+H08Fail43:
+    modTestRunner.Check "TestR41SweepMs43(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done43
 End Sub

@@ -250,6 +250,7 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
     Dim cancelSkipN As Long: cancelSkipN = 0
 
     uiStep = "新規・更新の差分判定"
+    modShelfBatch.SetLoopBanner True   ' R41 B2: Finish: の HideProgress までがループ所有
     Dim i As Long
     For i = 0 To diskCount - 1
         ' R15-FixA(FA-3i・レビューA-H3): ファイル境界の中断確認。同期にだけ
@@ -467,6 +468,7 @@ Finish:
     mSyncRunning = False
     On Error Resume Next
     Application.EnableEvents = True   ' 抑止したイベントを必ず復帰
+    modShelfBatch.SetLoopBanner False   ' R41 B2
     modUIMain.HideProgress   ' R10-5: 正常/異常どちらの経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
     ' P2P: 共有フォルダの感謝状(他者の✅由来)を回収し感謝EXPを加算する

@@ -536,14 +536,16 @@ CONTRACT: dict[str, dict] = {
         # (AddFilesResult / StageBanner / modShelfSync のファイルループ)だけが
         # 中断できるバナーを出す。modUIMain.ShowProgress を分岐させないのは、
         # あちらが30,000字上限まで残り206字で引数1つ足す余地も無いため。
-        # IsProgressBannerVisible(2026-09-08 R41 B2): modEmbed.EmbedPendingが
-        # 「ループ開始時にバナーが既に出ていたか」を控えて所有権(出したループの
-        # 最後だけが消す)を判定するためPublic化。
+        # SetLoopBanner / LoopBannerOwned(2026-09-08 R41 B2・レビュー1周目
+        # MAJOR-2): 進捗バナーの所有権の印。取込/同期のファイルループが立て、
+        # modEmbed.EmbedPending が「立っている間は AfterLoop で消さない」判定に
+        # 読む。可視判定(IsProgressBannerVisible)は BlockIfIngesting の一時
+        # バナーを誤認するので Private のまま。
         "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
                      "StageBanner", "ShowIngestBanner", "TouchBusy", "LastBeat",
                      "GuardExpiredNow",
                      "SaveCheckpoint", "OnCancelIngest", "CancelRequested",
-                     "ResetCancel", "IsProgressBannerVisible"],
+                     "ResetCancel", "SetLoopBanner", "LoopBannerOwned"],
     },
     # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
     # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。

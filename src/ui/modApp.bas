@@ -253,7 +253,7 @@ Public Sub OnSend()
     ' Toastで見せる(qa層のperfログをUI層で取り出す=R1レイヤリングを守る)。
     If modConfig.GetBool("binary_rag_debug", False) Then
         Dim perf As String: perf = modBitwiseOpt.ConsumePerfLog()
-        If LenB(perf) > 0 Then modSkin.ShowToast perf, "info"
+        If LenB(perf) > 0 Then modSkin.ShowToast perf, "info", True
     End If
 
     modUINexusDraw.RedrawInputHint   ' R29 W2-2b
@@ -309,7 +309,7 @@ Private Sub OfferThoroughForCompound(ByVal sendMode As String, _
     If StrComp(q, mLastCompoundQ, vbTextCompare) = 0 Then Exit Sub
     mLastCompoundQ = q
     modSkin.ShowToast "複数の論点を含む質問は「入念に調べる」で論点ごとに" & _
-        "分けて回答できます", "info"
+        "分けて回答できます", "info", True   ' R41 Fix M1: 暗転窓の中で待たない(自動消去はmodToast)
 End Sub
 
 ' モードボタンの表示文字列(ヘッダー描画とトグルの両方が使う単一情報源)。

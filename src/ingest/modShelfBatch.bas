@@ -52,6 +52,9 @@ Private mSaveFailToasted As Boolean
 Private Const RO_FAIL_DESC As String = "ReadOnly(読み取り専用で開かれているため保存しません)"
 Private mReadOnlyLogged As Boolean
 
+' R41 B2: 進捗バナーの所有権の印(SetLoopBanner/LoopBannerOwned 参照)。
+Private mLoopBanner As Boolean
+
 ' R15-FixA(FA-2): 前回の中間保存を試みた時刻。頁OCRの控え保存から呼ばれる
 ' 経路だけスロットル(120秒)をかけるための唯一の材料。0=まだ一度も無い。
 Private mLastSaveAt As Date
@@ -289,11 +292,7 @@ End Sub
 ' 別ブックを見ている間は「出ていない」とみなす(PaintProgressの誤爆ガードと
 ' 同じ考え方)。Shapesの取得はShapeが無いとエラーになるので、OERNで受けて
 ' Nothing のままかどうかで判定する。
-' 2026-09-08(R41 B2): modEmbed.EmbedPendingが「ループ開始時にバナーが
-' 既に出ていたか」を控えるためPublic化(契約へ追加)。バナーの所有権
-' (出したループの最後だけが消す)の判定材料として同層(ingest→ingest)から
-' 参照する。
-Public Function IsProgressBannerVisible() As Boolean
+Private Function IsProgressBannerVisible() As Boolean
     On Error Resume Next
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Function
     Dim ws As Worksheet
@@ -303,6 +302,27 @@ Public Function IsProgressBannerVisible() As Boolean
     Set shp = ws.Shapes("nx_progress")
     IsProgressBannerVisible = Not (shp Is Nothing)
     On Error GoTo 0
+End Function
+
+' ----------------------------------------------------------------------------
+' SetLoopBanner / LoopBannerOwned - 進捗バナーの【所有権】(2026-09-08 R41 B2・
+'   レビュー1周目 MAJOR-2)。
+' ----------------------------------------------------------------------------
+' 「同期中 N/M」「i/N件 ファイル名」のバナーは AddFilesResult と modShelfSync の
+' ファイルループが出し、ループの最後だけが消す。各ファイルの末尾で走る
+' modEmbed.EmbedPending は、この印が立っている間は AfterLoop で HideProgress
+' しない(ループ所有のバナーを道連れにしない)。印が無い経路(起動時の再開・
+' スクショ登録・手入力)は従来どおり EmbedPending 自身が消す。
+' 「バナーが見えているか」で判定しないのは、modUiLock.BlockIfIngesting が
+' 取込中のクリックに対して出す一時バナー(自分では消さない)を「ループの
+' バナー」と誤認し、スクショ取込の後に黒い帯が居座るため。
+' 印の実体 mLoopBanner はモジュール先頭の宣言部(実機VBAの制約)。
+Public Sub SetLoopBanner(ByVal owned As Boolean)
+    mLoopBanner = owned
+End Sub
+
+Public Function LoopBannerOwned() As Boolean
+    LoopBannerOwned = mLoopBanner
 End Function
 
 '
@@ -425,6 +445,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     Dim tIngStart As Double: tIngStart = Timer
 
     Dim i As Long
+    SetLoopBanner True   ' R41 B2: ここから完了/異常終了の HideProgress までがループ所有
     For i = 1 To fd.SelectedItems.count
         ' R15-6c: ファイル境界の中断確認。1件目に手を付ける前でも効く。
         ' 残りは【手を付けずに】見送り、件数を必ず利用者へ伝える。
@@ -544,6 +565,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
             warnPart & ")"
     End If
     On Error Resume Next
+    SetLoopBanner False
     modUIMain.HideProgress
     modSkin.ShowToast doneToast, "info"
     On Error GoTo AddFailed
@@ -633,6 +655,7 @@ AddFailedCleanup:
     modLog.LogError "E0801", "modShelfBatch.AddFilesResult", _
         "err#" & failNum & ": " & failDesc & _
         " (ok=" & okCount & " ng=" & ngCount & " capped=" & cappedN & ")"
+    SetLoopBanner False
     modUIMain.HideProgress   ' R10-5: 異常終了経路でも進捗バナーを必ず閉じる
     On Error GoTo 0
     mBatchIngesting = False   ' R10c(H2): 異常終了経路でも必ず解除する

@@ -42,13 +42,16 @@ Private mSweepArmed As Boolean  ' 予約が生きているか(mSweepAtの有効�
 Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "info", _
                      Optional ByVal waitless As Boolean = False)
     On Error Resume Next
-    CancelSweep   ' 前の予約を必ず解く(1本の原則。孤児Sweepを作らない)
     ' 別ブック誤爆ガード: 他の業務Excelを見ている間にToastを描くと、他人の
     ' ブックへShapeを生成して業務データを汚す。自ブックがアクティブな時だけ描く。
     If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     Dim ws As Worksheet: Set ws = ActiveSheet
     If ws Is Nothing Then Exit Sub
 
+    ' 前の予約を必ず解く(1本の原則。孤児Sweepを作らない)。ガードの【後】に置く:
+    ' 描かずに戻る経路で前の予約だけ解くと、残っている前のトーストが二度と
+    ' 自動で消えなくなる(レビュー1周目 MINOR-5)。
+    CancelSweep
     ws.Shapes("nx_toast").Delete   ' 前のToastが残っていれば消す(孤児防止)
 
     Dim toastW As Double: toastW = 380
@@ -89,7 +92,7 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     shp.ZOrder 0   ' msoBringToFront
     DoEvents
     If waitless Then
-        ArmSweep modChrome.ToastWaitMsFor(message)
+        ArmSweep SweepMsFor(message)   ' R41 Fix M3: 待たせない代わりに寿命は読む側の余裕を持つ
         On Error GoTo 0
         Exit Sub
     End If
@@ -124,6 +127,22 @@ Public Sub ArmSweep(ByVal ms As Long)
     mSweepArmed = True
     On Error GoTo 0
 End Sub
+
+' ----------------------------------------------------------------------------
+' SweepMsFor - waitless トーストの寿命(ms)。純ロジック(R41 Fix M3・レビュー
+'   1周目 MAJOR-3)。待って消す側の ToastWaitMsFor(読了速度=全角15字/秒・
+'   3,000〜9,000ms)は「利用者を止めている時間」なので短めに切ってあるが、
+'   waitless は誰も止めておらず、利用者が別の操作(作業用Excelへ移る等)の
+'   途中で目に入る前提なので、同じ文で2倍の余裕を持たせる(6,000〜15,000ms)。
+'   R19H FA-8「作業用Excelの案内(78字)は消えないまま残す」は、この寿命
+'   (約10秒)で置き換える裁定(R41 spec §5)。
+' ----------------------------------------------------------------------------
+Public Function SweepMsFor(ByVal message As String) As Long
+    Const SWEEP_MAX_MS As Long = 15000
+    Dim ms As Long: ms = modChrome.ToastWaitMsFor(message) * 2
+    If ms > SWEEP_MAX_MS Then ms = SWEEP_MAX_MS
+    SweepMsFor = ms
+End Function
 
 ' ms(ミリ秒)を切り上げ秒数へ(OnTimeの時刻粒度は秒)。
 Private Function CeilSec(ByVal ms As Long) As Double

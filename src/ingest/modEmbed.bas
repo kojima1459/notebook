@@ -115,11 +115,12 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
     Dim limit As Long: limit = pendingN
     If maxCount >= 0 And maxCount < limit Then limit = maxCount
 
-    ' R41 B2: このループが自分でバナーを出したのか、既に出ていたバナーに
-    ' 相乗りしているのかをここで控える(AfterLoopの所有権判定に使う)。
+    ' R41 B2: 取込/同期のファイルループがバナーを所有しているか(明示の印。
+    ' AfterLoopの所有権判定に使う)。「見えているか」で判定しない理由は
+    ' modShelfBatch.SetLoopBanner のコメント参照(レビュー1周目 MAJOR-2)。
     Dim hadBanner As Boolean
     On Error Resume Next
-    hadBanner = modShelfBatch.IsProgressBannerVisible()
+    hadBanner = modShelfBatch.LoopBannerOwned()
     On Error GoTo 0
 
     ' スロットリング待ち(ミリ秒)。2026-07-16: 実機で「取込が遅すぎる」との

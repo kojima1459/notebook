@@ -267,6 +267,7 @@ Public Function WrongSourceMatches(ByVal line As String, ByVal source As String,
             Dim pPosP As Long: pPosP = InStrRev(ent, " p.")
             Dim pPosS As Long: pPosS = InStrRev(ent, " シート")
             Dim pPos As Long, sfxLen As Long
+            pPos = 0: sfxLen = 0   ' R41 Fix m4: Dim はループで再実行されない。前の項目の値を持ち越さない
             If pPosP > 0 And pPosS > 0 Then
                 If pPosS > pPosP Then
                     pPos = pPosS: sfxLen = 4   ' Len(" シート")
