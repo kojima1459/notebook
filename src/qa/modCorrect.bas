@@ -179,7 +179,8 @@ Public Function CollectAnswerSources() As String
         If LenB(src) > 0 Then
             If Not IsMemoSource(src) Then
                 If cnt > 0 Then buf = buf & " | "
-                buf = buf & src & " p." & modAsk.LastHitPage(i)
+                ' R41 §1 A: Excel由来は「シートN」(modMode.PageTagPart。単一情報源)。
+                buf = buf & src & modMode.PageTagPart(src, modAsk.LastHitPage(i))
                 cnt = cnt + 1
                 If cnt >= MAX_SOURCES Then Exit For
             End If
@@ -239,6 +240,10 @@ End Function
 '   か。純関数。資料名は大小無視(vbTextCompare)・ページは数値一致。
 '   "|" で区切った各項目を末尾から " p." で切り分ける(資料名にスペースが
 '   含まれても、ページ番号は必ず項目の末尾にあるため崩れない)。
+'   R41 §1 A: Excel由来の新しい是正メモは " シート" 接尾辞で書かれる
+'   (modCorrect.CollectAnswerSources)。旧い是正メモは " p." のまま残る
+'   (§5 記録のみ・表示は変えない)ので、両方を受ける。両方が項目内に
+'   現れることは無いが、念のため後ろの位置(項目末尾に近い方)を採る。
 ' ----------------------------------------------------------------------------
 Public Function WrongSourceMatches(ByVal line As String, ByVal source As String, _
                                    ByVal page As Long) As Boolean
@@ -257,10 +262,25 @@ Public Function WrongSourceMatches(ByVal line As String, ByVal source As String,
     For i = LBound(parts) To UBound(parts)
         Dim ent As String: ent = Trim$(parts(i))
         If LenB(ent) > 0 Then
-            Dim pPos As Long: pPos = InStrRev(ent, " p.")   ' LO は4引数形(Start=-1+Compare)で不一致を返す。" p." は大小無関係なので2引数形
+            ' LO は4引数形(Start=-1+Compare)で不一致を返す。" p."/" シート" は
+            ' 大小無関係なので2引数形(CLAUDE.md §10)。
+            Dim pPosP As Long: pPosP = InStrRev(ent, " p.")
+            Dim pPosS As Long: pPosS = InStrRev(ent, " シート")
+            Dim pPos As Long, sfxLen As Long
+            If pPosP > 0 And pPosS > 0 Then
+                If pPosS > pPosP Then
+                    pPos = pPosS: sfxLen = 4   ' Len(" シート")
+                Else
+                    pPos = pPosP: sfxLen = 3   ' Len(" p.")
+                End If
+            ElseIf pPosS > 0 Then
+                pPos = pPosS: sfxLen = 4
+            ElseIf pPosP > 0 Then
+                pPos = pPosP: sfxLen = 3
+            End If
             If pPos > 0 Then
                 Dim entSrc As String: entSrc = Trim$(Left$(ent, pPos - 1))
-                Dim pageStr As String: pageStr = Mid$(ent, pPos + 3)
+                Dim pageStr As String: pageStr = Mid$(ent, pPos + sfxLen)
                 If IsNumeric(pageStr) Then
                     If StrComp(entSrc, srcNorm, vbTextCompare) = 0 Then
                         If CLng(pageStr) = page Then
