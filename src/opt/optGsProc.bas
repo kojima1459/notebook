@@ -5,64 +5,91 @@ Option Explicit
 ' optGsProc - Ghostscriptプロセスの起動と停止(opt機能・2026-08-03 R13-F2)
 ' ----------------------------------------------------------------------------
 ' 役割:
-'   GSを非表示・非同期で起動してPIDを控える(RunGsAsync)、真のハングで
-'   その系統を止める(KillGsTree)、の2つだけ。呼び出し元は optGsTxt
-'   (txtwrite経路)と optVision(画像PDFのOCR経路)。
+'   GSを非表示・非同期で起動してPIDを控える(RunGsAsync)、終了を検知して
+'   完了フラグを書く(SyncDoneFlag)、真のハングで止める(KillGsTree)。
+'   呼び出し元は optGsTxt(txtwrite経路)と optOcrPage(画像PDFのOCR経路)。
 '
-' なぜ optGsTxt から分けたのか:
-'   PID再利用よけの本人確認(WMI Win32_Process の名前照合)と、rc=0でPIDが
-'   読めなかったときの扱いを足した結果、optGsTxt が28,000字のWARN帯に入った
-'   (憲章§4-6 / R13容量ルール)。「プロセスを起こす・殺す」はGSの出力を
-'   読む処理とは別の関心事で、切り出しても呼び出しは各1行で済む。
+' 2026-09-08(R40 F1・実機報告): 「悪意のあるマクロが検出されました。データを
+'   保護するため、Office を終了します」で PDF 取込中に Excel が強制終了した。
+'   これは Defender の AMSI(マクロの実行時挙動監視)で、R13〜R39 の起動経路
+'   【Office マクロ → WMI Win32_Process.Create → cmd.exe /s /c "(…) 1>… 2>&1
+'   & (if errorlevel …) >flag"】は、マクロ型マルウェアの典型手口
+'   (WMI 経由の cmd 起動・出力リダイレクト・条件分岐付きバッチ)と字面が
+'   同じになる。信頼できる場所の追加も情シス連絡もできない(台帳)ので、
+'   【疑われる部品そのものを無くす】: cmd.exe も WMI も WScript.Shell も
+'   使わず、VBA の Shell 関数で gswin32c.exe を直接起動し、kernel32 の
+'   OpenProcess/GetExitCodeProcess で終了を見張り、完了フラグは VBA 自身が
+'   書く(フラグの中身=GSの終了コード。読む側 GsExitCodeFromFlag は不変)。
+'   GS の標準出力は GS 自身の -sstdout=<gs_out.log> でファイルへ落とす
+'   (optOcrCore.BuildRunCommand)。停止は taskkill ではなく TerminateProcess。
+'   起動時に得たハンドルを終了まで保持するので PID は再利用されない
+'   (R13-F2 の WMI 名前照合は不要になった)。
 '
 ' 設計判断:
-'   ・起動はWMI(Win32_Process.Create)優先。PIDが無いとハングを止められず、
-'     GS/cmd.exe がログオン中ずっと残る(実機第2報 RC3)。WMIがEDR/ポリシーで
-'     塞がれている端末では従来のWScript.Shellへ必ず退避する(取込が動かなく
-'     なる方が害が大きい)。退避したセッションでは停止できないことを
-'     usage_log へ1回だけ残す。
-'   ・停止は必ず本人確認つき。PIDは再利用されうるので、名前を確かめずに
-'     taskkill /T /F を撃つのは無関係なプロセスへの誤爆になる。
-'   ・COM参照はどの失敗経路でも必ず解放する。ハンドラ稼働中は
-'     On Error Resume Next が効かないので、Resumeでハンドラを抜けてから
-'     後始末する(opt層GS系モジュール共通の作法)。
+'   ・Shell が失敗したとき(実行ファイル無し・AppLocker 等)は Err が上がるので
+'     errNum/errDesc へ写して False(呼び出し元が E0302 に記録)。
+'   ・ハンドルが取れなくても GS は動いている。「止められない」だけなので
+'     1回記録して True(R13-L12 と同じ理由。二重起動を防ぐ)。
+'   ・ハンドルは必ず CloseHandle(SyncDoneFlag/KillGsTree/次の起動時)。
 ' ============================================================================
 
-' R13-1e: WMI起動が使えずPIDを取れなかったことを1セッション1回だけ記録する
-' ためのフラグ(EDR等でWMIが塞がれている端末では毎回失敗するので、
-' 記録が usage_log を埋め尽くさないようにする)。
+#If Win64 Then
+    Private Declare PtrSafe Function OpenProcess Lib "kernel32" (ByVal dwDesiredAccess As Long, ByVal bInheritHandle As Long, ByVal dwProcessId As Long) As LongPtr
+    Private Declare PtrSafe Function GetExitCodeProcess Lib "kernel32" (ByVal hProcess As LongPtr, ByRef lpExitCode As Long) As Long
+    Private Declare PtrSafe Function TerminateProcess Lib "kernel32" (ByVal hProcess As LongPtr, ByVal uExitCode As Long) As Long
+    Private Declare PtrSafe Function CloseHandle Lib "kernel32" (ByVal hObject As LongPtr) As Long
+#Else
+    Private Declare Function OpenProcess Lib "kernel32" (ByVal dwDesiredAccess As Long, ByVal bInheritHandle As Long, ByVal dwProcessId As Long) As Long
+    Private Declare Function GetExitCodeProcess Lib "kernel32" (ByVal hProcess As Long, ByRef lpExitCode As Long) As Long
+    Private Declare Function TerminateProcess Lib "kernel32" (ByVal hProcess As Long, ByVal uExitCode As Long) As Long
+    Private Declare Function CloseHandle Lib "kernel32" (ByVal hObject As Long) As Long
+#End If
+
+Private Const PROCESS_TERMINATE As Long = &H1
+Private Const PROCESS_QUERY_INFORMATION As Long = &H400
+Private Const PROCESS_QUERY_LIMITED_INFORMATION As Long = &H1000
+Private Const STILL_ACTIVE As Long = 259
+' Shell 関数の第2引数(vbHide=0)。LO では定数名が無いので数値で書く。
+Private Const SHELL_HIDE As Long = 0
+
+' 直近に起動した GS(1本しか同時に動かさない。optGsTxt/optOcrPage は直列)。
+' ハンドルは Win64 でも下位32bitに収まる(カーネルハンドルの公式仕様)ので Long。
+Private mPid As Long
+Private mHandle As Long
+
+' R13-1e: 停止手段が無いことを1セッション1回だけ記録するフラグ。
 Private mKillUnavailableLogged As Boolean
 
 Public Function Ping() As Boolean
     Ping = True
 End Function
 
-' 非同期起動(待たない)。0=ウィンドウ非表示 / False=完了を待たない。
-' R10-2: 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値は
-' Booleanのまま・モジュール変数を増やさない最小構成)。呼び出し元がerr_logの
-' detailへ含めることで、WScript.Shell自体がポリシーでブロックされる端末を
-' 「パスは合っているのにGSが動かない」から切り分けられるようにする。
-' R13-1e: まずWMI(Win32_Process.Create)で起動してPIDを控える。PIDが無いと
-' 真のハングを止める手段が無く、GS/cmd.exe がログオン中ずっと残る(RC3)。
-' WMIはEDR/ポリシーで塞がれる端末があるので、失敗したら【必ず】従来の
-' WScript.Shell へ退避する(取込が動かなくなる方が害が大きい)。退避した
-' セッションではkillできないことを1回だけ usage_log へ残す。
-' pidOut: 取れたPID(0=不明。省略可なので既存の3引数呼び出しはそのまま動く)。
+' 非同期起動(待たない)。gswin32c.exe を Shell で直接・非表示で起こす。
+' 失敗時はErr.Number/Descriptionを呼び出し元へByRefで返す(戻り値はBoolean)。
+' pidOut: 取れたPID(0=不明)。
 Public Function RunGsAsync(ByVal runCmd As String, ByRef errNum As Long, _
                             ByRef errDesc As String, _
                             Optional ByRef pidOut As Long = 0) As Boolean
     pidOut = 0
-    If RunGsViaWmi(runCmd, pidOut) Then
-        RunGsAsync = True
+    ReleaseHandle
+
+    Dim taskId As Double
+    On Error GoTo NoRun
+    taskId = Shell(runCmd, SHELL_HIDE)
+    On Error GoTo 0
+    If taskId <= 0 Then
+        errNum = 5
+        errDesc = "Shell がプロセスIDを返しませんでした"
         Exit Function
     End If
-    NoteKillUnavailable
 
-    Dim wsh As Object
-    On Error GoTo NoRun
-    Set wsh = CreateObject("WScript.Shell")
-    wsh.Run runCmd, 0, False
-    Set wsh = Nothing
+    pidOut = CLng(taskId)
+    mPid = pidOut
+    On Error Resume Next
+    mHandle = CLng(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION Or PROCESS_TERMINATE, 0, pidOut))
+    If mHandle = 0 Then mHandle = CLng(OpenProcess(PROCESS_QUERY_INFORMATION Or PROCESS_TERMINATE, 0, pidOut))
+    On Error GoTo 0
+    If mHandle = 0 Then NoteKillUnavailable
     RunGsAsync = True
     Exit Function
 NoRun:
@@ -71,171 +98,88 @@ NoRun:
     RunGsAsync = False
 End Function
 
-' WMI経由の非表示起動。成功でTrue+PID、どこかで失敗したらFalse(呼び出し元が
-' 従来経路へ退避)。GetObject/Get/SpawnInstance_/Create のどれもポリシーで
-' 落ちうるので1本のハンドラで受け、Resumeでハンドラを抜けてからCOM参照を
-' 必ず解放する(本モジュール共通の作法。ハンドラ稼働中はOERNが効かない)。
-Private Function RunGsViaWmi(ByVal runCmd As String, ByRef pidOut As Long) As Boolean
-    Dim svc As Object
-    Dim startCls As Object
-    Dim cfg As Object
-    Dim proc As Object
-    Dim newPid As Variant
-    Dim rc As Long
-
-    On Error GoTo WmiFail
-    Set svc = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
-    Set startCls = svc.Get("Win32_ProcessStartup")
-    Set cfg = startCls.SpawnInstance_()
-    cfg.ShowWindow = 0                 ' 0=SW_HIDE(従来のwsh.Run(...,0,False)と同じ)
-    Set proc = svc.Get("Win32_Process")
-    rc = proc.Create(runCmd, Null, cfg, newPid)
-
-    Set proc = Nothing
-    Set cfg = Nothing
-    Set startCls = Nothing
-    Set svc = Nothing
-    On Error GoTo 0
-
-    ' rc<>0 は「起動できなかった」。ここだけがFalse(=wsh.Runへ退避)でよい。
-    If rc <> 0 Then Exit Function
-
-    ' R13-L12: rc=0 なら GS は【もう動いている】。PIDが読めなかったからと
-    ' False を返すと、呼び出し元が同じ出力先へ2本目のGSを起動して二重書き込み
-    ' になる。PIDが取れないときは「停止できない」だけなので、その事実を
-    ' 1回記録して True で返す。
-    If IsNumeric(newPid) Then
-        If CLng(newPid) > 0 Then pidOut = CLng(newPid)
-    End If
-    If pidOut = 0 Then NoteKillUnavailable
-
-    RunGsViaWmi = True
-    Exit Function
-
-WmiFail:
-    Resume WmiCleanup
-WmiCleanup:
+' 直近に起動した GS が終わっていれば、終了コードを完了フラグへ書いて True。
+' まだ動いている・ハンドルが無い・問い合わせに失敗、は False(呼び出し元の
+' 待ちループはそのまま回る)。フラグが既に在れば上書きしない。
+Public Function SyncDoneFlag(ByVal flagPath As String) As Boolean
+    If mHandle = 0 Then Exit Function
+    Dim code As Long: code = STILL_ACTIVE
+    If GetExitCodeProcess(mHandle, code) = 0 Then Exit Function
+    If code = STILL_ACTIVE Then Exit Function
+    ReleaseHandle
     On Error Resume Next
-    Set proc = Nothing
-    Set cfg = Nothing
-    Set startCls = Nothing
-    Set svc = Nothing
+    If Not optVision.PathExists(flagPath) Then WriteFlag flagPath, CStr(code)
     On Error GoTo 0
-    RunGsViaWmi = False
+    SyncDoneFlag = True
 End Function
 
-' PIDが取れなかったことの記録(1セッション1回)。「なぜ止められなかったのか」
+' 真のハング(アイドル上限超過)でGSを止める(R13-1e)。
+' 戻り値の意味は R33H F20 のまま【もうGSは動いていないと言い切れる】:
+'   既に終了していた → True(止める必要が無かった=成功側)
+'   TerminateProcess 成功 → True
+'   ハンドルが無い/別のPID/失敗 → False(生きているか分からないので
+'   作業フォルダを残す側。誤爆より取りこぼしを選ぶ)
+' R40 F1: ハンドルを保持している限り PID は再利用されないので、WMI の
+' 名前照合と taskkill(cmd 経由)は不要になった。
+Public Function KillGsTree(ByVal pid As Long) As Boolean
+    If pid <= 0 Then Exit Function
+    If pid <> mPid Or mHandle = 0 Then
+        On Error Resume Next
+        modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " (ハンドル無し)"
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Dim code As Long: code = STILL_ACTIVE
+    If GetExitCodeProcess(mHandle, code) <> 0 Then
+        If code <> STILL_ACTIVE Then
+            ReleaseHandle
+            On Error Resume Next
+            modLog.LogUsage "gs_kill_not_needed", "", "pid=" & pid & " (既に終了)"
+            On Error GoTo 0
+            KillGsTree = True
+            Exit Function
+        End If
+    End If
+
+    If TerminateProcess(mHandle, 1) <> 0 Then
+        KillGsTree = True
+        On Error Resume Next
+        modLog.LogUsage "gs_killed_on_hang", "", "pid=" & pid
+        On Error GoTo 0
+    Else
+        On Error Resume Next
+        modLog.LogUsage "gs_kill_failed", "", "pid=" & pid
+        On Error GoTo 0
+    End If
+    ReleaseHandle
+End Function
+
+' 完了フラグを書く(cmd.exe の echo の代わり)。
+Private Sub WriteFlag(ByVal flagPath As String, ByVal body As String)
+    Dim fn As Long: fn = FreeFile
+    Open flagPath For Output As #fn
+    Print #fn, body
+    Close #fn
+End Sub
+
+Private Sub ReleaseHandle()
+    If mHandle <> 0 Then
+        On Error Resume Next
+        CloseHandle mHandle
+        On Error GoTo 0
+    End If
+    mHandle = 0
+    mPid = 0
+End Sub
+
+' 停止手段が無いことの記録(1セッション1回)。「なぜ止められなかったのか」
 ' が後から分かるようにする(憲章§4-1 無言の失敗禁止)。
 Private Sub NoteKillUnavailable()
     If mKillUnavailableLogged Then Exit Sub
     mKillUnavailableLogged = True
     On Error Resume Next
     modLog.LogUsage "gs_kill_unavailable", "", _
-        "WMI起動が使えずWScript.Shellへ退避(PID未取得のためハング時に停止できません)"
+        "プロセスハンドル未取得(ハング時に停止できません)"
     On Error GoTo 0
 End Sub
-
-' 真のハング(アイドル上限超過)でGSを系統ごと止める(R13-1e)。
-' /T で子プロセス(cmd.exe が起動した gswin32c.exe)まで、/F で強制終了。
-' PIDが無い(WScript.Shell退避)ときは何もしない。
-' R13-F2: 止める前に「そのPIDが本当に自分の起動したGSか」をWMIで確かめる。
-' 待っている間に対象が終了していればWindowsはPIDを再利用しうるので、確認
-' 抜きの taskkill /T /F は無関係なプロセス(最悪は業務アプリ)を巻き添えに
-' する。名前が cmd.exe / gswin32c.exe のときだけ実行し、確認できなければ
-' 「止めなかった」ことを記録して黙って帰る(誤爆より取りこぼしを選ぶ)。
-'
-' 2026-08-16(R33波3 W3-8): Sub から Boolean を返す Function へ変えた。
-' 止めなかった経路が3本(pid<=0 / 名前照合に外れた / WScript.Shell が
-' ポリシーで落ちた)あるのに、呼び出し元 optOcrPage.RenderBatch は
-' 「PIDがあれば必ず killed=True」と記録していた。この killed は
-' optOcrPage の `If Not killed Then outKeepWork = True` ―― 生きているGSが
-' 書いているフォルダを消さないための唯一のガード ―― を左右するので、
-' 止められなかった3経路すべてでガードが原理的に発火しなかった。
-' 併せて err_log には killed=True、usage_log には gs_kill_failed という
-' 矛盾した2行が残り、次の実機調査を存在しない現象へ誘導していた。
-'
-' 2026-08-16(R33H F20): 戻り値の意味を「taskkill を撃った」から
-' 【もうGSは動いていないと言い切れる】へ直した。呼び出し元がこの値で決めて
-' いるのは「作業フォルダを消してよいか」の1点で、"止める必要が無かった"は
-' 消してよい側だからである。ProcNameOf は終了済みプロセスに "" を返す ――
-' つまりGSが自分で終わっている一般的なケースが名前照合に外れて False になり、
-' outKeepWork=True が立って %TEMP%\nxocr_* が毎回まるごと残っていた
-' (1回あたり数十MB。この修正前は消えていた)。
-'   "" (もう居ない)          → True(止める必要が無かった=成功側)
-'   "?" (WMIが答えられない)  → False(生きているか分からないので残す側)
-'   別名 (PIDが再利用された) → False(誤爆より取りこぼしを選ぶ)
-Public Function KillGsTree(ByVal pid As Long) As Boolean
-    If pid <= 0 Then Exit Function
-
-    Dim nm As String: nm = ProcNameOf(pid)
-    Dim low As String: low = LCase$(Trim$(nm))
-    If LenB(low) = 0 Then
-        ' 既に終了している。止めるものが無い=止まっている、が事実。
-        On Error Resume Next
-        modLog.LogUsage "gs_kill_not_needed", "", "pid=" & pid & " (既に終了)"
-        On Error GoTo 0
-        KillGsTree = True
-        Exit Function
-    End If
-    If low <> "cmd.exe" And low <> "gswin32c.exe" Then
-        On Error Resume Next
-        modLog.LogUsage "gs_kill_skipped", "", "pid=" & pid & " name=[" & nm & "]"
-        On Error GoTo 0
-        Exit Function
-    End If
-
-    Dim wsh As Object
-    On Error GoTo KillFail
-    Set wsh = CreateObject("WScript.Shell")
-    wsh.Run "taskkill /T /F /PID " & CStr(pid), 0, False
-    Set wsh = Nothing
-    On Error GoTo 0
-    KillGsTree = True
-    On Error Resume Next
-    modLog.LogUsage "gs_killed_on_hang", "", "pid=" & pid
-    On Error GoTo 0
-    Exit Function
-KillFail:
-    Resume KillCleanup
-KillCleanup:
-    On Error Resume Next
-    Set wsh = Nothing
-    modLog.LogUsage "gs_kill_failed", "", "pid=" & pid
-    On Error GoTo 0
-    KillGsTree = False
-End Function
-
-' PIDに今ぶら下がっているプロセス名をWMIで引く(R13-F2)。
-' 見つからない(すでに終了している)ときは ""、WMIそのものが使えない/
-' 問い合わせに失敗したときは "?" を返す。どちらも kill はしないが、扱いは
-' 別(R33H F20): "" は「止める必要が無かった」= 成功側 /
-' "?" は「生きているか分からない」= 作業フォルダを残す側。
-' PIDはWMIのCreateで得たものなので、この端末でWMIが通ること自体は既知。
-Private Function ProcNameOf(ByVal pid As Long) As String
-    Dim svc As Object
-    Dim col As Object
-    Dim p As Object
-
-    On Error GoTo NameFail
-    Set svc = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
-    Set col = svc.ExecQuery("SELECT Name FROM Win32_Process WHERE ProcessId=" & CStr(pid))
-    For Each p In col
-        ProcNameOf = CStr(p.Name)
-        Exit For
-    Next p
-    Set p = Nothing
-    Set col = Nothing
-    Set svc = Nothing
-    On Error GoTo 0
-    Exit Function
-
-NameFail:
-    Resume NameCleanup
-NameCleanup:
-    On Error Resume Next
-    Set p = Nothing
-    Set col = Nothing
-    Set svc = Nothing
-    On Error GoTo 0
-    ProcNameOf = "?"
-End Function

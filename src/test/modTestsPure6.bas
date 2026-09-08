@@ -269,15 +269,15 @@ Private Sub TestGsTextCommandGolden()
         (InStr(1, cmdText, "jpeg", vbTextCompare) = 0 And _
          InStr(1, cmdText, " -r", vbTextCompare) = 0), "実際=[" & cmdText & "]"
 
-    ' 完了フラグ付きのcmd.exeラップは画像化側と共用する(BuildRunCommand)。
-    ' ここが繋がっていないと監視ループがタイムアウトまで解けない。
+    ' ログ付け(-sstdout)は画像化側と共用する(BuildRunCommand)。R40 F1 で
+    ' cmd.exe ラップは廃止(AMSI 誤検知)。入力PDFより前に挿さること。
     Dim runCmd As String
     runCmd = optOcrCore.BuildRunCommand(cmdText, "C:\Temp\nxocr_x\done.flag", _
                                         "C:\Temp\nxocr_x\gs_out.log")
-    modTestRunner.Check "R10-3: txtwriteコマンドもBuildRunCommandで完了フラグを付けられる", _
-        (Left$(runCmd, 14) = "cmd.exe /s /c " And _
-         InStr(1, runCmd, " >" & Chr$(34) & "C:\Temp\nxocr_x\done.flag" & Chr$(34), _
-               vbTextCompare) > 0), "実際=[" & runCmd & "]"
+    modTestRunner.Check "R10-3: txtwriteコマンドもBuildRunCommandでログ付けできる(PDFより前)", _
+        (Left$(runCmd, 4) = Chr$(34) & "C:\" And _
+         InStr(1, runCmd, " -sstdout=" & Chr$(34) & "C:\Temp\nxocr_x\gs_out.log" & Chr$(34) & " -dSAFER", _
+               vbTextCompare) > 0 And InStr(runCmd, "cmd.exe") = 0), "実際=[" & runCmd & "]"
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -298,32 +298,41 @@ Private Sub TestGsRunCommandObservability()
     runCmd = optOcrCore.BuildRunCommand(gsCmd, "C:\Temp\nxocr_x\done.flag", _
                                         "C:\Temp\nxocr_x\gs_out.log")
 
-    ' (1) 標準出力・標準エラーの両方がログへ落ちること。
-    modTestRunner.Check "R11-D: stdoutをgs_out.logへ落とす", _
-        (InStr(runCmd, " 1>" & Chr$(34) & "C:\Temp\nxocr_x\gs_out.log" & Chr$(34)) > 0), _
+    ' 2026-09-08 R40 F1: cmd.exe ラップ(1> 2>&1 & if errorlevel …)は AMSI に
+    ' マクロ型マルウェアの手口と見なされ Office が強制終了した(実機報告)。
+    ' 観測性は GS 自身の -sstdout でログへ落とす形に変え、完了フラグは
+    ' optGsProc.SyncDoneFlag(GetExitCodeProcess)が書く。ここで固定するのは
+    ' 「AMSI に疑われる部品が1つも無い」ことと「ログの挿入位置」。
+    ' (1) 標準出力が GS 自身の -sstdout でログへ落ちること(空白付きパスは引用符)。
+    modTestRunner.Check "R11-D/R40: stdoutを-sstdoutでgs_out.logへ落とす", _
+        (InStr(runCmd, " -sstdout=" & Chr$(34) & "C:\Temp\nxocr_x\gs_out.log" & Chr$(34) & " ") > 0), _
         "実際=[" & runCmd & "]"
-    modTestRunner.Check "R11-D: stderrをstdoutへ合流させる(2>&1)", _
-        (InStr(runCmd, " 2>&1") > 0), "実際=[" & runCmd & "]"
 
-    ' (2) GS本体は丸括弧でまとめる(まとめないとリダイレクトが最終トークン
-    '     にしか掛からず、PDFのパスがログ名として解釈されうる)。
-    modTestRunner.Check "R11-D: GS本体が丸括弧でまとめられている", _
-        (InStr(runCmd, "/c " & Chr$(34) & "(" & gsCmd & ")") > 0), "実際=[" & runCmd & "]"
+    ' (2) 実行ファイル(空白入りパス)の引用符がそのまま先頭に残り、挿入は
+    '     その直後(入力PDFより前)。
+    modTestRunner.Check "R40: 実行ファイルの引用符が壊れず先頭に残る", _
+        (Left$(runCmd, Len(Chr$(34) & "C:\Program Files\gs\gswin32c.exe" & Chr$(34) & " -sstdout=")) = _
+         Chr$(34) & "C:\Program Files\gs\gswin32c.exe" & Chr$(34) & " -sstdout="), "実際=[" & runCmd & "]"
+    modTestRunner.Check "R40: 入力PDFは末尾のまま", _
+        (Right$(runCmd, Len(Chr$(34) & "C:\My Docs\約款.pdf" & Chr$(34))) = _
+         Chr$(34) & "C:\My Docs\約款.pdf" & Chr$(34)), "実際=[" & runCmd & "]"
 
-    ' (3) フラグへ書くのは終了コード。`call` が無いと初回解析で親プロセスの
-    '     0 に展開されてしまい、常に「成功」に見える。
-    modTestRunner.Check "R11-D: 終了コードをcall経由でフラグへ書く", _
-        (InStr(runCmd, " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >") > 0), "実際=[" & runCmd & "]"
+    ' (3) AMSI に疑われる部品(cmd.exe / リダイレクト / & 連結 / % 展開 /
+    '     if errorlevel / echo)が1つも無い。
+    modTestRunner.Check "R40: cmd.exe・リダイレクト・&・%・echo を含まない", _
+        (InStr(1, runCmd, "cmd", vbTextCompare) = 0 And InStr(runCmd, ">") = 0 And _
+         InStr(runCmd, "&") = 0 And InStr(runCmd, "%") = 0 And _
+         InStr(1, runCmd, "echo", vbTextCompare) = 0 And _
+         InStr(1, runCmd, "errorlevel", vbTextCompare) = 0), "実際=[" & runCmd & "]"
 
-    ' (4) `>` の直前に必ず空白がある。空白が無いと echo 1>… の 1 が
-    '     リダイレクト先ハンドル番号として食われ、フラグが空になる。
-    modTestRunner.Check "R11-D: フラグへのリダイレクト直前に空白がある", _
-        (InStr(runCmd, ") >" & Chr$(34)) > 0 And InStr(runCmd, "echo 1)") > 0), "実際=[" & runCmd & "]"
+    ' (4) 完了フラグのパスはコマンドに載らない(VBA が書く)。
+    modTestRunner.Check "R40: 完了フラグのパスはコマンドに載らない", _
+        (InStr(runCmd, "done.flag") = 0), "実際=[" & runCmd & "]"
 
-    ' (5) 連結は `&`(無条件)のまま=GSが異常終了してもフラグは必ず出る。
-    modTestRunner.Check "R11-D: フラグ作成の連結は無条件の&のまま(&&にしない)", _
-        (InStr(runCmd, " && ") = 0 And InStr(runCmd, " & (if errorlevel") > 0), _
-        "実際=[" & runCmd & "]"
+    ' (5) 終了コードが負(クラッシュ系)のときの読み方は不変(255 へ畳む)。
+    modTestRunner.Check "R40: 負の終了コードは255へ畳む(SyncDoneFlagはCStrで書く)", _
+        (optOcrCore.GsExitCodeFromFlag("-1073741819" & vbCrLf) = 255), _
+        "実際=" & optOcrCore.GsExitCodeFromFlag("-1073741819" & vbCrLf)
 
     ' (6) ログのパス規約。
     modTestRunner.Check "R11-D: GsLogForはフォルダ直下のgs_out.log", _

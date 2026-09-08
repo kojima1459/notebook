@@ -130,21 +130,30 @@ Private Sub TestBuildRunCommandGolden()
     Dim flagPath As String: flagPath = "C:\Temp\nxocr_1\done.flag"
     Dim logPath As String: logPath = "C:\Temp\nxocr_1\gs_out.log"
 
+    ' 2026-09-08 R40 F1: cmd.exe ラップは AMSI に誤検知される(Office 強制終了)
+    ' ため廃止。戻り値は GS 本体のコマンドに -sstdout=<log> を実行ファイルの
+    ' 直後へ挿しただけ。完了フラグは optGsProc.SyncDoneFlag が書く。
     Dim expected As String
-    expected = "cmd.exe /s /c " & Chr$(34) & _
-        "(" & gsCommand & ") 1>" & Dq(logPath) & " 2>&1" & _
-        " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >" & _
-        Dq(flagPath) & Chr$(34)
+    expected = Dq("C:\gs\gswin32c.exe") & " -sstdout=" & Dq(logPath) & _
+        " -dSAFER " & Dq("C:\a b\in.pdf")
 
     Dim actual As String
     actual = optOcrCore.BuildRunCommand(gsCommand, flagPath, logPath)
 
-    modTestRunner.Check "実行コマンド: cmd.exe /s /c ラップのゴールデン一致", _
+    modTestRunner.Check "実行コマンド: GS直起動(-sstdout挿入)のゴールデン一致", _
         (actual = expected), "実際=" & actual
-    modTestRunner.Check "実行コマンド: 完了フラグの作成が無条件(&)で連結されている", _
-        (InStr(actual, " & (if errorlevel ") > 0), "実際=" & actual
-    modTestRunner.Check "実行コマンド: 全体が二重引用符で閉じている", _
-        (Right$(actual, 1) = Chr$(34)), "実際=" & Right$(actual, 30)
+    modTestRunner.Check "実行コマンド: cmd.exe / % / & / リダイレクトを一切含まない", _
+        (InStr(1, actual, "cmd", vbTextCompare) = 0 And InStr(actual, "%") = 0 And _
+         InStr(actual, "&") = 0 And InStr(actual, ">") = 0), "実際=" & actual
+    modTestRunner.Check "実行コマンド: 完了フラグのパスは含まない(VBAが書く)", _
+        (InStr(actual, flagPath) = 0), "実際=" & actual
+    ' 実行ファイルが引用符無しでも最初の空白の後ろへ挿す。
+    Dim bare As String: bare = optOcrCore.BuildRunCommand("gs -dSAFER in.pdf", flagPath, logPath)
+    modTestRunner.Check "実行コマンド: 引用符無しの実行ファイルでも直後へ挿す", _
+        (bare = "gs -sstdout=" & Dq(logPath) & " -dSAFER in.pdf"), "実際=" & bare
+    Dim solo As String: solo = optOcrCore.BuildRunCommand(Dq("C:\gs\gs.exe"), flagPath, logPath)
+    modTestRunner.Check "実行コマンド: 引数が無ければ末尾へ付ける", _
+        (solo = Dq("C:\gs\gs.exe") & " -sstdout=" & Dq(logPath)), "実際=" & solo
 End Sub
 
 ' ----------------------------------------------------------------------------

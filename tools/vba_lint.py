@@ -1161,9 +1161,12 @@ CONTRACT: dict[str, dict] = {
     # の名前照合)と rc=0/PID不明の扱いを足した結果 optGsTxt が28,000字の
     # WARN帯へ入ったための容量分割(憲章§4-6)。RunGsAsync は optGsTxt と
     # optVision の両方から、KillGsTree は optGsTxt の待ちループから呼ばれる。
-    # 純ロジックではない(WMI・Shell起動・ログ)ので PURE_LOGIC_MODULES には
+    # 純ロジックではない(Shell起動・kernel32・ログ)ので PURE_LOGIC_MODULES には
     # 載せない。opt層に置く以上、他のoptと同様に Ping を持たせる。
-    "optGsProc": {"closed": True, "required": ["Ping", "RunGsAsync", "KillGsTree"]},
+    # 2026-09-08 R40 F1: AMSI 誤検知(Office 強制終了)対策で WMI/cmd.exe/
+    # WScript.Shell を廃止し Shell+kernel32 直起動へ。GS の終了を見て完了
+    # フラグを VBA が書く SyncDoneFlag を追加(optGsTxt の待ちループが呼ぶ)。
+    "optGsProc": {"closed": True, "required": ["Ping", "RunGsAsync", "KillGsTree", "SyncDoneFlag"]},
     # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
     # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
     "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",

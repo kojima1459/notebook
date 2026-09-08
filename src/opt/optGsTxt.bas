@@ -175,7 +175,7 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     If Not optGsProc.RunGsAsync(runCmd, gsErrNum, gsErrDesc, gsPid) Then
         modUIMain.SetStage ""
         CleanupTxtFolder folderPath, outTxt
-        ' WScript.Shell自体がポリシーで塞がれている端末をここで切り分ける。
+        ' R40 F1: Shell 直起動の失敗(実行ファイル無し・AppLocker 等)はここに出る。
         modLog.LogError "E0302", "optGsTxt.ExtractPdfTextNoOcr", modUtil.SafeLeft( _
             "GS起動失敗 err#" & gsErrNum & ": " & gsErrDesc & " " & path, 2000)
         ExtractPdfTextNoOcr = ERR_302 & "PDFから文字を取り出す処理を開始できませんでした。"
@@ -392,6 +392,7 @@ Private Function WaitGsTextDone(ByVal folderPath As String, ByVal outTxt As Stri
     totalPages = 0
 
     Do
+        optGsProc.SyncDoneFlag flagPath   ' R40 F1: GS終了→VBAがフラグを書く
         If optVision.PathExists(flagPath) Then
             rcOut = ReadFlagRcRetry(flagPath)
             WaitGsTextDone = True
@@ -548,6 +549,7 @@ Public Function WaitForDoneFlag(ByVal flagPath As String, ByVal timeoutSec As Lo
     Dim t0 As Double: t0 = Timer
     Dim tBanner As Double: tBanner = t0
     Do
+        optGsProc.SyncDoneFlag flagPath   ' R40 F1: GS終了→VBAがフラグを書く
         If optVision.PathExists(flagPath) Then
             rcOut = ReadFlagRcRetry(flagPath)
             WaitForDoneFlag = True

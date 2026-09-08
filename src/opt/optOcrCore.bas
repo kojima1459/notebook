@@ -128,14 +128,32 @@ End Function
 '       無いと `echo 1>...` の 1 が【リダイレクト先ハンドル番号】として
 '       解釈され、フラグが空で作られてしまう(cmdの古典的な罠)。
 ' ----------------------------------------------------------------------------
+'
+'   2026-09-08 R40 F1(実機報告: 「悪意のあるマクロが検出されました」で Office
+'   強制終了): cmd.exe ラップそのものが AMSI にマクロ型マルウェアの手口と
+'   見なされる(optGsProc 冒頭)。cmd.exe を介さず gswin32c.exe を直接起動する
+'   ため、戻り値は【GS本体のコマンドに -sstdout=<log> を足しただけ】になった。
+'   完了フラグ(doneFlagPath)は optGsProc.SyncDoneFlag が GS の終了コードで
+'   書くので、ここでは使わない(引数は呼び出し側との契約維持のため残す)。
+'   -sstdout は GS 自身の機能で標準出力をファイルへ落とす(stderr は落ちない。
+'   PostScript 系のエラーは stdout に出るので切り分けには足りる)。
+'   挿入位置は実行ファイル(先頭の引用符付きトークン)の直後=入力PDFより前。
+' ----------------------------------------------------------------------------
 Public Function BuildRunCommand(ByVal gsCommand As String, ByVal doneFlagPath As String, _
                                 ByVal logPath As String) As String
-    ' R39 M1: gsCommand の "%04d"(F001)と %^ERRORLEVEL% の % の対がずれるため、
-    ' % を使わず終了コードを 0/1/255(負=クラッシュ系)の3値でフラグへ書く。
-    BuildRunCommand = "cmd.exe /s /c " & Chr$(34) & _
-        "(" & gsCommand & ") 1>" & Quoted(logPath) & " 2>&1" & _
-        " & (if errorlevel 1 (echo 1) else if errorlevel 0 (echo 0) else (echo 255)) >" & _
-        Quoted(doneFlagPath) & Chr$(34)
+    Dim ins As String: ins = " -sstdout=" & Quoted(logPath)
+    Dim p As Long
+    If Left$(gsCommand, 1) = Chr$(34) Then
+        p = InStr(2, gsCommand, Chr$(34) & " ")
+        If p > 0 Then p = p + 1
+    Else
+        p = InStr(gsCommand, " ")
+    End If
+    If p = 0 Then
+        BuildRunCommand = gsCommand & ins
+    Else
+        BuildRunCommand = Left$(gsCommand, p - 1) & ins & Mid$(gsCommand, p)
+    End If
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -205,7 +223,7 @@ End Function
 '   -o は「-sOutputFile と -dBATCH -dNOPAUSE をまとめた省略形」で意味は同じだが、
 '   BuildGsCommand(jpeg側)と字面を揃えておく方が、両者を見比べたときに
 '   引用符の付け忘れ等の差分が目で見つけやすい。
-'   完了フラグ付きの cmd.exe ラップは BuildRunCommand をそのまま共用する。
+'   標準出力のログ付け(-sstdout)は BuildRunCommand をそのまま共用する(R40 F1)。
 ' ----------------------------------------------------------------------------
 Public Function BuildGsTextCommand(ByVal gsExe As String, ByVal pdfPath As String, _
                                    ByVal outTxt As String) As String
