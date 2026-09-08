@@ -212,6 +212,7 @@ Public Sub OnSend()
 
     Dim secs As Double: secs = Timer - t0
     stage = "描画/保存"
+    Application.ScreenUpdating = False
 
     On Error Resume Next
     modLive.Finish
