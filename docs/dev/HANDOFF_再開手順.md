@@ -4,14 +4,16 @@
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
 
-## 0R41. R41（Excel 出典の表記・トースト自動消去・同期中バナー・ポリッシュ3件・2026-09-08・**実装中**）
+## 0R41. R41（Excel 出典の表記・トースト自動消去・同期中バナー・ポリッシュ3件・2026-09-08・**検問全緑・実機受入待ち**）
 
 **起点**: R40 実機受入（F1/F2/F4/F5 緑・**F3 赤**「出典が p.1 のまま、A6 が出ない」）＋新規報告（トーストが消えない／同期中に取込中の表示が途中で消える）。ユーザー指示「F3 直してトースト周りの修正が済んだらそのまま R41、進んで」。全裁定 = `spec_20260908_R41_出典シート表記とトースト.md`（§0 裁定表・§1 A 出典タグ・§2 B トースト/バナー・§3 C ポリッシュ・§4 実機確認）。
 **A**: Excel 由来の出典タグを `[本棚:x.xls シート1]` に（`modMode.PageTagPart` が唯一の持ち主。SourceTag／CiteTagFrom／PageLabel／Peek 見出し／本文ビュー／状態行／是正メモが同じ関数）。`CitationInstruction`（全モード共通）へ「Excel はシート番号で抜粋の形を写す」「行頭の [A6] を (A6 付近) と添える」。**凍結 modPrompts は SourceTag と CitationInstruction の2関数だけ解除**（ユーザー指示「直して」）。
 **B1**: トースト一式を `modToast`（新規）へ分割（modSkin 残27字）。waitless にも `OnTime` の自動消去（3〜9秒・予約1本・ブック名修飾・`modUI.RestoreExcelUI` で解除）。**B2**: `modEmbed` は開始時にバナーの有無を控え、出ていたら AfterLoop で消さない（同期・追加ループのバナーを道連れにしない）。
 **C**: C1 `modApp.OnSend` 描画フェーズの `ScreenUpdating=False` 1行／C2 `CiteTagSpans` の `]` 入りファイル名（閉じ候補の直前が p.N／シートN でなければ最大2回伸ばす）／C3 quick/deep の出典不一致件数を usage_log `cite_mismatch` に。
 **レビュー再検証（09-08・司令塔）**: 別セッションの Opus/Gemini レビューのうち採用は C1・C2・C3 のみ。誤りと判定: Quick に突合無し（modApp:211 で通る）／Quick に履歴無し（prevU/prevA を渡している）／45万字連結の O(n²)（連結は数十回・数十MB）／OnePass 追加ヒットの予算超過（本文ブロック前に配列へ足す）。仕様どおり: 降格と topK。
-**検問**: 着手 `a37d40c`（spec）→ docs `8fb5e47` → 実装波 A（Sonnet: modMode/modPrompts/modLive/modPeek/modTextView/modCorrect/modUIMain/OnePass/Global/Pure38/40/43）・波 B（Sonnet: modToast/modSkin/modUI/modShelfBatch/modEmbed/modApp）並列 → 司令塔検収 → lint → LO compile → pure → build → 敵対的レビュー2周 → final-gates。（数字は検問後に記入）
+**検問**: 着手 `a37d40c`（spec）→ docs `8fb5e47` → 実装波 A（Sonnet: modMode/modPrompts/modLive/modPeek/modTextView/modCorrect/OnePass/Global/Pure38/40/43。modUIMain は残83字で見送り）・波 B（Sonnet: modToast 新規/modSkin/modUI/modShelfBatch/modEmbed/modApp/modules.json）並列 → 司令塔検収 → pure 3257（ネガティブ確認 Pure43 R41C2 を p.9 に壊して FAIL 1→復元）→ **敵対的レビュー1周目（Opus）**: M1 暗転窓内の blocking トースト／M2 可視判定が BlockIfIngesting の一時バナーを誤認／M3 waitless の一律5秒が R19H FA-8 を上書き（waitless は実測15箇所）／m4 `WrongSourceMatches` の持ち越し／m5 `CancelSweep` の位置／m6 modUIMain（記録） → Fix `b984a06`（司令塔: waitless 化・`SetLoopBanner`/`LoopBannerOwned` の明示の印・`SweepMsFor`＝2倍上限15秒・初期化・ガード後）→ modToast を LO 注入一覧へ（`1dbda6b`）→ SweepMsFor 期待値を実測へ（レビューの推定 9868 は誤り・実測 10400 `618f17f`）→ **2周目（Opus）**: MAJOR-1 印の焼き付き（SyncNow のハンドラ無し窓で Finish を踏まないと自己修復が無い）／MINOR-1 Pure40 (h) が Fix の有無を判別できない → Fix2（司令塔: `LoopBannerOwned` を busy ガード（30分失効）と AND・LogUsage を握る・判別できる入力へ）→ **final-gates（09-08）**: lint ERROR 0／LO compile **171/171**／pure **PASS 3262 / FAIL 0 / SKIP 14**（下限 3262）／`--dev`・`--prod --zip` 自己検証 OK（171本）／`bin_roundtrip --book` 6条件／`lo_xlsm --book` 3条件 OK。配布物 `dist/MyBookshelf_配布.zip`（config 実測: `mock_llm` FALSE・キー空・`onepass_max_chars` 450000・`thorough_onepass` on・図解ガイド R41 版表記）。**ユーザーへ送付済み。**
+**実機受入（spec §4）**: (1) Excel の質問で出典が `[本棚:x.xls シート1]`＋`(B3 付近)`、チップ→`(シート1)`、本文の行頭 `[B3]` (2) ギャラリー再押下の「表示を更新しました」が数秒で消える (3) 同期 3件以上でバナーが途切れない (4) 閉じた後に Excel が開き直さない (5) 回答描画がガタつかない (6) 作業用Excel の案内（約10秒で消える）が読み切れるか。
+**容量（09-08 Fix2 後 python len）**: modToast 7,344（新規・残22,656）／modSkin 27,742（残2,258・回復）／modShelfBatch 29,640（**残360**）／modShelfSync 28,323／modApp 29,761（残239）／modUI 29,742（残258）／modLive 27,825／modMode 21,363／modPrompts 28,159（残1,841・WARN 圏）／modCorrect 26,899／modEmbed 16,659／Pure40 22,922／Pure43 16,006。
 
 ## 0R40. R40（実機報告5件・PDF 取込の AMSI 強制終了ほか・2026-09-08・**検問全緑・実機受入 F1/F2/F4/F5 緑・F3 は R41 で再対応**）
 
@@ -156,7 +158,7 @@ Gemini提案のうち次期候補: 訂正共有の注記・Ctrl+K・Ctrl+Shift+C
 
 ## 1. 現在地
 
-> ⚠️ **この節より上の「最新ラウンド節」（現在は §0R34）が現在地の正。**
+> ⚠️ **この節より上の「最新ラウンド節」（現在は §0R41）が現在地の正。**
 > この §1 は R33 時点の記述が残っており、更新されていない。
 > 2026-09-02、同じファイルの中に「R34完了」と「R33完了」が並存していて、
 > 再開したセッションがどちらを信じるべきか分からない状態だった。
