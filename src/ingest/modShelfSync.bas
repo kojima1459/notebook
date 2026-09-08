@@ -435,8 +435,13 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         MsgBox summary, vbInformation, modAppDef.APP_NAME
     End If
 
+    ' R41 Fix2(レビュー2周目 MAJOR-1): ここはハンドラ無し(直前の On Error GoTo 0)
+    ' なので、ログ書込の実行時エラーが Finish を素通りさせ、印(SetLoopBanner)や
+    ' EnableEvents が戻らない窓だった。ログは非致命として握る。
+    On Error Resume Next
     modLog.LogUsage "sync", "", "ingest=" & ingestedN & " replace=" & replacedN & _
         " delete=" & deletedN & " resumed=" & resumedCount
+    On Error GoTo 0
 
     GoTo Finish
 

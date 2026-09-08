@@ -455,11 +455,14 @@ Private Sub TestWrongSourceMatches40()
     ' (h) R41 Fix m4: 接尾辞あり項目の【後】に接尾辞なし項目が来ても、前の
     '     項目の切り分け位置を持ち越さない(Dim はループで再実行されない)。
     '     持ち越すと "ab1234" が entSrc="ab"/pageStr="34" に化けて誤一致する。
-    Dim lineY As String: lineY = "誤答の根拠: x.pdf p.1 | ab1234"
+    '     判別できる入力(レビュー2周目 MINOR-1): 前項目 "ab p.1" の pPos=3 を
+    '     持ち越すと "ab1234" が Left(2)="ab" / Mid(6)="4" に化けて (ab,4) が
+    '     一致してしまう。Fix 前=True / Fix 後=False。
+    Dim lineY As String: lineY = "誤答の根拠: ab p.1 | ab1234"
     ChkBool40 "C10_接尾辞なし項目は前の位置を持ち越さない", _
-        modCorrect.WrongSourceMatches(lineY, "ab", 34), False
+        modCorrect.WrongSourceMatches(lineY, "ab", 4), False
     ChkBool40 "C10_接尾辞なし項目の前の項目は一致", _
-        modCorrect.WrongSourceMatches(lineY, "x.pdf", 1), True
+        modCorrect.WrongSourceMatches(lineY, "ab", 1), True
 End Sub
 
 ' ---- 判定ヘルパー -----------------------------------------------------------

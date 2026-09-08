@@ -321,8 +321,15 @@ Public Sub SetLoopBanner(ByVal owned As Boolean)
     mLoopBanner = owned
 End Sub
 
+' 印には失効を持たせる(レビュー2周目 MAJOR-1): SyncNow がハンドラ無しの窓
+' (MsgBox/LogUsage)で落ちて Finish を踏まないと印が True のまま焼き付き、
+' 以後のスクショ登録・起動時再開で黒い帯が居座る。取込/同期の busy ガード
+' (30分で失効)と AND することで、可視判定が持っていた自己修復を取り戻す。
 Public Function LoopBannerOwned() As Boolean
-    LoopBannerOwned = mLoopBanner
+    If Not mLoopBanner Then Exit Function
+    On Error Resume Next
+    LoopBannerOwned = (IsBatchBusy() Or modShelfSync.IsBusy())
+    On Error GoTo 0
 End Function
 
 '
