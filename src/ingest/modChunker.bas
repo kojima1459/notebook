@@ -37,10 +37,11 @@ Private mSkippedPages As Long
 '     耐えるようにするため)。
 ' ============================================================================
 
-Private Const MAX_CHUNK_CHARS As Long = 32000
+' R42 §1-4: modChunkPage.FlushPagedがcrumb/room算出に使うためPublic化(値は不変)。
+Public Const MAX_CHUNK_CHARS As Long = 32000
 Private Const DEFAULT_TARGET_CHARS As Long = 700
 ' 構造チャンクの資料名プレースホルダ(modShelfが実ファイル名へ置換する)
-Private Const CRUMB_PLACEHOLDER As String = "〔資料〕"
+Public Const CRUMB_PLACEHOLDER As String = "〔資料〕"
 Private Const FW_ZERO As Long = 65296      ' ChrW(&HFF10) ０
 Private Const FW_NINE As Long = 65305      ' ChrW(&HFF19) ９
 
@@ -404,23 +405,18 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' ChunkAllPagesStructured - 全ページを1つの行列として扱い、見出し境界で割る。
-'   ページ境界では絶対に切らない。行ごとに出所ページを持ち回り、ブロックの
-'   ページ番号は「そのブロックの先頭行が載っていたページ」にする。
+'   行ごとの物理ページをblockPg()で並走させ、FlushPagedがかけら本文先頭の
+'   物理ページを逆引きする(R42 A1。旧実装はブロック先頭ページに固定)。
 ' ----------------------------------------------------------------------------
 Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long, _
                                     ByVal pageCount As Long, ByVal tgt As Long, _
                                     ByVal ov As Long, ByVal mx As Long, _
                                     ByRef outArr() As ShelfChunk, ByRef outCount As Long)
     Dim chapter As String, section As String
-    Dim blockBuf() As String, blockN As Long
-    Dim blockPage As Long
+    Dim blockBuf() As String, blockPg() As Long, blockN As Long
 
-    ' 2026-07-29(実機事故): 1ページ(1シート)の処理で実行時エラーが出ると、
-    ' ファイル全体が「取込失敗」になっていた(err#9 インデックスが有効範囲に
-    ' ありません)。88チャンク取れるはずの資料が丸ごと0件になる。
-    ' 資料は「全部入るか、全部入らないか」ではない。読めたページは入れる。
-    ' 落ちたページ数は呼び出し側が拾えるよう mSkippedPages に残す
-    ' (0への初期化は ChunkPagesEx の入口で行う)。
+    ' 2026-07-29実機事故: 1ページの実行時エラーで資料まるごと取込失敗にしない
+    ' (mSkippedPagesはChunkPagesEx入口で0初期化)。
 
     Dim p As Long
     For p = 0 To pageCount - 1
@@ -441,15 +437,14 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
                 Dim lbl As Long
                 If isToc Then lbl = 0 Else lbl = ClassifyLine(rows(i))
                 If lbl = 1 Or lbl = 2 Then
-                    FlushBlock blockPage, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
+                    modChunkPage.FlushPaged blockBuf, blockPg, blockN, chapter, section, tgt, ov, mx, outArr, outCount
                     If lbl = 1 Then
                         chapter = Trim$(StripHeadingMark(rows(i)))
                         section = ""
                     Else
                         section = Trim$(rows(i))
                     End If
-                    BlockAdd blockBuf, blockN, Trim$(rows(i))
-                    blockPage = pageNo
+                    modChunkPage.BlockAddPg blockBuf, blockPg, blockN, Trim$(rows(i)), pageNo
                 Else
                     Dim rowText As String
                     If lbl = 4 Then
@@ -458,8 +453,7 @@ Private Sub ChunkAllPagesStructured(pages() As ExtractedPage, ByVal pLo As Long,
                         rowText = CollapseSpaces(rows(i))
                     End If
                     If LenB(Trim$(rowText)) > 0 Then
-                        If blockN = 0 Then blockPage = pageNo
-                        BlockAdd blockBuf, blockN, rowText
+                        modChunkPage.BlockAddPg blockBuf, blockPg, blockN, rowText, pageNo
                     End If
                 End If
             Next i
@@ -483,7 +477,7 @@ NextPage:
     Next p
 
     On Error Resume Next
-    FlushBlock blockPage, BlockTake(blockBuf, blockN), chapter, section, tgt, ov, mx, outArr, outCount
+    modChunkPage.FlushPaged blockBuf, blockPg, blockN, chapter, section, tgt, ov, mx, outArr, outCount
     On Error GoTo 0
 End Sub
 
@@ -600,7 +594,8 @@ Private Sub FlushBlock(ByVal pageNum As Long, ByVal blockText As String, _
     Loop
 End Sub
 
-Private Sub AppendStructChunk(ByVal pageNum As Long, ByVal crumb As String, ByVal body As String, _
+' modChunkPage.FlushPagedから呼ぶためPublic化(R42・room切詰め等は不変)。
+Public Sub AppendStructChunk(ByVal pageNum As Long, ByVal crumb As String, ByVal body As String, _
                               ByVal room As Long, ByRef outArr() As ShelfChunk, ByRef outCount As Long)
     Dim b As String: b = body
     If Len(b) > room Then b = modUtil.SafeLeft(b, room)
@@ -755,7 +750,8 @@ Private Function NormalizeWhitespace(ByVal s As String) As String
 End Function
 
 ' nearPos付近(+slack字まで)で文の区切り(句読点・改行)を探す。見つからなければ0。
-Private Function FindSentenceBoundary(ByVal s As String, ByVal nearPos As Long, ByVal slack As Long) As Long
+' modChunkPage.PlanWindowsが同じ規則を呼ぶためPublic化(R42・挙動は不変)。
+Public Function FindSentenceBoundary(ByVal s As String, ByVal nearPos As Long, ByVal slack As Long) As Long
     Dim limit As Long: limit = nearPos + slack
     If limit > Len(s) Then limit = Len(s)
     Dim i As Long
