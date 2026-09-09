@@ -670,10 +670,10 @@ Public Function BuildPagesFromGsText(ByVal txt As String, ByVal maxPages As Long
     keptN = modUtilText.GsPageBounds(txt, firstIdx, lastIdx)
     If keptN < 1 Then Exit Function
     parts = Split(txt, Chr$(12))
-    If maxPages > 0 And keptN > maxPages Then
-        keptN = maxPages
-        truncated = True
-    End If
+    ' R42 A2: 上限は【物理ページ番号】に当てる(白紙読み飛ばし後の枚数に当てると
+    ' 先頭が白紙のPDFで実際より多く残ってしまう)。modChunkPage.PhysicalKeep
+    keptN = modChunkPage.PhysicalKeep(firstIdx, keptN, maxPages, truncated)
+    If keptN < 1 Then Exit Function
 
     ' 受け取った配列を直接ReDimする(一時配列からの代入はLO実行テストで
     ' ユーザー定義型の配列代入が420になるため使わない。全件コピーも省ける)。
