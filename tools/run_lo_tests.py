@@ -135,7 +135,10 @@ SOFFICE_CANDIDATES = ["/usr/bin/soffice", "soffice"]
 #   2026-09-04 R35 F3a: modPack.OpenGateReason(実機第20報のOpen前ゲート判定)
 #     のゴールデン5件を modTestsPure37(B1)に追加 → PASS 3004→3009
 #     (SKIP は 14 のまま。ネガティブ確認済み: 1値を壊して3008/FAIL1を確認→復元)。
-EXPECTED_SKIP_MAX = 14
+#   2026-09-09 R42: modChunkPage(見出し無し複数ページのかけら別ページ計算)を
+#     PURE_ALLOWLISTへ追加。modTestsPure45のG群(FlushPagedのUDT直接検査)は
+#     CanUseTypeArrays()ガードでLOでは[SKIP]1件になる → 14→15。
+EXPECTED_SKIP_MAX = 15
 #   2026-09-05 R36: modTestsPure39(本文表示/画像📁)+modTestsPure40(是正メモ)+
 #     modTestsPure41(版上げ引き継ぎ)を追加、Pure11 のツールバー幅アサートを
 #     反転(一覧表>ギャラリー)+1本 → PASS 3009→3090(SKIP は 14 のまま。
@@ -885,6 +888,17 @@ PURE_ALLOWLIST = [
     #   実行時エラー12になり、ページ連結の唯一の自動検査が走らないまま
     #   全部PASSに見える。
     "modTestsPure44",
+    # modChunkPage / modTestsPure45(2026-09-09 R42 §1 A1/A2・受入FAIL
+    #   PDF-F01/RT-27/28/37/スモーク5・PDF-F02/RT-22/23): 見出しの無い複数
+    #   ページ資料でかけらの出典ページが p.1 に寄る不具合の実体
+    #   (BlockAddPg/LineStarts/PageAtPos/FirstInkPos/PlanWindows/FlushPaged/
+    #   PhysicalKeep/StartPagesOf、いずれもExcelオブジェクトに触れない純
+    #   ロジック)。FlushPagedはShelfChunk(Public Type)配列を扱うため、
+    #   これを直接呼ぶ検査(modTestsPure45のG群)だけはCanUseTypeArrays()
+    #   ガードでLOでは[SKIP]になる(EXPECTED_SKIP_MAXを15へ)。
+    #   未注入だと modTestsPure45.RunAll45 が実行時エラー12になり、
+    #   出典ページ計算の唯一の自動検査が走らないまま全部PASSに見える。
+    "modChunkPage", "modTestsPure45",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

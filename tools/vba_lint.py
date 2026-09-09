@@ -484,9 +484,29 @@ CONTRACT: dict[str, dict] = {
         #   目次判定。ChunkAllPagesStructuredが目次ページの見出し判定を
         #   抑制するために呼ぶ。純ロジックなのでmodTestsPureから固定できる
         #   よう公開した。
+        # FindSentenceBoundary/AppendStructChunk/MAX_CHUNK_CHARS/
+        #   CRUMB_PLACEHOLDER(2026-09-09 R42 §1 A1): modChunkPage.PlanWindows/
+        #   FlushPagedがFlushBlockと同一の規則・上限・プレースホルダで窓割り/
+        #   crumb計算をするためPublic化(値・挙動は不変。modChunkPage側から
+        #   呼ぶ・参照する)。
         "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb",
                      "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine",
-                     "SkippedPageCount", "LooksLikeTocPage"],
+                     "SkippedPageCount", "LooksLikeTocPage",
+                     "FindSentenceBoundary", "AppendStructChunk",
+                     "MAX_CHUNK_CHARS", "CRUMB_PLACEHOLDER"],
+    },
+    "modChunkPage": {
+        "closed": True,
+        # 2026-09-09(R42 §1 A1/A2・受入FAIL PDF-F01/RT-27/28/37/スモーク5・
+        #   PDF-F02/RT-22/23): 見出しの無い複数ページ資料でかけらの出典が
+        #   p.1に寄る不具合の実体。modChunkerは残61字(実質凍結)のため新設。
+        #   BlockAddPg/FlushPagedはChunkAllPagesStructuredから呼ばれる本線。
+        #   LineStarts/PageAtPos/FirstInkPos/PlanWindows/StartPagesOfは
+        #   modTestsPure45が直接固定する検証口。PhysicalKeepはA2(上限は
+        #   物理ページ番号に当てる)の実体でmodExtractor.BuildPagesFromGsText
+        #   から呼ぶ。
+        "required": ["BlockAddPg", "LineStarts", "PageAtPos", "FirstInkPos",
+                     "PlanWindows", "FlushPaged", "PhysicalKeep", "StartPagesOf"],
     },
     "modEmbed": {
         "closed": True,

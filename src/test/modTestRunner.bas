@@ -373,4 +373,17 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-09(R42 §1・受入FAIL PDF-F01/RT-27/28/37/スモーク5・PDF-F02/
+    ' RT-22/23): 見出しの無い複数ページ資料のかけら別ページ計算(modChunkPage)
+    ' の純ロジック回帰。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure45.RunAll45
+    If Err.Number <> 0 Then
+        Check "modTestsPure45.RunAll45", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
