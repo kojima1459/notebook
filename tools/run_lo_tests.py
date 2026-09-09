@@ -165,7 +165,13 @@ EXPECTED_SKIP_MAX = 15
 #     FAIL 1(PASS 3256)→復元。
 #   2026-09-08 R41 Fix(レビュー1周目): Pure40 C10(h) 持ち越し 2件・Pure43
 #     TestR41SweepMs43 3件で 3257→3262(SKIP 14 のまま)。modToast を注入一覧へ。
-EXPECTED_PASS_MIN = 3262
+#   2026-09-09 R42 §1(A1/A2): modTestsPure45(LineStarts/PageAtPos/
+#     FirstInkPos/PlanWindows/PhysicalKeepの境界値+StartPagesOfの再現
+#     ゴールデン+FlushPaged直接検査)を追加。3262→3292(SKIP 14→15。
+#     FlushPaged直接検査がCanUseTypeArrays()ガードで+1)。
+#     ネガティブ確認: StartPagesOfゴールデンの期待値を"1,2,2,3,5"に壊して
+#     FAIL 1(PASS 3291)を確認→復元。
+EXPECTED_PASS_MIN = 3292
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

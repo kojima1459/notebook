@@ -50,32 +50,45 @@ Option Explicit
 '     (0,2,0)→maxPages<=0→truncated=False・戻り=keptNそのまま=2。
 '     (1,1,3)→2<=3→truncated=False・戻り=keptNそのまま=1。
 '
-'   F StartPagesOf(受入報告の再現ゴールデン): 見出しの無い5ページ・各ページ
-'     2行(1行5字の"あ")をBlockAddPgで組む(pg=1,1,2,2,3,3,4,4,5,5)。
-'     Join後の行開始位置(1行=5字+区切りvbLf1字=6字間隔): 1,7,13,19,25,31,
-'     37,43,49,55(全10行・総字数59=5*10+9)。tgt=15・ov=4・room=1000で
-'     PlanWindowsすると(句読点なしなので境界スナップ無し):
-'       "1-15|12-26|23-37|34-48|45-59" の5窓。
-'     各窓の開始ページ(FirstInkPos+PageAtPos):
-'       s=1  → 位置1は行1の先頭(あ) → page=1。
-'       s=12 → 位置12は行2直後の区切り(vbLf・空白類)→FirstInkPosが
-'              位置13(行3の先頭)まで進む → page=2。
-'       s=23 → 位置23は行4の最終文字(あ)そのもの(空白ではない)→page=2。
-'              ※オーバーラップが改ページをまたぐ例: この窓(23-37)の本体は
-'              大半が3ページ目(位置25-35)〜4ページ目(位置37)だが、開始
-'              位置23が2ページ目の末尾行(行4)の中にあるため「前ページ」
-'              (page=2)に付く(仕様§1-3の規則どおり)。
-'       s=34 → 位置34は行6の中(あ)→page=3(この窓34-48も同様に大半が
-'              4ページ目だが開始位置は3ページ目に属するため前ページ)。
-'       s=45 → 位置45は行8の中(あ)→page=4(同型。大半は5ページ目)。
+'   F StartPagesOf(受入報告の再現ゴールデン): 見出しの無い5ページ、各ページ
+'     まるごと1行(1行20字の"あ")をBlockAddPgで組む(pg=1,2,3,4,5)。
+'     Join後の行開始位置(1行=20字+区切りvbLf1字=21字間隔): 1,22,43,64,85
+'     (全5行・総字数104=20*5+4)。tgt=30・ov=10・room=1000でPlanWindows
+'     すると: 【重要】FindSentenceBoundaryはvbLfも文境界として検出するが、
+'     素のwindowEnd(30刻み)は他ページの区切りvbLfの位置(21,42,63,84)から
+'     いずれもslack(30\4=7)より離れているため、この設計では境界スナップは
+'     一度も発生しない(D1と同じ「境界なし」経路)。
+'       startPos=1: windowEnd=30(30<104・スナップ無し)→"1-30"。
+'       nextStart=30-10+1=21。startPos=21: windowEnd=50→"21-50"。
+'       nextStart=50-10+1=41。startPos=41: windowEnd=70→"41-70"。
+'       nextStart=70-10+1=61。startPos=61: windowEnd=90→"61-90"。
+'       nextStart=90-10+1=81。startPos=81: windowEnd=81+29=110>104→104に
+'       クランプ(windowEnd=totalなので境界探索なし)→"81-104"。終了。
+'       → "1-30|21-50|41-70|61-90|81-104" の5窓。
+'     各窓の開始ページ(FirstInkPos+PageAtPos。lead=0):
+'       s=1  → 位置1は1ページ目の先頭(あ) → page=1。
+'       s=21 → 位置21は1ページ目直後の区切り(vbLf・空白類)→FirstInkPosが
+'              位置22(2ページ目の先頭)まで進む → page=2。
+'       s=41 → 位置41は2ページ目の【最終文字】(あ)そのもの(空白ではない
+'              ・区切りvbLfは位置42)→page=2のまま(繰り返し)。
+'              ※オーバーラップが改ページをまたぐ例: この窓(41-70)の本体は
+'              大半が3ページ目(位置43-62)〜4ページ目の先頭(位置64-70)だが、
+'              開始位置41が2ページ目の末尾文字そのものにあたるため「前
+'              ページ」(page=2)に付く(仕様§1-3「オーバーラップで前ページ
+'              の末尾から始まるかけらは前ページ」の規則どおり)。
+'       s=61 → 位置61は3ページ目の中(あ、末尾では無いが空白でもない)
+'              →page=3。
+'       s=81 → 位置81は4ページ目の中(あ)→page=4。
 '     → "1,2,2,3,4"。
 '
 '   G FlushPaged(UDT直接検査・CanUseTypeArrays()ガード下・Excel実機のみ):
-'     Fの同じ10行・5ページ構成にtgt=15・ov=4・mx=20(chapter/section空)を
-'     渡す。crumb=BuildBreadcrumb("〔資料〕","","")&vbLf="【〔資料〕】"&vbLf
-'     (7字)。atomicLimit=mx-7=13<body59字なのでPlanWindows経路になり、
-'     Fと同じ5窓・同じページ列(1,2,2,3,4)のShelfChunkが積まれる
-'     (room=32000-7=31993なので切詰めは発生しない)。呼び出し後n=0。
+'     Fの同じ5ページ構成(1行20字の"あ"×5)にtgt=30・ov=10・mx=20
+'     (chapter/section空)を渡す。crumb=BuildBreadcrumb("〔資料〕","","")&
+'     vbLf="【〔資料〕】"&vbLf(7字)。atomicLimit=mx-7=13<body104字なので
+'     PlanWindows経路になり、Fと同じ5窓・同じページ列(1,2,2,3,4)の
+'     ShelfChunkが積まれる(room=32000-7=31993なので切詰めは発生しない)。
+'     各かけらの本文長は窓幅どおり30/30/30/30/24字(81-104=24字)。
+'     呼び出し後n=0。
 '
 ' 【なぜ FlushPaged の直接検査だけ CanUseTypeArrays() ガード下か】
 '   ShelfChunk配列(Public Type)はLibreOffice実行環境ではReDimが実行時
@@ -187,25 +200,25 @@ Private Sub TestPhysicalKeep45()
     ChkBool45 "PhysicalKeep_E_truncated", tr, False
 End Sub
 
-' 5ページ・見出し無し・各ページ2行(1行5字の"あ")をBlockAddPgで組む共通部品
-' (F/Gの両方で使う。呼ぶたびに新しい配列を作るのでFとGは互いに干渉しない)。
+' 見出し無し5ページ(各ページまるごと1行・20字の"あ")をBlockAddPgで組む
+' 共通部品(F/Gの両方で使う。呼ぶたびに新しい配列を作るのでFとGは互いに
+' 干渉しない)。
 Private Sub BuildFivePageBlock45(ByRef buf() As String, ByRef pg() As Long, ByRef n As Long)
     n = 0
-    Dim li As Long
-    For li = 1 To 10
-        Dim pageNo As Long: pageNo = (li - 1) \ 2 + 1   ' 1,1,2,2,3,3,4,4,5,5
-        modChunkPage.BlockAddPg buf, pg, n, String(5, "あ"), pageNo
-    Next li
+    Dim pageNo As Long
+    For pageNo = 1 To 5
+        modChunkPage.BlockAddPg buf, pg, n, String(20, "あ"), pageNo
+    Next pageNo
 End Sub
 
 ' ---- F: StartPagesOf(受入報告の再現ゴールデン) --------------------------------
 Private Sub TestStartPagesOfGolden45()
     Dim buf() As String, pg() As Long, n As Long
     BuildFivePageBlock45 buf, pg, n
-    modTestRunner.Check "R42-45-StartPagesOf_前提_10行", (n = 10), "n=" & n
+    modTestRunner.Check "R42-45-StartPagesOf_前提_5行", (n = 5), "n=" & n
 
     ChkStr45 "StartPagesOf_5ページ_見出し無し_開始ページ列", _
-        modChunkPage.StartPagesOf(buf, pg, n, 15, 4, 1000), "1,2,2,3,4"
+        modChunkPage.StartPagesOf(buf, pg, n, 30, 10, 1000), "1,2,2,3,4"
 End Sub
 
 ' ---- G: FlushPaged(UDT直接検査・Excel実機のみ) ------------------------------
@@ -225,22 +238,23 @@ Private Sub TestFlushPagedDirect45()
 
     Dim outArr() As ShelfChunk: ReDim outArr(0 To 15)
     Dim outCount As Long: outCount = 0
-    modChunkPage.FlushPaged buf, pg, n, "", "", 15, 4, 20, outArr, outCount
+    modChunkPage.FlushPaged buf, pg, n, "", "", 30, 10, 20, outArr, outCount
 
     ChkLong45 "FlushPaged_outCount", outCount, 5
     ChkLong45 "FlushPaged_n0リセット", n, 0
     If outCount = 5 Then
         ChkLong45 "FlushPaged_page1", outArr(0).page, 1
         ChkLong45 "FlushPaged_page2", outArr(1).page, 2
-        ChkLong45 "FlushPaged_page3", outArr(2).page, 2
-        ChkLong45 "FlushPaged_page4", outArr(3).page, 3
-        ChkLong45 "FlushPaged_page5", outArr(4).page, 4
+        ChkLong45 "FlushPaged_page2繰り返し", outArr(2).page, 2
+        ChkLong45 "FlushPaged_page3", outArr(3).page, 3
+        ChkLong45 "FlushPaged_page4", outArr(4).page, 4
 
         Dim crumb As String
         crumb = modChunker.BuildBreadcrumb(modChunker.CRUMB_PLACEHOLDER, "", "") & vbLf
         modTestRunner.Check "R42-45-FlushPaged_crumb前置", _
             (Left$(outArr(0).full_text, Len(crumb)) = crumb), "full_text=" & outArr(0).full_text
-        ChkLong45 "FlushPaged_1件目本文長15字", Len(outArr(0).full_text) - Len(crumb), 15
+        ChkLong45 "FlushPaged_1件目本文長30字", Len(outArr(0).full_text) - Len(crumb), 30
+        ChkLong45 "FlushPaged_5件目本文長24字", Len(outArr(4).full_text) - Len(crumb), 24
     End If
 End Sub
 
