@@ -151,7 +151,7 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
     If LenB(authorId) > 0 Then
         On Error Resume Next
         modStats.SetStatText "pkauth:" & LCase$(authorName), authorId
-        On Error GoTo 0
+        On Error GoTo LoadFailed
     End If
 
     ' 2026-07-31(レビュー R8 F1): 部門チャンネル経由の取込では、チャンクの
@@ -167,7 +167,7 @@ Public Function ImportPackFile(ByVal packPath As String, ByVal silent As Boolean
         If LenB(chKey) > 0 Then
             On Error Resume Next
             modStats.SetStatText chKey, authorId
-            On Error GoTo 0
+            On Error GoTo LoadFailed
         End If
     End If
 
@@ -440,7 +440,18 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
         If LenB(cid) > 0 Then
             tmpIds(cnt) = cid
             tmpSources(cnt) = CStr(arrC(i, 2))
-            If IsNumeric(arrC(i, 3)) Then tmpPages(cnt) = CLng(arrC(i, 3))
+            ' R42 C1(受入PA-01/SR-02): pageがLong超過等の壊れたパックを取り込むと
+            ' CLngが素の例外を投げ、呼び出し元がOn Error GoTo 0のままブック残留・
+            ' ScreenUpdating未復元になっていた。範囲外はErr.RaiseしLoadFailedで
+            ' 正規に倒す(Andは短絡しないのでIsNumericの判定は外側のIfで分ける)。
+            Dim pv As Variant: pv = arrC(i, 3)
+            If IsNumeric(pv) Then
+                If pv >= 0 And pv <= 999999 And pv = Fix(pv) Then
+                    tmpPages(cnt) = CLng(pv)
+                Else
+                    Err.Raise 6, "modPack", "pack_chunks 行" & (i + 1) & " の page が不正: " & CStr(pv)
+                End If
+            End If
             tmpSummaries(cnt) = CStr(arrC(i, 4))
             tmpKeywords(cnt) = CStr(arrC(i, 5))
             tmpFullTexts(cnt) = CStr(arrC(i, 6))
