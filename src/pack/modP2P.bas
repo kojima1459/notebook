@@ -519,14 +519,26 @@ Public Function CollectNoiseVotes(Optional ByVal silent As Boolean = False) As L
         modStats.MarkGlobalExcluded s
         awarded = awarded + 1
         If Not confirmed.Exists(s) Then
-            ' 新規確定: フラグを書いて投票を圧縮(報告者一覧を監査用に保持)
+            ' 新規確定: フラグを書いて投票を圧縮(報告者一覧を監査用に保持)。
+            ' R42 E1(受入SR-04): 書込みの成否を見ずに無条件GCすると、確定記録
+            ' (gexcl_*.txt)が書けていないのに元票(noise_*.txt)だけ消え、次回
+            ' 同期で二度と再集計できなくなる。成功したときだけGCする。
             Dim repList As String
             repList = ""
             If reporters.Exists(s) Then repList = CStr(reporters(s))
-            modP2PIo.WriteUtf8Retry folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
-                s & vbTab & modUtil.NowStamp() & vbTab & modP2PIo.SanitizeField(repList), "modP2P.CollectNoiseVotes"
+            Dim persisted As Boolean
+            persisted = modP2PIo.WriteUtf8Retry(folderPath & "gexcl_" & modUtil.Fnv1a64Hex(s) & ".txt", _
+                s & vbTab & modUtil.NowStamp() & vbTab & modP2PIo.SanitizeField(repList), "modP2P.CollectNoiseVotes")
+            If persisted Then
+                GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
+            Else
+                On Error Resume Next
+                modLog.LogUsage "noise_votes_kept", "", "src=" & modUtil.SafeLeft(s, 120)
+                On Error GoTo Done
+            End If
+        Else
+            GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
         End If
-        GcNoiseVotesForSource folderPath, s   ' 個別投票をGC(Dir肥大化=遅延を防止)
     Next k
 
     If awarded > 0 And Not silent Then
