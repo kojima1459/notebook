@@ -171,7 +171,7 @@ EXPECTED_SKIP_MAX = 15
 #     FlushPaged直接検査がCanUseTypeArrays()ガードで+1)。
 #     ネガティブ確認: StartPagesOfゴールデンの期待値を"1,2,2,3,5"に壊して
 #     FAIL 1(PASS 3291)を確認→復元。
-EXPECTED_PASS_MIN = 3292
+EXPECTED_PASS_MIN = 3294
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

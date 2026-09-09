@@ -156,12 +156,7 @@ Public Sub FlushPaged(ByRef buf() As String, ByRef pg() As Long, ByRef n As Long
     Dim atomicLimit As Long: atomicLimit = mx - Len(crumb)
     If atomicLimit < 1 Then atomicLimit = 1
 
-    Dim plan As String
-    If Len(body) <= atomicLimit Then
-        plan = "1-" & CStr(Len(body))          ' 原子保持=窓1つ
-    Else
-        plan = PlanWindows(Len(body), tgt, ov, room, body)
-    End If
+    Dim plan As String: plan = PlanFor(body, tgt, ov, room, atomicLimit)
     Dim pageList As String: pageList = PagesForPlan(plan, body, lead, starts, pg, cnt)
 
     Dim wins() As String: wins = Split(plan, "|")
@@ -198,6 +193,20 @@ Private Function PrepareBlock(ByRef buf() As String, ByRef pg() As Long, ByVal c
         pos = pos + Len(buf(i)) + 1
     Next i
     PrepareBlock = True
+End Function
+
+' PlanFor - 窓計画の唯一の実装(FlushPaged と StartPagesOf 共通・2周目 m9)。
+'   本文が atomicLimit 以下なら原子保持=窓1つ "1-N"(FlushBlock:576 と同じ
+'   判定)。atomicLimit<=0 は「常に分割」(StartPagesOf の従来挙動)。
+Private Function PlanFor(ByVal body As String, ByVal tgt As Long, ByVal ov As Long, _
+                         ByVal room As Long, ByVal atomicLimit As Long) As String
+    If atomicLimit > 0 Then
+        If Len(body) <= atomicLimit Then
+            PlanFor = "1-" & CStr(Len(body))
+            Exit Function
+        End If
+    End If
+    PlanFor = PlanWindows(Len(body), tgt, ov, room, body)
 End Function
 
 ' PagesForPlan - 窓計画("s-e|s-e|…")の各窓について、本文先頭(空白以外の最初
@@ -243,13 +252,14 @@ End Function
 '   BlockAddPg で組んだ buf/pg/n をそのまま PlanWindows へかけ、各窓の開始
 '   ページ(PageAtPos+FirstInkPos)を "1,2,2,3,4" のようにカンマ区切りで返す。
 '   FlushPaged と違い ShelfChunk を作らない(UDT を跨がずLO実行テストで
-'   固定するための専用口。atomicLimit判定は行わず常に分割する割り切り=
-'   呼び出し側は「必ずPlanWindows経路になる長さ」の本文を渡すこと)。
+'   固定するための専用口)。atomicLimit は FlushPaged と同じ意味
+'   (0=常に分割・>0 で本文がそれ以下なら窓1つ)。窓計画は PlanFor で共通。
 Public Function StartPagesOf(ByRef buf() As String, ByRef pg() As Long, ByVal n As Long, _
-                             ByVal tgt As Long, ByVal ov As Long, ByVal room As Long) As String
+                             ByVal tgt As Long, ByVal ov As Long, ByVal room As Long, _
+                             Optional ByVal atomicLimit As Long = 0) As String
     If n < 1 Then Exit Function
     Dim body As String, lead As Long, starts() As Long
     If Not PrepareBlock(buf, pg, n, body, lead, starts) Then Exit Function
-    Dim plan As String: plan = PlanWindows(Len(body), tgt, ov, room, body)
+    Dim plan As String: plan = PlanFor(body, tgt, ov, room, atomicLimit)
     StartPagesOf = PagesForPlan(plan, body, lead, starts, pg, n)
 End Function

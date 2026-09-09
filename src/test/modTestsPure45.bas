@@ -219,6 +219,14 @@ Private Sub TestStartPagesOfGolden45()
 
     ChkStr45 "StartPagesOf_5ページ_見出し無し_開始ページ列", _
         modChunkPage.StartPagesOf(buf, pg, n, 30, 10, 1000), "1,2,2,3,4"
+
+    ' 2周目 m9: 原子保持経路(PlanFor が "1-N" の窓1つを返す)を LO でも通す。
+    ' 本文104字 <= atomicLimit 1000 → 窓1つ・開始ページは行1の1ページ目。
+    ' 103 なら 104 > 103 で分割経路に戻る(境界の両側を固定)。
+    ChkStr45 "StartPagesOf_原子保持_窓1つ", _
+        modChunkPage.StartPagesOf(buf, pg, n, 30, 10, 1000, 1000), "1"
+    ChkStr45 "StartPagesOf_原子保持_境界103は分割", _
+        modChunkPage.StartPagesOf(buf, pg, n, 30, 10, 1000, 103), "1,2,2,3,4"
 End Sub
 
 ' ---- G: FlushPaged(UDT直接検査・Excel実機のみ) ------------------------------

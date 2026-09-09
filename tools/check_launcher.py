@@ -51,14 +51,20 @@ from build.build_mybookshelf import _launcher_bat_text  # noqa: E402
 
 REQUIRED_LABELS = [
     "RETIRE", "COPY_NEW", "COPY_LEGACY", "COPY_DONE", "COPY_FAIL",
-    "BACKUP_FAIL", "GS_COPY", "GS_WARN", "GS_DONE", "FINAL_COPY", "WAIT_AND_MARK",
+    "BACKUP_FAIL", "BUILD_FAIL", "RETIRE_WARN", "GS_COPY", "GS_WARN", "GS_DONE",
+    "FINAL_COPY", "WAIT_AND_MARK",
 ]
 
 # (6) レビュー R42 m5: copy/move/xcopy の直後(rem と空行を挟んでよい)には必ず
-#     成否を見る行(if errorlevel / if not errorlevel / if exist / if not exist)
-#     が来ること。B3 の安全弁が1本でも欠けると見つかるようにする。
+#     成否を見る行が来ること。B3 の安全弁が1本でも欠けると見つかるようにする。
+#     2周目 MAJOR-1: 「成否を見る行」は `if [not] errorlevel …` か、
+#     `if not exist "…" goto :X`(複製先の事後確認)に限る。無関係な
+#     `if exist "…" copy …` を検査と誤認しない。
+#     行頭が `if … copy` の1行 if 形(任意の複製: .build の同版時複製・手置き
+#     _旧版 の複製)は「失敗してよい任意複製」として対象外(2周目 MINOR-3 記録)。
 COPY_CMD_RE = re.compile(r'^(copy|move|xcopy)\b', re.IGNORECASE)
-CHECK_LINE_RE = re.compile(r'^if\s+(not\s+)?(errorlevel|exist)\b', re.IGNORECASE)
+CHECK_LINE_RE = re.compile(
+    r'^if\s+(not\s+)?errorlevel\b|^if\s+not\s+exist\s+"[^"]+"\s+goto\s+:', re.IGNORECASE)
 
 
 def check_copy_followed_by_check(lines, errors: list) -> None:
