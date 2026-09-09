@@ -163,13 +163,36 @@ Public Sub RunExcelE2ESmokeTest()
     Dim knowledgeBefore2 As Long: knowledgeBefore2 = modShelf.TotalChunks()
     Dim status2 As String
     status2 = modShelf.IngestFile(path2, "self")
-    modTestRunner.Check "E2E_IngestFile_2件目_status", (status2 = "done" Or status2 = "partial"), _
-        "status2=" & status2
+    ' R42 F2(受入RT-06/RT-31): modShelf:295-306(R18H FA-5)は「全チャンクが既存と
+    ' 重複」を旧行温存・failed・MEMO_ALL_DUPで畳む現行契約。本テストはdone/partial
+    ' を期待していたため、契約どおり動いているのにFAILしていた。契約を維持し、
+    ' 期待をfailedへ具体化する(ラベル: E2E_別名同本文_旧行温存でfailed
+    ' (現行契約R18H FA-5))。
+    modTestRunner.Check "E2E_別名同本文_旧行温存でfailed(現行契約R18H FA-5)", _
+        (status2 = "failed"), "status2=" & status2
     Dim knowledgeAfter2 As Long: knowledgeAfter2 = modShelf.TotalChunks()
     modTestRunner.Check "E2E_重複スキップ_同一内容はチャンク追加されない", _
         (knowledgeAfter2 = knowledgeBefore2), _
         "before=" & knowledgeBefore2 & " after=" & knowledgeAfter2 & _
         "(パック取込の重複排除と同じFnv1a64Hexハッシュ判定を検証)"
+
+    ' 台帳(my_manifest)の2件目のmemo列(errorNote)がMEMO_ALL_DUPを含むこと
+    ' (modShelfStore.EnsureManifestSheet/FindManifestRowByPathは既存のPublic口。
+    ' Andは短絡しないため、行の有無とセル読み出しを別のIfに分ける)。
+    Dim wsM2 As Worksheet: Set wsM2 = modShelfStore.EnsureManifestSheet()
+    If wsM2 Is Nothing Then
+        modTestRunner.Check "[SKIP] E2E_台帳2件目のmemo検査: manifestシート未検出のためスキップ", True
+    Else
+        Dim mRow2 As Long: mRow2 = modShelfStore.FindManifestRowByPath(wsM2, path2)
+        If mRow2 < 2 Then
+            modTestRunner.Check "E2E_台帳2件目のmemoがMEMO_ALL_DUPを含む", False, _
+                "manifest行が見つからない: path2=" & path2
+        Else
+            Dim memo2 As String: memo2 = CStr(wsM2.Cells(mRow2, 7).Value)
+            modTestRunner.Check "E2E_台帳2件目のmemoがMEMO_ALL_DUPを含む", _
+                (InStr(memo2, modShelfStore.MEMO_ALL_DUP) > 0), "memo2=" & modUtil.SafeLeft(memo2, 200)
+        End If
+    End If
 
     ' 2件目もmanifestには載る(chunk_count=0の状態で記録される仕様)ことの確認
     Dim names2() As String, stats2() As String
