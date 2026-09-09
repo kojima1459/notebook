@@ -139,27 +139,13 @@ Public Sub FlushPaged(ByRef buf() As String, ByRef pg() As Long, ByRef n As Long
                       ByRef outArr() As ShelfChunk, ByRef outCount As Long)
     If n < 1 Then Exit Sub
 
+    ' レビュー R42 m8: 本文の組み立て・窓割り・ページ逆引きは StartPagesOf と
+    ' 同じ Private 実装(PrepareBlock/PagesForPlan)を通す。LO が固定するのは
+    ' StartPagesOf 側だが、経路が同一なのでここだけ将来ずれることがない。
+    Dim body As String, lead As Long, starts() As Long
     Dim cnt As Long: cnt = n
-    ReDim Preserve buf(1 To cnt)
-    ReDim Preserve pg(1 To cnt)
-    Dim raw As String: raw = Join(buf, vbLf)
-
-    Dim lead As Long: lead = Len(raw) - Len(LTrim$(raw))
-    Dim body As String: body = Trim$(raw)
-    If LenB(body) = 0 Then
-        n = 0
-        Exit Sub
-    End If
-
-    ' starts() は LineStarts と同じ規則を文字列を経由せず Long 配列で作る
-    ' (§1-2 FlushPaged 手順2)。
-    Dim starts() As Long: ReDim starts(1 To cnt)
-    Dim pos As Long: pos = 1
-    Dim i As Long
-    For i = 1 To cnt
-        starts(i) = pos
-        pos = pos + Len(buf(i)) + 1
-    Next i
+    n = 0
+    If Not PrepareBlock(buf, pg, cnt, body, lead, starts) Then Exit Sub
 
     ' crumb/room/atomicLimit は modChunker.FlushBlock:568-574 と同一
     ' (BuildBreadcrumb/CRUMB_PLACEHOLDER/MAX_CHUNK_CHARS は Public 化済み)。
@@ -170,27 +156,67 @@ Public Sub FlushPaged(ByRef buf() As String, ByRef pg() As Long, ByRef n As Long
     Dim atomicLimit As Long: atomicLimit = mx - Len(crumb)
     If atomicLimit < 1 Then atomicLimit = 1
 
+    Dim plan As String
     If Len(body) <= atomicLimit Then
-        Dim onePage As Long
-        onePage = PageAtPos(starts, pg, cnt, FirstInkPos(body, 1) + lead)
-        modChunker.AppendStructChunk onePage, crumb, body, room, outArr, outCount
-        n = 0
-        Exit Sub
+        plan = "1-" & CStr(Len(body))          ' 原子保持=窓1つ
+    Else
+        plan = PlanWindows(Len(body), tgt, ov, room, body)
     End If
+    Dim pageList As String: pageList = PagesForPlan(plan, body, lead, starts, pg, cnt)
 
-    Dim plan As String: plan = PlanWindows(Len(body), tgt, ov, room, body)
-    Dim windows() As String: windows = Split(plan, "|")
+    Dim wins() As String: wins = Split(plan, "|")
+    Dim pgs() As String: pgs = Split(pageList, ",")
     Dim w As Long
-    For w = LBound(windows) To UBound(windows)
-        Dim se() As String: se = Split(windows(w), "-")
+    For w = LBound(wins) To UBound(wins)
+        Dim se() As String: se = Split(wins(w), "-")
         Dim s As Long: s = CLng(se(0))
         Dim e As Long: e = CLng(se(1))
-        Dim wp As Long: wp = PageAtPos(starts, pg, cnt, FirstInkPos(body, s) + lead)
-        modChunker.AppendStructChunk wp, crumb, Mid$(body, s, e - s + 1), room, outArr, outCount
+        modChunker.AppendStructChunk CLng(pgs(w)), crumb, Mid$(body, s, e - s + 1), room, outArr, outCount
     Next w
-
-    n = 0
 End Sub
+
+' PrepareBlock - ブロック(buf/pg/cnt)を本文へ組み立てる共通部(FlushPaged と
+'   StartPagesOf の唯一の実装)。raw=Join(vbLf)、lead=先頭の半角空白数
+'   (Trim$/LTrim$ は半角スペースだけを消すので body 座標 q ↔ raw 座標 q+lead
+'   が厳密に成り立つ)、starts()=LineStarts と同じ規則の Long 配列。
+'   本文が空なら False。
+Private Function PrepareBlock(ByRef buf() As String, ByRef pg() As Long, ByVal cnt As Long, _
+                              ByRef body As String, ByRef lead As Long, _
+                              ByRef starts() As Long) As Boolean
+    ReDim Preserve buf(1 To cnt)
+    ReDim Preserve pg(1 To cnt)
+    Dim raw As String: raw = Join(buf, vbLf)
+    lead = Len(raw) - Len(LTrim$(raw))
+    body = Trim$(raw)
+    If LenB(body) = 0 Then Exit Function
+
+    ReDim starts(1 To cnt)
+    Dim pos As Long: pos = 1
+    Dim i As Long
+    For i = 1 To cnt
+        starts(i) = pos
+        pos = pos + Len(buf(i)) + 1
+    Next i
+    PrepareBlock = True
+End Function
+
+' PagesForPlan - 窓計画("s-e|s-e|…")の各窓について、本文先頭(空白以外の最初
+'   の文字)が載っている物理ページを "1,2,2,3,4" のカンマ区切りで返す
+'   (FlushPaged と StartPagesOf の唯一の実装)。
+Private Function PagesForPlan(ByVal plan As String, ByVal body As String, ByVal lead As Long, _
+                              ByRef starts() As Long, ByRef pg() As Long, ByVal cnt As Long) As String
+    Dim wins() As String: wins = Split(plan, "|")
+    Dim result As String
+    Dim w As Long
+    For w = LBound(wins) To UBound(wins)
+        Dim se() As String: se = Split(wins(w), "-")
+        Dim s As Long: s = CLng(se(0))
+        Dim pageN As Long: pageN = PageAtPos(starts, pg, cnt, FirstInkPos(body, s) + lead)
+        If LenB(result) > 0 Then result = result & ","
+        result = result & CStr(pageN)
+    Next w
+    PagesForPlan = result
+End Function
 
 ' PhysicalKeep - 上限は物理ページ番号に当てる(R42 A2)。maxPages<=0は無制限
 '   (truncated=False)。firstIdx+keptN が maxPages を超えるなら
@@ -222,32 +248,8 @@ End Function
 Public Function StartPagesOf(ByRef buf() As String, ByRef pg() As Long, ByVal n As Long, _
                              ByVal tgt As Long, ByVal ov As Long, ByVal room As Long) As String
     If n < 1 Then Exit Function
-    Dim cnt As Long: cnt = n
-    ReDim Preserve buf(1 To cnt)
-    ReDim Preserve pg(1 To cnt)
-    Dim raw As String: raw = Join(buf, vbLf)
-    Dim lead As Long: lead = Len(raw) - Len(LTrim$(raw))
-    Dim body As String: body = Trim$(raw)
-    If LenB(body) = 0 Then Exit Function
-
-    Dim starts() As Long: ReDim starts(1 To cnt)
-    Dim pos As Long: pos = 1
-    Dim i As Long
-    For i = 1 To cnt
-        starts(i) = pos
-        pos = pos + Len(buf(i)) + 1
-    Next i
-
+    Dim body As String, lead As Long, starts() As Long
+    If Not PrepareBlock(buf, pg, n, body, lead, starts) Then Exit Function
     Dim plan As String: plan = PlanWindows(Len(body), tgt, ov, room, body)
-    Dim windows() As String: windows = Split(plan, "|")
-    Dim result As String
-    Dim w As Long
-    For w = LBound(windows) To UBound(windows)
-        Dim se() As String: se = Split(windows(w), "-")
-        Dim s As Long: s = CLng(se(0))
-        Dim pageN As Long: pageN = PageAtPos(starts, pg, cnt, FirstInkPos(body, s) + lead)
-        If LenB(result) > 0 Then result = result & ","
-        result = result & CStr(pageN)
-    Next w
-    StartPagesOf = result
+    StartPagesOf = PagesForPlan(plan, body, lead, starts, pg, n)
 End Function

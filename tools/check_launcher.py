@@ -30,6 +30,10 @@ check_launcher.py — 起動ランチャー bat の静的検査(spec_20260909_R4
         区間(ラベル:COPY_LEGACY 〜 次のラベル)にちょうど1回だけ現れる
         (:COPY_NEW 側は強制上書きの copy /Y であり、/D 判定は
         「同じ版」の経路にだけ残す設計=LP-L04/DTA-16)
+    (6) copy/move/xcopy の直後に成否検査(if errorlevel / if exist)がある
+        (レビュー R42 m5: B3 の安全弁の欠落を検出する)
+    (7) 版の印の比較に fc(外部コマンド)を使わず set /p で読む
+        (レビュー R42 M3)
 
 使い方:
     python3 tools/check_launcher.py
@@ -47,8 +51,39 @@ from build.build_mybookshelf import _launcher_bat_text  # noqa: E402
 
 REQUIRED_LABELS = [
     "RETIRE", "COPY_NEW", "COPY_LEGACY", "COPY_DONE", "COPY_FAIL",
-    "BACKUP_FAIL", "GS_COPY", "GS_DONE", "FINAL_COPY", "WAIT_AND_MARK",
+    "BACKUP_FAIL", "GS_COPY", "GS_WARN", "GS_DONE", "FINAL_COPY", "WAIT_AND_MARK",
 ]
+
+# (6) レビュー R42 m5: copy/move/xcopy の直後(rem と空行を挟んでよい)には必ず
+#     成否を見る行(if errorlevel / if not errorlevel / if exist / if not exist)
+#     が来ること。B3 の安全弁が1本でも欠けると見つかるようにする。
+COPY_CMD_RE = re.compile(r'^(copy|move|xcopy)\b', re.IGNORECASE)
+CHECK_LINE_RE = re.compile(r'^if\s+(not\s+)?(errorlevel|exist)\b', re.IGNORECASE)
+
+
+def check_copy_followed_by_check(lines, errors: list) -> None:
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if not COPY_CMD_RE.match(s):
+            continue
+        j = i + 1
+        while j < len(lines):
+            t = lines[j].strip()
+            if t == "" or t.lower().startswith("rem"):
+                j += 1
+                continue
+            break
+        nxt = lines[j].strip() if j < len(lines) else ""
+        if not CHECK_LINE_RE.match(nxt):
+            errors.append(f"(6) 行{i} の {s.split()[0]} の直後に成否検査(if errorlevel/if exist)がありません: 次行=[{nxt}]")
+
+
+def check_build_compare(text: str, errors: list) -> None:
+    # (7) レビュー R42 M3: 版の印の比較は外部コマンド fc ではなく set /p で行う。
+    if re.search(r'^\s*fc\b', text, re.IGNORECASE | re.MULTILINE):
+        errors.append("(7) fc(外部コマンド)が使われています。版の印の比較は set /p で行うこと")
+    if "set /p SB=<" not in text or "set /p DB=<" not in text:
+        errors.append("(7) 版の印を set /p で読む行(SB/DB)がありません")
 
 LABEL_DEF_RE = re.compile(r'^:([A-Za-z0-9_]+)\s*$')
 GOTO_RE = re.compile(r'goto\s+:([A-Za-z0-9_]+)', re.IGNORECASE)
@@ -147,6 +182,8 @@ def run_checks(xlsm_name: str) -> list:
     check_goto_targets(lines, errors)
     check_sid_mark(text, lines, errors)
     check_xcopy_d_scope(lines, errors)
+    check_copy_followed_by_check(lines, errors)
+    check_build_compare(text, errors)
     return errors
 
 
