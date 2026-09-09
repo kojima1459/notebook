@@ -427,14 +427,19 @@ Private Sub TestBuildDeepDraftAndVerify_Citation()
     h(1).source = "資料C.xlsx": h(1).page = 2
     h(1).preview = "抜粋C": h(1).origin = "self"
 
+    ' R42 F1(受入RT-05/SR-06): R41でSourceTagがExcel由来をp.Nではなく
+    ' シートNへ変えた(modMode.PageTagPart)のに、この期待が旧形式のままだった。
+    ' LOがHit配列を使う本テスト群をSKIPするため検問をすり抜けていた
+    ' (Excel実機のみで実行され、そこで初めてFAILしていた)。固定文字列で書く
+    ' (SourceTagを呼んで作ると実装のバグをそのまま期待値にしてしまう)。
     Dim rDraft As String
     rDraft = modPrompts.BuildDeepDraftPrompt("質問2", h, 1, "")
-    modTestRunner.Check "BuildDeepDraftPrompt_出典形式", (InStr(rDraft, "[本棚:資料C.xlsx p.2]") > 0), "rDraft=" & rDraft
+    modTestRunner.Check "BuildDeepDraftPrompt_出典形式", (InStr(rDraft, "[本棚:資料C.xlsx シート2]") > 0), "rDraft=" & rDraft
     modTestRunner.Check "BuildDeepDraftPrompt_既定言語_日本語", (InStr(rDraft, "日本語") > 0), "rDraft=" & rDraft
 
     Dim rVerify As String
     rVerify = modPrompts.BuildDeepVerifyPrompt("質問2", "下書き回答本文", h, 1)
-    modTestRunner.Check "BuildDeepVerifyPrompt_出典形式", (InStr(rVerify, "[本棚:資料C.xlsx p.2]") > 0), "rVerify=" & rVerify
+    modTestRunner.Check "BuildDeepVerifyPrompt_出典形式", (InStr(rVerify, "[本棚:資料C.xlsx シート2]") > 0), "rVerify=" & rVerify
     modTestRunner.Check "BuildDeepVerifyPrompt_下書きを含む", (InStr(rVerify, "下書き回答本文") > 0), "rVerify=" & rVerify
 End Sub
 
