@@ -444,10 +444,13 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
             ' CLngが素の例外を投げ、呼び出し元がOn Error GoTo 0のままブック残留・
             ' ScreenUpdating未復元になっていた。範囲外はErr.RaiseしLoadFailedで
             ' 正規に倒す(Andは短絡しないのでIsNumericの判定は外側のIfで分ける)。
+            ' 司令塔 Fix: 文字列セル("12")は Variant 比較で常に数値より大きい
+            ' (VBA の規則)ため、先に CDbl で数値へ寄せてから範囲を見る。
             Dim pageVal As Variant: pageVal = arrC(i, 3)
             If IsNumeric(pageVal) Then
-                If pageVal >= 0 And pageVal <= 999999 And pageVal = Fix(pageVal) Then
-                    tmpPages(cnt) = CLng(pageVal)
+                Dim pageD As Double: pageD = CDbl(pageVal)
+                If pageD >= 0 And pageD <= 999999 And pageD = Fix(pageD) Then
+                    tmpPages(cnt) = CLng(pageD)
                 Else
                     Err.Raise 6, "modPack", "pack_chunks 行" & (i + 1) & " の page が不正: " & CStr(pageVal)
                 End If
