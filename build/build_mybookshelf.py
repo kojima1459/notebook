@@ -470,11 +470,23 @@ def _launcher_bat_text(xlsm_name: str) -> str:
          複製→Excel起動(を待つ__wait__を子として起動)→30秒おきの
          監視→10分に1回の中間書き戻し→終了検知後の最終書き戻し。
       3) __wait__(最小化)。excel.exe /x を /wait で起動し、閉じたら
-         .closed の印を置くだけ。__loop__ と同じプロセスで /wait すると
-         監視ループが1回も回らなくなるため分離している。
+         .closed.<SID> の印を置くだけ。__loop__ と同じプロセスで /wait
+         すると監視ループが1回も回らなくなるため分離している。
     SRC/DST/XLSM は3つのどの顔でも %~dp0 等から同じ値を再計算するだけ
     なので、プロセス間で引数として受け渡す必要はない(自分自身を
     "%~f0" で再起動している=同じファイルの同じ場所からの実行だから)。
+
+    R42(spec_20260909_R42_受入FAIL対応.md §2・外部受入 LP-L04/L05/L07/L11/
+    L14・DTA-16/17/18/19): 4点を追加(引数受け渡しの原則は不変)。
+      B1 版の印(<stem>.build)でSRC/DSTの版を比較し、版上げ時は旧版を
+         _旧版 へ退避してから新版を強制複製する(従来の /D 日付比較だけ
+         では、旧版の方が日付が新しいと新版が複製されなかった)。
+      B2 起動ごとの乱数SID(%RANDOM%%RANDOM%)を .closed の印に含め、
+         二重起動で終了印を取り違えないようにする。
+      B3 各複製・退避・定期書き戻しの直後に errorlevel を見て、失敗を
+         無言で見逃さない。
+      B4 Ghostscript一式の複製判定を gswin32c.exe と gsdll32.dll の
+         両方の存在で行う(dllだけ欠けても補充する)。
     """
     dst = _LAUNCHER_DST_DIR
     gs_dir = _LAUNCHER_GS_DIRNAME
@@ -483,6 +495,10 @@ def _launcher_bat_text(xlsm_name: str) -> str:
     wait_arg = _LAUNCHER_WAIT_ARG
     backup_name = _launcher_backup_name(xlsm_name)
     upgrade_name = _upgrade_source_name(xlsm_name)
+    # R42 B1(spec_20260909_R42 §2-1): 版の印のファイル名(<stem>.build)。
+    # xlsm_name は一般/発行者用/dev で変わる(_upgrade_source_name と同じ
+    # 考え方)ので、ここも stem に追随させる。
+    build_name = os.path.splitext(xlsm_name)[0] + ".build"
     lines = [
         "@echo off",
         "rem ===== MyBookshelf 起動ランチャー(R35 F3b 往復版) =====",
@@ -533,45 +549,84 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "",
         ":LOOP",
         "rem ===== ここから先は最小化された別プロセス(閉じないでください) =====",
+        "rem R42 B2(spec_20260909_R42 §2-2): 起動ごとの識別番号。二重起動で",
+        "rem 終了印(.closed)を共有すると、片方のExcelを閉じただけで他方の",
+        "rem 監視ループが最終書き戻しへ進んでしまう。印のファイル名に",
+        "rem この乱数を含めて(.closed.<SID>)、自分が起動したExcelの終了",
+        "rem だけを見るようにする。",
+        'set "SID=%RANDOM%%RANDOM%"',
+        "",
         "rem 複製先フォルダを用意する。",
         'if not exist "%DST%" mkdir "%DST%"',
         "",
-        "rem 本体を新しい方で複製する。/D は「元が複製先より新しいときだけ",
+        "rem R42 B1(spec_20260909_R42 §2-1): 版の印(<stem>.build。中身は",
+        "rem configシートのbuild_stampと同一文字列)をSRC/DSTで比べる。",
+        "rem 版が違えばD:側の本体を _旧版 へ退避してから新版を強制的に",
+        "rem 複製する(従来の /D は日付比較なので、旧版のタイムスタンプが",
+        "rem 新しいと新版が複製されないことがあった=LP-L04/DTA-16)。",
+        "rem SRCに印が無い(古いzip・手作業配置)場合は従来どおり /D で",
+        "rem 複製する(:COPY_LEGACY)。",
+        f'set "BUILD={build_name}"',
+        'if not exist "%SRC%%BUILD%" goto :COPY_LEGACY',
+        'if not exist "%DST%%XLSM%" goto :COPY_NEW',
+        'if not exist "%DST%%BUILD%" goto :RETIRE',
+        'fc "%SRC%%BUILD%" "%DST%%BUILD%" >nul 2>&1',
+        "if errorlevel 1 goto :RETIRE",
+        "goto :COPY_LEGACY",
+        "",
+        ":RETIRE",
+        "rem 版が違う。D:側の本体を _旧版 へ退避する(引継ぎ候補。move /Y は",
+        "rem 既存の _旧版 があれば上書きする)。",
+        f'move /Y "%DST%%XLSM%" "%DST%{upgrade_name}" >nul',
+        "if errorlevel 1 goto :COPY_FAIL",
+        ":COPY_NEW",
+        "rem 新版(または初回)。強制上書きで複製し、版の印も一緒に複製する。",
+        'copy /Y "%SRC%%XLSM%" "%DST%%XLSM%" >nul',
+        "if errorlevel 1 goto :COPY_FAIL",
+        'copy /Y "%SRC%%BUILD%" "%DST%%BUILD%" >nul',
+        "goto :COPY_DONE",
+        "",
+        ":COPY_LEGACY",
+        "rem 同じ版(または印の無い旧zip)。/D は「元が複製先より新しいときだけ",
         "rem 複製」なので、前回の書き戻しに失敗してD:側の方が新しい場合は",
         "rem 上書きしない(取込済みデータを消さない)。",
         'xcopy "%SRC%%XLSM%" "%DST%" /D /Y /Q',
+        "if errorlevel 2 goto :COPY_FAIL",
+        'if exist "%SRC%%BUILD%" copy /Y "%SRC%%BUILD%" "%DST%%BUILD%" >nul',
+        ":COPY_DONE",
         "",
         "rem 前版(R36 §1-A: 利用者が名前を変えて残した旧バージョン。",
         "rem \"_旧版\"。F3bが毎回の終了時に作る\"_前回\"退避とは別名にして衝突を",
         "rem 避けている=Fix2 D-B1)があれば、版上げ時の自動引き継ぎがD:側でも",
         "rem 前版を見つけられるよう一緒に複製する。存在しなければ何もしない。",
         "rem 書き戻しの対象にはしない(D:側の前版は使い捨て。往復するのは",
-        "rem %XLSM%だけ)。",
-        f'if exist "%SRC%{upgrade_name}" xcopy "%SRC%{upgrade_name}" "%DST%" /D /Y /Q',
+        "rem %XLSM%だけ)。ただし直前の :RETIRE が今まさに作った _旧版 を、",
+        "rem SRC側の古い _旧版 サンプルで上書きしないよう、DSTに既にあるときは",
+        "rem 複製しない(R42 B1)。",
+        f'if not exist "%DST%{upgrade_name}" if exist "%SRC%{upgrade_name}" xcopy "%SRC%{upgrade_name}" "%DST%" /D /Y /Q',
         "",
-        "rem 複製に失敗した(=D:側にファイルが無い)ままExcelを起動しても",
-        "rem 古いファイルを開くか失敗するだけなので、ここで打ち切る",
-        "rem (Ghostscript複製・Excel起動・監視のどれも始めない)。",
-        f'if not exist "%DST%%XLSM%" (',
-        '    start "MyBookshelf 複製失敗" cmd /c "echo D:へ複製できませんでした。& echo OneDriveの同期状態を確認してください。& pause"',
-        "    goto :EOF",
-        ")",
+        "rem R42 B4(spec_20260909_R42 §2-4・LP-L07/DTA-18): Ghostscript一式が",
+        "rem 複製先に無いか、一部だけ欠けていれば(exeはあるのにdllだけ消えた",
+        "rem 場合など)フォルダごと複製し直す(初回・欠けたとき・約22MB)。",
+        f'if not exist "%DST%{gs_dir}\\gswin32c.exe" goto :GS_COPY',
+        f'if not exist "%DST%{gs_dir}\\gsdll32.dll" goto :GS_COPY',
+        "goto :GS_DONE",
+        ":GS_COPY",
+        f'xcopy "%SRC%{gs_dir}" "%DST%{gs_dir}\\" /E /I /Y /Q',
+        ":GS_DONE",
         "",
-        "rem Ghostscript一式が複製先に無ければフォルダごと複製する",
-        "rem (初回だけ・約14MB)。",
-        f'if not exist "%DST%{gs_dir}\\gswin32c.exe" (',
-        f'    xcopy "%SRC%{gs_dir}" "%DST%{gs_dir}\\" /E /I /Y /Q',
-        ")",
-        "",
-        "rem 前回の「閉じた」印が残っていると、開いた直後に誤って書き戻し",
-        "rem 済みと判定してしまうので、起動前に消しておく。",
-        f'if exist "%DST%{mark}" del "%DST%{mark}"',
+        "rem 前回の「閉じた」印(自分のSID分。乱数なので通常は存在しない)が",
+        "rem 万一残っていると、開いた直後に誤って書き戻し済みと判定して",
+        "rem しまうので、起動前に消しておく。",
+        f'if exist "%DST%{mark}.%SID%" del "%DST%{mark}.%SID%"',
         "",
         "rem Excelの起動と終了待ちをさらに別の最小化プロセスに切り出す。",
-        "rem このプロセスは待たずに次の監視ループへ進む。",
-        f'start /min "MyBookshelf 待機中" "%~f0" {wait_arg}',
+        "rem このプロセスは待たずに次の監視ループへ進む。SIDを第2引数で",
+        "rem 渡す(R42 B2。__wait__は自分自身を再startした別プロセスなので",
+        "rem SID変数をそのままでは共有できない)。",
+        f'start /min "MyBookshelf 待機中" "%~f0" {wait_arg} %SID%',
         "",
-        "rem ===== 30秒ごとに.closedを確認する監視ループ。 =====",
+        "rem ===== 30秒ごとに自分の.closed.<SID>を確認する監視ループ。 =====",
         "rem 書き戻し(コピー)自体は20回に1回=10分ごとに間引く。閉じてから",
         "rem 最終書き戻しまでの待ちを10分から30秒程度に縮めるため、監視の",
         "rem 間隔と書き戻しの間隔をあえて分けている。",
@@ -581,17 +636,28 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         'set "N=0"',
         ":COPY_LOOP",
         "timeout /t 30 /nobreak >nul",
-        f'if exist "%DST%{mark}" goto :FINAL_COPY',
+        f'if exist "%DST%{mark}.%SID%" goto :FINAL_COPY',
         "set /a N=N+1",
         "if %N% LSS 20 goto :COPY_LOOP",
         'set "N=0"',
+        "rem R42 B3(spec_20260909_R42 §2-3・LP-L14/DTA-19): 定期書き戻しの",
+        "rem 失敗はD:側にデータが残るため致命ではない。監視は止めず、初回",
+        "rem だけ案内窓を出す(WB_WARNEDで二度目以降は黙る=何度も窓が増える",
+        "rem のを防ぐ)。",
         'copy /Y "%DST%%XLSM%" "%SRC%%XLSM%" >nul',
+        "if not errorlevel 1 goto :COPY_LOOP",
+        "if defined WB_WARNED goto :COPY_LOOP",
+        'set "WB_WARNED=1"',
+        'start "MyBookshelf 書き戻し失敗" cmd /c "echo OneDriveへの定期書き戻しに失敗しています。& echo 作業は %DST%%XLSM% に残っています。閉じるときにもう一度試します。& pause"',
         "goto :COPY_LOOP",
         "",
         ":FINAL_COPY",
         "rem 最終書き戻し。失敗の巻き添えを防ぐため、先にSRC側の現行を",
-        "rem 退避してから上書きする。",
-        f'if exist "%SRC%%XLSM%" copy /Y "%SRC%%XLSM%" "%SRC%{backup_name}" >nul',
+        "rem 退避してから上書きする。SRCにまだ本体が無ければ退避は不要。",
+        'if not exist "%SRC%%XLSM%" goto :BACKUP_SKIP',
+        f'copy /Y "%SRC%%XLSM%" "%SRC%{backup_name}" >nul',
+        "if errorlevel 1 goto :BACKUP_FAIL",
+        ":BACKUP_SKIP",
         "",
         "set \"RETRY=0\"",
         ":RETRY_COPY",
@@ -609,22 +675,38 @@ def _launcher_bat_text(xlsm_name: str) -> str:
         "rem 外)で展開されてから渡るので、cmd /c の文字列には展開済みの",
         "rem パスが渡る。",
         'start "MyBookshelf 書き戻し失敗" cmd /c "echo OneDriveへ書き戻せませんでした。& echo %DST%%XLSM% を手でOneDriveへコピーしてください。& pause"',
+        f'del "%DST%{mark}.%SID%" >nul 2>&1',
         "goto :EOF",
         "",
         ":DONE",
+        f'del "%DST%{mark}.%SID%" >nul 2>&1',
+        "goto :EOF",
+        "",
+        ":BACKUP_FAIL",
+        "rem R42 B3: 退避に失敗した状態で上書きするとSRC側の現行を失いかねない",
+        "rem ので、書き戻しはせず案内だけ出して中止する。D:側には最新の",
+        "rem データが残っている。",
+        'start "MyBookshelf 退避失敗" cmd /c "echo 退避に失敗したため書き戻しを中止しました。& echo %DST%%XLSM% が最新です。手でOneDriveへコピーしてください。& pause"',
+        f'del "%DST%{mark}.%SID%" >nul 2>&1',
+        "goto :EOF",
+        "",
+        ":COPY_FAIL",
+        "rem R42 B1/B3: 本体の複製(退避・新版複製・従来複製のいずれか)に失敗。",
+        'start "MyBookshelf 複製失敗" cmd /c "echo D:へ複製できませんでした(元のファイルかD:の空きを確認してください)。& pause"',
         "goto :EOF",
         "",
         ":WAIT_AND_MARK",
         "rem ===== ここも最小化された別プロセス(閉じないでください) =====",
+        "rem %~2 = __loop__から渡されたSID(R42 B2)。",
         'start "" /wait excel.exe /x "%DST%%XLSM%"',
-        f'type nul > "%DST%{mark}"',
+        f'type nul > "%DST%{mark}.%~2"',
         "goto :EOF",
     ]
     return "\r\n".join(lines) + "\r\n"
 
 
 def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bool,
-                    root: str) -> str:
+                    root: str, build_stamp: str) -> str:
     gs_dir = os.path.join(dist_dir, "Ghostscript")
     if not os.path.isdir(gs_dir):
         raise BuildError(f"--zip: dist/Ghostscript が見つかりません: {gs_dir}")
@@ -695,9 +777,20 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
     except UnicodeEncodeError as e:
         raise BuildError(f"--zip: {_LAUNCHER_BAT_NAME} がCP932でエンコードできません: {e}")
 
+    # R42 B1(spec_20260909_R42 §2-1): 版の印。bat が SRC(zip 展開先)と
+    # DST(D:\MyBookshelf\)の版を比べるための1行ファイル。中身は config
+    # シートの build_stamp と【同一文字列】でなければならない
+    # (main() が1ビルドにつき1度だけ計算した値をここまで引き回している)。
+    build_name = os.path.splitext(xlsm_name)[0] + ".build"
+    try:
+        build_bytes = (build_stamp + "\r\n").encode("ascii")
+    except UnicodeEncodeError as e:
+        raise BuildError(f"--zip: {build_name} がASCIIでエンコードできません(build_stampの形式異常): {e}")
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(xlsm_path, xlsm_name)
         zf.writestr(_LAUNCHER_BAT_NAME, launcher_bytes)
+        zf.writestr(build_name, build_bytes)
         zf.writestr("README.txt", readme_bytes)
         for dp, arc in doc_paths:
             zf.write(dp, arc)
@@ -735,9 +828,21 @@ def compute_build_stamp() -> str:
 # ---------------------------------------------------------------------------
 # config 既定値 (MASTER_SPEC §5 config キー台帳を完全反映。値・説明とも準拠)
 # ---------------------------------------------------------------------------
-def build_config_rows(mock_llm: bool, publish_key: str = ""):
+def build_config_rows(mock_llm: bool, publish_key: str = "", build_stamp: str = None):
+    """config シートの全行(キー・値・説明)。
+
+    R42 B1(spec_20260909_R42 §2-1): build_stamp は既定では呼び出しの都度
+    compute_build_stamp() で新規計算するが、--zip 配布物では zip 直下の
+    MyBookshelf.build にも同じ文字列を書く必要がある(版の印。bat が
+    SRC/DST の版比較に使う)。config と .build がずれると版上げ判定その
+    ものが誤動作するため、main() は1ビルドにつき1度だけ計算した値を
+    build_stamp 引数として明示的に渡し、ここでは再計算しない
+    (省略時=呼び出し側が値を気にしない場面(verify_build のキー数照合等)
+    だけ、従来どおりその場で計算する)。"""
+    if build_stamp is None:
+        build_stamp = compute_build_stamp()
     return [
-        ("build_stamp", compute_build_stamp(),
+        ("build_stamp", build_stamp,
          "このビルドの識別子(日時+gitコミット短縮ハッシュ)。err_logの全行に自動付記される。"
          "実機テストの結果が実際にどのビルドのものか後から特定するための識別子(書き換え不要)"),
         ("mock_llm", mock_llm,
@@ -2239,11 +2344,11 @@ def _make_seed_sheets(wb, seed_path: str | None):
     return n_docs, n_chunks, n_vecs
 
 
-def _make_config(wb, mock_llm: bool, publish_key: str = ""):
+def _make_config(wb, mock_llm: bool, publish_key: str = "", build_stamp: str = None):
     ws = wb.create_sheet("config")
     for c, h in enumerate(["key", "value", "description"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, (k, v, d) in enumerate(build_config_rows(mock_llm, publish_key), 2):
+    for i, (k, v, d) in enumerate(build_config_rows(mock_llm, publish_key, build_stamp), 2):
         ws.cell(row=i, column=1, value=k)
         ws.cell(row=i, column=2, value=v)
         ws.cell(row=i, column=3, value=d)
@@ -3762,7 +3867,13 @@ def main():
     _make_placeholder(wb, "ホーム", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "マイ本棚", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
     _make_placeholder(wb, "ダッシュボード", "この画面はマクロ実行時に自動的に構築されます。\n「使い方」タブをご覧ください。")
-    _make_config(wb, mock_llm, publish_key)
+    # R42 B1(spec_20260909_R42 §2-1): build_stamp はこのビルド1回につき
+    # 1度だけ計算し、config シート(_make_config)と --zip の版の印
+    # (build_dist_zip)の両方へ同じ値を渡す。別々に compute_build_stamp()
+    # を呼ぶと(タイムスタンプが1秒でもずれて)2つの値が食い違い、bat の
+    # 版比較が常に「版違い」と誤判定してしまう。
+    build_stamp = compute_build_stamp()
+    _make_config(wb, mock_llm, publish_key, build_stamp)
     # norm_text(10列目・R12-4): 照合用の正規化済みテキスト。取込時に前計算し、
     # 空欄の行は検索時に遅延バックフィルする(modShelfStore)。数式注入防御の
     # ため text_cols にも入れる(先頭"="の本文が格納型数式にならないように)。
@@ -3977,7 +4088,7 @@ def main():
     if args.zip:
         print("\nStage 7: --zip 配布梱包...")
         zip_path = build_dist_zip(out_path, os.path.dirname(out_path), args.publisher,
-                                   is_dev, root)
+                                   is_dev, root, build_stamp)
         print(f"  出力: {zip_path} ({os.path.getsize(zip_path):,} bytes)")
 
     print("\nDone.")
