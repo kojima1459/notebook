@@ -98,6 +98,19 @@ Private Sub ChkBool45(ByVal label As String, ByVal got As Boolean, ByVal want As
     modTestRunner.Check "R42-45-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
 
+' CanUseTypeArrays - modTypes(別モジュール)のPublic Typeの配列をReDimできる
+'   実行環境かどうかを実測で判定する(modTestsPure/2/3/4/6/7/8/23と同じ複製。
+'   Privateは別モジュールから呼べないためモジュールごとに複製する契約)。
+Private Function CanUseTypeArrays() As Boolean
+    On Error Resume Next
+    Err.Clear
+    Dim probe() As ShelfChunk
+    ReDim probe(0 To 0)
+    CanUseTypeArrays = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
 ' ---- A: LineStarts --------------------------------------------------------
 Private Sub TestLineStarts45()
     Dim buf3() As String: ReDim buf3(1 To 3)
@@ -198,7 +211,7 @@ End Sub
 ' ---- G: FlushPaged(UDT直接検査・Excel実機のみ) ------------------------------
 Private Sub TestFlushPagedDirect45()
     If Not CanUseTypeArrays() Then
-        modTestRunner.Check "[SKIP] modChunkPage.FlushPaged直接検査: LO環境の既知の制限によりスキップ", True, _
+        modTestRunner.Check "[SKIP] FlushPaged(UDT)直接検査: LO環境の既知の制限によりスキップ", True, _
             "ShelfChunk(Public Type)配列のReDimはLibreOffice実行環境で実行時エラー420に" & _
             "なることを確認済み(modChunker冒頭コメント参照)。ページ列(1,2,2,3,4)自体は" & _
             "本モジュールのTestStartPagesOfGolden45(F)がLO上で固定しており、ここで確認する" & _

@@ -444,12 +444,12 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
             ' CLngが素の例外を投げ、呼び出し元がOn Error GoTo 0のままブック残留・
             ' ScreenUpdating未復元になっていた。範囲外はErr.RaiseしLoadFailedで
             ' 正規に倒す(Andは短絡しないのでIsNumericの判定は外側のIfで分ける)。
-            Dim pv As Variant: pv = arrC(i, 3)
-            If IsNumeric(pv) Then
-                If pv >= 0 And pv <= 999999 And pv = Fix(pv) Then
-                    tmpPages(cnt) = CLng(pv)
+            Dim pageVal As Variant: pageVal = arrC(i, 3)
+            If IsNumeric(pageVal) Then
+                If pageVal >= 0 And pageVal <= 999999 And pageVal = Fix(pageVal) Then
+                    tmpPages(cnt) = CLng(pageVal)
                 Else
-                    Err.Raise 6, "modPack", "pack_chunks 行" & (i + 1) & " の page が不正: " & CStr(pv)
+                    Err.Raise 6, "modPack", "pack_chunks 行" & (i + 1) & " の page が不正: " & CStr(pageVal)
                 End If
             End If
             tmpSummaries(cnt) = CStr(arrC(i, 4))
