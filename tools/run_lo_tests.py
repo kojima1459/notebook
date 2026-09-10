@@ -186,7 +186,15 @@ EXPECTED_SKIP_MAX = 15
 #     契約のため、この+52はテスト内のCheck()呼び出し数を静的に数えた値で
 #     あり、LO実行によるネガティブ確認は未実施(司令塔が全波合流後の検問で
 #     必ず実施)。
-EXPECTED_PASS_MIN = 3359
+#   2026-09-10 R43 波B(§2・Hub/共通UIのポリッシュ): modTestsPure47 を新設
+#     (modKnowledgeBar.OnAccentColor: accent面の文字色をWCAG相対輝度から
+#     選ぶ純関数・7件。modHubBadge.BadgeSpans: Hubバッジの獲得済み文字区間・
+#     12件。Check()呼び出し計19件)。3359→3378(SKIP は 15 のまま・UDT/
+#     Shape/Worksheetに触る検査を書いていないため[SKIP]は増えない)。
+#     本波も run_lo_tests.py の実行を司令塔の検問に譲る契約のため、この+19
+#     はテスト内のCheck()呼び出し数を静的に数えた値であり、LO実行による
+#     ネガティブ確認は未実施(司令塔が全波合流後の検問で必ず実施)。
+EXPECTED_PASS_MIN = 3378
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -944,6 +952,15 @@ PURE_ALLOWLIST = [
     #   プレビューの色分け・出典チップの省略/超過表示の唯一の自動検査が
     #   走らないまま全部PASSに見える。
     "modLiveStyle", "modPeek", "modTestsPure46",
+    # modHubBadge / modTestsPure47(2026-09-10 R43 波B・Hub/共通UIのポリッシュ):
+    #   modHubBadge は Hub のバッジ帯(獲得済みだけ色を変える)の実体で、
+    #   テストが呼ぶのは Excel オブジェクトに一切触れない純関数 BadgeSpans
+    #   だけ(PaintEarnedSpans は Worksheet/Range を触るため呼ばない)。
+    #   modKnowledgeBar.OnAccentColor(既にこの一覧の"modKnowledgeBar")も
+    #   同じテストが呼ぶ。未注入だと modTestsPure47.RunAll47 が実行時
+    #   エラー12になり、accent面の文字色判定・バッジの獲得済み区間計算の
+    #   唯一の自動検査が走らないまま全部PASSに見える。
+    "modHubBadge", "modTestsPure47",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

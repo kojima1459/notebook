@@ -1327,6 +1327,14 @@
       "type": "std",
       "wave": "R43",
       "note": "R43 波A(UI/UXポリッシュ§1)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45/48と同型)。固定するもの: (A)modLiveStyle.LeadParaIndex — 通常の結論文=1、■見出しで始まる回答・📍(聞き返し/番号選択)で始まる回答・空文字=0、先頭空白はLTrim後に判定、改行が無い単一段落は1、vbLf区切りでも同じ判定。(B)modLiveStyle.CellRefSpans — 「(A6 付近)」型(前後半角括弧・列はA-Z1文字以上・行は数字1文字以上・「 付近」必須)の位置と長さ、複数列(AA等)・2件連続・空白欠落や列/行欠落での0件化。(C)modPeek.ChipDocLabel — n字ちょうどは切らず、超えたときだけ…を付与。(D)modPeek.ChipOverflowLabel — 超過が無ければ空文字、超過があれば「ほかN件」。(E)modPeek.PeekSpans — 見出し(1行目)・breadcrumb(見出し直後が【で始まる行)・行頭[...]タグ複数件・閉じる案内(最後の改行より後ろ全部)の位置と長さ、breadcrumb/タグ無しの場合・空文字・行の途中の[は拾わないこと。期待値は全てpython3で各関数と同じ規則を再実装して実測し、モジュール先頭コメントに手計算根拠を記載。Check()呼び出し計52件。UDT/Shapeに触れない純関数のみでLO/Excelとも全件実行する。"
+    },
+    {
+      "name": "modTestsPure47",
+      "path": "src/test/modTestsPure47.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波B(UI/UXポリッシュ)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜46と同型)。固定するもの: (A)modKnowledgeBar.OnAccentColor — accent面に乗せる文字色(濃色RGB(17,24,39)/白)をWCAG相対輝度のしきい値0.179で選ぶこと。6テーマ実在accent値4種はいずれも濃色(4.97〜10.46:1)、中間グレーは白(白5.49:1>濃色3.23:1)、黒/白の自明な境界も固定する。(B)modHubBadge.BadgeSpans — Hubバッジの獲得済み文字区間(mark2文字+空白1文字+資料名、区切り3文字を踏まえた開始位置/長さ)を、一部獲得・全件獲得・全件未獲得・n=0の4パターンで固定する。"
     }
   ]
 }

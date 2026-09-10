@@ -413,4 +413,17 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-10(R43 波B・UI/UXポリッシュ): modKnowledgeBar.OnAccentColor
+    ' (accent面の文字色をWCAG相対輝度から選ぶ)と modHubBadge.BadgeSpans
+    ' (Hubバッジの獲得済み文字区間)の純ロジック回帰。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure47.RunAll47
+    If Err.Number <> 0 Then
+        Check "modTestsPure47.RunAll47", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
