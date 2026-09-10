@@ -30,6 +30,8 @@ Private Const SHELF_FIRST_CARD_ROW As Long = 13
 Private Const SHELF_COL_NAME As Long = 2
 
 Private mBackAction As String
+' R43 2-7: NoteShelfTruncated(モジュール末尾)が使う「案内済み」印。
+Private mShelfTruncNoted As Boolean
 
 ' ----------------------------------------------------------------------------
 ' ShowForSource - 資料名 srcName の全チャンクをページ順に表示する。
@@ -107,7 +109,7 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     r = r + 1
     PutCell ws, r, _
         "取込日時: " & IIf(LenB(addedAt) > 0, addedAt, "不明") & _
-        " ／ チャンク数: " & n & "件 ／ 内容が違うときは、この資料を " & _
+        " ／ " & n & "個のまとまりに分けて保存 ／ 内容が違うときは、この資料を " & _
         ChrW(&HD83D) & ChrW(&HDDD1) & " で消してから " & ChrW(&H2795) & _
         " 登録で正しい文章を登録し直してください" & _
         "(読み取った文章を直接直す機能はありません)。"
@@ -163,6 +165,20 @@ Fail:
     CleanupSheet "modTextView.ShowForSource.Fail"
     modLog.LogError "E0801", "modTextView.ShowForSource", eD, eN
     Err.Clear
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
+' NoteShelfTruncated - 本棚一覧が MAX_CARD_ROWS(400件)で打ち切られたときの
+'   案内(R43 2-7)。modUIShelf.RenderShelfが残79字で実体を持てないため
+'   こちらへ置く(呼び出しは1行)。セッション中1回だけ知らせる。
+' ----------------------------------------------------------------------------
+Public Sub NoteShelfTruncated(ByVal hiddenN As Long)
+    If mShelfTruncNoted Then Exit Sub
+    If hiddenN < 1 Then Exit Sub
+    mShelfTruncNoted = True
+    On Error Resume Next
+    modSkin.ShowToast "ほか" & hiddenN & "件は表示していません(不要な資料を削除すると表示されます)。", "info"
     On Error GoTo 0
 End Sub
 

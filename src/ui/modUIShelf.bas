@@ -335,7 +335,7 @@ Public Sub RenderShelf()
 
     Dim shown As Long
     shown = n
-    If shown > MAX_CARD_ROWS Then shown = MAX_CARD_ROWS
+    If shown > MAX_CARD_ROWS Then modTextView.NoteShelfTruncated n - MAX_CARD_ROWS: shown = MAX_CARD_ROWS
 
     ' R19-1b: 一覧表は行数が資料件数で決まる唯一のモード。フォントは描く前に
     ' 実使用範囲へ当て(後から当てるとカードの文字サイズを潰す)、境界は
@@ -523,7 +523,7 @@ Public Sub OnDeleteSource()
 
     Dim answer As Long
     answer = MsgBox("『" & sourceName & "』を本棚から削除しますか?" & vbLf & _
-                     "この操作は取り消せません。", vbYesNo + vbQuestion, modAppDef.APP_NAME)
+                     "この操作は取り消せません。", vbYesNo + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME)
     If answer <> vbYes Then Exit Sub
 
     modShelf.DeleteSource sourceName
