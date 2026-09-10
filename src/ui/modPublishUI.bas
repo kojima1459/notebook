@@ -435,8 +435,9 @@ Private Sub DoRollback(ByVal chName As String)
 
     If MsgBox("【" & chName & "】を直前の版に戻します。" & vbCrLf & vbCrLf & _
               "  戻す版: " & newest & vbCrLf & vbCrLf & _
-              "戻すと、部内の全員が次にファイルを開いたときに" & vbCrLf & _
-              "その版へ自動で置き換わります(誤った内容は各PCから消えます)。" & vbCrLf & vbCrLf & _
+              "戻すと、部内の全員が次にファイルを開いたとき Hub に" & vbCrLf & _
+              "「更新があります」と出ます。それを押すとこの版に置き換わり、" & vbCrLf & _
+              "誤った内容は各PCから消えます(自動では入りません)。" & vbCrLf & vbCrLf & _
               "実行しますか?", vbOKCancel + vbExclamation, _
               modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then GoTo RollbackDone
 
@@ -447,13 +448,14 @@ Private Sub DoRollback(ByVal chName As String)
         ' 残っているが利用者には完全に無言だった。データ保全に関わる知らせ
         ' なので、完了メッセージに必ず併記する(憲章§3-5)。
         If rbArcFailed Then
-            MsgBox "戻しました。全員に自動で配信されます。" & vbCrLf & vbCrLf & _
+            MsgBox "戻しました。全員が次に Hub のお知らせを押すと、この版に置き換わります。" & vbCrLf & vbCrLf & _
                    "ただし、いま配っていた版の控え(アーカイブ)を保存できません" & _
                    "でした。この巻き戻しを取り消して元の版へ戻すことはできません。" & vbCrLf & _
                    "共有フォルダの空き容量と書き込み権限をご確認ください。" & vbCrLf & _
                    "(コード: E0808)", vbExclamation, modAppDef.APP_NAME
         Else
-            MsgBox "戻しました。全員に自動で配信されます。", vbInformation, modAppDef.APP_NAME
+            MsgBox "戻しました。全員が次に Hub のお知らせを押すと、この版に置き換わります。", _
+                   vbInformation, modAppDef.APP_NAME
         End If
     Else
         MsgBox "戻せませんでした。共有フォルダへの書き込み権限をご確認ください。", _
