@@ -1690,10 +1690,14 @@ CONTRACT: dict[str, dict] = {
         #   段ごと比例配分伸縮を担う純関数(Worksheet非依存)。
         #   ComputeToolbarLayoutが内部で呼ぶほか、純ロジックテストからも
         #   直接検算できるようPublicにしている。
+        # OnAccentColor(2026-09-10 R43 2-1): accent面の文字色(濃色/白)を
+        #   WCAG相対輝度から選ぶ純関数。modSkinがWARN帯目前のため実体を
+        #   ここへ置き、modSkin.ResolveColorの"onAccent"から呼ばれる。
+        #   modTestsPure47が輝度判定の境界をゴールデンで固定する。
         "required": [
             "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
             "OnToolbarLegend", "OnToolbarLegendClose", "ToolbarButtonCaptions",
-            "StretchToolbarRows",
+            "StretchToolbarRows", "OnAccentColor",
         ],
     },
     # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。

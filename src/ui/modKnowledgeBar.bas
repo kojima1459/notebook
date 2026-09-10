@@ -503,6 +503,34 @@ Private Sub MaybeShowBackfillToast(ByVal isShared As Boolean)
     On Error GoTo 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' OnAccentColor - accent面に乗せる文字色(濃色/白)をWCAG相対輝度から選ぶ
+'   純関数(R43 2-1)。modSkin.ResolveColorの"onAccent"から呼ばれる(modSkinが
+'   WARN帯目前のため実体をこちらへ置く)。しきい値0.179は「白字コントラスト=
+'   濃色字コントラスト」となる分岐点(手計算根拠はspec_20260910_R43参照)。
+'   濃色RGB(17,24,39)はmsad/light既定のtextトークンと同値(新規色を増やさない)。
+' ----------------------------------------------------------------------------
+Public Function OnAccentColor(ByVal rgbVal As Long) As Long
+    Dim r As Double, g As Double, b As Double
+    r = LinCh((rgbVal Mod 256) / 255)
+    g = LinCh(((rgbVal \ 256) Mod 256) / 255)
+    b = LinCh(((rgbVal \ 65536) Mod 256) / 255)
+    If 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 Then
+        OnAccentColor = RGB(17, 24, 39)
+    Else
+        OnAccentColor = RGB(255, 255, 255)
+    End If
+End Function
+
+' sRGBチャンネル(0..1)を線形へ変換する(WCAG相対輝度の前処理)。
+Private Function LinCh(ByVal c As Double) As Double
+    If c <= 0.03928 Then
+        LinCh = c / 12.92
+    Else
+        LinCh = ((c + 0.055) / 1.055) ^ 2.4
+    End If
+End Function
+
 ' 並びへ1個足す(TB_MAXを超えたら黙って捨てる=配列外参照で全滅させない)。
 ' tipText(R30 W2-5): ホバー説明。Optional省略時は""(ツールチップ無し)。
 Private Sub AddTool(ByRef caps() As String, ByRef acts() As String, _
@@ -567,7 +595,14 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
             .TextRange.Font.Size = 8.5
             If kind = "primary" Or kind = "accent" Or kind = "danger" Then
                 .TextRange.Font.Bold = -1
-                .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                ' R43 2-1: accent地だけ相対輝度から文字色を決める(白固定だと
+                ' 「エグゼクティブ・ゴールド」で1.70:1=AA未達。primary/dangerは
+                ' 既存どおり白固定(いずれもAA合格を検算済み)。
+                If kind = "accent" Then
+                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onAccent")
+                Else
+                    .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                End If
             Else
                 .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
             End If

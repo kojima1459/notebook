@@ -501,7 +501,7 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     With addBtn.TextFrame2
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCC1)
         .TextRange.Font.Size = 12
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onAccent")
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
         .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
@@ -530,7 +530,7 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
         .TextRange.Text = ChrW(&H27A4) & " 送信"
         .TextRange.Font.Size = 11
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onAccent")
         .TextRange.ParagraphFormat.Alignment = 2
         .VerticalAnchor = 3
     End With
@@ -541,7 +541,7 @@ Public Sub DrawInputArea(ByVal ws As Worksheet)
     ' 場所を示す文言を最優先で出す(毎描画ここから参照。新規状態変数なし)。
     With ws.Range("C" & (INPUT_ROW + 1))
         .Value = CurrentInputHint()
-        .Font.Size = 8
+        .Font.Size = 8.5
         .VerticalAlignment = -4160        ' xlTop
     End With
     StyleHintCell ws.Range("C" & (INPUT_ROW + 1))

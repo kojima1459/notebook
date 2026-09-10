@@ -409,9 +409,9 @@ Private Sub DrawFollowupChip(ByVal ws As Worksheet)
     With chip.TextFrame2
         .TextRange.Text = ChrW(&H21B3) & " 続きの質問(前回の会話を引き継ぐ)  [" & _
                           ChrW(&HD7) & "]  モード: " & modApp.SpeedCaption()
-        .TextRange.Font.Size = 8
+        .TextRange.Font.Size = 8.5
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onAccent")
         .VerticalAnchor = 3
         .MarginLeft = 6: .MarginRight = 4: .MarginTop = 0: .MarginBottom = 0
     End With
