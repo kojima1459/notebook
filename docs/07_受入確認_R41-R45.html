@@ -1,0 +1,250 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<title>受入確認 R41〜R45</title>
+<style>
+:root{--ink:#1f2937;--sub:#6b7280;--line:#e5e7eb;--bg:#fbfbfd;--card:#fff;
+      --p1:#dc2626;--p2:#ea580c;--p3:#ca8a04;--p4:#64748b;--ok:#16a34a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:16px/1.85 "Yu Gothic UI","Meiryo",system-ui,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:36px 18px 90px}
+h1{font-size:26px;line-height:1.45;margin:0 0 6px}
+.lead{color:var(--sub);margin:0 0 28px;font-size:15px}
+h2{font-size:19px;margin:40px 0 6px;display:flex;align-items:center;gap:10px}
+.pill{font-size:12px;font-weight:700;color:#fff;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.p1{background:var(--p1)}.p2{background:var(--p2)}.p3{background:var(--p3)}.p4{background:var(--p4)}
+.hint{color:var(--sub);font-size:13.5px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+      padding:18px 20px;margin:14px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.card h3{font-size:16.5px;margin:0 0 4px}
+.meta{color:var(--sub);font-size:12.5px;margin:0 0 12px}
+.card b.lbl{display:inline-block;font-size:13px;color:var(--sub);margin-top:10px}
+ol,ul{margin:6px 0 0;padding-left:22px}
+li{margin:3px 0}
+.good{background:#f0fdf4;border-left:4px solid var(--ok);padding:10px 14px;margin:10px 0;font-size:14.5px}
+.bad{background:#fef2f2;border-left:4px solid var(--p1);padding:10px 14px;margin:10px 0;font-size:14.5px}
+.note{background:#fffbeb;border-left:4px solid var(--p3);padding:10px 14px;margin:10px 0;font-size:14px}
+code{background:#f3f4f6;padding:1px 6px;border-radius:4px;font-size:13.5px;
+     font-family:Consolas,"Courier New",monospace}
+.q{background:#eef2ff;border:1px dashed #c7d2fe;border-radius:8px;padding:8px 12px;
+   margin:8px 0;font-size:14.5px}
+table{border-collapse:collapse;width:100%;margin:12px 0;background:#fff;font-size:14px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f3f4f6;white-space:nowrap}
+.small{font-size:13px;color:var(--sub)}
+.top{background:#fff;border:2px solid var(--p1);border-radius:12px;padding:18px 20px;margin:0 0 10px}
+.top h3{margin:0 0 8px;font-size:17px;color:var(--p1)}
+</style></head><body><div class="wrap">
+
+<h1>受入確認 R41〜R45</h1>
+<p class="lead">直したところが本当に直っているかを、実機で確かめるための手順書です。全部で約1時間。<b>上から順にやれば、危ないところから先に潰せます。</b></p>
+
+<div class="top">
+<h3>時間が5分しかない人へ</h3>
+<p style="margin:0">この3つだけやってください。<b>A-1（回答の下に注意書きが出る）</b>／<b>A-2（出典が本物か）</b>／<b>A-3（削除でEnterを押しても消えない）</b>。事故に直結するのはこの3つです。</p>
+</div>
+
+<h2><span class="pill p1">最優先</span> 事故に直結する（約5分）</h2>
+<p class="hint">ここが崩れていると、間違った情報がそのまま使われます。</p>
+
+<div class="card">
+<h3>A-1　回答の一番下に注意書きが出る</h3>
+<p class="meta">R44 で追加／1分</p>
+<b class="lbl">手順</b>
+<ol><li>チャット画面で、本棚に入っている資料について何か1つ質問する。</li>
+<li>回答が出たら<b>一番下まで</b>見る。</li></ol>
+<b class="lbl">見るところ</b>
+<div class="q">※ AIが資料から作った回答です。使う前に出典を開いて原文を確かめてください。</div>
+<div class="good"><b>○ 合格</b>：この1行が、本文より<b>小さく薄い字</b>で、<b>毎回</b>出る。</div>
+<div class="bad"><b>× 不合格</b>：出ない回がある／本文と同じ大きさで出る／一番上に出ている（上に出ると、この行が画面で一番大きい文字になってしまう設計事故です）。</div>
+</div>
+
+<div class="card">
+<h3>A-2　出典が本物かどうか</h3>
+<p class="meta">R41・R43 で追加／2分</p>
+<b class="lbl">手順</b>
+<ol><li>Excel の資料について質問する（部門ナレッジでも自分で入れた Excel でも可）。</li>
+<li>回答の中の出典タグと、その近くの番地を見る。</li>
+<li>回答の下に並ぶ<b>出典チップ</b>を1つ押す。</li>
+<li>開いた吹き出しの<b>📂 原文を開く</b>を押す。</li></ol>
+<b class="lbl">見るところ</b>
+<div class="q">…となります。<code>[本棚:教えてBOX_01_自動車保険_2026-09.xlsx シート3]</code>（<code>B42 付近</code>）</div>
+<div class="good"><b>○ 合格</b>：タグと番地が<b>同じ小ささ・同じ色</b>で本文になじんでいる。原文を開くと、<b>そのシートの、その番地あたり</b>に本当にその内容がある。</div>
+<div class="bad"><b>× 不合格</b>：番地だけ黒くて大きい／シート番号が実際と違う／原文を開いても該当箇所が無い。<br><b>特に「シート番号が違う」は必ず報告してください。</b>どの資料の何を聞いたときかも一緒に。</div>
+</div>
+
+<div class="card">
+<h3>A-3　資料の削除で Enter を押しても消えない</h3>
+<p class="meta">R43 で修正／1分</p>
+<b class="lbl">手順</b>
+<ol><li>マイ本棚で、消してもいい資料の削除を選ぶ。</li>
+<li>確認の窓が出たら、<b>何も選ばずに Enter キーを押す</b>。</li></ol>
+<div class="good"><b>○ 合格</b>：何も起きない（＝既定が「いいえ」になっている）。資料は残っている。</div>
+<div class="bad"><b>× 不合格</b>：資料が消える。<b>これは即報告。</b>取り返しがつきません。</div>
+</div>
+
+<div class="card">
+<h3>A-4　答えが無いことを聞いたときの自信表示</h3>
+<p class="meta">R44 の本丸／2分・<b>これは「測定」でもあります</b></p>
+<b class="lbl">手順</b>
+<ol><li>本棚に<b>絶対に入っていない</b>話題を聞く（例：「今日の社員食堂のメニューは？」「来期の株価予想は？」）。</li>
+<li>回答のすぐ下に出る<b>信頼度バッジ</b>を見る。</li></ol>
+<b class="lbl">バッジの3種類</b>
+<table>
+<tr><th>🟢</th><td>本棚の資料と強く一致(N件)</td></tr>
+<tr><th>🟡</th><td>部分的に一致 ― 下の出典で原文をご確認ください</td></tr>
+<tr><th>🔴</th><td>本棚に十分な根拠なし ― 内容をうのみにしないでください</td></tr>
+</table>
+<div class="good"><b>○ 合格</b>：🟡 か 🔴 が出る。<b>⚠️ 手元の資料との関連が薄い…</b> の1行が出ればさらに良い。</div>
+<div class="bad"><b>× 不合格</b>：🟢「強く一致」が出る。</div>
+<div class="note"><b>ここは結果そのものが情報です。</b>R44 より前は、何を聞いても100%🟢が出る状態でした（キーワードが数個かぶるだけで判定を突破していたため）。数字を直したので出なくなるはずですが、<b>それでも🟢が出るなら、しきい値を実機のスケールに合わせる作業が残っている証拠</b>になります。出た/出なかったのどちらでも教えてください。</div>
+</div>
+
+<h2><span class="pill p2">高</span> 毎日の使い心地（約15分）</h2>
+<p class="hint">読みやすさと、迷わなさ。ここが弱いと使われなくなります。</p>
+
+<div class="card">
+<h3>B-1　結論が大きく太字になっている</h3>
+<p class="meta">R43 で追加／R44 のガードに奪われていないかの確認も兼ねる／2分</p>
+<b class="lbl">手順</b><ol><li>ふつうに1問質問する。</li></ol>
+<div class="good"><b>○ 合格</b>：<b>冒頭の結論だけ</b>が大きく太字。A-1 の注意書きは下で小さいまま。</div>
+<div class="bad"><b>× 不合格</b>：注意書きの方が大きい／結論が大きくならない／全部が大きい。</div>
+<p class="small">※ 見出し（■）で始まる回答、聞き返し（💭）、⚠️ で始まる回答、「(前回の回答)」の復元表示では、結論の強調は<b>しない</b>のが正常です。</p>
+</div>
+
+<div class="card">
+<h3>B-2　出典チップの吹き出し</h3>
+<p class="meta">R43 で追加／3分</p>
+<b class="lbl">手順</b><ol><li>回答の下のチップを押す。</li><li>資料名が長いものと、出典が5件以上ある質問でも試す。</li></ol>
+<div class="good"><b>○ 合格</b>：吹き出しの中で<b>見出し・出典・本文が色と余白で分かれて</b>いる。長い資料名は <code>…</code> で切れている。チップは最大4件で、超えた分は「<b>ほか N件</b>」と出る。</div>
+<div class="bad"><b>× 不合格</b>：全部同じ色でびっしり／資料名がはみ出す／「ほか N件」が出ずにチップが画面外へ流れる。</div>
+</div>
+
+<div class="card">
+<h3>B-3　Hub のバッジ</h3>
+<p class="meta">R43 で追加／2分</p>
+<b class="lbl">手順</b><ol><li>Hub 画面を開き、バッジの帯を見る。</li></ol>
+<div class="good"><b>○ 合格</b>：<b>獲得済みのバッジだけ</b>が濃く太字。まだのものは薄い。</div>
+<div class="bad"><b>× 不合格</b>：全部同じ濃さ／獲得済みが薄い／文字化け。</div>
+</div>
+
+<div class="card">
+<h3>B-4　着せ替えを変えても文字が読める</h3>
+<p class="meta">R43 で修正（6テーマ中5テーマが基準割れでした）／3分</p>
+<b class="lbl">手順</b>
+<ol><li>🎨 着せ替えで<b>エグゼクティブ・ゴールド</b>を選ぶ。</li>
+<li>送信ボタン、削除などの赤いボタン、A-1 の注意書きを見る。</li>
+<li>ダークなど他のテーマでも同じ場所を見る。</li></ol>
+<div class="good"><b>○ 合格</b>：どのテーマでもボタンの文字がはっきり読める。注意書きも薄すぎない。</div>
+<div class="bad"><b>× 不合格</b>：金色の上に白文字で読みにくい／赤ボタンの文字が沈む。<b>読みにくかったテーマ名を教えてください。</b></div>
+</div>
+
+<div class="card">
+<h3>B-5　作業用 Excel の案内</h3>
+<p class="meta">R43 で文言を変更／2分</p>
+<b class="lbl">手順</b><ol><li>取り込みなど時間のかかる処理中に出る「作業用Excel」ボタンを押す。</li></ol>
+<div class="q">作業用のExcelを開きました。いまExcelが2つあります。新しく開いた空の方が作業用です。そちらで仕事をして、終わったら空の方だけ閉じてください。MyBookshelf(この画面)は閉じないでください。</div>
+<div class="good"><b>○ 合格</b>：この案内が出て、<b>約12秒</b>で消える。読み終わる前に消えない。</div>
+<div class="bad"><b>× 不合格</b>：一瞬で消える／消えずに残る／どちらを閉じればいいか読んでも分からない。</div>
+</div>
+
+<h2><span class="pill p3">中</span> Excel の新しい取り込み（約30分＋取り込み待ち）</h2>
+<p class="hint">R45 の変更です。<b>資料の入れ直しが必要</b>なので、まとまった時間があるときに。</p>
+
+<div class="card">
+<h3>C-1　入れ直すと「まとまりの要約」が走る</h3>
+<p class="meta">R45／取り込み時間＋数分</p>
+<b class="lbl">手順</b>
+<ol><li>既に入れてある Excel 資料を<b>削除</b>する。</li>
+<li>同じファイルを<b>もう一度取り込む</b>。</li>
+<li>取り込み中の実況行を見る。</li></ol>
+<div class="q">まとまりの要約中… 3/13まとまり(教えてBOX_01_自動車保険_2026-09.xlsx) 残り約…</div>
+<div class="good"><b>○ 合格</b>：この行が出て、<b>シートの数だけ</b>進む（13シートなら 13まとまり）。終われば通常どおり使える。</div>
+<div class="bad"><b>× 不合格</b>：一度も出ない（＝章が立っていない＝R45 が効いていない）／途中で止まる／エラーになる。</div>
+<div class="note"><b>取り込みは今までより長くなります。</b>まとまり1つにつきAIを1回呼ぶためです（上限は資料1本あたり60まとまり）。これは意図した代償です。</div>
+</div>
+
+<div class="card">
+<h3>C-2　「全体像」を聞けるようになる</h3>
+<p class="meta">R45 で新しくできるようになったこと／3分</p>
+<b class="lbl">手順</b>
+<ol><li>C-1 の入れ直しが終わってから、次のように聞く。</li></ol>
+<div class="q">自動車保険の分野で、どんなことがよく聞かれているか全体像を教えて</div>
+<div class="good"><b>○ 合格</b>：個別の1件ではなく、<b>複数のまとまりを見渡した整理</b>が返る。出典も複数付く。</div>
+<div class="bad"><b>× 不合格</b>：1件の Q&amp;A だけを答える／「資料からは判断できません」で終わる。<b>入れ直す前と同じ挙動なら、R45 が効いていません。</b></div>
+</div>
+
+<div class="card">
+<h3>C-3　出典のシート番号が正しい</h3>
+<p class="meta">R45 で直したはずの箇所／3分</p>
+<b class="lbl">手順</b>
+<ol><li>入れ直した Excel に対して、3〜4問ばらばらの分野を質問する。</li>
+<li>そのつど出典の「シートN」を控え、原文を開いて確かめる。</li></ol>
+<div class="good"><b>○ 合格</b>：4問とも、示されたシートに本当にその内容がある。</div>
+<div class="bad"><b>× 不合格</b>：隣のシートを指している。<b>入れ直す前は、シートの境目をまたいだ箇所で実際にこれが起きていました</b>（全体の0.4%程度）。入れ直した後も起きるなら報告してください。</div>
+</div>
+
+<div class="card">
+<h3>C-4　社内ナレッジから壁打ちへ引き継いだとき</h3>
+<p class="meta">R45／5分</p>
+<b class="lbl">手順</b>
+<ol><li>社内ナレッジ検索モードで、金額や期限が出てくる質問をする。</li>
+<li>モードを<b>一般（壁打ち）</b>へ切り替える。「直前の会話を引き継ぎました」と出る。</li>
+<li>続けて「さっきの件、お客さま向けの説明文にして」のように頼む。</li></ol>
+<div class="good"><b>○ 合格</b>：説明文は作ってくれる。ただし<b>社内固有の数字を言い直すところにだけ</b>「社内ナレッジ検索で確認した内容です。原文は出典でお確かめください」といった断りが付く。</div>
+<div class="bad"><b>× 不合格</b>：<b>さっき答えた数字を「確認が必要です」と撤回してくる</b>（＝引き継ぎが壊れている。過去に一度起きた事故と同じ形）／逆に、社内固有の数字を出典なしで堂々と断定する。</div>
+</div>
+
+<div class="card">
+<h3>C-5　引き継いでいない壁打ちには何も出ない</h3>
+<p class="meta">R45／1分</p>
+<b class="lbl">手順</b><ol><li>アプリを開き直し、<b>最初から一般モード</b>で「メールの書き出しを3案ちょうだい」と頼む。</li></ol>
+<div class="good"><b>○ 合格</b>：ふつうに3案返る。社内ナレッジの断り書きは<b>出ない</b>。</div>
+<div class="bad"><b>× 不合格</b>：ありもしない「引き継いだ文脈」について語り出す。</div>
+</div>
+
+<h2><span class="pill p4">低</span> PDF と、余裕があれば（約10分）</h2>
+
+<div class="card">
+<h3>D-1　見出しの無い PDF の出典ページ</h3>
+<p class="meta">R42 で修正／未確認のまま持ち越し／5分</p>
+<b class="lbl">手順</b>
+<ol><li>見出しがほとんど無い<b>5ページ以上の PDF</b>を取り込む。</li>
+<li><b>後ろの方のページ（4〜5ページ目）にしか出てこない語</b>を選んで質問する。</li></ol>
+<div class="good"><b>○ 合格</b>：出典が <code>p.4</code> や <code>p.5</code> になっている。</div>
+<div class="bad"><b>× 不合格</b>：どの質問をしても <code>p.1</code> になる。<b>これが R42 で直した不具合そのもの</b>なので、再発なら必ず報告してください。</div>
+</div>
+
+<div class="card">
+<h3>D-2　専門用語1語で聞いても当たる</h3>
+<p class="meta">R44 でキーワード加点を弱めたので、その副作用の確認／2分</p>
+<b class="lbl">手順</b><ol><li>特約名など、<b>特徴的な専門用語を1語だけ</b>入れて送る（例：「管理財物損壊補償特約」）。</li></ol>
+<div class="good"><b>○ 合格</b>：その用語が載っている資料が1位に出る。</div>
+<div class="bad"><b>× 不合格</b>：関係ない資料が並ぶ。<b>加点を弱めすぎたことになるので、必ず報告してください</b>（手元の試算では上限3でも100%当たる想定です）。</div>
+</div>
+
+<h2>結果の書き方</h2>
+<p class="hint">この表をコピーして、○×と一言だけ書いて返してもらえれば十分です。</p>
+<table>
+<tr><th>項目</th><th>結果</th><th>気づいたこと</th></tr>
+<tr><td>A-1 注意書きが出る</td><td>○ / ×</td><td></td></tr>
+<tr><td>A-2 出典が本物</td><td>○ / ×</td><td></td></tr>
+<tr><td>A-3 Enterで消えない</td><td>○ / ×</td><td></td></tr>
+<tr><td>A-4 答えが無いときのバッジ</td><td>🟢 / 🟡 / 🔴</td><td>何を聞いたか</td></tr>
+<tr><td>B-1〜B-5 使い心地</td><td>○ / ×</td><td>×だった番号</td></tr>
+<tr><td>C-1〜C-5 Excel入れ直し</td><td>○ / ×</td><td>×だった番号</td></tr>
+<tr><td>D-1 PDFのページ</td><td>○ / ×</td><td></td></tr>
+<tr><td>D-2 専門用語1語</td><td>○ / ×</td><td></td></tr>
+</table>
+
+<div class="note">
+<p style="margin:0 0 6px"><b>×だったときに一緒にほしいもの</b></p>
+<ul style="margin:0">
+<li>その画面のスクリーンショット（1枚で十分）</li>
+<li>何を聞いたか（質問文をそのままコピー）</li>
+<li>ダッシュボードの <b>📥ログ</b> ボタンで出るファイル（エラーが出た場合）</li>
+</ul>
+</div>
+
+<p class="small" style="margin-top:26px">対象: R41（Excel の出典表記）／R42（PDF のページ・ランチャー）／R43（見やすさのポリッシュ）／R44（安全装置の復活と常設ガード）／R45（引き継ぎのガードと「シート＝章」）。作成 2026-09。</p>
+
+</div></body></html>
