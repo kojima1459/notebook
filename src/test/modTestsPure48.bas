@@ -1,6 +1,14 @@
 Attribute VB_Name = "modTestsPure48"
 Option Explicit
 
+' R44 の検算に使う定数(モジュール宣言部。プロシージャより後に置くと実機VBAで
+' コンパイルエラーになる=R42 で一度踏んだ型)。
+Private Const SPARSE_WEIGHT_44 As Double = 0.06   ' modRetrieve.bas:75 と同値
+Private Const CAP_DEFAULT_44 As Double = 3#       ' build_config_rows の既定
+Private Const WARN_THRESHOLD_44 As Double = 0.3   ' low_hit_warn_score の既定
+Private Const CONF_THRESHOLD_44 As Double = 0.55  ' confidence_score_x100/100
+
+
 ' ============================================================================
 ' modTestsPure48 - R43 §4(実機報告「Excel の出典が A 列ばかりになる」)の
 '   modExtractorExcel.RowTextFrom セル単位番地付けの純ロジック回帰。
@@ -169,6 +177,112 @@ Private Sub TestBackwardCompat48()
     ChkStr48 "T7_4引数呼び出しは番地無し", got, "foo"
 End Sub
 
+' ============================================================================
+' R44 追加分 - 表示専用の注意書き(modMode.DisplayNotes)と、キーワード加点の
+'   上限が安全装置を殺さないことの算術検算。
+' ----------------------------------------------------------------------------
+' 【なぜこの検算が要るか】
+'   検索スコアは「ベクトル類似度 + KeyScore*0.06」の合計(modRetrieve.bas:280)。
+'   信頼度バッジ(modAsk.LastConfidence)は合計を confidence_score_x100/100 と、
+'   低関連度警告(modAskRetrieve)は合計を low_hit_warn_score と比べる。
+'   つまり【加点の最大値が両しきい値未満】でなければ、意味が一致していなくても
+'   キーワードが数個かぶるだけで両方を突破し、安全装置が常時オフになる。
+'   R44 実測: 上限10(旧既定)のとき加点は最大0.6で、0.3も0.55も無条件に超えた
+'   (10,996かけらの本棚で、1質問あたり中央403かけらが0.55超え=🟢常時点灯)。
+'   ここは「上限×0.06 < 0.3」という不等式そのものをテストで固定する。
+'   config を 5 以上へ戻すとこのテストが落ちる=気付ける、という関所にする。
+Private Sub ChkStr44(ByVal label As String, ByVal got As String, ByVal want As String)
+    modTestRunner.Check "R44-48-" & label, (StrComp(got, want, vbBinaryCompare) = 0), _
+        "実際=[" & got & "] 期待=[" & want & "]"
+End Sub
+
+Private Sub ChkBool44(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
+    modTestRunner.Check "R44-48-" & label, (got = want), "実際=" & got & " 期待=" & want
+End Sub
+
+' ---- G1: 加点の上限が両しきい値を超えないこと(不等式そのものの固定) --------
+Private Sub TestBoostBelowThresholds44()
+    Dim maxBoost As Double
+    maxBoost = modSparse.CapKeyScore(1000#, CAP_DEFAULT_44) * SPARSE_WEIGHT_44
+    ChkBool44 "G1a_加点だけでは低関連度警告のしきい値に届かない", (maxBoost < WARN_THRESHOLD_44), True
+    ChkBool44 "G1b_加点だけでは信頼度バッジのしきい値に届かない", (maxBoost < CONF_THRESHOLD_44), True
+    ' 旧既定10なら両方を突破していたことも同時に固定する(回帰の向きを明示)。
+    Dim oldBoost As Double
+    oldBoost = modSparse.CapKeyScore(1000#, 10#) * SPARSE_WEIGHT_44
+    ChkBool44 "G1c_旧既定10は警告のしきい値を突破していた", (oldBoost > WARN_THRESHOLD_44), True
+    ChkBool44 "G1d_旧既定10は信頼度のしきい値も突破していた", (oldBoost > CONF_THRESHOLD_44), True
+End Sub
+
+' ---- G2: 常設ガードは末尾に1つだけ付く ------------------------------------
+Private Sub TestGuardSuffix44()
+    Dim body As String: body = "結論です。[本棚:規約集 p.1]"
+    Dim got As String
+    got = modMode.DisplayNotes(body, 0.8, True, 0.3, True)
+    ChkStr44 "G2a_高スコアなら警告無しでガードだけ", got, _
+        body & vbLf & vbLf & modMode.GuardNoteText()
+    ' 二度通しても増えない(復元表示・再描画で本文を通し直す経路がある)
+    ChkStr44 "G2b_二度通しても増えない", modMode.DisplayNotes(got, 0.8, True, 0.3, True), got
+    ' guardOn=False で消せる
+    ChkStr44 "G2c_設定で消せる", modMode.DisplayNotes(body, 0.8, True, 0.3, False), body
+    ' 空の本文にはガードを付けない(空バブルに注意書きだけ出るのを防ぐ)
+    ChkStr44 "G2d_空本文には付けない", modMode.DisplayNotes("", 0.8, True, 0.3, True), ""
+End Sub
+
+' ---- G3: 低関連度の⚠は先頭・ガードは末尾(順序と共存) ----------------------
+Private Sub TestWarnAndGuard44()
+    Dim body As String: body = "たぶんこうです。"
+    Dim got As String
+    got = modMode.DisplayNotes(body, 0.1, True, 0.3, True)
+    ChkStr44 "G3a_低スコアは低関連度の印が先頭でガードが末尾", got, _
+        modMode.LowHitNoteText() & vbLf & vbLf & body & vbLf & vbLf & modMode.GuardNoteText()
+    ' 俯瞰ターン(warnOn=False)は⚠を出さないが、ガードは出す
+    ChkStr44 "G3b_俯瞰ターンは低関連度の印を出さずガードだけ", _
+        modMode.DisplayNotes(body, 0#, False, 0.3, True), _
+        body & vbLf & vbLf & modMode.GuardNoteText()
+    ' threshold<=0 は警告の無効化(既存仕様)。ガードは無効化されない。
+    ChkStr44 "G3c_しきい値0は警告のみ無効", _
+        modMode.DisplayNotes(body, 0#, True, 0#, True), _
+        body & vbLf & vbLf & modMode.GuardNoteText()
+End Sub
+
+' ---- G4: 装飾側が拾う先頭文字の契約(変えたら両方直す、の固定) --------------
+Private Sub TestNoteMarks44()
+    ChkStr44 "G4a_ガードは※で始まる", Left$(modMode.GuardNoteText(), 1), ChrW(&H203B)
+    ChkStr44 "G4b_低関連度の印は所定の記号で始まる", Left$(modMode.LowHitNoteText(), 1), ChrW(&H26A0)
+End Sub
+
+' ---- G6: 精査モードの既定経路にドメインガードが入っていること ---------------
+' R44: modAskOnePass は thorough_onepass=on(出荷既定)のとき精査モードで必ず
+' 通る経路で、成功したら modAskThorough は Exit Function する(4段へ行かない)。
+' ここに DomainGuardInstruction が無いと、いちばん外したくないモードでだけ
+' 数値の捏造ガードが外れる ―― R44 で実際にそうなっていた。
+' FOLLOWUP 行より前にあることも見る(modTestsPure43 が末尾を固定しているため)。
+Private Sub TestOnePassHasGuard44()
+    Dim p As String
+    p = modAskOnePass.BuildOnePassPrompt("等級はどうなりますか", "## 本棚抜粋" & vbLf & "本文", _
+                                         "", "", "日本語", False, False)
+    ChkBool44 "G6a_数値の厳格性が入っている", (InStr(p, "【数値の厳格性】") > 0), True
+    ChkBool44 "G6b_確認マークが入っている", (InStr(p, "(要確認)") > 0), True
+    ChkBool44 "G6c_断定の禁止が入っている", (InStr(p, "【断定の禁止】") > 0), True
+    ChkBool44 "G6d_ガードはFOLLOWUPより前", _
+        (InStr(p, "【数値の厳格性】") < InStr(p, "[[FOLLOWUP:")), True
+    ' Quick と同じ文言であること(複製ではなく単一情報源を使っている証跡)
+    ChkBool44 "G6e_文言はmodPromptsの単一情報源", _
+        (InStr(p, modPrompts.DomainGuardInstruction()) > 0), True
+End Sub
+
+' ---- G5: 結論の12pt太字(LeadParaIndex)をガードが奪わない -------------------
+Private Sub TestLeadUnaffected44()
+    Dim body As String: body = "結論です。" & vbLf & "■ 詳細" & vbLf & "・あれこれ"
+    Dim withGuard As String: withGuard = modMode.DisplayNotes(body, 0.8, True, 0.3, True)
+    ChkBool44 "G5a_ガードを付けても結論は第1段落のまま", _
+        (modLiveStyle.LeadParaIndex(withGuard) = 1), True
+    ' ⚠が先頭に付いた回は従来どおり結論強調をしない(R43 M1 の割り切りを維持)
+    Dim withWarn As String: withWarn = modMode.DisplayNotes(body, 0.1, True, 0.3, True)
+    ChkBool44 "G5b_低関連度の印が先頭の回は結論強調しない", _
+        (modLiveStyle.LeadParaIndex(withWarn) = 0), True
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' RunAll48 - modTestRunner から呼ばれる総合エントリーポイント
 ' ----------------------------------------------------------------------------
@@ -193,6 +307,24 @@ H06Next48:
 H07Next48:
     On Error GoTo H07Fail48
     TestBackwardCompat48
+H08Next48:
+    On Error GoTo H08Fail48
+    TestBoostBelowThresholds44
+H09Next48:
+    On Error GoTo H09Fail48
+    TestGuardSuffix44
+H10Next48:
+    On Error GoTo H10Fail48
+    TestWarnAndGuard44
+H11Next48:
+    On Error GoTo H11Fail48
+    TestNoteMarks44
+H12Next48:
+    On Error GoTo H12Fail48
+    TestLeadUnaffected44
+H13Next48:
+    On Error GoTo H13Fail48
+    TestOnePassHasGuard44
 H01Done48:
     On Error GoTo 0
     Exit Sub
@@ -223,6 +355,30 @@ H06Fail48:
     Resume H07Next48
 H07Fail48:
     modTestRunner.Check "TestBackwardCompat48(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H08Next48
+H08Fail48:
+    modTestRunner.Check "TestBoostBelowThresholds44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H09Next48
+H09Fail48:
+    modTestRunner.Check "TestGuardSuffix44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H10Next48
+H10Fail48:
+    modTestRunner.Check "TestWarnAndGuard44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H11Next48
+H11Fail48:
+    modTestRunner.Check "TestNoteMarks44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H12Next48
+H12Fail48:
+    modTestRunner.Check "TestLeadUnaffected44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H13Next48
+H13Fail48:
+    modTestRunner.Check "TestOnePassHasGuard44(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done48
 End Sub

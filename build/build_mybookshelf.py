@@ -992,7 +992,7 @@ def build_config_rows(mock_llm: bool, publish_key: str = "", build_stamp: str = 
         # 長い資料名やHyDE由来の長語キーでスコアが330まで伸びていた。
         # 0.06(SPARSE_WEIGHT)×330=20の加点はベクトル類似度(-1〜1)を完全に
         # 押し流し、実質キーワード検索になっていた。既定10で加点上限0.6=cosと同格。
-        ("sparse_keyscore_cap", 10, "キーワード加点(KeyScore)の上限。0.06倍してベクトル類似度へ足すので、10なら加点は最大0.6=cosと同じ土俵。大きくするほどキーワード一致が順位を支配する。0で上限なし(R27以前の挙動)"),
+        ("sparse_keyscore_cap", 3, "キーワード加点(KeyScore)の上限。0.06倍してベクトル類似度へ足す。3なら加点は最大0.18で、低関連度警告(low_hit_warn_score=0.3)と信頼度バッジ(confidence_score_x100=55)のどちらもキーワード一致だけでは超えられない=安全装置が生きる。10だと加点だけで0.6に達し両方を無条件に突破していた(R44実測: 全10,996かけらに対し1質問あたり中央403かけらが0.55超え=🟢が常時点灯・警告は0%発火)。専門用語1語での救済は上限3でも100%維持(R44実測。0にすると41.7%へ崩壊するので加点自体は必要)。0で上限なし(R27以前の挙動)"),
         # R29 W2-5(実機第14報): DiversitySwapPick(最終hitsが1資料へ収束した
         # ときの最小介入)に相対スコア下限を追加。pool側の"別資料"代表が
         # 現hitsの最下位よりも著しく弱いスコアだと、弱い他資料で薄めるだけの
@@ -1213,6 +1213,10 @@ def build_config_rows(mock_llm: bool, publish_key: str = "", build_stamp: str = 
         ("debug_mode", False, "TRUE=ゲートウェイのプロンプト/応答を診断用にログへ残す"),
         ("chat_log_enabled", True, "TRUE=チャット履歴シートに質問と回答を記録する(最新100件・古い順に自動削除)"),
         ("low_hit_warn_score", 0.3, "検索ヒットの最高スコアがこの値未満のとき回答に⚠️関連薄い警告を付ける(0で無効)"),
+        ("answer_guard_note", True,
+         "TRUE=本棚を使った回答の末尾に常設のガード『※ AIが資料から作った回答です。"
+         "使う前に出典を開いて原文を確かめてください。』を付ける(R44)。"
+         "文言は modMode.GuardNoteText が単一情報源。FALSEで消せる"),
         ("active_channel", "",
          "いま接続している部門の公式ナレッジ(1つだけ)。ナレッジ画面の「部門チャンネル」で"
          "切り替える。切り替えると前の部門の内容は本棚から外れる(マイ本棚の資料は残る)"),
@@ -2410,11 +2414,41 @@ def _make_seed_sheets(wb, seed_path: str | None):
     return n_docs, n_chunks, n_vecs
 
 
+# キーワード加点の上限が、安全装置のしきい値を突破しないことの検算(R44)。
+# 検索スコアは「ベクトル類似度 + KeyScore*SPARSE_WEIGHT」の合計で、
+# 低関連度警告(low_hit_warn_score)も信頼度バッジ(confidence_score_x100)も
+# その合計を見る。加点だけでしきい値を超えられる設定にすると、意味が一致して
+# いなくても⚠が出ず🟢が点灯する ―― R44 以前が実際にその状態だった。
+# VBA 側(modTestsPure48 の G1)は定数のコピーを検算しているだけなので、
+# 【設定値そのもの】はここで見る。片方だけ直しても気付けるように両方に置く。
+SPARSE_WEIGHT = 0.06          # src/qa/modRetrieve.bas の SPARSE_WEIGHT と同値
+
+
+def assert_guard_thresholds(rows):
+    cfg = {k: v for k, v, _ in rows}
+    cap = float(cfg["sparse_keyscore_cap"])
+    if cap <= 0:
+        return                      # 0=上限なし(エスケープハッチ)。判断は運用側へ
+    max_boost = cap * SPARSE_WEIGHT
+    warn = float(cfg["low_hit_warn_score"])
+    conf = float(cfg["confidence_score_x100"]) / 100.0
+    for name, thr in (("low_hit_warn_score", warn), ("confidence_score_x100/100", conf)):
+        if max_boost >= thr:
+            raise SystemExit(
+                f"ERROR: sparse_keyscore_cap={cap} だと加点だけで {max_boost:.3f} に達し、"
+                f"{name}={thr} を突破します。キーワードが数個かぶるだけで安全装置が"
+                f"無効になるため、cap を {thr / SPARSE_WEIGHT:.1f} 未満へ下げてください"
+                "(R44 の裁定。docs/dev/spec_20260910_R44_安全装置の復活と常設ガード.md §1)"
+            )
+
+
 def _make_config(wb, mock_llm: bool, publish_key: str = "", build_stamp: str = None):
     ws = wb.create_sheet("config")
     for c, h in enumerate(["key", "value", "description"], 1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
-    for i, (k, v, d) in enumerate(build_config_rows(mock_llm, publish_key, build_stamp), 2):
+    rows = build_config_rows(mock_llm, publish_key, build_stamp)
+    assert_guard_thresholds(rows)
+    for i, (k, v, d) in enumerate(rows, 2):
         ws.cell(row=i, column=1, value=k)
         ws.cell(row=i, column=2, value=v)
         ws.cell(row=i, column=3, value=d)

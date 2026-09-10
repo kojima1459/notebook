@@ -510,7 +510,12 @@ End Function
 ' 「速さ」だけでは作れない。約款・規程の条文番号や日数・金額を記憶で補って答えると
 ' 実務では致命傷になる。「どこまでが資料の裏付けで、どこからが確認が必要か」を
 ' 回答自身に語らせることが、利用者が正誤を判断できる唯一の現実的な手段になる。
-Private Function DomainGuardInstruction() As String
+' 2026-09-10(R44・凍結解除は SourceTag/CitationInstruction と同じ理由): Private
+' だったため modAskOnePass(=精査モードの既定経路。thorough_onepass 既定on)から
+' 呼べず、【数値の厳格性】【(要確認)】【断定の禁止】が精査モードだけ丸ごと
+' 抜けていた。同じ文言を向こうへ複製すると R38 F7(単一情報源へ寄せた裁定)と
+' 矛盾するので、可視性だけを Public へ上げる(本文は1文字も変えない)。
+Public Function DomainGuardInstruction() As String
     DomainGuardInstruction = _
         "【数値の厳格性】条文番号・日数・金額・料率・期限は、抜粋に書かれた値だけを" & _
         "そのまま使う。抜粋に無い数値は絶対に書かず「資料に記載なし」と述べる。" & vbLf & _

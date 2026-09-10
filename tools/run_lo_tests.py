@@ -198,7 +198,7 @@ EXPECTED_SKIP_MAX = 15
 #     輝度判定・境界4件)を追加 → 3378→3382。さらにレビュー2周目の Fix で
 #     modTestsPure48 に T1b/T1c(数式が返した空文字のセルは番地を付けないが
 #     【行は残す】。R33-W3-1 の回帰をここで捕まえた)を追加 → 3382→3386。
-EXPECTED_PASS_MIN = 3386
+EXPECTED_PASS_MIN = 3406
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

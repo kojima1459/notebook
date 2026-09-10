@@ -374,6 +374,56 @@ Public Function ShouldAnnotate(ByVal modeName As String) As Boolean
     ShouldAnnotate = (m = MODE_QUICK Or m = MODE_DEEP)
 End Function
 
+' ----------------------------------------------------------------------------
+' DisplayNotes - 回答に付ける【表示専用】の注意書きを1か所で組み立てる
+'                (2026-09-10 R44。純関数=LibreOffice実行テストで組合せを固定)
+' ----------------------------------------------------------------------------
+' なぜ1か所に集めたか:
+'   注意書きは2種類ある。(1)低関連度の⚠(条件つき)と(2)常設のガード(※)。
+'   別々の場所で足すと「⚠の回だけ※が消える」「両方付いて前置きが二重になる」
+'   といった組み合わせ事故が起きる。順序と重複の排除をここで確定させる。
+'
+' 引数は素の値だけにしてある(Hit()もconfigも見ない)。R4準拠にして実行テストで
+' 固定するためで、maxScore の算出と config の読みは呼び出し側(modAskRetrieve)。
+' modClarify.HasScoreDispersion を純関数側へ寄せたのと同じ理由。
+'
+' warnOn=False は「⚠を出さない」であって「ガードも出さない」ではない。俯瞰
+' ターン(modAskGlobal.WasGlobalTurn)は score=0 が正しい値なので⚠は事実と逆に
+' なるが、「出典を開いて確かめてから使う」はどのターンでも等しく正しい。
+'
+' ガードは【末尾】に置く。先頭に置くと LeadParaIndex(結論を12pt太字にする段落
+' 判定)が毎回ガード文を掴み、画面で一番大きい文字が注意書きになる(R43 の⚠と
+' 📜で実際に起きた型)。末尾なら結論強調の経路に一切触れない。
+Public Function DisplayNotes(ByVal result As String, ByVal maxScore As Double, _
+                             ByVal warnOn As Boolean, ByVal threshold As Double, _
+                             ByVal guardOn As Boolean) As String
+    Dim s As String: s = result
+    If guardOn And LenB(Trim$(s)) > 0 Then
+        ' 二重付与の防止。復元表示や再描画で同じ本文を通しても増えない。
+        If InStr(1, s, GuardNoteText(), vbBinaryCompare) = 0 Then
+            s = s & vbLf & vbLf & GuardNoteText()
+        End If
+    End If
+    If warnOn And threshold > 0# Then
+        If maxScore < threshold Then s = LowHitNoteText() & vbLf & vbLf & s
+    End If
+    DisplayNotes = s
+End Function
+
+' 常設ガードの文言(単一情報源)。装飾側 modLiveStyle は行頭の「※」で拾うので、
+' 先頭文字を変えるときは modLiveStyle.StyleAnswerParas も同時に直すこと。
+Public Function GuardNoteText() As String
+    GuardNoteText = ChrW(&H203B) & " AIが資料から作った回答です。" & _
+        "使う前に出典を開いて原文を確かめてください。"
+End Function
+
+' 低関連度の注意書き(単一情報源)。先頭の⚠は modLiveStyle.LeadParaIndex が
+' 「結論ではない前置き」と判定する印を兼ねているので、先頭文字を変えない。
+Public Function LowHitNoteText() As String
+    LowHitNoteText = ChrW(&H26A0) & ChrW(&HFE0F) & _
+        " 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。"
+End Function
+
 ' PageTagPart - 出典タグの「p.N」部分(単一情報源・純関数・R41 §1 A)。
 '   拡張子(modUtil.ExtOf の小文字)が xlsx/xlsm/xls/xlsb なら Excel 由来
 '   (ページではなくシートの通し番号)なので " シートN"、それ以外は " p.N"。

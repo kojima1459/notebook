@@ -49,8 +49,19 @@ Public Sub StyleAnswerParas(ByVal bubbleName As String)
     ' ---- 段落レベル(■見出しの太字・結論段落の強調)を先に当てる -------------
     Dim i As Long
     For i = 1 To pcount
-        If Left$(LTrim$(shp.TextFrame2.TextRange.Paragraphs(i).Text), 1) = "■" Then
+        Dim head As String
+        head = Left$(LTrim$(shp.TextFrame2.TextRange.Paragraphs(i).Text), 1)
+        If head = "■" Then
             shp.TextFrame2.TextRange.Paragraphs(i).Font.Bold = True
+        ElseIf head = ChrW(&H203B) Then
+            ' R44: 末尾の常設ガード(modMode.GuardNoteText)。毎回出るものなので
+            ' 出典タグと同じ小ささ・淡さにして、本文の読み取りを邪魔しない
+            ' (消すのではなく「視界には入るが主役ではない」大きさに落とす)。
+            With shp.TextFrame2.TextRange.Paragraphs(i).Font
+                .Size = 8
+                .Bold = False
+                .Fill.ForeColor.RGB = modUI.UiColor("muted")
+            End With
         End If
     Next i
 

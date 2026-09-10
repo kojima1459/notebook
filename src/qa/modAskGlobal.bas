@@ -535,13 +535,19 @@ Private Function BuildGlobalPrompt(ByVal q As String, hits() As Hit, _
     sb = sb & "・根拠にした箇所には必ず出典タグを文の直後に付ける" & _
          "(本棚の資料は [本棚:ファイル名 p.ページ番号]、" & _
          "受け取ったパック由来は [パック(作成者名):ファイル名])。" & vbLf
-    ' R40 F3 / R41 §1 A: Excel 由来の抜粋は行頭に [A6] のような番地が付いている。
-    sb = sb & "・出典タグは抜粋の形（Excel はシートN）をそのまま写す。抜粋の行頭にある [A6] の" & _
-         "ようなセル番地を、根拠の文に「(A6 付近)」のように添える。" & vbLf
+    ' R40 F3 / R41 §1 A / R44: 番地は R43 §4 で【値の直前】へ移った。ここは
+    ' modPrompts.CitationInstruction の手書きの複製なので取り残されていた。
+    sb = sb & "・出典タグは抜粋の形（Excel はシートN）をそのまま写す。値の直前にある [B42] の" & _
+         "ようなセル番地を、根拠の文に「(B42 付近)」のように添える。" & vbLf
     sb = sb & "・抜粋に書かれていないことは書かない。" & _
          "抜粋は資料の【一部の章】なので、答え切れない部分は" & _
          "「この抜粋の範囲では確認できません」と正直に述べる。" & vbLf
     sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
+    ' R44: 俯瞰の回答も章の本文から金額・期限・条文番号を引く。Quick と4段には
+    ' 最初から入っていた金融・保険のガードレールが、この経路にも
+    ' modAskOnePass にも入っていなかった(【数値の厳格性】【(要確認)】
+    ' 【断定の禁止】)。文言は modPrompts の単一情報源をそのまま使う。
+    sb = sb & modPrompts.DomainGuardInstruction() & vbLf
     If modConfig.GetBool("answer_tags", False) Then
         sb = sb & "・出力は<thinking>に検討、<answer>に利用者へ見せる回答、の構造にすること。" & vbLf
     End If

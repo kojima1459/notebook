@@ -507,30 +507,29 @@ Public Sub ShowAskStage(ByVal kind As String)
     On Error GoTo 0
 End Sub
 
-' 低関連度警告(表示専用): 最高スコアが config low_hit_warn_score(既定0.3)
-' 未満なら注意書きを先頭に付ける。0以下は無効化扱い。
+' 表示専用の注意書きを付ける窓口。文言と組み立ての本体は modMode.DisplayNotes
+' (純関数・R44)。ここは config を読み hits() の最高スコアを出すだけ。
+' 俯瞰ターンで警告を出さない理由(R17H FA-2)と、ガードは俯瞰でも出す理由は
+' modMode.DisplayNotes のコメントに集約した。
 Public Function ApplyLowHitWarning(ByVal result As String, hits() As Hit, ByVal nHits As Long) As String
-    ApplyLowHitWarning = result
-    ' 2026-08-05(R17H FA-2 / A-H2・B-H1): 俯瞰で答えたターンは無操作。
-    ' 俯瞰の hits は章の要約から選んだもので score=0 が正しい値(検索スコアを
-    ' 騙らない)。そこへこの警告を足すと、章をまたいで正しく答えた回答に
-    ' 「手元の資料との関連が薄い」と書くことになる=表示が事実と逆になる。
-    If modAskGlobal.WasGlobalTurn() Then Exit Function
-
-    Dim threshold As Double
+    Dim threshold As Double: threshold = 0.3
+    Dim guardOn As Boolean: guardOn = True
+    On Error Resume Next
     threshold = modConfig.GetDouble("low_hit_warn_score", 0.3)
-    If threshold <= 0 Then Exit Function
+    guardOn = modConfig.GetBool("answer_guard_note", True)
+    On Error GoTo 0
+    ApplyLowHitWarning = modMode.DisplayNotes(result, MaxHitScore(hits, nHits), _
+        Not modAskGlobal.WasGlobalTurn(), threshold, guardOn)
+End Function
 
-    Dim maxScore As Double
-    maxScore = -1E+30
+' hits() の最高スコア。1件も無ければ十分小さい値(=必ず警告側へ倒す)。
+Private Function MaxHitScore(hits() As Hit, ByVal nHits As Long) As Double
+    Dim m As Double: m = -1E+30
     Dim i As Long
     For i = 1 To nHits
-        If hits(i).score > maxScore Then maxScore = hits(i).score
+        If hits(i).score > m Then m = hits(i).score
     Next i
-    If maxScore >= threshold Then Exit Function
-
-    ApplyLowHitWarning = ChrW(&H26A0) & ChrW(&HFE0F) & " 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。" & _
-        vbLf & vbLf & result
+    MaxHitScore = m
 End Function
 
 ' IsTooVague - 短すぎ かつ 資料が絞れない質問だけTrue。LLMを呼ばず

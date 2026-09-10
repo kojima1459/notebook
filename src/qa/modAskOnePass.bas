@@ -556,8 +556,13 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
 
     ' 3. 出力規則
     sb = sb & "・根拠にした箇所には必ず出典タグを文の直後に付ける（本棚の資料は [本棚:ファイル名 p.ページ番号]、受け取ったパック由来は [パック(作成者名):ファイル名]）。" & vbLf
-    ' R40 F3 / R41 §1 A: Excel 由来の抜粋は行頭に [A6] のような番地が付いている。
-    sb = sb & "・出典タグは抜粋の形（Excel はシートN）をそのまま写す。抜粋の行頭にある [A6] のようなセル番地を、根拠の文に「(A6 付近)」のように添える。" & vbLf
+    ' R40 F3 / R41 §1 A: Excel 由来の抜粋にはセル番地が付いている。
+    ' R44: R43 §4 で番地の位置を【行頭】から【値の直前】へ変えた
+    ' (modExtractorExcel.RowTextFrom)。単一情報源の modPrompts.CitationInstruction
+    ' は R43 で直っていたが、この経路と modAskGlobal は手書きの複製だったため
+    ' 「行頭にある」のまま=モデルへ嘘の位置を教えていた(CLAUDE.md §9 の
+    ' 「変更したら全呼び出し箇所をgrep」の取り残し)。
+    sb = sb & "・出典タグは抜粋の形（Excel はシートN）をそのまま写す。値の直前にある [B42] のようなセル番地を、根拠の文に「(B42 付近)」のように添える。" & vbLf
     ' R38 Fix F7: 同じ文言が modAskThorough と2箇所に分裂していたため、
     ' 単一情報源(modAskThorough.ThoroughStyleAddendum/ExemptionCoverageAddendum)
     ' を通す(先頭の■を落として・にする=出力文字列は1字も変わらない。A-m3)。
@@ -567,6 +572,13 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
     sb = sb & "・" & modAskThorough.ThoroughStyleAddendum() & vbLf
     sb = sb & "・" & Mid$(modAskThorough.ExemptionCoverageAddendum(), 2) & vbLf
     sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
+    ' R44: 金融・保険のガードレール。Quick(modPrompts.BuildQuickPrompt)と4段
+    ' (BuildDeepDraftPrompt/BuildDeepVerifyPrompt)には最初から入っていたのに、
+    ' 既定で通るこの1回読みにだけ入っておらず、【数値の厳格性】【(要確認)】
+    ' 【断定の禁止】が精査モードだけ抜けていた。ThoroughStyleAddendum の
+    ' 「断定できない点は確認できませんと明示」1文では数値の捏造を止められない。
+    ' FOLLOWUP ブロックより前に置くこと(modTestsPure43 が末尾を Right$ で固定)。
+    sb = sb & modPrompts.DomainGuardInstruction() & vbLf
 
     If strictG Then
         sb = sb & "【厳守】本棚抜粋に書かれた情報のみで回答し、外部知識や推測での補完は禁止。出典を付けられない主張は書かない。抜粋から判断できない場合は「資料からは判断できません」とだけ述べ、どんな資料を追加すれば答えられるかを1行添えること。" & vbLf

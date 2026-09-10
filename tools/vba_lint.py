@@ -431,7 +431,17 @@ CONTRACT: dict[str, dict] = {
                      # R34 B3: 前後チャンク結合(modAskFocus.NeighborExpand)を
                      #   検索の最後へ掛けてよいモードかの純ゲート。入念は生成の
                      #   内側で自前に呼ぶため二重結合になる=deep だけ True。
-                     "UseNeighborExpand"],
+                     "UseNeighborExpand",
+                     # R44: 回答に付く【表示専用】の注意書きの単一情報源。
+                     #   DisplayNotes は「低関連度の⚠(条件つき・先頭)」と
+                     #   「常設ガードの※(末尾)」の順序・重複排除・有効無効を
+                     #   1つの純関数に閉じる。別々の場所で足すと⚠の回だけ
+                     #   ガードが消える等の組み合わせ事故になるため。
+                     #   GuardNoteText / LowHitNoteText は文言そのもの。先頭
+                     #   1文字は装飾側の契約でもある(modLiveStyle が ※ を
+                     #   8pt淡色に、⚠ を「結論ではない前置き」として
+                     #   LeadParaIndex の除外に使う)。modTestsPure48 が固定。
+                     "DisplayNotes", "GuardNoteText", "LowHitNoteText"],
     },
     "modSparse": {
         "closed": True,
@@ -780,7 +790,13 @@ CONTRACT: dict[str, dict] = {
         "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt",
                      "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag", "BuildQuestionsPrompt",
                      "BuildDecomposePrompt", "BuildPartDraftPrompt",
-                     "BuildMergePrompt", "PART_FAIL_TEXT"],
+                     "BuildMergePrompt", "PART_FAIL_TEXT",
+                     # R44: 金融・保険のガードレール文(数値の厳格性/(要確認)/
+                     #   断定の禁止)。Private のままだと精査モードの既定経路
+                     #   modAskOnePass.BuildOnePassPrompt から呼べず、そこだけ
+                     #   ガードが抜けていた。文言を複製せず可視性だけ上げる
+                     #   (SourceTag / CitationInstruction と同じ扱い)。
+                     "DomainGuardInstruction"],
     },
     "modRagParse": {
         "closed": True,
