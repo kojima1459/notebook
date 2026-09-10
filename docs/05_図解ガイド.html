@@ -31,7 +31,7 @@
   section{margin-top:44px}
   h2{font-size:22px;margin:0 0 8px;padding-left:12px;border-left:6px solid var(--accent);line-height:1.4}
   h2 small{display:block;font-size:14px;color:var(--sub);font-weight:normal;margin-top:2px}
-  h3{font-size:17px;margin:26px 0 8px}
+  h3{font-size:19px;font-weight:bold;margin:28px 0 8px;color:var(--ink)}
   p{margin:8px 0}
   .lead{font-size:17px}
   .goal{background:var(--accent-bg);border-radius:10px;padding:12px 16px;margin:10px 0 16px;font-size:15px}
@@ -57,8 +57,8 @@
   th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
   th{background:var(--paper);white-space:nowrap}
   .tw{overflow-x:auto}
-  figure{margin:14px 0;text-align:center}
-  figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+  figure{margin:14px 0;text-align:center;overflow-x:auto}
+  figure svg{width:900px;max-width:none;height:auto;display:block;margin:0 auto}
   figcaption{font-size:13px;color:var(--sub);margin-top:6px}
   details{border:1px solid var(--line);border-radius:10px;padding:0 14px;margin:10px 0;background:#fff}
   details summary{cursor:pointer;padding:10px 0;font-weight:bold;color:var(--accent)}
@@ -89,7 +89,7 @@
   <div class="wrap">
     <h1>マイ本棚AI 図解ガイド</h1>
     <p>自分で入れた資料に、AIが出典つきで答えてくれる社内ツール。この1枚を上から順に読めば使えます。</p>
-    <span class="stamp">2026年9月8日版（R41）の画面と設定にもとづく</span>
+    <span class="stamp">2026年9月10日版（R43）の画面と設定にもとづく</span>
   </div>
 </header>
 
@@ -111,7 +111,7 @@
 <!-- ============================================================ -->
 <section id="s1">
   <h2>1. 30秒でわかる<small>これは何をする道具か</small></h2>
-  <p class="lead">資料（PDF・Word・Excel・テキスト・画面のスクリーンショット）を「本棚」に入れると、AIがその資料だけを根拠にして質問に答えます。答えには<b>必ず資料名とページ</b>が付き、その場で原文を確かめられます。</p>
+  <p class="lead">資料（PDF・Word・Excel・テキスト・画面のスクリーンショット）を「本棚」に入れると、AIがその資料だけを根拠にして質問に答えます。答えには<b>必ず資料名と該当箇所</b>（PDF・Wordはページ、Excelはシート）が付き、その場で原文を確かめられます。</p>
 
   <figure>
     <svg viewBox="0 0 900 190" role="img" aria-label="資料を本棚に入れ、質問すると出典つきの答えが返る流れ">
@@ -137,7 +137,7 @@
         <rect x="760" y="40" width="130" height="110" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
         <text x="825" y="72" text-anchor="middle" font-size="30">📖</text>
         <text x="825" y="105" text-anchor="middle" font-weight="bold">出典つき</text>
-        <text x="825" y="128" text-anchor="middle" font-size="12" fill="#4b5563">資料名とページ</text>
+        <text x="825" y="128" text-anchor="middle" font-size="12" fill="#4b5563">資料名と該当箇所</text>
       </g>
     </svg>
     <figcaption>資料を入れる → 質問する → 出典つきの答え。この3手だけ覚えれば使えます。</figcaption>
@@ -165,45 +165,52 @@
 
   <h3>bat が裏でやっていること（知らなくても使えます）</h3>
   <figure>
-    <svg viewBox="0 0 900 250" role="img" aria-label="OneDriveの原本をD:に複製して開き、閉じたらOneDriveへ書き戻す往復">
+    <svg viewBox="0 0 900 300" role="img" aria-label="OneDriveの原本をD:に複製して開き、閉じたらOneDriveへ書き戻す往復。版が変わったときはbatが旧版を自動で退避する">
       <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="15" fill="#1f2937">
-        <rect x="20" y="40" width="260" height="170" rx="14" fill="#e8efff" stroke="#bcd0ff"/>
-        <text x="150" y="72" text-anchor="middle" font-weight="bold" font-size="17">☁ OneDrive のフォルダ</text>
-        <text x="150" y="98" text-anchor="middle" font-size="13" fill="#4b5563">消えない置き場（原本）</text>
-        <text x="40" y="130" font-size="13">📄 MyBookshelf.xlsm</text>
-        <text x="40" y="152" font-size="13">▶ MyBookshelfを起動.bat</text>
+        <rect x="20" y="30" width="260" height="210" rx="14" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="150" y="62" text-anchor="middle" font-weight="bold" font-size="17">☁ OneDrive のフォルダ</text>
+        <text x="150" y="88" text-anchor="middle" font-size="13" fill="#4b5563">消えない置き場（原本）</text>
+        <text x="40" y="114" font-size="13">📄 MyBookshelf.xlsm</text>
+        <text x="40" y="134" font-size="13">📄 MyBookshelf.build（版の印）</text>
+        <text x="40" y="154" font-size="13">▶ MyBookshelfを起動.bat</text>
         <text x="40" y="174" font-size="13">📁 Ghostscript</text>
-        <text x="40" y="196" font-size="13" fill="#4b5563">📄 MyBookshelf_前回.xlsm（自動で退避）</text>
+        <text x="40" y="198" font-size="13" fill="#4b5563">📄 MyBookshelf_前回.xlsm（自動で退避）</text>
+        <text x="40" y="220" font-size="13" fill="#4b5563">📄 MyBookshelf_旧版_控え.xlsm（退避）</text>
 
-        <rect x="620" y="40" width="260" height="170" rx="14" fill="#fff4e0" stroke="#f5d9a8"/>
-        <text x="750" y="72" text-anchor="middle" font-weight="bold" font-size="17">💽 D:\MyBookshelf\</text>
-        <text x="750" y="98" text-anchor="middle" font-size="13" fill="#4b5563">動かす場所（日をまたぐと消える）</text>
-        <text x="640" y="130" font-size="13">📄 MyBookshelf.xlsm（複製）</text>
-        <text x="640" y="152" font-size="13">📁 Ghostscript（初回・欠けたとき複製・約22MB）</text>
-        <text x="640" y="184" font-size="13" fill="#4b5563">ここで Excel が動く</text>
+        <rect x="620" y="30" width="260" height="210" rx="14" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="750" y="62" text-anchor="middle" font-weight="bold" font-size="17">💽 D:\MyBookshelf\</text>
+        <text x="750" y="88" text-anchor="middle" font-size="13" fill="#4b5563">動かす場所（日をまたぐと消える）</text>
+        <text x="640" y="114" font-size="13">📄 MyBookshelf.xlsm（複製）</text>
+        <text x="640" y="134" font-size="13">📄 MyBookshelf.build（版の印）</text>
+        <text x="640" y="154" font-size="13">📁 Ghostscript（無ければ複製・約22MB）</text>
+        <text x="640" y="174" font-size="13" fill="#4b5563">📄 MyBookshelf_旧版.xlsm（退避）</text>
+        <text x="750" y="212" text-anchor="middle" font-size="13" fill="#4b5563">ここで Excel が動く</text>
 
-        <path d="M285 95 L615 95" stroke="#1d4ed8" stroke-width="3" fill="none" marker-end="url(#ar)"/>
-        <text x="450" y="85" text-anchor="middle" font-size="13" fill="#1d4ed8">① bat を押す → 新しい方を複製して起動</text>
-        <path d="M615 165 L285 165" stroke="#15803d" stroke-width="3" fill="none" marker-end="url(#ar)"/>
-        <text x="450" y="155" text-anchor="middle" font-size="13" fill="#15803d">② 使っている間は10分ごと・閉じたら約30秒後に書き戻す</text>
-        <text x="450" y="235" text-anchor="middle" font-size="13" fill="#4b5563">タスクバーに残る最小化の黒い窓2つ（同期中・待機中）は、閉じずに自動で消えるのを待ってください</text>
+        <path d="M285 100 L615 100" stroke="#1d4ed8" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <text x="450" y="90" text-anchor="middle" font-size="13" fill="#1d4ed8">① bat を押す → 新しい方を複製して起動（版違いは旧版を自動で退避）</text>
+        <path d="M615 180 L285 180" stroke="#15803d" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+        <text x="450" y="170" text-anchor="middle" font-size="13" fill="#15803d">② 使っている間は10分ごと・閉じたら約30秒後に書き戻す</text>
+        <text x="450" y="270" text-anchor="middle" font-size="13" fill="#4b5563">タスクバーに残る最小化の黒い窓2つ（同期中・待機中）は、閉じずに自動で消えるのを待ってください</text>
       </g>
     </svg>
-    <figcaption>「動かす場所は D:、消えない置き場は OneDrive」。往復は bat が全部やります。</figcaption>
+    <figcaption>「動かす場所は D:、消えない置き場は OneDrive」。往復も、版が変わったときの旧版の退避も、bat が全部やります。</figcaption>
   </figure>
 
   <div class="stop"><b>やってはいけない2つ</b><br>
     ・黒い窓を×で閉じない（閉じると OneDrive への書き戻しが止まります）。<br>
-    ・開いたまま PC をシャットダウンしない（直前10分の作業が消えることがあります）。Excel を閉じて、黒い窓が自動で消えてからシャットダウンしてください。</div>
+    ・開いたまま PC をシャットダウンしない。Excel を閉じて、黒い窓が自動で消えてからシャットダウンしてください。</div>
+
+  <div class="note"><b>保存は3段階で進みます（「10分」だけを覚えると誤解します）</b><br>
+    ①<b>Excel で保存する</b> → ②<b>bat が OneDrive のフォルダへ書き戻す</b>（使っている間は10分ごと、閉じたら約30秒後。上の図の②）→ ③<b>OneDrive がそれをクラウドへ同期する</b>（bat の管理外で、OneDriveアプリ自身の同期状況に依存します）。①〜③のどこかが終わる前に PC の電源を切ると、その分の作業が消えることがあります。②まで終わると黒い窓は自動で消えますが、③のクラウド同期はそれとは別に、OneDrive のアイコンで確認してください。</div>
 
   <div class="note"><b>版上げのとき（新しい zip を受け取ったら）</b><br>
-    新しい zip を展開する前に、古い <code>MyBookshelf.xlsm</code> を削除せず、名前を <code>MyBookshelf_旧版.xlsm</code> に変えて同じフォルダに残してください。<br>
+    新しい zip を、いつもの OneDrive のフォルダにそのまま上書き展開してください（古いファイルを手で改名する必要はありません）。次に bat を起動すると、版の印（<code>MyBookshelf.build</code>）の違いから版上げだと自動で見分け、D: 側の古い本体を <code>MyBookshelf_旧版.xlsm</code> として退避し、そのひかえを OneDrive 側にも <code>MyBookshelf_旧版_控え.xlsm</code> として残してから、新しい版を展開します。<br>
     新しい版を開いた初回に「前の版の本棚を引き継ぎますか?」と聞かれるので、「はい」を選ぶと本棚・実績・設定が自動で引き継がれます。</div>
 </section>
 
 <!-- ============================================================ -->
 <section id="s3">
-  <h2>3. 画面の地図<small>画面は5つ。全部 Hub から行き、「← Hub」で戻る</small></h2>
+  <h2>3. 画面の地図<small>画面は5つ。全部 Hub から行く。戻れるのは 🩺 診断以外の4画面</small></h2>
 
   <figure>
     <svg viewBox="0 0 900 330" role="img" aria-label="Hubを中心に、チャット・マイ本棚・ダッシュボード・診断の4画面へ行き来する">
@@ -234,7 +241,7 @@
         <line x1="630" y1="250" x2="570" y2="205" stroke="#64748b" stroke-width="2"/>
       </g>
     </svg>
-    <figcaption>Hub の「💬 チャットで質問する」「📚 ナレッジと本棚」「📊 ダッシュボード」を押して移動。どの画面も左上の「← Hub」で戻れます。</figcaption>
+    <figcaption>Hub の「💬 チャットで質問する」「📚 ナレッジと本棚」「📊 ダッシュボード」を押して移動。チャット・マイ本棚・ダッシュボードは左上の「← Hub」で戻れます（🩺 診断には戻るボタンが無いので、シート下部のタブから他のシートを選んで移動してください）。</figcaption>
   </figure>
 
   <div class="note"><b>画面が崩れた・ボタンが消えたとき</b>は Hub 右上の <span class="btn">🔄</span> で描き直せます。マイ本棚の上にある3つのピル（<span class="btn">🃏 ギャラリー</span> / <span class="btn">📋 マイ本棚</span> / <span class="btn">🎁 みんなの解決事例</span>）は画面の中の表示切替で、「📋 マイ本棚」は画面名と同じ文字ですが一覧表示に切り替えるボタンです。</div>
@@ -441,7 +448,7 @@
   <h3>出典を確かめる（毎回やってほしいこと）</h3>
   <ol class="steps">
     <li><b>答えのすぐ下の信頼度バッジを見る</b>🟢「本棚の資料と強く一致(N件)」／🟡「部分的に一致 ― 下の出典で原文をご確認ください」／🔴「本棚に十分な根拠なし ― 内容をうのみにしないでください」の3段階です。🔴 のときは答えを使わないでください。</li>
-    <li><b>「🔎 出典(クリックで原文を確認):」の資料名ボタン（📄 資料名 p.ページ）を押す</b>その資料の該当箇所の抜粋（先頭600字まで）がポップアップで出ます。出典ボタンは最大4件、同じ資料は1つにまとまります。</li>
+    <li><b>「🔎 出典(クリックで原文を確認):」の資料名ボタンを押す</b>PDF・Wordの資料は（📄 資料名 p.ページ）、Excelの資料は（📄 資料名 シートN）の形で出ます。押すとその資料の該当箇所の抜粋（先頭600字まで）がポップアップで出ます。出典ボタンは最大4件、同じ資料は1つにまとまります。</li>
     <li><b>「📂 原文を開く」で元のファイルを開く</b>数字・条文はここで必ず元の資料に当たってください。</li>
     <li><b>答えの頭に「⚠️ 手元の資料との関連が薄い可能性があります」が付いていたら疑う</b>本棚との一致が弱かった印です（既定: スコア 0.3 未満）。質問の言葉を資料と同じ表記に寄せて聞き直すのが近道です。</li>
   </ol>
@@ -481,8 +488,9 @@
         <text x="450" y="236" text-anchor="middle" font-size="12" fill="#4b5563">共有フォルダが設定済みなら、訂正は部内にも配られます（受け取った側で本棚に入るのは、その人が取り込んだときだけ）</text>
       </g>
     </svg>
-    <figcaption>画面には「この質問には次から、いま書いていただいた内容で答えます（是正メモとして本棚に入りました）」と出ます。これは実装どおりです。ただし効くのは 🏢 社内ナレッジ検索で、続けて質問ではない普通の質問（8文字以上）に ❌違う を押したときだけ。🌐 一般アシスタントや 🔍深掘り の回答、🤔微妙 のあとに書いた内容は「修正ナレッジ」として本棚に残るだけで、先頭には差し込まれません。</figcaption>
+    <figcaption>「❌ 違う」を押してから、是正メモが本棚に入り、次回の回答に使われるまでの流れ。</figcaption>
   </figure>
+  <div class="note"><b>効く条件を必ず確認してください</b><br>画面には「この質問には次から、いま書いていただいた内容で答えます（是正メモとして本棚に入りました）」と出ます。これは実装どおりです。<b>ただし効くのは 🏢 社内ナレッジ検索で、続けて質問ではない普通の質問（8文字以上）に ❌違う を押したときだけ</b>です。🌐 一般アシスタントや 🔍深掘り の回答、🤔微妙 のあとに書いた内容は「修正ナレッジ」として本棚に残るだけで、先頭には差し込まれません。</div>
   <div class="ok"><b>効かせるコツ</b>: 質問を打ち直すときは、最初に聞いたときと同じ言い回しで。是正メモは「そのとき打った質問文」にひも付いています。言い回しが大きく変わると別の質問として扱われます。</div>
 </section>
 
@@ -513,7 +521,20 @@
     <tr><td>E0801</td><td>画面の組み立てに失敗した</td><td>データは失われていません。閉じて開き直す。繰り返すときは画面を撮って管理者へ</td></tr>
     <tr><td>E0805</td><td>結果が保存されない</td><td>読み取り専用で開かれている。別の Excel で同じファイルを開いていないか確認</td></tr>
   </table></div>
-  <p class="muted">全コードの一覧はブック内の「使い方」シート ⑧（マクロが無効でも読めます）にあります。</p>
+  <p class="muted">主なコードの一覧はブック内の「使い方」シート ⑧（マクロが無効でも読めます）にあります。全コードの一覧は <code>docs/30_運用保守ガイド.md</code>（この配布 zip には同梱されていません）にあります。</p>
+
+  <h3>起動・書き戻し中に出る黒い窓（Excel の中の画面ではありません）</h3>
+  <p>ここまでの E0xxx は Excel の中のメッセージですが、bat（ランチャー）が出す案内はコマンドプロンプトの黒い窓で表示されます。タイトルで見分けてください。</p>
+  <div class="tw"><table>
+    <tr><th style="width:30%">黒い窓のタイトル</th><th>いつ出るか</th><th>対処</th></tr>
+    <tr><td>MyBookshelf 前版の控え失敗</td><td>版上げ時、D: 側の旧版を OneDrive 側へ控えられなかった</td><td>OneDrive の空き容量・同期状態を確認。案内された旧ファイルを手で安全な場所へコピー</td></tr>
+    <tr><td>MyBookshelf Ghostscript 複製失敗</td><td>Ghostscript 一式を D: へ複製できなかった</td><td>通常の資料はそのまま使えます。画像PDFの取込だけ次回起動時にもう一度試されます</td></tr>
+    <tr><td>MyBookshelf 書き戻し失敗</td><td>使用中の定期書き戻し、または終了時の最終書き戻しに失敗した</td><td>作業は D: 側に残っています。案内された手順で OneDrive へ手動コピー</td></tr>
+    <tr><td>MyBookshelf 退避失敗</td><td>終了時、OneDrive 側の現在のファイルを控えられず書き戻しを中止した</td><td>D: 側が最新です。案内された手順で OneDrive へ手動コピー</td></tr>
+    <tr><td>MyBookshelf 複製失敗</td><td>D: へ本体を複製できなかった</td><td>元のファイルや D: の空き容量を確認してもう一度起動</td></tr>
+    <tr><td>MyBookshelf 版の印の複製失敗</td><td>版の印（<code>.build</code>）を D: へ複製できなかった</td><td>D:\MyBookshelf への書き込みができるか確認してもう一度起動</td></tr>
+  </table></div>
+  <p class="muted">どの窓も、閉じるまで画面に残ります。内容を確認したら何かキーを押すか × で閉じて構いません（Excel 本体には影響しません）。繰り返し出るときは窓の文言ごと管理者へ。</p>
 </section>
 
 <!-- ============================================================ -->
@@ -536,7 +557,7 @@
     <dt>本棚 / マイ本棚</dt><dd>あなたが入れた資料の置き場。AIはここだけを根拠に答えます。</dd>
     <dt>ベクトル化 / 変換</dt><dd>資料をAIが検索できる形に直すこと。カードが ⏳ → ✅ になるまでの処理です。</dd>
     <dt>チャンク</dt><dd>資料を検索しやすい大きさ（数百字）に切った1切れ。本棚の上限は「チャンク数」で数えます。</dd>
-    <dt>出典 / 📖 この回答のもと</dt><dd>答えの根拠にした資料名とページ。ボタンを押すと抜粋が出て、原文を開けます。</dd>
+    <dt>出典 / 📖 この回答のもと</dt><dd>答えの根拠にした資料名と該当箇所（PDF・Wordは p.ページ、Excelは シートN）。ボタンを押すと抜粋が出て、原文を開けます。</dd>
     <dt>仕上げ（⚡）</dt><dd>古い形式で取り込んだ資料に、章の目次と要約を後付けする処理。再取込は不要。全部済んでいれば「仕上げ済みです」と出るだけです。</dd>
     <dt>パック</dt><dd>本棚の資料をひとまとめにした受け渡し用ファイル（.xlsx）。同僚に渡す用。</dd>
     <dt>引き継ぎファイル</dt><dd>本棚＋実績＋設定を丸ごと1つにした、自分用のバックアップ。</dd>
@@ -551,7 +572,7 @@
 </main>
 
 <footer>
-  この文書は 2026年9月8日版（R41）の config シートの実測値と、ブック内「使い方」シート・実装の文字列にもとづいて書かれています。設計上の予定ではなく、いま配られているファイルの動きです。画面の見た目（配置・色）は実機で異なることがあります。詳しい説明は同梱の docs/00_はじめての方へ.md と、ブック内の「使い方」シートを参照してください。
+  この文書は 2026年9月10日版（R43）の config シートの実測値と、ブック内「使い方」シート・実装の文字列にもとづいて書かれています。設計上の予定ではなく、いま配られているファイルの動きです。画面の見た目（配置・色）は実機で異なることがあります。詳しい説明は同梱の docs/00_はじめての方へ.md と、ブック内の「使い方」シートを参照してください。
 </footer>
 
 </body>
