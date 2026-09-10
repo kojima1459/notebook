@@ -492,7 +492,10 @@ Public Function RowTextFrom(ByRef arr As Variant, ByVal r As Long, ByVal cols As
             hasVal = True
         ElseIf Not IsEmpty(v) Then
             cellText = CStr(v)
-            hasVal = True
+            ' レビュー R43 m2: 数式が返した空文字("")は「値あり」に数えない。
+            ' 数えると [B6] だけの番地が残り、値の無いセルを AI が
+            ' 「(B6 付近)」として引用しうる(空セルの位置保持は下で不変)。
+            If LenB(cellText) > 0 Then hasVal = True
         End If
         If hasVal Then
             cellParts(c - 1) = RowPrefix(baseCol + c - 1, rowIdx) & cellText

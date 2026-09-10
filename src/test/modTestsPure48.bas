@@ -73,6 +73,17 @@ Private Sub TestCellOnlyAddress48()
     Dim got As String: got = modExtractorExcel.RowTextFrom(arr, 1, 3, has, 5, 1)
     ChkBool48 "T1_hasCell", has, True
     ChkStr48 "T1_値のあるセルだけに番地", got, "[A5] 山田" & vbTab & vbTab & "[C5] 1234"
+
+    ' T1b(レビュー R43 m2): 数式が返した空文字("")は値ありに数えない。
+    ' 数えると [B5] だけの番地が残り、値の無いセルを AI が引用しうる。
+    ' 期待は空セル(IsEmpty)と同じ＝タブだけで位置を保ち、番地は付かない。
+    Dim arr2() As Variant: ReDim arr2(1 To 1, 1 To 3)
+    arr2(1, 1) = "山田"
+    arr2(1, 2) = ""
+    arr2(1, 3) = "1234"
+    Dim has2 As Boolean
+    Dim got2 As String: got2 = modExtractorExcel.RowTextFrom(arr2, 1, 3, has2, 5, 1)
+    ChkStr48 "T1b_数式の空文字には番地を付けない", got2, "[A5] 山田" & vbTab & vbTab & "[C5] 1234"
 End Sub
 
 ' ---- T2: A列が空でB列起点のシートで正しくBが出る --------------------------

@@ -412,6 +412,11 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
     Dim n As Long: n = UBound(arrC, 1) - LBound(arrC, 1) + 1
 
     Dim wsV As Worksheet: Set wsV = wb.Worksheets("pack_vectors")
+    ' レビュー R43 M5: config の引き当ては1回だけ。modConfig.GetLong は
+    ' キャッシュ無しでセルを逐次走査するため、チャンクごとに呼ぶと
+    ' 2万件のパックで数十万回の COM 読みになる。
+    Dim edim As Long: edim = modConfig.GetLong("embed_dim", 1536)
+
     Dim vecMap As Object: Set vecMap = CreateObject("Scripting.Dictionary")
     Dim lastV As Long: lastV = wsV.Cells(wsV.Rows.count, 1).End(xlUp).row
     If lastV >= 2 Then
@@ -465,7 +470,7 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
                 If LenB(tmpVectors(cnt)) > 0 Then
                     Dim vArr() As Double
                     Dim vOk As Boolean: vOk = modUtil.CsvToVector(tmpVectors(cnt), vArr)
-                    If vOk Then vOk = ((UBound(vArr) - LBound(vArr) + 1) = modConfig.GetLong("embed_dim", 1536))
+                    If vOk Then vOk = ((UBound(vArr) - LBound(vArr) + 1) = edim)
                     If Not vOk Then Err.Raise 6, "modPack", "pack_vectors id=" & cid & " の次元が不正です"
                 End If
             Else

@@ -202,8 +202,7 @@ End Function
 ' userBubbleText(R20-7a追加): 自分バブルの文字色。msadは塗りが濃緑になる
 ' ため白固定、他は従来どおりtextと同色(見た目を変えない)。
 Public Function ResolveColor(ByVal key As String, ByVal themeName As String) As Long
-    ' R43 2-1: 実体はmodKnowledgeBar.OnAccentColorへ(modSkinの容量逼迫のため)。
-    ' "onXxx" は面の色 "xxx" に乗せる文字色(白固定は gold primary 2.10 等でAA未達)。
+    ' "onXxx" = 面 "xxx" に乗せる文字色(輝度で白/濃色を選ぶ)。
     If Left$(key, 2) = "on" Then
         ResolveColor = modKnowledgeBar.OnAccentColor(ResolveColor(LCase$(Mid$(key, 3)), themeName))
         Exit Function

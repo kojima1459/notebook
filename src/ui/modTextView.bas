@@ -178,7 +178,11 @@ Public Sub NoteShelfTruncated(ByVal hiddenN As Long)
     If hiddenN < 1 Then Exit Sub
     mShelfTruncNoted = True
     On Error Resume Next
-    modSkin.ShowToast "ほか" & hiddenN & "件は表示していません(不要な資料を削除すると表示されます)。", "info"
+    ' レビュー R43 M3: waitless=True。呼び元(modUIShelf.RenderShelf)は
+    ' ScreenUpdating=False・AlertsOff の描画途中なので、待つ型のトースト
+    ' (既定 False)だと 3 秒ぶん DoEvents で固まり、しかも画面が更新されない
+    ' まま消えて一度も見えない。予約消去(modToast)に任せる。
+    modSkin.ShowToast "ほか" & hiddenN & "件は表示していません(不要な資料を削除すると表示されます)。", "info", True
     On Error GoTo 0
 End Sub
 

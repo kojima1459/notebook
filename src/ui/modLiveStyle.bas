@@ -83,6 +83,17 @@ Public Sub StyleAnswerParas(ByVal bubbleName As String)
             .Fill.ForeColor.RGB = modUI.UiColor("primary")
         End With
     Next i
+
+    ' ---- 高さの再フィットと下端の取り直し(レビュー R43 M2) -------------------
+    ' 結論段落を 12pt にすると文字が箱より背が高くなりうる。AutoSize は一度
+    ' 切って入れ直さないと再フィットしない(modUI.UpdateBubbleText:283-297 が
+    ' 同じ2手を踏んでいる)。下端も取り直さないと、次のバブル(起動時の履歴
+    ' 復元は1件ずつ装飾する)がこのバブルへ重なる。
+    With shp.TextFrame2
+        .AutoSize = 0
+        .AutoSize = 1
+    End With
+    modUI.RecalcChatBottom shp.Parent
     On Error GoTo 0
 End Sub
 
@@ -102,7 +113,7 @@ End Sub
 '       modClarify.bas:98,101)と modAskMulti.BuildClarifyAsk(src/qa/
 '       modAskMulti.bas:390)が組む「もう少しだけ教えてください」
 '       「ご質問はいくつかの読み方ができます」は、どちらも文頭が
-'       📍(ChrW(&HD83D)&ChrW(&HDCAD))で始まる固定書式。これは結論では
+'       💭(ChrW(&HD83D)&ChrW(&HDCAD))で始まる固定書式。これは結論では
 '       なく「これから番号で選んでもらう問い」なので、結論用の強調は
 '       付けない(この絵文字で始まる回答は他に無く誤爆しない。
 '       modApp.bas:141の「考えています…」プレースホルダも同じ絵文字を
@@ -131,6 +142,13 @@ Public Function LeadParaIndex(ByVal text As String) As Long
 
     If Left$(firstPara, 1) = "■" Then Exit Function
     If Left$(firstPara, 2) = ChrW(&HD83D) & ChrW(&HDCAD) Then Exit Function
+    ' レビュー R43 M1: 先頭に前置されるだけで結論ではない2種。
+    ' (3) modAskRetrieve.ApplyLowHitWarning が付ける「⚠️ 手元の資料との関連が
+    '     薄い可能性があります…」。根拠が薄いときほど警告文を大きくしてしまう。
+    ' (4) modApp.RestoreLastConversation が付ける「📜(前回の回答) 」。これが
+    '     前置されると ■ も 💭 も貫通するので、復元履歴が全件12ptになる。
+    If Left$(firstPara, 1) = ChrW(&H26A0) Then Exit Function
+    If Left$(firstPara, 2) = ChrW(&HD83D) & ChrW(&HDCDC) Then Exit Function
 
     LeadParaIndex = 1
 End Function
