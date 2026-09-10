@@ -217,26 +217,26 @@ Private Sub TestR40Display43()
     Dim s As String
     ' 2つのタグ(本棚・パック)。位置は1始まり、長さは "[" から "]" まで。
     s = "上限はない。[本棚:約款.pdf p.12] また" & vbCr & "別紙参照 [パック(山田):別紙.docx]。"
-    ChkLong43 "R40F2_2件", modLive.CiteTagSpans(s, st, ln), 2
+    ChkLong43 "R40F2_2件", modLiveStyle.CiteTagSpans(s, st, ln), 2
     ChkLong43 "R40F2_1件目開始", st(1), InStr(s, "[本棚:")
     ChkStr43 "R40F2_1件目切り出し", Mid$(s, st(1), ln(1)), "[本棚:約款.pdf p.12]"
     ChkStr43 "R40F2_2件目切り出し", Mid$(s, st(2), ln(2)), "[パック(山田):別紙.docx]"
     ' 閉じ括弧が段落を跨ぐものはタグではない(次の候補は拾う)。
     s = "[本棚:壊れ" & vbCr & "た] 本文 [本棚:a.pdf p.1]"
-    ChkLong43 "R40F2_段落跨ぎは除外", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R40F2_段落跨ぎは除外", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R40F2_跨ぎ後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
     ' タグ無し・空文字は0件。閉じ括弧が無ければ0件。
-    ChkLong43 "R40F2_無し", modLive.CiteTagSpans("出典なし [[FOLLOWUP: a | b]]", st, ln), 0
-    ChkLong43 "R40F2_空", modLive.CiteTagSpans("", st, ln), 0
-    ChkLong43 "R40F2_閉じ無し", modLive.CiteTagSpans("[本棚:a.pdf p.1", st, ln), 0
+    ChkLong43 "R40F2_無し", modLiveStyle.CiteTagSpans("出典なし [[FOLLOWUP: a | b]]", st, ln), 0
+    ChkLong43 "R40F2_空", modLiveStyle.CiteTagSpans("", st, ln), 0
+    ChkLong43 "R40F2_閉じ無し", modLiveStyle.CiteTagSpans("[本棚:a.pdf p.1", st, ln), 0
     ' 隣接するタグも別々に拾う。
-    ChkLong43 "R40F2_隣接2件", modLive.CiteTagSpans("[本棚:a.pdf p.1][本棚:b.pdf p.2]", st, ln), 2
+    ChkLong43 "R40F2_隣接2件", modLiveStyle.CiteTagSpans("[本棚:a.pdf p.1][本棚:b.pdf p.2]", st, ln), 2
     ' 同じ段落内で閉じていない開始は、後続タグの ] に食いつかない(レビュー R40 m1)。
     s = "参考は [本棚:規程 切れた 本文 [本棚:a.pdf p.1] 続き"
-    ChkLong43 "R40F2_未閉じは後続へ食いつかない", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R40F2_未閉じは後続へ食いつかない", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R40F2_未閉じ後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
     s = "[パック(山田):切れた [本棚:a.pdf p.1]"
-    ChkLong43 "R40F2_未閉じパック→本棚", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R40F2_未閉じパック→本棚", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R40F2_未閉じパック後の正常タグ", Mid$(s, st(1), ln(1)), "[本棚:a.pdf p.1]"
 
     ' PageLabel: Excel 系はシート、それ以外は p.、0は空。
@@ -270,13 +270,15 @@ End Sub
 Private Sub TestR41SweepMs43()
     ' 短文: ToastWaitMsFor の下限 3,000 の2倍。
     ChkLong43 "R41M3_短文は6000", modToast.SweepMsFor("保存しました"), 6000
-    ' 作業用Excelの案内: 84字=全角72+半角12("Excel"×2+"(" ")")→全角換算78
-    ' → ceil(78/15*1000)=5200 → ×2=10400(python で実測。レビューの推定
-    ' 74字/9868 は誤りだった=推定値を期待値にしない)。
-    ChkLong43 "R41M3_作業用Excel案内は10400", modToast.SweepMsFor( _
-        "作業用Excelを起動しました。そちらで仕事ができます。" & _
-        "仕事が終わったら作業用Excelは閉じてください" & _
-        "(開いたままだと次回、本体がそちらに吸い込まれることがあります)"), 10400
+    ' 作業用Excelの案内(R43 波A 1-4で103字へ差し替え): len=103。半角24字
+    ' ("Excel"×2=10+"2"=1+"MyBookshelf"=11+"("")"=2)・全角79字(残り103-24)。
+    ' modChrome.TextSpanの定義(半角=pitch/2・全角=pitch)どおり全角換算=
+    ' 79×1+24×0.5=79+12=91.0。→ ceil(91/15*1000)=6067 → ×2=12134
+    ' (上限15,000未満なのでそのまま。python3実測で確認済み)。
+    ChkLong43 "R43_作業用Excel案内は12134", modToast.SweepMsFor( _
+        "作業用のExcelを開きました。いまExcelが2つあります。" & _
+        "新しく開いた空の方が作業用です。そちらで仕事をして、終わったら空の方だけ" & _
+        "閉じてください。MyBookshelf(この画面)は閉じないでください。"), 12134
     ' 長文: 上限 15,000 で頭打ち(ToastWaitMsFor 上限 9,000 の2倍=18,000 を超えない)。
     ChkLong43 "R41M3_長文は15000で頭打ち", modToast.SweepMsFor(String$(300, "あ")), 15000
 End Sub
@@ -289,22 +291,22 @@ Private Sub TestR41CiteTagSpansExtend43()
     ' (a) 資料名に "]" を含む(report[1].pdf)。最初の "]" では閉じない
     '     (直前が数字でも、その前が p./シートでない)ので伸ばして最後まで拾う。
     s = "[本棚:report[1].pdf p.3] 本文"
-    ChkLong43 "R41C2_伸長1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R41C2_伸長1件", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R41C2_伸長後の切り出し", Mid$(s, st(1), ln(1)), "[本棚:report[1].pdf p.3]"
 
     ' (b) シート表記でも同様に伸びる(末尾まで=trailing無し)。
     s = "[本棚:計算[改定].xlsx シート2]"
-    ChkLong43 "R41C2_シート表記伸長1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R41C2_シート表記伸長1件", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R41C2_シート表記伸長後の切り出し", Mid$(s, st(1), ln(1)), s
 
     ' (c) 伸ばしても該当が無ければ従来どおり最初の "]"(空振りで壊さない)。
     s = "[本棚:x[1] 本文] 続き"
-    ChkLong43 "R41C2_該当無しは従来どおり1件", modLive.CiteTagSpans(s, st, ln), 1
+    ChkLong43 "R41C2_該当無しは従来どおり1件", modLiveStyle.CiteTagSpans(s, st, ln), 1
     ChkStr43 "R41C2_該当無しは最初の]で切る", Mid$(s, st(1), ln(1)), "[本棚:x[1]"
 
     ' (d) 2件連続でも、それぞれ正しく切り出せる。
     s = "[本棚:a[1].pdf p.1][本棚:b.pdf p.2]"
-    ChkLong43 "R41C2_2件連続", modLive.CiteTagSpans(s, st, ln), 2
+    ChkLong43 "R41C2_2件連続", modLiveStyle.CiteTagSpans(s, st, ln), 2
     ChkStr43 "R41C2_2件連続の1件目", Mid$(s, st(1), ln(1)), "[本棚:a[1].pdf p.1]"
     ChkStr43 "R41C2_2件連続の2件目", Mid$(s, st(2), ln(2)), "[本棚:b.pdf p.2]"
 End Sub

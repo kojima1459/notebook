@@ -213,143 +213,14 @@ Public Sub StyleFooter(ByVal bubbleName As String)
     On Error GoTo 0
 End Sub
 
-' StyleAnswerParas - 「■」で始まる段落だけを太字にする(2026-08-03 R14-8c)。
-'   段落の区切りは vbCr(StyleFooter と同じ。vbLf では1段落のままで
-'   Paragraphs が分かれないため、AnswerParagraphs で vbCr へ変換済み)。
-'
-'   実機第3報 RC9: この画面は完全なプレーンテキストで、回答の見出しは
-'   「■ 」という文字が行頭に在るだけだった。長い回答ほど、どこが区切りか
-'   目で追えない。太字は Shape のテキストで唯一きく強調で、しかも
-'   段落単位なら本文の折り返しに影響しない。
-'   表示の失敗が回答を壊してはならないので、全体を On Error Resume Next で
-'   包む(太字にならないことはあっても、ここで質問が落ちることはない)。
+' StyleAnswerParas - 「■」見出しの太字・結論段落の強調・出典タグ/セル番地の
+'   小型化(2026-08-03 R14-8c 発祥)。実体は R43 波A で modLiveStyle へ移設
+'   した(modLive が27,825字でWARN目前のため。modSkin→modToastと同型の
+'   分割・挙動は一字も変えていない)。呼び出し側(modApp.bas 2箇所)は
+'   このシグネチャのまま変更不要。
 Public Sub StyleAnswerParas(ByVal bubbleName As String)
-    If LenB(bubbleName) = 0 Then Exit Sub
-    On Error Resume Next
-    Dim shp As Shape
-    Set shp = ThisWorkbook.Worksheets("Nexus").Shapes(bubbleName)
-    If shp Is Nothing Then Exit Sub
-    Dim pcount As Long
-    pcount = shp.TextFrame2.TextRange.Paragraphs.count
-    If pcount < 1 Then Exit Sub
-    Dim i As Long
-    For i = 1 To pcount
-        If Left$(LTrim$(shp.TextFrame2.TextRange.Paragraphs(i).Text), 1) = "■" Then
-            shp.TextFrame2.TextRange.Paragraphs(i).Font.Bold = True
-        End If
-    Next i
-    ' R40 F2(実機報告): 本文に混ざる出典タグ [本棚:資料 p.N] / [パック(名):資料]
-    ' が本文と同じ大きさ・同じ色で、回答が読みにくい(認知負荷)。タグの文字列は
-    ' 変えず(出典突合・復元・Word出力はタグの字面に依存する)、見た目だけ
-    ' 小さく・出典チップと同じ色にして「本文」と「根拠の印」を目で分ける。
-    Dim starts() As Long, lens() As Long
-    Dim nTag As Long: nTag = CiteTagSpans(shp.TextFrame2.TextRange.Text, starts, lens)
-    For i = 1 To nTag
-        With shp.TextFrame2.TextRange.Characters(starts(i), lens(i)).Font
-            .Size = 8
-            .Fill.ForeColor.RGB = modUI.UiColor("primary")
-        End With
-    Next i
-    On Error GoTo 0
+    modLiveStyle.StyleAnswerParas bubbleName
 End Sub
-
-' CiteTagSpans - 本文中の出典タグの位置と長さを列挙する(純関数・R40 F2)。
-'   "[本棚:" または "[パック(" で始まり、同じ段落内の最初の "]" で閉じる範囲。
-'   閉じ括弧が無い(改行を跨ぐ)ものはタグとみなさない。戻り値は件数、
-'   starts/lens は 1 始まり(TextRange.Characters と同じ数え方。段落区切りの
-'   vbCr も1字として数える=Text の位置そのまま)。
-Public Function CiteTagSpans(ByVal s As String, ByRef starts() As Long, _
-                             ByRef lens() As Long) As Long
-    Dim n As Long
-    ReDim starts(1 To 1): ReDim lens(1 To 1)
-    Dim p As Long: p = 1
-    Do
-        Dim a As Long: a = InStr(p, s, "[本棚:")
-        Dim b As Long: b = InStr(p, s, "[パック(")
-        If a = 0 And b = 0 Then Exit Do
-        Dim st As Long
-        If a = 0 Then
-            st = b
-        ElseIf b = 0 Then
-            st = a
-        ElseIf a < b Then
-            st = a
-        Else
-            st = b
-        End If
-        Dim en As Long: en = InStr(st, s, "]")
-        If en = 0 Then Exit Do
-        Dim brk As Long: brk = InStr(st, s, vbCr)
-        If brk = 0 Then brk = InStr(st, s, vbLf)
-        ' 閉じ括弧より前に次のタグが始まる=この開始は閉じていない(レビュー R40 m1)。
-        Dim nx As Long: nx = InStr(st + 1, s, "[本棚:")
-        Dim nx2 As Long: nx2 = InStr(st + 1, s, "[パック(")
-        If nx = 0 Or (nx2 > 0 And nx2 < nx) Then nx = nx2
-
-        ' R41 §3 C2(レビュー両者 M4): "[本棚:" 形は資料名に "]" を含みうる
-        ' (例: report[1].pdf)。最初の "]" の直前が「数字」で、その前が
-        ' "p." または "シート" でなければ閉じ候補として認めず、同じ段落・
-        ' 次のタグ開始より前に限って次の "]" を最大2回まで試す。該当が無ければ
-        ' 従来どおり最初の "]"(空振りで本文を壊さない安全弁)。"[パック(" 形は
-        ' 従来どおり(資料名にページ接尾辞が無く判定できないため §5 記録のみ)。
-        If a > 0 And st = a Then
-            If Not TagCloseOk(s, st, en) Then
-                Dim tryFrom As Long: tryFrom = en
-                Dim tries As Long
-                For tries = 1 To 2
-                    Dim cand As Long: cand = InStr(tryFrom + 1, s, "]")
-                    If cand = 0 Then Exit For
-                    If brk > 0 And brk < cand Then Exit For
-                    If nx > 0 And nx < cand Then Exit For
-                    If TagCloseOk(s, st, cand) Then
-                        en = cand
-                        Exit For
-                    End If
-                    tryFrom = cand
-                Next tries
-            End If
-        End If
-
-        If (brk > 0 And brk < en) Or (nx > 0 And nx < en) Then
-            p = st + 1
-        Else
-            n = n + 1
-            ReDim Preserve starts(1 To n): ReDim Preserve lens(1 To n)
-            starts(n) = st
-            lens(n) = en - st + 1
-            p = en + 1
-        End If
-    Loop
-    CiteTagSpans = n
-End Function
-
-' TagCloseOk - 位置 en の "]" が "[本棚:" 形タグの正しい閉じかどうか(純関数・
-'   R41 §3 C2)。en-1 から数字を1桁以上遡り、その直前が "p." または "シート"
-'   ならOK。資料名に含まれる "]"(例: report[1].pdf)は数字の直前がその
-'   トークンにならないのでNGになり、CiteTagSpans が次の "]" を試す。
-Private Function TagCloseOk(ByVal s As String, ByVal st As Long, ByVal en As Long) As Boolean
-    Dim i As Long: i = en - 1
-    If i < st Then Exit Function
-    Dim c As String: c = Mid$(s, i, 1)
-    If c < "0" Or c > "9" Then Exit Function   ' "]" の直前が数字でなければNG
-    Do While i > st
-        c = Mid$(s, i - 1, 1)
-        If c < "0" Or c > "9" Then Exit Do
-        i = i - 1
-    Loop
-    ' i = 数字の先頭位置。その直前2文字が "p."、または直前3文字が "シート"。
-    If i - 2 >= st Then
-        If Mid$(s, i - 2, 2) = "p." Then
-            TagCloseOk = True
-            Exit Function
-        End If
-    End If
-    If i - 3 >= st Then
-        If Mid$(s, i - 3, 3) = "シート" Then
-            TagCloseOk = True
-        End If
-    End If
-End Function
 
 ' PageLabel - 出典表示の「p.N」部分(純関数・R40 F3)。Excel 由来の資料は
 '   ページではなくシートの通し番号なので「シートN」と書く(実機報告
