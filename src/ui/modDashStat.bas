@@ -347,18 +347,14 @@ End Function
 ' ----------------------------------------------------------------------------
 ' 内部: 蔵書チャンク数の使用率バー("▓▓▓░░░ 42%"形式)
 ' ----------------------------------------------------------------------------
-Public Function UsageBarText(ByVal ratio As Double) As String
+' R43 2-6: 生の"/"表記(単位不明)をやめ、Hub側の「本棚の使用量 N%」に表現を
+' 寄せた平易語へ(shelfMaxを引数に足す唯一の呼び出し元をここで更新)。
+Public Function UsageBarText(ByVal ratio As Double, ByVal shelfMax As Long) As String
     Dim r As Double: r = ratio
     If r < 0 Then r = 0
     If r > 1 Then r = 1
-
-    Dim totalBlocks As Long: totalBlocks = 10
-    Dim filled As Long: filled = CLng(Round(r * totalBlocks, 0))
-    If filled < 0 Then filled = 0
-    If filled > totalBlocks Then filled = totalBlocks
-
     Dim pctInt As Long: pctInt = CLng(Round(r * 100, 0))
-    UsageBarText = String$(filled, ChrW(&H2593)) & String$(totalBlocks - filled, ChrW(&H2591)) & " " & pctInt & "%"
+    UsageBarText = "上限" & shelfMax & "かけらの" & pctInt & "%"
 End Function
 
 ' 分を「n分」「n時間m分」形式に整形する(modUIDashboard.FormatMinutesを移植)。
@@ -480,7 +476,7 @@ Public Sub DrawKpiRow(ByVal ws As Worksheet)
         ratio = 0
     End If
     DrawKpiCard ws, 2, x0 + 2 * (cw + gp), BodyY0(), cw, KpiCardH(), _
-        "資料の分量", totalChunks & " / " & shelfMax, modDashStat.UsageBarText(ratio)
+        "資料の分量", totalChunks & " かけら", modDashStat.UsageBarText(ratio, shelfMax)
 
     ' Card3: レベル
     Dim lv As Long: lv = modDashStat.SafeLevel()

@@ -217,7 +217,7 @@ Public Sub DrawChrome(ByVal ws As Worksheet, ByVal mode As String)
     hdr.Fill.ForeColor.RGB = modUI.UiColor("sidebar")
     modSkin.ApplyHeaderDepth hdr          ' §9: 濃紺の2色グラデーション
     With hdr.TextFrame2
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジ"
+        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCDA) & " ナレッジと本棚"
         .TextRange.Font.Size = 12
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
