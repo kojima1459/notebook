@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>部門ナレッジの配り方ガイド</title>
+<style>
+  :root{
+    --ink:#1f2937; --sub:#4b5563; --line:#d9dee5; --bg:#ffffff; --paper:#f6f7f9;
+    --accent:#1d4ed8; --accent-bg:#e8efff; --ok:#15803d; --ok-bg:#e7f6ec;
+    --warn:#b45309; --warn-bg:#fff4e0; --bad:#b91c1c; --bad-bg:#fdecec;
+    --chip:#eef1f5;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif;
+    font-size:16px;line-height:1.75;}
+  header.top{background:#0f172a;color:#fff;padding:28px 20px 22px}
+  header.top .wrap{max-width:960px;margin:0 auto}
+  header.top h1{margin:0 0 6px;font-size:28px;letter-spacing:.02em}
+  header.top p{margin:0;color:#cbd5e1;font-size:15px}
+  header.top .stamp{display:inline-block;margin-top:10px;font-size:12px;color:#94a3b8;
+    border:1px solid #334155;border-radius:999px;padding:2px 10px}
+  nav.toc{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(0,0,0,.03)}
+  nav.toc .wrap{max-width:960px;margin:0 auto;padding:8px 20px;display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
+  nav.toc a{color:var(--accent);text-decoration:none;white-space:nowrap}
+  nav.toc a:hover{text-decoration:underline}
+  main{max-width:960px;margin:0 auto;padding:12px 20px 80px}
+  section{margin-top:44px}
+  h2{font-size:22px;margin:0 0 8px;padding-left:12px;border-left:6px solid var(--accent);line-height:1.4}
+  h2 small{display:block;font-size:14px;color:var(--sub);font-weight:normal;margin-top:2px}
+  h3{font-size:17px;margin:26px 0 8px}
+  p{margin:8px 0}
+  .lead{font-size:17px}
+  .goal{background:var(--accent-bg);border-radius:10px;padding:12px 16px;margin:10px 0 16px;font-size:15px}
+  .goal b{color:var(--accent)}
+  .card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:12px 0}
+  .steps li{counter-increment:s;position:relative;padding:10px 12px 10px 56px;margin:8px 0;
+    background:var(--paper);border-radius:10px;min-height:48px}
+  .steps li::before{content:counter(s);position:absolute;left:12px;top:10px;width:32px;height:32px;
+    border-radius:50%;background:var(--accent);color:#fff;font-weight:bold;display:flex;
+    align-items:center;justify-content:center;font-size:16px}
+  .steps li b{display:block}
+  .btn{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:6px;
+    padding:0 8px;font-size:.95em;white-space:nowrap;line-height:1.6;margin:1px 0}
+  .btn.red{background:var(--bad-bg);border-color:#f3b4b4;color:var(--bad)}
+  .btn.blue{background:var(--accent-bg);border-color:#bcd0ff;color:var(--accent)}
+  .note{border-left:4px solid var(--warn);background:var(--warn-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  .ok{border-left:4px solid var(--ok);background:var(--ok-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  .stop{border-left:4px solid var(--bad);background:var(--bad-bg);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:15px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:15px;background:#fff}
+  th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:var(--paper);white-space:nowrap}
+  .tw{overflow-x:auto}
+  figure{margin:14px 0;text-align:center}
+  figure svg{max-width:100%;height:auto;display:block;margin:0 auto}
+  figcaption{font-size:13px;color:var(--sub);margin-top:6px}
+  details{border:1px solid var(--line);border-radius:10px;padding:0 14px;margin:10px 0;background:#fff}
+  details summary{cursor:pointer;padding:10px 0;font-weight:bold;color:var(--accent)}
+  details[open] summary{border-bottom:1px dashed var(--line);margin-bottom:6px}
+  details > :last-child{margin-bottom:12px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:15px}
+  .kv dt{font-weight:bold;white-space:nowrap}
+  .kv dd{margin:0}
+  .muted{color:var(--sub);font-size:14px}
+  .branch{display:block;text-decoration:none;color:inherit}
+  .branch:hover{border-color:var(--accent)}
+  footer{max-width:960px;margin:0 auto;padding:18px 20px 40px;color:var(--sub);font-size:13px;border-top:1px solid var(--line)}
+  @media print{
+    nav.toc{position:static}
+    details{border:none;padding:0}
+    details summary{list-style:none}
+    a{color:inherit;text-decoration:none}
+    section{break-inside:avoid-page}
+  }
+  @media (max-width:600px){ body{font-size:15px} header.top h1{font-size:22px} }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>部門ナレッジの配り方ガイド</h1>
+    <p>部門の公式資料（正典）を配る人・受け取る人、両方に向けたガイドです。書いてあるとおりに操作すれば完了します。</p>
+    <span class="stamp">2026年9月10日時点の src 実装（R42）にもとづく</span>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#s1">1. これは何？</a>
+  <a href="#s2">2. 登場人物と必要なもの</a>
+  <a href="#s3">3. 共有フォルダの設定</a>
+  <a href="#s4">4. 配る資料をそろえる</a>
+  <a href="#s5">5. 発行する</a>
+  <a href="#s6">6. まちがえたとき</a>
+  <a href="#s7">7. 受け取る</a>
+  <a href="#s8">8. 更新が出たとき</a>
+  <a href="#s9">9. 困ったとき</a>
+  <a href="#s10">10. 用語</a>
+  <a href="#s11">11. やってはいけないこと</a>
+</div></nav>
+
+<main>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2>1. これは何？<small>まず、あなたはどちらかを決める</small></h2>
+  <div class="goal">この章のゴール: <b>自分が「配る人」か「受け取る人」かを決めて、読む章を選べる</b>。</div>
+
+  <p class="lead">部門ナレッジ配信は、部門の公式資料（これを<b>正典</b>と呼びます）を部門の全員へまとめて配る機能です。正典を作って配る人と、それを受け取って質問に使う人の、2つの役割があります。配る人になれるのは「発行者用ファイル」という特別なファイルと合言葉を持つ、部門の発行担当だけです。受け取る人は、いつも使っているふつうのファイル（MyBookshelf.xlsm）のままで大丈夫で、新しく何かをインストールする必要はありません。</p>
+
+  <figure>
+    <svg viewBox="0 0 900 200" role="img" aria-label="配る人が正典を発行し、共有フォルダを経由して受け取る人全員に届く">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="15" fill="#1f2937">
+        <rect x="10" y="40" width="230" height="120" rx="12" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="125" y="72" text-anchor="middle" font-size="30">🔑</text>
+        <text x="125" y="102" text-anchor="middle" font-weight="bold">配る人（発行担当）</text>
+        <text x="125" y="124" text-anchor="middle" font-size="12" fill="#4b5563">発行者用ファイル＋合言葉</text>
+        <text x="125" y="144" text-anchor="middle" font-size="11" fill="#4b5563">MyBookshelf_発行者用.xlsm</text>
+
+        <line x1="245" y1="100" x2="305" y2="100" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="275" y="86" text-anchor="middle" font-size="12" fill="#4b5563">📤 正典を発行</text>
+
+        <rect x="310" y="40" width="280" height="120" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="450" y="72" text-anchor="middle" font-size="30">📁</text>
+        <text x="450" y="102" text-anchor="middle" font-weight="bold">共有フォルダ</text>
+        <text x="450" y="124" text-anchor="middle" font-size="12" fill="#4b5563">…\channels\部門名\ に置かれる</text>
+        <text x="450" y="144" text-anchor="middle" font-size="12" fill="#4b5563">（部門の全員が読み書きできる場所）</text>
+
+        <line x1="595" y1="100" x2="655" y2="100" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="625" y="86" text-anchor="middle" font-size="12" fill="#4b5563">📡 部門チャンネル</text>
+
+        <rect x="660" y="40" width="230" height="120" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
+        <text x="775" y="72" text-anchor="middle" font-size="30">👥</text>
+        <text x="775" y="102" text-anchor="middle" font-weight="bold">受け取る人</text>
+        <text x="775" y="124" text-anchor="middle" font-size="12" fill="#4b5563">部門の全員</text>
+        <text x="775" y="144" text-anchor="middle" font-size="12" fill="#4b5563">ふつうのファイルのまま使える</text>
+      </g>
+    </svg>
+    <figcaption>配る人が発行 → 共有フォルダに置かれる → 受け取る人が自分で取り込む。自動で届く矢印はありません（第7章・第8章）。</figcaption>
+  </figure>
+
+  <div class="grid2">
+    <a class="card branch" href="#s3">
+      <b>🔑 私は「配る人」です</b><br>
+      <span class="muted">発行者用ファイル（MyBookshelf_発行者用.xlsm）を持っている方はこちら。第3章「共有フォルダの設定」から読んでください。</span>
+    </a>
+    <a class="card branch" href="#s7">
+      <b>👥 私は「受け取る人」です</b><br>
+      <span class="muted">いつものファイルを使っている方はこちら。第7章「受け取る」まで読み飛ばして構いません。</span>
+    </a>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2>2. 登場人物と、必要なもの</h2>
+  <div class="goal">この章のゴール: <b>誰が何を持っていれば、何ができるのかが分かる</b>。</div>
+
+  <div class="tw"><table>
+    <tr><th>役割</th><th>使うファイル</th><th>できること</th></tr>
+    <tr><td>配る人（発行担当）</td><td>MyBookshelf_<b>発行者用</b>.xlsm</td><td>正典の発行・まちがえたときの巻き戻し</td></tr>
+    <tr><td>受け取る人</td><td>MyBookshelf.xlsm（ふつうのファイル）</td><td>部門の正典を受け取って、質問に使う</td></tr>
+  </table></div>
+
+  <h3>配る人に必要な3つ</h3>
+  <div class="tw"><table>
+    <tr><th>必要なもの</th><th>説明</th></tr>
+    <tr><td>① 発行者用ファイル<br><span class="muted">MyBookshelf_発行者用.xlsm</span></td><td>これが無いと <span class="btn">📤 正典を発行</span> ボタン自体が画面に出ません。一般配布のファイルにはこのボタンはありません。</td></tr>
+    <tr><td>② 合言葉（発行キー）</td><td>発行のたびに聞かれます。<b>値はこの文書には書きません。</b>分からない場合は、このツールの管理担当者に確認してください。</td></tr>
+    <tr><td>③ 共有フォルダの設定</td><td>部門の全員が読み書きできるネットワーク上のフォルダ。第3章で設定します。</td></tr>
+  </table></div>
+  <p class="muted">3つとも揃って、はじめて発行できます。1つでも欠けている場合の症状は第9章「困ったとき」を見てください。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2>3.【配る人】準備1: 共有フォルダを設定する</h2>
+  <div class="goal">この章のゴール: <b>共有フォルダを設定し、うまく設定できたかを自分で確認できる</b>。</div>
+  <p class="muted">すでに設定済みの方は、この章を読み飛ばして第4章へ進んでください。</p>
+
+  <ol class="steps">
+    <li><b>どの画面でも、右上の <span class="btn">❓</span> を押す</b>ヘルプのカードが開きます。</li>
+    <li><b>カードの中の <span class="btn">⚙ 共有フォルダ設定</span> を押す</b>この名前は現在の画面のとおりです（以前の名称「P2P接続設定」は使われていません）。</li>
+    <li><b>フォルダ選択の画面で、部門の共有フォルダを選ぶ</b>選択画面が使えない環境では「パスを直接入力しますか?」と聞かれます。「はい」を選び、共有フォルダのパス（例: <code>\\サーバー名\共有\MyBookshelf_Share\</code>）を入力してください。</li>
+    <li><b>選び終わると自動で保存される</b>別に保存ボタンを押す必要はありません。</li>
+    <li><b>出てきたメッセージで、設定できたかを確認する</b>下の2パターンのどちらが出たかを見てください。</li>
+  </ol>
+
+  <div class="ok"><b>成功のメッセージ</b>：「共有フォルダを設定しました。みんなの節約・部門資料が使えるようになります。」と出れば設定完了です。</div>
+  <div class="note"><b>保存はできたが、まだ繋がっていないとき</b>：「設定は保存しましたが、そのフォルダへ今は届きませんでした。ネットワーク接続をご確認のうえ、開き直してお試しください。」と出ることがあります。社内ネットワーク（VPN）に繋いでから、ファイルを閉じて開き直し、もう一度確認してください。</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2>4.【配る人】準備2: 配る資料を本棚にそろえる</h2>
+  <div class="goal">この章のゴール: <b>発行される件数が本棚の総数より少なくても、それが正常だと分かる</b>。</div>
+
+  <p>発行の前に、正典として配りたい資料（確認済みのQ&amp;A・要点など）を、いつもどおり自分の本棚に入れておいてください。入れ方は <span class="btn">📁 追加</span> や <span class="btn">➕ 登録</span> など、ふだんの使い方と同じです。</p>
+
+  <div class="note"><b>直感に反するけれど正常なこと</b><br>
+    発行されるのは<b>自分で入れた資料だけ</b>です。他の部門から受け取った正典は、発行の対象から自動で除かれます（他部門の資料を自分の名前で再配布しないためのしくみです）。<br>
+    そのため、次の章の確認画面に出る件数は、本棚の総数より<b>少なくなります</b>。これは不具合ではなく、そういう作りです。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2>5.【配る人】発行する（5ステップ）</h2>
+  <div class="goal">この章のゴール: <b>5つの画面を順番に進めて、発行を完了できる</b>。</div>
+
+  <figure>
+    <svg viewBox="0 0 900 210" role="img" aria-label="正典を発行するの5ステップ:ボタンを押す、部門名、合言葉、確認、完了">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="13" fill="#1f2937">
+        <rect x="6" y="30" width="168" height="130" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="90" y="60" text-anchor="middle" font-size="24">📤</text>
+        <text x="90" y="90" text-anchor="middle" font-weight="bold">① 押す</text>
+        <text x="90" y="112" text-anchor="middle" font-size="11" fill="#4b5563">「正典を発行」を</text>
+        <text x="90" y="128" text-anchor="middle" font-size="11" fill="#4b5563">マイ本棚で押す</text>
+        <line x1="178" y1="95" x2="196" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="200" y="30" width="168" height="130" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="284" y="60" text-anchor="middle" font-size="24">🏢</text>
+        <text x="284" y="90" text-anchor="middle" font-weight="bold">② 部門名</text>
+        <text x="284" y="112" text-anchor="middle" font-size="11" fill="#4b5563">部門名を入力</text>
+        <text x="284" y="128" text-anchor="middle" font-size="11" fill="#4b5563">（使えない文字に注意）</text>
+        <line x1="372" y1="95" x2="390" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="394" y="30" width="168" height="130" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="478" y="60" text-anchor="middle" font-size="24">🔑</text>
+        <text x="478" y="90" text-anchor="middle" font-weight="bold">③ 合言葉</text>
+        <text x="478" y="112" text-anchor="middle" font-size="11" fill="#4b5563">発行キーを入力</text>
+        <text x="478" y="128" text-anchor="middle" font-size="11" fill="#4b5563">（分からなければ管理担当へ）</text>
+        <line x1="566" y1="95" x2="584" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="588" y="30" width="168" height="130" rx="12" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="672" y="60" text-anchor="middle" font-size="24">✅</text>
+        <text x="672" y="90" text-anchor="middle" font-weight="bold">④ 確認</text>
+        <text x="672" y="112" text-anchor="middle" font-size="11" fill="#4b5563">件数・配置先を見て</text>
+        <text x="672" y="128" text-anchor="middle" font-size="11" fill="#4b5563">「はい」を押す</text>
+        <line x1="760" y1="95" x2="778" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="722" y="30" width="0" height="0" fill="none"/>
+        <rect x="782" y="30" width="112" height="130" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
+        <text x="838" y="60" text-anchor="middle" font-size="24">📖</text>
+        <text x="838" y="90" text-anchor="middle" font-weight="bold">⑤ 完了</text>
+        <text x="838" y="112" text-anchor="middle" font-size="11" fill="#4b5563">版が</text>
+        <text x="838" y="128" text-anchor="middle" font-size="11" fill="#4b5563">表示される</text>
+
+        <text x="450" y="190" text-anchor="middle" font-size="12" fill="#4b5563">③のあとに出る確認画面で「いいえ」を選ぶと、発行ではなく巻き戻し（第6章）に進みます</text>
+      </g>
+    </svg>
+    <figcaption>実際のダイアログの流れそのままの5ステップです。</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li><b>「📚 マイ本棚」画面で <span class="btn">📤 正典を発行</span> を押す</b>Hub 画面では <span class="btn">📚 ナレッジと本棚</span> を押すとこの画面に入れます。「正典を発行」のボタンは発行者用ファイルにしか出ません。出ない場合は第9章を確認してください。</li>
+    <li><b>「発行する部門名を入力してください」に部門名を入力する</b>例: 商品部。<code>\ / : * ? " &lt; &gt; |</code> の記号や、先頭・末尾の空白・ピリオドは使えません。<b>更新するときも、前回と同じ名前を入れてください。</b></li>
+    <li><b>「発行キーを入力してください」に合言葉を入力する</b>分からない場合は、このツールの管理担当者に確認してください。違う合言葉を入れると「発行キーが違います。発行は行いませんでした。」と出て、何も発行されずに終わります。</li>
+    <li><b>確認画面の件数・配置先を見て、問題なければ「はい」を押す</b>件数は「自分で入れた資料のみ」の件数です（第4章参照）。「いいえ」を押すと発行は行わず、巻き戻しの操作に進みます（第6章）。「キャンセル」なら何もせず終了します。</li>
+    <li><b>完了のメッセージを確認する</b>「発行しました。部門: ○○　件数: ○○ チャンク　版: ○○」と表示されたら完了です。部内の全員が、次に<span class="btn">📡 部門チャンネル</span>を押したときに受け取れるようになります（第7章・第8章）。</li>
+  </ol>
+
+  <div class="note"><b>「版」の表示に驚かないでください</b><br>
+    完了画面に出る「版」は、<code>20260910-153042|2026-09-10|山田</code> のような、日時・日付・発行者名を「｜」で繋いだ読みにくい文字列がそのまま表示されます。きれいに整形された番号（例:「2026-09-01-1」のような形）にはなりません。これは仕様どおりです。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2>6.【配る人】まちがえたとき（巻き戻し）</h2>
+  <div class="goal">この章のゴール: <b>発行をまちがえたときに、前の版へ1回だけ戻せることが分かる</b>。</div>
+
+  <ol class="steps">
+    <li><b>もう一度 <span class="btn">📤 正典を発行</span> を押し、同じ部門名を入力する</b></li>
+    <li><b>合言葉を入力する</b></li>
+    <li><b>確認画面で「いいえ」を選ぶ</b>「はい」ではなく「いいえ」を選ぶと、巻き戻しの確認画面に進みます。</li>
+    <li><b>「直前の版に戻す」の確認画面で「OK」を押す</b>戻す版の名前が表示されるので確認してから押してください。</li>
+  </ol>
+
+  <div class="stop"><b>戻せるのは1回だけです</b><br>
+    巻き戻した直後にもう一度同じ操作をしても、「【部門名】は直前に巻き戻しを実行済みです。」と出て、2回目は行われません。これは、戻したはずの誤った版がうっかり復活しないようにするための安全装置です。さらに前の版に戻したい場合は、正しい資料で発行し直すか、このツールの管理担当者に相談してください。<br>
+    また、まだ一度も発行していない部門では「戻せる過去版がありません（まだ1度も発行していない部門です）。」と出て、戻す操作自体ができません。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2>7.【受け取る人】受け取る（3ステップ）</h2>
+  <div class="goal">この章のゴール: <b>部門の正典を、自分の本棚に取り込める</b>。</div>
+
+  <ol class="steps">
+    <li><b>「📚 マイ本棚」画面を開く</b>Hub 画面の <span class="btn">📚 ナレッジと本棚</span> を押します。</li>
+    <li><b><span class="btn">📡 部門チャンネル</span> を押す</b></li>
+    <li><b>確認画面に出る部門数と一覧を見て「OK」を押す</b>見つかった部門の正典が<b>まとめて</b>本棚に読み込まれます。分量によっては数分かかることがあります。</li>
+  </ol>
+
+  <div class="note"><b>自動では入ってきません</b><br>
+    ファイルを開いただけでは正典は取り込まれません。<span class="btn">📡 部門チャンネル</span> を<b>自分で押す</b>必要があります（起動時に自動で読み込む処理は実装されていません）。押すと、見つかった全部門ぶんが一度にまとめて入ります（部門を1つずつ選ぶ操作はありません）。
+  </div>
+  <p class="muted">取り込みが終わると「本棚の使用量: ○○%」も表示されます。この数字は常時どこかに出ているわけではなく、この確認メッセージや Hub のタイルなど、特定の場面でだけ表示されます。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <h2>8. 更新が出たとき</h2>
+  <div class="goal">この章のゴール: <b>新しい版が出たときに、何をすればよいかが分かる</b>。</div>
+
+  <figure>
+    <svg viewBox="0 0 900 210" role="img" aria-label="配る人が再発行すると、受け取る人のHubに更新のお知らせが出て、押すと入れ替わる">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="13" fill="#1f2937">
+        <rect x="6" y="30" width="200" height="130" rx="12" fill="#fff4e0" stroke="#f5d9a8"/>
+        <text x="106" y="60" text-anchor="middle" font-size="24">📤</text>
+        <text x="106" y="90" text-anchor="middle" font-weight="bold">配る人が</text>
+        <text x="106" y="108" text-anchor="middle" font-weight="bold">再発行する</text>
+        <text x="106" y="130" text-anchor="middle" font-size="11" fill="#4b5563">同じ部門名で発行し直す</text>
+        <line x1="210" y1="95" x2="228" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="232" y="30" width="200" height="130" rx="12" fill="#f6f7f9" stroke="#d9dee5"/>
+        <text x="332" y="60" text-anchor="middle" font-size="24">📁</text>
+        <text x="332" y="90" text-anchor="middle" font-weight="bold">共有フォルダの</text>
+        <text x="332" y="108" text-anchor="middle" font-weight="bold">版が新しくなる</text>
+        <line x1="436" y1="95" x2="454" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="458" y="30" width="200" height="130" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="558" y="60" text-anchor="middle" font-size="24">🏠</text>
+        <text x="558" y="90" text-anchor="middle" font-weight="bold">受け取る人の Hub に</text>
+        <text x="558" y="108" text-anchor="middle" font-size="11" fill="#4b5563">「📡【部門】に更新が</text>
+        <text x="558" y="124" text-anchor="middle" font-size="11" fill="#4b5563">あります」と出る</text>
+        <line x1="662" y1="95" x2="680" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="684" y="30" width="210" height="130" rx="12" fill="#e7f6ec" stroke="#b7e2c4"/>
+        <text x="789" y="60" text-anchor="middle" font-size="24">📡</text>
+        <text x="789" y="90" text-anchor="middle" font-weight="bold">押すと入れ替わる</text>
+        <text x="789" y="108" text-anchor="middle" font-size="11" fill="#4b5563">古い版は消え、新しい版に</text>
+        <text x="789" y="124" text-anchor="middle" font-size="11" fill="#4b5563">置き換わる</text>
+      </g>
+    </svg>
+    <figcaption>新しい版が出ても、自動で入れ替わることはありません。気づいて、押す必要があります。</figcaption>
+  </figure>
+
+  <p>新しい版が発行されても、あなたの本棚の内容は自動では更新されません。Hub 画面に「📡【○○】に更新があります」というお知らせが出るので、それに気づいたら、もう一度 <span class="btn">📡 部門チャンネル</span> を押してください（お知らせ自体をクリックしても同じように更新されます）。押すと、その部門の古い版は消えて、新しい版に置き換わります。<b>あなたが自分で登録した資料は消えません。</b></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+  <h2>9. 困ったとき</h2>
+  <div class="goal">この章のゴール: <b>出てきたメッセージから、次に何をすればよいかが分かる</b>。</div>
+
+  <div class="tw"><table>
+    <tr><th style="width:30%">出てきたメッセージ（症状）</th><th>原因</th><th>次にすること</th><th>コード</th></tr>
+    <tr><td>「共有フォルダが未設定か、共有フォルダに接続できません。」</td>
+        <td>共有フォルダを設定していないか、設定はしてあるが今は繋がっていない（VPN未接続など）</td>
+        <td>未設定なら第3章の手順で設定する。設定済みなら社内ネットワーク（VPN）に繋いでからファイルを開き直す</td>
+        <td>―</td></tr>
+    <tr><td>「発行キーが違います。発行は行いませんでした。」</td>
+        <td>合言葉の入力ミス（全角・半角や前後の空白の違いなど）</td>
+        <td>管理担当者にもう一度合言葉を確認してから、入力し直す</td>
+        <td>―</td></tr>
+    <tr><td>「いま別の方が【部門名】を発行中です。」</td>
+        <td>同じ部門を2人が同時に発行しようとした（内容が食い違わないようにする安全装置）</td>
+        <td>数分待ってから、もう一度お試しください</td>
+        <td>―</td></tr>
+    <tr><td>「発行の見張り(publish.lock)を作成できませんでした。」</td>
+        <td>共有フォルダへの書き込み権限が無い、または社内ネットワークに繋がっていない</td>
+        <td>書き込み権限とネットワーク接続を確認してもう一度お試しください。繰り返す場合は管理担当者へ連絡</td>
+        <td>E0807<span class="muted">（記録のみ）</span></td></tr>
+    <tr><td><span class="btn">📡 部門チャンネル</span>を押しても一部の部門だけ取り込めない（「N部門は取り込めませんでした」）</td>
+        <td>パックの形式が古い・壊れている、またはAIリボンのバージョン違い</td>
+        <td>発行担当に発行し直しを依頼するか、管理担当者に連絡</td>
+        <td>E0701 / E0702<span class="muted">（記録のみ）</span></td></tr>
+    <tr><td>Hub に「部門が多すぎてN部門を読み込めていません」</td>
+        <td>このツールが扱える部門チャンネル数の上限を超えている</td>
+        <td>このツールの管理担当者に連絡してください（設定の変更が必要です）</td>
+        <td>E0806<span class="muted">（記録のみ）</span></td></tr>
+    <tr><td>「発行の処理中に予期しない問題が発生しました。」</td>
+        <td>発行の途中で何らかの想定外の問題が起きた</td>
+        <td>もう一度発行をお試しください。繰り返す場合はヘルプ「❓」→「🩺 診断を開く」→「直近のエラーをコピー」で管理担当者に伝えてください</td>
+        <td>E0808</td></tr>
+  </table></div>
+  <p class="muted">「コード」欄が「―」の症状は、画面にはコードが出ません。「（記録のみ）」と書いたものは、画面にもコードは出ませんが、診断（🩺）の記録には残ります。担当者に伝えるときは、ヘルプ「❓」→「🩺 診断を開く」→「直近のエラーをコピー」の内容もあわせて渡すと調査が早くなります。</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s10">
+  <h2>10. ことばの意味</h2>
+  <div class="goal">この章のゴール: <b>この文書に出てくる言葉の意味がひととおり分かる</b>。</div>
+  <dl class="kv">
+    <dt>正典</dt><dd>部門の発行担当が発行した、部門の公式ナレッジ。部門の全員が同じ内容を受け取ります。</dd>
+    <dt>部門チャンネル</dt><dd>各部門の正典が届く窓口。<span class="btn">📡 部門チャンネル</span> を押すと、見つかった全部門の正典をまとめて取り込みます。</dd>
+    <dt>チャンク</dt><dd>資料を検索しやすい大きさに切った1切れ。発行される件数・本棚の上限は、このチャンク数で数えます。</dd>
+    <dt>版</dt><dd>正典を発行するたびに新しく付く印。発行のたびに日時を含む文字列に変わり、これで「最新かどうか」を見分けます。</dd>
+    <dt>共有フォルダ</dt><dd>部門の全員が読み書きできる、ネットワーク上のフォルダ。正典はこの中の「channels」というフォルダに置かれます。</dd>
+  </dl>
+</section>
+
+<!-- ============================================================ -->
+<section id="s11">
+  <h2>11. やってはいけないこと</h2>
+  <div class="goal">この章のゴール: <b>発行のしくみを壊さないために、触ってはいけない範囲が分かる</b>。</div>
+
+  <div class="stop">
+    <b>発行者用ファイル（MyBookshelf_発行者用.xlsm）を人に配らない</b><br>
+    このファイルと合言葉の両方が揃うと、誰でも部門の正典を発行・上書きできてしまいます。発行担当だけが持ってください。
+  </div>
+  <div class="stop">
+    <b>合言葉（発行キー）を人に教えない</b><br>
+    理由は上と同じです。ファイルと合言葉のどちらか一方だけでは発行できない、という前提が崩れます。
+  </div>
+  <div class="stop">
+    <b>共有フォルダの中の「channels」フォルダを手で触らない</b><br>
+    ファイルの移動・削除・編集をしないでください。このフォルダはアプリが自動で管理しています。手で触ると、部門全員への配信が届かなくなることがあります。
+  </div>
+</section>
+
+</main>
+
+<footer>
+  この文書は 2026年9月10日時点の src（実装コードそのもの）と、ブック内の実際のダイアログ文言・config の既定値にもとづいて書かれています。設計書ではなく、いま配られているファイルの動きをそのまま記載しています。画面の見た目（配置・色）は実機で多少異なることがあります。合言葉やAPIキーなどの値はこの文書には一切含まれていません。
+</footer>
+
+</body>
+</html>
