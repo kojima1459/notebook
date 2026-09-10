@@ -505,6 +505,14 @@
       "wave": "UI-V2"
     },
     {
+      "name": "modHubBadge",
+      "path": "src/ui/modHubBadge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 2-10(Hubのバッジ帯: 獲得済みだけ色を変える)。modHubは29,551字(直接書くと30,002字で上限超過)・modHubStatは残77字(受け皿にできない)のため新設。BadgeSpans(純関数・獲得済み区間の開始位置/長さ)とPaintEarnedSpans(結合セルの左上セル1個へCharactersで塗り直す実体)を持つ。modHub.DrawBadgesは.Value→帯全体をmuted→PaintEarnedSpansの順で呼ぶ薄い呼び出し元。modTestsPure47がBadgeSpansをゴールデンで固定する。"
+    },
+    {
       "name": "modHubStat",
       "path": "src/ui/modHubStat.bas",
       "role": "core",

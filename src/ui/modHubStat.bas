@@ -485,7 +485,7 @@ Public Sub DrawQuickAskCards(ByVal ws As Worksheet, ByVal L As Double, _
             With card.TextFrame2
                 .WordWrap = -1
                 .TextRange.Text = CStr(caps(i)) & vbCr & CStr(subs(i))
-                .TextRange.Font.Size = 8       ' 2段目(説明)の大きさ
+                .TextRange.Font.Size = 8.5     ' 2段目(説明)の大きさ
                 .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
                 If .TextRange.Paragraphs.Count >= 1 Then
                     With .TextRange.Paragraphs(1).Font

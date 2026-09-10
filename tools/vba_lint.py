@@ -508,6 +508,15 @@ CONTRACT: dict[str, dict] = {
         "required": ["BlockAddPg", "LineStarts", "PageAtPos", "FirstInkPos",
                      "PlanWindows", "FlushPaged", "PhysicalKeep", "StartPagesOf"],
     },
+    "modHubBadge": {
+        "closed": True,
+        # 2026-09-10(R43 2-10): Hubのバッジ帯(獲得済みだけ色を変える)の実体。
+        #   modHubは29,551字(直接書くと上限超過)・modHubStatは残77字
+        #   (受け皿にできない)のため新設。BadgeSpansはExcelに触れない
+        #   純関数(modTestsPure47がゴールデンで固定)、PaintEarnedSpansは
+        #   結合セルの左上セル1個にだけCharactersを当てる実体。
+        "required": ["BadgeSpans", "PaintEarnedSpans"],
+    },
     "modEmbed": {
         "closed": True,
         # MarkAllForReembed: 圧縮/次元変更後の全再embed導線(設計書§G-T10)。

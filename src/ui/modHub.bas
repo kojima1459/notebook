@@ -495,7 +495,7 @@ Private Sub DrawNavButtons(ByVal ws As Worksheet)
             .TextRange.Paragraphs(1).Font.Bold = -1
             ' 2026-07-31(発見事項3): 段落数チェック(理由はDrawProfileCard参照)。
             If .TextRange.Paragraphs.Count >= 2 Then
-                .TextRange.Paragraphs(2).Font.Size = 8
+                .TextRange.Paragraphs(2).Font.Size = 8.5
                 .TextRange.Paragraphs(2).Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
             End If
             On Error GoTo 0
@@ -565,9 +565,11 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
 
     Dim sb As String
     Dim i As Long
+    Dim earnedArr() As Boolean: ReDim earnedArr(0 To badgeN - 1)
     For i = 0 To badgeN - 1
         Dim mark As String
-        If LenB(modStats.BadgeEarnedOn(CStr(ids(i)))) > 0 Then
+        earnedArr(i) = (LenB(modStats.BadgeEarnedOn(CStr(ids(i)))) > 0)
+        If earnedArr(i) Then
             mark = ChrW(&HD83C) & ChrW(&HDFC5)
         Else
             mark = ChrW(&HD83D) & ChrW(&HDD12)
@@ -581,9 +583,12 @@ Private Function DrawBadges(ByVal ws As Worksheet) As Double
         .WrapText = True
         .Value = sb
         .Font.Size = 8.5
-        .Font.Color = modUI.UiColor("text")
+        ' R43 2-10: 帯全体はmuted(薄色)。獲得済みだけmodHubBadgeがtext色+
+        ' 太字で塗り直す(.Value確定後・帯全体の色の後。順序を守る)。
+        .Font.Color = modUI.UiColor("muted")
         .VerticalAlignment = -4160
     End With
+    modHubBadge.PaintEarnedSpans ws, r + 1, titles, earnedArr, badgeN
     ' 4行ぶんの帯の下端。ここも (r+4)*15 の机上換算をやめて実測にする
     ' (行1が48ptあるぶん、旧式は実際より約33pt上を返していた=フッターが
     '  バッジ帯に重なる)。
