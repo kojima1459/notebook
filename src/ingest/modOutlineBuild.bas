@@ -678,7 +678,7 @@ Private Sub Banner(ByVal idx As Long, ByVal total As Long, ByVal sourceName As S
                    ByVal msPerItem As Double)
     On Error Resume Next
     Dim t As String
-    t = "章の要約中… " & idx & "/" & total & "章(" & modUtil.SafeLeft(sourceName, 40) & ")"
+    t = "まとまりの要約中… " & idx & "/" & total & "まとまり(" & modUtil.SafeLeft(sourceName, 40) & ")"
     Dim eta As String: eta = modUtil.EtaText(total - idx + 1, msPerItem)
     If LenB(eta) > 0 Then t = t & " " & eta
     modShelfBatch.StageBanner t
