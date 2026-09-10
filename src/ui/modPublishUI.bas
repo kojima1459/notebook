@@ -291,7 +291,8 @@ Public Sub OnPublish()
                "  部門: " & chName & vbCrLf & _
                "  件数: " & wrote & " チャンク" & vbCrLf & _
                "  版: " & ver & vbCrLf & vbCrLf & _
-               "部内の全員が、次にファイルを開いたときに受け取れます。" & vbCrLf & _
+               "部内の全員が、次にファイルを開いたとき Hub に「更新があります」と" & vbCrLf & _
+               "出ます。それを押すと受け取れます(自動では入りません)。" & vbCrLf & _
                "内容に誤りが見つかったら、この画面から「いいえ」で戻せます。", _
                vbInformation, modAppDef.APP_NAME
     Else
