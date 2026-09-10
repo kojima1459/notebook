@@ -30,6 +30,31 @@ Private Const CHIP_W As Double = 188
 Private Const CHIP_H As Double = 22
 Private Const PEEK_W As Double = 470
 Private Const PEEK_BODY_MAX As Long = 600    ' ポップアップ本文の最大文字数
+' R43 波A 1-2: 見出し/breadcrumbと本文、本文と閉じる案内の間を仕切る区切り行
+' (半角ハイフン。太字・色つきの罫線をShapeのテキストで引く手段が無いため、
+' 目に付く程度の長さの文字列で代用する)。
+Private Const PEEK_DIVIDER As String = "----------------------------------------"
+
+' ChipDocLabel - 出典チップの資料名表示(純関数・R43 波A 1-3)。n字を超えた
+'   ときだけ末尾に … (U+2026) を付ける。従来の modUtil.SafeLeft(src,16) は
+'   16字ちょうどの資料名も16字未満の資料名も同じ見た目になり、切れたのか
+'   どうか利用者に分からなかった(modChrome.ClipToWidthと同じ … の付け方)。
+Public Function ChipDocLabel(ByVal s As String, ByVal n As Long) As String
+    If Len(s) > n Then
+        ChipDocLabel = modUtil.SafeLeft(s, n) & ChrW(&H2026)
+    Else
+        ChipDocLabel = s
+    End If
+End Function
+
+' ChipOverflowLabel - MAX_CHIPS件を超えたときだけ「ほかN件」を返す(純関数・
+'   R43 波A 1-3)。超えていなければ空文字(=ラベルを出さない)。
+'   totalUnique: ユニーク化後の出典総数。shownCount: 実際に描いたチップ数。
+Public Function ChipOverflowLabel(ByVal totalUnique As Long, ByVal shownCount As Long) As String
+    If totalUnique > shownCount Then
+        ChipOverflowLabel = "ほか " & (totalUnique - shownCount) & "件"
+    End If
+End Function
 
 ' ----------------------------------------------------------------------------
 ' RenderCitations - 直近RAG回答の出典チップを、指定バブルの直下に描画する。
@@ -92,11 +117,15 @@ Public Sub RenderCitations(ByVal bubbleName As String)
     lbl.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
     lbl.Placement = 3
 
-    ' 出典をソース名でユニーク化(先頭出現のヒット添字を保持)しつつチップ描画
+    ' 出典をソース名でユニーク化(先頭出現のヒット添字を保持)しつつチップ描画。
+    ' R43 波A 1-3: 5件目以降を Exit For で黙って捨てると、捨てた総数が
+    ' 分からず「ほかN件」が出せない。ループは最後まで回して総ユニーク数
+    ' (uniqTotal)を数え続け、実際にチップを描くのは MAX_CHIPS 件までにする。
     Dim seen As String: seen = "|"
     Dim x As Double: x = baseL
     Dim y As Double: y = baseY + 18
     Dim drawn As Long: drawn = 0
+    Dim uniqTotal As Long: uniqTotal = 0
     Dim i As Long
     For i = 0 To n - 1
         Dim src As String: src = modAsk.LastHitSource(i)
@@ -104,17 +133,28 @@ Public Sub RenderCitations(ByVal bubbleName As String)
         Dim key As String: key = "|" & LCase$(src) & "|"
         If InStr(seen, key) > 0 Then GoTo NextHit   ' 同じ資料は1チップに集約
         seen = seen & LCase$(src) & "|"
+        uniqTotal = uniqTotal + 1
 
-        If x + CHIP_W > baseL + 640 Then   ' チャット幅で折り返し
+        If drawn < MAX_CHIPS Then
+            If x + CHIP_W > baseL + 640 Then   ' チャット幅で折り返し
+                x = baseL
+                y = y + CHIP_H + 6
+            End If
+            DrawChip ws, i, x, y, src, modAsk.LastHitPage(i)
+            x = x + CHIP_W + 8
+            drawn = drawn + 1
+        End If
+NextHit:
+    Next i
+
+    Dim overflowCap As String: overflowCap = ChipOverflowLabel(uniqTotal, drawn)
+    If LenB(overflowCap) > 0 Then
+        If x + 90 > baseL + 640 Then
             x = baseL
             y = y + CHIP_H + 6
         End If
-        DrawChip ws, i, x, y, src, modAsk.LastHitPage(i)
-        x = x + CHIP_W + 8
-        drawn = drawn + 1
-        If drawn >= MAX_CHIPS Then Exit For
-NextHit:
-    Next i
+        DrawOverflowChip ws, x, y, overflowCap
+    End If
 
     FreezeAndFront ws
 Done:
@@ -132,7 +172,7 @@ Private Sub DrawChip(ByVal ws As Worksheet, ByVal hitIdx As Long, ByVal x As Dou
     chip.Fill.ForeColor.RGB = modUI.UiColor("surface")
 
     Dim cap As String
-    cap = ChrW(&HD83D) & ChrW(&HDCC4) & " " & modUtil.SafeLeft(src, 16)
+    cap = ChrW(&HD83D) & ChrW(&HDCC4) & " " & ChipDocLabel(src, 16)
     cap = cap & modLive.PageLabel(src, page)   ' R40 F3: Excelは「シートN」(0なら空)
     With chip.TextFrame2
         .WordWrap = -1
@@ -146,6 +186,29 @@ Private Sub DrawChip(ByVal ws As Worksheet, ByVal hitIdx As Long, ByVal x As Dou
     chip.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
     chip.OnAction = "modApp.OnPeek"
     chip.Placement = 3
+End Sub
+
+' DrawOverflowChip - MAX_CHIPS件を超えたぶんの「ほかN件」小ラベル(R43 波A
+'   1-3)。チップと違いクリック非対応(OnAction無し)の素のテキストなので、
+'   出典チップと誤認されないよう muted・小さめのサイズに留める。
+'   名前は "nx_cite_" 始まりにして、HideCitations/FreezeAndFront の
+'   既存の一括削除・整列ロジックへそのまま乗せる。
+Private Sub DrawOverflowChip(ByVal ws As Worksheet, ByVal x As Double, _
+                             ByVal y As Double, ByVal capText As String)
+    Dim lbl2 As Shape
+    Set lbl2 = ws.Shapes.AddShape(1, x, y, 84, CHIP_H)
+    lbl2.Name = "nx_cite_more"
+    lbl2.Fill.Visible = 0: lbl2.Line.Visible = 0
+    With lbl2.TextFrame2
+        .WordWrap = -1
+        .TextRange.Text = capText
+        .TextRange.Font.Name = "Yu Gothic UI"
+        .TextRange.Font.Size = 8.5
+        .VerticalAnchor = 3
+        .MarginLeft = 4: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
+    End With
+    lbl2.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+    lbl2.Placement = 3
 End Sub
 
 ' ----------------------------------------------------------------------------
@@ -178,6 +241,21 @@ Public Sub ShowPeek(ByVal idx As Long)
     ' 単一情報源)。先頭空白を Trim$ で落として括弧の中へ入れる。
     If page > 0 Then head = head & "  (" & Trim$(modMode.PageTagPart(src, page)) & ")"
 
+    ' R43 波A 1-2: 本文先頭のbreadcrumb行(【…】)を切り出して見出しの直下へ
+    ' 別行に置き、見出し/本文/閉じる案内の間に区切り行、本文の行間には空行を
+    ' 入れる(modTextView.StripBreadcrumbと同じ「先頭が【かつ改行あり」判定を
+    ' 使うので、両者が食い違うことはない)。
+    Dim rawBody As String: rawBody = modUtil.SafeLeft(body, PEEK_BODY_MAX)
+    Dim crumb As String: crumb = ExtractBreadcrumb(rawBody)
+    Dim bodyOnly As String: bodyOnly = modTextView.StripBreadcrumb(rawBody)
+    bodyOnly = Replace(bodyOnly, vbLf, vbLf & vbLf)
+
+    Dim assembled As String
+    assembled = head
+    If LenB(crumb) > 0 Then assembled = assembled & vbLf & crumb
+    assembled = assembled & vbLf & PEEK_DIVIDER & vbLf & bodyOnly & vbLf & PEEK_DIVIDER & vbLf & _
+                ChrW(&H2715) & " クリックで閉じる"
+
     Dim shp As Shape
     Set shp = ws.Shapes.AddShape(5, leftPos, topPos, PEEK_W, 60)   ' 高さはAutoSizeで伸ばす
     shp.Name = "nx_peek"
@@ -190,14 +268,48 @@ Public Sub ShowPeek(ByVal idx As Long)
         .WordWrap = -1
         .AutoSize = 1   ' msoAutoSizeShapeToFitText
         .MarginLeft = 14: .MarginRight = 14: .MarginTop = 10: .MarginBottom = 10
-        .TextRange.Text = head & vbLf & vbLf & _
-                          modUtil.SafeLeft(body, PEEK_BODY_MAX) & vbLf & vbLf & _
-                          ChrW(&H2715) & " クリックで閉じる"
+        .TextRange.Text = assembled
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 10
         .TextRange.ParagraphFormat.Alignment = 1
     End With
     shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
+
+    ' R43 波A 1-2: 色分けは書き込んだ文字列(assembled)ではなく、Shapeへ
+    ' 代入した後に読み戻したテキストで位置を数える(vbLfが読み戻しでvbCrに
+    ' なりうるため。modLiveStyle.StyleAnswerParasと同じ作法)。
+    ' 必ず床登録(SetOverlayFloor)・「原文を開く」ボタン配置より前に済ませる
+    ' (AutoSizeでここから高さが変わるため)。
+    On Error Resume Next
+    Dim rt As String: rt = shp.TextFrame2.TextRange.Text
+    Dim hS As Long, hL As Long, cS As Long, cL As Long, clS As Long, clL As Long
+    Dim rStarts() As Long, rLens() As Long
+    Dim nRef As Long: nRef = PeekSpans(rt, hS, hL, cS, cL, rStarts, rLens, clS, clL)
+    If hL > 0 Then
+        With shp.TextFrame2.TextRange.Characters(hS, hL).Font
+            .Size = 11
+            .Bold = True
+            .Fill.ForeColor.RGB = modUI.UiColor("primary")
+        End With
+    End If
+    If cL > 0 Then
+        With shp.TextFrame2.TextRange.Characters(cS, cL).Font
+            .Size = 8.5
+            .Fill.ForeColor.RGB = modUI.UiColor("muted")
+        End With
+    End If
+    Dim ri As Long
+    For ri = 1 To nRef
+        shp.TextFrame2.TextRange.Characters(rStarts(ri), rLens(ri)).Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
+    Next ri
+    If clL > 0 Then
+        With shp.TextFrame2.TextRange.Characters(clS, clL).Font
+            .Size = 8.5
+            .Fill.ForeColor.RGB = modUI.UiColor("muted")
+        End With
+    End If
+    On Error GoTo Done
+
     shp.OnAction = "modApp.OnPeekClose"
     shp.Placement = 3
     modSkin.ApplySoftShadow shp
@@ -249,6 +361,135 @@ Public Sub ShowPeek(ByVal idx As Long)
     On Error GoTo Done
 Done:
 End Sub
+
+' ----------------------------------------------------------------------------
+' PeekSpans - プレビュー本文(assembled、ShowPeekが組み立てた1本の文字列)の
+'   中から「見出し／breadcrumb／行頭の[A6]・[シート:…]タグ／末尾の閉じる
+'   案内」の位置と長さを返す(純関数・R43 波A 1-2)。改行は vbLf/vbCr の
+'   どちらでも判定できるようにする(Shapeからの読み戻しはvbCr、テストからの
+'   直接呼び出しはvbLfで組み、両方をここで吸収する)。
+'
+'   構造の前提(ShowPeekが必ずこの形で組む):
+'     1行目            = 見出し(📄 資料名 (p.N) 等)
+'     2行目(あれば)    = breadcrumb(先頭が「【」の行)
+'     以降             = 区切り行・本文(行頭に[A6]等が来ることがある)・区切り行
+'     最後の改行より後 = 閉じる案内(✕ クリックで閉じる)
+'
+'   見出し=1行目まるごと(最初の改行の直前まで)。breadcrumbは見出し直後の
+'   行が「【」で始まるときだけそれを丸ごと。閉じる案内=文字列全体の最後の
+'   改行より後ろ全部(区切り行を挟んでいても、最後の改行の直後から末尾までは
+'   常に閉じる案内になるようShowPeek側が保証する)。行頭の"[...]"タグは
+'   本文中に何個あってもよい(refStarts/refLensで列挙。戻り値はその件数)。
+' ----------------------------------------------------------------------------
+Public Function PeekSpans(ByVal s As String, _
+        ByRef headStart As Long, ByRef headLen As Long, _
+        ByRef crumbStart As Long, ByRef crumbLen As Long, _
+        ByRef refStarts() As Long, ByRef refLens() As Long, _
+        ByRef closeStart As Long, ByRef closeLen As Long) As Long
+    headStart = 0: headLen = 0
+    crumbStart = 0: crumbLen = 0
+    closeStart = 0: closeLen = 0
+    Dim nRef As Long
+    ReDim refStarts(1 To 1): ReDim refLens(1 To 1)
+
+    Dim total As Long: total = Len(s)
+    If total = 0 Then
+        PeekSpans = 0
+        Exit Function
+    End If
+
+    ' 見出し行: 先頭から最初の改行の直前まで(改行が無ければ全体)。
+    Dim firstBreak As Long: firstBreak = PeekNextBreak(s, 1)
+    headStart = 1
+    If firstBreak = 0 Then
+        headLen = total
+    Else
+        headLen = firstBreak - 1
+    End If
+
+    ' breadcrumb行: 見出しの直後の行が「【」で始まればそれを丸ごと。
+    If firstBreak > 0 And firstBreak < total Then
+        Dim afterHead As Long: afterHead = firstBreak + 1
+        If Mid$(s, afterHead, 1) = "【" Then
+            Dim crumbBreak As Long: crumbBreak = PeekNextBreak(s, afterHead)
+            crumbStart = afterHead
+            If crumbBreak = 0 Then
+                crumbLen = total - afterHead + 1
+            Else
+                crumbLen = crumbBreak - afterHead
+            End If
+        End If
+    End If
+
+    ' 閉じる案内行: 文字列全体の最後の改行より後ろ。改行が1つも無ければ0の
+    ' まま(見出し行しか無い異常系。ShowPeekは必ず区切り行+閉じる案内を
+    ' 付けるので実運用では到達しない)。
+    Dim lastBreak As Long: lastBreak = PeekLastBreak(s)
+    If lastBreak > 0 And lastBreak < total Then
+        closeStart = lastBreak + 1
+        closeLen = total - closeStart + 1
+    End If
+
+    ' 行頭の "[...]" タグ(セル番地・シート表記)。行頭=位置1、または直前が
+    ' 改行の位置。見出し/breadcrumb/区切り行/閉じる案内はいずれも "[" で
+    ' 始まらないため、範囲を区切らず全体を1回走査すればよい。
+    Dim pos As Long: pos = 1
+    Do While pos <= total
+        Dim atLineStart As Boolean: atLineStart = (pos = 1)
+        If Not atLineStart Then atLineStart = PeekIsBreak(Mid$(s, pos - 1, 1))
+        Dim matched As Boolean: matched = False
+        If atLineStart And Mid$(s, pos, 1) = "[" Then
+            Dim closeBr As Long: closeBr = InStr(pos, s, "]")
+            Dim brk As Long: brk = PeekNextBreak(s, pos)
+            If closeBr > 0 And (brk = 0 Or closeBr < brk) Then
+                nRef = nRef + 1
+                ReDim Preserve refStarts(1 To nRef): ReDim Preserve refLens(1 To nRef)
+                refStarts(nRef) = pos
+                refLens(nRef) = closeBr - pos + 1
+                pos = closeBr + 1
+                matched = True
+            End If
+        End If
+        If Not matched Then pos = pos + 1
+    Loop
+
+    PeekSpans = nRef
+End Function
+
+Private Function PeekIsBreak(ByVal c As String) As Boolean
+    PeekIsBreak = (c = vbLf Or c = vbCr)
+End Function
+
+Private Function PeekNextBreak(ByVal s As String, ByVal fromPos As Long) As Long
+    Dim i As Long
+    For i = fromPos To Len(s)
+        If PeekIsBreak(Mid$(s, i, 1)) Then
+            PeekNextBreak = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function PeekLastBreak(ByVal s As String) As Long
+    Dim i As Long
+    For i = Len(s) To 1 Step -1
+        If PeekIsBreak(Mid$(s, i, 1)) Then
+            PeekLastBreak = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+' ExtractBreadcrumb - 先頭の【…】breadcrumb行だけを取り出す(純関数・R43
+'   波A 1-2)。modTextView.StripBreadcrumb(残す側を返す関数)と全く同じ条件
+'   (先頭が「【」かつ改行がある)で判定するので、2つの関数の判定が食い違う
+'   ことは無い(「【だけ」のような不完全な行は、どちらの関数も手を付けない)。
+Private Function ExtractBreadcrumb(ByVal s As String) As String
+    If Left$(s, 1) = "【" Then
+        Dim lfPos As Long: lfPos = InStr(s, vbLf)
+        If lfPos > 0 Then ExtractBreadcrumb = Left$(s, lfPos - 1)
+    End If
+End Function
 
 Public Sub HidePeek()
     On Error Resume Next
