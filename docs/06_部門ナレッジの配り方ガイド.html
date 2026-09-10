@@ -94,7 +94,7 @@
 <nav class="toc"><div class="wrap">
   <a href="#s1">1. これは何？</a>
   <a href="#s2">2. 登場人物と必要なもの</a>
-  <a href="#s3">3. 共有フォルダの設定</a>
+  <a href="#s3">3. 共有フォルダの作り方・設定</a>
   <a href="#s4">4. 配る資料をそろえる</a>
   <a href="#s5">5. 発行する</a>
   <a href="#s6">6. まちがえたとき</a>
@@ -149,7 +149,7 @@
   <div class="grid2">
     <a class="card branch" href="#s3">
       <b>🔑 私は「配る人」です</b><br>
-      <span class="muted">発行者用ファイル（MyBookshelf_発行者用.xlsm）を持っている方はこちら。第3章「共有フォルダの設定」から読んでください。</span>
+      <span class="muted">発行者用ファイル（MyBookshelf_発行者用.xlsm）を持っている方はこちら。第3章「共有フォルダを作る・設定する」から読んでください。</span>
     </a>
     <a class="card branch" href="#s7">
       <b>👥 私は「受け取る人」です</b><br>
@@ -174,27 +174,155 @@
     <tr><th>必要なもの</th><th>説明</th></tr>
     <tr><td>① 発行者用ファイル<br><span class="muted">MyBookshelf_発行者用.xlsm</span></td><td>これが無いと <span class="btn">📤 正典を発行</span> ボタン自体が画面に出ません。一般配布のファイルにはこのボタンはありません。</td></tr>
     <tr><td>② 合言葉（発行キー）</td><td>発行のたびに聞かれます。<b>値はこの文書には書きません。</b>分からない場合は、このツールの管理担当者に確認してください。</td></tr>
-    <tr><td>③ 共有フォルダの設定</td><td>部門の全員が読み書きできるネットワーク上のフォルダ。第3章で設定します。</td></tr>
+    <tr><td>③ 共有フォルダの設定</td><td>部門の全員が読み書きできるネットワーク上のフォルダ。作り方から第3章で説明します。</td></tr>
   </table></div>
   <p class="muted">3つとも揃って、はじめて発行できます。1つでも欠けている場合の症状は第9章「困ったとき」を見てください。</p>
 </section>
 
 <!-- ============================================================ -->
 <section id="s3">
-  <h2>3.【配る人】準備1: 共有フォルダを設定する</h2>
-  <div class="goal">この章のゴール: <b>共有フォルダを設定し、うまく設定できたかを自分で確認できる</b>。</div>
-  <p class="muted">すでに設定済みの方は、この章を読み飛ばして第4章へ進んでください。</p>
+  <h2>3.【配る人】準備1: 共有フォルダを作る・設定する</h2>
+  <div class="goal">この章のゴール: <b>共有フォルダをどこにどう作ればいいかが分かり、アプリに設定して、うまく設定できたかを自分で確認できる</b>。</div>
+  <p class="muted">すでに共有フォルダがあり、アプリへの設定も済んでいる方は、この章を読み飛ばして第4章へ進んでください。</p>
 
+  <h3>共有フォルダとは何か</h3>
+  <p>「共有フォルダ」とは、<b>部門の全員が同じ場所として開くことができ、読み書きできるフォルダ</b>のことです。あなた（配る人）が正典をそこに置き、部門の全員（受け取る人）がそこから受け取る、いわば「郵便受け」の役割をします。<b>あなたが用意するのは、この共有フォルダ1つだけ</b>です。中に作る小部屋（サブフォルダ）は、後の「中にできる部屋」で説明するとおり<b>すべてアプリが自動で作ります</b>ので、あなたが中まで作る必要はまったくありません。</p>
+  <div class="note"><b>共有フォルダに求められる条件は2つだけ</b><br>
+    ① 部門の全員が<b>読み書きできる</b>こと（受け取るだけの人も、感謝状や投書を書き込むために書き込み権限が必要です）。<br>
+    ② 部門の全員が<b>同じパスで</b>開けること（あなたのPCの中だけにあるフォルダ、Cドライブの個人用フォルダなどは使えません）。
+  </div>
+
+  <h3>どこに作るか（3つの選択肢）</h3>
+  <p>部門やチームですでに使っている共有の置き場所があれば、それを使うのが一番簡単です。無い場合は、次の3つから選んでください。</p>
+  <div class="tw"><table>
+    <tr><th>選択肢</th><th>こんな場合におすすめ</th><th>見分け方</th></tr>
+    <tr><td>① 会社の共有サーバー</td><td>すでに部門でファイルサーバーを使っている</td><td>アドレスが <code>\\</code>（円マーク2つ）で始まる</td></tr>
+    <tr><td>② OneDrive / SharePoint の共有フォルダ</td><td>社内サーバーが無く、Microsoft 365 を使っている</td><td>自分のPCに「同期」しておくと、ふつうのフォルダと同じようにエクスプローラーで開ける</td></tr>
+    <tr><td>③ どちらも無い場合</td><td>置き場所が分からない・自分で作る権限が無い</td><td>情報システム担当・管理担当に依頼する（下の依頼文をどうぞ）</td></tr>
+  </table></div>
+
+  <div class="card">
+    <b>③ を選んだ場合の依頼文（そのままコピーして使えます）</b>
+    <p>情報システム担当や管理担当に、次のように頼んでみてください。</p>
+    <p><em>「部門のメンバー全員が読み書きできる共有フォルダを1つ作ってもらえますか。ファイルサーバー上でも OneDrive／SharePoint 上でもかまいません。社内ツール（MyBookshelf）の資料置き場として使います。」</em></p>
+  </div>
+
+  <h3>実際にフォルダを作る手順</h3>
+  <p class="muted">ここでは①会社の共有サーバーを例にします。②OneDrive／SharePointの場合は、あらかじめ自分のPCに同期しておけば、手順3以降はまったく同じです（同期のやり方が分からない場合は情報システム担当に確認してください）。</p>
+  <ol class="steps">
+    <li><b>エクスプローラーを開く</b>キーボードの <span class="btn">Windowsキー</span> と <span class="btn">E</span> を同時に押すか、タスクバーの黄色いフォルダのアイコンをクリックします。</li>
+    <li><b>共有サーバーの場所を開く</b>画面上部のアドレス欄（細長い入力欄）に部門のサーバーの場所（例: <code>\\サーバー名\共有</code>）を入力して <span class="btn">Enter</span>。場所が分からない場合は情報システム担当に聞いてください。</li>
+    <li><b>ファイルが無い余白部分で右クリックする</b>フォルダの一覧の中の、何も無いところで右クリックします。</li>
+    <li><b>「新規作成」→「フォルダー」を選ぶ</b>右クリックで出るメニューの中にあります。</li>
+    <li><b>名前を付けて <span class="btn">Enter</span></b>たとえば <code>MyBookshelf_Share</code> のような分かりやすい名前を付けます。名前は何でも構いません（次の「アプリに場所を教える」で自分でこのフォルダを選びます）。</li>
+  </ol>
+  <p>これで共有フォルダ本体は完成です。この時点では中身は空っぽで構いません。サブフォルダは作らなくて大丈夫です（次の「中にできる部屋」を参照してください）。</p>
+
+  <div class="note"><b>「パス」って何？</b><br>
+    <code>\\サーバー名\共有\MyBookshelf_Share</code> のような文字列を「パス」と呼びます。そのフォルダが「どこにあるか」を表す住所のようなものです。<br>
+    調べ方: 作ったフォルダを開いた状態で、エクスプローラーの<b>アドレス欄をクリック</b>すると、その場所のパスが文字として選択された状態で表示されます。それを <span class="btn">Ctrl</span>+<span class="btn">C</span> でコピーすれば、後の章の入力欄に貼り付けたり、他の人に伝えたりできます。
+  </div>
+
+  <h3>中にできる部屋（すべてアプリが自動で作ります）</h3>
+  <p>共有フォルダの場所を次の「アプリに場所を教える」でアプリに教えると、部門の誰かが実際に使ったタイミングで、アプリが自動で次の部屋（サブフォルダ）を作ります。<b>あなたが手で作るものは1つもありません。</b></p>
+
+  <figure>
+    <svg viewBox="0 0 900 360" role="img" aria-label="共有フォルダの中に、アプリが自動で8つの部屋を作る図。共有フォルダはあなたが作り、その下はすべてアプリが自動で作る">
+      <g font-family="Segoe UI, Yu Gothic UI, Meiryo, sans-serif" font-size="13" fill="#1f2937">
+        <rect x="350" y="14" width="200" height="72" rx="12" fill="#e8efff" stroke="#bcd0ff"/>
+        <text x="450" y="44" text-anchor="middle" font-size="26">📁</text>
+        <text x="450" y="64" text-anchor="middle" font-weight="bold">共有フォルダ</text>
+        <text x="450" y="80" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1d4ed8">（あなたが作るのはここだけ）</text>
+
+        <line x1="450" y1="86" x2="450" y2="112" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+
+        <rect x="20" y="116" width="860" height="230" rx="14" fill="#e7f6ec" stroke="#b7e2c4" stroke-dasharray="6 4"/>
+        <text x="450" y="138" text-anchor="middle" font-size="13" font-weight="bold" fill="#15803d">ここから下は、アプリが自動で作ります</text>
+
+        <rect x="40" y="150" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="132" y="172" text-anchor="middle" font-size="16">📁</text>
+        <text x="132" y="190" text-anchor="middle" font-size="12.5" font-weight="bold">channels</text>
+        <text x="132" y="205" text-anchor="middle" font-size="10" fill="#4b5563">部門の正典</text>
+
+        <rect x="245" y="150" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="337" y="172" text-anchor="middle" font-size="16">📁</text>
+        <text x="337" y="190" text-anchor="middle" font-size="12.5" font-weight="bold">feedback ※</text>
+        <text x="337" y="205" text-anchor="middle" font-size="10" fill="#4b5563">匿名の投書</text>
+
+        <rect x="450" y="150" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="542" y="172" text-anchor="middle" font-size="16">📁</text>
+        <text x="542" y="190" text-anchor="middle" font-size="12.5" font-weight="bold">thanks</text>
+        <text x="542" y="205" text-anchor="middle" font-size="10" fill="#4b5563">感謝状</text>
+
+        <rect x="655" y="150" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="747" y="172" text-anchor="middle" font-size="16">📁</text>
+        <text x="747" y="190" text-anchor="middle" font-size="12.5" font-weight="bold">noise</text>
+        <text x="747" y="205" text-anchor="middle" font-size="10" fill="#4b5563">品質報告</text>
+
+        <rect x="40" y="232" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="132" y="254" text-anchor="middle" font-size="16">📁</text>
+        <text x="132" y="272" text-anchor="middle" font-size="12.5" font-weight="bold">insight</text>
+        <text x="132" y="287" text-anchor="middle" font-size="10" fill="#4b5563">気づきの共有</text>
+
+        <rect x="245" y="232" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="337" y="254" text-anchor="middle" font-size="16">📁</text>
+        <text x="337" y="272" text-anchor="middle" font-size="12.5" font-weight="bold">telemetry</text>
+        <text x="337" y="287" text-anchor="middle" font-size="10" fill="#4b5563">利用状況</text>
+
+        <rect x="450" y="232" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="542" y="254" text-anchor="middle" font-size="16">📁</text>
+        <text x="542" y="272" text-anchor="middle" font-size="12.5" font-weight="bold">board</text>
+        <text x="542" y="287" text-anchor="middle" font-size="10" fill="#4b5563">みんなの掲示</text>
+
+        <rect x="655" y="232" width="185" height="72" rx="10" fill="#fff" stroke="#d9dee5"/>
+        <text x="747" y="254" text-anchor="middle" font-size="16">📁</text>
+        <text x="747" y="272" text-anchor="middle" font-size="12.5" font-weight="bold">questions</text>
+        <text x="747" y="287" text-anchor="middle" font-size="10" fill="#4b5563">質問の共有</text>
+      </g>
+    </svg>
+    <figcaption>共有フォルダはあなたが1つ作るだけ。中の8つの部屋（フォルダ）はすべてアプリが自動で作ります。※ feedback だけは、最初の匿名の投書が届いたときに作られます（それまでは無くて正常です）。</figcaption>
+  </figure>
+
+  <div class="tw"><table>
+    <tr><th>部屋（フォルダ名）</th><th>何が入るか</th></tr>
+    <tr><td><code>channels</code></td><td>各部門の正典（<code>&lt;部門名&gt;\pack.xlsx</code>・<code>version.txt</code>・<code>publish_log.txt</code>・<code>_archive</code>）</td></tr>
+    <tr><td><code>feedback</code></td><td>Hub画面の匿名の投書箱に届いた声（<code>fb_日付_乱数.txt</code>。名前も所属も入りません）</td></tr>
+    <tr><td><code>thanks</code></td><td>感謝状</td></tr>
+    <tr><td><code>noise</code></td><td>品質報告</td></tr>
+    <tr><td><code>insight</code></td><td>気づきの共有</td></tr>
+    <tr><td><code>telemetry</code></td><td>利用状況</td></tr>
+    <tr><td><code>board</code></td><td>みんなの掲示</td></tr>
+    <tr><td><code>questions</code></td><td>質問の共有</td></tr>
+  </table></div>
+  <p class="muted"><code>feedback</code> だけは他の7つと違い、共有フォルダを設定した直後にはまだできていません。誰かが実際に匿名の投書箱を使った瞬間に作られます。無くても壊れているわけではありません。</p>
+
+  <div class="stop"><b>共有フォルダの中でやってはいけないこと</b><br>
+    ・ここに書いた部屋を<b>自分でフォルダを作って先回りしない</b>でください（アプリが確認して自動で作るので不要です。名前を間違えて手で作ると、アプリが探しに行く名前と一致せず、うまく動きません）。<br>
+    ・できあがった部屋の<b>名前を変えない</b>でください。<br>
+    ・<code>channels</code> の中のファイル（<code>pack.xlsx</code> など）を<b>手で開いたり、書き換えたり、消したりしない</b>でください。部門の正典が壊れ、部内全員が受け取れなくなることがあります。
+  </div>
+
+  <h3>アプリに場所を教える</h3>
   <ol class="steps">
     <li><b>どの画面でも、右上の <span class="btn">❓</span> を押す</b>ヘルプのカードが開きます。</li>
     <li><b>カードの中の <span class="btn">⚙ 共有フォルダ設定</span> を押す</b>この名前は現在の画面のとおりです（以前の名称「P2P接続設定」は使われていません）。</li>
-    <li><b>フォルダ選択の画面で、部門の共有フォルダを選ぶ</b>選択画面が使えない環境では「パスを直接入力しますか?」と聞かれます。「はい」を選び、共有フォルダのパス（例: <code>\\サーバー名\共有\MyBookshelf_Share\</code>）を入力してください。</li>
+    <li><b>「共有フォルダを選んでください」の画面で、さっき作った共有フォルダを選ぶ</b>選択画面が使えない環境では「パスを直接入力しますか?」と聞かれます。「はい」を選び、共有フォルダのパス（例: <code>\\サーバー名\共有\MyBookshelf_Share\</code>）を入力してください。パスは前の「パスって何？」でコピーしたものを貼り付けられます。</li>
     <li><b>選び終わると自動で保存される</b>別に保存ボタンを押す必要はありません。</li>
     <li><b>出てきたメッセージで、設定できたかを確認する</b>下の2パターンのどちらが出たかを見てください。</li>
   </ol>
 
-  <div class="ok"><b>成功のメッセージ</b>：「共有フォルダを設定しました。みんなの節約・部門資料が使えるようになります。」と出れば設定完了です。</div>
-  <div class="note"><b>保存はできたが、まだ繋がっていないとき</b>：「設定は保存しましたが、そのフォルダへ今は届きませんでした。ネットワーク接続をご確認のうえ、開き直してお試しください。」と出ることがあります。社内ネットワーク（VPN）に繋いでから、ファイルを閉じて開き直し、もう一度確認してください。</div>
+  <h3>設定できたかを確認する</h3>
+  <div class="ok"><b>成功のメッセージ</b>：「共有フォルダを設定しました。みんなの節約・部門資料が使えるようになります。」と出れば設定完了です。<b>このメッセージが出た時点で、共有フォルダの中に thanks・noise・insight・telemetry・board・channels・questions の7つの部屋がすでにできています。</b>心配な方は、共有フォルダをエクスプローラーで開いて、7つのフォルダができているか見てください。</div>
+  <div class="note"><b>保存はできたが、まだ繋がっていないとき</b>：「設定は保存しましたが、そのフォルダへ今は届きませんでした。ネットワーク接続をご確認のうえ、開き直してお試しください。」と出ることがあります。この場合、共有フォルダの中の7つの部屋は<b>まだ作られていません。</b>社内ネットワーク（VPN）に繋いでから、ファイルを閉じて開き直し、もう一度確認してください。</div>
+
+  <h3>おまけ: ご意見の入口は2つあります（行き先が違います）</h3>
+  <p>この章で説明した <code>feedback</code> フォルダに関連して、まぎらわしい点が1つあります。「ご意見」を送れる場所がアプリの中に2つあり、<b>行き先がまったく違います</b>。</p>
+  <div class="tw"><table>
+    <tr><th>入口</th><th>目印</th><th>送られる先</th></tr>
+    <tr><td>Hub画面（ホーム）右上のアイコン列</td><td>アイコン 📮・ラベル「ご意見」<br><span class="muted">ツールチップ「匿名で感想・要望を送る」</span></td><td>共有フォルダの <code>feedback</code> へ<b>匿名で</b>保存されます（名前も所属も記録されません）</td></tr>
+    <tr><td>ヘルプ「❓」カードの中</td><td><span class="btn">📮 ご意見・不具合報告</span></td><td>共有フォルダは使わず、作成者宛の<b>メールの下書き</b>が開きます（本文はクリップボードに入ります）</td></tr>
+  </table></div>
+  <p class="muted">つまり「Hubのご意見が feedback フォルダに置かれる」という話は、右上の 📮「ご意見」のほうを指しています。ヘルプの「📮 ご意見・不具合報告」から送った内容は共有フォルダには入りません。</p>
 </section>
 
 <!-- ============================================================ -->
