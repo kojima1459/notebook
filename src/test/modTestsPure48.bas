@@ -74,16 +74,29 @@ Private Sub TestCellOnlyAddress48()
     ChkBool48 "T1_hasCell", has, True
     ChkStr48 "T1_値のあるセルだけに番地", got, "[A5] 山田" & vbTab & vbTab & "[C5] 1234"
 
-    ' T1b(レビュー R43 m2): 数式が返した空文字("")は値ありに数えない。
-    ' 数えると [B5] だけの番地が残り、値の無いセルを AI が引用しうる。
-    ' 期待は空セル(IsEmpty)と同じ＝タブだけで位置を保ち、番地は付かない。
+    ' T1b(レビュー R43 m2): 数式が返した空文字("")には番地を付けない。
+    ' 付けると [B5] だけが残り、値の無いセルを AI が引用しうる。
+    ' ただし【行は残す】(hasCell=True)。R33 W3-1「数式ブランクの行は残す」を
+    ' 壊さないため、番地の有無と行の存否は別の判定にしてある
+    ' (一緒にすると、数式で空になった行が丸ごと落ちる ―― 実際に LO の
+    '  R33-W3-1 が落ちて気付いた回帰)。
     Dim arr2() As Variant: ReDim arr2(1 To 1, 1 To 3)
     arr2(1, 1) = "山田"
     arr2(1, 2) = ""
     arr2(1, 3) = "1234"
     Dim has2 As Boolean
     Dim got2 As String: got2 = modExtractorExcel.RowTextFrom(arr2, 1, 3, has2, 5, 1)
+    ChkBool48 "T1b_数式の空文字でも行は残る", has2, True
     ChkStr48 "T1b_数式の空文字には番地を付けない", got2, "[A5] 山田" & vbTab & vbTab & "[C5] 1234"
+
+    ' T1c: 全セルが数式ブランクの行も残す(R33 W3-1 の直接検算)。
+    Dim arr3() As Variant: ReDim arr3(1 To 1, 1 To 2)
+    arr3(1, 1) = ""
+    arr3(1, 2) = ""
+    Dim has3 As Boolean
+    Dim got3 As String: got3 = modExtractorExcel.RowTextFrom(arr3, 1, 2, has3, 7, 1)
+    ChkBool48 "T1c_全セル数式ブランクでも行は残る", has3, True
+    ChkStr48 "T1c_番地は付かない", got3, "" & vbTab & ""
 End Sub
 
 ' ---- T2: A列が空でB列起点のシートで正しくBが出る --------------------------

@@ -90,9 +90,11 @@ Public Sub StyleAnswerParas(ByVal bubbleName As String)
     ' 同じ2手を踏んでいる)。下端も取り直さないと、次のバブル(起動時の履歴
     ' 復元は1件ずつ装飾する)がこのバブルへ重なる。
     With shp.TextFrame2
+        .WordWrap = -1        ' 手本(modUI.UpdateBubbleText)と同じ3手にする
         .AutoSize = 0
         .AutoSize = 1
     End With
+    If shp.Height < 28 Then shp.Height = 28
     modUI.RecalcChatBottom shp.Parent
     On Error GoTo 0
 End Sub
@@ -143,8 +145,10 @@ Public Function LeadParaIndex(ByVal text As String) As Long
     If Left$(firstPara, 1) = "■" Then Exit Function
     If Left$(firstPara, 2) = ChrW(&HD83D) & ChrW(&HDCAD) Then Exit Function
     ' レビュー R43 M1: 先頭に前置されるだけで結論ではない2種。
-    ' (3) modAskRetrieve.ApplyLowHitWarning が付ける「⚠️ 手元の資料との関連が
-    '     薄い可能性があります…」。根拠が薄いときほど警告文を大きくしてしまう。
+    ' (3) ⚠ 始まりの前置2種: modAskRetrieve.ApplyLowHitWarning(関連が薄い)と
+    '     modLive.EmptyShelfWrap(本棚が空)。どちらも結論ではない前置きで、
+    '     強調すると警告文が画面で一番大きくなる。この2経路では本文側も
+    '     強調しない(次の段落へずらさない割り切り)。
     ' (4) modApp.RestoreLastConversation が付ける「📜(前回の回答) 」。これが
     '     前置されると ■ も 💭 も貫通するので、復元履歴が全件12ptになる。
     If Left$(firstPara, 1) = ChrW(&H26A0) Then Exit Function

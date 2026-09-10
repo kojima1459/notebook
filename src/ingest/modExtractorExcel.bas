@@ -492,13 +492,20 @@ Public Function RowTextFrom(ByRef arr As Variant, ByVal r As Long, ByVal cols As
             hasVal = True
         ElseIf Not IsEmpty(v) Then
             cellText = CStr(v)
-            ' レビュー R43 m2: 数式が返した空文字("")は「値あり」に数えない。
-            ' 数えると [B6] だけの番地が残り、値の無いセルを AI が
-            ' 「(B6 付近)」として引用しうる(空セルの位置保持は下で不変)。
-            If LenB(cellText) > 0 Then hasVal = True
+            hasVal = True
         End If
         If hasVal Then
-            cellParts(c - 1) = RowPrefix(baseCol + c - 1, rowIdx) & cellText
+            ' レビュー R43 m2: 番地を付けるのは【中身のあるセル】だけ。
+            ' 数式が返した空文字("")に付けると [B6] だけが残り、値の無い
+            ' セルを AI が「(B6 付近)」として引用しうる。
+            ' ただし hasVal(=この行を残すか)は従来どおり空文字でも True。
+            ' R33 W3-1「数式ブランクの行は残す」を壊さないための分離
+            ' (ここを一緒にすると、数式で空になった行が丸ごと消える)。
+            If LenB(cellText) > 0 Then
+                cellParts(c - 1) = RowPrefix(baseCol + c - 1, rowIdx) & cellText
+            Else
+                cellParts(c - 1) = cellText
+            End If
             lastUsed = c
         End If
     Next c

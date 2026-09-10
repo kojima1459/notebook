@@ -11,13 +11,13 @@ Option Explicit
 '   A modLiveStyle.LeadParaIndex(text): 先頭段落を「結論」として強調して
 '     よいか(1=対象/0=対象外)。
 '     A1 通常の結論文(vbCr区切り2段落・1段落目が結論): 1段落目が「■」でも
-'       📍でもないので対象=1。
+'       💭でもないので対象=1。
 '     A2 ■見出しで始まる回答: LTrim後の先頭1文字が"■"なので対象外=0。
-'     A3 聞き返し(📍=ChrW(&HD83D)&ChrW(&HDCAD)で始まる): LTrim後の先頭2文字
-'       (サロゲートペア)が📍と一致するので対象外=0。
+'     A3 聞き返し(💭=ChrW(&HD83D)&ChrW(&HDCAD)で始まる): LTrim後の先頭2文字
+'       (サロゲートペア)が💭と一致するので対象外=0。
 '     A4 空文字: LenB=0で即0。
 '     A5 先頭に半角空白が付く結論文: LTrimで空白を落としてから判定するので
-'       対象=1(空白自体は■でも📍でもない)。
+'       対象=1(空白自体は■でも💭でもない)。
 '     A6 改行が無い単一段落: brk=0となりfirstPara=text全体。結論扱いなので
 '       対象=1。
 '     A7 "■"1文字だけの段落: Left$(firstPara,1)="■"なので対象外=0。
@@ -68,7 +68,7 @@ Option Explicit
 ' 【どう壊すと落ちるか (discriminate)】
 '   ・LeadParaIndexで■判定をLTrim前の文字列に対して行うと、先頭に空白が
 '     付くだけの通常の結論文(A5)まで誤って対象外になる。
-'   ・LeadParaIndexで📍判定を1文字だけ見ると、サロゲート上位だけ一致する
+'   ・LeadParaIndexで💭判定を1文字だけ見ると、サロゲート上位だけ一致する
 '     別の絵文字と誤認する(A3はサロゲートペア2文字一致を要求している)。
 '   ・CellRefSpansで" 付近"の前の空白を省くと、B4(空白無し)も誤って
 '     1件と数えてしまう。
@@ -98,7 +98,7 @@ Private Sub TestLeadParaIndex46()
     ChkLong46 "LeadParaIndex_見出しで始まるは対象外", _
         modLiveStyle.LeadParaIndex("■ 見出し" & vbCr & "本文"), 0
 
-    ' A3: 聞き返し(📍で始まる)は対象外
+    ' A3: 聞き返し(💭で始まる)は対象外
     Dim pin As String: pin = ChrW(&HD83D) & ChrW(&HDCAD)
     ChkLong46 "LeadParaIndex_聞き返しは対象外", _
         modLiveStyle.LeadParaIndex(pin & " ご質問は複数の資料に該当します。" & vbCr & _

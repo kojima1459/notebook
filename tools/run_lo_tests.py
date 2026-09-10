@@ -194,7 +194,11 @@ EXPECTED_SKIP_MAX = 15
 #     本波も run_lo_tests.py の実行を司令塔の検問に譲る契約のため、この+19
 #     はテスト内のCheck()呼び出し数を静的に数えた値であり、LO実行による
 #     ネガティブ確認は未実施(司令塔が全波合流後の検問で必ず実施)。
-EXPECTED_PASS_MIN = 3383
+#   2026-09-10 R43 司令塔 Fix: modTestsPure47 に A8〜A11(primary/danger の地の
+#     輝度判定・境界4件)を追加 → 3378→3382。さらにレビュー2周目の Fix で
+#     modTestsPure48 に T1b/T1c(数式が返した空文字のセルは番地を付けないが
+#     【行は残す】。R33-W3-1 の回帰をここで捕まえた)を追加 → 3382→3386。
+EXPECTED_PASS_MIN = 3386
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

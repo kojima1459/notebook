@@ -176,6 +176,10 @@ End Sub
 Public Sub NoteShelfTruncated(ByVal hiddenN As Long)
     If mShelfTruncNoted Then Exit Sub
     If hiddenN < 1 Then Exit Sub
+    ' レビュー R43 2周目 m8: 印は「実際に描ける状況」でだけ消費する。
+    ' ShowToast は別ブックを見ている間は1枚も描かずに戻るので、先に
+    ' 印を立てると一度も見ないまま権利を失う。
+    If Not (ActiveWorkbook Is ThisWorkbook) Then Exit Sub
     mShelfTruncNoted = True
     On Error Resume Next
     ' レビュー R43 M3: waitless=True。呼び元(modUIShelf.RenderShelf)は
