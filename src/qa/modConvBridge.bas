@@ -52,6 +52,9 @@ Private Const MAX_CARRY_TOTAL_CHARS As Long = 20016
 ' 橋渡し済みの回答に付ける出所ヘッダーの接頭辞。この接頭辞で始まっていれば
 ' 「既に付与済み」とみなし、二重に付け足さない(冪等性)。
 Private Const HEADER_PREFIX As String = "【直前の"
+' 出所ヘッダーの後半(R45 で単一情報源化。WithBridgeHeader が組み立て、
+' HasBridgeHeader が探す。片方だけ変えると検出が静かに外れる)。
+Private Const HEADER_TAIL As String = "での文脈】"
 
 ' ----------------------------------------------------------------------------
 ' BridgeEnabled - config conv_bridge(既定TRUE)。
@@ -364,7 +367,23 @@ Public Function WithBridgeHeader(ByVal fromModeName As String, ByVal answerText 
         WithBridgeHeader = answerText
         Exit Function
     End If
-    WithBridgeHeader = HEADER_PREFIX & fromModeName & "での文脈】" & vbLf & answerText
+    WithBridgeHeader = HEADER_PREFIX & fromModeName & HEADER_TAIL & vbLf & answerText
+End Function
+
+' ----------------------------------------------------------------------------
+' HasBridgeHeader - 出所ヘッダー(【直前の○○での文脈】)を【どこかに】含むか
+'   (純関数・2026-09-10 R45)。
+' ----------------------------------------------------------------------------
+' Left$ ではなく InStr で見る理由: 一般モードで1往復進むたびに新しい回答が
+' 先頭へ積まれる(modAppState.bas:321 の ";;;" 連結)ため、ヘッダーは2ターン目
+' 以降は文字列の途中へ移る。運搬した内容自体は followup_max_pairs 往復ぶん
+' 送られ続けるので、その間ずっと True であってほしい。
+' 前後2つの印を両方見るのは、本文に「【直前の…」が偶然現れたときに誤検知
+' しないため(接頭辞だけだと通常の会話文でも当たりうる)。
+Public Function HasBridgeHeader(ByVal s As String) As Boolean
+    Dim p As Long: p = InStr(1, s, HEADER_PREFIX, vbBinaryCompare)
+    If p = 0 Then Exit Function
+    HasBridgeHeader = (InStr(p + Len(HEADER_PREFIX), s, HEADER_TAIL, vbBinaryCompare) > 0)
 End Function
 
 ' モード内部値("rag"/"normal")→表示名。modApp.ModeCaption の文言(絵文字抜き)

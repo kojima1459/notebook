@@ -271,6 +271,56 @@ Private Sub TestOnePassHasGuard44()
         (InStr(p, modPrompts.DomainGuardInstruction()) > 0), True
 End Sub
 
+' ---- G7: Excel のシート見出しが「章」として認識されること(R45) --------------
+' R44 の解剖: Excel は行がタブ区切り(表行)か、値1個でも [A5] 前置があるため
+' ClassifyLine が章にも節にも一度も分類せず、ブック全体が1ブロックになっていた。
+' → chapter/section が空 → breadcrumb が「【〔資料〕】」だけ → section_path が空
+' → 章要約・俯瞰・参照展開・条番号保証が Excel に対して全滅。
+' シート1行目を「# シート: 名前」にして【シート＝章】を立てるのが R45 の直し。
+' 抽出側の実物(SheetHeadingLine)を分類器に食わせるので、表記を変えると落ちる。
+Private Sub TestSheetHeading45()
+    Dim h As String: h = modExtractorExcel.SheetHeadingLine("自動車保険(個人)_1")
+    ChkBool44 "G7a_シート見出しは章(1)に分類される", (modChunker.ClassifyLine(h) = 1), True
+    ' 見出しの印は StripHeadingMark が外せる "#" であること(breadcrumb が
+    ' 「【〔資料〕 > 【シート: 名前】】」と二重括弧にならないための契約)
+    ChkStr44 "G7b_印はシャープと空白", Left$(h, 2), "# "
+    ChkBool44 "G7c_シート名が入っている", (InStr(h, "自動車保険(個人)_1") > 0), True
+    ' データ行は従来どおり。2セル以上=表行(4)、値1個=本文(0)。どちらも見出しでない
+    ChkBool44 "G7d_複数セルの行は表行(4)", _
+        (modChunker.ClassifyLine("[A5] 山田" & vbTab & "[B5] 1234") = 4), True
+    ChkBool44 "G7e_単一セルの行は本文(0)", _
+        (modChunker.ClassifyLine("[A5] 見出しらしき文字列") = 0), True
+    ' 章が立つと breadcrumb に入る(section_path の材料になる)
+    Dim crumb As String
+    crumb = modChunker.BuildBreadcrumb(modChunker.CRUMB_PLACEHOLDER, "シート: 自動車保険(個人)_1", "")
+    ChkBool44 "G7f_breadcrumbにシート名が入る", (InStr(crumb, "シート: 自動車保険(個人)_1") > 0), True
+    ChkStr44 "G7g_section_pathはシート名になる", _
+        modChunkMeta.ExtractSectionPath(crumb & vbLf & "本文"), "シート: 自動車保険(個人)_1"
+End Sub
+
+' ---- G8: 一般モードへ引き継いだ文脈の扱い(R45) ------------------------------
+' 橋渡しヘッダーがあるターンだけ CarryRules を足す。無条件に入れると
+' 「存在しない会話」を指す指示が残る(modGenPipe.bas:409-415 の実害記録)。
+Private Sub TestCarryGuard45()
+    Dim hdr As String: hdr = modConvBridge.WithBridgeHeader("社内ナレッジ検索", "回答本文")
+    ChkBool44 "G8a_橋渡し直後は検出できる", modConvBridge.HasBridgeHeader(hdr), True
+    ' 一般モードで1往復進むと新しい回答が先頭へ積まれ、ヘッダーは途中へ移る。
+    ' それでも運搬内容は送られ続けるので、検出も続かなければならない。
+    ChkBool44 "G8b_先頭でなくても検出できる", _
+        modConvBridge.HasBridgeHeader("新しい回答;;;" & hdr), True
+    ChkBool44 "G8c_橋渡しが無ければ検出しない", _
+        modConvBridge.HasBridgeHeader("ふつうの会話です。直前の話の続きで。"), False
+    ChkBool44 "G8d_空文字は検出しない", modConvBridge.HasBridgeHeader(""), False
+    ' 接頭辞だけの偶然一致で誤検知しない(前後2つの印を両方見る契約)
+    ChkBool44 "G8e_接頭辞だけでは検出しない", _
+        modConvBridge.HasBridgeHeader("【直前の資料を見てください】"), False
+    ' 文言の要件: 撤回させない(会話の情報は根拠として使ってよい)ことを明示
+    ChkBool44 "G8f_会話の情報は使ってよいと書いてある", _
+        (InStr(modGenPipe.CarryRules(), "根拠として使うこと自体は問題ない") > 0), True
+    ChkBool44 "G8g_原文の確認を促している", _
+        (InStr(modGenPipe.CarryRules(), "原文は出典でお確かめください") > 0), True
+End Sub
+
 ' ---- G5: 結論の12pt太字(LeadParaIndex)をガードが奪わない -------------------
 Private Sub TestLeadUnaffected44()
     Dim body As String: body = "結論です。" & vbLf & "■ 詳細" & vbLf & "・あれこれ"
@@ -325,6 +375,12 @@ H12Next48:
 H13Next48:
     On Error GoTo H13Fail48
     TestOnePassHasGuard44
+H14Next48:
+    On Error GoTo H14Fail48
+    TestSheetHeading45
+H15Next48:
+    On Error GoTo H15Fail48
+    TestCarryGuard45
 H01Done48:
     On Error GoTo 0
     Exit Sub
@@ -379,6 +435,14 @@ H12Fail48:
     Resume H13Next48
 H13Fail48:
     modTestRunner.Check "TestOnePassHasGuard44(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H14Next48
+H14Fail48:
+    modTestRunner.Check "TestSheetHeading45(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H15Next48
+H15Fail48:
+    modTestRunner.Check "TestCarryGuard45(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done48
 End Sub

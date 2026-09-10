@@ -266,6 +266,12 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
           "・直前の会話が示されている場合は、その続きとして答える。" & _
           "「これ」「その」「さっきの」等の指示語は直前の会話の内容を指すものとして解釈する。"
     If LenB(extraRules) > 0 Then sys = sys & vbLf & extraRules
+    ' R45: 社内ナレッジから橋渡しした文脈が載っているターンだけ、その扱い方を
+    ' 足す(実体は modGenPipe.CarryRules)。無条件に入れないのは、存在しない
+    ' 会話を指す指示が残るとモデルがその会話について語り出すため
+    ' (modGenPipe.bas:409-415 に同型の実害記録がある)。判定は
+    ' modConvBridge.HasBridgeHeader = 出所ヘッダーの前後2つの印を両方見る純関数。
+    If modConvBridge.HasBridgeHeader(mGenPrevA) Then sys = sys & vbLf & modGenPipe.CarryRules()
 
     Dim lat As Long
     Dim resp As String

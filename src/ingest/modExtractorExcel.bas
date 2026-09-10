@@ -302,7 +302,7 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
 
     Dim lineParts() As String: ReDim lineParts(0 To readRows + 1)
     Dim lineCount As Long
-    lineParts(0) = "[シート: " & ws.Name & "]"
+    lineParts(0) = SheetHeadingLine(ws.Name)
     lineCount = 1
 
     ' R40 F3(実機報告「Excel の出典が全部 p.1」)→R43 §4(実機報告「番地が
@@ -412,6 +412,30 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
         End If
     Next r
     AppendBlockLines = added
+End Function
+
+' ----------------------------------------------------------------------------
+' SheetHeadingLine - シート本文の1行目(純関数・2026-09-10 R45)。
+' ----------------------------------------------------------------------------
+' 「# 」で始めるのは modChunker.ClassifyLine に【章の見出し】と認識させるため。
+' R44 の解剖で分かったこと: Excel の行はタブ区切り(=表行)か、値1個でも R43 の
+' セル番地前置 [A5] があるため、ClassifyLine が章にも節にも一度も分類しない。
+' その結果 ChunkAllPagesStructured は【ブック全体を1ブロック】として扱い、
+' chapter/section は一度も代入されず、breadcrumb は「【〔資料〕】」だけ、
+' modChunkMeta.ExtractSectionPath は必ず空を返していた。つまり structure モードの
+' 構造化が Excel 資料に対して何もしておらず、章要約(doc_outline)・俯瞰質問・
+' 参照展開・条番号の直接ヒット保証が Excel では全滅していた。
+'
+' ここを見出しにすると【シート＝章】が立ち、上の層が動き出す。ブロック境界も
+' シートごとになるので、かけらがシートをまたがなくなる。
+'
+' 記法に「【…】」を選ばない理由: ClassifyLine は 60字以内の【…】も章と見なすが、
+' StripHeadingMark が外すのは "#" だけなので、chapter が「【シート: 名前】」の
+' まま breadcrumb に入り「【〔資料〕 > 【シート: 名前】】」と二重括弧になる。
+' 表記を変えるときは ClassifyLine(hashN=1 かつ2文字目が空白)の条件と
+' StripHeadingMark の両方を見ること(modTestsPure48 の G7 が固定する)。
+Public Function SheetHeadingLine(ByVal sheetName As String) As String
+    SheetHeadingLine = "# シート: " & sheetName
 End Function
 
 ' 行頭に付ける番地の印(純関数)。"[A6] " の形。番地が作れなければ空(印無し)。
