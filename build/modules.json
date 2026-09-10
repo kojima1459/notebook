@@ -708,7 +708,8 @@
       "path": "src/ui/modPeek.bas",
       "role": "core",
       "type": "std",
-      "wave": "NEXUS-P9"
+      "wave": "NEXUS-P9",
+      "note": "R43 波A(UI/UXポリッシュ 1-2/1-3)でプレビュー(ShowPeek)とチップ(RenderCitations/DrawChip)を拡張。ShowPeekは本文先頭のbreadcrumb行を見出し直下の別行へ切り出し・区切り行・本文行間の空行を足したうえで、PeekSpans(純関数)が返す位置へCharactersで色分け(見出し=primary太字11pt/breadcrumb=muted8.5pt/行頭[A6]等=primary/閉じる案内=muted8.5pt)。着色は必ずSetOverlayFloor登録・「原文を開く」ボタン配置より前(AutoSizeで高さが変わるため)。チップはChipDocLabel(16字超のときだけ…を付与)・ChipOverflowLabel(MAX_CHIPS超過時だけ「ほかN件」)を追加。色はいずれも既存トークンのみ。"
     },
     {
       "name": "modMentor",
@@ -744,6 +745,14 @@
       "role": "core",
       "type": "std",
       "wave": "2-F"
+    },
+    {
+      "name": "modLiveStyle",
+      "path": "src/ui/modLiveStyle.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波A(UI/UXポリッシュ)。modLive が27,825字でWARN目前のため、回答本文の文字装飾一式(StyleAnswerParas/CiteTagSpans/TagCloseOk・実測4,948字)をここへ移設(modSkin→modToastと同型の分割。挙動不変)。あわせて結論段落を12pt太字にするLeadParaIndex(■見出しで始まる回答・聞き返し/番号選択の回答=📍で始まる固定書式は対象外)と、本文中の「(A6 付近)」型セル番地を出典タグと同じ8pt・primary色にするCellRefSpansを新設。modLiveは同シグネチャの1行委譲(StyleAnswerParas)だけを残す。呼び出し元は modApp.bas 2箇所のみで変更不要。"
     },
     {
       "name": "modStarter",
@@ -794,7 +803,7 @@
       "role": "core",
       "type": "std",
       "wave": "R16-2a",
-      "note": "取込中でも別のExcelプロセス(excel.exe /x)で作業できるようにする一式(作業用Excelボタン+DisableProcessWindowsGhostingによる白画面抑止)。modUiLock.Enter/BlockIfIngestingを意図して呼ばない唯一のUI層ハンドラ(取込中こそ使いたい機能のため)。tools/vba_lint.pyのONACTION_GUARD_ALLOWLISTに登録済み。"
+      "note": "取込中でも別のExcelプロセス(excel.exe /x)で作業できるようにする一式(作業用Excelボタン+DisableProcessWindowsGhostingによる白画面抑止)。modUiLock.Enter/BlockIfIngestingを意図して呼ばない唯一のUI層ハンドラ(取込中こそ使いたい機能のため)。tools/vba_lint.pyのONACTION_GUARD_ALLOWLISTに登録済み。R43 波A 1-4(実機報告Q4)で起動完了トーストの文言を103字へ差し替え(Excelが2つになること・どちらが作業用か・どちらを閉じるかを明示)。modTestsPure43.TestR41SweepMs43のゴールデン・期待値(12134)も同じ変更で更新済み。"
     },
     {
       "name": "ThisWorkbook",
@@ -1302,6 +1311,14 @@
       "type": "std",
       "wave": "R43",
       "note": "R43 §4(実機報告「Excelの出典がA列ばかりになる」)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45と同型)。modExtractorExcel.RowTextFromへR43で追加したrowIdx/baseCol(共にOptional・既定0)の挙動を固定する: 値のあるセルだけに番地が付き空セルは番地無しで位置保持(T1)、A列が空でB列起点のシートで正しくBが出る(T2)、複数列で列がA→B→C…と1つずつ進む(T3)、AppendBlockLinesのfirstRow+r-1と同じ与え方で行番号が正しく進む(T4)、26列を超える列(AA・AB)の番地(T5)、空行はhasCell=Falseで番地も出ない(T6)。T7は後方互換の直接検算(rowIdx/baseColを省略した4引数呼び出しは番地無しの従来出力のままであること)で、対象外ファイルmodTestsPure33が4引数のままRowTextFromを呼び続けても影響が無いことを保証する(CLAUDE.md §9のシグネチャ変更対応をOptional化で満たした根拠)。期待値は全て手計算で固定(RowPrefix/CellAddressOfの26進表記はmodTestsPure43で既に固定済みの値を再利用)。UDTは使わないためCanUseTypeArrays()ガードは不要でLO/Excelとも全件実行する。"
+    },
+    {
+      "name": "modTestsPure46",
+      "path": "src/test/modTestsPure46.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波A(UI/UXポリッシュ§1)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45/48と同型)。固定するもの: (A)modLiveStyle.LeadParaIndex — 通常の結論文=1、■見出しで始まる回答・📍(聞き返し/番号選択)で始まる回答・空文字=0、先頭空白はLTrim後に判定、改行が無い単一段落は1、vbLf区切りでも同じ判定。(B)modLiveStyle.CellRefSpans — 「(A6 付近)」型(前後半角括弧・列はA-Z1文字以上・行は数字1文字以上・「 付近」必須)の位置と長さ、複数列(AA等)・2件連続・空白欠落や列/行欠落での0件化。(C)modPeek.ChipDocLabel — n字ちょうどは切らず、超えたときだけ…を付与。(D)modPeek.ChipOverflowLabel — 超過が無ければ空文字、超過があれば「ほかN件」。(E)modPeek.PeekSpans — 見出し(1行目)・breadcrumb(見出し直後が【で始まる行)・行頭[...]タグ複数件・閉じる案内(最後の改行より後ろ全部)の位置と長さ、breadcrumb/タグ無しの場合・空文字・行の途中の[は拾わないこと。期待値は全てpython3で各関数と同じ規則を再実装して実測し、モジュール先頭コメントに手計算根拠を記載。Check()呼び出し計52件。UDT/Shapeに触れない純関数のみでLO/Excelとも全件実行する。"
     }
   ]
 }

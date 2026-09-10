@@ -399,4 +399,18 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-10(R43 波A・UI/UXポリッシュ): modLiveStyle(結論段落の強調
+    ' LeadParaIndex・セル番地の色分けCellRefSpans・出典タグCiteTagSpans)と
+    ' modPeek(プレビューの色分けPeekSpans・出典チップのChipDocLabel/
+    ' ChipOverflowLabel)の純ロジック回帰。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure46.RunAll46
+    If Err.Number <> 0 Then
+        Check "modTestsPure46.RunAll46", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

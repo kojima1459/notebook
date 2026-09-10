@@ -178,7 +178,15 @@ EXPECTED_SKIP_MAX = 15
 #     本波は run_lo_tests.py の実行を司令塔の検問に譲る契約のため、この
 #     +13 はテスト内の Check() 呼び出し数を静的に数えた値であり、LO実行
 #     によるネガティブ確認は未実施(司令塔が全波合流後の検問で必ず実施)。
-EXPECTED_PASS_MIN = 3307
+#   2026-09-10 R43 波A(§1・UI/UXポリッシュ): modTestsPure46 を新設
+#     (modLiveStyle.LeadParaIndex 8件・CellRefSpans 14件・modPeek.ChipDocLabel
+#     3件・ChipOverflowLabel 4件・PeekSpans 23件、Check() 呼び出し計52件)。
+#     3307→3359(SKIP は 15 のまま・UDT/Shapeに触る検査を書いていないため
+#     [SKIP]は増えない)。本波も run_lo_tests.py の実行を司令塔の検問に譲る
+#     契約のため、この+52はテスト内のCheck()呼び出し数を静的に数えた値で
+#     あり、LO実行によるネガティブ確認は未実施(司令塔が全波合流後の検問で
+#     必ず実施)。
+EXPECTED_PASS_MIN = 3359
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -920,6 +928,22 @@ PURE_ALLOWLIST = [
     #   未注入だと modTestsPure48.RunAll48 が実行時エラー12になり、
     #   番地付けの唯一の自動検査が走らないまま全部PASSに見える。
     "modTestsPure48",
+    # modLiveStyle / modPeek / modTestsPure46(2026-09-10 R43 波A・UI/UXポリッシュ):
+    #   modLiveStyle は modLive から分割した回答装飾一式の移設先(StyleAnswerParas
+    #   /CiteTagSpans/TagCloseOkに加え、結論段落の強調LeadParaIndexとセル番地
+    #   CellRefSpansを新設)。テストが呼ぶのは文字列だけの純関数(LeadParaIndex/
+    #   CellRefSpans/CiteTagSpans。TagCloseOkはCiteTagSpans経由の内部呼び出し)
+    #   で、Shapeを触るStyleAnswerParasはテストから呼ばない(modLiveと同型)。
+    #   modPeek はプレビュー(ShowPeek)の色分け純関数PeekSpansと、出典チップの
+    #   ChipDocLabel/ChipOverflowLabelだけをテストが呼ぶ(RenderCitations/
+    #   ShowPeek/DrawChip等Shapeを触る手続きは呼ばない。modPeekが参照する
+    #   modTextView/modAsk/modSkin等は未注入でも「実行に到達しない未定義
+    #   識別子」としてコンパイルは通る=modLiveが多数の未注入モジュールを
+    #   参照しているのと同じ理屈、techメモ4)。未注入だと modTestsPure46.
+    #   RunAll46が実行時エラー12になり、結論段落の強調・セル番地の色分け・
+    #   プレビューの色分け・出典チップの省略/超過表示の唯一の自動検査が
+    #   走らないまま全部PASSに見える。
+    "modLiveStyle", "modPeek", "modTestsPure46",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"
