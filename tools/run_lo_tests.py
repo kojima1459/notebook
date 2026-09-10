@@ -171,7 +171,14 @@ EXPECTED_SKIP_MAX = 15
 #     FlushPaged直接検査がCanUseTypeArrays()ガードで+1)。
 #     ネガティブ確認: StartPagesOfゴールデンの期待値を"1,2,2,3,5"に壊して
 #     FAIL 1(PASS 3291)を確認→復元。
-EXPECTED_PASS_MIN = 3294
+#   2026-09-10 R43 波D(§4・実機報告「Excel の出典が A 列ばかりになる」):
+#     modTestsPure48 を新設(modExtractorExcel.RowTextFrom へ追加した
+#     rowIdx/baseCol の番地付けを固定。T1〜T7でCheck呼び出し13件)。
+#     3294→3307(SKIP は 15 のまま・UDTなしなので[SKIP]は増えない)。
+#     本波は run_lo_tests.py の実行を司令塔の検問に譲る契約のため、この
+#     +13 はテスト内の Check() 呼び出し数を静的に数えた値であり、LO実行
+#     によるネガティブ確認は未実施(司令塔が全波合流後の検問で必ず実施)。
+EXPECTED_PASS_MIN = 3307
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -905,6 +912,14 @@ PURE_ALLOWLIST = [
     #   未注入だと modTestsPure45.RunAll45 が実行時エラー12になり、
     #   出典ページ計算の唯一の自動検査が走らないまま全部PASSに見える。
     "modChunkPage", "modTestsPure45",
+    # modTestsPure48(2026-09-10 R43 §4・実機報告「Excel の出典が A 列ばかりに
+    #   なる」): テストが呼ぶのは modExtractorExcel.RowTextFrom(既にこの
+    #   一覧の"modExtractorExcel")だけで、R43 で追加した rowIdx/baseCol
+    #   (共にOptional・既定0)がセルごとの番地付けとして正しく働くかを
+    #   固定する。UDT を跨がない純関数のみでLO/Excelとも全件実行(SKIP無し)。
+    #   未注入だと modTestsPure48.RunAll48 が実行時エラー12になり、
+    #   番地付けの唯一の自動検査が走らないまま全部PASSに見える。
+    "modTestsPure48",
 ]
 
 TEMPLATE_PROFILE_DIR = Path(tempfile.gettempdir()) / "mybookshelf_lo_template_profile"

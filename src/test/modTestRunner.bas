@@ -386,4 +386,17 @@ Public Sub RunAllPureTests()
         Err.Clear
     End If
     On Error GoTo 0
+
+    ' 2026-09-10(R43 §4・実機報告「Excel の出典が A 列ばかりになる」):
+    ' modExtractorExcel.RowTextFrom のセル単位番地付け(rowIdx/baseCol、
+    ' 共にOptional)の純ロジック回帰。
+    On Error Resume Next
+    Err.Clear
+    modTestsPure48.RunAll48
+    If Err.Number <> 0 Then
+        Check "modTestsPure48.RunAll48", False, "呼び出しでエラー: " & Err.Description & _
+              " (Err=" & Err.Number & ") ※未実装/未注入の可能性"
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub

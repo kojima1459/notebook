@@ -1294,6 +1294,14 @@
       "type": "std",
       "wave": "R42",
       "note": "R42 §1(A1/A2・受入FAIL PDF-F01/RT-27/28/37/スモーク5・PDF-F02/RT-22/23)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜44と同型)。見出しの無い複数ページ資料でかけらの出典ページがp.1に寄っていた不具合の直し方(modChunkPage)を固定する。LineStarts/PageAtPos/FirstInkPos/PlanWindows(FlushBlockのスライディング規則をFindSentenceBoundary込みで1文字も変えず移植)/PhysicalKeep(A2・上限は物理ページ番号に当てる)の境界値と、5ページ・見出し無し・各ページ2行の再現ゴールデン(StartPagesOf。オーバーラップが改ページをまたぎ前ページに付く例を含む)を手計算で固定する。UDT(ShelfChunk配列)を使うFlushPagedの直接検査だけはCanUseTypeArrays()ガード下(Excel実機のみ実行・LOは[SKIP]1件。tools/run_lo_tests.pyのEXPECTED_SKIP_MAXを15へ)。"
+    },
+    {
+      "name": "modTestsPure48",
+      "path": "src/test/modTestsPure48.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 §4(実機報告「Excelの出典がA列ばかりになる」)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45と同型)。modExtractorExcel.RowTextFromへR43で追加したrowIdx/baseCol(共にOptional・既定0)の挙動を固定する: 値のあるセルだけに番地が付き空セルは番地無しで位置保持(T1)、A列が空でB列起点のシートで正しくBが出る(T2)、複数列で列がA→B→C…と1つずつ進む(T3)、AppendBlockLinesのfirstRow+r-1と同じ与え方で行番号が正しく進む(T4)、26列を超える列(AA・AB)の番地(T5)、空行はhasCell=Falseで番地も出ない(T6)。T7は後方互換の直接検算(rowIdx/baseColを省略した4引数呼び出しは番地無しの従来出力のままであること)で、対象外ファイルmodTestsPure33が4引数のままRowTextFromを呼び続けても影響が無いことを保証する(CLAUDE.md §9のシグネチャ変更対応をOptional化で満たした根拠)。期待値は全て手計算で固定(RowPrefix/CellAddressOfの26進表記はmodTestsPure43で既に固定済みの値を再利用)。UDTは使わないためCanUseTypeArrays()ガードは不要でLO/Excelとも全件実行する。"
     }
   ]
 }
