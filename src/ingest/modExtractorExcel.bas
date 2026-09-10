@@ -305,9 +305,13 @@ Private Function ExtractSheetText(ByVal ws As Worksheet) As String
     lineParts(0) = "[シート: " & ws.Name & "]"
     lineCount = 1
 
-    ' R40 F3(実機報告「Excel の出典が全部 p.1」): 各行の先頭にその行の左端
-    ' セルの番地([A6] など)を前置する。ページ番号はシートの通し番号のままなので、
-    ' 位置は本文側が担う(AI は抜粋の番地を根拠の位置として引用できる)。
+    ' R40 F3(実機報告「Excel の出典が全部 p.1」)→R43 §4(実機報告「番地が
+    ' A列ばかりになる」): 当初は行の先頭にその行の【左端セル】の番地だけを
+    ' 前置していたが、UsedRange の左端列を全行で使い回すため、A列から始まる
+    ' シートは何行目でも A、A列が丸ごと空なら全行 B になっていた。
+    ' R43 でセルごとの番地(値の直前に [A42] のように前置。RowTextFrom側)へ
+    ' 直す。ページ番号はシートの通し番号のままなので、列・行の位置は本文側
+    ' (セルの番地)が担う(AI は抜粋の番地を根拠の位置として引用できる)。
     Dim baseRow As Long: baseRow = used.row
     Dim baseCol As Long: baseCol = used.Column
 
@@ -372,7 +376,10 @@ End Function
 ' 読み込んだブロックを行テキストへ変換して lineParts に積む。
 ' 戻り値は積んだ文字数(呼び出し元の文字数上限の判定に使う)。
 ' R40 F3: firstRow/firstCol は arr(1,1) に対応する【シート上の絶対番地】。
-' 各行の先頭に CellAddressOf(firstCol, firstRow+r-1) を "[A6] " の形で前置する。
+' R43 §4: 行頭への一括前置はやめ、RowTextFrom に firstRow+r-1(その行の
+' 行番号)と firstCol(その行の起点列)を渡し、値のあるセルごとに
+' RowTextFrom の内側で番地を前置させる(二重に番地が出ないよう、ここでは
+' 前置しない)。
 Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, ByVal cols As Long, _
                                   ByRef lineParts() As String, ByRef lineCount As Long, _
                                   ByVal firstRow As Long, ByVal firstCol As Long) As Long
@@ -396,9 +403,9 @@ Private Function AppendBlockLines(ByRef arr As Variant, ByVal blkRows As Long, B
     Dim r As Long
     For r = 1 To blkRows
         Dim hasCell As Boolean
-        Dim rowText As String: rowText = RowTextFrom(arr, r, cols, hasCell)
+        Dim rowText As String
+        rowText = RowTextFrom(arr, r, cols, hasCell, firstRow + r - 1, firstCol)
         If hasCell Then
-            rowText = RowPrefix(firstCol, firstRow + r - 1) & rowText
             lineParts(lineCount) = rowText
             added = added + Len(rowText) + 1   ' 番地ぶんも上限に数える(2周目 M3: 出力量の歯止め)
             lineCount = lineCount + 1
@@ -445,8 +452,23 @@ End Function
 '   よって添字は cellCount ではなく c-1(=元の列位置)を使い、末尾の空欄
 '   だけを lastUsed で落とす。結合セルは Excel の仕様上どのみち左上にしか
 '   値が無いので、列位置さえ保てば見出しとデータのタブ数が揃う。
+'
+' 2026-09-10(R43 §4・実機報告「出典が A 列ばかりになる」): 番地を rowIdx/
+'   baseCol(共に Optional・既定0)で受け取り、【値のあるセルだけ】その値の
+'   直前へ RowPrefix(baseCol+c-1, rowIdx) を前置する("[A42] 値1[TAB][B42]
+'   値2" の形)。空セルには番地を付けない(疎な表で増加量を抑える。W3-1の
+'   位置保持=空欄はそのまま詰めずに残す、は変えない)。rowIdx/baseCol の
+'   どちらかが0(既定・省略時)なら RowPrefix 自身が空文字を返す
+'   (CellAddressOf の colIdx<1 Or rowIdx<1 ガード)ため番地無しの従来
+'   どおりの出力になる。これにより
+'   modTestsPure33(呼び出し側は本モジュールの触ってよい範囲外)が4引数の
+'   ままRowTextFromを直接呼んでいても、番地を要求しない限り出力もタブ数も
+'   一切変わらない(CLAUDE.md §9 のシグネチャ変更に伴う全呼び出し更新を、
+'   Optional化による後方互換で満たす)。
 Public Function RowTextFrom(ByRef arr As Variant, ByVal r As Long, ByVal cols As Long, _
-                            ByRef outHasCell As Boolean) As String
+                            ByRef outHasCell As Boolean, _
+                            Optional ByVal rowIdx As Long = 0, _
+                            Optional ByVal baseCol As Long = 0) As String
     outHasCell = False
     If cols < 1 Then Exit Function
 
@@ -463,11 +485,17 @@ Public Function RowTextFrom(ByRef arr As Variant, ByVal r As Long, ByVal cols As
         ' Excel 取込の実用性を大きく下げていた。しかもエラー詳細から
         ' 原因が読めない。エラー値はセルの見た目どおりの文字列にする
         ' (空にすると列がずれて表の意味が変わるため、残す)。
+        Dim cellText As String
+        Dim hasVal As Boolean: hasVal = False
         If IsError(v) Then
-            cellParts(c - 1) = ErrorCellText(v)
-            lastUsed = c
+            cellText = ErrorCellText(v)
+            hasVal = True
         ElseIf Not IsEmpty(v) Then
-            cellParts(c - 1) = CStr(v)
+            cellText = CStr(v)
+            hasVal = True
+        End If
+        If hasVal Then
+            cellParts(c - 1) = RowPrefix(baseCol + c - 1, rowIdx) & cellText
             lastUsed = c
         End If
     Next c
