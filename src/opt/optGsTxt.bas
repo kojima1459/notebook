@@ -218,6 +218,9 @@ Public Function ExtractPdfTextNoOcr(ByVal path As String) As String
     ' 2026-09-07(R39 F001): 単一gstext.txtの読み取りから、ページ別出力
     ' ("gstext_%04d.txt")を連結して読む形へ(BuildGsTextCommand側の変更に対応)。
     txt = optOcrCore.ReadPageFilesJoined(folderPath, totalPages, gsErrNum, gsErrDesc)
+    On Error Resume Next
+    If gsErrNum <> 0 Then modLog.LogUsage "gs_page_read_fail", "", modUtil.SafeLeft(gsErrDesc, 300)
+    On Error GoTo Fail
 
     ' R11-D(監査3 H-2): 終了コードとGS出力ログは【後始末の前】に読む。
     ' フォルダを消してから読もうとしても何も残っていない。
