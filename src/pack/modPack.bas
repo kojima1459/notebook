@@ -460,6 +460,14 @@ Private Function LoadPackChunksAndVectors(ByVal wb As Workbook, ByRef ids() As S
             tmpFullTexts(cnt) = CStr(arrC(i, 6))
             If vecMap.Exists(cid) Then
                 tmpVectors(cnt) = CStr(vecMap(cid))
+                ' R43 2-14(受入PA-04/PA-05): 非空ベクトルの次元数がembed_dimと
+                ' 不一致・非数値混入なら壊れたパックとして正規に倒す(page同様Err.Raise 6)。
+                If LenB(tmpVectors(cnt)) > 0 Then
+                    Dim vArr() As Double
+                    Dim vOk As Boolean: vOk = modUtil.CsvToVector(tmpVectors(cnt), vArr)
+                    If vOk Then vOk = ((UBound(vArr) - LBound(vArr) + 1) = modConfig.GetLong("embed_dim", 1536))
+                    If Not vOk Then Err.Raise 6, "modPack", "pack_vectors id=" & cid & " の次元が不正です"
+                End If
             Else
                 tmpVectors(cnt) = ""
             End If
