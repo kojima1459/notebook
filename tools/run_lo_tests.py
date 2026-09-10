@@ -194,7 +194,7 @@ EXPECTED_SKIP_MAX = 15
 #     本波も run_lo_tests.py の実行を司令塔の検問に譲る契約のため、この+19
 #     はテスト内のCheck()呼び出し数を静的に数えた値であり、LO実行による
 #     ネガティブ確認は未実施(司令塔が全波合流後の検問で必ず実施)。
-EXPECTED_PASS_MIN = 3378
+EXPECTED_PASS_MIN = 3382
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。

@@ -511,14 +511,30 @@ End Sub
 '   濃色RGB(17,24,39)はmsad/light既定のtextトークンと同値(新規色を増やさない)。
 ' ----------------------------------------------------------------------------
 Public Function OnAccentColor(ByVal rgbVal As Long) As Long
-    Dim r As Double, g As Double, b As Double
-    r = LinCh((rgbVal Mod 256) / 255)
-    g = LinCh(((rgbVal \ 256) Mod 256) / 255)
-    b = LinCh(((rgbVal \ 65536) Mod 256) / 255)
-    If 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 Then
+    Dim lBg As Double: lBg = RelLum(rgbVal)
+    ' 白と濃色のコントラストを実際に計算して、大きい方を採る(司令塔 Fix)。
+    ' 単一しきい値(旧0.179)では light の primary RGB(0,137,62) を濃色と
+    ' 誤判定し 3.93:1(AA未達)になる ―― 白なら 4.52:1 で合格する色。
+    If ContrastOf(lBg, RelLum(RGB(17, 24, 39))) > ContrastOf(lBg, 1#) Then
         OnAccentColor = RGB(17, 24, 39)
     Else
         OnAccentColor = RGB(255, 255, 255)
+    End If
+End Function
+
+' WCAG相対輝度(0..1)。sRGBを線形化して係数を掛けるだけの純関数。
+Private Function RelLum(ByVal rgbVal As Long) As Double
+    RelLum = 0.2126 * LinCh((rgbVal Mod 256) / 255) _
+           + 0.7152 * LinCh(((rgbVal \ 256) Mod 256) / 255) _
+           + 0.0722 * LinCh(((rgbVal \ 65536) Mod 256) / 255)
+End Function
+
+' 相対輝度2つのコントラスト比((明+0.05)/(暗+0.05))。
+Private Function ContrastOf(ByVal l1 As Double, ByVal l2 As Double) As Double
+    If l1 < l2 Then
+        ContrastOf = (l2 + 0.05) / (l1 + 0.05)
+    Else
+        ContrastOf = (l1 + 0.05) / (l2 + 0.05)
     End If
 End Function
 
@@ -595,13 +611,16 @@ Private Sub ToolButton(ByVal ws As Worksheet, ByVal shapeName As String, _
             .TextRange.Font.Size = 8.5
             If kind = "primary" Or kind = "accent" Or kind = "danger" Then
                 .TextRange.Font.Bold = -1
-                ' R43 2-1: accent地だけ相対輝度から文字色を決める(白固定だと
-                ' 「エグゼクティブ・ゴールド」で1.70:1=AA未達。primary/dangerは
-                ' 既存どおり白固定(いずれもAA合格を検算済み)。
+                ' R43 2-1(司令塔 Fix): accent だけでなく primary/danger の地でも
+                ' 相対輝度から文字色を決める。白固定は gold primary 2.10 /
+                ' gold danger 2.77 / dark danger 2.77 で AA 未達だった
+                ' (「白固定でAA合格」は再現できず、実測で3件の未達を確認)。
                 If kind = "accent" Then
                     .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onAccent")
+                ElseIf kind = "primary" Then
+                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
                 Else
-                    .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                    .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onDanger")
                 End If
             Else
                 .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")

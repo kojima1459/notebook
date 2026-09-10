@@ -57,6 +57,18 @@ Private Sub TestOnAccentColor47()
     ChkLong47 "A5_midgray_white", modKnowledgeBar.OnAccentColor(RGB(105, 105, 105)), RGB(255, 255, 255)
     ChkLong47 "A6_black_white", modKnowledgeBar.OnAccentColor(RGB(0, 0, 0)), RGB(255, 255, 255)
     ChkLong47 "A7_white_dark", modKnowledgeBar.OnAccentColor(RGB(255, 255, 255)), RGB(17, 24, 39)
+
+    ' A8〜A11(司令塔 Fix): primary/danger の地。旧しきい値方式(0.179)では
+    ' A8 が濃色に倒れて 3.93:1(AA未達)になっていた。白と濃色の実コントラストを
+    ' 比べる方式なら、白 4.52:1 が選ばれる。数値はすべて python で再計算した実測。
+    '   A8  light primary  RGB(0,137,62)   白 4.52 / 濃色 3.93 → 白
+    '   A9  gold  primary  RGB(212,175,55) 白 2.10 / 濃色 8.44 → 濃色
+    '   A10 gold  danger   RGB(248,113,113) 白 2.77 / 濃色 6.41 → 濃色
+    '   A11 sakura danger  RGB(185,28,28)  白 6.47 / 濃色 2.74 → 白
+    ChkLong47 "A8_light_primary_white", modKnowledgeBar.OnAccentColor(RGB(0, 137, 62)), RGB(255, 255, 255)
+    ChkLong47 "A9_gold_primary_dark", modKnowledgeBar.OnAccentColor(RGB(212, 175, 55)), RGB(17, 24, 39)
+    ChkLong47 "A10_gold_danger_dark", modKnowledgeBar.OnAccentColor(RGB(248, 113, 113)), RGB(17, 24, 39)
+    ChkLong47 "A11_sakura_danger_white", modKnowledgeBar.OnAccentColor(RGB(185, 28, 28)), RGB(255, 255, 255)
 End Sub
 
 Private Sub TestBadgeSpans47()
