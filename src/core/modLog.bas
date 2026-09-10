@@ -145,7 +145,7 @@ Public Function FriendlyMessage(ByVal code As String) As String
         Case "E0501"
             FriendlyMessage = "本棚に入れられる資料の上限を超えています。" & _
                 "使っていない資料を削除してから、もう一度追加してください。" & vbLf & _
-                "(上限そのものを増やすこともできます: configシートの shelf_max_chunks の数字を大きくしてください)"
+                "(使っていない資料を削除するか、上限の引き上げを管理担当者にご相談ください)"
         Case "E0502"
             ' E0502はMsgBox専用コード(shelf_folder関連)のため絵文字を使わない
             ' (MsgBoxでの絵文字表示問題はShowErrorのコメント参照)。

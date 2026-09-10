@@ -425,8 +425,8 @@ Public Sub SyncNow(Optional ByVal silent As Boolean = False)
         End If
         summary = summary & vbLf & vbLf & _
             "※本棚の上限(" & capMax & "チャンク)に達したため、" & cappedN & "件は取込を見送りました。" & vbLf & _
-            "もっと入れたい場合は、configシートの shelf_max_chunks の数字を大きくしてから、" & _
-            "もう一度「フォルダと同期」を押してください。"
+            "もっと入れたい場合は、使っていない資料を削除するか、" & _
+            "上限の引き上げを管理担当者にご相談ください。"
 
         On Error Resume Next
         modUIMain.SetStage ""

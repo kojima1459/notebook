@@ -626,7 +626,7 @@ Public Function AddFilesResult(Optional ByVal showMsgBox As Boolean = True) As S
     If cappedN > 0 Then
         msg = msg & vbLf & vbLf & _
             "※本棚の上限に達したため" & cappedN & "件は見送りました。" & vbLf & _
-            "configシートの shelf_max_chunks を大きくすると上限を増やせます。"
+            "使っていない資料を削除するか、上限の引き上げを管理担当者にご相談ください。"
         On Error Resume Next
         modLog.LogError "E0501", "modShelfBatch.AddFilesResult", _
             "上限" & capMax & "到達で" & cappedN & "件見送り"

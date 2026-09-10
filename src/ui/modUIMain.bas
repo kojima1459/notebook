@@ -852,7 +852,7 @@ End Function
 
 Private Function OneSourceLabel(ByRef h As Hit) As String
     Dim label As String
-    label = h.source & " p." & h.page
+    label = h.source & modMode.PageTagPart(h.source, h.page)
     If Left$(h.origin, 5) = "pack:" Then
         label = label & "（パック: " & Mid$(h.origin, 6) & "）"
     End If
@@ -863,7 +863,7 @@ Private Function TipList() As Variant
     TipList = Array( _
         "「" & ChrW(&HD83D) & ChrW(&HDD0D) & "しっかり調べる」は下書き" & ChrW(&H2192) & "検証の2段階なので少し時間がかかりますが、より丁寧な回答になります。", _
         "資料を追加すると本棚が育ち、答えられる質問がどんどん増えていきます。", _
-        "資料は「マイ本棚」タブの「フォルダと同期」でまとめて自動追加できます。", _
+        "資料は「マイ本棚」タブの「フォルダ→同期」でまとめて自動追加できます。", _
         "回答の下にある出典を見れば、元の資料のどこに書いてあるかすぐ確認できます。", _
         "同じ資料を入れ直すと、自動的に新しい内容に置き換わります(重複しません)。", _
         "他の人が作った「パック」を取り込むと、自分で資料を集めなくても本棚が増やせます。", _

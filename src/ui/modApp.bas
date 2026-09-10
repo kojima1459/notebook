@@ -104,7 +104,7 @@ Public Sub OnSend()
     If Len(q) > MAX_INPUT_CHARS Then
         q = Left$(q, MAX_INPUT_CHARS)
         MsgBox "入力が長いため、先頭 " & MAX_INPUT_CHARS & " 文字だけを送信します。" & vbLf & _
-               "長い資料は「ナレッジ倉庫」に取り込んでから質問すると、全文を対象に回答できます。", _
+               "長い資料は「ナレッジと本棚」に取り込んでから質問すると、全文を対象に回答できます。", _
                vbInformation, modAppDef.APP_NAME
     End If
 
@@ -470,7 +470,7 @@ Private Function AddDocsMessage(ByVal res As String) As String
     End If
     If capN > 0 Then
         say = AppendBlock(say, capN & "件は本棚の上限に達したため見送りました。" & vbLf & _
-            "configシートの shelf_max_chunks を大きくすると上限を増やせます。")
+            "使っていない資料を削除するか、上限の引き上げを管理担当者にご相談ください。")
     End If
 
     If LenB(say) = 0 Then
