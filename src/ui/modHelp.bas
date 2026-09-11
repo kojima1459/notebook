@@ -306,6 +306,14 @@ Private Sub ShowHelpCard()
                   ChrW(&HD83D) & ChrW(&HDDD4) & " 作業用Excelを開く", _
                   "modWorkExcel.OnOpenWorkExcel"
 
+    ' 7段目(2026-09-11 R46): 前の回答をコピーする。文脈pillは最新のバブルの
+    ' 下にしか出ないため、1つ前の回答を写す手段が無かった。下端は下の
+    ' 実Shape走査が測り直すので、ここへ1段足すだけでよい。
+    AddHelpAction ws, "nx_help_copypast", cardL, belowT + 204, 350, _
+                  ChrW(&HD83D) & ChrW(&HDCCB) & " 前の回答をコピー", _
+                  "modClip.OnCopyPastAnswer", _
+                  "いま画面に残っている回答から番号で選んで、そのままクリップボードへ写します。"
+
     ' R27 F2-1b(実機第12報①): ヘルプカードは modUI.RecalcChatBottom の許可
     ' リストに入っていない(重ね表示が会話の下端を引きずるのを避けるため)ので、
     ' 境界関所を一度も通らずに境界の外へ積まれる ―― これが「? ガイドを開くと

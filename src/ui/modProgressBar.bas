@@ -110,8 +110,12 @@ Public Sub PaintProgress(ByVal message As String, Optional ByVal cancellable As 
     If ws Is Nothing Then Exit Sub
 
     ' 2026-07-31(R11-H Med4): waitless のToastは自分では消えないので、進捗
-    ' バナーを出すここでも掃除する(ShowToastの先頭と同じ役目)。
-    ws.Shapes("nx_toast").Delete
+    ' バナーを出すここでも掃除していた。
+    ' 2026-09-11(R46 B-5): その前提は R41 の modToast.ArmSweep で失効した
+    ' (waitless も自分で消える)。にもかかわらず無条件 Delete を残したため、
+    ' 1秒ごとに塗り直される取込バナーが、出たばかりのトーストを毎回殺して
+    ' いた(実機「作業用Excelの案内が一瞬で消える」)。孤児だけ掃除する。
+    modToast.SweepIfDue ws
 
     If LenB(mProgressSheetName) > 0 And mProgressSheetName <> ws.Name Then
         Dim wsOld As Worksheet
@@ -286,7 +290,9 @@ Public Sub ClearProgress()
         ws.Shapes(PROGRESS_NAME).Delete
         ws.Shapes(PROGRESS_CANCEL_NAME).Delete
         ws.Shapes(PROGRESS_WORK_NAME).Delete
-        ws.Shapes("nx_toast").Delete
+        ' R46 B-5: 取込の終わりぎわに押されたトーストを即殺しないよう、
+        ' ここも孤児だけにする(予約が生きていれば OnTime が必ず回収する)。
+        modToast.SweepIfDue ws
     Next ws
     mProgressSheetName = ""
     On Error GoTo 0

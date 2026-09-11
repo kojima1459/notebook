@@ -333,7 +333,18 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
     ' 回答を解決したことにされる(実機第3報 RC2)。
     ' R14-G1: 回答本文も一緒に渡す(残った前回のRAG回答を読む経路を潰す)。
     modAsk.NoteGeneralAnswered q, resp
-    AskGeneral = resp
+    ' R46: 一般アシスタントにも常設ガード「※ AIが資料から作った回答です…」を
+    ' 付ける。R44 で入れたガードは modAsk.bas:283 → modAskRetrieve.ApplyLowHitWarning
+    ' の1経路にしか繋がっておらず、一般モードは modAsk を通らないので出なかった。
+    ' ここが正しい1点である理由: AskGeneral の呼び出し元は modApp(一般モード)と
+    ' 本モジュールの AnswerWithoutShelf(本棚が空)の2つだけで、この1行で両方が
+    ' 埋まる。凍結の modApp(残245字)にも modAsk(残732字)にも触らずに済む。
+    ' 付けるのはガードだけ(warnOn=False)。一般モードは検索していないので
+    ' 「手元の資料との関連が薄い」という⚠は事実と無関係になる。
+    ' 履歴(mGenPrevU/mGenPrevA)と NoteGeneralAnswered は上で clean な resp を
+    ' 確定済みなので、ここでの追記は履歴へ混入しない(modAsk.bas:280-281 と同じ作法)。
+    AskGeneral = modMode.DisplayNotes(resp, 0#, False, 0#, _
+        modConfig.GetBool("answer_guard_note", True))
 End Function
 
 ' ";;;"区切り文字列を先頭maxN件へ切り詰める。

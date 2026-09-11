@@ -104,7 +104,23 @@ End Function
 Public Sub RunFirstRunWizard()
     On Error Resume Next
     If Not WizardShouldRun(modState.LoadState(WIZARD_DONE_KEY, "")) Then Exit Sub
-    Step1Dept
+    ' R46: 初回ウィザードから部門の設問を外した(2問 → 1問)。
+    ' 実機で「部門設定と共有フォルダ設定って何が違うの? 自分でも意味や違いが
+    ' わからん」と報告があり、調べたところ user_department は【選んでも
+    ' 利用者から見えるふるまいが1つも変わらない】自己申告ラベルだった:
+    '   ・部門ナレッジの購読は見ない(modChannel.SubscribeAllAvailable が
+    '     見つかった全部門を入れる)。発行先も見ない(modPublishUI は毎回
+    '     InputBox で部門名を手入力させる)。modShare/modPublish にも出てこない。
+    '   ・「みんなの節約」の部別合算(modBoard.MyTeamCode)は modP2PIo.IsTeamCode
+    '     を通った値しか採らず、条件は「4〜6文字・ASCII英大文字と数字の両方」。
+    '     選択肢の「商品部」「リスコン部」「その他」は全て False で、構造上
+    '     一度も採用されない。
+    '   ・残る用途(テレメトリ・困りごと投稿)は共有フォルダが未設定だと
+    '     1件も発火しない。つまり依存が逆順に並んでいた。
+    ' 選んだ結果が何も変わらないものを入り口で聞く資格は無いので、設問は
+    ' 落とし、Hub のプロフィールカード(OnDeptSetup)の常設入口だけ残す。
+    ' Step1Dept は呼ばれなくなったので削除した(死んだ手続きを残さない)。
+    ' OnDeptSetup は Hub から呼ばれ続けるので Public のまま。
     Step2ShareFolder
     modState.SaveState WIZARD_DONE_KEY, "1"
     ' R35: 方式Bでは Install の Save が無くなり、初回の pack_author/部門/
@@ -131,20 +147,15 @@ Public Function WizardShouldRun(ByVal savedFlag As String) As Boolean
     WizardShouldRun = (savedFlag <> "1")
 End Function
 
-Private Sub Step1Dept()
-    On Error Resume Next
-    If MsgBox("部門を設定しますか?(あとからでも設定できます)", _
-              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(1/2)") = vbYes Then
-        OnDeptSetup
-    End If
-    On Error GoTo 0
-End Sub
-
 Private Sub Step2ShareFolder()
     On Error Resume Next
-    If MsgBox("共有フォルダを設定しますか?(みんなの節約・部門資料が使えます)" & vbCrLf & _
+    ' R46: 1問だけになったので「(2/2)」→「(1/1)」。文言も「設定すると何が
+    ' できるようになるか」を先に言う形へ(旧文は機能名だけを並べていた)。
+    If MsgBox("共有フォルダを設定しますか?" & vbCrLf & _
+              "部門の公式ナレッジをボタン1つで本棚に入れられるようになり、" & _
+              "「みんなの節約」も見えるようになります。" & vbCrLf & _
               "あとからHubの案内カードやヘルプ" & ChrW(&H2699) & "でも設定できます。", _
-              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(2/2)") = vbYes Then
+              vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(1/1)") = vbYes Then
         modHelp.OnShareSetup
     End If
     On Error GoTo 0

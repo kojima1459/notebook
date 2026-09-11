@@ -35,6 +35,46 @@ Private Const PEEK_BODY_MAX As Long = 600    ' ポップアップ本文の最大
 ' 目に付く程度の長さの文字列で代用する)。
 Private Const PEEK_DIVIDER As String = "----------------------------------------"
 
+' R46 B-2: 表(Excel)由来の行のセル区切り。Const に ChrW は書けないので
+' リテラルで持つ(U+2502。CP932 内なのでビルドの変換で化けない)。
+Private Const PEEK_CELL_SEP As String = " │ "
+' PeekSpans が「区切りの直後=行頭扱い」を見るときの2字(区切りの末尾)。
+Private Const PEEK_CELL_SEP_TAIL As String = "│ "
+
+' PeekBodyText - 吹き出し本文の整形(純関数・R46 B-2)。実機報告「Excelが出典元
+'   の場合、なんかずれて表示されて、変な余白があったりと認知負荷が高く見づらい」
+'   の対処。3つが重なっていた:
+'   (1) タブが生のまま Shape へ届く。modChunker は「2セル以上=タブあり」を表行
+'       (ClassifyLine=4)と見て RTrimOnly へ回し、タブを潰す CollapseSpaces は
+'       本文行にしか掛けない。Excel は【全行が必ずタブ連結】なので 100% 表行に
+'       落ち、唯一のタブ除去点を構造的に迂回する(PDF/Word では起きない)。
+'       Office はタブを既定のタブ位置まで送るので、行ごとに値の位置が揃わない。
+'       空セルは連続タブ(R33 W3-1 の「列位置を保つ」設計)なので、先に1個へ畳む。
+'   (2) 改行の二重化。1行=1シート行の Excel は改行密度が桁違いで、二重化すると
+'       本文の半分が空行になる。散文(PDF/Word)では読みやすさに効くので、
+'       【表由来のときだけ】やめる。
+'   (3) R45 で入れたシート見出し "# シート: 名前" の # が生で見えていた。
+'       breadcrumb 側に同じシート名が既に出ているため二重でもある。
+'       chapter 側は modChunker.StripHeadingMark が外すが、本文ブロックへは
+'       Trim$ しただけで積まれる(modChunker.bas:539)。表示側で落とす。
+Public Function PeekBodyText(ByVal bodyOnly As String) As String
+    Dim s As String: s = bodyOnly
+    Dim isTable As Boolean
+    isTable = (InStr(1, s, vbTab, vbBinaryCompare) > 0)
+
+    If Left$(s, 2) = "# " Then s = Mid$(s, 3)
+
+    If isTable Then
+        Do While InStr(1, s, vbTab & vbTab, vbBinaryCompare) > 0
+            s = Replace(s, vbTab & vbTab, vbTab)
+        Loop
+        s = Replace(s, vbTab, PEEK_CELL_SEP)
+    Else
+        s = Replace(s, vbLf, vbLf & vbLf)
+    End If
+    PeekBodyText = s
+End Function
+
 ' ChipDocLabel - 出典チップの資料名表示(純関数・R43 波A 1-3)。n字を超えた
 '   ときだけ末尾に … (U+2026) を付ける。従来の modUtil.SafeLeft(src,16) は
 '   16字ちょうどの資料名も16字未満の資料名も同じ見た目になり、切れたのか
@@ -247,8 +287,7 @@ Public Sub ShowPeek(ByVal idx As Long)
     ' 使うので、両者が食い違うことはない)。
     Dim rawBody As String: rawBody = modUtil.SafeLeft(body, PEEK_BODY_MAX)
     Dim crumb As String: crumb = ExtractBreadcrumb(rawBody)
-    Dim bodyOnly As String: bodyOnly = modTextView.StripBreadcrumb(rawBody)
-    bodyOnly = Replace(bodyOnly, vbLf, vbLf & vbLf)
+    Dim bodyOnly As String: bodyOnly = PeekBodyText(modTextView.StripBreadcrumb(rawBody))
 
     Dim assembled As String
     assembled = head
@@ -303,9 +342,16 @@ Public Sub ShowPeek(ByVal idx As Long)
         shp.TextFrame2.TextRange.Characters(rStarts(ri), rLens(ri)).Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
     Next ri
     If clL > 0 Then
+        ' R46: 実機報告「×で閉じるが見にくい」。原因はコントラスト不足ではない
+        ' (muted は全テーマで AA を満たす)。8.5pt へ落として灰にしてある指定
+        ' そのものと、同じ帯の右下に primary 塗りの「原文を開く」ボタンが並ぶ
+        ' 構図で、目が右下へ行くこと。本文と同じ10ptへ戻し太字＋danger にする。
+        ' danger はテーマごとに明系/暗系を出し分けるので、赤のRGB直書きと違い
+        ' 全テーマで AA を満たす(直書きだと dark で 2.26:1 まで落ちる)。
         With shp.TextFrame2.TextRange.Characters(clS, clL).Font
-            .Size = 8.5
-            .Fill.ForeColor.RGB = modUI.UiColor("muted")
+            .Size = 10
+            .Bold = True
+            .Fill.ForeColor.RGB = modUI.UiColor("danger")
         End With
     End If
     On Error GoTo Done
@@ -437,6 +483,13 @@ Public Function PeekSpans(ByVal s As String, _
     Do While pos <= total
         Dim atLineStart As Boolean: atLineStart = (pos = 1)
         If Not atLineStart Then atLineStart = PeekIsBreak(Mid$(s, pos - 1, 1))
+        ' R46 B-2: セル区切りの直後も行頭として扱う。R43-D で番地が【値の直前】
+        ' へ移った結果、1行の2列目以降の [B1] は区切りの後ろに来て装飾から
+        ' 漏れ、同じ種類の印が行の中で色違いになっていた。境界の判定と
+        ' Mid$ の参照は分けて書く(And は短絡しない)。
+        If Not atLineStart Then
+            If pos >= 3 Then atLineStart = (Mid$(s, pos - 2, 2) = PEEK_CELL_SEP_TAIL)
+        End If
         Dim matched As Boolean: matched = False
         If atLineStart And Mid$(s, pos, 1) = "[" Then
             Dim closeBr As Long: closeBr = InStr(pos, s, "]")

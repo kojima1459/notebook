@@ -129,6 +129,32 @@ Public Sub ArmSweep(ByVal ms As Long)
 End Sub
 
 ' ----------------------------------------------------------------------------
+' SweepIfDue - 「孤児のトーストだけ掃除する」窓口(R46 B-5)。
+' ----------------------------------------------------------------------------
+' 実機報告「作業用Excelの案内トーストが一瞬で消える」の対処。
+' 原因は modProgressBar.PaintProgress の冒頭が nx_toast を【無条件で】
+' Delete していたこと。その理由コメントは「waitless のToastは自分では
+' 消えないので」だったが、R41 で ArmSweep を入れた時点でこの前提は失効して
+' いる。失効した掃除口を引退させなかったため、古い仕掛けが新しい仕掛けを
+' 殺していた。取込バナーは BANNER_SEC=1 秒ごとに塗り直され、そもそも
+' 「作業用Excel」ボタンは取込バナーが出ている間しか存在しないので、
+' 押した直後のトーストは最大1秒で確実に消される(寿命12,134msの計算自体は
+' 正しく、そこまで生き残れなかった)。
+' 予約が生きていて期限前なら何もしない(自前の OnTime に回収させる)。
+' それ以外(予約が無い=孤児 / 期限切れ)は従来どおり消す。
+' 注意: ShowToast 冒頭の Delete は【無条件のまま】にすること。あちらを
+' この判定にすると、新しいトーストが古いトーストを消せず二重表示になる。
+Public Sub SweepIfDue(ByVal ws As Worksheet)
+    On Error Resume Next
+    If ws Is Nothing Then Exit Sub
+    If mSweepArmed Then
+        If Now < mSweepAt Then Exit Sub
+    End If
+    ws.Shapes("nx_toast").Delete
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' SweepMsFor - waitless トーストの寿命(ms)。純ロジック(R41 Fix M3・レビュー
 '   1周目 MAJOR-3)。待って消す側の ToastWaitMsFor(読了速度=全角15字/秒・
 '   3,000〜9,000ms)は「利用者を止めている時間」なので短めに切ってあるが、

@@ -55,12 +55,23 @@ Public Sub StyleAnswerParas(ByVal bubbleName As String)
             shp.TextFrame2.TextRange.Paragraphs(i).Font.Bold = True
         ElseIf head = ChrW(&H203B) Then
             ' R44: 末尾の常設ガード(modMode.GuardNoteText)。毎回出るものなので
-            ' 出典タグと同じ小ささ・淡さにして、本文の読み取りを邪魔しない
-            ' (消すのではなく「視界には入るが主役ではない」大きさに落とす)。
+            ' 主役にはしない。
+            ' R46: ただし 8pt/muted は落としすぎだった。直下のフッターが
+            ' 8.5pt/同じ muted(modLive.StyleFooter)なので、ガードが【バブルの
+            ' 中で一番小さく一番薄い行】になり、実機で「見にくい」と報告された。
+            ' 9pt・太字・danger にする。サイズの序列は保つ:
+            '   結論12pt太字 > 本文10.5pt > ガード9pt太字 > フッター8.5pt > 出典8pt
+            ' 太字が要るのは見た目だけの理由ではない。次の質問を投げると
+            ' modUI.MarkActiveBubble が非選択バブルへ modSkin.PaintBubble を掛け、
+            ' その末尾の SetShapeTextColor が【バブル全体の文字色を一括上書き】
+            ' するため、色だけの装飾は過去バブルから消える。Size と Bold は
+            ' 上書きされないので、そちらが本体で色はおまけになる。
+            ' 色は danger(テーマごとに明系/暗系を出し分け)を通す。赤のRGBを
+            ' 直書きすると dark で 2.26:1 まで落ちて AA を割る。
             With shp.TextFrame2.TextRange.Paragraphs(i).Font
-                .Size = 8
-                .Bold = False
-                .Fill.ForeColor.RGB = modUI.UiColor("muted")
+                .Size = 9
+                .Bold = True
+                .Fill.ForeColor.RGB = modUI.UiColor("danger")
             End With
         End If
     Next i

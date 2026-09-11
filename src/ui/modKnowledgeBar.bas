@@ -361,8 +361,16 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
     ' 方が広い(実測 table=1274.25 / gallery=1201.75。差72.5 ≒ 📖58+🗑58−🔍62)。
     ' Pure11 のアサートは R36 Fix B2 で「一覧表はギャラリーより広い」へ反転
     ' 済み。ここの幅を触るときは modTestsPure11 の差の範囲(40〜80)も見ること。
+    ' R46: 🗑(U+1F5D1)の直後に異体字セレクタ U+FE0F を付ける。この文字は
+    ' Unicode で【既定がテキスト字形】の一群に属し、FE0F が無いとレンダラは
+    ' カラー絵文字ではなく白黒字形を探しにいく。Windows はその字形を持つ
+    ' フォントを削っているため何も描かれず、実機で「1件」しか見えなかった。
+    ' 本リポジトリは同種の文字(⚠ U+26A0 / ✍ U+270D / 🏷 U+1F3F7)には全箇所で
+    ' FE0F を付けており、🗑 だけが8箇所すべてで付け忘れだった。FE0F はゼロ幅
+    ' なので既存の幅(121/58)は据え置いてよい。
     AddTool caps, acts, kinds, tips, widths, n, _
-            ChrW(&HD83D) & ChrW(&HDDD1) & " 部門ぶん一括", "modShared.OnPurgeChannel", "danger", 121, _
+            ChrW(&HD83D) & ChrW(&HDDD1) & ChrW(&HFE0F) & " 部門ぶん一括", _
+            "modShared.OnPurgeChannel", "danger", 121, _
             "選んだ部門から取り込んだ資料を、まとめて本棚から削除します(取り消せません)"
 
     If isTable Then
@@ -371,8 +379,16 @@ Private Sub ToolbarSpec(ByVal isTable As Boolean, ByVal isShared As Boolean, _
         AddTool caps, acts, kinds, tips, widths, n, _
                 ChrW(&HD83D) & ChrW(&HDCD6) & " 本文", "modKnowledge.OnShowText", "plain", 58, _
                 "いま選んでいる1件の、読み取った文章を全部表示します"
+        ' R46: FE0F(上の注記参照)に加えて語順を「1件削除」へ。実機報告
+        ' 「『1件』っていうボタンやけど、ぱっとみで削除ボタンっていうのが
+        ' わからない」。R33H F29 の裁定(隣の一括削除との破壊規模の差を【語】で
+        ' 示す)は「規模」しか書いておらず、動作名が無かった。規模(1件)と
+        ' 動作名(削除)の両方を残す。幅は 58 のまま据え置く: modTestsPure11 が
+        ' 一覧表とギャラリーの右端の差を 40<d<80 で固定しており、この幅を
+        ' 広げると d = 1.25×幅 で増える(63 が上限・64 で落ちる)。
         AddTool caps, acts, kinds, tips, widths, n, _
-                ChrW(&HD83D) & ChrW(&HDDD1) & " 1件", "modKnowledge.OnDelete", "danger", 58, _
+                ChrW(&HD83D) & ChrW(&HDDD1) & ChrW(&HFE0F) & " 1件削除", _
+                "modKnowledge.OnDelete", "danger", 58, _
                 "いま選んでいる1件だけを本棚から削除します"
     End If
 End Sub

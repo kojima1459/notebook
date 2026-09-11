@@ -333,6 +333,61 @@ Private Sub TestLeadUnaffected44()
         (modLiveStyle.LeadParaIndex(withWarn) = 0), True
 End Sub
 
+Private Sub ChkStr46(ByVal label As String, ByVal got As String, ByVal want As String)
+    modTestRunner.Check "R46-48-" & label, (StrComp(got, want, vbBinaryCompare) = 0), _
+        "実際=[" & got & "] 期待=[" & want & "]"
+End Sub
+
+' ---- G9: 吹き出し本文の整形(R46 B-2・modPeek.PeekBodyText) ------------------
+' 実機報告「Excelが出典元の場合、なんかずれて表示されて、変な余白がある」。
+' Excel 由来の行は modChunker が 100% 表行(タブあり)に落とすので、本文行の
+' CollapseSpaces を迂回してタブが生で届く。散文(PDF/Word)との扱いを分ける。
+Private Sub TestPeekBody46()
+    Dim tb As String
+    tb = "# " & ChrW(&H30B7) & ChrW(&H30FC) & ChrW(&H30C8) & ": " & "売上" & vbLf & _
+         "[A1] 日付" & vbTab & "[B1] 得意先" & vbLf & _
+         "[A2] 4/1" & vbTab & vbTab & "[D2] 120"
+    Dim got As String: got = modPeek.PeekBodyText(tb)
+    ' (1) 先頭の "# " は落ちる(breadcrumb に同じシート名が既に出ているため)
+    ChkBool46 "G9a_先頭の#が落ちる", (Left$(got, 1) = "#"), False
+    ' (2) タブは固定幅の区切りへ。生のタブは1つも残らない
+    ChkBool46 "G9b_タブが残らない", (InStr(got, vbTab) > 0), False
+    ChkBool46 "G9c_区切りが入る", (InStr(got, " " & ChrW(&H2502) & " ") > 0), True
+    ' (3) 空セルの連続タブは区切り1つへ畳む(区切りが2つ続かない)
+    ChkBool46 "G9d_連続タブを畳む", _
+        (InStr(got, ChrW(&H2502) & "  " & ChrW(&H2502)) > 0), False
+    ' (4) 表由来では改行を二重化しない(1行=1シート行で空行だらけになるため)
+    ChkBool46 "G9e_表では空行を作らない", (InStr(got, vbLf & vbLf) > 0), False
+
+    ' 散文(タブなし)は従来どおり二重化して読みやすくする
+    Dim prose As String: prose = "第1条 目的" & vbLf & "この約款は…"
+    Dim got2 As String: got2 = modPeek.PeekBodyText(prose)
+    ChkBool46 "G9f_散文は従来どおり二重化する", (InStr(got2, vbLf & vbLf) > 0), True
+    ChkStr46 "G9g_散文の本文は変えない", Replace(got2, vbLf & vbLf, vbLf), prose
+End Sub
+
+' ---- G10: 前の回答をコピーの1行見出し(R46・modClip.HeadLineOf) --------------
+Private Sub TestHeadLine46()
+    ChkStr46 "G10a_先頭行だけを取る", _
+        modClip.HeadLineOf("結論です。" & vbLf & "つづき"), "結論です。"
+    ChkStr46 "G10b_vbCr区切りでも先頭行", _
+        modClip.HeadLineOf("結論です。" & vbCr & "つづき"), "結論です。"
+    ChkStr46 "G10c_空なら印を出す", modClip.HeadLineOf(""), "(空の回答)"
+    ChkStr46 "G10d_空白だけでも印を出す", modClip.HeadLineOf("   " & vbLf & "x"), "(空の回答)"
+    ' 28字を超えたら … を付けて切る(切れたことが読み手に分かる形)
+    Dim long1 As String: long1 = String$(40, "あ")
+    Dim got As String: got = modClip.HeadLineOf(long1)
+    ChkBool46 "G10e_長い行は切る", (Len(got) = 29), True
+    ChkBool46 "G10f_切ったら…を付ける", (Right$(got, 1) = ChrW(&H2026)), True
+    ' 28字ちょうどは切らない(境界)
+    ChkStr46 "G10g_28字ちょうどは切らない", _
+        modClip.HeadLineOf(String$(28, "い")), String$(28, "い")
+End Sub
+
+Private Sub ChkBool46(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
+    modTestRunner.Check "R46-48-" & label, (got = want), "実際=" & got & " 期待=" & want
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' RunAll48 - modTestRunner から呼ばれる総合エントリーポイント
 ' ----------------------------------------------------------------------------
@@ -381,6 +436,12 @@ H14Next48:
 H15Next48:
     On Error GoTo H15Fail48
     TestCarryGuard45
+H16Next48:
+    On Error GoTo H16Fail48
+    TestPeekBody46
+H17Next48:
+    On Error GoTo H17Fail48
+    TestHeadLine46
 H01Done48:
     On Error GoTo 0
     Exit Sub
@@ -443,6 +504,14 @@ H14Fail48:
     Resume H15Next48
 H15Fail48:
     modTestRunner.Check "TestCarryGuard45(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H16Next48
+H16Fail48:
+    modTestRunner.Check "TestPeekBody46(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H17Next48
+H17Fail48:
+    modTestRunner.Check "TestHeadLine46(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done48
 End Sub

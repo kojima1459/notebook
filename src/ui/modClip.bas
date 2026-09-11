@@ -25,6 +25,15 @@ Option Explicit
 
 Private Const DATAOBJECT_CLSID As String = "new:{1C3B4210-F441-11CE-B9EA-00AA006B1A69}"
 
+' R46「前の回答をコピー」用。一覧に並べる本数と、1行見出しの字数。
+Private Const PAST_MAX As Long = 10
+Private Const PAST_HEAD_CHARS As Long = 28
+
+' OnCopyPastAnswer のエラー退避。宣言はモジュール先頭へ集約する
+' (プロシージャの後ろに置くと実機VBAでコンパイルエラーになる)。
+Private mFailNum As Long
+Private mFailDesc As String
+
 ' ----------------------------------------------------------------------------
 ' SetClipboardText - textをクリップボードへ格納。成功=True。
 ' ----------------------------------------------------------------------------
@@ -106,3 +115,145 @@ Public Sub CopyOrGuideBox(ByVal text As String, ByVal okMsg As String, _
                           Optional ByVal failLead As String = "")
     MsgBox CopyOrGuide(text, okMsg, failLead), vbInformation, modAppDef.APP_NAME
 End Sub
+
+' ============================================================================
+' 前の回答をコピー(R46)
+' ----------------------------------------------------------------------------
+' 実機報告「最新の出力内容はコピーできるけど、それより前の出力内容はコピー
+' できない」。原因は modUINexusDraw.DrawContextActions の1行目が
+' ClearContextActions で、コピー等の pill が【最新のAIバブルの直下にだけ】
+' 描かれること。本文そのものは Shape として最大40件(modUI.MAX_BUBBLES)
+' 画面に残っており、消えているのはボタンだけだった。
+'
+' 保存先として「チャット履歴」シートも存在するが、そちらは本文を 5,000字で
+' 【印も付けずに】切る(modChatLog.MAX_ANS_CHARS)。切れたことが読み手に
+' 分からない写しを配るのは、この製品が守るべき「出力の誠実さ」と逆向きなので
+' 採らない。画面の Shape から読めば、表示されているものと1字も違わない。
+' 代償はセッション内(直近40件)に限られること。
+'
+' 導線はヘルプカード(? ガイド)の7段目。文脈 pill を8個目にする案は
+' modUINexusDraw が残21字で入らず、そこへ手を出すと分割裁定=大手術になる。
+' ============================================================================
+
+' OnCopyPastAnswer - 「前の回答をコピー」ハンドラ。番号で選ばせて写す。
+Public Sub OnCopyPastAnswer()
+    If modUiLock.BlockIfIngesting() Then Exit Sub
+    If Not modUiLock.Enter() Then Exit Sub
+    On Error GoTo Failed
+
+    Dim names() As String, heads() As String
+    Dim n As Long
+    n = CollectAiBubbles(names, heads)
+    If n < 1 Then
+        MsgBox "コピーできる回答がまだありません。", vbInformation, modAppDef.APP_NAME
+        GoTo Done
+    End If
+
+    Dim shown As Long: shown = n
+    If shown > PAST_MAX Then shown = PAST_MAX
+
+    Dim listText As String
+    Dim i As Long
+    For i = 1 To shown
+        listText = listText & CStr(i) & ". " & heads(i) & vbLf
+    Next i
+
+    Dim v As Variant
+    v = Application.InputBox( _
+        "コピーしたい回答の番号を入れてください(1 = いちばん新しい回答)。" & _
+        vbLf & vbLf & listText, "前の回答をコピー", 1, Type:=1)
+    If VarType(v) = vbBoolean Then GoTo Done    ' キャンセル
+
+    Dim idx As Long: idx = CLng(v)
+    If idx < 1 Then GoTo Done
+    If idx > shown Then GoTo Done
+
+    CopyOrGuideBox modUI.BubbleTextOf(names(idx)), _
+        CStr(idx) & "番目の回答をコピーしました。貼り付け先で Ctrl+V を押してください。"
+
+Done:
+    modUiLock.Leave
+    Exit Sub
+
+Failed:
+    ' Err は On Error / Exit で消えるので、後始末の前に退避する(CLAUDE.md §11)。
+    mFailNum = Err.Number
+    mFailDesc = Err.Description
+    ' Resume で【ハンドラ稼働中】の状態を解除してから後始末へ行く。
+    ' ハンドラの中で On Error Resume Next を書いても効かず、そこで起きた
+    ' エラーが呼び出し元へ飛んで本来の原因を上書きする(modEmbed の EscOrErr と
+    ' 同じ作法)。
+    Resume Cleanup
+
+Cleanup:
+    On Error Resume Next
+    modLog.LogError "E0906", "modClip.OnCopyPastAnswer", _
+        CStr(mFailNum) & " " & mFailDesc
+    modUiLock.Leave
+    On Error GoTo 0
+End Sub
+
+' CollectAiBubbles - Nexus 上のAI回答バブルを【新しい順】で集める。
+'   「新しい=下にある」なので Top の降順。AddChatBubble は積み上げ式で、
+'   modUI.LatestAiBubbleName も同じ基準(Top+Height の最大)を使っている。
+Private Function CollectAiBubbles(ByRef namesOut() As String, _
+                                  ByRef headsOut() As String) As Long
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Nexus")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+
+    Dim nm() As String, tp() As Double
+    Dim cnt As Long
+    cnt = 0
+    Dim shp As Shape
+    For Each shp In ws.Shapes
+        If Left$(shp.Name, 9) = "nx_msg_a_" Then
+            cnt = cnt + 1
+            ReDim Preserve nm(1 To cnt)
+            ReDim Preserve tp(1 To cnt)
+            nm(cnt) = shp.Name
+            tp(cnt) = shp.Top
+        End If
+    Next shp
+    If cnt = 0 Then Exit Function
+
+    ' Top の降順へ単純挿入で並べ替える(件数は最大40。modUI.MAX_BUBBLES)。
+    Dim i As Long, j As Long
+    Dim tmpN As String, tmpT As Double
+    For i = 2 To cnt
+        tmpN = nm(i): tmpT = tp(i)
+        j = i - 1
+        Do While j >= 1
+            If tp(j) >= tmpT Then Exit Do
+            nm(j + 1) = nm(j)
+            tp(j + 1) = tp(j)
+            j = j - 1
+        Loop
+        nm(j + 1) = tmpN
+        tp(j + 1) = tmpT
+    Next i
+
+    ReDim namesOut(1 To cnt)
+    ReDim headsOut(1 To cnt)
+    For i = 1 To cnt
+        namesOut(i) = nm(i)
+        headsOut(i) = HeadLineOf(modUI.BubbleTextOf(nm(i)))
+    Next i
+    CollectAiBubbles = cnt
+End Function
+
+' HeadLineOf - 一覧へ出す1行見出し(純関数)。先頭行だけを取り、長ければ
+'   末尾に … を付けて切る。空なら「(空の回答)」。
+Public Function HeadLineOf(ByVal s As String) As String
+    Dim t As String
+    t = Replace(Replace(s, vbCr, vbLf), vbLf & vbLf, vbLf)
+    Dim p As Long
+    p = InStr(1, t, vbLf, vbBinaryCompare)
+    If p > 0 Then t = Left$(t, p - 1)
+    t = Trim$(t)
+    If Len(t) > PAST_HEAD_CHARS Then t = Left$(t, PAST_HEAD_CHARS) & ChrW(&H2026)
+    If LenB(t) = 0 Then t = "(空の回答)"
+    HeadLineOf = t
+End Function
