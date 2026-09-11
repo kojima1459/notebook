@@ -41,7 +41,10 @@
 - **user32.dll限定**(Windows全版に存在する最古参APIの1つ。廃止・署名変更の
   リスクが実質無い)。
 - 呼ぶと**プロセス終了まで解除不能**という公式の既知の制約があるため、
-  `config freeze_keep_banner`(既定on)でオプトアウトできるようにしている。
+  `config freeze_keep_banner` でオプトイン方式にしている(2026-09-11 R46で既定off。
+  ゴーストウィンドウはOSが無応答アプリへ用意した唯一の復旧経路で、抑止すると
+  タスクバーからの復元・右クリック→閉じる・タスクの終了が同時に死ぬ。R45実機で
+  「取込中に最小化したらPC再起動以外に手が無い」が発生した)。
 
 宣言は`#If VBA7 Then / Private Declare PtrSafe Sub ... / #Else /
 Private Declare Sub ... / #End If`の32/64bit両対応形式で書く(本製品は

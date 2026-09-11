@@ -488,23 +488,31 @@ Private Function ReadFlagRcRetry(ByVal flagPath As String) As Long
     ReadFlagRcRetry = -1
 End Function
 
-' 待ちループ1周ぶんの間引き(約100ms)。Application.Wait が使えない環境でも
-' 待たずに回るだけで壊れない(R7 B-2の判断をそのまま踏襲)。
+' 待ちループ1周ぶんの間引き(約100ms / 約1秒。R7 B-2・R13-M2)。
+' 2026-09-11(R46 P0): Application.Wait をやめ Timer+DoEvents へ統一した。
+' Application.Wait は Excel の活動を【全部】止めるため、Ghostscript の完了待ち
+' (最悪20分)の間ウィンドウがメッセージを一切処理できない。最小化すると復元も
+' ×も効かず、freeze_keep_banner のゴースト抑止と重なると強制終了まで塞がった
+' (R45実機: PC再起動以外に手が無く、xlsm のロックも残った)。DoEvents を回せば
+' ウィンドウ操作は生き続ける。代償は待ちの間CPUを回すことだが、同型は
+' modEmbed.SleepMs / modExtractorPdf.SleepMs が既に採っており、本ファイルの
+' Application.Wait だけが例外だった。Dir$ を叩く頻度は呼び出し側のループが
+' 決めるので変わらない(R13-M2 の「全速で Dir$」は再発しない)。
 Private Sub SleepTick()
-    On Error Resume Next
-    Application.Wait Now + 0.1 / 86400#
-    On Error GoTo 0
+    PumpWait 100
 End Sub
 
-' 完了待ちループ1周ぶんの休止(約1秒。R13-M2)。
-' Now は秒単位までしか持たないため Now + 0.1/86400# は【過去】を指し、
-' Application.Wait は一切眠らずに返っていた。結果、待ちループは最悪20分間
-' 全速で Dir$ を叩き続ける(EDR配下では特に高くつく)。TimeSerial で必ず
-' 1秒進める。Application.Wait が使えない環境では従来どおり空回りする。
 Private Sub SleepOneSec()
-    On Error Resume Next
-    Application.Wait Now + TimeSerial(0, 0, 1)
-    On Error GoTo 0
+    PumpWait 1000
+End Sub
+
+' Declare不使用のスリープ(modEmbed.SleepMs と同型。32/64bit互換のため)。
+Private Sub PumpWait(ByVal ms As Long)
+    Dim t0 As Double: t0 = Timer
+    Do While (Timer - t0) * 1000# < ms
+        DoEvents
+        If Timer < t0 Then Exit Do   ' 深夜0時のTimerロールオーバーガード
+    Loop
 End Sub
 
 ' 2026-09-07(R39 F001): FileSizeOf/LofSizeOfは削除(単一gstext.txtのサイズ

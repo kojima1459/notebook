@@ -282,7 +282,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | graph_refs | on | 条文の参照関係を回答の材料に足すか(R17 Phase1)。on=根拠チャンクの `refs_out` を1ホップ展開して**同じ資料の中**から参照先(第8条・別表2 等)を精読束へ足し、質問が名指しした条番号のチャンクが1件も無ければ chunk_meta から引いて先頭へ入れる(最大2件)/off=検索ヒットだけで答える(R16までと同じ)。LLM呼び出しは1回も増えない。**chunk_meta が無い本棚では on でも従来動作** |
 | graph_outline | on | 章単位要約(R17 Phase2)を取込時に作るか。on=章の数だけAIを呼んで doc_outline を作り(254頁の規程で+3〜8分・中断ボタンで途中まで保存)、入念モードの段0が `verdict=global` と判定した質問で章をまたいで答える(質問あたり+2回)/off=作らない・俯瞰質問も従来の検索で答える。**doc_outline が0行の本棚では on でも従来動作** |
 | graph_synonyms | on | 用語の表記ゆれ辞書(R17 Phase3)を作り、質問に使うか。on=章要約のあとAIへ用語一覧を1回だけ渡し synonyms を更新(資料1本の取込につき+1回)、質問は一致した語の同義語を最大3語まで質問文に足してから検索する/off=辞書を作らず質問文もそのまま検索する(既に作った辞書は残るが読まれない)。**synonyms が0行の本棚では on でも従来動作**。synonyms は1セッション1回だけ読む(更新は次にブックを開いたときから反映) |
-| freeze_keep_banner | TRUE | 長時間ブロック中のDWM「応答なし」白画面化を`user32.DisableProcessWindowsGhosting`で抑止する(R16-2b)。抑止中はウィンドウの移動・最小化・×閉じが効かない(公式の既知の制約)。FALSEで従来どおり白画面化。判定はプロセス中1回だけキャッシュされるため変更はExcel再起動で反映(R16H FB-1) |
+| freeze_keep_banner | **FALSE**(2026-09-11 R46で既定反転) | 長時間ブロック中のDWM「応答なし」白画面化を`user32.DisableProcessWindowsGhosting`で抑止する(R16-2b)。抑止するとウィンドウの移動・最小化・×閉じに加え**タスクマネージャーの「タスクの終了」も効かなくなる**――ゴーストウィンドウがOSの唯一の復旧経路のため。R45実機で取込中に最小化→PC再起動以外に手が無く、xlsmのロックも残った。バナーの見た目より復旧手段を優先し既定off。TRUEで旧挙動。判定はプロセス中1回だけキャッシュされるため変更はExcel再起動で反映(R16H FB-1) |
 | minutes_per_selfsolve | 15 | Hub「自分の節約時間/みんなの節約」の換算係数(自己解決1件=何分か)。modStats/modBoard/modDashStatの3重複定数をここへ統合(R13-7d) |
 | pack_author | (空:初回起動で入力) | パック作成者名 |
 | debug_mode | FALSE | ゲートウェイのプロンプト/応答ログ |
@@ -875,7 +875,7 @@ ThisWorkbook.cls は Workbook_Open→Boot / Workbook_BeforeClose→Auto_Close �
 `modBoot.Auto_Open` が担う。`modBoot.Auto_Close` には Cancel 引数が無く閉鎖を止められない。
 したがって **R11 C1 / R13-4d の「取込中の終了禁止ガード」(modUiLock.ConfirmCloseDuringIngest)は
 本番では動いていない**。実機で×が効かないのはこのガードの働きではなく、
-`DisableProcessWindowsGhosting`(config freeze_keep_banner 既定on)により
+`DisableProcessWindowsGhosting`(config freeze_keep_banner 2026-09-11 R46で既定off)により
 「応答なし」中の代行ウィンドウが作られないため(§本節の既知の制約)。
 本番で保護されているのは🚪終了ボタン経路だけ。恒久対策は次期(HANDOFF 次期課題)。
 

@@ -40,7 +40,8 @@ Option Explicit
 '     本リポジトリ初のDeclare(docs/dev/EDGE_CASES.md §1.2に例外条項を追記
 '     済み。32bit実機のみを前提とし、LOコンパイル通過を実験で確認済み)。
 '     呼ぶとプロセス終了まで解除できない公式仕様のため、config
-'     freeze_keep_banner(既定on)でオプトアウトできるようにしている。
+'     freeze_keep_banner でオプトイン方式にしている(2026-09-11 R46で既定off。
+'     理由は EnsureNoGhosting の直上を参照)。
 ' ============================================================================
 
 #If VBA7 Then
@@ -255,7 +256,15 @@ End Sub
 
 ' ----------------------------------------------------------------------------
 ' EnsureNoGhosting - DWMの「応答なし」白画面化(ゴースト化)を抑止する(R16-2b)。
-'   config freeze_keep_banner(既定on)がオフなら何もしない。プロセス生存中に
+'   config freeze_keep_banner(2026-09-11 R46で既定off)がオフなら何もしない。
+'   【既定をoffにした理由】ゴーストウィンドウはOSが無応答アプリへ用意した唯一の
+'   復旧経路で、タスクバーからの復元・右クリック→閉じる・タスクの終了はすべて
+'   そこを通る。抑止すると進捗バナーは見え続けるが、その3つが同時に死ぬ
+'   (R45実機: 取込中に最小化したらPC再起動以外に手が無く、xlsm のロックも残って
+'   再実行が読み取り専用になった)。バナーの見た目より復旧手段を優先する。
+'   GetBool の第2引数(configにキーが無いときの値)もFalseにしてある――ここを
+'   Trueのままにすると、キーを持たない旧configや壊れたconfigで抑止が復活する。
+'   プロセス生存中に
 '   最大1回だけAPIを呼ぶ(呼ぶとプロセス終了まで解除不能な公式仕様のため、
 '   複数回呼んでも1回目以降は無意味。フラグで無駄な再試行そのものを避ける)。
 '   判定そのものも1回きり(mChecked)。offの人はconfigの読み直しだけが毎回
@@ -268,7 +277,7 @@ Public Sub EnsureNoGhosting()
     If mChecked Then Exit Sub
     mChecked = True
     On Error Resume Next
-    If modConfig.GetBool("freeze_keep_banner", True) Then
+    If modConfig.GetBool("freeze_keep_banner", False) Then
         DisableProcessWindowsGhosting
     End If
     On Error GoTo 0
