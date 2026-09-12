@@ -826,6 +826,7 @@ def build_dist_zip(xlsm_path: str, dist_dir: str, is_publisher: bool, is_dev: bo
         # 「何を・どう動かし・何を見て・あるべき結果は何か・異常は何か」を
         # 優先度順に並べる(上から順にやれば危ないものから潰せる)。
         "07_受入確認_R41-R45.html",
+        "08_受入確認_R46.html",
     ]
     if is_publisher:
         doc_names.append("46_正典発行ガイド_発行担当者向け.md")
