@@ -388,6 +388,58 @@ Private Sub ChkBool46(ByVal label As String, ByVal got As Boolean, ByVal want As
     modTestRunner.Check "R46-48-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
 
+' ---- G11: 確信度(R46 A-4・modMode.ConfidenceLevel/CoverageOf/FlatnessOf) ----
+' しきい値は build_config_rows の既定と同値(conf_cov_green=1.0 /
+' conf_flat_green=1.6 / conf_cov_amber=0.9)。実測の根拠は modMode の注記。
+Private Sub TestConfidence46()
+    Const CG As Double = 1#, FG As Double = 1.6, CA As Double = 0.9
+    ' 答えがある型: 語が全部当たり、1位が突出している
+    ChkBool46 "G11a_全語一致かつ突出なら緑", _
+        (modMode.ConfidenceLevel(1#, 1.8, CG, FG, CA) = 2), True
+    ' 「三井住友の株価」型: 述語が本棚に無い(cov 0.33)・平坦(flat 1.05)
+    ChkBool46 "G11b_語が欠けて平坦なら赤", _
+        (modMode.ConfidenceLevel(0.33, 1.05, CG, FG, CA) = 0), True
+    ' 語は全部当たるが平坦: 特定の資料が当たっていない → 緑にしない
+    ChkBool46 "G11c_全語一致でも平坦なら緑にしない", _
+        (modMode.ConfidenceLevel(1#, 1.2, CG, FG, CA) = 1), True
+    ' 突出しているが語が欠ける → 緑にしない(旧実装はここを緑にしていた)
+    ChkBool46 "G11d_突出でも語が欠ければ緑にしない", _
+        (modMode.ConfidenceLevel(0.5, 2.5, CG, FG, CA) = 0), True
+    ' 黄の境界(cov=0.9 ちょうどは黄、その下は赤)
+    ChkBool46 "G11e_黄の境界ちょうどは黄", _
+        (modMode.ConfidenceLevel(0.9, 1#, CG, FG, CA) = 1), True
+    ChkBool46 "G11f_黄の境界未満は赤", _
+        (modMode.ConfidenceLevel(0.89, 1#, CG, FG, CA) = 0), True
+
+    ' CoverageOf: 語が実在する割合。modSparse が語を抜く。
+    Dim body As String
+    body = "人身傷害保険の搭乗中のみ担保特約について、補償範囲は…"
+    ChkBool46 "G11g_本文にある語は数える", _
+        (modMode.CoverageOf("人身傷害保険の補償範囲は", body) >= 0.99), True
+    ChkBool46 "G11h_本文に無い語は数えない", _
+        (modMode.CoverageOf("三井住友の株価は", body) < 0.5), True
+
+    ' FlatnessOf: 1位÷平均。全部同じなら1.0、1位だけ高ければ大きくなる。
+    Dim flatSc() As Double: ReDim flatSc(1 To 3)
+    flatSc(1) = 0.4: flatSc(2) = 0.4: flatSc(3) = 0.4
+    ChkBool46 "G11i_横並びは1.0", (Abs(modMode.FlatnessOf(flatSc, 3) - 1#) < 0.001), True
+    Dim peakSc() As Double: ReDim peakSc(1 To 3)
+    peakSc(1) = 0.9: peakSc(2) = 0.3: peakSc(3) = 0.3
+    ChkBool46 "G11j_1位が突出すると大きくなる", _
+        (modMode.FlatnessOf(peakSc, 3) > 1.7), True
+    Dim zeroSc() As Double: ReDim zeroSc(1 To 2)
+    zeroSc(1) = 0#: zeroSc(2) = 0#
+    ChkBool46 "G11k_全部0なら平坦扱い", (modMode.FlatnessOf(zeroSc, 2) = 1#), True
+
+    ' 出典帯の見出しがバッジに連動する(🔴のとき「出典」と呼ばない)
+    ChkBool46 "G11l_赤では出典と呼ばない", _
+        (InStr(modPeek.CiteLabelText(0), "出典") > 0), False
+    ChkBool46 "G11m_赤では根拠でないと書く", _
+        (InStr(modPeek.CiteLabelText(0), "根拠ではありません") > 0), True
+    ChkBool46 "G11n_黄以上は出典と呼ぶ", _
+        (InStr(modPeek.CiteLabelText(1), "出典") > 0), True
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' RunAll48 - modTestRunner から呼ばれる総合エントリーポイント
 ' ----------------------------------------------------------------------------
@@ -442,6 +494,9 @@ H16Next48:
 H17Next48:
     On Error GoTo H17Fail48
     TestHeadLine46
+H18Next48:
+    On Error GoTo H18Fail48
+    TestConfidence46
 H01Done48:
     On Error GoTo 0
     Exit Sub
@@ -512,6 +567,10 @@ H16Fail48:
     Resume H17Next48
 H17Fail48:
     modTestRunner.Check "TestHeadLine46(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H18Next48
+H18Fail48:
+    modTestRunner.Check "TestConfidence46(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done48
 End Sub

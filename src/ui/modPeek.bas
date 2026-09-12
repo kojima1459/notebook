@@ -75,6 +75,19 @@ Public Function PeekBodyText(ByVal bodyOnly As String) As String
     PeekBodyText = s
 End Function
 
+' CiteLabelText - チップ帯の見出し(純関数・R46 A-4)。確信度で呼び名を変える。
+'   2=根拠あり/1=部分的 … 従来どおり「出典」
+'   0=乏しい … 「出典」と呼ばない。並んでいるのは【質問に似ていた資料】で
+'              あって、答えの根拠ではない。
+Public Function CiteLabelText(ByVal confLevel As Long) As String
+    If confLevel <= 0 Then
+        CiteLabelText = ChrW(&HD83D) & ChrW(&HDD0E) & _
+            " 似ていた資料(答えの根拠ではありません。クリックで中身を確認):"
+    Else
+        CiteLabelText = ChrW(&HD83D) & ChrW(&HDD0E) & " 出典(クリックで原文を確認):"
+    End If
+End Function
+
 ' ChipDocLabel - 出典チップの資料名表示(純関数・R43 波A 1-3)。n字を超えた
 '   ときだけ末尾に … (U+2026) を付ける。従来の modUtil.SafeLeft(src,16) は
 '   16字ちょうどの資料名も16字未満の資料名も同じ見た目になり、切れたのか
@@ -149,7 +162,13 @@ Public Sub RenderCitations(ByVal bubbleName As String)
     lbl.Fill.Visible = 0: lbl.Line.Visible = 0
     With lbl.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&HD83D) & ChrW(&HDD0E) & " 出典(クリックで原文を確認):"
+        ' R46 A-4: 実機報告「十分な根拠なしのバッジでも出典に参照されたで
+        ' あろうファイルが表示されてる、まぎらわしい」。バッジと出典が別々の
+        ' 判断で動いていた(バッジは modAsk.LastConfidence、こちらは
+        ' GroundingAllowed とヒット件数しか見ていなかった)。同じ判断へ繋ぐ。
+        ' 🔴のときは【消さずに】呼び名を変える ―― 消すと確かめる手段まで
+        ' 奪うが、「出典」と呼ぶと根拠として通用してしまう。
+        .TextRange.Text = CiteLabelText(modAsk.LastConfidence())
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .MarginLeft = 2: .MarginTop = 0: .MarginBottom = 0

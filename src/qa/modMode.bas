@@ -595,3 +595,104 @@ Public Function SubQueryCount(ByVal mode As String, ByVal normalN As Long, _
     End If
     If SubQueryCount < 1 Then SubQueryCount = 1
 End Function
+
+' ============================================================================
+' 確信度(R46 A-4) - 検索スコアから切り離し、数えられる事実だけで決める
+' ----------------------------------------------------------------------------
+' 実機報告:「MSAD、三井住友の株価は？って聞いたら緑の〇印が出た、もちろん
+' そんな資料は入れてない」「△マークはでない」「まるで高確率ガチャ」。
+'
+' 旧実装(modAsk.LastConfidence)は【しきい値1本】しか持っていなかった:
+' 上位ヒットのうち score >= 0.55 が2件以上なら🟢、1件なら🟡、0件なら🔴。
+' 3値に見えて実際に分けているのは「0.55 を超えた件数」だけで、似た文書は
+' まとまって上位に来るため「ちょうど1件」はほとんど起きない=実質2値。
+' 「△が出ない」はこの構造の帰結だった。
+' さらに 0.55 は【埋め込みの絶対スケールに依存する数字】で、固有名詞が
+' 一致するだけで超える。「三井住友の株価」は主語(三井住友)だけで 0.55 を
+' 超え、述語(株価)が本棚に無いことを一切見ていなかった。
+'
+' R46 はスケール非依存の【比】だけで判定する。埋め込みが変わっても意味が
+' 変わらないので、実機での再校正に依存しない(旧実装が壊れた理由そのもの):
+'   coverage … 質問から抜いた「効く語」のうち、採用チャンクに実在する割合
+'   flatness … 1位スコア ÷ 上位の平均。答えがあるときは1位が突出し、
+'               無いときは全部が横並びの中くらいになる
+'
+' 【実測(2026-09-11)】教えてBOX 10,996かけら。「火災保険(法人)」440かけらを
+' 本棚から丸ごと抜き、その分野の実際の質問87件を投げる=「いかにも社内資料に
+' ありそうで、実は入っていない」という実務で一番危ない形で測った。
+' 答えがある質問362件との比較:
+'                coverage 中央   flatness 中央
+'   答えがある     1.000          1.801
+'   答えが無い     0.750          1.170
+' 採用したしきい値での3値の出方:
+'   答えがある  🟢69.6% 🟡29.0% 🔴 1.4%
+'   答えが無い  🟢 5.7% 🟡12.6% 🔴81.6%
+' 「三井住友の株価」は coverage 0.33(株価が当たらない)・flatness 1.05 で🔴、
+' 「今日の食堂のメニュー」は coverage 0.67 で🔴 になることを実データで確認した。
+'
+' margin(1位÷2位)も測ったが flatness と相関していて分離に寄与しなかったため
+' 採用しない(効かない設定を残さない)。
+' ============================================================================
+
+' CoverageOf - 質問の「効く語」が採用チャンクにどれだけ実在するか(0〜1)。
+'   語の抽出と照合は modSparse が唯一の実装(同じ規則を2箇所に書かない)。
+'   語が1つも取れない質問(記号だけ等)は判定材料が無いので 0 を返す。
+Public Function CoverageOf(ByVal q As String, ByVal bodyText As String) As Double
+    Dim keys As String: keys = modSparse.DistinctiveKeys(q)
+    If LenB(keys) = 0 Then Exit Function
+    Dim total As Long: total = UBound(Split(keys, "|")) + 1
+    If total < 1 Then Exit Function
+    CoverageOf = modSparse.ExactHitCount(keys, bodyText) / CDbl(total)
+End Function
+
+' FlatnessOf - 1位スコア ÷ 上位nの平均。1.0に近いほど「全部が同じくらい
+'   似ている」=特定の資料が当たっていない。平均が0以下なら1(=平坦)を返す。
+Public Function FlatnessOf(ByRef scores() As Double, ByVal n As Long) As Double
+    FlatnessOf = 1#
+    If n < 1 Then Exit Function
+    ' top / sum は VBA の予約語・組み込みと衝突するので使わない(lint が捕捉)。
+    Dim topScore As Double, acc As Double
+    Dim i As Long
+    For i = 1 To n
+        If scores(i) > topScore Then topScore = scores(i)
+        acc = acc + scores(i)
+    Next i
+    If acc <= 0# Then Exit Function
+    Dim mean As Double: mean = acc / CDbl(n)
+    If mean <= 0# Then Exit Function
+    FlatnessOf = topScore / mean
+End Function
+
+' ConfidenceLevel - 2=根拠あり / 1=部分的 / 0=乏しい(純関数)。
+'   しきい値は呼び出し側から渡す(config 読みを純関数に持ち込まない)。
+Public Function ConfidenceLevel(ByVal cov As Double, ByVal flat As Double, _
+                                ByVal covGreen As Double, ByVal flatGreen As Double, _
+                                ByVal covAmber As Double) As Long
+    If cov >= covGreen And flat >= flatGreen Then
+        ConfidenceLevel = 2
+    ElseIf cov >= covAmber Then
+        ConfidenceLevel = 1
+    End If
+End Function
+
+' ConfidenceOf - config を読んで ConfidenceLevel を呼ぶ窓口。modAsk(凍結・
+'   残り僅か)から1行で呼べる形にしてある。
+Public Function ConfidenceOf(ByVal q As String, ByVal bodyText As String, _
+                             ByRef scores() As Double, ByVal n As Long) As Long
+    Dim cg As Double, fg As Double, ca As Double
+    cg = 1#: fg = 1.6: ca = 0.9
+    On Error Resume Next
+    cg = modConfig.GetLong("conf_cov_green_x100", 100) / 100#
+    fg = modConfig.GetLong("conf_flat_green_x100", 160) / 100#
+    ca = modConfig.GetLong("conf_cov_amber_x100", 90) / 100#
+    On Error GoTo 0
+    ConfidenceOf = ConfidenceLevel(CoverageOf(q, bodyText), FlatnessOf(scores, n), cg, fg, ca)
+End Function
+
+' GuardOnly - 常設ガード(※)だけを付ける窓口(R46)。検索が1件も引けなかった回と
+'   一般アシスタントのように、低関連度の⚠を出す材料(スコア)が無い経路で使う。
+'   config 読みをここに置くのは、凍結で残り僅かの modAsk から1行で呼ぶため。
+Public Function GuardOnly(ByVal result As String) As String
+    GuardOnly = DisplayNotes(result, 0#, False, 0#, _
+        modConfig.GetBool("answer_guard_note", True))
+End Function

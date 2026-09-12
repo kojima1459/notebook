@@ -279,8 +279,15 @@ Done:
 
     ' 低関連度警告(表示専用): 履歴(AppendHistory/mLastCleanAnswer)は上で確定
     ' 済みのため、ここでresultに警告を足しても履歴側には混入しない。
-    If ok And nHits > 0 Then
-        result = modAskRetrieve.ApplyLowHitWarning(result, hits, nHits)
+    ' R46: nHits=0 の回にもガード(※)を付ける。旧条件 nHits>0 だと、本棚から
+    ' 1件も引けなかった=いちばん根拠の薄い回答にだけ注意書きが出なかった。
+    ' 低関連度の⚠は hits を見るので従来どおり nHits>0 のときだけ。
+    If ok Then
+        If nHits > 0 Then
+            result = modAskRetrieve.ApplyLowHitWarning(result, hits, nHits)
+        Else
+            result = modMode.GuardOnly(result)
+        End If
     End If
 
     ' チャット履歴シート記録(modChatLog、core層。書込失敗で死なない設計)。
@@ -378,29 +385,22 @@ End Function
 
 ' 回答の信頼度(2=根拠あり/1=部分的/0=乏しい)。検索スコアを人間に見える形に
 ' して「確認すべきときだけ確認させる」。閾値=config confidence_score_x100。
+' R46 A-4: 判定の実体は modMode.ConfidenceOf(スケール非依存の coverage と
+' flatness で決める)。旧実装は score>=0.55 の【件数】だけを見ており、
+' 0.55 は埋め込みの絶対スケールに依存するため固有名詞の一致だけで超えた
+' (「三井住友の株価」で🟢)。理由と実測は modMode 側の注記が正。
 Public Function LastConfidence() As Long
     If mLastNHits < 1 Then Exit Function
-
-    Dim thr As Double
-    On Error Resume Next
-    thr = CDbl(modConfig.GetLong("confidence_score_x100", 55)) / 100#
-    On Error GoTo 0
-    If thr <= 0# Then thr = 0.55
-
-    Dim best As Double, strong As Long
+    Dim body As String, sc() As Double
+    ReDim sc(1 To mLastNHits)
     Dim i As Long
     On Error Resume Next
     For i = 1 To mLastNHits
-        If mLastHits(i).score > best Then best = mLastHits(i).score
-        If mLastHits(i).score >= thr Then strong = strong + 1
+        body = body & mLastHits(i).full_text & vbLf
+        sc(i) = mLastHits(i).score
     Next i
     On Error GoTo 0
-
-    If strong >= 2 Then
-        LastConfidence = 2
-    ElseIf best >= thr Then
-        LastConfidence = 1
-    End If
+    LastConfidence = modMode.ConfidenceOf(mLastQuestion, body, sc, mLastNHits)
 End Function
 
 ' 信頼度の説明文(バッジ用)。検索しなかったターンでは空文字=バッジを出さない。

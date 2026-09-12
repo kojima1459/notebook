@@ -198,7 +198,7 @@ EXPECTED_SKIP_MAX = 15
 #     輝度判定・境界4件)を追加 → 3378→3382。さらにレビュー2周目の Fix で
 #     modTestsPure48 に T1b/T1c(数式が返した空文字のセルは番地を付けないが
 #     【行は残す】。R33-W3-1 の回帰をここで捕まえた)を追加 → 3382→3386。
-EXPECTED_PASS_MIN = 3434
+EXPECTED_PASS_MIN = 3448
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -964,6 +964,9 @@ PURE_ALLOWLIST = [
     #   コンパイルを通る。未注入だと modTestsPure48.RunAll48 が実行時エラー12に
     #   なり、R46 で足した G9/G10 が走らないまま全部PASSに見える。
     "modClip",
+    # modSparse は既に注入済み(PURE_ALLOWLIST)。R46 の modMode.CoverageOf は
+    # modSparse.DistinctiveKeys/ExactHitCount を呼ぶので、両方が揃っていないと
+    # G11 が実行時エラーになる。
     # modHubBadge / modTestsPure47(2026-09-10 R43 波B・Hub/共通UIのポリッシュ):
     #   modHubBadge は Hub のバッジ帯(獲得済みだけ色を変える)の実体で、
     #   テストが呼ぶのは Excel オブジェクトに一切触れない純関数 BadgeSpans

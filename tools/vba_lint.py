@@ -441,7 +441,29 @@ CONTRACT: dict[str, dict] = {
                      #   1文字は装飾側の契約でもある(modLiveStyle が ※ を
                      #   8pt淡色に、⚠ を「結論ではない前置き」として
                      #   LeadParaIndex の除外に使う)。modTestsPure48 が固定。
-                     "DisplayNotes", "GuardNoteText", "LowHitNoteText"],
+                     "DisplayNotes", "GuardNoteText", "LowHitNoteText",
+                     # R46 A-4: 確信度(バッジ)の判定。検索スコアの絶対値では
+                     #   なく、スケール非依存の比だけで決める。旧実装
+                     #   (modAsk.LastConfidence が score>=0.55 の【件数】を
+                     #   数えるだけ)は 0.55 が埋め込みのスケールに依存し、
+                     #   固有名詞の一致だけで超えていた(実機で「三井住友の
+                     #   株価」に🟢)。しきい値が1本しかないため△も構造上
+                     #   ほとんど出なかった。
+                     #   CoverageOf … 質問の「効く語」が採用チャンクに実在
+                     #     する割合(語の抽出と照合は modSparse が唯一の実装)。
+                     #   FlatnessOf … 1位スコア÷上位の平均。答えがあるとき
+                     #     1位が突出し、無いときは横並びになる。
+                     #   ConfidenceLevel … 上の2つから 2/1/0 を決める純関数。
+                     #     しきい値は引数で受ける(configを純関数に持ち込まない)。
+                     #   ConfidenceOf … config を読んで上を呼ぶ窓口。凍結で
+                     #     残り僅かの modAsk から1行で呼ぶための受け皿。
+                     #   実測の根拠と採用したしきい値は modMode 側の注記が正。
+                     "CoverageOf", "FlatnessOf", "ConfidenceLevel", "ConfidenceOf",
+                     # R46: 常設ガード(※)だけを付ける窓口。検索が0件だった回と
+                     #   一般アシスタントのように⚠の材料が無い経路で使う。
+                     #   config 読みをここに置くのは modAsk(凍結・残り僅か)から
+                     #   1行で呼ぶため。
+                     "GuardOnly"],
     },
     "modSparse": {
         "closed": True,
