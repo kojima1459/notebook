@@ -88,8 +88,8 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
         End If
     End If
 
-    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
-    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
+    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
+    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
     Dim lat As Long
 

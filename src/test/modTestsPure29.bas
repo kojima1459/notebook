@@ -498,7 +498,7 @@ Private Sub TestToolbarLegendButton31()
     Dim caps(0 To 2) As String, tips(0 To 2) As String
     caps(0) = ChrW(&H2795) & " 登録"
     tips(0) = "文章を直接ここに書いてナレッジとして登録します"
-    caps(1) = ChrW(&HD83D) & ChrW(&HDDD1) & " 削除"
+    caps(1) = modEmj.Trash() & " 削除"
     tips(1) = "選んだ資料を本棚から削除します"
     caps(2) = ChrW(&H2753)
     tips(2) = "各ボタンの説明をまとめて表示します"

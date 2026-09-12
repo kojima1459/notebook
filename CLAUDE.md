@@ -95,6 +95,15 @@ Stop フックが「未追跡ファイルをコミットせよ」と促したが
 
 ## 7. Definition of Done（これを全て満たすまで「完了」と言わない）
 
+0. **`python3 tools/doc_gate.py` → ERROR 0**（2026-09-12 R47 新設）。**文書は検問の
+   対象である。** それまでの検問はコードだけを守り、文書を1文字も検査していな
+   かった。初回実行で ERROR 100件 ―― 配布zipに同梱する利用者向け文書が「マイ本棚」
+   タブ・「ホーム」タブ・🩺診断という**存在しない画面**を説明し、CLAUDE.md の容量
+   台帳が実測とズレ、config の既定値の嘘が11箇所あった。
+   **これが「実機テストのループが終わらない」の上流だった**: テスターが読む手順書が
+   古いと、報告に「本当のバグ」と「文書が古いだけ」が混ざる。司令塔はそれを毎回
+   人力で切り分け、後者を「修正」として実装ラウンドへ投入してしまう。**バグが多い
+   のではなく、バグでないものがバグとして入ってくる。**
 1. `python3 tools/vba_lint.py --path src` → ERROR 0
 2. `python3 tools/run_lo_tests.py --mode compile` → OK → `--mode pure` → 全PASS（**run_lo_tests 同士は必ず直列。並列実行は絶対禁止**）
 3. `python3 build/build_mybookshelf.py --dev` と `--prod` の自己検証PASS（配布時は `--prod --zip`）
@@ -113,6 +122,29 @@ nohup bash -c 'python3 tools/run_lo_tests.py --mode compile > /tmp/lo_c.log 2>&1
 ```
 
 **ビルドはテストの完了後に回す**（同じ `dist/` を触るため）。
+
+### 7-2. 裁定書の無いラウンドはクローズできない（2026-09-12 R47）
+
+R46 は裁定書を書かずにクローズし、「唯一の真実」とされる HANDOFF も R45 のまま
+だった。次のセッションが R45 から再開して R46 の変更を壊しうる状態で、R47 の上流
+レビューで指摘されるまで誰も気付かなかった。**`docs/dev/spec_*_R{N}_*.md` を書き、
+HANDOFF の冒頭節を更新するまでがラウンドのクローズ。**
+
+### 7-3. 裁定書の「文言を更新」には逐語か条件の列挙を必ず書く（2026-09-12 R47）
+
+R13-5 の 5c は条件を4つ持っていたのに、5d の「モード説明文言を新しい役割定義に
+合わせて更新」がそれを1行へ潰した。実装者は 5c を自力で読み戻す必要があり、
+**落とすのが既定の動作**になる。実際に条件が落ち、実機で「直前までに使った資料
+しか見ないの? 本棚全部見るんじゃなかったっけ?」という疑義を生んだ。
+**裁定書自身が誤伝の発生点になりうる。**
+
+### 7-4. 「作ったのに繋いでいない」は機械で止める（2026-09-12 R47）
+
+このリポジトリで一番高くついている失敗の型。R46 では**実装した本人が到達不能な
+分岐を書き、コミットに「直した」と書いていた**（`ok = True` が立つのは `nHits > 0`
+の枝の内側だけなのに、`If ok Then` の内側へ `Else` を置いた）。人の注意力では
+止まらないので `vba_lint` に孤児Public検査を入れた。
+**新しい Public を作ったら、呼び出しを繋ぐか `@unused:理由` を書くこと。**
 
 ## 8. レビューは2周
 
@@ -153,9 +185,9 @@ nohup bash -c 'python3 tools/run_lo_tests.py --mode compile > /tmp/lo_c.log 2>&1
 - **実質凍結（残100字未満・2026-09-10 R43 後 python len 実測）**: **`modUIShelf`10**（R43 2-2/2-7 で既定ボタンと打ち切り案内。**実体は受け皿へ出す形しか残っていない**） / **`modBoard`19** / **`modUINexusDraw`21**（R43 2-1/2-5。コメント0で実装した） / **`modUIMain`60**（R43 2-12 出典表記＋2-4 導線名を両方収めた） / **`modChunker`76** / **`modHubStat`77**。**1行も入らない**。次にこれらへ機能を足すときは、実体を受け皿モジュールへ置き1行呼び出しに留めること。
 - **逼迫（残300字未満＝分割裁定必須・2026-09-10 R43 実測）**: `modViewport`118 / `modGateway`125 / **`modAskRetrieve`100**（R44 で表示注意書きの実体を `modMode` へ出した後の値。**次に触るなら追加の分割が先**） / **`modHub`170**（R43 2-10 でバッジ帯の実体を `modHubBadge` へ出した後の値。**次に触るなら追加の分割が先**） / **`modShare`186** / **`modBackdrop`197** / **`modTestsPure2`202** / `modClarify`233 / **`modApp`245** / **`modUI`258** / **`modExtractor`268** / `modVaultGallery`286。
 - **準逼迫（残1,000字未満・次に触るときは要注意・2026-09-10 R43 実測）**: `modTestsPure24`347 / `modChrome`350 / `modTestsPure25`365 / **`modShelfBatch`367** / `modChannel`389 / `modTestsPure18`402 / **`modKnowledge`413** / `modShelfStore`431 / **`modUtilText`584** / `modIntegrity`666 / `modViewport2`688 / `modTestsPure34`705 / `modTestsPure35`723 / **`modAsk`732（凍結）** / `modTestsPure11`738 / `modSparse`953 / `modTestsPure33`997。**28,000〜29,000 字帯**: `modTestsPure`1,087 / **`modTestsPure6`1,212** / **`modShareRule`1,238** / **`optOcrCore`1,331** / `modTestsPure5`1,378 / `optVision`1,685 / **`modShelfSync`1,702** / `modTestsPure12`1,713 / `optOcrPage`1,746 / `modTestsPure16`1,856 / **`modPrompts`1,604（凍結。R41 で `SourceTag`/`CitationInstruction`、R44 で `DomainGuardInstruction` の可視性だけ解除）**。
-- **WARN 直下（27,900〜28,000字・lint は警告を出さないので台帳が唯一の記録・2026-09-10 R43 実測）**: **`modShelf`残1（凍結。WARN まであと1字）** / **`modUtil`残8** / **`modBoot`残9（凍結）** / **`modSkin`残39（R43 で onXxx の1分岐を追加）**。**この4本はコメント1行でWARN帯へ落ちる。**
-- **2026-09-11 R46 実測での訂正（上の R43 台帳は古い値を含む）**: **`modExtractorExcel` は 11,372 ではなく 19,714 字（残10,286）** / **`modGenPipe` の残りは 8,014 ではなく 6,873（R45 で `CarryRules` を足した後）**。R46 で触った結果: `modPeek` 残3,437（受け皿から逼迫手前へ）／`modKnowledgeBar` 残2,562／`modClip` 残21,427／`modToast` 残21,686／`modProgressBar` 残17,279／`modLiveStyle` 残17,180／`modAppState` 残9,134／`modMode` 残6,295／`modSetupWizard` 残23,766／**`modHelp` 残1,706（R46 でヘルプカード7段目を足し WARN 帯へ入った）**。
-  R46 の A-4（確信度の作り直し）後: **`modAsk` 残538（凍結。LastConfidence の実体を modMode へ出したので差し引きは微増に留めた）** ／ **`modMode` 残2,301（確信度の判定一式＝CoverageOf/FlatnessOf/ConfidenceLevel/ConfidenceOf/GuardOnly を収めた。受け皿だったが逼迫手前）** ／ `modPeek` 残3,238 ／ `modTestsPure48` 残6,190。**台帳の数字は触るたびに python の `len` で測り直すこと。伝聞のまま持ち回ると、実装班が「入る」と判断して入らない。**
+- **WARN 直下（27,900〜28,000字・lint は警告を出さないので台帳が唯一の記録・2026-09-10 R43 実測）**: **`modShelf`残2,002（凍結。WARN まであと1字）** / **`modUtil`残2,008** / **`modBoot`残2,009（凍結）** / **`modSkin`残2,039（R43 で onXxx の1分岐を追加）**。**この4本はコメント1行でWARN帯へ落ちる。**
+- **2026-09-11 R46 実測での訂正（上の R43 台帳は古い値を含む）**: **`modExtractorExcel` は 11,372 ではなく 19,714 字（残10,286）** / **`modGenPipe` の残りは 8,014 ではなく 6,873（R45 で `CarryRules` を足した後）**。R46 で触った結果: `modPeek` 残2,335（受け皿から逼迫手前へ）／`modKnowledgeBar` 残2,562／`modClip` 残21,023／`modToast` 残21,471／`modProgressBar` 残17,279／`modLiveStyle` 残17,180／`modAppState` 残9,169／`modMode` 残2,301／`modSetupWizard` 残23,765／**`modHelp` 残1,687（R46 でヘルプカード7段目を足し WARN 帯へ入った）**。
+  R46 の A-4（確信度の作り直し）後: **`modAsk` 残375（凍結。LastConfidence の実体を modMode へ出したので差し引きは微増に留めた）** ／ **`modMode` 残2,301（確信度の判定一式＝CoverageOf/FlatnessOf/ConfidenceLevel/ConfidenceOf/GuardOnly を収めた。受け皿だったが逼迫手前）** ／ `modPeek` 残2,335 ／ `modTestsPure48` 残3,891。**台帳の数字は触るたびに python の `len` で測り直すこと。伝聞のまま持ち回ると、実装班が「入る」と判断して入らない。**
 - **受け皿（実測残り・2026-09-10 R43）**: **`modHubBadge`27,110**（R43 新規。Hub のバッジ帯の組み立てと獲得済みの塗り分け） / **`modChunkPage`19,463**（R42 新規。かけら別ページ計算・PhysicalKeep） / **`modLiveStyle`17,749**（R43 新規。回答本文の装飾一式＝結論段落・出典タグ・セル番地・R44 の常設ガード ※ の淡色化） / **`modToast`22,656**（R41 新規。トースト一式・OnTime 自動消去） / **`modLive`6,786**（R43 で装飾を分割して回復） / **`modPeek`5,548**（R43 でプレビューの色分けを収めた後） / **`modMode`6,653**（R44 で表示専用の注意書き `DisplayNotes`/`GuardNoteText`/`LowHitNoteText` を収めた後） / **`modMigrate`8,604** / **`modMigrateFrom`6,236** / **`modCorrect`3,101** / **`modTextView`13,002** / **`modXDoc`15,457** / **`modXDocBuild`8,358** / **`modXDocStore`5,219** / `modOutlineBuild`2,949 / `modAppAct`10,388 / `modAppState`10,107 / `modKnowledgeBar`3,283 / `modTypes`28,831 / `modAppDef`26,867 / `modState`25,778 / `modClip`25,603 / `modFeatures`24,307 / **`modChatLog`23,490** / `modGatewayDirect`22,314 / `modConfig`21,980 / `modInstallCheck`26,854 / `modProgressBar`17,542 / `modInsightGate`14,668 / `modExtractorExcel`11,372 / `modStarter`13,389 / **`modTelemetry`11,896** / `modPublishUI`10,350 / `modGuard`9,342 / `modGenPipe`8,014 / `modDiag`8,097 / `modDash`5,879 / `modShared`2,603。
   **`modChrome` はもう受け皿ではない**（残350字。R32時点の「modChrome＝open契約の置き場」という記述は失効している）。
 - `tools/run_lo_tests.py` は絶対に並列実行しない。**モード1は FAIL 0 だけでなく SKIP の上限と PASS の下限も照合する**（`EXPECTED_SKIP_MAX` / `EXPECTED_PASS_MIN`）。テストを消して静かにすることも、`[SKIP]` を貼って集計から消すこともできない。

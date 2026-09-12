@@ -465,6 +465,33 @@ CONTRACT: dict[str, dict] = {
                      #   1行で呼ぶため。
                      "GuardOnly"],
     },
+    "modEmj": {
+        "closed": True,
+        # R47: 絵文字の単一情報源。Unicode で「既定がテキスト字形」の絵文字
+        # (Emoji_Presentation=No)は異体字セレクタ U+FE0F を付けないと
+        # Windows で何も描かれない。R46 の実機報告「削除ボタンの絵文字が
+        # 出ない」の原因がこれで、そのとき直したのは 🗑 の2箇所だけ、
+        # 同じ文字の残り6箇所と ⚠(20箇所中15箇所)・🖼・⚙・☀・◀▶ を
+        # 取りこぼしていた。呼び出し側で ChrW を並べる限り同じ取りこぼしが
+        # 続くので、文字ごとに名前を付けてここへ集約する。
+        # 呼び出しは【字数が減る】ので、残り10字の modUIShelf のような
+        # モジュールへも容量を増やさずに FE0F を入れられる。
+        # 直書きの残りは emoji-vs16 検査が ERROR で止める。
+        "required": ["Trash", "Picture", "Label", "WindowIcon", "Warn", "Gear",
+                     "Writing", "Sun", "Undo", "Keyboard", "Stopwatch", "Mail",
+                     "ArrowLeft", "ArrowRight", "StopMark"],
+    },
+    "modGround": {
+        "closed": True,
+        # R46: 回答本文の数字が、渡した資料と質問文に実在するかの照合。
+        # 信頼度バッジ(modMode.ConfidenceOf)は「検索が材料を取れたか」までしか
+        # 見ておらず、AIがその材料どおりに書いたかは一度も見ていなかった。
+        # 金額・期限・条文番号は1桁違えば実害が出るので、点数ではなく事実で守る。
+        # UngroundedNumbers / GroundNoteText は純関数(modTestsPure48 の G12 が固定)。
+        # AppendGroundNote だけが Hit 配列を受ける配線用で、modAsk から1行で呼ぶ
+        # (凍結モジュールへ実体を置かないため)。
+        "required": ["UngroundedNumbers", "GroundNoteText", "AppendGroundNote"],
+    },
     "modSparse": {
         "closed": True,
         # 日本語キーワード検索(文字bigram + BM25 + 完全一致)。
@@ -818,7 +845,17 @@ CONTRACT: dict[str, dict] = {
                      #   modAskOnePass.BuildOnePassPrompt から呼べず、そこだけ
                      #   ガードが抜けていた。文言を複製せず可視性だけ上げる
                      #   (SourceTag / CitationInstruction と同じ扱い)。
-                     "DomainGuardInstruction"],
+                     "DomainGuardInstruction",
+                     # R47: 精査(onepass)と俯瞰(global)が同じ趣旨の文を手書きで
+                     #   複製しており、複製版は原文より痩せていた
+                     #   (strict_grounding 版から「各主張の直後に出典を必ず付け」と
+                     #   「無理に答えず」が落ちていた=設定を入れた利用者が最も
+                     #   欲しい一文が既定モードでだけ弱い)。さらに俯瞰は
+                     #   strict_grounding を1行も読んでおらず、設定が黙って
+                     #   無効になっていた。R41 の SourceTag / R44 の
+                     #   DomainGuardInstruction と同じく【可視性だけ】解除して
+                     #   複製を呼び出しへ置き換える(本文は1字も変えていない)。
+                     "GroundingInstruction", "NotFoundInstruction"],
     },
     "modRagParse": {
         "closed": True,
@@ -4333,6 +4370,189 @@ def _paren_args(s: str, open_idx: int):
     return None
 
 
+# ==============================================================================
+# check_orphan_public / check_emoji_vs16(2026-09-12 R47)
+# ------------------------------------------------------------------------------
+# このリポジトリで一番高くついている失敗は「存在しないものを呼ぶ」ではなく、
+# 【存在するのに繋がっていない】だった。既存の検査は前者を厚く塞いでいるが、
+# 後者は人が読むまで見つからない。実例:
+#   ・modMode.GuardOnly … R46 で作り、modAsk の到達不能な分岐からしか
+#     呼んでいなかった(ok=True は nHits>0 の枝でしか立たないので、
+#     If ok Then の内側に置いた Else は一度も実行されない)。
+#     実装した本人がレビューでも気付けず、実機テストの前に人が読んで発覚した。
+#   ・姉妹プロジェクトでは、プロンプトインジェクション防御の指示文が
+#     定義され文言の一致検査まで作られているのに、呼び出しが0件で
+#     一度もモデルへ届いていなかった。
+# 人の注意力では止まらない型なので、機械で止める。
+# ==============================================================================
+
+# Excel/ホストが名前で呼ぶため、src 内に呼び出しが無くて当然のもの。
+ORPHAN_EXEMPT_NAMES = {
+    "Auto_Open", "Auto_Close",          # Excel の予約名
+}
+# 「意図的に未使用」と宣言するための機械可読マーカー。定義の直前 5 行以内に
+# 書く。日本語の注記だけだと検査が読めないので1トークンに揃える。
+ORPHAN_MARKER = "@unused:"
+
+
+def _strip_code_line(line: str) -> str:
+    """コメントと文字列リテラルを落とした行(識別子の出現判定用)。"""
+    out, in_str = [], False
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == '"':
+            in_str = not in_str
+            i += 1
+            continue
+        if not in_str and c == "'":
+            break
+        if not in_str:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def check_orphan_public(modules: list) -> None:
+    """呼び出しが1件も無い Public を ERROR にする(孤児Public検査)。
+
+    救済の対象:
+      ・全モジュールの【文字列リテラル】に名前が出る(OnAction / Application.Run /
+        Application.OnTime の宛先はここで拾える)
+      ・build/ tools/ docs/ のテキストに名前が出る(外部の入口・手順書から
+        しか辿れないものがある。src だけ見ると必ず誤検知する)
+      ・定義の直前に @unused: マーカーがある(理由つきの意図的未使用)
+    src/test/ からしか呼ばれないものは WARN(テストのためだけの口)。
+    """
+    # 1) 参照集合を作る
+    code_tokens: dict[str, set] = {}     # 名前 -> それを呼んでいるモジュール名の集合
+    literal_names: set = set()
+    test_tokens: dict[str, set] = {}
+    for m in modules:
+        is_test = "test" in m.relpath.parts
+        for line in m.raw_text.splitlines():
+            # 文字列リテラルの中身(宛先名の救済)
+            for lit in re.findall(r'"([^"]*)"', line):
+                for tok in re.findall(r"[A-Za-z_]\w*", lit):
+                    literal_names.add(tok)
+            for tok in re.findall(r"[A-Za-z_]\w*", _strip_code_line(line)):
+                bucket = test_tokens if is_test else code_tokens
+                bucket.setdefault(tok, set()).add(m.vb_name)
+
+    # 2) src の外(build / tools / docs)も参照集合へ入れる
+    outside: set = set()
+    root = Path(__file__).resolve().parent.parent
+    for sub in ("build", "tools", "docs"):
+        d = root / sub
+        if not d.is_dir():
+            continue
+        for f in d.rglob("*"):
+            if f.suffix.lower() not in (".py", ".md", ".json", ".txt", ".ps1", ".bat", ".html"):
+                continue
+            try:
+                txt = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            outside.update(re.findall(r"[A-Za-z_]\w*", txt))
+
+    pub_re = re.compile(r"^\s*Public\s+(?:Sub|Function|Property\s+\w+)\s+([A-Za-z_]\w*)")
+    for m in modules:
+        lines = m.raw_text.splitlines()
+        pub_lines = {}
+        for idx, line in enumerate(lines, 1):
+            mm = pub_re.match(line)
+            if mm and mm.group(1) not in pub_lines:
+                pub_lines[mm.group(1)] = idx
+        for name, defline in sorted(pub_lines.items()):
+            if name in ORPHAN_EXEMPT_NAMES:
+                continue
+            if name in literal_names or name in outside:
+                continue
+            # 定義の直前5行に意図的未使用のマーカーがあるか
+            head = "\n".join(lines[max(0, defline - 6):defline])
+            if ORPHAN_MARKER in head:
+                continue
+            callers = set(code_tokens.get(name, set())) - {m.vb_name}
+            if callers:
+                continue
+            # 自モジュール内の実呼び出し(戻り値代入 `Name =` は呼び出しではない)
+            self_call = False
+            for idx, line in enumerate(lines, 1):
+                if idx == defline:
+                    continue
+                code = _strip_code_line(line).strip()
+                if not re.search(rf"\b{re.escape(name)}\b", code):
+                    continue
+                if re.match(rf"^(Set\s+)?{re.escape(name)}\s*=", code):
+                    continue    # 戻り値代入
+                self_call = True
+                break
+            if self_call:
+                continue
+            if name in test_tokens:
+                m.add("WARN", defline,
+                      f"Public {name} を呼んでいるのは src/test だけです"
+                      "(テストのためだけの口。製品から使わないなら "
+                      f"定義の直前へ {ORPHAN_MARKER}理由 を書いてください)")
+                continue
+            m.add("ERROR", defline,
+                  f"Public {name} はどこからも呼ばれていません"
+                  "(作ったが繋いでいない=R46 の modMode.GuardOnly と同じ型。"
+                  "配線するか、削除するか、定義の直前へ "
+                  f"{ORPHAN_MARKER}理由 を書いてください)")
+
+
+# 既定がテキスト字形の絵文字(Emoji_Presentation=No)。FE0F が無いと Windows で
+# 何も描かれない。R46 の実機報告「削除ボタンの絵文字が出ない」の原因で、
+# そのとき直したのは 8 箇所中 2 箇所だけだった。残りは人が読むまで気付けない。
+EMOJI_NEEDS_VS16_BMP = {
+    0x26A0, 0x2699, 0x270D, 0x2600, 0x21A9, 0x2328, 0x23F1, 0x2709,
+    0x25C0, 0x25B6, 0x23F9, 0x00A9, 0x2712, 0x2764, 0x2611, 0x2714,
+}
+EMOJI_NEEDS_VS16_SUR = {
+    (0xD83D, 0xDDD1), (0xD83D, 0xDDBC), (0xD83C, 0xDFF7), (0xD83D, 0xDDD4),
+    (0xD83D, 0xDDC2), (0xD83D, 0xDDA5),
+}
+
+
+def check_emoji_vs16(info: ModuleInfo) -> None:
+    """FE0F を伴わない EP=No 絵文字の直書きを ERROR にする。
+
+    単一情報源は modEmj(そこだけ除外)。比較のために 1 文字だけ取り出す用途は
+    FE0F を付けると壊れるので、Left$ / StrComp / InStr / = の右辺に出る回は
+    対象から外す。
+    """
+    if info.vb_name == "modEmj":
+        return
+    for idx, line in enumerate(info.raw_text.splitlines(), 1):
+        code = _strip_code_line(line)
+        if not code:
+            continue
+        # 比較・切り出しの文脈は除外(先頭1文字の一致を見ている)
+        if re.search(r"Left\$?\s*\(|StrComp\s*\(|ChkStr\w*\s+", code):
+            continue
+        for hi, lo in EMOJI_NEEDS_VS16_SUR:
+            pat = f"ChrW(&H{hi:04X}) & ChrW(&H{lo:04X})"
+            p = code.find(pat)
+            while p >= 0:
+                if not code[p + len(pat):].lstrip().startswith("& ChrW(&HFE0F)"):
+                    info.add("ERROR", idx,
+                             f"絵文字 U+{(hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000:04X} は "
+                             "既定がテキスト字形です。FE0F が無いと Windows で描画されません"
+                             "(modEmj の名前つき関数を使ってください。呼び出しの方が字数も減ります)")
+                p = code.find(pat, p + 1)
+        for cp in EMOJI_NEEDS_VS16_BMP:
+            pat = f"ChrW(&H{cp:04X})"
+            p = code.find(pat)
+            while p >= 0:
+                if not code[p + len(pat):].lstrip().startswith("& ChrW(&HFE0F)"):
+                    info.add("ERROR", idx,
+                             f"絵文字 U+{cp:04X} は既定がテキスト字形です。"
+                             "FE0F が無いと Windows で描画されません"
+                             "(modEmj の名前つき関数を使ってください)")
+                p = code.find(pat, p + 1)
+
+
 def check_find_lookin(info: ModuleInfo) -> None:
     """`.Find(` で LookIn を省略していたらERRORにする(2026-08-16 R33波3 W3-10)。
 
@@ -4487,6 +4707,7 @@ def run_lint(src_root: Path) -> int:
         check_safeleft_warning(info)
         check_raw_activate(info)
         check_find_lookin(info)
+        check_emoji_vs16(info)
 
     # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
     # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。
@@ -4496,6 +4717,7 @@ def run_lint(src_root: Path) -> int:
     check_msgbox_nonbmp(modules)
     check_array_arg_variant_mismatch(modules)
     check_qualified_arg_count(modules)
+    check_orphan_public(modules)
 
     # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
     implemented_names = set(known_modules.keys())

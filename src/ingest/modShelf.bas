@@ -204,7 +204,7 @@ Public Function IngestFile(ByVal path As String, ByVal origin As String, _
     Dim mRefs() As String: ReDim mRefs(1 To chunkN)
 
     Dim crumbOn As Boolean
-    crumbOn = modConfig.GetBool("embed_prefix_breadcrumb", False)
+    crumbOn = modConfig.GetBool("embed_prefix_breadcrumb", True)
 
     Dim ci As Long
     For ci = 0 To chunkN - 1

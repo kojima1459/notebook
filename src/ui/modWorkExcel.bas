@@ -245,7 +245,7 @@ Public Sub PaintWorkButton(ByVal ws As Worksheet, ByVal cancelLeftPos As Double,
             .MarginLeft = 2: .MarginRight = 2
         End With
         btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-        btn.TextFrame2.TextRange.Text = ChrW(&HD83D) & ChrW(&HDDD4) & "作業用Excel"
+        btn.TextFrame2.TextRange.Text = modEmj.WindowIcon() & "作業用Excel"
         btn.OnAction = "modWorkExcel.OnOpenWorkExcel"
     Else
         btn.Left = leftPos: btn.Top = cancelTopPos

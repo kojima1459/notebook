@@ -282,12 +282,13 @@ Done:
     ' R46: nHits=0 の回にもガード(※)を付ける。旧条件 nHits>0 だと、本棚から
     ' 1件も引けなかった=いちばん根拠の薄い回答にだけ注意書きが出なかった。
     ' 低関連度の⚠は hits を見るので従来どおり nHits>0 のときだけ。
-    If ok Then
-        If nHits > 0 Then
-            result = modAskRetrieve.ApplyLowHitWarning(result, hits, nHits)
-        Else
-            result = modMode.GuardOnly(result)
-        End If
+    ' R46: 回答の数字が資料に実在するかを照合して注記を足す。常設ガードより
+    ' 【前】に置く(ガードは最終段落という R44 の裁定)。
+    ' 2026-09-12(R47 自己訂正): R46 でここへ足した「nHits=0 なら GuardOnly」の
+    ' Else は到達不能かつ前提も誤りだった。経緯は modGround の冒頭に記録。
+    If ok And nHits > 0 Then
+        result = modGround.AppendGroundNote(result, hits, nHits, q)
+        result = modAskRetrieve.ApplyLowHitWarning(result, hits, nHits)
     End If
 
     ' チャット履歴シート記録(modChatLog、core層。書込失敗で死なない設計)。
@@ -555,7 +556,7 @@ End Function
 ' answer_tags時: <answer>抽出+タグ外FOLLOWUP救出+thinkingデバッグ記録。
 ' R14-8a でPublic(入念モードの各段も同じ規約で取り出すため)。
 Public Function ApplyAnswerTags(ByVal resp As String) As String
-    If Not modConfig.GetBool("answer_tags", False) Then
+    If Not modConfig.GetBool("answer_tags", True) Then
         ApplyAnswerTags = resp
         Exit Function
     End If
@@ -589,7 +590,7 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
 
     Dim prompt As String
     prompt = modPrompts.BuildQuickPrompt(q, hits, nHits, _
-        modConfig.GetBool("strict_grounding", False), modConfig.GetBool("answer_tags", False))
+        modConfig.GetBool("strict_grounding", True), modConfig.GetBool("answer_tags", True))
 
     Dim eff As String: eff = modConfig.GetString("quick_effort", "low")
     Dim vrb As String: vrb = modConfig.GetString("quick_verbosity", "low")
@@ -614,8 +615,8 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
                              ByVal mdMode As String) As String
     modAskRetrieve.ShowAskStage "draft"
 
-    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
-    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
+    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
+    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
 
     Dim nUse As Long: nUse = nHits
     If modMode.UseNeighborExpand(mdMode) Then _

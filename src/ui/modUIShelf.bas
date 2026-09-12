@@ -208,7 +208,7 @@ Public Sub EnsureLayout()
         ' 2026-07-28(レビュー H-16): 🗑 は CP932 に無く、VBE 注入時に "??" へ
     ' 化けていた("??削除" と表示される)。サロゲートペアを ChrW で組む。
     .Value = "── 資料カード(1行=1資料。行をクリックしてから" & _
-             ChrW(&HD83D) & ChrW(&HDDD1) & "削除) ─────────"
+             modEmj.Trash() & "削除) ─────────"
         .Font.Bold = True
         .Font.Size = 10
     End With
@@ -671,7 +671,7 @@ Private Function StatusIcon(ByVal status As String) As String
         Case "failed", "failed_permanent"
             StatusIcon = ChrW(&H26A0) & ChrW(&HFE0F)            ' U+26A0+FE0F 警告
         Case "image_pdf"
-            StatusIcon = ChrW(&HD83D) & ChrW(&HDDBC)
+            StatusIcon = modEmj.Picture()
         Case "missing"
             StatusIcon = ChrW(&HD83D) & ChrW(&HDD52)
         Case Else

@@ -239,6 +239,8 @@ End Sub
 '        (1回目の取込は新規、2回目に同じファイルをもう一度取込むと
 '        「重複スキップ」の効果がImportPackDialog自身のMsgBoxで確認できる)
 ' ----------------------------------------------------------------------------
+' @unused:実Excel(層b)専用の手動入口。LO では実行できずCIにも載らないため、
+' 呼び出しはどこにも無い。docs/40 に手順が載っていなかったので R47 で追記した。
 Public Sub RunExcelPackDialogRoundTrip()
     Dim before As Long: before = modShelf.TotalChunks()
 

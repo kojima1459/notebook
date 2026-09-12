@@ -633,7 +633,7 @@ End Sub
 
 Public Function ThemeIcon() As String
     If CurrentTheme() = "dark" Then
-        ThemeIcon = ChrW(&H2600)    ' 太陽
+        ThemeIcon = modEmj.Sun()    ' 太陽
     Else
         ThemeIcon = ChrW(&HD83C) & ChrW(&HDF19)   ' 月
     End If

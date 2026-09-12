@@ -183,7 +183,7 @@ Private Sub ShowHelpCard()
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    manualBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    manualBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
     manualBtn.OnAction = "modHelp.OnOpenManual"
     manualBtn.Placement = 3
     manualBtn.ZOrder 0
@@ -195,7 +195,7 @@ Private Sub ShowHelpCard()
     tourBtn.Fill.ForeColor.RGB = modUI.UiColor("surface")
     tourBtn.Line.Visible = -1
     tourBtn.Line.Weight = 1#
-    tourBtn.Line.ForeColor.RGB = modUI.UiColor("accent")
+    tourBtn.Line.ForeColor.RGB = modUI.UiColor("primary")
     With tourBtn.TextFrame2
         .WordWrap = -1
         .TextRange.Text = ChrW(&H2728) & " ツアーをもう一度見る"
@@ -206,7 +206,7 @@ Private Sub ShowHelpCard()
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    tourBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    tourBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
     tourBtn.OnAction = "modHelp.OnRestartTour"
     tourBtn.Placement = 3
     tourBtn.ZOrder 0
@@ -219,7 +219,7 @@ Private Sub ShowHelpCard()
     fbBtn.Fill.ForeColor.RGB = modUI.UiColor("surface")
     fbBtn.Line.Visible = -1
     fbBtn.Line.Weight = 1#
-    fbBtn.Line.ForeColor.RGB = modUI.UiColor("accent")
+    fbBtn.Line.ForeColor.RGB = modUI.UiColor("primary")
     With fbBtn.TextFrame2
         .WordWrap = -1
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCEE) & " ご意見・不具合報告"
@@ -230,7 +230,7 @@ Private Sub ShowHelpCard()
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    fbBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("accent")
+    fbBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("primary")
     fbBtn.OnAction = "modHelp.OnFeedback"
     fbBtn.Placement = 3
     fbBtn.ZOrder 0
@@ -245,7 +245,7 @@ Private Sub ShowHelpCard()
     cfgBtn.Line.ForeColor.RGB = modUI.UiColor("border")
     With cfgBtn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H2699) & " 共有フォルダ設定"   ' R20H FA-16: 「P2P接続設定」を平易化
+        .TextRange.Text = modEmj.Gear() & " 共有フォルダ設定"   ' R20H FA-16: 「P2P接続設定」を平易化
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 8.5
         .TextRange.ParagraphFormat.Alignment = 2
@@ -303,7 +303,7 @@ Private Sub ShowHelpCard()
     ' ボタン(modProgressBar.PaintProgress経由)と同じハンドラを指す(取込中はそちらを
     ' 使うが、アイドル時にも別プロセスで先に別の仕事を始めたい場合に使える)。
     AddHelpAction ws, "nx_help_workexcel", cardL, belowT + 170, 350, _
-                  ChrW(&HD83D) & ChrW(&HDDD4) & " 作業用Excelを開く", _
+                  modEmj.WindowIcon() & " 作業用Excelを開く", _
                   "modWorkExcel.OnOpenWorkExcel"
 
     ' 7段目(2026-09-11 R46): 前の回答をコピーする。文脈pillは最新のバブルの
@@ -591,7 +591,7 @@ Private Function HelpBodyText() As String
         "評価: " & ChrW(&H2705) & "解決した / " & ChrW(&HD83E) & ChrW(&HDD14) & "微妙 / " & _
         ChrW(&H274C) & "違う を回答の下から1クリック。「解決した」は資料を書いた人へ感謝が届きます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCDA) & " マイ本棚: 資料の登録・検索・カード詳細。品質が低い資料は " & _
-        ChrW(&H26A0) & "ノイズ報告 で検索から除外できます。" & vbLf & _
+        modEmj.Warn() & "ノイズ報告 で検索から除外できます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCA1) & " 専門家: 回答の下に「〇〇さんが詳しいです」と出たら、ボタンから" & _
         "直接質問を送れます。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDD04) & " 画面が乱れたら: Hubのアイコン列にある「再描画」。" & vbLf & _
@@ -600,7 +600,7 @@ Private Function HelpBodyText() As String
         "自分専用バックアップです(下のボタンから)。" & vbLf & _
         ChrW(&HD83D) & ChrW(&HDCE6) & " パック: マイ本棚の「パック出力/パック取込」で、他の人へ資料を" & _
         "配ったり受け取ったりできます(引き継ぎファイルとは別の機能です)。" & vbLf & _
-        ChrW(&H2328) & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
+        modEmj.Keyboard() & " ショートカット: Ctrl+Enter=送信 / Ctrl+Shift+Q=どこからでも呼び出し。" & vbLf & vbLf & _
         "作成: リスクコンサルティング支援部 ニューリスクG 小島正豪" & vbLf & _
         "このカードはクリックで閉じます"
     HelpBodyText = s
@@ -627,7 +627,7 @@ Private Sub DrawManualBackButton(ByVal ws As Worksheet)
         .VerticalAnchor = 3
         .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+    btn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
     btn.OnAction = "modHelp.OnBackToNexus"
     btn.Placement = 3
     btn.ZOrder 0

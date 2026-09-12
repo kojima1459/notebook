@@ -193,7 +193,7 @@ Public Function ExtractImagePdf(ByVal path As String, ByRef pages() As Extracted
         Exit Function
     End If
 
-    modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " 画像から文字を読み取っています…"
+    modUIMain.SetStage "" & modEmj.Picture() & " 画像から文字を読み取っています…"
 
     ' (1) 画像ファイル → Base64文字列(確定: Base64FromFile / 台帳§1 #8)
     Dim b64 As String

@@ -690,6 +690,10 @@ End Function
 
 ' 資料分散の判定(相対gap版)。閾値との比較だけを持つ薄い層。
 ' relGapX100<=0 は機能OFF(config dispersion_rel_gap_x100)。
+' @unused:R21-2 で絶対gap版から相対gap版へ移行する際に作った判定の窓口。
+' 製品側は modAskRetrieve.IsTooVague が同じ判断を内側で持っており、この口は
+' modTestsPure18 が規則そのものを固定するためだけに残す(規則を2箇所に
+' 書かないための検算口)。config dispersion_rel_gap_x100 の消費者はあちら。
 Public Function HasScoreDispersionRel(ByVal srcScoreLines As String, _
                                       ByVal relGapX100 As Long) As Boolean
     If relGapX100 <= 0 Then Exit Function

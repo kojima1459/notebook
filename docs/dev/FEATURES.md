@@ -9,7 +9,7 @@
 |---|---|---|
 | マルチ形式取込 | PDF/Word/Excel/テキストをフォルダ投入 or ダイアログで取込 | `modExtractor*`, `modShelf` |
 | 構造認識チャンク化 | 見出し・条文単位での分割(`chunk_mode=structure`) | `modChunker` |
-| 画像PDFのOCR取込 | スキャンPDF(E0303)を同梱外のGhostscriptでページ毎にJPEG化し、1ページ=1回のChatGPTVで文字起こし。上限は`vision_pdf_max_pages`(既定100・20ページずつのバッチ処理)で超過分はpartial。全ページ文字化けのPDFも自動でこの経路へ回る。手順は`docs/43_画像PDFのOCR取込設定.md` | `optVision`, `optOcrCore`, `modShelfVision` |
+| 画像PDFのOCR取込 | スキャンPDF(E0303)を同梱外のGhostscriptでページ毎にJPEG化し、1ページ=1回のChatGPTVで文字起こし。上限は`vision_pdf_max_pages`(既定300・20ページずつのバッチ処理)で超過分はpartial。全ページ文字化けのPDFも自動でこの経路へ回る。手順は`docs/43_画像PDFのOCR取込設定.md` | `optVision`, `optOcrCore`, `modShelfVision` |
 | 画像を📁から追加 | `📁 追加`のダイアログフィルタにpng/jpg/jpegを追加(vision有効時のみ)。読み取りは📸と同じ経路 | `modShelfVision.ImageDialogPattern`, `modShelfBatch` |
 | 自動同期 | 指定フォルダとの差分同期(`sync_interval_min`でOnTime自動化) | `modShelfSync` |
 | 同期完了表示(静かな完了) | 手動同期が正常完了(上限見送りなし)のとき、状態表示行とステータスバーに「✅ 同期が完了しました(…)」と出るだけでダイアログを出さない。上限見送りがあった場合のみ従来どおりダイアログ表示 | `modShelfSync` |
@@ -17,7 +17,7 @@
 | バイナリ量子化ハイブリッド(狂気案Lv.1) | 大規模時にXORハミング距離で粗選別→Float再ランク。`binary_rag=TRUE`でオプトイン | `modBitwiseOpt` |
 | 多段RAG | クエリ拡張→マルチクエリ検索→AI再ランク | `modAsk`, `modPrompts`, `modRagParse` |
 | 2速度モード | ⚡すぐ聞く(10〜20秒) / 🔍しっかり調べる(下書き+検証の2段) | `modAsk` |
-| 🔬入念の1回読み(R38) | 入念の単発経路を「検索上位の章の本文を丸ごと1回で読んで回答」に置換(config `thorough_onepass` 既定on・本文上限 `onepass_max_chars` 既定300000字・章数 `onepass_max_chapters` 既定8)。章に割れていない本棚は前後 `onepass_neighbor`(既定6)件の近傍で代替。どの理由で失敗しても従来の4段(要点整理→下書き→自己点検→検証)へ黙って落ちる。`off` で従来どおり | `modAskOnePass`, `modAskThorough`, `modAskGlobal.CollectChapterHits` |
+| 🔬入念の1回読み(R38) | 入念の単発経路を「検索上位の章の本文を丸ごと1回で読んで回答」に置換(config `thorough_onepass` 既定on・本文上限 `onepass_max_chars` 既定450000字・章数 `onepass_max_chapters` 既定8)。章に割れていない本棚は前後 `onepass_neighbor`(既定6)件の近傍で代替。どの理由で失敗しても従来の4段(要点整理→下書き→自己点検→検証)へ黙って落ちる。`off` で従来どおり | `modAskOnePass`, `modAskThorough`, `modAskGlobal.CollectChapterHits` |
 | 続けて質問(深掘り) | 直前の会話を踏まえた追加質問 | `modFollowup`, `modAsk` |
 | 出典厳格化 | 資料に無いことは「見当たらない」と明言(ハルシネーション抑制) | `modPrompts.GroundingInstruction` |
 | One-Shot品質固定 | プロンプトに理想的な出力例を1つ同梱し、トーン・型・粒度を固定 | `modPrompts.StyleInstruction` |
@@ -96,8 +96,8 @@
 | ご意見箱(バグバウンティ) | 感想・不具合を作成者へメール送信、EXP+5(1日1回) | `modHelp.OnFeedback` |
 | P2P接続設定UI | 隠しconfigシートを直接触らせずに共有フォルダパスを設定 | `modHelp.OnShareSetup` |
 | フレンドリーエラー | エラーコードを「あなたのせいではありません+次の一手」トーンへ翻訳 | `modLog.FriendlyMessage` |
-| 診断の設定サマリー | 🩺診断レポート冒頭に、mock_llm/embed_transport/shelf_folder/共有パス/モデル名/自動同期間隔の現在値をサマリー表示 | `modDiag` |
-| エラーダイアログの直近エラーコピー | エラーダイアログ末尾に案内を表示。🩺診断→📋ボタンで、err_logの直近5件(エラーコード・発生箇所・生エラー番号・HTTPステータス・詳細)を整形テキストでクリップボードへコピー | `modLog` |
+| 診断の設定サマリー | 「❓ ガイド」→「🩺 診断を開く」レポート冒頭に、mock_llm/embed_transport/shelf_folder/共有パス/モデル名/自動同期間隔の現在値をサマリー表示 | `modDiag` |
+| エラーダイアログの直近エラーコピー | エラーダイアログ末尾に案内を表示。「❓ ガイド」→「🩺 診断を開く」→📋ボタンで、err_logの直近5件(エラーコード・発生箇所・生エラー番号・HTTPステータス・詳細)を整形テキストでクリップボードへコピー | `modLog` |
 
 ## 8. 未実装・保留中の機能
 

@@ -70,8 +70,12 @@ Public Sub ShowToast(ByVal message As String, Optional ByVal kind As String = "i
     ' 種別アイコン(視覚的認知スピード): 成功✅ / 注意⚠️ / 情報💡
     Dim bg As Long, fg As Long, icon As String
     Select Case LCase$(kind)
-        Case "success": bg = RGB(0, 168, 89):  fg = RGB(255, 255, 255): icon = ChrW(&H2705)
-        Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255): icon = ChrW(&H26A0)
+        ' R47: 白字 on RGB(0,168,89) は 3.11:1 で AA(4.5)未達。10.5pt の通常字なので
+        ' large-text 例外も効かない。modSkin が2度「ACCENT は白字と組まない」と
+        ' 明文化して各所を直したのに、一番よく見るトーストだけ取り残されていた。
+        ' PRIMARY #01675B(白字 6.79:1)へ。
+        Case "success": bg = RGB(1, 103, 91): fg = RGB(255, 255, 255): icon = ChrW(&H2705)
+        Case "error":   bg = RGB(220, 38, 38):  fg = RGB(255, 255, 255): icon = modEmj.Warn()
         Case Else:      bg = RGB(30, 41, 59):   fg = RGB(248, 250, 252): icon = ChrW(&HD83D) & ChrW(&HDCA1)
     End Select
     shp.Fill.ForeColor.RGB = bg

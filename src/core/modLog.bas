@@ -402,6 +402,12 @@ End Function
 ' ----------------------------------------------------------------------------
 Public Function CopyFailMsgOf(ByVal kind As String) As String
     Select Case LCase$(Trim$(kind))
+        Case "E0906"
+            ' R47: 文書検問(tools/doc_gate.py)が「src が吐くのに FriendlyMessage に
+            ' 分岐が無い」として検出した。汎用文だけでは次の一手が伝わらない。
+            FriendlyMessage = "前の回答をコピーできませんでした。" & _
+                "画面に残っている回答をもう一度選び直すか、" & _
+                "ヘルプの「前の回答をコピー」からやり直してください。"
         Case "src_empty"
             CopyFailMsgOf = "共有上のファイルが空(0バイト)です。" & _
                 "元のファイルが正しく保存されているか確認してください。"

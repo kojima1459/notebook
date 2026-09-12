@@ -141,7 +141,7 @@ Public Function BridgeToastText(ByVal toMode As String) As String
             ChrW(&HD83D) & ChrW(&HDD0D) & " 深掘り(続けて質問)を押してください"
     Else
         BridgeToastText = "直前の会話を引き継ぎました。新しく始めるなら " & _
-            ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+            modEmj.Trash() & " クリア"
     End If
 End Function
 
@@ -343,8 +343,8 @@ Public Function AskGeneral(ByVal q As String, ByVal extraRules As String, _
     ' 「手元の資料との関連が薄い」という⚠は事実と無関係になる。
     ' 履歴(mGenPrevU/mGenPrevA)と NoteGeneralAnswered は上で clean な resp を
     ' 確定済みなので、ここでの追記は履歴へ混入しない(modAsk.bas:280-281 と同じ作法)。
-    AskGeneral = modMode.DisplayNotes(resp, 0#, False, 0#, _
-        modConfig.GetBool("answer_guard_note", True))
+    ' 窓口は modMode.GuardOnly に一本化する(config 読みもあちら側)。
+    AskGeneral = modMode.GuardOnly(resp)
 End Function
 
 ' ";;;"区切り文字列を先頭maxN件へ切り詰める。

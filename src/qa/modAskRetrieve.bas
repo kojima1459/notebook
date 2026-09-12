@@ -130,7 +130,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
 
     ' 各段を通すかはモードで決まる(modMode)。
     Dim useExpand As Boolean
-    useExpand = modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
+    useExpand = modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", True), _
                                   modConfig.GetBool("quick_expand", False))
     If subqOverride > 0 Then useExpand = True     ' R13-5c: スコープ内多段は必ず角度を作る
     If skipExpand Then useExpand = False           ' R16-3A: 分解済みの論点は更にばらさない
@@ -198,7 +198,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
     Dim orderN As Long: orderN = 0
     Dim rankOrder() As Long
     Dim useRerank As Boolean
-    useRerank = modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
+    useRerank = modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", True), _
                                   modConfig.GetBool("quick_rerank", False))
     If skipExpand Then useRerank = False           ' 裁定1: 副質問は軽量検索(再ランクも省く)
     If useRerank And poolN > topK Then
@@ -481,9 +481,9 @@ Public Sub PlanAskStages(ByVal mdMode As String)
     modAskGlobal.ResetGlobalTurn
     Dim isMulti As Boolean
     isMulti = (LCase$(modConfig.GetString("retrieve_mode", "single")) = "multi")
-    mStgExpand = isMulti And modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", False), _
+    mStgExpand = isMulti And modMode.UseExpand(mdMode, modConfig.GetBool("expand_enabled", True), _
                                                modConfig.GetBool("quick_expand", False))
-    mStgRerank = isMulti And modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", False), _
+    mStgRerank = isMulti And modMode.UseRerank(mdMode, modConfig.GetBool("rerank_enabled", True), _
                                                modConfig.GetBool("quick_rerank", False))
     mStgThorough = (modMode.Normalize(mdMode) = "thorough")
     mStgTotal = modMode.AskStageTotal(mStgExpand, mStgRerank, modMode.UseVerify(mdMode), mStgThorough)

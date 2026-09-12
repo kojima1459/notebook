@@ -500,7 +500,7 @@ Private Function CitationInstruction() As String
         "出典は情報と1対1で紐づけ、まとめて末尾に並べるだけの書き方はしないでください。"
 End Function
 
-Private Function NotFoundInstruction() As String
+Public Function NotFoundInstruction() As String
     NotFoundInstruction = "本棚抜粋に書かれていないことは、推測で埋めずに" & _
         "「資料には見当たらない」とはっきり述べてください。" & _
         "やむを得ず推測で補う場合は、それが推測であることを明示してください。"
@@ -528,7 +528,7 @@ Public Function DomainGuardInstruction() As String
 End Function
 
 ' グラウンディング強制文(strict_grounding=TRUE時。設計書§D-1)。
-Private Function GroundingInstruction() As String
+Public Function GroundingInstruction() As String
     GroundingInstruction = "【厳守】本棚抜粋に書かれた情報のみで回答し、外部知識や推測での補完は禁止。" & _
         "各主張の直後に出典を必ず付け、出典を付けられない主張は書かない。" & _
         "抜粋から判断できない場合は、無理に答えず「資料からは判断できません」とだけ述べ、" & _

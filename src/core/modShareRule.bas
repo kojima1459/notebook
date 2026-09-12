@@ -242,7 +242,7 @@ End Function
 ' 裁定: 判定ロジックは変えない(テストが意図として固定済み)。警告文からは
 ' パーセントを外し、警告固有の言い方 ―― 何件を目安にしているか ―― にする。
 Public Function BudgetWarnCaption(ByVal warnLimit As Long) As String
-    BudgetWarnCaption = ChrW(&H26A0) & " 棚卸しの目安(" & Format$(warnLimit, "#,##0") & _
+    BudgetWarnCaption = modEmj.Warn() & " 棚卸しの目安(" & Format$(warnLimit, "#,##0") & _
         "件)の8割を超えました" & vbCr & _
         "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
 End Function

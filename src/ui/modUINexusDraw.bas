@@ -304,7 +304,7 @@ Private Sub PillSpec(ByVal tier As Long, ByRef caps() As String, ByRef nm() As S
 
     Dim clearCap As String, sqCap As String
     Dim langCap As String, modeCap As String, speedCap As String
-    clearCap = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+    clearCap = modEmj.Trash() & " クリア"
     sqCap = ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例"
     langCap = LangCaption()
     modeCap = modApp.ModeCaption()

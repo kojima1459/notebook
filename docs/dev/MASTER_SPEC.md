@@ -85,7 +85,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | `insight_inbox` | hidden | 解決済みQ&A・みんなの困りごとの受信箱 |
 | `ui_state` | veryHidden | UI内部状態(モード選択等) |
 | `text_view` | veryHidden | 📖本文の表示用作業シート。←戻るで削除。保存前に自動掃除(`modApp.OnSaveAndExit`) |
-| `diag_report` | veryHidden | 🩺診断ボタンの表示用作業シート。←戻る相当で削除(実装では HideInternalSheets で隠す) |
+| `diag_report` | veryHidden | 「❓ ガイド」→「🩺 診断を開く」ボタンの表示用作業シート。←戻る相当で削除(実装では HideInternalSheets で隠す) |
 
 **my_knowledge** 列: `chunk_id, source, origin, page, summary, keywords, full_text, added_at, embedded, norm_text`
 - norm_text(10列目・2026-08-01 R12-4追加): 照合用の正規化済みテキスト
@@ -445,7 +445,7 @@ featureId→モジュール名対応表: tts→optTts, vision→optVision, markd
 
 **modDiag.bas**
 ```vba
-Public Sub RunDiagnostics()   ' 「🩺診断」ボタン。diag_reportシートを(再)生成して表示:
+Public Sub RunDiagnostics()   ' 「「❓ ガイド」→「🩺 診断を開く」」ボタン。diag_reportシートを(再)生成して表示:
     ' バージョン/ビルド日、リボン検出、mock_llm状態、各シート存在+行数、config必須キー、
     ' 本棚統計(資料数/チャンク数/未埋め込み数)、opt機能の在否、直近エラー5件、
     ' 各行に ✅/⚠️ と対処文。最後に「この画面をスクリーンショットして管理者に送ってください」
@@ -791,7 +791,7 @@ Public Sub FeedbackGreen() / FeedbackYellow() / FeedbackRed()  ' modStatsへ+お
 Public Function CanFollowup() As Boolean       ' 続けて質問できる直近回答があるか(裁定D11)
 Public Sub AskFollowup(ByVal followupText As String) ' 履歴付き追質問(検索も再実行→出典付き回答)
 ```
-会話履歴(裁定D11): 直近 followup_max_pairs(既定3)往復を module 変数に保持し、CallLLM の
+会話履歴(裁定D11): 直近 followup_max_pairs(既定5)往復を module 変数に保持し、CallLLM の
 prevU/prevA(新しい順;;;区切り)へ渡す。履歴に積むのは深掘り候補ブロック除去後の本文のみ。
 深掘り候補: modPrompts が最終応答系プロンプト(quick/deep_verify)に [[FOLLOWUP: 候補1 | 候補2]] の
 出力指示を加え、modAsk がパース・除去して「🔎 深掘り候補(『続けて質問』でそのまま聞けます)」
@@ -939,7 +939,7 @@ modPrompts(出典形式・打ち切り)、manifest差分ロジック(modShelfSyn
 
 ### 8.1 ホーム
 ```
-[📚 マイ本棚AI  v0.1.0]                      [❓使い方] [🩺診断]
+[📚 マイ本棚AI  v0.1.0]                      [❓使い方] [「❓ ガイド」→「🩺 診断を開く」]
 「自分で入れた資料に、すぐ聞ける」
 ┌───────────────┐ ┌───────────────┐
 │ ⚡ すぐ聞く (10〜20秒) │ │ 🔍 しっかり調べる (1〜2分) │   ← トグル
@@ -951,7 +951,7 @@ modPrompts(出典形式・打ち切り)、manifest差分ロジック(modShelfSyn
 ─ 回答 ─────────────────────────
 (回答本文: 結合セル・折返し・上詰め)
 📖 この回答のもと: ファイルA p.3 / ファイルB p.12
-この回答は役に立ちましたか?  [🟢 解決した!] [🟡 ヒントになった] [🔴 だめだった]
+この回答は役に立ちましたか?  [✅ 解決した] [🤔 微妙] [❌ 違う]
 💡 豆知識: (待ち時間に表示)
 ```
 - 本棚が空のとき: 回答エリアに「まず『マイ本棚』タブで資料を1つ追加してみましょう →」を常設表示。

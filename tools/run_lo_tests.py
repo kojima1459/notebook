@@ -198,7 +198,7 @@ EXPECTED_SKIP_MAX = 15
 #     輝度判定・境界4件)を追加 → 3378→3382。さらにレビュー2周目の Fix で
 #     modTestsPure48 に T1b/T1c(数式が返した空文字のセルは番地を付けないが
 #     【行は残す】。R33-W3-1 の回帰をここで捕まえた)を追加 → 3382→3386。
-EXPECTED_PASS_MIN = 3448
+EXPECTED_PASS_MIN = 3462
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -964,6 +964,18 @@ PURE_ALLOWLIST = [
     #   コンパイルを通る。未注入だと modTestsPure48.RunAll48 が実行時エラー12に
     #   なり、R46 で足した G9/G10 が走らないまま全部PASSに見える。
     "modClip",
+    # modGround(2026-09-11 R46): 回答本文の数字が資料に実在するかの照合。
+    #   テストが呼ぶのは純関数 UngroundedNumbers / GroundNoteText だけ。
+    #   Hit 配列を受ける AppendGroundNote は配線用なので呼ばない
+    #   (modPeek の ShowPeek と同じ扱い)。modSparse.NormalizeForSearch を
+    #   使うので modSparse が揃っている必要がある(PURE_ALLOWLIST 済み)。
+    "modGround",
+    # modEmj(2026-09-12 R47): 絵文字の単一情報源。純テストが直接呼ぶわけでは
+    #   ないが、注入済みモジュール(modChrome/modShareRule 等)が呼ぶので、
+    #   未注入だと「Variable not defined: modEmj」で群ごと落ちる
+    #   (R47 で実際に FAIL 5 を出した。新モジュールを足したら注入一覧にも
+    #   足す ―― これ自体が今回潰している「作ったが繋いでいない」の型)。
+    "modEmj",
     # modSparse は既に注入済み(PURE_ALLOWLIST)。R46 の modMode.CoverageOf は
     # modSparse.DistinctiveKeys/ExactHitCount を呼ぶので、両方が揃っていないと
     # G11 が実行時エラーになる。

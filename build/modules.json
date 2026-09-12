@@ -52,6 +52,13 @@
       "note": "テキストファイル入出力(ADODB.Stream UTF-8)と、複数モジュールに散っていた同じ算数を1本化するための共通部品。modUtilが27,822字で余地が少ないため新設(R11-F2の重複統合の受け皿)。"
     },
     {
+      "name": "modEmj",
+      "path": "src/core/modEmj.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1"
+    },
+    {
       "name": "modGateway",
       "path": "src/core/modGateway.bas",
       "role": "core",
@@ -310,6 +317,13 @@
     {
       "name": "modMode",
       "path": "src/qa/modMode.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MODE3"
+    },
+    {
+      "name": "modGround",
+      "path": "src/qa/modGround.bas",
       "role": "core",
       "type": "std",
       "wave": "MODE3"

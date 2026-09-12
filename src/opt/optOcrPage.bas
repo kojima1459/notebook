@@ -170,7 +170,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
         batchLbl = optOcrEta.BatchLabel(b, knownTotal, BATCH_PAGES)
         ' R15-FixA(FA-8): 中断の実況(「中断しています…」)を上書きしない。
         If Not CancelWanted() Then
-            modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " PDFを画像に変換しています…"
+            modUIMain.SetStage "" & modEmj.Picture() & " PDFを画像に変換しています…"
             modShelfBatch.StageBanner "画像化中… " & batchLbl
         End If
 
@@ -279,7 +279,7 @@ Public Function OcrPdfByBatch(ByVal gsExe As String, ByVal pdfPath As String, _
             ' 「中断しています…」が次の頁の表示で消えると、押した実感が無い)。
             If Not CancelWanted() Then
                 modShelfBatch.StageBanner banner
-                modUIMain.SetStage "" & ChrW(&HD83D) & ChrW(&HDDBC) & " " & banner
+                modUIMain.SetStage "" & modEmj.Picture() & " " & banner
             End If
 
             ' 読めたページだけ okN が進む(1ページの失敗で資料全体を捨てない)。

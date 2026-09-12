@@ -610,7 +610,7 @@ End Function
 Public Function ActiveLabelText(ByVal have As Long, ByVal total As Long) As String
     If have <= 0 Then
         ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 部門資料: 未設定(" & _
-            ChrW(&H2753) & "ヘルプの" & ChrW(&H2699) & "から設定)"
+            ChrW(&H2753) & "ヘルプの" & modEmj.Gear() & "から設定)"
     ElseIf have >= total Then
         ActiveLabelText = ChrW(&HD83D) & ChrW(&HDCDA) & " 全" & total & "部門"
     Else

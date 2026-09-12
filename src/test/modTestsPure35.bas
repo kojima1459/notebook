@@ -292,11 +292,11 @@ End Sub
 Private Sub TestBudgetWarn35()
     ChkStr35 "F6_警告文は目安の件数で語る(既定20,000)", _
         modShareRule.BudgetWarnCaption(20000), _
-        ChrW(&H26A0) & " 棚卸しの目安(20,000件)の8割を超えました" & vbCr & _
+        modEmj.Warn() & " 棚卸しの目安(20,000件)の8割を超えました" & vbCr & _
         "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
     ChkStr35 "F6_目安を広げた組織はその件数が出る", _
         modShareRule.BudgetWarnCaption(40000), _
-        ChrW(&H26A0) & " 棚卸しの目安(40,000件)の8割を超えました" & vbCr & _
+        modEmj.Warn() & " 棚卸しの目安(40,000件)の8割を超えました" & vbCr & _
         "使っていない資料を減らすと空きます(マイ本棚から削除できます)"
     ChkBool35 "F6_警告文にパーセントは出さない(既定)", _
         (InStr(1, modShareRule.BudgetWarnCaption(20000), "%", vbBinaryCompare) > 0), False

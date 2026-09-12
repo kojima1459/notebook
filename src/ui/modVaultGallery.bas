@@ -258,7 +258,7 @@ Public Sub OnVaultCardClick()
     Dim answer As Long
     answer = MsgBox("『" & srcName & "』" & vbLf & vbLf & _
                     modUtil.SafeLeft(PreviewOf(srcName), 300) & vbLf & vbLf & _
-                    "[はい]=削除  /  [いいえ]=" & ChrW(&H26A0) & "ノイズ報告(品質が低いと報告)  /  [キャンセル]=閉じる", _
+                    "[はい]=削除  /  [いいえ]=" & modEmj.Warn() & "ノイズ報告(品質が低いと報告)  /  [キャンセル]=閉じる", _
                     vbYesNoCancel + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME & " - ナレッジ詳細")
     If answer = vbYes Then
         modShelf.DeleteSource srcName
@@ -518,7 +518,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     prevBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
     prevBtn.TextFrame2.TextRange.Font.Bold = -1
     prevBtn.TextFrame2.WordWrap = -1
-    prevBtn.TextFrame2.TextRange.Text = ChrW(&H25C0) & " 前へ"
+    prevBtn.TextFrame2.TextRange.Text = modEmj.ArrowLeft() & " 前へ"
     prevBtn.TextFrame2.TextRange.Font.Size = 8.5
     prevBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
     prevBtn.TextFrame2.VerticalAnchor = 3
@@ -549,7 +549,7 @@ Private Sub RenderGalleryCards(ByVal ws As Worksheet)
     nextBtn.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
     nextBtn.TextFrame2.TextRange.Font.Bold = -1
     nextBtn.TextFrame2.WordWrap = -1
-    nextBtn.TextFrame2.TextRange.Text = "次へ " & ChrW(&H25B6)
+    nextBtn.TextFrame2.TextRange.Text = "次へ " & modEmj.ArrowRight()
     nextBtn.TextFrame2.TextRange.Font.Size = 8.5
     nextBtn.TextFrame2.TextRange.ParagraphFormat.Alignment = 2
     nextBtn.TextFrame2.VerticalAnchor = 3
@@ -638,7 +638,7 @@ Private Sub DrawOneCard(ByVal ws As Worksheet, ByVal slot As Long, ByVal x As Do
         card.Fill.ForeColor.RGB = modUI.UiColor("bg")
         card.Line.ForeColor.RGB = modUI.UiColor("border")
         body = titleText & vbLf & previewText & vbLf & footText & vbLf & _
-               ChrW(&H26A0) & " 組織的除外(調査中)"
+               modEmj.Warn() & " 組織的除外(調査中)"
     Else
         card.Fill.ForeColor.RGB = RGB(255, 255, 255)
         card.Line.ForeColor.RGB = RGB(229, 231, 235)

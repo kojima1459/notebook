@@ -542,13 +542,25 @@ Private Function BuildGlobalPrompt(ByVal q As String, hits() As Hit, _
     sb = sb & "・抜粋に書かれていないことは書かない。" & _
          "抜粋は資料の【一部の章】なので、答え切れない部分は" & _
          "「この抜粋の範囲では確認できません」と正直に述べる。" & vbLf
-    sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
+    ' R47 ★2(同上・俯瞰も同じ穴だった)
+    sb = sb & "・抜粋に無いことは推測で補わず「資料には見当たりません」と書く。" & _
+              "どうしても補う場合は「(推測)」と明示する。" & vbLf
+    ' R47 ★3: 俯瞰だけが strict_grounding を1行も読んでいなかった。
+    ' 「絶対に資料の外を書かせない」と設定した端末でも、俯瞰質問
+    ' (「全部教えて」型)のときだけ設定が黙って無効になっていた。
+    ' 利用者は設定が効いていると信じているので、これは嘘をついている状態。
+    On Error Resume Next
+    If modConfig.GetBool("strict_grounding", True) Then
+        sb = sb & modPrompts.GroundingInstruction() & vbLf
+    End If
+    On Error GoTo 0
+    sb = sb & "・Markdown記号(#、**、` 、表)は使わない(この画面では崩れて見える)。" & vbLf
     ' R44: 俯瞰の回答も章の本文から金額・期限・条文番号を引く。Quick と4段には
     ' 最初から入っていた金融・保険のガードレールが、この経路にも
     ' modAskOnePass にも入っていなかった(【数値の厳格性】【(要確認)】
     ' 【断定の禁止】)。文言は modPrompts の単一情報源をそのまま使う。
     sb = sb & modPrompts.DomainGuardInstruction() & vbLf
-    If modConfig.GetBool("answer_tags", False) Then
+    If modConfig.GetBool("answer_tags", True) Then
         sb = sb & "・出力は<thinking>に検討、<answer>に利用者へ見せる回答、の構造にすること。" & vbLf
     End If
 

@@ -310,7 +310,7 @@ Private Sub DrawReplyButton()
     btn.Fill.ForeColor.RGB = modUI.UiColor("surface")
     With btn.TextFrame2
         .WordWrap = -1
-        .TextRange.Text = ChrW(&H2709) & " " & mLastAsker & " さんへ返信する"
+        .TextRange.Text = modEmj.Mail() & " " & mLastAsker & " さんへ返信する"
         .TextRange.Font.Name = "Yu Gothic UI"
         .TextRange.Font.Size = 9
         .TextRange.Font.Bold = -1

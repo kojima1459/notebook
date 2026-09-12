@@ -154,7 +154,7 @@ Private Sub Step2ShareFolder()
     If MsgBox("共有フォルダを設定しますか?" & vbCrLf & _
               "部門の公式ナレッジをボタン1つで本棚に入れられるようになり、" & _
               "「みんなの節約」も見えるようになります。" & vbCrLf & _
-              "あとからHubの案内カードやヘルプ" & ChrW(&H2699) & "でも設定できます。", _
+              "あとからHubの案内カードやヘルプ" & modEmj.Gear() & "でも設定できます。", _
               vbYesNo + vbQuestion, modAppDef.APP_NAME & " - はじめに(1/1)") = vbYes Then
         modHelp.OnShareSetup
     End If

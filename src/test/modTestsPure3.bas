@@ -539,7 +539,7 @@ Private Sub HeaderCapSpec(ByVal tier As Long, ByRef caps() As String, ByRef widt
     ReDim caps(0 To 7)
     ReDim widths(0 To 7)
 
-    clearCap = ChrW(&HD83D) & ChrW(&HDDD1) & " クリア"
+    clearCap = modEmj.Trash() & " クリア"
     sqCap = ChrW(&HD83D) & ChrW(&HDCA1) & " 質問例"
     langCap = ChrW(&HD83C) & ChrW(&HDF10) & " 日本語"
     modeCap = ChrW(&HD83C) & ChrW(&HDFE2) & " 社内ナレッジ検索"

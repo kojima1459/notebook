@@ -170,10 +170,16 @@ Public Sub RenderCitations(ByVal bubbleName As String)
         ' 奪うが、「出典」と呼ぶと根拠として通用してしまう。
         .TextRange.Text = CiteLabelText(modAsk.LastConfidence())
         .TextRange.Font.Name = "Yu Gothic UI"
-        .TextRange.Font.Size = 8.5
+        ' R47: 8.5pt muted だと、すぐ下に並ぶチップ(8.5pt primary+枠)より弱く、
+        ' 🔴のときの「答えの根拠ではありません」が視覚的に一番目立たない行に
+        ' なっていた。R46 で直した「ガードがフッターより小さい」と同型なので
+        ' 同じ手当て(9pt・太字・danger)をする。🟢🟡のときは従来どおり控えめ。
+        .TextRange.Font.Size = IIf(modAsk.LastConfidence() <= 0, 9, 8.5)
+        .TextRange.Font.Bold = (modAsk.LastConfidence() <= 0)
         .MarginLeft = 2: .MarginTop = 0: .MarginBottom = 0
     End With
-    lbl.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("muted")
+    lbl.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = _
+        IIf(modAsk.LastConfidence() <= 0, modUI.UiColor("danger"), modUI.UiColor("muted"))
     lbl.Placement = 3
 
     ' 出典をソース名でユニーク化(先頭出現のヒット添字を保持)しつつチップ描画。
@@ -412,7 +418,7 @@ Public Sub ShowPeek(ByVal idx As Long)
             .TextRange.Font.Name = "Yu Gothic UI"
             .TextRange.Font.Size = 9
             .TextRange.Font.Bold = -1
-            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3
             .MarginLeft = 2: .MarginRight = 2: .MarginTop = 0: .MarginBottom = 0

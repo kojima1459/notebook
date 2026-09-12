@@ -13,6 +13,7 @@ description: 配布前の最終検問と配布物確定の定型シーケンス�
 
 ```bash
 python3 tools/vba_lint.py --path src                 # ERROR 0
+python3 tools/doc_gate.py        # 文書検問(R47新設)。ERROR 0 必須 ―― 文書も検問の対象
 python3 tools/run_lo_tests.py --mode compile         # OK(絶対に並列にしない)
 python3 tools/run_lo_tests.py --mode pure            # PASS下限とSKIP上限も照合される
 python3 build/build_mybookshelf.py --dev             # 自己検証PASS

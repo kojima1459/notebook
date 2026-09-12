@@ -65,7 +65,7 @@
 - **Wave3 完了**: 検品ゲート全緑(lint ERROR0 / LO compile 36本PASS / pureテスト PASS77 FAIL0)。
   3-T成果: modTestsPure分割(Pure2)+modTestsExcel(実機E2E)+テスト側Hit配列添字バグ修正。
   既知の残確認事項(実機のみ): LOはUDT配列テストをスキップ(CanUseTypeArrays=False)→ChunkPages/プロンプト系は
-  実機の🩺診断(RunAllPureTests)で確認する(受入チェックリストに載せること)。
+  実機の「❓ ガイド」→「🩺 診断を開く」(RunAllPureTests)で確認する(受入チェックリストに載せること)。
 - **Wave4 実行中**: Opusレビュー6レンズ = **全員完了(指摘15件: 3+2+3+3+1+3)、キャッシュ済み**。
   fixer(sonnet: 指摘を検証→修正→ゲート全緑)が実行中に中断の可能性。
   - Wave4再開: スクリプト /root/.claude/projects/-home-user-notebook/defe7e58-c73e-5740-854b-09056e616d9b/workflows/scripts/mybookshelf-wave4-wf_04c6c4fb-942.js

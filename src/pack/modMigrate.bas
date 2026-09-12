@@ -189,7 +189,7 @@ Public Sub ImportUserData()
         If MsgBox("今この本棚に入っている " & have & " 件は、読み込んだ内容で" & vbCrLf & _
                   "【置き換わります】。よろしいですか?" & vbCrLf & vbCrLf & _
                   "(引き継ぎは、新しい版のブックを開いた直後に行う操作です)", _
-                  vbOKCancel + vbExclamation, modAppDef.APP_NAME) <> vbOK Then GoTo Done
+                  vbOKCancel + vbExclamation + vbDefaultButton2, modAppDef.APP_NAME) <> vbOK Then GoTo Done
     End If
 
     Dim fd As Object

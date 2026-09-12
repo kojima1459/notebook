@@ -381,7 +381,7 @@ Public Sub OnAddDocs()
         ' 4-B: AddFilesResult が例外で抜けた(戻り値が入らなかった)場合。
         ' キャンセルは "ok=0;ng=0;..." が必ず入るので区別できる。
         ' ここで黙ると、押したのに何も起きない=最悪の無反応になる。
-        say = ChrW(&H26A0) & " 取込処理でエラーが発生しました。" & vbLf & _
+        say = modEmj.Warn() & " 取込処理でエラーが発生しました。" & vbLf & _
               "err_log シートをご確認ください(管理者にこの画面を見せてください)。"
     Else
         say = AddDocsMessage(res)
@@ -443,11 +443,11 @@ Private Function AddDocsMessage(ByVal res As String) As String
     imgN = ReasonCount(reasons, "image_pdf")
 
     If dupN > 0 Then
-        say = AppendBlock(say, ChrW(&H26A0) & " 同じ名前の資料が、別の場所からすでに登録されています(" & dupN & "件)。" & vbLf & _
+        say = AppendBlock(say, modEmj.Warn() & " 同じ名前の資料が、別の場所からすでに登録されています(" & dupN & "件)。" & vbLf & _
             "ファイル名を変えて入れ直すか、マイ本棚で古いほうを削除してから、もう一度お試しください。")
     End If
     If imgN > 0 Then
-        say = AppendBlock(say, ChrW(&HD83D) & ChrW(&HDDBC) & " 画像として保存されたPDFで、文字を取り出せませんでした(" & imgN & "件)。" & vbLf & _
+        say = AppendBlock(say, modEmj.Picture() & " 画像として保存されたPDFで、文字を取り出せませんでした(" & imgN & "件)。" & vbLf & _
             "Ghostscriptを置くとAIが1ページずつ読み取れます(手順は「43_画像PDFのOCR取込設定」)。" & vbLf & _
             "すぐ試すなら、その画面をコピー(Win+Shift+S)して、ナレッジ画面の「" & _
             ChrW(&HD83D) & ChrW(&HDCF8) & " スクショ取込」からどうぞ。")

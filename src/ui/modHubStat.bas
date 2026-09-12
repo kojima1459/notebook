@@ -301,7 +301,7 @@ End Function
 Public Sub DrawStatTiles(ByVal ws As Worksheet, ByVal topY As Double)
     Dim labels As Variant, vals As Variant
     labels = Array("質問した回数", ChrW(&HD83D) & ChrW(&HDFE2) & " 自己解決", _
-                   ChrW(&H23F1) & " 自分の節約時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
+                   modEmj.Stopwatch() & " 自分の節約時間", ChrW(&HD83D) & ChrW(&HDCD6) & " 本棚の使用量", _
                    ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約(今日)", ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約(今月)", _
                    ChrW(&HD83D) & ChrW(&HDD25) & " 連続ログイン", ChrW(&HD83D) & ChrW(&HDCE6) & " パック共有")
     ' 実機報告(2026-07-27)「一部のタイルが真っ白」対策: Array()内で直接
@@ -555,7 +555,7 @@ Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
     If Not shareOk Then
         ' R20-4c: 「configのnexus_share_path」という実行不能な案内をやめ、
         ' クリックでそのまま設定UI(modHub.OnShareHelp→modHelp.OnShareSetup)へ。
-        cap = ChrW(&H26A0) & " 部内の共有フォルダが未設定です" & vbCr & _
+        cap = modEmj.Warn() & " 部内の共有フォルダが未設定です" & vbCr & _
               "クリックして設定(フォルダを選ぶだけ)。みんなが解決したQ&Aが自動で届くようになります"
         act = "modHub.OnShareHelp"
     ElseIf LenB(modChannel.ActiveChannel()) = 0 Then
@@ -581,7 +581,7 @@ Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         ' 一覧から静かに落ちる。落ちた部門の正典は誰にも届かないのに、
         ' 画面にもログにも何も出ないため「うちの部門だけ届かない」という
         ' 調べようのない不具合になっていた。件数を必ず見せる。
-        cap = ChrW(&H26A0) & " 部門が多すぎて " & chOver & "部門を読み込めていません" & vbCr & _
+        cap = modEmj.Warn() & " 部門が多すぎて " & chOver & "部門を読み込めていません" & vbCr & _
               "このツールの管理担当者にご連絡ください(部門数の上限を超えています)"
         act = "modKnowledge.OnChannels"
     ElseIf modChannel.IsBudgetTight() Then
@@ -615,7 +615,7 @@ Public Function DrawInbox(ByVal ws As Worksheet, ByVal L As Double, _
         ' ときだけ言ってよい嘘のない文言。Reachable()はセッション1回の
         ' キャッシュ判定なので、ここまでの分岐(shareOk等)を通り抜けた
         ' 時点で既に判定済み=このElseIf自体が新しい網羅プローブを増やさない。
-        cap = ChrW(&H26A0) & " 部内の共有フォルダに届いていません" & vbCr & _
+        cap = modEmj.Warn() & " 部内の共有フォルダに届いていません" & vbCr & _
               "ネットワークまたはVPN接続をご確認ください(このセッションは自動更新を見送っています)"
         act = "modHub.OnShareHelp"
     Else

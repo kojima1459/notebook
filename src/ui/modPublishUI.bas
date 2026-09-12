@@ -147,7 +147,7 @@ Public Sub OnPublish()
           "(「いいえ」= 直前の版に戻す操作に進みます)"
 
     Dim ans As VbMsgBoxResult
-    ans = MsgBox(msg, vbYesNoCancel + vbQuestion, modAppDef.APP_NAME & " - 発行の確認")
+    ans = MsgBox(msg, vbYesNoCancel + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME & " - 発行の確認")
     If ans = vbCancel Then GoTo DoneCleanup0
     If ans = vbNo Then
         modUiLock.Leave
@@ -358,7 +358,7 @@ Private Function ConfirmArchiveFailure() As Boolean
         "・共有フォルダの空き容量と書き込み権限" & vbCrLf & _
         "・社内ネットワーク(VPN)への接続" & vbCrLf & _
         "をご確認のうえ、あとでやり直すこともできます。" & vbCrLf & vbCrLf & _
-        "続行しますか?", vbYesNo + vbExclamation, _
+        "続行しますか?", vbYesNo + vbExclamation + vbDefaultButton2, _
         modAppDef.APP_NAME & " - 前の版の控えを保存できません") = vbYes)
 End Function
 
@@ -438,7 +438,7 @@ Private Sub DoRollback(ByVal chName As String)
               "戻すと、部内の全員が次にファイルを開いたとき Hub に" & vbCrLf & _
               "「更新があります」と出ます。それを押すとこの版に置き換わり、" & vbCrLf & _
               "誤った内容は各PCから消えます(自動では入りません)。" & vbCrLf & vbCrLf & _
-              "実行しますか?", vbOKCancel + vbExclamation, _
+              "実行しますか?", vbOKCancel + vbExclamation + vbDefaultButton2, _
               modAppDef.APP_NAME & " - 直前の版に戻す") <> vbOK Then GoTo RollbackDone
 
     Dim rbArcFailed As Boolean

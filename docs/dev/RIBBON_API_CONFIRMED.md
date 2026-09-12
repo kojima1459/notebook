@@ -119,7 +119,7 @@
   条件が成就)。これによりスクショ取込ボタン・Wordで開くボタンが初期状態で表示される。
   実機で問題が出た場合はconfigシートでFALSEに戻すだけで撤去できる(従来どおり)。
   feature_tts は非公開確定のためFALSE固定。
-- **D15 (config新キー)**: followup_max_pairs(既定3)/ word_export_effort(medium)/
+- **D15 (config新キー)**: followup_max_pairs(既定5)/ word_export_effort(medium)/
   word_export_verbosity(medium) をシードに追加(D11/D12の実装が参照)。
 
 ## 3. 未確定のまま残るもの

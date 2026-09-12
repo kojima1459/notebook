@@ -110,7 +110,7 @@ Public Sub ShowForSource(ByVal srcName As String, ByVal backAction As String)
     PutCell ws, r, _
         "取込日時: " & IIf(LenB(addedAt) > 0, addedAt, "不明") & _
         " ／ " & n & "個のまとまりに分けて保存 ／ 内容が違うときは、この資料を " & _
-        ChrW(&HD83D) & ChrW(&HDDD1) & " で消してから " & ChrW(&H2795) & _
+        modEmj.Trash() & " で消してから " & ChrW(&H2795) & _
         " 登録で正しい文章を登録し直してください" & _
         "(読み取った文章を直接直す機能はありません)。"
     ' R37 §3(資料間リンク): 章の重心が近い他資料があれば1行だけ添える。

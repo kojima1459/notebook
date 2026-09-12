@@ -394,7 +394,7 @@ Private Sub DrawHeader(ByVal ws As Worksheet)
         .TextRange.Text = ChrW(&HD83D) & ChrW(&HDCCA) & " ダッシュボード"
         .TextRange.Font.Size = 14
         .TextRange.Font.Bold = -1
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+        .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
         .MarginLeft = 14
         .VerticalAnchor = 3
     End With
@@ -498,7 +498,7 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
     headShp.Line.Visible = 0
     headShp.Fill.Visible = 0
     With headShp.TextFrame2
-        .TextRange.Text = ChrW(&H26A0) & " 組織的除外の管理(管理者)"
+        .TextRange.Text = modEmj.Warn() & " 組織的除外の管理(管理者)"
         .TextRange.Font.Size = 12
         .TextRange.Font.Bold = -1
         .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("text")
@@ -571,9 +571,9 @@ Private Sub DrawAdminSection(ByVal ws As Worksheet)
         With btn.TextFrame2
             .WordWrap = -1
             .MarginLeft = 8: .MarginRight = 8
-            .TextRange.Text = ChrW(&H21A9) & " 復帰"
+            .TextRange.Text = modEmj.Undo() & " 復帰"
             .TextRange.Font.Size = 8.5
-            .TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+            .TextRange.Font.Fill.ForeColor.RGB = modUI.UiColor("onPrimary")
             .TextRange.ParagraphFormat.Alignment = 2
             .VerticalAnchor = 3
         End With

@@ -440,6 +440,57 @@ Private Sub TestConfidence46()
         (InStr(modPeek.CiteLabelText(1), "出典") > 0), True
 End Sub
 
+' ---- G12: 回答本文の数字の実在チェック(R46・modGround) --------------------
+' 金額・第N条・％のような「間違うと実害が出る値」が、渡した資料と質問文に
+' 実在するかを照合する。誤検知(実在するのに指摘する)を出すと警告が日常化して
+' 誰も読まなくなるので、拾わない側の線引きも固定する。
+Private Sub TestGround46()
+    Dim src As String
+    src = "第12条 保険金の限度額は 1,000,000円 とする。免責は 30日。" & vbLf & _
+          "支払割合は 80% とし、対象は 3件 までとする。"
+
+    ' 実在する数字は指摘しない
+    ChkStr46 "G12a_実在する数字は指摘しない", _
+        modGround.UngroundedNumbers("限度額は1,000,000円、免責は30日です。", src), ""
+    ChkStr46 "G12b_条番号も実在すれば指摘しない", _
+        modGround.UngroundedNumbers("第12条をご確認ください。", src), ""
+    ' 実在しない金額は捕まえる
+    ChkStr46 "G12c_実在しない金額を捕まえる", _
+        modGround.UngroundedNumbers("限度額は 7,654,321円 です。", src), "7,654,321円"
+    ChkStr46 "G12d_実在しない条番号を捕まえる", _
+        modGround.UngroundedNumbers("第99条が適用されます。", src), "第99条"
+
+    ' 質問文に出ていれば引き写しなので指摘しない
+    ChkStr46 "G12e_質問に出た数字は指摘しない", _
+        modGround.UngroundedNumbers("ご質問の 500万円 について…", src & vbLf & "500万円の車両保険"), ""
+
+    ' 自分で付けたタグの中の数字は数えない
+    ChkStr46 "G12f_出典タグの数字は数えない", _
+        modGround.UngroundedNumbers("根拠です [本棚:約款.pdf p.123]", src), ""
+    ChkStr46 "G12g_セル番地は数えない", _
+        modGround.UngroundedNumbers("こちらです [B4567] の行", src), ""
+    ChkStr46 "G12h_付近表記も数えない", _
+        modGround.UngroundedNumbers("値は (C8912 付近) にあります", src), ""
+
+    ' 行頭の箇条書き番号は主張ではない
+    ChkStr46 "G12i_箇条書き番号は数えない", _
+        modGround.UngroundedNumbers("まとめ" & vbLf & "1. あれ" & vbLf & "2. これ", src), ""
+    ' 1〜2桁の裸の数字は拾わない(数え上げで頻出するため)
+    ChkStr46 "G12j_短い裸の数字は拾わない", _
+        modGround.UngroundedNumbers("方法は 2 つあります。", src), ""
+
+    ' 上限で切って「ほかN件」を出す
+    Dim many As String
+    many = "111111円 222222円 333333円 444444円 555555円 666666円"
+    Dim got As String: got = modGround.UngroundedNumbers(many, src, 4)
+    ChkBool46 "G12k_上限4件で切る", (UBound(Split(got, "|")) + 1 = 4), True
+    ChkBool46 "G12l_ほかN件を出す", _
+        (InStr(modGround.GroundNoteText(got, 6), "ほか2件") > 0), True
+    ChkStr46 "G12m_指摘が無ければ注記も出さない", modGround.GroundNoteText("", 0), ""
+    ChkBool46 "G12n_注記は断定しない", _
+        (InStr(modGround.GroundNoteText("999999円", 1), "可能性があります") > 0), True
+End Sub
+
 ' ----------------------------------------------------------------------------
 ' RunAll48 - modTestRunner から呼ばれる総合エントリーポイント
 ' ----------------------------------------------------------------------------
@@ -497,6 +548,9 @@ H17Next48:
 H18Next48:
     On Error GoTo H18Fail48
     TestConfidence46
+H19Next48:
+    On Error GoTo H19Fail48
+    TestGround46
 H01Done48:
     On Error GoTo 0
     Exit Sub
@@ -571,6 +625,10 @@ H17Fail48:
     Resume H18Next48
 H18Fail48:
     modTestRunner.Check "TestConfidence46(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H19Next48
+H19Fail48:
+    modTestRunner.Check "TestGround46(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done48
 End Sub

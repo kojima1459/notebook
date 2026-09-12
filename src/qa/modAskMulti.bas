@@ -148,8 +148,8 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
     If nParts < PARTS_MIN Then Exit Function
     mParts = nParts        ' ここから先は必ず分解ターン(中断・全滅でも dec= を残す)
 
-    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
-    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
+    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
+    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
     Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
 
     Dim total As Long: total = 1 + nParts + 3

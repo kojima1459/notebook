@@ -274,8 +274,8 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
 
     ' 5) プロンプト構築と LLM 呼び出し
     Dim lang As String: lang = modConfig.GetString("answer_language", "日本語")
-    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", False)
-    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", False)
+    Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
+    Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
     Dim prompt As String
     prompt = BuildOnePassPrompt(q, ctxBlock, focusBlock, history, lang, ansTags, strictG)
 
@@ -571,7 +571,13 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
     ' Markdown の # を禁じているので、■ を消すと見出しの指示が1つも残らない。
     sb = sb & "・" & modAskThorough.ThoroughStyleAddendum() & vbLf
     sb = sb & "・" & Mid$(modAskThorough.ExemptionCoverageAddendum(), 2) & vbLf
-    sb = sb & "・Markdown記号(#、**、表)は使わない(この画面では崩れて見える)。" & vbLf
+    ' R47 ★2: 単一情報源(modPrompts.NotFoundInstruction)が持つ
+    ' 「推測で補う場合はそれが推測だと明示せよ」が、既定モードの
+    ' onepass から落ちていた。資料に無い部分を一般知識で埋めたときに
+    ' 「これは推測です」の一言が無いと、利用者は資料の記載と区別できない。
+    sb = sb & "・抜粋に無いことは推測で補わず「資料には見当たりません」と書く。" & _
+              "どうしても補う場合は「(推測)」と明示する。" & vbLf
+    sb = sb & "・Markdown記号(#、**、` 、表)は使わない(この画面では崩れて見える)。" & vbLf
     ' R44: 金融・保険のガードレール。Quick(modPrompts.BuildQuickPrompt)と4段
     ' (BuildDeepDraftPrompt/BuildDeepVerifyPrompt)には最初から入っていたのに、
     ' 既定で通るこの1回読みにだけ入っておらず、【数値の厳格性】【(要確認)】
@@ -581,7 +587,10 @@ Public Function BuildOnePassPrompt(ByVal q As String, ByVal ctxBlock As String, 
     sb = sb & modPrompts.DomainGuardInstruction() & vbLf
 
     If strictG Then
-        sb = sb & "【厳守】本棚抜粋に書かれた情報のみで回答し、外部知識や推測での補完は禁止。出典を付けられない主張は書かない。抜粋から判断できない場合は「資料からは判断できません」とだけ述べ、どんな資料を追加すれば答えられるかを1行添えること。" & vbLf
+        ' R47: 手書きの複製をやめ単一情報源へ。複製版は「各主張の直後に出典を
+        ' 必ず付け」と「無理に答えず」が落ちており、strict_grounding を入れた
+        ' 利用者が最も欲しい一文が【既定モードでだけ弱い】状態だった。
+        sb = sb & modPrompts.GroundingInstruction() & vbLf
     End If
 
     ' 4. 会話履歴(非空時)
