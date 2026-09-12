@@ -106,7 +106,7 @@ VBAとxlsmという配布形態の限界を正直に書く。**完全な防御�
 ### 実装する3層
 1. **所属チェック**: 起動時に Windows のドメイン/ユーザー名を確認する。
    config allowed_domain と一致しなければ、知識シートを一切開かず案内だけ出す
-2. **有効期限(kill switch)**: config knowledge_expire_days(既定30)。
+2. **有効期限(kill switch)**: config knowledge_expire_days(既定0)。
    共有フォルダに最後に到達できた日から N 日が経過したら、
    my_knowledge / my_vectors の中身を自動で消去する。
    社内ネットワークから切り離された端末は、放っておけば空になる

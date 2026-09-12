@@ -1,8 +1,52 @@
-# 再開手順（セッション中断対策・最終更新: R40 着手時点）
+# 再開手順（セッション中断対策・最終更新: 2026-09-12 R47 クローズ時点）
 
 中断したら、次のセッションはこのファイルから読むこと。
 **docs/dev/00_プロダクト憲章.md が全裁定の判定基準(必読)。**
 リポジトリ: `kojima1459/notebook`、ブランチ: `claude/internal-notebook-lm-chatbot-B6BE7`。
+
+## 0R47. R46 / R47（確信度の作り直しと文書検問・2026-09-11〜12・**検問全緑・実機受入待ち**）
+
+**裁定書: `docs/dev/spec_20260912_R46_R47_確信度の作り直しと文書検問.md`（必読）。**
+
+### いまどこ
+実機受入は **R46・R47 をまとめて未実施**（利用者が2日間テストできないため、
+明後日にまとめて確認予定）。手順書は `docs/08_受入確認_R46.html`（zip 同梱）。
+
+### このラウンドで変えた大きいもの（詳細は裁定書）
+1. **P0**: `freeze_keep_banner` 既定 on→**off**。ゴースト抑止が OS の唯一の復旧
+   経路を殺しており、取込中に最小化すると PC 再起動しか手が無かった。
+   `optGsTxt` の `Application.Wait` も `Timer`+`DoEvents` へ。
+2. **確信度バッジを作り直した**。旧実装はしきい値1本（0.55）で実質2値、
+   しかも埋め込みの絶対スケールに依存していた。**coverage と flatness（どちらも
+   スケール非依存の比）**で決める形へ。実測は裁定書 §2。
+   新 config: `conf_cov_green_x100`=100 / `conf_flat_green_x100`=160 /
+   `conf_cov_amber_x100`=90。**旧 `confidence_score_x100` は誰も読まない。**
+3. **`modGround` 新設**: 回答本文の数字が資料に実在するかを照合して注記。
+   config `ground_check`（既定 TRUE）。
+4. **`modEmj` 新設**: 絵文字の単一情報源。FE0F の付け忘れを構造的に無くす。
+5. **検査を3本足した**: `vba_lint` の孤児Public検査・FE0F検査、
+   そして **`tools/doc_gate.py`（文書検問）**。
+
+### 次にやる人へ（いちばん大事なこと）
+**「作ったのに繋いでいない」が、このリポジトリで一番高くついている失敗の型。**
+R46 では実装した本人が到達不能な分岐を書き、コミットに「直した」と書いていた。
+人の注意力では止まらないので、R47 で機械の検査にした。
+**新しい Public を作ったら、必ず呼び出しを繋ぐか `@unused:理由` を書くこと。**
+
+**そして文書は検問の対象である。** `python3 tools/doc_gate.py` を必ず通すこと。
+初回実行で ERROR 100件が出た（配布文書が存在しない画面を説明していた等）。
+テスターが読む手順書が古いと、報告に「本当のバグ」と「文書が古いだけ」が
+混ざり、後者がバグとして実装ラウンドへ入ってくる。**それがループの正体だった。**
+
+### 検問の回し方（R47 以降）
+```
+python3 tools/vba_lint.py --path src        # ERROR 0
+python3 tools/run_lo_tests.py --mode compile && python3 tools/run_lo_tests.py --mode pure   # PASS 3462 以上・FAIL 0・SKIP 15 以下
+python3 tools/doc_gate.py                   # ERROR 0  ← R47 で新設
+python3 build/build_mybookshelf.py --prod --zip
+```
+
+---
 
 ## 0R45. R45（引き継ぎのガードと「シート＝章」・2026-09-10・**検問全緑・実機受入待ち**）
 
@@ -36,7 +80,7 @@
 
 **§2-5 R43 の取り残しを是正**: R43 §4 で番地を**行頭→値の直前**へ変えたが、`modAskOnePass:560` と `modAskGlobal:539` は**手書きの複製**で「抜粋の行頭にある [A6]」のまま＝**モデルへ嘘の位置**を教えていた（CLAUDE.md §9 の grep 取り残し）。両方を `[B42]` へ是正。**複製そのものは残っている（R45 送り）**。
 
-**検問（09-10・司令塔）**: lint **ERROR 0**（初回12件を検出＝契約表の登録漏れ3・モジュール宣言の位置4・CP932外の文字4・容量超過1。**すべて lint が捕まえた**）／LO compile **178/178**／pure **PASS 3406 / FAIL 0 / SKIP 15**（下限を 3386→**3406** へ更新）。**ネガティブ確認2種**: ①VBA 側＝`CAP_DEFAULT_44` を 10 に戻すと **G1a/G1b がちょうど2件落ちる**（PASS 3404 / FAIL 2）→復元して3406で緑。②ビルド側＝新設した `assert_guard_thresholds` に旧既定10を食わせると **SystemExit で止まる**（テストは定数のコピーを見るだけなので、**設定値そのもの**はビルドの関所で見る）。`--dev`/`--prod --zip` 自己検証 OK（178本・24シート）／`check_launcher` 全項目 OK／config 実測 `sparse_keyscore_cap=3`・`answer_guard_note=True`・`mock_llm=False`。
+**検問（09-10・司令塔）**: lint **ERROR 0**（初回12件を検出＝契約表の登録漏れ3・モジュール宣言の位置4・CP932外の文字4・容量超過1。**すべて lint が捕まえた**）／LO compile **178/178**／pure **PASS 3406 / FAIL 0 / SKIP 15**（下限を 3386→**3406** へ更新）。**ネガティブ確認2種**: ①VBA 側＝`CAP_DEFAULT_44` を 10 に戻すと **G1a/G1b がちょうど2件落ちる**（PASS 3404 / FAIL 2）→復元して3406で緑。②ビルド側＝新設した `assert_guard_thresholds` に旧既定3を食わせると **SystemExit で止まる**（テストは定数のコピーを見るだけなので、**設定値そのもの**はビルドの関所で見る）。`--dev`/`--prod --zip` 自己検証 OK（178本・24シート）／`check_launcher` 全項目 OK／config 実測 `sparse_keyscore_cap=3`・`answer_guard_note=True`・`mock_llm=False`。
 
 **R45 候補（spec §3。解剖が出したが R44 で塞がなかったもの）**: ①**Excel 資料は構造が一度も立たない**（`[A5]` 前置とタブで見出し判定が全滅 → `section_path` が必ず空 → **章要約・俯瞰・参照展開・条番号保証が Excel に対して全滅**。直すと取り込み結果が変わるので単独ラウンド）②**「答えが無い」の決定的判定**（今の聞き返しゲートは**10字以下の質問にしか効かない**。しきい値は実機の埋め込みスケールで決める必要あり）③`(要確認)` に消費側が無い ④信頼度バッジが回答本文を見ていない ⑤一般モードのガード（**ユーザー裁定が要る**）⑥`modAskOnePass` の指示文の複製 ⑦`modChunker` の死にコード4,454字。
 
@@ -140,7 +184,7 @@
 
 **最新状態（09-03 夜）**: 波1〜3 → 敵対的レビュー1周目（班A壊す／班B残骸）→ Fix波 F1（Sheet1 ごみ）／F2a（Auto_Open 一本化・初回 Save・禁止語・コメント・班A採択6件）／F2b（文書）→ 2周目（班C／班D）→ マイクロ修正 M1（installer 正規名ガードの値判定・`ReadOnly` ガード＋`RecordSaveMark`・MASTER_SPEC 矛盾・CLAUDE.md 容量）**まで全消化**。
 `final-gates` 実施（09-03）: lint ERROR 0／LO compile OK／pure **PASS 3,004 / SKIP 14**／`--dev`・`--prod --zip` 自己検証 PASS／`bin_roundtrip` prod・dev OK（6条件）／`lo_xlsm` 157/157・155本コンパイル OK。配布物 `dist/MyBookshelf.xlsm`（`azure_embed_key` 空・`mock_llm` FALSE・22シート・157モジュール）と `MyBookshelf_配布.zip` を生成。
-**実Excel（Windows）合格（2026-09-04 実機第20報）**: 最終候補 zip（build `9539809`）を D: に展開し bat から起動 → VBOM 無しで全画面が組み上がり、🩺診断は全✅（AIリボン検出・22シート）。**R35 の本題は達成。** 同報で新規不具合1件: パック出力は成功するが**パック取込が E0701**（`modPack.ImportPackFile`「'Open' メソッドは失敗しました: 'Workbooks' オブジェクト」）→ R36 の先頭で扱う（下記）。
+**実Excel（Windows）合格（2026-09-04 実機第20報）**: 最終候補 zip（build `9539809`）を D: に展開し bat から起動 → VBOM 無しで全画面が組み上がり、「❓ ガイド」→「🩺 診断を開く」は全✅（AIリボン検出・22シート）。**R35 の本題は達成。** 同報で新規不具合1件: パック出力は成功するが**パック取込が E0701**（`modPack.ImportPackFile`「'Open' メソッドは失敗しました: 'Workbooks' オブジェクト」）→ R36 の先頭で扱う（下記）。
 **R35 追補（09-04）**: F3a＝パック取込・引き継ぎ読み込みの Open 失敗を是正（開く前に先頭4バイトで暗号化判別→普通のファイルは Password 引数なしで開く。`modPack.OpenGateReason` 純関数＋Pure37 に5件。PASS 下限 3,009）。F3b＝**ランチャー往復 bat**（OneDrive 原本→D:\MyBookshelf\ 複製→30秒監視・10分ごと書き戻し→閉じたら最終書き戻し＋`_前回` 退避。D: 上に展開した運用は従来どおり起動のみ。3プロセス・最小化・失敗は通常窓）。**bat は当環境で実行不能＝実機1往復（spec §10-3 の2）を確認するまでテスターへ配らない。** spec §10 参照。
 （経過）09-03 に送った1本目はテンプレートの `Sheet1` を PerformanceCache のごみで焼いていた（`read_modules` の MODULEOFFSET バグ。riskconsulting へ報告済み・F1 で是正）。是正版 V1〜V4 と最終候補をユーザーへ送付済み。**テスターへの再配布は実Excel 合格後**。姉妹PJの Mac 実Excel では「標準モジュール＋ThisWorkbook は OK・クラスモジュールだけ属性8行と MODULEPRIVATE が要る」（うちはクラス無し）。
 **09-05 追記**: `docs/05_図解ガイド.html`（出荷ビルド典拠の1枚もの説明書）を追加し `--zip` に同梱（README 先頭で案内）。**髙橋フィードバック（09-05）の司令塔調査結果（実装で再現済み）**: ①スクショ取込＝リボン `ChatGPTV`（モデル指定なし・resolution=high）で全文転写→`my_knowledge.full_text`（veryHidden）。**読み取り結果の全文ビューア・編集→保存し直しは無い**（抜粋 150/300/600 字のみ。`modVaultGallery:730/260`・`modPeek:32`）。png/jpg ファイルは `📁 追加` の FileDialog で選べない（`SUPPORTED_EXTS` に無い。入口は 📸 のみ）。②❌違う→「修正ナレッジ」は普通の資料として追加されるだけ（`modAppAct.RecordCorrection:118-120`。**元の質問文が本文に入らない・優先度なし・元の誤資料は残る**。トースト「次から…この内容で答えます」は過大表現）。訂正の注入は凍結の modAsk/modRetrieve/modPrompts 外＝`modAskRetrieve`/`modSparse` 側で設計する。③削除は 🗑1件／🗑部門ぶん一括／カード[はい]の3経路。全削除・複数選択削除は無い。④`publish_key` は発行者ブックだけの片側鍵（ボタン表示＋発行直前の再入力照合のみ）。**一般ブックは pack.xlsx を形式と次元数だけ見て無条件に取り込む**（署名なし・運用は共有フォルダ権限で担保）。⑤フィードバックは2系統（Hub 📮＝匿名・共有フォルダ `feedback\fb_*.txt`／ヘルプ 📮ご意見・不具合報告＝mailto のみ・`feedback_mail_to` 既定空）。→ R36 候補として裁定待ち（ユーザーへ選択肢提示済み）。
@@ -187,7 +231,7 @@ riskconsulting の一時公開は **09-05 に private へ戻した**（ユーザ
   件数バッジ水増し/スコープ広げ直しゲート恒真化/DemoteUsedで実ヒット押し出し）→ Fix波F1で
   **凍結 modAsk.RunDeepFlow への最小手術**（入念の nUse と同型「近傍は根拠でありヒットではない」）へ位置替え。
   `mLastGenN`/`LastGenHitCount()` 新設 = 突合表だけ生成に使った件数まで読む（近傍出典の誤判定防止）
-- C: max_context_chars 既定 40,000→60,000（VBA側フォールバック40,000は意図的に据え置き）+ 管理者ページに戻し方/上げ方手引き
+- C: max_context_chars 既定 60,000→60,000（VBA側フォールバック40,000は意図的に据え置き）+ 管理者ページに戻し方/上げ方手引き
 
 **重要な不変条件（R34で新設・壊すな）**:
 - 件数バッジ・実況・usage_log・スコープゲート・DemoteUsed は**実ヒット数**(mLastNHits)。
@@ -275,7 +319,7 @@ Gemini提案のうち次期候補: 訂正共有の注記・Ctrl+K・Ctrl+Shift+C
 
 ### 実機第18報の観点(R33版)
 
-①**余白(最重要)**: 🩺診断の**[余白の敷き詰め(条件付き書式)]**2行を読む。`backdrop_cf`に記録あり＋`backdrop_cf_failed`が「記録なし」なら条件付き書式が効いている。`stage=usedrange_grew`が出ていたら条件付き書式は使えず(自己検算が自動で巻き戻した)背景画像側が塗っている ―― **どちらでも正常**。両方記録なし＋`backdrop_failed`もあるなら塗られていないのでスクショと📥ログを送付。②きせかえで**画面の下半分だけ色が違う**状態にならないか。③チャットで👎→本棚へ飛ばされないか。④ダークでギャラリー検索欄が白いまま・文字が読めるか。⑤専門家ボタンが出て**相手の端末に実際に届く**か(宛先不明なら**ボタン自体が出ない**のが正常)。⑥Hubのアイコン**下の文字**が押せるか。⑦Hubとダッシュボードの使用率が**一致し100%を超えない**か。⑧「🗑 部門ぶん一括」で、いいえ→何も消えない/はい→**自作とパック由来は残る**。⑨📊利用状況が**発行者用ファイルでは出て一般配布では出ない**か。⑩ダッシュボードの「更新」を2回続けて押すと2回目に**1行案内が出る**(無反応でない)。⑪発行者端末を1度開いた後、他端末で「みんなの節約」に数字と「集計時点/N名ぶん」が出るか。⑫OCR取込後に`%TEMP%`に`nxocr_`フォルダが残っていないか。
+①**余白(最重要)**: 「❓ ガイド」→「🩺 診断を開く」の**[余白の敷き詰め(条件付き書式)]**2行を読む。`backdrop_cf`に記録あり＋`backdrop_cf_failed`が「記録なし」なら条件付き書式が効いている。`stage=usedrange_grew`が出ていたら条件付き書式は使えず(自己検算が自動で巻き戻した)背景画像側が塗っている ―― **どちらでも正常**。両方記録なし＋`backdrop_failed`もあるなら塗られていないのでスクショと📥ログを送付。②きせかえで**画面の下半分だけ色が違う**状態にならないか。③チャットで👎→本棚へ飛ばされないか。④ダークでギャラリー検索欄が白いまま・文字が読めるか。⑤専門家ボタンが出て**相手の端末に実際に届く**か(宛先不明なら**ボタン自体が出ない**のが正常)。⑥Hubのアイコン**下の文字**が押せるか。⑦Hubとダッシュボードの使用率が**一致し100%を超えない**か。⑧「🗑 部門ぶん一括」で、いいえ→何も消えない/はい→**自作とパック由来は残る**。⑨📊利用状況が**発行者用ファイルでは出て一般配布では出ない**か。⑩ダッシュボードの「更新」を2回続けて押すと2回目に**1行案内が出る**(無反応でない)。⑪発行者端末を1度開いた後、他端末で「みんなの節約」に数字と「集計時点/N名ぶん」が出るか。⑫OCR取込後に`%TEMP%`に`nxocr_`フォルダが残っていないか。
 
 ---
 **R32完了(実機第17報8件=調査4班→4波→敵対的レビュー1周目(B1+M5+m12)→Fix波15件→Fix検証パス2周目(MAJOR3+MINOR5)→マイクロ修正7件 全消化)。**
@@ -289,7 +333,7 @@ R32の骨子:
 - **レビュー2周+マイクロ修正**: 1周目BLOCKER1(nonce冪等化が保持期間の非対称60日<67日で空振り)+MAJOR5(匿名化がファイル名とuser_idに実名残存/900字クランプでも1046字>MsgBox上限/PII走査がISOタイムスタンプで必ず誤検知し無言停止/「届きます」と出るのに3経路で無言ドロップ/波2の新設テスト3件が恒真)→Fix波F1-F15。2周目がMAJOR3(**日付除外が市外局番4桁の固定電話`0463-12-3456`を丸ごと消し本物のPIIが素通り**=F4の退行/走査対象をClean1に寄せたため改行が空白化し新たな偽陽性/SweepOldBmpが%TEMP%全列挙)+MINOR5→マイクロ修正F16-F22。
 R32 記録のみ(次期): **F1の穴は消えたのでなく1周ぶん遠のいた**(行の期限=発信者のcreated_at基準、既読印=自端末の収集時刻基準で延命→既定約day134に再来。`thanks_gc_days<=0`ならday15。根治は(a)保持期間より古いcreated_atを最初から拾わない(新任者が古い投稿を受け取れない副作用)(b)既読印の無期限化(my_stats肥大)のタクシー提示が要る)/F5のトーストとmodAskのMsgBoxが同時表示(modAsk凍結のため限界)/狭窓クランプ時にフッターを描かない=**社内ポータルへの唯一の導線が消える**(窓を広げれば復帰)/Python側config検査はVBA側の既定値リテラルまで見張れない/modBackdropの再試行カウンタはモジュール全体で成功リセット無し(実効1〜3回・安全側)/**匿名IDは同一人物→常に同一ハッシュ=名寄せ可能**(誰かは分からないが投稿群は束ねられる。仕様として許容)/gap手動「解決済み」UIと自己投稿の確認・取消UI/MAX_COLLECT=60/非BMP絵文字の豆腐化/`modUIMain.bas:116-117`の`A1:I40` Font焼き付け/管理者⑧と⑨の軽微な重複/`build_mybookshelf.py:721-722`の古い相互参照コメント。
 **容量逼迫(R32後実測。R33H Fix波3で全モジュール再実測したので下記は失効。最新は本ファイル冒頭の「R33H 容量実測」節と CLAUDE.md「凍結・容量」を見ること)**: modSkin残27・modUIShelf残84・modHubStat残103・modHub残159/modChrome残350/modViewport残534/modKnowledge残708/modInsightIo残2,983。受け皿: modInsightGate残14,990(新設)/modBackdrop残10,377(新設)/modShared残11,147/modDash残7,255。
-**実機第18報の観点**: ①**背景画像(最重要・未検証)**: ダークにしてホームで下まで思い切りスクロール→**転がった先まで全部濃紺なら成功**、途中から真っ白な帯が出たら不発。Dashboard・マイ本棚も同様(チャットは対象外で白くて正常)。不発なら📥ログに`backdrop_failed`(stage/err番号)が出るので送付。②きせかえ: ダーク→ライトで**3画面とも地色が戻るか**(以前は黒いまま)。本棚はギャラリー→一覧表に切り替えてからきせかえ→見出し行のグレーは残るか。③バッジ名が途中で切れていないか。④正典発行: **発行者用ファイル**で「📤正典を発行」が出るか・部門名/合言葉→発行できるか。⑤管理者ページ: 使い方末尾リンク→②発行者になるには・⑥ファイルの置き場所・⑧FAQが読めるか。⑥困りごと: **2台以上**でA端末が0件ヒット質問→B端末を再起動→板に出るか(1台では原理的に検証不能)。⑦パック出力/発行が個人情報で止まらなくなったか。⑧`normal_style_bg_failed`(err=1004)が📥ログに1行出るのは**想定どおり**。⑨**余白の敷き詰め(R33H F24でDoD8から移送)**: 🩺診断の**[余白の敷き詰め(条件付き書式)]**の2行を読む。`backdrop_cf`に記録あり＋`backdrop_cf_failed`が「記録なし」なら条件付き書式が効いている。`backdrop_cf_failed`に`stage=usedrange_grew`が出ていたら、この端末では条件付き書式が使えず(自己検算が自動で巻き戻した)背景画像側が塗っている ―― **どちらでも正常**。両方とも記録なし＋`backdrop_failed`もあるなら余白は塗られていないので、その画面のスクショと📥ログを送付。
+**実機第18報の観点**: ①**背景画像(最重要・未検証)**: ダークにしてホームで下まで思い切りスクロール→**転がった先まで全部濃紺なら成功**、途中から真っ白な帯が出たら不発。Dashboard・マイ本棚も同様(チャットは対象外で白くて正常)。不発なら📥ログに`backdrop_failed`(stage/err番号)が出るので送付。②きせかえ: ダーク→ライトで**3画面とも地色が戻るか**(以前は黒いまま)。本棚はギャラリー→一覧表に切り替えてからきせかえ→見出し行のグレーは残るか。③バッジ名が途中で切れていないか。④正典発行: **発行者用ファイル**で「📤正典を発行」が出るか・部門名/合言葉→発行できるか。⑤管理者ページ: 使い方末尾リンク→②発行者になるには・⑥ファイルの置き場所・⑧FAQが読めるか。⑥困りごと: **2台以上**でA端末が0件ヒット質問→B端末を再起動→板に出るか(1台では原理的に検証不能)。⑦パック出力/発行が個人情報で止まらなくなったか。⑧`normal_style_bg_failed`(err=1004)が📥ログに1行出るのは**想定どおり**。⑨**余白の敷き詰め(R33H F24でDoD8から移送)**: 「❓ ガイド」→「🩺 診断を開く」の**[余白の敷き詰め(条件付き書式)]**の2行を読む。`backdrop_cf`に記録あり＋`backdrop_cf_failed`が「記録なし」なら条件付き書式が効いている。`backdrop_cf_failed`に`stage=usedrange_grew`が出ていたら、この端末では条件付き書式が使えず(自己検算が自動で巻き戻した)背景画像側が塗っている ―― **どちらでも正常**。両方とも記録なし＋`backdrop_failed`もあるなら余白は塗られていないので、その画面のスクショと📥ログを送付。
 ---
 **R31完了(実機第16報6件=調査3班→3波→敵対的レビュー1周目(M5+m6)→Fix波9件→Fix検証パス2周目(F2の縫い目2件検出)→マイクロ修正5件 全消化)。R31版配布済み・実機第17報待ち。**
 仕様=spec_20260813_R31_実機第16報.md。テスト2,385件全PASS・lint ERROR 0/WARN 31(容量WARNのみ)・モジュール147本(modTestsPure30新設)。
@@ -332,7 +376,7 @@ R29 記録のみ(次期): modBoot内QuickHealthCheck警告トースト1本のみ
 R28の骨子:
 - **波1 ①下余白の設計反転(7ラウンド続いた真相)**: R18以来の「塗りを内容下端で打ち止め」はホイール素通し(実機実証済み)の下で原理的に無力(1ノッチ目で塗りの外の白が見える)。R27の「塗り継続」実体はdash限定の埋め草13ptのみだった。反転=`Styles("Normal").Interior.Color=bg`(modChrome.ApplyNormalStyleBg・冪等・On Error保護・want=0黒焼き付きガード)をSetup*Columns4関数+modSkin.ApplyThemeの5配線で全6描画経路へ。既存塗りは二重防御で温存。**LOはNormalスタイルが空振りするため効果は実機でのみ検証可能**。副産物=一覧表モードの背景ゼロ塗り(darkで全面白)も同時解消。Fix: darkで一覧表の文字が読めないB-1(黒文字on濃紺1.17:1)→ApplyShelfTableTextColorでtext色明示(17.06:1)・ExtendChatBand縮小分岐xlNone→bg明示塗り(M-1)。
 - **波2 ②逆質問根治(2段構えの故障)**: 一次=番号パーサ2本併存(quick系PickSourceは半角のみ/thorough系ParseChoiceNumbersは全角正規化)で全角「１-①」の資料番号だけ消失→ParseClarifyReplyへ統一(丸数字=意図番号の契約・ClarifyLoneIntentで単独数の意図読み)。二次=「対象の資料:」はただの文字列で検索は本棚全体のまま→clarify_pick_src(ui_state・1ターン限り・TakeClarifyScopeで読んだ瞬間消す)でmodRetrieveの既存scope引数へ実配線(不足時は全体へ広げ直し+clarify_scope_widenログ・modAsk/modRetrieve不触)。深掘りボタンはpending中「下の入力欄に番号を」トースト誘導。入力欄NumberFormat="@"(半角1-3の日付化根絶)。Fix: モード切替でpending印が残り次の質問が1資料に閉じ込められるM-3→OnToggleModeでClearPending(=モードを跨いだら逆質問は破棄)。
-- **波3 小物+5往復**: 3モード強化(QuickRules新設/ThoroughDraftRules拡充800-1200字/gen_thorough_verify_verbosity config化)・トースト高さを段数テーブルから幅の算数へ(全角10.5pt/半角5.25pt・AscW負値補正・34pt床/92pt上限=「社内ナ」切れ根治)・ギャラリーPageCapFor=cols×2(9固定廃止=5列で10個)・幽霊文字IsHomeActiveガード5経路(SetStage/RenderSourcesPreview/ShowTip+Fix波でRenderAnswer/ShowEmptyShelfHint。StatusBarは維持)・「AI整理中(本棚全体の未処理分)」文言・**followup_max_pairs既定3→5+橋渡しを1往復→全保持往復運搬へ**(1往復4,000字/総量20,016字・CarryKeepMaskで切替往復の逆流重複を除外=Q+A両方一致で判定しR26H F3「回答が違えば別往復」契約を維持)。
+- **波3 小物+5往復**: 3モード強化(QuickRules新設/ThoroughDraftRules拡充800-1200字/gen_thorough_verify_verbosity config化)・トースト高さを段数テーブルから幅の算数へ(全角10.5pt/半角5.25pt・AscW負値補正・34pt床/92pt上限=「社内ナ」切れ根治)・ギャラリーPageCapFor=cols×2(9固定廃止=5列で10個)・幽霊文字IsHomeActiveガード5経路(SetStage/RenderSourcesPreview/ShowTip+Fix波でRenderAnswer/ShowEmptyShelfHint。StatusBarは維持)・「AI整理中(本棚全体の未処理分)」文言・**followup_max_pairs既定5→5+橋渡しを1往復→全保持往復運搬へ**(1往復4,000字/総量20,016字・CarryKeepMaskで切替往復の逆流重複を除外=Q+A両方一致で判定しR26H F3「回答が違えば別往復」契約を維持)。
 - **波4 ⑥modAsk最小手術(B'案・凍結解除は新規2関数の純追加のみ)**: SetPrevMemory/ResetPrevMemory(git diff 削除0行を証明)+BridgeConvMemory直結+OnClearChat配線。これで(i)切替後の深掘りに古いRAG文脈が混ざる実害(R28調査Dで新発見) (ii)クリア後のmPrevU亡霊(旧M-4)の両方を根治。modAsk 28,381字=**WARN超過はR28裁定で許容**(上限内)。lint CONTRACT/LOテストPURE_ALLOWLISTへ最小追記(検査は弱めていないことを2周目で確認済み)。
 - レビュー2周の実績: 1周目BLOCKER1+MAJOR5+MINOR7(うち採択10=R28H F1〜F10+F6b)、2周目(Fix検証パス)要修正0・記録のみ8。
 R28 記録のみ(次期): ToastHeightForにアイコン+空白15.75pt未算入(「しっかり調べる」が3行境界まで残4.5pt=次に文言を伸ばすと切れる)/RenderAnswerのIsHomeActiveガードがmLastAnswerText・StatusBar解除も落とす(現状到達不能・Hubに質問導線を戻すと罠)/ExtendChatBand縮小分岐の塗り解放機構喪失(裁定済みトレードオフ・上限2000行×A:M)/ClarifyLoneIntent「2-9」型で1個目を意図採用(コメントと実挙動の齟齬・実害極小)/絵文字はToastHeightForで全角1字扱い=切れる側/modUIShelf呼び口のリテラル7が2箇所/逆質問バブルに👍💾等が作用/合成後クエリが画面に出ない/橋渡しヘッダーが最大5個入るノイズ/lint迂回(ws.Parent.Styles)の例外明文化。
@@ -749,7 +793,7 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
    (OCR経路は modShelfVision が自前でコピー取得+全出口Kill)。
 2. **新モジュール `optGsProc`(src/opt)** = GSプロセスの起動(WMI優先→wsh.Run退避)と
    停止(taskkill前に Win32_Process で本人確認)。優待機は optGsTxt.WaitGsTextDone
-   = アイドル(vision_pdf_timeout_sec)+絶対上限(gs_abs_timeout_sec 既定1200)の
+   = アイドル(vision_pdf_timeout_sec 既定120)+絶対上限(gs_abs_timeout_sec 既定1200)の
    二段で、gs_out.log のページ進行/出力サイズが進む限り待つ。どのシグナルが
    効いたかは usage_log `gs_progress_signal`(page=..;size=..;none=..)で観測できる
    (実機初回はこれを必ず確認。両シグナル0なら固定タイムアウト相当に退化している)。
@@ -775,7 +819,7 @@ modDashStat(24,634)/modViewport(25,160)/modAskRetrieve/modClarify(各~26,000)。
 
 1. **新モジュール `optOcrPage`** = OCRのバッチ制御(GSを20頁ずつ複数回起動、バッチごとに
    JPEG逐次削除、頁間DoEvents、PID捕捉+タイムアウト時KillGsTree)。上限は
-   vision_pdf_max_pages(既定100)。RenderBatch は3値(完了/起動失敗/タイムアウト)で、
+   vision_pdf_max_pages(既定300)。RenderBatch は3値(完了/起動失敗/タイムアウト)で、
    起動失敗は ghostscript_path 案内、途中中断は truncated=True+中断メモ+partial
    (「頁が黙って欠ける」経路は全て塞いだ)。gs_abs_timeout_sec は資料単位の絶対予算
    (バッチ間で残額を配分)。
