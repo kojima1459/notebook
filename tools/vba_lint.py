@@ -1,0 +1,4800 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+vba_lint.py — マイ本棚AI VBAソースの静的Lint(MASTER_SPEC.md §11.1)
+================================================================================
+役割:
+    mybookshelf/src/ 配下の全 .bas / .cls を対象に、実行せずに読める範囲の
+    契約違反・危険なコードパターンを機械的に検出する。「1-I テストハーネス」
+    3層(静的Lint/LO実行/実機受入)のうち最初の層で、CIの門番として一番
+    軽く・一番よく回すことを想定している。
+
+設計判断(なぜこう作ったか):
+    ・§7の公開契約(モジュール→Public名一覧)は、このファイル内に
+      CONTRACT という辞書として「書き起こして埋め込む」よう指示されている
+      (MASTER_SPEC本文をパースするのではなく、人間がMASTER_SPECを読んで
+      転記する方式)。§7に無い/曖昧なモジュール(modExtractorWord等の
+      アダプタ系、opt機能のUIラッパー等)はCONTRACTに載せない=チェック対象外
+      とし、「まだ書かれていないモジュール」はSKIP(エラーにしない)。
+    ・コメント剥がし: Lintの各種トークン検査(Worksheets禁止・opt直接参照
+      禁止・Application.Runホワイトリスト等)は、ソース中の「日本語コメント
+      で仕様を説明している行」を誤検知しないよう、必ず一度コメントを
+      取り除いた「コード部分」に対して行う。実際、modTypes.bas 冒頭の
+      設計判断コメントには「Worksheets/Range/Application/ThisWorkbook/
+      MsgBox」という語がそのまま書かれており、コメント除去をサボると
+      自分自身のドキュメントを違反として誤検知する。
+    ・行連結(" _" 継続行)は1つの論理行にまとめてから解析する。契約シグ
+      ネチャの多くは複数行にまたがる関数宣言なので、これをやらないと
+      Public宣言の抽出やDim型落ち検出が正しく動かない。
+    ・モジュール間参照(modX.Y)の実在検証は「modX/optX/ThisWorkbookの形を
+      した識別子」だけを対象にする。ws.Cells や rs.Fields のような通常の
+      オブジェクト変数はモジュール名の集合に含まれないため誤検知しない。
+    ・依存層(R1)の判定はMASTER_SPEC §14のディレクトリ配置で行う指示なので、
+      src/core=基盤層、src/{ingest,qa,pack,stats}=部品層+機能層をまとめた
+      「中間層」、src/ui=UI層、src/opt=opt層、src/test=テスト層、とした。
+      §3の論理図はmodDiagを機能層に置くが、実ファイルはsrc/core(基盤層)に
+      置かれる指示(§14)なので、本Lintではディレクトリ基準を優先する
+      (ディレクトリと論理層の食い違いはmodDiagの1件のみで、意味的にも
+      「診断は他機能に依存しない自己完結処理」であるべきなので実害は無い)。
+    ・SafeLeft未経由のfull_text系セル書込みチェックは§11.1に記載がある
+      「警告」項目として実装したが、静的解析だけでは変数の由来を正確に
+      追えないため誤検知が出やすい。exit codeには影響させない「弱い警告」
+      として出すに留める(§12のSafeLeft原則をコードレビューで補完する
+      前提)。
+
+使い方:
+    python3 tools/vba_lint.py                 # mybookshelf/src 配下を検査
+    python3 tools/vba_lint.py --path <dir>     # 検査対象ディレクトリを変更(主にテスト用)
+    exit code: 0 = 違反なし / 1 = 違反あり(ERRORが1件以上)
+================================================================================
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MYBOOKSHELF_ROOT = TOOLS_DIR.parent
+DEFAULT_SRC_ROOT = MYBOOKSHELF_ROOT / "src"
+
+MAX_MODULE_CHARS = 30000
+# 残り2,000字を切ったら警告する(バグ修正1件ぶんの余裕がある状態を保つため)。
+MODULE_WARN_CHARS = 28000
+
+# ------------------------------------------------------------------------------
+# §7 契約シグネチャ表: モジュール名 -> {"closed": bool, "required": [Public名...]}
+#   closed=True  : requiredと実際のPublic集合が完全一致でなければERROR
+#   closed=False : requiredは全部無いとERRORだが、追加のPublicがあっても
+#                  ERRORにしない(MASTER_SPEC本文が「純関数に切り出す」等
+#                  名前未確定の追加を許容する書き方をしている箇所)
+#   ここに載っていないモジュール名は契約チェックの対象外(自由)。
+# ------------------------------------------------------------------------------
+CONTRACT: dict[str, dict] = {
+    # ---- 7.1 基盤層 ----
+    "modAppDef": {
+        "closed": True,
+        "required": [
+            "APP_NAME", "APP_VERSION", "PACK_FORMAT_VERSION",
+            "SH_HOWTO", "SH_HOME", "SH_SHELF", "SH_DASH", "SH_CONFIG",
+            "SH_KNOWLEDGE", "SH_VECTORS", "SH_MANIFEST", "SH_STATS",
+            "SH_USAGE", "SH_ERRLOG", "SH_UISTATE",
+            "SH_NEXUS_DASH",   # Nexus専用ダッシュボード(Phase 3)のシート名
+            # 2026-08-01(R12-1-8): 本棚チャンク上限の代替値。呼び出し側4箇所
+            # (modShelf/modShelfSync/modShelfBatch/modDashStat)で 20,000 と
+            # 10,000 に割れていたものを1箇所へ集約した。
+            "DEFAULT_SHELF_MAX_CHUNKS",
+            # 2026-08-05(R17波0): 構造メタデータ(section_path/refs_out)の
+            # 格納先シート名。Phase1本体はまだ無い(波0は器のみ)。
+            "SH_CHUNK_META",
+            # 2026-08-05(R17 Phase2): 章単位要約(doc_outline)の格納先シート名。
+            # 俯瞰質問(verdict=global)が読む唯一のシート。
+            "SH_DOC_OUTLINE",
+            # 2026-08-05(R17 Phase3): 用語の表記ゆれ辞書(synonyms)の格納先シート名。
+            "SH_SYNONYMS",
+            # 2026-09-05(R37 §3 資料間リンク): 章の重心(doc_centroids)と
+            # 章どうしの近さ(doc_links)の格納先シート名。どちらも取込で
+            # 作り直せる派生データで、modXDocStore だけが読み書きする。
+            "SH_DOC_CENTROIDS", "SH_DOC_LINKS",
+        ],
+    },
+    "modTypes": {
+        "closed": True,
+        "required": ["ExtractedPage", "ShelfChunk", "Hit"],
+    },
+    "modConfig": {
+        "closed": True,
+        # ParseBoolText(2026-08-16 R33 W4-1): GetBool の文字列解釈部を切り出した
+        # 純関数。「真トークン/偽トークン/解釈不能は既定値」の3分岐を
+        # modTestsPure34 がゴールデン固定するために Public にしてある
+        # (VBA の Private プロシージャは他モジュールから呼べない)。
+        "required": [
+            "EnsureLoaded",
+            "GetString",
+            "GetLong",
+            "GetDouble",
+            "GetBool",
+            "ParseBoolText",
+            "SetValue",
+        ],
+    },
+    # FriendlyFailMsg(2026-08-03 R13-3b): 取込失敗を利用者へ伝える1文の決定を
+    # 1箇所に集めたもの。errDetail に「Wordを開いたままに…」等の行動可能な
+    # 案内があればそれを優先し、E0302の汎用文言は拡張子で分岐して docx/doc に
+    # Ghostscript の話をしない(実機第2報 RC6: 正確な案内が汎用文言で
+    # 上書きされ、利用者に一度も届いていなかった)。純粋な文字列処理なので
+    # modTestsPure9 が分岐を固定する。
+    # SharedReadFailMsg(2026-08-03 R14-3b): 共有のファイルを読み取れなかった
+    # ときの1文。取込経路(modExtractorPdf)とOCR経路(optGsTxt)の両方が
+    # 同じ文を出す必要があり、opt層はコア基盤層しか参照できない(§7.7)ため、
+    # 文言の一次情報の置き場はここが唯一の交点になる(憲章§4-5)。
+    # CopyFailMsgOf(2026-08-03 R14-F3/F11): 一時コピー失敗の【種類】ごとの
+    # 利用者向けの1文(空・ロック・大きすぎる・一時名の枯渇・特殊文字)。
+    # 全ての失敗に「ファイル名を変えてください」と言っていたのを種類別に
+    # 分けたもので、置き場は SharedReadFailMsg と同じ理由でここになる。
+    # ReadOnlyWarnMsg / SaveFailMsg(2026-08-04 R15-3・実機第4報 RC9): 読み取り
+    # 専用で開かれた警告と、中間保存に失敗したときの1文。どちらも複数の
+    # 呼び出し元(modDiag起動時案内/E0805のコード表/modShelfBatchの保存失敗)が
+    # 同じ文を出す必要があるため、置き場は上の2関数と同じ理由でここになる。
+    "modLog": {
+        "closed": True,
+        "required": ["LogError", "LogUsage", "FriendlyMessage", "ShowError",
+                     "FriendlyFailMsg", "SharedReadFailMsg", "CopyFailMsgOf",
+                     "ReadOnlyWarnMsg", "SaveFailMsg",
+                     # FeatureErrMessage(2026-08-16 R33波3 W3-9): opt機能が
+                     # 返す "#ERR:…" を、理由を捨てずに利用者向けの1文へ
+                     # 変える純関数。modUIMain と modAppAct の2箇所が同じ答えを
+                     # 出す必要があり、置き場は FriendlyMessage の隣が自然
+                     # (コード部があればそちらへ委譲するため)。
+                     "FeatureErrMessage",
+                     # EncryptedFileMsg(2026-08-16 R33波3 W3-11): パスワードで
+                     # 暗号化された文書を開かずに落とすときの1文。Excel経路
+                     # (modExtractorExcel)とWord経路(modExtractorWord)の両方が
+                     # 同じ文を出す必要があり、かつ ActionableHint がこの文を
+                     # 目印にする(目印にしないと E0302 の汎用文言に潰されて
+                     # 「パスワードが原因」が利用者へ届かない)。置き場が
+                     # SharedReadFailMsg と同じ理由でここになる。
+                     "EncryptedFileMsg",
+                     # PORTAL_FAIL_LEAD(2026-08-16 R33H F32): E0905 の主因の
+                     # 1文だけを取り出せる形にした Const。FriendlyMessage は
+                     # 「主因 + コピーしたので貼ってください」の2文だが、その
+                     # コピー自体に失敗すると modClip.CopyOrGuide が案内文を
+                     # 丸ごと差し替えるため、主因まで消えていた。失敗時の
+                     # 前置きに同じ1文を渡すので、文言の情報源を1箇所に保つ。
+                     "PORTAL_FAIL_LEAD"],
+    },
+    # modChatLog: チャット履歴シート("チャット履歴")への質問/回答記録。
+    # 公開APIはLogTurnのみ(書込失敗はDebug.Printのみ=modLogの「ログで死なない」方針踏襲)。
+    # BakIsStale/BoardSweepStaleBak(2026-08-20 R34 A2): summary_*.bak掃除。
+    # modUtil/modTelemetryでは容量・層の都合でNGのため司令塔裁定でここへ移設。
+    "modChatLog": {
+        "closed": True,
+        "required": ["LogTurn", "BakIsStale", "BoardSweepStaleBak"],
+    },
+    "modUtil": {
+        "closed": True,
+        "required": [
+            "Fnv1a64Hex", "NormalizeForHash", "VectorToCsv", "CsvToVector",
+            "DotProduct", "L2Normalize", "HasVector", "SplitKeepNonEmpty",
+            "TruncateAndRenorm", "VectorToCsvPrec",
+            "HumanBytes", "HumanSeconds", "SafeLeft", "NowStamp",
+            "FileNameOf", "ExtOf", "IsSameTimestamp",
+            # EtaText/ProgressText: バッチ処理の進捗実況(2026-07-31 R7 B-1)。
+            # 「残り約N分」の算数と文言整形。modEmbed/modEnrichが計測値を
+            # 渡すだけで済むよう純ロジック側に置き、modTestsPure4で固定する。
+            "EtaText", "ProgressText",
+            # JoinPagedText/SplitPagedText: 画像PDFのOCR(R6)で複数ページの
+            # 結果を「文字列1本」の境界(modFeatures.InvokeFeature)越しに運ぶ
+            # ための行マーカー符号化/復号。純文字列処理なのでmodUtilに置く。
+            "JoinPagedText", "SplitPagedText",
+            # DescribeComError(2026-07-31 R11-D / 監査2 指摘5): COM失敗の
+            # 日本語案内。modExtractor/Word/Excel/Acrobat の4重実装を1本へ
+            # まとめたもの。アプリ名を引数で差し替えるだけの純ロジック。
+            "DescribeComError",
+            # DeobfuscateSecret: build/build_mybookshelf.py obfuscate_secret() と対の
+            # 復号(XOR+16進)。configシートに置くAPIキーを平文で持たないための軽い
+            # 難読化解除。modGateway.DirectEmbedSliceのみが呼ぶ想定だが、R4純ロジック
+            # (Excelオブジェクト非依存)のためmodUtilに置く。
+            "DeobfuscateSecret",
+        ],
+    },
+    "modGateway": {
+        "closed": True,
+        # RunLimitCheck: リボン公開API確定対応(裁定D3・RIBBON_API_CONFIRMED.md)。
+        # 起動時のAIリボン利用期限チェック。True=続行不可(公式サンプルの解釈)。
+        # GetEmbeddingsBatch: RAG再設計(RAG_OVERHAUL_DESIGN.md §E-1)。
+        # ribbon(単発ループ)/direct(Azure配列POST)/mock を透過切替する唯一のバッチ窓口。
+        # RibbonEmbedRange / SerializeVector: 2026-07-28 に direct 経路を
+        # modGatewayDirect へ切り出した際、フォールバック先とベクトルCSV化を
+        # 共有するため公開した(経路が変わってもCSVの形は変えない)。
+        # ConsumeStepBuf(2026-08-03 R13 F8): 段ごとの所要時間は1段1行で
+        # usage_log へ書くと1問10行前後になり、2,000行ローテーションが
+        # 約180問で一周して feedback_green 等の履歴を押し出す。ここに貯め、
+        # 質問の終わりに modAsk が1行(ask_steps)へまとめて書き出す。
+        "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun",
+                     "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch",
+                     "RibbonEmbedRange", "SerializeVector", "ConsumeStepBuf"],
+    },
+    "modFeatures": {
+        "closed": True,
+        "required": ["FeatureEnabled", "ModulePresent", "InvokeFeature"],
+    },
+    "modDiag": {
+        "closed": True,
+        # WarnIfReadOnly(2026-08-04 R15-3b): 起動時の読み取り専用検知。
+        # QuickHealthCheck と同じ「起動時の環境チェック」で、modBoot が
+        # 30,000字上限まで残り僅かなため表示・記録までここで完結させる。
+        "required": ["RunDiagnostics", "QuickHealthCheck", "RecentErrorsForClipboard",
+                     "WarnIfReadOnly"],
+    },
+    # modIntegrity(2026-08-05 R18-2b/2d・実機第5報⑧): データ整合性の観測点。
+    # 「昨日入れた資料が今日は0件」に気付く仕組みがアプリ側に1つも無かった
+    # (表示は my_manifest.chunk_count をそのまま出すだけで実データと突き合わせず、
+    # 保存が次回に残ったかを確かめる記録も無かった=調査agent1)。憲章§4-2。
+    # ReconcileChunkCount: 台帳と my_knowledge の実行数の突合+自動修復
+    #   (modShelf.SourceList から1行)。
+    # RecordSaveMark: 保存成功時に (行数, FullName) を ui_state へ控える
+    #   (modShelfBatch.SaveCheckpoint から1行)。
+    # WarnAtStartup: 起動時の突合(modBoot から1行)。
+    # ReconcileStatText / DataShrunk / IsVolatilePath / ShrinkWarnMsg /
+    #   VolatileWarnMsg: Excelに触れない純ロジック(modTestsPure15 が固定)。
+    # 置き場が基盤層なのは modBoot/modShelf/modShelfStore がいずれも30,000字上限
+    # 近くで判定本体を置けないため(modDiag.WarnIfReadOnly と同型の判断)。
+    "modIntegrity": {
+        "closed": True,
+        # IsUsedRangeBloated(2026-08-06 R19-1e): 既存ブックに焼き付いた全域書式
+        # (UsedRangeが画面の4倍超)の検知。数の比較だけの純関数なので
+        # modTestsPure16 が境界をゴールデンで固定する。
+        # 同居検出一式(2026-08-06 R19-5a/5b・実機第6報⑤): 本体xlsmが作業用Excelの
+        # プロセスへ結合(マージ)されると、本体のOCR同期呼び出しがプロセス全体の
+        # メッセージポンプを止め、相手のブックも「■中断」も丸ごと無反応になる。
+        # VBAで結合そのものは防げない(DisableMergeInstance はダブルクリックに
+        # 無効=公式)ため、検出して伝える側に寄せた。
+        #   CohabitCount    : 自プロセス内の【可視な他ブック】の数(SDI仕様で
+        #     Workbooks は自プロセス分だけ)。2026-08-06 R19H FA-3 で
+        #     PERSONAL.XLSB・アドイン・不可視ブック・自分自身を除く数え方へ。
+        #   CohabitOtherCount: その数え方だけを取り出した純ロジック(ブック名+
+        #     可視ウィンドウ数+アドイン旗の行を文字列で受ける。Excelに触れない
+        #     ので modTestsPure18 が全パターンを固定できる)。
+        #   IsCohabiting    : 他ブックが1冊でもあるか(純ロジック)。
+        #   CohabitWarnMsg  : 起動時のモーダル文(純ロジック・BMPのみ)。
+        #   CohabitIngestMsg: 取込直前の再確認文(純ロジック・BMPのみ)。
+        #   ConfirmIngestWhenCohabit: 取込入口の関所。判定・文言・モーダルを
+        #     ここに閉じ、modShelfBatch.AddFilesResult からは戻り値だけを見る。
+        # FlushPendingBubbles(2026-08-12 R29H F2b): WarnAtStartupはInitUIより前
+        #   (modBoot)に走るためAddChatBubbleが描けない。文言をQueueBubbleで
+        #   保留し、InitUI後の最初の地点(modBoard.BootBoard)から1回だけ呼ぶ。
+        # RewriteRowsAfterPurge(2026-08-16 R33H F2): 一括削除の後始末で生存行を
+        #   「先に消してから200行バッチで書く」書き戻し。旧実装は「詰めて代入→
+        #   末尾ClearContents」の順で、代入の途中で落ちると生存行が二重に残った。
+        #   置き場が基盤層なのは modShelfStore が残819字で分岐を書けないため
+        #   (このモジュールの冒頭にある置き場の理由と同じ)。
+        # PurgePartial / ResetPurgeMark(2026-08-16 R33H M8): 上の書き戻しが
+        #   「1行も消していない(未着手)」で失敗したのか「消してから書けなかった
+        #   (欠落)」で失敗したのかの印。同じ失敗でも案内が正反対になる
+        #   (やり直せば直る / やり直しても戻らない)ので、向きを呼び出し元
+        #   (modShared の削除UI)へ渡す。印は操作の単位で ResetPurgeMark。
+        # SwapFileWithBackup(2026-08-16 R33H M6): 出来上がった一時ファイルを
+        #   本番の名前へ差し替える1回ぶん(呼び口は modShare.BoardWriteSummary)。
+        #   不変条件は「dst が存在しない間は bak を絶対に消さない」の1本。
+        #   F15/F16 の実装は再試行の先頭で無条件に bak を消しており、退避まで
+        #   済んで力尽きた回の【唯一の旧版】を自分で消していた(3回失敗で
+        #   summary.txt が完全消滅=称号の累積状態も同時に消える)。
+        #   置き場が基盤層なのは modShare が残509字で分岐を書けないため。
+        # PauseMs(2026-08-16 R33H M12): 共有I/Oの再試行のあいだ待つ小さな
+        #   ループ。上の差し替えと同じ呼び口(modShare.BoardWriteSummary /
+        #   BoardCarryTitles)で使うので、置き場も同じにした(modShare の残字)。
+        # UsedLastRow(2026-08-16 R33H M5): 使用済み範囲の最終行の実測。捨て読み
+        #   での再計算と「UsedRange を1回だけ参照する」の2作法を畳んだ1本。
+        #   modBackdrop.ApplyCF の自己検算が使う(あちらは残155字)。
+        "required": ["IndexOfName", "ReconcileStatText", "ReconcileChunkCount",
+                     "RecordSaveMark", "RewriteRowsAfterPurge",
+                     "SwapFileWithBackup", "UsedLastRow", "PauseMs",
+                     "PurgePartial", "ResetPurgeMark",
+                     "DataShrunk", "IsVolatilePath",
+                     "IsUsedRangeBloated",
+                     "CohabitCount", "CohabitOtherCount", "IsCohabiting",
+                     "CohabitWarnMsg",
+                     "CohabitIngestMsg", "ConfirmIngestWhenCohabit",
+                     "ShrinkWarnMsg", "VolatileWarnMsg", "WarnAtStartup",
+                     "FlushPendingBubbles"],
+    },
+    # ---- 7.2 取込層 ----
+    # modExtractorWord / modExtractorExcel / modExtractorAcrobat は
+    # MASTER_SPECが個別のPublic契約を明示していないため対象外(自由)。
+    "modExtractor": {
+        "closed": True,
+        # SharedCopyNextChunkLen(2026-08-03 R14-F13で削除): R14-3a で共有読み
+        # コピーが ADODB.Stream 一本になった時点で呼び出し元が消え、契約と
+        # テストだけが残っていた。R14-F3 でクラシックの1MB分割コピーを
+        # 復活させたが、分割の算数は modExtractorPdf 側のループに3行で書く
+        # (モジュールを跨いだPublicを1つ減らす)。
+        # GarbledRouteCode: 2026-07-31 R6追補。「全ページ化け」のPDFをOCR経路
+        # (E0303)へ回すか、従来どおり化けたまま続行するかの分岐だけを純関数に
+        # 切り出したもの(modTestsPure4が検証する)。
+        # BuildPagesFromGsText: 2026-07-31 R10c(L1)。Ghostscript(txtwrite)の
+        # 出力を改ページ文字で割ってExtractedPage配列にする純ロジック。先頭/末尾の
+        # 空ページの読み飛ばしがズレると出典ページ番号が丸ごと1つずれるため、
+        # modTestsPure6 が境界を固定する。R2によりコア層からoptOcrCoreを呼べず、
+        # ページ数の数え方が optOcrCore.GsPageCount と2箇所に分かれているので、
+        # 両者の突き合わせもそちらのテストで担保している。
+        # PageArrayCount: 2026-08-03 Phase 0(modExtractorPdf分割)。未初期化/空
+        # 配列でも実行時エラー9を出さずに0件と数える唯一の実装。分割後は
+        # modExtractorPdf.DropGarbledPages も同じ数え方を必要とするため、
+        # 2箇所に同じ実装を置かない目的で公開した(憲章§4-5)。
+        # GarbleRatio: 2026-08-10 R27 F1-4。modExtractorPdf から移設した化け
+        # 比率の算数(あちらは30,000字上限まで残りが少なく、誤爆2件=AscWの
+        # 符号付き戻りとWord構造制御文字の是正が入らなかった)。呼び出しは
+        # modExtractorPdf.DropGarbledPages 1箇所だけだが、境界(Chr(7)混じりの
+        # 表テキストはOK/キリル2割はNG)を modTestsPure24 が固定するため公開する。
+        # StripControlChars: 2026-08-10 R27 F1-5。ページ本文から制御文字
+        # (Wordの表セル終端Chr(7)等)を落とす。ExtractFile から呼ぶだけなので
+        # Private でも足りるが、この文字列がそのまま embed / norm_text /
+        # プロンプトの3つへ流れる境界そのものなので、境界の規則(9/10/13は
+        # 残す・それ以外のAscW<32は落とす)を modTestsPure24 が固定できるよう
+        # 公開する。
+        "required": ["ExtractFile", "SupportedExts",
+                     "GarbledRouteCode", "BuildPagesFromGsText", "PageArrayCount",
+                     "GarbleRatio", "StripControlChars"],
+    },
+    # modExtractorPdf(2026-08-03 R13 Phase 0): modExtractor が28,000字のWARN帯に
+    # 達したための分割先。PDFの3経路フォールバック(GS→Word→Acrobat)、
+    # ローカル一時コピー(共有読み)、文字化けページの除去を持つ。
+    # TempBaseNameFor(R13-2): 一時コピー名 "mbtmp_<FNV-1a 64bit 16桁>.<元拡張子>"
+    # の導出だけを切り出した純ロジック。元ファイル名をそのまま連結する旧方式は
+    # CP932非対応文字(NFD分解濁点 U+3099 等)でディスク上の実名とGhostscriptへ
+    # 渡す文字列が食い違う事故を起こしたため、境界を modTestsPure9 が固定する。
+    # IsThinExtract / ThinExtractMemoFor(R13-3a): 「取り込めてはいるが本文が
+    # 薄すぎる」の判定と、本棚カードへ出すメモ。実機第2報 RC1(44ページの約款が
+    # chunks=1 / status=done で登録成功になった)への二段目の防衛で、判定式を
+    # modShelf 側に散らさないためここへ置く。IsThinExtract は純ロジックなので
+    # modTestsPure9 が閾値を固定する(閾値は仕様R13-3aから動かさないこと)。
+    # IsUnreadableCopyReason / CopyFailMsgFor(2026-08-03 R14-3b): 一時コピーの
+    # 失敗理由が「元ファイルを読めていない」ことを意味するかの判定と、その
+    # ときの利用者向けの1文。読めていないのに元パスのまま続行すると、NFD分解名が
+    # そのままGhostscriptへ渡って /undefinedfilename になり、利用者には
+    # 「描画0枚」しか残らない(実機第3報 RC3)。どちらも純ロジックなので
+    # modTestsPure11 が境界を固定する。
+    "modExtractorPdf": {
+        "closed": True,
+        # CopyReasonKind(2026-08-03 R14-F3/F11): 理由の1語 → 文言の種類の
+        # 対応表(純ロジック)。modLog.CopyFailMsgOf と対で使う。
+        # GcOldTempCopies(R14-F11): %TEMP%\mbtmp_* の24時間より古い残骸の
+        # 掃除。呼ぶのは modBoot の起動GCから1行だけで、本体をこちらに置くのは
+        # modBoot が28,000字のWARN帯に近いのと、一時名の規約(TempBaseNameFor)を
+        # 持つのがこのモジュールだから。
+        "required": ["ExtractPdfWithFallback", "CopyToLocalTemp",
+                     "DropGarbledPages", "TempBaseNameFor",
+                     "IsThinExtract", "ThinExtractMemoFor",
+                     "IsUnreadableCopyReason", "CopyFailMsgFor",
+                     "CopyReasonKind", "GcOldTempCopies"],
+    },
+    "modMode": {
+        "closed": True,
+        # 回答モード(すぐ聞く/通常/入念)の方針。純ロジックなのでLOで検証する。
+        # AskStage*(2026-08-03 R13-9b): 質問処理の段階ナレーションの算数。
+        #   「(2/4) 資料を照合中…」の番号は、その回に実際に通す段の数から作る
+        #   (拡張・再ランクは構成で有無が変わるため、総数を4に固定すると嘘になる)。
+        #   表示そのものは modAskRetrieve.ShowAskStage が行い、ここは純ロジック。
+        # ShouldEmitInsight(2026-08-03 R14-1b): 「解決した」で部内へ発信して
+        #   よい回答かの判定(モード×出典件数の真理表)。一般モードの解禁と
+        #   残留状態による誤爆(実機第3報 RC2)を1つの式で塞ぐ。
+        # EmitInsightAllowed(2026-08-16 R33H M2): 上の真理表に F7 の門
+        #   (GroundingAllowed)を畳んだ発信の窓口。聞き返し・API失敗のターンの
+        #   遮断は W5-21 の mLastMode="" に依存していて F7 の復元で外れており、
+        #   🔴/🤔 がその質問を部内へ発信していた。modAsk(凍結)の変更を
+        #   CanShareInsight の1行に留めるため、真理表ではなくこちらへ畳む。
+        # RerankEffort(2026-08-03 R14-8a): 入念モードだけ再ランクの effort を
+        #   別設定(rerank_effort_thorough)にする分岐。
+        # PageTagPart(2026-09-08 R41 §1 A): 出典タグの「p.N」部分の単一情報源。
+        #   Excel 由来(拡張子 xlsx/xlsm/xls/xlsb)は " シートN"、それ以外は
+        #   " p.N"。modPrompts.SourceTag / CiteTagFrom / modLive.PageLabel /
+        #   modPeek/modTextView/modCorrect の表示・突合が全てここを通るため、
+        #   1文字でもズレると出典表記と出典突合の両方が壊れる
+        #   (modTestsPure43 が境界を固定)。
+        # AnsweredMode(R33 W5-21)は R33H F7 の NoteAnswered / GroundingAllowed
+        #   へ置き換えられ src からの呼び出し元が0件になったため、R33H Fix波3 で
+        #   関数ごと撤去した(それを固定していたテスト4本も同時に削除)。
+        #   production が呼ばない関数をテストが押さえていると「回帰テストがある」
+        #   という見た目だけが残るので、契約表からも外す。
+        # NoteAnswered / GroundingAllowed(2026-08-16 R33H F7): W5-21 が
+        #   mLastMode="" で兼ねていた「根拠表示の抑止」を別の1ビットへ分ける。
+        #   mLastMode="" は modUIMain.RenderAnswer が【空質問ターン専用】の印と
+        #   して先に使っており、API失敗と逆質問がそこへ流れ込むと状態セルが
+        #   「準備できています」になり「Wordで開く」が前のターンの回答を出した。
+        #   modAsk は凍結なので実体はここに置き、modAsk の変更は Done: の1行だけ。
+        # AnswerSourcesText / AnswerStatusText(2026-08-16 R33H M1): 旧UIの
+        #   出典欄と状態セルの文言。F7 の門(GroundingAllowed)を旧3画面へも
+        #   通すための実体で、modUIMain(残150字)からは1行で呼ぶ。門は引数で
+        #   受ける純関数にしてある(モジュール状態を読むとゴールデンが直前に
+        #   走ったテストに依存するため)。
+        "required": ["Normalize", "NextMode", "Caption", "Description", "TopK",
+                     "UseExpand", "UseRerank", "UseVerify", "UseLightExpand",
+                     "SubQueryCount", "ShouldEmitInsight", "EmitInsightAllowed",
+                     "RerankEffort", "PageTagPart",
+                     "NoteAnswered", "GroundingAllowed",
+                     "AnswerSourcesText", "AnswerStatusText",
+                     "AskStageTotal", "AskStageIndex", "AskStageLabel", "AskStageText",
+                     # R34 B1: 機械的出典突合を ⚡すぐ聞く / 🔍しっかり調べる へも
+                     #   広げる。入念モードだけが通っていた門(modAskThorough.
+                     #   AnnotateAgainstHits)を、modApp の合流点から1行で通せる形に
+                     #   したもの。ShouldAnnotate / CiteTagFrom / CiteIndexAdd は
+                     #   純関数で modTestsPure38 が固定し(CiteTagFrom は
+                     #   modPrompts.SourceTag との一字一句の一致まで)、
+                     #   AnnotateIfNeeded だけが modAsk の直近ヒットを読む窓口。
+                     #   AnsweredModeName は NoteAnswered が控えたモード名の可観測化。
+                     "ShouldAnnotate", "CiteTagFrom", "CiteIndexAdd",
+                     "AnnotateIfNeeded", "AnsweredModeName",
+                     # R34 B3: 前後チャンク結合(modAskFocus.NeighborExpand)を
+                     #   検索の最後へ掛けてよいモードかの純ゲート。入念は生成の
+                     #   内側で自前に呼ぶため二重結合になる=deep だけ True。
+                     "UseNeighborExpand",
+                     # R44: 回答に付く【表示専用】の注意書きの単一情報源。
+                     #   DisplayNotes は「低関連度の⚠(条件つき・先頭)」と
+                     #   「常設ガードの※(末尾)」の順序・重複排除・有効無効を
+                     #   1つの純関数に閉じる。別々の場所で足すと⚠の回だけ
+                     #   ガードが消える等の組み合わせ事故になるため。
+                     #   GuardNoteText / LowHitNoteText は文言そのもの。先頭
+                     #   1文字は装飾側の契約でもある(modLiveStyle が ※ を
+                     #   8pt淡色に、⚠ を「結論ではない前置き」として
+                     #   LeadParaIndex の除外に使う)。modTestsPure48 が固定。
+                     "DisplayNotes", "GuardNoteText", "LowHitNoteText",
+                     # R46 A-4: 確信度(バッジ)の判定。検索スコアの絶対値では
+                     #   なく、スケール非依存の比だけで決める。旧実装
+                     #   (modAsk.LastConfidence が score>=0.55 の【件数】を
+                     #   数えるだけ)は 0.55 が埋め込みのスケールに依存し、
+                     #   固有名詞の一致だけで超えていた(実機で「三井住友の
+                     #   株価」に🟢)。しきい値が1本しかないため△も構造上
+                     #   ほとんど出なかった。
+                     #   CoverageOf … 質問の「効く語」が採用チャンクに実在
+                     #     する割合(語の抽出と照合は modSparse が唯一の実装)。
+                     #   FlatnessOf … 1位スコア÷上位の平均。答えがあるとき
+                     #     1位が突出し、無いときは横並びになる。
+                     #   ConfidenceLevel … 上の2つから 2/1/0 を決める純関数。
+                     #     しきい値は引数で受ける(configを純関数に持ち込まない)。
+                     #   ConfidenceOf … config を読んで上を呼ぶ窓口。凍結で
+                     #     残り僅かの modAsk から1行で呼ぶための受け皿。
+                     #   実測の根拠と採用したしきい値は modMode 側の注記が正。
+                     "CoverageOf", "FlatnessOf", "ConfidenceLevel", "ConfidenceOf",
+                     # R46: 常設ガード(※)だけを付ける窓口。検索が0件だった回と
+                     #   一般アシスタントのように⚠の材料が無い経路で使う。
+                     #   config 読みをここに置くのは modAsk(凍結・残り僅か)から
+                     #   1行で呼ぶため。
+                     "GuardOnly"],
+    },
+    "modEmj": {
+        "closed": True,
+        # R47: 絵文字の単一情報源。Unicode で「既定がテキスト字形」の絵文字
+        # (Emoji_Presentation=No)は異体字セレクタ U+FE0F を付けないと
+        # Windows で何も描かれない。R46 の実機報告「削除ボタンの絵文字が
+        # 出ない」の原因がこれで、そのとき直したのは 🗑 の2箇所だけ、
+        # 同じ文字の残り6箇所と ⚠(20箇所中15箇所)・🖼・⚙・☀・◀▶ を
+        # 取りこぼしていた。呼び出し側で ChrW を並べる限り同じ取りこぼしが
+        # 続くので、文字ごとに名前を付けてここへ集約する。
+        # 呼び出しは【字数が減る】ので、残り10字の modUIShelf のような
+        # モジュールへも容量を増やさずに FE0F を入れられる。
+        # 直書きの残りは emoji-vs16 検査が ERROR で止める。
+        "required": ["Trash", "Picture", "Label", "WindowIcon", "Warn", "Gear",
+                     "Writing", "Sun", "Undo", "Keyboard", "Stopwatch", "Mail",
+                     "ArrowLeft", "ArrowRight", "StopMark"],
+    },
+    "modGround": {
+        "closed": True,
+        # R46: 回答本文の数字が、渡した資料と質問文に実在するかの照合。
+        # 信頼度バッジ(modMode.ConfidenceOf)は「検索が材料を取れたか」までしか
+        # 見ておらず、AIがその材料どおりに書いたかは一度も見ていなかった。
+        # 金額・期限・条文番号は1桁違えば実害が出るので、点数ではなく事実で守る。
+        # UngroundedNumbers / GroundNoteText は純関数(modTestsPure48 の G12 が固定)。
+        # AppendGroundNote だけが Hit 配列を受ける配線用で、modAsk から1行で呼ぶ
+        # (凍結モジュールへ実体を置かないため)。
+        "required": ["UngroundedNumbers", "GroundNoteText", "AppendGroundNote"],
+    },
+    "modSparse": {
+        "closed": True,
+        # 日本語キーワード検索(文字bigram + BM25 + 完全一致)。
+        # 全て純ロジックなので modTestsPure2 から直接検証する。
+        # 実測: 旧実装 R@1 32% → 本実装 84%(tools/bench_retrieval.py)。
+        # HasAnyKey(2026-08-01 R12-3-7): binary_rag の粗選別が「効く語の完全
+        # 一致」を持つ行を先に落とす件の救済union用。採点(KeyScore)とは別に、
+        # 生テキストへの粗い包含判定を1本だけ公開する(判定規則が2箇所に
+        # 分かれないよう、modRetrieve 側には条件を書かない)。純関数なので
+        # modTestsPure4 が境界を固定する。
+        # MatchDocText(2026-08-01 R12-4): 1チャンクの照合テキストを作る式を
+        # 1本にした。取込時に my_knowledge の norm_text 列へ前計算して保存する
+        # ようになったため、式が2箇所にあると保存済み行と未保存行でスコアが
+        # 変わる(順位が静かに割れる)。
+        # CapKeyScore / KeyLenWeight(2026-08-10 R27 F1-1/F1-2): KeyScore の
+        # 頭打ちを純関数として切り出したもの。KeyScore 本体は config(cap)を
+        # 読むためLO実行テストから境界を直接ゴールデン化できないが、この2本は
+        # 引数だけで決まるので modTestsPure24 が cap-1/cap/cap+10 と
+        # 7/8/9字の境界を固定する。
+        # DiversityOrder(2026-08-10 R27 F1-3): 候補プールを「資料ごとの最高
+        # スコア1件」から並べ直す順序の算数。呼び出し元 modAskRetrieve は
+        # Hit(Public Type)配列を持つためLO実行テストへ持ち込めない(別モジュールの
+        # Public Type 配列はLOで ReDim できない既知制約)ので、順序の規則だけを
+        # 並行配列を受ける純関数としてここへ置き、modTestsPure24 が固定する。
+        # DiversitySwapPick(2026-08-10 R27H F1): 上の DiversityOrder(pool全面
+        # 再配列)は「quick非rerank経路で上位チャンクを最大topK-1件押し出す」
+        # 「分散判定は順序非依存なので狙いのsrc>=2に効かない」と裁定され、
+        # modAskRetrieve からの呼び出しを撤去した(純関数は将来用+テスト資産
+        # として残置)。代わりの最小介入=「最終hitsが1資料へ収束した時だけ
+        # 最下位1件をpool内の次点資料の最高スコアへ替える」の添字計算。
+        "required": ["NormalizeForSearch", "Tokenize", "DistinctiveKeys",
+                     "Bm25Score", "ExactHitCount", "CompactForMatch", "KeyScore",
+                     "HasAnyKey", "MatchDocText",
+                     "CapKeyScore", "KeyLenWeight", "DiversityOrder",
+                     "DiversitySwapPick"],
+    },
+    "modChunker": {
+        "closed": True,
+        # ChunkPagesEx/ClassifyLine/BuildBreadcrumb: 構造認識チャンク化(設計書§B)。
+        # ChunkPagesは後方互換(legacy)のまま不変。
+        # NormalizeForIngest/JoinSplitNumbers/IsPageNumberLine: 取込正規化
+        #   (2026-07-27追加)。実物の約款PDFで条見出しの20.2%を取りこぼしていた
+        #   ため、全取込経路が最初に通す正規化として追加。純ロジックなので
+        #   Publicにして modTestsPure から直接検証する(回帰を二度と許さない)。
+        # SkippedPageCount: 2026-07-29 実機事故対応。1ページの実行時エラーで
+        # 資料まるごとが取込失敗になっていたため、ページ単位で飛ばせるように
+        # した。何ページ飛ばしたかを取込側が利用者へ伝えるためのゲッター。
+        # LooksLikeTocPage(2026-08-07 R21-3 E1・実機第8報②): ページ単位の
+        #   目次判定。ChunkAllPagesStructuredが目次ページの見出し判定を
+        #   抑制するために呼ぶ。純ロジックなのでmodTestsPureから固定できる
+        #   よう公開した。
+        # FindSentenceBoundary/AppendStructChunk/MAX_CHUNK_CHARS/
+        #   CRUMB_PLACEHOLDER(2026-09-09 R42 §1 A1): modChunkPage.PlanWindows/
+        #   FlushPagedがFlushBlockと同一の規則・上限・プレースホルダで窓割り/
+        #   crumb計算をするためPublic化(値・挙動は不変。modChunkPage側から
+        #   呼ぶ・参照する)。
+        "required": ["ChunkPages", "ChunkPagesEx", "ClassifyLine", "BuildBreadcrumb",
+                     "NormalizeForIngest", "JoinSplitNumbers", "IsPageNumberLine",
+                     "SkippedPageCount", "LooksLikeTocPage",
+                     "FindSentenceBoundary", "AppendStructChunk",
+                     "MAX_CHUNK_CHARS", "CRUMB_PLACEHOLDER"],
+    },
+    "modChunkPage": {
+        "closed": True,
+        # 2026-09-09(R42 §1 A1/A2・受入FAIL PDF-F01/RT-27/28/37/スモーク5・
+        #   PDF-F02/RT-22/23): 見出しの無い複数ページ資料でかけらの出典が
+        #   p.1に寄る不具合の実体。modChunkerは残61字(実質凍結)のため新設。
+        #   BlockAddPg/FlushPagedはChunkAllPagesStructuredから呼ばれる本線。
+        #   LineStarts/PageAtPos/FirstInkPos/PlanWindows/StartPagesOfは
+        #   modTestsPure45が直接固定する検証口。PhysicalKeepはA2(上限は
+        #   物理ページ番号に当てる)の実体でmodExtractor.BuildPagesFromGsText
+        #   から呼ぶ。
+        "required": ["BlockAddPg", "LineStarts", "PageAtPos", "FirstInkPos",
+                     "PlanWindows", "FlushPaged", "PhysicalKeep", "StartPagesOf"],
+    },
+    "modHubBadge": {
+        "closed": True,
+        # 2026-09-10(R43 2-10): Hubのバッジ帯(獲得済みだけ色を変える)の実体。
+        #   modHubは29,551字(直接書くと上限超過)・modHubStatは残77字
+        #   (受け皿にできない)のため新設。BadgeSpansはExcelに触れない
+        #   純関数(modTestsPure47がゴールデンで固定)、PaintEarnedSpansは
+        #   結合セルの左上セル1個にだけCharactersを当てる実体。
+        "required": ["BadgeSpans", "PaintEarnedSpans"],
+    },
+    "modEmbed": {
+        "closed": True,
+        # MarkAllForReembed: 圧縮/次元変更後の全再embed導線(設計書§G-T10)。
+        "required": ["EmbedPending", "PendingCount", "MarkAllForReembed"],
+    },
+    "modShelf": {
+        "closed": True,
+        # IsBusy: 2026-07-31 R7 B-2。抽出ループのDoEventsで発火したクリックを
+        # 画面遷移側(modUiLock.BlockIfIngesting)が受け流すための取込中フラグ。
+        # AddFilesViaDialog / AddFilesResult は 2026-07-31 R10d で modShelfBatch へ
+        # 移設した(modShelfが30,000字上限まで残り440字になったため)。
+        # ChunkKeyOrder(2026-08-03 R14-5a/5c・実機第3報 RC7): 拡張子別チャンク
+        # 設定キーの組み立て(純ロジック)。ChunkParamFor自体はmodConfig.GetLong
+        # へ依存しExcel無しでは検証できないため、フォールバック順序の判定材料
+        # (キー名)だけを公開してmodTestsPure11から固定する。
+        "required": ["IngestFile", "DeleteSource",
+                     "SourceList", "TotalChunks", "IsBusy", "ChunkKeyOrder"],
+    },
+    # modShelfBatch(2026-07-31 R10d): modShelfから切り出した一括取込の
+    # オーケストレーション。AddFilesResult: 2026-07-30 R2要件E。
+    # AddFilesViaDialog(OnAction互換)は内部でこれを呼ぶ薄いラッパー。
+    # ok/ng/capped件数・新規追加チャンク数・失敗理由の内訳を戻り値の文字列で
+    # 返し、showMsgBox:=False で呼び出し元(modApp.OnAddDocs等)が独自に
+    # 表示を担えるようにする。
+    # IsBatchBusy(2026-07-31 R10c H2): バッチ取込全体を覆う再入ガードの参照口。
+    # modShelf.IsBusy が自分の mIngesting と OR で見るためだけに公開している。
+    # StageBanner(2026-08-03 R13-4a): 取込の段階表示を進捗バナーへ流す薄いAPI。
+    # 「バナーが既に出ているときだけ更新する」という規約を1箇所に閉じ込める
+    # ためのPublicで、silent(自動同期)経路では何も表示しない。
+    "modShelfBatch": {
+        "closed": True,
+        # TouchBusy / LastBeat / GuardExpiredNow(2026-08-04 R15-1a・実機第4報
+        # RC5): 4本の再入ガードが共有する「最後に生きていた時刻」の置き場。
+        # 開始から30分で失効させていたため、85〜127分かかる取込の途中で
+        # ボタンが全面解放され二重取込が構造的に可能だった。
+        # SaveCheckpoint(R15-3a・RC9): 1ファイル取込ごと/同期末尾の中間保存。
+        # OnCancelIngest / CancelRequested / ResetCancel(2026-08-04 R15-6a・
+        # RC3): 進捗バナー脇の中断ボタンと、その印の読み・下ろし。85〜127分の
+        # 取込を止める手段が1つも無く、Excelの強制終了しか無かった。
+        # 印の実体をここに置くのは、取込の入口(AddFilesResult)で必ず
+        # リセットできる場所がここだけだから。
+        # ShowIngestBanner(2026-08-04 R15-FixA FA-6): 【取込経路の】進捗バナー。
+        # 中断ボタンは modSkin.PaintProgress が常に描いていたため、中断の仕組みが
+        # 無い処理(質問の準備・部門更新・Q&A読込・ナレッジ登録)のバナーにも
+        # 生えて「押しても何も起きないボタン」になっていた。ここを通る3経路
+        # (AddFilesResult / StageBanner / modShelfSync のファイルループ)だけが
+        # 中断できるバナーを出す。modUIMain.ShowProgress を分岐させないのは、
+        # あちらが30,000字上限まで残り206字で引数1つ足す余地も無いため。
+        # SetLoopBanner / LoopBannerOwned(2026-09-08 R41 B2・レビュー1周目
+        # MAJOR-2): 進捗バナーの所有権の印。取込/同期のファイルループが立て、
+        # modEmbed.EmbedPending が「立っている間は AfterLoop で消さない」判定に
+        # 読む。可視判定(IsProgressBannerVisible)は BlockIfIngesting の一時
+        # バナーを誤認するので Private のまま。
+        "required": ["AddFilesViaDialog", "AddFilesResult", "IsBatchBusy",
+                     "StageBanner", "ShowIngestBanner", "TouchBusy", "LastBeat",
+                     "GuardExpiredNow",
+                     "SaveCheckpoint", "OnCancelIngest", "CancelRequested",
+                     "ResetCancel", "SetLoopBanner", "LoopBannerOwned"],
+    },
+    # 2026-07-28 レビューI-2対応でmodShelfから切り出したシート行操作層。
+    # 取込フロー以外(同期・失効ワイプ)からも呼ぶ共通処理のため open。
+    "modShelfStore": {
+        "closed": False,
+        "required": [
+            "EnsureKnowledgeSheet", "EnsureManifestSheet", "BuildExistingHashSet",
+            "RemoveKnowledgeAndVectorsForSource", "RemoveVectorsByIds",
+            "RemoveManifestRowForSource", "UpsertManifestRow", "SliceRows",
+        ],
+    },
+    # modChunkMetaStore(2026-08-05 R17波0→波1): chunk_metaシート(chunk_id/
+    # section_path/refs_out)のEnsure/バッチ書込み/全行読み層。modShelfStore.
+    # EnsureKnowledgeSheetと同型(無ければ作成+ヘッダ+veryHidden、既存なら冪等)。
+    # WriteMetaFromRows(Phase1): 取込ループが持つmy_knowledgeの行列からchunk_idを
+    #   取り出して1回で追記する入口。modShelf.IngestFileは残り字数が数百字しか
+    #   ないため、id配列の組み立てをこちらで引き受ける(憲章§4-6)。
+    # RemoveMetaForSource(Phase1): 再取込・資料削除で消えるmy_knowledge行の
+    #   chunk_idを引き、chunk_metaの同じ行を落とす。必ず
+    #   modShelfStore.RemoveKnowledgeAndVectorsForSourceの【前】に呼ぶ
+    #   (後だと消えた行のchunk_idがどこにも残っていない)。
+    "modChunkMetaStore": {
+        "closed": True,
+        "required": ["EnsureChunkMetaSheet", "WriteMetaRows", "ReadAllMeta",
+                     "WriteMetaFromRows", "RemoveMetaForSource"],
+    },
+    # modChunkMeta(2026-08-05 R17 Phase1): チャンクの構造ラベル(section_path)と
+    #   明示参照(refs_out)の抽出。VBScript.RegExp/ScriptControlを使わず
+    #   modSparse.DistinctiveKeysと同型のInStr走査だけで書いた純ロジックで、
+    #   PURE_LOGIC_MODULES にも登録する(シートI/Oは modChunkMetaStore、
+    #   検索への合流は modAskFocus が持つ)。
+    #   MetaOf は ExtractSectionPath/ExtractRefs をまとめて呼ぶ入口で、
+    #   modShelf.IngestFile の残り字数(憲章§4-6)のために置いてある。
+    #   GraphActive は「chunk_meta が無い/空なら全機能が従来動作」という
+    #   フェイルセーフの条件を1本にしたもの(条件が2箇所に割れるのを防ぐ)。
+    "modChunkMeta": {
+        "closed": True,
+        "required": ["ExtractSectionPath", "ExtractRefs", "MetaOf",
+                     "PathHasLabel", "RefLabelsFor", "GraphActive"],
+    },
+    # modOutlineStore(2026-08-05 R17 Phase2): doc_outlineシート(source/
+    # section_key/summary/keywords/chunk_n)のEnsure/一括書込み/全行読み/
+    # 資料単位の掃除。modChunkMetaStore と同型で、違いは source 列を自分で
+    # 持つこと=掃除に my_knowledge を引かないので、
+    # RemoveKnowledgeAndVectorsForSource との前後関係の制約が無い。
+    # veryHidden は EnsureOutlineSheet が毎回・冪等に自己設定する
+    # (modBoot.HideInternalSheets は残8字で1行も入らないため。憲章§4-6)。
+    # ReadOutlineVersions(2026-08-07 R21-3 E2・実機第8報②): source/logic_ver
+    #   だけの軽量読み。modBackfill.DetectLegacyDocsが章検出ロジックの世代
+    #   キー(modOutlineBuild.OUTLINE_LOGIC_VER)による「未仕上げ」再判定に使う。
+    "modOutlineStore": {
+        "closed": True,
+        "required": ["EnsureOutlineSheet", "WriteOutlineRows", "ReadOutline",
+                     "RemoveOutlineForSource", "ReadOutlineVersions"],
+    },
+    # modOutlineBuild(2026-08-05 R17 Phase2): 取込時の章単位要約。
+    # BuildOutlineFor: 1資料ぶんの章要約を作って doc_outline へ保存する唯一の
+    #   入口。config graph_outline=off / chunk_meta 0行 / 章キーが取れない
+    #   なら完全に無操作(LLMも呼ばない)。中断は章の境界で拾い、そこまでの章を
+    #   保存して正常終了する。失敗章は「(要約失敗)」の行として保存し続行。
+    # ChapterKeyOf / BudgetTake: 章グルーピングキーと本文の打ち切りの純ロジック。
+    #   PURE_LOGIC_MODULES には載せない(シートI/O・CallLLM を持つため)が、
+    #   run_lo_tests の PURE_ALLOWLIST へは載せてこの2本だけ実行テストで固定する
+    #   (modAskFocus/modAskMulti と同じ型)。
+    # SetUnattended(2026-08-05 R17H FA-7 / A-M8): 無人実行(自動同期)の印。
+    #   自動同期は OnTime で勝手に始まり、進捗バナーも中断ボタンも利用者の目の
+    #   前には無い。そこで章数の多い資料の章要約(章数ぶんのLLM呼び出し)を
+    #   始めると「何もしていないのにExcelが数分固まる」だけになる。上げ下げは
+    #   modShelfSync.SyncNow の入口/Finish の2行だけで、判断そのもの
+    #   (章数>12 なら先送りして usage_log("outline_deferred"))はこの層に閉じる。
+    # GroupChapters/ChapterKeyMatches(2026-08-07 R21-3 E2・実機第8報②):
+    #   章キーの縮退統合(MAX_CHAPTERS超過時の「先着60で無言切り捨て」を廃止
+    #   し、小さい章を隣接章へ統合)。Worksheetに触れない純ロジックのため
+    #   Public化してmodTestsPureから直接固定する。ChapterKeyMatchesは統合で
+    #   "|"連結された章キーへの所属判定(ChapterBody/modAskGlobal.
+    #   CollectChapterHitsが共有する唯一の照合関数)。
+    # OUTLINE_LOGIC_VER: 章検出ロジックの世代キー。doc_outlineへ記録し、
+    #   modBackfill.DetectLegacyDocsが旧世代を「未仕上げ」として再提案する
+    #   ための単一情報源。
+    "modOutlineBuild": {
+        "closed": True,
+        "required": ["BuildOutlineFor", "ChapterKeyOf", "BudgetTake", "SetUnattended",
+                     "GroupChapters", "ChapterKeyMatches", "OUTLINE_LOGIC_VER",
+                     # 2026-08-07(R21H F5): 旧世代outline(StripTocTail導入前に
+                     # 保存されたキー)との照合フォールバック用。ChapterKeyOfの
+                     # 正規化(StripTocTail)を掛ける前のキーを返す。
+                     "ChapterKeyOfRaw",
+                     # 2026-08-16(R33波3 W3-4): doc_outline へ刻む世代キーの
+                     # 決定(完走したときだけ現行世代/それ以外は0)。中断・
+                     # 章単位の失敗で書かれた部分的な章要約に現行世代が付くと、
+                     # その資料は⚡資料の仕上げの候補から永久に外れる。
+                     # 判定だけを純関数として切り出し、LOの実行テストで固定する。
+                     "OutlineVerFor"],
+    },
+    # modBackfill(2026-08-06 R20-3・実機第7報②): 再取込ゼロの「資料の仕上げ」。
+    #   R17より前に取り込んだ資料(my_knowledge にbreadcrumb付きfull_textは
+    #   あるがchunk_meta/doc_outlineが0行)を、保存済み本文だけから後追いで
+    #   仕上げる独立入口。modShelf.IngestFileは一切触らない。
+    #   DetectLegacyDocs: 未仕上げ資料の列挙(Collection<"資料名|状態">)。
+    #   BackfillOne: 1資料ぶんPhase1(構造メタ再計算)→modOutlineBuild.
+    #     BuildOutlineFor(Phase2/3)。BackfillAll: 確認ダイアログ→全件処理→
+    #     結果文言。ClassifyDoc/LooksLikeBreadcrumbLine/ConfirmText/
+    #     ResultText/CountByStatusは副作用ゼロの純関数(modTestsPure19が固定)。
+    "modBackfill": {
+        "closed": True,
+        "required": ["STATUS_NEEDS", "STATUS_CANNOT",
+                     "OUTCOME_NONE", "OUTCOME_CANCELLED", "OUTCOME_DONE",
+                     "DetectLegacyDocs", "CountByStatus", "BackfillOne", "BackfillAll",
+                     "ClassifyDoc", "LooksLikeBreadcrumbLine",
+                     "ConfirmText", "ResultText",
+                     # 2026-08-07(R21H F11): 確認文言にAI呼び出し回数の概算
+                     # (章数合計×1+資料数)を明示するための純関数。
+                     "EstimateChaptersForChunks"],
+    },
+    # modSynonymStore(2026-08-05 R17 Phase3): 用語の表記ゆれ辞書(synonyms:
+    #   term/canonical)のEnsure/一括書込み/読み/全消去/名寄せバッチ。
+    # EnsureSynonymSheet: modOutlineStore.EnsureOutlineSheet と同型(冪等)。
+    # WriteSynonymRows: 末尾へ1回のRange書込みで追記するだけ(上書きの判断は
+    #   持たない=BuildSynonymsForがRemoveAll+全件書き直しで実現する)。
+    # ReadMapCsv: 質問側(modAskRetrieve)が読む唯一の窓口。全行を
+    #   "term>canonical|term>canonical" の1文字列へ畳んで返す(0行は空文字)。
+    #   modSparseと同じくPURE_LOGIC_MODULESには置けない(シートI/O)ため、
+    #   質問文への展開そのものは純関数 modRagParse.ExpandQueryBySyn へ渡す。
+    # RemoveAll: 全行消去(再構築用)。BuildSynonymsForが「既存termは上書き」を
+    #   実現するために、ReadMapCsvで読んだ既存分から新規termと重複する行を
+    #   除いた集合をRemoveAll後に丸ごと書き直す。
+    # BuildSynonymsFor: 1資料ぶんの名寄せバッチの唯一の入口。config
+    #   graph_synonyms=off / 用語候補0件 / LLM応答が空 のいずれかで完全に
+    #   無操作。ゲート・失敗握りもこの層に閉じるので呼び出し元
+    #   (modOutlineBuild.BuildOutlineFor)は1行。
+    "modSynonymStore": {
+        "closed": True,
+        "required": ["EnsureSynonymSheet", "WriteSynonymRows", "ReadMapCsv",
+                     "RemoveAll", "BuildSynonymsFor"],
+    },
+    # modShelfVision(2026-07-31 R6): 取込失敗時のvisionフォールバック集約。
+    # modShelfの取込フローからこの判断を丸ごと引き受ける(公開はTryVisionFallback
+    # の1本だけ。増えるならまず「本当にIngestFileから見える必要があるか」を疑う)。
+    "modShelfVision": {
+        "closed": True,
+        # ImageDialogPattern(R36波1 §4): 📁 追加のFileDialogフィルタへ足す
+        # 画像パターン("*.png;*.jpg;*.jpeg")を返す純関数。呼び出し元は
+        # modShelfBatch.BuildFilterPattern(vision有効時のみ連結)。
+        "required": ["TryVisionFallback", "ImageDialogPattern"],
+    },
+    "modShelfSync": {
+        "closed": True,
+        # DiffDecision は §7.8 の記述により modShelfSync の差分判定を
+        # テスト可能にするため追加で Public 化することが名指しされている。
+        # AutoSyncTick(Wave4修正・MASTER_SPEC §7.2契約更新): Application.OnTime の
+        # Procedure引数はApplication.Runと同じ遅延バインドでありPrivate Subを
+        # 解決できないため、OnTimeコールバック本体はPublicが必須(VBAの実際の
+        # 挙動に合わせた契約修正。当初「契約に無い名前だから」とPrivateにしたのは
+        # 誤りだった)。ResolveDecision(同じくWave4修正・§7.8): DiffDecisionに
+        # manifestの現在statusによる上書きルール(failed/missing→replace)を適用する
+        # 純関数で、DiffDecisionと同じ理由でテスト可能にするため公開契約に追加した。
+        # IsBusy(2026-07-31 R7 B-2): modShelf.IsBusy と対。同期のファイルループも
+        # DoEvents を回すため、同期中かどうかを画面側へ公開する。
+        "required": [
+            "PickShelfFolder", "SyncNow", "ScheduleAutoSync", "CancelAutoSync",
+            "DiffDecision", "AutoSyncTick", "ResolveDecision", "IsBusy",
+        ],
+    },
+    "modEnrich": {
+        "closed": True,
+        "required": ["EnrichPending"],
+    },
+    # ---- 7.3 QA層 ----
+    "modRetrieve": {
+        "closed": True,
+        # SearchExpanded: マルチクエリ検索(設計書§C-2)。Searchは不変。
+        "required": ["Search", "SearchExpanded"],
+    },
+    # modVecCache(2026-08-01 R12-4): セッション内ベクトルキャッシュと埋め込み
+    # 世代カウンタ。my_vectors の再パースを1セッション1回に畳む。open にして
+    # あるのは、参照系アクセサ(SlotOfRow/DimOfRow/RowOfSlot/CachedDim…)が
+    # 実装都合で増減するため。要件で名指しされている「世代」「解放」「構築」
+    # 「等価な内積」の4点だけを契約として固定する。
+    "modVecCache": {
+        "closed": False,
+        "required": [
+            "Generation", "BumpGeneration", "ResetVecCache",
+            "BuildFrom", "PrepareVectors", "DotAt", "SlotOfRow",
+            "StampOf", "IsStale", "Ready",
+        ],
+    },
+    "modPrompts": {
+        "closed": True,
+        # BuildExpandPrompt/BuildRerankPrompt: 多段RAGの拡張・再ランク段(設計書§C)。
+        # BuildSourceDigestPrompt/BuildCritiquePrompt(2026-08-03 R14-8a):
+        #   入念モードの(1)資料の要点整理と(3)自己批判。
+        # SourceTag(同): 出典タグの形の単一情報源。LLMへ指示する形と
+        #   modAskThorough が突合に使う形が別実装になると、検査が全件一致か
+        #   全件不一致のどちらかへ静かに退化する(憲章§4-5)。
+        # BuildQuestionsPrompt(2026-08-03 R14-7a): 質問例のオンデマンド生成。
+        #   シード0でも資料があれば、資料名+冒頭抜粋から短い質問を5件作らせる。
+        # BuildDecomposePrompt/BuildPartDraftPrompt/BuildMergePrompt
+        #   (2026-08-05 R16-3A): 複合質問の分解(段0の判定)・論点1つぶんの副下書き・
+        #   論点ごとの下書きの統合。PART_FAIL_TEXT は「その論点は資料を確認でき
+        #   なかった」節の文言で、節を作る側(modAskMulti.BuildPartSection)と
+        #   それを消させない側(BuildMergePrompt)と成否を数える側(modAskMulti)の
+        #   単一情報源(2実装に分かれた瞬間、統合段が黙って言い換える)。
+        "required": ["BuildQuickPrompt", "BuildDeepDraftPrompt", "BuildDeepVerifyPrompt", "BuildEnrichPrompt", "BuildExpandPrompt", "BuildRerankPrompt",
+                     "BuildSourceDigestPrompt", "BuildCritiquePrompt", "SourceTag", "BuildQuestionsPrompt",
+                     "BuildDecomposePrompt", "BuildPartDraftPrompt",
+                     "BuildMergePrompt", "PART_FAIL_TEXT",
+                     # R44: 金融・保険のガードレール文(数値の厳格性/(要確認)/
+                     #   断定の禁止)。Private のままだと精査モードの既定経路
+                     #   modAskOnePass.BuildOnePassPrompt から呼べず、そこだけ
+                     #   ガードが抜けていた。文言を複製せず可視性だけ上げる
+                     #   (SourceTag / CitationInstruction と同じ扱い)。
+                     "DomainGuardInstruction",
+                     # R47: 精査(onepass)と俯瞰(global)が同じ趣旨の文を手書きで
+                     #   複製しており、複製版は原文より痩せていた
+                     #   (strict_grounding 版から「各主張の直後に出典を必ず付け」と
+                     #   「無理に答えず」が落ちていた=設定を入れた利用者が最も
+                     #   欲しい一文が既定モードでだけ弱い)。さらに俯瞰は
+                     #   strict_grounding を1行も読んでおらず、設定が黙って
+                     #   無効になっていた。R41 の SourceTag / R44 の
+                     #   DomainGuardInstruction と同じく【可視性だけ】解除して
+                     #   複製を呼び出しへ置き換える(本文は1字も変えていない)。
+                     "GroundingInstruction", "NotFoundInstruction"],
+    },
+    "modRagParse": {
+        "closed": True,
+        # 多段RAGのLLM応答パーサ(設計書§C/§D/§G-T7)。全て寛容退化の純関数。
+        # ParseQuestionLines(2026-08-03 R14-7a): 質問例オンデマンド生成の応答
+        #   パーサ(1行1問・番号無しへ寛容退化)。RAG本体とは無関係だが、
+        #   「LLM応答をパースする純関数」という性質はここと同じなので同居させる。
+        # IsErrorResponse/BuildErrorAnswer(2026-08-03 R14-G1): modGateway.CallLLM の
+        #   失敗は "#ERR:コード:説明" という応答文字列で返る契約なので、その判定と
+        #   利用者向け文言化も「LLM応答のパース」。modAsk が30,000字上限まで残り44字に
+        #   なったため(憲章§4-6)、3モジュール(modAsk/modAskRetrieve/modAskThorough)が
+        #   共有していたこの3本を副作用ゼロのまま本モジュールへ移設した。
+        # ParseDecomposeVerdict/ParseParts(2026-08-05 R16-3A): 複合質問の分解
+        #   (段0)の応答パーサ。<verdict>single|parts|clarify</verdict> と
+        #   <parts>a|b|c</parts> を読む。タグ欠落・不正な語・"#ERR:" はすべて
+        #   single へ寛容退化し、呼び出し元が従来の入念フローへ無害に落ちる。
+        # ParseOptions/ParseChoiceNumbers(2026-08-05 R16-3B): 逆質問=番号選択肢。
+        #   ParseOptions は段0の <options> を選択肢配列へ(ParseParts と同型)。
+        #   ParseChoiceNumbers は「1」「1と3」「①と③」のような返事から番号を
+        #   読む唯一の場所で、数字と区切り以外の文字が1つでも混じれば空を返す
+        #   (=書き直し扱い)。ここが甘いと、利用者が打ち直した質問文が黙って
+        #   捨てられる(2026-07-28 レビュー H-12 と同型の事故)。
+        # HasCompoundSignal(2026-08-05 R18-7a・実機第5報⑦): 質問文そのものの
+        #   複合シグナル検知(？の2個以上出現/。区切りの非空節2個以上)。LLM応答の
+        #   パースではないが「質問文の中身を見る文字列パターン検知」という性質は
+        #   ParseChoiceNumbers等と同じで、modMode(モード名だけを見る)には置けない。
+        # ParseOutlineResp/ParseChapterPick(2026-08-05 R17 Phase2): 章単位要約の
+        #   応答パーサ。<summary>/<keywords> は取込時(章ごとに1回)、<pick> は
+        #   俯瞰質問の章選択(質問ごとに1回)。どちらも読めなければ「その章は
+        #   要約失敗」「章は選ばれなかった=従来フローへ」へ寛容退化する。
+        # ParseSynResp(2026-08-05 R17 Phase3): 名寄せ(表記ゆれ)応答のパーサ。
+        #   出力契約 <syn>表記>正規形|表記>正規形</syn>。">"の無い/どちらか空の
+        #   ペアは1件ずつ破棄する(全滅ではなく読めた分だけ返す寛容退化)。
+        # ExpandQueryBySyn(2026-08-05 R17 Phase3): synonymsシートの内容
+        #   (modSynonymStore.ReadMapCsvが返す1文字列)を引数で受け、質問文中の
+        #   語に一致した同義語を最大maxAdd件・半角空白区切りで追記する純関数。
+        #   modSparseはPURE_LOGIC_MODULESのままシートI/Oを持てない(設計書§3
+        #   Phase3・調査agent7 §3.3)ため、シートを読む側(modAskRetrieve)が
+        #   文字列化した地図を渡す構成にした。一致判定はmodSparse.
+        #   NormalizeForSearchを両辺に通すので全角/半角の表記ゆれも吸収する。
+        # MergeSynPairs(2026-08-05 R17H FA-1 / A-H1): 旧synonyms CSV+新CSV→
+        #   統合CSV のマージ規則。実体は modSynonymStore.MergeAndSave にあり、
+        #   ParseSynResp が返す【0始まり】の配列を 1〜n で読んでいたため実データ
+        #   では毎回「添字が範囲外」で握り潰され、synonyms が永久に0行だった。
+        #   配列の起点に依存しない「文字列→文字列」の純関数へ切り出し、
+        #   modTestsPure17 のゴールデンで固定する(Store側は薄く呼ぶだけ)。
+        # HasGlobalSignal(2026-08-05 R17H FA-6 / A-M7・B-H2): 俯瞰(全体像・
+        #   一覧)を求める語彙シグナル。「全体像は?」のような短文が段0判定を
+        #   呼ばれず IsTooVague の聞き返しにも吸われて、俯瞰が一度も試されない
+        #   狭間を塞ぐ。HasCompoundSignal と同じ「質問文の文字列パターン検知」。
+        "required": ["ParseExpand", "ParseRankOrder", "ExtractAnswer", "ParseSubqueries",
+                     "ParseQuestionLines", "IsErrorResponse", "BuildErrorAnswer",
+                     "ParseDecomposeVerdict", "ParseParts",
+                     "ParseOptions", "ParseChoiceNumbers", "HasCompoundSignal",
+                     "ParseOutlineResp", "ParseChapterPick",
+                     "ParseSynResp", "ExpandQueryBySyn",
+                     "MergeSynPairs", "HasGlobalSignal"],
+    },
+    "modAsk": {
+        "closed": True,
+        # CanFollowup/AskFollowup: 続けて質問=深掘り機能(裁定D11・RIBBON_API_CONFIRMED.md §2b)
+        # LastAnswerText: Nexus UI(modApp)が直近回答をバブル表示するためのゲッター。
+        # LastHit*: Peek View(出典ポップアップ)用の読み取り専用アクセサ。直近回答が
+        #   根拠にした出典(source/page/origin/本文)をUI層(modPeek)へ公開する。0始まり。
+        # LastConfidence/LastConfidenceText: 回答の信頼度(2/1/0)とその説明文。
+        #   検索スコアという機械側の情報を人間が判断に使える形でUI層へ渡す
+        #   (2026-07-26: 利用者が回答の正誤を判断できずフィードバックが集まらない
+        #   という課題への対処。共有知フライホイールの入口)。
+        # FeedbackUnsure: 🤔微妙(入力を求めない1クリック評価)。
+        "required": ["AskFromUI", "Answer", "FeedbackGreen", "FeedbackYellow", "FeedbackRed",
+                     "FeedbackUnsure", "CanFollowup", "AskFollowup", "LastAnswerText",
+                     "LastTopSource", "LastConfidence", "LastConfidenceText",
+                     "LastHitCount", "LastHitSource", "LastHitPage", "LastHitOrigin", "LastHitPeek",
+                     # LastGenHitCount(2026-08-20 R34 F1): 直近ターンで【生成に
+                     #   渡した】件数(deep の精読で足した近傍を含む)。表示系は
+                     #   従来どおり LastHitCount までしか見ず、ここまで見てよいのは
+                     #   出典突合(modMode.AnnotateIfNeeded)だけ ―― 近傍のページを
+                     #   引いた正当な出典を「(出典確認できず)」と誤判定させない。
+                     "LastGenHitCount",
+                     # 2026-07-28: modAskRetrieve への切り出し(レビューI-2)に伴い公開。
+                     # HistoryBlock=拡張プロンプトに載せる直近履歴、
+                     # IsErrorResponse=#ERR:応答を検索途中で捨てる判定。
+                     # NoteGeneralAnswered(2026-08-03 R14-1b): 一般アシスタントで
+                     #   答えたことを「直近の回答」として記録する唯一の窓口。
+                     #   これが無いと一般モードの「解決した」が、前のRAG質問の
+                     #   回答を解決したことにされる(実機第3報 RC2)。
+                     # ApplyAnswerTags(2026-08-03 R14-8a): answer_tags時の本文抽出。
+                     #   入念モードの各段(modAskThorough)も同じ規約で取り出す必要が
+                     #   あるため公開した(2実装に分かれると片方だけ<thinking>が漏れる)。
+                     # IsErrorResponse は 2026-08-03 R14-G1 で modRagParse へ移設
+                     #   (#ERR: 応答のパースであり、容量的にもmodAskに置く理由が無い)。
+                     # CanShareInsight(2026-08-03 R14-G1): 直近回答を部内へ発信して
+                     #   よいか。判定材料(モード・出典件数)はmodAskのモジュール変数
+                     #   にしか無いので、UI層(modAppAct)の訂正共有もこの窓口を通す。
+                     # NoteAnswerFailed(2026-08-03 R14-G2): 回答を作れなかったターン。
+                     #   これが無いと、一般モードの失敗直後の感想ボタンが【前の質問】
+                     #   の状態で受理される。
+                     # SetPrevMemory/ResetPrevMemory(2026-08-12 R28-W4): モード切替の
+                     #   橋渡し(modAppState.BridgeConvMemory)と会話クリア
+                     #   (modApp.OnClearChat)からmPrevU/mPrevAを直接書く窓口。
+                     #   ui_stateへ書くだけではCanFollowupの遅延ロードがmPrevU非空時に
+                     #   再読込しないため、切替前の古い会話が深掘りに残った(実機第13報⑥)。
+                     "HistoryBlock", "CanShareInsight", "NoteAnswerFailed",
+                     "NoteGeneralAnswered", "ApplyAnswerTags",
+                     "SetPrevMemory", "ResetPrevMemory"],
+    },
+    # 2026-07-28 レビューI-2対応でmodAskから切り出した検索層。
+    # modAskのモジュール変数を触らず、引数のhits()だけで完結する。
+    # RunDeepScoped/RunUnscoped(2026-08-03 R13-5c): 深掘り(followup かつ deep)の
+    #   スコープ内多段検索と、その退避先である従来経路。modAsk はこの2本しか
+    #   呼ばない(retrieve_mode の判断を2箇所に書かない)。
+    # PlanAskStages/ShowAskStage(R13-9b): 質問処理の段階ナレーション。
+    #   何段通すかを先に決めてから「(2/4) 資料を照合中…」を出す。
+    "modAskRetrieve": {
+        "closed": True,
+        # LastStageTotal(2026-08-06 R20-6a): 直近ターンで計画した段の総数を
+        #   modLive.Footer へ見せる読み取り専用の窓口(0=番号なし)。
+        # DispersionThresholdFor(2026-08-06 R20-6d): 分散閾値をモード別に選ぶ
+        #   純関数。「入念に調べる」だけ資料確認を優先する姿勢へ倒す。
+        "required": ["RunMultiRetrieve", "ApplyLowHitWarning", "IsTooVague", "HitSourceList",
+                     "RunDeepScoped", "RunUnscoped", "PlanAskStages", "ShowAskStage",
+                     "LastStageTotal", "DispersionThresholdFor"],
+    },
+    # modAskThorough(2026-08-03 R14-8a): 「入念に調べる」専用の生成パイプライン。
+    #   実機第3報 RC8「deep と thorough が生成側で完全に同じ(下書き・検証の
+    #   プロンプトもモデルも effort も共有)」への対処で、入念だけを
+    #   要点整理→下書き→自己批判→検証→出典の機械的突合 の5段にする。
+    #   quick/deep の経路は1行も変えない。
+    #   RunThoroughFlow が唯一の入口(modAsk から1箇所だけ呼ばれる)。
+    #   残りは最後の出典突合の部品で、LLMを一切使わない純ロジック。
+    #   AnnotateAgainstHits がログ付きの本体、CiteIndexFrom/NormalizeCiteTag/
+    #   ExtractCiteTags/IsCiteTag/TagIsKnown/AnnotateCitations は
+    #   modTestsPure11 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST
+    #   にも登録済み。未登録だとテストが実行時エラー12で走らない)。
+    #   UNVERIFIED_MARK は付記の文言で、テスト側と表示側の単一情報源。
+    # modAskMulti(2026-08-05 R16-3A): 複合質問の分解 → 論点ごとの調査 → 統合。
+    #   入念モードだけ段0(分解判定)を1回足し、verdict=parts のときに論点ごとの
+    #   検索+副下書きを回して1本へ統合してから、自己点検・検証・出典突合へ渡す。
+    #   TryDecomposed が唯一の入口(modAsk の thorough 分岐から1箇所だけ)で、
+    #   False を返したら呼び出し元は従来どおり modAskThorough.RunThoroughFlow を
+    #   実行する=分解は上積みであって置き換えではない。
+    #   VerifyNote は modAsk が検証注記を取る【唯一の窓口】。分解経路のターンは
+    #   自前の注記を、通らなかったターンは modAskThorough の注記を中継する
+    #   (窓口が2つあると、分解したターンに前回の single 経路の注記が付く)。
+    #   StepNote は usage_log の ask_steps へ足す "dec=論点数"(読んだら消える)。
+    #   ShouldDecompose/PerPartTopK/BuildPartSection は発動条件・論点あたりtopK・
+    #   統合入力の1節の組み立て(部分失敗の文言込み)という純ロジックで、
+    #   modTestsPure14/15 が真理表で固定する(run_lo_tests.py の PURE_ALLOWLIST にも
+    #   登録済み。未登録だとテストが実行時エラー12で走らない)。
+    #   ShouldClarify/BuildClarifyAsk(2026-08-05 R16-3B): 読み方が定まらない質問へ
+    #   返す番号選択肢の逆質問。発動条件(clarify_mode と選択肢2件以上)と本文の
+    #   組み立てだけで、LLMは1回も呼ばない(段0の判定でもう材料が揃っている)。
+    "modAskMulti": {
+        "closed": True,
+        # DecomposeGate(2026-08-05 R18H FB-2 / A-L9): 段0を呼ぶかどうかの最終
+        #   判定(ShouldDecompose OR modRagParse.HasCompoundSignal)。実装と
+        #   modTestsPure16 が同じ1本を呼ぶために Public 化した(従来はテストが
+        #   同じ式を書き写しており、片方だけ直しても検知できなかった)。
+        "required": ["TryDecomposed", "VerifyNote", "StepNote",
+                     "ShouldDecompose", "DecomposeGate",
+                     "PerPartTopK", "BuildPartSection",
+                     "ShouldClarify", "BuildClarifyAsk"],
+    },
+    # modAskFocus(2026-08-05 R16-3C): 精読=根拠チャンクの前後を一緒に読む。
+    #   NeighborExpand が唯一の入口(modAskThorough / modAskMulti の2箇所から、
+    #   いずれも「材料が確定した直後に1回」だけ呼ばれる。R16H FA-4 で
+    #   modAskRetrieve.FinishDeep からの呼び出しは外した=deep には効かない)。
+    #   ParseChunkKey/NeighborIdList は chunk_id からの文書順復元と前後取りの
+    #   純ロジックで、modTestsPure15 が真理表で固定する(run_lo_tests.py の
+    #   PURE_ALLOWLIST にも登録済み。未登録だとテストが実行時エラー12で走らない)。
+    #   PURE_LOGIC_MODULES には載せない(my_knowledge を直接 Range 読みするため)。
+    #   RefsExpand / ArticleEnsure(2026-08-05 R17 Phase1): 物理近傍ではなく
+    #   【意味の上で繋がっているチャンク】を足す2本。RefsExpand は根拠チャンクの
+    #   refs_out を1ホップ展開して同じ資料の中から参照先を束ね(modAskThorough /
+    #   modAskMulti の NeighborExpand 直後から1行ずつ)、ArticleEnsure は質問が
+    #   名指しした条番号のチャンクが1件も無いときだけ先頭へ入れる
+    #   (modAskRetrieve.RunMultiRetrieve から)。config graph_refs のゲートと
+    #   「chunk_meta が無ければ無操作」の判定はこの層に閉じるので、呼び出し元は
+    #   どれも1行のまま=検索の当て方は1文字も変わらない。
+    "modAskFocus": {
+        "closed": True,
+        "required": ["NeighborExpand", "ParseChunkKey", "NeighborIdList",
+                     "RefsExpand", "ArticleEnsure"],
+    },
+    # modAskGlobal(2026-08-05 R17 Phase2): 俯瞰質問(疑似グローバル検索)。
+    # TryGlobal: doc_outline の章要約を1回のプロンプトへ載せて読むべき章を
+    #   選ばせ(chapter_pick)、選ばれた章の本文を文書順に集めて1回で回答を
+    #   作る(global_answer)。追加のLLM呼び出しは1質問あたり2回。
+    #   不発(graph_outline=off / doc_outline 0行 / 章が選ばれない / 章の
+    #   チャンクが引けない / 回答生成の失敗)は全て False で、呼び出し元
+    #   (modAskMulti)は従来の入念フローへ落ちる=フェイルセーフはこの層に閉じる。
+    # OutlineActive: そのフェイルセーフの単一情報源(0行なら俯瞰は動かない)。
+    # WasGlobalTurn/ResetGlobalTurn(2026-08-05 R17H FA-2 / A-H2・B-H1):
+    #   直近ターンが俯瞰だったかの1ビット。俯瞰の hits は score=0(章の要約から
+    #   選んだもので検索スコアではない)ため、低関連度の警告と信頼度バッジが
+    #   同時に付いて【正しく答えた回答】が二重に否定されて見えていた。点数は
+    #   変えず表示だけを出自どおりに直すために、表示側(modAskRetrieve /
+    #   modUINexusDraw)へこの1ビットだけを公開する。リセットは
+    #   modAskMulti.TryDecomposed の入口1箇所(印を次のターンへ残さない)。
+    "modAskGlobal": {
+        "closed": True,
+        # CollectChapterHits(2026-09-06 R38): 1回読み(modAskOnePass)が章ごとの
+        #   予算で章本文を引くために Public 化(Optional capTotal/maxHits=0 は従来)。
+        "required": ["TryGlobal", "OutlineActive", "WasGlobalTurn", "ResetGlobalTurn",
+                     "CollectChapterHits"],
+    },
+    # modAskOnePass(2026-09-06 R38): 入念モードの単発経路を章丸ごと読み+1回
+    #   呼び出しに置き換える。Enabled/TryOnePassが唯一の入口(modAskThorough.
+    #   RunThoroughFlowの先頭1箇所から呼ばれる)。IsOn/DedupeKeys/
+    #   PerChapterCap/CountLines/BuildOnePassPromptは文字列・数値だけの
+    #   純関数でmodTestsPure43が固定する。SourceBlockOfはHit型を跨ぐ内部
+    #   組み立て(本文ブロック+重点抜粋)で Private(契約に載せない)。
+    #   ConsumeOnePassTurn(R38 Fix F4): 直近ターンが1回読みで完結したかを
+    #   modLive.Footer が消費するための出口。
+    "modAskOnePass": {
+        "closed": True,
+        "required": ["Enabled", "TryOnePass", "BuildOnePassPrompt", "IsOn",
+                     "DedupeKeys", "PerChapterCap", "CountLines",
+                     "ConsumeOnePassTurn"],
+    },
+    "modAskThorough": {
+        "closed": True,
+        # VerifyNote(2026-08-03 R14-G11): 検証段が落ちたターンの内部注記。
+        #   本文へ混ぜると mLastCleanAnswer(=会話履歴と「解決済みQ&A」の部内
+        #   共有)にまで注記が入るため、modAsk が整形の後に足せるよう別で返す
+        #   (deep の RunDeepFlow と同じ並びに揃えた)。
+        # ThoroughVerifyPrompt(2026-08-06 R20-6f): BuildDeepVerifyPrompt(凍結)の
+        #   戻り文字列へ、入念モードだけの文体指示(構造化・出典明記・断定回避)を
+        #   連結する。quick/deepは1文字も変えない。
+        # ThoroughDigestPrompt/ThoroughDraftPrompt(2026-08-07 R21-2 D3・実機
+        #   第8報⑧): ThoroughVerifyPromptと同型の連結機構。BuildSourceDigest
+        #   Prompt/BuildDeepDraftPrompt(いずれもmodPrompts凍結)の戻りへ、
+        #   免責事由(支払わない場合)も対象に含める観点を追記する。
+        # ExpandPromptWithSynonymHint(2026-08-13 R30 W2-6・実機第15報D班):
+        #   上記と同型の連結機構だが、expand段は全モード共通(thorough限定
+        #   ではない)。modAskRetrieveがBuildExpandPrompt(凍結)の戻りへ
+        #   呼ぶ1行連結の実体(余裕モジュールへ置く容量裁定)。
+        # ThoroughStyleAddendum/ExemptionCoverageAddendum(2026-09-06 R38 Fix
+        #   F7): Private→Public化。modAskOnePass.BuildOnePassPromptが同じ
+        #   文言を単一情報源として通す(2箇所に分裂していた文言の統合)。
+        "required": ["UNVERIFIED_MARK", "RunThoroughFlow", "AnnotateAgainstHits",
+                     "CiteIndexFrom", "NormalizeCiteTag", "ExtractCiteTags",
+                     "IsCiteTag", "TagIsKnown", "AnnotateCitations", "VerifyNote",
+                     "ThoroughVerifyPrompt", "ThoroughDigestPrompt", "ThoroughDraftPrompt",
+                     "ExpandPromptWithSynonymHint", "ThoroughStyleAddendum",
+                     "ExemptionCoverageAddendum"],
+    },
+    # ---- 7.4 パック層 ----
+    "modPii": {
+        "closed": True,
+        # NormalizeWidth(2026-08-16 R33 W2-7): 走査前の幅正規化。共有発信側の
+        # 関所(modInsightGate.PiiBlocked)が StripDateLike の【前】に通す必要が
+        # あるため Public。ScanText 内側の均しは残す(冪等なので二重でも同値)。
+        "required": ["ScanText", "NormalizeWidth"],
+    },
+    "modPack": {
+        # §7.8 が「ValidatePackの列検査部を純関数に切り出してテスト可能に
+        # する」ことを求めているが名前が未確定のため open にして、名前不明の
+        # 追加Publicまでは許容する(3つの契約関数の欠落だけは検出する)。
+        "closed": False,
+        "required": ["ImportPackDialog", "ValidatePack"],
+    },
+    # 2026-07-28 レビューI-2対応でmodPackから切り出した発行(書き出し)側。
+    "modPackExport": {
+        "closed": False,
+        "required": ["ExportPackDialog", "ExportPackToFile"],
+    },
+    # ---- 7.5 統計層 ----
+    "modStats": {
+        "closed": True,
+        # EXP/レベル(ゲーミフィケーション): AddExp=加点イベント口、ExpTotal/Level/
+        # LevelProgress/ExpFloorForLevel はダッシュボードが読む集計ゲッター。
+        # GetStatText/SetStatText: 部門チャンネルの取り込み済み版番号など、
+        #   数値でない状態を持つための文字列アクセサ(2026-07-26)。
+        "required": ["GetStatText", "SetStatText", "Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
+                     "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
+                     "ReportNoise", "NoiseThreshold", "ExcludedSources",
+                     "MarkGlobalExcluded", "ResetGlobalExcluded",
+                     "IsGloballyExcluded", "GlobalExcludedSources",
+                     # 2026-07-28(解説書 §11-11): バッジ表の単一情報源。
+                     # 判定(EvaluateBadges)と表示(modDash/modHub)で表が
+                     # 二重化していたため、獲得しても表示されないバッジが
+                     # 4種あった。判定を持つ側が名前も持ち、表示は読むだけにする。
+                     "BadgeCatalog", "BadgeEarnedOn",
+                     # 2026-07-31(R11-H Med3): 起動中のバッジ獲得告知を積んで
+                     # 画面確定後にまとめて1本出すための遅延キュー。
+                     "BeginDeferredBadges", "FlushBadgeToasts",
+                     # AskTotalAll(2026-08-03 R14-1a): 質問回数の合算の単一情報源。
+                     # quick+deep 決め打ちが3箇所にあり、入念モードの質問が
+                     # どこにも出てこなかった(実機第3報 RC1)。
+                     "AskTotalAll"],
+    },
+    # ---- 7.6 UI層 ----
+    "modUIMain": {
+        # opt機能ボタンのラッパー(OnTtsButton等、§7.7末尾)は名前未確定で
+        # モジュール分担も未確定のため open。契約に載っている10個の欠落だけ
+        # 検出する。
+        "closed": False,
+        "required": [
+            "EnsureLayout", "SetStage", "RenderAnswer", "RenderSourcesPreview",
+            "OnAskButton", "OnModeQuick", "OnModeDeep", "OnOpenHowto",
+            "OnRunDiag", "ShowTip",
+        ],
+    },
+    "modUIShelf": {
+        "closed": False,  # 同上(opt機能ボタンラッパーを許容)
+        # 2026-07-31(R11-E H-5): OnAddFiles/OnSyncNow/OnPickFolder/OnExportPack/
+        # OnImportPack/OnBackToChat+AddButtonは、どのShapeのOnActionからも
+        # 参照されない死にコードだったため削除した(実装は modKnowledge 側の
+        # 同名+同等ハンドラに一本化済み)。契約の必須名からも外す。
+        "required": [
+            "EnsureLayout", "RenderShelf", "OnDeleteSource",
+        ],
+    },
+    # modChrome(2026-07-30 R4要件C/D): ツールバーとヘッダーピルの配置計算だけを
+    # 集めた純ロジック(R4準拠)。「ボタンが見切れる」「タイトルに重なる」は
+    # どちらも算数の誤りだったので、算数だけを実行テストで固定できる形にした。
+    # 表示側の都合で補助関数が増えうるため open。
+    "modChrome": {
+        "closed": False,
+        "required": [
+            "SumSpan", "FlowLeft", "FlowRight", "TitleReserve",
+            "TextSpan", "ClipToWidth", "PillWidth",
+        ],
+    },
+    # modShareRule(2026-07-31 R8): P2P/共有系の判定式だけを集めた純ロジック。
+    # WIP段階のため open(補助関数が増えうる)。
+    "modShareRule": {
+        "closed": False,
+        "required": [
+            "OriginKind", "AuthorStatKey", "ProbeIsReachable",
+            "ExpiryDecision", "StandardSubDirs",
+        ],
+    },
+    "modBoot": {
+        "closed": True,
+        # RunFirstRunPromptEarly(2026-07-21追加): 自己インストーラの
+        # Workbook_OpenがOnTime予約前に同期呼び出しする外部入口。Bootと同じ
+        # 理由(自己インストーラ文字列からApplication.Runで呼ばれる)で必要。
+        "required": ["Boot", "Auto_Open", "Auto_Close", "RunFirstRunPromptEarly"],
+    },
+    "ThisWorkbook": {
+        # Workbook_Open/Workbook_BeforeClose は薄い転送のPrivateイベント
+        # ハンドラのみで、Publicは想定されていない(§7.6末尾)。
+        "closed": True,
+        "required": [],
+    },
+    # ---- 7.7 opt層(全モジュール共通でPing必須) ----
+    "optTts": {"closed": True, "required": ["Ping", "SpeakAnswer"]},
+    # HasClipboardImage/SaveClipboardImage: スクショ取込(裁定D13・RIBBON_API_CONFIRMED.md §2b)
+    # ExtractPdfOcrPagedText: 画像PDF(E0303)のOCR取込(2026-07-31 R6)。Ghostscriptで
+    # ページ毎にJPEG化→1ページ=1回のChatGPTV→modUtil.JoinPagedTextで1本の文字列。
+    # ResetGsGuidance(2026-07-31 R10-2): GS未検出の案内カード(セッション1回きり)
+    # を再提示可能に戻す。modShelf.AddFilesResultからmodFeatures.InvokeFeature
+    # 経由で呼ばれる(実機初報Aの観測性・堅牢化対応)。
+    # ExtractPdfTextNoOcr(2026-07-31 R10-3): テキストPDFのCOM無し抽出の受け口。
+    # 実体はoptGsTxt(optVisionに容量が無いための分割)で、ここは
+    # modFeatures.InvokeFeature("vision", ...) の行き先がoptVision固定である
+    # ことに合わせた薄い転送。
+    # FindGsExeByCandidates/PathExists は optGsTxt へ貸すためのPublic
+    # (R10-3 / R10-3b)。前者は案内カードを出さない「静かなGS解決」、後者は
+    # Dir$による実在確認。コア側からは呼ばない(opt層内の参照はR2の対象外)。
+    # OcrCapMemo(2026-08-03 R14-4c): OCRが上限ページで打ち切られたことを
+    # 本棚カードのメモへ渡す唯一の経路(コア層はoptモジュール名を書けないため、
+    # modFeatures.InvokeFeature("vision","OcrCapMemo") から呼ぶ受け口が要る)。
+    # IsVisionError / SafeResultToString(R14-4a): ページOCRのループを
+    # optOcrPage へ移した際、同じ判定を2箇所に持たないためPublic化した
+    # (opt層内の参照なのでR2に触れない。憲章§4-5)。
+    # OcrConfirmAsk / OcrDeclineMemo(2026-08-04 R15-7b): 何時間もかかる資料の
+    # 事前確認。判断(頁数×レート≧ocr_confirm_min_minutes)と文面はopt側の
+    # 純ロジックが持ち、聞く場所(MsgBox)はコア層(modShelfVision)にある。
+    # コア層はoptモジュール名を書けない(R2)ので、この2本がその窓口になる。
+    # OcrCacheGc(R15-7d): 頁キャッシュの孤児行の起動時GC。modBootの既存GC群
+    # (nxocr_*/mbtmp_*)と同じ線で1回だけ呼ばれる。
+    "optVision": {"closed": True, "required": ["Ping", "ExtractImagePdf", "ExtractImagePdfText",
+                                               "ExtractPdfOcrPagedText", "OcrCapMemo",
+                                               "HasClipboardImage", "SaveClipboardImage",
+                                               "ResetGsGuidance", "ExtractPdfTextNoOcr",
+                                               "FindGsExeByCandidates", "PathExists",
+                                               "IsVisionError", "SafeResultToString",
+                                               "OcrConfirmAsk", "OcrDeclineMemo",
+                                               # OcrCachePurge(R15-FixB FB-1):
+                                               # done で確定した資料の頁控えを
+                                               # 消す受け口。コア層は opt名を
+                                               # 書けない(R2)ので、InvokeFeature
+                                               # から呼べる窓口がここに要る。
+                                               "OcrCacheGc", "OcrCachePurge"]},
+    # optOcrPage(2026-08-03 R14-4a): 画像PDFのページ描画とOCRの実行ループ。
+    # 20ページずつGSを起動し、そのバッチをOCRし終えたら即座にJPEGを消す
+    # (上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページの
+    # TryRibbonRun の前後で DoEvents を回し、「1ページ分より長くは固まらない」
+    # 構造にする(同期Application.Runのハード中断は構造上不可能=制約)。
+    # optVision が28,000字のWARN帯に達したための容量分割でもある(憲章§4-6)。
+    # 純ロジックではない(Shell起動・待ち・ファイル削除・ログ)ので
+    # PURE_LOGIC_MODULES には載せない。opt層に置く以上 Ping を持たせる。
+    "optOcrPage": {"closed": True, "required": ["Ping", "OcrPdfByBatch"]},
+    # optGsTxt(2026-07-31 R10-3 / R10-3b): Ghostscript実行の共通道具
+    # (MakeOcrFolder/RunGsAsync/WaitForDoneFlag/CleanupOcrFolder。R10-3bで
+    # optVisionから移設)と、txtwriteによるテキストPDF抽出(PDF本文抽出の
+    # 第1選択。Word/AcrobatのOLE待ち回避)。opt層に置く以上、他のoptと同様に
+    # Ping を持たせる。純ロジックではない(Shell起動・ファイルI/O・ログ)ので
+    # PURE_LOGIC_MODULES には載せない。
+    # GsFailureDetail(2026-07-31 R11-D・監査3 H-2): 完了フラグの中身(GSの
+    # 終了コード)と gs_out.log の末尾を読み、err_log の detail にそのまま
+    # 入れられる1本の文字列にする。optOcrPage(OCR経路)からも呼ぶ。
+    # GsExitCode は 2026-08-03 R14-F13 で削除(終了コードは待ちループと
+    # GsFailureDetail が読んでおり、外からの呼び出しが1件も無かった)。
+    # LastGsTotalPages(2026-08-04 R15-5a・実機第4報 RC2): 直近の txtwrite 実行で
+    # 判明した総ページ数。GSは最初に "Processing pages 1 through N" を出すので、
+    # OCRへ回る資料の総頁は【OCRを始める前に】既に分かっている。従来これを
+    # 誰も拾わず、OCR側は最終バッチに入るまで分母もETAも出せなかった。
+    "optGsTxt": {"closed": True, "required": ["Ping", "ExtractPdfTextNoOcr",
+                                              "MakeOcrFolder",
+                                              "WaitForDoneFlag", "CleanupOcrFolder",
+                                              "GsFailureDetail", "LastGsTotalPages"]},
+    # optGsProc(2026-08-03 R13-F2): Ghostscriptプロセスの起動と停止だけを
+    # optGsTxt から切り出したもの。PID再利用よけの本人確認(WMI Win32_Process
+    # の名前照合)と rc=0/PID不明の扱いを足した結果 optGsTxt が28,000字の
+    # WARN帯へ入ったための容量分割(憲章§4-6)。RunGsAsync は optGsTxt と
+    # optVision の両方から、KillGsTree は optGsTxt の待ちループから呼ばれる。
+    # 純ロジックではない(Shell起動・kernel32・ログ)ので PURE_LOGIC_MODULES には
+    # 載せない。opt層に置く以上、他のoptと同様に Ping を持たせる。
+    # 2026-09-08 R40 F1: AMSI 誤検知(Office 強制終了)対策で WMI/cmd.exe/
+    # WScript.Shell を廃止し Shell+kernel32 直起動へ。GS の終了を見て完了
+    # フラグを VBA が書く SyncDoneFlag を追加(optGsTxt の待ちループが呼ぶ)。
+    "optGsProc": {"closed": True, "required": ["Ping", "RunGsAsync", "KillGsTree", "SyncDoneFlag"]},
+    # OpenAnswerInWord: 確定関数OpenWordMarkのラッパー(裁定D6)。
+    # ExportAnswerAsDoc: 対話型Word文書生成(裁定D12・指示文→LLM整形→OpenWordMark)
+    "optMarkdown": {"closed": True, "required": ["Ping", "RenderMarkdownAt", "OpenAnswerInWord",
+                                                 "ExportAnswerAsDoc"]},
+    "optDiffDoc": {"closed": True, "required": ["Ping", "CompareTwoDocsDialog"]},
+    # optOcrCore(2026-07-31 R6): 画像PDFのOCR取込で使う「文字列の組み立てだけ」を
+    # 集めた純ロジック(R4準拠)。GSコマンドの引用符の付け方が最大の地雷なので、
+    # そこだけを副作用ゼロで切り出し modTestsPure4 のゴールデンテストで固定する。
+    # modFeatures経由では呼ばれない(optVision専用の部品)が、opt層に置く以上
+    # 他のopt同様に Ping を持たせる。
+    "optOcrCore": {
+        "closed": True,
+        "required": [
+            "Ping", "BuildGsCommand", "BuildRunCommand", "TempFolderFor",
+            "OutPatternFor", "DoneFlagFor", "PageJpgName", "RenderCapFor",
+            "IsTruncatedCount", "KeepPageCount", "SafeDpi", "SafeMaxPages",
+            # R9: Ghostscript実行ファイルの解決候補列挙(配布・自動検出)。
+            "GsCandidatePaths", "GsCandidatesForFolder",
+            # R10-3: txtwriteによるテキストPDF抽出のコマンド組み立てと採否判定。
+            # R10c: 採否判定を3値化(image/sparse/ok)し、その材料である
+            # 「空白類を除いた文字数」と「実ページ数」も純ロジックとしてここへ集めた
+            # (CleanTextLenはR10cでoptGsTxtから移設)。
+            "BuildGsTextCommand", "GsTextVerdict",
+            "CleanTextLen", "GsPageCount",
+            # R11-D(監査3 H-2): GS実行の観測性。標準出力/標準エラーの落とし先
+            # (GsLogFor)と、完了フラグに書かせた終了コードの読み取り
+            # (GsExitCodeFromFlag)。どちらも純粋な文字列処理。
+            "GsLogFor", "GsExitCodeFromFlag",
+            # R13-1b/1c/1d(2026-08-03 実機第2報): GS待ちと失敗分類の判断材料を
+            # 副作用ゼロで切り出したもの。ClassifyGsTextResult は「完了したのに
+            # 本文が空」の本当の理由(image/gsfail/flagdelay)を決める真理表で、
+            # ここを間違えるとスキャンPDFがWordのゴミ本文で「登録成功」になる
+            # (RC1の事故そのもの)。GsTotalPagesFromLog/GsPagesFromLog は
+            # gs_out.log から総ページ数と到達ページを読む進捗監視の目、
+            # GsWaitBanner はその進捗の見せ方。全てLOテストで固定する。
+            "ClassifyGsTextResult", "GsTotalPagesFromLog", "GsPagesFromLog",
+            "GsWaitBanner",
+            # R14-4a/4c(2026-08-03 実機第3報): ページ描画をバッチへ割る算数
+            # (BatchCountFor/BatchBoundsFor)、OCR中の進捗バナーの文面
+            # (OcrPageBanner)、上限打ち切りの正直なメモ(OcrCapMemoFor)。
+            # 上限を100ページへ上げるにあたって足したものは全て副作用ゼロで、
+            # 「20ページずつ描く」「総ページ数が不明なら数字を言わない」という
+            # 判断をLOテストで固定する(RC4の嘘の案内を二度と作らないため)。
+            # 2026-08-04(R15-5b): OcrPageBanner / OcrCapMemoFor /
+            # OcrAbortMemoFor / RemainingWaitSec は optOcrEta へ移設した
+            # (本モジュールが30,000字上限まで残り2,068字となり、R15-5のETAと
+            # R15-6の中断メモが入らなくなったため。憲章§4-6)。ここは純減のみ。
+            "BatchCountFor", "BatchBoundsFor",
+            # R39 F001(2026-09-07・受入指摘§0 F001): 同梱GSのtxtwriteが改ページ
+            # 文字を書き出さないため、ページ別出力("gstext_%04d.txt")を読んで
+            # Chr(12)で連結する側をここへ足した。PageTxtName/JoinPageTextsは
+            # modTestsPure44のゴールデンで固定。MaxPageFileIndex/
+            # ReadPageFilesJoined/LatestPageFileSizeはファイルI/Oを伴うため
+            # Pureテスト対象外(実機でのみ確認)。
+            "PageTxtName", "JoinPageTexts", "MaxPageFileIndex",
+            "ReadPageFilesJoined", "LatestPageFileSize",
+        ],
+    },
+    # optOcrEta(2026-08-04 R15-5b): OCRの「進捗の見せ方」と「打ち切りの
+    # 言い方」だけを集めた純ロジック。optOcrCore からの移設先で、あちらは
+    # GSコマンドの組み立てとページ上限の算数(=Ghostscriptの都合)に専念する。
+    # ETAと終了目安(RemainingText)、中断・頁欠けの正直なメモは、間違えると
+    # 「いつ終わるか分からない」「頁が黙って欠ける」という実機第4報 RC2/RC6 の
+    # 事故そのものへ戻るので、全てLOテスト(modTestsPure13)で固定する。
+    # 現在時刻は引数(nowAt)で受け取る=この中で Now を呼ばないことが、
+    # 終了目安のゴールデンテストを成立させている唯一の条件。
+    # R15-7(2026-08-04 254頁対応)で追加した純ロジック:
+    #   OcrEstMinutes/OcrConfirmAskFor/OcrDeclineMemoFor(7b 事前確認の見積もり
+    #     と文面。これから読む頁数×レートで出し、キャッシュから復元できる頁は
+    #     数えない=全頁揃っている資料では確認そのものが出ない)
+    #   GsBudgetSec(7c 画像化待ち予算の頁数連動。max(config, 頁数×8秒))
+    #   OcrResumeMemo(7d 復元があった取込のメモ冒頭)
+    "optOcrEta": {
+        "closed": True,
+        "required": [
+            "Ping", "BatchLabel", "OcrPageBanner", "RemainingText",
+            "OcrCapMemoFor", "OcrAbortMemoFor", "OcrPartialMemoFor",
+            "RemainingWaitSec",
+            "OcrEstMinutes", "OcrConfirmAskFor", "OcrDeclineMemoFor",
+            "GsBudgetSec", "OcrResumeMemo",
+            # R15-FixA(2026-08-04 レビュー裁定 Fix-A)で追加した純ロジック:
+            #   ComposeOcrMemo(FA-4): 本棚カードのメモの組み立てを1箇所へ。
+            #     「復元の冒頭文は前置・置換禁止」「頁欠け/中断の理由と設定上限の
+            #     説明は連結」という契約をここだけが持つ。従来は optOcrPage と
+            #     optVision.OcrCapMemo が別々に組み立て、後から来たものが前を
+            #     丸ごと置換していたため、事実が片方ずつ消えていた。
+            #   BatchWaitSec(FA-5iii): 1バッチの画像化待ちの上限。資料あたりの
+            #     残り予算をそのまま1バッチへ渡していたため、1バッチ目のハングが
+            #     資料の予算を全部食い潰していた。
+            #   RenderWaitBanner(FA-5i): 画像化待ちの実況文(経過秒つき)。
+            "ComposeOcrMemo", "BatchWaitSec", "RenderWaitBanner",
+            # ClampPageMs(2026-08-04 R15-FixB FB-4): ui_state に永続化される
+            # 1頁あたり実績を常識の幅(3〜120秒)へ丸める純関数。異常値が1度
+            # 混ざると以後ずっと嘘のETAを出し続けるので、読み出しで必ず通す。
+            "ClampPageMs",
+        ],
+    },
+    # optOcrCache(2026-08-04 R15-7d): 画像PDF OCRの頁チェックポイント。
+    # 読めた頁を隠しシート "ocr_cache" へ控え、次の取込で読み直さない。
+    # Vision(ChatGPTV)のハングはVBA側から制御できない(RIBBON_API_CONFIRMED
+    # .md:29 に待ち秒数の引数が無い)ため、被害を限定する唯一の手段が
+    # 「読めた頁を失わないこと」になる(実機第4報 RC7)。
+    # opt層でシートを触る唯一のモジュール。作法(ThisWorkbook経由・
+    # xlSheetVeryHidden)は modEmbed.EnsureVectorSheet を踏襲する。純ロジック
+    # ではない(シートI/O・ログ)ので PURE_LOGIC_MODULES には載せないが、
+    # 鍵の組み立て(DocPrefixFor/CacheKeyFor/CacheTextFor)だけは副作用ゼロで、
+    # LO実行テスト(modTestsPure13)から直接呼んで差し替え検知を固定する。
+    "optOcrCache": {
+        "closed": True,
+        "required": [
+            "Ping", "DocPrefixFor", "CacheKeyFor", "CacheTextFor",
+            "BeginDoc", "CachedText", "SaveRange", "HasSaved",
+            # PurgeFor(2026-08-04 R15-FixB FB-1): 旧 PurgeDoc を置き換えた。
+            # 控えを消してよいのは「OCRが読み切った」ときではなく「資料が
+            # 本棚に done として並んだ」ときで、それを知っているのはコア層
+            # (modShelf)だけ。パスを受け取り、その資料の行だけを消す。
+            "PurgeFor", "FinishDoc", "GcOldRows",
+            "ConfirmAskFor", "DeclineMemo",
+        ],
+    },
+    # ---- R11-F1 分割(憲章§4-6の容量救済)。移設元と新設先を closed で固定し、
+    #      「移したつもりで元にも残っている」「新設先にうっかり公開APIが増える」を機械で止める。
+    # R11-F1: テーマ塊を modSkin へ移設した残り。UiColor/UiTheme/ToggleTheme は薄い委譲として残す。
+    "modUI": {
+        "closed": True,
+        "required": [
+            "InitUI", "AddChatBubble", "UpdateBubbleText", "ChatBottomFor",
+            "BringFixedToFront", "ToggleTheme", "RestoreExcelUI", "EnsureAppView",
+            # EnsureSessionResources(2026-08-01 R12-3-8): X閉じ→キャンセルで
+            # Auto_Close だけが走った後、ホットキー3種と自動同期の予約を
+            # 遷移時に冪等に戻す自己修復。EnsureAppView(表示の自己修復)と
+            # 同じ場所・同じ考え方なので modUI に置き、modBoot.Boot もここを呼ぶ。
+            "EnsureSessionResources",
+            "GoToNexus", "GoToNativeSheet", "ActivateSheetRobust", "ParkFocus",
+            "Repaint", "UiColor", "UiTheme", "FreezeShapePlacement",
+            "RecalcChatBottom", "SettleChat", "ClearChat", "MarkActiveBubble",
+            "BubbleTextOf", "LatestAiBubbleName",
+            # NEXUS_INPUT_PAD_COL(2026-08-07 R21-S6): チャット帯の吸収列。
+            # 再フィットの実体(modViewport2.RefitChatBand)も同じ列を使うため
+            # Public にした(2箇所に "K" を持つと必ず片方が古くなる)。
+            "NEXUS_INPUT_PAD_COL",
+        ],
+    },
+    # R11-F1: modUI からテーマ塊(CurrentTheme/SaveTheme/ThemeColor/ApplyTheme/PaintBubble/PaintActionButton/SetShapeTextColor/ThemeIcon)を受け入れた。
+    "modSkin": {
+        "closed": True,
+        "required": [
+            # ExtendChatBand(2026-08-06 R19-1b): チャットの塗り/ScrollAreaを
+            # 会話の実下端(mChatBottom)へ追随させる。旧実装の A1:P2000 固定
+            # (約31,000pt=40画面ぶん)を廃止した代わりで、modUI.AddChatBubble と
+            # ClearChat から呼ぶ。塗りの持ち主が modSkin なのでここに置く。
+            "ExtendChatBand",
+            # SetOverlayFloor / ClearOverlayFloor(2026-08-10 R27H F2): 重ね表示
+            # (modHelp.ShowHelpCard / modPeek.ShowPeek / modTour.DrawStep)が
+            # 開いている間の下端。ExtendChatBand の適用下端を max(bottomY, floor)
+            # にするための床で、開いたまま質問送信/トグルが走っても別経路が
+            # 会話の下端で境界を貼り直してカードを境界外へ落とさない。
+            # 閉じる側(modHelp/modPeek/modTour の復帰3行)が必ず0へ戻す。
+            "SetOverlayFloor", "ClearOverlayFloor",
+            "BeautifyAll", "StyleShape", "ApplyHeaderDepth", "ApplyGradient",
+            "ApplyLightShadow", "ApplyGreenDepth", "StyleBubble", "ApplySoftShadow",
+            "EffectiveSkin", "ResolveColor", "CycleSkin", "ShowToast",
+            "CurrentTheme", "SaveTheme",
+            "ThemeColor", "ApplyTheme", "PaintBubble", "PaintActionButton",
+            "SetShapeTextColor", "ThemeIcon",
+        ],
+    },
+    # modProgressBar(2026-08-05 R18-1a): modSkin から移設した進捗バナー一式。
+    # modSkin が27,990字(上限まで残り10字)で、実機第5報①の修正(幅の
+    # viewport連動・ZOrder遮蔽の根治・砂時計の停止・孤児バナーの掃除)が
+    # 1行も入らなかったための分割(憲章§4-6)。
+    # PROGRESS_CANCEL_NAME / PROGRESS_WORK_NAME は Public Const:
+    # Private Const はモジュールを跨いで参照できないため(実機VBA/LOとも)。
+    # BarWidthFor は幅決定の純ロジック(modTestsPure15 が固定する)。
+    # SweepOrphans は modHub.EnsureHubLayout からの孤児掃除(取込中は何もしない)。
+    "modProgressBar": {
+        "closed": True,
+        "required": [
+            "PROGRESS_CANCEL_NAME", "PROGRESS_WORK_NAME",
+            # BarHeightFor(2026-08-05 R18H FA-2): 文面が本文可視幅に収まらない
+            # ときバナーを2行ぶんへ広げる判定。幅(BarWidthFor)と同じ流儀の
+            # 純ロジックで、modTestsPure16 が境界をゴールデンで固定する。
+            "BarWidthFor", "BarHeightFor",
+            "PaintProgress", "ClearProgress", "SweepOrphans",
+        ],
+    },
+    # modViewport(2026-08-05 R18-3b / 2026-08-06 R19-1a で拡張): 画面の幾何を
+    # 「見える範囲」に合わせる共通部品。実機第6報①で、ScrollArea はホイールを
+    # 止めない(公式仕様=セル選択とスクロールバーの制限のみ)こと、右余白は
+    # スクロールではなく列幅の【寸法】の問題であることが確定したため、
+    # 5画面が同じ算数を書かずに済むよう共通部品を集約する(憲章§4-5)。
+    #   ApplyScrollBound : ws.ScrollArea の設定(補助手段として維持)
+    #   FitBandToViewport: 吸収列で列帯の合計幅を可視幅ぴったりに合わせる(右余白の唯一の解)
+    #   ContentRight     : 帯・ピル・主ボタンが共有する右端の単一情報源
+    #   BoundAddr        : 塗り/ScrollArea/Lockedが共有する実使用範囲の文字列
+    #   BoundFor         : 列も実測で決める旧口(吸収列方式に移せない画面用)
+    #   ViewportHeight   : 可視高(modUIMain.ViewportWidth の縦版)
+    #   LogViewport      : 実機の可視幅×可視高の観測点(1画面1セッション1回)
+    #   PadPtNeeded / RightEdgeAt / BoundBottomY / ColLetter は純ロジックで
+    #   modTestsPure16 がゴールデンで固定する。
+    "modViewport": {
+        "closed": True,
+        "required": [
+            # 2026-08-06(R19H FB-4 / A-L⑪): BoundFor と ColAt は呼び出し元ゼロの
+            # まま残っていた旧口。吸収列方式(BoundAddr)へ全画面が移った時点で
+            # 役目が終わっており、契約からも外す。
+            # PadUnitsRefine(R19H FA-1 / A-H①): pt↔ColumnWidth のアフィン換算を
+            # 2点の実測から補正する純関数(modTestsPure16 が両基準列で固定する)。
+            # 2026-08-06(R20-1d/1e/1f): 3つ足した。
+            #   RowAt      : pt→行の換算を実測1本にするため Public 化(Hubの
+            #                バッジ帯が「行高15pt固定」の机上換算でずれていた)。
+            #   ResetRowsBelow: 境界より下に残った行高カスタムを既定へ戻す
+            #                (行高を明示した行=使用済み=下スクロール域の根治)。
+            #   ClampD / GalleryColsFor: 幅・列数の純算数(ゴールデン対象)。
+            #   OnWindowResized / ViewportRefitTick / CancelRefit: 窓リサイズ後の
+            #                再フィット(デバウンス)。modUI は容量が無いので実体は
+            #                ここに置き、ThisWorkbook から直接呼ぶ(R20-1f)。
+            # 2026-08-13(R31 W2-1・実機第16報F-B): ResetRowsBelow を契約から
+            # 外し、ReleaseSheetRowsBelow へ置き換えた。UseStandardHeight=True は
+            # 焼き付いた行を解放しない(R30実機実証)ため、ホイールの停止線
+            # (=焼き付きUsedRangeの末尾)を下げる効果がゼロだったため。
+            #   ReleaseSheetRowsBelow: 境界+1行より下を Rows.Delete で解放する
+            #                (Hub/Dash/本棚/チャット共通。冪等・逆転ガード・
+            #                 上限クランプ・削除時のみ usage_log "row_release")。
+            "ApplyScrollBound", "FitBandToViewport", "ContentRight",
+            "BoundAddr", "ViewportHeight", "LogViewport", "RowAt",
+            "ReleaseSheetRowsBelow", "ClampD", "GalleryColsFor",
+            "OnWindowResized", "ViewportRefitTick", "CancelRefit", "RefitAction",
+            "PadPtNeeded", "PadUnitsRefine", "RightEdgeAt", "BoundBottomY",
+            "ColLetter",
+            # Busy3(2026-08-06 R20H FA-2): tick経路がRefitActionへ渡すisBusyの
+            # 組み立て(modUiLock/modShelf/modShelfSyncの3情報源OR)。
+            # RefitAction自体は無変更のまま、呼び出し側の契約をここへ切り出し
+            # modTestsPure21がゴールデンで固定する。
+            "Busy3",
+            # R21-1(実機第8報⑦の構造完治)で3つ足した。
+            #   RowAtFloor : 下端がy以下に収まる最後の行(RowAt=切り上げの対)。
+            #                境界を窓高へ合わせるときに使う ―― 切り上げると
+            #                必ず窓を1行ぶん超え、縦スクロールが生き残る。
+            #   FitsInView : 内容が窓に収まっているか(BoundAddrの分岐・純関数)。
+            #   RefitActiveScreen: 描画末尾のワンショット再描画(S1の保険)からも
+            #                呼ぶため Public 化。組み直しの分岐は1本だけ持つ。
+            "RowAtFloor", "FitsInView", "RefitActiveScreen",
+            # 2026-08-14(R31 Fix波F11・Fix検証パス2周目): Hubの描画前先行塗り
+            # (行1がSeedBurnの均し高のまま=実ヘッダー高より低い状態で境界を
+            # 引き、UsedRangeが最終境界を毎回上回っていた)をBoundAddrの
+            # paintAddr(切り上げ)一致へ揃える。modViewport2/modHubが容量逼迫
+            # のため実体はこちら(BoundAddrの隣)。
+            "PrimePaint",
+        ],
+    },
+    # modViewport2(2026-08-07 R21-1): 「いつ測ってよいか」と「窓に収める調整」。
+    # modViewport(21,524字)へ R21-1 のロジックを全部入れると30,000字上限に
+    # 届くため、憲章§4-6で分割した(原始的な幾何の算数は modViewport のまま)。
+    #   EnsureViewState : 全画面/罫線/見出し/タブ/水平スクロールバーを最終形へ
+    #                     置く。ここを通った後だけ測ってよい(S1)。
+    #   HScrollNeeded / WantHScroll : 水平スクロールバーは狭窓の安全弁だけ(S2)。
+    #   SbWidthFrom / ScrollbarW / VisibleCellW / FitTarget : 帯の目標幅(S2)。
+    #   FitVerify       : 帯>目標なら差分で詰め直す事後検証(S2)。
+    #   ViewMoved / MarkView / ReflowIfMoved : 描画前後で窓が動いたら1回だけ
+    #                     組み直すワンショット(S1の保険)。
+    #   CompressFactor / SetScaleY / ScaleY / SY / HubNeedY / BadgeRowsFor :
+    #                     窓高適応圧縮(S5)。掛け算は SY() 1箇所だけ。
+    #   GridColsFor / GridCardW / GridGapFor / RightGapExceeds : 弾性カードと
+    #                     右端の検算(S3)。上限で頭打ちになった余りは隙間へ。
+    #   ShelfPadCol     : モードごとの吸収列(2段階Fitの廃止・S3)。
+    #   RefitShelfTable / RefitChatBand : 再フィット経路の穴(S6)。
+    #   LogFit / LogChat: フィット直後の5値観測(S7)。
+    # 純関数(HScrollNeeded/SbWidthFrom/ViewMoved/CompressFactor/HubNeedY/
+    # BadgeRowsFor/GridColsFor/GridCardW/GridGapFor/RightGapExceeds/ShelfPadCol)は
+    # modTestsPure22 がゴールデンで固定する。
+    "modViewport2": {
+        "closed": True,
+        "required": [
+            "EnsureViewState", "HScrollNeeded", "WantHScroll",
+            "SbWidthFrom", "ScrollbarW", "VisibleCellW", "FitTarget", "FitVerify",
+            "ViewMoved", "MarkView", "ReflowIfMoved",
+            "CompressFactor", "SetScaleY", "ScaleY", "SY",
+            # 2026-08-07(R21H F3): CompressFactorの引数が固定/可変の2本へ
+            # 分かれたため、HubNeedYを分解したHubNeedYFixed/HubNeedYVariableを
+            # 追加(HubNeedYは後方互換の合計として残置。CompressFactorへは渡さない)。
+            "HubNeedY", "HubNeedYFixed", "HubNeedYVariable", "BadgeRowsFor",
+            "GridColsFor", "GridCardW", "GridGapFor", "RightGapExceeds",
+            "ShelfPadCol",
+            "RefitShelfTable", "RefitChatBand", "LogFit", "LogChat",
+            # 2026-08-10(R27 F2-3・実機第12報①): 埋め草。境界の最終行は
+            # RowAtFloor(切り下げ)で決まるため下端が必ず窓高より上に残り、
+            # そのぶん塗りもScrollAreaも届かない帯になる。行数は増やさず
+            # 最終行の高さを差分ぶん足して窓下端へ届かせる。
+            #   PadRowDelta   : 差分計算と上限クランプの純関数
+            #                   (modTestsPure24 が 0/10/48/49 の境界を固定)。
+            #   PadRowToWindow: 実際に RowHeight を足す側(冪等)。
+            "PadRowDelta", "PadRowToWindow",
+            # 2026-08-13(R30波1・実機第15報): 余白の根治。行高の明示設定は
+            # その行をExcelの内部使用範囲へ焼き付け、ClearFormats でも保存でも
+            # 消えない(Rows.Delete だけが即時に解放できる=実機実証)。
+            # 旧 modUI.InitUI の Rows("1:400").RowHeight=18 が「約10画面ぶんの
+            # 下余白」の正体だったため、18pt行を必要範囲だけに限定し、外は
+            # 削除で解放する。実体をここへ置くのは modUI 残716字 /
+            # modSkin 残163字に入らないため(憲章§4-6)。
+            #   FitChatRows      : 18pt行を「バンド下端+3行」までへ確定させる
+            #                      (暫定→実測の二段構え・冪等)。
+            #   ReleaseRowsBelow : boundRow より下の使用済み行を Rows.Delete で
+            #                      解放し、UsedRange を1回参照して再計算させる。
+            #   ReleaseRange     : 解放範囲の行番号計算(純関数。行1〜4を守る
+            #                      下限クランプと冪等条件。modTestsPure29が固定)。
+            "FitChatRows", "ReleaseRowsBelow", "ReleaseRange",
+            # 2026-08-13(R30F2-1・敵対的レビュー2周目MAJOR裁定): FitChatRowsの
+            # 暫定焼き範囲がバンド下端+SLACKを構造的に超えるため、呼ばれるたびに
+            # 「焼く→即削除」が起きて冪等でなかった。焼き範囲の下端計算を
+            # 純関数化してテストで境界を固定する(modTestsPure29)。
+            "ChatSeedRow",
+            # 2026-08-13(R31 W2-4・実機第16報F-B): 本棚の高水位(mShelfRowHigh)は
+            # セッション毎に0へ戻り、フォールバックの SHELF_MAX_ROW=412(約8画面)
+            # を毎セッション初回に均し・クリアしていた=焼いて即削除の非冪等往復
+            # (R30 F2-1と同型)。フォールバックを窓ぶん/使用済み下端へ頭打ちする。
+            #   SeedRowCap   : その頭打ちの純関数(modTestsPure29が固定)。
+            #   ShelfSeedRow : 窓高と ws.UsedRange を測って SeedRowCap へ渡す口
+            #                  (modKnowledge 残160字のため実体はこちら)。
+            "SeedRowCap", "ShelfSeedRow",
+            # 2026-08-14(R31 Fix波F2): Hub/Dashの「毎描画40行焼き→即削除」往復
+            # (窓高600pt未満で2回目描画時にRows.Deleteが走っていた)を解消する。
+            #   SeedBurn: ShelfSeedRowと同じSeedRowCapの頭打ちで焼く範囲を決め、
+            #             実際にRowHeightを設定する(モジュール実測の都合で
+            #             modHub/modDashではなくここへ実体を置く)。
+            "SeedBurn",
+        ],
+    },
+    # modBackdrop(2026-08-14 R32波4): 画面の「地(背景)」だけを持つ新設モジュール。
+    # 新設理由は容量。受け皿になり得るUI側が軒並み上限30,000字に張り付いており
+    # (modSkin残27/modHub残159/modUIShelf残217/modHubStat残450/modChrome残837)、
+    # 憲章§4-6の「余裕モジュールへ実体を置いて1行呼び出し」の置き場所そのものを
+    # 作る必要があった。
+    #   RestoreShelfHeaderBg: 一覧表の地色塗り直し(W4-2)で一律に消える
+    #                         カード見出し行のグレーを即座に戻す復元点。
+    #   LogStyleFailOnce    : modChrome.ApplyNormalStyleBg の失敗を1セッション
+    #                         1回だけ usage_log へ残す(W4-4)。標準スタイル方式は
+    #                         実機で 1004 と確定し、R28以来ずっと空振りしていたが
+    #                         On Error Resume Next で無言だった。この無言こそが
+    #                         余白問題を8ラウンド見誤らせた構造的原因なので、
+    #                         「効かない実装を黙って残さない」ことを契約にする。
+    #   Apply               : シートの背後にテーマ地色の背景画像を敷く(W4-5)。
+    #                         ホイールの停止線 S=B+k の B(使用済み末尾)を
+    #                         1行も増やさずに地を色づけられる唯一の手段。
+    #                         入口は modChrome.ApplyNormalStyleBg の先頭1行。
+    #   BmpHex              : 1×1・24bit BMP(58バイト)の全バイト列を16進で
+    #                         返す純関数。SetBackgroundPicture 自体はLOで検証
+    #                         できないので、「敷く中身」だけはここを固定して
+    #                         守る(modTestsPure32 がゴールデンで固定)。
+    #   MemoKey / MemoPut   : 「どのシートにどの色を敷いたか」の純関数メモ。
+    #                         描画のたびに呼ばれるため冪等判定に使う。
+    "modBackdrop": {
+        "closed": True,
+        "required": ["RestoreShelfHeaderBg", "LogStyleFailOnce",
+                     "Apply", "BmpHex", "MemoKey", "MemoPut",
+                     # MemoDrop(2026-08-16 R33波5a W5-2): メモから1件だけ落とす
+                     #   純関数。敷設に失敗して背景画像を剥がしたときに
+                     #   「敷いてある」という嘘のメモを消すために単独で要る
+                     #   (MemoPut の前半を切り出したもの。MemoPut はこれを使う)。
+                     "MemoDrop",
+                     # MemoNum(2026-08-16 R33H F14): MemoPut で入れた数値を
+                     #   鍵で引く純関数。背景画像の失敗回数を (シート,色) の
+                     #   組ごとに数えるために要る。旧実装は直前1組の鍵しか
+                     #   持たず、3画面を行き来すると鍵が毎回変わって上限
+                     #   (MAX_APPLY_RETRY)が実質無効化されていた。
+                     "MemoNum",
+                     # 条件付き書式方式(2026-08-16 R33波5a W5-1)。背景画像と
+                     #   併用する二重防御。背景画像は %TEMP% へのファイル生成に
+                     #   依存するが、こちらはファイルI/O・Environ に一切依存
+                     #   しない。呼び口は modViewport.ReleaseSheetRowsBelow の
+                     #   末尾(境界が確定した直後・4画面の唯一の合流点)。
+                     #   ApplyCF   : 境界より下へルール1本を張り替える(冪等)。
+                     #               ★張った直後に UsedRange が伸びていないかを
+                     #               自分で検算し、伸びたら剥がして行を戻し、
+                     #               以後張らない(伸びたら停止線も下がるため)。
+                     #   CfFormula / CfStartRow / CfRowsAddr: 数式・開始行・
+                     #               行アドレスの純関数(modTestsPure34 が固定)。
+                     #   CF_DEPTH_ROWS / CF_MAX_ROW: 深さと最終行(テストが参照)。
+                     "ApplyCF", "CfFormula", "CfStartRow", "CfRowsAddr",
+                     "CF_DEPTH_ROWS", "CF_MAX_ROW"],
+    },
+    # R11-F1: 回答アクション系を modAppAct へ分離した残り(質問→回答/取込/ナビ/終了)。MAX_INPUT_CHARS は modAppAct と共有するため Public。
+    "modApp": {
+        "closed": True,
+        "required": [
+            "MAX_INPUT_CHARS", "LaunchNexus", "OnSend", "ModeCaption", "OnPeek",
+            "OnPeekClose", "OnAddDocs", "OnNavChat", "OnNavHome", "OnNavShelf",
+            "OnRefreshUI", "OnToggleMode", "OnToggleSpeed", "SpeedCaption",
+            "OnLangCycle", "SummonNexus", "HotSend", "OnClearChat", "OnSaveAndExit",
+        ],
+    },
+    # R11-F1: modApp から分離した回答の文脈アクション行(描画4本+ボタン6本のハンドラ)。
+    # R13-6a(2026-08-03): 「続けて質問」の armed followup 一式。InputBoxを廃し、
+    #   既存の広い入力欄+送信ボタンの1本道へ合流させるための印・チップ・解除。
+    #   ArmFollowup は modUIMain.OnFollowupButton / OnActDrill の共通実体、
+    #   ConsumeArmedFollowup は modApp.OnSend が1回だけ引く印、
+    #   RedrawFollowupChip は再描画時の掃除、OnFollowupChipOff は Shape.OnAction。
+    # GateUsesGeneralHistory(2026-08-06 R20-2b): 「続けて質問」ゲートの
+    #   normal/rag分岐を純関数へ出す(注入した2値からの決定表。LOテスト対象)。
+    "modAppAct": {
+        "closed": True,
+        "required": [
+            "DrawActions", "ClearConfidence", "DrawConfidence", "ClearActions",
+            "OnActBad", "OnActDrill", "OnActResolve", "OnActUnsure", "OnActWord",
+            "OnActCopy",
+            # OnActSaveInsight(2026-08-11 R26-3): 💾この会話を本棚に保存。
+            # 文脈アクション行の7個目として配線されるハンドラで、他のOnAct*と
+            # 同じ再入の関所だけを持ち、実体は modInsightCard.SaveLastTurn。
+            "OnActSaveInsight",
+            "ArmFollowup", "ConsumeArmedFollowup", "RedrawFollowupChip",
+            "OnFollowupChipOff", "GateUsesGeneralHistory",
+        ],
+    },
+    # R11-F1: 受信箱(DrawInbox)を modHubStat へ移設した残り。
+    "modHub": {
+        "closed": True,
+        "required": [
+            # HUB_BOUND(2026-08-05 R18-3a/3b/5b): Hub画面の実使用範囲。書式の
+            # 適用範囲・ScrollArea・フッターの境界チェック(modHubStat.DrawFooter)
+            # が同じ1つの値を見るための Public Const。
+            "HUB_BOUND",
+            "EnsureHubLayout", "OnGoChat", "OnGoVault", "OnGoDash", "OnQuickAsk",
+            "OnLangCycle", "OnThemeToggle", "OnHelp", "OnSaveAndExit",
+            "OnCheckUpdates", "OnShareHelp", "OnOwnerReport", "OnAnonFeedback",
+            "OnRedraw",
+        ],
+    },
+    # R11-F1: Hubの数字とお知らせ。DrawInbox を modHub から受け入れた。
+    "modHubStat": {
+        "closed": True,
+        "required": [
+            "AllowShareQueries", "ShareQueriesAllowed", "PendingUpdatesCached",
+            "InvalidatePending", "OnSyncPending", "PendingLabel", "RemoveHubShapes",
+            "ClearBadgeArea",
+            "NumText", "SafeStat", "AskTotal", "SafeSavedMinutes", "SafeChunks",
+            "ChunkUsage", "FmtMin", "DefaultTileValue", "OrgMin", "TilesHeight",
+            # DrawFooter/OnFooterPortal(2026-08-05 R18-5b): Hub最下部の
+            # 「(C) リスクコンサルティング支援部」と社内ポータルへの導線。
+            # modHub が WARN帯まで残り401字だったため描画側もここへ置いた
+            # (DrawInbox を R11-F1 でここへ移したのと同じ判断)。
+            "DrawStatTiles", "DrawInbox", "DrawQuickAskCards",
+            "DrawFooter", "OnFooterPortal",
+        ],
+    },
+    # R11-F1: ツールバーを modKnowledgeBar へ分離した残り(ヘッダー/右肩ピル/モード管理/ハンドラ)。
+    "modKnowledge": {
+        "closed": True,
+        "required": [
+            # SHELF_MAX_ROW / SHELF_PAD_COL / SHELF_BAND / ShelfBound
+            # (2026-08-05 R18-3a/3b → 2026-08-06 R19-1b): 「マイ本棚」シートの
+            # 実使用範囲。table/gallery/shared の3モジュールが書式適用範囲と
+            # ScrollArea の両方で参照するため、共通クロムを持つ modKnowledge が
+            # 単一情報源。固定文字列 "A1:N412"(約6,200pt=8画面ぶん)をやめ、
+            # 描いた内容の実下端から範囲を組む関数へ変えた(R19-1b)。
+            # 2026-08-06(R20-1c/1d): 3モードが共有する「行高の高水位」と、
+            # 描き終えた後の後始末(塗り+ScrollArea+境界より下の行高リセット)を
+            # ここへ集約した。3通りに書くとズレるのは ShelfBound と同じ理由。
+            "CHROME_ROWS", "SHELF_MAX_ROW", "SHELF_PAD_COL", "SHELF_BAND",
+            "ShelfBound", "NormalizeShelfRows", "ShelfRowHigh", "ApplyShelfBound",
+            "DrawChrome", "PrepareScreenView", "IsTableMode",
+            "ContentTop", "SearchCellAddress", "OnGoGallery", "OnGoShared",
+            "OnGoTable", "OnBackHub", "OnHelp", "OnToChat", "OnSearch", "OnGapBoard",
+            "OnChannels", "OnRegister", "OnAddFiles", "OnPackOut", "OnPackIn",
+            "OnSync", "OnPickFolder", "OnDelete", "RefreshCurrent",
+            # OnShowText(R36波1 §3): 📖本文ボタンの薄いハンドラ。判定・描画は
+            # modTextView.ShowActiveRow側(OnDeleteと同型)。
+            "OnShowText",
+        ],
+    },
+    # R11-F1: modKnowledge から分離したツールバー(BAR_H は DrawChrome が行3の高さに使うため Public)。
+    # ToolbarContentRight(2026-08-03 R14-2a・実機第3報 RC10): Shapeを作らず
+    # DrawToolbarと同じ算数(ToolbarSpec+FlowLeft)だけを走らせ、ツールバーの
+    # 実際の右端を返す。modKnowledge.DrawChromeが右肩ピルのアンカーに使う
+    # (ピルがFlowRightで帯の右端へ密着する一方、ツールバーはFlowLeftで
+    # 左詰めのため、ボタンが少ない端末で両者の右端が食い違って見えていた)。
+    "modKnowledgeBar": {
+        "closed": True,
+        # OnBackfillClick(2026-08-06 R20-3・3b): 「⚡仕上げ」ボタンの薄い
+        #   ハンドラ(判定・確認・実処理はmodBackfill側。ここは取込中ガード+
+        #   結果表示+再描画だけ)。
+        # OnToolbarLegend/OnToolbarLegendClose(2026-08-13 R31 W1-2/W1-3):
+        #   ❓凡例ボタンのハンドラと、凡例カード自身のOnAction(閉じる)。
+        #   ツールチップ(Hyperlinks.Add)がShapeのOnActionを殺す(R31実機
+        #   第16報F-A確定)ため撤去し、代わりに全ボタンの説明を1枚のカードで
+        #   まとめて出す方式へ転換した。
+        # ToolbarButtonCaptions(2026-08-13 R31 W1-5): Private ToolbarSpecの
+        #   中身を純ロジックテストから検算するための窓口(Shape/Worksheet
+        #   非生成)。modTestsPure29が❓ボタンの有無を固定する。
+        # StretchToolbarRows(2026-08-13 R31 W3-1): 案C「伸縮両端揃え」の
+        #   段ごと比例配分伸縮を担う純関数(Worksheet非依存)。
+        #   ComputeToolbarLayoutが内部で呼ぶほか、純ロジックテストからも
+        #   直接検算できるようPublicにしている。
+        # OnAccentColor(2026-09-10 R43 2-1): accent面の文字色(濃色/白)を
+        #   WCAG相対輝度から選ぶ純関数。modSkinがWARN帯目前のため実体を
+        #   ここへ置き、modSkin.ResolveColorの"onAccent"から呼ばれる。
+        #   modTestsPure47が輝度判定の境界をゴールデンで固定する。
+        "required": [
+            "BAR_H", "DrawToolbar", "ToolbarContentRight", "OnBackfillClick",
+            "OnToolbarLegend", "OnToolbarLegendClose", "ToolbarButtonCaptions",
+            "StretchToolbarRows", "OnAccentColor",
+        ],
+    },
+    # R11-F1: ギャラリー系を modVaultGallery へ分離した残り(ナレッジ登録フォーム)。
+    "modVault": {
+        "closed": True,
+        "required": [
+            "ShowVaultInput", "OnVaultSubmit", "OnVaultCancel",
+            "RegisterKnowledgeText",
+        ],
+    },
+    # R11-F1: modVault から分離したナレッジ倉庫ギャラリー(カード一覧・検索・ページング)。
+    "modVaultGallery": {
+        "closed": True,
+        "required": [
+            "ShowVaultGallery", "OnVaultSearch", "OnVaultPrev", "OnVaultNext",
+            "OnVaultBackToChat", "OnVaultCardClick",
+            # PageCapFor(2026-08-12 R28 W3-3): 固定9枚(CARDS_PER_PAGE)を廃し、
+            # 列数から1ページの枚数を決める純関数。modTestsPure28がゴールデンで
+            # 固定するためPublicが必要。
+            "PageCapFor",
+        ],
+    },
+    # R11-F1: 本文の描画(KPI/経験値/バッジ/クラスタ地図)を modDashStat へ移設した残り。
+    "modDash": {
+        "closed": True,
+        "required": [
+            "ShowDashboard", "OnDashBackToChat", "OnHelp", "OnDashRefresh",
+            "OnDashRestore",
+        ],
+    },
+    # R11-F1: ダッシュボードの数値+本文描画。KPI_X0/ROW_WIDTH は modDash のヘッダー・管理者行と共有する版面基準のため Public。
+    "modDashStat": {
+        "closed": True,
+        "required": [
+            # 2026-08-06(R20-1b): KPI/バッジのカード幅を帯幅から決める4本。
+            # KPI_CARD_W は【最小】幅、KPI_CARD_MAX_W は上限、ROW_WIDTH は
+            # 最小版面(帯を可視幅へ合わせるときの下限)。実際の版面は RowWidth()。
+            "KPI_CARD_W", "KPI_CARD_MAX_W", "KPI_GAP", "KPI_X0", "ROW_WIDTH",
+            "CardWidthFor", "SetBandWidth", "KpiCardW", "RowWidth",
+            # 追加D-1(2026-08-06・ダッシュのカード群センタリング): 帯幅>版面幅の
+            # ときKPI行/EXPバー/バッジ群のX原点を帯内中央寄せにする2本。
+            "CenterX0", "RowX0",
+            "SavedTimeDeltaLabel", "CountUsageEvent",
+            "IsThisMonthStamp", "IsLastMonthStamp", "UsageBarText", "FormatMinutes",
+            "SafeGetStat", "SafeSavedMinutes", "SafeTotalChunks", "SafeShelfMax",
+            "SafeLevel", "SafeExpTotal", "SafeExpFloorForLevel", "SafeLevelProgress",
+            # DrawChartPlaceholder は 2026-08-05 R18-4(実機第5報③)で削除した
+            # (ナレッジ地図の可視化を撤去。ChartNoteY はバッジ棚の下端=管理者
+            #  セクションの起点として現役なので残す)。
+            "DrawKpiRow", "DrawExpBar", "ChartNoteY", "DrawBadgeShelf",
+            # 2026-08-07(R21-S3/S5): カードが上限で頭打ちになってなお余る幅を
+            # 隙間へ配分して版面を帯の右端まで張る(CardGapFor/KpiGap)。
+            # CenterX0 は非推奨(センタリング廃止)だが算数とゴールデンは残す。
+            # NeedY は窓高適応圧縮の必要量(modDash が CompressFactor へ渡す)。
+            # 2026-08-07(R21H F3): CompressFactorの引数が固定/可変の2本へ
+            # 分かれたため、NeedYを分解したNeedYFixed/NeedYVariableを追加
+            # (NeedYは後方互換の合計として残置。CompressFactorへは渡さない)。
+            "CardGapFor", "KpiGap", "NeedY", "NeedYFixed", "NeedYVariable",
+            # 2026-08-16(R33 W5-18): 本文の起点をヘッダー帯の実高から出す3本。
+            # ピルが2段になった窓(帯48pt→78pt)で、サブタイトルが KPIカードの
+            # 下に潜って一度も見えなくなっていた(本文の起点が定数80固定で、
+            # 帯だけが伸びるため)。Hub が R21-S5 で mHdrH/HeaderH() 化したのと
+            # 同じ形。modDash.DrawHeader/圧縮係数の算出前が SetHeaderH を呼ぶ。
+            "SetHeaderH", "HeaderH", "BodyY0",
+        ],
+    },
+    # R11-F1: 発信/収集/GCと低水準I/Oを modInsightIo へ分離した残り(受信箱シートの参照・選択)。EnsureSheet は modInsightIo から呼ぶため Public。
+    "modInsight": {
+        "closed": True,
+        "required": [
+            "PendingQACount", "GapCount", "PendingQAAt", "IsSelected",
+            "ToggleSelected", "SelectAllPending", "SelectedCount",
+            "PendingRowsRanked", "RowField", "MarkQAConsumed", "SameQuestionCount",
+            "QABodyText", "EnsureSheet", "GapListText",
+            # 2026-08-14(R32 波1): 「みんなの困りごと」の全面修正で追加した
+            # 純関数群。板の判定・組み立て・並び・保持期間・連投抑止・nonce
+            # 重複ガードを Worksheet 非依存の形へ切り出し、modTestsPure30 から
+            # 直接呼んで固定する(この機能は1人テストでは板が常に空になり、
+            # 実機で通しの確認ができない=純関数テストがそのまま品質になる)。
+            "IsGapRow", "GapListBuild", "SortGapDesc", "ReasonText", "NormKey",
+            "InboxNonceMemo", "NonceMemoAdd", "GapAged", "WithinWindow",
+            "NonceKey",
+            # 2026-08-14(R32 Fix波): 敵対的レビュー1周目の裁定で追加/移設。
+            # NonceIsKnownIn / NonceMemoAdd(F11): nonce重複ガードを
+            #   Scripting.Dictionary から「|nonce|nonce|」の1本の文字列へ
+            #   置き換えた(旧 InboxNonceSet/NonceIsKnown を差し替え)。
+            #   Dictionary版はLOから陽性経路を撃てず、B1の核である
+            #   「集合に在るときTrue」が一度もテストできていなかったうえ、
+            #   Dictionaryが使えない端末ではガードが丸ごと素通りしていた。
+            # TrimInboxRows: 受信箱の掃除。modInsightIo が30,000字上限を超えた
+            #   ため移設したが、置き場所としてもこちらが正しい(受信箱シートの
+            #   管理が本モジュールの持ち分)。呼ぶのは CollectInsights の1箇所。
+            # 発信側の関所(PiiBlocked/GapDupBlocked/MarkGapEmitted/
+            #   GcGapDupKeys)は modInsightGate へ移設した(下の契約)。
+            "NonceIsKnownIn", "TrimInboxRows",
+        ],
+    },
+    # modInsightGate(2026-08-14 R32 Fix波): 「部内へ出してよいか」を決める
+    #   発信側の関所。R32波1では modInsight へ間借りしていたが、Fix波の
+    #   F2(匿名ID)/F4(日付誤検知の前処理)/F5(見送りの通知)を足した時点で
+    #   あちらも30,000字を超えたため独立させた(憲章§4-6)。
+    #   AnonId/StripDateLike/NonceKeepDays/InboxKeepDays は副作用ゼロの純関数で
+    #   modTestsPure31 が固定する(PURE_LOGIC_MODULES には載せない ――
+    #   MarkGapEmitted/GcGapDupKeys が my_stats シートを触るため)。
+    "modInsightGate": {
+        "closed": True,
+        "required": [
+            "AnonId", "PiiBlocked", "StripDateLike", "NotifySkip",
+            "GapDupBlocked", "MarkGapEmitted", "GcGapDupKeys",
+            "NonceKeepDays", "InboxKeepDays",
+            # R32マイクロ修正波 F17: 走査専用の改行つぶし(改行等をmodPiiの
+            # 継続文字でない","へ落とす)。modInsightIo.EmitGap/EmitCorrection
+            # がPII走査の直前に呼ぶ。送信本文(Clean1)には使わない。
+            "ScanClean",
+        ],
+    },
+    # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
+    "modInsightIo": {
+        "closed": True,
+        "required": [
+            "EmitVerifiedQA", "EmitGap", "EmitCorrection", "CollectInsights",
+        ],
+    },
+    # ---- R11-F2 で契約に載せたモジュール(監査4: 93モジュール中46しか契約が
+    #      有効でなかった件の解消を、今回の変更が触った範囲から進める)。
+    # modShare: 共有フォルダのベースパス解決と到達性プローブ(唯一の窓口)。
+    "modShare": {
+        "closed": True,
+        # BOARD_HEAD_* / BoardHead*(2026-08-16 R33 W6-1): 集約スナップショット
+        # (board\summary.txt)の書式と鮮度判定の純関数。書く側(発行者端末)と
+        # 読む側(全端末)が同じ答えを出さなければ組織集計が黙って狂うため、
+        # 共有まわりの唯一の窓口であるこのモジュールへ置き、modTestsPure34 から
+        # ゴールデン固定できるよう Public にしてある。
+        "required": [
+            "BasePath", "Reachable", "ProbePath", "ReportFailure",
+            "ReportSuccess", "SubDir", "ResetProbe",
+            "BOARD_HEAD_TAG", "BOARD_SUMMARY_NAME",
+            "BoardHeadText", "BoardHeadField", "BoardHeadStatus",
+            "BoardHeadMin", "BoardHeadLine", "BoardBodyText",
+            "BoardReadRows", "BoardWriteSummary",
+            "BoardOrgBlock", "BoardStateText",
+            # BOARD_END_TAG / BoardEndCount / BoardTextStatus
+            #   (2026-08-16 R33H F15): スナップショットに終端行を付け、読む側の
+            #   入口で「終端行が無い=途中までしか無い」を broken へ倒すための
+            #   1組。ヘッダだけ揃った半端な集計を "ok" と判定して部の合算0・
+            #   称号全滅のまま自信を持って表示していた欠陥への対処。
+            "BOARD_END_TAG", "BoardEndCount", "BoardTextStatus",
+            # BoardNum(2026-08-16 R33H F17): 数値欄の共通ガード。modBoard 側の
+            #   同値の複製(SafeNum)を消してこちらへ寄せたので Public にする。
+            "BoardNum",
+            # R33H F18(ビーコン走査の恒久除外を消す): 打ち切りの起点を日ごとに
+            #   ずらす純関数 BoardScanStart と、それを使って今回開く名前だけを
+            #   返す BoardListBeacons、前回の称号行を引き継ぐ BoardCarryTitles、
+            #   Hubタイルの「(概算)」へ母数を入れる BoardApproxSuffix。
+            #   BoardDeptLine は modBoard の容量のため実体をこちらへ移した
+            #   ポップアップ1行の純関数。
+            "BoardScanStart", "BoardListBeacons", "BoardCarryTitles",
+            "BoardApproxSuffix", "BoardDeptLine",
+            # BoardForceWaitText(R33H F19): 「更新」を下限間隔の中で押したとき
+            #   に出す1行。黙って Exit すると壊れたボタンと区別が付かない。
+            "BoardForceWaitText",
+            # CarryText(2026-08-16 R33H M12): 直近に【読めた】前回スナップ
+            #   ショットの全文。組織合計と部別を引き継いで単調増加を守る材料で、
+            #   読むのは modTelemetry.BoardBodyCarry の1箇所。読めなかった回は
+            #   空を返す(M7 の見送りと整合し、0件で上書きする経路を作らない)。
+            "CarryText",
+        ],
+    },
+    # modUiLock: 全ハンドラ共通の再入ロックと取込中の関所。
+    # ConfirmCloseDuringIngest(2026-08-03 R13-4d): 取込中の終了要求を
+    # 「無反応で拒否」から「事情を伝えて選ばせる」へ変えた確認口。
+    # 呼び出し元は modApp.OnSaveAndExit と ThisWorkbook.Workbook_BeforeClose
+    # (開発構成のみ。本番はThisWorkbookを自己インストーラが占有する)。
+    "modUiLock": {
+        "closed": True,
+        # CancelCloseOk(2026-08-03 R13 F5): 「中断して終了」の承諾は、
+        # 終了を取りやめた全経路で捨てる。残すと承諾から60秒のあいだ、
+        # ウィンドウの×が確認なしで閉じる窓が開く。
+        # AlertsOff/AlertsOn(2026-08-10 R25-1a-1): 描画系.Mergeのセル結合警告
+        # ダイアログでパイプラインが無言のまま固まる事故の恒久対策(層1)。
+        "required": ["Enter", "Leave", "IsBusy", "BlockIfIngesting",
+                     "ConfirmCloseDuringIngest", "CancelCloseOk",
+                     "AlertsOff", "AlertsOn"],
+    },
+    # modAppState: Nexus画面の状態(モード/対象バブル/入力欄/ui_state)の唯一の窓口。
+    # HasGeneralMemory/ClearGeneralMemory(2026-08-06 R20-2b/2d): 一般アシスタントの
+    #   会話履歴(mGenPrevU/mGenPrevA)のゲート判定と、OnClearChat用の消去窓口。
+    # ShouldClearGeneralHistory(2026-08-06 R20-2e): followup_max_pairs<=0の境界
+    #   判定だけを純関数へ出す(LOテスト対象)。
+    # SetGeneralMemory/BridgeConvMemory/ThoroughPreNotice(2026-08-11 R26-2波B):
+    #   会話メモリ橋渡し(modConvBridge)の受け口。SetGeneralMemoryは
+    #   mGenPrevU/mGenPrevAを外部から差し替える窓口、BridgeConvMemoryは
+    #   modApp.OnToggleModeから1行で呼ばれる橋渡しの実体(modApp残容量が
+    #   乏しいため書き込み・トーストをここへ集約)、ThoroughPreNoticeは
+    #   入念モード事前案内のsendMode別出し分け(同梱2・波A裁定)。
+    # BridgeToastText(2026-08-11 R26H F4): 橋渡し通知の文言を向き(toMode)別に
+    #   組み立てる純関数。一般→社内ナレッジ検索では「引き継ぎました」が実態と
+    #   食い違う(効くのは🔍深掘り経由だけ)ため出し分けが要る。文言そのものを
+    #   LOの純ロジックテストで固定したいので Public にする(BridgeConvMemory は
+    #   Excel/トーストに触れるためテストから呼べない)。
+    "modAppState": {
+        "closed": True,
+        "required": [
+            "MODE_KEY", "SetActiveBubble", "ShelfIsEmpty", "AnswerWithoutShelf",
+            "HasTarget", "TargetBubbleName", "TargetText", "SharePath",
+            "AskGeneral", "TrimPairs", "RagSpeed", "CurrentMode",
+            "UpdateModeButton", "ReadInputCell", "RestoreInputCell",
+            "ClearInputCell", "ReadUiState", "WriteUiState",
+            "HasGeneralMemory", "ClearGeneralMemory", "ShouldClearGeneralHistory",
+            "SetGeneralMemory", "BridgeConvMemory", "ThoroughPreNotice",
+            "BridgeToastText",
+            # R29 W2-2(実機第14報): 入力欄直下ヒントの文言決定。
+            # modUINexusDraw.DrawInputAreaから毎描画呼ばれる(実体をここへ
+            # 置き、呼び出し側は1行にする=既存のBridgeToastText/
+            # ThoroughPreNoticeと同じ置き場の考え方)。
+            "InputHintText",
+            # R34 B0: modApp(残36字)から④会話の記憶の実体を移設。
+            # 呼び出しは modApp.OnSend の1箇所のみで、ui_state(nexus_hist_u/a)を
+            # 書く=状態の窓口であるここが本来の持ち主。
+            "SaveTurnForRestore",
+            # R36 Fix M3: このターンの種類("general"/"followup"/"rag")を
+            # ui_state へ1語で残す。読むのは modAppAct.RecordCorrection 1箇所で、
+            # 是正メモ経路に入れるのは "rag" のときだけ。実体をここに置くのは
+            # modApp が残247字の逼迫モジュールで、あちらは1行呼び出しに
+            # 留める必要があるため(CLAUDE.md §12)。SaveTurnForRestore と
+            # 同じく ui_state の書き手なので、置き場としても同居が自然。
+            "SaveTurnKind",
+        ],
+    },
+    # modUtilText(2026-07-31 R11-F2 新設): UTF-8読み書き・経過ミリ秒・移動平均・
+    # GSページ分割添字の共通部品。ここに何でも足されると「雑多置き場」になるので
+    # closed で固定する。
+    "modUtilText": {
+        "closed": True,
+        "required": [
+            "ReadTextFileUtf8", "WriteTextFileUtf8", "ElapsedMsSince",
+            "BlendPerItemMs", "GsPageIsBlank", "CleanTextLen", "GsPageBounds",
+            # 2026-08-01(R12-1-4): カレンダー設定(和暦)非依存の日付文字列。
+            # 日付を文字列で永続化・比較する箇所はここだけを通す。
+            "IsoDate", "IsoDateTime", "NormalizeIsoDate",
+            # 2026-08-04(R15-1a): 再入ガードの失効判定(最終ビート基準)。
+            # 4本のガード(modShelf/modShelfBatch/modEmbed/modShelfSync)が
+            # 同じ式を使うための純関数。時刻の算数はこのモジュールに集める。
+            "GuardExpired",
+            # 2026-08-01(R12-3-10): 区切り無しの統計キー用。同じ元号防御を
+            # yyyymmdd/yyyymm/yyyy でも1箇所に集める(modBoard/modAsk/modHelp)。
+            "IsoDateCompact", "IsoYm", "IsoYear",
+            # 2026-08-01(R12-2-1): 数式インジェクション対策(数式注入)の
+            # 共通化先。modChatLogの重複実装を吸収し、未信頼テキストを
+            # セルへ書く全経路(modInsightIo/modPack/modChannel)から呼ぶ。
+            "SanitizeForCell",
+            # 2026-08-03(R13 F8): 段ごとの所要時間を1本の短い文字列へ畳む
+            # 純ロジック(書式 "expand=1200;emb=6x830")。呼ぶのは
+            # modGateway だけだが、中身は文字列処理なのでここに置き、
+            # LOの実行テストで書式そのものを固定する。
+            "AppendStepBuf",
+            # 2026-08-04(R15-8a): usage_log "ingest" 行のdetailへ生成/重複の
+            # 内訳を添える書式(実機第4報 RC1)。modShelfから1箇所だけ呼ぶが、
+            # 文字列組み立てのみの純関数なのでここに置く。
+            "IngestChunksDetail",
+            # 2026-08-04(R15-FixB FB-5): 事前確認で「いいえ」を選んだ資料の
+            # メモかどうか(先頭一致)。見送りは失敗ではないので一括取込の
+            # 集計から分離する必要があり、判定は opt 層(文面を作る側)と
+            # コア層(件数を数える側)の両方から呼ばれる。両方から見えるのは
+            # 基盤層だけなので、先頭句の定数と判定をここに1つ置く。
+            "DECLINE_MEMO_HEAD", "IsDeclineNote",
+            # 2026-08-05(R16-2a): 「作業用Excelを開く」ボタン(modWorkExcel)が
+            # 起動するコマンド行の組み立て。純粋な文字列処理(""囲み+
+            # "\EXCEL.EXE"+" /x")なので基盤層に置く。modWorkExcelはこれを
+            # 呼ぶだけで、パスの正規化ロジックを持たない。
+            "BuildWorkExcelCmd",
+            # 2026-08-16(R33波3 W3-3): txt/md/csv の文字コード判定。
+            # ReadTextFileAuto は BOM を見て UTF-8 / UTF-16 を確定し、BOM が
+            # 無ければ UTF-8 で読んで置換文字(U+FFFD)の比率が高いときだけ
+            # CP932 で読み直す。取込本体(modExtractor)と約款差分(optDiffDoc)の
+            # 2箇所から呼ぶ ―― 片方だけ直すともう片方に同じ「読み込み成功・
+            # 中身は全滅」が残るため、判定は必ずこの1本に集約する。
+            # ReplacementRatio はその判定の算数で、LOの実行テストで固定する
+            # ためだけに Public(ADODB.Stream は LO で動かせない)。
+            # 2026-08-16(R33H F31): その「採否の判断」だけを引数で決まる形へ
+            # 出した2本。W3-3 の見出しコメントは「判定を1本にした」と書いて
+            # いたが、判断は ADODB.Stream と同じ関数の中にあり LO の実行
+            # テストが一度も撃てなかった(閾値も不等号も無検査)。
+            # AutoNeedsRetry=読み直す価値があるか(2%ちょうどは読み直さない)。
+            # AutoTextPick=UTF-8とCP932のどちらを採るか("utf8"/"cp932")。
+            # 同率は採らない=「判定できなかった」であって「CP932と分かった」
+            # ではない、という線を modTestsPure36 がゴールデンで固定する。
+            "ReadTextFileAuto", "ReplacementRatio",
+            "AutoNeedsRetry", "AutoTextPick",
+            # 2026-08-16(R33H F22): 組織集計スナップショット本文の1行を
+            # 組む/読む純関数の対。称号行("T")の解析は modShare.BoardReadRows
+            # の中で Dictionary への書き込みと同居していたため一度も撃たれて
+            # いなかった ―― LibreOffice には Scripting.Dictionary が無く
+            # (CreateObject で Err=323)実辞書を渡すテストが組めないからで、
+            # 「テストがある」ように見えて称号行の経路は完全な無検査だった。
+            # 読み分けだけを辞書に触らない形へ出し、書く側(BoardBodyText)と
+            # 読む側(BoardReadRows)の両方をこの1対へ通して往復を固定する。
+            # 置き場が modShare でないのは容量(残684字で入らない)。中身は
+            # 文字列処理だけなので AppendStepBuf / GsPageBounds と同じ扱い。
+            "BoardRowText", "BoardRowParse",
+        ],
+    },
+    # ---- 7.8 テストモジュール ----
+    "modTestRunner": {
+        "closed": True,
+        "required": ["ResetTests", "Check", "Failures", "ReportText", "RunAllPureTests"],
+    },
+    "modTestsPure": {
+        # 個別のRunXxxはmodTestsPure内部でいくつ増えてもよい。modTestRunner
+        # から呼ばれる入口 RunAll だけが契約(本Lintツール実装者=1-Iが
+        # 2-Xチームに要求する最小契約)。
+        "closed": False,
+        "required": ["RunAll"],
+    },
+    # modTestsPure2: 2026-07-12 Wave3-Tで追加。modTestsPureが§7.1の
+    # 「1モジュール30,000字以内」を超えたため、modPrompts/modShelfSync/
+    # modPack関連のテストを分割した先(src/test/modTestsPure2.bas冒頭コメント
+    # 参照)。modTestsPure.RunAllの末尾から呼ばれる入口 RunAll2 だけが契約。
+    "modTestsPure2": {
+        "closed": False,
+        "required": ["RunAll2"],
+    },
+    # modTestsPure3: 2026-07-30 R2要件Bで追加。modTestsPure(28,906字)/
+    # modTestsPure2(29,170字)とも30,000字上限まで余裕が無く、要件Bの回帰
+    # テスト(空ページ防御・化けページ圧縮後のチャンク数)を追加する場所が
+    # 無かったための新規分割先。modTestsPure2.RunAll2の末尾から呼ばれる
+    # 入口 RunAll3 だけが契約。
+    "modTestsPure3": {
+        "closed": False,
+        "required": ["RunAll3"],
+    },
+    # modTestsPure4: 2026-07-31 R6で追加。modTestsPure3も上限に近づいたため、
+    # 画像PDFのOCR取込(optOcrCoreのGSコマンド組み立て・modUtilのページ付き
+    # テキスト・全ページ化けPDFの振り替え)のテストを分割した先。
+    # modTestsPure3.RunAll3の末尾から呼ばれる入口 RunAll4 だけが契約。
+    "modTestsPure4": {
+        "closed": False,
+        "required": ["RunAll4"],
+    },
+    # modTestsPure7: 2026-08-01 R12-3で追加。既存のテストモジュールがいずれも
+    # 30,000字上限に余裕が無く(憲章§4-6)、堅牢化の回帰テストを置く先として
+    # 新設した。modTestsPure4.RunAll4の末尾から呼ばれる入口 RunAll7 だけが契約。
+    "modTestsPure7": {
+        "closed": False,
+        "required": ["RunAll7"],
+    },
+    # modTestsPure8: 2026-08-01 R12-8で追加した分割先。R12-Hの敵対的レビューで
+    # 「自己ルール(分割先は入口だけを契約にする)の適用漏れ」として指摘された。
+    # modTestsPure7.RunAll7 の末尾から呼ばれる入口 RunAll8 だけが契約。
+    "modTestsPure8": {
+        "closed": False,
+        "required": ["RunAll8"],
+    },
+    # modTestsPure9: 2026-08-01 R12-4で追加。modTestsPure8が28,000字(WARN帯)に
+    # 達したための分割先。modTestsPure8.RunAll8の末尾から呼ばれる入口 RunAll9
+    # だけが契約。
+    "modTestsPure9": {
+        "closed": False,
+        "required": ["RunAll9"],
+    },
+    # modTestsPure10: 2026-08-03 R13-7cで追加。modTestsPure9が28,000字の
+    # WARN帯に触れるための分割先。modTestsPure9.RunAll9の末尾から呼ばれる
+    # 入口 RunAll10 だけが契約。
+    "modTestsPure10": {
+        "closed": False,
+        "required": ["RunAll10"],
+    },
+    # modTestsPure11: 2026-08-03 R14-3/R14-4で追加。modTestsPure9が28,000字の
+    # WARN帯に触れる(残り578字)ための分割先。modTestsPure10.RunAll10の
+    # 末尾から呼ばれる入口 RunAll11 だけが契約。
+    "modTestsPure11": {
+        "closed": False,
+        "required": ["RunAll11"],
+    },
+    # modTestsPure12: 2026-08-03 R14-8で追加。modTestsPure11 に R14-8 の
+    # テストを足すと30,000字上限を超えるための分割先。
+    # modTestsPure11.RunAll11 の末尾から呼ばれる入口 RunAll12 だけが契約。
+    "modTestsPure12": {
+        "closed": False,
+        "required": ["RunAll12"],
+    },
+    # modTestsPure13: 2026-08-04 R15波2で追加。modTestsPure11/12 はどちらも
+    # 27,000字台で、R15-4/5/6 の真理表とゴールデン文字列を足すと上限を超える
+    # ための分割先。modTestsPure12.RunAll12 の末尾から呼ばれる入口
+    # RunAll13 だけが契約。
+    "modTestsPure13": {
+        "closed": False,
+        "required": ["RunAll13"],
+    },
+    # modTestsPure14: 2026-08-04 R15-FixA で追加。modTestsPure13 に Fix-A の
+    # 真理表とゴールデン文字列を足すと上限まで残り11字になるための分割先。
+    # modTestsPure13.RunAll13 の末尾から呼ばれる入口 RunAll14 だけが契約。
+    "modTestsPure14": {
+        "closed": False,
+        "required": ["RunAll14"],
+    },
+    # modTestsPure15(2026-08-05 R16波3): modTestsPure14 の容量逼迫による分割先。
+    #   入口は RunAll15 の1本だけで、modTestsPure14.RunAll14 の末尾から呼ばれる。
+    "modTestsPure15": {
+        "closed": False,
+        "required": ["RunAll15"],
+    },
+    # modTestsExcel はMASTER_SPECがPublic契約を明示していないため対象外。
+}
+
+# 純ロジックモジュール(R4): Excelオブジェクトトークン禁止
+# modPrompts はMASTER_SPEC R4本文には明記されていないが、§7.3で
+# 「純文字列」モジュールと明記されており、テストハーネス発注元の指示
+# (1-Iタスク定義)により本Lintでは禁止トークン検査の対象に加える。
+PURE_LOGIC_MODULES = {
+    "modUtil", "modChunker", "modPii", "modTypes",
+    "modTestRunner", "modTestsPure", "modTestsPure2", "modTestsPure3", "modPrompts",
+    "modRagParse", "modSparse", "modMode",
+    # modChunkMeta(2026-08-05 R17 Phase1): section_path/refs_out の抽出。
+    # 副作用ゼロの文字列処理だけなので、LO実行テストから直接呼べる状態を
+    # 機械で守る(シートI/Oは modChunkMetaStore が持つ)。
+    "modChunkMeta",
+    # modChrome(2026-07-30 R4): 配置計算だけを持つのでExcelオブジェクトは
+    # 一切要らない。ここへ載せることで「うっかりRangeを触る」改修を機械で止める。
+    "modChrome",
+    # optOcrCore(2026-07-31 R6): GSコマンド文字列の組み立てとページ上限の算数
+    # だけを持つ。opt層のモジュールだが副作用ゼロで、LO実行テストから直接
+    # 呼べる状態を維持するために純ロジック検査の対象へ入れる。
+    "optOcrCore",
+    # optOcrEta(2026-08-04 R15-5b): optOcrCore から移設した進捗バナー・ETA・
+    # 打ち切りメモの純ロジック。移設先でも副作用ゼロを機械で守る。
+    "optOcrEta",
+    # modTestsPure4: optOcrCore/modUtil(ページ付きテキスト)の純ロジックテスト。
+    "modTestsPure4",
+    # modShareRule(2026-07-31 R8): 共有系の判定式だけの純ロジック。
+    "modShareRule",
+    # modTestsPure5(2026-07-31 R8): modShareRule の境界値テスト。
+    "modTestsPure5",
+    # modTestsPure6(2026-07-31 R8b): 敵対的レビュー対応(B1/B7b/B10)のテスト。
+    "modTestsPure6",
+    # modTestsPure7(2026-08-01 R12-3): 堅牢化の純ロジックテスト。
+    "modTestsPure7",
+    # modTestsPure8(2026-08-01 R12-8): テスト補強(モジュール全滅解消・ハッシュ
+    # 互換ゴールデン値)の純ロジックテスト。modTestsPure7の容量逼迫による分割先。
+    "modTestsPure8",
+    # modTestsPure9(2026-08-01 R12-4): 検索スケール恒久対策の純ロジックテスト。
+    # modTestsPure8の容量逼迫(WARN帯)による分割先。
+    "modTestsPure9",
+    # modTestsPure10(2026-08-03 R13-7c): チーム/部・共有ビーコンのteam列の
+    # 純ロジックテスト。modTestsPure9の容量逼迫(WARN帯)による分割先。
+    "modTestsPure10",
+    # modTestsPure11(2026-08-03 R14-3/R14-4): 共有読みコピーの失敗判定、
+    # OCRのバッチ分割・上限メモの純ロジックテスト。modTestsPure9の容量逼迫に
+    # よる分割先(modTestsPure10.RunAll10の末尾から呼ばれる)。
+    "modTestsPure11",
+    # modTestsPure12(2026-08-03 R14-8): 入念モードの段数・出典突合と、回答本文の
+    # 記法正規化の純ロジックテスト。modTestsPure11の容量逼迫による分割先。
+    "modTestsPure12",
+    # modTestsPure13(2026-08-04 R15波2): OCRの正直さ(頁欠け・上限打ち切り)、
+    # ETAと終了目安、中断メモの純ロジックテスト。modTestsPure11/12 の
+    # 容量逼迫による分割先。
+    "modTestsPure13",
+    # modTestsPure15(2026-08-05 R16波3): 逆質問=番号選択肢のパースと合成、
+    # 精読(chunk_idからの文書順復元と前後radius)、既出チャンク降格の
+    # 純ロジックテスト。modTestsPure14(24,825字)の容量逼迫による分割先で、
+    # modTestsPure14.RunAll14 の末尾から呼ばれる。
+    "modTestsPure15",
+    # 2026-07-31(R11-F2): qa層の3モジュールを追加。いずれも実測でExcel
+    # オブジェクトトークン0件(Worksheets/Range(/Application./ThisWorkbook/
+    # MsgBox/ActiveSheet が1つも無い)。純ロジックであることを規約として
+    # 固定し、「ちょっとRangeを見たい」という改修を機械で止める。
+    #   modBitwiseOpt: ビット演算による候補絞り込み。
+    #   modFollowup  : 深掘り候補の抽出と本文からの除去。
+    #   modClarify   : 聞き返し文の生成と番号選択の判定。
+    "modBitwiseOpt", "modFollowup", "modClarify",
+    # modUtilText(2026-08-04 R15-1a): 日付/経過時間の算数と文字列処理だけの
+    # 共通部品。実測でExcelオブジェクトトークン0件(ADODB.Stream は
+    # CreateObject 経由でExcel依存ではない)。R15-1a の GuardExpired を
+    # ここへ置くにあたり、「ちょっとRangeを見たい」改修を機械で止める。
+    "modUtilText",
+    # modTestsPure32(2026-08-14 R32波4 W4-5): 背景画像方式の純ロジックテスト。
+    # 呼ぶのは modBackdrop の BmpHex/MemoKey/MemoPut(文字列と算術だけ)なので、
+    # 「ちょっとWorksheetを見たい」改修を機械で止める。
+    "modTestsPure32",
+    # modTestsPure31(2026-08-14 R32 Fix波 F14): 32だけ登録されていて31が
+    # 抜けていた不揃いを解消する。中身をFix波の検査(保持日数の不等式・
+    # PII前処理・匿名ID)へ入れ替えた結果、呼ぶのは modInsightGate と modPii の
+    # 純関数だけになり、32と同じ条件を満たす。
+    "modTestsPure31",
+    # modTestsPure33(2026-08-16 R33波2): PII検知の全角ゴールデン(W2-1)と
+    # 失効判定の「つながっていれば消さない」不変条件(W2-2)。呼ぶのは
+    # modPii.ScanText と modShareRule.ExpiryDecision の純関数だけなので、
+    # 31/32 と同じ条件を満たす。
+    "modTestsPure33",
+    # modTestsPure34(2026-08-16 R33波3 W3-9): modTestsPure33 が残997字に
+    # なったための分割先。呼ぶのは modLog.FeatureErrMessage / FriendlyMessage
+    # の純関数だけなので、31/32/33 と同じ条件を満たす。
+    "modTestsPure34",
+    # modTestsPure36(2026-08-16 R33H Fix波3): modTestsPure34 が残45字に
+    # なったための分割先。呼ぶのは modUtilText.BoardRowText/BoardRowParse/
+    # AutoNeedsRetry/AutoTextPick、modShare.Board*(文字列だけ)、
+    # modShelfScan.HeaderCheckable、modP2PIo.IdKey/IdHash の純関数だけなので、
+    # 31/32/33/34 と同じ条件を満たす。
+    # ※ modTestsPure35 はこの一覧に載っていない(R33波5c の登録漏れ)。
+    #   直すかどうかは司令塔の裁定待ちのため、ここでは触らない。
+    "modTestsPure36",
+    }
+
+FORBIDDEN_TOKEN_PATTERNS = [
+    (re.compile(r"\bWorksheets\b"), "Worksheets"),
+    (re.compile(r"\bRange\s*\("), "Range("),
+    (re.compile(r"\bApplication\."), "Application."),
+    (re.compile(r"\bThisWorkbook\b"), "ThisWorkbook"),
+    (re.compile(r"\bMsgBox\b"), "MsgBox"),
+    (re.compile(r"\bActiveSheet\b"), "ActiveSheet"),
+]
+
+# R3: Application.Run 第1引数リテラルのホワイトリスト
+RUN_LITERAL_WHITELIST_EXACT = {"ChatGPT", "GetEmbeddings", "LimitCheck", "modBoot.Boot"}
+RUN_LITERAL_WHITELIST_PREFIX = re.compile(r"^opt[A-Za-z]\w*\.")
+# ChatGPT/GetEmbeddings の直接Application.Runは modGateway 内のみ許可(R3本文)
+# LimitCheck: 起動時利用期限チェック(裁定D3・RIBBON_API_CONFIRMED.md §1 #13)。
+# modGateway.RunLimitCheck 内でのみ呼ぶ。
+RUN_LITERAL_GATEWAY_ONLY = {"ChatGPT", "GetEmbeddings", "LimitCheck"}
+# 変数経由(非リテラル)のApplication.Runはこの2ファイルのみ許可
+RUN_VARIABLE_ALLOWED_MODULES = {"modGateway", "modFeatures"}
+
+# R1例外のうち modSkin.ShowToast を呼んでよい機能層モジュール(R10c L5)。
+# ShowToastは表示に1.1秒のブロッキング待ちを含むため、「完了を1回だけ知らせる」
+# 用途に限る。取込(modShelf)と同期(modShelfSync)の完了通知だけが該当する。
+# 2026-07-31(R11-E 監査3 M-5): modStatsのバッジ獲得通知も「一度きりの完了
+# 告知」で、上の2モジュールと同じ性質(業務ロジックの継続に影響しない・
+# 起きても稀)なので追加する。MsgBoxのままだと起動シーケンスの途中で
+# モーダルが割り込み、利用者が「まだ動いているのか」判断できなくなる
+# (憲章§3-4)。
+# 2026-08-14(R32 Fix波 F5): modInsightGate を追加する。modAsk の
+# 「だめだった/微妙」は押した直後に「資料を作れる担当者の画面に届きます」と
+# 断言するMsgBoxを出すが、EmitGap は (1)PII検知 (2)24時間の連投抑止
+# (3)共有フォルダへ書けない の3経路で無言のまま落ちる。modAsk は凍結
+# モジュール(CLAUDE.md)で文言に触れないため、【見送ったときだけ】発信側から
+# 事実を1回伝える。性質は上の3モジュールと同じ「一度きりの告知・業務ロジックの
+# 継続に影響しない」で、しかも waitless:=True(1.1秒のブロッキング待ちすら
+# 発生しない)。呼び口は modInsightGate.NotifySkip の1本だけ。
+R1_TOAST_ALLOWED_MODULES = {"modShelfBatch", "modShelfSync", "modStats",
+                            "modInsightGate"}
+
+# R1例外(UIロックの状態問い合わせ。2026-08-01 R12-H-2a 裁定)。
+# modUiLock.IsBusy は副作用ゼロの読み取り専用ゲッターで、UIを操作しない。
+# 自動同期(OnTime)は「利用者が質問・取込をしている最中には始めない」判断が
+# 要るが、その事実を持っているのはUI層のロックだけである。SetStage 等の
+# 通知コールバック例外と同じ性質(向きは逆だが、状態を1つ読むだけで
+# 機能層の処理がUIの都合に依存しない)として、同期モジュールにのみ許す。
+# 広げるときは必ずここへ足す=どのモジュールがUIロックを見ているかが1箇所で分かる。
+R1_UILOCK_ALLOWED_MODULES = {"modShelfSync"}
+
+# R1例外(中断ボタン付き進捗バナー。2026-08-04 R15-FixA FA-6)。
+# 2026-08-05 R18-1a: 実体は modSkin → modProgressBar へ移設した(名前だけの変更)。
+# modProgressBar.PaintProgress は modUIMain.ShowProgress の後半そのもので、性質は
+# 既存例外の ShowProgress と同じ(実況を伝えるだけ)。cancellable:=True を
+# 渡せるのは取込のバナーを1本化した modShelfBatch.ShowIngestBanner だけに
+# 限る(他所へ広がったらLintで止める=押しても止まらない中断ボタンを二度と
+# 生やさない)。modShelfSync/AddFilesResult はその1本を経由して出す。
+R1_PROGRESS_ALLOWED_MODULES = {"modShelfBatch"}
+
+# R1例外(取込前確認からの作業用Excel起動。2026-08-05 R18-1f)。
+# modWorkExcel.OpenWorkExcelNow は WScript.Shell で別プロセスの excel.exe /x を
+# 起動するだけで、引数も戻り値も無く、業務ロジックを一切呼び返さない
+# (性質は既存例外の ShowProgress/PaintProgress と同じ「通知して終わり」)。
+# 呼べる場所は取込前確認の2段目だけに限る: この確認は「取込中このExcelは
+# 操作できない」と伝えた直後の1点で、そこ以外から取込層がUIのプロセス起動を
+# 始めてよい理由は無い。広げるときは必ずここへ足す=どのモジュールが別Excelを
+# 開けるかが1箇所で分かる状態を保つ。
+# 2026-08-05 R18H FA-1: 2段目確認の記憶(1セッション1回)・文面・起動を
+# modWorkExcel.OfferBeforeIngest へ丸ごと寄せた。取込層から見えるのは
+# 「聞く場所を1行呼ぶ」だけで、性質は OpenWorkExcelNow と変わらない。
+R1_WORKEXCEL_ALLOWED_MODULES = {"modShelfVision"}
+R1_WORKEXCEL_ALLOWED_MEMBERS = {"OpenWorkExcelNow", "OfferBeforeIngest"}
+
+# R2: opt直接トークン参照禁止(src/opt以外)
+OPT_TOKEN_PATTERN = re.compile(r"\bopt[A-Za-z]\w*\s*\.")
+
+# 型落ち検出: Dim/Static文
+DIM_STMT_PATTERN = re.compile(r"^(Dim|Static)\s+(.*)$", re.IGNORECASE)
+AS_KEYWORD_PATTERN = re.compile(r"\bAs\b", re.IGNORECASE)
+AS_INTEGER_PATTERN = re.compile(r"\bAs\s+Integer\b", re.IGNORECASE)
+
+# ReDim x(0 To -1) / (5 To 2) 等の「上限が負」の負範囲(実機VBAで実行時エラー9)。
+# 定数指定の負リテラル上限のみを対象にする(変数上限 n-1 は実行時にしか
+# 分からないため対象外。それらはcount>0ガード付きの正当なパターン)。
+NEGATIVE_REDIM_PATTERN = re.compile(
+    r"\bReDim\b[^(]*\([^)]*\bTo\s+-\d+\s*\)", re.IGNORECASE
+)
+
+ATTRIBUTE_VBNAME_PATTERN = re.compile(r'^\s*Attribute\s+VB_Name\s*=\s*"([^"]*)"', re.IGNORECASE)
+OPTION_EXPLICIT_PATTERN = re.compile(r"^\s*Option\s+Explicit\s*$", re.IGNORECASE)
+
+PUB_SUB_PATTERN = re.compile(r"^Public\s+Sub\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_FUNC_PATTERN = re.compile(r"^Public\s+Function\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_CONST_PATTERN = re.compile(r"^Public\s+Const\s+([A-Za-z_]\w*)", re.IGNORECASE)
+PUB_TYPE_PATTERN = re.compile(r"^Public\s+Type\s+([A-Za-z_]\w*)", re.IGNORECASE)
+
+DOTTED_REF_PATTERN = re.compile(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)")
+# 注意: ThisWorkbook はここに含めない。ThisWorkbook.cls の契約上Publicは
+# 0件(Private イベント転送のみ)だが、実コードの "ThisWorkbook.Worksheets"
+# 等はExcel組み込みオブジェクトモデルのプロパティであって、我々の
+# ThisWorkbook.cls が自前定義したPublicメンバーではない。これをmodX.Y
+# 実在検証の対象に含めると「ThisWorkbook.Worksheets は未定義」という
+# 誤検知になるため、モジュール形状の判定対象は mod*/opt* のみに絞る。
+MODULE_SHAPED_NAME = re.compile(r"^(mod[A-Z]\w*|opt[A-Z]\w*)$")
+
+FULLTEXT_ASSIGN_PATTERN = re.compile(r"\.Value\s*=", re.IGNORECASE)
+FULLTEXT_HINT_PATTERN = re.compile(r"full_?text|answer_?text", re.IGNORECASE)
+SAFELEFT_CALL_PATTERN = re.compile(r"SafeLeft\s*\(", re.IGNORECASE)
+
+
+# ==============================================================================
+# レイヤー判定(MASTER_SPEC §14のディレクトリ配置基準)
+# ==============================================================================
+LAYER_FOUNDATION = 0
+LAYER_MID = 1
+LAYER_UI = 2
+LAYER_OPT = "opt"
+LAYER_TEST = "test"
+
+LAYER_LABEL = {
+    LAYER_FOUNDATION: "基盤層(src/core)",
+    LAYER_MID: "部品層/機能層(src/ingest,qa,pack,stats)",
+    LAYER_UI: "UI層(src/ui)",
+    LAYER_OPT: "opt層(src/opt)",
+    LAYER_TEST: "テスト層(src/test)",
+}
+
+
+def classify_layer(relpath: Path):
+    parts = relpath.parts
+    if not parts:
+        return None
+    top = parts[0]
+    if top == "core":
+        return LAYER_FOUNDATION
+    if top in ("ingest", "qa", "pack", "stats"):
+        return LAYER_MID
+    if top == "ui":
+        return LAYER_UI
+    if top == "opt":
+        return LAYER_OPT
+    if top == "test":
+        return LAYER_TEST
+    return None
+
+
+# ==============================================================================
+# ソース前処理: 行連結・コメント除去・文分割
+# ==============================================================================
+def merge_continuations(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """" _" で終わる行を次行と結合し、(開始行番号, 論理行) のリストにする。"""
+    out: list[tuple[int, str]] = []
+    acc = ""
+    acc_start = None
+    for i, raw in enumerate(raw_lines, start=1):
+        line = raw.rstrip("\n\r")
+        if acc_start is None:
+            acc_start = i
+        rstripped = line.rstrip()
+        # コメント行末の " _" は行継続ではない(VBAの構文上もコメントは継続しない)。
+        is_comment_line = line.lstrip().startswith("'")
+        cont = (not is_comment_line) and (rstripped.endswith(" _") or rstripped == "_")
+        line_wo_cont = rstripped[:-1].rstrip() if cont else line
+        acc = f"{acc} {line_wo_cont}" if acc else line_wo_cont
+        if not cont:
+            out.append((acc_start, acc))
+            acc = ""
+            acc_start = None
+    if acc:
+        out.append((acc_start, acc))
+    return out
+
+
+def strip_comment(line: str) -> str:
+    """文字列リテラル内の ' は無視して、行コメント(')以降を切り落とす。"""
+    in_str = False
+    for i, c in enumerate(line):
+        if c == '"':
+            in_str = not in_str
+        elif c == "'" and not in_str:
+            return line[:i]
+    return line
+
+
+def split_top_level(s: str, sep: str) -> list[str]:
+    """文字列リテラル・カッコの中は無視してトップレベルの sep で分割する。"""
+    parts: list[str] = []
+    depth = 0
+    in_str = False
+    cur: list[str] = []
+    for c in s:
+        if c == '"':
+            in_str = not in_str
+            cur.append(c)
+        elif not in_str and c == "(":
+            depth += 1
+            cur.append(c)
+        elif not in_str and c == ")":
+            depth = max(0, depth - 1)
+            cur.append(c)
+        elif not in_str and depth == 0 and c == sep:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+    parts.append("".join(cur))
+    return parts
+
+
+def iter_statements(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """行連結→コメント除去→コロン分割まで済ませた (行番号, 文) の列。"""
+    stmts: list[tuple[int, str]] = []
+    for lineno, ltext in merge_continuations(raw_lines):
+        code = strip_comment(ltext)
+        for piece in split_top_level(code, ":"):
+            piece = piece.strip()
+            if piece:
+                stmts.append((lineno, piece))
+    return stmts
+
+
+# ==============================================================================
+# モジュール情報
+# ==============================================================================
+@dataclass
+class Finding:
+    level: str   # "ERROR" | "WARN" | "SKIP"
+    line: int
+    message: str
+
+
+@dataclass
+class ModuleInfo:
+    path: Path
+    relpath: Path
+    raw_text: str
+    vb_name: str
+    filename_stem: str
+    statements: list = field(default_factory=list)
+    public_names: dict = field(default_factory=dict)  # name -> kind
+    layer: object = None
+    findings: list = field(default_factory=list)
+
+    def add(self, level: str, line: int, message: str) -> None:
+        self.findings.append(Finding(level, line, message))
+
+
+def load_module(path: Path, src_root: Path) -> ModuleInfo:
+    raw_text = path.read_text(encoding="utf-8", errors="replace")
+    raw_lines = raw_text.splitlines()
+    stmts = iter_statements(raw_lines)
+
+    vb_name = ""
+    for line in raw_lines[:10]:
+        m = ATTRIBUTE_VBNAME_PATTERN.match(line)
+        if m:
+            vb_name = m.group(1)
+            break
+
+    filename_stem = path.stem
+    relpath = path.relative_to(src_root)
+
+    info = ModuleInfo(
+        path=path,
+        relpath=relpath,
+        raw_text=raw_text,
+        vb_name=vb_name,
+        filename_stem=filename_stem,
+        statements=stmts,
+    )
+    info.layer = classify_layer(relpath)
+
+    for lineno, stmt in stmts:
+        m = PUB_SUB_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Sub"
+            continue
+        m = PUB_FUNC_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Function"
+            continue
+        m = PUB_CONST_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Const"
+            continue
+        m = PUB_TYPE_PATTERN.match(stmt)
+        if m:
+            info.public_names[m.group(1)] = "Type"
+            continue
+
+    return info
+
+
+# ==============================================================================
+# 個別チェック
+# ==============================================================================
+def check_basics(info: ModuleInfo) -> None:
+    # Option Explicit
+    if not any(OPTION_EXPLICIT_PATTERN.match(line) for line in info.raw_text.splitlines()):
+        info.add("ERROR", 1, "Option Explicit がありません")
+
+    # VB_Name = ファイル名一致
+    if not info.vb_name:
+        info.add("ERROR", 1, 'Attribute VB_Name が見つかりません')
+    elif info.vb_name != info.filename_stem:
+        info.add(
+            "ERROR", 1,
+            f'Attribute VB_Name="{info.vb_name}" がファイル名"{info.filename_stem}"と不一致',
+        )
+
+    # モジュール30,000字以内
+    #
+    # 2026-07-28(レビューI-2): 上限ちょうどまで使い切ったモジュールが6本あり、
+    # 「バグを1行直すこともできない」状態になっていた。上限超過はビルドが
+    # 落ちるので事故にはならないが、気付くのが遅すぎる。残りが少なくなった
+    # 時点で警告し、切り出しを促す。
+    n = len(info.raw_text)
+    if n > MAX_MODULE_CHARS:
+        info.add("ERROR", 1, f"モジュールが{n}字で上限{MAX_MODULE_CHARS}字を超過")
+    elif n > MODULE_WARN_CHARS:
+        info.add(
+            "WARN", 1,
+            f"モジュールが{n}字で上限{MAX_MODULE_CHARS}字まで残り{MAX_MODULE_CHARS - n}字。"
+            f"次の修正が入らなくなる前に凝集した機能を新モジュールへ切り出すこと",
+        )
+
+
+def check_cp932_safe(info: ModuleInfo) -> None:
+    """CP932に無い文字がソースに混ざっていないか。
+
+    このブックは開くたび vba_src シートのソースを VBE へ注入するが、VBE は
+    コードを CP932 で保持する。CP932 に無い文字はリテラル "?"(0x3F)として
+    保存されるため、実行時の文字列がそのまま化ける。
+    2026-07-28 のレビュー(H-16)では、全RAG回答の信頼度表示・常時見えている
+    モードボタン・言語名・LLMへの指示文まで20箇所が化けていた。
+    しかも vbaProject.bin を覗かないと気付けない(ソースは正しく見える)。
+
+    規約(modUINexusDraw 冒頭)は「非ASCIIは ChrW で組む」だが、規約は破られる。
+    ここで機械的に落とす。実行時文字列は ERROR、コメントは WARN
+    (コメントの化けは動作に影響しないが、次に読む人が混乱する)。
+
+    代表的な差し替え先:
+        〜 U+301C  -> ～ U+FF5E   (見た目は同じ。CP932 の 0x8160 はこちら)
+        —  U+2014  -> ― U+2015   (CP932 の 0x815C)
+        絵文字・ベトナム語の声調記号 -> ChrW() で組み立てる
+    """
+    # 検査するのはコメントを除いた実行文だけ。コメント側の絵文字は
+    # 「このChrWが何の字か」を示す注釈で、化けても動作に影響しない。
+    # そこまで ERROR/WARN にすると警告が数十件常駐して、本当に直すべき
+    # 実行時文字列の1件が埋もれる(それでは検査の意味が無い)。
+    for lineno, stmt in info.statements:
+        bad = sorted({ch for ch in stmt if not _cp932_encodable(ch)})
+        if not bad:
+            continue
+        shown = " ".join(f"{ch}(U+{ord(ch):04X})" for ch in bad[:6])
+        info.add(
+            "ERROR", lineno,
+            f"CP932に無い文字が実行文に含まれる: {shown} 。"
+            f"VBEへの注入時に'?'へ化けます。ChrW()で組むかCP932内の字へ置き換えてください",
+        )
+
+
+def _cp932_encodable(ch: str) -> bool:
+    # Pythonのcp932コーデックはWindowsより寛容な文字(U+301C等)があるため、
+    # Windowsの CP932 表に合わせて明示的に除外する。
+    if ch in _CP932_DENY:
+        return False
+    try:
+        ch.encode("cp932")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+# WindowsのCP932では0x8160はU+FF5Eであり、U+301C(WAVE DASH)には対応バイトが
+# 無い。同様にU+2212/U+00A2等もWindows側では落ちる。実機で"?"化を確認した
+# 文字を明示的に拒否する(Pythonのコーデックだけに任せると見逃す)。
+_CP932_DENY = frozenset("〜‖−¢£¬")
+
+
+MODULE_DECL_RE = re.compile(
+    r"^(?:Public|Private|Global|Dim)\s+(?:Const\s+|WithEvents\s+)?(\w+)", re.IGNORECASE)
+PROC_HEAD_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(?:Sub|Function|Property)\s+\w+",
+    re.IGNORECASE)
+PROC_TAIL_RE = re.compile(r"^End\s+(Sub|Function|Property)\s*$", re.IGNORECASE)
+TYPE_DECL_RE = re.compile(r"^(?:Public|Private)\s+(?:Type|Enum)\b", re.IGNORECASE)
+
+
+def collect_module_level_names(raw_text: str) -> set[str]:
+    """モジュールレベルで宣言された定数・変数の名前を集める。
+
+    プロシージャの中の Dim は対象外(ローカルなので他モジュールから見えない)。
+    Public Type / Public Enum は型名であって変数ではないので除外する
+    (modTypes.ExtractedPage 等は他モジュールから正しく参照される)。
+    """
+    names: set[str] = set()
+    inside = False
+    for raw in raw_text.split("\n"):
+        s = strip_comment(raw).strip()
+        if not s:
+            continue
+        if PROC_HEAD_RE.match(s):
+            inside = True
+        elif PROC_TAIL_RE.match(s):
+            inside = False
+        elif not inside:
+            if TYPE_DECL_RE.match(s):
+                continue
+            m = MODULE_DECL_RE.match(s)
+            if m:
+                names.add(m.group(1))
+    return names
+
+
+# ==============================================================================
+# OnAction配線ハンドラの再入保護(2026-08-04 R15-2b・実機第4報 RC8)
+# ------------------------------------------------------------------------------
+# Shape.OnAction に文字列で配線された Public Sub は、取込中の DoEvents で
+# 発火したクリックから【取込の途中に入れ子で】呼び出され得る。入れ子で走った
+# 画面遷移は、取込が掴んでいるシート状態やCOMオブジェクトと噛み合わずに
+# 失敗する(実機のE0202・「取込中にボタンを押すとExcelが応答なし」の正体)。
+# 保護は全ハンドラの先頭に1行入れるだけだが、40箇所超に手で入れている以上
+# 必ず抜ける。実際 modHubStat.OnSyncPending と modApp.OnRefreshUI の2本が
+# 抜けており、実機第4報まで誰も気付けなかった。機械で見張る。
+#
+# 判定は「配線先の先頭付近に modUiLock.BlockIfIngesting または
+# modUiLock.Enter の呼び出しがあること」。ERRORではなくWARNにしているのは、
+# 保護が要らない正当なハンドラ(下のALLOWLIST)が現に存在し、
+# 「取込中でも動くべき中断ハンドラ」を将来足す余地を残すため。
+#
+# 収集するのは .OnAction = "modX.Y" の【文字列リテラル代入】だけ。
+# 変数経由(btn.OnAction = action)や連結("modAppAct." & CStr(acts(i)))は
+# 静的には宛先が定まらないので対象にしない(誤検知ゼロを優先する)。
+ONACTION_LITERAL_PATTERN = re.compile(
+    r"\.OnAction\s*=\s*\"(mod[A-Za-z]\w*\.[A-Za-z_]\w*)\"\s*$", re.IGNORECASE)
+
+# ハンドラの「先頭付近」= 最初の実行文からこの本数まで。
+# 既存の全ハンドラは1〜2文目までに関所を通しており、4文あれば
+# 「Dim を数本置いてから通す」書き方(modVault.OnVaultSubmit 型)まで拾える。
+ONACTION_GUARD_LOOKAHEAD = 4
+
+# 保護を求めないハンドラの名簿(名前は "modX.Y" 形式)。
+# 増やすときは必ず理由を1行書くこと。ここが「押しても何も起きない」を
+# 生む場所になるので、黙って足せない形にしておく。
+ONACTION_GUARD_ALLOWLIST = {
+    # --- 恒久例外: 押しても業務ロジックを一切呼ばない、印/表示だけのハンドラ ---
+    # 深掘りチップの[×]。モジュール変数を False にして印を消すだけ。
+    "modAppAct.OnFollowupChipOff",
+    # 質問例の「別の質問を見る」。表示位置(mOffset)を進めて描き直すだけ。
+    "modStarter.OnMore",
+    # 共有ダイアログのチェックボックス。選択状態を持ち替えて描き直すだけ。
+    "modShared.OnToggle",
+    # 登録フォームの[キャンセル]。入力欄を消してフォームを閉じるだけ。
+    # 取込中でも「閉じられない」方が利用者を困らせる(§3-1)。
+    "modVault.OnVaultCancel",
+    # ❓凡例カード自身のクリック(2026-08-13 R31 W1-3)。自分のShapeを
+    # Deleteするだけで業務ロジックを一切呼び返さない。取込中でも
+    # 「閉じられない」方が利用者を困らせる(上のOnVaultCancelと同型)。
+    "modKnowledgeBar.OnToolbarLegendClose",
+    # --- 恒久例外: 委譲先で必ず関所を通るハンドラ ---
+    # 質問例のクリック。最後に modApp.OnSend を呼び、そちらが
+    # BlockIfIngesting を先頭に持っている(二重に置く意味が無い)。
+    "modStarter.OnPick",
+    # --- 恒久例外: 取込中でも【必ず】動かなければ意味が無いハンドラ ---
+    # 進捗バナー脇の中断ボタン(2026-08-04 R15-6a)。取込中にしか出ない
+    # ボタンなので、BlockIfIngesting を付けたら永久に押せない。やることは
+    # モジュール変数のフラグを立てて1行案内を出すだけで、業務ロジックを
+    # 一切呼び返さない(再入の危険がそもそも無い)。
+    "modShelfBatch.OnCancelIngest",
+    # 作業用Excelボタン(2026-08-05 R16-2a)。取込バナー内(■中断の左隣)と
+    # アイドル時のヘルプカードの両方から同じハンドラを指す。取込中こそ
+    # 使いたい機能(別プロセスのExcelで他の仕事をする)なので、
+    # BlockIfIngestingを付けたら本来の目的が果たせなくなる。やることは
+    # WScript.Shellで別プロセスを起動しStatusBarへ短文を出すだけで、
+    # 業務ロジック(取込・検索・回答生成)を一切呼び返さない。
+    "modWorkExcel.OnOpenWorkExcel",
+    # 2026-08-04(R15-2b)時点で現状追認としてここに載せていた5本
+    # (modVaultGallery.OnVaultBackToChat/OnVaultCardClick/OnVaultNext/
+    # OnVaultPrev, modPeek.OnOpenSource)は、R15波1の敵対的自己点検で
+    # 司令塔裁定「保護する」を受け、R15波1bで各ハンドラの先頭に
+    # BlockIfIngestingを追加し保護済み。登録は削除した。
+}
+
+ONACTION_GUARD_CALLS = (
+    re.compile(r"modUiLock\s*\.\s*BlockIfIngesting", re.IGNORECASE),
+    re.compile(r"modUiLock\s*\.\s*Enter", re.IGNORECASE),
+)
+
+
+def _proc_body_statements(info: ModuleInfo, proc_name: str) -> list:
+    """指定Publicプロシージャの本体の実行文(コメント除去済み)を順に返す。"""
+    body: list = []
+    started = False
+    head = re.compile(
+        r"^Public\s+(?:Static\s+)?(?:Sub|Function)\s+%s\b" % re.escape(proc_name),
+        re.IGNORECASE)
+    end = re.compile(r"^End\s+(?:Sub|Function)\b", re.IGNORECASE)
+    for lineno, stmt in info.statements:
+        if not started:
+            if head.match(stmt):
+                started = True
+            continue
+        if end.match(stmt):
+            break
+        body.append((lineno, stmt))
+    return body
+
+
+def check_onaction_handler_guard(infos: list[ModuleInfo]) -> None:
+    # 1) 配線先の収集(src/全体)。同じ宛先が複数箇所から配線されていてもよい。
+    wired: dict[str, tuple[str, int]] = {}
+    for info in infos:
+        for lineno, stmt in info.statements:
+            m = ONACTION_LITERAL_PATTERN.search(stmt)
+            if m:
+                wired.setdefault(m.group(1), (module_name_for_display(info), lineno))
+
+    by_name = {module_name_for_display(i): i for i in infos}
+
+    # 2) 収集した宛先ごとに、先頭付近の関所を確かめる。
+    for target in sorted(wired):
+        if target in ONACTION_GUARD_ALLOWLIST:
+            continue
+        mod_name, member = target.split(".", 1)
+        owner = by_name.get(mod_name)
+        wire_mod, wire_line = wired[target]
+        wirer = by_name.get(wire_mod)
+        if owner is None:
+            if wirer is not None:
+                wirer.add("WARN", wire_line,
+                          f"OnAction配線先のモジュールが見つかりません: {target}")
+            continue
+        if member not in owner.public_names:
+            if wirer is not None:
+                wirer.add("WARN", wire_line,
+                          f"OnAction配線先が見つかりません(Publicではない/改名?): {target}")
+            continue
+
+        body = _proc_body_statements(owner, member)
+        if not body:
+            continue
+        head = body[:ONACTION_GUARD_LOOKAHEAD]
+        if any(pat.search(stmt) for _, stmt in head for pat in ONACTION_GUARD_CALLS):
+            continue
+        owner.add(
+            "WARN", head[0][0],
+            f"OnActionで配線される {target} の先頭に再入の関所がありません"
+            f"(modUiLock.BlockIfIngesting か modUiLock.Enter を先頭へ。"
+            f"取込中でも動くべきハンドラなら vba_lint.py の "
+            f"ONACTION_GUARD_ALLOWLIST に理由つきで登録すること)",
+        )
+
+
+# ==============================================================================
+# MsgBox/InputBoxへの非BMP文字流出(2026-08-05 R18-6c・実機第5報⑤)
+# ------------------------------------------------------------------------------
+# ChrW(&HD8xx)+ChrW(&HDCxx〜DFxx)で組む非BMP絵文字(🗔🩺🔄等)は、Shape/セル値
+# では正しく描けるが、ネイティブMsgBox/InputBoxではサロゲート1単位ごとに
+# 「?」化ける(EDGE_CASES.md §1.3b)。check_cp932_safeとは別問題(こちらは
+# 実行時の描画限界であり、ソース上の直書き文字ではなくChrWで組んだ文字列が
+# 対象)。
+#   (A) 同一文リテラル検出: MsgBox(...)/InputBox(...)と同じ実行文の中に
+#       ChrW(&HD8xx)が直書きされていないか(将来の直書き回帰の防止線)。
+#   (D) 「MsgBox到達関数」許可リスト方式: FriendlyMessageのように複数の
+#       消費先を持つ共通関数は、【呼ばれ方に関わらず本体全体・全Case分岐】を
+#       検査しないと(A)をすり抜ける(実機第5報⑤の実バグがこの型だった)。
+# 呼び出しグラフ追跡はしない。Application.Run/InvokeFeature等の文字列
+# ディスパッチが中核パターンのため静的な呼び出しグラフ自体が破綻する
+# (check_onaction_handler_guardと同じ誤検知ゼロ優先の設計判断)。
+# ==============================================================================
+SURROGATE_HIGH_PATTERN = re.compile(r"ChrW\s*\(\s*&H[Dd][89ABab][0-9A-Fa-f]{2}\s*\)")
+MSGBOX_CALL_PATTERN = re.compile(r"\b(?:MsgBox|InputBox)\b", re.IGNORECASE)
+
+# (D) 本体全体(全Case分岐)を非BMP ChrWで検査する対象。増やすときは理由を
+# 1行書くこと(R18-6c 初期登録分。agent6調査報告 §2.2参照)。
+MSGBOX_REACH_ALLOWLIST = (
+    "modLog.FriendlyMessage",       # E0xxxコード表→複数のMsgBoxが直接表示
+    "modLog.FriendlyFailMsg",       # 取込失敗の1文→MsgBox/E0805表に流れる
+    "modLog.ReadOnlyWarnMsg",       # 起動時案内+E0805表の両方がMsgBoxへ
+    "optOcrEta.OcrConfirmAskFor",   # OCR事前確認→modShelfVisionのMsgBoxへ
+    "optOcrCache.ConfirmAskFor",    # 同上の中継(OcrConfirmAskForを包む)
+    "optVision.OcrConfirmAsk",      # 同上の中継(InvokeFeature窓口)
+    # 2026-08-05 R18H FB-7(B-L7): 起動時の整合性警告。どちらも modIntegrity.
+    # WarnAtStartup の MsgBox へ直行する戻り値で、性質は FriendlyMessage と
+    # 同型(利用者が最初に見る画面なので化けた「?」の実害は最も大きい)。
+    "modIntegrity.ShrinkWarnMsg",   # 資料が減ったときの警告文→WarnAtStartupのMsgBox
+    "modIntegrity.VolatileWarnMsg",  # 一時フォルダで開いている警告文→同上
+)
+
+
+def check_msgbox_nonbmp(infos: list[ModuleInfo]) -> None:
+    # (A) 同一文リテラル検出(全モジュール対象)。
+    for info in infos:
+        for lineno, stmt in info.statements:
+            if MSGBOX_CALL_PATTERN.search(stmt) and SURROGATE_HIGH_PATTERN.search(stmt):
+                info.add(
+                    "ERROR", lineno,
+                    "MsgBox/InputBoxと同じ文に非BMP絵文字(ChrWのサロゲートペア)が"
+                    "直書きされています。ダイアログでは1単位ごとに'?'化けます。"
+                    "絵文字を落として「」括弧表記等へ置き換えてください",
+                )
+
+    # (D) 許可リスト関数の本体全体(呼ばれ方に関わらず全Case分岐)。
+    by_name = {module_name_for_display(i): i for i in infos}
+    for target in MSGBOX_REACH_ALLOWLIST:
+        mod_name, member = target.split(".", 1)
+        owner = by_name.get(mod_name)
+        if owner is None or member not in owner.public_names:
+            continue
+        for lineno, stmt in _proc_body_statements(owner, member):
+            if SURROGATE_HIGH_PATTERN.search(stmt):
+                owner.add(
+                    "ERROR", lineno,
+                    f"MsgBox到達関数 {target} の本体に非BMP絵文字(ChrWのサロゲート"
+                    f"ペア)があります。呼ばれ方に関わらずMsgBoxで'?'化けるため、"
+                    f"絵文字を落として「」括弧表記等へ置き換えてください",
+                )
+
+
+# ==============================================================================
+# Split(/Filter(/Array( の具体配列型引数への直渡し(2026-08-06 R19-2b・実機第6報②)
+# ------------------------------------------------------------------------------
+# Split()/Filter()/Array() はコンパイラの型システム上ただの Variant を返す式。
+# ByRef arr() As String のような【具体配列型】の仮引数へ実引数位置で直渡しすると、
+# 実Excel VBAは「静的に配列型と確定できる式でなければならない」制約に違反して
+# プロジェクト全体のコンパイルを拒否する(modSynonymStore.bas 3箇所の実バグ)。
+# LibreOffice はこの型検証をしないため素通りし、compileモードも対象モジュールの
+# 中身を実行しないため二重に見逃す(調査②班報告(3)章)。
+#
+# シグネチャテーブル(全モジュールのSub/Function宣言。Private含む)を構築し、
+# 呼び出し文の実引数境界を split_top_level で解決した上で、呼び先の該当仮引数が
+# 「Variant以外の具体配列型」の場合だけERRORにする。誤検知ゼロを最優先する
+# 設計(検査13/14と同じ思想):
+#   ・対象は「実引数の【全体】が Split(/Filter(/Array( ...) である」場合のみ
+#     (Split(...)(0) のような即時インデックスは対象外)。
+#   ・代入文(x = Split(...))・If/For等の制御構文・宣言文はそもそも対象にしない
+#     (先頭が識別子の呼び出し形の文だけを見る。トップレベルの"="があれば
+#     代入とみなして除外する。":="という名前付き引数は代入と誤認しない)。
+#   ・呼び先シグネチャが解決できない場合(組込関数・シグネチャテーブルに
+#     無い呼び先)は検査せず素通しする。InvokeFeature/TryRibbonRun のような
+#     ByVal ... As Variant 受けは、解決した上で正しく「安全」と判定される
+#     (Variant型は具体配列型ではないのでERROR対象にならない)。
+# ==============================================================================
+PROC_SIG_HEAD_RE = re.compile(
+    r"^(?:Public|Private|Friend)?\s*(?:Static\s+)?(Sub|Function)\s+([A-Za-z_]\w*)\s*\(",
+    re.IGNORECASE,
+)
+ARRAY_PARAM_TYPE_RE = re.compile(r"\(\s*\)\s*As\s+([A-Za-z_]\w*)", re.IGNORECASE)
+ARRAY_ARG_CALL_HEAD_RE = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)")
+ARRAY_ARG_EXPR_RE = re.compile(r"^\s*(Split|Filter|Array)\s*\(", re.IGNORECASE)
+
+# 先頭トークンがこれらなら呼び出し文として扱わない(制御構文・宣言・代入系)。
+ARRAY_ARG_CHECK_KEYWORDS = {
+    "if", "elseif", "else", "end", "exit", "for", "each", "next", "while",
+    "wend", "do", "loop", "until", "select", "case", "dim", "redim", "const",
+    "static", "public", "private", "friend", "function", "sub", "property",
+    "type", "enum", "with", "on", "resume", "goto", "gosub", "attribute",
+    "option", "declare", "set", "let", "return", "stop", "erase",
+    "randomize", "open", "close", "print", "input", "line", "width",
+    "name", "kill", "mkdir", "rmdir", "chdir", "chdrive", "filecopy",
+    "reset", "get", "put", "lock", "unlock", "debug", "err", "beep",
+    "appactivate", "sendkeys", "wait", "implements", "event", "raiseevent",
+    "rem", "true", "false", "nothing", "null", "me", "new",
+}
+
+
+def _find_matching_paren(s: str, open_idx: int) -> int:
+    """s[open_idx] == '(' 前提。対応する ')' のインデックス(文字列リテラル考慮)。
+    見つからなければ -1。"""
+    depth = 0
+    in_str = False
+    for i in range(open_idx, len(s)):
+        c = s[i]
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+    return -1
+
+
+def _has_toplevel_assignment(stmt: str) -> bool:
+    """文字列・カッコの外にある単独の'=' (":="ではない)があれば代入とみなす。"""
+    depth = 0
+    in_str = False
+    for i, c in enumerate(stmt):
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == "=" and depth == 0:
+                if i > 0 and stmt[i - 1] == ":":
+                    continue
+                return True
+    return False
+
+
+def _toplevel_assign_index(stmt: str) -> int:
+    """_has_toplevel_assignment が見つける '=' の位置(無ければ -1)。
+    代入の右辺だけを切り出すために使う(R19H FB-3)。"""
+    depth = 0
+    in_str = False
+    for i, c in enumerate(stmt):
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == "=" and depth == 0:
+                if i > 0 and stmt[i - 1] == ":":
+                    continue
+                return i
+    return -1
+
+
+def _is_whole_array_expr_call(arg: str):
+    """引数全体が Split(/Filter(/Array( ...) かどうか(直後の即時インデックス
+    参照 Split(...)(0) は対象外)。マッチした関数名(先頭大文字化前)を返すか、
+    該当しなければNone。"""
+    m = ARRAY_ARG_EXPR_RE.match(arg)
+    if not m:
+        return None
+    close_idx = _find_matching_paren(arg, m.end() - 1)
+    if close_idx == -1:
+        return None
+    if arg[close_idx + 1:].strip() != "":
+        return None
+    return m.group(1)
+
+
+def _build_array_arg_signatures(infos: list[ModuleInfo]) -> dict:
+    """{(モジュール表示名, プロシージャ名小文字): [仮引数ごとに具体配列型か]}。"""
+    sigs: dict = {}
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for lineno, stmt in info.statements:
+            m = PROC_SIG_HEAD_RE.match(stmt)
+            if not m:
+                continue
+            proc_name = m.group(2)
+            close_idx = _find_matching_paren(stmt, m.end() - 1)
+            if close_idx == -1:
+                continue
+            param_str = stmt[m.end():close_idx]
+            params = split_top_level(param_str, ",") if param_str.strip() else []
+            flags = []
+            for p in params:
+                pm = ARRAY_PARAM_TYPE_RE.search(p)
+                flags.append(bool(pm) and pm.group(1).strip().lower() != "variant")
+            sigs[(mod_name, proc_name.lower())] = flags
+    return sigs
+
+
+# ------------------------------------------------------------------------------
+# 2026-08-06(R19H FB-3 / A-L⑨): 検査15の穴を2つ塞ぐ。
+#   (a) Call 文 ―― `Call Foo(Split(...), b)` は先頭が Call なので
+#       ARRAY_ARG_CHECK_KEYWORDS で丸ごと素通ししていた。先頭の Call を剥がして
+#       同じ解析にかければよい(VBAでは Call 有無で型検証は変わらない)。
+#   (b) 代入の右辺 ―― `n = Foo(Split(...))` は _has_toplevel_assignment で
+#       丸ごと除外していた。除外の狙いは「代入文の左辺を呼び出しと誤認しない」
+#       ことであって、右辺の関数呼び出しまで見逃す理由は無い。実VBAは右辺でも
+#       同じ理由でコンパイルを拒否する。
+#   誤検知ゼロの設計は変えない: 呼び先がシグネチャテーブルで解決できたときだけ
+#   検査し、解決できない名前(組込関数・配列変数・オブジェクトのメソッド)は
+#   素通しする。文字列リテラルの中は走査前に潰す(空白へ置換して長さは保つ)。
+#   名前付き引数・単一行Ifは現リポ0件のため記録のみ(裁定 FB-3)。
+# ------------------------------------------------------------------------------
+ARRAY_ARG_CALL_IN_EXPR_RE = re.compile(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\s*\(")
+ARRAY_ARG_CALL_PREFIX_RE = re.compile(r"^Call\s+", re.IGNORECASE)
+
+
+def _blank_string_literals(s: str) -> str:
+    """文字列リテラルの中身を空白へ潰す(位置がずれないよう長さは保つ)。"""
+    out = []
+    in_str = False
+    for c in s:
+        if c == '"':
+            in_str = not in_str
+            out.append(c)
+        elif in_str:
+            out.append(" ")
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def _resolve_array_arg_sig(sigs: dict, infos: list[ModuleInfo], info: ModuleInfo,
+                           mod_name: str, head: str):
+    """呼び先の仮引数フラグ列を引く。解決できなければ None(=素通し)。"""
+    if "." in head:
+        target_mod, proc_name = head.split(".", 1)
+        return sigs.get((target_mod, proc_name.lower()))
+    sig = sigs.get((mod_name, head.lower()))
+    if sig is not None:
+        return sig
+    candidates = []
+    for other in infos:
+        if other is info:
+            continue
+        if head in other.public_names and other.public_names[head] in ("Sub", "Function"):
+            s = sigs.get((module_name_for_display(other), head.lower()))
+            if s is not None:
+                candidates.append(s)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _report_array_args(info: ModuleInfo, lineno: int, head: str,
+                       arg_str: str, sig: list) -> None:
+    args = split_top_level(arg_str, ",") if arg_str.strip() else []
+    for idx, arg in enumerate(args):
+        arg_s = arg.strip()
+        if not arg_s or idx >= len(sig) or not sig[idx]:
+            continue
+        fn = _is_whole_array_expr_call(arg_s)
+        if fn is None:
+            continue
+        info.add(
+            "ERROR", lineno,
+            f"{head} の第{idx + 1}引数が具体配列型(As T())なのに、"
+            f"Variant配列を返す {fn}() を実引数位置に直接渡しています"
+            f"(実Excelはコンパイル拒否。いったん Dim x() As T: x = {fn}(...) "
+            f"で受けてから渡すこと)",
+        )
+
+
+def check_array_arg_variant_mismatch(infos: list[ModuleInfo]) -> None:
+    sigs = _build_array_arg_signatures(infos)
+
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for lineno, raw_stmt in info.statements:
+            # (a) 先頭の Call を剥がす(剥がした後は通常の呼び出し文と同じ)。
+            stmt = ARRAY_ARG_CALL_PREFIX_RE.sub("", raw_stmt, count=1)
+            masked = _blank_string_literals(stmt)
+
+            if _has_toplevel_assignment(masked):
+                # (b) 代入文: 左辺は見ず、右辺の関数呼び出しだけを走査する。
+                eq = _toplevel_assign_index(masked)
+                if eq < 0:
+                    continue
+                rhs_masked = masked[eq + 1:]
+                offset = eq + 1
+                for m in ARRAY_ARG_CALL_IN_EXPR_RE.finditer(rhs_masked):
+                    head = m.group(1)
+                    if head.split(".", 1)[0].lower() in ARRAY_ARG_CHECK_KEYWORDS:
+                        continue
+                    open_idx = m.end() - 1
+                    close_idx = _find_matching_paren(rhs_masked, open_idx)
+                    if close_idx == -1:
+                        continue
+                    sig = _resolve_array_arg_sig(sigs, infos, info, mod_name, head)
+                    if sig is None:
+                        continue
+                    _report_array_args(
+                        info, lineno, head,
+                        stmt[offset + open_idx + 1:offset + close_idx], sig)
+                continue
+
+            head_m = ARRAY_ARG_CALL_HEAD_RE.match(stmt)
+            if not head_m:
+                continue
+            head = head_m.group(1)
+            if head.split(".", 1)[0].lower() in ARRAY_ARG_CHECK_KEYWORDS:
+                continue
+
+            after = stmt[head_m.end():]
+            after_lstrip = after.lstrip()
+            if after_lstrip.startswith("("):
+                open_idx = head_m.end() + (len(after) - len(after_lstrip))
+                close_idx = _find_matching_paren(masked, open_idx)
+                if close_idx == -1:
+                    continue
+                if stmt[close_idx + 1:].strip() != "":
+                    # Foo(...).Bar のような式の一部。呼び出し文全体ではない。
+                    continue
+                arg_str = stmt[open_idx + 1:close_idx]
+            elif after_lstrip:
+                arg_str = after_lstrip
+            else:
+                continue  # 引数無しの単独呼び出し
+
+            if not (split_top_level(arg_str, ",") if arg_str.strip() else []):
+                continue
+
+            sig = _resolve_array_arg_sig(sigs, infos, info, mod_name, head)
+            if sig is None:
+                continue  # 呼び先未解決(組込関数・外部)は素通し
+            _report_array_args(info, lineno, head, arg_str, sig)
+
+
+# ==============================================================================
+# 検査(R24-1b): 修飾呼び出し `modX.Proc` の引数数照合
+# ------------------------------------------------------------------------------
+# 2026-08-10(R24-1b): R21H F3 で CompressFactor の引数を2本→3本へ変えた際、
+#   呼び出し3箇所のうち modVaultGallery:337 だけ旧式2引数で取り残され、実Excel
+#   では「引数は省略できません」でコンパイル不能だった。LibreOffice Basic は
+#   引数数をコンパイル時に照合しないため、compile検査をすり抜ける(LO死角)。
+#   そこで src/ 全体からシグネチャを集め、修飾呼び出しの実引数の個数が
+#   [必須, 最大] のレンジを外れていたら ERROR にする。
+#
+#   設計方針は【偽陽性ゼロ最優先】。以下は一切検査せず「スキップ」に落とす:
+#     - 呼び先が解決できない名前(Excelオブジェクト・組込関数・外部モジュール)
+#     - Property(Get/Let/Set で引数数が異なる。同名キーごと除外)
+#     - 引数0個のプロシージャに ( ) が付いた形(配列戻り値の添字と区別不能)
+#     - `f(...)(...)` のような連鎖・空引数・名前付き引数 `x:=1` を含む呼び出し
+#     - 単一行 If の Else 付き・トップレベル代入を含む括弧なし呼び出し
+#   スキップした件数は WARN として必ず可視化する(検査の実効範囲の申告)。
+# ------------------------------------------------------------------------------
+ARGC_SIG_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(Sub|Function)\s+"
+    r"([A-Za-z_]\w*)\s*\(",
+    re.IGNORECASE,
+)
+ARGC_PROPERTY_RE = re.compile(
+    r"^(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?Property\s+"
+    r"(?:Get|Let|Set)\s+([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
+ARGC_DECLARE_RE = re.compile(r"^(?:Public\s+|Private\s+)?Declare\b", re.IGNORECASE)
+ARGC_QUALIFIED_RE = re.compile(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)")
+ARGC_CALL_PREFIX_RE = re.compile(r"^Call\s+", re.IGNORECASE)
+ARGC_THEN_RE = re.compile(r"\bThen\b", re.IGNORECASE)
+ARGC_ELSE_RE = re.compile(r"\bElse\b", re.IGNORECASE)
+# 括弧なし呼び出しの直後に来たら「呼び出しではない」と判断する文字。
+ARGC_NOT_ARG_START = set("=+-*/\\&<>^,)(.:;|")
+
+# スキップした呼び出しの記録(モジュールをまたいで集計し WARN 1本で申告する)。
+ARGC_SKIPPED: list[tuple[str, int, str, str]] = []
+ARGC_CHECKED = [0]
+DUMP_ARGC_SKIPS = False
+
+
+def _argc_statements(raw_lines: list[str]) -> list[tuple[int, str]]:
+    """引数数照合用の文リスト。iter_statements と違い `:=`(名前付き引数)では
+    分割しない(分割すると引数列が壊れて数えられなくなる)。"""
+    stmts: list[tuple[int, str]] = []
+    for lineno, ltext in merge_continuations(raw_lines):
+        code = strip_comment(ltext)
+        masked = _blank_string_literals(code)
+        # トップレベルのコロンで分割。ただし ":=" は分割しない。
+        depth = 0
+        start = 0
+        for i, c in enumerate(masked):
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth = max(0, depth - 1)
+            elif c == ":" and depth == 0:
+                if i + 1 < len(masked) and masked[i + 1] == "=":
+                    continue
+                piece = code[start:i].strip()
+                if piece:
+                    stmts.append((lineno, piece))
+                start = i + 1
+        piece = code[start:].strip()
+        if piece:
+            stmts.append((lineno, piece))
+    return stmts
+
+
+def _argc_parse_params(param_str: str):
+    """仮引数文字列 -> (必須数, 最大数 or None=∞)。数えられなければ None。"""
+    if not param_str.strip():
+        return (0, 0)
+    params = [p.strip() for p in split_top_level(param_str, ",")]
+    if any(p == "" for p in params):
+        return None
+    required = 0
+    optional_seen = False
+    for p in params:
+        low = p.lower()
+        if low.startswith("paramarray") or low.startswith("byval paramarray"):
+            # ParamArray は必ず最後。以降は個数上限なし。
+            return (required, None)
+        if low.startswith("optional"):
+            optional_seen = True
+            continue
+        if optional_seen:
+            # Optional の後ろに非Optional は VBA では不正。解釈不能として扱う。
+            return None
+        required += 1
+    return (required, len(params))
+
+
+def _argc_build_signatures(infos: list[ModuleInfo]) -> dict:
+    """{(モジュール表示名, プロシージャ名小文字): (必須数, 最大数 or None)}"""
+    sigs: dict = {}
+    excluded: set = set()
+    for info in infos:
+        mod_name = module_name_for_display(info)
+        for _lineno, stmt in _argc_statements(info.raw_text.splitlines()):
+            if ARGC_DECLARE_RE.match(stmt):
+                pm = re.search(r"\b(?:Sub|Function)\s+([A-Za-z_]\w*)", stmt, re.IGNORECASE)
+                if pm:
+                    excluded.add((mod_name, pm.group(1).lower()))
+                continue
+            pm = ARGC_PROPERTY_RE.match(stmt)
+            if pm:
+                # Property は Get/Let/Set で引数数が違う。名前ごと検査対象外。
+                excluded.add((mod_name, pm.group(1).lower()))
+                continue
+            m = ARGC_SIG_RE.match(stmt)
+            if not m:
+                continue
+            key = (mod_name, m.group(2).lower())
+            close_idx = _find_matching_paren(_blank_string_literals(stmt), m.end() - 1)
+            if close_idx == -1:
+                excluded.add(key)
+                continue
+            parsed = _argc_parse_params(stmt[m.end():close_idx])
+            if parsed is None:
+                excluded.add(key)
+                continue
+            if key in sigs and sigs[key] != parsed:
+                # 同名多重定義(想定外)。安全側に倒して検査対象外。
+                excluded.add(key)
+                continue
+            sigs[key] = parsed
+    for key in excluded:
+        sigs.pop(key, None)
+    return sigs
+
+
+def _argc_count_args(arg_str: str):
+    """実引数文字列 -> 個数。数えられなければ None。"""
+    if not arg_str.strip():
+        return 0
+    if ":=" in arg_str:
+        return None  # 名前付き引数は個数照合の対象外
+    parts = split_top_level(arg_str, ",")
+    if any(p.strip() == "" for p in parts):
+        return None  # 省略引数 Foo(a, , c) は数え方が曖昧
+    return len(parts)
+
+
+def _argc_call_starts(masked: str) -> set:
+    """括弧なし Sub 呼び出しの頭として認めてよい開始位置の集合。"""
+    starts = {0}
+    m = ARGC_CALL_PREFIX_RE.match(masked)
+    if m:
+        starts.add(m.end())
+    # 単一行 If: `If cond Then modX.Proc a, b`(Else 付きは曖昧なので不採用)
+    if re.match(r"^\s*(?:If|ElseIf)\b", masked, re.IGNORECASE) and not ARGC_ELSE_RE.search(masked):
+        tm = None
+        for tm in ARGC_THEN_RE.finditer(masked):
+            pass
+        if tm is not None and masked[tm.end():].strip():
+            starts.add(tm.end() + (len(masked[tm.end():]) - len(masked[tm.end():].lstrip())))
+    return starts
+
+
+def check_qualified_arg_count(infos: list[ModuleInfo]) -> None:
+    """修飾呼び出し `modX.Proc(...)` / `modX.Proc a, b` の実引数の個数が、
+    宣言側の [必須, 最大] レンジに収まっているかを照合する。"""
+    ARGC_SKIPPED.clear()
+    ARGC_CHECKED[0] = 0
+    sigs = _argc_build_signatures(infos)
+
+    for info in infos:
+        rel = info.relpath.as_posix()
+        for lineno, stmt in _argc_statements(info.raw_text.splitlines()):
+            masked = _blank_string_literals(stmt)
+            starts = _argc_call_starts(masked)
+            for m in ARGC_QUALIFIED_RE.finditer(masked):
+                mod_name, proc = m.group(1), m.group(2)
+                key = (mod_name, proc.lower())
+                if key not in sigs:
+                    continue  # 呼び先未解決 = 素通し(Excelオブジェクト等)
+                required, maxargs = sigs[key]
+                tail = masked[m.end():]
+                lead = len(tail) - len(tail.lstrip())
+                nxt = tail.strip()[:1]
+
+                if nxt == "(":
+                    open_idx = m.end() + lead
+                    close_idx = _find_matching_paren(masked, open_idx)
+                    if close_idx == -1:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "括弧が閉じていない"))
+                        continue
+                    after = masked[close_idx + 1:].lstrip()
+                    if after[:1] == "(":
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "連鎖呼び出し/添字"))
+                        continue
+                    if after[:1] == "," and m.start() in starts:
+                        # 括弧なし呼び出しの第1引数が `(a+1)` 等の括弧付き式
+                        # (`modX.Proc (a+1), b`)。中身は全引数ではないので
+                        # 誤って個数照合すると過小カウントになる。
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "括弧なし呼び出しの第1引数が括弧付き"))
+                        continue
+                    n = _argc_count_args(stmt[open_idx + 1:close_idx])
+                    if n is None:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "名前付き/省略引数"))
+                        continue
+                    if maxargs == 0 and n > 0:
+                        # 引数0個の Function の戻り値への添字 f(0) と区別できない。
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "0引数+括弧(添字と区別不能)"))
+                        continue
+                elif m.start() in starts and nxt and nxt not in ARGC_NOT_ARG_START:
+                    # 文頭が修飾名+空白+被演算子 = 括弧なしSub呼び出しで確定
+                    # (`modX.Foo = 1` の代入形は nxt が '=' なのでここへ来ない)。
+                    # 引数の中の '=' は比較演算子なので代入除外はしない。
+                    rest = stmt[m.end():]
+                    n = _argc_count_args(rest)
+                    if n is None:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "名前付き/省略引数"))
+                        continue
+                elif m.start() in starts and not nxt:
+                    n = 0  # 引数無しの単独呼び出し文 `modX.Proc`
+                else:
+                    # 式中の括弧なし参照。呼び出しか値参照か確定できない。
+                    if required > 0:
+                        ARGC_SKIPPED.append((rel, lineno, f"{mod_name}.{proc}", "式中の括弧なし参照"))
+                    continue
+
+                ARGC_CHECKED[0] += 1
+                if n < required or (maxargs is not None and n > maxargs):
+                    if maxargs is None:
+                        want = f"必須{required}個以上(ParamArray)"
+                    elif required == maxargs:
+                        want = f"{required}個"
+                    else:
+                        want = f"{required}〜{maxargs}個"
+                    info.add(
+                        "ERROR", lineno,
+                        f"{mod_name}.{proc} の実引数が{n}個ですが、宣言は{want}です"
+                        f"(シグネチャ変更の呼び出し側取り残し。実Excelは"
+                        f"「引数は省略できません」等でコンパイル拒否)",
+                    )
+
+
+def check_module_level_refs(infos: list[ModuleInfo]) -> None:
+    """他モジュールのモジュールレベル定数・変数を、宣言せずに参照していないか。
+
+    2026-07-28 の実機事故: modUIMain から AddButton を modUIMainShape へ
+    切り出したとき、そこで使っている定数 COLOR_UNSELECTED_BG を元のモジュール
+    へ置いたままにした。実機Excelでは Option Explicit により
+    「変数が定義されていません」というコンパイルエラーになり、
+    アプリが起動しなくなる。
+
+    ところが、これは vba_lint も LibreOffice のモジュール読み込みも素通りした
+    (LibreOffice は Option VBASupport 下で未定義参照を実行時まで遅延する)。
+    つまり【実機で開いて初めて全機能停止】という最悪の壊れ方になる。
+    同じ切り出し作業で4モジュールが同時にこの状態だった。
+
+    誤検出を避けるため、見るのは「モジュールレベルの宣言名」だけに限る。
+    ローカル変数・引数・プロシージャ名は対象にしない(名前の重複が普通に
+    起きるため。そこまで見ると警告だらけになって検査自体が無視される)。
+    """
+    owners: dict[str, set[str]] = {}
+    declared: dict[str, set[str]] = {}
+    for info in infos:
+        names = collect_module_level_names(info.raw_text)
+        declared[info.vb_name] = {n.lower() for n in names}
+        for n in names:
+            owners.setdefault(n, set()).add(info.vb_name)
+
+    for info in infos:
+        mine = declared.get(info.vb_name, set())
+        for lineno, stmt in info.statements:
+            for ident in set(re.findall(r"(?<![\w.])([A-Za-z_]\w*)", stmt)):
+                own = owners.get(ident)
+                if not own:
+                    continue
+                if ident.lower() in mine or info.vb_name in own:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"「{ident}」は {'/'.join(sorted(own))} のモジュールレベル宣言で、"
+                    f"{info.vb_name} では宣言されていません"
+                    f"(実機Excelで『変数が定義されていません』のコンパイルエラーになります)",
+                )
+
+
+PROC_DEF_RE = re.compile(
+    r"^\s*(?:Public|Private|Friend)?\s*(?:Static\s+)?"
+    r"(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+(\w+)", re.IGNORECASE)
+LABEL_DEF_RE = re.compile(r"^\s*([A-Za-z_]\w*):\s*$")
+JUMP_RE = re.compile(r"\b(GoTo|GoSub|Resume)\s+\w+", re.IGNORECASE)
+
+
+def _strip_strings(line: str) -> str:
+    """文字列リテラルを空白へ潰す(コメントは strip_comment 済み前提)。
+
+    "modApp.OnActBad" のような OnAction 文字列を識別子と誤認しないため。
+    """
+    out = []
+    in_s = False
+    for ch in line:
+        if ch == '"':
+            in_s = not in_s
+            out.append(" ")
+        else:
+            out.append(" " if in_s else ch)
+    return "".join(out)
+
+
+def check_undefined_proc_refs(infos: list[ModuleInfo]) -> None:
+    """他モジュールにしか定義が無いプロシージャを、修飾なしで呼んでいないか。
+
+    2026-07-28 の実機事故(2件目): modShelf から modShelfStore を切り出したとき、
+    切り出した側が使う GetSheet が範囲の外にあり、持ってくるのを忘れた。
+    実機Excelでは「Sub または Function が定義されていません」になり、
+    【資料の取込が全滅】した。modP2PIo・modAppState でも同じことが起きていた。
+
+    モジュールを分けるとき、動かすのはコードだけでは足りない。
+    そのコードが呼んでいるものも一緒に動かす必要がある。
+    人間の目視で担保するのは無理なので機械で見る。
+
+    誤検出を避けるための限定:
+      ・見るのは「このプロジェクトのどこかのモジュールが定義している名前」だけ。
+        VBA/Excel の組み込み関数は対象外(名前を列挙しきれないため)。
+      ・行ラベル(Fail: / NextRow: 等)と GoTo/GoSub/Resume の飛び先は除外。
+      ・文字列リテラルの中身は除外(OnAction に入れるマクロ名を拾わないため)。
+      ・宣言行そのものは除外。
+    """
+    proc_owners: dict[str, set[str]] = {}
+    proc_defs: dict[str, set[str]] = {}
+    labels: dict[str, set[str]] = {}
+    for info in infos:
+        names, labs = set(), set()
+        for raw in info.raw_text.split("\n"):
+            m = PROC_DEF_RE.match(raw)
+            if m:
+                names.add(m.group(1))
+            lm = LABEL_DEF_RE.match(strip_comment(raw))
+            if lm:
+                labs.add(lm.group(1))
+        proc_defs[info.vb_name] = {n.lower() for n in names}
+        labels[info.vb_name] = {n.lower() for n in labs}
+        for n in names:
+            proc_owners.setdefault(n, set()).add(info.vb_name)
+
+    for info in infos:
+        mine = proc_defs.get(info.vb_name, set())
+        labs = labels.get(info.vb_name, set())
+        for lineno, raw in merge_continuations(info.raw_text.split("\n")):
+            code = _strip_strings(strip_comment(raw))
+            if not code.strip():
+                continue
+            if PROC_DEF_RE.match(code):
+                continue
+            if LABEL_DEF_RE.match(code):
+                continue
+            code = JUMP_RE.sub(" ", code)
+            for ident in set(re.findall(r"(?<![\w.])([A-Za-z_]\w*)", code)):
+                own = proc_owners.get(ident)
+                if not own:
+                    continue
+                if ident.lower() in mine or ident.lower() in labs:
+                    continue
+                if info.vb_name in own:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"「{ident}」は {'/'.join(sorted(own))} でしか定義されていません。"
+                    f"{info.vb_name} には無いので、修飾して呼ぶか、この モジュールへ持ってくること"
+                    f"(実機Excelで『Sub または Function が定義されていません』になります)",
+                )
+
+
+ON_ERROR_GOTO_LABEL_RE = re.compile(r"^\s*On\s+Error\s+GoTo\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE)
+PROC_END_RE = re.compile(r"^\s*End\s+(?:Sub|Function|Property)\b", re.IGNORECASE)
+EXIT_PROC_RE = re.compile(r"^\s*(?:Exit\s+(?:Sub|Function|Property)|End)\s*$", re.IGNORECASE)
+RESUME_RE = re.compile(r"^\s*Resume\b", re.IGNORECASE)
+ERR_RAISE_RE = re.compile(r"\bErr\.Raise\b", re.IGNORECASE)
+
+
+def check_handler_exit(info: ModuleInfo) -> None:
+    """エラーハンドラから通常フローへ戻るとき Resume を使っているか。
+
+    2026-07-29 に自分で踏んだ。VBAは「エラーハンドラ実行中」という状態を持ち、
+    これを解除できるのは Resume と、プロシージャを抜けることだけである。
+    On Error GoTo 0 はトラップの登録を消すだけで、この状態は解除しない。
+
+    そのため
+
+        For p = ...
+            On Error GoTo SkipPage
+            ...処理...
+            GoTo NextPage
+    SkipPage:
+            skipped = skipped + 1
+            On Error GoTo 0      ' ← これでは抜けられない
+    NextPage:
+        Next p
+
+    と書くと、【1ページ目の失敗は拾えるが、2ページ目の失敗は SkipPage へ
+    飛ばずに呼び出し元へ突き抜ける】。「1ページの失敗で資料全体を失わない」
+    ための修正が、2ページ目以降では効かない。しかもテストでは
+    1件しか壊さないので気づけない。正しくは `Resume NextPage`。
+
+    検出方法: On Error GoTo <L> の飛び先ラベル <L> のブロック
+    (ラベル行から、次のラベル行またはプロシージャ末尾まで)を見て、
+    そのブロックがプロシージャ末尾に到達せず、かつ Resume / Exit /
+    Err.Raise のいずれも含まないものを WARN にする。
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    # プロシージャ単位に切る
+    proc_start = None
+    for idx, (lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_handler_exit_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_handler_exit_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    targets = set()
+    for _, code in lines[start:end]:
+        m = ON_ERROR_GOTO_LABEL_RE.match(code)
+        if m and m.group(1) != "0":
+            targets.add(m.group(1).lower())
+    if not targets:
+        return
+
+    label_at = {}
+    for idx in range(start, end):
+        m = LABEL_DEF_RE.match(lines[idx][1])
+        if m:
+            label_at[m.group(1).lower()] = idx
+
+    for name in sorted(targets):
+        idx = label_at.get(name)
+        if idx is None:
+            continue
+        # ブロック = ラベル行の次から、次のラベル行 or プロシージャ末尾まで
+        stop = end
+        for j in range(idx + 1, end):
+            if LABEL_DEF_RE.match(lines[j][1]):
+                stop = j
+                break
+        if stop == end:
+            continue  # プロシージャ末尾まで届く = 抜けるので問題ない
+        body = [lines[j][1] for j in range(idx + 1, stop)]
+        if any(RESUME_RE.match(c) or EXIT_PROC_RE.match(c) or ERR_RAISE_RE.search(c) for c in body):
+            continue
+        info.add(
+            "WARN", lines[idx][0],
+            f"エラーハンドラ「{name}:」が Resume / Exit を使わずに次のラベルへ落ちている。"
+            f"VBAは On Error GoTo 0 ではハンドラ実行中の状態を解除しないため、"
+            f"2回目以降のエラーが素通りする(`Resume <ラベル>` で抜けること)",
+        )
+
+
+ON_ERROR_RESUME_NEXT_RE = re.compile(r"^\s*On\s+Error\s+Resume\s+Next\s*$", re.IGNORECASE)
+TERMINATOR_RE = re.compile(
+    r"^\s*(Exit\s+(Sub|Function|Property)\b|GoTo\s+\w+\s*$|Resume\b|End\s*$)", re.IGNORECASE)
+
+
+def check_resume_on_fallthrough_label(info: ModuleInfo) -> None:
+    """正常系からも落ちてくるラベルの中で Resume を使っていないか。
+
+    Resume は「エラーが起きている」ことが前提の命令で、エラーなしで実行すると
+    実行時エラー20「Resume にエラーがありません」になる。
+
+        Exit Sub は書かず、正常系がそのまま Finish: へ落ちる作り
+    Finish:
+        Resume FinishCleanup    ' ← 正常終了時にここを踏んで即クラッシュ
+
+    ハンドラ兼後始末ラベル(Finish: / Done: / Cleanup: など、Exit を挟まずに
+    正常系から流れ込む形)は本コードベースに多数あるため、
+    「ハンドラを Resume で抜ける」修正を入れるときに必ず踏む罠。
+    正しくはラベルの直前へ GoTo を置いて、正常系が Resume を跨ぐようにする。
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    proc_start = None
+    for idx, (_lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_fallthrough_resume_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_fallthrough_resume_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    for idx in range(start + 1, end):
+        if not LABEL_DEF_RE.match(lines[idx][1]):
+            continue
+        prev = next((lines[j][1] for j in range(idx - 1, start, -1) if lines[j][1].strip()), "")
+        if TERMINATOR_RE.match(prev):
+            continue          # 正常系はここへ落ちてこない
+        for j in range(idx + 1, end):
+            code = lines[j][1]
+            if LABEL_DEF_RE.match(code):
+                break
+            if RESUME_RE.match(code):
+                info.add(
+                    "ERROR", lines[j][0],
+                    f"ラベル「{LABEL_DEF_RE.match(lines[idx][1]).group(1)}:」は正常系からも"
+                    f"落ちてくるのに Resume がある。エラーなしで Resume を実行すると"
+                    f"実行時エラー20になる(ラベルの直前へ GoTo を置き、"
+                    f"正常系が Resume を跨ぐようにすること)",
+                )
+                break
+
+
+def check_resume_next_inside_handler(info: ModuleInfo) -> None:
+    """稼働中のエラーハンドラの内側に On Error Resume Next を書いていないか。
+
+    2026-07-30 実機: .doc/.docx/.pdf の取込が err#462 で全滅した件の真因。
+
+    VBAには「有効(enabled)なハンドラ」と「稼働中(active)なハンドラ」の区別が
+    ある。ハンドラへ飛んだ瞬間から Resume / Exit / プロシージャ終了までは
+    「稼働中」で、この間に起きたエラーは【そのプロシージャでは一切捕まえられず、
+    呼び出し元へ投げ返される】。On Error Resume Next を書いてあっても効かない。
+
+    modExtractorWord.TryExtractOnce はこうなっていた。
+
+        On Error GoTo Failed
+        Set word = CreateObject("Word.Application")
+        word.Visible = False          ' ← ここで実機は死んでいた
+        ...
+    Failed:
+        errDetail = 実際の原因        ' ← 正しく作っている
+        If Not word Is Nothing Then
+            On Error Resume Next      ' ← 稼働中なので効かない
+            word.Quit 0               ' ← 死んだWordを叩いて err#462
+            On Error GoTo 0
+        End If
+        TryExtractOnce = False        ' ← ここへ到達しない
+
+    結果として
+      ・後始末の err#462 が呼び出し元(modExtractor.ExtractFile)まで飛び、
+        本当の原因を上書きしたエラーだけがログに残る
+      ・Extract の「開き方3通り」フォールバックが一度も走らない
+      ・PDFの Acrobat フォールバックも一度も走らない
+    つまり、ログに見えている 462 は原因ではなく【後始末の失敗】であり、
+    フォールバックは全部ダメコードだった。ハンドラの中は素手で歩けない。
+
+    正しい書き方はどちらか。
+      ・後始末を別Subへ切り出す(呼ばれた側は新しいエラー文脈を持つので
+        On Error Resume Next が効く)
+      ・`Resume <ラベル>` でハンドラを抜けてから後始末する
+    """
+    lines = [(n, strip_comment(s)) for n, s in merge_continuations(info.raw_text.split("\n"))]
+
+    proc_start = None
+    for idx, (_lineno, code) in enumerate(lines):
+        if PROC_DEF_RE.match(code):
+            proc_start = idx
+            continue
+        if PROC_END_RE.match(code) and proc_start is not None:
+            _check_resume_next_in_proc(info, lines, proc_start, idx)
+            proc_start = None
+
+
+def _check_resume_next_in_proc(info: ModuleInfo, lines, start: int, end: int) -> None:
+    targets = set()
+    for _, code in lines[start:end]:
+        m = ON_ERROR_GOTO_LABEL_RE.match(code)
+        if m and m.group(1) != "0":
+            targets.add(m.group(1).lower())
+    if not targets:
+        return
+
+    for idx in range(start, end):
+        m = LABEL_DEF_RE.match(lines[idx][1])
+        if not m or m.group(1).lower() not in targets:
+            continue
+        # ハンドラ稼働区間 = ラベル行の次から、Resume / Exit / プロシージャ末尾まで
+        for j in range(idx + 1, end):
+            code = lines[j][1]
+            if RESUME_RE.match(code) or EXIT_PROC_RE.match(code):
+                break
+            if LABEL_DEF_RE.match(code):
+                # 次のラベルへ落ちている場合は check_handler_exit が別途警告する。
+                # 稼働中の状態は解除されないまま続くので、区間はここでは切らない。
+                continue
+            if ON_ERROR_RESUME_NEXT_RE.match(code):
+                info.add(
+                    "ERROR", lines[j][0],
+                    f"エラーハンドラ「{m.group(1)}:」の稼働中に On Error Resume Next を書いている。"
+                    f"VBAはハンドラ稼働中のエラーを同一プロシージャでは捕捉できないため無効で、"
+                    f"ここで起きたエラーは呼び出し元へ飛び、本来の原因を上書きする"
+                    f"(後始末は別Subへ切り出すか、Resume でハンドラを抜けてから行うこと)",
+                )
+
+
+def check_dim_type_drop_and_integer(info: ModuleInfo) -> None:
+    for lineno, stmt in info.statements:
+        if AS_INTEGER_PATTERN.search(stmt):
+            info.add("ERROR", lineno, f"Integer型は禁止(Longを使う): 「{stmt.strip()[:80]}」")
+
+        # 2026-07-16 実機事故の恒久再発防止: ReDim x(0 To -1) 等の「上限<下限」は
+        # LibreOffice Basicでは0要素配列として通るが、実機Excel VBAでは実行時
+        # エラー9「インデックスが有効範囲にありません」になる(VB.NETとの混同)。
+        # LO実行テストはこの文を「環境差」と誤認しスキップしていたため、本番
+        # コード20箇所以上に混入し、資料取込・同期・画面描画が実機で全滅した。
+        # 0件は「count変数+ReDim(0 To 0)」か「Split(vbNullString)」で表現する。
+        if NEGATIVE_REDIM_PATTERN.search(stmt):
+            info.add(
+                "ERROR", lineno,
+                f"実機Excel VBAで実行時エラー9になる負範囲ReDim(To -1): 「{stmt.strip()[:80]}」",
+            )
+
+        m = DIM_STMT_PATTERN.match(stmt)
+        if not m:
+            continue
+        rest = m.group(2)
+        segments = split_top_level(rest, ",")
+        if len(segments) < 2:
+            continue
+        for seg in segments[:-1]:
+            if not AS_KEYWORD_PATTERN.search(seg):
+                info.add(
+                    "ERROR", lineno,
+                    f"型落ち疑い(Dim a, b As T は先頭がVariantになる): 「{stmt.strip()[:80]}」",
+                )
+                break
+
+
+PROC_DEF_PATTERN = re.compile(
+    r"^\s*(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?"
+    r"(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+(\w+)",
+    re.IGNORECASE,
+)
+LOCAL_DECL_PATTERN = re.compile(r"\b(?:Dim|Static|Const)\s+(\w+)", re.IGNORECASE)
+PROC_PARAM_PATTERN = re.compile(
+    r"(?:ByVal\s+|ByRef\s+|Optional\s+(?:ByVal\s+|ByRef\s+)?)(\w+)", re.IGNORECASE
+)
+
+
+def check_name_shadowing(info: ModuleInfo) -> None:
+    """変数/引数名が同一モジュール内の手続き名と衝突していないか。
+
+    2026-07-16 実機事故の恒久再発防止: modEmbedのローカル変数sleepMsが
+    同モジュールのSub SleepMsを隠し、「SleepMs sleepMs」の呼び出し行が
+    実機Excel VBAでコンパイルエラー「Sub、Functionまたは Propertyが
+    必要です」になった(LibreOffice Basicは同名解決を許すため、LOの
+    コンパイル検査もLO実行テストも通過してしまう)。さらにVBAは遅延
+    コンパイルのため、当該モジュールに実行が到達した瞬間に初めて爆発し、
+    エラーハンドラも走らず再入ガードが焼き付く二次被害まで起きた。
+    呼び出しの有無にかかわらず、同名宣言そのものを全面禁止にする。
+    """
+    procs: dict[str, int] = {}
+    for lineno, stmt in info.statements:
+        m = PROC_DEF_PATTERN.match(stmt)
+        if m:
+            procs[m.group(1).lower()] = lineno
+    if not procs:
+        return
+    for lineno, stmt in info.statements:
+        for m in LOCAL_DECL_PATTERN.finditer(stmt):
+            name = m.group(1)
+            if name.lower() in procs:
+                info.add(
+                    "ERROR", lineno,
+                    f"変数名「{name}」が同一モジュール内の手続き名と衝突"
+                    f"(実機VBAでコンパイルエラーの元): 「{stmt.strip()[:80]}」",
+                )
+        if PROC_DEF_PATTERN.match(stmt):
+            for m in PROC_PARAM_PATTERN.finditer(stmt):
+                name = m.group(1)
+                if name.lower() in procs and procs[name.lower()] != lineno:
+                    info.add(
+                        "ERROR", lineno,
+                        f"引数名「{name}」が同一モジュール内の手続き名と衝突"
+                        f"(実機VBAでコンパイルエラーの元): 「{stmt.strip()[:80]}」",
+                    )
+
+
+MODULE_DECL_PATTERN = re.compile(
+    r"^\s*(?:(?:Public|Private|Global)\s+)?(?:Const\s+\w|Declare\s)"
+    r"|^\s*(?:Public|Private|Global|Dim)\s+\w+\s*(?:\(\s*\))?\s+As\s+",
+    re.IGNORECASE,
+)
+
+
+def check_declaration_position(info: ModuleInfo) -> None:
+    """モジュールレベル宣言(Const/変数/Declare)が最初のプロシージャ定義より
+    後に無いか。VBAは宣言部→プロシージャ部の順序を強制し、違反すると
+    「End Sub、End Function、または End Property の後には、コメントのみが
+    記述できます」というコンパイルエラーになる(2026-07-16実機で発生。
+    LibreOffice Basicは途中宣言を許容するためLOゲートでは検出不能)。"""
+    depth = 0
+    seen_proc = False
+    for lineno, stmt in info.statements:
+        if PROC_DEF_PATTERN.match(stmt):
+            depth += 1
+            seen_proc = True
+            continue
+        if re.match(r"^\s*End\s+(Sub|Function|Property)\b", stmt, re.IGNORECASE):
+            depth -= 1
+            continue
+        if depth <= 0 and seen_proc and MODULE_DECL_PATTERN.match(stmt):
+            info.add(
+                "ERROR", lineno,
+                f"モジュールレベル宣言がプロシージャ定義より後にある"
+                f"(実機VBAでコンパイルエラー。宣言部はモジュール先頭へ): 「{stmt.strip()[:80]}」",
+            )
+
+
+RESERVED_IDENT_PATTERN = re.compile(
+    r"\b(?:Dim|Const|Static|ByVal|ByRef)\s+base\b"
+    r"|[(,]\s*base\s+As\b",
+    re.IGNORECASE,
+)
+
+
+def check_reserved_identifiers(info: ModuleInfo) -> None:
+    """StarBasic予約語(Option Base の 'Base')をVBAの識別子として使うと、
+    LibreOffice構文チェック(LOゲート)がコンパイルダイアログでサイレントに
+    ハングし、「タイムアウト=構文エラーの疑い」としてしか現れず原因特定に
+    多大な時間を要する(2026-07-17 modP2P.ThanksDirで発生・二分探索で特定)。
+    実機Excelでは 'base' は有効な変数名だが、ツールチェーンの沈黙ハングを
+    防ぐため恒久ガードとして識別子 'base' の宣言/仮引数を禁止する
+    (別名 basePath 等にする)。line/name は既存コードで実証上ハングしないため
+    対象外(誤検知回避)。新たにハングする予約語が見つかったらここへ追記する。"""
+    for lineno, stmt in info.statements:
+        if RESERVED_IDENT_PATTERN.search(stmt):
+            info.add(
+                "ERROR", lineno,
+                "StarBasic予約語 'base' を識別子に使用(LO構文チェックが沈黙ハング)。"
+                f"別名(basePath等)にしてください: 「{stmt.strip()[:80]}」",
+            )
+
+
+# VBA_RESERVED_BLOCKLIST: 2026-07-21 実機事故の恒久再発防止。src/ui/modApp.bas の
+# 「Dim fix As String」が実機Windows Excelで「コンパイルエラー: 構文エラー」に
+# なり、プロジェクト全体が未コンパイル状態に陥った結果、起動時のShapes.AddShape/
+# OnAction割当てが無関係な「実行時エラー1004」として表面化し、原因特定に
+# 長時間を要した(実機写真で現物確認・IMG_4836)。LibreOffice Basicの構文
+# チェック(LOゲート)は 'Fix' を予約語として扱わずコンパイルを通してしまうため、
+# 本リポジトリの二段階検証(lint+LOテスト)を両方すり抜けていた。
+# この事故クラスを二度と実機まで持ち越さないため、VBA文法キーワードに加えて
+# VBA/Excelの組み込み関数名も総ざらいでブロックリスト化する(一部は実際には
+# 識別子として使えるものも含むが、実機コンパイラでの可否を出力側からは検証
+# できないため、コストゼロの防御としてまとめて禁止する)。
+VBA_RESERVED_BLOCKLIST = {
+    w.lower() for w in (
+        # 文法キーワード(全ダイアレクトで確実に予約語)
+        "Dim Static Const Public Private Friend As ByVal ByRef Optional ParamArray "
+        "Sub Function Property Get Let Set End If Then Else ElseIf Select Case "
+        "For Each In To Step Next Do While Wend Until Loop With Exit GoTo GoSub "
+        "Return On Error Resume Call New Nothing Is Like Mod And Or Not Xor Eqv Imp "
+        "True False Null Empty Me Option Explicit Compare Type Enum Declare "
+        "Lib Alias Implements WithEvents Event RaiseEvent Class Attribute Rem "
+        "ReDim Preserve Erase Stop Debug Variant Boolean Byte Integer Long "
+        "LongLong LongPtr Single Double Currency Decimal Date String Object "
+        # VBA/Excel組み込み関数名(識別子としての衝突が実機コンパイルエラーの
+        # 原因になりうるため予防的に全面禁止。'base'は別枠でcheck_reserved_
+        # identifiersが担当するためここには含めない)
+        "Abs Array Asc AscB AscW Atn CBool CByte CCur CDate CDbl CDec Chr ChrB ChrW "
+        "CInt CLng CLngLng CLngPtr Cos CSng CStr CurDir CVar CVDate CVErr "
+        "DateAdd DateDiff DatePart DateSerial DateValue Day DDB Dir DoEvents Environ "
+        "EOF Exp FileAttr FileDateTime FileLen Filter Fix Format "
+        "FormatCurrency FormatDateTime FormatNumber FormatPercent FreeFile FV "
+        "GetAllSettings GetAttr GetObject GetSetting Hex Hour IIf IMEStatus Input "
+        "InputB InputBox InStr InStrB InStrRev Int IPmt IRR IsArray IsDate IsEmpty "
+        "IsError IsMissing IsNull IsNumeric IsObject Join LBound LCase Left LeftB "
+        "Len LenB LoadPicture Loc LOF Log LTrim Mid MidB Minute MIRR MkDir Month "
+        "MonthName MsgBox Now NPer NPV Oct Partition Pmt PPmt PV QBColor Rate RGB "
+        "Right RightB RmDir Rnd Round RTrim Second Seek Sgn Shell Sin SLN Space Spc "
+        "Split Sqr Str StrComp StrConv StrReverse Switch SYD Tab Tan Time "
+        "Timer TimeSerial TimeValue Trim TypeName UBound UCase Val VarType Weekday "
+        "WeekdayName Year Name Kill Width Height Top"
+    ).split()
+}
+
+# Dim/Private/Public/Static/ReDim(Preserve)の変数宣言、およびByVal/ByRefの
+# 仮引数宣言を横断的に検出する(check_name_shadowingのLOCAL_DECL_PATTERN/
+# PROC_PARAM_PATTERNは目的が異なる限定用途のため、ここでは独自に定義する)。
+RESERVED_WORD_DECL_PATTERN = re.compile(
+    r"\b(?:Dim|Private|Public|Static|ReDim(?:\s+Preserve)?)\s+([A-Za-z_]\w*)\s+As\b"
+    r"|\b(?:ByVal|ByRef)\s+([A-Za-z_]\w*)\s+As\b",
+    re.IGNORECASE,
+)
+
+
+def check_vba_reserved_words(info: ModuleInfo) -> None:
+    """変数/引数名がVBA文法キーワードまたは組み込み関数名と衝突していないか
+    (2026-07-21実機事故の恒久ガード。詳細はVBA_RESERVED_BLOCKLIST直上のコメント
+    参照)。'base'単体は既存のcheck_reserved_identifiersが別途担当する。"""
+    for lineno, stmt in info.statements:
+        for m in RESERVED_WORD_DECL_PATTERN.finditer(stmt):
+            name = m.group(1) or m.group(2)
+            if name.lower() == "base":
+                continue   # check_reserved_identifiers側で専用メッセージを出す
+            if name.lower() in VBA_RESERVED_BLOCKLIST:
+                info.add(
+                    "ERROR", lineno,
+                    f"識別子「{name}」がVBAの予約語/組み込み関数名と衝突"
+                    f"(実機VBAでコンパイルエラー「構文エラー」の元。2026-07-21事故と同型): "
+                    f"「{stmt.strip()[:80]}」",
+                )
+
+
+# ------------------------------------------------------------------------------
+# MS-VBAL <reserved-name> / <special-form> 検査 (2026-08-10 R23c-F5)
+#
+# 事故: modViewport2.BadgeRowsFor の引数名 `scale` が、実機Excel VBAでのみ
+# 構文エラーになり、当該プロシージャがコンパイル不能=「メソッドまたはデータ
+# メンバーが見つかりません」として表面化した。モジュール本文は477行完全・
+# テキスト完全一致だったため「幽霊コンパイルエラー」に見え、原因特定に
+# クリーンインストール3回を要した。
+#
+# 根拠: MS-VBAL 3.3.5.x「Reserved Identifiers and IDENTIFIER」において
+#   reserved-name = Abs / CBool / CByte / CCur / CDate / CDbl / CDec / CInt /
+#                   CLng / CLngLng / CLngPtr / CSng / CStr / CVar / CVErr /
+#                   Date / Debug / DoEvents / Fix / Int / Len / LenB / Me /
+#                   PSet / Scale / Sgn / String
+#   special-form  = Array / Circle / Input / InputB / LBound / Scale / UBound
+# と定義されており、<IDENTIFIER> は「reserved-identifier でない lex-identifier」
+# と定義される。すなわち Scale(や Circle・PSet)を識別子として宣言することは
+# 仕様上できない。VB伝統のグラフィック命令に由来する語であり、
+# LibreOffice Basic はこれらを識別子として通してしまう(=LOゲートの死角)。
+# 上記URLからの転記:
+#   https://learn.microsoft.com/en-us/openspecs/microsoft_general_purpose_
+#   programming_languages/ms-vbal/7df907cb-ab6c-40d3-aa81-272742ce00c3
+#
+# 既存の VBA_RESERVED_BLOCKLIST とは意図的に別立てにしている:
+#   - 向こうは「実機で危ないかもしれない語」の予防的ブロックリスト(超過禁止を
+#     含む)で、検出対象は Dim/Private/Public/Static/ReDim/ByVal/ByRef の
+#     「<名前> As <型>」形だけ。
+#   - こちらは公式仕様の確定リストなので、Const とプロシージャ名(Function/
+#     Sub/Property)まで検出範囲を広げてよい(誤検知の心配がない)。
+#
+# 除外の判断根拠: `line` は reserved-name / special-form のいずれにも含まれず
+# (VB6のLine命令はVBAには継承されていない)、本リポジトリでも
+# modTestRunner:72 / modAskGlobal:483 / modDiag:299 の `Dim line As String` が
+# 実機で動作した実績があるため、検査対象に含めない。
+# `Point` は上記2リストには無いが VB6 グラフィック系の同類で危険が疑われ、
+# 既存コードに宣言が1件も無いためコストゼロの保守的追加として含める。
+# ------------------------------------------------------------------------------
+MSVBAL_RESERVED_NAMES = {
+    w.lower() for w in (
+        # reserved-name (MS-VBAL より逐語転記)
+        "Abs CBool CByte CCur CDate CDbl CDec CInt CLng CLngLng CLngPtr CSng "
+        "CStr CVar CVErr Date Debug DoEvents Fix Int Len LenB Me PSet Scale "
+        "Sgn String "
+        # special-form (MS-VBAL より逐語転記)
+        "Array Circle Input InputB LBound Scale UBound "
+        # 仕様リスト外の保守的追加(上記コメント参照)
+        "Point"
+    ).split()
+}
+
+# 宣言識別子の抽出。「<名前> As <型>」形に加えて、型指定の無い Const や
+# プロシージャ名(引数リストが続く/続かない)も拾う。
+MSVBAL_DECL_PATTERNS = (
+    # Dim/Static/ReDim/Private/Public/Global + 名前 (As は任意)
+    re.compile(r"\b(?:Dim|Static|ReDim(?:\s+Preserve)?|Private|Public|Global)\s+"
+               r"([A-Za-z_]\w*)\s*(?:\(|\bAs\b|$|,)", re.IGNORECASE),
+    # Const 名前
+    re.compile(r"\bConst\s+([A-Za-z_]\w*)\b", re.IGNORECASE),
+    # 仮引数 ByVal/ByRef/Optional/ParamArray + 名前
+    re.compile(r"\b(?:ByVal|ByRef|Optional|ParamArray)\s+([A-Za-z_]\w*)\b",
+               re.IGNORECASE),
+    # プロシージャ名
+    re.compile(r"\b(?:Sub|Function|Property\s+(?:Get|Let|Set))\s+([A-Za-z_]\w*)\b",
+               re.IGNORECASE),
+)
+
+
+def check_msvbal_reserved_names(info: ModuleInfo) -> None:
+    """宣言された識別子が MS-VBAL の <reserved-name> / <special-form> と
+    衝突していないか(2026-08-10 R23c 実機事故の恒久ガード。詳細は
+    MSVBAL_RESERVED_NAMES 直上のコメント参照)。"""
+    for lineno, stmt in info.statements:
+        hits = set()
+        for pat in MSVBAL_DECL_PATTERNS:
+            for m in pat.finditer(stmt):
+                name = m.group(1)
+                if name.lower() in MSVBAL_RESERVED_NAMES:
+                    hits.add(name)
+        for name in sorted(hits):
+            info.add(
+                "ERROR", lineno,
+                f"識別子「{name}」はMS-VBAL仕様の reserved-name / special-form で、"
+                "実機Excel VBAは識別子として拒否します"
+                "(LibreOffice Basicは通すためLOゲートでは検出不能。"
+                f"2026-08-10のscale事故と同型): 「{stmt.strip()[:80]}」",
+            )
+
+
+def module_name_for_display(info: ModuleInfo) -> str:
+    return info.vb_name or info.filename_stem
+
+
+def check_pure_logic_tokens(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    if name not in PURE_LOGIC_MODULES:
+        return
+    for lineno, stmt in info.statements:
+        for pattern, label in FORBIDDEN_TOKEN_PATTERNS:
+            if pattern.search(stmt):
+                info.add(
+                    "ERROR", lineno,
+                    f"R4違反: 純ロジックモジュールで禁止トークン「{label}」使用: 「{stmt.strip()[:80]}」",
+                )
+
+
+def check_opt_token_reference(info: ModuleInfo) -> None:
+    if info.layer == LAYER_OPT:
+        return  # src/opt自身はoptトークンを書いてよい
+    # テスト層も対象外(2026-07-31 R6)。R2の禁止対象は「コアのどのモジュール」で、
+    # 目的は【opt機能を1行削除で撤去してもコアが壊れないこと】。テストモジュールは
+    # 製品に同梱されるコアではなく、opt層の純ロジック(optOcrCoreのGSコマンド
+    # 組み立て等)を直接検証できないと、一番壊れやすい引用符の付け方を実行テストで
+    # 固定できない。同じ理由で check_layer_dependency も既にテスト層を除外している。
+    if info.layer == LAYER_TEST:
+        return
+    for lineno, stmt in info.statements:
+        m = OPT_TOKEN_PATTERN.search(stmt)
+        if m:
+            info.add(
+                "ERROR", lineno,
+                f"R2違反: opt直接参照「{m.group(0).strip()}」。"
+                f"modFeatures.InvokeFeature経由にすること: 「{stmt.strip()[:80]}」",
+            )
+
+
+APPLICATION_RUN_PATTERN = re.compile(
+    r"Application\s*\.\s*Run\s*\(?\s*(?:\"(?P<lit>[^\"]*)\"|(?P<var>[A-Za-z_]\w*))"
+)
+
+
+def check_application_run_whitelist(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    for lineno, stmt in info.statements:
+        for m in APPLICATION_RUN_PATTERN.finditer(stmt):
+            lit = m.group("lit")
+            var = m.group("var")
+            if lit is not None:
+                allowed = (
+                    lit in RUN_LITERAL_WHITELIST_EXACT
+                    or RUN_LITERAL_WHITELIST_PREFIX.match(lit) is not None
+                )
+                if not allowed:
+                    info.add(
+                        "ERROR", lineno,
+                        f'R3違反: Application.Run("{lit}", ...) はホワイトリスト外: 「{stmt.strip()[:80]}」',
+                    )
+                    continue
+                if lit in RUN_LITERAL_GATEWAY_ONLY and name != "modGateway":
+                    info.add(
+                        "ERROR", lineno,
+                        f'R3違反: Application.Run("{lit}", ...) はmodGateway内のみ許可'
+                        f'(このモジュールは{name}): 「{stmt.strip()[:80]}」',
+                    )
+            else:
+                # 変数/式経由のApplication.Run
+                if name not in RUN_VARIABLE_ALLOWED_MODULES:
+                    info.add(
+                        "ERROR", lineno,
+                        f"R3違反: 変数経由のApplication.Run({var}, ...)は"
+                        f"modGateway/modFeatures以外で禁止(このモジュールは{name}): "
+                        f"「{stmt.strip()[:80]}」",
+                    )
+
+
+def check_cross_module_references(info: ModuleInfo, known_modules: dict[str, ModuleInfo]) -> None:
+    self_name = module_name_for_display(info)
+    seen_skip: set[str] = set()
+    for lineno, stmt in info.statements:
+        for m in DOTTED_REF_PATTERN.finditer(stmt):
+            prefix, member = m.group(1), m.group(2)
+            if not MODULE_SHAPED_NAME.match(prefix):
+                continue
+            target = known_modules.get(prefix)
+            if target is None:
+                if prefix != self_name and prefix not in seen_skip:
+                    seen_skip.add(prefix)
+                    info.add(
+                        "SKIP", lineno,
+                        f"未実装モジュール参照のためスキップ: {prefix}.{member}",
+                    )
+                continue
+            if member not in target.public_names:
+                info.add(
+                    "ERROR", lineno,
+                    f"モジュール間参照エラー: {prefix}.{member} はPublicとして実在しない"
+                    f"(現在の{prefix}のPublic一覧: {sorted(target.public_names) or 'なし'})",
+                )
+
+
+def check_layer_dependency(info: ModuleInfo, known_modules: dict[str, ModuleInfo]) -> None:
+    cur_layer = info.layer
+    if cur_layer is None or cur_layer == LAYER_TEST:
+        return  # 分類不能・テスト層は依存順序の対象外
+
+    self_name = module_name_for_display(info)
+
+    for lineno, stmt in info.statements:
+        for m in DOTTED_REF_PATTERN.finditer(stmt):
+            prefix, member = m.group(1), m.group(2)
+            if not MODULE_SHAPED_NAME.match(prefix):
+                continue
+            target = known_modules.get(prefix)
+            if target is None or target.layer is None:
+                continue
+            if prefix == self_name:
+                continue
+
+            if cur_layer == LAYER_OPT:
+                if target.layer == LAYER_FOUNDATION:
+                    continue
+                if prefix == "modUIMain" and member == "SetStage":
+                    continue
+                # R13-1d(2026-08-03): opt層からの段階バナー更新。
+                # SetStage の出力先(状態行/StatusBar/チャットバブル)はNexus
+                # 画面では実質不可視で、GSの本文抽出を数分待つあいだ利用者には
+                # 何も見えなかった(実機第2報 RC5・憲章§3-2)。modShelfBatch.
+                # StageBanner は「進捗バナーが既に出ているときだけ更新する」
+                # 副作用の閉じた通知コールバックで、SetStage と同じ性質
+                # (実況を伝えるだけ・業務ロジックを一切呼び返さない)。
+                # 広げるときは必ずここへ足す=どのoptが画面へ触れるかが
+                # 1箇所で分かる状態を保つ。
+                if prefix == "modShelfBatch" and member == "StageBanner":
+                    continue
+                # R15-6b(2026-08-04): opt層からの中断の問い合わせ。
+                # 進捗バナーの中断ボタンが立てる印を optOcrPage が頁境界・
+                # バッチ境界で【読むだけ】の関数で、引数も戻り値も Boolean 1つ。
+                # 業務ロジックを呼び返さず、状態を1ビットも書き換えない
+                # (StageBanner よりさらに副作用が小さい)。印の実体を
+                # 取込の入口(AddFilesResult)でリセットする都合上、置き場は
+                # ingest 層である必要がある。広げるときは必ずここへ足す
+                # =どのoptがコアへ触れるかが1箇所で分かる状態を保つ。
+                if prefix == "modShelfBatch" and member == "CancelRequested":
+                    continue
+                # R15-FixA FA-2(2026-08-04 レビュー裁定 A-H2/B-H2): opt層からの
+                # 中間保存。頁OCRの控え(optOcrCache)はシートへ書いた時点では
+                # まだメモリ上のブックにしか無く、強制終了で丸ごと消える
+                # =「続きから再開できる」という約束がその瞬間だけ嘘になる
+                # (実機第4報で実際に起きた壊れ方)。保存の作法(ReadOnly判定・
+                # save_fail の記録・トーストの1回きり・120秒スロットル)は
+                # modShelfBatch.SaveCheckpoint が1箇所で持っており、opt層へ
+                # ThisWorkbook.Save を書き写すのはその分散そのもの。
+                # StageBanner/CancelRequested と同じく、広げるときはここへ足す。
+                if prefix == "modShelfBatch" and member == "SaveCheckpoint":
+                    continue
+                if target.layer == LAYER_OPT:
+                    continue
+                info.add(
+                    "ERROR", lineno,
+                    f"opt層契約違反(§7.7): opt層からのコア参照は基盤層+"
+                    f"modUIMain.SetStageのみ許可。{prefix}.{member} は"
+                    f"{LAYER_LABEL.get(target.layer, target.layer)}: 「{stmt.strip()[:80]}」",
+                )
+                continue
+
+            if isinstance(cur_layer, int) and isinstance(target.layer, int):
+                if target.layer > cur_layer:
+                    # R1例外(UI通知コールバック。MASTER_SPEC §3 R1 / Wave2 PM裁定):
+                    # 機能層は処理の進捗・結果をUIへ通知するために以下のみ呼んでよい。
+                    # ShowProgress/HideProgress(R10-5): 取込中の進捗バナー。
+                    # SetStageと同じ「UIへ実況を伝えるだけ」の通知コールバックで、
+                    # ShowProgress自体が内部でSetStageを呼ぶ薄いラッパーのため、
+                    # 既存のSetStage例外と同列に扱う。
+                    # SetStage は基盤層からも1箇所だけ許す(2026-07-31 R11-D /
+                    # 監査3 M-7)。modGatewayDirect の埋め込みHTTPは【同期】
+                    # Send で、NW瞬断時は最大60秒 Excel が完全に固まる。何の
+                    # 表示も無く固まるのは憲章§3-2違反だが、待ちが発生する
+                    # 場所そのものは基盤層にしかない。SetStage は opt層にも
+                    # 同じ理由で既に例外が置かれている「実況を伝えるだけ」の
+                    # 通知コールバックなので、同列に扱う。
+                    if (cur_layer == LAYER_FOUNDATION
+                            and (prefix, member) == ("modUIMain", "SetStage")
+                            and self_name == "modGatewayDirect"):
+                        continue
+                    if cur_layer == LAYER_MID and (prefix, member) in (
+                        ("modUIMain", "SetStage"),
+                        ("modUIMain", "RenderSourcesPreview"),
+                        ("modUIMain", "RenderAnswer"),
+                        ("modUIMain", "ShowProgress"),
+                        ("modUIMain", "HideProgress"),
+                        ("modUIShelf", "RenderShelf"),
+                    ):
+                        continue
+                    # ShowToast(R10-5、R10cのL5で絞り込み): 取込/同期の【完了
+                    # 1回だけ】を知らせる非ブロッキング通知。ShowToastは表示に
+                    # 1.1秒のブロッキング待ちを含むため、「お待ちください」等の
+                    # 常用へ広がると待ち時間が積み上がる(R10cのM3で modUiLock
+                    # から撤去したのがまさにその事故)。完了通知を出す2モジュール
+                    # に限定し、他所へ広がったらLintで止める。
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modSkin", "ShowToast")
+                            and self_name in R1_TOAST_ALLOWED_MODULES):
+                        continue
+                    # AddChatBubble(2026-08-12 R29H F2b。旧: 2026-08-05 R17H FB-7 /
+                    # B-M の ShowToast 例外を置き換え): 基盤層からは
+                    # modIntegrity.FlushPendingBubbles の1箇所だけ許す。起動時に
+                    # 「my_knowledge はあるのに chunk_meta が0行」/
+                    # 「UsedRangeが焼き付いている」を1文ずつ知らせるためのもので、
+                    # 裁定でトースト(waitless両極問題)からチャットバブルへ変更した。
+                    # WarnAtStartup(modBoot経由)はInitUIより前に走るため、その場では
+                    # 描けず文言をQueueBubleで保留し、InitUI後の最初の地点
+                    # (modBoard.BootBoard)からFlushPendingBubblesで1回だけ描く。
+                    # 判定材料はシート2枚だけで上位層の状態を読まないため、向きは
+                    # 「基盤→UIへ通知」の一方通行(modGatewayDirect の SetStage
+                    # 例外と同性質)。起動時1回きり(mWarned)。広げるときは必ず
+                    # ここへ足す=どのモジュールが基盤層からバブルを出すかが
+                    # 1箇所で分かる状態を保つ。
+                    if (cur_layer == LAYER_FOUNDATION
+                            and (prefix, member) == ("modUI", "AddChatBubble")
+                            and self_name == "modIntegrity"):
+                        continue
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modUiLock", "IsBusy")
+                            and self_name in R1_UILOCK_ALLOWED_MODULES):
+                        continue
+                    # PaintProgress(2026-08-04 R15-FixA FA-6 / 2026-08-05 R18-1a
+                    # で modSkin から modProgressBar へ移設): 中断ボタン付きの
+                    # 進捗バナー。ShowProgress(=SetStage+PaintProgress)と同じ
+                    # 「実況を伝えるだけ」の通知コールバックで、違いは中断ボタンを
+                    # 添えるかどうかの1点だけ。modUIMain 側で分岐できれば
+                    # ShowProgress の既存例外で済むが、あちらは30,000字上限まで
+                    # 残り206字で引数1つ足す余地が無い(憲章§4-6)。取込の
+                    # バナーを1本化する modShelfBatch.ShowIngestBanner だけに許す
+                    # =どのモジュールが中断できるバナーを出せるかが1箇所で分かる。
+                    if (cur_layer == LAYER_MID
+                            and (prefix, member) == ("modProgressBar", "PaintProgress")
+                            and self_name in R1_PROGRESS_ALLOWED_MODULES):
+                        continue
+                    # OpenWorkExcelNow(2026-08-05 R18-1f): 取込前確認の2段目から
+                    # 作業用Excelを先に開く。理由は R1_WORKEXCEL_ALLOWED_MODULES の
+                    # 注記を参照。
+                    if (cur_layer == LAYER_MID
+                            and prefix == "modWorkExcel"
+                            and member in R1_WORKEXCEL_ALLOWED_MEMBERS
+                            and self_name in R1_WORKEXCEL_ALLOWED_MODULES):
+                        continue
+                    info.add(
+                        "ERROR", lineno,
+                        f"R1違反: {LAYER_LABEL[cur_layer]}から上位の"
+                        f"{LAYER_LABEL[target.layer]}を参照: {prefix}.{member}"
+                        f"「{stmt.strip()[:80]}」",
+                    )
+
+
+def check_contract(info: ModuleInfo) -> None:
+    name = module_name_for_display(info)
+    contract = CONTRACT.get(name)
+    if contract is None:
+        return
+    required = set(contract["required"])
+    actual = set(info.public_names.keys())
+
+    missing = required - actual
+    for nm in sorted(missing):
+        info.add("ERROR", 1, f"契約違反: Public {nm} が契約にあるが実装されていない")
+
+    if contract["closed"]:
+        extra = actual - required
+        for nm in sorted(extra):
+            info.add(
+                "ERROR", 1,
+                f"契約違反: Public {nm} は契約に無い(§7に無いPublicは作らない規約)",
+            )
+
+
+ptn_find_call = re.compile(r"\.Find\s*\(", re.IGNORECASE)
+ptn_find_lookin = re.compile(r"\bLookIn\s*:=", re.IGNORECASE)
+
+
+def _paren_args(s: str, open_idx: int):
+    """s[open_idx] が '(' のとき、対応する ')' までの中身を返す。閉じなければ None。
+
+    呼び出し側は _blank_string_literals 済みの文字列を渡すこと(文字列リテラル中の
+    カッコを数えてしまわないため)。
+    """
+    depth = 0
+    for i in range(open_idx, len(s)):
+        c = s[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return s[open_idx + 1:i]
+    return None
+
+
+# ==============================================================================
+# check_orphan_public / check_emoji_vs16(2026-09-12 R47)
+# ------------------------------------------------------------------------------
+# このリポジトリで一番高くついている失敗は「存在しないものを呼ぶ」ではなく、
+# 【存在するのに繋がっていない】だった。既存の検査は前者を厚く塞いでいるが、
+# 後者は人が読むまで見つからない。実例:
+#   ・modMode.GuardOnly … R46 で作り、modAsk の到達不能な分岐からしか
+#     呼んでいなかった(ok=True は nHits>0 の枝でしか立たないので、
+#     If ok Then の内側に置いた Else は一度も実行されない)。
+#     実装した本人がレビューでも気付けず、実機テストの前に人が読んで発覚した。
+#   ・姉妹プロジェクトでは、プロンプトインジェクション防御の指示文が
+#     定義され文言の一致検査まで作られているのに、呼び出しが0件で
+#     一度もモデルへ届いていなかった。
+# 人の注意力では止まらない型なので、機械で止める。
+# ==============================================================================
+
+# Excel/ホストが名前で呼ぶため、src 内に呼び出しが無くて当然のもの。
+ORPHAN_EXEMPT_NAMES = {
+    "Auto_Open", "Auto_Close",          # Excel の予約名
+}
+# 「意図的に未使用」と宣言するための機械可読マーカー。定義の直前 5 行以内に
+# 書く。日本語の注記だけだと検査が読めないので1トークンに揃える。
+ORPHAN_MARKER = "@unused:"
+
+
+def _strip_code_line(line: str) -> str:
+    """コメントと文字列リテラルを落とした行(識別子の出現判定用)。"""
+    out, in_str = [], False
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == '"':
+            in_str = not in_str
+            i += 1
+            continue
+        if not in_str and c == "'":
+            break
+        if not in_str:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def check_orphan_public(modules: list) -> None:
+    """呼び出しが1件も無い Public を ERROR にする(孤児Public検査)。
+
+    救済の対象:
+      ・全モジュールの【文字列リテラル】に名前が出る(OnAction / Application.Run /
+        Application.OnTime の宛先はここで拾える)
+      ・build/ tools/ docs/ のテキストに名前が出る(外部の入口・手順書から
+        しか辿れないものがある。src だけ見ると必ず誤検知する)
+      ・定義の直前に @unused: マーカーがある(理由つきの意図的未使用)
+    src/test/ からしか呼ばれないものは WARN(テストのためだけの口)。
+    """
+    # 1) 参照集合を作る
+    code_tokens: dict[str, set] = {}     # 名前 -> それを呼んでいるモジュール名の集合
+    literal_names: set = set()
+    test_tokens: dict[str, set] = {}
+    for m in modules:
+        is_test = "test" in m.relpath.parts
+        for line in m.raw_text.splitlines():
+            # 文字列リテラルの中身(宛先名の救済)
+            for lit in re.findall(r'"([^"]*)"', line):
+                for tok in re.findall(r"[A-Za-z_]\w*", lit):
+                    literal_names.add(tok)
+            for tok in re.findall(r"[A-Za-z_]\w*", _strip_code_line(line)):
+                bucket = test_tokens if is_test else code_tokens
+                bucket.setdefault(tok, set()).add(m.vb_name)
+
+    # 2) src の外(build / tools / docs)も参照集合へ入れる
+    outside: set = set()
+    root = Path(__file__).resolve().parent.parent
+    for sub in ("build", "tools", "docs"):
+        d = root / sub
+        if not d.is_dir():
+            continue
+        for f in d.rglob("*"):
+            if f.suffix.lower() not in (".py", ".md", ".json", ".txt", ".ps1", ".bat", ".html"):
+                continue
+            try:
+                txt = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            outside.update(re.findall(r"[A-Za-z_]\w*", txt))
+
+    pub_re = re.compile(r"^\s*Public\s+(?:Sub|Function|Property\s+\w+)\s+([A-Za-z_]\w*)")
+    for m in modules:
+        lines = m.raw_text.splitlines()
+        pub_lines = {}
+        for idx, line in enumerate(lines, 1):
+            mm = pub_re.match(line)
+            if mm and mm.group(1) not in pub_lines:
+                pub_lines[mm.group(1)] = idx
+        for name, defline in sorted(pub_lines.items()):
+            if name in ORPHAN_EXEMPT_NAMES:
+                continue
+            if name in literal_names or name in outside:
+                continue
+            # 定義の直前5行に意図的未使用のマーカーがあるか
+            head = "\n".join(lines[max(0, defline - 6):defline])
+            if ORPHAN_MARKER in head:
+                continue
+            callers = set(code_tokens.get(name, set())) - {m.vb_name}
+            if callers:
+                continue
+            # 自モジュール内の実呼び出し(戻り値代入 `Name =` は呼び出しではない)
+            self_call = False
+            for idx, line in enumerate(lines, 1):
+                if idx == defline:
+                    continue
+                code = _strip_code_line(line).strip()
+                if not re.search(rf"\b{re.escape(name)}\b", code):
+                    continue
+                if re.match(rf"^(Set\s+)?{re.escape(name)}\s*=", code):
+                    continue    # 戻り値代入
+                self_call = True
+                break
+            if self_call:
+                continue
+            if name in test_tokens:
+                m.add("WARN", defline,
+                      f"Public {name} を呼んでいるのは src/test だけです"
+                      "(テストのためだけの口。製品から使わないなら "
+                      f"定義の直前へ {ORPHAN_MARKER}理由 を書いてください)")
+                continue
+            m.add("ERROR", defline,
+                  f"Public {name} はどこからも呼ばれていません"
+                  "(作ったが繋いでいない=R46 の modMode.GuardOnly と同じ型。"
+                  "配線するか、削除するか、定義の直前へ "
+                  f"{ORPHAN_MARKER}理由 を書いてください)")
+
+
+# 既定がテキスト字形の絵文字(Emoji_Presentation=No)。FE0F が無いと Windows で
+# 何も描かれない。R46 の実機報告「削除ボタンの絵文字が出ない」の原因で、
+# そのとき直したのは 8 箇所中 2 箇所だけだった。残りは人が読むまで気付けない。
+EMOJI_NEEDS_VS16_BMP = {
+    0x26A0, 0x2699, 0x270D, 0x2600, 0x21A9, 0x2328, 0x23F1, 0x2709,
+    0x25C0, 0x25B6, 0x23F9, 0x00A9, 0x2712, 0x2764, 0x2611, 0x2714,
+}
+EMOJI_NEEDS_VS16_SUR = {
+    (0xD83D, 0xDDD1), (0xD83D, 0xDDBC), (0xD83C, 0xDFF7), (0xD83D, 0xDDD4),
+    (0xD83D, 0xDDC2), (0xD83D, 0xDDA5),
+}
+
+
+def check_emoji_vs16(info: ModuleInfo) -> None:
+    """FE0F を伴わない EP=No 絵文字の直書きを ERROR にする。
+
+    単一情報源は modEmj(そこだけ除外)。比較のために 1 文字だけ取り出す用途は
+    FE0F を付けると壊れるので、Left$ / StrComp / InStr / = の右辺に出る回は
+    対象から外す。
+    """
+    if info.vb_name == "modEmj":
+        return
+    for idx, line in enumerate(info.raw_text.splitlines(), 1):
+        code = _strip_code_line(line)
+        if not code:
+            continue
+        # 比較・切り出しの文脈は除外(先頭1文字の一致を見ている)
+        if re.search(r"Left\$?\s*\(|StrComp\s*\(|ChkStr\w*\s+", code):
+            continue
+        for hi, lo in EMOJI_NEEDS_VS16_SUR:
+            pat = f"ChrW(&H{hi:04X}) & ChrW(&H{lo:04X})"
+            p = code.find(pat)
+            while p >= 0:
+                if not code[p + len(pat):].lstrip().startswith("& ChrW(&HFE0F)"):
+                    info.add("ERROR", idx,
+                             f"絵文字 U+{(hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000:04X} は "
+                             "既定がテキスト字形です。FE0F が無いと Windows で描画されません"
+                             "(modEmj の名前つき関数を使ってください。呼び出しの方が字数も減ります)")
+                p = code.find(pat, p + 1)
+        for cp in EMOJI_NEEDS_VS16_BMP:
+            pat = f"ChrW(&H{cp:04X})"
+            p = code.find(pat)
+            while p >= 0:
+                if not code[p + len(pat):].lstrip().startswith("& ChrW(&HFE0F)"):
+                    info.add("ERROR", idx,
+                             f"絵文字 U+{cp:04X} は既定がテキスト字形です。"
+                             "FE0F が無いと Windows で描画されません"
+                             "(modEmj の名前つき関数を使ってください)")
+                p = code.find(pat, p + 1)
+
+
+def check_find_lookin(info: ModuleInfo) -> None:
+    """`.Find(` で LookIn を省略していたらERRORにする(2026-08-16 R33波3 W3-10)。
+
+    Range.Find は LookIn / SearchOrder / MatchByte を省略すると「そのExcel
+    セッションで最後に使われた値」を引き継ぐ(利用者がCtrl+Fの検索ダイアログで
+    「検索対象=コメント」に切り替えるだけで更新される)。素の起動状態では
+    xlFormulas なので通るが、一度切り替えられると What がセル値と一致していても
+    Nothing が返る。実害はR33の監査で3件確認済み:
+      ・modEmbed:197 取得済みベクトルを捨てて無言スキップ(安全装置も鳴らない)
+      ・modEmbed:218 upsert が追記へ倒れてベクトル行が二重化
+      ・modEnrich:416 富化結果の書き戻し先を見失う
+    しかも LibreOffice の Find にはこの設定持ち越しが無いため、run_lo_tests では
+    原理的に再現しない(=CLAUDE.md「LO検査の死角」の型)。機械で止めるしかない。
+
+    【判定の範囲と、検出できない書き方(意図的に見ない)】
+    ・行連結(`_`)で複数行にまたがる呼び出しは iter_statements が1文へ畳むので
+      検出できる。文字列リテラル中の ".Find(" は _blank_string_literals で潰す。
+    ・カッコを付けない Sub 形式の呼び出し(`rng.Find What:=…`)は見ない。
+      Range.Find は Range を返す Function で、戻り値を使わない呼び方に意味が
+      無いため src には存在しない。
+    ・遅延バインド(CallByName / Application.Run 経由)も見ない。静的には
+      「その .Find が Range のものか」を決められない。
+    ・逆に、Range 以外の `.Find(`(将来 Dictionary 風の自作 Find を足した場合)も
+      同じERRORになる。偽陽性でビルドを止めないことを優先し、抜け道(許可
+      マーカー)は用意していない ―― そのときはこのルールを拡張すること。
+    """
+    for lineno, stmt in info.statements:
+        masked = _blank_string_literals(stmt)
+        for m in ptn_find_call.finditer(masked):
+            args = _paren_args(masked, m.end() - 1)
+            if args is None:
+                info.add(
+                    "ERROR", lineno,
+                    "`.Find(` の引数リストの閉じカッコを読み取れませんでした"
+                    "(1つの文へ収まる書き方にしてください): "
+                    f"「{stmt.strip()[:80]}」",
+                )
+                continue
+            if ptn_find_lookin.search(args):
+                continue
+            info.add(
+                "ERROR", lineno,
+                "`.Find(` で LookIn を省略しています。Range.Find は省略すると"
+                "『そのExcelセッションで最後に使われた値』を引き継ぐため、利用者の"
+                "直前のCtrl+F操作次第で一致するはずのセルにNothingが返ります"
+                "(LibreOffice では再現しないためテストで検知できません)。"
+                "`LookIn:=xlValues, SearchOrder:=xlByRows, MatchByte:=False` を"
+                f"明示してください: 「{stmt.strip()[:80]}」",
+            )
+
+
+def check_safeleft_warning(info: ModuleInfo) -> None:
+    for lineno, stmt in info.statements:
+        if not FULLTEXT_ASSIGN_PATTERN.search(stmt):
+            continue
+        if not FULLTEXT_HINT_PATTERN.search(stmt):
+            continue
+        if SAFELEFT_CALL_PATTERN.search(stmt):
+            continue
+        info.add(
+            "WARN", lineno,
+            f"full_text系のセル書込みでSafeLeft経由が確認できません"
+            f"(32,767字超で書込み失敗の恐れ・§12): 「{stmt.strip()[:80]}」",
+        )
+
+
+RAW_ACTIVATE_PATTERN = re.compile(r"\b([A-Za-z_]\w*)\.Activate\b")
+# ThisWorkbook.Activate(複数ウィンドウの前面切替。シート遷移とは別物)と
+# prevActive.Activate(EnsureLayout等の「元のシートへ戻す」復帰処理。戻す先の
+# 失敗は非致命的で既存のOERNで許容されている)は素の.Activateチェックの
+# 対象外にする(2026-07-31 R11-B)。
+RAW_ACTIVATE_EXEMPT_PREFIXES = {"thisworkbook", "prevactive"}
+# R11-C: 「Activate失敗を許容してログ(E0801)に残したうえで続行する」防御が
+# 確立済みの既存4箇所だけ、行末にこのマーカーを付けて許可リスト化する
+# (司令塔裁定・spec_20260731_R11 §5b)。新規追加箇所には付けないこと。
+RAW_ACTIVATE_ALLOW_MARKER = "lint:allow-raw-activate"
+
+
+def check_raw_activate(info: ModuleInfo) -> None:
+    """modUI以外での素の.Activate使用をERRORにする(R11-B/C6・C系の再発防止)。
+
+    2026-07-31実機「ギャラリー無反応」の真因は、ActivateSheetRobust(失敗を
+    検知し、失敗時はRestoreExcelUIで脱出路を出す)を経由しない素の
+    ws.Activateが複数箇所に残っていたこと。失敗しても利用者には何も伝わらず、
+    画面が固まったまま戻る手段が無い。modUIはActivateSheetRobust自身の
+    実装場所として唯一許可する(対象外)。
+
+    R11-Cで全数を処理済み: modBoot.HideGuardSheetはActivateSheetRobust化、
+    modDiag/optDiffDoc/modUIMain/modUIShelfの残り4箇所は「Activate失敗を
+    E0801へログして続行する」防御が既に成立している(致命的にしない設計を
+    裁定で受容)ため、RAW_ACTIVATE_ALLOW_MARKERを付けて許可リスト化した。
+    以後の新規の素の.ActivateはERRORにして機械的に検出する。
+    """
+    name = module_name_for_display(info)
+    if name == "modUI":
+        return
+    for lineno, raw in merge_continuations(info.raw_text.split("\n")):
+        if RAW_ACTIVATE_ALLOW_MARKER in raw:
+            continue
+        code = _strip_strings(strip_comment(raw))
+        for m in RAW_ACTIVATE_PATTERN.finditer(code):
+            if m.group(1).lower() in RAW_ACTIVATE_EXEMPT_PREFIXES:
+                continue
+            info.add(
+                "ERROR", lineno,
+                f"素の.Activate使用(modUI.ActivateSheetRobust経由にすること。"
+                f"失敗時の脱出路が無いと『ギャラリー無反応』と同型の無反応画面になる): "
+                f"「{code.strip()[:80]}」",
+            )
+
+
+# ==============================================================================
+# メイン
+# ==============================================================================
+def discover_module_files(src_root: Path) -> list[Path]:
+    files = sorted(src_root.rglob("*.bas")) + sorted(src_root.rglob("*.cls"))
+    return sorted(set(files))
+
+
+def run_lint(src_root: Path) -> int:
+    if not src_root.exists():
+        print(f"[vba_lint] 対象ディレクトリが存在しません: {src_root}")
+        return 1
+
+    files = discover_module_files(src_root)
+    modules: list[ModuleInfo] = []
+    for f in files:
+        modules.append(load_module(f, src_root))
+
+    known_modules: dict[str, ModuleInfo] = {}
+    for info in modules:
+        known_modules[module_name_for_display(info)] = info
+
+    for info in modules:
+        check_basics(info)
+        check_cp932_safe(info)
+        check_dim_type_drop_and_integer(info)
+        check_name_shadowing(info)
+        check_declaration_position(info)
+        check_handler_exit(info)
+        check_resume_next_inside_handler(info)
+        check_resume_on_fallthrough_label(info)
+        check_reserved_identifiers(info)
+        check_vba_reserved_words(info)
+        check_msvbal_reserved_names(info)
+        check_pure_logic_tokens(info)
+        check_opt_token_reference(info)
+        check_application_run_whitelist(info)
+        check_cross_module_references(info, known_modules)
+        check_layer_dependency(info, known_modules)
+        check_contract(info)
+        check_safeleft_warning(info)
+        check_raw_activate(info)
+        check_find_lookin(info)
+        check_emoji_vs16(info)
+
+    # モジュールをまたいだモジュールレベル参照は、全モジュールの宣言を
+    # 集め終わってからでないと判定できないので、ループの外で1回だけ行う。
+    check_module_level_refs(modules)
+    check_undefined_proc_refs(modules)
+    check_onaction_handler_guard(modules)
+    check_msgbox_nonbmp(modules)
+    check_array_arg_variant_mismatch(modules)
+    check_qualified_arg_count(modules)
+    check_orphan_public(modules)
+
+    # 契約はあるがファイルがまだ存在しないモジュール -> SKIP表示
+    implemented_names = set(known_modules.keys())
+    not_yet: list[str] = sorted(set(CONTRACT.keys()) - implemented_names)
+
+    total_error = 0
+    total_warn = 0
+    total_skip = 0
+
+    print("=" * 78)
+    print("vba_lint レポート — マイ本棚AI")
+    print("=" * 78)
+
+    for info in modules:
+        if not info.findings:
+            continue
+        rel = info.relpath.as_posix()
+        errors = [x for x in info.findings if x.level == "ERROR"]
+        warns = [x for x in info.findings if x.level == "WARN"]
+        skips = [x for x in info.findings if x.level == "SKIP"]
+        total_error += len(errors)
+        total_warn += len(warns)
+        total_skip += len(skips)
+
+        print(f"\n[{rel}]")
+        for f in sorted(info.findings, key=lambda x: (x.level != "ERROR", x.level != "WARN", x.line)):
+            print(f"  {f.level:<5} L{f.line}: {f.message}")
+
+    if ARGC_SKIPPED:
+        # 引数数照合の実効範囲の申告。数え切れなかった呼び出しは黙って通して
+        # いるので、件数だけは必ず表に出す(偽陽性ゼロと引き換えの検出漏れ)。
+        print("\n[引数数照合(R24-1b) — 数えられずスキップした修飾呼び出し]")
+        reasons: dict[str, int] = {}
+        for _rel, _ln, _name, why in ARGC_SKIPPED:
+            reasons[why] = reasons.get(why, 0) + 1
+        detail = " / ".join(f"{k}:{v}件" for k, v in sorted(reasons.items()))
+        print(f"  WARN  L1: 引数数照合 {ARGC_CHECKED[0]} 件を照合、"
+              f"{len(ARGC_SKIPPED)} 件をスキップしました({detail})")
+        total_warn += 1
+        if DUMP_ARGC_SKIPS:
+            for rel, ln, name, why in ARGC_SKIPPED:
+                print(f"        - {rel}:{ln} {name} ({why})")
+
+    if not_yet:
+        print("\n[未実装モジュール(契約はあるがファイル無し) — SKIP]")
+        for nm in not_yet:
+            print(f"  SKIP  {nm}")
+        total_skip += len(not_yet)
+
+    print("\n" + "-" * 78)
+    print(f"検査対象ファイル数: {len(modules)}")
+    print(f"ERROR: {total_error} 件 / WARN: {total_warn} 件 / SKIP: {total_skip} 件")
+    if total_error > 0:
+        print("結果: NG(exit code 1) — ERRORを解消してください")
+    else:
+        print("結果: OK(exit code 0)")
+    print("-" * 78)
+
+    return 1 if total_error > 0 else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="マイ本棚AI VBA静的Lint")
+    parser.add_argument(
+        "--path", type=str, default=str(DEFAULT_SRC_ROOT),
+        help="検査対象ディレクトリ(既定: mybookshelf/src)",
+    )
+    parser.add_argument(
+        "--dump-argcount-skips", action="store_true",
+        help="引数数照合でスキップした呼び出しを1件ずつ列挙する(調査用)",
+    )
+    args = parser.parse_args()
+    global DUMP_ARGC_SKIPS
+    DUMP_ARGC_SKIPS = bool(args.dump_argcount_skips)
+    src_root = Path(args.path).resolve()
+    return run_lint(src_root)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,55 +1,77 @@
-# Internal NotebookLM (Excel + VBA / Azure OpenAI)
+# Nexus Agent（旧: マイ本棚AI）
 
-社内アンダーライターの問い合わせ対応を減らすため、支社営業担当者向けに配布する社内ナレッジQAチャットbot。Excel マクロ (.xlsm) で動作し、社内ナレッジ (PDF/Word/Excel) を出典付きで検索回答する。
+> **ポータルで見つけたマニュアルを、読まずに、承認も待たずに、ぶちこんで、すぐ聞ける。**
 
-> **このブランチ (`claude/prototype-gemini-demo`) は情シス向けデモ用のプロトタイプ**です。本番は Azure OpenAI 想定ですが、デモは Gemini API + 個人キー + サンプルPDF16件で動かします。詳細は [docs/demo-quickstart.md](docs/demo-quickstart.md) と [docs/demo-build.md](docs/demo-build.md)。本番版コードは `claude/internal-notebook-lm-chatbot-B6BE7` ブランチ。
+Excelマクロ（.xlsm）ひとつで動く、社内版NotebookLMです。  
+ファイルサーバーの申請も、IT部門への依頼も不要。自分のPCだけで完結します。
 
-## このリポジトリの構成
+---
+
+## 💡 何ができるのか？
+
+- 📚 **資料をポンと入れるだけ**  
+  PDF、Word、Excel、テキストなどの社内資料を、専用フォルダに入れるかボタンで選ぶだけで一括取り込みできます。
+- 🔍 **AIが自動で読み込み準備**  
+  取り込んだ書類は、AIが即座に検索・理解できる形式へ自動的に変換されます。
+- ⚡ **選べる2つの回答スピード**  
+  - **「⚡ すぐ聞く」モード（約10〜20秒）**：要点だけを急ぎで知りたいときに
+  - **「🔍 しっかり調べる」モード（約1〜2分）**：複数の資料を横断してじっくり調べたいときに
+- 📖 **出典（ページ数）が必ずわかる**  
+  回答には必ず「どの資料の何ページに基づく情報か」が明記されるため、元の資料をすぐに確認でき、安心して業務に使えます。
+- 📦 **同僚との本棚シェア**  
+  自分で作った本棚のデータを「パック」として書き出し、そのままチームの仲間に渡して共有できます。
+
+---
+
+## 📖 ドキュメント案内
+
+知りたい内容に合わせて、以下のガイドをご覧ください。
+
+| あなたの知りたいこと | 読むドキュメント |
+|---|---|
+| **初めて使う・動かし方を知りたい** | 👉 [docs/00_はじめての方へ.md](docs/00_はじめての方へ.md)（5分で読めるクイックスタート） |
+| **画面のボタンや使い方を全部知りたい** | 👉 [docs/10_使い方ガイド.md](docs/10_使い方ガイド.md) |
+| **資料が見つからない・回答が遅いなどの困りごと** | 👉 [docs/10_使い方ガイド.md の「よくある質問」](docs/10_使い方ガイド.md) |
+| **システムの構造・仕様を詳しく見たい** | 👉 [docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md) |
+| **実装されている機能一覧を知りたい** | 👉 [docs/dev/FEATURES.md](docs/dev/FEATURES.md) |
+| **開発に参加したい・変更を提案したい** | 👉 [docs/dev/CONTRIBUTING.md](docs/dev/CONTRIBUTING.md) |
+| **未完了のタスクや課題を確認したい** | 👉 [docs/dev/TODO.md](docs/dev/TODO.md) |
+
+---
+
+## 💻 動作環境
+
+- **OS・アプリ**: Windows版 Microsoft Excel  
+- **社内AIツール**: Excelリボンに「リボンちゃん」(`ChatGPT()` / `GetEmbeddings()`)が導入されていること  
+  *(※リボンちゃんが入っていないPCでも、開発用設定の `mock_llm` を TRUE にすることで、ダミーのAI応答を使って全画面の動きをお試しいただけます)*
+- **初回のみ必要な設定**:  
+  マクロの有効化に加えて、初回起動時だけExcelの「VBAプロジェクト オブジェクト モデルへのアクセスを信頼する」にチェックを入れる必要があります。（詳しい手順は [docs/00_はじめての方へ.md](docs/00_はじめての方へ.md) のステップ2で図解しています）
+- **注意**: Mac版Excelでの動作は保証外です（一部のファイル取り込み機能が動作しません）。
+
+---
+
+## 🚀 使い始める
+
+完成したファイル `dist/MyBookshelf.xlsm` を開くだけですぐにお使いいただけます。  
+詳しい準備手順は [docs/00_はじめての方へ.md](docs/00_はじめての方へ.md) をご覧ください。
+
+---
+
+## 📁 リポジトリ構成
 
 ```
-src/
-  shared/      両xlsmで共有するモジュール (HTTP, ApiGateway, KeyVault, Config, ...)
-  admin/       Admin_KnowledgeBuilder.xlsm 専用 (取り込み・index生成・キー埋め込み)
-  chatbot/     Chatbot.xlsm 専用 (起動・チャットUI・利用ログ)
-build/         build.ps1 と Excel テンプレート (Windowsで実行)
-config/        config.sample.ini, disclaimer.txt
-docs/          architecture.md, security.md, admin-guide.md, user-guide.md
-dist/          ビルド成果物 (.gitignore)
+.
+├── README.md                  ← 本ファイル
+├── docs/                      ← 各種マニュアル・ガイド
+│   ├── 00_はじめての方へ.md    ← 初心者向けスタートガイド
+│   ├── 10_使い方ガイド.md      ← 画面別の詳しい使い方
+│   ├── 20〜50_*.md             ← セットアップ・運用・拡張ガイド
+│   └── dev/                   ← 開発者向けドキュメント（設計書・仕様書など）
+├── src/                       ← Excelマクロ（VBA）のソースコード
+├── build/                     ← Excelブック（.xlsm）を自動作成するスクリプト
+├── dist/                      ← 配布用ファイル（完成したMyBookshelf.xlsm）の出力先
+└── tools/                     ← 検証・チェック用ツール
 ```
 
-## 設計の柱
-
-- **2バイナリ構成**: 管理者用と配布用を分離。配布用は読み取り+利用のみ。
-- **APIキー秘匿の3モード抽象化** (`modApiGateway`): Mode A 中継サーバー / **Mode B 難読化埋め込み (MVPデフォルト)** / Mode C Entra ID。
-- **Azure OpenAI Service 前提**。エンドポイントとデプロイメント名は config.ini で外出し。
-- **L2正規化済み embeddings をバイナリ保存** + 純VBA内積でtop-k。
-- **PII検知 + レート制限 + 利用ログ** をクライアント側で持つ。
-- **VBA保護の限界**を `docs/security.md` に明記。
-
-## 実装ロードマップ
-
-- Week 1 (この時点): 縦串通し。txt取り込み→Azure OpenAI→チャット応答。
-- Week 2: PDF/Word/Excel抽出, プロキシ対応, SharePoint連携, ログ, レート制限, PII。
-- Week 3: パイロット配布 (5〜10名), 集計シート, 個人ナレッジ。
-- Phase 2: ModeA中継サーバー, ModeC Entra ID, 検索精度チューニング。
-
-## 開発フロー
-
-ソースは `src/` に .bas/.cls/.frm のテキストで管理する (xlsm はバイナリで diff 不能なため)。Windows + Excel 環境で `build/build.ps1` を走らせると `dist/*.xlsm` が生成される。
-
-## ドキュメント
-
-**デモ (このブランチ)**
-
-- [docs/demo-quickstart.md](docs/demo-quickstart.md) - **情シスに渡す5分起動ガイド**
-- [docs/demo-build.md](docs/demo-build.md) - **あなたが情シス向けxlsmを組む手順**
-
-**本番** (`claude/internal-notebook-lm-chatbot-B6BE7` ブランチ)
-
-- [docs/it-checklist.md](docs/it-checklist.md) - 着手前に情シスへ持っていく1枚
-- [docs/build-walkthrough.md](docs/build-walkthrough.md) - 初回 Windows ビルド手順 (所要30〜60分)
-- [docs/architecture.md](docs/architecture.md) - 全体構成
-- [docs/security.md](docs/security.md) - 秘匿の限界と移行計画
-- [docs/admin-guide.md](docs/admin-guide.md) - 管理者手順
-- [docs/user-guide.md](docs/user-guide.md) - 営業担当者向け
-- [docs/deployment.md](docs/deployment.md) - 配布と信頼できる場所
+> **📌 リポジトリの構成について**  
+> 本リポジトリは、旧チャットボット環境（notebook）から独立した専用プロダクトです。以前の `mybookshelf/` フォルダ配下の内容はすべてルート（最上位）へ展開済みです。切り出しの詳細な経緯は `docs/90_別リポジトリへの切り出し手順.md` をご覧ください。

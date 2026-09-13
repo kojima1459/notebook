@@ -1,0 +1,1354 @@
+{
+  "_comment": "マイ本棚AI VBAモジュール台帳。MASTER_SPEC.md §14「実装ウェーブとファイル分担」に準拠。パスは mybookshelf/ からの相対パス。ビルド時にここへ列挙された全ファイルの存在を検査する(--allow-missing で欠落を警告に緩和)。opt機能の撤去はこのファイルから該当行を削除するだけでよい(コアは無傷)。type=std の .bas だけが vba_src シートに格納され自己インストーラで注入される。type=class (ThisWorkbook.cls) は VBComponents.Add(1) では追加できない(標準モジュール専用API)ため vba_src には載せず、スケルトンの ThisWorkbook ストリームをビルドスクリプトが直接パッチする(そちらが実行系の本体)。",
+  "modules": [
+    {
+      "name": "modAppDef",
+      "path": "src/core/modAppDef.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modTypes",
+      "path": "src/core/modTypes.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modConfig",
+      "path": "src/core/modConfig.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modLog",
+      "path": "src/core/modLog.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modChatLog",
+      "path": "src/core/modChatLog.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modUtil",
+      "path": "src/core/modUtil.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modUtilText",
+      "path": "src/core/modUtilText.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "テキストファイル入出力(ADODB.Stream UTF-8)と、複数モジュールに散っていた同じ算数を1本化するための共通部品。modUtilが27,822字で余地が少ないため新設(R11-F2の重複統合の受け皿)。"
+    },
+    {
+      "name": "modEmj",
+      "path": "src/core/modEmj.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1"
+    },
+    {
+      "name": "modGateway",
+      "path": "src/core/modGateway.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modGatewayDirect",
+      "path": "src/core/modGatewayDirect.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modFeatures",
+      "path": "src/core/modFeatures.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modDiag",
+      "path": "src/core/modDiag.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modIntegrity",
+      "path": "src/core/modIntegrity.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A",
+      "note": "データ整合性の観測点(2026-08-05 R18-2b/2d)。台帳(my_manifest.chunk_count)と実データ(my_knowledge)の突合・自動修復と、保存時マーク→起動時突合(行数が減った/一時フォルダで開いている)の警告。判定はシートだけを読み上位層を呼ばない(R1)。呼び出しは modShelf.SourceList / modShelfBatch.SaveCheckpoint / modBoot の各1行。"
+    },
+    {
+      "name": "modInstallCheck",
+      "path": "src/core/modInstallCheck.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R23b",
+      "note": "自己インストーラの注入結果を行数で検算する(2026-08-10 R23b・実機第9報①のMA-3)。vba_srcのC列本文の行数(末尾空行トリム後)とVBE上のCodeModule行数を全モジュールで突合し、不一致件数を返す。R23の空モジュール検出(CountOfLines<1)では拾えない【部分注入】を塞ぐ最後の関所。呼び出しは自己インストーラ(ThisWorkbookストリーム)の f = f + Application.Run(\"modInstallCheck.VI\") の1行のみで、他モジュールへ一切依存しない。"
+    },
+    {
+      "name": "modShare",
+      "path": "src/core/modShare.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "1-A"
+    },
+    {
+      "name": "modShareRule",
+      "path": "src/core/modShareRule.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R8-P2P"
+    },
+    {
+      "name": "modExtractor",
+      "path": "src/ingest/modExtractor.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-B"
+    },
+    {
+      "name": "modExtractorPdf",
+      "path": "src/ingest/modExtractorPdf.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R13-Phase0"
+    },
+    {
+      "name": "modExtractorWord",
+      "path": "src/ingest/modExtractorWord.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-B"
+    },
+    {
+      "name": "modExtractorExcel",
+      "path": "src/ingest/modExtractorExcel.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-B"
+    },
+    {
+      "name": "modExtractorAcrobat",
+      "path": "src/ingest/modExtractorAcrobat.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-B"
+    },
+    {
+      "name": "modChunker",
+      "path": "src/ingest/modChunker.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-B"
+    },
+    {
+      "name": "modChunkPage",
+      "path": "src/ingest/modChunkPage.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R42",
+      "note": "R42 §1(A1/A2・受入FAIL PDF-F01/RT-27/28/37/スモーク5・PDF-F02/RT-22/23)。見出しの無い複数ページ資料でかけらの出典ページがp.1に寄る不具合の実体。modChunkerは残61字(実質凍結)のため新設し、ChunkAllPagesStructuredはBlockAddPg(行ごとの物理ページを並走)/FlushPaged(かけら本文先頭の物理ページを逆引きして確定)だけを呼ぶ。PhysicalKeep(A2)はmodExtractor.BuildPagesFromGsTextから呼び、上限を白紙読み飛ばし後の枚数ではなく物理ページ番号に当てる。LineStarts/PageAtPos/FirstInkPos/PlanWindows/StartPagesOfはmodTestsPure45が直接固定する純関数の検証口。"
+    },
+    {
+      "name": "modEmbed",
+      "path": "src/ingest/modEmbed.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modShelf",
+      "path": "src/ingest/modShelf.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modShelfBatch",
+      "path": "src/ingest/modShelfBatch.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R10d",
+      "note": "「資料を追加」の一括取込オーケストレーション(AddFilesViaDialog/AddFilesResult)。modShelfが30,000字上限まで残り440字となりバグ修正1件も入らなくなったための分割先(憲章§4-6)。1ファイルぶんの取込本体はmodShelf.IngestFileのまま。"
+    },
+    {
+      "name": "modShelfStore",
+      "path": "src/ingest/modShelfStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modChunkMeta",
+      "path": "src/ingest/modChunkMeta.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-1",
+      "note": "R17 Phase1: チャンク先頭のbreadcrumbからsection_pathを、本文から明示参照(第N条/第N項/第N章/別表N/様式N)をInStr走査だけで抽出する純ロジック(RegExp/ScriptControl不使用)。PURE_LOGIC_MODULES登録。シートI/OはmodChunkMetaStore、検索への合流はmodAskFocus。"
+    },
+    {
+      "name": "modChunkMetaStore",
+      "path": "src/ingest/modChunkMetaStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-0",
+      "note": "R17設計書§3 Phase1(構造メタデータ+参照エッジ)が使うchunk_metaシートの器。EnsureChunkMetaSheetはmodShelfStore.EnsureKnowledgeSheetと同型。R17波1でWriteMetaFromRows(取込からの追記)とRemoveMetaForSource(再取込・削除時の旧行掃除)を追加し、modShelf.IngestFile/DeleteSourceから配線済み。"
+    },
+    {
+      "name": "modOutlineStore",
+      "path": "src/ingest/modOutlineStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: doc_outlineシート(source/section_key/summary/keywords/chunk_n)のEnsure/一括書込み/全行読み/資料単位の掃除。modChunkMetaStoreと同型。modBoot.HideInternalSheetsへ足せない(残8字)ぶん、veryHiddenはEnsureOutlineSheetが毎回冪等に自己設定する。失敗は全て握ってusage_log(outline_fail)1行に留め、取込も回答も止めない。"
+    },
+    {
+      "name": "modOutlineBuild",
+      "path": "src/ingest/modOutlineBuild.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: 取込時の章単位要約。section_pathの第1要素(ChapterKeyOf)で章に束ね、章ごとにCallLLM(step=chapter_summary)で200〜300字要約+キーワードを作りdoc_outlineへ保存する。R15の枠組み(CancelRequested/StageBanner/BlendPerItemMsのETA/SaveCheckpoint throttle120)に乗せ、中断時は途中章まで保存して正常終了。1章の本文はmax_context_charsで打ち切り(BudgetTake)、失敗章は「(要約失敗)」の行として保存して続行。ゲート(config graph_outline)も失敗握りもこの層に閉じるので呼び出し元(modShelf.IngestFile)は1行。プロンプトはmodPrompts残386字のため本モジュールのPrivate。末尾でmodSynonymStore.BuildSynonymsForを1行呼ぶ(R17 Phase3)。"
+    },
+    {
+      "name": "modSynonymStore",
+      "path": "src/ingest/modSynonymStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-3",
+      "note": "R17 Phase3: 用語の表記ゆれ辞書(synonyms: term/canonical)。EnsureSynonymSheet/WriteSynonymRows/ReadMapCsv/RemoveAllはmodOutlineStoreと同型のシートI/O。BuildSynonymsForが唯一の名寄せ入口で、当該資料のchunk_meta(section_path)/doc_outline(keywords)/my_knowledge(keywords列)から用語候補を集め(最大200語)、CallLLM(step=name_dedup)で表記ゆれグループを取得しsynonymsへ追記する(既存termは上書き=ReadMapCsvで読んだ既存分から重複termを除いてRemoveAll後に全件書き直し)。ゲート(config graph_synonyms)・失敗握り(usage_log synonyms_fail)もこの層に閉じるので呼び出し元(modOutlineBuild.BuildOutlineFor)は1行。質問側の読み出し窓口はReadMapCsvのみ(modAskRetrieveが1セッション1回読み、展開はmodRagParse.ExpandQueryBySynへ渡す)。"
+    },
+    {
+      "name": "modShelfVision",
+      "path": "src/ingest/modShelfVision.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "取込失敗時のvisionフォールバック(E0301の画像ファイル/E0303の画像PDF OCR)の一本化。opt名は書かずmodFeatures.InvokeFeature経由(R2)。"
+    },
+    {
+      "name": "modBackfill",
+      "path": "src/ingest/modBackfill.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R20-3",
+      "note": "再取込ゼロの「資料の仕上げ」バックフィル。R17より前に取り込んだ資料のchunk_meta/doc_outlineを、保存済みfull_textから後追いで作る(再抽出・OCR・埋め込みの再計算なし)。呼び出し元はmodKnowledgeBar.OnBackfillClick。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
+      "name": "modShelfSync",
+      "path": "src/ingest/modShelfSync.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modShelfScan",
+      "path": "src/ingest/modShelfScan.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modSeed",
+      "path": "src/ingest/modSeed.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SEED"
+    },
+    {
+      "name": "modEnrich",
+      "path": "src/ingest/modEnrich.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-C"
+    },
+    {
+      "name": "modSparse",
+      "path": "src/qa/modSparse.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SPARSE"
+    },
+    {
+      "name": "modRetrieve",
+      "path": "src/qa/modRetrieve.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-D"
+    },
+    {
+      "name": "modPrompts",
+      "path": "src/qa/modPrompts.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-D"
+    },
+    {
+      "name": "modRagParse",
+      "path": "src/qa/modRagParse.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "RAG"
+    },
+    {
+      "name": "modClarify",
+      "path": "src/qa/modClarify.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
+    },
+    {
+      "name": "modMode",
+      "path": "src/qa/modMode.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MODE3"
+    },
+    {
+      "name": "modGround",
+      "path": "src/qa/modGround.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MODE3"
+    },
+    {
+      "name": "modAsk",
+      "path": "src/qa/modAsk.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-D"
+    },
+    {
+      "name": "modAskRetrieve",
+      "path": "src/qa/modAskRetrieve.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-D"
+    },
+    {
+      "name": "modAskThorough",
+      "path": "src/qa/modAskThorough.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R14-8a",
+      "note": "「入念に調べる」専用の生成パイプライン(再ランク→要点整理→下書き→自己批判→検証→出典の機械的突合の6段)。実機第3報RC8「deep/thoroughが生成側で完全に同じ」への対処で、quick/deepの経路は一切変えていない。最後の出典突合はLLMを使わない純ロジックで、回答中の[本棚:名 p.N]/[パック(作者):名]タグを検索結果と照合し、見つからないものへ「(出典確認できず)」を付けてusage_log cite_mismatchに件数を残す。突合の基準になるタグの形はmodPrompts.SourceTagが単一情報源。"
+    },
+    {
+      "name": "modGenPipe",
+      "path": "src/qa/modGenPipe.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-1",
+      "note": "一般アシスタント(本棚を使わない回答)の3段化。ヘッダーの速さトグルはこれまでRAG側にしか効かず、一般アシスタントは常にquick相当の1回呼び出しだった(modAppがsendSpeedを捨てていた)。すぐ聞く=現行のまま1回/しっかり=1回+構造化指示(gen_deep_effort=medium・gen_deep_verbosity=high)/入念=起草→検証→改稿を最大2周(CoVe型。verdict:PASSで早期終了)。検証は起草とは別の呼び出し・別ペルソナ(自己採点の楽観バイアス対策)で、判定はParseVerdictが1行目を正規化してverdict:passと厳密一致で読む。読めない/落ちたときは起草(または直前の改稿)をそのまま返しusage_log gen_verify_parse_failに残す。実況はmodUIMain.SetStage(既存の進捗表示機構)へ流すだけで新規バナー機構は作らない。純関数(ParseVerdict/ShouldRunVerifyLoop/PlanFor)はmodTestsPure25から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。"
+    },
+    {
+      "name": "modConvBridge",
+      "path": "src/qa/modConvBridge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-2",
+      "note": "モード切替時の会話メモリ橋渡し。RAG⇄一般アシスタントは記憶キーが別(nexus_ask_prevu/preva と nexus_gen_prevu/preva)で、切替えると相手側から見えなくなる(=文脈が切れる)。切替元の直前1往復だけを切替先のキーへコピーし、回答側の先頭へ出所ヘッダー【直前の○○での文脈】を付ける(冪等・二重付与しない)。各4,000字で先頭を落として切り詰め(全角安全)。conv_bridge=offなら何もしない(モードごとの記憶は従来どおり独立)。凍結モジュール(modAsk)には触れず、modState.LoadState/modConfig.GetBoolしか呼ばない計算専任モジュール(R1: UI層への書き込み・トーストはmodAppState.BridgeConvMemory側で行う)。"
+    },
+    {
+      "name": "modAskMulti",
+      "path": "src/qa/modAskMulti.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R16-3A",
+      "note": "複合質問の分解→論点ごとの調査→統合(入念モード専用)。段0の判定を1回だけ足し、verdict=partsのときに論点ごとにexpandを飛ばした検索+副下書きを回し、1本へ統合してから自己点検・検証・出典突合へ渡す。LLM合計は1+論点数+3で現行入念の6回と同水準。判定が#ERR・タグ崩れ・single・clarify・論点1本のいずれかならFalseを返し、modAskがそのまま従来のmodAskThorough.RunThoroughFlowを実行する(分解は上積みであって置き換えではない)。出典突合は全論点のヒットをchunk_idで重複排除して連結したunionHitsに1回だけ掛ける。中断(Err18)は論点の境界で拾い、完成済みの論点だけで統合して末尾に中断メモを付けて正常返却する。"
+    },
+    {
+      "name": "modAskGlobal",
+      "path": "src/qa/modAskGlobal.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R17-2",
+      "note": "R17 Phase2: 俯瞰質問(疑似グローバル検索)。入念モードの段0がverdict=globalと判定したときだけ動き、doc_outlineの章要約を1回のプロンプトへ載せて読むべき章を最大4つ選ばせ(chapter_pick)、選ばれた章のチャンクをmy_knowledge+chunk_metaから文書順に章ごとの予算内で集め、1回で回答を作る(global_answer)。追加のLLM呼び出しは2回。出典突合はmodAskThorough.AnnotateAgainstHitsに合流し、出典タグの書式はmodPrompts.SourceTagを通す。graph_outline=off/doc_outline 0行/章が選ばれない/チャンクが引けない/回答生成の失敗は全てFalseで従来の入念フローへ落ちる(フェイルセーフはこの層に閉じる)。中断(Err18)は段の境界で拾い、選んだ章の要約だけを「※中断」つきで返す。返すhitsのscoreは0(検索スコアで選んだ材料ではないため信頼度バッジを水増ししない)。"
+    },
+    {
+      "name": "modAskFocus",
+      "path": "src/qa/modAskFocus.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R16-3C",
+      "note": "精読(近傍チャンク束ね)。根拠に選んだチャンクの前後deep_neighbor個ぶんを文書順で拾って本棚抜粋の末尾へ足す。意味の単位(表の見出しと値・条文と但し書き)がチャンク境界をまたぐ資料で「書いてあるのに確認できない」と答える事故を止めるのが目的。資料の同一性はsource列で見て、文書順はchunk_id「bs::ハッシュ::pN::cM」の(page,seq)昇順を自前パースして復元する(ハッシュ部はチャンク本文のハッシュで行ごとに異なるため資料キーには使えない=R16H FA-1で是正。文書順の公開APIは本棚側に無い)。my_knowledgeはchunk_id列とsource列だけを1回読み、本文は採用した数十行だけセル単位で読む。近傍はscore=0で足す(親のスコアを継ぐと信頼度バッジの『強く一致』が水増しされる)。source/pageは近傍チャンク自身の値=出典タグの整合。近傍が0件のときはusage_logへneighbor_zeroを1行残す(無音で効かない状態を作らない)。シートが読めないときは何もせず戻る(無操作=従来動作)。適用先はthorough(single/parts)だけで、quickとdeepには一切効かない(R16H FA-4: deepの戻り件数は件数バッジ・hit_countと一体のため、近傍込みの件数を返すと表示が嘘になる)。"
+    },
+    {
+      "name": "modPii",
+      "path": "src/pack/modPii.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-E"
+    },
+    {
+      "name": "modPack",
+      "path": "src/pack/modPack.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-E"
+    },
+    {
+      "name": "modPackExport",
+      "path": "src/pack/modPackExport.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-E"
+    },
+    {
+      "name": "modMigrate",
+      "path": "src/pack/modMigrate.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "MIGRATE"
+    },
+    {
+      "name": "modP2P",
+      "path": "src/pack/modP2P.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
+      "name": "modP2PIo",
+      "path": "src/pack/modP2PIo.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
+      "name": "modChannel",
+      "path": "src/pack/modChannel.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "CHANNEL"
+    },
+    {
+      "name": "modInsight",
+      "path": "src/pack/modInsight.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
+    },
+    {
+      "name": "modInsightIo",
+      "path": "src/pack/modInsightIo.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "部内の知恵の発信(共有フォルダへ書く)/収集(拾ってinsight_inboxへ)/GC(古い残骸と既読印の掃除)と低水準ファイルI/O。modInsightが30,000字上限まで残り363字となったための分割先(憲章§4-6)。受信箱シートの参照・選択はmodInsightのまま。"
+    },
+    {
+      "name": "modInsightGate",
+      "path": "src/pack/modInsightGate.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R32-FIX",
+      "note": "「部内へ出してよいか」を決める発信側の関所。R32波1では実体をmodInsightへ間借りさせていた(発信の持ち主modInsightIoが30,000字上限まで残り1,800字を切っていたため)が、Fix波でF2(発信者IDの匿名化=Fnv1a64Hex)・F4(PII走査へ渡す前に日付/時刻の並びを潰す前処理。modPii本体は波2の対象なので触らない)・F5(見送ったことを利用者へ伝えるトースト)を足した時点でmodInsightも30,000字を超えたため独立させた(憲章§4-6)。持ち分: AnonId / PiiBlocked / StripDateLike / GapDupBlocked / MarkGapEmitted / GcGapDupKeys / NotifySkip / NonceKeepDays / InboxKeepDays。呼ぶのはmodInsightIoの発信3経路とCollectInsightsのGCのみ。"
+    },
+    {
+      "name": "modPublish",
+      "path": "src/pack/modPublish.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "CHANNEL"
+    },
+    {
+      "name": "modStats",
+      "path": "src/stats/modStats.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-E"
+    },
+    {
+      "name": "modTelemetry",
+      "path": "src/stats/modTelemetry.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "OPS"
+    },
+    {
+      "name": "modGuard",
+      "path": "src/stats/modGuard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "OPS"
+    },
+    {
+      "name": "modUI",
+      "path": "src/ui/modUI.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modUINexusDraw",
+      "path": "src/ui/modUINexusDraw.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modChrome",
+      "path": "src/ui/modChrome.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R4-UI"
+    },
+    {
+      "name": "modHub",
+      "path": "src/ui/modHub.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modHubBadge",
+      "path": "src/ui/modHubBadge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 2-10(Hubのバッジ帯: 獲得済みだけ色を変える)。modHubは29,551字(直接書くと30,002字で上限超過)・modHubStatは残77字(受け皿にできない)のため新設。BadgeSpans(純関数・獲得済み区間の開始位置/長さ)とPaintEarnedSpans(結合セルの左上セル1個へCharactersで塗り直す実体)を持つ。modHub.DrawBadgesは.Value→帯全体をmuted→PaintEarnedSpansの順で呼ぶ薄い呼び出し元。modTestsPure47がBadgeSpansをゴールデンで固定する。"
+    },
+    {
+      "name": "modHubStat",
+      "path": "src/ui/modHubStat.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modKnowledge",
+      "path": "src/ui/modKnowledge.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modKnowledgeBar",
+      "path": "src/ui/modKnowledgeBar.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "ナレッジ画面のツールバー(ToolbarSpec=何を出すかの唯一の定義+ボタン1個の描画)。modKnowledgeが30,000字上限まで残り110字となったための分割先(憲章§4-6)。ボタンのOnAction先(ハンドラ)はmodKnowledgeのまま。"
+    },
+    {
+      "name": "modPublishUI",
+      "path": "src/ui/modPublishUI.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "UI-V2"
+    },
+    {
+      "name": "modShared",
+      "path": "src/ui/modShared.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "INSIGHT"
+    },
+    {
+      "name": "modApp",
+      "path": "src/ui/modApp.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modAppState",
+      "path": "src/ui/modAppState.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modVault",
+      "path": "src/ui/modVault.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P1"
+    },
+    {
+      "name": "modInsightCard",
+      "path": "src/ui/modInsightCard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R26-3",
+      "note": "洞察カード保存(💾この会話を本棚に保存)。回答直下の文脈アクション行の7個目から呼ばれ、直前1往復(質問+回答)をmodVault.RegisterKnowledgeText(=TEMPへUTF-8 txt→modShelf.IngestFile『self』)という既存のテキスト直取込経路へ流し、チャンク分割→埋め込み→my_knowledge/manifest登録まで一本道で済ませる(新しい取込実装は書かない。modChunker/modShelf/modShelfStoreは凍結・逼迫のため不触)。汚染防止は凍結制約下(modRetrieve/modPrompts不触)で成立する出所ラベル層の2枚重ね: 資料名を『💭考察メモ_題名』に固定(検索結果・出典表示・本棚カードの全てで一次資料と一目で区別が付く)+本文冒頭に『一次資料ではない/出典として扱わない』定型文(冪等)。題名はInputBox(既定=質問の先頭24字)、キャンセル・失敗・成功をusage_log(insight_cancel/insight_save_fail/insight_saved)へ必ず記録する。同じ題名のメモが既にあるときは上書き確認を出す(黙って前のメモが消えない)。純関数(DocNameFor/TitleFromQuestion/SafeTitle/WithMemoNotice/MemoBody)はmodTestsPure25から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。R26H F8レビューFix(提案a): nexus_hist_aは modApp.SaveTurnForRestore が回答を700字で切って保存するため、これを第一情報源にした副作用で考察メモの本文が700字で無言に途切れていた。LastTurnの回答選定を、modAsk.LastAnswerText()(フル)がhist_aを先頭部分として含む(=同一ターン)ならフル本文を、含まない(=別ターン)ならhist_aを採る純関数PickFullerAnswerへ切り出した。modTestsPure26から呼ぶためrun_lo_tests.pyのPURE_ALLOWLIST登録済み。"
+    },
+    {
+      "name": "modAppAct",
+      "path": "src/ui/modAppAct.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "回答に付く文脈アクション行/信頼度バッジの描画とそのハンドラ(解決した/微妙/違う/深掘り/コピー/Word)。modAppが30,000字上限まで残り160字となったための分割先(憲章§4-6)。質問→回答を作る流れ本体はmodAppのまま。"
+    },
+    {
+      "name": "modVaultGallery",
+      "path": "src/ui/modVaultGallery.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R11-F1",
+      "note": "ナレッジ倉庫ギャラリー(カード一覧・検索・ページング)。modVaultが30,000字上限まで残り34字となり保留中の修正が入らなくなったための分割先(憲章§4-6)。ナレッジ登録フォーム本体はmodVaultのまま。"
+    },
+    {
+      "name": "modDash",
+      "path": "src/ui/modDash.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P3"
+    },
+    {
+      "name": "modDashStat",
+      "path": "src/ui/modDashStat.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P3"
+    },
+    {
+      "name": "modAnalytics",
+      "path": "src/ui/modAnalytics.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P4"
+    },
+    {
+      "name": "modCluster",
+      "path": "src/ui/modCluster.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P3"
+    },
+    {
+      "name": "modState",
+      "path": "src/core/modState.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P5"
+    },
+    {
+      "name": "modFollowup",
+      "path": "src/qa/modFollowup.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P5"
+    },
+    {
+      "name": "modUiLock",
+      "path": "src/ui/modUiLock.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P6"
+    },
+    {
+      "name": "modClip",
+      "path": "src/ui/modClip.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P6"
+    },
+    {
+      "name": "modSkin",
+      "path": "src/ui/modSkin.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7"
+    },
+    {
+      "name": "modProgressBar",
+      "path": "src/ui/modProgressBar.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "進捗バナー(nx_progress)と中断/作業用Excelボタンの描画・撤去。2026-08-05 R18-1a に modSkin(残り10字)から移設。呼び出し元は modUIMain.ShowProgress/HideProgress と modShelfBatch.ShowIngestBanner の3行、および modHub.EnsureHubLayout からの SweepOrphans。"
+    },
+    {
+      "name": "modToast",
+      "path": "src/ui/modToast.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "Toast通知(nx_toast)の描画・待機・自動消去。2026-09-08 R41 B1 に modSkin(残り27字)から移設。waitless Toastの自動消去(ArmSweep/CancelSweep/ToastSweepTick)を modViewport.ScheduleRefit/CancelRefit と同型のOnTime予約1本で実装。呼び出し元は modSkin.ShowToast の1行委譲のみ。"
+    },
+    {
+      "name": "modViewport",
+      "path": "src/ui/modViewport.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P7",
+      "note": "各画面の「行ける範囲」(Worksheet.ScrollArea)の宣言。2026-08-05 R18-3b 新設。呼び出しは Hub/マイ本棚(3モード共通クロム)/チャット/ダッシュボード/ナレッジ登録フォームの構築Sub末尾に1行ずつ。ScrollAreaはブックに保存されないセッション限定プロパティで、各画面が毎回冪等に再構築されるため再適用の配線は不要。"
+    },
+    {
+      "name": "modViewport2",
+      "path": "src/ui/modViewport2.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R21-1",
+      "note": "R21-1(実機第8報⑦)の構造完治。modViewport(21,524字)へ全部入れると30,000字上限に届くため、憲章§4-6で分割した。持ち分は「いつ測ってよいか」と「窓に収める調整」: EnsureViewState(全画面/罫線/見出し/タブ/水平スクロールバーを最終形にしてから測る)・ScrollbarW/FitTarget(可視セル幅の校正)・FitVerify(帯≤可視幅の事後検証)・GridColsFor/GridCardW(弾性カード)・CompressFactor/SetScaleY/SY(窓高適応圧縮)・RefitShelfTable/RefitChatBand(再フィット経路の穴)・LogFit(5値観測)。原始的な幾何の算数は従来どおり modViewport。"
+    },
+    {
+      "name": "modBackdrop",
+      "path": "src/ui/modBackdrop.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R32",
+      "note": "R32波4(実機第17報②の余白・地色)。画面の「地(背景)」だけを凝集させた新設モジュール。新設した理由は容量: 受け皿になり得るUI側モジュールが軒並み上限30,000字に張り付いていた(modSkin残27/modHub残159/modUIShelf残217/modHubStat残450/modChrome残837/modViewport残1,038)ため、憲章§4-6の「余裕モジュールへ実体を置いて1行呼び出し」の置き場所そのものを作った。持ち分: RestoreShelfHeaderBg(一覧表の一律塗りで消える見出し行のグレーの復元。W4-2)と、背景画像方式(SetBackgroundPicture用の1×1・24bit BMPを一時フォルダへ動的生成して敷く。W4-5)。R32実機プローブの確定事実(ScrollAreaはホイールを止めない/塗り深さでは原理的に解けない/標準スタイル方式は実機で1004)はこのモジュール冒頭に集約した。"
+    },
+    {
+      "name": "modBitwiseOpt",
+      "path": "src/qa/modBitwiseOpt.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P8"
+    },
+    {
+      "name": "modVecCache",
+      "path": "src/qa/modVecCache.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R12-4",
+      "note": "R12-4(検索スケール恒久対策)のセッション内ベクトルキャッシュ。my_vectorsのvector_csvを1回だけパースしてDouble配列で保持し、毎クエリのCSV再パース(20,500件で1クエリ1,574万要素)を無くす。埋め込み世代カウンタの持ち主でもあり、取込/削除/再埋め込みの書込点がBumpGenerationを呼ぶ。構築失敗(err7)は捕捉して従来経路へ自動フォールバックする。"
+    },
+    {
+      "name": "modPeek",
+      "path": "src/ui/modPeek.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P9",
+      "note": "R43 波A(UI/UXポリッシュ 1-2/1-3)でプレビュー(ShowPeek)とチップ(RenderCitations/DrawChip)を拡張。ShowPeekは本文先頭のbreadcrumb行を見出し直下の別行へ切り出し・区切り行・本文行間の空行を足したうえで、PeekSpans(純関数)が返す位置へCharactersで色分け(見出し=primary太字11pt/breadcrumb=muted8.5pt/行頭[A6]等=primary/閉じる案内=muted8.5pt)。着色は必ずSetOverlayFloor登録・「原文を開く」ボタン配置より前(AutoSizeで高さが変わるため)。チップはChipDocLabel(16字超のときだけ…を付与)・ChipOverflowLabel(MAX_CHIPS超過時だけ「ほかN件」)を追加。色はいずれも既存トークンのみ。"
+    },
+    {
+      "name": "modMentor",
+      "path": "src/ui/modMentor.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P10"
+    },
+    {
+      "name": "modBoard",
+      "path": "src/ui/modBoard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modTour",
+      "path": "src/ui/modTour.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modHelp",
+      "path": "src/ui/modHelp.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "NEXUS-P11"
+    },
+    {
+      "name": "modLive",
+      "path": "src/ui/modLive.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modLiveStyle",
+      "path": "src/ui/modLiveStyle.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波A(UI/UXポリッシュ)。modLive が27,825字でWARN目前のため、回答本文の文字装飾一式(StyleAnswerParas/CiteTagSpans/TagCloseOk・実測4,948字)をここへ移設(modSkin→modToastと同型の分割。挙動不変)。あわせて結論段落を12pt太字にするLeadParaIndex(■見出しで始まる回答・聞き返し/番号選択の回答=📍で始まる固定書式は対象外)と、本文中の「(A6 付近)」型セル番地を出典タグと同じ8pt・primary色にするCellRefSpansを新設。modLiveは同シグネチャの1行委譲(StyleAnswerParas)だけを残す。呼び出し元は modApp.bas 2箇所のみで変更不要。"
+    },
+    {
+      "name": "modStarter",
+      "path": "src/ui/modStarter.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "SEED"
+    },
+    {
+      "name": "modUIMain",
+      "path": "src/ui/modUIMain.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modUIMainShape",
+      "path": "src/ui/modUIMainShape.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modUIShelf",
+      "path": "src/ui/modUIShelf.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modBoot",
+      "path": "src/ui/modBoot.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "2-F"
+    },
+    {
+      "name": "modSetupWizard",
+      "path": "src/ui/modSetupWizard.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R20-4",
+      "note": "部門設定UI+初回セットアップウィザード。OnDeptSetup(Hubプロフィールカード等からの常設再入口)とRunFirstRunWizard(modTour.StartTourIfFirstRunから1回だけ)。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
+      "name": "modWorkExcel",
+      "path": "src/ui/modWorkExcel.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R16-2a",
+      "note": "取込中でも別のExcelプロセス(excel.exe /x)で作業できるようにする一式(作業用Excelボタン+DisableProcessWindowsGhostingによる白画面抑止)。modUiLock.Enter/BlockIfIngestingを意図して呼ばない唯一のUI層ハンドラ(取込中こそ使いたい機能のため)。tools/vba_lint.pyのONACTION_GUARD_ALLOWLISTに登録済み。R43 波A 1-4(実機報告Q4)で起動完了トーストの文言を103字へ差し替え(Excelが2つになること・どちらが作業用か・どちらを閉じるかを明示)。modTestsPure43.TestR41SweepMs43のゴールデン・期待値(12134)も同じ変更で更新済み。"
+    },
+    {
+      "name": "ThisWorkbook",
+      "path": "src/ui/ThisWorkbook.cls",
+      "role": "core",
+      "type": "class",
+      "wave": "2-F",
+      "vba_src": false,
+      "note": "vba_src非対象。ビルドスクリプトがvbaProject.binのThisWorkbookストリームを直接パッチ(自己インストーラが占有)。src/ui/ThisWorkbook.clsはリポジトリ内の参照用ソース(Workbook_Open→Boot/Workbook_BeforeClose→Auto_Closeの薄い転送)であり、実行時はmodBootのAuto_Open/Auto_Closeが本命。"
+    },
+    {
+      "name": "optVision",
+      "path": "src/opt/optVision.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "2-G"
+    },
+    {
+      "name": "optOcrCore",
+      "path": "src/opt/optOcrCore.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "画像PDFのOCR取込(R6)でoptVisionが使うGSコマンド組み立ての純ロジック。modFeatures経由では呼ばれずoptVisionからのみ参照される。optVisionを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
+      "name": "optOcrEta",
+      "path": "src/opt/optOcrEta.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R15-5b",
+      "note": "画像PDF OCRの「進捗の見せ方」と「打ち切りの言い方」だけを集めた純ロジック(進捗バナー/残り時間と終了目安/上限・中断・頁欠けのメモ/画像化待ち予算の残り)。optOcrCoreが30,000字上限まで残り2,068字となりR15-5のETAとR15-6の中断メモが入らなくなったための移設先(憲章§4-6)。現在時刻は引数で受け取り、この中でNowを呼ばない=終了目安をゴールデンテストで固定できる。optVision/optOcrPage/optOcrCoreを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
+      "name": "optGsTxt",
+      "path": "src/opt/optGsTxt.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R10-3",
+      "note": "テキストPDFのCOM無し抽出(Ghostscriptのtxtwriteデバイス)。PDF本文抽出の第1選択で、失敗時のみWord→Acrobatへ落ちる。入口はmodFeatures.InvokeFeature(\"vision\",\"ExtractPdfTextNoOcr\")でoptVisionの薄い受け口から転送される。GS起動・完了待ち・一時フォルダはoptVisionのPublic化した道具を共用するため、optVisionを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
+      "name": "optOcrCache",
+      "path": "src/opt/optOcrCache.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R15-7d",
+      "note": "画像PDF OCRの頁チェックポイント。読めた頁の本文を隠しシート ocr_cache(veryHidden・key/text/saved_at)へバッチ単位で控え、次の取込では読み直さない。Vision(ChatGPTV)のハングはVBAから制御できない(待ち秒数の引数が無い)ため、被害を限定する唯一の手段が『読めた頁を失わないこと』になる(実機第4報 RC7)。鍵はハッシュ(元パス)|サイズ|更新日時|p頁で、サイズか更新日時が違えば別物として使わない(差し替え検知)。opt層でシートを触る唯一のモジュールで、作法は modEmbed.EnsureVectorSheet を踏襲。optVision/optOcrPage を撤去するときは本モジュールも一緒に外す(残ったシートを読む者はいなくなるだけでコアは無傷)。"
+    },
+    {
+      "name": "optOcrPage",
+      "path": "src/opt/optOcrPage.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R14-4a",
+      "note": "画像PDFのページ描画とOCRの実行ループ。Ghostscriptを20ページずつ起動し、そのバッチのOCRが終わったら即座にJPEGを消す(上限100ページでも一時領域は20枚ぶんで頭打ち)。各ページのTryRibbonRunの前後でDoEventsを回し「1ページ分より長くは固まらない」構造にする(同期Application.Runのハード中断は構造上不可能)。optVisionのOcrRenderedPagesを移設したもので、optVisionが28,000字のWARN帯に達したための容量分割でもある。optVision/optGsTxt/optGsProcを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
+      "name": "optGsProc",
+      "path": "src/opt/optGsProc.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "R13-F2",
+      "note": "Ghostscriptプロセスの起動(WMI優先・失敗時はWScript.Shellへ退避)と、真のハング時の停止(PIDの本人確認つきtaskkill /T /F)。optGsTxtとoptVisionの両GS経路から呼ばれる。optGsTxtが28,000字のWARN帯に達したための分割で、optGsTxt/optVisionを撤去するときは本モジュールも一緒に外す。"
+    },
+    {
+      "name": "optMarkdown",
+      "path": "src/opt/optMarkdown.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "2-G"
+    },
+    {
+      "name": "optDiffDoc",
+      "path": "src/opt/optDiffDoc.bas",
+      "role": "opt",
+      "type": "std",
+      "wave": "2-G"
+    },
+    {
+      "name": "modTestRunner",
+      "path": "src/test/modTestRunner.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "1-I"
+    },
+    {
+      "name": "modTestsPure",
+      "path": "src/test/modTestsPure.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "2-X"
+    },
+    {
+      "name": "modTestsPure2",
+      "path": "src/test/modTestsPure2.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "3-T",
+      "note": "modTestsPureが§7.1の30,000字上限を超えたための分割先(modPrompts/modShelfSync/modPackテスト)。modTestsPure.RunAll末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure3",
+      "path": "src/test/modTestsPure3.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "3-T",
+      "note": "modTestsPure2の容量逼迫による分割先(R2取込コア/R3統計バッジの回帰テスト)。modTestsPure2.RunAll2末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure4",
+      "path": "src/test/modTestsPure4.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R6-OCR",
+      "note": "modTestsPure3の容量逼迫による分割先(R6: 画像PDFのOCR取込。GSコマンドのゴールデンテスト/ページ付きテキストの往復/全ページ化けPDFの振り替え)。modTestsPure3.RunAll3末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure5",
+      "path": "src/test/modTestsPure5.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R8-P2P",
+      "note": "modTestsPure4の分割先(R8: P2P/共有系の判定式 modShareRule の境界値。失効判定は『一度も共有へ到達していない端末は絶対に消さない』を最優先で固定する)。modTestsPure4.RunAll4末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure6",
+      "path": "src/test/modTestsPure6.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R8b",
+      "note": "modTestsPure5の容量逼迫による分割先(R8b 敵対的レビュー対応: B1 失効判定の戻り値ホワイトリスト/B7b 発行ロックの時計ズレ/B10 UNC共有ルートのプローブ再試行)。modTestsPure5.RunAll5末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure7",
+      "path": "src/test/modTestsPure7.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-3",
+      "note": "R12-3(堅牢化)の純ロジック回帰テスト。既存のmodTestsPure/2/4/5/6がいずれも30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(出典ページの物理番号/救済unionのHasAnyKey/チャンク連結の出力不変/元号非依存の統計キー/failed_permanentの同期スコープ)。modTestsPure4.RunAll4末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure8",
+      "path": "src/test/modTestsPure8.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-8",
+      "note": "R12-8(テスト補強)の純ロジック回帰テスト。modTestsPure7がFnv1a64Hexゴールデン値+modRagParse4関数の追加で30,000字上限に余裕が無く、憲章§4-6に従って新設した分割先(modBitwiseOptのbit31境界/modFollowup全3関数/modUtil.TruncateAndRenorm・HasVector/modUtilText.ElapsedMsSince・BlendPerItemMs/modClarify.MergeAnswerのLO到達範囲/BuildRerankPrompt<->ParseRankOrderの番号規約突合)。modTestsPure7.RunAll7末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure9",
+      "path": "src/test/modTestsPure9.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R12-4",
+      "note": "R12-4(検索スケール恒久対策)の純ロジック回帰テスト。modTestsPure8が28,000字(WARN帯)に達したため憲章§4-6に従って新設した分割先(ベクトルキャッシュ経路と直接パース経路のスコア完全一致/世代カウンタによる無効化/次元混在の-2区別/binary_rag_autoの真理値表/norm_text前計算の等価性)。modTestsPure8.RunAll8末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure10",
+      "path": "src/test/modTestsPure10.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R13-7c",
+      "note": "R13-7c(チーム/部・共有ビーコンのteam列)の純ロジック回帰テスト。modTestsPure9が28,000字のWARN帯に触れるため憲章§4-6に従って新設した分割先(TeamCodeOf境界/DeptOf/ビーコンteam列の新旧形式round trip)。modTestsPure9.RunAll9末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure11",
+      "path": "src/test/modTestsPure11.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R14-3",
+      "note": "R14-3/R14-4(共有読みコピーの根治とOCR全量取込)とR14-1b(発信判定の真理表)の純ロジック回帰テスト。modTestsPure9が28,000字のWARN帯に触れる(残り578字)ため憲章§4-6に従って新設した分割先(コピー失敗理由の判定/空入力の分類/バッチ境界表/上限メモ/進捗バナー/発信判定)。modTestsPure10.RunAll10末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure12",
+      "path": "src/test/modTestsPure12.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R14-8",
+      "note": "R14-8(入念モードの本格強化と回答可読性)の純ロジック回帰テスト。modTestsPure11にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(モード説明/再ランクeffort/6段の段階ナレーション/出典タグの抽出と突合/回答本文の記法正規化と実況の番号保持)。modTestsPure11.RunAll11末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure13",
+      "path": "src/test/modTestsPure13.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R15-4",
+      "note": "R15-4/R15-5/R15-6(OCRの正直さ強化・総頁早期確定とETA/終了時刻・中断ボタン)の純ロジック回帰テスト。modTestsPure11(27,888字)/modTestsPure12(27,001字)のどちらもWARN帯直前で足せないため憲章§4-6に従って新設した分割先(頁欠け・上限打ち切り・中断メモの真理表/バッチラベル/残り時間と終了目安の境界/画像化待ち予算)。modTestsPure12.RunAll12末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure15",
+      "path": "src/test/modTestsPure15.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R16-3B/3C/3D",
+      "note": "R16波3(逆質問=番号選択肢/精読=近傍チャンク束ね/深掘りループ修正)の純ロジック回帰テスト。modTestsPure14(24,825字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(番号選択の読み取りと書き直し判定/段0のoptionsパース/読み方の合成と保留TTL/chunk_idからの文書順復元と前後radius/既出チャンク降格の安定性と埋め戻し)。modTestsPure14.RunAll14末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure16",
+      "path": "src/test/modTestsPure16.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R18-1/R18-2",
+      "note": "R18(実機第5報①⑧⑪)の純ロジック回帰テスト。modTestsPure15(23,011字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(進捗バナー幅のviewport連動/台帳と実データの突合と統計文字列の差し替え/source別集計の位置引き/起動時の減少判定と一時フォルダ判定と警告文のBMP限定/UNC列挙0件の失敗判定)。modTestsPure15.RunAll15末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure17",
+      "path": "src/test/modTestsPure17.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R17-1",
+      "note": "R17 Phase1(構造メタデータ+参照エッジ)の純ロジック回帰テスト。modTestsPure16(20,739字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(breadcrumbからのsection_path抽出と形式崩れ/明示参照の抽出・重複排除・上限24件・32,000字級/自己参照の無害化/第1条が第12条に当たらないラベル照合/chunk_meta0行のフェイルセーフGraphActive/DistinctiveKeysの別表N・様式N拡張)。modTestsPure16.RunAll16末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure18",
+      "path": "src/test/modTestsPure18.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R17H",
+      "note": "R17H(レビュー裁定 Fix波)の純ロジック回帰テスト。modTestsPure17(25,032字)にこれを足すとWARN帯(28,000字)へ入るため憲章§4-6に従って新設した分割先(名寄せ辞書のマージ規則MergeSynPairsのゴールデン=新規のみ・旧のみ・既存termの上書き・先頭要素の保持・空入力・壊れた要素・大小無視・順序安定/俯瞰語彙HasGlobalSignalの拾う語と拾わない語/段0の門DecomposeGateへの俯瞰シグナルOR)。modTestsPure17.RunAll17末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure19",
+      "path": "src/test/modTestsPure19.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20-1",
+      "note": "R20-1(実機第7報⑦「右・下余白の3層根治」)の純ロジック回帰テスト。modTestsPure16(27,170字)にこれを足すと30,000字上限を超えるため憲章§4-6に従って新設した分割先(幅のクランプClampD/帯幅→KPIカード幅CardWidthFor/帯幅→ギャラリー列数GalleryColsFor/ColumnWidth上限255の頭打ち/窓リサイズ再フィットのデバウンス状態遷移RefitAction/pt→行の机上換算が行1=48ptを無視していた確定バグの数値固定)。modTestsPure18.RunAll18末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure14",
+      "path": "src/test/modTestsPure14.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R15-FixA",
+      "note": "R15-FixA(敵対的レビュー裁定 Fix-A)の純ロジック回帰テスト。modTestsPure13にこれを足すと30,000字上限まで残り11字になるため憲章§4-6に従って新設した分割先(カードのメモ合成契約ComposeOcrMemo/頁欠けメモの分母/1バッチの画像化待ち上限BatchWaitSec/画像化実況RenderWaitBanner/確認文の埋め込み時間の正直さ)。modTestsPure13.RunAll13末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure20",
+      "path": "src/test/modTestsPure20.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20-4",
+      "note": "R20-4(実機第7報③④「設定の3ステップ化」)+R20-7(⑥「MS&AD配色刷新」)+追加D-1(ダッシュのセンタリング)の純ロジック回帰。入口はmodTestsPure19.RunAll19末尾から呼ばれるRunAll20の1本。2026-08-06 R20H FA-1でmodules.json台帳への登録漏れを是正(実機ではコンパイルエラーになっていた)。"
+    },
+    {
+      "name": "modTestsPure21",
+      "path": "src/test/modTestsPure21.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R20H",
+      "note": "R20H(レビュー裁定Fix波)の純ロジック回帰テスト。modTestsPure20(7,311字)は主題(R20-4/R20-7/追加D-1)がFix波と異なるため、憲章§4-6に従って新設した分割先(tick経路のbusy3情報源modViewport.Busy3/table・gallery切替をまたぐ旧行取りこぼしmodUIShelf.ClearAreaLastRow/初回ウィザードのフラグ1回性modSetupWizard.WizardShouldRun)。modTestsPure20.RunAll20末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure22",
+      "path": "src/test/modTestsPure22.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R21-1",
+      "note": "R21-1(実機第8報⑦・余白の構造完治)の純ロジックゴールデン。modTestsPure21(6,692字)はR20Hの3点固定が主題で余白の物理とは別の話のため新設(憲章§4-6)。固定するもの: HScrollNeeded/ViewMoved(S1)・SbWidthFrom(S2)・GridColsFor/GridCardW/RightGapExceeds/CardGapFor/ShelfPadCol(S3)・FitsInView(S4)・CompressFactor/HubNeedY/BadgeRowsFor(S5)。1024×499pt窓の実測トレース(帯1010/右端1002)を「新式は一致・旧式(215pt固定の916pt)は不合格」の対で固定する。modTestsPure21.RunAll21末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure23",
+      "path": "src/test/modTestsPure23.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R21-3",
+      "note": "R21-3(実機第8報②・章検出の根治と俯瞰の復旧)の純ロジックゴールデン。modTestsPure22(7,000字弱)は主題(余白の物理)がR21-3(章検出)と異なるため新設(憲章§4-6)。題材1(目次+A/B/C最小資料・目次行が独立章にならない)/題材2(小見出し過多の2パス縮退+境界60章/61章)/題材3(ChapterKeyOfの表記ゆれ正規化)/題材4(Backfill射程=MetaOfの決定論性でbreadcrumb不変を裏付け)+E1(ClassifyLineの#階層判定/LooksLikeTocPage)を固定する。modTestsPure22.RunAll22末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure24",
+      "path": "src/test/modTestsPure24.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R25-3",
+      "note": "R25-3(実機第11報⑥・バッジ16枠化)の純ロジック回帰。qa_share10/gapfillの加算配線(modInsightIo)修理と新規3種(thanks5/streak30/thorough10)追加により13+3=16(ダッシュ4x4がちょうど埋まる)。BadgeCatalog件数=16固定・新3種+修理2種のid存在・id重複なし・新3種の条件文が閾値の数字と矛盾しないことを固定する。EvaluateBadges本体はGetStat経由でWorksheetに触れるためPureテストの対象外(BadgeCatalog側の純関数だけを検証)。modTestsPure23.RunAll23末尾から呼ばれる。2026-08-06 R20H FA-1の教訓によりmodules.json登録を本追加時に行う。"
+    },
+    {
+      "name": "modTestsPure25",
+      "path": "src/test/modTestsPure25.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R27H",
+      "note": "R27H(敵対的レビュー裁定Fix波)の純ロジック回帰。modTestsPure24(28,068字)は30,000字上限まで残り1,932字しかなく、F3(私用領域の化け検出)とF5(行頭インデント温存)の追随でその枠を使い切るため新設した分割先(憲章§4-6。modTestsPure21がR20H Fix波用に新設されたのと同型)。F1: modSparse.DiversitySwapPickの3分岐((i)2資料混在は無介入/(ii)1資料hits+pool別資料ありは最下位1件だけ差し替え/(iii)pool別資料なしは無介入)+hits1件・空資料名の防御を固定する。modTestsPure24.RunAll24末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure28",
+      "path": "src/test/modTestsPure28.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R28",
+      "note": "R28波2(実機第13報②「逆質問の断線」)の純ロジック回帰。modTestsPure26(残り僅少)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26と同型)。固定するもの: (A)modClarify.ParseClarifyReply — 逆質問への返事から資料番号と意図番号を読み取る規則。旧PickSourceは半角数字の出現位置しか見ておらず、全角「２」や丸数字だけで答えた人の資料選択が丸ごと消えていた(合成後の質問から「対象の資料:」が落ちる)。半角/全角/丸数字の全組合せ(2-②/１－①/2-3/２－３/2-2/1ー3/2 3)、片方だけの形(①は常に意図・3は資料・0は選択なし)、範囲外の棄却(nSrc超過・意図6以上・2桁・nSrc=0・文章)を固定する。(B)modFollowup.ScopeNeedsWiden — 逆質問で選ばれた資料に絞った検索を採用するか本棚全体へ広げ直すかの境界(0/1件は広げる・2件で採用・-1=埋め込み失敗は広げない)+ClarifyScopeKept(Nothing)は採用しない。modTestsPure26.RunAll26末尾から呼ばれる。R29波2ではRunAll28の末尾からmodTestsPure29.RunAll29を呼ぶよう1本追加した。"
+    },
+    {
+      "name": "modTestsPure29",
+      "path": "src/test/modTestsPure29.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R29",
+      "note": "R29波2(実機第14報・層2一括+視認性+文書訂正)の純ロジック回帰。modTestsPure28(残り僅少・26,776字/上限30,000字)には収まらないため新設した分割先(憲章§4-6。modTestsPure21/25/26/28と同型)。固定するもの: (A)modChrome.ToastWaitMsFor — トースト表示時間(全角15字/秒相当の読了速度換算・下限3,000ms・上限9,000ms・半角は全角の半分換算)。(B)modSparse.DiversitySwapPick — 相対スコア下限(pool側の差し替え候補スコアが現hits最下位スコアのminRatioX100%未満なら差し替えない)の69%不発火/70%発火境界、minRatioX100<=0の旧挙動(Optional省略時も同じ)、hitLowestScore<=0の0除算防御。modTestsPure28.RunAll28末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure30",
+      "path": "src/test/modTestsPure30.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R31",
+      "note": "R31波3(実機第16報F-C・案C「伸縮両端揃え」)の純ロジック回帰。modTestsPure29(残3,669字)には新テストを載せる余地が足りないため新設した分割先(憲章§4-6。modTestsPure21/25/26/28/29と同型)。modKnowledgeBar.StretchToolbarRows(段ごとの比例配分伸縮。Worksheet非依存の純関数)を固定する: (a)1段構成は唯一の段が伸縮しΔが伸び率上限+25%の内側なら目標右端に一致 (b)Δが上限を超えると各ボタンの増分はwidths(i)*0.25で頭打ちになり目標には届かない (c)段が2つ以上のとき最終段は伸縮しない(最終段以外は伸縮する) (d)Δ<=0では縮めない。modTestsPure29.RunAll29末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsPure31",
+      "path": "src/test/modTestsPure31.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R32",
+      "note": "R32 Fix波の純ロジック回帰(2026-08-14 F6で中身を入れ替え)。既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先。旧内容(config既定値3件の固定)はLO環境にconfigシートが無くGetBool/GetLongが必ずFallbackを返すため恒真で、実装を壊しても落ちなかった。その検査はbuild_mybookshelf.pyの自己検証(_verify_r32_config_defaults=出荷物のconfigシートのB列を実際に読む)へ移し、ここはVBAでしか書けない3件へ入れ替えた: (1)F1 modInsightGate.NonceKeepDays/InboxKeepDaysの不等式(既読印GC<受信箱保持。境界0/1と極端値で検算) (2)F4 modInsightGate.StripDateLike+modPii.ScanTextで、ISOタイムスタンプ等の日付・時刻を誤検知せず本物の電話番号/メールは止めること (3)F2 modInsightGate.AnonIdが実名を出さず・同一人物で不変・別人で相異なること。"
+    },
+    {
+      "name": "modTestsPure32",
+      "path": "src/test/modTestsPure32.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R32",
+      "note": "R32波4 W4-5(背景画像方式)の純ロジック回帰。modTestsPure30(波1)/modTestsPure31(波2)は直したばかりで触らない方針(CLAUDE.md「禁止」)のため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がず、modTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31と同型)。固定するもの: (A)modBackdrop.BmpHex — 8×8・24bit BMPの全246バイト(492字。2026-08-14 R32 Fix波 F13で1×1から拡大。タイル回数1/64)。dark RGB(15,23,42)/白/黒のゴールデンと、画素がBGR順であること(RGB(1,2,3)→030201)、1行24バイト=パディング0で画素データが192バイトになることを単独で撃つ。RGB/BGRの取り違えはコンパイルもLOも素通りし、実機では「青いテーマなのに赤い背景」という形でしか現れないため。(B)modBackdrop.MemoKey/MemoPut — 描画のたびに呼ばれるApplyが同じシートへ同じ色を敷き直さないための冪等メモ(別シートは追加/同一シートは古い1件を落として再登録/色の前方一致で誤ヒットしない)。Worksheet.SetBackgroundPicture自体はExcel固有APIでLOでは検証できず、--mode compileが通ることだけを確認する(実機確認はユーザー)。"
+    },
+    {
+      "name": "modTestsPure33",
+      "path": "src/test/modTestsPure33.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33波2(個人情報・共有の関所)の純ロジック回帰。modTestsPure(残1,087字)には入らず、modTestsPure30/31/32は直近の波が触ったばかりのため、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先として新設した(modTestsPure31/32と同型)。固定するもの: (A)W2-1 modPii.ScanText の全角ゴールデン — 全角数字の電話番号(区切りはU+FF0D/U+2212/U+30FC/U+FF5Eの4種すべて)・区切り無しの全角10桁・全角と半角の混在・全角＠のメールが検知されること。負例として全角9桁が非検知であること(判定閾値10桁を触っていない証明)と、半角入力の答えが従来と1つも変わらないこと。区切り文字はChrWで組む — U+2212はCP932でU+FF0Dと同じバイト0x817Cへ潰れるため、生の文字を置くと注入後に同じ文字を2回検査する嘘のテストになる。(B)W2-2 modShareRule.ExpiryDecision の不変条件(4) — reachableNow=Trueなら何があっても\"none\"(wipeもwarnもwarn_firstも返さない。L=1..60×d=0..200の総当たり)。同時に逆向きの検算として、到達不能・期限超過・予告済み・未消去の4条件が揃えば従来どおり必ず\"wipe\"(L=1..60×d=L..L+60の総当たり)。この2つは対で意味を持つ(片方だけだと「何も消さない」実装でも「常に消す」実装でも通ってしまう)。"
+    },
+    {
+      "name": "modTestsPure34",
+      "path": "src/test/modTestsPure34.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33波3(取込・データ整合)の純ロジック回帰・その2。modTestsPure33が残997字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31/32/33と同型)。固定するもの: W3-9 modLog.FeatureErrMessage — opt機能が返す \"#ERR:…\" を利用者向けの1文へ変える判定の単一情報源。(a)\"#ERR:FEATURE_UNAVAILABLE\"/理由が空のときだけ従来の固定文言(「管理者が有効化すると使えます」)を出すこと (b)mockモードの案内など理由付きの#ERRは理由をそのまま届け、固定文言を出さないこと (c)\"#ERR:E0204:…\"のようにコード部があるときはmodLog.FriendlyMessage(コード)の本文へ委譲し、コードを添えること (d)\"ABCDE:\"や\"E02:\"のようにコードに見えるだけの文字列をコード扱いせず、FriendlyMessageのCase Else(「予期しない問題」)へ化けさせないこと。この群は両方向で意味を持つ(「常に固定文言」でも「常に中身そのまま」でも落ちる)。modUIMainは残129字で判定を1文字も置けないため、実体はmodLog側に置き両UIからは1行呼び出しにしている。"
+    },
+    {
+      "name": "modTestsPure35",
+      "path": "src/test/modTestsPure35.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33波5c(部門ごとの削除・W5-23)の純ロジック回帰。modTestsPure34が残1,676字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31/32/33/34と同型)。固定するもの: ナレッジ画面の「🗑 部門の資料」が消してよいものだけを数える線引き。(a)modShareRule.OriginCountsText — origin列の並びから前置きが完全一致する行だけを名前ごとに数え、self(自作)/pack:(手渡しパック)/空/前置きだけの行を1件も数えないこと。前方一致を部分一致へ緩めるとpack:商品部を拾って落ちる。(b)modShareRule.PurgeMenuPick — 番号(1始まり)と部門名の対応が0/1/最終/最終+1の境界でずれないこと。ここがずれると「商品部を消すつもりで人事部を消す」という取り消し不能な事故になる。(c)modShareRule.PurgeMenuText — 選択肢の見出しが番号付きで並び、MsgBox/InputBoxの1,024字制限を超える部門数のときは残数を明示すること(隠れた番号も直接入力なら選べる)。実際の行削除(modShelfStore.RemoveRowsByOrigin=完全一致)はWorksheetを触るためLOでは検証できず、恒真アサートで代替しない。"
+    },
+    {
+      "name": "modTestsPure36",
+      "path": "src/test/modTestsPure36.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R33",
+      "note": "R33H Fix波3(テスト・文言・記録)の純ロジック回帰。modTestsPure34が残45字になったための分割先で、既存チェーン(modTestsPure→…→modTestsPure30)には繋がずmodTestRunner.RunAllPureTestsから直接呼ばれる独立の分割先(modTestsPure31/32/33/34/35と同型)。固定するもの: (A)F22 modUtilText.BoardRowText/BoardRowParse — 組織集計スナップショット本文の1行を組む/読む純関数の対の往復ゴールデン。称号行(\"T\")の解析はmodShare.BoardReadRowsの中でDictionaryへの書き込みと同居していたため一度も撃たれていなかった(LibreOfficeにScripting.Dictionaryが無くCreateObjectでErr=323になる=裁定書の「実Dictionaryを渡す」方式は成立しない)。読み分けだけを辞書に触らない形へ出し、書く側(BoardBodyText)と読む側(BoardReadRows)の両方をこの1対へ通した。称号キーのTrim+LCase、部の行は大小を残すこと、列不足・未知種別・空行を落とすこと、BoardNumの負値/1億分超ガード、BoardBodyText/BoardHeadLine/BoardStateText(F22が「一度も呼ばれていない」と指摘した3本)を固定する。**辞書への書き込みそのもの(titlesOut(key)=value)とdeptAgg.Keysの走査はLOでは撃てないため実機スモークの担当**とモジュール見出しに明記した(恒真アサートで代替しない)。(B)F31 modUtilText.AutoNeedsRetry/AutoTextPick — 文字コードの採否判断(BOM優先→UTF-8→2%超ならCP932で読み直し→比率が真に減ったときだけ採用)。2%ちょうどは読み直さない側、同率は採らない(「判定できなかった」であって「CP932と分かった」ではない)という境界をゴールデン固定する。(C)F27 modShelfScan.HeaderCheckable — 先頭バイトを読む価値がある拡張子か。ここがFalseなら1バイトも読まない(旧実装はADODB.Stream.LoadFromFileがファイル全体をメモリへ載せており、PDF取込経路が32bit ExcelでOOM域だった)。(D)F30 modP2PIo.IdKey/IdHash — 生IDとSanitizeId済みIDのハッシュが一致すること(送信側だけがSanitizeIdを通していたため「送りました」が嘘になっていた)、キーは小文字へ揃えるがハッシュは大小を潰さないこと(潰すと共有フォルダの送信済みファイルが孤立する)。"
+    },
+    {
+      "name": "modTestsPure37",
+      "path": "src/test/modTestsPure37.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R34",
+      "note": "R34波1(外部レビュー裁定・層2の3件)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜36と同型)。固定するもの: (A1)modGenPipe.ParseVerdict — 1行目がPASSでも2行目以降(trailing)を無言で捨てない挙動。101字以上の懸念文はVERDICT_FINDINGSへ昇格しfindingsに全文が入ること、ちょうど100字の境界はPASSのまま据え置かれること、短い装飾文(既存R26-1の9字ケースの回帰含む)はPASSを維持しつつfindingsへその装飾文自体を載せて可観測にすること、PASSのみ(2行目が無い)はfindings空のままであること。(A2)modChatLog.BakIsStale — summary_*.bakを消してよいかの24時間(86400秒)境界の純関数。ちょうど24時間前は消さない(境界は「超えた」であって「以上」ではない)/24時間+1秒前は消す/24時間-1秒前は消さない/差0は消さない/30日前は消す、の5ケース。実体は当初modTelemetry(統計層)に置いたが、唯一の呼び口modShare.BoardWriteSummary(基盤層)から統計層を呼ぶとR1違反になるため、司令塔裁定でmodChatLog(基盤層・ファイルI/Oを既に持つモジュール)へ移設した。BoardSweepStaleBak本体(Dir列挙+Kill)はファイルI/OのためLO対象外(実機観点として記録)。(A3)modChunker.bas:606の生Left$→modUtil.SafeLeftへの置換は、置換対象のAppendStructChunkがPrivateかつ呼び出し元2箇所がいずれも渡すbody長を事前にroom以下へクランプしているため公開API(ChunkPagesEx)からは実質到達しない防御的分岐と判明し、専用テストは追加せず既存のmodUtil.SafeLeft境界テスト(modTestsPure4.bas TestSafeLeftSurrogate)で足りるとモジュール見出しに記録した。"
+    },
+    {
+      "name": "modTestsPure38",
+      "path": "src/test/modTestsPure38.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R34",
+      "note": "R34波2(外部レビュー裁定・層1の5件)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜37と同型)。固定するもの: (B1)出典突合を⚡すぐ聞く/🔍しっかり調べるへも広げる純部分 — modMode.ShouldAnnotate(quick/deepだけTrue。thoroughをTrueにすると生成の内側の突合と二重付与になる)、modMode.CiteTagFrom(**modPrompts.SourceTagと一字一句同じ書式**であることを、リテラルではなくSourceTagの実際の戻り値と直接比較して固定する。ここが1文字でもズレると正しい出典まで全件『(出典確認できず)』になる)、modMode.CiteIndexAdd(NormalizeCiteTag経由の正規化と重複排除)、およびこの3本をmodAskThorough.AnnotateCitationsへAnnotateIfNeededと同じ順序で組み直したときのふるまい(実在タグ→無加工/幻覚タグ・ページ違い→注記/突合表が空→無加工/タグ無しの回答→無加工)。(B2)modPrompts.BuildRerankPromptの抜粋が700字まで載ること(300のままなら落ちる)とlimを超える候補を(以下省略)で打ち切ること。(B3)modMode.UseNeighborExpandがdeepでだけTrueを返すこと。**modMode.AnnotateIfNeeded本体はmodAskのモジュール状態(直近ヒット)を読むためLOからは入力を作れず対象外**(合成そのものはTestAnnotatePipeline38が同じ順序で組み直して固定。残るのはmodAskのアクセサが0始まりであることの1点で実機観点)。B0(SaveTurnForRestoreのmodAppStateへの移設)とC(max_context_chars既定60,000)はそれぞれmodStateへの書き込み・ビルド時config既定値のため純テスト対象外。なおLOでは出典タグのSourceTag突合(B1)と再ランク抜粋700字(B2)の2群がHit型配列を通るためのLO環境の既知の制限で[SKIP]集計になり、実機Excelでは走る(2026-08-20 R34波2 Fix実測)。"
+    },
+    {
+      "name": "modTestsPure26",
+      "path": "src/test/modTestsPure26.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R26H",
+      "note": "R26H F8レビューFix(提案a)の純ロジック回帰。modTestsPure25(残650字)には収まらないため新設した分割先(憲章§4-6と同型)。modInsightCard.PickFullerAnswer(hist_a=700字で切られている可能性のある回答/fullA=modAsk.LastAnswerText()のフル本文、のどちらを考察メモへ採用するか)の3分岐を固定する: (1)hist_aが切られていてfullAが同一ターン(先頭一致)→フル採用 (2)fullAがhist_aを含まない別ターン→hist_a採用(混成防止は維持) (3)hist_aが空→フル採用。modTestsPure25.RunAll25末尾から呼ばれる。"
+    },
+    {
+      "name": "modTestsExcel",
+      "path": "src/test/modTestsExcel.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "2-X"
+    },
+    {
+      "name": "modTextView",
+      "path": "src/ui/modTextView.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-1",
+      "note": "スクショ本文表示(R36波1 §3)。1資料ぶんの全チャンクのfull_textをページ順に作業シート(text_view)へ流し込む(modDiag.RunDiagnosticsと同じDelete→Add方式)。入口はmodKnowledge.OnShowText(📖本文ボタン)とmodUIShelf.OnIngestScreenshot(📸取込直後・config screenshot_show_text)。編集→保存し直しは無い(消して➕登録し直す導線を案内するだけ)。"
+    },
+    {
+      "name": "modTestsPure39",
+      "path": "src/test/modTestsPure39.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-1",
+      "note": "R36波1(§3本文表示・§4画像📁)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれるRunAll39が入口(modTestsPure31〜38と同型の別枝)。固定するもの: modTextView.StripBreadcrumb(breadcrumb行の剥がし方。先頭が【…】の1行/無い/空/【だけの4パターン)、modTextView.SortPagesStable(page昇順の安定ソート。並列配列Long()/String()でUDTを跨がない)、modShelfVision.ImageDialogPattern(📁追加のFileDialogフィルタへ足す画像パターン文字列の内容一致)。"
+    },
+    {
+      "name": "modCorrect",
+      "path": "src/qa/modCorrect.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-2",
+      "note": "R36 §2「是正の仕組み」。❌違う→「正しい内容」で登録された是正メモを、次から同じ質問の回答で必ず使わせるための qa 層モジュール。設計意図: (1) 保存する本文へ【元の質問文】を必ず入れる(BuildMemoBody/MemoDocBase)。R35 以前は質問文がどこにも残らず、同じ質問を打ち直しても回答抜粋に偶然含まれる語でしか当たらなかった。(2) 回答生成の直前に、質問が一致する是正メモを Hit として合成し hits の先頭へ差し込む(InjectHits/PrependHit)。modAsk は hits の中身だけを使い my_knowledge を引き直さず(modAsk.bas:296-297)、modPrompts.BuildSourceBlock は hits(i).full_text を先頭から順に載せる(modPrompts.bas:560-617)ので、Hit を1件合成して先頭へ置くだけで凍結モジュール(modAsk/modPrompts/modRetrieve/modShelf/modBoot)を1文字も触らずに本文にも出典チップにも載る。入口は modAskRetrieve.RunDeepScoped/RunUnscoped が値を返す直前の1行だけ(あちらは残1,092字のため、本体を Private 化して公開名を包み1枚にする形で対応した)。一致判定は modInsight.NormKey の完全一致(score 1.0)を最優先し、外れたときだけ modSparse.DistinctiveKeys の語一致率≥config correct_key_min%(既定60・score 0.9)で拾う ―― 誤爆(似て非なる質問に古い是正が先頭へ来る)を防ぐため、照合先は是正メモの【質問行だけ】に限る(本文全体を見ると話題が近いだけの質問にも当たる)。全体が On Error のサーキットブレーカーで、失敗しても nHits をそのまま返して質問には必ず答える。config correct_inject=off で丸ごと止まる。一般アシスタント(sendMode=normal)は modAsk 自体を通らないので構造的に注入されない。MemoDocBase は modVault.SanitizeName(Private で呼べない)と同じ置換を先に済ませて冪等にしてある ―― modAppAct.RecordCorrection が「同名の既存資料を消してから登録し直す」ために source 名(=MemoDocBase+\".txt\")を自力で組み立てる必要があり、置換を後段任せにすると「?」を含む質問で名前が食い違って消し忘れ、是正メモが増え続ける。純関数(BuildMemoBody/ExtractQuestionLine/MemoDocBase/MatchLevel/KeyMatchPct)は modTestsPure40 が固定する。InjectHits/PrependHit は Hit 型を跨ぐため LO では実行できない既知の死角(run_lo_tests.py:129-132)で、Pure テストは書かず実機観点として記録する。"
+    },
+    {
+      "name": "modTestsPure40",
+      "path": "src/test/modTestsPure40.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-2",
+      "note": "R36 波2(是正の仕組み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜38と同型)。固定するもの: (C1)modCorrect.BuildMemoBody — 3行+1行の書式そのもの。1行目の指示文「【是正メモ】この質問には、下の「正しい内容」で答えること。」が本文側にも必ず載ること(これがそのまま LLM への指示として働く)、質問が「質問: 」行として入ること、ExtractQuestionLine で往復できること。(C2)ExtractQuestionLine — 取込時に焼かれる breadcrumb 行【資料名>章>条】が先頭にあっても質問行を拾えること/vbCrLf 改行/質問行の無い本文と空文字では空を返すこと(=是正メモとして扱わない)。(C3)MatchLevel — 完全一致=2(空白と「?」の有無で揺れない。判定は modInsight.NormKey と同じ物差し)、語一致=1、無関係=0、質問行の無い本文=0、空クエリ=0。(C4)KeyMatchPct — 一致率の算数を100%/0%の両端で固定し、config correct_key_min の値に依存しない形でMatchLevel の分岐根拠を可観測にする。(C5)MemoDocBase — 接頭辞と24字クランプ、および modVault.SanitizeName の置換表を先に通してある冪等性(source 名が MemoDocBase+\".txt\" と必ず一致するという RecordCorrection の前提の担保)。InjectHits/PrependHit は Hit 型(UDT)を跨ぐため LO ではモジュール間で受け渡せず(既知の死角・modTestsPure38.bas:27 と同型)、Pure テストは書かない=SKIP 上限14を増やさない。配列操作の確認は実機(modTestsExcel 系)と R36 §6 の実機受入③に委ねる。"
+    },
+    {
+      "name": "modMigrateFrom",
+      "path": "src/pack/modMigrateFrom.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R36-4",
+      "note": "R36 波4→Fix2(§1-A 版上げ時の自動引き継ぎ)。新版の初回起動で、同じフォルダにある前版の MyBookshelf_旧版.xlsm(利用者が版上げ時に改名して残す名前。bat のF3b書き戻し失敗退避\"_前回\"とは別名=Fix2 D-B1でBLOCKERだった名前衝突を解消)を見つけたら、まず読み取り専用+EnableEvents=Falseで開いてmy_manifestの件数だけ数え、0件なら黙って何もしない(Fix2 §9-4)。1件以上のときだけ問い、Yesなら本棚・実績・設定を写す。入口はmodTour.StartTourIfFirstRun先頭の1行フック(凍結modBootは不触)。設計意図: 「開いたブックからシートを写す」実体(CopyUserData)はmodMigrate.ImportUserData(.xlsx引き継ぎファイル経路)からそのまま移設した(挙動不変)。旧xlsm直読み(MIG_METAシートを持たない生の製品ブック)と.xlsx引き継ぎファイルの両方が同じ「3シート+統計+config+受信箱を写す」仕事を必要とするための共用先で、MIG_METAの形式バージョン検査だけは.xlsx固有のためmodMigrate側に残した。config の引き継ぎ判定(IsUserOwnedKey/IsBuildOwnedKey)とinsight_inboxのサニタイズ(InboxCellValue)はmodMigrate側をPublic化してそのまま呼ぶ(判定表を複製すると2つの台帳が食い違う事故=R12-3-2の再発を防ぐため、値ではなく判定関数そのものを共用する)。候補選定は純関数PreviousBookName(<stem>_旧版<拡張子>を組む)+Dir$1回の存在確認に単純化した(Fix2でPickNewestは不要になり削除)。時刻表示は純関数StampText(Year/Month/Day/Hour/Minuteの組み立て。LibreOfficeのFormat$が分の書式\"n\"を解釈しない死角=Fix2 §9-4の回避)。純関数(PreviousBookName/OfferText/StampText)はmodTestsPure41が固定する。"
+    },
+    {
+      "name": "modTestsPure41",
+      "path": "src/test/modTestsPure41.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R36-4",
+      "note": "R36 波4→Fix2(版上げ時の自動引き継ぎ)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜40と同型)。固定するもの: (D1)modMigrateFrom.PreviousBookName — <stem>_旧版<拡張子>の組み立て(拡張子無し/空文字は空を返す)。(D2)modMigrateFrom.StampText — yyyy-mm-dd hh:nn形式(1桁月日時分のゼロ埋め含む。LO死角対応のFormat$不使用版)。(D3)modMigrateFrom.OfferText — ファイル名・件数・更新日時が文面に必ず載ること。FindPreviousBook/ImportFromBook/CopyUserData/OfferImportIfFirstRun/CountManifestInBookはDir()・Workbooks.Open・シートI/Oを持つため対象外(modShelfSync/modPackと同じ「モジュール全体はR4準拠ではないが、テストが呼ぶ関数自体はExcel/COMに触れない」型)。PickNewestはFix2で削除(候補が1個に絞られ役目を失ったため。テストも差し替え)。"
+    },
+    {
+      "name": "modXDocStore",
+      "path": "src/ingest/modXDocStore.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3(資料間リンク)の受け皿。doc_centroids(source, chap, vector_csv, chunk_n)とdoc_links(src_a, chap_a, src_b, chap_b, sim, built_at)のEnsure/一括読み/一括書き/資料単位の掃除と、純関数MeanNormalizedCsv・TopNLinksを持つ。設計意図: 「AとBを取り込むと資料同士の関連が分かる」を【LLM 0回】で実現するための最小の地図。エンティティ抽出・コミュニティ要約を伴うフルGraphRAGはR17設計で不可能/工数対効果が合わないと裁定済み(取込1資料あたり数百回のLLM呼び出しが増える)。章は既に人の手で資料に入っており、ベクトルも既にあるので、章ごとの重心(その章の全チャンクベクトルの平均をL2正規化したもの)どうしのコサインだけで繋がりを作る。章キーは必ずmodOutlineBuild.ChapterKeyOfを通す(doc_outlineと式が割れると照合が毎回0件になる無音の失敗になる)。ゲート(config xdoc_links)・上限(xdoc_max_chapters)・失敗握り(usage_log xdoc_fail)はこの層に閉じるので、呼び出し元(modOutlineBuild.BuildOutlineFor・modOutlineStore.RemoveOutlineForSource)は1行で済む。BuildLinksForの実体はmodXDocBuildへ置いた(シートI/Oと純ロジックだけで上限30,000字の半分を超え、同居できなかった。憲章§12の分割。契約名と呼び出し場所はR37 §3-2のまま据え置き)。引き継ぎ・パックには載せない(取込から再計算できる派生データ。modMigrate/modPackは不触=記録)。純関数(MeanNormalizedCsv/TopNLinks)はmodTestsPure42が固定する。"
+    },
+    {
+      "name": "modXDocBuild",
+      "path": "src/ingest/modXDocBuild.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3の【作る側】の実体(入口はBuildForの1本だけ。呼ぶのはmodXDocStore.BuildLinksFor)。手順は4つでLLMは1回も呼ばない: (1)当該資料の章ごとに重心を作る(chunk_meta→章キー、my_vectorsから当該資料の行だけ2段読み) (2)自分の古い重心・リンクを両側とも落として今回ぶんを書く (3)既存資料の章重心を平坦なDouble配列へ【1回だけ】展開して内積で総当たり (4)新資料側の上位3件を書き、相手側の上位3件も既存行と混ぜて作り直す。(3)でmodXDoc.CosineCsvを章ごとに呼ばないのは、CSVの再パースが支配項になるため(20章×4,000章で数百万回のSplit/Val=取込が分単位で止まる)。重心は書込み時にL2正規化済みなので内積=コサインで、等価性はmodTestsPure42のC1が固定する。章数がxdoc_max_chapters(既定4,000)を超える本棚では相手側の作り直しを省き新資料側だけ書く(R37 §7 リスク台帳。相手側はその資料を次に取り込み直したときに揃う)。出力配列の器は最悪(相手が全部別キー・全員が上位3件を作り直す)で数える ―― 小さく見積もると添字の範囲外でリンクだけが静かに消える。失敗は全部この層で握り取込を止めない。"
+    },
+    {
+      "name": "modXDoc",
+      "path": "src/qa/modXDoc.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 §3の【回答側】。RememberPoolがmodAskRetrieve.RunMultiRetrieveのStashDispersionPool直後にpool(rerank・topK絞り込みより前の最大40件)を控え、Expandが最終hits確定点(DiversifyFinalHitsの直後・ArticleEnsureより前)で末尾へ最大xdoc_add(既定2)件を足す。設計意図: 【新しい検索は走らせない】。足せるのは「もう取ってきた候補の中に居る」チャンクだけで、上位2件が属する章とdoc_linksでsim>=xdoc_min_sim(既定0.80)に繋がる他資料の章に属するものに限る。scoreは0で末尾(modAskFocus.NeighborExpand/RefsExpandと同じ。低関連度の警告・資料分散の判定・件数バッジを汚さない)。資料を跨ぐ危険はmodAskFocus.RefsExpandが跨がない理由(bas:204-207「まったく無関係な規程の第8条が根拠として混ざる。出典タグは正しいので利用者は気付けない」)と同じなので、章の重心の近さという条件と件数上限で絞る。使ったpoolは必ず捨てる(検索が単段へ退化した回=FallbackSingleに前の質問のpoolを掴んだままだと別の質問の候補が紛れ込む)。ゲートはmodXDocStore.GateOnの1本で、取込側と回答側が食い違わない。純関数(CosineCsv/ChapterOf/PickLinked)はmodTestsPure42が固定する。RememberPool/ExpandはHit型を跨ぐためLOでは実行できない既知の死角で、Pureテストは書かず実機受入(R37 §3-2)に委ねる。"
+    },
+    {
+      "name": "modTestsPure42",
+      "path": "src/test/modTestsPure42.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R37-B",
+      "note": "R37 波B(資料間リンク)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜41と同型)。固定するもの: (A)modXDoc.CosineCsv — 同一=1/直交=0/次元不一致=0/ゼロベクトル=0、および未正規化の入力でも内積ではなくコサインを返すこと(ノルムで割り忘れた実装は 3 を返して落ちる)。正規化済み2本では内積=CosineCsvであることも固定する ―― modXDocBuild.MatchChapters が総当たりで内積だけを回す根拠。(B)modXDocStore.MeanNormalizedCsv — 2本の平均が長さ1になること、次元の違う行は数に入れないこと、ゼロベクトル/壊れたCSV/0本は空文字。(C)modXDocStore.TopNLinks — 上位3件がsim降順、同点は先勝ち(比較に>=を使う実装が落ちる)、keep>nは件数ぶん、keep<=0とn<=0は空文字。(D)modXDoc.PickLinked — 閾値(xdoc_min_sim。0.80ちょうどが二進小数の丸めで消えないことを含む)・自資料除外・最大N・起点キー不一致は無視・重複除去。(E)modXDoc.ChapterOf — 第1要素/目次行の末尾正規化/リーダー1字は触らない(期待値は定数で書き、modOutlineBuild.ChapterKeyOf を呼び直す恒真比較にはしない)。RememberPool/ExpandはHit型を跨ぐためLOでは実行できず(modCorrect.InjectHitsと同じ死角)、modXDocBuild全体とシートI/OはWorksheetを持つため対象外 ―― R37 §3-2 の実機受入3項目に委ねる。"
+    },
+    {
+      "name": "modAskOnePass",
+      "path": "src/qa/modAskOnePass.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R38",
+      "note": "R38(外部レビュー裏どり§4＋髙橋情報「リボン経由で20万トークンまで通る」＋ユーザーGO「Aを挟まずB」)。「入念に調べる」の単発経路(modAskMulti.TryDecomposedがFalseでmodAskThorough.RunThoroughFlowに来る回)だけを、章丸ごと読み＋1回のLLM呼び出しに置き換える(分解経路・俯瞰経路・しっかり・すぐ聞くは1文字も変えない)。入口はTryOnePass: 上位onepass_seed_hits(既定6)件の章キーをmodXDoc.ChapterOfChunk(R38でPublic化)で引き、DedupeKeysで順位順・重複なしにonepass_max_chapters(既定8)件へ絞り、1章ずつmodAskGlobal.CollectChapterHits(R38でPublic化・Optional capTotal/maxHits追加)で文書順に読む。章が1件も引けない本棚(chunk_metaが無い/⚡仕上げ未実施)ではmodAskFocus.NeighborExpand/RefsExpandによる近傍代替(mode=neighbor)へ落ちる。本文はSourceBlockOfでonepass_max_chars(既定300,000字≒20万トークン)まで詰め、Lost-in-the-middle対策として検索上位min(3,nHits)件を重点抜粋として質問の直前にも重複配置する。プロンプトはBuildOnePassPromptの1本(modAskGlobal.BuildGlobalPromptと同じ理由で凍結modPromptsへは置かない。出典タグ書式だけmodPrompts.SourceTagを通す)。失敗(章0件かつ近傍も0件・LLMエラー・想定外例外)は理由をusage_log(onepass_fallback why=…)に残してFalseを返し、呼び出し元(modAskThorough)が黙って従来の4段(要点整理→下書き→自己点検→検証)へ落ちる=答えが出ない状態を作らない(modAskGlobal.TryGlobalと同じ思想)。戻し方はconfig thorough_onepass=offの1行。Enabled/TryOnePass以外の公開関数(IsOn/DedupeKeys/PerChapterCap/CountLines/BuildOnePassPrompt)は文字列・数値だけの純関数でmodTestsPure43が固定する。TryOnePass自体とSourceBlockOfはHit型(UDT)を跨ぐためLOでは実行できず(modXDoc.RememberPool/Expandと同じ死角)、実機受入(R38 §5)に委ねる。"
+    },
+    {
+      "name": "modTestsPure43",
+      "path": "src/test/modTestsPure43.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R38",
+      "note": "R38(入念1回読み)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜42と同型)。固定するもの: (A)modAskOnePass.IsOn — 空・\"on\"/\"true\"/\"1\"/\"yes\"(大小・前後空白無視)=True、\"off\"/\"false\"/\"0\"/\"no\"=False、それ以外は既定側(True)へ倒すこと。(B)DedupeKeys — vbLf区切りの入力から空行を捨て初出順で重複除去、maxN件で打ち切り(先頭・末尾にvbLfを付けない)、比較は大小無視・前後空白無視、maxN<1は空文字。(C)PerChapterCap — total\\nChapの整数除算、結果がminCap未満ならminCap、nChap<1はtotalを返す、total<1はminCapを返す。(D)CountLines — DedupeKeysの結果の行数(空文字は0)。(E)BuildOnePassPrompt — 役割/手順(ansTagsの有無)/出力規則(strictGの有無)/history/本文/重点抜粋/質問/深掘り候補の並びと、各見出し文字列がこの順で本文に含まれること(期待値は定数で書き、実装を呼び直す恒真比較にはしない)。TryOnePass/SourceBlockOfはHit型を跨ぐためLOでは実行できず(modXDoc.RememberPool/Expandと同じ死角。modTestsPure42と同じ理由でPureテストは書かない=SKIP上限14を増やさない)、実機受入(R38 §5)に委ねる。"
+    },
+    {
+      "name": "modTestsPure44",
+      "path": "src/test/modTestsPure44.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R39",
+      "note": "R39 F001(受入指摘§0 F001)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜43と同型)。同梱GSのtxtwriteが改ページ文字Chr(12)を書き出さずページ番号が全ページp.1に潰れていた件の直し方(ページごとに別ファイル\"gstext_%04d.txt\"へ出させ、読む側が各ページ末尾にChr(12)を足しながら連結)を固定する。(A)optOcrCore.PageTxtName — 4桁ゼロ埋め、i=10000以上はそのまま桁数が増える。(B)optOcrCore.JoinPageTexts — n=0は空、各要素の末尾に必ずChr(12)が付く(中間の空要素も落とさない)。(C)JoinPageTextsの結果をmodUtilText.GsPageBoundsに通したときのkeptN/firstIdx/lastIdx(先頭・末尾の空ページだけ読み飛ばし中間の空ページは残る)。(D)optOcrCore.BuildGsTextCommand — \"gstext_%04d.txt\"を含み旧ファイル名\"gstext.txt\"は含まないこと(退行の直接検知)。ファイルI/Oを伴うReadPageFilesJoined/MaxPageFileIndex/LatestPageFileSizeと、ExtractedPage型(UDT)を跨ぐmodExtractor.BuildPagesFromGsTextはLOでは実行できず(modTestsPure43のTryOnePass/SourceBlockOfと同型の死角)、実機受入(仕様§4)に委ねる。"
+    },
+    {
+      "name": "modTestsPure45",
+      "path": "src/test/modTestsPure45.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R42",
+      "note": "R42 §1(A1/A2・受入FAIL PDF-F01/RT-27/28/37/スモーク5・PDF-F02/RT-22/23)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜44と同型)。見出しの無い複数ページ資料でかけらの出典ページがp.1に寄っていた不具合の直し方(modChunkPage)を固定する。LineStarts/PageAtPos/FirstInkPos/PlanWindows(FlushBlockのスライディング規則をFindSentenceBoundary込みで1文字も変えず移植)/PhysicalKeep(A2・上限は物理ページ番号に当てる)の境界値と、5ページ・見出し無し・各ページ2行の再現ゴールデン(StartPagesOf。オーバーラップが改ページをまたぎ前ページに付く例を含む)を手計算で固定する。UDT(ShelfChunk配列)を使うFlushPagedの直接検査だけはCanUseTypeArrays()ガード下(Excel実機のみ実行・LOは[SKIP]1件。tools/run_lo_tests.pyのEXPECTED_SKIP_MAXを15へ)。"
+    },
+    {
+      "name": "modTestsPure48",
+      "path": "src/test/modTestsPure48.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 §4(実機報告「Excelの出典がA列ばかりになる」)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45と同型)。modExtractorExcel.RowTextFromへR43で追加したrowIdx/baseCol(共にOptional・既定0)の挙動を固定する: 値のあるセルだけに番地が付き空セルは番地無しで位置保持(T1)、A列が空でB列起点のシートで正しくBが出る(T2)、複数列で列がA→B→C…と1つずつ進む(T3)、AppendBlockLinesのfirstRow+r-1と同じ与え方で行番号が正しく進む(T4)、26列を超える列(AA・AB)の番地(T5)、空行はhasCell=Falseで番地も出ない(T6)。T7は後方互換の直接検算(rowIdx/baseColを省略した4引数呼び出しは番地無しの従来出力のままであること)で、対象外ファイルmodTestsPure33が4引数のままRowTextFromを呼び続けても影響が無いことを保証する(CLAUDE.md §9のシグネチャ変更対応をOptional化で満たした根拠)。期待値は全て手計算で固定(RowPrefix/CellAddressOfの26進表記はmodTestsPure43で既に固定済みの値を再利用)。UDTは使わないためCanUseTypeArrays()ガードは不要でLO/Excelとも全件実行する。"
+    },
+    {
+      "name": "modTestsPure46",
+      "path": "src/test/modTestsPure46.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波A(UI/UXポリッシュ§1)の純ロジック回帰。modTestRunner.RunAllPureTests から直接呼ばれる独立の別枝(modTestsPure31〜45/48と同型)。固定するもの: (A)modLiveStyle.LeadParaIndex — 通常の結論文=1、■見出しで始まる回答・📍(聞き返し/番号選択)で始まる回答・空文字=0、先頭空白はLTrim後に判定、改行が無い単一段落は1、vbLf区切りでも同じ判定。(B)modLiveStyle.CellRefSpans — 「(A6 付近)」型(前後半角括弧・列はA-Z1文字以上・行は数字1文字以上・「 付近」必須)の位置と長さ、複数列(AA等)・2件連続・空白欠落や列/行欠落での0件化。(C)modPeek.ChipDocLabel — n字ちょうどは切らず、超えたときだけ…を付与。(D)modPeek.ChipOverflowLabel — 超過が無ければ空文字、超過があれば「ほかN件」。(E)modPeek.PeekSpans — 見出し(1行目)・breadcrumb(見出し直後が【で始まる行)・行頭[...]タグ複数件・閉じる案内(最後の改行より後ろ全部)の位置と長さ、breadcrumb/タグ無しの場合・空文字・行の途中の[は拾わないこと。期待値は全てpython3で各関数と同じ規則を再実装して実測し、モジュール先頭コメントに手計算根拠を記載。Check()呼び出し計52件。UDT/Shapeに触れない純関数のみでLO/Excelとも全件実行する。"
+    },
+    {
+      "name": "modTestsPure47",
+      "path": "src/test/modTestsPure47.bas",
+      "role": "test",
+      "type": "std",
+      "wave": "R43",
+      "note": "R43 波B(UI/UXポリッシュ)の純ロジック回帰。modTestRunner.RunAllPureTestsから直接呼ばれる独立の別枝(modTestsPure31〜46と同型)。固定するもの: (A)modKnowledgeBar.OnAccentColor — accent面に乗せる文字色(濃色RGB(17,24,39)/白)をWCAG相対輝度のしきい値0.179で選ぶこと。6テーマ実在accent値4種はいずれも濃色(4.97〜10.46:1)、中間グレーは白(白5.49:1>濃色3.23:1)、黒/白の自明な境界も固定する。(B)modHubBadge.BadgeSpans — Hubバッジの獲得済み文字区間(mark2文字+空白1文字+資料名、区切り3文字を踏まえた開始位置/長さ)を、一部獲得・全件獲得・全件未獲得・n=0の4パターンで固定する。"
+    }
+  ]
+}

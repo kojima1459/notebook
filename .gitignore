@@ -1,10 +1,56 @@
 dist/*.log
 dist/*.tmp
-build/template_chatbot.xlsm
-build/template_admin.xlsm
+dist/*_配布.zip
+# ビルドの中間生成物(R12-9-2の原子的確定)。*.building は Stage5→6 の途中経過、
+# *.failed は自己検証に落ちた不良品の退避先。どちらもコミット対象ではない
+# (2026-08-01 R12-H-7。混入すると「壊れた配布物がリポジトリに居る」状態になる)。
+dist/*.building.xlsm
+dist/*.failed.xlsm
+# 発行者用ビルド(R32波2 W2-4): config publish_key に合言葉が焼き込まれる。
+# --publisher の動作検証でローカルに生成されることがあるが、合言葉入りの
+# ブックをリポジトリへ誤って混ぜないよう常にignoreする(配布zipにも同梱しない)。
+dist/MyBookshelf_発行者用*.xlsm
+# 配布用ビルド本体。config シートの azure_embed_key に API キーが
+# OBF1: 形式(XOR+16進)で焼き込まれる。難読化の鍵は build/build_mybookshelf.py
+# と src/core/modUtil.bas にソース定数として入っているため復元可能であり、
+# 「難読化されているから載せてよい」は成り立たない。
+# 発行者用と配布zipだけを除外していて、この2ファイルに穴が空いていた
+# (2026-08-28)。ビルド成果物は SendUserFile 等で直接渡し、Git には載せない。
+# ルールを変えたら必ず次で効果を確認すること(無出力なら効いていない):
+#   git check-ignore -v dist/MyBookshelf.xlsm
+dist/MyBookshelf.xlsm
+dist/MyBookshelf_dev.xlsm
+# 上の個別指定では二度穴が空いた(配布zip・本体xlsm)ので、dist/ 配下は
+# 既定で全部除外する。ここに置かれるのは全てビルド成果物であり、いずれも
+# 再生成できる。新しい成果物が増えても自動で守られる。
+# 例外は Ghostscript(PDF変換に使う同梱バイナリ。秘密を含まない)のみ。
+dist/*
+!dist/Ghostscript/
 *.log
 *.swp
 .DS_Store
-.claude/
+# .claude/ は【無視しない】。ここにはスキル(.claude/skills/)とフック
+# (.claude/settings.json)という開発の作法そのものが入っており、無視すると
+# 新しく足したスキルが git add されず、次のクローンで消える。
+# 2026-09-02: 実際に `.claude/` を丸ごと無視していた。既存4ファイルは
+# ルール追加前に追跡済みだったので生き残っていただけで、
+# 【この先に足すスキル・フックは全て無言で失われる】状態だった。
+# ルールを変えたら必ず次で効果を確認すること(無出力=追跡される=正しい):
+#   git check-ignore -v .claude/skills/新スキル/SKILL.md
+# 個人設定だけを外す(共有するのは settings.json とスキル本体)。
+.claude/settings.local.json
+.claude/*.local.json
 __pycache__/
 *.pyc
+
+# 初期ナレッジ(シードパック)の中間生成物。
+# 実物の社内資料(社内限を含む)から作られるため、リポジトリには入れない。
+# 出荷ビルドに載せるかどうかはオーナーの明示的な判断事項(docs/60参照)。
+seed/
+
+# 2026-09-05: サブエージェントの一時 worktree(実装波の作業コピー。中身は各波のブランチにコミット済み)
+.claude/worktrees/
+
+# Gemini ワーカーのキー(tools/gemini_worker.py が読む。リポジトリに入れない)
+.gemini_key
+**/.gemini_key

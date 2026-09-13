@@ -1,0 +1,294 @@
+<title>R46 受入確認</title>
+<style>
+:root{
+  --bg:#faf9f7; --card:#fff; --ink:#1f2328; --muted:#5a626e; --line:#e3e6ea;
+  --accent:#b91c1c; --ok:#166534; --warn:#92400e; --chip:#f1f3f5;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){}
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16181c; --card:#1e2128; --ink:#e8eaed; --muted:#a4acb9; --line:#333842;
+    --accent:#f87171; --ok:#86efac; --warn:#fcd34d; --chip:#272b33;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16181c; --card:#1e2128; --ink:#e8eaed; --muted:#a4acb9; --line:#333842;
+  --accent:#f87171; --ok:#86efac; --warn:#fcd34d; --chip:#272b33;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Yu Gothic UI","Hiragino Sans",system-ui,sans-serif;
+  line-height:1.75;padding-block:28px;padding-left:18px;padding-right:18px;max-width:900px;margin:0 auto}
+h1{font-size:24px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 26px}
+h2{font-size:18px;margin:34px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.pri{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:99px;margin-right:8px;vertical-align:2px}
+.p0{background:var(--accent);color:#fff}
+.p1{background:var(--warn);color:#fff}
+.p2{background:var(--chip);color:var(--muted)}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:0 0 14px}
+.item h3{font-size:15px;margin:0 0 10px}
+dl{margin:0}
+dt{font-size:12px;font-weight:700;color:var(--muted);margin-top:10px;letter-spacing:.04em}
+dd{margin:3px 0 0}
+.ok::before{content:"○ ";color:var(--ok);font-weight:700}
+.ng::before{content:"× ";color:var(--accent);font-weight:700}
+code{background:var(--chip);padding:1px 6px;border-radius:4px;font-size:13px;
+  font-family:"Consolas","SF Mono",monospace;word-break:break-all}
+.note{background:var(--chip);border-left:3px solid var(--accent);padding:12px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+.tbl{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+.tbl th,.tbl td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+.tbl th{background:var(--chip);font-size:13px}
+.wrap{overflow-x:auto}
+</style>
+
+<h1>R46 受入確認</h1>
+<p class="sub">2026-09-11 ／ 前回の実機報告8件＋最優先バグ＋バッジの作り直し。上から順に、赤いラベルから確かめてください。</p>
+
+<div class="note">
+<b>先に P0 だけ見てください。</b>ここが緑にならないと、他の項目（特に取り込みが要るもの）に進めません。前回 C-1〜C-4 がテストできなかったのはこれが原因です。
+</div>
+
+<h2><span class="pri p0">最優先</span>P0 取り込み中に最小化しても戻れる</h2>
+
+<div class="item">
+<h3>P-1 最小化 → タスクバーから復元できる</h3>
+<dl>
+<dt>手順</dt>
+<dd>① 資料を取り込む（PDF でもExcelでも可）<br>② 画面が「応答なし」になったら<b>最小化ボタンを押す</b><br>③ 10秒ほど別の作業をする<br>④ <b>タスクバーの Excel アイコンをクリック</b></dd>
+<dt>見るところ</dt>
+<dd>④ で元の大きさに戻るか</dd>
+<dt>合格</dt>
+<dd class="ok">ウィンドウが戻る。戻った画面は白かったり「応答なし」だったりするが<b>それは正常</b>（実際に応答していないので、そのとおり表示されているだけ）</dd>
+<dt>不合格</dt>
+<dd class="ng">アイコンのまま戻らない</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>P-2 ×・右クリック・タスクの終了が効く</h3>
+<dl>
+<dt>手順</dt>
+<dd>取り込み中に、右クリック→「ウィンドウを閉じる」、または <code>Ctrl+Shift+Esc</code> → タスクの終了</dd>
+<dt>合格</dt>
+<dd class="ok">何らかの反応がある（確認ダイアログが出る／終了する）。<b>実際に閉じるかどうかは問いません</b></dd>
+<dt>不合格</dt>
+<dd class="ng">押しても<b>何も起きない</b></dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>P-3 取り込みの後、読み取り専用にならない</h3>
+<dl>
+<dt>手順</dt>
+<dd>取り込みを最後まで待つ → ブックを閉じる → もう一度 .bat で開く</dd>
+<dt>合格</dt>
+<dd class="ok">普通に開く（前のプロセスが残っていない証拠）</dd>
+<dt>不合格</dt>
+<dd class="ng">読み取り専用で開く</dd>
+</dl>
+</div>
+
+<h2><span class="pri p1">高</span>バッジと出典（今回いちばん大きく変えたところ）</h2>
+
+<div class="note">
+バッジの決め方を<b>作り直しました</b>。これまでは「似ている点数が0.55以上のかけらが2件以上あるか」だけで決めていて、固有名詞が一致するだけで緑になっていました。今回から <b>①質問の言葉が資料に実際に出てくるか ②1位が突き抜けているか</b> の2つで決めます。
+</div>
+
+<div class="item">
+<h3>A-1 本棚に無いことを聞くと 🔴 になる</h3>
+<dl>
+<dt>手順</dt>
+<dd>前回と同じ質問をもう一度：<b>「MSAD、三井住友の株価は？」</b></dd>
+<dt>合格</dt>
+<dd class="ok"><code>🔴 本棚に十分な根拠なし ― 内容をうのみにしないでください</code> が出る</dd>
+<dt>不合格</dt>
+<dd class="ng">🟢 が出る（前回の症状）</dd>
+<dt>補足</dt>
+<dd>オフラインの実データでは 🔴 になることを確認済みです。「今日の食堂のメニューは？」も 🔴 のままのはずです。</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>A-2 △（🟡）が出るようになっている</h3>
+<dl>
+<dt>手順</dt>
+<dd>本棚にありそうで、少し外れた質問を5〜10問ほど投げる（例：入っている分野の、少しマニアックな論点）</dd>
+<dt>見るところ</dt>
+<dd>🟢／🟡／🔴 の3つが<b>ちゃんと出そろうか</b></dd>
+<dt>合格</dt>
+<dd class="ok"><code>🟡 部分的に一致 ― 下の出典で原文をご確認ください</code> が少なくとも1回は出る</dd>
+<dt>不合格</dt>
+<dd class="ng">前回同様、🟢 と 🔴 しか出ない</dd>
+<dt>目安</dt>
+<dd>実データでの測定では、答えがある質問で 🟢70% / 🟡29% / 🔴1%、答えが無い質問で 🟢6% / 🟡13% / 🔴82% でした。<b>🟡 は3〜4回に1回くらい出るのが正常です。</b></dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>A-3 🔴 のときは「出典」と呼ばなくなる</h3>
+<dl>
+<dt>手順</dt>
+<dd>A-1 の質問（🔴 が出る質問）で、回答の下のチップ帯の<b>見出し</b>を見る</dd>
+<dt>合格</dt>
+<dd class="ok">🔴 のとき <code>🔎 似ていた資料(答えの根拠ではありません。クリックで中身を確認):</code><br>🟢🟡 のとき <code>🔎 出典(クリックで原文を確認):</code></dd>
+<dt>不合格</dt>
+<dd class="ng">🔴 なのに「出典」と書いてある（前回の症状）</dd>
+<dt>なぜ消さないのか</dt>
+<dd>消すと確かめる手段まで奪ってしまうためです。<b>並べるが「出典」とは呼ばない</b>、という直し方にしました。</dd>
+</dl>
+</div>
+
+<h2><span class="pri p1">高</span>前回の報告 8 件</h2>
+
+<div class="item">
+<h3>B-1 ガード文言が読める（赤・太字）</h3>
+<dl>
+<dt>手順</dt>
+<dd>社内ナレッジモードで何か質問する</dd>
+<dt>合格</dt>
+<dd class="ok">回答の末尾に <code>※ AIが資料から作った回答です。使う前に出典を開いて原文を確かめてください。</code> が<b>赤い太字</b>で出る（9pt。結論の12pt太字より小さいこと）</dd>
+<dt>不合格</dt>
+<dd class="ng">灰色のまま／見えない／結論より目立っている</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-2 一般アシスタントにもガードが出る</h3>
+<dl>
+<dt>手順</dt>
+<dd>一般アシスタント（壁打ち）モードに切り替えて質問する</dd>
+<dt>合格</dt>
+<dd class="ok">同じ <code>※ AIが資料から作った回答です。…</code> が末尾に出る</dd>
+<dt>不合格</dt>
+<dd class="ng">出ない（前回の症状）</dd>
+<dt>ついでに</dt>
+<dd>本棚が空のときの回答にも出ます。<b>本棚から1件も引けなかったとき</b>にも出るようにしました（前回はいちばん根拠が薄い場面だけ抜けていました）。</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-3 削除ボタンが「🗑 1件削除」になっている</h3>
+<dl>
+<dt>手順</dt>
+<dd>ナレッジ画面（一覧表）のツールバーを見る</dd>
+<dt>合格</dt>
+<dd class="ok"><b>ゴミ箱の絵文字が表示され</b>、文字が <code>1件削除</code> になっている</dd>
+<dt>不合格</dt>
+<dd class="ng">絵文字が出ない／「1件」のまま</dd>
+<dt>補足</dt>
+<dd>絵文字が消えていた原因は幅でも文字コードでもなく、<b>異体字セレクタ（U+FE0F）の付け忘れ</b>でした。隣の「🗑 部門ぶん一括」も同時に直しています。<b>ここが一番、実機でないと確かめられない項目です。</b></dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-4 吹き出しの「✕ クリックで閉じる」が見える</h3>
+<dl>
+<dt>手順</dt>
+<dd>出典チップをクリックして吹き出しを開き、<b>いちばん下の行</b>を見る</dd>
+<dt>合格</dt>
+<dd class="ok">✕ の行が<b>赤い太字・本文と同じ大きさ</b>（10pt）で出ている</dd>
+<dt>不合格</dt>
+<dd class="ng">小さい灰色のまま</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-5 Excel が出典のとき、吹き出しが読める</h3>
+<dl>
+<dt>手順</dt>
+<dd>Excel 資料が出典になる質問をして、出典チップをクリック</dd>
+<dt>合格</dt>
+<dd class="ok">セルの区切りが <code>│</code> で揃っている／<b>空行だらけになっていない</b>／先頭に <code>#</code> が見えない／同じ行の <code>[A1]</code> <code>[B1]</code> が<b>同じ色</b>で出る</dd>
+<dt>不合格</dt>
+<dd class="ng">値がバラバラの位置に飛ぶ／空行が多い／<code># シート: …</code> が生で見える</dd>
+<dt>補足</dt>
+<dd>原因は4つ重なっていました。Excel だけ全行が「表の行」と判定されてタブが素通りしていた／改行を機械的に2倍にしていた、ほか2件。<b>取り込み形式は変えていないので、資料の入れ直しは不要です。</b></dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-6 作業用Excel の案内が 12 秒残る</h3>
+<dl>
+<dt>手順</dt>
+<dd>取り込み中に、進捗バナーの中の「🗔 作業用Excel」ボタンを押す</dd>
+<dt>合格</dt>
+<dd class="ok">案内のトーストが<b>10秒以上</b>残る</dd>
+<dt>不合格</dt>
+<dd class="ng">一瞬で消える（前回の症状）</dd>
+<dt>補足</dt>
+<dd>消えていたのではなく、<b>取り込みバナーが1秒ごとに塗り直すときに消していました</b>。ヘルプカードの「🗔 作業用Excelを開く」から押した場合も同じく残るはずです。</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-7 前の回答をコピーできる</h3>
+<dl>
+<dt>手順</dt>
+<dd>質問を3回ほどして回答を貯める → <code>? ガイド</code> を開く → <b>7段目</b>の <code>📋 前の回答をコピー</code> を押す → 番号を入れる</dd>
+<dt>合格</dt>
+<dd class="ok">番号つきの一覧が出て、選んだ回答がクリップボードに入る（貼り付けて確認）</dd>
+<dt>不合格</dt>
+<dd class="ng">ボタンが無い／一覧が出ない／貼り付けても入っていない</dd>
+<dt>補足</dt>
+<dd>「チャット履歴」シートではなく<b>画面に残っている回答そのもの</b>を写します（履歴シートは5,000字で、印も付けずに切るため）。そのぶん、ブックを閉じると消えます（直近40件）。</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-8 モード説明が実態どおりになっている</h3>
+<dl>
+<dt>手順</dt>
+<dd>モードを「🔍 しっかり調べる」に切り替えたときのトーストを読む</dd>
+<dt>合格</dt>
+<dd class="ok"><code>社内ナレッジ検索は本棚全体(「続けて質問」のときだけ直前の資料へ絞り、足りなければ広げ直し)</code> と書いてある</dd>
+<dt>不合格</dt>
+<dd class="ng">「直前までに使った資料へ絞って掘り下げ」のまま</dd>
+<dt>補足</dt>
+<dd><b>実装は最初から正しく、説明文だけが間違っていました。</b>絞るのは「続けて質問」のときだけで、しかも2件未満なら本棚全体へ広げ直します。</dd>
+</dl>
+</div>
+
+<div class="item">
+<h3>B-9 初回セットアップが1問になっている</h3>
+<dl>
+<dt>手順</dt>
+<dd>（確かめるなら）新しい環境で初回起動する</dd>
+<dt>合格</dt>
+<dd class="ok">名前の入力のあと、<b>共有フォルダの設問だけ</b>が出る（<code>はじめに(1/1)</code>）。部門の設問は出ない</dd>
+<dt>不合格</dt>
+<dd class="ng">部門の設問がまだ出る</dd>
+<dt>なぜ落としたか</dt>
+<dd>調べたところ <code>user_department</code> は<b>選んでも利用者から見えるふるまいが1つも変わらない</b>項目でした。部門ナレッジの購読も発行先も見ていません。「みんなの節約」の部別集計は「4〜6文字・英大文字と数字」の値しか採らないので、<b>「商品部」「リスコン部」「その他」は構造上ぜんぶ不採用</b>でした。部門は Hub のプロフィールカードから任意で設定できます。</dd>
+</dl>
+</div>
+
+<h2><span class="pri p2">中</span>前回できなかった C 項目（取り込みが要る）</h2>
+
+<div class="item">
+<h3>C-1〜C-4 Excel 資料の入れ直しと俯瞰質問</h3>
+<dl>
+<dt>手順</dt>
+<dd>部門ナレッジの Excel を入れ直す → 取り込み中に「まとまりの要約中… N/M」がシート数ぶん走る → 「〇〇の全体像を教えて」のような俯瞰質問 → 出典の「シートN」が実際に合っているか</dd>
+<dt>合格</dt>
+<dd class="ok">取り込みが最後まで終わる／俯瞰質問に答えられる／出典のシート番号が合っている</dd>
+<dt>補足</dt>
+<dd><b>P0 が緑になってから</b>着手してください。前回はここで詰まりました。</dd>
+</dl>
+</div>
+
+<h2>まだ直していないこと（正直に）</h2>
+
+<div class="wrap">
+<table class="tbl">
+<tr><th>項目</th><th>状況</th></tr>
+<tr><td>着せ替え「エグゼクティブ・ゴールド」</td><td>バッジを集めないと選べません。前回スキップ扱いにしたままです。</td></tr>
+<tr><td>バッジのしきい値</td><td>オフラインの実データで決めましたが、<b>実機の埋め込みは別物</b>です。今回の指標は「比」なのでスケールが変わっても意味は変わらない設計ですが、実機で 🟡 が出すぎる／出なさすぎるようなら config の <code>conf_cov_green_x100</code>（100）<code>conf_flat_green_x100</code>（160）<code>conf_cov_amber_x100</code>（90）で調整できます。</td></tr>
+<tr><td>回答本文とバッジの照合</td><td>バッジは「検索で何が取れたか」までしか見ていません。<b>AIが書いた文が資料に実在するか</b>までは見ていません（次の宿題）。</td></tr>
+</table>
+</div>
+
+<div class="note">
+<b>報告のしかた。</b>項目番号と ○／× だけで十分です。× のときは、画面に出た文字をそのまま書いていただけると原因が早く絞れます。<b>「思っていたのと違う」も立派な不合格です</b>——仕様どおりでも、使いにくければ直す対象です。
+</div>
