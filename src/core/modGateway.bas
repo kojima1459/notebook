@@ -96,7 +96,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     If LenB(model_override) > 0 Then
         mdl = model_override
     Else
-        mdl = modConfig.GetString("recommended_model", "gpt-5.5")
+        mdl = modConfig.GetString("recommended_model", "gpt-5.6-terra")
     End If
 
     Dim eff As String: eff = effort
@@ -105,7 +105,7 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
         eff = "": vrb = ""    ' エスケープハッチ: GPT-5以外のモデル運用時などに空送信
     End If
 
-    Dim waitSec As Long: waitSec = modConfig.GetLong("llm_wait_sec", 1200)
+    Dim waitSec As Long: waitSec = modConfig.GetLong("llm_wait_sec", 1800)
 
     '            text   roleSys Temp MaxTok Wait   model prevU  prevA  toolN                        effort verbosity
     Dim result As Variant
@@ -119,9 +119,11 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
         CallLLM = "#ERR:E0202:応答が空でした"
         Exit Function
     End If
-    If LooksLikeLimitError(s) Then
-        modLog.LogError "E0204", "modGateway.CallLLM", "step=" & step_name & " resp=" & modUtil.SafeLeft(s, 200)
-        CallLLM = "#ERR:E0204:" & s
+    ' R48: リボンは通信に失敗しても例外を出さず【文字列を戻り値で返す】。
+    ' 判定と記録の実体は modRibbonFail(単一情報源)。ここは1行に留める。
+    Dim rf As String: rf = modRibbonFail.ErrFor(s, step_name)
+    If LenB(rf) > 0 Then
+        CallLLM = rf
         Exit Function
     End If
 
@@ -477,60 +479,10 @@ ErrHandler:
     TryRibbonRun = "#ERR:E0202:" & Err.Description
 End Function
 
-' LLMの応答文字列が「利用上限に達した」という定型拒否メッセージそのものらしいかを
-' 検知する。実機報告(2026-07-22)「しっかり調べるモードだけ必ずE0204になる」で
-' 確認された誤検知バグ: 保険約款は「上限」「回数」(支払限度額・請求回数等)を
-' ごく普通に含むため、深掘りモードの長文で正当な分析結果がほぼ確実に誤爆して
-' いた。定型拒否文は短いので、応答が短い場合に限って判定する(長い実回答は
-' 対象外)。
-Public Function LooksLikeLimitError(ByVal response As String) As Boolean
-    If Len(response) > 120 Then Exit Function
+' R48: LooksLikeLimitError / LooksLikeRealAnswer は modRibbonFail へ移設した
+' (リボンが返す失敗の語彙の単一情報源。ロジックは1文字も変えていない)。
+' このモジュールは残り容量が僅かで、同型の判定を足す場所が無いため。
 
-    ' 2026-07-28(レビュー M-1): 120字以下で「上限」「回数」等を含むだけで
-    ' 利用上限エラー扱いにしていたため、
-    '   「請求回数の上限はありません。[本棚: 約款.pdf p.12]」
-    ' のような【正当な短文回答】がまるごとエラーメッセージに差し替わっていた。
-    ' 出典タグや構造タグを含む応答は、モデルが実際に答えを返した証拠なので
-    ' 上限エラーではありえない。先に除外する。
-    If LooksLikeRealAnswer(response) Then Exit Function
-
-    Dim s As String: s = LCase$(response)
-    LooksLikeLimitError = (InStr(s, "上限") > 0) Or (InStr(s, "limit") > 0) Or _
-                           (InStr(s, "回数") > 0) Or (InStr(s, "rate") > 0) Or _
-                           (InStr(s, "quota") > 0)
-End Function
-
-' 出典タグ・構造タグを含む=モデルが答えを組み立てている応答か。
-Private Function LooksLikeRealAnswer(ByVal response As String) As Boolean
-    If InStr(1, response, "[本棚:", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "[出典", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "<answer>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "<thinking>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    ' R30 W2-2(実機第15報C班・3件目): 分解段(modPrompts.BuildDecomposePrompt)の
-    ' <verdict>single/parts/clarify/global</verdict> も構造タグの一種。短文の
-    ' verdict応答が「上限」「回数」を含む論点(保険約款等)に触れただけでE0204
-    ' 誤爆していた(R21 D2/R21H F4と同型の症状)。
-    If InStr(1, response, "<verdict>", vbTextCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    ' R21-2 D2(実機第8報⑧): 査読(critique)「1. [観点] …」も救済(旧判定は
-    ' 短い棄却指摘を誤爆させていた。タグはmodPrompts.BuildCritiquePromptと同一)
-    ' R21H F4: 前置き判定が「1. [」の完全一致だけだったため「1.[」「1.  [」等
-    ' 空白ゆれで誤爆していた。「1.」+任意空白+「[」へ緩和する。
-    Dim t As String: t = Trim$(response)
-    If Left$(t, 2) = "1." Then
-        Dim p As Long: p = 3
-        Do While p <= Len(t) And Mid$(t, p, 1) = " "
-            p = p + 1
-        Loop
-        If Mid$(t, p, 1) = "[" Then LooksLikeRealAnswer = True: Exit Function
-    End If
-    If InStr(1, response, "[論点漏れ]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "[未検証の断定]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    ' R21H F4: 「[出典:」(実回答の出典表記)はあるが「[出典不備]」(査読の
-    ' 指摘タグ)は判定漏れで、その指摘だけの棄却応答がE0204(上限超過)に
-    ' 誤爆していた。
-    If InStr(1, response, "[出典不備]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True: Exit Function
-    If InStr(1, response, "[憶測]", vbBinaryCompare) > 0 Then LooksLikeRealAnswer = True
-End Function
 
 ' ----------------------------------------------------------------------------
 ' 内部ヘルパー: バッチ埋め込み(direct/ribbon)・シリアライズ
@@ -559,6 +511,14 @@ Public Function RibbonEmbedRange(texts() As String, ByVal arrLo As Long, _
     For i = iFrom To iTo
         Dim t As String: t = modUtil.NormalizeForHash(texts(arrLo + i))
         Dim v() As Double
+        ' R48(重大): VBA の Dim はループ内に書いてもプロシージャ全体で1回しか
+        ' 実行されない。本文が空のかけら(LenB(t)=0)では下の代入が走らないため、
+        ' Erase が無いと【直前のかけらのベクトルがそのまま残り】、無関係な
+        ' かけらへ書き込まれて「成功」として数えられていた。そのかけらは
+        ' 無関係な質問に「似ている」と判定されて出典に出るうえ、err_log にも
+        ' usage_log にも痕跡が残らない(憲章 §4-1 違反)。
+        ' 空を「失敗」に数えない後始末は modEmbed 側(3連続失敗の安全装置)。
+        Erase v
         If LenB(t) > 0 Then v = GetEmbeddingRibbonOnly(t, dim_)
         If modUtil.HasVector(v) Then
             outCsv(i) = SerializeVector(v, prec)

@@ -38,7 +38,7 @@ Option Explicit
 '     外れる(modEmbedのembedded列と同じ考え方)。
 '   ・ESC対応・3失敗ではなく「利用上限の疑い」検知のみで中断する
 '     (CallLLMは失敗時に応答文字列そのものを返す契約のため、
-'     modGateway.LooksLikeLimitErrorをそのまま適用できる。modEmbedの
+'     modRibbonFail.LooksLikeLimitErrorをそのまま適用できる。modEmbedの
 '     GetEmbeddingのように応答文字列が取れない制約が無いため、err_log
 '     を読み返す回り道は不要)。
 '   ・effort/verbosityはMASTER_SPEC §5のconfigキー台帳にenrich専用の
@@ -217,7 +217,11 @@ Public Function EnrichPending(Optional ByVal maxCount As Long = 30) As Long
             End If
             ' パース失敗(pCount=0扱い)はこのバッチをスキップして続行(非致命・§7.2)
         Else
-            If modGateway.LooksLikeLimitError(resp) Then
+            ' R48: 従来は LooksLikeLimitError を戻り値へ直接当てていたが、Azure の
+            ' 429 本文は英語で 120字を超えるため Len>120 の早期 return に当たり、
+            ' 【取込の打ち切りが一度も効いていなかった】。CallLLM が E0204 を
+            ' 付けるようになったので、コードでも判定する(modRibbonFail.IsLimitErr)。
+            If modRibbonFail.IsLimitErr(resp) Then
                 abortReason = "利用上限の疑い"
             End If
         End If

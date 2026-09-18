@@ -241,13 +241,14 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | key | 既定値 | 意味 |
 |---|---|---|
 | mock_llm | TRUE(開発ビルド)/FALSE(本番) | リボン無しモック動作 |
-| recommended_model | gpt-5.5 | 精査モードモデル |
-| quick_model | gpt-5.5 | 即答モードモデル(将来 gpt-5.4-nano 等に差し替え可) |
+| recommended_model | gpt-5.6-terra | 精査モード(しっかり調べる)モデル。質問例生成/Word整形/取込エンリッチも model_override 未指定で暗黙にこれを使う |
+| quick_model | gpt-5.6-luna | 即答モード(すぐ聞く)モデル。検索の拡張/再ランク段・取込の章要約と名寄せ・一般アシスタントも空欄時はこれ |
+| thorough_model | gpt-5.6-sol | 入念モード(入念に調べる)モデル(R48新設)。4段/1回読み/論点分解/俯瞰の4経路に効く |
 | quick_effort / quick_verbosity | low / low | 即答モードの reasoning_effort / verbosity |
 | deep_draft_effort / deep_draft_verbosity | medium / high | 精査ドラフト |
 | deep_verify_effort / deep_verify_verbosity | high / medium | 精査検証 |
 | reasoning_tuning | TRUE | FALSEでeffort/verbosity引数を空送信 |
-| llm_wait_sec | 1200 | ChatGPT() Wait |
+| llm_wait_sec | 1800 | ChatGPT() Wait。【1回の呼び出し】の上限であって1質問の上限ではない(入念の論点分解は最大11段) |
 | topk_quick / topk_deep | 6 / 12 | LLMに渡す上位件数 |
 | max_context_chars | 40000 | プロンプトに載せる本文合計上限 |
 | answer_language | 日本語 | 回答言語(プロンプトに指定を挿入) |

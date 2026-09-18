@@ -25,7 +25,7 @@ Option Explicit
 '     外へ返さない契約(空配列のみ)のため、LooksLikeLimitError へ渡す
 '     材料がこのモジュールには直接無い。そこで直近の modLog.LogError 書込み
 '     (err_log の最終行)をこのモジュールが読み返し、その detail 文字列に
-'     対して modGateway.LooksLikeLimitError を適用することで、利用上限
+'     対して modRibbonFail.LooksLikeLimitError を適用することで、利用上限
 '     らしき応答を検知する(modGatewayの契約シグネチャは変更していない。
 '     内部実装だけの工夫)。
 '   ・進捗実況は modUIMain.SetStage を1行スコープの On Error Resume Next で
@@ -246,11 +246,31 @@ Public Function EmbedPending(Optional ByVal maxCount As Long = -1) As Long
                     consecutiveFail = 0
                 End If
             Else
-                consecutiveFail = consecutiveFail + 1
-                If consecutiveFail >= 3 Then
-                    abortReason = "3連続失敗"
-                ElseIf LastFailureLooksLikeLimit() Then
-                    abortReason = "利用上限の疑い"
+                ' R48: 本文が空のかけらは「失敗」ではない(問い合わせる相手が無い)。
+                ' modGateway.RibbonEmbedRange に Erase を入れるまでは、空のかけらへ
+                ' 直前のかけらのベクトルが流用されて「成功」に化けていた。
+                ' Erase を入れた結果ここへ落ちてくるようになったので、3連続失敗の
+                ' 安全装置には数えない(空行の続く資料で取込が止まってしまう)。
+                ' 印(embedded)だけ立てて先へ進める。ベクトル行は書かないので
+                ' 検索には出てこない ―― それが空のかけらの正しい状態。
+                If LenB(Trim$(texts(n))) = 0 Then
+                    Dim emptyCell As Range
+                    Set emptyCell = wsK.Columns(COL_ID).Find(What:=chunkId, LookAt:=1, _
+                        MatchCase:=True, LookIn:=xlValues, SearchOrder:=xlByRows, _
+                        MatchByte:=False)
+                    If Not emptyCell Is Nothing Then
+                        wsK.Cells(emptyCell.row, COL_EMBEDDED).Value = 1
+                    End If
+                    On Error Resume Next
+                    modLog.LogUsage "embed_empty", "ingest", "chunk=" & chunkId
+                    On Error GoTo EscOrErr
+                Else
+                    consecutiveFail = consecutiveFail + 1
+                    If consecutiveFail >= 3 Then
+                        abortReason = "3連続失敗"
+                    ElseIf LastFailureLooksLikeLimit() Then
+                        abortReason = "利用上限の疑い"
+                    End If
                 End If
             End If
             If LenB(abortReason) > 0 Then Exit For
@@ -414,7 +434,7 @@ Private Function CancelWanted() As Boolean
     On Error GoTo 0
 End Function
 
-' err_log最終行のdetail文字列にmodGateway.LooksLikeLimitErrorを適用する
+' err_log最終行のdetail文字列にmodRibbonFail.LooksLikeLimitErrorを適用する
 ' (GetEmbedding失敗時は応答文字列そのものが得られないための代替手段。
 ' モジュール冒頭の設計判断コメント参照)。
 Private Function LastFailureLooksLikeLimit() As Boolean
@@ -424,7 +444,7 @@ Private Function LastFailureLooksLikeLimit() As Boolean
     Dim lastR As Long: lastR = ws.Cells(ws.Rows.count, 1).End(xlUp).row
     If lastR < 2 Then GoTo NoLog
     Dim detail As String: detail = CStr(ws.Cells(lastR, 4).Value)
-    LastFailureLooksLikeLimit = modGateway.LooksLikeLimitError(detail)
+    LastFailureLooksLikeLimit = modRibbonFail.LooksLikeLimitError(detail)
     Exit Function
 NoLog:
     LastFailureLooksLikeLimit = False

@@ -150,7 +150,7 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
-    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("thorough_model", "gpt-5.6-sol")
 
     Dim total As Long: total = 1 + nParts + 3
     Dim topKPer As Long
@@ -494,7 +494,7 @@ End Function
 ' 段0のモデル。拡張段と同じ選び方(判定だけの軽い段に本命モデルは要らない)。
 Private Function DecideModel() As String
     DecideModel = modConfig.GetString("expand_model", "")
-    If LenB(DecideModel) = 0 Then DecideModel = modConfig.GetString("quick_model", "gpt-5.5")
+    If LenB(DecideModel) = 0 Then DecideModel = modConfig.GetString("quick_model", "gpt-5.6-luna")
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -671,7 +671,7 @@ Private Sub Stage(ByVal partN As Long, ByVal idx As Long, ByVal total As Long, _
     If total > 0 And idx > 0 Then head = head & " " & idx & "/" & total & "段:"
 
     On Error Resume Next
-    modUIMain.SetStage head & " " & label & ElapsedText() & " ※応答なし表示でも処理中"
+    modUIMain.SetStage head & " " & label & ElapsedText() & modMode.WorkingNote()
     On Error GoTo 0
 End Sub
 

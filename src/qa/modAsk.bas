@@ -210,6 +210,7 @@ Private Function AnswerWithContext(ByVal question As String, ByVal mode As Strin
             On Error Resume Next
             modLog.LogUsage "ambiguous_clarify", mdMode, modUtil.SafeLeft(q, 80)
             On Error GoTo Fail
+        ' R48: この枝は必ず下の UseVerify 枝より【前】。理由は modMode.UseVerify。
         ElseIf mdMode = MODE_THOROUGH Then
             ' R14-8a: 入念だけ専用の6段。R16-3A: 先に論点分解を試し不発なら6段へ。
             If Not modAskMulti.TryDecomposed(q, hits, nHits, ok, result, prevU, prevA) Then
@@ -594,7 +595,7 @@ Private Function RunQuickFlow(ByVal q As String, hits() As Hit, ByVal nHits As L
 
     Dim eff As String: eff = modConfig.GetString("quick_effort", "low")
     Dim vrb As String: vrb = modConfig.GetString("quick_verbosity", "low")
-    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.6-luna")
     Dim latency As Long
 
     Dim resp As String
@@ -628,7 +629,7 @@ Private Function RunDeepFlow(ByVal q As String, hits() As Hit, ByVal nHits As Lo
 
     Dim dEff As String: dEff = modConfig.GetString("deep_draft_effort", "medium")
     Dim dVrb As String: dVrb = modConfig.GetString("deep_draft_verbosity", "high")
-    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.6-terra")
     Dim latency As Long
 
     ' 会話履歴(prevU/prevA)は下書き段のみに渡す。検証段は本棚抜粋との照合に専念のため渡さない(裁定D11)。

@@ -69,7 +69,7 @@
 - **D8 (会話継続 prevU/prevA)**: 追加機能候補として保留(ユーザー判断待ち)。
   実装する場合は modAsk/ui_state に直近Q&A履歴を持たせ CallLLM に引数追加。
 - **D9 (モデル名)**: 公開ページ例(GPT-3.5_Turbo/GPT-4o)は旧版。V2本番実績の
-  config駆動(既定 gpt-5.5)を維持。リボン四半期更新に追随できるようconfigのみで変更可。
+  config駆動(既定 recommended_model=gpt-5.6-terra / quick_model=gpt-5.6-luna / thorough_model=gpt-5.6-sol)を維持。リボン四半期更新に追随できるようconfigのみで変更可。
 
 ## 2b. 追加PM裁定(D10〜D13、2026-07-14 ユーザー指示に基づく)
 

@@ -263,10 +263,10 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     searchLensEmoji = ChrW(&HD83D) & ChrW(&HDD0E)
     If modeStr = "neighbor" Then
         stageMsg = searchLensEmoji & " 入念(1回読み): 当たった箇所の前後 " & CStr(ctxN) & _
-                   "箇所を読んで回答を作成中" & ChrW(&H2026) & " ※応答なし表示でも処理中"
+                   "箇所を読んで回答を作成中" & ChrW(&H2026) & modMode.WorkingNote()
     Else
         stageMsg = searchLensEmoji & " 入念(1回読み): " & CStr(nPick) & "章・" & _
-                   CStr(ctxN) & "箇所を読んで回答を作成中" & ChrW(&H2026) & " ※応答なし表示でも処理中"
+                   CStr(ctxN) & "箇所を読んで回答を作成中" & ChrW(&H2026) & modMode.WorkingNote()
     End If
     On Error Resume Next
     modUIMain.SetStage stageMsg
@@ -284,7 +284,7 @@ Public Function TryOnePass(ByVal q As String, ByRef hits() As Hit, ByVal nHits A
     Dim verbosityStr As String
     verbosityStr = modConfig.GetString("thorough_draft_verbosity", "high")
     Dim modelStr As String
-    modelStr = modConfig.GetString("recommended_model", "gpt-5.5")
+    modelStr = modConfig.GetString("thorough_model", "gpt-5.6-sol")
 
     Dim latMs As Long
     Dim resp As String

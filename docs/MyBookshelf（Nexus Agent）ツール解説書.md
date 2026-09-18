@@ -734,9 +734,11 @@ BuildQuickPrompt → CallLLM("quick_draft", effort=low, verbosity=low, quick_mod
 | クエリ拡張 | quick_model / effort=low, verbosity=low | `expand_model`（空なら quick_model）, `expand_effort` |
 | 検索 | ローカル（内積＋ボーナス） | `topk_quick=6`, `topk_deep=12`, `multi_candidates=40` |
 | 再ランク | quick_model / effort=low, verbosity=low | `rerank_model`（空なら quick_model）, `rerank_effort` |
-| 回答（quick） | gpt-5.5 / effort=low, verbosity=low | `quick_model` |
-| 回答（deep 下書き） | gpt-5.5 / effort=medium, verbosity=high | `recommended_model` |
-| 回答（deep 検証） | gpt-5.5 / effort=high, verbosity=medium | `recommended_model` |
+| 回答（quick） | gpt-5.6-luna / effort=low, verbosity=low | `quick_model` |
+| 回答（deep 下書き） | gpt-5.6-terra / effort=medium, verbosity=high | `recommended_model` |
+| 回答（deep 検証） | gpt-5.6-terra / effort=high, verbosity=medium | `recommended_model` |
+| 回答（thorough 4段/1回読み/論点分解/俯瞰） | gpt-5.6-sol / effort=high | `thorough_model`（R48新設） |
+| 質問例生成 / Word出力整形 / 取込エンリッチ | recommended_model（`model_override` に空文字を渡すため `modGateway` の既定に落ちる。ソースに `recommended_model` の文字列は出ない） | `recommended_model` |
 
 **本棚抜粋（`BuildSourceBlock`）** は `full_text`（チャンク本文全体）を使う。出典チップ用の `preview`（先頭120字）ではない。合計 `max_context_chars`（40,000字）を超える手前で打ち切り、その場合のみ「(一部省略)」を挿入する。出典タグは `origin` で分岐 — `pack:` 始まりなら `[パック(作成者):ファイル名]`、それ以外は `[本棚:ファイル名 p.N]`（Excel 由来＝拡張子 xlsx/xlsm/xls/xlsb は `[本棚:ファイル名 シートN]`。ページ部分の文字列は `modMode.PageTagPart` が唯一の持ち主で、表示・突合・是正メモも同じ関数を通す。R41）。
 
@@ -1192,7 +1194,7 @@ config `admin_users`（カンマ区切りの AD ユーザー名）に自分が�
 | グループ | キー例 |
 |---|---|
 | AI 接続 | `mock_llm`, `ribbon_addin_name`, `limit_check`, `llm_wait_sec` |
-| モデル | `quick_model`, `recommended_model`, `quick_effort`, `deep_draft_effort`, `deep_verify_effort`, `reasoning_tuning` |
+| モデル | `quick_model`, `recommended_model`, `thorough_model`(R48新設), `quick_effort`, `deep_draft_effort`, `deep_verify_effort`, `reasoning_tuning` |
 | 埋め込み | `embed_dim=768`, `embed_transport=direct`, `embed_batch_size=128`, `vector_precision=d6`, `azure_embed_url`, `azure_embed_key` |
 | チャンク | `chunk_mode=structure`, `chunk_target_chars=700`, `chunk_overlap_chars=150`, `chunk_max_chars=1800`, `embed_prefix_breadcrumb` |
 | 検索 | `retrieve_mode=multi`, `expand_enabled`, `rerank_enabled`, `multi_candidates=40`, `topk_quick/deep` |

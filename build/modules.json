@@ -73,6 +73,13 @@
       "wave": "1-A"
     },
     {
+      "name": "modRibbonFail",
+      "path": "src/core/modRibbonFail.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R48"
+    },
+    {
       "name": "modFeatures",
       "path": "src/core/modFeatures.bas",
       "role": "core",

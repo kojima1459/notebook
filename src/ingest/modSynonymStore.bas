@@ -181,7 +181,7 @@ Public Sub BuildSynonymsFor(ByVal sourceName As String)
 
     Dim eff As String: eff = modConfig.GetString("quick_effort", "low")
     Dim vrb As String: vrb = modConfig.GetString("quick_verbosity", "low")
-    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.6-luna")
 
     Dim lat As Long
     Dim resp As String

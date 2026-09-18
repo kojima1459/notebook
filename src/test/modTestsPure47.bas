@@ -49,6 +49,91 @@ Private Sub ChkLong47(ByVal label As String, ByVal got As Long, ByVal want As Lo
     modTestRunner.Check "R43-47-" & label, (got = want), "実際=" & got & " 期待=" & want
 End Sub
 
+Private Sub ChkStr47(ByVal label As String, ByVal got As String, ByVal want As String)
+    modTestRunner.Check "R48-47-" & label, (got = want), "実際=[" & got & "] 期待=[" & want & "]"
+End Sub
+
+Private Sub ChkBool47(ByVal label As String, ByVal got As Boolean, ByVal want As Boolean)
+    modTestRunner.Check "R48-47-" & label, (got = want), "実際=" & got & " 期待=" & want
+End Sub
+
+' ----------------------------------------------------------------------------
+' R群(R48) modRibbonFail - 社内AIリボンが返す「失敗の語彙」の判定
+' ----------------------------------------------------------------------------
+' なぜここを固定するか:
+'   リボンちゃんは通信に失敗しても例外を出さず【文字列を戻り値で返す】。
+'   R47 まで modGateway.CallLLM はこれを1つも検査しておらず、利用者には
+'   「AIの回答」として確信度バッジと出典つきで表示されていた。
+'   一方で、部分一致(InStr)で雑に拾うと【正当な回答をエラーに差し替える】
+'   誤爆になる ―― このリポジトリは R21 D2 と R30 W2-2 で2回それをやっている。
+'   よって「拾うべきものを拾う」と「拾ってはいけないものを拾わない」を
+'   必ず対で固定する。R7〜R10 が後者で、こちらの方が実害が重い。
+Private Sub TestRibbonFail47()
+    ' --- 拾うべきもの(リボンの実ソース log.bas / GPT.bas から採取した実文字列)
+    ChkStr47 "R1_http429_limit", _
+        modRibbonFail.FailKind("(error:429)Requests to the ChatCompletions_Create Operation have exceeded call rate limit"), "limit"
+    ChkStr47 "R2_http404", modRibbonFail.FailKind("(error:404)DeploymentNotFound"), "http"
+    ChkStr47 "R3_conn", modRibbonFail.FailKind("接続切れ"), "conn"
+    ChkStr47 "R4_filter", modRibbonFail.FailKind("content_filterに該当しました"), "filter"
+    ChkStr47 "R5_parse_head", _
+        modRibbonFail.FailKind("レスポンスから当該テキストを抽出できませんChatGPTの仕様が変更となった可能性がありますので、AIリボンをダウンロードしたホームページの情報をご確認ください"), "parse"
+    ChkStr47 "R6_json_cut", modRibbonFail.FailKind("レスポンスのJSON文字列が途中で終了しています。"), "parse"
+    ' 前後の空白は Trim$ で落として完全一致させる
+    ChkStr47 "R3b_conn_padded", modRibbonFail.FailKind("  接続切れ  "), "conn"
+
+    ' --- 拾ってはいけないもの(誤爆の反例。ここが本丸)
+    ' 「接続切れ」を部分一致で拾うと、通信障害の手順書を引いた回の正当な回答が
+    ' まるごとエラーに化ける。完全一致でしか拾わないことを固定する。
+    ChkStr47 "R7_conn_substring_is_answer", _
+        modRibbonFail.FailKind("接続切れの場合は、担当部署へご連絡ください。"), ""
+    ChkStr47 "R7b_conn_substring_with_tag", _
+        modRibbonFail.FailKind("接続切れの場合は、担当部署へご連絡ください。[本棚: 手順書.pdf p.3]"), ""
+    ' R21 D2 で実機が踏んだ「正当な短文回答」。移設後も守られることを固定する。
+    ChkStr47 "R8_limit_false_positive", _
+        modRibbonFail.FailKind("請求回数の上限はありません。[本棚: 約款.pdf p.12]"), ""
+    ChkStr47 "R9_normal_answer", _
+        modRibbonFail.FailKind("保険料は年額3,000円です。[本棚: 約款.pdf p.5]"), ""
+    ChkStr47 "R10_empty", modRibbonFail.FailKind(""), ""
+    ' content_filter を語っただけの回答(完全一致でないので失敗ではない)
+    ChkStr47 "R10b_filter_substring", _
+        modRibbonFail.FailKind("content_filterに該当しましたという表示が出た場合の対処は次のとおりです。"), ""
+
+    ' --- HTTPステータスの取り出し(IsNumeric は "1e5"/"-1" を通すので使わない)
+    ChkLong47 "R11_status429", modRibbonFail.HttpStatusOf("(error:429)x"), 429
+    ChkLong47 "R12_status_empty", modRibbonFail.HttpStatusOf("(error:)x"), 0
+    ChkLong47 "R13_status_alpha", modRibbonFail.HttpStatusOf("(error:abc)x"), 0
+    ChkLong47 "R14_status_not_err", modRibbonFail.HttpStatusOf("ふつうの回答です"), 0
+    ChkLong47 "R14b_status_no_paren", modRibbonFail.HttpStatusOf("(error:429"), 0
+
+    ' --- 種別 → エラーコード
+    ChkStr47 "R15a_code_limit", modRibbonFail.CodeFor("limit"), "E0204"
+    ChkStr47 "R15b_code_http", modRibbonFail.CodeFor("http"), "E0205"
+    ChkStr47 "R15c_code_conn", modRibbonFail.CodeFor("conn"), "E0205"
+    ChkStr47 "R15d_code_parse", modRibbonFail.CodeFor("parse"), "E0205"
+    ChkStr47 "R15e_code_filter", modRibbonFail.CodeFor("filter"), "E0206"
+    ChkStr47 "R15f_code_none", modRibbonFail.CodeFor(""), ""
+
+    ' --- 取込の打ち切り判定(#ERR 化の前後どちらでも効くこと)
+    ChkBool47 "R16_islimit_code", modRibbonFail.IsLimitErr("#ERR:E0204:(error:429)long english message that exceeds one hundred and twenty characters in total length for sure padding padding"), True
+    ChkBool47 "R17_islimit_other_code", modRibbonFail.IsLimitErr("#ERR:E0205:接続切れ"), False
+    ChkBool47 "R18_islimit_raw", modRibbonFail.IsLimitErr("申し訳ございません。本日の利用上限に達しました。"), True
+
+    ' --- 移設でロジックが変わっていないことの確認(modGateway 時代の代表2件)
+    ChkBool47 "R19a_moved_limit_true", _
+        modRibbonFail.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。"), True
+    ChkBool47 "R19b_moved_limit_false", _
+        modRibbonFail.LooksLikeLimitError("請求回数の上限はありません。[本棚: 約款.pdf p.12]"), False
+
+    ' --- 入念が「しっかり」へ静かに降格する罠の固定(裁定書 R48 §3-4)
+    ' modMode.UseVerify は thorough でも True を返す。入念が RunDeepFlow へ
+    ' 落ちないのは modAsk.AnswerWithContext の分岐順序だけが理由。
+    ' この戻り値が False に変わったら、分岐順序に依存した設計そのものが
+    ' 変わったということなので、必ず modAsk 側も見直すこと。
+    ChkBool47 "R20_useverify_thorough_is_true", modMode.UseVerify("thorough"), True
+    ChkBool47 "R21_useverify_deep_is_true", modMode.UseVerify("deep"), True
+    ChkBool47 "R22_useverify_quick_is_false", modMode.UseVerify("quick"), False
+End Sub
+
 Private Sub TestOnAccentColor47()
     ChkLong47 "A1_dark_sakura_light", modKnowledgeBar.OnAccentColor(RGB(0, 168, 89)), RGB(17, 24, 39)
     ChkLong47 "A2_msad", modKnowledgeBar.OnAccentColor(RGB(7, 169, 99)), RGB(17, 24, 39)
@@ -111,6 +196,9 @@ Public Sub RunAll47()
 H02Next47:
     On Error GoTo H02Fail47
     TestBadgeSpans47
+H03Next47:
+    On Error GoTo H03Fail47
+    TestRibbonFail47
 H01Done47:
     On Error GoTo 0
     Exit Sub
@@ -121,6 +209,10 @@ H01Fail47:
     Resume H02Next47
 H02Fail47:
     modTestRunner.Check "TestBadgeSpans47(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H03Next47
+H03Fail47:
+    modTestRunner.Check "TestRibbonFail47(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
     Resume H01Done47
 End Sub

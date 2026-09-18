@@ -684,7 +684,7 @@ Public Function IsVisionError(ByVal s As String) As Boolean
     ElseIf StrComp(Trim$(s), "error", vbTextCompare) = 0 Then
         IsVisionError = True
     Else
-        IsVisionError = modGateway.LooksLikeLimitError(s)
+        IsVisionError = modRibbonFail.LooksLikeLimitError(s)
     End If
 End Function
 

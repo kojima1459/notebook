@@ -444,7 +444,7 @@ End Function
 ' 前後で必ず DoEvents を回す(§3-1: せめて1ページ境界では画面を返す)。
 ' R14-F10: 失敗はここでは【数えるだけ】で、err_log は呼び出し元がバッチ単位で
 ' 1行にまとめる。R15-4b: 「AI利用の上限らしいか」だけは outLimit で返す
-' (判定は modGateway.LooksLikeLimitError の1本だけ。§4-5)。
+' (判定は modRibbonFail.LooksLikeLimitError の1本だけ。§4-5)。
 Private Sub OcrOnePage(ByVal jpgPath As String, ByVal pageNo As Long, _
                        ByVal visionPrompt As String, _
                        ByRef pages() As ExtractedPage, ByRef okN As Long, _
@@ -483,7 +483,7 @@ End Sub
 ' 止めない=分からないときは「上限ではない」に倒す(安全側)。
 Private Function LooksLikeLimit(ByVal s As String) As Boolean
     On Error Resume Next
-    LooksLikeLimit = modGateway.LooksLikeLimitError(s)
+    LooksLikeLimit = modRibbonFail.LooksLikeLimitError(s)
     On Error GoTo 0
 End Function
 

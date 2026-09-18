@@ -418,7 +418,7 @@ Private Sub TestShelfReleaseIdempotent31()
 End Sub
 
 ' ----------------------------------------------------------------------------
-' (E) modGateway.LooksLikeLimitError - <verdict>タグ救済(R30 W2-2・3件目)。
+' (E) modRibbonFail.LooksLikeLimitError - <verdict>タグ救済(R30 W2-2・3件目)。
 ' ----------------------------------------------------------------------------
 '   分解段(modPrompts.BuildDecomposePrompt)の <verdict>...</verdict> 応答が
 '   「上限」等を含む論点(保険約款等)に触れただけでE0204(利用上限エラー)へ
@@ -430,18 +430,18 @@ Private Sub TestE0204DecomposeVerdictRescue30()
         "<reason>質問は保険契約における支払限度額の上限について尋ねる内容であり、" & _
         "対象範囲は単一の条文のみで十分に答えられるため、分解は不要と判断した。</reason>"
     modTestRunner.Check "R30-W2-2_decompose型verdict応答は救済(誤爆しない)", _
-        (modGateway.LooksLikeLimitError(decomposeResp) = False), _
+        (modRibbonFail.LooksLikeLimitError(decomposeResp) = False), _
         "len=" & Len(decomposeResp)
 
     ' parts/clarify/global の他verdictでも同様に救済される(タグ判定は値を見ない)。
     modTestRunner.Check "R30-W2-2_verdict=clarifyでも救済", _
-        (modGateway.LooksLikeLimitError("<verdict>clarify</verdict>上限の解釈が複数ありうる") = False)
+        (modRibbonFail.LooksLikeLimitError("<verdict>clarify</verdict>上限の解釈が複数ありうる") = False)
 
     ' 退行検知(ネガティブ確認): <verdict>タグが無ければ、これまでどおり
     ' 本物の上限定型文は引き続きE0204のまま(タグ判定が全体を無条件で
     ' 救済してしまう退行を防ぐ)。
     modTestRunner.Check "R30-W2-2_タグ無しの本物の上限定型文は引き続きエラー扱い", _
-        (modGateway.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
+        (modRibbonFail.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
 End Sub
 
 ' ----------------------------------------------------------------------------

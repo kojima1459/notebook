@@ -189,6 +189,13 @@ Public Function UseRerank(ByVal mode As String, ByVal cfgEnabled As Boolean, _
 End Function
 
 ' 検証段(下書きを資料と1行ずつ突き合わせる)。ここが「間違えない」の要。
+' ----------------------------------------------------------------------------
+' R48 警告: この関数は【入念(thorough)でも True を返す】。
+' modAsk.AnswerWithContext で入念が「しっかり(RunDeepFlow)」へ落ちないのは、
+' thorough の枝がこの UseVerify の枝より【前】に書かれているからだけである。
+' 順序を入れ替える・thorough の枝の条件を緩める・前に別の枝を挟む、のどれを
+' やっても、入念が静かに2段の RunDeepFlow(recommended_model=terra)へ降格する。
+' 回答は出るので実機でも気付けない。modTestsPure47 がこの戻り値を固定している。
 Public Function UseVerify(ByVal mode As String) As Boolean
     Dim m As String: m = Normalize(mode)
     UseVerify = (m = MODE_DEEP Or m = MODE_THOROUGH)
@@ -429,6 +436,23 @@ End Function
 Public Function LowHitNoteText() As String
     LowHitNoteText = ChrW(&H26A0) & ChrW(&HFE0F) & _
         " 手元の資料との関連が薄い可能性があります。回答は参考程度にご覧ください。"
+End Function
+
+' 実況の末尾に付ける「待ってよいことの根拠」と、待てなくなったときの出口
+' (単一情報源・R48)。
+' ----------------------------------------------------------------------------
+' R48 で判明したこと: リボンへの1回の呼び出しは config llm_wait_sec(既定1800)
+' まで戻らず、こちら側に打ち切る手段が無い(Application.Run の内側に DoEvents が
+' 無く ESC の窓が開かない。仮に届いても modGateway の ErrHandler が Err 18 を
+' 握り潰す)。さらにリボンは wait 超過で同じ要求を【再送】し、回数上限が無い。
+' つまり待ち続けても返らない場面が原理的に存在し、利用者に残る出口は Excel の
+' 終了だけになる。憲章 §3-1「押せるものは必ず反応する」に照らして、無反応の
+' まま放置するのではなく【出口を明示する】。打ち切り機構そのものの新設は
+' 設計から作る話なので別ラウンド(裁定書 R48 §7)。
+' modLive.TailPos が " ※" を末尾装飾の開始位置として拾うので、先頭は必ず ※。
+Public Function WorkingNote() As String
+    WorkingNote = " " & ChrW(&H203B) & "応答なし表示でも処理中" & _
+        "(30分たっても変わらないときは Excel を終了して構いません)"
 End Function
 
 ' PageTagPart - 出典タグの「p.N」部分(単一情報源・純関数・R41 §1 A)。

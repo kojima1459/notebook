@@ -198,7 +198,14 @@ EXPECTED_SKIP_MAX = 15
 #     輝度判定・境界4件)を追加 → 3378→3382。さらにレビュー2周目の Fix で
 #     modTestsPure48 に T1b/T1c(数式が返した空文字のセルは番地を付けないが
 #     【行は残す】。R33-W3-1 の回帰をここで捕まえた)を追加 → 3382→3386。
-EXPECTED_PASS_MIN = 3462
+#   2026-09-18 R48 司令塔: modTestsPure47 に R群(modRibbonFail の失敗語彙判定・
+#     modMode.UseVerify の分岐順序の固定)を追加 → 実走で 3462→3494(+32)。
+#     ネガティブ確認済み: R3_conn の期待値を "conn"→"http" に壊して
+#     exit 1(NG)を確認 → 復元して 3494 で緑。
+#     ※この値は【必ず実走して出た PASS 値】へ更新すること。ヘルパー経由で
+#       Check が複数回走るため、Check のリテラル数を静的に数えると過小になる
+#       (実測: リテラル 3,029 件に対し実 PASS 3,462 ―― 433 件の差)。
+EXPECTED_PASS_MIN = 3494
 
 # モード1(純ロジック実行)に含めるモジュール(存在するものだけを注入する)
 # 2026-07-11 Wave3(テスト完成担当)で追加: modAppDef/modShelfSync/modPack。
@@ -976,6 +983,12 @@ PURE_ALLOWLIST = [
     #   (R47 で実際に FAIL 5 を出した。新モジュールを足したら注入一覧にも
     #   足す ―― これ自体が今回潰している「作ったが繋いでいない」の型)。
     "modEmj",
+    # modRibbonFail(2026-09-18 R48): 社内AIリボンが返す「失敗の語彙」の単一情報源。
+    #   modTestsPure47 の R群が FailKind / CodeFor / IsLimitErr / HttpStatusOf /
+    #   LooksLikeLimitError を直接叩く(ErrFor は modLog を触る配線用なので呼ばない)。
+    #   加えて modGateway.CallLLM から呼ばれるため、未注入だと
+    #   「Variable not defined: modRibbonFail」で群ごと落ちる。
+    "modRibbonFail",
     # modSparse は既に注入済み(PURE_ALLOWLIST)。R46 の modMode.CoverageOf は
     # modSparse.DistinctiveKeys/ExactHitCount を呼ぶので、両方が揃っていないと
     # G11 が実行時エラーになる。

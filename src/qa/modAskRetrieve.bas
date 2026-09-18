@@ -154,7 +154,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
             modPrompts.BuildExpandPrompt(q, modAsk.HistoryBlock(), subN, lightMode))
 
         Dim exModel As String: exModel = modConfig.GetString("expand_model", "")
-        If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.5")
+        If LenB(exModel) = 0 Then exModel = modConfig.GetString("quick_model", "gpt-5.6-luna")
         Dim exLat As Long
         Dim exResp As String
         exResp = modGateway.CallLLM(exPrompt, "expand", _
@@ -207,7 +207,7 @@ Public Function RunMultiRetrieve(ByVal q As String, ByVal mdMode As String, _
         rkPrompt = modPrompts.BuildRerankPrompt(q, poolHits, poolN, _
             modConfig.GetLong("max_context_chars", 40000))
         Dim rkModel As String: rkModel = modConfig.GetString("rerank_model", "")
-        If LenB(rkModel) = 0 Then rkModel = modConfig.GetString("quick_model", "gpt-5.5")
+        If LenB(rkModel) = 0 Then rkModel = modConfig.GetString("quick_model", "gpt-5.6-luna")
         Dim rkLat As Long
         Dim rkResp As String
         ' R14-8a: 入念モードだけ再ランクの effort を上げる(rerank_effort_thorough)。

@@ -548,37 +548,37 @@ End Sub
 ' 一致しない「- [タグ] …」形へ差し替え、分岐ごとに個別に踏ませる。
 Private Sub TestE0204CritiqueRescue()
     modTestRunner.Check "E0204救済_論点漏れタグ単体(前置きなし)で救済", _
-        (modGateway.LooksLikeLimitError( _
+        (modRibbonFail.LooksLikeLimitError( _
             "- [論点漏れ] 免責事由に触れていない" & _
             ChrW(&H2192) & "質問のうち回数の上限に関する部分に答えていない") = False)
     modTestRunner.Check "E0204救済_未検証の断定タグ単体(前置きなし)で救済", _
-        (modGateway.LooksLikeLimitError( _
+        (modRibbonFail.LooksLikeLimitError( _
             "- [未検証の断定] 上限を超えると書いてある" & ChrW(&H2192) & "抜粋に無い") = False)
     modTestRunner.Check "E0204救済_憶測タグ単体(前置きなし)で救済", _
-        (modGateway.LooksLikeLimitError("- [憶測] 回数の上限を勝手に補っている") = False)
+        (modRibbonFail.LooksLikeLimitError("- [憶測] 回数の上限を勝手に補っている") = False)
     ' R21H F4本体: 「[出典:」(実回答の出典表記)とは別に「[出典不備]」
     ' (査読の指摘タグ)を明示判定に追加した分。
     modTestRunner.Check "E0204救済_出典不備タグ単体(前置きなし)で救済", _
-        (modGateway.LooksLikeLimitError("- [出典不備] 支払限度額の上限に出典なし") = False)
+        (modRibbonFail.LooksLikeLimitError("- [出典不備] 支払限度額の上限に出典なし") = False)
 
     ' R21H F4: 前置き緩和(「1.」+任意空白+「[」)。旧実装は「1. [」の完全
     ' 一致だけだったので、空白ゆれ(0個/2個)の実機応答を誤爆させていた。
     modTestRunner.Check "E0204救済_前置き空白なし(1.[)も救済", _
-        (modGateway.LooksLikeLimitError("1.[論点漏れ] 上限の記載が無い") = False)
+        (modRibbonFail.LooksLikeLimitError("1.[論点漏れ] 上限の記載が無い") = False)
     modTestRunner.Check "E0204救済_前置き空白2個(1.  [)も救済", _
-        (modGateway.LooksLikeLimitError("1.  [論点漏れ] 上限の記載が無い") = False)
+        (modRibbonFail.LooksLikeLimitError("1.  [論点漏れ] 上限の記載が無い") = False)
 
     modTestRunner.Check "E0204維持_本物の上限応答は引き続きエラー扱い", _
-        (modGateway.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
+        (modRibbonFail.LooksLikeLimitError("申し訳ございません。本日の利用上限に達しました。") = True)
     modTestRunner.Check "E0204維持_英語のrate limit定型文も引き続きエラー扱い", _
-        (modGateway.LooksLikeLimitError("Sorry, you have hit the rate limit. Please retry later.") = True)
+        (modRibbonFail.LooksLikeLimitError("Sorry, you have hit the rate limit. Please retry later.") = True)
     ' 退行検知: タグもコロン付き出典も無い「1.」だけの短文は救済されない
     ' (前置き緩和がInStr全体を無条件Trueにしてしまう退行を防ぐ)。
     modTestRunner.Check "E0204退行検知_タグ無しの1.だけでは救済されない", _
-        (modGateway.LooksLikeLimitError("1.本日の利用上限に達しました。") = True)
+        (modRibbonFail.LooksLikeLimitError("1.本日の利用上限に達しました。") = True)
 
     modTestRunner.Check "E0204回帰_出典タグつき短文回答は上限エラーでない", _
-        (modGateway.LooksLikeLimitError("請求回数の上限はありません。[本棚: 約款.pdf p.12]") = False)
+        (modRibbonFail.LooksLikeLimitError("請求回数の上限はありません。[本棚: 約款.pdf p.12]") = False)
 End Sub
 
 Public Sub RunAll18()

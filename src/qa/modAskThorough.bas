@@ -90,7 +90,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
 
     Dim strictG As Boolean: strictG = modConfig.GetBool("strict_grounding", True)
     Dim ansTags As Boolean: ansTags = modConfig.GetBool("answer_tags", True)
-    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("thorough_model", "gpt-5.6-sol")
     Dim lat As Long
 
     ' --- (0) 精読: 根拠チャンクの前後を一緒に読む(2026-08-05 R16-3C) --------

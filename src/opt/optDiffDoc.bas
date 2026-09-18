@@ -96,7 +96,7 @@ Public Sub CompareTwoDocsDialog()
     prompt = BuildDiffPrompt(modUtil.FileNameOf(oldPath), TruncateWithNotice(oldText, halfChars), _
                               modUtil.FileNameOf(newPath), TruncateWithNotice(newText, halfChars))
 
-    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("recommended_model", "gpt-5.6-terra")
     Dim eff As String: eff = modConfig.GetString("deep_draft_effort", "medium")
     Dim vrb As String: vrb = modConfig.GetString("deep_draft_verbosity", "high")
     Dim latency As Long

@@ -215,7 +215,7 @@ CONTRACT: dict[str, dict] = {
         # 約180問で一周して feedback_green 等の履歴を押し出す。ここに貯め、
         # 質問の終わりに modAsk が1行(ask_steps)へまとめて書き出す。
         "required": ["CallLLM", "GetEmbedding", "RibbonAvailable", "TryRibbonRun",
-                     "LooksLikeLimitError", "RunLimitCheck", "GetEmbeddingsBatch",
+                     "RunLimitCheck", "GetEmbeddingsBatch",
                      "RibbonEmbedRange", "SerializeVector", "ConsumeStepBuf"],
     },
     "modFeatures": {
@@ -463,7 +463,12 @@ CONTRACT: dict[str, dict] = {
                      #   一般アシスタントのように⚠の材料が無い経路で使う。
                      #   config 読みをここに置くのは modAsk(凍結・残り僅か)から
                      #   1行で呼ぶため。
-                     "GuardOnly"],
+                     "GuardOnly",
+                     # R48: 実況末尾の「待ってよい根拠」と、待てなくなったときの
+                     #   出口の単一情報源。従来は4箇所に literal で散っていた。
+                     #   リボン呼び出しは打ち切れない(ESC の窓が Application.Run の
+                     #   内側に無い)ので、無反応を放置せず出口を明示する(憲章§3-1)。
+                     "WorkingNote"],
     },
     "modEmj": {
         "closed": True,
@@ -480,6 +485,22 @@ CONTRACT: dict[str, dict] = {
         "required": ["Trash", "Picture", "Label", "WindowIcon", "Warn", "Gear",
                      "Writing", "Sun", "Undo", "Keyboard", "Stopwatch", "Mail",
                      "ArrowLeft", "ArrowRight", "StopMark"],
+    },
+    "modRibbonFail": {
+        "closed": True,
+        # R48: 社内AIリボンが返す「失敗の語彙」の単一情報源。
+        # リボンちゃんは通信に失敗しても例外を出さず【文字列を戻り値で返す】
+        # ("(error:429)…" / "接続切れ" / "content_filterに該当しました" /
+        #  "レスポンスから当該テキストを抽出できません…" /
+        #  "レスポンスのJSON文字列が途中で終了しています。")。R47 まで
+        # modGateway.CallLLM はこれを1つも検査しておらず、利用者には
+        # 「AIの回答」として確信度バッジと出典つきで表示されていた。
+        # LooksLikeLimitError / LooksLikeRealAnswer は modGateway から
+        # 【ロジックを1文字も変えずに】移設した(同じ関心事を1箇所へ・憲章§4-5)。
+        # modGateway は残125字で、同型の判定を足す場所が無かった(§12 分割裁定)。
+        # 判定は全て純関数なので modTestsPure47 の R群が対で固定する。
+        "required": ["FailKind", "CodeFor", "ErrFor", "IsLimitErr",
+                     "HttpStatusOf", "LooksLikeLimitError", "LooksLikeRealAnswer"],
     },
     "modGround": {
         "closed": True,

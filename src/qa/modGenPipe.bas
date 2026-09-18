@@ -513,7 +513,7 @@ End Function
 ' ============================================================================
 Public Function RunThorough(ByVal q As String, ByVal sysBase As String, _
                             ByVal prevU As String, ByVal prevA As String) As String
-    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.5")
+    Dim mdl As String: mdl = modConfig.GetString("quick_model", "gpt-5.6-luna")
     Dim eff As String: eff = modConfig.GetString("gen_thorough_effort", "high")
     Dim vrb As String: vrb = modConfig.GetString("gen_deep_verbosity", "high")
     Dim lat As Long

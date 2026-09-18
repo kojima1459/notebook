@@ -128,7 +128,7 @@ Public Function TryGlobal(ByVal q As String, ByRef hits() As Hit, ByRef nHits As
     ans = modGateway.CallLLM(BuildGlobalPrompt(q, gHits, gN), "global_answer", _
         modConfig.GetString("thorough_draft_effort", "high"), _
         modConfig.GetString("thorough_draft_verbosity", "high"), _
-        modConfig.GetString("recommended_model", "gpt-5.5"), lat)
+        modConfig.GetString("thorough_model", "gpt-5.6-sol"), lat)
     If modRagParse.IsErrorResponse(ans) Then
         ' ここまでで2回呼んでいるが、答えが出る側へ倒す(従来フローが答える)。
         LogZero "answer_err"
@@ -233,7 +233,7 @@ End Function
 ' 章選択の段のモデル。判定だけの軽い段なので拡張段と同じ選び方。
 Private Function PickModel() As String
     PickModel = modConfig.GetString("expand_model", "")
-    If LenB(PickModel) = 0 Then PickModel = modConfig.GetString("quick_model", "gpt-5.5")
+    If LenB(PickModel) = 0 Then PickModel = modConfig.GetString("quick_model", "gpt-5.6-luna")
 End Function
 
 ' 1回のプロンプトに載せる上限(章一覧・章の本文の両方で使う)。
@@ -251,7 +251,7 @@ End Function
 Private Sub Stage(ByVal idx As Long, ByVal label As String)
     On Error Resume Next
     modUIMain.SetStage ChrW(&HD83D) & ChrW(&HDD2D) & " 俯瞰 " & idx & "/3段: " & _
-        label & " ※応答なし表示でも処理中"
+        label & modMode.WorkingNote()
     On Error GoTo 0
 End Sub
 

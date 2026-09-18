@@ -183,7 +183,8 @@ quick時は軽量化(§D-3)。既存の cosine検索コア(`modRetrieve`)・出�
 | 目安API回数 | 拡張1 + 埋め込み1〜2 + 再ランク1 + 生成1 ≒ **4〜5** | 拡張1 + 埋め込み3〜4 + 再ランク1 + draft1 + verify1 ≒ **7〜8** |
 
 - quickは「体感10〜20秒」を守るため拡張・再ランクを軽く(effort=low、subqueries=0〜1)。オーナーが速度より品質を採るなら config で quick も full 相当へ引き上げ可能。
-- 生成モデルは既存 config 駆動(`quick_model`/`recommended_model`、既定 `gpt-5.5`、reasoning_effort/verbosity対応)を維持。
+- 生成モデルは既存 config 駆動(`quick_model` 既定 `gpt-5.6-luna` / `recommended_model` 既定 `gpt-5.6-terra` / `thorough_model` 既定 `gpt-5.6-sol`、reasoning_effort/verbosity対応)を維持。
+  **`expand_model`/`rerank_model` は空欄既定なので `quick_model` を指す。`quick_model` を変えるとクエリ拡張段と再ランク段も連動して変わる**(R48)。
 
 ### D-4. Dで新設する config キー
 | key | 既定 | 意味 |
