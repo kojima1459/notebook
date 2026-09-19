@@ -46,8 +46,9 @@ Public Sub ReportWithUndo(ByVal srcName As String)
                  "・あなたの検索からは今すぐ除外されます。" & vbLf & _
                  "・異なる" & modStats.NoiseThreshold() & _
                  "人以上が報告すると、組織全体の検索から除外されます。" & vbLf & vbLf & _
-                 "間違えて押した場合は [いいえ] で取り消せます。", _
-                 vbYesNo + vbInformation + vbDefaultButton1, _
+                 "この報告のままでよろしいですか?" & vbLf & _
+                 "([はい]=このまま報告する / [いいえ]=取り消す)", _
+                 vbYesNo + vbQuestion + vbDefaultButton1, _
                  modAppDef.APP_NAME)
     ' R49 Fix(敵対的レビュー R49-REV-08): vbOKCancel だと **Esc が「取り消す」に
     ' なる**。Esc はダイアログを閉じる万能操作として使われるので、意図して
@@ -106,8 +107,16 @@ Public Sub Undo(ByVal srcName As String)
         " gexcl=" & orgExcluded & " src=" & modUtil.SafeLeft(srcName, 120)
     On Error GoTo 0
 
+    ' R49 Fix2(レビュー2周目 R49-REV2-04): 見出しも結果を見てから書く。
+    ' 初版は見出しだけ無条件で「取り消しました。」と断言していたので、
+    ' ミュートも票も外れなかったターンで、見出しが自分の本文2行と正面から
+    ' 矛盾した(潰したはずの欠陥(c)が見出し行に1行だけ残っていた)。
     Dim msg As String
-    msg = "『" & srcName & "』の品質報告を取り消しました。" & vbLf
+    If muteCleared Or voteCleared Then
+        msg = "『" & srcName & "』の品質報告を取り消しました。" & vbLf
+    Else
+        msg = "『" & srcName & "』の品質報告は、取り消せませんでした。" & vbLf
+    End If
 
     ' (1) 自分の検索に戻るか
     If orgExcluded Then
@@ -123,12 +132,24 @@ Public Sub Undo(ByVal srcName As String)
     End If
 
     ' (2) 部内へ送った1票
-    If orgExcluded Then
-        msg = msg & "・除外が確定したあとなので、1票だけを引っ込めることは" & _
-              "できません。"
-    ElseIf voteCleared Then
-        msg = msg & "・部内へ送った1票も引っ込めました" & _
+    ' R49 Fix2(レビュー2周目 R49-REV2-01): **voteCleared を先に見る。**
+    ' 初版は orgExcluded を先に見て「1票だけを引っ込めることはできません」と
+    ' 言い切っていたが、**除外が確定した資料のカードも押せる**ので
+    ' (modVaultGallery は色と警告行を変えるだけで OnAction はそのまま)、
+    ' 「確定済みの資料を報告 → 取り消す」は正規の経路になる。その場合
+    ' EmitNoiseVote が票を書き直した直後なので RetractNoiseVote は成功し、
+    ' **実際に引っ込めた直後に「できません」と言う**ことになっていた。
+    ' Fix が潰したはずの「画面が嘘をつく」型を、Fix 自身が作り直していた。
+    If voteCleared Then
+        msg = msg & "・部内へ送った1票は引っ込めました" & _
               "(全員の画面へは次の同期で反映されます)。"
+        If orgExcluded Then
+            msg = msg & vbLf & "ただし除外の確定そのものは、" & _
+                  "あなたの1票では取り消せません。"
+        End If
+    ElseIf orgExcluded Then
+        msg = msg & "・除外が確定したあとなので、引っ込められる票が" & _
+              "残っていません。"
     Else
         msg = msg & modEmj.Warn() & "部内へ送った1票は" & _
               "引っ込められませんでした" & _

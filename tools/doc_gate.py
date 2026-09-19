@@ -260,8 +260,20 @@ def check_config_table_rows(cfg: dict) -> None:
         # という「2列目＝何を入れるかの説明、3列目に既定」という表で、
         # 見出しを見ずに比べると【正しく書かれている表を赤くする】。
         # 検査が嘘を言い始めると書き手は検査を無視するので、ここは厳しく絞る。
+        # R49 Fix2(レビュー2周目 R49-REV2-02): 見出しの見分け方を直した。
+        # 初版は【1列目の語】を許可リスト("key"/"キー"/…)で見ていたため、
+        #   docs/46_正典発行ガイド: | 設定 | 既定 | 何をするもの |
+        # という **2列目がまさに既定値**の表が許可リストに当たらず、
+        # pii_scan_enabled ―― CLAUDE.md §3-3 が「部長への説明の直前に止めた」と
+        # 書く、このリポジトリで最も高くついた嘘の当事者キー ―― を含む4行を
+        # 丸ごと検査対象から落としていた。**検査を足したつもりで減らしていた。**
+        # 見分けるのは「次の行が区切り行(|---|---|)かどうか」＝Markdown の表の
+        # 見出しの定義そのもの。判定に使うのは【2列目の見出し語】だけにする
+        # (これなら | キー | 決めるべきこと | … のツール解説書は正しく外れる)。
+        lines = text.splitlines()
+        sep_pat = re.compile(r"^\s*:?-{2,}:?\s*$")
         col2_is_default = False
-        for lineno, line in enumerate(text.splitlines(), 1):
+        for lineno, line in enumerate(lines, 1):
             m = TABLE_ROW_PAT.match(line)
             if not m:
                 col2_is_default = False       # 表が途切れたら見出しも失効
@@ -269,10 +281,18 @@ def check_config_table_rows(cfg: dict) -> None:
             cells = [_cell(c) for c in m.group(1).split("|")]
             if len(cells) < 2:
                 continue
-            # 見出し行なら「2列目が既定値か」を覚えて次の行へ
-            if cells[0] in ("key", "キー", "設定キー", "項目"):
-                col2_is_default = any(w in cells[1] for w in ("既定", "初期値", "default", "Default"))
+            # 区切り行そのものは読み飛ばす
+            if all(sep_pat.match(c) for c in cells if c):
                 continue
+            # 次の行が区切り行なら、この行が見出し
+            nxt = lines[lineno] if lineno < len(lines) else ""
+            nm = TABLE_ROW_PAT.match(nxt)
+            if nm:
+                ncells = [_cell(c) for c in nm.group(1).split("|")]
+                if ncells and all(sep_pat.match(c) for c in ncells if c):
+                    col2_is_default = any(
+                        w in cells[1] for w in ("既定", "初期値", "default", "Default"))
+                    continue
             if not col2_is_default:
                 continue
             key, raw = cells[0], cells[1]
@@ -550,7 +570,12 @@ TAB_SCREENS = "ホーム|マイ本棚|ナレッジと本棚|ダッシュボー�
 _S = r"[「『\*\s]{0,3}(?:" + TAB_SCREENS + r")[」』\*]{0,3}"
 TAB_NAV_PATS = [
     # 「マイ本棚」タブ / **ホーム** タブ / マイ本棚タブ / 「ナレッジと本棚」タブ
-    re.compile(r"(?<!シート)(?<!の)" + _S + r"\s*タブ"),
+    # R49 Fix2(レビュー2周目 R49-REV2-03): 初版は (?<!の) を付けていたが、
+    # **日本語でいちばん自然な「画面下のホームタブ」を丸ごと素通り**させていた
+    # ―― つまり同じ Fix で足した「括弧無しの素の書き方を拾う」能力だけが、
+    # 最頻の文脈で打ち消されていた。外しても現行の docs/ で誤検知は増えない
+    # (実測: 新規発火0行)ので外す。
+    re.compile(r"(?<!シート)" + _S + r"\s*タブ"),
     # タブから「マイ本棚」/ タブ「ホーム」/ タブ一覧から マイ本棚
     re.compile(r"タブ(?:から|一覧から|で)?\s*" + _S),
     # 画面下部のタブを『ダッシュボード』に切り替える

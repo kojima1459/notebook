@@ -38,7 +38,9 @@ Private Const GAPQ_KEEP_DAYS As Long = 7
 
 ' R49 Fix(R49-REV-03): 解決済みQ&Aが部内へ届かなかったことの通知を
 '   1セッション1回に絞るための印(理由は NoticeQaNotShared)。
-Private mQaNoticeShown As Boolean
+'   R49 Fix2(R49-REV2-05): 単一の Boolean だと、先に出た軽い理由が
+'   あとから起きた重い理由を飲み込む。理由ごとに "[nodir][noid]" と溜める。
+Private mQaNoticeShown As String
 
 ' ----------------------------------------------------------------------------
 ' AnonId - 発信者IDを匿名化する(純関数・2026-08-14 R32 F2)。
@@ -131,8 +133,13 @@ End Function
 
 Public Sub NoticeQaNotShared(ByVal why As String)
     On Error Resume Next
-    If mQaNoticeShown Then Exit Sub
-    mQaNoticeShown = True
+    ' R49 Fix2(レビュー2周目 R49-REV2-05): 印は【理由ごと】に持ち、
+    ' 【トーストを出したあと】に立てる。初版は単一の Boolean を出す前に
+    ' 立てていたので、(a)最初が "nodir" だと後から起きた "noid"
+    ' (「管理者へご連絡ください」＝より重い)が黙って落ち、
+    ' (b)modToast が別ブックがアクティブで早期 Exit した場合に、
+    ' そのセッション唯一の訂正通知が1度も表示されずに消費されていた。
+    If InStr(1, mQaNoticeShown, "[" & why & "]", vbTextCompare) > 0 Then Exit Sub
     Dim msg As String
     Select Case why
         Case "off"
@@ -154,6 +161,7 @@ Public Sub NoticeQaNotShared(ByVal why As String)
     End Select
     modLog.LogUsage "insight_qa_not_shared", why, msg
     modSkin.ShowToast msg, "info", True
+    mQaNoticeShown = mQaNoticeShown & "[" & why & "]"
     On Error GoTo 0
 End Sub
 
