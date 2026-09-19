@@ -45,7 +45,13 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     On Error Resume Next
     ' 2026-08-01(R12-2-2): 質問全文・氏名・部署の共有フォルダ送信を止める
     ' プライバシーのエスケープハッチ(既定TRUE=共有知は維持)。docs/30 §9-1参照。
-    If Not modConfig.GetBool("insight_share_enabled", True) Then Exit Sub
+    ' R49 Fix(敵対的レビュー R49-REV-03): 設定でオフのときも【黙っては】抜けない。
+    ' 呼び出し元 modAsk は成否を見ずに「部内に共有されます」と断言するので、
+    ' ここで黙ると画面が嘘をつく。毎回うるさくならないよう1セッション1回だけ。
+    If Not modConfig.GetBool("insight_share_enabled", True) Then
+        modInsightGate.NoticeQaNotShared "off"
+        Exit Sub
+    End If
     If LenB(Trim$(q)) = 0 Or LenB(Trim$(ans)) = 0 Then Exit Sub
 
     ' R36 Fix A-M8: 是正メモが出典の先頭に来たターンで ✅解決した を押すと、
@@ -71,12 +77,24 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     ' で素通り(二重付与なし)。⚡/🔍 の mLastCleanAnswer は常に未注記=冪等。
     ans = modMode.AnnotateIfNeeded(ans)
 
+    ' R49 Fix(敵対的レビュー R49-REV-03): **ここが出荷既定でいちばん通る道**。
+    ' nexus_share_path の既定は空 → modShare.Reachable() が偽 → SubDir が空 →
+    ' ここで黙って抜けていた。WriteShared まで行かないので、R49 が足した
+    ' 書込み失敗の Else は一度も発火しない。それでも modAsk は
+    ' 「部内に共有されます」と断言する ―― 共有フォルダ未設定は導入直後の
+    ' 既定状態なので、これが最頻ケースだった。
     Dim dirPath As String: dirPath = SubDir(QA_SUBDIR)
-    If LenB(dirPath) = 0 Then Exit Sub
+    If LenB(dirPath) = 0 Then
+        modInsightGate.NoticeQaNotShared "nodir"
+        Exit Sub
+    End If
     EnsureDir dirPath
 
     Dim myId As String: myId = SafeUserId()
-    If LenB(myId) = 0 Then Exit Sub
+    If LenB(myId) = 0 Then
+        modInsightGate.NoticeQaNotShared "noid"
+        Exit Sub
+    End If
 
     Dim body As String
     body = "v1" & FIELD_SEP & myId & FIELD_SEP & AuthorName() & FIELD_SEP & _

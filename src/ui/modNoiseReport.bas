@@ -46,21 +46,41 @@ Public Sub ReportWithUndo(ByVal srcName As String)
                  "・あなたの検索からは今すぐ除外されます。" & vbLf & _
                  "・異なる" & modStats.NoiseThreshold() & _
                  "人以上が報告すると、組織全体の検索から除外されます。" & vbLf & vbLf & _
-                 "間違えて押した場合は [キャンセル] で取り消せます。", _
-                 vbOKCancel + vbInformation + vbDefaultButton1, _
+                 "間違えて押した場合は [いいえ] で取り消せます。", _
+                 vbYesNo + vbInformation + vbDefaultButton1, _
                  modAppDef.APP_NAME)
-    If ans = vbCancel Then Undo srcName
+    ' R49 Fix(敵対的レビュー R49-REV-08): vbOKCancel だと **Esc が「取り消す」に
+    ' なる**。Esc はダイアログを閉じる万能操作として使われるので、意図して
+    ' 報告した人が Esc で閉じると報告が黙って取り消される ―― 既定ボタンの罠を
+    ' vbDefaultButton3 で潰した直後に、Esc 側へ同じ罠を作っていた。
+    ' vbYesNo には Cancel が無いので Esc では閉じられない＝誤爆の道が消える。
+    If ans = vbNo Then Undo srcName
 End Sub
 
 ' ----------------------------------------------------------------------------
 ' Undo - 自分の報告だけを引っ込める。
-'   ・個人ミュート(my_stats "noise:<資料名>")を消す → 自分の検索に戻る。
-'   ・共有フォルダの自分の票ファイルを消す → 次の同期で全員の集計から外れる。
-'   他人の票・確定フラグ(gexcl)には触らない。既に閾値へ達していた資料は、
-'   自分が1票引いた結果として閾値を下回れば次の集計で自然に復帰する
-'   (modP2P.CollectNoiseVotes は毎回ファイルから数え直す設計)。
-'   そこまでは約束できないので、文面では「あなたの検索」と「あなたの1票」
-'   だけを言う。できないことを言わない(憲章§3-3)。
+'   ・個人ミュート(my_stats "noise:<資料名>")を消す。
+'   ・共有フォルダの自分の票ファイルを消す。
+'   他人の票・確定フラグ(gexcl)には触らない。
+'
+'   【R49 Fix・敵対的レビュー R49-REV-01/02】初版は3つとも嘘をつきえた。
+'   どれも「取り消しの処理は正しいが、文面が結果を確かめずに断言していた」型。
+'
+'   (a) **「あなたの検索に戻ります」が戻らないことがある。**
+'       modRetrieve が見る modStats.ExcludedSources は noise: と gexcl: の【和】。
+'       組織的除外が確定した資料は gexcl が立っているので、個人ミュートを
+'       消しても検索には戻らない。初版は gexcl を一度も見ていなかった。
+'   (b) **「1票も引っ込めました」が引っ込めていないことがある。**
+'       CollectNoiseVotes は閾値に達した資料の確定フラグを書いたあと、
+'       GcNoiseVotesForSource で【個別票を全部削除する】。以後こちらの
+'       票ファイルは存在せず、KillRetry は「既に無い＝削除目的は達成」として
+'       True を返す(並行GC耐性の意図的な仕様)。さらに次の集計は確定フラグを
+'       読んで【票を数え直さない】ので、1票引いても復帰しない。
+'   (c) **ミュートが元から無かったときも「取り消しました」と言っていた。**
+'       muteCleared を取っておきながら、文面に一度も使っていなかった。
+'
+'   → 結果を見てから言う。確定済みのときは「管理者に相談」まで案内する
+'      (憲章§3-3・できないことを言わない)。
 ' ----------------------------------------------------------------------------
 Public Sub Undo(ByVal srcName As String)
     If LenB(srcName) = 0 Then Exit Sub
@@ -73,24 +93,45 @@ Public Sub Undo(ByVal srcName As String)
     voteCleared = modP2P.RetractNoiseVote(srcName)
     On Error GoTo 0
 
+    ' 組織的除外が確定しているか。ここが True なら、個人ミュートを消しても
+    ' 検索には戻らないし、1票引いても集計は確定フラグを優先する。
+    Dim orgExcluded As Boolean
+    On Error Resume Next
+    orgExcluded = modStats.IsGloballyExcluded(srcName)
+    On Error GoTo 0
+
     On Error Resume Next
     modLog.LogUsage "noise_undo", "", _
         "mute=" & muteCleared & " vote=" & voteCleared & _
-        " src=" & modUtil.SafeLeft(srcName, 120)
+        " gexcl=" & orgExcluded & " src=" & modUtil.SafeLeft(srcName, 120)
     On Error GoTo 0
 
-    ' 票を引っ込められたかどうかで文面を変える。共有フォルダに届いていない
-    ' (ネットワーク断・共有フォルダ未設定)のに「取り消しました」と言うと、
-    ' 画面が嘘をつくことになる。
     Dim msg As String
-    msg = "『" & srcName & "』の品質報告を取り消しました。" & vbLf & _
-          "・あなたの検索に戻ります。"
-    If voteCleared Then
-        msg = msg & vbLf & "・部内へ送った1票も引っ込めました" & _
+    msg = "『" & srcName & "』の品質報告を取り消しました。" & vbLf
+
+    ' (1) 自分の検索に戻るか
+    If orgExcluded Then
+        msg = msg & modEmj.Warn() & "ただし、この資料は" & _
+              "【部内の複数の人からの報告で除外が確定している】ため、" & _
+              "あなたの検索にはまだ戻りません。" & vbLf & _
+              "戻すには管理者による解除が必要です。" & vbLf
+    ElseIf muteCleared Then
+        msg = msg & "・あなたの検索に戻ります。" & vbLf
+    Else
+        msg = msg & "(この資料はもともとあなたの検索から除外されていません" & _
+              "でした。)" & vbLf
+    End If
+
+    ' (2) 部内へ送った1票
+    If orgExcluded Then
+        msg = msg & "・除外が確定したあとなので、1票だけを引っ込めることは" & _
+              "できません。"
+    ElseIf voteCleared Then
+        msg = msg & "・部内へ送った1票も引っ込めました" & _
               "(全員の画面へは次の同期で反映されます)。"
     Else
-        msg = msg & vbLf & modEmj.Warn() & _
-              "部内へ送った1票は引っ込められませんでした" & _
+        msg = msg & modEmj.Warn() & "部内へ送った1票は" & _
+              "引っ込められませんでした" & _
               "(共有フォルダに繋がっていない可能性があります)。" & vbLf & _
               "ネットワークに繋がってから、もう一度取り消してください。"
     End If

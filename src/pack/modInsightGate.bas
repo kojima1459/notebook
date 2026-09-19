@@ -36,6 +36,10 @@ Private Const GAPQ_PREFIX As String = "gapq:"
 ' 抑止キーそのものの保持日数(抑止期間を過ぎたキーを my_stats に残す理由は無い)。
 Private Const GAPQ_KEEP_DAYS As Long = 7
 
+' R49 Fix(R49-REV-03): 解決済みQ&Aが部内へ届かなかったことの通知を
+'   1セッション1回に絞るための印(理由は NoticeQaNotShared)。
+Private mQaNoticeShown As Boolean
+
 ' ----------------------------------------------------------------------------
 ' AnonId - 発信者IDを匿名化する(純関数・2026-08-14 R32 F2)。
 ' ----------------------------------------------------------------------------
@@ -108,6 +112,52 @@ Public Function PiiBlocked(ByVal s As String, ByVal what As String) As Boolean
 End Function
 
 ' ----------------------------------------------------------------------------
+' NoticeQaNotShared - 解決済みQ&Aが部内へ【届かなかった】ことを伝える。
+'   2026-09-19(R49 Fix・敵対的レビュー R49-REV-03)。
+' ----------------------------------------------------------------------------
+'   R49 の初版は「共有フォルダへ書けなかったとき」の Else だけを足した。
+'   ところが EmitVerifiedQA は WriteShared へ行く前に3本の【無言の Exit Sub】を
+'   持っていて、出荷既定ではそのうち1本が最頻ケースだった:
+'     ・nexus_share_path の既定は空 → Reachable() 偽 → SubDir が空("nodir")
+'     ・insight_share_enabled=False(プライバシーのエスケープハッチ)("off")
+'     ・利用者IDが取れない("noid")
+'   呼び出し元 modAsk は成否を見ずに「部内に共有されます」と断言するので、
+'   黙って抜けると画面が嘘をつく(憲章§3-3)。
+'
+'   【毎回は出さない】共有フォルダを使わない部署では ✅解決した のたびに
+'   出ることになり、正しいのに邪魔になる。**1セッション1回だけ**にする。
+'   書込み失敗("write_qa")は毎回出す ―― あちらは直せる一時的な不調で、
+'   こちらは設定の状態だから。
+
+Public Sub NoticeQaNotShared(ByVal why As String)
+    On Error Resume Next
+    If mQaNoticeShown Then Exit Sub
+    mQaNoticeShown = True
+    Dim msg As String
+    Select Case why
+        Case "off"
+            msg = "【さきほどの『部内に共有されます』は取り消しです】" & _
+                  "部内への共有は設定でオフになっているため、" & _
+                  "解決済みQ&Aは部内へ届いていません" & _
+                  "(config の insight_share_enabled)。" & _
+                  "解決した記録とバッジはそのまま残っています。"
+        Case "noid"
+            msg = "【さきほどの『部内に共有されます』は取り消しです】" & _
+                  "利用者IDが取れなかったため、部内へ届いていません。" & _
+                  "管理者へご連絡ください。"
+        Case Else
+            msg = "【さきほどの『部内に共有されます』は取り消しです】" & _
+                  "共有フォルダが設定されていない(または今は届かない)ため、" & _
+                  "解決済みQ&Aは部内へ届いていません。" & _
+                  "管理者へご確認ください。" & _
+                  "解決した記録とバッジはそのまま残っています。"
+    End Select
+    modLog.LogUsage "insight_qa_not_shared", why, msg
+    modSkin.ShowToast msg, "info", True
+    On Error GoTo 0
+End Sub
+
+' ----------------------------------------------------------------------------
 ' QaBlocked - 解決済みQ&Aを部内へ出す前の個人情報走査(2026-09-19 R49 監査H-7)。
 '   True を返したら【送らない】。
 ' ----------------------------------------------------------------------------
@@ -151,12 +201,22 @@ End Function
 ' PiiScanHit - 「送る文字列1本」に個人情報らしきものがあるか(通知もログも出さない)。
 '   PiiBlocked の中身から判定部分だけを切り出したもの。QaBlocked は2本を見て
 '   通知を1回にまとめたいので、判定と通知を分けている。
+' R49 Fix(敵対的レビュー R49-REV-05): **例外のときは「送らない」側へ倒す。**
+'   初版は On Error Resume Next の下で代入式を1本書いていた。走査の途中で
+'   例外が出ると代入そのものが実行されず、戻り値は既定の False ――
+'   **関所が例外で素通りする**形だった(既存の PiiBlocked も同じ形だが、
+'   こちらは質問全文・回答全文・実名の3点セットを運ぶ経路の関所なので、
+'   「分からなかったら出さない」に倒す)。
+'   見送りは利用者へ伝わる(QaBlocked → NotifySkip)ので、黙って消えはしない。
 Public Function PiiScanHit(ByVal s As String) As Boolean
-    On Error Resume Next
     If LenB(Trim$(s)) = 0 Then Exit Function
+    On Error GoTo ScanFailed
     PiiScanHit = (LenB(modPii.ScanText( _
         StripDateLike(modPii.NormalizeWidth(ScanClean(s))))) > 0)
     On Error GoTo 0
+    Exit Function
+ScanFailed:
+    PiiScanHit = True      ' 走査できなかった＝安全側(送らない)
 End Function
 
 ' ----------------------------------------------------------------------------

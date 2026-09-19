@@ -254,12 +254,26 @@ def check_config_table_rows(cfg: dict) -> None:
     model_pat = re.compile(r"^gpt-[0-9A-Za-z.\-]+$")
     for f in doc_files():
         text = f.read_text(encoding="utf-8", errors="ignore")
+        # R49 Fix(敵対的レビュー R49-REV-06 の手当て): **表の見出しを見る。**
+        # 2列目が既定値とは限らない。`ツール解説書.md:1461` は
+        #   | `ribbon_addin_name` | 実際のアドイン名 | 既定「リボンちゃん」… |
+        # という「2列目＝何を入れるかの説明、3列目に既定」という表で、
+        # 見出しを見ずに比べると【正しく書かれている表を赤くする】。
+        # 検査が嘘を言い始めると書き手は検査を無視するので、ここは厳しく絞る。
+        col2_is_default = False
         for lineno, line in enumerate(text.splitlines(), 1):
             m = TABLE_ROW_PAT.match(line)
             if not m:
+                col2_is_default = False       # 表が途切れたら見出しも失効
                 continue
             cells = [_cell(c) for c in m.group(1).split("|")]
             if len(cells) < 2:
+                continue
+            # 見出し行なら「2列目が既定値か」を覚えて次の行へ
+            if cells[0] in ("key", "キー", "設定キー", "項目"):
+                col2_is_default = any(w in cells[1] for w in ("既定", "初期値", "default", "Default"))
+                continue
+            if not col2_is_default:
                 continue
             key, raw = cells[0], cells[1]
             if key not in cfg or not raw:
@@ -275,6 +289,20 @@ def check_config_table_rows(cfg: dict) -> None:
                 got_s, ok = raw, int(raw.replace(",", "")) == real
             elif isinstance(real, str) and real.startswith("gpt-"):
                 if not model_pat.match(raw):
+                    continue
+                got_s, ok = raw, raw == real
+            elif isinstance(real, str):
+                # R49 Fix(敵対的レビュー R49-REV-06): 初版は **gpt- で始まる文字列
+                # だけ**を照合し、それ以外の str を1件も見ていなかった。
+                # 表の74行のうち比較していたのは40行で、残り34行は素通り。
+                # R48 の事故そのものが str(モデル名)だったのに、str 全般は
+                # 無検査のままだった。
+                # ただし注釈つき("1536(Plan B/Cで768)")・複数値("6 / 12")・
+                # 空("(空)")は機械には一意に読めないので、**素の1語のときだけ**
+                # 比べる(誤検知を出すくらいなら見ないほうがよい)。
+                if not real or raw != raw.strip() or "(" in raw or "（" in raw:
+                    continue
+                if "/" in raw or "," in raw or " " in raw:
                     continue
                 got_s, ok = raw, raw == real
             else:
@@ -396,6 +424,21 @@ def write_capacity_ledger() -> int:
         print("CLAUDE.md に CAP:BEGIN / CAP:END の目印がありません。"
               "§12 の台帳をこの2行で囲んでから実行してください。", file=sys.stderr)
         return 1
+    # R49 Fix(敵対的レビュー R49-REV-09): 目印の並びを確かめてから書く。
+    # 初版は「両方見つかった」だけで置換していたので、CAP:END が先にあると
+    # text[:i] + block + text[j+len:] が **j..i の本文を二重に残し**、
+    # それでも rc=0 で「書き直しました」と表示していた(104字→4,518字を再現)。
+    # 書き込み先はバックアップの無い CLAUDE.md なので、黙って壊してはいけない。
+    if j < i:
+        print("CLAUDE.md の CAP:END が CAP:BEGIN より前にあります"
+              "(順序が逆のまま置換すると本文を二重化します)。手で直してください。",
+              file=sys.stderr)
+        return 1
+    if text.count(CAP_BEGIN) != 1 or text.count(CAP_END) != 1:
+        print(f"CLAUDE.md の目印が複数あります"
+              f"(CAP:BEGIN {text.count(CAP_BEGIN)}個 / CAP:END {text.count(CAP_END)}個)。"
+              "1組だけにしてから実行してください。", file=sys.stderr)
+        return 1
     new = text[:i] + block + text[j + len(CAP_END):]
     if new == text:
         print("容量台帳: 変更なし（実測と一致）")
@@ -497,12 +540,23 @@ LEGACY_TERMS = {
 # マクロを有効にせずに開いた状態(Auto_Open が走っていない=タブが見える)で
 # err_log を覗くための案内で、実際に実行できる。だから「シートタブ」と
 # 書いてあるものは対象外にし、画面名を名指ししているものだけを見る。
-TAB_SCREENS = "ホーム|マイ本棚|ダッシュボード"
+# R49 Fix(敵対的レビュー R49-REV-07): 初版は語順2通りしか見ておらず、
+#   ・「ナレッジと本棚」タブ … **R49 で製品の文言をこの名前に変えた直後**なので、
+#     次に書かれる嘘はこの綴りになる。画面名一覧に入っていなかった
+#   ・マイ本棚タブ / ホームタブ … 鉤括弧も空白も無い素の書き方
+#   ・タブを『ダッシュボード』に切り替える / シート見出しの「マイ本棚」
+# を全部見逃していた。画面名を増やし、括弧の有無を問わない形へ。
+TAB_SCREENS = "ホーム|マイ本棚|ナレッジと本棚|ダッシュボード|チャット"
+_S = r"[「『\*\s]{0,3}(?:" + TAB_SCREENS + r")[」』\*]{0,3}"
 TAB_NAV_PATS = [
-    # 「マイ本棚」タブ / **ホーム** タブ / 📊 ダッシュボード」タブ
-    re.compile(r"(?<!シート)[「『*\s](?:[^「』」*\s]{0,4})?(" + TAB_SCREENS + r")[」』*]*\s*タブ"),
-    # タブから「マイ本棚」/ タブ「ホーム」
-    re.compile(r"タブ(?:から)?\s*[「『*]+\s*(?:[^「』」*]{0,4})?(" + TAB_SCREENS + r")"),
+    # 「マイ本棚」タブ / **ホーム** タブ / マイ本棚タブ / 「ナレッジと本棚」タブ
+    re.compile(r"(?<!シート)(?<!の)" + _S + r"\s*タブ"),
+    # タブから「マイ本棚」/ タブ「ホーム」/ タブ一覧から マイ本棚
+    re.compile(r"タブ(?:から|一覧から|で)?\s*" + _S),
+    # 画面下部のタブを『ダッシュボード』に切り替える
+    re.compile(r"タブ[をに]\s*" + _S),
+    # シート見出しの「マイ本棚」を選ぶ（見出し＝タブの別名）
+    re.compile(r"シート見出し[のを]?\s*" + _S),
 ]
 
 
@@ -519,6 +573,24 @@ def check_shipped_docs_ui() -> None:
                 if m:
                     err(f"{f.relative_to(ROOT)}:{lineno} 「{m.group(0)}」— {why}"
                         "(配布物に入る文書なので、読んだ人がその画面を探して詰まります)")
+
+    # R49 Fix(敵対的レビュー R49-REV-07): タブ案内の検査は
+    # **zip 同梱の9本だけでなく、人が手を動かしながら読む文書すべて**に掛ける。
+    # 初版は shipped_docs() に絞っていたため、docs/40_受入チェックリスト15分.md
+    # （テスターがそのとおり操作する文書）に同じ案内が残っていた ――
+    # §7-0 が「テスターの報告に本当のバグと文書が古いだけが混ざる」と言う、
+    # まさにその上流。同梱かどうかは関係なく、読んだ人は詰まる。
+    #
+    # **docs/dev/ と CLAUDE.md は対象外。** あちらは開発の記録で、
+    # 「昔こう書いてしまった」という事故の記述そのものが正しい内容になる
+    # (CLAUDE.md §7-0 の事故記録・HANDOFF の過去ラウンド節が実際に当たった)。
+    # doc_files() が spec_/audit_ を外しているのと同じ考え方。
+    for f in doc_files():
+        rel = f.relative_to(ROOT).as_posix()
+        if rel.startswith("docs/dev/") or rel == "CLAUDE.md":
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for lineno, line in enumerate(text.splitlines(), 1):
             if "シートタブ" in line:
                 continue          # 「シートタブを右クリック→再表示」は実行できる正当な手順
             for pat in TAB_NAV_PATS:

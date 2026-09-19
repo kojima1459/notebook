@@ -214,6 +214,8 @@ End Function
 
 ' NeedY - 後方互換の合計(pt)。modViewport2.CompressFactorへは渡さない
 '   (固定/可変を分けずに渡すと再びF3のバグに戻るため直接使わないこと)。
+' @unused:後方互換の合計。すぐ上のコメントが『直接使わないこと』と書いている
+'   とおり、意図的に呼び出し元が無い(F3 のバグへ戻さないため)。
 Public Function NeedY() As Double
     NeedY = NeedYFixed() + NeedYVariable()
 End Function

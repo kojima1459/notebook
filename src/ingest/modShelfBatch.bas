@@ -78,6 +78,8 @@ Public Sub TouchBusy()
 End Sub
 
 ' LastBeat - 最終ビート(まだ1度も打たれていなければ0)。
+' @unused:mLastBeat の読み出し口。診断用に公開したが呼び出し元が1つも無い
+'   (R49 監査・lint の自己救済を外して露出)。
 Public Function LastBeat() As Date
     LastBeat = mLastBeat
 End Function

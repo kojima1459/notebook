@@ -218,6 +218,9 @@ End Function
 '   本棚登録そのものは埋め込みAPIを使う重い処理なので、いつ実行するかは
 '   UI層(利用者のクリック)が決める。ここは箱の役に徹する。
 ' ----------------------------------------------------------------------------
+' @unused:**受信箱の1件を取り出す口だが、呼び出す画面がまだ無い**。
+'   「箱の役に徹する」設計のまま、UI 側の導線が作られていない(R49 監査)。
+'   R50 で導線を足すか、この口ごと畳むかを裁定する。
 Public Function PendingQAAt(ByVal idx As Long, ByRef outAuthor As String, _
                             ByRef outQ As String, ByRef outA As String, _
                             ByRef outSrc As String, ByRef outRow As Long) As Boolean

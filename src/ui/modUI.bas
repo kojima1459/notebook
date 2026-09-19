@@ -666,6 +666,8 @@ Public Function UiColor(ByVal key As String) As Long
     UiColor = modSkin.ThemeColor(key)
 End Function
 
+' @unused:R11-F1 で modSkin へ移設したときに残した薄い委譲。呼び出し元が
+'   1つも無い(テーマ名の読み出しは modSkin.CurrentTheme が単一情報源)。
 Public Function UiTheme() As String
     UiTheme = modSkin.CurrentTheme()
 End Function

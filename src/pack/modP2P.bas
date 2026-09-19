@@ -425,12 +425,17 @@ End Sub
 '   触らない。票を引いた結果として閾値を下回れば、次の CollectNoiseVotes が
 '   ファイルから数え直すときに自然に復帰する。
 '
-'   【「消した」と言ってよい条件】KillRetry は「ファイルが既に無い」ことも
-'   成功として返す(並行GC耐性・意図的な仕様)。ところがネットワークが切れて
-'   いるときの Dir も同じく空を返すので、到達不能をそのまま通すと
-'   【共有フォルダに自分の票が残ったまま「引っ込めました」と表示する】。
-'   画面が嘘をつく典型(憲章§3-3)なので、先に modShare.Reachable() で
-'   共有そのものへ届くかを確かめる。CollectNoiseVotes と同じ作法。
+'   【「消した」と言ってよい条件】(R49 Fix・敵対的レビュー R49-REV-02)
+'   KillRetry は「ファイルが既に無い」ことも成功として返す(並行GC耐性・
+'   意図的な仕様)。この意味論をそのまま戻り値にすると、**票が1枚も無い状態で
+'   「引っ込めました」と表示する**。無くなる道は2つあり、どちらも実在する。
+'     ・そもそも票を書けていなかった(EmitNoiseVote の書込み失敗。呼び出し側は
+'       On Error Resume Next で成否を捨てている)
+'     ・**閾値に達して確定したあと、CollectNoiseVotes が GcNoiseVotesForSource で
+'       個別票を全部削除した**。しかも以後の集計は確定フラグ(gexcl_*.txt)を読んで
+'       【票を数え直さない】ので、1票引いても復帰しない
+'   よって「**実際にファイルが在って、それを消せたときだけ True**」にする。
+'   到達不能の判定も残す(切れているときの Dir も空を返すため)。
 Public Function RetractNoiseVote(ByVal source As String) As Boolean
     On Error GoTo Done
     If LenB(source) = 0 Then Exit Function
@@ -443,7 +448,11 @@ Public Function RetractNoiseVote(ByVal source As String) As Boolean
     Dim votePath As String
     votePath = folderPath & "noise_" & modUtil.Fnv1a64Hex(source) & _
                "_" & modUtil.Fnv1a64Hex(CurrentUserId()) & ".txt"
-    RetractNoiseVote = modP2PIo.KillRetry(votePath)
+
+    ' 消す前に「在る」ことを確かめる。無いなら引っ込める票そのものが無い。
+    If LenB(Dir(votePath)) = 0 Then Exit Function
+    If Not modP2PIo.KillRetry(votePath) Then Exit Function
+    RetractNoiseVote = True
 
     On Error Resume Next
     modLog.LogUsage "noise_vote_retracted", "", _

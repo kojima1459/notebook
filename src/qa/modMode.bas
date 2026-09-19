@@ -357,6 +357,8 @@ End Function
 
 ' AnsweredModeName - 直近ターンの回答モード名(R34 B1)。表示には使わない
 '   (表示側の単一情報源は従来どおり modAsk.mLastMode)。テストからの可観測化用。
+' @unused:テストからの可観測化用に公開したが、そのテストが書かれていない
+'   (R49 監査・lint の自己救済を外して露出)。
 Public Function AnsweredModeName() As String
     AnsweredModeName = mLastAnsweredMode
 End Function

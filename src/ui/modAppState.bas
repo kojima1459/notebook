@@ -208,6 +208,9 @@ Public Function TargetText() As String
     TargetText = Replace(Replace(modUI.BubbleTextOf(TargetBubbleName()), vbCrLf, vbLf), vbCr, vbLf)
 End Function
 
+' @unused:nexus_share_path の読み出し口だが呼び出し元が1つも無い。
+'   共有パスの単一情報源は modShare.BasePath なので重複でもある(憲章§4-5)。
+'   R50 で削除を裁定する(R49 監査・lint の自己救済を外して露出)。
 Public Function SharePath() As String
     SharePath = modConfig.GetString("nexus_share_path", SHARE_PATH_DEFAULT)
 End Function

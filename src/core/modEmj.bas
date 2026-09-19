@@ -80,6 +80,9 @@ Public Function Gear() As String
 End Function
 
 ' ✍ U+270D WRITING HAND(執筆中)
+' @unused:絵文字の見本帳として持っているが、✍ を使う画面がまだ無い。
+'   modEmj は VS16(異体字セレクタ)を付ける唯一の場所なので、絵文字の一覧を
+'   1箇所へ集める値打ちの側で残す(R49 監査・lint の自己救済を外して露出)。
 Public Function Writing() As String
     Writing = ChrW(&H270D) & VS16()
 End Function
@@ -120,6 +123,7 @@ Public Function ArrowRight() As String
 End Function
 
 ' ⏹ U+23F9 BLACK SQUARE FOR STOP(中断)
+' @unused:同上。⏹ を出す画面がまだ無い。ESC の案内は文字で書いている。
 Public Function StopMark() As String
     StopMark = ChrW(&H23F9) & VS16()
 End Function

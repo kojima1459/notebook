@@ -1937,6 +1937,10 @@ CONTRACT: dict[str, dict] = {
             # (連結すると数字が繋がって誤検知する。R32 F4)、通知は1回にまとめる。
             # PiiScanHit は判定だけの部品で、資料名の伏せ字判断にも使う。
             "QaBlocked", "PiiScanHit",
+            # R49 Fix(R49-REV-03): 共有フォルダへ【届かなかった】ことの通知。
+            # WriteShared の手前に無言の Exit Sub が3本あり、出荷既定では
+            # そのうち1本(共有パス未設定)が最頻ケースだった。
+            "NoticeQaNotShared",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。
@@ -4505,6 +4509,20 @@ def check_orphan_public(modules: list) -> None:
             if f.suffix.lower() not in (".py", ".md", ".json", ".txt", ".ps1", ".bat", ".html"):
                 continue
             rel = f.relative_to(root).as_posix()
+            # **この検査自身を救済の根拠にしない**(R49 Fix・敵対的レビュー R49-REV-04)。
+            # outside は build/ tools/ を丸ごと読む。そして下の CONTRACT は
+            # Public 名を文字列リテラルで列挙している ―― つまり
+            # **CONTRACT に載っている Public は全部「使われている」ことになり、
+            # 孤児検査が永久に発火しない**。
+            # R49 はこのラウンドで docs/dev の記録文書を救済から外したのに、
+            # **同じ自己無効化が tools/ に残っていた**（塞いだのは小さいほうだった）。
+            # 外した結果、隠れ孤児が8件露出した:
+            #   modEmj.Writing / modEmj.StopMark / modShelfBatch.LastBeat /
+            #   modInsight.PendingQAAt / modMode.AnsweredModeName /
+            #   modAppState.SharePath / modDashStat.NeedY / modUI.UiTheme
+            # いずれも「読み出し口を公開したが呼ぶ画面が無い」= §7-4 の型。
+            if rel == "tools/vba_lint.py":
+                continue
             if rel.startswith("docs/dev/"):
                 nm = f.name
                 if nm.startswith(RECORD_PREFIXES) or nm.startswith("HANDOFF") or nm in RECORD_NAMES:
