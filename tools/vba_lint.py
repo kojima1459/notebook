@@ -4465,8 +4465,22 @@ def check_orphan_public(modules: list) -> None:
                 bucket.setdefault(tok, set()).add(m.vb_name)
 
     # 2) src の外(build / tools / docs)も参照集合へ入れる
+    #
+    # R49(監査 H-H-10): ただし **docs/dev/ の「記録」文書は救済に使わない**。
+    # 初版は docs/ 配下の全 .md を参照集合へ入れていたため、
+    # 【過去の監査報告や裁定書に名前が出ているだけ】で孤児Public検査を
+    # すり抜けられた。「議論した」は「呼んでいる」ではない。
+    # R47 が「人の注意力では止まらないから機械にした」と宣言した検査が、
+    # この経路で自分を無効化していた。
+    # 救済に使ってよいのは「そこからしか辿れない実際の入口」だけ:
+    #   build/ tools/ …… ビルド・検査が名前で叩く
+    #   docs/ 直下 ……… 利用者・管理者が手で打つ手順書(マクロ名など)
+    # 除く: docs/dev/ の audit_ / spec_ / review_ / reference_ / design_ /
+    #       HANDOFF / CHANGELOG / TODO / FUTURE_IDEAS(いずれも過去の記録)
     outside: set = set()
     root = Path(__file__).resolve().parent.parent
+    RECORD_PREFIXES = ("audit_", "spec_", "review_", "reference_", "design_")
+    RECORD_NAMES = ("CHANGELOG.md", "TODO.md", "FUTURE_IDEAS.md")
     for sub in ("build", "tools", "docs"):
         d = root / sub
         if not d.is_dir():
@@ -4474,6 +4488,11 @@ def check_orphan_public(modules: list) -> None:
         for f in d.rglob("*"):
             if f.suffix.lower() not in (".py", ".md", ".json", ".txt", ".ps1", ".bat", ".html"):
                 continue
+            rel = f.relative_to(root).as_posix()
+            if rel.startswith("docs/dev/"):
+                nm = f.name
+                if nm.startswith(RECORD_PREFIXES) or nm.startswith("HANDOFF") or nm in RECORD_NAMES:
+                    continue
             try:
                 txt = f.read_text(encoding="utf-8", errors="ignore")
             except OSError:

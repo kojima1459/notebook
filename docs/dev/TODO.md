@@ -88,8 +88,9 @@ regressionリスクに見合わない。将来「設定画面」ができた際�
 - [ ] **`feature_diffdoc`(約款差分)は同梱されているのに動かない**(R33 W4-4)。
       `optDiffDoc.bas` は配布に含まれ注入もされるが、`InvokeFeature("diffdoc",…)`
       も `FeatureEnabled("diffdoc")` も src 全体で0件＝利用者から起動する導線が
-      無い。一方 config の `feature_diffdoc` は既定TRUEなので、診断画面には
-      「モジュールあり/設定有効」と出て、管理者は「有効なのに使えない」と読む。
+      無い。一方 config の `feature_diffdoc` は**当時TRUEだった**ので、診断画面には
+      「モジュールあり/設定有効」と出て、管理者は「有効なのに使えない」と読む状態だった
+      (現在の既定は FALSE。下の波5c を参照)。
       次ラウンドで二択の裁定が要る:
       (A) 導線を1本足す(=機能追加。マイ本棚かヘルプにボタン)。
       (B) 未提供と確定させる(config 既定を FALSE にし、`build/modules.json` から

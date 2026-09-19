@@ -112,8 +112,25 @@ DEFAULT_PAT = re.compile(r"既定(?:値)?(?:は)?\s*[（(]?\s*([0-9][0-9,]*)")
 NEAR_CHARS = 30
 
 
+# 文書が bool の既定を書く言い方。数値と同じくキー名と同じ行だけを見る。
+#   例: `pii_scan_enabled`(既定FALSE) / 既定 TRUE / 既定値は 有効
+BOOL_PAT = re.compile(r"既定(?:値)?(?:は)?\s*[（(]?\s*(TRUE|FALSE|True|False|true|false|有効|無効|オン|オフ|ON|OFF)")
+_BOOL_TRUE = {"TRUE", "True", "true", "有効", "オン", "ON"}
+_BOOL_FALSE = {"FALSE", "False", "false", "無効", "オフ", "OFF"}
+
+# 文書に現れるモデル名リテラル。出荷 config のどれとも一致しなければ ERROR。
+#   R48 で gpt-5.5 → gpt-5.6-{luna,terra,sol} へ入れ替えたとき、
+#   doc_gate は **str を1文字も検査していなかった**ため7ファイル12行が
+#   古いモデル名のまま ERROR 0 で通った(監査 A-A-5 / H-6)。
+# 「既定」の語を要求する。数値(DEFAULT_PAT)・bool(BOOL_PAT)と同じ作法。
+# 要求しないと「値を gpt-5.6-terra に書き換える」のような
+# **既定の記述ではない文**まで拾ってしまう(docs/09 の切り分け手順で実証)。
+MODEL_PAT = re.compile(r"既定(?:値)?(?:は)?\s*[（(]?\s*`?(gpt-[0-9]+(?:\.[0-9]+)?(?:-[A-Za-z0-9]+)*)")
+
+
 def check_config_defaults(cfg: dict) -> None:
     numeric = {k: v for k, v in cfg.items() if isinstance(v, int) and not isinstance(v, bool)}
+    booleans = {k: v for k, v in cfg.items() if isinstance(v, bool)}
     for f in doc_files():
         text = f.read_text(encoding="utf-8", errors="ignore")
         for lineno, line in enumerate(text.splitlines(), 1):
@@ -137,12 +154,147 @@ def check_config_defaults(cfg: dict) -> None:
                             f"{key} の既定を {got} と書いていますが、"
                             f"出荷ビルドは {real} です"
                             "(典拠は build_config_rows。文書を直してください)")
+            # R49(監査 A-A-5 / H-6): bool も同じ作法で照合する。
+            # 初版は int だけを見ていたため、安全スイッチ(pii_scan_enabled 等)の
+            # 嘘が構造的に検出できなかった ―― CLAUDE.md §3-3 の事故そのもの。
+            for key, real_b in booleans.items():
+                start = 0
+                while True:
+                    k = line.find(key, start)
+                    if k < 0:
+                        break
+                    start = k + len(key)
+                    tail = line[start:start + 1]
+                    if tail and (tail.isalnum() or tail == "_"):
+                        continue
+                    mb = BOOL_PAT.search(line, start, start + NEAR_CHARS)
+                    if not mb:
+                        continue
+                    got_b = mb.group(1) in _BOOL_TRUE
+                    if got_b != real_b:
+                        err(f"{f.relative_to(ROOT)}:{lineno} "
+                            f"{key} の既定を {mb.group(1)} と書いていますが、"
+                            f"出荷ビルドは {real_b} です"
+                            "(典拠は build_config_rows。文書を直してください)")
+
+
+def check_model_names(cfg: dict) -> None:
+    """モデル名の既定を、**キー名の近傍に限って**照合する。
+
+    R48 の実例: gpt-5.5 → gpt-5.6-{luna,terra,sol} へ入れ替えたのに、
+    check_config_defaults は int だけを見ており str を1文字も検査していなかった。
+    7ファイル12行が古いモデル名のまま「ERROR 0」で通った(監査 A-A-5 / H-6)。
+
+    **文書全体から gpt-* を拾う形にはしない。** 初版でそれを試したところ、
+    アドイン側のモデル一覧の説明(gpt-6-astra が luna を指している等)や
+    過去の記録まで6件が誤検知になった。この検査自身のコメントが書いている
+    とおり「検査が嘘を言い始めると、書き手は検査を無視するようになる」。
+    数値・bool と同じく **キー名と同じ行・NEAR_CHARS 以内**だけを見る。
+    """
+    models = {k: v for k, v in cfg.items()
+              if isinstance(v, str) and v.startswith("gpt-")}
+    if not models:
+        return
+    for f in doc_files():
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for key, real in models.items():
+                start = 0
+                while True:
+                    k = line.find(key, start)
+                    if k < 0:
+                        break
+                    start = k + len(key)
+                    tail = line[start:start + 1]
+                    if tail and (tail.isalnum() or tail == "_"):
+                        continue
+                    # 窓の右端で名前が切れないよう、探索は行末まで行い
+                    # 「一致の開始位置が NEAR_CHARS 以内か」で近さを判定する
+                    # (窓で切ると gpt-5.6-terra が gpt-5.6 に化けた)。
+                    m = MODEL_PAT.search(line, start)
+                    if not m or m.start() >= start + NEAR_CHARS:
+                        continue
+                    got = m.group(1)
+                    if got != real:
+                        err(f"{f.relative_to(ROOT)}:{lineno} "
+                            f"{key} の既定を {got} と書いていますが、"
+                            f"出荷ビルドは {real} です"
+                            "(典拠は build_config_rows。文書を直してください)")
+
+
+# 表形式の config 台帳。`| key | 既定値 | 意味 |` の**見出し行にだけ**
+# 「既定値」があり、各行には無い。上の3検査は「キーの近くに『既定』の語」を
+# 要求するので、**この表を1行も見ていなかった** ―― つまり MASTER_SPEC §5 の
+# config キー台帳(約60行)は、R49 まで完全に無検査だった。
+# R48 で古いモデル名が残った 12 行のうち、MASTER_SPEC のこの表の3行が
+# まさにこれに当たる。近傍検査を足しただけでは**空振りしたまま**なので、
+# 表の行そのものを読む。
+TABLE_ROW_PAT = re.compile(r"^\s{0,3}\|(.+)\|\s*$")
+_CELL_STRIP = " \t`*　"
+
+
+def _cell(s: str) -> str:
+    return s.strip(_CELL_STRIP).strip()
+
+
+def check_config_table_rows(cfg: dict) -> None:
+    """`| key | value | 説明 |` 形式の台帳行を照合する。
+
+    **2列目が一意に読めるときだけ**見る。台帳には
+      `| mock_llm | TRUE(開発ビルド)/FALSE(本番) |`
+      `| topk_quick / topk_deep | 6 / 12 |`
+      `| shelf_folder | (空) |`
+    のように「1行に2つの値」「注釈つき」「空」が混ざっている。
+    これらは機械には一意に読めないので**黙って飛ばす**(誤検知を出すくらいなら
+    見ないほうがよい ―― 嘘を言う検査は無視されるようになる)。
+    """
+    if not cfg:
+        return
+    num_pat = re.compile(r"^-?[0-9][0-9,]*$")
+    model_pat = re.compile(r"^gpt-[0-9A-Za-z.\-]+$")
+    for f in doc_files():
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            m = TABLE_ROW_PAT.match(line)
+            if not m:
+                continue
+            cells = [_cell(c) for c in m.group(1).split("|")]
+            if len(cells) < 2:
+                continue
+            key, raw = cells[0], cells[1]
+            if key not in cfg or not raw:
+                continue
+            real = cfg[key]
+            if isinstance(real, bool):
+                if raw not in _BOOL_TRUE and raw not in _BOOL_FALSE:
+                    continue
+                got_s, ok = raw, (raw in _BOOL_TRUE) == real
+            elif isinstance(real, int):
+                if not num_pat.match(raw):
+                    continue
+                got_s, ok = raw, int(raw.replace(",", "")) == real
+            elif isinstance(real, str) and real.startswith("gpt-"):
+                if not model_pat.match(raw):
+                    continue
+                got_s, ok = raw, raw == real
+            else:
+                continue
+            if not ok:
+                err(f"{f.relative_to(ROOT)}:{lineno} "
+                    f"[台帳の表] {key} を {got_s} と書いていますが、"
+                    f"出荷ビルドは {real} です"
+                    "(典拠は build_config_rows。文書を直してください)")
 
 
 # ==============================================================================
 # 2. 容量台帳(CLAUDE.md §12)vs 実測
 # ==============================================================================
 CAP_PAT = re.compile(r"`?(mod[A-Za-z0-9]+|opt[A-Za-z0-9]+)`?\s*(?:は\s*)?残\s*([0-9][0-9,]*)")
+# R49(監査 B-1): 台帳には「残」を書かない書式も混ざっている
+#   例: **`modUIShelf`10** / `modViewport`118 / **`modShare`186**
+# 初版はこの形を1行も見ておらず、**守るべき台帳の一部が無検査のまま**だった。
+# 「`名前`直後の数字」という形はかなり限定的なので、誤検知は出にくい。
+CAP_PAT_BARE = re.compile(r"`(mod[A-Za-z0-9]+|opt[A-Za-z0-9]+)`\s*([0-9][0-9,]{1,6})(?![0-9])")
 MAX_CHARS = 30000
 
 
@@ -154,7 +306,9 @@ def check_capacity_ledger() -> None:
     if not f.is_file():
         return
     for lineno, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+        seen_spans = []
         for m in CAP_PAT.finditer(line):
+            seen_spans.append(m.span())
             name, got = m.group(1), int(m.group(2).replace(",", ""))
             if name not in actual:
                 continue
@@ -163,6 +317,92 @@ def check_capacity_ledger() -> None:
                 err(f"CLAUDE.md:{lineno} {name} の残りを {got} と書いていますが、"
                     f"実測は {real}({actual[name]}字)です"
                     "(台帳の数字は触るたびに python の len で測り直すこと)")
+        # 「残」を書かない書式(`modX`NNN)。上で拾った範囲とは重ねない。
+        for m in CAP_PAT_BARE.finditer(line):
+            if any(a <= m.start() < b for a, b in seen_spans):
+                continue
+            name, got = m.group(1), int(m.group(2).replace(",", ""))
+            if name not in actual:
+                continue
+            real = MAX_CHARS - actual[name]
+            if got != real:
+                err(f"CLAUDE.md:{lineno} {name} の残りを {got} と書いていますが、"
+                    f"実測は {real}({actual[name]}字)です"
+                    "(『残』を書かない書式も検査対象。R49 監査 B-1)")
+
+
+# ------------------------------------------------------------------------------
+# 台帳そのものを機械が書く(R49)
+# ------------------------------------------------------------------------------
+# なぜ: 検査を足した初回、台帳は **35 件ずれていた**。原因は数字の不注意では
+# なく台帳の**構造**で、§12 は R43 / R46 / R48 / 受け皿 の【日付つきスナップ
+# ショットが4枚重なった状態】だった ―― 同じモジュールが3か所に3つの違う数字で
+# 載る。ラウンドごとに「前の行を直す」のではなく「新しい行を足す」ので、
+# ずれは必ず増える。CLAUDE.md §12 自身が「伝聞のまま持ち回ると実装班が
+# 『入る』と判断して入らない」と書いているとおりの事故が、台帳の中で起きていた。
+#
+# なので手で直さない。**1枚の実測表を機械が書き、機械が検査する。**
+CAP_BEGIN = "<!-- CAP:BEGIN"
+CAP_END = "<!-- CAP:END -->"
+FROZEN = {"modAsk", "modBoot", "modShelf", "modRetrieve", "modPrompts"}
+CAP_BANDS = [
+    (0, 100, "実質凍結（残100字未満）", "**1行も入らない。** 実体を受け皿へ置き、ここからは1行呼び出しに留めること"),
+    (100, 300, "逼迫（残300字未満）", "**分割裁定必須。** 次に触るなら追加の分割が先"),
+    (300, 1000, "準逼迫（残1,000字未満）", "次に触るときは要注意"),
+    (1000, 2000, "28,000〜29,000字帯（残1,000〜2,000）", "まだ入るが、まとまった追加は分割を考える"),
+    (2000, 2100, "WARN直下（残2,000〜2,100）", "**lint は警告を出さないので台帳が唯一の記録。** コメント1行でWARN帯へ落ちる"),
+    (2100, 10000, "余裕（残2,100〜10,000）", ""),
+    (10000, 10 ** 9, "受け皿（残10,000以上）", "新しい実体の置き場所はここから選ぶ"),
+]
+
+
+def _measure_all() -> list[tuple[int, str]]:
+    out = []
+    for p in sorted(SRC.rglob("*.bas")):
+        n = len(p.read_text(encoding="utf-8", errors="replace"))
+        out.append((MAX_CHARS - n, p.stem))
+    out.sort()
+    return out
+
+
+def render_capacity_ledger() -> str:
+    rows = _measure_all()
+    lines = [f"{CAP_BEGIN} 自動生成。手で書き換えない。"
+             "`python3 tools/doc_gate.py --write-cap` で書き直し、"
+             "`--only cap` が実測と照合する（R49 新設） -->"]
+    over = [(r, n) for r, n in rows if r < 0]
+    if over:
+        body = " / ".join(f"**`{n}`は{-r}字超過**" for r, n in over)
+        lines.append(f"- **🔴 上限30,000字を超えている**: {body}")
+    for lo, hi, title, note in CAP_BANDS:
+        sel = [(r, n) for r, n in rows if lo <= r < hi]
+        if not sel:
+            continue
+        body = " / ".join(
+            f"`{n}`{r:,}" + ("（凍結）" if n in FROZEN else "") for r, n in sel)
+        tail = f" — {note}" if note else ""
+        lines.append(f"- **{title}・{len(sel)}本**{tail}: {body}")
+    lines.append(CAP_END)
+    return "\n".join(lines)
+
+
+def write_capacity_ledger() -> int:
+    f = ROOT / "CLAUDE.md"
+    text = f.read_text(encoding="utf-8")
+    block = render_capacity_ledger()
+    i = text.find(CAP_BEGIN)
+    j = text.find(CAP_END)
+    if i < 0 or j < 0:
+        print("CLAUDE.md に CAP:BEGIN / CAP:END の目印がありません。"
+              "§12 の台帳をこの2行で囲んでから実行してください。", file=sys.stderr)
+        return 1
+    new = text[:i] + block + text[j + len(CAP_END):]
+    if new == text:
+        print("容量台帳: 変更なし（実測と一致）")
+        return 0
+    f.write_text(new, encoding="utf-8")
+    print("容量台帳を実測で書き直しました（CLAUDE.md §12）")
+    return 0
 
 
 # ==============================================================================
@@ -257,12 +497,19 @@ def check_shipped_docs_ui() -> None:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="文書検問(出荷ビルドを典拠に文書を検査する)")
     ap.add_argument("--only", choices=["cfg", "cap", "err", "ui"], help="検査を絞る")
+    ap.add_argument("--write-cap", action="store_true",
+                    help="CLAUDE.md §12 の容量台帳を実測で書き直す（検査はしない）")
     args = ap.parse_args(argv[1:])
+
+    if args.write_cap:
+        return write_capacity_ledger()
 
     cfg = load_config_rows()
     run = args.only
     if run in (None, "cfg"):
         check_config_defaults(cfg)
+        check_model_names(cfg)
+        check_config_table_rows(cfg)
     if run in (None, "cap"):
         check_capacity_ledger()
     if run in (None, "err"):

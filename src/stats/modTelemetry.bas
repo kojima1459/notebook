@@ -320,6 +320,10 @@ End Function
 
 ' 質問文を共有用に切り詰める(先頭40字)。傾向把握には足り、
 ' 個別の中身を覗くには足りない粒度。
+' @unused:**どこからも呼ばれておらず、40字プレビューは実際には送信されていない**
+'   (R49 の監査 H-H-10 で救済が外れて発覚。監査 H-9 が「文書は送ると書いている」と
+'   指摘していた件の実体がこれ)。R49 では文書側を実装に合わせる。送るべきかどうかは
+'   開示内容の裁定なので R50 へ。
 Public Function QuestionPreview(ByVal q As String) As String
     QuestionPreview = modUtil.SafeLeft(Trim$(q), Q_PREVIEW_CHARS)
 End Function

@@ -324,7 +324,7 @@ End Function
 ' BuildFromVecCache - パース済みベクトル(modVecCache)から量子化コードを作る。
 ' ----------------------------------------------------------------------------
 ' 載せる行・次元不一致の扱いは従来の vData 版と同じ(次元不一致は載せず、
-' 件数を mSkippedDim に数えて呼び出し側が辞退を判断できるようにする)。
+' 件数を mSkippedDim に数え、:184 でこのモジュール自身が辞退を判断する)。
 Private Function BuildFromVecCache(ByVal stamp As String) As Boolean
     On Error GoTo Fail
     Dim dimN As Long: dimN = modVecCache.CachedDim()
@@ -479,9 +479,9 @@ Private Sub RecomputeWorst(ByRef dist() As Long, ByVal n As Long, _
     Next i
 End Sub
 
-' 直近の BuildCache で次元不一致により除外した行数。
-' 0より大きいときは、そのキャッシュは本棚全体を表していない
-' (=そのまま検索に使うと、載らなかった資料が結果から消える)。
-Public Function SkippedByDimension() As Long
-    SkippedByDimension = mSkippedDim
-End Function
+' R49(監査 H-H-10 で発覚): Public SkippedByDimension を削除した。
+' 「呼び出し側が辞退を判断できるように」という読み出し口だったが、
+' **辞退の判断は :184 でこのモジュール自身が既にやっている**(次元不一致が
+' 1件でもあれば binary_rag_declined を記録して全件比較へ退避する)。
+' 呼び出し元は1つも無く、過去の監査報告に名前が出ているだけで
+' 孤児Public検査から救済されていた。

@@ -250,7 +250,7 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | reasoning_tuning | TRUE | FALSEでeffort/verbosity引数を空送信 |
 | llm_wait_sec | 1800 | ChatGPT() Wait。【1回の呼び出し】の上限であって1質問の上限ではない(入念の論点分解は最大11段) |
 | topk_quick / topk_deep | 6 / 12 | LLMに渡す上位件数 |
-| max_context_chars | 40000 | プロンプトに載せる本文合計上限 |
+| max_context_chars | 60000 | プロンプトに載せる本文合計上限(R34 C で 40,000 から引き上げ。遅い・固まるときは 40000 へ戻す) |
 | answer_language | 日本語 | 回答言語(プロンプトに指定を挿入) |
 | embed_dim | 768 | ベクトル次元(パック互換性検査に使用。Plan B: 1536取得→先頭768切詰め+再正規化) |
 | embed_sleep_ms | 0 | 埋め込み呼び出し間スロットリング(ミリ秒。0=待たない。レート制限時のみ50〜150へ) |
@@ -263,11 +263,11 @@ Graph API・外部HTTP(リボン以外の外部依存ゼロ)、リアルタイ�
 | max_pages_per_file | 300 | 抽出ページ上限(超過は打ち切り+partial) |
 | ribbon_addin_name | リボンちゃん | AIリボンのアドイン検出名(RibbonAvailable用。裁定D2) |
 | limit_check | TRUE | 起動時LimitCheck(期限・利用同意)。FALSEで無効化(裁定D3) |
-| followup_max_pairs | 3 | 『続けて質問』で引き継ぐ履歴の最大ペア数。0以下で無効(裁定D11) |
+| followup_max_pairs | 5 | 『続けて質問』で引き継ぐ履歴の最大ペア数。0以下で無効(裁定D11) |
 | word_export_effort / word_export_verbosity | medium / medium | 『Wordで開く』の文書整形パラメータ(裁定D12) |
 | feature_tts | FALSE | 読み上げ: 非公開確定のため提供不可・FALSE固定(裁定D4) |
 | feature_vision / feature_markdown | TRUE | opt機能フラグ(公式仕様確定によりTRUE昇格。裁定D14) |
-| feature_diffdoc | TRUE | 約款差分(確認済み関数のみ使用) |
+| feature_diffdoc | FALSE | 約款差分(確認済み関数のみ使用)。**起動する導線がどの画面にも無いため既定FALSE**(R33 W4-4 裁定B)。モジュールは同梱のままなのでキーをTRUEにすれば効く |
 | ghostscript_path | (空) | 画像PDFのOCRに使うgswin32c.exeのフルパス。空ならブックの隣の`Ghostscript\`を探す(R6) |
 | vision_pdf_max_pages | 300 | 画像PDFを読み取る最大ページ数(1ページ=AI1回。20ページずつ画像化→OCR→画像削除を繰り返す。超過は打ち切りpartial。R14-4bで20→100、R15-7aで100→300。ハード上限 optOcrCore.PAGES_MAX も 200→300) |
 | ocr_confirm_min_minutes | 5 | 画像PDFのOCRがこの分数以上かかる見込みのとき、取込前に確認ダイアログを出す(R15-7b。R18-1fで15→5=24頁8〜10分級でも確認と作業用Excel導線が出るように)。「はい」の直後に2段目「先に作業用Excelを開いてから開始しますか?」を出す(R18-1f)。見積もり=これから読むページ数×1ページあたりの実測(modState `ocr_avg_page_ms`。無ければ25秒/ページ)。前回の続きから復元できるページは数えない。0以下=確認しない。無人経路(silent同期)では出さない |

@@ -159,6 +159,9 @@ Public Sub RememberCitedSources(ByVal names As String, Optional ByVal replaceAll
 End Sub
 
 ' 現在の会話出典(vbLf区切り)。空なら空文字列。
+' @unused:読み出し口として公開しているが呼び出し元が1つも無い(R49 の監査 H-H-10
+'   で、過去の監査報告に名前が出ているだけの救済が外れて発覚)。会話出典の書き込み
+'   (RememberCitedSources)とクリア(ClearCitedSources)は使われている。削除可否は R50 で裁定する。
 Public Function CitedSourcesLine() As String
     CitedSourcesLine = mCited
 End Function

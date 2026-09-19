@@ -636,15 +636,13 @@ Public Function OrgApproxSuffix() As String
     OrgApproxSuffix = modShare.BoardApproxSuffix(mAggUsers, mAggTotal, mAggApprox)
 End Function
 
-' Hub の「みんなの節約」タイルから呼ぶための公開集計値。
-Public Function OrgSummaryText() As String
-    If StrComp(mAggState, "ok", vbBinaryCompare) <> 0 Then
-        OrgSummaryText = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間: 集計はまだありません"
-        Exit Function
-    End If
-    OrgSummaryText = ChrW(&HD83C) & ChrW(&HDF0D) & " みんなの節約時間: 今日 " & _
-        FmtMin(mOrgDay) & " / 今月 " & FmtMin(mOrgMon) & IIf(mAggApprox, "(概算)", "")
-End Function
+' R49(監査 H-H-10 で発覚): Public OrgSummaryText を削除した。
+' 「Hub のタイルから呼ぶための公開集計値」とあったが**誰も呼んでいない**。
+' Hub タイルは modHubStat:270 が OrgApproxSuffix を使って自前で組み立て、
+' ポップアップは OrgBlockForPopup → modShare.BoardOrgBlock を通る。
+' つまり同じ文面を作る【3つ目の写し】で、憲章 §4-5(2箇所で違う答えを出す
+' 実装を残さない)に反していた。過去の監査報告に名前が出ているだけで
+' 孤児Public検査から救済されていた。
 
 ' ポップアップの組織ブロック(文面の組み立ては modShare.BoardOrgBlock)。
 Private Function OrgBlockForPopup() As String

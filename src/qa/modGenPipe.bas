@@ -90,6 +90,8 @@ Public Function LastLoops() As Long
     LastLoops = mLastLoops
 End Function
 
+' @unused:TurnDetail が mLastPass を直接使うため、この読み出し口には呼び出し元が無い
+'   (R49 の監査 H-H-10 で救済が外れて発覚)。削除可否は R50 で裁定する。
 Public Function LastPass() As Boolean
     LastPass = mLastPass
 End Function
