@@ -130,6 +130,16 @@ Public Function TryGlobal(ByVal q As String, ByRef hits() As Hit, ByRef nHits As
         modConfig.GetString("thorough_draft_verbosity", "high"), _
         modConfig.GetString("thorough_model", "gpt-5.6-sol"), lat)
     If modRagParse.IsErrorResponse(ans) Then
+        ' R48 Fix2: 利用者が ESC で止めた場合だけは、従来フローへ倒してはいけない。
+        ' 倒すと【止めたのに LLM 呼び出しが増える】という、実況の案内
+        ' 「止めるときは ESC キー」と正反対のことが起きる。中断として畳む。
+        If modRibbonFail.IsCancelled(ans) Then
+            LogZero "answer_cancel"
+            ok = False
+            result = ans
+            TryGlobal = True        ' 呼び出し元に「ここで終わり」を伝える
+            Exit Function
+        End If
         ' ここまでで2回呼んでいるが、答えが出る側へ倒す(従来フローが答える)。
         LogZero "answer_err"
         Exit Function

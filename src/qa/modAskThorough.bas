@@ -113,6 +113,14 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
         "thorough_digest", modConfig.GetString("thorough_digest_effort", "low"), _
         "medium", mdl, lat)
     If modRagParse.IsErrorResponse(digest) Then
+        ' R48 Fix2: 利用者が ESC で止めたときだけは先へ進まない。
+        ' 「あれば効く補助段だから続行」は通信失敗のための設計で、
+        ' 【止めたいと意思表示した人】に次の段を回すのは別の話。
+        If modRibbonFail.IsCancelled(digest) Then
+            ok = False
+            RunThoroughFlow = digest
+            Exit Function
+        End If
         ' 要点整理は「あれば効く」補助段。ここで止めると、資料は揃っているのに
         ' 答えが出ないという一番惜しい失敗になる。原文だけで下書きへ進む。
         On Error Resume Next

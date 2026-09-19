@@ -499,7 +499,11 @@ CONTRACT: dict[str, dict] = {
         # 【ロジックを1文字も変えずに】移設した(同じ関心事を1箇所へ・憲章§4-5)。
         # modGateway は残125字で、同型の判定を足す場所が無かった(§12 分割裁定)。
         # 判定は全て純関数なので modTestsPure47 の R群が対で固定する。
-        "required": ["FailKind", "CodeFor", "ErrFor", "IsLimitErr",
+        # IsCancelled(R48 Fix2): 利用者が ESC で止めた応答か。多段の経路は
+        #   #ERR を受けても次の段へ進むように作られているため、E0207 を作った
+        #   だけでは「止めるときは ESC キー」の約束が果たせなかった
+        #   (論点分解は最大11段＝論点の数だけ押す必要があった)。段の合流点で見る。
+        "required": ["FailKind", "CodeFor", "ErrFor", "IsLimitErr", "IsCancelled",
                      "HttpStatusOf", "LooksLikeLimitError", "LooksLikeRealAnswer"],
     },
     "modGround": {

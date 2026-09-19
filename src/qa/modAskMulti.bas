@@ -177,6 +177,17 @@ Public Function TryDecomposed(ByVal q As String, ByRef hits() As Hit, ByRef nHit
         bodyI = OnePart(q, parts(i), i, topKPer, uHits, uN, strictG, ansTags, mdl, lastErr)
         sect(i) = BuildPartSection(i, parts(i), bodyI)
         If LenB(bodyI) > 0 Then okN = okN + 1
+        ' R48 Fix2: LLM 呼び出しの【内側】で ESC が押された場合、上の DoEvents は
+        ' 通らないので aborted が立たず、ループは次の論点へ進んでいた。
+        ' 「止めるときは ESC キー」と実況に書いておきながら、最大11論点では
+        ' 論点の数だけ押さないと止まらない ―― 約束を守っていない状態だった。
+        ' ここで合流させると、以降は既存の aborted 経路がそのまま効く
+        ' (okN=0 なら Err.Raise 18 で素の中断、okN>0 なら統合したうえで
+        '  「※中断されたため論点N以降は未調査です」を本文へ付ける)。
+        If modRibbonFail.IsCancelled(lastErr) Then
+            aborted = True
+            Exit For
+        End If
     Next i
     GoTo PartsDone
 

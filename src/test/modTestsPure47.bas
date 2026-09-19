@@ -150,6 +150,15 @@ Private Sub TestRibbonFail47()
     ' 未定義コードは既定値へ落ちること(この検査自体が恒真でないことの担保)
     ChkBool47 "R29_unknown_is_fallback", _
         (InStr(modLog.FriendlyMessage("E9999"), "予期しない問題") > 0), True
+
+    ' --- R48 Fix2: 中断の案内を1つに保つ(縫い目の固定)
+    ' ESC は2つの経路で観測される ―― 段の境界(DoEvents → Err 18 → modAsk.bas:249)と、
+    ' LLM 呼び出しの内側(modGateway が #ERR:E0207 へ変換)。利用者にとっては
+    ' 【同じ操作】なので、違う案内を出してはならない。初版は「質問するボタンを
+    ' 押してください」と「そのまま質問を送り直してください」で指示が食い違っていた。
+    ' 逐語で固定する。**modAsk.bas:249 の文言を変えるときは、ここも必ず同時に変える。**
+    ChkStr47 "R30_e0207_wording_matches_modask", modLog.FriendlyMessage("E0207"), _
+        "操作を中断しました。もう一度質問するときは、質問するボタンを押してください。"
 End Sub
 
 Private Sub TestOnAccentColor47()
