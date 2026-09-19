@@ -159,6 +159,23 @@ Private Sub TestRibbonFail47()
     ' 逐語で固定する。**modAsk.bas:249 の文言を変えるときは、ここも必ず同時に変える。**
     ChkStr47 "R30_e0207_wording_matches_modask", modLog.FriendlyMessage("E0207"), _
         "操作を中断しました。もう一度質問するときは、質問するボタンを押してください。"
+
+    ' --- R48 Fix3: 中断の伝播(IsCancelled)
+    ' 多段の経路は #ERR を受けても次の段へ進むように作られているため、
+    ' E0207 を作っただけでは「止めるときは ESC キー」の約束が果たせなかった。
+    ' いまは5箇所(modAskMulti の論点ループ / Integrate の統合・自己点検 /
+    ' modAskGlobal の回答段 / modAskThorough の要点整理・自己点検)がこれを見て
+    ' 段を畳む。**通信失敗(E0205)を中断と取り違えると、直すべき障害が
+    ' 「利用者が止めた」ことにされて消える**ので、その境目を対で固定する。
+    ChkBool47 "R31_cancel_e0207", _
+        modRibbonFail.IsCancelled("#ERR:E0207:利用者の操作で中断しました"), True
+    ChkBool47 "R32_cancel_not_e0205", _
+        modRibbonFail.IsCancelled("#ERR:E0205:接続切れ"), False
+    ChkBool47 "R33_cancel_not_e0204", _
+        modRibbonFail.IsCancelled("#ERR:E0204:(error:429)rate limit"), False
+    ChkBool47 "R34_cancel_not_plain", _
+        modRibbonFail.IsCancelled("保険料は年額3,000円です。[本棚: 約款.pdf p.5]"), False
+    ChkBool47 "R35_cancel_not_empty", modRibbonFail.IsCancelled(""), False
 End Sub
 
 Private Sub TestOnAccentColor47()

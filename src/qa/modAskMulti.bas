@@ -573,7 +573,12 @@ Private Function Integrate(ByVal q As String, ByVal sections As String, uHits() 
     merged = modGateway.CallLLM(modPrompts.BuildMergePrompt(q, sections), "multi_merge", _
         modConfig.GetString("thorough_draft_effort", "high"), _
         modConfig.GetString("thorough_draft_verbosity", "high"), mdl, lat, prevU, prevA)
+    ' R48 Fix3(3周目): ESC で止めたら、以降の段は【呼ばない】。
+    ' 通信失敗なら「下書きは完成しているので先へ進む」のが正しいが、止めたいと
+    ' 意思表示した人に sol で最大30分の段をさらに2回回すのは別の話。
+    Dim cancelled As Boolean
     If modRagParse.IsErrorResponse(merged) Then
+        cancelled = modRibbonFail.IsCancelled(merged)
         LogSkip "multi_merge_skip", merged
         merged = sections          ' 下書きは完成している。捨てずにそのまま並べる
     Else
@@ -582,27 +587,43 @@ Private Function Integrate(ByVal q As String, ByVal sections As String, uHits() 
 
     Stage partN, 3 + partN, total, "統合した回答を自己点検中…"
     Dim critique As String
-    critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, merged, uHits, uN), _
-        "multi_critique", modConfig.GetString("thorough_critique_effort", "medium"), _
-        "low", mdl, lat)
-    If modRagParse.IsErrorResponse(critique) Then
-        LogSkip "multi_critique_skip", critique
+    If cancelled Then
         critique = ""
     Else
-        critique = modAsk.ApplyAnswerTags(critique)
+        critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, merged, uHits, uN), _
+            "multi_critique", modConfig.GetString("thorough_critique_effort", "medium"), _
+            "low", mdl, lat)
+        If modRagParse.IsErrorResponse(critique) Then
+            cancelled = modRibbonFail.IsCancelled(critique)
+            LogSkip "multi_critique_skip", critique
+            critique = ""
+        Else
+            critique = modAsk.ApplyAnswerTags(critique)
+        End If
     End If
 
     Stage partN, 4 + partN, total, "検証中…"
     Dim verified As String
-    verified = modGateway.CallLLM( _
-        modPrompts.BuildDeepVerifyPrompt(q, merged, uHits, uN, strictG, ansTags, critique), _
-        "multi_verify", modConfig.GetString("thorough_verify_effort", "high"), _
-        modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
+    If cancelled Then
+        verified = "#ERR:E0207:利用者の操作で中断しました"
+    Else
+        verified = modGateway.CallLLM( _
+            modPrompts.BuildDeepVerifyPrompt(q, merged, uHits, uN, strictG, ansTags, critique), _
+            "multi_verify", modConfig.GetString("thorough_verify_effort", "high"), _
+            modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
+    End If
 
     If modRagParse.IsErrorResponse(verified) Then
         ' 注記は本文へ混ぜない(modAsk が整形の後に足す=履歴と部内共有へ入らない)。
-        mNote = vbLf & vbLf & _
-            "(注: 検証段階でエラーが発生したため、統合した下書きの内容を表示しています。)"
+        ' R48 Fix3: 中断とエラーで理由を書き分ける(自分で止めた人に
+        ' 「エラーが発生した」と言うのは嘘。憲章 §3-3)。
+        If modRibbonFail.IsCancelled(verified) Then
+            mNote = vbLf & vbLf & _
+                "(注: 操作を中断したため、統合した下書きの内容を表示しています。)"
+        Else
+            mNote = vbLf & vbLf & _
+                "(注: 検証段階でエラーが発生したため、統合した下書きの内容を表示しています。)"
+        End If
         Integrate = merged
     Else
         Integrate = modAsk.ApplyAnswerTags(verified)

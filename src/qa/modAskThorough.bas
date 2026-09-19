@@ -154,7 +154,12 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     critique = modGateway.CallLLM(modPrompts.BuildCritiquePrompt(q, draftBody, hits, nUse), _
         "thorough_critique", modConfig.GetString("thorough_critique_effort", "medium"), _
         "low", mdl, lat)
+    ' R48 Fix3(3周目): ESC で止めたときは【検証段を呼ばない】。
+    ' 自己点検は「あれば効く」補助段なので通信失敗なら飛ばして先へ進む設計だが、
+    ' 止めたいと意思表示した人に、さらに1回(sol で最大30分)回すのは別の話。
+    Dim cancelled As Boolean
     If modRagParse.IsErrorResponse(critique) Then
+        cancelled = modRibbonFail.IsCancelled(critique)
         On Error Resume Next
         modLog.LogUsage "thorough_critique_skip", MODE_THOROUGH, modUtil.SafeLeft(critique, 120)
         On Error GoTo 0
@@ -166,10 +171,16 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     ' --- (5) 検証(指摘を踏まえて抜粋と照合し直す) -------------------------
     modAskRetrieve.ShowAskStage "verify"
     Dim verified As String
-    verified = modGateway.CallLLM( _
-        ThoroughVerifyPrompt(modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique)), _
-        "thorough_verify", modConfig.GetString("thorough_verify_effort", "high"), _
-        modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
+    If cancelled Then
+        ' 呼ばずに、下の「エラーなら下書きを見せる」既存の枝へ合流させる。
+        ' 下書きは完成しているので捨てない(modAskMulti の aborted と同じ作法)。
+        verified = "#ERR:E0207:利用者の操作で中断しました"
+    Else
+        verified = modGateway.CallLLM( _
+            ThoroughVerifyPrompt(modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique)), _
+            "thorough_verify", modConfig.GetString("thorough_verify_effort", "high"), _
+            modConfig.GetString("deep_verify_verbosity", "medium"), mdl, lat)
+    End If
 
     ok = True
     Dim body As String
@@ -177,8 +188,15 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
         ' 注記は本文へ混ぜない(mVerifyNoteの宣言部を参照)。呼び出し元が
         ' 深掘り候補の整形後に足すので、履歴にも部内共有にも入らない。
         body = draftBody
-        mVerifyNote = vbLf & vbLf & _
-            "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
+        ' R48 Fix3: 中断とエラーで理由を書き分ける。自分で止めた人に
+        ' 「エラーが発生した」と言うのは嘘(憲章 §3-3)。
+        If modRibbonFail.IsCancelled(verified) Then
+            mVerifyNote = vbLf & vbLf & _
+                "(注: 操作を中断したため、下書きの内容を表示しています。)"
+        Else
+            mVerifyNote = vbLf & vbLf & _
+                "(注: 検証段階でエラーが発生したため、下書きの内容を表示しています。)"
+        End If
     Else
         body = modAsk.ApplyAnswerTags(verified)
     End If
