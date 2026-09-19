@@ -131,10 +131,22 @@ Public Function CallLLM(ByVal prompt As String, ByVal step_name As String, _
     Exit Function
 
 ErrHandler:
+    ' Err はこの後の On Error/Exit でリセットされるので先に退避する(CLAUDE.md §11)。
+    Dim eNumber As Long: eNumber = Err.Number
+    Dim eDesc As String: eDesc = Err.Description
     latency_ms = CLng(modUtilText.ElapsedMsSince(t0))
     LogStepLatency step_name, latency_ms
-    modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & Err.Description, Err.Number
-    CallLLM = "#ERR:E0202:" & Err.Description
+    ' R48 Fix(敵対的レビュー R48-REV-01): Err 18 は利用者が ESC を押した合図
+    ' (modAsk が EnableCancelKey = xlErrorHandler を立てている)。これを E0202
+    ' 「AIとの通信が混み合っているようです」に丸めると、**自分で止めた人に
+    ' 障害だと嘘をつく**ことになる(憲章 §3-3: 失敗は「何が起きたか+次の一手」)。
+    If eNumber = 18 Then
+        modLog.LogUsage "ask_cancel", "", "step=" & step_name
+        CallLLM = "#ERR:E0207:利用者の操作で中断しました"
+        Exit Function
+    End If
+    modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & eDesc, eNumber
+    CallLLM = "#ERR:E0202:" & eDesc
 End Function
 
 ' ----------------------------------------------------------------------------
@@ -512,15 +524,28 @@ Public Function RibbonEmbedRange(texts() As String, ByVal arrLo As Long, _
         Dim t As String: t = modUtil.NormalizeForHash(texts(arrLo + i))
         Dim v() As Double
         ' R48(重大): VBA の Dim はループ内に書いてもプロシージャ全体で1回しか
-        ' 実行されない。本文が空のかけら(LenB(t)=0)では下の代入が走らないため、
-        ' Erase が無いと【直前のかけらのベクトルがそのまま残り】、無関係な
-        ' かけらへ書き込まれて「成功」として数えられていた。そのかけらは
-        ' 無関係な質問に「似ている」と判定されて出典に出るうえ、err_log にも
-        ' usage_log にも痕跡が残らない(憲章 §4-1 違反)。
-        ' 空を「失敗」に数えない後始末は modEmbed 側(3連続失敗の安全装置)。
-        Erase v
-        If LenB(t) > 0 Then v = GetEmbeddingRibbonOnly(t, dim_)
-        If modUtil.HasVector(v) Then
+        ' 実行されない。本文が空のかけらでは下の代入が走らないため、対策が無いと
+        ' 【直前のかけらのベクトルがそのまま残り】、無関係なかけらへ書き込まれて
+        ' 「成功」として数えられていた。そのかけらは無関係な質問に「似ている」と
+        ' 判定されて出典に出るうえ、err_log にも usage_log にも痕跡が残らない
+        ' (憲章 §4-1 違反)。
+        '
+        ' R48 Fix(敵対的レビュー R48-REV-03): 初版は `Erase v` で解決したが、
+        ' **LibreOffice の Erase は動的配列を解放せず境界を保持する**(司令塔が
+        ' soffice headless で実測: Erase 後も lb=0/ub=1 のまま、値が0になるだけ)。
+        ' その結果 LO では HasVector が True のままで、全0のベクトルが「成功」
+        ' として書かれる ―― 直したつもりの穴が engine を変えると開く。
+        ' Erase の意味論に依存しない形へ書き換える(実Excel・LO のどちらでも同じ)。
+        '
+        ' Trim$ を挟むのは modEmbed 側の「空のかけら」判定(LenB(Trim$(...))=0)と
+        ' 定義を揃えるため(R48-REV-04)。揃えないと空白・タブだけのかけらが
+        ' 片方では空、もう片方では非空になり、3連続失敗の安全弁を誤爆させる。
+        Dim okV As Boolean: okV = False
+        If LenB(Trim$(t)) > 0 Then
+            v = GetEmbeddingRibbonOnly(t, dim_)
+            okV = modUtil.HasVector(v)
+        End If
+        If okV Then
             outCsv(i) = SerializeVector(v, prec)
             okCount = okCount + 1
         End If

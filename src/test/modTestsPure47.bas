@@ -132,6 +132,24 @@ Private Sub TestRibbonFail47()
     ChkBool47 "R20_useverify_thorough_is_true", modMode.UseVerify("thorough"), True
     ChkBool47 "R21_useverify_deep_is_true", modMode.UseVerify("deep"), True
     ChkBool47 "R22_useverify_quick_is_false", modMode.UseVerify("quick"), False
+
+    ' --- 新エラーコードが modLog.FriendlyMessage の Case 追加漏れで
+    '     「予期しない問題が発生しました」の既定値へ落ちていないこと。
+    '     doc_gate はコードの存在は見るが、文言の中身までは見ない。
+    '     R48 で E0205/E0206 を、R48 Fix で E0207 を足した。
+    Dim m5 As String: m5 = modLog.FriendlyMessage("E0205")
+    Dim m6 As String: m6 = modLog.FriendlyMessage("E0206")
+    Dim m7 As String: m7 = modLog.FriendlyMessage("E0207")
+    ChkBool47 "R23_e0205_not_fallback", (InStr(m5, "予期しない問題") = 0), True
+    ChkBool47 "R24_e0206_not_fallback", (InStr(m6, "予期しない問題") = 0), True
+    ChkBool47 "R25_e0207_not_fallback", (InStr(m7, "予期しない問題") = 0), True
+    ' 3つが互いに違う文言であること(同じ文言なら分けた意味が無い)
+    ChkBool47 "R26_e0205_ne_e0206", (m5 = m6), False
+    ChkBool47 "R27_e0205_ne_e0207", (m5 = m7), False
+    ChkBool47 "R28_e0206_ne_e0207", (m6 = m7), False
+    ' 未定義コードは既定値へ落ちること(この検査自体が恒真でないことの担保)
+    ChkBool47 "R29_unknown_is_fallback", _
+        (InStr(modLog.FriendlyMessage("E9999"), "予期しない問題") > 0), True
 End Sub
 
 Private Sub TestOnAccentColor47()
