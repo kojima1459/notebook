@@ -615,6 +615,14 @@
       "note": "ナレッジ倉庫ギャラリー(カード一覧・検索・ページング)。modVaultが30,000字上限まで残り34字となり保留中の修正が入らなくなったための分割先(憲章§4-6)。ナレッジ登録フォーム本体はmodVaultのまま。"
     },
     {
+      "name": "modNoiseReport",
+      "path": "src/ui/modNoiseReport.bas",
+      "role": "core",
+      "type": "std",
+      "wave": "R49",
+      "note": "R49 監査A-A-3。⚠️ノイズ報告の実体と取り消し。新設の理由は2つ: (1)ナレッジ詳細のダイアログが vbDefaultButton2=[いいえ]=ノイズ報告 を既定にしており、Enter/Spaceだけで個人ミュート+共有フォルダへの1票が飛んでいた(既定を[キャンセル]へ)。(2)報告を本人が戻す導線が製品に1本も無く、復帰できるのは管理者の modP2P.ClearNoise(その資料への全員の票を消す)だけだった。ReportWithUndo が報告直後に取り消しを出し、Undo が modStats.UnreportNoise(個人ミュート解除)と modP2P.RetractNoiseVote(自分の票ファイルだけ削除)を呼ぶ。置き場所は modVaultGallery が残271字(§12 逼迫)のため分割裁定に従って受け皿へ。"
+    },
+    {
       "name": "modDash",
       "path": "src/ui/modDash.bas",
       "role": "core",

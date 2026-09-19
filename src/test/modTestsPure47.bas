@@ -234,6 +234,57 @@ Private Sub TestBadgeSpans47()
     ChkLong47 "B4_cnt", cnt, 0
 End Sub
 
+' ----------------------------------------------------------------------------
+' S群(R49 監査H-7) modInsightGate.PiiScanHit - 共有フォルダへ出す前の個人情報走査
+' ----------------------------------------------------------------------------
+' なぜここを固定するか:
+'   解決済みQ&A(EmitVerifiedQA)は、質問全文・回答全文・実名の3点セットを
+'   部内の共有フォルダへ置く経路。共有フォルダに一度書いたものは取り消せない。
+'   R49 までこの経路だけ走査が1回も無く、困りごと(EmitGap)・訂正
+'   (EmitCorrection)の2経路だけが PiiBlocked を通っていた。
+'
+'   固定するのは判定部品 PiiScanHit(通知もログも出さない純判定)。
+'   陽性(=送らない)だけでなく【陰性の反例】を必ず置く ―― この関門は
+'   過検知すると部内ナレッジのフライホイールを止めるので、
+'   「日付が入っているだけの質問」「社内資料由来の短い数字」が通ることまで
+'   固定しないと、次の誰かが閾値を触ったときに静かに壊れる。
+Private Sub TestPiiScan47()
+    ' --- 陽性: 送ってはいけないもの -------------------------------------
+    ' 携帯番号(modPii が継続文字として数える "-" 込みで11桁)
+    ChkBool47 "S1_携帯番号", _
+        modInsightGate.PiiScanHit("取引先の田中様の携帯 090-1234-5678 へ連絡"), True
+    ' 区切り無しの長い数字列
+    ChkBool47 "S2_長い数字列", _
+        modInsightGate.PiiScanHit("口座 1234567890123 の扱いは?"), True
+
+    ' --- 陰性: 止めてはいけないもの(誤検知の反例) -----------------------
+    ' 日付+時刻。StripDateLike が無いと 4+2+2+2+2=12桁として一発で当たり、
+    ' 「日時をひとつ書いただけの質問」が永久に部内へ出なくなる(R32 F4 の事故)。
+    ChkBool47 "S3_日時は素通り", _
+        modInsightGate.PiiScanHit("2026-08-14 10:00 時点の取扱いを教えて"), False
+    ' 全角の日付(R33 W2-7。NormalizeWidth を先頭で通していないと陽性になる)
+    ChkBool47 "S4_全角日時も素通り", _
+        modInsightGate.PiiScanHit(ChrW(&HFF12) & ChrW(&HFF10) & ChrW(&HFF12) & _
+            ChrW(&HFF16) & ChrW(&HFF0D) & ChrW(&HFF10) & ChrW(&HFF18) & _
+            ChrW(&HFF0D) & ChrW(&HFF11) & ChrW(&HFF14) & " の改定について"), False
+    ' 業務で普通に出る短い数字(約款の条番号・金額)は通す
+    ChkBool47 "S5_短い数字は素通り", _
+        modInsightGate.PiiScanHit("第12条の免責金額 50000 円の根拠は?"), False
+    ' 数字を含まない普通の質問
+    ChkBool47 "S6_平文は素通り", _
+        modInsightGate.PiiScanHit("団体扱いの解約返戻金の計算方法を教えてください"), False
+    ' 空・空白だけは走査対象外(資料名が空のときに伏せ字化しないため)
+    ChkBool47 "S7_空は素通り", modInsightGate.PiiScanHit(""), False
+    ChkBool47 "S8_空白のみは素通り", modInsightGate.PiiScanHit("   "), False
+
+    ' --- 改行の扱い(R32 F17 と同じ真因の再発防止) -----------------------
+    ' 走査は ScanClean を通すので、改行で分かれた別々の数字列は繋がらない。
+    ' ここを Clean1(改行→半角スペース)で走査すると "12345" と "67890" が
+    ' 1本の10桁として誤検知する。
+    ChkBool47 "S9_改行で数字は繋がらない", _
+        modInsightGate.PiiScanHit("整理番号 12345" & vbLf & "67890 の件"), False
+End Sub
+
 Public Sub RunAll47()
     On Error GoTo H01Fail47
     TestOnAccentColor47
@@ -243,9 +294,17 @@ H02Next47:
 H03Next47:
     On Error GoTo H03Fail47
     TestRibbonFail47
+H04Next47:
+    On Error GoTo H04Fail47
+    TestPiiScan47
 H01Done47:
     On Error GoTo 0
     Exit Sub
+
+H04Fail47:
+    modTestRunner.Check "TestPiiScan47(グループ全体)", False, _
+        "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
+    Resume H01Done47
 
 H01Fail47:
     modTestRunner.Check "TestOnAccentColor47(グループ全体)", False, _
@@ -258,5 +317,5 @@ H02Fail47:
 H03Fail47:
     modTestRunner.Check "TestRibbonFail47(グループ全体)", False, _
         "群の実行中に例外: " & Err.Description & " (Err=" & Err.Number & ")"
-    Resume H01Done47
+    Resume H04Next47
 End Sub

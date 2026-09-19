@@ -142,7 +142,7 @@ ErrHandler:
     ' 障害だと嘘をつく**ことになる(憲章 §3-3: 失敗は「何が起きたか+次の一手」)。
     If eNumber = 18 Then
         modLog.LogUsage "ask_cancel", "", "step=" & step_name
-        CallLLM = "#ERR:E0207:利用者の操作で中断しました"
+        CallLLM = modRibbonFail.CancelledErr()
         Exit Function
     End If
     modLog.LogError "E0202", "modGateway.CallLLM", "step=" & step_name & " err=" & eDesc, eNumber

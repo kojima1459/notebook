@@ -413,6 +413,20 @@ Public Function ReportNoise(ByVal source As String) As Long
     ReportNoise = GetStat("noise:" & source)
 End Function
 
+' UnreportNoise - 本人のノイズ報告(個人ミュート)を取り消す。R49 監査 A-A-3。
+'   戻り値 = 実際にミュートが立っていて消したか(元から無ければ False)。
+'   共有フォルダの票の引っ込めは modP2P.RetractNoiseVote が別に行う
+'   (ローカルの my_stats とネットワーク越しの票は成否が独立するため、
+'   呼び出し元 modNoiseReport.Undo が両方の結果を見て文面を決める)。
+'   値を0にするだけで行は消さない ―― ExcludedSources / GetStat は
+'   いずれも 1 以上かで判定するので、0 は「報告していない」と同じ。
+Public Function UnreportNoise(ByVal source As String) As Boolean
+    If LenB(source) = 0 Then Exit Function
+    If GetStat("noise:" & source) < 1 Then Exit Function
+    SetStatValue "noise:" & source, 0
+    UnreportNoise = True
+End Function
+
 ' NoiseThreshold - 組織的除外に必要な「異なる報告者数」の閾値(config可変・下限1)。
 Public Function NoiseThreshold() As Long
     Dim t As Long: t = modConfig.GetLong("noise_global_threshold", 2)

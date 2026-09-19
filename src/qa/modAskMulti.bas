@@ -605,7 +605,7 @@ Private Function Integrate(ByVal q As String, ByVal sections As String, uHits() 
     Stage partN, 4 + partN, total, "検証中…"
     Dim verified As String
     If cancelled Then
-        verified = "#ERR:E0207:利用者の操作で中断しました"
+        verified = modRibbonFail.CancelledErr()
     Else
         verified = modGateway.CallLLM( _
             modPrompts.BuildDeepVerifyPrompt(q, merged, uHits, uN, strictG, ansTags, critique), _

@@ -177,7 +177,7 @@ Public Sub RunDiagnostics()
     WriteCheck ws, r, True, "チャンク数(my_knowledge): " & chunkCount & " 件", "": r = r + 1
     WriteCheck ws, r, (pendingCount = 0), _
         "AIが読める形にまだ変換していないチャンク: " & pendingCount & " 件", _
-        IIf(pendingCount = 0, "", "「マイ本棚」タブの" & ChrW(&HD83D) & ChrW(&HDD04) & "同期を押すと続きから変換されます。"): r = r + 1
+        IIf(pendingCount = 0, "", "「ナレッジと本棚」の" & ChrW(&HD83D) & ChrW(&HDD04) & "同期を押すと続きから変換されます。"): r = r + 1
     r = r + 1
 
     ' [追加機能(opt)]

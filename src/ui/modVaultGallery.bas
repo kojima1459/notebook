@@ -259,19 +259,16 @@ Public Sub OnVaultCardClick()
     answer = MsgBox("『" & srcName & "』" & vbLf & vbLf & _
                     modUtil.SafeLeft(PreviewOf(srcName), 300) & vbLf & vbLf & _
                     "[はい]=削除  /  [いいえ]=" & modEmj.Warn() & "ノイズ報告(品質が低いと報告)  /  [キャンセル]=閉じる", _
-                    vbYesNoCancel + vbQuestion + vbDefaultButton2, modAppDef.APP_NAME & " - ナレッジ詳細")
+                    vbYesNoCancel + vbQuestion + vbDefaultButton3, modAppDef.APP_NAME & " - ナレッジ詳細")
+    ' R49(監査 A-A-3): 既定を vbDefaultButton2([いいえ]=ノイズ報告)から
+    ' vbDefaultButton3([キャンセル]=閉じる)へ。Enter/Space を押しただけで
+    ' 資料が自分の検索から消え、共有フォルダへ1票飛ぶ状態だった。
     If answer = vbYes Then
         modShelf.DeleteSource srcName
         OnVaultSearchKeepPage
     ElseIf answer = vbNo Then
-        modStats.ReportNoise srcName          ' 個人ミュート(即時・自分の検索からのみ除外)
-        On Error Resume Next
-        modP2P.EmitNoiseVote srcName          ' 組織的除外への1票(共有フォルダ・同期時に集計)
-        On Error GoTo 0
-        MsgBox "『" & srcName & "』を品質報告しました。" & vbLf & vbLf & _
-               "・あなたの検索からは今すぐ除外されます。" & vbLf & _
-               "・異なる" & modStats.NoiseThreshold() & "人以上が報告すると、組織全体の検索から除外されます。", _
-               vbInformation, modAppDef.APP_NAME
+        ' 報告と取り消しの実体は modNoiseReport(§12 分割裁定。ここは残271字)。
+        modNoiseReport.ReportWithUndo srcName
         OnVaultSearchKeepPage   ' 画面を再描画(既存のプライベートSubを呼ぶ)
     End If
 End Sub

@@ -54,6 +54,14 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     ' なく個人の入力なので、共有本文には出さず固定文言へ置き換える。
     If modCorrect.IsMemoSource(src) Then src = "(利用者の是正メモ)"
 
+    ' R49(監査 H-7): 出す前に個人情報を見る。理由は modInsightGate.QaBlocked。
+    ' この経路だけが質問全文・回答全文・実名の3点セットを運ぶのに、3本ある
+    ' 発信経路のうちここだけ1回も走査していなかった。
+    If modInsightGate.QaBlocked(q, ans) Then Exit Sub
+    ' 資料名に個人情報らしきものがあるときは、Q&Aごと見送るのではなく資料名だけ
+    ' 伏せる(IsMemoSource と同じ作法)。知恵そのものは部内に残す価値がある。
+    If modInsightGate.PiiScanHit(src) Then src = "(資料名は伏せました)"
+
     ' R34 F4: 部内へ出す本文にも出典突合の注記を通す。⚡/🔍 の注記は modApp の
     ' 画面用 ans にだけ付き、ここへ来る mLastCleanAnswer は未注記なので、
     ' 「画面では(出典確認できず)が付いていた回答が、知恵袋では無印で配られる」
@@ -81,6 +89,11 @@ Public Sub EmitVerifiedQA(ByVal q As String, ByVal ans As String, ByVal src As S
     ' 加算しない。バッジ qa_share10 が獲得不可能だった不具合の修理)。
     If WriteShared(dirPath & MakeNonce(myId) & ".txt", body) Then
         modStats.Bump "qa_shared_total"
+    Else
+        ' R49(監査 H-H-3): 書けなかったことを黙らない。EmitGap / EmitCorrection は
+        ' R32 F5 で Else を持ったのに、【呼び出し元が「共有されます」と断言する
+        ' 唯一の経路】であるここだけ Else が無く、黙って捨てていた。
+        modInsightGate.NotifySkip "write_qa"
     End If
     On Error GoTo 0
 End Sub

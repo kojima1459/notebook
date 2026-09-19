@@ -503,7 +503,12 @@ CONTRACT: dict[str, dict] = {
         #   #ERR を受けても次の段へ進むように作られているため、E0207 を作った
         #   だけでは「止めるときは ESC キー」の約束が果たせなかった
         #   (論点分解は最大11段＝論点の数だけ押す必要があった)。段の合流点で見る。
+        # R49: CancelledErr は「利用者が止めた」を表す文字列そのもの。R48 は
+        #   このリテラルを modGateway / modAskMulti / modAskThorough の3箇所へ
+        #   手で書いていた。IsCancelled は先頭11字しか見ないので、文言だけが
+        #   食い違っても検査に掛からず、画面の言葉だけが段によって変わる。
         "required": ["FailKind", "CodeFor", "ErrFor", "IsLimitErr", "IsCancelled",
+                     "CancelledErr",
                      "HttpStatusOf", "LooksLikeLimitError", "LooksLikeRealAnswer"],
     },
     "modGround": {
@@ -1158,6 +1163,11 @@ CONTRACT: dict[str, dict] = {
         "required": ["GetStatText", "SetStatText", "Bump", "GetStat", "TouchToday", "EvaluateBadges", "SavedMinutesEstimate",
                      "AddExp", "ExpTotal", "Level", "ExpFloorForLevel", "LevelProgress",
                      "ReportNoise", "NoiseThreshold", "ExcludedSources",
+                     # R49(監査 A-A-3): 本人のノイズ報告の取り消し。報告には
+                     # 製品のどこにも戻す道が無く、復帰できるのは管理者が
+                     # modP2P.ClearNoise でその資料への全員の票を消す経路
+                     # だけだった。呼ぶのは modNoiseReport.Undo の1箇所。
+                     "UnreportNoise",
                      "MarkGlobalExcluded", "ResetGlobalExcluded",
                      "IsGloballyExcluded", "GlobalExcludedSources",
                      # 2026-07-28(解説書 §11-11): バッジ表の単一情報源。
@@ -1921,6 +1931,12 @@ CONTRACT: dict[str, dict] = {
             # 継続文字でない","へ落とす)。modInsightIo.EmitGap/EmitCorrection
             # がPII走査の直前に呼ぶ。送信本文(Clean1)には使わない。
             "ScanClean",
+            # R49(監査 H-7): 解決済みQ&A専用の関所。共有フォルダへ出る3経路の
+            # うち、質問全文・回答全文・実名の3点セットを運ぶこの経路だけが
+            # 1回も走査していなかった。QaBlocked が質問と回答を別々に見て
+            # (連結すると数字が繋がって誤検知する。R32 F4)、通知は1回にまとめる。
+            # PiiScanHit は判定だけの部品で、資料名の伏せ字判断にも使う。
+            "QaBlocked", "PiiScanHit",
         ],
     },
     # R11-F1: modInsight から分離した共有フォルダとのやり取り(発信/収集/GC)。

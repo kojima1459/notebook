@@ -416,6 +416,42 @@ Done:
 End Sub
 
 ' ----------------------------------------------------------------------------
+' RetractNoiseVote - 【自分が出した1票だけ】を共有フォルダから引っ込める。
+'   2026-09-19(R49 監査 A-A-3)。戻り値 = 本当に引っ込められたか。
+' ----------------------------------------------------------------------------
+'   ClearNoise との違い: あちらは管理者専用で、その資料への【全員の票と確定
+'   フラグ】を消す(組織の判断を巻き戻す操作)。こちらは本人の1票だけで、
+'   誤操作の取り消しに管理者を呼ばずに済ませるためのもの。他人の票・gexcl には
+'   触らない。票を引いた結果として閾値を下回れば、次の CollectNoiseVotes が
+'   ファイルから数え直すときに自然に復帰する。
+'
+'   【「消した」と言ってよい条件】KillRetry は「ファイルが既に無い」ことも
+'   成功として返す(並行GC耐性・意図的な仕様)。ところがネットワークが切れて
+'   いるときの Dir も同じく空を返すので、到達不能をそのまま通すと
+'   【共有フォルダに自分の票が残ったまま「引っ込めました」と表示する】。
+'   画面が嘘をつく典型(憲章§3-3)なので、先に modShare.Reachable() で
+'   共有そのものへ届くかを確かめる。CollectNoiseVotes と同じ作法。
+Public Function RetractNoiseVote(ByVal source As String) As Boolean
+    On Error GoTo Done
+    If LenB(source) = 0 Then Exit Function
+
+    Dim folderPath As String: folderPath = NoiseDir()
+    If LenB(folderPath) = 0 Then Exit Function
+    If Not modShare.Reachable() Then Exit Function   ' 到達不能 → 消せたと言わない
+
+    ' 綴りは EmitNoiseVote と同じ規則(source と自分のIDから決まる1本)。
+    Dim votePath As String
+    votePath = folderPath & "noise_" & modUtil.Fnv1a64Hex(source) & _
+               "_" & modUtil.Fnv1a64Hex(CurrentUserId()) & ".txt"
+    RetractNoiseVote = modP2PIo.KillRetry(votePath)
+
+    On Error Resume Next
+    modLog.LogUsage "noise_vote_retracted", "", _
+        "src=" & modUtil.SafeLeft(source, 120)
+Done:
+End Function
+
+' ----------------------------------------------------------------------------
 ' CollectNoiseVotes - 共有フォルダの投票を集計し、組織的除外(gexcl)を
 '   ローカルで再計算する。戻り値=今回の組織的除外件数。
 '   注意: 投票/解除ファイルは削除しない(毎回の同期で再計算するため)。

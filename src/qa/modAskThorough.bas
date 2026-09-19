@@ -174,7 +174,7 @@ Public Function RunThoroughFlow(ByVal q As String, hits() As Hit, ByVal nHits As
     If cancelled Then
         ' 呼ばずに、下の「エラーなら下書きを見せる」既存の枝へ合流させる。
         ' 下書きは完成しているので捨てない(modAskMulti の aborted と同じ作法)。
-        verified = "#ERR:E0207:利用者の操作で中断しました"
+        verified = modRibbonFail.CancelledErr()
     Else
         verified = modGateway.CallLLM( _
             ThoroughVerifyPrompt(modPrompts.BuildDeepVerifyPrompt(q, draftBody, hits, nUse, strictG, ansTags, critique)), _
